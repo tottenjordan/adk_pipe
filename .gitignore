@@ -1,0 +1,7 @@
+.venv
+output/*
+*.env
+*.pyc
+**/__pycache__/
+__pycache__/
+stash/
