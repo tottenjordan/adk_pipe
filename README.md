@@ -14,7 +14,7 @@ Given a campaign and a Search trend, the creative agent conducts web research (f
 
 > See web research and ad creatives from the `creative_agent`
 
-[![demo](https://img.youtube.com/vi/xcx60kjNo8Y/hqdefault.jpg)](https://www.youtube.com/watch?v=xcx60kjNo8Y)
+[![demo](https://img.youtube.com/vi/0628QG8J9Mc/hqdefault.jpg)](https://www.youtube.com/watch?v=0628QG8J9Mc)
 
 
 ## Deploy ADK Agent to Cloud Run
