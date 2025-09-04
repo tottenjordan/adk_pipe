@@ -34,32 +34,7 @@ class ResearchConfiguration:
     # Adjust these values to limit the rate at which the agent queries the LLM API.
     rate_limit_seconds: int = 60
     rpm_quota: int = 1000
+    state_init = "_state_init"
 
 
 config = ResearchConfiguration()
-
-
-@dataclass
-class SetupConfiguration:
-    """Configuration for general setup
-
-    Attributes:
-        state_init (str): a key indicating the state dict is initialized
-        empty_session_state (dict): Empty dictionary with keys for initial ADK session state.
-
-    """
-
-    state_init = "_state_init"
-    empty_session_state = {
-        "state": {
-            "brand": "",
-            "target_product": "",
-            "target_audience": "",
-            "key_selling_points": "",
-            "target_search_trends": {"target_search_trends": []},
-            "target_yt_trends": {"target_yt_trends": []},
-        }
-    }
-
-
-setup_config = SetupConfiguration()

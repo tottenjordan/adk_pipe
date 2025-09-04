@@ -1,6 +1,8 @@
 """callbacks - currently exploring how these work by observing log output"""
 
 from typing import Dict, Any
+from pathlib import Path
+from dotenv import load_dotenv
 import os, json, time
 import pandas as pd
 import logging
@@ -12,31 +14,36 @@ from google.adk.sessions.state import State
 from google.adk.models.llm_request import LlmRequest
 from google.adk.agents.callback_context import CallbackContext
 
-from .config import config, setup_config
+from .config import config
 
 
-# Get the cloud storage bucket from the environment variable
+# ==============================
+# Load environment variables
+# =============================
+root_dir = Path(__file__).parent.parent
+dotenv_path = root_dir / ".env"
+load_dotenv(dotenv_path=dotenv_path)
+logging.info(f"root_dir: {root_dir}")
+
 try:
-    GCS_BUCKET = os.environ["BUCKET"]
+    # replaced `os.getenv()`
+    GCS_BUCKET = os.environ.get("BUCKET")
+    BRAND = os.environ.get("BRAND")
+    TARGET_PRODUCT = os.environ.get("TARGET_PRODUCT")
+    TARGET_AUDIENCE = os.environ.get("TARGET_AUDIENCE")
+    KEY_SELLING_POINT = os.environ.get("KEY_SELLING_POINT")
 except KeyError:
-    raise Exception("BUCKET environment variable not set")
+    raise Exception("environment variables not set")
+
+logging.info(f"BRAND: {BRAND}")
+logging.info(f"TARGET_PRODUCT: {TARGET_PRODUCT}")
+logging.info(f"TARGET_AUDIENCE: {TARGET_AUDIENCE}")
+logging.info(f"KEY_SELLING_POINT: {KEY_SELLING_POINT}")
 
 
 # get current working directory
 CWD = os.getcwd()
 logging.info(f"The current working directory is: {CWD}")
-
-
-# get initial session state json
-SESSION_STATE_JSON_PATH = os.getenv("SESSION_STATE_JSON_PATH", default=None)
-logging.info(f"\n\n`SESSION_STATE_JSON_PATH`: {SESSION_STATE_JSON_PATH}\n\n")
-
-# TODO: this is a short term fix for deployment to agent space
-if SESSION_STATE_JSON_PATH:
-    PROFILE_PATH = f"{CWD}/trend_agent/shared_libraries/profiles"
-    FULL_JSON_PATH = os.path.join(PROFILE_PATH, SESSION_STATE_JSON_PATH)
-else:
-    FULL_JSON_PATH = None
 
 
 def _set_initial_states(source: Dict[str, Any], target: State | dict[str, Any]):
@@ -47,9 +54,10 @@ def _set_initial_states(source: Dict[str, Any], target: State | dict[str, Any]):
         source: A JSON object of states.
         target: The session state object to insert into.
     """
-    if setup_config.state_init not in target:
-        target[setup_config.state_init] = True
+    if config.state_init not in target:
+        target[config.state_init] = True
         target["gcs_folder"] = pd.Timestamp.utcnow().strftime("%Y_%m_%d_%H_%M")
+        logging.info(f"gcs_folder: {target['gcs_folder']}")
 
         target.update(source)
 
@@ -64,15 +72,13 @@ def _load_session_state(callback_context: CallbackContext):
         callback_context: The callback context.
     """
     data = {}
-    if FULL_JSON_PATH:
-        # resp = requests.get(FULL_JSON_PATH)
-        # data = json.loads(resp.text)
-        with open(FULL_JSON_PATH, "r") as file:
-            data = json.load(file)
-            logging.info(f"\n\nLoading Initial State: {data}\n\n")
-    else:
-        data = setup_config.empty_session_state
-        logging.info(f"\n\nLoading Initial State (empty): {data}\n\n")
+    data["state"] = {
+        "brand": BRAND,
+        "target_product": TARGET_PRODUCT,
+        "target_audience": TARGET_AUDIENCE,
+        "key_selling_points": KEY_SELLING_POINT,
+        "target_search_trends": {"target_search_trends": []},
+    }
 
     _set_initial_states(data["state"], callback_context.state)
 

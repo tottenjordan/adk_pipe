@@ -6,12 +6,17 @@ from google.genai import types
 
 from google.adk.planners import BuiltInPlanner
 from google.adk.tools.agent_tool import AgentTool
-from google.adk.agents import Agent, SequentialAgent
+from google.adk.agents import Agent #, SequentialAgent
 from google.adk.tools import google_search, load_artifacts
 
-from .tools import get_daily_gtrends, write_to_file, save_search_trends_to_session_state
-from .shared_libraries import callbacks
-from .shared_libraries.config import config
+from .tools import (
+    get_daily_gtrends,
+    write_to_file,
+    write_to_json,
+    save_search_trends_to_session_state,
+)
+from . import callbacks
+from .config import config
 
 
 # --- TREND SUBAGENTS ---
@@ -96,9 +101,13 @@ pick_trends_agent = Agent(
     {target_audience}
     </target_audience>
 
+    <info_gtrends>
+    {info_gtrends}
+    </info_gtrends>
+
     ---
     ### Instructions
-    1. Review the trending search terms provided in the 'info_gtrends' state key and select the best 3-5 trends based on:
+    1. Review the trending search terms provided in the <info_gtrends/> block and select the best 3-5 trends based on:
         - Cultural relevance with the <target_audience/>.
         - Opportunity to market the <target_product/> and <key_selling_points/>.
     2. Provide detailed rationale for your selections, explaining why these specific trends are most relevant.
@@ -148,10 +157,13 @@ root_agent = Agent(
 
     Once these three tasks are complete, complete the following actions:
 
-    Action 1: Save to File
+    Action 1: Save to markdown File
     Call the `write_to_file` tool to save the markdown content in the 'selected_gtrends' state key.
 
-    Action 2: Display Selected Trends to User      
+    Action 2: Save to json File
+    Call the `write_to_json` tool to save the selected trends in the 'target_search_trends' state key.
+
+    Action 3: Display Selected Trends to User      
     Display the selected trends and insights in the 'selected_gtrends' state key to the user.
 
     """,
@@ -161,11 +173,13 @@ root_agent = Agent(
         AgentTool(agent=understand_trends_agent),
         AgentTool(agent=pick_trends_agent),
         write_to_file,
+        write_to_json,
         save_search_trends_to_session_state,
+        load_artifacts,
     ],
     generate_content_config=types.GenerateContentConfig(
         temperature=0.01,
-        response_modalities=["TEXT"],
+        # response_modalities=["TEXT"],
     ),
     before_agent_callback=[
         callbacks._load_session_state,
