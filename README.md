@@ -3,7 +3,7 @@
 > ADK agent workflows for finding culturally significant trends
 
 <p align="center">
-  <img src='imgs/trend_trawler_banner.png' width="700"/>
+  <img src='imgs/trend_trawler_banner.png' width="500"/>
 </p>
 
 Given a campaign, the trawler sifts through the top 25 trending Search terms, returning a subset of trends
