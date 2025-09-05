@@ -35,20 +35,27 @@
 [![demo](https://img.youtube.com/vi/0628QG8J9Mc/hqdefault.jpg)](https://www.youtube.com/watch?v=0628QG8J9Mc)
 
 
-## Deploy ADK Agent to Cloud Run
+## General Setup Instructions
 
-**1. Set project and authenticate**
+**1. Clone the Repository**
 
 ```bash
 git clone https://github.com/tottenjordan/adk_pipe.git
+```
 
+**2. Set project and authenticate**
 
+```bash
 export GOOGLE_CLOUD_PROJECT=$(gcloud config get-value project)
 export GOOGLE_CLOUD_PROJECT_NUMBER=$(gcloud projects describe $GOOGLE_CLOUD_PROJECT --format="value(projectNumber)")
 
 gcloud config set project $GOOGLE_CLOUD_PROJECT
 gcloud auth application-default login
+```
 
+**3. Update `.env` file**
+
+```bash
 touch .env
 echo "GOOGLE_GENAI_USE_VERTEXAI=1" >> .env
 echo "GOOGLE_CLOUD_PROJECT=your-project-id" >> .env
@@ -57,14 +64,43 @@ echo "GOOGLE_CLOUD_LOCATION=us-central1" >> .env
 echo "BUCKET=gs://your-bucket-name" >> .env
 ```
 
-update the `campaign_metadata` in your `.env` file like this:
+update the `campaign_metadata` in your `.env` file...
+
+<details>
+  <summary>guidance on what works well here</summary>
+
+**Target Audience:** 
+* who are they? what do they want? 
+* go beyond typical demographics with...
+  * **psychographics:** *people who are frustrated with...* 
+  * **lisfestyle:** *frequent travelers; spending most income on concert experiences.*
+  * **hobbies, interests, humor**: *music lovers, attend lots of jam band concerts. love surreal memes*
+  * **lifestage**: *recent empty-nesters*
+
+**Key Selling Points**
+
+This will be the `{target_products}` 's flavor in the messaging and visual cocnepts
+*can be used multiple ways. here are some...*
+
+* What is the `{target_audience}` 's benefit? what will make them really care?
+* external factors e.g., if selling sweaters: `it's cold outside`
+* don't have to choose a single benefit. if there are several, explain them (experiment with this). However, can hyper-focused on one benefit as well...
+
+  * *"Advanced Night Repair - Ideal for visible age prevention with double action to fight visible effects of free radical damage"*
+  * *"Call Screen - Goodbye, spam calls. With Call Screen, Pixel can now detect and filter out even more spam calls. For other calls, it can tell you who’s calling and why before you pick up. Detect and decline spam calls without distracting you."*
+  * *"Best Take - Group pics, perfected. Pixel’s Best Take combines similar photos into one fantastic picture where everyone looks their best. AI is able to blend multiple still images to give everyone their best look"*
+
+</details>
+
 
 ```bash
 # campaign metadata
 BRAND="Paul Reed Smith (PRS)"
-TARGET_AUDIENCE="millennials who follow jam bands (e.g., Widespread Panic and Phish), respond positively to nostalgic messages"
+TARGET_AUDIENCE="millennials who follow jam bands (e.g., Widespread Panic and Phish), respond 
+positively to nostalgic messages"
 TARGET_PRODUCT="PRS SE CE24 Electric Guitar"
-KEY_SELLING_POINT="The 85/15 S Humbucker pickups deliver a wide tonal range, from thick humbucker tones to clear single-coil sounds, making the guitar suitable for various genres."
+KEY_SELLING_POINT="The 85/15 S Humbucker pickups deliver a wide tonal range, from thick 
+humbucker tones to clear single-coil sounds, making the guitar suitable for various genres."
 ```
 
 then copy `.env` file to both agent directories (deployed separately)
@@ -76,7 +112,9 @@ cp .env creative_agent/.env
 source .env
 ```
 
-**2. poetry install && create requirements.txt file**
+**4. poetry install && create requirements.txt file**
+
+*Note: i had to manually clean the requirements.txt file produced by these commands. Might want to copy mine*
 
 ```bash
 poetry install
@@ -85,7 +123,9 @@ poetry export --without-hashes --format=requirements.txt > ./creative_agent/requ
 poetry export --without-hashes --format=requirements.txt > ./trend_trawler/requirements.txt
 ```
 
-**3. local deployment / testing**
+## Running an Agent
+
+**1. local deployment / testing**
 
 start local dev UI...
 
@@ -93,7 +133,7 @@ start local dev UI...
 poetry run adk web .
 ```
 
-**[3.a] choose `trend_trawler` from drop-down menu (top left)...**
+**[1.a] choose `trend_trawler` from drop-down menu (top left)...**
 
 ```bash
 user: start
@@ -101,15 +141,18 @@ user: start
 agent: `[end-to-end workflow >> recommended subset of trends]` 
 ```
 
-**[3.b] choose `creative agent` in top-left drop-down menu...**
+**[1.b] choose `creative agent` in top-left drop-down menu...**
 
 ```bash
-user: `target_search_trend: `YOUR_SEARCH_TREND_O_CHOICE`
+user: `target_search_trend: `YOUR_SEARCH_TREND_OF_CHOICE`
 
 agent: `[end-to-end workflow >> candidate creatives (img/vid)]` 
 ```
 
-**4. Deploy `trend trawler agent` to Cloud Run...**
+## Deploying Agents to separate Cloud Run instances
+
+
+**1. Deploy `trend trawler agent` to Cloud Run...**
 
 ```bash
 export AGENT_DIR_NAME=trend_trawler
@@ -136,7 +179,7 @@ adk deploy cloud_run \
 
 `Allow unauthenticated invocations to [your-service-name] (y/N)?.`
 
-**4. Deploy `creative agent` to Cloud Run...**
+**2. Deploy `creative agent` to Cloud Run...**
 
 ```bash
 export AGENT_DIR_NAME=creative_agent
@@ -160,8 +203,19 @@ adk deploy cloud_run \
 ```
 
 *if prompted with the following, select `y`...*
+> `Allow unauthenticated invocations to [your-service-name] (y/N)?.`
 
-`Allow unauthenticated invocations to [your-service-name] (y/N)?.`
+
+
+**TODO:** 
+* need to update deployment `timeout=600`
+* maybe with something like:
+
+```bash
+gcloud run services update $SERVICE_NAME \
+   --region=$GOOGLE_CLOUD_LOCATION \
+   --update-labels=some-string
+```
 
 
 ## Folder Structure
