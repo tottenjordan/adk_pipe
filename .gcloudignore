@@ -4,3 +4,4 @@ pyproject.toml
 output/*
 __pycache__/
 stash/*
+.venv/
