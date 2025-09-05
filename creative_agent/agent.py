@@ -313,7 +313,10 @@ visual_concept_drafter = Agent(
     Based on the selected ad copies in the 'ad_copy_critique' state key, generate visual concepts that follow these criteria:
     - Incorporate trending visual styles and themes.
     - Consider platform-specific best practices.
-    - Find a clever way to market the 'target_product'
+    - Find a clever way to market the 'target_product'.
+    - References the trend from the 'target_search_trends' state key.
+
+    Generate at least one image concept for each ad copy idea.
 
     For each visual concept, provide:
     -   Name (intuitive name of the concept)
@@ -461,8 +464,8 @@ visual_generator = Agent(
     tools=[
         generate_image,
         generate_video,
-        save_img_artifact_key,
-        save_vid_artifact_key,
+        # save_img_artifact_key,
+        # save_vid_artifact_key,
     ],
     generate_content_config=types.GenerateContentConfig(temperature=1.2),
     before_model_callback=callbacks.rate_limit_callback,
@@ -510,10 +513,9 @@ root_agent = Agent(
     2. Then, call `ad_creative_pipeline` as a tool to generate a set of candidate ad copies.
     3. Next, call the `visual_generation_pipeline` tool to generate visual concepts for each ad copy.
     4. Next, call the `visual_generator` tool to generate ad creatives from the selected visual concepts.
-    5. Once all visuals are created, call the following tools to update the session state keys:
-        -   For each image generated, call the `save_img_artifact_key` tool to update the 'img_artifact_keys' state key. Chain the calls such that you only call another `save_img_artifact_key` after the last call has responded.
-        -   For each video generated, call the `save_vid_artifact_key` tool to update the 'vid_artifact_keys' state key. Chain the calls such that you only call another `save_vid_artifact_key` after the last call has responded.
-    6. Finally, after the previous step is complete, use the `save_creatives_html_report` tool to create the final HTML report and save it to Cloud Storage
+        -   For each image generated, call the `save_img_artifact_key` tool to update the 'img_artifact_keys' state key.
+        -   For each video generated, call the `save_vid_artifact_key` tool to update the 'vid_artifact_keys' state key. 
+    5. Finally, after the previous step is complete, use the `save_creatives_html_report` tool to create the final HTML report and save it to Cloud Storage
     </WORKFLOW>
     
     """,
@@ -535,11 +537,15 @@ root_agent = Agent(
     before_model_callback=callbacks.rate_limit_callback,
 )
 
+# 5. Once all visuals are created, call the following tools to update the session state keys:
 # 10. Use the `save_select_visual_concept` tool to save the finalized visual concepts to the session state.
 
-    # 3. Once the previous step is complete, use the `save_select_ad_copy` tool to add the critiqued ad copies to the session state.
-    #     -   To make sure everything is stored correctly, instead of calling `save_select_ad_copy` all at once, chain the calls such that you only call another `save_select_ad_copy` after the last call has responded. 
-    #     -   Once these complete, proceed to the next step.
-    # 4. Once the previous step is complete, use the `save_select_visual_concept` tool to add the finalized visual concepts to the session state.
-    #     -   To make sure everything is stored correctly, instead of calling `save_select_visual_concept` all at once, chain the calls such that you only call another `save_select_visual_concept` after the last call has responded. 
-    #     -   Once these complete, proceed to the next step.
+# 3. Once the previous step is complete, use the `save_select_ad_copy` tool to add the critiqued ad copies to the session state.
+#     -   To make sure everything is stored correctly, instead of calling `save_select_ad_copy` all at once, chain the calls such that you only call another `save_select_ad_copy` after the last call has responded.
+#     -   Once these complete, proceed to the next step.
+# 4. Once the previous step is complete, use the `save_select_visual_concept` tool to add the finalized visual concepts to the session state.
+#     -   To make sure everything is stored correctly, instead of calling `save_select_visual_concept` all at once, chain the calls such that you only call another `save_select_visual_concept` after the last call has responded.
+#     -   Once these complete, proceed to the next step.
+
+# Chain the calls such that you only call another `save_img_artifact_key` after the last call has responded.
+# Chain the calls such that you only call another `save_vid_artifact_key` after the last call has responded.

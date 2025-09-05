@@ -42,6 +42,7 @@ logging.info(f"TARGET_PRODUCT: {TARGET_PRODUCT}")
 logging.info(f"TARGET_AUDIENCE: {TARGET_AUDIENCE}")
 logging.info(f"KEY_SELLING_POINT: {KEY_SELLING_POINT}")
 
+
 # ==============================
 # clients
 # =============================
@@ -49,9 +50,11 @@ def get_gcs_client() -> storage.Client:
     """Get a configured GCS client."""
     return storage.Client(project=os.environ.get("GOOGLE_CLOUD_PROJECT"))
 
+
 client = genai.Client()
 
-BUCKET_NAME=GCS_BUCKET.replace("gs://", "")
+BUCKET_NAME = GCS_BUCKET.replace("gs://", "")
+
 
 # =============================
 # utils
@@ -455,16 +458,9 @@ async def save_creatives_html_report(tool_context: ToolContext) -> dict:
         IMG_CREATIVE_STRING = ""
         for entry in img_artifact_list:
             logging.info(entry)
-            AUTH_GCS_URL=f"https://storage.mtls.cloud.google.com/{BUCKET_NAME}/{gcs_folder}/{entry['artifact_key']}?authuser=0"
+            AUTH_GCS_URL = f"https://storage.mtls.cloud.google.com/{BUCKET_NAME}/{gcs_folder}/{entry['artifact_key']}?authuser=0"
             IMG_HTML_STR = f"""<img src={AUTH_GCS_URL} alt ='authenticated URL' width='600' class='center'>
             """
-
-            # IMG_FIGURE = f"""
-            # <figure>
-            #   <img src={AUTH_GCS_URL} alt ='authenticated URL' width='600'/>
-            #   <figcaption> {entry["caption"]} </figcaption>
-            # </figure>
-            # """
 
             str_1 = f"# {entry['headline']}\n"
             str_2 = f"{IMG_HTML_STR}\n\n"
@@ -510,20 +506,12 @@ async def save_creatives_html_report(tool_context: ToolContext) -> dict:
         for entry in vid_artifact_list:
             logging.info(entry)
 
-            FILENAME = entry['artifact_key']
-            AUTH_GCS_URL =f"""<video width='800' controls>
+            FILENAME = entry["artifact_key"]
+            AUTH_GCS_URL = f"""<video width='800' controls>
                 <source src='https://storage.mtls.cloud.google.com/{BUCKET_NAME}/{gcs_folder}/{FILENAME}?authuser=3' type='video/mp4'>
             Your browser does not support the video tag.
             </video>
             """
-
-            # AUTH_GCS_URL='https://storage.mtls.cloud.google.com/{BUCKET_NAME}/{gcs_folder}/{FILENAME}?authuser=0'
-            # VIDEO_FIGURE = f"""
-            # <figure>
-            #   <video src={AUTH_GCS_URL} alt ='authenticated URL' width='800'/>
-            #   <figcaption> {entry["caption"]} </figcaption>
-            # </figure>
-            # """
 
             str_1 = f"# {entry['headline']}\n"
             str_2 = f"{AUTH_GCS_URL}\n\n"
@@ -557,11 +545,11 @@ async def save_creatives_html_report(tool_context: ToolContext) -> dict:
 
             VID_CREATIVE_STRING += result
 
-        markdown_string=f"{processed_report}\n\n# Ad Creatives\n\n{IMG_CREATIVE_STRING}\n\n{VID_CREATIVE_STRING}\n\n"
+        markdown_string = f"{processed_report}\n\n# Ad Creatives\n\n{IMG_CREATIVE_STRING}\n\n{VID_CREATIVE_STRING}\n\n"
         html_content = markdown.markdown(markdown_string)
 
         # Save the HTML to a new file
-        REPORT_NAME="creative_report.html"
+        REPORT_NAME = "creative_report.html"
         with open(REPORT_NAME, "w") as html_file:
             html_file.write(html_content)
 
@@ -577,7 +565,7 @@ async def save_creatives_html_report(tool_context: ToolContext) -> dict:
             "gcs_bucket": GCS_BUCKET,
             "gcs_folder": gcs_folder,
             "report_name": REPORT_NAME,
-            "full_uri": f"{GCS_BUCKET}/{gcs_folder}/{REPORT_NAME}"
+            "full_uri": f"{GCS_BUCKET}/{gcs_folder}/{REPORT_NAME}",
         }
     except Exception as e:
         logging.error(f"Error saving artifact: {e}")

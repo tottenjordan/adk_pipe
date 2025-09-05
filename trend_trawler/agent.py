@@ -8,7 +8,7 @@ from google.genai import types
 
 from google.adk.planners import BuiltInPlanner
 from google.adk.tools.agent_tool import AgentTool
-from google.adk.agents import Agent #, SequentialAgent
+from google.adk.agents import Agent  # , SequentialAgent
 from google.adk.tools import google_search, load_artifacts
 
 from .tools import (
@@ -75,7 +75,9 @@ understand_trends_agent = Agent(
         - Briefly what the term represents.
         - Briefly why the term is likely trending.
 
-    Output *only* the structured list of search terms.
+    3.  Only list trends from the 'start_gtrends' state key.
+
+    Output *only* the bulleted list of search terms.
     """,
     generate_content_config=types.GenerateContentConfig(
         temperature=1.5,

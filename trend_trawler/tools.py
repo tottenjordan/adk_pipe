@@ -78,7 +78,7 @@ def get_daily_gtrends(tool_context: ToolContext, today_date: str = max_date) -> 
              The table includes columns for 'term', 'rank', and 'refresh_date'.
              Returns 25 rows of results.
     """
-    
+
     # get latest refresh date
     max_date = get_gtrends_max_date()
     # max_date = "07/15/2025"
@@ -175,7 +175,7 @@ def write_to_file(content: str, tool_context: ToolContext) -> dict:
         logging.info(f"Directory '{LOCAL_DIR}' and its contents removed successfully")
     except FileNotFoundError:
         logging.exception(f"Directory '{LOCAL_DIR}' not found")
-    
+
     # Return a dictionary indicating success, and the artifact_key that was written.
     return {
         "status": "success",
@@ -183,6 +183,7 @@ def write_to_file(content: str, tool_context: ToolContext) -> dict:
         "gcs_folder": gcs_folder,
         "file": local_file,
     }
+
 
 def write_to_json(tool_context: ToolContext) -> dict:
     """
@@ -197,10 +198,10 @@ def write_to_json(tool_context: ToolContext) -> dict:
 
     LOCAL_DIR = "output"
     gcs_folder = tool_context.state["gcs_folder"]
-    selected_trends_list = tool_context.state["target_search_trends"]["target_search_trends"]
-    data = {
-        "selected trends": selected_trends_list
-    }
+    selected_trends_list = tool_context.state["target_search_trends"][
+        "target_search_trends"
+    ]
+    data = {"selected trends": selected_trends_list}
 
     # Construct the output filename using the timestamp.
     # Example: "output/selected_trends.json"

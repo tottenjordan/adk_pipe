@@ -206,15 +206,12 @@ adk deploy cloud_run \
 > `Allow unauthenticated invocations to [your-service-name] (y/N)?.`
 
 
-
-**TODO:** 
-* need to update deployment `timeout=600`
-* maybe with something like:
+**3. Update Cloud run deployment**
 
 ```bash
 gcloud run services update $SERVICE_NAME \
-   --region=$GOOGLE_CLOUD_LOCATION \
-   --update-labels=some-string
+  --region=$GOOGLE_CLOUD_LOCATION \
+  --timeout=600
 ```
 
 
