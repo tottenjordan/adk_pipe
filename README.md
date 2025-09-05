@@ -8,7 +8,7 @@
 > Given a campaign, the trawler sifts through the top 25 trending Search terms, returning a subset of trends
 
 <p align="center">
-  <img src='imgs/trend_trawler_banner.png' width="500"/>
+  <img src='imgs/trend_trawler_banner.png' width="700"/>
 </p>
 
 > TODO: Given a campaign and a Search trend, the creative agent conducts web research (for context) and generates candidate ad creatives
