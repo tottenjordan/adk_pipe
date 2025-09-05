@@ -8,6 +8,8 @@ import uuid, shutil, time, os
 logging.basicConfig(level=logging.INFO)
 
 from google import genai
+from pathlib import Path
+from dotenv import load_dotenv
 from google.genai import types
 from google.cloud import storage
 from google.adk.tools import ToolContext
@@ -17,14 +19,37 @@ from google.adk.agents.callback_context import CallbackContext
 from .config import config
 
 
-# Get the cloud storage bucket from the environment variable
+# ==============================
+# Load environment variables
+# =============================
+root_dir = Path(__file__).parent.parent
+dotenv_path = root_dir / ".env"
+load_dotenv(dotenv_path=dotenv_path)
+logging.info(f"root_dir: {root_dir}")
+
 try:
-    GCS_BUCKET = os.environ["BUCKET"]
+    # replaced `os.getenv()`
+    GCS_BUCKET = os.environ.get("BUCKET", "tmp")
+    BRAND = os.environ.get("BRAND")
+    TARGET_PRODUCT = os.environ.get("TARGET_PRODUCT")
+    TARGET_AUDIENCE = os.environ.get("TARGET_AUDIENCE")
+    KEY_SELLING_POINT = os.environ.get("KEY_SELLING_POINT")
 except KeyError:
-    raise Exception("BUCKET environment variable not set")
+    raise Exception("environment variables not set")
+
+logging.info(f"BRAND: {BRAND}")
+logging.info(f"TARGET_PRODUCT: {TARGET_PRODUCT}")
+logging.info(f"TARGET_AUDIENCE: {TARGET_AUDIENCE}")
+logging.info(f"KEY_SELLING_POINT: {KEY_SELLING_POINT}")
+
+# ==============================
+# clients
+# =============================
+def get_gcs_client() -> storage.Client:
+    """Get a configured GCS client."""
+    return storage.Client(project=os.environ.get("GOOGLE_CLOUD_PROJECT"))
 
 client = genai.Client()
-storage_client = storage.Client()
 
 BUCKET_NAME=GCS_BUCKET.replace("gs://", "")
 
@@ -40,7 +65,8 @@ def download_blob(bucket_name, source_blob_name):
     Returns:
         Blob content as bytes.
     """
-    storage_client = storage.Client()
+    # storage_client = storage.Client()
+    storage_client = get_gcs_client()
     bucket = storage_client.bucket(bucket_name)
 
     # Construct a client side representation of a blob.
@@ -68,7 +94,8 @@ def upload_blob_to_gcs(
     # bucket_name = "your-bucket-name" (no 'gs://')
     # source_file_name = "local/path/to/file" (file to upload)
     # destination_blob_name = "folder/paths-to/storage-object-name"
-    storage_client = storage.Client(project=os.environ.get("GOOGLE_CLOUD_PROJECT"))
+    # storage_client = storage.Client(project=os.environ.get("GOOGLE_CLOUD_PROJECT"))
+    storage_client = get_gcs_client()
     gcs_bucket = gcs_bucket.replace("gs://", "")
     bucket = storage_client.bucket(gcs_bucket)
     blob = bucket.blob(destination_blob_name)
@@ -253,6 +280,7 @@ async def generate_video(
     Returns:
         dict: Status and the `artifact_key` of the generated video.
     """
+    storage_client = get_gcs_client()
     # Create output filename
     if concept_name:
         filename_prefix = f"{concept_name.replace(',', '').replace(' ', '_')}"
@@ -438,16 +466,16 @@ async def save_creatives_html_report(tool_context: ToolContext) -> dict:
             # </figure>
             # """
 
-            str_1 = f"# {entry["headline"]}\n"
+            str_1 = f"# {entry['headline']}\n"
             str_2 = f"{IMG_HTML_STR}\n\n"
             # str_2 = IMG_FIGURE
-            str_3 = f"**{entry["caption"]}**\n\n"
-            str_4 = f"**Trend:** {entry["trend"]}\n"
-            str_5 = f"**Visual Concept:** {entry["concept"]}\n"
-            str_6 = f"**How it markets target product:** {entry["markets_product"]}\n"
-            str_7 = f"**Target audience appeal:** {entry["audience_appeal"]}\n"
-            str_8 = f"**Why this will perform well:** {entry["rationale_perf"]}\n"
-            str_9 = f"**Prompt:** {entry["img_prompt"]}\n\n"
+            str_3 = f"**{entry['caption']}**\n\n"
+            str_4 = f"**Trend:** {entry['trend']}\n"
+            str_5 = f"**Visual Concept:** {entry['concept']}\n"
+            str_6 = f"**How it markets target product:** {entry['markets_product']}\n"
+            str_7 = f"**Target audience appeal:** {entry['audience_appeal']}\n"
+            str_8 = f"**Why this will perform well:** {entry['rationale_perf']}\n"
+            str_9 = f"**Prompt:** {entry['img_prompt']}\n\n"
             result = (
                 str_1
                 + " "
@@ -497,15 +525,15 @@ async def save_creatives_html_report(tool_context: ToolContext) -> dict:
             # </figure>
             # """
 
-            str_1 = f"# {entry["headline"]}\n"
+            str_1 = f"# {entry['headline']}\n"
             str_2 = f"{AUTH_GCS_URL}\n\n"
-            str_3 = f"**{entry["caption"]}**\n\n"
-            str_4 = f"**Trend:** {entry["trend"]}\n"
-            str_5 = f"**Visual Concept:** {entry["concept"]}\n"
-            str_6 = f"**How it markets target product:** {entry["markets_product"]}\n"
-            str_7 = f"**Target audience appeal:** {entry["audience_appeal"]}\n"
-            str_8 = f"**Why this will perform well:** {entry["rationale_perf"]}\n"
-            str_9 = f"**Prompt:** {entry["vid_prompt"]}\n\n"
+            str_3 = f"**{entry['caption']}**\n\n"
+            str_4 = f"**Trend:** {entry['trend']}\n"
+            str_5 = f"**Visual Concept:** {entry['concept']}\n"
+            str_6 = f"**How it markets target product:** {entry['markets_product']}\n"
+            str_7 = f"**Target audience appeal:** {entry['audience_appeal']}\n"
+            str_8 = f"**Why this will perform well:** {entry['rationale_perf']}\n"
+            str_9 = f"**Prompt:** {entry['vid_prompt']}\n\n"
 
             result = (
                 str_1

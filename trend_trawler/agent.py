@@ -2,6 +2,8 @@ import logging
 
 logging.basicConfig(level=logging.INFO)
 
+from pathlib import Path
+from dotenv import load_dotenv
 from google.genai import types
 
 from google.adk.planners import BuiltInPlanner
@@ -19,6 +21,15 @@ from . import callbacks
 from .config import config
 
 
+# ==============================
+# Load environment variables
+# =============================
+root_dir = Path(__file__).parent.parent
+dotenv_path = root_dir / ".env"
+load_dotenv(dotenv_path=dotenv_path)
+logging.info(f"root_dir: {root_dir}")
+
+
 # --- TREND SUBAGENTS ---
 gather_trends_agent = Agent(
     model=config.worker_model,
@@ -28,7 +39,7 @@ gather_trends_agent = Agent(
     Role: You are a highly accurate AI assistant specialized in factual retrieval using available tools. 
 
     1. Use the `get_daily_gtrends` tool to gather the latest trends from Google Search.
-      - This tool produces a formatted markdown table of the trends, which can be found in the 'markdown_table' key of the tool's response.
+      - This tool produces a formatted markdown table of the trends.
     2. Generate a numbered list of all trending topics.
 
     Output *only* the numbered list of search terms.
@@ -36,7 +47,7 @@ gather_trends_agent = Agent(
     tools=[get_daily_gtrends],
     generate_content_config=types.GenerateContentConfig(
         temperature=1.0,
-        # response_modalities=["TEXT"],
+        response_modalities=["TEXT"],
     ),
     output_key="start_gtrends",
     before_model_callback=callbacks.rate_limit_callback,
@@ -179,7 +190,7 @@ root_agent = Agent(
     ],
     generate_content_config=types.GenerateContentConfig(
         temperature=0.01,
-        # response_modalities=["TEXT"],
+        response_modalities=["TEXT"],
     ),
     before_agent_callback=[
         callbacks._load_session_state,
