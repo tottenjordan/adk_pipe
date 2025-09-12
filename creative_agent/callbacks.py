@@ -14,13 +14,14 @@ from google.adk.agents.callback_context import CallbackContext
 
 from .config import config
 
+
 # ==============================
 # Load environment variables
 # =============================
 root_dir = Path(__file__).parent.parent
 dotenv_path = root_dir / ".env"
 load_dotenv(dotenv_path=dotenv_path)
-logging.info(f"root_dir: {root_dir}")
+# logging.info(f"root_dir: {root_dir}")
 
 try:
     # replaced `os.getenv()`
@@ -31,11 +32,6 @@ try:
     KEY_SELLING_POINT = os.environ.get("KEY_SELLING_POINT")
 except KeyError:
     raise Exception("environment variables not set")
-
-logging.info(f"BRAND: {BRAND}")
-logging.info(f"TARGET_PRODUCT: {TARGET_PRODUCT}")
-logging.info(f"TARGET_AUDIENCE: {TARGET_AUDIENCE}")
-logging.info(f"KEY_SELLING_POINT: {KEY_SELLING_POINT}")
 
 
 def _set_initial_states(source: Dict[str, Any], target: State | dict[str, Any]):

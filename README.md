@@ -149,6 +149,12 @@ user: `target_search_trend: `YOUR_SEARCH_TREND_OF_CHOICE`
 agent: `[end-to-end workflow >> candidate creatives (img/vid)]` 
 ```
 
+## Deploying Agents to separate Agent Engine instances
+
+
+> see [deploy-to-agent-engine.ipynb](./deploy-to-agent-engine.ipynb) notebook
+
+
 ## Deploying Agents to separate Cloud Run instances
 
 

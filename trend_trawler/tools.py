@@ -17,7 +17,7 @@ from google.adk.tools import ToolContext
 root_dir = Path(__file__).parent.parent
 dotenv_path = root_dir / ".env"
 load_dotenv(dotenv_path=dotenv_path)
-logging.info(f"root_dir: {root_dir}")
+# logging.info(f"root_dir: {root_dir}")
 
 try:
     # replaced `os.getenv()`
@@ -29,10 +29,10 @@ try:
 except KeyError:
     raise Exception("environment variables not set")
 
-logging.info(f"BRAND: {BRAND}")
-logging.info(f"TARGET_PRODUCT: {TARGET_PRODUCT}")
-logging.info(f"TARGET_AUDIENCE: {TARGET_AUDIENCE}")
-logging.info(f"KEY_SELLING_POINT: {KEY_SELLING_POINT}")
+# logging.info(f"BRAND: {BRAND}")
+# logging.info(f"TARGET_PRODUCT: {TARGET_PRODUCT}")
+# logging.info(f"TARGET_AUDIENCE: {TARGET_AUDIENCE}")
+# logging.info(f"KEY_SELLING_POINT: {KEY_SELLING_POINT}")
 
 
 # ==============================
@@ -58,8 +58,8 @@ def get_gtrends_max_date() -> str:
         FROM `bigquery-public-data.google_trends.top_terms`
     """
     bq_client = get_bigquery_client()
-    max_date = bq_client.query(query).to_dataframe()
-    return max_date.iloc[0][0].strftime("%m/%d/%Y")
+    max_date_df = bq_client.query(query).to_dataframe()
+    return max_date_df.max_date.iloc[0].strftime("%m/%d/%Y")
 
 
 max_date = get_gtrends_max_date()

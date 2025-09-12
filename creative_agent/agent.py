@@ -1,8 +1,10 @@
-import datetime
+import os, datetime
 import logging
 
 logging.basicConfig(level=logging.INFO)
 
+from pathlib import Path
+from dotenv import load_dotenv
 from pydantic import BaseModel, Field
 
 from google.genai import types
@@ -26,6 +28,30 @@ from .tools import (
     save_select_visual_concept,
     save_creatives_html_report,
 )
+
+
+# ==============================
+# Load environment variables
+# =============================
+root_dir = Path(__file__).parent.parent
+dotenv_path = root_dir / ".env"
+load_dotenv(dotenv_path=dotenv_path)
+# logging.info(f"root_dir: {root_dir}")
+
+try:
+    # replaced `os.getenv()`
+    GCS_BUCKET = os.environ.get("BUCKET")
+    BRAND = os.environ.get("BRAND")
+    TARGET_PRODUCT = os.environ.get("TARGET_PRODUCT")
+    TARGET_AUDIENCE = os.environ.get("TARGET_AUDIENCE")
+    KEY_SELLING_POINT = os.environ.get("KEY_SELLING_POINT")
+except KeyError:
+    raise Exception("environment variables not set")
+
+logging.info(f"BRAND: {BRAND}")
+logging.info(f"TARGET_PRODUCT: {TARGET_PRODUCT}")
+logging.info(f"TARGET_AUDIENCE: {TARGET_AUDIENCE}")
+logging.info(f"KEY_SELLING_POINT: {KEY_SELLING_POINT}")
 
 
 # --- PARALLEL RESEARCH SUBAGENTS --- #

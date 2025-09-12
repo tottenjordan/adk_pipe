@@ -25,7 +25,7 @@ from .config import config
 root_dir = Path(__file__).parent.parent
 dotenv_path = root_dir / ".env"
 load_dotenv(dotenv_path=dotenv_path)
-logging.info(f"root_dir: {root_dir}")
+# logging.info(f"root_dir: {root_dir}")
 
 try:
     # replaced `os.getenv()`
@@ -37,10 +37,7 @@ try:
 except KeyError:
     raise Exception("environment variables not set")
 
-logging.info(f"BRAND: {BRAND}")
-logging.info(f"TARGET_PRODUCT: {TARGET_PRODUCT}")
-logging.info(f"TARGET_AUDIENCE: {TARGET_AUDIENCE}")
-logging.info(f"KEY_SELLING_POINT: {KEY_SELLING_POINT}")
+BUCKET_NAME = GCS_BUCKET.replace("gs://", "")
 
 
 # ==============================
@@ -51,9 +48,11 @@ def get_gcs_client() -> storage.Client:
     return storage.Client(project=os.environ.get("GOOGLE_CLOUD_PROJECT"))
 
 
-client = genai.Client()
-
-BUCKET_NAME = GCS_BUCKET.replace("gs://", "")
+client = genai.Client(
+    vertexai=True, 
+    project=os.environ.get("GOOGLE_CLOUD_PROJECT"), 
+    location=os.environ.get("GOOGLE_CLOUD_LOCATION"),
+)
 
 
 # =============================
@@ -241,7 +240,7 @@ async def generate_image(
                 image.save(local_filepath)
                 gcs_folder = tool_context.state["gcs_folder"]
                 artifact_path = os.path.join(gcs_folder, artifact_key)
-                logging.info(f"\n\n `generate_image` listdir: {os.listdir('.')}\n\n")
+                # logging.info(f"\n\n `generate_image` listdir: {os.listdir('.')}\n\n")
 
                 upload_blob_to_gcs(
                     source_file_name=local_filepath,
@@ -380,7 +379,7 @@ async def save_img_artifact_key(
         artifact_key_dict (dict): A dict representing a generated image artifact. Use the `tool_context` to extract the following schema:
             artifact_key (str): The filename used to identify the image artifact; the value returned in `generate_image` tool response.
             img_prompt (str): The prompt used to generate the image artifact.
-            concept (str): A brief explanation of the creative concept used to generate this artifact.
+            concept (str): A brief explanation of the visual concept used to generate this artifact.
             headline (str): The attention-grabbing headline proposed for the artifact's ad-copy.
             caption (str): The candidate social media caption proposed for the artifact's ad-copy.
             trend (str): The trend(s) referenced by this creative.
@@ -412,7 +411,7 @@ async def save_vid_artifact_key(
         artifact_key_dict (dict): A dict representing a generated video artifact. Use the `tool_context` to extract the following schema:
             artifact_key (str): The filename used to identify the video artifact; the value returned in `generate_video` tool response.
             vid_prompt (str): The prompt used to generate the video artifact.
-            concept (str): A brief explanation of the creative concept used to generate this artifact.
+            concept (str): A brief explanation of the visual concept used to generate this artifact.
             headline (str): The attention-grabbing headline proposed for the artifact's ad-copy.
             caption (str): The candidate social media caption proposed for the artifact's ad-copy.
             trend (str): The trend(s) referenced by this creative.
@@ -458,7 +457,7 @@ async def save_creatives_html_report(tool_context: ToolContext) -> dict:
         IMG_CREATIVE_STRING = ""
         for entry in img_artifact_list:
             logging.info(entry)
-            AUTH_GCS_URL = f"https://storage.mtls.cloud.google.com/{BUCKET_NAME}/{gcs_folder}/{entry['artifact_key']}?authuser=0"
+            AUTH_GCS_URL = f"https://storage.mtls.cloud.google.com/{BUCKET_NAME}/{gcs_folder}/{entry['artifact_key']}?authuser=3"
             IMG_HTML_STR = f"""<img src={AUTH_GCS_URL} alt ='authenticated URL' width='600' class='center'>
             """
 

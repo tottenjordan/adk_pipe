@@ -1,3 +1,4 @@
+import os
 import logging
 
 logging.basicConfig(level=logging.INFO)
@@ -27,7 +28,22 @@ from .config import config
 root_dir = Path(__file__).parent.parent
 dotenv_path = root_dir / ".env"
 load_dotenv(dotenv_path=dotenv_path)
-logging.info(f"root_dir: {root_dir}")
+# logging.info(f"root_dir: {root_dir}")
+
+try:
+    # replaced `os.getenv()`
+    GCS_BUCKET = os.environ.get("BUCKET")
+    BRAND = os.environ.get("BRAND")
+    TARGET_PRODUCT = os.environ.get("TARGET_PRODUCT")
+    TARGET_AUDIENCE = os.environ.get("TARGET_AUDIENCE")
+    KEY_SELLING_POINT = os.environ.get("KEY_SELLING_POINT")
+except KeyError:
+    raise Exception("environment variables not set")
+
+logging.info(f"BRAND: {BRAND}")
+logging.info(f"TARGET_PRODUCT: {TARGET_PRODUCT}")
+logging.info(f"TARGET_AUDIENCE: {TARGET_AUDIENCE}")
+logging.info(f"KEY_SELLING_POINT: {KEY_SELLING_POINT}")
 
 
 # --- TREND SUBAGENTS ---
@@ -68,16 +84,12 @@ understand_trends_agent = Agent(
     2. Use the 'google_search' tool to briefly understand each term and why it's trending.
     3. Synthesize the results into a detailed summary that follows the **Important Guidelines** listed below.
 
-
     ### Important Guidelines
     1. Your output should list each trending search term from the 'start_gtrends' state key
     2. For each trending search term, **provide the following bullets:**
         - Briefly what the term represents.
         - Briefly why the term is likely trending.
-
     3.  Only list trends from the 'start_gtrends' state key.
-
-    Output *only* the bulleted list of search terms.
     """,
     generate_content_config=types.GenerateContentConfig(
         temperature=1.5,

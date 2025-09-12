@@ -14,12 +14,6 @@ from google.adk.agents import Agent, SequentialAgent
 from ...config import config
 from ... import callbacks
 
-# # Load environment variables
-# root_dir = Path(__file__).parent.parent
-# dotenv_path = root_dir / ".env"
-# load_dotenv(dotenv_path=dotenv_path)
-# logging.info(f"root_dir: {root_dir}")
-
 
 campaign_web_planner = Agent(
     model=config.lite_planner_model,

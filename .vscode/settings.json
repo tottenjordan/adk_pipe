@@ -1,5 +1,6 @@
 {
     "cSpell.words": [
+        "aiplatform",
         "beastmode",
         "dotenv",
         "figcaption",
@@ -7,8 +8,10 @@
         "genai",
         "gtrends",
         "imagen",
+        "instrumentor",
         "pycache",
         "uvicorn",
-        "venv"
+        "venv",
+        "vertexai"
     ]
 }
