@@ -1,12 +1,11 @@
-import os
+import os, json
 import logging
 
 logging.basicConfig(level=logging.INFO)
 
-import json, shutil
+import shutil
 from pathlib import Path
 from google.cloud import storage
-from google.cloud import bigquery
 from google.adk.tools import ToolContext
 
 from .config import config
@@ -18,11 +17,6 @@ from .config import config
 def get_gcs_client() -> storage.Client:
     """Get a configured GCS client."""
     return storage.Client(project=config.PROJECT_ID)
-
-
-def get_bigquery_client() -> bigquery.Client:
-    """Get a configured BigQuery client."""
-    return bigquery.Client(project=config.PROJECT_ID)
 
 
 # =============================
@@ -45,105 +39,21 @@ def memorize(key: str, value: str, tool_context: ToolContext):
     return {"status": f'Stored "{key}": "{value}"'}
 
 
-# ==============================
-# Google Search Trends (context)
-# =============================
-def get_gtrends_max_date() -> str:
-    query = f"""
-        SELECT 
-         MAX(refresh_date) as max_date
-        FROM `bigquery-public-data.google_trends.top_terms`
-    """
-    bq_client = get_bigquery_client()
-    max_date_df = bq_client.query(query).to_dataframe()
-    return max_date_df.max_date.iloc[0].strftime("%m/%d/%Y")
-
-
-max_date = get_gtrends_max_date()
-
-
-def get_daily_gtrends(tool_context: ToolContext, today_date: str = max_date) -> str:
-    """
-    Retrieves the top 25 Google Search Trends (term, rank, refresh_date).
-
-    Args:
-        today_date: Today's date in the format 'MM/DD/YYYY'. Use the default value provided.
-
-    Returns:
-        str: A markdown-formatted string listing the Google Search Trends and their corresponding
-             rank, or an error message if the query fails.
-             The table includes columns for 'term', 'rank', and 'refresh_date'.
-             Returns 25 rows of results.
-    """
-
-    # get latest refresh date
-    max_date = get_gtrends_max_date()
-    # max_date = "07/15/2025"
-    logging.info(f"\n\nmax_date in trends_assistant: {max_date}\n\n")
-
-    query = f"""
-        SELECT
-          term,
-          refresh_date,
-          ARRAY_AGG(STRUCT(rank,week) ORDER BY week DESC LIMIT 1) x
-        FROM `bigquery-public-data.google_trends.top_terms`
-        WHERE refresh_date = PARSE_DATE('%m/%d/%Y',  '{max_date}')
-        GROUP BY term, refresh_date
-        ORDER BY (SELECT rank FROM UNNEST(x))
-        """
-    try:
-        bq_client = get_bigquery_client()
-
-        # Setup the query for BigQuery
-        query_job_config = bigquery.QueryJobConfig(
-            query_parameters=[
-                bigquery.ScalarQueryParameter("parameter1", "STRING", max_date)
-            ]
-        )
-        # Execute the BigQuery Query and retrieve results to local dataframe
-        results = bq_client.query(query, job_config=query_job_config).to_dataframe()
-
-        # Prepare dataframe
-        results.index += 1
-        results["rank"] = results.index
-        results = results.drop("x", axis=1)
-        new_order = ["term", "rank", "refresh_date"]
-        results = results[new_order]
-
-        # Update state
-        tool_context.state["raw_gtrends"] = results["term"].to_list()
-
-        # Convert the dataframe to Markdown
-        results = results.to_markdown(index=True)
-
-    except Exception as e:
-        # return {"status": "error", "error_message": str(e)}
-        return str(e)
-
-    # return {
-    #     "status": "ok",
-    #     f"markdown_table": markdown_string,
-    # }
-    return results
-
-
-def write_to_file(content: str, tool_context: ToolContext) -> dict:
+def write_to_file(tool_context: ToolContext) -> dict:
     """
     Writes the given content to a markdown file. Saves the file to Google Cloud Storage.
 
     Args:
-        content (str): Full markdown content as a string to be saved to disk.
         tool_context (ToolContext): The tool context.
 
     Returns:
         dict: A dictionary containing the status and the markdown file's Cloud Storage URI (gcs_uri).
     """
-
     LOCAL_DIR = tool_context.state["agent_output_dir"]
     gcs_folder = tool_context.state["gcs_folder"]
 
     # Construct the output filename e.g., "trawler_output/selected_trends.md"
-    artifact_key = "selected_trends.md"
+    artifact_key = "research_report_with_citations.md"
     local_file = f"{LOCAL_DIR}/{artifact_key}"
 
     # Ensure the "trawler_output" directory exists. If it doesn’t, create it.
@@ -152,7 +62,9 @@ def write_to_file(content: str, tool_context: ToolContext) -> dict:
 
     # Write the markdown content to the constructed file.
     # `encoding='utf-8'` ensures proper character encoding.
-    Path(local_file).write_text(content)
+    Path(local_file).write_text(
+        tool_context.state["final_report_with_citations"], encoding="utf-8"
+    )
 
     # save to GCS
     storage_client = get_gcs_client()
@@ -164,7 +76,7 @@ def write_to_file(content: str, tool_context: ToolContext) -> dict:
     # save to session state
     gcs_blob_name = f"{gcs_folder}/{LOCAL_DIR}/{artifact_key}"
     gcs_uri = f"gs://{gcs_bucket}/{gcs_blob_name}"
-    tool_context.state["select_trends_markdown_gcs_uri"] = gcs_uri
+    tool_context.state["research_report_gcs_uri"] = gcs_uri
 
     try:
         shutil.rmtree(LOCAL_DIR)
@@ -177,29 +89,6 @@ def write_to_file(content: str, tool_context: ToolContext) -> dict:
         "status": "success",
         "gcs_uri": gcs_uri,
     }
-
-
-def save_search_trends_to_session_state(
-    trend_term: str, tool_context: ToolContext
-) -> dict:
-    """
-    Tool to save `trend_term` to the 'target_search_trends' state key.
-    Use this tool once the subset of trends have been selected.
-
-    Args:
-        trend_term (str): the selected trending search term.
-        tool_context: The tool context.
-
-    Returns:
-        A status message.
-    """
-    existing_target_search_trends = tool_context.state.get("target_search_trends")
-
-    if existing_target_search_trends is not {"target_search_trends": []}:
-        existing_target_search_trends["target_search_trends"].append(trend_term)
-
-    tool_context.state["target_search_trends"] = existing_target_search_trends
-    return {"status": "ok"}
 
 
 def save_session_state_to_gcs(tool_context: ToolContext) -> dict:
@@ -217,7 +106,7 @@ def save_session_state_to_gcs(tool_context: ToolContext) -> dict:
     LOCAL_DIR = session_state["agent_output_dir"]
     gcs_folder = session_state["gcs_folder"]
 
-    filename = f"trawler_session_state.json"
+    filename = f"web_researcher_session_state.json"
     local_file = f"{LOCAL_DIR}/{filename}"
 
     # Ensure the `LOCAL_DIR` directory exists. If it doesn’t, create it.

@@ -1,9 +1,7 @@
 """callbacks - currently exploring how these work by observing log output"""
 
 from typing import Dict, Any
-from pathlib import Path
-from dotenv import load_dotenv
-import os, json, time
+import time
 import pandas as pd
 import logging
 
@@ -17,30 +15,6 @@ from google.adk.agents.callback_context import CallbackContext
 from .config import config
 
 
-# ==============================
-# Load environment variables
-# =============================
-root_dir = Path(__file__).parent.parent
-dotenv_path = root_dir / ".env"
-load_dotenv(dotenv_path=dotenv_path)
-# logging.info(f"root_dir: {root_dir}")
-
-try:
-    # replaced `os.getenv()`
-    GCS_BUCKET = os.environ.get("BUCKET")
-    BRAND = os.environ.get("BRAND")
-    TARGET_PRODUCT = os.environ.get("TARGET_PRODUCT")
-    TARGET_AUDIENCE = os.environ.get("TARGET_AUDIENCE")
-    KEY_SELLING_POINT = os.environ.get("KEY_SELLING_POINT")
-except KeyError:
-    raise Exception("environment variables not set")
-
-# logging.info(f"BRAND: {BRAND}")
-# logging.info(f"TARGET_PRODUCT: {TARGET_PRODUCT}")
-# logging.info(f"TARGET_AUDIENCE: {TARGET_AUDIENCE}")
-# logging.info(f"KEY_SELLING_POINT: {KEY_SELLING_POINT}")
-
-
 def _set_initial_states(source: Dict[str, Any], target: State | dict[str, Any]):
     """
     Setting the initial session state given a JSON object of states.
@@ -51,6 +25,8 @@ def _set_initial_states(source: Dict[str, Any], target: State | dict[str, Any]):
     """
     if config.state_init not in target:
         target[config.state_init] = True
+        target["gcs_bucket"] = config.GCS_BUCKET
+        target["agent_output_dir"] = "trawler_output"
         target["gcs_folder"] = pd.Timestamp.utcnow().strftime("%Y_%m_%d_%H_%M")
         logging.info(f"gcs_folder: {target['gcs_folder']}")
 
@@ -68,10 +44,10 @@ def _load_session_state(callback_context: CallbackContext):
     """
     data = {}
     data["state"] = {
-        "brand": BRAND,
-        "target_product": TARGET_PRODUCT,
-        "target_audience": TARGET_AUDIENCE,
-        "key_selling_points": KEY_SELLING_POINT,
+        "brand": "", # BRAND,
+        "target_product": "", # TARGET_PRODUCT,
+        "target_audience": "", # TARGET_AUDIENCE,
+        "key_selling_points": "", # KEY_SELLING_POINT,
         "target_search_trends": {"target_search_trends": []},
     }
 

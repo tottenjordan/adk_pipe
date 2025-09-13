@@ -1,43 +1,16 @@
 import logging
 import markdown
-from PIL import Image
-from io import BytesIO
-from typing import Optional
-import uuid, shutil, time, os
+import uuid, time, os
 
 logging.basicConfig(level=logging.INFO)
 
 from google import genai
-from pathlib import Path
-from dotenv import load_dotenv
 from google.genai import types
 from google.cloud import storage
 from google.adk.tools import ToolContext
 from google.genai.types import GenerateVideosConfig
-from google.adk.agents.callback_context import CallbackContext
 
 from .config import config
-
-
-# ==============================
-# Load environment variables
-# =============================
-root_dir = Path(__file__).parent.parent
-dotenv_path = root_dir / ".env"
-load_dotenv(dotenv_path=dotenv_path)
-# logging.info(f"root_dir: {root_dir}")
-
-try:
-    # replaced `os.getenv()`
-    GCS_BUCKET = os.environ.get("BUCKET", "tmp")
-    BRAND = os.environ.get("BRAND")
-    TARGET_PRODUCT = os.environ.get("TARGET_PRODUCT")
-    TARGET_AUDIENCE = os.environ.get("TARGET_AUDIENCE")
-    KEY_SELLING_POINT = os.environ.get("KEY_SELLING_POINT")
-except KeyError:
-    raise Exception("environment variables not set")
-
-BUCKET_NAME = GCS_BUCKET.replace("gs://", "")
 
 
 # ==============================
@@ -45,64 +18,14 @@ BUCKET_NAME = GCS_BUCKET.replace("gs://", "")
 # =============================
 def get_gcs_client() -> storage.Client:
     """Get a configured GCS client."""
-    return storage.Client(project=os.environ.get("GOOGLE_CLOUD_PROJECT"))
+    return storage.Client(project=config.PROJECT_ID)
 
 
 client = genai.Client(
-    vertexai=True, 
-    project=os.environ.get("GOOGLE_CLOUD_PROJECT"), 
-    location=os.environ.get("GOOGLE_CLOUD_LOCATION"),
+    vertexai=True,
+    project=config.PROJECT_ID,
+    location=config.LOCATION,
 )
-
-
-# =============================
-# utils
-# =============================
-def download_blob(bucket_name, source_blob_name):
-    """
-    Downloads a blob from the bucket.
-    Args:
-        bucket_name (str): The ID of your GCS bucket
-        source_blob_name (str): The ID of your GCS object
-    Returns:
-        Blob content as bytes.
-    """
-    # storage_client = storage.Client()
-    storage_client = get_gcs_client()
-    bucket = storage_client.bucket(bucket_name)
-
-    # Construct a client side representation of a blob.
-    # Note `Bucket.blob` differs from `Bucket.get_blob` as it doesn't retrieve
-    # any content from Google Cloud Storage. As we don't need additional data,
-    # using `Bucket.blob` is preferred here.
-    blob = bucket.blob(source_blob_name)
-    return blob.download_as_bytes()
-
-
-def upload_blob_to_gcs(
-    source_file_name: str,
-    destination_blob_name: str,
-    gcs_bucket: str = os.environ.get("BUCKET", "tmp"),
-) -> str:
-    """
-    Uploads a blob to a GCS bucket.
-    Args:
-        source_file_name (str): The path to the file to upload.
-        destination_blob_name (str): The desired folder path in gcs
-        gcs_bucket (str): The name of the GCS bucket.
-    Returns:
-        str: The GCS URI of the uploaded file.
-    """
-    # bucket_name = "your-bucket-name" (no 'gs://')
-    # source_file_name = "local/path/to/file" (file to upload)
-    # destination_blob_name = "folder/paths-to/storage-object-name"
-    # storage_client = storage.Client(project=os.environ.get("GOOGLE_CLOUD_PROJECT"))
-    storage_client = get_gcs_client()
-    gcs_bucket = gcs_bucket.replace("gs://", "")
-    bucket = storage_client.bucket(gcs_bucket)
-    blob = bucket.blob(destination_blob_name)
-    blob.upload_from_filename(source_file_name)
-    return f"File {source_file_name} uploaded to {destination_blob_name}."
 
 
 # =============================
@@ -187,78 +110,64 @@ async def generate_image(
     prompt: str,
     tool_context: ToolContext,
     concept_name: str,
-    number_of_images: int = 1,
-) -> dict:
+):
     f"""Generates an image based on the prompt for {config.image_gen_model}
 
     Args:
         prompt (str): The prompt to generate the image from.
         tool_context (ToolContext): The tool context.
-        concept_name (str, optional): The name of the concept.
-        number_of_images (int, optional): The number of images to generate. Defaults to 1.
+        concept_name (str, optional): The name of the visual concept.
 
     Returns:
         dict: Status and the artifact_key of the generated image.
-
     """
-    response = client.models.generate_images(
-        model=config.image_gen_model,
-        prompt=prompt,
-        config={"number_of_images": number_of_images},
-    )
-    if not response.generated_images:
-        return {"status": "failed"}
-
     # Create output filename
     if concept_name:
         filename_prefix = f"{concept_name.replace(',', '').replace(' ', '_')}"
     else:
         filename_prefix = f"{str(uuid.uuid4())[:8]}"
 
-    DIR = "session_media"
-    SUBDIR = f"{DIR}/imgs"
-    if not os.path.exists(SUBDIR):
-        os.makedirs(SUBDIR)
+    # genai client
+    response = client.models.generate_images(
+        model=config.image_gen_model,
+        prompt=prompt,
+        config={
+            "number_of_images": 1,
+            # "output_gcs_uri": XXXXXX,
+        },
+    )
+    if not response.generated_images:
+        return {
+            "status": "error",
+            "error_message": f"No images generated. Response: {str(response)}",
+        }
 
     for index, image_results in enumerate(response.generated_images):
-        if image_results.image is not None:
-            if image_results.image.image_bytes is not None:
+        if (
+            image_results.image is not None
+            and image_results.image.image_bytes is not None
+        ):
+            image_bytes = image_results.image.image_bytes
+            artifact_key = f"{filename_prefix}_{index}.png"
 
-                image_bytes = image_results.image.image_bytes
-                artifact_key = f"{filename_prefix}_{index}.png"
-
-                await tool_context.save_artifact(
-                    filename=artifact_key,
-                    artifact=types.Part.from_bytes(
-                        data=image_bytes, mime_type="image/png"
-                    ),
-                )
-                local_filepath = f"{SUBDIR}/{artifact_key}"
-
-                # save the file locally for gcs upload
-                image = Image.open(BytesIO(image_bytes))
-                image.save(local_filepath)
-                gcs_folder = tool_context.state["gcs_folder"]
-                artifact_path = os.path.join(gcs_folder, artifact_key)
-                # logging.info(f"\n\n `generate_image` listdir: {os.listdir('.')}\n\n")
-
-                upload_blob_to_gcs(
-                    source_file_name=local_filepath,
-                    destination_blob_name=artifact_path,
-                )
-                logging.info(
-                    f"Saved image artifact '{artifact_key}' to folder '{gcs_folder}'"
-                )
-
-    try:
-        shutil.rmtree(DIR)
-        logging.info(f"Directory '{DIR}' and its contents removed successfully")
-    except FileNotFoundError:
-        logging.exception(f"Directory '{DIR}' not found")
-    except OSError as e:
-        logging.exception(f"Error removing directory '{DIR}': {e}")
-
-    return {"status": "ok", "artifact_key": f"{artifact_key}"}
+            img_gcs_uri = save_to_gcs(
+                tool_context=tool_context,
+                image_bytes=image_bytes,
+                filename=artifact_key,
+            )
+            # save ADK artifact
+            img_artifact = types.Part.from_bytes(
+                data=image_bytes, mime_type="image/png"
+            )
+            await tool_context.save_artifact(
+                filename=artifact_key, artifact=img_artifact
+            )
+            logging.info(f"Saved image artifact, '{artifact_key}', to '{img_gcs_uri}'")
+            return {
+                "status": "success",
+                "message": f"Generated image ADK artifact: '{artifact_key}' and saved to '{img_gcs_uri}'",
+                "artifact_key": artifact_key,
+            }
 
 
 async def generate_video(
@@ -292,11 +201,11 @@ async def generate_video(
     gen_config = GenerateVideosConfig(
         aspect_ratio="16:9",
         number_of_videos=number_of_videos,
-        output_gcs_uri=os.environ["BUCKET"],
+        output_gcs_uri=config.GCS_BUCKET,
         negative_prompt=negative_prompt,
     )
     if existing_image_filename != "":
-        gcs_location = f"{os.environ['BUCKET']}/{existing_image_filename}"
+        gcs_location = f"{config.GCS_BUCKET}/{existing_image_filename}"
         existing_image = types.Image(gcs_uri=gcs_location, mime_type="image/png")
         operation = client.models.generate_videos(
             model=config.video_gen_model,
@@ -329,14 +238,15 @@ async def generate_video(
                     video_uri = generated_video.video.uri
                     artifact_key = f"{filename_prefix}_{index}.mp4"
 
-                    BUCKET = os.getenv("BUCKET")
+                    BUCKET = config.GCS_BUCKET
                     if BUCKET is not None:
 
-                        BUCKET_NAME = BUCKET.replace("gs://", "")
+                        # BUCKET_NAME = config.GCS_BUCKET_NAME
                         SOURCE_BLOB = video_uri.replace(BUCKET, "")[1:]
 
                         video_bytes = download_blob(
-                            bucket_name=BUCKET_NAME, source_blob_name=SOURCE_BLOB
+                            bucket_name=config.GCS_BUCKET_NAME,
+                            source_blob_name=SOURCE_BLOB,
                         )
                         logging.info(
                             f"The artifact key for this video is: {artifact_key}"
@@ -352,9 +262,11 @@ async def generate_video(
                         DESTINATION_BLOB_NAME = (
                             f"{tool_context.state['gcs_folder']}/{artifact_key}"
                         )
-                        bucket = storage_client.get_bucket(BUCKET_NAME)
+                        bucket = storage_client.get_bucket(config.GCS_BUCKET_NAME)
                         source_blob = bucket.blob(SOURCE_BLOB)
-                        destination_bucket = storage_client.get_bucket(BUCKET_NAME)
+                        destination_bucket = storage_client.get_bucket(
+                            config.GCS_BUCKET_NAME
+                        )
                         new_blob = bucket.copy_blob(
                             source_blob,
                             destination_bucket,
@@ -457,7 +369,7 @@ async def save_creatives_html_report(tool_context: ToolContext) -> dict:
         IMG_CREATIVE_STRING = ""
         for entry in img_artifact_list:
             logging.info(entry)
-            AUTH_GCS_URL = f"https://storage.mtls.cloud.google.com/{BUCKET_NAME}/{gcs_folder}/{entry['artifact_key']}?authuser=3"
+            AUTH_GCS_URL = f"https://storage.mtls.cloud.google.com/{config.GCS_BUCKET_NAME}/{gcs_folder}/{entry['artifact_key']}?authuser=3"
             IMG_HTML_STR = f"""<img src={AUTH_GCS_URL} alt ='authenticated URL' width='600' class='center'>
             """
 
@@ -507,7 +419,7 @@ async def save_creatives_html_report(tool_context: ToolContext) -> dict:
 
             FILENAME = entry["artifact_key"]
             AUTH_GCS_URL = f"""<video width='800' controls>
-                <source src='https://storage.mtls.cloud.google.com/{BUCKET_NAME}/{gcs_folder}/{FILENAME}?authuser=3' type='video/mp4'>
+                <source src='https://storage.mtls.cloud.google.com/{config.GCS_BUCKET_NAME}/{gcs_folder}/{FILENAME}?authuser=3' type='video/mp4'>
             Your browser does not support the video tag.
             </video>
             """
@@ -561,11 +473,89 @@ async def save_creatives_html_report(tool_context: ToolContext) -> dict:
 
         return {
             "status": "ok",
-            "gcs_bucket": GCS_BUCKET,
+            "gcs_bucket": config.GCS_BUCKET,
             "gcs_folder": gcs_folder,
             "report_name": REPORT_NAME,
-            "full_uri": f"{GCS_BUCKET}/{gcs_folder}/{REPORT_NAME}",
+            "full_uri": f"{config.GCS_BUCKET}/{gcs_folder}/{REPORT_NAME}",
         }
     except Exception as e:
         logging.error(f"Error saving artifact: {e}")
         return {"status": "failed", "error": str(e)}
+
+
+# =============================
+# utils
+# =============================
+def download_blob(bucket_name, source_blob_name):
+    """
+    Downloads a blob from the bucket.
+    Args:
+        bucket_name (str): The ID of your GCS bucket
+        source_blob_name (str): The ID of your GCS object
+    Returns:
+        Blob content as bytes.
+    """
+    # storage_client = storage.Client()
+    storage_client = get_gcs_client()
+    bucket = storage_client.bucket(bucket_name)
+
+    # Construct a client side representation of a blob.
+    # Note `Bucket.blob` differs from `Bucket.get_blob` as it doesn't retrieve
+    # any content from Google Cloud Storage. As we don't need additional data,
+    # using `Bucket.blob` is preferred here.
+    blob = bucket.blob(source_blob_name)
+    return blob.download_as_bytes()
+
+
+def save_to_gcs(
+    tool_context: ToolContext,
+    image_bytes: bytes,
+    filename: str,
+):
+    # --- Save to GCS ---
+    storage_client = get_gcs_client()
+    gcs_bucket = config.GCS_BUCKET_NAME
+    bucket = storage_client.bucket(gcs_bucket)
+
+    gcs_folder = tool_context.state["gcs_folder"]
+    gcs_subdir = tool_context.state["agent_output_dir"]
+    gcs_blob_name = f"{gcs_folder}/{gcs_subdir}/{filename}"
+
+    blob = bucket.blob(gcs_blob_name)
+
+    try:
+        blob.upload_from_string(image_bytes, content_type="image/png")
+        gcs_uri = f"gs://{gcs_bucket}/{gcs_blob_name}"
+
+        return gcs_uri
+
+    except Exception as e_gcs:
+        return {
+            "status": "error",
+            "message": f"Image generated but failed to upload to GCS: {e_gcs}",
+        }
+
+
+def upload_blob_to_gcs(
+    source_file_name: str,
+    destination_blob_name: str,
+    # gcs_bucket: str,
+) -> str:
+    """
+    Uploads a blob to a GCS bucket.
+    Args:
+        source_file_name (str): The path to the file to upload.
+        destination_blob_name (str): The desired folder path in gcs
+    Returns:
+        str: The GCS URI of the uploaded file.
+    """
+    # bucket_name = "your-bucket-name" (no 'gs://')
+    # source_file_name = "local/path/to/file" (file to upload)
+    # destination_blob_name = "folder/paths-to/storage-object-name"
+    # storage_client = storage.Client(project=os.environ.get("GOOGLE_CLOUD_PROJECT"))
+    storage_client = get_gcs_client()
+    gcs_bucket = config.GCS_BUCKET_NAME
+    bucket = storage_client.bucket(gcs_bucket)
+    blob = bucket.blob(destination_blob_name)
+    blob.upload_from_filename(source_file_name)
+    return f"File {source_file_name} uploaded to {destination_blob_name}."
