@@ -143,7 +143,7 @@ def write_to_file(content: str, tool_context: ToolContext) -> dict:
     gcs_folder = tool_context.state["gcs_folder"]
 
     # Construct the output filename e.g., "trawler_output/selected_trends.md"
-    artifact_key = "selected_trends.md"
+    artifact_key = "selected_trends.txt"
     local_file = f"{LOCAL_DIR}/{artifact_key}"
 
     # Ensure the "trawler_output" directory exists. If it doesn’t, create it.

@@ -54,16 +54,26 @@ understand_trends_agent = Agent(
     instruction="""
     You are a diligent and exhaustive researcher. Your task is to conduct initial web research for each trending Search term.
 
-    1. Review the trending search terms provided in the 'start_gtrends' state key.
-    2. Use the 'google_search' tool to briefly understand each term and why it's trending.
-    3. Synthesize the results into a detailed summary that follows the **Important Guidelines** listed below.
+    1. Review the list of trending search terms:
+        {start_gtrends}
 
-    ### Important Guidelines
-    1. Your output should list each trending search term from the 'start_gtrends' state key
-    2. For each trending search term, **provide the following bullets:**
-        - Briefly what the term represents.
-        - Briefly why the term is likely trending.
-    3.  Only list trends from the 'start_gtrends' state key.
+    2. For each trending search term, use the 'google_search' tool to briefly understand each search term and why it's trending.
+
+    3. Synthesize the results into a summary report following the output format defined in <OUTPUT_FORMAT>.
+        - Do not include any additional text or metadata in your output.
+        - All required fields must be present.
+        - Include only the trending search terms from step 1 (e.g., the 'start_gtrends' state key).
+
+    <OUTPUT_FORMAT>
+    Organize the output to include a title and a section for each trending search term (note: there should be 25 trending search terms).
+    Format your response in markdown, following this structure:
+
+    ## Trending Search Terms TLDR
+
+    ### [trending search term]
+    - [Briefly describe what the search term represents]
+    - [Briefly explain why the term is likely trending]
+    </OUTPUT_FORMAT>
     """,
     generate_content_config=types.GenerateContentConfig(
         temperature=1.5,
@@ -106,28 +116,46 @@ pick_trends_agent = Agent(
 
     ---
     <INSTRUCTIONS>
-    1. Review the trending search terms provided in the <info_gtrends/> block and select the best 3-5 trends based on:
+    1. Review the trending search terms provided in the <info_gtrends/> block and select the best 1-3 trends based on:
         - Cultural relevance with the <target_audience/>.
         - Opportunity to market the <target_product/> and <key_selling_points/>.
-    2. Provide detailed rationale for your selections, explaining why these specific trends are most relevant.
+    
+    2. Provide a brief rationale for your selections, explaining why these specific trends are most relevant.
+    
     3. For each selected search term, **provide the following:**
         - Brief overview of the search term and why it's trending.
         - Detailed rationale for target audience appeal.
         - Any themes of the trend that can be used to market the <target_product/>.
-    </INSTRUCTIONS>
+    
+    4. Format your response following the suggested structure in <OUTPUT_FORMAT>.
 
-    Use the `google_search` tool to support your decisions.
+    <OUTPUT_FORMAT>
+    ## Selected Trends
+    
+    [bulleted list of the selected trending search terms. Only list the search terms in this section. Save details for subsequent sections]
+
+    ## Campaign Summary
+    - <target_audience/>
+    - <target_product/>
+    - <key_selling_points/>
+
+    ### [trending search term]
+    - [why its trending]
+    - [target audience appeal]
+    - [Any themes from the trend that can be used or referenced to market the <target_product/>]
+    </OUTPUT_FORMAT>
 
     **CRITICAL RULE:** The trending topics you select should only contain topics found in the 'info_gtrends' state key. 
-
     """,
     generate_content_config=types.GenerateContentConfig(
         temperature=1.5,
     ),
-    tools=[google_search],
+    # tools=[google_search],
     output_key="selected_gtrends",
     before_model_callback=callbacks.rate_limit_callback,
 )
+
+#     Use the `google_search` tool to support your decisions.
 
 
 # # Sequential agent for gathering relevant trends
@@ -171,7 +199,7 @@ trend_trawler = Agent(
     4. For each trending topic in the 'selected_gtrends' state key, call the `save_search_trends_to_session_state` tool to save them to the session state.
     5. Once the previous steps are complete, perform the following THREE actions in sequence:
 
-    Action 1: Save to markdown file
+    Action 1: Save to file in Cloud Storage
     Call the `write_to_file` tool to save the markdown content in the 'selected_gtrends' state key.
 
     Action 2: Save session state to json file    
@@ -188,7 +216,7 @@ trend_trawler = Agent(
     
     </WORKFLOW>
 
-    Your job is complete once both actions are performed.
+    Your job is complete once all actions are performed.
     """,
     tools=[
         # AgentTool(agent=trend_spotter_pipeline),
