@@ -50,8 +50,8 @@ def _load_session_state(callback_context: CallbackContext):
         "key_selling_points": "",  # KEY_SELLING_POINT,
         "target_search_trends": "",
         "img_artifact_keys": {"img_artifact_keys": []},
-        "vid_artifact_keys": {"vid_artifact_keys": []},
-        "final_select_ad_copies": {"final_select_ad_copies": []},
+        # "vid_artifact_keys": {"vid_artifact_keys": []},
+        # "final_select_ad_copies": {"final_select_ad_copies": []},
         "final_select_vis_concepts": {"final_select_vis_concepts": []},
     }
     _set_initial_states(data["state"], callback_context.state)
@@ -200,67 +200,67 @@ def citation_replacement_callback(
     return types.Content(parts=[types.Part(text="PDF report saved to memory 📝 !!")])
 
 
-def campaign_callback_function(
-    callback_context: CallbackContext,
-) -> Optional[types.Content]:
-    """
-    This sets default values for:
-        *   img_artifact_keys
-        *   vid_artifact_keys
-        *   final_select_ad_copies
-        *   final_select_vis_concepts
-    """
+# def campaign_callback_function(
+#     callback_context: CallbackContext,
+# ) -> Optional[types.Content]:
+#     """
+#     This sets default values for:
+#         *   img_artifact_keys
+#         *   vid_artifact_keys
+#         *   final_select_ad_copies
+#         *   final_select_vis_concepts
+#     """
 
-    agent_name = callback_context.agent_name
+#     agent_name = callback_context.agent_name
 
-    final_select_ad_copies = callback_context.state.get("final_select_ad_copies")
-    final_select_vis_concepts = callback_context.state.get("final_select_vis_concepts")
-    img_artifact_keys = callback_context.state.get("img_artifact_keys")
-    vid_artifact_keys = callback_context.state.get("vid_artifact_keys")
+#     final_select_ad_copies = callback_context.state.get("final_select_ad_copies")
+#     final_select_vis_concepts = callback_context.state.get("final_select_vis_concepts")
+#     img_artifact_keys = callback_context.state.get("img_artifact_keys")
+#     vid_artifact_keys = callback_context.state.get("vid_artifact_keys")
 
-    return_content = None  # placeholder for optional returned parts
+#     return_content = None  # placeholder for optional returned parts
 
-    if final_select_ad_copies is None:
-        callback_context.state["final_select_ad_copies"] = {
-            "final_select_ad_copies": []
-        }
-        if return_content is None:
-            return_content = "final_select_ad_copies"
-        else:
-            return_content += ", final_select_ad_copies"
+#     if final_select_ad_copies is None:
+#         callback_context.state["final_select_ad_copies"] = {
+#             "final_select_ad_copies": []
+#         }
+#         if return_content is None:
+#             return_content = "final_select_ad_copies"
+#         else:
+#             return_content += ", final_select_ad_copies"
 
-    if final_select_vis_concepts is None:
-        callback_context.state["final_select_vis_concepts"] = {
-            "final_select_vis_concepts": []
-        }
-        if return_content is None:
-            return_content = "final_select_vis_concepts"
-        else:
-            return_content += ", final_select_vis_concepts"
+#     if final_select_vis_concepts is None:
+#         callback_context.state["final_select_vis_concepts"] = {
+#             "final_select_vis_concepts": []
+#         }
+#         if return_content is None:
+#             return_content = "final_select_vis_concepts"
+#         else:
+#             return_content += ", final_select_vis_concepts"
 
-    if img_artifact_keys is None:
-        callback_context.state["img_artifact_keys"] = {"img_artifact_keys": []}
-        if return_content is None:
-            return_content = "img_artifact_keys"
-        else:
-            return_content += ", img_artifact_keys"
+#     if img_artifact_keys is None:
+#         callback_context.state["img_artifact_keys"] = {"img_artifact_keys": []}
+#         if return_content is None:
+#             return_content = "img_artifact_keys"
+#         else:
+#             return_content += ", img_artifact_keys"
 
-    if vid_artifact_keys is None:
-        callback_context.state["vid_artifact_keys"] = {"vid_artifact_keys": []}
-        if return_content is None:
-            return_content = "vid_artifact_keys"
-        else:
-            return_content += ", vid_artifact_keys"
+#     if vid_artifact_keys is None:
+#         callback_context.state["vid_artifact_keys"] = {"vid_artifact_keys": []}
+#         if return_content is None:
+#             return_content = "vid_artifact_keys"
+#         else:
+#             return_content += ", vid_artifact_keys"
 
-    if return_content is not None:
-        return types.Content(
-            parts=[
-                types.Part(
-                    text=f"Agent {agent_name} setting default values for state variables: \n\n{return_content}."
-                )
-            ],
-            role="model",  # Assign model role to the overriding response
-        )
+#     if return_content is not None:
+#         return types.Content(
+#             parts=[
+#                 types.Part(
+#                     text=f"Agent {agent_name} setting default values for state variables: \n\n{return_content}."
+#                 )
+#             ],
+#             role="model",  # Assign model role to the overriding response
+#         )
 
-    else:
-        return None
+#     else:
+#         return None
