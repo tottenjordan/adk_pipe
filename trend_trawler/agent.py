@@ -197,7 +197,7 @@ trend_trawler = Agent(
     2. Call `understand_trends_agent` as a tool to conduct web research about each trending topic.
     3. Call `pick_trends_agent` as a tool to determine the most relevant subset of trends for this campaign. 
     4. For each trending topic in the 'selected_gtrends' state key, call the `save_search_trends_to_session_state` tool to save them to the session state.
-    5. Once the previous steps are complete, perform the following THREE actions in sequence:
+    5. Once the previous steps are complete, perform the following FOUR actions in sequence:
 
     Action 1: Save to file in Cloud Storage
     Call the `write_to_file` tool to save the markdown content in the 'selected_gtrends' state key.
@@ -213,6 +213,9 @@ trend_trawler = Agent(
 
             OUTPUT: gs://trend-trawler-deploy-ae/2025_09_13_19_21/trawler_output
         </EXAMPLE>
+
+    Action 4: Display Selected Trends to User      
+    Display the selected trends and insights in the 'selected_gtrends' state key to the user.
     
     </WORKFLOW>
 
