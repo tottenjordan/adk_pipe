@@ -3,27 +3,36 @@
 > *[trends-2-creatives](https://github.com/tottenjordan/zghost/tree/main) in offline, beast mode*
 
 <details>
-  <summary>scoop 'n score</summary>
+  <summary>casting a wide net</summary>
 
-> Given a campaign, the trawler sifts through the top 25 trending Search terms, returning a subset of trends
+
+> Given a campaign, the `trend_trawler` gathers the top 25 trending Search terms and returns a subset of the most relevant to the campaign
+
 
 <p align="center">
   <img src='imgs/trend_trawler_banner.png' width="700"/>
 </p>
 
-> TODO: Given a campaign and a Search trend, the creative agent conducts web research (for context) and generates candidate ad creatives
+
+* WIP: Given a campaign and a Search trend, the creative agent conducts web research (for context) and generates candidate ad creatives
 
 </details>
 
 ## About
 
-> TODO
+*trend-trawler* is a multi-agent system designed to run offline via schedule or event-based trigger.
+* agents developed with Google's ADK
+* agents deployed to either Cloud Run or Agent Engine
+
+**helpful references**
+* [Overview of prompting strategies](https://cloud.google.com/vertex-ai/generative-ai/docs/learn/prompts/prompt-design-strategies#best-practices)
+
 
 **TODOs**
 * event-based triggers
 * scheduled runs
-* orchestration
-* accesible outputs
+* swarm orchestration
+* accessible outputs
 * email / notification
 * easy export to ~*live editor tool* to nano-banana
 
@@ -64,7 +73,31 @@ echo "GOOGLE_CLOUD_LOCATION=us-central1" >> .env
 echo "BUCKET=gs://your-bucket-name" >> .env
 ```
 
-update the `campaign_metadata` in your `.env` file...
+then copy `.env` file to both agent directories (deployed separately)
+
+```bash
+cp .env trend_trawler/.env
+cp .env creative_agent/.env
+
+source .env
+```
+
+**4. poetry install && create requirements.txt file**
+
+*Note: i had to manually clean the requirements.txt file produced by these commands. Might want to copy mine*
+
+```bash
+poetry install
+
+poetry export --without-hashes --format=requirements.txt > ./creative_agent/requirements.txt
+poetry export --without-hashes --format=requirements.txt > ./trend_trawler/requirements.txt
+```
+
+## Running an Agent
+
+
+   > define your `campaign metadata`... these are inputs to the `trend_trawler` and `creative_agent`
+
 
 <details>
   <summary>guidance on what works well here</summary>
@@ -93,38 +126,6 @@ This will be the `{target_products}` 's flavor in the messaging and visual cocne
 </details>
 
 
-```bash
-# campaign metadata
-BRAND="Paul Reed Smith (PRS)"
-TARGET_AUDIENCE="millennials who follow jam bands (e.g., Widespread Panic and Phish), respond 
-positively to nostalgic messages"
-TARGET_PRODUCT="PRS SE CE24 Electric Guitar"
-KEY_SELLING_POINT="The 85/15 S Humbucker pickups deliver a wide tonal range, from thick 
-humbucker tones to clear single-coil sounds, making the guitar suitable for various genres."
-```
-
-then copy `.env` file to both agent directories (deployed separately)
-
-```bash
-cp .env trend_trawler/.env
-cp .env creative_agent/.env
-
-source .env
-```
-
-**4. poetry install && create requirements.txt file**
-
-*Note: i had to manually clean the requirements.txt file produced by these commands. Might want to copy mine*
-
-```bash
-poetry install
-
-poetry export --without-hashes --format=requirements.txt > ./creative_agent/requirements.txt
-poetry export --without-hashes --format=requirements.txt > ./trend_trawler/requirements.txt
-```
-
-## Running an Agent
-
 **1. local deployment / testing**
 
 start local dev UI...
@@ -136,7 +137,10 @@ poetry run adk web .
 **[1.a] choose `trend_trawler` from drop-down menu (top left)...**
 
 ```bash
-user: start
+user: Brand Name: "YOUR BRAND OF CHOICE"
+      Target Audience: "YOUR TARGET AUDIENCE OF CHOICE"
+      Target Product: "YOU TARGET PRODUCT OF CHOICE"
+      Key Selling Points: "YOU KEY SELLING POINT(S)"
 
 agent: `[end-to-end workflow >> recommended subset of trends]` 
 ```
@@ -144,18 +148,26 @@ agent: `[end-to-end workflow >> recommended subset of trends]`
 **[1.b] choose `creative agent` in top-left drop-down menu...**
 
 ```bash
-user: `target_search_trend: `YOUR_SEARCH_TREND_OF_CHOICE`
+user: Brand Name: "YOUR BRAND OF CHOICE"
+      Target Audience: "YOUR TARGET AUDIENCE OF CHOICE"
+      Target Product: "YOU TARGET PRODUCT OF CHOICE"
+      Key Selling Points: "YOU KEY SELLING POINT(S)"
+      target_search_trend: "YOUR_SEARCH_TREND_OF_CHOICE"
 
 agent: `[end-to-end workflow >> candidate creatives (img/vid)]` 
 ```
 
 ## Deploying Agents to separate Agent Engine instances
 
+> [Agent Engine](https://google.github.io/adk-docs/deploy/agent-engine/) is a fully managed auto-scaling service on Google Cloud specifically designed for deploying, managing, and scaling AI agents built with frameworks such as ADK.
 
-> see [deploy-to-agent-engine.ipynb](./deploy-to-agent-engine.ipynb) notebook
+1. [deploy-to-agent-engine.ipynb](./deploy-to-agent-engine.ipynb) notebook
+    * *WIP: migrating code to the refactored client-based `Agent Engine` SDK... see [migration guide](https://cloud.google.com/vertex-ai/generative-ai/docs/deprecations/agent-engine-migration)*
 
 
 ## Deploying Agents to separate Cloud Run instances
+
+> [Cloud Run](https://cloud.google.com/run) is a managed auto-scaling compute platform on Google Cloud that enables you to run your agent as a container-based application.
 
 
 **1. Deploy `trend trawler agent` to Cloud Run...**

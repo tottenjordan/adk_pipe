@@ -1,9 +1,6 @@
-import os, re, time
 import pandas as pd
-from pathlib import Path
-from dotenv import load_dotenv
+import re, time, logging
 from typing import Optional, Dict, Any
-import logging
 
 logging.basicConfig(level=logging.INFO)
 
@@ -13,25 +10,6 @@ from google.adk.models.llm_request import LlmRequest
 from google.adk.agents.callback_context import CallbackContext
 
 from .config import config
-
-
-# ==============================
-# Load environment variables
-# =============================
-root_dir = Path(__file__).parent.parent
-dotenv_path = root_dir / ".env"
-load_dotenv(dotenv_path=dotenv_path)
-# logging.info(f"root_dir: {root_dir}")
-
-try:
-    # replaced `os.getenv()`
-    GCS_BUCKET = os.environ.get("BUCKET")
-    BRAND = os.environ.get("BRAND")
-    TARGET_PRODUCT = os.environ.get("TARGET_PRODUCT")
-    TARGET_AUDIENCE = os.environ.get("TARGET_AUDIENCE")
-    KEY_SELLING_POINT = os.environ.get("KEY_SELLING_POINT")
-except KeyError:
-    raise Exception("environment variables not set")
 
 
 def _set_initial_states(source: Dict[str, Any], target: State | dict[str, Any]):
@@ -44,6 +22,8 @@ def _set_initial_states(source: Dict[str, Any], target: State | dict[str, Any]):
     """
     if config.state_init not in target:
         target[config.state_init] = True
+        target["gcs_bucket"] = config.GCS_BUCKET
+        target["agent_output_dir"] = "creative_output"
         target["gcs_folder"] = pd.Timestamp.utcnow().strftime("%Y_%m_%d_%H_%M")
         logging.info(f"gcs_folder: {target['gcs_folder']}")
 
@@ -61,14 +41,14 @@ def _load_session_state(callback_context: CallbackContext):
     """
     data = {}
     data["state"] = {
-        "brand": BRAND,
-        "target_product": TARGET_PRODUCT,
-        "target_audience": TARGET_AUDIENCE,
-        "key_selling_points": KEY_SELLING_POINT,
+        "brand": "",  # BRAND,
+        "target_product": "",  # TARGET_PRODUCT,
+        "target_audience": "",  # TARGET_AUDIENCE,
+        "key_selling_points": "",  # KEY_SELLING_POINT,
         "target_search_trends": "",
         "img_artifact_keys": {"img_artifact_keys": []},
-        "vid_artifact_keys": {"vid_artifact_keys": []},
-        "final_select_ad_copies": {"final_select_ad_copies": []},
+        # "vid_artifact_keys": {"vid_artifact_keys": []},
+        # "final_select_ad_copies": {"final_select_ad_copies": []},
         "final_select_vis_concepts": {"final_select_vis_concepts": []},
     }
     _set_initial_states(data["state"], callback_context.state)
@@ -215,69 +195,3 @@ def citation_replacement_callback(
     callback_context.state["final_report_with_citations"] = processed_report
     # return types.Content(parts=[types.Part(text=processed_report)])
     return types.Content(parts=[types.Part(text="PDF report saved to memory 📝 !!")])
-
-
-def campaign_callback_function(
-    callback_context: CallbackContext,
-) -> Optional[types.Content]:
-    """
-    This sets default values for:
-        *   img_artifact_keys
-        *   vid_artifact_keys
-        *   final_select_ad_copies
-        *   final_select_vis_concepts
-    """
-
-    agent_name = callback_context.agent_name
-
-    final_select_ad_copies = callback_context.state.get("final_select_ad_copies")
-    final_select_vis_concepts = callback_context.state.get("final_select_vis_concepts")
-    img_artifact_keys = callback_context.state.get("img_artifact_keys")
-    vid_artifact_keys = callback_context.state.get("vid_artifact_keys")
-
-    return_content = None  # placeholder for optional returned parts
-
-    if final_select_ad_copies is None:
-        callback_context.state["final_select_ad_copies"] = {
-            "final_select_ad_copies": []
-        }
-        if return_content is None:
-            return_content = "final_select_ad_copies"
-        else:
-            return_content += ", final_select_ad_copies"
-
-    if final_select_vis_concepts is None:
-        callback_context.state["final_select_vis_concepts"] = {
-            "final_select_vis_concepts": []
-        }
-        if return_content is None:
-            return_content = "final_select_vis_concepts"
-        else:
-            return_content += ", final_select_vis_concepts"
-
-    if img_artifact_keys is None:
-        callback_context.state["img_artifact_keys"] = {"img_artifact_keys": []}
-        if return_content is None:
-            return_content = "img_artifact_keys"
-        else:
-            return_content += ", img_artifact_keys"
-
-    if vid_artifact_keys is None:
-        callback_context.state["vid_artifact_keys"] = {"vid_artifact_keys": []}
-        if return_content is None:
-            return_content = "vid_artifact_keys"
-        else:
-            return_content += ", vid_artifact_keys"
-
-    if return_content is not None:
-        return types.Content(
-            parts=[
-                types.Part(
-                    text=f"Agent {agent_name} setting default values for state variables: \n\n{return_content}."
-                )
-            ],
-            role="model",  # Assign model role to the overriding response
-        )
-
-    else:
-        return None

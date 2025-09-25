@@ -3,5 +3,5 @@ pyproject.toml
 .vscode/
 output/*
 __pycache__/
-stash/*
+a_stash/*
 .venv/

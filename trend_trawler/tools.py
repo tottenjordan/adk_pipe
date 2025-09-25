@@ -3,36 +3,13 @@ import logging
 
 logging.basicConfig(level=logging.INFO)
 
+import json, shutil
 from pathlib import Path
-import datetime, json, shutil
-from dotenv import load_dotenv
 from google.cloud import storage
 from google.cloud import bigquery
 from google.adk.tools import ToolContext
 
-
-# ==============================
-# Load environment variables
-# =============================
-root_dir = Path(__file__).parent.parent
-dotenv_path = root_dir / ".env"
-load_dotenv(dotenv_path=dotenv_path)
-# logging.info(f"root_dir: {root_dir}")
-
-try:
-    # replaced `os.getenv()`
-    GCS_BUCKET = os.environ.get("BUCKET")
-    BRAND = os.environ.get("BRAND")
-    TARGET_PRODUCT = os.environ.get("TARGET_PRODUCT")
-    TARGET_AUDIENCE = os.environ.get("TARGET_AUDIENCE")
-    KEY_SELLING_POINT = os.environ.get("KEY_SELLING_POINT")
-except KeyError:
-    raise Exception("environment variables not set")
-
-# logging.info(f"BRAND: {BRAND}")
-# logging.info(f"TARGET_PRODUCT: {TARGET_PRODUCT}")
-# logging.info(f"TARGET_AUDIENCE: {TARGET_AUDIENCE}")
-# logging.info(f"KEY_SELLING_POINT: {KEY_SELLING_POINT}")
+from .config import config
 
 
 # ==============================
@@ -40,12 +17,32 @@ except KeyError:
 # =============================
 def get_gcs_client() -> storage.Client:
     """Get a configured GCS client."""
-    return storage.Client(project=os.environ.get("GOOGLE_CLOUD_PROJECT"))
+    return storage.Client(project=config.PROJECT_ID)
 
 
 def get_bigquery_client() -> bigquery.Client:
     """Get a configured BigQuery client."""
-    return bigquery.Client(project=os.environ.get("GOOGLE_CLOUD_PROJECT"))
+    return bigquery.Client(project=config.PROJECT_ID)
+
+
+# =============================
+# tools
+# =============================
+def memorize(key: str, value: str, tool_context: ToolContext):
+    """
+    Memorize pieces of information, one key-value pair at a time.
+
+    Args:
+        key: the label indexing the memory to store the value.
+        value: the information to be stored.
+        tool_context: The ADK tool context.
+
+    Returns:
+        A status message.
+    """
+    mem_dict = tool_context.state
+    mem_dict[key] = value
+    return {"status": f'Stored "{key}": "{value}"'}
 
 
 # ==============================
@@ -132,43 +129,42 @@ def get_daily_gtrends(tool_context: ToolContext, today_date: str = max_date) -> 
 
 def write_to_file(content: str, tool_context: ToolContext) -> dict:
     """
-    Writes the given content to a timestamped markdown file.
+    Writes the given content to a markdown file. Saves the file to Google Cloud Storage.
 
     Args:
         content (str): Full markdown content as a string to be saved to disk.
         tool_context (ToolContext): The tool context.
 
     Returns:
-        dict: A dictionary containing the status and generated filename.
+        dict: A dictionary containing the status and the markdown file's Cloud Storage URI (gcs_uri).
     """
 
-    LOCAL_DIR = "output"
+    LOCAL_DIR = tool_context.state["agent_output_dir"]
     gcs_folder = tool_context.state["gcs_folder"]
 
-    # Example: "250611_142317"
-    timestamp = datetime.datetime.now().strftime("%y%m%d_%H%M%S")
-
-    # Construct the output filename using the timestamp.
-    # Example: "output/250611_142317_selected_trends.md"
-    artifact_key = f"{timestamp}_selected_trends.md"
+    # Construct the output filename e.g., "trawler_output/selected_trends.md"
+    artifact_key = "selected_trends.txt"
     local_file = f"{LOCAL_DIR}/{artifact_key}"
 
-    # Ensure the "output" directory exists. If it doesn’t, create it.
+    # Ensure the "trawler_output" directory exists. If it doesn’t, create it.
     # `exist_ok=True` prevents an error if the directory already exists.
     Path(LOCAL_DIR).mkdir(exist_ok=True)
 
     # Write the markdown content to the constructed file.
     # `encoding='utf-8'` ensures proper character encoding.
-    Path(local_file).write_text(content)  # , encoding="utf-8"
+    Path(local_file).write_text(content)
 
     # save to GCS
-    # storage_client = storage.Client(project=os.environ.get("GOOGLE_CLOUD_PROJECT"))
     storage_client = get_gcs_client()
-    gcs_bucket = os.environ.get("BUCKET", "tmp")
-    gcs_bucket = gcs_bucket.replace("gs://", "")
+    gcs_bucket = config.GCS_BUCKET_NAME
     bucket = storage_client.bucket(gcs_bucket)
     blob = bucket.blob(os.path.join(gcs_folder, local_file))
     blob.upload_from_filename(local_file)
+
+    # save to session state
+    gcs_blob_name = f"{gcs_folder}/{LOCAL_DIR}/{artifact_key}"
+    gcs_uri = f"gs://{gcs_bucket}/{gcs_blob_name}"
+    tool_context.state["select_trends_markdown_gcs_uri"] = gcs_uri
 
     try:
         shutil.rmtree(LOCAL_DIR)
@@ -179,63 +175,7 @@ def write_to_file(content: str, tool_context: ToolContext) -> dict:
     # Return a dictionary indicating success, and the artifact_key that was written.
     return {
         "status": "success",
-        "gcs_bucket": gcs_bucket,
-        "gcs_folder": gcs_folder,
-        "file": local_file,
-    }
-
-
-def write_to_json(tool_context: ToolContext) -> dict:
-    """
-    Writes the selected trends to JSON.
-
-    Args:
-        tool_context (ToolContext): The tool context.
-
-    Returns:
-        dict: A dictionary containing the selected trend terms.
-    """
-
-    LOCAL_DIR = "output"
-    gcs_folder = tool_context.state["gcs_folder"]
-    selected_trends_list = tool_context.state["target_search_trends"][
-        "target_search_trends"
-    ]
-    data = {"selected trends": selected_trends_list}
-
-    # Construct the output filename using the timestamp.
-    # Example: "output/selected_trends.json"
-    artifact_key = f"selected_trends.json"
-    local_file = f"{LOCAL_DIR}/{artifact_key}"
-
-    # Ensure the "output" directory exists. If it doesn’t, create it.
-    # `exist_ok=True` prevents an error if the directory already exists.
-    Path(LOCAL_DIR).mkdir(exist_ok=True)
-
-    # Write to local file
-    with open(local_file, "w") as f:
-        json.dump(data, f, indent=4)
-
-    # save to GCS
-    storage_client = get_gcs_client()
-    gcs_bucket = os.environ.get("BUCKET", "tmp")
-    gcs_bucket = gcs_bucket.replace("gs://", "")
-    bucket = storage_client.bucket(gcs_bucket)
-    blob = bucket.blob(os.path.join(gcs_folder, local_file))
-    blob.upload_from_filename(local_file)
-
-    try:
-        shutil.rmtree(LOCAL_DIR)
-        logging.info(f"Directory '{LOCAL_DIR}' and its contents removed successfully")
-    except FileNotFoundError:
-        logging.exception(f"Directory '{LOCAL_DIR}' not found")
-
-    # Return a dictionary indicating success, and the artifact_key that was written.
-    return {
-        "status": "success",
-        "gcs_bucket": gcs_bucket,
-        "gcs_folder": gcs_folder,
-        "file": local_file,
+        "gcs_uri": gcs_uri,
     }
 
 
@@ -260,3 +200,53 @@ def save_search_trends_to_session_state(
 
     tool_context.state["target_search_trends"] = existing_target_search_trends
     return {"status": "ok"}
+
+
+def save_session_state_to_gcs(tool_context: ToolContext) -> dict:
+    """
+    Writes the session state to JSON. Saves the JSON file to Cloud Storage.
+
+    Args:
+        tool_context (ToolContext): The tool context.
+
+    Returns:
+        dict: A dictionary containing the status and the json file's Cloud Storage URI (gcs_uri).
+    """
+
+    session_state = tool_context.state.to_dict()
+    LOCAL_DIR = session_state["agent_output_dir"]
+    gcs_folder = session_state["gcs_folder"]
+
+    filename = f"trawler_session_state.json"
+    local_file = f"{LOCAL_DIR}/{filename}"
+
+    # Ensure the `LOCAL_DIR` directory exists. If it doesn’t, create it.
+    # `exist_ok=True` prevents an error if the directory already exists.
+    Path(LOCAL_DIR).mkdir(exist_ok=True)
+
+    # Write to local file
+    with open(local_file, "w") as f:
+        json.dump(session_state, f, indent=4)
+
+    # save to GCS
+    storage_client = get_gcs_client()
+    gcs_bucket = config.GCS_BUCKET_NAME
+    bucket = storage_client.bucket(gcs_bucket)
+    blob = bucket.blob(os.path.join(gcs_folder, local_file))
+    blob.upload_from_filename(local_file)
+
+    # save to session state
+    gcs_blob_name = f"{gcs_folder}/{LOCAL_DIR}/{filename}"
+    gcs_uri = f"gs://{gcs_bucket}/{gcs_blob_name}"
+
+    try:
+        shutil.rmtree(LOCAL_DIR)
+        logging.info(f"Directory '{LOCAL_DIR}' and its contents removed successfully")
+    except FileNotFoundError:
+        logging.exception(f"Directory '{LOCAL_DIR}' not found")
+
+    # Return a dictionary indicating status and the Cloud Storage URI.
+    return {
+        "status": "success",
+        "gcs_uri": gcs_uri,
+    }

@@ -1,57 +1,27 @@
-import os, datetime
-import logging
+import datetime, logging
 
 logging.basicConfig(level=logging.INFO)
 
-from pathlib import Path
-from dotenv import load_dotenv
-from pydantic import BaseModel, Field
-
 from google.genai import types
+from pydantic import BaseModel, Field
 from google.adk.tools import google_search
 from google.adk.planners import BuiltInPlanner
 from google.adk.tools.agent_tool import AgentTool
 from google.adk.agents import Agent, SequentialAgent, ParallelAgent
 
-from . import callbacks
-from .config import config
-from .prompts import VEO3_INSTR
 from .sub_agents.campaign_researcher.agent import ca_sequential_planner
 from .sub_agents.trend_researcher.agent import gs_sequential_planner
+from .config import config
+from . import callbacks
 from .tools import (
     memorize,
     generate_image,
-    generate_video,
-    save_img_artifact_key,
-    save_vid_artifact_key,
-    save_select_ad_copy,
+    # save_img_artifact_key,
     save_select_visual_concept,
+    save_draft_report_artifact,
     save_creatives_html_report,
+    save_creative_gallery_html
 )
-
-
-# ==============================
-# Load environment variables
-# =============================
-root_dir = Path(__file__).parent.parent
-dotenv_path = root_dir / ".env"
-load_dotenv(dotenv_path=dotenv_path)
-# logging.info(f"root_dir: {root_dir}")
-
-try:
-    # replaced `os.getenv()`
-    GCS_BUCKET = os.environ.get("BUCKET")
-    BRAND = os.environ.get("BRAND")
-    TARGET_PRODUCT = os.environ.get("TARGET_PRODUCT")
-    TARGET_AUDIENCE = os.environ.get("TARGET_AUDIENCE")
-    KEY_SELLING_POINT = os.environ.get("KEY_SELLING_POINT")
-except KeyError:
-    raise Exception("environment variables not set")
-
-logging.info(f"BRAND: {BRAND}")
-logging.info(f"TARGET_PRODUCT: {TARGET_PRODUCT}")
-logging.info(f"TARGET_AUDIENCE: {TARGET_AUDIENCE}")
-logging.info(f"KEY_SELLING_POINT: {KEY_SELLING_POINT}")
 
 
 # --- PARALLEL RESEARCH SUBAGENTS --- #
@@ -68,11 +38,21 @@ merge_planners = Agent(
     description="Combine results from state keys 'campaign_web_search_insights' and 'gs_web_search_insights'",
     instruction="""You are an AI Assistant responsible for combining initial research findings into a comprehensive summary.
     Your primary task is to organize the following research summaries, clearly attributing findings to their source areas. 
-    Structure your response using headings for each topic. Ensure the report is coherent and integrates the key points smoothly.
 
-    ---
-    **Output Format:**
+    <INSTRUCTIONS>
+    To complete the task, you need to follow these steps:
+    1. Structure your response using headings for each topic.
+    2. Ensure the report is coherent and integrates the key points smoothly.
+    3. The output format should include section headers like those described in the <OUTPUT_FORMAT> section.
+    </INSTRUCTIONS>
 
+    <CONSTRAINTS>
+    Dos and don'ts for the following aspects
+    1. Do not include introductory or concluding phrases outside the suggested structure
+    2. Strictly adhere to using only the provided input summary content for each section.
+    </CONSTRAINTS>
+
+    <OUTPUT_FORMAT>
     # Summary of Campaign and Trend Research
 
     ## Campaign Guide
@@ -80,8 +60,11 @@ merge_planners = Agent(
 
     ## Search Trend
     {gs_web_search_insights}
+    </OUTPUT_FORMAT>
 
-    Output *only* the structured report following this format. Do not include introductory or concluding phrases outside this structure, and strictly adhere to using only the provided input summary content.
+    <RECAP>
+    Output *only* the structured report following the described format.
+    </RECAP>
     """,
     output_key="combined_web_search_insights",
 )
@@ -171,11 +154,10 @@ combined_report_composer = Agent(
     include_contents="none",
     description="Transforms research data and a markdown outline into a final, cited report.",
     instruction="""
-    Transform the provided data into a polished, professional, and meticulously cited research report.
+    Transform the data provided in the <CONTEXT> section into a polished, professional, and meticulously cited research report.
 
-    ---
-    **INPUT DATA**
-
+    
+    <CONTEXT>
     *   **Search Trends:**
         {target_search_trends}
     
@@ -184,6 +166,7 @@ combined_report_composer = Agent(
     
     *   **Citation Sources:** 
         `{sources}`
+    </CONTEXT>
 
     ---
     **CRITICAL: Citation System**
@@ -192,7 +175,7 @@ combined_report_composer = Agent(
     **The only correct format is:** `<cite source="src-ID_NUMBER" />`
 
     ---
-    **OUTPUT FORMAT**
+    <OUTPUT_FORMAT>
     Organize the output to include these sections:
     *   **Campaign Guide**
     *   **Search Trend**
@@ -204,17 +187,19 @@ combined_report_composer = Agent(
     An overview of what this section covers, including specific insights from web research.
     Feel free to add subsections or bullet points if needed to better organize the content.
     Make sure your outline is clear and easy to follow.
+    </OUTPUT_FORMAT>
 
     ---
     **Final Instructions**
     Generate a comprehensive report using ONLY the `<cite source="src-ID_NUMBER" />` tag system for all citations.
-    Ensure the final report follows a structure similar to the one proposed in the **OUTPUT FORMAT**
+    Ensure the final report follows a structure similar to the one proposed in the <OUTPUT_FORMAT> section.
     Do not include a "References" or "Sources" section; all citations must be in-line.
     """,
     output_key="combined_final_cited_report",
     after_agent_callback=callbacks.citation_replacement_callback,
     before_model_callback=callbacks.rate_limit_callback,
 )
+
 
 # --- COMPLETE RESEARCH PIPELINE SUBAGENT --- #
 combined_research_pipeline = SequentialAgent(
@@ -239,38 +224,36 @@ ad_copy_drafter = Agent(
     ),
     instruction="""You are a creative copywriter generating initial ad copy ideas.
 
-    Your goal is to review the research and trends provided in the **Input Data** to generate 10 culturally relevant ad copy ideas.
- 
-    ---
-    ### Input Data
+    Your task is to review the research and trend provided in the <CONTEXT> block and generate 10 culturally relevant ad copy ideas.
 
-    <target_search_trends>
-    {target_search_trends}
-    </target_search_trends>
-    
-    <combined_final_cited_report>
-    {combined_final_cited_report}
-    </combined_final_cited_report>
-
-    ---
-    ### Instructions
-
-    1. Review the campaign and trend research in the 'combined_final_cited_report' state key.
-    2. Using insights related to the campaign metadata and trending Search term(s), generate 10 diverse ad copy ideas that:
-        - Incorporate key selling points for the {target_product}
+    <INSTRUCTIONS>
+    To complete the task, you need to follow these steps:
+    1. Using insights related to the campaign and Search trend, generate 10 diverse ad copy ideas that:
+        - Creatively market the target product: {target_product}
+        - Incorporate the following key selling point(s): {key_selling_points}
         - Vary in tone, style, and approach
         - Are suitable for Instagram/TikTok platforms
         - Reference the trending Search term: {target_search_trends}.
-    3. **Each ad copy should include:**
+    2. **Each ad copy should include:**
         - Headline (attention-grabbing)
         - Body text (concise and compelling)
         - Call-to-action
-        - How it relates to the trending topic (i.e., {target_search_trends})
+        - How it relates to the trending topic: {target_search_trends}
         - Brief rationale for target audience appeal
         - A candidate social media caption
+    </INSTRUCTIONS>
+
+    <CONTEXT>
+        <target_search_trends>
+        {target_search_trends}
+        </target_search_trends>
+        
+        <combined_final_cited_report>
+        {combined_final_cited_report}
+        </combined_final_cited_report>
+    </CONTEXT>
 
     Use the `google_search` tool to support your decisions.
-
     """,
     generate_content_config=types.GenerateContentConfig(
         temperature=1.5,
@@ -289,27 +272,31 @@ ad_copy_critic = Agent(
     ),
     instruction="""You are a strategic marketing critic evaluating ad copy ideas.
 
-    Your goal is to review the proposed candidates in the 'ad_copy_draft' state key and select the 5 BEST ad copies based on:
-    1. Alignment with target audience.
-    2. Effective use of trending topic that feels authentic.
-    3. Clear communication of key selling points.
-    4. Platform-appropriate tone and length.
+    Your task is to review candidate ad copies and select the 5 BEST ideas
 
-    Use the `google_search` tool to support your decisions
+    <INSTRUCTIONS>
+    To complete the task, you need to follow these steps:
+    1. Review the proposed candidates in the 'ad_copy_draft' state key.
+    2. Select the 5 best ad copy ideas based on the following criteria:
+        - Alignment with target audience.
+        - Effective use of trending topic that feels authentic.
+        - Clear communication of key selling points.
+        - Platform-appropriate tone and length.
+    3. Provide detailed rationale for your selections, explaining why these specific copies will perform best.
+    </INSTRUCTIONS>
     
-    Provide detailed rationale for your selections, explaining why these specific copies will perform best.
-    
+    <OUTPUT_FORMAT>
     Each ad copy should include:
-    - Headline (attention-grabbing)
-    - Call-to-action
-    - A candidate social media caption
-    - Body text (concise and compelling)
-    - How it relates to the trending topic (i.e., {target_search_trends})
-    - Brief rationale for target audience appeal
-    - Detailed rationale explaining why this ad copy will perform well
-
+        - Headline (attention-grabbing)
+        - Call-to-action
+        - A candidate social media caption
+        - Body text (concise and compelling)
+        - How it relates to the trending topic: {target_search_trends}
+        - Brief rationale for target audience appeal
+        - Detailed rationale explaining why this ad copy will perform well
+    </OUTPUT_FORMAT>
     """,
-    tools=[google_search],
+    # tools=[google_search],
     generate_content_config=types.GenerateContentConfig(temperature=0.7),
     output_key="ad_copy_critique",
 )
@@ -334,32 +321,36 @@ visual_concept_drafter = Agent(
     planner=BuiltInPlanner(
         thinking_config=types.ThinkingConfig(include_thoughts=False)
     ),
-    instruction=f"""You are a visual creative director generating initial concepts and an expert at creating AI prompts for {config.image_gen_model} and {config.video_gen_model}.
-    
-    Based on the selected ad copies in the 'ad_copy_critique' state key, generate visual concepts that follow these criteria:
-    - Incorporate trending visual styles and themes.
-    - Consider platform-specific best practices.
-    - Find a clever way to market the 'target_product'.
-    - References the trend from the 'target_search_trends' state key.
+    instruction="""You are a visual creative director generating initial visual concepts for given ad copy. 
 
-    Generate at least one image concept for each ad copy idea.
+    Your task is to review the ad copies in the <CONTEXT> block and generate a culturally relevant visual concept for each.
 
+    <CONTEXT>
+        <ad_copy_critique>
+        {ad_copy_critique}
+        </ad_copy_critique>
+    </CONTEXT>
+
+    <INSTRUCTIONS>
+    To complete the task, you need to follow these steps:
+    1. Based on the selected ad copies in the <CONTEXT> block, generate visual concepts that follow these criteria:
+        - Incorporate trending visual styles and themes.
+        - Consider platform-specific best practices.
+        - Find a clever way to market the target product: {target_product}
+        - References the Search trend: {target_search_trends}
+    2. Generate one visual concept for each ad copy.
+    </INSTRUCTIONS>
+
+    <OUTPUT_FORMAT>
     For each visual concept, provide:
     -   Name (intuitive name of the concept)
-    -   Type (image or video)
-    -   Which trend(s) it relates to (e.g., 'target_search_trends' state key)
+    -   How it relates to the Search trend: {target_search_trends}
     -   Which ad copy it connects to
     -   Creative concept explanation
-    -   A draft {config.image_gen_model} or {config.video_gen_model} prompt.
-    -   If this is a video concept:
-        -   Consider generated videos are 8 seconds in length.
-        -   Consider the prompting best practices in the <PROMPTING_BEST_PRACTICES/> block.
+    -   A draft prompt for image generation
+    </OUTPUT_FORMAT>
 
     Use the `google_search` tool to support your decisions.
-
-    <PROMPTING_BEST_PRACTICES>
-    {VEO3_INSTR}
-    </PROMPTING_BEST_PRACTICES>
     """,
     tools=[google_search],
     generate_content_config=types.GenerateContentConfig(temperature=1.5),
@@ -374,45 +365,49 @@ visual_concept_critic = Agent(
     planner=BuiltInPlanner(
         thinking_config=types.ThinkingConfig(include_thoughts=False)
     ),
-    instruction=f"""You are a creative director evaluating visual concepts and high quality prompts that result in high impact.
+    instruction="""You are a creative director evaluating image generation prompts for visual concepts.
+
+    Your task is to critique the prompts in the proposed visual concept drafts. Your objective is to generate high quality prompts that result in high impact.
+
+    <CONTEXT>
+        <visual_draft>
+        {visual_draft}
+        </visual_draft>
+    </CONTEXT>
+
+    <INSTRUCTIONS>
+    To complete the task, you need to follow these steps:
+    1. Review the visual concept drafts in the <CONTEXT> block and critique the image generation prompt on the following criteria:
+        - Target descriptive image prompts that visualize the ad copy concepts
+        - Ensure each prompt includes the subject, context/background, and style elements
+        - Visual appeal and stopping power for social media
+        - Alignment with the Search trend: {target_search_trends}
+        - Platform optimization (aspect ratios, duration)
+        - Prompts are maximizing descriptive possibilities to match the intended tone
+        - Descriptions of scenes, characters, tone, emotion are all extremely verbose (100+ words) and leverage ideas from the prompting best practices
+    </INSTRUCTIONS>
+
+    <CONSTRAINTS>
+    Dos and don'ts for the following aspects
+    1. Ensure each visual concept markets the target product: {target_product}
+    2. Explain how each concept relates to the Search trend: {target_search_trends}
+    </CONSTRAINTS>
     
-    Review the concepts in the 'visual_draft' state key and critique the draft prompts on:
-    1. Visual appeal and stopping power for social media
-    2. Alignment with ad copy messaging
-    3. Alignment with trend (i.e., see the 'target_search_trends' state key)
-    4. Platform optimization (aspect ratios, duration)
-    5. Diversity of visual approaches
-    6. Utilize techniques to maintain continuity in the prompts
-    7. Prompts are maximizing descriptive possibilities to match the intended tone
-    8. Descriptions of scenes, characters, tone, emotion are all extremely verbose (100+ words) and leverage ideas from the prompting best practices
-    9. These verbose descriptions are maintained scene to scene to avoid saying things like "the same person", instead use the same provided description
-
-    **Critical Guidelines**
-    * Ensure each visual concept markets the target product
-    * Explain how each concept relates to the search trend in the 'target_search_trends' state key.
-    * Provide detailed rationale for your selections.
-    * Consider the prompting best practices in the <PROMPTING_BEST_PRACTICES/> block.
-    * Use the `google_search` tool to support your decisions.
-
-    **Final Output:**
-    Format the final output to include the following information for each visual concept:
+    <OUTPUT_FORMAT>
+    The output format for each visual concept must include the following:
     -   Name (intuitive name of the concept)
-    -   Type (image or video)
-    -   How each concept relates to the search trend in the 'target_search_trends' state key.
-    -   How each concept markets the target product
     -   Creative concept explanation
+    -   How each concept relates to the Search trend: {target_search_trends}
+    -   How each concept markets the target product: {target_product}
     -   Detailed rationale explaining why this concept will perform well 
-    -   A draft Imagen or Veo prompt
-
-    <PROMPTING_BEST_PRACTICES>
-    {VEO3_INSTR}
-    </PROMPTING_BEST_PRACTICES>
+    -   A prompt for image generation
+    </OUTPUT_FORMAT>
     """,
-    tools=[google_search],
+    # tools=[google_search],
     generate_content_config=types.GenerateContentConfig(temperature=0.7),
     output_key="visual_concept_critique",
 )
-# * Ensure a good mix of images and videos in your selections.
+
 
 visual_concept_finalizer = Agent(
     model=config.worker_model,
@@ -421,20 +416,29 @@ visual_concept_finalizer = Agent(
     # planner=BuiltInPlanner(thinking_config=types.ThinkingConfig(include_thoughts=True)),
     instruction="""You are a senior creative director finalizing visual concepts for ad creatives.
 
-    1. Review the 'visual_concept_critique' state key to understand the refined visual concepts.
-    2. For each concept, provide the following:
-        -   Name (intuitive name of the concept)
-        -   Type (image or video)
+    Your task is to select the 4 best visual concepts for ad media generation.
+
+    <CONTEXT>
+        <visual_concept_critique>
+        {visual_concept_critique}
+        </visual_concept_critique>
+    </CONTEXT>
+
+    <INSTRUCTIONS>
+    To complete the task, you need to follow these steps:
+    1. Review the critiqued visual concept drafts in the <CONTEXT> block and select the 4 best concepts for ad generation.
+    2. For each visual concept, provide the following:
+        -   Name (intuitive name of the visual concept)
         -   Headline (attention-grabbing)
-        -   How each concept relates to the search trend: {target_search_trends}.
-        -   Call-to-action
         -   A candidate social media caption
         -   Creative concept explanation
+        -   How each concept relates to the search trend: {target_search_trends}.
         -   Brief rationale for target audience appeal
-        -   Brief explanation of how this markets the target product
-        -   A draft Imagen or Veo prompt.
-    
+        -   Brief explanation of how this markets the target product: {target_product}
+        -   The prompt for image generation
+    </INSTRUCTIONS>
     """,
+    # tools=[save_select_visual_concept],
     generate_content_config=types.GenerateContentConfig(temperature=0.8),
     output_key="final_visual_concepts",
 )
@@ -455,44 +459,39 @@ visual_generation_pipeline = SequentialAgent(
 visual_generator = Agent(
     model=config.critic_model,
     name="visual_generator",
-    description="Generate final visuals using image and video generation tools",
-    instruction=f"""You are a visual content producer creating final assets.
-    
-    **Objective:** Generate visual content options (images and videos) based on the selected visual concepts.
-
-    **Available Tools:**
-    - `generate_image`:tool to generate images using Google's Imagen model.
-    - `generate_video`: tool to generate videos using Google's Veo model.
-
-    **Instructions:**
-    1. For each selected visual concept in the 'final_visual_concepts' state key, generate the creative visual using the appropriate tool (`generate_image` or `generate_video`).
-        - For images, follow the instructions in the <IMAGE_GENERATION/> block, 
-        - For videos, follow the instructions in the <VIDEO_GENERATION/> block and consider prompting best practices in the <PROMPTING_BEST_PRACTICES/> block,
-
-    <IMAGE_GENERATION>
-    - Create descriptive image prompts that visualize the ad copy concepts
-    - Include subject, context/background, and style elements
-    - Ensure prompts capture the essence of the trends and campaign highlights
-    - Generate diverse visual approaches (different styles, compositions, contexts)
-    </IMAGE_GENERATION>
-
-    <VIDEO_GENERATION>
-    - Create dynamic video prompts that bring the ad copy to life
-    - Include subject, context, action, style, and optional camera/composition elements
-    - Consider continuity with the image concepts when appropriate
-    - Vary the approaches (different actions, camera angles, moods)
-    </VIDEO_GENERATION>
-
-    <PROMPTING_BEST_PRACTICES>
-     {VEO3_INSTR}
-    </PROMPTING_BEST_PRACTICES>
+    description="Generate final visuals using image generation tools",
+    instruction="""You are a visual content producer generating image creatives.
+    Your job is to invoke the `generate_image` tool.
     """,
-    tools=[
-        generate_image,
-        generate_video,
-        # save_img_artifact_key,
-        # save_vid_artifact_key,
-    ],
+    tools=[generate_image],
+    generate_content_config=types.GenerateContentConfig(temperature=1.2),
+    before_model_callback=callbacks.rate_limit_callback,
+)
+
+
+html_writer = Agent(
+    model=config.critic_model,
+    name="html_writer",
+    description="Generate HTML to display ad creatives and their details",
+    instruction="""You are an expert AI web developer. 
+    Your job is to generate complete HTML and JavaScript code for a responsive image gallery displaying each creative in the <CONTEXT> block
+
+    <CONTEXT>
+        <final_select_vis_concepts>
+        {final_select_vis_concepts}
+        </final_select_vis_concepts>
+    </CONTEXT>
+
+    The gallery should display a set of images. Provide an array of image data in the JavaScript, where each object in the array contains:
+    - `src`: The URL or path to the image file.
+    - `alt`: Alternative text for the image.
+    - `caption` (optional): A short caption to display below the image.
+
+    The entire content should be wrapped in a valid HTML5 structure.
+
+    Your job is to invoke the `generate_image` tool.
+    """,
+    tools=[generate_image],
     generate_content_config=types.GenerateContentConfig(temperature=1.2),
     before_model_callback=callbacks.rate_limit_callback,
 )
@@ -505,19 +504,21 @@ root_agent = Agent(
     description="Help with ad generation; brainstorm and refine ad copy and visual concept ideas with actor-critic workflows; generate final ad creatives.",
     instruction="""**Role:** You are the orchestrator for a comprehensive ad content generation workflow.
 
-    **Objective:** Your goal is to generate a complete set of ad creatives including ad copy, images, and videos. To achieve this, use the **specialized tools and sub-agents** available to complete the **instructions** below.
+    **Objective:** Your goal is to generate a complete set of ad creatives including ad copy and images. To achieve this, use the <AVAILABLE_TOOLS/> available to complete the <INSTRUCTIONS/> below.
     
-    **You have access to specialized tools and sub-agents:**
+    <AVAILABLE_TOOLS>
     1. Use the `combined_research_pipeline` tool to conduct web research on the campaign metadata and selected trends.
-    2. Use the `ad_creative_pipeline` tool to generate ad copies.
-    3. Use the `visual_generation_pipeline` tool to create visual concepts for each ad copy.
-    5. Use the `visual_generator` tool to generate image and video creatives.
+    2. Use the `save_draft_report_artifact` tool to save a research PDf report to Cloud Storage.
+    3. Use the `ad_creative_pipeline` tool to generate ad copies.
+    4. Use the `visual_generation_pipeline` tool to create visual concepts for each ad copy.
+    5. Use the `visual_generator` tool to generate image creatives.
     6. Use the `memorize` tool to store trends and campaign metadata in the session state.
-    7. Use the `save_creatives_html_report` tool to build the final HTML report, detailing research and creatives generated during a session.
-    8. Use the `save_img_artifact_key` tool to update the 'img_artifact_keys' state key for each image generated with the `generate_image` tool.
-    9. Use the `save_vid_artifact_key` tool to update the 'vid_artifact_keys' state key for each video generated with the `generate_video` tool.
+    7. Use the `save_select_visual_concept` tool to update the 'final_select_vis_concepts' state key with the final visual concepts generated with the `visual_generation_pipeline` tool.
+    8. Use the `save_creatives_html_report` tool to build the final HTML report, detailing research and creatives generated during a session.
+    9. Use the `save_creative_gallery_html` tool to build an HTML file for displaying a portfolio of the generated creatives generated during the session.
+    </AVAILABLE_TOOLS>
 
-    **Instructions:**
+    <INSTRUCTIONS>
     1. First, complete the following information if any is blank:
         <brand>{brand}</brand>
         <target_audience>{target_audience}</target_audience>
@@ -533,45 +534,37 @@ root_agent = Agent(
         To make sure everything is stored correctly, instead of calling memorize all at once, chain the calls such that 
         you only call another `memorize` after the last call has responded. 
     3. Then, complete all steps in the <WORKFLOW/> block to generate ad creatives. Strictly follow all the steps one-by-one.
+    </INSTRUCTIONS>
 
     <WORKFLOW>
-    1. Call the `combined_research_pipeline` tool to conduct web research on the campaign metadata and selected search trend.
-    2. Then, call `ad_creative_pipeline` as a tool to generate a set of candidate ad copies.
-    3. Next, call the `visual_generation_pipeline` tool to generate visual concepts for each ad copy.
-    4. Next, call the `visual_generator` tool to generate ad creatives from the selected visual concepts.
-        -   For each image generated, call the `save_img_artifact_key` tool to update the 'img_artifact_keys' state key.
-        -   For each video generated, call the `save_vid_artifact_key` tool to update the 'vid_artifact_keys' state key. 
-    5. Finally, after the previous step is complete, use the `save_creatives_html_report` tool to create the final HTML report and save it to Cloud Storage
+    1. First, use the `combined_research_pipeline` tool to conduct web research on the campaign metadata and selected trends.
+    2. Once all research tasks are complete, use the `save_draft_report_artifact` tool to save the research as a markdown file in Cloud Storage.
+    3. Invoke the `ad_creative_pipeline` tool to generate a set of candidate ad copies.
+    4. Then, call the `visual_generation_pipeline` tool to generate visual concepts.
+    5. Once the previous step completes, use the `save_select_visual_concept` tool to save each finalized visual concept to the `final_visual_concepts` state key.
+        -   To make sure everything is stored correctly, instead of calling `save_select_visual_concept` all at once, chain the calls such that you only call another `save_select_visual_concept` after the last call has responded.
+        -   Once these complete, proceed to the next step.
+    6. Next, call the `visual_generator` tool to generate ad creatives.
+    7. After the previous step is complete, use the `save_creatives_html_report` tool to create the final HTML report and save it to Cloud Storage. 
+    8. Finally, as the last step, call the `save_creative_gallery_html` tool to create an HTML portfolio and save it to Cloud Storage. Display the `gcs_uri` returned by the function to the user.
     </WORKFLOW>
     
+    Your job is complete when all tasks in the <WORKFLOW> block are complete.
     """,
     tools=[
         AgentTool(agent=combined_research_pipeline),
         AgentTool(agent=ad_creative_pipeline),
         AgentTool(agent=visual_generation_pipeline),
         AgentTool(agent=visual_generator),
-        save_img_artifact_key,
-        save_vid_artifact_key,
-        # save_select_ad_copy,
-        # save_select_visual_concept,
-        memorize,
+        save_draft_report_artifact,
         save_creatives_html_report,
-        # load_artifacts,
+        save_select_visual_concept,
+        save_creative_gallery_html,
+        memorize,
     ],
-    generate_content_config=types.GenerateContentConfig(temperature=1.0),
+    generate_content_config=types.GenerateContentConfig(
+        temperature=1.0, labels={"agent": "trend_trawler"}
+    ),
     before_agent_callback=callbacks._load_session_state,
     before_model_callback=callbacks.rate_limit_callback,
 )
-
-# 5. Once all visuals are created, call the following tools to update the session state keys:
-# 10. Use the `save_select_visual_concept` tool to save the finalized visual concepts to the session state.
-
-# 3. Once the previous step is complete, use the `save_select_ad_copy` tool to add the critiqued ad copies to the session state.
-#     -   To make sure everything is stored correctly, instead of calling `save_select_ad_copy` all at once, chain the calls such that you only call another `save_select_ad_copy` after the last call has responded.
-#     -   Once these complete, proceed to the next step.
-# 4. Once the previous step is complete, use the `save_select_visual_concept` tool to add the finalized visual concepts to the session state.
-#     -   To make sure everything is stored correctly, instead of calling `save_select_visual_concept` all at once, chain the calls such that you only call another `save_select_visual_concept` after the last call has responded.
-#     -   Once these complete, proceed to the next step.
-
-# Chain the calls such that you only call another `save_img_artifact_key` after the last call has responded.
-# Chain the calls such that you only call another `save_vid_artifact_key` after the last call has responded.
