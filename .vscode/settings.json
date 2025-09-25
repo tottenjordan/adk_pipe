@@ -9,7 +9,11 @@
         "gtrends",
         "imagen",
         "instrumentor",
+        "LANCZOS",
+        "minmax",
         "pycache",
+        "Roboto",
+        "Segoe",
         "uvicorn",
         "venv",
         "vertexai"
