@@ -1,5 +1,4 @@
-import datetime
-import logging
+import datetime, logging
 
 logging.basicConfig(level=logging.INFO)
 
@@ -10,15 +9,13 @@ from google.adk.planners import BuiltInPlanner
 from google.adk.tools.agent_tool import AgentTool
 from google.adk.agents import Agent, SequentialAgent, ParallelAgent
 
-from . import callbacks
-from .config import config
 from .sub_agents.campaign_researcher.agent import ca_sequential_planner
 from .sub_agents.trend_researcher.agent import gs_sequential_planner
+from .config import config
+from . import callbacks
 from .tools import (
     memorize,
-    # write_to_file,
     generate_image,
-    # generate_video,
     save_img_artifact_key,
     save_select_visual_concept,
     save_draft_report_artifact,
@@ -418,7 +415,7 @@ visual_concept_finalizer = Agent(
     # planner=BuiltInPlanner(thinking_config=types.ThinkingConfig(include_thoughts=True)),
     instruction="""You are a senior creative director finalizing visual concepts for ad creatives.
 
-    Your task is to select the best visual concepts for ad media generation.
+    Your task is to select the 4 best visual concepts for ad media generation.
 
     <CONTEXT>
         <visual_concept_critique>
@@ -428,7 +425,7 @@ visual_concept_finalizer = Agent(
 
     <INSTRUCTIONS>
     To complete the task, you need to follow these steps:
-    1. Review the critiqued visual concept drafts in the <CONTEXT> block and select the 3 best concepts for ad generation.
+    1. Review the critiqued visual concept drafts in the <CONTEXT> block and select the 4 best concepts for ad generation.
     2. For each visual concept, provide the following:
         -   Name (intuitive name of the visual concept)
         -   Headline (attention-grabbing)
@@ -444,7 +441,6 @@ visual_concept_finalizer = Agent(
     generate_content_config=types.GenerateContentConfig(temperature=0.8),
     output_key="final_visual_concepts",
 )
-#  3. For each visual concept selected, call the `save_select_visual_concept` tool to update the 'final_select_vis_concepts' state key.
 
 
 # Sequential agent for visual generation
@@ -463,24 +459,8 @@ visual_generator = Agent(
     model=config.critic_model,
     name="visual_generator",
     description="Generate final visuals using image generation tools",
-    instruction="""You are a visual content producer creating final assets.
-    Your objective is to generate an image for each finalized visual concept.
-
-    Here are the finalized visual concepts:
-    <CONTEXT>
-        <final_select_vis_concepts>
-        {final_select_vis_concepts}
-        </final_select_vis_concepts>
-    </CONTEXT>
-
-    <INSTRUCTIONS>
-    1. Review the finalized visual concepts in the <CONTEXT> block.
-    2. For each visual concept, invoke the `generate_image` tool by passing the visual concept's 'name' to the `concept_name` parameter and its 'prompt' to the `prompt` parameter.
-    </INSTRUCTIONS>
-
-    <RECAP>
-    You should make a separate tool call for each finalized visual concept.
-    </RECAP>
+    instruction="""You are a visual content producer generating image creatives.
+    Your job is to invoke the `generate_image` tool.
     """,
     tools=[generate_image],
     generate_content_config=types.GenerateContentConfig(temperature=1.2),
@@ -506,7 +486,6 @@ root_agent = Agent(
     6. Use the `memorize` tool to store trends and campaign metadata in the session state.
     7. Use the `save_creatives_html_report` tool to build the final HTML report, detailing research and creatives generated during a session.
     8. Use the `save_select_visual_concept` tool to update the 'final_select_vis_concepts' state key with the final visual concepts generated with the `visual_generation_pipeline` tool.
-    9. Use the `save_img_artifact_key` tool to update the 'img_artifact_keys' state key for each image generated with the `generate_image` tool.
     </AVAILABLE_TOOLS>
 
     <INSTRUCTIONS>
@@ -528,16 +507,15 @@ root_agent = Agent(
     </INSTRUCTIONS>
 
     <WORKFLOW>
-    1. First, use the `combined_research_pipeline` tool (agent tool) to conduct web research on the campaign metadata and selected trends.
+    1. First, use the `combined_research_pipeline` tool to conduct web research on the campaign metadata and selected trends.
     2. Once all research tasks are complete, use the `save_draft_report_artifact` tool to save the research as a markdown file in Cloud Storage.
     3. Invoke the `ad_creative_pipeline` tool to generate a set of candidate ad copies.
-    4. Then, call the `visual_generation_pipeline` tool to generate visual concepts for each ad copy.
-    5. Once the previous step completes, use the `save_select_visual_concept` tool to save each finalized visual concept in the `final_visual_concepts` state key.
+    4. Then, call the `visual_generation_pipeline` tool to generate visual concepts.
+    5. Once the previous step completes, use the `save_select_visual_concept` tool to save each finalized visual concept to the `final_visual_concepts` state key.
         -   To make sure everything is stored correctly, instead of calling `save_select_visual_concept` all at once, chain the calls such that you only call another `save_select_visual_concept` after the last call has responded.
         -   Once these complete, proceed to the next step.
-    6. Next, call the `visual_generator` tool to generate ad creatives from the selected visual concepts.
-        -   For each image generated, call the `save_img_artifact_key` tool to update the 'img_artifact_keys' state key.
-    7. Finally, after the previous step is complete, use the `save_creatives_html_report` tool to create the final HTML report and save it to Cloud Storage. Display the `gcs_uri` returned by the function to the user:
+    6. Next, call the `visual_generator` tool to generate ad creatives.
+    7. Finally, after the previous step is complete, use the `save_creatives_html_report` tool to create the final HTML report and save it to Cloud Storage. Display the `gcs_uri` returned by the function to the user.
     </WORKFLOW>
     
     Your job is complete when all tasks in the <WORKFLOW> block are complete.
@@ -550,7 +528,7 @@ root_agent = Agent(
         save_draft_report_artifact,
         save_creatives_html_report,
         save_select_visual_concept,
-        save_img_artifact_key,
+        # save_img_artifact_key,
         memorize,
     ],
     generate_content_config=types.GenerateContentConfig(

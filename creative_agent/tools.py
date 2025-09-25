@@ -54,58 +54,6 @@ def memorize(key: str, value: str, tool_context: ToolContext):
     return {"status": f'Stored "{key}": "{value}"'}
 
 
-def write_to_file(tool_context: ToolContext) -> dict:
-    """
-    Writes the given content to a markdown file. Saves the file to Google Cloud Storage.
-
-    Args:
-        tool_context (ToolContext): The tool context.
-
-    Returns:
-        dict: A dictionary containing the status and the markdown file's Cloud Storage URI (gcs_uri).
-    """
-    LOCAL_DIR = tool_context.state["agent_output_dir"]
-    gcs_folder = tool_context.state["gcs_folder"]
-
-    # Construct the output filename e.g., "trawler_output/selected_trends.md"
-    artifact_key = "research_report_with_citations.md"
-    local_file = f"{LOCAL_DIR}/{artifact_key}"
-
-    # Ensure the "trawler_output" directory exists. If it doesn’t, create it.
-    # `exist_ok=True` prevents an error if the directory already exists.
-    Path(LOCAL_DIR).mkdir(exist_ok=True)
-
-    # Write the markdown content to the constructed file.
-    # `encoding='utf-8'` ensures proper character encoding.
-    Path(local_file).write_text(
-        tool_context.state["final_report_with_citations"], encoding="utf-8"
-    )
-
-    # save to GCS
-    storage_client = get_gcs_client()
-    gcs_bucket = config.GCS_BUCKET_NAME
-    bucket = storage_client.bucket(gcs_bucket)
-    blob = bucket.blob(os.path.join(gcs_folder, local_file))
-    blob.upload_from_filename(local_file)
-
-    # save to session state
-    gcs_blob_name = f"{gcs_folder}/{LOCAL_DIR}/{artifact_key}"
-    gcs_uri = f"gs://{gcs_bucket}/{gcs_blob_name}"
-    tool_context.state["research_report_gcs_uri"] = gcs_uri
-
-    try:
-        shutil.rmtree(LOCAL_DIR)
-        logging.info(f"Directory '{LOCAL_DIR}' and its contents removed successfully")
-    except FileNotFoundError:
-        logging.exception(f"Directory '{LOCAL_DIR}' not found")
-
-    # Return a dictionary indicating success, and the artifact_key that was written.
-    return {
-        "status": "success",
-        "gcs_uri": gcs_uri,
-    }
-
-
 def save_select_visual_concept(
     select_vis_concept_dict: dict, tool_context: ToolContext
 ) -> dict:
@@ -119,9 +67,11 @@ def save_select_visual_concept(
             headline (str): The attention-grabbing headline.
             caption (str): The candidate social media caption proposed for the visual concept.
             creative_explain (str): A brief explanation of the visual concept.
+            trend (str): The trend(s) referenced by this creative.
             trend_reference (str): How the visual concept relates to the `target_search_trends`
             audience_appeal (str): A brief explanation for the target audience appeal.
             markets_product (str): A brief explanation of how this markets the target product.
+            rationale_perf (str): A brief rationale explaining why this ad copy will perform well.
             prompt (str): The suggested prompt to generate this creative.
         tool_context: The tool context.
 
@@ -151,53 +101,71 @@ async def generate_image(
     Returns:
         dict: Status and the artifact_key of the generated image.
     """
-    # Create output filename
-    if concept_name:
-        filename_prefix = concept_name.translate(REMOVE_PUNCTUATION).replace(" ", "_")
-    else:
-        filename_prefix = f"{str(uuid.uuid4())[:8]}"
+    # get constants
+    gcs_folder = tool_context.state["gcs_folder"]
+    gcs_subdir = tool_context.state["agent_output_dir"]
 
-    # genai client
-    response = client.models.generate_images(
-        model=config.image_gen_model,
-        prompt=prompt,
-        config=types.GenerateImagesConfig(
-            number_of_images=1,
-            enhance_prompt=False,
-        ),
-    )
+    # get artifact details
+    final_visual_concepts_dict = tool_context.state.get("final_select_vis_concepts")
+    final_visual_concepts_list = final_visual_concepts_dict["final_select_vis_concepts"]
 
-    if not response.generated_images:
-        return {
-            "status": "error",
-            "error_message": f"No images generated. Response: {str(response)}",
-        }
+    artifact_keys_list = []
+    for entry in final_visual_concepts_list:
+        # logging.info(entry)
 
-    for index, image_results in enumerate(response.generated_images):
-        if (
-            image_results.image is not None
-            and image_results.image.image_bytes is not None
-        ):
-            image_bytes = image_results.image.image_bytes
-            artifact_key = f"{filename_prefix}_{index}.png"
+        try:
 
-            img_gcs_uri = save_to_gcs(
-                tool_context=tool_context,
-                image_bytes=image_bytes,
-                filename=artifact_key,
+            response = client.models.generate_images(
+                model=config.image_gen_model,
+                prompt=entry["prompt"],
+                config=types.GenerateImagesConfig(
+                    number_of_images=1,
+                    enhance_prompt=False,
+                ),
             )
-            # save ADK artifact
-            img_artifact = types.Part.from_bytes(
-                data=image_bytes, mime_type="image/png"
-            )
-            await tool_context.save_artifact(
-                filename=artifact_key, artifact=img_artifact
-            )
-            logging.info(f"Saved image artifact, '{artifact_key}', to '{img_gcs_uri}'")
-            return {
-                # "status": "success",
-                "artifact_key": artifact_key,
-            }
+
+            if (
+                response.generated_images is not None
+                and response.generated_images[0].image is not None
+                and response.generated_images[0].image.image_bytes is not None
+            ):
+                # extract bytes && define artifact key
+                image_bytes = response.generated_images[0].image.image_bytes
+                ARTIFACT_NAME = (
+                    entry["name"].translate(REMOVE_PUNCTUATION).replace(" ", "_")
+                )
+                artifact_key = f"{ARTIFACT_NAME}.png"
+
+                # save img to Cloud Storage
+                img_gcs_uri = save_to_gcs(
+                    tool_context=tool_context,
+                    image_bytes=image_bytes,
+                    filename=artifact_key,
+                )
+
+                # save ADK artifact
+                img_artifact = types.Part.from_bytes(
+                    data=image_bytes, mime_type="image/png"
+                )
+                await tool_context.save_artifact(
+                    filename=artifact_key, artifact=img_artifact
+                )
+                logging.info(
+                    f"Saved image artifact, '{artifact_key}', to '{img_gcs_uri}'"
+                )
+                artifact_keys_list.append(artifact_key)
+
+            else:
+                logging.error(f"Error with image generation response: {str(response)}")
+
+        except Exception as e:
+            logging.exception(f"No images generated. {e}")
+            return {"status": "error", "error_message": "No images generated. {e}"}
+
+    return {
+        "status": "success",
+        "message": f"Saved img artifacts: {artifact_keys_list} to `gs://{config.GCS_BUCKET_NAME}/{gcs_folder}/{gcs_subdir}`",
+    }
 
 
 async def save_img_artifact_key(
@@ -246,21 +214,22 @@ async def save_creatives_html_report(tool_context: ToolContext) -> dict:
     gcs_folder = tool_context.state["gcs_folder"]
     gcs_subdir = tool_context.state["agent_output_dir"]
 
+    # get artifact details
+    final_visual_concepts_dict = tool_context.state.get("final_select_vis_concepts")
+    final_visual_concepts_list = final_visual_concepts_dict[
+        "final_select_vis_concepts"
+    ]
+
     try:
 
-        # ==================== #
-        # get image creatives
-        # ==================== #
-
-        # get artifact details
-        img_artifact_state_dict = tool_context.state.get("img_artifact_keys")
-        img_artifact_list = img_artifact_state_dict["img_artifact_keys"]
-
+        # creatives
         IMG_CREATIVE_STRING = ""
-        for entry in img_artifact_list:
-            logging.info(entry)
-            ARTIFACT_FILENAME = entry["artifact_key"]
-            AUTH_GCS_URL = f"https://storage.mtls.cloud.google.com/{config.GCS_BUCKET_NAME}/{gcs_folder}/{gcs_subdir}/{ARTIFACT_FILENAME}?authuser=3"
+        for entry in final_visual_concepts_list:
+            ARTIFACT_NAME = (
+                entry["name"].translate(REMOVE_PUNCTUATION).replace(" ", "_")
+            )
+            ARTIFACT_KEY = f"{ARTIFACT_NAME}.png"
+            AUTH_GCS_URL = f"https://storage.mtls.cloud.google.com/{config.GCS_BUCKET_NAME}/{gcs_folder}/{gcs_subdir}/{ARTIFACT_KEY}?authuser=3"
             IMG_HTML_STR = f"""<img src={AUTH_GCS_URL} alt ='authenticated URL' width='600' class='center'>
             """
 
@@ -268,11 +237,12 @@ async def save_creatives_html_report(tool_context: ToolContext) -> dict:
             str_2 = f"{IMG_HTML_STR}\n\n"
             str_3 = f"**{entry['caption']}**\n\n"
             str_4 = f"**Trend:** {entry['trend']}\n\n"
-            str_5 = f"**Visual Concept:** {entry['concept_explained']}\n\n"
-            str_6 = f"**How it markets target product:** {entry['markets_product']}\n\n"
-            str_7 = f"**Target audience appeal:** {entry['audience_appeal']}\n\n"
-            str_8 = f"**Why this will perform well:** {entry['rationale_perf']}\n\n"
-            str_9 = f"**Prompt:** {entry['img_prompt']}\n\n"
+            str_5 = f"**Visual Concept:** {entry['creative_explain']}\n\n"
+            str_6 = f"**How it references trend:** {entry['trend_reference']}\n\n"
+            str_7 = f"**How it markets target product:** {entry['markets_product']}\n\n"
+            str_8 = f"**Target audience appeal:** {entry['audience_appeal']}\n\n"
+            str_9 = f"**Why this will perform well:** {entry['rationale_perf']}\n\n"
+            str_10 = f"**Prompt:** {entry['prompt']}\n\n"
             result = (
                 str_1
                 + " "
@@ -291,6 +261,8 @@ async def save_creatives_html_report(tool_context: ToolContext) -> dict:
                 + str_8
                 + " "
                 + str_9
+                + " "
+                + str_10
             )
 
             IMG_CREATIVE_STRING += result
@@ -318,9 +290,9 @@ async def save_creatives_html_report(tool_context: ToolContext) -> dict:
         with open(REPORT_NAME, "w", encoding="utf-8") as html_file:
             html_file.write(full_html_document)
 
+        # save HTML file to cloud storage
         gcs_blob_name = f"{gcs_folder}/{gcs_subdir}/{REPORT_NAME}"
         gcs_uri = f"gs://{config.GCS_BUCKET_NAME}/{gcs_blob_name}"
-
         upload_blob_to_gcs(
             source_file_name=REPORT_NAME,
             destination_blob_name=gcs_blob_name,
