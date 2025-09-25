@@ -29,10 +29,9 @@
 
 
 **TODOs**
+* deployment script for Vertex AI Agent Engine
 * event-based triggers
 * scheduled runs
-* swarm orchestration
-* accessible outputs
 * email / notification
 * easy export to ~*live editor tool* to nano-banana
 
@@ -154,7 +153,7 @@ user: Brand Name: "YOUR BRAND OF CHOICE"
       Key Selling Points: "YOU KEY SELLING POINT(S)"
       target_search_trend: "YOUR_SEARCH_TREND_OF_CHOICE"
 
-agent: `[end-to-end workflow >> candidate creatives (img/vid)]` 
+agent: `[end-to-end workflow >> candidate creatives]` 
 ```
 
 ## Deploying Agents to separate Agent Engine instances
