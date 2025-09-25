@@ -16,10 +16,11 @@ from . import callbacks
 from .tools import (
     memorize,
     generate_image,
-    save_img_artifact_key,
+    # save_img_artifact_key,
     save_select_visual_concept,
     save_draft_report_artifact,
     save_creatives_html_report,
+    save_creative_gallery_html
 )
 
 
@@ -468,6 +469,34 @@ visual_generator = Agent(
 )
 
 
+html_writer = Agent(
+    model=config.critic_model,
+    name="html_writer",
+    description="Generate HTML to display ad creatives and their details",
+    instruction="""You are an expert AI web developer. 
+    Your job is to generate complete HTML and JavaScript code for a responsive image gallery displaying each creative in the <CONTEXT> block
+
+    <CONTEXT>
+        <final_select_vis_concepts>
+        {final_select_vis_concepts}
+        </final_select_vis_concepts>
+    </CONTEXT>
+
+    The gallery should display a set of images. Provide an array of image data in the JavaScript, where each object in the array contains:
+    - `src`: The URL or path to the image file.
+    - `alt`: Alternative text for the image.
+    - `caption` (optional): A short caption to display below the image.
+
+    The entire content should be wrapped in a valid HTML5 structure.
+
+    Your job is to invoke the `generate_image` tool.
+    """,
+    tools=[generate_image],
+    generate_content_config=types.GenerateContentConfig(temperature=1.2),
+    before_model_callback=callbacks.rate_limit_callback,
+)
+
+
 # Main orchestrator agent
 root_agent = Agent(
     model=config.lite_planner_model,
@@ -484,8 +513,9 @@ root_agent = Agent(
     4. Use the `visual_generation_pipeline` tool to create visual concepts for each ad copy.
     5. Use the `visual_generator` tool to generate image creatives.
     6. Use the `memorize` tool to store trends and campaign metadata in the session state.
-    7. Use the `save_creatives_html_report` tool to build the final HTML report, detailing research and creatives generated during a session.
-    8. Use the `save_select_visual_concept` tool to update the 'final_select_vis_concepts' state key with the final visual concepts generated with the `visual_generation_pipeline` tool.
+    7. Use the `save_select_visual_concept` tool to update the 'final_select_vis_concepts' state key with the final visual concepts generated with the `visual_generation_pipeline` tool.
+    8. Use the `save_creatives_html_report` tool to build the final HTML report, detailing research and creatives generated during a session.
+    9. Use the `save_creative_gallery_html` tool to build an HTML file for displaying a portfolio of the generated creatives generated during the session.
     </AVAILABLE_TOOLS>
 
     <INSTRUCTIONS>
@@ -515,7 +545,8 @@ root_agent = Agent(
         -   To make sure everything is stored correctly, instead of calling `save_select_visual_concept` all at once, chain the calls such that you only call another `save_select_visual_concept` after the last call has responded.
         -   Once these complete, proceed to the next step.
     6. Next, call the `visual_generator` tool to generate ad creatives.
-    7. Finally, after the previous step is complete, use the `save_creatives_html_report` tool to create the final HTML report and save it to Cloud Storage. Display the `gcs_uri` returned by the function to the user.
+    7. After the previous step is complete, use the `save_creatives_html_report` tool to create the final HTML report and save it to Cloud Storage. 
+    8. Finally, as the last step, call the `save_creative_gallery_html` tool to create an HTML portfolio and save it to Cloud Storage. Display the `gcs_uri` returned by the function to the user.
     </WORKFLOW>
     
     Your job is complete when all tasks in the <WORKFLOW> block are complete.
@@ -528,7 +559,7 @@ root_agent = Agent(
         save_draft_report_artifact,
         save_creatives_html_report,
         save_select_visual_concept,
-        # save_img_artifact_key,
+        save_creative_gallery_html,
         memorize,
     ],
     generate_content_config=types.GenerateContentConfig(

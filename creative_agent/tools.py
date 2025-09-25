@@ -5,6 +5,7 @@ import uuid, os, string
 logging.basicConfig(level=logging.INFO)
 
 import shutil
+from PIL import Image
 from pathlib import Path
 from markdown_pdf import MarkdownPdf, Section
 
@@ -87,16 +88,12 @@ def save_select_visual_concept(
 
 
 async def generate_image(
-    prompt: str,
     tool_context: ToolContext,
-    concept_name: str,
 ):
     f"""Generates an image based on the prompt for {config.image_gen_model}
 
     Args:
-        prompt (str): The prompt to generate the image from.
         tool_context (ToolContext): The tool context.
-        concept_name (str, optional): The visual concept's name.
 
     Returns:
         dict: Status and the artifact_key of the generated image.
@@ -216,9 +213,7 @@ async def save_creatives_html_report(tool_context: ToolContext) -> dict:
 
     # get artifact details
     final_visual_concepts_dict = tool_context.state.get("final_select_vis_concepts")
-    final_visual_concepts_list = final_visual_concepts_dict[
-        "final_select_vis_concepts"
-    ]
+    final_visual_concepts_list = final_visual_concepts_dict["final_select_vis_concepts"]
 
     try:
 
@@ -305,7 +300,389 @@ async def save_creatives_html_report(tool_context: ToolContext) -> dict:
         }
 
     except Exception as e:
-        logging.error(f"Error saving artifact: {e}")
+        logging.exception(f"Error saving artifact: {e}")
+        return {"status": "failed", "error": str(e)}
+
+
+async def save_creative_gallery_html(tool_context: ToolContext) -> dict:
+    """
+    Saves generated HTML report to Cloud Storage.
+
+    Args:
+        tool_context (ToolContext): The tool context.
+
+    Returns:
+        dict: Status and the location of the HTML artifact file.
+    """
+    brand = tool_context.state["brand"]
+    target_product = tool_context.state["target_product"]
+    key_selling_points = tool_context.state["key_selling_points"]
+    target_audience = tool_context.state["target_audience"]
+    target_search_trends = tool_context.state["target_search_trends"]
+    gcs_folder = tool_context.state["gcs_folder"]
+    gcs_subdir = tool_context.state["agent_output_dir"]
+
+    # get artifact details
+    final_visual_concepts_dict = tool_context.state.get("final_select_vis_concepts")
+    final_visual_concepts_list = final_visual_concepts_dict["final_select_vis_concepts"]
+
+    try:
+        # creatives
+        CONNECTED_GALLERY_STRING = ""
+        for index, entry in enumerate(final_visual_concepts_list):
+            ARTIFACT_NAME = (
+                entry["name"].translate(REMOVE_PUNCTUATION).replace(" ", "_")
+            )
+            ARTIFACT_KEY = f"{ARTIFACT_NAME}.png"
+            AUTH_GCS_URL = f"https://storage.mtls.cloud.google.com/{config.GCS_BUCKET_NAME}/{gcs_folder}/{gcs_subdir}/{ARTIFACT_KEY}?authuser=3"
+
+            # get high-res image
+
+            # TODO: remove if works
+            # storage_client = get_gcs_client()
+            # bucket = storage_client.bucket(config.GCS_BUCKET_NAME)
+            # blob = bucket.blob(f"{gcs_folder}/{gcs_subdir}/{ARTIFACT_KEY}")
+            # LOCAL_FILENAME = f"local_{ARTIFACT_KEY}"
+            # blob.download_to_file(LOCAL_FILENAME)
+            # img = Image.open(LOCAL_FILENAME)
+            # current_w, current_h = img.size
+            # new_w = int(current_w * 1.5)
+            # new_h = int(current_h * 1.5)
+            # resized_image = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+            # XL_LOCAL_FILENAME = f"XL_{LOCAL_FILENAME}"
+            # resized_image.save(XL_LOCAL_FILENAME)
+            # NEW_BLOB_NAME = f"{gcs_folder}/{gcs_subdir}/{XL_LOCAL_FILENAME}"
+            # new_blob = bucket.blob(NEW_BLOB_NAME)
+            # new_blob.upload_from_filename(XL_LOCAL_FILENAME)
+            # HIGH_RES_AUTH_GCS_URL = f"https://storage.mtls.cloud.google.com/{config.GCS_BUCKET_NAME}/{gcs_folder}/{gcs_subdir}/{XL_LOCAL_FILENAME}?authuser=3"
+            
+            HIGH_RES_AUTH_GCS_URL = get_high_res_img(
+                gcs_folder=tool_context.state["gcs_folder"],
+                gcs_subdir=tool_context.state["agent_output_dir"],
+                artifact_key=ARTIFACT_KEY,
+            )
+
+            # generate HTML block for gallery images
+            GALLERY_IMAGE_BLOCK = f"""
+                    <!-- Image {index+1} -->
+                    <div class="gallery-item">
+                        <h4 class="image-title">{entry['headline']}</h4>
+                        <div class="image-container">
+                            <img src="{AUTH_GCS_URL}" 
+                                 data-high-res-src="{HIGH_RES_AUTH_GCS_URL}"
+                                 alt="{entry['creative_explain'].replace('"', "'")}" 
+                                 title="{entry['headline']}">
+                            <div class="hover-text">
+                                <div class="hover-snippet snippet-top-left"><strong>Trend Reference:</strong>{entry['trend_reference'].replace('"', "'")}</div>
+                                <div class="hover-snippet snippet-bottom-left"><strong>How it markets Target Product:</strong>{entry['markets_product'].replace('"', "'")}</div>
+                                <div class="hover-snippet snippet-bottom-right"><strong>Target audience appeal:</strong>{entry['audience_appeal'].replace('"', "'")}</div>
+                            </div>
+                        </div>
+                        <p class="caption">{entry['caption']}</p>
+                    </div>
+            """
+            CONNECTED_GALLERY_STRING += GALLERY_IMAGE_BLOCK
+
+        HTML_TEMPLATE = """<!DOCTYPE html>
+        <html lang="en">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Trend Creative Report</title>
+            <style>
+                /* Basic body styling for better presentation */
+                body {
+                    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+                    background-color: #f0f2f5;
+                    margin: 0;
+                    padding: 20px;
+                }
+
+                h1 {
+                    text-align: center;
+                    color: #333;
+                    margin-bottom: 20px;
+                }
+
+                /* Sub-header styles */
+                .sub-header-container {
+                    max-width: 1000px;
+                    margin: 30px auto 20px;
+                    display: flex;
+                    justify-content: center;
+                    gap: 40px;
+                    list-style: none;
+                    padding: 0;
+                }
+
+                .sub-header-container h3 {
+                    margin: 0;
+                    font-weight: 500;
+                    color: #555;
+                    cursor: pointer;
+                    transition: color 0.2s ease;
+                }
+
+                .sub-header-container h3:hover {
+                    color: #007bff;
+                }
+
+                /* --- THIS IS THE CRITICAL RULE --- */
+                .gallery-container {
+                    display: grid;
+                    grid-template-columns: repeat(auto-fit, minmax(550px, 1fr));
+                    gap: 20px; 
+                    max-width: 1600px;
+                    margin: 0 auto;
+                }
+
+                /* Gallery Item Card */
+                .gallery-item {
+                    display: flex;
+                    flex-direction: column;
+                    overflow: hidden;
+                    border-radius: 8px;
+                    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+                    background-color: #fff;
+                    transition: transform 0.3s ease, box-shadow 0.3s ease;
+                }
+
+                .gallery-item:hover {
+                    transform: translateY(-5px);
+                    box-shadow: 0 8px 16px rgba(0, 0, 0, 0.2);
+                }
+
+                /* NEW: Image Title Style */
+                .image-title {
+                    margin: 0;
+                    padding: 15px;
+                    font-size: 1.5em;
+                    font-weight: 600;
+                    text-align: center;
+                    color: #333;
+                    background-color: #f9f9f9;
+                    border-bottom: 1px solid #eee;
+                }
+
+                .image-container {
+                    position: relative;
+                    overflow: hidden;
+                }
+
+                .image-container img {
+                    width: 100%;
+                    height: auto;
+                    display: block;
+                    transition: transform 0.3s ease;
+                    cursor: pointer;
+                }
+
+                /* The zoom effect is now triggered by hovering the image container */
+                .gallery-item:hover .image-container img {
+                    transform: scale(1.30);
+                }
+
+                /* 3. Styling for the caption */
+                .caption {
+                    margin: 0;
+                    padding: 15px;
+                    font-size: 1.15em;
+                    font-weight: normal;
+                    text-align: left;
+                    color: #444;
+                    border-top: 1px solid #eee;
+                }
+                
+                /* 4. Styling for the hover text */
+                .hover-text {
+                    position: absolute;
+                    top: 0;
+                    left: 0;
+                    width: 100%;
+                    height: 100%;
+                    opacity: 0;
+                    visibility: hidden;
+                    background-color: rgba(0, 0, 0, 0.7);
+                    color: white;
+                    padding: 20px;
+                    box-sizing: border-box;
+                    transition: opacity 0.3s ease, visibility 0.3s ease;
+                    
+                    /* Make the overlay a grid container */
+                    display: grid;
+                    grid-template-columns: 1fr 1fr;
+                    grid-template-rows: 1fr 1fr;
+
+                    /* The overlay will now ignore mouse clicks. */
+                    pointer-events: none;
+                }
+
+                .gallery-item:hover .hover-text {
+                    opacity: 1;
+                    visibility: visible;
+                }
+
+                /* --- NEW RULES --- */
+                .hover-snippet {
+                    font-size: 1.1em;
+                    line-height: 1.4;
+                }
+
+                .hover-snippet strong {
+                    display: block;
+                    color: #a0d8ff; /* A slightly different color for the label */
+                    font-weight: 600;
+                }
+
+                .snippet-top-left {
+                    /* Place this snippet in the top-left corner of its grid cell */
+                    justify-self: start; /* Horizontal alignment */
+                    align-self: start;   /* Vertical alignment */
+                }
+
+                /* -- NEW RULE FOR THE THIRD SNIPPET -- */
+                .snippet-bottom-left {
+                    justify-self: start;
+                    align-self: end;
+                    grid-row: 2 / 3;
+                    grid-column: 1 / 2;
+                }
+
+                .snippet-bottom-right {
+                    /* Place this snippet in the bottom-right corner of its grid cell */
+                    justify-self: end; /* Horizontal alignment */
+                    align-self: end;   /* Vertical alignment */
+                    text-align: right;
+                    
+                    /* Put this snippet in the bottom-right cell of our 2x2 grid */
+                    grid-column: 2 / 3;
+                    grid-row: 2 / 3;
+                }
+
+                /* Lightbox styles - CORRECTED */
+                .lightbox-overlay {
+                    position: fixed;
+                    top: 0;
+                    left: 0;
+                    width: 100%;
+                    height: 100%;
+                    background-color: rgba(0, 0, 0, 0.85);
+                    z-index: 1000;
+                    display: flex; 
+                    justify-content: center;
+                    align-items: center;
+                    opacity: 0;
+                    visibility: hidden;
+                    transition: opacity 0.3s ease, visibility 0.3s ease;
+                }
+
+                .lightbox-overlay.visible {
+                    opacity: 1;
+                    visibility: visible;
+                }
+
+                .lightbox-content {
+                    max-width: 95vw;
+                    max-height: 90vh;
+                    display: block;
+                    border-radius: 5px;
+                    box-shadow: 0 5px 20px rgba(0,0,0,0.5);
+                }
+
+                .lightbox-close {
+                    position: absolute;
+                    top: 20px;
+                    right: 30px;
+                    color: white;
+                    font-size: 40px;
+                    font-weight: bold;
+                    cursor: pointer;
+                    transition: color 0.2s ease;
+                }
+
+                .lightbox-close:hover {
+                    color: #ccc;
+                }
+            </style>
+        </head>
+        <body>
+        """
+
+        HTML_BODY = f"""
+
+            <h1>{brand} Ad Creatives for {target_product}</h1>
+
+            <!-- NEW: Sub-headers -->
+            <div class="sub-header-container">
+                <h3>Key Selling Point: {key_selling_points}</h3>
+                <h3>Target Audience: {target_audience}</h3>
+            </div>
+
+            <h1>Search Trend: {target_search_trends}</h1>
+
+            <div class="gallery-container">
+        """
+
+        HTML_END = """
+            </div>
+
+            <!-- NEW: Lightbox HTML Structure -->
+            <div id="lightbox" class="lightbox-overlay">
+                <span class="lightbox-close">&times;</span>
+                <img class="lightbox-content" id="lightbox-img">
+            </div>
+
+            <!-- NEW: JavaScript for Lightbox functionality -->
+            <script>
+                document.addEventListener('DOMContentLoaded', () => {
+                    const galleryImages = document.querySelectorAll('.image-container img');
+                    const lightbox = document.getElementById('lightbox');
+                    const lightboxImg = document.getElementById('lightbox-img');
+                    const closeBtn = document.querySelector('.lightbox-close');
+
+                    galleryImages.forEach(image => {
+                        image.addEventListener('click', () => {
+                            // lightboxImg.src = image.src;
+                            // Use the 'data-high-res-src' for the lightbox image
+                            lightboxImg.src = image.dataset.highResSrc;
+                            lightbox.classList.add('visible');
+                        });
+                    });
+
+                    const closeLightbox = () => lightbox.classList.remove('visible');
+                    closeBtn.addEventListener('click', closeLightbox);
+                    lightbox.addEventListener('click', e => (e.target === lightbox) && closeLightbox());
+                    document.addEventListener('keydown', e => (e.key === 'Escape') && closeLightbox());
+                });
+            </script>
+
+        </body>
+        </html>
+        """
+
+        FINAL_HTML = HTML_TEMPLATE + HTML_BODY + CONNECTED_GALLERY_STRING + HTML_END
+
+        # Save the HTML to a new file
+        REPORT_NAME = "creative_portfolio_gallery.html"
+        with open(REPORT_NAME, "w", encoding="utf-8") as html_file:
+            html_file.write(FINAL_HTML)
+
+        # save HTML file to cloud storage
+        gcs_blob_name = f"{gcs_folder}/{gcs_subdir}/{REPORT_NAME}"
+        gcs_uri = f"gs://{config.GCS_BUCKET_NAME}/{gcs_blob_name}"
+        upload_blob_to_gcs(
+            source_file_name=REPORT_NAME,
+            destination_blob_name=gcs_blob_name,
+        )
+        os.remove(REPORT_NAME)
+
+        return {
+            "status": "success",
+            "gcs_uri": gcs_uri,
+        }
+
+    except Exception as e:
+        logging.exception(f"Error saving artifact: {e}")
         return {"status": "failed", "error": str(e)}
 
 
@@ -371,7 +748,7 @@ async def save_draft_report_artifact(tool_context: ToolContext) -> dict:
         }
 
     except Exception as e:
-        logging.error(f"Error saving artifact: {e}")
+        logging.exception(f"Error saving artifact: {e}")
         return {"status": "failed", "error": str(e)}
 
 
@@ -437,17 +814,59 @@ def upload_blob_to_gcs(
     Uploads a blob to a GCS bucket.
     Args:
         source_file_name (str): The path to the file to upload.
+            e.g., "local/path/to/file" (file to upload)
         destination_blob_name (str): The desired folder path in gcs
+            e.g., "folder/paths-to/storage-object-name"
     Returns:
         str: The GCS URI of the uploaded file.
     """
-    # bucket_name = "your-bucket-name" (no 'gs://')
-    # source_file_name = "local/path/to/file" (file to upload)
-    # destination_blob_name = "folder/paths-to/storage-object-name"
-    # storage_client = storage.Client(project=os.environ.get("GOOGLE_CLOUD_PROJECT"))
     storage_client = get_gcs_client()
     gcs_bucket = config.GCS_BUCKET_NAME
     bucket = storage_client.bucket(gcs_bucket)
     blob = bucket.blob(destination_blob_name)
     blob.upload_from_filename(source_file_name)
     return f"File {source_file_name} uploaded to {destination_blob_name}."
+
+
+def get_high_res_img(gcs_folder: str, gcs_subdir: str, artifact_key: str):
+    """
+    gets existing img artifact, increases size, and  uploads to Cloud Storage
+
+    Args:
+        gcs_folder (str): folder within cloud storage bucket
+        gcs_subdir (str): subfolder within Cloud Storage bucket
+        artifact_key (str): name of the existing image artifact
+
+    Returns:
+        Authenticated Cloud Storage URI of the resized image
+    """
+
+    # get existing img artifact
+    storage_client = get_gcs_client()
+    bucket = storage_client.bucket(config.GCS_BUCKET_NAME)
+    blob = bucket.blob(f"{gcs_folder}/{gcs_subdir}/{artifact_key}")
+    LOCAL_FILENAME = f"local_{artifact_key}"
+
+    with open(LOCAL_FILENAME, 'wb') as file_obj:
+        # Download the blob contents to the opened file object
+        blob.download_to_file(file_obj)
+
+    # convert to higher res
+    img = Image.open(LOCAL_FILENAME)
+    current_w, current_h = img.size
+    new_w = int(current_w * 1.5)
+    new_h = int(current_h * 1.5)
+    resized_image = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+    XL_LOCAL_FILENAME = f"XL_{LOCAL_FILENAME}"
+    resized_image.save(XL_LOCAL_FILENAME)
+
+    # upload to gcs
+    NEW_BLOB_NAME = f"{gcs_folder}/{gcs_subdir}/resized/{XL_LOCAL_FILENAME}"
+    new_blob = bucket.blob(NEW_BLOB_NAME)
+    new_blob.upload_from_filename(XL_LOCAL_FILENAME)
+
+    # rm local file
+    os.remove(LOCAL_FILENAME)
+    os.remove(XL_LOCAL_FILENAME)
+    high_res_auth_gcs_uri = f"https://storage.mtls.cloud.google.com/{config.GCS_BUCKET_NAME}/{NEW_BLOB_NAME}?authuser=3"
+    return high_res_auth_gcs_uri
