@@ -36,11 +36,49 @@
 * easy export to ~*live editor tool* to nano-banana
 
 
-## example report
+## example output
 
-> See web research and ad creatives from the `creative_agent`
 
-[![demo](https://img.youtube.com/vi/0628QG8J9Mc/hqdefault.jpg)](https://www.youtube.com/watch?v=0628QG8J9Mc)
+#### 1. the `creative_agent` conducts web research to inform the creative process. a PDF of this web research is saved for humans:
+
+<p align="center" width="100%">
+    <img src="imgs/tt_pdf_web_research_report_p50.gif">
+</p>
+
+
+#### 2. the agents final step produces an HTML display of all generated ad creatives:
+
+<p align="center" width="100%">
+    <img src="imgs/tt_html_display_creatives_p50.gif">
+</p>
+
+<details>
+  <summary>some details on the HTML report</summary>
+
+#### see campaign metadata at the top:
+
+* brand
+* target product
+* key selling point
+* target audience
+
+#### each creative has a headline (title) and a caption
+
+![trend trawler creative outputs](imgs/gallery_sample_prs.png)
+
+#### hovering over a creative will display:
+
+* how it references the search trend
+* how it markets the target product
+* why the target audience will find it appealing
+
+![trend trawler creative outputs](imgs/its_complicated.png)
+
+
+*remember: these are ad candidates to start the ideation process. the prompts are saved so you can easily tweak the creative*
+
+
+</details>
 
 
 ## General Setup Instructions
