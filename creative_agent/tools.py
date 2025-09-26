@@ -1,12 +1,11 @@
 import logging
 import markdown
-import uuid, os, string
+import os, string
 
 logging.basicConfig(level=logging.INFO)
 
 import shutil
 from PIL import Image
-from pathlib import Path
 from markdown_pdf import MarkdownPdf, Section
 
 from google import genai
@@ -108,7 +107,6 @@ async def generate_image(
 
     artifact_keys_list = []
     for entry in final_visual_concepts_list:
-        # logging.info(entry)
 
         try:
 
@@ -134,7 +132,7 @@ async def generate_image(
                 artifact_key = f"{ARTIFACT_NAME}.png"
 
                 # save img to Cloud Storage
-                img_gcs_uri = save_to_gcs(
+                img_gcs_uri = _save_to_gcs(
                     tool_context=tool_context,
                     image_bytes=image_bytes,
                     filename=artifact_key,
@@ -265,7 +263,7 @@ async def save_creatives_html_report(tool_context: ToolContext) -> dict:
         markdown_string = (
             f"{processed_report}\n\n# Ad Creatives\n\n{IMG_CREATIVE_STRING}\n\n"
         )
-        html_fragment = markdown.markdown(markdown_string)  # encoding="utf-8"
+        html_fragment = markdown.markdown(markdown_string)
 
         # Wrap the fragment in a complete HTML document with a meta charset tag
         full_html_document = f"""<!DOCTYPE html>
@@ -288,7 +286,7 @@ async def save_creatives_html_report(tool_context: ToolContext) -> dict:
         # save HTML file to cloud storage
         gcs_blob_name = f"{gcs_folder}/{gcs_subdir}/{REPORT_NAME}"
         gcs_uri = f"gs://{config.GCS_BUCKET_NAME}/{gcs_blob_name}"
-        upload_blob_to_gcs(
+        _upload_blob_to_gcs(
             source_file_name=REPORT_NAME,
             destination_blob_name=gcs_blob_name,
         )
@@ -337,26 +335,7 @@ async def save_creative_gallery_html(tool_context: ToolContext) -> dict:
             AUTH_GCS_URL = f"https://storage.mtls.cloud.google.com/{config.GCS_BUCKET_NAME}/{gcs_folder}/{gcs_subdir}/{ARTIFACT_KEY}?authuser=3"
 
             # get high-res image
-
-            # TODO: remove if works
-            # storage_client = get_gcs_client()
-            # bucket = storage_client.bucket(config.GCS_BUCKET_NAME)
-            # blob = bucket.blob(f"{gcs_folder}/{gcs_subdir}/{ARTIFACT_KEY}")
-            # LOCAL_FILENAME = f"local_{ARTIFACT_KEY}"
-            # blob.download_to_file(LOCAL_FILENAME)
-            # img = Image.open(LOCAL_FILENAME)
-            # current_w, current_h = img.size
-            # new_w = int(current_w * 1.5)
-            # new_h = int(current_h * 1.5)
-            # resized_image = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
-            # XL_LOCAL_FILENAME = f"XL_{LOCAL_FILENAME}"
-            # resized_image.save(XL_LOCAL_FILENAME)
-            # NEW_BLOB_NAME = f"{gcs_folder}/{gcs_subdir}/{XL_LOCAL_FILENAME}"
-            # new_blob = bucket.blob(NEW_BLOB_NAME)
-            # new_blob.upload_from_filename(XL_LOCAL_FILENAME)
-            # HIGH_RES_AUTH_GCS_URL = f"https://storage.mtls.cloud.google.com/{config.GCS_BUCKET_NAME}/{gcs_folder}/{gcs_subdir}/{XL_LOCAL_FILENAME}?authuser=3"
-            
-            HIGH_RES_AUTH_GCS_URL = get_high_res_img(
+            HIGH_RES_AUTH_GCS_URL = _get_high_res_img(
                 gcs_folder=tool_context.state["gcs_folder"],
                 gcs_subdir=tool_context.state["agent_output_dir"],
                 artifact_key=ARTIFACT_KEY,
@@ -618,7 +597,7 @@ async def save_creative_gallery_html(tool_context: ToolContext) -> dict:
                 <h3>Target Audience: {target_audience}</h3>
             </div>
 
-            <h1>Search Trend: {target_search_trends}</h1>
+            <h1>search trend: '{target_search_trends}'</h1>
 
             <div class="gallery-container">
         """
@@ -670,7 +649,7 @@ async def save_creative_gallery_html(tool_context: ToolContext) -> dict:
         # save HTML file to cloud storage
         gcs_blob_name = f"{gcs_folder}/{gcs_subdir}/{REPORT_NAME}"
         gcs_uri = f"gs://{config.GCS_BUCKET_NAME}/{gcs_blob_name}"
-        upload_blob_to_gcs(
+        _upload_blob_to_gcs(
             source_file_name=REPORT_NAME,
             destination_blob_name=gcs_blob_name,
         )
@@ -728,7 +707,7 @@ async def save_draft_report_artifact(tool_context: ToolContext) -> dict:
             filename=artifact_key, artifact=document_part
         )
         # save to gcs
-        upload_blob_to_gcs(
+        _upload_blob_to_gcs(
             source_file_name=local_filepath,
             destination_blob_name=gcs_blob_name,
         )
@@ -776,7 +755,7 @@ def download_blob(bucket_name, source_blob_name):
     return blob.download_as_bytes()
 
 
-def save_to_gcs(
+def _save_to_gcs(
     tool_context: ToolContext,
     image_bytes: bytes,
     filename: str,
@@ -805,7 +784,7 @@ def save_to_gcs(
         }
 
 
-def upload_blob_to_gcs(
+def _upload_blob_to_gcs(
     source_file_name: str,
     destination_blob_name: str,
     # gcs_bucket: str,
@@ -828,7 +807,7 @@ def upload_blob_to_gcs(
     return f"File {source_file_name} uploaded to {destination_blob_name}."
 
 
-def get_high_res_img(gcs_folder: str, gcs_subdir: str, artifact_key: str):
+def _get_high_res_img(gcs_folder: str, gcs_subdir: str, artifact_key: str):
     """
     gets existing img artifact, increases size, and  uploads to Cloud Storage
 
@@ -847,7 +826,7 @@ def get_high_res_img(gcs_folder: str, gcs_subdir: str, artifact_key: str):
     blob = bucket.blob(f"{gcs_folder}/{gcs_subdir}/{artifact_key}")
     LOCAL_FILENAME = f"local_{artifact_key}"
 
-    with open(LOCAL_FILENAME, 'wb') as file_obj:
+    with open(LOCAL_FILENAME, "wb") as file_obj:
         # Download the blob contents to the opened file object
         blob.download_to_file(file_obj)
 
