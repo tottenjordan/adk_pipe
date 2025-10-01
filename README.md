@@ -42,14 +42,14 @@
 #### 1. the `creative_agent` conducts web research to inform the creative process. a PDF of this web research is saved for humans:
 
 <p align="center" width="100%">
-    <img src="imgs/tt_pdf_web_research_report_p50_v3.gif">
+    <img src="imgs/tt_prs_research_overview_p050_15fps.gif">
 </p>
 
 
 #### 2. the agents final step produces an HTML display of all generated ad creatives:
 
 <p align="center" width="100%">
-    <img src="imgs/tt_html_display_creatives_p50_v3.gif">
+    <img src="imgs/tt_prs_html_overview_p050_15fps.gif">
 </p>
 
 <details>
