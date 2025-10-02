@@ -238,7 +238,6 @@ ad_copy_drafter = Agent(
     2. **Each ad copy should include:**
         - Headline (attention-grabbing)
         - Body text (concise and compelling)
-        - Call-to-action
         - How it relates to the trending topic: {target_search_trends}
         - Brief rationale for target audience appeal
         - A candidate social media caption
@@ -262,6 +261,7 @@ ad_copy_drafter = Agent(
     tools=[google_search],
     output_key="ad_copy_draft",
 )
+# - Call-to-action
 
 
 ad_copy_critic = Agent(
@@ -273,12 +273,12 @@ ad_copy_critic = Agent(
     ),
     instruction="""You are a strategic marketing critic evaluating ad copy ideas.
 
-    Your task is to review candidate ad copies and select the 5 BEST ideas
+    Your task is to review candidate ad copies and select the 6 BEST ideas
 
     <INSTRUCTIONS>
     To complete the task, you need to follow these steps:
     1. Review the proposed candidates in the 'ad_copy_draft' state key.
-    2. Select the 5 best ad copy ideas based on the following criteria:
+    2. Select the 6 best ad copy ideas based on the following criteria:
         - Alignment with target audience.
         - Effective use of trending topic that feels authentic.
         - Clear communication of key selling points.
@@ -390,9 +390,8 @@ visual_concept_critic = Agent(
     </INSTRUCTIONS>
 
     <CONSTRAINTS>
-    Dos and don'ts for the following aspects
+    **Strict requirement(s):**
     1. Ensure each visual concept markets the target product: {target_product}
-    2. Explain how each concept relates to the Search trend: {target_search_trends}
     </CONSTRAINTS>
     
     <OUTPUT_FORMAT>
@@ -401,7 +400,6 @@ visual_concept_critic = Agent(
     -   Creative concept explanation
     -   How each concept relates to the Search trend: {target_search_trends}
     -   How each concept markets the target product: {target_product}
-    -   Detailed rationale explaining why this concept will perform well 
     -   A prompt for image generation
     </OUTPUT_FORMAT>
     """,
@@ -410,6 +408,10 @@ visual_concept_critic = Agent(
     output_key="visual_concept_critique",
 )
 
+# CONSTRAINTS
+#     2. Explain how each concept relates to the Search trend: {target_search_trends}
+# OUTPUT_FORMAT
+# -   Detailed rationale explaining why this concept will perform well 
 
 visual_concept_finalizer = Agent(
     model=config.worker_model,
@@ -418,7 +420,7 @@ visual_concept_finalizer = Agent(
     # planner=BuiltInPlanner(thinking_config=types.ThinkingConfig(include_thoughts=True)),
     instruction="""You are a senior creative director finalizing visual concepts for ad creatives.
 
-    Your task is to select the 4 best visual concepts for ad media generation.
+    Your task is to select the 5 best visual concepts for ad media generation.
 
     <CONTEXT>
         <visual_concept_critique>
@@ -428,7 +430,7 @@ visual_concept_finalizer = Agent(
 
     <INSTRUCTIONS>
     To complete the task, you need to follow these steps:
-    1. Review the critiqued visual concept drafts in the <CONTEXT> block and select the 4 best concepts for ad generation.
+    1. Review the critiqued visual concept drafts in the <CONTEXT> block and select the 5 best concepts for ad generation.
     2. For each visual concept, provide the following:
         -   Name (intuitive name of the visual concept)
         -   The trend(s) referenced by this creative.
@@ -465,34 +467,6 @@ visual_generator = Agent(
     name="visual_generator",
     description="Generate final visuals using image generation tools",
     instruction="""You are a visual content producer generating image creatives.
-    Your job is to invoke the `generate_image` tool.
-    """,
-    tools=[generate_image],
-    generate_content_config=types.GenerateContentConfig(temperature=1.2),
-    before_model_callback=callbacks.rate_limit_callback,
-)
-
-
-html_writer = Agent(
-    model=config.critic_model,
-    name="html_writer",
-    description="Generate HTML to display ad creatives and their details",
-    instruction="""You are an expert AI web developer. 
-    Your job is to generate complete HTML and JavaScript code for a responsive image gallery displaying each creative in the <CONTEXT> block
-
-    <CONTEXT>
-        <final_select_vis_concepts>
-        {final_select_vis_concepts}
-        </final_select_vis_concepts>
-    </CONTEXT>
-
-    The gallery should display a set of images. Provide an array of image data in the JavaScript, where each object in the array contains:
-    - `src`: The URL or path to the image file.
-    - `alt`: Alternative text for the image.
-    - `caption` (optional): A short caption to display below the image.
-
-    The entire content should be wrapped in a valid HTML5 structure.
-
     Your job is to invoke the `generate_image` tool.
     """,
     tools=[generate_image],

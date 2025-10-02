@@ -407,7 +407,7 @@ async def save_creative_gallery_html(tool_context: ToolContext) -> dict:
                 /* --- THIS IS THE CRITICAL RULE --- */
                 .gallery-container {
                     display: grid;
-                    grid-template-columns: repeat(auto-fit, minmax(450px, 1fr));
+                    grid-template-columns: repeat(auto-fit, minmax(550px, 1fr));
                     gap: 20px;
                     max-width: 1600px;
                     margin: 0 auto;
@@ -513,6 +513,16 @@ async def save_creative_gallery_html(tool_context: ToolContext) -> dict:
                 .snippet-top-left {
                     justify-self: start; /* Horizontal alignment */
                     align-self: start;  /* Vertical alignment */
+                }
+
+                .snippet-top-right {
+                    justify-self: end; /* Align horizontally to the end (right) of the grid cell */
+                    align-self: start; /* Align vertically to the start (top) of the grid cell */
+                    text-align: right; /* Ensure the text itself is right-aligned */
+                    
+                    /* Explicitly place this in the top-right grid cell (row 1, column 2) */
+                    grid-row: 1 / 2;
+                    grid-column: 2 / 3;
                 }
 
                 /* -- NEW RULE FOR THE THIRD SNIPPET -- */
@@ -720,6 +730,7 @@ async def save_creative_gallery_html(tool_context: ToolContext) -> dict:
                                 title="{entry['headline']}">
                         <div class="hover-text">
                             <div class="hover-snippet snippet-top-left"><strong>Trend Reference:</strong>{entry['trend_reference'].replace('"', "'")}</div>
+                            <div class="hover-snippet snippet-top-right"><strong>Visual Concept Name:</strong>{entry['name']}</div>
                             <div class="hover-snippet snippet-bottom-left"><strong>How it markets Target Product:</strong>{entry['markets_product'].replace('"', "'")}</div>
                             <div class="hover-snippet snippet-bottom-right"><strong>Target audience appeal:</strong>{entry['audience_appeal'].replace('"', "'")}</div>
                         </div>
@@ -737,6 +748,43 @@ async def save_creative_gallery_html(tool_context: ToolContext) -> dict:
             <span class="lightbox-close">&times;</span>
             <img class="lightbox-content" id="lightbox-img">
         </div>
+        """
+
+        # =========================== #
+        # visual concepts HTML chunks
+        # =========================== #
+
+        HTML_PRE_VS = """
+        <!-- --- NEW HTML FOR VISUAL CONCEPTS SECTION --- -->
+        <section class="content-section">
+            <details>
+                <summary>
+                    <h2>Visual Concepts</h2>
+                </summary>
+                <div class="card-grid">
+        """
+
+        CONNECTED_VS_STRING = ""
+        for index, entry in enumerate(final_visual_concepts_list):
+            # generate HTML block for visual concepts
+            VISUAL_CONCEPT_BLOCK = f"""
+                    <!-- Visual Concept {index+1} -->
+                    <div class="content-card">
+                        <dl>
+                            <dt>Name:</dt> <dd>{entry['name']}</dd>
+                            <dt>Trend:</dt> <dd>{entry['trend']}</dd>
+                            <dt>Creative Concept Explained:</dt> <dd>{entry['creative_explain']}</dd>
+                            <dt>Why this will perform well:</dt> <dd>{entry['rationale_perf']}</dd>
+                            <dt>prompt</dt> <dd>{entry['prompt']}</dd>
+                        </dl>
+                    </div>
+            """
+            CONNECTED_VS_STRING += VISUAL_CONCEPT_BLOCK
+
+        HTML_POST_VS = """
+                </div>
+            </details>
+        </section>
         """
 
         # =========================== #
@@ -774,43 +822,6 @@ async def save_creative_gallery_html(tool_context: ToolContext) -> dict:
             CONNECTED_AD_COPY_STRING += AD_COPY_BLOCK
 
         HTML_POST_AD_COPY = """
-                </div>
-            </details>
-        </section>
-        """
-
-        # =========================== #
-        # visual concepts HTML chunks
-        # =========================== #
-
-        HTML_PRE_VS = """
-        <!-- --- NEW HTML FOR VISUAL CONCEPTS SECTION --- -->
-        <section class="content-section">
-            <details>
-                <summary>
-                    <h2>Visual Concepts</h2>
-                </summary>
-                <div class="card-grid">
-        """
-
-        CONNECTED_VS_STRING = ""
-        for index, entry in enumerate(final_visual_concepts_list):
-            # generate HTML block for visual concepts
-            VISUAL_CONCEPT_BLOCK = f"""
-                    <!-- Visual Concept {index+1} -->
-                    <div class="content-card">
-                        <dl>
-                            <dt>Name:</dt> <dd>{entry['name']}</dd>
-                            <dt>Trend:</dt> <dd>{entry['trend']}</dd>
-                            <dt>Creative Concept Explained:</dt> <dd>{entry['creative_explain']}</dd>
-                            <dt>Why this will perform well:</dt> <dd>{entry['rationale_perf']}</dd>
-                            <dt>prompt</dt> <dd>{entry['prompt']}</dd>
-                        </dl>
-                    </div>
-            """
-            CONNECTED_VS_STRING += VISUAL_CONCEPT_BLOCK
-
-        HTML_POST_VS = """
                 </div>
             </details>
         </section>
@@ -852,12 +863,12 @@ async def save_creative_gallery_html(tool_context: ToolContext) -> dict:
             + HTML_BODY
             + CONNECTED_GALLERY_STRING
             + HTML_POST_GALLERY
-            + HTML_PRE_AD_COPY
-            + CONNECTED_AD_COPY_STRING
-            + HTML_POST_AD_COPY
             + HTML_PRE_VS
             + CONNECTED_VS_STRING
             + HTML_POST_VS
+            + HTML_PRE_AD_COPY
+            + CONNECTED_AD_COPY_STRING
+            + HTML_POST_AD_COPY
             + HTML_END_JAVASCRIPT
         )
 
@@ -949,6 +960,78 @@ async def save_draft_report_artifact(tool_context: ToolContext) -> dict:
     except Exception as e:
         logging.exception(f"Error saving artifact: {e}")
         return {"status": "failed", "error": str(e)}
+
+
+def save_session_state_to_gcs(tool_context: ToolContext) -> dict:
+    """
+    Writes the session state to JSON. Saves the JSON file to Cloud Storage.
+
+    Args:
+        tool_context (ToolContext): The tool context.
+
+    Returns:
+        dict: A dictionary containing the status and the json file's Cloud Storage URI (gcs_uri).
+    """
+
+    session_state = tool_context.state.to_dict()
+    gcs_bucket = session_state["gcs_bucket"]
+    gcs_folder = session_state["gcs_folder"]
+    gcs_subdir = session_state["agent_output_dir"]
+
+    # create new dict to save
+    data = {}
+
+    # gcs location
+    data["gcs_bucket"] = gcs_bucket
+    data["gcs_folder"] = gcs_folder
+    data["agent_output_dir"] = gcs_subdir
+
+    # campaign metadata
+    data["brand"] = session_state["brand"]
+    data["target_product"] = session_state["target_product"]
+    data["target_audience"] = session_state["target_audience"]
+    data["key_selling_points"] = session_state["key_selling_points"]
+
+    # creatives
+    data["final_select_ad_copies"] = tool_context.state.get("final_select_ad_copies")
+    data["final_select_vis_concepts"] = tool_context.state.get(
+        "final_select_vis_concepts"
+    )
+
+    # web research
+    data["final_report_with_citations"] = session_state["final_report_with_citations"]
+
+    # save local json
+    filename = f"creative_session_state.json"
+    local_file = f"{gcs_subdir}/{filename}"
+    Path(gcs_subdir).mkdir(exist_ok=True)
+
+    # Write to local file
+    with open(local_file, "w") as f:
+        json.dump(data, f, indent=4)
+
+    # save json to GCS
+    storage_client = get_gcs_client()
+    gcs_bucket = config.GCS_BUCKET_NAME
+    bucket = storage_client.bucket(gcs_bucket)
+    blob = bucket.blob(os.path.join(gcs_folder, local_file))
+    blob.upload_from_filename(local_file)
+
+    # return values
+    gcs_blob_name = f"{gcs_folder}/{gcs_subdir}/{filename}"
+    gcs_uri = f"gs://{gcs_bucket}/{gcs_blob_name}"
+
+    try:
+        shutil.rmtree(gcs_subdir)
+        logging.info(f"Directory '{gcs_subdir}' and its contents removed successfully")
+    except FileNotFoundError:
+        logging.exception(f"Directory '{gcs_subdir}' not found")
+
+    # Return a dictionary indicating status and the Cloud Storage URI.
+    return {
+        "status": "success",
+        "gcs_uri": gcs_uri,
+    }
 
 
 # =============================
@@ -1055,6 +1138,7 @@ def _get_high_res_img(gcs_folder: str, gcs_subdir: str, artifact_key: str):
     resized_image.save(XL_LOCAL_FILENAME)
 
     # upload to gcs
+    mTLS_GCS_PREFIX = "https://storage.mtls.cloud.google.com"
     NEW_BLOB_NAME = f"{gcs_folder}/{gcs_subdir}/resized/{XL_LOCAL_FILENAME}"
     new_blob = bucket.blob(NEW_BLOB_NAME)
     new_blob.upload_from_filename(XL_LOCAL_FILENAME)
@@ -1062,77 +1146,7 @@ def _get_high_res_img(gcs_folder: str, gcs_subdir: str, artifact_key: str):
     # rm local file
     os.remove(LOCAL_FILENAME)
     os.remove(XL_LOCAL_FILENAME)
-    high_res_auth_gcs_uri = f"https://storage.mtls.cloud.google.com/{config.GCS_BUCKET_NAME}/{NEW_BLOB_NAME}?authuser=3"
-    return high_res_auth_gcs_uri
-
-
-def save_session_state_to_gcs(tool_context: ToolContext) -> dict:
-    """
-    Writes the session state to JSON. Saves the JSON file to Cloud Storage.
-
-    Args:
-        tool_context (ToolContext): The tool context.
-
-    Returns:
-        dict: A dictionary containing the status and the json file's Cloud Storage URI (gcs_uri).
-    """
-
-    session_state = tool_context.state.to_dict()
-    gcs_bucket = session_state["gcs_bucket"]
-    gcs_folder = session_state["gcs_folder"]
-    gcs_subdir = session_state["agent_output_dir"]
-
-    # create new dict to save
-    data = {}
-
-    # gcs location
-    data["gcs_bucket"] = gcs_bucket
-    data["gcs_folder"] = gcs_folder
-    data["agent_output_dir"] = gcs_subdir
-
-    # campaign metadata
-    data["brand"] = session_state["brand"]
-    data["target_product"] = session_state["target_product"]
-    data["target_audience"] = session_state["target_audience"]
-    data["key_selling_points"] = session_state["key_selling_points"]
-
-    # creatives
-    data["final_select_ad_copies"] = tool_context.state.get("final_select_ad_copies")
-    data["final_select_vis_concepts"] = tool_context.state.get(
-        "final_select_vis_concepts"
+    high_res_auth_gcs_uri = (
+        f"{mTLS_GCS_PREFIX}/{config.GCS_BUCKET_NAME}/{NEW_BLOB_NAME}?authuser=3"
     )
-
-    # web research
-    data["final_report_with_citations"] = session_state["final_report_with_citations"]
-
-    # save local json
-    filename = f"creative_session_state.json"
-    local_file = f"{gcs_subdir}/{filename}"
-    Path(gcs_subdir).mkdir(exist_ok=True)
-
-    # Write to local file
-    with open(local_file, "w") as f:
-        json.dump(data, f, indent=4)
-
-    # save json to GCS
-    storage_client = get_gcs_client()
-    gcs_bucket = config.GCS_BUCKET_NAME
-    bucket = storage_client.bucket(gcs_bucket)
-    blob = bucket.blob(os.path.join(gcs_folder, local_file))
-    blob.upload_from_filename(local_file)
-
-    # return values
-    gcs_blob_name = f"{gcs_folder}/{gcs_subdir}/{filename}"
-    gcs_uri = f"gs://{gcs_bucket}/{gcs_blob_name}"
-
-    try:
-        shutil.rmtree(gcs_subdir)
-        logging.info(f"Directory '{gcs_subdir}' and its contents removed successfully")
-    except FileNotFoundError:
-        logging.exception(f"Directory '{gcs_subdir}' not found")
-
-    # Return a dictionary indicating status and the Cloud Storage URI.
-    return {
-        "status": "success",
-        "gcs_uri": gcs_uri,
-    }
+    return high_res_auth_gcs_uri
