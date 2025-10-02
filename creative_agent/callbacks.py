@@ -41,14 +41,14 @@ def _load_session_state(callback_context: CallbackContext):
     """
     data = {}
     data["state"] = {
-        "brand": "",  # BRAND,
-        "target_product": "",  # TARGET_PRODUCT,
-        "target_audience": "",  # TARGET_AUDIENCE,
-        "key_selling_points": "",  # KEY_SELLING_POINT,
+        "brand": "",
+        "target_product": "",
+        "target_audience": "",
+        "key_selling_points": "",
         "target_search_trends": "",
-        "img_artifact_keys": {"img_artifact_keys": []},
+        # "img_artifact_keys": {"img_artifact_keys": []},
         # "vid_artifact_keys": {"vid_artifact_keys": []},
-        # "final_select_ad_copies": {"final_select_ad_copies": []},
+        "final_select_ad_copies": {"final_select_ad_copies": []},
         "final_select_vis_concepts": {"final_select_vis_concepts": []},
     }
     _set_initial_states(data["state"], callback_context.state)

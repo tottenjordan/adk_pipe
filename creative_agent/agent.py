@@ -16,11 +16,12 @@ from . import callbacks
 from .tools import (
     memorize,
     generate_image,
-    # save_img_artifact_key,
+    save_select_ad_copy,
     save_select_visual_concept,
     save_draft_report_artifact,
     save_creatives_html_report,
-    save_creative_gallery_html
+    save_creative_gallery_html,
+    save_session_state_to_gcs,
 )
 
 
@@ -288,9 +289,9 @@ ad_copy_critic = Agent(
     <OUTPUT_FORMAT>
     Each ad copy should include:
         - Headline (attention-grabbing)
-        - Call-to-action
-        - A candidate social media caption
         - Body text (concise and compelling)
+        - A candidate social media caption
+        - Call-to-action (catchy, action-oriented phrase intended for target audience.)
         - How it relates to the trending topic: {target_search_trends}
         - Brief rationale for target audience appeal
         - Detailed rationale explaining why this ad copy will perform well
@@ -300,6 +301,7 @@ ad_copy_critic = Agent(
     generate_content_config=types.GenerateContentConfig(temperature=0.7),
     output_key="ad_copy_critique",
 )
+# - Name (intuitive name of the ad copy idea)
 
 
 # Sequential agent for ad creative generation
@@ -429,12 +431,14 @@ visual_concept_finalizer = Agent(
     1. Review the critiqued visual concept drafts in the <CONTEXT> block and select the 4 best concepts for ad generation.
     2. For each visual concept, provide the following:
         -   Name (intuitive name of the visual concept)
+        -   The trend(s) referenced by this creative.
         -   Headline (attention-grabbing)
         -   A candidate social media caption
         -   Creative concept explanation
-        -   How each concept relates to the search trend: {target_search_trends}.
+        -   How the visual concept relates to the search trend: {target_search_trends}.
         -   Brief rationale for target audience appeal
         -   Brief explanation of how this markets the target product: {target_product}
+        -   Brief rationale explaining why this visual concept will perform well.
         -   The prompt for image generation
     </INSTRUCTIONS>
     """,
@@ -507,15 +511,17 @@ root_agent = Agent(
     **Objective:** Your goal is to generate a complete set of ad creatives including ad copy and images. To achieve this, use the <AVAILABLE_TOOLS/> available to complete the <INSTRUCTIONS/> below.
     
     <AVAILABLE_TOOLS>
-    1. Use the `combined_research_pipeline` tool to conduct web research on the campaign metadata and selected trends.
-    2. Use the `save_draft_report_artifact` tool to save a research PDf report to Cloud Storage.
-    3. Use the `ad_creative_pipeline` tool to generate ad copies.
-    4. Use the `visual_generation_pipeline` tool to create visual concepts for each ad copy.
-    5. Use the `visual_generator` tool to generate image creatives.
-    6. Use the `memorize` tool to store trends and campaign metadata in the session state.
+    1. Use the `memorize` tool to store trends and campaign metadata in the session state.
+    2. Use the `combined_research_pipeline` tool to conduct web research on the campaign metadata and selected trends.
+    3. Use the `save_draft_report_artifact` tool to save a research PDf report to Cloud Storage.
+    4. Use the `ad_creative_pipeline` tool to generate ad copies.
+    5. Use the `save_select_ad_copy` tool to update the 'final_select_ad_copies' state key with the final ad copies generated with the `ad_creative_pipeline` tool.
+    6. Use the `visual_generation_pipeline` tool to create visual concepts for each ad copy.
     7. Use the `save_select_visual_concept` tool to update the 'final_select_vis_concepts' state key with the final visual concepts generated with the `visual_generation_pipeline` tool.
-    8. Use the `save_creatives_html_report` tool to build the final HTML report, detailing research and creatives generated during a session.
-    9. Use the `save_creative_gallery_html` tool to build an HTML file for displaying a portfolio of the generated creatives generated during the session.
+    8. Use the `visual_generator` tool to generate image creatives.
+    9. Use the `save_creatives_html_report` tool to build the final HTML report, detailing research and creatives generated during a session.
+    10. Use the `save_creative_gallery_html` tool to build an HTML file for displaying a portfolio of the generated creatives generated during the session.
+    11. Use the `save_session_state_to_gcs` tool at the end of the session to save the state dict to Cloud Storage.
     </AVAILABLE_TOOLS>
 
     <INSTRUCTIONS>
@@ -540,13 +546,28 @@ root_agent = Agent(
     1. First, use the `combined_research_pipeline` tool to conduct web research on the campaign metadata and selected trends.
     2. Once all research tasks are complete, use the `save_draft_report_artifact` tool to save the research as a markdown file in Cloud Storage.
     3. Invoke the `ad_creative_pipeline` tool to generate a set of candidate ad copies.
-    4. Then, call the `visual_generation_pipeline` tool to generate visual concepts.
-    5. Once the previous step completes, use the `save_select_visual_concept` tool to save each finalized visual concept to the `final_visual_concepts` state key.
+    4. Once the previous step completes, use the `save_select_ad_copy` tool to save each finalized ad copy idea to the `final_select_ad_copies` state key.
+        -   To make sure everything is stored correctly, instead of calling `save_select_ad_copy` all at once, chain the calls such that you only call another `save_select_ad_copy` after the last call has responded.
+        -   Once these complete, proceed to the next step.
+    5. Then, call the `visual_generation_pipeline` tool to generate visual concepts.
+    6. Once the previous step completes, use the `save_select_visual_concept` tool to save each finalized visual concept to the `final_visual_concepts` state key.
         -   To make sure everything is stored correctly, instead of calling `save_select_visual_concept` all at once, chain the calls such that you only call another `save_select_visual_concept` after the last call has responded.
         -   Once these complete, proceed to the next step.
-    6. Next, call the `visual_generator` tool to generate ad creatives.
-    7. After the previous step is complete, use the `save_creatives_html_report` tool to create the final HTML report and save it to Cloud Storage. 
-    8. Finally, as the last step, call the `save_creative_gallery_html` tool to create an HTML portfolio and save it to Cloud Storage. Display the `gcs_uri` returned by the function to the user.
+    7. Next, call the `visual_generator` tool to generate ad creatives.
+    8. After the previous step is complete, use the `save_creatives_html_report` tool to create the final HTML report and save it to Cloud Storage. 
+    9. Next, call the `save_creative_gallery_html` tool to create an HTML portfolio and save it to Cloud Storage.
+    10. Finally as the last step, call the `save_session_state_to_gcs` tool to save the session state to Cloud Storage.
+
+    Once the previous steps are complete, perform the following action:
+
+    Action 1: Display Cloud Storage location to the user
+    Display the Cloud Storage URI to the user by combining the 'gcs_bucket', 'gcs_folder', and 'agent_output_dir' state keys like this: {gcs_bucket}/{gcs_folder}/{agent_output_dir}
+
+        <EXAMPLE>
+            INPUT: {gcs_bucket}/{gcs_folder}/{agent_output_dir}
+
+            OUTPUT: gs://trend-trawler-deploy-ae/2025_09_13_19_21/creative_output
+        </EXAMPLE>
     </WORKFLOW>
     
     Your job is complete when all tasks in the <WORKFLOW> block are complete.
@@ -559,7 +580,9 @@ root_agent = Agent(
         save_draft_report_artifact,
         save_creatives_html_report,
         save_select_visual_concept,
+        save_select_ad_copy,
         save_creative_gallery_html,
+        save_session_state_to_gcs,
         memorize,
     ],
     generate_content_config=types.GenerateContentConfig(
