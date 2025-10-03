@@ -13,15 +13,7 @@ from .sub_agents.campaign_researcher.agent import ca_sequential_planner
 from .sub_agents.trend_researcher.agent import gs_sequential_planner
 from .config import config
 from . import callbacks
-from .tools import (
-    memorize,
-    generate_image,
-    # save_img_artifact_key,
-    save_select_visual_concept,
-    save_draft_report_artifact,
-    save_creatives_html_report,
-    save_creative_gallery_html
-)
+from . import tools
 
 
 # --- PARALLEL RESEARCH SUBAGENTS --- #
@@ -104,19 +96,52 @@ combined_web_evaluator = Agent(
     model=config.critic_model,
     name="combined_web_evaluator",
     description="Critically evaluates research about the campaign guide and generates follow-up queries.",
-    instruction=f"""
-    You are a meticulous quality assurance analyst evaluating the research findings in 'combined_web_search_insights'.
+    instruction="""
+    You are a meticulous quality assurance analyst evaluating initial research findings. 
     
-    Be critical of the completeness of the research.
-    Consider the bigger picture and the intersection of the `target_product` and `target_audience`. 
-    Consider the trend in the 'target_search_trends' state key.
-    
-    Look for any gaps in depth or coverage, as well as any areas that need more clarification. 
-        - If you find significant gaps in depth or coverage, write a detailed comment about what's missing, and generate 5-7 specific follow-up queries to fill those gaps.
-        - If you don't find any significant gaps, write a detailed comment about any aspect of the campaign guide or trends to research further. Provide 5-7 related queries.
+    Your task is to review the research provided in the <CONTEXT> block and determine the set of web queries that will find the best information to gather next. To complete this task, follow the steps in the <INSTRUCTIONS> block.
 
-    Current date: {datetime.datetime.now().strftime("%Y-%m-%d")}
-    Your response must be a single, raw JSON object validating against the 'CampaignFeedback' schema.
+    
+    <INSTRUCTIONS>  
+    1. In the <CONTEXT> block, review the <combined_web_search_insights> and assess what information is available to help us understand how the <target_product> and <target_search_trends> will resonate with the <target_audience>.
+    2. Consider the bigger picture, e.g., the intersection between the <target_product> and the <target_search_trends>. Are there any gaps in depth or coverage? Or perhaps areas that need more clarification? 
+    3. Is there enough evidence to suggest any relationship or overlap between the <target_audience> and either the <target_product> or <target_search_trends>?
+    4. Upon completing your initial analysis, generate a set of web queries that will address any gaps as well as further investigate any interesting leads. Adhere to the guidance in the <CONSTRAINTS> block as you create these.
+    </INSTRUCTIONS>
+
+
+    <CONSTRAINTS>
+    Follow the logic listed here to determine your final set of web queries.
+    
+    In terms of research completeness:
+    - If you find significant gaps in depth or coverage, write a detailed comment about what's missing, and generate 5-7 specific follow-up queries to fill those gaps.
+    - If you don't find any significant gaps, determine any possible relationship or overlap the <target_audience> has with the <target_product> and <target_search_trends>. Write a detailed comment explaining this to guide research further. Provide 5-7 related queries.
+
+    In terms of relevance between the <target_audience> and the <target_product> and <target_search_trends>:
+        - If there is a clear relationship, generate a set of web queries to better understand this, especially any sentiment the <target_audience> may have towards the <target_product> and <target_search_trends>.
+        - If there is NOT a clear relationship, generate a set of web queries that will help us better understand if the <target_audience> will resonate with ANY general concepts related to the <target_search_trends>.
+    </CONSTRAINTS>
+
+
+    <CONTEXT>
+        <combined_web_search_insights>
+        {combined_web_search_insights}
+        </combined_web_search_insights>
+
+        <target_search_trends>
+        {target_search_trends}
+        </target_search_trends>
+
+        <target_audience>
+        {target_audience}
+        </target_audience>
+    </CONTEXT>
+
+
+    <OUTPUT_FORMAT>
+    1. Ensure you have at least 5-7 questions based off your conclusions from the <CONSTRAINTS>
+    2. The output format must be a single, raw JSON object validating against the 'CampaignFeedback' schema.
+    </OUTPUT_FORMAT>
     """,
     output_schema=CampaignFeedback,
     disallow_transfer_to_parent=True,
@@ -135,12 +160,44 @@ enhanced_combined_searcher = Agent(
     ),
     instruction="""
     You are a specialist researcher executing a refinement pass.
-    You are tasked to conduct a second round of web research and gather insights related to the trending Search terms, the target audience, and the target product.
+    You are tasked with conducting a second round of web research to gather insights related to the trending Search term(s), the target audience, and the target product.
+    To successfully complete your task, follow the steps provided in the <INSTRUCTIONS> block.
 
-    1.  Review the 'combined_research_evaluation' state key to understand the previous round of research.
-    2.  Execute EVERY query listed in 'follow_up_queries' using the 'google_search' tool.
+    <INSTRUCTIONS>
+    1.  Review the <combined_research_evaluation> in the <CONTEXT> block to understand the latest round of research.
+    2.  Use the 'google_search' tool to execute EVERY web query listed in the 'follow_up_queries'.
     3.  Synthesize the new findings and COMBINE them with the existing information in 'combined_web_search_insights'.
-    4.  Your output MUST be the new, complete, and improved set of research insights for the trending Search terms and campaign guide.
+    4.  Be sure to address any of the following topics, if they are relevant:
+        - competitive landscape for the target_product: {target_product}
+        - the <target_audience> sentiment towards the <target_search_trends> and how this will impact our messaging and creatives.
+        - any clever ways to spin the <key_selling_points> while marketing to the <target_audience>
+        - any strategic implications or mainstream cultural trends to be aware of during this campaign
+    </INSTRUCTIONS>
+
+    
+    <CONTEXT>
+        <combined_research_evaluation>
+        {combined_research_evaluation}
+        </combined_research_evaluation>
+
+        <target_audience>
+        {target_audience}
+        </target_audience>
+
+        <target_product>
+        {target_product}
+        </target_product>
+        
+        <key_selling_points>
+        {key_selling_points}
+        </key_selling_points>
+    </CONTEXT>
+
+    
+    <RECAP>
+    Your output MUST be the new, complete, and improved set of research insights finding the intersection between the 'target_audience', 'target_product', and 'target_search_trends'.
+    Use the `google_search` tool to support your decisions.
+    </RECAP>
     """,
     tools=[google_search],
     output_key="combined_web_search_insights",
@@ -237,7 +294,6 @@ ad_copy_drafter = Agent(
     2. **Each ad copy should include:**
         - Headline (attention-grabbing)
         - Body text (concise and compelling)
-        - Call-to-action
         - How it relates to the trending topic: {target_search_trends}
         - Brief rationale for target audience appeal
         - A candidate social media caption
@@ -272,12 +328,12 @@ ad_copy_critic = Agent(
     ),
     instruction="""You are a strategic marketing critic evaluating ad copy ideas.
 
-    Your task is to review candidate ad copies and select the 5 BEST ideas
+    Your task is to review candidate ad copies and select the 6-8 BEST ideas
 
     <INSTRUCTIONS>
     To complete the task, you need to follow these steps:
     1. Review the proposed candidates in the 'ad_copy_draft' state key.
-    2. Select the 5 best ad copy ideas based on the following criteria:
+    2. Select the 6-8 best ad copy ideas based on the following criteria:
         - Alignment with target audience.
         - Effective use of trending topic that feels authentic.
         - Clear communication of key selling points.
@@ -288,9 +344,9 @@ ad_copy_critic = Agent(
     <OUTPUT_FORMAT>
     Each ad copy should include:
         - Headline (attention-grabbing)
-        - Call-to-action
-        - A candidate social media caption
         - Body text (concise and compelling)
+        - A candidate social media caption
+        - Call-to-action (catchy, action-oriented phrase intended for target audience.)
         - How it relates to the trending topic: {target_search_trends}
         - Brief rationale for target audience appeal
         - Detailed rationale explaining why this ad copy will perform well
@@ -388,9 +444,8 @@ visual_concept_critic = Agent(
     </INSTRUCTIONS>
 
     <CONSTRAINTS>
-    Dos and don'ts for the following aspects
+    **Strict requirement(s):**
     1. Ensure each visual concept markets the target product: {target_product}
-    2. Explain how each concept relates to the Search trend: {target_search_trends}
     </CONSTRAINTS>
     
     <OUTPUT_FORMAT>
@@ -399,7 +454,6 @@ visual_concept_critic = Agent(
     -   Creative concept explanation
     -   How each concept relates to the Search trend: {target_search_trends}
     -   How each concept markets the target product: {target_product}
-    -   Detailed rationale explaining why this concept will perform well 
     -   A prompt for image generation
     </OUTPUT_FORMAT>
     """,
@@ -408,15 +462,19 @@ visual_concept_critic = Agent(
     output_key="visual_concept_critique",
 )
 
+# CONSTRAINTS
+#     2. Explain how each concept relates to the Search trend: {target_search_trends}
+# OUTPUT_FORMAT
+# -   Detailed rationale explaining why this concept will perform well 
+
 
 visual_concept_finalizer = Agent(
     model=config.worker_model,
     name="visual_concept_finalizer",
     description="Finalize visual concepts to proceed with.",
-    # planner=BuiltInPlanner(thinking_config=types.ThinkingConfig(include_thoughts=True)),
     instruction="""You are a senior creative director finalizing visual concepts for ad creatives.
 
-    Your task is to select the 4 best visual concepts for ad media generation.
+    Your task is to select the 5-6 best visual concepts for ad media generation.
 
     <CONTEXT>
         <visual_concept_critique>
@@ -426,15 +484,17 @@ visual_concept_finalizer = Agent(
 
     <INSTRUCTIONS>
     To complete the task, you need to follow these steps:
-    1. Review the critiqued visual concept drafts in the <CONTEXT> block and select the 4 best concepts for ad generation.
+    1. Review the critiqued visual concept drafts in the <CONTEXT> block and select the 5-6 best concepts for ad generation.
     2. For each visual concept, provide the following:
         -   Name (intuitive name of the visual concept)
+        -   The trend(s) referenced by this creative.
         -   Headline (attention-grabbing)
         -   A candidate social media caption
         -   Creative concept explanation
-        -   How each concept relates to the search trend: {target_search_trends}.
+        -   How the visual concept relates to the search trend: {target_search_trends}.
         -   Brief rationale for target audience appeal
         -   Brief explanation of how this markets the target product: {target_product}
+        -   Brief rationale explaining why this visual concept will perform well.
         -   The prompt for image generation
     </INSTRUCTIONS>
     """,
@@ -463,35 +523,7 @@ visual_generator = Agent(
     instruction="""You are a visual content producer generating image creatives.
     Your job is to invoke the `generate_image` tool.
     """,
-    tools=[generate_image],
-    generate_content_config=types.GenerateContentConfig(temperature=1.2),
-    before_model_callback=callbacks.rate_limit_callback,
-)
-
-
-html_writer = Agent(
-    model=config.critic_model,
-    name="html_writer",
-    description="Generate HTML to display ad creatives and their details",
-    instruction="""You are an expert AI web developer. 
-    Your job is to generate complete HTML and JavaScript code for a responsive image gallery displaying each creative in the <CONTEXT> block
-
-    <CONTEXT>
-        <final_select_vis_concepts>
-        {final_select_vis_concepts}
-        </final_select_vis_concepts>
-    </CONTEXT>
-
-    The gallery should display a set of images. Provide an array of image data in the JavaScript, where each object in the array contains:
-    - `src`: The URL or path to the image file.
-    - `alt`: Alternative text for the image.
-    - `caption` (optional): A short caption to display below the image.
-
-    The entire content should be wrapped in a valid HTML5 structure.
-
-    Your job is to invoke the `generate_image` tool.
-    """,
-    tools=[generate_image],
+    tools=[tools.generate_image],
     generate_content_config=types.GenerateContentConfig(temperature=1.2),
     before_model_callback=callbacks.rate_limit_callback,
 )
@@ -507,15 +539,17 @@ root_agent = Agent(
     **Objective:** Your goal is to generate a complete set of ad creatives including ad copy and images. To achieve this, use the <AVAILABLE_TOOLS/> available to complete the <INSTRUCTIONS/> below.
     
     <AVAILABLE_TOOLS>
-    1. Use the `combined_research_pipeline` tool to conduct web research on the campaign metadata and selected trends.
-    2. Use the `save_draft_report_artifact` tool to save a research PDf report to Cloud Storage.
-    3. Use the `ad_creative_pipeline` tool to generate ad copies.
-    4. Use the `visual_generation_pipeline` tool to create visual concepts for each ad copy.
-    5. Use the `visual_generator` tool to generate image creatives.
-    6. Use the `memorize` tool to store trends and campaign metadata in the session state.
+    1. Use the `memorize` tool to store trends and campaign metadata in the session state.
+    2. Use the `combined_research_pipeline` tool to conduct web research on the campaign metadata and selected trends.
+    3. Use the `save_draft_report_artifact` tool to save a research PDf report to Cloud Storage.
+    4. Use the `ad_creative_pipeline` tool to generate ad copies.
+    5. Use the `save_select_ad_copy` tool to update the 'final_select_ad_copies' state key with the final ad copies generated with the `ad_creative_pipeline` tool.
+    6. Use the `visual_generation_pipeline` tool to create visual concepts for each ad copy.
     7. Use the `save_select_visual_concept` tool to update the 'final_select_vis_concepts' state key with the final visual concepts generated with the `visual_generation_pipeline` tool.
-    8. Use the `save_creatives_html_report` tool to build the final HTML report, detailing research and creatives generated during a session.
-    9. Use the `save_creative_gallery_html` tool to build an HTML file for displaying a portfolio of the generated creatives generated during the session.
+    8. Use the `visual_generator` tool to generate image creatives.
+    9. Use the `save_creatives_html_report` tool to build the final HTML report, detailing research and creatives generated during a session.
+    10. Use the `save_creative_gallery_html` tool to build an HTML file for displaying a portfolio of the generated creatives generated during the session.
+    11. Use the `save_session_state_to_gcs` tool at the end of the session to save the state dict to Cloud Storage.
     </AVAILABLE_TOOLS>
 
     <INSTRUCTIONS>
@@ -540,13 +574,22 @@ root_agent = Agent(
     1. First, use the `combined_research_pipeline` tool to conduct web research on the campaign metadata and selected trends.
     2. Once all research tasks are complete, use the `save_draft_report_artifact` tool to save the research as a markdown file in Cloud Storage.
     3. Invoke the `ad_creative_pipeline` tool to generate a set of candidate ad copies.
-    4. Then, call the `visual_generation_pipeline` tool to generate visual concepts.
-    5. Once the previous step completes, use the `save_select_visual_concept` tool to save each finalized visual concept to the `final_visual_concepts` state key.
+    4. Once the previous step completes, use the `save_select_ad_copy` tool to save each finalized ad copy idea to the `final_select_ad_copies` state key.
+        -   To make sure everything is stored correctly, instead of calling `save_select_ad_copy` all at once, chain the calls such that you only call another `save_select_ad_copy` after the last call has responded.
+        -   Once these complete, proceed to the next step.
+    5. Then, call the `visual_generation_pipeline` tool to generate visual concepts.
+    6. Once the previous step completes, use the `save_select_visual_concept` tool to save each finalized visual concept to the `final_visual_concepts` state key.
         -   To make sure everything is stored correctly, instead of calling `save_select_visual_concept` all at once, chain the calls such that you only call another `save_select_visual_concept` after the last call has responded.
         -   Once these complete, proceed to the next step.
-    6. Next, call the `visual_generator` tool to generate ad creatives.
-    7. After the previous step is complete, use the `save_creatives_html_report` tool to create the final HTML report and save it to Cloud Storage. 
-    8. Finally, as the last step, call the `save_creative_gallery_html` tool to create an HTML portfolio and save it to Cloud Storage. Display the `gcs_uri` returned by the function to the user.
+    7. Next, call the `visual_generator` tool to generate ad creatives.
+    8. After the previous step is complete, use the `save_creatives_html_report` tool to create the final HTML report and save it to Cloud Storage. 
+    9. Next, call the `save_creative_gallery_html` tool to create an HTML portfolio and save it to Cloud Storage.
+    10. Finally as the last step, call the `save_session_state_to_gcs` tool to save the session state to Cloud Storage.
+
+    Once the previous steps are complete, perform the following action:
+
+    Action 1: Display Cloud Storage location to the user
+    Display the Cloud Storage URI to the user by combining the 'gcs_bucket', 'gcs_folder', and 'agent_output_dir' state keys like this: {gcs_bucket}/{gcs_folder}/{agent_output_dir}
     </WORKFLOW>
     
     Your job is complete when all tasks in the <WORKFLOW> block are complete.
@@ -556,11 +599,13 @@ root_agent = Agent(
         AgentTool(agent=ad_creative_pipeline),
         AgentTool(agent=visual_generation_pipeline),
         AgentTool(agent=visual_generator),
-        save_draft_report_artifact,
-        save_creatives_html_report,
-        save_select_visual_concept,
-        save_creative_gallery_html,
-        memorize,
+        tools.save_draft_report_artifact,
+        tools.save_creatives_html_report,
+        tools.save_select_visual_concept,
+        tools.save_select_ad_copy,
+        tools.save_creative_gallery_html,
+        tools.save_session_state_to_gcs,
+        tools.memorize,
     ],
     generate_content_config=types.GenerateContentConfig(
         temperature=1.0, labels={"agent": "trend_trawler"}
@@ -568,3 +613,4 @@ root_agent = Agent(
     before_agent_callback=callbacks._load_session_state,
     before_model_callback=callbacks.rate_limit_callback,
 )
+

@@ -4,8 +4,9 @@ import os, string
 
 logging.basicConfig(level=logging.INFO)
 
-import shutil
+import json, shutil
 from PIL import Image
+from pathlib import Path
 from markdown_pdf import MarkdownPdf, Section
 
 from google import genai
@@ -54,6 +55,35 @@ def memorize(key: str, value: str, tool_context: ToolContext):
     return {"status": f'Stored "{key}": "{value}"'}
 
 
+def save_select_ad_copy(select_ad_copy_dict: dict, tool_context: ToolContext) -> dict:
+    """
+    Tool to save `select_ad_copy_dict` to the 'final_select_ad_copies' state key.
+    Use this tool after creating ad copies with the `ad_creative_pipeline` tool.
+
+    Args:
+        select_ad_copy_dict (dict): A dict representing an ad copy finalized for ad generation. Use the `tool_context` to extract the following schema:
+            headline (str): A concise, attention-grabbing phrase.
+            body_text (str): The main body of the ad copy. Should be compelling.
+            caption (str): The candidate social media caption proposed for the ad copy.
+            call_to_action (str): A catchy, action-oriented phrase intended for the target audience.
+            trend_reference (str): How it relates to the trending topic: {target_search_trends}
+            audience_appeal (str): A brief rationale for target audience appeal
+            performance_rationale (str): A brief rationale explaining why this ad copy will perform well.
+        tool_context: The tool context.
+
+    Returns:
+        A status message.
+    """
+    # name (str): An intuitive name of the ad copy concept.
+
+    existing_ad_copies = tool_context.state.get(
+        "final_select_ad_copies", {"final_select_ad_copies": []}
+    )
+    existing_ad_copies["final_select_ad_copies"].append(select_ad_copy_dict)
+    tool_context.state["final_select_ad_copies"] = existing_ad_copies
+    return {"status": "ok"}
+
+
 def save_select_visual_concept(
     select_vis_concept_dict: dict, tool_context: ToolContext
 ) -> dict:
@@ -64,14 +94,14 @@ def save_select_visual_concept(
     Args:
         select_vis_concept_dict (dict): A dict representing a visual concept for ad generation. Use the `tool_context` to extract the following schema:
             name (str): An intuitive name of the visual concept.
+            trend (str): The trend(s) referenced by this creative.
             headline (str): The attention-grabbing headline.
             caption (str): The candidate social media caption proposed for the visual concept.
             creative_explain (str): A brief explanation of the visual concept.
-            trend (str): The trend(s) referenced by this creative.
             trend_reference (str): How the visual concept relates to the `target_search_trends`
             audience_appeal (str): A brief explanation for the target audience appeal.
             markets_product (str): A brief explanation of how this markets the target product.
-            rationale_perf (str): A brief rationale explaining why this ad copy will perform well.
+            rationale_perf (str): A brief rationale explaining why this visual concept will perform well.
             prompt (str): The suggested prompt to generate this creative.
         tool_context: The tool context.
 
@@ -163,38 +193,6 @@ async def generate_image(
     }
 
 
-async def save_img_artifact_key(
-    artifact_key_dict: dict,
-    tool_context: ToolContext,
-) -> dict:
-    """
-    Tool to save image artifact details to the session state.
-    Use this tool after generating an image with the `generate_image` tool.
-
-    Args:
-        artifact_key_dict (dict): A dict representing a generated image artifact. Use the `tool_context` to extract the following schema:
-            artifact_key (str): The filename used to identify the image artifact; the value of `artifact_key` returned in the `generate_image` tool response.
-            img_prompt (str): The prompt used to generate the image artifact.
-            concept_explained (str): A brief explanation of the visual concept used to generate this artifact.
-            headline (str): The attention-grabbing headline proposed for the artifact's ad-copy.
-            caption (str): The candidate social media caption proposed for the artifact's ad-copy.
-            trend (str): The trend(s) referenced by this creative.
-            rationale_perf (str): A brief rationale explaining why this ad copy will perform well.
-            audience_appeal (str): A brief explanation for the target audience appeal.
-            markets_product (str): A brief explanation of how this markets the target product.
-        tool_context (ToolContext) The tool context.
-
-    Returns:
-        dict: the status of this functions overall outcome.
-    """
-    existing_img_artifact_keys = tool_context.state.get(
-        "img_artifact_keys", {"img_artifact_keys": []}
-    )
-    existing_img_artifact_keys["img_artifact_keys"].append(artifact_key_dict)
-    tool_context.state["img_artifact_keys"] = existing_img_artifact_keys
-    return {"status": "ok"}
-
-
 async def save_creatives_html_report(tool_context: ToolContext) -> dict:
     """
     Saves generated HTML report to Cloud Storage.
@@ -209,7 +207,7 @@ async def save_creatives_html_report(tool_context: ToolContext) -> dict:
     gcs_folder = tool_context.state["gcs_folder"]
     gcs_subdir = tool_context.state["agent_output_dir"]
 
-    # get artifact details
+    # get visual concept details
     final_visual_concepts_dict = tool_context.state.get("final_select_vis_concepts")
     final_visual_concepts_list = final_visual_concepts_dict["final_select_vis_concepts"]
 
@@ -324,43 +322,15 @@ async def save_creative_gallery_html(tool_context: ToolContext) -> dict:
     final_visual_concepts_dict = tool_context.state.get("final_select_vis_concepts")
     final_visual_concepts_list = final_visual_concepts_dict["final_select_vis_concepts"]
 
+    # get ad copy details
+    final_ad_copy_dict = tool_context.state.get("final_select_ad_copies")
+    final_ad_copy_list = final_ad_copy_dict["final_select_ad_copies"]
+
     try:
-        # creatives
-        CONNECTED_GALLERY_STRING = ""
-        for index, entry in enumerate(final_visual_concepts_list):
-            ARTIFACT_NAME = (
-                entry["name"].translate(REMOVE_PUNCTUATION).replace(" ", "_")
-            )
-            ARTIFACT_KEY = f"{ARTIFACT_NAME}.png"
-            AUTH_GCS_URL = f"https://storage.mtls.cloud.google.com/{config.GCS_BUCKET_NAME}/{gcs_folder}/{gcs_subdir}/{ARTIFACT_KEY}?authuser=3"
 
-            # get high-res image
-            HIGH_RES_AUTH_GCS_URL = _get_high_res_img(
-                gcs_folder=tool_context.state["gcs_folder"],
-                gcs_subdir=tool_context.state["agent_output_dir"],
-                artifact_key=ARTIFACT_KEY,
-            )
-
-            # generate HTML block for gallery images
-            GALLERY_IMAGE_BLOCK = f"""
-                    <!-- Image {index+1} -->
-                    <div class="gallery-item">
-                        <h4 class="image-title">{entry['headline']}</h4>
-                        <div class="image-container">
-                            <img src="{AUTH_GCS_URL}" 
-                                 data-high-res-src="{HIGH_RES_AUTH_GCS_URL}"
-                                 alt="{entry['creative_explain'].replace('"', "'")}" 
-                                 title="{entry['headline']}">
-                            <div class="hover-text">
-                                <div class="hover-snippet snippet-top-left"><strong>Trend Reference:</strong>{entry['trend_reference'].replace('"', "'")}</div>
-                                <div class="hover-snippet snippet-bottom-left"><strong>How it markets Target Product:</strong>{entry['markets_product'].replace('"', "'")}</div>
-                                <div class="hover-snippet snippet-bottom-right"><strong>Target audience appeal:</strong>{entry['audience_appeal'].replace('"', "'")}</div>
-                            </div>
-                        </div>
-                        <p class="caption">{entry['caption']}</p>
-                    </div>
-            """
-            CONNECTED_GALLERY_STRING += GALLERY_IMAGE_BLOCK
+        # =========================== #
+        # CSS formatting for HTML
+        # =========================== #
 
         HTML_TEMPLATE = """<!DOCTYPE html>
         <html lang="en">
@@ -380,43 +350,76 @@ async def save_creative_gallery_html(tool_context: ToolContext) -> dict:
                 h1 {
                     text-align: center;
                     color: #333;
-                    margin-bottom: 20px;
+                    font-size: 3rem; /* You can adjust this value to your liking */ 
+                    margin-bottom: 40px; /* Increased for better spacing */
                 }
 
                 /* Sub-header styles */
                 .sub-header-container {
-                    max-width: 1000px;
-                    margin: 30px auto 20px;
+                    max-width: 1600px; /* Step 1: Match the gallery's width for perfect alignment */
+                    margin: 0 auto 40px;
                     display: flex;
-                    justify-content: center;
-                    gap: 40px;
+                    gap: 40px; /* You can adjust this gap to control the spacing between the columns */
                     list-style: none;
                     padding: 0;
                 }
 
                 .sub-header-container h3 {
+                    flex: 1; /* make each h3 take up an equal amount of space */
                     margin: 0;
                     font-weight: 500;
                     color: #555;
                     cursor: pointer;
-                    transition: color 0.2s ease;
+                    transition: all 0.3s ease;
+                    text-align: center;
+                    
+                    /* Optional but nice: Add some padding and a background to visualize the equal dimensions */
+                    background-color: #fff;
+                    padding: 20px;
+                    border-radius: 8px;
+                    box-shadow: 0 4px 8px rgba(0,0,0,0.05);
+                }
+
+                /* this rule styles the label to match the hover-text style */
+                .sub-header-container h3 strong {
+                    display: block; /* This makes the label appear on its own line */
+                    color: #a0d8ff; /* This is the light blue color from the hover-snippet */
+                    font-weight: 600;
+                    margin-bottom: 4px; /* Adds a little space between the label and the text */
                 }
 
                 .sub-header-container h3:hover {
+                    transform: scale(1.05);
+                    box-shadow: 0 8px 16px rgba(0,0,0,0.1); /* Enhance the shadow for a "lift" effect */
+                    background-color: #f9f9f9;
+                }
+                .sub-header-container h3:hover,
+                .sub-header-container h3:hover strong {
                     color: #007bff;
+                }
+
+                /* --- CSS RULE TO ENLARGE MIDDLE HEADER'S TEXT --- */
+                .sub-header-container h3:nth-child(2) .enlarged-text {
+                    font-size: 1.5em;
+                    font-weight: 600;
                 }
 
                 /* --- THIS IS THE CRITICAL RULE --- */
                 .gallery-container {
-                    display: grid;
-                    grid-template-columns: repeat(auto-fit, minmax(550px, 1fr));
+                    display: flex; /* Switch from Grid to Flexbox */
+                    flex-wrap: wrap; /* Allow items to wrap to the next line */
+                    justify-content: center; /* This centers the items, including the last row */
                     gap: 20px; 
                     max-width: 1600px;
                     margin: 0 auto;
                 }
 
-                /* Gallery Item Card */
+                /* --- MODIFIED .gallery-item RULE --- */
                 .gallery-item {
+                    /* Set the width for the flex items to create two columns */
+                    /* Math: 50% width minus half the gap (20px / 2 = 10px) */
+                    flex: 0 1 calc(50% - 10px); 
+
                     display: flex;
                     flex-direction: column;
                     overflow: hidden;
@@ -431,7 +434,6 @@ async def save_creative_gallery_html(tool_context: ToolContext) -> dict:
                     box-shadow: 0 8px 16px rgba(0, 0, 0, 0.2);
                 }
 
-                /* NEW: Image Title Style */
                 .image-title {
                     margin: 0;
                     padding: 15px;
@@ -461,17 +463,17 @@ async def save_creative_gallery_html(tool_context: ToolContext) -> dict:
                     transform: scale(1.30);
                 }
 
-                /* 3. Styling for the caption */
+                /* Styling for the caption */
                 .caption {
                     margin: 0;
                     padding: 15px;
-                    font-size: 1.15em;
+                    font-size: 1.20em;
                     font-weight: normal;
                     text-align: left;
                     color: #444;
                     border-top: 1px solid #eee;
                 }
-                
+
                 /* 4. Styling for the hover text */
                 .hover-text {
                     position: absolute;
@@ -486,7 +488,7 @@ async def save_creative_gallery_html(tool_context: ToolContext) -> dict:
                     padding: 20px;
                     box-sizing: border-box;
                     transition: opacity 0.3s ease, visibility 0.3s ease;
-                    
+
                     /* Make the overlay a grid container */
                     display: grid;
                     grid-template-columns: 1fr 1fr;
@@ -509,14 +511,23 @@ async def save_creative_gallery_html(tool_context: ToolContext) -> dict:
 
                 .hover-snippet strong {
                     display: block;
-                    color: #a0d8ff; /* A slightly different color for the label */
+                    color: #a0d8ff;
                     font-weight: 600;
                 }
 
                 .snippet-top-left {
-                    /* Place this snippet in the top-left corner of its grid cell */
                     justify-self: start; /* Horizontal alignment */
-                    align-self: start;   /* Vertical alignment */
+                    align-self: start;  /* Vertical alignment */
+                }
+
+                .snippet-top-right {
+                    justify-self: end; /* Align horizontally to the end (right) of the grid cell */
+                    align-self: start; /* Align vertically to the start (top) of the grid cell */
+                    text-align: right; /* Ensure the text itself is right-aligned */
+                    
+                    /* Explicitly place this in the top-right grid cell (row 1, column 2) */
+                    grid-row: 1 / 2;
+                    grid-column: 2 / 3;
                 }
 
                 /* -- NEW RULE FOR THE THIRD SNIPPET -- */
@@ -528,11 +539,10 @@ async def save_creative_gallery_html(tool_context: ToolContext) -> dict:
                 }
 
                 .snippet-bottom-right {
-                    /* Place this snippet in the bottom-right corner of its grid cell */
                     justify-self: end; /* Horizontal alignment */
-                    align-self: end;   /* Vertical alignment */
+                    align-self: end; /* Vertical alignment */
                     text-align: right;
-                    
+
                     /* Put this snippet in the bottom-right cell of our 2x2 grid */
                     grid-column: 2 / 3;
                     grid-row: 2 / 3;
@@ -547,7 +557,7 @@ async def save_creative_gallery_html(tool_context: ToolContext) -> dict:
                     height: 100%;
                     background-color: rgba(0, 0, 0, 0.85);
                     z-index: 1000;
-                    display: flex; 
+                    display: flex;
                     justify-content: center;
                     align-items: center;
                     opacity: 0;
@@ -565,7 +575,7 @@ async def save_creative_gallery_html(tool_context: ToolContext) -> dict:
                     max-height: 90vh;
                     display: block;
                     border-radius: 5px;
-                    box-shadow: 0 5px 20px rgba(0,0,0,0.5);
+                    box-shadow: 0 5px 20px rgba(0, 0, 0, 0.5);
                 }
 
                 .lightbox-close {
@@ -582,6 +592,96 @@ async def save_creative_gallery_html(tool_context: ToolContext) -> dict:
                 .lightbox-close:hover {
                     color: #ccc;
                 }
+
+                /* --- NEW CSS FOR AD COPY & VISUAL CONCEPTS SECTIONS --- */
+                .content-section {
+                    /* padding: 40px 20px; */
+                    max-width: 1600px;
+                    margin: 15px auto 0; /* Adds space above the section and centers it */
+                }
+
+                /* --- NEW STYLES FOR COLLAPSIBLE BEHAVIOR --- */
+                .content-section details {
+                    background-color: #fff;
+                    border-radius: 8px;
+                    box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+                    transition: all 0.3s ease;
+                }
+
+                .content-section summary {
+                    display: flex;
+                    align-items: center;
+                    justify-content: space-between;
+                    padding: 20px 25px;
+                    cursor: pointer;
+                    list-style: none; /* Hide default triangle */
+                }
+
+                .content-section summary::-webkit-details-marker {
+                    display: none; /* Hide default triangle in Webkit */
+                }
+
+                .content-section summary h2 {
+                    font-size: 2em;
+                    color: #333;
+                    margin: 0; /* Remove default margin */
+                }
+
+                .content-section summary::after {
+                    content: '+';
+                    font-size: 2.5rem;
+                    font-weight: 300;
+                    color: #007bff;
+                    transition: transform 0.2s ease;
+                }
+
+                .content-section details[open] > summary::after {
+                    content: '−';
+                    transform: rotate(180deg);
+                }
+
+                /* This grid style now applies to BOTH sections */
+                .card-grid {
+                    display: grid;
+                    grid-template-columns: repeat(2, 1fr);
+                    gap: 40px; /* increase from 25px for more space */
+                    padding: 0 25px 25px 25px;
+                }
+
+                /* This card style now applies to ALL cards in BOTH sections */
+                .content-card {
+                    background-color: #fff;
+                    border-radius: 8px;
+                    padding: 25px;
+                    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+                    transition: transform 0.3s ease, box-shadow 0.3s ease; /* Smooth transition for the hover effect */
+                    font-size: 1.1rem; /* Sets the base font size for everything inside the card */
+                }
+
+                .content-card:hover {
+                    transform: scale(1.03); /* A subtle scale effect that won't run off the page */
+                    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.15);
+                }
+
+                /* The DL/DT/DD styles are specific to the card content */
+                .content-card dl {
+                    display: grid;
+                    grid-template-columns: auto 1fr; /* Create two columns: one for the label, one for the text */
+                    row-gap: 16px;
+                    column-gap: 10px;
+                    margin: 0; /* Remove default margins from the <dl> */
+                }
+
+                .content-card dt {
+                    font-weight: bold; /* bold labeling styling */
+                    color: #d9534f; /* A nice, readable red */
+                }
+
+                .content-card dd {
+                    margin-left: 0; /* Resets browser default indentation */
+                    color: #555;
+                    line-height: 1.5;
+                }
             </style>
         </head>
         <body>
@@ -589,28 +689,151 @@ async def save_creative_gallery_html(tool_context: ToolContext) -> dict:
 
         HTML_BODY = f"""
 
-            <h1>{brand} Ad Creatives for {target_product}</h1>
+            <h1>{brand} {target_product}</h1>
 
-            <!-- NEW: Sub-headers -->
+            <!-- Sub-headers -->
             <div class="sub-header-container">
-                <h3>Key Selling Point: {key_selling_points}</h3>
-                <h3>Target Audience: {target_audience}</h3>
+                <h3><strong>key selling point(s):</strong>  {key_selling_points}</h3>
+                <h3><strong>search trend:</strong> <span class="enlarged-text">'{target_search_trends}'</span></h3>
+                <h3><strong>target audience:</strong>  {target_audience}</h3>
             </div>
 
-            <h1>search trend: '{target_search_trends}'</h1>
+            <h1>Ad Creatives</h1>
 
             <div class="gallery-container">
         """
 
-        HTML_END = """
-            </div>
+        # =========================== #
+        # ad creatives HTML chunks
+        # =========================== #
 
-            <!-- NEW: Lightbox HTML Structure -->
-            <div id="lightbox" class="lightbox-overlay">
-                <span class="lightbox-close">&times;</span>
-                <img class="lightbox-content" id="lightbox-img">
-            </div>
+        CONNECTED_GALLERY_STRING = ""
+        for index, entry in enumerate(final_visual_concepts_list):
+            ARTIFACT_NAME = (
+                entry["name"].translate(REMOVE_PUNCTUATION).replace(" ", "_")
+            )
+            ARTIFACT_KEY = f"{ARTIFACT_NAME}.png"
+            GCS_BLOB_PATH = f"{gcs_folder}/{gcs_subdir}/{ARTIFACT_KEY}"
+            AUTH_GCS_URL = f"https://storage.mtls.cloud.google.com/{config.GCS_BUCKET_NAME}/{GCS_BLOB_PATH}?authuser=3"
 
+            # get high-res image
+            HIGH_RES_AUTH_GCS_URL = _get_high_res_img(
+                gcs_folder=tool_context.state["gcs_folder"],
+                gcs_subdir=tool_context.state["agent_output_dir"],
+                artifact_key=ARTIFACT_KEY,
+            )
+
+            # generate HTML block for gallery images
+            GALLERY_IMAGE_BLOCK = f"""
+                <!-- Image {index+1} -->
+                <div class="gallery-item">
+                    <h4 class="image-title">{entry['headline']}</h4>
+                    <div class="image-container">
+                        <img src="{AUTH_GCS_URL}" 
+                                data-high-res-src="{HIGH_RES_AUTH_GCS_URL}"
+                                alt="{entry['creative_explain'].replace('"', "'")}" 
+                                title="{entry['headline']}">
+                        <div class="hover-text">
+                            <div class="hover-snippet snippet-top-left"><strong>Trend Reference:</strong>{entry['trend_reference'].replace('"', "'")}</div>
+                            <div class="hover-snippet snippet-top-right"><strong>Visual Concept Name:</strong>{entry['name']}</div>
+                            <div class="hover-snippet snippet-bottom-left"><strong>How it markets Target Product:</strong>{entry['markets_product'].replace('"', "'")}</div>
+                            <div class="hover-snippet snippet-bottom-right"><strong>Target audience appeal:</strong>{entry['audience_appeal'].replace('"', "'")}</div>
+                        </div>
+                    </div>
+                    <p class="caption">{entry['caption']}</p>
+                </div>
+            """
+            CONNECTED_GALLERY_STRING += GALLERY_IMAGE_BLOCK
+
+        HTML_POST_GALLERY = """
+        </div>
+
+        <!-- NEW: Lightbox HTML Structure -->
+        <div id="lightbox" class="lightbox-overlay">
+            <span class="lightbox-close">&times;</span>
+            <img class="lightbox-content" id="lightbox-img">
+        </div>
+        """
+
+        # =========================== #
+        # visual concepts HTML chunks
+        # =========================== #
+
+        HTML_PRE_VS = """
+        <!-- --- NEW HTML FOR VISUAL CONCEPTS SECTION --- -->
+        <section class="content-section">
+            <details>
+                <summary>
+                    <h2>Visual Concepts</h2>
+                </summary>
+                <div class="card-grid">
+        """
+
+        CONNECTED_VS_STRING = ""
+        for index, entry in enumerate(final_visual_concepts_list):
+            # generate HTML block for visual concepts
+            VISUAL_CONCEPT_BLOCK = f"""
+                    <!-- Visual Concept {index+1} -->
+                    <div class="content-card">
+                        <dl>
+                            <dt>Name:</dt> <dd>{entry['name']}</dd>
+                            <dt>Trend:</dt> <dd>{entry['trend']}</dd>
+                            <dt>Creative Concept Explained:</dt> <dd>{entry['creative_explain']}</dd>
+                            <dt>Why this will perform well:</dt> <dd>{entry['rationale_perf']}</dd>
+                            <dt>prompt</dt> <dd>{entry['prompt']}</dd>
+                        </dl>
+                    </div>
+            """
+            CONNECTED_VS_STRING += VISUAL_CONCEPT_BLOCK
+
+        HTML_POST_VS = """
+                </div>
+            </details>
+        </section>
+        """
+
+        # =========================== #
+        # ad copy HTML chunks
+        # =========================== #
+
+        HTML_PRE_AD_COPY = """
+        <!-- --- NEW HTML FOR AD COPY SECTION --- -->
+        <section class="content-section">
+            <details>
+                <summary>
+                    <h2>Ad Copy Ideas</h2>
+                </summary>
+                <div class="card-grid">
+
+        """
+
+        CONNECTED_AD_COPY_STRING = ""
+        for index, entry in enumerate(final_ad_copy_list):
+            # generate HTML block for ad copies
+            AD_COPY_BLOCK = f"""
+                    <!-- Ad Copy {index+1} -->
+                    <div class="content-card">
+                        <dl>
+                            <dt>Headline:</dt> <dd>{entry['headline']}</dd>
+                            <dt>Body Text:</dt> <dd>{entry['body_text']}</dd>
+                            <dt>Social Media Caption:</dt> <dd>{entry['caption']}</dd>
+                            <dt>Call-to-Action:</dt> <dd>{entry['call_to_action']}</dd>
+                            <dt>Trend-Reference:</dt> <dd>{entry['trend_reference']}</dd>
+                            <dt>Audience Appeal:</dt> <dd>{entry['audience_appeal']}</dd>
+                            <dt>Performance Rationale:</dt> <dd>{entry['performance_rationale']}</dd>
+                        </dl>
+                    </div>
+            """
+            CONNECTED_AD_COPY_STRING += AD_COPY_BLOCK
+
+        HTML_POST_AD_COPY = """
+                </div>
+            </details>
+        </section>
+        <!-- --- END OF NEW HTML --- -->
+        """
+
+        HTML_END_JAVASCRIPT = """
             <!-- NEW: JavaScript for Lightbox functionality -->
             <script>
                 document.addEventListener('DOMContentLoaded', () => {
@@ -639,7 +862,20 @@ async def save_creative_gallery_html(tool_context: ToolContext) -> dict:
         </html>
         """
 
-        FINAL_HTML = HTML_TEMPLATE + HTML_BODY + CONNECTED_GALLERY_STRING + HTML_END
+        # concat all strings to form HTML doc
+        FINAL_HTML = (
+            HTML_TEMPLATE
+            + HTML_BODY
+            + CONNECTED_GALLERY_STRING
+            + HTML_POST_GALLERY
+            + HTML_PRE_VS
+            + CONNECTED_VS_STRING
+            + HTML_POST_VS
+            + HTML_PRE_AD_COPY
+            + CONNECTED_AD_COPY_STRING
+            + HTML_POST_AD_COPY
+            + HTML_END_JAVASCRIPT
+        )
 
         # Save the HTML to a new file
         REPORT_NAME = "creative_portfolio_gallery.html"
@@ -731,6 +967,78 @@ async def save_draft_report_artifact(tool_context: ToolContext) -> dict:
         return {"status": "failed", "error": str(e)}
 
 
+def save_session_state_to_gcs(tool_context: ToolContext) -> dict:
+    """
+    Writes the session state to JSON. Saves the JSON file to Cloud Storage.
+
+    Args:
+        tool_context (ToolContext): The tool context.
+
+    Returns:
+        dict: A dictionary containing the status and the json file's Cloud Storage URI (gcs_uri).
+    """
+
+    session_state = tool_context.state.to_dict()
+    gcs_bucket = session_state["gcs_bucket"]
+    gcs_folder = session_state["gcs_folder"]
+    gcs_subdir = session_state["agent_output_dir"]
+
+    # create new dict to save
+    data = {}
+
+    # gcs location
+    data["gcs_bucket"] = gcs_bucket
+    data["gcs_folder"] = gcs_folder
+    data["agent_output_dir"] = gcs_subdir
+
+    # campaign metadata
+    data["brand"] = session_state["brand"]
+    data["target_product"] = session_state["target_product"]
+    data["target_audience"] = session_state["target_audience"]
+    data["key_selling_points"] = session_state["key_selling_points"]
+
+    # creatives
+    data["final_select_ad_copies"] = tool_context.state.get("final_select_ad_copies")
+    data["final_select_vis_concepts"] = tool_context.state.get(
+        "final_select_vis_concepts"
+    )
+
+    # web research
+    data["final_report_with_citations"] = session_state["final_report_with_citations"]
+
+    # save local json
+    filename = f"creative_session_state.json"
+    local_file = f"{gcs_subdir}/{filename}"
+    Path(gcs_subdir).mkdir(exist_ok=True)
+
+    # Write to local file
+    with open(local_file, "w") as f:
+        json.dump(data, f, indent=4)
+
+    # save json to GCS
+    storage_client = get_gcs_client()
+    gcs_bucket = config.GCS_BUCKET_NAME
+    bucket = storage_client.bucket(gcs_bucket)
+    blob = bucket.blob(os.path.join(gcs_folder, local_file))
+    blob.upload_from_filename(local_file)
+
+    # return values
+    gcs_blob_name = f"{gcs_folder}/{gcs_subdir}/{filename}"
+    gcs_uri = f"gs://{gcs_bucket}/{gcs_blob_name}"
+
+    try:
+        shutil.rmtree(gcs_subdir)
+        logging.info(f"Directory '{gcs_subdir}' and its contents removed successfully")
+    except FileNotFoundError:
+        logging.exception(f"Directory '{gcs_subdir}' not found")
+
+    # Return a dictionary indicating status and the Cloud Storage URI.
+    return {
+        "status": "success",
+        "gcs_uri": gcs_uri,
+    }
+
+
 # =============================
 # utils
 # =============================
@@ -746,11 +1054,6 @@ def download_blob(bucket_name, source_blob_name):
     # storage_client = storage.Client()
     storage_client = get_gcs_client()
     bucket = storage_client.bucket(bucket_name)
-
-    # Construct a client side representation of a blob.
-    # Note `Bucket.blob` differs from `Bucket.get_blob` as it doesn't retrieve
-    # any content from Google Cloud Storage. As we don't need additional data,
-    # using `Bucket.blob` is preferred here.
     blob = bucket.blob(source_blob_name)
     return blob.download_as_bytes()
 
@@ -840,6 +1143,7 @@ def _get_high_res_img(gcs_folder: str, gcs_subdir: str, artifact_key: str):
     resized_image.save(XL_LOCAL_FILENAME)
 
     # upload to gcs
+    mTLS_GCS_PREFIX = "https://storage.mtls.cloud.google.com"
     NEW_BLOB_NAME = f"{gcs_folder}/{gcs_subdir}/resized/{XL_LOCAL_FILENAME}"
     new_blob = bucket.blob(NEW_BLOB_NAME)
     new_blob.upload_from_filename(XL_LOCAL_FILENAME)
@@ -847,5 +1151,7 @@ def _get_high_res_img(gcs_folder: str, gcs_subdir: str, artifact_key: str):
     # rm local file
     os.remove(LOCAL_FILENAME)
     os.remove(XL_LOCAL_FILENAME)
-    high_res_auth_gcs_uri = f"https://storage.mtls.cloud.google.com/{config.GCS_BUCKET_NAME}/{NEW_BLOB_NAME}?authuser=3"
+    high_res_auth_gcs_uri = (
+        f"{mTLS_GCS_PREFIX}/{config.GCS_BUCKET_NAME}/{NEW_BLOB_NAME}?authuser=3"
+    )
     return high_res_auth_gcs_uri

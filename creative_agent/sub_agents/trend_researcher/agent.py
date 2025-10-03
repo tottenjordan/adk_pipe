@@ -17,27 +17,34 @@ gs_web_planner = Agent(
     include_contents="none",
     description="Generates initial queries to understand why the 'target_search_trends' are trending.",
     instruction="""You are a research strategist. 
-    Your job is to create high-level queries that will help marketers better understand the cultural significance of Google Search trends in the 'target_search_trends' state key.
+    Your job is to create high-level queries that will help marketers better understand the cultural significance of Google Search trends.
 
-    Review the search trend provided in the **Input Data**, then proceed to the **Instructions**.
+    Review the search trend and target audience provided in the <CONTEXT> block, then proceed to the <INSTRUCTIONS> to complete your task.
 
     ---
-    ### Input Data
+    <CONTEXT>
+        <target_search_trends>
+        {target_search_trends}
+        </target_search_trends>
 
-    <target_search_trends>
-    {target_search_trends}
-    </target_search_trends>
-    
+        <target_audience>
+        {target_audience}
+        </target_audience>
+    </CONTEXT>
+
     ---
-    ### Instructions
-    1. Read the 'target_search_trends' state key to get the Search trend.
-    2. Generate 4-5 queries that will provide more context for this trend, and answer questions like:
+    <INSTRUCTIONS>
+    1. Generate 4-5 queries that will provide more context for the target search trend: <target_search_trends> 
+    2. Your questions should help answer questions like:
         - Why are these search terms trending? Who is involved?
-        - Are there any related themes that would resonate with our target audience?
-        - Describe any key entities involved (i.e., people, places, organizations, named events, etc.), and the relationships between these key entities, especially in the context of the trending topic, or if possible the target product
+        - Describe any key entities involved (i.e., people, places, organizations, named events, etc.), and the relationships between these key entities, especially in the context of the trending topic, or if possible the <target_audience>.
         - Explain the cultural significance of the trend.
-    
-    **CRITICAL RULE: Your output should just include a numbered list of queries. Nothing else.**
+        - Are there any related themes that would resonate with the <target_audience>?
+    </INSTRUCTIONS>
+
+    <RECAP>
+    **CRITICAL RULE:** Your output should just include a numbered list of queries. Nothing else.
+    </RECAP>
     """,
     output_key="initial_gs_queries",
 )
