@@ -13,16 +13,7 @@ from .sub_agents.campaign_researcher.agent import ca_sequential_planner
 from .sub_agents.trend_researcher.agent import gs_sequential_planner
 from .config import config
 from . import callbacks
-from .tools import (
-    memorize,
-    generate_image,
-    save_select_ad_copy,
-    save_select_visual_concept,
-    save_draft_report_artifact,
-    save_creatives_html_report,
-    save_creative_gallery_html,
-    save_session_state_to_gcs,
-)
+from . import tools
 
 
 # --- PARALLEL RESEARCH SUBAGENTS --- #
@@ -158,7 +149,7 @@ combined_web_evaluator = Agent(
     output_key="combined_research_evaluation",
     before_model_callback=callbacks.rate_limit_callback,
 )
-# Current date: {datetime.datetime.now().strftime("%Y-%m-%d")}
+
 
 enhanced_combined_searcher = Agent(
     model=config.worker_model,
@@ -532,7 +523,7 @@ visual_generator = Agent(
     instruction="""You are a visual content producer generating image creatives.
     Your job is to invoke the `generate_image` tool.
     """,
-    tools=[generate_image],
+    tools=[tools.generate_image],
     generate_content_config=types.GenerateContentConfig(temperature=1.2),
     before_model_callback=callbacks.rate_limit_callback,
 )
@@ -599,12 +590,6 @@ root_agent = Agent(
 
     Action 1: Display Cloud Storage location to the user
     Display the Cloud Storage URI to the user by combining the 'gcs_bucket', 'gcs_folder', and 'agent_output_dir' state keys like this: {gcs_bucket}/{gcs_folder}/{agent_output_dir}
-
-        <EXAMPLE>
-            INPUT: {gcs_bucket}/{gcs_folder}/{agent_output_dir}
-
-            OUTPUT: gs://trend-trawler-deploy-ae/2025_09_13_19_21/creative_output
-        </EXAMPLE>
     </WORKFLOW>
     
     Your job is complete when all tasks in the <WORKFLOW> block are complete.
@@ -614,13 +599,13 @@ root_agent = Agent(
         AgentTool(agent=ad_creative_pipeline),
         AgentTool(agent=visual_generation_pipeline),
         AgentTool(agent=visual_generator),
-        save_draft_report_artifact,
-        save_creatives_html_report,
-        save_select_visual_concept,
-        save_select_ad_copy,
-        save_creative_gallery_html,
-        save_session_state_to_gcs,
-        memorize,
+        tools.save_draft_report_artifact,
+        tools.save_creatives_html_report,
+        tools.save_select_visual_concept,
+        tools.save_select_ad_copy,
+        tools.save_creative_gallery_html,
+        tools.save_session_state_to_gcs,
+        tools.memorize,
     ],
     generate_content_config=types.GenerateContentConfig(
         temperature=1.0, labels={"agent": "trend_trawler"}
@@ -628,3 +613,4 @@ root_agent = Agent(
     before_agent_callback=callbacks._load_session_state,
     before_model_callback=callbacks.rate_limit_callback,
 )
+
