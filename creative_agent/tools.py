@@ -406,15 +406,20 @@ async def save_creative_gallery_html(tool_context: ToolContext) -> dict:
 
                 /* --- THIS IS THE CRITICAL RULE --- */
                 .gallery-container {
-                    display: grid;
-                    grid-template-columns: repeat(auto-fit, minmax(550px, 1fr));
-                    gap: 20px;
+                    display: flex; /* Switch from Grid to Flexbox */
+                    flex-wrap: wrap; /* Allow items to wrap to the next line */
+                    justify-content: center; /* This centers the items, including the last row */
+                    gap: 20px; 
                     max-width: 1600px;
                     margin: 0 auto;
                 }
 
-                /* Gallery Item Card */
+                /* --- MODIFIED .gallery-item RULE --- */
                 .gallery-item {
+                    /* Set the width for the flex items to create two columns */
+                    /* Math: 50% width minus half the gap (20px / 2 = 10px) */
+                    flex: 0 1 calc(50% - 10px); 
+
                     display: flex;
                     flex-direction: column;
                     overflow: hidden;

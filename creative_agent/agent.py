@@ -105,19 +105,52 @@ combined_web_evaluator = Agent(
     model=config.critic_model,
     name="combined_web_evaluator",
     description="Critically evaluates research about the campaign guide and generates follow-up queries.",
-    instruction=f"""
-    You are a meticulous quality assurance analyst evaluating the research findings in 'combined_web_search_insights'.
+    instruction="""
+    You are a meticulous quality assurance analyst evaluating initial research findings. 
     
-    Be critical of the completeness of the research.
-    Consider the bigger picture and the intersection of the `target_product` and `target_audience`. 
-    Consider the trend in the 'target_search_trends' state key.
-    
-    Look for any gaps in depth or coverage, as well as any areas that need more clarification. 
-        - If you find significant gaps in depth or coverage, write a detailed comment about what's missing, and generate 5-7 specific follow-up queries to fill those gaps.
-        - If you don't find any significant gaps, write a detailed comment about any aspect of the campaign guide or trends to research further. Provide 5-7 related queries.
+    Your task is to review the research provided in the <CONTEXT> block and determine the set of web queries that will find the best information to gather next. To complete this task, follow the steps in the <INSTRUCTIONS> block.
 
-    Current date: {datetime.datetime.now().strftime("%Y-%m-%d")}
-    Your response must be a single, raw JSON object validating against the 'CampaignFeedback' schema.
+    
+    <INSTRUCTIONS>  
+    1. In the <CONTEXT> block, review the <combined_web_search_insights> and assess what information is available to help us understand how the <target_product> and <target_search_trends> will resonate with the <target_audience>.
+    2. Consider the bigger picture, e.g., the intersection between the <target_product> and the <target_search_trends>. Are there any gaps in depth or coverage? Or perhaps areas that need more clarification? 
+    3. Is there enough evidence to suggest any relationship or overlap between the <target_audience> and either the <target_product> or <target_search_trends>?
+    4. Upon completing your initial analysis, generate a set of web queries that will address any gaps as well as further investigate any interesting leads. Adhere to the guidance in the <CONSTRAINTS> block as you create these.
+    </INSTRUCTIONS>
+
+
+    <CONSTRAINTS>
+    Follow the logic listed here to determine your final set of web queries.
+    
+    In terms of research completeness:
+    - If you find significant gaps in depth or coverage, write a detailed comment about what's missing, and generate 5-7 specific follow-up queries to fill those gaps.
+    - If you don't find any significant gaps, determine any possible relationship or overlap the <target_audience> has with the <target_product> and <target_search_trends>. Write a detailed comment explaining this to guide research further. Provide 5-7 related queries.
+
+    In terms of relevance between the <target_audience> and the <target_product> and <target_search_trends>:
+        - If there is a clear relationship, generate a set of web queries to better understand this, especially any sentiment the <target_audience> may have towards the <target_product> and <target_search_trends>.
+        - If there is NOT a clear relationship, generate a set of web queries that will help us better understand if the <target_audience> will resonate with ANY general concepts related to the <target_search_trends>.
+    </CONSTRAINTS>
+
+
+    <CONTEXT>
+        <combined_web_search_insights>
+        {combined_web_search_insights}
+        </combined_web_search_insights>
+
+        <target_search_trends>
+        {target_search_trends}
+        </target_search_trends>
+
+        <target_audience>
+        {target_audience}
+        </target_audience>
+    </CONTEXT>
+
+
+    <OUTPUT_FORMAT>
+    1. Ensure you have at least 5-7 questions based off your conclusions from the <CONSTRAINTS>
+    2. The output format must be a single, raw JSON object validating against the 'CampaignFeedback' schema.
+    </OUTPUT_FORMAT>
     """,
     output_schema=CampaignFeedback,
     disallow_transfer_to_parent=True,
@@ -125,7 +158,7 @@ combined_web_evaluator = Agent(
     output_key="combined_research_evaluation",
     before_model_callback=callbacks.rate_limit_callback,
 )
-
+# Current date: {datetime.datetime.now().strftime("%Y-%m-%d")}
 
 enhanced_combined_searcher = Agent(
     model=config.worker_model,
@@ -136,12 +169,44 @@ enhanced_combined_searcher = Agent(
     ),
     instruction="""
     You are a specialist researcher executing a refinement pass.
-    You are tasked to conduct a second round of web research and gather insights related to the trending Search terms, the target audience, and the target product.
+    You are tasked with conducting a second round of web research to gather insights related to the trending Search term(s), the target audience, and the target product.
+    To successfully complete your task, follow the steps provided in the <INSTRUCTIONS> block.
 
-    1.  Review the 'combined_research_evaluation' state key to understand the previous round of research.
-    2.  Execute EVERY query listed in 'follow_up_queries' using the 'google_search' tool.
+    <INSTRUCTIONS>
+    1.  Review the <combined_research_evaluation> in the <CONTEXT> block to understand the latest round of research.
+    2.  Use the 'google_search' tool to execute EVERY web query listed in the 'follow_up_queries'.
     3.  Synthesize the new findings and COMBINE them with the existing information in 'combined_web_search_insights'.
-    4.  Your output MUST be the new, complete, and improved set of research insights for the trending Search terms and campaign guide.
+    4.  Be sure to address any of the following topics, if they are relevant:
+        - competitive landscape for the target_product: {target_product}
+        - the <target_audience> sentiment towards the <target_search_trends> and how this will impact our messaging and creatives.
+        - any clever ways to spin the <key_selling_points> while marketing to the <target_audience>
+        - any strategic implications or mainstream cultural trends to be aware of during this campaign
+    </INSTRUCTIONS>
+
+    
+    <CONTEXT>
+        <combined_research_evaluation>
+        {combined_research_evaluation}
+        </combined_research_evaluation>
+
+        <target_audience>
+        {target_audience}
+        </target_audience>
+
+        <target_product>
+        {target_product}
+        </target_product>
+        
+        <key_selling_points>
+        {key_selling_points}
+        </key_selling_points>
+    </CONTEXT>
+
+    
+    <RECAP>
+    Your output MUST be the new, complete, and improved set of research insights finding the intersection between the 'target_audience', 'target_product', and 'target_search_trends'.
+    Use the `google_search` tool to support your decisions.
+    </RECAP>
     """,
     tools=[google_search],
     output_key="combined_web_search_insights",
@@ -261,7 +326,6 @@ ad_copy_drafter = Agent(
     tools=[google_search],
     output_key="ad_copy_draft",
 )
-# - Call-to-action
 
 
 ad_copy_critic = Agent(
@@ -273,12 +337,12 @@ ad_copy_critic = Agent(
     ),
     instruction="""You are a strategic marketing critic evaluating ad copy ideas.
 
-    Your task is to review candidate ad copies and select the 6 BEST ideas
+    Your task is to review candidate ad copies and select the 6-8 BEST ideas
 
     <INSTRUCTIONS>
     To complete the task, you need to follow these steps:
     1. Review the proposed candidates in the 'ad_copy_draft' state key.
-    2. Select the 6 best ad copy ideas based on the following criteria:
+    2. Select the 6-8 best ad copy ideas based on the following criteria:
         - Alignment with target audience.
         - Effective use of trending topic that feels authentic.
         - Clear communication of key selling points.
@@ -301,7 +365,6 @@ ad_copy_critic = Agent(
     generate_content_config=types.GenerateContentConfig(temperature=0.7),
     output_key="ad_copy_critique",
 )
-# - Name (intuitive name of the ad copy idea)
 
 
 # Sequential agent for ad creative generation
@@ -413,14 +476,14 @@ visual_concept_critic = Agent(
 # OUTPUT_FORMAT
 # -   Detailed rationale explaining why this concept will perform well 
 
+
 visual_concept_finalizer = Agent(
     model=config.worker_model,
     name="visual_concept_finalizer",
     description="Finalize visual concepts to proceed with.",
-    # planner=BuiltInPlanner(thinking_config=types.ThinkingConfig(include_thoughts=True)),
     instruction="""You are a senior creative director finalizing visual concepts for ad creatives.
 
-    Your task is to select the 5 best visual concepts for ad media generation.
+    Your task is to select the 5-6 best visual concepts for ad media generation.
 
     <CONTEXT>
         <visual_concept_critique>
@@ -430,7 +493,7 @@ visual_concept_finalizer = Agent(
 
     <INSTRUCTIONS>
     To complete the task, you need to follow these steps:
-    1. Review the critiqued visual concept drafts in the <CONTEXT> block and select the 5 best concepts for ad generation.
+    1. Review the critiqued visual concept drafts in the <CONTEXT> block and select the 5-6 best concepts for ad generation.
     2. For each visual concept, provide the following:
         -   Name (intuitive name of the visual concept)
         -   The trend(s) referenced by this creative.
