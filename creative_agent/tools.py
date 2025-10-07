@@ -1,9 +1,8 @@
+import os
+import uuid
+import string
 import logging
 import markdown
-import os, string
-
-logging.basicConfig(level=logging.INFO)
-
 import json, shutil
 from PIL import Image
 from pathlib import Path
@@ -12,17 +11,29 @@ from markdown_pdf import MarkdownPdf, Section
 from google import genai
 from google.genai import types
 from google.cloud import storage
+from google.cloud import bigquery
 from google.adk.tools import ToolContext
 
 from .config import config
 
 
+# --- config ---
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+)
+
+
 # ==============================
 # clients
 # =============================
-def get_gcs_client() -> storage.Client:
+def _get_gcs_client() -> storage.Client:
     """Get a configured GCS client."""
     return storage.Client(project=config.PROJECT_ID)
+
+
+def _get_bigquery_client() -> bigquery.Client:
+    """Get a configured BigQuery client."""
+    return bigquery.Client(project=config.BQ_PROJECT_ID)
 
 
 client = genai.Client(
@@ -1016,7 +1027,7 @@ def save_session_state_to_gcs(tool_context: ToolContext) -> dict:
         json.dump(data, f, indent=4)
 
     # save json to GCS
-    storage_client = get_gcs_client()
+    storage_client = _get_gcs_client()
     gcs_bucket = config.GCS_BUCKET_NAME
     bucket = storage_client.bucket(gcs_bucket)
     blob = bucket.blob(os.path.join(gcs_folder, local_file))
@@ -1039,10 +1050,79 @@ def save_session_state_to_gcs(tool_context: ToolContext) -> dict:
     }
 
 
+def write_trends_to_bq(tool_context: ToolContext) -> dict:
+    """
+    Writes selected trends to a BigQuery Table.
+
+    Args:
+        tool_context (ToolContext): The tool context.
+
+    Returns:
+        dict: A dictionary containing a 'status' key ('success' or 'error').
+              On success, status is 'success' and includes a 'trends' key with the inserted terms
+              On failure, status is 'error' and includes an 'error_message'.
+    """
+    bq_client = _get_bigquery_client()
+
+    # values to insert
+    unique_id = f"{str(uuid.uuid4())[:8]}"
+    gcs_url_prefix = "https://console.cloud.google.com/storage/browser"
+    gcs_folder = tool_context.state["gcs_folder"]
+    gcs_dir = tool_context.state["agent_output_dir"]
+    creative_gcs = f"{gcs_url_prefix}/{config.GCS_BUCKET_NAME}/{gcs_folder}/{gcs_dir}"
+
+    try:
+        # insert a row for the target search trend
+        target_trend = tool_context.state["target_search_trends"]
+        # write SQL
+        sql_query = f"""
+        INSERT INTO 
+            `{config.BQ_PROJECT_ID}.{config.BQ_DATASET_ID}.{config.BQ_TABLE_CREATIVES}` (uuid, 
+            target_trend,
+            datetime,
+            creative_gcs,
+            brand,
+            target_audience,
+            target_product,
+            key_selling_point)
+        VALUES 
+        (
+            '{unique_id}', 
+            '{target_trend}',
+            FORMAT_DATETIME("%Y-%m-%d %H:%M:%S", CURRENT_DATETIME('America/New_York')), 
+            '{creative_gcs}',
+            '{tool_context.state["brand"]}',
+            '{tool_context.state["target_audience"]}',
+            '{tool_context.state["target_product"]}',
+            '{tool_context.state["key_selling_points"]}'
+        );
+        """
+        # make API request
+        job = bq_client.query(sql_query)
+        job.result()  # wait for job to complete
+        if job.errors:
+            logging.error(
+                f"DML INSERT job for trend: '{target_trend}' failed: {job.errors}"
+            )
+        else:
+            logging.info(
+                f"DML INSERT job {job.job_id} for trend: '{target_trend}' completed; added {job.num_dml_affected_rows} rows."
+            )
+        return {
+            "status": "success",
+            "trend": target_trend,
+        }
+    except Exception as e:
+        logging.exception(f"Failed to insert row to bq: {e}")
+        return {
+            "status": "error",
+            "error_message": f"Error inserting row to bq: {e}",
+        }
+
 # =============================
 # utils
 # =============================
-def download_blob(bucket_name, source_blob_name):
+def _download_blob(bucket_name, source_blob_name):
     """
     Downloads a blob from the bucket.
     Args:
@@ -1052,7 +1132,7 @@ def download_blob(bucket_name, source_blob_name):
         Blob content as bytes.
     """
     # storage_client = storage.Client()
-    storage_client = get_gcs_client()
+    storage_client = _get_gcs_client()
     bucket = storage_client.bucket(bucket_name)
     blob = bucket.blob(source_blob_name)
     return blob.download_as_bytes()
@@ -1064,7 +1144,7 @@ def _save_to_gcs(
     filename: str,
 ):
     # --- Save to GCS ---
-    storage_client = get_gcs_client()
+    storage_client = _get_gcs_client()
     gcs_bucket = config.GCS_BUCKET_NAME
     bucket = storage_client.bucket(gcs_bucket)
 
@@ -1102,7 +1182,7 @@ def _upload_blob_to_gcs(
     Returns:
         str: The GCS URI of the uploaded file.
     """
-    storage_client = get_gcs_client()
+    storage_client = _get_gcs_client()
     gcs_bucket = config.GCS_BUCKET_NAME
     bucket = storage_client.bucket(gcs_bucket)
     blob = bucket.blob(destination_blob_name)
@@ -1124,7 +1204,7 @@ def _get_high_res_img(gcs_folder: str, gcs_subdir: str, artifact_key: str):
     """
 
     # get existing img artifact
-    storage_client = get_gcs_client()
+    storage_client = _get_gcs_client()
     bucket = storage_client.bucket(config.GCS_BUCKET_NAME)
     blob = bucket.blob(f"{gcs_folder}/{gcs_subdir}/{artifact_key}")
     LOCAL_FILENAME = f"local_{artifact_key}"

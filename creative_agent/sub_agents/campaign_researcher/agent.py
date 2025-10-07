@@ -1,10 +1,5 @@
 import os
-
-# from pathlib import Path
-# from dotenv import load_dotenv
 import logging
-
-logging.basicConfig(level=logging.INFO)
 
 from google.genai import types
 from google.adk.tools import google_search
@@ -13,6 +8,12 @@ from google.adk.agents import Agent, SequentialAgent
 
 from ...config import config
 from ... import callbacks
+
+
+# --- config ---
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+)
 
 
 campaign_web_planner = Agent(

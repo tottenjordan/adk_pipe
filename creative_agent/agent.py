@@ -1,6 +1,4 @@
-import datetime, logging
-
-logging.basicConfig(level=logging.INFO)
+import logging
 
 from google.genai import types
 from pydantic import BaseModel, Field
@@ -14,6 +12,12 @@ from .sub_agents.trend_researcher.agent import gs_sequential_planner
 from .config import config
 from . import callbacks
 from . import tools
+
+
+# --- config ---
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+)
 
 
 # --- PARALLEL RESEARCH SUBAGENTS --- #
@@ -313,6 +317,11 @@ ad_copy_drafter = Agent(
     """,
     generate_content_config=types.GenerateContentConfig(
         temperature=1.5,
+        labels={
+            "agentic_wf": "trend_trawler",
+            "agent": "creative_agent",
+            "subagent": "ad_copy_drafter",
+        },
     ),
     tools=[google_search],
     output_key="ad_copy_draft",
@@ -353,7 +362,14 @@ ad_copy_critic = Agent(
     </OUTPUT_FORMAT>
     """,
     # tools=[google_search],
-    generate_content_config=types.GenerateContentConfig(temperature=0.7),
+    generate_content_config=types.GenerateContentConfig(
+        temperature=0.7,
+        labels={
+            "agentic_wf": "trend_trawler",
+            "agent": "creative_agent",
+            "subagent": "ad_copy_critic",
+        },
+    ),
     output_key="ad_copy_critique",
 )
 
@@ -409,7 +425,14 @@ visual_concept_drafter = Agent(
     Use the `google_search` tool to support your decisions.
     """,
     tools=[google_search],
-    generate_content_config=types.GenerateContentConfig(temperature=1.5),
+    generate_content_config=types.GenerateContentConfig(
+        temperature=1.5,
+        labels={
+            "agentic_wf": "trend_trawler",
+            "agent": "creative_agent",
+            "subagent": "visual_concept_drafter",
+        },
+    ),
     output_key="visual_draft",
 )
 
@@ -458,14 +481,16 @@ visual_concept_critic = Agent(
     </OUTPUT_FORMAT>
     """,
     # tools=[google_search],
-    generate_content_config=types.GenerateContentConfig(temperature=0.7),
+    generate_content_config=types.GenerateContentConfig(
+        temperature=0.7,
+        labels={
+            "agentic_wf": "trend_trawler",
+            "agent": "creative_agent",
+            "subagent": "visual_concept_critic",
+        },
+    ),
     output_key="visual_concept_critique",
 )
-
-# CONSTRAINTS
-#     2. Explain how each concept relates to the Search trend: {target_search_trends}
-# OUTPUT_FORMAT
-# -   Detailed rationale explaining why this concept will perform well 
 
 
 visual_concept_finalizer = Agent(
@@ -499,7 +524,14 @@ visual_concept_finalizer = Agent(
     </INSTRUCTIONS>
     """,
     # tools=[save_select_visual_concept],
-    generate_content_config=types.GenerateContentConfig(temperature=0.8),
+    generate_content_config=types.GenerateContentConfig(
+        temperature=0.8,
+        labels={
+            "agentic_wf": "trend_trawler",
+            "agent": "creative_agent",
+            "subagent": "visual_concept_finalizer",
+        },
+    ),
     output_key="final_visual_concepts",
 )
 
@@ -524,7 +556,14 @@ visual_generator = Agent(
     Your job is to invoke the `generate_image` tool.
     """,
     tools=[tools.generate_image],
-    generate_content_config=types.GenerateContentConfig(temperature=1.2),
+    generate_content_config=types.GenerateContentConfig(
+        temperature=1.2,
+        labels={
+            "agentic_wf": "trend_trawler",
+            "agent": "creative_agent",
+            "subagent": "visual_generator",
+        },
+    ),
     before_model_callback=callbacks.rate_limit_callback,
 )
 
@@ -550,6 +589,7 @@ root_agent = Agent(
     9. Use the `save_creatives_html_report` tool to build the final HTML report, detailing research and creatives generated during a session.
     10. Use the `save_creative_gallery_html` tool to build an HTML file for displaying a portfolio of the generated creatives generated during the session.
     11. Use the `save_session_state_to_gcs` tool at the end of the session to save the state dict to Cloud Storage.
+    12. Use the `write_trends_to_bq` tool to insert rows to BigQuery.
     </AVAILABLE_TOOLS>
 
     <INSTRUCTIONS>
@@ -584,9 +624,9 @@ root_agent = Agent(
     7. Next, call the `visual_generator` tool to generate ad creatives.
     8. After the previous step is complete, use the `save_creatives_html_report` tool to create the final HTML report and save it to Cloud Storage. 
     9. Next, call the `save_creative_gallery_html` tool to create an HTML portfolio and save it to Cloud Storage.
-    10. Finally as the last step, call the `save_session_state_to_gcs` tool to save the session state to Cloud Storage.
-
-    Once the previous steps are complete, perform the following action:
+    10. Then, call the `save_session_state_to_gcs` tool to save the session state to Cloud Storage.
+    11. Finally as the last step, call the `write_trends_to_bq` tool to save trend information to BigQuery.
+    12. Once the previous steps are complete, perform the following action:
 
     Action 1: Display Cloud Storage location to the user
     Display the Cloud Storage URI to the user by combining the 'gcs_bucket', 'gcs_folder', and 'agent_output_dir' state keys like this: {gcs_bucket}/{gcs_folder}/{agent_output_dir}
@@ -605,12 +645,17 @@ root_agent = Agent(
         tools.save_select_ad_copy,
         tools.save_creative_gallery_html,
         tools.save_session_state_to_gcs,
+        tools.write_trends_to_bq,
         tools.memorize,
     ],
     generate_content_config=types.GenerateContentConfig(
-        temperature=1.0, labels={"agent": "trend_trawler"}
+        temperature=1.0,
+        labels={
+            "agentic_wf": "trend_trawler",
+            "agent": "creative_agent",
+            "subagent": "root_agent",
+        },
     ),
     before_agent_callback=callbacks._load_session_state,
     before_model_callback=callbacks.rate_limit_callback,
 )
-

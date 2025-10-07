@@ -1,7 +1,5 @@
 import logging
 
-logging.basicConfig(level=logging.INFO)
-
 from google.genai import types
 from google.adk.tools import google_search
 from google.adk.planners import BuiltInPlanner
@@ -10,6 +8,11 @@ from google.adk.agents import Agent, SequentialAgent
 from ...config import config
 from ... import callbacks
 
+
+# --- config ---
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+)
 
 gs_web_planner = Agent(
     model=config.lite_planner_model,
