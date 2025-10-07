@@ -130,6 +130,30 @@ poetry export --without-hashes --format=requirements.txt > ./creative_agent/requ
 poetry export --without-hashes --format=requirements.txt > ./trend_trawler/requirements.txt
 ```
 
+**5. Create BigQuery Dataset and Tables**
+
+```bash
+bq --location=US mk --dataset $BQ_DATA_PROJECT_ID:$BQ_DATASET_ID
+```
+
+Create the BQ table to store selected search trends:
+
+```bash
+bq mk \
+ -t \
+ $BQ_DATA_PROJECT_ID:$BQ_DATASET_ID.$BQ_TABLE_TARGETS \
+ uuid:STRING,target_trend:STRING,refresh_date:DATE,trawler_date:DATE,trawler_gcs:STRING,brand:STRING,target_audience:STRING,target_product:STRING,key_selling_point:STRING
+```
+
+Create the BQ table to store details for the target trend creatives:
+
+```bash
+bq mk \
+ -t \
+ $BQ_DATA_PROJECT_ID:$BQ_DATASET_ID.$BQ_TABLE_CREATIVES \
+ uuid:STRING,target_trend:STRING,datetime:STRING,creative_gcs:STRING,brand:STRING,target_audience:STRING,target_product:STRING,key_selling_point:STRING
+```
+
 ## Running an Agent
 
 

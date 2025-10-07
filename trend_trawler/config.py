@@ -49,6 +49,13 @@ class ResearchConfiguration:
     PROJECT_ID=os.environ.get("GOOGLE_CLOUD_PROJECT")
     PROJECT_NUMBER=os.environ.get("GOOGLE_CLOUD_PROJECT_NUMBER")
     LOCATION=os.environ.get("GOOGLE_CLOUD_LOCATION")
+    
+    # TODO: update doc string
+    BQ_PROJECT_ID=os.environ.get("BQ_PROJECT_ID")
+    BQ_DATASET_ID=os.environ.get("BQ_DATASET_ID")
+    BQ_TABLE_TARGETS=os.environ.get("BQ_TABLE_TARGETS")
+    BQ_TABLE_CREATIVES=os.environ.get("BQ_TABLE_CREATIVES")
+    BQ_TABLE_ALL_TRENDS=os.environ.get("BQ_TABLE_ALL_TRENDS")
 
 
 config = ResearchConfiguration()
