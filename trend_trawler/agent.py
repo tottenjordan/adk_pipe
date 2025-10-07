@@ -1,8 +1,6 @@
 import os
 import logging
 
-logging.basicConfig(level=logging.INFO)
-
 from google.genai import types
 from google.adk.agents import Agent
 from google.adk.planners import BuiltInPlanner
@@ -12,12 +10,19 @@ from google.adk.tools import google_search
 from .tools import (
     save_search_trends_to_session_state,
     save_session_state_to_gcs,
+    write_trends_to_bq,
     get_daily_gtrends,
     write_to_file,
     memorize,
 )
 from . import callbacks
 from .config import config
+
+
+# --- config ---
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+)
 
 
 # --- TREND SUBAGENTS ---
@@ -38,6 +43,11 @@ gather_trends_agent = Agent(
     generate_content_config=types.GenerateContentConfig(
         temperature=1.0,
         response_modalities=["TEXT"],
+        labels={
+            "agentic_wf": "trend_trawler",
+            "agent": "trend_trawler",
+            "subagent": "gather_trends_agent",
+        },
     ),
     output_key="start_gtrends",
     before_model_callback=callbacks.rate_limit_callback,
@@ -52,31 +62,35 @@ understand_trends_agent = Agent(
         thinking_config=types.ThinkingConfig(include_thoughts=False)
     ),
     instruction="""
-    You are a diligent and exhaustive researcher. Your task is to conduct initial web research for each trending Search term.
+    You are a diligent and exhaustive researcher. 
+    Your task is to conduct initial web research for each trending Search term provided in the <CONTEXT> section.
 
-    1. Review the list of trending search terms:
-        {start_gtrends}
-
+    1. Review the list of trending search terms in the <start_gtrends> section of the <CONTEXT> block.
     2. For each trending search term, use the 'google_search' tool to briefly understand each search term and why it's trending.
+    3. Synthesize the results into a detailed summary that follows the **Important Guidelines** listed below.
 
-    3. Synthesize the results into a summary report following the output format defined in <OUTPUT_FORMAT>.
-        - Do not include any additional text or metadata in your output.
-        - All required fields must be present.
-        - Include only the trending search terms from step 1 (e.g., the 'start_gtrends' state key).
+    <CONTEXT>
+        <start_gtrends>
+        {start_gtrends}
+        </start_gtrends>
+    </CONTEXT>
 
-    <OUTPUT_FORMAT>
-    Organize the output to include a title and a section for each trending search term (note: there should be 25 trending search terms).
-    Format your response in markdown, following this structure:
+    ### Important Guidelines
+    1. Your output should list each trending search term from the <start_gtrends> section.
+    2. For each trending search term, **provide the following bullets:**
+        - Briefly what the term represents.
+        - Briefly why the term is likely trending.
+    3.  Only list trends from the <start_gtrends> section.
 
-    ## Trending Search Terms TLDR
-
-    ### [trending search term]
-    - [Briefly describe what the search term represents]
-    - [Briefly explain why the term is likely trending]
-    </OUTPUT_FORMAT>
+    Output *only* the bulleted list of search terms.
     """,
     generate_content_config=types.GenerateContentConfig(
         temperature=1.5,
+        labels={
+            "agentic_wf": "trend_trawler",
+            "agent": "trend_trawler",
+            "subagent": "understand_trends_agent",
+        },
     ),
     tools=[google_search],
     output_key="info_gtrends",
@@ -149,25 +163,16 @@ pick_trends_agent = Agent(
     """,
     generate_content_config=types.GenerateContentConfig(
         temperature=1.5,
+        labels={
+            "agentic_wf": "trend_trawler",
+            "agent": "trend_trawler",
+            "subagent": "pick_trends_agent",
+        },
     ),
     # tools=[google_search],
     output_key="selected_gtrends",
     before_model_callback=callbacks.rate_limit_callback,
 )
-
-#     Use the `google_search` tool to support your decisions.
-
-
-# # Sequential agent for gathering relevant trends
-# trend_spotter_pipeline = SequentialAgent(
-#     name="trend_spotter_pipeline",
-#     description="This is a sequential agent that executes the sub agents in the provided order.",
-#     sub_agents=[
-#         gather_trends_agent,
-#         understand_trends_agent,
-#         pick_trends_agent,
-#     ],
-# )
 
 
 trend_trawler = Agent(
@@ -197,15 +202,12 @@ trend_trawler = Agent(
     2. Call `understand_trends_agent` as a tool to conduct web research about each trending topic.
     3. Call `pick_trends_agent` as a tool to determine the most relevant subset of trends for this campaign. 
     4. For each trending topic in the 'selected_gtrends' state key, call the `save_search_trends_to_session_state` tool to save them to the session state.
-    5. Once the previous steps are complete, perform the following FOUR actions in sequence:
+    5. Once the previous step is complete, call the `write_trends_to_bq` tool to write the target search trends to BigQuery.
+    6. Call the `write_to_file` tool to save the markdown content in the 'selected_gtrends' state key.
+    7. Call the `save_session_state_to_gcs` tool to save the session state to Cloud Storage.
+    8. Once the previous steps are complete, perform the following TWO actions in sequence:
 
-    Action 1: Save to file in Cloud Storage
-    Call the `write_to_file` tool to save the markdown content in the 'selected_gtrends' state key.
-
-    Action 2: Save session state to json file    
-    Call the `save_session_state_to_gcs` tool to save the session state to Cloud Storage.
-
-    Action 3: Display Cloud Storage location to the user
+    Action 1: Display Cloud Storage location to the user
     Display the Cloud Storage URI to the user by combining the 'gcs_bucket', 'gcs_folder', and 'agent_output_dir' state keys like this: {gcs_bucket}/{gcs_folder}/{agent_output_dir}
 
         <EXAMPLE>
@@ -214,26 +216,30 @@ trend_trawler = Agent(
             OUTPUT: gs://trend-trawler-deploy-ae/2025_09_13_19_21/trawler_output
         </EXAMPLE>
 
-    Action 4: Display Selected Trends to User      
+    Action 2: Display Selected Trends to User      
     Display the selected trends and insights in the 'selected_gtrends' state key to the user.
-    
     </WORKFLOW>
 
-    Your job is complete once all actions are performed.
+    Your job is complete once all actions in the <WORKFLOW> are performed.
     """,
     tools=[
-        # AgentTool(agent=trend_spotter_pipeline),
         AgentTool(agent=gather_trends_agent),
         AgentTool(agent=understand_trends_agent),
         AgentTool(agent=pick_trends_agent),
         save_search_trends_to_session_state,
         save_session_state_to_gcs,
+        write_trends_to_bq,
         write_to_file,
         memorize,
     ],
     generate_content_config=types.GenerateContentConfig(
         temperature=0.01,
         response_modalities=["TEXT"],
+        labels={
+            "agentic_wf": "trend_trawler",
+            "agent": "trend_trawler",
+            "subagent": "root_agent",
+        },
     ),
     before_agent_callback=[
         callbacks._load_session_state,

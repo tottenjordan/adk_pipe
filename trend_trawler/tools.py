@@ -1,9 +1,7 @@
 import os
 import logging
-
-logging.basicConfig(level=logging.INFO)
-
-import json, shutil
+import datetime
+import json, shutil, uuid
 from pathlib import Path
 from google.cloud import storage
 from google.cloud import bigquery
@@ -12,17 +10,23 @@ from google.adk.tools import ToolContext
 from .config import config
 
 
+# --- config ---
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+)
+
+
 # ==============================
 # clients
 # =============================
-def get_gcs_client() -> storage.Client:
+def _get_gcs_client() -> storage.Client:
     """Get a configured GCS client."""
     return storage.Client(project=config.PROJECT_ID)
 
 
-def get_bigquery_client() -> bigquery.Client:
+def _get_bigquery_client() -> bigquery.Client:
     """Get a configured BigQuery client."""
-    return bigquery.Client(project=config.PROJECT_ID)
+    return bigquery.Client(project=config.BQ_PROJECT_ID)
 
 
 # =============================
@@ -48,18 +52,18 @@ def memorize(key: str, value: str, tool_context: ToolContext):
 # ==============================
 # Google Search Trends (context)
 # =============================
-def get_gtrends_max_date() -> str:
+def _get_gtrends_max_date() -> str:
     query = f"""
         SELECT 
          MAX(refresh_date) as max_date
         FROM `bigquery-public-data.google_trends.top_terms`
     """
-    bq_client = get_bigquery_client()
+    bq_client = _get_bigquery_client()
     max_date_df = bq_client.query(query).to_dataframe()
     return max_date_df.max_date.iloc[0].strftime("%m/%d/%Y")
 
 
-max_date = get_gtrends_max_date()
+max_date = _get_gtrends_max_date()
 
 
 def get_daily_gtrends(tool_context: ToolContext, today_date: str = max_date) -> str:
@@ -77,8 +81,7 @@ def get_daily_gtrends(tool_context: ToolContext, today_date: str = max_date) -> 
     """
 
     # get latest refresh date
-    max_date = get_gtrends_max_date()
-    # max_date = "07/15/2025"
+    # max_date = _get_gtrends_max_date()
     logging.info(f"\n\nmax_date in trends_assistant: {max_date}\n\n")
 
     query = f"""
@@ -92,7 +95,7 @@ def get_daily_gtrends(tool_context: ToolContext, today_date: str = max_date) -> 
         ORDER BY (SELECT rank FROM UNNEST(x))
         """
     try:
-        bq_client = get_bigquery_client()
+        bq_client = _get_bigquery_client()
 
         # Setup the query for BigQuery
         query_job_config = bigquery.QueryJobConfig(
@@ -116,15 +119,10 @@ def get_daily_gtrends(tool_context: ToolContext, today_date: str = max_date) -> 
         # Convert the dataframe to Markdown
         results = results.to_markdown(index=True)
 
+        return results
     except Exception as e:
-        # return {"status": "error", "error_message": str(e)}
+        logging.exception(f"Failed to gather daily trends: {e}")
         return str(e)
-
-    # return {
-    #     "status": "ok",
-    #     f"markdown_table": markdown_string,
-    # }
-    return results
 
 
 def write_to_file(content: str, tool_context: ToolContext) -> dict:
@@ -155,7 +153,7 @@ def write_to_file(content: str, tool_context: ToolContext) -> dict:
     Path(local_file).write_text(content)
 
     # save to GCS
-    storage_client = get_gcs_client()
+    storage_client = _get_gcs_client()
     gcs_bucket = config.GCS_BUCKET_NAME
     bucket = storage_client.bucket(gcs_bucket)
     blob = bucket.blob(os.path.join(gcs_folder, local_file))
@@ -229,7 +227,7 @@ def save_session_state_to_gcs(tool_context: ToolContext) -> dict:
         json.dump(session_state, f, indent=4)
 
     # save to GCS
-    storage_client = get_gcs_client()
+    storage_client = _get_gcs_client()
     gcs_bucket = config.GCS_BUCKET_NAME
     bucket = storage_client.bucket(gcs_bucket)
     blob = bucket.blob(os.path.join(gcs_folder, local_file))
@@ -250,3 +248,79 @@ def save_session_state_to_gcs(tool_context: ToolContext) -> dict:
         "status": "success",
         "gcs_uri": gcs_uri,
     }
+
+
+def write_trends_to_bq(tool_context: ToolContext, refresh_date: str = max_date) -> dict:
+    """
+    Writes selected trends to a BigQuery Table.
+
+    Args:
+        tool_context (ToolContext): The tool context.
+        refresh_date: Latest refresh date from the trends table in the format 'MM/DD/YYYY'. Use the default value provided.
+
+    Returns:
+        dict: A dictionary containing a 'status' key ('success' or 'error').
+              On success, status is 'success' and includes a 'trends' key with the inserted terms
+              On failure, status is 'error' and includes an 'error_message'.
+    """
+    bq_client = _get_bigquery_client()
+
+    # values to insert
+    unique_id = f"{str(uuid.uuid4())[:8]}"
+    current_date = datetime.datetime.now().strftime("%m/%d/%Y")
+
+    gcs_url_prefix = "https://console.cloud.google.com/storage/browser"
+    gcs_folder = tool_context.state["gcs_folder"]
+    gcs_dir = tool_context.state["agent_output_dir"]
+    trawler_gcs = f"{gcs_url_prefix}/{config.GCS_BUCKET_NAME}/{gcs_folder}/{gcs_dir}"
+
+    try:
+        # insert a row for each selected target search trend
+        target_trends = tool_context.state.get("target_search_trends")
+        for trend in target_trends["target_search_trends"]:
+            # write SQL
+            sql_query = f"""
+            INSERT INTO 
+              `{config.BQ_PROJECT_ID}.{config.BQ_DATASET_ID}.{config.BQ_TABLE_TARGETS}` (uuid, 
+                target_trend,
+                refresh_date,
+                trawler_date,
+                trawler_gcs,
+                brand,
+                target_audience,
+                target_product,
+                key_selling_point)
+            VALUES 
+            (
+                '{unique_id}', 
+                '{trend}',
+                PARSE_DATE('%m/%d/%Y', '{refresh_date}'), 
+                PARSE_DATE('%m/%d/%Y', '{current_date}'),
+                '{trawler_gcs}',
+                '{tool_context.state["brand"]}',
+                '{tool_context.state["target_audience"]}',
+                '{tool_context.state["target_product"]}',
+                '{tool_context.state["key_selling_points"]}'
+            );
+            """
+            # make API request
+            job = bq_client.query(sql_query)
+            job.result()  # wait for job to complete
+            if job.errors:
+                logging.error(
+                    f"DML INSERT job for trend: '{trend}' failed: {job.errors}"
+                )
+            else:
+                logging.info(
+                    f"DML INSERT job {job.job_id} for trend: '{trend}' completed; added {job.num_dml_affected_rows} rows."
+                )
+        return {
+            "status": "success",
+            "trends": ", ".join(target_trends["target_search_trends"]),
+        }
+    except Exception as e:
+        logging.exception(f"Failed to insert rows to bq: {e}")
+        return {
+            "status": "error",
+            "error_message": f"Error inserting rows to bq: {e}",
+        }

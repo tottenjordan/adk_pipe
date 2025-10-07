@@ -1,18 +1,19 @@
-"""callbacks - currently exploring how these work by observing log output"""
-
-from typing import Dict, Any
 import time
-import pandas as pd
 import logging
+from typing import Dict, Any
+import pandas as pd
 
-logging.basicConfig(level=logging.INFO)
-
-from google.genai import types
 from google.adk.sessions.state import State
 from google.adk.models.llm_request import LlmRequest
 from google.adk.agents.callback_context import CallbackContext
 
 from .config import config
+
+
+# --- config ---
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+)
 
 
 def _set_initial_states(source: Dict[str, Any], target: State | dict[str, Any]):
