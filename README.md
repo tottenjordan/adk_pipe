@@ -166,7 +166,6 @@ bq mk \
 
    > define your `campaign metadata`... these are inputs to the `trend_trawler` and `creative_agent`
 
-
 <details>
   <summary>guidance on what works well here</summary>
 
@@ -193,6 +192,14 @@ This will be the `{target_products}` 's flavor in the messaging and visual conce
 
 </details>
 
+
+```bash
+# example campaign metadata
+Brand Name: 'Paul Reed Smith (PRS)'
+Target Audience: 'millennials who follow jam bands (e.g., Widespread Panic and Phish), respond positively to nostalgic messages, and love surreal memes'
+Target Product: 'SE CE24 Electric Guitar'
+Key Selling Points: 'The 85/15 S Humbucker pickups deliver a wide tonal range, from thick humbucker tones to clear single-coil sounds, making the guitar suitable for various genres.'
+```
 
 **1. local deployment / testing**
 
