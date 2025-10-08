@@ -123,32 +123,18 @@ BQ_DATASET_ID='trend_trawler'
 BQ_TABLE_TARGETS='target_trends'
 BQ_TABLE_CREATIVES='trend_creatives'
 BQ_TABLE_ALL_TRENDS='all_trends'
-
-# campaign metadata
-BRAND=""
-TARGET_AUDIENCE=""
-TARGET_PRODUCT=""
-KEY_SELLING_POINT=""
 ```
 
-then copy `.env` file to both agent directories (deployed separately)
+source `.env` variables
 
 ```bash
-cp .env trend_trawler/.env
-cp .env creative_agent/.env
-
 source .env
 ```
 
-**4. poetry install && create requirements.txt file**
-
-*Note: i had to manually clean the requirements.txt file produced by these commands. Might want to copy mine*
+**4. poetry install**
 
 ```bash
 poetry install
-
-poetry export --without-hashes --format=requirements.txt > ./creative_agent/requirements.txt
-poetry export --without-hashes --format=requirements.txt > ./trend_trawler/requirements.txt
 ```
 
 **5. Create BigQuery Dataset and Tables**
@@ -194,7 +180,7 @@ bq mk \
 
 **Key Selling Points**
 
-This will be the `{target_products}` 's flavor in the messaging and visual cocnepts
+This will be the `{target_products}` 's flavor in the messaging and visual concepts
 *can be used multiple ways. here are some...*
 
 * What is the `{target_audience}` 's benefit? what will make them really care?
@@ -243,7 +229,22 @@ agent: `[end-to-end workflow >> candidate creatives]`
 
 > [Agent Engine](https://google.github.io/adk-docs/deploy/agent-engine/) is a fully managed auto-scaling service on Google Cloud specifically designed for deploying, managing, and scaling AI agents built with frameworks such as ADK.
 
-1. [deploy-to-agent-engine.ipynb](./deploy-to-agent-engine.ipynb) notebook
+
+```bash
+# deploy `trend_trawler` agent to Agent Engine
+python deployment/deploy_agent.py --version=v1 --agent=trend_trawler --create
+
+# deploy `creative_agent` agent to Agent Engine
+python deployment/deploy_agent.py --version=v1 --agent=creative_agent --create
+
+# list existing Agent Engine instances
+python deployment/deploy_agent.py --list
+
+# delete an Agent Engine Runtime
+python deployment/deploy_agent.py --resource_id=890256972824182784 --delete
+```
+
+* [deploy-to-agent-engine.ipynb](./deploy-to-agent-engine.ipynb) notebook
     * *WIP: migrating code to the refactored client-based `Agent Engine` SDK... see [migration guide](https://cloud.google.com/vertex-ai/generative-ai/docs/deprecations/agent-engine-migration)*
 
 
@@ -251,6 +252,13 @@ agent: `[end-to-end workflow >> candidate creatives]`
 
 > [Cloud Run](https://cloud.google.com/run) is a managed auto-scaling compute platform on Google Cloud that enables you to run your agent as a container-based application.
 
+
+copy `.env` file to each agent directory..
+
+```bash
+cp .env trend_trawler/.env
+cp .env creative_agent/.env
+```
 
 **1. Deploy `trend trawler agent` to Cloud Run...**
 
