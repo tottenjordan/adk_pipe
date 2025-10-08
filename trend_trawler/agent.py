@@ -1,5 +1,6 @@
 import os
 import logging
+import warnings
 
 from google.genai import types
 from google.adk.agents import Agent
@@ -23,6 +24,7 @@ from .config import config
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
 )
+warnings.filterwarnings("ignore")
 
 
 # --- TREND SUBAGENTS ---

@@ -1,3 +1,4 @@
+import warnings
 import pandas as pd
 import re, time, logging
 from typing import Optional, Dict, Any
@@ -14,6 +15,7 @@ from .config import config
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
 )
+warnings.filterwarnings("ignore")
 
 
 def _set_initial_states(source: Dict[str, Any], target: State | dict[str, Any]):

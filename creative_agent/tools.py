@@ -3,6 +3,7 @@ import uuid
 import string
 import logging
 import markdown
+import warnings
 import json, shutil
 from PIL import Image
 from pathlib import Path
@@ -21,11 +22,12 @@ from .config import config
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
 )
+warnings.filterwarnings("ignore")
 
 
 # ==============================
 # clients
-# =============================
+# ==============================
 def _get_gcs_client() -> storage.Client:
     """Get a configured GCS client."""
     return storage.Client(project=config.PROJECT_ID)

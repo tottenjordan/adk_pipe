@@ -1,7 +1,8 @@
 import time
 import logging
-from typing import Dict, Any
+import warnings
 import pandas as pd
+from typing import Dict, Any
 
 from google.adk.sessions.state import State
 from google.adk.models.llm_request import LlmRequest
@@ -14,6 +15,7 @@ from .config import config
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
 )
+warnings.filterwarnings("ignore")
 
 
 def _set_initial_states(source: Dict[str, Any], target: State | dict[str, Any]):

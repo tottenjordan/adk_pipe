@@ -1,6 +1,7 @@
 import os
 import logging
 import datetime
+import warnings
 import json, shutil, uuid
 from pathlib import Path
 from google.cloud import storage
@@ -14,6 +15,7 @@ from .config import config
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
 )
+warnings.filterwarnings("ignore")
 
 
 # ==============================

@@ -1,5 +1,5 @@
 import logging
-
+import warnings
 from google.genai import types
 from google.adk.tools import google_search
 from google.adk.planners import BuiltInPlanner
@@ -13,6 +13,8 @@ from ... import callbacks
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
 )
+warnings.filterwarnings("ignore")
+
 
 gs_web_planner = Agent(
     model=config.lite_planner_model,
