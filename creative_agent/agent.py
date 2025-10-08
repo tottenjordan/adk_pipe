@@ -1,5 +1,5 @@
 import logging
-
+import warnings
 from google.genai import types
 from pydantic import BaseModel, Field
 from google.adk.tools import google_search
@@ -18,6 +18,7 @@ from . import tools
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
 )
+warnings.filterwarnings("ignore")
 
 
 # --- PARALLEL RESEARCH SUBAGENTS --- #

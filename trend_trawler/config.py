@@ -1,9 +1,14 @@
 import os
+import warnings
 from dotenv import load_dotenv
 from dataclasses import dataclass
 
+warnings.filterwarnings("ignore")
+
+
 # Load environment variables from a .env file
-load_dotenv()
+ENV_FILE_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".env"))
+load_dotenv(dotenv_path=ENV_FILE_PATH)
 
 
 @dataclass
