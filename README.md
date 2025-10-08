@@ -99,15 +99,36 @@ gcloud config set project $GOOGLE_CLOUD_PROJECT
 gcloud auth application-default login
 ```
 
-**3. Update `.env` file**
+**3.  Make `.env` by copying `.env.example`**
 
 ```bash
 touch .env
-echo "GOOGLE_GENAI_USE_VERTEXAI=1" >> .env
-echo "GOOGLE_CLOUD_PROJECT=your-project-id" >> .env
-echo "GOOGLE_CLOUD_PROJECT_NUMBER=1234789" >> .env
-echo "GOOGLE_CLOUD_LOCATION=us-central1" >> .env
-echo "BUCKET=gs://your-bucket-name" >> .env
+```
+
+see [.env.example](./.env.example)
+
+```bash
+GOOGLE_GENAI_USE_VERTEXAI=1
+GOOGLE_CLOUD_PROJECT=this-my-project-id
+GOOGLE_CLOUD_LOCATION=us-central1
+GOOGLE_CLOUD_PROJECT_NUMBER=12345678910
+
+# Cloud Storage
+GOOGLE_CLOUD_STORAGE_BUCKET=this-my-bucket-name
+BUCKET=gs://this-my-bucket-name
+
+# BigQuery 
+BQ_PROJECT_ID='this-my-project-bq-id'
+BQ_DATASET_ID='trend_trawler'
+BQ_TABLE_TARGETS='target_trends'
+BQ_TABLE_CREATIVES='trend_creatives'
+BQ_TABLE_ALL_TRENDS='all_trends'
+
+# campaign metadata
+BRAND=""
+TARGET_AUDIENCE=""
+TARGET_PRODUCT=""
+KEY_SELLING_POINT=""
 ```
 
 then copy `.env` file to both agent directories (deployed separately)
