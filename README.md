@@ -29,7 +29,7 @@
 
 
 **TODOs**
-* deployment script for Vertex AI Agent Engine
+* ~~deployment script for Vertex AI Agent Engine~~
 * event-based triggers
 * scheduled runs
 * email / notification
