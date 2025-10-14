@@ -1089,14 +1089,14 @@ def write_trends_to_bq(tool_context: ToolContext) -> dict:
             key_selling_point)
         VALUES 
         (
-            '{unique_id}', 
-            '{target_trend}',
+            "{unique_id}", 
+            "{target_trend}",
             FORMAT_DATETIME("%Y-%m-%d %H:%M:%S", CURRENT_DATETIME('America/New_York')), 
-            '{creative_gcs}',
-            '{tool_context.state["brand"]}',
-            '{tool_context.state["target_audience"]}',
-            '{tool_context.state["target_product"]}',
-            '{tool_context.state["key_selling_points"]}'
+            "{creative_gcs}",
+            "{tool_context.state["brand"]}",
+            "{tool_context.state["target_audience"]}",
+            "{tool_context.state["target_product"]}",
+            "{tool_context.state["key_selling_points"]}"
         );
         """
         # make API request
