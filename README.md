@@ -251,6 +251,38 @@ python deployment/deploy_agent.py --list
 python deployment/deploy_agent.py --resource_id=890256972824182784 --delete
 ```
 
+### Interact with the deployed agents using the `test_deployment.py` script
+
+**[1] Kickoff the `trend_trawler` agent workflow.**  
+
+> *This should insert a row into your BigQuery table for each recommended trend*
+
+```bash
+export USER_ID='ima_user'
+python deployment/test_deployment.py --agent=trend_trawler --user_id=$USER_ID
+
+Found agent with resource ID: ...
+Created session for user ID: ...
+Type 'quit' to exit.
+
+Input: <brand, target audience, target product, and key selling point(s)>
+```
+
+**[2] Next, invoke the deployed `creative_agent` workflow:**
+
+> *This should insert a row into your BigQuery table with the Cloud Storage location of all trend and creative assets*
+
+```bash
+export USER_ID='ima_user'
+python deployment/test_deployment.py --agent=creative_agent --user_id=$USER_ID
+
+Found agent with resource ID: ...
+Created session for user ID: ...
+Type 'quit' to exit.
+
+Input: <brand, target audience, target product, and key selling point(s), target_search_trend>
+```
+
 * [deploy-to-agent-engine.ipynb](./deploy-to-agent-engine.ipynb) notebook
     * *WIP: migrating code to the refactored client-based `Agent Engine` SDK... see [migration guide](https://cloud.google.com/vertex-ai/generative-ai/docs/deprecations/agent-engine-migration)*
 
