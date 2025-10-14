@@ -14,7 +14,6 @@ if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
 import vertexai
-from google.adk.sessions import VertexAiSessionService
 
 
 # ==============================
@@ -68,8 +67,8 @@ async def send_message(remote_agent, user_id) -> None:
             user_id=user_id, session_id=session["id"], message=user_input
         ):
 
-            logging.info(event)
             events.append(event)
+            # logging.info(event) # log events async
 
         # # The full event stream shows the agent's thought process
         # logging.info("\n\n--- Full Event Stream ---\n\n")
