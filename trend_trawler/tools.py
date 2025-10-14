@@ -294,15 +294,15 @@ def write_trends_to_bq(tool_context: ToolContext, refresh_date: str = max_date) 
                 key_selling_point)
             VALUES 
             (
-                '{unique_id}', 
-                '{trend}',
+                "{unique_id}", 
+                "{trend}",
                 PARSE_DATE('%m/%d/%Y', '{refresh_date}'), 
                 PARSE_DATE('%m/%d/%Y', '{current_date}'),
-                '{trawler_gcs}',
-                '{tool_context.state["brand"]}',
-                '{tool_context.state["target_audience"]}',
-                '{tool_context.state["target_product"]}',
-                '{tool_context.state["key_selling_points"]}'
+                "{trawler_gcs}",
+                "{tool_context.state["brand"]}",
+                "{tool_context.state["target_audience"]}",
+                "{tool_context.state["target_product"]}",
+                "{tool_context.state["key_selling_points"]}"
             );
             """
             # make API request
@@ -314,7 +314,7 @@ def write_trends_to_bq(tool_context: ToolContext, refresh_date: str = max_date) 
                 )
             else:
                 logging.info(
-                    f"DML INSERT job {job.job_id} for trend: '{trend}' completed; added {job.num_dml_affected_rows} rows."
+                    f"DML INSERT job {job.job_id} for trend: `{trend}` completed; added {job.num_dml_affected_rows} rows."
                 )
         return {
             "status": "success",

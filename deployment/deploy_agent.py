@@ -71,10 +71,10 @@ client = vertexai.Client(
 
 
 # Function to update the .env file
-def update_env_file(prefix, agent_engine_id, env_file_path):
+def update_env_file(prefix: str, agent_engine_id: str, env_file_path: str):
     """Updates the .env file with the agent engine ID."""
+    KEY_NAME = f"{prefix}_AGENT_ENGINE_ID"
     try:
-        KEY_NAME = f"{prefix}_AGENT_ENGINE_ID"
         dotenv.set_key(env_file_path, KEY_NAME, agent_engine_id)
         logging.info(f"Updated {KEY_NAME} in {env_file_path} to {agent_engine_id}")
     except Exception as e:
@@ -102,7 +102,7 @@ def deploy_trawler(version: str) -> None:
                 "extra_packages": ["./trend_trawler"],
                 "staging_bucket": f"gs://{os.getenv('GOOGLE_CLOUD_STORAGE_BUCKET')}",
                 "gcs_dir_name": f"adk-pipe/trawler/{version}/staging",
-                "display_name": "trend-trawler",
+                "display_name": "trend-trawler-agent",
                 "description": root_agent.description,
                 "env_vars": ENV_VAR_DICT,
                 # "service_account": SERVICE_ACCOUNT,
@@ -119,6 +119,7 @@ def deploy_trawler(version: str) -> None:
             prefix="TRAWLER",
             agent_engine_id=remote_agent.api_resource.name,
             env_file_path=ENV_FILE_PATH,
+            # remove=False,
         )
     except Exception as e:
         logging.exception(f"Error deploying agent to Agent Engine Runtime: {e}")
@@ -139,7 +140,7 @@ def deploy_creative_agent(version: str) -> None:
                 "extra_packages": ["./creative_agent"],
                 "staging_bucket": f"gs://{os.getenv('GOOGLE_CLOUD_STORAGE_BUCKET')}",
                 "gcs_dir_name": f"adk-pipe/creative/{version}/staging",
-                "display_name": "creative-trend",
+                "display_name": "creative-trend-agent",
                 "description": root_agent.description,
                 "env_vars": ENV_VAR_DICT,
                 # "service_account": SERVICE_ACCOUNT,
@@ -156,6 +157,7 @@ def deploy_creative_agent(version: str) -> None:
             prefix="CREATIVE",
             agent_engine_id=remote_agent.api_resource.name,
             env_file_path=ENV_FILE_PATH,
+            # remove=False,
         )
     except Exception as e:
         logging.exception(f"Error deploying agent to Agent Engine Runtime: {e}")
@@ -184,7 +186,9 @@ def list_agents() -> None:
     logging.info(f"\nAll remote agents:\n{remote_agents_string}")
 
 
-def delete(resource_id: str) -> None:
+def delete(
+    resource_id: str,
+) -> None:
     """Deletes an existing agent engine."""
     logging.info(f"Attempting to delete agent: {resource_id}")
 
@@ -197,6 +201,13 @@ def delete(resource_id: str) -> None:
     remote_agent = client.agent_engines.get(name=RESOURCE_NAME)
     remote_agent.delete(force=True)
     logging.info(f"Successfully deleted remote agent: {resource_id}")
+
+    # update_env_file(
+    #     prefix="TRAWLER" if agent_name == "trend_trawler" else "CREATIVE",
+    #     agent_engine_id="",
+    #     env_file_path=ENV_FILE_PATH,
+    #     # remove=True,
+    # )
 
 
 def main(argv):
