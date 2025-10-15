@@ -1,0 +1,5 @@
+{
+    "bq_dataset": "trend_trawler",
+    "bq_table": "target_trends",
+    "agent_resource_id": "2107741800214036480"
+}

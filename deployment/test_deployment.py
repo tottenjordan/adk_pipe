@@ -68,17 +68,12 @@ async def send_message(remote_agent, user_id) -> None:
         ):
 
             events.append(event)
-            # logging.info(event) # log events async
-
-        # # The full event stream shows the agent's thought process
-        # logging.info("\n\n--- Full Event Stream ---\n\n")
-        # for event in events:
-        #     logging.info(event)
+            logging.info(event) # full event stream i.e., agent's thought process
+            
 
         # Extract just the final text response
         final_text_responses = [
-            e
-            for e in events
+            e for e in events
             if e.get("content", {}).get("parts", [{}])[0].get("text")
             and not e.get("content", {}).get("parts", [{}])[0].get("function_call")
         ]
