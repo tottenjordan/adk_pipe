@@ -12,6 +12,10 @@ message = {
 }
 """
 
+import os
+
+os.environ["PYTHONUNBUFFERED"] = "1"
+
 import json
 import time
 import base64
@@ -216,7 +220,7 @@ def crf_entrypoint(cloud_event: CloudEvent) -> None:
             query = f"""
                 SELECT * FROM `{bq_client.project}.{dataset}.target_trends`
                 ORDER BY entry_timestamp DESC
-                LIMIT {last_retrain_count}"""
+                LIMIT 1""" # {last_retrain_count}
 
             df = bq_client.query(query).to_dataframe()
 
@@ -225,23 +229,39 @@ def crf_entrypoint(cloud_event: CloudEvent) -> None:
             for index, row in df.iterrows():
                 row_dict = {}
                 row_dict["index"] = index
-                row_dict["target_trend"] = row["target_trend"]
-                row_dict["target_trend"] = row["target_trend"]
+                row_dict["target_search_trend"] = row["target_trend"]
                 row_dict["brand"] = row["brand"]
                 row_dict["target_audience"] = row["target_audience"]
                 row_dict["target_product"] = row["target_product"]
                 row_dict["key_selling_point"] = row["key_selling_point"]
                 row_list.append(row_dict)
 
-            for trend_dict in row_list:
-                response = asyncio.run(
-                    create_agent_run(
-                        agent_id=agent_resource_id,
-                        msg_dict=trend_dict,
-                        user_id=f"{_USER_ID}_{row_dict['index']}",
-                    )
+            # for trend_dict in row_list:
+            #     response = asyncio.run(
+            #         create_agent_run(
+            #             agent_id=agent_resource_id,
+            #             msg_dict=trend_dict,
+            #             user_id=f"{_USER_ID}_{row_dict['index']}",
+            #         )
+            #     )
+            #     logging.info(response)
+
+            row_dict = {}
+            row_dict["index"] = index
+            row_dict["target_search_trend"] = row_list[0]["target_search_trend"]
+            row_dict["brand"] = row_list[0]["brand"]
+            row_dict["target_audience"] = row_list[0]["target_audience"]
+            row_dict["target_product"] = row_list[0]["target_product"]
+            row_dict["key_selling_point"] = row_list[0]["key_selling_point"]
+
+            response = asyncio.run(
+                create_agent_run(
+                    agent_id=agent_resource_id,
+                    msg_dict=row_dict,
+                    user_id=f"{_USER_ID}_{row_dict['index']}",
                 )
-                logging.info(response)
+            )
+            logging.info(response)
             insert_bq_data(f"{bq_client.project}.{dataset}.count", current_rows)
 
     else:

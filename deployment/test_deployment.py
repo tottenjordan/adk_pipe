@@ -68,7 +68,7 @@ async def send_message(remote_agent, user_id) -> None:
         ):
 
             events.append(event)
-            logging.info(event) # full event stream i.e., agent's thought process
+            # logging.info(event) # full event stream i.e., agent's thought process
             
 
         # Extract just the final text response
