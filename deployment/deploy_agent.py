@@ -7,12 +7,14 @@ import logging
 import pandas as pd
 from absl import app, flags
 
+
 # Add the project root to sys.path
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
 import vertexai
+# from vertexai.agent_engines import AdkApp
 
 
 # ==============================
@@ -92,17 +94,18 @@ def deploy_trawler(version: str) -> None:
     """Creates and deploys `trend_trawler` Agent to Vertex AI Agent Engine Runtime."""
 
     from trend_trawler.agent import root_agent
+    # adk_app = AdkApp(agent=root_agent, enable_tracing=True)
 
     try:
         logging.info(f"Deploying `trend_trawler` agent...")
         remote_agent = client.agent_engines.create(
-            agent=root_agent,
+            agent=root_agent, # adk_app
             config={
                 "requirements": "./requirements.txt",
                 "extra_packages": ["./trend_trawler"],
                 "staging_bucket": f"gs://{os.getenv('GOOGLE_CLOUD_STORAGE_BUCKET')}",
                 "gcs_dir_name": f"adk-pipe/trawler/{version}/staging",
-                "display_name": "trend-trawler-agent",
+                "display_name": f"trend-trawler-agent-{version}",
                 "description": root_agent.description,
                 "env_vars": ENV_VAR_DICT,
                 # "service_account": SERVICE_ACCOUNT,
@@ -130,17 +133,18 @@ def deploy_creative_agent(version: str) -> None:
     """Creates and deploys `creative_agent` Agent to Vertex AI Agent Engine Runtime."""
 
     from creative_agent.agent import root_agent
+    # adk_app = AdkApp(agent=root_agent, enable_tracing=True)
 
     try:
         logging.info(f"Deploying `creative_agent` agent...")
         remote_agent = client.agent_engines.create(
-            agent=root_agent,
+            agent=root_agent, # adk_app
             config={
                 "requirements": "./requirements.txt",
                 "extra_packages": ["./creative_agent"],
                 "staging_bucket": f"gs://{os.getenv('GOOGLE_CLOUD_STORAGE_BUCKET')}",
                 "gcs_dir_name": f"adk-pipe/creative/{version}/staging",
-                "display_name": "creative-trend-agent",
+                "display_name": f"creative-trend-agent-{version}",
                 "description": root_agent.description,
                 "env_vars": ENV_VAR_DICT,
                 # "service_account": SERVICE_ACCOUNT,

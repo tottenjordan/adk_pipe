@@ -587,10 +587,8 @@ root_agent = Agent(
     6. Use the `visual_generation_pipeline` tool to create visual concepts for each ad copy.
     7. Use the `save_select_visual_concept` tool to update the 'final_select_vis_concepts' state key with the final visual concepts generated with the `visual_generation_pipeline` tool.
     8. Use the `visual_generator` tool to generate image creatives.
-    9. Use the `save_creatives_html_report` tool to build the final HTML report, detailing research and creatives generated during a session.
-    10. Use the `save_creative_gallery_html` tool to build an HTML file for displaying a portfolio of the generated creatives generated during the session.
-    11. Use the `save_session_state_to_gcs` tool at the end of the session to save the state dict to Cloud Storage.
-    12. Use the `write_trends_to_bq` tool to insert rows to BigQuery.
+    9. Use the `save_creative_gallery_html` tool to build an HTML file for displaying a portfolio of the generated creatives generated during the session.
+    10. Use the `write_trends_to_bq` tool to insert rows to BigQuery.
     </AVAILABLE_TOOLS>
 
     <INSTRUCTIONS>
@@ -623,11 +621,9 @@ root_agent = Agent(
         -   To make sure everything is stored correctly, instead of calling `save_select_visual_concept` all at once, chain the calls such that you only call another `save_select_visual_concept` after the last call has responded.
         -   Once these complete, proceed to the next step.
     7. Next, call the `visual_generator` tool to generate ad creatives.
-    8. After the previous step is complete, use the `save_creatives_html_report` tool to create the final HTML report and save it to Cloud Storage. 
-    9. Next, call the `save_creative_gallery_html` tool to create an HTML portfolio and save it to Cloud Storage.
-    10. Then, call the `save_session_state_to_gcs` tool to save the session state to Cloud Storage.
-    11. Finally as the last step, call the `write_trends_to_bq` tool to save trend information to BigQuery.
-    12. Once the previous steps are complete, perform the following action:
+    8. Next, call the `save_creative_gallery_html` tool to create an HTML portfolio and save it to Cloud Storage.
+    9. Finally as the last step, call the `write_trends_to_bq` tool to save trend information to BigQuery.
+    10. Once the previous steps are complete, perform the following action:
 
     Action 1: Display Cloud Storage location to the user
     Display the Cloud Storage URI to the user by combining the 'gcs_bucket', 'gcs_folder', and 'agent_output_dir' state keys like this: {gcs_bucket}/{gcs_folder}/{agent_output_dir}
@@ -641,11 +637,11 @@ root_agent = Agent(
         AgentTool(agent=visual_generation_pipeline),
         AgentTool(agent=visual_generator),
         tools.save_draft_report_artifact,
-        tools.save_creatives_html_report,
+        # tools.save_creatives_html_report,
         tools.save_select_visual_concept,
         tools.save_select_ad_copy,
         tools.save_creative_gallery_html,
-        tools.save_session_state_to_gcs,
+        # tools.save_session_state_to_gcs,
         tools.write_trends_to_bq,
         tools.memorize,
     ],
@@ -660,3 +656,11 @@ root_agent = Agent(
     before_agent_callback=callbacks._load_session_state,
     before_model_callback=callbacks.rate_limit_callback,
 )
+
+# Tools
+# 9. Use the `save_creatives_html_report` tool to build the final HTML report, detailing research and creatives generated during a session.
+# 11. Use the `save_session_state_to_gcs` tool at the end of the session to save the state dict to Cloud Storage.
+
+# Workflow
+# 8. After the previous step is complete, use the `save_creatives_html_report` tool to create the final HTML report and save it to Cloud Storage. 
+# 10. Then, call the `save_session_state_to_gcs` tool to save the session state to Cloud Storage.

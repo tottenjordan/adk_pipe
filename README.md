@@ -149,7 +149,7 @@ Create the BQ table to store selected search trends:
 bq mk \
  -t \
  $BQ_DATA_PROJECT_ID:$BQ_DATASET_ID.$BQ_TABLE_TARGETS \
- uuid:STRING,target_trend:STRING,refresh_date:DATE,trawler_date:DATE,trawler_gcs:STRING,brand:STRING,target_audience:STRING,target_product:STRING,key_selling_point:STRING
+ uuid:STRING,target_trend:STRING,refresh_date:DATE,trawler_date:DATE,entry_timestamp:TIMESTAMP,trawler_gcs:STRING,brand:STRING,target_audience:STRING,target_product:STRING,key_selling_point:STRING
 ```
 
 Create the BQ table to store details for the target trend creatives:
@@ -158,7 +158,7 @@ Create the BQ table to store details for the target trend creatives:
 bq mk \
  -t \
  $BQ_DATA_PROJECT_ID:$BQ_DATASET_ID.$BQ_TABLE_CREATIVES \
- uuid:STRING,target_trend:STRING,datetime:STRING,creative_gcs:STRING,brand:STRING,target_audience:STRING,target_product:STRING,key_selling_point:STRING
+ uuid:STRING,target_trend:STRING,datetime:DATETIME,creative_gcs:STRING,brand:STRING,target_audience:STRING,target_product:STRING,key_selling_point:STRING
 ```
 
 ## Running an Agent
@@ -285,6 +285,107 @@ Input: <brand, target audience, target product, and key selling point(s), target
 
 * [deploy-to-agent-engine.ipynb](./deploy-to-agent-engine.ipynb) notebook
     * *WIP: migrating code to the refactored client-based `Agent Engine` SDK... see [migration guide](https://cloud.google.com/vertex-ai/generative-ai/docs/deprecations/agent-engine-migration)*
+
+
+## Create event-based trigger
+
+**goals**
+* Create a Cloud Function that queries an agent deployed to a Vertex AI Agent Engine runtime
+* Subscribe this cloud function to a PubSub topic
+* When function invoked, it will scan a BigQuery table and query the agent if new rows exist
+* use Sengrid to send emails from completed Cloud Run Function jobs. See [functions best practices](https://cloud.google.com/run/docs/tips/functions-best-practices#use_sendgrid_to_send_emails) for more
+
+
+<details>
+  <summary> Optional: grant yourself admin access to ignore IAM best practices</summary>
+
+```bash
+gcloud projects add-iam-policy-binding $GOOGLE_CLOUD_PROJECT \
+    --member="user:YOUR_EMAIL_ADDRESS" \
+    --role="roles/pubsub.admin"
+```
+</details>
+
+
+### 1. Grant service account required permissions
+
+
+*Grant Eventarc Event Receiver role (`roles/eventarc.eventReceiver`) to the service account associated with the Eventarc*
+
+
+```bash
+export SERVICE_ACCOUNT=$GOOGLE_CLOUD_PROJECT_NUMBER-compute@developer.gserviceaccount.com
+
+# grant Eventarc Event Receiver role allows trigger to receive events from event providers
+gcloud projects add-iam-policy-binding $GOOGLE_CLOUD_PROJECT \
+  --member serviceAccount:$SERVICE_ACCOUNT \
+  --role=roles/eventarc.eventReceiver
+
+
+# Cloud Run invoker role allows it to invoke the function
+gcloud projects add-iam-policy-binding $GOOGLE_CLOUD_PROJECT \
+  --member serviceAccount:$SERVICE_ACCOUNT \
+  --role=roles/run.invoker
+```
+
+
+### 2. Deploy an [event-driven function](https://cloud.google.com/run/docs/tutorials/pubsub-eventdriven#deploy-function)
+
+* `CRF_ENTRYPOINT`: the entry point to your function in your source code. This is the code Cloud Run executes when your function runs. The value of **this flag must be a function name or fully-qualified class name** that exists in your source code.
+* `BASE_IMAGE`: base image environment for your function e.g., `python313`. For more details about base images and their packages, see [Supported language runtimes and base images](https://cloud.google.com/run/docs/configuring/services/runtime-base-images#how_to_obtain_runtime_base_images)
+
+```bash
+cd cloud_funktions/creative_crf
+
+gcloud run deploy $CREATIVE_CRF_NAME \
+        --source . \
+        --function $CRF_ENTRYPOINT \
+        --base-image $BASE_IMAGE \
+        --region $GOOGLE_CLOUD_LOCATION \
+        --memory 5Gi \
+        --cpu 2
+        
+        #--no-allow-unauthenticated
+```
+
+
+### 3. Create an [Eventarc trigger](https://cloud.google.com/run/docs/tutorials/pubsub-eventdriven#pubsub-trigger)
+
+```bash
+gcloud eventarc triggers create $CREATIVE_TRIGGER_NAME  \
+    --location=$GOOGLE_CLOUD_LOCATION \
+    --destination-run-service=$CREATIVE_CRF_NAME \
+    --destination-run-region=$GOOGLE_CLOUD_LOCATION \
+    --event-filters="type=google.cloud.pubsub.topic.v1.messagePublished" \
+    --service-account=$SERVICE_ACCOUNT
+
+# you should see the output below. we'll save this in the next step.
+>> Created Pub/Sub topic [projects/hybrid-vertex/topics/eventarc-us-central1-creative-eventarc-trigger-735].
+>> Publish to this topic to receive events in Cloud Run service [creative-trawler-crf]
+```
+
+**confirm the trigger was successfully created:**
+
+```bash
+gcloud eventarc triggers list --location=$GOOGLE_CLOUD_LOCATION
+```
+
+### 4. Trigger the function
+
+*Assign the topic to a variable:* 
+
+```bash
+CREATIVE_PUB_TOPIC=$(gcloud eventarc triggers describe $CREATIVE_TRIGGER_NAME --location $GOOGLE_CLOUD_LOCATION --format='value(transport.pubsub.topic)')
+echo $CREATIVE_PUB_TOPIC
+```
+
+*Publish a message to the topic:*
+
+```bash
+# gcloud pubsub topics publish $CREATIVE_PUB_TOPIC --message="Hello World"
+# gcloud pubsub topics publish YOUR_TOPIC_NAME --message '{"key1": "value1", "key2": "value2"}'
+gcloud pubsub topics publish $CREATIVE_PUB_TOPIC --message "$(cat message.json | jq -c)"
+```
 
 
 ## Deploying Agents to separate Cloud Run instances

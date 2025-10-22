@@ -1091,7 +1091,7 @@ def write_trends_to_bq(tool_context: ToolContext) -> dict:
         (
             "{unique_id}", 
             "{target_trend}",
-            FORMAT_DATETIME("%Y-%m-%d %H:%M:%S", CURRENT_DATETIME('America/New_York')), 
+            CURRENT_DATETIME('America/New_York'), 
             "{creative_gcs}",
             "{tool_context.state["brand"]}",
             "{tool_context.state["target_audience"]}",
@@ -1099,6 +1099,7 @@ def write_trends_to_bq(tool_context: ToolContext) -> dict:
             "{tool_context.state["key_selling_points"]}"
         );
         """
+        # FORMAT_DATETIME("%Y-%m-%d %H:%M:%S", CURRENT_DATETIME('America/New_York')),
         # make API request
         job = bq_client.query(sql_query)
         job.result()  # wait for job to complete
