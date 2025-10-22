@@ -54,7 +54,7 @@ def _get_bigquery_client() -> bigquery.Client:
 client = vertexai.Client(
     project=config.GOOGLE_CLOUD_PROJECT,
     location=config.GOOGLE_CLOUD_LOCATION,
-)  # pyright: ignore[reportCallIssue]
+) # pyright: ignore[reportCallIssue]
 
 
 # ==============================
