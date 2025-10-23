@@ -65,15 +65,16 @@ def _get_gtrends_max_date() -> str:
     return max_date_df.max_date.iloc[0].strftime("%m/%d/%Y")
 
 
-max_date = _get_gtrends_max_date()
+# max_date = _get_gtrends_max_date()
 
-
-def get_daily_gtrends(tool_context: ToolContext, today_date: str = max_date) -> str:
+# today_date: str = max_date
+# today_date: Today's date in the format 'MM/DD/YYYY'. Use the default value provided.
+def get_daily_gtrends(tool_context: ToolContext) -> str:
     """
     Retrieves the top 25 Google Search Trends (term, rank, refresh_date).
 
     Args:
-        today_date: Today's date in the format 'MM/DD/YYYY'. Use the default value provided.
+        tool_context (ToolContext): The tool context.
 
     Returns:
         str: A markdown-formatted string listing the Google Search Trends and their corresponding
@@ -83,7 +84,7 @@ def get_daily_gtrends(tool_context: ToolContext, today_date: str = max_date) -> 
     """
 
     # get latest refresh date
-    # max_date = _get_gtrends_max_date()
+    max_date = _get_gtrends_max_date()
     logging.info(f"\n\nmax_date in trends_assistant: {max_date}\n\n")
 
     query = f"""
@@ -251,14 +252,14 @@ def save_session_state_to_gcs(tool_context: ToolContext) -> dict:
         "gcs_uri": gcs_uri,
     }
 
-
-def write_trends_to_bq(tool_context: ToolContext, refresh_date: str = max_date) -> dict:
+# refresh_date: str = max_date
+# refresh_date: Latest refresh date from the trends table in the format 'MM/DD/YYYY'. Use the default value provided.
+def write_trends_to_bq(tool_context: ToolContext) -> dict:
     """
     Writes selected trends to a BigQuery Table.
 
     Args:
         tool_context (ToolContext): The tool context.
-        refresh_date: Latest refresh date from the trends table in the format 'MM/DD/YYYY'. Use the default value provided.
 
     Returns:
         dict: A dictionary containing a 'status' key ('success' or 'error').
@@ -266,6 +267,10 @@ def write_trends_to_bq(tool_context: ToolContext, refresh_date: str = max_date) 
               On failure, status is 'error' and includes an 'error_message'.
     """
     bq_client = _get_bigquery_client()
+
+    # get latest refresh date
+    max_date = _get_gtrends_max_date()
+    logging.info(f"\n\nmax_date in trends_assistant: {max_date}\n\n")
 
     # values to insert
     unique_id = f"{str(uuid.uuid4())[:8]}"
@@ -297,7 +302,7 @@ def write_trends_to_bq(tool_context: ToolContext, refresh_date: str = max_date) 
             (
                 "{unique_id}", 
                 "{trend}",
-                PARSE_DATE('%m/%d/%Y', '{refresh_date}'), 
+                PARSE_DATE('%m/%d/%Y', '{max_date}'), 
                 PARSE_DATE('%m/%d/%Y', '{current_date}'),
                 CURRENT_TIMESTAMP(),
                 "{trawler_gcs}",

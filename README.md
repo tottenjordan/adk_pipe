@@ -251,7 +251,11 @@ python deployment/deploy_agent.py --list
 python deployment/deploy_agent.py --resource_id=890256972824182784 --delete
 ```
 
+* Once agent is deployed to Agent Engine, the agent's resource ID will be added to your `.env` file. And this will be used later in the `test_deployment.py` script
+
 ### Interact with the deployed agents using the `test_deployment.py` script
+
+*Note: the `test_deployment.py` script will source the `BRAND`, `TARGET_AUDIENCE`, `TARGET_PRODUCT`, `KEY_SELLING_POINT`, and `TARGET_SEARCH_TREND` from your `.env` file.*
 
 **[1] Kickoff the `trend_trawler` agent workflow.**  
 
@@ -263,9 +267,10 @@ python deployment/test_deployment.py --agent=trend_trawler --user_id=$USER_ID
 
 Found agent with resource ID: ...
 Created session for user ID: ...
-Type 'quit' to exit.
 
-Input: <brand, target audience, target product, and key selling point(s)>
+...
+
+INFO - Deleted session for user ID: ima_user
 ```
 
 **[2] Next, invoke the deployed `creative_agent` workflow:**
@@ -278,13 +283,25 @@ python deployment/test_deployment.py --agent=creative_agent --user_id=$USER_ID
 
 Found agent with resource ID: ...
 Created session for user ID: ...
-Type 'quit' to exit.
 
-Input: <brand, target audience, target product, and key selling point(s), target_search_trend>
+...
+
+INFO - Deleted session for user ID: ima_user
 ```
 
 * [deploy-to-agent-engine.ipynb](./deploy-to-agent-engine.ipynb) notebook
     * *WIP: migrating code to the refactored client-based `Agent Engine` SDK... see [migration guide](https://cloud.google.com/vertex-ai/generative-ai/docs/deprecations/agent-engine-migration)*
+
+
+**View logs for an agent**
+
+To view log entries in the [Logs Explorer](https://cloud.google.com/logging/docs/view/logs-explorer-interface), run the query below
+
+```bash
+resource.type="aiplatform.googleapis.com/ReasoningEngine"
+resource.labels.location="GOOGLE_CLOUD_LOCATION"
+resource.labels.reasoning_engine_id="YOUR_AGENT_ENGINE_ID"
+```
 
 
 ## Create event-based trigger
