@@ -120,9 +120,21 @@ BUCKET=gs://this-my-bucket-name
 # BigQuery 
 BQ_PROJECT_ID='this-my-project-bq-id'
 BQ_DATASET_ID='trend_trawler'
-BQ_TABLE_TARGETS='target_trends'
+BQ_TABLE_TARGETS='target_trends_crf'
 BQ_TABLE_CREATIVES='trend_creatives'
 BQ_TABLE_ALL_TRENDS='all_trends'
+
+# Agent Engine (leave blank)
+CREATIVE_AGENT_ENGINE_ID=''
+TRAWLER_AGENT_ENGINE_ID=''
+
+# campaign metadata
+BRAND="Paul Reed Smith (PRS)"
+TARGET_AUDIENCE="millennials who follow jam bands (e.g., Widespread Panic and Phish), respond positively to nostalgic messages"
+TARGET_PRODUCT="PRS SE CE24 Electric Guitar"
+KEY_SELLING_POINT="The 85/15 S Humbucker pickups deliver a wide tonal range, from thick humbucker tones to clear single-coil sounds, making the guitar suitable for various genres."
+TARGET_SEARCH_TREND="tswift engaged"
+
 ```
 
 source `.env` variables
@@ -149,7 +161,7 @@ Create the BQ table to store selected search trends:
 bq mk \
  -t \
  $BQ_DATA_PROJECT_ID:$BQ_DATASET_ID.$BQ_TABLE_TARGETS \
- uuid:STRING,target_trend:STRING,refresh_date:DATE,trawler_date:DATE,entry_timestamp:TIMESTAMP,trawler_gcs:STRING,brand:STRING,target_audience:STRING,target_product:STRING,key_selling_point:STRING
+ uuid:STRING,processed_status:STRING,target_trend:STRING,refresh_date:DATE,trawler_date:DATE,entry_timestamp:TIMESTAMP,trawler_gcs:STRING,brand:STRING,target_audience:STRING,target_product:STRING,key_selling_point:STRING
 ```
 
 Create the BQ table to store details for the target trend creatives:
@@ -232,7 +244,7 @@ user: Brand Name: "YOUR BRAND OF CHOICE"
 agent: `[end-to-end workflow >> candidate creatives]` 
 ```
 
-## Deploying Agents to separate Agent Engine instances
+# Deploying Agents to separate Agent Engine instances
 
 > [Agent Engine](https://google.github.io/adk-docs/deploy/agent-engine/) is a fully managed auto-scaling service on Google Cloud specifically designed for deploying, managing, and scaling AI agents built with frameworks such as ADK.
 
@@ -350,6 +362,7 @@ gcloud projects add-iam-policy-binding $GOOGLE_CLOUD_PROJECT \
 
 * `CRF_ENTRYPOINT`: the entry point to your function in your source code. This is the code Cloud Run executes when your function runs. The value of **this flag must be a function name or fully-qualified class name** that exists in your source code.
 * `BASE_IMAGE`: base image environment for your function e.g., `python313`. For more details about base images and their packages, see [Supported language runtimes and base images](https://cloud.google.com/run/docs/configuring/services/runtime-base-images#how_to_obtain_runtime_base_images)
+* see [gcloud reference doc](https://cloud.google.com/sdk/gcloud/reference/run/deploy)
 
 ```bash
 cd cloud_funktions/creative_crf
@@ -359,11 +372,26 @@ gcloud run deploy $CREATIVE_CRF_NAME \
         --function $CRF_ENTRYPOINT \
         --base-image $BASE_IMAGE \
         --region $GOOGLE_CLOUD_LOCATION \
-        --memory 5Gi \
-        --cpu 2
-        
+        --min-instances 1 \
+        --memory 8Gi \
+        --cpu 4 \
+        --concurrency 1
+
         #--no-allow-unauthenticated
 ```
+
+*Note: optionally set `--min-instances 1` for your service to **always be on***
+
+<details>
+  <summary>Limiting Cloud Function/Cloud Run Concurrency</summary>
+
+Effect of setting `concurrency=1`
+
+* Only one instance of your function will be running at any given time. This means if Pub/Sub delivers a message, the next message (or a redelivery attempt of the first message) must wait until the first instance finishes and shuts down.
+
+* If your function takes 30 seconds to run and update BQ, the subsequent message/redelivery will not execute until that 30 seconds is over. This gives the first execution time to complete the BQ update (PROCESSED), making the BQ query in the second execution return zero data.
+
+</details>
 
 
 ### 3. Create an [Eventarc trigger](https://cloud.google.com/run/docs/tutorials/pubsub-eventdriven#pubsub-trigger)
@@ -381,7 +409,22 @@ gcloud eventarc triggers create $CREATIVE_TRIGGER_NAME  \
 >> Publish to this topic to receive events in Cloud Run service [creative-trawler-crf]
 ```
 
-**confirm the trigger was successfully created:**
+<details>
+  <summary>TODO: evaluate setting max messages delivered per second or max messages outstanding</summary>
+
+
+**configure the push subscription to limit the maximum number of messages delivered per second or the maximum number of messages outstanding?**
+
+* `Max messages/requests`: Adjusting the subscription properties to limit the number of outstanding messages (e.g., set to 1) means Pub/Sub will not deliver the next message until it receives an acknowledgement for the current one. This works similarly to the concurrency limit.
+
+* `Crucial point`: If we rely on throttling, we must ensure that our function finishes before the Pub/Sub Acknowledgement Deadline expires. The default deadline is 10 seconds, but can be extended up to 600 seconds (10 minutes). If our agent runs take longer than the deadline, Pub/Sub will attempt redelivery regardless of throttling.
+
+see docs for [Acknowledgement deadline](https://cloud.google.com/pubsub/docs/subscription-properties#ack_deadline)
+
+</details>
+
+
+#### confirm the trigger was successfully created:
 
 ```bash
 gcloud eventarc triggers list --location=$GOOGLE_CLOUD_LOCATION
@@ -405,7 +448,7 @@ gcloud pubsub topics publish $CREATIVE_PUB_TOPIC --message "$(cat message.json |
 ```
 
 
-## Deploying Agents to separate Cloud Run instances
+# Deploying Agents to separate Cloud Run instances
 
 > [Cloud Run](https://cloud.google.com/run) is a managed auto-scaling compute platform on Google Cloud that enables you to run your agent as a container-based application.
 
@@ -437,6 +480,7 @@ adk deploy cloud_run \
   --port 8000 \
   --service_name=$SERVICE_NAME \
   --with_ui \
+  --trace_to_cloud \
   $AGENT_PATH
 ```
 
@@ -464,6 +508,7 @@ adk deploy cloud_run \
   --port 8000 \
   --service_name=$SERVICE_NAME \
   --with_ui \
+  --trace_to_cloud \
   $AGENT_PATH
 ```
 
