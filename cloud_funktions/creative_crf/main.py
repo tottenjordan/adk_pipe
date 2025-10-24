@@ -1,13 +1,13 @@
 """Offline, batch workflow for trend insights and candidate Ad creatives
 
-Checking the `trend_trawler` agent's recommendations in the `hybrid-vertex.trend_trawler.target_trends` BQ table
+Checking the `trend_trawler` agent's recommendations in the `BQ_PROJECT_ID.BQ_DATASET_ID.BQ_TABLE_TARGETS` BQ table
 Generating ad creatives for any news recs
 
 Example PubSub msg format:
 
 message = {
     "bq_dataset": "trend_trawler",
-    "bq_table": "target_trends",
+    "bq_table": "target_trends_crf",
     "agent_resource_id": "47239417575768064",
 }
 """
@@ -54,33 +54,129 @@ def _get_bigquery_client() -> bigquery.Client:
 client = vertexai.Client(
     project=config.GOOGLE_CLOUD_PROJECT,
     location=config.GOOGLE_CLOUD_LOCATION,
-) # pyright: ignore[reportCallIssue]
+)  # pyright: ignore[reportCallIssue]
 
 
 # ==============================
 # helper functions
 # ==============================
-def insert_bq_data(table_id, num_rows):
-    rows_to_insert = [{"num_rows_last_check": num_rows, "last_check_time": time.time()}]
-    bq_client = _get_bigquery_client()
-    errors = bq_client.insert_rows_json(table_id, rows_to_insert)
-    if errors == []:
-        logging.info("New rows have been added.")
-    else:
-        logging.error(f"Encountered errors while inserting rows: {errors}")
+def update_rows_status(bq_client, dataset, table, timestamps, status="PROCESSED"):
+    """Updates the processing status of multiple rows atomically."""
+
+    if not timestamps:
+        logging.info("No rows to update status for.")
+        return
+
+    # Create a list of timestamp strings for the WHERE IN clause
+    ts_list = [f"TIMESTAMP('{t}')" for t in timestamps]
+    ts_string = ", ".join(ts_list)
+
+    update_query = f"""
+        UPDATE `{bq_client.project}.{dataset}.{table}`
+        SET processed_status = '{status}'
+        WHERE entry_timestamp IN ({ts_string})
+    """
+
+    # Execute the update
+    query_job = bq_client.query(update_query)
+    query_job.result()
+    logging.info(f"Successfully updated status to {status} for {len(timestamps)} rows.")
 
 
-def create_count_table(table_id, num_rows):
-    bq_client = _get_bigquery_client()
-    schema = [
-        bigquery.SchemaField("num_rows_last_check", "INTEGER", mode="REQUIRED"),
-        bigquery.SchemaField("last_check_time", "TIMESTAMP", mode="REQUIRED"),
-    ]
-    table = bigquery.Table(table_id, schema=schema)
-    table = bq_client.create_table(table)
-    logging.info(f"Created table {table.project}.{table.dataset_id}.{table.table_id}")
+def pretty_print_event(event):
+    """Pretty prints an event with truncation for long content."""
+    if "content" not in event:
+        logging.info(f"[{event.get('author', 'unknown')}]: {event}")
+        return
 
-    insert_bq_data(table_id, num_rows)
+    author = event.get("author", "unknown")
+    parts = event["content"].get("parts", [])
+
+    for part in parts:
+        if "text" in part:
+            text = part["text"]
+            logging.info(f"[{author}]: {text}")
+        elif "functionCall" in part:
+            func_call = part["functionCall"]
+            logging.info(
+                f"[{author}]: Function call: {func_call.get('name', 'unknown')}"
+            )
+            # Truncate args if too long
+            args = json.dumps(func_call.get("args", {}))
+            if len(args) > 100:
+                args = args[:97] + "..."
+            logging.info(f"  Args: {args}")
+        elif "functionResponse" in part:
+            func_response = part["functionResponse"]
+            logging.info(
+                f"[{author}]: Function response: {func_response.get('name', 'unknown')}"
+            )
+            # Truncate response if too long
+            response = json.dumps(func_response.get("response", {}))
+            if len(response) > 100:
+                response = response[:97] + "..."
+            logging.info(f"  Response: {response}")
+
+
+# NO BQ CLIENT OR STATUS UPDATE LOGIC IN THIS FUNCTION NOW
+async def _run_single_agent_task(trend_dict, agent_id):
+    """Handles the async agent run for a single row."""
+
+    # 1. Run the Agent
+    user_id = f"{_USER_ID}_{trend_dict['index']}"
+    await create_agent_run(
+        agent_id=agent_id,
+        msg_dict=trend_dict,
+        user_id=user_id,
+    )
+
+    return trend_dict["entry_timestamp"]  # Return the timestamp of the successful run
+
+
+# make multiple agent calls, async
+async def _run_multiple_agents(agent_id, row_list):
+    """Runs agent tasks concurrently and collects successful timestamps."""
+    logging.info(f"Preparing to run {len(row_list)} concurrent agent tasks.")
+
+    tasks = [_run_single_agent_task(trend_dict, agent_id) for trend_dict in row_list]
+
+    # Execute all tasks concurrently
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    # Check for exceptions and report
+    successful_timestamps = [r for r in results if not isinstance(r, Exception)]
+    failures = [r for r in results if isinstance(r, Exception)]
+
+    if failures:
+        logging.error(f"{len(failures)} agent runs failed: {failures}")
+
+    logging.info("All agent runs completed (or failed).")
+    return successful_timestamps
+
+
+# function to interact with remote agent
+async def async_send_message(remote_agent, user_id, session, user_query) -> None:
+    """Send a message to the deployed agent."""
+
+    # Clear events for each new query
+    events = []
+    try:
+        async for event in remote_agent.async_stream_query(
+            user_id=user_id,
+            session_id=session["id"],
+            message=user_query,  # user_input
+        ):
+            events.append(event)
+            pretty_print_event(event)
+
+    except Exception as e:
+        logging.error(f"Error during streaming: {type(e).__name__}: {e}")
+
+
+async def my_delete_task(remote_agent, session):
+    logging.info(f"Delete task starting with agent: {remote_agent}...")
+    await remote_agent.async_delete_session(user_id=_USER_ID, session_id=session["id"])
+    logging.info(f"Deleted session for user ID: {_USER_ID}")
 
 
 async def create_agent_run(
@@ -110,34 +206,22 @@ async def create_agent_run(
     session = await remote_agent.async_create_session(user_id=user_id)
     logging.info(f"\n\nCreated session for user ID: {user_id}\n\n")
 
-    AGENT_QUERY = f"""Brand: {msg_dict['brand']} 
+    USER_QUERY = f"""Brand: {msg_dict['brand']} 
     Target Product: {msg_dict['target_product']} 
     Key Selling Point(s): {msg_dict['key_selling_point']} 
     Target Audience: {msg_dict['target_audience']} 
     Target Search Trend: {msg_dict['target_search_trend']} 
     """
 
-    events = []
-    async for event in remote_agent.async_stream_query(
-        user_id=user_id, session_id=session["id"], message=AGENT_QUERY
-    ):
+    # long running op
+    await async_send_message(
+        remote_agent=remote_agent,
+        user_id=user_id,
+        session=session,
+        user_query=USER_QUERY,
+    )
 
-        events.append(event)
-        logging.info(event)  # full event stream i.e., agent's thought process
-
-        # Extract just the final text response
-        final_text_responses = [
-            e
-            for e in events
-            if e.get("content", {}).get("parts", [{}])[0].get("text")
-            and not e.get("content", {}).get("parts", [{}])[0].get("function_call")
-        ]
-        if final_text_responses:
-            logging.info("\n\n--- Final Response ---\n\n")
-            logging.info(final_text_responses[0]["content"]["parts"][0]["text"])
-
-    await remote_agent.async_delete_session(user_id=user_id, session_id=session["id"])
-    logging.info(f"Deleted session for user ID: {user_id}")
+    await my_delete_task(remote_agent=remote_agent, session=session)
 
 
 # This should be the entrypoint for your Cloud Function
@@ -183,87 +267,90 @@ def crf_entrypoint(cloud_event: CloudEvent) -> None:
         table = message_payload["bq_table"]
         agent_resource_id = message_payload["agent_resource_id"]
 
-        data_table = bq_client.get_table(f"{bq_client.project}.{dataset}.{table}")
-        current_rows = data_table.num_rows
-        logging.info(f"{table} table has {current_rows} rows")
+        # 1. Fetch ALL unprocessed rows (processed_status is NULL)
+        rows_to_process_query = f"""
+            SELECT * FROM `{bq_client.project}.{dataset}.{table}`
+            WHERE processed_status IS NULL 
+            ORDER BY entry_timestamp ASC
+        """
 
-        # See if `count` table exists in dataset
         try:
-            count_table = bq_client.get_table(f"{bq_client.project}.{dataset}.count")
-            logging.info(
-                "`count` table exists, querying to see how many rows at last checkpoint"
-            )
-        except NotFound:
-            logging.exception("No `count` table found, creating one...")
-            create_count_table(f"{bq_client.project}.{dataset}.count", current_rows)
+            df = bq_client.query(rows_to_process_query).to_dataframe()
+        except Exception as e:
+            logging.error(f"Error querying BQ: {e}")
+            raise  # Re-raise to signal failure to Pub/Sub
 
-        # get new rows, if any
-        query_job = bq_client.query(
-            f"""
-            SELECT num_rows_last_check FROM `{bq_client.project}.{dataset}.count`
-            ORDER BY last_check_time DESC
-            LIMIT 1"""
+    if df.empty:
+        logging.info(
+            "No new rows found to process (all are marked PROCESSED or table is empty)."
         )
-        results = query_job.result()
-        for i in results:
-            last_retrain_count = i[0]
-
-        if current_rows:
-            rows_added_since_last_trawl_run = current_rows - last_retrain_count
-            logging.info(
-                f"{rows_added_since_last_trawl_run} rows added since last trawl"
-            )
-
-        if rows_added_since_last_trawl_run > 0:
-
-            # do creative-agent runs on campaign+trend in new rows
-            query = f"""
-                SELECT * FROM `{bq_client.project}.{dataset}.target_trends`
-                ORDER BY entry_timestamp DESC
-                LIMIT 1""" # {last_retrain_count}
-
-            df = bq_client.query(query).to_dataframe()
-
-            # Iterate over rows using iterrows()
-            row_list = []
-            for index, row in df.iterrows():
-                row_dict = {}
-                row_dict["index"] = index
-                row_dict["target_search_trend"] = row["target_trend"]
-                row_dict["brand"] = row["brand"]
-                row_dict["target_audience"] = row["target_audience"]
-                row_dict["target_product"] = row["target_product"]
-                row_dict["key_selling_point"] = row["key_selling_point"]
-                row_list.append(row_dict)
-
-            # for trend_dict in row_list:
-            #     response = asyncio.run(
-            #         create_agent_run(
-            #             agent_id=agent_resource_id,
-            #             msg_dict=trend_dict,
-            #             user_id=f"{_USER_ID}_{row_dict['index']}",
-            #         )
-            #     )
-            #     logging.info(response)
-
-            row_dict = {}
-            row_dict["index"] = index
-            row_dict["target_search_trend"] = row_list[0]["target_search_trend"]
-            row_dict["brand"] = row_list[0]["brand"]
-            row_dict["target_audience"] = row_list[0]["target_audience"]
-            row_dict["target_product"] = row_list[0]["target_product"]
-            row_dict["key_selling_point"] = row_list[0]["key_selling_point"]
-
-            response = asyncio.run(
-                create_agent_run(
-                    agent_id=agent_resource_id,
-                    msg_dict=row_dict,
-                    user_id=f"{_USER_ID}_{row_dict['index']}",
-                )
-            )
-            logging.info(response)
-            insert_bq_data(f"{bq_client.project}.{dataset}.count", current_rows)
-
     else:
-        logging.info("No BigQuery info provided")
-        return
+        # 2. Extract data into a list of dictionaries
+        row_list = []
+        for index, row in df.iterrows():
+            row_dict = {
+                "index": index,
+                "entry_timestamp": row[
+                    "entry_timestamp"
+                ],  # Include timestamp for BQ update
+                "target_search_trend": row["target_trend"],
+                "brand": row["brand"],
+                "target_audience": row["target_audience"],
+                "target_product": row["target_product"],
+                "key_selling_point": row["key_selling_point"],
+            }
+            row_list.append(row_dict)
+
+        logging.info(f"Loaded {len(row_list)} UNPROCESSED records for agent execution.")
+
+        # 3. Get timestamps of rows to be processed
+        timestamps_to_process = [d["entry_timestamp"] for d in row_list]
+
+        # --- LOCK STEP ---
+        # 4. Mark the entire batch as 'PROCESSING' before starting any costly work.
+        update_rows_status(
+            bq_client=bq_client,
+            dataset=dataset,
+            table=table,
+            timestamps=timestamps_to_process,
+            status="PROCESSING",
+        )
+        # If this update fails, the function fails, Pub/Sub retries, and the next attempt
+        # will fetch the same rows as 'NEW' (processed_status is NULL).
+
+        # --- AGENT RUN STEP ---
+        # 5. Run Agents Concurrently (collects timestamps of successful runs)
+        successful_timestamps = asyncio.run(
+            _run_multiple_agents(agent_id=agent_resource_id, row_list=row_list)
+        )
+
+        # --- FINAL UPDATE STEP ---
+        # 6. Mark successful rows as 'PROCESSED'
+        if successful_timestamps:
+            update_rows_status(
+                bq_client=bq_client,
+                dataset=dataset,
+                table=table,
+                timestamps=successful_timestamps,
+                status="PROCESSED",
+            )
+
+        # 7. Handle rows that failed during the run (optional but recommended)
+        failed_timestamps = [
+            ts for ts in timestamps_to_process if ts not in successful_timestamps
+        ]
+        if failed_timestamps:
+            update_rows_status(
+                bq_client=bq_client,
+                dataset=dataset,
+                table=table,
+                timestamps=failed_timestamps,
+                status="FAILED",  # Or set back to `NULL` for automatic retry
+            )
+
+        # If the function crashes after step 4 but before step 6, the data is locked
+        # in 'PROCESSING' and requires manual cleanup or a dedicated monitor service.
+
+        logging.info(
+            f"Total rows successfully processed and status updated: {len(successful_timestamps)}"
+        )

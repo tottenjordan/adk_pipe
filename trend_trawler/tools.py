@@ -288,7 +288,8 @@ def write_trends_to_bq(tool_context: ToolContext) -> dict:
             # write SQL
             sql_query = f"""
             INSERT INTO 
-              `{config.BQ_PROJECT_ID}.{config.BQ_DATASET_ID}.{config.BQ_TABLE_TARGETS}` (uuid, 
+              `{config.BQ_PROJECT_ID}.{config.BQ_DATASET_ID}.{config.BQ_TABLE_TARGETS}` (uuid,
+                -- processed_status, -- omitting will make it NULL
                 target_trend,
                 refresh_date,
                 trawler_date,
