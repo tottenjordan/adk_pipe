@@ -372,11 +372,12 @@ gcloud run deploy $CREATIVE_CRF_NAME \
         --function $CRF_ENTRYPOINT \
         --base-image $BASE_IMAGE \
         --region $GOOGLE_CLOUD_LOCATION \
-        --min-instances 1 \
         --memory 8Gi \
         --cpu 4 \
-        --concurrency 1
+        --concurrency 3 \
+        --timeout 600
 
+        #--min-instances 1
         #--no-allow-unauthenticated
 ```
 
@@ -390,6 +391,8 @@ Effect of setting `concurrency=1`
 * Only one instance of your function will be running at any given time. This means if Pub/Sub delivers a message, the next message (or a redelivery attempt of the first message) must wait until the first instance finishes and shuts down.
 
 * If your function takes 30 seconds to run and update BQ, the subsequent message/redelivery will not execute until that 30 seconds is over. This gives the first execution time to complete the BQ update (PROCESSED), making the BQ query in the second execution return zero data.
+
+**Bottom line:** set concurrency to the max number of trends to process at a given time. If `concurrency=1` and two rows in your BigQuery table need processing, one row will successfully process and the other with fail.
 
 </details>
 

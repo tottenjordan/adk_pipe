@@ -60,29 +60,6 @@ client = vertexai.Client(
 # ==============================
 # helper functions
 # ==============================
-def update_rows_status(bq_client, dataset, table, timestamps, status="PROCESSED"):
-    """Updates the processing status of multiple rows atomically."""
-
-    if not timestamps:
-        logging.info("No rows to update status for.")
-        return
-
-    # Create a list of timestamp strings for the WHERE IN clause
-    ts_list = [f"TIMESTAMP('{t}')" for t in timestamps]
-    ts_string = ", ".join(ts_list)
-
-    update_query = f"""
-        UPDATE `{bq_client.project}.{dataset}.{table}`
-        SET processed_status = '{status}'
-        WHERE entry_timestamp IN ({ts_string})
-    """
-
-    # Execute the update
-    query_job = bq_client.query(update_query)
-    query_job.result()
-    logging.info(f"Successfully updated status to {status} for {len(timestamps)} rows.")
-
-
 def pretty_print_event(event):
     """Pretty prints an event with truncation for long content."""
     if "content" not in event:
@@ -118,40 +95,41 @@ def pretty_print_event(event):
             logging.info(f"  Response: {response}")
 
 
-# NO BQ CLIENT OR STATUS UPDATE LOGIC IN THIS FUNCTION NOW
-async def _run_single_agent_task(trend_dict, agent_id):
-    """Handles the async agent run for a single row."""
+def update_rows_status(bq_client, dataset, table, timestamps, status="PROCESSED"):
+    """Updates the processing status of multiple rows atomically."""
 
-    # 1. Run the Agent
-    user_id = f"{_USER_ID}_{trend_dict['index']}"
-    await create_agent_run(
-        agent_id=agent_id,
-        msg_dict=trend_dict,
-        user_id=user_id,
-    )
+    if not timestamps:
+        logging.info("No rows to update status for.")
+        return
 
-    return trend_dict["entry_timestamp"]  # Return the timestamp of the successful run
+    # Create a list of timestamp strings for the WHERE IN clause
+    ts_list = [f"TIMESTAMP('{t}')" for t in timestamps]
+    ts_string = ", ".join(ts_list)
+
+    update_query = f"""
+        UPDATE `{bq_client.project}.{dataset}.{table}`
+        SET processed_status = '{status}'
+        WHERE entry_timestamp IN ({ts_string})
+    """
+
+    # Execute the update
+    try:
+        query_job = bq_client.query(update_query)
+        query_job.result()
+        logging.info(
+            f"Successfully updated status to {status} for {len(timestamps)} rows."
+        )
+    except Exception as e:
+        # Crucial: Log the error if the update fails (like the BQ syntax error)
+        logging.error(f"Failed to update rows status to {status}: {e}")
+        # Reraise the exception to ensure the function fails and the Pub/Sub message retries
+        raise
 
 
-# make multiple agent calls, async
-async def _run_multiple_agents(agent_id, row_list):
-    """Runs agent tasks concurrently and collects successful timestamps."""
-    logging.info(f"Preparing to run {len(row_list)} concurrent agent tasks.")
-
-    tasks = [_run_single_agent_task(trend_dict, agent_id) for trend_dict in row_list]
-
-    # Execute all tasks concurrently
-    results = await asyncio.gather(*tasks, return_exceptions=True)
-
-    # Check for exceptions and report
-    successful_timestamps = [r for r in results if not isinstance(r, Exception)]
-    failures = [r for r in results if isinstance(r, Exception)]
-
-    if failures:
-        logging.error(f"{len(failures)} agent runs failed: {failures}")
-
-    logging.info("All agent runs completed (or failed).")
-    return successful_timestamps
+async def my_delete_task(remote_agent, session):
+    logging.info(f"Delete task starting with agent: {remote_agent}...")
+    await remote_agent.async_delete_session(user_id=_USER_ID, session_id=session["id"])
+    logging.info(f"Deleted session for user ID: {_USER_ID}")
 
 
 # function to interact with remote agent
@@ -171,12 +149,6 @@ async def async_send_message(remote_agent, user_id, session, user_query) -> None
 
     except Exception as e:
         logging.error(f"Error during streaming: {type(e).__name__}: {e}")
-
-
-async def my_delete_task(remote_agent, session):
-    logging.info(f"Delete task starting with agent: {remote_agent}...")
-    await remote_agent.async_delete_session(user_id=_USER_ID, session_id=session["id"])
-    logging.info(f"Deleted session for user ID: {_USER_ID}")
 
 
 async def create_agent_run(
@@ -222,6 +194,42 @@ async def create_agent_run(
     )
 
     await my_delete_task(remote_agent=remote_agent, session=session)
+
+
+# NO BQ CLIENT OR STATUS UPDATE LOGIC IN THIS FUNCTION NOW
+async def _run_single_agent_task(trend_dict, agent_id):
+    """Handles the async agent run for a single row."""
+
+    # 1. Run the Agent
+    user_id = f"{_USER_ID}_{trend_dict['index']}"
+    await create_agent_run(
+        agent_id=agent_id,
+        msg_dict=trend_dict,
+        user_id=user_id,
+    )
+
+    return trend_dict["entry_timestamp"]  # Return the timestamp of the successful run
+
+
+# make multiple agent calls, async
+async def _run_multiple_agents(agent_id, row_list):
+    """Runs agent tasks concurrently and collects successful timestamps."""
+    logging.info(f"Preparing to run {len(row_list)} concurrent agent tasks.")
+
+    tasks = [_run_single_agent_task(trend_dict, agent_id) for trend_dict in row_list]
+
+    # Execute all tasks concurrently
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    # Check for exceptions and report
+    successful_timestamps = [r for r in results if not isinstance(r, Exception)]
+    failures = [r for r in results if isinstance(r, Exception)]
+
+    if failures:
+        logging.error(f"{len(failures)} agent runs failed: {failures}")
+
+    logging.info("All agent runs completed (or failed).")
+    return successful_timestamps
 
 
 # This should be the entrypoint for your Cloud Function
