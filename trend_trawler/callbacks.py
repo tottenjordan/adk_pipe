@@ -27,13 +27,13 @@ def _set_initial_states(source: Dict[str, Any], target: State | dict[str, Any]):
         source: A JSON object of states.
         target: The session state object to insert into.
     """
-    # TODO: concat with gcs_folder timestamp to avoid collision in CRF
-    # unique_id = f"{str(uuid.uuid4())[:4]}"
+    unique_id = f"{str(uuid.uuid4())[:4]}"
+    formatted_now = pd.Timestamp.utcnow().strftime("%Y_%m_%d_%H_%M")
     if config.state_init not in target:
         target[config.state_init] = True
         target["gcs_bucket"] = config.GCS_BUCKET
         target["agent_output_dir"] = "trawler_output"
-        target["gcs_folder"] = pd.Timestamp.utcnow().strftime("%Y_%m_%d_%H_%M_%S")
+        target["gcs_folder"] = f"{formatted_now}_{unique_id}"
         logging.info(f"gcs_folder: {target['gcs_folder']}")
 
         target.update(source)
