@@ -653,14 +653,6 @@ root_agent = Agent(
             "subagent": "root_agent",
         },
     ),
-    before_agent_callback=callbacks._load_session_state,
+    before_agent_callback=callbacks.load_session_state,
     before_model_callback=callbacks.rate_limit_callback,
 )
-
-# Tools
-# 9. Use the `save_creatives_html_report` tool to build the final HTML report, detailing research and creatives generated during a session.
-# 11. Use the `save_session_state_to_gcs` tool at the end of the session to save the state dict to Cloud Storage.
-
-# Workflow
-# 8. After the previous step is complete, use the `save_creatives_html_report` tool to create the final HTML report and save it to Cloud Storage. 
-# 10. Then, call the `save_session_state_to_gcs` tool to save the session state to Cloud Storage.

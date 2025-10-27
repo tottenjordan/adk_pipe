@@ -244,7 +244,7 @@ trend_trawler = Agent(
         },
     ),
     before_agent_callback=[
-        callbacks._load_session_state,
+        callbacks.load_session_state,
     ],
     before_model_callback=callbacks.rate_limit_callback,
 )

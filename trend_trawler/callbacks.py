@@ -1,4 +1,5 @@
 import time
+import uuid
 import logging
 import warnings
 import pandas as pd
@@ -26,17 +27,19 @@ def _set_initial_states(source: Dict[str, Any], target: State | dict[str, Any]):
         source: A JSON object of states.
         target: The session state object to insert into.
     """
+    # TODO: concat with gcs_folder timestamp to avoid collision in CRF
+    # unique_id = f"{str(uuid.uuid4())[:4]}"
     if config.state_init not in target:
         target[config.state_init] = True
         target["gcs_bucket"] = config.GCS_BUCKET
         target["agent_output_dir"] = "trawler_output"
-        target["gcs_folder"] = pd.Timestamp.utcnow().strftime("%Y_%m_%d_%H_%M")
+        target["gcs_folder"] = pd.Timestamp.utcnow().strftime("%Y_%m_%d_%H_%M_%S")
         logging.info(f"gcs_folder: {target['gcs_folder']}")
 
         target.update(source)
 
 
-def _load_session_state(callback_context: CallbackContext):
+def load_session_state(callback_context: CallbackContext):
     """
     Sets up the initial state.
     Set this as a callback as before_agent_call of the `root_agent`.
