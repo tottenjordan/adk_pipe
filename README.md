@@ -435,7 +435,7 @@ gcloud eventarc triggers list --location=$GOOGLE_CLOUD_LOCATION
 
 ### 4. Trigger the function
 
-*Assign the topic to a variable:* 
+4.1 *Assign the topic to a variable:* 
 
 ```bash
 CREATIVE_PUB_TOPIC=$(gcloud eventarc triggers describe $CREATIVE_TRIGGER_NAME --location $GOOGLE_CLOUD_LOCATION --format='value(transport.pubsub.topic)')
@@ -444,9 +444,19 @@ echo $CREATIVE_PUB_TOPIC
 
 *Publish a message to the topic:*
 
+4.2 edit the `cloud_funktions/creative_crf/message.json` file to match your `.env` file:
+
+```json
+{
+    "bq_dataset": "trend_trawler",
+    "bq_table": "target_trends_crf",
+    "agent_resource_id": "CREATIVE_AGENT_ENGINE_ID"
+}
+```
+
+4.3  run the following command:
+
 ```bash
-# gcloud pubsub topics publish $CREATIVE_PUB_TOPIC --message="Hello World"
-# gcloud pubsub topics publish YOUR_TOPIC_NAME --message '{"key1": "value1", "key2": "value2"}'
 gcloud pubsub topics publish $CREATIVE_PUB_TOPIC --message "$(cat message.json | jq -c)"
 ```
 

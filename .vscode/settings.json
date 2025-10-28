@@ -27,5 +27,6 @@
         "uvicorn",
         "venv",
         "vertexai"
-    ]
+    ],
+    "editor.defaultFormatter": "ms-python.black-formatter"
 }
