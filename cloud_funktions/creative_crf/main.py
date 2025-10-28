@@ -1,7 +1,8 @@
 """Offline, batch workflow for trend insights and candidate Ad creatives
 
-Checking the `trend_trawler` agent's recommendations in the `BQ_PROJECT_ID.BQ_DATASET_ID.BQ_TABLE_TARGETS` BQ table
-Generating ad creatives for any news recs
+Checks the `trend_trawler` agent's recommendations in the
+`BQ_PROJECT_ID.BQ_DATASET_ID.BQ_TABLE_TARGETS` BQ table.
+Generates ad creatives for any news recs
 
 Example PubSub msg format:
 
@@ -17,7 +18,6 @@ import os
 os.environ["PYTHONUNBUFFERED"] = "1"
 
 import json
-import time
 import base64
 import asyncio
 import logging
@@ -27,7 +27,8 @@ import vertexai
 import functions_framework
 from google.cloud import bigquery
 from cloudevents.http import CloudEvent
-from google.cloud.exceptions import NotFound
+
+# from google.cloud.exceptions import NotFound
 
 from .config import config
 
@@ -208,7 +209,8 @@ async def _run_single_agent_task(trend_dict, agent_id):
         user_id=user_id,
     )
 
-    return trend_dict["entry_timestamp"]  # Return the timestamp of the successful run
+    # Return the timestamp of the successful run
+    return trend_dict["entry_timestamp"]
 
 
 # make multiple agent calls, async
@@ -236,20 +238,29 @@ async def _run_multiple_agents(agent_id, row_list):
 # Triggered from a message on a Cloud Pub/Sub topic.
 @functions_framework.cloud_event
 def crf_entrypoint(cloud_event: CloudEvent) -> None:
-    """Checks size of BigQuery table
+    """Checks BigQuery table and processes any new rows
 
-    1. Consumes PubSub message
-    2. Checks BigQuery table for new trend
+    Each row in the BQ table includes a trend and campaign metadata.
+    These are used as inputs when invoking an Agent Engine instance to
+    generate ad copy and creative candidates. Each row (trend & campaign
+    metadata) should be processed once.
+
+    This function performs the following steps:
+    1. Consumes PubSub message.
+    2. Checks BigQuery table for new rows.
+    3. Executes query updating the status of each new row as 'PROCESSING'.
+    4. Executes concurrent Agent Engine calls, one for each new row.
+    5. If Agent Engine run succeeds, updates row status as 'PROCESSED';
+       if fails updates with 'FAILED' status.
 
     Args:
-        request: json dictionary with the following keys:
-            bq_dataset: BigQuery dataset hosting tables for monitoring the trawler
-            bq_table: BigQuery table to monitor
-            agent_resource_id: resource ID for agent deployed to Agent Engine
+      request: json dictionary with the following keys:
+        bq_dataset: BQ dataset hosting tables for monitoring the trawler
+        bq_table: BQ table to monitor
+        agent_resource_id: resource ID for agent deployed to Agent Engine
 
     Returns:
          None: output is written to Cloud Logging
-
     """
     bq_client = _get_bigquery_client()
 
@@ -315,7 +326,7 @@ def crf_entrypoint(cloud_event: CloudEvent) -> None:
         timestamps_to_process = [d["entry_timestamp"] for d in row_list]
 
         # --- LOCK STEP ---
-        # 4. Mark the entire batch as 'PROCESSING' before starting any costly work.
+        # 4. Mark the batch as 'PROCESSING' before starting any costly work.
         update_rows_status(
             bq_client=bq_client,
             dataset=dataset,
@@ -323,8 +334,8 @@ def crf_entrypoint(cloud_event: CloudEvent) -> None:
             timestamps=timestamps_to_process,
             status="PROCESSING",
         )
-        # If this update fails, the function fails, Pub/Sub retries, and the next attempt
-        # will fetch the same rows as 'NEW' (processed_status is NULL).
+        # If this update fails, the function fails, Pub/Sub retries,
+        # and the next attempt will fetch the same rows as 'NEW' (processed_status is NULL).
 
         # --- AGENT RUN STEP ---
         # 5. Run Agents Concurrently (collects timestamps of successful runs)
@@ -356,8 +367,9 @@ def crf_entrypoint(cloud_event: CloudEvent) -> None:
                 status="FAILED",  # Or set back to `NULL` for automatic retry
             )
 
-        # If the function crashes after step 4 but before step 6, the data is locked
-        # in 'PROCESSING' and requires manual cleanup or a dedicated monitor service.
+        # If the function crashes after step 4 but before step 6, the
+        # data is locked in 'PROCESSING' and requires manual cleanup or
+        # a dedicated monitor service.
 
         logging.info(
             f"Total rows successfully processed and status updated: {len(successful_timestamps)}"
