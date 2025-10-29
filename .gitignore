@@ -5,3 +5,4 @@ output/*
 **/__pycache__/
 __pycache__/
 a_stash/
+**cloud_funktions/creative_crf/message.json

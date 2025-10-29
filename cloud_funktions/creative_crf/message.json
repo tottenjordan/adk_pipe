@@ -1,5 +1,0 @@
-{
-    "bq_dataset": "trend_trawler",
-    "bq_table": "target_trends_crf",
-    "agent_resource_id": "7662228253133766656"
-}
