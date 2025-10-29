@@ -2,23 +2,28 @@
 
 This file contains two separate Cloud Run Function deployments:
 
-1. Agent Orchestrator Deployment: executes the crf_entrypoint function
-2. Agent Worker Deployment: executes the agent_worker_entrypoint function
+1. Agent Orchestrator Deployment: executes the `crf_entrypoint` function
+2. Agent Worker Deployment: executes the `agent_worker_entrypoint` function
 
 Why?
-* When deploying a service triggered by a Pub/Sub topic, you must 
-  specify exactly one entry point function to be executed when a message 
+* When deploying a service triggered by a Pub/Sub topic, you must
+  specify exactly one entry point function to be executed when a message
   arrives on that topic
-* Therefore, you must deploy the code twice, with each deployment 
-  configured to listen to its unique trigger topic and execute the 
+* Therefore, you must deploy the code twice, with each deployment
+  configured to listen to its unique trigger topic and execute the
   appropriate handler function.
 
-Checks the `trend_trawler` agent's recommendations in the
-`BQ_PROJECT_ID.BQ_DATASET_ID.BQ_TABLE_TARGETS` BQ table.
-Generates ad creatives for any news recs
+Objectives:
+1. Agent Orchestrator: Checks the `trend_trawler` agent's 
+   recommendations in the `BQ_PROJECT_ID.BQ_DATASET_ID.BQ_TABLE_TARGETS` 
+   BQ table and dispatches a PubSub message for each new row in the table
+2. Agent Worker: Processes a single PubSub message dispatched by the 
+   Orchestrator, invoking the Agent Engine Runtime to generate 
+   ad copy and creatives for a single (trend + campaign) pair (i.e., a 
+   single row in the BigQuery table)
+
 
 Example PubSub msg format:
-
 message = {
     "bq_dataset": "trend_trawler",
     "bq_table": "target_trends_crf",
@@ -42,8 +47,6 @@ from google.cloud import bigquery
 from google.cloud import pubsub_v1
 from cloudevents.http import CloudEvent
 
-# from google.cloud.exceptions import NotFound
-
 from .config import config
 
 
@@ -56,9 +59,9 @@ warnings.filterwarnings("ignore")
 _USER_ID = "Ima_CloudRun_jr"
 _PROJECT_NUMBER = config.GOOGLE_CLOUD_PROJECT_NUMBER
 _LOCATION = config.GOOGLE_CLOUD_LOCATION
-
-# Configuration for the worker topic
-_WORKER_TOPIC_NAME = f"projects/{_PROJECT_NUMBER}/topics/creative-worker-queue-topic"
+_WORKER_TOPIC_NAME = (
+    f"projects/{_PROJECT_NUMBER}/topics/{config.CREATIVE_WORKER_TOPIC_NAME}"
+) # Configuration for the worker topic
 
 
 # ==============================
