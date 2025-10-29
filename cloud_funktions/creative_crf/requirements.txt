@@ -5,6 +5,7 @@ google-adk==1.15.1
 google-cloud-bigquery[pandas]==3.37.0
 google-cloud-logging==3.12.1
 google-cloud-storage==2.19.0
+google-cloud-pubsub
 numpy
 python-dateutil
 pytz

@@ -1,4 +1,17 @@
-"""Offline, batch workflow for trend insights and candidate Ad creatives
+"""Offline, batch workflow for trend insights and candidate ad creatives
+
+This file contains two separate Cloud Run Function deployments:
+
+1. Agent Orchestrator Deployment: executes the crf_entrypoint function
+2. Agent Worker Deployment: executes the agent_worker_entrypoint function
+
+Why?
+* When deploying a service triggered by a Pub/Sub topic, you must 
+  specify exactly one entry point function to be executed when a message 
+  arrives on that topic
+* Therefore, you must deploy the code twice, with each deployment 
+  configured to listen to its unique trigger topic and execute the 
+  appropriate handler function.
 
 Checks the `trend_trawler` agent's recommendations in the
 `BQ_PROJECT_ID.BQ_DATASET_ID.BQ_TABLE_TARGETS` BQ table.
@@ -26,6 +39,7 @@ import warnings
 import vertexai
 import functions_framework
 from google.cloud import bigquery
+from google.cloud import pubsub_v1
 from cloudevents.http import CloudEvent
 
 # from google.cloud.exceptions import NotFound
@@ -43,6 +57,9 @@ _USER_ID = "Ima_CloudRun_jr"
 _PROJECT_NUMBER = config.GOOGLE_CLOUD_PROJECT_NUMBER
 _LOCATION = config.GOOGLE_CLOUD_LOCATION
 
+# Configuration for the worker topic
+_WORKER_TOPIC_NAME = f"projects/{_PROJECT_NUMBER}/topics/creative-worker-queue-topic"
+
 
 # ==============================
 # clients
@@ -50,6 +67,11 @@ _LOCATION = config.GOOGLE_CLOUD_LOCATION
 def _get_bigquery_client() -> bigquery.Client:
     """Get a configured BigQuery client."""
     return bigquery.Client(project=config.GOOGLE_CLOUD_PROJECT)
+
+
+def _get_pubsub_client():
+    """Get a configured Pub/Sub client."""
+    return pubsub_v1.PublisherClient()
 
 
 client = vertexai.Client(
@@ -193,49 +215,59 @@ async def create_agent_run(
         session=session,
         user_query=USER_QUERY,
     )
-
     await my_delete_task(remote_agent=remote_agent, session=session)
 
 
-# NO BQ CLIENT OR STATUS UPDATE LOGIC IN THIS FUNCTION NOW
-async def _run_single_agent_task(trend_dict, agent_id):
-    """Handles the async agent run for a single row."""
+# --- Helper to encapsulate the single-row logic ---
+async def _execute_agent_and_update_status(
+    trend_dict, agent_id, bq_client, dataset, table
+):
+    """Handles the async agent run for a single row and updates its status."""
 
-    # 1. Run the Agent
-    user_id = f"{_USER_ID}_{trend_dict['index']}"
-    await create_agent_run(
-        agent_id=agent_id,
-        msg_dict=trend_dict,
-        user_id=user_id,
-    )
+    # Extract data
+    timestamp = trend_dict["entry_timestamp"]
 
-    # Return the timestamp of the successful run
-    return trend_dict["entry_timestamp"]
+    try:
+        # 1. Run the Agent (The heavy async part)
+        user_id = f"{_USER_ID}_{trend_dict['index']}"
+        await create_agent_run(
+            agent_id=agent_id,
+            msg_dict=trend_dict,
+            user_id=user_id,
+        )
+
+        # 2. Update status to PROCESSED
+        update_rows_status(
+            bq_client=bq_client,
+            dataset=dataset,
+            table=table,
+            timestamps=[timestamp],
+            status="PROCESSED",
+        )
+        logging.info(f"Successfully processed and marked row {timestamp} as PROCESSED.")
+
+    except Exception as e:
+        logging.error(f"Failed processing row {timestamp}: {e}")
+        # 3. Update status to FAILED
+        update_rows_status(
+            bq_client=bq_client,
+            dataset=dataset,
+            table=table,
+            timestamps=[timestamp],
+            status="FAILED",
+            # Note: If this status update fails, the function will raise an error
+            # and the worker Pub/Sub message will retry, which is acceptable.
+        )
+        # We raise here so the Worker Pub/Sub message retries,
+        # but the BQ row status indicates the specific failure.
+        raise  # Reraise to trigger NACK/retry for the Pub/Sub worker message
 
 
-# make multiple agent calls, async
-async def _run_multiple_agents(agent_id, row_list):
-    """Runs agent tasks concurrently and collects successful timestamps."""
-    logging.info(f"Preparing to run {len(row_list)} concurrent agent tasks.")
-
-    tasks = [_run_single_agent_task(trend_dict, agent_id) for trend_dict in row_list]
-
-    # Execute all tasks concurrently
-    results = await asyncio.gather(*tasks, return_exceptions=True)
-
-    # Check for exceptions and report
-    successful_timestamps = [r for r in results if not isinstance(r, Exception)]
-    failures = [r for r in results if isinstance(r, Exception)]
-
-    if failures:
-        logging.error(f"{len(failures)} agent runs failed: {failures}")
-
-    logging.info("All agent runs completed (or failed).")
-    return successful_timestamps
-
-
-# This should be the entrypoint for your Cloud Function
-# Triggered from a message on a Cloud Pub/Sub topic.
+# ==================================================
+# 1. Orchestrator Entry Point
+# Triggered by: Trigger Topic $CREATIVE_TRIGGER_NAME
+# Executes: Queries BQ, publishes N worker messages
+# ==================================================
 @functions_framework.cloud_event
 def crf_entrypoint(cloud_event: CloudEvent) -> None:
     """Checks BigQuery table and processes any new rows
@@ -263,6 +295,7 @@ def crf_entrypoint(cloud_event: CloudEvent) -> None:
          None: output is written to Cloud Logging
     """
     bq_client = _get_bigquery_client()
+    pubsub_publisher = _get_pubsub_client()
 
     # Get the Pub/Sub message data
     pubsub_message = cloud_event.data
@@ -285,14 +318,16 @@ def crf_entrypoint(cloud_event: CloudEvent) -> None:
         dataset = message_payload["bq_dataset"]
         table = message_payload["bq_table"]
         agent_resource_id = message_payload["agent_resource_id"]
+        # The triggering message should pass the necessary config,
+        # OR the orchestrator uses a hardcoded worker topic name.
 
         # 1. Fetch ALL unprocessed rows (processed_status is NULL)
+        # optionally fetch FAILED rows
         rows_to_process_query = f"""
             SELECT * FROM `{bq_client.project}.{dataset}.{table}`
             WHERE processed_status IS NULL 
             ORDER BY entry_timestamp ASC
         """
-
         try:
             df = bq_client.query(rows_to_process_query).to_dataframe()
         except Exception as e:
@@ -307,11 +342,13 @@ def crf_entrypoint(cloud_event: CloudEvent) -> None:
         # 2. Extract data into a list of dictionaries
         row_list = []
         for index, row in df.iterrows():
+            # Ensure the timestamp is converted to a string format (ISO 8601)
+            timestamp_str = row["entry_timestamp"].isoformat()
+
             row_dict = {
                 "index": index,
-                "entry_timestamp": row[
-                    "entry_timestamp"
-                ],  # Include timestamp for BQ update
+                # Use the string version for JSON serialization
+                "entry_timestamp": timestamp_str,
                 "target_search_trend": row["target_trend"],
                 "brand": row["brand"],
                 "target_audience": row["target_audience"],
@@ -319,58 +356,91 @@ def crf_entrypoint(cloud_event: CloudEvent) -> None:
                 "key_selling_point": row["key_selling_point"],
             }
             row_list.append(row_dict)
-
         logging.info(f"Loaded {len(row_list)} UNPROCESSED records for agent execution.")
 
         # 3. Get timestamps of rows to be processed
         timestamps_to_process = [d["entry_timestamp"] for d in row_list]
 
         # --- LOCK STEP ---
-        # 4. Mark the batch as 'PROCESSING' before starting any costly work.
+        # 4. Mark the batch as 'QUEUED' before starting any costly work.
         update_rows_status(
             bq_client=bq_client,
             dataset=dataset,
             table=table,
             timestamps=timestamps_to_process,
-            status="PROCESSING",
+            status="QUEUED",
         )
-        # If this update fails, the function fails, Pub/Sub retries,
-        # and the next attempt will fetch the same rows as 'NEW' (processed_status is NULL).
+        # If the function fails here, the trigger message NACKs and retries,
+        # but the next successful run will see these rows are now QUEUED,
+        # preventing duplication (assuming the next step succeeds).
 
-        # --- AGENT RUN STEP ---
-        # 5. Run Agents Concurrently (collects timestamps of successful runs)
-        successful_timestamps = asyncio.run(
-            _run_multiple_agents(agent_id=agent_resource_id, row_list=row_list)
-        )
+        # 5. Dispatch Step: Publish one message per row to the worker topic
+        dispatched_count = 0
+        for row_dict in row_list:
 
-        # --- FINAL UPDATE STEP ---
-        # 6. Mark successful rows as 'PROCESSED'
-        if successful_timestamps:
-            update_rows_status(
-                bq_client=bq_client,
-                dataset=dataset,
-                table=table,
-                timestamps=successful_timestamps,
-                status="PROCESSED",
-            )
+            # Create a dedicated payload for the worker
+            worker_payload = {
+                "bq_dataset": dataset,
+                "bq_table": table,
+                "agent_resource_id": agent_resource_id,
+                "row_data": row_dict,  # Pass the necessary row info
+            }
 
-        # 7. Handle rows that failed during the run (optional but recommended)
-        failed_timestamps = [
-            ts for ts in timestamps_to_process if ts not in successful_timestamps
-        ]
-        if failed_timestamps:
-            update_rows_status(
-                bq_client=bq_client,
-                dataset=dataset,
-                table=table,
-                timestamps=failed_timestamps,
-                status="FAILED",  # Or set back to `NULL` for automatic retry
-            )
+            data_str = json.dumps(worker_payload)
+            data_bytes = data_str.encode("utf-8")
 
-        # If the function crashes after step 4 but before step 6, the
-        # data is locked in 'PROCESSING' and requires manual cleanup or
-        # a dedicated monitor service.
+            # Publish the message
+            # Note: We don't await the publish result here, fire-and-forget is usually fine,
+            # but you might want to handle publishing errors.
+            pubsub_publisher.publish(_WORKER_TOPIC_NAME, data_bytes)
+            dispatched_count += 1
 
         logging.info(
-            f"Total rows successfully processed and status updated: {len(successful_timestamps)}"
+            f"Successfully dispatched {dispatched_count} tasks to the worker queue."
         )
+
+        # Since the orchestration succeeded, ACK the original trigger message.
+        # The heavy lifting and final status updates are handled by the workers.
+
+    # The Orchestrator should exit cleanly (ACKing the original message)
+    # as soon as all worker messages are successfully published.
+
+    return
+
+
+# ==================================================
+# 2. Worker Entry Point
+# Triggered by: Worker Queue Topic
+# Executes: Agent run, updates single BQ row status
+# ==================================================
+@functions_framework.cloud_event
+def agent_worker_entrypoint(cloud_event: CloudEvent) -> None:
+    """Entry point for the worker, processes data for a single row."""
+    bq_client = _get_bigquery_client()
+
+    try:
+        # Decode worker message payload (This contains the single row data)
+        pubsub_message = cloud_event.data
+        data = base64.b64decode(pubsub_message["message"]["data"]).decode("utf-8")
+        worker_payload = json.loads(data)
+
+        # Ensure all required metadata is present
+        dataset = worker_payload["bq_dataset"]
+        table = worker_payload["bq_table"]
+        agent_resource_id = worker_payload["agent_resource_id"]
+        row_data = worker_payload["row_data"]
+
+        # Since the core agent logic is async, we run it here
+        asyncio.run(
+            _execute_agent_and_update_status(
+                trend_dict=row_data,
+                agent_id=agent_resource_id,
+                bq_client=bq_client,
+                dataset=dataset,
+                table=table,
+            )
+        )
+
+    except Exception as e:
+        logging.error(f"Fatal error in worker entrypoint: {e}")
+        raise  # NACK the worker message
