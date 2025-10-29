@@ -136,7 +136,6 @@ CREATIVE_WORKER_ENTRYPOINT=agent_worker_entrypoint
 CREATIVE_WORKER_TOPIC_NAME=creative-worker-queue-topic
 CREATIVE_WORKER_TRIGGER_NAME=creative-worker-eventarc-trigger
 
-
 # Agent Engine (leave blank)
 CREATIVE_AGENT_ENGINE_ID=''
 TRAWLER_AGENT_ENGINE_ID=''
@@ -440,7 +439,7 @@ Effect of setting `concurrency=1`
 
 </details>
 
-### 3 Create a PubSub topic for the agent worker
+### 3. Create a PubSub topic for the agent worker
 
 ```bash
 gcloud pubsub topics create $CREATIVE_WORKER_TOPIC_NAME
@@ -477,9 +476,9 @@ gcloud eventarc triggers create $CREATIVE_TRIGGER_NAME  \
 gcloud eventarc triggers list --location=$GOOGLE_CLOUD_LOCATION
 ```
 
-### 4. Trigger the Creative Agent Orchestrator function
+### 5. Trigger the Creative Agent Orchestrator function
 
-4.1 *Assign the topic to a variable:* 
+5.1 *Assign the topic to a variable:* 
 
 ```bash
 CREATIVE_PUB_TOPIC=$(gcloud eventarc triggers describe $CREATIVE_TRIGGER_NAME --location $GOOGLE_CLOUD_LOCATION --format='value(transport.pubsub.topic)')
@@ -488,7 +487,7 @@ echo $CREATIVE_PUB_TOPIC
 
 *Publish a message to the topic:*
 
-4.2 edit the `cloud_funktions/creative_crf/message.json` file to match your `.env` file:
+5.2 edit the `cloud_funktions/creative_crf/message.json` file to match your `.env` file:
 
 ```json
 {
@@ -498,14 +497,14 @@ echo $CREATIVE_PUB_TOPIC
 }
 ```
 
-4.3  run the following command:
+5.3  run the following command:
 
 ```bash
 gcloud pubsub topics publish $CREATIVE_PUB_TOPIC --message "$(cat message.json | jq -c)"
 ```
 
 
-# Deploying Agents to separate Cloud Run instances
+# Alternative deployment: Deploying Agents to separate Cloud Run instances
 
 > [Cloud Run](https://cloud.google.com/run) is a managed auto-scaling compute platform on Google Cloud that enables you to run your agent as a container-based application.
 
@@ -583,6 +582,8 @@ gcloud run services update $SERVICE_NAME \
 
 
 ## Folder Structure
+
+> TODO: update
 
 ```bash
 .
