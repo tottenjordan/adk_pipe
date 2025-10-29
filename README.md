@@ -107,6 +107,9 @@ touch .env
 
 see [.env.example](./.env.example)
 
+<details>
+  <summary>expand here</summary>
+
 ```bash
 GOOGLE_GENAI_USE_VERTEXAI=1
 GOOGLE_CLOUD_PROJECT=this-my-project-id
@@ -148,6 +151,8 @@ KEY_SELLING_POINT="The 85/15 S Humbucker pickups deliver a wide tonal range, fro
 TARGET_SEARCH_TREND="tswift engaged"
 
 ```
+
+</details>
 
 source `.env` variables
 
@@ -283,7 +288,7 @@ python deployment/deploy_agent.py --resource_id=890256972824182784 --delete
 
 **[1] Kickoff the `trend_trawler` agent workflow.**  
 
-> *This should insert a row into your BigQuery table for each recommended trend*
+> *This will insert a row into your BigQuery table for each recommended trend*
 
 ```bash
 export USER_ID='ima_user'
@@ -291,7 +296,6 @@ python deployment/test_deployment.py --agent=trend_trawler --user_id=$USER_ID
 
 Found agent with resource ID: ...
 Created session for user ID: ...
-
 ...
 
 INFO - Deleted session for user ID: ima_user
@@ -299,7 +303,7 @@ INFO - Deleted session for user ID: ima_user
 
 **[2] Next, invoke the deployed `creative_agent` workflow:**
 
-> *This should insert a row into your BigQuery table with the Cloud Storage location of all trend and creative assets*
+> *This will insert a row into your BigQuery table with the Cloud Storage location of all trend and creative assets*
 
 ```bash
 export USER_ID='ima_user'
@@ -307,7 +311,6 @@ python deployment/test_deployment.py --agent=creative_agent --user_id=$USER_ID
 
 Found agent with resource ID: ...
 Created session for user ID: ...
-
 ...
 
 INFO - Deleted session for user ID: ima_user
@@ -343,18 +346,6 @@ resource.labels.reasoning_engine_id="YOUR_AGENT_ENGINE_ID"
 2. Worker Deployment: Listens to the `$CREATIVE_WORKER_TOPIC_NAME` (the one that contains single-row payloads). It executes the `agent_worker_entrypoint` function.
 
 
-
-<details>
-  <summary> Optional: grant yourself admin access to ignore IAM best practices</summary>
-
-```bash
-gcloud projects add-iam-policy-binding $GOOGLE_CLOUD_PROJECT \
-    --member="user:YOUR_EMAIL_ADDRESS" \
-    --role="roles/pubsub.admin"
-```
-</details>
-
-
 ### 1. Grant service account required permissions
 
 
@@ -376,8 +367,18 @@ gcloud projects add-iam-policy-binding $GOOGLE_CLOUD_PROJECT \
   --role=roles/run.invoker
 ```
 
+<details>
+  <summary> Optional: grant yourself admin access to ignore IAM best practices</summary>
 
-### 2. Deploy an [event-driven function](https://cloud.google.com/run/docs/tutorials/pubsub-eventdriven#deploy-function) for a `Creative Agent Orchestrator` and a `Creative Agent Worker`
+```bash
+gcloud projects add-iam-policy-binding $GOOGLE_CLOUD_PROJECT \
+    --member="user:YOUR_EMAIL_ADDRESS" \
+    --role="roles/pubsub.admin"
+```
+</details>
+
+
+### 2. Deploy two [event-driven functions](https://cloud.google.com/run/docs/tutorials/pubsub-eventdriven#deploy-function)
 
 * `CRF_ENTRYPOINT`: the entry point to your function in your source code. This is the code Cloud Run executes when your function runs. The value of **this flag must be a function name or fully-qualified class name** that exists in your source code.
 * `BASE_IMAGE`: base image environment for your function e.g., `python313`. For more details about base images and their packages, see [Supported language runtimes and base images](https://cloud.google.com/run/docs/configuring/services/runtime-base-images#how_to_obtain_runtime_base_images)
@@ -403,7 +404,7 @@ gcloud run deploy $CREATIVE_CRF_NAME \
   # High concurrency since it's just dispatching
 ```
 
-*Note: optionally set `--min-instances 1` for your service to **always be on***
+*Note: optionally set `--min-instances=1` for your service to **always be on***
 
 #### **Creative Agent Worker**
 
@@ -420,7 +421,7 @@ gcloud run deploy $CREATIVE_WORKER_CRF_NAME \
   --cpu 4 \
   --no-allow-unauthenticated
   
-  # Crucial: 
+  # Note: 
   # concurrency=1 # ensures only one row is processed per instance
   # max-instances=100 # Allow high scale-out
   # timeout=900s # Longer timeout for the agent run
@@ -435,20 +436,22 @@ Effect of setting `concurrency=1`
 
 * If your function takes 30 seconds to run and update BQ, the subsequent message/redelivery will not execute until that 30 seconds is over. This gives the first execution time to complete the BQ update (PROCESSED), making the BQ query in the second execution return zero data.
 
-**Bottom line:** set concurrency to the max number of trends to process at a given time. If `concurrency=1` and two rows in your BigQuery table need processing, one row will successfully process and the other with fail.
-
 </details>
+
 
 ### 3. Create a PubSub topic for the agent worker
 
 ```bash
+gcloud pubsub topics create $CREATIVE_TOPIC_NAME
+
 gcloud pubsub topics create $CREATIVE_WORKER_TOPIC_NAME
 ```
 
 ### 4. Create two [Eventarc triggers](https://cloud.google.com/run/docs/tutorials/pubsub-eventdriven#pubsub-trigger)
 
+#### **Creative Agent Worker**
+
 ```bash
-# for the worker
 gcloud eventarc triggers create $CREATIVE_WORKER_TRIGGER_NAME  \
     --location=$GOOGLE_CLOUD_LOCATION \
     --destination-run-service=$CREATIVE_WORKER_CRF_NAME \
@@ -457,17 +460,18 @@ gcloud eventarc triggers create $CREATIVE_WORKER_TRIGGER_NAME  \
     --transport-topic=$CREATIVE_WORKER_TOPIC_NAME \
     --service-account=$SERVICE_ACCOUNT
 
-# for the orchestrator
+```
+
+#### **Creative Agent Orchestrator**
+
+```bash
 gcloud eventarc triggers create $CREATIVE_TRIGGER_NAME  \
     --location=$GOOGLE_CLOUD_LOCATION \
     --destination-run-service=$CREATIVE_CRF_NAME \
     --destination-run-region=$GOOGLE_CLOUD_LOCATION \
     --event-filters="type=google.cloud.pubsub.topic.v1.messagePublished" \
+    --transport-topic=$CREATIVE_TOPIC_NAME \
     --service-account=$SERVICE_ACCOUNT
-
-# you should see the output below. we'll save this in the next step.
->> Created Pub/Sub topic [projects/hybrid-vertex/topics/eventarc-us-central1-creative-eventarc-trigger-735].
->> Publish to this topic to receive events in Cloud Run service [creative-trawler-crf]
 ```
 
 #### confirm the trigger was successfully created:
@@ -504,7 +508,7 @@ gcloud pubsub topics publish $CREATIVE_PUB_TOPIC --message "$(cat message.json |
 ```
 
 
-# Alternative deployment: Deploying Agents to separate Cloud Run instances
+# Alternative: Deploying Agents to separate Cloud Run instances
 
 > [Cloud Run](https://cloud.google.com/run) is a managed auto-scaling compute platform on Google Cloud that enables you to run your agent as a container-based application.
 
@@ -583,17 +587,23 @@ gcloud run services update $SERVICE_NAME \
 
 ## Folder Structure
 
-> TODO: update
-
 ```bash
 .
+├── cloud_funktions
+│   ├── creative_crf
+│   │   ├── config.py
+│   │   ├── main.py
+│   │   └── requirements.txt
+│   └── trawler_crf
+│       ├── config.py
+│       ├── main.py
+│       └── requirements.txt
 ├── creative_agent
 │   ├── agent.py
 │   ├── callbacks.py
 │   ├── config.py
 │   ├── __init__.py
 │   ├── prompts.py
-│   ├── requirements.txt
 │   ├── sub_agents
 │   │   ├── campaign_researcher
 │   │   │   ├── agent.py
@@ -603,14 +613,18 @@ gcloud run services update $SERVICE_NAME \
 │   │       ├── agent.py
 │   │       └── __init__.py
 │   └── tools.py
+├── deployment
+│   ├── deploy_agent.py
+│   └── test_deployment.py
+├── deploy-to-agent-engine.ipynb
 ├── poetry.lock
 ├── pyproject.toml
 ├── README.md
+├── requirements.txt
 └── trend_trawler
     ├── agent.py
     ├── callbacks.py
     ├── config.py
     ├── __init__.py
-    ├── requirements.txt
     └── tools.py
 ```
