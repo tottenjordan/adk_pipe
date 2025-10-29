@@ -340,11 +340,15 @@ resource.labels.reasoning_engine_id="YOUR_AGENT_ENGINE_ID"
   * When function invoked, it will scan a BigQuery table and query the agent if new rows exist
 * the second function acts as a Worker that processes a single `agent query` task
 
+<details>
+  <summary>Why two deployments?</summary>
+
 *The need for two separate deployments stems from the fact that the Orchestrator and the Worker respond to two different event sources (Pub/Sub topics):*
 
 1. Orchestrator Deployment: Listens to the `$CREATIVE_TRIGGER_NAME` (the one that signals "start the job"). It executes the `crf_entrypoint` function.
 2. Worker Deployment: Listens to the `$CREATIVE_WORKER_TOPIC_NAME` (the one that contains single-row payloads). It executes the `agent_worker_entrypoint` function.
 
+</details>
 
 ### 1. Grant service account required permissions
 
