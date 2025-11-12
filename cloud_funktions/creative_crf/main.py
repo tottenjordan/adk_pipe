@@ -14,12 +14,12 @@ Why?
   appropriate handler function.
 
 Objectives:
-1. Agent Orchestrator: Checks the `trend_trawler` agent's 
-   recommendations in the `BQ_PROJECT_ID.BQ_DATASET_ID.BQ_TABLE_TARGETS` 
+1. Agent Orchestrator: Checks the `trend_trawler` agent's
+   recommendations in the `BQ_PROJECT_ID.BQ_DATASET_ID.BQ_TABLE_TARGETS`
    BQ table and dispatches a PubSub message for each new row in the table
-2. Agent Worker: Processes a single PubSub message dispatched by the 
-   Orchestrator, invoking the Agent Engine Runtime to generate 
-   ad copy and creatives for a single (trend + campaign) pair (i.e., a 
+2. Agent Worker: Processes a single PubSub message dispatched by the
+   Orchestrator, invoking the Agent Engine Runtime to generate
+   ad copy and creatives for a single (trend + campaign) pair (i.e., a
    single row in the BigQuery table)
 
 
@@ -59,9 +59,7 @@ warnings.filterwarnings("ignore")
 _USER_ID = "Ima_CloudRun_jr"
 _PROJECT_NUMBER = config.GOOGLE_CLOUD_PROJECT_NUMBER
 _LOCATION = config.GOOGLE_CLOUD_LOCATION
-_WORKER_TOPIC_NAME = (
-    f"projects/{_PROJECT_NUMBER}/topics/{config.CREATIVE_WORKER_TOPIC_NAME}"
-) # Configuration for the worker topic
+_WORKER_TOPIC_NAME = f"projects/{_PROJECT_NUMBER}/topics/{config.CREATIVE_WORKER_TOPIC_NAME}"  # Configuration for the worker topic
 
 
 # ==============================
@@ -230,8 +228,17 @@ async def _execute_agent_and_update_status(
     # Extract data
     timestamp = trend_dict["entry_timestamp"]
 
+    # 1. ATTEMPT TO ACQUIRE ATOMIC LOCK
+    if not acquire_processing_lock(bq_client, dataset, table, timestamp):
+        # Lock failed. Another worker got it, or the row is already PROCESSED/FAILED.
+        # RETURN here so the Pub/Sub message is ACKed and no more processing attempts are made.
+        return
+
+    # --- ONLY ONE WORKER PROCEEDS PAST THIS POINT ---
+
     try:
-        # 1. Run the Agent (The heavy async part)
+        # 2. Run the Agent (The heavy async part)
+        # The row status is now 'PROCESSING'
         user_id = f"{_USER_ID}_{trend_dict['index']}"
         await create_agent_run(
             agent_id=agent_id,
@@ -239,7 +246,8 @@ async def _execute_agent_and_update_status(
             user_id=user_id,
         )
 
-        # 2. Update status to PROCESSED
+        # 3. Update status to PROCESSED
+        # We MUST change the status away from PROCESSING now
         update_rows_status(
             bq_client=bq_client,
             dataset=dataset,
@@ -250,20 +258,65 @@ async def _execute_agent_and_update_status(
         logging.info(f"Successfully processed and marked row {timestamp} as PROCESSED.")
 
     except Exception as e:
+        # If the Agent Run fails, we update the status to FAILED and re-raise.
+        # This keeps the FAILED status visible and ensures the worker Pub/Sub message retries
+        # (if you want retries for FAILED status, otherwise just return here too).
         logging.error(f"Failed processing row {timestamp}: {e}")
-        # 3. Update status to FAILED
+
+        # 4. Update status to FAILED
         update_rows_status(
             bq_client=bq_client,
             dataset=dataset,
             table=table,
             timestamps=[timestamp],
             status="FAILED",
-            # Note: If this status update fails, the function will raise an error
-            # and the worker Pub/Sub message will retry, which is acceptable.
+            # We change it from PROCESSING to FAILED.
         )
-        # We raise here so the Worker Pub/Sub message retries,
-        # but the BQ row status indicates the specific failure.
-        raise  # Reraise to trigger NACK/retry for the Pub/Sub worker message
+        # Reraise to trigger NACK/retry for the worker message.
+        # The next attempt will hit the FAILED status and be handled by the lock failure
+        # (which returns/ACKs the message if you update the lock check logic, but for now,
+        # keeping the original NACK/retry behavior).
+        raise
+
+
+def acquire_processing_lock(bq_client, dataset, table, timestamp):
+    """
+    Atomically changes status from 'QUEUED' to 'PROCESSING' for a single row.
+    Returns True if the lock was acquired (1 row updated), False otherwise.
+    """
+    lock_query = f"""
+        UPDATE `{bq_client.project}.{dataset}.{table}`
+        SET processed_status = 'PROCESSING'
+        WHERE 
+            entry_timestamp = TIMESTAMP('{timestamp}')
+            AND processed_status = 'QUEUED'
+    """
+
+    # Execute the update
+    try:
+        query_job = bq_client.query(lock_query)
+        # Wait for the query to finish and get the rows affected count
+        result = query_job.result()
+        rows_updated = result.num_dml_affected_rows
+
+        if rows_updated == 1:
+            logging.info(
+                f"Successfully acquired lock (status set to PROCESSING) for row {timestamp}."
+            )
+            return True
+        else:
+            # If 0 rows were updated, it means another worker was faster
+            # and already changed the status (to PROCESSING, PROCESSED, or FAILED).
+            logging.info(
+                f"Lock failed for row {timestamp}. Status was not 'QUEUED' (rows updated: {rows_updated})."
+            )
+            return False
+
+    except Exception as e:
+        # Crucial: Log the error if the update fails (e.g., BQ error)
+        logging.error(f"Failed to acquire lock for row {timestamp}: {e}")
+        # Re-raise to ensure the Pub/Sub message retries in case of system error
+        raise
 
 
 # ==================================================

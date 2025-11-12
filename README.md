@@ -14,7 +14,7 @@
 </p>
 
 
-* WIP: Given a campaign and a Search trend, the creative agent conducts web research (for context) and generates candidate ad creatives
+* Given a campaign and trending topic, the `creative_agent` conducts web research and generates candidate ad copy and creatives
 
 </details>
 
@@ -22,7 +22,8 @@
 
 *trend-trawler* is a multi-agent system designed to run offline via schedule or event-based trigger.
 * agents developed with Google's ADK
-* agents deployed to either Cloud Run or Agent Engine
+* agents deployed to Agent Engine
+* agentic workflow invoked from Cloud Run Functions triggered by PubSub messages
 
 **helpful references**
 * [Overview of prompting strategies](https://cloud.google.com/vertex-ai/generative-ai/docs/learn/prompts/prompt-design-strategies#best-practices)
@@ -116,16 +117,16 @@ GOOGLE_CLOUD_PROJECT=this-my-project-id
 GOOGLE_CLOUD_LOCATION=us-central1
 GOOGLE_CLOUD_PROJECT_NUMBER=12345678910
 
+
 # Cloud Storage
 GOOGLE_CLOUD_STORAGE_BUCKET=this-my-bucket-name
 BUCKET=gs://this-my-bucket-name
 
-# BigQuery 
-BQ_PROJECT_ID='this-my-project-bq-id'
-BQ_DATASET_ID='trend_trawler'
-BQ_TABLE_TARGETS='target_trends_crf'
-BQ_TABLE_CREATIVES='trend_creatives'
-BQ_TABLE_ALL_TRENDS='all_trends'
+
+# PubSub
+CREATIVE_TOPIC_NAME=creative-eventarc-topic
+CREATIVE_WORKER_TOPIC_NAME=creative-worker-queue-topic
+
 
 # Cloud Run Functions
 BASE_IMAGE=python313
@@ -136,12 +137,21 @@ CREATIVE_TRIGGER_NAME=creative-eventarc-trigger
 
 CREATIVE_WORKER_CRF_NAME=creative-worker-crf
 CREATIVE_WORKER_ENTRYPOINT=agent_worker_entrypoint
-CREATIVE_WORKER_TOPIC_NAME=creative-worker-queue-topic
-CREATIVE_WORKER_TRIGGER_NAME=creative-worker-eventarc-trigger
+CREATIVE_WORKER_TRIGGER_NAME=creative-worker-starter-trigger
+
+
+# BigQuery 
+BQ_PROJECT_ID='this-my-project-bq-id'
+BQ_DATASET_ID='trend_trawler'
+BQ_TABLE_TARGETS='target_trends_crf'
+BQ_TABLE_CREATIVES='trend_creatives'
+BQ_TABLE_ALL_TRENDS='all_trends'
+
 
 # Agent Engine (leave blank)
-CREATIVE_AGENT_ENGINE_ID=''
-TRAWLER_AGENT_ENGINE_ID=''
+CREATIVE_AGENT_ENGINE_ID=""
+TRAWLER_AGENT_ENGINE_ID=""
+
 
 # campaign metadata
 BRAND="Paul Reed Smith (PRS)"
@@ -334,21 +344,29 @@ resource.labels.reasoning_engine_id="YOUR_AGENT_ENGINE_ID"
 ## Cloud Run Functions Fan-out Pattern with event-based triggers
 
 
-**goals**
-* Create two Cloud Functions to query an agent deployed to a Vertex AI Agent Engine runtime
-* The first function is an Orchestrator that reads the data and dispatches individual tasks
-  * When function invoked, it will scan a BigQuery table and query the agent if new rows exist
-* the second function acts as a Worker that processes a single `agent query` task
+**objectives**
+* create `Agent Orchestrator` to check BQ for trends recommended by the `trawler agent`; dispatch PubSub message for each recommendation
+* create `Agent Worker` to process each PubSub message dispatched by the `Orchestrator`, invoking the Agent Engine Runtime to generate ad copy and creatives for each `<trend, campaign>` pair (i.e., row in BQ table)
+* handle Pub/Sub's [at-least-once message delivery](https://cloud.google.com/pubsub/docs/subscription-overview#default_properties)
+* implement high concurrency orchestration to dispatch parallel workers
+* avoid duplicate executions for **long-running tasks** (i.e., the worker)
+
 
 <details>
   <summary>Why two deployments?</summary>
 
-*The need for two separate deployments stems from the fact that the Orchestrator and the Worker respond to two different event sources (Pub/Sub topics):*
+*The need for two separate deployments stems from the fact that the `Orchestrator` and the `Worker` respond to two different event sources (Pub/Sub topics):*
 
 1. Orchestrator Deployment: Listens to the `$CREATIVE_TRIGGER_NAME` (the one that signals "start the job"). It executes the `crf_entrypoint` function.
 2. Worker Deployment: Listens to the `$CREATIVE_WORKER_TOPIC_NAME` (the one that contains single-row payloads). It executes the `agent_worker_entrypoint` function.
 
+
+This is because when deploying a service triggered by a Pub/Sub topic, we must specify exactly one entry point function to be executed when a message arrives on that topic
+
+Therefore, you must **deploy the code twice**, with each deployment configured to listen to its unique trigger topic and execute the appropriate handler function.
+
 </details>
+
 
 ### 1. Grant service account required permissions
 
@@ -382,13 +400,26 @@ gcloud projects add-iam-policy-binding $GOOGLE_CLOUD_PROJECT \
 </details>
 
 
-### 2. Deploy two [event-driven functions](https://cloud.google.com/run/docs/tutorials/pubsub-eventdriven#deploy-function)
+### 2. Create a PubSub topic for the agent worker
 
-* `CRF_ENTRYPOINT`: the entry point to your function in your source code. This is the code Cloud Run executes when your function runs. The value of **this flag must be a function name or fully-qualified class name** that exists in your source code.
+
+```bash
+gcloud pubsub topics create $CREATIVE_TOPIC_NAME
+
+gcloud pubsub topics create $CREATIVE_WORKER_TOPIC_NAME
+```
+
+
+### 3. Create [event-driven functions](https://cloud.google.com/run/docs/tutorials/pubsub-eventdriven#deploy-function) and [eventarc triggers](https://cloud.google.com/run/docs/tutorials/pubsub-eventdriven#pubsub-trigger)
+
+
+* `CRF_ENTRYPOINT`: the entry point to the function in your source code. This is the code Cloud Run executes when your function runs. The value of **this flag must be a function name or fully-qualified class name** that exists in your source code.
 * `BASE_IMAGE`: base image environment for your function e.g., `python313`. For more details about base images and their packages, see [Supported language runtimes and base images](https://cloud.google.com/run/docs/configuring/services/runtime-base-images#how_to_obtain_runtime_base_images)
+* [optional] if `--min-instances=1`, service **always on***
 * see [gcloud reference doc](https://cloud.google.com/sdk/gcloud/reference/run/deploy)
 
-#### **Creative Agent Orchestrator**
+
+#### 3.1 **Creative Agent Orchestrator** cloud run function
 
 ```bash
 cd cloud_funktions/creative_crf
@@ -402,15 +433,27 @@ gcloud run deploy $CREATIVE_CRF_NAME \
   --cpu 4 \
   --min-instances 0 \
   --concurrency=100 \
-  --timeout=600
+  --timeout=600s \
+  --no-allow-unauthenticated \
+  --labels agent-workflow=trend-trawler,function=creative-orchestrator
 
-  #--no-allow-unauthenticated
   # High concurrency since it's just dispatching
 ```
 
-*Note: optionally set `--min-instances=1` for your service to **always be on***
+#### 3.2 **Creative Agent Orchestrator** eventarc trigger
 
-#### **Creative Agent Worker**
+```bash
+gcloud eventarc triggers create $CREATIVE_TRIGGER_NAME  \
+  --location=$GOOGLE_CLOUD_LOCATION \
+  --destination-run-service=$CREATIVE_CRF_NAME \
+  --destination-run-region=$GOOGLE_CLOUD_LOCATION \
+  --event-filters="type=google.cloud.pubsub.topic.v1.messagePublished" \
+  --transport-topic=$CREATIVE_TOPIC_NAME \
+  --service-account=$SERVICE_ACCOUNT
+```
+
+
+#### 3.3 **Creative Agent Worker** cloud run function
 
 ```bash
 gcloud run deploy $CREATIVE_WORKER_CRF_NAME \
@@ -420,10 +463,11 @@ gcloud run deploy $CREATIVE_WORKER_CRF_NAME \
   --region $GOOGLE_CLOUD_LOCATION \
   --max-instances 100 \
   --timeout 900s \
-  --concurrency 1 \
+  --concurrency=1 \
   --memory 8Gi \
   --cpu 4 \
-  --no-allow-unauthenticated
+  --no-allow-unauthenticated \
+  --labels agent-workflow=trend-trawler,function=creative-worker
   
   # Note: 
   # concurrency=1 # ensures only one row is processed per instance
@@ -442,80 +486,105 @@ Effect of setting `concurrency=1`
 
 </details>
 
-
-### 3. Create a PubSub topic for the agent worker
-
-```bash
-gcloud pubsub topics create $CREATIVE_TOPIC_NAME
-
-gcloud pubsub topics create $CREATIVE_WORKER_TOPIC_NAME
-```
-
-### 4. Create two [Eventarc triggers](https://cloud.google.com/run/docs/tutorials/pubsub-eventdriven#pubsub-trigger)
-
-#### **Creative Agent Worker**
+#### 3.4 **Creative Agent Worker** eventarc trigger
 
 ```bash
 gcloud eventarc triggers create $CREATIVE_WORKER_TRIGGER_NAME  \
-    --location=$GOOGLE_CLOUD_LOCATION \
-    --destination-run-service=$CREATIVE_WORKER_CRF_NAME \
-    --destination-run-region=$GOOGLE_CLOUD_LOCATION \
-    --event-filters="type=google.cloud.pubsub.topic.v1.messagePublished" \
-    --transport-topic=$CREATIVE_WORKER_TOPIC_NAME \
-    --service-account=$SERVICE_ACCOUNT
-
+  --location=$GOOGLE_CLOUD_LOCATION \
+  --destination-run-service=$CREATIVE_WORKER_CRF_NAME \
+  --destination-run-region=$GOOGLE_CLOUD_LOCATION \
+  --event-filters="type=google.cloud.pubsub.topic.v1.messagePublished" \
+  --transport-topic=$CREATIVE_WORKER_TOPIC_NAME \
+  --service-account=$SERVICE_ACCOUNT
 ```
 
-#### **Creative Agent Orchestrator**
 
-```bash
-gcloud eventarc triggers create $CREATIVE_TRIGGER_NAME  \
-    --location=$GOOGLE_CLOUD_LOCATION \
-    --destination-run-service=$CREATIVE_CRF_NAME \
-    --destination-run-region=$GOOGLE_CLOUD_LOCATION \
-    --event-filters="type=google.cloud.pubsub.topic.v1.messagePublished" \
-    --transport-topic=$CREATIVE_TOPIC_NAME \
-    --service-account=$SERVICE_ACCOUNT
-```
+### 4. Confirm triggers and topics
 
-#### confirm the trigger was successfully created:
+
+*4.1 confirm triggers successfully created:*
 
 ```bash
 gcloud eventarc triggers list --location=$GOOGLE_CLOUD_LOCATION
 ```
 
-### 5. Trigger the Creative Agent Orchestrator function
-
-5.1 *Assign the topic to a variable:* 
+*4.2 assign each trigger's PubSub topic to variable:*
 
 ```bash
 CREATIVE_PUB_TOPIC=$(gcloud eventarc triggers describe $CREATIVE_TRIGGER_NAME --location $GOOGLE_CLOUD_LOCATION --format='value(transport.pubsub.topic)')
 echo $CREATIVE_PUB_TOPIC
+
+CREATIVE_WORKER_PUB_TOPIC=$(gcloud eventarc triggers describe $CREATIVE_WORKER_TRIGGER_NAME --location $GOOGLE_CLOUD_LOCATION --format='value(transport.pubsub.topic)')
+echo $CREATIVE_WORKER_PUB_TOPIC
 ```
 
-*Publish a message to the topic:*
 
-5.2 edit the `cloud_funktions/creative_crf/message.json` file to match your `.env` file:
+### 5. Invoke the Creative Agent Orchestrator function
+
+*5.1 insert sample rows to test the `crf_entrypoint` function*
+
+<details>
+  <summary>run this SQL in the BigQuery console</summary>
+
+*edit these values as needed*
+
+```sql
+# =========== #
+# Insert rows
+# =========== #
+
+INSERT INTO 
+  `GOOGLE_CLOUD_PROJECT.trend_trawler.target_trends_crf` (uuid, 
+    target_trend,
+    refresh_date,
+    trawler_date,
+    entry_timestamp,
+    trawler_gcs,
+    brand,
+    target_audience,
+    target_product,
+    key_selling_point)
+VALUES 
+(
+    "test_inserts", --uuid
+    "olive garden", --target_trend "macho man randy savage"
+    PARSE_DATE('%m/%d/%Y', '11/11/2025'), --refresh_date
+    PARSE_DATE('%m/%d/%Y', '11/12/2025'), --trawler_date
+    CURRENT_TIMESTAMP(), --entry_timestamp
+    "https://console.cloud.google.com/storage/browser/trend-trawler-deploy-ae", --trawler_gcs
+    "Paul Reed Smith (PRS)", -- brand
+    "millennials who follow jam bands (e.g., Widespread Panic and Phish), respond positively to nostalgic messages", -- target_audience
+    "PRS SE CE24 Electric Guitar", -- target_product
+    "The 85/15 S Humbucker pickups deliver a wide tonal range, from thick humbucker tones to clear single-coil sounds, making the guitar suitable for various genres." -- key_selling_point
+);
+```
+</details>
+
+
+*5.2 edit [cloud_funktions/creative_crf/message.json](cloud_funktions/creative_crf/message.json) to match your `.env` file:*
 
 ```json
 {
     "bq_dataset": "trend_trawler",
     "bq_table": "target_trends_crf",
-    "agent_resource_id": "CREATIVE_AGENT_ENGINE_ID"
+    "agent_resource_id": <CREATIVE_AGENT_ENGINE_ID> # e.g., 4622783949466447488
 }
 ```
 
-5.3  run the following command:
+*5.3  Publish message to the Creative Orchestrator's topic:*
 
 ```bash
 gcloud pubsub topics publish $CREATIVE_PUB_TOPIC --message "$(cat message.json | jq -c)"
 ```
 
+* monitor logging: `Cloud Run Function >> Observability >> Logs`
+* inspect the `target_trends_crf` BQ table to ensure `processed_status` is updated properly
+* the last task of the Creative Agent job inserts rows in the `trend_creatives` BQ table; see Cloud Storage location for research and creative artifacts
 
-# Alternative: Deploying Agents to separate Cloud Run instances
+
+# Alternative Deployment: separate Cloud Run instances
 
 > [Cloud Run](https://cloud.google.com/run) is a managed auto-scaling compute platform on Google Cloud that enables you to run your agent as a container-based application.
-
 
 copy `.env` file to each agent directory..
 
@@ -524,19 +593,21 @@ cp .env trend_trawler/.env
 cp .env creative_agent/.env
 ```
 
-**1. Deploy `trend trawler agent` to Cloud Run...**
+
+**1. Deploy `trend trawler agent`...**
+
+* set the path to your agent code directory
+* avoid permission issues in Cloud Run
+* set name for the Cloud Run service
 
 ```bash
 export AGENT_DIR_NAME=trend_trawler
 
-# Set the path to your agent code directory
 export AGENT_PATH=$AGENT_DIR_NAME/
 
-# avoid permission issues in Cloud Run
 chmod -R 777 $AGENT_PATH
 
-# Set a name for your Cloud Run service (optional)
-export SERVICE_NAME="trend-trawler-prs-beastmode"
+export SERVICE_NAME="trend-trawler-cr"
 
 adk deploy cloud_run \
   --project=$GOOGLE_CLOUD_PROJECT \
@@ -548,23 +619,28 @@ adk deploy cloud_run \
   $AGENT_PATH
 ```
 
-*if prompted with the following, select `y`...*
+*when prompted with the following, select `y`...*
+> `Allow unauthenticated invocations to [your-service-name] (y/N)?.`
 
-`Allow unauthenticated invocations to [your-service-name] (y/N)?.`
+*update deployment:*
 
-**2. Deploy `creative agent` to Cloud Run...**
+```bash
+gcloud run services update $SERVICE_NAME \
+  --region=$GOOGLE_CLOUD_LOCATION \
+  --timeout=600
+```
+
+
+**2. Deploy `creative agent`...**
 
 ```bash
 export AGENT_DIR_NAME=creative_agent
 
-# Set the path to your agent code directory
 export AGENT_PATH=$AGENT_DIR_NAME/
 
-# avoid permission issues in Cloud Run
 chmod -R 777 $AGENT_PATH
 
-# Set a name for your Cloud Run service (optional)
-export SERVICE_NAME="trend-creative-prs-beastmode"
+export SERVICE_NAME="trend-creative-cr"
 
 adk deploy cloud_run \
   --project=$GOOGLE_CLOUD_PROJECT \
@@ -579,8 +655,7 @@ adk deploy cloud_run \
 *if prompted with the following, select `y`...*
 > `Allow unauthenticated invocations to [your-service-name] (y/N)?.`
 
-
-**3. Update Cloud run deployment**
+*update deployment:*
 
 ```bash
 gcloud run services update $SERVICE_NAME \
@@ -589,7 +664,7 @@ gcloud run services update $SERVICE_NAME \
 ```
 
 
-## Folder Structure
+## Repo Structure
 
 ```bash
 .
