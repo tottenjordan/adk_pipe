@@ -400,7 +400,7 @@ gcloud projects add-iam-policy-binding $GOOGLE_CLOUD_PROJECT \
 </details>
 
 
-### 2. Create a PubSub topic for the agent worker
+### 2. Create PubSub topics for the Creative Agent's orchestrator and worker
 
 
 ```bash
@@ -415,11 +415,11 @@ gcloud pubsub topics create $CREATIVE_WORKER_TOPIC_NAME
 
 * `CRF_ENTRYPOINT`: the entry point to the function in your source code. This is the code Cloud Run executes when your function runs. The value of **this flag must be a function name or fully-qualified class name** that exists in your source code.
 * `BASE_IMAGE`: base image environment for your function e.g., `python313`. For more details about base images and their packages, see [Supported language runtimes and base images](https://cloud.google.com/run/docs/configuring/services/runtime-base-images#how_to_obtain_runtime_base_images)
-* [optional] if `--min-instances=1`, service **always on***
+* [optional] if `--min-instances=1`, service **always on**
 * see [gcloud reference doc](https://cloud.google.com/sdk/gcloud/reference/run/deploy)
 
 
-#### 3.1 **Creative Agent Orchestrator** cloud run function
+**3.1 Creative Agent Orchestrator:** cloud run function
 
 ```bash
 cd cloud_funktions/creative_crf
@@ -440,7 +440,7 @@ gcloud run deploy $CREATIVE_CRF_NAME \
   # High concurrency since it's just dispatching
 ```
 
-#### 3.2 **Creative Agent Orchestrator** eventarc trigger
+**3.2 Creative Agent Orchestrator:** eventarc trigger
 
 ```bash
 gcloud eventarc triggers create $CREATIVE_TRIGGER_NAME  \
@@ -453,7 +453,7 @@ gcloud eventarc triggers create $CREATIVE_TRIGGER_NAME  \
 ```
 
 
-#### 3.3 **Creative Agent Worker** cloud run function
+**3.3 Creative Agent Worker:** cloud run function
 
 ```bash
 gcloud run deploy $CREATIVE_WORKER_CRF_NAME \
@@ -486,7 +486,7 @@ Effect of setting `concurrency=1`
 
 </details>
 
-#### 3.4 **Creative Agent Worker** eventarc trigger
+**3.4 Creative Agent Worker:** eventarc trigger
 
 ```bash
 gcloud eventarc triggers create $CREATIVE_WORKER_TRIGGER_NAME  \
@@ -567,7 +567,7 @@ VALUES
 {
     "bq_dataset": "trend_trawler",
     "bq_table": "target_trends_crf",
-    "agent_resource_id": <CREATIVE_AGENT_ENGINE_ID> # e.g., 4622783949466447488
+    "agent_resource_id": "<CREATIVE_AGENT_ENGINE_ID>" # e.g., 4622783949466447488
 }
 ```
 
