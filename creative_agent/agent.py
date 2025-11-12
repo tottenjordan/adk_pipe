@@ -31,7 +31,7 @@ parallel_planner_agent = ParallelAgent(
 merge_planners = Agent(
     name="merge_planners",
     model=config.worker_model,
-    # include_contents="none",
+    include_contents="none",
     description="Combine results from state keys 'campaign_web_search_insights' and 'gs_web_search_insights'",
     instruction="""You are an AI Assistant responsible for combining initial research findings into a comprehensive summary.
     Your primary task is to organize the following research summaries, clearly attributing findings to their source areas. 
@@ -100,11 +100,13 @@ class CampaignFeedback(BaseModel):
 combined_web_evaluator = Agent(
     model=config.critic_model,
     name="combined_web_evaluator",
+    include_contents="none", # new
     description="Critically evaluates research about the campaign guide and generates follow-up queries.",
     instruction="""
     You are a meticulous quality assurance analyst evaluating initial research findings. 
     
-    Your task is to review the research provided in the <CONTEXT> block and determine the set of web queries that will find the best information to gather next. To complete this task, follow the steps in the <INSTRUCTIONS> block.
+    Your task is to review the research provided in the <CONTEXT> block and determine the set of web queries that will find the best information to gather next. 
+    To complete this task, follow the steps in the <INSTRUCTIONS> block.
 
     
     <INSTRUCTIONS>  
@@ -119,8 +121,8 @@ combined_web_evaluator = Agent(
     Follow the logic listed here to determine your final set of web queries.
     
     In terms of research completeness:
-    - If you find significant gaps in depth or coverage, write a detailed comment about what's missing, and generate 5-7 specific follow-up queries to fill those gaps.
-    - If you don't find any significant gaps, determine any possible relationship or overlap the <target_audience> has with the <target_product> and <target_search_trends>. Write a detailed comment explaining this to guide research further. Provide 5-7 related queries.
+        - If you find significant gaps in depth or coverage, write a detailed comment about what's missing, and generate 5-7 specific follow-up queries to fill those gaps.
+        - If you don't find any significant gaps, determine any possible relationship or overlap the <target_audience> has with the <target_product> and <target_search_trends>. Write a detailed comment explaining this to guide further research. Provide 5-7 related queries.
 
     In terms of relevance between the <target_audience> and the <target_product> and <target_search_trends>:
         - If there is a clear relationship, generate a set of web queries to better understand this, especially any sentiment the <target_audience> may have towards the <target_product> and <target_search_trends>.
@@ -159,6 +161,7 @@ combined_web_evaluator = Agent(
 enhanced_combined_searcher = Agent(
     model=config.worker_model,
     name="enhanced_combined_searcher",
+    include_contents="none", # new
     description="Executes follow-up searches and integrates new findings.",
     planner=BuiltInPlanner(
         thinking_config=types.ThinkingConfig(include_thoughts=False)
@@ -280,6 +283,7 @@ combined_research_pipeline = SequentialAgent(
 ad_copy_drafter = Agent(
     model=config.worker_model,
     name="ad_copy_drafter",
+    include_contents="none", # new
     description="Generate 10 initial ad copy ideas based on campaign guidelines and trends",
     planner=BuiltInPlanner(
         thinking_config=types.ThinkingConfig(include_thoughts=False)
@@ -290,12 +294,14 @@ ad_copy_drafter = Agent(
 
     <INSTRUCTIONS>
     To complete the task, you need to follow these steps:
+    
     1. Using insights related to the campaign and Search trend, generate 10 diverse ad copy ideas that:
         - Creatively market the target product: {target_product}
         - Incorporate the following key selling point(s): {key_selling_points}
         - Vary in tone, style, and approach
         - Are suitable for Instagram/TikTok platforms
         - Reference the trending Search term: {target_search_trends}.
+    
     2. **Each ad copy should include:**
         - Headline (attention-grabbing)
         - Body text (concise and compelling)
@@ -332,6 +338,7 @@ ad_copy_drafter = Agent(
 ad_copy_critic = Agent(
     model=config.critic_model,
     name="ad_copy_critic",
+    # include_contents="none", # new
     description="Critique and narrow down ad copies based on product, audience, and trends",
     planner=BuiltInPlanner(
         thinking_config=types.ThinkingConfig(include_thoughts=False)
@@ -390,6 +397,7 @@ ad_creative_pipeline = SequentialAgent(
 visual_concept_drafter = Agent(
     model=config.worker_model,
     name="visual_concept_drafter",
+    include_contents="none", # new
     description="Generate initial visual concepts for selected ad copies",
     planner=BuiltInPlanner(
         thinking_config=types.ThinkingConfig(include_thoughts=False)
@@ -441,6 +449,7 @@ visual_concept_drafter = Agent(
 visual_concept_critic = Agent(
     model=config.critic_model,
     name="visual_concept_critic",
+    # include_contents="none", # new
     description="Critique and narrow down visual concepts",
     planner=BuiltInPlanner(
         thinking_config=types.ThinkingConfig(include_thoughts=False)
@@ -467,6 +476,7 @@ visual_concept_critic = Agent(
         - Descriptions of scenes, characters, tone, emotion are all extremely verbose (100+ words) and leverage ideas from the prompting best practices
     </INSTRUCTIONS>
 
+    
     <CONSTRAINTS>
     **Strict requirement(s):**
     1. Ensure each visual concept markets the target product: {target_product}
@@ -497,10 +507,11 @@ visual_concept_critic = Agent(
 visual_concept_finalizer = Agent(
     model=config.worker_model,
     name="visual_concept_finalizer",
+    include_contents="none", # new
     description="Finalize visual concepts to proceed with.",
     instruction="""You are a senior creative director finalizing visual concepts for ad creatives.
 
-    Your task is to select the 5-6 best visual concepts for ad media generation.
+    Your task is to select the 5-6 best visual concepts in the <CONTEXT> block for ad media generation.
 
     <CONTEXT>
         <visual_concept_critique>
@@ -552,6 +563,7 @@ visual_generation_pipeline = SequentialAgent(
 visual_generator = Agent(
     model=config.critic_model,
     name="visual_generator",
+    include_contents="none", # new
     description="Generate final visuals using image generation tools",
     instruction="""You are a visual content producer generating image creatives.
     Your job is to invoke the `generate_image` tool.
@@ -576,7 +588,8 @@ root_agent = Agent(
     description="Help with ad generation; brainstorm and refine ad copy and visual concept ideas with actor-critic workflows; generate final ad creatives.",
     instruction="""**Role:** You are the orchestrator for a comprehensive ad content generation workflow.
 
-    **Objective:** Your goal is to generate a complete set of ad creatives including ad copy and images. To achieve this, use the <AVAILABLE_TOOLS/> available to complete the <INSTRUCTIONS/> below.
+    **Objective:** Your goal is to generate a complete set of ad creatives including ad copy and images. 
+    To achieve this, use the <AVAILABLE_TOOLS/> available to complete the <INSTRUCTIONS/> below.
     
     <AVAILABLE_TOOLS>
     1. Use the `memorize` tool to store trends and campaign metadata in the session state.
@@ -614,14 +627,10 @@ root_agent = Agent(
     2. Once all research tasks are complete, use the `save_draft_report_artifact` tool to save the research as a markdown file in Cloud Storage.
     3. Invoke the `ad_creative_pipeline` tool to generate a set of candidate ad copies.
     4. Once the previous step completes, use the `save_select_ad_copy` tool to save each finalized ad copy idea to the `final_select_ad_copies` state key.
-        -   To make sure everything is stored correctly, instead of calling `save_select_ad_copy` all at once, chain the calls such that you only call another `save_select_ad_copy` after the last call has responded.
-        -   Once these complete, proceed to the next step.
     5. Then, call the `visual_generation_pipeline` tool to generate visual concepts.
     6. Once the previous step completes, use the `save_select_visual_concept` tool to save each finalized visual concept to the `final_visual_concepts` state key.
-        -   To make sure everything is stored correctly, instead of calling `save_select_visual_concept` all at once, chain the calls such that you only call another `save_select_visual_concept` after the last call has responded.
-        -   Once these complete, proceed to the next step.
     7. Next, call the `visual_generator` tool to generate ad creatives.
-    8. Next, call the `save_creative_gallery_html` tool to create an HTML portfolio and save it to Cloud Storage.
+    8. Then, call the `save_creative_gallery_html` tool to create an HTML portfolio and save it to Cloud Storage.
     9. Finally as the last step, call the `write_trends_to_bq` tool to save trend information to BigQuery.
     10. Once the previous steps are complete, perform the following action:
 
@@ -654,3 +663,27 @@ root_agent = Agent(
     before_agent_callback=callbacks.load_session_state,
     before_model_callback=callbacks.rate_limit_callback,
 )
+
+
+# ## context compression
+# from google.adk.apps.app import App
+# from google.adk.apps import App
+# from google.adk.apps.app import EventsCompactionConfig
+# from google.adk.models import Gemini
+# from google.adk.apps.llm_event_summarizer import LlmEventSummarizer
+
+
+# # Define a compactor using a specific AI model:
+# summarization_llm = Gemini(model="gemini-2.5-flash")
+# my_compactor = LlmEventSummarizer(llm=summarization_llm)
+
+# app = App(
+#     name="creative_agent_app",
+#     root_agent=root_agent,
+#     events_compaction_config=EventsCompactionConfig(
+#         summarizer=my_compactor,
+#         compaction_interval=3, overlap_size=1
+#     ),
+#     # Optionally include App-level features:
+#     # plugins, context_cache_config, resumability_config
+# )

@@ -24,9 +24,9 @@ gs_web_planner = Agent(
     instruction="""You are a research strategist. 
     Your job is to create high-level queries that will help marketers better understand the cultural significance of Google Search trends.
 
-    Review the search trend and target audience provided in the <CONTEXT> block, then proceed to the <INSTRUCTIONS> to complete your task.
+    Review the search trend and target audience provided in the <CONTEXT> block, then complete all steps in the <INSTRUCTIONS> block.
 
-    ---
+
     <CONTEXT>
         <target_search_trends>
         {target_search_trends}
@@ -37,7 +37,7 @@ gs_web_planner = Agent(
         </target_audience>
     </CONTEXT>
 
-    ---
+
     <INSTRUCTIONS>
     1. Generate 4-5 queries that will provide more context for the target search trend: <target_search_trends> 
     2. Your questions should help answer questions like:

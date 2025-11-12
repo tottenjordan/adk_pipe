@@ -27,10 +27,10 @@ campaign_web_planner = Agent(
     <INSTRUCTIONS>
     To complete the task, you need to follow these steps:
     1. Review the campaign metadata provided in the <CONTEXT> block
-    2. Follow the tips provided in the <KEY_GUIDANCE> block to generate a list of 4-6 web queries that will help you better understand each concept from the campaign metadata.
+    2. Follow the tips provided in the <KEY_GUIDANCE> block to generate a list of 4-6 web queries that will help you better understand each concept from the campaign metadata in <CONTEXT>.
     </INSTRUCTIONS>
 
-    ---
+    
     <CONTEXT>
         <target_audience>
         {target_audience}
@@ -45,7 +45,7 @@ campaign_web_planner = Agent(
         </key_selling_points>
     </CONTEXT>
     
-    ---
+
     <KEY_GUIDANCE>
     The queries should help answer questions like:
     *  What's relevant, distinctive, or helpful about the {target_product}?
