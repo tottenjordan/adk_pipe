@@ -11,8 +11,8 @@ package-mode = true
 requires-python = ">=3.13, <4.0"
 dependencies = [
     "google-genai (>=1.19.0,<2.0.0)",
-    "google-cloud-aiplatform[adk,agent-engines] (==1.121.0)",
-    "google-adk (==1.16.0)",
+    "google-cloud-aiplatform[agent-engines] (>=1.125.0,<2.0.0)",
+    "google-adk (==1.18.0)",
     "pandas (>=2.3.2,<3.0.0)",
     "google-cloud-bigquery (>=3.36.0,<4.0.0)",
     "db-dtypes (>=1.4.3,<2.0.0)",
