@@ -68,7 +68,9 @@ def memorize(key: str, value: str, tool_context: ToolContext):
     return {"status": f'Stored "{key}": "{value}"'}
 
 
-def save_select_ad_copy(select_ad_copy_dict: dict, tool_context: ToolContext) -> dict:
+async def save_select_ad_copy(
+    select_ad_copy_dict: dict, tool_context: ToolContext
+) -> dict:
     """
     Tool to save `select_ad_copy_dict` to the 'final_select_ad_copies' state key.
     Use this tool after creating ad copies with the `ad_creative_pipeline` tool.
@@ -87,17 +89,25 @@ def save_select_ad_copy(select_ad_copy_dict: dict, tool_context: ToolContext) ->
     Returns:
         A status message.
     """
-    # name (str): An intuitive name of the ad copy concept.
 
+    # ADK handles the state update transactionally even in an async tool.
+    # The framework captures the delta and persists it when the tool execution completes.
+
+    # 1. Get the existing list, defaulting to a new structure if it doesn't exist
     existing_ad_copies = tool_context.state.get(
         "final_select_ad_copies", {"final_select_ad_copies": []}
     )
+
+    # 2. Append the new ad copy
     existing_ad_copies["final_select_ad_copies"].append(select_ad_copy_dict)
+
+    # 3. Update the session state key
     tool_context.state["final_select_ad_copies"] = existing_ad_copies
+
     return {"status": "ok"}
 
 
-def save_select_visual_concept(
+async def save_select_visual_concept(
     select_vis_concept_dict: dict, tool_context: ToolContext
 ) -> dict:
     """
@@ -121,11 +131,14 @@ def save_select_visual_concept(
     Returns:
         dict: the status of this functions overall outcome.
     """
+    # The logic remains synchronous and non-blocking relative to the state access.
+    # The ADK handles the state transaction asynchronously.
     existing_vis_concepts = tool_context.state.get(
         "final_select_vis_concepts", {"final_select_vis_concepts": []}
     )
     existing_vis_concepts["final_select_vis_concepts"].append(select_vis_concept_dict)
     tool_context.state["final_select_vis_concepts"] = existing_vis_concepts
+
     return {"status": "ok"}
 
 
@@ -1121,6 +1134,7 @@ def write_trends_to_bq(tool_context: ToolContext) -> dict:
             "status": "error",
             "error_message": f"Error inserting row to bq: {e}",
         }
+
 
 # =============================
 # utils
