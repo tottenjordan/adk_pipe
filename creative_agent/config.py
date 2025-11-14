@@ -40,7 +40,7 @@ class ResearchConfiguration:
     image_gen_model: str = (
         "imagen-4.0-ultra-generate-preview-06-06"  # "imagen-4.0-fast-generate-preview-06-06"
     )
-    video_gen_model: str = "veo-3.0-generate-001"
+    video_gen_model: str = "veo-3.0-generate-001" # "veo-3.1-generate-preview"
     max_results_yt_trends: int = 45
 
     # Adjust these values to limit the rate at which the agent queries the LLM API.

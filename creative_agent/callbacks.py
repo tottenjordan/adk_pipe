@@ -57,8 +57,8 @@ def load_session_state(callback_context: CallbackContext):
         "target_search_trends": "",
         # "img_artifact_keys": {"img_artifact_keys": []},
         # "vid_artifact_keys": {"vid_artifact_keys": []},
-        "final_select_ad_copies": {"final_select_ad_copies": []},
-        "final_select_vis_concepts": {"final_select_vis_concepts": []},
+        # "final_select_ad_copies": {"final_select_ad_copies": []},
+        # "final_select_vis_concepts": {"final_select_vis_concepts": []},
     }
     _set_initial_states(data["state"], callback_context.state)
 
