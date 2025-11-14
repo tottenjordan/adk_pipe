@@ -1,5 +1,7 @@
 import logging
 import warnings
+from pydantic import BaseModel, Field
+
 from google.genai import types
 from google.adk.tools import google_search
 from google.adk.planners import BuiltInPlanner
@@ -16,16 +18,40 @@ logging.basicConfig(
 warnings.filterwarnings("ignore")
 
 
+# --- SCHEMA DEFINITIONS ---
+# TODO: consolidate with schema class used in agent.py
+
+class TrendSearchQuery(BaseModel):
+    """Model representing a specific search query for web search."""
+
+    search_query: str = Field(
+        description="A highly specific and targeted query for web search."
+    )
+
+
+class TrendQueryList(BaseModel):
+    """Model for providing evaluation feedback on research quality."""
+
+    queries: list[TrendSearchQuery] | None = Field(
+        default=None,
+        description="A list of specific, targeted web queries to provide initial insights for marketers.",
+    )
+
+
+# --- AGENT DEFINITIONS ---
 gs_web_planner = Agent(
     model=config.lite_planner_model,
     name="gs_web_planner",
     include_contents="none",
     description="Generates initial queries to understand why the 'target_search_trends' are trending.",
-    instruction="""You are a research strategist. 
-    Your job is to create high-level queries that will help marketers better understand the cultural significance of Google Search trends.
+    instruction="""Role: You are an expert cultural strategist and trend analyst. Your job is to create a focused list of 4-5 high-signal web search queries that will help marketers understand the cultural significance and context of a trending Google Search topic.
 
-    Review the search trend and target audience provided in the <CONTEXT> block, then complete all steps in the <INSTRUCTIONS> block.
-
+    <INSTRUCTIONS>
+    To complete the task, you must follow these steps precisely:
+    1.  Review the trending topic and target audience provided in the <CONTEXT> block.
+    2.  Follow the guidelines in the <KEY_GUIDANCE> block to generate a list of 4-5 highly effective search queries.
+    3.  **CRITICAL FOR COMPLETION:** Ensure your output is a single, valid JSON object containing the generated queries.
+    </INSTRUCTIONS>
 
     <CONTEXT>
         <target_search_trends>
@@ -37,20 +63,21 @@ gs_web_planner = Agent(
         </target_audience>
     </CONTEXT>
 
+    <KEY_GUIDANCE>
+    The queries must be high-signal, meaning they are formulated to yield actionable insights for campaign development.
 
-    <INSTRUCTIONS>
-    1. Generate 4-5 queries that will provide more context for the target search trend: <target_search_trends> 
-    2. Your questions should help answer questions like:
-        - Why are these search terms trending? Who is involved?
-        - Describe any key entities involved (i.e., people, places, organizations, named events, etc.), and the relationships between these key entities, especially in the context of the trending topic, or if possible the <target_audience>.
-        - Explain the cultural significance of the trend.
-        - Are there any related themes that would resonate with the <target_audience>?
-    </INSTRUCTIONS>
+    *   **Balance:** Your queries must cover **three primary areas**:
+        1.  **Trend Context:** Why is the trend happening now? (e.g., recent event, new product, cultural shift)
+        2.  **Trend Entities & Narrative:** Who are the key players (people, brands, movements) involved, and what is the underlying narrative or conflict?
+        3.  **Audience Connection:** How does the trend intersect with the interests, language, or values of the **<target_audience>**?
+    *   **Format:** Queries should be optimized for a modern web search engine (i.e., not long, conversational sentences). Use specific keywords and quotation marks for precision.
+    </KEY_GUIDANCE>
 
-    <RECAP>
-    **CRITICAL RULE:** Your output should just include a numbered list of queries. Nothing else.
-    </RECAP>
+    ---
+    ### Output Format
+    **STRICT RULE: Your entire output MUST be a valid JSON object matching the 'TrendQueryList' schema. Do not include any introductory text, reasoning, or markdown outside the JSON block.**
     """,
+    output_schema=TrendQueryList,
     output_key="initial_gs_queries",
 )
 
@@ -62,16 +89,49 @@ gs_web_searcher = Agent(
     planner=BuiltInPlanner(
         thinking_config=types.ThinkingConfig(include_thoughts=False)
     ),
-    instruction="""
-    You are a diligent and exhaustive researcher. 
-    Your task is to conduct initial web research for the trending Search terms.
-    Use the 'google_search' tool to execute all queries listed in 'initial_gs_queries'. 
-    Synthesize the results into a detailed summary.
+    instruction="""Role: You are a cultural trend analyst and synthesis expert. Your primary goal is to transform raw web search data about a trending topic into an urgent, actionable, and culturally relevant summary for marketers.
+
+    
+    <INSTRUCTIONS>
+    1. **Access Queries:** The web search queries have been provided in the 'initial_gs_queries' state key.
+    2. **Execute Research:** Use the `google_search` tool to exhaustively execute **all** retrieved queries.
+    3. **Synthesize and Structure:** Synthesize the search results and present them in a detailed, structured, and objective trend report following the <REPORT_STRUCTURE> block.
+    </INSTRUCTIONS>
+
+    
+    <CONTEXT_GUIDANCE>
+    The research synthesis must focus on providing marketers with timely, strategic insight. Specifically, prioritize:
+    -   **Immediacy and Trajectory:** What is the current status of the trend? Is it peaking, or is it gaining momentum?
+    -   **Cultural Narrative:** What is the central story, sentiment (positive/negative), or public conversation surrounding the trend? What are the key quotes or memes?
+    -   **Audience Resonance:** How does the trend connect to the target audience's values, language, or social platforms? What is the *potential* for this trend to intersect with the campaign?
+    </CONTEXT_GUIDANCE>
+
+    
+    <REPORT_STRUCTURE>
+    Your output must be a single, detailed, easy-to-read report sectioned with bold headings. The report should contain the following specific sections:
+
+    1.  **Trend Overview & Trajectory:** (Briefly define the trend, its current status, and an estimate of its immediate lifespan or staying power.)
+    2.  **Key Entities and Cultural Narrative:** (Identify the core people/brands/events driving the trend and summarize the public sentiment or underlying cultural story.)
+    3.  **Marketing Opportunity Analysis:** (**CRITICAL:** Identify 2-3 specific, actionable ways the trend could be leveraged to create culturally relevant messaging for the campaign, specifically considering the target audience.)
+    4.  **Risk Assessment:** (Identify any potential pitfalls, controversies, or negative associations linked to the trend that marketers must be aware of.)
+    </REPORT_STRUCTURE>
+
+    
+    ---
+    ### Final Instruction
+    **CRITICAL RULE: Do not include any of the raw search query results, links, or tool output. The output must be the final, synthesized, and structured report.**
+
     """,
     tools=[google_search],
     output_key="gs_web_search_insights",
     after_agent_callback=callbacks.collect_research_sources_callback,
 )
+
+
+    # You are a diligent and exhaustive researcher. 
+    # Your task is to conduct initial web research for the trending Search terms.
+    # Use the 'google_search' tool to execute all queries listed in 'initial_gs_queries'. 
+    # Synthesize the results into a detailed summary.
 
 
 gs_sequential_planner = SequentialAgent(

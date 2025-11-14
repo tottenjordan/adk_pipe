@@ -68,78 +68,78 @@ def memorize(key: str, value: str, tool_context: ToolContext):
     return {"status": f'Stored "{key}": "{value}"'}
 
 
-async def save_select_ad_copy(
-    select_ad_copy_dict: dict, tool_context: ToolContext
-) -> dict:
-    """
-    Tool to save `select_ad_copy_dict` to the 'final_select_ad_copies' state key.
-    Use this tool after creating ad copies with the `ad_creative_pipeline` tool.
+# async def save_select_ad_copy(
+#     select_ad_copy_dict: dict, tool_context: ToolContext
+# ) -> dict:
+#     """
+#     Tool to save `select_ad_copy_dict` to the 'final_select_ad_copies' state key.
+#     Use this tool after creating ad copies with the `ad_creative_pipeline` tool.
 
-    Args:
-        select_ad_copy_dict (dict): A dict representing an ad copy finalized for ad generation. Use the `tool_context` to extract the following schema:
-            headline (str): A concise, attention-grabbing phrase.
-            body_text (str): The main body of the ad copy. Should be compelling.
-            caption (str): The candidate social media caption proposed for the ad copy.
-            call_to_action (str): A catchy, action-oriented phrase intended for the target audience.
-            trend_reference (str): How it relates to the trending topic: {target_search_trends}
-            audience_appeal (str): A brief rationale for target audience appeal
-            performance_rationale (str): A brief rationale explaining why this ad copy will perform well.
-        tool_context: The tool context.
+#     Args:
+#         select_ad_copy_dict (dict): A dict representing an ad copy finalized for ad generation. Use the `tool_context` to extract the following schema:
+#             headline (str): A concise, attention-grabbing phrase.
+#             body_text (str): The main body of the ad copy. Should be compelling.
+#             caption (str): The candidate social media caption proposed for the ad copy.
+#             call_to_action (str): A catchy, action-oriented phrase intended for the target audience.
+#             trend_reference (str): How it relates to the trending topic: {target_search_trends}
+#             audience_appeal (str): A brief rationale for target audience appeal
+#             performance_rationale (str): A brief rationale explaining why this ad copy will perform well.
+#         tool_context: The tool context.
 
-    Returns:
-        A status message.
-    """
+#     Returns:
+#         A status message.
+#     """
 
-    # ADK handles the state update transactionally even in an async tool.
-    # The framework captures the delta and persists it when the tool execution completes.
+#     # ADK handles the state update transactionally even in an async tool.
+#     # The framework captures the delta and persists it when the tool execution completes.
 
-    # 1. Get the existing list, defaulting to a new structure if it doesn't exist
-    existing_ad_copies = tool_context.state.get(
-        "final_select_ad_copies", {"final_select_ad_copies": []}
-    )
+#     # 1. Get the existing list, defaulting to a new structure if it doesn't exist
+#     existing_ad_copies = tool_context.state.get(
+#         "final_select_ad_copies", {"final_select_ad_copies": []}
+#     )
 
-    # 2. Append the new ad copy
-    existing_ad_copies["final_select_ad_copies"].append(select_ad_copy_dict)
+#     # 2. Append the new ad copy
+#     existing_ad_copies["final_select_ad_copies"].append(select_ad_copy_dict)
 
-    # 3. Update the session state key
-    tool_context.state["final_select_ad_copies"] = existing_ad_copies
+#     # 3. Update the session state key
+#     tool_context.state["final_select_ad_copies"] = existing_ad_copies
 
-    return {"status": "ok"}
+#     return {"status": "ok"}
 
 
-async def save_select_visual_concept(
-    select_vis_concept_dict: dict, tool_context: ToolContext
-) -> dict:
-    """
-    Tool to save `select_vis_concept_dict` to the 'final_select_vis_concepts' state key.
-    Use this tool after creating visual concepts with the `visual_generation_pipeline` tool.
+# async def save_select_visual_concept(
+#     select_vis_concept_dict: dict, tool_context: ToolContext
+# ) -> dict:
+#     """
+#     Tool to save `select_vis_concept_dict` to the 'final_select_vis_concepts' state key.
+#     Use this tool after creating visual concepts with the `visual_generation_pipeline` tool.
 
-    Args:
-        select_vis_concept_dict (dict): A dict representing a visual concept for ad generation. Use the `tool_context` to extract the following schema:
-            name (str): An intuitive name of the visual concept.
-            trend (str): The trend(s) referenced by this creative.
-            headline (str): The attention-grabbing headline.
-            caption (str): The candidate social media caption proposed for the visual concept.
-            creative_explain (str): A brief explanation of the visual concept.
-            trend_reference (str): How the visual concept relates to the `target_search_trends`
-            audience_appeal (str): A brief explanation for the target audience appeal.
-            markets_product (str): A brief explanation of how this markets the target product.
-            rationale_perf (str): A brief rationale explaining why this visual concept will perform well.
-            prompt (str): The suggested prompt to generate this creative.
-        tool_context: The tool context.
+#     Args:
+#         select_vis_concept_dict (dict): A dict representing a visual concept for ad generation. Use the `tool_context` to extract the following schema:
+#             name (str): An intuitive name of the visual concept.
+#             trend (str): The trend(s) referenced by this creative.
+#             headline (str): The attention-grabbing headline.
+#             caption (str): The candidate social media caption proposed for the visual concept.
+#             creative_explain (str): A brief explanation of the visual concept.
+#             trend_reference (str): How the visual concept relates to the `target_search_trends`
+#             audience_appeal (str): A brief explanation for the target audience appeal.
+#             markets_product (str): A brief explanation of how this markets the target product.
+#             rationale_perf (str): A brief rationale explaining why this visual concept will perform well.
+#             prompt (str): The suggested prompt to generate this creative.
+#         tool_context: The tool context.
 
-    Returns:
-        dict: the status of this functions overall outcome.
-    """
-    # The logic remains synchronous and non-blocking relative to the state access.
-    # The ADK handles the state transaction asynchronously.
-    existing_vis_concepts = tool_context.state.get(
-        "final_select_vis_concepts", {"final_select_vis_concepts": []}
-    )
-    existing_vis_concepts["final_select_vis_concepts"].append(select_vis_concept_dict)
-    tool_context.state["final_select_vis_concepts"] = existing_vis_concepts
+#     Returns:
+#         dict: the status of this functions overall outcome.
+#     """
+#     # The logic remains synchronous and non-blocking relative to the state access.
+#     # The ADK handles the state transaction asynchronously.
+#     existing_vis_concepts = tool_context.state.get(
+#         "final_select_vis_concepts", {"final_select_vis_concepts": []}
+#     )
+#     existing_vis_concepts["final_select_vis_concepts"].append(select_vis_concept_dict)
+#     tool_context.state["final_select_vis_concepts"] = existing_vis_concepts
 
-    return {"status": "ok"}
+#     return {"status": "ok"}
 
 
 async def generate_image(
@@ -158,8 +158,8 @@ async def generate_image(
     gcs_subdir = tool_context.state["agent_output_dir"]
 
     # get artifact details
-    final_visual_concepts_dict = tool_context.state.get("final_select_vis_concepts")
-    final_visual_concepts_list = final_visual_concepts_dict["final_select_vis_concepts"]
+    final_visual_concepts_dict = tool_context.state.get("final_visual_concepts")
+    final_visual_concepts_list = final_visual_concepts_dict["visual_concepts"]
 
     artifact_keys_list = []
     for entry in final_visual_concepts_list:
@@ -168,7 +168,7 @@ async def generate_image(
 
             response = client.models.generate_images(
                 model=config.image_gen_model,
-                prompt=entry["prompt"],
+                prompt=entry["image_generation_prompt"],
                 config=types.GenerateImagesConfig(
                     number_of_images=1,
                     enhance_prompt=False,
@@ -183,7 +183,9 @@ async def generate_image(
                 # extract bytes && define artifact key
                 image_bytes = response.generated_images[0].image.image_bytes
                 ARTIFACT_NAME = (
-                    entry["name"].translate(REMOVE_PUNCTUATION).replace(" ", "_")
+                    entry["concept_name"]
+                    .translate(REMOVE_PUNCTUATION)
+                    .replace(" ", "_")
                 )
                 artifact_key = f"{ARTIFACT_NAME}.png"
 
@@ -219,111 +221,117 @@ async def generate_image(
     }
 
 
-async def save_creatives_html_report(tool_context: ToolContext) -> dict:
-    """
-    Saves generated HTML report to Cloud Storage.
+# async def save_creatives_html_report(tool_context: ToolContext) -> dict:
+#     """
+#     Saves generated HTML report to Cloud Storage.
 
-    Args:
-        tool_context (ToolContext): The tool context.
+#     Args:
+#         tool_context (ToolContext): The tool context.
 
-    Returns:
-        dict: Status and the location of the HTML artifact file.
-    """
-    processed_report = tool_context.state["final_report_with_citations"]
-    gcs_folder = tool_context.state["gcs_folder"]
-    gcs_subdir = tool_context.state["agent_output_dir"]
+#     Returns:
+#         dict: Status and the location of the HTML artifact file.
+#     """
+#     processed_report = tool_context.state["final_report_with_citations"]
+#     gcs_folder = tool_context.state["gcs_folder"]
+#     gcs_subdir = tool_context.state["agent_output_dir"]
 
-    # get visual concept details
-    final_visual_concepts_dict = tool_context.state.get("final_select_vis_concepts")
-    final_visual_concepts_list = final_visual_concepts_dict["final_select_vis_concepts"]
+#     # get visual concept details
+#     final_visual_concepts_dict = tool_context.state.get(
+#         "final_visual_concepts"
+#     )
+#     final_visual_concepts_list = final_visual_concepts_dict[
+#         "visual_concepts"
+#     ]
 
-    try:
+#     try:
 
-        # creatives
-        IMG_CREATIVE_STRING = ""
-        for entry in final_visual_concepts_list:
-            ARTIFACT_NAME = (
-                entry["name"].translate(REMOVE_PUNCTUATION).replace(" ", "_")
-            )
-            ARTIFACT_KEY = f"{ARTIFACT_NAME}.png"
-            AUTH_GCS_URL = f"https://storage.mtls.cloud.google.com/{config.GCS_BUCKET_NAME}/{gcs_folder}/{gcs_subdir}/{ARTIFACT_KEY}?authuser=3"
-            IMG_HTML_STR = f"""<img src={AUTH_GCS_URL} alt ='authenticated URL' width='600' class='center'>
-            """
+#         # creatives
+#         IMG_CREATIVE_STRING = ""
+#         for entry in final_visual_concepts_list:
+#             ARTIFACT_NAME = (
+#                 entry["concept_name"].translate(REMOVE_PUNCTUATION).replace(" ", "_")
+#             )
+#             ARTIFACT_KEY = f"{ARTIFACT_NAME}.png"
+#             AUTH_GCS_URL = f"https://storage.mtls.cloud.google.com/{config.GCS_BUCKET_NAME}/{gcs_folder}/{gcs_subdir}/{ARTIFACT_KEY}?authuser=3"
+#             IMG_HTML_STR = f"""<img src={AUTH_GCS_URL} alt ='authenticated URL' width='600' class='center'>
+#             """
 
-            str_1 = f"# {entry['headline']}\n"
-            str_2 = f"{IMG_HTML_STR}\n\n"
-            str_3 = f"**{entry['caption']}**\n\n"
-            str_4 = f"**Trend:** {entry['trend']}\n\n"
-            str_5 = f"**Visual Concept:** {entry['creative_explain']}\n\n"
-            str_6 = f"**How it references trend:** {entry['trend_reference']}\n\n"
-            str_7 = f"**How it markets target product:** {entry['markets_product']}\n\n"
-            str_8 = f"**Target audience appeal:** {entry['audience_appeal']}\n\n"
-            str_9 = f"**Why this will perform well:** {entry['rationale_perf']}\n\n"
-            str_10 = f"**Prompt:** {entry['prompt']}\n\n"
-            result = (
-                str_1
-                + " "
-                + str_2
-                + " "
-                + str_3
-                + " "
-                + str_4
-                + " "
-                + str_5
-                + " "
-                + str_6
-                + " "
-                + str_7
-                + " "
-                + str_8
-                + " "
-                + str_9
-                + " "
-                + str_10
-            )
+#             str_1 = f"# {entry['headline']}\n"
+#             str_2 = f"{IMG_HTML_STR}\n\n"
+#             str_3 = f"**{entry['social_caption']}**\n\n"
+#             str_4 = f"**Trend:** {entry['trend']}\n\n"
+#             str_5 = f"**Visual Concept:** {entry['concept_summary']}\n\n"
+#             str_6 = f"**How it references trend:** {entry['trend_reference']}\n\n"
+#             str_7 = f"**How it markets target product:** {entry['markets_product']}\n\n"
+#             str_8 = f"**Target audience appeal:** {entry['audience_appeal']}\n\n"
+#             str_9 = (
+#                 f"**Why this will perform well:** {entry['selection_rationale']}\n\n"
+#             )
+#             str_10 = f"**Prompt:** {entry['image_generation_prompt']}\n\n"
+#             result = (
+#                 str_1
+#                 + " "
+#                 + str_2
+#                 + " "
+#                 + str_3
+#                 + " "
+#                 + str_4
+#                 + " "
+#                 + str_5
+#                 + " "
+#                 + str_6
+#                 + " "
+#                 + str_7
+#                 + " "
+#                 + str_8
+#                 + " "
+#                 + str_9
+#                 + " "
+#                 + str_10
+#             )
 
-            IMG_CREATIVE_STRING += result
+#             IMG_CREATIVE_STRING += result
 
-        markdown_string = (
-            f"{processed_report}\n\n# Ad Creatives\n\n{IMG_CREATIVE_STRING}\n\n"
-        )
-        html_fragment = markdown.markdown(markdown_string)
+#         markdown_string = (
+#             f"{processed_report}\n\n# Ad Creatives\n\n{IMG_CREATIVE_STRING}\n\n"
+#         )
+#         html_fragment = markdown.markdown(markdown_string)
 
-        # Wrap the fragment in a complete HTML document with a meta charset tag
-        full_html_document = f"""<!DOCTYPE html>
-        <html>
-        <head>
-            <meta charset="UTF-8">
-            <title>Trend Creative Report</title>
-        </head>
-        <body>
-        {html_fragment}
-        </body>
-        </html>
-        """
+#         # Wrap the fragment in a complete HTML document with a meta charset tag
+#         full_html_document = f"""<!DOCTYPE html>
+#         <html>
+#         <head>
+#             <meta charset="UTF-8">
+#             <title>Trend Creative Report</title>
+#         </head>
+#         <body>
+#         {html_fragment}
+#         </body>
+#         </html>
+#         """
 
-        # Save the HTML to a new file
-        REPORT_NAME = "creative_report.html"
-        with open(REPORT_NAME, "w", encoding="utf-8") as html_file:
-            html_file.write(full_html_document)
+#         # Save the HTML to a new file
+#         REPORT_NAME = "creative_report.html"
+#         with open(REPORT_NAME, "w", encoding="utf-8") as html_file:
+#             html_file.write(full_html_document)
 
-        # save HTML file to cloud storage
-        gcs_blob_name = f"{gcs_folder}/{gcs_subdir}/{REPORT_NAME}"
-        gcs_uri = f"gs://{config.GCS_BUCKET_NAME}/{gcs_blob_name}"
-        _upload_blob_to_gcs(
-            source_file_name=REPORT_NAME,
-            destination_blob_name=gcs_blob_name,
-        )
-        os.remove(REPORT_NAME)
+#         # save HTML file to cloud storage
+#         gcs_blob_name = f"{gcs_folder}/{gcs_subdir}/{REPORT_NAME}"
+#         gcs_uri = f"gs://{config.GCS_BUCKET_NAME}/{gcs_blob_name}"
+#         _upload_blob_to_gcs(
+#             source_file_name=REPORT_NAME,
+#             destination_blob_name=gcs_blob_name,
+#         )
+#         os.remove(REPORT_NAME)
 
-        return {
-            "status": "success",
-            "gcs_uri": gcs_uri,
-        }
+#         return {
+#             "status": "success",
+#             "gcs_uri": gcs_uri,
+#         }
 
-    except Exception as e:
-        logging.exception(f"Error saving artifact: {e}")
-        return {"status": "failed", "error": str(e)}
+#     except Exception as e:
+#         logging.exception(f"Error saving artifact: {e}")
+#         return {"status": "failed", "error": str(e)}
 
 
 async def save_creative_gallery_html(tool_context: ToolContext) -> dict:
@@ -345,12 +353,12 @@ async def save_creative_gallery_html(tool_context: ToolContext) -> dict:
     gcs_subdir = tool_context.state["agent_output_dir"]
 
     # get artifact details
-    final_visual_concepts_dict = tool_context.state.get("final_select_vis_concepts")
-    final_visual_concepts_list = final_visual_concepts_dict["final_select_vis_concepts"]
+    final_visual_concepts_dict = tool_context.state.get("final_visual_concepts")
+    final_visual_concepts_list = final_visual_concepts_dict["visual_concepts"]
 
     # get ad copy details
-    final_ad_copy_dict = tool_context.state.get("final_select_ad_copies")
-    final_ad_copy_list = final_ad_copy_dict["final_select_ad_copies"]
+    final_ad_copy_dict = tool_context.state.get("ad_copy_critique")
+    final_ad_copy_list = final_ad_copy_dict["ad_copies"]
 
     try:
 
@@ -736,7 +744,7 @@ async def save_creative_gallery_html(tool_context: ToolContext) -> dict:
         CONNECTED_GALLERY_STRING = ""
         for index, entry in enumerate(final_visual_concepts_list):
             ARTIFACT_NAME = (
-                entry["name"].translate(REMOVE_PUNCTUATION).replace(" ", "_")
+                entry["concept_name"].translate(REMOVE_PUNCTUATION).replace(" ", "_")
             )
             ARTIFACT_KEY = f"{ARTIFACT_NAME}.png"
             GCS_BLOB_PATH = f"{gcs_folder}/{gcs_subdir}/{ARTIFACT_KEY}"
@@ -757,16 +765,16 @@ async def save_creative_gallery_html(tool_context: ToolContext) -> dict:
                     <div class="image-container">
                         <img src="{AUTH_GCS_URL}" 
                                 data-high-res-src="{HIGH_RES_AUTH_GCS_URL}"
-                                alt="{entry['creative_explain'].replace('"', "'")}" 
+                                alt="{entry['concept_summary'].replace('"', "'")}" 
                                 title="{entry['headline']}">
                         <div class="hover-text">
                             <div class="hover-snippet snippet-top-left"><strong>Trend Reference:</strong>{entry['trend_reference'].replace('"', "'")}</div>
-                            <div class="hover-snippet snippet-top-right"><strong>Visual Concept Name:</strong>{entry['name']}</div>
+                            <div class="hover-snippet snippet-top-right"><strong>Visual Concept Name:</strong>{entry['concept_name']}</div>
                             <div class="hover-snippet snippet-bottom-left"><strong>How it markets Target Product:</strong>{entry['markets_product'].replace('"', "'")}</div>
                             <div class="hover-snippet snippet-bottom-right"><strong>Target audience appeal:</strong>{entry['audience_appeal'].replace('"', "'")}</div>
                         </div>
                     </div>
-                    <p class="caption">{entry['caption']}</p>
+                    <p class="caption">{entry['social_caption']}</p>
                 </div>
             """
             CONNECTED_GALLERY_STRING += GALLERY_IMAGE_BLOCK
@@ -802,11 +810,11 @@ async def save_creative_gallery_html(tool_context: ToolContext) -> dict:
                     <!-- Visual Concept {index+1} -->
                     <div class="content-card">
                         <dl>
-                            <dt>Name:</dt> <dd>{entry['name']}</dd>
+                            <dt>Name:</dt> <dd>{entry['concept_name']}</dd>
                             <dt>Trend:</dt> <dd>{entry['trend']}</dd>
-                            <dt>Creative Concept Explained:</dt> <dd>{entry['creative_explain']}</dd>
-                            <dt>Why this will perform well:</dt> <dd>{entry['rationale_perf']}</dd>
-                            <dt>prompt</dt> <dd>{entry['prompt']}</dd>
+                            <dt>Creative Concept Explained:</dt> <dd>{entry['concept_summary']}</dd>
+                            <dt>Why this will perform well:</dt> <dd>{entry['selection_rationale']}</dd>
+                            <dt>prompt</dt> <dd>{entry['image_generation_prompt']}</dd>
                         </dl>
                     </div>
             """
@@ -842,11 +850,11 @@ async def save_creative_gallery_html(tool_context: ToolContext) -> dict:
                         <dl>
                             <dt>Headline:</dt> <dd>{entry['headline']}</dd>
                             <dt>Body Text:</dt> <dd>{entry['body_text']}</dd>
-                            <dt>Social Media Caption:</dt> <dd>{entry['caption']}</dd>
+                            <dt>Social Media Caption:</dt> <dd>{entry['social_caption']}</dd>
                             <dt>Call-to-Action:</dt> <dd>{entry['call_to_action']}</dd>
-                            <dt>Trend-Reference:</dt> <dd>{entry['trend_reference']}</dd>
-                            <dt>Audience Appeal:</dt> <dd>{entry['audience_appeal']}</dd>
-                            <dt>Performance Rationale:</dt> <dd>{entry['performance_rationale']}</dd>
+                            <dt>Trend-Reference:</dt> <dd>{entry['trend_connection']}</dd>
+                            <dt>Audience Appeal:</dt> <dd>{entry['audience_appeal_rationale']}</dd>
+                            <dt>Performance Rationale:</dt> <dd>{entry['detailed_performance_rationale']}</dd>
                         </dl>
                     </div>
             """
@@ -993,76 +1001,76 @@ async def save_draft_report_artifact(tool_context: ToolContext) -> dict:
         return {"status": "failed", "error": str(e)}
 
 
-def save_session_state_to_gcs(tool_context: ToolContext) -> dict:
-    """
-    Writes the session state to JSON. Saves the JSON file to Cloud Storage.
+# def save_session_state_to_gcs(tool_context: ToolContext) -> dict:
+#     """
+#     Writes the session state to JSON. Saves the JSON file to Cloud Storage.
 
-    Args:
-        tool_context (ToolContext): The tool context.
+#     Args:
+#         tool_context (ToolContext): The tool context.
 
-    Returns:
-        dict: A dictionary containing the status and the json file's Cloud Storage URI (gcs_uri).
-    """
+#     Returns:
+#         dict: A dictionary containing the status and the json file's Cloud Storage URI (gcs_uri).
+#     """
 
-    session_state = tool_context.state.to_dict()
-    gcs_bucket = session_state["gcs_bucket"]
-    gcs_folder = session_state["gcs_folder"]
-    gcs_subdir = session_state["agent_output_dir"]
+#     session_state = tool_context.state.to_dict()
+#     gcs_bucket = session_state["gcs_bucket"]
+#     gcs_folder = session_state["gcs_folder"]
+#     gcs_subdir = session_state["agent_output_dir"]
 
-    # create new dict to save
-    data = {}
+#     # create new dict to save
+#     data = {}
 
-    # gcs location
-    data["gcs_bucket"] = gcs_bucket
-    data["gcs_folder"] = gcs_folder
-    data["agent_output_dir"] = gcs_subdir
+#     # gcs location
+#     data["gcs_bucket"] = gcs_bucket
+#     data["gcs_folder"] = gcs_folder
+#     data["agent_output_dir"] = gcs_subdir
 
-    # campaign metadata
-    data["brand"] = session_state["brand"]
-    data["target_product"] = session_state["target_product"]
-    data["target_audience"] = session_state["target_audience"]
-    data["key_selling_points"] = session_state["key_selling_points"]
+#     # campaign metadata
+#     data["brand"] = session_state["brand"]
+#     data["target_product"] = session_state["target_product"]
+#     data["target_audience"] = session_state["target_audience"]
+#     data["key_selling_points"] = session_state["key_selling_points"]
 
-    # creatives
-    data["final_select_ad_copies"] = tool_context.state.get("final_select_ad_copies")
-    data["final_select_vis_concepts"] = tool_context.state.get(
-        "final_select_vis_concepts"
-    )
+#     # creatives
+#     data["final_select_ad_copies"] = tool_context.state.get("final_select_ad_copies")
+#     data["final_select_vis_concepts"] = tool_context.state.get(
+#         "final_select_vis_concepts"
+#     )
 
-    # web research
-    data["final_report_with_citations"] = session_state["final_report_with_citations"]
+#     # web research
+#     data["final_report_with_citations"] = session_state["final_report_with_citations"]
 
-    # save local json
-    filename = f"creative_session_state.json"
-    local_file = f"{gcs_subdir}/{filename}"
-    Path(gcs_subdir).mkdir(exist_ok=True)
+#     # save local json
+#     filename = f"creative_session_state.json"
+#     local_file = f"{gcs_subdir}/{filename}"
+#     Path(gcs_subdir).mkdir(exist_ok=True)
 
-    # Write to local file
-    with open(local_file, "w") as f:
-        json.dump(data, f, indent=4)
+#     # Write to local file
+#     with open(local_file, "w") as f:
+#         json.dump(data, f, indent=4)
 
-    # save json to GCS
-    storage_client = _get_gcs_client()
-    gcs_bucket = config.GCS_BUCKET_NAME
-    bucket = storage_client.bucket(gcs_bucket)
-    blob = bucket.blob(os.path.join(gcs_folder, local_file))
-    blob.upload_from_filename(local_file)
+#     # save json to GCS
+#     storage_client = _get_gcs_client()
+#     gcs_bucket = config.GCS_BUCKET_NAME
+#     bucket = storage_client.bucket(gcs_bucket)
+#     blob = bucket.blob(os.path.join(gcs_folder, local_file))
+#     blob.upload_from_filename(local_file)
 
-    # return values
-    gcs_blob_name = f"{gcs_folder}/{gcs_subdir}/{filename}"
-    gcs_uri = f"gs://{gcs_bucket}/{gcs_blob_name}"
+#     # return values
+#     gcs_blob_name = f"{gcs_folder}/{gcs_subdir}/{filename}"
+#     gcs_uri = f"gs://{gcs_bucket}/{gcs_blob_name}"
 
-    try:
-        shutil.rmtree(gcs_subdir)
-        logging.info(f"Directory '{gcs_subdir}' and its contents removed successfully")
-    except FileNotFoundError:
-        logging.exception(f"Directory '{gcs_subdir}' not found")
+#     try:
+#         shutil.rmtree(gcs_subdir)
+#         logging.info(f"Directory '{gcs_subdir}' and its contents removed successfully")
+#     except FileNotFoundError:
+#         logging.exception(f"Directory '{gcs_subdir}' not found")
 
-    # Return a dictionary indicating status and the Cloud Storage URI.
-    return {
-        "status": "success",
-        "gcs_uri": gcs_uri,
-    }
+#     # Return a dictionary indicating status and the Cloud Storage URI.
+#     return {
+#         "status": "success",
+#         "gcs_uri": gcs_uri,
+#     }
 
 
 def write_trends_to_bq(tool_context: ToolContext) -> dict:

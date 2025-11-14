@@ -1,6 +1,12 @@
 # Trend Trawler
 
-> *[trends-2-creatives](https://github.com/tottenjordan/zghost/tree/main) in offline, beast mode*
+
+*trend-trawler* is a multi-agent system designed to run offline via event-based triggers.
+* agents developed with Google's ADK
+* agents deployed to Agent Engine
+* agentic workflow invoked from Cloud Run Functions triggered by PubSub messages
+* *[trends-2-creatives](https://github.com/tottenjordan/zghost/tree/main) in offline, beast mode*
+
 
 <details>
   <summary>casting a wide net</summary>
@@ -18,71 +24,26 @@
 
 </details>
 
-## About
 
-*trend-trawler* is a multi-agent system designed to run offline via schedule or event-based trigger.
-* agents developed with Google's ADK
-* agents deployed to Agent Engine
-* agentic workflow invoked from Cloud Run Functions triggered by PubSub messages
+## Table of Contents
+- [Installation](#installation)
+- [Usage](#usage)
+- [Deployment](#deployment)
+- [Repo Structure](#repo-structure)
+- [TODO](#todo)
+
+
+## Installation
+
 
 **helpful references**
 * [Overview of prompting strategies](https://cloud.google.com/vertex-ai/generative-ai/docs/learn/prompts/prompt-design-strategies#best-practices)
+* [ADK documentation](https://google.github.io/adk-docs/get-started/)
+* [Sample Agents](https://github.com/google/adk-samples/tree/main/python/agents)
+* [adk-python SDK samples](https://github.com/google/adk-python/tree/main/contributing/samples)
 
 
-**TODOs**
-* ~~deployment script for Vertex AI Agent Engine~~
-* ~~event-based triggers~~
-* scheduled runs
-* email / notification
-* easy export to ~*live editor tool* to nano-banana
-
-
-## example output
-
-
-#### 1. the `creative_agent` conducts web research to inform the creative process. a PDF of this web research is saved for humans:
-
-<p align="center" width="100%">
-    <img src="imgs/tt_prs_research_overview_p050_15fps.gif">
-</p>
-
-
-#### 2. the agents final step produces an HTML display of all generated ad creatives:
-
-<p align="center" width="100%">
-    <img src="imgs/tt_prs_html_overview_p050_15fps.gif">
-</p>
-
-<details>
-  <summary>some details on the HTML report</summary>
-
-#### see campaign metadata at the top:
-
-* brand
-* target product
-* key selling point
-* target audience
-
-#### each creative has a headline (title) and a caption
-
-![trend trawler creative outputs](imgs/gallery_sample_prs.png)
-
-#### hovering over a creative will display:
-
-* how it references the search trend
-* how it markets the target product
-* why the target audience will find it appealing
-
-![trend trawler creative outputs](imgs/its_complicated.png)
-
-
-*remember: these are ad candidates to start the ideation process. the prompts are saved so you can easily tweak the creative*
-
-
-</details>
-
-
-## General Setup Instructions
+### Setup & Config
 
 **1. Clone the Repository**
 
@@ -200,10 +161,9 @@ bq mk \
  uuid:STRING,target_trend:STRING,datetime:DATETIME,creative_gcs:STRING,brand:STRING,target_audience:STRING,target_product:STRING,key_selling_point:STRING
 ```
 
-## Running an Agent
+## Usage
 
-
-   > define your `campaign metadata`... these are inputs to the `trend_trawler` and `creative_agent`
+Define your `campaign metadata`... these are inputs to the `trend_trawler` and `creative_agent`
 
 <details>
   <summary>guidance on what works well here</summary>
@@ -231,7 +191,6 @@ This will be the `{target_products}` 's flavor in the messaging and visual conce
 
 </details>
 
-
 ```bash
 # example campaign metadata
 Brand Name: 'Paul Reed Smith (PRS)'
@@ -239,6 +198,9 @@ Target Audience: 'millennials who follow jam bands (e.g., Widespread Panic and P
 Target Product: 'SE CE24 Electric Guitar'
 Key Selling Points: 'The 85/15 S Humbucker pickups deliver a wide tonal range, from thick humbucker tones to clear single-coil sounds, making the guitar suitable for various genres.'
 ```
+
+### Running an Agent
+
 
 **1. local deployment / testing**
 
@@ -271,7 +233,54 @@ user: Brand Name: "YOUR BRAND OF CHOICE"
 agent: `[end-to-end workflow >> candidate creatives]` 
 ```
 
-# Deploying Agents to separate Agent Engine instances
+### example output
+
+**1. the `creative_agent` conducts web research to inform the creative process. a PDF of this web research is saved for humans:**
+
+<p align="center" width="100%">
+    <img src="imgs/tt_prs_research_overview_p050_15fps.gif">
+</p>
+
+
+**2. the agents final step produces an HTML display of all generated ad creatives:**
+
+<p align="center" width="100%">
+    <img src="imgs/tt_prs_html_overview_p050_15fps.gif">
+</p>
+
+<details>
+  <summary>some details on the HTML report</summary>
+
+#### see campaign metadata at the top:
+
+* brand
+* target product
+* key selling point
+* target audience
+
+#### each creative has a headline (title) and a caption
+
+![trend trawler creative outputs](imgs/gallery_sample_prs.png)
+
+#### hovering over a creative will display:
+
+* how it references the search trend
+* how it markets the target product
+* why the target audience will find it appealing
+
+![trend trawler creative outputs](imgs/its_complicated.png)
+
+
+*remember: these are ad candidates to start the ideation process. the prompts are saved so you can easily tweak the creative*
+
+</details>
+
+
+## Deployment
+
+### Deploying Agents to Agent Engine
+
+Deploying Agents to separate Agent Engine instances...
 
 > [Agent Engine](https://google.github.io/adk-docs/deploy/agent-engine/) is a fully managed auto-scaling service on Google Cloud specifically designed for deploying, managing, and scaling AI agents built with frameworks such as ADK.
 
@@ -292,7 +301,9 @@ python deployment/deploy_agent.py --resource_id=890256972824182784 --delete
 
 * Once agent is deployed to Agent Engine, the agent's resource ID will be added to your `.env` file. And this will be used later in the `test_deployment.py` script
 
-### Interact with the deployed agents using the `test_deployment.py` script
+#### Test deployment
+
+**Interact with the deployed agents using the `test_deployment.py` script...**
 
 *Note: the `test_deployment.py` script will source the `BRAND`, `TARGET_AUDIENCE`, `TARGET_PRODUCT`, `KEY_SELLING_POINT`, and `TARGET_SEARCH_TREND` from your `.env` file.*
 
@@ -341,8 +352,7 @@ resource.labels.reasoning_engine_id="YOUR_AGENT_ENGINE_ID"
 ```
 
 
-## Cloud Run Functions Fan-out Pattern with event-based triggers
-
+### Cloud Run Functions Fan-out Pattern with event-based triggers
 
 **objectives**
 * create `Agent Orchestrator` to check BQ for trends recommended by the `trawler agent`; dispatch PubSub message for each recommendation
@@ -368,7 +378,7 @@ Therefore, you must **deploy the code twice**, with each deployment configured t
 </details>
 
 
-### 1. Grant service account required permissions
+#### 1. Grant service account required permissions
 
 
 *Grant Eventarc Event Receiver role (`roles/eventarc.eventReceiver`) to the service account associated with the Eventarc*
@@ -400,7 +410,7 @@ gcloud projects add-iam-policy-binding $GOOGLE_CLOUD_PROJECT \
 </details>
 
 
-### 2. Create PubSub topics for the Creative Agent's orchestrator and worker
+#### 2. Create PubSub topics for the Creative Agent's orchestrator and worker
 
 
 ```bash
@@ -410,7 +420,7 @@ gcloud pubsub topics create $CREATIVE_WORKER_TOPIC_NAME
 ```
 
 
-### 3. Create [event-driven functions](https://cloud.google.com/run/docs/tutorials/pubsub-eventdriven#deploy-function) and [eventarc triggers](https://cloud.google.com/run/docs/tutorials/pubsub-eventdriven#pubsub-trigger)
+#### 3. Create [event-driven functions](https://cloud.google.com/run/docs/tutorials/pubsub-eventdriven#deploy-function) and [eventarc triggers](https://cloud.google.com/run/docs/tutorials/pubsub-eventdriven#pubsub-trigger)
 
 
 * `CRF_ENTRYPOINT`: the entry point to the function in your source code. This is the code Cloud Run executes when your function runs. The value of **this flag must be a function name or fully-qualified class name** that exists in your source code.
@@ -499,7 +509,7 @@ gcloud eventarc triggers create $CREATIVE_WORKER_TRIGGER_NAME  \
 ```
 
 
-### 4. Confirm triggers and topics
+#### 4. Confirm triggers and topics
 
 
 *4.1 confirm triggers successfully created:*
@@ -519,7 +529,7 @@ echo $CREATIVE_WORKER_PUB_TOPIC
 ```
 
 
-### 5. Invoke the Creative Agent Orchestrator function
+#### 5. Invoke the Creative Agent Orchestrator function
 
 *5.1 insert sample rows to test the `crf_entrypoint` function*
 
@@ -582,7 +592,7 @@ gcloud pubsub topics publish $CREATIVE_PUB_TOPIC --message "$(cat message.json |
 * the last task of the Creative Agent job inserts rows in the `trend_creatives` BQ table; see Cloud Storage location for research and creative artifacts
 
 
-# Alternative Deployment: separate Cloud Run instances
+### Alternative Deployment: deploy to Cloud Run instances
 
 > [Cloud Run](https://cloud.google.com/run) is a managed auto-scaling compute platform on Google Cloud that enables you to run your agent as a container-based application.
 
@@ -707,3 +717,12 @@ gcloud run services update $SERVICE_NAME \
     ├── __init__.py
     └── tools.py
 ```
+
+
+## TODO
+
+* ~~deployment script for Vertex AI Agent Engine~~
+* ~~event-based triggers~~
+* scheduled runs
+* email / notification
+* easy export to ~*live editor tool* to nano-banana
