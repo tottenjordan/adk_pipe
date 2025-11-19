@@ -45,12 +45,12 @@ campaign_web_planner = Agent(
     include_contents="none",
     description="Generates initial queries to guide web research about concepts described in the campaign metadata.",
     instruction="""Role: You are an expert market research strategist and query optimization specialist.
-    Your job is to create a focused list of high-level, effective web search queries (4-6 total) that will provide critical insights for marketers regarding the target audience, product, and key selling points for a new campaign.
+    Your job is to create a focused list of **exactly 5** high-level, effective web search queries that will provide critical insights for marketers regarding the target audience, product, and key selling points for a new campaign.
 
     <INSTRUCTIONS>
     To complete the task, you must follow these steps precisely:
     1.  Carefully review the campaign metadata provided in the <CONTEXT> block.
-    2.  Follow the guidelines in the <KEY_GUIDANCE> block to generate a list of 4-6 web queries.
+    2.  Follow the guidelines in the <KEY_GUIDANCE> block to generate a list of **exactly 5** web queries.
     3.  **CRITICAL FOR COMPLETION:** Ensure your output is a single, valid JSON object containing the generated queries.
     </INSTRUCTIONS>
 
@@ -70,11 +70,12 @@ campaign_web_planner = Agent(
 
     <KEY_GUIDANCE>
     The queries must be high-signal, meaning they are formulated to yield actionable web research results.
-    *   **Balance:** Ensure your list includes **at least one** query focused on the **target audience**, **at least one** on the **target product**, and **at least one** connecting the audience and the **key selling points**.
+    *   **Count:** Generate **exactly 5** distinct search queries.
+    *   **Balance:** Ensure your list includes **at least one** query focused on the **`target_audience`**, **at least one** on the **`target_product`**, and **at least one** connecting the **`target_audience`** and the **`key_selling_points`**.
     *   **Relevance:** The queries should help answer questions like:
-        *   What are the current cultural trends, pain points, or aspirational goals of the `target_audience` related to the {target_product}?
-        *   What are the main competitive alternatives or common misconceptions about the {target_product}?
-        *   How could the `key_selling_points` resonate with the `target_audience`?
+        *   What are the current cultural trends, pain points, or aspirational goals of the **`target_audience`** related to the **`target_product`**?
+        *   What are the main competitive alternatives or common misconceptions about the **`target_product`**?
+        *   How could the **`key_selling_points`** resonate with the **`target_audience`**?
     *   **Format:** Queries should be optimized for a modern web search engine (i.e., not long, conversational sentences). Use quotation marks around specific phrases or product names where appropriate.
     </KEY_GUIDANCE>
 
@@ -94,16 +95,23 @@ campaign_web_searcher = Agent(
     planner=BuiltInPlanner(
         thinking_config=types.ThinkingConfig(include_thoughts=False)
     ),
-    instruction="""Role: You are a strategic market research analyst and synthesis expert. Your primary goal is to transform raw web search data into an actionable, structured report for marketers.
+    instruction="""Role: You are a strategic market research analyst and synthesis expert. 
+    Your primary goal is to transform raw web search data into an actionable, structured report for marketers.
 
     <INSTRUCTIONS>
-    1. **Access Queries:** Retrieve the list of web search queries from the `initial_campaign_queries` state key.
-    2. **Execute Research:** Use the `google_search` tool to exhaustively execute **all** retrieved queries.
-    3. **Synthesize and Structure:** Synthesize the search results and present them in a detailed, structured, and objective summary following the <REPORT_STRUCTURE> block.
+    1.  **Access Queries:** Retrieve the list of web search queries from the `initial_campaign_queries` input in the <CONTEXT> block.
+    2.  **Execute Research:** Use the `google_search` tool to exhaustively execute **all** retrieved queries. The raw output of this tool call is the data you must work with.
+    3.  **Synthesize and Structure:** Synthesize **only** the data obtained from the search tool and present it as a detailed, structured, and objective summary following the <REPORT_STRUCTURE> block.
     </INSTRUCTIONS>
 
+    <CONTEXT>
+        <initial_campaign_queries>
+        {initial_campaign_queries}
+        </initial_campaign_queries>
+    </CONTEXT>
+
     <CONTEXT_GUIDANCE>
-    The research should primarily focus on:
+    The research should primarily focus on extracting insights related to:
     -   **Target Audience Insights:** Pain points, current conversations, unmet needs, or aspirations relevant to the product.
     -   **Product/Market Landscape:** Competitive alternatives, common use cases, and general market sentiment around the product category.
     -   **Key Selling Point Validation:** Evidence, data, or public opinion that supports or contradicts the effectiveness of the intended key selling points.
@@ -121,19 +129,13 @@ campaign_web_searcher = Agent(
 
     ---
     ### Final Instruction
-    **CRITICAL RULE: Do not include any of the raw search query results, links, or tool output. The output must be the final, synthesized, and structured report.**
+    **CRITICAL RULE 1: Do not include any of the raw search query results, links, or tool output. The output must be the final, synthesized report.**
+    **CRITICAL RULE 2: Output the synthesized report entirely in Markdown format, using Level 2 Headings (`##`) for the main sections listed in <REPORT_STRUCTURE>.**
     """,
     tools=[google_search],
     output_key="campaign_web_search_insights",
     after_agent_callback=callbacks.collect_research_sources_callback,
 )
-
-
-    # You are a diligent and exhaustive researcher. Your task is to conduct initial web research for concepts described in the campaign guide.
-    # You will be provided with a list of web queries in the 'initial_campaign_queries' state key.
-    # Use the 'google_search' tool to execute all queries. 
-    # Synthesize the results into a detailed summary.
-
 
 ca_sequential_planner = SequentialAgent(
     name="ca_sequential_planner",
