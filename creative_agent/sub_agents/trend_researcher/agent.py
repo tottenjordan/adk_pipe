@@ -44,12 +44,13 @@ gs_web_planner = Agent(
     name="gs_web_planner",
     include_contents="none",
     description="Generates initial queries to understand why the 'target_search_trends' are trending.",
-    instruction="""Role: You are an expert cultural strategist and trend analyst. Your job is to create a focused list of 4-5 high-signal web search queries that will help marketers understand the cultural significance and context of a trending Google Search topic.
+    instruction="""Role: You are an expert cultural strategist and trend analyst. 
+    Your job is to create a focused list of **exactly 5** high-signal web search queries that will help marketers understand the cultural significance and context of a trending Google Search topic.
 
     <INSTRUCTIONS>
     To complete the task, you must follow these steps precisely:
     1.  Review the trending topic and target audience provided in the <CONTEXT> block.
-    2.  Follow the guidelines in the <KEY_GUIDANCE> block to generate a list of 4-5 highly effective search queries.
+    2.  Follow the guidelines in the <KEY_GUIDANCE> block to generate a list of **exactly 5** highly effective search queries.
     3.  **CRITICAL FOR COMPLETION:** Ensure your output is a single, valid JSON object containing the generated queries.
     </INSTRUCTIONS>
 
@@ -66,10 +67,11 @@ gs_web_planner = Agent(
     <KEY_GUIDANCE>
     The queries must be high-signal, meaning they are formulated to yield actionable insights for campaign development.
 
+    *   **Count:** Generate **exactly 5** distinct search queries.
     *   **Balance:** Your queries must cover **three primary areas**:
         1.  **Trend Context:** Why is the trend happening now? (e.g., recent event, new product, cultural shift)
         2.  **Trend Entities & Narrative:** Who are the key players (people, brands, movements) involved, and what is the underlying narrative or conflict?
-        3.  **Audience Connection:** How does the trend intersect with the interests, language, or values of the **<target_audience>**?
+        3.  **Audience Connection:** How does the trend intersect with the interests, language, or values of the **`target_audience`**?
     *   **Format:** Queries should be optimized for a modern web search engine (i.e., not long, conversational sentences). Use specific keywords and quotation marks for precision.
     </KEY_GUIDANCE>
 
@@ -91,13 +93,17 @@ gs_web_searcher = Agent(
     ),
     instruction="""Role: You are a cultural trend analyst and synthesis expert. Your primary goal is to transform raw web search data about a trending topic into an urgent, actionable, and culturally relevant summary for marketers.
 
-    
     <INSTRUCTIONS>
-    1. **Access Queries:** The web search queries have been provided in the 'initial_gs_queries' state key.
-    2. **Execute Research:** Use the `google_search` tool to exhaustively execute **all** retrieved queries.
-    3. **Synthesize and Structure:** Synthesize the search results and present them in a detailed, structured, and objective trend report following the <REPORT_STRUCTURE> block.
+    1.  **Access Queries:** Retrieve the list of web search queries from the `initial_gs_queries` input in the <CONTEXT> block.
+    2.  **Execute Research:** Use the `google_search` tool to exhaustively execute **all** retrieved queries. The raw output of this tool call is the data you must synthesize.
+    3.  **Synthesize and Structure:** Synthesize **only** the data obtained from the search tool and present it as a detailed, structured, and objective trend report following the <REPORT_STRUCTURE> block.
     </INSTRUCTIONS>
 
+    <CONTEXT>
+        <initial_gs_queries>
+        {initial_gs_queries}
+        </initial_gs_queries>
+    </CONTEXT>
     
     <CONTEXT_GUIDANCE>
     The research synthesis must focus on providing marketers with timely, strategic insight. Specifically, prioritize:
@@ -119,20 +125,13 @@ gs_web_searcher = Agent(
     
     ---
     ### Final Instruction
-    **CRITICAL RULE: Do not include any of the raw search query results, links, or tool output. The output must be the final, synthesized, and structured report.**
-
+    **CRITICAL RULE 1: Do not include any of the raw search query results, links, or tool output. The output must be the final, synthesized report.**
+    **CRITICAL RULE 2: Output the synthesized report entirely in Markdown format, using Level 2 Headings (`##`) for the main sections listed in <REPORT_STRUCTURE>.**
     """,
     tools=[google_search],
     output_key="gs_web_search_insights",
     after_agent_callback=callbacks.collect_research_sources_callback,
 )
-
-
-    # You are a diligent and exhaustive researcher. 
-    # Your task is to conduct initial web research for the trending Search terms.
-    # Use the 'google_search' tool to execute all queries listed in 'initial_gs_queries'. 
-    # Synthesize the results into a detailed summary.
-
 
 gs_sequential_planner = SequentialAgent(
     name="gs_sequential_planner",

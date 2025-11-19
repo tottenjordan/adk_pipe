@@ -250,7 +250,7 @@ combined_report_composer = Agent(
         *   (Supporting bullets/sub-sections detailing the cultural narrative, relevance, and connection points.)
     4.  **## Actionable Creative Briefing Points**
         *   (Introductory Paragraph: Summary of the specific, high-priority creative directives.)
-        *   (5-7 highly specific, validated recommendations for the Ad Copy and Visual teams, covering messaging, tone, and visual direction, presented as a numbered list or bullet points.)
+        *   (5 highly specific, validated recommendations for the Ad Copy and Visual teams, covering messaging, tone, and visual direction, presented as a numbered list or bullet points.)
     5.  **## Final Risk Assessment & Constraints**
         *   (Introductory Paragraph: Summary of any critical constraints or risks the creative team must avoid.)
         *   (Supporting bullets detailing the specific risks/constraints.)
