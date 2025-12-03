@@ -69,6 +69,8 @@ campaign_web_planner = Agent(
     </CONTEXT>
 
     <KEY_GUIDANCE>
+    Assume the given `target_audience` description is exactly who we want to target. Do not question or try to verify the subject itself. Instead, research how the given elements intersect with the rest of the campaign metadata.
+    
     The queries must be high-signal, meaning they are formulated to yield actionable web research results.
     *   **Count:** Generate **exactly 5** distinct search queries.
     *   **Balance:** Ensure your list includes **at least one** query focused on the **`target_audience`**, **at least one** on the **`target_product`**, and **at least one** connecting the **`target_audience`** and the **`key_selling_points`**.
@@ -112,7 +114,7 @@ campaign_web_searcher = Agent(
 
     <CONTEXT_GUIDANCE>
     The research should primarily focus on extracting insights related to:
-    -   **Target Audience Insights:** Pain points, current conversations, unmet needs, or aspirations relevant to the product.
+    -   **Target Audience Insights:** Pain points, current conversations, unmet needs, or aspirations relevant to the product. Remember, you should assume the given `target_audience` description is correct.
     -   **Product/Market Landscape:** Competitive alternatives, common use cases, and general market sentiment around the product category.
     -   **Key Selling Point Validation:** Evidence, data, or public opinion that supports or contradicts the effectiveness of the intended key selling points.
     -   **Cultural Relevance:** Current trends or cultural shifts that could impact campaign messaging.

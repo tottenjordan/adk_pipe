@@ -40,7 +40,7 @@ merge_planners = Agent(
 
     <INSTRUCTIONS>
     1.  **Analyze and Integrate:** Carefully read the two provided research summaries (Campaign and Trend).
-    2.  **Cross-Reference:** Identify areas of overlap, synergy, or contradiction between the campaign insights and the trend analysis (e.g., does the trend reinforce a key selling point, or does it suggest the target audience is focused elsewhere?).
+    2.  **Cross-Reference:** Identify areas of overlap or synergy between the campaign insights and the trend analysis (e.g., does the trend reinforce a key selling point?)
     3.  **Synthesize and Structure:** Generate a new, integrated Strategic Brief, following the structure and guidance in the <REPORT_STRUCTURE> block. **Do not simply paste the old reports.**
     </INSTRUCTIONS>
 
@@ -56,9 +56,7 @@ merge_planners = Agent(
     1.  **Executive Summary (The Big Idea):** (A short, 2-3 sentence overview of the combined research. What is the single most important takeaway for the creative team?)
     2.  **Core Campaign Fundamentals:** (A synthesized summary of the Target Audience, Product Landscape, and Key Selling Points, drawing primarily from the Campaign Insights.)
     3.  **Cultural Opportunity & Relevance:** (An integrated analysis that connects the trending topic to the core campaign. How can the trend be used to make the campaign relevant? What specific tone, language, or narrative from the trend should be adopted?)
-    4.  **Strategic Recommendations for Creative:** (Provide 3-5 specific, actionable directives for the ad copy and visual generation agents, based on the integrated findings. *Example: "Use 'X' phrase from the trend to frame 'Y' selling point."*)
-    5.  **Risk & Constraint:** (A final, integrated summary of any cultural risks (from the trend) or market constraints (from the campaign) the creative team must avoid.)
-    </REPORT_STRUCTURE>
+    4.  **Strategic Recommendations for Creative:** (Provide 3 specific, actionable directives for the ad copy and visual generation agents, based on the integrated findings. *Example: "Use 'X' phrase from the trend to frame 'Y' selling point."*
 
     ---
     ### Final Instruction
@@ -66,6 +64,9 @@ merge_planners = Agent(
     """,
     output_key="combined_web_search_insights",
 )
+
+    # 5.  **Risk & Constraint:** (A final, integrated summary of any cultural risks (from the trend) or market constraints (from the campaign) the creative team must avoid.)
+    # </REPORT_STRUCTURE>
 
 merge_parallel_insights = SequentialAgent(
     name="merge_parallel_insights",
@@ -108,8 +109,8 @@ combined_web_evaluator = Agent(
     Your task is to critically review the combined research brief, identify any gaps or high-potential connections, and generate a final set of precise, high-signal follow-up queries.
 
     <INSTRUCTIONS>
-    1.  **Critically Evaluate:** Analyze the Strategic Brief provided in the `<CONTEXT>` block.
-    2.  **Gap Identification:** Determine the most significant missing piece of information required to confidently connect the `<target_product>` and `<target_search_trends>` to the `<target_audience>`.
+    1.  **Critically Evaluate:** Analyze the Strategic Brief provided in the `<CONTEXT>` block. Assume the given `target_audience` description is exactly who we want to target. Do not question or try to verify the description itself.
+    2.  **Gap Identification:** Determine if there is any missing information required to confidently connect the `<target_product>` and `<target_search_trends>` to the `<target_audience>`.
     3.  **Opportunity Assessment:** Identify the most promising *unexplored* connection or sentiment between the three core elements (Product, Trend, Audience).
     4.  **Query Generation:** Generate a final set of 5-7 high-signal web queries to either fill the identified gap or explore the highest-potential opportunity.
     5.  **Strict Output:** Produce a single, valid JSON object following the required schema, which includes both the analytical finding and the final queries.
@@ -134,10 +135,10 @@ combined_web_evaluator = Agent(
     </CONTEXT>
 
     <GUIDANCE>
-    Your analysis must yield a single, clear recommendation (Gap OR Opportunity).
-    - **If a Gap is most critical:** Focus the follow-up queries on gathering the missing foundational data.
-    - **If an Opportunity is most critical:** Focus the follow-up queries on exploring the nuances of the overlap/sentiment.
-    All queries must be optimized for immediate web execution (i.e., short, specific, high-signal).
+    1. Your analysis must yield a single, clear recommendation (Gap OR Opportunity).
+       - **If a Gap is most critical:** Focus the follow-up queries on gathering the missing foundational data.
+       - **If an Opportunity is most critical:** Focus the follow-up queries on exploring the nuances of the overlap/sentiment.
+    2. All queries must be optimized for immediate web execution (i.e., short, specific, high-signal).
     </GUIDANCE>
 
     ---
@@ -251,9 +252,6 @@ combined_report_composer = Agent(
     4.  **## Actionable Creative Briefing Points**
         *   (Introductory Paragraph: Summary of the specific, high-priority creative directives.)
         *   (5 highly specific, validated recommendations for the Ad Copy and Visual teams, covering messaging, tone, and visual direction, presented as a numbered list or bullet points.)
-    5.  **## Final Risk Assessment & Constraints**
-        *   (Introductory Paragraph: Summary of any critical constraints or risks the creative team must avoid.)
-        *   (Supporting bullets detailing the specific risks/constraints.)
         </FINAL_REPORT_STRUCTURE>
 
     ---
@@ -270,6 +268,10 @@ combined_report_composer = Agent(
     after_agent_callback=callbacks.citation_replacement_callback,
     before_model_callback=callbacks.rate_limit_callback,
 )
+
+    # 5.  **## Final Risk Assessment & Constraints**
+    #     *   (Introductory Paragraph: Summary of any critical constraints or risks the creative team must avoid.)
+    #     *   (No more than 3 supporting bullets detailing the specific risks/constraints.)
 
 
 # --- COMPLETE RESEARCH PIPELINE SUBAGENT --- #
@@ -778,7 +780,7 @@ root_agent = Agent(
 
     <INSTRUCTIONS>
     1. First, **receive and validate** the inputs defined in the <INPUT_PARAMETERS> block. If any critical input is missing (brand, target_audience, target_product, key_selling_points), respond with an error and halt execution.
-    2. Use the `memorize` tool to store **all** the validated input campaign metadata into the corresponding session state variables: `brand`, `target_audience`, `target_product`, `key_selling_points`, and `target_search_trends`. To ensure correct state management, **chain the calls** such that you only call the next `memorize` after the previous call has successfully responded.
+    2. Use the `memorize` tool to store **all** the validated input campaign metadata into the corresponding session state variables: `brand`, `target_audience`, `target_product`, `key_selling_points`, and `target_search_trends`. Call the `memorize` tool for ALL of them in a single turn (or as parallel calls).
     3. Once all metadata is successfully stored in the session state, strictly follow all steps in the <WORKFLOW/> block one-by-one.
     </INSTRUCTIONS>
 
@@ -820,3 +822,5 @@ root_agent = Agent(
     before_agent_callback=callbacks.load_session_state,
     before_model_callback=callbacks.rate_limit_callback,
 )
+
+    # To ensure correct state management, **chain the calls** such that you only call the next `memorize` after the previous call has successfully responded.

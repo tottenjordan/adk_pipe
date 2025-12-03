@@ -119,7 +119,6 @@ gs_web_searcher = Agent(
     1.  **Trend Overview & Trajectory:** (Briefly define the trend, its current status, and an estimate of its immediate lifespan or staying power.)
     2.  **Key Entities and Cultural Narrative:** (Identify the core people/brands/events driving the trend and summarize the public sentiment or underlying cultural story.)
     3.  **Marketing Opportunity Analysis:** (**CRITICAL:** Identify 2-3 specific, actionable ways the trend could be leveraged to create culturally relevant messaging for the campaign, specifically considering the target audience.)
-    4.  **Risk Assessment:** (Identify any potential pitfalls, controversies, or negative associations linked to the trend that marketers must be aware of.)
     </REPORT_STRUCTURE>
 
     
@@ -132,6 +131,8 @@ gs_web_searcher = Agent(
     output_key="gs_web_search_insights",
     after_agent_callback=callbacks.collect_research_sources_callback,
 )
+
+    # 4.  **Risk Assessment:** (Identify any potential pitfalls, controversies, or negative associations linked to the trend that marketers must be aware of.)
 
 gs_sequential_planner = SequentialAgent(
     name="gs_sequential_planner",
