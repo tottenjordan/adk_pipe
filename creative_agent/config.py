@@ -36,10 +36,8 @@ class ResearchConfiguration:
     critic_model: str = "gemini-2.5-pro"
     worker_model: str = "gemini-2.5-flash"
     video_analysis_model: str = "gemini-2.5-pro"
-    lite_planner_model: str = "gemini-2.0-flash-001"  # "gemini-2.5-flash-lite"
-    image_gen_model: str = (
-        "imagen-4.0-ultra-generate-preview-06-06"  # "imagen-4.0-fast-generate-preview-06-06"
-    )
+    lite_planner_model: str = "gemini-2.5-flash-lite"
+    image_gen_model: str = "imagen-4.0-generate-001" # "gemini-2.5-flash-image"
     video_gen_model: str = "veo-3.0-generate-001" # "veo-3.1-generate-preview"
     max_results_yt_trends: int = 45
 
@@ -49,7 +47,7 @@ class ResearchConfiguration:
 
     # env vars
     GCS_BUCKET = os.environ.get("BUCKET")
-    GCS_BUCKET_NAME = os.environ.get("GOOGLE_CLOUD_STORAGE_BUCKET")
+    GCS_BUCKET_NAME = os.environ.get("GCS_BUCKET_NAME")
     PROJECT_ID=os.environ.get("GOOGLE_CLOUD_PROJECT")
     PROJECT_NUMBER=os.environ.get("GOOGLE_CLOUD_PROJECT_NUMBER")
     LOCATION=os.environ.get("GOOGLE_CLOUD_LOCATION")

@@ -32,6 +32,7 @@ def _set_initial_states(source: Dict[str, Any], target: State | dict[str, Any]):
     if config.state_init not in target:
         target[config.state_init] = True
         target["gcs_bucket"] = config.GCS_BUCKET
+        target["gcs_bucket_name"] = config.GCS_BUCKET_NAME
         target["agent_output_dir"] = "creative_output"
         target["gcs_folder"] = f"{formatted_now}_{unique_id}"
         logging.info(f"gcs_folder: {target['gcs_folder']}")

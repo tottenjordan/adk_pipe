@@ -749,7 +749,7 @@ visual_generator = Agent(
 
 # --- MAIN ORCHESTRATOR AGENT ---
 root_agent = Agent(
-    model=config.lite_planner_model,
+    model=config.critic_model,
     name="root_agent",
     description="Help with ad generation; brainstorm and refine ad copy and visual concept ideas with actor-critic workflows; generate final ad creatives.",
     instruction="""**Role:** You are the orchestrator for a comprehensive ad content generation workflow.

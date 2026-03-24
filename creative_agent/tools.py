@@ -153,6 +153,14 @@ async def generate_image(
     Returns:
         dict: Status and the artifact_key of the generated image.
     """
+    # Idempotency guard: skip if images were already generated
+    if tool_context.state.get("_images_generated"):
+        existing_keys = tool_context.state.get("_generated_artifact_keys", [])
+        return {
+            "status": "success",
+            "message": f"Images already generated: {existing_keys}",
+        }
+
     # get constants
     gcs_folder = tool_context.state["gcs_folder"]
     gcs_subdir = tool_context.state["agent_output_dir"]
@@ -214,6 +222,10 @@ async def generate_image(
         except Exception as e:
             logging.exception(f"No images generated. {e}")
             return {"status": "error", "error_message": "No images generated. {e}"}
+
+    # Mark as done so subsequent calls are idempotent
+    tool_context.state["_images_generated"] = True
+    tool_context.state["_generated_artifact_keys"] = artifact_keys_list
 
     return {
         "status": "success",
