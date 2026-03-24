@@ -1,7 +1,6 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 
@@ -80,61 +79,69 @@ export function TrendCards({
 
   return (
     <div className="space-y-3">
-      <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
+      <h3 className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
         Recommended Trends
       </h3>
       <p className="text-xs text-muted-foreground">
         Click a trend to start the Creative Agent workflow with it.
       </p>
       <div className="grid gap-3">
-        {trends.map((trend) => (
-          <Card
+        {trends.map((trend, i) => (
+          <div
             key={trend.term}
-            className="cursor-pointer transition-all hover:border-primary hover:shadow-md"
+            className="glass rounded-xl cursor-pointer transition-all duration-200
+                       hover:border-primary/30 hover:shadow-lg hover:shadow-primary/5
+                       animate-fadeInUp opacity-0"
+            style={{ animationDelay: `${i * 100}ms`, animationFillMode: "forwards" }}
             onClick={() => handleClick(trend)}
           >
-            <CardHeader className="pb-2">
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-base">{trend.term}</CardTitle>
-                <Badge variant="secondary" className="text-xs">
+            <div className="p-4">
+              <div className="flex items-center justify-between mb-2">
+                <h4 className="text-sm font-semibold text-foreground">
+                  {trend.term}
+                </h4>
+                <Badge
+                  variant="secondary"
+                  className="text-[10px] bg-primary/15 text-primary border-0"
+                >
                   Click to run
                 </Badge>
               </div>
               {trend.hook && (
-                <p className="text-sm font-medium text-primary">
+                <p className="text-xs font-medium text-primary mb-2">
                   {trend.hook}
                 </p>
               )}
-            </CardHeader>
-            <CardContent className="space-y-2 text-sm">
-              {trend.context && (
-                <div>
-                  <span className="font-medium text-muted-foreground">
-                    Context:{" "}
-                  </span>
-                  {trend.context}
-                </div>
-              )}
-              {trend.whyItFits && (
-                <div>
-                  <span className="font-medium text-muted-foreground">
-                    Why it fits:{" "}
-                  </span>
-                  {trend.whyItFits}
-                </div>
-              )}
-              {trend.strategicBridge && (
-                <div>
-                  <span className="font-medium text-muted-foreground">
-                    Strategic bridge:{" "}
-                  </span>
-                  {trend.strategicBridge}
-                </div>
-              )}
+              <div className="space-y-1.5 text-xs text-foreground/80">
+                {trend.context && (
+                  <div>
+                    <span className="font-medium text-muted-foreground">
+                      Context:{" "}
+                    </span>
+                    {trend.context}
+                  </div>
+                )}
+                {trend.whyItFits && (
+                  <div>
+                    <span className="font-medium text-muted-foreground">
+                      Why it fits:{" "}
+                    </span>
+                    {trend.whyItFits}
+                  </div>
+                )}
+                {trend.strategicBridge && (
+                  <div>
+                    <span className="font-medium text-muted-foreground">
+                      Strategic bridge:{" "}
+                    </span>
+                    {trend.strategicBridge}
+                  </div>
+                )}
+              </div>
               <Button
                 size="sm"
                 variant="outline"
-                className="mt-2"
+                className="mt-3 text-xs border-white/10 bg-white/5 hover:bg-white/10"
                 onClick={(e) => {
                   e.stopPropagation();
                   handleClick(trend);
@@ -142,8 +149,8 @@ export function TrendCards({
               >
                 Generate Creatives &rarr;
               </Button>
-            </CardContent>
-          </Card>
+            </div>
+          </div>
         ))}
       </div>
     </div>

@@ -15,6 +15,10 @@ uv sync
 # Local development (ADK web UI)
 uv run adk web .
 
+# Local development (custom frontend + ADK api_server)
+uv run adk api_server . --allow_origins=http://localhost:3000
+cd frontend && npm install && npm run dev   # http://localhost:3000
+
 # Deploy agent to Agent Engine
 python deployment/deploy_agent.py --version=v1 --agent=trend_trawler --create
 python deployment/deploy_agent.py --version=v1 --agent=creative_agent --create
@@ -61,6 +65,23 @@ creative_agent (root Agent)
 
 Key ADK patterns used: `Agent`, `SequentialAgent`, `ParallelAgent`, `AgentTool` (wraps agents as tools).
 
+### Frontend — `frontend/`
+
+Next.js 16 (App Router) + TypeScript + Tailwind CSS + shadcn/ui. Dark glassmorphic theme with Sora font. Consumes the ADK `api_server` REST + SSE endpoints at `localhost:8000`.
+
+**Pages:**
+- `/` — Campaign input form (brand, audience, product, selling points, agent selector)
+- `/run/[sessionId]` — Live SSE event stream with timeline, pipeline state widgets (modal overlays), campaign metadata sidebar
+- `/results/[sessionId]` — Artifacts gallery, research PDF viewer, session state inspector
+
+**Key files:**
+- `frontend/src/app/layout.tsx` — Root layout, fonts (Sora + JetBrains Mono), glass header
+- `frontend/src/app/page.tsx` — Campaign input form
+- `frontend/src/app/run/[sessionId]/page.tsx` — SSE streaming, pipeline widgets, status tracking
+- `frontend/src/app/results/[sessionId]/page.tsx` — Results viewer with artifact tabs
+- `frontend/src/lib/api.ts` — API client (session CRUD, SSE streaming, artifact fetching)
+- `frontend/src/app/api/gcs/route.ts` — Authenticated GCS proxy for serving artifacts
+
 ### Event-Driven Orchestration — `cloud_funktions/`
 
 Fan-out pattern using two Cloud Run Function deployments from the same source (`cloud_funktions/creative_crf/`):
@@ -99,5 +120,6 @@ Agents use `before_agent_callback` to initialize session state, `before_model_ca
 
 - Python >=3.13
 - `google-adk>=1.27.3`
+- Node.js >=18 (for frontend)
 - GCP project with BigQuery, Cloud Storage, PubSub, and Agent Engine enabled
 - `.env` file populated from `.env.example`

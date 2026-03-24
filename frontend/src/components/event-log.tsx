@@ -17,51 +17,90 @@ function summarizeArgs(args: Record<string, unknown>): string {
     .join(", ");
 }
 
-function EventItem({ event }: { event: AgentEvent }) {
+/** Map agent name to a colored dot */
+function agentColor(author: string): string {
+  if (author.includes("trend")) return "bg-emerald-400";
+  if (author.includes("creative") || author.includes("composer")) return "bg-purple-400";
+  if (author.includes("search") || author.includes("research")) return "bg-sky-400";
+  if (author.includes("evaluator") || author.includes("critic")) return "bg-amber-400";
+  if (author.includes("planner")) return "bg-pink-400";
+  return "bg-blue-400";
+}
+
+function EventItem({ event, isLast }: { event: AgentEvent; isLast: boolean }) {
   const parts = event.content?.parts || [];
+  const color = agentColor(event.author || "");
 
   return (
-    <div className="border-b border-border px-4 py-3 last:border-0">
-      <div className="mb-1 flex items-center gap-2">
-        <Badge variant="outline" className="text-xs font-mono">
-          {event.author}
-        </Badge>
-        <span className="text-xs text-muted-foreground">
-          {new Date(event.timestamp * 1000).toLocaleTimeString()}
-        </span>
+    <div className="relative pl-8 pb-4 last:pb-2">
+      {/* Vertical connector line */}
+      {!isLast && <div className="timeline-line" />}
+
+      {/* Timeline dot */}
+      <div
+        className={`absolute left-0 top-1.5 h-6 w-6 rounded-full flex items-center justify-center ring-4 ring-background ${color}/20`}
+      >
+        <span className={`h-2.5 w-2.5 rounded-full ${color}`} />
       </div>
-      {parts.map((part, i) => {
-        if (part.text) {
-          return (
-            <p key={i} className="text-sm whitespace-pre-wrap leading-relaxed">
-              {part.text}
-            </p>
-          );
-        }
-        if (part.functionCall) {
-          return (
-            <div key={i} className="mt-1 rounded bg-muted px-3 py-2 font-mono text-xs">
-              <span className="text-primary font-semibold">
-                {part.functionCall.name}
-              </span>
-              <span className="text-muted-foreground">
-                ({summarizeArgs(part.functionCall.args)})
-              </span>
-            </div>
-          );
-        }
-        if (part.functionResponse) {
-          const status =
-            (part.functionResponse.response as Record<string, unknown>)?.status;
-          return (
-            <div key={i} className="mt-1 rounded bg-muted/50 px-3 py-2 font-mono text-xs text-muted-foreground">
-              {part.functionResponse.name} {"->"}{" "}
-              {typeof status === "string" ? status : "done"}
-            </div>
-          );
-        }
-        return null;
-      })}
+
+      {/* Content */}
+      <div className="space-y-1.5">
+        <div className="flex items-center gap-2">
+          <Badge
+            variant="outline"
+            className="text-[10px] font-mono border-white/10 bg-white/5"
+          >
+            {event.author}
+          </Badge>
+          <span className="text-[10px] text-muted-foreground tabular-nums">
+            {new Date(event.timestamp * 1000).toLocaleTimeString()}
+          </span>
+        </div>
+
+        {parts.map((part, i) => {
+          if (part.text) {
+            return (
+              <p
+                key={i}
+                className="text-sm whitespace-pre-wrap leading-relaxed text-foreground/90"
+              >
+                {part.text}
+              </p>
+            );
+          }
+          if (part.functionCall) {
+            return (
+              <div
+                key={i}
+                className="mt-1 rounded-lg bg-white/5 border border-white/5 px-3 py-2 font-mono text-xs"
+              >
+                <span className="text-primary font-semibold">
+                  {part.functionCall.name}
+                </span>
+                <span className="text-muted-foreground">
+                  ({summarizeArgs(part.functionCall.args)})
+                </span>
+              </div>
+            );
+          }
+          if (part.functionResponse) {
+            const status =
+              (part.functionResponse.response as Record<string, unknown>)
+                ?.status;
+            return (
+              <div
+                key={i}
+                className="mt-1 rounded-lg bg-white/3 border border-white/5 px-3 py-2 font-mono text-xs text-muted-foreground"
+              >
+                {part.functionResponse.name} {"->"}
+                {" "}
+                {typeof status === "string" ? status : "done"}
+              </div>
+            );
+          }
+          return null;
+        })}
+      </div>
     </div>
   );
 }
@@ -81,14 +120,23 @@ export function EventLog({
 
   return (
     <ScrollArea className={className}>
-      <div className="divide-y divide-border">
+      <div className="p-4">
         {events.length === 0 && (
-          <p className="px-4 py-8 text-center text-sm text-muted-foreground">
-            Waiting for events...
-          </p>
+          <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
+            <div className="mb-3 flex space-x-1">
+              <div className="h-2 w-2 rounded-full bg-blue-400 animate-bounce" style={{ animationDelay: "0ms" }} />
+              <div className="h-2 w-2 rounded-full bg-purple-400 animate-bounce" style={{ animationDelay: "150ms" }} />
+              <div className="h-2 w-2 rounded-full bg-emerald-400 animate-bounce" style={{ animationDelay: "300ms" }} />
+            </div>
+            <p className="text-sm">Waiting for events...</p>
+          </div>
         )}
         {events.map((event, i) => (
-          <EventItem key={i} event={event} />
+          <EventItem
+            key={i}
+            event={event}
+            isLast={i === events.length - 1}
+          />
         ))}
         <div ref={bottomRef} />
       </div>

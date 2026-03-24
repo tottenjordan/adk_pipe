@@ -1,15 +1,15 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Sora, JetBrains_Mono } from "next/font/google";
 import Link from "next/link";
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
+const sora = Sora({
+  variable: "--font-sora",
   subsets: ["latin"],
 });
 
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
+const jetbrainsMono = JetBrains_Mono({
+  variable: "--font-jetbrains-mono",
   subsets: ["latin"],
 });
 
@@ -26,18 +26,24 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      className={`${sora.variable} ${jetbrainsMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col bg-background text-foreground">
-        <header className="border-b border-border bg-card">
+      <body className="min-h-full flex flex-col">
+        <header className="glass-strong sticky top-0 z-40">
           <div className="mx-auto flex h-14 max-w-[1600px] items-center justify-between px-6">
-            <Link href="/" className="flex items-center gap-2">
-              <span className="text-lg font-semibold tracking-tight">
+            <Link href="/" className="flex items-center gap-2.5 group">
+              <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary/20 text-primary text-sm font-bold transition-colors group-hover:bg-primary/30">
+                T
+              </span>
+              <span className="text-lg font-semibold tracking-tight text-foreground">
                 Trend Trawler
               </span>
             </Link>
             <nav className="flex items-center gap-4 text-sm text-muted-foreground">
-              <Link href="/" className="hover:text-foreground transition-colors">
+              <Link
+                href="/"
+                className="rounded-md px-3 py-1.5 transition-colors hover:text-foreground hover:bg-white/5"
+              >
                 New Run
               </Link>
             </nav>

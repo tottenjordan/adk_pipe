@@ -5,7 +5,6 @@ import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Collapsible,
   CollapsibleContent,
@@ -60,7 +59,9 @@ export default function ResultsPage({
         );
         setArtifacts(loaded);
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to load results");
+        setError(
+          err instanceof Error ? err.message : "Failed to load results"
+        );
       } finally {
         setLoading(false);
       }
@@ -70,8 +71,13 @@ export default function ResultsPage({
 
   if (loading) {
     return (
-      <div className="mx-auto max-w-4xl px-6 py-12 text-center text-muted-foreground">
-        Loading results...
+      <div className="flex-1 flex flex-col items-center justify-center py-24">
+        <div className="flex space-x-1.5 mb-4">
+          <div className="h-2.5 w-2.5 rounded-full bg-blue-400 animate-bounce" style={{ animationDelay: "0ms" }} />
+          <div className="h-2.5 w-2.5 rounded-full bg-purple-400 animate-bounce" style={{ animationDelay: "150ms" }} />
+          <div className="h-2.5 w-2.5 rounded-full bg-emerald-400 animate-bounce" style={{ animationDelay: "300ms" }} />
+        </div>
+        <p className="text-sm text-muted-foreground">Loading results...</p>
       </div>
     );
   }
@@ -79,16 +85,14 @@ export default function ResultsPage({
   if (error) {
     return (
       <div className="mx-auto max-w-4xl px-6 py-12">
-        <Card className="border-destructive">
-          <CardContent className="pt-6">
-            <p className="text-destructive">{error}</p>
-            <Link href="/">
-              <Button variant="outline" className="mt-4">
-                Back to Home
-              </Button>
-            </Link>
-          </CardContent>
-        </Card>
+        <div className="glass rounded-2xl p-6">
+          <p className="text-red-400">{error}</p>
+          <Link href="/">
+            <Button variant="outline" className="mt-4 border-white/10 bg-white/5 hover:bg-white/10">
+              Back to Home
+            </Button>
+          </Link>
+        </div>
       </div>
     );
   }
@@ -107,10 +111,15 @@ export default function ResultsPage({
     const folder = state.gcs_folder as string;
     const subdir = state.agent_output_dir as string;
     if (!bucketName || !folder || !subdir) return null;
-    return { bucket: bucketName, objectPath: `${folder}/${subdir}/creative_portfolio_gallery.html` };
+    return {
+      bucket: bucketName,
+      objectPath: `${folder}/${subdir}/creative_portfolio_gallery.html`,
+    };
   })();
 
-  const imageArtifacts = artifacts.filter((a) => a.name.endsWith(".png") || a.name.endsWith(".jpg"));
+  const imageArtifacts = artifacts.filter(
+    (a) => a.name.endsWith(".png") || a.name.endsWith(".jpg")
+  );
   const pdfArtifacts = artifacts.filter((a) => a.name.endsWith(".pdf"));
   const htmlArtifacts = artifacts.filter((a) => a.name.endsWith(".html"));
   const otherArtifacts = artifacts.filter(
@@ -134,26 +143,28 @@ export default function ResultsPage({
 
   return (
     <div className="mx-auto max-w-[1600px] px-6 py-8">
-      <div className="mb-6 flex items-center justify-between">
+      <div className="mb-6 flex items-center justify-between animate-fadeIn">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Results</h1>
+          <h1 className="text-2xl font-bold tracking-tight text-foreground">
+            Results
+          </h1>
           <p className="mt-1 text-sm text-muted-foreground font-mono">
             {appName} / {sessionId}
           </p>
         </div>
         <Link href="/">
-          <Button variant="outline" size="sm">
+          <Button variant="outline" size="sm" className="border-white/10 bg-white/5 hover:bg-white/10">
             New Run
           </Button>
         </Link>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-[260px_1fr]">
-        {/* Left sidebar — GCS output + campaign metadata */}
-        <div className="space-y-3">
+        {/* Left sidebar */}
+        <div className="space-y-3 animate-fadeInUp animation-delay-100 opacity-0" style={{ animationFillMode: "forwards" }}>
           {gcsUri && <GcsWidget uri={gcsUri} />}
 
-          <h2 className="text-sm font-semibold text-muted-foreground tracking-wider">
+          <h2 className="text-[10px] font-semibold text-muted-foreground tracking-wider uppercase pt-1">
             Campaign Metadata
           </h2>
           {campaignFields.length === 0 ? (
@@ -162,23 +173,21 @@ export default function ResultsPage({
             </p>
           ) : (
             campaignFields.map((f) => (
-              <Card key={f.key} className="shadow-sm">
-                <CardContent className="px-3 py-2.5">
-                  <dt className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-                    {f.label}
-                  </dt>
-                  <dd className="mt-0.5 text-sm font-medium leading-snug break-words">
-                    {f.value}
-                  </dd>
-                </CardContent>
-              </Card>
+              <div key={f.key} className="glass rounded-xl px-4 py-3">
+                <dt className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                  {f.label}
+                </dt>
+                <dd className="mt-0.5 text-sm font-medium leading-snug break-words text-foreground">
+                  {f.value}
+                </dd>
+              </div>
             ))
           )}
         </div>
 
         {/* Right content area */}
-        <div>
-          {/* Creative portfolio gallery — above artifacts */}
+        <div className="animate-fadeInUp animation-delay-200 opacity-0" style={{ animationFillMode: "forwards" }}>
+          {/* Creative portfolio gallery */}
           {appName === "creative_agent" && galleryInfo && (
             <div className="mb-6">
               <GalleryViewer
@@ -188,29 +197,30 @@ export default function ResultsPage({
             </div>
           )}
 
-          {/* Artifacts — collapsed by default */}
+          {/* Artifacts */}
           {artifacts.length > 0 && (
             <Collapsible open={artifactsOpen} onOpenChange={setArtifactsOpen}>
-              <Card className="mb-6">
+              <div className="glass rounded-2xl mb-6 overflow-hidden">
                 <CollapsibleTrigger className="w-full">
-                  <CardHeader className="cursor-pointer hover:bg-muted/50 transition-colors">
-                    <CardTitle className="text-base flex items-center justify-between">
-                      <span>
-                        Artifacts
-                        <Badge variant="secondary" className="ml-2">
-                          {artifacts.length}
-                        </Badge>
-                      </span>
-                      <span className="text-xs text-muted-foreground font-normal">
-                        {artifactsOpen ? "collapse" : "expand"}
-                      </span>
-                    </CardTitle>
-                  </CardHeader>
+                  <div className="cursor-pointer hover:bg-white/3 transition-colors px-5 py-3 flex items-center justify-between">
+                    <span className="text-sm font-semibold text-foreground flex items-center gap-2">
+                      Artifacts
+                      <Badge
+                        variant="secondary"
+                        className="bg-primary/15 text-primary border-0 text-[10px]"
+                      >
+                        {artifacts.length}
+                      </Badge>
+                    </span>
+                    <span className="text-[10px] text-muted-foreground">
+                      {artifactsOpen ? "collapse" : "expand"}
+                    </span>
+                  </div>
                 </CollapsibleTrigger>
                 <CollapsibleContent>
-                  <CardContent className="pt-0">
+                  <div className="px-5 pb-5">
                     <Tabs defaultValue="images">
-                      <TabsList>
+                      <TabsList className="bg-white/5 border border-white/5">
                         {imageArtifacts.length > 0 && (
                           <TabsTrigger value="images">
                             Images ({imageArtifacts.length})
@@ -245,7 +255,7 @@ export default function ResultsPage({
                             return (
                               <div
                                 key={a.name}
-                                className="overflow-hidden rounded-lg border border-border"
+                                className="overflow-hidden rounded-xl glass transition-all hover:shadow-lg hover:shadow-primary/5"
                               >
                                 {src ? (
                                   // eslint-disable-next-line @next/next/no-img-element
@@ -255,11 +265,11 @@ export default function ResultsPage({
                                     className="aspect-square w-full object-cover"
                                   />
                                 ) : (
-                                  <div className="flex aspect-square items-center justify-center bg-muted text-xs text-muted-foreground">
+                                  <div className="flex aspect-square items-center justify-center bg-white/5 text-xs text-muted-foreground">
                                     No preview
                                   </div>
                                 )}
-                                <p className="truncate px-2 py-1.5 text-xs text-muted-foreground">
+                                <p className="truncate px-3 py-2 text-[10px] text-muted-foreground">
                                   {a.name}
                                 </p>
                               </div>
@@ -273,10 +283,17 @@ export default function ResultsPage({
                           {pdfArtifacts.map((a) => (
                             <li
                               key={a.name}
-                              className="flex items-center justify-between rounded border border-border px-3 py-2"
+                              className="flex items-center justify-between rounded-lg glass px-4 py-3"
                             >
-                              <span className="text-sm font-mono">{a.name}</span>
-                              <Badge variant="outline">PDF</Badge>
+                              <span className="text-sm font-mono text-foreground/80">
+                                {a.name}
+                              </span>
+                              <Badge
+                                variant="outline"
+                                className="border-white/10"
+                              >
+                                PDF
+                              </Badge>
                             </li>
                           ))}
                         </ul>
@@ -287,10 +304,17 @@ export default function ResultsPage({
                           {htmlArtifacts.map((a) => (
                             <li
                               key={a.name}
-                              className="flex items-center justify-between rounded border border-border px-3 py-2"
+                              className="flex items-center justify-between rounded-lg glass px-4 py-3"
                             >
-                              <span className="text-sm font-mono">{a.name}</span>
-                              <Badge variant="outline">HTML</Badge>
+                              <span className="text-sm font-mono text-foreground/80">
+                                {a.name}
+                              </span>
+                              <Badge
+                                variant="outline"
+                                className="border-white/10"
+                              >
+                                HTML
+                              </Badge>
                             </li>
                           ))}
                         </ul>
@@ -301,7 +325,7 @@ export default function ResultsPage({
                           {otherArtifacts.map((a) => (
                             <li
                               key={a.name}
-                              className="rounded border border-border px-3 py-2 text-sm font-mono"
+                              className="rounded-lg glass px-4 py-3 text-sm font-mono text-foreground/80"
                             >
                               {a.name}
                             </li>
@@ -309,33 +333,33 @@ export default function ResultsPage({
                         </ul>
                       </TabsContent>
                     </Tabs>
-                  </CardContent>
+                  </div>
                 </CollapsibleContent>
-              </Card>
+              </div>
             </Collapsible>
           )}
 
           {/* Raw session state */}
           <Collapsible open={stateOpen} onOpenChange={setStateOpen}>
-            <Card>
+            <div className="glass rounded-2xl overflow-hidden">
               <CollapsibleTrigger className="w-full">
-                <CardHeader className="cursor-pointer hover:bg-muted/50 transition-colors">
-                  <CardTitle className="text-base flex items-center justify-between">
+                <div className="cursor-pointer hover:bg-white/3 transition-colors px-5 py-3 flex items-center justify-between">
+                  <span className="text-sm font-semibold text-foreground">
                     Session State
-                    <span className="text-xs text-muted-foreground font-normal">
-                      {stateOpen ? "collapse" : "expand"}
-                    </span>
-                  </CardTitle>
-                </CardHeader>
+                  </span>
+                  <span className="text-[10px] text-muted-foreground">
+                    {stateOpen ? "collapse" : "expand"}
+                  </span>
+                </div>
               </CollapsibleTrigger>
               <CollapsibleContent>
-                <CardContent className="pt-0">
-                  <pre className="max-h-96 overflow-auto rounded bg-muted p-4 text-xs font-mono">
+                <div className="px-5 pb-5">
+                  <pre className="max-h-96 overflow-auto rounded-lg bg-white/5 p-4 text-xs font-mono text-foreground/70">
                     {JSON.stringify(state, null, 2)}
                   </pre>
-                </CardContent>
+                </div>
               </CollapsibleContent>
-            </Card>
+            </div>
           </Collapsible>
         </div>
       </div>
