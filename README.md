@@ -28,6 +28,7 @@
 ## Table of Contents
 - [Installation](#installation)
 - [Usage](#usage)
+- [Frontend UI](#frontend-ui)
 - [Deployment](#deployment)
 - [Repo Structure](#repo-structure)
 - [TODO](#todo)
@@ -131,10 +132,10 @@ source `.env` variables
 source .env
 ```
 
-**4. poetry install**
+**4. uv sync**
 
 ```bash
-poetry install
+uv sync
 ```
 
 **5. Create BigQuery Dataset and Tables**
@@ -207,7 +208,7 @@ Key Selling Points: 'The 85/15 S Humbucker pickups deliver a wide tonal range, f
 start local dev UI...
 
 ```bash
-poetry run adk web .
+uv run adk web .
 ```
 
 **[1.a] choose `trend_trawler` from drop-down menu (top left)...**
@@ -274,6 +275,37 @@ agent: `[end-to-end workflow >> candidate creatives]`
 *remember: these are ad candidates to start the ideation process. the prompts are saved so you can easily tweak the creative*
 
 </details>
+
+
+## Frontend UI
+
+A custom React frontend for running agents and viewing results, built with Next.js, Tailwind CSS, and shadcn/ui.
+
+**Prerequisites:** Node.js >= 18
+
+**1. Start the ADK API server** (backend)
+
+```bash
+uv run adk api_server . --allow_origins=http://localhost:3000
+```
+
+**2. Start the frontend** (in a separate terminal)
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Open [http://localhost:3000](http://localhost:3000) in your browser.
+
+**Features:**
+* Campaign input form with agent selector (`trend_trawler` or `creative_agent`)
+* Live SSE event stream with timeline-style visualization
+* Pipeline state widgets (ad copy drafts, visual concepts, critiques) as modal overlays
+* Authenticated GCS proxy for viewing research PDFs and generated images
+* Clickable trend cards — run `trend_trawler`, then click a recommended trend to launch `creative_agent` with pre-filled metadata
+* Results page with artifact gallery, HTML portfolio viewer, and session state inspector
 
 
 ## Deployment
@@ -705,8 +737,28 @@ gcloud run services update $SERVICE_NAME \
 ├── deployment
 │   ├── deploy_agent.py
 │   └── test_deployment.py
+├── frontend
+│   ├── src
+│   │   ├── app
+│   │   │   ├── layout.tsx
+│   │   │   ├── page.tsx
+│   │   │   ├── globals.css
+│   │   │   ├── api/gcs/route.ts
+│   │   │   ├── run/[sessionId]/page.tsx
+│   │   │   └── results/[sessionId]/page.tsx
+│   │   ├── components
+│   │   │   ├── event-log.tsx
+│   │   │   ├── trend-cards.tsx
+│   │   │   ├── gcs-widget.tsx
+│   │   │   ├── gallery-viewer.tsx
+│   │   │   └── ui/
+│   │   └── lib
+│   │       ├── api.ts
+│   │       └── types.ts
+│   ├── package.json
+│   └── next.config.ts
 ├── deploy-to-agent-engine.ipynb
-├── poetry.lock
+├── uv.lock
 ├── pyproject.toml
 ├── README.md
 ├── requirements.txt

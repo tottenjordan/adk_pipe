@@ -6,3 +6,4 @@ output/*
 __pycache__/
 a_stash/
 **cloud_funktions/creative_crf/message.json
+.adk
