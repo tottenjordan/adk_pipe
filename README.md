@@ -131,10 +131,10 @@ source `.env` variables
 source .env
 ```
 
-**4. poetry install**
+**4. uv sync**
 
 ```bash
-poetry install
+uv sync
 ```
 
 **5. Create BigQuery Dataset and Tables**
@@ -207,7 +207,7 @@ Key Selling Points: 'The 85/15 S Humbucker pickups deliver a wide tonal range, f
 start local dev UI...
 
 ```bash
-poetry run adk web .
+uv run adk web .
 ```
 
 **[1.a] choose `trend_trawler` from drop-down menu (top left)...**
@@ -706,7 +706,7 @@ gcloud run services update $SERVICE_NAME \
 │   ├── deploy_agent.py
 │   └── test_deployment.py
 ├── deploy-to-agent-engine.ipynb
-├── poetry.lock
+├── uv.lock
 ├── pyproject.toml
 ├── README.md
 ├── requirements.txt
