@@ -104,8 +104,8 @@ function HomeContent() {
     <div className="flex-1 flex flex-col items-center justify-center px-4 py-16">
       <div
         className="w-full max-w-2xl glass rounded-2xl p-8
-                    shadow-2xl shadow-black/40
-                    transition-all duration-300 hover:border-white/12
+                    shadow-xl shadow-black/5
+                    transition-all duration-300 hover:shadow-2xl hover:shadow-black/8
                     animate-fadeInUp"
       >
         <div className="text-center space-y-3 mb-8">
@@ -119,10 +119,10 @@ function HomeContent() {
         </div>
 
         {isPreFilled && (
-          <div className="mb-6 flex items-center gap-3 rounded-xl bg-primary/10 border border-primary/20 px-4 py-3">
+          <div className="mb-6 flex items-center gap-3 rounded-xl bg-primary/8 border border-primary/15 px-4 py-3">
             <Badge
               variant="secondary"
-              className="bg-primary/20 text-primary border-0"
+              className="bg-primary/15 text-primary border-0"
             >
               From Trend Trawler
             </Badge>
@@ -144,7 +144,7 @@ function HomeContent() {
                 setForm({ ...form, agent: v as CampaignInput["agent"] })
               }
             >
-              <SelectTrigger id="agent" className="w-full min-w-[400px] bg-white/5 border-white/8 hover:border-white/15 transition-colors">
+              <SelectTrigger id="agent" className="w-full min-w-[400px] bg-background border-border hover:border-foreground/20 transition-colors">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -167,7 +167,7 @@ function HomeContent() {
               placeholder='e.g., "Paul Reed Smith (PRS)"'
               value={form.brand}
               onChange={(e) => setForm({ ...form, brand: e.target.value })}
-              className="bg-white/5 border-white/8 hover:border-white/15 focus:border-primary/50 transition-colors"
+              className="bg-background border-border hover:border-foreground/20 focus:border-primary/50 transition-colors"
             />
           </div>
 
@@ -183,7 +183,7 @@ function HomeContent() {
               onChange={(e) =>
                 setForm({ ...form, targetAudience: e.target.value })
               }
-              className="bg-white/5 border-white/8 hover:border-white/15 focus:border-primary/50 transition-colors resize-none"
+              className="bg-background border-border hover:border-foreground/20 focus:border-primary/50 transition-colors resize-none"
             />
           </div>
 
@@ -198,7 +198,7 @@ function HomeContent() {
               onChange={(e) =>
                 setForm({ ...form, targetProduct: e.target.value })
               }
-              className="bg-white/5 border-white/8 hover:border-white/15 focus:border-primary/50 transition-colors"
+              className="bg-background border-border hover:border-foreground/20 focus:border-primary/50 transition-colors"
             />
           </div>
 
@@ -214,7 +214,7 @@ function HomeContent() {
               onChange={(e) =>
                 setForm({ ...form, keySellingPoints: e.target.value })
               }
-              className="bg-white/5 border-white/8 hover:border-white/15 focus:border-primary/50 transition-colors resize-none"
+              className="bg-background border-border hover:border-foreground/20 focus:border-primary/50 transition-colors resize-none"
             />
           </div>
 
@@ -230,13 +230,13 @@ function HomeContent() {
                 onChange={(e) =>
                   setForm({ ...form, targetSearchTrend: e.target.value })
                 }
-                className="bg-white/5 border-white/8 hover:border-white/15 focus:border-primary/50 transition-colors"
+                className="bg-background border-border hover:border-foreground/20 focus:border-primary/50 transition-colors"
               />
             </div>
           )}
 
           {error && (
-            <div className="rounded-lg bg-destructive/10 border border-destructive/20 px-4 py-3">
+            <div className="rounded-lg bg-destructive/8 border border-destructive/15 px-4 py-3">
               <p className="text-sm text-destructive">{error}</p>
             </div>
           )}

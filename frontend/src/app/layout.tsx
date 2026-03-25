@@ -32,9 +32,12 @@ export default function RootLayout({
         <header className="glass-strong sticky top-0 z-40">
           <div className="mx-auto flex h-14 max-w-[1600px] items-center justify-between px-6">
             <Link href="/" className="flex items-center gap-2.5 group">
-              <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary/20 text-primary text-sm font-bold transition-colors group-hover:bg-primary/30">
-                T
-              </span>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src="/trend_trawler_banner.png"
+                alt="Trend Trawler"
+                className="h-9 w-auto rounded-md object-cover"
+              />
               <span className="text-lg font-semibold tracking-tight text-foreground">
                 Trend Trawler
               </span>
@@ -42,7 +45,7 @@ export default function RootLayout({
             <nav className="flex items-center gap-4 text-sm text-muted-foreground">
               <Link
                 href="/"
-                className="rounded-md px-3 py-1.5 transition-colors hover:text-foreground hover:bg-white/5"
+                className="rounded-md px-3 py-1.5 transition-colors hover:text-foreground hover:bg-black/5"
               >
                 New Run
               </Link>

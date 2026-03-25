@@ -19,12 +19,12 @@ function summarizeArgs(args: Record<string, unknown>): string {
 
 /** Map agent name to a colored dot */
 function agentColor(author: string): string {
-  if (author.includes("trend")) return "bg-emerald-400";
-  if (author.includes("creative") || author.includes("composer")) return "bg-purple-400";
-  if (author.includes("search") || author.includes("research")) return "bg-sky-400";
-  if (author.includes("evaluator") || author.includes("critic")) return "bg-amber-400";
-  if (author.includes("planner")) return "bg-pink-400";
-  return "bg-blue-400";
+  if (author.includes("trend")) return "bg-emerald-500";
+  if (author.includes("creative") || author.includes("composer")) return "bg-violet-500";
+  if (author.includes("search") || author.includes("research")) return "bg-indigo-500";
+  if (author.includes("evaluator") || author.includes("critic")) return "bg-amber-500";
+  if (author.includes("planner")) return "bg-pink-500";
+  return "bg-blue-500";
 }
 
 function EventItem({ event, isLast }: { event: AgentEvent; isLast: boolean }) {
@@ -38,7 +38,7 @@ function EventItem({ event, isLast }: { event: AgentEvent; isLast: boolean }) {
 
       {/* Timeline dot */}
       <div
-        className={`absolute left-0 top-1.5 h-6 w-6 rounded-full flex items-center justify-center ring-4 ring-background ${color}/20`}
+        className={`absolute left-0 top-1.5 h-6 w-6 rounded-full flex items-center justify-center ring-4 ring-background ${color}/15`}
       >
         <span className={`h-2.5 w-2.5 rounded-full ${color}`} />
       </div>
@@ -48,7 +48,7 @@ function EventItem({ event, isLast }: { event: AgentEvent; isLast: boolean }) {
         <div className="flex items-center gap-2">
           <Badge
             variant="outline"
-            className="text-[10px] font-mono border-white/10 bg-white/5"
+            className="text-[10px] font-mono border-border bg-muted/50"
           >
             {event.author}
           </Badge>
@@ -62,7 +62,7 @@ function EventItem({ event, isLast }: { event: AgentEvent; isLast: boolean }) {
             return (
               <p
                 key={i}
-                className="text-sm whitespace-pre-wrap leading-relaxed text-foreground/90"
+                className="text-sm whitespace-pre-wrap leading-relaxed text-foreground/85"
               >
                 {part.text}
               </p>
@@ -72,7 +72,7 @@ function EventItem({ event, isLast }: { event: AgentEvent; isLast: boolean }) {
             return (
               <div
                 key={i}
-                className="mt-1 rounded-lg bg-white/5 border border-white/5 px-3 py-2 font-mono text-xs"
+                className="mt-1 rounded-lg bg-muted/50 border border-border px-3 py-2 font-mono text-xs"
               >
                 <span className="text-primary font-semibold">
                   {part.functionCall.name}
@@ -90,7 +90,7 @@ function EventItem({ event, isLast }: { event: AgentEvent; isLast: boolean }) {
             return (
               <div
                 key={i}
-                className="mt-1 rounded-lg bg-white/3 border border-white/5 px-3 py-2 font-mono text-xs text-muted-foreground"
+                className="mt-1 rounded-lg bg-muted/30 border border-border px-3 py-2 font-mono text-xs text-muted-foreground"
               >
                 {part.functionResponse.name} {"->"}
                 {" "}
@@ -124,9 +124,9 @@ export function EventLog({
         {events.length === 0 && (
           <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
             <div className="mb-3 flex space-x-1">
-              <div className="h-2 w-2 rounded-full bg-blue-400 animate-bounce" style={{ animationDelay: "0ms" }} />
-              <div className="h-2 w-2 rounded-full bg-purple-400 animate-bounce" style={{ animationDelay: "150ms" }} />
-              <div className="h-2 w-2 rounded-full bg-emerald-400 animate-bounce" style={{ animationDelay: "300ms" }} />
+              <div className="h-2 w-2 rounded-full bg-blue-500 animate-bounce" style={{ animationDelay: "0ms" }} />
+              <div className="h-2 w-2 rounded-full bg-violet-500 animate-bounce" style={{ animationDelay: "150ms" }} />
+              <div className="h-2 w-2 rounded-full bg-emerald-500 animate-bounce" style={{ animationDelay: "300ms" }} />
             </div>
             <p className="text-sm">Waiting for events...</p>
           </div>
