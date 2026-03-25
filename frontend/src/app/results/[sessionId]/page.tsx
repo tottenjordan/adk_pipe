@@ -73,9 +73,9 @@ export default function ResultsPage({
     return (
       <div className="flex-1 flex flex-col items-center justify-center py-24">
         <div className="flex space-x-1.5 mb-4">
-          <div className="h-2.5 w-2.5 rounded-full bg-blue-400 animate-bounce" style={{ animationDelay: "0ms" }} />
-          <div className="h-2.5 w-2.5 rounded-full bg-purple-400 animate-bounce" style={{ animationDelay: "150ms" }} />
-          <div className="h-2.5 w-2.5 rounded-full bg-emerald-400 animate-bounce" style={{ animationDelay: "300ms" }} />
+          <div className="h-2.5 w-2.5 rounded-full bg-blue-500 animate-bounce" style={{ animationDelay: "0ms" }} />
+          <div className="h-2.5 w-2.5 rounded-full bg-violet-500 animate-bounce" style={{ animationDelay: "150ms" }} />
+          <div className="h-2.5 w-2.5 rounded-full bg-emerald-500 animate-bounce" style={{ animationDelay: "300ms" }} />
         </div>
         <p className="text-sm text-muted-foreground">Loading results...</p>
       </div>
@@ -86,9 +86,9 @@ export default function ResultsPage({
     return (
       <div className="mx-auto max-w-4xl px-6 py-12">
         <div className="glass rounded-2xl p-6">
-          <p className="text-red-400">{error}</p>
+          <p className="text-red-600">{error}</p>
           <Link href="/">
-            <Button variant="outline" className="mt-4 border-white/10 bg-white/5 hover:bg-white/10">
+            <Button variant="outline" className="mt-4 border-border bg-muted/50 hover:bg-muted">
               Back to Home
             </Button>
           </Link>
@@ -153,17 +153,15 @@ export default function ResultsPage({
           </p>
         </div>
         <Link href="/">
-          <Button variant="outline" size="sm" className="border-white/10 bg-white/5 hover:bg-white/10">
+          <Button variant="outline" size="sm" className="border-border bg-muted/50 hover:bg-muted">
             New Run
           </Button>
         </Link>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-[260px_1fr]">
-        {/* Left sidebar */}
+      <div className="grid gap-6 lg:grid-cols-[260px_1fr_260px]">
+        {/* Left sidebar — campaign metadata */}
         <div className="space-y-3 animate-fadeInUp animation-delay-100 opacity-0" style={{ animationFillMode: "forwards" }}>
-          {gcsUri && <GcsWidget uri={gcsUri} />}
-
           <h2 className="text-[10px] font-semibold text-muted-foreground tracking-wider uppercase pt-1">
             Campaign Metadata
           </h2>
@@ -185,7 +183,7 @@ export default function ResultsPage({
           )}
         </div>
 
-        {/* Right content area */}
+        {/* Center content area */}
         <div className="animate-fadeInUp animation-delay-200 opacity-0" style={{ animationFillMode: "forwards" }}>
           {/* Creative portfolio gallery */}
           {appName === "creative_agent" && galleryInfo && (
@@ -202,12 +200,12 @@ export default function ResultsPage({
             <Collapsible open={artifactsOpen} onOpenChange={setArtifactsOpen}>
               <div className="glass rounded-2xl mb-6 overflow-hidden">
                 <CollapsibleTrigger className="w-full">
-                  <div className="cursor-pointer hover:bg-white/3 transition-colors px-5 py-3 flex items-center justify-between">
+                  <div className="cursor-pointer hover:bg-muted/30 transition-colors px-5 py-3 flex items-center justify-between">
                     <span className="text-sm font-semibold text-foreground flex items-center gap-2">
                       Artifacts
                       <Badge
                         variant="secondary"
-                        className="bg-primary/15 text-primary border-0 text-[10px]"
+                        className="bg-primary/10 text-primary border-0 text-[10px]"
                       >
                         {artifacts.length}
                       </Badge>
@@ -220,7 +218,7 @@ export default function ResultsPage({
                 <CollapsibleContent>
                   <div className="px-5 pb-5">
                     <Tabs defaultValue="images">
-                      <TabsList className="bg-white/5 border border-white/5">
+                      <TabsList className="bg-muted/50 border border-border">
                         {imageArtifacts.length > 0 && (
                           <TabsTrigger value="images">
                             Images ({imageArtifacts.length})
@@ -255,7 +253,7 @@ export default function ResultsPage({
                             return (
                               <div
                                 key={a.name}
-                                className="overflow-hidden rounded-xl glass transition-all hover:shadow-lg hover:shadow-primary/5"
+                                className="overflow-hidden rounded-xl glass transition-all hover:shadow-md hover:shadow-black/5"
                               >
                                 {src ? (
                                   // eslint-disable-next-line @next/next/no-img-element
@@ -265,7 +263,7 @@ export default function ResultsPage({
                                     className="aspect-square w-full object-cover"
                                   />
                                 ) : (
-                                  <div className="flex aspect-square items-center justify-center bg-white/5 text-xs text-muted-foreground">
+                                  <div className="flex aspect-square items-center justify-center bg-muted/50 text-xs text-muted-foreground">
                                     No preview
                                   </div>
                                 )}
@@ -290,7 +288,7 @@ export default function ResultsPage({
                               </span>
                               <Badge
                                 variant="outline"
-                                className="border-white/10"
+                                className="border-border"
                               >
                                 PDF
                               </Badge>
@@ -311,7 +309,7 @@ export default function ResultsPage({
                               </span>
                               <Badge
                                 variant="outline"
-                                className="border-white/10"
+                                className="border-border"
                               >
                                 HTML
                               </Badge>
@@ -343,7 +341,7 @@ export default function ResultsPage({
           <Collapsible open={stateOpen} onOpenChange={setStateOpen}>
             <div className="glass rounded-2xl overflow-hidden">
               <CollapsibleTrigger className="w-full">
-                <div className="cursor-pointer hover:bg-white/3 transition-colors px-5 py-3 flex items-center justify-between">
+                <div className="cursor-pointer hover:bg-muted/30 transition-colors px-5 py-3 flex items-center justify-between">
                   <span className="text-sm font-semibold text-foreground">
                     Session State
                   </span>
@@ -354,13 +352,18 @@ export default function ResultsPage({
               </CollapsibleTrigger>
               <CollapsibleContent>
                 <div className="px-5 pb-5">
-                  <pre className="max-h-96 overflow-auto rounded-lg bg-white/5 p-4 text-xs font-mono text-foreground/70">
+                  <pre className="max-h-96 overflow-auto rounded-lg bg-muted/50 p-4 text-xs font-mono text-foreground/70">
                     {JSON.stringify(state, null, 2)}
                   </pre>
                 </div>
               </CollapsibleContent>
             </div>
           </Collapsible>
+        </div>
+
+        {/* Right sidebar — Cloud Storage Output */}
+        <div className="space-y-3 animate-fadeInUp animation-delay-300 opacity-0" style={{ animationFillMode: "forwards" }}>
+          {gcsUri && <GcsWidget uri={gcsUri} />}
         </div>
       </div>
     </div>

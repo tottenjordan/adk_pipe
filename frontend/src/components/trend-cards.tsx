@@ -90,7 +90,7 @@ export function TrendCards({
           <div
             key={trend.term}
             className="glass rounded-xl cursor-pointer transition-all duration-200
-                       hover:border-primary/30 hover:shadow-lg hover:shadow-primary/5
+                       hover:shadow-md hover:shadow-black/5
                        animate-fadeInUp opacity-0"
             style={{ animationDelay: `${i * 100}ms`, animationFillMode: "forwards" }}
             onClick={() => handleClick(trend)}
@@ -102,7 +102,7 @@ export function TrendCards({
                 </h4>
                 <Badge
                   variant="secondary"
-                  className="text-[10px] bg-primary/15 text-primary border-0"
+                  className="text-[10px] bg-primary/10 text-primary border-0"
                 >
                   Click to run
                 </Badge>
@@ -112,7 +112,7 @@ export function TrendCards({
                   {trend.hook}
                 </p>
               )}
-              <div className="space-y-1.5 text-xs text-foreground/80">
+              <div className="space-y-1.5 text-xs text-foreground/75">
                 {trend.context && (
                   <div>
                     <span className="font-medium text-muted-foreground">
@@ -141,7 +141,7 @@ export function TrendCards({
               <Button
                 size="sm"
                 variant="outline"
-                className="mt-3 text-xs border-white/10 bg-white/5 hover:bg-white/10"
+                className="mt-3 text-xs border-border bg-muted/50 hover:bg-muted"
                 onClick={(e) => {
                   e.stopPropagation();
                   handleClick(trend);
