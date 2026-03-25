@@ -762,12 +762,16 @@ async def save_creative_gallery_html(tool_context: ToolContext) -> dict:
             GCS_BLOB_PATH = f"{gcs_folder}/{gcs_subdir}/{ARTIFACT_KEY}"
             AUTH_GCS_URL = f"https://storage.mtls.cloud.google.com/{config.GCS_BUCKET_NAME}/{GCS_BLOB_PATH}?authuser=3"
 
-            # get high-res image
-            HIGH_RES_AUTH_GCS_URL = _get_high_res_img(
-                gcs_folder=tool_context.state["gcs_folder"],
-                gcs_subdir=tool_context.state["agent_output_dir"],
-                artifact_key=ARTIFACT_KEY,
-            )
+            # get high-res image (fall back to standard-res if missing)
+            try:
+                HIGH_RES_AUTH_GCS_URL = _get_high_res_img(
+                    gcs_folder=tool_context.state["gcs_folder"],
+                    gcs_subdir=tool_context.state["agent_output_dir"],
+                    artifact_key=ARTIFACT_KEY,
+                )
+            except Exception as e:
+                logging.warning(f"Could not create high-res image for '{ARTIFACT_KEY}', falling back to standard-res: {e}")
+                HIGH_RES_AUTH_GCS_URL = AUTH_GCS_URL
 
             # generate HTML block for gallery images
             GALLERY_IMAGE_BLOCK = f"""
