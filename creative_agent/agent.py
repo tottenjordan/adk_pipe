@@ -694,7 +694,16 @@ visual_concept_finalizer = Agent(
         <visual_concept_critique>
         {visual_concept_critique}
         </visual_concept_critique>
+
+        <ad_copy_critique>
+        {ad_copy_critique}
+        </ad_copy_critique>
     </CONTEXT>
+
+    <GUIDANCE>
+    Each visual concept has an `ad_copy_id` that maps to an entry in `ad_copy_critique`.
+    You MUST look up the matching ad copy by `original_id` and use its exact `headline`, `social_caption`, and `call_to_action` values — do NOT generate new ones.
+    </GUIDANCE>
 
     <OUTPUT_FORMAT>
     **CRITICAL RULE: Your entire output MUST be a single, raw JSON object validating against the 'VisualConceptFinalList' schema**
