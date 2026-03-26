@@ -721,6 +721,14 @@ npm run test:watch    # watch mode
 uv run pytest tests/ -v
 ```
 
+```bash
+# Integration tests — requires deployed agents + GCP credentials
+python deployment/integration_test.py --check health                          # verify agents reachable
+python deployment/integration_test.py --check session --agent trend_trawler   # session create/delete lifecycle
+python deployment/integration_test.py --check smoke --agent creative_agent    # full end-to-end with assertions
+python deployment/integration_test.py --check all                             # run all checks
+```
+
 **CI:** GitHub Actions runs frontend tests on push/PR to `main` when `frontend/**` files change (`.github/workflows/frontend-tests.yml`).
 
 ## Repo Structure
@@ -756,6 +764,7 @@ uv run pytest tests/ -v
 │   └── tools.py
 ├── deployment
 │   ├── deploy_agent.py
+│   ├── integration_test.py
 │   └── test_deployment.py
 ├── frontend
 │   ├── src
@@ -789,6 +798,8 @@ uv run pytest tests/ -v
 ├── tests
 │   ├── __init__.py
 │   ├── test_callbacks.py
+│   ├── test_crf_logic.py
+│   ├── test_deploy_utils.py
 │   ├── test_pipeline_structure.py
 │   ├── test_schemas.py
 │   └── test_tools.py

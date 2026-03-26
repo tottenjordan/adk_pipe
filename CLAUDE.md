@@ -47,8 +47,17 @@ uv run pytest tests/ -v
 ```
 
 - Frontend: `frontend/src/__tests__/` — pure logic tests (SSE parsing, form validation, GCS URI building, widget layouts, trend markdown parsing, extractItems)
-- Python: `tests/` — Pydantic schema validation, agent pipeline structure, tool functions, callbacks (citation regex, state init, rate limiting)
+- Python: `tests/` — Pydantic schema validation, agent pipeline structure, tool functions, callbacks (citation regex, state init, rate limiting), deployment utilities, cloud function logic
+- Integration: `deployment/integration_test.py` — live GCP checks (health, session lifecycle, smoke tests). Requires deployed agents.
 - CI: `.github/workflows/frontend-tests.yml` — runs frontend tests on push/PR to `main` when `frontend/**` changes
+
+```bash
+# Integration tests (requires deployed agents + GCP credentials)
+python deployment/integration_test.py --check health                          # verify agents reachable
+python deployment/integration_test.py --check session --agent trend_trawler   # session lifecycle
+python deployment/integration_test.py --check smoke --agent creative_agent    # full end-to-end
+python deployment/integration_test.py --check all                             # everything
+```
 
 ## Architecture
 
