@@ -33,7 +33,22 @@ python deployment/test_deployment.py --agent=trend_trawler --user_id=$USER_ID
 python deployment/test_deployment.py --agent=creative_agent --user_id=$USER_ID
 ```
 
-No test suite or linter is configured. Code formatting uses Black (via VSCode).
+Code formatting uses Black (via VSCode).
+
+### Testing
+
+```bash
+# Frontend tests (Vitest + React Testing Library)
+cd frontend && npm test            # single run
+cd frontend && npm run test:watch  # watch mode
+
+# Python tests (pytest) — requires GCP credentials (module-level genai.Client)
+uv run pytest tests/ -v
+```
+
+- Frontend: `frontend/src/__tests__/` — pure logic tests (SSE parsing, form validation, GCS URI building, widget layouts, trend markdown parsing, extractItems)
+- Python: `tests/` — Pydantic schema validation, agent pipeline structure, tool functions, callbacks (citation regex, state init, rate limiting)
+- CI: `.github/workflows/frontend-tests.yml` — runs frontend tests on push/PR to `main` when `frontend/**` changes
 
 ## Architecture
 
@@ -67,7 +82,7 @@ Key ADK patterns used: `Agent`, `SequentialAgent`, `ParallelAgent`, `AgentTool` 
 
 ### Frontend — `frontend/`
 
-Next.js 16 (App Router) + TypeScript + Tailwind CSS + shadcn/ui. Dark glassmorphic theme with Sora font. Consumes the ADK `api_server` REST + SSE endpoints at `localhost:8000`.
+Next.js 16 (App Router) + TypeScript + Tailwind CSS + shadcn/ui. Light theme with Sora font. Consumes the ADK `api_server` REST + SSE endpoints at `localhost:8000`.
 
 **Pages:**
 - `/` — Campaign input form (brand, audience, product, selling points, agent selector)

@@ -29,6 +29,7 @@
 - [Installation](#installation)
 - [Usage](#usage)
 - [Frontend UI](#frontend-ui)
+- [Testing](#testing)
 - [Deployment](#deployment)
 - [Repo Structure](#repo-structure)
 - [TODO](#todo)
@@ -706,10 +707,29 @@ gcloud run services update $SERVICE_NAME \
 ```
 
 
+## Testing
+
+```bash
+# Frontend tests (Vitest + React Testing Library + jsdom)
+cd frontend
+npm test              # single run
+npm run test:watch    # watch mode
+```
+
+```bash
+# Python tests (pytest) — requires GCP credentials
+uv run pytest tests/ -v
+```
+
+**CI:** GitHub Actions runs frontend tests on push/PR to `main` when `frontend/**` files change (`.github/workflows/frontend-tests.yml`).
+
 ## Repo Structure
 
 ```bash
 .
+├── .github
+│   └── workflows
+│       └── frontend-tests.yml
 ├── cloud_funktions
 │   ├── creative_crf
 │   │   ├── config.py
@@ -739,6 +759,14 @@ gcloud run services update $SERVICE_NAME \
 │   └── test_deployment.py
 ├── frontend
 │   ├── src
+│   │   ├── __tests__
+│   │   │   ├── setup.ts
+│   │   │   ├── api-client.test.ts
+│   │   │   ├── extract-items.test.ts
+│   │   │   ├── form-validation.test.ts
+│   │   │   ├── gcs-uri.test.ts
+│   │   │   ├── parse-trends.test.ts
+│   │   │   └── widget-layouts.test.ts
 │   │   ├── app
 │   │   │   ├── layout.tsx
 │   │   │   ├── page.tsx
@@ -755,8 +783,15 @@ gcloud run services update $SERVICE_NAME \
 │   │   └── lib
 │   │       ├── api.ts
 │   │       └── types.ts
+│   ├── vitest.config.ts
 │   ├── package.json
 │   └── next.config.ts
+├── tests
+│   ├── __init__.py
+│   ├── test_callbacks.py
+│   ├── test_pipeline_structure.py
+│   ├── test_schemas.py
+│   └── test_tools.py
 ├── deploy-to-agent-engine.ipynb
 ├── uv.lock
 ├── pyproject.toml
