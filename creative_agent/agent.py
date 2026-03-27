@@ -14,6 +14,7 @@ from .sub_agents.trend_researcher.agent import gs_sequential_planner
 from .config import config
 from . import callbacks
 from . import tools
+from creative_eval.agent import creative_eval_agent
 
 
 # --- config ---
@@ -773,8 +774,9 @@ root_agent = Agent(
     4. Use the `ad_creative_pipeline` tool to generate ad copies.
     5. Use the `visual_generation_pipeline` tool to generate visual concepts.
     6. Use the `visual_generator` tool to generate image creatives.
-    7. Use the `save_creative_gallery_html` tool to build an HTML file for displaying a portfolio of the generated creatives generated during the session.
-    8. Use the `write_trends_to_bq` tool to insert rows to BigQuery.
+    7. Use the `creative_eval_agent` tool to evaluate all generated ad copies and visual concepts for quality.
+    8. Use the `save_creative_gallery_html` tool to build an HTML file for displaying a portfolio of the generated creatives generated during the session.
+    9. Use the `write_trends_to_bq` tool to insert rows to BigQuery.
     </AVAILABLE_TOOLS>
 
 
@@ -800,9 +802,10 @@ root_agent = Agent(
     3. Invoke the `ad_creative_pipeline` tool to generate a set of candidate ad copies.
     4. Then, call the `visual_generation_pipeline` tool to generate visual concepts for the finalized ad copies.
     5. Next, call the `visual_generator` tool to generate high-fidelity image creatives based on the visual concepts.
-    6. Then, call the `save_creative_gallery_html` tool to create an HTML portfolio and save it to Cloud Storage.
-    7. Finally as the last step, call the `write_trends_to_bq` tool to save trend information to BigQuery for logging and analytics.
-    8. Once the previous steps are complete, perform the following action:
+    6. Call the `creative_eval_agent` tool to evaluate the quality of all generated ad copies and visual concepts. This will score each creative on dimensions like trend authenticity, copy quality, audience fit, and stopping power, and store a detailed evaluation report in the session state.
+    7. Then, call the `save_creative_gallery_html` tool to create an HTML portfolio and save it to Cloud Storage.
+    8. Finally as the last step, call the `write_trends_to_bq` tool to save trend information to BigQuery for logging and analytics.
+    9. Once the previous steps are complete, perform the following action:
 
     Action 1: Display Cloud Storage location to the user
     Display the Cloud Storage URI to the user by combining the 'gcs_bucket', 'gcs_folder', and 'agent_output_dir' state keys like this: {gcs_bucket}/{gcs_folder}/{agent_output_dir}
@@ -815,6 +818,7 @@ root_agent = Agent(
         AgentTool(agent=ad_creative_pipeline),
         AgentTool(agent=visual_generation_pipeline),
         AgentTool(agent=visual_generator),
+        AgentTool(agent=creative_eval_agent),
         tools.save_draft_report_artifact,
         tools.save_creative_gallery_html,
         tools.write_trends_to_bq,
