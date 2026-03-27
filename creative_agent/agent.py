@@ -775,8 +775,9 @@ root_agent = Agent(
     5. Use the `visual_generation_pipeline` tool to generate visual concepts.
     6. Use the `visual_generator` tool to generate image creatives.
     7. Use the `creative_eval_agent` tool to evaluate all generated ad copies and visual concepts for quality.
-    8. Use the `save_creative_gallery_html` tool to build an HTML file for displaying a portfolio of the generated creatives generated during the session.
-    9. Use the `write_trends_to_bq` tool to insert rows to BigQuery.
+    8. Use the `save_eval_report_to_gcs` tool to save the creative evaluation report JSON to Cloud Storage.
+    9. Use the `save_creative_gallery_html` tool to build an HTML file for displaying a portfolio of the generated creatives generated during the session.
+    10. Use the `write_trends_to_bq` tool to insert rows to BigQuery.
     </AVAILABLE_TOOLS>
 
 
@@ -803,8 +804,9 @@ root_agent = Agent(
     4. Then, call the `visual_generation_pipeline` tool to generate visual concepts for the finalized ad copies.
     5. Next, call the `visual_generator` tool to generate high-fidelity image creatives based on the visual concepts.
     6. Call the `creative_eval_agent` tool to evaluate the quality of all generated ad copies and visual concepts. This will score each creative on dimensions like trend authenticity, copy quality, audience fit, and stopping power, and store a detailed evaluation report in the session state.
-    7. Then, call the `save_creative_gallery_html` tool to create an HTML portfolio and save it to Cloud Storage.
-    8. Finally as the last step, call the `write_trends_to_bq` tool to save trend information to BigQuery for logging and analytics.
+    7. Call the `save_eval_report_to_gcs` tool to save the creative evaluation report JSON to Cloud Storage.
+    8. Then, call the `save_creative_gallery_html` tool to create an HTML portfolio and save it to Cloud Storage.
+    9. Finally as the last step, call the `write_trends_to_bq` tool to save trend information to BigQuery for logging and analytics.
     9. Once the previous steps are complete, perform the following action:
 
     Action 1: Display Cloud Storage location to the user
@@ -819,6 +821,7 @@ root_agent = Agent(
         AgentTool(agent=visual_generation_pipeline),
         AgentTool(agent=visual_generator),
         AgentTool(agent=creative_eval_agent),
+        tools.save_eval_report_to_gcs,
         tools.save_draft_report_artifact,
         tools.save_creative_gallery_html,
         tools.write_trends_to_bq,

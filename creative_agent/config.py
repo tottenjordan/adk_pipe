@@ -33,12 +33,12 @@ class ResearchConfiguration:
     """
 
     state_init = "_state_init"
-    critic_model: str = "gemini-2.5-pro"
-    worker_model: str = "gemini-2.5-flash"
-    video_analysis_model: str = "gemini-2.5-pro"
-    lite_planner_model: str = "gemini-2.5-flash-lite"
-    image_gen_model: str = "imagen-4.0-generate-001" # "gemini-2.5-flash-image"
-    video_gen_model: str = "veo-3.0-generate-001" # "veo-3.1-generate-preview"
+    critic_model: str = "gemini-2.5-pro" # gemini-3-pro-preview
+    worker_model: str = "gemini-2.5-flash" # gemini-3-flash-preview
+    video_analysis_model: str = "gemini-2.5-pro" # gemini-3-pro-preview
+    lite_planner_model: str = "gemini-2.5-flash-lite" # gemini-3-flash-preview
+    image_gen_model: str = "imagen-4.0-generate-001" # "imagen-4.0-ultra-generate-001
+    video_gen_model: str = "veo-3.1-generate-001" # "veo-3.0-generate-001"
     max_results_yt_trends: int = 45
 
     # Adjust these values to limit the rate at which the agent queries the LLM API.
