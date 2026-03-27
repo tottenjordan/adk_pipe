@@ -719,6 +719,9 @@ npm run test:watch    # watch mode
 ```bash
 # Python tests (pytest) — requires GCP credentials
 uv run pytest tests/ -v
+
+# Creative evaluation test (real Gemini API calls, ~2 min)
+uv run python -m creative_eval.run_eval_test
 ```
 
 ```bash
@@ -762,6 +765,14 @@ python deployment/integration_test.py --check all                             # 
 │   │       ├── agent.py
 │   │       └── __init__.py
 │   └── tools.py
+├── creative_eval
+│   ├── __init__.py
+│   ├── agent.py
+│   ├── config.py
+│   ├── evaluate.py
+│   ├── prompts.py
+│   ├── run_eval_test.py
+│   └── schemas.py
 ├── deployment
 │   ├── deploy_agent.py
 │   ├── integration_test.py
@@ -798,6 +809,7 @@ python deployment/integration_test.py --check all                             # 
 ├── tests
 │   ├── __init__.py
 │   ├── test_callbacks.py
+│   ├── test_creative_eval.py
 │   ├── test_crf_logic.py
 │   ├── test_deploy_utils.py
 │   ├── test_pipeline_structure.py
