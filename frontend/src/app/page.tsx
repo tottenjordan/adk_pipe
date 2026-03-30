@@ -78,7 +78,7 @@ function HomeContent() {
 
       // Build the user message with campaign metadata
       let message = `Brand Name: "${form.brand}"\nTarget Audience: "${form.targetAudience}"\nTarget Product: "${form.targetProduct}"\nKey Selling Points: "${form.keySellingPoints}"`;
-      if (form.agent === "creative_agent" && form.targetSearchTrend) {
+      if ((form.agent === "creative_agent" || form.agent === "interactive_creative") && form.targetSearchTrend) {
         message += `\ntarget_search_trend: "${form.targetSearchTrend}"`;
       }
 
@@ -102,7 +102,7 @@ function HomeContent() {
     form.targetAudience &&
     form.targetProduct &&
     form.keySellingPoints &&
-    (form.agent !== "creative_agent" || form.targetSearchTrend);
+    (form.agent === "trend_trawler" || form.targetSearchTrend);
 
   const isPreFilled = searchParams.get("targetSearchTrend");
 
@@ -147,7 +147,7 @@ function HomeContent() {
             <Select
               value={form.agent}
               onValueChange={(v) =>
-                setForm({ ...form, agent: v as CampaignInput["agent"] })
+                v && setForm({ ...form, agent: v as CampaignInput["agent"] })
               }
             >
               <SelectTrigger id="agent" className="w-full min-w-[400px] bg-background border-border hover:border-foreground/20 transition-colors">
@@ -160,6 +160,9 @@ function HomeContent() {
                 <SelectItem value="creative_agent">
                   Creative Agent &mdash; Generate ad creatives
                 </SelectItem>
+                <SelectItem value="interactive_creative">
+                  Interactive Creative &mdash; Generate with review checkpoints
+                </SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -170,7 +173,7 @@ function HomeContent() {
             </Label>
             <Select
               value=""
-              onValueChange={(v) => setForm({ ...form, brand: v })}
+              onValueChange={(v) => v && setForm({ ...form, brand: v })}
             >
               <SelectTrigger className="w-full bg-background border-border hover:border-foreground/20 transition-colors text-muted-foreground">
                 <SelectValue placeholder="Select a preset..." />
@@ -196,7 +199,7 @@ function HomeContent() {
             </Label>
             <Select
               value=""
-              onValueChange={(v) => setForm({ ...form, targetAudience: v })}
+              onValueChange={(v) => v && setForm({ ...form, targetAudience: v })}
             >
               <SelectTrigger className="w-full bg-background border-border hover:border-foreground/20 transition-colors text-muted-foreground">
                 <SelectValue placeholder="Select a preset..." />
@@ -227,7 +230,7 @@ function HomeContent() {
             </Label>
             <Select
               value=""
-              onValueChange={(v) => setForm({ ...form, targetProduct: v })}
+              onValueChange={(v) => v && setForm({ ...form, targetProduct: v })}
             >
               <SelectTrigger className="w-full bg-background border-border hover:border-foreground/20 transition-colors text-muted-foreground">
                 <SelectValue placeholder="Select a preset..." />
@@ -255,7 +258,7 @@ function HomeContent() {
             </Label>
             <Select
               value=""
-              onValueChange={(v) => setForm({ ...form, keySellingPoints: v })}
+              onValueChange={(v) => v && setForm({ ...form, keySellingPoints: v })}
             >
               <SelectTrigger className="w-full bg-background border-border hover:border-foreground/20 transition-colors text-muted-foreground">
                 <SelectValue placeholder="Select a preset..." />
@@ -280,7 +283,7 @@ function HomeContent() {
             />
           </div>
 
-          {form.agent === "creative_agent" && (
+          {(form.agent === "creative_agent" || form.agent === "interactive_creative") && (
             <div className="space-y-2 animate-fadeInUpSmooth">
               <Label htmlFor="trend" className="text-muted-foreground text-xs uppercase tracking-wider">
                 Target Search Trend

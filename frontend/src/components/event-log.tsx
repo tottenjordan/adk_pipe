@@ -133,7 +133,7 @@ export function EventLog({
         )}
         {events.map((event, i) => (
           <EventItem
-            key={i}
+            key={event.id || `evt-${i}`}
             event={event}
             isLast={i === events.length - 1}
           />

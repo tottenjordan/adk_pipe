@@ -289,7 +289,7 @@ export default function ResultsPage({
     .filter((f) => f.value);
 
   // Does this run have the creative asset + eval view?
-  const hasCreativeView = appName === "creative_agent" && visualConcepts.length > 0;
+  const hasCreativeView = (appName === "creative_agent" || appName === "interactive_creative") && visualConcepts.length > 0;
 
   return (
     <div className="mx-auto max-w-[1600px] px-6 py-8">
@@ -322,8 +322,8 @@ export default function ResultsPage({
         </div>
       </div>
 
-      {/* Campaign metadata bar — sticky, equal-width, centered */}
-      <div className="sticky top-0 z-30 -mx-6 px-6 pt-4 pb-3 mb-6 bg-background/90 backdrop-blur-xl border-b border-border/50 shadow-sm">
+      {/* Campaign metadata bar — equal-width, centered */}
+      <div className="-mx-6 px-6 pt-4 pb-3 mb-6 border-b border-border/50">
         <div className="grid gap-3 justify-center" style={{ gridTemplateColumns: `repeat(${campaignFields.length + (gcsUri ? 1 : 0)}, minmax(0, 240px))` }}>
           {campaignFields.map((f) => (
             <div key={f.key} className="glass rounded-xl px-4 py-2.5 text-center">
