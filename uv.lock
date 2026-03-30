@@ -617,7 +617,7 @@ wheels = [
 
 [[package]]
 name = "google-adk"
-version = "1.27.3"
+version = "1.28.0"
 source = { registry = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/simple/" }
 dependencies = [
     { name = "aiosqlite" },
@@ -666,9 +666,9 @@ dependencies = [
     { name = "watchdog" },
     { name = "websockets" },
 ]
-sdist = { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/google-adk/google_adk-1.27.3.tar.gz", hash = "sha256:58945d207cc8f87a5ece7610b3b209f14e254d6f45283ee9431e487fe3552db5" }
+sdist = { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/google-adk/google_adk-1.28.0.tar.gz", hash = "sha256:3c7ef1a518296641b992cc68ae4795987da48765f9788af37da1acc39db0f362" }
 wheels = [
-    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/google-adk/google_adk-1.27.3-py3-none-any.whl", hash = "sha256:1ef8f32b1a9cc393a9de2fc8700d961b4c25206a7e8631c1386fa5d8c4f9628b" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/google-adk/google_adk-1.28.0-py3-none-any.whl", hash = "sha256:8470c2e5a97bcef9a54283148be9f4ffaa88b3eefe3f55f269183f715d8830b6" },
 ]
 
 [[package]]
