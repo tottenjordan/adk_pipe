@@ -745,6 +745,14 @@ uv run pytest tests/ -v
 
 # Creative evaluation test (real Gemini API calls, ~2 min)
 uv run python -m creative_eval.run_eval_test
+
+# ADK evals — end-to-end agent evaluation with LLM-as-judge (real API calls, ~5 min per case)
+uv run adk eval trend_trawler tests/eval/evalsets/trend_trawler_evalset.json \
+  --config_file_path=tests/eval/eval_config.json --print_detailed_results
+
+# Run a single eval case
+uv run adk eval trend_trawler tests/eval/evalsets/trend_trawler_evalset.json:prs_guitars_campaign \
+  --config_file_path=tests/eval/eval_config.json --print_detailed_results
 ```
 
 ```bash
@@ -836,6 +844,10 @@ python deployment/integration_test.py --check all                             # 
 │   └── next.config.ts
 ├── tests
 │   ├── __init__.py
+│   ├── eval
+│   │   ├── eval_config.json
+│   │   └── evalsets
+│   │       └── trend_trawler_evalset.json
 │   ├── test_callbacks.py
 │   ├── test_creative_eval.py
 │   ├── test_crf_logic.py

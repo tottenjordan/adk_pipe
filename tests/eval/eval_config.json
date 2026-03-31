@@ -1,0 +1,52 @@
+{
+  "criteria": {
+    "rubric_based_final_response_quality_v1": {
+      "threshold": 0.8,
+      "rubrics": [
+        {
+          "rubric_id": "cloud_storage_uri",
+          "rubric_content": {
+            "text_property": "The final response MUST include a Cloud Storage location path (containing 'gs://' or a GCS bucket reference)."
+          }
+        },
+        {
+          "rubric_id": "selected_trends",
+          "rubric_content": {
+            "text_property": "The final response MUST include a 'Selected Strategy' section with at least 2 trending search terms, each with a marketing angle or strategic bridge explanation."
+          }
+        },
+        {
+          "rubric_id": "brand_relevance",
+          "rubric_content": {
+            "text_property": "The selected trends and strategic bridges MUST reference or relate to the brand, product, or target audience provided in the campaign metadata. Each trend should have an explicit explanation of how it connects to the campaign."
+          }
+        }
+      ],
+      "judge_model_options": {
+        "judge_model": "gemini-2.5-flash",
+        "num_samples": 3
+      }
+    },
+    "rubric_based_tool_use_quality_v1": {
+      "threshold": 0.8,
+      "rubrics": [
+        {
+          "rubric_id": "pipeline_execution",
+          "rubric_content": {
+            "text_property": "The agent MUST execute the pipeline in the correct logical order: first memorize campaign metadata, then gather trends, then research/understand trends, then pick/select trends, then persist results (save to state, BigQuery, file, and GCS)."
+          }
+        },
+        {
+          "rubric_id": "all_tools_used",
+          "rubric_content": {
+            "text_property": "The agent MUST call all of these tools at least once: memorize, gather_trends_agent, understand_trends_agent, pick_trends_agent, save_search_trends_to_session_state, write_trends_to_bq, write_to_file, save_session_state_to_gcs."
+          }
+        }
+      ],
+      "judge_model_options": {
+        "judge_model": "gemini-2.5-flash",
+        "num_samples": 3
+      }
+    }
+  }
+}
