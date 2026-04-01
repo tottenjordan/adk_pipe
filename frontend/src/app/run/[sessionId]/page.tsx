@@ -1,16 +1,25 @@
 "use client";
 
-import { useEffect, useState, useRef, useMemo, use } from "react";
+import React, { useEffect, useState, useRef, useMemo, use } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { EventLog } from "@/components/event-log";
 import { TrendCards, parseTrendsMarkdown } from "@/components/trend-cards";
 import { GcsWidget } from "@/components/gcs-widget";
-import { streamRun } from "@/lib/api";
+import { Textarea } from "@/components/ui/textarea";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import { streamRun, resumeRun, getSession } from "@/lib/api";
 import type { AgentEvent } from "@/lib/types";
 
-type Status = "running" | "completed" | "error";
+type Status = "running" | "completed" | "error" | "paused";
+
+interface PauseContext {
+  functionCallId: string;
+  functionName: string;
+  eventId: string;
+}
 
 /** Pipeline state keys to surface as collapsible widgets, in display order (newest first). */
 const PIPELINE_STATE_KEYS = [
@@ -143,14 +152,15 @@ function ItemCard({
   item: Record<string, unknown>;
   index: number;
   widgetKey: string;
-}) {
+}): React.ReactNode {
   const title =
     (item.concept_name as string) ||
     (item.headline as string) ||
     `Item ${index + 1}`;
 
   const layout = WIDGET_LAYOUTS[widgetKey] || DEFAULT_LAYOUT;
-  const { pairs, fullWidth } = layout;
+  const pairs: [string, string][] = layout.pairs;
+  const fullWidth = layout.fullWidth;
 
   // Collect fields used in structured layout
   const structuredFields = new Set<string>();
@@ -181,7 +191,7 @@ function ItemCard({
       </div>
 
       {/* Side-by-side panels */}
-      {pairs.map(([leftKey, rightKey]) => {
+      {pairs.map(([leftKey, rightKey]): React.ReactNode => {
         const leftVal = item[leftKey];
         const rightVal = item[rightKey];
         if (!leftVal && !rightVal) return null;
@@ -206,7 +216,7 @@ function ItemCard({
       })}
 
       {/* Full-width panel */}
-      {fullWidth && item[fullWidth] && (
+      {fullWidth && !!item[fullWidth] && (
         <div className="rounded-md bg-cyan-50/60 border border-cyan-200/40 px-2.5 py-2">
           <FieldCell fieldKey={fullWidth} value={item[fullWidth]} />
         </div>
@@ -319,6 +329,249 @@ function PipelineWidget({
   );
 }
 
+/* ── Review panel components for interactive mode ── */
+
+function ReviewResearch({
+  state,
+  onResume,
+}: {
+  state: Record<string, unknown>;
+  onResume: (response: Record<string, unknown>) => void;
+}) {
+  const [feedback, setFeedback] = useState("");
+  const [editMode, setEditMode] = useState(false);
+  const report = state.combined_final_cited_report as string | undefined;
+  const [editedReport, setEditedReport] = useState(report ?? "");
+
+  return (
+    <div className="glass rounded-2xl p-6 space-y-4 animate-fadeInUp">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <span className="inline-block h-2.5 w-2.5 rounded-full bg-amber-500" />
+          <h2 className="text-lg font-semibold">Review Research Report</h2>
+        </div>
+        {report && (
+          <button
+            onClick={() => setEditMode((v) => !v)}
+            className="text-xs font-medium text-primary hover:text-primary/80 transition-colors"
+          >
+            {editMode ? "Preview" : "Edit"}
+          </button>
+        )}
+      </div>
+      <p className="text-sm text-muted-foreground">
+        Review the research findings below. Approve to continue to ad copy generation,
+        or provide feedback for revisions.
+      </p>
+      {report && !editMode && (
+        <div className="max-h-[28rem] overflow-y-auto rounded-lg bg-muted/30 p-5 border border-border prose prose-sm prose-neutral max-w-none
+          prose-headings:text-foreground prose-headings:font-bold
+          prose-h1:text-lg prose-h2:text-base prose-h3:text-sm
+          prose-p:text-foreground/85 prose-p:leading-relaxed
+          prose-a:text-primary prose-a:no-underline hover:prose-a:underline
+          prose-strong:text-foreground prose-strong:font-semibold
+          prose-li:text-foreground/85
+          prose-code:text-xs prose-code:bg-muted prose-code:rounded prose-code:px-1
+          prose-blockquote:border-l-primary/30 prose-blockquote:text-muted-foreground">
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>{report}</ReactMarkdown>
+        </div>
+      )}
+      {report && editMode && (
+        <Textarea
+          value={editedReport}
+          onChange={(e) => setEditedReport(e.target.value)}
+          rows={16}
+          className="bg-background border-border font-mono text-xs leading-relaxed max-h-[28rem]"
+        />
+      )}
+      <Textarea
+        placeholder="Optional feedback or revision requests..."
+        value={feedback}
+        onChange={(e) => setFeedback(e.target.value)}
+        rows={3}
+        className="bg-background border-border"
+      />
+      <div className="flex gap-3">
+        <Button onClick={() => onResume({ status: "approved", feedback, instruction: "User approved the research. Continue to the next step in the WORKFLOW." })}>
+          Approve &amp; Continue
+        </Button>
+        <Button
+          variant="outline"
+          onClick={() => onResume({ status: "revision_requested", feedback, instruction: "User requested changes to the research. Address their feedback, then continue the WORKFLOW." })}
+          disabled={!feedback}
+        >
+          Request Changes
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+/** Labeled field for review cards */
+function ReviewField({ label, value, color }: { label: string; value: string; color: string }) {
+  if (!value) return null;
+  return (
+    <div>
+      <dt className={`text-[10px] font-bold uppercase tracking-wider ${color}`}>{label}</dt>
+      <dd className="mt-0.5 text-sm leading-snug text-foreground/85">{value}</dd>
+    </div>
+  );
+}
+
+function ReviewAdCopies({
+  state,
+  onResume,
+}: {
+  state: Record<string, unknown>;
+  onResume: (response: Record<string, unknown>) => void;
+}) {
+  const [feedback, setFeedback] = useState("");
+  const adCopies = extractItems(state.ad_copy_critique);
+
+  return (
+    <div className="glass rounded-2xl p-6 space-y-4 animate-fadeInUp">
+      <div className="flex items-center gap-2">
+        <span className="inline-block h-2.5 w-2.5 rounded-full bg-amber-500" />
+        <h2 className="text-lg font-semibold">Review Ad Copies</h2>
+      </div>
+      <p className="text-sm text-muted-foreground">
+        Review the generated ad copies. Approve to continue to visual concept generation.
+      </p>
+      {adCopies && (
+        <div className="space-y-3 max-h-[28rem] overflow-y-auto">
+          {adCopies.map((copy, i) => (
+            <div key={i} className="rounded-xl border border-border/60 bg-background/50 p-4 space-y-3">
+              {/* Title bar */}
+              <div className="flex items-center gap-2 pb-2 border-b border-border/40">
+                <Badge variant="secondary" className="text-[10px] px-1.5 py-0 bg-indigo-100 text-indigo-600 border-0 font-bold">
+                  {i + 1}
+                </Badge>
+                <span className="text-sm font-bold text-foreground">
+                  {String(copy.headline ?? `Ad Copy ${i + 1}`)}
+                </span>
+              </div>
+
+              {/* Two-column field grid */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="rounded-md bg-muted/40 px-3 py-2">
+                  <ReviewField label="Body Text" value={String(copy.body_text ?? "")} color="text-indigo-500" />
+                </div>
+                <div className="rounded-md bg-muted/40 px-3 py-2">
+                  <ReviewField label="Tone / Style" value={String(copy.tone_style ?? "")} color="text-violet-500" />
+                </div>
+                <div className="rounded-md bg-muted/40 px-3 py-2">
+                  <ReviewField label="Call to Action" value={String(copy.call_to_action ?? "")} color="text-amber-600" />
+                </div>
+                <div className="rounded-md bg-muted/40 px-3 py-2">
+                  <ReviewField label="Trend Connection" value={String(copy.trend_connection ?? "")} color="text-emerald-600" />
+                </div>
+              </div>
+
+              {/* Full-width fields */}
+              {!!copy.audience_appeal_rationale && (
+                <div className="rounded-md bg-pink-50/60 border border-pink-200/40 px-3 py-2">
+                  <ReviewField label="Audience Appeal" value={String(copy.audience_appeal_rationale)} color="text-pink-600" />
+                </div>
+              )}
+              {!!copy.social_caption && (
+                <div className="rounded-md bg-amber-50/60 border border-amber-200/40 px-3 py-2">
+                  <ReviewField label="Social Caption" value={String(copy.social_caption)} color="text-amber-500" />
+                </div>
+              )}
+              {!!copy.detailed_performance_rationale && (
+                <div className="rounded-md bg-orange-50/60 border border-orange-200/40 px-3 py-2">
+                  <ReviewField label="Performance Rationale" value={String(copy.detailed_performance_rationale)} color="text-orange-500" />
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+      <Textarea
+        placeholder="Optional feedback..."
+        value={feedback}
+        onChange={(e) => setFeedback(e.target.value)}
+        rows={3}
+        className="bg-background border-border"
+      />
+      <div className="flex gap-3">
+        <Button onClick={() => onResume({ status: "approved", feedback, instruction: "User approved the ad copies. Continue to the next step in the WORKFLOW — generate visual concepts." })}>
+          Approve &amp; Continue
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function ReviewVisualConcepts({
+  state,
+  onResume,
+}: {
+  state: Record<string, unknown>;
+  onResume: (response: Record<string, unknown>) => void;
+}) {
+  const [feedback, setFeedback] = useState("");
+  const concepts = extractItems(state.final_visual_concepts);
+
+  return (
+    <div className="glass rounded-2xl p-6 space-y-4 animate-fadeInUp">
+      <div className="flex items-center gap-2">
+        <span className="inline-block h-2.5 w-2.5 rounded-full bg-amber-500" />
+        <h2 className="text-lg font-semibold">Review Visual Concepts</h2>
+      </div>
+      <p className="text-sm text-muted-foreground">
+        Review the visual concepts and image prompts. Approve to generate images.
+      </p>
+      {concepts && (
+        <div className="space-y-3 max-h-96 overflow-y-auto">
+          {concepts.map((concept, i) => (
+            <div key={i} className="rounded-lg border p-4 space-y-2">
+              <div className="font-medium">{String(concept.concept_name ?? `Concept ${i + 1}`)}</div>
+              <div className="text-sm text-muted-foreground">{String(concept.concept_summary ?? "")}</div>
+              <div className="text-xs text-cyan-600 font-mono bg-muted/30 rounded p-2">
+                {String(concept.image_generation_prompt ?? "")}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      <Textarea
+        placeholder="Optional feedback..."
+        value={feedback}
+        onChange={(e) => setFeedback(e.target.value)}
+        rows={3}
+        className="bg-background border-border"
+      />
+      <div className="flex gap-3">
+        <Button onClick={() => onResume({ status: "approved", feedback, instruction: "User approved the visual concepts. Continue to the next step in the WORKFLOW — generate images." })}>
+          Approve &amp; Generate Images
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function ReviewPanel({
+  functionName,
+  sessionState,
+  onResume,
+}: {
+  functionName: string;
+  sessionState: Record<string, unknown>;
+  onResume: (response: Record<string, unknown>) => void;
+}) {
+  if (functionName === "review_research") {
+    return <ReviewResearch state={sessionState} onResume={onResume} />;
+  }
+  if (functionName === "review_ad_copies") {
+    return <ReviewAdCopies state={sessionState} onResume={onResume} />;
+  }
+  if (functionName === "review_visual_concepts") {
+    return <ReviewVisualConcepts state={sessionState} onResume={onResume} />;
+  }
+  return null;
+}
+
 export default function RunPage({
   params,
 }: {
@@ -332,7 +585,9 @@ export default function RunPage({
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [sessionState, setSessionState] = useState<Record<string, unknown>>({});
   const [toastDismissed, setToastDismissed] = useState(false);
+  const [pauseContext, setPauseContext] = useState<PauseContext | null>(null);
   const startedRef = useRef(false);
+  const seenEventIds = useRef(new Set<string>());
 
   const appName = searchParams.get("app") || "trend_trawler";
   const userId = searchParams.get("userId") || "default_user";
@@ -356,12 +611,17 @@ export default function RunPage({
 
     async function run() {
       try {
+        let paused = false;
         for await (const event of streamRun(
           appName,
           userId,
           sessionId,
           message
         )) {
+          // Deduplicate events by ID
+          if (event.id && seenEventIds.current.has(event.id)) continue;
+          if (event.id) seenEventIds.current.add(event.id);
+
           setEvents((prev) => [...prev, event]);
 
           if (event.actions?.stateDelta) {
@@ -370,8 +630,38 @@ export default function RunPage({
               ...event.actions!.stateDelta,
             }));
           }
+
+          // Detect long-running tool pause (interactive mode).
+          // IMPORTANT: Skip partial (streaming) events — their function call
+          // IDs are regenerated per chunk and won't match the session's final
+          // event. Only capture pause context from the non-partial event.
+          if (
+            !event.partial &&
+            event.longRunningToolIds &&
+            event.longRunningToolIds.length > 0
+          ) {
+            const functionCalls = event.content?.parts
+              ?.filter((p) => p.functionCall)
+              ?.map((p) => p.functionCall!) ?? [];
+
+            const pausedCall = functionCalls.find((fc) =>
+              event.longRunningToolIds!.includes(fc.id ?? "")
+            );
+
+            if (pausedCall) {
+              setPauseContext({
+                functionCallId: pausedCall.id ?? "",
+                functionName: pausedCall.name ?? "",
+                eventId: event.id,
+              });
+              setStatus("paused");
+              paused = true;
+              // Fetch full session state so campaign metadata is available
+              syncSessionState();
+            }
+          }
         }
-        setStatus("completed");
+        if (!paused) setStatus("completed");
       } catch (err) {
         setStatus("error");
         setErrorMsg(
@@ -382,6 +672,127 @@ export default function RunPage({
 
     run();
   }, [appName, userId, sessionId]);
+
+  // Resume from a paused long-running tool
+  async function handleResume(response: Record<string, unknown>) {
+    if (!pauseContext) return;
+    setStatus("running");
+    const ctx = pauseContext;
+    setPauseContext(null);
+
+    try {
+      let paused = false;
+      let eventCount = 0;
+      for await (const event of resumeRun(
+        appName,
+        userId,
+        sessionId,
+        ctx.functionCallId,
+        ctx.functionName,
+        ctx.eventId,
+        response
+      )) {
+        // Deduplicate events by ID
+        if (event.id && seenEventIds.current.has(event.id)) continue;
+        if (event.id) seenEventIds.current.add(event.id);
+        eventCount++;
+
+        setEvents((prev) => [...prev, event]);
+
+        if (event.actions?.stateDelta) {
+          setSessionState((prev) => ({
+            ...prev,
+            ...event.actions!.stateDelta,
+          }));
+        }
+
+        // Check for another pause (skip partial/streaming events)
+        if (!event.partial && event.longRunningToolIds && event.longRunningToolIds.length > 0) {
+          const functionCalls = event.content?.parts
+            ?.filter((p) => p.functionCall)
+            ?.map((p) => p.functionCall!) ?? [];
+
+          const pausedCall = functionCalls.find((fc) =>
+            event.longRunningToolIds!.includes(fc.id ?? "")
+          );
+
+          if (pausedCall) {
+            setPauseContext({
+              functionCallId: pausedCall.id ?? "",
+              functionName: pausedCall.name ?? "",
+              eventId: event.id,
+            });
+            setStatus("paused");
+            paused = true;
+            return;
+          }
+        }
+      }
+
+      // If no events came back, the backend may not have resumed properly.
+      // Fetch session state to check for active long-running tool calls.
+      if (eventCount === 0) {
+        console.warn("[resume] 0 events received — checking session for active pause");
+        try {
+          const session = await getSession(appName, userId, sessionId);
+          if (session.state) {
+            setSessionState((prev) => ({ ...prev, ...session.state }));
+          }
+          // Check if any event in the session has unresolved longRunningToolIds
+          for (let i = session.events.length - 1; i >= 0; i--) {
+            const evt = session.events[i];
+            if (evt.longRunningToolIds && evt.longRunningToolIds.length > 0) {
+              const functionCalls = evt.content?.parts
+                ?.filter((p) => p.functionCall)
+                ?.map((p) => p.functionCall!) ?? [];
+              const pausedCall = functionCalls.find((fc) =>
+                evt.longRunningToolIds!.includes(fc.id ?? "")
+              );
+              if (pausedCall) {
+                // Check if this pause has already been responded to
+                const hasResponse = session.events.slice(i + 1).some(
+                  (e) => e.content?.parts?.some(
+                    (p) => p.functionResponse?.id === pausedCall.id
+                  )
+                );
+                if (!hasResponse) {
+                  console.warn("[resume] Found unresolved pause:", pausedCall.name);
+                  setPauseContext({
+                    functionCallId: pausedCall.id ?? "",
+                    functionName: pausedCall.name ?? "",
+                    eventId: evt.id,
+                  });
+                  setStatus("paused");
+                  paused = true;
+                  break;
+                }
+              }
+            }
+          }
+        } catch {
+          // Session fetch failed, fall through to completed
+        }
+      }
+
+      if (!paused) setStatus("completed");
+    } catch (err) {
+      setStatus("error");
+      setErrorMsg(err instanceof Error ? err.message : "Resume failed");
+    }
+  }
+
+  // Fetch session state from backend to populate campaign metadata
+  // that was set during a prior run/resume phase
+  async function syncSessionState() {
+    try {
+      const session = await getSession(appName, userId, sessionId);
+      if (session.state) {
+        setSessionState((prev) => ({ ...prev, ...session.state }));
+      }
+    } catch {
+      // Ignore — session may not exist yet
+    }
+  }
 
   // Parse trend trawler output into clickable cards
   const trends = useMemo(() => {
@@ -419,15 +830,18 @@ export default function RunPage({
 
   // Campaign metadata fields for left sidebar
   const campaignFields = useMemo(() => {
-    const fields: { label: string; key: string }[] = [
+    const fields: { label: string; key: string; altKey?: string }[] = [
       { label: "Brand", key: "brand" },
       { label: "Target Audience", key: "target_audience" },
       { label: "Target Product", key: "target_product" },
       { label: "Key Selling Points", key: "key_selling_points" },
-      { label: "Search Trend", key: "target_search_trends" },
+      { label: "Search Trend", key: "target_search_trends", altKey: "target_search_trend" },
     ];
     return fields
-      .map((f) => ({ ...f, value: sessionState[f.key] as string | undefined }))
+      .map((f) => ({
+        ...f,
+        value: (sessionState[f.key] ?? (f.altKey ? sessionState[f.altKey] : undefined)) as string | undefined,
+      }))
       .filter((f) => f.value);
   }, [sessionState]);
 
@@ -438,6 +852,7 @@ export default function RunPage({
 
   const statusConfig: Record<Status, { color: string; glow: string }> = {
     running: { color: "bg-blue-500", glow: "shadow-blue-500/20" },
+    paused: { color: "bg-amber-500", glow: "shadow-amber-500/20" },
     completed: { color: "bg-emerald-500", glow: "shadow-emerald-500/20" },
     error: { color: "bg-red-500", glow: "shadow-red-500/20" },
   };
@@ -539,6 +954,11 @@ export default function RunPage({
                     </span>
                   </span>
                 )}
+                {status === "paused" && (
+                  <span className="text-sm text-amber-600 font-medium">
+                    Waiting for review
+                  </span>
+                )}
                 {status === "completed" && (
                   <span className="text-sm text-emerald-600 font-medium">
                     Run completed
@@ -551,6 +971,17 @@ export default function RunPage({
                 )}
               </div>
             </div>
+
+            {/* Review panel for interactive mode */}
+            {status === "paused" && pauseContext && (
+              <div className="lg:col-span-full">
+                <ReviewPanel
+                  functionName={pauseContext.functionName}
+                  sessionState={sessionState}
+                  onResume={handleResume}
+                />
+              </div>
+            )}
 
             {/* Right column: GCS output, research report, pipeline widgets, trend cards */}
             {hasRightColumn && (

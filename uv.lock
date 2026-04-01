@@ -25,7 +25,7 @@ dependencies = [
     { name = "db-dtypes" },
     { name = "fastapi" },
     { name = "functions-framework" },
-    { name = "google-adk" },
+    { name = "google-adk", extra = ["eval"] },
     { name = "google-cloud-aiplatform", extra = ["agent-engines"] },
     { name = "google-cloud-bigquery" },
     { name = "google-cloud-pubsub" },
@@ -50,7 +50,7 @@ requires-dist = [
     { name = "db-dtypes", specifier = ">=1.4.3,<2.0.0" },
     { name = "fastapi", specifier = ">=0.124.1" },
     { name = "functions-framework", specifier = "==3.9.2" },
-    { name = "google-adk", specifier = ">=1.27.3,<2.0.0" },
+    { name = "google-adk", extras = ["eval"], specifier = ">=1.27.3,<2.0.0" },
     { name = "google-cloud-aiplatform", extras = ["agent-engines"], specifier = ">=1.125.0,<2.0.0" },
     { name = "google-cloud-bigquery", specifier = ">=3.36.0,<4.0.0" },
     { name = "google-cloud-pubsub", specifier = ">=2.31.1,<3.0.0" },
@@ -506,6 +506,45 @@ wheels = [
 ]
 
 [[package]]
+name = "fastuuid"
+version = "0.14.0"
+source = { registry = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/simple/" }
+sdist = { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/fastuuid/fastuuid-0.14.0.tar.gz", hash = "sha256:178947fc2f995b38497a74172adee64fdeb8b7ec18f2a5934d037641ba265d26" }
+wheels = [
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/fastuuid/fastuuid-0.14.0-cp313-cp313-macosx_10_12_x86_64.macosx_11_0_arm64.macosx_10_12_universal2.whl", hash = "sha256:77a09cb7427e7af74c594e409f7731a0cf887221de2f698e1ca0ebf0f3139021" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/fastuuid/fastuuid-0.14.0-cp313-cp313-macosx_10_12_x86_64.whl", hash = "sha256:9bd57289daf7b153bfa3e8013446aa144ce5e8c825e9e366d455155ede5ea2dc" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/fastuuid/fastuuid-0.14.0-cp313-cp313-macosx_11_0_arm64.whl", hash = "sha256:ac60fc860cdf3c3f327374db87ab8e064c86566ca8c49d2e30df15eda1b0c2d5" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/fastuuid/fastuuid-0.14.0-cp313-cp313-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:ab32f74bd56565b186f036e33129da77db8be09178cd2f5206a5d4035fb2a23f" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/fastuuid/fastuuid-0.14.0-cp313-cp313-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:33e678459cf4addaedd9936bbb038e35b3f6b2061330fd8f2f6a1d80414c0f87" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/fastuuid/fastuuid-0.14.0-cp313-cp313-manylinux_2_5_i686.manylinux1_i686.whl", hash = "sha256:1e3cc56742f76cd25ecb98e4b82a25f978ccffba02e4bdce8aba857b6d85d87b" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/fastuuid/fastuuid-0.14.0-cp313-cp313-musllinux_1_1_aarch64.whl", hash = "sha256:cb9a030f609194b679e1660f7e32733b7a0f332d519c5d5a6a0a580991290022" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/fastuuid/fastuuid-0.14.0-cp313-cp313-musllinux_1_1_i686.whl", hash = "sha256:09098762aad4f8da3a888eb9ae01c84430c907a297b97166b8abc07b640f2995" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/fastuuid/fastuuid-0.14.0-cp313-cp313-musllinux_1_1_x86_64.whl", hash = "sha256:1383fff584fa249b16329a059c68ad45d030d5a4b70fb7c73a08d98fd53bcdab" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/fastuuid/fastuuid-0.14.0-cp313-cp313-win32.whl", hash = "sha256:a0809f8cc5731c066c909047f9a314d5f536c871a7a22e815cc4967c110ac9ad" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/fastuuid/fastuuid-0.14.0-cp313-cp313-win_amd64.whl", hash = "sha256:0df14e92e7ad3276327631c9e7cec09e32572ce82089c55cb1bb8df71cf394ed" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/fastuuid/fastuuid-0.14.0-cp314-cp314-macosx_10_12_x86_64.macosx_11_0_arm64.macosx_10_12_universal2.whl", hash = "sha256:b852a870a61cfc26c884af205d502881a2e59cc07076b60ab4a951cc0c94d1ad" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/fastuuid/fastuuid-0.14.0-cp314-cp314-macosx_10_12_x86_64.whl", hash = "sha256:c7502d6f54cd08024c3ea9b3514e2d6f190feb2f46e6dbcd3747882264bb5f7b" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/fastuuid/fastuuid-0.14.0-cp314-cp314-macosx_11_0_arm64.whl", hash = "sha256:1ca61b592120cf314cfd66e662a5b54a578c5a15b26305e1b8b618a6f22df714" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/fastuuid/fastuuid-0.14.0-cp314-cp314-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:aa75b6657ec129d0abded3bec745e6f7ab642e6dba3a5272a68247e85f5f316f" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/fastuuid/fastuuid-0.14.0-cp314-cp314-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:a8a0dfea3972200f72d4c7df02c8ac70bad1bb4c58d7e0ec1e6f341679073a7f" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/fastuuid/fastuuid-0.14.0-cp314-cp314-manylinux_2_5_i686.manylinux1_i686.whl", hash = "sha256:1bf539a7a95f35b419f9ad105d5a8a35036df35fdafae48fb2fd2e5f318f0d75" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/fastuuid/fastuuid-0.14.0-cp314-cp314-musllinux_1_1_aarch64.whl", hash = "sha256:9a133bf9cc78fdbd1179cb58a59ad0100aa32d8675508150f3658814aeefeaa4" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/fastuuid/fastuuid-0.14.0-cp314-cp314-musllinux_1_1_i686.whl", hash = "sha256:f54d5b36c56a2d5e1a31e73b950b28a0d83eb0c37b91d10408875a5a29494bad" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/fastuuid/fastuuid-0.14.0-cp314-cp314-musllinux_1_1_x86_64.whl", hash = "sha256:ec27778c6ca3393ef662e2762dba8af13f4ec1aaa32d08d77f71f2a70ae9feb8" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/fastuuid/fastuuid-0.14.0-cp314-cp314-win32.whl", hash = "sha256:e23fc6a83f112de4be0cc1990e5b127c27663ae43f866353166f87df58e73d06" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/fastuuid/fastuuid-0.14.0-cp314-cp314-win_amd64.whl", hash = "sha256:df61342889d0f5e7a32f7284e55ef95103f2110fee433c2ae7c2c0956d76ac8a" },
+]
+
+[[package]]
+name = "filelock"
+version = "3.25.2"
+source = { registry = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/simple/" }
+sdist = { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/filelock/filelock-3.25.2.tar.gz", hash = "sha256:b64ece2b38f4ca29dd3e810287aa8c48182bbecd1ae6e9ae126c9b35f1382694" }
+wheels = [
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/filelock/filelock-3.25.2-py3-none-any.whl", hash = "sha256:ca8afb0da15f229774c9ad1b455ed96e85a81373065fb10446672f64444ddf70" },
+]
+
+[[package]]
 name = "flask"
 version = "3.1.3"
 source = { registry = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/simple/" }
@@ -596,6 +635,15 @@ wheels = [
 ]
 
 [[package]]
+name = "fsspec"
+version = "2026.3.0"
+source = { registry = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/simple/" }
+sdist = { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/fsspec/fsspec-2026.3.0.tar.gz", hash = "sha256:1ee6a0e28677557f8c2f994e3eea77db6392b4de9cd1f5d7a9e87a0ae9d01b41" }
+wheels = [
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/fsspec/fsspec-2026.3.0-py3-none-any.whl", hash = "sha256:d2ceafaad1b3457968ed14efa28798162f1638dbb5d2a6868a2db002a5ee39a4" },
+]
+
+[[package]]
 name = "functions-framework"
 version = "3.9.2"
 source = { registry = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/simple/" }
@@ -616,8 +664,17 @@ wheels = [
 ]
 
 [[package]]
+name = "gepa"
+version = "0.1.1"
+source = { registry = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/simple/" }
+sdist = { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/gepa/gepa-0.1.1.tar.gz", hash = "sha256:643fda01c23de4c9f01306e01305dd69facc29bcb34ad59e4cd07e6621d34aa1" }
+wheels = [
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/gepa/gepa-0.1.1-py3-none-any.whl", hash = "sha256:71ead7c591eafcc727b83509cdc4182f20264800a6ddf8520d61419daeb47466" },
+]
+
+[[package]]
 name = "google-adk"
-version = "1.27.3"
+version = "1.28.0"
 source = { registry = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/simple/" }
 dependencies = [
     { name = "aiosqlite" },
@@ -666,9 +723,19 @@ dependencies = [
     { name = "watchdog" },
     { name = "websockets" },
 ]
-sdist = { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/google-adk/google_adk-1.27.3.tar.gz", hash = "sha256:58945d207cc8f87a5ece7610b3b209f14e254d6f45283ee9431e487fe3552db5" }
+sdist = { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/google-adk/google_adk-1.28.0.tar.gz", hash = "sha256:3c7ef1a518296641b992cc68ae4795987da48765f9788af37da1acc39db0f362" }
 wheels = [
-    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/google-adk/google_adk-1.27.3-py3-none-any.whl", hash = "sha256:1ef8f32b1a9cc393a9de2fc8700d961b4c25206a7e8631c1386fa5d8c4f9628b" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/google-adk/google_adk-1.28.0-py3-none-any.whl", hash = "sha256:8470c2e5a97bcef9a54283148be9f4ffaa88b3eefe3f55f269183f715d8830b6" },
+]
+
+[package.optional-dependencies]
+eval = [
+    { name = "gepa" },
+    { name = "google-cloud-aiplatform", extra = ["evaluation"] },
+    { name = "jinja2" },
+    { name = "pandas" },
+    { name = "rouge-score" },
+    { name = "tabulate" },
 ]
 
 [[package]]
@@ -745,7 +812,7 @@ wheels = [
 
 [[package]]
 name = "google-cloud-aiplatform"
-version = "1.142.0"
+version = "1.143.0"
 source = { registry = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/simple/" }
 dependencies = [
     { name = "docstring-parser" },
@@ -761,9 +828,9 @@ dependencies = [
     { name = "pydantic" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/google-cloud-aiplatform/google_cloud_aiplatform-1.142.0.tar.gz", hash = "sha256:87b49e002703dc14885093e9b264587db84222bef5f70f5a442d03f41beecdd1" }
+sdist = { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/google-cloud-aiplatform/google_cloud_aiplatform-1.143.0.tar.gz", hash = "sha256:1f0124a89795a6b473deb28724dd37d95334205df3a9c9c48d0b8d7a3d5d5cc4" }
 wheels = [
-    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/google-cloud-aiplatform/google_cloud_aiplatform-1.142.0-py2.py3-none-any.whl", hash = "sha256:17c91db9b613cbbafb2c36335b123686aeb2b4b8448be5134b565ae07165a39a" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/google-cloud-aiplatform/google_cloud_aiplatform-1.143.0-py2.py3-none-any.whl", hash = "sha256:78df97d044859f743a9cc48b89a260d33579b0d548b1589bb3ae9f4c2afc0c5a" },
 ]
 
 [package.optional-dependencies]
@@ -780,6 +847,15 @@ agent-engines = [
     { name = "packaging" },
     { name = "pydantic" },
     { name = "typing-extensions" },
+]
+evaluation = [
+    { name = "jsonschema" },
+    { name = "litellm" },
+    { name = "pandas" },
+    { name = "pyyaml" },
+    { name = "ruamel-yaml" },
+    { name = "scikit-learn" },
+    { name = "tqdm" },
 ]
 
 [[package]]
@@ -1293,6 +1369,38 @@ wheels = [
 ]
 
 [[package]]
+name = "hf-xet"
+version = "1.4.2"
+source = { registry = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/simple/" }
+sdist = { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/hf-xet/hf_xet-1.4.2.tar.gz", hash = "sha256:b7457b6b482d9e0743bd116363239b1fa904a5e65deede350fbc0c4ea67c71ea" }
+wheels = [
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/hf-xet/hf_xet-1.4.2-cp313-cp313t-macosx_10_12_x86_64.whl", hash = "sha256:ac8202ae1e664b2c15cdfc7298cbb25e80301ae596d602ef7870099a126fcad4" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/hf-xet/hf_xet-1.4.2-cp313-cp313t-macosx_11_0_arm64.whl", hash = "sha256:6d2f8ee39fa9fba9af929f8c0d0482f8ee6e209179ad14a909b6ad78ffcb7c81" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/hf-xet/hf_xet-1.4.2-cp313-cp313t-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:4642a6cf249c09da8c1f87fe50b24b2a3450b235bf8adb55700b52f0ea6e2eb6" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/hf-xet/hf_xet-1.4.2-cp313-cp313t-manylinux_2_28_aarch64.whl", hash = "sha256:769431385e746c92dc05492dde6f687d304584b89c33d79def8367ace06cb555" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/hf-xet/hf_xet-1.4.2-cp313-cp313t-musllinux_1_2_aarch64.whl", hash = "sha256:c9dd1c1bc4cc56168f81939b0e05b4c36dd2d28c13dc1364b17af89aa0082496" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/hf-xet/hf_xet-1.4.2-cp313-cp313t-musllinux_1_2_x86_64.whl", hash = "sha256:fca58a2ae4e6f6755cc971ac6fcdf777ea9284d7e540e350bb000813b9a3008d" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/hf-xet/hf_xet-1.4.2-cp313-cp313t-win_amd64.whl", hash = "sha256:163aab46854ccae0ab6a786f8edecbbfbaa38fcaa0184db6feceebf7000c93c0" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/hf-xet/hf_xet-1.4.2-cp313-cp313t-win_arm64.whl", hash = "sha256:09b138422ecbe50fd0c84d4da5ff537d27d487d3607183cd10e3e53f05188e82" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/hf-xet/hf_xet-1.4.2-cp314-cp314t-macosx_10_12_x86_64.whl", hash = "sha256:949dcf88b484bb9d9276ca83f6599e4aa03d493c08fc168c124ad10b2e6f75d7" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/hf-xet/hf_xet-1.4.2-cp314-cp314t-macosx_11_0_arm64.whl", hash = "sha256:41659966020d59eb9559c57de2cde8128b706a26a64c60f0531fa2318f409418" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/hf-xet/hf_xet-1.4.2-cp314-cp314t-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:5c588e21d80010119458dd5d02a69093f0d115d84e3467efe71ffb2c67c19146" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/hf-xet/hf_xet-1.4.2-cp314-cp314t-manylinux_2_28_aarch64.whl", hash = "sha256:a296744d771a8621ad1d50c098d7ab975d599800dae6d48528ba3944e5001ba0" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/hf-xet/hf_xet-1.4.2-cp314-cp314t-musllinux_1_2_aarch64.whl", hash = "sha256:f563f7efe49588b7d0629d18d36f46d1658fe7e08dce3fa3d6526e1c98315e2d" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/hf-xet/hf_xet-1.4.2-cp314-cp314t-musllinux_1_2_x86_64.whl", hash = "sha256:5b2e0132c56d7ee1bf55bdb638c4b62e7106f6ac74f0b786fed499d5548c5570" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/hf-xet/hf_xet-1.4.2-cp314-cp314t-win_amd64.whl", hash = "sha256:2f45c712c2fa1215713db10df6ac84b49d0e1c393465440e9cb1de73ecf7bbf6" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/hf-xet/hf_xet-1.4.2-cp314-cp314t-win_arm64.whl", hash = "sha256:6d53df40616f7168abfccff100d232e9d460583b9d86fa4912c24845f192f2b8" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/hf-xet/hf_xet-1.4.2-cp37-abi3-macosx_10_12_x86_64.whl", hash = "sha256:71f02d6e4cdd07f344f6844845d78518cc7186bd2bc52d37c3b73dc26a3b0bc5" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/hf-xet/hf_xet-1.4.2-cp37-abi3-macosx_11_0_arm64.whl", hash = "sha256:e9b38d876e94d4bdcf650778d6ebbaa791dd28de08db9736c43faff06ede1b5a" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/hf-xet/hf_xet-1.4.2-cp37-abi3-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:77e8c180b7ef12d8a96739a4e1e558847002afe9ea63b6f6358b2271a8bdda1c" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/hf-xet/hf_xet-1.4.2-cp37-abi3-manylinux_2_28_aarch64.whl", hash = "sha256:c3b3c6a882016b94b6c210957502ff7877802d0dbda8ad142c8595db8b944271" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/hf-xet/hf_xet-1.4.2-cp37-abi3-musllinux_1_2_aarch64.whl", hash = "sha256:9d9a634cc929cfbaf2e1a50c0e532ae8c78fa98618426769480c58501e8c8ac2" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/hf-xet/hf_xet-1.4.2-cp37-abi3-musllinux_1_2_x86_64.whl", hash = "sha256:6b0932eb8b10317ea78b7da6bab172b17be03bbcd7809383d8d5abd6a2233e04" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/hf-xet/hf_xet-1.4.2-cp37-abi3-win_amd64.whl", hash = "sha256:ad185719fb2e8ac26f88c8100562dbf9dbdcc3d9d2add00faa94b5f106aea53f" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/hf-xet/hf_xet-1.4.2-cp37-abi3-win_arm64.whl", hash = "sha256:32c012286b581f783653e718c1862aea5b9eb140631685bb0c5e7012c8719a87" },
+]
+
+[[package]]
 name = "httpcore"
 version = "1.0.9"
 source = { registry = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/simple/" }
@@ -1339,6 +1447,26 @@ source = { registry = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-sta
 sdist = { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/httpx-sse/httpx_sse-0.4.3.tar.gz", hash = "sha256:9b1ed0127459a66014aec3c56bebd93da3c1bc8bb6618c8082039a44889a755d" }
 wheels = [
     { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/httpx-sse/httpx_sse-0.4.3-py3-none-any.whl", hash = "sha256:0ac1c9fe3c0afad2e0ebb25a934a59f4c7823b60792691f779fad2c5568830fc" },
+]
+
+[[package]]
+name = "huggingface-hub"
+version = "1.8.0"
+source = { registry = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/simple/" }
+dependencies = [
+    { name = "filelock" },
+    { name = "fsspec" },
+    { name = "hf-xet", marker = "platform_machine == 'AMD64' or platform_machine == 'aarch64' or platform_machine == 'amd64' or platform_machine == 'arm64' or platform_machine == 'x86_64'" },
+    { name = "httpx" },
+    { name = "packaging" },
+    { name = "pyyaml" },
+    { name = "tqdm" },
+    { name = "typer" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/huggingface-hub/huggingface_hub-1.8.0.tar.gz", hash = "sha256:c5627b2fd521e00caf8eff4ac965ba988ea75167fad7ee72e17f9b7183ec63f3" }
+wheels = [
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/huggingface-hub/huggingface_hub-1.8.0-py3-none-any.whl", hash = "sha256:d3eb5047bd4e33c987429de6020d4810d38a5bef95b3b40df9b17346b7f353f2" },
 ]
 
 [[package]]
@@ -1393,6 +1521,66 @@ wheels = [
 ]
 
 [[package]]
+name = "jiter"
+version = "0.13.0"
+source = { registry = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/simple/" }
+sdist = { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/jiter/jiter-0.13.0.tar.gz", hash = "sha256:f2839f9c2c7e2dffc1bc5929a510e14ce0a946be9365fd1219e7ef342dae14f4" }
+wheels = [
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/jiter/jiter-0.13.0-cp313-cp313-macosx_10_12_x86_64.whl", hash = "sha256:1f8a55b848cbabf97d861495cd65f1e5c590246fabca8b48e1747c4dfc8f85bf" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/jiter/jiter-0.13.0-cp313-cp313-macosx_11_0_arm64.whl", hash = "sha256:f556aa591c00f2c45eb1b89f68f52441a016034d18b65da60e2d2875bbbf344a" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/jiter/jiter-0.13.0-cp313-cp313-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:f7e1d61da332ec412350463891923f960c3073cf1aae93b538f0bb4c8cd46efb" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/jiter/jiter-0.13.0-cp313-cp313-manylinux_2_17_armv7l.manylinux2014_armv7l.whl", hash = "sha256:3097d665a27bc96fd9bbf7f86178037db139f319f785e4757ce7ccbf390db6c2" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/jiter/jiter-0.13.0-cp313-cp313-manylinux_2_17_ppc64le.manylinux2014_ppc64le.whl", hash = "sha256:9d01ecc3a8cbdb6f25a37bd500510550b64ddf9f7d64a107d92f3ccb25035d0f" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/jiter/jiter-0.13.0-cp313-cp313-manylinux_2_17_s390x.manylinux2014_s390x.whl", hash = "sha256:ed9bbc30f5d60a3bdf63ae76beb3f9db280d7f195dfcfa61af792d6ce912d159" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/jiter/jiter-0.13.0-cp313-cp313-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:98fbafb6e88256f4454de33c1f40203d09fc33ed19162a68b3b257b29ca7f663" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/jiter/jiter-0.13.0-cp313-cp313-manylinux_2_5_i686.manylinux1_i686.whl", hash = "sha256:5467696f6b827f1116556cb0db620440380434591e93ecee7fd14d1a491b6daa" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/jiter/jiter-0.13.0-cp313-cp313-musllinux_1_1_aarch64.whl", hash = "sha256:2d08c9475d48b92892583df9da592a0e2ac49bcd41fae1fec4f39ba6cf107820" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/jiter/jiter-0.13.0-cp313-cp313-musllinux_1_1_x86_64.whl", hash = "sha256:aed40e099404721d7fcaf5b89bd3b4568a4666358bcac7b6b15c09fb6252ab68" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/jiter/jiter-0.13.0-cp313-cp313-win32.whl", hash = "sha256:36ebfbcffafb146d0e6ffb3e74d51e03d9c35ce7c625c8066cdbfc7b953bdc72" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/jiter/jiter-0.13.0-cp313-cp313-win_amd64.whl", hash = "sha256:8d76029f077379374cf0dbc78dbe45b38dec4a2eb78b08b5194ce836b2517afc" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/jiter/jiter-0.13.0-cp313-cp313-win_arm64.whl", hash = "sha256:bb7613e1a427cfcb6ea4544f9ac566b93d5bf67e0d48c787eca673ff9c9dff2b" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/jiter/jiter-0.13.0-cp313-cp313t-macosx_11_0_arm64.whl", hash = "sha256:fa476ab5dd49f3bf3a168e05f89358c75a17608dbabb080ef65f96b27c19ab10" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/jiter/jiter-0.13.0-cp313-cp313t-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:ade8cb6ff5632a62b7dbd4757d8c5573f7a2e9ae285d6b5b841707d8363205ef" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/jiter/jiter-0.13.0-cp313-cp313t-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:9950290340acc1adaded363edd94baebcee7dabdfa8bee4790794cd5cfad2af6" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/jiter/jiter-0.13.0-cp313-cp313t-win_amd64.whl", hash = "sha256:2b4972c6df33731aac0742b64fd0d18e0a69bc7d6e03108ce7d40c85fd9e3e6d" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/jiter/jiter-0.13.0-cp313-cp313t-win_arm64.whl", hash = "sha256:701a1e77d1e593c1b435315ff625fd071f0998c5f02792038a5ca98899261b7d" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/jiter/jiter-0.13.0-cp314-cp314-macosx_10_12_x86_64.whl", hash = "sha256:cc5223ab19fe25e2f0bf2643204ad7318896fe3729bf12fde41b77bfc4fafff0" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/jiter/jiter-0.13.0-cp314-cp314-macosx_11_0_arm64.whl", hash = "sha256:9776ebe51713acf438fd9b4405fcd86893ae5d03487546dae7f34993217f8a91" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/jiter/jiter-0.13.0-cp314-cp314-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:879e768938e7b49b5e90b7e3fecc0dbec01b8cb89595861fb39a8967c5220d09" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/jiter/jiter-0.13.0-cp314-cp314-manylinux_2_17_armv7l.manylinux2014_armv7l.whl", hash = "sha256:682161a67adea11e3aae9038c06c8b4a9a71023228767477d683f69903ebc607" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/jiter/jiter-0.13.0-cp314-cp314-manylinux_2_17_ppc64le.manylinux2014_ppc64le.whl", hash = "sha256:a13b68cd1cd8cc9de8f244ebae18ccb3e4067ad205220ef324c39181e23bbf66" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/jiter/jiter-0.13.0-cp314-cp314-manylinux_2_17_s390x.manylinux2014_s390x.whl", hash = "sha256:87ce0f14c6c08892b610686ae8be350bf368467b6acd5085a5b65441e2bf36d2" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/jiter/jiter-0.13.0-cp314-cp314-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:0c365005b05505a90d1c47856420980d0237adf82f70c4aff7aebd3c1cc143ad" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/jiter/jiter-0.13.0-cp314-cp314-manylinux_2_5_i686.manylinux1_i686.whl", hash = "sha256:1317fdffd16f5873e46ce27d0e0f7f4f90f0cdf1d86bf6abeaea9f63ca2c401d" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/jiter/jiter-0.13.0-cp314-cp314-musllinux_1_1_aarch64.whl", hash = "sha256:c05b450d37ba0c9e21c77fef1f205f56bcee2330bddca68d344baebfc55ae0df" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/jiter/jiter-0.13.0-cp314-cp314-musllinux_1_1_x86_64.whl", hash = "sha256:775e10de3849d0631a97c603f996f518159272db00fdda0a780f81752255ee9d" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/jiter/jiter-0.13.0-cp314-cp314-win32.whl", hash = "sha256:632bf7c1d28421c00dd8bbb8a3bac5663e1f57d5cd5ed962bce3c73bf62608e6" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/jiter/jiter-0.13.0-cp314-cp314-win_amd64.whl", hash = "sha256:f22ef501c3f87ede88f23f9b11e608581c14f04db59b6a801f354397ae13739f" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/jiter/jiter-0.13.0-cp314-cp314-win_arm64.whl", hash = "sha256:07b75fe09a4ee8e0c606200622e571e44943f47254f95e2436c8bdcaceb36d7d" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/jiter/jiter-0.13.0-cp314-cp314t-macosx_11_0_arm64.whl", hash = "sha256:964538479359059a35fb400e769295d4b315ae61e4105396d355a12f7fef09f0" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/jiter/jiter-0.13.0-cp314-cp314t-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:e104da1db1c0991b3eaed391ccd650ae8d947eab1480c733e5a3fb28d4313e40" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/jiter/jiter-0.13.0-cp314-cp314t-manylinux_2_17_armv7l.manylinux2014_armv7l.whl", hash = "sha256:0e3a5f0cde8ff433b8e88e41aa40131455420fb3649a3c7abdda6145f8cb7202" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/jiter/jiter-0.13.0-cp314-cp314t-manylinux_2_17_ppc64le.manylinux2014_ppc64le.whl", hash = "sha256:57aab48f40be1db920a582b30b116fe2435d184f77f0e4226f546794cedd9cf0" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/jiter/jiter-0.13.0-cp314-cp314t-manylinux_2_17_s390x.manylinux2014_s390x.whl", hash = "sha256:7772115877c53f62beeb8fd853cab692dbc04374ef623b30f997959a4c0e7e95" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/jiter/jiter-0.13.0-cp314-cp314t-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:1211427574b17b633cfceba5040de8081e5abf114f7a7602f73d2e16f9fdaa59" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/jiter/jiter-0.13.0-cp314-cp314t-manylinux_2_5_i686.manylinux1_i686.whl", hash = "sha256:7beae3a3d3b5212d3a55d2961db3c292e02e302feb43fce6a3f7a31b90ea6dfe" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/jiter/jiter-0.13.0-cp314-cp314t-musllinux_1_1_aarch64.whl", hash = "sha256:e5562a0f0e90a6223b704163ea28e831bd3a9faa3512a711f031611e6b06c939" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/jiter/jiter-0.13.0-cp314-cp314t-musllinux_1_1_x86_64.whl", hash = "sha256:6c26a424569a59140fb51160a56df13f438a2b0967365e987889186d5fc2f6f9" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/jiter/jiter-0.13.0-cp314-cp314t-win32.whl", hash = "sha256:24dc96eca9f84da4131cdf87a95e6ce36765c3b156fc9ae33280873b1c32d5f6" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/jiter/jiter-0.13.0-cp314-cp314t-win_amd64.whl", hash = "sha256:0a8d76c7524087272c8ae913f5d9d608bd839154b62c4322ef65723d2e5bb0b8" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/jiter/jiter-0.13.0-cp314-cp314t-win_arm64.whl", hash = "sha256:2c26cf47e2cad140fa23b6d58d435a7c0161f5c514284802f25e87fddfe11024" },
+]
+
+[[package]]
+name = "joblib"
+version = "1.5.3"
+source = { registry = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/simple/" }
+sdist = { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/joblib/joblib-1.5.3.tar.gz", hash = "sha256:8561a3269e6801106863fd0d6d84bb737be9e7631e33aaed3fb9ce5953688da3" }
+wheels = [
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/joblib/joblib-1.5.3-py3-none-any.whl", hash = "sha256:5fc3c5039fc5ca8c0276333a188bbd59d6b7ab37fe6632daa76bc7f9ec18e713" },
+]
+
+[[package]]
 name = "jsonschema"
 version = "4.26.0"
 source = { registry = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/simple/" }
@@ -1417,6 +1605,29 @@ dependencies = [
 sdist = { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/jsonschema-specifications/jsonschema_specifications-2025.9.1.tar.gz", hash = "sha256:b540987f239e745613c7a9176f3edb72b832a4ac465cf02712288397832b5e8d" }
 wheels = [
     { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/jsonschema-specifications/jsonschema_specifications-2025.9.1-py3-none-any.whl", hash = "sha256:98802fee3a11ee76ecaca44429fda8a41bff98b00a0f2838151b113f210cc6fe" },
+]
+
+[[package]]
+name = "litellm"
+version = "1.82.6"
+source = { registry = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/simple/" }
+dependencies = [
+    { name = "aiohttp" },
+    { name = "click" },
+    { name = "fastuuid" },
+    { name = "httpx" },
+    { name = "importlib-metadata" },
+    { name = "jinja2" },
+    { name = "jsonschema" },
+    { name = "openai" },
+    { name = "pydantic" },
+    { name = "python-dotenv" },
+    { name = "tiktoken" },
+    { name = "tokenizers" },
+]
+sdist = { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/litellm/litellm-1.82.6.tar.gz", hash = "sha256:2aa1c2da21fe940c33613aa447119674a3ad4d2ad5eb064e4d5ce5ee42420136" }
+wheels = [
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/litellm/litellm-1.82.6-py3-none-any.whl", hash = "sha256:164a3ef3e19f309e3cabc199bef3d2045212712fefdfa25fc7f75884a5b5b205" },
 ]
 
 [[package]]
@@ -1702,6 +1913,21 @@ wheels = [
 ]
 
 [[package]]
+name = "nltk"
+version = "3.9.4"
+source = { registry = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/simple/" }
+dependencies = [
+    { name = "click" },
+    { name = "joblib" },
+    { name = "regex" },
+    { name = "tqdm" },
+]
+sdist = { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/nltk/nltk-3.9.4.tar.gz", hash = "sha256:ed03bc098a40481310320808b2db712d95d13ca65b27372f8a403949c8b523d0" }
+wheels = [
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/nltk/nltk-3.9.4-py3-none-any.whl", hash = "sha256:f2fa301c3a12718ce4a0e9305c5675299da5ad9e26068218b69d692fda84828f" },
+]
+
+[[package]]
 name = "numpy"
 version = "2.4.3"
 source = { registry = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/simple/" }
@@ -1749,6 +1975,25 @@ wheels = [
     { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/numpy/numpy-2.4.3-cp314-cp314t-win32.whl", hash = "sha256:5e10da9e93247e554bb1d22f8edc51847ddd7dde52d85ce31024c1b4312bfba0" },
     { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/numpy/numpy-2.4.3-cp314-cp314t-win_amd64.whl", hash = "sha256:45f003dbdffb997a03da2d1d0cb41fbd24a87507fb41605c0420a3db5bd4667b" },
     { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/numpy/numpy-2.4.3-cp314-cp314t-win_arm64.whl", hash = "sha256:4d382735cecd7bcf090172489a525cd7d4087bc331f7df9f60ddc9a296cf208e" },
+]
+
+[[package]]
+name = "openai"
+version = "2.30.0"
+source = { registry = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/simple/" }
+dependencies = [
+    { name = "anyio" },
+    { name = "distro" },
+    { name = "httpx" },
+    { name = "jiter" },
+    { name = "pydantic" },
+    { name = "sniffio" },
+    { name = "tqdm" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/openai/openai-2.30.0.tar.gz", hash = "sha256:92f7661c990bda4b22a941806c83eabe4896c3094465030dd882a71abe80c885" }
+wheels = [
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/openai/openai-2.30.0-py3-none-any.whl", hash = "sha256:9a5ae616888eb2748ec5e0c5b955a51592e0b201a11f4262db920f2a78c5231d" },
 ]
 
 [[package]]
@@ -2439,6 +2684,78 @@ wheels = [
 ]
 
 [[package]]
+name = "regex"
+version = "2026.3.32"
+source = { registry = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/simple/" }
+sdist = { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/regex/regex-2026.3.32.tar.gz", hash = "sha256:f1574566457161678297a116fa5d1556c5a4159d64c5ff7c760e7c564bf66f16" }
+wheels = [
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/regex/regex-2026.3.32-cp313-cp313-macosx_10_13_universal2.whl", hash = "sha256:c6d9c6e783b348f719b6118bb3f187b2e138e3112576c9679eb458cc8b2e164b" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/regex/regex-2026.3.32-cp313-cp313-macosx_10_13_x86_64.whl", hash = "sha256:0f21ae18dfd15752cdd98d03cbd7a3640be826bfd58482a93f730dbd24d7b9fb" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/regex/regex-2026.3.32-cp313-cp313-macosx_11_0_arm64.whl", hash = "sha256:844d88509c968dd44b30daeefac72b038b1bf31ac372d5106358ab01d393c48b" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/regex/regex-2026.3.32-cp313-cp313-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:8fc918cd003ba0d066bf0003deb05a259baaaab4dc9bd4f1207bbbe64224857a" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/regex/regex-2026.3.32-cp313-cp313-manylinux2014_ppc64le.manylinux_2_17_ppc64le.manylinux_2_28_ppc64le.whl", hash = "sha256:bbc458a292aee57d572075f22c035fa32969cdb7987d454e3e34d45a40a0a8b4" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/regex/regex-2026.3.32-cp313-cp313-manylinux2014_s390x.manylinux_2_17_s390x.manylinux_2_28_s390x.whl", hash = "sha256:987cdfcfb97a249abc3601ad53c7de5c370529f1981e4c8c46793e4a1e1bfe8e" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/regex/regex-2026.3.32-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:a5d88fa37ba5e8a80ca8d956b9ea03805cfa460223ac94b7d4854ee5e30f3173" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/regex/regex-2026.3.32-cp313-cp313-manylinux_2_31_riscv64.manylinux_2_39_riscv64.whl", hash = "sha256:4d082be64e51671dd5ee1c208c92da2ddda0f2f20d8ef387e57634f7e97b6aae" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/regex/regex-2026.3.32-cp313-cp313-musllinux_1_2_aarch64.whl", hash = "sha256:c1d7fa44aece1fa02b8927441614c96520253a5cad6a96994e3a81e060feed55" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/regex/regex-2026.3.32-cp313-cp313-musllinux_1_2_ppc64le.whl", hash = "sha256:d478a2ca902b6ef28ffc9521e5f0f728d036abe35c0b250ee8ae78cfe7c5e44e" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/regex/regex-2026.3.32-cp313-cp313-musllinux_1_2_riscv64.whl", hash = "sha256:2820d2231885e97aff0fcf230a19ebd5d2b5b8a1ba338c20deb34f16db1c7897" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/regex/regex-2026.3.32-cp313-cp313-musllinux_1_2_s390x.whl", hash = "sha256:fc8ced733d6cd9af5e412f256a32f7c61cd2d7371280a65c689939ac4572499f" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/regex/regex-2026.3.32-cp313-cp313-musllinux_1_2_x86_64.whl", hash = "sha256:847087abe98b3c1ebf1eb49d6ef320dbba75a83ee4f83c94704580f1df007dd4" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/regex/regex-2026.3.32-cp313-cp313-win32.whl", hash = "sha256:d21a07edddb3e0ca12a8b8712abc8452481c3d3db19ae87fc94e9842d005964b" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/regex/regex-2026.3.32-cp313-cp313-win_amd64.whl", hash = "sha256:3c054e39a9f85a3d76c62a1d50c626c5e9306964eaa675c53f61ff7ec1204bbb" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/regex/regex-2026.3.32-cp313-cp313-win_arm64.whl", hash = "sha256:b2e9c2ea2e93223579308263f359eab8837dc340530b860cb59b713651889f14" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/regex/regex-2026.3.32-cp313-cp313t-macosx_10_13_universal2.whl", hash = "sha256:5d86e3fb08c94f084a625c8dc2132a79a3a111c8bf6e2bc59351fa61753c2f6e" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/regex/regex-2026.3.32-cp313-cp313t-macosx_10_13_x86_64.whl", hash = "sha256:b6f366a5ef66a2df4d9e68035cfe9f0eb8473cdfb922c37fac1d169b468607b0" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/regex/regex-2026.3.32-cp313-cp313t-macosx_11_0_arm64.whl", hash = "sha256:b8fca73e16c49dd972ce3a88278dfa5b93bf91ddef332a46e9443abe21ca2f7c" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/regex/regex-2026.3.32-cp313-cp313t-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:b953d9d496d19786f4d46e6ba4b386c6e493e81e40f9c5392332458183b0599d" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/regex/regex-2026.3.32-cp313-cp313t-manylinux2014_ppc64le.manylinux_2_17_ppc64le.manylinux_2_28_ppc64le.whl", hash = "sha256:b565f25171e04d4fad950d1fa837133e3af6ea6f509d96166eed745eb0cf63bc" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/regex/regex-2026.3.32-cp313-cp313t-manylinux2014_s390x.manylinux_2_17_s390x.manylinux_2_28_s390x.whl", hash = "sha256:f28eac18a8733a124444643a66ac96fef2c0ad65f50034e0a043b90333dc677f" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/regex/regex-2026.3.32-cp313-cp313t-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:7cdd508664430dd51b8888deb6c5b416d8de046b2e11837254378d31febe4a98" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/regex/regex-2026.3.32-cp313-cp313t-manylinux_2_31_riscv64.manylinux_2_39_riscv64.whl", hash = "sha256:5c35d097f509cf7e40d20d5bee548d35d6049b36eb9965e8d43e4659923405b9" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/regex/regex-2026.3.32-cp313-cp313t-musllinux_1_2_aarch64.whl", hash = "sha256:85c9b0c131427470a6423baa0a9330be6fd8c3630cc3ee6fdee03360724cbec5" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/regex/regex-2026.3.32-cp313-cp313t-musllinux_1_2_ppc64le.whl", hash = "sha256:e50af656c15e2723eeb7279c0837e07accc594b95ec18b86821a4d44b51b24bf" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/regex/regex-2026.3.32-cp313-cp313t-musllinux_1_2_riscv64.whl", hash = "sha256:4bc32b4dbdb4f9f300cf9f38f8ea2ce9511a068ffaa45ac1373ee7a943f1d810" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/regex/regex-2026.3.32-cp313-cp313t-musllinux_1_2_s390x.whl", hash = "sha256:e3e5d1802cba785210a4a800e63fcee7a228649a880f3bf7f2aadccb151a834b" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/regex/regex-2026.3.32-cp313-cp313t-musllinux_1_2_x86_64.whl", hash = "sha256:ef250a3f5e93182193f5c927c5e9575b2cb14b80d03e258bc0b89cc5de076b60" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/regex/regex-2026.3.32-cp313-cp313t-win32.whl", hash = "sha256:9cf7036dfa2370ccc8651521fcbb40391974841119e9982fa312b552929e6c85" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/regex/regex-2026.3.32-cp313-cp313t-win_amd64.whl", hash = "sha256:c940e00e8d3d10932c929d4b8657c2ea47d2560f31874c3e174c0d3488e8b865" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/regex/regex-2026.3.32-cp313-cp313t-win_arm64.whl", hash = "sha256:ace48c5e157c1e58b7de633c5e257285ce85e567ac500c833349c363b3df69d4" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/regex/regex-2026.3.32-cp314-cp314-macosx_10_13_universal2.whl", hash = "sha256:a416ee898ecbc5d8b283223b4cf4d560f93244f6f7615c1bd67359744b00c166" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/regex/regex-2026.3.32-cp314-cp314-macosx_10_13_x86_64.whl", hash = "sha256:d76d62909bfb14521c3f7cfd5b94c0c75ec94b0a11f647d2f604998962ec7b6c" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/regex/regex-2026.3.32-cp314-cp314-macosx_11_0_arm64.whl", hash = "sha256:631f7d95c83f42bccfe18946a38ad27ff6b6717fb4807e60cf24860b5eb277fc" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/regex/regex-2026.3.32-cp314-cp314-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:12917c6c6813ffcdfb11680a04e4d63c5532b88cf089f844721c5f41f41a63ad" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/regex/regex-2026.3.32-cp314-cp314-manylinux2014_ppc64le.manylinux_2_17_ppc64le.manylinux_2_28_ppc64le.whl", hash = "sha256:3e221b615f83b15887636fcb90ed21f1a19541366f8b7ba14ba1ad8304f4ded4" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/regex/regex-2026.3.32-cp314-cp314-manylinux2014_s390x.manylinux_2_17_s390x.manylinux_2_28_s390x.whl", hash = "sha256:4f9ae4755fa90f1dc2d0d393d572ebc134c0fe30fcfc0ab7e67c1db15f192041" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/regex/regex-2026.3.32-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:a094e9dcafedfb9d333db5cf880304946683f43a6582bb86688f123335122929" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/regex/regex-2026.3.32-cp314-cp314-manylinux_2_31_riscv64.manylinux_2_39_riscv64.whl", hash = "sha256:c1cecea3e477af105f32ef2119b8d895f297492e41d317e60d474bc4bffd62ff" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/regex/regex-2026.3.32-cp314-cp314-musllinux_1_2_aarch64.whl", hash = "sha256:f26262900edd16272b6360014495e8d68379c6c6e95983f9b7b322dc928a1194" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/regex/regex-2026.3.32-cp314-cp314-musllinux_1_2_ppc64le.whl", hash = "sha256:1cb22fa9ee6a0acb22fc9aecce5f9995fe4d2426ed849357d499d62608fbd7f9" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/regex/regex-2026.3.32-cp314-cp314-musllinux_1_2_riscv64.whl", hash = "sha256:9b9118a78e031a2e4709cd2fcc3028432e89b718db70073a8da574c249b5b249" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/regex/regex-2026.3.32-cp314-cp314-musllinux_1_2_s390x.whl", hash = "sha256:b193ed199848aa96618cd5959c1582a0bf23cd698b0b900cb0ffe81b02c8659c" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/regex/regex-2026.3.32-cp314-cp314-musllinux_1_2_x86_64.whl", hash = "sha256:10fb2aaae1aaadf7d43c9f3c2450404253697bf8b9ce360bd5418d1d16292298" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/regex/regex-2026.3.32-cp314-cp314-win32.whl", hash = "sha256:110ba4920721374d16c4c8ea7ce27b09546d43e16aea1d7f43681b5b8f80ba61" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/regex/regex-2026.3.32-cp314-cp314-win_amd64.whl", hash = "sha256:245667ad430745bae6a1e41081872d25819d86fbd9e0eec485ba00d9f78ad43d" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/regex/regex-2026.3.32-cp314-cp314-win_arm64.whl", hash = "sha256:1ca02ff0ef33e9d8276a1fcd6d90ff6ea055a32c9149c0050b5b67e26c6d2c51" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/regex/regex-2026.3.32-cp314-cp314t-macosx_10_13_universal2.whl", hash = "sha256:51fb7e26f91f9091fd8ec6a946f99b15d3bc3667cb5ddc73dd6cb2222dd4a1cc" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/regex/regex-2026.3.32-cp314-cp314t-macosx_10_13_x86_64.whl", hash = "sha256:51a93452034d671b0e21b883d48ea66c5d6a05620ee16a9d3f229e828568f3f0" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/regex/regex-2026.3.32-cp314-cp314t-macosx_11_0_arm64.whl", hash = "sha256:03c2ebd15ff51e7b13bb3dc28dd5ac18cd39e59ebb40430b14ae1a19e833cff1" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/regex/regex-2026.3.32-cp314-cp314t-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:5bf2f3c2c5bd8360d335c7dcd4a9006cf1dabae063ee2558ee1b07bbc8a20d88" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/regex/regex-2026.3.32-cp314-cp314t-manylinux2014_ppc64le.manylinux_2_17_ppc64le.manylinux_2_28_ppc64le.whl", hash = "sha256:8a4a3189a99ecdd1c13f42513ab3fc7fa8311b38ba7596dd98537acb8cd9acc3" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/regex/regex-2026.3.32-cp314-cp314t-manylinux2014_s390x.manylinux_2_17_s390x.manylinux_2_28_s390x.whl", hash = "sha256:3c0bbfbd38506e1ea96a85da6782577f06239cb9fcf9696f1ea537c980c0680b" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/regex/regex-2026.3.32-cp314-cp314t-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:8aaf8ee8f34b677f90742ca089b9c83d64bdc410528767273c816a863ed57327" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/regex/regex-2026.3.32-cp314-cp314t-manylinux_2_31_riscv64.manylinux_2_39_riscv64.whl", hash = "sha256:3ea568832eca219c2be1721afa073c1c9eb8f98a9733fdedd0a9747639fc22a5" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/regex/regex-2026.3.32-cp314-cp314t-musllinux_1_2_aarch64.whl", hash = "sha256:8e4c8fa46aad1a11ae2f8fcd1c90b9d55e18925829ac0d98c5bb107f93351745" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/regex/regex-2026.3.32-cp314-cp314t-musllinux_1_2_ppc64le.whl", hash = "sha256:0cec365d44835b043d7b3266487797639d07d621bec9dc0ea224b00775797cc1" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/regex/regex-2026.3.32-cp314-cp314t-musllinux_1_2_riscv64.whl", hash = "sha256:09e26cad1544d856da85881ad292797289e4406338afe98163f3db9f7fac816c" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/regex/regex-2026.3.32-cp314-cp314t-musllinux_1_2_s390x.whl", hash = "sha256:6062c4ef581a3e9e503dccf4e1b7f2d33fdc1c13ad510b287741ac73bc4c6b27" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/regex/regex-2026.3.32-cp314-cp314t-musllinux_1_2_x86_64.whl", hash = "sha256:88ebc0783907468f17fca3d7821b30f9c21865a721144eb498cb0ff99a67bcac" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/regex/regex-2026.3.32-cp314-cp314t-win32.whl", hash = "sha256:e480d3dac06c89bc2e0fd87524cc38c546ac8b4a38177650745e64acbbcfdeba" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/regex/regex-2026.3.32-cp314-cp314t-win_amd64.whl", hash = "sha256:67015a8162d413af9e3309d9a24e385816666fbf09e48e3ec43342c8536f7df6" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/regex/regex-2026.3.32-cp314-cp314t-win_arm64.whl", hash = "sha256:1a6ac1ed758902e664e0d95c1ee5991aa6fb355423f378ed184c6ec47a1ec0e9" },
+]
+
+[[package]]
 name = "requests"
 version = "2.32.5"
 source = { registry = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/simple/" }
@@ -2452,6 +2769,31 @@ sdist = { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-p
 wheels = [
     { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/requests/requests-2.32.5-py3-none-any.whl", hash = "sha256:2462f94637a34fd532264295e186976db0f5d453d1cdd31473c85a6a161affb6" },
 ]
+
+[[package]]
+name = "rich"
+version = "14.3.3"
+source = { registry = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/simple/" }
+dependencies = [
+    { name = "markdown-it-py" },
+    { name = "pygments" },
+]
+sdist = { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/rich/rich-14.3.3.tar.gz", hash = "sha256:b8daa0b9e4eef54dd8cf7c86c03713f53241884e814f4e2f5fb342fe520f639b" }
+wheels = [
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/rich/rich-14.3.3-py3-none-any.whl", hash = "sha256:793431c1f8619afa7d3b52b2cdec859562b950ea0d4b6b505397612db8d5362d" },
+]
+
+[[package]]
+name = "rouge-score"
+version = "0.1.2"
+source = { registry = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/simple/" }
+dependencies = [
+    { name = "absl-py" },
+    { name = "nltk" },
+    { name = "numpy" },
+    { name = "six" },
+]
+sdist = { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/rouge-score/rouge_score-0.1.2.tar.gz", hash = "sha256:c7d4da2683e68c9abf0135ef915d63a46643666f848e558a1b9f7ead17ff0f04" }
 
 [[package]]
 name = "rpds-py"
@@ -2517,6 +2859,113 @@ wheels = [
     { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/rpds-py/rpds_py-0.30.0-cp314-cp314t-musllinux_1_2_x86_64.whl", hash = "sha256:dbd936cde57abfee19ab3213cf9c26be06d60750e60a8e4dd85d1ab12c8b1f40" },
     { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/rpds-py/rpds_py-0.30.0-cp314-cp314t-win32.whl", hash = "sha256:dc824125c72246d924f7f796b4f63c1e9dc810c7d9e2355864b3c3a73d59ade0" },
     { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/rpds-py/rpds_py-0.30.0-cp314-cp314t-win_amd64.whl", hash = "sha256:27f4b0e92de5bfbc6f86e43959e6edd1425c33b5e69aab0984a72047f2bcf1e3" },
+]
+
+[[package]]
+name = "ruamel-yaml"
+version = "0.19.1"
+source = { registry = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/simple/" }
+sdist = { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/ruamel-yaml/ruamel_yaml-0.19.1.tar.gz", hash = "sha256:53eb66cd27849eff968ebf8f0bf61f46cdac2da1d1f3576dd4ccee9b25c31993" }
+wheels = [
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/ruamel-yaml/ruamel_yaml-0.19.1-py3-none-any.whl", hash = "sha256:27592957fedf6e0b62f281e96effd28043345e0e66001f97683aa9a40c667c93" },
+]
+
+[[package]]
+name = "scikit-learn"
+version = "1.8.0"
+source = { registry = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/simple/" }
+dependencies = [
+    { name = "joblib" },
+    { name = "numpy" },
+    { name = "scipy" },
+    { name = "threadpoolctl" },
+]
+sdist = { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/scikit-learn/scikit_learn-1.8.0.tar.gz", hash = "sha256:9bccbb3b40e3de10351f8f5068e105d0f4083b1a65fa07b6634fbc401a6287fd" }
+wheels = [
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/scikit-learn/scikit_learn-1.8.0-cp313-cp313-macosx_10_13_x86_64.whl", hash = "sha256:0d6ae97234d5d7079dc0040990a6f7aeb97cb7fa7e8945f1999a429b23569e0a" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/scikit-learn/scikit_learn-1.8.0-cp313-cp313-macosx_12_0_arm64.whl", hash = "sha256:edec98c5e7c128328124a029bceb09eda2d526997780fef8d65e9a69eead963e" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/scikit-learn/scikit_learn-1.8.0-cp313-cp313-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:74b66d8689d52ed04c271e1329f0c61635bcaf5b926db9b12d58914cdc01fe57" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/scikit-learn/scikit_learn-1.8.0-cp313-cp313-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:8fdf95767f989b0cfedb85f7ed8ca215d4be728031f56ff5a519ee1e3276dc2e" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/scikit-learn/scikit_learn-1.8.0-cp313-cp313-win_amd64.whl", hash = "sha256:2de443b9373b3b615aec1bb57f9baa6bb3a9bd093f1269ba95c17d870422b271" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/scikit-learn/scikit_learn-1.8.0-cp313-cp313-win_arm64.whl", hash = "sha256:eddde82a035681427cbedded4e6eff5e57fa59216c2e3e90b10b19ab1d0a65c3" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/scikit-learn/scikit_learn-1.8.0-cp313-cp313t-macosx_10_13_x86_64.whl", hash = "sha256:7cc267b6108f0a1499a734167282c00c4ebf61328566b55ef262d48e9849c735" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/scikit-learn/scikit_learn-1.8.0-cp313-cp313t-macosx_12_0_arm64.whl", hash = "sha256:fe1c011a640a9f0791146011dfd3c7d9669785f9fed2b2a5f9e207536cf5c2fd" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/scikit-learn/scikit_learn-1.8.0-cp313-cp313t-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:72358cce49465d140cc4e7792015bb1f0296a9742d5622c67e31399b75468b9e" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/scikit-learn/scikit_learn-1.8.0-cp313-cp313t-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:80832434a6cc114f5219211eec13dcbc16c2bac0e31ef64c6d346cde3cf054cb" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/scikit-learn/scikit_learn-1.8.0-cp313-cp313t-win_amd64.whl", hash = "sha256:ee787491dbfe082d9c3013f01f5991658b0f38aa8177e4cd4bf434c58f551702" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/scikit-learn/scikit_learn-1.8.0-cp313-cp313t-win_arm64.whl", hash = "sha256:bf97c10a3f5a7543f9b88cbf488d33d175e9146115a451ae34568597ba33dcde" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/scikit-learn/scikit_learn-1.8.0-cp314-cp314-macosx_10_15_x86_64.whl", hash = "sha256:c22a2da7a198c28dd1a6e1136f19c830beab7fdca5b3e5c8bba8394f8a5c45b3" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/scikit-learn/scikit_learn-1.8.0-cp314-cp314-macosx_12_0_arm64.whl", hash = "sha256:6b595b07a03069a2b1740dc08c2299993850ea81cce4fe19b2421e0c970de6b7" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/scikit-learn/scikit_learn-1.8.0-cp314-cp314-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:29ffc74089f3d5e87dfca4c2c8450f88bdc61b0fc6ed5d267f3988f19a1309f6" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/scikit-learn/scikit_learn-1.8.0-cp314-cp314-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:fb65db5d7531bccf3a4f6bec3462223bea71384e2cda41da0f10b7c292b9e7c4" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/scikit-learn/scikit_learn-1.8.0-cp314-cp314-win_amd64.whl", hash = "sha256:56079a99c20d230e873ea40753102102734c5953366972a71d5cb39a32bc40c6" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/scikit-learn/scikit_learn-1.8.0-cp314-cp314-win_arm64.whl", hash = "sha256:3bad7565bc9cf37ce19a7c0d107742b320c1285df7aab1a6e2d28780df167242" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/scikit-learn/scikit_learn-1.8.0-cp314-cp314t-macosx_10_15_x86_64.whl", hash = "sha256:4511be56637e46c25721e83d1a9cea9614e7badc7040c4d573d75fbe257d6fd7" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/scikit-learn/scikit_learn-1.8.0-cp314-cp314t-macosx_12_0_arm64.whl", hash = "sha256:a69525355a641bf8ef136a7fa447672fb54fe8d60cab5538d9eb7c6438543fb9" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/scikit-learn/scikit_learn-1.8.0-cp314-cp314t-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:c2656924ec73e5939c76ac4c8b026fc203b83d8900362eb2599d8aee80e4880f" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/scikit-learn/scikit_learn-1.8.0-cp314-cp314t-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:15fc3b5d19cc2be65404786857f2e13c70c83dd4782676dd6814e3b89dc8f5b9" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/scikit-learn/scikit_learn-1.8.0-cp314-cp314t-win_amd64.whl", hash = "sha256:00d6f1d66fbcf4eba6e356e1420d33cc06c70a45bb1363cd6f6a8e4ebbbdece2" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/scikit-learn/scikit_learn-1.8.0-cp314-cp314t-win_arm64.whl", hash = "sha256:f28dd15c6bb0b66ba09728cf09fd8736c304be29409bd8445a080c1280619e8c" },
+]
+
+[[package]]
+name = "scipy"
+version = "1.17.1"
+source = { registry = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/simple/" }
+dependencies = [
+    { name = "numpy" },
+]
+sdist = { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/scipy/scipy-1.17.1.tar.gz", hash = "sha256:95d8e012d8cb8816c226aef832200b1d45109ed4464303e997c5b13122b297c0" }
+wheels = [
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/scipy/scipy-1.17.1-cp313-cp313-macosx_10_14_x86_64.whl", hash = "sha256:5e3c5c011904115f88a39308379c17f91546f77c1667cea98739fe0fccea804c" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/scipy/scipy-1.17.1-cp313-cp313-macosx_12_0_arm64.whl", hash = "sha256:6fac755ca3d2c3edcb22f479fceaa241704111414831ddd3bc6056e18516892f" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/scipy/scipy-1.17.1-cp313-cp313-macosx_14_0_arm64.whl", hash = "sha256:7ff200bf9d24f2e4d5dc6ee8c3ac64d739d3a89e2326ba68aaf6c4a2b838fd7d" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/scipy/scipy-1.17.1-cp313-cp313-macosx_14_0_x86_64.whl", hash = "sha256:4b400bdc6f79fa02a4d86640310dde87a21fba0c979efff5248908c6f15fad1b" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/scipy/scipy-1.17.1-cp313-cp313-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:2b64ca7d4aee0102a97f3ba22124052b4bd2152522355073580bf4845e2550b6" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/scipy/scipy-1.17.1-cp313-cp313-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:581b2264fc0aa555f3f435a5944da7504ea3a065d7029ad60e7c3d1ae09c5464" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/scipy/scipy-1.17.1-cp313-cp313-musllinux_1_2_aarch64.whl", hash = "sha256:beeda3d4ae615106d7094f7e7cef6218392e4465cc95d25f900bebabfded0950" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/scipy/scipy-1.17.1-cp313-cp313-musllinux_1_2_x86_64.whl", hash = "sha256:6609bc224e9568f65064cfa72edc0f24ee6655b47575954ec6339534b2798369" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/scipy/scipy-1.17.1-cp313-cp313-win_amd64.whl", hash = "sha256:37425bc9175607b0268f493d79a292c39f9d001a357bebb6b88fdfaff13f6448" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/scipy/scipy-1.17.1-cp313-cp313-win_arm64.whl", hash = "sha256:5cf36e801231b6a2059bf354720274b7558746f3b1a4efb43fcf557ccd484a87" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/scipy/scipy-1.17.1-cp313-cp313t-macosx_10_14_x86_64.whl", hash = "sha256:d59c30000a16d8edc7e64152e30220bfbd724c9bbb08368c054e24c651314f0a" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/scipy/scipy-1.17.1-cp313-cp313t-macosx_12_0_arm64.whl", hash = "sha256:010f4333c96c9bb1a4516269e33cb5917b08ef2166d5556ca2fd9f082a9e6ea0" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/scipy/scipy-1.17.1-cp313-cp313t-macosx_14_0_arm64.whl", hash = "sha256:2ceb2d3e01c5f1d83c4189737a42d9cb2fc38a6eeed225e7515eef71ad301dce" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/scipy/scipy-1.17.1-cp313-cp313t-macosx_14_0_x86_64.whl", hash = "sha256:844e165636711ef41f80b4103ed234181646b98a53c8f05da12ca5ca289134f6" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/scipy/scipy-1.17.1-cp313-cp313t-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:158dd96d2207e21c966063e1635b1063cd7787b627b6f07305315dd73d9c679e" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/scipy/scipy-1.17.1-cp313-cp313t-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:74cbb80d93260fe2ffa334efa24cb8f2f0f622a9b9febf8b483c0b865bfb3475" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/scipy/scipy-1.17.1-cp313-cp313t-musllinux_1_2_aarch64.whl", hash = "sha256:dbc12c9f3d185f5c737d801da555fb74b3dcfa1a50b66a1a93e09190f41fab50" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/scipy/scipy-1.17.1-cp313-cp313t-musllinux_1_2_x86_64.whl", hash = "sha256:94055a11dfebe37c656e70317e1996dc197e1a15bbcc351bcdd4610e128fe1ca" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/scipy/scipy-1.17.1-cp313-cp313t-win_amd64.whl", hash = "sha256:e30bdeaa5deed6bc27b4cc490823cd0347d7dae09119b8803ae576ea0ce52e4c" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/scipy/scipy-1.17.1-cp313-cp313t-win_arm64.whl", hash = "sha256:a720477885a9d2411f94a93d16f9d89bad0f28ca23c3f8daa521e2dcc3f44d49" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/scipy/scipy-1.17.1-cp314-cp314-macosx_10_14_x86_64.whl", hash = "sha256:a48a72c77a310327f6a3a920092fa2b8fd03d7deaa60f093038f22d98e096717" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/scipy/scipy-1.17.1-cp314-cp314-macosx_12_0_arm64.whl", hash = "sha256:45abad819184f07240d8a696117a7aacd39787af9e0b719d00285549ed19a1e9" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/scipy/scipy-1.17.1-cp314-cp314-macosx_14_0_arm64.whl", hash = "sha256:3fd1fcdab3ea951b610dc4cef356d416d5802991e7e32b5254828d342f7b7e0b" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/scipy/scipy-1.17.1-cp314-cp314-macosx_14_0_x86_64.whl", hash = "sha256:7bdf2da170b67fdf10bca777614b1c7d96ae3ca5794fd9587dce41eb2966e866" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/scipy/scipy-1.17.1-cp314-cp314-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:adb2642e060a6549c343603a3851ba76ef0b74cc8c079a9a58121c7ec9fe2350" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/scipy/scipy-1.17.1-cp314-cp314-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:eee2cfda04c00a857206a4330f0c5e3e56535494e30ca445eb19ec624ae75118" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/scipy/scipy-1.17.1-cp314-cp314-musllinux_1_2_aarch64.whl", hash = "sha256:d2650c1fb97e184d12d8ba010493ee7b322864f7d3d00d3f9bb97d9c21de4068" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/scipy/scipy-1.17.1-cp314-cp314-musllinux_1_2_x86_64.whl", hash = "sha256:08b900519463543aa604a06bec02461558a6e1cef8fdbb8098f77a48a83c8118" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/scipy/scipy-1.17.1-cp314-cp314-win_amd64.whl", hash = "sha256:3877ac408e14da24a6196de0ddcace62092bfc12a83823e92e49e40747e52c19" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/scipy/scipy-1.17.1-cp314-cp314-win_arm64.whl", hash = "sha256:f8885db0bc2bffa59d5c1b72fad7a6a92d3e80e7257f967dd81abb553a90d293" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/scipy/scipy-1.17.1-cp314-cp314t-macosx_10_14_x86_64.whl", hash = "sha256:1cc682cea2ae55524432f3cdff9e9a3be743d52a7443d0cba9017c23c87ae2f6" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/scipy/scipy-1.17.1-cp314-cp314t-macosx_12_0_arm64.whl", hash = "sha256:2040ad4d1795a0ae89bfc7e8429677f365d45aa9fd5e4587cf1ea737f927b4a1" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/scipy/scipy-1.17.1-cp314-cp314t-macosx_14_0_arm64.whl", hash = "sha256:131f5aaea57602008f9822e2115029b55d4b5f7c070287699fe45c661d051e39" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/scipy/scipy-1.17.1-cp314-cp314t-macosx_14_0_x86_64.whl", hash = "sha256:9cdc1a2fcfd5c52cfb3045feb399f7b3ce822abdde3a193a6b9a60b3cb5854ca" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/scipy/scipy-1.17.1-cp314-cp314t-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:6e3dcd57ab780c741fde8dc68619de988b966db759a3c3152e8e9142c26295ad" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/scipy/scipy-1.17.1-cp314-cp314t-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:a9956e4d4f4a301ebf6cde39850333a6b6110799d470dbbb1e25326ac447f52a" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/scipy/scipy-1.17.1-cp314-cp314t-musllinux_1_2_aarch64.whl", hash = "sha256:a4328d245944d09fd639771de275701ccadf5f781ba0ff092ad141e017eccda4" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/scipy/scipy-1.17.1-cp314-cp314t-musllinux_1_2_x86_64.whl", hash = "sha256:a77cbd07b940d326d39a1d1b37817e2ee4d79cb30e7338f3d0cddffae70fcaa2" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/scipy/scipy-1.17.1-cp314-cp314t-win_amd64.whl", hash = "sha256:eb092099205ef62cd1782b006658db09e2fed75bffcae7cc0d44052d8aa0f484" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/scipy/scipy-1.17.1-cp314-cp314t-win_arm64.whl", hash = "sha256:200e1050faffacc162be6a486a984a0497866ec54149a01270adc8a59b7c7d21" },
+]
+
+[[package]]
+name = "shellingham"
+version = "1.5.4"
+source = { registry = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/simple/" }
+sdist = { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/shellingham/shellingham-1.5.4.tar.gz", hash = "sha256:8dbca0739d487e5bd35ab3ca4b36e11c4078f3a234bfce294b0a0291363404de" }
+wheels = [
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/shellingham/shellingham-1.5.4-py2.py3-none-any.whl", hash = "sha256:7ecfff8f2fd72616f7481040475a65b2bf8af90a56c89140852d1120324e8686" },
 ]
 
 [[package]]
@@ -2639,6 +3088,108 @@ source = { registry = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-sta
 sdist = { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/tenacity/tenacity-9.1.4.tar.gz", hash = "sha256:adb31d4c263f2bd041081ab33b498309a57c77f9acf2db65aadf0898179cf93a" }
 wheels = [
     { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/tenacity/tenacity-9.1.4-py3-none-any.whl", hash = "sha256:6095a360c919085f28c6527de529e76a06ad89b23659fa881ae0649b867a9d55" },
+]
+
+[[package]]
+name = "threadpoolctl"
+version = "3.6.0"
+source = { registry = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/simple/" }
+sdist = { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/threadpoolctl/threadpoolctl-3.6.0.tar.gz", hash = "sha256:8ab8b4aa3491d812b623328249fab5302a68d2d71745c8a4c719a2fcaba9f44e" }
+wheels = [
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/threadpoolctl/threadpoolctl-3.6.0-py3-none-any.whl", hash = "sha256:43a0b8fd5a2928500110039e43a5eed8480b918967083ea48dc3ab9f13c4a7fb" },
+]
+
+[[package]]
+name = "tiktoken"
+version = "0.12.0"
+source = { registry = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/simple/" }
+dependencies = [
+    { name = "regex" },
+    { name = "requests" },
+]
+sdist = { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/tiktoken/tiktoken-0.12.0.tar.gz", hash = "sha256:b18ba7ee2b093863978fcb14f74b3707cdc8d4d4d3836853ce7ec60772139931" }
+wheels = [
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/tiktoken/tiktoken-0.12.0-cp313-cp313-macosx_10_13_x86_64.whl", hash = "sha256:775c2c55de2310cc1bc9a3ad8826761cbdc87770e586fd7b6da7d4589e13dab3" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/tiktoken/tiktoken-0.12.0-cp313-cp313-macosx_11_0_arm64.whl", hash = "sha256:a01b12f69052fbe4b080a2cfb867c4de12c704b56178edf1d1d7b273561db160" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/tiktoken/tiktoken-0.12.0-cp313-cp313-manylinux_2_28_aarch64.whl", hash = "sha256:01d99484dc93b129cd0964f9d34eee953f2737301f18b3c7257bf368d7615baa" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/tiktoken/tiktoken-0.12.0-cp313-cp313-manylinux_2_28_x86_64.whl", hash = "sha256:4a1a4fcd021f022bfc81904a911d3df0f6543b9e7627b51411da75ff2fe7a1be" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/tiktoken/tiktoken-0.12.0-cp313-cp313-musllinux_1_2_aarch64.whl", hash = "sha256:981a81e39812d57031efdc9ec59fa32b2a5a5524d20d4776574c4b4bd2e9014a" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/tiktoken/tiktoken-0.12.0-cp313-cp313-musllinux_1_2_x86_64.whl", hash = "sha256:9baf52f84a3f42eef3ff4e754a0db79a13a27921b457ca9832cf944c6be4f8f3" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/tiktoken/tiktoken-0.12.0-cp313-cp313-win_amd64.whl", hash = "sha256:b8a0cd0c789a61f31bf44851defbd609e8dd1e2c8589c614cc1060940ef1f697" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/tiktoken/tiktoken-0.12.0-cp313-cp313t-macosx_10_13_x86_64.whl", hash = "sha256:d5f89ea5680066b68bcb797ae85219c72916c922ef0fcdd3480c7d2315ffff16" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/tiktoken/tiktoken-0.12.0-cp313-cp313t-macosx_11_0_arm64.whl", hash = "sha256:b4e7ed1c6a7a8a60a3230965bdedba8cc58f68926b835e519341413370e0399a" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/tiktoken/tiktoken-0.12.0-cp313-cp313t-manylinux_2_28_aarch64.whl", hash = "sha256:fc530a28591a2d74bce821d10b418b26a094bf33839e69042a6e86ddb7a7fb27" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/tiktoken/tiktoken-0.12.0-cp313-cp313t-manylinux_2_28_x86_64.whl", hash = "sha256:06a9f4f49884139013b138920a4c393aa6556b2f8f536345f11819389c703ebb" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/tiktoken/tiktoken-0.12.0-cp313-cp313t-musllinux_1_2_aarch64.whl", hash = "sha256:04f0e6a985d95913cabc96a741c5ffec525a2c72e9df086ff17ebe35985c800e" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/tiktoken/tiktoken-0.12.0-cp313-cp313t-musllinux_1_2_x86_64.whl", hash = "sha256:0ee8f9ae00c41770b5f9b0bb1235474768884ae157de3beb5439ca0fd70f3e25" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/tiktoken/tiktoken-0.12.0-cp313-cp313t-win_amd64.whl", hash = "sha256:dc2dd125a62cb2b3d858484d6c614d136b5b848976794edfb63688d539b8b93f" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/tiktoken/tiktoken-0.12.0-cp314-cp314-macosx_10_13_x86_64.whl", hash = "sha256:a90388128df3b3abeb2bfd1895b0681412a8d7dc644142519e6f0a97c2111646" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/tiktoken/tiktoken-0.12.0-cp314-cp314-macosx_11_0_arm64.whl", hash = "sha256:da900aa0ad52247d8794e307d6446bd3cdea8e192769b56276695d34d2c9aa88" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/tiktoken/tiktoken-0.12.0-cp314-cp314-manylinux_2_28_aarch64.whl", hash = "sha256:285ba9d73ea0d6171e7f9407039a290ca77efcdb026be7769dccc01d2c8d7fff" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/tiktoken/tiktoken-0.12.0-cp314-cp314-manylinux_2_28_x86_64.whl", hash = "sha256:d186a5c60c6a0213f04a7a802264083dea1bbde92a2d4c7069e1a56630aef830" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/tiktoken/tiktoken-0.12.0-cp314-cp314-musllinux_1_2_aarch64.whl", hash = "sha256:604831189bd05480f2b885ecd2d1986dc7686f609de48208ebbbddeea071fc0b" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/tiktoken/tiktoken-0.12.0-cp314-cp314-musllinux_1_2_x86_64.whl", hash = "sha256:8f317e8530bb3a222547b85a58583238c8f74fd7a7408305f9f63246d1a0958b" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/tiktoken/tiktoken-0.12.0-cp314-cp314-win_amd64.whl", hash = "sha256:399c3dd672a6406719d84442299a490420b458c44d3ae65516302a99675888f3" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/tiktoken/tiktoken-0.12.0-cp314-cp314t-macosx_10_13_x86_64.whl", hash = "sha256:c2c714c72bc00a38ca969dae79e8266ddec999c7ceccd603cc4f0d04ccd76365" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/tiktoken/tiktoken-0.12.0-cp314-cp314t-macosx_11_0_arm64.whl", hash = "sha256:cbb9a3ba275165a2cb0f9a83f5d7025afe6b9d0ab01a22b50f0e74fee2ad253e" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/tiktoken/tiktoken-0.12.0-cp314-cp314t-manylinux_2_28_aarch64.whl", hash = "sha256:dfdfaa5ffff8993a3af94d1125870b1d27aed7cb97aa7eb8c1cefdbc87dbee63" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/tiktoken/tiktoken-0.12.0-cp314-cp314t-manylinux_2_28_x86_64.whl", hash = "sha256:584c3ad3d0c74f5269906eb8a659c8bfc6144a52895d9261cdaf90a0ae5f4de0" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/tiktoken/tiktoken-0.12.0-cp314-cp314t-musllinux_1_2_aarch64.whl", hash = "sha256:54c891b416a0e36b8e2045b12b33dd66fb34a4fe7965565f1b482da50da3e86a" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/tiktoken/tiktoken-0.12.0-cp314-cp314t-musllinux_1_2_x86_64.whl", hash = "sha256:5edb8743b88d5be814b1a8a8854494719080c28faaa1ccbef02e87354fe71ef0" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/tiktoken/tiktoken-0.12.0-cp314-cp314t-win_amd64.whl", hash = "sha256:f61c0aea5565ac82e2ec50a05e02a6c44734e91b51c10510b084ea1b8e633a71" },
+]
+
+[[package]]
+name = "tokenizers"
+version = "0.22.2"
+source = { registry = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/simple/" }
+dependencies = [
+    { name = "huggingface-hub" },
+]
+sdist = { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/tokenizers/tokenizers-0.22.2.tar.gz", hash = "sha256:473b83b915e547aa366d1eee11806deaf419e17be16310ac0a14077f1e28f917" }
+wheels = [
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/tokenizers/tokenizers-0.22.2-cp39-abi3-macosx_10_12_x86_64.whl", hash = "sha256:544dd704ae7238755d790de45ba8da072e9af3eea688f698b137915ae959281c" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/tokenizers/tokenizers-0.22.2-cp39-abi3-macosx_11_0_arm64.whl", hash = "sha256:1e418a55456beedca4621dbab65a318981467a2b188e982a23e117f115ce5001" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/tokenizers/tokenizers-0.22.2-cp39-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:2249487018adec45d6e3554c71d46eb39fa8ea67156c640f7513eb26f318cec7" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/tokenizers/tokenizers-0.22.2-cp39-abi3-manylinux_2_17_armv7l.manylinux2014_armv7l.whl", hash = "sha256:25b85325d0815e86e0bac263506dd114578953b7b53d7de09a6485e4a160a7dd" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/tokenizers/tokenizers-0.22.2-cp39-abi3-manylinux_2_17_i686.manylinux2014_i686.whl", hash = "sha256:bfb88f22a209ff7b40a576d5324bf8286b519d7358663db21d6246fb17eea2d5" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/tokenizers/tokenizers-0.22.2-cp39-abi3-manylinux_2_17_ppc64le.manylinux2014_ppc64le.whl", hash = "sha256:1c774b1276f71e1ef716e5486f21e76333464f47bece56bbd554485982a9e03e" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/tokenizers/tokenizers-0.22.2-cp39-abi3-manylinux_2_17_s390x.manylinux2014_s390x.whl", hash = "sha256:df6c4265b289083bf710dff49bc51ef252f9d5be33a45ee2bed151114a56207b" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/tokenizers/tokenizers-0.22.2-cp39-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:369cc9fc8cc10cb24143873a0d95438bb8ee257bb80c71989e3ee290e8d72c67" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/tokenizers/tokenizers-0.22.2-cp39-abi3-musllinux_1_2_aarch64.whl", hash = "sha256:29c30b83d8dcd061078b05ae0cb94d3c710555fbb44861139f9f83dcca3dc3e4" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/tokenizers/tokenizers-0.22.2-cp39-abi3-musllinux_1_2_armv7l.whl", hash = "sha256:37ae80a28c1d3265bb1f22464c856bd23c02a05bb211e56d0c5301a435be6c1a" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/tokenizers/tokenizers-0.22.2-cp39-abi3-musllinux_1_2_i686.whl", hash = "sha256:791135ee325f2336f498590eb2f11dc5c295232f288e75c99a36c5dbce63088a" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/tokenizers/tokenizers-0.22.2-cp39-abi3-musllinux_1_2_x86_64.whl", hash = "sha256:38337540fbbddff8e999d59970f3c6f35a82de10053206a7562f1ea02d046fa5" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/tokenizers/tokenizers-0.22.2-cp39-abi3-win32.whl", hash = "sha256:a6bf3f88c554a2b653af81f3204491c818ae2ac6fbc09e76ef4773351292bc92" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/tokenizers/tokenizers-0.22.2-cp39-abi3-win_amd64.whl", hash = "sha256:c9ea31edff2968b44a88f97d784c2f16dc0729b8b143ed004699ebca91f05c48" },
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/tokenizers/tokenizers-0.22.2-cp39-abi3-win_arm64.whl", hash = "sha256:9ce725d22864a1e965217204946f830c37876eee3b2ba6fc6255e8e903d5fcbc" },
+]
+
+[[package]]
+name = "tqdm"
+version = "4.67.3"
+source = { registry = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/simple/" }
+dependencies = [
+    { name = "colorama", marker = "sys_platform == 'win32'" },
+]
+sdist = { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/tqdm/tqdm-4.67.3.tar.gz", hash = "sha256:7d825f03f89244ef73f1d4ce193cb1774a8179fd96f31d7e1dcde62092b960bb" }
+wheels = [
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/tqdm/tqdm-4.67.3-py3-none-any.whl", hash = "sha256:ee1e4c0e59148062281c49d80b25b67771a127c85fc9676d3be5f243206826bf" },
+]
+
+[[package]]
+name = "typer"
+version = "0.24.1"
+source = { registry = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/simple/" }
+dependencies = [
+    { name = "annotated-doc" },
+    { name = "click" },
+    { name = "rich" },
+    { name = "shellingham" },
+]
+sdist = { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/typer/typer-0.24.1.tar.gz", hash = "sha256:e39b4732d65fbdcde189ae76cf7cd48aeae72919dea1fdfc16593be016256b45" }
+wheels = [
+    { url = "https://us-python.pkg.dev/artifact-foundry-prod/ah-3p-staging-python/typer/typer-0.24.1-py3-none-any.whl", hash = "sha256:112c1f0ce578bfb4cab9ffdabc68f031416ebcc216536611ba21f04e9aa84c9e" },
 ]
 
 [[package]]

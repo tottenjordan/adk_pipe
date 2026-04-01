@@ -127,3 +127,69 @@ export async function* streamRun(
     }
   }
 }
+
+export async function* resumeRun(
+  appName: string,
+  userId: string,
+  sessionId: string,
+  functionCallId: string,
+  functionName: string,
+  functionCallEventId: string,
+  response: Record<string, unknown>
+): AsyncGenerator<AgentEvent> {
+  const res = await fetch(`${API_BASE}/run_sse`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      appName,
+      userId,
+      sessionId,
+      newMessage: {
+        role: "user",
+        parts: [
+          {
+            functionResponse: {
+              id: functionCallId,
+              name: functionName,
+              response: response,
+            },
+          },
+        ],
+      },
+      functionCallEventId,
+      streaming: true,
+    }),
+  });
+
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`Failed to resume run (${res.status}): ${body}`);
+  }
+  if (!res.body) throw new Error("No response body");
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() || "";
+
+    for (const line of lines) {
+      if (line.startsWith("data: ")) {
+        const data = line.slice(6).trim();
+        if (data) {
+          try {
+            yield JSON.parse(data) as AgentEvent;
+          } catch {
+            // skip malformed JSON
+          }
+        }
+      }
+    }
+  }
+}
