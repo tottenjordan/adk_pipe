@@ -203,6 +203,8 @@ async def generate_image(
                     image_bytes=image_bytes,
                     filename=artifact_key,
                 )
+                if isinstance(img_gcs_uri, dict) and img_gcs_uri.get("status") == "error":
+                    logging.error(f"GCS upload failed for '{artifact_key}': {img_gcs_uri.get('message')}")
 
                 # save ADK artifact
                 img_artifact = types.Part.from_bytes(
@@ -1089,6 +1091,44 @@ async def save_draft_report_artifact(tool_context: ToolContext) -> dict:
 #     }
 
 
+def save_eval_report_to_gcs(tool_context: ToolContext) -> dict:
+    """
+    Saves the creative evaluation report JSON to Cloud Storage.
+
+    Args:
+        tool_context (ToolContext): The tool context.
+
+    Returns:
+        dict: Status and the GCS URI of the saved evaluation report.
+    """
+    report_data = tool_context.state.get("creative_evaluation_report")
+    if not report_data:
+        return {"status": "error", "message": "No creative_evaluation_report found in session state."}
+
+    gcs_folder = tool_context.state["gcs_folder"]
+    gcs_subdir = tool_context.state["agent_output_dir"]
+    filename = "creative_eval_report.json"
+    gcs_blob_name = f"{gcs_folder}/{gcs_subdir}/{filename}"
+    gcs_uri = f"gs://{config.GCS_BUCKET_NAME}/{gcs_blob_name}"
+
+    try:
+        report_json = json.dumps(report_data, indent=2, default=str)
+
+        storage_client = _get_gcs_client()
+        bucket = storage_client.bucket(config.GCS_BUCKET_NAME)
+        blob = bucket.blob(gcs_blob_name)
+        blob.upload_from_string(report_json, content_type="application/json")
+
+        tool_context.state["eval_report_gcs_uri"] = gcs_uri
+        logging.info(f"Saved creative eval report to: '{gcs_uri}'")
+
+        return {"status": "success", "gcs_uri": gcs_uri}
+
+    except Exception as e:
+        logging.exception(f"Error saving eval report to GCS: {e}")
+        return {"status": "error", "message": str(e)}
+
+
 def write_trends_to_bq(tool_context: ToolContext) -> dict:
     """
     Writes selected trends to a BigQuery Table.
@@ -1202,6 +1242,7 @@ def _save_to_gcs(
         return gcs_uri
 
     except Exception as e_gcs:
+        logging.error(f"GCS upload failed for '{filename}': {e_gcs}")
         return {
             "status": "error",
             "message": f"Image generated but failed to upload to GCS: {e_gcs}",

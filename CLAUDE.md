@@ -44,10 +44,15 @@ cd frontend && npm run test:watch  # watch mode
 
 # Python tests (pytest) — requires GCP credentials (module-level genai.Client)
 uv run pytest tests/ -v
+
+# ADK evals — end-to-end agent evaluation with LLM-as-judge (real API calls, ~5 min per case)
+uv run adk eval trend_trawler tests/eval/evalsets/trend_trawler_evalset.json \
+  --config_file_path=tests/eval/eval_config.json --print_detailed_results
 ```
 
-- Frontend: `frontend/src/__tests__/` — pure logic tests (SSE parsing, form validation, GCS URI building, widget layouts, trend markdown parsing, extractItems)
+- Frontend: `frontend/src/__tests__/` — pure logic tests (SSE parsing, form validation, GCS URI building, widget layouts, trend markdown parsing, extractItems, interactive mode pause/resume)
 - Python: `tests/` — Pydantic schema validation, agent pipeline structure, tool functions, callbacks (citation regex, state init, rate limiting), deployment utilities, cloud function logic
+- ADK Evals: `tests/eval/` — end-to-end agent evaluation using `adk eval` CLI with rubric-based LLM-as-judge scoring (response quality + tool use quality). Runs against real APIs.
 - Integration: `deployment/integration_test.py` — live GCP checks (health, session lifecycle, smoke tests). Requires deployed agents.
 - CI: `.github/workflows/frontend-tests.yml` — runs frontend tests on push/PR to `main` when `frontend/**` changes
 
@@ -65,7 +70,11 @@ python deployment/integration_test.py --check all                             # 
 
 **Phase 1 — `trend_trawler/`**: Gathers top 25 Google Search trends, researches cultural context via web search, filters to 3 most campaign-relevant trends, saves to BigQuery.
 
-**Phase 2 — `creative_agent/`**: Takes a single trend + campaign metadata, runs parallel web research (campaign researcher + trend researcher as sub-agents), synthesizes a strategic brief, generates ad copy and HTML gallery, exports research PDF and artifacts to GCS.
+**Phase 2 — `creative_agent/`**: Takes a single trend + campaign metadata, runs parallel web research (campaign researcher + trend researcher as sub-agents), synthesizes a strategic brief, generates ad copy and visual concepts, evaluates all creatives, and exports research PDF, HTML gallery, and evaluation report to GCS.
+
+**Phase 2 (interactive) — `interactive_creative/`**: Same pipeline as `creative_agent`, but pauses at 3 checkpoints for human review via ADK's `LongRunningFunctionTool`: (1) after research report, (2) after ad copies, (3) after visual concepts. Uses `ResumabilityConfig(is_resumable=True)`.
+
+**Evaluation — `creative_eval/`**: LLM-as-judge module that scores each ad copy and visual concept across 6 dimensions (12 total). Uses Gemini 2.5 Pro with structured output. Scores normalized 0.0–1.0, passing threshold 0.7. Produces `CreativeEvaluationReport` saved as JSON to GCS.
 
 ### Agent Composition
 
@@ -77,26 +86,34 @@ trend_trawler (root Agent)
 └── Persistence tools (BigQuery, GCS)
 
 creative_agent (root Agent)
-├── merge_parallel_insights (SequentialAgent)
+├── combined_research_pipeline (SequentialAgent)
 │   ├── parallel_planner_agent (ParallelAgent)
 │   │   ├── gs_sequential_planner (trend_researcher sub-agent)
 │   │   └── ca_sequential_planner (campaign_researcher sub-agent)
 │   └── merge_planners (synthesizes insights)
-├── combined_web_evaluator
-├── enhanced_combined_searcher
-└── combined_report_composer (HTML/PDF output)
+├── ad_creative_pipeline (SequentialAgent)
+├── visual_generation_pipeline (SequentialAgent)
+├── visual_generator (image generation)
+├── creative_eval_agent (LLM-as-judge scoring)
+└── Persistence tools (GCS, BigQuery, HTML gallery)
+
+interactive_creative (root Agent, resumable)
+├── [same sub-agents as creative_agent]
+├── review_research (LongRunningFunctionTool checkpoint)
+├── review_ad_copies (LongRunningFunctionTool checkpoint)
+└── review_visual_concepts (LongRunningFunctionTool checkpoint)
 ```
 
-Key ADK patterns used: `Agent`, `SequentialAgent`, `ParallelAgent`, `AgentTool` (wraps agents as tools).
+Key ADK patterns used: `Agent`, `SequentialAgent`, `ParallelAgent`, `AgentTool` (wraps agents as tools), `LongRunningFunctionTool` (pause/resume for human-in-the-loop).
 
 ### Frontend — `frontend/`
 
 Next.js 16 (App Router) + TypeScript + Tailwind CSS + shadcn/ui. Light theme with Sora font. Consumes the ADK `api_server` REST + SSE endpoints at `localhost:8000`.
 
 **Pages:**
-- `/` — Campaign input form (brand, audience, product, selling points, agent selector)
-- `/run/[sessionId]` — Live SSE event stream with timeline, pipeline state widgets (modal overlays), campaign metadata sidebar
-- `/results/[sessionId]` — Artifacts gallery, research PDF viewer, session state inspector
+- `/` — Campaign input form (brand, audience, product, selling points, agent selector: `trend_trawler`, `creative_agent`, `interactive_creative`)
+- `/run/[sessionId]` — Live SSE event stream with timeline, pipeline state widgets (modal overlays), campaign metadata sidebar. Interactive mode adds pause/resume review panels at each checkpoint.
+- `/results/[sessionId]` — Artifacts gallery, research PDF viewer, evaluation report, session state inspector
 
 **Key files:**
 - `frontend/src/app/layout.tsx` — Root layout, fonts (Sora + JetBrains Mono), glass header
@@ -136,6 +153,11 @@ Agents use `before_agent_callback` to initialize session state, `before_model_ca
 - `*/callbacks.py` — State initialization, rate limiting, citation processing
 - `*/prompts.py` — Agent instruction templates
 - `*/config.py` — Model selection, env vars, rate limit settings
+- `interactive_creative/review_tools.py` — `LongRunningFunctionTool` pause tools for human-in-the-loop checkpoints
+- `creative_eval/evaluate.py` — Core LLM-as-judge evaluation logic
+- `creative_eval/schemas.py` — Pydantic models for evaluation reports
+- `tests/eval/eval_config.json` — ADK eval criteria config (rubric-based scoring)
+- `tests/eval/evalsets/` — ADK eval cases per agent
 - `deployment/deploy_agent.py` — Agent Engine deploy/list/delete CLI
 - `deployment/test_deployment.py` — Invoke deployed agents for testing
 - `cloud_funktions/creative_crf/main.py` — Orchestrator and worker entry points
@@ -143,7 +165,7 @@ Agents use `before_agent_callback` to initialize session state, `before_model_ca
 ## Requirements
 
 - Python >=3.13
-- `google-adk>=1.27.3`
+- `google-adk[eval]>=1.28.0`
 - Node.js >=18 (for frontend)
 - GCP project with BigQuery, Cloud Storage, PubSub, and Agent Engine enabled
 - `.env` file populated from `.env.example`

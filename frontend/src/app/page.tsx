@@ -16,6 +16,12 @@ import {
 } from "@/components/ui/select";
 import { createSession } from "@/lib/api";
 import type { CampaignInput } from "@/lib/types";
+import {
+  BRAND_PRESETS,
+  AUDIENCE_PRESETS,
+  PRODUCT_PRESETS,
+  SELLING_POINTS_PRESETS,
+} from "@/lib/presets";
 
 export default function Home() {
   return (
@@ -72,7 +78,7 @@ function HomeContent() {
 
       // Build the user message with campaign metadata
       let message = `Brand Name: "${form.brand}"\nTarget Audience: "${form.targetAudience}"\nTarget Product: "${form.targetProduct}"\nKey Selling Points: "${form.keySellingPoints}"`;
-      if (form.agent === "creative_agent" && form.targetSearchTrend) {
+      if ((form.agent === "creative_agent" || form.agent === "interactive_creative") && form.targetSearchTrend) {
         message += `\ntarget_search_trend: "${form.targetSearchTrend}"`;
       }
 
@@ -96,7 +102,7 @@ function HomeContent() {
     form.targetAudience &&
     form.targetProduct &&
     form.keySellingPoints &&
-    (form.agent !== "creative_agent" || form.targetSearchTrend);
+    (form.agent === "trend_trawler" || form.targetSearchTrend);
 
   const isPreFilled = searchParams.get("targetSearchTrend");
 
@@ -141,7 +147,7 @@ function HomeContent() {
             <Select
               value={form.agent}
               onValueChange={(v) =>
-                setForm({ ...form, agent: v as CampaignInput["agent"] })
+                v && setForm({ ...form, agent: v as CampaignInput["agent"] })
               }
             >
               <SelectTrigger id="agent" className="w-full min-w-[400px] bg-background border-border hover:border-foreground/20 transition-colors">
@@ -154,6 +160,9 @@ function HomeContent() {
                 <SelectItem value="creative_agent">
                   Creative Agent &mdash; Generate ad creatives
                 </SelectItem>
+                <SelectItem value="interactive_creative">
+                  Interactive Creative &mdash; Generate with review checkpoints
+                </SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -162,6 +171,19 @@ function HomeContent() {
             <Label htmlFor="brand" className="text-muted-foreground text-xs uppercase tracking-wider">
               Brand Name
             </Label>
+            <Select
+              value=""
+              onValueChange={(v) => v && setForm({ ...form, brand: v })}
+            >
+              <SelectTrigger className="w-full bg-background border-border hover:border-foreground/20 transition-colors text-muted-foreground">
+                <SelectValue placeholder="Select a preset..." />
+              </SelectTrigger>
+              <SelectContent>
+                {BRAND_PRESETS.map((b) => (
+                  <SelectItem key={b} value={b}>{b}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <Input
               id="brand"
               placeholder='e.g., "Paul Reed Smith (PRS)"'
@@ -175,6 +197,21 @@ function HomeContent() {
             <Label htmlFor="audience" className="text-muted-foreground text-xs uppercase tracking-wider">
               Target Audience
             </Label>
+            <Select
+              value=""
+              onValueChange={(v) => v && setForm({ ...form, targetAudience: v })}
+            >
+              <SelectTrigger className="w-full bg-background border-border hover:border-foreground/20 transition-colors text-muted-foreground">
+                <SelectValue placeholder="Select a preset..." />
+              </SelectTrigger>
+              <SelectContent>
+                {AUDIENCE_PRESETS.map((a) => (
+                  <SelectItem key={a} value={a}>
+                    {a.length > 80 ? `${a.slice(0, 80)}...` : a}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <Textarea
               id="audience"
               placeholder="Who are they? Include psychographics, lifestyle, hobbies..."
@@ -191,6 +228,19 @@ function HomeContent() {
             <Label htmlFor="product" className="text-muted-foreground text-xs uppercase tracking-wider">
               Target Product
             </Label>
+            <Select
+              value=""
+              onValueChange={(v) => v && setForm({ ...form, targetProduct: v })}
+            >
+              <SelectTrigger className="w-full bg-background border-border hover:border-foreground/20 transition-colors text-muted-foreground">
+                <SelectValue placeholder="Select a preset..." />
+              </SelectTrigger>
+              <SelectContent>
+                {PRODUCT_PRESETS.map((p) => (
+                  <SelectItem key={p} value={p}>{p}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <Input
               id="product"
               placeholder='e.g., "PRS SE CE24 Electric Guitar"'
@@ -206,6 +256,21 @@ function HomeContent() {
             <Label htmlFor="selling-points" className="text-muted-foreground text-xs uppercase tracking-wider">
               Key Selling Points
             </Label>
+            <Select
+              value=""
+              onValueChange={(v) => v && setForm({ ...form, keySellingPoints: v })}
+            >
+              <SelectTrigger className="w-full bg-background border-border hover:border-foreground/20 transition-colors text-muted-foreground">
+                <SelectValue placeholder="Select a preset..." />
+              </SelectTrigger>
+              <SelectContent>
+                {SELLING_POINTS_PRESETS.map((s) => (
+                  <SelectItem key={s} value={s}>
+                    {s.length > 80 ? `${s.slice(0, 80)}...` : s}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <Textarea
               id="selling-points"
               placeholder="What's the core benefit? Why will the audience care?"
@@ -218,7 +283,7 @@ function HomeContent() {
             />
           </div>
 
-          {form.agent === "creative_agent" && (
+          {(form.agent === "creative_agent" || form.agent === "interactive_creative") && (
             <div className="space-y-2 animate-fadeInUpSmooth">
               <Label htmlFor="trend" className="text-muted-foreground text-xs uppercase tracking-wider">
                 Target Search Trend
