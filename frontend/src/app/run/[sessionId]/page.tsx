@@ -9,6 +9,7 @@ import { TrendCards, parseTrendsMarkdown } from "@/components/trend-cards";
 import { GcsWidget } from "@/components/gcs-widget";
 import { streamRun } from "@/lib/api";
 import type { AgentEvent } from "@/lib/types";
+import { formatStateValue } from "@/lib/utils";
 
 type Status = "running" | "completed" | "error";
 
@@ -206,7 +207,7 @@ function ItemCard({
       })}
 
       {/* Full-width panel */}
-      {fullWidth && item[fullWidth] && (
+      {fullWidth && item[fullWidth] != null && (
         <div className="rounded-md bg-cyan-50/60 border border-cyan-200/40 px-2.5 py-2">
           <FieldCell fieldKey={fullWidth} value={item[fullWidth]} />
         </div>
@@ -427,7 +428,7 @@ export default function RunPage({
       { label: "Search Trend", key: "target_search_trends" },
     ];
     return fields
-      .map((f) => ({ ...f, value: sessionState[f.key] as string | undefined }))
+      .map((f) => ({ ...f, value: formatStateValue(sessionState[f.key]) }))
       .filter((f) => f.value);
   }, [sessionState]);
 

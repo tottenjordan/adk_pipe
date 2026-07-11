@@ -15,6 +15,7 @@ import { GcsWidget } from "@/components/gcs-widget";
 import { GalleryViewer } from "@/components/gallery-viewer";
 import { getSession, listArtifacts, getArtifact } from "@/lib/api";
 import type { Session } from "@/lib/types";
+import { formatStateValue } from "@/lib/utils";
 
 interface ArtifactData {
   name: string;
@@ -138,7 +139,7 @@ export default function ResultsPage({
     { label: "Key Selling Points", key: "key_selling_points" },
     { label: "Search Trend", key: "target_search_trends" },
   ]
-    .map((f) => ({ ...f, value: state[f.key] as string | undefined }))
+    .map((f) => ({ ...f, value: formatStateValue(state[f.key]) }))
     .filter((f) => f.value);
 
   return (
