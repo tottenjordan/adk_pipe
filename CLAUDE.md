@@ -2,6 +2,13 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Code Standards
+
+**Always refer to [CODE_STANDARDS.md](./CODE_STANDARDS.md) when writing code or making
+environment changes.** It is the authoritative source for packaging (`uv`), linting/
+formatting (`ruff`), type checking (`ty`), testing (`pytest`), and commit conventions
+(e.g. never add `Co-Authored-By` trailers). See also the `modern-python` skill.
+
 ## Project Overview
 
 Trend Trawler is a multi-agent system that automates trend-to-creative ad generation. It identifies culturally relevant Google Search trends, conducts web research, and generates candidate ad copy and visual concepts for a given brand/campaign. Built with Google's ADK (Agent Development Kit), deployed to Vertex AI Agent Engine, and orchestrated via Cloud Run Functions with PubSub triggers.
