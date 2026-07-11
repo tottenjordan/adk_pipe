@@ -3,7 +3,8 @@ name = "adk-pipe"
 version = "0.1.0"
 description = ""
 authors = [
-    {name = "Jordan",email = "jordantotten@google.com"}
+    {name = "Jordan",email = "jordantotten@google.com"},
+    {name = "JordanArgolis", email = "admin@jordantotten.altostrat.com"}
 ]
 readme = "README.md"
 
