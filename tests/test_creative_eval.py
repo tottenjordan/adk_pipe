@@ -270,7 +270,7 @@ class TestEvalConfig:
         from creative_eval.config import EvalConfig
 
         config = EvalConfig()
-        assert config.eval_model == "gemini-2.5-pro"
+        assert config.eval_model == "gemini-3.1-pro-preview"
         assert config.passing_threshold == 0.7
         assert config.max_retries == 3
         assert len(config.ad_copy_dimensions) == 6
@@ -285,8 +285,8 @@ class TestEvalConfig:
     def test_custom_model(self):
         from creative_eval.config import EvalConfig
 
-        config = EvalConfig(eval_model="gemini-2.5-flash")
-        assert config.eval_model == "gemini-2.5-flash"
+        config = EvalConfig(eval_model="gemini-3.5-flash")
+        assert config.eval_model == "gemini-3.5-flash"
 
 
 # =====================================================================

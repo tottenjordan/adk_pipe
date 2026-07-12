@@ -9,7 +9,7 @@ class EvalConfig:
     """Configuration for the creative evaluation pipeline."""
 
     # Evaluation model (judge)
-    eval_model: str = "gemini-2.5-pro"
+    eval_model: str = "gemini-3.1-pro-preview"
 
     # Score thresholds
     passing_threshold: float = 0.7
@@ -49,6 +49,11 @@ class EvalConfig:
     project_id: str = field(
         default_factory=lambda: os.getenv("GOOGLE_CLOUD_PROJECT", "")
     )
+    # The judge is a gemini-3.x model, which is only served from the `global`
+    # Vertex location (us-central1 returns 404 NOT_FOUND). This is intentionally
+    # decoupled from GCP_REGION / regional resources (BigQuery, GCS, Agent
+    # Engine), which stay in us-central1. Defaults to `global`; override with
+    # GOOGLE_CLOUD_LOCATION only if pointing at a model served elsewhere.
     location: str = field(
-        default_factory=lambda: os.getenv("GOOGLE_CLOUD_LOCATION", "us-central1")
+        default_factory=lambda: os.getenv("GOOGLE_CLOUD_LOCATION", "global")
     )
