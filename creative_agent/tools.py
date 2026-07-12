@@ -230,8 +230,9 @@ async def generate_image(
                 logging.error(f"Error with image generation response: {str(response)}")
 
         except Exception as e:
+            # Propagate so ADK 2.0 RetryConfig can retry transient infra failures.
             logging.exception(f"No images generated. {e}")
-            return {"status": "error", "error_message": "No images generated. {e}"}
+            raise
 
     # Mark as done so subsequent calls are idempotent
     tool_context.state["_images_generated"] = True
@@ -958,8 +959,9 @@ async def save_creative_gallery_html(tool_context: ToolContext) -> dict:
         }
 
     except Exception as e:
+        # Propagate so ADK 2.0 RetryConfig can retry transient infra failures.
         logging.exception(f"Error saving artifact: {e}")
-        return {"status": "failed", "error": str(e)}
+        raise
 
 
 async def save_draft_report_artifact(tool_context: ToolContext) -> dict:
@@ -1024,8 +1026,9 @@ async def save_draft_report_artifact(tool_context: ToolContext) -> dict:
         }
 
     except Exception as e:
+        # Propagate so ADK 2.0 RetryConfig can retry transient infra failures.
         logging.exception(f"Error saving artifact: {e}")
-        return {"status": "failed", "error": str(e)}
+        raise
 
 
 # def save_session_state_to_gcs(tool_context: ToolContext) -> dict:
@@ -1137,8 +1140,9 @@ def save_eval_report_to_gcs(tool_context: ToolContext) -> dict:
         return {"status": "success", "gcs_uri": gcs_uri}
 
     except Exception as e:
+        # Propagate so ADK 2.0 RetryConfig can retry transient infra failures.
         logging.exception(f"Error saving eval report to GCS: {e}")
-        return {"status": "error", "message": str(e)}
+        raise
 
 
 def write_trends_to_bq(tool_context: ToolContext) -> dict:
@@ -1205,11 +1209,9 @@ def write_trends_to_bq(tool_context: ToolContext) -> dict:
             "trend": target_trend,
         }
     except Exception as e:
+        # Propagate so ADK 2.0 RetryConfig can retry transient infra failures.
         logging.exception(f"Failed to insert row to bq: {e}")
-        return {
-            "status": "error",
-            "error_message": f"Error inserting row to bq: {e}",
-        }
+        raise
 
 
 # =============================
@@ -1254,11 +1256,9 @@ def _save_to_gcs(
         return gcs_uri
 
     except Exception as e_gcs:
+        # Propagate so ADK 2.0 RetryConfig can retry transient infra failures.
         logging.error(f"GCS upload failed for '{filename}': {e_gcs}")
-        return {
-            "status": "error",
-            "message": f"Image generated but failed to upload to GCS: {e_gcs}",
-        }
+        raise
 
 
 def _upload_blob_to_gcs(

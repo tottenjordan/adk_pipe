@@ -12,7 +12,7 @@ from creative_agent.agent import (
 )
 from creative_eval.agent import creative_eval_agent
 from creative_agent import tools, callbacks
-from creative_agent.config import config
+from creative_agent.config import config, INFRA_RETRY
 from interactive_creative.review_tools import (
     review_research_tool,
     review_ad_copies_tool,
@@ -101,6 +101,7 @@ root_agent = Agent(
     ),
     before_agent_callback=callbacks.load_session_state,
     before_model_callback=callbacks.rate_limit_callback,
+    retry_config=INFRA_RETRY,
 )
 
 # Wrap in App with resumability enabled — required for LongRunningFunctionTool

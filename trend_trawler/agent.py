@@ -16,7 +16,7 @@ from .tools import (
     memorize,
 )
 from . import callbacks
-from .config import config
+from .config import config, INFRA_RETRY
 
 
 # --- config ---
@@ -41,6 +41,7 @@ gather_trends_agent = Agent(
     Output a confirmation message containing the count of trends retrieved. Do NOT list them.
     """,
     tools=[get_daily_gtrends],
+    retry_config=INFRA_RETRY,
     generate_content_config=types.GenerateContentConfig(
         temperature=1.0,
         response_modalities=["TEXT"],
@@ -168,6 +169,7 @@ pick_trends_agent = Agent(
 trend_trawler = Agent(
     model=config.worker_model,
     name="trend_trawler",
+    retry_config=INFRA_RETRY,
     description="Determines culturally relevant Search trends to use for ad creatives.",
     # Minimal thinking: the orchestrator's job is mechanical tool sequencing, not deep
     # reasoning. On gemini-3 models, unbounded default thinking caused the orchestrator

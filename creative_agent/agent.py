@@ -11,7 +11,7 @@ from google.adk.agents import Agent, SequentialAgent, ParallelAgent
 
 from .sub_agents.campaign_researcher.agent import ca_sequential_planner
 from .sub_agents.trend_researcher.agent import gs_sequential_planner
-from .config import config
+from .config import config, INFRA_RETRY
 from . import callbacks
 from . import tools
 from creative_eval.agent import creative_eval_agent
@@ -739,6 +739,7 @@ visual_concept_finalizer = Agent(
 visual_generator = Agent(
     model=config.critic_model,
     name="visual_generator",
+    retry_config=INFRA_RETRY,
     include_contents="none",  # new
     description="Generate final visuals using image generation tools",
     # thinking_budget=0: this is a mechanical single-tool step, not a reasoning task.
@@ -800,6 +801,7 @@ visual_production_pipeline = SequentialAgent(
 root_agent = Agent(
     model=config.critic_model,
     name="root_agent",
+    retry_config=INFRA_RETRY,
     description="Help with ad generation; brainstorm and refine ad copy and visual concept ideas with actor-critic workflows; generate final ad creatives.",
     instruction="""**Role:** You are the orchestrator for a comprehensive ad content generation workflow.
 

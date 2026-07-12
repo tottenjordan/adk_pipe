@@ -55,11 +55,17 @@ uv run pytest tests/ -v
 # ADK evals — end-to-end agent evaluation with LLM-as-judge (real API calls, ~5 min per case)
 uv run adk eval trend_trawler tests/eval/evalsets/trend_trawler_evalset.json \
   --config_file_path=tests/eval/eval_config.json --print_detailed_results
+
+# creative_agent eval — needs PYTHONPATH (adk eval's file-spec loader doesn't put the
+# repo root on sys.path, so creative_agent's sibling import `creative_eval` would fail),
+# and uses its own creative-specific rubric config.
+PYTHONPATH="$PWD" uv run adk eval creative_agent tests/eval/evalsets/creative_agent_evalset.json \
+  --config_file_path=tests/eval/creative_eval_config.json --print_detailed_results
 ```
 
 - Frontend: `frontend/src/__tests__/` — pure logic tests (SSE parsing, form validation, GCS URI building, widget layouts, trend markdown parsing, extractItems, interactive mode pause/resume)
 - Python: `tests/` — Pydantic schema validation, agent pipeline structure, tool functions, callbacks (citation regex, state init, rate limiting), deployment utilities, cloud function logic
-- ADK Evals: `tests/eval/` — end-to-end agent evaluation using `adk eval` CLI with rubric-based LLM-as-judge scoring (response quality + tool use quality). Runs against real APIs.
+- ADK Evals: `tests/eval/` — end-to-end agent evaluation using `adk eval` CLI with rubric-based LLM-as-judge scoring (response quality + tool use quality). Runs against real APIs. One evalset + rubric config per agent: `evalsets/trend_trawler_evalset.json` + `eval_config.json`; `evalsets/creative_agent_evalset.json` + `creative_eval_config.json`. The `creative_agent` eval must be run with `PYTHONPATH="$PWD"` (see command above).
 - Integration: `deployment/integration_test.py` — live GCP checks (health, session lifecycle, smoke tests). Requires deployed agents.
 - CI: `.github/workflows/frontend-tests.yml` — runs frontend tests on push/PR to `main` when `frontend/**` changes
 

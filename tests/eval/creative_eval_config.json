@@ -1,0 +1,46 @@
+{
+  "criteria": {
+    "rubric_based_final_response_quality_v1": {
+      "threshold": 0.8,
+      "rubrics": [
+        {
+          "rubric_id": "cloud_storage_uri",
+          "rubric_content": {
+            "text_property": "The final response MUST include a Cloud Storage location path (containing 'gs://' or a GCS bucket/folder reference) where the generated creatives were saved."
+          }
+        },
+        {
+          "rubric_id": "creatives_generated",
+          "rubric_content": {
+            "text_property": "The final response MUST indicate that the ad creatives were generated and exported — i.e. it references the produced ad copy and/or visual concepts and the location of the exported artifacts (research report, evaluation report, or HTML gallery)."
+          }
+        }
+      ],
+      "judge_model_options": {
+        "judge_model": "gemini-2.5-flash",
+        "num_samples": 3
+      }
+    },
+    "rubric_based_tool_use_quality_v1": {
+      "threshold": 0.8,
+      "rubrics": [
+        {
+          "rubric_id": "pipeline_execution",
+          "rubric_content": {
+            "text_property": "The agent MUST execute the creative pipeline in the correct logical order: first memorize the campaign metadata and trend, then run combined_research_pipeline, then save_draft_report_artifact, then ad_creative_pipeline, then visual_production_pipeline, then creative_eval_agent, then persist results (save_eval_report_to_gcs, save_creative_gallery_html, write_trends_to_bq)."
+          }
+        },
+        {
+          "rubric_id": "all_tools_used",
+          "rubric_content": {
+            "text_property": "The agent MUST call all of these tools at least once: memorize, combined_research_pipeline, save_draft_report_artifact, ad_creative_pipeline, visual_production_pipeline, creative_eval_agent, save_eval_report_to_gcs, save_creative_gallery_html, write_trends_to_bq."
+          }
+        }
+      ],
+      "judge_model_options": {
+        "judge_model": "gemini-2.5-flash",
+        "num_samples": 3
+      }
+    }
+  }
+}

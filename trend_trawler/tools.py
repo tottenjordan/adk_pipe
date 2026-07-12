@@ -127,8 +127,9 @@ def get_daily_gtrends(tool_context: ToolContext) -> str:
 
         return results
     except Exception as e:
+        # Let transient failures propagate so ADK 2.0 RetryConfig can retry.
         logging.exception(f"Failed to gather daily trends: {e}")
-        return str(e)
+        raise
 
 
 def write_to_file(content: str, tool_context: ToolContext) -> dict:
@@ -334,8 +335,6 @@ def write_trends_to_bq(tool_context: ToolContext) -> dict:
             "trends": ", ".join(target_trends["target_search_trends"]),
         }
     except Exception as e:
+        # Let transient failures propagate so ADK 2.0 RetryConfig can retry.
         logging.exception(f"Failed to insert rows to bq: {e}")
-        return {
-            "status": "error",
-            "error_message": f"Error inserting rows to bq: {e}",
-        }
+        raise
