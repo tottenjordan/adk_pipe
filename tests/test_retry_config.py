@@ -27,8 +27,8 @@ class TestCreativeAgentRetryConfig:
 
         assert INFRA_RETRY.max_attempts == 3
         names = set(INFRA_RETRY.exceptions)
-        assert "ServerError" in names           # genai 5xx
-        assert "ServiceUnavailable" in names     # api_core
+        assert "ServerError" in names  # genai 5xx
+        assert "ServiceUnavailable" in names  # api_core
         assert "TimeoutError" in names
 
 

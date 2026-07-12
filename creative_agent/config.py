@@ -15,11 +15,11 @@ warnings.filterwarnings("ignore")
 INFRA_RETRY = RetryConfig(
     max_attempts=3,
     exceptions=[
-        genai_errors.ServerError,            # genai 5xx
-        api_exceptions.ServiceUnavailable,   # 503
+        genai_errors.ServerError,  # genai 5xx
+        api_exceptions.ServiceUnavailable,  # 503
         api_exceptions.InternalServerError,  # 500
-        api_exceptions.GatewayTimeout,       # 504
-        api_exceptions.TooManyRequests,      # 429
+        api_exceptions.GatewayTimeout,  # 504
+        api_exceptions.TooManyRequests,  # 429
         api_exceptions.DeadlineExceeded,
         ConnectionError,
         TimeoutError,
