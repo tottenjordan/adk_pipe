@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="imgs/trend_trawler_banner.png" alt="Trend Trawler — a trawler casting a wide net at golden hour" width="480" />
+
 <h1 align="center">🌊 Trend Trawler 🎣</h1>
 
 > Turn trending Google Search terms into campaign-ready ad creatives — a multi-agent system built with Google's **ADK**, deployed to **Vertex AI Agent Engine**, and fanned out via **Cloud Run Functions + Pub/Sub**.
@@ -25,20 +27,19 @@
 | 2 | 🧑‍💻 **`interactive_creative`** | Same pipeline as `creative_agent`, with human-in-the-loop review checkpoints after research, ad copies, and visual concepts |
 
 <details>
-  <summary>casting a wide net</summary>
+  <summary>casting a wide net — how the pipeline flows</summary>
 
+<br />
 
-> Given a campaign, the `trend_trawler` gathers the top 25 trending Search terms and returns a subset of the most relevant to the campaign
+Trend Trawler works like its namesake: it drops a **wide net** over the day's Search trends, then hauls in only the catch worth keeping.
 
+1. **Cast** — `trend_trawler` pulls the top 25 Google Search trends and researches each for cultural context.
+2. **Haul in** — it filters to the 3 trends most relevant to your campaign and writes them to BigQuery.
+3. **Work the catch** — for each `<trend, campaign>` pair, `creative_agent` runs parallel web research, synthesizes a strategic brief, and generates candidate ad copy plus a rendered image per visual concept.
+4. **Grade it** — `creative_eval` scores every ad copy and visual concept with an LLM-as-judge across 12 quality dimensions (passing threshold 0.7).
+5. **Land it** — the research PDF, HTML gallery, and evaluation report are exported to Cloud Storage.
 
-<p align="center">
-  <img src='imgs/trend_trawler_banner.png' width="700"/>
-</p>
-
-
-* Given a campaign and trending topic, the `creative_agent` conducts web research and generates candidate ad copy and creatives
-* The `creative_eval` module scores every generated ad copy and visual concept using an LLM-as-judge approach across 12 quality dimensions
-* The `interactive_creative` agent adds human-in-the-loop review checkpoints — pause after research, ad copies, and visual concepts for approval before continuing
+Prefer to stay hands-on? `interactive_creative` runs the same flow but pauses for your review after the research report, the ad copies, and the visual concepts.
 
 </details>
 
