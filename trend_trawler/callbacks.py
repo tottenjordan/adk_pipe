@@ -28,7 +28,7 @@ def _set_initial_states(source: Dict[str, Any], target: State | dict[str, Any]):
         target: The session state object to insert into.
     """
     unique_id = f"{str(uuid.uuid4())[:4]}"
-    formatted_now = pd.Timestamp.utcnow().strftime("%Y_%m_%d_%H_%M")
+    formatted_now = pd.Timestamp.now("UTC").strftime("%Y_%m_%d_%H_%M")
     if config.state_init not in target:
         target[config.state_init] = True
         target["gcs_bucket"] = config.GCS_BUCKET
