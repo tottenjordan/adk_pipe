@@ -1,4 +1,5 @@
 """Tests for Pydantic schemas in the creative_agent pipeline."""
+
 import pytest
 from pydantic import ValidationError
 

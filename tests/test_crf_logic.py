@@ -4,6 +4,7 @@ These tests replicate and exercise the pure logic from
 cloud_funktions/creative_crf/main.py without requiring GCP credentials,
 functions_framework, or vertexai imports.
 """
+
 import json
 import base64
 import pytest
@@ -15,6 +16,7 @@ from datetime import datetime, timezone
 # Replicated helpers (avoids importing main.py with its heavy
 # module-level clients)
 # ============================================================
+
 
 def decode_pubsub_payload(cloud_event_data: dict) -> dict | None:
     """Decode and parse the base64 PubSub message from a CloudEvent."""
@@ -78,11 +80,11 @@ def build_lock_sql(project, dataset, table, timestamp):
 
 def build_user_query(msg_dict: dict) -> str:
     """Build the user query string sent to the agent."""
-    return f"""Brand: {msg_dict['brand']}
-    Target Product: {msg_dict['target_product']}
-    Key Selling Point(s): {msg_dict['key_selling_point']}
-    Target Audience: {msg_dict['target_audience']}
-    Target Search Trend: {msg_dict['target_search_trend']}
+    return f"""Brand: {msg_dict["brand"]}
+    Target Product: {msg_dict["target_product"]}
+    Key Selling Point(s): {msg_dict["key_selling_point"]}
+    Target Audience: {msg_dict["target_audience"]}
+    Target Search Trend: {msg_dict["target_search_trend"]}
     """
 
 
@@ -174,7 +176,10 @@ class TestRowMapping:
         assert result["key_selling_point"] == "Wide tonal range from 85/15 S pickups"
 
     def test_serializes_datetime_object(self):
-        row = {**SAMPLE_BQ_ROW, "entry_timestamp": datetime(2025, 1, 15, 10, 0, 0, tzinfo=timezone.utc)}
+        row = {
+            **SAMPLE_BQ_ROW,
+            "entry_timestamp": datetime(2025, 1, 15, 10, 0, 0, tzinfo=timezone.utc),
+        }
         result = build_row_dict(0, row)
         assert isinstance(result["entry_timestamp"], str)
         assert "2025-01-15" in result["entry_timestamp"]
@@ -199,14 +204,9 @@ class TestWorkerPayload:
         assert payload["row_data"] == row_dict
 
     def test_multiple_rows_produce_separate_payloads(self):
-        rows = [
-            {**SAMPLE_BQ_ROW, "target_trend": f"trend_{i}"}
-            for i in range(3)
-        ]
+        rows = [{**SAMPLE_BQ_ROW, "target_trend": f"trend_{i}"} for i in range(3)]
         payloads = [
-            build_worker_payload(
-                "ds", "tbl", "agent_id", build_row_dict(i, row)
-            )
+            build_worker_payload("ds", "tbl", "agent_id", build_row_dict(i, row))
             for i, row in enumerate(rows)
         ]
         assert len(payloads) == 3
@@ -220,7 +220,9 @@ class TestWorkerPayload:
 class TestUpdateStatusSQL:
     def test_single_timestamp(self):
         sql = build_update_sql(
-            "my-project", "trend_trawler", "target_trends_crf",
+            "my-project",
+            "trend_trawler",
+            "target_trends_crf",
             ["2025-01-15T10:00:00+00:00"],
             status="PROCESSED",
         )
@@ -234,9 +236,7 @@ class TestUpdateStatusSQL:
             "2025-01-15T11:00:00+00:00",
             "2025-01-15T12:00:00+00:00",
         ]
-        sql = build_update_sql(
-            "proj", "ds", "tbl", timestamps, status="QUEUED"
-        )
+        sql = build_update_sql("proj", "ds", "tbl", timestamps, status="QUEUED")
         assert "SET processed_status = 'QUEUED'" in sql
         for ts in timestamps:
             assert f"TIMESTAMP('{ts}')" in sql
@@ -250,7 +250,9 @@ class TestUpdateStatusSQL:
 class TestLockSQL:
     def test_lock_targets_queued_rows(self):
         sql = build_lock_sql(
-            "my-project", "trend_trawler", "target_trends_crf",
+            "my-project",
+            "trend_trawler",
+            "target_trends_crf",
             "2025-01-15T10:00:00+00:00",
         )
         assert "SET processed_status = 'PROCESSING'" in sql
@@ -353,8 +355,13 @@ class TestUserQueryConstruction:
 # ============================================================
 REQUIRED_WORKER_KEYS = ["bq_dataset", "bq_table", "agent_resource_id", "row_data"]
 REQUIRED_ROW_DATA_KEYS = [
-    "index", "entry_timestamp", "target_search_trend",
-    "brand", "target_audience", "target_product", "key_selling_point",
+    "index",
+    "entry_timestamp",
+    "target_search_trend",
+    "brand",
+    "target_audience",
+    "target_product",
+    "key_selling_point",
 ]
 
 

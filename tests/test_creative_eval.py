@@ -50,7 +50,9 @@ class TestCreativeScore:
 
         verdicts = [
             EvalVerdict(dimension="d1", score=8, verdict="pass", rationale="good"),
-            EvalVerdict(dimension="d2", score=5, verdict="fail", rationale="needs work"),
+            EvalVerdict(
+                dimension="d2", score=5, verdict="fail", rationale="needs work"
+            ),
         ]
         score = CreativeScore(
             overall_score=0.65,
@@ -256,9 +258,15 @@ class TestScoreFromVerdicts:
         from creative_eval.schemas import EvalVerdict
 
         verdicts = [
-            EvalVerdict(dimension="strong_dim", score=9, verdict="pass", rationale="excellent"),
-            EvalVerdict(dimension="weak_dim", score=3, verdict="fail", rationale="poor"),
-            EvalVerdict(dimension="ok_dim", score=7, verdict="pass", rationale="decent"),
+            EvalVerdict(
+                dimension="strong_dim", score=9, verdict="pass", rationale="excellent"
+            ),
+            EvalVerdict(
+                dimension="weak_dim", score=3, verdict="fail", rationale="poor"
+            ),
+            EvalVerdict(
+                dimension="ok_dim", score=7, verdict="pass", rationale="decent"
+            ),
         ]
         result = _score_from_verdicts(verdicts, threshold=0.7)
         assert "strong_dim" in result.strengths
@@ -371,11 +379,13 @@ class TestEvaluateAllCreativesInputs:
     def test_returns_error_with_empty_lists(self):
         from creative_eval.agent import evaluate_all_creatives
 
-        ctx = _FakeToolContext({
-            **SAMPLE_CAMPAIGN_STATE,
-            "ad_copy_critique": {"ad_copies": []},
-            "final_visual_concepts": {"visual_concepts": []},
-        })
+        ctx = _FakeToolContext(
+            {
+                **SAMPLE_CAMPAIGN_STATE,
+                "ad_copy_critique": {"ad_copies": []},
+                "final_visual_concepts": {"visual_concepts": []},
+            }
+        )
         result = evaluate_all_creatives(ctx)
         assert result["status"] == "error"
 
@@ -385,36 +395,57 @@ class TestEvaluateAllCreativesInputs:
         from creative_eval.agent import evaluate_all_creatives
         from unittest.mock import patch, MagicMock
 
-        ctx = _FakeToolContext({
-            **SAMPLE_CAMPAIGN_STATE,
-            "ad_copy_critique": json.dumps(SAMPLE_AD_COPIES),
-            "final_visual_concepts": json.dumps(SAMPLE_VISUAL_CONCEPTS),
-        })
+        ctx = _FakeToolContext(
+            {
+                **SAMPLE_CAMPAIGN_STATE,
+                "ad_copy_critique": json.dumps(SAMPLE_AD_COPIES),
+                "final_visual_concepts": json.dumps(SAMPLE_VISUAL_CONCEPTS),
+            }
+        )
 
         # Mock the actual LLM calls to avoid hitting the API
         mock_ad_eval = MagicMock()
         mock_vis_eval = MagicMock()
-        with patch("creative_eval.evaluate.evaluate_ad_copy", mock_ad_eval), \
-             patch("creative_eval.evaluate.evaluate_visual_concept", mock_vis_eval), \
-             patch("creative_eval.agent._build_summary") as mock_summary:
-
+        with (
+            patch("creative_eval.evaluate.evaluate_ad_copy", mock_ad_eval),
+            patch("creative_eval.evaluate.evaluate_visual_concept", mock_vis_eval),
+            patch("creative_eval.agent._build_summary") as mock_summary,
+        ):
             # Setup return values
             from creative_eval.schemas import (
-                AdCopyEvaluation, VisualConceptEvaluation, CreativeScore, EvaluationSummary,
+                AdCopyEvaluation,
+                VisualConceptEvaluation,
+                CreativeScore,
+                EvaluationSummary,
             )
+
             mock_score = CreativeScore(
-                overall_score=0.8, passed=True, verdicts=[], strengths=[], improvements=[],
+                overall_score=0.8,
+                passed=True,
+                verdicts=[],
+                strengths=[],
+                improvements=[],
             )
             mock_ad_eval.return_value = AdCopyEvaluation(
-                original_id=1, headline="Test", tone_style="Humorous", score=mock_score,
+                original_id=1,
+                headline="Test",
+                tone_style="Humorous",
+                score=mock_score,
             )
             mock_vis_eval.return_value = VisualConceptEvaluation(
-                ad_copy_id=1, concept_name="Test", score=mock_score,
+                ad_copy_id=1,
+                concept_name="Test",
+                score=mock_score,
             )
             mock_summary.return_value = EvaluationSummary(
-                total_ad_copies=2, ad_copies_passed=2, avg_ad_copy_score=0.8,
-                total_visual_concepts=1, visual_concepts_passed=1, avg_visual_score=0.8,
-                overall_pass_rate=1.0, weakest_dimensions=[],
+                total_ad_copies=2,
+                ad_copies_passed=2,
+                avg_ad_copy_score=0.8,
+                total_visual_concepts=1,
+                visual_concepts_passed=1,
+                avg_visual_score=0.8,
+                overall_pass_rate=1.0,
+                weakest_dimensions=[],
             )
 
             result = evaluate_all_creatives(ctx)
@@ -429,31 +460,50 @@ class TestEvaluateAllCreativesInputs:
         from creative_eval.agent import evaluate_all_creatives
         from unittest.mock import patch
 
-        ctx = _FakeToolContext({
-            **SAMPLE_CAMPAIGN_STATE,
-            "ad_copy_critique": SAMPLE_AD_COPIES,
-            "final_visual_concepts": {"visual_concepts": []},
-        })
+        ctx = _FakeToolContext(
+            {
+                **SAMPLE_CAMPAIGN_STATE,
+                "ad_copy_critique": SAMPLE_AD_COPIES,
+                "final_visual_concepts": {"visual_concepts": []},
+            }
+        )
 
         captured_contexts = []
 
         def capture_ad_eval(ad_copy, campaign_context, config, client=None):
             captured_contexts.append(campaign_context)
             from creative_eval.schemas import AdCopyEvaluation, CreativeScore
+
             return AdCopyEvaluation(
-                original_id=1, headline="T", tone_style="H",
+                original_id=1,
+                headline="T",
+                tone_style="H",
                 score=CreativeScore(
-                    overall_score=0.8, passed=True, verdicts=[], strengths=[], improvements=[],
+                    overall_score=0.8,
+                    passed=True,
+                    verdicts=[],
+                    strengths=[],
+                    improvements=[],
                 ),
             )
 
-        with patch("creative_eval.evaluate.evaluate_ad_copy", side_effect=capture_ad_eval), \
-             patch("creative_eval.agent._build_summary") as mock_summary:
+        with (
+            patch(
+                "creative_eval.evaluate.evaluate_ad_copy", side_effect=capture_ad_eval
+            ),
+            patch("creative_eval.agent._build_summary") as mock_summary,
+        ):
             from creative_eval.schemas import EvaluationSummary
+
             mock_summary.return_value = EvaluationSummary(
-                total_ad_copies=2, ad_copies_passed=2, avg_ad_copy_score=0.8,
-                total_visual_concepts=0, visual_concepts_passed=0, avg_visual_score=0.0,
-                overall_pass_rate=1.0, weakest_dimensions=[],
+                total_ad_copies=2,
+                ad_copies_passed=2,
+                avg_ad_copy_score=0.8,
+                total_visual_concepts=0,
+                visual_concepts_passed=0,
+                avg_visual_score=0.0,
+                overall_pass_rate=1.0,
+                weakest_dimensions=[],
             )
             evaluate_all_creatives(ctx)
 
@@ -473,7 +523,9 @@ class TestEvaluateAllCreativesOutputs:
         """Helper: run evaluate_all_creatives with mocked evaluators returning given scores."""
         from creative_eval.agent import evaluate_all_creatives
         from creative_eval.schemas import (
-            AdCopyEvaluation, VisualConceptEvaluation, CreativeScore,
+            AdCopyEvaluation,
+            VisualConceptEvaluation,
+            CreativeScore,
             EvalVerdict,
         )
         from unittest.mock import patch
@@ -487,11 +539,13 @@ class TestEvaluateAllCreativesOutputs:
             for i in range(len(vis_scores))
         ]
 
-        ctx = _FakeToolContext({
-            **SAMPLE_CAMPAIGN_STATE,
-            "ad_copy_critique": {"ad_copies": ad_copies},
-            "final_visual_concepts": {"visual_concepts": vis_concepts},
-        })
+        ctx = _FakeToolContext(
+            {
+                **SAMPLE_CAMPAIGN_STATE,
+                "ad_copy_critique": {"ad_copies": ad_copies},
+                "final_visual_concepts": {"visual_concepts": vis_concepts},
+            }
+        )
 
         ad_iter = iter(ad_scores)
         vis_iter = iter(vis_scores)
@@ -506,9 +560,12 @@ class TestEvaluateAllCreativesOutputs:
                     overall_score=score,
                     passed=score >= threshold,
                     verdicts=[
-                        EvalVerdict(dimension="d1", score=int(score * 10),
-                                    verdict="pass" if score >= threshold else "fail",
-                                    rationale="test"),
+                        EvalVerdict(
+                            dimension="d1",
+                            score=int(score * 10),
+                            verdict="pass" if score >= threshold else "fail",
+                            rationale="test",
+                        ),
                     ],
                     strengths=["d1"] if score >= threshold else [],
                     improvements=[] if score >= threshold else ["d1"],
@@ -524,17 +581,25 @@ class TestEvaluateAllCreativesOutputs:
                     overall_score=score,
                     passed=score >= threshold,
                     verdicts=[
-                        EvalVerdict(dimension="d1", score=int(score * 10),
-                                    verdict="pass" if score >= threshold else "fail",
-                                    rationale="test"),
+                        EvalVerdict(
+                            dimension="d1",
+                            score=int(score * 10),
+                            verdict="pass" if score >= threshold else "fail",
+                            rationale="test",
+                        ),
                     ],
                     strengths=["d1"] if score >= threshold else [],
                     improvements=[] if score >= threshold else ["d1"],
                 ),
             )
 
-        with patch("creative_eval.evaluate.evaluate_ad_copy", side_effect=mock_ad_eval), \
-             patch("creative_eval.evaluate.evaluate_visual_concept", side_effect=mock_vis_eval):
+        with (
+            patch("creative_eval.evaluate.evaluate_ad_copy", side_effect=mock_ad_eval),
+            patch(
+                "creative_eval.evaluate.evaluate_visual_concept",
+                side_effect=mock_vis_eval,
+            ),
+        ):
             result = evaluate_all_creatives(ctx)
 
         return result, ctx
@@ -543,21 +608,29 @@ class TestEvaluateAllCreativesOutputs:
         result, _ = self._run_with_mocks(ad_scores=[0.8, 0.9], vis_scores=[0.75])
         assert result["status"] == "success"
         expected_keys = {
-            "status", "total_ad_copies", "ad_copies_passed", "avg_ad_copy_score",
-            "total_visual_concepts", "visual_concepts_passed", "avg_visual_score",
-            "overall_pass_rate", "weakest_dimensions",
+            "status",
+            "total_ad_copies",
+            "ad_copies_passed",
+            "avg_ad_copy_score",
+            "total_visual_concepts",
+            "visual_concepts_passed",
+            "avg_visual_score",
+            "overall_pass_rate",
+            "weakest_dimensions",
         }
         assert set(result.keys()) == expected_keys
 
     def test_counts_match_inputs(self):
-        result, _ = self._run_with_mocks(ad_scores=[0.8, 0.9, 0.6], vis_scores=[0.75, 0.5])
+        result, _ = self._run_with_mocks(
+            ad_scores=[0.8, 0.9, 0.6], vis_scores=[0.75, 0.5]
+        )
         assert result["total_ad_copies"] == 3
         assert result["total_visual_concepts"] == 2
 
     def test_pass_counts_correct(self):
         result, _ = self._run_with_mocks(
-            ad_scores=[0.8, 0.5, 0.9],   # 2 pass, 1 fail
-            vis_scores=[0.75, 0.3],        # 1 pass, 1 fail
+            ad_scores=[0.8, 0.5, 0.9],  # 2 pass, 1 fail
+            vis_scores=[0.75, 0.3],  # 1 pass, 1 fail
         )
         assert result["ad_copies_passed"] == 2
         assert result["visual_concepts_passed"] == 1

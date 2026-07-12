@@ -82,7 +82,7 @@ def rate_limit_callback(
         callback_context.state["timer_start"] = now
         callback_context.state["request_count"] = 1
         logging.debug(
-            "rate_limit_callback [timestamp: %i, req_count: 1, " "elapsed_secs: 0]",
+            "rate_limit_callback [timestamp: %i, req_count: 1, elapsed_secs: 0]",
             now,
         )
         return
@@ -90,7 +90,7 @@ def rate_limit_callback(
     request_count = callback_context.state["request_count"] + 1
     elapsed_secs = now - callback_context.state["timer_start"]
     logging.debug(
-        "rate_limit_callback [timestamp: %i, request_count: %i," " elapsed_secs: %i]",
+        "rate_limit_callback [timestamp: %i, request_count: %i, elapsed_secs: %i]",
         now,
         request_count,
         elapsed_secs,

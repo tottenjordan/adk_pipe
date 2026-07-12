@@ -4,7 +4,9 @@
 def test_creative_agent_root_has_expected_tools():
     from creative_agent.agent import root_agent
 
-    tool_names = [getattr(t, "name", getattr(t, "__name__", str(t))) for t in root_agent.tools]
+    tool_names = [
+        getattr(t, "name", getattr(t, "__name__", str(t))) for t in root_agent.tools
+    ]
     expected = [
         "combined_research_pipeline",
         "ad_creative_pipeline",
@@ -24,7 +26,11 @@ def test_creative_agent_root_output_key_not_set():
     """Root agent should not have an output_key (it orchestrates)."""
     from creative_agent.agent import root_agent
 
-    assert not hasattr(root_agent, "output_key") or root_agent.output_key is None or root_agent.output_key == ""
+    assert (
+        not hasattr(root_agent, "output_key")
+        or root_agent.output_key is None
+        or root_agent.output_key == ""
+    )
 
 
 def test_combined_research_pipeline_sub_agent_order():
@@ -90,7 +96,9 @@ def test_output_keys_are_set_correctly():
         (visual_concept_finalizer, "final_visual_concepts"),
     ]
     for agent, key in expected:
-        assert agent.output_key == key, f"{agent.name} output_key should be '{key}', got '{agent.output_key}'"
+        assert agent.output_key == key, (
+            f"{agent.name} output_key should be '{key}', got '{agent.output_key}'"
+        )
 
 
 def test_output_schemas_assigned():
@@ -120,7 +128,9 @@ def test_output_schemas_assigned():
 def test_trend_trawler_root_has_expected_tools():
     from trend_trawler.agent import root_agent
 
-    tool_names = [getattr(t, "name", getattr(t, "__name__", str(t))) for t in root_agent.tools]
+    tool_names = [
+        getattr(t, "name", getattr(t, "__name__", str(t))) for t in root_agent.tools
+    ]
     expected = [
         "gather_trends_agent",
         "understand_trends_agent",

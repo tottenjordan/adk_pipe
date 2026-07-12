@@ -20,9 +20,7 @@ class EvalVerdict(BaseModel):
     verdict: Literal["pass", "fail"] = Field(
         description="'pass' if score >= 7, 'fail' otherwise."
     )
-    rationale: str = Field(
-        description="1-2 sentence explanation of the score."
-    )
+    rationale: str = Field(description="1-2 sentence explanation of the score.")
 
 
 class CreativeScore(BaseModel):
@@ -33,18 +31,10 @@ class CreativeScore(BaseModel):
         ge=0.0,
         le=1.0,
     )
-    passed: bool = Field(
-        description="True if overall_score >= passing threshold."
-    )
-    verdicts: list[EvalVerdict] = Field(
-        description="Per-dimension verdicts."
-    )
-    strengths: list[str] = Field(
-        description="Top 2-3 strengths identified."
-    )
-    improvements: list[str] = Field(
-        description="Top 2-3 suggested improvements."
-    )
+    passed: bool = Field(description="True if overall_score >= passing threshold.")
+    verdicts: list[EvalVerdict] = Field(description="Per-dimension verdicts.")
+    strengths: list[str] = Field(description="Top 2-3 strengths identified.")
+    improvements: list[str] = Field(description="Top 2-3 suggested improvements.")
 
 
 class AdCopyEvaluation(BaseModel):
@@ -70,8 +60,12 @@ class EvaluationSummary(BaseModel):
     total_ad_copies: int = Field(description="Number of ad copies evaluated.")
     ad_copies_passed: int = Field(description="Number of ad copies that passed.")
     avg_ad_copy_score: float = Field(description="Average score across ad copies.")
-    total_visual_concepts: int = Field(description="Number of visual concepts evaluated.")
-    visual_concepts_passed: int = Field(description="Number of visual concepts that passed.")
+    total_visual_concepts: int = Field(
+        description="Number of visual concepts evaluated."
+    )
+    visual_concepts_passed: int = Field(
+        description="Number of visual concepts that passed."
+    )
     avg_visual_score: float = Field(description="Average score across visual concepts.")
     overall_pass_rate: float = Field(
         description="Combined pass rate across all creatives (0.0-1.0)."
@@ -86,7 +80,9 @@ class CreativeEvaluationReport(BaseModel):
 
     brand: str = Field(description="The brand being evaluated.")
     target_product: str = Field(description="The product being advertised.")
-    target_search_trend: str = Field(description="The trend used for this creative set.")
+    target_search_trend: str = Field(
+        description="The trend used for this creative set."
+    )
     ad_copy_evaluations: list[AdCopyEvaluation] = Field(
         description="Evaluation results for each finalized ad copy."
     )

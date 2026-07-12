@@ -66,8 +66,8 @@ merge_planners = Agent(
     output_key="combined_web_search_insights",
 )
 
-    # 5.  **Risk & Constraint:** (A final, integrated summary of any cultural risks (from the trend) or market constraints (from the campaign) the creative team must avoid.)
-    # </REPORT_STRUCTURE>
+# 5.  **Risk & Constraint:** (A final, integrated summary of any cultural risks (from the trend) or market constraints (from the campaign) the creative team must avoid.)
+# </REPORT_STRUCTURE>
 
 merge_parallel_insights = SequentialAgent(
     name="merge_parallel_insights",
@@ -83,6 +83,7 @@ class SearchQuery(BaseModel):
     search_query: str = Field(
         description="A highly specific and targeted query for web search."
     )
+
 
 class ResearchFeedback(BaseModel):
     """Model for providing evaluation feedback on research quality."""
@@ -270,9 +271,9 @@ combined_report_composer = Agent(
     before_model_callback=callbacks.rate_limit_callback,
 )
 
-    # 5.  **## Final Risk Assessment & Constraints**
-    #     *   (Introductory Paragraph: Summary of any critical constraints or risks the creative team must avoid.)
-    #     *   (No more than 3 supporting bullets detailing the specific risks/constraints.)
+# 5.  **## Final Risk Assessment & Constraints**
+#     *   (Introductory Paragraph: Summary of any critical constraints or risks the creative team must avoid.)
+#     *   (No more than 3 supporting bullets detailing the specific risks/constraints.)
 
 
 # --- COMPLETE RESEARCH PIPELINE SUBAGENT --- #
@@ -314,6 +315,7 @@ class AdCopy(BaseModel):
     social_caption: str = Field(
         description="A candidate, short social media caption (e.g., for Instagram or TikTok video description)."
     )
+
 
 class AdCopyList(BaseModel):
     """Model for efficiently providing ad copy ideas for the critic agent to consume."""
@@ -401,6 +403,7 @@ class FinalAdCopy(BaseModel):
     detailed_performance_rationale: str = Field(
         description="A 2-3 sentence strategic critique explaining *why* this ad copy will perform well against the selection criteria."
     )
+
 
 class FinalAdCopyList(BaseModel):
     """Model for efficiently providing ad copy ideas for the critic agent to consume."""
@@ -493,6 +496,7 @@ class VisualConcept(BaseModel):
         description="A draft prompt for image generation."
     )
 
+
 class VisualConceptList(BaseModel):
     """Model listing all initial visual concepts."""
 
@@ -573,6 +577,7 @@ class VisualConceptCritique(BaseModel):
     critique_summary: str = Field(
         description="A brief (1-2 sentence) summary of the key technical changes made to the prompt."
     )
+
 
 class VisualConceptCritiqueList(BaseModel):
     """Model listing all initial visual concepts."""
@@ -664,6 +669,7 @@ class VisualConceptFinal(BaseModel):
         description="The technically perfected, revised_image_generation_prompt."
     )
 
+
 class VisualConceptFinalList(BaseModel):
     """Model listing all finalized visual concepts."""
 
@@ -671,6 +677,7 @@ class VisualConceptFinalList(BaseModel):
         default=None,
         description="A list of finalized visual concept.",
     )
+
 
 # --- VISUAL CONCEPT FINAL AGENT ---
 visual_concept_finalizer = Agent(
@@ -868,4 +875,4 @@ root_agent = Agent(
     before_model_callback=callbacks.rate_limit_callback,
 )
 
-    # To ensure correct state management, **chain the calls** such that you only call the next `memorize` after the previous call has successfully responded.
+# To ensure correct state management, **chain the calls** such that you only call the next `memorize` after the previous call has successfully responded.

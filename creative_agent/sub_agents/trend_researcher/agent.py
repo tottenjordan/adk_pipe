@@ -21,6 +21,7 @@ warnings.filterwarnings("ignore")
 # --- SCHEMA DEFINITIONS ---
 # TODO: consolidate with schema class used in agent.py
 
+
 class TrendSearchQuery(BaseModel):
     """Model representing a specific search query for web search."""
 
@@ -132,7 +133,7 @@ gs_web_searcher = Agent(
     after_agent_callback=callbacks.collect_research_sources_callback,
 )
 
-    # 4.  **Risk Assessment:** (Identify any potential pitfalls, controversies, or negative associations linked to the trend that marketers must be aware of.)
+# 4.  **Risk Assessment:** (Identify any potential pitfalls, controversies, or negative associations linked to the trend that marketers must be aware of.)
 
 gs_sequential_planner = SequentialAgent(
     name="gs_sequential_planner",

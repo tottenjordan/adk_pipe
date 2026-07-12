@@ -154,10 +154,14 @@ async def main():
     bq = tool_responses.get("write_trends_to_bq") or {}
     print(f"  generate_image tool calls: {gen_calls} (expected exactly 1)")
     print(f"  generated artifact keys: {len(artifact_keys)}")
-    print(f"  eval report saved: {_ok('save_eval_report_to_gcs')} "
-          f"uri={state.get('eval_report_gcs_uri')}")
-    print(f"  gallery built: {_ok('save_creative_gallery_html')} "
-          f"uri={gallery.get('gcs_uri')}")
+    print(
+        f"  eval report saved: {_ok('save_eval_report_to_gcs')} "
+        f"uri={state.get('eval_report_gcs_uri')}"
+    )
+    print(
+        f"  gallery built: {_ok('save_creative_gallery_html')} "
+        f"uri={gallery.get('gcs_uri')}"
+    )
     print(f"  bq row written: {_ok('write_trends_to_bq')} resp={json.dumps(bq)[:160]}")
     print(f"\nsession id for reference: {session.id}")
     print(f"gcs folder: {state.get('gcs_folder')}")

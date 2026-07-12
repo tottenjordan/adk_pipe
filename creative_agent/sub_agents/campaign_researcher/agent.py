@@ -21,6 +21,7 @@ warnings.filterwarnings("ignore")
 # --- SCHEMA DEFINITIONS ---
 # TODO: consolidate with schema class used in agent.py
 
+
 class CampaignSearchQuery(BaseModel):
     """Model representing a specific search query for web search."""
 
