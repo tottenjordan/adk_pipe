@@ -1,4 +1,5 @@
 .venv
+.python-version
 output/*
 *.env
 *.pyc
@@ -8,3 +9,4 @@ a_stash/
 **cloud_funktions/creative_crf/message.json
 .adk
 .adk/*
+.next/*

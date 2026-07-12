@@ -14,6 +14,7 @@ from .sub_agents.trend_researcher.agent import gs_sequential_planner
 from .config import config
 from . import callbacks
 from . import tools
+from creative_eval.agent import creative_eval_agent
 
 
 # --- config ---
@@ -722,26 +723,30 @@ visual_concept_finalizer = Agent(
 )
 
 
-# Sequential agent for visual generation
-visual_generation_pipeline = SequentialAgent(
-    name="visual_generation_pipeline",
-    description="Generates visual concepts with an actor-critic workflow.",
-    sub_agents=[
-        visual_concept_drafter,
-        visual_concept_critic,
-        visual_concept_finalizer,
-    ],
-)
-
-
 # --- VISUAL GENERATOR AGENT ---
+# Runs generate_image over the finalized visual concepts. In creative_agent it is
+# chained into visual_production_pipeline (below) so image rendering is deterministic
+# and the orchestrator cannot skip it. interactive_creative deliberately invokes it as
+# a separate step AFTER a human review checkpoint (review concepts before spending on
+# image generation), so it must also remain usable as a standalone agent.
 visual_generator = Agent(
     model=config.critic_model,
     name="visual_generator",
     include_contents="none",  # new
     description="Generate final visuals using image generation tools",
+    # thinking_budget=0: this is a mechanical single-tool step, not a reasoning task.
+    # Without it, gemini-3 would emit MULTIPLE parallel `generate_image` calls in one
+    # turn — and parallel calls all read state before any commits, so the tool's
+    # idempotency guard (_images_generated) can't dedupe them, causing every image to
+    # be rendered 2x (double the image-gen cost). One call is all that's needed:
+    # generate_image itself loops over every concept in final_visual_concepts.
+    planner=BuiltInPlanner(
+        thinking_config=types.ThinkingConfig(thinking_budget=0, include_thoughts=False)
+    ),
     instruction="""You are a visual content producer generating image creatives.
-    Your job is to invoke the `generate_image` tool.
+    Call the `generate_image` tool EXACTLY ONCE — a single function call, never in
+    parallel and never more than once. It renders images for all concepts on its own.
+    After it returns, reply with a one-line confirmation. Do not call it again.
     """,
     tools=[tools.generate_image],
     generate_content_config=types.GenerateContentConfig(
@@ -753,6 +758,34 @@ visual_generator = Agent(
         },
     ),
     before_model_callback=callbacks.rate_limit_callback,
+)
+
+
+# Sequential agent for visual concepts (draft -> critique -> finalize). Shared with
+# interactive_creative, which pauses for human review after this stage before rendering.
+visual_generation_pipeline = SequentialAgent(
+    name="visual_generation_pipeline",
+    description="Generates visual concepts with an actor-critic workflow.",
+    sub_agents=[
+        visual_concept_drafter,
+        visual_concept_critic,
+        visual_concept_finalizer,
+    ],
+)
+
+
+# creative_agent (non-interactive) renders images immediately after finalizing
+# concepts, as one deterministic unit. This removes the orchestrator's opportunity to
+# skip image generation — which it did when creative_eval_agent looked like the next
+# step, jumping straight from visual concepts to evaluation. interactive_creative does
+# NOT use this: it keeps concepts and images split around a review checkpoint.
+visual_production_pipeline = SequentialAgent(
+    name="visual_production_pipeline",
+    description="Generate visual concepts, then render their image creatives.",
+    sub_agents=[
+        visual_generation_pipeline,
+        visual_generator,
+    ],
 )
 
 
@@ -771,10 +804,11 @@ root_agent = Agent(
     2. Use the `combined_research_pipeline` tool to conduct web research on the campaign metadata and selected trends.
     3. Use the `save_draft_report_artifact` tool to save a research PDf report to Cloud Storage.
     4. Use the `ad_creative_pipeline` tool to generate ad copies.
-    5. Use the `visual_generation_pipeline` tool to generate visual concepts.
-    6. Use the `visual_generator` tool to generate image creatives.
-    7. Use the `save_creative_gallery_html` tool to build an HTML file for displaying a portfolio of the generated creatives generated during the session.
-    8. Use the `write_trends_to_bq` tool to insert rows to BigQuery.
+    5. Use the `visual_production_pipeline` tool to generate visual concepts and render their image creatives.
+    6. Use the `creative_eval_agent` tool to evaluate all generated ad copies and visual concepts for quality.
+    7. Use the `save_eval_report_to_gcs` tool to save the creative evaluation report JSON to Cloud Storage.
+    8. Use the `save_creative_gallery_html` tool to build an HTML file for displaying a portfolio of the generated creatives generated during the session.
+    9. Use the `write_trends_to_bq` tool to insert rows to BigQuery.
     </AVAILABLE_TOOLS>
 
 
@@ -798,11 +832,12 @@ root_agent = Agent(
     1. First, use the `combined_research_pipeline` tool to conduct web research, leveraging the stored campaign metadata and trends.
     2. Once all research tasks are complete, use the `save_draft_report_artifact` tool to save the research as a markdown file in Cloud Storage.
     3. Invoke the `ad_creative_pipeline` tool to generate a set of candidate ad copies.
-    4. Then, call the `visual_generation_pipeline` tool to generate visual concepts for the finalized ad copies.
-    5. Next, call the `visual_generator` tool to generate high-fidelity image creatives based on the visual concepts.
-    6. Then, call the `save_creative_gallery_html` tool to create an HTML portfolio and save it to Cloud Storage.
-    7. Finally as the last step, call the `write_trends_to_bq` tool to save trend information to BigQuery for logging and analytics.
-    8. Once the previous steps are complete, perform the following action:
+    4. Then, call the `visual_production_pipeline` tool to generate visual concepts for the finalized ad copies and render high-fidelity image creatives for each concept.
+    5. Call the `creative_eval_agent` tool to evaluate the quality of all generated ad copies and visual concepts. This will score each creative on dimensions like trend authenticity, copy quality, audience fit, and stopping power, and store a detailed evaluation report in the session state.
+    6. Call the `save_eval_report_to_gcs` tool to save the creative evaluation report JSON to Cloud Storage.
+    7. Then, call the `save_creative_gallery_html` tool to create an HTML portfolio and save it to Cloud Storage.
+    8. Finally as the last step, call the `write_trends_to_bq` tool to save trend information to BigQuery for logging and analytics.
+    9. Once the previous steps are complete, perform the following action:
 
     Action 1: Display Cloud Storage location to the user
     Display the Cloud Storage URI to the user by combining the 'gcs_bucket', 'gcs_folder', and 'agent_output_dir' state keys like this: {gcs_bucket}/{gcs_folder}/{agent_output_dir}
@@ -813,8 +848,9 @@ root_agent = Agent(
     tools=[
         AgentTool(agent=combined_research_pipeline),
         AgentTool(agent=ad_creative_pipeline),
-        AgentTool(agent=visual_generation_pipeline),
-        AgentTool(agent=visual_generator),
+        AgentTool(agent=visual_production_pipeline),
+        AgentTool(agent=creative_eval_agent),
+        tools.save_eval_report_to_gcs,
         tools.save_draft_report_artifact,
         tools.save_creative_gallery_html,
         tools.write_trends_to_bq,
