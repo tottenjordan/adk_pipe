@@ -1,7 +1,6 @@
 """Tests for callback functions (citation replacement, state init, rate limiting)."""
 import re
 import time
-import pytest
 
 
 # --- Citation replacement regex ---
@@ -105,7 +104,6 @@ class TestSetInitialStates:
 
     def test_trend_trawler_sets_trawler_output(self):
         from trend_trawler.callbacks import _set_initial_states
-        from trend_trawler.config import config
 
         target = {}
         source = {"brand": "PRS"}

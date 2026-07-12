@@ -426,9 +426,8 @@ class TestEvaluateAllCreativesInputs:
 
     def test_extracts_campaign_context_keys(self):
         """Verify the campaign context dict passed to evaluators has the right keys."""
-        import json
         from creative_eval.agent import evaluate_all_creatives
-        from unittest.mock import patch, MagicMock
+        from unittest.mock import patch
 
         ctx = _FakeToolContext({
             **SAMPLE_CAMPAIGN_STATE,
@@ -475,7 +474,7 @@ class TestEvaluateAllCreativesOutputs:
         from creative_eval.agent import evaluate_all_creatives
         from creative_eval.schemas import (
             AdCopyEvaluation, VisualConceptEvaluation, CreativeScore,
-            EvalVerdict, EvaluationSummary,
+            EvalVerdict,
         )
         from unittest.mock import patch
 

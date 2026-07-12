@@ -1,6 +1,5 @@
 """Tests for deployment utility functions (deploy_agent.py)."""
 import os
-import tempfile
 import pytest
 import dotenv
 

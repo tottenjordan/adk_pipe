@@ -4,7 +4,6 @@ Usage:
     uv run python -m creative_eval.run_eval_test
 """
 
-import json
 import logging
 
 from .config import EvalConfig
@@ -112,7 +111,7 @@ def main():
     print("EVALUATION RESULTS")
     print("=" * 60)
 
-    print(f"\n--- Ad Copy Scores ---")
+    print("\n--- Ad Copy Scores ---")
     for ac_eval in report.ad_copy_evaluations:
         status = "PASS" if ac_eval.score.passed else "FAIL"
         print(f"\n  [{status}] #{ac_eval.original_id} \"{ac_eval.headline}\" ({ac_eval.tone_style})")
@@ -125,7 +124,7 @@ def main():
         if ac_eval.score.improvements:
             print(f"    Improve: {', '.join(ac_eval.score.improvements)}")
 
-    print(f"\n--- Visual Concept Scores ---")
+    print("\n--- Visual Concept Scores ---")
     for vc_eval in report.visual_concept_evaluations:
         status = "PASS" if vc_eval.score.passed else "FAIL"
         print(f"\n  [{status}] \"{vc_eval.concept_name}\"")
@@ -138,7 +137,7 @@ def main():
         if vc_eval.score.improvements:
             print(f"    Improve: {', '.join(vc_eval.score.improvements)}")
 
-    print(f"\n--- Summary ---")
+    print("\n--- Summary ---")
     s = report.summary
     print(f"  Ad copies:       {s.ad_copies_passed}/{s.total_ad_copies} passed (avg: {s.avg_ad_copy_score:.1%})")
     print(f"  Visual concepts: {s.visual_concepts_passed}/{s.total_visual_concepts} passed (avg: {s.avg_visual_score:.1%})")

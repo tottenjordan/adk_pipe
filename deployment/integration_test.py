@@ -21,7 +21,6 @@ Usage:
 
 import os
 import sys
-import json
 import dotenv
 import asyncio
 import logging

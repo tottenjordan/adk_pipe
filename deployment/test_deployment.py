@@ -135,7 +135,7 @@ async def main() -> None:  # pylint: disable=unused-argument
     """Main function that uses the defined flags."""
 
     # get instance of agent
-    logging.info(f"\n\nGetting Agent Engine Runtime...\n\n")
+    logging.info("\n\nGetting Agent Engine Runtime...\n\n")
     if not args.agent:
         logging.error("Error: --agent is required for the create operation.")
         return

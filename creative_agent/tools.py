@@ -2,11 +2,10 @@ import os
 import uuid
 import string
 import logging
-import markdown
 import warnings
-import json, shutil
+import json
+import shutil
 from PIL import Image
-from pathlib import Path
 from markdown_pdf import MarkdownPdf, Section
 
 from google import genai
@@ -978,7 +977,7 @@ async def save_draft_report_artifact(tool_context: ToolContext) -> dict:
     gcs_blob_name = f"{gcs_folder}/{gcs_subdir}/{artifact_key}"
 
     try:
-        DIR = f"report_creatives"
+        DIR = "report_creatives"
         if not os.path.exists(DIR):
             os.makedirs(DIR)
 

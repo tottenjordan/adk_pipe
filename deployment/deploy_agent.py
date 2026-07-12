@@ -101,7 +101,7 @@ def deploy_trawler(version: str) -> None:
     # adk_app = AdkApp(agent=root_agent, enable_tracing=True)
 
     try:
-        logging.info(f"Deploying `trend_trawler` agent...")
+        logging.info("Deploying `trend_trawler` agent...")
         remote_agent = client.agent_engines.create(
             agent=root_agent, # adk_app
             config={
@@ -140,7 +140,7 @@ def deploy_creative_agent(version: str) -> None:
     # adk_app = AdkApp(agent=root_agent, enable_tracing=True)
 
     try:
-        logging.info(f"Deploying `creative_agent` agent...")
+        logging.info("Deploying `creative_agent` agent...")
         remote_agent = client.agent_engines.create(
             agent=root_agent, # adk_app
             config={
@@ -233,11 +233,11 @@ def main(argv):
             logging.error("Error: --agent is required for the create operation.")
             return
         if FLAGS.agent == "trend_trawler":
-            logging.info(f"Creating Agent Engine Runtime for `trend_trawler`...")
+            logging.info("Creating Agent Engine Runtime for `trend_trawler`...")
             deploy_trawler(version=FLAGS.version)
 
         elif FLAGS.agent == "creative_agent":
-            logging.info(f"Creating Agent Engine Runtime for `creative_agent`...")
+            logging.info("Creating Agent Engine Runtime for `creative_agent`...")
             deploy_creative_agent(version=FLAGS.version)
 
     elif FLAGS.delete:

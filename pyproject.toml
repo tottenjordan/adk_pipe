@@ -36,3 +36,10 @@ package = false
 dev = [
     "pytest>=9.0.2",
 ]
+
+[tool.ruff.lint.per-file-ignores]
+# Package __init__.py files re-export submodules/symbols as the public API.
+"__init__.py" = ["F401"]
+# Deployment scripts prepend the project root to sys.path before importing
+# first-party packages, so their module-level imports intentionally follow code.
+"deployment/*.py" = ["E402"]
