@@ -394,8 +394,8 @@ class TestEvaluateAllCreativesInputs:
         # Mock the actual LLM calls to avoid hitting the API
         mock_ad_eval = MagicMock()
         mock_vis_eval = MagicMock()
-        with patch("creative_eval.agent.evaluate_ad_copy", mock_ad_eval), \
-             patch("creative_eval.agent.evaluate_visual_concept", mock_vis_eval), \
+        with patch("creative_eval.evaluate.evaluate_ad_copy", mock_ad_eval), \
+             patch("creative_eval.evaluate.evaluate_visual_concept", mock_vis_eval), \
              patch("creative_eval.agent._build_summary") as mock_summary:
 
             # Setup return values
@@ -438,7 +438,7 @@ class TestEvaluateAllCreativesInputs:
 
         captured_contexts = []
 
-        def capture_ad_eval(ad_copy, campaign_context, config):
+        def capture_ad_eval(ad_copy, campaign_context, config, client=None):
             captured_contexts.append(campaign_context)
             from creative_eval.schemas import AdCopyEvaluation, CreativeScore
             return AdCopyEvaluation(
@@ -448,7 +448,7 @@ class TestEvaluateAllCreativesInputs:
                 ),
             )
 
-        with patch("creative_eval.agent.evaluate_ad_copy", side_effect=capture_ad_eval), \
+        with patch("creative_eval.evaluate.evaluate_ad_copy", side_effect=capture_ad_eval), \
              patch("creative_eval.agent._build_summary") as mock_summary:
             from creative_eval.schemas import EvaluationSummary
             mock_summary.return_value = EvaluationSummary(
@@ -497,7 +497,7 @@ class TestEvaluateAllCreativesOutputs:
         ad_iter = iter(ad_scores)
         vis_iter = iter(vis_scores)
 
-        def mock_ad_eval(ad_copy, campaign_context, config):
+        def mock_ad_eval(ad_copy, campaign_context, config, client=None):
             score = next(ad_iter)
             return AdCopyEvaluation(
                 original_id=ad_copy.get("original_id", 0),
@@ -516,7 +516,7 @@ class TestEvaluateAllCreativesOutputs:
                 ),
             )
 
-        def mock_vis_eval(vc, campaign_context, config):
+        def mock_vis_eval(vc, campaign_context, config, client=None):
             score = next(vis_iter)
             return VisualConceptEvaluation(
                 ad_copy_id=vc.get("ad_copy_id", 0),
@@ -534,8 +534,8 @@ class TestEvaluateAllCreativesOutputs:
                 ),
             )
 
-        with patch("creative_eval.agent.evaluate_ad_copy", side_effect=mock_ad_eval), \
-             patch("creative_eval.agent.evaluate_visual_concept", side_effect=mock_vis_eval):
+        with patch("creative_eval.evaluate.evaluate_ad_copy", side_effect=mock_ad_eval), \
+             patch("creative_eval.evaluate.evaluate_visual_concept", side_effect=mock_vis_eval):
             result = evaluate_all_creatives(ctx)
 
         return result, ctx

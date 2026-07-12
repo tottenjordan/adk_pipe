@@ -28,6 +28,23 @@ but are downstream symptoms of the React crash. Fixing `formatStateValue` made
 both disappear. If you see multiple concurrent runs on one session or
 `raw_gtrends` KeyErrors, suspect a frontend render crash first.
 
+## Leaving the run page mid-run cancels the run (SSE abort)
+
+The run is driven by a long-lived `POST /run_sse` stream held open by the run
+page. If you **navigate away or refresh before the run completes** — e.g. click
+through to `/results` while the final leg is still working — the browser aborts
+that fetch, and the server logs `Root node ... was cancelled` and kills the
+in-flight agent. Observed 2026-07-12: an `interactive_creative` run that had
+already finished all 12 eval scores was cancelled ~4 s later when the results
+page loaded (the log shows the cancellation immediately followed by
+`GET .../results/.../artifacts/*` requests), so the eval report / gallery / BQ
+writes never ran. This is distinct from the ~12-min request timeout (that run was
+only ~6.5 min in). Interactive checkpoints split the run into separate requests,
+but the **final leg after checkpoint 3 has no checkpoint**, so it only survives
+while the run page stays open. Practical rule: don't leave the run page until it
+reports completion. (The concurrent-eval fix — see `local-testing.md` — shrinks
+this vulnerable window from ~5.5 min to ~30 s.)
+
 ## Same-origin proxy (why it exists)
 
 The browser talks to the ADK api_server through a same-origin Next.js proxy

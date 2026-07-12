@@ -13,10 +13,9 @@ Usage:
 import json
 import logging
 from google.adk.agents import Agent
-from google.genai import types
 
 from .config import EvalConfig
-from .evaluate import evaluate_ad_copy, evaluate_visual_concept, _build_summary
+from .evaluate import evaluate_all_concurrently, _build_summary
 from .schemas import CreativeEvaluationReport
 
 logger = logging.getLogger(__name__)
@@ -53,13 +52,17 @@ def evaluate_all_creatives(tool_context) -> dict:
     ad_copy_raw = state.get("ad_copy_critique", {})
     if isinstance(ad_copy_raw, str):
         ad_copy_raw = json.loads(ad_copy_raw)
-    ad_copies = ad_copy_raw.get("ad_copies", []) if isinstance(ad_copy_raw, dict) else []
+    ad_copies = (
+        ad_copy_raw.get("ad_copies", []) if isinstance(ad_copy_raw, dict) else []
+    )
 
     # Parse visual concepts from state
     visual_raw = state.get("final_visual_concepts", {})
     if isinstance(visual_raw, str):
         visual_raw = json.loads(visual_raw)
-    visual_concepts = visual_raw.get("visual_concepts", []) if isinstance(visual_raw, dict) else []
+    visual_concepts = (
+        visual_raw.get("visual_concepts", []) if isinstance(visual_raw, dict) else []
+    )
 
     if not ad_copies and not visual_concepts:
         return {
@@ -68,22 +71,21 @@ def evaluate_all_creatives(tool_context) -> dict:
         }
 
     logger.info(
-        f"Evaluating {len(ad_copies)} ad copies and {len(visual_concepts)} visual concepts..."
+        f"Evaluating {len(ad_copies)} ad copies and {len(visual_concepts)} visual "
+        f"concepts concurrently (max {_config.max_eval_workers} workers)..."
     )
 
-    # Evaluate ad copies
-    ad_evals = []
-    for ac in ad_copies:
-        if isinstance(ac, str):
-            ac = json.loads(ac)
-        ad_evals.append(evaluate_ad_copy(ac, campaign_context, _config))
+    # Normalize any JSON-string entries to dicts before scoring
+    ad_copies = [json.loads(ac) if isinstance(ac, str) else ac for ac in ad_copies]
+    visual_concepts = [
+        json.loads(vc) if isinstance(vc, str) else vc for vc in visual_concepts
+    ]
 
-    # Evaluate visual concepts
-    visual_evals = []
-    for vc in visual_concepts:
-        if isinstance(vc, str):
-            vc = json.loads(vc)
-        visual_evals.append(evaluate_visual_concept(vc, campaign_context, _config))
+    # Score every creative in parallel — each is an independent judge call, so
+    # this collapses eval wall-clock from ~N*28s to roughly one call's latency.
+    ad_evals, visual_evals = evaluate_all_concurrently(
+        ad_copies, visual_concepts, campaign_context, _config
+    )
 
     summary = _build_summary(ad_evals, visual_evals)
 

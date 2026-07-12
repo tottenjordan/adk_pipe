@@ -12,8 +12,9 @@ Usage:
     )
 """
 
-import json
 import logging
+from concurrent.futures import ThreadPoolExecutor
+
 from google import genai
 
 from .config import EvalConfig
@@ -56,12 +57,14 @@ def _score_from_verdicts(
     passed = avg_score >= threshold
 
     strengths = [
-        v.dimension for v in sorted(verdicts, key=lambda v: v.score, reverse=True)
+        v.dimension
+        for v in sorted(verdicts, key=lambda v: v.score, reverse=True)
         if v.verdict == "pass"
     ][:3]
 
     improvements = [
-        v.dimension for v in sorted(verdicts, key=lambda v: v.score)
+        v.dimension
+        for v in sorted(verdicts, key=lambda v: v.score)
         if v.verdict == "fail"
     ][:3]
 
@@ -116,14 +119,18 @@ def evaluate_ad_copy(
         result = AdCopyEvaluation.model_validate_json(response.text)
 
         # Recompute overall_score from verdicts for consistency
-        recomputed = _score_from_verdicts(result.score.verdicts, config.passing_threshold)
+        recomputed = _score_from_verdicts(
+            result.score.verdicts, config.passing_threshold
+        )
         result.score.overall_score = recomputed.overall_score
         result.score.passed = recomputed.passed
 
         return result
 
     except Exception as e:
-        logger.error(f"Failed to evaluate ad copy {ad_copy.get('original_id', '?')}: {e}")
+        logger.error(
+            f"Failed to evaluate ad copy {ad_copy.get('original_id', '?')}: {e}"
+        )
         # Return a zero-score evaluation on failure
         return AdCopyEvaluation(
             original_id=ad_copy.get("original_id", 0),
@@ -179,14 +186,18 @@ def evaluate_visual_concept(
 
         result = VisualConceptEvaluation.model_validate_json(response.text)
 
-        recomputed = _score_from_verdicts(result.score.verdicts, config.passing_threshold)
+        recomputed = _score_from_verdicts(
+            result.score.verdicts, config.passing_threshold
+        )
         result.score.overall_score = recomputed.overall_score
         result.score.passed = recomputed.passed
 
         return result
 
     except Exception as e:
-        logger.error(f"Failed to evaluate visual concept {visual_concept.get('concept_name', '?')}: {e}")
+        logger.error(
+            f"Failed to evaluate visual concept {visual_concept.get('concept_name', '?')}: {e}"
+        )
         return VisualConceptEvaluation(
             ad_copy_id=visual_concept.get("ad_copy_id", 0),
             concept_name=visual_concept.get("concept_name", ""),
@@ -200,6 +211,48 @@ def evaluate_visual_concept(
         )
 
 
+def evaluate_all_concurrently(
+    ad_copies: list[dict],
+    visual_concepts: list[dict],
+    campaign_context: dict,
+    config: EvalConfig,
+    client: genai.Client | None = None,
+) -> tuple[list[AdCopyEvaluation], list[VisualConceptEvaluation]]:
+    """Evaluate all ad copies and visual concepts concurrently, preserving order.
+
+    Each creative is judged by an independent Gemini call, so running them in a
+    thread pool collapses eval wall-clock from ~N*28s (sequential) to roughly a
+    single call's latency. Results are returned in the same order as the inputs.
+    Individual failures are already handled inside evaluate_ad_copy /
+    evaluate_visual_concept (they return a zero-score evaluation), so a single
+    bad creative can't sink the whole batch.
+    """
+    if client is None:
+        client = _get_client(config)
+
+    total = len(ad_copies) + len(visual_concepts)
+    if total == 0:
+        return [], []
+
+    max_workers = max(1, min(config.max_eval_workers, total))
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        ad_futures = [
+            executor.submit(evaluate_ad_copy, ac, campaign_context, config, client)
+            for ac in ad_copies
+        ]
+        vis_futures = [
+            executor.submit(
+                evaluate_visual_concept, vc, campaign_context, config, client
+            )
+            for vc in visual_concepts
+        ]
+        # .result() preserves submission order and re-raises unexpected errors
+        ad_evals = [f.result() for f in ad_futures]
+        visual_evals = [f.result() for f in vis_futures]
+
+    return ad_evals, visual_evals
+
+
 def _build_summary(
     ad_evals: list[AdCopyEvaluation],
     visual_evals: list[VisualConceptEvaluation],
@@ -209,7 +262,9 @@ def _build_summary(
     vis_scores = [e.score.overall_score for e in visual_evals]
 
     total = len(ad_evals) + len(visual_evals)
-    passed = sum(1 for e in ad_evals if e.score.passed) + sum(1 for e in visual_evals if e.score.passed)
+    passed = sum(1 for e in ad_evals if e.score.passed) + sum(
+        1 for e in visual_evals if e.score.passed
+    )
 
     # Find weakest dimensions across all verdicts
     dim_scores: dict[str, list[int]] = {}
@@ -223,10 +278,14 @@ def _build_summary(
     return EvaluationSummary(
         total_ad_copies=len(ad_evals),
         ad_copies_passed=sum(1 for e in ad_evals if e.score.passed),
-        avg_ad_copy_score=round(sum(ad_scores) / len(ad_scores), 3) if ad_scores else 0.0,
+        avg_ad_copy_score=round(sum(ad_scores) / len(ad_scores), 3)
+        if ad_scores
+        else 0.0,
         total_visual_concepts=len(visual_evals),
         visual_concepts_passed=sum(1 for e in visual_evals if e.score.passed),
-        avg_visual_score=round(sum(vis_scores) / len(vis_scores), 3) if vis_scores else 0.0,
+        avg_visual_score=round(sum(vis_scores) / len(vis_scores), 3)
+        if vis_scores
+        else 0.0,
         overall_pass_rate=round(passed / total, 3) if total > 0 else 0.0,
         weakest_dimensions=weakest,
     )
@@ -255,17 +314,14 @@ def evaluate_creatives(
 
     client = _get_client(config)
 
-    logger.info(f"Evaluating {len(ad_copies)} ad copies and {len(visual_concepts)} visual concepts...")
+    logger.info(
+        f"Evaluating {len(ad_copies)} ad copies and {len(visual_concepts)} visual "
+        f"concepts concurrently (max {config.max_eval_workers} workers)..."
+    )
 
-    ad_evals = []
-    for i, ac in enumerate(ad_copies):
-        logger.info(f"  Evaluating ad copy {i + 1}/{len(ad_copies)}: {ac.get('headline', '?')}")
-        ad_evals.append(evaluate_ad_copy(ac, campaign_context, config, client))
-
-    visual_evals = []
-    for i, vc in enumerate(visual_concepts):
-        logger.info(f"  Evaluating visual concept {i + 1}/{len(visual_concepts)}: {vc.get('concept_name', '?')}")
-        visual_evals.append(evaluate_visual_concept(vc, campaign_context, config, client))
+    ad_evals, visual_evals = evaluate_all_concurrently(
+        ad_copies, visual_concepts, campaign_context, config, client
+    )
 
     summary = _build_summary(ad_evals, visual_evals)
 

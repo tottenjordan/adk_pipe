@@ -17,6 +17,18 @@ the UI, even though the agent logic is correct.
 **Workaround: run headless.** `deployment/headless_run.py` drives the same
 `root_agent` through a local ADK `Runner` with no HTTP layer, so it completes.
 
+**Fix (2026-07-12): eval now runs concurrently.** The eval phase was the long
+silent stretch that blew the timeout. `evaluate_all_creatives`
+(`creative_eval/agent.py`) and `evaluate_creatives` (`creative_eval/evaluate.py`)
+now score all creatives in parallel via `evaluate_all_concurrently()` (a
+`ThreadPoolExecutor`, `EvalConfig.max_eval_workers=12`) instead of a sequential
+`for` loop. Measured: eval dropped from ~5.5 min (12 creatives sequential) to
+~26–30 s (bounded by the slowest single judge call, roughly constant regardless
+of creative count). This keeps the whole final leg well under the ~12-min
+timeout. Note the per-creative `evaluate_ad_copy`/`evaluate_visual_concept`
+signatures now take a shared `client` as a 4th positional arg (the pool creates
+one client and reuses it); test mocks must accept it.
+
 ## Headless runner details (`deployment/headless_run.py`)
 
 - Uses `Runner(app_name="creative_agent", agent=root_agent,
