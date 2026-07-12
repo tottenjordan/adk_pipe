@@ -75,10 +75,23 @@ def _get_pubsub_client():
     return pubsub_v1.PublisherClient()
 
 
-client = vertexai.Client(
-    project=config.GOOGLE_CLOUD_PROJECT,
-    location=config.GCP_REGION,
-)  # pyright: ignore[reportCallIssue]
+_vertex_client = None
+
+
+def _get_vertex_client():
+    """Get a lazily-initialized Vertex AI client.
+
+    Lazy so importing this module does not require GCP credentials or network
+    access (lets the entrypoints be unit-tested), mirroring the BigQuery/Pub/Sub
+    client factories above.
+    """
+    global _vertex_client
+    if _vertex_client is None:
+        _vertex_client = vertexai.Client(
+            project=config.GOOGLE_CLOUD_PROJECT,
+            location=config.GCP_REGION,
+        )  # pyright: ignore[reportCallIssue]
+    return _vertex_client
 
 
 # ==============================
@@ -195,7 +208,7 @@ async def create_agent_run(
     """
     logging.info(f"Invoking Agent Run {msg_dict['index'] + 1}...")
 
-    remote_agent = client.agent_engines.get(
+    remote_agent = _get_vertex_client().agent_engines.get(
         name=f"projects/{_PROJECT_NUMBER}/locations/{_LOCATION}/reasoningEngines/{agent_id}"
     )
 
