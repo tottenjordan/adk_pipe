@@ -46,3 +46,9 @@ class TestAgentsHaveRetryConfig:
 
         assert visual_generator.retry_config is INFRA_RETRY
         assert root_agent.retry_config is INFRA_RETRY
+
+    def test_interactive_creative_agent_has_retry(self):
+        from interactive_creative.agent import root_agent
+        from creative_agent.config import INFRA_RETRY
+
+        assert root_agent.retry_config is INFRA_RETRY
