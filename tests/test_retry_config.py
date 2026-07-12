@@ -19,3 +19,14 @@ class TestTrendTrawlerRetryConfig:
         } <= names
         # trend_trawler has no direct genai calls
         assert "ServerError" not in names
+
+
+class TestCreativeAgentRetryConfig:
+    def test_infra_retry_includes_genai_server_error(self):
+        from creative_agent.config import INFRA_RETRY
+
+        assert INFRA_RETRY.max_attempts == 3
+        names = set(INFRA_RETRY.exceptions)
+        assert "ServerError" in names           # genai 5xx
+        assert "ServiceUnavailable" in names     # api_core
+        assert "TimeoutError" in names

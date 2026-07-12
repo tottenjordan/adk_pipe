@@ -3,7 +3,28 @@ import warnings
 from dotenv import load_dotenv
 from dataclasses import dataclass
 
+from google.adk.workflow import RetryConfig
+from google.api_core import exceptions as api_exceptions
+from google.genai import errors as genai_errors
+
 warnings.filterwarnings("ignore")
+
+# See note in trend_trawler/config.py: ADK matches retry exceptions by exact class
+# name, so we list the concrete transient classes (genai 5xx + Google API 5xx/429 +
+# transport). creative_agent calls genai directly (image gen), hence ServerError.
+INFRA_RETRY = RetryConfig(
+    max_attempts=3,
+    exceptions=[
+        genai_errors.ServerError,            # genai 5xx
+        api_exceptions.ServiceUnavailable,   # 503
+        api_exceptions.InternalServerError,  # 500
+        api_exceptions.GatewayTimeout,       # 504
+        api_exceptions.TooManyRequests,      # 429
+        api_exceptions.DeadlineExceeded,
+        ConnectionError,
+        TimeoutError,
+    ],
+)
 
 # Load environment variables from a .env file
 ENV_FILE_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".env"))
