@@ -57,6 +57,11 @@ instruction="""... Call the `generate_image` tool EXACTLY ONCE — a single
 stop gemini-3 MAX_TOKENS runaway and multiple/parallel tool calls in mechanical
 single-tool steps.
 
+**Verified fixed 2026-07-12** via headless run `a23fb408` (gcs_folder
+`2026_07_12_05_55_1a27`): exactly 6 `"Saved image artifact"` log lines and 6
+distinct PNGs in GCS — no duplicates. (Count `generate_image` via those log
+lines, not the event stream; see `local-testing.md` on AgentTool sub-events.)
+
 ## Do NOT touch interactive_creative for this
 
 `interactive_creative/agent.py` imports `visual_generation_pipeline` and

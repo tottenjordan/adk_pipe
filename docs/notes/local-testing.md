@@ -36,6 +36,18 @@ the UI, even though the agent logic is correct.
 - Sessions are **in-memory per process**, so a headless run will NOT appear in
   the running api_server's `/results/[sessionId]` UI (separate process, separate
   memory). Verify via script stdout + GCS + BigQuery instead.
+- **Caveat: AgentTool sub-invocation events don't surface in the top-level
+  `runner.run_async` stream.** Tools invoked *inside* an `AgentTool` wrapper
+  (e.g. `generate_image` inside `visual_production_pipeline`) never appear as
+  function-call events at the top level, so counting them from the event stream
+  reads 0. To verify exactly-once image generation, count the tool's own
+  `"Saved image artifact"` log lines instead (one `generate_image` call saves
+  one line per concept — 6 concepts → 6 lines; the old duplicate bug gave 12).
+
+Verified 2026-07-12 (run `a23fb408`, gcs_folder `2026_07_12_05_55_1a27`): full
+end-to-end pass — 6 distinct PNGs, `creative_eval_report.json`,
+`creative_portfolio_gallery.html`, research PDF all in GCS; BQ row written;
+every top-level tool called exactly once.
 
 ## Where results actually land (state vs return value)
 
