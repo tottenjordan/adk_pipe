@@ -170,9 +170,7 @@ async def generate_image(
 
     artifact_keys_list = []
     for entry in final_visual_concepts_list:
-
         try:
-
             response = client.models.generate_content(
                 model=config.image_gen_model,
                 contents=entry["image_generation_prompt"],
@@ -208,8 +206,13 @@ async def generate_image(
                     image_bytes=image_bytes,
                     filename=artifact_key,
                 )
-                if isinstance(img_gcs_uri, dict) and img_gcs_uri.get("status") == "error":
-                    logging.error(f"GCS upload failed for '{artifact_key}': {img_gcs_uri.get('message')}")
+                if (
+                    isinstance(img_gcs_uri, dict)
+                    and img_gcs_uri.get("status") == "error"
+                ):
+                    logging.error(
+                        f"GCS upload failed for '{artifact_key}': {img_gcs_uri.get('message')}"
+                    )
 
                 # save ADK artifact
                 img_artifact = types.Part.from_bytes(
@@ -380,7 +383,6 @@ async def save_creative_gallery_html(tool_context: ToolContext) -> dict:
     final_ad_copy_list = final_ad_copy_dict["ad_copies"]
 
     try:
-
         # =========================== #
         # CSS formatting for HTML
         # =========================== #
@@ -777,27 +779,29 @@ async def save_creative_gallery_html(tool_context: ToolContext) -> dict:
                     artifact_key=ARTIFACT_KEY,
                 )
             except Exception as e:
-                logging.warning(f"Could not create high-res image for '{ARTIFACT_KEY}', falling back to standard-res: {e}")
+                logging.warning(
+                    f"Could not create high-res image for '{ARTIFACT_KEY}', falling back to standard-res: {e}"
+                )
                 HIGH_RES_AUTH_GCS_URL = AUTH_GCS_URL
 
             # generate HTML block for gallery images
             GALLERY_IMAGE_BLOCK = f"""
-                <!-- Image {index+1} -->
+                <!-- Image {index + 1} -->
                 <div class="gallery-item">
-                    <h4 class="image-title">{entry['headline']}</h4>
+                    <h4 class="image-title">{entry["headline"]}</h4>
                     <div class="image-container">
                         <img src="{AUTH_GCS_URL}" 
                                 data-high-res-src="{HIGH_RES_AUTH_GCS_URL}"
-                                alt="{entry['concept_summary'].replace('"', "'")}" 
-                                title="{entry['headline']}">
+                                alt="{entry["concept_summary"].replace('"', "'")}" 
+                                title="{entry["headline"]}">
                         <div class="hover-text">
-                            <div class="hover-snippet snippet-top-left"><strong>Trend Reference:</strong>{entry['trend_reference'].replace('"', "'")}</div>
-                            <div class="hover-snippet snippet-top-right"><strong>Visual Concept Name:</strong>{entry['concept_name']}</div>
-                            <div class="hover-snippet snippet-bottom-left"><strong>How it markets Target Product:</strong>{entry['markets_product'].replace('"', "'")}</div>
-                            <div class="hover-snippet snippet-bottom-right"><strong>Target audience appeal:</strong>{entry['audience_appeal'].replace('"', "'")}</div>
+                            <div class="hover-snippet snippet-top-left"><strong>Trend Reference:</strong>{entry["trend_reference"].replace('"', "'")}</div>
+                            <div class="hover-snippet snippet-top-right"><strong>Visual Concept Name:</strong>{entry["concept_name"]}</div>
+                            <div class="hover-snippet snippet-bottom-left"><strong>How it markets Target Product:</strong>{entry["markets_product"].replace('"', "'")}</div>
+                            <div class="hover-snippet snippet-bottom-right"><strong>Target audience appeal:</strong>{entry["audience_appeal"].replace('"', "'")}</div>
                         </div>
                     </div>
-                    <p class="caption">{entry['social_caption']}</p>
+                    <p class="caption">{entry["social_caption"]}</p>
                 </div>
             """
             CONNECTED_GALLERY_STRING += GALLERY_IMAGE_BLOCK
@@ -830,14 +834,14 @@ async def save_creative_gallery_html(tool_context: ToolContext) -> dict:
         for index, entry in enumerate(final_visual_concepts_list):
             # generate HTML block for visual concepts
             VISUAL_CONCEPT_BLOCK = f"""
-                    <!-- Visual Concept {index+1} -->
+                    <!-- Visual Concept {index + 1} -->
                     <div class="content-card">
                         <dl>
-                            <dt>Name:</dt> <dd>{entry['concept_name']}</dd>
-                            <dt>Trend:</dt> <dd>{entry['trend']}</dd>
-                            <dt>Creative Concept Explained:</dt> <dd>{entry['concept_summary']}</dd>
-                            <dt>Why this will perform well:</dt> <dd>{entry['selection_rationale']}</dd>
-                            <dt>prompt</dt> <dd>{entry['image_generation_prompt']}</dd>
+                            <dt>Name:</dt> <dd>{entry["concept_name"]}</dd>
+                            <dt>Trend:</dt> <dd>{entry["trend"]}</dd>
+                            <dt>Creative Concept Explained:</dt> <dd>{entry["concept_summary"]}</dd>
+                            <dt>Why this will perform well:</dt> <dd>{entry["selection_rationale"]}</dd>
+                            <dt>prompt</dt> <dd>{entry["image_generation_prompt"]}</dd>
                         </dl>
                     </div>
             """
@@ -868,16 +872,16 @@ async def save_creative_gallery_html(tool_context: ToolContext) -> dict:
         for index, entry in enumerate(final_ad_copy_list):
             # generate HTML block for ad copies
             AD_COPY_BLOCK = f"""
-                    <!-- Ad Copy {index+1} -->
+                    <!-- Ad Copy {index + 1} -->
                     <div class="content-card">
                         <dl>
-                            <dt>Headline:</dt> <dd>{entry['headline']}</dd>
-                            <dt>Body Text:</dt> <dd>{entry['body_text']}</dd>
-                            <dt>Social Media Caption:</dt> <dd>{entry['social_caption']}</dd>
-                            <dt>Call-to-Action:</dt> <dd>{entry['call_to_action']}</dd>
-                            <dt>Trend-Reference:</dt> <dd>{entry['trend_connection']}</dd>
-                            <dt>Audience Appeal:</dt> <dd>{entry['audience_appeal_rationale']}</dd>
-                            <dt>Performance Rationale:</dt> <dd>{entry['detailed_performance_rationale']}</dd>
+                            <dt>Headline:</dt> <dd>{entry["headline"]}</dd>
+                            <dt>Body Text:</dt> <dd>{entry["body_text"]}</dd>
+                            <dt>Social Media Caption:</dt> <dd>{entry["social_caption"]}</dd>
+                            <dt>Call-to-Action:</dt> <dd>{entry["call_to_action"]}</dd>
+                            <dt>Trend-Reference:</dt> <dd>{entry["trend_connection"]}</dd>
+                            <dt>Audience Appeal:</dt> <dd>{entry["audience_appeal_rationale"]}</dd>
+                            <dt>Performance Rationale:</dt> <dd>{entry["detailed_performance_rationale"]}</dd>
                         </dl>
                     </div>
             """
@@ -1108,7 +1112,10 @@ def save_eval_report_to_gcs(tool_context: ToolContext) -> dict:
     """
     report_data = tool_context.state.get("creative_evaluation_report")
     if not report_data:
-        return {"status": "error", "message": "No creative_evaluation_report found in session state."}
+        return {
+            "status": "error",
+            "message": "No creative_evaluation_report found in session state.",
+        }
 
     gcs_folder = tool_context.state["gcs_folder"]
     gcs_subdir = tool_context.state["agent_output_dir"]

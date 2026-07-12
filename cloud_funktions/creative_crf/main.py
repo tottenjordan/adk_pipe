@@ -202,11 +202,11 @@ async def create_agent_run(
     session = await remote_agent.async_create_session(user_id=user_id)
     logging.info(f"\n\nCreated session for user ID: {user_id}\n\n")
 
-    USER_QUERY = f"""Brand: {msg_dict['brand']} 
-    Target Product: {msg_dict['target_product']} 
-    Key Selling Point(s): {msg_dict['key_selling_point']} 
-    Target Audience: {msg_dict['target_audience']} 
-    Target Search Trend: {msg_dict['target_search_trend']} 
+    USER_QUERY = f"""Brand: {msg_dict["brand"]} 
+    Target Product: {msg_dict["target_product"]} 
+    Key Selling Point(s): {msg_dict["key_selling_point"]} 
+    Target Audience: {msg_dict["target_audience"]} 
+    Target Search Trend: {msg_dict["target_search_trend"]} 
     """
 
     # long running op
@@ -433,7 +433,6 @@ def crf_entrypoint(cloud_event: CloudEvent) -> None:
         # 5. Dispatch Step: Publish one message per row to the worker topic
         dispatched_count = 0
         for row_dict in row_list:
-
             # Create a dedicated payload for the worker
             worker_payload = {
                 "bq_dataset": dataset,

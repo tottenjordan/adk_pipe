@@ -2,7 +2,6 @@
 
 
 class AppConfig:
-
     # gcp project
     GOOGLE_CLOUD_PROJECT = "hybrid-vertex"
     # Agent Engine is a *regional* resource — this is us-central1, NOT the

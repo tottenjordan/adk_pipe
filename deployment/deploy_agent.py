@@ -103,7 +103,7 @@ def deploy_trawler(version: str) -> None:
     try:
         logging.info("Deploying `trend_trawler` agent...")
         remote_agent = client.agent_engines.create(
-            agent=root_agent, # adk_app
+            agent=root_agent,  # adk_app
             config={
                 "requirements": "./requirements.txt",
                 "extra_packages": ["./trend_trawler"],
@@ -142,7 +142,7 @@ def deploy_creative_agent(version: str) -> None:
     try:
         logging.info("Deploying `creative_agent` agent...")
         remote_agent = client.agent_engines.create(
-            agent=root_agent, # adk_app
+            agent=root_agent,  # adk_app
             config={
                 "requirements": "./requirements.txt",
                 "extra_packages": ["./creative_agent"],
@@ -201,9 +201,7 @@ def delete(
     logging.info(f"Attempting to delete agent: {resource_id}")
 
     PROJECT_NUM = os.getenv("GOOGLE_CLOUD_PROJECT_NUMBER")
-    RESOURCE_NAME = (
-        f"projects/{PROJECT_NUM}/locations/{AGENT_ENGINE_LOCATION}/reasoningEngines/{resource_id}"
-    )
+    RESOURCE_NAME = f"projects/{PROJECT_NUM}/locations/{AGENT_ENGINE_LOCATION}/reasoningEngines/{resource_id}"
 
     remote_agent = client.agent_engines.get(name=RESOURCE_NAME)
     remote_agent.delete(force=True)

@@ -96,7 +96,9 @@ def main():
     config = EvalConfig()
     print(f"\nRunning creative evaluation with model: {config.eval_model}")
     print(f"Passing threshold: {config.passing_threshold}")
-    print(f"Evaluating {len(SAMPLE_AD_COPIES)} ad copies and {len(SAMPLE_VISUAL_CONCEPTS)} visual concepts\n")
+    print(
+        f"Evaluating {len(SAMPLE_AD_COPIES)} ad copies and {len(SAMPLE_VISUAL_CONCEPTS)} visual concepts\n"
+    )
     print("=" * 60)
 
     report = evaluate_creatives(
@@ -114,7 +116,9 @@ def main():
     print("\n--- Ad Copy Scores ---")
     for ac_eval in report.ad_copy_evaluations:
         status = "PASS" if ac_eval.score.passed else "FAIL"
-        print(f"\n  [{status}] #{ac_eval.original_id} \"{ac_eval.headline}\" ({ac_eval.tone_style})")
+        print(
+            f'\n  [{status}] #{ac_eval.original_id} "{ac_eval.headline}" ({ac_eval.tone_style})'
+        )
         print(f"    Overall: {ac_eval.score.overall_score:.1%}")
         for v in ac_eval.score.verdicts:
             v_status = "+" if v.verdict == "pass" else "-"
@@ -127,7 +131,7 @@ def main():
     print("\n--- Visual Concept Scores ---")
     for vc_eval in report.visual_concept_evaluations:
         status = "PASS" if vc_eval.score.passed else "FAIL"
-        print(f"\n  [{status}] \"{vc_eval.concept_name}\"")
+        print(f'\n  [{status}] "{vc_eval.concept_name}"')
         print(f"    Overall: {vc_eval.score.overall_score:.1%}")
         for v in vc_eval.score.verdicts:
             v_status = "+" if v.verdict == "pass" else "-"
@@ -139,8 +143,12 @@ def main():
 
     print("\n--- Summary ---")
     s = report.summary
-    print(f"  Ad copies:       {s.ad_copies_passed}/{s.total_ad_copies} passed (avg: {s.avg_ad_copy_score:.1%})")
-    print(f"  Visual concepts: {s.visual_concepts_passed}/{s.total_visual_concepts} passed (avg: {s.avg_visual_score:.1%})")
+    print(
+        f"  Ad copies:       {s.ad_copies_passed}/{s.total_ad_copies} passed (avg: {s.avg_ad_copy_score:.1%})"
+    )
+    print(
+        f"  Visual concepts: {s.visual_concepts_passed}/{s.total_visual_concepts} passed (avg: {s.avg_visual_score:.1%})"
+    )
     print(f"  Overall pass rate: {s.overall_pass_rate:.1%}")
     print(f"  Weakest dimensions: {', '.join(s.weakest_dimensions)}")
     print("=" * 60)

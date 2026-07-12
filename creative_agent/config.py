@@ -33,12 +33,12 @@ class ResearchConfiguration:
     """
 
     state_init = "_state_init"
-    critic_model: str = "gemini-3.1-pro-preview" # gemini-3-pro-preview
-    worker_model: str = "gemini-3.5-flash" # gemini-3-flash-preview
-    video_analysis_model: str = "gemini-3.1-pro-preview" # gemini-3-pro-preview
-    lite_planner_model: str = "gemini-3.1-flash-lite" # gemini-3-flash-preview
+    critic_model: str = "gemini-3.1-pro-preview"  # gemini-3-pro-preview
+    worker_model: str = "gemini-3.5-flash"  # gemini-3-flash-preview
+    video_analysis_model: str = "gemini-3.1-pro-preview"  # gemini-3-pro-preview
+    lite_planner_model: str = "gemini-3.1-flash-lite"  # gemini-3-flash-preview
     image_gen_model: str = "gemini-3.1-flash-image"
-    video_gen_model: str = "veo-3.1-generate-001" # "veo-3.0-generate-001"
+    video_gen_model: str = "veo-3.1-generate-001"  # "veo-3.0-generate-001"
     max_results_yt_trends: int = 45
 
     # Adjust these values to limit the rate at which the agent queries the LLM API.
@@ -48,16 +48,16 @@ class ResearchConfiguration:
     # env vars
     GCS_BUCKET = os.environ.get("BUCKET")
     GCS_BUCKET_NAME = os.environ.get("GCS_BUCKET_NAME")
-    PROJECT_ID=os.environ.get("GOOGLE_CLOUD_PROJECT")
-    PROJECT_NUMBER=os.environ.get("GOOGLE_CLOUD_PROJECT_NUMBER")
-    LOCATION=os.environ.get("GOOGLE_CLOUD_LOCATION")
+    PROJECT_ID = os.environ.get("GOOGLE_CLOUD_PROJECT")
+    PROJECT_NUMBER = os.environ.get("GOOGLE_CLOUD_PROJECT_NUMBER")
+    LOCATION = os.environ.get("GOOGLE_CLOUD_LOCATION")
 
     # TODO: update doc string
-    BQ_PROJECT_ID=os.environ.get("BQ_PROJECT_ID")
-    BQ_DATASET_ID=os.environ.get("BQ_DATASET_ID")
-    BQ_TABLE_TARGETS=os.environ.get("BQ_TABLE_TARGETS")
-    BQ_TABLE_CREATIVES=os.environ.get("BQ_TABLE_CREATIVES")
-    BQ_TABLE_ALL_TRENDS=os.environ.get("BQ_TABLE_ALL_TRENDS")
+    BQ_PROJECT_ID = os.environ.get("BQ_PROJECT_ID")
+    BQ_DATASET_ID = os.environ.get("BQ_DATASET_ID")
+    BQ_TABLE_TARGETS = os.environ.get("BQ_TABLE_TARGETS")
+    BQ_TABLE_CREATIVES = os.environ.get("BQ_TABLE_CREATIVES")
+    BQ_TABLE_ALL_TRENDS = os.environ.get("BQ_TABLE_ALL_TRENDS")
 
 
 config = ResearchConfiguration()

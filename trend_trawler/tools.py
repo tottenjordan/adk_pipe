@@ -69,6 +69,7 @@ def _get_gtrends_max_date() -> str:
 
 # max_date = _get_gtrends_max_date()
 
+
 # today_date: str = max_date
 # today_date: Today's date in the format 'MM/DD/YYYY'. Use the default value provided.
 def get_daily_gtrends(tool_context: ToolContext) -> str:
@@ -254,6 +255,7 @@ def save_session_state_to_gcs(tool_context: ToolContext) -> dict:
         "status": "success",
         "gcs_uri": gcs_uri,
     }
+
 
 # refresh_date: str = max_date
 # refresh_date: Latest refresh date from the trends table in the format 'MM/DD/YYYY'. Use the default value provided.

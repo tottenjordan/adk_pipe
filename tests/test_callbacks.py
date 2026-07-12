@@ -1,4 +1,5 @@
 """Tests for callback functions (citation replacement, state init, rate limiting)."""
+
 import re
 import time
 
@@ -36,8 +37,14 @@ class TestCitationRegex:
 
     def test_replacement_with_sources(self):
         sources = {
-            "src-1": {"title": "Guitar World", "url": "https://guitarworld.com/article"},
-            "src-2": {"title": "Rolling Stone", "url": "https://rollingstone.com/review"},
+            "src-1": {
+                "title": "Guitar World",
+                "url": "https://guitarworld.com/article",
+            },
+            "src-2": {
+                "title": "Rolling Stone",
+                "url": "https://rollingstone.com/review",
+            },
         }
 
         def tag_replacer(match: re.Match) -> str:
@@ -48,7 +55,9 @@ class TestCitationRegex:
             display_text = source_info.get("title", short_id)
             return f" [{display_text}]({source_info['url']})"
 
-        text = 'Great tone.<cite source="src-1" /> Critics agree.<cite source="src-2" />'
+        text = (
+            'Great tone.<cite source="src-1" /> Critics agree.<cite source="src-2" />'
+        )
         result = re.sub(CITE_PATTERN, tag_replacer, text)
         assert "[Guitar World](https://guitarworld.com/article)" in result
         assert "[Rolling Stone](https://rollingstone.com/review)" in result

@@ -1,4 +1,5 @@
 """Tests for backend tool functions (pure logic, no external service calls)."""
+
 import string
 
 
@@ -19,7 +20,7 @@ class TestArtifactNameSanitization:
         assert sanitize_artifact_name("Rock & Roll's Best!") == "Rock__Rolls_Best.png"
 
     def test_name_with_special_chars(self):
-        result = sanitize_artifact_name("Concept #1: The \"Vibe\"")
+        result = sanitize_artifact_name('Concept #1: The "Vibe"')
         assert ".png" in result
         assert "#" not in result
         assert '"' not in result
@@ -38,6 +39,7 @@ class TestArtifactNameSanitization:
 # --- Memorize tool ---
 class MockState(dict):
     """Simple dict-based mock for ToolContext.state."""
+
     pass
 
 

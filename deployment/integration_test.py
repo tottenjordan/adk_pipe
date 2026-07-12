@@ -55,10 +55,18 @@ AGENT_ENV_KEYS = {
 
 # Session state keys that should be populated after a successful agent run
 EXPECTED_STATE_KEYS = {
-    "trend_trawler": ["brand", "target_product", "target_audience", "key_selling_points"],
+    "trend_trawler": [
+        "brand",
+        "target_product",
+        "target_audience",
+        "key_selling_points",
+    ],
     "creative_agent": [
-        "brand", "target_product", "target_audience",
-        "key_selling_points", "target_search_trends",
+        "brand",
+        "target_product",
+        "target_audience",
+        "key_selling_points",
+        "target_search_trends",
     ],
 }
 
@@ -116,9 +124,7 @@ def get_remote_agent(client, agent_name: str):
     env_key = AGENT_ENV_KEYS[agent_name]
     resource_id = os.getenv(env_key)
     if not resource_id:
-        raise ValueError(
-            f"{env_key} is not set in .env — deploy the agent first"
-        )
+        raise ValueError(f"{env_key} is not set in .env — deploy the agent first")
     return client.agent_engines.get(name=resource_id)
 
 
@@ -132,11 +138,13 @@ def check_health(client) -> list[TestResult]:
     for agent_name, env_key in AGENT_ENV_KEYS.items():
         resource_id = os.getenv(env_key)
         if not resource_id:
-            results.append(TestResult(
-                name=f"health:{agent_name}",
-                passed=False,
-                message=f"{env_key} not set in .env — skip",
-            ))
+            results.append(
+                TestResult(
+                    name=f"health:{agent_name}",
+                    passed=False,
+                    message=f"{env_key} not set in .env — skip",
+                )
+            )
             continue
 
         start = time.time()
@@ -152,19 +160,23 @@ def check_health(client) -> list[TestResult]:
                 checks.append("display_name is empty")
 
             if checks:
-                results.append(TestResult(
-                    name=f"health:{agent_name}",
-                    passed=False,
-                    message=f"Agent reachable but: {', '.join(checks)}",
-                    duration_s=time.time() - start,
-                ))
+                results.append(
+                    TestResult(
+                        name=f"health:{agent_name}",
+                        passed=False,
+                        message=f"Agent reachable but: {', '.join(checks)}",
+                        duration_s=time.time() - start,
+                    )
+                )
             else:
-                results.append(TestResult(
-                    name=f"health:{agent_name}",
-                    passed=True,
-                    message=f"OK — {api_resource.display_name}",
-                    duration_s=time.time() - start,
-                ))
+                results.append(
+                    TestResult(
+                        name=f"health:{agent_name}",
+                        passed=True,
+                        message=f"OK — {api_resource.display_name}",
+                        duration_s=time.time() - start,
+                    )
+                )
                 logging.info(
                     f"  {agent_name}: name={api_resource.name}, "
                     f"display_name={api_resource.display_name}, "
@@ -172,12 +184,14 @@ def check_health(client) -> list[TestResult]:
                 )
 
         except Exception as e:
-            results.append(TestResult(
-                name=f"health:{agent_name}",
-                passed=False,
-                message=f"{type(e).__name__}: {e}",
-                duration_s=time.time() - start,
-            ))
+            results.append(
+                TestResult(
+                    name=f"health:{agent_name}",
+                    passed=False,
+                    message=f"{type(e).__name__}: {e}",
+                    duration_s=time.time() - start,
+                )
+            )
 
     return results
 
@@ -193,30 +207,40 @@ async def check_session(client, agent_name: str) -> list[TestResult]:
     try:
         remote_agent = get_remote_agent(client, agent_name)
     except ValueError as e:
-        return [TestResult(
-            name=f"session:{agent_name}:get_agent",
-            passed=False,
-            message=str(e),
-        )]
+        return [
+            TestResult(
+                name=f"session:{agent_name}:get_agent",
+                passed=False,
+                message=str(e),
+            )
+        ]
 
     # 1. Create session
     start = time.time()
     try:
         session = await remote_agent.async_create_session(user_id=TEST_USER_ID)
-        has_id = "id" in session if isinstance(session, dict) else hasattr(session, "id")
-        results.append(TestResult(
-            name=f"session:{agent_name}:create",
-            passed=has_id,
-            message="Session created" if has_id else f"No 'id' in session: {session}",
-            duration_s=time.time() - start,
-        ))
+        has_id = (
+            "id" in session if isinstance(session, dict) else hasattr(session, "id")
+        )
+        results.append(
+            TestResult(
+                name=f"session:{agent_name}:create",
+                passed=has_id,
+                message="Session created"
+                if has_id
+                else f"No 'id' in session: {session}",
+                duration_s=time.time() - start,
+            )
+        )
     except Exception as e:
-        results.append(TestResult(
-            name=f"session:{agent_name}:create",
-            passed=False,
-            message=f"{type(e).__name__}: {e}",
-            duration_s=time.time() - start,
-        ))
+        results.append(
+            TestResult(
+                name=f"session:{agent_name}:create",
+                passed=False,
+                message=f"{type(e).__name__}: {e}",
+                duration_s=time.time() - start,
+            )
+        )
         return results  # can't continue without a session
 
     session_id = session["id"] if isinstance(session, dict) else session.id
@@ -232,19 +256,25 @@ async def check_session(client, agent_name: str) -> list[TestResult]:
             session_ids.append(sid)
 
         found = session_id in session_ids
-        results.append(TestResult(
-            name=f"session:{agent_name}:list",
-            passed=found,
-            message="Session found in list" if found else f"Session {session_id} not in {session_ids}",
-            duration_s=time.time() - start,
-        ))
+        results.append(
+            TestResult(
+                name=f"session:{agent_name}:list",
+                passed=found,
+                message="Session found in list"
+                if found
+                else f"Session {session_id} not in {session_ids}",
+                duration_s=time.time() - start,
+            )
+        )
     except Exception as e:
-        results.append(TestResult(
-            name=f"session:{agent_name}:list",
-            passed=False,
-            message=f"{type(e).__name__}: {e}",
-            duration_s=time.time() - start,
-        ))
+        results.append(
+            TestResult(
+                name=f"session:{agent_name}:list",
+                passed=False,
+                message=f"{type(e).__name__}: {e}",
+                duration_s=time.time() - start,
+            )
+        )
 
     # 3. Delete session
     start = time.time()
@@ -252,19 +282,23 @@ async def check_session(client, agent_name: str) -> list[TestResult]:
         await remote_agent.async_delete_session(
             user_id=TEST_USER_ID, session_id=session_id
         )
-        results.append(TestResult(
-            name=f"session:{agent_name}:delete",
-            passed=True,
-            message="Session deleted",
-            duration_s=time.time() - start,
-        ))
+        results.append(
+            TestResult(
+                name=f"session:{agent_name}:delete",
+                passed=True,
+                message="Session deleted",
+                duration_s=time.time() - start,
+            )
+        )
     except Exception as e:
-        results.append(TestResult(
-            name=f"session:{agent_name}:delete",
-            passed=False,
-            message=f"{type(e).__name__}: {e}",
-            duration_s=time.time() - start,
-        ))
+        results.append(
+            TestResult(
+                name=f"session:{agent_name}:delete",
+                passed=False,
+                message=f"{type(e).__name__}: {e}",
+                duration_s=time.time() - start,
+            )
+        )
 
     # 4. Verify session is gone
     start = time.time()
@@ -276,19 +310,25 @@ async def check_session(client, agent_name: str) -> list[TestResult]:
             session_ids_after.append(sid)
 
         gone = session_id not in session_ids_after
-        results.append(TestResult(
-            name=f"session:{agent_name}:verify_deleted",
-            passed=gone,
-            message="Session confirmed deleted" if gone else "Session still exists after delete",
-            duration_s=time.time() - start,
-        ))
+        results.append(
+            TestResult(
+                name=f"session:{agent_name}:verify_deleted",
+                passed=gone,
+                message="Session confirmed deleted"
+                if gone
+                else "Session still exists after delete",
+                duration_s=time.time() - start,
+            )
+        )
     except Exception as e:
-        results.append(TestResult(
-            name=f"session:{agent_name}:verify_deleted",
-            passed=False,
-            message=f"{type(e).__name__}: {e}",
-            duration_s=time.time() - start,
-        ))
+        results.append(
+            TestResult(
+                name=f"session:{agent_name}:verify_deleted",
+                passed=False,
+                message=f"{type(e).__name__}: {e}",
+                duration_s=time.time() - start,
+            )
+        )
 
     return results
 
@@ -303,11 +343,13 @@ async def check_smoke(client, agent_name: str) -> list[TestResult]:
     try:
         remote_agent = get_remote_agent(client, agent_name)
     except ValueError as e:
-        return [TestResult(
-            name=f"smoke:{agent_name}:get_agent",
-            passed=False,
-            message=str(e),
-        )]
+        return [
+            TestResult(
+                name=f"smoke:{agent_name}:get_agent",
+                passed=False,
+                message=str(e),
+            )
+        ]
 
     # Build test query from .env
     test_query = (
@@ -324,19 +366,23 @@ async def check_smoke(client, agent_name: str) -> list[TestResult]:
     start = time.time()
     try:
         session = await remote_agent.async_create_session(user_id=TEST_USER_ID)
-        results.append(TestResult(
-            name=f"smoke:{agent_name}:create_session",
-            passed=True,
-            message="Session created",
-            duration_s=time.time() - start,
-        ))
+        results.append(
+            TestResult(
+                name=f"smoke:{agent_name}:create_session",
+                passed=True,
+                message="Session created",
+                duration_s=time.time() - start,
+            )
+        )
     except Exception as e:
-        results.append(TestResult(
-            name=f"smoke:{agent_name}:create_session",
-            passed=False,
-            message=f"{type(e).__name__}: {e}",
-            duration_s=time.time() - start,
-        ))
+        results.append(
+            TestResult(
+                name=f"smoke:{agent_name}:create_session",
+                passed=False,
+                message=f"{type(e).__name__}: {e}",
+                duration_s=time.time() - start,
+            )
+        )
         return results
 
     session_id = session["id"] if isinstance(session, dict) else session.id
@@ -352,26 +398,36 @@ async def check_smoke(client, agent_name: str) -> list[TestResult]:
         ):
             events.append(event)
             # Log progress markers
-            author = event.get("author", "unknown") if isinstance(event, dict) else "unknown"
+            author = (
+                event.get("author", "unknown") if isinstance(event, dict) else "unknown"
+            )
             if isinstance(event, dict) and "content" in event:
                 parts = event["content"].get("parts", [])
                 for part in parts:
                     if "functionCall" in part:
-                        logging.info(f"  [{author}] tool: {part['functionCall'].get('name', '?')}")
+                        logging.info(
+                            f"  [{author}] tool: {part['functionCall'].get('name', '?')}"
+                        )
 
-        results.append(TestResult(
-            name=f"smoke:{agent_name}:run",
-            passed=len(events) > 0,
-            message=f"Received {len(events)} events" if events else "No events received",
-            duration_s=time.time() - start,
-        ))
+        results.append(
+            TestResult(
+                name=f"smoke:{agent_name}:run",
+                passed=len(events) > 0,
+                message=f"Received {len(events)} events"
+                if events
+                else "No events received",
+                duration_s=time.time() - start,
+            )
+        )
     except Exception as e:
-        results.append(TestResult(
-            name=f"smoke:{agent_name}:run",
-            passed=False,
-            message=f"{type(e).__name__}: {e}",
-            duration_s=time.time() - start,
-        ))
+        results.append(
+            TestResult(
+                name=f"smoke:{agent_name}:run",
+                passed=False,
+                message=f"{type(e).__name__}: {e}",
+                duration_s=time.time() - start,
+            )
+        )
 
     # 3. Verify session state contains expected keys
     start = time.time()
@@ -391,27 +447,33 @@ async def check_smoke(client, agent_name: str) -> list[TestResult]:
         missing_keys = [k for k in expected_keys if k not in state]
 
         if missing_keys:
-            results.append(TestResult(
-                name=f"smoke:{agent_name}:state_keys",
-                passed=False,
-                message=f"Missing state keys: {missing_keys}. Present: {list(state.keys())}",
-                duration_s=time.time() - start,
-            ))
+            results.append(
+                TestResult(
+                    name=f"smoke:{agent_name}:state_keys",
+                    passed=False,
+                    message=f"Missing state keys: {missing_keys}. Present: {list(state.keys())}",
+                    duration_s=time.time() - start,
+                )
+            )
         else:
-            results.append(TestResult(
-                name=f"smoke:{agent_name}:state_keys",
-                passed=True,
-                message=f"All expected keys present: {expected_keys}",
-                duration_s=time.time() - start,
-            ))
+            results.append(
+                TestResult(
+                    name=f"smoke:{agent_name}:state_keys",
+                    passed=True,
+                    message=f"All expected keys present: {expected_keys}",
+                    duration_s=time.time() - start,
+                )
+            )
 
     except Exception as e:
-        results.append(TestResult(
-            name=f"smoke:{agent_name}:state_keys",
-            passed=False,
-            message=f"{type(e).__name__}: {e}",
-            duration_s=time.time() - start,
-        ))
+        results.append(
+            TestResult(
+                name=f"smoke:{agent_name}:state_keys",
+                passed=False,
+                message=f"{type(e).__name__}: {e}",
+                duration_s=time.time() - start,
+            )
+        )
 
     # 4. Check that at least one text response was generated
     text_events = []
@@ -421,11 +483,15 @@ async def check_smoke(client, agent_name: str) -> list[TestResult]:
                 if "text" in part and part["text"].strip():
                     text_events.append(part["text"][:80])
 
-    results.append(TestResult(
-        name=f"smoke:{agent_name}:has_text_output",
-        passed=len(text_events) > 0,
-        message=f"{len(text_events)} text responses" if text_events else "No text output from agent",
-    ))
+    results.append(
+        TestResult(
+            name=f"smoke:{agent_name}:has_text_output",
+            passed=len(text_events) > 0,
+            message=f"{len(text_events)} text responses"
+            if text_events
+            else "No text output from agent",
+        )
+    )
 
     # 5. Cleanup — delete session
     try:
@@ -447,10 +513,7 @@ async def run_checks(check_type: str, agent_name: str | None) -> bool:
     client = get_client()
     all_results: list[TestResult] = []
 
-    agents_to_test = (
-        [agent_name] if agent_name
-        else ["trend_trawler", "creative_agent"]
-    )
+    agents_to_test = [agent_name] if agent_name else ["trend_trawler", "creative_agent"]
 
     if check_type in ("health", "all"):
         logging.info("Running health checks...")

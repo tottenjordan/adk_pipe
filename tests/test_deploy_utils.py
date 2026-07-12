@@ -1,4 +1,5 @@
 """Tests for deployment utility functions (deploy_agent.py)."""
+
 import os
 import pytest
 import dotenv
@@ -66,9 +67,7 @@ class TestEnvVarDict:
         """Verify the deploy script's ENV_VAR_DICT includes all required keys."""
         # We can't import deploy_agent.py directly (module-level vertexai.Client),
         # so we verify the expected keys against .env.example
-        env_example_path = os.path.join(
-            os.path.dirname(__file__), "..", ".env.example"
-        )
+        env_example_path = os.path.join(os.path.dirname(__file__), "..", ".env.example")
         if not os.path.exists(env_example_path):
             pytest.skip(".env.example not found")
 
@@ -78,9 +77,7 @@ class TestEnvVarDict:
 
     def test_env_example_has_agent_engine_ids(self):
         """Verify .env.example has placeholder Agent Engine ID fields."""
-        env_example_path = os.path.join(
-            os.path.dirname(__file__), "..", ".env.example"
-        )
+        env_example_path = os.path.join(os.path.dirname(__file__), "..", ".env.example")
         if not os.path.exists(env_example_path):
             pytest.skip(".env.example not found")
 
