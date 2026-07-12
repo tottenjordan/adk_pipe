@@ -1,7 +1,5 @@
 <div align="center">
 
-<img src="imgs/trend_trawler_banner.png" alt="Trend Trawler — a trawler casting a wide net at golden hour" width="100%" />
-
 <h1 align="center">🌊 Trend Trawler 🎣</h1>
 
 > Turn trending Google Search terms into campaign-ready ad creatives — a multi-agent system built with Google's **ADK**, deployed to **Vertex AI Agent Engine**, and fanned out via **Cloud Run Functions + Pub/Sub**.
