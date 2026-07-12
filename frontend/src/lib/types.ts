@@ -1,10 +1,12 @@
 export interface Part {
   text?: string;
   functionCall?: {
+    id?: string;
     name: string;
     args: Record<string, unknown>;
   };
   functionResponse?: {
+    id?: string;
     name: string;
     response: Record<string, unknown>;
   };
@@ -28,6 +30,8 @@ export interface AgentEvent {
     stateDelta?: Record<string, unknown>;
     artifactDelta?: Record<string, string>;
   };
+  longRunningToolIds?: string[];
+  partial?: boolean;
   timestamp: number;
 }
 
@@ -40,7 +44,7 @@ export interface Session {
 }
 
 export interface CampaignInput {
-  agent: "trend_trawler" | "creative_agent";
+  agent: "trend_trawler" | "creative_agent" | "interactive_creative";
   brand: string;
   targetAudience: string;
   targetProduct: string;

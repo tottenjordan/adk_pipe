@@ -8,8 +8,9 @@ def test_creative_agent_root_has_expected_tools():
     expected = [
         "combined_research_pipeline",
         "ad_creative_pipeline",
-        "visual_generation_pipeline",
-        "visual_generator",
+        "visual_production_pipeline",
+        "creative_eval_agent",
+        "save_eval_report_to_gcs",
         "save_draft_report_artifact",
         "save_creative_gallery_html",
         "write_trends_to_bq",

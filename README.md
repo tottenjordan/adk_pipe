@@ -21,6 +21,8 @@
 
 
 * Given a campaign and trending topic, the `creative_agent` conducts web research and generates candidate ad copy and creatives
+* The `creative_eval` module scores every generated ad copy and visual concept using an LLM-as-judge approach across 12 quality dimensions
+* The `interactive_creative` agent adds human-in-the-loop review checkpoints — pause after research, ad copies, and visual concepts for approval before continuing
 
 </details>
 
@@ -232,8 +234,28 @@ user: Brand Name: "YOUR BRAND OF CHOICE"
       Key Selling Points: "YOU KEY SELLING POINT(S)"
       target_search_trend: "YOUR_SEARCH_TREND_OF_CHOICE"
 
-agent: `[end-to-end workflow >> candidate creatives]` 
+agent: `[end-to-end workflow >> candidate creatives]`
 ```
+
+**[1.c] choose `interactive_creative` for human-in-the-loop mode...**
+
+Same inputs as the `creative_agent`, but the pipeline pauses at 3 checkpoints for human review:
+
+1. **After research** — review the research report, approve or request changes
+2. **After ad copies** — review generated ad copies before visual concept generation
+3. **After visual concepts** — review visual concepts and image prompts before image generation
+
+At each checkpoint the UI displays a review panel where you can approve and continue, or provide feedback. Uses ADK's `LongRunningFunctionTool` for pause/resume.
+
+### Creative Evaluation
+
+The `creative_eval` module runs automatically as part of both the `creative_agent` and `interactive_creative` pipelines. It evaluates every generated ad copy and visual concept using an LLM-as-judge approach (Gemini 2.5 Pro).
+
+**Ad Copy Dimensions (6):** strategic alignment, trend authenticity, platform viability, copy quality, audience fit, CTA strength
+
+**Visual Concept Dimensions (6):** trend-visual connection, brand representation, audience appeal, prompt technical quality, stopping power, concept coherence
+
+Each dimension is scored 1–10. Scores are normalized to 0.0–1.0 with a **0.7 passing threshold**. The evaluation report includes per-dimension verdicts with rationale, strengths, suggested improvements, and a summary with pass rates and weakest dimensions. The report is saved as JSON to GCS.
 
 ### example output
 
@@ -301,12 +323,13 @@ npm run dev
 Open [http://localhost:3000](http://localhost:3000) in your browser.
 
 **Features:**
-* Campaign input form with agent selector (`trend_trawler` or `creative_agent`)
+* Campaign input form with agent selector (`trend_trawler`, `creative_agent`, or `interactive_creative`)
 * Live SSE event stream with timeline-style visualization
 * Pipeline state widgets (ad copy drafts, visual concepts, critiques) as modal overlays
+* **Interactive mode** — human-in-the-loop review checkpoints after research, ad copies, and visual concepts (pause/resume via `LongRunningFunctionTool`)
 * Authenticated GCS proxy for viewing research PDFs and generated images
 * Clickable trend cards — run `trend_trawler`, then click a recommended trend to launch `creative_agent` with pre-filled metadata
-* Results page with artifact gallery, HTML portfolio viewer, and session state inspector
+* Results page with artifact gallery, HTML portfolio viewer, evaluation report, and session state inspector
 
 
 ## Deployment
@@ -719,6 +742,17 @@ npm run test:watch    # watch mode
 ```bash
 # Python tests (pytest) — requires GCP credentials
 uv run pytest tests/ -v
+
+# Creative evaluation test (real Gemini API calls, ~2 min)
+uv run python -m creative_eval.run_eval_test
+
+# ADK evals — end-to-end agent evaluation with LLM-as-judge (real API calls, ~5 min per case)
+uv run adk eval trend_trawler tests/eval/evalsets/trend_trawler_evalset.json \
+  --config_file_path=tests/eval/eval_config.json --print_detailed_results
+
+# Run a single eval case
+uv run adk eval trend_trawler tests/eval/evalsets/trend_trawler_evalset.json:prs_guitars_campaign \
+  --config_file_path=tests/eval/eval_config.json --print_detailed_results
 ```
 
 ```bash
@@ -762,6 +796,18 @@ python deployment/integration_test.py --check all                             # 
 │   │       ├── agent.py
 │   │       └── __init__.py
 │   └── tools.py
+├── creative_eval
+│   ├── __init__.py
+│   ├── agent.py
+│   ├── config.py
+│   ├── evaluate.py
+│   ├── prompts.py
+│   ├── run_eval_test.py
+│   └── schemas.py
+├── interactive_creative
+│   ├── __init__.py
+│   ├── agent.py
+│   └── review_tools.py
 ├── deployment
 │   ├── deploy_agent.py
 │   ├── integration_test.py
@@ -774,6 +820,7 @@ python deployment/integration_test.py --check all                             # 
 │   │   │   ├── extract-items.test.ts
 │   │   │   ├── form-validation.test.ts
 │   │   │   ├── gcs-uri.test.ts
+│   │   │   ├── interactive-mode.test.ts
 │   │   │   ├── parse-trends.test.ts
 │   │   │   └── widget-layouts.test.ts
 │   │   ├── app
@@ -797,7 +844,12 @@ python deployment/integration_test.py --check all                             # 
 │   └── next.config.ts
 ├── tests
 │   ├── __init__.py
+│   ├── eval
+│   │   ├── eval_config.json
+│   │   └── evalsets
+│   │       └── trend_trawler_evalset.json
 │   ├── test_callbacks.py
+│   ├── test_creative_eval.py
 │   ├── test_crf_logic.py
 │   ├── test_deploy_utils.py
 │   ├── test_pipeline_structure.py
@@ -821,6 +873,8 @@ python deployment/integration_test.py --check all                             # 
 
 * ~~deployment script for Vertex AI Agent Engine~~
 * ~~event-based triggers~~
+* ~~creative evaluation (LLM-as-judge)~~
+* ~~interactive mode (human-in-the-loop review checkpoints)~~
 * scheduled runs
 * email / notification
 * easy export to ~*live editor tool* to nano-banana

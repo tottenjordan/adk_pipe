@@ -1,0 +1,81 @@
+{
+  "eval_set_id": "trend_trawler_eval",
+  "name": "Trend Trawler Pipeline Evaluation",
+  "description": "End-to-end eval for the trend_trawler agent. Verifies tool trajectory (memorize → gather → understand → pick → persist) and final response quality.",
+  "eval_cases": [
+    {
+      "eval_id": "prs_guitars_campaign",
+      "conversation": [
+        {
+          "invocation_id": "inv_1",
+          "user_content": {
+            "parts": [
+              {
+                "text": "Brand Name: \"Paul Reed Smith (PRS)\"\nTarget Audience: \"millennials who follow jam bands (e.g., Widespread Panic and Phish), respond positively to nostalgic messages, and love surreal memes\"\nTarget Product: \"PRS SE CE24 Electric Guitar\"\nKey Selling Points: \"The 85/15 S Humbucker pickups deliver a wide tonal range, from thick humbucker tones to clear single-coil sounds, making the guitar suitable for various genres.\""
+              }
+            ]
+          },
+          "intermediate_data": {
+            "tool_uses": [
+              { "name": "memorize", "args": {} },
+              { "name": "memorize", "args": {} },
+              { "name": "memorize", "args": {} },
+              { "name": "memorize", "args": {} },
+              { "name": "gather_trends_agent", "args": {} },
+              { "name": "understand_trends_agent", "args": {} },
+              { "name": "pick_trends_agent", "args": {} },
+              { "name": "save_search_trends_to_session_state", "args": {} },
+              { "name": "save_search_trends_to_session_state", "args": {} },
+              { "name": "save_search_trends_to_session_state", "args": {} },
+              { "name": "write_trends_to_bq", "args": {} },
+              { "name": "write_to_file", "args": {} },
+              { "name": "save_session_state_to_gcs", "args": {} }
+            ]
+          }
+        }
+      ],
+      "session_input": {
+        "app_name": "trend_trawler",
+        "user_id": "eval_user",
+        "state": {}
+      }
+    },
+    {
+      "eval_id": "anr_skincare_campaign",
+      "conversation": [
+        {
+          "invocation_id": "inv_1",
+          "user_content": {
+            "parts": [
+              {
+                "text": "Brand Name: \"Estee Lauder\"\nTarget Audience: \"Gen-Z gamers (18-25) who spend 4+ hours daily gaming, care about skin health but find traditional skincare messaging boring and irrelevant to their lifestyle\"\nTarget Product: \"Advanced Night Repair Serum\"\nKey Selling Points: \"Repairs visible signs of damage from blue light exposure and late nights. 7-in-1 serum powered by Chronolux Power Signal Technology for visibly reduced lines, wrinkles, and even skin tone.\""
+              }
+            ]
+          },
+          "intermediate_data": {
+            "tool_uses": [
+              { "name": "memorize", "args": {} },
+              { "name": "memorize", "args": {} },
+              { "name": "memorize", "args": {} },
+              { "name": "memorize", "args": {} },
+              { "name": "gather_trends_agent", "args": {} },
+              { "name": "understand_trends_agent", "args": {} },
+              { "name": "pick_trends_agent", "args": {} },
+              { "name": "save_search_trends_to_session_state", "args": {} },
+              { "name": "save_search_trends_to_session_state", "args": {} },
+              { "name": "save_search_trends_to_session_state", "args": {} },
+              { "name": "write_trends_to_bq", "args": {} },
+              { "name": "write_to_file", "args": {} },
+              { "name": "save_session_state_to_gcs", "args": {} }
+            ]
+          }
+        }
+      ],
+      "session_input": {
+        "app_name": "trend_trawler",
+        "user_id": "eval_user",
+        "state": {}
+      }
+    }
+  ]
+}
