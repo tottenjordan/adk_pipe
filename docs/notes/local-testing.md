@@ -1,0 +1,66 @@
+# Local testing notes
+
+Practical, non-obvious things about running/validating the agents locally.
+Written 2026-07-12 on the `creative-eval` branch (ADK 2.1.0).
+
+## The UI can't finish a full creative_agent run — HTTP request timeout
+
+A full `creative_agent` run takes ~10–12 min. When driven through the browser
+UI (`adk api_server` + Next.js frontend on Cloud Workstations), the run gets
+**cancelled ~12 min in, during the eval phase**. Root cause is the Cloud
+Workstations / proxy HTTP request timeout (~12 min) on the single long-lived
+`POST /run_sse` request. The eval phase (`creative_eval_agent`, 12 creatives ×
+~28s on `gemini-2.5-pro`) streams nothing for minutes, so it pushes the request
+past the timeout. Result: eval report / gallery / BigQuery steps never run via
+the UI, even though the agent logic is correct.
+
+**Workaround: run headless.** `deployment/headless_run.py` drives the same
+`root_agent` through a local ADK `Runner` with no HTTP layer, so it completes.
+
+## Headless runner details (`deployment/headless_run.py`)
+
+- Uses `Runner(app_name="creative_agent", agent=root_agent,
+  session_service=InMemorySessionService(),
+  artifact_service=FileArtifactService(root_dir=".adk/artifacts"))`.
+  `FileArtifactService` lives at
+  `google.adk.artifacts.file_artifact_service` and takes a single `root_dir`.
+  `.adk/artifacts` is the same dir `adk api_server` writes to
+  (`.adk/artifacts/users/<uid>/sessions/<sid>/...`).
+- **Do not pre-seed campaign state.** `load_session_state` only initializes
+  `gcs_bucket`/`gcs_folder`/`agent_output_dir` when `config.state_init` is
+  absent, and it overwrites `brand`/etc. with empty strings. The intended flow
+  is: start with empty state, let the callback set the `gcs_*` keys, and pass
+  campaign metadata in the **kickoff user message** — the root agent's
+  instructions call the `memorize` tool to store them. Seeding state with
+  `state_init` already set skips the `gcs_*` initialization and breaks the run.
+- Sessions are **in-memory per process**, so a headless run will NOT appear in
+  the running api_server's `/results/[sessionId]` UI (separate process, separate
+  memory). Verify via script stdout + GCS + BigQuery instead.
+
+## Where results actually land (state vs return value)
+
+Not all tools persist their output to session state — some only return it in the
+tool response. When validating, check the right place:
+
+- `save_eval_report_to_gcs` → sets `state["eval_report_gcs_uri"]`.
+- `generate_image` → sets `state["_images_generated"]` (bool guard) and
+  `state["_generated_artifact_keys"]` (list).
+- `save_creative_gallery_html` → **no state key**; returns `{status, gcs_uri}`.
+- `write_trends_to_bq` → **no state key**; returns `{status, ...}`.
+
+So the headless script captures function-response payloads for the terminal
+tools rather than reading state for them.
+
+## GCS / BigQuery layout for a run
+
+- GCS output: `gs://{GCS_BUCKET_NAME}/{gcs_folder}/{agent_output_dir}/` where
+  `agent_output_dir="creative_output"` and `gcs_folder` is
+  `YYYY_MM_DD_HH_MM_<4hex>` (set in `_set_initial_states`).
+- Bucket: `GCS_BUCKET_NAME=trend-trawler-deploy-ae`.
+
+## Gotcha: pkill/pgrep self-match
+
+Commands that contain the literal string `adk api_server` (or a script name)
+will be matched by `pkill -f` / `pgrep -f` against the very shell running them,
+killing your own command (seen as exit 143/144). Kill servers by explicit PID
+instead of pattern.

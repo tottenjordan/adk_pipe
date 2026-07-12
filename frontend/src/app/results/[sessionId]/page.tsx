@@ -13,6 +13,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { GcsWidget } from "@/components/gcs-widget";
 import { getSession, listArtifacts, getArtifact } from "@/lib/api";
+import { formatStateValue } from "@/lib/utils";
 import type { Session } from "@/lib/types";
 
 interface ArtifactData {
@@ -285,7 +286,7 @@ export default function ResultsPage({
     { label: "Selling Points", key: "key_selling_points" },
     { label: "Trend", key: "target_search_trends" },
   ]
-    .map((f) => ({ ...f, value: state[f.key] as string | undefined }))
+    .map((f) => ({ ...f, value: formatStateValue(state[f.key]) }))
     .filter((f) => f.value);
 
   // Does this run have the creative asset + eval view?

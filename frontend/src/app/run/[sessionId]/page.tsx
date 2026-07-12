@@ -11,6 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { streamRun, resumeRun, getSession } from "@/lib/api";
+import { formatStateValue } from "@/lib/utils";
 import type { AgentEvent } from "@/lib/types";
 
 type Status = "running" | "completed" | "error" | "paused";
@@ -840,7 +841,7 @@ export default function RunPage({
     return fields
       .map((f) => ({
         ...f,
-        value: (sessionState[f.key] ?? (f.altKey ? sessionState[f.altKey] : undefined)) as string | undefined,
+        value: formatStateValue(sessionState[f.key] ?? (f.altKey ? sessionState[f.altKey] : undefined)),
       }))
       .filter((f) => f.value);
   }, [sessionState]);

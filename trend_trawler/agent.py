@@ -169,6 +169,13 @@ trend_trawler = Agent(
     model=config.worker_model,
     name="trend_trawler",
     description="Determines culturally relevant Search trends to use for ad creatives.",
+    # Minimal thinking: the orchestrator's job is mechanical tool sequencing, not deep
+    # reasoning. On gemini-3 models, unbounded default thinking caused the orchestrator
+    # to burn its entire output budget "thinking" and hit MAX_TOKENS before emitting a
+    # tool call. thinking_budget=0 disables thinking here.
+    planner=BuiltInPlanner(
+        thinking_config=types.ThinkingConfig(thinking_budget=0, include_thoughts=False)
+    ),
     instruction="""You are the Lead Campaign Orchestrator.
     Your goal is to manage the end-to-end execution of the Trend Research Pipeline.
 

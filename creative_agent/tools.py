@@ -174,22 +174,28 @@ async def generate_image(
 
         try:
 
-            response = client.models.generate_images(
+            response = client.models.generate_content(
                 model=config.image_gen_model,
-                prompt=entry["image_generation_prompt"],
-                config=types.GenerateImagesConfig(
-                    number_of_images=1,
-                    enhance_prompt=False,
+                contents=entry["image_generation_prompt"],
+                config=types.GenerateContentConfig(
+                    response_modalities=["IMAGE"],
                 ),
             )
 
-            if (
-                response.generated_images is not None
-                and response.generated_images[0].image is not None
-                and response.generated_images[0].image.image_bytes is not None
-            ):
-                # extract bytes && define artifact key
-                image_bytes = response.generated_images[0].image.image_bytes
+            # Gemini image models return the image as inline data on a content part,
+            # unlike Imagen's generate_images (which returns response.generated_images).
+            image_bytes = None
+            image_mime_type = "image/png"
+            candidates = response.candidates or []
+            if candidates and candidates[0].content and candidates[0].content.parts:
+                for part in candidates[0].content.parts:
+                    if part.inline_data is not None and part.inline_data.data:
+                        image_bytes = part.inline_data.data
+                        image_mime_type = part.inline_data.mime_type or image_mime_type
+                        break
+
+            if image_bytes is not None:
+                # define artifact key
                 ARTIFACT_NAME = (
                     entry["concept_name"]
                     .translate(REMOVE_PUNCTUATION)
@@ -208,7 +214,7 @@ async def generate_image(
 
                 # save ADK artifact
                 img_artifact = types.Part.from_bytes(
-                    data=image_bytes, mime_type="image/png"
+                    data=image_bytes, mime_type=image_mime_type
                 )
                 await tool_context.save_artifact(
                     filename=artifact_key, artifact=img_artifact

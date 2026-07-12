@@ -1,7 +1,10 @@
 import type { Session, AgentEvent } from "./types";
 
-// Call api_server directly (not through Next.js proxy) so SSE streams properly
-const API_BASE = "http://localhost:8000";
+// Route through the same-origin Next.js proxy (src/app/api/adk/[...path]/route.ts) so
+// the browser never makes a cross-origin call — this avoids CORS and the Cloud
+// Workstations port-auth redirect, while the proxy streams SSE responses through.
+// Override with NEXT_PUBLIC_API_BASE to call an api_server directly if needed.
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "/api/adk";
 
 export async function listApps(): Promise<string[]> {
   const res = await fetch(`${API_BASE}/list-apps`);
