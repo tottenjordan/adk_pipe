@@ -3,7 +3,27 @@ import warnings
 from dotenv import load_dotenv
 from dataclasses import dataclass
 
+from google.adk.workflow import RetryConfig
+from google.api_core import exceptions as api_exceptions
+
 warnings.filterwarnings("ignore")
+
+
+# ADK 2.0 retries a node when the raised exception's EXACT class name is in this
+# list (it does NOT use isinstance), so enumerate the concrete transient classes
+# Google clients actually raise — base classes like GoogleAPICallError never match.
+INFRA_RETRY = RetryConfig(
+    max_attempts=3,
+    exceptions=[
+        api_exceptions.ServiceUnavailable,  # 503
+        api_exceptions.InternalServerError,  # 500
+        api_exceptions.GatewayTimeout,  # 504
+        api_exceptions.TooManyRequests,  # 429
+        api_exceptions.DeadlineExceeded,
+        ConnectionError,
+        TimeoutError,
+    ],
+)
 
 
 # Load environment variables from a .env file
