@@ -15,3 +15,8 @@ it was written on, since some describe uncommitted working-tree state.
   separate.
 - [frontend.md](frontend.md) — React crash from nested session-state values and
   its confusing backend cascade; the same-origin proxy.
+- [ambient-agents-vs-cloud-functions.md](ambient-agents-vs-cloud-functions.md) —
+  compares our Cloud Run Functions fan-out with ADK's Ambient Agent trigger
+  endpoints; why we keep the current executor (10-min ceiling + idempotency), the
+  target event-native architecture (scheduled trawler + BQ-triggered creative,
+  with the "BQ has no per-row event" caveat), and the proposed parallel experiment.
