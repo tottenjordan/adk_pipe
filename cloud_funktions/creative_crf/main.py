@@ -186,6 +186,9 @@ async def async_send_message(remote_agent, user_id, session, user_query) -> None
 
     except Exception as e:
         logging.error(f"Error during streaming: {type(e).__name__}: {e}")
+        # Propagate so the caller marks the row FAILED (not PROCESSED) and the
+        # worker Pub/Sub message NACKs for retry (#45).
+        raise
 
 
 async def create_agent_run(
