@@ -1,6 +1,5 @@
 """Tests for deployment utility functions (deploy_agent.py)."""
 import os
-import tempfile
 import pytest
 import dotenv
 
@@ -101,3 +100,35 @@ class TestEnvVarDict:
             pytest.skip("requirements.txt not found")
         content = open(req_path).read()
         assert "google-adk" in content
+
+
+# --- Agent Engine location resolution ---
+# Replicate the deploy/test/integration client's location logic to avoid the
+# module-level vertexai.Client() import. Agent Engine is a *regional* resource,
+# so it must resolve to GCP_REGION (us-central1) — NOT GOOGLE_CLOUD_LOCATION,
+# which is `global` for the gemini-3.x models.
+def resolve_agent_engine_location() -> str:
+    return os.getenv("GCP_REGION", "us-central1")
+
+
+class TestAgentEngineLocation:
+    def test_reads_gcp_region(self, monkeypatch):
+        monkeypatch.setenv("GCP_REGION", "us-east4")
+        assert resolve_agent_engine_location() == "us-east4"
+
+    def test_defaults_to_us_central1(self, monkeypatch):
+        monkeypatch.delenv("GCP_REGION", raising=False)
+        assert resolve_agent_engine_location() == "us-central1"
+
+    def test_ignores_global_model_location(self, monkeypatch):
+        """GOOGLE_CLOUD_LOCATION=global must not leak into the regional client."""
+        monkeypatch.delenv("GCP_REGION", raising=False)
+        monkeypatch.setenv("GOOGLE_CLOUD_LOCATION", "global")
+        assert resolve_agent_engine_location() == "us-central1"
+
+    def test_env_example_defines_gcp_region(self):
+        env_example_path = os.path.join(os.path.dirname(__file__), "..", ".env.example")
+        if not os.path.exists(env_example_path):
+            pytest.skip(".env.example not found")
+        env_values = dotenv.dotenv_values(env_example_path)
+        assert env_values.get("GCP_REGION") == "us-central1"

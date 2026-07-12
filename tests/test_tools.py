@@ -1,6 +1,5 @@
 """Tests for backend tool functions (pure logic, no external service calls)."""
 import string
-import pytest
 
 
 # --- Artifact name sanitization ---
@@ -97,3 +96,16 @@ class TestSaveSearchTrends:
         trends = ctx.state["target_search_trends"]["target_search_trends"]
         assert "trend_a" in trends
         assert "trend_b" in trends
+
+    def test_appends_first_trend_to_empty_init_state(self):
+        """The initial state is {"target_search_trends": []}; the first trend
+        must still be appended (regression guard for the old identity check)."""
+        from trend_trawler.tools import save_search_trends_to_session_state
+
+        ctx = MockToolContext()
+        ctx.state["target_search_trends"] = {"target_search_trends": []}
+
+        result = save_search_trends_to_session_state("trend_a", ctx)
+        assert result["status"] == "ok"
+        trends = ctx.state["target_search_trends"]["target_search_trends"]
+        assert trends == ["trend_a"]

@@ -2,7 +2,9 @@ import os
 import logging
 import datetime
 import warnings
-import json, shutil, uuid
+import json
+import shutil
+import uuid
 from pathlib import Path
 from google.cloud import storage
 from google.cloud import bigquery
@@ -55,7 +57,7 @@ def memorize(key: str, value: str, tool_context: ToolContext):
 # Google Search Trends (context)
 # =============================
 def _get_gtrends_max_date() -> str:
-    query = f"""
+    query = """
         SELECT 
          MAX(refresh_date) as max_date
         FROM `bigquery-public-data.google_trends.top_terms`
@@ -194,10 +196,11 @@ def save_search_trends_to_session_state(
     Returns:
         A status message.
     """
-    existing_target_search_trends = tool_context.state.get("target_search_trends")
+    existing_target_search_trends = tool_context.state.get(
+        "target_search_trends", {"target_search_trends": []}
+    )
 
-    if existing_target_search_trends is not {"target_search_trends": []}:
-        existing_target_search_trends["target_search_trends"].append(trend_term)
+    existing_target_search_trends["target_search_trends"].append(trend_term)
 
     tool_context.state["target_search_trends"] = existing_target_search_trends
     return {"status": "ok"}
@@ -218,7 +221,7 @@ def save_session_state_to_gcs(tool_context: ToolContext) -> dict:
     LOCAL_DIR = session_state["agent_output_dir"]
     gcs_folder = session_state["gcs_folder"]
 
-    filename = f"trawler_session_state.json"
+    filename = "trawler_session_state.json"
     local_file = f"{LOCAL_DIR}/{filename}"
 
     # Ensure the `LOCAL_DIR` directory exists. If it doesn’t, create it.

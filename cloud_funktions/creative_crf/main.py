@@ -58,7 +58,7 @@ warnings.filterwarnings("ignore")
 
 _USER_ID = "Ima_CloudRun_jr"
 _PROJECT_NUMBER = config.GOOGLE_CLOUD_PROJECT_NUMBER
-_LOCATION = config.GOOGLE_CLOUD_LOCATION
+_LOCATION = config.GCP_REGION
 _WORKER_TOPIC_NAME = f"projects/{_PROJECT_NUMBER}/topics/{config.CREATIVE_WORKER_TOPIC_NAME}"  # Configuration for the worker topic
 
 
@@ -77,7 +77,7 @@ def _get_pubsub_client():
 
 client = vertexai.Client(
     project=config.GOOGLE_CLOUD_PROJECT,
-    location=config.GOOGLE_CLOUD_LOCATION,
+    location=config.GCP_REGION,
 )  # pyright: ignore[reportCallIssue]
 
 

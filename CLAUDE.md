@@ -81,7 +81,7 @@ python deployment/integration_test.py --check all                             # 
 
 **Phase 2 (interactive) — `interactive_creative/`**: Same pipeline as `creative_agent`, but pauses at 3 checkpoints for human review via ADK's `LongRunningFunctionTool`: (1) after research report, (2) after ad copies, (3) after visual concepts. Uses `ResumabilityConfig(is_resumable=True)`.
 
-**Evaluation — `creative_eval/`**: LLM-as-judge module that scores each ad copy and visual concept across 6 dimensions (12 total). Uses Gemini 2.5 Pro with structured output. Scores normalized 0.0–1.0, passing threshold 0.7. Produces `CreativeEvaluationReport` saved as JSON to GCS.
+**Evaluation — `creative_eval/`**: LLM-as-judge module that scores each ad copy and visual concept across 6 dimensions (12 total). Uses `gemini-3.1-pro-preview` (served from the `global` Vertex location) with structured output; each creative is judged by an independent, concurrent call. Scores normalized 0.0–1.0, passing threshold 0.7. Produces `CreativeEvaluationReport` saved as JSON to GCS.
 
 ### Agent Composition
 
@@ -139,7 +139,9 @@ Fan-out pattern using two Cloud Run Function deployments from the same source (`
 ### Configuration
 
 Each agent has its own `config.py` importing from a shared `.env` file (see `.env.example`). Key settings:
-- **Models**: `gemini-2.5-flash` (worker), `gemini-2.5-pro` (critic), `imagen-4.0-ultra-generate-preview-06-06` (image gen), `veo-3.0-generate-001` (video gen)
+- **Models**: `gemini-3.5-flash` (worker), `gemini-3.1-pro-preview` (critic + `creative_eval` judge), `gemini-3.1-flash-lite` (lite planner), `gemini-3.1-flash-image` (image gen), `veo-3.1-generate-001` (video gen)
+- **Model location**: gemini-3.x models are only served from the `global` Vertex location — set `GOOGLE_CLOUD_LOCATION=global`. Regional resources (BigQuery, GCS, PubSub, Agent Engine) stay in `us-central1`.
+  - **Agent Engine region (`GCP_REGION`):** Agent Engine / Reasoning Engine is a *regional* resource, so its Vertex AI SDK clients read `GCP_REGION` (default `us-central1`), decoupled from `GOOGLE_CLOUD_LOCATION=global`. Wired through `deployment/deploy_agent.py`, `deployment/test_deployment.py`, `deployment/integration_test.py`, and the `cloud_funktions/*/config.py` constants (`config.GCP_REGION`). The `global` model location is used only by the genai model clients (`creative_agent/tools.py`, `creative_eval/evaluate.py`); BigQuery and GCS clients take no location.
 - **Rate limiting**: `before_model_callback` enforces rpm_quota (1000) over 60s intervals
 - **Session state keys**: `brand`, `target_product`, `target_audience`, `key_selling_points`, `target_search_trends`
 

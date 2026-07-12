@@ -65,10 +65,14 @@ flags.DEFINE_bool("delete", False, "delete existing agent engine instance")
 flags.mark_bool_flags_as_mutual_exclusive(["create", "delete", "list"])
 
 
+# Agent Engine is a *regional* resource, so it uses GCP_REGION (us-central1) —
+# NOT GOOGLE_CLOUD_LOCATION, which is set to `global` for the gemini-3.x models.
+AGENT_ENGINE_LOCATION = os.getenv("GCP_REGION", "us-central1")
+
 # vertex ai SDK client
 client = vertexai.Client(
     project=os.getenv("GOOGLE_CLOUD_PROJECT"),
-    location=os.getenv("GOOGLE_CLOUD_LOCATION"),
+    location=AGENT_ENGINE_LOCATION,
 )  # pyright: ignore[reportCallIssue]
 
 
@@ -97,7 +101,7 @@ def deploy_trawler(version: str) -> None:
     # adk_app = AdkApp(agent=root_agent, enable_tracing=True)
 
     try:
-        logging.info(f"Deploying `trend_trawler` agent...")
+        logging.info("Deploying `trend_trawler` agent...")
         remote_agent = client.agent_engines.create(
             agent=root_agent, # adk_app
             config={
@@ -136,7 +140,7 @@ def deploy_creative_agent(version: str) -> None:
     # adk_app = AdkApp(agent=root_agent, enable_tracing=True)
 
     try:
-        logging.info(f"Deploying `creative_agent` agent...")
+        logging.info("Deploying `creative_agent` agent...")
         remote_agent = client.agent_engines.create(
             agent=root_agent, # adk_app
             config={
@@ -197,9 +201,8 @@ def delete(
     logging.info(f"Attempting to delete agent: {resource_id}")
 
     PROJECT_NUM = os.getenv("GOOGLE_CLOUD_PROJECT_NUMBER")
-    LOCATION = os.getenv("GOOGLE_CLOUD_LOCATION")
     RESOURCE_NAME = (
-        f"projects/{PROJECT_NUM}/locations/{LOCATION}/reasoningEngines/{resource_id}"
+        f"projects/{PROJECT_NUM}/locations/{AGENT_ENGINE_LOCATION}/reasoningEngines/{resource_id}"
     )
 
     remote_agent = client.agent_engines.get(name=RESOURCE_NAME)
@@ -230,11 +233,11 @@ def main(argv):
             logging.error("Error: --agent is required for the create operation.")
             return
         if FLAGS.agent == "trend_trawler":
-            logging.info(f"Creating Agent Engine Runtime for `trend_trawler`...")
+            logging.info("Creating Agent Engine Runtime for `trend_trawler`...")
             deploy_trawler(version=FLAGS.version)
 
         elif FLAGS.agent == "creative_agent":
-            logging.info(f"Creating Agent Engine Runtime for `creative_agent`...")
+            logging.info("Creating Agent Engine Runtime for `creative_agent`...")
             deploy_creative_agent(version=FLAGS.version)
 
     elif FLAGS.delete:

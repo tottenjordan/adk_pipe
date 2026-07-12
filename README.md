@@ -1,12 +1,28 @@
-# Trend Trawler
+<div align="center">
 
+<h1 align="center">🌊 Trend Trawler 🎣</h1>
 
-*trend-trawler* is a multi-agent system designed to run offline via event-based triggers.
-* agents developed with Google's ADK
-* agents deployed to Agent Engine
-* agentic workflow invoked from Cloud Run Functions triggered by PubSub messages
-* *[trends-2-creatives](https://github.com/tottenjordan/zghost/tree/main) in offline, beast mode*
+> Turn trending Google Search terms into campaign-ready ad creatives — a multi-agent system built with Google's **ADK**, deployed to **Vertex AI Agent Engine**, and fanned out via **Cloud Run Functions + Pub/Sub**.
 
+![Python](https://img.shields.io/badge/Python-3.13-3776AB?logo=python&logoColor=white)
+![uv](https://img.shields.io/badge/packaging-uv-DE5FE9?logo=uv&logoColor=white)
+![Ruff](https://img.shields.io/badge/lint-ruff-261230?logo=ruff&logoColor=white)
+![ty](https://img.shields.io/badge/types-ty-261230?logo=astral&logoColor=white)
+![Google ADK](https://img.shields.io/badge/Google%20ADK-1.31-4285F4?logo=google&logoColor=white)
+![Vertex AI](https://img.shields.io/badge/Vertex%20AI-Agent%20Engine-4285F4?logo=googlecloud&logoColor=white)
+![Gemini](https://img.shields.io/badge/Gemini-886FBF?logo=googlegemini&logoColor=white)
+![Next.js](https://img.shields.io/badge/Next.js-16-000000?logo=nextdotjs&logoColor=white)
+
+</div>
+
+**Trend Trawler** runs a two-phase, event-driven pipeline: first it finds culturally relevant Google Search trends for a campaign, then it researches each trend and generates, evaluates, and exports candidate ad copy and visual concepts. It can run headless (offline, event-triggered) or interactively through a custom web UI.
+
+| Stage | Agent | What it does |
+| :---: | --- | --- |
+| 1 | 🔦 **`trend_trawler`** | Gathers the top 25 Google Search trends, researches cultural context, and filters to the 3 most campaign-relevant |
+| 2 | 🎨 **`creative_agent`** | Researches a `<trend, campaign>` pair and generates candidate ad copy + visual concepts, rendering an image for each |
+| 2 | ⚖️ **`creative_eval`** | Scores every ad copy and visual concept via LLM-as-judge across 12 quality dimensions |
+| 2 | 🧑‍💻 **`interactive_creative`** | Same pipeline as `creative_agent`, with human-in-the-loop review checkpoints after research, ad copies, and visual concepts |
 
 <details>
   <summary>casting a wide net</summary>
@@ -30,9 +46,15 @@
 ## Table of Contents
 - [Installation](#installation)
 - [Usage](#usage)
+  - [Running an Agent](#running-an-agent)
+  - [Creative Evaluation](#creative-evaluation)
+  - [Example Output](#example-output)
 - [Frontend UI](#frontend-ui)
-- [Testing](#testing)
 - [Deployment](#deployment)
+  - [Deploying Agents to Agent Engine](#deploying-agents-to-agent-engine)
+  - [Cloud Run Functions Fan-out Pattern](#cloud-run-functions-fan-out-pattern-with-event-based-triggers)
+  - [Alternative: Deploy to Cloud Run](#alternative-deployment-deploy-to-cloud-run-instances)
+- [Testing](#testing)
 - [Repo Structure](#repo-structure)
 - [TODO](#todo)
 
@@ -68,10 +90,10 @@ gcloud auth application-default login
 **3.  Make `.env` by copying `.env.example`**
 
 ```bash
-touch .env
+cp .env.example .env
 ```
 
-see [.env.example](./.env.example)
+then edit `.env` with your project values — see [.env.example](./.env.example)
 
 <details>
   <summary>expand here</summary>
@@ -79,7 +101,10 @@ see [.env.example](./.env.example)
 ```bash
 GOOGLE_GENAI_USE_VERTEXAI=1
 GOOGLE_CLOUD_PROJECT=this-my-project-id
-GOOGLE_CLOUD_LOCATION=us-central1
+# gemini-3.x models are only served from the `global` Vertex location;
+# regional resources (BigQuery, GCS, PubSub, Agent Engine) use us-central1.
+GOOGLE_CLOUD_LOCATION=global
+GCP_REGION=us-central1
 GOOGLE_CLOUD_PROJECT_NUMBER=12345678910
 
 
@@ -144,7 +169,7 @@ uv sync
 **5. Create BigQuery Dataset and Tables**
 
 ```bash
-bq --location=US mk --dataset $BQ_DATA_PROJECT_ID:$BQ_DATASET_ID
+bq --location=US mk --dataset $BQ_PROJECT_ID:$BQ_DATASET_ID
 ```
 
 Create the BQ table to store selected search trends:
@@ -152,7 +177,7 @@ Create the BQ table to store selected search trends:
 ```bash
 bq mk \
  -t \
- $BQ_DATA_PROJECT_ID:$BQ_DATASET_ID.$BQ_TABLE_TARGETS \
+ $BQ_PROJECT_ID:$BQ_DATASET_ID.$BQ_TABLE_TARGETS \
  uuid:STRING,processed_status:STRING,target_trend:STRING,refresh_date:DATE,trawler_date:DATE,entry_timestamp:TIMESTAMP,trawler_gcs:STRING,brand:STRING,target_audience:STRING,target_product:STRING,key_selling_point:STRING
 ```
 
@@ -161,7 +186,7 @@ Create the BQ table to store details for the target trend creatives:
 ```bash
 bq mk \
  -t \
- $BQ_DATA_PROJECT_ID:$BQ_DATASET_ID.$BQ_TABLE_CREATIVES \
+ $BQ_PROJECT_ID:$BQ_DATASET_ID.$BQ_TABLE_CREATIVES \
  uuid:STRING,target_trend:STRING,datetime:DATETIME,creative_gcs:STRING,brand:STRING,target_audience:STRING,target_product:STRING,key_selling_point:STRING
 ```
 
@@ -249,7 +274,7 @@ At each checkpoint the UI displays a review panel where you can approve and cont
 
 ### Creative Evaluation
 
-The `creative_eval` module runs automatically as part of both the `creative_agent` and `interactive_creative` pipelines. It evaluates every generated ad copy and visual concept using an LLM-as-judge approach (Gemini 2.5 Pro).
+The `creative_eval` module runs automatically as part of both the `creative_agent` and `interactive_creative` pipelines. It evaluates every generated ad copy and visual concept using an LLM-as-judge approach (`gemini-3.1-pro-preview`). Each creative is scored by an independent judge call, run concurrently in a thread pool. Because the judge is a gemini-3 model, its client uses the `global` Vertex location.
 
 **Ad Copy Dimensions (6):** strategic alignment, trend authenticity, platform viability, copy quality, audience fit, CTA strength
 
@@ -257,7 +282,7 @@ The `creative_eval` module runs automatically as part of both the `creative_agen
 
 Each dimension is scored 1–10. Scores are normalized to 0.0–1.0 with a **0.7 passing threshold**. The evaluation report includes per-dimension verdicts with rationale, strengths, suggested improvements, and a summary with pass rates and weakest dimensions. The report is saved as JSON to GCS.
 
-### example output
+### Example Output
 
 **1. the `creative_agent` conducts web research to inform the creative process. a PDF of this web research is saved for humans:**
 
@@ -769,84 +794,84 @@ python deployment/integration_test.py --check all                             # 
 
 ```bash
 .
-├── .github
-│   └── workflows
-│       └── frontend-tests.yml
-├── cloud_funktions
-│   ├── creative_crf
-│   │   ├── config.py
-│   │   ├── main.py
-│   │   └── requirements.txt
-│   └── trawler_crf
-│       ├── config.py
-│       ├── main.py
-│       └── requirements.txt
-├── creative_agent
+├── trend_trawler/                # Phase 1 — trend discovery agent
+│   ├── __init__.py
+│   ├── agent.py
+│   ├── callbacks.py              # state init, rate limiting, citation processing
+│   ├── config.py
+│   └── tools.py
+├── creative_agent/               # Phase 2 — creative generation agent
+│   ├── __init__.py
 │   ├── agent.py
 │   ├── callbacks.py
 │   ├── config.py
-│   ├── __init__.py
 │   ├── prompts.py
-│   ├── sub_agents
-│   │   ├── campaign_researcher
-│   │   │   ├── agent.py
-│   │   │   └── __init__.py
-│   │   ├── __init__.py
-│   │   └── trend_researcher
-│   │       ├── agent.py
-│   │       └── __init__.py
-│   └── tools.py
-├── creative_eval
+│   ├── tools.py
+│   └── sub_agents/
+│       ├── __init__.py
+│       ├── campaign_researcher/
+│       │   ├── __init__.py
+│       │   └── agent.py
+│       └── trend_researcher/
+│           ├── __init__.py
+│           └── agent.py
+├── interactive_creative/         # Phase 2 — human-in-the-loop variant
+│   ├── __init__.py
+│   ├── agent.py
+│   └── review_tools.py           # LongRunningFunctionTool review checkpoints
+├── creative_eval/                # LLM-as-judge evaluation module
 │   ├── __init__.py
 │   ├── agent.py
 │   ├── config.py
-│   ├── evaluate.py
+│   ├── evaluate.py               # concurrent per-creative scoring
 │   ├── prompts.py
 │   ├── run_eval_test.py
 │   └── schemas.py
-├── interactive_creative
-│   ├── __init__.py
-│   ├── agent.py
-│   └── review_tools.py
-├── deployment
-│   ├── deploy_agent.py
-│   ├── integration_test.py
-│   └── test_deployment.py
-├── frontend
-│   ├── src
-│   │   ├── __tests__
-│   │   │   ├── setup.ts
-│   │   │   ├── api-client.test.ts
-│   │   │   ├── extract-items.test.ts
-│   │   │   ├── form-validation.test.ts
-│   │   │   ├── gcs-uri.test.ts
-│   │   │   ├── interactive-mode.test.ts
-│   │   │   ├── parse-trends.test.ts
-│   │   │   └── widget-layouts.test.ts
-│   │   ├── app
+├── cloud_funktions/              # event-driven fan-out (orchestrator + worker)
+│   ├── creative_crf/
+│   │   ├── config.py
+│   │   ├── main.py               # crf_entrypoint + agent_worker_entrypoint
+│   │   └── requirements.txt
+│   └── trawler_crf/
+│       ├── config.py
+│       ├── main.py
+│       └── requirements.txt
+├── deployment/
+│   ├── deploy_agent.py           # deploy / list / delete Agent Engine instances
+│   ├── headless_run.py           # run creative_agent via a local ADK Runner
+│   ├── integration_test.py       # live GCP checks (health, session, smoke)
+│   └── test_deployment.py        # invoke deployed agents
+├── frontend/                     # Next.js + Tailwind + shadcn/ui web app
+│   ├── src/
+│   │   ├── app/
 │   │   │   ├── layout.tsx
-│   │   │   ├── page.tsx
+│   │   │   ├── page.tsx           # campaign input form
 │   │   │   ├── globals.css
-│   │   │   ├── api/gcs/route.ts
-│   │   │   ├── run/[sessionId]/page.tsx
-│   │   │   └── results/[sessionId]/page.tsx
-│   │   ├── components
+│   │   │   ├── api/
+│   │   │   │   ├── adk/[...path]/route.ts   # same-origin ADK proxy
+│   │   │   │   └── gcs/route.ts             # authenticated GCS proxy
+│   │   │   ├── run/[sessionId]/page.tsx     # live SSE stream + widgets
+│   │   │   └── results/[sessionId]/page.tsx # artifacts + eval report
+│   │   ├── components/
 │   │   │   ├── event-log.tsx
-│   │   │   ├── trend-cards.tsx
-│   │   │   ├── gcs-widget.tsx
 │   │   │   ├── gallery-viewer.tsx
-│   │   │   └── ui/
-│   │   └── lib
-│   │       ├── api.ts
-│   │       └── types.ts
-│   ├── vitest.config.ts
+│   │   │   ├── gcs-widget.tsx
+│   │   │   ├── trend-cards.tsx
+│   │   │   └── ui/                          # shadcn/ui primitives
+│   │   ├── lib/
+│   │   │   ├── api.ts             # session CRUD, SSE, artifact fetching
+│   │   │   ├── presets.ts
+│   │   │   ├── types.ts
+│   │   │   └── utils.ts           # formatStateValue, cn
+│   │   └── __tests__/             # Vitest unit tests
+│   ├── next.config.ts
 │   ├── package.json
-│   └── next.config.ts
-├── tests
+│   └── vitest.config.ts
+├── tests/                        # pytest suite
 │   ├── __init__.py
-│   ├── eval
+│   ├── eval/                     # ADK evals (rubric-based LLM-as-judge)
 │   │   ├── eval_config.json
-│   │   └── evalsets
+│   │   └── evalsets/
 │   │       └── trend_trawler_evalset.json
 │   ├── test_callbacks.py
 │   ├── test_creative_eval.py
@@ -855,17 +880,25 @@ python deployment/integration_test.py --check all                             # 
 │   ├── test_pipeline_structure.py
 │   ├── test_schemas.py
 │   └── test_tools.py
+├── docs/
+│   ├── baselines/
+│   │   └── main.md
+│   └── notes/                    # hard-won session notes
+│       ├── README.md
+│       ├── creative-agent-image-generation.md
+│       ├── frontend.md
+│       └── local-testing.md
+├── imgs/                         # README media
+├── .github/workflows/
+│   └── frontend-tests.yml
 ├── deploy-to-agent-engine.ipynb
-├── uv.lock
+├── .env.example
+├── CLAUDE.md
+├── CODE_STANDARDS.md
 ├── pyproject.toml
-├── README.md
 ├── requirements.txt
-└── trend_trawler
-    ├── agent.py
-    ├── callbacks.py
-    ├── config.py
-    ├── __init__.py
-    └── tools.py
+├── uv.lock
+└── README.md
 ```
 
 

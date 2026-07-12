@@ -7,7 +7,7 @@ functions_framework, or vertexai imports.
 import json
 import base64
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 from datetime import datetime, timezone
 
 

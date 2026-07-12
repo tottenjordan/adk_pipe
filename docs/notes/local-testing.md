@@ -10,9 +10,9 @@ UI (`adk api_server` + Next.js frontend on Cloud Workstations), the run gets
 **cancelled ~12 min in, during the eval phase**. Root cause is the Cloud
 Workstations / proxy HTTP request timeout (~12 min) on the single long-lived
 `POST /run_sse` request. The eval phase (`creative_eval_agent`, 12 creatives ×
-~28s on `gemini-2.5-pro`) streams nothing for minutes, so it pushes the request
-past the timeout. Result: eval report / gallery / BigQuery steps never run via
-the UI, even though the agent logic is correct.
+~28s on the `gemini-3.1-pro-preview` judge) streams nothing for minutes, so it
+pushes the request past the timeout. Result: eval report / gallery / BigQuery
+steps never run via the UI, even though the agent logic is correct.
 
 **Workaround: run headless.** `deployment/headless_run.py` drives the same
 `root_agent` through a local ADK `Runner` with no HTTP layer, so it completes.

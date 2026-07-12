@@ -60,10 +60,11 @@ parser.add_argument(
 args = parser.parse_args()
 
 
-# vertex ai SDK client
+# Agent Engine is a *regional* resource, so it uses GCP_REGION (us-central1) —
+# NOT GOOGLE_CLOUD_LOCATION, which is set to `global` for the gemini-3.x models.
 client = vertexai.Client(
     project=os.getenv("GOOGLE_CLOUD_PROJECT"),
-    location=os.getenv("GOOGLE_CLOUD_LOCATION"),
+    location=os.getenv("GCP_REGION", "us-central1"),
 )  # pyright: ignore[reportCallIssue]
 
 
@@ -134,7 +135,7 @@ async def main() -> None:  # pylint: disable=unused-argument
     """Main function that uses the defined flags."""
 
     # get instance of agent
-    logging.info(f"\n\nGetting Agent Engine Runtime...\n\n")
+    logging.info("\n\nGetting Agent Engine Runtime...\n\n")
     if not args.agent:
         logging.error("Error: --agent is required for the create operation.")
         return

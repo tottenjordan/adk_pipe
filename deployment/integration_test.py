@@ -21,7 +21,6 @@ Usage:
 
 import os
 import sys
-import json
 import dotenv
 import asyncio
 import logging
@@ -104,9 +103,11 @@ def print_results(results: list[TestResult]) -> bool:
 # Vertex AI client
 # ==============================
 def get_client():
+    # Agent Engine is a *regional* resource, so it uses GCP_REGION (us-central1) —
+    # NOT GOOGLE_CLOUD_LOCATION, which is set to `global` for the gemini-3.x models.
     return vertexai.Client(
         project=os.getenv("GOOGLE_CLOUD_PROJECT"),
-        location=os.getenv("GOOGLE_CLOUD_LOCATION"),
+        location=os.getenv("GCP_REGION", "us-central1"),
     )  # pyright: ignore[reportCallIssue]
 
 
