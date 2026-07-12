@@ -141,6 +141,7 @@ Fan-out pattern using two Cloud Run Function deployments from the same source (`
 Each agent has its own `config.py` importing from a shared `.env` file (see `.env.example`). Key settings:
 - **Models**: `gemini-3.5-flash` (worker), `gemini-3.1-pro-preview` (critic + `creative_eval` judge), `gemini-3.1-flash-lite` (lite planner), `gemini-3.1-flash-image` (image gen), `veo-3.1-generate-001` (video gen)
 - **Model location**: gemini-3.x models are only served from the `global` Vertex location — set `GOOGLE_CLOUD_LOCATION=global`. Regional resources (BigQuery, GCS, PubSub, Agent Engine) stay in `us-central1`.
+  - **Known gap (follow-up):** `GCP_REGION=us-central1` is defined in `.env.example` but is **not yet wired into any Python** — `deployment/deploy_agent.py` (and the resource clients) still read `GOOGLE_CLOUD_LOCATION`, which now points at `global`. Since Agent Engine is regional, deploying may require `GOOGLE_CLOUD_LOCATION=us-central1` at deploy time until `GCP_REGION` is threaded through the deploy/resource clients.
 - **Rate limiting**: `before_model_callback` enforces rpm_quota (1000) over 60s intervals
 - **Session state keys**: `brand`, `target_product`, `target_audience`, `key_selling_points`, `target_search_trends`
 
