@@ -30,3 +30,12 @@ class TestCreativeAgentRetryConfig:
         assert "ServerError" in names           # genai 5xx
         assert "ServiceUnavailable" in names     # api_core
         assert "TimeoutError" in names
+
+
+class TestAgentsHaveRetryConfig:
+    def test_trend_trawler_agents_have_retry(self):
+        from trend_trawler.agent import gather_trends_agent, trend_trawler
+        from trend_trawler.config import INFRA_RETRY
+
+        assert gather_trends_agent.retry_config is INFRA_RETRY
+        assert trend_trawler.retry_config is INFRA_RETRY
