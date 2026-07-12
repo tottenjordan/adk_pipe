@@ -220,7 +220,7 @@ def main(argv):
     del argv
 
     if FLAGS.version is None:
-        FLAGS.version = pd.Timestamp.utcnow().strftime("%Y_%m_%d_%H_%M")
+        FLAGS.version = pd.Timestamp.now("UTC").strftime("%Y_%m_%d_%H_%M")
     logging.info(f"version: {FLAGS.version}")
 
     if FLAGS.list:
