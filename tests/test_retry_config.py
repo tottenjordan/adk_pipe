@@ -39,3 +39,10 @@ class TestAgentsHaveRetryConfig:
 
         assert gather_trends_agent.retry_config is INFRA_RETRY
         assert trend_trawler.retry_config is INFRA_RETRY
+
+    def test_creative_agent_agents_have_retry(self):
+        from creative_agent.agent import visual_generator, root_agent
+        from creative_agent.config import INFRA_RETRY
+
+        assert visual_generator.retry_config is INFRA_RETRY
+        assert root_agent.retry_config is INFRA_RETRY
