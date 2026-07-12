@@ -55,3 +55,61 @@ class TestTrendTrawlerToolsPropagate:
 
         with pytest.raises(api_exceptions.ServiceUnavailable):
             tools.write_trends_to_bq(MockToolContext())
+
+
+class TestCreativeAgentToolsPropagate:
+    def test_write_trends_to_bq_raises_on_transient(self, monkeypatch):
+        from creative_agent import tools
+
+        class _BoomBQClient:
+            def query(self, *a, **k):
+                raise api_exceptions.ServiceUnavailable("503")
+
+        monkeypatch.setattr(tools, "_get_bigquery_client", lambda: _BoomBQClient())
+        with pytest.raises(api_exceptions.ServiceUnavailable):
+            tools.write_trends_to_bq(MockToolContext())
+
+    def test_save_to_gcs_raises_on_transient(self, monkeypatch):
+        from creative_agent import tools
+
+        class _BoomBlob:
+            def upload_from_string(self, *a, **k):
+                raise api_exceptions.ServiceUnavailable("503")
+
+        class _BoomBucket:
+            def blob(self, *a, **k):
+                return _BoomBlob()
+
+        class _BoomGCSClient:
+            def bucket(self, *a, **k):
+                return _BoomBucket()
+
+        monkeypatch.setattr(tools, "_get_gcs_client", lambda: _BoomGCSClient())
+        with pytest.raises(api_exceptions.ServiceUnavailable):
+            tools._save_to_gcs(MockToolContext(), b"x", "a.png")
+
+    def test_generate_image_raises_on_genai_transient(self, monkeypatch):
+        import asyncio
+        from google.genai import errors as genai_errors
+        from creative_agent import tools
+
+        class _BoomModels:
+            def generate_content(self, *a, **k):
+                raise _make_server_error()
+
+        class _BoomGenaiClient:
+            models = _BoomModels()
+
+        def _make_server_error():
+            # Construct a genai ServerError with whatever ctor the installed
+            # version needs; see note to implementer below.
+            return genai_errors.ServerError(503, {"error": {"message": "boom"}})
+
+        monkeypatch.setattr(tools, "client", _BoomGenaiClient())
+
+        ctx = MockToolContext()
+        ctx.state["final_visual_concepts"] = {
+            "visual_concepts": [{"image_generation_prompt": "p", "concept_name": "c"}]
+        }
+        with pytest.raises(genai_errors.ServerError):
+            asyncio.run(tools.generate_image(ctx))
