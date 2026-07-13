@@ -253,6 +253,39 @@ compute-bound** — the ~8-min survivor p95 only reflects the handful that won t
 experiment — and any real fan-out throughput — is gated on a **quota increase** first; concurrency
 throttling is only the stopgap that keeps a single run alive under the current sandbox limits.
 
+### Post-hardening re-measure — 10-row serialized batch (2026-07-13)
+
+Re-ran the batch after landing the throttle-hardening (commit `a38dee0`): worker
+`max-instances = 1` (serialize trends), `timeout = 1800s`, in-run parallelism cut
+(`max_eval_workers 12→3`, creatives `6→4`), and image-gen backoff added — so a single run stays
+under the 5 RPM (pro) / 2 RPM (image) `global` ceilings. Deployed against `creative_agent` v5
+(reasoning-engine `1670341231277768704`). 10 trends published to the orchestrator ~03:24Z, fanned
+out to the serialized worker.
+
+**Outcome: 10 PROCESSED, 0 FAILED (0% failure rate).**
+
+| Metric | PROCESSED (n=10) |
+|---|---|
+| p50 | **338.9 s ≈ 5.6 min** |
+| p95 | **363.2 s ≈ 6.1 min** |
+| mean | 290.9 s ≈ 4.8 min |
+| min / max | 33.4 s / 366.2 s |
+
+Durations are tightly clustered ~308–366 s (two fast outliers at 33 s and 131 s — light-work rows).
+This is the first p95 computed over a **zero-failure** set, so it's not survivor-biased like the
+prior 11/20 run. The **45% → 0% failure collapse** confirms the root cause was the shared-quota
+contention, not a per-run compute or runtime-ceiling problem: serialize the fan-out under the 5/2
+RPM ceiling and every run completes cleanly.
+
+**Verdict — the runtime-ceiling question is settled:** true, unbiased **p95 ≈ 6.1 min**, comfortably
+under the ~8-min bar and the 10-min trigger-endpoint ack ceiling. A single creative run fits inside
+ambient's synchronous window with margin. **This clears the *duration* gate for the ambient
+experiment (GO).** The two standing blockers are unchanged and independent of this result:
+(1) real fan-out *throughput* is still gated on a **Vertex quota increase** — serialization makes a
+single run reliable but caps the batch at one-trend-at-a-time; (2) ambient still lacks the
+idempotency lock, so any experiment must reuse the BQ status lock. Net: **keep CRF as the executor;
+the ambient experiment is duration-cleared and quota/idempotency-gated.**
+
 ---
 
 ## Q3 — Target event-native architecture
