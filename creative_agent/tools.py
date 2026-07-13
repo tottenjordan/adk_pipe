@@ -1199,6 +1199,43 @@ def save_eval_report_to_gcs(tool_context: ToolContext) -> dict:
         raise
 
 
+def build_eval_bq_row(
+    *,
+    report: dict,
+    eval_uuid: str,
+    creative_uuid: str,
+    now_datetime: str,
+    target_trend: str,
+    brand: str,
+    target_product: str,
+    eval_report_gcs_uri: str,
+) -> dict:
+    """Flatten a CreativeEvaluationReport dict into one BigQuery row.
+
+    Pure (no client, no wall-clock) so it is unit-testable. Numeric fields are
+    coerced because the judge's JSON round-trip can hand back stringified numbers.
+    """
+    summary = report.get("summary", {})
+    weakest = summary.get("weakest_dimensions") or []
+    return {
+        "uuid": eval_uuid,
+        "creative_uuid": creative_uuid,
+        "datetime": now_datetime,
+        "target_trend": target_trend,
+        "brand": brand,
+        "target_product": target_product,
+        "overall_pass_rate": float(summary.get("overall_pass_rate", 0.0)),
+        "total_ad_copies": int(summary.get("total_ad_copies", 0)),
+        "ad_copies_passed": int(summary.get("ad_copies_passed", 0)),
+        "avg_ad_copy_score": float(summary.get("avg_ad_copy_score", 0.0)),
+        "total_visual_concepts": int(summary.get("total_visual_concepts", 0)),
+        "visual_concepts_passed": int(summary.get("visual_concepts_passed", 0)),
+        "avg_visual_score": float(summary.get("avg_visual_score", 0.0)),
+        "weakest_dimensions": ",".join(weakest),
+        "eval_report_gcs_uri": eval_report_gcs_uri,
+    }
+
+
 def write_trends_to_bq(tool_context: ToolContext) -> dict:
     """
     Writes selected trends to a BigQuery Table.
