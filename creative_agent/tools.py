@@ -468,7 +468,7 @@ async def save_creative_gallery_html(tool_context: ToolContext) -> dict:
 
                 /* Sub-header styles */
                 .sub-header-container {
-                    max-width: 1600px; /* Step 1: Match the gallery's width for perfect alignment */
+                    max-width: 1000px; /* Step 1: Match the gallery's width for perfect alignment */
                     margin: 0 auto 40px;
                     display: flex;
                     gap: 40px; /* You can adjust this gap to control the spacing between the columns */
@@ -521,16 +521,21 @@ async def save_creative_gallery_html(tool_context: ToolContext) -> dict:
                     display: flex; /* Switch from Grid to Flexbox */
                     flex-wrap: wrap; /* Allow items to wrap to the next line */
                     justify-content: center; /* This centers the items, including the last row */
-                    gap: 20px; 
-                    max-width: 1600px;
+                    gap: 20px;
+                    /* Cap at two 480px columns (2*480 + 20px gap = 980) so the gallery never
+                       grows to a third column on ultra-wide screens. */
+                    max-width: 1000px;
                     margin: 0 auto;
                 }
 
                 /* --- MODIFIED .gallery-item RULE --- */
                 .gallery-item {
-                    /* Set the width for the flex items to create two columns */
-                    /* Math: 50% width minus half the gap (20px / 2 = 10px) */
-                    flex: 0 1 calc(50% - 10px); 
+                    /* Fixed-width cards: each holds one 480px-square image and does NOT grow
+                       or shrink with the window. Two sit side-by-side; they wrap to a single
+                       column only when the viewport is too narrow for two. max-width keeps a
+                       card from overflowing on very small screens. */
+                    flex: 0 0 480px;
+                    max-width: 100%;
 
                     display: flex;
                     flex-direction: column;
@@ -564,7 +569,11 @@ async def save_creative_gallery_html(tool_context: ToolContext) -> dict:
 
                 .image-container img {
                     width: 100%;
-                    height: auto;
+                    /* Fixed square display (480x480 inside the fixed-width card), independent
+                       of the source image's exact dimensions, so images never balloon on wide
+                       windows. object-fit: cover fills the square without distortion. */
+                    aspect-ratio: 1 / 1;
+                    object-fit: cover;
                     display: block;
                     transition: transform 0.3s ease;
                     cursor: pointer;
@@ -708,7 +717,7 @@ async def save_creative_gallery_html(tool_context: ToolContext) -> dict:
                 /* --- NEW CSS FOR AD COPY & VISUAL CONCEPTS SECTIONS --- */
                 .content-section {
                     /* padding: 40px 20px; */
-                    max-width: 1600px;
+                    max-width: 1000px; /* Match the gallery/sub-header width for aligned edges */
                     margin: 15px auto 0; /* Adds space above the section and centers it */
                 }
 
