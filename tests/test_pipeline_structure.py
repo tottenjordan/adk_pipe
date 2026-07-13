@@ -156,6 +156,22 @@ def test_trend_scout_sub_agent_output_keys():
     assert pick_trends_agent.output_key == "selected_gtrends"
 
 
+def test_trend_scout_orchestrator_thinking_budget_is_bounded_nonzero():
+    """The orchestrator's thinking budget must be a small POSITIVE number.
+
+    thinking_budget=0 makes gemini-3.5-flash emit MALFORMED_FUNCTION_CALL when
+    invoking an AgentTool with a structured argument (e.g. understand_trends_agent),
+    aborting the pipeline right after gather_trends so nothing is ever persisted to
+    BigQuery/GCS. An unbounded budget hits MAX_TOKENS. It must stay in between.
+    """
+    from trend_scout.agent import root_agent
+
+    budget = root_agent.planner.thinking_config.thinking_budget
+    assert budget is not None and budget > 0, (
+        f"orchestrator thinking_budget must be > 0 (was {budget})"
+    )
+
+
 def test_visual_concept_finalizer_has_ad_copy_context():
     """The finalizer must reference ad_copy_critique in its instruction
     to avoid generating duplicate headlines/captions."""
