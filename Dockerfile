@@ -14,5 +14,10 @@ RUN uv sync --frozen --no-dev
 COPY . .
 
 ENV PORT=8080
+# Serve from `agents/` (relative symlinks to the three runnable agents) rather than `.`
+# so `GET /list-apps` returns only those three instead of every top-level dir. The
+# loader only puts `agents/` on sys.path, so PYTHONPATH=/app keeps each agent's
+# cross-package imports (creative_eval, agent_common) resolvable. See agents/README.md.
+ENV PYTHONPATH=/app
 # Cloud Run sets $PORT; bind all interfaces. Same-origin frontend proxy means no CORS needed.
-CMD ["sh", "-c", "uv run adk api_server . --host 0.0.0.0 --port ${PORT}"]
+CMD ["sh", "-c", "uv run adk api_server agents --host 0.0.0.0 --port ${PORT}"]
