@@ -1,7 +1,19 @@
-poetry.lock
-pyproject.toml
-.vscode/
-output/*
-__pycache__/
-a_stash/*
+# Source-upload filter for `gcloud run deploy --source .` (the trend-trawler-api
+# backend image). IMPORTANT: pyproject.toml + uv.lock MUST be uploaded — the root
+# Dockerfile COPYs them for `uv sync`. Everything the Python image does not need is
+# excluded to keep the upload lean (the .dockerignore further trims the build context).
+.git/
 .venv/
+__pycache__/
+*.pyc
+.env*
+.vscode/
+a_stash/*
+output/*
+outputs/
+.adk
+**/.adk/
+frontend/
+node_modules/
+tests/
+docs/
