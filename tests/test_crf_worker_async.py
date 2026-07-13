@@ -75,3 +75,56 @@ def test_streaming_error_marks_row_failed_end_to_end(monkeypatch):
     statuses = [c.kwargs.get("status") for c in update_mock.call_args_list]
     assert "FAILED" in statuses
     assert "PROCESSED" not in statuses
+
+
+def test_session_created_and_deleted_with_same_user_id(monkeypatch):
+    """The session must be deleted with the SAME user_id it was created with.
+
+    Regression for the Agent Engine `FAILED_PRECONDITION: Session <id> does not
+    belong to user <...>` error: `create_agent_run` creates the session with a
+    per-row user id (e.g. ``Ima_CloudRun_jr_0``) but `my_delete_task` used the
+    bare module constant ``_USER_ID`` (``Ima_CloudRun_jr``), so the delete never
+    matched the session owner.
+    """
+
+    created = {}
+    deleted = {}
+
+    async def _create_session(*, user_id):
+        created["user_id"] = user_id
+        return {"id": "sess-42"}
+
+    async def _stream(**kwargs):
+        return
+        yield  # pragma: no cover - makes this an async generator
+
+    async def _delete_session(*, user_id, session_id):
+        deleted["user_id"] = user_id
+        deleted["session_id"] = session_id
+
+    remote_agent = MagicMock()
+    remote_agent.async_create_session = _create_session
+    remote_agent.async_stream_query = _stream
+    remote_agent.async_delete_session = _delete_session
+
+    fake_vertex = MagicMock()
+    fake_vertex.agent_engines.get.return_value = remote_agent
+    monkeypatch.setattr(main, "_get_vertex_client", lambda: fake_vertex)
+
+    msg = {
+        "index": 0,
+        "brand": "BrandX",
+        "target_product": "prod",
+        "key_selling_point": "ksp",
+        "target_audience": "aud",
+        "target_search_trend": "trend",
+    }
+    user_id = f"{main._USER_ID}_{msg['index']}"
+
+    asyncio.run(
+        main.create_agent_run(agent_id="agent-123", msg_dict=msg, user_id=user_id)
+    )
+
+    assert created["user_id"] == user_id
+    assert deleted["user_id"] == user_id
+    assert deleted["session_id"] == "sess-42"

@@ -164,10 +164,13 @@ def update_rows_status(bq_client, dataset, table, timestamps, status="PROCESSED"
         raise
 
 
-async def my_delete_task(remote_agent, session):
+async def my_delete_task(remote_agent, session, user_id):
     logging.info(f"Delete task starting with agent: {remote_agent}...")
-    await remote_agent.async_delete_session(user_id=_USER_ID, session_id=session["id"])
-    logging.info(f"Deleted session for user ID: {_USER_ID}")
+    # Must delete with the SAME user_id the session was created under, otherwise
+    # Agent Engine returns `FAILED_PRECONDITION: Session <id> does not belong to
+    # user <...>`. Sessions are created per-row as f"{_USER_ID}_{index}".
+    await remote_agent.async_delete_session(user_id=user_id, session_id=session["id"])
+    logging.info(f"Deleted session for user ID: {user_id}")
 
 
 # function to interact with remote agent
@@ -233,7 +236,7 @@ async def create_agent_run(
         session=session,
         user_query=USER_QUERY,
     )
-    await my_delete_task(remote_agent=remote_agent, session=session)
+    await my_delete_task(remote_agent=remote_agent, session=session, user_id=user_id)
 
 
 # --- Helper to encapsulate the single-row logic ---
