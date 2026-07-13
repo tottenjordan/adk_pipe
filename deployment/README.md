@@ -370,10 +370,13 @@ diagram into real, reproducible infrastructure.
 
 ### Architecture
 
-- **Backend** — `trend-trawler-api` runs `adk api_server .`. It loads all three agent
-  packages (`trend_scout`, `creative_agent`, `interactive_creative`) and calls
-  Vertex/BigQuery/GCS in-process. It is **private** — deployed with
-  `--no-allow-unauthenticated`.
+- **Backend** — `trend-trawler-api` runs `adk api_server agents` (not `.`). It loads the
+  three runnable agent packages (`trend_scout`, `creative_agent`, `interactive_creative`)
+  and calls Vertex/BigQuery/GCS in-process. It is **private** — deployed with
+  `--no-allow-unauthenticated`. It serves from the `agents/` directory (relative symlinks
+  to the flat packages) so `GET /list-apps` returns exactly those three instead of every
+  top-level dir; the root `Dockerfile` sets `PYTHONPATH=/app` so cross-package imports
+  (`creative_eval`, `agent_common`) still resolve. See `agents/README.md`.
 - **Frontend** — `trend-trawler-web` runs the Next.js 16 standalone server
   (`output: "standalone"` → `server.js`). Its existing same-origin Route Handlers proxy
   to the backend (`/api/adk/*` → `ADK_API_BASE`) and to Cloud Storage (`/api/gcs`).
