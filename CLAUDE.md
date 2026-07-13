@@ -68,7 +68,7 @@ PYTHONPATH="$PWD" uv run adk eval creative_agent tests/eval/evalsets/creative_ag
 ```
 
 - Frontend: `frontend/src/__tests__/` — pure logic tests (SSE parsing, form validation, GCS URI building, widget layouts, trend markdown parsing, extractItems, interactive mode pause/resume)
-- Python: `tests/` — Pydantic schema validation, agent pipeline structure, tool functions, callbacks (citation regex, state init, rate limiting), deployment utilities, cloud function logic
+- Python: `tests/` — Pydantic schema validation, agent pipeline structure, tool functions, callbacks (citation regex, state init, rate limiting), deployment utilities, cloud function logic. See [tests/README.md](tests/README.md) for the per-file breakdown.
 - ADK Evals: `tests/eval/` — end-to-end agent evaluation using `adk eval` CLI with rubric-based LLM-as-judge scoring (response quality + tool use quality). Runs against real APIs. One evalset + rubric config per agent: `evalsets/trend_scout_evalset.json` + `eval_config.json`; `evalsets/creative_agent_evalset.json` + `creative_eval_config.json`. The `creative_agent` eval must be run with `PYTHONPATH="$PWD"` (see command above).
 - Integration: `deployment/integration_test.py` — live GCP checks (health, session lifecycle, smoke tests). Requires deployed agents.
 - CI: `.github/workflows/frontend-tests.yml` — runs frontend tests on push/PR to `main` when `frontend/**` changes

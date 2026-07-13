@@ -52,7 +52,8 @@ uv run ty check src/   # or the relevant package directories
 
 ## 5. Testing
 
-- **`pytest`** is the test runner. Python tests live in `tests/`; frontend tests
+- **`pytest`** is the test runner. Python tests live in `tests/` (see
+  [tests/README.md](./tests/README.md) for the suite layout); frontend tests
   live in `frontend/src/__tests__/` (Vitest).
 - Enforce a coverage minimum where practical (`--cov`, `--cov-fail-under`).
 - `ty` type-checking is part of the test/verification loop, not a separate optional
@@ -90,12 +91,13 @@ resource, target `GCP_REGION`.
 | `requirements.txt` | `pyproject.toml` (projects) / PEP 723 (scripts) |
 | `Co-Authored-By` trailers | (never add them) |
 
-## 7. Current State / Known Gaps
+## 8. Current State / Known Gaps
 
 These reflect the repo as of writing and are follow-ups, not exceptions to the rules:
 
-- `ruff` and `ty` are **not yet** declared in `pyproject.toml` `[dependency-groups]`
-  or configured (`[tool.ruff]`, `[tool.ty]`). They should be added via
-  `uv add --group dev ruff ty` and configured before the standards above are fully
-  enforceable.
+- `ruff` and `ty` are **not yet** declared in `pyproject.toml` `[dependency-groups]`.
+  They should be added via `uv add --group dev ruff ty` before the standards above are
+  fully enforceable.
+- `ruff` is partially configured (`[tool.ruff.lint.per-file-ignores]`); `[tool.ty]` is
+  not configured yet.
 - The `dev` dependency group currently contains only `pytest`.
