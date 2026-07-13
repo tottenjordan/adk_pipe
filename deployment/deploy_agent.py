@@ -110,7 +110,7 @@ def deploy_trawler(version: str) -> None:
             agent=root_agent,  # adk_app
             config={
                 "requirements": "./requirements.txt",
-                "extra_packages": ["./trend_trawler"],
+                "extra_packages": ["./trend_trawler", "./agent_common"],
                 "staging_bucket": f"gs://{os.getenv('GOOGLE_CLOUD_STORAGE_BUCKET')}",
                 "gcs_dir_name": f"adk-pipe/trawler/{version}/staging",
                 "display_name": f"trend-trawler-agent-{version}",
@@ -151,8 +151,13 @@ def deploy_creative_agent(version: str) -> None:
                 "requirements": "./requirements.txt",
                 # creative_agent/agent.py imports the sibling creative_eval package,
                 # so it must be bundled too or the reasoning engine fails to start
-                # with `No module named 'creative_eval'`.
-                "extra_packages": ["./creative_agent", "./creative_eval"],
+                # with `No module named 'creative_eval'`. agent_common holds the
+                # global-location model factory both packages import.
+                "extra_packages": [
+                    "./creative_agent",
+                    "./creative_eval",
+                    "./agent_common",
+                ],
                 "staging_bucket": f"gs://{os.getenv('GOOGLE_CLOUD_STORAGE_BUCKET')}",
                 "gcs_dir_name": f"adk-pipe/creative/{version}/staging",
                 "display_name": f"creative-trend-agent-{version}",

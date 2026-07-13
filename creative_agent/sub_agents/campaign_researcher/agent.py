@@ -7,6 +7,7 @@ from google.adk.tools import google_search
 from google.adk.planners import BuiltInPlanner
 from google.adk.agents import Agent, SequentialAgent
 
+from agent_common import build_gemini
 from ...config import config
 from ... import callbacks
 
@@ -41,7 +42,7 @@ class CampaignQueryList(BaseModel):
 
 # --- AGENT DEFINITIONS ---
 campaign_web_planner = Agent(
-    model=config.lite_planner_model,
+    model=build_gemini(config.lite_planner_model),
     name="campaign_web_planner",
     include_contents="none",
     description="Generates initial queries to guide web research about concepts described in the campaign metadata.",
@@ -92,7 +93,7 @@ campaign_web_planner = Agent(
 
 
 campaign_web_searcher = Agent(
-    model=config.worker_model,
+    model=build_gemini(config.worker_model),
     name="campaign_web_searcher",
     description="Performs the crucial first pass of web research about the campaign guide.",
     planner=BuiltInPlanner(

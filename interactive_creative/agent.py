@@ -13,6 +13,7 @@ from creative_agent.agent import (
 from creative_eval.agent import creative_eval_agent
 from creative_agent import tools, callbacks
 from creative_agent.config import config, INFRA_RETRY
+from agent_common import build_gemini
 from interactive_creative.review_tools import (
     review_research_tool,
     review_ad_copies_tool,
@@ -20,7 +21,7 @@ from interactive_creative.review_tools import (
 )
 
 root_agent = Agent(
-    model=config.critic_model,
+    model=build_gemini(config.critic_model),
     name="root_agent",
     description="Interactive ad generation with human review checkpoints after research, ad copies, and visual concepts.",
     instruction="""**Role:** You are the orchestrator for an interactive ad content generation workflow with human review checkpoints.

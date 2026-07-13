@@ -3,6 +3,8 @@
 import os
 from dataclasses import dataclass, field
 
+from agent_common.locations import MODEL_LOCATION
+
 
 @dataclass
 class EvalConfig:
@@ -49,11 +51,9 @@ class EvalConfig:
     project_id: str = field(
         default_factory=lambda: os.getenv("GOOGLE_CLOUD_PROJECT", "")
     )
-    # The judge is a gemini-3.x model, which is only served from the `global`
-    # Vertex location (us-central1 returns 404 NOT_FOUND). This is intentionally
-    # decoupled from GCP_REGION / regional resources (BigQuery, GCS, Agent
-    # Engine), which stay in us-central1. Defaults to `global`; override with
-    # GOOGLE_CLOUD_LOCATION only if pointing at a model served elsewhere.
-    location: str = field(
-        default_factory=lambda: os.getenv("GOOGLE_CLOUD_LOCATION", "global")
-    )
+    # The judge is a gemini-3.x model, only served from the `global` Vertex
+    # location (us-central1 returns 404 NOT_FOUND). MODEL_LOCATION (default
+    # `global`, driven by the non-reserved MODEL_LOCATION env var) is decoupled
+    # from GOOGLE_CLOUD_LOCATION on purpose: the latter is reserved by Agent
+    # Engine and injected as the regional value, which would 404 the judge.
+    location: str = field(default_factory=lambda: MODEL_LOCATION)

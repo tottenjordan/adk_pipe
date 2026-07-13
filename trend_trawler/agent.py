@@ -15,6 +15,7 @@ from .tools import (
     write_to_file,
     memorize,
 )
+from agent_common import build_gemini
 from . import callbacks
 from .config import config, INFRA_RETRY
 
@@ -28,7 +29,7 @@ warnings.filterwarnings("ignore")
 
 # --- TREND SUBAGENTS ---
 gather_trends_agent = Agent(
-    model=config.worker_model,
+    model=build_gemini(config.worker_model),
     name="gather_trends_agent",
     include_contents="none",
     description="Get top 25 trending terms from Google Search.",
@@ -57,7 +58,7 @@ gather_trends_agent = Agent(
 
 
 understand_trends_agent = Agent(
-    model=config.worker_model,
+    model=build_gemini(config.worker_model),
     name="understand_trends_agent",
     include_contents="none",
     description="Conduct initial web research to briefly understand each trending topic",
@@ -108,7 +109,7 @@ understand_trends_agent = Agent(
 
 
 pick_trends_agent = Agent(
-    model=config.worker_model,
+    model=build_gemini(config.worker_model),
     name="pick_trends_agent",
     include_contents="none",
     description="Determine subset of Search trends most culturally relevant to the target audience.",
@@ -167,7 +168,7 @@ pick_trends_agent = Agent(
 
 
 trend_trawler = Agent(
-    model=config.worker_model,
+    model=build_gemini(config.worker_model),
     name="trend_trawler",
     retry_config=INFRA_RETRY,
     description="Determines culturally relevant Search trends to use for ad creatives.",

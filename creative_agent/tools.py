@@ -14,6 +14,7 @@ from google.cloud import storage
 from google.cloud import bigquery
 from google.adk.tools import ToolContext
 
+from agent_common.locations import MODEL_LOCATION
 from .config import config
 
 
@@ -37,10 +38,13 @@ def _get_bigquery_client() -> bigquery.Client:
     return bigquery.Client(project=config.BQ_PROJECT_ID)
 
 
+# This client serves the image-gen model (gemini-3.1-flash-image), a gemini-3.x
+# model served only from `global` — hence MODEL_LOCATION, not config.LOCATION
+# (which is the injected regional value inside a deployed Agent Engine).
 client = genai.Client(
     vertexai=True,
     project=config.PROJECT_ID,
-    location=config.LOCATION,
+    location=MODEL_LOCATION,
 )
 
 # Create a translation table to map punctuation characters to None (removal)

@@ -7,6 +7,7 @@ from google.adk.tools import google_search
 from google.adk.planners import BuiltInPlanner
 from google.adk.agents import Agent, SequentialAgent
 
+from agent_common import build_gemini
 from ...config import config
 from ... import callbacks
 
@@ -41,7 +42,7 @@ class TrendQueryList(BaseModel):
 
 # --- AGENT DEFINITIONS ---
 gs_web_planner = Agent(
-    model=config.lite_planner_model,
+    model=build_gemini(config.lite_planner_model),
     name="gs_web_planner",
     include_contents="none",
     description="Generates initial queries to understand why the 'target_search_trends' are trending.",
@@ -86,7 +87,7 @@ gs_web_planner = Agent(
 
 
 gs_web_searcher = Agent(
-    model=config.worker_model,
+    model=build_gemini(config.worker_model),
     name="gs_web_searcher",
     description="Performs the crucial first pass of web research about the trending Search terms.",
     planner=BuiltInPlanner(
