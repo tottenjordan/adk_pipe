@@ -1,6 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  output: "standalone",
   // Cloud Workstations serves the dev app from a forwarded *.cloudworkstations.dev
   // host; Next.js 16 blocks cross-origin dev requests unless allow-listed here.
   allowedDevOrigins: [
