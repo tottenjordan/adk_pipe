@@ -68,7 +68,10 @@ class ResearchConfiguration:
 
     # env vars
     GCS_BUCKET = os.environ.get("BUCKET")
-    GCS_BUCKET_NAME = os.environ.get("GCS_BUCKET_NAME")
+    # Read GOOGLE_CLOUD_STORAGE_BUCKET (what deploy_agent.py actually ships to
+    # Agent Engine), NOT GCS_BUCKET_NAME — the latter is only in the local .env,
+    # so a deployed engine got None -> "Cannot determine path without bucket name".
+    GCS_BUCKET_NAME = os.environ.get("GOOGLE_CLOUD_STORAGE_BUCKET")
     PROJECT_ID = os.environ.get("GOOGLE_CLOUD_PROJECT")
     PROJECT_NUMBER = os.environ.get("GOOGLE_CLOUD_PROJECT_NUMBER")
     LOCATION = os.environ.get("GOOGLE_CLOUD_LOCATION")
