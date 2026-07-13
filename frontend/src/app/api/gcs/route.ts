@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getAccessToken } from "@/lib/gcp-auth";
 
 /**
  * Proxies GCS object downloads so the browser can display them.
@@ -19,25 +20,7 @@ export async function GET(request: NextRequest) {
 
   try {
     // Get access token from ADC (gcloud auth application-default)
-    let accessToken: string;
-    try {
-      const tokenRes = await fetch(
-        "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token",
-        {
-          headers: { "Metadata-Flavor": "Google" },
-          signal: AbortSignal.timeout(1000),
-        }
-      );
-      if (!tokenRes.ok) throw new Error("metadata server returned non-ok");
-      const tokenData = await tokenRes.json();
-      accessToken = tokenData.access_token;
-    } catch {
-      // Fallback: use gcloud CLI token for local dev
-      const { execSync } = await import("child_process");
-      accessToken = execSync("gcloud auth application-default print-access-token", {
-        encoding: "utf-8",
-      }).trim();
-    }
+    const accessToken = await getAccessToken();
 
     const encodedPath = encodeURIComponent(objectPath);
     const gcsUrl = `https://storage.googleapis.com/storage/v1/b/${bucket}/o/${encodedPath}?alt=media`;
