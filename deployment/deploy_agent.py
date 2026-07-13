@@ -31,8 +31,12 @@ dotenv.load_dotenv(dotenv_path=ENV_FILE_PATH)
 
 ENV_VAR_DICT = {
     "GOOGLE_GENAI_USE_VERTEXAI": os.getenv("GOOGLE_GENAI_USE_VERTEXAI"),
-    # "GOOGLE_CLOUD_PROJECT": os.getenv("GOOGLE_CLOUD_PROJECT"),
-    # "GOOGLE_CLOUD_LOCATION": os.getenv("GOOGLE_CLOUD_LOCATION"),
+    # NOTE: GOOGLE_CLOUD_PROJECT and GOOGLE_CLOUD_LOCATION are RESERVED by Agent
+    # Engine (it rejects them with `FAILED_PRECONDITION ... is reserved`) and are
+    # auto-injected into the runtime as the engine's project + region. Because the
+    # injected location is regional (us-central1) but the gemini-3.x models are
+    # served only from `global`, the model location is pinned in code instead —
+    # see MODEL_LOCATION in the agent configs — NOT via these env vars.
     "GOOGLE_CLOUD_PROJECT_NUMBER": os.getenv("GOOGLE_CLOUD_PROJECT_NUMBER"),
     "GOOGLE_CLOUD_STORAGE_BUCKET": os.getenv("GOOGLE_CLOUD_STORAGE_BUCKET"),
     "BUCKET": os.getenv("BUCKET"),
@@ -145,7 +149,10 @@ def deploy_creative_agent(version: str) -> None:
             agent=root_agent,  # adk_app
             config={
                 "requirements": "./requirements.txt",
-                "extra_packages": ["./creative_agent"],
+                # creative_agent/agent.py imports the sibling creative_eval package,
+                # so it must be bundled too or the reasoning engine fails to start
+                # with `No module named 'creative_eval'`.
+                "extra_packages": ["./creative_agent", "./creative_eval"],
                 "staging_bucket": f"gs://{os.getenv('GOOGLE_CLOUD_STORAGE_BUCKET')}",
                 "gcs_dir_name": f"adk-pipe/creative/{version}/staging",
                 "display_name": f"creative-trend-agent-{version}",
