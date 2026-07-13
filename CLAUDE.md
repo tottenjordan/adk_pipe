@@ -140,9 +140,9 @@ Next.js 16 (App Router) + TypeScript + Tailwind CSS + shadcn/ui. Light theme wit
 - `frontend/src/lib/api.ts` — API client (session CRUD, SSE streaming, artifact fetching)
 - `frontend/src/app/api/gcs/route.ts` — Authenticated GCS proxy for serving artifacts
 
-### Event-Driven Orchestration — `cloud_funktions/`
+### Event-Driven Orchestration — `cloud_functions/`
 
-Fan-out pattern using two Cloud Run Function deployments from the same source (`cloud_funktions/creative_crf/`):
+Fan-out pattern using two Cloud Run Function deployments from the same source (`cloud_functions/creative_fanout/`):
 - **Orchestrator** (`crf_entrypoint`): Triggered by `CREATIVE_TOPIC_NAME` PubSub topic, queries BigQuery for unprocessed trends, dispatches one message per trend to worker topic. Concurrency=100.
 - **Worker** (`agent_worker_entrypoint`): Triggered by `CREATIVE_WORKER_TOPIC_NAME`, processes a single trend row by invoking Agent Engine. Concurrency=1 (prevents duplicate processing). Timeout=900s.
 
@@ -156,7 +156,7 @@ Shared config lives in **`agent_common/`** (a lightweight, ADK-free package bund
 The bucket name comes from `GOOGLE_CLOUD_STORAGE_BUCKET` (the var deploy actually ships) — not the local-only `GCS_BUCKET_NAME`. Key settings:
 - **Models**: `gemini-3.5-flash` (worker), `gemini-3.1-pro-preview` (critic + `creative_eval` judge), `gemini-3.1-flash-lite` (lite planner), `gemini-3.1-flash-image` (image gen), `veo-3.1-generate-001` (video gen)
 - **Model location**: gemini-3.x models are only served from the `global` Vertex location — set `GOOGLE_CLOUD_LOCATION=global`. Regional resources (BigQuery, GCS, PubSub, Agent Engine) stay in `us-central1`.
-  - **Agent Engine region (`GCP_REGION`):** Agent Engine / Reasoning Engine is a *regional* resource, so its Vertex AI SDK clients read `GCP_REGION` (default `us-central1`), decoupled from `GOOGLE_CLOUD_LOCATION=global`. Wired through `deployment/deploy_agent.py`, `deployment/test_deployment.py`, `deployment/integration_test.py`, and the `cloud_funktions/*/config.py` constants (`config.GCP_REGION`). The `global` model location is used only by the genai model clients (`creative_agent/tools.py`, `creative_eval/evaluate.py`); BigQuery and GCS clients take no location.
+  - **Agent Engine region (`GCP_REGION`):** Agent Engine / Reasoning Engine is a *regional* resource, so its Vertex AI SDK clients read `GCP_REGION` (default `us-central1`), decoupled from `GOOGLE_CLOUD_LOCATION=global`. Wired through `deployment/deploy_agent.py`, `deployment/test_deployment.py`, `deployment/integration_test.py`, and the `cloud_functions/*/config.py` constants (`config.GCP_REGION`). The `global` model location is used only by the genai model clients (`creative_agent/tools.py`, `creative_eval/evaluate.py`); BigQuery and GCS clients take no location.
 - **Rate limiting**: `before_model_callback` enforces rpm_quota (1000) over 60s intervals
 - **Session state keys**: `brand`, `target_product`, `target_audience`, `key_selling_points`, `target_search_trends`
 
@@ -187,8 +187,8 @@ Agents use `before_agent_callback` to initialize session state, `before_model_ca
 - `tests/eval/evalsets/` — ADK eval cases per agent
 - `deployment/deploy_agent.py` — Agent Engine deploy/list/delete CLI; `AGENT_EXTRA_PACKAGES`/`AGENT_DEPLOY_SPECS` maps are the single source of truth for what each agent bundles
 - `deployment/test_deployment.py` — Invoke deployed agents for testing
-- `cloud_funktions/creative_crf/main.py` — Orchestrator and worker entry points
-- `cloud_funktions/creative_crf/session.py` — `agent_session` async context manager (create→query→delete under one `user_id`, delete-on-error)
+- `cloud_functions/creative_fanout/main.py` — Orchestrator and worker entry points
+- `cloud_functions/creative_fanout/session.py` — `agent_session` async context manager (create→query→delete under one `user_id`, delete-on-error)
 
 ## Requirements
 

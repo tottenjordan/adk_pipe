@@ -5,7 +5,7 @@ the duration instrumentation described below) · **Status:** decision recorded �
 architecture as the primary executor; run a parallel Ambient-Agent experiment before committing.
 
 This note captures a comparison between our current event-driven orchestration
-(`cloud_funktions/creative_crf/`) and ADK's newer **Ambient Agent** concept
+(`cloud_functions/creative_fanout/`) and ADK's newer **Ambient Agent** concept
 (<https://adk.dev/runtime/ambient-agents/>), plus the target event-native
 architecture we want to move toward and the experiment that will decide it.
 
@@ -37,7 +37,7 @@ architecture we want to move toward and the experiment that will decide it.
 ## What we built today
 
 A two-stage Pub/Sub fan-out where **the agent runs on Vertex AI Agent Engine** and the Cloud Run
-Functions are thin orchestration glue (`cloud_funktions/creative_crf/main.py`):
+Functions are thin orchestration glue (`cloud_functions/creative_fanout/main.py`):
 
 - **Orchestrator** (`crf_entrypoint`, concurrency=100): Eventarc→Pub/Sub-triggered
   (`CREATIVE_TOPIC_NAME`/`CREATIVE_TRIGGER_NAME`) → queries BigQuery for `processed_status IS NULL`
@@ -50,7 +50,7 @@ Functions are thin orchestration glue (`cloud_funktions/creative_crf/main.py`):
 The BigQuery status column (`NULL → QUEUED → PROCESSING → PROCESSED/FAILED`) does triple duty as
 **work queue + idempotency lock + observability surface**.
 
-> Note: `cloud_funktions/trawler_crf/main.py` is currently a `# TODO` stub — the trend_trawler
+> Note: `cloud_functions/trawler_scheduler/main.py` is currently a documented stub (`# TODO(scheduler):`) — the trend_trawler
 > half of the pipeline is not yet wired for scheduled/event-driven execution. The target
 > architecture below is greenfield for that side.
 
@@ -133,7 +133,7 @@ for one with a timeout risk plus a re-implemented lock.
 We had no wall-clock data, which is the single biggest input to the runtime-ceiling question. Added
 lightweight, zero-schema-risk instrumentation to the worker: it times the end-to-end Agent Engine
 run and emits a structured log marker on both the success and failure paths
-(`cloud_funktions/creative_crf/main.py`, `_execute_agent_and_update_status`):
+(`cloud_functions/creative_fanout/main.py`, `_execute_agent_and_update_status`):
 
 ```
 AGENT_RUN_DURATION_SECS row=<ts> index=<i> status=<PROCESSED|FAILED> secs=<float>
@@ -293,7 +293,7 @@ the ambient experiment is duration-cleared and quota/idempotency-gated.**
 Two workflows, two trigger styles:
 
 1. **trend_trawler → scheduled.** Cloud Scheduler (cron) → Pub/Sub topic → trigger. This is the
-   natural fit and low-risk (`trawler_crf/main.py` is a stub today, so it's greenfield).
+   natural fit and low-risk (`trawler_scheduler/main.py` is a stub today, so it's greenfield).
 2. **creative_agent → on new BigQuery rows.** This is the nuanced one.
 
 > **Caveat — BigQuery has no native per-row "row inserted" event.** Eventarc can trigger on BQ
@@ -350,7 +350,7 @@ onto a single Cloud Run deployment is worth it for operational simplicity alone.
 
 ## Related
 
-- `cloud_funktions/creative_crf/main.py` — the current fan-out (orchestrator + worker).
+- `cloud_functions/creative_fanout/main.py` — the current fan-out (orchestrator + worker).
 - `docs/notes/local-testing.md` — the ~12-min UI request timeout, headless Runner, where results land.
 - GitHub issues for the two incidental bugs found while reviewing the worker (swallowed streaming
   exception → false `PROCESSED`; unguarded `message_payload`/`df` in `crf_entrypoint`).

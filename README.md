@@ -526,7 +526,7 @@ gcloud pubsub topics create $CREATIVE_WORKER_TOPIC_NAME
 **3.1 Creative Agent Orchestrator:** cloud run function
 
 ```bash
-cd cloud_funktions/creative_crf
+cd cloud_functions/creative_fanout
 
 gcloud run deploy $CREATIVE_CRF_NAME \
   --source . \
@@ -670,7 +670,7 @@ VALUES
 </details>
 
 
-*5.2 edit [cloud_funktions/creative_crf/message.json](cloud_funktions/creative_crf/message.json) to match your `.env` file:*
+*5.2 edit [cloud_functions/creative_fanout/message.json](cloud_functions/creative_fanout/message.json) to match your `.env` file:*
 
 ```json
 {
@@ -845,12 +845,12 @@ python deployment/integration_test.py --check all                             # 
 │   ├── prompts.py
 │   ├── run_eval_test.py
 │   └── schemas.py
-├── cloud_funktions/              # event-driven fan-out (orchestrator + worker)
-│   ├── creative_crf/
+├── cloud_functions/              # event-driven fan-out (orchestrator + worker)
+│   ├── creative_fanout/
 │   │   ├── config.py
 │   │   ├── main.py               # crf_entrypoint + agent_worker_entrypoint
 │   │   └── requirements.txt
-│   └── trawler_crf/
+│   └── trawler_scheduler/
 │       ├── config.py
 │       ├── main.py
 │       └── requirements.txt
