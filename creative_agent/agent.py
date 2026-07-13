@@ -195,6 +195,12 @@ enhanced_combined_searcher = Agent(
 )
 
 
+# `{refined_web_search_insights?}` is intentionally OPTIONAL (trailing `?`): the upstream
+# enhanced_combined_searcher occasionally emits no final text (google_search + thinking
+# returning only tool calls), leaving its output_key unset. Without the `?`, ADK raises
+# `KeyError: Context variable not found` here and aborts the whole run after the expensive
+# research. The refinement is additive — the full base research is in
+# `{combined_web_search_insights}` — so degrading to an empty section is the right fallback.
 combined_report_composer = Agent(
     model=build_gemini(config.critic_model),
     name="combined_report_composer",
@@ -216,7 +222,7 @@ combined_report_composer = Agent(
         </combined_web_search_insights>
 
         <refined_web_search_insights>
-        {refined_web_search_insights}
+        {refined_web_search_insights?}
         </refined_web_search_insights>
 
         <key_selling_points>
