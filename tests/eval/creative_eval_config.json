@@ -27,13 +27,13 @@
         {
           "rubric_id": "pipeline_execution",
           "rubric_content": {
-            "text_property": "The agent MUST execute the creative pipeline in the correct logical order: first memorize the campaign metadata and trend, then run combined_research_pipeline, then save_draft_report_artifact, then ad_creative_pipeline, then visual_production_pipeline, then creative_eval_agent, then persist results (save_eval_report_to_gcs, save_creative_gallery_html, write_trends_to_bq)."
+            "text_property": "The agent MUST execute the creative pipeline in the correct logical order: first memorize the campaign metadata and trend, then run combined_research_pipeline, then save_draft_report_artifact, then ad_creative_pipeline, then visual_production_pipeline, then creative_eval_agent, then persist results (save_eval_report_to_gcs, save_creative_gallery_html, write_trends_to_bq, write_eval_report_to_bq)."
           }
         },
         {
           "rubric_id": "all_tools_used",
           "rubric_content": {
-            "text_property": "The agent MUST call all of these tools at least once: memorize, combined_research_pipeline, save_draft_report_artifact, ad_creative_pipeline, visual_production_pipeline, creative_eval_agent, save_eval_report_to_gcs, save_creative_gallery_html, write_trends_to_bq."
+            "text_property": "The agent MUST call all of these tools at least once: memorize, combined_research_pipeline, save_draft_report_artifact, ad_creative_pipeline, visual_production_pipeline, creative_eval_agent, save_eval_report_to_gcs, save_creative_gallery_html, write_trends_to_bq, write_eval_report_to_bq."
           }
         }
       ],
