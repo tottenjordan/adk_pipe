@@ -31,6 +31,20 @@ The Next.js web app (`frontend/`), how it connects to the ADK backend, and how i
 | ![frontend arch](frontend_architecture.png) | App architecture + request flow | Next.js 16 App Router client (React 19, Tailwind 4, shadcn/ui) — form `/`, live SSE `/run/[sessionId]`, results `/results/[sessionId]` — talks only to same-origin Route Handlers: `/api/adk/[...path]` reverse-proxies REST session CRUD and streams `/run_sse` **SSE** through untouched to the ADK `api_server` (serving `trend_scout`, `creative_agent`, `interactive_creative`); `/api/gcs` uses **ADC** to proxy Cloud Storage artifacts. Same-origin boundary avoids CORS + Cloud Workstations port-auth |
 | ![frontend deploy](frontend_cloudrun_deployment.png) | Serving + Cloud Run deployment | **Current (dev):** one Cloud Workstations VM runs `next dev` (:3000) + `adk api_server` (:8000) side by side, bridged by the same-origin proxy. **Target (Cloud Run, implemented):** two Cloud Run services — a containerized Next.js frontend (`trend-trawler-web`) whose `ADK_API_BASE` points at a private `adk api_server` backend (`trend-trawler-api`), reached via a metadata-server ID token (IAM `run.invoker`); `/api/gcs` uses ADC; shared GCS + BigQuery in `us-central1`. Runbook in [`deployment/README.md`](../../deployment/README.md#frontend--api_server-on-cloud-run). Remaining gap: the frontend is `--allow-unauthenticated` MVP — front it with IAP for real use. Includes a cross-reference to the batch fan-out (CRF) diagrams |
 
+### Live Cloud Run Deployment
+
+The as-built two-service Cloud Run deployment (project `hybrid-vertex`, `us-central1`),
+captured from three angles. Complements `frontend_cloudrun_deployment.png` above (which
+contrasts the dev workstation vs. the Cloud Run target) with the detail of the live system.
+
+| Diagram | Scope | Highlights |
+|---|---|---|
+| ![cloudrun topology](frontend_cloudrun_topology.png) | Deployment topology (what runs where) | Public `trend-trawler-web` (Next.js standalone, SA `tt-web-sa`) → `roles/run.invoker` → private `trend-trawler-api` (`adk api_server`, SA `tt-api-sa`); the backend calls **Vertex AI** (Gemini, `global`), **BigQuery** (dataset `trend_trawler`), and **Cloud Storage** (`trend-trawler-deploy-ae`) in-process, all in `us-central1` |
+| ![cloudrun auth flow](frontend_cloudrun_auth_flow.png) | Request & auth flow | Browser same-origin calls → the `/api/adk` proxy mints a metadata-server **ID token** (audience = backend URL) and forwards `Bearer`-authed HTTPS to the private backend, piping the **SSE** stream through untouched (undici `bodyTimeout=0` disables the 5-min idle timeout); `/api/gcs` uses an **OAuth access token** to stream artifacts; unauthenticated backend calls get `403` |
+| ![cloudrun build pipeline](frontend_cloudrun_build_pipeline.png) | Build & deploy pipeline | `gcloud run deploy --source` uploads source (filtered by **`.gcloudignore`** — excludes `.git`/`node_modules`/`tests`/`docs`, keeps `pyproject.toml`+`uv.lock`) → **Cloud Build** builds each image (`frontend/Dockerfile` → Next.js standalone; root `Dockerfile` → `uv` + `adk api_server`) → **Artifact Registry** → new 100%-traffic **Cloud Run** revision, with per-service deploy-time env vars |
+
+Runbook: [`deployment/README.md` → Frontend + api_server on Cloud Run](../../deployment/README.md#frontend--api_server-on-cloud-run).
+
 ## Regenerating
 
 Diagrams are generated one at a time (respecting the shared 2 RPM
