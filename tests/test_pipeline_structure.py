@@ -162,3 +162,16 @@ def test_visual_concept_finalizer_has_ad_copy_context():
 
     assert "ad_copy_critique" in visual_concept_finalizer.instruction
     assert "ad_copy_id" in visual_concept_finalizer.instruction
+
+
+def test_interactive_creative_memorizes_target_search_trends():
+    """The interactive orchestrator's memorize step must explicitly enumerate
+    target_search_trends. A vague 'store all campaign metadata' instruction lets
+    the LLM drop the trend, leaving target_search_trends empty in state (and in
+    the trend_creatives / creative_evals BigQuery rows)."""
+    from interactive_creative.agent import root_agent
+
+    instr = root_agent.instruction
+    # The memorize step must name every state key it has to persist, mirroring
+    # creative_agent, not just say "all campaign metadata".
+    assert "`key_selling_points`, and `target_search_trends`" in instr
