@@ -366,6 +366,10 @@ Deploying Agents to separate Agent Engine instances...
 
 > [Agent Engine](https://google.github.io/adk-docs/deploy/agent-engine/) is a fully managed auto-scaling service on Google Cloud specifically designed for deploying, managing, and scaling AI agents built with frameworks such as ADK.
 
+<p align="center">
+  <img src="docs/architecture/agent-engine-pipeline.png" alt="creative_agent pipeline on Agent Engine" width="720">
+</p>
+
 
 ```bash
 # deploy `trend_trawler` agent to Agent Engine
@@ -374,12 +378,20 @@ python deployment/deploy_agent.py --version=v1 --agent=trend_trawler --create
 # deploy `creative_agent` agent to Agent Engine
 python deployment/deploy_agent.py --version=v1 --agent=creative_agent --create
 
+# deploy `interactive_creative` agent (human-in-the-loop variant) to Agent Engine
+python deployment/deploy_agent.py --version=v1 --agent=interactive_creative --create
+
 # list existing Agent Engine instances
 python deployment/deploy_agent.py --list
 
 # delete an Agent Engine Runtime
 python deployment/deploy_agent.py --resource_id=890256972824182784 --delete
 ```
+
+> The local packages bundled into each engine are derived from a single
+> `AGENT_EXTRA_PACKAGES` map in `deployment/deploy_agent.py` (from the real import
+> graph — e.g. `creative_agent` → `creative_eval` + `agent_common`), so a
+> cross-package dependency can't be silently left out of a deploy.
 
 * Once agent is deployed to Agent Engine, the agent's resource ID will be added to your `.env` file. And this will be used later in the `test_deployment.py` script
 
@@ -435,6 +447,10 @@ resource.labels.reasoning_engine_id="YOUR_AGENT_ENGINE_ID"
 
 
 ### Cloud Run Functions Fan-out Pattern with event-based triggers
+
+<p align="center">
+  <img src="docs/architecture/crf-fanout-orchestration.png" alt="Cloud Run Functions orchestrator/worker fan-out" width="720">
+</p>
 
 **objectives**
 * create `Agent Orchestrator` to check BQ for trends recommended by the `trawler agent`; dispatch PubSub message for each recommendation

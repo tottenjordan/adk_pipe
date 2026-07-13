@@ -10,3 +10,8 @@ a_stash/
 .adk
 .adk/*
 .next/*
+
+# PaperBanana figure-generation scratch (keep the committed diagrams under
+# docs/architecture/*.png, ignore the transient per-run working dirs)
+outputs/
+docs/architecture/run_*/
