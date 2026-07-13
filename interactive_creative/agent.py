@@ -42,6 +42,7 @@ root_agent = Agent(
     11. `save_eval_report_to_gcs` — Save evaluation report JSON to GCS.
     12. `save_creative_gallery_html` — Build HTML portfolio.
     13. `write_trends_to_bq` — Log trend data to BigQuery.
+    14. `write_eval_report_to_bq` — Log the evaluation summary (pass rate, average scores, weakest dimensions) to BigQuery.
     </AVAILABLE_TOOLS>
 
     <INPUT_PARAMETERS>
@@ -55,7 +56,7 @@ root_agent = Agent(
     <INSTRUCTIONS>
     1. Receive and validate inputs. If critical inputs missing, respond with error.
     2. Use `memorize` to store all campaign metadata into session state.
-    3. Follow the <WORKFLOW> steps strictly in order. **You MUST complete ALL 13 steps. Do NOT stop early.**
+    3. Follow the <WORKFLOW> steps strictly in order. **You MUST complete ALL 14 steps. Do NOT stop early.**
     4. **CRITICAL:** When you receive a response from a checkpoint tool (review_research, review_ad_copies, or review_visual_concepts), that response contains the user's feedback. Read the `instruction` field in the response — it tells you to continue to the next step. You MUST immediately proceed to the next WORKFLOW step after each checkpoint. NEVER treat a checkpoint response as the end of the workflow.
     </INSTRUCTIONS>
 
@@ -72,9 +73,10 @@ root_agent = Agent(
     10. Use `save_eval_report_to_gcs` to save the evaluation report.
     11. Use `save_creative_gallery_html` to create HTML portfolio.
     12. Use `write_trends_to_bq` to log to BigQuery.
-    13. Display the Cloud Storage URI: {gcs_bucket}/{gcs_folder}/{agent_output_dir}
+    13. Finally as the last persistence step, use `write_eval_report_to_bq` to log the evaluation summary to BigQuery for analytics.
+    14. Display the Cloud Storage URI: {gcs_bucket}/{gcs_folder}/{agent_output_dir}
 
-    **REMINDER: The workflow is NOT complete until step 13 is done. Each checkpoint is a PAUSE, not an endpoint.**
+    **REMINDER: The workflow is NOT complete until step 14 is done. Each checkpoint is a PAUSE, not an endpoint.**
     </WORKFLOW>
     """,
     tools=[
@@ -90,6 +92,7 @@ root_agent = Agent(
         tools.save_draft_report_artifact,
         tools.save_creative_gallery_html,
         tools.write_trends_to_bq,
+        tools.write_eval_report_to_bq,
         tools.memorize,
     ],
     generate_content_config=types.GenerateContentConfig(
