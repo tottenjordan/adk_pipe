@@ -11,8 +11,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from cloud_funktions.creative_crf import main
-from cloud_funktions.creative_crf.session import agent_session
+from cloud_functions.creative_fanout import main
+from cloud_functions.creative_fanout.session import agent_session
 
 
 def test_async_send_message_reraises_streaming_error():

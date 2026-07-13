@@ -125,7 +125,7 @@ flags.mark_bool_flags_as_mutual_exclusive(["create", "delete", "list"])
 AGENT_ENGINE_LOCATION = os.getenv("GCP_REGION", "us-central1")
 
 # vertex ai SDK client — created lazily so the module imports without GCP creds
-# (mirrors the lazy-client pattern in cloud_funktions/creative_crf/main.py) and
+# (mirrors the lazy-client pattern in cloud_functions/creative_fanout/main.py) and
 # so unit tests can assert on the deploy mappings without a live client.
 _client = None
 

@@ -6,7 +6,7 @@ output/*
 **/__pycache__/
 __pycache__/
 a_stash/
-**cloud_funktions/creative_crf/message.json
+**cloud_functions/creative_fanout/message.json
 .adk
 .adk/*
 .next/*
