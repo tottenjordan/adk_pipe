@@ -5,7 +5,7 @@ ADK 2.0 retries a node when the raised exception's EXACT class name is in the
 the concrete transient classes Google clients actually raise — base classes like
 ``GoogleAPICallError`` never match.
 
-``trend_trawler`` and ``creative_agent`` shared this list verbatim except that
+``trend_scout`` and ``creative_agent`` shared this list verbatim except that
 creative_agent also calls genai directly (image gen) and so must retry the genai
 ``ServerError``. ``build_infra_retry(extra_exceptions=...)`` is the one place that
 list is defined; callers pass their extras.

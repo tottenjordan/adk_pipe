@@ -30,8 +30,8 @@ Deploying Agents to separate Agent Engine instances...
 
 
 ```bash
-# deploy `trend_trawler` agent to Agent Engine
-python deployment/deploy_agent.py --version=v1 --agent=trend_trawler --create
+# deploy `trend_scout` agent to Agent Engine
+python deployment/deploy_agent.py --version=v1 --agent=trend_scout --create
 
 # deploy `creative_agent` agent to Agent Engine
 python deployment/deploy_agent.py --version=v1 --agent=creative_agent --create
@@ -59,13 +59,13 @@ python deployment/deploy_agent.py --resource_id=890256972824182784 --delete
 
 *Note: the `test_deployment.py` script will source the `BRAND`, `TARGET_AUDIENCE`, `TARGET_PRODUCT`, `KEY_SELLING_POINT`, and `TARGET_SEARCH_TREND` from your `.env` file.*
 
-**[1] Kickoff the `trend_trawler` agent workflow.**  
+**[1] Kickoff the `trend_scout` agent workflow.**  
 
 > *This will insert a row into your BigQuery table for each recommended trend*
 
 ```bash
 export USER_ID='ima_user'
-python deployment/test_deployment.py --agent=trend_trawler --user_id=$USER_ID
+python deployment/test_deployment.py --agent=trend_scout --user_id=$USER_ID
 
 Found agent with resource ID: ...
 Created session for user ID: ...
@@ -364,7 +364,7 @@ gcloud pubsub topics publish $CREATIVE_PUB_TOPIC --message "$(cat message.json |
 copy `.env` file to each agent directory..
 
 ```bash
-cp .env trend_trawler/.env
+cp .env trend_scout/.env
 cp .env creative_agent/.env
 ```
 
@@ -376,7 +376,7 @@ cp .env creative_agent/.env
 * set name for the Cloud Run service
 
 ```bash
-export AGENT_DIR_NAME=trend_trawler
+export AGENT_DIR_NAME=trend_scout
 
 export AGENT_PATH=$AGENT_DIR_NAME/
 

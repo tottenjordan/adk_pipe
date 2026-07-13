@@ -111,8 +111,8 @@ class TestSetInitialStates:
         assert target["gcs_folder"] == "existing_folder"
         assert "brand" not in target  # source not applied
 
-    def test_trend_trawler_sets_trawler_output(self):
-        from trend_trawler.callbacks import _set_initial_states
+    def test_trend_scout_sets_trawler_output(self):
+        from trend_scout.callbacks import _set_initial_states
 
         target = {}
         source = {"brand": "PRS"}

@@ -30,7 +30,7 @@ cd frontend && npm install && npm run dev   # http://localhost:3000
 # are derived from AGENT_EXTRA_PACKAGES in deploy_agent.py — a single source of
 # truth from the import graph, so cross-package deps like creative_eval/agent_common
 # can't be forgotten)
-python deployment/deploy_agent.py --version=v1 --agent=trend_trawler --create
+python deployment/deploy_agent.py --version=v1 --agent=trend_scout --create
 python deployment/deploy_agent.py --version=v1 --agent=creative_agent --create
 python deployment/deploy_agent.py --version=v1 --agent=interactive_creative --create
 
@@ -40,7 +40,7 @@ python deployment/deploy_agent.py --resource_id=<ID> --delete
 
 # Test deployed agents
 export USER_ID='test_user'
-python deployment/test_deployment.py --agent=trend_trawler --user_id=$USER_ID
+python deployment/test_deployment.py --agent=trend_scout --user_id=$USER_ID
 python deployment/test_deployment.py --agent=creative_agent --user_id=$USER_ID
 ```
 
@@ -57,7 +57,7 @@ cd frontend && npm run test:watch  # watch mode
 uv run pytest tests/ -v
 
 # ADK evals — end-to-end agent evaluation with LLM-as-judge (real API calls, ~5 min per case)
-uv run adk eval trend_trawler tests/eval/evalsets/trend_trawler_evalset.json \
+uv run adk eval trend_scout tests/eval/evalsets/trend_scout_evalset.json \
   --config_file_path=tests/eval/eval_config.json --print_detailed_results
 
 # creative_agent eval — needs PYTHONPATH (adk eval's file-spec loader doesn't put the
@@ -69,14 +69,14 @@ PYTHONPATH="$PWD" uv run adk eval creative_agent tests/eval/evalsets/creative_ag
 
 - Frontend: `frontend/src/__tests__/` — pure logic tests (SSE parsing, form validation, GCS URI building, widget layouts, trend markdown parsing, extractItems, interactive mode pause/resume)
 - Python: `tests/` — Pydantic schema validation, agent pipeline structure, tool functions, callbacks (citation regex, state init, rate limiting), deployment utilities, cloud function logic
-- ADK Evals: `tests/eval/` — end-to-end agent evaluation using `adk eval` CLI with rubric-based LLM-as-judge scoring (response quality + tool use quality). Runs against real APIs. One evalset + rubric config per agent: `evalsets/trend_trawler_evalset.json` + `eval_config.json`; `evalsets/creative_agent_evalset.json` + `creative_eval_config.json`. The `creative_agent` eval must be run with `PYTHONPATH="$PWD"` (see command above).
+- ADK Evals: `tests/eval/` — end-to-end agent evaluation using `adk eval` CLI with rubric-based LLM-as-judge scoring (response quality + tool use quality). Runs against real APIs. One evalset + rubric config per agent: `evalsets/trend_scout_evalset.json` + `eval_config.json`; `evalsets/creative_agent_evalset.json` + `creative_eval_config.json`. The `creative_agent` eval must be run with `PYTHONPATH="$PWD"` (see command above).
 - Integration: `deployment/integration_test.py` — live GCP checks (health, session lifecycle, smoke tests). Requires deployed agents.
 - CI: `.github/workflows/frontend-tests.yml` — runs frontend tests on push/PR to `main` when `frontend/**` changes
 
 ```bash
 # Integration tests (requires deployed agents + GCP credentials)
 python deployment/integration_test.py --check health                          # verify agents reachable
-python deployment/integration_test.py --check session --agent trend_trawler   # session lifecycle
+python deployment/integration_test.py --check session --agent trend_scout   # session lifecycle
 python deployment/integration_test.py --check smoke --agent creative_agent    # full end-to-end
 python deployment/integration_test.py --check all                             # everything
 ```
@@ -90,7 +90,7 @@ as its import path (`tarfile.add(path)` → arcname), so nesting would break eve
 
 ### Two-Phase Agent Pipeline
 
-**Phase 1 — `trend_trawler/`**: Gathers top 25 Google Search trends, researches cultural context via web search, filters to 3 most campaign-relevant trends, saves to BigQuery.
+**Phase 1 — `trend_scout/`**: Gathers top 25 Google Search trends, researches cultural context via web search, filters to 3 most campaign-relevant trends, saves to BigQuery.
 
 **Phase 2 — `creative_agent/`**: Takes a single trend + campaign metadata, runs parallel web research (campaign researcher + trend researcher as sub-agents), synthesizes a strategic brief, generates ad copy and visual concepts, evaluates all creatives, and exports research PDF, HTML gallery, and evaluation report to GCS.
 
@@ -101,7 +101,7 @@ as its import path (`tarfile.add(path)` → arcname), so nesting would break eve
 ### Agent Composition
 
 ```
-trend_trawler (root Agent)
+trend_scout (root Agent)
 ├── gather_trends_agent (get_daily_gtrends tool)
 ├── understand_trends_agent (google_search tool)
 ├── pick_trends_agent (strategic filtering)
@@ -133,7 +133,7 @@ Key ADK patterns used: `Agent`, `SequentialAgent`, `ParallelAgent`, `AgentTool` 
 Next.js 16 (App Router) + TypeScript + Tailwind CSS + shadcn/ui. Light theme with Sora font. Consumes the ADK `api_server` REST + SSE endpoints at `localhost:8000`.
 
 **Pages:**
-- `/` — Campaign input form (brand, audience, product, selling points, agent selector: `trend_trawler`, `creative_agent`, `interactive_creative`)
+- `/` — Campaign input form (brand, audience, product, selling points, agent selector: `trend_scout`, `creative_agent`, `interactive_creative`)
 - `/run/[sessionId]` — Live SSE event stream with timeline, pipeline state widgets (modal overlays), campaign metadata sidebar. Interactive mode adds pause/resume review panels at each checkpoint.
 - `/results/[sessionId]` — Artifacts gallery, research PDF viewer, evaluation report, session state inspector
 
@@ -154,7 +154,7 @@ Fan-out pattern using two Cloud Run Function deployments from the same source (`
 ### Configuration
 
 Shared config lives in **`agent_common/`** (a lightweight, ADK-free package bundled into every deployed engine):
-- `agent_common/config.py` — `BaseAgentConfiguration`, the single source of truth for the model names, rate-limit knobs, and GCP/BigQuery env vars. Each agent's `config.py` subclasses it (`ResearchConfiguration(BaseAgentConfiguration)`) and adds only its genuine differences (e.g. `trend_trawler`'s `SetupConfiguration`), which is why the two agent configs no longer drift.
+- `agent_common/config.py` — `BaseAgentConfiguration`, the single source of truth for the model names, rate-limit knobs, and GCP/BigQuery env vars. Each agent's `config.py` subclasses it (`ResearchConfiguration(BaseAgentConfiguration)`) and adds only its genuine differences (e.g. `trend_scout`'s `SetupConfiguration`), which is why the two agent configs no longer drift.
 - `agent_common/retry.py` — `build_infra_retry(extra_exceptions=(), max_attempts=3)`, the one place the ADK `RetryConfig` transient-exception list is defined (`creative_agent` passes the genai `ServerError`).
 - `agent_common/locations.py` + `agent_common/models.py` — `MODEL_LOCATION` (default `global`) and `build_gemini(name)`, which pin every gemini-3.x call's serving location in code (Agent Engine *reserves* `GOOGLE_CLOUD_LOCATION`, so it can't be forced via deploy env vars).
 

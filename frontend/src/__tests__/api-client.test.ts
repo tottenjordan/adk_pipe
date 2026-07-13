@@ -74,11 +74,11 @@ describe("API URL construction", () => {
   const API_BASE = "http://localhost:8000";
 
   it("builds session creation URL", () => {
-    const appName = "trend_trawler";
+    const appName = "trend_scout";
     const userId = "user_123";
     const url = `${API_BASE}/apps/${appName}/users/${userId}/sessions`;
     expect(url).toBe(
-      "http://localhost:8000/apps/trend_trawler/users/user_123/sessions"
+      "http://localhost:8000/apps/trend_scout/users/user_123/sessions"
     );
   });
 

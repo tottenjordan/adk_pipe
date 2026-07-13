@@ -364,7 +364,7 @@ ad_copy_drafter = Agent(
     generate_content_config=types.GenerateContentConfig(
         temperature=1.5,
         labels={
-            "agentic_wf": "trend_trawler",
+            "agentic_wf": "trend_scout",
             "agent": "creative_agent",
             "subagent": "ad_copy_drafter",
         },
@@ -456,7 +456,7 @@ ad_copy_critic = Agent(
     generate_content_config=types.GenerateContentConfig(
         temperature=0.7,
         labels={
-            "agentic_wf": "trend_trawler",
+            "agentic_wf": "trend_scout",
             "agent": "creative_agent",
             "subagent": "ad_copy_critic",
         },
@@ -550,7 +550,7 @@ visual_concept_drafter = Agent(
     generate_content_config=types.GenerateContentConfig(
         temperature=1.5,
         labels={
-            "agentic_wf": "trend_trawler",
+            "agentic_wf": "trend_scout",
             "agent": "creative_agent",
             "subagent": "visual_concept_drafter",
         },
@@ -623,7 +623,7 @@ visual_concept_critic = Agent(
     generate_content_config=types.GenerateContentConfig(
         temperature=0.7,
         labels={
-            "agentic_wf": "trend_trawler",
+            "agentic_wf": "trend_scout",
             "agent": "creative_agent",
             "subagent": "visual_concept_critic",
         },
@@ -721,7 +721,7 @@ visual_concept_finalizer = Agent(
     generate_content_config=types.GenerateContentConfig(
         temperature=0.8,
         labels={
-            "agentic_wf": "trend_trawler",
+            "agentic_wf": "trend_scout",
             "agent": "creative_agent",
             "subagent": "visual_concept_finalizer",
         },
@@ -761,7 +761,7 @@ visual_generator = Agent(
     generate_content_config=types.GenerateContentConfig(
         temperature=1.2,
         labels={
-            "agentic_wf": "trend_trawler",
+            "agentic_wf": "trend_scout",
             "agent": "creative_agent",
             "subagent": "visual_generator",
         },
@@ -869,7 +869,7 @@ root_agent = Agent(
     generate_content_config=types.GenerateContentConfig(
         temperature=1.0,
         labels={
-            "agentic_wf": "trend_trawler",
+            "agentic_wf": "trend_scout",
             "agent": "creative_agent",
             "subagent": "root_agent",
         },

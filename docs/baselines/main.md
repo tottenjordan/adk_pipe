@@ -23,7 +23,7 @@ This baseline was run against the **local working tree**, not the pristine commi
 ## Fixes required to reach a working baseline
 
 1. **Dep re-resolution** from PyPI (private mirror inaccessible).
-2. **trend_trawler orchestrator thinking runaway** — gemini-3.5-flash burned its whole
+2. **trend_scout orchestrator thinking runaway** — gemini-3.5-flash burned its whole
    output budget "thinking" and hit `MAX_TOKENS` before emitting tool calls. Fixed with
    `BuiltInPlanner(thinking_config=ThinkingConfig(thinking_budget=0))` on the root agent.
 3. **Image generation** — `gemini-3.1-flash-image` needs the `generate_content` API on
@@ -32,7 +32,7 @@ This baseline was run against the **local working tree**, not the pristine commi
    fixed a React "objects are not valid as a child" crash on the `target_search_trends`
    nested-object session-state value.
 
-## trend_trawler
+## trend_scout
 
 - **Status:** ✅ completed end-to-end (~67s after the thinking fix).
 - **Pipeline:** memorize → gather_trends_agent → understand_trends_agent →

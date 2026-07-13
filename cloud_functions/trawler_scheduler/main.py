@@ -1,7 +1,7 @@
 """Greenfield Cloud Run Function entrypoint for the trend-trawler scheduler.
 
 This is the (not-yet-implemented) scheduler leg of the pipeline: a Cloud
-Scheduler cron would invoke this function to kick off Phase 1 (``trend_trawler``)
+Scheduler cron would invoke this function to kick off Phase 1 (``trend_scout``)
 by publishing to the orchestrator topic, on a fixed cadence rather than on
 demand. It is the counterpart to the on-demand ``creative_fanout`` orchestrator.
 

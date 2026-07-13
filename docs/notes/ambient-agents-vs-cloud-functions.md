@@ -50,7 +50,7 @@ Functions are thin orchestration glue (`cloud_functions/creative_fanout/main.py`
 The BigQuery status column (`NULL → QUEUED → PROCESSING → PROCESSED/FAILED`) does triple duty as
 **work queue + idempotency lock + observability surface**.
 
-> Note: `cloud_functions/trawler_scheduler/main.py` is currently a documented stub (`# TODO(scheduler):`) — the trend_trawler
+> Note: `cloud_functions/trawler_scheduler/main.py` is currently a documented stub (`# TODO(scheduler):`) — the trend_scout
 > half of the pipeline is not yet wired for scheduled/event-driven execution. The target
 > architecture below is greenfield for that side.
 
@@ -292,7 +292,7 @@ the ambient experiment is duration-cleared and quota/idempotency-gated.**
 
 Two workflows, two trigger styles:
 
-1. **trend_trawler → scheduled.** Cloud Scheduler (cron) → Pub/Sub topic → trigger. This is the
+1. **trend_scout → scheduled.** Cloud Scheduler (cron) → Pub/Sub topic → trigger. This is the
    natural fit and low-risk (`trawler_scheduler/main.py` is a stub today, so it's greenfield).
 2. **creative_agent → on new BigQuery rows.** This is the nuanced one.
 
@@ -309,7 +309,7 @@ Two workflows, two trigger styles:
 > - **(c) Scheduled poll** — the current orchestrator pattern (Scheduler → orchestrator → BQ query).
 >   Simplest; not strictly event-native.
 
-**Recommendation for Q3:** trend_trawler on **(1)** Cloud Scheduler; creative_agent on **(b)**
+**Recommendation for Q3:** trend_scout on **(1)** Cloud Scheduler; creative_agent on **(b)**
 app-level Pub/Sub emitted at BQ-write time. Keep the BigQuery status lock regardless of trigger
 style — it's the idempotency guarantee, independent of what fires the run.
 

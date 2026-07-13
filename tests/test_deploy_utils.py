@@ -84,7 +84,7 @@ class TestEnvVarDict:
 
         env_values = dotenv.dotenv_values(env_example_path)
         assert "CREATIVE_AGENT_ENGINE_ID" in env_values
-        assert "TRAWLER_AGENT_ENGINE_ID" in env_values
+        assert "SCOUT_AGENT_ENGINE_ID" in env_values
 
     def test_requirements_file_exists(self):
         """Verify requirements.txt exists (referenced by deploy script)."""
@@ -170,10 +170,10 @@ class TestAgentExtraPackages:
         ):
             assert dep in pkgs, f"{dep} missing from interactive_creative bundle"
 
-    def test_trend_trawler_bundles_agent_common(self):
+    def test_trend_scout_bundles_agent_common(self):
         da = _import_deploy_agent()
-        pkgs = da.AGENT_EXTRA_PACKAGES["trend_trawler"]
-        assert "./trend_trawler" in pkgs
+        pkgs = da.AGENT_EXTRA_PACKAGES["trend_scout"]
+        assert "./trend_scout" in pkgs
         assert "./agent_common" in pkgs
 
     def test_root_package_listed_first(self):
@@ -206,9 +206,9 @@ class TestValidateExtraPackages:
     def test_passes_for_real_dirs(self):
         da = _import_deploy_agent()
         # Should not raise for a valid bundle.
-        da.validate_extra_packages(da.AGENT_EXTRA_PACKAGES["trend_trawler"])
+        da.validate_extra_packages(da.AGENT_EXTRA_PACKAGES["trend_scout"])
 
     def test_raises_for_missing_dir(self):
         da = _import_deploy_agent()
         with pytest.raises(FileNotFoundError):
-            da.validate_extra_packages(["./trend_trawler", "./does_not_exist_pkg"])
+            da.validate_extra_packages(["./trend_scout", "./does_not_exist_pkg"])

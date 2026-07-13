@@ -590,7 +590,7 @@ export default function RunPage({
   const startedRef = useRef(false);
   const seenEventIds = useRef(new Set<string>());
 
-  const appName = searchParams.get("app") || "trend_trawler";
+  const appName = searchParams.get("app") || "trend_scout";
   const userId = searchParams.get("userId") || "default_user";
 
   const resultsUrl = useMemo(() => {
@@ -798,7 +798,7 @@ export default function RunPage({
   // Parse trend trawler output into clickable cards
   const trends = useMemo(() => {
     const selectedGtrends = sessionState.selected_gtrends;
-    if (appName !== "trend_trawler" || typeof selectedGtrends !== "string")
+    if (appName !== "trend_scout" || typeof selectedGtrends !== "string")
       return [];
     return parseTrendsMarkdown(selectedGtrends);
   }, [appName, sessionState.selected_gtrends]);
@@ -859,7 +859,7 @@ export default function RunPage({
   };
 
   const showResultsToast =
-    status === "completed" && appName !== "trend_trawler" && !toastDismissed;
+    status === "completed" && appName !== "trend_scout" && !toastDismissed;
 
   // Right column content: pipeline widgets, GCS, research report, or trend cards
   const hasRightColumn =
@@ -881,7 +881,7 @@ export default function RunPage({
           </p>
         </div>
         <div className="flex items-center gap-3">
-          {status === "completed" && appName !== "trend_trawler" && (
+          {status === "completed" && appName !== "trend_scout" && (
             <Button
               size="lg"
               onClick={() => router.push(resultsUrl)}
@@ -1022,7 +1022,7 @@ export default function RunPage({
                   </div>
                 )}
 
-                {/* Trend cards — only for completed trend_trawler runs */}
+                {/* Trend cards — only for completed trend_scout runs */}
                 {status === "completed" && trends.length > 0 && (
                   <TrendCards trends={trends} campaignState={sessionState} />
                 )}

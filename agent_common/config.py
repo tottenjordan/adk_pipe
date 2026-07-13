@@ -1,10 +1,10 @@
 """Shared base configuration for the agent packages.
 
-``trend_trawler`` and ``creative_agent`` carried near-identical
+``trend_scout`` and ``creative_agent`` carried near-identical
 ``ResearchConfiguration`` dataclasses (same model names, rate-limit knobs and GCP
 env vars). That copy-paste is exactly how the deploy env-var drift crept in, so
 this is the single source of truth: each agent subclasses ``BaseAgentConfiguration``
-and adds only its genuine differences (trend_trawler's ``SetupConfiguration``;
+and adds only its genuine differences (trend_scout's ``SetupConfiguration``;
 creative_agent's genai ``ServerError`` retry).
 
 Env values are read at class-definition (import) time, matching the previous

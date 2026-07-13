@@ -1,7 +1,7 @@
 {
-  "eval_set_id": "trend_trawler_eval",
+  "eval_set_id": "trend_scout_eval",
   "name": "Trend Trawler Pipeline Evaluation",
-  "description": "End-to-end eval for the trend_trawler agent. Verifies tool trajectory (memorize → gather → understand → pick → persist) and final response quality.",
+  "description": "End-to-end eval for the trend_scout agent. Verifies tool trajectory (memorize → gather → understand → pick → persist) and final response quality.",
   "eval_cases": [
     {
       "eval_id": "prs_guitars_campaign",
@@ -35,7 +35,7 @@
         }
       ],
       "session_input": {
-        "app_name": "trend_trawler",
+        "app_name": "trend_scout",
         "user_id": "eval_user",
         "state": {}
       }
@@ -72,7 +72,7 @@
         }
       ],
       "session_input": {
-        "app_name": "trend_trawler",
+        "app_name": "trend_scout",
         "user_id": "eval_user",
         "state": {}
       }

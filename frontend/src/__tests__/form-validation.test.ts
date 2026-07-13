@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 
 // Replicate form validation logic from page.tsx
 interface CampaignInput {
-  agent: "trend_trawler" | "creative_agent";
+  agent: "trend_scout" | "creative_agent";
   brand: string;
   targetAudience: string;
   targetProduct: string;
@@ -22,7 +22,7 @@ function isFormValid(form: CampaignInput): boolean {
 
 describe("form validation", () => {
   const base: CampaignInput = {
-    agent: "trend_trawler",
+    agent: "trend_scout",
     brand: "PRS Guitars",
     targetAudience: "Musicians aged 25-45",
     targetProduct: "PRS SE CE24",
@@ -30,11 +30,11 @@ describe("form validation", () => {
     targetSearchTrend: "",
   };
 
-  it("is valid for trend_trawler with all required fields", () => {
+  it("is valid for trend_scout with all required fields", () => {
     expect(isFormValid(base)).toBe(true);
   });
 
-  it("is valid for trend_trawler even without targetSearchTrend", () => {
+  it("is valid for trend_scout even without targetSearchTrend", () => {
     expect(isFormValid({ ...base, targetSearchTrend: "" })).toBe(true);
   });
 

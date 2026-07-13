@@ -6,7 +6,7 @@ never passes to Agent Engine (it passes `GOOGLE_CLOUD_STORAGE_BUCKET`). Locally
 `.env` defines `GCS_BUCKET_NAME`, so it worked; deployed it was `None`, which
 surfaced as `ValueError: Cannot determine path without bucket name.`
 
-`trend_trawler` already reads `GOOGLE_CLOUD_STORAGE_BUCKET`; both agents must
+`trend_scout` already reads `GOOGLE_CLOUD_STORAGE_BUCKET`; both agents must
 resolve the bucket name from the same env var that deploy actually ships.
 
 Config values are read at class-definition (import) time, so these tests import
@@ -27,7 +27,7 @@ import pytest
 # avoid leaving agents bound to a stale config (which breaks `is INFRA_RETRY`).
 _PKG_PREFIXES = (
     "creative_agent",
-    "trend_trawler",
+    "trend_scout",
     "creative_eval",
     "interactive_creative",
     "agent_common",
@@ -71,12 +71,12 @@ def test_creative_agent_bucket_name_reads_storage_bucket_var(monkeypatch, fresh_
 
 
 def test_both_agents_resolve_bucket_name_from_same_var(monkeypatch, fresh_config):
-    """trend_trawler and creative_agent must agree on the bucket-name env var."""
+    """trend_scout and creative_agent must agree on the bucket-name env var."""
     monkeypatch.setenv("GOOGLE_CLOUD_STORAGE_BUCKET", "shared-bucket")
     monkeypatch.setenv("GCS_BUCKET_NAME", "stale-bucket")
 
     ca_config = fresh_config("creative_agent.config")
-    tt_config = fresh_config("trend_trawler.config")
+    tt_config = fresh_config("trend_scout.config")
     assert ca_config.config.GCS_BUCKET_NAME == tt_config.config.GCS_BUCKET_NAME
     assert ca_config.config.GCS_BUCKET_NAME == "shared-bucket"
 
@@ -119,7 +119,7 @@ class TestBaseAgentConfiguration:
 
     def test_both_agent_configs_subclass_the_base(self):
         from agent_common.config import BaseAgentConfiguration
-        import trend_trawler.config as tt
+        import trend_scout.config as tt
         import creative_agent.config as ca
 
         assert isinstance(tt.config, BaseAgentConfiguration)
@@ -127,7 +127,7 @@ class TestBaseAgentConfiguration:
 
     def test_agent_configs_share_model_names(self):
         """Dedup proof: both agents expose identical model-name values."""
-        import trend_trawler.config as tt
+        import trend_scout.config as tt
         import creative_agent.config as ca
 
         for name in (

@@ -53,7 +53,7 @@ parser.add_argument(
 )
 parser.add_argument(
     "--agent",
-    choices=["trend_trawler", "creative_agent"],
+    choices=["trend_scout", "creative_agent"],
     default=None,
     help="name of agent to deploy",
     required=True,
@@ -155,10 +155,8 @@ async def main() -> None:  # pylint: disable=unused-argument
     if not args.agent:
         logging.error("Error: --agent is required for the create operation.")
         return
-    if args.agent == "trend_trawler":
-        remote_agent = client.agent_engines.get(
-            name=os.getenv("TRAWLER_AGENT_ENGINE_ID")
-        )
+    if args.agent == "trend_scout":
+        remote_agent = client.agent_engines.get(name=os.getenv("SCOUT_AGENT_ENGINE_ID"))
     elif args.agent == "creative_agent":
         remote_agent = client.agent_engines.get(
             name=os.getenv("CREATIVE_AGENT_ENGINE_ID")
