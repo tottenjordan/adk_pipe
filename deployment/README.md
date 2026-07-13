@@ -409,17 +409,37 @@ docker build -t tt-api:local .
 > (see the `adk-pipe-dep-mirror-workaround` note); Cloud Build inside the project can
 > reach the mirror.
 
+### 0. Prerequisites + shared vars
+
+The two `Dockerfile`s and this runbook live on the `feat/frontend-cloud-run-deploy`
+branch — run the deploy from a checkout (or git worktree) of **that** branch, since a
+`gcloud run deploy --source` build needs the Dockerfile at the build-context root.
+
+```bash
+gcloud auth login                                   # if not already authenticated
+gcloud config set project hybrid-vertex
+
+# APIs the --source build (Cloud Build + Artifact Registry) and Cloud Run need:
+gcloud services enable run.googleapis.com cloudbuild.googleapis.com artifactregistry.googleapis.com
+
+# Shared vars (values sourced from .env / deploy_agent.py:ENV_VAR_DICT):
+PROJECT=hybrid-vertex
+PROJECT_NUMBER=934903580331
+REGION=us-central1
+GCS_BUCKET=trend-trawler-deploy-ae   # = GOOGLE_CLOUD_STORAGE_BUCKET (NO gs:// prefix).
+                                     # BUCKET is gs://$GCS_BUCKET (WITH prefix) — the two vars
+                                     # hold DIFFERENT values; do not collapse them.
+```
+
 ### 1. IAM — service accounts + role bindings
 
-Run where GCP creds exist. Project `hybrid-vertex`, region `us-central1`; substitute a
-real bucket for `$BUCKET`.
+Run where GCP creds exist (vars from Step 0).
 
 **Create the two service accounts:**
 
 ```bash
 gcloud iam service-accounts create tt-api-sa  --display-name="trend-trawler api_server"
 gcloud iam service-accounts create tt-web-sa  --display-name="trend-trawler web frontend"
-PROJECT=hybrid-vertex
 API_SA=tt-api-sa@$PROJECT.iam.gserviceaccount.com
 WEB_SA=tt-web-sa@$PROJECT.iam.gserviceaccount.com
 ```
@@ -453,17 +473,18 @@ roles.
 ### 2. Deploy the backend (private)
 
 ```bash
-PROJECT=hybrid-vertex; REGION=us-central1
 API_SA=tt-api-sa@$PROJECT.iam.gserviceaccount.com
-# From repo root (uses the root Dockerfile):
+# From the repo root of a feat/frontend-cloud-run-deploy checkout (uses the root Dockerfile):
 gcloud run deploy trend-trawler-api \
   --source . --region $REGION --no-allow-unauthenticated \
   --service-account $API_SA \
   --memory 8Gi --cpu 4 --min-instances 0 --timeout 900 \
-  --set-env-vars "GOOGLE_CLOUD_PROJECT=$PROJECT,GCP_REGION=$REGION,GOOGLE_GENAI_USE_VERTEXAI=TRUE,GOOGLE_CLOUD_STORAGE_BUCKET=$BUCKET,BUCKET=$BUCKET,BQ_PROJECT_ID=$PROJECT,BQ_DATASET_ID=trend_trawler,BQ_TABLE_TARGETS=target_trends_crf,BQ_TABLE_CREATIVES=trend_creatives,BQ_TABLE_ALL_TRENDS=all_trends,BQ_TABLE_EVALS=creative_evals"
+  --set-env-vars "GOOGLE_GENAI_USE_VERTEXAI=1,GOOGLE_CLOUD_PROJECT=$PROJECT,GCP_REGION=$REGION,GOOGLE_CLOUD_PROJECT_NUMBER=$PROJECT_NUMBER,GOOGLE_CLOUD_STORAGE_BUCKET=$GCS_BUCKET,BUCKET=gs://$GCS_BUCKET,BQ_PROJECT_ID=$PROJECT,BQ_DATASET_ID=trend_trawler,BQ_TABLE_TARGETS=target_trends_crf,BQ_TABLE_CREATIVES=trend_creatives,BQ_TABLE_ALL_TRENDS=all_trends,BQ_TABLE_EVALS=creative_evals"
 ```
 
-> Env-var values must match `.env` / `deployment/deploy_agent.py:ENV_VAR_DICT`.
+> Env-var values must match `.env` / `deployment/deploy_agent.py:ENV_VAR_DICT`. Note
+> `GOOGLE_CLOUD_STORAGE_BUCKET` (bare bucket name) and `BUCKET` (`gs://`-prefixed) hold
+> **different** values — the code reads both, so ship both distinctly.
 > `GOOGLE_CLOUD_LOCATION` is intentionally **omitted** — models are pinned to `global` in
 > code (`agent_common` `MODEL_LOCATION` / `build_gemini`), and setting it would push
 > model calls to a regional endpoint. Confirm the actual table names against `.env`
