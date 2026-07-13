@@ -391,6 +391,8 @@ python deployment/integration_test.py --check all
 
 The `creative_agent` eval must run with `PYTHONPATH="$PWD"` and its own rubric config — see [CLAUDE.md](CLAUDE.md) for the exact invocation and per-agent details.
 
+**→ See [tests/README.md](tests/README.md)** for the full test-suite layout and what each test file covers.
+
 **CI:** GitHub Actions runs frontend tests on push/PR to `main` when `frontend/**` files change (`.github/workflows/frontend-tests.yml`).
 
 
@@ -466,27 +468,7 @@ The `creative_agent` eval must run with `PYTHONPATH="$PWD"` and its own rubric c
 │   ├── next.config.ts
 │   ├── package.json
 │   └── vitest.config.ts
-├── tests/                        # pytest suite
-│   ├── __init__.py
-│   ├── eval/                     # ADK evals (rubric-based LLM-as-judge)
-│   │   ├── creative_eval_config.json
-│   │   ├── eval_config.json
-│   │   └── evalsets/
-│   │       ├── creative_agent_evalset.json
-│   │       └── trend_scout_evalset.json
-│   ├── test_agent_common_models.py
-│   ├── test_callbacks.py
-│   ├── test_config.py
-│   ├── test_creative_eval.py
-│   ├── test_crf_entrypoint.py
-│   ├── test_crf_logic.py
-│   ├── test_crf_worker_async.py
-│   ├── test_deploy_utils.py
-│   ├── test_pipeline_structure.py
-│   ├── test_retry_config.py
-│   ├── test_schemas.py
-│   ├── test_tools.py
-│   └── test_tools_retry.py
+├── tests/                        # pytest suite + ADK evals — see tests/README.md
 ├── docs/
 │   ├── architecture/             # pipeline + CRF fan-out diagrams
 │   ├── baselines/
