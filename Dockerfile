@@ -20,4 +20,6 @@ ENV PORT=8080
 # cross-package imports (creative_eval, agent_common) resolvable. See agents/README.md.
 ENV PYTHONPATH=/app
 # Cloud Run sets $PORT; bind all interfaces. Same-origin frontend proxy means no CORS needed.
-CMD ["sh", "-c", "uv run adk api_server agents --host 0.0.0.0 --port ${PORT}"]
+# The entrypoint appends --session_service_uri only when SESSION_SERVICE_URI is set
+# (opt-in persistent Agent Engine sessions). See deployment/backend_entrypoint.sh.
+CMD ["sh", "deployment/backend_entrypoint.sh"]

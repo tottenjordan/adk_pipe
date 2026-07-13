@@ -132,7 +132,7 @@ Key ADK patterns used: `Agent`, `SequentialAgent`, `ParallelAgent`, `AgentTool` 
 
 Next.js 16 (App Router) + TypeScript + Tailwind CSS + shadcn/ui. Light theme with Sora font. Consumes the ADK `api_server` REST + SSE endpoints at `localhost:8000`.
 
-**Deployment:** the frontend now ships to Cloud Run as two services — `trend-trawler-web` (Next.js standalone) and `trend-trawler-api` (running `adk api_server`). The backend is private; the same-origin `/api/adk` proxy reaches it with a metadata-server ID token (`roles/run.invoker`). Runbook: [deployment/README.md → Frontend + api_server on Cloud Run](deployment/README.md#frontend--api_server-on-cloud-run).
+**Deployment:** the frontend now ships to Cloud Run as two services — `trend-trawler-web` (Next.js standalone) and `trend-trawler-api` (running `adk api_server`). The backend is private; the same-origin `/api/adk` proxy reaches it with a metadata-server ID token (`roles/run.invoker`). The frontend is **IAP-gated** (domain-restricted to `jordantotten.altostrat.com` via Cloud Run direct IAP), and the backend uses **persistent Agent Engine sessions** via `SESSION_SERVICE_URI` (a dedicated `trend-trawler-sessions` Reasoning Engine; entrypoint `deployment/backend_entrypoint.sh`). Runbook: [deployment/README.md → Frontend + api_server on Cloud Run](deployment/README.md#frontend--api_server-on-cloud-run).
 
 **Pages:**
 - `/` — Campaign input form (brand, audience, product, selling points, agent selector: `trend_scout`, `creative_agent`, `interactive_creative`)
