@@ -448,10 +448,6 @@ resource.labels.reasoning_engine_id="YOUR_AGENT_ENGINE_ID"
 
 ### Cloud Run Functions Fan-out Pattern with event-based triggers
 
-<p align="center">
-  <img src="docs/architecture/crf-fanout-orchestration.png" alt="Cloud Run Functions orchestrator/worker fan-out" width="720">
-</p>
-
 **objectives**
 * create `Agent Orchestrator` to check BQ for trends recommended by the `trawler agent`; dispatch PubSub message for each recommendation
 * create `Agent Worker` to process each PubSub message dispatched by the `Orchestrator`, invoking the Agent Engine Runtime to generate ad copy and creatives for each `<trend, campaign>` pair (i.e., row in BQ table)
