@@ -21,7 +21,7 @@
 
 | Stage | Agent | What it does |
 | :---: | --- | --- |
-| 1 | 🔦 **`trend_trawler`** | Gathers the top 25 Google Search trends, researches cultural context, and filters to the 3 most campaign-relevant |
+| 1 | 🔦 **`trend_scout`** | Gathers the top 25 Google Search trends, researches cultural context, and filters to the 3 most campaign-relevant |
 | 2 | 🎨 **`creative_agent`** | Researches a `<trend, campaign>` pair and generates candidate ad copy + visual concepts, rendering an image for each |
 | 2 | ⚖️ **`creative_eval`** | Scores every ad copy and visual concept via LLM-as-judge across 12 quality dimensions |
 | 2 | 🧑‍💻 **`interactive_creative`** | Same pipeline as `creative_agent`, with human-in-the-loop review checkpoints after research, ad copies, and visual concepts |
@@ -33,7 +33,7 @@
 
 Trend Trawler works like its namesake: it drops a **wide net** over the day's Search trends, then hauls in only the catch worth keeping.
 
-1. **Cast** — `trend_trawler` pulls the top 25 Google Search trends and researches each for cultural context.
+1. **Cast** — `trend_scout` pulls the top 25 Google Search trends and researches each for cultural context.
 2. **Haul in** — it filters to the 3 trends most relevant to your campaign and writes them to BigQuery.
 3. **Work the catch** — for each `<trend, campaign>` pair, `creative_agent` runs parallel web research, synthesizes a strategic brief, and generates candidate ad copy plus a rendered image per visual concept.
 4. **Grade it** — `creative_eval` scores every ad copy and visual concept with an LLM-as-judge across 12 quality dimensions (passing threshold 0.7).
@@ -61,7 +61,7 @@ Prefer to stay hands-on? `interactive_creative` runs the same flow but pauses fo
 
 Trend Trawler is a two-phase agent pipeline built on Google's [ADK](https://google.github.io/adk-docs/get-started/):
 
-- **Phase 1 — `trend_trawler`** gathers the top 25 Google Search trends, researches cultural context via web search, filters to the 3 most campaign-relevant trends, and writes them to BigQuery.
+- **Phase 1 — `trend_scout`** gathers the top 25 Google Search trends, researches cultural context via web search, filters to the 3 most campaign-relevant trends, and writes them to BigQuery.
 - **Phase 2 — `creative_agent`** takes a single `<trend, campaign>` pair, runs parallel web research (campaign + trend researchers), synthesizes a strategic brief, generates ad copy and visual concepts, evaluates every creative with `creative_eval`, and exports a research PDF, an HTML gallery, and an evaluation report to Cloud Storage. `interactive_creative` is the same pipeline with human-in-the-loop checkpoints.
 
 Deployed agents run on **Vertex AI Agent Engine**; batch runs fan out one creative job per trend via **Cloud Run Functions + Pub/Sub**.
@@ -199,7 +199,7 @@ Open the dev UI, pick an agent from the top-left drop-down, and provide your cam
 
 ## Usage
 
-Define your `campaign metadata` — these are the inputs to `trend_trawler` and `creative_agent`.
+Define your `campaign metadata` — these are the inputs to `trend_scout` and `creative_agent`.
 
 ```bash
 # example campaign metadata
@@ -243,7 +243,7 @@ Start the local dev UI:
 uv run adk web .
 ```
 
-**[a] choose `trend_trawler` from the drop-down menu (top left)...**
+**[a] choose `trend_scout` from the drop-down menu (top left)...**
 
 ```bash
 user: Brand Name: "YOUR BRAND OF CHOICE"
@@ -352,7 +352,7 @@ Trend Trawler deploys in two layers:
 
 | Layer | What | Where |
 | --- | --- | --- |
-| **Agents** | `trend_trawler`, `creative_agent`, `interactive_creative` | Vertex AI Agent Engine (one instance each) |
+| **Agents** | `trend_scout`, `creative_agent`, `interactive_creative` | Vertex AI Agent Engine (one instance each) |
 | **Fan-out** | orchestrator (`crf_entrypoint`) + worker (`agent_worker_entrypoint`) | Cloud Run Functions + Pub/Sub |
 
 <p align="center">
@@ -382,7 +382,7 @@ uv run pytest tests/ -v
 uv run python -m creative_eval.run_eval_test
 
 # ADK evals — end-to-end LLM-as-judge (real API calls, ~5 min per case)
-uv run adk eval trend_trawler tests/eval/evalsets/trend_trawler_evalset.json \
+uv run adk eval trend_scout tests/eval/evalsets/trend_scout_evalset.json \
   --config_file_path=tests/eval/eval_config.json --print_detailed_results
 
 # Integration tests — requires deployed agents + GCP credentials
@@ -403,7 +403,7 @@ The `creative_agent` eval must run with `PYTHONPATH="$PWD"` and its own rubric c
 
 ```bash
 .
-├── trend_trawler/                # Phase 1 — trend discovery agent
+├── trend_scout/                # Phase 1 — trend discovery agent
 │   ├── __init__.py
 │   ├── agent.py
 │   ├── callbacks.py              # state init, rate limiting, citation processing
@@ -473,7 +473,7 @@ The `creative_agent` eval must run with `PYTHONPATH="$PWD"` and its own rubric c
 │   │   ├── eval_config.json
 │   │   └── evalsets/
 │   │       ├── creative_agent_evalset.json
-│   │       └── trend_trawler_evalset.json
+│   │       └── trend_scout_evalset.json
 │   ├── test_agent_common_models.py
 │   ├── test_callbacks.py
 │   ├── test_config.py

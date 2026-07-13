@@ -53,7 +53,7 @@ instruction="""... Call the `generate_image` tool EXACTLY ONCE — a single
     function call, never in parallel and never more than once. ..."""
 ```
 
-`thinking_budget=0` is the same lever used on the `trend_trawler` root agent to
+`thinking_budget=0` is the same lever used on the `trend_scout` root agent to
 stop gemini-3 MAX_TOKENS runaway and multiple/parallel tool calls in mechanical
 single-tool steps.
 

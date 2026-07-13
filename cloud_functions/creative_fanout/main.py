@@ -14,7 +14,7 @@ Why?
   appropriate handler function.
 
 Objectives:
-1. Agent Orchestrator: Checks the `trend_trawler` agent's
+1. Agent Orchestrator: Checks the `trend_scout` agent's
    recommendations in the `BQ_PROJECT_ID.BQ_DATASET_ID.BQ_TABLE_TARGETS`
    BQ table and dispatches a PubSub message for each new row in the table
 2. Agent Worker: Processes a single PubSub message dispatched by the
