@@ -17,6 +17,16 @@ function summarizeArgs(args: Record<string, unknown>): string {
     .join(", ");
 }
 
+/** Format an ADK event timestamp (epoch seconds) as a local time string.
+ *  Returns "" when the timestamp is missing or unparseable so the UI shows
+ *  nothing instead of the literal "Invalid Date" (some events — e.g. the final
+ *  streaming event — arrive without a numeric `timestamp`). */
+export function formatEventTime(timestamp: number | undefined | null): string {
+  if (typeof timestamp !== "number" || !Number.isFinite(timestamp)) return "";
+  const d = new Date(timestamp * 1000);
+  return Number.isNaN(d.getTime()) ? "" : d.toLocaleTimeString();
+}
+
 /** Map agent name to a colored dot */
 function agentColor(author: string): string {
   if (author.includes("trend")) return "bg-emerald-500";
@@ -52,9 +62,11 @@ function EventItem({ event, isLast }: { event: AgentEvent; isLast: boolean }) {
           >
             {event.author}
           </Badge>
-          <span className="text-[10px] text-muted-foreground tabular-nums">
-            {new Date(event.timestamp * 1000).toLocaleTimeString()}
-          </span>
+          {formatEventTime(event.timestamp) && (
+            <span className="text-[10px] text-muted-foreground tabular-nums">
+              {formatEventTime(event.timestamp)}
+            </span>
+          )}
         </div>
 
         {parts.map((part, i) => {
