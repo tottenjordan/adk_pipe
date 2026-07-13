@@ -537,14 +537,78 @@ curl -sS -o /dev/null -w "%{http_code}" \
 The frontend's `ADK_API_BASE` wiring is documented in
 [`frontend/.env.example`](../frontend/.env.example).
 
-### Deliberate gaps (follow-ups)
+### 6. Persistent sessions (Agent Engine)
 
-- **Frontend exposure:** the MVP is `--allow-unauthenticated`. Front it with **IAP** for
-  any non-demo use — the one deliberate gap left open.
-- **api_server statefulness:** default in-memory sessions mean a run must hit the same
-  instance for its lifetime. Fine at `min-instances 0` / low traffic; if scaled out, add
-  `--session_service_uri` (a database / Agent Engine session backend) for instance
-  affinity.
+By default the backend uses **in-memory** ADK sessions, so a run must stay on the same
+warm instance — a cold start or scale-out drops in-flight state. The backend now reads an
+optional `SESSION_SERVICE_URI`; when set, the container appends
+`--session_service_uri <uri>` to `adk api_server agents`
+(see [`deployment/backend_entrypoint.sh`](backend_entrypoint.sh), wired as the
+`Dockerfile` `CMD`). When unset, behaviour is unchanged (in-memory).
+
+We back sessions with a **dedicated** Agent Engine (Reasoning Engine) that serves no
+agent — its only job is to be the session store, so its lifetime is decoupled from any
+served-agent deploy. Create (or reuse) it with:
+
+```bash
+uv run python deployment/create_session_engine.py
+# prints: SESSION_SERVICE_URI=agentengine://projects/<num>/locations/us-central1/reasoningEngines/<id>
+```
+
+The URI is **fully qualified** on purpose: it encodes project + `us-central1`, so the
+session store pins to the region while models stay pinned to `global`
+(`GOOGLE_CLOUD_LOCATION` stays **unset** — verified: the client does not require it). The
+backend SA (`tt-api-sa`) needs `roles/aiplatform.user` (already granted in Step 1).
+
+Deploy the backend with the store (a plain redeploy of the already-private service — no
+auth change):
+
+```bash
+gcloud run deploy trend-trawler-api --source . --region $REGION \
+  --update-env-vars "SESSION_SERVICE_URI=agentengine://projects/$PROJECT_NUMBER/locations/$REGION/reasoningEngines/<id>"
+```
+
+Verify: POST a session with `{"state":{"brand":"X"}}`, restart / redeploy, then GET the
+same id — it returns the state (in-memory would `404`). Backend stays `403` unauth.
+
+### 7. IAP on the frontend (domain-restricted)
+
+The frontend is fronted by **Identity-Aware Proxy** directly on the Cloud Run service
+(GA — no manual load balancer / serverless NEG), so only signed-in
+`jordantotten.altostrat.com` users reach it. **No frontend code change**: IAP
+authenticates the user at the edge *before* requests reach the container; the same-origin
+`/api/adk` + `/api/gcs` handlers keep using the container SA to reach the private backend
+and GCS.
+
+```bash
+gcloud services enable iap.googleapis.com
+
+# Enable IAP on the web service (also provisions the IAP service agent).
+# NB: `--allow-unauthenticated` is a deploy-only flag; on `update` the public/private
+# switch is the allUsers IAM binding, removed below.
+gcloud run services update trend-trawler-web --region $REGION --iap
+
+# Let IAP invoke the (now private) service:
+gcloud run services add-iam-policy-binding trend-trawler-web --region $REGION \
+  --member="serviceAccount:service-$PROJECT_NUMBER@gcp-sa-iap.iam.gserviceaccount.com" \
+  --role="roles/run.invoker"
+
+# Grant the whole domain the IAP accessor role — this is on the IAP resource
+# (`gcloud iap web`, resource-type cloud-run), NOT `run services`:
+gcloud iap web add-iam-policy-binding --resource-type=cloud-run \
+  --service=trend-trawler-web --region=$REGION \
+  --member="domain:jordantotten.altostrat.com" --role="roles/iap.httpsResourceAccessor"
+
+# Remove public access — this is what makes it private:
+gcloud run services remove-iam-policy-binding trend-trawler-web --region $REGION \
+  --member="allUsers" --role="roles/run.invoker"
+```
+
+Verify: `curl -sI $WEB_URL/` returns **`HTTP/2 302`** to `accounts.google.com`
+(`x-goog-iap-generated-response: true`), not `200`. A `jordantotten.altostrat.com` user
+loads the app in a browser, a run streams via SSE, and an artifact loads via `/api/gcs`.
+Never re-add `allUsers`; add non-domain viewers individually with
+`roles/iap.httpsResourceAccessor`.
 
 ---
 
