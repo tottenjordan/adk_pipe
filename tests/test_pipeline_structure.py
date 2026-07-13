@@ -16,6 +16,7 @@ def test_creative_agent_root_has_expected_tools():
         "save_draft_report_artifact",
         "save_creative_gallery_html",
         "write_trends_to_bq",
+        "write_eval_report_to_bq",
         "memorize",
     ]
     for name in expected:

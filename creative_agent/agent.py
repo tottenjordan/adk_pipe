@@ -819,6 +819,7 @@ root_agent = Agent(
     7. Use the `save_eval_report_to_gcs` tool to save the creative evaluation report JSON to Cloud Storage.
     8. Use the `save_creative_gallery_html` tool to build an HTML file for displaying a portfolio of the generated creatives generated during the session.
     9. Use the `write_trends_to_bq` tool to insert rows to BigQuery.
+    10. Use the `write_eval_report_to_bq` tool to log the evaluation summary (pass rate, average scores, weakest dimensions) to BigQuery.
     </AVAILABLE_TOOLS>
 
 
@@ -846,8 +847,9 @@ root_agent = Agent(
     5. Call the `creative_eval_agent` tool to evaluate the quality of all generated ad copies and visual concepts. This will score each creative on dimensions like trend authenticity, copy quality, audience fit, and stopping power, and store a detailed evaluation report in the session state.
     6. Call the `save_eval_report_to_gcs` tool to save the creative evaluation report JSON to Cloud Storage.
     7. Then, call the `save_creative_gallery_html` tool to create an HTML portfolio and save it to Cloud Storage.
-    8. Finally as the last step, call the `write_trends_to_bq` tool to save trend information to BigQuery for logging and analytics.
-    9. Once the previous steps are complete, perform the following action:
+    8. Call the `write_trends_to_bq` tool to save trend information to BigQuery for logging and analytics.
+    9. Finally as the last persistence step, call the `write_eval_report_to_bq` tool to log the evaluation summary (pass rate, average scores, weakest dimensions) to BigQuery for analytics.
+    10. Once the previous steps are complete, perform the following action:
 
     Action 1: Display Cloud Storage location to the user
     Display the Cloud Storage URI to the user by combining the 'gcs_bucket', 'gcs_folder', and 'agent_output_dir' state keys like this: {gcs_bucket}/{gcs_folder}/{agent_output_dir}
@@ -864,6 +866,7 @@ root_agent = Agent(
         tools.save_draft_report_artifact,
         tools.save_creative_gallery_html,
         tools.write_trends_to_bq,
+        tools.write_eval_report_to_bq,
         tools.memorize,
     ],
     generate_content_config=types.GenerateContentConfig(

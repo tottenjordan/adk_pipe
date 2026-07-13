@@ -45,6 +45,7 @@ ENV_VAR_DICT = {
     "BQ_TABLE_TARGETS": os.getenv("BQ_TABLE_TARGETS"),
     "BQ_TABLE_CREATIVES": os.getenv("BQ_TABLE_CREATIVES"),
     "BQ_TABLE_ALL_TRENDS": os.getenv("BQ_TABLE_ALL_TRENDS"),
+    "BQ_TABLE_EVALS": os.getenv("BQ_TABLE_EVALS"),
 }
 
 

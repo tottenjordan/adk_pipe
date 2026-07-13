@@ -111,3 +111,139 @@ class TestSaveSearchTrends:
         assert result["status"] == "ok"
         trends = ctx.state["target_search_trends"]["target_search_trends"]
         assert trends == ["trend_a"]
+
+
+# --- build_eval_bq_row (pure eval-report -> BQ row) ---
+SAMPLE_REPORT = {
+    "brand": "PRS Guitars",
+    "target_product": "SE CE24",
+    "target_search_trend": "tswift engaged",
+    "summary": {
+        "total_ad_copies": 4,
+        "ad_copies_passed": 3,
+        "avg_ad_copy_score": 0.82,
+        "total_visual_concepts": 4,
+        "visual_concepts_passed": 2,
+        "avg_visual_score": 0.71,
+        "overall_pass_rate": 0.625,
+        "weakest_dimensions": ["stopping_power", "cta_strength"],
+    },
+}
+
+
+class TestBuildEvalBqRow:
+    def _row(self, **overrides):
+        from creative_agent.tools import build_eval_bq_row
+
+        kwargs = dict(
+            report=SAMPLE_REPORT,
+            eval_uuid="ev123456",
+            creative_uuid="cr789012",
+            now_datetime="2026-07-13 10:30:00",
+            target_trend="tswift engaged",
+            brand="PRS Guitars",
+            target_product="SE CE24",
+            eval_report_gcs_uri="gs://bucket/run/creative_output/creative_eval_report.json",
+        )
+        kwargs.update(overrides)
+        return build_eval_bq_row(**kwargs)
+
+    def test_maps_summary_fields(self):
+        row = self._row()
+        assert row["overall_pass_rate"] == 0.625
+        assert row["total_ad_copies"] == 4
+        assert row["ad_copies_passed"] == 3
+        assert row["avg_visual_score"] == 0.71
+
+    def test_weakest_dimensions_comma_joined(self):
+        row = self._row()
+        assert row["weakest_dimensions"] == "stopping_power,cta_strength"
+
+    def test_carries_ids_and_link(self):
+        row = self._row()
+        assert row["uuid"] == "ev123456"
+        assert row["creative_uuid"] == "cr789012"
+        assert row["datetime"] == "2026-07-13 10:30:00"
+        assert row["eval_report_gcs_uri"].endswith("creative_eval_report.json")
+
+    def test_numeric_coercion(self):
+        # Judge/JSON round-trips can hand back ints-as-strings; row must be typed.
+        report = {
+            **SAMPLE_REPORT,
+            "summary": {
+                **SAMPLE_REPORT["summary"],
+                "total_ad_copies": "4",
+                "overall_pass_rate": "0.5",
+            },
+        }
+        row = self._row(report=report)
+        assert row["total_ad_copies"] == 4 and isinstance(row["total_ad_copies"], int)
+        assert row["overall_pass_rate"] == 0.5 and isinstance(
+            row["overall_pass_rate"], float
+        )
+
+    def test_empty_weakest_dimensions(self):
+        report = {
+            **SAMPLE_REPORT,
+            "summary": {**SAMPLE_REPORT["summary"], "weakest_dimensions": []},
+        }
+        assert self._row(report=report)["weakest_dimensions"] == ""
+
+    def test_row_keys_match_table_schema(self):
+        # Guard: row keys must equal the creative_evals column set exactly.
+        expected = {
+            "uuid",
+            "creative_uuid",
+            "datetime",
+            "target_trend",
+            "brand",
+            "target_product",
+            "overall_pass_rate",
+            "total_ad_copies",
+            "ad_copies_passed",
+            "avg_ad_copy_score",
+            "total_visual_concepts",
+            "visual_concepts_passed",
+            "avg_visual_score",
+            "weakest_dimensions",
+            "eval_report_gcs_uri",
+        }
+        assert set(self._row().keys()) == expected
+
+
+class TestWriteTrendsUuidStash:
+    def test_stashes_creative_row_uuid(self, monkeypatch):
+        """write_trends_to_bq must record its generated uuid in state so the
+        eval row can foreign-key back to the creative row."""
+        import creative_agent.tools as t
+
+        class _Job:
+            errors = None
+            job_id = "j1"
+            num_dml_affected_rows = 1
+
+            def result(self):
+                return None
+
+        class _BQ:
+            def query(self, sql):
+                return _Job()
+
+        monkeypatch.setattr(t, "_get_bigquery_client", lambda: _BQ())
+
+        ctx = MockToolContext()
+        ctx.state.update(
+            {
+                "gcs_folder": "2026_07_13_run",
+                "agent_output_dir": "creative_output",
+                "target_search_trends": "tswift engaged",
+                "brand": "PRS",
+                "target_audience": "musicians",
+                "target_product": "SE CE24",
+                "key_selling_points": "wide tonal range",
+            }
+        )
+        result = t.write_trends_to_bq(ctx)
+        assert result["status"] == "success"
+        assert ctx.state["creative_row_uuid"]  # non-empty 8-char id
+        assert len(ctx.state["creative_row_uuid"]) == 8

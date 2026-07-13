@@ -171,7 +171,7 @@ Agents use `before_agent_callback` to initialize session state, `before_model_ca
 
 ### Data Flow
 
-- **BigQuery**: Stores trend recommendations (`target_trends_crf`), creative results (`trend_creatives`), all trends (`all_trends`)
+- **BigQuery**: Stores trend recommendations (`target_trends_crf`), creative results (`trend_creatives`), all trends (`all_trends`), per-run evaluation summaries (`creative_evals` — one row per run, joins `trend_creatives` via `creative_uuid`, links to the full report JSON in GCS)
 - **Cloud Storage**: Research PDFs, HTML galleries, session state JSONs
 - **PubSub**: Event-driven dispatch between orchestrator and workers
 
