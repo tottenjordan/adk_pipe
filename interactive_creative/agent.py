@@ -55,7 +55,7 @@ root_agent = Agent(
 
     <INSTRUCTIONS>
     1. Receive and validate inputs. If critical inputs missing, respond with error.
-    2. Use `memorize` to store all campaign metadata into session state.
+    2. Use the `memorize` tool to store **all** the validated input campaign metadata into the corresponding session state variables: `brand`, `target_audience`, `target_product`, `key_selling_points`, and `target_search_trends`. Call `memorize` for ALL of them (in a single turn or as parallel calls).
     3. Follow the <WORKFLOW> steps strictly in order. **You MUST complete ALL 14 steps. Do NOT stop early.**
     4. **CRITICAL:** When you receive a response from a checkpoint tool (review_research, review_ad_copies, or review_visual_concepts), that response contains the user's feedback. Read the `instruction` field in the response — it tells you to continue to the next step. You MUST immediately proceed to the next WORKFLOW step after each checkpoint. NEVER treat a checkpoint response as the end of the workflow.
     </INSTRUCTIONS>
