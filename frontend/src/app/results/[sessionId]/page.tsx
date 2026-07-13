@@ -467,8 +467,10 @@ export default function ResultsPage({
                       </p>
                     </div>
 
-                    {/* Image with hover overlay */}
-                    <div className="relative group overflow-hidden flex-1">
+                    {/* Image with hover overlay — fixed 480px square (mirrors the
+                        HTML gallery) so it stays a consistent size regardless of
+                        window width instead of stretching to the eval column. */}
+                    <div className="relative group overflow-hidden aspect-square w-full max-w-[480px] mx-auto">
                       {imgUrl ? (
                         // eslint-disable-next-line @next/next/no-img-element
                         <img
@@ -477,7 +479,7 @@ export default function ResultsPage({
                           className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-110"
                         />
                       ) : (
-                        <div className="flex items-center justify-center h-64 bg-muted/50 text-sm text-muted-foreground">
+                        <div className="flex items-center justify-center h-full w-full bg-muted/50 text-sm text-muted-foreground">
                           No image available
                         </div>
                       )}
