@@ -123,7 +123,7 @@ async def async_send_message(remote_agent, user_id, session) -> None:
     except Exception as e:
         logging.error(f"Error during streaming: {type(e).__name__}: {e}")
         # Propagate so a broken deployment surfaces as a failure, mirroring the
-        # worker path (cloud_funktions/creative_crf/main.py).
+        # worker path (cloud_functions/creative_fanout/main.py).
         raise
 
 
@@ -131,7 +131,7 @@ async def async_send_message(remote_agent, user_id, session) -> None:
 async def agent_session(remote_agent, user_id):
     """Create → yield → delete an Agent Engine session with ONE user_id.
 
-    Local mirror of cloud_funktions/creative_crf/session.agent_session
+    Local mirror of cloud_functions/creative_fanout/session.agent_session
     (deployment/ isn't bundled with the worker, so it can't import it). Deleting
     with the SAME user_id the session was created under avoids Agent Engine's
     `FAILED_PRECONDITION: Session <id> does not belong to user <...>`.

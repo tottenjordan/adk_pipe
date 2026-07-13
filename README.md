@@ -526,7 +526,7 @@ gcloud pubsub topics create $CREATIVE_WORKER_TOPIC_NAME
 **3.1 Creative Agent Orchestrator:** cloud run function
 
 ```bash
-cd cloud_funktions/creative_crf
+cd cloud_functions/creative_fanout
 
 gcloud run deploy $CREATIVE_CRF_NAME \
   --source . \
@@ -670,7 +670,7 @@ VALUES
 </details>
 
 
-*5.2 edit [cloud_funktions/creative_crf/message.json](cloud_funktions/creative_crf/message.json) to match your `.env` file:*
+*5.2 edit [cloud_functions/creative_fanout/message.json](cloud_functions/creative_fanout/message.json) to match your `.env` file:*
 
 ```json
 {
@@ -845,12 +845,18 @@ python deployment/integration_test.py --check all                             # 
 │   ├── prompts.py
 │   ├── run_eval_test.py
 │   └── schemas.py
-├── cloud_funktions/              # event-driven fan-out (orchestrator + worker)
-│   ├── creative_crf/
+├── agent_common/                 # ADK-free shared config (BaseAgentConfiguration, retry, build_gemini)
+│   ├── __init__.py
+│   ├── config.py
+│   ├── locations.py              # MODEL_LOCATION (pins gemini-3.x to `global`)
+│   ├── models.py                 # build_gemini(name)
+│   └── retry.py                  # build_infra_retry()
+├── cloud_functions/              # event-driven fan-out (orchestrator + worker)
+│   ├── creative_fanout/
 │   │   ├── config.py
 │   │   ├── main.py               # crf_entrypoint + agent_worker_entrypoint
 │   │   └── requirements.txt
-│   └── trawler_crf/
+│   └── trawler_scheduler/
 │       ├── config.py
 │       ├── main.py
 │       └── requirements.txt
@@ -861,51 +867,39 @@ python deployment/integration_test.py --check all                             # 
 │   └── test_deployment.py        # invoke deployed agents
 ├── frontend/                     # Next.js + Tailwind + shadcn/ui web app
 │   ├── src/
-│   │   ├── app/
-│   │   │   ├── layout.tsx
-│   │   │   ├── page.tsx           # campaign input form
-│   │   │   ├── globals.css
-│   │   │   ├── api/
-│   │   │   │   ├── adk/[...path]/route.ts   # same-origin ADK proxy
-│   │   │   │   └── gcs/route.ts             # authenticated GCS proxy
-│   │   │   ├── run/[sessionId]/page.tsx     # live SSE stream + widgets
-│   │   │   └── results/[sessionId]/page.tsx # artifacts + eval report
-│   │   ├── components/
-│   │   │   ├── event-log.tsx
-│   │   │   ├── gallery-viewer.tsx
-│   │   │   ├── gcs-widget.tsx
-│   │   │   ├── trend-cards.tsx
-│   │   │   └── ui/                          # shadcn/ui primitives
-│   │   ├── lib/
-│   │   │   ├── api.ts             # session CRUD, SSE, artifact fetching
-│   │   │   ├── presets.ts
-│   │   │   ├── types.ts
-│   │   │   └── utils.ts           # formatStateValue, cn
-│   │   └── __tests__/             # Vitest unit tests
+│   │   ├── app/                  # routes: campaign form, run (SSE), results + API proxies
+│   │   ├── components/           # event log, gallery, GCS/trend widgets, ui/ primitives
+│   │   ├── lib/                  # api client (session CRUD, SSE), presets, types, utils
+│   │   └── __tests__/            # Vitest unit tests
 │   ├── next.config.ts
 │   ├── package.json
 │   └── vitest.config.ts
 ├── tests/                        # pytest suite
 │   ├── __init__.py
 │   ├── eval/                     # ADK evals (rubric-based LLM-as-judge)
+│   │   ├── creative_eval_config.json
 │   │   ├── eval_config.json
 │   │   └── evalsets/
+│   │       ├── creative_agent_evalset.json
 │   │       └── trend_trawler_evalset.json
+│   ├── test_agent_common_models.py
 │   ├── test_callbacks.py
+│   ├── test_config.py
 │   ├── test_creative_eval.py
+│   ├── test_crf_entrypoint.py
 │   ├── test_crf_logic.py
+│   ├── test_crf_worker_async.py
 │   ├── test_deploy_utils.py
 │   ├── test_pipeline_structure.py
+│   ├── test_retry_config.py
 │   ├── test_schemas.py
-│   └── test_tools.py
+│   ├── test_tools.py
+│   └── test_tools_retry.py
 ├── docs/
+│   ├── architecture/             # pipeline + CRF fan-out diagrams
 │   ├── baselines/
-│   │   └── main.md
-│   └── notes/                    # hard-won session notes
-│       ├── README.md
-│       ├── creative-agent-image-generation.md
-│       ├── frontend.md
-│       └── local-testing.md
+│   ├── notes/                    # hard-won session notes
+│   └── plans/                    # implementation plans (historical)
 ├── imgs/                         # README media
 ├── .github/workflows/
 │   └── frontend-tests.yml

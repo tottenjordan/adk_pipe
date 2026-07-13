@@ -1,7 +1,7 @@
 """Tests for Cloud Run Function logic (orchestrator + worker).
 
 These tests replicate and exercise the pure logic from
-cloud_funktions/creative_crf/main.py without requiring GCP credentials,
+cloud_functions/creative_fanout/main.py without requiring GCP credentials,
 functions_framework, or vertexai imports.
 """
 
