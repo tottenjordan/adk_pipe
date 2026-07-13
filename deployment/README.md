@@ -7,6 +7,7 @@ see the [main README](../README.md).
 - [Prerequisites](#prerequisites)
 - [Deploying Agents to Agent Engine](#deploying-agents-to-agent-engine)
 - [Cloud Run Functions Fan-out Pattern](#cloud-run-functions-fan-out-pattern)
+- [Frontend + api_server on Cloud Run](#frontend--api_server-on-cloud-run)
 - [Alternative Deployment: deploy to Cloud Run instances](#alternative-deployment-deploy-to-cloud-run-instances)
 
 ## Prerequisites
@@ -354,6 +355,193 @@ gcloud pubsub topics publish $CREATIVE_PUB_TOPIC --message "$(cat message.json |
 * monitor logging: `Cloud Run Function >> Observability >> Logs`
 * inspect the `target_trends_crf` BQ table to ensure `processed_status` is updated properly
 * the last task of the Creative Agent job inserts rows in the `trend_creatives` BQ table; see Cloud Storage location for research and creative artifacts
+
+---
+
+## Frontend + api_server on Cloud Run
+
+Serve the Next.js frontend and the ADK `api_server` as **two independent Cloud Run
+services** in `us-central1`. This turns the "planned/target" box in the deployment
+diagram into real, reproducible infrastructure.
+
+<p align="center">
+  <img src="../docs/diagrams/frontend_cloudrun_deployment.png" alt="Frontend + api_server Cloud Run deployment" width="720">
+</p>
+
+### Architecture
+
+- **Backend** — `trend-trawler-api` runs `adk api_server .`. It loads all three agent
+  packages (`trend_scout`, `creative_agent`, `interactive_creative`) and calls
+  Vertex/BigQuery/GCS in-process. It is **private** — deployed with
+  `--no-allow-unauthenticated`.
+- **Frontend** — `trend-trawler-web` runs the Next.js 16 standalone server
+  (`output: "standalone"` → `server.js`). Its existing same-origin Route Handlers proxy
+  to the backend (`/api/adk/*` → `ADK_API_BASE`) and to Cloud Storage (`/api/gcs`).
+- **Auth model** — the `/api/adk` proxy runs server-side in the frontend container and
+  mints a Google-signed **ID token** (audience = backend URL) from the Cloud Run metadata
+  server, attaching it as `Authorization: Bearer …`. The frontend service account holds
+  `roles/run.invoker` on the backend. `/api/gcs` uses an **access token** from the same
+  metadata server. The **browser only ever calls same-origin** route handlers, so there
+  is **no CORS** and no direct backend exposure (`NEXT_PUBLIC_API_BASE` defaults to
+  `/api/adk`).
+
+Each service has its own service account: `tt-api-sa` (backend) and `tt-web-sa`
+(frontend).
+
+### Local image smokes (optional, pre-deploy)
+
+Each service has a `Dockerfile` (`frontend/Dockerfile` and the repo-root `Dockerfile`).
+Build them locally to catch Dockerfile errors before the Cloud Run source build:
+
+```bash
+# Frontend (multi-stage, Debian slim, standalone server)
+cd frontend && docker build -t tt-web:local .
+
+# Backend (uv-based ADK api_server), from repo root
+docker build -t tt-api:local .
+```
+
+> **Docker may be unavailable** on this workstation. If so, rely on the frontend
+> standalone smoke (`cd frontend && npm run build`, then run
+> `.next/standalone/server.js` with `public/` + `.next/static/` copied in — expect
+> `200`) and let Cloud Run's own source build (`gcloud run deploy --source`) build the
+> images. The backend build may also hit the `uv.lock` private-mirror issue locally
+> (see the `adk-pipe-dep-mirror-workaround` note); Cloud Build inside the project can
+> reach the mirror.
+
+### 0. Prerequisites + shared vars
+
+The two `Dockerfile`s and this runbook live on the `feat/frontend-cloud-run-deploy`
+branch — run the deploy from a checkout (or git worktree) of **that** branch, since a
+`gcloud run deploy --source` build needs the Dockerfile at the build-context root.
+
+```bash
+gcloud auth login                                   # if not already authenticated
+gcloud config set project hybrid-vertex
+
+# APIs the --source build (Cloud Build + Artifact Registry) and Cloud Run need:
+gcloud services enable run.googleapis.com cloudbuild.googleapis.com artifactregistry.googleapis.com
+
+# Shared vars (values sourced from .env / deploy_agent.py:ENV_VAR_DICT):
+PROJECT=hybrid-vertex
+PROJECT_NUMBER=934903580331
+REGION=us-central1
+GCS_BUCKET=trend-trawler-deploy-ae   # = GOOGLE_CLOUD_STORAGE_BUCKET (NO gs:// prefix).
+                                     # BUCKET is gs://$GCS_BUCKET (WITH prefix) — the two vars
+                                     # hold DIFFERENT values; do not collapse them.
+```
+
+### 1. IAM — service accounts + role bindings
+
+Run where GCP creds exist (vars from Step 0).
+
+**Create the two service accounts:**
+
+```bash
+gcloud iam service-accounts create tt-api-sa  --display-name="trend-trawler api_server"
+gcloud iam service-accounts create tt-web-sa  --display-name="trend-trawler web frontend"
+API_SA=tt-api-sa@$PROJECT.iam.gserviceaccount.com
+WEB_SA=tt-web-sa@$PROJECT.iam.gserviceaccount.com
+```
+
+**Grant the backend SA the roles the agents need:**
+
+```bash
+for ROLE in roles/aiplatform.user roles/bigquery.dataEditor roles/bigquery.jobUser \
+            roles/storage.objectAdmin roles/logging.logWriter; do
+  gcloud projects add-iam-policy-binding $PROJECT \
+    --member="serviceAccount:$API_SA" --role="$ROLE" --condition=None
+done
+```
+
+**Grant the frontend SA GCS read (for `/api/gcs`) + logging:**
+
+```bash
+for ROLE in roles/storage.objectViewer roles/logging.logWriter; do
+  gcloud projects add-iam-policy-binding $PROJECT \
+    --member="serviceAccount:$WEB_SA" --role="$ROLE" --condition=None
+done
+```
+
+> `roles/run.invoker` on the backend service is granted in Step 2 **after** the backend
+> exists — it is a per-service binding, not project-wide.
+
+Verify: `gcloud projects get-iam-policy $PROJECT --flatten=bindings
+--filter="bindings.members:tt-*-sa" --format="table(bindings.role)"` shows the expected
+roles.
+
+### 2. Deploy the backend (private)
+
+```bash
+API_SA=tt-api-sa@$PROJECT.iam.gserviceaccount.com
+# From the repo root of a feat/frontend-cloud-run-deploy checkout (uses the root Dockerfile):
+gcloud run deploy trend-trawler-api \
+  --source . --region $REGION --no-allow-unauthenticated \
+  --service-account $API_SA \
+  --memory 8Gi --cpu 4 --min-instances 0 --timeout 900 \
+  --set-env-vars "GOOGLE_GENAI_USE_VERTEXAI=1,GOOGLE_CLOUD_PROJECT=$PROJECT,GCP_REGION=$REGION,GOOGLE_CLOUD_PROJECT_NUMBER=$PROJECT_NUMBER,GOOGLE_CLOUD_STORAGE_BUCKET=$GCS_BUCKET,BUCKET=gs://$GCS_BUCKET,BQ_PROJECT_ID=$PROJECT,BQ_DATASET_ID=trend_trawler,BQ_TABLE_TARGETS=target_trends_crf,BQ_TABLE_CREATIVES=trend_creatives,BQ_TABLE_ALL_TRENDS=all_trends,BQ_TABLE_EVALS=creative_evals"
+```
+
+> Env-var values must match `.env` / `deployment/deploy_agent.py:ENV_VAR_DICT`. Note
+> `GOOGLE_CLOUD_STORAGE_BUCKET` (bare bucket name) and `BUCKET` (`gs://`-prefixed) hold
+> **different** values — the code reads both, so ship both distinctly.
+> `GOOGLE_CLOUD_LOCATION` is intentionally **omitted** — models are pinned to `global` in
+> code (`agent_common` `MODEL_LOCATION` / `build_gemini`), and setting it would push
+> model calls to a regional endpoint. Confirm the actual table names against `.env`
+> before running.
+
+Capture the URL:
+
+```bash
+API_URL=$(gcloud run services describe trend-trawler-api --region $REGION --format='value(status.url)')
+```
+
+### 3. Let the frontend SA invoke the backend (`run.invoker`)
+
+```bash
+gcloud run services add-iam-policy-binding trend-trawler-api --region $REGION \
+  --member="serviceAccount:$WEB_SA" --role=roles/run.invoker
+```
+
+### 4. Deploy the frontend
+
+MVP uses `--allow-unauthenticated` so users can reach it directly (see the follow-ups
+below for IAP).
+
+```bash
+gcloud run deploy trend-trawler-web \
+  --source ./frontend --region $REGION --allow-unauthenticated \
+  --service-account $WEB_SA \
+  --memory 1Gi --cpu 1 --min-instances 0 \
+  --set-env-vars "ADK_API_BASE=$API_URL"
+```
+
+### 5. End-to-end verification (live)
+
+```bash
+curl -sS -o /dev/null -w "%{http_code}" \
+  $(gcloud run services describe trend-trawler-web --region $REGION --format='value(status.url)')/
+```
+
+- The web URL returns `200`.
+- Open the web URL, submit a campaign for `trend_scout`, confirm the **SSE stream
+  renders** — proves the ID-token'd `/api/adk` → private backend path.
+- Open a completed run's results page, confirm an **artifact loads** — proves `/api/gcs`
+  + `roles/storage.objectViewer`.
+- Negative check: `curl $API_URL/list-apps` **without** a token returns `403` (the
+  backend is private).
+
+The frontend's `ADK_API_BASE` wiring is documented in
+[`frontend/.env.example`](../frontend/.env.example).
+
+### Deliberate gaps (follow-ups)
+
+- **Frontend exposure:** the MVP is `--allow-unauthenticated`. Front it with **IAP** for
+  any non-demo use — the one deliberate gap left open.
+- **api_server statefulness:** default in-memory sessions mean a run must hit the same
+  instance for its lifetime. Fine at `min-instances 0` / low traffic; if scaled out, add
+  `--session_service_uri` (a database / Agent Engine session backend) for instance
+  affinity.
 
 ---
 
