@@ -25,6 +25,33 @@ export function backendNeedsAuth(base: string): boolean {
   return base.startsWith("https://");
 }
 
+/** Inbound credential headers that must NOT be forwarded to the private backend.
+ *
+ *  When the frontend is behind IAP, IAP authenticates the user at the edge and injects its
+ *  own credentials on the request that reaches this container: `Authorization` (the IAP
+ *  JWT, audience = IAP OAuth client ID), the `X-Goog-*` identity headers, and — critically —
+ *  `X-Serverless-Authorization`, which Cloud Run's ingress checks *in preference to*
+ *  `Authorization`. If any of these reach the backend, Cloud Run verifies the IAP token
+ *  (wrong audience) and returns `401 "The access token could not be verified"`, ignoring the
+ *  service-account token we set. Stripping them all guarantees the backend sees only our
+ *  minted token. The `cookie` (large IAP session cookie) is dropped too — the backend has no
+ *  use for it. */
+export const INBOUND_CREDENTIAL_HEADERS = [
+  "authorization",
+  "x-serverless-authorization",
+  "cookie",
+  "x-goog-iap-jwt-assertion",
+  "x-goog-authenticated-user-email",
+  "x-goog-authenticated-user-id",
+] as const;
+
+/** Remove every inbound credential header so IAP's edge credentials never leak to the
+ *  backend. Mutates and returns `headers`. */
+export function stripInboundCredentials(headers: Headers): Headers {
+  for (const name of INBOUND_CREDENTIAL_HEADERS) headers.delete(name);
+  return headers;
+}
+
 async function proxy(
   request: NextRequest,
   ctx: { params: Promise<{ path: string[] }> }
@@ -37,8 +64,21 @@ async function proxy(
   headers.delete("connection");
   headers.delete("content-length");
 
+  // Drop IAP's edge-injected credentials so only our minted token reaches the backend
+  // (see INBOUND_CREDENTIAL_HEADERS for why — X-Serverless-Authorization is the key one).
+  stripInboundCredentials(headers);
+
+  const audience = new URL(BACKEND).origin;
   if (backendNeedsAuth(BACKEND)) {
-    const token = await getIdentityToken(new URL(BACKEND).origin);
+    const token = await getIdentityToken(audience);
+    // Never forward a request to a private backend without a real token — that surfaces as
+    // an opaque backend 401. Fail fast with a clear signal instead.
+    if (!token) {
+      return new Response(
+        "Proxy could not obtain a backend identity token",
+        { status: 502 },
+      );
+    }
     headers.set("authorization", `Bearer ${token}`);
   }
 
