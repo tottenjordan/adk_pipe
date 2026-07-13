@@ -108,7 +108,7 @@ export default function ResultsPage({
 }) {
   const { sessionId } = use(params);
   const searchParams = useSearchParams();
-  const appName = searchParams.get("app") || "trend_trawler";
+  const appName = searchParams.get("app") || "trend_scout";
   const userId = searchParams.get("userId") || "default_user";
 
   const [session, setSession] = useState<Session | null>(null);

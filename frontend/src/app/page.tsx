@@ -37,7 +37,7 @@ function HomeContent() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [form, setForm] = useState<CampaignInput>({
-    agent: "trend_trawler",
+    agent: "trend_scout",
     brand: "",
     targetAudience: "",
     targetProduct: "",
@@ -102,7 +102,7 @@ function HomeContent() {
     form.targetAudience &&
     form.targetProduct &&
     form.keySellingPoints &&
-    (form.agent === "trend_trawler" || form.targetSearchTrend);
+    (form.agent === "trend_scout" || form.targetSearchTrend);
 
   const isPreFilled = searchParams.get("targetSearchTrend");
 
@@ -154,8 +154,8 @@ function HomeContent() {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="trend_trawler">
-                  Trend Trawler &mdash; Discover relevant trends
+                <SelectItem value="trend_scout">
+                  Trend Scout &mdash; Discover relevant trends
                 </SelectItem>
                 <SelectItem value="creative_agent">
                   Creative Agent &mdash; Generate ad creatives

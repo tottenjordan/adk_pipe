@@ -44,7 +44,7 @@ export interface Session {
 }
 
 export interface CampaignInput {
-  agent: "trend_trawler" | "creative_agent" | "interactive_creative";
+  agent: "trend_scout" | "creative_agent" | "interactive_creative";
   brand: string;
   targetAudience: string;
   targetProduct: string;
