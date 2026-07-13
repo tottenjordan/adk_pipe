@@ -36,6 +36,7 @@ import os
 os.environ["PYTHONUNBUFFERED"] = "1"
 
 import json
+import time
 import base64
 import asyncio
 import logging
@@ -236,6 +237,12 @@ async def _execute_agent_and_update_status(
 
     # --- ONLY ONE WORKER PROCEEDS PAST THIS POINT ---
 
+    # Wall-clock timer for the end-to-end agent run. Emitted as a structured log
+    # marker (AGENT_RUN_DURATION_SECS) on both the success and failure paths so we
+    # can compute p50/p95 pipeline duration from Cloud Logging — the key input to
+    # the Ambient-Agent trigger-endpoint decision (10-min ceiling). See
+    # docs/notes/ambient-agents-vs-cloud-functions.md.
+    run_start = time.monotonic()
     try:
         # 2. Run the Agent (The heavy async part)
         # The row status is now 'PROCESSING'
@@ -255,12 +262,20 @@ async def _execute_agent_and_update_status(
             timestamps=[timestamp],
             status="PROCESSED",
         )
+        logging.info(
+            f"AGENT_RUN_DURATION_SECS row={timestamp} index={trend_dict['index']} "
+            f"status=PROCESSED secs={time.monotonic() - run_start:.1f}"
+        )
         logging.info(f"Successfully processed and marked row {timestamp} as PROCESSED.")
 
     except Exception as e:
         # If the Agent Run fails, we update the status to FAILED and re-raise.
         # This keeps the FAILED status visible and ensures the worker Pub/Sub message retries
         # (if you want retries for FAILED status, otherwise just return here too).
+        logging.info(
+            f"AGENT_RUN_DURATION_SECS row={timestamp} index={trend_dict['index']} "
+            f"status=FAILED secs={time.monotonic() - run_start:.1f}"
+        )
         logging.error(f"Failed processing row {timestamp}: {e}")
 
         # 4. Update status to FAILED
