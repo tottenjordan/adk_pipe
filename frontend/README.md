@@ -20,6 +20,67 @@ You can start editing the page by modifying `app/page.tsx`. The page auto-update
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 
+## Project Structure
+
+```bash
+frontend/
+├── src/
+│   ├── app/                                # Next.js App Router — routes + server-side API proxies
+│   │   ├── layout.tsx                      # root layout: fonts (Sora + JetBrains Mono), glass header
+│   │   ├── page.tsx                        # "/" campaign input form (brand, audience, product, agent selector)
+│   │   ├── globals.css                     # Tailwind base + light-theme design tokens
+│   │   ├── favicon.ico
+│   │   ├── api/
+│   │   │   ├── adk/[...path]/route.ts      # same-origin proxy to the ADK api_server (streams SSE through untouched)
+│   │   │   └── gcs/route.ts                # authenticated GCS proxy for serving artifacts
+│   │   ├── run/[sessionId]/page.tsx        # "/run/*" live SSE event stream, pipeline widgets, status tracking
+│   │   └── results/[sessionId]/page.tsx    # "/results/*" artifacts gallery, research PDF, eval report, state inspector
+│   ├── components/
+│   │   ├── event-log.tsx                   # timeline of streamed agent events
+│   │   ├── gallery-viewer.tsx              # image gallery for generated visual concepts
+│   │   ├── gcs-widget.tsx                  # renders a gs:// URI as a Cloud Console link
+│   │   ├── trend-cards.tsx                 # trend selection cards (parsed from agent output)
+│   │   └── ui/                             # shadcn/ui primitives (self-contained, generated)
+│   │       ├── badge.tsx
+│   │       ├── button.tsx
+│   │       ├── card.tsx
+│   │       ├── collapsible.tsx
+│   │       ├── dialog.tsx
+│   │       ├── input.tsx
+│   │       ├── label.tsx
+│   │       ├── scroll-area.tsx
+│   │       ├── select.tsx
+│   │       ├── separator.tsx
+│   │       ├── tabs.tsx
+│   │       └── textarea.tsx
+│   ├── lib/
+│   │   ├── api.ts                          # API client: session CRUD, SSE streaming, artifact fetching
+│   │   ├── presets.ts                      # preset dropdown values for the campaign form
+│   │   ├── types.ts                        # shared TS types (ADK event Parts, agent events, …)
+│   │   └── utils.ts                        # cn() class-merge helper + formatStateValue
+│   └── __tests__/                          # Vitest + React Testing Library unit tests
+│       ├── setup.ts                        # test bootstrap (jsdom, matchers)
+│       ├── api-client.test.ts              # SSE parsing / API client
+│       ├── extract-items.test.ts           # extractItems helper
+│       ├── form-validation.test.ts         # campaign form validation
+│       ├── gcs-uri.test.ts                 # gs:// URI building
+│       ├── interactive-mode.test.ts        # interactive-mode pause/resume logic
+│       ├── parse-trends.test.ts            # trend markdown parsing
+│       └── widget-layouts.test.ts          # pipeline widget layouts
+├── public/                                 # static assets (create-next-app svgs + trend_trawler_banner.png)
+├── components.json                         # shadcn/ui config (aliases, style)
+├── eslint.config.mjs                       # ESLint flat config
+├── next.config.ts                          # Next.js config
+├── postcss.config.mjs                      # PostCSS / Tailwind config
+├── tsconfig.json                           # TypeScript config
+├── vitest.config.ts                        # Vitest config
+├── package.json
+├── package-lock.json
+├── AGENTS.md                               # ⚠️ modified Next.js — read node_modules/next/dist/docs before coding
+├── CLAUDE.md                               # → @AGENTS.md
+└── README.md                               # this file
+```
+
 ## Learn More
 
 To learn more about Next.js, take a look at the following resources:
