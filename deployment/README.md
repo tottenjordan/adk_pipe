@@ -14,7 +14,7 @@ see the [main README](../README.md).
 - A populated `.env` (copy from [.env.example](../.env.example)) — project, `GOOGLE_CLOUD_LOCATION=global`,
   `GCP_REGION=us-central1`, GCS bucket, Pub/Sub topics, Cloud Run Function names, and BigQuery IDs.
 - `gcloud` authenticated (`gcloud auth application-default login`) and the project set.
-- BigQuery dataset + tables created — see [main README → Installation](../README.md#installation).
+- BigQuery dataset + tables created — see [main README → Quickstart](../README.md#quickstart).
 
 ---
 
