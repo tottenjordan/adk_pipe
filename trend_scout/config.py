@@ -13,7 +13,7 @@ INFRA_RETRY = build_infra_retry()
 
 @dataclass
 class ResearchConfiguration(BaseAgentConfiguration):
-    """Research config for trend_trawler — all fields shared via the base."""
+    """Research config for trend_scout — all fields shared via the base."""
 
 
 config = ResearchConfiguration()

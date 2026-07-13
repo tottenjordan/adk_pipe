@@ -95,7 +95,7 @@ root_agent = Agent(
     generate_content_config=types.GenerateContentConfig(
         temperature=1.0,
         labels={
-            "agentic_wf": "trend_trawler",
+            "agentic_wf": "trend_scout",
             "agent": "interactive_creative",
             "subagent": "root_agent",
         },

@@ -2,7 +2,7 @@
 
 Runs against live GCP infrastructure. Requires:
   - Authenticated GCP credentials (gcloud auth application-default login)
-  - .env file with TRAWLER_AGENT_ENGINE_ID and/or CREATIVE_AGENT_ENGINE_ID populated
+  - .env file with SCOUT_AGENT_ENGINE_ID and/or CREATIVE_AGENT_ENGINE_ID populated
   - Deployed agents on Agent Engine
 
 Usage:
@@ -10,7 +10,7 @@ Usage:
   python deployment/integration_test.py --check health
 
   # Session lifecycle — create, verify, delete sessions
-  python deployment/integration_test.py --check session --agent trend_trawler
+  python deployment/integration_test.py --check session --agent trend_scout
 
   # Smoke test — run agent end-to-end, assert session state keys
   python deployment/integration_test.py --check smoke --agent creative_agent
@@ -49,13 +49,13 @@ ENV_FILE_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".
 dotenv.load_dotenv(dotenv_path=ENV_FILE_PATH)
 
 AGENT_ENV_KEYS = {
-    "trend_trawler": "TRAWLER_AGENT_ENGINE_ID",
+    "trend_scout": "SCOUT_AGENT_ENGINE_ID",
     "creative_agent": "CREATIVE_AGENT_ENGINE_ID",
 }
 
 # Session state keys that should be populated after a successful agent run
 EXPECTED_STATE_KEYS = {
-    "trend_trawler": [
+    "trend_scout": [
         "brand",
         "target_product",
         "target_audience",
@@ -513,7 +513,7 @@ async def run_checks(check_type: str, agent_name: str | None) -> bool:
     client = get_client()
     all_results: list[TestResult] = []
 
-    agents_to_test = [agent_name] if agent_name else ["trend_trawler", "creative_agent"]
+    agents_to_test = [agent_name] if agent_name else ["trend_scout", "creative_agent"]
 
     if check_type in ("health", "all"):
         logging.info("Running health checks...")
@@ -540,7 +540,7 @@ def main():
         epilog="""
 Examples:
   python deployment/integration_test.py --check health
-  python deployment/integration_test.py --check session --agent trend_trawler
+  python deployment/integration_test.py --check session --agent trend_scout
   python deployment/integration_test.py --check smoke --agent creative_agent
   python deployment/integration_test.py --check all
         """,
@@ -553,7 +553,7 @@ Examples:
     )
     parser.add_argument(
         "--agent",
-        choices=["trend_trawler", "creative_agent"],
+        choices=["trend_scout", "creative_agent"],
         default=None,
         help="Agent to test (default: both). Required for session and smoke checks.",
     )

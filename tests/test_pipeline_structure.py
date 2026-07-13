@@ -125,8 +125,8 @@ def test_output_schemas_assigned():
     assert visual_concept_finalizer.output_schema == VisualConceptFinalList
 
 
-def test_trend_trawler_root_has_expected_tools():
-    from trend_trawler.agent import root_agent
+def test_trend_scout_root_has_expected_tools():
+    from trend_scout.agent import root_agent
 
     tool_names = [
         getattr(t, "name", getattr(t, "__name__", str(t))) for t in root_agent.tools
@@ -145,8 +145,8 @@ def test_trend_trawler_root_has_expected_tools():
         assert name in tool_names, f"Missing tool: {name}"
 
 
-def test_trend_trawler_sub_agent_output_keys():
-    from trend_trawler.agent import (
+def test_trend_scout_sub_agent_output_keys():
+    from trend_scout.agent import (
         understand_trends_agent,
         pick_trends_agent,
     )

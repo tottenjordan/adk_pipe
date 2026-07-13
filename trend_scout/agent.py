@@ -47,8 +47,8 @@ gather_trends_agent = Agent(
         temperature=1.0,
         response_modalities=["TEXT"],
         labels={
-            "agentic_wf": "trend_trawler",
-            "agent": "trend_trawler",
+            "agentic_wf": "trend_scout",
+            "agent": "trend_scout",
             "subagent": "gather_trends_agent",
         },
     ),
@@ -97,8 +97,8 @@ understand_trends_agent = Agent(
     generate_content_config=types.GenerateContentConfig(
         temperature=1.5,
         labels={
-            "agentic_wf": "trend_trawler",
-            "agent": "trend_trawler",
+            "agentic_wf": "trend_scout",
+            "agent": "trend_scout",
             "subagent": "understand_trends_agent",
         },
     ),
@@ -157,8 +157,8 @@ pick_trends_agent = Agent(
     generate_content_config=types.GenerateContentConfig(
         temperature=1.5,
         labels={
-            "agentic_wf": "trend_trawler",
-            "agent": "trend_trawler",
+            "agentic_wf": "trend_scout",
+            "agent": "trend_scout",
             "subagent": "pick_trends_agent",
         },
     ),
@@ -167,9 +167,9 @@ pick_trends_agent = Agent(
 )
 
 
-trend_trawler = Agent(
+trend_scout = Agent(
     model=build_gemini(config.worker_model),
-    name="trend_trawler",
+    name="trend_scout",
     retry_config=INFRA_RETRY,
     description="Determines culturally relevant Search trends to use for ad creatives.",
     # Minimal thinking: the orchestrator's job is mechanical tool sequencing, not deep
@@ -227,8 +227,8 @@ trend_trawler = Agent(
         temperature=0.01,
         response_modalities=["TEXT"],
         labels={
-            "agentic_wf": "trend_trawler",
-            "agent": "trend_trawler",
+            "agentic_wf": "trend_scout",
+            "agent": "trend_scout",
             "subagent": "root_agent",
         },
     ),
@@ -239,4 +239,4 @@ trend_trawler = Agent(
 )
 
 # Set as root agent
-root_agent = trend_trawler
+root_agent = trend_scout

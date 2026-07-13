@@ -3,7 +3,7 @@
 
 class TestTrendTrawlerRetryConfig:
     def test_infra_retry_scoped_and_bounded(self):
-        from trend_trawler.config import INFRA_RETRY
+        from trend_scout.config import INFRA_RETRY
 
         assert INFRA_RETRY.max_attempts == 3
         # exceptions are stored as class-name strings by RetryConfig's validator
@@ -17,7 +17,7 @@ class TestTrendTrawlerRetryConfig:
             "ConnectionError",
             "TimeoutError",
         } <= names
-        # trend_trawler has no direct genai calls
+        # trend_scout has no direct genai calls
         assert "ServerError" not in names
 
 
@@ -33,12 +33,12 @@ class TestCreativeAgentRetryConfig:
 
 
 class TestAgentsHaveRetryConfig:
-    def test_trend_trawler_agents_have_retry(self):
-        from trend_trawler.agent import gather_trends_agent, trend_trawler
-        from trend_trawler.config import INFRA_RETRY
+    def test_trend_scout_agents_have_retry(self):
+        from trend_scout.agent import gather_trends_agent, trend_scout
+        from trend_scout.config import INFRA_RETRY
 
         assert gather_trends_agent.retry_config is INFRA_RETRY
-        assert trend_trawler.retry_config is INFRA_RETRY
+        assert trend_scout.retry_config is INFRA_RETRY
 
     def test_creative_agent_agents_have_retry(self):
         from creative_agent.agent import visual_generator, root_agent

@@ -39,7 +39,7 @@ class _BoomBQClient:
 
 class TestTrendTrawlerToolsPropagate:
     def test_get_daily_gtrends_raises_on_transient(self, monkeypatch):
-        from trend_trawler import tools
+        from trend_scout import tools
 
         # _get_gtrends_max_date runs before the try; stub it so we reach the
         # in-try client acquisition, where the transient must propagate.
@@ -54,7 +54,7 @@ class TestTrendTrawlerToolsPropagate:
             tools.get_daily_gtrends(MockToolContext())
 
     def test_write_trends_to_bq_raises_on_transient(self, monkeypatch):
-        from trend_trawler import tools
+        from trend_scout import tools
 
         # Stub the pre-try max-date lookup (it also uses the bq client) so the
         # transient surfaces from the in-try bq_client.query() call.

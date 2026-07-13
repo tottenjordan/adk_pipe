@@ -56,12 +56,12 @@ ENV_VAR_DICT = {
 # pip-install the repo), so a package a root_agent imports at runtime MUST be
 # listed here or the engine fails to start (e.g. `No module named 'creative_eval'`).
 # Derived from the real import graph:
-#   trend_trawler        -> agent_common
+#   trend_scout          -> agent_common
 #   creative_agent       -> creative_eval, agent_common
 #   interactive_creative -> creative_agent, creative_eval, agent_common
 # Convention: the agent's own package is listed first, then its cross-package deps.
 AGENT_EXTRA_PACKAGES = {
-    "trend_trawler": ["./trend_trawler", "./agent_common"],
+    "trend_scout": ["./trend_scout", "./agent_common"],
     "creative_agent": ["./creative_agent", "./creative_eval", "./agent_common"],
     "interactive_creative": [
         "./interactive_creative",
@@ -74,11 +74,11 @@ AGENT_EXTRA_PACKAGES = {
 # Per-agent deploy metadata: which module exposes root_agent, the .env key prefix
 # (`<PREFIX>_AGENT_ENGINE_ID`), and the display/GCS-staging naming.
 AGENT_DEPLOY_SPECS = {
-    "trend_trawler": {
-        "module": "trend_trawler.agent",
-        "env_prefix": "TRAWLER",
-        "display_name": "trend-trawler-agent",
-        "gcs_subdir": "trawler",
+    "trend_scout": {
+        "module": "trend_scout.agent",
+        "env_prefix": "SCOUT",
+        "display_name": "trend-scout-agent",
+        "gcs_subdir": "scout",
     },
     "creative_agent": {
         "module": "creative_agent.agent",
@@ -260,7 +260,7 @@ def delete(
     logging.info(f"Successfully deleted remote agent: {resource_id}")
 
     # update_env_file(
-    #     prefix="TRAWLER" if agent_name == "trend_trawler" else "CREATIVE",
+    #     prefix="SCOUT" if agent_name == "trend_scout" else "CREATIVE",
     #     agent_engine_id="",
     #     env_file_path=ENV_FILE_PATH,
     #     # remove=True,

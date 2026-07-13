@@ -77,7 +77,7 @@ class TestMemorizeTool:
 
 class TestTrendTrawlerMemorizeTool:
     def test_memorize_stores_value(self):
-        from trend_trawler.tools import memorize
+        from trend_scout.tools import memorize
 
         ctx = MockToolContext()
         result = memorize("target_audience", "Musicians", ctx)
@@ -88,7 +88,7 @@ class TestTrendTrawlerMemorizeTool:
 # --- save_search_trends_to_session_state logic ---
 class TestSaveSearchTrends:
     def test_appends_trend_to_existing_list(self):
-        from trend_trawler.tools import save_search_trends_to_session_state
+        from trend_scout.tools import save_search_trends_to_session_state
 
         ctx = MockToolContext()
         ctx.state["target_search_trends"] = {"target_search_trends": ["trend_a"]}
@@ -102,7 +102,7 @@ class TestSaveSearchTrends:
     def test_appends_first_trend_to_empty_init_state(self):
         """The initial state is {"target_search_trends": []}; the first trend
         must still be appended (regression guard for the old identity check)."""
-        from trend_trawler.tools import save_search_trends_to_session_state
+        from trend_scout.tools import save_search_trends_to_session_state
 
         ctx = MockToolContext()
         ctx.state["target_search_trends"] = {"target_search_trends": []}
