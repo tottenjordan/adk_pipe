@@ -83,6 +83,11 @@ python deployment/integration_test.py --check all                             # 
 
 ## Architecture
 
+**Flat package layout (deliberate):** agent packages live flat at the repo root, not under an
+`agents/`/`src/` parent. Agent Engine's `extra_packages` staging preserves each package's relative path
+as its import path (`tarfile.add(path)` → arcname), so nesting would break every bare
+`from creative_agent …` import. Do not "tidy" this into a nested tree.
+
 ### Two-Phase Agent Pipeline
 
 **Phase 1 — `trend_trawler/`**: Gathers top 25 Google Search trends, researches cultural context via web search, filters to 3 most campaign-relevant trends, saves to BigQuery.

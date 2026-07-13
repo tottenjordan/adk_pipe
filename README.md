@@ -396,6 +396,11 @@ The `creative_agent` eval must run with `PYTHONPATH="$PWD"` and its own rubric c
 
 ## Repo Structure
 
+> The agent packages are kept **flat** at the repo root (not grouped under an `agents/` or `src/`
+> parent) on purpose: Agent Engine's `extra_packages` staging preserves each package's relative path
+> as its import path, so nesting them would break every bare `from creative_agent …` import. Flat is a
+> deploy constraint, not an oversight.
+
 ```bash
 .
 ├── trend_trawler/                # Phase 1 — trend discovery agent
