@@ -11,6 +11,7 @@ from google.adk.agents import Agent, SequentialAgent, ParallelAgent
 
 from .sub_agents.campaign_researcher.agent import ca_sequential_planner
 from .sub_agents.trend_researcher.agent import gs_sequential_planner
+from agent_common import build_gemini
 from .config import config, INFRA_RETRY
 from . import callbacks
 from . import tools
@@ -33,7 +34,7 @@ parallel_planner_agent = ParallelAgent(
 
 merge_planners = Agent(
     name="merge_planners",
-    model=config.worker_model,
+    model=build_gemini(config.worker_model),
     include_contents="none",
     description="Combine results from state keys 'campaign_web_search_insights' and 'gs_web_search_insights'",
     instruction="""Role: You are an expert Strategic Synthesis Analyst. 
@@ -103,7 +104,7 @@ class ResearchFeedback(BaseModel):
 
 
 combined_web_evaluator = Agent(
-    model=config.critic_model,
+    model=build_gemini(config.critic_model),
     name="combined_web_evaluator",
     include_contents="none",
     description="Critically evaluates research about the campaign guide and generates follow-up queries.",
@@ -157,7 +158,7 @@ combined_web_evaluator = Agent(
 
 
 enhanced_combined_searcher = Agent(
-    model=config.worker_model,
+    model=build_gemini(config.worker_model),
     name="enhanced_combined_searcher",
     include_contents="none",
     description="Executes follow-up searches and integrates new findings.",
@@ -195,7 +196,7 @@ enhanced_combined_searcher = Agent(
 
 
 combined_report_composer = Agent(
-    model=config.critic_model,
+    model=build_gemini(config.critic_model),
     name="combined_report_composer",
     include_contents="none",
     description="Transforms research data and a markdown outline into a final, cited report.",
@@ -328,7 +329,7 @@ class AdCopyList(BaseModel):
 
 # --- AD COPY AGENT (DRAFT) ---
 ad_copy_drafter = Agent(
-    model=config.worker_model,
+    model=build_gemini(config.worker_model),
     name="ad_copy_drafter",
     include_contents="none",
     description="Generate 10 initial ad copy ideas based on campaign guidelines and trends",
@@ -416,7 +417,7 @@ class FinalAdCopyList(BaseModel):
 
 # --- AD COPY CRITIC AGENT ---
 ad_copy_critic = Agent(
-    model=config.critic_model,
+    model=build_gemini(config.critic_model),
     name="ad_copy_critic",
     include_contents="none",
     description="Critique and narrow down ad copies based on product, audience, and trends",
@@ -433,7 +434,7 @@ ad_copy_critic = Agent(
         *   **Trend Authenticity:** Does the use of the trending topic feel natural, relevant, and not forced?
         *   **Platform Viability:** Is the tone and length highly suitable for Instagram/TikTok?
         *   **Creative Excellence:** Is the idea compelling, clear, and likely to drive a high click-through rate?
-    3.  **Final Selection:** Select a subset of **exactly 6** ad copy ideas that demonstrate the highest potential.
+    3.  **Final Selection:** Select a subset of **exactly 4** ad copy ideas that demonstrate the highest potential.
     4.  **Enrich and Critique:** For each selected idea, you must add a high-converting **Call-to-Action (CTA)** and a **Detailed Rationale** explaining the strategic choice.
     5.  **Strict Output:** Output the final selection as a single JSON object, strictly following the schema in the `<OUTPUT_FORMAT>` block.
     </INSTRUCTIONS>
@@ -508,7 +509,7 @@ class VisualConceptList(BaseModel):
 
 # --- VISUAL CONCEPT DRAFT AGENT ---
 visual_concept_drafter = Agent(
-    model=config.worker_model,
+    model=build_gemini(config.worker_model),
     name="visual_concept_drafter",
     include_contents="none",
     description="Generate initial visual concepts for selected ad copies",
@@ -590,7 +591,7 @@ class VisualConceptCritiqueList(BaseModel):
 
 # --- VISUAL CONCEPT CRITIQUE AGENT ---
 visual_concept_critic = Agent(
-    model=config.critic_model,
+    model=build_gemini(config.critic_model),
     name="visual_concept_critic",
     include_contents="none",
     description="Critique and narrow down visual concepts",
@@ -681,7 +682,7 @@ class VisualConceptFinalList(BaseModel):
 
 # --- VISUAL CONCEPT FINAL AGENT ---
 visual_concept_finalizer = Agent(
-    model=config.worker_model,
+    model=build_gemini(config.worker_model),
     name="visual_concept_finalizer",
     include_contents="none",
     description="Finalize visual concepts to proceed with.",
@@ -690,11 +691,11 @@ visual_concept_finalizer = Agent(
 
     <INSTRUCTIONS>
     1.  **Parse and Map:** Retrieve and parse the JSON list of revised visual concepts from the **`<CONTEXT>` block's `visual_concept_critique` input.
-    2.  **Final Selection Criteria:** Select a subset of **exactly 6** concepts that offer the best balance of:
-        *   **Creative Diversity:** Ensure the final 6 represent a good mix of styles/tones from the original ad copy set.
+    2.  **Final Selection Criteria:** Select a subset of **exactly 4** concepts that offer the best balance of:
+        *   **Creative Diversity:** Ensure the final 4 represent a good mix of styles/tones from the original ad copy set.
         *   **Commercial Viability:** Highest potential to drive engagement and sales, based on the `critique_summary`.
         *   **Technical Excellence:** Possesses the most compelling and robust `revised_image_generation_prompt`.
-    3.  **Finalize and Enrich:** For the 6 selected concepts, you must combine the original ad copy details with the revised visual details to create a final, unified creative brief.
+    3.  **Finalize and Enrich:** For the 4 selected concepts, you must combine the original ad copy details with the revised visual details to create a final, unified creative brief.
     4.  **Strict Output Format:** Output the final selection as a single JSON object, strictly following the schema in the `<OUTPUT_FORMAT>` block.
     </INSTRUCTIONS>
 
@@ -737,7 +738,7 @@ visual_concept_finalizer = Agent(
 # a separate step AFTER a human review checkpoint (review concepts before spending on
 # image generation), so it must also remain usable as a standalone agent.
 visual_generator = Agent(
-    model=config.critic_model,
+    model=build_gemini(config.critic_model),
     name="visual_generator",
     retry_config=INFRA_RETRY,
     include_contents="none",  # new
@@ -799,7 +800,7 @@ visual_production_pipeline = SequentialAgent(
 
 # --- MAIN ORCHESTRATOR AGENT ---
 root_agent = Agent(
-    model=config.critic_model,
+    model=build_gemini(config.critic_model),
     name="root_agent",
     retry_config=INFRA_RETRY,
     description="Help with ad generation; brainstorm and refine ad copy and visual concept ideas with actor-critic workflows; generate final ad creatives.",

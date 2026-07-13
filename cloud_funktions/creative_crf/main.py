@@ -49,6 +49,7 @@ from google.cloud import pubsub_v1
 from cloudevents.http import CloudEvent
 
 from .config import config
+from .session import agent_session
 
 
 # --- config ---
@@ -164,12 +165,6 @@ def update_rows_status(bq_client, dataset, table, timestamps, status="PROCESSED"
         raise
 
 
-async def my_delete_task(remote_agent, session):
-    logging.info(f"Delete task starting with agent: {remote_agent}...")
-    await remote_agent.async_delete_session(user_id=_USER_ID, session_id=session["id"])
-    logging.info(f"Deleted session for user ID: {_USER_ID}")
-
-
 # function to interact with remote agent
 async def async_send_message(remote_agent, user_id, session, user_query) -> None:
     """Send a message to the deployed agent."""
@@ -216,24 +211,24 @@ async def create_agent_run(
         name=f"projects/{_PROJECT_NUMBER}/locations/{_LOCATION}/reasoningEngines/{agent_id}"
     )
 
-    session = await remote_agent.async_create_session(user_id=user_id)
-    logging.info(f"\n\nCreated session for user ID: {user_id}\n\n")
-
-    USER_QUERY = f"""Brand: {msg_dict["brand"]} 
-    Target Product: {msg_dict["target_product"]} 
-    Key Selling Point(s): {msg_dict["key_selling_point"]} 
-    Target Audience: {msg_dict["target_audience"]} 
-    Target Search Trend: {msg_dict["target_search_trend"]} 
+    USER_QUERY = f"""Brand: {msg_dict["brand"]}
+    Target Product: {msg_dict["target_product"]}
+    Key Selling Point(s): {msg_dict["key_selling_point"]}
+    Target Audience: {msg_dict["target_audience"]}
+    Target Search Trend: {msg_dict["target_search_trend"]}
     """
 
-    # long running op
-    await async_send_message(
-        remote_agent=remote_agent,
-        user_id=user_id,
-        session=session,
-        user_query=USER_QUERY,
-    )
-    await my_delete_task(remote_agent=remote_agent, session=session)
+    # create → stream → delete, all under one user_id. The delete runs even if
+    # the stream raises (agent_session's finally), so a failed run never leaks a
+    # session, and it can't drift onto a different user_id.
+    async with agent_session(remote_agent, user_id) as session:
+        # long running op
+        await async_send_message(
+            remote_agent=remote_agent,
+            user_id=user_id,
+            session=session,
+            user_query=USER_QUERY,
+        )
 
 
 # --- Helper to encapsulate the single-row logic ---

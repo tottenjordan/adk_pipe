@@ -31,8 +31,12 @@ dotenv.load_dotenv(dotenv_path=ENV_FILE_PATH)
 
 ENV_VAR_DICT = {
     "GOOGLE_GENAI_USE_VERTEXAI": os.getenv("GOOGLE_GENAI_USE_VERTEXAI"),
-    # "GOOGLE_CLOUD_PROJECT": os.getenv("GOOGLE_CLOUD_PROJECT"),
-    # "GOOGLE_CLOUD_LOCATION": os.getenv("GOOGLE_CLOUD_LOCATION"),
+    # NOTE: GOOGLE_CLOUD_PROJECT and GOOGLE_CLOUD_LOCATION are RESERVED by Agent
+    # Engine (it rejects them with `FAILED_PRECONDITION ... is reserved`) and are
+    # auto-injected into the runtime as the engine's project + region. Because the
+    # injected location is regional (us-central1) but the gemini-3.x models are
+    # served only from `global`, the model location is pinned in code instead —
+    # see MODEL_LOCATION in the agent configs — NOT via these env vars.
     "GOOGLE_CLOUD_PROJECT_NUMBER": os.getenv("GOOGLE_CLOUD_PROJECT_NUMBER"),
     "GOOGLE_CLOUD_STORAGE_BUCKET": os.getenv("GOOGLE_CLOUD_STORAGE_BUCKET"),
     "BUCKET": os.getenv("BUCKET"),
@@ -44,13 +48,64 @@ ENV_VAR_DICT = {
 }
 
 
+# ==============================
+# per-agent deploy definitions
+# ==============================
+# Single source of truth for what each agent bundles into its Agent Engine
+# runtime. Agent Engine *copies* these dirs into the container (it does NOT
+# pip-install the repo), so a package a root_agent imports at runtime MUST be
+# listed here or the engine fails to start (e.g. `No module named 'creative_eval'`).
+# Derived from the real import graph:
+#   trend_trawler        -> agent_common
+#   creative_agent       -> creative_eval, agent_common
+#   interactive_creative -> creative_agent, creative_eval, agent_common
+# Convention: the agent's own package is listed first, then its cross-package deps.
+AGENT_EXTRA_PACKAGES = {
+    "trend_trawler": ["./trend_trawler", "./agent_common"],
+    "creative_agent": ["./creative_agent", "./creative_eval", "./agent_common"],
+    "interactive_creative": [
+        "./interactive_creative",
+        "./creative_agent",
+        "./creative_eval",
+        "./agent_common",
+    ],
+}
+
+# Per-agent deploy metadata: which module exposes root_agent, the .env key prefix
+# (`<PREFIX>_AGENT_ENGINE_ID`), and the display/GCS-staging naming.
+AGENT_DEPLOY_SPECS = {
+    "trend_trawler": {
+        "module": "trend_trawler.agent",
+        "env_prefix": "TRAWLER",
+        "display_name": "trend-trawler-agent",
+        "gcs_subdir": "trawler",
+    },
+    "creative_agent": {
+        "module": "creative_agent.agent",
+        "env_prefix": "CREATIVE",
+        "display_name": "creative-trend-agent",
+        "gcs_subdir": "creative",
+    },
+    "interactive_creative": {
+        "module": "interactive_creative.agent",
+        "env_prefix": "INTERACTIVE",
+        "display_name": "interactive-creative-agent",
+        "gcs_subdir": "interactive",
+    },
+}
+
+# The deployable agent names — used for the --agent enum so the CLI and the
+# bundle/spec maps can never drift apart.
+AGENT_NAMES = tuple(AGENT_DEPLOY_SPECS)
+
+
 # define flags from command line args
 FLAGS = flags.FLAGS
 flags.DEFINE_string(name="version", default=None, help="version namespace")
 flags.DEFINE_enum(
     name="agent",
     default=None,
-    enum_values=["trend_trawler", "creative_agent"],
+    enum_values=list(AGENT_NAMES),
     help="name of agent to deploy",
     # required=True,
 )
@@ -69,11 +124,34 @@ flags.mark_bool_flags_as_mutual_exclusive(["create", "delete", "list"])
 # NOT GOOGLE_CLOUD_LOCATION, which is set to `global` for the gemini-3.x models.
 AGENT_ENGINE_LOCATION = os.getenv("GCP_REGION", "us-central1")
 
-# vertex ai SDK client
-client = vertexai.Client(
-    project=os.getenv("GOOGLE_CLOUD_PROJECT"),
-    location=AGENT_ENGINE_LOCATION,
-)  # pyright: ignore[reportCallIssue]
+# vertex ai SDK client — created lazily so the module imports without GCP creds
+# (mirrors the lazy-client pattern in cloud_funktions/creative_crf/main.py) and
+# so unit tests can assert on the deploy mappings without a live client.
+_client = None
+
+
+def _get_client():
+    """Return a cached vertexai SDK client, creating it on first use."""
+    global _client
+    if _client is None:
+        _client = vertexai.Client(
+            project=os.getenv("GOOGLE_CLOUD_PROJECT"),
+            location=AGENT_ENGINE_LOCATION,
+        )  # pyright: ignore[reportCallIssue]
+    return _client
+
+
+def validate_extra_packages(packages: list[str]) -> None:
+    """Assert every bundled package dir exists before calling agent_engines.create.
+
+    Guards against a typo'd or forgotten path silently shipping a runtime that
+    fails to start with `No module named ...`.
+    """
+    missing = [p for p in packages if not os.path.isdir(os.path.join(project_root, p))]
+    if missing:
+        raise FileNotFoundError(
+            f"extra_packages dirs not found under {project_root}: {missing}"
+        )
 
 
 # Function to update the .env file
@@ -93,23 +171,33 @@ def update_env_file(prefix: str, agent_engine_id: str, env_file_path: str):
 # TODO: add op for update()
 
 
-# create deployment: trend_trawler
-def deploy_trawler(version: str) -> None:
-    """Creates and deploys `trend_trawler` Agent to Vertex AI Agent Engine Runtime."""
+# create deployment (unified): any agent in AGENT_DEPLOY_SPECS
+def deploy_agent(name: str, version: str) -> None:
+    """Creates and deploys an Agent to Vertex AI Agent Engine Runtime.
 
-    from trend_trawler.agent import root_agent
+    Parameterized by AGENT_DEPLOY_SPECS (module/prefix/naming) and
+    AGENT_EXTRA_PACKAGES (bundled dirs) so all agents share one deploy path and
+    a new agent only needs an entry in those two maps.
+    """
+    import importlib
+
+    spec = AGENT_DEPLOY_SPECS[name]
+    extra_packages = AGENT_EXTRA_PACKAGES[name]
+    validate_extra_packages(extra_packages)
+
+    root_agent = importlib.import_module(spec["module"]).root_agent
     # adk_app = AdkApp(agent=root_agent, enable_tracing=True)
 
     try:
-        logging.info("Deploying `trend_trawler` agent...")
-        remote_agent = client.agent_engines.create(
+        logging.info(f"Deploying `{name}` agent...")
+        remote_agent = _get_client().agent_engines.create(
             agent=root_agent,  # adk_app
             config={
                 "requirements": "./requirements.txt",
-                "extra_packages": ["./trend_trawler"],
+                "extra_packages": extra_packages,
                 "staging_bucket": f"gs://{os.getenv('GOOGLE_CLOUD_STORAGE_BUCKET')}",
-                "gcs_dir_name": f"adk-pipe/trawler/{version}/staging",
-                "display_name": f"trend-trawler-agent-{version}",
+                "gcs_dir_name": f"adk-pipe/{spec['gcs_subdir']}/{version}/staging",
+                "display_name": f"{spec['display_name']}-{version}",
                 "description": root_agent.description,
                 "env_vars": ENV_VAR_DICT,
                 # "service_account": SERVICE_ACCOUNT,
@@ -123,46 +211,7 @@ def deploy_trawler(version: str) -> None:
             f"\n\nSuccessfully created remote agent: {remote_agent.api_resource.name}\n\n"
         )
         update_env_file(
-            prefix="TRAWLER",
-            agent_engine_id=remote_agent.api_resource.name,
-            env_file_path=ENV_FILE_PATH,
-            # remove=False,
-        )
-    except Exception as e:
-        logging.exception(f"Error deploying agent to Agent Engine Runtime: {e}")
-
-
-# create deployment: creative_agent
-def deploy_creative_agent(version: str) -> None:
-    """Creates and deploys `creative_agent` Agent to Vertex AI Agent Engine Runtime."""
-
-    from creative_agent.agent import root_agent
-    # adk_app = AdkApp(agent=root_agent, enable_tracing=True)
-
-    try:
-        logging.info("Deploying `creative_agent` agent...")
-        remote_agent = client.agent_engines.create(
-            agent=root_agent,  # adk_app
-            config={
-                "requirements": "./requirements.txt",
-                "extra_packages": ["./creative_agent"],
-                "staging_bucket": f"gs://{os.getenv('GOOGLE_CLOUD_STORAGE_BUCKET')}",
-                "gcs_dir_name": f"adk-pipe/creative/{version}/staging",
-                "display_name": f"creative-trend-agent-{version}",
-                "description": root_agent.description,
-                "env_vars": ENV_VAR_DICT,
-                # "service_account": SERVICE_ACCOUNT,
-                "min_instances": 1,
-                "max_instances": 100,
-                "resource_limits": {"cpu": "4", "memory": "8Gi"},
-                "container_concurrency": 9,  # recommended value is 2 * cpu + 1
-            },
-        )
-        logging.info(
-            f"\n\nSuccessfully created remote agent: {remote_agent.api_resource.name}\n\n"
-        )
-        update_env_file(
-            prefix="CREATIVE",
+            prefix=spec["env_prefix"],
             agent_engine_id=remote_agent.api_resource.name,
             env_file_path=ENV_FILE_PATH,
             # remove=False,
@@ -175,16 +224,19 @@ def deploy_creative_agent(version: str) -> None:
 def list_agents() -> None:
     """Lists all Agent Engine Runtimes in the Project and Location"""
     logging.info("Listing all deployed Agent Engine Runtimes...")
-    remote_agents = client.agent_engines.list()
+    remote_agents = _get_client().agent_engines.list()
     if not remote_agents:
         logging.info("No agents found.")
         return
 
+    # The SDK exposes the resource fields on `.api_resource` (the create path
+    # above reads `remote_agent.api_resource.name`); `agent.name` no longer
+    # exists, so read every field off `.api_resource`.
     template_lines = [
-        '{agent.name} ("{agent.display_name}")',
-        "- Create time: {agent.create_time}",
-        "- Update time: {agent.update_time}",
-        "- Description: {agent.description}",
+        '{agent.api_resource.name} ("{agent.api_resource.display_name}")',
+        "- Create time: {agent.api_resource.create_time}",
+        "- Update time: {agent.api_resource.update_time}",
+        "- Description: {agent.api_resource.description}",
     ]
     template = "\n".join(template_lines)
 
@@ -203,7 +255,7 @@ def delete(
     PROJECT_NUM = os.getenv("GOOGLE_CLOUD_PROJECT_NUMBER")
     RESOURCE_NAME = f"projects/{PROJECT_NUM}/locations/{AGENT_ENGINE_LOCATION}/reasoningEngines/{resource_id}"
 
-    remote_agent = client.agent_engines.get(name=RESOURCE_NAME)
+    remote_agent = _get_client().agent_engines.get(name=RESOURCE_NAME)
     remote_agent.delete(force=True)
     logging.info(f"Successfully deleted remote agent: {resource_id}")
 
@@ -230,13 +282,8 @@ def main(argv):
         if not FLAGS.agent:
             logging.error("Error: --agent is required for the create operation.")
             return
-        if FLAGS.agent == "trend_trawler":
-            logging.info("Creating Agent Engine Runtime for `trend_trawler`...")
-            deploy_trawler(version=FLAGS.version)
-
-        elif FLAGS.agent == "creative_agent":
-            logging.info("Creating Agent Engine Runtime for `creative_agent`...")
-            deploy_creative_agent(version=FLAGS.version)
+        logging.info(f"Creating Agent Engine Runtime for `{FLAGS.agent}`...")
+        deploy_agent(name=FLAGS.agent, version=FLAGS.version)
 
     elif FLAGS.delete:
         if not FLAGS.resource_id:

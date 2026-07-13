@@ -1,6 +1,7 @@
 """Tests for deployment utility functions (deploy_agent.py)."""
 
 import os
+import sys
 import pytest
 import dotenv
 
@@ -129,3 +130,85 @@ class TestAgentEngineLocation:
             pytest.skip(".env.example not found")
         env_values = dotenv.dotenv_values(env_example_path)
         assert env_values.get("GCP_REGION") == "us-central1"
+
+
+# --- Part B: centralized extra_packages mapping ---
+# deploy_agent.py is now importable without GCP creds (lazy vertexai.Client via
+# _get_client), so we assert on the REAL mapping/specs rather than a replica.
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+
+
+def _import_deploy_agent():
+    """Import deploy_agent.py, skipping if its (non-cred) deps are unavailable."""
+    if PROJECT_ROOT not in sys.path:
+        sys.path.insert(0, PROJECT_ROOT)
+    try:
+        import deployment.deploy_agent as deploy_agent
+    except ImportError as e:  # e.g. vertexai/absl missing in a bare env
+        pytest.skip(f"deploy_agent import unavailable: {e}")
+    return deploy_agent
+
+
+class TestAgentExtraPackages:
+    def test_creative_agent_bundles_sibling_deps(self):
+        """creative_agent imports creative_eval + agent_common → must bundle both."""
+        da = _import_deploy_agent()
+        pkgs = da.AGENT_EXTRA_PACKAGES["creative_agent"]
+        assert "./creative_agent" in pkgs
+        assert "./creative_eval" in pkgs
+        assert "./agent_common" in pkgs
+
+    def test_interactive_creative_bundles_full_graph(self):
+        """interactive_creative imports creative_agent + creative_eval + agent_common."""
+        da = _import_deploy_agent()
+        pkgs = da.AGENT_EXTRA_PACKAGES["interactive_creative"]
+        for dep in (
+            "./interactive_creative",
+            "./creative_agent",
+            "./creative_eval",
+            "./agent_common",
+        ):
+            assert dep in pkgs, f"{dep} missing from interactive_creative bundle"
+
+    def test_trend_trawler_bundles_agent_common(self):
+        da = _import_deploy_agent()
+        pkgs = da.AGENT_EXTRA_PACKAGES["trend_trawler"]
+        assert "./trend_trawler" in pkgs
+        assert "./agent_common" in pkgs
+
+    def test_root_package_listed_first(self):
+        """The agent's own package should be the first bundled dir (root first)."""
+        da = _import_deploy_agent()
+        for name, pkgs in da.AGENT_EXTRA_PACKAGES.items():
+            assert pkgs[0] == f"./{name}", f"{name}: root pkg not first ({pkgs})"
+
+    def test_mapping_covers_every_deployable_agent(self):
+        """The extra_packages map and deploy specs must cover the same agent set,
+        so a new --agent value can't ship without a bundle definition."""
+        da = _import_deploy_agent()
+        assert set(da.AGENT_EXTRA_PACKAGES) == set(da.AGENT_NAMES)
+        assert set(da.AGENT_DEPLOY_SPECS) == set(da.AGENT_NAMES)
+
+    def test_interactive_creative_is_deployable(self):
+        da = _import_deploy_agent()
+        assert "interactive_creative" in da.AGENT_NAMES
+
+    def test_all_bundled_dirs_exist_on_disk(self):
+        """Every dir in every bundle must exist — the guard against a typo'd path."""
+        da = _import_deploy_agent()
+        for name, pkgs in da.AGENT_EXTRA_PACKAGES.items():
+            for p in pkgs:
+                abs_p = os.path.join(PROJECT_ROOT, p)
+                assert os.path.isdir(abs_p), f"{name}: bundled dir missing: {p}"
+
+
+class TestValidateExtraPackages:
+    def test_passes_for_real_dirs(self):
+        da = _import_deploy_agent()
+        # Should not raise for a valid bundle.
+        da.validate_extra_packages(da.AGENT_EXTRA_PACKAGES["trend_trawler"])
+
+    def test_raises_for_missing_dir(self):
+        da = _import_deploy_agent()
+        with pytest.raises(FileNotFoundError):
+            da.validate_extra_packages(["./trend_trawler", "./does_not_exist_pkg"])

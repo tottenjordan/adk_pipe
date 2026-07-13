@@ -366,6 +366,10 @@ Deploying Agents to separate Agent Engine instances...
 
 > [Agent Engine](https://google.github.io/adk-docs/deploy/agent-engine/) is a fully managed auto-scaling service on Google Cloud specifically designed for deploying, managing, and scaling AI agents built with frameworks such as ADK.
 
+<p align="center">
+  <img src="docs/architecture/agent-engine-pipeline.png" alt="creative_agent pipeline on Agent Engine" width="720">
+</p>
+
 
 ```bash
 # deploy `trend_trawler` agent to Agent Engine
@@ -374,12 +378,20 @@ python deployment/deploy_agent.py --version=v1 --agent=trend_trawler --create
 # deploy `creative_agent` agent to Agent Engine
 python deployment/deploy_agent.py --version=v1 --agent=creative_agent --create
 
+# deploy `interactive_creative` agent (human-in-the-loop variant) to Agent Engine
+python deployment/deploy_agent.py --version=v1 --agent=interactive_creative --create
+
 # list existing Agent Engine instances
 python deployment/deploy_agent.py --list
 
 # delete an Agent Engine Runtime
 python deployment/deploy_agent.py --resource_id=890256972824182784 --delete
 ```
+
+> The local packages bundled into each engine are derived from a single
+> `AGENT_EXTRA_PACKAGES` map in `deployment/deploy_agent.py` (from the real import
+> graph — e.g. `creative_agent` → `creative_eval` + `agent_common`), so a
+> cross-package dependency can't be silently left out of a deploy.
 
 * Once agent is deployed to Agent Engine, the agent's resource ID will be added to your `.env` file. And this will be used later in the `test_deployment.py` script
 
@@ -552,19 +564,24 @@ gcloud run deploy $CREATIVE_WORKER_CRF_NAME \
   --source . \
   --function $CREATIVE_WORKER_ENTRYPOINT \
   --base-image $BASE_IMAGE \
-  --region $GOOGLE_CLOUD_LOCATION \
-  --max-instances 100 \
-  --timeout 900s \
+  --region $GCP_REGION \
+  --max-instances 1 \
+  --timeout 1800s \
   --concurrency=1 \
   --memory 8Gi \
   --cpu 4 \
   --no-allow-unauthenticated \
   --labels agent-workflow=trend-trawler,function=creative-worker
   
-  # Note: 
+  # Note:
+  # region=$GCP_REGION (us-central1) — Cloud Run is regional; GOOGLE_CLOUD_LOCATION
+  #   is `global` for the gemini-3.x models and is NOT a valid Cloud Run region.
   # concurrency=1 # ensures only one row is processed per instance
-  # max-instances=100 # Allow high scale-out
-  # timeout=900s # Longer timeout for the agent run
+  # max-instances=1 # SERIALIZE runs: gemini-3.1-pro-preview (5 RPM) and
+  #   flash-image (2 RPM) quotas are project-wide, so parallel runs 503. One run
+  #   at a time keeps the fan-out under quota. Raise only if quota is raised.
+  # timeout=1800s # a quota-paced single run (throttled eval + image backoff) is
+  #   slower than before; 900s risked killing it mid-run.
 ```
 
 <details>

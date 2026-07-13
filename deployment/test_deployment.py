@@ -8,6 +8,7 @@ import asyncio
 import logging
 import warnings
 import argparse
+from contextlib import asynccontextmanager
 
 # from absl import app, flags
 
@@ -121,14 +122,29 @@ async def async_send_message(remote_agent, user_id, session) -> None:
 
     except Exception as e:
         logging.error(f"Error during streaming: {type(e).__name__}: {e}")
+        # Propagate so a broken deployment surfaces as a failure, mirroring the
+        # worker path (cloud_funktions/creative_crf/main.py).
+        raise
 
 
-async def my_delete_task(remote_agent, session):
-    logging.info(f"Delete task starting with agent: {remote_agent}...")
-    await remote_agent.async_delete_session(
-        user_id=args.user_id, session_id=session["id"]
-    )
-    logging.info(f"Deleted session for user ID: {args.user_id}")
+@asynccontextmanager
+async def agent_session(remote_agent, user_id):
+    """Create → yield → delete an Agent Engine session with ONE user_id.
+
+    Local mirror of cloud_funktions/creative_crf/session.agent_session
+    (deployment/ isn't bundled with the worker, so it can't import it). Deleting
+    with the SAME user_id the session was created under avoids Agent Engine's
+    `FAILED_PRECONDITION: Session <id> does not belong to user <...>`.
+    """
+    session = await remote_agent.async_create_session(user_id=user_id)
+    logging.info(f"Created session {session['id']} for user ID: {user_id}")
+    try:
+        yield session
+    finally:
+        await remote_agent.async_delete_session(
+            user_id=user_id, session_id=session["id"]
+        )
+        logging.info(f"Deleted session {session['id']} for user ID: {user_id}")
 
 
 async def main() -> None:  # pylint: disable=unused-argument
@@ -149,16 +165,14 @@ async def main() -> None:  # pylint: disable=unused-argument
         )
     logging.info(f"\n\nremote_agent: {remote_agent}")
 
-    # get session
+    # get session — create → stream → delete under one user_id (delete-on-error).
     logging.info(f"\n\nCreating session for user ID: {args.user_id}...\n\n")
-    session = await remote_agent.async_create_session(user_id=args.user_id)
-    logging.info(session)
-
-    # long running op
-    await async_send_message(
-        remote_agent=remote_agent, user_id=args.user_id, session=session
-    )
-    await my_delete_task(remote_agent=remote_agent, session=session)
+    async with agent_session(remote_agent, args.user_id) as session:
+        logging.info(session)
+        # long running op
+        await async_send_message(
+            remote_agent=remote_agent, user_id=args.user_id, session=session
+        )
 
 
 if __name__ == "__main__":

@@ -5,6 +5,11 @@ import pytest
 from google.api_core import exceptions as api_exceptions
 
 
+async def _noop_async(*a, **k):
+    """Stand-in for asyncio.sleep so backoff retries don't wall-clock in tests."""
+    return None
+
+
 class MockState(dict):
     pass
 
@@ -19,6 +24,9 @@ class MockToolContext:
         self.state["target_audience"] = "a"
         self.state["target_product"] = "p"
         self.state["key_selling_points"] = "k"
+
+    async def save_artifact(self, *a, **k):
+        return None
 
 
 class _BoomBQClient:
@@ -88,24 +96,25 @@ class TestCreativeAgentToolsPropagate:
         with pytest.raises(api_exceptions.ServiceUnavailable):
             tools._save_to_gcs(MockToolContext(), b"x", "a.png")
 
-    def test_generate_image_raises_on_genai_transient(self, monkeypatch):
+    def test_generate_image_retries_then_raises_on_persistent_503(self, monkeypatch):
+        """A persistent 503 exhausts the backoff retries, then propagates."""
         import asyncio
         from google.genai import errors as genai_errors
         from creative_agent import tools
 
+        calls = {"n": 0}
+
         class _BoomModels:
             def generate_content(self, *a, **k):
-                raise _make_server_error()
+                calls["n"] += 1
+                raise genai_errors.ServerError(503, {"error": {"message": "boom"}})
 
         class _BoomGenaiClient:
             models = _BoomModels()
 
-        def _make_server_error():
-            # Construct a genai ServerError with whatever ctor the installed
-            # version needs; see note to implementer below.
-            return genai_errors.ServerError(503, {"error": {"message": "boom"}})
-
         monkeypatch.setattr(tools, "client", _BoomGenaiClient())
+        # Don't actually sleep through the backoff in tests.
+        monkeypatch.setattr(tools.asyncio, "sleep", _noop_async)
 
         ctx = MockToolContext()
         ctx.state["final_visual_concepts"] = {
@@ -113,3 +122,78 @@ class TestCreativeAgentToolsPropagate:
         }
         with pytest.raises(genai_errors.ServerError):
             asyncio.run(tools.generate_image(ctx))
+        # Retried up to the configured attempt ceiling (not a single try).
+        assert calls["n"] == tools._IMAGE_GEN_MAX_ATTEMPTS
+
+    def test_generate_image_does_not_retry_non_transient(self, monkeypatch):
+        """A non-transient error (e.g. 400) propagates immediately, no retries."""
+        import asyncio
+        from google.genai import errors as genai_errors
+        from creative_agent import tools
+
+        calls = {"n": 0}
+
+        class _BoomModels:
+            def generate_content(self, *a, **k):
+                calls["n"] += 1
+                raise genai_errors.ClientError(400, {"error": {"message": "bad"}})
+
+        class _BoomGenaiClient:
+            models = _BoomModels()
+
+        monkeypatch.setattr(tools, "client", _BoomGenaiClient())
+        monkeypatch.setattr(tools.asyncio, "sleep", _noop_async)
+
+        ctx = MockToolContext()
+        ctx.state["final_visual_concepts"] = {
+            "visual_concepts": [{"image_generation_prompt": "p", "concept_name": "c"}]
+        }
+        with pytest.raises(genai_errors.ClientError):
+            asyncio.run(tools.generate_image(ctx))
+        assert calls["n"] == 1
+
+    def test_generate_image_retries_then_succeeds(self, monkeypatch):
+        """Two transient 503s then a good response → the image is saved (no failure)."""
+        import asyncio
+        from google.genai import errors as genai_errors
+        from creative_agent import tools
+
+        calls = {"n": 0}
+
+        class _Part:
+            class inline_data:
+                data = b"\x89PNG"
+                mime_type = "image/png"
+
+        class _Content:
+            parts = [_Part()]
+
+        class _Candidate:
+            content = _Content()
+
+        class _GoodResponse:
+            candidates = [_Candidate()]
+
+        class _FlakyModels:
+            def generate_content(self, *a, **k):
+                calls["n"] += 1
+                if calls["n"] < 3:
+                    raise genai_errors.ServerError(503, {"error": {"message": "boom"}})
+                return _GoodResponse()
+
+        class _FlakyGenaiClient:
+            models = _FlakyModels()
+
+        monkeypatch.setattr(tools, "client", _FlakyGenaiClient())
+        monkeypatch.setattr(tools.asyncio, "sleep", _noop_async)
+        # Isolate from real GCS + artifact I/O.
+        monkeypatch.setattr(tools, "_save_to_gcs", lambda *a, **k: "gs://b/c.png")
+
+        ctx = MockToolContext()
+        ctx.state["final_visual_concepts"] = {
+            "visual_concepts": [{"image_generation_prompt": "p", "concept_name": "c"}]
+        }
+
+        result = asyncio.run(tools.generate_image(ctx))
+        assert calls["n"] == 3  # 2 failures + 1 success
+        assert result["status"] == "success"

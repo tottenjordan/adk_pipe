@@ -14,6 +14,7 @@ import json
 import logging
 from google.adk.agents import Agent
 
+from agent_common import build_gemini
 from .config import EvalConfig
 from .evaluate import evaluate_all_concurrently, _build_summary
 from .schemas import CreativeEvaluationReport
@@ -116,7 +117,7 @@ def evaluate_all_creatives(tool_context) -> dict:
 
 # ADK Agent that wraps the evaluation tool
 creative_eval_agent = Agent(
-    model=_config.eval_model,
+    model=build_gemini(_config.eval_model),
     name="creative_eval_agent",
     include_contents="none",
     description="Evaluate the quality of generated ad copies and visual concepts using LLM-as-judge scoring.",

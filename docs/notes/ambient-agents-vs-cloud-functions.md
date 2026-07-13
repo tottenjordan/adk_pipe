@@ -161,6 +161,131 @@ experiment below; if p95 flirts with **10+ min**, they're out for the executor a
 **Optional upgrade:** add a `duration_secs FLOAT64` column to the trends table and write it in
 `update_rows_status` for first-class querying (deferred — it's a shared-schema change).
 
+### Measured p95 — 20-row concurrent batch (2026-07-13)
+
+First real run against a fresh, model-location-fixed `creative_agent` engine
+(`1272898564162322432`, gemini-3.x pinned to `global`; the earlier runs 404'd before completing).
+20 trends published to the orchestrator at 02:13:40Z, fanned out to the worker pool
+(`creative-worker-crf`, concurrency=1, autoscaled to ~20 instances).
+
+**Outcome: 11 PROCESSED, 9 FAILED (45% failure rate).**
+
+| Metric | PROCESSED only (n=11) | All 20 (to terminal state) |
+|---|---|---|
+| p50 | **351 s ≈ 5.9 min** | 469 s ≈ 7.8 min |
+| p90 | 464 s ≈ 7.7 min | — |
+| p95 | **475 s ≈ 7.9 min** (469 s interp) | 662 s ≈ 11.0 min |
+| min / max | 50 s / 475 s | 50 s / 679 s |
+
+**Every one of the 9 failures was the same error:**
+`google.genai.errors.ServerError: 503 UNAVAILABLE` ("The service is currently unavailable"),
+raised from the model service ~605–679 s (≈10–11 min) into the run — i.e. after the runs had done
+most of the work, then hit a sustained unavailability window. Failures are **not** a runtime-ceiling
+timeout (worker timeout is 900 s and none reached it); they are the **model backend shedding load**
+when ~20 pipelines hammer gemini-3.x `global` at once. The successful runs' durations climb
+monotonically with completion order (50 s → 475 s), the classic signature of contention, not of a
+per-run cost that grew.
+
+**Verdict on the runtime-ceiling question:** the *successful-run* p95 (~7.9 min) lands just under the
+~8-min bar, so the 10-min trigger-endpoint ceiling is **not** the immediate blocker for a single run.
+**But this does not clear ambient for promotion**, for two reasons:
+
+1. **The 45% 503 rate is the real blocker, and it is architecture-independent.** Both the current CRF
+   worker pool and an ambient trigger deployment call the same gemini-3.x `global` backend; ambient
+   would see the identical 503s under the same concurrency. Worse, ambient's *synchronous* trigger
+   model turns a mid-run 503 into a failed HTTP request near the 10-min ack ceiling, whereas our
+   worker catches it, marks the row `FAILED`, and the BQ lock lets a re-publish retry cleanly. The
+   idempotency lock argument from the compare table is *reinforced*, not weakened.
+2. **We must fix the 503s before trusting any p95.** Actions, in order: (a) **throttle fan-out
+   concurrency** — the orchestrator currently dispatches all `QUEUED` rows at once; cap the worker
+   pool `max-instances` (or batch the dispatch) so we don't self-inflict backend overload;
+   (b) **honor the retry config end-to-end** — `INFRA_RETRY` lists `genai ServerError`, but these
+   503s still surfaced as fatal, so the retry either exhausted its 3 attempts inside a long
+   unavailability window or the failing call path (image/video gen via the direct genai client in
+   `creative_agent/tools.py`) isn't covered by the ADK workflow `RetryConfig`; confirm and widen.
+   Re-measure p95 *after* the failure rate is near zero — a p95 computed over an 11/20 survivor set
+   is optimistic (it excludes exactly the slow, contended runs).
+
+### Root cause: fan-out concurrency vs. actual project quotas (2026-07-13)
+
+Pulled the live Vertex AI quotas (Service Usage API, project `hybrid-vertex` / `934903580331`) for
+the `global` endpoint our gemini-3.x models use. They are **far** smaller than the code assumes:
+
+| Model (role) | Metric | **Effective limit (project-wide, global)** |
+|---|---|---|
+| `gemini-3.1-pro-preview` (critic + eval judge) | `global_generate_content_requests_per_minute_per_project_per_base_model` | **5 RPM** |
+| flash / flash-lite (workers/planners) | same metric, default bucket | **5 RPM** |
+| `gemini-3.1-flash-image` (visual gen) | `generate_content_image_gen_per_project_per_base_model_global` | **2 RPM** |
+| input / output tokens | `global_generate_content_{input,output}_tokens_…` | unlimited (`-1`) |
+
+These are **per-project, shared across every instance** — not per-instance. Two hard mismatches:
+
+1. **Our in-code rate limiter is per-instance and set 200× too high.** `rate_limit_callback`
+   (`creative_agent/callbacks.py:99`) throttles at `rpm_quota = 1000` using a counter local to each
+   agent instance. The real shared ceiling is **5 RPM** for the pro model. Even one instance is
+   allowed 1000; twenty instances collectively assume 20,000 — against 5.
+2. **A single pipeline already exceeds the pro quota by itself.** The eval judge fires up to
+   `max_eval_workers = 12` **concurrent** `gemini-3.1-pro-preview` calls
+   (`creative_eval/config.py`), plus the critic model is invoked several more times — all against a
+   **5 RPM** pool. Visual generation needs ~6 image calls against a **2 RPM** pool. So even a
+   *serialized, single* run is quota-bound; 20 concurrent runs are fundamentally impossible under
+   these limits, which is why the losers of the quota race 503'd ~10 min in.
+
+**Back-of-envelope:** 20 runs × ~18 pro-calls each ÷ 5 RPM ≈ **72 min** of pro-quota time; 20 × ~6
+image-calls ÷ 2 RPM ≈ **60 min** of image-quota time. The batch is **quota-bound, not
+compute-bound** — the ~8-min survivor p95 only reflects the handful that won the quota race early.
+
+**Corrected fix (in priority order):**
+
+1. **Request a Vertex quota increase** for the `global` endpoint on the models we actually use
+   (pro RPM 5→e.g. 60+, image-gen RPM 2→e.g. 20+). These read like default sandbox limits;
+   throttling *cannot* buy throughput the quota forbids. This is the real unblock for any batch.
+2. **Make the fan-out quota-aware** until/unless quota rises: cap the worker pool so
+   `concurrent_runs × per-run-peak-RPM ≤ project RPM`. With today's numbers that means
+   effectively **max-instances = 1** (serialize trends), *and* cut in-run parallelism —
+   drop `max_eval_workers` to ~2–4 and add real backoff — so even the single run stays under 5/2 RPM.
+3. **Fix the rate limiter's mental model.** A per-instance counter can't protect a shared quota;
+   `rpm_quota` should reflect the *project* ceiling divided by expected concurrent instances, or be
+   replaced by reliance on server-side 429/backoff. Widen `INFRA_RETRY` to cover the direct genai
+   image/video path in `creative_agent/tools.py` and confirm backoff actually engages on 503.
+
+**Bottom line:** keep CRF as the executor (decision unchanged and strengthened). The ambient
+experiment — and any real fan-out throughput — is gated on a **quota increase** first; concurrency
+throttling is only the stopgap that keeps a single run alive under the current sandbox limits.
+
+### Post-hardening re-measure — 10-row serialized batch (2026-07-13)
+
+Re-ran the batch after landing the throttle-hardening (commit `a38dee0`): worker
+`max-instances = 1` (serialize trends), `timeout = 1800s`, in-run parallelism cut
+(`max_eval_workers 12→3`, creatives `6→4`), and image-gen backoff added — so a single run stays
+under the 5 RPM (pro) / 2 RPM (image) `global` ceilings. Deployed against `creative_agent` v5
+(reasoning-engine `1670341231277768704`). 10 trends published to the orchestrator ~03:24Z, fanned
+out to the serialized worker.
+
+**Outcome: 10 PROCESSED, 0 FAILED (0% failure rate).**
+
+| Metric | PROCESSED (n=10) |
+|---|---|
+| p50 | **338.9 s ≈ 5.6 min** |
+| p95 | **363.2 s ≈ 6.1 min** |
+| mean | 290.9 s ≈ 4.8 min |
+| min / max | 33.4 s / 366.2 s |
+
+Durations are tightly clustered ~308–366 s (two fast outliers at 33 s and 131 s — light-work rows).
+This is the first p95 computed over a **zero-failure** set, so it's not survivor-biased like the
+prior 11/20 run. The **45% → 0% failure collapse** confirms the root cause was the shared-quota
+contention, not a per-run compute or runtime-ceiling problem: serialize the fan-out under the 5/2
+RPM ceiling and every run completes cleanly.
+
+**Verdict — the runtime-ceiling question is settled:** true, unbiased **p95 ≈ 6.1 min**, comfortably
+under the ~8-min bar and the 10-min trigger-endpoint ack ceiling. A single creative run fits inside
+ambient's synchronous window with margin. **This clears the *duration* gate for the ambient
+experiment (GO).** The two standing blockers are unchanged and independent of this result:
+(1) real fan-out *throughput* is still gated on a **Vertex quota increase** — serialization makes a
+single run reliable but caps the batch at one-trend-at-a-time; (2) ambient still lacks the
+idempotency lock, so any experiment must reuse the BQ status lock. Net: **keep CRF as the executor;
+the ambient experiment is duration-cleared and quota/idempotency-gated.**
+
 ---
 
 ## Q3 — Target event-native architecture
