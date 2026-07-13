@@ -209,3 +209,41 @@ class TestBuildEvalBqRow:
             "eval_report_gcs_uri",
         }
         assert set(self._row().keys()) == expected
+
+
+class TestWriteTrendsUuidStash:
+    def test_stashes_creative_row_uuid(self, monkeypatch):
+        """write_trends_to_bq must record its generated uuid in state so the
+        eval row can foreign-key back to the creative row."""
+        import creative_agent.tools as t
+
+        class _Job:
+            errors = None
+            job_id = "j1"
+            num_dml_affected_rows = 1
+
+            def result(self):
+                return None
+
+        class _BQ:
+            def query(self, sql):
+                return _Job()
+
+        monkeypatch.setattr(t, "_get_bigquery_client", lambda: _BQ())
+
+        ctx = MockToolContext()
+        ctx.state.update(
+            {
+                "gcs_folder": "2026_07_13_run",
+                "agent_output_dir": "creative_output",
+                "target_search_trends": "tswift engaged",
+                "brand": "PRS",
+                "target_audience": "musicians",
+                "target_product": "SE CE24",
+                "key_selling_points": "wide tonal range",
+            }
+        )
+        result = t.write_trends_to_bq(ctx)
+        assert result["status"] == "success"
+        assert ctx.state["creative_row_uuid"]  # non-empty 8-char id
+        assert len(ctx.state["creative_row_uuid"]) == 8

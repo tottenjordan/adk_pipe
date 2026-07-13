@@ -6,6 +6,8 @@ import asyncio
 import logging
 import warnings
 import json
+import datetime
+from zoneinfo import ZoneInfo
 import shutil
 from PIL import Image
 from markdown_pdf import MarkdownPdf, Section
@@ -1252,6 +1254,7 @@ def write_trends_to_bq(tool_context: ToolContext) -> dict:
 
     # values to insert
     unique_id = f"{str(uuid.uuid4())[:8]}"
+    tool_context.state["creative_row_uuid"] = unique_id
     gcs_url_prefix = "https://console.cloud.google.com/storage/browser"
     gcs_folder = tool_context.state["gcs_folder"]
     gcs_dir = tool_context.state["agent_output_dir"]
@@ -1302,6 +1305,53 @@ def write_trends_to_bq(tool_context: ToolContext) -> dict:
     except Exception as e:
         # Propagate so ADK 2.0 RetryConfig can retry transient infra failures.
         logging.exception(f"Failed to insert row to bq: {e}")
+        raise
+
+
+def write_eval_report_to_bq(tool_context: ToolContext) -> dict:
+    """Write a one-row creative-evaluation summary to BigQuery.
+
+    Reads the report the evaluator stored in state, flattens it via
+    build_eval_bq_row, and streams it to the ``BQ_TABLE_EVALS`` table. The row
+    foreign-keys to the trend_creatives row via ``creative_row_uuid`` and links
+    to the full per-dimension JSON already saved in GCS.
+    """
+    report = tool_context.state.get("creative_evaluation_report")
+    if not report:
+        return {
+            "status": "error",
+            "message": "No creative_evaluation_report found in session state.",
+        }
+
+    now_dt = (
+        datetime.datetime.now(ZoneInfo("America/New_York"))
+        .replace(tzinfo=None)
+        .isoformat(sep=" ", timespec="seconds")
+    )
+
+    row = build_eval_bq_row(
+        report=report,
+        eval_uuid=str(uuid.uuid4())[:8],
+        creative_uuid=tool_context.state.get("creative_row_uuid", ""),
+        now_datetime=now_dt,
+        target_trend=tool_context.state.get("target_search_trends", ""),
+        brand=tool_context.state.get("brand", ""),
+        target_product=tool_context.state.get("target_product", ""),
+        eval_report_gcs_uri=tool_context.state.get("eval_report_gcs_uri", ""),
+    )
+
+    table_id = f"{config.BQ_PROJECT_ID}.{config.BQ_DATASET_ID}.{config.BQ_TABLE_EVALS}"
+    try:
+        bq_client = _get_bigquery_client()
+        errors = bq_client.insert_rows_json(table_id, [row])
+        if errors:
+            logging.error(f"Eval-row insert into {table_id} failed: {errors}")
+            raise RuntimeError(f"BigQuery insert returned errors: {errors}")
+        logging.info(f"Inserted eval summary row {row['uuid']} into {table_id}.")
+        return {"status": "success", "eval_uuid": row["uuid"]}
+    except Exception as e:
+        # Propagate so ADK 2.0 RetryConfig can retry transient infra failures.
+        logging.exception(f"Failed to insert eval row to bq: {e}")
         raise
 
 
