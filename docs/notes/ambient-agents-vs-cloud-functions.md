@@ -337,6 +337,15 @@ CRF path so we can observe the differences on real traffic before committing. Sk
 (ii) confirm willingness to self-host the agent on Cloud Run for the experiment (Agent Engine is
 the current managed runtime); (iii) a dedup strategy for the ambient path (reuse the BQ lock).
 
+**Status / recommendation (2026-07-13): DEFER — gated on a Vertex quota increase.** Q2's gating
+question (Q1 p95) is now settled and points to "stay": p95 ≈ 6.1 min clears the ~8-min bar and the
+10-min ack ceiling, yet the standing decision remains keep-CRF. The real bottleneck is not the
+executor but the unraisable Vertex quota (pro 5 RPM, image 2 RPM), which forces `max-instances = 1`
+on *either* path — so switching to ambient unlocks no throughput. Against that, the experiment costs
+a move off managed Agent Engine to self-hosted Cloud Run, a second live deployment, and a dedup
+build-out. Revisit only if the quota is raised (real fan-out becomes possible) or if consolidating
+onto a single Cloud Run deployment is worth it for operational simplicity alone.
+
 ---
 
 ## Related
