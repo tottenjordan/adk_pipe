@@ -552,19 +552,24 @@ gcloud run deploy $CREATIVE_WORKER_CRF_NAME \
   --source . \
   --function $CREATIVE_WORKER_ENTRYPOINT \
   --base-image $BASE_IMAGE \
-  --region $GOOGLE_CLOUD_LOCATION \
-  --max-instances 100 \
-  --timeout 900s \
+  --region $GCP_REGION \
+  --max-instances 1 \
+  --timeout 1800s \
   --concurrency=1 \
   --memory 8Gi \
   --cpu 4 \
   --no-allow-unauthenticated \
   --labels agent-workflow=trend-trawler,function=creative-worker
   
-  # Note: 
+  # Note:
+  # region=$GCP_REGION (us-central1) — Cloud Run is regional; GOOGLE_CLOUD_LOCATION
+  #   is `global` for the gemini-3.x models and is NOT a valid Cloud Run region.
   # concurrency=1 # ensures only one row is processed per instance
-  # max-instances=100 # Allow high scale-out
-  # timeout=900s # Longer timeout for the agent run
+  # max-instances=1 # SERIALIZE runs: gemini-3.1-pro-preview (5 RPM) and
+  #   flash-image (2 RPM) quotas are project-wide, so parallel runs 503. One run
+  #   at a time keeps the fan-out under quota. Raise only if quota is raised.
+  # timeout=1800s # a quota-paced single run (throttled eval + image backoff) is
+  #   slower than before; 900s risked killing it mid-run.
 ```
 
 <details>

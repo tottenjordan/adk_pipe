@@ -434,7 +434,7 @@ ad_copy_critic = Agent(
         *   **Trend Authenticity:** Does the use of the trending topic feel natural, relevant, and not forced?
         *   **Platform Viability:** Is the tone and length highly suitable for Instagram/TikTok?
         *   **Creative Excellence:** Is the idea compelling, clear, and likely to drive a high click-through rate?
-    3.  **Final Selection:** Select a subset of **exactly 6** ad copy ideas that demonstrate the highest potential.
+    3.  **Final Selection:** Select a subset of **exactly 4** ad copy ideas that demonstrate the highest potential.
     4.  **Enrich and Critique:** For each selected idea, you must add a high-converting **Call-to-Action (CTA)** and a **Detailed Rationale** explaining the strategic choice.
     5.  **Strict Output:** Output the final selection as a single JSON object, strictly following the schema in the `<OUTPUT_FORMAT>` block.
     </INSTRUCTIONS>
@@ -691,11 +691,11 @@ visual_concept_finalizer = Agent(
 
     <INSTRUCTIONS>
     1.  **Parse and Map:** Retrieve and parse the JSON list of revised visual concepts from the **`<CONTEXT>` block's `visual_concept_critique` input.
-    2.  **Final Selection Criteria:** Select a subset of **exactly 6** concepts that offer the best balance of:
-        *   **Creative Diversity:** Ensure the final 6 represent a good mix of styles/tones from the original ad copy set.
+    2.  **Final Selection Criteria:** Select a subset of **exactly 4** concepts that offer the best balance of:
+        *   **Creative Diversity:** Ensure the final 4 represent a good mix of styles/tones from the original ad copy set.
         *   **Commercial Viability:** Highest potential to drive engagement and sales, based on the `critique_summary`.
         *   **Technical Excellence:** Possesses the most compelling and robust `revised_image_generation_prompt`.
-    3.  **Finalize and Enrich:** For the 6 selected concepts, you must combine the original ad copy details with the revised visual details to create a final, unified creative brief.
+    3.  **Finalize and Enrich:** For the 4 selected concepts, you must combine the original ad copy details with the revised visual details to create a final, unified creative brief.
     4.  **Strict Output Format:** Output the final selection as a single JSON object, strictly following the schema in the `<OUTPUT_FORMAT>` block.
     </INSTRUCTIONS>
 

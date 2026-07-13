@@ -1,6 +1,8 @@
 import os
 import uuid
 import string
+import random
+import asyncio
 import logging
 import warnings
 import json
@@ -10,6 +12,7 @@ from markdown_pdf import MarkdownPdf, Section
 
 from google import genai
 from google.genai import types
+from google.genai import errors as genai_errors
 from google.cloud import storage
 from google.cloud import bigquery
 from google.adk.tools import ToolContext
@@ -145,6 +148,53 @@ def memorize(key: str, value: str, tool_context: ToolContext):
 #     return {"status": "ok"}
 
 
+# The image model (gemini-3.1-flash-image) is capped at ~2 RPM on the `global`
+# endpoint (project-wide, shared), and this direct genai call is NOT wrapped by
+# ADK's workflow RetryConfig (that only retries Agent *model* calls, not tool
+# functions). A concurrent burst reliably trips 503 UNAVAILABLE / 429
+# RESOURCE_EXHAUSTED, so we retry here with exponential backoff + jitter to pace
+# under quota. See docs/notes/ambient-agents-vs-cloud-functions.md.
+_IMAGE_GEN_MAX_ATTEMPTS = 5
+_IMAGE_GEN_BASE_DELAY_SECS = 20.0
+_IMAGE_GEN_MAX_DELAY_SECS = 90.0
+
+
+def _is_retryable_genai_error(exc: Exception) -> bool:
+    """True for transient/quota-paced genai errors: 5xx (ServerError) and 429."""
+    if isinstance(exc, genai_errors.ServerError):  # 5xx incl. 503 UNAVAILABLE
+        return True
+    if isinstance(exc, genai_errors.ClientError) and getattr(exc, "code", None) == 429:
+        return True
+    return False
+
+
+async def _generate_image_with_backoff(**kwargs):
+    """Invoke the image model, retrying transient 503/429 with backoff + jitter.
+
+    Non-retryable errors and the final attempt propagate unchanged so the caller
+    (and ADK) still see genuine failures.
+    """
+    for attempt in range(_IMAGE_GEN_MAX_ATTEMPTS):
+        try:
+            return client.models.generate_content(**kwargs)
+        except Exception as exc:
+            if (
+                not _is_retryable_genai_error(exc)
+                or attempt == _IMAGE_GEN_MAX_ATTEMPTS - 1
+            ):
+                raise
+            delay = min(
+                _IMAGE_GEN_MAX_DELAY_SECS, _IMAGE_GEN_BASE_DELAY_SECS * 2**attempt
+            )
+            delay += random.uniform(0, delay * 0.25)  # jitter to de-sync workers
+            logging.warning(
+                f"Image gen transient error "
+                f"(attempt {attempt + 1}/{_IMAGE_GEN_MAX_ATTEMPTS}): {exc}. "
+                f"Retrying in {delay:.1f}s"
+            )
+            await asyncio.sleep(delay)
+
+
 async def generate_image(
     tool_context: ToolContext,
 ):
@@ -175,7 +225,7 @@ async def generate_image(
     artifact_keys_list = []
     for entry in final_visual_concepts_list:
         try:
-            response = client.models.generate_content(
+            response = await _generate_image_with_backoff(
                 model=config.image_gen_model,
                 contents=entry["image_generation_prompt"],
                 config=types.GenerateContentConfig(

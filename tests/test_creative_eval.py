@@ -284,6 +284,16 @@ class TestEvalConfig:
         assert len(config.ad_copy_dimensions) == 6
         assert len(config.visual_dimensions) == 6
 
+    def test_max_eval_workers_within_pro_rpm_quota(self):
+        """The judge is gemini-3.1-pro-preview, capped at 5 RPM (global,
+        project-wide). Fanning out more concurrent judge calls than that trips
+        503/429, so the default must stay at/below the quota. See
+        docs/notes/ambient-agents-vs-cloud-functions.md."""
+        from creative_eval.config import EvalConfig
+
+        _PRO_RPM_QUOTA = 5
+        assert EvalConfig().max_eval_workers <= _PRO_RPM_QUOTA
+
     def test_custom_threshold(self):
         from creative_eval.config import EvalConfig
 
