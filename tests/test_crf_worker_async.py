@@ -1,0 +1,77 @@
+"""Tests for the async worker path of the CRF (issue #45).
+
+Guard the fix for #45: a streaming failure inside `async_send_message` must
+propagate so `_execute_agent_and_update_status` marks the row `FAILED` instead
+of silently marking it `PROCESSED`. Coroutines are driven with `asyncio.run`
+(no pytest-asyncio in this project).
+"""
+
+import asyncio
+from unittest.mock import MagicMock
+
+import pytest
+
+from cloud_funktions.creative_crf import main
+
+
+def test_async_send_message_reraises_streaming_error():
+    """A failure while streaming events must propagate, not be swallowed."""
+
+    async def _raising_stream(**kwargs):
+        raise RuntimeError("stream boom")
+        yield  # pragma: no cover - makes this an async generator
+
+    remote_agent = MagicMock()
+    remote_agent.async_stream_query = _raising_stream
+    session = {"id": "sess-1"}
+
+    with pytest.raises(RuntimeError, match="stream boom"):
+        asyncio.run(main.async_send_message(remote_agent, "user-1", session, "hi"))
+
+
+def test_streaming_error_marks_row_failed_end_to_end(monkeypatch):
+    """End-to-end: a streaming failure marks the row FAILED (never PROCESSED)."""
+
+    async def _raising_stream(**kwargs):
+        raise RuntimeError("stream boom")
+        yield  # pragma: no cover - makes this an async generator
+
+    async def _create_session(**kwargs):
+        return {"id": "sess-1"}
+
+    async def _delete_session(**kwargs):
+        return None
+
+    remote_agent = MagicMock()
+    remote_agent.async_stream_query = _raising_stream
+    remote_agent.async_create_session = _create_session
+    remote_agent.async_delete_session = _delete_session
+
+    fake_vertex = MagicMock()
+    fake_vertex.agent_engines.get.return_value = remote_agent
+    monkeypatch.setattr(main, "_get_vertex_client", lambda: fake_vertex)
+
+    # Win the lock so we proceed into the agent run.
+    monkeypatch.setattr(main, "acquire_processing_lock", lambda *a, **k: True)
+    update_mock = MagicMock()
+    monkeypatch.setattr(main, "update_rows_status", update_mock)
+
+    trend = {
+        "entry_timestamp": "2026-07-12T00:00:00",
+        "index": 0,
+        "brand": "BrandX",
+        "target_product": "prod",
+        "key_selling_point": "ksp",
+        "target_audience": "aud",
+        "target_search_trend": "trend",
+    }
+    bq = MagicMock()
+
+    with pytest.raises(RuntimeError, match="stream boom"):
+        asyncio.run(
+            main._execute_agent_and_update_status(trend, "agent-123", bq, "ds", "tbl")
+        )
+
+    statuses = [c.kwargs.get("status") for c in update_mock.call_args_list]
+    assert "FAILED" in statuses
+    assert "PROCESSED" not in statuses

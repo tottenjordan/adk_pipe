@@ -76,10 +76,23 @@ def _get_pubsub_client():
     return pubsub_v1.PublisherClient()
 
 
-client = vertexai.Client(
-    project=config.GOOGLE_CLOUD_PROJECT,
-    location=config.GCP_REGION,
-)  # pyright: ignore[reportCallIssue]
+_vertex_client = None
+
+
+def _get_vertex_client():
+    """Get a lazily-initialized Vertex AI client.
+
+    Lazy so importing this module does not require GCP credentials or network
+    access (lets the entrypoints be unit-tested), mirroring the BigQuery/Pub/Sub
+    client factories above.
+    """
+    global _vertex_client
+    if _vertex_client is None:
+        _vertex_client = vertexai.Client(
+            project=config.GOOGLE_CLOUD_PROJECT,
+            location=config.GCP_REGION,
+        )  # pyright: ignore[reportCallIssue]
+    return _vertex_client
 
 
 # ==============================
@@ -174,6 +187,9 @@ async def async_send_message(remote_agent, user_id, session, user_query) -> None
 
     except Exception as e:
         logging.error(f"Error during streaming: {type(e).__name__}: {e}")
+        # Propagate so the caller marks the row FAILED (not PROCESSED) and the
+        # worker Pub/Sub message NACKs for retry (#45).
+        raise
 
 
 async def create_agent_run(
@@ -196,7 +212,7 @@ async def create_agent_run(
     """
     logging.info(f"Invoking Agent Run {msg_dict['index'] + 1}...")
 
-    remote_agent = client.agent_engines.get(
+    remote_agent = _get_vertex_client().agent_engines.get(
         name=f"projects/{_PROJECT_NUMBER}/locations/{_LOCATION}/reasoningEngines/{agent_id}"
     )
 
@@ -372,6 +388,7 @@ def crf_entrypoint(cloud_event: CloudEvent) -> None:
     pubsub_message = cloud_event.data
 
     # Decode the base64 encoded message data
+    message_payload = None
     if "message" in pubsub_message and "data" in pubsub_message["message"]:
         data = base64.b64decode(pubsub_message["message"]["data"]).decode("utf-8")
         logging.info(f"Received Pub/Sub message data:\n\n{data}\n\n")
@@ -385,25 +402,30 @@ def crf_entrypoint(cloud_event: CloudEvent) -> None:
     else:
         logging.info("No data found in the Pub/Sub message.")
 
-    if message_payload and "bq_dataset" in message_payload:
-        dataset = message_payload["bq_dataset"]
-        table = message_payload["bq_table"]
-        agent_resource_id = message_payload["agent_resource_id"]
-        # The triggering message should pass the necessary config,
-        # OR the orchestrator uses a hardcoded worker topic name.
+    # Bail out cleanly (ACK) on a malformed/empty trigger message so we don't
+    # NACK into a redelivery loop. Only a payload carrying `bq_dataset` is work.
+    if not message_payload or "bq_dataset" not in message_payload:
+        logging.info("Trigger message has no 'bq_dataset'; nothing to process.")
+        return
 
-        # 1. Fetch ALL unprocessed rows (processed_status is NULL)
-        # optionally fetch FAILED rows
-        rows_to_process_query = f"""
-            SELECT * FROM `{bq_client.project}.{dataset}.{table}`
-            WHERE processed_status IS NULL 
-            ORDER BY entry_timestamp ASC
-        """
-        try:
-            df = bq_client.query(rows_to_process_query).to_dataframe()
-        except Exception as e:
-            logging.error(f"Error querying BQ: {e}")
-            raise  # Re-raise to signal failure to Pub/Sub
+    dataset = message_payload["bq_dataset"]
+    table = message_payload["bq_table"]
+    agent_resource_id = message_payload["agent_resource_id"]
+    # The triggering message should pass the necessary config,
+    # OR the orchestrator uses a hardcoded worker topic name.
+
+    # 1. Fetch ALL unprocessed rows (processed_status is NULL)
+    # optionally fetch FAILED rows
+    rows_to_process_query = f"""
+        SELECT * FROM `{bq_client.project}.{dataset}.{table}`
+        WHERE processed_status IS NULL
+        ORDER BY entry_timestamp ASC
+    """
+    try:
+        df = bq_client.query(rows_to_process_query).to_dataframe()
+    except Exception as e:
+        logging.error(f"Error querying BQ: {e}")
+        raise  # Re-raise to signal failure to Pub/Sub
 
     if df.empty:
         logging.info(
