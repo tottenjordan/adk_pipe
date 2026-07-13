@@ -141,6 +141,7 @@ BQ_DATASET_ID='trend_trawler'
 BQ_TABLE_TARGETS='target_trends_crf'
 BQ_TABLE_CREATIVES='trend_creatives'
 BQ_TABLE_ALL_TRENDS='all_trends'
+BQ_TABLE_EVALS='creative_evals'
 
 
 # Agent Engine (leave blank)
@@ -185,6 +186,12 @@ bq mk \
  -t \
  $BQ_PROJECT_ID:$BQ_DATASET_ID.$BQ_TABLE_CREATIVES \
  uuid:STRING,target_trend:STRING,datetime:DATETIME,creative_gcs:STRING,brand:STRING,target_audience:STRING,target_product:STRING,key_selling_point:STRING
+
+# creative evaluation summaries (one row per run; links to trend_creatives.uuid)
+bq mk \
+ -t \
+ $BQ_PROJECT_ID:$BQ_DATASET_ID.$BQ_TABLE_EVALS \
+ uuid:STRING,creative_uuid:STRING,datetime:DATETIME,target_trend:STRING,brand:STRING,target_product:STRING,overall_pass_rate:FLOAT,total_ad_copies:INTEGER,ad_copies_passed:INTEGER,avg_ad_copy_score:FLOAT,total_visual_concepts:INTEGER,visual_concepts_passed:INTEGER,avg_visual_score:FLOAT,weakest_dimensions:STRING,eval_report_gcs_uri:STRING
 ```
 </details>
 
