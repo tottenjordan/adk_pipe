@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, use } from "react";
+import { useEffect, useState, useCallback, use } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
@@ -13,6 +13,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { GcsWidget } from "@/components/gcs-widget";
 import { getSession, listArtifacts, getArtifact } from "@/lib/api";
+import { fetchEvalReport } from "@/lib/eval-report";
 import { formatStateValue } from "@/lib/utils";
 import type { Session } from "@/lib/types";
 
@@ -116,8 +117,35 @@ export default function ResultsPage({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [evalReport, setEvalReport] = useState<EvalReport | null>(null);
+  const [evalStatus, setEvalStatus] = useState<
+    "idle" | "loading" | "pending" | "error"
+  >("idle");
   const [stateOpen, setStateOpen] = useState(false);
   const [artifactsOpen, setArtifactsOpen] = useState(false);
+
+  // The eval report is the LAST artifact the run writes to GCS, so it can 404 if the
+  // results page opens before the run's final write lands. fetchEvalReport retries on
+  // 404 and reports "pending" so the UI can offer a refresh instead of silently
+  // showing nothing (see lib/eval-report.ts).
+  const loadEval = useCallback(async (sess: Session) => {
+    const folder = sess.state?.gcs_folder as string;
+    const subdir = sess.state?.agent_output_dir as string;
+    const bucket =
+      (sess.state?.gcs_bucket_name as string) ||
+      (sess.state?.gcs_bucket as string)?.replace(/^gs:\/\//, "") ||
+      "";
+    if (!(bucket && folder && subdir)) return;
+
+    setEvalStatus("loading");
+    const evalUrl = `/api/gcs?bucket=${encodeURIComponent(bucket)}&path=${encodeURIComponent(`${folder}/${subdir}/creative_eval_report.json`)}`;
+    const result = await fetchEvalReport<EvalReport>(evalUrl);
+    if (result.status === "found") {
+      setEvalReport(result.report);
+      setEvalStatus("idle");
+    } else {
+      setEvalStatus(result.status);
+    }
+  }, []);
 
   useEffect(() => {
     async function load() {
@@ -139,36 +167,19 @@ export default function ResultsPage({
           })
         );
         setArtifacts(loaded);
+        setLoading(false);
 
-        // Fetch eval report from GCS (optional — silently skip if missing)
-        const folder = sess.state?.gcs_folder as string;
-        const subdir = sess.state?.agent_output_dir as string;
-        const bucket =
-          (sess.state?.gcs_bucket_name as string) ||
-          (sess.state?.gcs_bucket as string)?.replace(/^gs:\/\//, "") ||
-          "";
-        if (bucket && folder && subdir) {
-          try {
-            const evalUrl = `/api/gcs?bucket=${encodeURIComponent(bucket)}&path=${encodeURIComponent(`${folder}/${subdir}/creative_eval_report.json`)}`;
-            const evalRes = await fetch(evalUrl);
-            if (evalRes.ok) {
-              const evalData = await evalRes.json();
-              setEvalReport(evalData);
-            }
-          } catch {
-            // eval report not available — skip
-          }
-        }
+        // Fetch eval report (retries on 404 for the last-written-artifact race).
+        await loadEval(sess);
       } catch (err) {
         setError(
           err instanceof Error ? err.message : "Failed to load results"
         );
-      } finally {
         setLoading(false);
       }
     }
     load();
-  }, [appName, userId, sessionId]);
+  }, [appName, userId, sessionId, loadEval]);
 
   if (loading) {
     return (
@@ -339,6 +350,38 @@ export default function ResultsPage({
           {gcsUri && <GcsWidget uri={gcsUri} />}
         </div>
       </div>
+
+      {/* Eval still generating / failed — offer a manual refresh (race: the report
+          is the last artifact written, so it can lag the page load). */}
+      {!evalReport &&
+        (evalStatus === "loading" ||
+          evalStatus === "pending" ||
+          evalStatus === "error") && (
+          <div className="glass rounded-2xl mb-6 px-5 py-4 flex items-center justify-between gap-4 animate-fadeIn">
+            <div>
+              <h2 className="text-sm font-semibold text-foreground">
+                Creative Evaluation
+              </h2>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                {evalStatus === "loading" &&
+                  "Loading evaluation report…"}
+                {evalStatus === "pending" &&
+                  "The evaluation report is still being generated — it's the final step of the run. Give it a moment, then refresh."}
+                {evalStatus === "error" &&
+                  "Couldn't load the evaluation report."}
+              </p>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              className="text-xs border-border bg-muted/50 hover:bg-muted shrink-0"
+              disabled={evalStatus === "loading" || !session}
+              onClick={() => session && loadEval(session)}
+            >
+              {evalStatus === "loading" ? "Loading…" : "Refresh"}
+            </Button>
+          </div>
+        )}
 
       {/* Eval summary header */}
       {evalReport && (
