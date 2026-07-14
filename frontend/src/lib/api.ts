@@ -6,6 +6,24 @@ import type { Session, AgentEvent } from "./types";
 // Override with NEXT_PUBLIC_API_BASE to call an api_server directly if needed.
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "/api/adk";
 
+/**
+ * Extract a human-readable error from a streamed run event, or null if the
+ * event is not an error. The ADK run_sse stream reports model/agent failures
+ * as data events (errorCode/errorMessage, or a terminal bare `error`) that
+ * carry no `content`, so a content-only consumer would drop them silently and
+ * the run would appear to stall. Callers should surface the returned message.
+ */
+export function getEventError(event: AgentEvent): string | null {
+  const raw = event.errorMessage || event.errorCode || event.error;
+  if (!raw) return null;
+  // A model 429 is the common case on the shared per-minute Vertex quota —
+  // give an actionable message instead of a raw stack-trace fragment.
+  if (/429|RESOURCE_EXHAUSTED|ResourceExhausted/.test(raw)) {
+    return "Vertex AI quota exhausted (429): the shared per-minute request quota was hit. Wait a minute and retry, and avoid running multiple agents at once.";
+  }
+  return raw;
+}
+
 export async function listApps(): Promise<string[]> {
   const res = await fetch(`${API_BASE}/list-apps`);
   if (!res.ok) throw new Error(`Failed to list apps: ${res.statusText}`);
