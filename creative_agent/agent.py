@@ -160,27 +160,62 @@ combined_web_evaluator = Agent(
 )
 
 
+# WS2 split — searcher half: runs the follow-up google_search and emits RAW
+# findings only. Separating tool-use from synthesis is the durable fix for the
+# empty-turn flake. Grounding metadata lives on this turn, so
+# `collect_research_sources_callback` stays here.
 enhanced_combined_searcher = Agent(
     model=build_gemini(config.worker_model),
     name="enhanced_combined_searcher",
     include_contents="none",
-    description="Executes follow-up searches and integrates new findings.",
+    description="Executes follow-up searches and returns raw new findings.",
     planner=BuiltInPlanner(
         thinking_config=types.ThinkingConfig(include_thoughts=False)
     ),
-    instruction="""Role: You are a focused Research Refinement Specialist. 
-    Your sole task is to execute the final set of follow-up web queries and generate a concise summary of only the *new* insights discovered.
+    instruction="""Role: You are a web research operator executing a final set of follow-up queries.
 
     <INSTRUCTIONS>
     1.  **Access Queries:** The follow-up queries are contained within the `combined_research_evaluation` JSON object in the `follow_up_queries` key.
     2.  **Execute Search:** Use the `google_search` tool to execute **all** queries from the `follow_up_queries` list.
-    3.  **Synthesize New Findings:** Synthesize the results of these new searches into a **brief, structured summary** focusing *only* on the information that addresses the identified research gap or opportunity.
+    3.  **Report RAW Findings:** For each query, list the concrete new facts, quotes, entities, dates, and numbers you found, grouped by query. Do NOT write a polished summary and do NOT omit specifics — the next agent needs the raw material. Plain text with light markdown is fine.
     </INSTRUCTIONS>
 
     <CONTEXT>
         <combined_research_evaluation>
         {combined_research_evaluation}
         </combined_research_evaluation>
+    </CONTEXT>
+
+    ---
+    ### Final Instruction
+    **Output the raw new findings grouped by query. Preserve specifics. Do not editorialize into a final summary — that is the next agent's job.**
+    """,
+    tools=[google_search],
+    output_key="refined_web_search_raw",
+    after_agent_callback=callbacks.collect_research_sources_callback,
+    after_model_callback=callbacks.log_empty_turn_finish_reason,
+)
+
+
+# WS2 split — synthesizer half: tool-free / planner-free. Reads the raw follow-up
+# findings (optional `{...?}` so an empty searcher turn degrades to empty synthesis
+# and the wrapper retries the whole pair rather than raising KeyError inside it) and
+# shapes them into the existing "New Research Findings" summary.
+refined_web_synthesizer = Agent(
+    model=build_gemini(config.worker_model),
+    name="refined_web_synthesizer",
+    include_contents="none",
+    description="Synthesizes the raw follow-up findings into a concise new-insights summary.",
+    instruction="""Role: You are a focused Research Refinement Specialist. Your sole task is to turn the raw follow-up findings into a concise summary of only the *new* insights discovered.
+
+    <INSTRUCTIONS>
+    Synthesize **only** the data in <refined_web_search_raw> into a **brief, structured summary** focusing *only* on the information that addresses the identified research gap or opportunity.
+    </INSTRUCTIONS>
+
+    <CONTEXT>
+        <refined_web_search_raw>
+        {refined_web_search_raw?}
+        </refined_web_search_raw>
     </CONTEXT>
 
     <OUTPUT_FORMAT>
@@ -192,20 +227,26 @@ enhanced_combined_searcher = Agent(
     </OUTPUT_FORMAT>
 
     """,
-    tools=[google_search],
     output_key="refined_web_search_insights",
-    after_agent_callback=callbacks.collect_research_sources_callback,
     after_model_callback=callbacks.log_empty_turn_finish_reason,
 )
 
+refined_search_and_synthesize = SequentialAgent(
+    name="refined_search_and_synthesize",
+    description="Runs the follow-up web search then synthesizes the new findings.",
+    sub_agents=[enhanced_combined_searcher, refined_web_synthesizer],
+)
 
-# Retry-on-empty: enhanced_combined_searcher (google_search + thinking) intermittently
-# returns no final text, leaving `refined_web_search_insights` unset. combined_report_composer
-# already guards this with `{refined_web_search_insights?}`, but retrying recovers the
-# refinement (a quality gain) instead of silently dropping it. Re-run until populated (bounded).
+
+# Retry-on-empty: if the searcher OR synthesizer emits no final text (leaving
+# `refined_web_search_insights` unset), re-run the whole pair until populated
+# (bounded). combined_report_composer already guards with
+# `{refined_web_search_insights?}`, but retrying recovers the refinement (a
+# quality gain) instead of silently dropping it. The wrapper runs only
+# sub_agents[0], so we wrap the SequentialAgent pair.
 enhanced_combined_searcher_resilient = RetryUntilKeyAgent(
     name="enhanced_combined_searcher_resilient",
-    sub_agents=[enhanced_combined_searcher],
+    sub_agents=[refined_search_and_synthesize],
     output_key="refined_web_search_insights",
     max_attempts=3,
 )
