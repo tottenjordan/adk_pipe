@@ -92,3 +92,7 @@ class CreativeEvaluationReport(BaseModel):
     summary: EvaluationSummary = Field(
         description="Aggregate statistics across all creatives."
     )
+    warnings: list[str] = Field(
+        default_factory=list,
+        description="Human-readable notes about degraded/incomplete pipeline steps (e.g. research retries exhausted).",
+    )

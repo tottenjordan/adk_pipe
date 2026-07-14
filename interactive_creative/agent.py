@@ -105,6 +105,8 @@ root_agent = Agent(
     ),
     before_agent_callback=callbacks.load_session_state,
     before_model_callback=callbacks.rate_limit_callback,
+    after_model_callback=callbacks.log_empty_turn_finish_reason,
+    after_agent_callback=callbacks.log_final_state_summary,
     retry_config=INFRA_RETRY,
 )
 

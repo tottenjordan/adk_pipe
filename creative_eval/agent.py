@@ -14,7 +14,11 @@ import json
 import logging
 from google.adk.agents import Agent
 
-from agent_common import build_gemini
+from agent_common import (
+    build_gemini,
+    collect_degradation_warnings,
+    log_empty_turn_finish_reason,
+)
 from .config import EvalConfig
 from .evaluate import evaluate_all_concurrently, _build_summary
 from .schemas import CreativeEvaluationReport
@@ -90,6 +94,10 @@ def evaluate_all_creatives(tool_context) -> dict:
 
     summary = _build_summary(ad_evals, visual_evals)
 
+    # Surface any research producers that exhausted their retries (RetryUntilKeyAgent
+    # markers) as structured, consumable degradation notes on the report.
+    warnings = collect_degradation_warnings(state)
+
     report = CreativeEvaluationReport(
         brand=campaign_context["brand"],
         target_product=campaign_context["target_product"],
@@ -97,6 +105,7 @@ def evaluate_all_creatives(tool_context) -> dict:
         ad_copy_evaluations=ad_evals,
         visual_concept_evaluations=visual_evals,
         summary=summary,
+        warnings=warnings,
     )
 
     # Store in session state
@@ -134,4 +143,5 @@ creative_eval_agent = Agent(
     Call the tool now and report the results.
     """,
     tools=[evaluate_all_creatives],
+    after_model_callback=log_empty_turn_finish_reason,
 )

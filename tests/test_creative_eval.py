@@ -217,6 +217,32 @@ class TestCreativeEvaluationReport:
         restored = CreativeEvaluationReport.model_validate_json(json_str)
         assert restored.brand == "Test"
 
+    def test_warnings_default_empty(self):
+        """A report built without `warnings` (existing call sites) defaults to []."""
+        from creative_eval.schemas import (
+            CreativeEvaluationReport,
+            EvaluationSummary,
+        )
+
+        report = CreativeEvaluationReport(
+            brand="Test",
+            target_product="Product",
+            target_search_trend="trend",
+            ad_copy_evaluations=[],
+            visual_concept_evaluations=[],
+            summary=EvaluationSummary(
+                total_ad_copies=0,
+                ad_copies_passed=0,
+                avg_ad_copy_score=0.0,
+                total_visual_concepts=0,
+                visual_concepts_passed=0,
+                avg_visual_score=0.0,
+                overall_pass_rate=0.0,
+                weakest_dimensions=[],
+            ),
+        )
+        assert report.warnings == []
+
 
 class TestScoreFromVerdicts:
     def test_computes_average(self):
@@ -529,7 +555,7 @@ class TestEvaluateAllCreativesInputs:
 class TestEvaluateAllCreativesOutputs:
     """Test that evaluate_all_creatives produces correct outputs."""
 
-    def _run_with_mocks(self, ad_scores, vis_scores, threshold=0.7):
+    def _run_with_mocks(self, ad_scores, vis_scores, threshold=0.7, extra_state=None):
         """Helper: run evaluate_all_creatives with mocked evaluators returning given scores."""
         from creative_eval.agent import evaluate_all_creatives
         from creative_eval.schemas import (
@@ -554,6 +580,7 @@ class TestEvaluateAllCreativesOutputs:
                 **SAMPLE_CAMPAIGN_STATE,
                 "ad_copy_critique": {"ad_copies": ad_copies},
                 "final_visual_concepts": {"visual_concepts": vis_concepts},
+                **(extra_state or {}),
             }
         )
 
@@ -669,6 +696,24 @@ class TestEvaluateAllCreativesOutputs:
         assert summary["total_ad_copies"] == 2
         assert summary["total_visual_concepts"] == 1
         assert 0.0 <= summary["overall_pass_rate"] <= 1.0
+
+    def test_warnings_empty_when_no_markers(self):
+        _, ctx = self._run_with_mocks(ad_scores=[0.8], vis_scores=[0.75])
+        report = ctx.state["creative_evaluation_report"]
+        assert report["warnings"] == []
+
+    def test_warnings_populated_from_retry_exhausted_markers(self):
+        """A `*__retry_exhausted` marker in state surfaces as a human-readable
+        warning on the stored eval report (degradation made consumable)."""
+        _, ctx = self._run_with_mocks(
+            ad_scores=[0.8],
+            vis_scores=[0.75],
+            extra_state={"gs_web_search_insights__retry_exhausted": True},
+        )
+        report = ctx.state["creative_evaluation_report"]
+        assert len(report["warnings"]) == 1
+        assert "gs_web_search_insights" in report["warnings"][0]
+        assert "__retry_exhausted" not in report["warnings"][0]
 
     def test_stored_report_validates_as_schema(self):
         """The dict stored in state should round-trip through the Pydantic schema."""

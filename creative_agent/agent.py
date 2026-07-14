@@ -66,6 +66,7 @@ merge_planners = Agent(
     **CRITICAL RULE: Output *only* the fully synthesized Strategic Brief in the format described in the <REPORT_STRUCTURE> block. Do not include the original content of the two input reports, and do not use introductory/concluding remarks outside of the suggested sections.**
     """,
     output_key="combined_web_search_insights",
+    after_model_callback=callbacks.log_empty_turn_finish_reason,
 )
 
 # 5.  **Risk & Constraint:** (A final, integrated summary of any cultural risks (from the trend) or market constraints (from the campaign) the creative team must avoid.)
@@ -155,6 +156,7 @@ combined_web_evaluator = Agent(
     disallow_transfer_to_peers=True,
     output_key="combined_research_evaluation",
     before_model_callback=callbacks.rate_limit_callback,
+    after_model_callback=callbacks.log_empty_turn_finish_reason,
 )
 
 
@@ -193,6 +195,7 @@ enhanced_combined_searcher = Agent(
     tools=[google_search],
     output_key="refined_web_search_insights",
     after_agent_callback=callbacks.collect_research_sources_callback,
+    after_model_callback=callbacks.log_empty_turn_finish_reason,
 )
 
 
@@ -289,6 +292,7 @@ combined_report_composer = Agent(
     output_key="combined_final_cited_report",
     after_agent_callback=callbacks.citation_replacement_callback,
     before_model_callback=callbacks.rate_limit_callback,
+    after_model_callback=callbacks.log_empty_turn_finish_reason,
 )
 
 # 5.  **## Final Risk Assessment & Constraints**
@@ -390,6 +394,7 @@ ad_copy_drafter = Agent(
     ),
     output_schema=AdCopyList,
     output_key="ad_copy_draft",
+    after_model_callback=callbacks.log_empty_turn_finish_reason,
 )
 
 
@@ -482,6 +487,7 @@ ad_copy_critic = Agent(
     ),
     output_schema=FinalAdCopyList,
     output_key="ad_copy_critique",
+    after_model_callback=callbacks.log_empty_turn_finish_reason,
 )
 
 
@@ -576,6 +582,7 @@ visual_concept_drafter = Agent(
     ),
     output_schema=VisualConceptList,
     output_key="visual_draft",
+    after_model_callback=callbacks.log_empty_turn_finish_reason,
 )
 
 
@@ -649,6 +656,7 @@ visual_concept_critic = Agent(
     ),
     output_schema=VisualConceptCritiqueList,
     output_key="visual_concept_critique",
+    after_model_callback=callbacks.log_empty_turn_finish_reason,
 )
 
 
@@ -747,6 +755,7 @@ visual_concept_finalizer = Agent(
     ),
     output_schema=VisualConceptFinalList,
     output_key="final_visual_concepts",
+    after_model_callback=callbacks.log_empty_turn_finish_reason,
 )
 
 
@@ -786,6 +795,7 @@ visual_generator = Agent(
         },
     ),
     before_model_callback=callbacks.rate_limit_callback,
+    after_model_callback=callbacks.log_empty_turn_finish_reason,
 )
 
 
@@ -898,6 +908,8 @@ root_agent = Agent(
     ),
     before_agent_callback=callbacks.load_session_state,
     before_model_callback=callbacks.rate_limit_callback,
+    after_model_callback=callbacks.log_empty_turn_finish_reason,
+    after_agent_callback=callbacks.log_final_state_summary,
 )
 
 # To ensure correct state management, **chain the calls** such that you only call the next `memorize` after the previous call has successfully responded.

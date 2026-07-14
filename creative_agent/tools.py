@@ -20,6 +20,7 @@ from google.cloud import bigquery
 from google.adk.tools import ToolContext
 
 from agent_common.locations import MODEL_LOCATION
+from agent_common import collect_degradation_warnings
 from .config import config
 
 
@@ -413,6 +414,24 @@ async def generate_image(
 #         return {"status": "failed", "error": str(e)}
 
 
+def _build_research_warning_banner(warnings: list[str]) -> str:
+    """Render a degradation banner for the HTML gallery, or "" when research was clean.
+
+    Pure (no client/state) so it is unit-testable. `warnings` come from
+    `collect_degradation_warnings(state)` — the single source of truth shared with
+    the eval report and the `research_gaps` BigQuery column.
+    """
+    if not warnings:
+        return ""
+    items = "".join(f"<li>{note}</li>" for note in warnings)
+    return f"""
+            <div class="research-warning">
+                <strong>⚠️ Research notes:</strong>
+                <ul>{items}</ul>
+            </div>
+    """
+
+
 async def save_creative_gallery_html(tool_context: ToolContext) -> dict:
     """
     Saves generated HTML report to Cloud Storage.
@@ -439,6 +458,13 @@ async def save_creative_gallery_html(tool_context: ToolContext) -> dict:
     final_ad_copy_dict = tool_context.state.get("ad_copy_critique")
     final_ad_copy_list = final_ad_copy_dict["ad_copies"]
 
+    # Degradation banner: if any research producer exhausted its retries, surface
+    # it on the deliverable (single source of truth shared with the eval report /
+    # BQ research_gaps). Empty string renders nothing on the happy path.
+    research_warning_banner = _build_research_warning_banner(
+        collect_degradation_warnings(tool_context.state)
+    )
+
     try:
         # =========================== #
         # CSS formatting for HTML
@@ -464,6 +490,25 @@ async def save_creative_gallery_html(tool_context: ToolContext) -> dict:
                     color: #333;
                     font-size: 3rem; /* You can adjust this value to your liking */ 
                     margin-bottom: 40px; /* Increased for better spacing */
+                }
+
+                /* Research degradation banner (rendered only when a research
+                   producer exhausted its retries; empty string otherwise). */
+                .research-warning {
+                    max-width: 1000px;
+                    margin: 0 auto 30px;
+                    padding: 16px 24px;
+                    background-color: #fff8e1;
+                    border: 1px solid #f0c36d;
+                    border-left: 6px solid #e0a800;
+                    border-radius: 8px;
+                    color: #5c4400;
+                    font-size: 1rem;
+                }
+
+                .research-warning ul {
+                    margin: 8px 0 0;
+                    padding-left: 20px;
                 }
 
                 /* Sub-header styles */
@@ -811,7 +856,7 @@ async def save_creative_gallery_html(tool_context: ToolContext) -> dict:
         HTML_BODY = f"""
 
             <h1>{brand} {target_product}</h1>
-
+            {research_warning_banner}
             <!-- Sub-headers -->
             <div class="sub-header-container">
                 <h3><strong>key selling point(s):</strong>  {key_selling_points}</h3>
@@ -1228,6 +1273,7 @@ def build_eval_bq_row(
     """
     summary = report.get("summary", {})
     weakest = summary.get("weakest_dimensions") or []
+    warnings = report.get("warnings") or []
     return {
         "uuid": eval_uuid,
         "creative_uuid": creative_uuid,
@@ -1244,6 +1290,9 @@ def build_eval_bq_row(
         "avg_visual_score": float(summary.get("avg_visual_score", 0.0)),
         "weakest_dimensions": ",".join(weakest),
         "eval_report_gcs_uri": eval_report_gcs_uri,
+        # Degradation notes (research retries exhausted, etc.) surfaced from the
+        # eval report's structured `warnings`. Empty string when research was clean.
+        "research_gaps": " | ".join(warnings),
     }
 
 
