@@ -172,6 +172,69 @@ def test_output_schemas_assigned():
     assert visual_concept_finalizer.output_schema == VisualConceptFinalList
 
 
+def test_creative_model_agents_have_finish_reason_callback():
+    """Every creative model agent must carry the empty-turn finish_reason
+    after_model_callback so a MAX_TOKENS/empty producer turn is logged (WS3 log
+    parity with trend_scout). The existing after_agent callbacks (citation /
+    source collection) live in a distinct slot and are untouched."""
+    from creative_agent import agent as ca
+    from creative_agent import callbacks
+
+    agents = [
+        ca.merge_planners,
+        ca.combined_web_evaluator,
+        ca.enhanced_combined_searcher,
+        ca.combined_report_composer,
+        ca.ad_copy_drafter,
+        ca.ad_copy_critic,
+        ca.visual_concept_drafter,
+        ca.visual_concept_critic,
+        ca.visual_concept_finalizer,
+        ca.visual_generator,
+        ca.root_agent,
+    ]
+    for a in agents:
+        assert a.after_model_callback is callbacks.log_empty_turn_finish_reason, (
+            f"{a.name} missing log_empty_turn_finish_reason after_model_callback"
+        )
+
+
+def test_creative_researcher_agents_have_finish_reason_callback():
+    """The planner + searcher sub-agents (the flaky producers) also get the
+    finish_reason callback."""
+    from creative_agent import callbacks
+    from creative_agent.sub_agents.trend_researcher import agent as tr
+    from creative_agent.sub_agents.campaign_researcher import agent as cr
+
+    for a in (tr.gs_web_planner, tr.gs_web_searcher):
+        assert a.after_model_callback is callbacks.log_empty_turn_finish_reason
+    for a in (cr.campaign_web_planner, cr.campaign_web_searcher):
+        assert a.after_model_callback is callbacks.log_empty_turn_finish_reason
+
+
+def test_creative_root_has_final_state_summary():
+    from creative_agent.agent import root_agent
+    from creative_agent import callbacks
+
+    assert root_agent.after_agent_callback is callbacks.log_final_state_summary
+    assert callable(root_agent.after_agent_callback)
+
+
+def test_creative_eval_agent_has_finish_reason_callback():
+    from creative_eval.agent import creative_eval_agent
+    from agent_common import log_empty_turn_finish_reason
+
+    assert creative_eval_agent.after_model_callback is log_empty_turn_finish_reason
+
+
+def test_interactive_root_has_observability_callbacks():
+    from interactive_creative.agent import root_agent
+    from creative_agent import callbacks
+
+    assert root_agent.after_model_callback is callbacks.log_empty_turn_finish_reason
+    assert root_agent.after_agent_callback is callbacks.log_final_state_summary
+
+
 def test_trend_scout_root_has_expected_tools():
     from trend_scout.agent import root_agent
 

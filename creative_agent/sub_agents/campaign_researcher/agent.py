@@ -89,6 +89,7 @@ campaign_web_planner = Agent(
     """,
     output_schema=CampaignQueryList,
     output_key="initial_campaign_queries",
+    after_model_callback=callbacks.log_empty_turn_finish_reason,
 )
 
 
@@ -139,6 +140,7 @@ campaign_web_searcher = Agent(
     tools=[google_search],
     output_key="campaign_web_search_insights",
     after_agent_callback=callbacks.collect_research_sources_callback,
+    after_model_callback=callbacks.log_empty_turn_finish_reason,
 )
 
 # Retry-on-empty: campaign_web_searcher (google_search + thinking) intermittently

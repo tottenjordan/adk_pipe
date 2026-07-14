@@ -11,6 +11,8 @@ from google.adk.sessions.state import State
 from google.adk.models.llm_request import LlmRequest
 from google.adk.agents.callback_context import CallbackContext
 
+from agent_common import observability
+
 from .config import config
 
 
@@ -19,6 +21,20 @@ logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
 )
 warnings.filterwarnings("ignore")
+
+
+# Shared debugging-observability callbacks (agent_common, WS3). Re-exported here
+# so creative_agent/agent.py references `callbacks.<name>`, matching trend_scout.
+log_empty_turn_finish_reason = observability.log_empty_turn_finish_reason
+log_final_state_summary = observability.make_final_state_summary(
+    "creative_agent",
+    (
+        "combined_final_cited_report",
+        "ad_copy_critique",
+        "final_visual_concepts",
+        "creative_evaluation_report",
+    ),
+)
 
 
 def _set_initial_states(source: Dict[str, Any], target: State | dict[str, Any]):
@@ -51,6 +67,8 @@ def load_session_state(callback_context: CallbackContext):
     Args:
         callback_context: The callback context.
     """
+    observability.log_run_start(callback_context)
+
     data = {}
     data["state"] = {
         "brand": "",

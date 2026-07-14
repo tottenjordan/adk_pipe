@@ -83,6 +83,7 @@ gs_web_planner = Agent(
     """,
     output_schema=TrendQueryList,
     output_key="initial_gs_queries",
+    after_model_callback=callbacks.log_empty_turn_finish_reason,
 )
 
 
@@ -132,6 +133,7 @@ gs_web_searcher = Agent(
     tools=[google_search],
     output_key="gs_web_search_insights",
     after_agent_callback=callbacks.collect_research_sources_callback,
+    after_model_callback=callbacks.log_empty_turn_finish_reason,
 )
 
 # 4.  **Risk Assessment:** (Identify any potential pitfalls, controversies, or negative associations linked to the trend that marketers must be aware of.)
