@@ -205,8 +205,10 @@ pick_trends_agent = Agent(
            Do NOT invent trends — output a single line noting that no trend
            research was available, and stop.
         1. Analyze the <trend_research> JSON.
-        2. Select the top 3 trends that offer the strongest narrative alignment with the <campaign_data>.
-        *   *Filter:* Discard trends that are too tragic, controversial, or irrelevant to be safe for brand association.
+        2. Select exactly 3 trends that offer the strongest narrative alignment
+           with the <campaign_data>. You MUST return 3. Only return fewer if
+           <trend_research> contains fewer than 3 distinct trends, in which case
+           return every trend available.
         3. For each selected trend, define the "Strategic Bridge"—the specific angle that connects the trend's cultural mood to the product's unique selling points.
 
         Output your findings in the requested format.
@@ -225,7 +227,7 @@ pick_trends_agent = Agent(
     **Constraint:** Do not repeat campaign metadata. Focus 100% on the analysis.
     """,
     generate_content_config=types.GenerateContentConfig(
-        temperature=1.5,
+        temperature=0.4,
         labels={
             "agentic_wf": "trend_scout",
             "agent": "trend_scout",
