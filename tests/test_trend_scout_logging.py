@@ -13,6 +13,7 @@ from types import SimpleNamespace
 
 from google.genai import types
 from google.adk.models.llm_response import LlmResponse
+from google.adk.sessions.state import State
 
 from trend_scout import callbacks
 
@@ -87,9 +88,15 @@ def test_partial_streaming_chunk_is_ignored(caplog):
 
 
 def test_final_state_summary_flags_missing_key(caplog):
+    # Use a real ADK State, not a plain dict: State supports .get()/__contains__
+    # but NOT iteration, so `for k in state` raises `KeyError: 0`. A dict here
+    # would be a false oracle (it was — this crashed live on 2026-07-14).
     ctx = SimpleNamespace(
         invocation_id="inv-2",
-        state={"raw_gtrends": ["a", "b"], "info_gtrends__retry_exhausted": True},
+        state=State(
+            value={"raw_gtrends": ["a", "b"], "info_gtrends__retry_exhausted": True},
+            delta={},
+        ),
     )
     with caplog.at_level(logging.INFO):
         callbacks.log_final_state_summary(ctx)

@@ -137,10 +137,14 @@ def log_final_state_summary(callback_context: CallbackContext):
     2026-07-14 incident. Also surfaces any `*__retry_exhausted` markers left by
     RetryUntilKeyAgent.
     """
+    # CallbackContext.state is an ADK State: it supports .get()/__contains__ but
+    # NOT iteration — `for k in state` falls back to integer indexing and raises
+    # `KeyError: 0`. Snapshot to a plain dict before scanning for markers.
     state = callback_context.state
+    snapshot = state.to_dict() if isinstance(state, State) else dict(state)
     keys = ("raw_gtrends", "info_gtrends", "selected_gtrends")
-    summary = {k: _describe_state_value(state.get(k)) for k in keys}
-    exhausted = sorted(k for k in state if k.endswith("__retry_exhausted"))
+    summary = {k: _describe_state_value(snapshot.get(k)) for k in keys}
+    exhausted = sorted(k for k in snapshot if k.endswith("__retry_exhausted"))
     logging.info(
         "trend_scout final state [invocation=%s]: %s%s",
         callback_context.invocation_id,
