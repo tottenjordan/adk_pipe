@@ -10,6 +10,7 @@ from google.adk.agents import Agent, SequentialAgent
 from agent_common import build_gemini
 from ...config import config
 from ... import callbacks
+from ...retry_agent import RetryUntilKeyAgent
 
 
 # --- config ---
@@ -136,8 +137,18 @@ gs_web_searcher = Agent(
 
 # 4.  **Risk Assessment:** (Identify any potential pitfalls, controversies, or negative associations linked to the trend that marketers must be aware of.)
 
+# Retry-on-empty: gs_web_searcher (google_search + thinking) intermittently
+# returns no final text, leaving `gs_web_search_insights` unset and crashing
+# merge_planners. Re-run until the key is populated (bounded by max_attempts).
+gs_web_searcher_resilient = RetryUntilKeyAgent(
+    name="gs_web_searcher_resilient",
+    sub_agents=[gs_web_searcher],
+    output_key="gs_web_search_insights",
+    max_attempts=3,
+)
+
 gs_sequential_planner = SequentialAgent(
     name="gs_sequential_planner",
     description="Executes sequential research tasks for trends in Google Search.",
-    sub_agents=[gs_web_planner, gs_web_searcher],
+    sub_agents=[gs_web_planner, gs_web_searcher_resilient],
 )

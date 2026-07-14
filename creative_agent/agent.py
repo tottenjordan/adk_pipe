@@ -15,6 +15,7 @@ from agent_common import build_gemini
 from .config import config, INFRA_RETRY
 from . import callbacks
 from . import tools
+from .retry_agent import RetryUntilKeyAgent
 from creative_eval.agent import creative_eval_agent
 
 
@@ -44,12 +45,13 @@ merge_planners = Agent(
     1.  **Analyze and Integrate:** Carefully read the two provided research summaries (Campaign and Trend).
     2.  **Cross-Reference:** Identify areas of overlap or synergy between the campaign insights and the trend analysis (e.g., does the trend reinforce a key selling point?)
     3.  **Synthesize and Structure:** Generate a new, integrated Strategic Brief, following the structure and guidance in the <REPORT_STRUCTURE> block. **Do not simply paste the old reports.**
+    4.  **Handle Missing Research:** If either the Campaign Insights or Trend Analysis section is empty, explicitly note the missing research in the brief (a short "Research Gaps" line) and synthesize from whatever is present — do not fabricate the missing report.
     </INSTRUCTIONS>
 
     <CONTEXT>
         The following research reports have been completed:
-        - **Campaign Insights:** {campaign_web_search_insights}
-        - **Trend Analysis:** {gs_web_search_insights}
+        - **Campaign Insights:** {campaign_web_search_insights?}
+        - **Trend Analysis:** {gs_web_search_insights?}
     </CONTEXT>
 
     <REPORT_STRUCTURE>
@@ -195,6 +197,18 @@ enhanced_combined_searcher = Agent(
 )
 
 
+# Retry-on-empty: enhanced_combined_searcher (google_search + thinking) intermittently
+# returns no final text, leaving `refined_web_search_insights` unset. combined_report_composer
+# already guards this with `{refined_web_search_insights?}`, but retrying recovers the
+# refinement (a quality gain) instead of silently dropping it. Re-run until populated (bounded).
+enhanced_combined_searcher_resilient = RetryUntilKeyAgent(
+    name="enhanced_combined_searcher_resilient",
+    sub_agents=[enhanced_combined_searcher],
+    output_key="refined_web_search_insights",
+    max_attempts=3,
+)
+
+
 # `{refined_web_search_insights?}` is intentionally OPTIONAL (trailing `?`): the upstream
 # enhanced_combined_searcher occasionally emits no final text (google_search + thinking
 # returning only tool calls), leaving its output_key unset. Without the `?`, ADK raises
@@ -290,7 +304,7 @@ combined_research_pipeline = SequentialAgent(
     sub_agents=[
         merge_parallel_insights,
         combined_web_evaluator,
-        enhanced_combined_searcher,
+        enhanced_combined_searcher_resilient,
         combined_report_composer,
     ],
 )

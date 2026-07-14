@@ -36,14 +36,20 @@ def test_creative_agent_root_output_key_not_set():
 
 def test_combined_research_pipeline_sub_agent_order():
     from creative_agent.agent import combined_research_pipeline
+    from creative_agent.retry_agent import RetryUntilKeyAgent
 
     names = [a.name for a in combined_research_pipeline.sub_agents]
     assert names == [
         "merge_parallel_insights",
         "combined_web_evaluator",
-        "enhanced_combined_searcher",
+        "enhanced_combined_searcher_resilient",
         "combined_report_composer",
     ]
+
+    w = combined_research_pipeline.sub_agents[2]
+    assert isinstance(w, RetryUntilKeyAgent)
+    assert w.output_key == "refined_web_search_insights"
+    assert w.sub_agents[0].output_key == "refined_web_search_insights"
 
 
 def test_ad_creative_pipeline_sub_agent_order():
@@ -70,6 +76,46 @@ def test_parallel_planner_has_both_researchers():
     names = [a.name for a in parallel_planner_agent.sub_agents]
     assert "gs_sequential_planner" in names
     assert "ca_sequential_planner" in names
+
+
+def test_campaign_producer_is_retry_wrapped():
+    """campaign_web_searcher must be wrapped in a RetryUntilKeyAgent so an empty
+    turn (no `campaign_web_search_insights`) retries instead of crashing
+    merge_planners."""
+    from creative_agent.retry_agent import RetryUntilKeyAgent
+    from creative_agent.sub_agents.campaign_researcher.agent import (
+        ca_sequential_planner,
+    )
+
+    w = ca_sequential_planner.sub_agents[-1]
+    assert isinstance(w, RetryUntilKeyAgent)
+    assert w.output_key == "campaign_web_search_insights"
+    assert w.sub_agents[0].output_key == "campaign_web_search_insights"
+
+
+def test_trend_producer_is_retry_wrapped():
+    """gs_web_searcher must be wrapped in a RetryUntilKeyAgent so an empty turn
+    (no `gs_web_search_insights`) retries instead of crashing merge_planners."""
+    from creative_agent.retry_agent import RetryUntilKeyAgent
+    from creative_agent.sub_agents.trend_researcher.agent import (
+        gs_sequential_planner,
+    )
+
+    w = gs_sequential_planner.sub_agents[-1]
+    assert isinstance(w, RetryUntilKeyAgent)
+    assert w.output_key == "gs_web_search_insights"
+    assert w.sub_agents[0].output_key == "gs_web_search_insights"
+
+
+def test_merge_planners_inputs_are_optional():
+    """merge_planners' two research inputs must use the optional `{var?}` syntax so
+    a producer that exhausted its retries (key unset) degrades observably instead of
+    raising KeyError: Context variable not found. Matched pair for the wrappers."""
+    from creative_agent.agent import merge_planners
+
+    instr = merge_planners.instruction
+    assert "{campaign_web_search_insights?}" in instr
+    assert "{gs_web_search_insights?}" in instr
 
 
 def test_output_keys_are_set_correctly():
