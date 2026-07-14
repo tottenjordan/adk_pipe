@@ -23,7 +23,7 @@ from google.adk.runners import InMemoryRunner
 from google.genai import types
 from pydantic import PrivateAttr
 
-from creative_agent.retry_agent import RetryUntilKeyAgent
+from agent_common import RetryUntilKeyAgent
 
 
 class _FlakyProducer(BaseAgent):

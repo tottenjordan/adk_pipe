@@ -155,9 +155,10 @@ Fan-out pattern using two Cloud Run Function deployments from the same source (`
 
 ### Configuration
 
-Shared config lives in **`agent_common/`** (a lightweight, ADK-free package bundled into every deployed engine):
+Shared building blocks live in **`agent_common/`** (a lightweight package bundled into every deployed engine; it depends on `google-adk` but is deliberately free of any per-agent business logic, and no cloud function imports it):
 - `agent_common/config.py` — `BaseAgentConfiguration`, the single source of truth for the model names, rate-limit knobs, and GCP/BigQuery env vars. Each agent's `config.py` subclasses it (`ResearchConfiguration(BaseAgentConfiguration)`) and adds only its genuine differences (e.g. `trend_scout`'s `SetupConfiguration`), which is why the two agent configs no longer drift.
 - `agent_common/retry.py` — `build_infra_retry(extra_exceptions=(), max_attempts=3)`, the one place the ADK `RetryConfig` transient-exception list is defined (`creative_agent` passes the genai `ServerError`).
+- `agent_common/retry_agent.py` — `RetryUntilKeyAgent`, the retry-on-empty producer wrapper (re-runs a flaky `google_search`+thinking producer until its `output_key` is populated, bounded; degrades observably on exhaustion). Shared here so both `creative_agent` and `trend_scout` wrap producers without cross-importing each other's package.
 - `agent_common/locations.py` + `agent_common/models.py` — `MODEL_LOCATION` (default `global`) and `build_gemini(name)`, which pin every gemini-3.x call's serving location in code (Agent Engine *reserves* `GOOGLE_CLOUD_LOCATION`, so it can't be forced via deploy env vars).
 
 The bucket name comes from `GOOGLE_CLOUD_STORAGE_BUCKET` (the var deploy actually ships) — not the local-only `GCS_BUCKET_NAME`. Key settings:
