@@ -10,6 +10,7 @@ from google.adk.agents import Agent, SequentialAgent
 from agent_common import build_gemini
 from ...config import config
 from ... import callbacks
+from ...retry_agent import RetryUntilKeyAgent
 
 
 # --- config ---
@@ -141,8 +142,18 @@ campaign_web_searcher = Agent(
     after_agent_callback=callbacks.collect_research_sources_callback,
 )
 
+# Retry-on-empty: campaign_web_searcher (google_search + thinking) intermittently
+# returns no final text, leaving `campaign_web_search_insights` unset and crashing
+# merge_planners. Re-run until the key is populated (bounded by max_attempts).
+campaign_web_searcher_resilient = RetryUntilKeyAgent(
+    name="campaign_web_searcher_resilient",
+    sub_agents=[campaign_web_searcher],
+    output_key="campaign_web_search_insights",
+    max_attempts=3,
+)
+
 ca_sequential_planner = SequentialAgent(
     name="ca_sequential_planner",
     description="Executes sequential research tasks for concepts described in the campaign guide.",
-    sub_agents=[campaign_web_planner, campaign_web_searcher],
+    sub_agents=[campaign_web_planner, campaign_web_searcher_resilient],
 )
