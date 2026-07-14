@@ -189,6 +189,24 @@ class TestBuildEvalBqRow:
         }
         assert self._row(report=report)["weakest_dimensions"] == ""
 
+    def test_research_gaps_pipe_joined_from_warnings(self):
+        report = {
+            **SAMPLE_REPORT,
+            "warnings": [
+                "Research step 'gs' exhausted.",
+                "Research step 'ca' exhausted.",
+            ],
+        }
+        row = self._row(report=report)
+        assert (
+            row["research_gaps"]
+            == "Research step 'gs' exhausted. | Research step 'ca' exhausted."
+        )
+
+    def test_research_gaps_empty_when_no_warnings(self):
+        # SAMPLE_REPORT has no `warnings` key -> empty string, not KeyError.
+        assert self._row()["research_gaps"] == ""
+
     def test_row_keys_match_table_schema(self):
         # Guard: row keys must equal the creative_evals column set exactly.
         expected = {
@@ -207,8 +225,30 @@ class TestBuildEvalBqRow:
             "avg_visual_score",
             "weakest_dimensions",
             "eval_report_gcs_uri",
+            "research_gaps",
         }
         assert set(self._row().keys()) == expected
+
+
+class TestResearchWarningBanner:
+    """The HTML gallery must surface research degradation as a visible banner."""
+
+    def test_empty_when_no_warnings(self):
+        from creative_agent.tools import _build_research_warning_banner
+
+        assert _build_research_warning_banner([]) == ""
+
+    def test_renders_banner_with_each_note(self):
+        from creative_agent.tools import _build_research_warning_banner
+
+        html = _build_research_warning_banner(
+            ["Research step 'gs' exhausted.", "Research step 'ca' exhausted."]
+        )
+        assert 'class="research-warning"' in html
+        assert "Research step 'gs' exhausted." in html
+        assert "Research step 'ca' exhausted." in html
+        # one list item per note
+        assert html.count("<li>") == 2
 
 
 class TestWriteTrendsUuidStash:
