@@ -5,7 +5,7 @@ api_server SSE/HTTP request timeout that kills UI runs during the ~5-min eval
 phase. Uses the same file artifact service directory (.adk/artifacts) the
 api_server uses so save_artifact calls persist identically. Verifies:
 
-  - each visual is rendered exactly once (visual_generator thinking_budget=0 fix)
+  - each visual is rendered exactly once (visual_generator thinking_level=LOW fix)
   - creative_evaluation_report is produced and eval_report_gcs_uri is set
   - the HTML gallery is built
   - a BigQuery row is written

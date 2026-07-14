@@ -440,19 +440,26 @@ def test_pick_trends_info_gtrends_optional():
     assert "{info_gtrends}" not in pick_trends_agent.instruction
 
 
-def test_trend_scout_orchestrator_thinking_budget_is_bounded_nonzero():
-    """The orchestrator's thinking budget must be a small POSITIVE number.
+def test_trend_scout_orchestrator_thinking_level_is_bounded_low():
+    """The orchestrator's thinking must be bounded to LOW — not off, not HIGH.
 
-    thinking_budget=0 makes gemini-3.5-flash emit MALFORMED_FUNCTION_CALL when
-    invoking an AgentTool with a structured argument (e.g. understand_trends_agent),
-    aborting the pipeline right after gather_trends so nothing is ever persisted to
-    BigQuery/GCS. An unbounded budget hits MAX_TOKENS. It must stay in between.
+    Disabled thinking (legacy thinking_budget=0, and its thinking_level analog
+    MINIMAL) makes gemini-3.5-flash emit MALFORMED_FUNCTION_CALL when invoking an
+    AgentTool with a structured argument (e.g. understand_trends_agent), aborting the
+    pipeline right after gather_trends so nothing is ever persisted to BigQuery/GCS.
+    HIGH (the default) hits MAX_TOKENS. LOW is the bounded middle. gemini-3.x
+    deprecated the numeric thinking_budget, so we pin thinking_level instead.
     """
+    from google.genai import types
+
     from trend_scout.agent import root_agent
 
-    budget = root_agent.planner.thinking_config.thinking_budget
-    assert budget is not None and budget > 0, (
-        f"orchestrator thinking_budget must be > 0 (was {budget})"
+    tc = root_agent.planner.thinking_config
+    assert tc.thinking_budget is None, (
+        "use thinking_level (not the deprecated numeric thinking_budget) on gemini-3"
+    )
+    assert tc.thinking_level == types.ThinkingLevel.LOW, (
+        f"orchestrator thinking_level must be LOW (was {tc.thinking_level})"
     )
 
 

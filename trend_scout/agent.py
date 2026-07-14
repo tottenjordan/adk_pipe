@@ -246,16 +246,18 @@ trend_scout = Agent(
     retry_config=INFRA_RETRY,
     description="Determines culturally relevant Search trends to use for ad creatives.",
     # Bounded thinking: the orchestrator's job is mechanical tool sequencing, not deep
-    # reasoning. On gemini-3 models, unbounded default thinking burned the entire output
-    # budget "thinking" and hit MAX_TOKENS before emitting a tool call — but the opposite
-    # extreme, thinking_budget=0, made gemini-3.5-flash emit MALFORMED_FUNCTION_CALL when
-    # invoking an AgentTool with a structured argument (e.g. understand_trends_agent), so
-    # the pipeline aborted right after gather_trends and never persisted anything. A small
-    # bounded budget gives the model just enough room to format tool calls correctly while
-    # still capping thinking well short of MAX_TOKENS.
+    # reasoning. On gemini-3 models, unbounded default thinking (HIGH) burned the entire
+    # output budget "thinking" and hit MAX_TOKENS before emitting a tool call — but the
+    # opposite extreme (thinking off) made gemini-3.5-flash emit MALFORMED_FUNCTION_CALL
+    # when invoking an AgentTool with a structured argument (e.g. understand_trends_agent),
+    # so the pipeline aborted right after gather_trends and never persisted anything. LOW
+    # gives the model just enough room to format tool calls correctly while capping
+    # thinking well short of MAX_TOKENS. NOTE: gemini-3.x deprecated the numeric
+    # thinking_budget in favour of thinking_level; MINIMAL ("no thinking" for most
+    # queries) reintroduces the MALFORMED_FUNCTION_CALL landmine, so LOW is the floor here.
     planner=BuiltInPlanner(
         thinking_config=types.ThinkingConfig(
-            thinking_budget=512, include_thoughts=False
+            thinking_level=types.ThinkingLevel.LOW, include_thoughts=False
         )
     ),
     instruction="""You are the Lead Campaign Orchestrator.
