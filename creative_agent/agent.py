@@ -812,14 +812,21 @@ visual_generator = Agent(
     retry_config=INFRA_RETRY,
     include_contents="none",  # new
     description="Generate final visuals using image generation tools",
-    # thinking_budget=0: this is a mechanical single-tool step, not a reasoning task.
-    # Without it, gemini-3 would emit MULTIPLE parallel `generate_image` calls in one
-    # turn — and parallel calls all read state before any commits, so the tool's
-    # idempotency guard (_images_generated) can't dedupe them, causing every image to
-    # be rendered 2x (double the image-gen cost). One call is all that's needed:
-    # generate_image itself loops over every concept in final_visual_concepts.
+    # thinking_level=LOW: this is a mechanical single-tool step, not a reasoning task,
+    # so we constrain thinking to keep the model from emitting MULTIPLE parallel
+    # `generate_image` calls in one turn — parallel calls all read state before any
+    # commits, so the tool's idempotency guard (_images_generated) can't dedupe them,
+    # causing every image to be rendered 2x (double the image-gen cost). One call is
+    # all that's needed: generate_image loops over every concept in
+    # final_visual_concepts. (The real dedup safeguard is _images_generated + the
+    # "call EXACTLY ONCE" instruction; the low thinking level is belt-and-suspenders.)
+    # NOTE: gemini-3.x deprecated the numeric thinking_budget; thinking_budget=0 also
+    # never disabled thinking on gemini-3 (that only worked on 2.5). LOW is the lowest
+    # level Pro supports — MINIMAL is Flash/Flash-Lite only and 400s on Pro.
     planner=BuiltInPlanner(
-        thinking_config=types.ThinkingConfig(thinking_budget=0, include_thoughts=False)
+        thinking_config=types.ThinkingConfig(
+            thinking_level=types.ThinkingLevel.LOW, include_thoughts=False
+        )
     ),
     instruction="""You are a visual content producer generating image creatives.
     Call the `generate_image` tool EXACTLY ONCE — a single function call, never in
