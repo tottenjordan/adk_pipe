@@ -19,6 +19,7 @@ from google.adk.agents import BaseAgent
 from google.adk.agents.invocation_context import InvocationContext
 from google.adk.events.event import Event
 from google.adk.events.event_actions import EventActions
+from google.adk.agents import SequentialAgent
 from google.adk.runners import InMemoryRunner
 from google.genai import types
 from pydantic import PrivateAttr
@@ -50,6 +51,66 @@ class _FlakyProducer(BaseAgent):
         self._runs += 1
         if self._runs <= self.fail_first:
             # No state_delta → output_key never written (the landmine).
+            yield Event(invocation_id=ctx.invocation_id, author=self.name)
+            return
+        yield Event(
+            invocation_id=ctx.invocation_id,
+            author=self.name,
+            actions=EventActions(state_delta={self.output_key: self.value}),
+        )
+
+
+class _RawSearcher(BaseAgent):
+    """Test double for the tool-using *searcher* half of a split producer.
+
+    Always writes an intermediate ``raw_key`` (simulating a healthy
+    google_search turn that emits raw findings). ``runs`` counts invocations.
+    """
+
+    raw_key: str
+    raw_value: str = "RAW_FINDINGS"
+    _runs: int = PrivateAttr(default=0)
+
+    @property
+    def runs(self) -> int:
+        return self._runs
+
+    async def _run_async_impl(
+        self, ctx: InvocationContext
+    ) -> AsyncGenerator[Event, None]:
+        self._runs += 1
+        yield Event(
+            invocation_id=ctx.invocation_id,
+            author=self.name,
+            actions=EventActions(state_delta={self.raw_key: self.raw_value}),
+        )
+
+
+class _FlakySynthesizer(BaseAgent):
+    """Test double for the tool-free *synthesizer* half of a split producer.
+
+    Reads ``raw_key`` from state (asserting the searcher ran first), then for
+    its first ``fail_first`` runs emits no ``output_key`` (the empty-turn
+    landmine), and thereafter writes the real value. ``runs`` counts invocations.
+    """
+
+    raw_key: str
+    output_key: str
+    value: str = "REAL_REPORT"
+    fail_first: int = 0
+    _runs: int = PrivateAttr(default=0)
+
+    @property
+    def runs(self) -> int:
+        return self._runs
+
+    async def _run_async_impl(
+        self, ctx: InvocationContext
+    ) -> AsyncGenerator[Event, None]:
+        self._runs += 1
+        # The searcher in the same sequence must have populated raw_key first.
+        assert ctx.session.state.get(self.raw_key) == "RAW_FINDINGS"
+        if self._runs <= self.fail_first:
             yield Event(invocation_id=ctx.invocation_id, author=self.name)
             return
         yield Event(
@@ -126,3 +187,51 @@ def test_bounded_and_observable_when_never_populated(caplog):
     assert session.state.get("report") is None
     assert session.state.get("report__retry_exhausted") is True
     assert any("report" in r.message for r in caplog.records)
+
+
+def test_retries_sequential_pair_until_synthesizer_populates():
+    """WS2: the wrapper watches a SequentialAgent[searcher, synthesizer] pair.
+
+    RetryUntilKeyAgent runs only ``sub_agents[0]``, so the split producer wraps
+    the [searcher, synthesizer] pair in a SequentialAgent and passes THAT as the
+    sole sub_agent. Each retry must re-run the whole sequence (searcher AND
+    synthesizer), not just the synthesizer, until the synthesizer writes the
+    consumer-facing key.
+    """
+    searcher = _RawSearcher(name="searcher", raw_key="report_raw")
+    synth = _FlakySynthesizer(
+        name="synth", raw_key="report_raw", output_key="report", fail_first=2
+    )
+    pair = SequentialAgent(name="search_and_synthesize", sub_agents=[searcher, synth])
+    wrapper = RetryUntilKeyAgent(
+        name="retry_wrapper", sub_agents=[pair], output_key="report", max_attempts=3
+    )
+
+    session = _run(wrapper)
+
+    # The whole pair re-ran three times: searcher runs each attempt too.
+    assert searcher.runs == 3
+    assert synth.runs == 3
+    assert session.state.get("report") == "REAL_REPORT"
+    assert session.state.get("report_raw") == "RAW_FINDINGS"
+
+
+def test_sequential_pair_exhaustion_is_observable():
+    """WS2: when the synthesizer never populates, the wrapped pair stops at
+    max_attempts, leaves the key unset, and records the retry-exhausted marker
+    (so WS3's degradation surfaces still fire on the split producer)."""
+    searcher = _RawSearcher(name="searcher", raw_key="report_raw")
+    synth = _FlakySynthesizer(
+        name="synth", raw_key="report_raw", output_key="report", fail_first=99
+    )
+    pair = SequentialAgent(name="search_and_synthesize", sub_agents=[searcher, synth])
+    wrapper = RetryUntilKeyAgent(
+        name="retry_wrapper", sub_agents=[pair], output_key="report", max_attempts=3
+    )
+
+    session = _run(wrapper)
+
+    assert searcher.runs == 3
+    assert synth.runs == 3
+    assert session.state.get("report") is None
+    assert session.state.get("report__retry_exhausted") is True
