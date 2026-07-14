@@ -1,11 +1,15 @@
 """Retry-on-empty wrapper for research producer agents.
 
+Shared across the agent packages (``creative_agent``, ``trend_scout``, …); lives
+in ``agent_common`` so any engine can wrap a flaky producer without pulling in an
+unrelated agent package. Import via ``from agent_common import RetryUntilKeyAgent``.
+
 ## Why this exists
 
-creative_agent's research pipeline is brittle: a producer agent that finishes
-*without* writing its ``output_key`` makes the next consumer's ``{var}``
-instruction template raise ``KeyError: Context variable not found`` and abort
-the whole run. google_search + thinking agents on gemini-3 hit this
+The research pipelines are brittle: a producer agent that finishes *without*
+writing its ``output_key`` makes the next consumer's ``{var}`` instruction
+template raise ``KeyError: Context variable not found`` and abort the whole run.
+google_search + thinking agents on gemini-3 hit this
 intermittently — they can burn the output budget "thinking" (MAX_TOKENS),
 return only tool-call parts, or emit a MALFORMED_FUNCTION_CALL, any of which
 leaves the final text (and thus the ``output_key``) empty.

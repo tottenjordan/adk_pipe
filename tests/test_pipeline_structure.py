@@ -36,7 +36,7 @@ def test_creative_agent_root_output_key_not_set():
 
 def test_combined_research_pipeline_sub_agent_order():
     from creative_agent.agent import combined_research_pipeline
-    from creative_agent.retry_agent import RetryUntilKeyAgent
+    from agent_common import RetryUntilKeyAgent
 
     names = [a.name for a in combined_research_pipeline.sub_agents]
     assert names == [
@@ -82,7 +82,7 @@ def test_campaign_producer_is_retry_wrapped():
     """campaign_web_searcher must be wrapped in a RetryUntilKeyAgent so an empty
     turn (no `campaign_web_search_insights`) retries instead of crashing
     merge_planners."""
-    from creative_agent.retry_agent import RetryUntilKeyAgent
+    from agent_common import RetryUntilKeyAgent
     from creative_agent.sub_agents.campaign_researcher.agent import (
         ca_sequential_planner,
     )
@@ -96,7 +96,7 @@ def test_campaign_producer_is_retry_wrapped():
 def test_trend_producer_is_retry_wrapped():
     """gs_web_searcher must be wrapped in a RetryUntilKeyAgent so an empty turn
     (no `gs_web_search_insights`) retries instead of crashing merge_planners."""
-    from creative_agent.retry_agent import RetryUntilKeyAgent
+    from agent_common import RetryUntilKeyAgent
     from creative_agent.sub_agents.trend_researcher.agent import (
         gs_sequential_planner,
     )
@@ -180,7 +180,7 @@ def test_trend_scout_root_has_expected_tools():
     ]
     expected = [
         "gather_trends_agent",
-        "understand_trends_agent",
+        "understand_trends_agent_resilient",
         "pick_trends_agent",
         "save_search_trends_to_session_state",
         "save_session_state_to_gcs",
@@ -200,6 +200,35 @@ def test_trend_scout_sub_agent_output_keys():
 
     assert understand_trends_agent.output_key == "info_gtrends"
     assert pick_trends_agent.output_key == "selected_gtrends"
+
+
+def test_understand_trends_is_retry_wrapped():
+    """understand_trends_agent (google_search + thinking) intermittently emits no
+    final text, leaving `info_gtrends` unset and crashing pick_trends_agent. It
+    must be exposed to the orchestrator wrapped in a RetryUntilKeyAgent so an
+    empty turn retries instead of aborting the run."""
+    from agent_common import RetryUntilKeyAgent
+    from google.adk.tools.agent_tool import AgentTool
+    from trend_scout.agent import root_agent
+
+    wrapped = [
+        t.agent
+        for t in root_agent.tools
+        if isinstance(t, AgentTool) and isinstance(t.agent, RetryUntilKeyAgent)
+    ]
+    matching = [a for a in wrapped if a.output_key == "info_gtrends"]
+    assert matching, "no AgentTool wraps a RetryUntilKeyAgent producing info_gtrends"
+    assert matching[0].sub_agents[0].output_key == "info_gtrends"
+
+
+def test_pick_trends_info_gtrends_optional():
+    """pick_trends_agent must tolerate a missing info_gtrends (orchestrator-skip
+    or retry-exhaustion) via the optional `{info_gtrends?}` template syntax rather
+    than raising KeyError: Context variable not found."""
+    from trend_scout.agent import pick_trends_agent
+
+    assert "{info_gtrends?}" in pick_trends_agent.instruction
+    assert "{info_gtrends}" not in pick_trends_agent.instruction
 
 
 def test_trend_scout_orchestrator_thinking_budget_is_bounded_nonzero():

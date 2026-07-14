@@ -5,8 +5,10 @@ import warnings
 import pandas as pd
 from typing import Dict, Any
 
+from google.genai import types
 from google.adk.sessions.state import State
 from google.adk.models.llm_request import LlmRequest
+from google.adk.models.llm_response import LlmResponse
 from google.adk.agents.callback_context import CallbackContext
 
 from .config import config
@@ -48,6 +50,17 @@ def load_session_state(callback_context: CallbackContext):
     Args:
         callback_context: The callback context.
     """
+    # Correlation line: ties this run to a session transcript. The frontend mints
+    # a throwaway user_id per submission, so without this a UI failure can't be
+    # traced back to a specific session for post-mortem inspection.
+    logging.info(
+        "run start: agent=%s invocation=%s session=%s user=%s",
+        callback_context.agent_name,
+        callback_context.invocation_id,
+        callback_context.session.id,
+        callback_context.user_id,
+    )
+
     data = {}
     data["state"] = {
         "brand": "",  # BRAND,
@@ -101,3 +114,88 @@ def rate_limit_callback(
         callback_context.state["request_count"] = request_count
 
     return
+
+
+def _describe_state_value(value: Any) -> str:
+    """Compact, non-verbose description of a state value's presence."""
+    if value is None:
+        return "MISSING"
+    if isinstance(value, str):
+        return f"present(len={len(value)})" if value.strip() else "empty"
+    if isinstance(value, (list, dict)):
+        return f"present({type(value).__name__}, n={len(value)})"
+    return "present"
+
+
+def log_final_state_summary(callback_context: CallbackContext):
+    """Log the presence of trend_scout's load-bearing state keys at end of run.
+
+    Set as the root agent's `after_agent_callback`. Makes it trivial to see
+    *where* a run stalled: e.g. `raw_gtrends` present but `info_gtrends` MISSING
+    means the understand step was skipped or emitted an empty turn — the exact
+    ambiguity that was impossible to resolve from logs alone during the
+    2026-07-14 incident. Also surfaces any `*__retry_exhausted` markers left by
+    RetryUntilKeyAgent.
+    """
+    # CallbackContext.state is an ADK State: it supports .get()/__contains__ but
+    # NOT iteration — `for k in state` falls back to integer indexing and raises
+    # `KeyError: 0`. Snapshot to a plain dict before scanning for markers.
+    state = callback_context.state
+    snapshot = state.to_dict() if isinstance(state, State) else dict(state)
+    keys = ("raw_gtrends", "info_gtrends", "selected_gtrends")
+    summary = {k: _describe_state_value(snapshot.get(k)) for k in keys}
+    exhausted = sorted(k for k in snapshot if k.endswith("__retry_exhausted"))
+    logging.info(
+        "trend_scout final state [invocation=%s]: %s%s",
+        callback_context.invocation_id,
+        summary,
+        f" retry_exhausted={exhausted}" if exhausted else "",
+    )
+
+
+def log_empty_turn_finish_reason(
+    callback_context: CallbackContext, llm_response: LlmResponse
+) -> None:
+    """Log finish_reason + token usage when a model turn produced no usable output.
+
+    Set as `after_model_callback` on the thinking/tool agents. This is the
+    root-cause signal for the producer-empty landmine: a thinking agent that
+    burns its output budget returns finish_reason=MAX_TOKENS (or
+    MALFORMED_FUNCTION_CALL) with no text and no tool call, silently leaving its
+    `output_key` unset. Normal text turns (STOP + text) and tool-call turns
+    (STOP + function_call) are NOT logged, so this stays quiet on the happy path.
+    """
+    if llm_response is None or llm_response.partial:
+        return None
+
+    parts = (
+        llm_response.content.parts
+        if llm_response.content and llm_response.content.parts
+        else []
+    )
+    has_text = any(getattr(p, "text", None) for p in parts)
+    has_func = any(getattr(p, "function_call", None) for p in parts)
+    finish_reason = llm_response.finish_reason
+
+    is_normal = finish_reason in (
+        None,
+        types.FinishReason.STOP,
+    ) and (has_text or has_func)
+    if is_normal:
+        return None
+
+    usage = llm_response.usage_metadata
+    logging.warning(
+        "empty/abnormal model turn in %s [invocation=%s]: finish_reason=%s "
+        "has_text=%s has_func_call=%s prompt_tokens=%s candidates_tokens=%s "
+        "thoughts_tokens=%s",
+        callback_context.agent_name,
+        callback_context.invocation_id,
+        finish_reason,
+        has_text,
+        has_func,
+        getattr(usage, "prompt_token_count", None) if usage else None,
+        getattr(usage, "candidates_token_count", None) if usage else None,
+        getattr(usage, "thoughts_token_count", None) if usage else None,
+    )
+    return None

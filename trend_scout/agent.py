@@ -15,7 +15,7 @@ from .tools import (
     write_to_file,
     memorize,
 )
-from agent_common import build_gemini
+from agent_common import build_gemini, RetryUntilKeyAgent
 from . import callbacks
 from .config import config, INFRA_RETRY
 
@@ -54,6 +54,7 @@ gather_trends_agent = Agent(
     ),
     # output_key="start_gtrends",
     before_model_callback=callbacks.rate_limit_callback,
+    after_model_callback=callbacks.log_empty_turn_finish_reason,
 )
 
 
@@ -105,6 +106,25 @@ understand_trends_agent = Agent(
     tools=[google_search],
     output_key="info_gtrends",
     before_model_callback=callbacks.rate_limit_callback,
+    after_model_callback=callbacks.log_empty_turn_finish_reason,
+)
+
+
+# Retry-on-empty: understand_trends_agent runs google_search under a thinking
+# planner and synthesizes `info_gtrends` in one turn; on gemini-3 it intermittently
+# emits no final text, leaving the key unset and crashing pick_trends_agent with
+# `KeyError: Context variable not found`. Re-run until populated (bounded). It is
+# exposed to the orchestrator as an AgentTool, so the retry runs inside AgentTool's
+# isolated sub-Runner — state-delta timing across that boundary is identical to the
+# top-level case the wrapper was verified against (agent_tool.py forwards each inner
+# event's state_delta before our generator resumes). Set `description` so AgentTool
+# builds the same tool declaration the orchestrator already knows.
+understand_trends_agent_resilient = RetryUntilKeyAgent(
+    name="understand_trends_agent_resilient",
+    description=understand_trends_agent.description,
+    sub_agents=[understand_trends_agent],
+    output_key="info_gtrends",
+    max_attempts=3,
 )
 
 
@@ -129,11 +149,14 @@ pick_trends_agent = Agent(
         </campaign_data>
 
         <trend_research>
-        {info_gtrends}
+        {info_gtrends?}
         </trend_research>
     </CONTEXT>
 
     <INSTRUCTIONS>
+        0. If <trend_research> is empty, the upstream trend research did not run.
+           Do NOT invent trends — output a single line noting that no trend
+           research was available, and stop.
         1. Analyze the <trend_research> JSON.
         2. Select the top 3 trends that offer the strongest narrative alignment with the <campaign_data>.
         *   *Filter:* Discard trends that are too tragic, controversial, or irrelevant to be safe for brand association.
@@ -164,6 +187,7 @@ pick_trends_agent = Agent(
     ),
     output_key="selected_gtrends",
     before_model_callback=callbacks.rate_limit_callback,
+    after_model_callback=callbacks.log_empty_turn_finish_reason,
 )
 
 
@@ -199,7 +223,7 @@ trend_scout = Agent(
     Execute the following agents in strict sequence. Do not proceed to the next until the current tool reports success.
 
     1. **Gather:** Call `gather_trends_agent`.
-    2. **Research:** Call `understand_trends_agent`.
+    2. **Research:** Call `understand_trends_agent_resilient`.
     3. **Select:** Call `pick_trends_agent`. *Note: This agent will determine the final trends.
     4. For each trending topic in the 'selected_gtrends' state key, call the `save_search_trends_to_session_state` tool to save them to the session state.
 
@@ -221,7 +245,7 @@ trend_scout = Agent(
     """,
     tools=[
         AgentTool(agent=gather_trends_agent),
-        AgentTool(agent=understand_trends_agent),
+        AgentTool(agent=understand_trends_agent_resilient),
         AgentTool(agent=pick_trends_agent),
         save_search_trends_to_session_state,
         save_session_state_to_gcs,
@@ -242,6 +266,8 @@ trend_scout = Agent(
         callbacks.load_session_state,
     ],
     before_model_callback=callbacks.rate_limit_callback,
+    after_model_callback=callbacks.log_empty_turn_finish_reason,
+    after_agent_callback=callbacks.log_final_state_summary,
 )
 
 # Set as root agent
