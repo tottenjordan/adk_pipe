@@ -33,6 +33,12 @@ export interface AgentEvent {
   longRunningToolIds?: string[];
   partial?: boolean;
   timestamp: number;
+  // Present on failure events emitted by the ADK run_sse stream (e.g. a model
+  // 429). `errorCode`/`errorMessage` ride on a normal event envelope; some
+  // terminal failures instead arrive as a bare `{ error, error_details }`.
+  errorCode?: string;
+  errorMessage?: string;
+  error?: string;
 }
 
 export interface Session {

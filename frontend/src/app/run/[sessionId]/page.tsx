@@ -10,7 +10,7 @@ import { GcsWidget } from "@/components/gcs-widget";
 import { Textarea } from "@/components/ui/textarea";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { streamRun, resumeRun, getSession } from "@/lib/api";
+import { streamRun, resumeRun, getSession, getEventError } from "@/lib/api";
 import { formatStateValue } from "@/lib/utils";
 import type { AgentEvent } from "@/lib/types";
 
@@ -623,6 +623,16 @@ export default function RunPage({
           if (event.id && seenEventIds.current.has(event.id)) continue;
           if (event.id) seenEventIds.current.add(event.id);
 
+          // Surface backend failure events (e.g. a model 429) — these arrive as
+          // data events with no content, so a content-only loop would drop them
+          // and the run would look like a silent stall.
+          const evErr = getEventError(event);
+          if (evErr) {
+            setStatus("error");
+            setErrorMsg(evErr);
+            return;
+          }
+
           setEvents((prev) => [...prev, event]);
 
           if (event.actions?.stateDelta) {
@@ -697,6 +707,14 @@ export default function RunPage({
         if (event.id && seenEventIds.current.has(event.id)) continue;
         if (event.id) seenEventIds.current.add(event.id);
         eventCount++;
+
+        // Surface backend failure events (e.g. a model 429) during resume too.
+        const evErr = getEventError(event);
+        if (evErr) {
+          setStatus("error");
+          setErrorMsg(evErr);
+          return;
+        }
 
         setEvents((prev) => [...prev, event]);
 
