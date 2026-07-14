@@ -2,7 +2,7 @@ import logging
 import warnings
 
 from google.genai import types
-from google.adk.agents import Agent
+from google.adk.agents import Agent, SequentialAgent
 from google.adk.planners import BuiltInPlanner
 from google.adk.tools.agent_tool import AgentTool
 from google.adk.tools import google_search
@@ -58,17 +58,21 @@ gather_trends_agent = Agent(
 )
 
 
-understand_trends_agent = Agent(
+# WS2 split — searcher half: filters the raw trends, runs google_search, and
+# emits RAW findings only. Separating tool-use from synthesis is the durable fix
+# for the empty-turn flake: one turn no longer has to think, search, AND author
+# the JSON briefing. trend_scout has no citation flow, so (unlike the creative
+# producers) there is NO source-collection callback here.
+understand_trends_searcher = Agent(
     model=build_gemini(config.worker_model),
-    name="understand_trends_agent",
+    name="understand_trends_searcher",
     include_contents="none",
     description="Conduct initial web research to briefly understand each trending topic",
     planner=BuiltInPlanner(
         thinking_config=types.ThinkingConfig(include_thoughts=False)
     ),
     instruction="""
-    You are a Cultural Trend Researcher. 
-    Your goal is to prepare a structured briefing for a creative strategist. You want to find topics that possess cultural, social, or entertainment value.
+    You are a Cultural Trend Researcher gathering raw material for a creative strategist. You want topics that possess cultural, social, or entertainment value.
 
     <CONTEXT>
         <raw_gtrends>
@@ -78,8 +82,44 @@ understand_trends_agent = Agent(
 
     ### Instructions
     1. **Filter:** Review the list in <raw_gtrends>. Select the top 5-8 terms that appear to be narrative-driven stories (news, memes, celebrity, sports, entertainment). Ignore searches about specific sporting events.
-    2. **Research:** Use the `google_search` tool to investigate *only* these selected terms. 
-    3. **Synthesize:** Create a JSON output summarizing the cultural context of these terms.
+    2. **Research:** Use the `google_search` tool to investigate *only* these selected terms.
+    3. **Report RAW Findings:** For each selected term, list the concrete facts, entities, dates, and the cultural/social angle you found. Do NOT format as final JSON and do NOT omit specifics — the next agent needs the raw material to structure. Plain text grouped by term is fine.
+    """,
+    generate_content_config=types.GenerateContentConfig(
+        temperature=1.5,
+        labels={
+            "agentic_wf": "trend_scout",
+            "agent": "trend_scout",
+            "subagent": "understand_trends_searcher",
+        },
+    ),
+    tools=[google_search],
+    output_key="info_gtrends_raw",
+    before_model_callback=callbacks.rate_limit_callback,
+    after_model_callback=callbacks.log_empty_turn_finish_reason,
+)
+
+
+# WS2 split — synthesizer half: tool-free / planner-free. Reads the raw findings
+# (optional `{...?}` so an empty searcher turn degrades to empty synthesis and the
+# wrapper retries the whole pair rather than raising KeyError inside it) and shapes
+# them into the existing JSON `analyzed_trends` structure pick_trends_agent consumes.
+understand_trends_synthesizer = Agent(
+    model=build_gemini(config.worker_model),
+    name="understand_trends_synthesizer",
+    include_contents="none",
+    description="Synthesizes the raw trend findings into the structured JSON briefing.",
+    instruction="""
+    You are a Cultural Trend Researcher. Turn the raw findings below into a structured briefing for a creative strategist.
+
+    <CONTEXT>
+        <info_gtrends_raw>
+        {info_gtrends_raw?}
+        </info_gtrends_raw>
+    </CONTEXT>
+
+    ### Instructions
+    Synthesize **only** the data in <info_gtrends_raw> into a JSON object summarizing the cultural context of each term.
 
     ### Output Format
     Output *only* a valid JSON object with the list of analyzed trends. Do not output markdown.
@@ -100,29 +140,36 @@ understand_trends_agent = Agent(
         labels={
             "agentic_wf": "trend_scout",
             "agent": "trend_scout",
-            "subagent": "understand_trends_agent",
+            "subagent": "understand_trends_synthesizer",
         },
     ),
-    tools=[google_search],
     output_key="info_gtrends",
     before_model_callback=callbacks.rate_limit_callback,
     after_model_callback=callbacks.log_empty_turn_finish_reason,
 )
 
+understand_trends_search_and_synthesize = SequentialAgent(
+    name="understand_trends_search_and_synthesize",
+    description="Runs the raw trend search then synthesizes the JSON briefing.",
+    sub_agents=[understand_trends_searcher, understand_trends_synthesizer],
+)
 
-# Retry-on-empty: understand_trends_agent runs google_search under a thinking
-# planner and synthesizes `info_gtrends` in one turn; on gemini-3 it intermittently
-# emits no final text, leaving the key unset and crashing pick_trends_agent with
-# `KeyError: Context variable not found`. Re-run until populated (bounded). It is
+
+# Retry-on-empty: if the searcher OR synthesizer emits no final text (leaving
+# `info_gtrends` unset), re-run the whole pair until populated (bounded), instead
+# of crashing pick_trends_agent with `KeyError: Context variable not found`. The
+# wrapper runs only sub_agents[0], so we wrap the SequentialAgent pair. It is
 # exposed to the orchestrator as an AgentTool, so the retry runs inside AgentTool's
 # isolated sub-Runner — state-delta timing across that boundary is identical to the
 # top-level case the wrapper was verified against (agent_tool.py forwards each inner
-# event's state_delta before our generator resumes). Set `description` so AgentTool
-# builds the same tool declaration the orchestrator already knows.
+# event's state_delta before our generator resumes). Keep the `name` + `description`
+# so AgentTool builds the same tool declaration the orchestrator already knows.
 understand_trends_agent_resilient = RetryUntilKeyAgent(
     name="understand_trends_agent_resilient",
-    description=understand_trends_agent.description,
-    sub_agents=[understand_trends_agent],
+    # Preserve the original tool-facing description so AgentTool builds the same
+    # declaration the orchestrator already calls (the searcher carries it verbatim).
+    description=understand_trends_searcher.description,
+    sub_agents=[understand_trends_search_and_synthesize],
     output_key="info_gtrends",
     max_attempts=3,
 )

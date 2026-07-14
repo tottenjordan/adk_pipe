@@ -87,19 +87,25 @@ gs_web_planner = Agent(
 )
 
 
+# WS2 split — searcher half: runs google_search and emits RAW findings only.
+# Separating tool-use from synthesis is the durable fix for the empty-turn flake:
+# no single turn has to think, search, AND author a long report (which burned the
+# output budget → MAX_TOKENS → empty `output_key`). Grounding metadata lives on
+# this turn, so `collect_research_sources_callback` stays here.
 gs_web_searcher = Agent(
     model=build_gemini(config.worker_model),
     name="gs_web_searcher",
+    include_contents="none",
     description="Performs the crucial first pass of web research about the trending Search terms.",
     planner=BuiltInPlanner(
         thinking_config=types.ThinkingConfig(include_thoughts=False)
     ),
-    instruction="""Role: You are a cultural trend analyst and synthesis expert. Your primary goal is to transform raw web search data about a trending topic into an urgent, actionable, and culturally relevant summary for marketers.
+    instruction="""Role: You are a web research operator gathering raw material about a trending topic.
 
     <INSTRUCTIONS>
     1.  **Access Queries:** Retrieve the list of web search queries from the `initial_gs_queries` input in the <CONTEXT> block.
-    2.  **Execute Research:** Use the `google_search` tool to exhaustively execute **all** retrieved queries. The raw output of this tool call is the data you must synthesize.
-    3.  **Synthesize and Structure:** Synthesize **only** the data obtained from the search tool and present it as a detailed, structured, and objective trend report following the <REPORT_STRUCTURE> block.
+    2.  **Execute Research:** Use the `google_search` tool to exhaustively execute **all** retrieved queries.
+    3.  **Report RAW Findings:** For each query, list the concrete facts, quotes, entities, dates, numbers, and sentiment you found, grouped by query. Do NOT write a polished report and do NOT omit specifics — the next agent needs the raw material to synthesize from. Plain text with light markdown is fine.
     </INSTRUCTIONS>
 
     <CONTEXT>
@@ -107,7 +113,47 @@ gs_web_searcher = Agent(
         {initial_gs_queries}
         </initial_gs_queries>
     </CONTEXT>
-    
+
+    <CONTEXT_GUIDANCE>
+    Capture material that lets a strategist judge:
+    -   **Immediacy and Trajectory:** current status of the trend — peaking or gaining momentum?
+    -   **Cultural Narrative:** the central story, sentiment (positive/negative), key quotes or memes.
+    -   **Audience Resonance:** how the trend connects to the target audience's values, language, or social platforms.
+    </CONTEXT_GUIDANCE>
+
+    ---
+    ### Final Instruction
+    **Output the raw findings grouped by query. Preserve specifics (names, dates, numbers, direct quotes). Do not editorialize into a final report — that is the next agent's job.**
+    """,
+    tools=[google_search],
+    output_key="gs_web_search_raw",
+    after_agent_callback=callbacks.collect_research_sources_callback,
+    after_model_callback=callbacks.log_empty_turn_finish_reason,
+)
+
+
+# WS2 split — synthesizer half: tool-free / planner-free. Reads the raw findings
+# (optional `{...?}`: if the searcher empty-turned, degrade to empty synthesis so
+# the wrapper retries the whole pair rather than raising KeyError inside it) and
+# shapes them into the existing consumer-facing report. This is the reliable shape
+# already proven by merge_planners (never flakes).
+gs_web_synthesizer = Agent(
+    model=build_gemini(config.worker_model),
+    name="gs_web_synthesizer",
+    include_contents="none",
+    description="Synthesizes the raw trend findings into a structured cultural report.",
+    instruction="""Role: You are a cultural trend analyst and synthesis expert. Your goal is to transform the raw web-research findings about a trending topic into an urgent, actionable, and culturally relevant summary for marketers.
+
+    <INSTRUCTIONS>
+    Synthesize **only** the data in <gs_web_search_raw> and present it as a detailed, structured, and objective trend report following the <REPORT_STRUCTURE> block.
+    </INSTRUCTIONS>
+
+    <CONTEXT>
+        <gs_web_search_raw>
+        {gs_web_search_raw?}
+        </gs_web_search_raw>
+    </CONTEXT>
+
     <CONTEXT_GUIDANCE>
     The research synthesis must focus on providing marketers with timely, strategic insight. Specifically, prioritize:
     -   **Immediacy and Trajectory:** What is the current status of the trend? Is it peaking, or is it gaining momentum?
@@ -115,7 +161,6 @@ gs_web_searcher = Agent(
     -   **Audience Resonance:** How does the trend connect to the target audience's values, language, or social platforms? What is the *potential* for this trend to intersect with the campaign?
     </CONTEXT_GUIDANCE>
 
-    
     <REPORT_STRUCTURE>
     Your output must be a single, detailed, easy-to-read report sectioned with bold headings. The report should contain the following specific sections:
 
@@ -124,26 +169,31 @@ gs_web_searcher = Agent(
     3.  **Marketing Opportunity Analysis:** (**CRITICAL:** Identify 2-3 specific, actionable ways the trend could be leveraged to create culturally relevant messaging for the campaign, specifically considering the target audience.)
     </REPORT_STRUCTURE>
 
-    
     ---
     ### Final Instruction
     **CRITICAL RULE 1: Do not include any of the raw search query results, links, or tool output. The output must be the final, synthesized report.**
     **CRITICAL RULE 2: Output the synthesized report entirely in Markdown format, using Level 2 Headings (`##`) for the main sections listed in <REPORT_STRUCTURE>.**
     """,
-    tools=[google_search],
     output_key="gs_web_search_insights",
-    after_agent_callback=callbacks.collect_research_sources_callback,
     after_model_callback=callbacks.log_empty_turn_finish_reason,
 )
 
 # 4.  **Risk Assessment:** (Identify any potential pitfalls, controversies, or negative associations linked to the trend that marketers must be aware of.)
 
-# Retry-on-empty: gs_web_searcher (google_search + thinking) intermittently
-# returns no final text, leaving `gs_web_search_insights` unset and crashing
-# merge_planners. Re-run until the key is populated (bounded by max_attempts).
+gs_search_and_synthesize = SequentialAgent(
+    name="gs_search_and_synthesize",
+    description="Runs the raw web search then synthesizes the trend report.",
+    sub_agents=[gs_web_searcher, gs_web_synthesizer],
+)
+
+# Retry-on-empty: if the searcher OR synthesizer emits no final text (leaving
+# `gs_web_search_insights` unset), re-run the whole pair until the key is
+# populated (bounded by max_attempts). The wrapper runs only sub_agents[0], so we
+# wrap the SequentialAgent pair — the searcher re-runs too, which is the only way
+# to recover a searcher that itself emptied.
 gs_web_searcher_resilient = RetryUntilKeyAgent(
     name="gs_web_searcher_resilient",
-    sub_agents=[gs_web_searcher],
+    sub_agents=[gs_search_and_synthesize],
     output_key="gs_web_search_insights",
     max_attempts=3,
 )
