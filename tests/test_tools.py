@@ -85,6 +85,71 @@ class TestTrendTrawlerMemorizeTool:
         assert "status" in result
 
 
+# --- record_research_gaps logic ---
+class TestRecordResearchGaps:
+    def test_exhaustion_marker_becomes_note(self):
+        from trend_scout.tools import record_research_gaps
+
+        ctx = MockToolContext()
+        ctx.state["info_gtrends__retry_exhausted"] = True
+        result = record_research_gaps(ctx)
+
+        assert result["status"] == "success"
+        assert result["count"] == 1
+        assert "info_gtrends" in ctx.state["research_gaps"]
+        assert ctx.state["research_gaps"] == result["research_gaps"]
+
+    def test_clean_state_is_empty_string(self):
+        from trend_scout.tools import record_research_gaps
+
+        ctx = MockToolContext()
+        ctx.state["info_gtrends"] = "some real briefing"
+        result = record_research_gaps(ctx)
+
+        assert result["status"] == "success"
+        assert result["count"] == 0
+        assert ctx.state["research_gaps"] == ""  # happy path renders nothing
+
+
+# --- write_trends_to_bq SQL builder (pure, offline) ---
+class TestBuildTrendInsertSql:
+    def _sql(self, **overrides):
+        from trend_scout.tools import _build_trend_insert_sql
+
+        params = dict(
+            table="hybrid-vertex.trend_trawler.target_trends_crf",
+            unique_id="abcd1234",
+            trend="Golden Dip",
+            max_date="07/15/2026",
+            current_date="07/15/2026",
+            trawler_gcs="https://console.cloud.google.com/storage/browser/b/f/d",
+            brand="PRS",
+            target_audience="Musicians",
+            target_product="SE CE24",
+            key_selling_points="tone",
+            research_gaps="",
+        )
+        params.update(overrides)
+        return _build_trend_insert_sql(**params)
+
+    def test_includes_research_gaps_column_and_trend(self):
+        sql = self._sql()
+        assert "research_gaps" in sql
+        assert "target_trends_crf" in sql
+        assert "Golden Dip" in sql
+
+    def test_research_gaps_value_interpolated(self):
+        note = "Step 'info_gtrends' exhausted retries and produced no output."
+        sql = self._sql(research_gaps=note)
+        assert note in sql
+
+    def test_empty_research_gaps_still_valid(self):
+        # empty note is written as an empty string literal, not omitted
+        sql = self._sql(research_gaps="")
+        assert "research_gaps)" in sql or "research_gaps)" in sql
+        assert '""' in sql
+
+
 # --- save_search_trends_to_session_state logic ---
 class TestSaveSearchTrends:
     def test_appends_trend_to_existing_list(self):

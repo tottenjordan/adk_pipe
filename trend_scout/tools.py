@@ -10,6 +10,8 @@ from google.cloud import storage
 from google.cloud import bigquery
 from google.adk.tools import ToolContext
 
+from agent_common import collect_degradation_warnings
+
 from .config import config
 
 
@@ -51,6 +53,27 @@ def memorize(key: str, value: str, tool_context: ToolContext):
     mem_dict = tool_context.state
     mem_dict[key] = value
     return {"status": f'Stored "{key}": "{value}"'}
+
+
+def record_research_gaps(tool_context: ToolContext) -> dict:
+    """Turn any RetryUntilKeyAgent exhaustion markers into a human-readable note.
+
+    Reads the `*__retry_exhausted` markers left in state by the resilient research
+    wrapper and stores a single `research_gaps` string (empty when research was
+    clean). This is trend_scout's analog of the creative gallery banner — the same
+    `collect_degradation_warnings` source of truth — so a degraded run surfaces WHY
+    in the handoff and the persisted GCS session JSON instead of only in logs.
+
+    Args:
+        tool_context (ToolContext): The tool context.
+
+    Returns:
+        dict: status, the `research_gaps` string, and the note `count`.
+    """
+    notes = collect_degradation_warnings(tool_context.state)
+    research_gaps = "; ".join(notes)
+    tool_context.state["research_gaps"] = research_gaps
+    return {"status": "success", "research_gaps": research_gaps, "count": len(notes)}
 
 
 # ==============================
@@ -258,6 +281,58 @@ def save_session_state_to_gcs(tool_context: ToolContext) -> dict:
     }
 
 
+def _build_trend_insert_sql(
+    *,
+    table: str,
+    unique_id: str,
+    trend: str,
+    max_date: str,
+    current_date: str,
+    trawler_gcs: str,
+    brand: str,
+    target_audience: str,
+    target_product: str,
+    key_selling_points: str,
+    research_gaps: str,
+) -> str:
+    """Build the single-row INSERT for `target_trends_crf` (pure, unit-testable).
+
+    `research_gaps` mirrors `creative_evals.research_gaps`: an empty string on a
+    clean run, or the `collect_degradation_warnings` note(s) when the resilient
+    research wrapper exhausted its retries. The `research_gaps` column must already
+    exist (additive `ALTER TABLE ... ADD COLUMN research_gaps STRING`).
+    """
+    return f"""
+    INSERT INTO
+      `{table}` (uuid,
+        -- processed_status, -- omitting will make it NULL
+        target_trend,
+        refresh_date,
+        trawler_date,
+        entry_timestamp,
+        trawler_gcs,
+        brand,
+        target_audience,
+        target_product,
+        key_selling_point,
+        research_gaps)
+    VALUES
+    (
+        "{unique_id}",
+        "{trend}",
+        PARSE_DATE('%m/%d/%Y', '{max_date}'),
+        PARSE_DATE('%m/%d/%Y', '{current_date}'),
+        CURRENT_TIMESTAMP(),
+        "{trawler_gcs}",
+        "{brand}",
+        "{target_audience}",
+        "{target_product}",
+        "{key_selling_points}",
+        "{research_gaps}"
+    );
+    """
+
+
 # refresh_date: str = max_date
 # refresh_date: Latest refresh date from the trends table in the format 'MM/DD/YYYY'. Use the default value provided.
 def write_trends_to_bq(tool_context: ToolContext) -> dict:
@@ -287,38 +362,30 @@ def write_trends_to_bq(tool_context: ToolContext) -> dict:
     gcs_dir = tool_context.state["agent_output_dir"]
     trawler_gcs = f"{gcs_url_prefix}/{config.GCS_BUCKET_NAME}/{gcs_folder}/{gcs_dir}"
 
+    # Degradation note: empty on a clean run, or the collect_degradation_warnings
+    # note(s) recorded by record_research_gaps when the resilient research wrapper
+    # exhausted its retries. Parity with creative_evals.research_gaps.
+    research_gaps = tool_context.state.get("research_gaps", "")
+    table = f"{config.BQ_PROJECT_ID}.{config.BQ_DATASET_ID}.{config.BQ_TABLE_TARGETS}"
+
     try:
         # insert a row for each selected target search trend
         target_trends = tool_context.state.get("target_search_trends")
         for trend in target_trends["target_search_trends"]:
             # write SQL
-            sql_query = f"""
-            INSERT INTO 
-              `{config.BQ_PROJECT_ID}.{config.BQ_DATASET_ID}.{config.BQ_TABLE_TARGETS}` (uuid,
-                -- processed_status, -- omitting will make it NULL
-                target_trend,
-                refresh_date,
-                trawler_date,
-                entry_timestamp,
-                trawler_gcs,
-                brand,
-                target_audience,
-                target_product,
-                key_selling_point)
-            VALUES 
-            (
-                "{unique_id}", 
-                "{trend}",
-                PARSE_DATE('%m/%d/%Y', '{max_date}'), 
-                PARSE_DATE('%m/%d/%Y', '{current_date}'),
-                CURRENT_TIMESTAMP(),
-                "{trawler_gcs}",
-                "{tool_context.state["brand"]}",
-                "{tool_context.state["target_audience"]}",
-                "{tool_context.state["target_product"]}",
-                "{tool_context.state["key_selling_points"]}"
-            );
-            """
+            sql_query = _build_trend_insert_sql(
+                table=table,
+                unique_id=unique_id,
+                trend=trend,
+                max_date=max_date,
+                current_date=current_date,
+                trawler_gcs=trawler_gcs,
+                brand=tool_context.state["brand"],
+                target_audience=tool_context.state["target_audience"],
+                target_product=tool_context.state["target_product"],
+                key_selling_points=tool_context.state["key_selling_points"],
+                research_gaps=research_gaps,
+            )
             # make API request
             job = bq_client.query(sql_query)
             job.result()  # wait for job to complete
