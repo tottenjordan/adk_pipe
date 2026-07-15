@@ -10,11 +10,26 @@ import { GcsWidget } from "@/components/gcs-widget";
 import { Textarea } from "@/components/ui/textarea";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { streamRun, resumeRun, getSession, getEventError } from "@/lib/api";
+import {
+  startRun,
+  pollRun,
+  getRunStatus,
+  resumeRun,
+  getSession,
+  getEventError,
+} from "@/lib/api";
 import { formatStateValue } from "@/lib/utils";
 import type { AgentEvent } from "@/lib/types";
 
-type Status = "running" | "completed" | "error" | "paused";
+type Status = "running" | "completed" | "error" | "paused" | "stalled";
+
+/**
+ * If a run is still "running" but no new event has arrived for this long, we
+ * surface a "may have stalled" state. The async-job model polls a detached run,
+ * so an orphaned job (e.g. an Agent Engine instance recycle) would otherwise
+ * report "running" forever with no events. Reset on every new event.
+ */
+const RUN_STALL_TIMEOUT_MS = 3 * 60 * 1000;
 
 interface PauseContext {
   functionCallId: string;
@@ -589,6 +604,7 @@ export default function RunPage({
   const [pauseContext, setPauseContext] = useState<PauseContext | null>(null);
   const startedRef = useRef(false);
   const seenEventIds = useRef(new Set<string>());
+  const lastEventAt = useRef<number>(Date.now());
 
   const appName = searchParams.get("app") || "trend_scout";
   const userId = searchParams.get("userId") || "default_user";
@@ -610,15 +626,24 @@ export default function RunPage({
       return;
     }
 
+    const controller = new AbortController();
+    const { signal } = controller;
+
     async function run() {
       try {
+        // Kick off the detached background run.
+        await startRun(appName, userId, sessionId, message);
+
+        // Seed session state once so the sidebar populates immediately, even for
+        // keys set before any event and on reconnect/reload. (pollRun replays
+        // from since=0 too, but this is more robust for pre-event state.)
+        const seed = await getRunStatus(appName, userId, sessionId, 0);
+        if (seed.state) setSessionState((prev) => ({ ...prev, ...seed.state }));
+
         let paused = false;
-        for await (const event of streamRun(
-          appName,
-          userId,
-          sessionId,
-          message
-        )) {
+        for await (const event of pollRun(appName, userId, sessionId, {
+          signal,
+        })) {
           // Deduplicate events by ID
           if (event.id && seenEventIds.current.has(event.id)) continue;
           if (event.id) seenEventIds.current.add(event.id);
@@ -674,6 +699,10 @@ export default function RunPage({
         }
         if (!paused) setStatus("completed");
       } catch (err) {
+        // Unmount aborts the poll — that is not a real run failure.
+        if (signal.aborted || (err instanceof Error && err.name === "AbortError")) {
+          return;
+        }
         setStatus("error");
         setErrorMsg(
           err instanceof Error ? err.message : "Agent run failed"
@@ -682,7 +711,32 @@ export default function RunPage({
     }
 
     run();
+
+    return () => controller.abort();
   }, [appName, userId, sessionId]);
+
+  // Reset the stall timer whenever a new event lands (keeps the per-event loop
+  // bodies byte-identical — the timestamp is bumped here instead of inline).
+  useEffect(() => {
+    lastEventAt.current = Date.now();
+  }, [events.length]);
+
+  // Stall watchdog: while a run is "running", flag it as "stalled" if no event
+  // has arrived for RUN_STALL_TIMEOUT_MS. Covers the orphaned-job case where the
+  // poll would otherwise report "running" forever. Only armed while running, so
+  // paused/completed/error/stalled runs are unaffected.
+  useEffect(() => {
+    if (status !== "running") return;
+    // Re-arm the baseline on entering "running" (e.g. resuming after a long
+    // human-review pause) so we don't immediately flag a fresh run as stalled.
+    lastEventAt.current = Date.now();
+    const timer = setInterval(() => {
+      if (Date.now() - lastEventAt.current > RUN_STALL_TIMEOUT_MS) {
+        setStatus("stalled");
+      }
+    }, 10_000);
+    return () => clearInterval(timer);
+  }, [status]);
 
   // Resume from a paused long-running tool
   async function handleResume(response: Record<string, unknown>) {
@@ -692,21 +746,25 @@ export default function RunPage({
     setPauseContext(null);
 
     try {
-      let paused = false;
-      let eventCount = 0;
-      for await (const event of resumeRun(
+      // Submit the human-review response; the server relaunches the detached
+      // job. Then re-enter pollRun (from since=0) to consume new events —
+      // seenEventIds dedup makes the replay idempotent, so a resume that hits
+      // the NEXT checkpoint pauses again and one that finishes completes.
+      await resumeRun(
         appName,
         userId,
         sessionId,
         ctx.functionCallId,
         ctx.functionName,
-        ctx.eventId,
-        response
-      )) {
+        response,
+        ctx.eventId
+      );
+
+      let paused = false;
+      for await (const event of pollRun(appName, userId, sessionId)) {
         // Deduplicate events by ID
         if (event.id && seenEventIds.current.has(event.id)) continue;
         if (event.id) seenEventIds.current.add(event.id);
-        eventCount++;
 
         // Surface backend failure events (e.g. a model 429) during resume too.
         const evErr = getEventError(event);
@@ -745,51 +803,6 @@ export default function RunPage({
             paused = true;
             return;
           }
-        }
-      }
-
-      // If no events came back, the backend may not have resumed properly.
-      // Fetch session state to check for active long-running tool calls.
-      if (eventCount === 0) {
-        console.warn("[resume] 0 events received — checking session for active pause");
-        try {
-          const session = await getSession(appName, userId, sessionId);
-          if (session.state) {
-            setSessionState((prev) => ({ ...prev, ...session.state }));
-          }
-          // Check if any event in the session has unresolved longRunningToolIds
-          for (let i = session.events.length - 1; i >= 0; i--) {
-            const evt = session.events[i];
-            if (evt.longRunningToolIds && evt.longRunningToolIds.length > 0) {
-              const functionCalls = evt.content?.parts
-                ?.filter((p) => p.functionCall)
-                ?.map((p) => p.functionCall!) ?? [];
-              const pausedCall = functionCalls.find((fc) =>
-                evt.longRunningToolIds!.includes(fc.id ?? "")
-              );
-              if (pausedCall) {
-                // Check if this pause has already been responded to
-                const hasResponse = session.events.slice(i + 1).some(
-                  (e) => e.content?.parts?.some(
-                    (p) => p.functionResponse?.id === pausedCall.id
-                  )
-                );
-                if (!hasResponse) {
-                  console.warn("[resume] Found unresolved pause:", pausedCall.name);
-                  setPauseContext({
-                    functionCallId: pausedCall.id ?? "",
-                    functionName: pausedCall.name ?? "",
-                    eventId: evt.id,
-                  });
-                  setStatus("paused");
-                  paused = true;
-                  break;
-                }
-              }
-            }
-          }
-        } catch {
-          // Session fetch failed, fall through to completed
         }
       }
 
@@ -874,6 +887,7 @@ export default function RunPage({
     paused: { color: "bg-amber-500", glow: "shadow-amber-500/20" },
     completed: { color: "bg-emerald-500", glow: "shadow-emerald-500/20" },
     error: { color: "bg-red-500", glow: "shadow-red-500/20" },
+    stalled: { color: "bg-yellow-500", glow: "shadow-yellow-500/20" },
   };
 
   const showResultsToast =
@@ -986,6 +1000,12 @@ export default function RunPage({
                 {status === "error" && (
                   <span className="text-sm text-red-600 font-medium">
                     Run failed
+                  </span>
+                )}
+                {status === "stalled" && (
+                  <span className="text-sm text-yellow-700 font-medium">
+                    Run may have stalled — no activity for a while. It may still
+                    be running in the background; reload to reconnect.
                   </span>
                 )}
               </div>
