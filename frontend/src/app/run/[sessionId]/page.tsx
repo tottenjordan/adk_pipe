@@ -19,6 +19,7 @@ import {
   getEventError,
 } from "@/lib/api";
 import { formatStateValue } from "@/lib/utils";
+import { hasStartedRun, markRunStarted } from "@/lib/run-kickoff";
 import type { AgentEvent } from "@/lib/types";
 
 type Status = "running" | "completed" | "error" | "paused" | "stalled";
@@ -641,8 +642,15 @@ export default function RunPage({
 
     async function run() {
       try {
-        // Kick off the detached background run.
-        await startRun(appName, userId, sessionId, message);
+        // Kick off the detached background run — but ONLY once per session. The
+        // run page remounts on every browser reload (startedRef resets), so
+        // without this durable guard a reload would spawn a second detached run
+        // (see run-kickoff). On reload we skip straight to polling, which
+        // replays the existing run from since=0.
+        if (!hasStartedRun(sessionId)) {
+          await startRun(appName, userId, sessionId, message);
+          markRunStarted(sessionId);
+        }
 
         // Seed session state once so the sidebar populates immediately, even for
         // keys set before any event and on reconnect/reload. (pollRun replays
