@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import argparse
 import dataclasses
+import datetime
 import json
 import subprocess
 import time
@@ -132,6 +133,73 @@ def poll_to_terminal(
     )
 
 
+def _iso(epoch: float) -> str:
+    """Epoch seconds -> RFC3339 UTC string gcloud logging filters accept."""
+    return (
+        datetime.datetime.fromtimestamp(epoch, tz=datetime.timezone.utc)
+        .isoformat()
+        .replace("+00:00", "Z")
+    )
+
+
+def _build_log_filter(*, revision: str, start_epoch: float, end_epoch: float) -> str:
+    """Build the Cloud Logging filter for quota signals in a run's window.
+
+    Covers BOTH the HTTP-level status (Cloud Run request logs) AND the in-app
+    model-error text (ADK retry warnings for Vertex 429/503), since a model 429
+    absorbed by infra retry never surfaces as a Cloud Run ``httpRequest.status``.
+    Returns ``""`` when ``revision`` is empty (nothing safe to scope to).
+    """
+    if not revision:
+        return ""
+    signals = (
+        "httpRequest.status=429 OR httpRequest.status=503 "
+        'OR textPayload=~"429" OR textPayload=~"503" '
+        'OR textPayload=~"RESOURCE_EXHAUSTED" OR textPayload=~"UNAVAILABLE" '
+        'OR jsonPayload.message=~"429" OR jsonPayload.message=~"RESOURCE_EXHAUSTED"'
+    )
+    return (
+        'resource.type="cloud_run_revision" '
+        f'AND resource.labels.revision_name="{revision}" '
+        f'AND timestamp>="{_iso(start_epoch)}" '
+        f'AND timestamp<="{_iso(end_epoch)}" '
+        f"AND ({signals})"
+    )
+
+
+def count_429s(revision: str, start_epoch: float, end_epoch: float) -> int | None:
+    """Best-effort count of quota-signal log entries in the run window.
+
+    Non-blocking: returns ``None`` on ANY error (missing revision, gcloud not
+    installed, permission denied, bad JSON) so timing — the primary signal — is
+    never held hostage to log access.
+    """
+    log_filter = _build_log_filter(
+        revision=revision, start_epoch=start_epoch, end_epoch=end_epoch
+    )
+    if not log_filter:
+        return None
+    try:
+        out = subprocess.run(
+            [
+                "gcloud",
+                "logging",
+                "read",
+                log_filter,
+                "--format=json",
+                "--limit=1000",
+                "--freshness=2h",
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=120,
+        )
+        return len(json.loads(out.stdout or "[]"))
+    except Exception:  # noqa: BLE001 — enrichment only; degrade to None
+        return None
+
+
 def run_trial(
     *,
     base_url: str,
@@ -157,8 +225,10 @@ def run_trial(
     events, state, status, error = poll_to_terminal(
         base_url, user_id, session_id, token
     )
-    elapsed = time.time() - started_at
+    ended_at = time.time()
+    elapsed = ended_at - started_at
     summary = summarize_run(events, state)
+    http_429_503 = count_429s(revision, started_at, ended_at)
     print(
         f"  done status={status} wall={summary.total_wall_s:.1f}s "
         f"(harness elapsed {elapsed:.1f}s) events={summary.event_count}",
@@ -175,6 +245,7 @@ def run_trial(
         "started_at_epoch": started_at,
         "status": status,
         "error": error,
+        "http_429_503": http_429_503,
         "events_count": summary.event_count,
         "summary": dataclasses.asdict(summary),
     }
