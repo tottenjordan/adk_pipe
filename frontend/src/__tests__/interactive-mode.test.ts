@@ -175,71 +175,45 @@ describe("Interactive mode pause detection", () => {
   });
 });
 
-// Test resumeRun request body construction
+// Test resumeRun request body construction.
+//
+// The async-job run model moves the `functionResponse`-message construction
+// server-side: the client now POSTs a flat review payload to
+// /runs/{app}/{user}/{sid}/resume (see poll-run.test.ts for the real function).
 
 describe("Resume run request body", () => {
-  it("constructs correct functionResponse message with functionCallEventId", () => {
+  it("constructs the flat resume payload with functionCallEventId", () => {
     const functionCallId = "fc-123";
     const functionName = "review_research";
     const functionCallEventId = "evt-1";
     const response = { status: "approved", feedback: "Looks good" };
 
     const body = {
-      appName: "interactive_creative",
-      userId: "user_1",
-      sessionId: "sess_1",
-      newMessage: {
-        role: "user",
-        parts: [
-          {
-            functionResponse: {
-              id: functionCallId,
-              name: functionName,
-              response: response,
-            },
-          },
-        ],
-      },
+      functionCallId,
+      functionName,
+      response,
       functionCallEventId,
-      streaming: true,
     };
 
-    expect(body.newMessage.parts[0].functionResponse).toBeDefined();
-    expect(body.newMessage.parts[0].functionResponse!.id).toBe("fc-123");
-    expect(body.newMessage.parts[0].functionResponse!.name).toBe(
-      "review_research"
-    );
-    expect(body.newMessage.parts[0].functionResponse!.response).toEqual({
+    expect(body.functionCallId).toBe("fc-123");
+    expect(body.functionName).toBe("review_research");
+    expect(body.response).toEqual({
       status: "approved",
       feedback: "Looks good",
     });
     expect(body.functionCallEventId).toBe("evt-1");
-    expect(body.streaming).toBe(true);
   });
 
   it("handles empty feedback in response", () => {
     const response = { status: "approved", feedback: "" };
 
     const body = {
-      newMessage: {
-        role: "user",
-        parts: [
-          {
-            functionResponse: {
-              id: "fc-1",
-              name: "review_ad_copies",
-              response: response,
-            },
-          },
-        ],
-      },
+      functionCallId: "fc-1",
+      functionName: "review_ad_copies",
+      response,
     };
 
-    expect(body.newMessage.parts[0].functionResponse!.response.status).toBe(
-      "approved"
-    );
-    expect(body.newMessage.parts[0].functionResponse!.response.feedback).toBe(
-      ""
-    );
+    expect(body.response.status).toBe("approved");
+    expect(body.response.feedback).toBe("");
   });
 });
