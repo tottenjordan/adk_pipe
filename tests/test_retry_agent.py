@@ -15,6 +15,7 @@ import asyncio
 import logging
 from typing import AsyncGenerator
 
+import pytest
 from google.adk.agents import BaseAgent
 from google.adk.agents.invocation_context import InvocationContext
 from google.adk.events.event import Event
@@ -51,6 +52,40 @@ class _FlakyProducer(BaseAgent):
         self._runs += 1
         if self._runs <= self.fail_first:
             # No state_delta → output_key never written (the landmine).
+            yield Event(invocation_id=ctx.invocation_id, author=self.name)
+            return
+        yield Event(
+            invocation_id=ctx.invocation_id,
+            author=self.name,
+            actions=EventActions(state_delta={self.output_key: self.value}),
+        )
+
+
+class _FlakyFlagProducer(BaseAgent):
+    """Test double for a producer whose ``output_key`` is a boolean flag.
+
+    Mirrors ``creative_agent.tools.generate_image``, which signals success by
+    writing ``state["_images_generated"] = True`` (not a text summary). Emits an
+    event carrying no ``state_delta`` (simulating a MALFORMED_FUNCTION_CALL turn
+    that never invoked the tool) for its first ``fail_first`` runs, then an event
+    that writes the bool flag. ``runs`` counts how many times it was invoked.
+    """
+
+    output_key: str
+    value: bool = True
+    fail_first: int = 0
+    _runs: int = PrivateAttr(default=0)
+
+    @property
+    def runs(self) -> int:
+        return self._runs
+
+    async def _run_async_impl(
+        self, ctx: InvocationContext
+    ) -> AsyncGenerator[Event, None]:
+        self._runs += 1
+        if self._runs <= self.fail_first:
+            # No state_delta → flag never set (malformed-call landmine).
             yield Event(invocation_id=ctx.invocation_id, author=self.name)
             return
         yield Event(
@@ -235,3 +270,71 @@ def test_sequential_pair_exhaustion_is_observable():
     assert synth.runs == 3
     assert session.state.get("report") is None
     assert session.state.get("report__retry_exhausted") is True
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        ("REAL", True),
+        ("  x ", True),
+        ("", False),
+        ("   ", False),
+        (True, True),  # the image-generation flag
+        (False, False),
+        (["k.png"], True),  # non-empty artifact-keys list
+        ([], False),
+        (0, False),
+        (None, False),
+    ],
+)
+def test_is_populated_accepts_truthy_non_strings(value, expected):
+    """A non-blank string OR any truthy non-string counts as populated.
+
+    Research producers write a non-blank string; the image producer writes a
+    bool ``_images_generated`` flag. Falsy values (blank string, ``[]``, ``0``,
+    ``False``, ``None``) must count as unpopulated so the wrapper retries.
+    """
+    assert RetryUntilKeyAgent._is_populated(value) is expected
+
+
+def test_recovers_when_producer_writes_bool_flag():
+    """Bool-flag producer fails once, then sets the flag — wrapper recovers.
+
+    Guards the visual_generator use case: generate_image signals success via a
+    bool ``_images_generated`` flag, not a string, so the wrapper must treat a
+    truthy flag as populated.
+    """
+    producer = _FlakyFlagProducer(
+        name="imggen", output_key="_images_generated", fail_first=1
+    )
+    wrapper = RetryUntilKeyAgent(
+        name="imggen_resilient",
+        sub_agents=[producer],
+        output_key="_images_generated",
+        max_attempts=3,
+    )
+
+    session = _run(wrapper)
+
+    assert producer.runs == 2
+    assert session.state.get("_images_generated") is True
+    assert session.state.get("_images_generated__retry_exhausted") is None
+
+
+def test_no_false_exhaustion_when_flag_set_first_try():
+    """A healthy bool-flag producer runs exactly once — no false exhaustion."""
+    producer = _FlakyFlagProducer(
+        name="imggen", output_key="_images_generated", fail_first=0
+    )
+    wrapper = RetryUntilKeyAgent(
+        name="imggen_resilient",
+        sub_agents=[producer],
+        output_key="_images_generated",
+        max_attempts=3,
+    )
+
+    session = _run(wrapper)
+
+    assert producer.runs == 1
+    assert session.state.get("_images_generated") is True
+    assert session.state.get("_images_generated__retry_exhausted") is None

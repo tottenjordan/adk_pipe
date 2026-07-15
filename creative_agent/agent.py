@@ -847,6 +847,24 @@ visual_generator = Agent(
 )
 
 
+# Retry-on-empty for the image step: visual_generator (gemini-3.1-pro-preview)
+# intermittently returns MALFORMED_FUNCTION_CALL and never emits the generate_image
+# tool call, leaving _images_generated unset and shipping an empty gallery (run
+# 2032568396381421568). retry_config=INFRA_RETRY only covers infra EXCEPTIONS, not a
+# malformed-call finish reason — so wrap in RetryUntilKeyAgent (same pattern as the
+# research producers), keyed on the _images_generated flag generate_image already sets
+# on success. That flag also makes a re-run safe (idempotency guard → no double image
+# spend); on exhaustion the wrapper emits _images_generated__retry_exhausted, which
+# collect_degradation_warnings surfaces on the gallery/eval banner. Single shared
+# instance (also used by interactive_creative via AgentTool) to avoid double-parenting.
+visual_generator_resilient = RetryUntilKeyAgent(
+    name="visual_generator_resilient",
+    sub_agents=[visual_generator],
+    output_key="_images_generated",
+    max_attempts=3,
+)
+
+
 # Sequential agent for visual concepts (draft -> critique -> finalize). Shared with
 # interactive_creative, which pauses for human review after this stage before rendering.
 visual_generation_pipeline = SequentialAgent(
@@ -870,7 +888,7 @@ visual_production_pipeline = SequentialAgent(
     description="Generate visual concepts, then render their image creatives.",
     sub_agents=[
         visual_generation_pipeline,
-        visual_generator,
+        visual_generator_resilient,
     ],
 )
 
