@@ -71,8 +71,17 @@ class RetryUntilKeyAgent(BaseAgent):
 
     @staticmethod
     def _is_populated(value: object) -> bool:
-        """A value counts as populated when it is a non-blank string."""
-        return isinstance(value, str) and bool(value.strip())
+        """Populated = a non-blank string, or any other truthy value.
+
+        Research producers write a non-blank string summary; the image producer
+        (``generate_image``) writes a boolean ``_images_generated`` flag (and a
+        non-empty artifact-keys list). A blank/whitespace string, empty list,
+        ``False``, ``0`` and ``None`` all count as unpopulated so the wrapper
+        retries.
+        """
+        if isinstance(value, str):
+            return bool(value.strip())
+        return bool(value)
 
     @override
     async def _run_async_impl(

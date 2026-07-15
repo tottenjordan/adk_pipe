@@ -122,10 +122,7 @@ def collect_degradation_warnings(state: State | dict[str, Any]) -> list[str]:
     for key, value in snapshot.items():
         if key.endswith(_EXHAUSTED_SUFFIX) and value:
             step = key[: -len(_EXHAUSTED_SUFFIX)]
-            notes.append(
-                f"Research step '{step}' exhausted retries and produced no "
-                "output; downstream synthesis used partial data."
-            )
+            notes.append(f"Step '{step}' exhausted retries and produced no output.")
     return sorted(notes)
 
 

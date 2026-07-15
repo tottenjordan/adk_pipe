@@ -164,8 +164,8 @@ def test_collect_degradation_warnings_one_per_marker():
     warnings = observability.collect_degradation_warnings(state)
     assert len(warnings) == 2
     # Sorted, and each names its research step without the marker suffix.
-    assert warnings[0].startswith("Research step 'campaign_web_search_insights'")
-    assert warnings[1].startswith("Research step 'gs_web_search_insights'")
+    assert warnings[0].startswith("Step 'campaign_web_search_insights'")
+    assert warnings[1].startswith("Step 'gs_web_search_insights'")
     assert "__retry_exhausted" not in warnings[0]
 
 
@@ -180,4 +180,4 @@ def test_collect_degradation_warnings_accepts_plain_dict():
         {"refined_web_search_insights__retry_exhausted": True}
     )
     assert len(warnings) == 1
-    assert warnings[0].startswith("Research step 'refined_web_search_insights'")
+    assert warnings[0].startswith("Step 'refined_web_search_insights'")
