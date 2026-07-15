@@ -11,7 +11,7 @@ from google.adk.agents import Agent, SequentialAgent, ParallelAgent
 
 from .sub_agents.campaign_researcher.agent import ca_sequential_planner
 from .sub_agents.trend_researcher.agent import gs_sequential_planner
-from agent_common import build_gemini, RetryUntilKeyAgent
+from agent_common import build_gemini, RetryUntilKeyAgent, RunIfAgent
 from .config import config, INFRA_RETRY
 from . import callbacks
 from . import tools
@@ -341,14 +341,55 @@ combined_report_composer = Agent(
 #     *   (No more than 3 supporting bullets detailing the specific risks/constraints.)
 
 
+# --- CONDITIONAL RESEARCH REFINEMENT GATE (Lever A) --- #
+# The evaluator (gemini-3.1-pro-preview) + follow-up searcher form a SECOND,
+# additive research round: the base brief in `combined_web_search_insights`
+# (two parallel deep researchers → synthesis) already flows straight to
+# `combined_report_composer`, which guards the refined input with the optional
+# `{refined_web_search_insights?}`. So the refinement is only *worth* an extra
+# serial PRO call when the base research came back thin.
+#
+# `_base_research_is_degraded` gates the block on exactly that: run it only when
+# the merged brief is blank/missing, or an upstream producer exhausted its
+# retries (`*__retry_exhausted`, set by the RetryUntilKeyAgent wrappers on the
+# gs/campaign producers). On the healthy common path the gate skips the block —
+# dropping one gemini-3.1-pro-preview call (the 5 RPM quota is the wall-clock
+# bottleneck) plus a google_search + synthesis pass — while keeping the round as
+# a self-healing fallback for degraded runs. No `output_key`/`{var?}` guard is
+# disturbed: the evaluator's output is consumed only inside the block, and the
+# composer already tolerates a missing `refined_web_search_insights`.
+def _base_research_is_degraded(state) -> bool:
+    """True when the base research is thin enough to warrant a refinement round."""
+    brief = state.get("combined_web_search_insights")
+    if not (isinstance(brief, str) and brief.strip()):
+        return True
+    for marker in (
+        "gs_web_search_insights__retry_exhausted",
+        "campaign_web_search_insights__retry_exhausted",
+    ):
+        if state.get(marker):
+            return True
+    return False
+
+
+research_refinement_block = RunIfAgent(
+    name="research_refinement_block",
+    description="Runs the follow-up evaluate+search round only when base research is degraded.",
+    predicate=_base_research_is_degraded,
+    sub_agents=[
+        combined_web_evaluator,
+        enhanced_combined_searcher_resilient,
+    ],
+)
+
+
 # --- COMPLETE RESEARCH PIPELINE SUBAGENT --- #
 combined_research_pipeline = SequentialAgent(
     name="combined_research_pipeline",
     description="Executes a pipeline of web research. It performs iterative research, evaluation, and insight generation.",
     sub_agents=[
         merge_parallel_insights,
-        combined_web_evaluator,
-        enhanced_combined_searcher_resilient,
+        research_refinement_block,
         combined_report_composer,
     ],
 )

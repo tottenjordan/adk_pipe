@@ -35,27 +35,73 @@ def test_creative_agent_root_output_key_not_set():
 
 
 def test_combined_research_pipeline_sub_agent_order():
-    from creative_agent.agent import combined_research_pipeline
-    from agent_common import RetryUntilKeyAgent
+    """Lever A: the PRO evaluator + follow-up searcher are wrapped in a
+    RunIfAgent gate so they're skipped on the healthy common path (dropping one
+    serial gemini-3.1-pro-preview call) and run only to compensate for degraded
+    base research. The base synthesis and the final composer stay unconditional."""
+    from creative_agent.agent import (
+        combined_research_pipeline,
+        research_refinement_block,
+    )
+    from agent_common import RetryUntilKeyAgent, RunIfAgent
 
     names = [a.name for a in combined_research_pipeline.sub_agents]
     assert names == [
         "merge_parallel_insights",
-        "combined_web_evaluator",
-        "enhanced_combined_searcher_resilient",
+        "research_refinement_block",
         "combined_report_composer",
     ]
 
-    w = combined_research_pipeline.sub_agents[2]
-    assert isinstance(w, RetryUntilKeyAgent)
-    assert w.output_key == "refined_web_search_insights"
+    gate = combined_research_pipeline.sub_agents[1]
+    assert gate is research_refinement_block
+    assert isinstance(gate, RunIfAgent)
+
+    # The gate wraps the evaluator + the resilient follow-up searcher, in order.
+    gated = [a.name for a in gate.sub_agents]
+    assert gated == ["combined_web_evaluator", "enhanced_combined_searcher_resilient"]
 
     from google.adk.agents import SequentialAgent
+
+    w = gate.sub_agents[1]
+    assert isinstance(w, RetryUntilKeyAgent)
+    assert w.output_key == "refined_web_search_insights"
 
     pair = w.sub_agents[0]
     assert isinstance(pair, SequentialAgent)
     assert pair.sub_agents[0].output_key == "refined_web_search_raw"
     assert pair.sub_agents[-1].output_key == "refined_web_search_insights"
+
+
+def test_research_refinement_gate_predicate():
+    """The gate runs the refinement block ONLY when base research is degraded:
+    a blank/missing merged brief, or an upstream producer that exhausted retries.
+    On the healthy common path (brief present, no exhaustion markers) it skips,
+    dropping the PRO evaluator + a search/synth pass."""
+    from creative_agent.agent import _base_research_is_degraded
+
+    # Healthy: substantial brief, no exhaustion → skip refinement.
+    assert (
+        _base_research_is_degraded({"combined_web_search_insights": "A full brief."})
+        is False
+    )
+
+    # Degraded: brief missing entirely → refine to compensate.
+    assert _base_research_is_degraded({}) is True
+
+    # Degraded: brief present but blank/whitespace → refine.
+    assert _base_research_is_degraded({"combined_web_search_insights": "   "}) is True
+
+    # Degraded: brief present but an upstream producer exhausted its retries.
+    for marker in (
+        "gs_web_search_insights__retry_exhausted",
+        "campaign_web_search_insights__retry_exhausted",
+    ):
+        assert (
+            _base_research_is_degraded(
+                {"combined_web_search_insights": "A full brief.", marker: True}
+            )
+            is True
+        )
 
 
 def test_refined_searcher_has_tool_synthesizer_is_tool_free():
