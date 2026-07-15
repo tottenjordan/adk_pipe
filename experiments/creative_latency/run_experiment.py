@@ -11,9 +11,9 @@ The aggregation (``aggregate_records``) is pure and unit-tested in
 
 Usage:
     PYTHONPATH="$PWD" uv run python -m experiments.creative_latency.run_experiment \\
-        --base-url https://exp-baseline---trend-trawler-api-qqzji3hyoa-uc.a.run.app \\
-        --audience https://trend-trawler-api-qqzji3hyoa-uc.a.run.app \\
-        --config-name baseline --revision <rev> --tag exp-baseline --n 3
+        --base-url https://<tag>---<service>-<hash>-<region>.run.app \\
+        --audience https://<service>-<hash>-<region>.run.app \\
+        --config-name baseline --revision <revision> --tag <tag> --n 3
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ import statistics
 import time
 from pathlib import Path
 
-from .run_trial import RESULTS_ROOT, run_trial
+from .run_trial import INVOKER_SA, RESULTS_ROOT, run_trial
 
 INTER_TRIAL_SECS = 90.0
 
@@ -114,6 +114,7 @@ def run_experiment(
     revision: str,
     tag: str | None,
     n: int,
+    invoker_sa: str = INVOKER_SA,
 ) -> dict:
     """Run ``n`` spaced trials, aggregate, and write ``results/<config>/_summary.json``."""
     records: list[dict] = []
@@ -126,6 +127,7 @@ def run_experiment(
                 revision=revision,
                 tag=tag,
                 audience=audience,
+                invoker_sa=invoker_sa,
             )
             records.append(json.loads(Path(path).read_text()))
         except Exception as exc:  # noqa: BLE001 — one bad trial shouldn't abort the set
@@ -151,6 +153,12 @@ def _parse_args(argv=None) -> argparse.Namespace:
     p.add_argument("--revision", default="")
     p.add_argument("--tag", default=None)
     p.add_argument("--n", type=int, default=3, help="Number of trials (default 3).")
+    p.add_argument(
+        "--invoker-sa",
+        default=INVOKER_SA,
+        help="Service account to impersonate for the ID token "
+        "(default $EXP_INVOKER_SA; empty = your own identity).",
+    )
     return p.parse_args(argv)
 
 
@@ -163,6 +171,7 @@ def main(argv=None) -> None:
         revision=args.revision,
         tag=args.tag,
         n=args.n,
+        invoker_sa=args.invoker_sa,
     )
 
 

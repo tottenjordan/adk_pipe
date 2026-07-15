@@ -33,26 +33,31 @@ RESULTS_ROOT = Path(__file__).parent / "results"
 REPORT_PATH = Path(__file__).parent / "report.html"
 FIGURES_DIR = Path(__file__).parent / "figures"
 
-# Stable phase order + palette so configs line up across figures.
+# Stable phase order + palette so configs line up across figures. ``visual`` is
+# the deployed ``visual_production_pipeline`` span (concepts + image render, which
+# Agent Engine surfaces as one AgentTool); ``visual_concepts``/``image_gen`` are
+# kept for any run that DOES separate them.
 PHASE_ORDER = [
-    "orchestrator",
     "research",
+    "visual",
+    "eval",
     "ad_copy",
     "visual_concepts",
     "image_gen",
-    "eval",
     "persistence",
+    "orchestrator",
     "runserver",
     "other",
 ]
 PHASE_COLORS = {
-    "orchestrator": "#5B8FF9",
     "research": "#61DDAA",
-    "ad_copy": "#F6BD16",
-    "visual_concepts": "#7262FD",
-    "image_gen": "#FF9845",
+    "visual": "#7262FD",
     "eval": "#F6903D",
+    "ad_copy": "#F6BD16",
+    "visual_concepts": "#945FB9",
+    "image_gen": "#FF9845",
     "persistence": "#9FB40F",
+    "orchestrator": "#5B8FF9",
     "runserver": "#C2C8D5",
     "other": "#D3D3D3",
 }

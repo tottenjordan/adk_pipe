@@ -15,19 +15,22 @@ convention for live scripts — the pure parsing it delegates to is tested in
 Auth recipe (private tagged revision): impersonate ``tt-web-sa`` with the
 audience set to the BASE service URL (NOT the tag URL). See the module CLI help.
 
+Auth is portable: set ``$EXP_INVOKER_SA`` (or ``--invoker-sa``) to a service
+account with ``roles/run.invoker`` on your backend, or leave it empty to use your
+own ADC identity — nothing project-specific is hard-coded.
+
 Usage:
     PYTHONPATH="$PWD" uv run python -m experiments.creative_latency.run_trial \\
-        --base-url https://trend-trawler-api-qqzji3hyoa-uc.a.run.app \\
-        --config-name baseline --revision trend-trawler-api-00040-abc \\
-        [--tag exp-baseline]
+        --base-url https://<service>-<hash>-<region>.run.app \\
+        --config-name baseline --revision <revision> [--tag <tag>]
 """
 
 from __future__ import annotations
 
 import argparse
-import dataclasses
 import datetime
 import json
+import os
 import subprocess
 import time
 import urllib.error
@@ -35,31 +38,29 @@ import urllib.request
 from pathlib import Path
 
 from .fixtures import APP_NAME, CAMPAIGN_MESSAGE
-from .parse_run import summarize_run
+from .parse_run import summarize_run, summary_to_dict
 
-# Service account the same-origin proxy impersonates in prod (roles/run.invoker).
-INVOKER_SA = "tt-web-sa@hybrid-vertex.iam.gserviceaccount.com"
+# Service account with roles/run.invoker on the backend to impersonate when
+# minting the ID token. Override with $EXP_INVOKER_SA or --invoker-sa; leave it
+# empty to use your own ADC identity (no impersonation) — nothing project-
+# specific is baked in, so anyone can point the harness at their own backend.
+INVOKER_SA = os.environ.get("EXP_INVOKER_SA", "")
 RESULTS_ROOT = Path(__file__).parent / "results"
 POLL_INTERVAL_S = 3.0
 POLL_TIMEOUT_S = 1800.0  # 30 min hard ceiling for one creative_agent run
 TERMINAL_STATUSES = frozenset({"done", "error"})
 
 
-def mint_token(audience: str) -> str:
-    """Mint an impersonated ID token for ``audience`` (the BASE service URL)."""
-    out = subprocess.run(
-        [
-            "gcloud",
-            "auth",
-            "print-identity-token",
-            f"--impersonate-service-account={INVOKER_SA}",
-            f"--audiences={audience}",
-            "--include-email",
-        ],
-        capture_output=True,
-        text=True,
-        check=True,
-    )
+def mint_token(audience: str, invoker_sa: str = INVOKER_SA) -> str:
+    """Mint an ID token for ``audience`` (the BASE service URL).
+
+    Impersonates ``invoker_sa`` when set; otherwise mints against the caller's
+    own ADC identity.
+    """
+    cmd = ["gcloud", "auth", "print-identity-token", f"--audiences={audience}"]
+    if invoker_sa:
+        cmd += [f"--impersonate-service-account={invoker_sa}", "--include-email"]
+    out = subprocess.run(cmd, capture_output=True, text=True, check=True)
     return out.stdout.strip()
 
 
@@ -200,6 +201,45 @@ def count_429s(revision: str, start_epoch: float, end_epoch: float) -> int | Non
         return None
 
 
+def build_record(
+    *,
+    config_name: str,
+    tag: str | None,
+    revision: str,
+    user_id: str,
+    session_id: str,
+    started_at: float | None,
+    status: str,
+    error: str | None,
+    http_429_503: int | None,
+    summary,
+) -> dict:
+    """Assemble the on-disk trial record (shared by the live + recovery paths)."""
+    return {
+        "config": config_name,
+        "tag": tag,
+        "revision": revision,
+        "app_name": APP_NAME,
+        "user_id": user_id,
+        "session_id": session_id,
+        "started_at_epoch": started_at,
+        "status": status,
+        "error": error,
+        "http_429_503": http_429_503,
+        "events_count": summary.event_count,
+        "summary": summary_to_dict(summary),
+    }
+
+
+def write_record(record: dict, config_name: str, session_id: str) -> Path:
+    """Write one trial record to ``results/<config>/<session_id>.json``."""
+    out_dir = RESULTS_ROOT / config_name
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = out_dir / f"{session_id}.json"
+    out_path.write_text(json.dumps(record, indent=2, default=str))
+    return out_path
+
+
 def run_trial(
     *,
     base_url: str,
@@ -207,6 +247,7 @@ def run_trial(
     revision: str,
     tag: str | None,
     audience: str | None = None,
+    invoker_sa: str = INVOKER_SA,
 ) -> Path:
     """Execute one trial end-to-end and write its JSON record. Returns the path.
 
@@ -214,8 +255,9 @@ def run_trial(
     is the tag URL ``https://<tag>---<svc>...run.app``). ``audience`` is the token
     audience, which for a Cloud Run tag must be the BASE service URL, not the tag
     URL; it defaults to ``base_url`` when the run targets the untagged service.
+    ``invoker_sa`` is the service account to impersonate (empty = own identity).
     """
-    token = mint_token(audience or base_url)
+    token = mint_token(audience or base_url, invoker_sa)
     user_id = f"exp_{config_name}_{int(time.time())}"
     session_id = create_session(base_url, user_id, token)
     started_at = time.time()
@@ -235,24 +277,19 @@ def run_trial(
         flush=True,
     )
 
-    record = {
-        "config": config_name,
-        "tag": tag,
-        "revision": revision,
-        "app_name": APP_NAME,
-        "user_id": user_id,
-        "session_id": session_id,
-        "started_at_epoch": started_at,
-        "status": status,
-        "error": error,
-        "http_429_503": http_429_503,
-        "events_count": summary.event_count,
-        "summary": dataclasses.asdict(summary),
-    }
-    out_dir = RESULTS_ROOT / config_name
-    out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / f"{session_id}.json"
-    out_path.write_text(json.dumps(record, indent=2, default=str))
+    record = build_record(
+        config_name=config_name,
+        tag=tag,
+        revision=revision,
+        user_id=user_id,
+        session_id=session_id,
+        started_at=started_at,
+        status=status,
+        error=error,
+        http_429_503=http_429_503,
+        summary=summary,
+    )
+    out_path = write_record(record, config_name, session_id)
     print(f"  wrote {out_path}", flush=True)
     return out_path
 
@@ -275,6 +312,12 @@ def _parse_args(argv=None) -> argparse.Namespace:
         "--revision", default="", help="Cloud Run revision serving this config."
     )
     p.add_argument("--tag", default=None, help="Cloud Run traffic tag, if any.")
+    p.add_argument(
+        "--invoker-sa",
+        default=INVOKER_SA,
+        help="Service account to impersonate for the ID token "
+        "(default $EXP_INVOKER_SA; empty = your own identity).",
+    )
     return p.parse_args(argv)
 
 
@@ -287,6 +330,7 @@ def main(argv=None) -> None:
             revision=args.revision,
             tag=args.tag,
             audience=args.audience.rstrip("/") if args.audience else None,
+            invoker_sa=args.invoker_sa,
         )
     except (urllib.error.HTTPError, urllib.error.URLError) as exc:
         raise SystemExit(f"HTTP error driving run: {exc}") from exc
