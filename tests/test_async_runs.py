@@ -370,6 +370,23 @@ def test_poll_not_found():
     assert result["events"] == []
 
 
+class _RaisingSessionService:
+    """A session service whose get_session raises — mirrors VertexAiSessionService,
+    which raises 400/404 for a missing/unknown session instead of returning None
+    (unlike the InMemory service ADK's own type hint promises)."""
+
+    async def get_session(self, **kwargs):
+        raise RuntimeError("400 INVALID_ARGUMENT")
+
+
+def test_poll_not_found_when_get_session_raises():
+    # A poll must degrade to not_found (which pollRun treats as transient) rather
+    # than 500 when the backend raises on an unknown session.
+    result = _poll(_RaisingSessionService())
+    assert result["status"] == "not_found"
+    assert result["events"] == []
+
+
 # --- Task 4: resume a paused (LongRunningFunctionTool) run --------------------
 #
 # A resume is start_run with a functionResponse message instead of text. The

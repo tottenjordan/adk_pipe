@@ -115,10 +115,25 @@ async def get_run_status(
     cursor, the merged session state, and any error message.
 
     Returns ``{"status": "not_found", ...}`` (not a raise) when the session is
-    absent, so the caller/router can map it to a 404 while staying testable."""
-    session = await session_service.get_session(
-        app_name=app_name, user_id=user_id, session_id=session_id
-    )
+    absent, so the caller/router can map it to a 404 while staying testable.
+
+    ``get_session`` is *typed* to return ``None`` for a missing session, but the
+    remote ``VertexAiSessionService`` instead RAISES (400/404) for an unknown or
+    not-yet-visible session. Treat that the same as ``None`` — a poll must degrade
+    to ``not_found`` (which the client's ``pollRun`` handles as transient) rather
+    than surfacing a 500 that would abort the run view."""
+    try:
+        session = await session_service.get_session(
+            app_name=app_name, user_id=user_id, session_id=session_id
+        )
+    except Exception:  # noqa: BLE001 — any lookup failure degrades to not_found (see above)
+        logging.debug(
+            "get_session failed for %s/%s/%s; treating as not_found",
+            app_name,
+            user_id,
+            session_id,
+        )
+        session = None
     if session is None:
         return {"status": "not_found", "events": [], "nextCursor": 0, "state": {}}
     status, error = _derive_status(session.events)
