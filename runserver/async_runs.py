@@ -201,6 +201,29 @@ async def start_run(
     return {"runId": session_id, "status": "running"}, task
 
 
+async def _reset_status_to_running(
+    session_service, app_name, user_id, session_id
+) -> None:
+    """Append a ``running`` status marker, superseding any terminal marker a prior
+    detached segment left behind.
+
+    Each segment writes its OWN terminal marker when its Runner generator exhausts
+    — INCLUDING when it exhausts by pausing at a ``LongRunningFunctionTool``
+    checkpoint (the pause looks like a normal generator completion). So after a
+    resume, the previous (paused) segment's stale ``done`` marker is still the last
+    one in the log until the new segment finishes; a poll in that window would read
+    ``done`` and the client (``pollRun`` stops on any non-``running`` status) would
+    give up before the next checkpoint / final completion. Called synchronously
+    (awaited) by ``start_resume`` BEFORE the detached task launches, so the very
+    next poll already sees ``running``."""
+    session = await session_service.get_session(
+        app_name=app_name, user_id=user_id, session_id=session_id
+    )
+    if session is None:
+        return
+    await session_service.append_event(session, build_terminal_event("running"))
+
+
 async def start_resume(
     *,
     app_name,
@@ -227,6 +250,9 @@ async def start_resume(
     paused tool call."""
     runner = runner_factory(app_name)
     new_message = build_resume_message(function_call_id, function_name, response)
+    # Clear the paused segment's terminal 'done' marker before relaunching, so a
+    # poll during the resumed segment sees 'running' (see _reset_status_to_running).
+    await _reset_status_to_running(session_service, app_name, user_id, session_id)
     task = asyncio.create_task(
         _drive_run(
             runner,

@@ -31,6 +31,16 @@ type Status = "running" | "completed" | "error" | "paused" | "stalled";
  */
 const RUN_STALL_TIMEOUT_MS = 3 * 60 * 1000;
 
+/**
+ * Author of the server's internal run-status marker events (`__run_status`
+ * done/error/running). These are control-plane events the poll payload already
+ * reflects in its top-level `status`/`error` fields — the run's coarse status
+ * comes from there, not from these events — so we skip them in the timeline and
+ * state merge to keep the UI clean (they carry no agent output). Must match
+ * `RUNSERVER_AUTHOR` in `runserver/async_runs.py`.
+ */
+const RUNSERVER_MARKER_AUTHOR = "__runserver__";
+
 interface PauseContext {
   functionCallId: string;
   functionName: string;
@@ -644,6 +654,10 @@ export default function RunPage({
         for await (const event of pollRun(appName, userId, sessionId, {
           signal,
         })) {
+          // Skip the server's internal run-status marker events — status/error
+          // come from the poll payload, not these (see RUNSERVER_MARKER_AUTHOR).
+          if (event.author === RUNSERVER_MARKER_AUTHOR) continue;
+
           // Deduplicate events by ID
           if (event.id && seenEventIds.current.has(event.id)) continue;
           if (event.id) seenEventIds.current.add(event.id);
@@ -762,6 +776,9 @@ export default function RunPage({
 
       let paused = false;
       for await (const event of pollRun(appName, userId, sessionId)) {
+        // Skip the server's internal run-status marker events (see kickoff loop).
+        if (event.author === RUNSERVER_MARKER_AUTHOR) continue;
+
         // Deduplicate events by ID
         if (event.id && seenEventIds.current.has(event.id)) continue;
         if (event.id) seenEventIds.current.add(event.id);

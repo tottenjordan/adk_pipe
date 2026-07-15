@@ -462,3 +462,76 @@ def test_resume_records_error_marker_on_exception():
     assert delta[RUN_STATUS_KEY] == "error"
     assert RUN_ERROR_KEY in delta
     assert "boom" in delta[RUN_ERROR_KEY]
+
+
+def test_resume_resets_status_to_running_before_segment_completes():
+    """Regression (found by live interactive smoke): each detached segment writes
+    its OWN terminal ``done`` marker when its Runner generator exhausts — INCLUDING
+    when it exhausts by pausing at a ``LongRunningFunctionTool`` checkpoint. So after
+    a resume, a poll during the *new* segment would read the previous segment's stale
+    ``done`` and the client (pollRun stops on any non-``running`` status) would give
+    up before the next checkpoint / final completion. ``start_resume`` must reset the
+    status to ``running`` synchronously, before the detached task launches, so the
+    very next poll already sees ``running``."""
+
+    async def _go():
+        svc = InMemorySessionService()
+        await svc.create_session(
+            app_name="interactive_creative", user_id="u", session_id="s", state={}
+        )
+        # Simulate a previous paused segment: a terminal 'done' marker is already
+        # in the log (this is exactly what a checkpoint pause leaves behind).
+        prior = await svc.get_session(
+            app_name="interactive_creative", user_id="u", session_id="s"
+        )
+        await svc.append_event(prior, build_terminal_event("done"))
+
+        gate = asyncio.Event()
+
+        class _BlockingRunner:
+            """Runner double that blocks until released, so we can observe the
+            run's status WHILE the resumed segment is still in flight."""
+
+            async def run_async(self, *, user_id, session_id, new_message, **kwargs):
+                await gate.wait()
+                s = await svc.get_session(
+                    app_name="interactive_creative", user_id="u", session_id="s"
+                )
+                ev = _agent_event("resumed")
+                await svc.append_event(s, ev)
+                yield ev
+
+        result, task = await start_resume(
+            app_name="interactive_creative",
+            user_id="u",
+            session_id="s",
+            function_call_id="call-1",
+            function_name="review_ad_copies",
+            response={"status": "approved"},
+            session_service=svc,
+            runner_factory=lambda a: _BlockingRunner(),
+        )
+        assert result["status"] == "running"
+        # Runner is blocked → resumed segment has NOT finished. The poll must not
+        # report the previous segment's stale 'done'.
+        mid = await get_run_status(
+            app_name="interactive_creative",
+            user_id="u",
+            session_id="s",
+            since=0,
+            session_service=svc,
+        )
+        gate.set()
+        await task
+        final = await get_run_status(
+            app_name="interactive_creative",
+            user_id="u",
+            session_id="s",
+            since=0,
+            session_service=svc,
+        )
+        return mid, final
+
+    mid, final = asyncio.run(_go())
+    assert mid["status"] == "running"
+    assert final["status"] == "done"
