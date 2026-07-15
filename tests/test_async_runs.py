@@ -66,6 +66,9 @@ def test_terminal_marker_event_done():
     assert ev.author == "__runserver__"
     # No content parts so the marker never renders in the timeline.
     assert not ev.content
+    # invocation_id MUST be non-empty — VertexAiSessionService.append_event
+    # rejects an event whose invocation_id is unset (400 INVALID_ARGUMENT).
+    assert ev.invocation_id
 
 
 def test_terminal_marker_event_error():
@@ -73,6 +76,12 @@ def test_terminal_marker_event_error():
     assert ev.actions.state_delta == {"__run_status": "error", "__run_error": "boom"}
     assert ev.author == "__runserver__"
     assert not ev.content
+    assert ev.invocation_id
+
+
+def test_terminal_marker_threads_invocation_id():
+    ev = build_terminal_event("done", invocation_id="inv-42")
+    assert ev.invocation_id == "inv-42"
 
 
 def test_events_since_slices_by_index():

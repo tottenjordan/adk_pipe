@@ -50,11 +50,21 @@ def build_resume_message(
     )
 
 
-def build_terminal_event(status: str, error: str | None = None) -> Event:
+def build_terminal_event(
+    status: str, error: str | None = None, *, invocation_id: str = RUNSERVER_AUTHOR
+) -> Event:
+    # ``invocation_id`` MUST be non-empty: VertexAiSessionService.append_event
+    # rejects an event with an unset invocation_id (400 INVALID_ARGUMENT). We
+    # thread the run's own invocation id through when available (see _drive_run)
+    # and fall back to a stable non-empty marker author otherwise.
     delta = {RUN_STATUS_KEY: status}
     if error is not None:
         delta[RUN_ERROR_KEY] = error
-    return Event(author=RUNSERVER_AUTHOR, actions=EventActions(state_delta=delta))
+    return Event(
+        author=RUNSERVER_AUTHOR,
+        invocation_id=invocation_id,
+        actions=EventActions(state_delta=delta),
+    )
 
 
 def events_since(events, n: int):
@@ -133,22 +143,31 @@ async def _drive_run(
     """Drive a Runner to completion detached from any request, then append a
     terminal status marker to the session. Never re-raises — the terminal
     ``error`` marker IS the failure contract for pollers."""
+    # Reuse the run's own invocation id on the terminal marker (Vertex requires a
+    # non-empty invocation_id); fall back to the marker author if the run emitted
+    # no events (e.g. an immediate error).
+    invocation_id = RUNSERVER_AUTHOR
     try:
-        async for _event in runner.run_async(
+        async for event in runner.run_async(
             user_id=user_id, session_id=session_id, new_message=new_message
         ):
-            pass  # Runner persists final events to the session service itself.
+            # Runner persists final events to the session service itself.
+            if getattr(event, "invocation_id", None):
+                invocation_id = event.invocation_id
         session = await session_service.get_session(
             app_name=app_name, user_id=user_id, session_id=session_id
         )
-        await session_service.append_event(session, build_terminal_event("done"))
+        await session_service.append_event(
+            session, build_terminal_event("done", invocation_id=invocation_id)
+        )
     except Exception as exc:  # noqa: BLE001 — terminal marker is the contract; log+persist, never raise
         logging.exception("detached run failed app=%s session=%s", app_name, session_id)
         session = await session_service.get_session(
             app_name=app_name, user_id=user_id, session_id=session_id
         )
         await session_service.append_event(
-            session, build_terminal_event("error", str(exc))
+            session,
+            build_terminal_event("error", str(exc), invocation_id=invocation_id),
         )
 
 
