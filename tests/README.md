@@ -32,6 +32,7 @@ tests/
 │       ├── trend_scout_evalset.json
 │       └── creative_agent_evalset.json
 ├── test_agent_common_models.py      # shared model location + build_gemini() factory
+├── test_async_runs.py               # async-job run model: kick-off/poll/resume, terminal markers
 ├── test_callbacks.py                # citation replacement, state init, rate limiting
 ├── test_config.py                   # per-agent config resolution
 ├── test_creative_eval.py            # creative_eval schemas, scoring logic, config
@@ -59,6 +60,10 @@ tests/
 - **Deployment & fan-out** — `test_deploy_utils.py`, `test_crf_entrypoint.py`,
   `test_crf_logic.py`, `test_crf_worker_async.py`: deploy mappings/env wiring and the
   orchestrator + worker Cloud Run Function paths.
+- **Async-job run model** — `test_async_runs.py`: detached kick-off returns immediately,
+  `_drive_run` appends a `done`/`error` terminal marker, poll derives status + slices
+  events by cursor, and resume re-runs with a `functionResponse` (resetting status to
+  `running` first so multi-checkpoint interactive runs don't stop early).
 - **Evals** (`eval/`) — end-to-end `adk eval` cases with rubric-based LLM-as-judge scoring
   (response quality + tool-use quality). One evalset + rubric config per agent. Runs
   against real APIs.
