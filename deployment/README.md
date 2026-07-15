@@ -541,8 +541,8 @@ curl -sS -o /dev/null -w "%{http_code}" \
 ```
 
 - The web URL returns `200`.
-- Open the web URL, submit a campaign for `trend_scout`, confirm the **SSE stream
-  renders** — proves the ID-token'd `/api/adk` → private backend path.
+- Open the web URL, submit a campaign for `trend_scout`, confirm the **run view polls
+  and renders events** — proves the ID-token'd `/api/adk` → private backend path.
 - Open a completed run's results page, confirm an **artifact loads** — proves `/api/gcs`
   + `roles/storage.objectViewer`.
 - Negative check: `curl $API_URL/list-apps` **without** a token returns `403` (the
@@ -666,7 +666,7 @@ gcloud run services remove-iam-policy-binding trend-trawler-web --region $REGION
 
 Verify: `curl -sI $WEB_URL/` returns **`HTTP/2 302`** to `accounts.google.com`
 (`x-goog-iap-generated-response: true`), not `200`. A `jordantotten.altostrat.com` user
-loads the app in a browser, a run streams via SSE, and an artifact loads via `/api/gcs`.
+loads the app in a browser, a run progresses via polling, and an artifact loads via `/api/gcs`.
 Never re-add `allUsers`; add non-domain viewers individually with
 `roles/iap.httpsResourceAccessor`.
 

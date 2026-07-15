@@ -22,8 +22,12 @@ uv sync
 # Local development (ADK web UI)
 uv run adk web .
 
-# Local development (custom frontend + ADK api_server)
-uv run adk api_server . --allow_origins=http://localhost:3000
+# Local development (custom frontend + backend)
+# Run the async_app launcher (NOT bare `adk api_server`): the frontend's run page
+# polls the async-job `/runs` endpoints, which only the launcher mounts. It also
+# serves all the canned ADK CRUD/getSession/artifact endpoints, so this is a
+# superset of `adk api_server`.
+ALLOW_ORIGINS=http://localhost:3000 uv run uvicorn deployment.async_app:app --port 8000
 cd frontend && npm install && npm run dev   # http://localhost:3000
 
 # Deploy agent to Agent Engine (the per-agent packages bundled into the engine
@@ -67,8 +71,8 @@ PYTHONPATH="$PWD" uv run adk eval creative_agent tests/eval/evalsets/creative_ag
   --config_file_path=tests/eval/creative_eval_config.json --print_detailed_results
 ```
 
-- Frontend: `frontend/src/__tests__/` — pure logic tests (SSE parsing, form validation, GCS URI building, widget layouts, trend markdown parsing, extractItems, interactive mode pause/resume)
-- Python: `tests/` — Pydantic schema validation, agent pipeline structure, tool functions, callbacks (citation regex, state init, rate limiting), deployment utilities, cloud function logic. See [tests/README.md](tests/README.md) for the per-file breakdown.
+- Frontend: `frontend/src/__tests__/` — pure logic tests (async-job poll client in `poll-run.test.ts`, form validation, GCS URI building, widget layouts, trend markdown parsing, extractItems, interactive mode pause/resume)
+- Python: `tests/` — Pydantic schema validation, agent pipeline structure, tool functions, callbacks (citation regex, state init, rate limiting), async-job run helpers (`test_async_runs.py`), deployment utilities, cloud function logic. See [tests/README.md](tests/README.md) for the per-file breakdown.
 - ADK Evals: `tests/eval/` — end-to-end agent evaluation using `adk eval` CLI with rubric-based LLM-as-judge scoring (response quality + tool use quality). Runs against real APIs. One evalset + rubric config per agent: `evalsets/trend_scout_evalset.json` + `eval_config.json`; `evalsets/creative_agent_evalset.json` + `creative_eval_config.json`. The `creative_agent` eval must be run with `PYTHONPATH="$PWD"` (see command above).
 - Integration: `deployment/integration_test.py` — live GCP checks (health, session lifecycle, smoke tests). Requires deployed agents.
 - CI: `.github/workflows/frontend-tests.yml` — runs frontend tests on push/PR to `main` when `frontend/**` changes
@@ -130,21 +134,21 @@ Key ADK patterns used: `Agent`, `SequentialAgent`, `ParallelAgent`, `AgentTool` 
 
 ### Frontend — `frontend/`
 
-Next.js 16 (App Router) + TypeScript + Tailwind CSS + shadcn/ui. Light theme with Sora font. Consumes the ADK `api_server` REST + SSE endpoints at `localhost:8000`.
+Next.js 16 (App Router) + TypeScript + Tailwind CSS + shadcn/ui. Light theme with Sora font. Consumes the backend REST endpoints at `localhost:8000` — ADK's canned session/artifact CRUD plus the async-job `/runs` kick-off/poll/resume endpoints (served together by `deployment/async_app.py`).
 
-**Deployment:** the frontend now ships to Cloud Run as two services — `trend-trawler-web` (Next.js standalone) and `trend-trawler-api` (running `adk api_server`). The backend is private; the same-origin `/api/adk` proxy reaches it with a metadata-server ID token (`roles/run.invoker`). The frontend is **IAP-gated** (domain-restricted to `jordantotten.altostrat.com` via Cloud Run direct IAP), and the backend uses **persistent Agent Engine sessions** via `SESSION_SERVICE_URI` (a dedicated `trend-trawler-sessions` Reasoning Engine; entrypoint `deployment/backend_entrypoint.sh`). Runbook: [deployment/README.md → Frontend + api_server on Cloud Run](deployment/README.md#frontend--api_server-on-cloud-run).
+**Deployment:** the frontend now ships to Cloud Run as two services — `trend-trawler-web` (Next.js standalone) and `trend-trawler-api`. The backend runs the **custom launcher `deployment/async_app.py`** under uvicorn (entrypoint `deployment/backend_entrypoint.sh`): it mounts ADK's canned FastAPI app (session/artifact CRUD, `getSession`, `list-apps`) **plus** the async-job `/runs` router from the flat `runserver/` package — both sharing one `VertexAiSessionService`. It **must** be deployed with `--no-cpu-throttling --min-instances 1` so detached runs keep CPU and aren't killed by scale-to-zero (see the async-run runbook). The backend is private; the same-origin `/api/adk` proxy reaches it with a metadata-server ID token (`roles/run.invoker`). The frontend is **IAP-gated** (domain-restricted to `jordantotten.altostrat.com` via Cloud Run direct IAP), and the backend uses **persistent Agent Engine sessions** via `SESSION_SERVICE_URI` (a dedicated `trend-trawler-sessions` Reasoning Engine). Runbook: [deployment/README.md → Frontend + api_server on Cloud Run](deployment/README.md#frontend--api_server-on-cloud-run).
 
 **Pages:**
 - `/` — Campaign input form (brand, audience, product, selling points, agent selector: `trend_scout`, `creative_agent`, `interactive_creative`)
-- `/run/[sessionId]` — Live SSE event stream with timeline, pipeline state widgets (modal overlays), campaign metadata sidebar. Interactive mode adds pause/resume review panels at each checkpoint.
+- `/run/[sessionId]` — Live run view: the page **polls** the async-job run (fire-and-forget kick-off + `GET /runs/.../{session}?since=N`) and renders new events into a timeline, pipeline state widgets (modal overlays), and a campaign metadata sidebar. Because progress is read from the persistent session log (not a browser-held SSE stream), a run **survives disconnect/reload/IAP re-auth** — reloading re-polls from `since=0` and replays. Interactive mode adds pause/resume review panels at each checkpoint.
 - `/results/[sessionId]` — Artifacts gallery, research PDF viewer, evaluation report, session state inspector
 
 **Key files:**
 - `frontend/src/app/layout.tsx` — Root layout, fonts (Sora + JetBrains Mono), glass header
 - `frontend/src/app/page.tsx` — Campaign input form
-- `frontend/src/app/run/[sessionId]/page.tsx` — SSE streaming, pipeline widgets, status tracking
+- `frontend/src/app/run/[sessionId]/page.tsx` — async-job polling (`pollRun`), pipeline widgets, status tracking, stall-timeout
 - `frontend/src/app/results/[sessionId]/page.tsx` — Results viewer with artifact tabs
-- `frontend/src/lib/api.ts` — API client (session CRUD, SSE streaming, artifact fetching)
+- `frontend/src/lib/api.ts` — API client (session CRUD, async-job `startRun`/`pollRun`/`resumeRun`, artifact fetching)
 - `frontend/src/app/api/gcs/route.ts` — Authenticated GCS proxy for serving artifacts
 
 ### Event-Driven Orchestration — `cloud_functions/`
@@ -196,6 +200,8 @@ Agents use `before_agent_callback` to initialize session state, `before_model_ca
 - `tests/eval/evalsets/` — ADK eval cases per agent
 - `deployment/deploy_agent.py` — Agent Engine deploy/list/delete CLI; `AGENT_EXTRA_PACKAGES`/`AGENT_DEPLOY_SPECS` maps are the single source of truth for what each agent bundles
 - `deployment/test_deployment.py` — Invoke deployed agents for testing
+- `runserver/async_runs.py` — async-job run model: `/runs` FastAPI router + pure helpers. Kicks off a **detached `asyncio` task** driving `Runner.run_async` to completion decoupled from the HTTP request, appends a terminal `__run_status` marker event on done/error, and serves poll (`GET ?since=N`) + resume endpoints. Replaces browser-held SSE so runs survive client disconnect.
+- `deployment/async_app.py` — launcher that mounts the `/runs` router on ADK's canned FastAPI app, sharing one `VertexAiSessionService`; run under uvicorn by `deployment/backend_entrypoint.sh`
 - `cloud_functions/creative_fanout/main.py` — Orchestrator and worker entry points
 - `cloud_functions/creative_fanout/session.py` — `agent_session` async context manager (create→query→delete under one `user_id`, delete-on-error)
 

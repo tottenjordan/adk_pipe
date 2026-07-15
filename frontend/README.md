@@ -31,12 +31,12 @@ frontend/
 │   │   ├── globals.css                     # Tailwind base + light-theme design tokens
 │   │   ├── favicon.ico
 │   │   ├── api/
-│   │   │   ├── adk/[...path]/route.ts      # same-origin proxy to the ADK api_server (streams SSE through untouched)
+│   │   │   ├── adk/[...path]/route.ts      # same-origin proxy to the backend (ID-token auth; forwards session CRUD + /runs poll)
 │   │   │   └── gcs/route.ts                # authenticated GCS proxy for serving artifacts
-│   │   ├── run/[sessionId]/page.tsx        # "/run/*" live SSE event stream, pipeline widgets, status tracking
+│   │   ├── run/[sessionId]/page.tsx        # "/run/*" async-job polling (pollRun), pipeline widgets, status tracking, stall-timeout
 │   │   └── results/[sessionId]/page.tsx    # "/results/*" artifacts gallery, research PDF, eval report, state inspector
 │   ├── components/
-│   │   ├── event-log.tsx                   # timeline of streamed agent events
+│   │   ├── event-log.tsx                   # timeline of polled agent events
 │   │   ├── gallery-viewer.tsx              # image gallery for generated visual concepts
 │   │   ├── gcs-widget.tsx                  # renders a gs:// URI as a Cloud Console link
 │   │   ├── trend-cards.tsx                 # trend selection cards (parsed from agent output)
@@ -54,13 +54,14 @@ frontend/
 │   │       ├── tabs.tsx
 │   │       └── textarea.tsx
 │   ├── lib/
-│   │   ├── api.ts                          # API client: session CRUD, SSE streaming, artifact fetching
+│   │   ├── api.ts                          # API client: session CRUD, async-job startRun/pollRun/resumeRun, artifact fetching
 │   │   ├── presets.ts                      # preset dropdown values for the campaign form
 │   │   ├── types.ts                        # shared TS types (ADK event Parts, agent events, …)
 │   │   └── utils.ts                        # cn() class-merge helper + formatStateValue
 │   └── __tests__/                          # Vitest + React Testing Library unit tests
 │       ├── setup.ts                        # test bootstrap (jsdom, matchers)
-│       ├── api-client.test.ts              # SSE parsing / API client
+│       ├── api-client.test.ts              # API client (session CRUD, proxy)
+│       ├── poll-run.test.ts                # async-job client: startRun / pollRun / getRunStatus / resumeRun
 │       ├── extract-items.test.ts           # extractItems helper
 │       ├── form-validation.test.ts         # campaign form validation
 │       ├── gcs-uri.test.ts                 # gs:// URI building
