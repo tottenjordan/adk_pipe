@@ -8,7 +8,7 @@ from creative_agent.agent import (
     combined_research_pipeline,
     ad_creative_pipeline,
     visual_generation_pipeline,
-    visual_generator,
+    visual_generator_resilient,
 )
 from creative_eval.agent import creative_eval_agent
 from creative_agent import tools, callbacks
@@ -37,7 +37,7 @@ root_agent = Agent(
     6. `review_ad_copies` — **CHECKPOINT** Pause for user to review ad copies before proceeding.
     7. `visual_generation_pipeline` — Generate visual concepts.
     8. `review_visual_concepts` — **CHECKPOINT** Pause for user to review visual concepts before image generation.
-    9. `visual_generator` — Generate image creatives.
+    9. `visual_generator_resilient` — Generate image creatives (retries on empty output).
     10. `creative_eval_agent` — Evaluate all creatives for quality.
     11. `save_eval_report_to_gcs` — Save evaluation report JSON to GCS.
     12. `save_creative_gallery_html` — Build HTML portfolio.
@@ -68,7 +68,7 @@ root_agent = Agent(
     5. **CHECKPOINT 2:** Call `review_ad_copies` to pause for user review. When you receive the response, read the user's feedback. If status is "approved", immediately proceed to step 6. **Do NOT end the workflow here.**
     6. Use `visual_generation_pipeline` to generate visual concepts. **Do NOT skip this step.**
     7. **CHECKPOINT 3:** Call `review_visual_concepts` to pause for user review. When you receive the response, immediately proceed to step 8. **Do NOT end the workflow here.**
-    8. Use `visual_generator` to generate image creatives. **Do NOT skip this step.**
+    8. Use `visual_generator_resilient` to generate image creatives. **Do NOT skip this step.**
     9. Use `creative_eval_agent` to evaluate all creatives.
     10. Use `save_eval_report_to_gcs` to save the evaluation report.
     11. Use `save_creative_gallery_html` to create HTML portfolio.
@@ -83,7 +83,7 @@ root_agent = Agent(
         AgentTool(agent=combined_research_pipeline),
         AgentTool(agent=ad_creative_pipeline),
         AgentTool(agent=visual_generation_pipeline),
-        AgentTool(agent=visual_generator),
+        AgentTool(agent=visual_generator_resilient),
         AgentTool(agent=creative_eval_agent),
         review_research_tool,
         review_ad_copies_tool,

@@ -102,6 +102,23 @@ def test_visual_generation_pipeline_sub_agent_order():
     ]
 
 
+def test_visual_production_pipeline_wraps_generator_in_retry():
+    """The image step must be retry-wrapped: visual_generator intermittently
+    returns MALFORMED_FUNCTION_CALL and never emits generate_image, shipping an
+    empty gallery. RetryUntilKeyAgent re-runs it until _images_generated is set
+    (generate_image's idempotency guard makes a re-run safe)."""
+    from creative_agent import agent as ca
+    from agent_common import RetryUntilKeyAgent
+
+    names = [a.name for a in ca.visual_production_pipeline.sub_agents]
+    assert names == ["visual_generation_pipeline", "visual_generator_resilient"]
+
+    w = ca.visual_production_pipeline.sub_agents[-1]
+    assert isinstance(w, RetryUntilKeyAgent)
+    assert w.output_key == "_images_generated"
+    assert w.sub_agents[0] is ca.visual_generator
+
+
 def test_parallel_planner_has_both_researchers():
     from creative_agent.agent import parallel_planner_agent
 
@@ -356,6 +373,33 @@ def test_interactive_root_has_observability_callbacks():
 
     assert root_agent.after_model_callback is callbacks.log_empty_turn_finish_reason
     assert root_agent.after_agent_callback is callbacks.log_final_state_summary
+
+
+def test_interactive_creative_uses_resilient_visual_generator():
+    """interactive_creative renders images standalone via AgentTool after a review
+    checkpoint, so it has the same MALFORMED_FUNCTION_CALL flaw as creative_agent.
+    It must invoke the SAME shared resilient wrapper instance (AgentTool does not
+    reparent), not the raw visual_generator."""
+    from interactive_creative import agent as ic
+    from creative_agent.agent import visual_generator, visual_generator_resilient
+    from google.adk.tools.agent_tool import AgentTool
+    from agent_common import RetryUntilKeyAgent
+
+    matching = [
+        t
+        for t in ic.root_agent.tools
+        if isinstance(t, AgentTool) and t.agent is visual_generator_resilient
+    ]
+    assert matching, "interactive_creative must invoke the resilient image wrapper"
+    assert isinstance(matching[0].agent, RetryUntilKeyAgent)
+
+    # The raw generator must NOT be exposed directly (would bypass the retry).
+    raw = [
+        t
+        for t in ic.root_agent.tools
+        if isinstance(t, AgentTool) and t.agent is visual_generator
+    ]
+    assert not raw, "raw visual_generator must not be exposed; use the wrapper"
 
 
 def test_trend_scout_root_has_expected_tools():
