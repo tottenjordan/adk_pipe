@@ -27,6 +27,8 @@ dependencies = [
     "cloudevents>=1.12.0,<2.0.0",
     "google-cloud-pubsub>=2.39.0,<3.0.0",
     "litellm>=1.85.7,<2.0.0",
+    "plotly>=6.9.0",
+    "kaleido>=1.3.0",
 ]
 
 [tool.uv]
