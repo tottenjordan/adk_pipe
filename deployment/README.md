@@ -370,13 +370,18 @@ diagram into real, reproducible infrastructure.
 
 ### Architecture
 
-- **Backend** — `trend-trawler-api` runs `adk api_server agents` (not `.`). It loads the
-  three runnable agent packages (`trend_scout`, `creative_agent`, `interactive_creative`)
-  and calls Vertex/BigQuery/GCS in-process. It is **private** — deployed with
-  `--no-allow-unauthenticated`. It serves from the `agents/` directory (relative symlinks
-  to the flat packages) so `GET /list-apps` returns exactly those three instead of every
-  top-level dir; the root `Dockerfile` sets `PYTHONPATH=/app` so cross-package imports
-  (`creative_eval`, `agent_common`) still resolve. See `agents/README.md`.
+- **Backend** — `trend-trawler-api` runs **uvicorn on `deployment/async_app.py`** (the ADK
+  FastAPI app from `get_fast_api_app` + our async-job `/runs` router), not the canned
+  `adk api_server`. It loads the three runnable agent packages (`trend_scout`,
+  `creative_agent`, `interactive_creative`) and calls Vertex/BigQuery/GCS in-process. It is
+  **private** — deployed with `--no-allow-unauthenticated`. It serves from the `agents/`
+  directory (relative symlinks to the flat packages) so `GET /list-apps` returns exactly
+  those three instead of every top-level dir; the root `Dockerfile` sets `PYTHONPATH=/app`
+  so cross-package imports (`creative_eval`, `agent_common`) still resolve. See
+  `agents/README.md`. The canned session/artifact CRUD (`createSession`, `getSession`,
+  `list-apps`, artifacts) still comes free from `get_fast_api_app`; the `/runs` router
+  shares its exact session-service instance so both see one store. **Runs are async**
+  (fire-and-forget + poll) — see [Async-job run model](#async-job-run-model) below.
 - **Frontend** — `trend-trawler-web` runs the Next.js 16 standalone server
   (`output: "standalone"` → `server.js`). Its existing same-origin Route Handlers proxy
   to the backend (`/api/adk/*` → `ADK_API_BASE`) and to Cloud Storage (`/api/gcs`).
@@ -481,9 +486,18 @@ API_SA=tt-api-sa@$PROJECT.iam.gserviceaccount.com
 gcloud run deploy trend-trawler-api \
   --source . --region $REGION --no-allow-unauthenticated \
   --service-account $API_SA \
-  --memory 8Gi --cpu 4 --min-instances 0 --timeout 900 \
+  --memory 8Gi --cpu 4 --min-instances 1 --timeout 900 --no-cpu-throttling \
   --set-env-vars "GOOGLE_GENAI_USE_VERTEXAI=1,GOOGLE_CLOUD_PROJECT=$PROJECT,GCP_REGION=$REGION,GOOGLE_CLOUD_PROJECT_NUMBER=$PROJECT_NUMBER,GOOGLE_CLOUD_STORAGE_BUCKET=$GCS_BUCKET,BUCKET=gs://$GCS_BUCKET,BQ_PROJECT_ID=$PROJECT,BQ_DATASET_ID=trend_trawler,BQ_TABLE_TARGETS=target_trends_crf,BQ_TABLE_CREATIVES=trend_creatives,BQ_TABLE_ALL_TRENDS=all_trends,BQ_TABLE_EVALS=creative_evals"
 ```
+
+> **`--no-cpu-throttling` is required, not optional.** The async-job model drives each run
+> in a detached `asyncio` task that outlives the kick-off HTTP response. With the Cloud Run
+> default (CPU throttled between requests) that task would **stall the instant `POST /runs`
+> returns** — CPU is only allocated during a request. `--no-cpu-throttling` (instance-based
+> billing) keeps CPU allocated so the background run proceeds. Pair it with
+> `--min-instances 1` so an idle scale-to-zero doesn't kill an in-flight run; the tradeoff
+> is being billed for the always-warm instance (acceptable for this internal tool). See
+> [Async-job run model](#async-job-run-model).
 
 > Env-var values must match `.env` / `deployment/deploy_agent.py:ENV_VAR_DICT`. Note
 > `GOOGLE_CLOUD_STORAGE_BUCKET` (bare bucket name) and `BUCKET` (`gs://`-prefixed) hold
@@ -540,11 +554,19 @@ The frontend's `ADK_API_BASE` wiring is documented in
 ### 6. Persistent sessions (Agent Engine)
 
 By default the backend uses **in-memory** ADK sessions, so a run must stay on the same
-warm instance — a cold start or scale-out drops in-flight state. The backend now reads an
-optional `SESSION_SERVICE_URI`; when set, the container appends
-`--session_service_uri <uri>` to `adk api_server agents`
-(see [`deployment/backend_entrypoint.sh`](backend_entrypoint.sh), wired as the
-`Dockerfile` `CMD`). When unset, behaviour is unchanged (in-memory).
+warm instance — a cold start or scale-out drops in-flight state. The backend reads an
+optional `SESSION_SERVICE_URI`; when set, `deployment/async_app.py` passes it to
+`get_fast_api_app(session_service_uri=…)`, which builds the persistent session store used
+by **both** the canned CRUD endpoints and the `/runs` async-job router. When unset,
+behaviour is unchanged (in-memory). Note: the URI is now consumed **inside `async_app.py`**
+— it is no longer a CLI flag on the entrypoint
+(see [`deployment/backend_entrypoint.sh`](backend_entrypoint.sh), which now execs
+`uvicorn deployment.async_app:app`, wired as the `Dockerfile` `CMD`).
+
+> **Persistent sessions are what make the async-job model durable.** With
+> `SESSION_SERVICE_URI` set (the Agent Engine store), the run's event log survives instance
+> recycling and is readable by any instance a poll lands on. In-memory sessions bind a run
+> to one instance and defeat the poll-from-anywhere property — set the URI in production.
 
 We back sessions with a **dedicated** Agent Engine (Reasoning Engine) that serves no
 agent — its only job is to be the session store, so its lifetime is decoupled from any
@@ -570,6 +592,44 @@ gcloud run deploy trend-trawler-api --source . --region $REGION \
 
 Verify: POST a session with `{"state":{"brand":"X"}}`, restart / redeploy, then GET the
 same id — it returns the state (in-memory would `404`). Backend stays `403` unauth.
+
+### Async-job run model
+
+Runs are **fire-and-forget + poll**, not browser-held SSE. This fixes the class of failures
+where any client disconnect (network blip, IAP re-auth, tab sleep, proxy recycle, a model
+`429`) silently dropped a multi-minute run — the canned ADK `/run` and `/run_sse` are
+request-bound and **cancel the run when the client goes away**.
+
+The `/runs` router (`runserver/async_runs.py`, mounted by `deployment/async_app.py`) adds:
+
+| Route | Purpose |
+|---|---|
+| `POST /runs/{app_name}` — `{userId, sessionId, message}` | Ensures the session, spawns a **detached `asyncio` task** driving `Runner.run_async` to completion, returns `{runId, status:"running"}` immediately. |
+| `GET /runs/{app_name}/{user_id}/{session_id}?since=N` | Returns `{status, events: events[N:], nextCursor, state, error}`. The frontend polls this, advancing `since` by `nextCursor`. |
+| `POST /runs/{app_name}/{user_id}/{session_id}/resume` — `{functionCallId, functionName, response}` | Resumes an interactive checkpoint, also detached. |
+
+The run's durable log **already exists**: `Runner.run_async` appends every final event to
+the (persistent) session as it runs, and the poll just reads `session.events`. When the run
+finishes, `_drive_run` appends a **terminal marker** event (`author="__runserver__"`,
+`state_delta={"__run_status":"done"}`); on failure it appends `{"__run_status":"error",
+"__run_error":…}` instead of re-raising. The poll derives `status` from that marker (or from
+an in-pipeline error event), so a client can disconnect and reconnect — or reload — and the
+run keeps going server-side; re-polling from `since=0` replays the whole timeline.
+
+**Requirements / caveats:**
+- **`--no-cpu-throttling` + `--min-instances 1`** (see Step 2) — the detached task needs CPU
+  allocated outside requests, and a warm instance so scale-to-zero can't kill an in-flight
+  run.
+- **Instance recycling can still orphan a run.** If the instance running the task is
+  redeployed / scaled down / OOM-killed mid-run, no terminal marker is written and the poll
+  would report `running` forever. Mitigations: the frontend **stall-timeout** surfaces it to
+  the user, and you should avoid mid-run redeploys. The durable escalation (only if this
+  bites under real load) is **Variant 2**: hand UI runs to the existing PubSub worker
+  (`cloud_functions/creative_fanout` pattern) so PubSub redelivery + a BQ status lock
+  survive an instance crash.
+- **`partial` (token-streaming) chunks are not persisted**, so the poll renders **final**
+  events only — text appears per-final-event rather than token-by-token. Acceptable; pause
+  detection already ignores `partial`.
 
 ### 7. IAP on the frontend (domain-restricted)
 
