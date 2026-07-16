@@ -1321,10 +1321,12 @@ def write_trends_to_bq(tool_context: ToolContext) -> dict:
     try:
         # insert a row for the target search trend
         target_trend = tool_context.state["target_search_trends"]
-        # write SQL
+        # write SQL — parameterized (@named) so a trend/brand/field containing a
+        # quote or apostrophe can't break the statement or inject SQL. The table
+        # name is a config-derived identifier (not parameterizable), not user input.
         sql_query = f"""
-        INSERT INTO 
-            `{config.BQ_PROJECT_ID}.{config.BQ_DATASET_ID}.{config.BQ_TABLE_CREATIVES}` (uuid, 
+        INSERT INTO
+            `{config.BQ_PROJECT_ID}.{config.BQ_DATASET_ID}.{config.BQ_TABLE_CREATIVES}` (uuid,
             target_trend,
             datetime,
             creative_gcs,
@@ -1332,21 +1334,42 @@ def write_trends_to_bq(tool_context: ToolContext) -> dict:
             target_audience,
             target_product,
             key_selling_point)
-        VALUES 
+        VALUES
         (
-            "{unique_id}", 
-            "{target_trend}",
-            CURRENT_DATETIME('America/New_York'), 
-            "{creative_gcs}",
-            "{tool_context.state["brand"]}",
-            "{tool_context.state["target_audience"]}",
-            "{tool_context.state["target_product"]}",
-            "{tool_context.state["key_selling_points"]}"
+            @unique_id,
+            @target_trend,
+            CURRENT_DATETIME('America/New_York'),
+            @creative_gcs,
+            @brand,
+            @target_audience,
+            @target_product,
+            @key_selling_points
         );
         """
-        # FORMAT_DATETIME("%Y-%m-%d %H:%M:%S", CURRENT_DATETIME('America/New_York')),
+        query_params = [
+            bigquery.ScalarQueryParameter("unique_id", "STRING", unique_id),
+            bigquery.ScalarQueryParameter("target_trend", "STRING", target_trend),
+            bigquery.ScalarQueryParameter("creative_gcs", "STRING", creative_gcs),
+            bigquery.ScalarQueryParameter(
+                "brand", "STRING", tool_context.state["brand"]
+            ),
+            bigquery.ScalarQueryParameter(
+                "target_audience", "STRING", tool_context.state["target_audience"]
+            ),
+            bigquery.ScalarQueryParameter(
+                "target_product", "STRING", tool_context.state["target_product"]
+            ),
+            bigquery.ScalarQueryParameter(
+                "key_selling_points",
+                "STRING",
+                tool_context.state["key_selling_points"],
+            ),
+        ]
         # make API request
-        job = bq_client.query(sql_query)
+        job = bq_client.query(
+            sql_query,
+            job_config=bigquery.QueryJobConfig(query_parameters=query_params),
+        )
         job.result()  # wait for job to complete
         if job.errors:
             logging.error(

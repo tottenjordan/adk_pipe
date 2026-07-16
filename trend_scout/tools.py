@@ -294,15 +294,21 @@ def _build_trend_insert_sql(
     target_product: str,
     key_selling_points: str,
     research_gaps: str,
-) -> str:
+) -> tuple[str, list[bigquery.ScalarQueryParameter]]:
     """Build the single-row INSERT for `target_trends_crf` (pure, unit-testable).
+
+    Returns the parameterized SQL plus its bound query parameters. Values are
+    passed as `@named` BigQuery query parameters (never string-interpolated) so a
+    trend/brand/field containing a quote or apostrophe can't break the statement
+    or inject SQL. Only `table` is interpolated — it is a config-derived identifier
+    (BigQuery cannot parameterize table names), not user input.
 
     `research_gaps` mirrors `creative_evals.research_gaps`: an empty string on a
     clean run, or the `collect_degradation_warnings` note(s) when the resilient
     research wrapper exhausted its retries. The `research_gaps` column must already
     exist (additive `ALTER TABLE ... ADD COLUMN research_gaps STRING`).
     """
-    return f"""
+    sql = f"""
     INSERT INTO
       `{table}` (uuid,
         -- processed_status, -- omitting will make it NULL
@@ -318,19 +324,34 @@ def _build_trend_insert_sql(
         research_gaps)
     VALUES
     (
-        "{unique_id}",
-        "{trend}",
-        PARSE_DATE('%m/%d/%Y', '{max_date}'),
-        PARSE_DATE('%m/%d/%Y', '{current_date}'),
+        @unique_id,
+        @trend,
+        PARSE_DATE('%m/%d/%Y', @max_date),
+        PARSE_DATE('%m/%d/%Y', @current_date),
         CURRENT_TIMESTAMP(),
-        "{trawler_gcs}",
-        "{brand}",
-        "{target_audience}",
-        "{target_product}",
-        "{key_selling_points}",
-        "{research_gaps}"
+        @trawler_gcs,
+        @brand,
+        @target_audience,
+        @target_product,
+        @key_selling_points,
+        @research_gaps
     );
     """
+    params = [
+        bigquery.ScalarQueryParameter("unique_id", "STRING", unique_id),
+        bigquery.ScalarQueryParameter("trend", "STRING", trend),
+        bigquery.ScalarQueryParameter("max_date", "STRING", max_date),
+        bigquery.ScalarQueryParameter("current_date", "STRING", current_date),
+        bigquery.ScalarQueryParameter("trawler_gcs", "STRING", trawler_gcs),
+        bigquery.ScalarQueryParameter("brand", "STRING", brand),
+        bigquery.ScalarQueryParameter("target_audience", "STRING", target_audience),
+        bigquery.ScalarQueryParameter("target_product", "STRING", target_product),
+        bigquery.ScalarQueryParameter(
+            "key_selling_points", "STRING", key_selling_points
+        ),
+        bigquery.ScalarQueryParameter("research_gaps", "STRING", research_gaps),
+    ]
+    return sql, params
 
 
 # refresh_date: str = max_date
@@ -372,8 +393,8 @@ def write_trends_to_bq(tool_context: ToolContext) -> dict:
         # insert a row for each selected target search trend
         target_trends = tool_context.state.get("target_search_trends")
         for trend in target_trends["target_search_trends"]:
-            # write SQL
-            sql_query = _build_trend_insert_sql(
+            # write SQL (parameterized — see _build_trend_insert_sql)
+            sql_query, query_params = _build_trend_insert_sql(
                 table=table,
                 unique_id=unique_id,
                 trend=trend,
@@ -387,7 +408,10 @@ def write_trends_to_bq(tool_context: ToolContext) -> dict:
                 research_gaps=research_gaps,
             )
             # make API request
-            job = bq_client.query(sql_query)
+            job = bq_client.query(
+                sql_query,
+                job_config=bigquery.QueryJobConfig(query_parameters=query_params),
+            )
             job.result()  # wait for job to complete
             if job.errors:
                 logging.error(
