@@ -116,7 +116,7 @@ def evaluate_ad_copy(
             ),
         )
 
-        result = AdCopyEvaluation.model_validate_json(response.text)
+        result = AdCopyEvaluation.model_validate_json(response.text or "")
 
         # Recompute overall_score from verdicts for consistency
         recomputed = _score_from_verdicts(
@@ -184,7 +184,7 @@ def evaluate_visual_concept(
             ),
         )
 
-        result = VisualConceptEvaluation.model_validate_json(response.text)
+        result = VisualConceptEvaluation.model_validate_json(response.text or "")
 
         recomputed = _score_from_verdicts(
             result.score.verdicts, config.passing_threshold
@@ -273,7 +273,7 @@ def _build_summary(
             dim_scores.setdefault(v.dimension, []).append(v.score)
 
     dim_avgs = {dim: sum(s) / len(s) for dim, s in dim_scores.items()}
-    weakest = sorted(dim_avgs, key=dim_avgs.get)[:3]
+    weakest = sorted(dim_avgs, key=lambda d: dim_avgs[d])[:3]
 
     return EvaluationSummary(
         total_ad_copies=len(ad_evals),

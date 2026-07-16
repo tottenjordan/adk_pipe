@@ -10,6 +10,7 @@ from agent_common.observability import (
     log_run_start,
     make_final_state_summary,
 )
+from agent_common.rate_limit import build_rate_limit_callback
 from agent_common.retry import build_infra_retry
 from agent_common.retry_agent import RetryUntilKeyAgent
 from agent_common.sanitize import (
@@ -22,6 +23,7 @@ __all__ = [
     "MODEL_LOCATION",
     "build_gemini",
     "build_infra_retry",
+    "build_rate_limit_callback",
     "RetryUntilKeyAgent",
     "RunIfAgent",
     "collect_degradation_warnings",

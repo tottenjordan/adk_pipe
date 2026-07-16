@@ -46,3 +46,15 @@ dev = [
 # Deployment scripts prepend the project root to sys.path before importing
 # first-party packages, so their module-level imports intentionally follow code.
 "deployment/*.py" = ["E402"]
+
+[tool.ty.src]
+# Tests intentionally build Pydantic models / call tools with partial or mock
+# kwargs to exercise validation, so ty's arg-type errors there are expected, not
+# real defects. Exclude them so `ty check` reflects production-source health.
+exclude = ["tests/"]
+
+[tool.ty.rules]
+# ADK's SequentialAgent/ParallelAgent are deprecated in favor of Workflow, but
+# Workflow cannot yet be used as an LlmAgent sub-agent — so we cannot migrate.
+# Silence the unactionable deprecation noise until ADK lifts that restriction.
+deprecated = "ignore"

@@ -219,6 +219,10 @@ def deploy_agent(name: str, version: str) -> None:
         )
     except Exception as e:
         logging.exception(f"Error deploying agent to Agent Engine Runtime: {e}")
+        # Re-raise so main() can turn a failed deploy into a non-zero process exit
+        # (a silent return here made `--create` failures exit 0 and mask CI/deploy
+        # breakage).
+        raise
 
 
 # list agents
@@ -282,15 +286,23 @@ def main(argv):
     elif FLAGS.create:
         if not FLAGS.agent:
             logging.error("Error: --agent is required for the create operation.")
-            return
+            sys.exit(1)
         logging.info(f"Creating Agent Engine Runtime for `{FLAGS.agent}`...")
-        deploy_agent(name=FLAGS.agent, version=FLAGS.version)
+        try:
+            deploy_agent(name=FLAGS.agent, version=FLAGS.version)
+        except Exception:
+            logging.error("Deploy failed; exiting non-zero.")
+            sys.exit(1)
 
     elif FLAGS.delete:
         if not FLAGS.resource_id:
             logging.error("Error: --resource_id is required for the delete operation.")
-            return
-        delete(resource_id=FLAGS.resource_id)
+            sys.exit(1)
+        try:
+            delete(resource_id=FLAGS.resource_id)
+        except Exception:
+            logging.exception("Delete failed; exiting non-zero.")
+            sys.exit(1)
 
     else:
         logging.info("No command specified. Use --create, --delete, or --list.")

@@ -9,6 +9,7 @@ from google.adk.agents import Agent, SequentialAgent
 
 from agent_common import build_gemini, RetryUntilKeyAgent
 from ...config import config
+from ...schemas import SearchQuery
 from ... import callbacks
 
 
@@ -20,21 +21,11 @@ warnings.filterwarnings("ignore")
 
 
 # --- SCHEMA DEFINITIONS ---
-# TODO: consolidate with schema class used in agent.py
-
-
-class CampaignSearchQuery(BaseModel):
-    """Model representing a specific search query for web search."""
-
-    search_query: str = Field(
-        description="A highly specific and targeted query for web search."
-    )
-
-
+# SearchQuery is the shared single-query model from creative_agent.schemas.
 class CampaignQueryList(BaseModel):
     """Model for providing evaluation feedback on research quality."""
 
-    queries: list[CampaignSearchQuery] | None = Field(
+    queries: list[SearchQuery] | None = Field(
         default=None,
         description="A list of specific, targeted web queries to provide initial insights for marketers.",
     )

@@ -14,6 +14,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { GcsWidget } from "@/components/gcs-widget";
 import { getSession, listArtifacts, getArtifact } from "@/lib/api";
 import { fetchEvalReport } from "@/lib/eval-report";
+import { gcsProxyUrl } from "@/lib/gcs";
 import { formatStateValue } from "@/lib/utils";
 import type { Session } from "@/lib/types";
 
@@ -137,7 +138,7 @@ export default function ResultsPage({
     if (!(bucket && folder && subdir)) return;
 
     setEvalStatus("loading");
-    const evalUrl = `/api/gcs?bucket=${encodeURIComponent(bucket)}&path=${encodeURIComponent(`${folder}/${subdir}/creative_eval_report.json`)}`;
+    const evalUrl = gcsProxyUrl(bucket, `${folder}/${subdir}/creative_eval_report.json`);
     const result = await fetchEvalReport<EvalReport>(evalUrl);
     if (result.status === "found") {
       setEvalReport(result.report);
@@ -223,7 +224,7 @@ export default function ResultsPage({
 
   const galleryUrl =
     bucketName && folder && subdir
-      ? `/api/gcs?bucket=${encodeURIComponent(bucketName)}&path=${encodeURIComponent(`${folder}/${subdir}/creative_portfolio_gallery.html`)}`
+      ? gcsProxyUrl(bucketName, `${folder}/${subdir}/creative_portfolio_gallery.html`)
       : null;
 
   // Extract visual concepts and ad copies from session state
@@ -237,7 +238,7 @@ export default function ResultsPage({
   function getImageUrl(conceptName: string): string | null {
     if (!bucketName || !folder || !subdir) return null;
     const filename = conceptNameToFilename(conceptName);
-    return `/api/gcs?bucket=${encodeURIComponent(bucketName)}&path=${encodeURIComponent(`${folder}/${subdir}/${filename}`)}`;
+    return gcsProxyUrl(bucketName, `${folder}/${subdir}/${filename}`);
   }
 
   // Find matching eval for a visual concept
@@ -690,7 +691,7 @@ export default function ResultsPage({
                       {imageArtifacts.map((a) => {
                         const src =
                           bucketName && folder && subdir
-                            ? `/api/gcs?bucket=${encodeURIComponent(bucketName)}&path=${encodeURIComponent(`${folder}/${subdir}/${a.name}`)}`
+                            ? gcsProxyUrl(bucketName, `${folder}/${subdir}/${a.name}`)
                             : null;
                         return (
                           <div
