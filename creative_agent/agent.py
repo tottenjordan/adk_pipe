@@ -435,7 +435,10 @@ ad_copy_drafter = Agent(
     ),
     output_schema=AdCopyList,
     output_key="ad_copy_draft",
-    after_model_callback=callbacks.log_empty_turn_finish_reason,
+    after_model_callback=[
+        callbacks.scrub_surrogates_in_response,
+        callbacks.log_empty_turn_finish_reason,
+    ],
 )
 
 
@@ -528,7 +531,10 @@ ad_copy_critic = Agent(
     ),
     output_schema=FinalAdCopyList,
     output_key="ad_copy_critique",
-    after_model_callback=callbacks.log_empty_turn_finish_reason,
+    after_model_callback=[
+        callbacks.scrub_surrogates_in_response,
+        callbacks.log_empty_turn_finish_reason,
+    ],
 )
 
 

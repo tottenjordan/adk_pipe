@@ -317,8 +317,27 @@ def test_creative_model_agents_have_finish_reason_callback():
         ca.root_agent,
     ]
     for a in agents:
-        assert a.after_model_callback is callbacks.log_empty_turn_finish_reason, (
+        cbs = a.canonical_after_model_callbacks
+        assert callbacks.log_empty_turn_finish_reason in cbs, (
             f"{a.name} missing log_empty_turn_finish_reason after_model_callback"
+        )
+
+
+def test_ad_copy_agents_scrub_lone_surrogates():
+    """The two ad-copy agents parse model text against an output_schema, so they
+    must carry the surrogate scrubber as an after_model_callback (before the
+    empty-turn logger) to survive lone Unicode surrogates in the JSON output."""
+    from creative_agent import agent as ca
+    from creative_agent import callbacks
+
+    for a in (ca.ad_copy_drafter, ca.ad_copy_critic):
+        cbs = a.canonical_after_model_callbacks
+        assert callbacks.scrub_surrogates_in_response in cbs, (
+            f"{a.name} missing scrub_surrogates_in_response after_model_callback"
+        )
+        # Scrubber must run BEFORE the empty-turn logger.
+        assert cbs.index(callbacks.scrub_surrogates_in_response) < cbs.index(
+            callbacks.log_empty_turn_finish_reason
         )
 
 

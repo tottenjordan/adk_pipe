@@ -11,7 +11,7 @@ from google.adk.sessions.state import State
 from google.adk.models.llm_request import LlmRequest
 from google.adk.agents.callback_context import CallbackContext
 
-from agent_common import observability
+from agent_common import observability, sanitize
 
 from .config import config
 
@@ -26,6 +26,7 @@ warnings.filterwarnings("ignore")
 # Shared debugging-observability callbacks (agent_common, WS3). Re-exported here
 # so creative_agent/agent.py references `callbacks.<name>`, matching trend_scout.
 log_empty_turn_finish_reason = observability.log_empty_turn_finish_reason
+scrub_surrogates_in_response = sanitize.scrub_surrogates_in_response
 log_final_state_summary = observability.make_final_state_summary(
     "creative_agent",
     (
