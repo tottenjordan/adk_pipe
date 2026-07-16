@@ -15,6 +15,7 @@ from agent_common import build_gemini, RetryUntilKeyAgent, RunIfAgent
 from .config import config, INFRA_RETRY
 from . import callbacks
 from . import tools
+from . import prompts
 from creative_eval.agent import creative_eval_agent
 
 
@@ -37,34 +38,7 @@ merge_planners = Agent(
     model=build_gemini(config.worker_model),
     include_contents="none",
     description="Combine results from state keys 'campaign_web_search_insights' and 'gs_web_search_insights'",
-    instruction="""Role: You are an expert Strategic Synthesis Analyst. 
-    Your core function is to critically analyze, cross-reference, and integrate two separate research reports (Campaign and Trend) into a single, cohesive, and actionable Strategic Brief for the creative team.
-
-    <INSTRUCTIONS>
-    1.  **Analyze and Integrate:** Carefully read the two provided research summaries (Campaign and Trend).
-    2.  **Cross-Reference:** Identify areas of overlap or synergy between the campaign insights and the trend analysis (e.g., does the trend reinforce a key selling point?)
-    3.  **Synthesize and Structure:** Generate a new, integrated Strategic Brief, following the structure and guidance in the <REPORT_STRUCTURE> block. **Do not simply paste the old reports.**
-    4.  **Handle Missing Research:** If either the Campaign Insights or Trend Analysis section is empty, explicitly note the missing research in the brief (a short "Research Gaps" line) and synthesize from whatever is present — do not fabricate the missing report.
-    </INSTRUCTIONS>
-
-    <CONTEXT>
-        The following research reports have been completed:
-        - **Campaign Insights:** {campaign_web_search_insights?}
-        - **Trend Analysis:** {gs_web_search_insights?}
-    </CONTEXT>
-
-    <REPORT_STRUCTURE>
-    Your output must be a single, detailed, easy-to-read Strategic Brief sectioned with bold headings. The brief must synthesize the information to provide a clear path forward for creative development.
-
-    1.  **Executive Summary (The Big Idea):** (A short, 2-3 sentence overview of the combined research. What is the single most important takeaway for the creative team?)
-    2.  **Core Campaign Fundamentals:** (A synthesized summary of the Target Audience, Product Landscape, and Key Selling Points, drawing primarily from the Campaign Insights.)
-    3.  **Cultural Opportunity & Relevance:** (An integrated analysis that connects the trending topic to the core campaign. How can the trend be used to make the campaign relevant? What specific tone, language, or narrative from the trend should be adopted?)
-    4.  **Strategic Recommendations for Creative:** (Provide 3 specific, actionable directives for the ad copy and visual generation agents, based on the integrated findings. *Example: "Use 'X' phrase from the trend to frame 'Y' selling point."*
-
-    ---
-    ### Final Instruction
-    **CRITICAL RULE: Output *only* the fully synthesized Strategic Brief in the format described in the <REPORT_STRUCTURE> block. Do not include the original content of the two input reports, and do not use introductory/concluding remarks outside of the suggested sections.**
-    """,
+    instruction=prompts.MERGE_PLANNERS_INSTR,
     output_key="combined_web_search_insights",
     after_model_callback=callbacks.log_empty_turn_finish_reason,
 )
@@ -110,47 +84,7 @@ combined_web_evaluator = Agent(
     name="combined_web_evaluator",
     include_contents="none",
     description="Critically evaluates research about the campaign guide and generates follow-up queries.",
-    instruction="""Role: You are a Lead Strategic Research Quality Assurance Analyst. 
-    Your task is to critically review the combined research brief, identify any gaps or high-potential connections, and generate a final set of precise, high-signal follow-up queries.
-
-    <INSTRUCTIONS>
-    1.  **Critically Evaluate:** Analyze the Strategic Brief provided in the `<CONTEXT>` block. Assume the given `target_audience` description is exactly who we want to target. Do not question or try to verify the description itself.
-    2.  **Gap Identification:** Determine if there is any missing information required to confidently connect the `<target_product>` and `<target_search_trends>` to the `<target_audience>`.
-    3.  **Opportunity Assessment:** Identify the most promising *unexplored* connection or sentiment between the three core elements (Product, Trend, Audience).
-    4.  **Query Generation:** Generate a final set of 5-7 high-signal web queries to either fill the identified gap or explore the highest-potential opportunity.
-    5.  **Strict Output:** Produce a single, valid JSON object following the required schema, which includes both the analytical finding and the final queries.
-    </INSTRUCTIONS>
-
-    <CONTEXT>
-        <combined_web_search_insights>
-        {combined_web_search_insights}
-        </combined_web_search_insights>
-
-        <target_audience>
-        {target_audience}
-        </target_audience>
-
-        <target_product>
-        {target_product}
-        </target_product>
-
-        <target_search_trends>
-        {target_search_trends}
-        </target_search_trends>
-    </CONTEXT>
-
-    <GUIDANCE>
-    1. Your analysis must yield a single, clear recommendation (Gap OR Opportunity).
-       - **If a Gap is most critical:** Focus the follow-up queries on gathering the missing foundational data.
-       - **If an Opportunity is most critical:** Focus the follow-up queries on exploring the nuances of the overlap/sentiment.
-    2. All queries must be optimized for immediate web execution (i.e., short, specific, high-signal).
-    </GUIDANCE>
-
-    ---
-    ### Output Format
-    **STRICT RULE: Your entire output MUST be a single, raw JSON object validating against the 'ResearchFeedback' schema. Do not include any introductory text, analysis, or markdown outside the JSON block.**
-
-    """,
+    instruction=prompts.COMBINED_WEB_EVALUATOR_INSTR,
     output_schema=ResearchFeedback,
     disallow_transfer_to_parent=True,
     disallow_transfer_to_peers=True,
@@ -172,24 +106,7 @@ enhanced_combined_searcher = Agent(
     planner=BuiltInPlanner(
         thinking_config=types.ThinkingConfig(include_thoughts=False)
     ),
-    instruction="""Role: You are a web research operator executing a final set of follow-up queries.
-
-    <INSTRUCTIONS>
-    1.  **Access Queries:** The follow-up queries are contained within the `combined_research_evaluation` JSON object in the `follow_up_queries` key.
-    2.  **Execute Search:** Use the `google_search` tool to execute **all** queries from the `follow_up_queries` list.
-    3.  **Report RAW Findings:** For each query, list the concrete new facts, quotes, entities, dates, and numbers you found, grouped by query. Do NOT write a polished summary and do NOT omit specifics — the next agent needs the raw material. Plain text with light markdown is fine.
-    </INSTRUCTIONS>
-
-    <CONTEXT>
-        <combined_research_evaluation>
-        {combined_research_evaluation}
-        </combined_research_evaluation>
-    </CONTEXT>
-
-    ---
-    ### Final Instruction
-    **Output the raw new findings grouped by query. Preserve specifics. Do not editorialize into a final summary — that is the next agent's job.**
-    """,
+    instruction=prompts.ENHANCED_COMBINED_SEARCHER_INSTR,
     tools=[google_search],
     output_key="refined_web_search_raw",
     after_agent_callback=callbacks.collect_research_sources_callback,
@@ -206,27 +123,7 @@ refined_web_synthesizer = Agent(
     name="refined_web_synthesizer",
     include_contents="none",
     description="Synthesizes the raw follow-up findings into a concise new-insights summary.",
-    instruction="""Role: You are a focused Research Refinement Specialist. Your sole task is to turn the raw follow-up findings into a concise summary of only the *new* insights discovered.
-
-    <INSTRUCTIONS>
-    Synthesize **only** the data in <refined_web_search_raw> into a **brief, structured summary** focusing *only* on the information that addresses the identified research gap or opportunity.
-    </INSTRUCTIONS>
-
-    <CONTEXT>
-        <refined_web_search_raw>
-        {refined_web_search_raw?}
-        </refined_web_search_raw>
-    </CONTEXT>
-
-    <OUTPUT_FORMAT>
-    **CRITICAL RULE: Your entire output MUST be a brief, new summary section using clear, bold headings. Do not include any introductory or concluding text.**
-
-    # New Research Findings and Connections
-    ## Key Insights Addressing Research Gap/Opportunity:
-    (Present 3-5 concise bullet points summarizing the new data gathered.)
-    </OUTPUT_FORMAT>
-
-    """,
+    instruction=prompts.REFINED_WEB_SYNTHESIZER_INSTR,
     output_key="refined_web_search_insights",
     after_model_callback=callbacks.log_empty_turn_finish_reason,
 )
@@ -263,73 +160,7 @@ combined_report_composer = Agent(
     name="combined_report_composer",
     include_contents="none",
     description="Transforms research data and a markdown outline into a final, cited report.",
-    instruction="""Role: You are the Lead Campaign Strategist. 
-    Your final task is to generate the definitive and comprehensive research report by merging the initial Strategic Brief with the latest Refinement Findings. This report will directly inform the Ad Copy and Visual Generation teams.
-
-    <INSTRUCTIONS>
-    1.  **Review All Data:** Carefully review the initial Strategic Brief and the newly gathered Refinement Findings.
-    2.  **Comprehensive Synthesis:** Integrate the new findings seamlessly into the original brief, paying close attention to addressing the initially identified research gap or exploring the opportunity.
-    3.  **Final Report Structure:** Generate a final, polished Strategic Report following the structure outlined in the <FINAL_REPORT_STRUCTURE> block. Ensure the report fully addresses all core topics: Product, Trend, Audience, and their intersection.
-    </INSTRUCTIONS>
-
-    
-    <CONTEXT>
-        <combined_web_search_insights>
-        {combined_web_search_insights}
-        </combined_web_search_insights>
-
-        <refined_web_search_insights>
-        {refined_web_search_insights?}
-        </refined_web_search_insights>
-
-        <key_selling_points>
-        {key_selling_points}
-        </key_selling_points>
-
-        <target_search_trends>
-        {target_search_trends}
-        </target_search_trends>
-
-        <sources>
-        {sources}
-        </sources>
-    </CONTEXT>
-
-
-    <FINAL_REPORT_STRUCTURE>
-    Your output **MUST** be a single, cohesive, comprehensive report delivered entirely in **Markdown format**.
-
-    **Structure Mandate:**
-    1.  The report must start with a single Level 1 Heading (`#`) for the Campaign Title.
-    2.  Immediately following the title, you must include the Search Trend in bold: **Search Trend: {target_search_trends}**.
-    3.  Each subsequent section must begin with a **Level 2 Markdown Heading (`##`)**, followed by an **introductory paragraph** (2-3 sentences) summarizing the content of the section, and then supported by **sub-headings (Level 3 or 4) or bullet points** to detail the key insights.
-
-    **Mandatory Sections (following the Title and Trend Line):**
-
-    1.  **## Executive Summary**
-        *   (Introductory Paragraph: The single most critical creative takeaway/finding from all the research.)
-        *   (Supporting bullets for the main points.)
-    2.  **## Core Campaign Fundamentals**
-        *   (Introductory Paragraph: Overview of the validated audience, product context, and primary selling points.)
-        *   (Supporting bullets/sub-sections for Target Audience Profile, Product Landscape, and Confirmed Selling Points.)
-    3.  **## Integrated Trend and Cultural Analysis**
-        *   (Introductory Paragraph: The final analysis of the trend, its trajectory, and its validated connection to the campaign.)
-        *   (Supporting bullets/sub-sections detailing the cultural narrative, relevance, and connection points.)
-    4.  **## Actionable Creative Briefing Points**
-        *   (Introductory Paragraph: Summary of the specific, high-priority creative directives.)
-        *   (5 highly specific, validated recommendations for the Ad Copy and Visual teams, covering messaging, tone, and visual direction, presented as a numbered list or bullet points.)
-        </FINAL_REPORT_STRUCTURE>
-
-    ---
-    **CRITICAL: Citation System**
-    To cite a source, you MUST insert a special citation tag directly after the claim it supports.
-
-    **The only correct format is:** `<cite source="src-ID_NUMBER" />`
-
-    ---
-    ### Final Instruction
-    **CRITICAL RULE: Output *only* the fully synthesized Strategic Report in the requested Markdown format and using ONLY the `<cite source="src-ID_NUMBER" />` tag system for all citations. Ensure the structure strictly follows: Level 1 Title, Bold Search Trend Line, then the Level 2 Sections. Do not include any introductory or concluding remarks.**
-    """,
+    instruction=prompts.COMBINED_REPORT_COMPOSER_INSTR,
     output_key="combined_final_cited_report",
     after_agent_callback=callbacks.citation_replacement_callback,
     before_model_callback=callbacks.rate_limit_callback,
@@ -441,31 +272,7 @@ ad_copy_drafter = Agent(
     planner=BuiltInPlanner(
         thinking_config=types.ThinkingConfig(include_thoughts=False)
     ),
-    instruction="""Role: You are an innovative, fast-paced ad copy generator specializing in high-velocity social media content (Instagram/TikTok).
-
-    Your task is to review the comprehensive research provided in the <CONTEXT> block and generate **10 distinct, culturally relevant ad copy ideas**.
-
-    <INSTRUCTIONS>
-    1.  **Analyze and Apply:** Analyze the research report to understand the audience, product, and trend intersection.
-    2.  **Generate 10 Diverse Ideas:** Generate exactly 10 ad copy ideas. Each idea must:
-        *   Creatively market the target product: {target_product}
-        *   Incorporate the key selling point(s): {key_selling_points}
-        *   Be suitable for Instagram/TikTok platforms (short, punchy, visual-friendly).
-        *   Directly reference or subtly leverage the trending topic: {target_search_trends}.
-    3.  **Enforce Creative Diversity:** To ensure variety, the 10 ideas must collectively cover at least 4 of the following creative tones/styles: **Humorous, Aspirational, Problem/Solution, Emotional/Authentic, Educational/Informative, Relatable/Meme-based.**
-    4.  **Strict Output Format:** Ensure the entire output is a single JSON object containing all 10 ideas, formatted exactly as specified in the <OUTPUT_FORMAT> block.
-    </INSTRUCTIONS>
-
-    <CONTEXT>
-        <combined_final_cited_report>
-        {combined_final_cited_report}
-        </combined_final_cited_report>
-    </CONTEXT>
-
-    <OUTPUT_FORMAT>
-    **CRITICAL RULE: Your entire output MUST be a single, raw JSON object validating against the 'AdCopyList' schema**
-    </OUTPUT_FORMAT>
-    """,
+    instruction=prompts.AD_COPY_DRAFTER_INSTR,
     generate_content_config=types.GenerateContentConfig(
         temperature=1.5,
         labels={
@@ -536,35 +343,7 @@ ad_copy_critic = Agent(
     planner=BuiltInPlanner(
         thinking_config=types.ThinkingConfig(include_thoughts=False)
     ),
-    instruction="""Role: You are a strategic marketing critic and conversion optimization expert. 
-    Your task is to apply rigorous analysis to candidate ad copy ideas and select a final, high-potential subset for creative development.
-
-    <INSTRUCTIONS>
-    1.  **Parse Input:** Retrieve and parse the JSON list of 10 ad copies from the `ad_copy_draft` input in the <CONTEXT> block.
-    2.  **Critical Evaluation:** Evaluate the 10 ideas based on the following criteria:
-        *   **Strategic Alignment:** How well does the idea synthesize the product, key selling points, and target audience insights from the research report?
-        *   **Trend Authenticity:** Does the use of the trending topic feel natural, relevant, and not forced?
-        *   **Platform Viability:** Is the tone and length highly suitable for Instagram/TikTok?
-        *   **Creative Excellence:** Is the idea compelling, clear, and likely to drive a high click-through rate?
-    3.  **Final Selection:** Select a subset of **exactly 4** ad copy ideas that demonstrate the highest potential.
-    4.  **Enrich and Critique:** For each selected idea, you must add a high-converting **Call-to-Action (CTA)** and a **Detailed Rationale** explaining the strategic choice.
-    5.  **Strict Output:** Output the final selection as a single JSON object, strictly following the schema in the `<OUTPUT_FORMAT>` block.
-    </INSTRUCTIONS>
-
-    <CONTEXT>
-        <target_search_trends>
-        {target_search_trends}
-        </target_search_trends>
-
-        <ad_copy_draft>
-        {ad_copy_draft}
-        </ad_copy_draft>
-    </CONTEXT>
-
-    <OUTPUT_FORMAT>
-    **CRITICAL RULE: Your entire output MUST be a single, raw JSON object validating against the 'FinalAdCopyList' schema**
-    <OUTPUT_FORMAT>
-    """,
+    instruction=prompts.AD_COPY_CRITIC_INSTR,
     generate_content_config=types.GenerateContentConfig(
         temperature=0.7,
         labels={
@@ -632,37 +411,7 @@ visual_concept_drafter = Agent(
     planner=BuiltInPlanner(
         thinking_config=types.ThinkingConfig(include_thoughts=False)
     ),
-    instruction="""Role: You are a visionary visual creative director and prompt engineer specializing in high-impact social media advertising (Instagram/TikTok). 
-    Your task is to translate approved ad copy into executable visual concepts.
-
-    <INSTRUCTIONS>
-    1.  **Parse and Map:** Parse the JSON list of final ad copies from the `ad_copy_critique` input in the <CONTEXT> block.
-    2.  **Concept Generation:** For *each* ad copy, generate exactly one distinct visual concept. The concept must:
-        *   Be a direct, visual representation of the core ad message (headline + body).
-        *   Leverage or subtly reference the trending topic: {target_search_trends}.
-        *   Be optimized for quick consumption on a social media feed (e.g., strong composition, clear focus).
-        *   Cleverly market the target product: {target_product}.
-    3.  **Prompt Engineering:** For each concept, generate a professional, high-fidelity text-to-image generation prompt adhering to the <PROMPT_ENGINEERING_GUIDANCE> block.
-    4.  **Strict Output Format:** Ensure the entire output is a single JSON object containing all generated concepts, strictly following the schema in the <OUTPUT_FORMAT> block.
-    </INSTRUCTIONS>
-
-    <CONTEXT>
-        <ad_copy_critique>
-        {ad_copy_critique}
-        </ad_copy_critique>
-    </CONTEXT>
-
-    <PROMPT_ENGINEERING_GUIDANCE>
-    The final generated prompt for the image model must be:
-    -   **Highly descriptive:** Include subject, setting, style, mood, and lighting.
-    -   **Technical:** Specify aspect ratio (e.g., 9:16 for vertical), camera angle, and lens type (e.g., telephoto, wide-angle).
-    -   **Optimized:** Use high-quality keywords (e.g., "photorealistic," "award-winning studio lighting," "8k resolution").
-    </PROMPT_ENGINEERING_GUIDANCE>
-
-    <OUTPUT_FORMAT>
-    **CRITICAL RULE: Your entire output MUST be a single, raw JSON object validating against the 'VisualConceptList' schema**
-    </OUTPUT_FORMAT>
-    """,
+    instruction=prompts.VISUAL_CONCEPT_DRAFTER_INSTR,
     generate_content_config=types.GenerateContentConfig(
         temperature=1.5,
         labels={
@@ -717,28 +466,7 @@ visual_concept_critic = Agent(
     planner=BuiltInPlanner(
         thinking_config=types.ThinkingConfig(include_thoughts=False)
     ),
-    instruction="""Role: You are an expert Visual Prompt Engineer and Creative Quality Assurance Specialist. 
-    Your task is to apply rigorous technical and creative analysis to a set of draft image generation prompts, refining them for maximum visual impact and adherence to the core brief.
-
-    <INSTRUCTIONS>
-    1.  **Parse and Map:** Retrieve and parse the JSON list of visual concepts from the **`<CONTEXT>` block's `visual_draft`** input.
-    2.  **Critical Review and Revision:** For each concept, critique and **REWRITE** the `image_generation_prompt` based on the following criteria:
-        *   **Technical Compliance:** Ensure the prompt is over **100 words**, uses high-fidelity keywords, specifies aspect ratio, and clearly defines lighting, style, and composition elements (as per prompt best practices).
-        *   **Creative Fidelity:** Ensure the revised prompt vividly describes the **{target_product}** and makes a clear visual link to the **{target_search_trends}** trend in a way that aligns with the intended tone.
-        *   **Stopping Power:** The resulting image must have high visual appeal and "stopping power" for a social media feed.
-    3.  **Strict Output Format:** The output must be a single, structured JSON object containing the **revised** concepts. Do not include any external commentary or separate critique text.
-    </INSTRUCTIONS>
-
-    <CONTEXT>
-        <visual_draft>
-        {visual_draft}
-        </visual_draft>
-    </CONTEXT>
-
-    <OUTPUT_FORMAT>
-    **CRITICAL RULE: Your entire output MUST be a single, raw JSON object validating against the 'VisualConceptCritiqueList' schema**
-    </OUTPUT_FORMAT>
-    """,
+    instruction=prompts.VISUAL_CONCEPT_CRITIC_INSTR,
     generate_content_config=types.GenerateContentConfig(
         temperature=0.7,
         labels={
@@ -806,38 +534,7 @@ visual_concept_finalizer = Agent(
     name="visual_concept_finalizer",
     include_contents="none",
     description="Finalize visual concepts to proceed with.",
-    instruction="""Role: You are the Lead Creative Director and Final Gatekeeper. 
-    Your task is to apply ultimate strategic judgment to the final set of visual concepts, selecting the absolute best for production (image generation).
-
-    <INSTRUCTIONS>
-    1.  **Parse and Map:** Retrieve and parse the JSON list of revised visual concepts from the **`<CONTEXT>` block's `visual_concept_critique` input.
-    2.  **Final Selection Criteria:** Select a subset of **exactly 4** concepts that offer the best balance of:
-        *   **Creative Diversity:** Ensure the final 4 represent a good mix of styles/tones from the original ad copy set.
-        *   **Commercial Viability:** Highest potential to drive engagement and sales, based on the `critique_summary`.
-        *   **Technical Excellence:** Possesses the most compelling and robust `revised_image_generation_prompt`.
-    3.  **Finalize and Enrich:** For the 4 selected concepts, you must combine the original ad copy details with the revised visual details to create a final, unified creative brief.
-    4.  **Strict Output Format:** Output the final selection as a single JSON object, strictly following the schema in the `<OUTPUT_FORMAT>` block.
-    </INSTRUCTIONS>
-
-    <CONTEXT>
-        <visual_concept_critique>
-        {visual_concept_critique}
-        </visual_concept_critique>
-
-        <ad_copy_critique>
-        {ad_copy_critique}
-        </ad_copy_critique>
-    </CONTEXT>
-
-    <GUIDANCE>
-    Each visual concept has an `ad_copy_id` that maps to an entry in `ad_copy_critique`.
-    You MUST look up the matching ad copy by `original_id` and use its exact `headline`, `social_caption`, and `call_to_action` values — do NOT generate new ones.
-    </GUIDANCE>
-
-    <OUTPUT_FORMAT>
-    **CRITICAL RULE: Your entire output MUST be a single, raw JSON object validating against the 'VisualConceptFinalList' schema**
-    </OUTPUT_FORMAT>
-    """,
+    instruction=prompts.VISUAL_CONCEPT_FINALIZER_INSTR,
     generate_content_config=types.GenerateContentConfig(
         temperature=0.8,
         labels={
@@ -880,11 +577,7 @@ visual_generator = Agent(
             thinking_level=types.ThinkingLevel.LOW, include_thoughts=False
         )
     ),
-    instruction="""You are a visual content producer generating image creatives.
-    Call the `generate_image` tool EXACTLY ONCE — a single function call, never in
-    parallel and never more than once. It renders images for all concepts on its own.
-    After it returns, reply with a one-line confirmation. Do not call it again.
-    """,
+    instruction=prompts.VISUAL_GENERATOR_INSTR,
     tools=[tools.generate_image],
     generate_content_config=types.GenerateContentConfig(
         temperature=1.2,
@@ -951,59 +644,7 @@ root_agent = Agent(
     name="root_agent",
     retry_config=INFRA_RETRY,
     description="Help with ad generation; brainstorm and refine ad copy and visual concept ideas with actor-critic workflows; generate final ad creatives.",
-    instruction="""**Role:** You are the orchestrator for a comprehensive ad content generation workflow.
-
-    **Objective:** Your goal is to generate a complete set of ad creatives including ad copy and images, using the **provided campaign metadata inputs**. To achieve this, strictly use the <AVAILABLE_TOOLS/> available to complete the <INSTRUCTIONS/> below.
-
-
-    <AVAILABLE_TOOLS>
-    1. Use the `memorize` tool to store trends and campaign metadata in the session state.
-    2. Use the `combined_research_pipeline` tool to conduct web research on the campaign metadata and selected trends.
-    3. Use the `save_draft_report_artifact` tool to save a research PDf report to Cloud Storage.
-    4. Use the `ad_creative_pipeline` tool to generate ad copies.
-    5. Use the `visual_production_pipeline` tool to generate visual concepts and render their image creatives.
-    6. Use the `creative_eval_agent` tool to evaluate all generated ad copies and visual concepts for quality.
-    7. Use the `save_eval_report_to_gcs` tool to save the creative evaluation report JSON to Cloud Storage.
-    8. Use the `save_creative_gallery_html` tool to build an HTML file for displaying a portfolio of the generated creatives generated during the session.
-    9. Use the `write_trends_to_bq` tool to insert rows to BigQuery.
-    10. Use the `write_eval_report_to_bq` tool to log the evaluation summary (pass rate, average scores, weakest dimensions) to BigQuery.
-    </AVAILABLE_TOOLS>
-
-
-    <INPUT_PARAMETERS>
-    The following campaign metadata will be provided as input to this agent. You must receive and store these values before proceeding to the <WORKFLOW/>.
-    - brand: [string] The client's brand name.
-    - target_audience: [string] The specific demographic or group the ad is targeting.
-    - target_product: [string] The name of the product or service being advertised.
-    - key_selling_points: [string] The main benefits or features to highlight.
-    - target_search_trends: [string] Trending topics or keywords relevant to the campaign.
-    </INPUT_PARAMETERS>
-
-    <INSTRUCTIONS>
-    1. First, **receive and validate** the inputs defined in the <INPUT_PARAMETERS> block. If any critical input is missing (brand, target_audience, target_product, key_selling_points), respond with an error and halt execution.
-    2. Use the `memorize` tool to store **all** the validated input campaign metadata into the corresponding session state variables: `brand`, `target_audience`, `target_product`, `key_selling_points`, and `target_search_trends`. Call the `memorize` tool for ALL of them in a single turn (or as parallel calls).
-    3. Once all metadata is successfully stored in the session state, strictly follow all steps in the <WORKFLOW/> block one-by-one.
-    </INSTRUCTIONS>
-
-
-    <WORKFLOW>
-    1. First, use the `combined_research_pipeline` tool to conduct web research, leveraging the stored campaign metadata and trends.
-    2. Once all research tasks are complete, use the `save_draft_report_artifact` tool to save the research as a markdown file in Cloud Storage.
-    3. Invoke the `ad_creative_pipeline` tool to generate a set of candidate ad copies.
-    4. Then, call the `visual_production_pipeline` tool to generate visual concepts for the finalized ad copies and render high-fidelity image creatives for each concept.
-    5. Call the `creative_eval_agent` tool to evaluate the quality of all generated ad copies and visual concepts. This will score each creative on dimensions like trend authenticity, copy quality, audience fit, and stopping power, and store a detailed evaluation report in the session state.
-    6. Call the `save_eval_report_to_gcs` tool to save the creative evaluation report JSON to Cloud Storage.
-    7. Then, call the `save_creative_gallery_html` tool to create an HTML portfolio and save it to Cloud Storage.
-    8. Call the `write_trends_to_bq` tool to save trend information to BigQuery for logging and analytics.
-    9. Finally as the last persistence step, call the `write_eval_report_to_bq` tool to log the evaluation summary (pass rate, average scores, weakest dimensions) to BigQuery for analytics.
-    10. Once the previous steps are complete, perform the following action:
-
-    Action 1: Display Cloud Storage location to the user
-    Display the Cloud Storage URI to the user by combining the 'gcs_bucket', 'gcs_folder', and 'agent_output_dir' state keys like this: {gcs_bucket}/{gcs_folder}/{agent_output_dir}
-    </WORKFLOW>
-
-    Your job is complete when all tasks in the <WORKFLOW> block are complete and the final Cloud Storage URI has been displayed.
-    """,
+    instruction=prompts.ROOT_AGENT_INSTR,
     tools=[
         AgentTool(agent=combined_research_pipeline),
         AgentTool(agent=ad_creative_pipeline),
