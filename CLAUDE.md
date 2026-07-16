@@ -208,7 +208,7 @@ Agents use `before_agent_callback` to initialize session state, `before_model_ca
 ## Requirements
 
 - Python >=3.13
-- `google-adk[eval]>=1.28.0`
+- `google-adk[eval]>=2.4.0,<3.0.0`
 - Node.js >=18 (for frontend)
 - GCP project with BigQuery, Cloud Storage, PubSub, and Agent Engine enabled
 - `.env` file populated from `.env.example`
