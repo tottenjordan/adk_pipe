@@ -108,6 +108,8 @@ async def main():
     final = await session_service.get_session(
         app_name=APP_NAME, user_id=USER_ID, session_id=session.id
     )
+    if final is None:
+        raise RuntimeError(f"Session {session.id} not found after run")
     state = dict(final.state)
 
     print("\n" + "=" * 70)

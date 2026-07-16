@@ -1,15 +1,11 @@
 "use client";
 
-import React, { useEffect, useState, useRef, useMemo, use } from "react";
+import React, { useEffect, useState, useRef, useMemo, useCallback, use } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { EventLog } from "@/components/event-log";
 import { TrendCards, parseTrendsMarkdown } from "@/components/trend-cards";
 import { GcsWidget } from "@/components/gcs-widget";
-import { Textarea } from "@/components/ui/textarea";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
 import {
   startRun,
   pollRun,
@@ -61,6 +57,20 @@ export default function RunPage({
   const resultsUrl = useMemo(() => {
     const p = new URLSearchParams({ app: appName, userId });
     return `/results/${sessionId}?${p.toString()}`;
+  }, [appName, userId, sessionId]);
+
+  // Fetch full session state so campaign metadata is available. Stable across
+  // renders (memoized on the run identity) so it can be a poll-effect dependency
+  // without re-arming the effect every render.
+  const syncSessionState = useCallback(async () => {
+    try {
+      const session = await getSession(appName, userId, sessionId);
+      if (session.state) {
+        setSessionState((prev) => ({ ...prev, ...session.state }));
+      }
+    } catch {
+      // Ignore — session may not exist yet
+    }
   }, [appName, userId, sessionId]);
 
   useEffect(() => {
@@ -173,7 +183,7 @@ export default function RunPage({
     run();
 
     return () => controller.abort();
-  }, [appName, userId, sessionId]);
+  }, [appName, userId, sessionId, syncSessionState]);
 
   // Reset the stall timer whenever a new event lands (keeps the per-event loop
   // bodies byte-identical — the timestamp is bumped here instead of inline).
@@ -278,17 +288,6 @@ export default function RunPage({
 
   // Fetch session state from backend to populate campaign metadata
   // that was set during a prior run/resume phase
-  async function syncSessionState() {
-    try {
-      const session = await getSession(appName, userId, sessionId);
-      if (session.state) {
-        setSessionState((prev) => ({ ...prev, ...session.state }));
-      }
-    } catch {
-      // Ignore — session may not exist yet
-    }
-  }
-
   // Parse trend trawler output into clickable cards
   const trends = useMemo(() => {
     const selectedGtrends = sessionState.selected_gtrends;
