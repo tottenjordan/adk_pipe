@@ -68,6 +68,11 @@ Verified against tests + consumers. The refactor is safe **iff** all of these ho
 5. **Deployment is unaffected**: `deployment/deploy_agent.py` bundles whole package
    directories (`AGENT_EXTRA_PACKAGES`, deploy_agent.py:64-70), not individual files, so
    new modules inside an existing package ship automatically.
+6. **Output-schema classes stay importable from `creative_agent.agent` AND keep object
+   identity** (Task 1b): `test_schemas.py` does `from creative_agent.agent import AdCopy…`;
+   `test_pipeline_structure.py:335-340` asserts `<agent>.output_schema == <SchemaClass>`.
+   Re-exporting via `from .schemas import (…)` in `agent.py` satisfies both — the kwarg and
+   the test reference the same class object.
 
 ## Constraints
 
@@ -116,6 +121,39 @@ Biggest, safest reduction (~40-50% off `creative_agent/agent.py`). All literals 
    assertions (see invariant #2) must pass unchanged.
 4. `uvx ruff format creative_agent/ && uvx ruff check creative_agent/ && uvx ty check creative_agent/`
 5. Commit: `refactor(creative_agent): move agent instructions to prompts.py`
+
+### Task 1b: `creative_agent` output schemas → new `schemas.py`
+
+Same move-verbatim + re-export shape as Task 1, applied to the 13 Pydantic models
+interleaved with the agent definitions (agent.py:57–546). Mirrors the existing
+`creative_eval/schemas.py` convention; only `creative_agent/agent.py` has these (trend_scout
+has none, sub-agents' one-off inline schemas stay put — nil payoff).
+
+**Files:**
+- Create: `creative_agent/schemas.py` (one-line module docstring mirroring `prompts.py`)
+- Modify: `creative_agent/agent.py` (cut 13 class defs; import them back)
+
+**Steps:**
+1. Move these 13 classes verbatim (with their `Field(...)` defs and docstrings), in
+   dependency order so referencing classes follow their members: `SearchQuery` (57),
+   `ResearchFeedback` (65), `AdCopy` (230), `AdCopyList` (257), `FinalAdCopy` (294),
+   `FinalAdCopyList` (325), `VisualConcept` (376), `VisualConceptList` (396),
+   `VisualConceptCritique` (430), `VisualConceptCritiqueList` (449), `VisualConceptFinal`
+   (485), `VisualConceptFinalList` (522). Add the needed `from pydantic import BaseModel,
+   Field` (+ `import` for any other referenced types) to `schemas.py`.
+2. In `agent.py`, add `from .schemas import (SearchQuery, ResearchFeedback, AdCopy,
+   AdCopyList, FinalAdCopy, FinalAdCopyList, VisualConcept, VisualConceptList,
+   VisualConceptCritique, VisualConceptCritiqueList, VisualConceptFinal,
+   VisualConceptFinalList)` near the top. This both supplies the names to the
+   `output_schema=` kwargs AND re-exports them as `creative_agent.agent` attributes — so
+   `from creative_agent.agent import AdCopyList` (test_schemas.py, test_pipeline_structure.py)
+   and the identity asserts `ad_copy_drafter.output_schema == AdCopyList`
+   (test_pipeline_structure.py:335–340) both keep passing (same class object). Drop the now-unused
+   `from pydantic import …` line in `agent.py` iff nothing else there needs it (ruff will flag).
+3. Verify: `uv run python -c "from creative_agent.agent import AdCopyList; import creative_agent.agent as a; print(a.ad_copy_drafter.output_schema is AdCopyList)"` prints `True`,
+   then `uv run pytest tests/test_schemas.py tests/test_pipeline_structure.py -q`.
+4. `uvx ruff format creative_agent/ && uvx ruff check creative_agent/ && uvx ty check creative_agent/`
+5. Commit: `refactor(creative_agent): move output schemas to schemas.py`
 
 ### Task 2: `trend_scout` instructions → new `prompts.py`
 
@@ -288,7 +326,7 @@ symbols); production build compiles.
 
 | File | Before | After (target) |
 |---|---|---|
-| `creative_agent/agent.py` | 1033 | ~550 |
+| `creative_agent/agent.py` | 1033 | ~300 (+ prompts.py / schemas.py) |
 | `creative_agent/tools.py` | 1553 | ~300 (+ gallery_template/image_tools/bq_tools/gcs_tools) |
 | `trend_scout/agent.py` | 382 | ~180 |
 | `run/[sessionId]/page.tsx` | 1259 | ~600 (+ run-config/run-helpers/ReviewPanel) |
