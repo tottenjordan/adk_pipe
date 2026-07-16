@@ -526,7 +526,10 @@ class FinalAdCopyList(BaseModel):
 
 # --- AD COPY CRITIC AGENT ---
 ad_copy_critic = Agent(
-    model=build_gemini(config.critic_model),
+    # Lever C: critique/narrow-down of already-generated ad copies is a low-
+    # quality-dependence step, so run it on worker_model (flash) instead of
+    # critic_model (pro) to drop one serial 5-RPM PRO turn from the ad_copy phase.
+    model=build_gemini(config.worker_model),
     name="ad_copy_critic",
     include_contents="none",
     description="Critique and narrow down ad copies based on product, audience, and trends",
@@ -705,7 +708,9 @@ class VisualConceptCritiqueList(BaseModel):
 
 # --- VISUAL CONCEPT CRITIQUE AGENT ---
 visual_concept_critic = Agent(
-    model=build_gemini(config.critic_model),
+    # Lever C: same rationale as ad_copy_critic — narrowing existing visual
+    # concepts is low-quality-dependence, so use worker_model (flash) not pro.
+    model=build_gemini(config.worker_model),
     name="visual_concept_critic",
     include_contents="none",
     description="Critique and narrow down visual concepts",
