@@ -15,6 +15,7 @@ import {
   getEventError,
 } from "@/lib/api";
 import { formatStateValue } from "@/lib/utils";
+import { gcsProxyUrl, parseGsUri } from "@/lib/gcs";
 import { hasStartedRun, markRunStarted } from "@/lib/run-kickoff";
 import type { AgentEvent } from "@/lib/types";
 import {
@@ -50,6 +51,9 @@ export default function RunPage({
   const startedRef = useRef(false);
   const seenEventIds = useRef(new Set<string>());
   const lastEventAt = useRef<number>(Date.now());
+  // Aborts the resume poll loop on unmount (handleResume is a click handler,
+  // not an effect, so it can't own an effect-scoped AbortController itself).
+  const resumeAbortRef = useRef<AbortController | null>(null);
 
   const appName = searchParams.get("app") || "trend_scout";
   const userId = searchParams.get("userId") || "default_user";
@@ -72,6 +76,87 @@ export default function RunPage({
       // Ignore — session may not exist yet
     }
   }, [appName, userId, sessionId]);
+
+  // Shared poll consumer used by BOTH the initial run effect and the resume
+  // path. This is the single copy of what used to be two byte-identical loops
+  // (event-id dedup, error surfacing, setEvents, state-delta merge, and
+  // long-running-tool pause detection). The only per-call differences are
+  // captured by `opts`:
+  //   - syncOnPause: fetch full session state on pause (the initial run does;
+  //     the resume path relies on state already loaded).
+  //   - stopOnPause: stop consuming as soon as a pause is detected (the resume
+  //     path returns immediately; the initial run drains the generator).
+  // Returns true when a terminal UI state (paused or error) was already set, so
+  // the caller must not override it; false means the run completed normally.
+  const consumePollEvents = useCallback(
+    async (
+      poll: AsyncGenerator<AgentEvent>,
+      opts: { syncOnPause?: boolean; stopOnPause?: boolean } = {}
+    ): Promise<boolean> => {
+      let paused = false;
+      for await (const event of poll) {
+        // Skip the server's internal run-status marker events — status/error
+        // come from the poll payload, not these (see RUNSERVER_MARKER_AUTHOR).
+        if (event.author === RUNSERVER_MARKER_AUTHOR) continue;
+
+        // Deduplicate events by ID
+        if (event.id && seenEventIds.current.has(event.id)) continue;
+        if (event.id) seenEventIds.current.add(event.id);
+
+        // Surface backend failure events (e.g. a model 429) — these arrive as
+        // data events with no content, so a content-only loop would drop them
+        // and the run would look like a silent stall.
+        const evErr = getEventError(event);
+        if (evErr) {
+          setStatus("error");
+          setErrorMsg(evErr);
+          return true;
+        }
+
+        setEvents((prev) => [...prev, event]);
+
+        if (event.actions?.stateDelta) {
+          setSessionState((prev) => ({
+            ...prev,
+            ...event.actions!.stateDelta,
+          }));
+        }
+
+        // Detect long-running tool pause (interactive mode).
+        // IMPORTANT: Skip partial (streaming) events — their function call
+        // IDs are regenerated per chunk and won't match the session's final
+        // event. Only capture pause context from the non-partial event.
+        if (
+          !event.partial &&
+          event.longRunningToolIds &&
+          event.longRunningToolIds.length > 0
+        ) {
+          const functionCalls = event.content?.parts
+            ?.filter((p) => p.functionCall)
+            ?.map((p) => p.functionCall!) ?? [];
+
+          const pausedCall = functionCalls.find((fc) =>
+            event.longRunningToolIds!.includes(fc.id ?? "")
+          );
+
+          if (pausedCall) {
+            setPauseContext({
+              functionCallId: pausedCall.id ?? "",
+              functionName: pausedCall.name ?? "",
+              eventId: event.id,
+            });
+            setStatus("paused");
+            paused = true;
+            // Fetch full session state so campaign metadata is available
+            if (opts.syncOnPause) syncSessionState();
+            if (opts.stopOnPause) return true;
+          }
+        }
+      }
+      return paused;
+    },
+    [syncSessionState]
+  );
 
   useEffect(() => {
     if (startedRef.current) return;
@@ -106,68 +191,13 @@ export default function RunPage({
         const seed = await getRunStatus(appName, userId, sessionId, 0);
         if (seed.state) setSessionState((prev) => ({ ...prev, ...seed.state }));
 
-        let paused = false;
-        for await (const event of pollRun(appName, userId, sessionId, {
-          signal,
-        })) {
-          // Skip the server's internal run-status marker events — status/error
-          // come from the poll payload, not these (see RUNSERVER_MARKER_AUTHOR).
-          if (event.author === RUNSERVER_MARKER_AUTHOR) continue;
-
-          // Deduplicate events by ID
-          if (event.id && seenEventIds.current.has(event.id)) continue;
-          if (event.id) seenEventIds.current.add(event.id);
-
-          // Surface backend failure events (e.g. a model 429) — these arrive as
-          // data events with no content, so a content-only loop would drop them
-          // and the run would look like a silent stall.
-          const evErr = getEventError(event);
-          if (evErr) {
-            setStatus("error");
-            setErrorMsg(evErr);
-            return;
-          }
-
-          setEvents((prev) => [...prev, event]);
-
-          if (event.actions?.stateDelta) {
-            setSessionState((prev) => ({
-              ...prev,
-              ...event.actions!.stateDelta,
-            }));
-          }
-
-          // Detect long-running tool pause (interactive mode).
-          // IMPORTANT: Skip partial (streaming) events — their function call
-          // IDs are regenerated per chunk and won't match the session's final
-          // event. Only capture pause context from the non-partial event.
-          if (
-            !event.partial &&
-            event.longRunningToolIds &&
-            event.longRunningToolIds.length > 0
-          ) {
-            const functionCalls = event.content?.parts
-              ?.filter((p) => p.functionCall)
-              ?.map((p) => p.functionCall!) ?? [];
-
-            const pausedCall = functionCalls.find((fc) =>
-              event.longRunningToolIds!.includes(fc.id ?? "")
-            );
-
-            if (pausedCall) {
-              setPauseContext({
-                functionCallId: pausedCall.id ?? "",
-                functionName: pausedCall.name ?? "",
-                eventId: event.id,
-              });
-              setStatus("paused");
-              paused = true;
-              // Fetch full session state so campaign metadata is available
-              syncSessionState();
-            }
-          }
-        }
-        if (!paused) setStatus("completed");
+        // Drain the poll to completion; the initial run fetches session state
+        // on pause and keeps consuming (does not stop on the first pause).
+        const terminal = await consumePollEvents(
+          pollRun(appName, userId, sessionId, { signal }),
+          { syncOnPause: true }
+        );
+        if (!terminal) setStatus("completed");
       } catch (err) {
         // Unmount aborts the poll — that is not a real run failure.
         if (signal.aborted || (err instanceof Error && err.name === "AbortError")) {
@@ -183,7 +213,7 @@ export default function RunPage({
     run();
 
     return () => controller.abort();
-  }, [appName, userId, sessionId, syncSessionState]);
+  }, [appName, userId, sessionId, consumePollEvents]);
 
   // Reset the stall timer whenever a new event lands (keeps the per-event loop
   // bodies byte-identical — the timestamp is bumped here instead of inline).
@@ -208,12 +238,21 @@ export default function RunPage({
     return () => clearInterval(timer);
   }, [status]);
 
+  // Abort any in-flight resume poll on unmount (mirrors the initial effect's
+  // controller cleanup — the resume path previously leaked its poll loop).
+  useEffect(() => {
+    return () => resumeAbortRef.current?.abort();
+  }, []);
+
   // Resume from a paused long-running tool
   async function handleResume(response: Record<string, unknown>) {
     if (!pauseContext) return;
     setStatus("running");
     const ctx = pauseContext;
     setPauseContext(null);
+
+    const controller = new AbortController();
+    resumeAbortRef.current = controller;
 
     try {
       // Submit the human-review response; the server relaunches the detached
@@ -230,57 +269,21 @@ export default function RunPage({
         ctx.eventId
       );
 
-      let paused = false;
-      for await (const event of pollRun(appName, userId, sessionId)) {
-        // Skip the server's internal run-status marker events (see kickoff loop).
-        if (event.author === RUNSERVER_MARKER_AUTHOR) continue;
-
-        // Deduplicate events by ID
-        if (event.id && seenEventIds.current.has(event.id)) continue;
-        if (event.id) seenEventIds.current.add(event.id);
-
-        // Surface backend failure events (e.g. a model 429) during resume too.
-        const evErr = getEventError(event);
-        if (evErr) {
-          setStatus("error");
-          setErrorMsg(evErr);
-          return;
-        }
-
-        setEvents((prev) => [...prev, event]);
-
-        if (event.actions?.stateDelta) {
-          setSessionState((prev) => ({
-            ...prev,
-            ...event.actions!.stateDelta,
-          }));
-        }
-
-        // Check for another pause (skip partial/streaming events)
-        if (!event.partial && event.longRunningToolIds && event.longRunningToolIds.length > 0) {
-          const functionCalls = event.content?.parts
-            ?.filter((p) => p.functionCall)
-            ?.map((p) => p.functionCall!) ?? [];
-
-          const pausedCall = functionCalls.find((fc) =>
-            event.longRunningToolIds!.includes(fc.id ?? "")
-          );
-
-          if (pausedCall) {
-            setPauseContext({
-              functionCallId: pausedCall.id ?? "",
-              functionName: pausedCall.name ?? "",
-              eventId: event.id,
-            });
-            setStatus("paused");
-            paused = true;
-            return;
-          }
-        }
-      }
-
-      if (!paused) setStatus("completed");
+      // Resume stops at the first pause (returns immediately) and does not
+      // re-sync session state — same as the former inline loop.
+      const terminal = await consumePollEvents(
+        pollRun(appName, userId, sessionId, { signal: controller.signal }),
+        { stopOnPause: true }
+      );
+      if (!terminal) setStatus("completed");
     } catch (err) {
+      // Unmount aborts the poll — that is not a real resume failure.
+      if (
+        controller.signal.aborted ||
+        (err instanceof Error && err.name === "AbortError")
+      ) {
+        return;
+      }
       setStatus("error");
       setErrorMsg(err instanceof Error ? err.message : "Resume failed");
     }
@@ -298,14 +301,8 @@ export default function RunPage({
 
   // Build research report proxy URL from state
   const researchReportUrl = useMemo(() => {
-    const uri = sessionState.research_report_gcs_uri;
-    if (typeof uri !== "string" || !uri.startsWith("gs://")) return "";
-    const withoutPrefix = uri.replace(/^gs:\/\//, "");
-    const slashIdx = withoutPrefix.indexOf("/");
-    if (slashIdx < 0) return "";
-    const bucket = withoutPrefix.slice(0, slashIdx);
-    const path = withoutPrefix.slice(slashIdx + 1);
-    return `/api/gcs?bucket=${encodeURIComponent(bucket)}&path=${encodeURIComponent(path)}`;
+    const parsed = parseGsUri(sessionState.research_report_gcs_uri);
+    return parsed ? gcsProxyUrl(parsed.bucket, parsed.path) : "";
   }, [sessionState.research_report_gcs_uri]);
 
   // Build GCS URI from state
