@@ -177,6 +177,8 @@ The bucket name comes from `GOOGLE_CLOUD_STORAGE_BUCKET` (the var deploy actuall
 
 Agents use `before_agent_callback` to initialize session state, `before_model_callback` for rate limiting, and `output_key` to store results in state for downstream agents. Instructions use context variables like `{brand}`, `{target_product}`, `{target_audience}`.
 
+Agent `instruction=` strings live in the package's `prompts.py` (as `<AGENT_VAR>_INSTR` constants), not inline in `agent.py`.
+
 ### Data Flow
 
 - **BigQuery**: Stores trend recommendations (`target_trends_crf`), creative results (`trend_creatives`), all trends (`all_trends`), per-run evaluation summaries (`creative_evals` — one row per run, joins `trend_creatives` via `creative_uuid`, links to the full report JSON in GCS)
