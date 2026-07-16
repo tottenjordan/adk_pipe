@@ -10,6 +10,7 @@ from google.adk.tools import google_search
 from .tools import (
     save_search_trends_to_session_state,
     save_session_state_to_gcs,
+    record_research_gaps,
     write_trends_to_bq,
     get_daily_gtrends,
     write_to_file,
@@ -76,11 +77,12 @@ understand_trends_searcher = Agent(
 
     <CONTEXT>
         <raw_gtrends>
-        {raw_gtrends}
+        {raw_gtrends?}
         </raw_gtrends>
     </CONTEXT>
 
     ### Instructions
+    0. If <raw_gtrends> is empty, the upstream trend gather did not run. Do NOT invent terms — report that no trends were available and stop.
     1. **Filter:** Review the list in <raw_gtrends>. Select the top 5-8 terms that appear to be narrative-driven stories (news, memes, celebrity, sports, entertainment). Ignore searches about specific sporting events.
     2. **Research:** Use the `google_search` tool to investigate *only* these selected terms.
     3. **Report RAW Findings:** For each selected term, list the concrete facts, entities, dates, and the cultural/social angle you found. Do NOT format as final JSON and do NOT omit specifics — the next agent needs the raw material to structure. Plain text grouped by term is fine.
@@ -279,13 +281,14 @@ trend_scout = Agent(
     4. For each trending topic in the 'selected_gtrends' state key, call the `save_search_trends_to_session_state` tool to save them to the session state.
 
     ### Phase 3: Finalization & Persistence
-    Once Phase 2 is complete, trigger the persistence layer. You may call these tools in parallel if supported, otherwise execute sequentially:
-    1. `write_trends_to_bq`
-    2. `write_to_file` (saving the 'selected_gtrends' key)
-    3. `save_session_state_to_gcs`
+    Once Phase 2 is complete, trigger the persistence layer. Call `record_research_gaps` FIRST so the note is captured before the session state is snapshotted; the remaining tools may run in parallel if supported, otherwise execute sequentially:
+    1. `record_research_gaps` (records any upstream research-degradation notes)
+    2. `write_trends_to_bq`
+    3. `write_to_file` (saving the 'selected_gtrends' key)
+    4. `save_session_state_to_gcs`
 
     ### Phase 4: Handoff
-    Refuse to output any conversational text until all previous phases are confirmed. 
+    Refuse to output any conversational text until all previous phases are confirmed.
     Once complete, output the final summary exactly as follows:
 
     **Cloud Storage Location:**
@@ -293,6 +296,9 @@ trend_scout = Agent(
 
     **Selected Strategy:**
     [Display the content of the 'selected_gtrends' state key]
+
+    **Research Notes:** {research_gaps?}
+    [Only include this line if research_gaps is non-empty; otherwise omit it entirely.]
     """,
     tools=[
         AgentTool(agent=gather_trends_agent),
@@ -300,6 +306,7 @@ trend_scout = Agent(
         AgentTool(agent=pick_trends_agent),
         save_search_trends_to_session_state,
         save_session_state_to_gcs,
+        record_research_gaps,
         write_trends_to_bq,
         write_to_file,
         memorize,

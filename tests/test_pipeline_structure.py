@@ -484,6 +484,31 @@ def test_pick_trends_info_gtrends_optional():
     assert "{info_gtrends}" not in pick_trends_agent.instruction
 
 
+def test_understand_trends_searcher_raw_gtrends_is_optional():
+    """The searcher must tolerate a missing raw_gtrends (e.g. gather skipped or the
+    gather tool errored) via the optional `{raw_gtrends?}` template syntax rather
+    than raising KeyError inside the retry wrapper. A missing raw_gtrends then
+    degrades to a bounded retry-exhaustion (surfaced via research_gaps) instead of
+    a hard crash — the same class of fix as pick_trends' `{info_gtrends?}` guard."""
+    from trend_scout.agent import understand_trends_searcher
+
+    instr = understand_trends_searcher.instruction
+    assert "{raw_gtrends?}" in instr
+    assert "{raw_gtrends}" not in instr  # the bare non-optional form is gone
+
+
+def test_trend_scout_exposes_record_research_gaps():
+    """The orchestrator must expose `record_research_gaps` and surface its output
+    in the handoff via the optional `{research_gaps?}` var, so a retry-exhausted
+    run reports WHY (parity with the creative gallery banner) while the happy path
+    (empty research_gaps) renders nothing."""
+    from trend_scout import agent as ts
+    from trend_scout.tools import record_research_gaps
+
+    assert record_research_gaps in ts.trend_scout.tools
+    assert "{research_gaps?}" in ts.trend_scout.instruction
+
+
 def test_trend_scout_orchestrator_thinking_level_is_bounded_low():
     """The orchestrator's thinking must be bounded to LOW — not off, not HIGH.
 
