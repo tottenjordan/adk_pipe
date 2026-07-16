@@ -126,7 +126,7 @@ class TestBaseAgentConfiguration:
         assert isinstance(ca.config, BaseAgentConfiguration)
 
     def test_agent_configs_share_model_names(self):
-        """Dedup proof: both agents expose identical model-name values."""
+        """Dedup proof: both agents expose identical base model-name values."""
         import trend_scout.config as tt
         import creative_agent.config as ca
 
@@ -140,6 +140,19 @@ class TestBaseAgentConfiguration:
         ):
             assert getattr(tt.config, name) == getattr(ca.config, name)
         assert tt.config.critic_model == "gemini-3.1-pro-preview"
+
+    def test_trend_scout_regional_model_spread(self):
+        """trend_scout fans its 5 agents across separate quota buckets.
+
+        The two gemini-2.5 agents are pinned to a region (us-central1) so they
+        land in the regional per-base-model quota, separate from the global
+        buckets the gemini-3.x agents use.
+        """
+        import trend_scout.config as tt
+
+        assert tt.config.gather_model == "gemini-2.5-flash-lite"
+        assert tt.config.picker_model == "gemini-2.5-pro"
+        assert tt.config.regional_model_location == "us-central1"
 
 
 class TestBuildInfraRetry:
