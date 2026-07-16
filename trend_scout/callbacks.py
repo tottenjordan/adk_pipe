@@ -71,6 +71,15 @@ def load_session_state(callback_context: CallbackContext):
 
     _set_initial_states(data["state"], callback_context.state)
 
+    # Opt-in human checkpoint for trend selection (default OFF). Seeded only when
+    # absent so the `{interactive_trend_pick?}` instruction var is always defined
+    # and a non-interactive run is byte-for-byte unaffected — while a caller that
+    # opted in (passing `interactive_trend_pick=True` in the initial session
+    # state) keeps its value (unlike the metadata keys above, which are seeded
+    # blank and filled later via `memorize`).
+    if "interactive_trend_pick" not in callback_context.state:
+        callback_context.state["interactive_trend_pick"] = False
+
 
 def rate_limit_callback(
     callback_context: CallbackContext, llm_request: LlmRequest

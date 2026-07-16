@@ -43,6 +43,7 @@ function HomeContent() {
     targetProduct: "",
     keySellingPoints: "",
     targetSearchTrend: "",
+    interactiveTrendPick: false,
   });
 
   // Pre-fill form from URL params (when clicking a trend card)
@@ -74,7 +75,13 @@ function HomeContent() {
 
     try {
       const userId = `user_${Date.now()}`;
-      const session = await createSession(form.agent, userId);
+      // trend_scout opt-in: seed the session's initial state so the agent pauses
+      // for human trend selection (via the `review_trends` LongRunningFunctionTool).
+      const initialState =
+        form.agent === "trend_scout" && form.interactiveTrendPick
+          ? { interactive_trend_pick: true }
+          : undefined;
+      const session = await createSession(form.agent, userId, initialState);
 
       // Build the user message with campaign metadata
       let message = `Brand Name: "${form.brand}"\nTarget Audience: "${form.targetAudience}"\nTarget Product: "${form.targetProduct}"\nKey Selling Points: "${form.keySellingPoints}"`;
@@ -166,6 +173,32 @@ function HomeContent() {
               </SelectContent>
             </Select>
           </div>
+
+          {form.agent === "trend_scout" && (
+            <label
+              htmlFor="interactive-trend-pick"
+              className="flex items-start gap-3 rounded-xl border border-border bg-background px-4 py-3 cursor-pointer hover:border-foreground/20 transition-colors animate-fadeInUpSmooth"
+            >
+              <input
+                id="interactive-trend-pick"
+                type="checkbox"
+                checked={form.interactiveTrendPick ?? false}
+                onChange={(e) =>
+                  setForm({ ...form, interactiveTrendPick: e.target.checked })
+                }
+                className="mt-0.5 h-4 w-4 shrink-0 rounded border-border accent-primary cursor-pointer"
+              />
+              <span className="space-y-0.5">
+                <span className="block text-sm font-medium text-foreground">
+                  Let me pick the trends myself
+                </span>
+                <span className="block text-xs text-muted-foreground">
+                  Pause after gathering the top ~25 trends so you can choose which
+                  to keep.
+                </span>
+              </span>
+            </label>
+          )}
 
           <div className="space-y-2">
             <Label htmlFor="brand" className="text-muted-foreground text-xs uppercase tracking-wider">

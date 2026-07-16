@@ -187,4 +187,36 @@ describe("resumeRun", () => {
       functionCallEventId: "evt-1",
     });
   });
+
+  it("posts the review_trends selection to the resume endpoint", async () => {
+    const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) =>
+      jsonResponse({ runId: "run-3", status: "running" })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await resumeRun(
+      "trend_scout",
+      "u1",
+      "s1",
+      "fc-trends",
+      "review_trends",
+      { status: "selected", selected_trends: ["Trend A", "Trend C"], instruction: "" },
+      "evt-8"
+    );
+
+    expect(result).toEqual({ runId: "run-3", status: "running" });
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe(`${API_BASE}/runs/trend_scout/u1/s1/resume`);
+    expect(init?.method).toBe("POST");
+    expect(JSON.parse(init?.body as string)).toEqual({
+      functionCallId: "fc-trends",
+      functionName: "review_trends",
+      response: {
+        status: "selected",
+        selected_trends: ["Trend A", "Trend C"],
+        instruction: "",
+      },
+      functionCallEventId: "evt-8",
+    });
+  });
 });

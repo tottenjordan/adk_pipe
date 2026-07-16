@@ -56,4 +56,11 @@ export interface CampaignInput {
   targetProduct: string;
   keySellingPoints: string;
   targetSearchTrend?: string;
+  /**
+   * trend_scout only: when true, the run pauses after gathering the top ~25
+   * trends so the user can pick which to keep (via the `review_trends`
+   * LongRunningFunctionTool). Wired into the session's initial state as
+   * `interactive_trend_pick`.
+   */
+  interactiveTrendPick?: boolean;
 }

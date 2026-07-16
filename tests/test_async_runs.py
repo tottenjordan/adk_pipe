@@ -97,8 +97,18 @@ def test_events_since_slices_by_index():
     reason="agent imports build a module-level genai client requiring GCP ADC",
 )
 def test_get_root_agent_maps_three_agents():
+    from google.adk.apps import App
+
     for app_name in ("creative_agent", "trend_scout", "interactive_creative"):
         assert get_root_agent(app_name) is not None
+
+    # The interactive agents (LongRunningFunctionTool checkpoints) return a
+    # resumable App so the Runner can pause/resume; creative_agent has no
+    # checkpoints and stays a bare Agent.
+    assert isinstance(get_root_agent("trend_scout"), App)
+    assert isinstance(get_root_agent("interactive_creative"), App)
+    assert not isinstance(get_root_agent("creative_agent"), App)
+
     with pytest.raises(KeyError):
         get_root_agent("nope")
 

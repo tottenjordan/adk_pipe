@@ -502,6 +502,41 @@ def test_trend_scout_root_has_expected_tools():
         assert name in tool_names, f"Missing tool: {name}"
 
 
+def test_trend_scout_exposes_resumable_app():
+    """The opt-in `review_trends` LongRunningFunctionTool checkpoint only pauses/
+    resumes when the Runner is built from an App carrying
+    ResumabilityConfig(is_resumable=True). trend_scout.agent must expose such an
+    `app` (while still exporting the bare `root_agent` for deploy_agent.py)."""
+    from google.adk.apps import App
+    from trend_scout.agent import app, root_agent
+
+    assert isinstance(app, App)
+    assert app.resumability_config is not None
+    assert app.resumability_config.is_resumable is True
+    assert app.root_agent is root_agent
+
+
+def test_trend_scout_registers_review_trends_tool():
+    """The opt-in trend-picking checkpoint tool must be registered on the root
+    orchestrator so the instruction can call it when interactive_trend_pick is on."""
+    from trend_scout.agent import root_agent
+    from trend_scout.review_tools import review_trends_tool
+
+    assert review_trends_tool in root_agent.tools
+
+
+def test_trend_scout_instruction_branches_on_interactive_flag():
+    """The pick phase must branch on the optional `{interactive_trend_pick?}` var:
+    the interactive branch calls `review_trends`, the default branch keeps calling
+    `pick_trends_agent` unchanged."""
+    from trend_scout.agent import root_agent
+
+    instr = str(root_agent.instruction)
+    assert "{interactive_trend_pick?}" in instr
+    assert "review_trends" in instr
+    assert "pick_trends_agent" in instr
+
+
 def test_trend_scout_sub_agent_output_keys():
     """WS2: understand_trends_agent is split into a searcher (writes
     `info_gtrends_raw`) + a synthesizer (writes JSON `info_gtrends`)."""

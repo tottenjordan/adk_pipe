@@ -3,6 +3,7 @@ import warnings
 
 from google.genai import types
 from google.adk.agents import Agent, SequentialAgent
+from google.adk.apps import App, ResumabilityConfig
 from google.adk.planners import BuiltInPlanner
 from google.adk.tools.agent_tool import AgentTool
 from google.adk.tools import google_search
@@ -16,6 +17,7 @@ from .tools import (
     write_to_file,
     memorize,
 )
+from .review_tools import review_trends_tool
 from agent_common import build_gemini, RetryUntilKeyAgent
 from . import callbacks
 from .config import config, INFRA_RETRY
@@ -277,8 +279,21 @@ trend_scout = Agent(
 
     1. **Gather:** Call `gather_trends_agent`.
     2. **Research:** Call `understand_trends_agent_resilient`.
-    3. **Select:** Call `pick_trends_agent`. *Note: This agent will determine the final trends.
-    4. For each trending topic in the 'selected_gtrends' state key, call the `save_search_trends_to_session_state` tool to save them to the session state.
+    3. **Select:** The interactive trend-picking flag is: `{interactive_trend_pick?}`.
+
+       **IF that flag is truthy (True):** Do NOT call `pick_trends_agent`. Instead
+       call `review_trends` to PAUSE the run so a human can pick which of the gathered
+       trends (in the 'raw_gtrends' state key) to keep. When you receive the response
+       from `review_trends`, it contains `status`, `selected_trends` (a list of terms
+       the user chose), and `instruction`. Read the `instruction` field, then for EACH
+       term in `selected_trends` call the `save_search_trends_to_session_state` tool to
+       save it to the session state. NEVER treat the checkpoint response as the end of
+       the workflow — immediately continue to Phase 3.
+
+       **ELSE (flag is False or empty):** Call `pick_trends_agent`. *Note: This agent
+       will determine the final trends. Then, for each trending topic in the
+       'selected_gtrends' state key, call the `save_search_trends_to_session_state`
+       tool to save them to the session state.
 
     ### Phase 3: Finalization & Persistence
     Once Phase 2 is complete, trigger the persistence layer. Call `record_research_gaps` FIRST so the note is captured before the session state is snapshotted; the remaining tools may run in parallel if supported, otherwise execute sequentially:
@@ -304,6 +319,7 @@ trend_scout = Agent(
         AgentTool(agent=gather_trends_agent),
         AgentTool(agent=understand_trends_agent_resilient),
         AgentTool(agent=pick_trends_agent),
+        review_trends_tool,
         save_search_trends_to_session_state,
         save_session_state_to_gcs,
         record_research_gaps,
@@ -330,3 +346,13 @@ trend_scout = Agent(
 
 # Set as root agent
 root_agent = trend_scout
+
+# Wrap in an App with resumability enabled — required for the opt-in
+# `review_trends` LongRunningFunctionTool to pause and resume across separate
+# /runs calls. `root_agent` stays exported unchanged (deployment/deploy_agent.py
+# imports the bare agent); the resumable App is used by the runserver runner.
+app = App(
+    name="trend_scout",
+    root_agent=root_agent,
+    resumability_config=ResumabilityConfig(is_resumable=True),
+)
