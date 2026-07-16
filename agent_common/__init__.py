@@ -1,5 +1,6 @@
 """Shared building blocks used across the agent packages."""
 
+from agent_common.conditional_agent import RunIfAgent
 from agent_common.config import BaseAgentConfiguration
 from agent_common.locations import MODEL_LOCATION
 from agent_common.models import build_gemini
@@ -22,6 +23,7 @@ __all__ = [
     "build_gemini",
     "build_infra_retry",
     "RetryUntilKeyAgent",
+    "RunIfAgent",
     "collect_degradation_warnings",
     "log_empty_turn_finish_reason",
     "log_run_start",
