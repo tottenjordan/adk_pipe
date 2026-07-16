@@ -527,14 +527,29 @@ def test_trend_scout_registers_review_trends_tool():
 
 def test_trend_scout_instruction_branches_on_interactive_flag():
     """The pick phase must branch on the optional `{interactive_trend_pick?}` var:
-    the interactive branch calls `review_trends`, the default branch keeps calling
-    `pick_trends_agent` unchanged."""
+    the interactive branch calls `review_trends`, and BOTH branches call
+    `pick_trends_agent` (the interactive branch repurposes it to narrate the
+    human's already-chosen trends into `selected_gtrends` for the handoff UI)."""
     from trend_scout.agent import root_agent
 
     instr = str(root_agent.instruction)
     assert "{interactive_trend_pick?}" in instr
     assert "review_trends" in instr
     assert "pick_trends_agent" in instr
+    # regression: the interactive branch must NOT skip pick_trends_agent, or the
+    # frontend handoff (gated on selected_gtrends) never renders.
+    assert "Do NOT call `pick_trends_agent`" not in instr
+
+
+def test_pick_trends_agent_enriches_human_selected_trends():
+    """In interactive mode pick_trends_agent must narrate the human's already-chosen
+    trends (from target_search_trends) into selected_gtrends instead of re-selecting,
+    so the trend->creative_agent handoff cards render. It therefore reads the picks
+    via the optional `{target_search_trends?}` context var."""
+    from trend_scout.agent import pick_trends_agent
+
+    assert "{target_search_trends?}" in pick_trends_agent.instruction
+    assert pick_trends_agent.output_key == "selected_gtrends"
 
 
 def test_trend_scout_sub_agent_output_keys():

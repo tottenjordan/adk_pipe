@@ -207,18 +207,28 @@ pick_trends_agent = Agent(
         <trend_research>
         {info_gtrends?}
         </trend_research>
+
+        <human_selected_trends>
+        {target_search_trends?}
+        </human_selected_trends>
     </CONTEXT>
 
     <INSTRUCTIONS>
         0. If <trend_research> is empty, the upstream trend research did not run.
            Do NOT invent trends — output a single line noting that no trend
            research was available, and stop.
-        1. Analyze the <trend_research> JSON.
-        2. Select exactly 3 trends that offer the strongest narrative alignment
-           with the <campaign_data>. You MUST return 3. Only return fewer if
-           <trend_research> contains fewer than 3 distinct trends, in which case
-           return every trend available.
-        3. For each selected trend, define the "Strategic Bridge"—the specific angle that connects the trend's cultural mood to the product's unique selling points.
+        1. Analyze the <trend_research> JSON, then decide WHICH trends to write up:
+           - **If <human_selected_trends> contains a NON-EMPTY `target_search_trends`
+             list**, a human has ALREADY chosen the trends. Do NOT re-select, add,
+             drop, or reorder them. Write up EXACTLY those trends — one section per
+             chosen term — and use the SAME term text VERBATIM as each `### ` heading
+             (the downstream handoff matches on it). Draw the Context from
+             <trend_research>.
+           - **Otherwise**, select exactly 3 trends from <trend_research> that offer
+             the strongest narrative alignment with <campaign_data>. You MUST return
+             3. Only return fewer if <trend_research> contains fewer than 3 distinct
+             trends, in which case return every trend available.
+        2. For each trend in the chosen set, define the "Strategic Bridge"—the specific angle that connects the trend's cultural mood to the product's unique selling points.
 
         Output your findings in the requested format.
     </INSTRUCTIONS>
@@ -295,7 +305,12 @@ trend_scout = Agent(
           read the `instruction` field, then for EACH term in `selected_trends` call
           the `save_search_trends_to_session_state` tool to save it to the session state.
        c. Call `understand_trends_agent_resilient` to research the selected trends.
-       d. Do NOT call `pick_trends_agent`. Immediately continue to Phase 3.
+       d. Call `pick_trends_agent`. Because the human already chose the trends
+          (saved in 'target_search_trends'), this agent will NOT re-select — it
+          writes the strategic narrative for EXACTLY those chosen trends into the
+          'selected_gtrends' state key. Do NOT call
+          `save_search_trends_to_session_state` again (the picks are already saved).
+          Continue to Phase 3.
 
        **ELSE (flag is False or empty):**
        a. Call `understand_trends_agent_resilient` to research the gathered trends.
