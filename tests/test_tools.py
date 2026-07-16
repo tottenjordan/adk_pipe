@@ -85,6 +85,31 @@ class TestTrendTrawlerMemorizeTool:
         assert "status" in result
 
 
+# --- review_trends checkpoint tool (opt-in interactive trend picking) ---
+class TestReviewTrendsTool:
+    def _ctx(self):
+        """A tool_context double exposing the `.actions.skip_summarization`
+        attribute the LongRunningFunctionTool checkpoint sets (mirrors the shape
+        interactive_creative's review_* checkpoints rely on)."""
+        from types import SimpleNamespace
+
+        return SimpleNamespace(actions=SimpleNamespace(skip_summarization=False))
+
+    def test_returns_none_and_skips_summarization(self):
+        from trend_scout.review_tools import review_trends
+
+        ctx = self._ctx()
+        result = review_trends(ctx)
+        assert result is None
+        assert ctx.actions.skip_summarization is True
+
+    def test_wrapped_in_long_running_function_tool(self):
+        from google.adk.tools.long_running_tool import LongRunningFunctionTool
+        from trend_scout.review_tools import review_trends_tool
+
+        assert isinstance(review_trends_tool, LongRunningFunctionTool)
+
+
 # --- record_research_gaps logic ---
 class TestRecordResearchGaps:
     def test_exhaustion_marker_becomes_note(self):

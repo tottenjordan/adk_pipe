@@ -578,6 +578,124 @@ function ReviewVisualConcepts({
   );
 }
 
+/**
+ * Normalize the candidate trend terms from session state `raw_gtrends`.
+ * The backend stores a `string[]` of ~25 terms; guard against absent/malformed
+ * values and drop empties so the panel renders cleanly.
+ */
+function parseRawGtrends(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((t): t is string => typeof t === "string")
+    .map((t) => t.trim())
+    .filter((t) => t.length > 0);
+}
+
+function ReviewTrends({
+  state,
+  onResume,
+}: {
+  state: Record<string, unknown>;
+  onResume: (response: Record<string, unknown>) => void;
+}) {
+  const candidates = useMemo(
+    () => parseRawGtrends(state.raw_gtrends),
+    [state.raw_gtrends]
+  );
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [instruction, setInstruction] = useState("");
+
+  const toggle = (term: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(term)) next.delete(term);
+      else next.add(term);
+      return next;
+    });
+  };
+
+  return (
+    <div className="glass rounded-2xl p-6 space-y-4 animate-fadeInUp">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <span className="inline-block h-2.5 w-2.5 rounded-full bg-amber-500" />
+          <h2 className="text-lg font-semibold">Pick Your Trends</h2>
+        </div>
+        {candidates.length > 0 && (
+          <Badge
+            variant="secondary"
+            className="text-[10px] px-1.5 py-0 bg-primary/10 text-primary border-0 font-bold"
+          >
+            {selected.size} / {candidates.length} selected
+          </Badge>
+        )}
+      </div>
+      <p className="text-sm text-muted-foreground">
+        Select the trends you want to keep. The agent will skip its automatic
+        pick and research the trends you choose.
+      </p>
+      {candidates.length === 0 ? (
+        <p className="text-sm text-muted-foreground italic">
+          No candidate trends available yet.
+        </p>
+      ) : (
+        <div className="grid gap-2 sm:grid-cols-2 max-h-[28rem] overflow-y-auto">
+          {candidates.map((term) => {
+            const isSelected = selected.has(term);
+            return (
+              <button
+                key={term}
+                type="button"
+                onClick={() => toggle(term)}
+                aria-pressed={isSelected}
+                className={`glass rounded-xl px-4 py-3 text-left text-sm transition-all duration-200 hover:shadow-md hover:shadow-black/5 ${
+                  isSelected
+                    ? "ring-2 ring-primary bg-primary/10 text-primary font-semibold"
+                    : "text-foreground/85"
+                }`}
+              >
+                <span className="flex items-center gap-2">
+                  <span
+                    className={`inline-flex h-4 w-4 shrink-0 items-center justify-center rounded border text-[10px] font-bold ${
+                      isSelected
+                        ? "border-primary bg-primary text-primary-foreground"
+                        : "border-border text-transparent"
+                    }`}
+                  >
+                    &#10003;
+                  </span>
+                  <span className="leading-snug break-words">{term}</span>
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+      <Textarea
+        placeholder="Optional note for the agent (e.g. focus, angle)..."
+        value={instruction}
+        onChange={(e) => setInstruction(e.target.value)}
+        rows={2}
+        className="bg-background border-border"
+      />
+      <div className="flex gap-3">
+        <Button
+          disabled={selected.size === 0}
+          onClick={() =>
+            onResume({
+              status: "selected",
+              selected_trends: [...selected],
+              instruction,
+            })
+          }
+        >
+          Confirm Selection
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 function ReviewPanel({
   functionName,
   sessionState,
@@ -595,6 +713,9 @@ function ReviewPanel({
   }
   if (functionName === "review_visual_concepts") {
     return <ReviewVisualConcepts state={sessionState} onResume={onResume} />;
+  }
+  if (functionName === "review_trends") {
+    return <ReviewTrends state={sessionState} onResume={onResume} />;
   }
   return null;
 }

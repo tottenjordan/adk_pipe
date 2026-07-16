@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import os
 
+from google.adk.apps import App
 from google.adk.cli.fast_api import get_fast_api_app
 from google.adk.cli.utils.service_factory import (
     create_artifact_service_from_options,
@@ -71,9 +72,22 @@ if session_service is None:
 
 
 def _runner_factory(app_name: str) -> Runner:
+    # get_root_agent returns a resumable App for the interactive agents (trend_scout,
+    # interactive_creative) and a bare Agent for creative_agent. A Runner derives
+    # resumability ONLY from an App — passing a bare agent= wraps it into a default
+    # App with is_resumable=False, so LongRunningFunctionTool checkpoints could never
+    # resume. Build with app= when we get an App, else fall back to agent=.
+    obj = get_root_agent(app_name)
+    if isinstance(obj, App):
+        return Runner(
+            app=obj,
+            app_name=app_name,
+            session_service=session_service,
+            artifact_service=artifact_service,
+        )
     return Runner(
         app_name=app_name,
-        agent=get_root_agent(app_name),
+        agent=obj,
         session_service=session_service,
         artifact_service=artifact_service,
     )

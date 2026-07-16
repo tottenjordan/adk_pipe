@@ -173,6 +173,34 @@ describe("Interactive mode pause detection", () => {
     expect(result).not.toBeNull();
     expect(result!.functionName).toBe("review_visual_concepts");
   });
+
+  it("detects review_trends pause", () => {
+    const event: AgentEvent = {
+      id: "evt-8",
+      invocationId: "inv-1",
+      author: "trend_scout",
+      content: {
+        role: "assistant",
+        parts: [
+          {
+            functionCall: {
+              id: "fc-trends",
+              name: "review_trends",
+              args: {},
+            },
+          },
+        ],
+      },
+      longRunningToolIds: ["fc-trends"],
+      timestamp: Date.now(),
+    };
+
+    const result = detectPause(event);
+    expect(result).not.toBeNull();
+    expect(result!.functionCallId).toBe("fc-trends");
+    expect(result!.functionName).toBe("review_trends");
+    expect(result!.eventId).toBe("evt-8");
+  });
 });
 
 // Test resumeRun request body construction.
@@ -215,5 +243,25 @@ describe("Resume run request body", () => {
 
     expect(body.response.status).toBe("approved");
     expect(body.response.feedback).toBe("");
+  });
+
+  it("constructs the review_trends selection payload", () => {
+    const response = {
+      status: "selected",
+      selected_trends: ["Trend A", "Trend C"],
+      instruction: "focus on pop culture",
+    };
+
+    const body = {
+      functionCallId: "fc-trends",
+      functionName: "review_trends",
+      response,
+      functionCallEventId: "evt-8",
+    };
+
+    expect(body.functionName).toBe("review_trends");
+    expect(body.response.status).toBe("selected");
+    expect(body.response.selected_trends).toEqual(["Trend A", "Trend C"]);
+    expect(body.response.instruction).toBe("focus on pop culture");
   });
 });

@@ -16,15 +16,23 @@ RUN_ERROR_KEY = "__run_error"
 
 
 def get_root_agent(app_name: str):
-    """Map an app_name to its root Agent (lazy import — builds a genai client)."""
+    """Map an app_name to its root Agent (lazy import — builds a genai client).
+
+    The interactive agents return a resumable ``App`` (not a bare agent): a
+    ``LongRunningFunctionTool`` checkpoint only pauses/resumes when the Runner is
+    built from an ``App`` carrying ``ResumabilityConfig(is_resumable=True)``.
+    ``trend_scout`` needs it for its opt-in ``review_trends`` checkpoint;
+    ``interactive_creative`` for its three review checkpoints. ``creative_agent``
+    has no checkpoints, so it stays a bare agent. The runner factory branches on
+    the returned type (App vs Agent)."""
     from creative_agent.agent import root_agent as creative
-    from interactive_creative.agent import root_agent as interactive
-    from trend_scout.agent import root_agent as scout
+    from interactive_creative.agent import app as interactive_app
+    from trend_scout.agent import app as scout_app
 
     agents = {
         "creative_agent": creative,
-        "trend_scout": scout,
-        "interactive_creative": interactive,
+        "trend_scout": scout_app,
+        "interactive_creative": interactive_app,
     }
     if app_name not in agents:
         raise KeyError(app_name)
