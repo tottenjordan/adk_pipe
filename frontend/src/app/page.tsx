@@ -44,6 +44,7 @@ function HomeContent() {
     keySellingPoints: "",
     targetSearchTrend: "",
     interactiveTrendPick: false,
+    referenceImageUri: "",
   });
 
   // Pre-fill form from URL params (when clicking a trend card)
@@ -80,7 +81,11 @@ function HomeContent() {
       const initialState =
         form.agent === "trend_scout" && form.interactiveTrendPick
           ? { interactive_trend_pick: true }
-          : undefined;
+          : (form.agent === "creative_agent" ||
+                form.agent === "interactive_creative") &&
+              form.referenceImageUri?.trim()
+            ? { reference_image_uri: form.referenceImageUri.trim() }
+            : undefined;
       const session = await createSession(form.agent, userId, initialState);
 
       // Build the user message with campaign metadata
@@ -327,6 +332,23 @@ function HomeContent() {
                 value={form.targetSearchTrend}
                 onChange={(e) =>
                   setForm({ ...form, targetSearchTrend: e.target.value })
+                }
+                className="bg-background border-border hover:border-foreground/20 focus:border-primary/50 transition-colors"
+              />
+            </div>
+          )}
+
+          {(form.agent === "creative_agent" || form.agent === "interactive_creative") && (
+            <div className="space-y-2 animate-fadeInUpSmooth">
+              <Label htmlFor="referenceImage" className="text-muted-foreground text-xs uppercase tracking-wider">
+                Reference Image URL (optional)
+              </Label>
+              <Input
+                id="referenceImage"
+                placeholder='gs://bucket/product.png or https://…'
+                value={form.referenceImageUri}
+                onChange={(e) =>
+                  setForm({ ...form, referenceImageUri: e.target.value })
                 }
                 className="bg-background border-border hover:border-foreground/20 focus:border-primary/50 transition-colors"
               />

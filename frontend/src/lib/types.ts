@@ -63,4 +63,11 @@ export interface CampaignInput {
    * `interactive_trend_pick`.
    */
   interactiveTrendPick?: boolean;
+  /**
+   * creative_agent / interactive_creative only: an optional gs:// or http(s)
+   * URL to a product/brand reference image. Threaded into the session's initial
+   * state as `reference_image_uri` so image generation can apply it to every
+   * concept for likeness/consistency.
+   */
+  referenceImageUri?: string;
 }

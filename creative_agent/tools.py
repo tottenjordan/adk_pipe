@@ -194,6 +194,7 @@ async def save_creative_gallery_html(tool_context: ToolContext) -> dict:
                     <div class="content-card">
                         <dl>
                             <dt>Name:</dt> <dd>{entry["concept_name"]}</dd>
+                            <dt>Style:</dt> <dd>{entry.get("visual_style", "")}</dd>
                             <dt>Trend:</dt> <dd>{entry["trend"]}</dd>
                             <dt>Creative Concept Explained:</dt> <dd>{entry["concept_summary"]}</dd>
                             <dt>Why this will perform well:</dt> <dd>{entry["selection_rationale"]}</dd>

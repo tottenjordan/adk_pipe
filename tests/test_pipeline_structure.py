@@ -142,6 +142,7 @@ def test_visual_generation_pipeline_sub_agent_order():
 
     names = [a.name for a in visual_generation_pipeline.sub_agents]
     assert names == [
+        "art_director",
         "visual_concept_drafter",
         "visual_concept_critic",
         "visual_concept_finalizer",
@@ -293,6 +294,7 @@ def test_output_keys_are_set_correctly():
         combined_report_composer,
         ad_copy_drafter,
         ad_copy_critic,
+        art_director,
         visual_concept_drafter,
         visual_concept_critic,
         visual_concept_finalizer,
@@ -306,6 +308,7 @@ def test_output_keys_are_set_correctly():
         (combined_report_composer, "combined_final_cited_report"),
         (ad_copy_drafter, "ad_copy_draft"),
         (ad_copy_critic, "ad_copy_critique"),
+        (art_director, "visual_direction"),
         (visual_concept_drafter, "visual_draft"),
         (visual_concept_critic, "visual_concept_critique"),
         (visual_concept_finalizer, "final_visual_concepts"),
@@ -371,6 +374,7 @@ def test_creative_model_agents_have_finish_reason_callback():
         ca.combined_report_composer,
         ca.ad_copy_drafter,
         ca.ad_copy_critic,
+        ca.art_director,
         ca.visual_concept_drafter,
         ca.visual_concept_critic,
         ca.visual_concept_finalizer,

@@ -40,6 +40,7 @@ class TestPhaseOf:
         assert phase_of("ad_copy_critic") == "ad_copy"
 
     def test_visual_concepts(self):
+        assert phase_of("art_director") == "visual_concepts"
         assert phase_of("visual_concept_drafter") == "visual_concepts"
         assert phase_of("visual_concept_finalizer") == "visual_concepts"
 

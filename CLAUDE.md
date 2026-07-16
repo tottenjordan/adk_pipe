@@ -181,6 +181,8 @@ Agent `instruction=` strings live in the package's `prompts.py` (as `<AGENT_VAR>
 
 Agent `output_schema=` Pydantic models live in the package's `schemas.py` (re-imported into `agent.py`, which keeps them importable from the agent module), not inline in `agent.py`.
 
+Image-generation prompt guidance lives in `creative_agent/prompts.py` as `IMAGE_PROMPT_GUIDE` (the still-image analog of `VEO3_INSTR`); visual agents must select a `visual_style` per concept rather than defaulting to photorealism. It is spliced into the drafter/critic instructions by string concatenation and must contain no `{...}` braces (ADK would treat them as state tokens — fill-in slots use `[square brackets]`).
+
 ### Data Flow
 
 - **BigQuery**: Stores trend recommendations (`target_trends_crf`), creative results (`trend_creatives`), all trends (`all_trends`), per-run evaluation summaries (`creative_evals` — one row per run, joins `trend_creatives` via `creative_uuid`, links to the full report JSON in GCS)

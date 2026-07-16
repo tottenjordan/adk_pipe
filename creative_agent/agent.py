@@ -278,6 +278,33 @@ ad_creative_pipeline = SequentialAgent(
 )
 
 
+# --- ART DIRECTOR AGENT ---
+# Sets the campaign-wide visual direction (mood, palette, motifs, brand cues,
+# recommended diverse style families) BEFORE individual concepts are drafted, so the
+# concepts are cohesive and on-brand. Plain-text output (no output_schema) → the brief
+# is prose guidance, consumed by the drafter via {visual_direction}.
+art_director = Agent(
+    model=build_gemini(config.worker_model),
+    name="art_director",
+    include_contents="none",
+    description="Set the campaign-wide visual direction before concept drafting",
+    planner=BuiltInPlanner(
+        thinking_config=types.ThinkingConfig(include_thoughts=False)
+    ),
+    instruction=prompts.ART_DIRECTOR_INSTR,
+    generate_content_config=types.GenerateContentConfig(
+        temperature=0.9,
+        labels={
+            "agentic_wf": "trend_scout",
+            "agent": "creative_agent",
+            "subagent": "art_director",
+        },
+    ),
+    output_key="visual_direction",
+    after_model_callback=callbacks.log_empty_turn_finish_reason,
+)
+
+
 # --- VISUAL CONCEPT DRAFT AGENT ---
 visual_concept_drafter = Agent(
     model=build_gemini(config.worker_model),
@@ -416,6 +443,7 @@ visual_generation_pipeline = SequentialAgent(
     name="visual_generation_pipeline",
     description="Generates visual concepts with an actor-critic workflow.",
     sub_agents=[
+        art_director,
         visual_concept_drafter,
         visual_concept_critic,
         visual_concept_finalizer,

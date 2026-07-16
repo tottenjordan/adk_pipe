@@ -57,6 +57,13 @@ def _set_initial_states(source: Dict[str, Any], target: State | dict[str, Any]):
 
         target.update(source)
 
+        # Optional product/brand reference image for image generation, supplied
+        # by the caller via createSession initialState (same mechanism as
+        # interactive_trend_pick). Use setdefault so the key always exists for
+        # downstream .get() reads WITHOUT clobbering a caller-provided value —
+        # it is deliberately NOT in `source` above, which would overwrite it.
+        target.setdefault("reference_image_uri", "")
+
 
 def load_session_state(callback_context: CallbackContext):
     """

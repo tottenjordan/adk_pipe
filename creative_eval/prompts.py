@@ -82,6 +82,7 @@ Target Search Trend: {target_search_trend}
 
 <VISUAL_CONCEPT>
 Concept Name: {concept_name}
+Visual Style: {visual_style}
 Trend: {trend}
 Trend Reference: {trend_reference}
 Markets Product: {markets_product}
