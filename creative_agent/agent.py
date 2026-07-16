@@ -55,8 +55,6 @@ merge_planners = Agent(
     after_model_callback=callbacks.log_empty_turn_finish_reason,
 )
 
-# 5.  **Risk & Constraint:** (A final, integrated summary of any cultural risks (from the trend) or market constraints (from the campaign) the creative team must avoid.)
-# </REPORT_STRUCTURE>
 
 merge_parallel_insights = SequentialAgent(
     name="merge_parallel_insights",
