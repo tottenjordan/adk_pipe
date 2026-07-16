@@ -111,11 +111,30 @@ async def generate_image(
     artifact_keys_list = []
     for entry in final_visual_concepts_list:
         try:
+            # Per-concept aspect ratio: the LLM may pick one from the allowed set;
+            # anything else (or unset) falls back to the configured default so a
+            # bad/empty value never reaches the SDK. .get() keeps concepts that
+            # only carry image_generation_prompt working (see test_tools_retry).
+            aspect_ratio = (
+                entry.get("aspect_ratio") or config.image_aspect_ratio_default
+            )
+            if aspect_ratio not in config.image_aspect_ratios_allowed:
+                logging.warning(
+                    f"Aspect ratio '{aspect_ratio}' not in allowed set "
+                    f"{config.image_aspect_ratios_allowed}; "
+                    f"falling back to '{config.image_aspect_ratio_default}'"
+                )
+                aspect_ratio = config.image_aspect_ratio_default
+
             response = await _generate_image_with_backoff(
                 model=config.image_gen_model,
                 contents=entry["image_generation_prompt"],
                 config=types.GenerateContentConfig(
                     response_modalities=["IMAGE"],
+                    image_config=types.ImageConfig(
+                        aspect_ratio=aspect_ratio,
+                        image_size=config.image_size,
+                    ),
                 ),
             )
 

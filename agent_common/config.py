@@ -60,6 +60,16 @@ class BaseAgentConfiguration:
     video_gen_model: str = "veo-3.1-generate-001"  # "veo-3.0-generate-001"
     max_results_yt_trends: int = 45
 
+    # Image generation ImageConfig knobs (env-overridable). The default 9:16 is
+    # the vertical social-reel framing (the model otherwise defaults to 1:1); the
+    # allowed set is the social-safe subset of the SDK's supported aspect ratios
+    # that the visual agents may choose from per concept.
+    image_size: str = os.environ.get("IMAGE_SIZE", "2K")
+    image_aspect_ratio_default: str = os.environ.get(
+        "IMAGE_ASPECT_RATIO_DEFAULT", "9:16"
+    )
+    image_aspect_ratios_allowed: tuple[str, ...] = ("9:16", "1:1", "3:4")
+
     # Adjust these values to limit the rate at which the agent queries the LLM API.
     rate_limit_seconds: int = 60
     rpm_quota: int = 1000
