@@ -705,7 +705,7 @@ and reachable by a stable **tag** — a named alias URL pinned to one revision
 
 | Service | Rollback tag | (revision at time of writing) |
 |---|---|---|
-| `trend-trawler-api` | `main-clean` | `trend-trawler-api-00036-har` |
+| `trend-trawler-api` | `main-clean` | `trend-trawler-api-00034-hzv` |
 | `trend-trawler-web` | `main-current` | `trend-trawler-web-00011-giv` |
 
 ```bash
