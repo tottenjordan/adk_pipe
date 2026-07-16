@@ -125,6 +125,14 @@ class VisualConcept(BaseModel):
     concept_summary: str = Field(
         description="A 2-3 sentence explanation of the creative concept and its link to the ad copy's message."
     )
+    visual_style: str = Field(
+        default="",
+        description="The chosen style family for this concept (e.g. 'flat 2D vector cartoon', 'candid 35mm film photo', 'diecut sticker'), selected from the IMAGE_PROMPT_GUIDE style palette to fit the ad's tone/audience — NOT defaulted to photorealism.",
+    )
+    aspect_ratio: str = Field(
+        default="",
+        description="The chosen aspect ratio for this concept: '9:16' (default vertical reel), '1:1' (square feed), or '3:4' (portrait).",
+    )
     image_generation_prompt: str = Field(
         description="A draft prompt for image generation."
     )
@@ -151,11 +159,19 @@ class VisualConceptCritique(BaseModel):
     concept_summary: str = Field(
         description="The original creative concept explanation."
     )
+    visual_style: str = Field(
+        default="",
+        description="The chosen style family for this concept, carried through from the draft (refine within it; do not force to photorealism).",
+    )
+    aspect_ratio: str = Field(
+        default="",
+        description="The chosen aspect ratio ('9:16', '1:1', or '3:4'), carried through from the draft.",
+    )
     image_generation_prompt: str = Field(
-        description="The FINAL, technically perfected, 100+ word, high-fidelity prompt."
+        description="The FINAL, refined image-generation prompt, written in the concept's chosen visual_style and at a length appropriate to that style."
     )
     critique_summary: str = Field(
-        description="A brief (1-2 sentence) summary of the key technical changes made to the prompt."
+        description="A brief (1-2 sentence) summary of the key changes made to the prompt."
     )
 
 
@@ -201,8 +217,16 @@ class VisualConceptFinal(BaseModel):
     concept_summary: str = Field(
         description="A final, brief (2-3 sentence) summary of the combined ad copy and visual concept."
     )
+    visual_style: str = Field(
+        default="",
+        description="The final chosen style family for this concept (carried through from the critique).",
+    )
+    aspect_ratio: str = Field(
+        default="",
+        description="The final chosen aspect ratio ('9:16', '1:1', or '3:4') for this concept.",
+    )
     image_generation_prompt: str = Field(
-        description="The technically perfected, revised_image_generation_prompt."
+        description="The final, revised image-generation prompt, written in the concept's chosen visual_style."
     )
 
 

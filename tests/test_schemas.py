@@ -105,6 +105,22 @@ def test_visual_concept_schema():
         image_generation_prompt="Photorealistic 9:16 portrait of a guitarist...",
     )
     assert vc.concept_name == "Sunset Serenade"
+    # visual_style / aspect_ratio are additive + defaulted (construction without
+    # them must keep working — see invariant #3 in the overhaul plan).
+    assert vc.visual_style == ""
+    assert vc.aspect_ratio == ""
+
+    styled = VisualConcept(
+        ad_copy_id=2,
+        concept_name="Meme Drop",
+        trend_visual_link="Riffs on the trending meme format.",
+        concept_summary="A bold caption meme of the product.",
+        image_generation_prompt="A meme-style image with top caption '...'.",
+        visual_style="meme aesthetic",
+        aspect_ratio="9:16",
+    )
+    assert styled.visual_style == "meme aesthetic"
+    assert styled.aspect_ratio == "9:16"
 
 
 def test_visual_concept_final_schema():
