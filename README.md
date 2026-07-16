@@ -340,11 +340,13 @@ Each dimension is scored 1–10. Scores are normalized to 0.0–1.0 with a **0.7
 
 ## Frontend UI
 
-A custom React frontend (Next.js + Tailwind CSS + shadcn/ui) for running agents and viewing results: campaign input form with agent selector, a live SSE event stream, pipeline-state widgets, interactive-mode review checkpoints, and a results page with the artifact gallery, HTML portfolio, and evaluation report.
+A custom React frontend (Next.js + Tailwind CSS + shadcn/ui) for running agents and viewing results: campaign input form with agent selector, a live run view that **polls** the async-job `/runs` API (so a run survives disconnect/reload/re-auth), pipeline-state widgets, interactive-mode review checkpoints, and a results page with the artifact gallery, HTML portfolio, and evaluation report.
 
 ```bash
-# terminal 1 — ADK API server (backend)
-uv run adk api_server . --allow_origins=http://localhost:3000
+# terminal 1 — backend. Run the async_app launcher, NOT bare `adk api_server`:
+# it mounts the async-job /runs endpoints the run page polls, on top of ADK's
+# canned session/artifact CRUD (a superset of `adk api_server`).
+ALLOW_ORIGINS=http://localhost:3000 uv run uvicorn deployment.async_app:app --port 8000
 
 # terminal 2 — frontend (Node.js >= 18)
 cd frontend && npm install && npm run dev   # http://localhost:3000
@@ -363,7 +365,7 @@ Trend Trawler deploys in two layers:
 | **Fan-out** | orchestrator (`crf_entrypoint`) + worker (`agent_worker_entrypoint`) | Cloud Run Functions + Pub/Sub |
 
 <p align="center">
-  <img src="docs/architecture/crf-fanout-orchestration.png" alt="Cloud Run Functions fan-out orchestration" width="720">
+  <img src="docs/diagrams/crf_fanout_system_architecture.png" alt="Cloud Run Functions fan-out orchestration" width="720">
 </p>
 
 Deploy an agent to Agent Engine:
@@ -445,12 +447,22 @@ The `creative_agent` eval must run with `PYTHONPATH="$PWD"` and its own rubric c
 │   ├── prompts.py
 │   ├── run_eval_test.py
 │   └── schemas.py
-├── agent_common/                 # ADK-free shared config (BaseAgentConfiguration, retry, build_gemini)
+├── agent_common/                 # shared building blocks bundled into every engine (depends on ADK; no per-agent logic)
 │   ├── __init__.py
-│   ├── config.py
+│   ├── config.py                 # BaseAgentConfiguration — model / rate-limit / GCP env source of truth
 │   ├── locations.py              # MODEL_LOCATION (pins gemini-3.x to `global`)
 │   ├── models.py                 # build_gemini(name)
-│   └── retry.py                  # build_infra_retry()
+│   ├── observability.py          # shared debugging callbacks + degradation-warning collection
+│   ├── retry.py                  # build_infra_retry()
+│   └── retry_agent.py            # RetryUntilKeyAgent (retry-on-empty producer wrapper)
+├── agents/                       # api_server serving view — one relative symlink per runnable agent (see agents/README.md)
+│   ├── README.md
+│   ├── creative_agent -> ../creative_agent
+│   ├── interactive_creative -> ../interactive_creative
+│   └── trend_scout -> ../trend_scout
+├── runserver/                    # async-job run model: /runs FastAPI router (kick-off / poll / resume) + pure helpers
+│   ├── __init__.py
+│   └── async_runs.py
 ├── cloud_functions/              # event-driven fan-out (orchestrator + worker)
 │   ├── creative_fanout/
 │   │   ├── config.py
@@ -462,15 +474,18 @@ The `creative_agent` eval must run with `PYTHONPATH="$PWD"` and its own rubric c
 │       └── requirements.txt
 ├── deployment/
 │   ├── README.md                 # full deploy guide (Agent Engine, CRF fan-out, Cloud Run)
+│   ├── async_app.py              # launcher: mounts the async-job /runs router on ADK's canned FastAPI app
+│   ├── backend_entrypoint.sh     # uvicorn entrypoint for the Cloud Run api service
+│   ├── create_session_engine.py  # provision the persistent Agent Engine session service
 │   ├── deploy_agent.py           # deploy / list / delete Agent Engine instances
 │   ├── headless_run.py           # run creative_agent via a local ADK Runner
 │   ├── integration_test.py       # live GCP checks (health, session, smoke)
 │   └── test_deployment.py        # invoke deployed agents
 ├── frontend/                     # Next.js + Tailwind + shadcn/ui web app
 │   ├── src/
-│   │   ├── app/                  # routes: campaign form, run (SSE), results + API proxies
+│   │   ├── app/                  # routes: campaign form, run (async-job polling), results + API proxies
 │   │   ├── components/           # event log, gallery, GCS/trend widgets, ui/ primitives
-│   │   ├── lib/                  # api client (session CRUD, SSE), presets, types, utils
+│   │   ├── lib/                  # api client (session CRUD, async-job startRun/pollRun/resumeRun), presets, types, utils
 │   │   └── __tests__/            # Vitest unit tests
 │   ├── next.config.ts
 │   ├── package.json
@@ -479,8 +494,12 @@ The `creative_agent` eval must run with `PYTHONPATH="$PWD"` and its own rubric c
 ├── docs/
 │   ├── architecture/             # pipeline + CRF fan-out diagrams
 │   ├── baselines/
+│   ├── diagrams/                 # generated architecture diagrams
+│   ├── experiments/              # experiment writeups (e.g. creative_agent latency)
 │   ├── notes/                    # hard-won session notes
 │   └── plans/                    # implementation plans (historical)
+├── experiments/                  # external measurement harnesses — never bundled into an engine
+│   └── creative_latency/         # latency experiment: driver, parser, plots, results
 ├── imgs/                         # README media
 ├── .github/workflows/
 │   └── frontend-tests.yml
