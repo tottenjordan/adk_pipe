@@ -1,0 +1,47 @@
+{
+  "config": "baseline",
+  "tag": "exp-baseline",
+  "revision": "trend-trawler-api-00041-keq",
+  "app_name": "creative_agent",
+  "user_id": "exp_baseline_1784151782",
+  "session_id": "796541404900753408",
+  "started_at_epoch": 1784151783.475778,
+  "status": "done",
+  "error": null,
+  "http_429_503": 0,
+  "events_count": 24,
+  "summary": {
+    "total_wall_s": 347.7567780017853,
+    "phase_wall_s": {
+      "research": 124.01421594619751,
+      "persistence": 14.574739933013916,
+      "ad_copy": 47.43196988105774,
+      "visual": 80.58676290512085,
+      "eval": 65.1660668849945,
+      "runserver": 5.8013951778411865,
+      "orchestrator": 10.18162727355957
+    },
+    "model_calls": {
+      "orchestrator": 11
+    },
+    "tool_calls": {
+      "memorize": 5,
+      "combined_research_pipeline": 1,
+      "save_draft_report_artifact": 1,
+      "ad_creative_pipeline": 1,
+      "visual_production_pipeline": 1,
+      "creative_eval_agent": 1,
+      "save_eval_report_to_gcs": 1,
+      "save_creative_gallery_html": 1,
+      "write_trends_to_bq": 1,
+      "write_eval_report_to_bq": 1
+    },
+    "exhaustion": [
+      "_images_generated__retry_exhausted"
+    ],
+    "status": "done",
+    "event_count": 24,
+    "started_at_epoch": 1784151783.475778,
+    "extra": {}
+  }
+}

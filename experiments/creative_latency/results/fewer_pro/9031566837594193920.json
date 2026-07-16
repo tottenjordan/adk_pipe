@@ -1,0 +1,36 @@
+{
+  "config": "fewer_pro",
+  "tag": "exp-fewer-pro",
+  "revision": "trend-trawler-api-00045-naz",
+  "app_name": "creative_agent",
+  "user_id": "exp_fewer_pro_1784159715",
+  "session_id": "9031566837594193920",
+  "started_at_epoch": 1784159724.44007,
+  "status": "error",
+  "error": "1 validation error for AdCopyList\n  Invalid JSON: lone leading surrogate in hex escape at line 1 column 8968 [type=json_invalid, input_value='{\"ad_copies\":[{\"id\":1,\"t... #AffordableQuality\"}]}', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.13/v/json_invalid",
+  "http_429_503": 0,
+  "events_count": 11,
+  "summary": {
+    "total_wall_s": 127.9458110332489,
+    "phase_wall_s": {
+      "research": 92.6392149925232,
+      "persistence": 2.6472182273864746,
+      "runserver": 0.34046506881713867,
+      "orchestrator": 32.318912744522095
+    },
+    "model_calls": {
+      "orchestrator": 4
+    },
+    "tool_calls": {
+      "memorize": 5,
+      "combined_research_pipeline": 1,
+      "save_draft_report_artifact": 1,
+      "ad_creative_pipeline": 1
+    },
+    "exhaustion": [],
+    "status": "error",
+    "event_count": 11,
+    "started_at_epoch": 1784159727.917964,
+    "extra": {}
+  }
+}
