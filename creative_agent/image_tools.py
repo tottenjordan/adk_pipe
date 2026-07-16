@@ -5,9 +5,9 @@ this module has no side effects.
 """
 
 import asyncio
-import string
 import random
 import logging
+import functools
 
 from google import genai
 from google.genai import types
@@ -16,15 +16,12 @@ from google.adk.tools import ToolContext
 
 from agent_common.locations import MODEL_LOCATION
 from .config import config
-from .gcs_tools import _save_to_gcs
+from .gcs_tools import _save_to_gcs, artifact_key_for
 
 
-# Create a translation table to map punctuation characters to None (removal)
-REMOVE_PUNCTUATION = str.maketrans("", "", string.punctuation)
-
-
+@functools.cache
 def _get_genai_client() -> genai.Client:
-    """Get a configured genai client for the image model (lazy, no import-time side effect).
+    """Get a configured genai client for the image model (cached, no import-time side effect).
 
     The image-gen model (gemini-3.1-flash-image) is a gemini-3.x model served only
     from ``global`` — hence MODEL_LOCATION, not config.LOCATION (which is the
@@ -136,26 +133,24 @@ async def generate_image(
 
             if image_bytes is not None:
                 # define artifact key
-                ARTIFACT_NAME = (
-                    entry["concept_name"]
-                    .translate(REMOVE_PUNCTUATION)
-                    .replace(" ", "_")
-                )
-                artifact_key = f"{ARTIFACT_NAME}.png"
+                artifact_key = artifact_key_for(entry["concept_name"])
 
-                # save img to Cloud Storage
-                img_gcs_uri = _save_to_gcs(
-                    tool_context=tool_context,
-                    image_bytes=image_bytes,
-                    filename=artifact_key,
-                )
-                if (
-                    isinstance(img_gcs_uri, dict)
-                    and img_gcs_uri.get("status") == "error"
-                ):
-                    logging.error(
-                        f"GCS upload failed for '{artifact_key}': {img_gcs_uri.get('message')}"
+                # save img to Cloud Storage (blocking upload — off the event loop).
+                # A per-image save failure is logged and skipped so one bad upload
+                # doesn't abort the whole batch (_save_to_gcs raises on failure —
+                # it never returns an error dict).
+                try:
+                    img_gcs_uri = await asyncio.to_thread(
+                        _save_to_gcs,
+                        tool_context=tool_context,
+                        image_bytes=image_bytes,
+                        filename=artifact_key,
                     )
+                except Exception as gcs_exc:
+                    logging.error(
+                        f"GCS upload failed for '{artifact_key}', skipping image: {gcs_exc}"
+                    )
+                    continue
 
                 # save ADK artifact
                 img_artifact = types.Part.from_bytes(

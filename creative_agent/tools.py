@@ -1,5 +1,5 @@
 import os
-import string
+import asyncio
 import logging
 import warnings
 
@@ -30,6 +30,7 @@ from .bq_tools import (  # noqa: F401
 from .gcs_tools import (  # noqa: F401
     save_draft_report_artifact,
     save_eval_report_to_gcs,
+    artifact_key_for,
     _get_gcs_client,
     _download_blob,
     _save_to_gcs,
@@ -43,10 +44,6 @@ logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
 )
 warnings.filterwarnings("ignore")
-
-
-# Create a translation table to map punctuation characters to None (removal)
-REMOVE_PUNCTUATION = str.maketrans("", "", string.punctuation)
 
 
 def memorize(key: str, value: str, tool_context: ToolContext):
@@ -144,16 +141,15 @@ async def save_creative_gallery_html(tool_context: ToolContext) -> dict:
 
         CONNECTED_GALLERY_STRING = ""
         for index, entry in enumerate(final_visual_concepts_list):
-            ARTIFACT_NAME = (
-                entry["concept_name"].translate(REMOVE_PUNCTUATION).replace(" ", "_")
-            )
-            ARTIFACT_KEY = f"{ARTIFACT_NAME}.png"
+            ARTIFACT_KEY = artifact_key_for(entry["concept_name"])
             GCS_BLOB_PATH = f"{gcs_folder}/{gcs_subdir}/{ARTIFACT_KEY}"
             AUTH_GCS_URL = f"https://storage.mtls.cloud.google.com/{config.GCS_BUCKET_NAME}/{GCS_BLOB_PATH}?authuser=3"
 
-            # get high-res image (fall back to standard-res if missing)
+            # get high-res image (fall back to standard-res if missing).
+            # _get_high_res_img does blocking download/resize/upload — off the loop.
             try:
-                HIGH_RES_AUTH_GCS_URL = _get_high_res_img(
+                HIGH_RES_AUTH_GCS_URL = await asyncio.to_thread(
+                    _get_high_res_img,
                     gcs_folder=tool_context.state["gcs_folder"],
                     gcs_subdir=tool_context.state["agent_output_dir"],
                     artifact_key=ARTIFACT_KEY,
@@ -245,19 +241,24 @@ async def save_creative_gallery_html(tool_context: ToolContext) -> dict:
             + gt.HTML_END_JAVASCRIPT
         )
 
-        # Save the HTML to a new file
+        # Save the HTML to a new file (blocking file + network I/O — off the loop)
         REPORT_NAME = "creative_portfolio_gallery.html"
-        with open(REPORT_NAME, "w", encoding="utf-8") as html_file:
-            html_file.write(FINAL_HTML)
+
+        def _write_html() -> None:
+            with open(REPORT_NAME, "w", encoding="utf-8") as html_file:
+                html_file.write(FINAL_HTML)
+
+        await asyncio.to_thread(_write_html)
 
         # save HTML file to cloud storage
         gcs_blob_name = f"{gcs_folder}/{gcs_subdir}/{REPORT_NAME}"
         gcs_uri = f"gs://{config.GCS_BUCKET_NAME}/{gcs_blob_name}"
-        _upload_blob_to_gcs(
+        await asyncio.to_thread(
+            _upload_blob_to_gcs,
             source_file_name=REPORT_NAME,
             destination_blob_name=gcs_blob_name,
         )
-        os.remove(REPORT_NAME)
+        await asyncio.to_thread(os.remove, REPORT_NAME)
 
         return {
             "status": "success",
