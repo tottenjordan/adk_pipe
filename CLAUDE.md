@@ -179,6 +179,8 @@ Agents use `before_agent_callback` to initialize session state, `before_model_ca
 
 Agent `instruction=` strings live in the package's `prompts.py` (as `<AGENT_VAR>_INSTR` constants), not inline in `agent.py`.
 
+Agent `output_schema=` Pydantic models live in the package's `schemas.py` (re-imported into `agent.py`, which keeps them importable from the agent module), not inline in `agent.py`.
+
 ### Data Flow
 
 - **BigQuery**: Stores trend recommendations (`target_trends_crf`), creative results (`trend_creatives`), all trends (`all_trends`), per-run evaluation summaries (`creative_evals` — one row per run, joins `trend_creatives` via `creative_uuid`, links to the full report JSON in GCS)
