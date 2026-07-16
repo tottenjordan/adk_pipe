@@ -33,7 +33,8 @@ warnings.filterwarnings("ignore")
 
 # --- TREND SUBAGENTS ---
 gather_trends_agent = Agent(
-    model=build_gemini(config.worker_model),
+    # Trivial tool-output formatting; runs on its own regional gemini-2.5 bucket.
+    model=build_gemini(config.gather_model, location=config.regional_model_location),
     name="gather_trends_agent",
     include_contents="none",
     description="Get top 25 trending terms from Google Search.",
@@ -61,6 +62,8 @@ gather_trends_agent = Agent(
 # the JSON briefing. trend_scout has no citation flow, so (unlike the creative
 # producers) there is NO source-collection callback here.
 understand_trends_searcher = Agent(
+    # google_search + retry-wrapped (call-heavy); kept on gemini-3.5-flash but
+    # now the sole occupant of that global bucket, so its retries can't 429.
     model=build_gemini(config.worker_model),
     name="understand_trends_searcher",
     include_contents="none",
@@ -89,7 +92,8 @@ understand_trends_searcher = Agent(
 # wrapper retries the whole pair rather than raising KeyError inside it) and shapes
 # them into the existing JSON `analyzed_trends` structure pick_trends_agent consumes.
 understand_trends_synthesizer = Agent(
-    model=build_gemini(config.worker_model),
+    # Tool-free synthesis into structured JSON; its own global flash-lite bucket.
+    model=build_gemini(config.lite_planner_model),
     name="understand_trends_synthesizer",
     include_contents="none",
     description="Synthesizes the raw trend findings into the structured JSON briefing.",
@@ -135,7 +139,9 @@ understand_trends_agent_resilient = RetryUntilKeyAgent(
 
 
 pick_trends_agent = Agent(
-    model=build_gemini(config.worker_model),
+    # The 25->3 strategic judgment step: gemini-2.5-pro on its own regional
+    # bucket — both quota isolation and a quality upgrade for the pick.
+    model=build_gemini(config.picker_model, location=config.regional_model_location),
     name="pick_trends_agent",
     include_contents="none",
     description="Determine subset of Search trends most culturally relevant to the target audience.",
@@ -158,7 +164,10 @@ pick_trends_agent = Agent(
 
 
 trend_scout = Agent(
-    model=build_gemini(config.worker_model),
+    # Root orchestrator: mechanical tool sequencing that must call AgentTools
+    # reliably. gemini-3.1-pro-preview on its own global bucket (thinking_level
+    # LOW is valid on gemini-3.x — see the note below).
+    model=build_gemini(config.critic_model),
     name="trend_scout",
     retry_config=INFRA_RETRY,
     description="Determines culturally relevant Search trends to use for ad creatives.",
