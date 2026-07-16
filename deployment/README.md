@@ -670,6 +670,67 @@ loads the app in a browser, a run progresses via polling, and an artifact loads 
 Never re-add `allUsers`; add non-domain viewers individually with
 `roles/iap.httpsResourceAccessor`.
 
+### 8. Redeploying a new build + rollback (traffic tags)
+
+Both services now **follow `LATEST`** (`status.traffic.latestRevision: true`), so a
+`gcloud run deploy` of either one **auto-routes 100% to the revision it just created** — no
+manual traffic flip needed. (This was not always true: traffic used to be pinned to a
+specific revision, so deploys created a new revision at 0% and required an explicit
+`update-traffic --to-latest`. If you ever see the deploy's final log line naming an *old*
+revision, that pin has returned — verify and re-point as below.)
+
+**Redeploy (from a `main` checkout):**
+
+```bash
+# Backend — MUST re-pass --no-cpu-throttling --min-instances 1 AND all env vars incl.
+# SESSION_SERVICE_URI (a bare --set-env-vars drops anything omitted); see Steps 2 + 6.
+gcloud run deploy trend-trawler-api  --source .        --region $REGION ...   # (Step 2 flags)
+# Frontend — do NOT pass --allow-unauthenticated; IAP + its IAM bindings are service-level
+# and are preserved across new revisions (see Step 7).
+gcloud run deploy trend-trawler-web  --source ./frontend --region $REGION ...  # (Step 4 flags)
+```
+
+**Confirm what's actually live** (a green check in the console = the revision is *healthy*,
+NOT that it serves traffic — read the traffic %, not the checkmark):
+
+```bash
+gcloud run services describe trend-trawler-api --region $REGION --format='value(status.traffic)'
+gcloud run revisions list --service trend-trawler-api --region $REGION \
+  --sort-by="~metadata.creationTimestamp"   # suffixes are NOT monotonic — sort by time
+```
+
+**Rollback.** The previous known-good revision of each service is kept at **0% traffic**
+and reachable by a stable **tag** — a named alias URL pinned to one revision
+(`https://<tag>---<service>-<hash>.run.app`). These are the rollback anchors:
+
+| Service | Rollback tag | (revision at time of writing) |
+|---|---|---|
+| `trend-trawler-api` | `main-clean` | `trend-trawler-api-00036-har` |
+| `trend-trawler-web` | `main-current` | `trend-trawler-web-00011-giv` |
+
+```bash
+# Instant rollback: send 100% of traffic to the tagged known-good revision.
+gcloud run services update-traffic trend-trawler-api --region $REGION --to-tags main-clean=100
+gcloud run services update-traffic trend-trawler-web --region $REGION --to-tags main-current=100
+
+# ...then to return to the newest revision:
+gcloud run services update-traffic trend-trawler-api --region $REGION --to-latest
+```
+
+**After a deploy is confirmed good,** move the rollback tag onto the new revision so the
+anchor tracks "last known-good" (tags don't move on their own):
+
+```bash
+NEW_REV=$(gcloud run services describe trend-trawler-api --region $REGION \
+  --format='value(status.latestReadyRevisionName)')
+gcloud run services update-traffic trend-trawler-api --region $REGION \
+  --set-tags main-clean=$NEW_REV        # re-point the tag; traffic split is unchanged
+```
+
+Old, untagged, 0%-traffic revisions are safe to leave (they cost nothing idle) or prune with
+`gcloud run revisions delete <rev> --region $REGION`. Keep at least the current
+`main-clean` / `main-current` pair as your safety net.
+
 ---
 
 ## Alternative Deployment: deploy to Cloud Run instances

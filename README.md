@@ -375,7 +375,8 @@ python deployment/deploy_agent.py --version=v1 --agent=creative_agent --create
 ```
 
 **→ Full instructions** — IAM, Pub/Sub topics, eventarc triggers, invoking the fan-out, testing deployed
-agents, and the Cloud Run alternative — **live in [deployment/README.md](deployment/README.md).**
+agents, the Cloud Run alternative, and [redeploy + rollback via traffic tags](deployment/README.md#8-redeploying-a-new-build--rollback-traffic-tags) —
+**live in [deployment/README.md](deployment/README.md).**
 
 
 ## Testing
