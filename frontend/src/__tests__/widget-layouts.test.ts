@@ -1,51 +1,10 @@
 import { describe, it, expect } from "vitest";
-
-// Replicate WIDGET_LAYOUTS and related constants from run page.
-const WIDGET_LAYOUTS: Record<string, { pairs: [string, string][]; fullWidth: string }> = {
-  final_visual_concepts: {
-    pairs: [
-      ["trend", "trend_reference"],
-      ["markets_product", "audience_appeal"],
-      ["selection_rationale", "social_caption"],
-      ["call_to_action", "concept_summary"],
-    ],
-    fullWidth: "image_generation_prompt",
-  },
-  ad_copy_critique: {
-    pairs: [
-      ["tone_style", "call_to_action"],
-      ["trend_connection", "body_text"],
-      ["audience_appeal_rationale", "social_caption"],
-    ],
-    fullWidth: "detailed_performance_rationale",
-  },
-};
-
-const DEFAULT_LAYOUT = { pairs: [] as [string, string][], fullWidth: "" };
-
-const HIDDEN_FIELDS = new Set(["id", "original_id", "ad_copy_id"]);
-
-const FIELD_LABELS: Record<string, string> = {
-  id: "ID",
-  original_id: "ID",
-  ad_copy_id: "Ad Copy ID",
-  tone_style: "Tone / Style",
-  headline: "Headline",
-  body_text: "Body Text",
-  trend_connection: "Trend Connection",
-  audience_appeal_rationale: "Audience Appeal",
-  audience_appeal: "Audience Appeal",
-  social_caption: "Social Caption",
-  call_to_action: "Call to Action",
-  detailed_performance_rationale: "Performance Rationale",
-  selection_rationale: "Selection Rationale",
-  concept_name: "Concept Name",
-  trend: "Trend",
-  trend_reference: "Trend Reference",
-  markets_product: "Markets Product",
-  concept_summary: "Concept Summary",
-  image_generation_prompt: "Image Prompt",
-};
+import {
+  WIDGET_LAYOUTS,
+  DEFAULT_LAYOUT,
+  HIDDEN_FIELDS,
+  FIELD_LABELS,
+} from "@/app/run/[sessionId]/run-config";
 
 describe("WIDGET_LAYOUTS", () => {
   it("has layout config for final_visual_concepts", () => {
