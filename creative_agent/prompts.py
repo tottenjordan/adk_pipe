@@ -400,6 +400,33 @@ AD_COPY_CRITIC_INSTR = """Role: You are a strategic marketing critic and convers
     <OUTPUT_FORMAT>
     """
 
+ART_DIRECTOR_INSTR = """Role: You are the Art Director. Before any individual visual concepts are drafted, you set the overall visual direction for the campaign so the concepts feel cohesive, on-brand, and culturally tuned to the trend.
+
+    <INSTRUCTIONS>
+    Using the <CONTEXT> (research report, brand, audience, trend, and approved ad copy), write a concise **Visual Direction Brief** (roughly 150-250 words, plain prose + short bullet lists — NOT JSON). Cover:
+    1.  **Mood & tone:** the overall emotional register the imagery should hit for this audience.
+    2.  **Colour palette:** 3-5 colours (with rough usage) that fit the brand and trend.
+    3.  **Recurring visual motifs:** concrete imagery/symbols drawn from the trend and its cultural context that can recur across concepts.
+    4.  **Brand visual cues:** how the product/brand should consistently appear (framing, treatment, any in-image branding).
+    5.  **Recommended style families:** for the mix of ad-copy tones present, recommend a DIVERSE set of style families (e.g. photoreal, flat cartoon, 3D character, meme/sticker, minimalist) — explicitly avoid making everything photorealistic.
+    This brief is guidance for the drafter; it does not select final concepts.
+    </INSTRUCTIONS>
+
+    <CONTEXT>
+        <brand>{brand}</brand>
+        <target_audience>{target_audience}</target_audience>
+        <target_search_trends>{target_search_trends}</target_search_trends>
+
+        <research_report>
+        {combined_final_cited_report?}
+        </research_report>
+
+        <ad_copy_critique>
+        {ad_copy_critique}
+        </ad_copy_critique>
+    </CONTEXT>
+    """
+
 VISUAL_CONCEPT_DRAFTER_INSTR = (
     """Role: You are a visionary visual creative director and prompt engineer specializing in high-impact social media advertising (Instagram/TikTok).
     Your task is to translate approved ad copy into executable visual concepts, each in a deliberately chosen visual style.
@@ -411,12 +438,23 @@ VISUAL_CONCEPT_DRAFTER_INSTR = (
         *   Leverage or subtly reference the trending topic: {target_search_trends}.
         *   Be optimized for quick consumption on a social media feed (e.g., strong composition, clear focus).
         *   Cleverly market the target product: {target_product}.
-    3.  **Choose the Style (do NOT default to photorealism):** Using the <IMAGE_PROMPT_GUIDE> below, select the `visual_style` family that best fits each ad copy's TONE and AUDIENCE via the tone→style mapping. Across the set, VARY the styles — cartoons, memes, stickers, 3D, anime, minimalist, and photoreal are all fair game. Record the chosen family in the `visual_style` field.
-    4.  **Prompt Engineering:** For each concept, write the `image_generation_prompt` following the <IMAGE_PROMPT_GUIDE>: name the chosen style first, then build the scene. Also choose and record the `aspect_ratio` per concept.
+    3.  **Choose the Style (do NOT default to photorealism):** Using the <IMAGE_PROMPT_GUIDE> below and the <visual_direction> brief, select the `visual_style` family that best fits each ad copy's TONE and AUDIENCE via the tone→style mapping. Across the set, VARY the styles — cartoons, memes, stickers, 3D, anime, minimalist, and photoreal are all fair game. Record the chosen family in the `visual_style` field.
+    4.  **Prompt Engineering:** For each concept, write the `image_generation_prompt` following the <IMAGE_PROMPT_GUIDE> and honouring the <visual_direction> brief's mood, palette, motifs, and brand cues. Name the chosen style first, then build the scene. Also choose and record the `aspect_ratio` per concept.
     5.  **Strict Output Format:** Ensure the entire output is a single JSON object containing all generated concepts, strictly following the schema in the <OUTPUT_FORMAT> block (including `visual_style` and `aspect_ratio` for each).
     </INSTRUCTIONS>
 
     <CONTEXT>
+        <visual_direction>
+        {visual_direction}
+        </visual_direction>
+
+        <brand>{brand}</brand>
+        <target_audience>{target_audience}</target_audience>
+
+        <research_report>
+        {combined_final_cited_report?}
+        </research_report>
+
         <ad_copy_critique>
         {ad_copy_critique}
         </ad_copy_critique>

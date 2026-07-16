@@ -47,6 +47,7 @@ _PREFIX_PHASES: tuple[tuple[str, str], ...] = (
     ("parallel_planner", "research"),
     ("ad_copy", "ad_copy"),
     ("ad_creative", "ad_copy"),
+    ("art_director", "visual_concepts"),
     ("visual_concept", "visual_concepts"),
     ("visual_generat", "image_gen"),  # visual_generator, visual_generator_resilient
 )
