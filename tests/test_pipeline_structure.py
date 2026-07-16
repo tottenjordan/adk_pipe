@@ -340,6 +340,21 @@ def test_output_schemas_assigned():
     assert visual_concept_finalizer.output_schema == VisualConceptFinalList
 
 
+def test_lever_c_critics_run_on_worker_model():
+    """Lever C: ad_copy_critic and visual_concept_critic are downgraded from
+    critic_model (pro) to worker_model (flash) — narrowing already-generated
+    creatives is low-quality-dependence, and dropping the two serial 5-RPM PRO
+    turns is the latency win being measured. The pro-tier stages that DO carry
+    quality weight (drafters' critic, report composer) stay on critic_model."""
+    from creative_agent import agent as ca
+    from creative_agent.config import ResearchConfiguration
+
+    config = ResearchConfiguration()
+    assert config.worker_model != config.critic_model  # guard the test's premise
+    assert ca.ad_copy_critic.model.model == config.worker_model
+    assert ca.visual_concept_critic.model.model == config.worker_model
+
+
 def test_creative_model_agents_have_finish_reason_callback():
     """Every creative model agent must carry the empty-turn finish_reason
     after_model_callback so a MAX_TOKENS/empty producer turn is logged (WS3 log
