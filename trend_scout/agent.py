@@ -78,16 +78,21 @@ understand_trends_searcher = Agent(
     You are a Cultural Trend Researcher gathering raw material for a creative strategist. You want topics that possess cultural, social, or entertainment value.
 
     <CONTEXT>
+        <selected_trends>
+        {target_search_trends?}
+        </selected_trends>
         <raw_gtrends>
         {raw_gtrends?}
         </raw_gtrends>
     </CONTEXT>
 
     ### Instructions
-    0. If <raw_gtrends> is empty, the upstream trend gather did not run. Do NOT invent terms — report that no trends were available and stop.
-    1. **Filter:** Review the list in <raw_gtrends>. Select the top 5-8 terms that appear to be narrative-driven stories (news, memes, celebrity, sports, entertainment). Ignore searches about specific sporting events.
-    2. **Research:** Use the `google_search` tool to investigate *only* these selected terms.
-    3. **Report RAW Findings:** For each selected term, list the concrete facts, entities, dates, and the cultural/social angle you found. Do NOT format as final JSON and do NOT omit specifics — the next agent needs the raw material to structure. Plain text grouped by term is fine.
+    0. If BOTH <selected_trends> and <raw_gtrends> are empty, the upstream trend gather did not run. Do NOT invent terms — report that no trends were available and stop.
+    1. **Choose the terms to research:**
+       - If <selected_trends> holds a non-empty `target_search_trends` list, a human has ALREADY picked the trends. Research EXACTLY those terms — do not filter, drop, or substitute any (even specific sporting events).
+       - Otherwise, review the list in <raw_gtrends> and select the top 5-8 terms that appear to be narrative-driven stories (news, memes, celebrity, sports, entertainment). Ignore searches about specific sporting events.
+    2. **Research:** Use the `google_search` tool to investigate *only* the terms chosen in step 1.
+    3. **Report RAW Findings:** For each chosen term, list the concrete facts, entities, dates, and the cultural/social angle you found. Do NOT format as final JSON and do NOT omit specifics — the next agent needs the raw material to structure. Plain text grouped by term is fine.
     """,
     generate_content_config=types.GenerateContentConfig(
         temperature=1.5,
@@ -275,25 +280,29 @@ trend_scout = Agent(
     - `key_selling_points`
 
     ### Phase 2: Execution Pipeline
-    Execute the following agents in strict sequence. Do not proceed to the next until the current tool reports success.
+    Execute the steps in strict sequence. Do not proceed to the next until the current tool reports success.
 
     1. **Gather:** Call `gather_trends_agent`.
-    2. **Research:** Call `understand_trends_agent_resilient`.
-    3. **Select:** The interactive trend-picking flag is: `{interactive_trend_pick?}`.
 
-       **IF that flag is truthy (True):** Do NOT call `pick_trends_agent`. Instead
-       call `review_trends` to PAUSE the run so a human can pick which of the gathered
-       trends (in the 'raw_gtrends' state key) to keep. When you receive the response
-       from `review_trends`, it contains `status`, `selected_trends` (a list of terms
-       the user chose), and `instruction`. Read the `instruction` field, then for EACH
-       term in `selected_trends` call the `save_search_trends_to_session_state` tool to
-       save it to the session state. NEVER treat the checkpoint response as the end of
-       the workflow — immediately continue to Phase 3.
+    2. **Select & Research:** The interactive trend-picking flag is: `{interactive_trend_pick?}`.
 
-       **ELSE (flag is False or empty):** Call `pick_trends_agent`. *Note: This agent
-       will determine the final trends. Then, for each trending topic in the
-       'selected_gtrends' state key, call the `save_search_trends_to_session_state`
-       tool to save them to the session state.
+       **IF that flag is truthy (True):** The human picks the trends FIRST, so that
+       only their chosen trends are researched.
+       a. Call `review_trends` to PAUSE the run so a human can pick which of the
+          gathered trends (in the 'raw_gtrends' state key) to keep.
+       b. When you receive the response from `review_trends` (fields: `status`,
+          `selected_trends` — the list of terms the user chose — and `instruction`),
+          read the `instruction` field, then for EACH term in `selected_trends` call
+          the `save_search_trends_to_session_state` tool to save it to the session state.
+       c. Call `understand_trends_agent_resilient` to research the selected trends.
+       d. Do NOT call `pick_trends_agent`. Immediately continue to Phase 3.
+
+       **ELSE (flag is False or empty):**
+       a. Call `understand_trends_agent_resilient` to research the gathered trends.
+       b. Call `pick_trends_agent`. *Note: This agent will determine the final trends.*
+       c. For each trending topic in the 'selected_gtrends' state key, call the
+          `save_search_trends_to_session_state` tool to save them to the session state.
+       Continue to Phase 3.
 
     ### Phase 3: Finalization & Persistence
     Once Phase 2 is complete, trigger the persistence layer. Call `record_research_gaps` FIRST so the note is captured before the session state is snapshotted; the remaining tools may run in parallel if supported, otherwise execute sequentially:
