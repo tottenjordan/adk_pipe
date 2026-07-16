@@ -1,15 +1,5 @@
 import { describe, it, expect } from "vitest";
-
-// parseRawGtrends is not exported (matching extractItems), so we replicate the
-// logic here for testing. This tests the same normalizer used by the
-// ReviewTrends panel to read the `raw_gtrends` candidate terms from state.
-function parseRawGtrends(raw: unknown): string[] {
-  if (!Array.isArray(raw)) return [];
-  return raw
-    .filter((t): t is string => typeof t === "string")
-    .map((t) => t.trim())
-    .filter((t) => t.length > 0);
-}
+import { parseRawGtrends } from "@/app/run/[sessionId]/run-helpers";
 
 describe("parseRawGtrends", () => {
   it("returns the trimmed string terms", () => {

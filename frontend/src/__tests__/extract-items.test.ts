@@ -1,16 +1,5 @@
 import { describe, it, expect } from "vitest";
-
-// extractItems is not exported, so we replicate the logic here for testing.
-// This tests the same algorithm used in the run page.
-function extractItems(data: unknown): Record<string, unknown>[] | null {
-  if (!data || typeof data !== "object") return null;
-  const obj = data as Record<string, unknown>;
-  const keys = Object.keys(obj);
-  for (const k of keys) {
-    if (Array.isArray(obj[k])) return obj[k] as Record<string, unknown>[];
-  }
-  return null;
-}
+import { extractItems } from "@/app/run/[sessionId]/run-helpers";
 
 describe("extractItems", () => {
   it("extracts array from object with one key", () => {

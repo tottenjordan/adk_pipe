@@ -371,7 +371,9 @@ class TestWriteTrendsUuidStash:
     def test_stashes_creative_row_uuid(self, monkeypatch):
         """write_trends_to_bq must record its generated uuid in state so the
         eval row can foreign-key back to the creative row."""
-        import creative_agent.tools as t
+        # write_trends_to_bq now lives in creative_agent.bq_tools (re-exported from
+        # tools); patch/call it there so the _get_bigquery_client stub takes effect.
+        import creative_agent.bq_tools as t
 
         class _Job:
             errors = None
