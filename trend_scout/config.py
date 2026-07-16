@@ -17,29 +17,3 @@ class ResearchConfiguration(BaseAgentConfiguration):
 
 
 config = ResearchConfiguration()
-
-
-@dataclass
-class SetupConfiguration:
-    """Configuration for general setup
-
-    Attributes:
-        state_init (str): a key indicating the state dict is initialized
-        empty_session_state (dict): Empty dictionary with keys for initial ADK session state.
-
-    """
-
-    state_init = "_state_init"
-    empty_session_state = {
-        "state": {
-            "brand": "",
-            "target_product": "",
-            "target_audience": "",
-            "key_selling_points": "",
-            "target_search_trends": {"target_search_trends": []},
-            "target_yt_trends": {"target_yt_trends": []},
-        }
-    }
-
-
-setup_config = SetupConfiguration()
