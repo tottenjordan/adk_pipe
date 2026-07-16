@@ -5,7 +5,7 @@
 **Interactive report:** [`experiments/creative_latency/report.html`](../../experiments/creative_latency/report.html) (self-contained Plotly; open in a browser)
 **Method:** external harness drives real `creative_agent` runs through the async `/runs` HTTP API on isolated `--no-traffic --tag` Cloud Run revisions, then parses the persisted event log into per-phase wall-clock. No agent code is changed to *measure*; each lever ships on its own branch + tagged revision and is measured identically. Fixed campaign input (`fixtures.py`) across all trials. 3 trials/config; **median** reported (min/max in the report) because the shared, unraisable Vertex quota makes any single number noisy.
 
-> **PNG note:** `report.html` is the deliverable. Static `figures/*.png` export needs headless Chrome (kaleido), which won't launch in the build sandbox — regenerate the PNGs with `plot.py` in a Chrome-capable environment if embeddable images are needed.
+> **Figures:** `report.html` is the interactive deliverable. Static PNGs (embedded below) regenerate anywhere via the matplotlib renderer — `PYTHONPATH="$PWD" uv run python -m experiments.creative_latency.render_static` — which needs no browser (the Plotly/kaleido PNG path needs headless Chrome, which won't launch in the build sandbox).
 
 ---
 
@@ -18,6 +18,18 @@
 - **The real lever is a Vertex quota increase.** The code levers reclaim structural waste; they cannot move the quota ceiling that dominates the remaining wall-clock (Lever B proves you can't parallelize past it).
 
 **Recommendation:** ship **Lever A** (pure win, no quality cost). Ship **Lever C** conditionally, after a formal `adk eval` in a cool window confirms the ~5% quality dip is acceptable for a ~11% speedup. Do **not** ship Lever B as-is (no net win at the current image quota). Pursue the **quota increase** as the highest-leverage change.
+
+---
+
+## At a glance
+
+Where the wall-clock goes, and how each lever moves it (medians, 3 live trials/config):
+
+![Stacked per-phase wall-clock by config](../../experiments/creative_latency/figures/latency_phases.png)
+
+Lever A carves out the research block; Lever C shrinks the ad_copy and visual critics; Lever B leaves the total unchanged. The right panel below is the quota-bound proof — Lever B is the only config that provokes rate-limiting (max 4 × 429/503 per run) the instant it renders two images at once:
+
+![Total wall-clock and 429/503 counts by config](../../experiments/creative_latency/figures/latency_totals.png)
 
 ---
 
