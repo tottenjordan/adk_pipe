@@ -111,7 +111,7 @@ resource.labels.reasoning_engine_id="YOUR_AGENT_ENGINE_ID"
 Event-based triggers dispatch one creative run per recommended trend.
 
 <p align="center">
-  <img src="../docs/architecture/crf-fanout-orchestration.png" alt="Cloud Run Functions fan-out orchestration" width="720">
+  <img src="../docs/diagrams/crf_fanout_system_architecture.png" alt="Cloud Run Functions fan-out orchestration" width="720">
 </p>
 
 **objectives**

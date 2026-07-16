@@ -365,7 +365,7 @@ Trend Trawler deploys in two layers:
 | **Fan-out** | orchestrator (`crf_entrypoint`) + worker (`agent_worker_entrypoint`) | Cloud Run Functions + Pub/Sub |
 
 <p align="center">
-  <img src="docs/architecture/crf-fanout-orchestration.png" alt="Cloud Run Functions fan-out orchestration" width="720">
+  <img src="docs/diagrams/crf_fanout_system_architecture.png" alt="Cloud Run Functions fan-out orchestration" width="720">
 </p>
 
 Deploy an agent to Agent Engine:
@@ -495,8 +495,11 @@ The `creative_agent` eval must run with `PYTHONPATH="$PWD"` and its own rubric c
 │   ├── architecture/             # pipeline + CRF fan-out diagrams
 │   ├── baselines/
 │   ├── diagrams/                 # generated architecture diagrams
+│   ├── experiments/              # experiment writeups (e.g. creative_agent latency)
 │   ├── notes/                    # hard-won session notes
 │   └── plans/                    # implementation plans (historical)
+├── experiments/                  # external measurement harnesses — never bundled into an engine
+│   └── creative_latency/         # latency experiment: driver, parser, plots, results
 ├── imgs/                         # README media
 ├── .github/workflows/
 │   └── frontend-tests.yml
