@@ -419,14 +419,20 @@ The `creative_agent` eval must run with `PYTHONPATH="$PWD"` and its own rubric c
 │   ├── agent.py
 │   ├── callbacks.py              # state init, rate limiting, citation processing
 │   ├── config.py
+│   ├── prompts.py               # agent instruction templates
+│   ├── review_tools.py          # LongRunningFunctionTool — opt-in interactive trend pick
 │   └── tools.py
 ├── creative_agent/               # Phase 2 — creative generation agent
 │   ├── __init__.py
 │   ├── agent.py
 │   ├── callbacks.py
 │   ├── config.py
-│   ├── prompts.py
-│   ├── tools.py
+│   ├── prompts.py                # agent instruction templates (per-agent *_INSTR constants)
+│   ├── tools.py                  # thin orchestration + re-export surface (memorize, gallery)
+│   ├── image_tools.py            # image generation (lazy genai client + retry backoff)
+│   ├── bq_tools.py               # BigQuery writers (trends + eval-report rows)
+│   ├── gcs_tools.py              # GCS upload/download + PDF/eval-report exports
+│   ├── gallery_template.py       # static HTML/CSS gallery template fragments
 │   └── sub_agents/
 │       ├── __init__.py
 │       ├── campaign_researcher/
