@@ -157,22 +157,48 @@ class TestBuildTrendInsertSql:
         params.update(overrides)
         return _build_trend_insert_sql(**params)
 
+    @staticmethod
+    def _param_value(params, name):
+        for p in params:
+            if p.name == name:
+                return p.value
+        raise AssertionError(f"query parameter {name!r} not found")
+
     def test_includes_research_gaps_column_and_trend(self):
-        sql = self._sql()
+        sql, params = self._sql()
+        # column names live in the SQL; the trend value is a bound parameter,
+        # never interpolated into the statement text.
         assert "research_gaps" in sql
         assert "target_trends_crf" in sql
-        assert "Golden Dip" in sql
+        assert "Golden Dip" not in sql
+        assert self._param_value(params, "trend") == "Golden Dip"
 
-    def test_research_gaps_value_interpolated(self):
+    def test_research_gaps_value_bound_as_parameter(self):
         note = "Step 'info_gtrends' exhausted retries and produced no output."
-        sql = self._sql(research_gaps=note)
-        assert note in sql
+        sql, params = self._sql(research_gaps=note)
+        # the apostrophe in the note must not appear (unescaped) in the SQL text
+        assert note not in sql
+        assert self._param_value(params, "research_gaps") == note
 
-    def test_empty_research_gaps_still_valid(self):
-        # empty note is written as an empty string literal, not omitted
-        sql = self._sql(research_gaps="")
-        assert "research_gaps)" in sql or "research_gaps)" in sql
-        assert '""' in sql
+    def test_empty_research_gaps_still_bound(self):
+        sql, params = self._sql(research_gaps="")
+        assert "research_gaps)" in sql
+        assert self._param_value(params, "research_gaps") == ""
+
+    def test_values_are_parameter_placeholders_not_literals(self):
+        # regression: values must be @named placeholders, so quotes/apostrophes
+        # in a trend can't terminate a string literal early (the "Prophetic" bug).
+        sql, _ = self._sql()
+        assert "@trend" in sql
+        assert "@brand" in sql
+
+    def test_trend_with_quotes_does_not_leak_into_sql(self):
+        # regression for the 400 "Expected ) or , but got identifier" error: a
+        # trend containing a double quote used to break the INSERT literal.
+        tricky = 'The "Prophetic" Trend'
+        sql, params = self._sql(trend=tricky)
+        assert tricky not in sql
+        assert self._param_value(params, "trend") == tricky
 
 
 # --- save_search_trends_to_session_state logic ---
@@ -355,8 +381,12 @@ class TestWriteTrendsUuidStash:
             def result(self):
                 return None
 
+        captured = {}
+
         class _BQ:
-            def query(self, sql):
+            def query(self, sql, job_config=None):
+                captured["sql"] = sql
+                captured["job_config"] = job_config
                 return _Job()
 
         monkeypatch.setattr(t, "_get_bigquery_client", lambda: _BQ())
@@ -377,3 +407,7 @@ class TestWriteTrendsUuidStash:
         assert result["status"] == "success"
         assert ctx.state["creative_row_uuid"]  # non-empty 8-char id
         assert len(ctx.state["creative_row_uuid"]) == 8
+        # the trend value must be a bound parameter, not interpolated into SQL
+        assert "tswift engaged" not in captured["sql"]
+        param_names = {p.name for p in captured["job_config"].query_parameters}
+        assert "target_trend" in param_names
