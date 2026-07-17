@@ -1,0 +1,184 @@
+{
+  "arm_map": {
+    "global_3x": {
+      "base_url": "https://exp-allglobal-3x---trend-trawler-api-qqzji3hyoa-uc.a.run.app",
+      "audience": "https://trend-trawler-api-qqzji3hyoa-uc.a.run.app",
+      "revision": "trend-trawler-api-00068-muz",
+      "tag": "exp-allglobal-3x"
+    },
+    "regional_25": {
+      "base_url": "https://exp-regional-25---trend-trawler-api-qqzji3hyoa-uc.a.run.app",
+      "audience": "https://trend-trawler-api-qqzji3hyoa-uc.a.run.app",
+      "revision": "trend-trawler-api-00069-bik",
+      "tag": "exp-regional-25"
+    }
+  },
+  "loads": [
+    1,
+    5
+  ],
+  "reps": 4,
+  "cool_secs": 120.0,
+  "cells": [
+    {
+      "batch_id": "global_3x_N1_r0",
+      "arm": "global_3x",
+      "concurrency": 1,
+      "rep": 0,
+      "revision": "trend-trawler-api-00068-muz",
+      "tag": "exp-allglobal-3x",
+      "n_records": 1,
+      "n_done": 1
+    },
+    {
+      "batch_id": "regional_25_N1_r0",
+      "arm": "regional_25",
+      "concurrency": 1,
+      "rep": 0,
+      "revision": "trend-trawler-api-00069-bik",
+      "tag": "exp-regional-25",
+      "n_records": 1,
+      "n_done": 1
+    },
+    {
+      "batch_id": "global_3x_N1_r1",
+      "arm": "global_3x",
+      "concurrency": 1,
+      "rep": 1,
+      "revision": "trend-trawler-api-00068-muz",
+      "tag": "exp-allglobal-3x",
+      "n_records": 1,
+      "n_done": 1
+    },
+    {
+      "batch_id": "regional_25_N1_r1",
+      "arm": "regional_25",
+      "concurrency": 1,
+      "rep": 1,
+      "revision": "trend-trawler-api-00069-bik",
+      "tag": "exp-regional-25",
+      "n_records": 1,
+      "n_done": 1
+    },
+    {
+      "batch_id": "global_3x_N1_r2",
+      "arm": "global_3x",
+      "concurrency": 1,
+      "rep": 2,
+      "revision": "trend-trawler-api-00068-muz",
+      "tag": "exp-allglobal-3x",
+      "n_records": 1,
+      "n_done": 1
+    },
+    {
+      "batch_id": "regional_25_N1_r2",
+      "arm": "regional_25",
+      "concurrency": 1,
+      "rep": 2,
+      "revision": "trend-trawler-api-00069-bik",
+      "tag": "exp-regional-25",
+      "n_records": 1,
+      "n_done": 1
+    },
+    {
+      "batch_id": "global_3x_N1_r3",
+      "arm": "global_3x",
+      "concurrency": 1,
+      "rep": 3,
+      "revision": "trend-trawler-api-00068-muz",
+      "tag": "exp-allglobal-3x",
+      "n_records": 1,
+      "n_done": 1
+    },
+    {
+      "batch_id": "regional_25_N1_r3",
+      "arm": "regional_25",
+      "concurrency": 1,
+      "rep": 3,
+      "revision": "trend-trawler-api-00069-bik",
+      "tag": "exp-regional-25",
+      "n_records": 1,
+      "n_done": 1
+    },
+    {
+      "batch_id": "global_3x_N5_r0",
+      "arm": "global_3x",
+      "concurrency": 5,
+      "rep": 0,
+      "revision": "trend-trawler-api-00068-muz",
+      "tag": "exp-allglobal-3x",
+      "n_records": 5,
+      "n_done": 4
+    },
+    {
+      "batch_id": "regional_25_N5_r0",
+      "arm": "regional_25",
+      "concurrency": 5,
+      "rep": 0,
+      "revision": "trend-trawler-api-00069-bik",
+      "tag": "exp-regional-25",
+      "n_records": 5,
+      "n_done": 5
+    },
+    {
+      "batch_id": "global_3x_N5_r1",
+      "arm": "global_3x",
+      "concurrency": 5,
+      "rep": 1,
+      "revision": "trend-trawler-api-00068-muz",
+      "tag": "exp-allglobal-3x",
+      "n_records": 5,
+      "n_done": 4
+    },
+    {
+      "batch_id": "regional_25_N5_r1",
+      "arm": "regional_25",
+      "concurrency": 5,
+      "rep": 1,
+      "revision": "trend-trawler-api-00069-bik",
+      "tag": "exp-regional-25",
+      "n_records": 5,
+      "n_done": 3
+    },
+    {
+      "batch_id": "global_3x_N5_r2",
+      "arm": "global_3x",
+      "concurrency": 5,
+      "rep": 2,
+      "revision": "trend-trawler-api-00068-muz",
+      "tag": "exp-allglobal-3x",
+      "n_records": 5,
+      "n_done": 4
+    },
+    {
+      "batch_id": "regional_25_N5_r2",
+      "arm": "regional_25",
+      "concurrency": 5,
+      "rep": 2,
+      "revision": "trend-trawler-api-00069-bik",
+      "tag": "exp-regional-25",
+      "n_records": 5,
+      "n_done": 5
+    },
+    {
+      "batch_id": "global_3x_N5_r3",
+      "arm": "global_3x",
+      "concurrency": 5,
+      "rep": 3,
+      "revision": "trend-trawler-api-00068-muz",
+      "tag": "exp-allglobal-3x",
+      "n_records": 5,
+      "n_done": 4
+    },
+    {
+      "batch_id": "regional_25_N5_r3",
+      "arm": "regional_25",
+      "concurrency": 5,
+      "rep": 3,
+      "revision": "trend-trawler-api-00069-bik",
+      "tag": "exp-regional-25",
+      "n_records": 5,
+      "n_done": 5
+    }
+  ]
+}

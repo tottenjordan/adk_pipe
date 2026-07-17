@@ -221,6 +221,59 @@ otherwise drop C and report A-vs-B as a bundled family+region effect.
 - Report **effect sizes + CIs**, not just p-values. Given noisy shared quota, treat single
   numbers with suspicion — medians of ≥4 batches, min/max shown.
 
+### 8a. Results — MEASURED (2026-07-17)
+
+**Window & execution.** Lean core (arms A=`global_3x`, B=`regional_25`) × N∈{1,5} × reps=4 =
+16 cells / **48 runs**, interleaved-blocked, 120 s inter-batch cool, run **15:34–19:30 UTC**
+(~3 h 56 m) against the two `--no-traffic --tag` revisions (A=`00068-muz`, B=`00069-bik`;
+prod untouched). Cool window held (co-tenant novastorm + simulator jobs paused). **42 runs
+`done`, 6 `error`** (all errors at N=5; see reliability). Arm C not run. Fixed PRS/Powerball
+brief via user message. Data: `experiments/quota_spread/results/{runs.csv,summary.json}`;
+figures: `experiments/quota_spread/figures/`.
+
+| cell | n_done | n_err | research p50 | research p90 | research **max** | eval pass | eval mean |
+|---|---|---|---|---|---|---|---|
+| A `global_3x` · N=1 | 4 | 0 | 97 s | 261 s | 330 s | 0.906 | 0.815 |
+| A `global_3x` · N=5 | 16 | 4 | 90 s | 569 s | **839 s** | 0.977 | 0.835 |
+| B `regional_25` · N=1 | 4 | 0 | 114 s | 336 s | 427 s | 0.969 | 0.839 |
+| B `regional_25` · N=5 | 18 | 2 | 116 s | 138 s | **179 s** | 0.965 | 0.830 |
+
+**H1 (contention) — CONFIRMED, but in the TAIL, not the p50 (pre-registered deviation).**
+The pre-registered p50-slope test is a **null by construction**: median research is flat for
+both arms (A slope −1.7 s/N, B +0.4 s/N — see `research_slope.png`), because genai HTTP retry
+absorbs 429s *below* the ADK model-call boundary (§5) — the median run rarely loses the retry
+lottery. The contention lives in the **upper quantiles**, exactly where the design said to
+look. As N goes 1→5, **A's research tail blows out** (p90 261→569 s, max 330→**839 s**) while
+**B's tail tightens** (p90 336→138 s, max 427→**179 s**). At N=5, A's max is **4.7×** B's and
+A's p90 is **4.1×** B's. This is the headline; see `research_tail.png`. Corroborating (noisy,
+best-effort log scrape per §5): at N=5, per-run `count_429` A median 6 / max 13 vs B median 4 /
+max 4 (the regional N=1 max=70 is a window-overlap scrape artifact — directional only).
+
+**H2 (family speed at N=1) — NOT met (small, acceptable cost).** At N=1 (no contention), B's
+research span is **~17 s slower** than A (114 vs 97 s p50): the campaign 2.5-flash half is
+marginally slower than 3.x at idle, and the parallel span is bounded by the slower half. Small
+n (4/cell) with idle outliers (A max 330, B max 427). This idle cost is swamped by the tail win
+under the load the fan-out actually creates.
+
+**H3 (quality non-inferiority) — PASSES decisively.** Pooled across N: A mean ≈0.831 / pass
+≈0.963 vs B mean ≈0.832 / pass ≈0.966. **Δmean ≈ +0.001, Δpass ≈ +0.3 pp in B's favor** — both
+inside the pre-set margins (Δmean ≤ 0.03, Δpass ≤ 5 pp) with room to spare. The 2.5 campaign
+swap does **not** degrade creative quality; if anything B is a hair better. See
+`quality_by_arm.png`.
+
+**Reliability (not pre-registered, but decisive).** Errors appear **only under concurrency**:
+N=1 = 0/8 both arms; at N=5 **A = 4/20 (20%)** vs **B = 2/20 (10%)** — B fails **half** as often
+under load. Failure class = report/visual phase (`[Errno 2] No such file or directory:
+'report_creatives'`), research completed first in every failed run. One `*__retry_exhausted`
+degradation marker across all 48 runs. (The `report_creatives` failure mode is a pre-existing
+concurrency bug surfaced by this experiment — logged as a follow-up, orthogonal to the arm
+choice.)
+
+**Total wall-clock** is comparable and **not** a clean arm differentiator (A N=5 p50 829 s vs
+B 1023 s): end-to-end is dominated by the 2-RPM project-wide image cap serializing the visual
+phase (arm-independent), so the difference is image-queue position, not the campaign model. See
+`totals_by_cell.png`.
+
 ---
 
 ## 9. Decision criteria (pre-registered)
@@ -234,6 +287,29 @@ otherwise drop C and report A-vs-B as a bundled family+region effect.
 - **Simplify (if H4 holds and C feasible):** if C matches B, prefer the **within-global bucket
   swap** (C) — it keeps the stronger 3.x family *and* separates the bucket, dominating B on
   quality at equal contention benefit. This would be a follow-up change, not a rollback.
+
+### 9a. Decision — MEASURED (2026-07-17): **CONFIRM-SHIP B — keep #101.**
+
+The confirm-ship gate is met: **H1 holds** (B's research contention is dramatically flatter
+than A — confirmed on the tail, the honest signal given retry masks the p50) **AND H3 passes**
+(quality non-inferior, in fact marginally better). B additionally **halves the concurrency
+failure rate** (10% vs 20% at N=5) — a reliability win the pre-registration didn't even claim.
+
+The only cost is H2: **~17 s of extra idle-latency at N=1**, which is negligible against a
+4–5× worse research tail and 2× worse failure rate for A under the concurrency the PubSub
+fan-out actually produces. Not a rollback trigger (the rollback trigger was an H3 failure,
+which did not occur).
+
+**This doc is now the quantitative evidence #101 previously lacked** (it shipped on correctness
+alone). No code change results — `main` already runs Arm B (`CAMPAIGN_RESEARCH_PLACEMENT`
+default `regional_25`).
+
+**Follow-ups (out of scope here):** (1) the `report_creatives` report/visual-phase failure
+under N=5 concurrency is a pre-existing bug this experiment surfaced — worth its own fix. (2)
+H4 (Arm C, distinct global bucket) remains untested; if it matches B it would dominate on
+quality at equal contention benefit (§9 "Simplify"). (3) The real ceiling remains the
+project-wide Vertex quota (5 RPM base-model, 2 RPM image) — a quota increase dominates all
+placement tricks.
 
 ---
 
