@@ -17,6 +17,8 @@ from concurrent.futures import ThreadPoolExecutor
 
 from google import genai
 
+from agent_common.genai_retry import build_genai_http_retry
+
 from .config import EvalConfig
 from .schemas import (
     AdCopyEvaluation,
@@ -32,11 +34,21 @@ logger = logging.getLogger(__name__)
 
 
 def _get_client(config: EvalConfig) -> genai.Client:
-    """Create a Gemini client."""
+    """Create a Gemini client with HTTP-layer retry for transient 429/503.
+
+    Each creative is judged by an independent, concurrent call, so a fan-out that
+    briefly outpaces the shared per-minute Vertex quota would otherwise 429 and
+    (via evaluate_ad_copy/evaluate_visual_concept's except) degrade that creative
+    to a zero score — sinking the report for a transient error. Retrying at the
+    HTTP layer lets those calls self-heal instead. See agent_common.genai_retry.
+    """
     return genai.Client(
         vertexai=True,
         project=config.project_id,
         location=config.location,
+        http_options=genai.types.HttpOptions(
+            retry_options=build_genai_http_retry()
+        ),
     )
 
 

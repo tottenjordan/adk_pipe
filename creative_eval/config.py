@@ -24,14 +24,16 @@ class EvalConfig:
 
     # Max concurrent judge calls. Each creative is scored by an independent judge
     # call. On the DEFAULT judge (gemini-3.1-pro-preview @ `global`) the base
-    # model is capped at **5 RPM** project-wide/shared, so fanning out 12 at once
-    # trips 503 UNAVAILABLE / 429 — a single run's eval alone exceeds the pro
-    # quota. Keep this at/below the pro RPM there. If the judge is moved to a
-    # DEDICATED regional bucket (EVAL_MODEL_LOCATION=us-central1, an unused pool),
-    # this can be raised via EVAL_MAX_WORKERS for a faster single-wave eval.
-    # See docs/notes/ambient-agents-vs-cloud-functions.md.
+    # model is capped at **5 RPM** project-wide/shared. It's not just the initial
+    # wave: at ~28s/call, 3 workers land ~6 calls inside a rolling 60s window,
+    # which exceeds the pro quota and trips 429/503; 2 workers stay under it
+    # (~4/min). Default is therefore 2. Transient 429s are also retried at the
+    # HTTP layer (see _get_client), so this is defence-in-depth, not the only
+    # guard. If the judge is moved to a DEDICATED regional bucket
+    # (EVAL_MODEL_LOCATION=us-central1, an unused pool), raise via EVAL_MAX_WORKERS
+    # for a faster eval. See docs/notes/ambient-agents-vs-cloud-functions.md.
     max_eval_workers: int = field(
-        default_factory=lambda: int(os.getenv("EVAL_MAX_WORKERS", "3"))
+        default_factory=lambda: int(os.getenv("EVAL_MAX_WORKERS", "2"))
     )
 
     # Scoring dimensions and weights for ad copy
