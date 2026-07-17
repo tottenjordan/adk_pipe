@@ -1,0 +1,1660 @@
+{
+  "arm": "regional_25",
+  "concurrency": 5,
+  "batch_id": "regional_25_N5_r1",
+  "revision": "trend-trawler-api-00069-bik",
+  "session_id": "591579243343773696",
+  "status": "error",
+  "error": "503 UNAVAILABLE. {'error': {'code': 503, 'message': 'The service is currently unavailable.', 'status': 'UNAVAILABLE'}}",
+  "started_at_epoch": 1784310529.0481126,
+  "ended_at_epoch": 1784311309.500547,
+  "count_429": 4,
+  "research_s": 116.29898190498352,
+  "visual_s": null,
+  "eval_s": null,
+  "total_s": 662.1290311813354,
+  "exhaustion": [],
+  "summary": {
+    "total_wall_s": 662.1290311813354,
+    "phase_wall_s": {
+      "research": 116.29898190498352,
+      "persistence": 2.964416027069092,
+      "ad_copy": 30.916476011276245,
+      "runserver": 502.70212602615356,
+      "orchestrator": 9.247031211853027
+    },
+    "model_calls": {
+      "orchestrator": 5
+    },
+    "tool_calls": {
+      "memorize": 5,
+      "combined_research_pipeline": 1,
+      "save_draft_report_artifact": 1,
+      "ad_creative_pipeline": 1,
+      "visual_production_pipeline": 1
+    },
+    "exhaustion": [],
+    "status": "error",
+    "event_count": 12,
+    "started_at_epoch": 1784310562.047314,
+    "extra": {}
+  },
+  "state": {
+    "_state_init": true,
+    "gcs_bucket": "gs://trend-trawler-deploy-ae",
+    "gcs_bucket_name": "trend-trawler-deploy-ae",
+    "agent_output_dir": "creative_output",
+    "gcs_folder": "2026_07_17_17_49_9a69",
+    "brand": "PRS Guitars",
+    "target_product": "PRS SE CE 24 electric guitar",
+    "target_audience": "Aspiring and intermediate electric guitarists, ages 18-35",
+    "key_selling_points": "Wide tonal range, bolt-on maple neck, pro-level build quality at an accessible price",
+    "target_search_trends": "summer music festival season",
+    "reference_image_uri": "",
+    "timer_start": 1784310562.8725002,
+    "request_count": 6,
+    "initial_campaign_queries": {
+      "queries": [
+        {
+          "search_query": "\"PRS SE CE 24\" review beginner intermediate"
+        },
+        {
+          "search_query": "aspiring guitarist challenges 18-35"
+        },
+        {
+          "search_query": "PRS SE CE 24 tonal range comparison"
+        },
+        {
+          "search_query": "electric guitar features important for intermediate players"
+        },
+        {
+          "search_query": "\"bolt-on maple neck\" electric guitar benefits for players"
+        }
+      ]
+    },
+    "initial_gs_queries": {
+      "queries": [
+        {
+          "search_query": "PRS SE CE 24 reviews and target audience demographic analysis"
+        },
+        {
+          "search_query": "how electric guitarists use social media during summer music festivals"
+        },
+        {
+          "search_query": "rising guitar-driven indie and rock bands performing at 2024 music festivals"
+        },
+        {
+          "search_query": "marketing strategies for mid-range electric guitars for 18-35 year olds"
+        },
+        {
+          "search_query": "impact of festival season on electric guitar sales and gear interest"
+        }
+      ]
+    },
+    "gs_web_search_raw": "### Raw Research Findings by Query\n\n---\n\n#### 1. PRS SE CE 24 Reviews and Target Audience Demographic Analysis\n*   **Price and Value Positioning:**\n    *   The **PRS SE CE 24 Standard Satin** is priced at **$499** (described as a \"flat-out bargain\" and \"rock-solid player\"). \n    *   The flame-maple top cousin, **PRS SE CE 24**, has a street price of **$699** (often found on sale under $600). \n    *   Reviews note that its build quality and fretwork are comparable to guitars costing \"two to three times\" the money.\n*   **Key Specs & Features:**\n    *   **Body & Neck:** Solid mahogany body (thin satin finish, pore-textured feel) paired with a 24-fret, 25-inch scale bolt-on maple neck. Features a comfortable \"Shallow Violin\" top carve which avoids the \"sharp-ish\" edge of the US core models, making it highly ergonomic.\n    *   **Electronics:** PRS 85/15 \"S\" humbucker pickups with a 3-way toggle and push/pull tone pot for split-coil (coil-tap) single-coil sounds.\n*   **Critiques (\"The Bad & The Ugly\"):**\n    *   Some reviewers complain about the neck finish, calling it \"cheap-feeling\" and comparing the bare maple to a \"lumber yard\" or budget Squier.\n    *   The 85/15 \"S\" pickups divide opinion; some find them balanced and warm, but others criticize them as \"bitey and hollow,\" lacking clarity on chords with gain, and having \"midrange clutter\". Pickup replacement is a common recommendation.\n*   **Target Audience Demographics & Genres:**\n    *   **Skill Level:** Ranges from beginners seeking an affordable, highly playable entry point to professional working musicians who need an accessible, reliable \"workhorse\" gigging instrument.\n    *   **Music/Genre Matches:** Highly aligned with **Rock, Blues, Indie Rock, Hard Rock, Synthpop, and Metal**. \n    *   **Consumer Sentiment Profile:** Demographics score highly for listeners of classic guitar icons (Stevie Ray Vaughan, Guns N' Roses, B.B. King) but also appeal to modern, younger players looking for a lightweight, versatile double-cut design.\n\n---\n\n#### 2. How Electric Guitarists Use Social Media During Summer Music Festivals\n*   **Platform Ecosystems:**\n    *   **Instagram, TikTok, and YouTube** serve as the premier digital stages. Instagram is viewed as an \"authentic storytelling tool\" for fan engagement and visual storytelling, while TikTok steers heavily towards atmospheric music, mood, texture, and viral trends.\n*   **Specific Tactical Behaviors & Use Cases:**\n    *   **Pre-Show Teasers & Behind-The-Scenes:** Guitarists post tour diaries, backstage/bus photos, prank videos, rehearsal snippets, and shout-outs to build suspense and anticipation.\n    *   **Live-Streaming:** Broadcasters stream entire performances or rehearsal warm-ups on Facebook/Instagram Live to boost their placement at the top of algorithmic feeds.\n    *   **Audience Activation & Tagging:** Promoting custom city-specific tour hashtags (abbreviated for ease) to encourage fans to post their own footage, essentially turning the fanbase into a promotional \"news outlet\". Post-show tracking involves commenting on and liking fan-tagged material.\n    *   **The \"Perfect Take\" Illusion:** Social media demands high audio polish and 30-second precise executions. Guitarists admit to filming a \"seemingly spontaneous\" short clip dozens of times over several days to ensure perfection.\n*   **The Live-to-Digital Gap:**\n    *   A prominent critique is that the social media landscape breeds highly technical \"content creators\" (exemplified by \"Instagram rockstar\" Mateus Asato) who struggle with the demands of playing actual, raw live shows. Algorithms reward repetition and lack of risk, favoring hyper-polished snippets over dynamic, conversational live guitar work.\n\n---\n\n#### 3. Rising Guitar-Driven Indie and Rock Bands Performing at 2024 Music Festivals\n*   **The Last Dinner Party:** All-femme British indie band styled in Edwardian costumes, known for dramatic \"operatic elegance\" and fantastical live shows. Broke out on TikTok with \"Nothing Matters\" while opening for Hozier. They performed at major 2024 festivals including Coachella, Primavera Sound, Metronome Prague, Glastonbury, Lollapalooza Chicago, and Reading & Leeds.\n*   **Amyl and the Sniffers:** Australian indie punk band featuring frontwoman Amy Taylor (who captures a young Cherie Currie vibe). Toured heavily in summer 2024, playing Primavera Sound and Northside, and opening for Foo Fighters.\n*   **Wishy:** Indianapolis-based group blending 2000s-inspired shoegaze, pop-punk, and emo on their debut album *Triple Seven* (August 2024). Noted for \"bright, jangly bangers\".\n*   **Dummy:** LA-based four-piece band creating psychedelic, danceable guitar music drenched in feedback and synths (*Free Energy* album, September 2024), drawing comparisons to My Bloody Valentine and Stereolab.\n*   **Saint Social:** Gulf Coast alt-rock trio. Dropped a self-titled debut in August 2024 with a booming, roaring guitar track called \"Swagger,\" appealing to fans of The Black Keys.\n*   **Arches:** Hong Kong-based indie rock band capturing fuzzed-out shoegaze/alt-rock tones reminiscent of Sonic Youth and My Bloody Valentine, performing at SXSW 2024.\n*   **BODEGA:** Art-punk band led by guitarist Ben Hozie, commenting on corporate youth culture; played SXSW 2024.\n*   **China Bears:** UK-based Somerset band blending \"misery-anthemic\" emotive indie with high energy on festival main stages.\n*   **dust:** Newcastle-based post-punk quintet combining Australian post-punk with experimental jazz and electronic notes.\n\n---\n\n#### 4. Marketing Strategies for Mid-Range Electric Guitars for 18-35 Year Olds\n*   **Demographic Drivers (Millennials & Gen Z):**\n    *   Younger audiences (18\u201335) seek a strong mix of high playability, digital connectivity, and classic style. There is a marked rise in demand for affordable, mid-range guitars ($1,200\u2013$2,000 bracket for \"established\" mid-range, though $500\u2013$1,000 represents the entry-mid market).\n*   **Core Marketing Tactics:**\n    *   **Authenticity and Storytelling:** Showcasing the artisan craftsmanship or unique factory build behind the brand via social channels and newsletters. Younger consumers favor sustainable/local wood choices over ecologically damaging rare woods.\n    *   **Influencer Partnerships:** Collaborating with local guitarists and social media music influencers to review and demonstrate guitars.\n    *   **Community Building & Interactive Events:** Creating physical spaces, workshops, and guitar trials where players can connect and associate positive memories with the brand.\n    *   **Niche Product Differentiation:** Providing \"hybrid\" specs that combine classic designs with modern updates (e.g., matching a long-scale Fender snap with thicker Gibson/PRS-style humbucking tones, or utilizing 5-way switching and push/pull coil-matching).\n    *   **Omnichannel Integration:** E-commerce and targeted Instagram/Facebook ads drive initial awareness, but marketing must direct buyers to try the physical feel of the fretboard, either through local shops (where 65-70% of guitar purchases still take place) or hassle-free online returns.\n\n---\n\n#### 5. Impact of Festival Season on Electric Guitar Sales and Gear Interest\n*   **Macro Market Growth Trends:**\n    *   The electric guitar market grew from **$4.49 billion in 2022** and is projected to reach **$7.15 billion to $7.62 billion by 2030**.\n    *   The expansion of live concerts, summer music festivals, and independent music production is documented as a primary \"key demand driver\" for electric guitar sales. \n*   **Seasonal Search & Sales Patterns:**\n    *   **Primary Peak:** Holiday shopping in November and December remains the absolute highest peak for sales and search volume (normalized search interest scores hitting 100).\n    *   **The Summer/Festival Peak:** Google Trends and market reports identify a secondary promotional window during **June to August**. This period sees a noticeable boost in beginner and mid-range instrument sales, heavily driven by the cultural hype of summer music festivals, live concert attendance, and younger players starting outdoor musical hobbies.\n*   **Digital Content Sync:**\n    *   During festival season, digital content creation and social media engagement among younger demographics peak, driving high search volume for \"signature models\" and gear played by breakout festival artists (e.g., the rise of indie/rock live acts at summer festivals directly influences rookie purchases).",
+    "url_to_short_id": {
+      "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEKr7bNdDL6vQAdTscqEtN37vBFftJJQDmXia5mjcTo5nauGX961bVdGMKBmANApo5YWg12BaHzP9l5nI96h5BUMUiMYsN6brZGsPZ3lHVx7ACBtXUKgfslpcWU-Xriv-rcKiu1KLTDxSBn9tISksmYi5k=": "src-1",
+      "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHvUnapg5-iBbR1cCd43onvMK25hz9uDIrOQqqwEcmFNiZhsQnQkAIAo7rtVkAjsI9SSBBtCK9WQUoLx3lEsNbPfHna_EnPjHX6BPk7kWDjW_7vk4dF1gzIRhTsPfLjQxubAqQwTI8=": "src-2",
+      "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQF0jKmLtMTRfVZHxYGmxDqbUlCNsG3YCAK7cW-nYGFCkWXKGaKK0zYlCKUURD1YFaORlUMi58IK0G6DhwPTwFYFGtrYRlFYCzy2RtdWCy_9CagRXszdNq7GTWixpwRcc2XmHpkOutDsVtaDugDxWSk=": "src-3",
+      "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQGKTXy-lwCNRetNv-sJw7u-XvFzxHlkahnXlRPLabUcp84_mPvO8OFFyFitQAOXcecvFiBMU37i9h0yhvnM3awmdnSBsdtIkyRwz-JMOGbH6w_WVARj2TIQthYlaEc9uDNG_h9V1Y0kP9xrBAPOgECmEtlU": "src-4",
+      "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQFchK55KTvxNHGs9r_V8T-r7eqsB-iIc14eWYBrcbzSpn8blr6vKinxEojhoymrBvJ6XZKEkX4T8kcJUV-qdnzJrbvX-skNlC9QzD82h4EpT6B8Za113IdVtDpX1fXfOnFC14Bcxw==": "src-5",
+      "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEBPYJUKNlU-nhklnqxSZLJzcgeHojdaRCCdJnUnIKu1EhhbtkyRTMabQg06be-wkUYww0Afw5lTPLbaFjQJ8bICUEs303bc47-aZb-jszdjkrg1C3lMmhgiC-x_UPwgRsMzlV1MU2_58ri6crCaL0JcAYdzldxzkOx7jOlai9BH3CtPOpVWBMdobMppJjnvpCRXhypDpG4k3WQaj3BYk8=": "src-6",
+      "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQFvwwPu3KV6o3uMV7uqO8hsxYfSAuumltk3nOk2UqWrL-vRjjRL5vQQCCenXfx5DxcnOVXmVGyOg3dqcjCMaMAZ7dM6aX0phMsIl85m7dhA2l2sWm8QUe_BVAH_7SKD04bN2o3Cp_iSBmLE6dNxgXXq4wgeTO4v4NZKos9F3HDhSVbe4nrlojz7eOZk9HlaCMBaWrYiFtM73woz4MTBTWlAU_jDAzjwj3QIuaP8-hz-QVfdJyndl5xSNXDeSA5o5_cRAOOxIg==": "src-7",
+      "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHS9jLSGogdmhUFcgR_wPq4fmsX-IrmvwsfZeE6BTuM74QNgx_1mZQDrZsCA7XOsYCQ2WExucmemGB49NtR6yvENm_iW8ghNb9fRtuFHJA5eGr0S3S8XlzyXGFa3k-JQ5Mnt6AIa3x2jkiTeMWQn7kCA_2tpJtU--VB-9KajyWWEgKUXXRMABbbNR2XnlCLFehWRfyqykLrWFkjhM9AgJRE4gaHPdg67yWC5WzIyQ==": "src-8",
+      "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQG3DmbdalUuZt5RLlBZBCW_LVs2t-RmxQ6zpZbVEfCTK1aO1F0p3KZ9ETvk9ywWuqgQkG4tziMDlD_NAU5WdiFBnDJdMI8Yfw4l7gxih-5VWwxUe-BkEt7F11rFfczmaRymUv_-jD9aQIFFpKOVyL1ICCR-zzTFy1f20-lNwoVbwP_J0YD2QHD9JFtYjzualZmdtu-Jpg==": "src-9",
+      "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHKhvbVZvtCmxMYHUr_g2VJPBKtdFPUqtiPAwVfQ7rOpMgrc-TkF8iNuFyVbSAYD8B29YWrF2RM6ABWOkou7oYY2wO1XYNU0KtalKdRVJw8EnaMyvXbe9ZxWfQ8zYavSfXQxNxg7CQcrrxtZcYiA89rnYy_DF1xPBDSjLVhuGaiPtaEMJxKwqXytqU46VZ2knjcvA-MqJRZu2wpyDS5fc-M": "src-10",
+      "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHCDPfY1jFXT0XPOP8ByWCX0uS7UHxpxEmjE5v4S6jQq_AhOqEZ2GtOBQtnBhQwN3DCuTsTLg9VqQThXrjVSVsGT05j9vqwPgkYSAXqATS9wZWCu4rBH55D9aIn_68DTvjTg7qwsja1wJYruRk25ubOClMvdVTDmcBkuxQi2mMDFbV9YCXwLhP4X1sy2a6l-fe8-jg=": "src-11",
+      "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQE2yeB6KVqMTIyRKUQsRbuUf8ZuwO8zNNKPj8ksrWMyzJDg4Q59qnm1V9yX1Gcc17h6BB_XsUEA-HB6aFDaL4uBYXh1B0PaT7bqxWbaOhSWiFp1gpjZ14xc6rqaztfcJp4BDNvqrOulRfLYOuGgNRInY7QdgrxGS--F2LWRoXNbEfsXskKrocmBzJOawFpTewM=": "src-12",
+      "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQGgH2NxFM3MrTCNLa8Z22sEu8j1ZKHGyt5CLZflx9zF8ayYi2m88dI1r-MQPoaPEJF-d6WbuE-jeTPlwCDkvJ_TzuFu6zMytD4SF2RB3Re4Ks1us-QRaMNwwRytKJFxqlxwmpMjQMuBheXCqPA0": "src-13",
+      "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHZ7WOI0cB9zsQX0t6ElaezaikNwcaqYyB4vO7NO1VclAHIOEtsYOKWe2c4uwHhIrlM8nO89BAMVhAlaCiqqC3HaaZc-vVv8O_R2B0c53I9_ENG6y822KvJd0lRLMDw2GQrU6I0NZLGn_Rkz3yBJQ1xvgXOrRGjA4hEfOyAniUOoI3B0QY=": "src-14",
+      "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQFvElMJXWge26BibOeigviLPJBLWQXqu0ebjw9oBgvFVPS9UCnI25MxaDmqtAMnMAWejJZeIim9qpmutdVW7LaS6H6LmI-P3z5l8bJS683kOMKvQhhVKEK1R5xOaYw4tdFYdHtlIDKKIpjenfR92hOCnsoQVUEQzpnjnucLF8Jhow==": "src-15",
+      "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQE0U6qb7No09LQtVnxZKYItQQBfM52gDXRFz8VKXfy8z1vChqjHcK4DKWJeODy1bVNkjx-L191D3G_WTVrUaNCRTv9D3kv-0rRft1R1kFYrJqCSDU8aoxEV6r6cY9loxgKrXhjIU-lys8JFPaerPaqXnQ6OSiKMfk9NP9PcPh_pQVM6oTD3MpxBnAr9FfUtnEqy8u1g6SirdS29ihhLoiLL": "src-16",
+      "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHc95DlYW5PC-YHs-QrwvGU6vQ5WlZ_VUzvkM5X3IcBsl72IWsVccPWg10FpSB2A_KMGk2iG_Ck5fmjwgfAU-eD5wGKpi1nesNnhlURu7sb9qzlLLa6r0ThfLRIAgBxpJ4qGgHVlRvBeluqSOD4qeDUkZfJJPqjb07RT2oUmb9ocSh2W46ir1McpIC5Dpxk58Tq8Km9tkQd15nPQVwc": "src-17",
+      "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQFcorWVq16e_ozG5OVwl7-xn0Vzs6Q-AWLX-ZTYKldSw75saYaqtyxh9XhsIYTscN2TXgumQaktbrxHdem9jCQRktD6GybSUwPOyLlDcKwCXoE13gUbs3KnXBYvA91VeyJJblQUFYR6qHJm_It-n3mbJv77HyiHy8fswGvqVJAd1KwiZ0VvL0MiZMOHxoENYWs=": "src-18",
+      "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHNDUjEpQEpWk8gF-yu1Tgu87O6UwdFDKxUbyYd7bOxeZaNIPt8tVPGsG-ojvYLS9p74buoT4QekNOKnUXWOwC2Fu1WagYJA-P8cbmyFzswW-SKq0tZCUf43lCGPulo8WcwvfZUeoYx1w_0MH9tBi18YPvLgTN7PCYQ8L7EAROW-gCeb0cm2K7IHtJrCaJ4XY_nxJI2yKUeG_NxQHP_EfWZlHByppMCXXzN9bhuw7nAHoG7FIE4lXjwWM_59aiaDnXMqjelk3Y=": "src-19",
+      "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHbYTZ2OqPBkWtmu0UqFCt6F_66QIbRHEARzV68bj5bw8N6bllKtWmSozutOVI0-cOgrB5H7T5I1tRcC4YRFkvAPFxYWkaZBN5_GUDru1C0-sVqlm9ZhKTQFRMAblQjs5Of050TFsccbTZ9-L9lHCP4H8QsFsLk1vMAa54O12zk9Q7irOP_7Rt-8Mws6UVxcoTHQROgTwnNwQ==": "src-20",
+      "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHuXi1O9ND7uiB0P17TLXgjvRzO1qfZQhgvZFmdqTcFigDQOCOU6I8vugbmbYGlg6fyeXazKl2sNB749xIDh7Wcu_2ZY3RsFDfNn0MtgYoGJPhjANf4idF52oagwhUggbH60RB4wECIsCGdrB02BO4bYWr-SnnDjZj2QIGDxL5s7cTIOwgBEpLyPr_Ql-rFMDr_nASeeZ4_jUxeHf874yOOGVA2F_6vG9q39E11jqrh": "src-21",
+      "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQElg5Gw5h02gXtIzmhANiOXBiFq8QV6MOli23qaAqXjhGZPkz4nwb7LxNiUbk7I_WFX4waNDM5zhq2pbn4IRqB5EeYANZghOS0ZoKqjfmoXFb0uRpa2AzG4x7oGGVODRc8vQ0KPfFf-AgtJiBqcbhlbXBBrhPAzxc7K6me8IEDNrqdeYgQteZA3J5SlwAr9dP7hbXqBa20=": "src-22",
+      "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHq8yPbLZYRYmlaAHWOeCDjPY7Qp4N_Wz-S3vWp5WJpG9mefGFaemJkOKUnCQI6mQxQHit78crvq950PAOHRFUX4KJOMu5fHimt5Pv4HuDe4Jd83L0K6OpXFZZ3_kExDUspP5Wh8tI8VWkXoJNv_tD86WSyq1-_s7oOr3vSIy1Rpr0V": "src-23",
+      "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQF0F2UKw8yYHkg0gemfB5M8U8unZPoitRGsGCReSiq1YIs2cccXmLMsoDgrgyPMVJqIbKVaBHyFSE6mJCi4E0D89JkR5zmqkn7zKMXMtWREz0f-ZbCwkgneSbN2foIS56OvPCeKz0xYO9T4m_Nt": "src-24",
+      "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQG0I95HOXLIKZwM694nC8DEPcm7jvx9So8FVePciABCpTj5Ed4ZJDNcQ_Kt_Aczgl1nz8bGKWXNdrjJZvISQ3mGTO7EXa0qi9Gh-MhOMp3CkVfF-benIERkDK2iJLcmf8rQ8EB6DgKSNcdQ3gWB": "src-25",
+      "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQFPEmj6BMMYXugWLxaaK8h9TIlKpFUMNLFoomYqAC91cH75WjS-I6Yp8iS-lKkiSDI5c3NjRz0OEowoG_lBdArno92G21xYswOEo-zFM4EoBbfkvqBjqGWWL2j94pM-zO2m_I5qUa1Glp9MJDr44EiXwFFU9-lTKv8S3Lk88EqxaRJOKsrOJHinZfPKSGZBdJ8f-9DXsso23wWXL7Rq9HsGh0YN": "src-26",
+      "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHOgf5yPz8WqTVnG3aA91B_WS-R5cYFMLpFFV8_NY_ioiRxn9fIAEUDRQ09m0kZIRCjEA7i_rMZQyDtwwiyD5rTTw1TTtlTFg0y9wHmB4SKT5XIE8CnFtfUdoJ4tvkzufeFCrnUAw3qfk-a14qANTcK-QzS": "src-27",
+      "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEXz7qxhthR3hOU79aU0mrXY1-ZOMeHWg2S1Wxu3A65ajKFQ3-F8fMgoYnfBqlFQHUjEkqfx_tP7D3bhrweI3b_CbDwbhswcUTkmFRQaz60LzH1_bbIEs0ddWpmwYIHfuOWZ93l6g0=": "src-28",
+      "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHa0mNcs6Ug5_B5kIXDCktAVOukuukn-vKqt4bCrmpil7rrkG_gPz1EmB8m17BZekdZlIGrcvp_bZ_w9c-7pPrYf4eygwGEcFh3VvN60No1oAJTd9S7_-J_D66umlheMf8P6KMCYSuiF_w9zw==": "src-29",
+      "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQFzs0xH-0WTxb5BR2N-IxlYnB1jJSPRIvRyNaQ_Ig1TnqvmURZ9VO-JGGHTCuaxPqY0lY8vns-9L-YuENhIUJSaJjvi4x9whFLvcSRhmvVoEzbTX0SHDXtiKEZ8c4_LYo_ZXv7qc2piwa1H5wU79dLfRpWiI7fLkItGTOQFExO0BpZWbxcURNU=": "src-30",
+      "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHSs8WtcNZWiQEdcrfv_yLVLFk39lbc3IzJ5TOB23rID15Xgpffmd0akfSu3dKBgT-Q6-9tAIp9cbfRidRltGuHCtVhuMqyHVo17R5edmhi8hpvvRln7jHIxFrjrTsge1VHqoF-eszU93Leq_yCP1RxnnE=": "src-31",
+      "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQF1UIEolCxBlo7MWsCs_MinW-VzO43w4XQNJUKQebqKoTFV6mGvczn77ZyvWL_oaUHKibpy6qqhEDIKTOhlOO_oNhjvb1ir95bL3qBJrE3cLYDU4PudLp5hoM5uWKryrAeuCPg43t3cWgRJjg==": "src-32",
+      "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQGNDS51Vuk-cPCDy8qICyL2iGgTq3A-HaRaTlTT1wFsUE2Ayuh6HtmE0ivSaVxuFvJiddCbvJyo5DNmi_O1KL7ajX8Q3CBz8jQMWfOVkoboDOGgpYfy2vyO3KGhJYpmIkbiwntwKGk=": "src-33",
+      "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQGWqZU2KlSxW23VqJ7UKWimNXWZwfPTvcVbGlsmsQrzcyTvTITFbaDpZQ5IgB94judWhq_tGvdLCmEj3I9e-Yh_hcwa0oI17UAqNuncV-3HgHsqQLZsKQY6v02c0RlpyhZNXKsI3ME=": "src-34",
+      "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQF2OLor0Q8POn8dCQlg0KY4MySIuSiYVx0-Q4iUqSOqP6slu-jyKoAsKk8OgcCqPbdJuZhno1gdeDe1Y0bxZcc4ufzMYcI8ViHodR20hTIQ_ZLTNhStCpAP7Pka3sYhj3lEEe_n0Go=": "src-35",
+      "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHGS-lVBp1Y2KviI7qQpZ-022sgImgBmqs62rvok4JMFsLM-fRM3Alo7iUnU4Nooz9g7duhk-bbudiEq8-pGld5zk1qx84rOfmSXnqjZBYY7RM-7GiDL-dB3-tCH6UlWhZzHP_p73A=": "src-36",
+      "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEIW2ZzjMg773MJM17q2lC0JfBS-gZuXw-kfEDyJ_4o6L7SVt3PJcD2YDK7XQqCFgdxEYofan1A4s1Hq5U5osH7zpr8D_fYUA3Rr0LbHczW3BgM-poAMkLWESpFe6sMw-QJIDAYeW-Nc460hCUB3fHVMN9_QfRHbYN5EV0jXqyLMzZ9cYJxqlTUbiuIAA==": "src-37",
+      "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQH0LFvUaTK3ZwGtMFvmMxi7maldrbh6B8pfTHMTairgkYe_npFHhLwr0yFP3CbqXRIK8J5VnQ1BvFs1GLl7kiL_yKMztoI-jCJmQWLX51ufKv_pg3_Q_ummvLUOlnn6vxOOmZAIkhKLzSmXQYAixIz6i9gGM836iD3Y5ZOVW0VLW9-u5Hb46M_c3PuGYwLSQEVUug-nbfZIFWreWua9": "src-38",
+      "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEYARpX2_vAVxC-HQLyff3q1I4C4mtskmyMf0Q1LwkBF6mM8WMFu8rD--ga1HkWHObxTthijQZ8WtLQgAQLBK9on34vGgNdm24mFtZGgCnWTh9B3jpL7FAydWMF73IcvMalpXNAwGmw-d-HLyIfcPE6cF8nM33s-jpLMhOhH7zFTyCoJ2Xmmop6uyVlFyaQS9mKJj-fAM0xOM6YCQZBvpbSw6U-g7zkohfNgI4=": "src-39",
+      "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQH68SCMYhVKQ3lbCzjDDJstV9eGxecrJrR1l8YcOknWiZeWTBX8XCFn5g0dfxWWPsh9hPNFZPzqNoMijg-YIhlDWkna52x1ARLNUGx_EnmRKcicTcmYHHsdPjVu3nZAEFHqeBnnbLfc93d3QZcJdlk3d9P8ul6J9hO15yxJtKVKMkC774kKtRad1so20bKu2GyfLxt6bFuyHA==": "src-40",
+      "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHMiPi3YsdDUOmGlda_0w6VvYhxrXNMEMUVsM6QJHj-kF0Jsrlj9S-HC1PUJbF5issYDCbgdtN-arefPqA5HycvBjoJQa0EP3J_80npP9RNqS76GBWMrnApPkFjWShZOcfGHl2sw3cX2UT6ryFsuTnEkTtdp-hiSQ2VWZTAHtrnHvBvJjyb0y-T5CEX1yvLb2Q=": "src-41",
+      "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQFysxRrxy6b3cViuQMaY5O-6PeHn1OrI2mABDIqca6g7GTagiglc2isgT90X7qHIWb32XmfrCctMocnVQxFy2obG59Pz7EKkvUloq8y68OftVckt7jzKc_TQkWU1ouxPquqhg9MPaxTKNrwmPPBW6VH9VY0Sb22qTg9doQsnLoHZqcvXvyNWg-IRw==": "src-42",
+      "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEptz-VMwu7NGCniJ6ywmvjJn6NMrXFtEDaCa0SlO4j6OR0oB_ZlxnTMK2cNkjG18JtQS0NN-hzl6RM-C_EHp0yRKmQ428QZob8kXEAAmaZ14KTs7uVzfweDFdaktoU6exwXGM8hn1q9tHbkrv9TExpIgYlM3kdQ8MnVw5YTQ9sVGf5amTGAcylP-ZDaq_dsVVW2R0br6ADC0cs0ZWtim6G6bPrujpIzwAe14BYE1B-rbWnceZ-CR0TxFv05ZxkkyTYIu9n14ib-kDeafKTl5TZGOKid81tMqJa": "src-43",
+      "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQERCuaZYMDFJuHEXoAe3z1qkbFqIgmoDGxmT1eNnb1x2zbkAJIJ8EvUFkUSV-l1OIaWRmKBNFfVPjp8X1tf70g8pC1fz7U59auQtNCgnivT887V4JzMpiSVkXdXds8Kg8AzTDLaFR-fQzy-FOTr8Vvhe_LZcMrrBHOZCTGKieIx6A5DBEyDxFTX3jTcyHVErJQxkPPh4VGIYW-3vGps7vyslPnM527b9BxXwntwksJUTb9qotqMyyCsJkotEVqWHcii81jBBglju82XQJmg8P9Tyo2FMpQtS03UaG9cc47cT2qZe2jartaoUA==": "src-44",
+      "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQFGM_J8-zyhwzukIVEvk_p6qrVOwfw_3PUiCvo_U2XwNk5S7Oi6nOcqabYka5KGPL65TrGqqCsaXb6oPUHUBEj0R4ju_CzhEZnAJjFjjWe8Hs3u7wW_CM1kAsEwYwDShn7ppYAZWGdjSvqanEHY_RXpes7D_Y2ipcdCUDCiyMYTvF21gQ_cfF_oVOBvmveNwietapTbsrGq0Pfbfeq191A930kl": "src-45"
+    },
+    "sources": {
+      "src-1": {
+        "short_id": "src-1",
+        "title": "premierguitar.com",
+        "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEKr7bNdDL6vQAdTscqEtN37vBFftJJQDmXia5mjcTo5nauGX961bVdGMKBmANApo5YWg12BaHzP9l5nI96h5BUMUiMYsN6brZGsPZ3lHVx7ACBtXUKgfslpcWU-Xriv-rcKiu1KLTDxSBn9tISksmYi5k=",
+        "domain": null,
+        "supported_claims": [
+          {
+            "text_segment": "PRS SE CE 24 Reviews and Target Audience Demographic Analysis\n*   **Price and Value Positioning:**\n    *   The **PRS SE CE 24 Standard Satin** is priced at **$499** (described as a \"flat-out bargain\" and \"rock-solid player\")",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   The flame-maple top cousin, **PRS SE CE 24**, has a street price of **$699** (often found on sale under $600)",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   Reviews note that its build quality and fretwork are comparable to guitars costing \"two to three times\" the money",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   The 85/15 \"S\" pickups divide opinion; some find them balanced and warm, but others criticize them as \"bitey and hollow,\" lacking clarity on chords with gain, and having \"midrange clutter\"",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "PRS SE CE 24 Reviews and Target Audience Demographic Analysis\n*   **Price and Value Positioning:**\n    *   The **PRS SE CE 24 Standard Satin** is priced at **$499** (described as a \"flat-out bargain\" and \"rock-solid player\")",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   The flame-maple top cousin, **PRS SE CE 24**, has a street price of **$699** (often found on sale under $600)",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   Reviews note that its build quality and fretwork are comparable to guitars costing \"two to three times\" the money",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   The 85/15 \"S\" pickups divide opinion; some find them balanced and warm, but others criticize them as \"bitey and hollow,\" lacking clarity on chords with gain, and having \"midrange clutter\"",
+            "confidence": 0.5
+          }
+        ]
+      },
+      "src-2": {
+        "short_id": "src-2",
+        "title": "youtube.com",
+        "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHvUnapg5-iBbR1cCd43onvMK25hz9uDIrOQqqwEcmFNiZhsQnQkAIAo7rtVkAjsI9SSBBtCK9WQUoLx3lEsNbPfHna_EnPjHX6BPk7kWDjW_7vk4dF1gzIRhTsPfLjQxubAqQwTI8=",
+        "domain": null,
+        "supported_claims": [
+          {
+            "text_segment": "PRS SE CE 24 Reviews and Target Audience Demographic Analysis\n*   **Price and Value Positioning:**\n    *   The **PRS SE CE 24 Standard Satin** is priced at **$499** (described as a \"flat-out bargain\" and \"rock-solid player\")",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **Key Specs & Features:**\n    *   **Body & Neck:** Solid mahogany body (thin satin finish, pore-textured feel)",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **Key Specs & Features:**\n    *   **Body & Neck:** Solid mahogany body (thin satin finish, pore-textured feel) paired with a 24-fret, 25-inch scale bolt-on maple neck",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **Electronics:** PRS 85/15 \"S\" humbucker pickups with a 3-way toggle and push/pull tone pot for split-coil (coil-tap) single-coil sounds",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **Target Audience Demographics & Genres:**\n    *   **Skill Level:** Ranges from beginners seeking an affordable, highly playable entry point to professional working musicians who need an accessible, reliable \"workhorse\" gigging instrument",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **Music/Genre Matches:** Highly aligned with **Rock, Blues, Indie Rock, Hard Rock, Synthpop, and Metal**",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "PRS SE CE 24 Reviews and Target Audience Demographic Analysis\n*   **Price and Value Positioning:**\n    *   The **PRS SE CE 24 Standard Satin** is priced at **$499** (described as a \"flat-out bargain\" and \"rock-solid player\")",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **Key Specs & Features:**\n    *   **Body & Neck:** Solid mahogany body (thin satin finish, pore-textured feel)",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **Key Specs & Features:**\n    *   **Body & Neck:** Solid mahogany body (thin satin finish, pore-textured feel) paired with a 24-fret, 25-inch scale bolt-on maple neck",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **Electronics:** PRS 85/15 \"S\" humbucker pickups with a 3-way toggle and push/pull tone pot for split-coil (coil-tap) single-coil sounds",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **Target Audience Demographics & Genres:**\n    *   **Skill Level:** Ranges from beginners seeking an affordable, highly playable entry point to professional working musicians who need an accessible, reliable \"workhorse\" gigging instrument",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **Music/Genre Matches:** Highly aligned with **Rock, Blues, Indie Rock, Hard Rock, Synthpop, and Metal**",
+            "confidence": 0.5
+          }
+        ]
+      },
+      "src-3": {
+        "short_id": "src-3",
+        "title": "budgetguitarist.com",
+        "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQF0jKmLtMTRfVZHxYGmxDqbUlCNsG3YCAK7cW-nYGFCkWXKGaKK0zYlCKUURD1YFaORlUMi58IK0G6DhwPTwFYFGtrYRlFYCzy2RtdWCy_9CagRXszdNq7GTWixpwRcc2XmHpkOutDsVtaDugDxWSk=",
+        "domain": null,
+        "supported_claims": [
+          {
+            "text_segment": "*   The flame-maple top cousin, **PRS SE CE 24**, has a street price of **$699** (often found on sale under $600)",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   Reviews note that its build quality and fretwork are comparable to guitars costing \"two to three times\" the money",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "Features a comfortable \"Shallow Violin\" top carve which avoids the \"sharp-ish\" edge of the US core models, making it highly ergonomic",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **Critiques (\"The Bad & The Ugly\"):**\n    *   Some reviewers complain about the neck finish, calling it \"cheap-feeling\" and comparing the bare maple to a \"lumber yard\" or budget Squier",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   The 85/15 \"S\" pickups divide opinion; some find them balanced and warm, but others criticize them as \"bitey and hollow,\" lacking clarity on chords with gain, and having \"midrange clutter\"",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "Pickup replacement is a common recommendation",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   The flame-maple top cousin, **PRS SE CE 24**, has a street price of **$699** (often found on sale under $600)",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   Reviews note that its build quality and fretwork are comparable to guitars costing \"two to three times\" the money",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "Features a comfortable \"Shallow Violin\" top carve which avoids the \"sharp-ish\" edge of the US core models, making it highly ergonomic",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **Critiques (\"The Bad & The Ugly\"):**\n    *   Some reviewers complain about the neck finish, calling it \"cheap-feeling\" and comparing the bare maple to a \"lumber yard\" or budget Squier",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   The 85/15 \"S\" pickups divide opinion; some find them balanced and warm, but others criticize them as \"bitey and hollow,\" lacking clarity on chords with gain, and having \"midrange clutter\"",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "Pickup replacement is a common recommendation",
+            "confidence": 0.5
+          }
+        ]
+      },
+      "src-4": {
+        "short_id": "src-4",
+        "title": "thatguitarlover.com",
+        "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQGKTXy-lwCNRetNv-sJw7u-XvFzxHlkahnXlRPLabUcp84_mPvO8OFFyFitQAOXcecvFiBMU37i9h0yhvnM3awmdnSBsdtIkyRwz-JMOGbH6w_WVARj2TIQthYlaEc9uDNG_h9V1Y0kP9xrBAPOgECmEtlU",
+        "domain": null,
+        "supported_claims": [
+          {
+            "text_segment": "*   **Key Specs & Features:**\n    *   **Body & Neck:** Solid mahogany body (thin satin finish, pore-textured feel)",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **Key Specs & Features:**\n    *   **Body & Neck:** Solid mahogany body (thin satin finish, pore-textured feel) paired with a 24-fret, 25-inch scale bolt-on maple neck",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "Features a comfortable \"Shallow Violin\" top carve which avoids the \"sharp-ish\" edge of the US core models, making it highly ergonomic",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **Electronics:** PRS 85/15 \"S\" humbucker pickups with a 3-way toggle and push/pull tone pot for split-coil (coil-tap) single-coil sounds",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   The 85/15 \"S\" pickups divide opinion; some find them balanced and warm, but others criticize them as \"bitey and hollow,\" lacking clarity on chords with gain, and having \"midrange clutter\"",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **Consumer Sentiment Profile:** Demographics score highly for listeners of classic guitar icons (Stevie Ray Vaughan, Guns N' Roses, B.B. King) but also appeal to modern, younger players looking for a lightweight, versatile double-cut design",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **Key Specs & Features:**\n    *   **Body & Neck:** Solid mahogany body (thin satin finish, pore-textured feel)",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **Key Specs & Features:**\n    *   **Body & Neck:** Solid mahogany body (thin satin finish, pore-textured feel) paired with a 24-fret, 25-inch scale bolt-on maple neck",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "Features a comfortable \"Shallow Violin\" top carve which avoids the \"sharp-ish\" edge of the US core models, making it highly ergonomic",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **Electronics:** PRS 85/15 \"S\" humbucker pickups with a 3-way toggle and push/pull tone pot for split-coil (coil-tap) single-coil sounds",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   The 85/15 \"S\" pickups divide opinion; some find them balanced and warm, but others criticize them as \"bitey and hollow,\" lacking clarity on chords with gain, and having \"midrange clutter\"",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **Consumer Sentiment Profile:** Demographics score highly for listeners of classic guitar icons (Stevie Ray Vaughan, Guns N' Roses, B.B. King) but also appeal to modern, younger players looking for a lightweight, versatile double-cut design",
+            "confidence": 0.5
+          }
+        ]
+      },
+      "src-5": {
+        "short_id": "src-5",
+        "title": "musicngear.com",
+        "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQFchK55KTvxNHGs9r_V8T-r7eqsB-iIc14eWYBrcbzSpn8blr6vKinxEojhoymrBvJ6XZKEkX4T8kcJUV-qdnzJrbvX-skNlC9QzD82h4EpT6B8Za113IdVtDpX1fXfOnFC14Bcxw==",
+        "domain": null,
+        "supported_claims": [
+          {
+            "text_segment": "*   **Music/Genre Matches:** Highly aligned with **Rock, Blues, Indie Rock, Hard Rock, Synthpop, and Metal**",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **Consumer Sentiment Profile:** Demographics score highly for listeners of classic guitar icons (Stevie Ray Vaughan, Guns N' Roses, B.B. King) but also appeal to modern, younger players looking for a lightweight, versatile double-cut design",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **Music/Genre Matches:** Highly aligned with **Rock, Blues, Indie Rock, Hard Rock, Synthpop, and Metal**",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **Consumer Sentiment Profile:** Demographics score highly for listeners of classic guitar icons (Stevie Ray Vaughan, Guns N' Roses, B.B. King) but also appeal to modern, younger players looking for a lightweight, versatile double-cut design",
+            "confidence": 0.5
+          }
+        ]
+      },
+      "src-6": {
+        "short_id": "src-6",
+        "title": "psu.edu",
+        "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEBPYJUKNlU-nhklnqxSZLJzcgeHojdaRCCdJnUnIKu1EhhbtkyRTMabQg06be-wkUYww0Afw5lTPLbaFjQJ8bICUEs303bc47-aZb-jszdjkrg1C3lMmhgiC-x_UPwgRsMzlV1MU2_58ri6crCaL0JcAYdzldxzkOx7jOlai9BH3CtPOpVWBMdobMppJjnvpCRXhypDpG4k3WQaj3BYk8=",
+        "domain": null,
+        "supported_claims": [
+          {
+            "text_segment": "How Electric Guitarists Use Social Media During Summer Music Festivals\n*   **Platform Ecosystems:**\n    *   **Instagram, TikTok, and YouTube** serve as the premier digital stages",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "How Electric Guitarists Use Social Media During Summer Music Festivals\n*   **Platform Ecosystems:**\n    *   **Instagram, TikTok, and YouTube** serve as the premier digital stages",
+            "confidence": 0.5
+          }
+        ]
+      },
+      "src-7": {
+        "short_id": "src-7",
+        "title": "ultimate-guitar.com",
+        "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQFvwwPu3KV6o3uMV7uqO8hsxYfSAuumltk3nOk2UqWrL-vRjjRL5vQQCCenXfx5DxcnOVXmVGyOg3dqcjCMaMAZ7dM6aX0phMsIl85m7dhA2l2sWm8QUe_BVAH_7SKD04bN2o3Cp_iSBmLE6dNxgXXq4wgeTO4v4NZKos9F3HDhSVbe4nrlojz7eOZk9HlaCMBaWrYiFtM73woz4MTBTWlAU_jDAzjwj3QIuaP8-hz-QVfdJyndl5xSNXDeSA5o5_cRAOOxIg==",
+        "domain": null,
+        "supported_claims": [
+          {
+            "text_segment": "How Electric Guitarists Use Social Media During Summer Music Festivals\n*   **Platform Ecosystems:**\n    *   **Instagram, TikTok, and YouTube** serve as the premier digital stages",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "Instagram is viewed as an \"authentic storytelling tool\" for fan engagement and visual storytelling, while TikTok steers heavily towards atmospheric music, mood, texture, and viral trends",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **The Live-to-Digital Gap:**\n    *   A prominent critique is that the social media landscape breeds highly technical \"content creators\" (exemplified by \"Instagram rockstar\" Mateus Asato) who struggle with the demands of playing actual, raw live shows",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "Algorithms reward repetition and lack of risk, favoring hyper-polished snippets over dynamic, conversational live guitar work",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "How Electric Guitarists Use Social Media During Summer Music Festivals\n*   **Platform Ecosystems:**\n    *   **Instagram, TikTok, and YouTube** serve as the premier digital stages",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "Instagram is viewed as an \"authentic storytelling tool\" for fan engagement and visual storytelling, while TikTok steers heavily towards atmospheric music, mood, texture, and viral trends",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **The Live-to-Digital Gap:**\n    *   A prominent critique is that the social media landscape breeds highly technical \"content creators\" (exemplified by \"Instagram rockstar\" Mateus Asato) who struggle with the demands of playing actual, raw live shows",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "Algorithms reward repetition and lack of risk, favoring hyper-polished snippets over dynamic, conversational live guitar work",
+            "confidence": 0.5
+          }
+        ]
+      },
+      "src-8": {
+        "short_id": "src-8",
+        "title": "improvisedmusic.ie",
+        "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHS9jLSGogdmhUFcgR_wPq4fmsX-IrmvwsfZeE6BTuM74QNgx_1mZQDrZsCA7XOsYCQ2WExucmemGB49NtR6yvENm_iW8ghNb9fRtuFHJA5eGr0S3S8XlzyXGFa3k-JQ5Mnt6AIa3x2jkiTeMWQn7kCA_2tpJtU--VB-9KajyWWEgKUXXRMABbbNR2XnlCLFehWRfyqykLrWFkjhM9AgJRE4gaHPdg67yWC5WzIyQ==",
+        "domain": null,
+        "supported_claims": [
+          {
+            "text_segment": "*   **Specific Tactical Behaviors & Use Cases:**\n    *   **Pre-Show Teasers & Behind-The-Scenes:** Guitarists post tour diaries, backstage/bus photos, prank videos, rehearsal snippets, and shout-outs to build suspense and anticipation",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **Live-Streaming:** Broadcasters stream entire performances or rehearsal warm-ups on Facebook/Instagram Live to boost their placement at the top of algorithmic feeds",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **Specific Tactical Behaviors & Use Cases:**\n    *   **Pre-Show Teasers & Behind-The-Scenes:** Guitarists post tour diaries, backstage/bus photos, prank videos, rehearsal snippets, and shout-outs to build suspense and anticipation",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **Live-Streaming:** Broadcasters stream entire performances or rehearsal warm-ups on Facebook/Instagram Live to boost their placement at the top of algorithmic feeds",
+            "confidence": 0.5
+          }
+        ]
+      },
+      "src-9": {
+        "short_id": "src-9",
+        "title": "feature.fm",
+        "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQG3DmbdalUuZt5RLlBZBCW_LVs2t-RmxQ6zpZbVEfCTK1aO1F0p3KZ9ETvk9ywWuqgQkG4tziMDlD_NAU5WdiFBnDJdMI8Yfw4l7gxih-5VWwxUe-BkEt7F11rFfczmaRymUv_-jD9aQIFFpKOVyL1ICCR-zzTFy1f20-lNwoVbwP_J0YD2QHD9JFtYjzualZmdtu-Jpg==",
+        "domain": null,
+        "supported_claims": [
+          {
+            "text_segment": "*   **Specific Tactical Behaviors & Use Cases:**\n    *   **Pre-Show Teasers & Behind-The-Scenes:** Guitarists post tour diaries, backstage/bus photos, prank videos, rehearsal snippets, and shout-outs to build suspense and anticipation",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **Audience Activation & Tagging:** Promoting custom city-specific tour hashtags (abbreviated for ease) to encourage fans to post their own footage, essentially turning the fanbase into a promotional \"news outlet\"",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "Post-show tracking involves commenting on and liking fan-tagged material",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **Specific Tactical Behaviors & Use Cases:**\n    *   **Pre-Show Teasers & Behind-The-Scenes:** Guitarists post tour diaries, backstage/bus photos, prank videos, rehearsal snippets, and shout-outs to build suspense and anticipation",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **Audience Activation & Tagging:** Promoting custom city-specific tour hashtags (abbreviated for ease) to encourage fans to post their own footage, essentially turning the fanbase into a promotional \"news outlet\"",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "Post-show tracking involves commenting on and liking fan-tagged material",
+            "confidence": 0.5
+          }
+        ]
+      },
+      "src-10": {
+        "short_id": "src-10",
+        "title": "guitarworld.com",
+        "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHKhvbVZvtCmxMYHUr_g2VJPBKtdFPUqtiPAwVfQ7rOpMgrc-TkF8iNuFyVbSAYD8B29YWrF2RM6ABWOkou7oYY2wO1XYNU0KtalKdRVJw8EnaMyvXbe9ZxWfQ8zYavSfXQxNxg7CQcrrxtZcYiA89rnYy_DF1xPBDSjLVhuGaiPtaEMJxKwqXytqU46VZ2knjcvA-MqJRZu2wpyDS5fc-M",
+        "domain": null,
+        "supported_claims": [
+          {
+            "text_segment": "Guitarists admit to filming a \"seemingly spontaneous\" short clip dozens of times over several days to ensure perfection",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "Guitarists admit to filming a \"seemingly spontaneous\" short clip dozens of times over several days to ensure perfection",
+            "confidence": 0.5
+          }
+        ]
+      },
+      "src-11": {
+        "short_id": "src-11",
+        "title": "melodicmag.com",
+        "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHCDPfY1jFXT0XPOP8ByWCX0uS7UHxpxEmjE5v4S6jQq_AhOqEZ2GtOBQtnBhQwN3DCuTsTLg9VqQThXrjVSVsGT05j9vqwPgkYSAXqATS9wZWCu4rBH55D9aIn_68DTvjTg7qwsja1wJYruRk25ubOClMvdVTDmcBkuxQi2mMDFbV9YCXwLhP4X1sy2a6l-fe8-jg=",
+        "domain": null,
+        "supported_claims": [
+          {
+            "text_segment": "They performed at major 2024 festivals including Coachella, Primavera Sound, Metronome Prague, Glastonbury, Lollapalooza Chicago, and Reading & Leeds",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "Toured heavily in summer 2024, playing Primavera Sound and Northside, and opening for Foo Fighters",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "They performed at major 2024 festivals including Coachella, Primavera Sound, Metronome Prague, Glastonbury, Lollapalooza Chicago, and Reading & Leeds",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "Toured heavily in summer 2024, playing Primavera Sound and Northside, and opening for Foo Fighters",
+            "confidence": 0.5
+          }
+        ]
+      },
+      "src-12": {
+        "short_id": "src-12",
+        "title": "musicmecca.org",
+        "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQE2yeB6KVqMTIyRKUQsRbuUf8ZuwO8zNNKPj8ksrWMyzJDg4Q59qnm1V9yX1Gcc17h6BB_XsUEA-HB6aFDaL4uBYXh1B0PaT7bqxWbaOhSWiFp1gpjZ14xc6rqaztfcJp4BDNvqrOulRfLYOuGgNRInY7QdgrxGS--F2LWRoXNbEfsXskKrocmBzJOawFpTewM=",
+        "domain": null,
+        "supported_claims": [
+          {
+            "text_segment": "Noted for \"bright, jangly bangers\"",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **Dummy:** LA-based four-piece band creating psychedelic, danceable guitar music drenched in feedback and synths (*Free Energy* album, September 2024), drawing comparisons to My Bloody Valentine and Stereolab",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "Dropped a self-titled debut in August 2024 with a booming, roaring guitar track called \"Swagger,\" appealing to fans of The Black Keys",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "Noted for \"bright, jangly bangers\"",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **Dummy:** LA-based four-piece band creating psychedelic, danceable guitar music drenched in feedback and synths (*Free Energy* album, September 2024), drawing comparisons to My Bloody Valentine and Stereolab",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "Dropped a self-titled debut in August 2024 with a booming, roaring guitar track called \"Swagger,\" appealing to fans of The Black Keys",
+            "confidence": 0.5
+          }
+        ]
+      },
+      "src-13": {
+        "short_id": "src-13",
+        "title": "denofgeek.com",
+        "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQGgH2NxFM3MrTCNLa8Z22sEu8j1ZKHGyt5CLZflx9zF8ayYi2m88dI1r-MQPoaPEJF-d6WbuE-jeTPlwCDkvJ_TzuFu6zMytD4SF2RB3Re4Ks1us-QRaMNwwRytKJFxqlxwmpMjQMuBheXCqPA0",
+        "domain": null,
+        "supported_claims": [
+          {
+            "text_segment": "*   **Arches:** Hong Kong-based indie rock band capturing fuzzed-out shoegaze/alt-rock tones reminiscent of Sonic Youth and My Bloody Valentine, performing at SXSW 2024",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **Arches:** Hong Kong-based indie rock band capturing fuzzed-out shoegaze/alt-rock tones reminiscent of Sonic Youth and My Bloody Valentine, performing at SXSW 2024",
+            "confidence": 0.5
+          }
+        ]
+      },
+      "src-14": {
+        "short_id": "src-14",
+        "title": "sxsw.com",
+        "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHZ7WOI0cB9zsQX0t6ElaezaikNwcaqYyB4vO7NO1VclAHIOEtsYOKWe2c4uwHhIrlM8nO89BAMVhAlaCiqqC3HaaZc-vVv8O_R2B0c53I9_ENG6y822KvJd0lRLMDw2GQrU6I0NZLGn_Rkz3yBJQ1xvgXOrRGjA4hEfOyAniUOoI3B0QY=",
+        "domain": null,
+        "supported_claims": [
+          {
+            "text_segment": "*   **BODEGA:** Art-punk band led by guitarist Ben Hozie, commenting on corporate youth culture; played SXSW 2024",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **China Bears:** UK-based Somerset band blending \"misery-anthemic\" emotive indie with high energy on festival main stages",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **dust:** Newcastle-based post-punk quintet combining Australian post-punk with experimental jazz and electronic notes",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **BODEGA:** Art-punk band led by guitarist Ben Hozie, commenting on corporate youth culture; played SXSW 2024",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **China Bears:** UK-based Somerset band blending \"misery-anthemic\" emotive indie with high energy on festival main stages",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **dust:** Newcastle-based post-punk quintet combining Australian post-punk with experimental jazz and electronic notes",
+            "confidence": 0.5
+          }
+        ]
+      },
+      "src-15": {
+        "short_id": "src-15",
+        "title": "fortunebusinessinsights.com",
+        "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQFvElMJXWge26BibOeigviLPJBLWQXqu0ebjw9oBgvFVPS9UCnI25MxaDmqtAMnMAWejJZeIim9qpmutdVW7LaS6H6LmI-P3z5l8bJS683kOMKvQhhVKEK1R5xOaYw4tdFYdHtlIDKKIpjenfR92hOCnsoQVUEQzpnjnucLF8Jhow==",
+        "domain": null,
+        "supported_claims": [
+          {
+            "text_segment": "There is a marked rise in demand for affordable, mid-range guitars ($1,200\u2013$2,000 bracket for \"established\" mid-range, though $500\u2013$1,000 represents the entry-mid market)",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   The expansion of live concerts, summer music festivals, and independent music production is documented as a primary \"key demand driver\" for electric guitar sales",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "This period sees a noticeable boost in beginner and mid-range instrument sales, heavily driven by the cultural hype of summer music festivals, live concert attendance, and younger players starting outdoor musical hobbies",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **Digital Content Sync:**\n    *   During festival season, digital content creation and social media engagement among younger demographics peak, driving high search volume for \"signature models\" and gear played by breakout festival artists (e.g., the rise of indie/rock live acts at summer festivals directly influences rookie purchases)",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "There is a marked rise in demand for affordable, mid-range guitars ($1,200\u2013$2,000 bracket for \"established\" mid-range, though $500\u2013$1,000 represents the entry-mid market)",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   The expansion of live concerts, summer music festivals, and independent music production is documented as a primary \"key demand driver\" for electric guitar sales",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "This period sees a noticeable boost in beginner and mid-range instrument sales, heavily driven by the cultural hype of summer music festivals, live concert attendance, and younger players starting outdoor musical hobbies",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **Digital Content Sync:**\n    *   During festival season, digital content creation and social media engagement among younger demographics peak, driving high search volume for \"signature models\" and gear played by breakout festival artists (e.g., the rise of indie/rock live acts at summer festivals directly influences rookie purchases)",
+            "confidence": 0.5
+          }
+        ]
+      },
+      "src-16": {
+        "short_id": "src-16",
+        "title": "reddit.com",
+        "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQE0U6qb7No09LQtVnxZKYItQQBfM52gDXRFz8VKXfy8z1vChqjHcK4DKWJeODy1bVNkjx-L191D3G_WTVrUaNCRTv9D3kv-0rRft1R1kFYrJqCSDU8aoxEV6r6cY9loxgKrXhjIU-lys8JFPaerPaqXnQ6OSiKMfk9NP9PcPh_pQVM6oTD3MpxBnAr9FfUtnEqy8u1g6SirdS29ihhLoiLL",
+        "domain": null,
+        "supported_claims": [
+          {
+            "text_segment": "There is a marked rise in demand for affordable, mid-range guitars ($1,200\u2013$2,000 bracket for \"established\" mid-range, though $500\u2013$1,000 represents the entry-mid market)",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "There is a marked rise in demand for affordable, mid-range guitars ($1,200\u2013$2,000 bracket for \"established\" mid-range, though $500\u2013$1,000 represents the entry-mid market)",
+            "confidence": 0.5
+          }
+        ]
+      },
+      "src-17": {
+        "short_id": "src-17",
+        "title": "pathfindermusiclessons.com.au",
+        "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHc95DlYW5PC-YHs-QrwvGU6vQ5WlZ_VUzvkM5X3IcBsl72IWsVccPWg10FpSB2A_KMGk2iG_Ck5fmjwgfAU-eD5wGKpi1nesNnhlURu7sb9qzlLLa6r0ThfLRIAgBxpJ4qGgHVlRvBeluqSOD4qeDUkZfJJPqjb07RT2oUmb9ocSh2W46ir1McpIC5Dpxk58Tq8Km9tkQd15nPQVwc",
+        "domain": null,
+        "supported_claims": [
+          {
+            "text_segment": "There is a marked rise in demand for affordable, mid-range guitars ($1,200\u2013$2,000 bracket for \"established\" mid-range, though $500\u2013$1,000 represents the entry-mid market)",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "Younger consumers favor sustainable/local wood choices over ecologically damaging rare woods",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "There is a marked rise in demand for affordable, mid-range guitars ($1,200\u2013$2,000 bracket for \"established\" mid-range, though $500\u2013$1,000 represents the entry-mid market)",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "Younger consumers favor sustainable/local wood choices over ecologically damaging rare woods",
+            "confidence": 0.5
+          }
+        ]
+      },
+      "src-18": {
+        "short_id": "src-18",
+        "title": "mythicguitars.com",
+        "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQFcorWVq16e_ozG5OVwl7-xn0Vzs6Q-AWLX-ZTYKldSw75saYaqtyxh9XhsIYTscN2TXgumQaktbrxHdem9jCQRktD6GybSUwPOyLlDcKwCXoE13gUbs3KnXBYvA91VeyJJblQUFYR6qHJm_It-n3mbJv77HyiHy8fswGvqVJAd1KwiZ0VvL0MiZMOHxoENYWs=",
+        "domain": null,
+        "supported_claims": [
+          {
+            "text_segment": "Younger consumers favor sustainable/local wood choices over ecologically damaging rare woods",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **Influencer Partnerships:** Collaborating with local guitarists and social media music influencers to review and demonstrate guitars",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **Community Building & Interactive Events:** Creating physical spaces, workshops, and guitar trials where players can connect and associate positive memories with the brand",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "Younger consumers favor sustainable/local wood choices over ecologically damaging rare woods",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **Influencer Partnerships:** Collaborating with local guitarists and social media music influencers to review and demonstrate guitars",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **Community Building & Interactive Events:** Creating physical spaces, workshops, and guitar trials where players can connect and associate positive memories with the brand",
+            "confidence": 0.5
+          }
+        ]
+      },
+      "src-19": {
+        "short_id": "src-19",
+        "title": "guitaryoudreamabout.com",
+        "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHNDUjEpQEpWk8gF-yu1Tgu87O6UwdFDKxUbyYd7bOxeZaNIPt8tVPGsG-ojvYLS9p74buoT4QekNOKnUXWOwC2Fu1WagYJA-P8cbmyFzswW-SKq0tZCUf43lCGPulo8WcwvfZUeoYx1w_0MH9tBi18YPvLgTN7PCYQ8L7EAROW-gCeb0cm2K7IHtJrCaJ4XY_nxJI2yKUeG_NxQHP_EfWZlHByppMCXXzN9bhuw7nAHoG7FIE4lXjwWM_59aiaDnXMqjelk3Y=",
+        "domain": null,
+        "supported_claims": [
+          {
+            "text_segment": "*   **Niche Product Differentiation:** Providing \"hybrid\" specs that combine classic designs with modern updates (e.g., matching a long-scale Fender snap with thicker Gibson/PRS-style humbucking tones, or utilizing 5-way switching and push/pull coil-matching)",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **Niche Product Differentiation:** Providing \"hybrid\" specs that combine classic designs with modern updates (e.g., matching a long-scale Fender snap with thicker Gibson/PRS-style humbucking tones, or utilizing 5-way switching and push/pull coil-matching)",
+            "confidence": 0.5
+          }
+        ]
+      },
+      "src-20": {
+        "short_id": "src-20",
+        "title": "guyker.com",
+        "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHbYTZ2OqPBkWtmu0UqFCt6F_66QIbRHEARzV68bj5bw8N6bllKtWmSozutOVI0-cOgrB5H7T5I1tRcC4YRFkvAPFxYWkaZBN5_GUDru1C0-sVqlm9ZhKTQFRMAblQjs5Of050TFsccbTZ9-L9lHCP4H8QsFsLk1vMAa54O12zk9Q7irOP_7Rt-8Mws6UVxcoTHQROgTwnNwQ==",
+        "domain": null,
+        "supported_claims": [
+          {
+            "text_segment": "*   **Omnichannel Integration:** E-commerce and targeted Instagram/Facebook ads drive initial awareness, but marketing must direct buyers to try the physical feel of the fretboard, either through local shops (where 65-70% of guitar purchases still take place) or hassle-free online returns",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **Omnichannel Integration:** E-commerce and targeted Instagram/Facebook ads drive initial awareness, but marketing must direct buyers to try the physical feel of the fretboard, either through local shops (where 65-70% of guitar purchases still take place) or hassle-free online returns",
+            "confidence": 0.5
+          }
+        ]
+      },
+      "src-21": {
+        "short_id": "src-21",
+        "title": "oscaronguitars.com",
+        "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHuXi1O9ND7uiB0P17TLXgjvRzO1qfZQhgvZFmdqTcFigDQOCOU6I8vugbmbYGlg6fyeXazKl2sNB749xIDh7Wcu_2ZY3RsFDfNn0MtgYoGJPhjANf4idF52oagwhUggbH60RB4wECIsCGdrB02BO4bYWr-SnnDjZj2QIGDxL5s7cTIOwgBEpLyPr_Ql-rFMDr_nASeeZ4_jUxeHf874yOOGVA2F_6vG9q39E11jqrh",
+        "domain": null,
+        "supported_claims": [
+          {
+            "text_segment": "*   **Omnichannel Integration:** E-commerce and targeted Instagram/Facebook ads drive initial awareness, but marketing must direct buyers to try the physical feel of the fretboard, either through local shops (where 65-70% of guitar purchases still take place) or hassle-free online returns",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "Impact of Festival Season on Electric Guitar Sales and Gear Interest\n*   **Macro Market Growth Trends:**\n    *   The electric guitar market grew from **$4.49 billion in 2022** and is projected to reach **$7.15 billion to $7.62 billion by 2030**",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **Omnichannel Integration:** E-commerce and targeted Instagram/Facebook ads drive initial awareness, but marketing must direct buyers to try the physical feel of the fretboard, either through local shops (where 65-70% of guitar purchases still take place) or hassle-free online returns",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "Impact of Festival Season on Electric Guitar Sales and Gear Interest\n*   **Macro Market Growth Trends:**\n    *   The electric guitar market grew from **$4.49 billion in 2022** and is projected to reach **$7.15 billion to $7.62 billion by 2030**",
+            "confidence": 0.5
+          }
+        ]
+      },
+      "src-22": {
+        "short_id": "src-22",
+        "title": "positivegrid.com",
+        "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQElg5Gw5h02gXtIzmhANiOXBiFq8QV6MOli23qaAqXjhGZPkz4nwb7LxNiUbk7I_WFX4waNDM5zhq2pbn4IRqB5EeYANZghOS0ZoKqjfmoXFb0uRpa2AzG4x7oGGVODRc8vQ0KPfFf-AgtJiBqcbhlbXBBrhPAzxc7K6me8IEDNrqdeYgQteZA3J5SlwAr9dP7hbXqBa20=",
+        "domain": null,
+        "supported_claims": [
+          {
+            "text_segment": "*   **Omnichannel Integration:** E-commerce and targeted Instagram/Facebook ads drive initial awareness, but marketing must direct buyers to try the physical feel of the fretboard, either through local shops (where 65-70% of guitar purchases still take place) or hassle-free online returns",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **Omnichannel Integration:** E-commerce and targeted Instagram/Facebook ads drive initial awareness, but marketing must direct buyers to try the physical feel of the fretboard, either through local shops (where 65-70% of guitar purchases still take place) or hassle-free online returns",
+            "confidence": 0.5
+          }
+        ]
+      },
+      "src-23": {
+        "short_id": "src-23",
+        "title": "psmarketresearch.com",
+        "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHq8yPbLZYRYmlaAHWOeCDjPY7Qp4N_Wz-S3vWp5WJpG9mefGFaemJkOKUnCQI6mQxQHit78crvq950PAOHRFUX4KJOMu5fHimt5Pv4HuDe4Jd83L0K6OpXFZZ3_kExDUspP5Wh8tI8VWkXoJNv_tD86WSyq1-_s7oOr3vSIy1Rpr0V",
+        "domain": null,
+        "supported_claims": [
+          {
+            "text_segment": "Impact of Festival Season on Electric Guitar Sales and Gear Interest\n*   **Macro Market Growth Trends:**\n    *   The electric guitar market grew from **$4.49 billion in 2022** and is projected to reach **$7.15 billion to $7.62 billion by 2030**",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "Impact of Festival Season on Electric Guitar Sales and Gear Interest\n*   **Macro Market Growth Trends:**\n    *   The electric guitar market grew from **$4.49 billion in 2022** and is projected to reach **$7.15 billion to $7.62 billion by 2030**",
+            "confidence": 0.5
+          }
+        ]
+      },
+      "src-24": {
+        "short_id": "src-24",
+        "title": "accio.com",
+        "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQF0F2UKw8yYHkg0gemfB5M8U8unZPoitRGsGCReSiq1YIs2cccXmLMsoDgrgyPMVJqIbKVaBHyFSE6mJCi4E0D89JkR5zmqkn7zKMXMtWREz0f-ZbCwkgneSbN2foIS56OvPCeKz0xYO9T4m_Nt",
+        "domain": null,
+        "supported_claims": [
+          {
+            "text_segment": "*   **Seasonal Search & Sales Patterns:**\n    *   **Primary Peak:** Holiday shopping in November and December remains the absolute highest peak for sales and search volume (normalized search interest scores hitting 100)",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **The Summer/Festival Peak:** Google Trends and market reports identify a secondary promotional window during **June to August**",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "This period sees a noticeable boost in beginner and mid-range instrument sales, heavily driven by the cultural hype of summer music festivals, live concert attendance, and younger players starting outdoor musical hobbies",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **Seasonal Search & Sales Patterns:**\n    *   **Primary Peak:** Holiday shopping in November and December remains the absolute highest peak for sales and search volume (normalized search interest scores hitting 100)",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **The Summer/Festival Peak:** Google Trends and market reports identify a secondary promotional window during **June to August**",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "This period sees a noticeable boost in beginner and mid-range instrument sales, heavily driven by the cultural hype of summer music festivals, live concert attendance, and younger players starting outdoor musical hobbies",
+            "confidence": 0.5
+          }
+        ]
+      },
+      "src-25": {
+        "short_id": "src-25",
+        "title": "guitarplayer.com",
+        "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQG0I95HOXLIKZwM694nC8DEPcm7jvx9So8FVePciABCpTj5Ed4ZJDNcQ_Kt_Aczgl1nz8bGKWXNdrjJZvISQ3mGTO7EXa0qi9Gh-MhOMp3CkVfF-benIERkDK2iJLcmf8rQ8EB6DgKSNcdQ3gWB",
+        "domain": "guitarplayer.com",
+        "supported_claims": [
+          {
+            "text_segment": "**Facts & Observations:**\n*   The PRS SE CE 24 is considered excellent value for money, often priced just below $500 (though some sources mention around $700 or $669 CAD).",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   It is described as an \"ultra playable instrument\" that looks and sounds more expensive than it is.",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   It stands \"head and shoulders above the competition\" when compared to other beginner guitars.",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   It feels like a \"proper\" PRS.",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   Features versatile humbuckers with coil-split functionality and a fantastic tremolo system.",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   It has excellent playability.",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "**Sentiment:** Highly positive, often cited as an excellent choice for its price point and versatility for all skill levels, especially intermediate players looking for a quality instrument.",
+            "confidence": 0.5
+          }
+        ]
+      },
+      "src-26": {
+        "short_id": "src-26",
+        "title": "reddit.com",
+        "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQFPEmj6BMMYXugWLxaaK8h9TIlKpFUMNLFoomYqAC91cH75WjS-I6Yp8iS-lKkiSDI5c3NjRz0OEowoG_lBdArno92G21xYswOEo-zFM4EoBbfkvqBjqGWWL2j94pM-zO2m_I5qUa1Glp9MJDr44EiXwFFU9-lTKv8S3Lk88EqxaRJOKsrOJHinZfPKSGZBdJ8f-9DXsso23wWXL7Rq9HsGh0YN",
+        "domain": "reddit.com",
+        "supported_claims": [
+          {
+            "text_segment": "**Facts & Observations:**\n*   The PRS SE CE 24 is considered excellent value for money, often priced just below $500 (though some sources mention around $700 or $669 CAD).",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   Many reviewers recommend it for any player level, including beginners and intermediate players.",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   It has excellent playability.",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   Some minor criticisms include pickups being \"ok\" for some users (with plans to upgrade) and preferring a gloss neck over satin.",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   The overall quality control from PRS is highly regarded.",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "**Sentiment:** Highly positive, often cited as an excellent choice for its price point and versatility for all skill levels, especially intermediate players looking for a quality instrument.",
+            "confidence": 0.5
+          }
+        ]
+      },
+      "src-27": {
+        "short_id": "src-27",
+        "title": "thatguitarlover.com",
+        "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHOgf5yPz8WqTVnG3aA91B_WS-R5cYFMLpFFV8_NY_ioiRxn9fIAEUDRQ09m0kZIRCjEA7i_rMZQyDtwwiyD5rTTw1TTtlTFg0y9wHmB4SKT5XIE8CnFtfUdoJ4tvkzufeFCrnUAw3qfk-a14qANTcK-QzS",
+        "domain": "thatguitarlover.com",
+        "supported_claims": [
+          {
+            "text_segment": "**Facts & Observations:**\n*   The PRS SE CE 24 is considered excellent value for money, often priced just below $500 (though some sources mention around $700 or $669 CAD).",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   It has excellent playability.",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   The neck is described as a \"wide thin\" profile, which is comfortable for extended playing and suitable for a mix of classic and contemporary styles, including fast runs, bluesy bends, and complex chords.",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   The fretwork is noted as \"perfect\" and fret quality very good.",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   The 10-inch fretboard radius makes it easy to make chords and allows aggressive bends without choking strings.",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   It holds tune well, and the PRS bridge works as expected.",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   The tuners are \"PRS Designed,\" are smooth, but some minor slippage was noted with fresh strings (alleviated by string stretching).",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   The electronics feature PRS 85/15 \"S\" pickups with a three-way toggle and a coil split on the tone pot for single-coil tones.",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   The body is mahogany with a thin satin finish, contributing to a \"highly resonant instrument\" and a \"delicious warm tone\".",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   It often comes with a \"decent gig bag.\"",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   The 85/15 \"S\" pickups are different from US-made 85/15s, described as a \"bit more bitey and hollow\" than the US ones.",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "**Sentiment:** Highly positive, often cited as an excellent choice for its price point and versatility for all skill levels, especially intermediate players looking for a quality instrument.",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "**Facts & Observations:**\n*   The PRS SE CE 24 features PRS 85/15 \"S\" humbucking pickups with coil splits.",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   The push/pull tone control allows for coil-tapping, offering versatility by achieving single-coil tones.",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   The PRS SE CE 24 has a \"wide range of tones,\" all usable, but different from US-made 85/15 pickups, being \"a bit more bitey and hollow.\"",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **US-made PRS 85/15 pickups:** The SE's 85/15 \"S\" pickups are different, described as \"more bitey and hollow.\"",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **Durability:** Scarf-jointed maple necks are a common and reliable construction model.",
+            "confidence": 0.5
+          }
+        ]
+      },
+      "src-28": {
+        "short_id": "src-28",
+        "title": "youtube.com",
+        "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEXz7qxhthR3hOU79aU0mrXY1-ZOMeHWg2S1Wxu3A65ajKFQ3-F8fMgoYnfBqlFQHUjEkqfx_tP7D3bhrweI3b_CbDwbhswcUTkmFRQaz60LzH1_bbIEs0ddWpmwYIHfuOWZ93l6g0=",
+        "domain": "youtube.com",
+        "supported_claims": [
+          {
+            "text_segment": "*   Many reviewers recommend it for any player level, including beginners and intermediate players.",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   It has excellent playability.",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   The 85/15 \"S\" pickups are described as having extended high and low ends with clarity and balance.",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   The humbuckers provide a lovely warm tone, ideal for rock and metal genres.",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   The body is mahogany with a thin satin finish, contributing to a \"highly resonant instrument\" and a \"delicious warm tone\".",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   It is considered a \"workhorse instrument\" suitable for beginners to professional musicians due to its high-quality build and price.",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "**Sentiment:** Highly positive, often cited as an excellent choice for its price point and versatility for all skill levels, especially intermediate players looking for a quality instrument.",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   The 85/15 \"S\" pickups provide an extended high and low end with clarity and balance.",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   The push/pull tone control allows for coil-tapping, offering versatility by achieving single-coil tones.",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   The humbuckers provide a \"lovely warm tone,\" ideal for rock and metal.",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **Playability & Comfort:**\n    *   Bolt-on necks, especially with a smooth finish, provide a comfortable playing feel.",
+            "confidence": 0.5
+          }
+        ]
+      },
+      "src-29": {
+        "short_id": "src-29",
+        "title": "zzounds.com",
+        "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHa0mNcs6Ug5_B5kIXDCktAVOukuukn-vKqt4bCrmpil7rrkG_gPz1EmB8m17BZekdZlIGrcvp_bZ_w9c-7pPrYf4eygwGEcFh3VvN60No1oAJTd9S7_-J_D66umlheMf8P6KMCYSuiF_w9zw==",
+        "domain": "zzounds.com",
+        "supported_claims": [
+          {
+            "text_segment": "*   One user, a beginner/intermediate player, found it \"phenomenal\" and \"rocks.\"",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   The electronics feature PRS 85/15 \"S\" pickups with a three-way toggle and a coil split on the tone pot for single-coil tones.",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "**Sentiment:** Highly positive, often cited as an excellent choice for its price point and versatility for all skill levels, especially intermediate players looking for a quality instrument.",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "**Facts & Observations:**\n*   The PRS SE CE 24 features PRS 85/15 \"S\" humbucking pickups with coil splits.",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   The push/pull tone control allows for coil-tapping, offering versatility by achieving single-coil tones.",
+            "confidence": 0.5
+          }
+        ]
+      },
+      "src-30": {
+        "short_id": "src-30",
+        "title": "guitarinteractivemagazine.com",
+        "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQFzs0xH-0WTxb5BR2N-IxlYnB1jJSPRIvRyNaQ_Ig1TnqvmURZ9VO-JGGHTCuaxPqY0lY8vns-9L-YuENhIUJSaJjvi4x9whFLvcSRhmvVoEzbTX0SHDXtiKEZ8c4_LYo_ZXv7qc2piwa1H5wU79dLfRpWiI7fLkItGTOQFExO0BpZWbxcURNU=",
+        "domain": "guitarinteractivemagazine.com",
+        "supported_claims": [
+          {
+            "text_segment": "*   It has excellent playability.",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   The neck is described as a \"wide thin\" profile, which is comfortable for extended playing and suitable for a mix of classic and contemporary styles, including fast runs, bluesy bends, and complex chords.",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   The 10-inch fretboard radius makes it easy to make chords and allows aggressive bends without choking strings.",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   The electronics feature PRS 85/15 \"S\" pickups with a three-way toggle and a coil split on the tone pot for single-coil tones.",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   The humbuckers provide a lovely warm tone, ideal for rock and metal genres.",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   The body is mahogany with a thin satin finish, contributing to a \"highly resonant instrument\" and a \"delicious warm tone\".",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "**Sentiment:** Highly positive, often cited as an excellent choice for its price point and versatility for all skill levels, especially intermediate players looking for a quality instrument.",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "**Facts & Observations:**\n*   The PRS SE CE 24 features PRS 85/15 \"S\" humbucking pickups with coil splits.",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   The push/pull tone control allows for coil-tapping, offering versatility by achieving single-coil tones.",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   The humbuckers provide a \"lovely warm tone,\" ideal for rock and metal.",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   The PRS CE range is known for giving a range of versatile tones and quality features.",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   It is equally at home in \"smooth blues as it is in hard rock and metal contexts.\"",
+            "confidence": 0.5
+          }
+        ]
+      },
+      "src-31": {
+        "short_id": "src-31",
+        "title": "premierguitar.com",
+        "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHSs8WtcNZWiQEdcrfv_yLVLFk39lbc3IzJ5TOB23rID15Xgpffmd0akfSu3dKBgT-Q6-9tAIp9cbfRidRltGuHCtVhuMqyHVo17R5edmhi8hpvvRln7jHIxFrjrTsge1VHqoF-eszU93Leq_yCP1RxnnE=",
+        "domain": "premierguitar.com",
+        "supported_claims": [
+          {
+            "text_segment": "The middle position in split-coil mode is noted as an \"interesting twist\" on the Stratocaster spirit.",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   There's minimal volume loss when switching to split-coil mode.",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "**Sentiment:** Highly positive, often cited as an excellent choice for its price point and versatility for all skill levels, especially intermediate players looking for a quality instrument.",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   When coil-split, the bridge pickup can sound like a \"hot Strat pickup,\" while the neck pickup is \"a bit rowdy\" and more overdriven than a Strat neck pickup.",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   The middle position in split-coil mode is noted as an \"interesting twist\" on the Stratocaster sound.",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   There is \"very little volume loss\" when compared to humbucker mode after coil-splitting.",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **Stratocaster:** The coil-split tones are compared to Stratocaster sounds.",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **Telecaster:** Coil-split bridge tone compared to Telecaster bridge, with less bite and muscle.",
+            "confidence": 0.5
+          }
+        ]
+      },
+      "src-32": {
+        "short_id": "src-32",
+        "title": "youtube.com",
+        "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQF1UIEolCxBlo7MWsCs_MinW-VzO43w4XQNJUKQebqKoTFV6mGvczn77ZyvWL_oaUHKibpy6qqhEDIKTOhlOO_oNhjvb1ir95bL3qBJrE3cLYDU4PudLp5hoM5uWKryrAeuCPg43t3cWgRJjg==",
+        "domain": "youtube.com",
+        "supported_claims": [
+          {
+            "text_segment": "**Facts & Observations:**\n*   A common question for players who have moved beyond beginner gear is what instrument truly supports their growth.",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   Intermediate players start caring about tone, playability, and versatility.",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   The goal for intermediate players is to own the *right* guitar for how they play, not just *any* guitar.",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   Challenges can include wasting money on features they don't need.",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "There can be self-doubt (e.g., \"too late\" in 30s).",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "**Facts & Observations:**\n*   Intermediate players, having moved beyond beginner gear, seek instruments that truly support their growth.",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   They prioritize tone, playability, and versatility.",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   Important factors include pickup types, neck profiles, scale length, and build quality.",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   Reliability for long-term use is a key consideration.",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   Intermediate players should avoid common mistakes of buying gear that looks impressive but doesn't suit their style.",
+            "confidence": 0.5
+          }
+        ]
+      },
+      "src-33": {
+        "short_id": "src-33",
+        "title": "youtube.com",
+        "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQGNDS51Vuk-cPCDy8qICyL2iGgTq3A-HaRaTlTT1wFsUE2Ayuh6HtmE0ivSaVxuFvJiddCbvJyo5DNmi_O1KL7ajX8Q3CBz8jQMWfOVkoboDOGgpYfy2vyO3KGhJYpmIkbiwntwKGk=",
+        "domain": "youtube.com",
+        "supported_claims": [
+          {
+            "text_segment": "*   Significant progress requires consistent practice and effective exercises, rather than just watching videos.",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   For advanced techniques, challenges include tricky alternate picking, metric modulation, stretching, and dynamic picking patterns.",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   Playing complex patterns, especially those involving four notes per string with awkward gaps and stretches, requires careful thumb positioning and individual practice of patterns.",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   Many self-taught players may lack music theory knowledge.",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   It's a common misconception that it's \"too late\" to become a great guitarist in your 30s.",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "**Entities/Concepts:**\n*   Practice routines, online guitar academies, technique courses, structured practice plans, theory courses.",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "There can be self-doubt (e.g., \"too late\" in 30s).",
+            "confidence": 0.5
+          }
+        ]
+      },
+      "src-34": {
+        "short_id": "src-34",
+        "title": "youtube.com",
+        "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQGWqZU2KlSxW23VqJ7UKWimNXWZwfPTvcVbGlsmsQrzcyTvTITFbaDpZQ5IgB94judWhq_tGvdLCmEj3I9e-Yh_hcwa0oI17UAqNuncV-3HgHsqQLZsKQY6v02c0RlpyhZNXKsI3ME=",
+        "domain": "youtube.com",
+        "supported_claims": [
+          {
+            "text_segment": "*   Some aspiring guitarists attempt to cover very difficult songs.",
+            "confidence": 0.5
+          }
+        ]
+      },
+      "src-35": {
+        "short_id": "src-35",
+        "title": "youtube.com",
+        "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQF2OLor0Q8POn8dCQlg0KY4MySIuSiYVx0-Q4iUqSOqP6slu-jyKoAsKk8OgcCqPbdJuZhno1gdeDe1Y0bxZcc4ufzMYcI8ViHodR20hTIQ_ZLTNhStCpAP7Pka3sYhj3lEEe_n0Go=",
+        "domain": "youtube.com",
+        "supported_claims": [
+          {
+            "text_segment": "*   \"The Guitar Ninja Academy\" offers beginner, intermediate, and advanced lessons with backing tracks.",
+            "confidence": 0.5
+          }
+        ]
+      },
+      "src-36": {
+        "short_id": "src-36",
+        "title": "youtube.com",
+        "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHGS-lVBp1Y2KviI7qQpZ-022sgImgBmqs62rvok4JMFsLM-fRM3Alo7iUnU4Nooz9g7duhk-bbudiEq8-pGld5zk1qx84rOfmSXnqjZBYY7RM-7GiDL-dB3-tCH6UlWhZzHP_p73A=",
+        "domain": "youtube.com",
+        "supported_claims": [
+          {
+            "text_segment": "*   The PRS SE CE 24 is described as having \"more mid-range\" and \"more presence and a little more fullness\" compared to the PRS SE Swamp Ash Special.",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   The humbuckers on the CE 24 and Swamp Ash Special sound \"very similar\" with \"upper mid-range bite\" that the 85/15 S pickups push.",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "**Comparisons:**\n*   **PRS SE Swamp Ash Special:** The Swamp Ash Special's middle position (slug coil of neck pickup with middle single coil, or full bridge humbucker with middle single coil) offers a \"Fender-y bounce\" and \"unmistakable Strat-iness\" with a bit of kick, differing from the CE 24.",
+            "confidence": 0.5
+          }
+        ]
+      },
+      "src-37": {
+        "short_id": "src-37",
+        "title": "guitarworld.com",
+        "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEIW2ZzjMg773MJM17q2lC0JfBS-gZuXw-kfEDyJ_4o6L7SVt3PJcD2YDK7XQqCFgdxEYofan1A4s1Hq5U5osH7zpr8D_fYUA3Rr0LbHczW3BgM-poAMkLWESpFe6sMw-QJIDAYeW-Nc460hCUB3fHVMN9_QfRHbYN5EV0jXqyLMzZ9cYJxqlTUbiuIAA==",
+        "domain": "guitarworld.com",
+        "supported_claims": [
+          {
+            "text_segment": "*   The CE 24's simple full coil-splits sound brighter than the Swamp Ash Special's partial coil-splits, which are subtly fuller.",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "**Comparisons:**\n*   **PRS SE Swamp Ash Special:** The Swamp Ash Special's middle position (slug coil of neck pickup with middle single coil, or full bridge humbucker with middle single coil) offers a \"Fender-y bounce\" and \"unmistakable Strat-iness\" with a bit of kick, differing from the CE 24.",
+            "confidence": 0.5
+          }
+        ]
+      },
+      "src-38": {
+        "short_id": "src-38",
+        "title": "pathfindermusiclessons.com.au",
+        "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQH0LFvUaTK3ZwGtMFvmMxi7maldrbh6B8pfTHMTairgkYe_npFHhLwr0yFP3CbqXRIK8J5VnQ1BvFs1GLl7kiL_yKMztoI-jCJmQWLX51ufKv_pg3_Q_ummvLUOlnn6vxOOmZAIkhKLzSmXQYAixIz6i9gGM836iD3Y5ZOVW0VLW9-u5Hb46M_c3PuGYwLSQEVUug-nbfZIFWreWua9",
+        "domain": "pathfindermusiclessons.com.au",
+        "supported_claims": [
+          {
+            "text_segment": "*   Intermediate guitars often range from $300 to $1500, with $800-$1500 being a \"sweet spot\" for professional-level \"workhorse\" guitars.",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   At the intermediate level, players often want \"better pickups\" and better quality tonewoods, leading to a nicer sound.",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   Different scale lengths, fret types, and bridges impact playing feel.",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   It's recommended to specialize rather than seek a \"jack-of-all-trades\" guitar.",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   Intermediate players might consider a different type of guitar than their first, e.g., upgrading from a steel-string acoustic to an electric, or from a Strat-style to something with humbuckers.",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   Specific features like acoustic guitar pickups (for live playing) or floating bridges are important depending on playing style.",
+            "confidence": 0.5
+          }
+        ]
+      },
+      "src-39": {
+        "short_id": "src-39",
+        "title": "yamaha.com",
+        "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEYARpX2_vAVxC-HQLyff3q1I4C4mtskmyMf0Q1LwkBF6mM8WMFu8rD--ga1HkWHObxTthijQZ8WtLQgAQLBK9on34vGgNdm24mFtZGgCnWTh9B3jpL7FAydWMF73IcvMalpXNAwGmw-d-HLyIfcPE6cF8nM33s-jpLMhOhH7zFTyCoJ2Xmmop6uyVlFyaQS9mKJj-fAM0xOM6YCQZBvpbSw6U-g7zkohfNgI4=",
+        "domain": "yamaha.com",
+        "supported_claims": [
+          {
+            "text_segment": "*   **Pickups:** Humbuckers are recommended for intermediate players interested in rock, heavy metal, and jazz due to their ability to provide high gain with minimal hum.",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "Many guitars combine single-coil and humbucker pickups for tonal versatility.",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "Active pickups offer higher output and cleaner sound, often with more sound control.",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **Neck Profile:** A smooth, playable neck with properly dressed frets is crucial for bending notes, hammer-ons, pull-offs, and clean articulation.",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **Frets:** Most electric guitars have 22 frets, but 24 frets offer a full octave above the twelfth fret for high-register playing.",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **Body Style:** Solid body is the most common and versatile, though hollow and semi-hollow bodies offer different resonances and tones.",
+            "confidence": 0.5
+          }
+        ]
+      },
+      "src-40": {
+        "short_id": "src-40",
+        "title": "reddit.com",
+        "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQH68SCMYhVKQ3lbCzjDDJstV9eGxecrJrR1l8YcOknWiZeWTBX8XCFn5g0dfxWWPsh9hPNFZPzqNoMijg-YIhlDWkna52x1ARLNUGx_EnmRKcicTcmYHHsdPjVu3nZAEFHqeBnnbLfc93d3QZcJdlk3d9P8ul6J9hO15yxJtKVKMkC774kKtRad1so20bKu2GyfLxt6bFuyHA==",
+        "domain": "reddit.com",
+        "supported_claims": [
+          {
+            "text_segment": "*   **Pickups:** Humbuckers are recommended for intermediate players interested in rock, heavy metal, and jazz due to their ability to provide high gain with minimal hum.",
+            "confidence": 0.5
+          }
+        ]
+      },
+      "src-41": {
+        "short_id": "src-41",
+        "title": "musicarts.com",
+        "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHMiPi3YsdDUOmGlda_0w6VvYhxrXNMEMUVsM6QJHj-kF0Jsrlj9S-HC1PUJbF5issYDCbgdtN-arefPqA5HycvBjoJQa0EP3J_80npP9RNqS76GBWMrnApPkFjWShZOcfGHl2sw3cX2UT6ryFsuTnEkTtdp-hiSQ2VWZTAHtrnHvBvJjyb0y-T5CEX1yvLb2Q=",
+        "domain": "musicarts.com",
+        "supported_claims": [
+          {
+            "text_segment": "*   **Bridge:** A patented tremolo system can provide smooth pitch modulation for expressive leads and vibrato.",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   Maple as a neck wood, particularly roasted maple, provides comfort and stability.",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   Bolt-on maple necks often feature a \"wide thin\" profile.",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   The combination of a poplar body and bolt-on maple neck can result in a \"snappy attack and balanced sustain.\"",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   The 10-inch fretboard radius makes it easy to execute bends and slides.",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   Allows seamless transition from rhythm to intricate lead patterns.",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   They offer reliable connection and straightforward maintenance.",
+            "confidence": 0.5
+          }
+        ]
+      },
+      "src-42": {
+        "short_id": "src-42",
+        "title": "gstringuitars.com",
+        "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQFysxRrxy6b3cViuQMaY5O-6PeHn1OrI2mABDIqca6g7GTagiglc2isgT90X7qHIWb32XmfrCctMocnVQxFy2obG59Pz7EKkvUloq8y68OftVckt7jzKc_TQkWU1ouxPquqhg9MPaxTKNrwmPPBW6VH9VY0Sb22qTg9doQsnLoHZqcvXvyNWg-IRw==",
+        "domain": "gstringuitars.com",
+        "supported_claims": [
+          {
+            "text_segment": "**Facts & Observations:**\n*   Bolt-on necks are attached to the guitar body with screws, often with a metal plate.",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   The original Fender Esquire (1949) and Telecaster used ash bodies and maple bolt-on necks, setting manufacturing standards.",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   Neck-through construction is generally considered to offer the best sustain.",
+            "confidence": 0.5
+          }
+        ]
+      },
+      "src-43": {
+        "short_id": "src-43",
+        "title": "ultimate-guitar.com",
+        "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEptz-VMwu7NGCniJ6ywmvjJn6NMrXFtEDaCa0SlO4j6OR0oB_ZlxnTMK2cNkjG18JtQS0NN-hzl6RM-C_EHp0yRKmQ428QZob8kXEAAmaZ14KTs7uVzfweDFdaktoU6exwXGM8hn1q9tHbkrv9TExpIgYlM3kdQ8MnVw5YTQ9sVGf5amTGAcylP-ZDaq_dsVVW2R0br6ADC0cs0ZWtim6G6bPrujpIzwAe14BYE1B-rbWnceZ-CR0TxFv05ZxkkyTYIu9n14ib-kDeafKTl5TZGOKid81tMqJa",
+        "domain": "ultimate-guitar.com",
+        "supported_claims": [
+          {
+            "text_segment": "*   Maple as a neck wood, particularly roasted maple, provides comfort and stability.",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **Tone/Sustain:**\n    *   One perspective suggests bolt-on necks sound \"snappier,\" which is beneficial for articulate picking and metallic/thrashy genres.",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   Josh Middleton of Sylosis prefers alder body, bolt-on maple necks for their \"snappier\" sound, which he finds \"noticeably better\" for his style of music.",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   The sound difference might be more noticeable unplugged but pickups have a greater influence when plugged in.",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   Lighter weight compared to some set-neck, all-mahogany guitars, improving comfort during long playing sessions.",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **Misconceptions:** A common misconception is that bolt-on necks are inherently cheaper or inferior to neck-through or set-neck constructions.",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "The choice between constructions should be based on musical demands, not perceived quality or price.",
+            "confidence": 0.5
+          }
+        ]
+      },
+      "src-44": {
+        "short_id": "src-44",
+        "title": "quora.com",
+        "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQERCuaZYMDFJuHEXoAe3z1qkbFqIgmoDGxmT1eNnb1x2zbkAJIJ8EvUFkUSV-l1OIaWRmKBNFfVPjp8X1tf70g8pC1fz7U59auQtNCgnivT887V4JzMpiSVkXdXds8Kg8AzTDLaFR-fQzy-FOTr8Vvhe_LZcMrrBHOZCTGKieIx6A5DBEyDxFTX3jTcyHVErJQxkPPh4VGIYW-3vGps7vyslPnM527b9BxXwntwksJUTb9qotqMyyCsJkotEVqWHcii81jBBglju82XQJmg8P9Tyo2FMpQtS03UaG9cc47cT2qZe2jartaoUA==",
+        "domain": "quora.com",
+        "supported_claims": [
+          {
+            "text_segment": "*   Bolt-on construction can make it easier to fret, particularly for those with smaller hands or beginners, due to thinner neck profiles and smaller radii.",
+            "confidence": 0.5
+          }
+        ]
+      },
+      "src-45": {
+        "short_id": "src-45",
+        "title": "unofficialwarmoth.com",
+        "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQFGM_J8-zyhwzukIVEvk_p6qrVOwfw_3PUiCvo_U2XwNk5S7Oi6nOcqabYka5KGPL65TrGqqCsaXb6oPUHUBEj0R4ju_CzhEZnAJjFjjWe8Hs3u7wW_CM1kAsEwYwDShn7ppYAZWGdjSvqanEHY_RXpes7D_Y2ipcdCUDCiyMYTvF21gQ_cfF_oVOBvmveNwietapTbsrGq0Pfbfeq191A930kl",
+        "domain": "unofficialwarmoth.com",
+        "supported_claims": [
+          {
+            "text_segment": "*   Some argue there's \"absolutely no difference in sustain or tone\" between bolt-on and set-neck, attributing sustain more to humbuckers and bridge type.",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   Others suggest that glue (in set-necks) can act as an insulator, and a well-attached bolt-on can have better tone transfer and sustain than a set-neck.",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   Neck-through construction is generally considered to offer the best sustain.",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **Maintenance & Customization:**\n    *   Bolt-on necks are convenient because the neck can be easily removed for work or replaced.",
+            "confidence": 0.5
+          }
+        ]
+      }
+    },
+    "campaign_web_search_raw": "Here are the raw findings based on the provided search queries:\n\n### Query: \"PRS SE CE 24\" review beginner intermediate\n\n**Facts & Observations:**\n*   The PRS SE CE 24 is considered excellent value for money, often priced just below $500 (though some sources mention around $700 or $669 CAD).\n*   It is described as an \"ultra playable instrument\" that looks and sounds more expensive than it is.\n*   It stands \"head and shoulders above the competition\" when compared to other beginner guitars.\n*   It feels like a \"proper\" PRS.\n*   Features versatile humbuckers with coil-split functionality and a fantastic tremolo system.\n*   Many reviewers recommend it for any player level, including beginners and intermediate players.\n*   One user, a beginner/intermediate player, found it \"phenomenal\" and \"rocks.\"\n*   It has excellent playability.\n*   The neck is described as a \"wide thin\" profile, which is comfortable for extended playing and suitable for a mix of classic and contemporary styles, including fast runs, bluesy bends, and complex chords.\n*   The fretwork is noted as \"perfect\" and fret quality very good.\n*   The 10-inch fretboard radius makes it easy to make chords and allows aggressive bends without choking strings.\n*   It holds tune well, and the PRS bridge works as expected.\n*   The tuners are \"PRS Designed,\" are smooth, but some minor slippage was noted with fresh strings (alleviated by string stretching).\n*   The electronics feature PRS 85/15 \"S\" pickups with a three-way toggle and a coil split on the tone pot for single-coil tones.\n*   The 85/15 \"S\" pickups are described as having extended high and low ends with clarity and balance.\n*   The humbuckers provide a lovely warm tone, ideal for rock and metal genres.\n*   The coil-split offers \"Strarty-ness\" and can sound like a hot Strat pickup in the bridge or more rowdy/overdriven like a Strat neck pickup. The middle position in split-coil mode is noted as an \"interesting twist\" on the Stratocaster spirit.\n*   There's minimal volume loss when switching to split-coil mode.\n*   The body is mahogany with a thin satin finish, contributing to a \"highly resonant instrument\" and a \"delicious warm tone\".\n*   It often comes with a \"decent gig bag.\"\n*   Some minor criticisms include pickups being \"ok\" for some users (with plans to upgrade) and preferring a gloss neck over satin.\n*   The 85/15 \"S\" pickups are different from US-made 85/15s, described as a \"bit more bitey and hollow\" than the US ones.\n*   The overall quality control from PRS is highly regarded.\n*   It is considered a \"workhorse instrument\" suitable for beginners to professional musicians due to its high-quality build and price.\n\n**Sentiment:** Highly positive, often cited as an excellent choice for its price point and versatility for all skill levels, especially intermediate players looking for a quality instrument.\n\n### Query: aspiring guitarist challenges 18-35\n\n**Facts & Observations:**\n*   A common question for players who have moved beyond beginner gear is what instrument truly supports their growth.\n*   Intermediate players start caring about tone, playability, and versatility.\n*   The goal for intermediate players is to own the *right* guitar for how they play, not just *any* guitar.\n*   Challenges can include wasting money on features they don't need.\n*   Significant progress requires consistent practice and effective exercises, rather than just watching videos.\n*   For advanced techniques, challenges include tricky alternate picking, metric modulation, stretching, and dynamic picking patterns.\n*   Playing complex patterns, especially those involving four notes per string with awkward gaps and stretches, requires careful thumb positioning and individual practice of patterns.\n*   Many self-taught players may lack music theory knowledge.\n*   Some aspiring guitarists attempt to cover very difficult songs.\n*   It's a common misconception that it's \"too late\" to become a great guitarist in your 30s.\n\n**Entities/Concepts:**\n*   Practice routines, online guitar academies, technique courses, structured practice plans, theory courses.\n*   \"The Guitar Ninja Academy\" offers beginner, intermediate, and advanced lessons with backing tracks.\n\n**Sentiment:** There's a clear aspiration for growth and improvement, but also awareness of the difficulties and need for structured learning and effective practice. There can be self-doubt (e.g., \"too late\" in 30s).\n\n### Query: PRS SE CE 24 tonal range comparison\n\n**Facts & Observations:**\n*   The PRS SE CE 24 features PRS 85/15 \"S\" humbucking pickups with coil splits.\n*   The 85/15 \"S\" pickups provide an extended high and low end with clarity and balance.\n*   The push/pull tone control allows for coil-tapping, offering versatility by achieving single-coil tones.\n*   The humbuckers provide a \"lovely warm tone,\" ideal for rock and metal.\n*   When coil-split, the bridge pickup can sound like a \"hot Strat pickup,\" while the neck pickup is \"a bit rowdy\" and more overdriven than a Strat neck pickup.\n*   The middle position in split-coil mode is noted as an \"interesting twist\" on the Stratocaster sound.\n*   There is \"very little volume loss\" when compared to humbucker mode after coil-splitting.\n*   The PRS SE CE 24 has a \"wide range of tones,\" all usable, but different from US-made 85/15 pickups, being \"a bit more bitey and hollow.\"\n*   The PRS SE CE 24 is described as having \"more mid-range\" and \"more presence and a little more fullness\" compared to the PRS SE Swamp Ash Special.\n*   The humbuckers on the CE 24 and Swamp Ash Special sound \"very similar\" with \"upper mid-range bite\" that the 85/15 S pickups push.\n*   The CE 24's simple full coil-splits sound brighter than the Swamp Ash Special's partial coil-splits, which are subtly fuller.\n*   The PRS CE range is known for giving a range of versatile tones and quality features.\n*   It is equally at home in \"smooth blues as it is in hard rock and metal contexts.\"\n\n**Comparisons:**\n*   **PRS SE Swamp Ash Special:** The Swamp Ash Special's middle position (slug coil of neck pickup with middle single coil, or full bridge humbucker with middle single coil) offers a \"Fender-y bounce\" and \"unmistakable Strat-iness\" with a bit of kick, differing from the CE 24.\n*   **US-made PRS 85/15 pickups:** The SE's 85/15 \"S\" pickups are different, described as \"more bitey and hollow.\"\n*   **Stratocaster:** The coil-split tones are compared to Stratocaster sounds.\n*   **Telecaster:** Coil-split bridge tone compared to Telecaster bridge, with less bite and muscle.\n\n### Query: electric guitar features important for intermediate players\n\n**Facts & Observations:**\n*   Intermediate players, having moved beyond beginner gear, seek instruments that truly support their growth.\n*   They prioritize tone, playability, and versatility.\n*   Important factors include pickup types, neck profiles, scale length, and build quality.\n*   Intermediate guitars often range from $300 to $1500, with $800-$1500 being a \"sweet spot\" for professional-level \"workhorse\" guitars.\n*   At the intermediate level, players often want \"better pickups\" and better quality tonewoods, leading to a nicer sound.\n*   Different scale lengths, fret types, and bridges impact playing feel.\n*   It's recommended to specialize rather than seek a \"jack-of-all-trades\" guitar.\n*   Intermediate players might consider a different type of guitar than their first, e.g., upgrading from a steel-string acoustic to an electric, or from a Strat-style to something with humbuckers.\n*   Specific features like acoustic guitar pickups (for live playing) or floating bridges are important depending on playing style.\n*   **Pickups:** Humbuckers are recommended for intermediate players interested in rock, heavy metal, and jazz due to their ability to provide high gain with minimal hum. Many guitars combine single-coil and humbucker pickups for tonal versatility. Active pickups offer higher output and cleaner sound, often with more sound control.\n*   **Neck Profile:** A smooth, playable neck with properly dressed frets is crucial for bending notes, hammer-ons, pull-offs, and clean articulation.\n*   **Frets:** Most electric guitars have 22 frets, but 24 frets offer a full octave above the twelfth fret for high-register playing.\n*   **Body Style:** Solid body is the most common and versatile, though hollow and semi-hollow bodies offer different resonances and tones.\n*   **Bridge:** A patented tremolo system can provide smooth pitch modulation for expressive leads and vibrato.\n*   Reliability for long-term use is a key consideration.\n*   Intermediate players should avoid common mistakes of buying gear that looks impressive but doesn't suit their style.\n\n### Query: \"bolt-on maple neck\" electric guitar benefits for players\n\n**Facts & Observations:**\n*   Bolt-on necks are attached to the guitar body with screws, often with a metal plate.\n*   Maple as a neck wood, particularly roasted maple, provides comfort and stability.\n*   Bolt-on maple necks often feature a \"wide thin\" profile.\n*   The combination of a poplar body and bolt-on maple neck can result in a \"snappy attack and balanced sustain.\"\n*   Bolt-on construction can make it easier to fret, particularly for those with smaller hands or beginners, due to thinner neck profiles and smaller radii.\n*   The original Fender Esquire (1949) and Telecaster used ash bodies and maple bolt-on necks, setting manufacturing standards.\n*   **Tone/Sustain:**\n    *   One perspective suggests bolt-on necks sound \"snappier,\" which is beneficial for articulate picking and metallic/thrashy genres.\n    *   Josh Middleton of Sylosis prefers alder body, bolt-on maple necks for their \"snappier\" sound, which he finds \"noticeably better\" for his style of music.\n    *   The sound difference might be more noticeable unplugged but pickups have a greater influence when plugged in.\n    *   Some argue there's \"absolutely no difference in sustain or tone\" between bolt-on and set-neck, attributing sustain more to humbuckers and bridge type.\n    *   Others suggest that glue (in set-necks) can act as an insulator, and a well-attached bolt-on can have better tone transfer and sustain than a set-neck.\n    *   Neck-through construction is generally considered to offer the best sustain.\n*   **Playability & Comfort:**\n    *   Bolt-on necks, especially with a smooth finish, provide a comfortable playing feel.\n    *   The 10-inch fretboard radius makes it easy to execute bends and slides.\n    *   Allows seamless transition from rhythm to intricate lead patterns.\n    *   Lighter weight compared to some set-neck, all-mahogany guitars, improving comfort during long playing sessions.\n*   **Maintenance & Customization:**\n    *   Bolt-on necks are convenient because the neck can be easily removed for work or replaced.\n    *   They offer reliable connection and straightforward maintenance.\n*   **Durability:** Scarf-jointed maple necks are a common and reliable construction model.\n*   **Misconceptions:** A common misconception is that bolt-on necks are inherently cheaper or inferior to neck-through or set-neck constructions. The choice between constructions should be based on musical demands, not perceived quality or price.",
+    "gs_web_search_insights": "## Trend Overview & Trajectory\n\nThe electric guitar market is experiencing a significant, culturally driven expansion, projected to climb from **$4.49 billion in 2022 to between $7.15 billion and $7.62 billion by 2030**. While the traditional holiday season (November\u2013December) remains the primary sales peak, a highly lucrative secondary promotional window has emerged between **June and August**. \n\nThis summer surge is directly powered by the return of festival season and live music attendance, which serves as a major demand driver for younger demographics (Gen Z and Millennials aged 18\u201335). This audience is actively seeking out entry-to-mid-range instruments (the $500\u2013$1,000 bracket) that offer a hybrid blend of vintage aesthetic and modern playability. Given the rapid rise of guitar-driven indie, punk, and shoegaze bands on global festival stages, this \"festival-to-fretboard\" pipeline is gaining immense momentum and possesses long-term staying power as live music continues to dominate youth culture.\n\n---\n\n## Key Entities and Cultural Narrative\n\nThe cultural conversation surrounding modern guitar playing is defined by a tension between **digital hyper-perfection and raw, live authenticity**. \n\n### The Breakout Artists\nA new wave of guitar-centric, highly visual bands is capturing the cultural zeitgeist at major 2024 festivals (such as Coachella, Glastonbury, Lollapalooza, and SXSW):\n*   **The Last Dinner Party:** An all-femme British indie band styled in dramatic Edwardian costumes, blending \"operatic elegance\" with theatrical live performances. They exploded on TikTok with their hit \"Nothing Matters.\"\n*   **Amyl and the Sniffers:** An Australian punk band fronted by Amy Taylor, channeling raw, high-energy retro-rock.\n*   **Wishy & Dummy:** Bands leading a revival of 2000s-inspired shoegaze, pop-punk, and feedback-drenched psychedelic sounds.\n\n### The Instrument Paradigm: PRS SE CE 24\nAs young players look to emulate these acts, the **PRS SE CE 24 Standard Satin ($499)** and **PRS SE CE 24 ($699)** have emerged as prime examples of the modern \"workhorse\" guitar. It is highly praised for offering build quality and ergonomic playability (such as the comfortable \"Shallow Violin\" top carve) that rivals instruments costing two to three times as much. However, the guitar also sits at the center of a key consumer debate: while praised as a \"flat-out bargain\" for gigging musicians, some players critique the \"cheap-feeling\" bare maple neck and find the stock 85/15 \"S\" pickups \"bitey and hollow,\" sparking a robust DIY culture of pickup-swapping and customization.\n\n### The \"Live-to-Digital\" Friction\nOn social media (Instagram, TikTok, YouTube), guitarists are utilizing sophisticated tactics\u2014such as pre-show tour diaries, backstage rehearsal live streams, and city-specific fan hashtags\u2014to build communities. However, a prominent cultural critique has emerged: the algorithm-driven \"perfect take\" illusion. Platforms demand hyper-polished, 30-second clips, creating a class of \"Instagram rockstars\" who excel in a vacuum but often struggle with the raw, conversational, and unpredictable demands of playing a live, physical show.\n\n---\n\n## Marketing Opportunity Analysis\n\nFor marketers looking to connect with the 18\u201335 demographic during this seasonal surge, several highly actionable strategies emerge:\n\n### 1. Demystify the \"Perfect Take\" with Raw, Behind-the-Scenes Content\nYoung consumers value authenticity over sterile perfection. Brands should steer away from hyper-polished, sterile studio demonstrations and instead lean into the messy reality of the creative process. \n*   **Actionable Campaign:** Launch a content series featuring rising festival guitarists showing their \"unpolished drafts\"\u2014the mistakes, the 50 failed takes behind a 30-second TikTok clip, and raw, plug-and-play backstage warmups. Position mid-range gear like the PRS SE CE 24 as the durable, reliable \"workhorse\" that survives the chaos of touring and practice, rather than an untouchable museum piece.\n\n### 2. Capitalize on the \"Modding\" and Customization Subculture\nSince young players are highly price-conscious but want to stand out, they view budget-friendly and mid-range guitars as customizable canvases. The community debate around the PRS SE CE 24\u2019s pickups and neck finish highlights a desire for personalization.\n*   **Actionable Campaign:** Create marketing touchpoints around \"The Upgrade Path.\" Partner with influencers and local guitar techs to create step-by-step guides on how to customize a $499/ $699 guitar (e.g., swapping pickups, sanding necks, or upgrading hardware) to make it perform like a $2,000 instrument. This positions the brand as a helpful partner in the player's personal tone journey.\n\n### 3. Build \"Omnichannel\" Bridges Between Digital Discovery and Local Trial\nWhile 18\u201335-year-olds discover music and gear on TikTok and Instagram, **65\u201370% of guitar purchases still take place in local physical shops** because players need to feel the fretboard and neck ergonomics.\n*   **Actionable Campaign:** Bridge this gap by using localized social media ads that target festival-goers and concert attendees. Run campaigns that drive online searchers to \"hands-on\" tryout events at local independent dealers, or offer risk-free, hassle-free online return policies that mimic the in-store trial experience. Create interactive retail workshops where local indie bands perform short, intimate sets and let fans test-play the exact gear used on stage.",
+    "campaign_web_search_insights": "## Target Audience and Behavioral Insights\n\nIntermediate guitarists, particularly those in the 18-35 age range, exhibit a strong desire for growth and improvement, moving beyond basic beginner gear. Their primary concerns revolve around acquiring an instrument that truly supports their development rather than just \"any guitar.\" They prioritize tone, playability, and versatility, aiming to find the \"right\" guitar for their evolving playing style. A significant pain point for this demographic is the fear of wasting money on features they don't need or an instrument that doesn't align with their progress.\n\nChallenges faced by these aspiring guitarists include the need for consistent practice, effective exercises beyond passive video watching, and developing advanced techniques such as alternate picking, metric modulation, and complex chord patterns. Many self-taught players also acknowledge a lack of formal music theory knowledge. There's an underlying sentiment of self-doubt, with a common misconception that it might be \"too late\" to become a great guitarist when in their 30s. This suggests an audience seeking instruments that feel like an investment in their long-term musical journey and provide comfort and confidence for sustained practice.\n\n## Product Landscape and Competitive Context\n\nThe PRS SE CE 24 is positioned as an exceptional value, often priced just below $500 (though some sources indicate up to $700 CAD), which places it within the \"sweet spot\" ($800-$1500) for intermediate-level \"workhorse\" guitars, often outperforming its price point. Reviewers consistently note it \"stands head and shoulders above the competition\" among beginner guitars and \"feels like a proper PRS,\" suggesting it punches above its weight class.\n\nIn terms of tonal range and versatility, the PRS SE CE 24 competes with a broad spectrum of electric guitars. Its PRS 85/15 \"S\" humbuckers offer warm tones ideal for rock and metal, while the coil-split functionality allows for \"Strarty-ness\" and tones comparable to hot Strat pickups or overdriven Strat neck pickups. This broad tonal palette makes it an alternative to dedicated single-coil guitars (like Stratocasters or Telecasters for specific tones) by offering a blend of sounds. While its coil-split sounds are brighter than the partial coil-splits of the PRS SE Swamp Ash Special, and its 85/15 \"S\" pickups are described as \"a bit more bitey and hollow\" compared to US-made PRS 85/15s, it maintains a unique and versatile sonic profile.\n\nA common misconception in the market, particularly among less experienced players, is that bolt-on neck constructions are inherently cheaper or inferior to set-neck or neck-through designs. The PRS SE CE 24 features a bolt-on maple neck. However, expert opinions suggest that the choice of construction should be based on musical demands rather than perceived quality or price, with bolt-on necks offering benefits like a \"snappier\" attack and easier maintenance. The PRS SE CE 24's overall high-quality build and regarded quality control also help to counter this perception.\n\n## Strategic Opportunities & Key Message Validation\n\n1.  **\"The Ultimate Workhorse for Growth\":** The PRS SE CE 24 is consistently described as a \"workhorse instrument\" suitable for beginners to professional musicians due to its high-quality build and price. This directly addresses the intermediate player's need for an instrument that supports long-term growth and avoids the feeling of \"wasting money.\" Its excellent value for money and the sentiment that it \"looks and sounds more expensive than it is\" reinforces its appeal as a wise investment for serious players.\n\n2.  **\"Unrivaled Playability & Comfort for Progress\":** Key features like the \"ultra playable\" nature, the \"wide thin\" neck profile comfortable for extended playing, \"perfect\" fretwork, and a 10-inch fretboard radius (making bends easy without choking strings) directly validate its appeal for intermediate players. This addresses their need for an instrument that facilitates learning advanced techniques and allows for \"seamless transition from rhythm to intricate lead patterns,\" minimizing physical barriers to skill development. The smooth, playable neck and comfortable feel are crucial for combating practice fatigue.\n\n3.  **\"Sonic Versatility for Musical Exploration\":** The versatile humbuckers with coil-split functionality and a fantastic tremolo system offer a \"wide range of tones,\" suitable for \"smooth blues as it is in hard rock and metal contexts.\" This directly meets the intermediate player's desire for versatility and the ability to explore various genres and tones without needing multiple guitars. The minimal volume loss during coil-splitting further enhances its practical usability across different sonic demands.\n\n## Key Research Gaps/Next Steps\n\n*   **Specific Competitive Pricing:** While general price ranges are mentioned, more precise competitive pricing against directly comparable intermediate models from other brands (e.g., Fender Player series, Epiphone, Ibanez) would offer a clearer market positioning.\n*   **User Journeys/Upgrade Paths:** Deeper insights into typical upgrade paths for beginners, specifically what brands or models they consider immediately before or as an alternative to the PRS SE CE 24, would be beneficial.\n*   **Long-term Reliability Data:** While \"reliability for long-term use\" is mentioned as important, specific user data or testimonials on the PRS SE CE 24's durability over several years of active play would further strengthen its \"workhorse\" claim.\n*   **Target Audience Demographics (Beyond Age):** Understanding other demographic factors or psychographics beyond the 18-35 age range for \"aspiring guitarists\" could refine messaging.",
+    "combined_web_search_insights": "# STRATEGIC BRIEF: THE \"FESTIVAL-TO-FRETBOARD\" WORKHORSE\n\n## 1. Executive Summary (The Big Idea)\nTo capture the 18\u201335 intermediate guitarist market during the peak summer festival season, we will position the **PRS SE CE 24** not as an untouchable, hyper-polished showroom piece, but as the ultimate, highly customizable \"workhorse\" that bridges the gap between digital practice and raw, live performance. By embracing the tension between social media\u2019s \"perfect take\" and the gritty reality of live gigging, the campaign will validate the intermediate player's journey, showing that this instrument is a reliable, high-value investment built to grow with their real-world musical ambitions.\n\n---\n\n## 2. Core Campaign Fundamentals\n\n*   **Target Audience & Key Insights:** Aspiring intermediate guitarists (primarily aged 18\u201335). This group is transitioning away from beginner gear and fears wasting money on instruments that won't support their long-term growth. They face self-doubt (such as the \"too late to get good in my 30s\" myth) and struggle to transition passive video watching into active, physical mastery of advanced techniques (e.g., alternate picking, metric modulation). They need comfort for long practice sessions and an instrument that inspires confidence.\n*   **Product Landscape & Competitive Positioning:** The PRS SE CE 24 ($499 - $699) sits in the highly lucrative intermediate \"sweet spot.\" It offers build quality, playability, and ergonomics (such as the \"Shallow Violin\" top carve and \"wide thin\" maple neck) that rival guitars twice its price. Equipped with 85/15 \"S\" humbuckers and a coil-split system, it provides single-coil snap and humbucker warmth, directly competing with Fender Stratocasters/Telecasters and Epiphone models. The bolt-on neck construction\u2014often misunderstood as inferior\u2014actually provides a \"snappier\" attack and easier maintenance ideal for active players.\n*   **Key Selling Points:**\n    *   *The Ultimate Workhorse:* Superior build quality and durability that represents a secure, long-term investment.\n    *   *Unrivaled Playability:* A 10-inch fretboard radius, smooth fretwork, and a comfortable neck profile designed to reduce practice fatigue and facilitate complex lead playing.\n    *   *Sonic Versatility:* Seamless transition between warm humbucking tones and bright single-coil sounds, allowing players to explore multiple genres on a single instrument.\n\n---\n\n## 3. Cultural Opportunity & Relevance\n\n*   **The \"Festival-to-Fretboard\" Pipeline:** The rapid rise of guitar-driven, highly visual indie, punk, and shoegaze acts (like *The Last Dinner Party* and *Amyl and the Sniffers*) on summer festival stages has created a surge in guitar interest between June and August. This audience discovers music digitally but wants to replicate the raw energy of live gigs.\n*   **The \"Live-to-Digital\" Friction:** There is a growing cultural backlash against the sterile, algorithm-driven \"perfect take\" found in 30-second TikTok and Instagram clips. Young guitarists are craving raw authenticity over hyper-edited digital perfection.\n*   **The Customization Subculture:** The target audience views their instruments as customizable canvases. Debate surrounding the SE CE 24's \"bitey\" pickups and bare maple neck can be reframed as an open invitation to a DIY \"modding\" culture, transforming a budget-friendly powerhouse into a highly personalized, custom-tailored rig.\n*   **Tone & Narrative:** The tone should be raw, authentic, and collaborative. We will abandon sterile studio demos in favor of \"behind-the-scenes\" aesthetics, celebrating the mistakes, the physical grind of practice, and the tactile feel of a local guitar shop.\n\n---\n\n## 4. Strategic Recommendations for Creative\n\n### Recommendation 1: Demystify the \"Perfect Take\" (Video & Social Copy)\n*   **Directive:** Create short-form video assets contrasting the \"Perfect Take\" illusion with \"Raw Reality.\" Show an artist failing a complex alternate-picking riff multiple times in a messy bedroom or backstage, only to finally nail it. \n*   **Creative Execution:** Use split-screen or transition-style edits (Instagram Reels/TikTok). Frame the copy around the physical work required to progress. \n*   **Key Phrase Integration:** *\"Screw the perfect take. Play it live.\"* Pair this with copy highlighting the SE CE 24\u2019s \"wide thin\" neck and playability: *\"Built with a 10-inch radius and ultra-playable fretwork to get you through the 50 failed takes it actually takes to get it right.\"*\n\n### Recommendation 2: Position the Guitar as \"The Ultimate Custom Canvas\" (Visual & Influencer)\n*   **Directive:** Lean directly into the user forums' critique of stock pickups and neck finishes by celebrating the DIY/modding subculture. Show the PRS SE CE 24 as a premium platform that is built to be played, modified, and personalized.\n*   **Creative Execution:** Partner with indie guitar techs and rising festival guitarists for \"The Upgrade Path\" content series. Visually highlight the bolt-on construction, demonstrating how easy it is to maintain, sand, or swap components.\n*   **Key Phrase Integration:** *\"Your tone. Your rules.\"* or *\"The $499 canvas that plays like a $2k custom.\"* Frame the bolt-on neck not as a cost-cutting measure, but as a deliberate choice for *\"snappier attack, easier maintenance, and endless customization.\"*\n\n### Recommendation 3: Drive \"Omnichannel\" Local Trial (Retail & Localized Ads)\n*   **Directive:** Bridge the digital discovery on TikTok/Instagram with the physical reality that 65-70% of players need to feel a neck before buying. \n*   **Creative Execution:** Deploy highly localized social ads targeting festival-goers and indie music fans. Drive them to \"Hands-On Test Drive\" events at local independent guitar shops. Use imagery of the guitar resting against worn stage monitors rather than floating in clean, white digital space.\n*   **Key Phrase Integration:** *\"Don't just watch it on a screen. Feel the fretboard.\"* Focus copy on the ergonomic \"Shallow Violin\" top carve and the tactile playability of the instrument: *\"Stop scrolling. Walk in, plug it in, and feel the difference of a proper PRS at your local shop.\"*\n\n---\n\n## 5. Research Gaps\n\n*   *Specific Competitive Pricing:* Exact, real-time pricing comparisons against direct competitors (e.g., Fender Player II series, Epiphone Les Paul Standard, Ibanez RG) are required to further refine the \"under $500/$700\" value proposition.\n*   *User Upgrade Paths:* Further data is needed regarding what specific beginner guitars this target audience is upgrading *from* to better tailor \"step-up\" messaging.\n*   *Long-term Durability Data:* Collecting long-term wear-and-tear testimonials from touring musicians would help solidify the \"Ultimate Workhorse\" durability claims.",
+    "combined_final_cited_report": "# STRATEGIC CAMPAIGN REPORT: THE \"FESTIVAL-TO-FRETBOARD\" WORKHORSE\n**Search Trend: summer music festival season**\n\n## Executive Summary\nThe defining creative opportunity for the PRS SE CE 24 lies in bridging the gap between algorithm-driven digital perfection and the gritty, physical reality of live summer festival performance. By positioning this instrument as an unpretentious, highly customizable \"workhorse,\" we will validate the intermediate player's real-world musical journey. This campaign proves that pro-level build quality and versatile tones can be attained at an accessible price point, dispelling the intimidation of the modern social media landscape.\n\n*   **The Big Idea:** Frame the PRS SE CE 24 as the definitive stepping stone from bedroom practice to festival stage, actively combatting the intimidating illusion of the social media \"perfect take\" <cite source=\"src-10\" />.\n*   **Market Positioning:** Capitalize on the summer festival-driven spike in mid-range ($500-$1,000) instrument sales <cite source=\"src-15\" /><cite source=\"src-24\" /> by highlighting the model's pro-grade features at an aggressively accessible $499 to $699 price point <cite source=\"src-1\" /><cite source=\"src-25\" />.\n*   **The \"Workhorse\" Identity:** Leverage its bolt-on maple neck, highly resonant mahogany body, and versatile electronics to demonstrate that it is a reliable, professional-grade tool built to be heavily played rather than a fragile showroom piece <cite source=\"src-2\" /><cite source=\"src-27\" /><cite source=\"src-28\" />.\n\n## Core Campaign Fundamentals\nThe campaign targets aspiring and intermediate guitarists seeking a reliable long-term investment that supports their technical growth without breaking the bank. The PRS SE CE 24 perfectly satisfies this demographic by offering high-end ergonomics, sonic versatility, and a robust build that directly challenges competitors at double the price. By addressing common friction points like \"practice fatigue\" and the need for tonal variety, we position the guitar as the only tool they need.\n\n*   **Target Audience Profile:** Intermediate players (primarily aged 18-35) who have outgrown beginner gear and are prioritizing tone, playability, and versatility <cite source=\"src-32\" />. They often face internal hurdles, such as the self-doubt of it being \"too late\" to improve in their 30s <cite source=\"src-32\" /><cite source=\"src-33\" />, and seek an instrument that physically supports the mastery of advanced techniques like complex alternate picking <cite source=\"src-33\" />.\n*   **Product Landscape & Value:** The guitar dominates the entry-mid market, priced at $499 for the Standard Satin and $699 for the flame-maple top variant <cite source=\"src-1\" />. Market reviewers consistently note that its superior build quality and fretwork are comparable to guitars costing \"two to three times\" the money <cite source=\"src-1\" />.\n*   **Unrivaled Playability:** Features a 10-inch fretboard radius, immaculate fretwork, and a \"wide thin\" maple neck profile, all explicitly designed to reduce practice fatigue, facilitate complex chording, and allow for aggressive bending without choking strings <cite source=\"src-27\" />. The highly ergonomic \"Shallow Violin\" top carve further avoids the sharp edges of core models <cite source=\"src-3\" />.\n*   **Sonic Versatility:** Equipped with PRS 85/15 \"S\" humbuckers and a push/pull tone pot for coil-splitting, the guitar allows seamless transitions between warm, high-gain rock/metal tones and bright, snappy single-coil sounds reminiscent of Stratocasters <cite source=\"src-2\" /><cite source=\"src-31\" />. \n*   **The Bolt-On Advantage:** Often misunderstood as a cost-cutting measure, the bolt-on maple neck actually provides a \"snappier\" attack that is highly preferred for articulate playing and heavier genres <cite source=\"src-43\" />, while allowing for far easier maintenance and long-term customization <cite source=\"src-45\" />.\n\n## Integrated Trend and Cultural Analysis\nThe cultural landscape for guitarists is currently defined by the intersection of peak summer festival attendance and high-pressure digital social media ecosystems. We are observing a significant cultural backlash where young players increasingly crave the raw authenticity of live shows over the sterile perfection of algorithm-driven short-form video. The PRS SE CE 24 taps directly into this desire for authentic, tactile musical creation.\n\n*   **The Summer Festival Spike:** The expansion of live concerts and summer music festivals serves as a primary cultural demand driver, creating a distinct, secondary sales peak for mid-range beginner and intermediate guitars between June and August <cite source=\"src-15\" /><cite source=\"src-24\" />. \n*   **Demystifying the \"Perfect Take\":** While platforms like Instagram and TikTok serve as premier digital stages <cite source=\"src-6\" />, the landscape favors hyper-polished, technically complex snippets that musicians often spend days filming dozens of times to ensure artificial perfection <cite source=\"src-10\" />. Audiences and players are experiencing a \"live-to-digital gap,\" craving dynamic, conversational live guitar work instead of algorithm-friendly repetition <cite source=\"src-7\" />.\n*   **The Customization Subculture:** The intermediate audience views their instrument as a customizable canvas. Debates over the stock 85/15 \"S\" pickups\u2014which some find brilliant and balanced <cite source=\"src-28\" /> while others consider \"bitey and hollow\" <cite source=\"src-4\" />\u2014feed perfectly into a growing DIY modding culture. Pickup replacement and neck sanding are common, framing the SE CE 24 as the ultimate premium platform for personalized tone <cite source=\"src-3\" /><cite source=\"src-45\" />.\n*   **Tactile Omnichannel Purchasing:** Despite heavy digital discovery through social media, omnichannel metrics prove that 65-70% of guitar purchases still take place in local physical shops, proving that players need to physically feel the neck and fretboard before committing to an upgrade <cite source=\"src-20\" />.\n\n## Actionable Creative Briefing Points\nTo effectively capture this audience, creative assets must abandon sterile studio perfection in favor of gritty, behind-the-scenes authenticity. The messaging and visuals must emphasize tactile playability, physical durability, and the true, unvarnished journey of musical progression.\n\n1.  **Expose the \"Perfect Take\" Illusion:** Create short-form video assets (TikTok/Reels) contrasting an artist failing a complex riff multiple times in a messy room, eventually hitting the successful take. Use copy like: *\"Built with a 10-inch radius and ultra-playable fretwork to get you through the 50 failed takes it actually takes to get it right.\"* <cite source=\"src-10\" /><cite source=\"src-27\" />\n2.  **Highlight \"Workhorse\" Durability and Ergonomics:** Visually focus on the comfortable \"Shallow Violin\" top carve <cite source=\"src-3\" /> and the \"wide thin\" bolt-on maple neck <cite source=\"src-27\" /><cite source=\"src-41\" />. Emphasize through stage-worn aesthetics that the PRS SE CE 24 is built for the physical grind of long practice sessions and sweaty festival stages, not glass display cases.\n3.  **Celebrate the Custom Canvas:** Lean into the DIY modding subculture. Use visuals of the guitar being worked on, maintained, or having components swapped, leveraging the easy-to-remove bolt-on neck <cite source=\"src-45\" />. Frame the $499-$699 price point <cite source=\"src-1\" /> as an open invitation to create a personalized rig: *\"Your tone. Your rules.\"*\n4.  **Demonstrate Sonic Versatility:** Produce audio-visual content that explicitly highlights the push/pull coil-split feature <cite source=\"src-2\" /><cite source=\"src-29\" />. Show the immediate, seamless transition from heavy, warm humbucker riffs to bright, Stratocaster-style single-coil snaps <cite source=\"src-31\" /> to prove it is the singular \"swiss-army knife\" guitar they need to bring to the gig.\n5.  **Drive Local, Tactile Trial:** Deploy highly localized social ads urging digital users to attend \"Hands-On Test Drives\" at independent guitar shops. Messaging must bridge the digital-physical gap and emphasize tactile playability: *\"Stop scrolling. Walk in, plug it in, and feel the difference of a proper PRS at your local shop.\"* <cite source=\"src-20\" /><cite source=\"src-25\" />",
+    "final_report_with_citations": "# STRATEGIC CAMPAIGN REPORT: THE \"FESTIVAL-TO-FRETBOARD\" WORKHORSE\n**Search Trend: summer music festival season**\n\n## Executive Summary\nThe defining creative opportunity for the PRS SE CE 24 lies in bridging the gap between algorithm-driven digital perfection and the gritty, physical reality of live summer festival performance. By positioning this instrument as an unpretentious, highly customizable \"workhorse,\" we will validate the intermediate player's real-world musical journey. This campaign proves that pro-level build quality and versatile tones can be attained at an accessible price point, dispelling the intimidation of the modern social media landscape.\n\n*   **The Big Idea:** Frame the PRS SE CE 24 as the definitive stepping stone from bedroom practice to festival stage, actively combatting the intimidating illusion of the social media \"perfect take\"  [guitarworld.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHKhvbVZvtCmxMYHUr_g2VJPBKtdFPUqtiPAwVfQ7rOpMgrc-TkF8iNuFyVbSAYD8B29YWrF2RM6ABWOkou7oYY2wO1XYNU0KtalKdRVJw8EnaMyvXbe9ZxWfQ8zYavSfXQxNxg7CQcrrxtZcYiA89rnYy_DF1xPBDSjLVhuGaiPtaEMJxKwqXytqU46VZ2knjcvA-MqJRZu2wpyDS5fc-M).\n*   **Market Positioning:** Capitalize on the summer festival-driven spike in mid-range ($500-$1,000) instrument sales  [fortunebusinessinsights.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQFvElMJXWge26BibOeigviLPJBLWQXqu0ebjw9oBgvFVPS9UCnI25MxaDmqtAMnMAWejJZeIim9qpmutdVW7LaS6H6LmI-P3z5l8bJS683kOMKvQhhVKEK1R5xOaYw4tdFYdHtlIDKKIpjenfR92hOCnsoQVUEQzpnjnucLF8Jhow==) [accio.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQF0F2UKw8yYHkg0gemfB5M8U8unZPoitRGsGCReSiq1YIs2cccXmLMsoDgrgyPMVJqIbKVaBHyFSE6mJCi4E0D89JkR5zmqkn7zKMXMtWREz0f-ZbCwkgneSbN2foIS56OvPCeKz0xYO9T4m_Nt) by highlighting the model's pro-grade features at an aggressively accessible $499 to $699 price point  [premierguitar.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEKr7bNdDL6vQAdTscqEtN37vBFftJJQDmXia5mjcTo5nauGX961bVdGMKBmANApo5YWg12BaHzP9l5nI96h5BUMUiMYsN6brZGsPZ3lHVx7ACBtXUKgfslpcWU-Xriv-rcKiu1KLTDxSBn9tISksmYi5k=) [guitarplayer.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQG0I95HOXLIKZwM694nC8DEPcm7jvx9So8FVePciABCpTj5Ed4ZJDNcQ_Kt_Aczgl1nz8bGKWXNdrjJZvISQ3mGTO7EXa0qi9Gh-MhOMp3CkVfF-benIERkDK2iJLcmf8rQ8EB6DgKSNcdQ3gWB).\n*   **The \"Workhorse\" Identity:** Leverage its bolt-on maple neck, highly resonant mahogany body, and versatile electronics to demonstrate that it is a reliable, professional-grade tool built to be heavily played rather than a fragile showroom piece  [youtube.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHvUnapg5-iBbR1cCd43onvMK25hz9uDIrOQqqwEcmFNiZhsQnQkAIAo7rtVkAjsI9SSBBtCK9WQUoLx3lEsNbPfHna_EnPjHX6BPk7kWDjW_7vk4dF1gzIRhTsPfLjQxubAqQwTI8=) [thatguitarlover.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHOgf5yPz8WqTVnG3aA91B_WS-R5cYFMLpFFV8_NY_ioiRxn9fIAEUDRQ09m0kZIRCjEA7i_rMZQyDtwwiyD5rTTw1TTtlTFg0y9wHmB4SKT5XIE8CnFtfUdoJ4tvkzufeFCrnUAw3qfk-a14qANTcK-QzS) [youtube.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEXz7qxhthR3hOU79aU0mrXY1-ZOMeHWg2S1Wxu3A65ajKFQ3-F8fMgoYnfBqlFQHUjEkqfx_tP7D3bhrweI3b_CbDwbhswcUTkmFRQaz60LzH1_bbIEs0ddWpmwYIHfuOWZ93l6g0=).\n\n## Core Campaign Fundamentals\nThe campaign targets aspiring and intermediate guitarists seeking a reliable long-term investment that supports their technical growth without breaking the bank. The PRS SE CE 24 perfectly satisfies this demographic by offering high-end ergonomics, sonic versatility, and a robust build that directly challenges competitors at double the price. By addressing common friction points like \"practice fatigue\" and the need for tonal variety, we position the guitar as the only tool they need.\n\n*   **Target Audience Profile:** Intermediate players (primarily aged 18-35) who have outgrown beginner gear and are prioritizing tone, playability, and versatility  [youtube.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQF1UIEolCxBlo7MWsCs_MinW-VzO43w4XQNJUKQebqKoTFV6mGvczn77ZyvWL_oaUHKibpy6qqhEDIKTOhlOO_oNhjvb1ir95bL3qBJrE3cLYDU4PudLp5hoM5uWKryrAeuCPg43t3cWgRJjg==). They often face internal hurdles, such as the self-doubt of it being \"too late\" to improve in their 30s  [youtube.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQF1UIEolCxBlo7MWsCs_MinW-VzO43w4XQNJUKQebqKoTFV6mGvczn77ZyvWL_oaUHKibpy6qqhEDIKTOhlOO_oNhjvb1ir95bL3qBJrE3cLYDU4PudLp5hoM5uWKryrAeuCPg43t3cWgRJjg==) [youtube.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQGNDS51Vuk-cPCDy8qICyL2iGgTq3A-HaRaTlTT1wFsUE2Ayuh6HtmE0ivSaVxuFvJiddCbvJyo5DNmi_O1KL7ajX8Q3CBz8jQMWfOVkoboDOGgpYfy2vyO3KGhJYpmIkbiwntwKGk=), and seek an instrument that physically supports the mastery of advanced techniques like complex alternate picking  [youtube.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQGNDS51Vuk-cPCDy8qICyL2iGgTq3A-HaRaTlTT1wFsUE2Ayuh6HtmE0ivSaVxuFvJiddCbvJyo5DNmi_O1KL7ajX8Q3CBz8jQMWfOVkoboDOGgpYfy2vyO3KGhJYpmIkbiwntwKGk=).\n*   **Product Landscape & Value:** The guitar dominates the entry-mid market, priced at $499 for the Standard Satin and $699 for the flame-maple top variant  [premierguitar.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEKr7bNdDL6vQAdTscqEtN37vBFftJJQDmXia5mjcTo5nauGX961bVdGMKBmANApo5YWg12BaHzP9l5nI96h5BUMUiMYsN6brZGsPZ3lHVx7ACBtXUKgfslpcWU-Xriv-rcKiu1KLTDxSBn9tISksmYi5k=). Market reviewers consistently note that its superior build quality and fretwork are comparable to guitars costing \"two to three times\" the money  [premierguitar.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEKr7bNdDL6vQAdTscqEtN37vBFftJJQDmXia5mjcTo5nauGX961bVdGMKBmANApo5YWg12BaHzP9l5nI96h5BUMUiMYsN6brZGsPZ3lHVx7ACBtXUKgfslpcWU-Xriv-rcKiu1KLTDxSBn9tISksmYi5k=).\n*   **Unrivaled Playability:** Features a 10-inch fretboard radius, immaculate fretwork, and a \"wide thin\" maple neck profile, all explicitly designed to reduce practice fatigue, facilitate complex chording, and allow for aggressive bending without choking strings  [thatguitarlover.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHOgf5yPz8WqTVnG3aA91B_WS-R5cYFMLpFFV8_NY_ioiRxn9fIAEUDRQ09m0kZIRCjEA7i_rMZQyDtwwiyD5rTTw1TTtlTFg0y9wHmB4SKT5XIE8CnFtfUdoJ4tvkzufeFCrnUAw3qfk-a14qANTcK-QzS). The highly ergonomic \"Shallow Violin\" top carve further avoids the sharp edges of core models  [budgetguitarist.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQF0jKmLtMTRfVZHxYGmxDqbUlCNsG3YCAK7cW-nYGFCkWXKGaKK0zYlCKUURD1YFaORlUMi58IK0G6DhwPTwFYFGtrYRlFYCzy2RtdWCy_9CagRXszdNq7GTWixpwRcc2XmHpkOutDsVtaDugDxWSk=).\n*   **Sonic Versatility:** Equipped with PRS 85/15 \"S\" humbuckers and a push/pull tone pot for coil-splitting, the guitar allows seamless transitions between warm, high-gain rock/metal tones and bright, snappy single-coil sounds reminiscent of Stratocasters  [youtube.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHvUnapg5-iBbR1cCd43onvMK25hz9uDIrOQqqwEcmFNiZhsQnQkAIAo7rtVkAjsI9SSBBtCK9WQUoLx3lEsNbPfHna_EnPjHX6BPk7kWDjW_7vk4dF1gzIRhTsPfLjQxubAqQwTI8=) [premierguitar.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHSs8WtcNZWiQEdcrfv_yLVLFk39lbc3IzJ5TOB23rID15Xgpffmd0akfSu3dKBgT-Q6-9tAIp9cbfRidRltGuHCtVhuMqyHVo17R5edmhi8hpvvRln7jHIxFrjrTsge1VHqoF-eszU93Leq_yCP1RxnnE=). \n*   **The Bolt-On Advantage:** Often misunderstood as a cost-cutting measure, the bolt-on maple neck actually provides a \"snappier\" attack that is highly preferred for articulate playing and heavier genres  [ultimate-guitar.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEptz-VMwu7NGCniJ6ywmvjJn6NMrXFtEDaCa0SlO4j6OR0oB_ZlxnTMK2cNkjG18JtQS0NN-hzl6RM-C_EHp0yRKmQ428QZob8kXEAAmaZ14KTs7uVzfweDFdaktoU6exwXGM8hn1q9tHbkrv9TExpIgYlM3kdQ8MnVw5YTQ9sVGf5amTGAcylP-ZDaq_dsVVW2R0br6ADC0cs0ZWtim6G6bPrujpIzwAe14BYE1B-rbWnceZ-CR0TxFv05ZxkkyTYIu9n14ib-kDeafKTl5TZGOKid81tMqJa), while allowing for far easier maintenance and long-term customization  [unofficialwarmoth.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQFGM_J8-zyhwzukIVEvk_p6qrVOwfw_3PUiCvo_U2XwNk5S7Oi6nOcqabYka5KGPL65TrGqqCsaXb6oPUHUBEj0R4ju_CzhEZnAJjFjjWe8Hs3u7wW_CM1kAsEwYwDShn7ppYAZWGdjSvqanEHY_RXpes7D_Y2ipcdCUDCiyMYTvF21gQ_cfF_oVOBvmveNwietapTbsrGq0Pfbfeq191A930kl).\n\n## Integrated Trend and Cultural Analysis\nThe cultural landscape for guitarists is currently defined by the intersection of peak summer festival attendance and high-pressure digital social media ecosystems. We are observing a significant cultural backlash where young players increasingly crave the raw authenticity of live shows over the sterile perfection of algorithm-driven short-form video. The PRS SE CE 24 taps directly into this desire for authentic, tactile musical creation.\n\n*   **The Summer Festival Spike:** The expansion of live concerts and summer music festivals serves as a primary cultural demand driver, creating a distinct, secondary sales peak for mid-range beginner and intermediate guitars between June and August  [fortunebusinessinsights.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQFvElMJXWge26BibOeigviLPJBLWQXqu0ebjw9oBgvFVPS9UCnI25MxaDmqtAMnMAWejJZeIim9qpmutdVW7LaS6H6LmI-P3z5l8bJS683kOMKvQhhVKEK1R5xOaYw4tdFYdHtlIDKKIpjenfR92hOCnsoQVUEQzpnjnucLF8Jhow==) [accio.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQF0F2UKw8yYHkg0gemfB5M8U8unZPoitRGsGCReSiq1YIs2cccXmLMsoDgrgyPMVJqIbKVaBHyFSE6mJCi4E0D89JkR5zmqkn7zKMXMtWREz0f-ZbCwkgneSbN2foIS56OvPCeKz0xYO9T4m_Nt). \n*   **Demystifying the \"Perfect Take\":** While platforms like Instagram and TikTok serve as premier digital stages  [psu.edu](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEBPYJUKNlU-nhklnqxSZLJzcgeHojdaRCCdJnUnIKu1EhhbtkyRTMabQg06be-wkUYww0Afw5lTPLbaFjQJ8bICUEs303bc47-aZb-jszdjkrg1C3lMmhgiC-x_UPwgRsMzlV1MU2_58ri6crCaL0JcAYdzldxzkOx7jOlai9BH3CtPOpVWBMdobMppJjnvpCRXhypDpG4k3WQaj3BYk8=), the landscape favors hyper-polished, technically complex snippets that musicians often spend days filming dozens of times to ensure artificial perfection  [guitarworld.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHKhvbVZvtCmxMYHUr_g2VJPBKtdFPUqtiPAwVfQ7rOpMgrc-TkF8iNuFyVbSAYD8B29YWrF2RM6ABWOkou7oYY2wO1XYNU0KtalKdRVJw8EnaMyvXbe9ZxWfQ8zYavSfXQxNxg7CQcrrxtZcYiA89rnYy_DF1xPBDSjLVhuGaiPtaEMJxKwqXytqU46VZ2knjcvA-MqJRZu2wpyDS5fc-M). Audiences and players are experiencing a \"live-to-digital gap,\" craving dynamic, conversational live guitar work instead of algorithm-friendly repetition  [ultimate-guitar.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQFvwwPu3KV6o3uMV7uqO8hsxYfSAuumltk3nOk2UqWrL-vRjjRL5vQQCCenXfx5DxcnOVXmVGyOg3dqcjCMaMAZ7dM6aX0phMsIl85m7dhA2l2sWm8QUe_BVAH_7SKD04bN2o3Cp_iSBmLE6dNxgXXq4wgeTO4v4NZKos9F3HDhSVbe4nrlojz7eOZk9HlaCMBaWrYiFtM73woz4MTBTWlAU_jDAzjwj3QIuaP8-hz-QVfdJyndl5xSNXDeSA5o5_cRAOOxIg==).\n*   **The Customization Subculture:** The intermediate audience views their instrument as a customizable canvas. Debates over the stock 85/15 \"S\" pickups\u2014which some find brilliant and balanced  [youtube.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEXz7qxhthR3hOU79aU0mrXY1-ZOMeHWg2S1Wxu3A65ajKFQ3-F8fMgoYnfBqlFQHUjEkqfx_tP7D3bhrweI3b_CbDwbhswcUTkmFRQaz60LzH1_bbIEs0ddWpmwYIHfuOWZ93l6g0=) while others consider \"bitey and hollow\"  [thatguitarlover.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQGKTXy-lwCNRetNv-sJw7u-XvFzxHlkahnXlRPLabUcp84_mPvO8OFFyFitQAOXcecvFiBMU37i9h0yhvnM3awmdnSBsdtIkyRwz-JMOGbH6w_WVARj2TIQthYlaEc9uDNG_h9V1Y0kP9xrBAPOgECmEtlU)\u2014feed perfectly into a growing DIY modding culture. Pickup replacement and neck sanding are common, framing the SE CE 24 as the ultimate premium platform for personalized tone  [budgetguitarist.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQF0jKmLtMTRfVZHxYGmxDqbUlCNsG3YCAK7cW-nYGFCkWXKGaKK0zYlCKUURD1YFaORlUMi58IK0G6DhwPTwFYFGtrYRlFYCzy2RtdWCy_9CagRXszdNq7GTWixpwRcc2XmHpkOutDsVtaDugDxWSk=) [unofficialwarmoth.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQFGM_J8-zyhwzukIVEvk_p6qrVOwfw_3PUiCvo_U2XwNk5S7Oi6nOcqabYka5KGPL65TrGqqCsaXb6oPUHUBEj0R4ju_CzhEZnAJjFjjWe8Hs3u7wW_CM1kAsEwYwDShn7ppYAZWGdjSvqanEHY_RXpes7D_Y2ipcdCUDCiyMYTvF21gQ_cfF_oVOBvmveNwietapTbsrGq0Pfbfeq191A930kl).\n*   **Tactile Omnichannel Purchasing:** Despite heavy digital discovery through social media, omnichannel metrics prove that 65-70% of guitar purchases still take place in local physical shops, proving that players need to physically feel the neck and fretboard before committing to an upgrade  [guyker.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHbYTZ2OqPBkWtmu0UqFCt6F_66QIbRHEARzV68bj5bw8N6bllKtWmSozutOVI0-cOgrB5H7T5I1tRcC4YRFkvAPFxYWkaZBN5_GUDru1C0-sVqlm9ZhKTQFRMAblQjs5Of050TFsccbTZ9-L9lHCP4H8QsFsLk1vMAa54O12zk9Q7irOP_7Rt-8Mws6UVxcoTHQROgTwnNwQ==).\n\n## Actionable Creative Briefing Points\nTo effectively capture this audience, creative assets must abandon sterile studio perfection in favor of gritty, behind-the-scenes authenticity. The messaging and visuals must emphasize tactile playability, physical durability, and the true, unvarnished journey of musical progression.\n\n1.  **Expose the \"Perfect Take\" Illusion:** Create short-form video assets (TikTok/Reels) contrasting an artist failing a complex riff multiple times in a messy room, eventually hitting the successful take. Use copy like: *\"Built with a 10-inch radius and ultra-playable fretwork to get you through the 50 failed takes it actually takes to get it right.\"*  [guitarworld.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHKhvbVZvtCmxMYHUr_g2VJPBKtdFPUqtiPAwVfQ7rOpMgrc-TkF8iNuFyVbSAYD8B29YWrF2RM6ABWOkou7oYY2wO1XYNU0KtalKdRVJw8EnaMyvXbe9ZxWfQ8zYavSfXQxNxg7CQcrrxtZcYiA89rnYy_DF1xPBDSjLVhuGaiPtaEMJxKwqXytqU46VZ2knjcvA-MqJRZu2wpyDS5fc-M) [thatguitarlover.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHOgf5yPz8WqTVnG3aA91B_WS-R5cYFMLpFFV8_NY_ioiRxn9fIAEUDRQ09m0kZIRCjEA7i_rMZQyDtwwiyD5rTTw1TTtlTFg0y9wHmB4SKT5XIE8CnFtfUdoJ4tvkzufeFCrnUAw3qfk-a14qANTcK-QzS)\n2.  **Highlight \"Workhorse\" Durability and Ergonomics:** Visually focus on the comfortable \"Shallow Violin\" top carve  [budgetguitarist.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQF0jKmLtMTRfVZHxYGmxDqbUlCNsG3YCAK7cW-nYGFCkWXKGaKK0zYlCKUURD1YFaORlUMi58IK0G6DhwPTwFYFGtrYRlFYCzy2RtdWCy_9CagRXszdNq7GTWixpwRcc2XmHpkOutDsVtaDugDxWSk=) and the \"wide thin\" bolt-on maple neck  [thatguitarlover.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHOgf5yPz8WqTVnG3aA91B_WS-R5cYFMLpFFV8_NY_ioiRxn9fIAEUDRQ09m0kZIRCjEA7i_rMZQyDtwwiyD5rTTw1TTtlTFg0y9wHmB4SKT5XIE8CnFtfUdoJ4tvkzufeFCrnUAw3qfk-a14qANTcK-QzS) [musicarts.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHMiPi3YsdDUOmGlda_0w6VvYhxrXNMEMUVsM6QJHj-kF0Jsrlj9S-HC1PUJbF5issYDCbgdtN-arefPqA5HycvBjoJQa0EP3J_80npP9RNqS76GBWMrnApPkFjWShZOcfGHl2sw3cX2UT6ryFsuTnEkTtdp-hiSQ2VWZTAHtrnHvBvJjyb0y-T5CEX1yvLb2Q=). Emphasize through stage-worn aesthetics that the PRS SE CE 24 is built for the physical grind of long practice sessions and sweaty festival stages, not glass display cases.\n3.  **Celebrate the Custom Canvas:** Lean into the DIY modding subculture. Use visuals of the guitar being worked on, maintained, or having components swapped, leveraging the easy-to-remove bolt-on neck  [unofficialwarmoth.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQFGM_J8-zyhwzukIVEvk_p6qrVOwfw_3PUiCvo_U2XwNk5S7Oi6nOcqabYka5KGPL65TrGqqCsaXb6oPUHUBEj0R4ju_CzhEZnAJjFjjWe8Hs3u7wW_CM1kAsEwYwDShn7ppYAZWGdjSvqanEHY_RXpes7D_Y2ipcdCUDCiyMYTvF21gQ_cfF_oVOBvmveNwietapTbsrGq0Pfbfeq191A930kl). Frame the $499-$699 price point  [premierguitar.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEKr7bNdDL6vQAdTscqEtN37vBFftJJQDmXia5mjcTo5nauGX961bVdGMKBmANApo5YWg12BaHzP9l5nI96h5BUMUiMYsN6brZGsPZ3lHVx7ACBtXUKgfslpcWU-Xriv-rcKiu1KLTDxSBn9tISksmYi5k=) as an open invitation to create a personalized rig: *\"Your tone. Your rules.\"*\n4.  **Demonstrate Sonic Versatility:** Produce audio-visual content that explicitly highlights the push/pull coil-split feature  [youtube.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHvUnapg5-iBbR1cCd43onvMK25hz9uDIrOQqqwEcmFNiZhsQnQkAIAo7rtVkAjsI9SSBBtCK9WQUoLx3lEsNbPfHna_EnPjHX6BPk7kWDjW_7vk4dF1gzIRhTsPfLjQxubAqQwTI8=) [zzounds.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHa0mNcs6Ug5_B5kIXDCktAVOukuukn-vKqt4bCrmpil7rrkG_gPz1EmB8m17BZekdZlIGrcvp_bZ_w9c-7pPrYf4eygwGEcFh3VvN60No1oAJTd9S7_-J_D66umlheMf8P6KMCYSuiF_w9zw==). Show the immediate, seamless transition from heavy, warm humbucker riffs to bright, Stratocaster-style single-coil snaps  [premierguitar.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHSs8WtcNZWiQEdcrfv_yLVLFk39lbc3IzJ5TOB23rID15Xgpffmd0akfSu3dKBgT-Q6-9tAIp9cbfRidRltGuHCtVhuMqyHVo17R5edmhi8hpvvRln7jHIxFrjrTsge1VHqoF-eszU93Leq_yCP1RxnnE=) to prove it is the singular \"swiss-army knife\" guitar they need to bring to the gig.\n5.  **Drive Local, Tactile Trial:** Deploy highly localized social ads urging digital users to attend \"Hands-On Test Drives\" at independent guitar shops. Messaging must bridge the digital-physical gap and emphasize tactile playability: *\"Stop scrolling. Walk in, plug it in, and feel the difference of a proper PRS at your local shop.\"*  [guyker.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHbYTZ2OqPBkWtmu0UqFCt6F_66QIbRHEARzV68bj5bw8N6bllKtWmSozutOVI0-cOgrB5H7T5I1tRcC4YRFkvAPFxYWkaZBN5_GUDru1C0-sVqlm9ZhKTQFRMAblQjs5Of050TFsccbTZ9-L9lHCP4H8QsFsLk1vMAa54O12zk9Q7irOP_7Rt-8Mws6UVxcoTHQROgTwnNwQ==) [guitarplayer.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQG0I95HOXLIKZwM694nC8DEPcm7jvx9So8FVePciABCpTj5Ed4ZJDNcQ_Kt_Aczgl1nz8bGKWXNdrjJZvISQ3mGTO7EXa0qi9Gh-MhOMp3CkVfF-benIERkDK2iJLcmf8rQ8EB6DgKSNcdQ3gWB)",
+    "research_report_gcs_uri": "gs://trend-trawler-deploy-ae/2026_07_17_17_49_9a69/creative_output/research_report_with_citations.pdf",
+    "ad_copy_draft": {
+      "ad_copies": [
+        {
+          "id": 1,
+          "tone_style": "Relatable/Meme-based",
+          "headline": "Take 57 of that 'easy' festival riff.",
+          "body_text": "Behind every perfect 15-second social media cover are dozens of hand-cramping outtakes. Skip the hand fatigue with the PRS SE CE 24\u2019s ultra-comfortable 'wide thin' neck. Built to turn your practice grinds into main stage perfection.",
+          "trend_connection": "It references the summer music festival season by positioning bedroom rehearsal of festival riffs against the realistic, unglamorous grind of social media performance video outtakes.",
+          "audience_appeal_rationale": "It appeals to intermediate players\u2019 exhaustion with social media's 'perfect take' illusion by validating the real-world physical grind of practicing.",
+          "social_caption": "When they think it took 1 take but you actually spent all weekend practicing \ud83e\udee0 Play easy with the PRS SE CE 24 wide-thin neck! #guitar #practicegrid #perfecttake #guitarist"
+        },
+        {
+          "id": 2,
+          "tone_style": "Aspirational",
+          "headline": "From the festival crowd to the festival stage.",
+          "body_text": "Stop just watching your idols headlining the summer circuit and start your own journey. The PRS SE CE 24 gives you tour-ready, pro-level build quality for an incredibly accessible $499. Experience immaculate fretwork and effortless playability designed to take you all the way to the stage.",
+          "trend_connection": "It directly connects to the summer music festival season trend by inspiring users to transition from festival spectators to stage performers.",
+          "audience_appeal_rationale": "It taps into the ambition of 18-35 intermediate players who have outgrown beginner gear and want a professional instrument without breaking the bank.",
+          "social_caption": "Stop watching. Start playing. Step up to the stage with the PRS SE CE 24 starting at just $499! \ud83c\udfb8\ud83d\udd25 #prsguitars #guitarist #guitargoals #livemusic"
+        },
+        {
+          "id": 3,
+          "tone_style": "Problem/Solution",
+          "headline": "Your festival rig just got downsized to one guitar.",
+          "body_text": "Why drag three heavy guitars to a festival gig when you only need one? The PRS SE CE 24's push/pull coil-splitting seamlessly takes you from thick, high-gain humbucker punch to bright, snappy single-coil single-line bites. Own the entire tonal spectrum with a single powerhouse instrument.",
+          "trend_connection": "It leverages the summer music festival season by addressing the logistical nightmare of hauling multiple guitars to live, outdoor summer gigs.",
+          "audience_appeal_rationale": "It resolves the need for tonal variety among gigging intermediate players who want ultimate sonic flexibility without buying multiple expensive guitars.",
+          "social_caption": "One guitar, infinite tones. The PRS SE CE 24\u2019s coil-split does it all. Ditch the extra gear this festival season! \ud83c\udf9b\ufe0f\u26a1 #tonematters #gearaddict #guitarristas #guitargrind"
+        },
+        {
+          "id": 4,
+          "tone_style": "Educational/Informative",
+          "headline": "Why the bolt-on neck isn\u2019t a shortcut\u2014it\u2019s a cheat code.",
+          "body_text": "Forget old myths; the bolt-on maple neck on the PRS SE CE 24 delivers a snappy, immediate transient attack that cuts right through dense live mixes. It provides maximum note articulation for fast playing, plus unmatched long-term customization. Plus, the shallow violin top carve ensures painless comfort.",
+          "trend_connection": "It highlights the mechanical and physical performance benefits of the guitar under demanding, loud festival mix conditions.",
+          "audience_appeal_rationale": "It appeals to the technical interest of intermediate players by explaining why a bolt-on neck and ergonomically carved body actually improve speed and sound.",
+          "social_caption": "Bolt-on maple neck = instant attack and insane snap. Learn why the PRS SE CE 24 is built for speed and durability! \ud83d\udca5\u26a1 #guitarlife #guitartips #tonenerds #guitarfacts"
+        },
+        {
+          "id": 5,
+          "tone_style": "Humorous",
+          "headline": "No, you can't borrow my backup guitar.",
+          "body_text": "Don't let your bandmates beg for your gear. At just $499, the PRS SE CE 24 has no business sounding this high-end and holding tune so stubbornly on sweaty outdoor stages. Keep your premium, workhorse tones to yourself and let them sweat it out on their own.",
+          "trend_connection": "It taps into the sweaty, intense environment of performing live during the summer music festival season.",
+          "audience_appeal_rationale": "It uses light bandmate-conflict humor that strongly resonates with gigging 18-35 year old players who are protective of their gear investments.",
+          "social_caption": "Get your own! The PRS SE CE 24 is the ultimate $499 pro-level workhorse built to survive any sweaty gig. \ud83e\udd75\ud83c\udfb6 #guitarmemes #bandlife #prs #livemusic"
+        },
+        {
+          "id": 6,
+          "tone_style": "Emotional/Authentic",
+          "headline": "Sweat, scars, and feedback.",
+          "body_text": "Real music isn't made in sterile bedrooms or polished under social algorithms. It's written on long hot summer nights and tested on sticky club and festival stages. The PRS SE CE 24 is built tough, with a highly resonant body ready to absorb every mile of your authentic musical journey.",
+          "trend_connection": "It taps into the live music energy of the summer music festival season, contrasting physical music-making with social media artificiality.",
+          "audience_appeal_rationale": "It aligns with the growing subcultural backlash against over-polished digital videos, celebrating raw physical performance instead.",
+          "social_caption": "The stages are hot, and the music is real. The PRS SE CE 24 is built for the grind. No algorithms, just pure sound. \u2764\ufe0f\ud83c\udfb8 #prs #rawmusic #guitarplayer #stageplay"
+        },
+        {
+          "id": 7,
+          "tone_style": "Problem/Solution",
+          "headline": "Your hands are tired of fighting your fretboard.",
+          "body_text": "Fret sprout and rigid necks are destroying your speed and confidence. The PRS SE CE 24\u2019s meticulously finished frets and 10-inch fretboard radius prevent string choking during intense high-register bends. Stop fighting your gear and start playing with fluid ease at your local gigs this summer.",
+          "trend_connection": "It addresses the physical discomforts of playing long, heat-exhausting sets during the summer outdoor performance season.",
+          "audience_appeal_rationale": "It targets the practical frustrations of intermediate guitarists struggling with playability and physical practice fatigue.",
+          "social_caption": "Fret choke? Never heard of her. Feel the fluid comfort of the PRS SE CE 24 fretboard for yourself! \ud83d\udc85\ud83c\udfb5 #guitarplayer #solosection #guitarsetup #smoothgrooves"
+        },
+        {
+          "id": 8,
+          "tone_style": "Relatable/Meme-based",
+          "headline": "Tell me you\u2019re obsessed with tone without telling me.",
+          "body_text": "The PRS SE CE 24 is basically a blank canvas for the DIY gear modding subculture. At a killer starting price point of $499, you have the financial room to drop in your own custom pickups, sand the neck, or keep it perfectly pristine. This is the ultimate premium base for the tone-obsessed musician.",
+          "trend_connection": "It leverages the summer festival season when players are actively upgrading, modifying, and showcasing their custom setups to friends.",
+          "audience_appeal_rationale": "It targets the active intermediate player subculture that loves personalizing, modding, and talking about gear specifications on social channels.",
+          "social_caption": "Ready to build your ultimate custom rig without destroying your savings? The PRS SE CE 24 is your perfect canvas. \ud83c\udfa8\u2699\ufe0f #diymods #geartalk #guitargram #prsmods"
+        },
+        {
+          "id": 9,
+          "tone_style": "Educational/Informative",
+          "headline": "Hear the difference live.",
+          "body_text": "Why take our word for it when you can feel the PRS difference under your own fingers? Research shows 70% of players discover guitars online but choose to buy them in person. Stop scrolling social media feeds; walk into your nearest local music shop, plug in a PRS SE CE 24, and feel the wide-thin neck.",
+          "trend_connection": "It promotes taking a break from scrolling summer festival lineups online to experience actual, tangible playing in real life.",
+          "audience_appeal_rationale": "It addresses the 65-70% omnichannel consumer behavior of wanting to physically touch and hear an instrument in a store before making an investment.",
+          "social_caption": "Stop looking at screens! Put down your phone, walk into a local store, and plug in a PRS SE CE 24 today. \ud83c\udfb8\ud83c\udfea #guitartry #prsguis #localmusicshop #knowyourgear"
+        },
+        {
+          "id": 10,
+          "tone_style": "Aspirational",
+          "headline": "Ready for your moment under the lights?",
+          "body_text": "Every iconic festival moment started with a simple melody played in a quiet room. The PRS SE CE 24 is meticulously engineered with professional gigging components at an accessible intermediate price, making your dream of commanding a massive crowd a tangible reality. Write your breakthrough anthem today.",
+          "trend_connection": "It taps into the romance and grandeur of major performances during the summer music festival season.",
+          "audience_appeal_rationale": "It sparks inspiration in aspiring young musicians, connecting the instrument's affordable price with high-end, festival-headliner dreams.",
+          "social_caption": "Your breakthrough is waiting. Claim your sound with the gig-ready PRS SE CE 24. \u2728\ud83c\udfb8 #prs #futureheadliner #guitarriffs #livemusicgoals"
+        }
+      ]
+    },
+    "ad_copy_critique": {
+      "ad_copies": [
+        {
+          "original_id": 1,
+          "tone_style": "Relatable/Meme-based",
+          "headline": "Take 57 of that 'easy' festival riff.",
+          "body_text": "Behind every perfect 15-second social media cover are dozens of hand-cramping outtakes. Skip the hand fatigue with the PRS SE CE 24\u2019s ultra-comfortable 'wide thin' neck. Built to turn your practice grinds into main stage perfection.",
+          "trend_connection": "It references the summer music festival season by positioning bedroom rehearsal of festival riffs against the realistic, unglamorous grind of social media performance video outtakes.",
+          "audience_appeal_rationale": "It appeals to intermediate players\u2019 exhaustion with social media's 'perfect take' illusion by validating the real-world physical grind of practicing.",
+          "social_caption": "When they think it took 1 take but you actually spent all weekend practicing \ud83e\udee0 Play easy with the PRS SE CE 24 wide-thin neck! #guitar #practicegrid #perfecttake #guitarist",
+          "call_to_action": "Claim your comfort today!",
+          "detailed_performance_rationale": "This copy is highly relatable for Instagram and TikTok users who regularly consume or create short-form video content. It leverages a common pain point of practice fatigue while positioning the product's physical design as the solution, leading to high engagement rates."
+        },
+        {
+          "original_id": 2,
+          "tone_style": "Aspirational",
+          "headline": "From the festival crowd to the festival stage.",
+          "body_text": "Stop just watching your idols headlining the summer circuit and start your own journey. The PRS SE CE 24 gives you tour-ready, pro-level build quality for an incredibly accessible $499. Experience immaculate fretwork and effortless playability designed to take you all the way to the stage.",
+          "trend_connection": "It directly connects to the summer music festival season trend by inspiring users to transition from festival spectators to stage performers.",
+          "audience_appeal_rationale": "It taps into the ambition of 18-35 intermediate players who have outgrown beginner gear and want a professional instrument without breaking the bank.",
+          "social_caption": "Stop watching. Start playing. Step up to the stage with the PRS SE CE 24 starting at just $499! \ud83c\udfb8\ud83d\udd25 #prsguitars #guitarist #guitargoals #livemusic",
+          "call_to_action": "Get your stage-ready gear!",
+          "detailed_performance_rationale": "This concept capitalizes on the seasonal excitement of festival lineups, shifting the user's role from observer to active participant. The strong price-to-value proposition ($499) serves as an immediate conversion driver for budget-conscious intermediate players."
+        },
+        {
+          "original_id": 3,
+          "tone_style": "Problem/Solution",
+          "headline": "Your festival rig just got downsized to one guitar.",
+          "body_text": "Why drag three heavy guitars to a festival gig when you only need one? The PRS SE CE 24's push/pull coil-splitting seamlessly takes you from thick, high-gain humbucker punch to bright, snappy single-coil single-line bites. Own the entire tonal spectrum with a single powerhouse instrument.",
+          "trend_connection": "It leverages the summer music festival season by addressing the logistical nightmare of hauling multiple guitars to live, outdoor summer gigs.",
+          "audience_appeal_rationale": "It resolves the need for tonal variety among gigging intermediate players who want ultimate sonic flexibility without buying multiple expensive guitars.",
+          "social_caption": "One guitar, infinite tones. The PRS SE CE 24\u2019s coil-split does it all. Ditch the extra gear this festival season! \ud83c\udf9b\ufe0f\u26a1 #tonematters #gearaddict #guitarristas #guitargrind",
+          "call_to_action": "Simplify your setup now!",
+          "detailed_performance_rationale": "This copy addresses a highly practical problem faced by gigging musicians during the summer season. By demonstrating immediate utility and versatility, it presents a compelling ROI that rationalizes a new gear purchase."
+        },
+        {
+          "original_id": 5,
+          "tone_style": "Humorous",
+          "headline": "No, you can't borrow my backup guitar.",
+          "body_text": "Don't let your bandmates beg for your gear. At just $499, the PRS SE CE 24 has no business sounding this high-end and holding tune so stubbornly on sweaty outdoor stages. Keep your premium, workhorse tones to yourself and let them sweat it out on their own.",
+          "trend_connection": "It taps into the sweaty, intense environment of performing live during the summer music festival season.",
+          "audience_appeal_rationale": "It uses light bandmate-conflict humor that strongly resonates with gigging 18-35 year old players who are protective of their gear investments.",
+          "social_caption": "Get your own! The PRS SE CE 24 is the ultimate $499 pro-level workhorse built to survive any sweaty gig. \ud83e\udd75\ud83c\udfb6 #guitarmemes #bandlife #prs #livemusic",
+          "call_to_action": "Shop the ultimate workhorse!",
+          "detailed_performance_rationale": "Humor and band dynamics perform exceptionally well on social feeds. This copy creates an insider-group dynamic that makes the audience feel understood, while reinforcing the guitar's tuning stability and reliability under harsh conditions."
+        }
+      ]
+    },
+    "__run_status": "error",
+    "__run_error": "503 UNAVAILABLE. {'error': {'code': 503, 'message': 'The service is currently unavailable.', 'status': 'UNAVAILABLE'}}"
+  }
+}

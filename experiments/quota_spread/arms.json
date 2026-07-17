@@ -1,0 +1,14 @@
+{
+  "global_3x": {
+    "base_url": "https://exp-allglobal-3x---trend-trawler-api-qqzji3hyoa-uc.a.run.app",
+    "audience": "https://trend-trawler-api-qqzji3hyoa-uc.a.run.app",
+    "revision": "trend-trawler-api-00068-muz",
+    "tag": "exp-allglobal-3x"
+  },
+  "regional_25": {
+    "base_url": "https://exp-regional-25---trend-trawler-api-qqzji3hyoa-uc.a.run.app",
+    "audience": "https://trend-trawler-api-qqzji3hyoa-uc.a.run.app",
+    "revision": "trend-trawler-api-00069-bik",
+    "tag": "exp-regional-25"
+  }
+}

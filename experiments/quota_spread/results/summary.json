@@ -1,0 +1,100 @@
+{
+  "n_runs": 48,
+  "n_done": 42,
+  "cells": {
+    "global_3x|1": {
+      "arm": "global_3x",
+      "N": 1,
+      "n_done": 4,
+      "research_s": {
+        "median": 97.28221499919891,
+        "min": 82.96157193183899,
+        "max": 329.9998469352722
+      },
+      "total_s": {
+        "median": 450.8344420194626,
+        "min": 388.669979095459,
+        "max": 622.2316188812256
+      }
+    },
+    "global_3x|5": {
+      "arm": "global_3x",
+      "N": 5,
+      "n_done": 16,
+      "research_s": {
+        "median": 90.35916101932526,
+        "min": 74.93087720870972,
+        "max": 839.3021159172058
+      },
+      "total_s": {
+        "median": 829.4643510580063,
+        "min": 672.6838240623474,
+        "max": 1287.7903349399567
+      }
+    },
+    "regional_25|1": {
+      "arm": "regional_25",
+      "N": 1,
+      "n_done": 4,
+      "research_s": {
+        "median": 114.25705599784851,
+        "min": 85.2926619052887,
+        "max": 426.73505115509033
+      },
+      "total_s": {
+        "median": 448.55501639842987,
+        "min": 371.0615930557251,
+        "max": 742.2186000347137
+      }
+    },
+    "regional_25|5": {
+      "arm": "regional_25",
+      "N": 5,
+      "n_done": 18,
+      "research_s": {
+        "median": 115.7708729505539,
+        "min": 96.262943983078,
+        "max": 178.63849687576294
+      },
+      "total_s": {
+        "median": 1022.6437985897064,
+        "min": 779.2512860298157,
+        "max": 1086.7443499565125
+      }
+    }
+  },
+  "research_slope_by_arm": {
+    "global_3x": -1.7307634949684143,
+    "regional_25": 0.3784542381763458
+  },
+  "quality_by_cell": {
+    "global_3x|1": {
+      "arm": "global_3x",
+      "N": 1,
+      "pass_rate": 0.90625,
+      "mean_score": 0.81509375,
+      "n_scored": 4
+    },
+    "global_3x|5": {
+      "arm": "global_3x",
+      "N": 5,
+      "pass_rate": 0.9765625,
+      "mean_score": 0.834625,
+      "n_scored": 16
+    },
+    "regional_25|1": {
+      "arm": "regional_25",
+      "N": 1,
+      "pass_rate": 0.96875,
+      "mean_score": 0.83903125,
+      "n_scored": 4
+    },
+    "regional_25|5": {
+      "arm": "regional_25",
+      "N": 5,
+      "pass_rate": 0.9652777777777778,
+      "mean_score": 0.8295347222222222,
+      "n_scored": 18
+    }
+  }
+}

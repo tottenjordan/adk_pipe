@@ -171,6 +171,57 @@ class TestBaseAgentConfiguration:
         assert ca.config.worker_model == "gemini-3.5-flash"
         assert ca.config.lite_planner_model == "gemini-3.1-flash-lite"
 
+    def test_campaign_placement_default_is_regional(self, monkeypatch, fresh_config):
+        """Env unset → the shipped #101 behavior: campaign on gemini-2.5 @ us-central1.
+
+        The DoE arm seam must be behavior-preserving by default so prod is
+        untouched unless CAMPAIGN_RESEARCH_PLACEMENT is set explicitly.
+        """
+        monkeypatch.delenv("CAMPAIGN_RESEARCH_PLACEMENT", raising=False)
+        ca = fresh_config("creative_agent.config")
+        assert ca.config.campaign_models() == (
+            "gemini-2.5-flash-lite",
+            "gemini-2.5-flash",
+            "us-central1",
+        )
+
+    def test_campaign_placement_global_3x_arm(self, monkeypatch, fresh_config):
+        """Arm A (global_3x): campaign shares the trend half's global 3.x buckets."""
+        monkeypatch.setenv("CAMPAIGN_RESEARCH_PLACEMENT", "global_3x")
+        ca = fresh_config("creative_agent.config")
+        assert ca.config.campaign_models() == (
+            "gemini-3.1-flash-lite",
+            "gemini-3.5-flash",
+            "global",
+        )
+
+    def test_campaign_placement_global_altbucket_arm(self, monkeypatch, fresh_config):
+        """Arm C (global_altbucket): a DISTINCT global 3.x bucket.
+
+        Task 0a probe confirmed gemini-3-flash-preview both calls and grounds via
+        google_search @ global — the one distinct global flash base model, so the
+        campaign planner + worker both use it.
+        """
+        monkeypatch.setenv("CAMPAIGN_RESEARCH_PLACEMENT", "global_altbucket")
+        ca = fresh_config("creative_agent.config")
+        assert ca.config.campaign_models() == (
+            "gemini-3-flash-preview",
+            "gemini-3-flash-preview",
+            "global",
+        )
+
+    def test_campaign_placement_unknown_falls_back_to_regional(
+        self, monkeypatch, fresh_config
+    ):
+        """An unrecognized arm degrades to the safe default (regional)."""
+        monkeypatch.setenv("CAMPAIGN_RESEARCH_PLACEMENT", "bogus_arm")
+        ca = fresh_config("creative_agent.config")
+        assert ca.config.campaign_models() == (
+            "gemini-2.5-flash-lite",
+            "gemini-2.5-flash",
+            "us-central1",
+        )
+
 
 class TestBuildInfraRetry:
     def test_base_exceptions_present_no_serrver_error(self):
