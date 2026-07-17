@@ -123,44 +123,47 @@ def _get_high_res_img(gcs_folder: str, gcs_subdir: str, artifact_key: str):
     storage_client = _get_gcs_client()
     bucket = storage_client.bucket(config.GCS_BUCKET_NAME)
     blob = bucket.blob(f"{gcs_folder}/{gcs_subdir}/{artifact_key}")
-    LOCAL_FILENAME = f"local_{artifact_key}"
-    XL_LOCAL_FILENAME = f"XL_{LOCAL_FILENAME}"
+    # Per-invocation temp dir: concurrent runs share this process's CWD, so bare
+    # scratch names collided (issue #104) when two runs resized a like-named
+    # concept — one run's cleanup raced the other's download/resize. A
+    # TemporaryDirectory is unique per call and auto-removed on context exit.
+    local_name = f"local_{artifact_key}"
+    xl_name = f"XL_{local_name}"
     img = None
 
-    try:
-        with open(LOCAL_FILENAME, "wb") as file_obj:
-            # Download the blob contents to the opened file object
-            blob.download_to_file(file_obj)
+    with tempfile.TemporaryDirectory() as td:
+        local_path = os.path.join(td, local_name)
+        xl_path = os.path.join(td, xl_name)
+        try:
+            with open(local_path, "wb") as file_obj:
+                # Download the blob contents to the opened file object
+                blob.download_to_file(file_obj)
 
-        # convert to higher res
-        img = Image.open(LOCAL_FILENAME)
-        current_w, current_h = img.size
-        new_w = int(current_w * 1.5)
-        new_h = int(current_h * 1.5)
-        resized_image = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
-        resized_image.save(XL_LOCAL_FILENAME)
+            # convert to higher res
+            img = Image.open(local_path)
+            current_w, current_h = img.size
+            new_w = int(current_w * 1.5)
+            new_h = int(current_h * 1.5)
+            resized_image = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+            resized_image.save(xl_path)
 
-        # upload to gcs
-        mTLS_GCS_PREFIX = "https://storage.mtls.cloud.google.com"
-        NEW_BLOB_NAME = f"{gcs_folder}/{gcs_subdir}/resized/{XL_LOCAL_FILENAME}"
-        new_blob = bucket.blob(NEW_BLOB_NAME)
-        new_blob.upload_from_filename(XL_LOCAL_FILENAME)
+            # upload to gcs — the object name is the file BASENAME, not the temp
+            # path, so the scratch dir never leaks into the GCS object key.
+            mTLS_GCS_PREFIX = "https://storage.mtls.cloud.google.com"
+            NEW_BLOB_NAME = f"{gcs_folder}/{gcs_subdir}/resized/{xl_name}"
+            new_blob = bucket.blob(NEW_BLOB_NAME)
+            new_blob.upload_from_filename(xl_path)
 
-        high_res_auth_gcs_uri = (
-            f"{mTLS_GCS_PREFIX}/{config.GCS_BUCKET_NAME}/{NEW_BLOB_NAME}?authuser=3"
-        )
-        return high_res_auth_gcs_uri
+            high_res_auth_gcs_uri = (
+                f"{mTLS_GCS_PREFIX}/{config.GCS_BUCKET_NAME}/{NEW_BLOB_NAME}?authuser=3"
+            )
+            return high_res_auth_gcs_uri
 
-    finally:
-        # Always release the PIL handle and remove both temp files, even on a
-        # mid-function raise (download/resize/upload), so we never leak them.
-        if img is not None:
-            img.close()
-        for tmp in (LOCAL_FILENAME, XL_LOCAL_FILENAME):
-            try:
-                os.remove(tmp)
-            except OSError:
-                pass
+        finally:
+            # Release the PIL handle even on a mid-function raise; the enclosing
+            # TemporaryDirectory removes both scratch files on context exit.
+            if img is not None:
+                img.close()
 
 
 async def save_draft_report_artifact(tool_context: ToolContext) -> dict:

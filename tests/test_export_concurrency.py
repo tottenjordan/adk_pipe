@@ -12,6 +12,7 @@ These tests reproduce the race deterministically in-process (two invocations und
 
 import asyncio
 import os
+from concurrent.futures import ThreadPoolExecutor
 
 from creative_agent import gcs_tools, tools
 
@@ -125,3 +126,90 @@ def test_save_creative_gallery_html_isolates_concurrent_runs(monkeypatch, tmp_pa
     assert len(recorded) == 2
     assert recorded[0] != recorded[1]
     assert not os.path.exists("creative_portfolio_gallery.html")
+
+
+class _FakeBlob:
+    def __init__(self, name, uploads):
+        self.name = name
+        self._uploads = uploads
+
+    def download_to_file(self, file_obj):
+        file_obj.write(b"origbytes")
+
+    def upload_from_filename(self, path):
+        assert os.path.exists(path), path
+        self._uploads.append((self.name, path))
+
+
+class _FakeBucket:
+    def __init__(self, uploads):
+        self._uploads = uploads
+
+    def blob(self, name):
+        return _FakeBlob(name, self._uploads)
+
+
+class _FakeStorageClient:
+    def __init__(self, uploads):
+        self._uploads = uploads
+
+    def bucket(self, name):
+        return _FakeBucket(self._uploads)
+
+
+class _FakeResized:
+    def save(self, path):
+        with open(path, "wb") as f:
+            f.write(b"resized")
+
+
+class _FakeImg:
+    size = (10, 10)
+
+    def resize(self, size, resample):
+        return _FakeResized()
+
+    def close(self):
+        pass
+
+
+class _FakeImage:
+    class Resampling:
+        LANCZOS = 1
+
+    @staticmethod
+    def open(path):
+        assert os.path.exists(path), path
+        return _FakeImg()
+
+
+def test_get_high_res_img_isolates_concurrent_runs(monkeypatch, tmp_path):
+    """Two concurrent resizes of the SAME artifact_key (as two runs producing a
+    like-named concept would) must not collide on a shared CWD scratch file, and
+    must leave no bare local_*/XL_* files behind. Also guards the gotcha: the GCS
+    object name must be the file basename, not the temp-dir path."""
+    monkeypatch.chdir(tmp_path)
+    uploads: list[tuple[str, str]] = []
+    monkeypatch.setattr(gcs_tools, "_get_gcs_client", lambda: _FakeStorageClient(uploads))
+    monkeypatch.setattr(gcs_tools, "Image", _FakeImage)
+
+    artifact_key = "concept.png"  # identical key => same bare filename on old code
+
+    def _call(folder):
+        return gcs_tools._get_high_res_img(
+            gcs_folder=folder, gcs_subdir="creative_output", artifact_key=artifact_key
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as ex:
+        uris = list(ex.map(_call, ["run_a", "run_b"]))
+
+    assert all(u for u in uris)  # both returned a URI
+    assert len(uploads) == 2
+    xl_paths = [p for _, p in uploads]
+    assert xl_paths[0] != xl_paths[1]  # per-run isolation
+    # no bare scratch files leaked into CWD
+    assert not os.path.exists("local_concept.png")
+    assert not os.path.exists("XL_local_concept.png")
+    # gotcha: blob name uses the basename, not the temp-dir path
+    for name, _ in uploads:
+        assert name.endswith("resized/XL_local_concept.png"), name
