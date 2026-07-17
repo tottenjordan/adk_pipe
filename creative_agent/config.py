@@ -1,3 +1,4 @@
+import os
 import warnings
 from dataclasses import dataclass
 
@@ -11,6 +12,13 @@ warnings.filterwarnings("ignore")
 # creative_agent calls genai directly (image gen), so it also retries the genai
 # 5xx ServerError on top of the shared transient set.
 INFRA_RETRY = build_infra_retry(extra_exceptions=[genai_errors.ServerError])
+
+# Arm C (DoE `global_altbucket`) model. Task 0a probe (2026-07-17) confirmed this
+# is the one DISTINCT global gemini-3.x flash base model that both calls AND
+# grounds via google_search @ global — a separate per-base-model quota bucket
+# from the trend half's gemini-3.5-flash / gemini-3.1-flash-lite. Used for the
+# campaign planner AND worker (no distinct global flash-lite exists).
+ALT_GLOBAL_MODEL = "gemini-3-flash-preview"
 
 
 @dataclass
@@ -44,6 +52,37 @@ class ResearchConfiguration(BaseAgentConfiguration):
     regional_model_location: str = "us-central1"
     regional_worker_model: str = "gemini-2.5-flash"  # campaign searcher + synthesizer
     regional_lite_planner_model: str = "gemini-2.5-flash-lite"  # campaign planner
+
+    # DoE arm selector (2026-07-17): one codebase deploys as three model-placement
+    # arms differing ONLY by this env var, so isolated Cloud Run revisions can
+    # quantify the PR #101 quota-bucket spread. Default `regional_25` preserves
+    # the shipped #101 behavior exactly, so prod is untouched unless set.
+    campaign_research_placement: str = os.environ.get(
+        "CAMPAIGN_RESEARCH_PLACEMENT", "regional_25"
+    )
+
+    def campaign_models(self) -> tuple[str, str, str]:
+        """(lite_planner_model, worker_model, location) for the campaign pipeline.
+
+        Resolves the campaign-research half's models per DoE arm:
+        - ``regional_25`` (default): gemini-2.5 @ us-central1 — the shipped #101 spread.
+        - ``global_3x`` (Arm A): shares the trend half's global 3.x buckets (baseline
+          double-up that #101 moved away from).
+        - ``global_altbucket`` (Arm C): a distinct global 3.x bucket (Task 0a) — same
+          region+family as the trend half, only the base-model bucket differs.
+
+        An unrecognized value degrades to ``regional_25`` (the safe default).
+        """
+        arms = {
+            "regional_25": (
+                self.regional_lite_planner_model,
+                self.regional_worker_model,
+                self.regional_model_location,
+            ),
+            "global_3x": (self.lite_planner_model, self.worker_model, "global"),
+            "global_altbucket": (ALT_GLOBAL_MODEL, ALT_GLOBAL_MODEL, "global"),
+        }
+        return arms.get(self.campaign_research_placement, arms["regional_25"])
 
 
 config = ResearchConfiguration()

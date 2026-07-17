@@ -291,6 +291,54 @@ def test_campaign_pipeline_uses_regional_bucket():
     assert campaign_web_synthesizer.model.model == "gemini-2.5-flash"
 
 
+def test_campaign_pipeline_respects_placement_env(monkeypatch):
+    """DoE arm seam: the campaign half's models+location follow
+    CAMPAIGN_RESEARCH_PLACEMENT, resolved via config.campaign_models(). The models
+    are bound at import time, so re-import fresh under the patched env.
+
+    Arm A (global_3x) is asserted here; the default (regional) arm is covered by
+    test_campaign_pipeline_uses_regional_bucket. The trend half is unaffected.
+    """
+    import sys
+
+    # Re-importing agent_common fresh rebinds INFRA_RETRY etc., so any package that
+    # already imported it (trend_scout/creative_eval) would be left referencing a
+    # stale copy → identity breaks in unrelated tests. Snapshot and fully RESTORE
+    # the whole package subset, exactly like test_config.py's fresh_config fixture.
+    prefixes = (
+        "creative_agent",
+        "trend_scout",
+        "creative_eval",
+        "interactive_creative",
+        "agent_common",
+    )
+    saved = {k: sys.modules[k] for k in list(sys.modules) if k.startswith(prefixes)}
+
+    def _drop():
+        for m in [k for k in sys.modules if k.startswith(prefixes)]:
+            del sys.modules[m]
+
+    _drop()
+    monkeypatch.setenv("CAMPAIGN_RESEARCH_PLACEMENT", "global_3x")
+    try:
+        from creative_agent.sub_agents.campaign_researcher import agent as camp
+
+        for a in (
+            camp.campaign_web_planner,
+            camp.campaign_web_searcher,
+            camp.campaign_web_synthesizer,
+        ):
+            assert a.model.client_kwargs["location"] == "global"
+        assert camp.campaign_web_planner.model.model == "gemini-3.1-flash-lite"
+        assert camp.campaign_web_searcher.model.model == "gemini-3.5-flash"
+        assert camp.campaign_web_synthesizer.model.model == "gemini-3.5-flash"
+    finally:
+        # Teardown: drop the placement-bound copies and restore the originals so
+        # later tests see the same module objects they were already bound to.
+        _drop()
+        sys.modules.update(saved)
+
+
 def test_trend_pipeline_stays_global():
     """The trend-research half is left on the global buckets, becoming their sole
     occupant during the parallel phase (the other side of the #94-style spread)."""
