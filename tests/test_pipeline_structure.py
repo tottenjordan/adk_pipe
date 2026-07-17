@@ -149,6 +149,32 @@ def test_visual_generation_pipeline_sub_agent_order():
     ]
 
 
+def test_structured_output_producers_carry_schema_retry():
+    """Structured-output producers retry on ValidationError + infra (issue #104):
+    a bad-JSON model turn (e.g. visual_concept_finalizer at high temp emitting raw
+    control chars) crashed the run unretried. Identity check keeps them on one
+    shared config."""
+    from creative_agent.config import SCHEMA_RETRY
+    from creative_agent.agent import (
+        combined_web_evaluator,
+        ad_copy_drafter,
+        ad_copy_critic,
+        visual_concept_drafter,
+        visual_concept_critic,
+        visual_concept_finalizer,
+    )
+
+    for producer in (
+        combined_web_evaluator,
+        ad_copy_drafter,
+        ad_copy_critic,
+        visual_concept_drafter,
+        visual_concept_critic,
+        visual_concept_finalizer,
+    ):
+        assert producer.retry_config is SCHEMA_RETRY, producer.name
+
+
 def test_visual_production_pipeline_wraps_generator_in_retry():
     """The image step must be retry-wrapped: visual_generator intermittently
     returns MALFORMED_FUNCTION_CALL and never emits generate_image, shipping an

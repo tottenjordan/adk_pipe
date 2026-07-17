@@ -10,7 +10,7 @@ from google.adk.agents import Agent, SequentialAgent, ParallelAgent
 from .sub_agents.campaign_researcher.agent import ca_sequential_planner
 from .sub_agents.trend_researcher.agent import gs_sequential_planner
 from agent_common import build_gemini, RetryUntilKeyAgent, RunIfAgent
-from .config import config, INFRA_RETRY
+from .config import config, INFRA_RETRY, SCHEMA_RETRY
 from . import callbacks
 from . import tools
 from . import prompts
@@ -70,6 +70,7 @@ combined_web_evaluator = Agent(
     description="Critically evaluates research about the campaign guide and generates follow-up queries.",
     instruction=prompts.COMBINED_WEB_EVALUATOR_INSTR,
     output_schema=ResearchFeedback,
+    retry_config=SCHEMA_RETRY,
     disallow_transfer_to_parent=True,
     disallow_transfer_to_peers=True,
     output_key="combined_research_evaluation",
@@ -229,6 +230,7 @@ ad_copy_drafter = Agent(
         },
     ),
     output_schema=AdCopyList,
+    retry_config=SCHEMA_RETRY,
     output_key="ad_copy_draft",
     after_model_callback=[
         callbacks.scrub_surrogates_in_response,
@@ -259,6 +261,7 @@ ad_copy_critic = Agent(
         },
     ),
     output_schema=FinalAdCopyList,
+    retry_config=SCHEMA_RETRY,
     output_key="ad_copy_critique",
     after_model_callback=[
         callbacks.scrub_surrogates_in_response,
@@ -324,6 +327,7 @@ visual_concept_drafter = Agent(
         },
     ),
     output_schema=VisualConceptList,
+    retry_config=SCHEMA_RETRY,
     output_key="visual_draft",
     after_model_callback=callbacks.log_empty_turn_finish_reason,
 )
@@ -350,6 +354,7 @@ visual_concept_critic = Agent(
         },
     ),
     output_schema=VisualConceptCritiqueList,
+    retry_config=SCHEMA_RETRY,
     output_key="visual_concept_critique",
     after_model_callback=callbacks.log_empty_turn_finish_reason,
 )
@@ -371,6 +376,7 @@ visual_concept_finalizer = Agent(
         },
     ),
     output_schema=VisualConceptFinalList,
+    retry_config=SCHEMA_RETRY,
     output_key="final_visual_concepts",
     after_model_callback=callbacks.log_empty_turn_finish_reason,
 )
