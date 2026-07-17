@@ -249,3 +249,14 @@ class TestBuildInfraRetry:
         names = set(rc.exceptions)
         assert "ServerError" in names
         assert "ServiceUnavailable" in names  # base still present
+
+    def test_schema_retry_covers_validation_and_infra(self):
+        """Structured-output producers additionally retry a bad-JSON
+        ValidationError (issue #104) on top of the infra set (defense-in-depth for
+        a 503 that escapes the genai HTTP-retry layer)."""
+        from creative_agent.config import SCHEMA_RETRY
+
+        names = set(SCHEMA_RETRY.exceptions)
+        assert "ValidationError" in names  # the invalid-JSON crash
+        assert "ServiceUnavailable" in names  # infra set included (503)
+        assert "ServerError" in names  # genai 5xx included
