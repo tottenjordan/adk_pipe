@@ -6,11 +6,15 @@ rather than via the reserved ``GOOGLE_CLOUD_LOCATION`` env var.
 ADK exposes ``Gemini.client_kwargs`` for exactly this: extra kwargs passed
 straight to the underlying ``google.genai.Client`` constructor, where an explicit
 ``location`` takes precedence over the injected ``GOOGLE_CLOUD_LOCATION``.
+
+It also carries the shared genai HTTP-layer retry (:mod:`agent_common.genai_retry`)
+so every agent model call retries transient 429/503 (the shared per-minute Vertex
+quota) with backoff instead of aborting the run.
 """
 
 from google.adk.models import Gemini
 
-from agent_common import locations
+from agent_common import genai_retry, locations
 
 
 def build_gemini(model_name: str, location: str | None = None) -> Gemini:
@@ -26,7 +30,12 @@ def build_gemini(model_name: str, location: str | None = None) -> Gemini:
     also lands their calls in the *regional* per-base-model quota bucket, which
     is a separate pool from the ``global`` one the gemini-3.x models draw from.
     """
+    # retry_options goes on the top-level param (NOT inside client_kwargs): ADK
+    # merges it into the client's own http_options alongside its tracking
+    # headers, whereas an http_options passed via client_kwargs would overwrite
+    # those wholesale.
     return Gemini(
         model=model_name,
+        retry_options=genai_retry.build_genai_http_retry(),
         client_kwargs={"location": location or locations.MODEL_LOCATION},
     )
