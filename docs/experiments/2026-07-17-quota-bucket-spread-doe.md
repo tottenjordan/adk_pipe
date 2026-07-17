@@ -271,3 +271,110 @@ effect.
 - **In-memory vs Agent-Engine path:** UI runs are in-process (`runserver`), fan-out uses Agent
   Engine; this DoE measures the in-process/`/runs` path (the one that showed the 429s). The
   bucket math is identical for both, but the *absolute* latencies won't transfer to fan-out.
+
+---
+
+## 12. Optional: mirror runs to Agent Platform Experiments (post-hoc)
+
+**Agent Platform Experiments** (fka *Vertex AI Experiments*, now under the Gemini Enterprise
+Agent Platform umbrella) is a managed experiment-tracking store. Same API as before —
+`google-cloud-aiplatform` (`aiplatform.init(experiment=...)` → `start_run` → `log_params` /
+`log_metrics`, `get_experiment_df()`), GA on `aiplatform.googleapis.com`, needs
+`google-cloud-aiplatform > 1.24.1` (ADK 2.4 already pulls a far newer one). It is a **regional**
+resource → `us-central1` (our `GCP_REGION`), independent of the `global` model location.
+
+Our DoE run records already map onto it 1:1 — one `ExperimentRun` per creative_agent run:
+
+| Agent Platform Experiments | Our harness (`experiments/quota_spread/`) |
+|---|---|
+| experiment | `quota-bucket-spread-doe` |
+| ExperimentRun | one `<session>.json` record under `results/<arm>/N<k>/…` |
+| `log_params({…})` | `arm`, `concurrency` (N), `revision`, `batch_id` |
+| `log_metrics({…})` | `research_s`, `total_s`, `count_429`, `eval_pass`, `eval_mean` |
+| `get_experiment_df()` / console UI | supplements `analyze.py`'s tidy CSV |
+
+**What it buys:** a console UI for sortable side-by-side run comparison and param×metric charts
+(nice for sharing without shipping matplotlib PNGs), plus a durable cross-session store.
+
+**Hard design constraint — log post-hoc, never in the timed hot path.** `aiplatform.log_*` are
+network round-trips to `aiplatform.googleapis.com`; calling them inside `run_batch`'s
+`ThreadPoolExecutor` closure would inject latency/jitter into the very `research_s`/`total_s`
+being measured (and add a failure surface to a concurrent path) — corrupting the H1 signal. So
+the recommended shape is a **separate `experiments/quota_spread/upload_to_vertex.py`** that walks
+the *already-committed* `results/` tree via `analyze.load_records()` **after** the batches finish
+and creates one `ExperimentRun` per record. This keeps the timed runs fully offline and keeps
+`analyze.py` stdlib-only. Sketch (~30 lines):
+
+```python
+aiplatform.init(experiment="quota-bucket-spread-doe", project=PROJECT, location="us-central1")
+for r in load_records():
+    with aiplatform.start_run(f'{r["arm"]}-N{r["concurrency"]}-{r["session_id"][:8]}'):
+        aiplatform.log_params({"arm": r["arm"], "concurrency": r["concurrency"],
+                               "revision": r["revision"], "batch_id": r["batch_id"]})
+        aiplatform.log_metrics({k: v for k, v in {
+            "research_s": r.get("research_s"), "total_s": r.get("total_s"),
+            "count_429": r.get("count_429")}.items() if v is not None})
+```
+
+**What it does *not* replace.** It's a dashboard/store, not an analysis engine — the H1 headline
+(**slope of `research_s` vs N per arm**) is a cross-run regression Experiments won't compute;
+`analyze.py` stays the authoritative inference. `get_experiment_df()` also pulls in pandas, which
+`analyze.py` deliberately avoids.
+
+**Status: DEFERRED.** The committed JSON records are the durable source of truth, so the uploader
+is a pure downstream sink that can be bolted on any time. Build it **only after** the first live
+batch confirms the harness end-to-end — then decide whether the console UI justifies the extra
+GCP resource. Clean up afterward (delete the experiment metadata store).
+
+---
+
+## 13. Future evaluation options — Agent evaluation on Gemini Enterprise Agent Platform
+
+Separate from this DoE (which uses `creative_eval` for its H3 guardrail), the platform's
+**Agent evaluation** (the rebranded *Gen AI evaluation service*) is worth a future look. Note
+that **`adk eval` — our `tests/eval/` — is already the local/CI face of this same service**, so
+we have partly adopted it. The managed side adds three things our current evals lack:
+
+- **Trajectory / tool-use metrics** — `trajectory_in_order_match`, `trajectory_exact_match`
+  (computation-based), plus rubric `TOOL_USE_QUALITY` and multi-turn trajectory quality. These
+  score *the tool-call path* — did the agent call the right tools, in order, with the right args.
+- **Evaluate from stored Traces/Sessions** — build eval datasets from real production sessions
+  (we run `VertexAiSessionService` persistent sessions), not just synthetic evalsets.
+- **Online monitors + failure clusters** — aggregate hallucination / tool-use / response-quality
+  trends over deployed-agent traffic, with diagnostic clustering of failures.
+- SDK entry: `client.evals.evaluate(dataset=…, metrics=[RubricMetric.FINAL_RESPONSE_QUALITY,
+  TOOL_USE_QUALITY, HALLUCINATION, SAFETY, …])`.
+
+**Orthogonal to `creative_eval`, not a replacement.** `creative_eval` is a bespoke 12-dimension
+judge of *creative-output quality* (ad copy, visuals); Agent evaluation judges *agent behavior*
+(trajectory, tool use, hallucination, safety). It fills a gap `creative_eval` structurally cannot
+see.
+
+**Opportunities, ranked:**
+
+1. **Trajectory/tool-use eval of the brittle research pipeline (best fit, CI-shaped).** The
+   research pipeline's recurring failures are *behavioral* — missing `output_key`,
+   `google_search`+synthesize not completing, retry-until-populated exhaustion (the
+   `RetryUntilKeyAgent` work). `trajectory_in_order_match` + `TOOL_USE_QUALITY` measure exactly
+   that path; our current rubric configs grade response/creative quality, not the tool sequence.
+   Highest signal-to-effort.
+2. **Production monitoring on the fan-out traffic (biggest new capability, larger effort).** The
+   Cloud Run fan-out generates many real runs persisted as Agent Engine sessions with no
+   systematic behavioral monitoring today (only the per-run `creative_eval` product artifact in
+   BQ). Online monitors + failure clusters would surface trends/root-causes we currently only
+   find by reading logs. Costs a GCS output bucket + a managed surface to maintain.
+3. **Inside this DoE — low priority; keep `creative_eval`.** H3 is already covered *free* by the
+   in-pipeline judge (fixed across arms). Swapping to the managed service buys nothing there and
+   actively hurts: model-based metrics are LLM-as-judge → they burn the **same ~5-RPM pro judge
+   quota the DoE is trying to protect**. The only complementary add would be a post-hoc
+   *trajectory* comparison per arm, but we already log `*__retry_exhausted` markers.
+
+**Hard constraint (same quota logic as this whole DoE):** model-based agent metrics consume
+Gemini judge quota. **Never run them concurrently with the DoE batches or the live fan-out** —
+run against *stored* Traces/Sessions in a cool window (the service supports post-hoc eval from
+session IDs).
+
+**Status: DEFERRED / out of scope for this DoE.** Recommended next step, independent of the
+experiment: a small `client.evals.evaluate(...)` trajectory-eval spike against a handful of
+existing stored sessions (#1 above), *after* the DoE live run — not a workstream to open
+mid-experiment.
