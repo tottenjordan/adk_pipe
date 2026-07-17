@@ -41,6 +41,40 @@ def test_research_slope_single_point_is_zero():
     assert research_slope({}) == 0.0
 
 
+def test_research_tail_by_cell_reports_p90_and_max():
+    """The real contention signal lives in the tail, not the median (429s are
+    absorbed by genai retry, so medians stay flat). p90/max expose the blowout."""
+    from experiments.quota_spread.analyze import research_tail_by_cell
+
+    records = [
+        {"arm": "A", "concurrency": 5, "status": "done", "research_s": r}
+        for r in (80.0, 90.0, 100.0, 110.0, 800.0)  # one long tail
+    ] + [
+        {"arm": "B", "concurrency": 5, "status": "done", "research_s": r}
+        for r in (100.0, 105.0, 110.0, 115.0, 120.0)  # tight
+    ] + [
+        {"arm": "A", "concurrency": 5, "status": "error", "research_s": None},
+    ]
+    tail = research_tail_by_cell(records)
+    assert tail[("A", 5)]["max"] == 800.0
+    assert tail[("B", 5)]["max"] == 120.0
+    assert tail[("A", 5)]["p90"] > tail[("B", 5)]["p90"]  # A tail blows out
+    assert tail[("A", 5)]["n"] == 5  # error run excluded
+
+
+def test_error_rate_by_cell():
+    from experiments.quota_spread.analyze import error_rate_by_cell
+
+    records = (
+        [{"arm": "A", "concurrency": 5, "status": "done"}] * 4
+        + [{"arm": "A", "concurrency": 5, "status": "error"}] * 1
+        + [{"arm": "B", "concurrency": 5, "status": "done"}] * 5
+    )
+    er = error_rate_by_cell(records)
+    assert er[("A", 5)] == 0.2  # 1/5
+    assert er[("B", 5)] == 0.0
+
+
 def test_to_tidy_rows_and_write_csv(tmp_path):
     from experiments.quota_spread.analyze import to_tidy_rows, write_csv
 
@@ -104,6 +138,9 @@ def test_load_records_skips_manifest(tmp_path):
         json.dumps({"arm": "A", "concurrency": 1, "status": "done", "research_s": 1.0})
     )
     (tmp_path / "manifest.json").write_text(json.dumps({"cells": []}))
+    # Derived artifacts written into the results root must NOT be loaded as runs
+    # (they lack "arm"/"concurrency" and would crash the per-cell reducers).
+    (tmp_path / "summary.json").write_text(json.dumps({"n_runs": 1}))
     recs = load_records(tmp_path)
     assert len(recs) == 1
     assert recs[0]["arm"] == "A"
@@ -207,7 +244,7 @@ def test_quality_by_cell_averages_floats():
 
 
 def test_doe_plot_render_all_writes_pngs(tmp_path):
-    """Smoke: render_all produces the three figures from synthetic records."""
+    """Smoke: render_all produces the four figures from synthetic records."""
     from experiments.quota_spread.doe_plot import render_all
 
     records = [
@@ -221,7 +258,7 @@ def test_doe_plot_render_all_writes_pngs(tmp_path):
          "research_s": 120.0, "total_s": 330.0, "state": {}},
     ]
     paths = render_all(records, figures_dir=tmp_path)
-    assert len(paths) == 3
+    assert len(paths) == 4
     for p in paths:
         assert p.exists()
         assert p.suffix == ".png"

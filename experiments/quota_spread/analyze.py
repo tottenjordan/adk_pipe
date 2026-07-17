@@ -32,12 +32,17 @@ def _no_quality(_state: dict) -> tuple[None, None]:
     return None, None
 
 
+# Derived artifacts this module (and doe_plot) write into the results root — not
+# run records, so load_records must never load them back as runs.
+_NON_RECORD_JSON = {"manifest.json", "summary.json"}
+
+
 def load_records(results_root: Path | str = RESULTS_ROOT) -> list[dict]:
-    """Load every per-run JSON under ``results_root`` (skips ``manifest.json``)."""
+    """Load every per-run JSON under ``results_root`` (skips derived artifacts)."""
     root = Path(results_root)
     records: list[dict] = []
     for path in sorted(root.rglob("*.json")):
-        if path.name == "manifest.json":
+        if path.name in _NON_RECORD_JSON:
             continue
         records.append(json.loads(path.read_text()))
     return records
@@ -55,6 +60,53 @@ def median_research_by_cell(records: list[dict]) -> dict[tuple[str, int], float]
         if val is not None:
             buckets[(r["arm"], r["concurrency"])].append(float(val))
     return {cell: statistics.median(vals) for cell, vals in buckets.items() if vals}
+
+
+def _percentile(values: list[float], pct: float) -> float:
+    """Linear-interpolated percentile (pct in [0,1]); matches numpy's default."""
+    ordered = sorted(values)
+    if not ordered:
+        return 0.0
+    if len(ordered) == 1:
+        return ordered[0]
+    k = (len(ordered) - 1) * pct
+    lo = int(k)
+    hi = min(lo + 1, len(ordered) - 1)
+    return ordered[lo] + (ordered[hi] - ordered[lo]) * (k - lo)
+
+
+def research_tail_by_cell(
+    records: list[dict], pct: float = 0.9
+) -> dict[tuple[str, int], dict]:
+    """Per-(arm, N) research-phase tail: {p90, max, n} over ``done`` runs.
+
+    The honest contention view: 429s are absorbed by genai HTTP retry *below*
+    the ADK model-call boundary, so the *median* barely moves with concurrency.
+    The inflation shows up in the TAIL — a run that loses the retry lottery
+    repeatedly. p90/max expose it where the median hides it.
+    """
+    buckets: dict[tuple[str, int], list[float]] = defaultdict(list)
+    for r in _done(records):
+        val = r.get("research_s")
+        if val is not None:
+            buckets[(r["arm"], r["concurrency"])].append(float(val))
+    return {
+        cell: {"p90": _percentile(vals, pct), "max": max(vals), "n": len(vals)}
+        for cell, vals in buckets.items()
+        if vals
+    }
+
+
+def error_rate_by_cell(records: list[dict]) -> dict[tuple[str, int], float]:
+    """Fraction of runs with status=='error' per (arm, N) — the reliability view."""
+    total: dict[tuple[str, int], int] = defaultdict(int)
+    errors: dict[tuple[str, int], int] = defaultdict(int)
+    for r in records:
+        cell = (r["arm"], r["concurrency"])
+        total[cell] += 1
+        if r.get("status") == "error":
+            errors[cell] += 1
+    return {cell: errors[cell] / n for cell, n in total.items() if n}
 
 
 def research_slope(cell_medians: dict[int, float]) -> float:

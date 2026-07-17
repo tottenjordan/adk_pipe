@@ -48,6 +48,11 @@ INVOKER_SA = os.environ.get("EXP_INVOKER_SA", "")
 RESULTS_ROOT = Path(__file__).parent / "results"
 POLL_INTERVAL_S = 3.0
 POLL_TIMEOUT_S = 1800.0  # 30 min hard ceiling for one creative_agent run
+# Per-request socket timeout. Generous on purpose: a late-run poll returns the
+# FULL session state (research briefs + ad copies + visual concepts + the eval
+# report), which is large enough to routinely exceed a tight 60s read. Too tight
+# a value spuriously fails a run that actually completed server-side.
+HTTP_TIMEOUT_S = 180.0
 TERMINAL_STATUSES = frozenset({"done", "error"})
 
 
@@ -64,7 +69,7 @@ def mint_token(audience: str, invoker_sa: str = INVOKER_SA) -> str:
     return out.stdout.strip()
 
 
-def _post(url: str, body: dict, token: str) -> dict:
+def _post(url: str, body: dict, token: str, timeout: float = HTTP_TIMEOUT_S) -> dict:
     data = json.dumps(body).encode()
     req = urllib.request.Request(
         url,
@@ -75,13 +80,13 @@ def _post(url: str, body: dict, token: str) -> dict:
             "Authorization": f"Bearer {token}",
         },
     )
-    with urllib.request.urlopen(req, timeout=60) as resp:
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
         return json.loads(resp.read().decode())
 
 
-def _get(url: str, token: str) -> dict:
+def _get(url: str, token: str, timeout: float = HTTP_TIMEOUT_S) -> dict:
     req = urllib.request.Request(url, headers={"Authorization": f"Bearer {token}"})
-    with urllib.request.urlopen(req, timeout=60) as resp:
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
         return json.loads(resp.read().decode())
 
 
@@ -117,7 +122,16 @@ def poll_to_terminal(
     deadline = time.monotonic() + POLL_TIMEOUT_S
     while time.monotonic() < deadline:
         base = f"{base_url}/runs/{APP_NAME}/{user_id}/{session_id}"
-        payload = _get(f"{base}?since={since}", token)
+        try:
+            payload = _get(f"{base}?since={since}", token)
+        except (TimeoutError, urllib.error.URLError, OSError) as exc:
+            # A single slow/failed poll must NOT sink a run that is still
+            # progressing server-side (the detached task is decoupled from this
+            # HTTP read). Log it and retry until the deadline; only a genuine
+            # non-terminal stall out to POLL_TIMEOUT_S raises below.
+            print(f"  [poll] transient read error, retrying: {exc!r}", flush=True)
+            time.sleep(POLL_INTERVAL_S)
+            continue
         status = payload.get("status", "running")
         new_events = payload.get("events") or []
         if new_events:

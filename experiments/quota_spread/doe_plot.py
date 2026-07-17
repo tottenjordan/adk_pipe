@@ -1,12 +1,15 @@
 """Render the quota-spread DoE figures via matplotlib (headless Agg, no browser).
 
-Three money-shots, all from the committed run records (no live runs / no quota):
+Four money-shots, all from the committed run records (no live runs / no quota):
 
-  1. ``research_slope.png`` — median research-phase wall-clock vs concurrency N,
-     one line per arm. The primary H1 view: a flatter line = the quota spread
-     absorbed the contention.
-  2. ``totals_by_cell.png`` — total wall-clock per (arm, N), grouped bars.
-  3. ``quality_by_arm.png`` — creative_eval mean score + pass-rate per arm
+  1. ``research_slope.png`` — MEDIAN research-phase wall-clock vs concurrency N,
+     one line per arm. The pre-registered H1 view — but the median barely moves,
+     because genai HTTP retry absorbs 429s below the ADK model boundary.
+  2. ``research_tail.png`` — research-phase p90 + max vs N, per arm, with the
+     per-cell error rate annotated. The *honest* H1 view: contention shows up in
+     the TAIL, not the median. This is the figure that carries the finding.
+  3. ``totals_by_cell.png`` — total wall-clock per (arm, N), grouped bars.
+  4. ``quality_by_arm.png`` — creative_eval mean score + pass-rate per arm
      (the H3 non-inferiority guardrail), harvested free from each run's state.
 
 Deliberately NOT PaperBanana — its image path burns the same 2 RPM
@@ -30,10 +33,12 @@ import matplotlib.pyplot as plt  # noqa: E402  (backend must be set first)
 from .analyze import (  # noqa: E402
     _no_quality,
     cell_summary,
+    error_rate_by_cell,
     load_records,
     median_research_by_cell,
     quality_by_cell,
     research_slope_by_arm,
+    research_tail_by_cell,
 )
 from .run_batch import RESULTS_ROOT  # noqa: E402
 
@@ -80,6 +85,42 @@ def _plot_research_slope(records: list[dict], out: Path) -> Path:
     ax.set_title("Research-phase contention: latency inflation vs concurrency (H1)")
     ax.grid(True, alpha=0.3)
     ax.legend()
+    fig.tight_layout()
+    fig.savefig(out, dpi=120)
+    plt.close(fig)
+    return out
+
+
+def _plot_research_tail(records: list[dict], out: Path) -> Path:
+    """The honest H1 view: research-phase p90 + max vs N (median hides it), with
+    the per-cell error rate annotated — this is where the quota spread pays off."""
+    tail = research_tail_by_cell(records)
+    err = error_rate_by_cell(records)
+    by_arm: dict[str, dict[int, dict]] = defaultdict(dict)
+    for (arm, n), stats in tail.items():
+        by_arm[arm][n] = stats
+
+    fig, ax = plt.subplots(figsize=(8, 5))
+    for arm in sorted(by_arm):
+        points = sorted(by_arm[arm].items())
+        xs = [n for n, _ in points]
+        p90s = [s["p90"] for _, s in points]
+        maxes = [s["max"] for _, s in points]
+        ax.plot(xs, p90s, marker="o", color=_color(arm), label=f"{arm} p90")
+        ax.plot(xs, maxes, marker="^", linestyle="--", color=_color(arm), alpha=0.7,
+                label=f"{arm} max")
+        # annotate error rate at N=5 (the contention cell)
+        for n, _ in points:
+            rate = err.get((arm, n))
+            if rate:
+                ax.annotate(f"{rate:.0%} err", (n, by_arm[arm][n]["max"]),
+                            textcoords="offset points", xytext=(6, 4), fontsize=8,
+                            color=_color(arm))
+    ax.set_xlabel("concurrency N (simultaneous runs)")
+    ax.set_ylabel("research-phase wall-clock tail (s)")
+    ax.set_title("Research-phase tail latency vs concurrency (H1 — the real signal)")
+    ax.grid(True, alpha=0.3)
+    ax.legend(fontsize=8)
     fig.tight_layout()
     fig.savefig(out, dpi=120)
     plt.close(fig)
@@ -163,6 +204,7 @@ def render_all(records: list[dict], figures_dir: Path | str = FIGURES_DIR, quali
     qf = quality_fn or _no_quality
     return [
         _plot_research_slope(records, out_dir / "research_slope.png"),
+        _plot_research_tail(records, out_dir / "research_tail.png"),
         _plot_totals(records, out_dir / "totals_by_cell.png"),
         _plot_quality(records, out_dir / "quality_by_arm.png", qf),
     ]
