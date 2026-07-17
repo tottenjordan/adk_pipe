@@ -3,8 +3,8 @@
 import os
 import json
 import string
-import shutil
 import asyncio
+import tempfile
 import logging
 import functools
 
@@ -182,51 +182,50 @@ async def save_draft_report_artifact(tool_context: ToolContext) -> dict:
     gcs_blob_name = f"{gcs_folder}/{gcs_subdir}/{artifact_key}"
 
     try:
-        DIR = "report_creatives"
-        local_filepath = f"{DIR}/{artifact_key}"
+        # Per-invocation temp dir: concurrent runs share this process's CWD, so a
+        # bare relative scratch path let one run's cleanup race another's write
+        # (issue #104 — [Errno 2] under N=5). TemporaryDirectory is unique per call
+        # and auto-removed on context exit, even on a mid-function raise.
+        with tempfile.TemporaryDirectory() as tmpdir:
+            local_filepath = os.path.join(tmpdir, artifact_key)
 
-        def _render_pdf() -> bytes:
-            """Blocking: build the PDF on disk and return its bytes."""
-            if not os.path.exists(DIR):
-                os.makedirs(DIR)
-            # create markdown PDF object
-            pdf = MarkdownPdf(toc_level=4)
-            pdf.add_section(Section(f" {processed_report}\n"))
-            pdf.meta["title"] = "[Draft] Trend & Campaign Research Report"
-            pdf.save(local_filepath)
-            # open pdf and read bytes for types.Part() object
-            with open(local_filepath, "rb") as f:
-                return f.read()
+            def _render_pdf() -> bytes:
+                """Blocking: build the PDF on disk and return its bytes."""
+                # create markdown PDF object
+                pdf = MarkdownPdf(toc_level=4)
+                pdf.add_section(Section(f" {processed_report}\n"))
+                pdf.meta["title"] = "[Draft] Trend & Campaign Research Report"
+                pdf.save(local_filepath)
+                # open pdf and read bytes for types.Part() object
+                with open(local_filepath, "rb") as f:
+                    return f.read()
 
-        # PDF render + read is multi-second blocking work — run off the event loop.
-        document_bytes = await asyncio.to_thread(_render_pdf)
+            # PDF render + read is multi-second blocking work — run off the event loop.
+            document_bytes = await asyncio.to_thread(_render_pdf)
 
-        document_part = types.Part(
-            inline_data=types.Blob(data=document_bytes, mime_type="application/pdf")
-        )
-        version = await tool_context.save_artifact(
-            filename=artifact_key, artifact=document_part
-        )
-        # save to gcs (blocking network I/O — off the loop)
-        await asyncio.to_thread(
-            _upload_blob_to_gcs,
-            source_file_name=local_filepath,
-            destination_blob_name=gcs_blob_name,
-        )
-        # save to session state (must stay on the loop)
-        gcs_uri = f"gs://{gcs_bucket}/{gcs_blob_name}"
-        tool_context.state["research_report_gcs_uri"] = gcs_uri
-        logging.info(
-            f"\n\nSaved artifact doc '{artifact_key}', version {version}, to: '{gcs_uri}' \n\n"
-        )
-        # clean up (blocking filesystem work — off the loop)
-        await asyncio.to_thread(shutil.rmtree, DIR)
-        logging.info(f"Directory '{DIR}' and its contents removed successfully")
+            document_part = types.Part(
+                inline_data=types.Blob(data=document_bytes, mime_type="application/pdf")
+            )
+            version = await tool_context.save_artifact(
+                filename=artifact_key, artifact=document_part
+            )
+            # save to gcs (blocking network I/O — off the loop)
+            await asyncio.to_thread(
+                _upload_blob_to_gcs,
+                source_file_name=local_filepath,
+                destination_blob_name=gcs_blob_name,
+            )
+            # save to session state (must stay on the loop)
+            gcs_uri = f"gs://{gcs_bucket}/{gcs_blob_name}"
+            tool_context.state["research_report_gcs_uri"] = gcs_uri
+            logging.info(
+                f"\n\nSaved artifact doc '{artifact_key}', version {version}, to: '{gcs_uri}' \n\n"
+            )
 
-        return {
-            "status": "success",
-            "gcs_uri": gcs_uri,
-        }
+            return {
+                "status": "success",
+                "gcs_uri": gcs_uri,
+            }
 
     except Exception as e:
         # Propagate so ADK 2.0 RetryConfig can retry transient infra failures.
