@@ -154,6 +154,23 @@ class TestBaseAgentConfiguration:
         assert tt.config.picker_model == "gemini-2.5-pro"
         assert tt.config.regional_model_location == "us-central1"
 
+    def test_creative_agent_regional_model_spread(self):
+        """creative_agent pins its campaign-research pipeline to a separate
+        regional (gemini-2.5 @ us-central1) quota bucket (mirrors trend_scout #94).
+
+        Halves parallel_planner_agent's contention: the trend-research half stays
+        on the global flash/flash-lite buckets while the campaign half draws from
+        the regional pool instead of doubling up on the same global buckets.
+        """
+        import creative_agent.config as ca
+
+        assert ca.config.regional_model_location == "us-central1"
+        assert ca.config.regional_worker_model == "gemini-2.5-flash"
+        assert ca.config.regional_lite_planner_model == "gemini-2.5-flash-lite"
+        # the global base-model names must be UNCHANGED (spread != rename)
+        assert ca.config.worker_model == "gemini-3.5-flash"
+        assert ca.config.lite_planner_model == "gemini-3.1-flash-lite"
+
 
 class TestBuildInfraRetry:
     def test_base_exceptions_present_no_serrver_error(self):

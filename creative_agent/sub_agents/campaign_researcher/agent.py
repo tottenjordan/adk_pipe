@@ -33,7 +33,11 @@ class CampaignQueryList(BaseModel):
 
 # --- AGENT DEFINITIONS ---
 campaign_web_planner = Agent(
-    model=build_gemini(config.lite_planner_model),
+    # Quota spread (#94): campaign half runs on the regional gemini-2.5 pool so
+    # it doesn't double up on the global flash-lite bucket with the trend planner.
+    model=build_gemini(
+        config.regional_lite_planner_model, location=config.regional_model_location
+    ),
     name="campaign_web_planner",
     include_contents="none",
     description="Generates initial queries to guide web research about concepts described in the campaign metadata.",
@@ -89,7 +93,11 @@ campaign_web_planner = Agent(
 # no single turn has to think, search, AND author a long report. Grounding
 # metadata lives on this turn, so `collect_research_sources_callback` stays here.
 campaign_web_searcher = Agent(
-    model=build_gemini(config.worker_model),
+    # Quota spread (#94): regional gemini-2.5-flash bucket. google_search
+    # grounding is supported on this model @ us-central1 (verified via probe).
+    model=build_gemini(
+        config.regional_worker_model, location=config.regional_model_location
+    ),
     name="campaign_web_searcher",
     include_contents="none",
     description="Performs the crucial first pass of web research about the campaign guide.",
@@ -134,7 +142,10 @@ campaign_web_searcher = Agent(
 # wrapper retries the whole pair rather than raising KeyError inside it) and shapes
 # them into the existing consumer-facing report.
 campaign_web_synthesizer = Agent(
-    model=build_gemini(config.worker_model),
+    # Quota spread (#94): regional gemini-2.5-flash bucket (no grounding here).
+    model=build_gemini(
+        config.regional_worker_model, location=config.regional_model_location
+    ),
     name="campaign_web_synthesizer",
     include_contents="none",
     description="Synthesizes the raw campaign findings into a structured strategic report.",
