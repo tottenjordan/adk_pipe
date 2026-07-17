@@ -274,6 +274,39 @@ def test_gs_searcher_keeps_source_collection():
     assert gs_web_synthesizer.after_agent_callback is None
 
 
+def test_campaign_pipeline_uses_regional_bucket():
+    """Quota spread (#94-style): the campaign-research half of the one
+    ParallelAgent is pinned to gemini-2.5 @ us-central1, a separate per-base-model
+    quota pool from the global buckets the trend half uses."""
+    from creative_agent.sub_agents.campaign_researcher.agent import (
+        campaign_web_planner,
+        campaign_web_searcher,
+        campaign_web_synthesizer,
+    )
+
+    for a in (campaign_web_planner, campaign_web_searcher, campaign_web_synthesizer):
+        assert a.model.client_kwargs["location"] == "us-central1"
+    assert campaign_web_planner.model.model == "gemini-2.5-flash-lite"
+    assert campaign_web_searcher.model.model == "gemini-2.5-flash"
+    assert campaign_web_synthesizer.model.model == "gemini-2.5-flash"
+
+
+def test_trend_pipeline_stays_global():
+    """The trend-research half is left on the global buckets, becoming their sole
+    occupant during the parallel phase (the other side of the #94-style spread)."""
+    from creative_agent.sub_agents.trend_researcher.agent import (
+        gs_web_planner,
+        gs_web_searcher,
+        gs_web_synthesizer,
+    )
+
+    for a in (gs_web_planner, gs_web_searcher, gs_web_synthesizer):
+        assert a.model.client_kwargs["location"] == "global"
+    assert gs_web_planner.model.model == "gemini-3.1-flash-lite"
+    assert gs_web_searcher.model.model == "gemini-3.5-flash"
+    assert gs_web_synthesizer.model.model == "gemini-3.5-flash"
+
+
 def test_merge_planners_inputs_are_optional():
     """merge_planners' two research inputs must use the optional `{var?}` syntax so
     a producer that exhausted its retries (key unset) degrades observably instead of
