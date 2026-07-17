@@ -94,3 +94,34 @@ def test_save_draft_report_artifact_isolates_concurrent_runs(monkeypatch, tmp_pa
     assert len(recorded) == 2
     assert recorded[0] != recorded[1]  # per-run isolation (distinct scratch paths)
     assert not os.path.exists("report_creatives")  # no bare CWD artifact leak
+
+
+def test_save_creative_gallery_html_isolates_concurrent_runs(monkeypatch, tmp_path):
+    """Two concurrent gallery exports must use DISTINCT scratch paths and leave no
+    bare ``creative_portfolio_gallery.html`` in the CWD."""
+    monkeypatch.chdir(tmp_path)
+
+    recorded: list[str] = []
+
+    def _fake_upload(source_file_name, destination_blob_name):
+        assert os.path.exists(source_file_name), source_file_name
+        recorded.append(source_file_name)
+        return "ok"
+
+    monkeypatch.setattr(tools, "_upload_blob_to_gcs", _fake_upload)
+
+    ctx_a = MockToolContext("run_a")
+    ctx_b = MockToolContext("run_b")
+
+    async def _both():
+        return await asyncio.gather(
+            tools.save_creative_gallery_html(ctx_a),
+            tools.save_creative_gallery_html(ctx_b),
+        )
+
+    results = asyncio.run(_both())
+
+    assert all(r["status"] == "success" for r in results)
+    assert len(recorded) == 2
+    assert recorded[0] != recorded[1]
+    assert not os.path.exists("creative_portfolio_gallery.html")

@@ -1,6 +1,7 @@
 import os
 import asyncio
 import logging
+import tempfile
 import warnings
 
 from google.adk.tools import ToolContext
@@ -242,24 +243,26 @@ async def save_creative_gallery_html(tool_context: ToolContext) -> dict:
             + gt.HTML_END_JAVASCRIPT
         )
 
-        # Save the HTML to a new file (blocking file + network I/O — off the loop)
+        # Save the HTML to a temp file then upload (blocking file + network I/O —
+        # off the loop). A per-invocation temp dir keeps concurrent runs from racing
+        # on a shared CWD filename (issue #104): the bare 'creative_portfolio_...html'
+        # let one run's os.remove delete the file another run was still uploading.
+        # TemporaryDirectory is unique per call and auto-cleaned on context exit.
         REPORT_NAME = "creative_portfolio_gallery.html"
-
-        def _write_html() -> None:
-            with open(REPORT_NAME, "w", encoding="utf-8") as html_file:
-                html_file.write(FINAL_HTML)
-
-        await asyncio.to_thread(_write_html)
-
-        # save HTML file to cloud storage
         gcs_blob_name = f"{gcs_folder}/{gcs_subdir}/{REPORT_NAME}"
         gcs_uri = f"gs://{config.GCS_BUCKET_NAME}/{gcs_blob_name}"
-        await asyncio.to_thread(
-            _upload_blob_to_gcs,
-            source_file_name=REPORT_NAME,
-            destination_blob_name=gcs_blob_name,
-        )
-        await asyncio.to_thread(os.remove, REPORT_NAME)
+
+        def _write_and_upload() -> None:
+            with tempfile.TemporaryDirectory() as td:
+                path = os.path.join(td, REPORT_NAME)
+                with open(path, "w", encoding="utf-8") as html_file:
+                    html_file.write(FINAL_HTML)
+                _upload_blob_to_gcs(
+                    source_file_name=path,
+                    destination_blob_name=gcs_blob_name,
+                )
+
+        await asyncio.to_thread(_write_and_upload)
 
         return {
             "status": "success",
