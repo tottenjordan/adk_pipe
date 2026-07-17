@@ -505,8 +505,10 @@ The `creative_agent` eval must run with `PYTHONPATH="$PWD"` and its own rubric c
 │   ├── experiments/              # experiment writeups (e.g. creative_agent latency)
 │   ├── notes/                    # hard-won session notes
 │   └── plans/                    # implementation plans (historical)
-├── experiments/                  # external measurement harnesses — never bundled into an engine
-│   └── creative_latency/         # latency experiment: driver, parser, plots, results
+├── experiments/                  # external measurement harnesses — never bundled into an engine (see experiments/README.md)
+│   ├── README.md                 # index + shared conventions for the harnesses below
+│   ├── creative_latency/         # latency experiment: driver, parser, plots, results
+│   └── quota_spread/             # quota-bucket-spread DoE: concurrent batch runner, slope analysis, plots
 ├── imgs/                         # README media
 ├── .github/workflows/
 │   └── frontend-tests.yml
