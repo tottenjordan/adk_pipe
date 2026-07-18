@@ -12,12 +12,45 @@ from creative_agent.agent import (
 )
 from creative_eval.agent import creative_eval_agent
 from creative_agent import tools, callbacks
-from creative_agent.config import config, INFRA_RETRY
+from creative_agent.config import config, INFRA_RETRY, SCHEMA_RETRY
+from creative_agent.schemas import VisualConceptFinalList
 from agent_common import build_gemini
+from interactive_creative import prompts as ic_prompts
 from interactive_creative.review_tools import (
     review_research_tool,
     review_ad_copies_tool,
     review_visual_concepts_tool,
+)
+
+
+# --- VISUAL CONCEPT REVISER (interactive-only) ---
+# At checkpoint 3 the user can (a) directly edit concept fields — merged
+# deterministically into `final_visual_concepts` state on resume (see
+# runserver.async_runs.merge_visual_concept_edits) — and (b) leave free-text
+# revision notes. This LLM step applies the natural-language notes to the matching
+# concepts' image_generation_prompt and re-emits `final_visual_concepts` BEFORE the
+# renderer reads it. It is a structured-output producer mirroring
+# visual_concept_finalizer (include_contents="none", output_schema + SCHEMA_RETRY),
+# and runs as its own AgentTool step so it does NOT re-parent the shared
+# visual_generator_resilient (which would double-parent — see that agent's note).
+visual_concept_reviser = Agent(
+    model=build_gemini(config.worker_model),
+    name="visual_concept_reviser",
+    include_contents="none",
+    description="Apply the user's checkpoint revision notes to the finalized visual concepts before rendering.",
+    instruction=ic_prompts.VISUAL_CONCEPT_REVISER_INSTR,
+    generate_content_config=types.GenerateContentConfig(
+        temperature=0.4,
+        labels={
+            "agentic_wf": "trend_scout",
+            "agent": "interactive_creative",
+            "subagent": "visual_concept_reviser",
+        },
+    ),
+    output_schema=VisualConceptFinalList,
+    retry_config=SCHEMA_RETRY,
+    output_key="final_visual_concepts",
+    after_model_callback=callbacks.log_empty_turn_finish_reason,
 )
 
 root_agent = Agent(
@@ -37,12 +70,13 @@ root_agent = Agent(
     6. `review_ad_copies` — **CHECKPOINT** Pause for user to review ad copies before proceeding.
     7. `visual_generation_pipeline` — Generate visual concepts.
     8. `review_visual_concepts` — **CHECKPOINT** Pause for user to review visual concepts before image generation.
-    9. `visual_generator_resilient` — Generate image creatives (retries on empty output).
-    10. `creative_eval_agent` — Evaluate all creatives for quality.
-    11. `save_eval_report_to_gcs` — Save evaluation report JSON to GCS.
-    12. `save_creative_gallery_html` — Build HTML portfolio.
-    13. `write_trends_to_bq` — Log trend data to BigQuery.
-    14. `write_eval_report_to_bq` — Log the evaluation summary (pass rate, average scores, weakest dimensions) to BigQuery.
+    9. `visual_concept_reviser` — Apply the user's free-text revision notes to the finalized visual concepts before rendering.
+    10. `visual_generator_resilient` — Generate image creatives (retries on empty output).
+    11. `creative_eval_agent` — Evaluate all creatives for quality.
+    12. `save_eval_report_to_gcs` — Save evaluation report JSON to GCS.
+    13. `save_creative_gallery_html` — Build HTML portfolio.
+    14. `write_trends_to_bq` — Log trend data to BigQuery.
+    15. `write_eval_report_to_bq` — Log the evaluation summary (pass rate, average scores, weakest dimensions) to BigQuery.
     </AVAILABLE_TOOLS>
 
     <INPUT_PARAMETERS>
@@ -68,7 +102,7 @@ root_agent = Agent(
     5. **CHECKPOINT 2:** Call `review_ad_copies` to pause for user review. When you receive the response, read the user's feedback. If status is "approved", immediately proceed to step 6. **Do NOT end the workflow here.**
     6. Use `visual_generation_pipeline` to generate visual concepts. **Do NOT skip this step.**
     7. **CHECKPOINT 3:** Call `review_visual_concepts` to pause for user review. When you receive the response, immediately proceed to step 8. **Do NOT end the workflow here.**
-    8. Use `visual_generator_resilient` to generate image creatives. **Do NOT skip this step.**
+    8. Apply the user's revisions, then render: FIRST call `visual_concept_reviser` to fold any free-text revision notes into the finalized concepts, THEN call `visual_generator_resilient` to generate the image creatives. Always call `visual_concept_reviser` before `visual_generator_resilient` (with no notes it returns the concepts unchanged). **Do NOT skip either call.**
     9. Use `creative_eval_agent` to evaluate all creatives.
     10. Use `save_eval_report_to_gcs` to save the evaluation report.
     11. Use `save_creative_gallery_html` to create HTML portfolio.
@@ -83,6 +117,7 @@ root_agent = Agent(
         AgentTool(agent=combined_research_pipeline),
         AgentTool(agent=ad_creative_pipeline),
         AgentTool(agent=visual_generation_pipeline),
+        AgentTool(agent=visual_concept_reviser),
         AgentTool(agent=visual_generator_resilient),
         AgentTool(agent=creative_eval_agent),
         review_research_tool,

@@ -782,6 +782,44 @@ def test_visual_concept_finalizer_has_ad_copy_context():
     assert "ad_copy_id" in visual_concept_finalizer.instruction
 
 
+def test_interactive_registers_visual_concept_reviser():
+    """The NL-revision reviser must be exposed as an AgentTool and be a proper
+    structured-output producer that re-emits final_visual_concepts."""
+    from google.adk.tools.agent_tool import AgentTool
+    from interactive_creative import agent as ic
+    from interactive_creative.agent import visual_concept_reviser
+    from creative_agent.config import SCHEMA_RETRY
+    from creative_agent.schemas import VisualConceptFinalList
+
+    exposed = [
+        t
+        for t in ic.root_agent.tools
+        if isinstance(t, AgentTool) and t.agent is visual_concept_reviser
+    ]
+    assert exposed, "visual_concept_reviser must be exposed as an AgentTool"
+
+    assert visual_concept_reviser.output_key == "final_visual_concepts"
+    assert visual_concept_reviser.output_schema is VisualConceptFinalList
+    assert visual_concept_reviser.retry_config is SCHEMA_RETRY
+
+    instr = visual_concept_reviser.instruction
+    assert "{final_visual_concepts}" in instr
+    assert "{visual_revision_notes?}" in instr
+
+
+def test_interactive_workflow_revises_before_render():
+    """The checkpoint-3 → render step must apply revision notes (reviser) BEFORE
+    rendering images, so a run's user edits/notes actually change the output."""
+    from interactive_creative.agent import root_agent
+
+    instr = root_agent.instruction
+    assert "visual_concept_reviser" in instr
+    # The reviser must be invoked before the image renderer in the workflow text.
+    assert instr.index("visual_concept_reviser") < instr.index(
+        "visual_generator_resilient"
+    )
+
+
 def test_interactive_creative_memorizes_target_search_trends():
     """The interactive orchestrator's memorize step must explicitly enumerate
     target_search_trends. A vague 'store all campaign metadata' instruction lets
