@@ -3,7 +3,7 @@ import logging
 import datetime
 import warnings
 import json
-import shutil
+import tempfile
 import uuid
 from pathlib import Path
 from google.cloud import storage
@@ -167,38 +167,28 @@ def write_to_file(content: str, tool_context: ToolContext) -> dict:
         dict: A dictionary containing the status and the markdown file's Cloud Storage URI (gcs_uri).
     """
 
-    LOCAL_DIR = tool_context.state["agent_output_dir"]
     gcs_folder = tool_context.state["gcs_folder"]
-
-    # Construct the output filename e.g., "trawler_output/selected_trends.md"
     artifact_key = "selected_trends.txt"
-    local_file = f"{LOCAL_DIR}/{artifact_key}"
 
-    # Ensure the "trawler_output" directory exists. If it doesn’t, create it.
-    # `exist_ok=True` prevents an error if the directory already exists.
-    Path(LOCAL_DIR).mkdir(exist_ok=True)
-
-    # Write the markdown content to the constructed file.
-    # `encoding='utf-8'` ensures proper character encoding.
-    Path(local_file).write_text(content)
-
-    # save to GCS
     storage_client = _get_gcs_client()
     gcs_bucket = config.GCS_BUCKET_NAME
     bucket = storage_client.bucket(gcs_bucket)
-    blob = bucket.blob(os.path.join(gcs_folder, local_file))
-    blob.upload_from_filename(local_file)
 
-    # save to session state
-    gcs_blob_name = f"{gcs_folder}/{LOCAL_DIR}/{artifact_key}"
+    # Per-invocation temp dir: concurrent runs share this process's CWD, so a
+    # fixed scratch dir (state["agent_output_dir"] == "trawler_output") + fixed
+    # filename collided (issue #104) — one run's rmtree raced another's write.
+    # A TemporaryDirectory is unique per call and auto-removed on context exit.
+    # The GCS object key uses the file BASENAME so the temp path never leaks in.
+    with tempfile.TemporaryDirectory() as td:
+        local_file = os.path.join(td, artifact_key)
+        Path(local_file).write_text(content)
+
+        gcs_blob_name = f"{gcs_folder}/{artifact_key}"
+        blob = bucket.blob(gcs_blob_name)
+        blob.upload_from_filename(local_file)
+
     gcs_uri = f"gs://{gcs_bucket}/{gcs_blob_name}"
     tool_context.state["select_trends_markdown_gcs_uri"] = gcs_uri
-
-    try:
-        shutil.rmtree(LOCAL_DIR)
-        logging.info(f"Directory '{LOCAL_DIR}' and its contents removed successfully")
-    except FileNotFoundError:
-        logging.exception(f"Directory '{LOCAL_DIR}' not found")
 
     # Return a dictionary indicating success, and the artifact_key that was written.
     return {
@@ -243,36 +233,25 @@ def save_session_state_to_gcs(tool_context: ToolContext) -> dict:
     """
 
     session_state = tool_context.state.to_dict()
-    LOCAL_DIR = session_state["agent_output_dir"]
     gcs_folder = session_state["gcs_folder"]
-
     filename = "trawler_session_state.json"
-    local_file = f"{LOCAL_DIR}/{filename}"
 
-    # Ensure the `LOCAL_DIR` directory exists. If it doesn’t, create it.
-    # `exist_ok=True` prevents an error if the directory already exists.
-    Path(LOCAL_DIR).mkdir(exist_ok=True)
-
-    # Write to local file
-    with open(local_file, "w") as f:
-        json.dump(session_state, f, indent=4)
-
-    # save to GCS
     storage_client = _get_gcs_client()
     gcs_bucket = config.GCS_BUCKET_NAME
     bucket = storage_client.bucket(gcs_bucket)
-    blob = bucket.blob(os.path.join(gcs_folder, local_file))
-    blob.upload_from_filename(local_file)
 
-    # save to session state
-    gcs_blob_name = f"{gcs_folder}/{LOCAL_DIR}/{filename}"
+    # Per-invocation temp dir (see write_to_file): isolates concurrent runs that
+    # share this process's CWD; the GCS object key uses the file BASENAME.
+    with tempfile.TemporaryDirectory() as td:
+        local_file = os.path.join(td, filename)
+        with open(local_file, "w") as f:
+            json.dump(session_state, f, indent=4)
+
+        gcs_blob_name = f"{gcs_folder}/{filename}"
+        blob = bucket.blob(gcs_blob_name)
+        blob.upload_from_filename(local_file)
+
     gcs_uri = f"gs://{gcs_bucket}/{gcs_blob_name}"
-
-    try:
-        shutil.rmtree(LOCAL_DIR)
-        logging.info(f"Directory '{LOCAL_DIR}' and its contents removed successfully")
-    except FileNotFoundError:
-        logging.exception(f"Directory '{LOCAL_DIR}' not found")
 
     # Return a dictionary indicating status and the Cloud Storage URI.
     return {
