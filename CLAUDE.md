@@ -143,6 +143,8 @@ Next.js 16 (App Router) + TypeScript + Tailwind CSS + shadcn/ui. Light theme wit
 - `/run/[sessionId]` — Live run view: the page **polls** the async-job run (fire-and-forget kick-off + `GET /runs/.../{session}?since=N`) and renders new events into a timeline, pipeline state widgets (modal overlays), and a campaign metadata sidebar. Because progress is read from the persistent session log (not a browser-held SSE stream), a run **survives disconnect/reload/IAP re-auth** — reloading re-polls from `since=0` and replays. Interactive mode adds pause/resume review panels at each checkpoint.
 - `/results/[sessionId]` — Artifacts gallery, research PDF viewer, evaluation report, session state inspector
 
+Both the run view and results view also surface the optional visual art-direction inputs (the PR #114 visual-intent keys) read-only in a "Visual Direction" section alongside the campaign metadata — driven by `buildDisplayFields` + `VISUAL_DIRECTION_FIELDS` in `frontend/src/lib/utils.ts`; unset keys collapse to `""` so non-creative/no-intent runs show nothing.
+
 **Key files:**
 - `frontend/src/app/layout.tsx` — Root layout, fonts (Sora + JetBrains Mono), glass header
 - `frontend/src/app/page.tsx` — Campaign input form

@@ -15,7 +15,11 @@ import { GcsWidget } from "@/components/gcs-widget";
 import { getSession, listArtifacts, getArtifact } from "@/lib/api";
 import { fetchEvalReport } from "@/lib/eval-report";
 import { gcsProxyUrl } from "@/lib/gcs";
-import { formatStateValue } from "@/lib/utils";
+import {
+  buildDisplayFields,
+  VISUAL_DIRECTION_FIELDS,
+  type DisplayFieldDef,
+} from "@/lib/utils";
 import type { Session } from "@/lib/types";
 
 interface ArtifactData {
@@ -102,6 +106,14 @@ interface AdCopy {
 function conceptNameToFilename(name: string): string {
   return name.replace(/[^\w\s]/g, "").replace(/ /g, "_") + ".png";
 }
+
+const CAMPAIGN_FIELD_DEFS: DisplayFieldDef[] = [
+  { label: "Brand", key: "brand" },
+  { label: "Audience", key: "target_audience" },
+  { label: "Product", key: "target_product" },
+  { label: "Selling Points", key: "key_selling_points" },
+  { label: "Trend", key: "target_search_trends" },
+];
 
 export default function ResultsPage({
   params,
@@ -291,15 +303,10 @@ export default function ResultsPage({
   );
 
   // Campaign metadata fields
-  const campaignFields = [
-    { label: "Brand", key: "brand" },
-    { label: "Audience", key: "target_audience" },
-    { label: "Product", key: "target_product" },
-    { label: "Selling Points", key: "key_selling_points" },
-    { label: "Trend", key: "target_search_trends" },
-  ]
-    .map((f) => ({ ...f, value: formatStateValue(state[f.key]) }))
-    .filter((f) => f.value);
+  const campaignFields = buildDisplayFields(state, CAMPAIGN_FIELD_DEFS);
+
+  // Optional user visual art-direction inputs (PR #114) — hidden when unset
+  const visualDirectionFields = buildDisplayFields(state, VISUAL_DIRECTION_FIELDS);
 
   // Does this run have the creative asset + eval view?
   const hasCreativeView = (appName === "creative_agent" || appName === "interactive_creative") && visualConcepts.length > 0;
@@ -351,6 +358,27 @@ export default function ResultsPage({
           {gcsUri && <GcsWidget uri={gcsUri} />}
         </div>
       </div>
+
+      {/* Visual Direction bar — optional user art direction (PR #114) */}
+      {visualDirectionFields.length > 0 && (
+        <div className="-mx-6 px-6 pb-3 mb-6 border-b border-border/50">
+          <p className="mb-2 text-center text-[10px] font-bold uppercase tracking-wider text-primary">
+            Visual Direction
+          </p>
+          <div className="grid gap-3 justify-center" style={{ gridTemplateColumns: `repeat(${visualDirectionFields.length}, minmax(0, 240px))` }}>
+            {visualDirectionFields.map((f) => (
+              <div key={f.key} className="glass rounded-xl px-4 py-2.5 text-center">
+                <dt className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                  {f.label}
+                </dt>
+                <dd className="mt-0.5 text-sm font-medium leading-snug break-words break-all text-foreground">
+                  {f.value}
+                </dd>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Eval still generating / failed — offer a manual refresh (race: the report
           is the last artifact written, so it can lag the page load). */}
