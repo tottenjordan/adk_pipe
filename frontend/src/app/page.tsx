@@ -15,6 +15,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { createSession } from "@/lib/api";
+import { buildInitialState } from "@/lib/initial-state";
 import type { CampaignInput } from "@/lib/types";
 import {
   BRAND_PRESETS,
@@ -45,6 +46,12 @@ function HomeContent() {
     targetSearchTrend: "",
     interactiveTrendPick: false,
     referenceImageUri: "",
+    referenceImageRole: "",
+    visualIntent: "",
+    brandColors: "",
+    visualStylePreference: "",
+    visualAvoid: "",
+    visualAspectRatio: "",
   });
 
   // Pre-fill form from URL params (when clicking a trend card)
@@ -76,16 +83,10 @@ function HomeContent() {
 
     try {
       const userId = `user_${Date.now()}`;
-      // trend_scout opt-in: seed the session's initial state so the agent pauses
-      // for human trend selection (via the `review_trends` LongRunningFunctionTool).
-      const initialState =
-        form.agent === "trend_scout" && form.interactiveTrendPick
-          ? { interactive_trend_pick: true }
-          : (form.agent === "creative_agent" ||
-                form.agent === "interactive_creative") &&
-              form.referenceImageUri?.trim()
-            ? { reference_image_uri: form.referenceImageUri.trim() }
-            : undefined;
+      // Seed the session's initial state: trend_scout's interactive-trend-pick
+      // opt-in, or the creative agents' optional visual-intent fields. See
+      // buildInitialState (snake_case keys match creative_agent/callbacks.py).
+      const initialState = buildInitialState(form);
       const session = await createSession(form.agent, userId, initialState);
 
       // Build the user message with campaign metadata
@@ -352,6 +353,117 @@ function HomeContent() {
                 }
                 className="bg-background border-border hover:border-foreground/20 focus:border-primary/50 transition-colors"
               />
+              {form.referenceImageUri?.trim() && (
+                <Select
+                  value={form.referenceImageRole || ""}
+                  onValueChange={(v) =>
+                    v && setForm({ ...form, referenceImageRole: v })
+                  }
+                >
+                  <SelectTrigger className="w-full bg-background border-border hover:border-foreground/20 transition-colors">
+                    <SelectValue placeholder="How to use the reference image..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="product">Product — put this product in the image</SelectItem>
+                    <SelectItem value="logo">Logo — include this brand logo</SelectItem>
+                    <SelectItem value="style">Style — match this look/aesthetic</SelectItem>
+                  </SelectContent>
+                </Select>
+              )}
+            </div>
+          )}
+
+          {(form.agent === "creative_agent" || form.agent === "interactive_creative") && (
+            <div className="space-y-4 animate-fadeInUpSmooth rounded-xl border border-border bg-background/50 p-4">
+              <p className="text-xs uppercase tracking-wider text-muted-foreground">
+                Visual direction (all optional)
+              </p>
+
+              <div className="space-y-2">
+                <Label htmlFor="visualIntent" className="text-muted-foreground text-xs uppercase tracking-wider">
+                  Art direction
+                </Label>
+                <Textarea
+                  id="visualIntent"
+                  placeholder="e.g., moody film-noir look, dramatic lighting, close-up on the product"
+                  rows={2}
+                  value={form.visualIntent}
+                  onChange={(e) =>
+                    setForm({ ...form, visualIntent: e.target.value })
+                  }
+                  className="bg-background border-border hover:border-foreground/20 focus:border-primary/50 transition-colors resize-none"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="brandColors" className="text-muted-foreground text-xs uppercase tracking-wider">
+                  Brand colors
+                </Label>
+                <Input
+                  id="brandColors"
+                  placeholder="e.g., deep charcoal #1a1a1a with warm gold accents"
+                  value={form.brandColors}
+                  onChange={(e) =>
+                    setForm({ ...form, brandColors: e.target.value })
+                  }
+                  className="bg-background border-border hover:border-foreground/20 focus:border-primary/50 transition-colors"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="visualStyle" className="text-muted-foreground text-xs uppercase tracking-wider">
+                  Preferred style
+                </Label>
+                <Input
+                  id="visualStyle"
+                  placeholder="e.g., cinematic, flat vector cartoon, 3D character, anime, watercolor"
+                  value={form.visualStylePreference}
+                  onChange={(e) =>
+                    setForm({ ...form, visualStylePreference: e.target.value })
+                  }
+                  className="bg-background border-border hover:border-foreground/20 focus:border-primary/50 transition-colors"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="visualAvoid" className="text-muted-foreground text-xs uppercase tracking-wider">
+                  Avoid
+                </Label>
+                <Input
+                  id="visualAvoid"
+                  placeholder="e.g., busy backgrounds, crowds"
+                  value={form.visualAvoid}
+                  onChange={(e) =>
+                    setForm({ ...form, visualAvoid: e.target.value })
+                  }
+                  className="bg-background border-border hover:border-foreground/20 focus:border-primary/50 transition-colors"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="aspectRatio" className="text-muted-foreground text-xs uppercase tracking-wider">
+                  Aspect ratio
+                </Label>
+                <Select
+                  value={form.visualAspectRatio || ""}
+                  onValueChange={(v) =>
+                    v &&
+                    setForm({ ...form, visualAspectRatio: v === "auto" ? "" : v })
+                  }
+                >
+                  <SelectTrigger id="aspectRatio" className="w-full bg-background border-border hover:border-foreground/20 transition-colors">
+                    <SelectValue placeholder="Auto (let AI choose)" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="auto">Auto (let AI choose)</SelectItem>
+                    <SelectItem value="9:16">9:16 — vertical reel / story</SelectItem>
+                    <SelectItem value="1:1">1:1 — square feed</SelectItem>
+                    <SelectItem value="4:5">4:5 — portrait feed</SelectItem>
+                    <SelectItem value="3:4">3:4 — portrait</SelectItem>
+                    <SelectItem value="16:9">16:9 — landscape</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
           )}
 
