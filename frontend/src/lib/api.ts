@@ -200,7 +200,8 @@ export async function resumeRun(
   functionCallId: string,
   functionName: string,
   response: Record<string, unknown>,
-  functionCallEventId?: string
+  functionCallEventId?: string,
+  edits?: Record<string, unknown>[]
 ): Promise<{ runId: string; status: string }> {
   const res = await fetch(
     `${API_BASE}/runs/${appName}/${userId}/${sessionId}/resume`,
@@ -212,6 +213,9 @@ export async function resumeRun(
         functionName,
         response,
         functionCallEventId,
+        // Checkpoint-3 direct edits: merged into session state server-side before
+        // the resumed run (see runserver.async_runs). Omitted when absent/empty.
+        ...(edits && edits.length ? { edits } : {}),
       }),
     }
   );
