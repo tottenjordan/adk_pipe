@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 
 from fastapi import APIRouter, Query
 from google.adk.events import Event, EventActions
@@ -13,6 +14,18 @@ from pydantic import BaseModel
 RUNSERVER_AUTHOR = "__runserver__"
 RUN_STATUS_KEY = "__run_status"
 RUN_ERROR_KEY = "__run_error"
+
+# Hard ceiling on a single detached run (seconds). A wedged model call would
+# otherwise keep the asyncio task — and, with --no-cpu-throttling --min-instances
+# 1, the Cloud Run instance — alive indefinitely with no server-side stall
+# detection, leaving the run polling 'running' forever. Default 1800s is well
+# beyond a normal ~6-8 min run; override via the RUN_MAX_SECONDS env var.
+RUN_MAX_SECONDS = int(os.environ.get("RUN_MAX_SECONDS", "1800"))
+
+# Bounded attempts for writing the terminal status marker (see
+# _append_terminal_safe). The marker IS the poller contract, so its own write is
+# retried a little against a transient session service, then dropped (never raised).
+_MARKER_APPEND_ATTEMPTS = 2
 
 
 def get_root_agent(app_name: str):
@@ -160,36 +173,100 @@ async def get_run_status(
 _BACKGROUND_TASKS: set = set()
 
 
+async def _append_terminal_safe(
+    session_service, app_name, user_id, session_id, event
+) -> None:
+    """Append a terminal status marker, absorbing any failure.
+
+    The terminal marker IS the completion/failure contract pollers read, so a
+    marker write that itself fails must NOT escape the detached task — that would
+    leave the exception unretrieved and the run polling ``running`` forever,
+    violating ``_drive_run``'s never-re-raise guarantee. ``get_session`` +
+    ``append_event`` are retried a bounded number of times against the
+    (documented-transient) ``VertexAiSessionService``, then logged loudly and
+    dropped. A missing session is unrecoverable → log and give up."""
+    for attempt in range(1, _MARKER_APPEND_ATTEMPTS + 1):
+        try:
+            session = await session_service.get_session(
+                app_name=app_name, user_id=user_id, session_id=session_id
+            )
+            if session is None:
+                logging.error(
+                    "cannot append terminal marker: session missing app=%s session=%s",
+                    app_name,
+                    session_id,
+                )
+                return
+            await session_service.append_event(session, event)
+            return
+        except Exception:  # noqa: BLE001 — bounded retry; final failure logged, never raised
+            logging.exception(
+                "terminal marker append failed (attempt %d/%d) app=%s session=%s",
+                attempt,
+                _MARKER_APPEND_ATTEMPTS,
+                app_name,
+                session_id,
+            )
+    logging.error(
+        "gave up writing terminal marker after %d attempts app=%s session=%s",
+        _MARKER_APPEND_ATTEMPTS,
+        app_name,
+        session_id,
+    )
+
+
 async def _drive_run(
     runner, session_service, app_name, user_id, session_id, new_message
 ) -> None:
     """Drive a Runner to completion detached from any request, then append a
     terminal status marker to the session. Never re-raises — the terminal
-    ``error`` marker IS the failure contract for pollers."""
+    ``error`` marker IS the failure contract for pollers (even when the marker
+    write itself fails; see ``_append_terminal_safe``). Bounded by
+    ``RUN_MAX_SECONDS`` so a wedged run can't hang ``running`` forever."""
     # Reuse the run's own invocation id on the terminal marker (Vertex requires a
     # non-empty invocation_id); fall back to the marker author if the run emitted
     # no events (e.g. an immediate error).
     invocation_id = RUNSERVER_AUTHOR
     try:
-        async for event in runner.run_async(
-            user_id=user_id, session_id=session_id, new_message=new_message
-        ):
-            # Runner persists final events to the session service itself.
-            if getattr(event, "invocation_id", None):
-                invocation_id = event.invocation_id
-        session = await session_service.get_session(
-            app_name=app_name, user_id=user_id, session_id=session_id
+        async with asyncio.timeout(RUN_MAX_SECONDS):
+            async for event in runner.run_async(
+                user_id=user_id, session_id=session_id, new_message=new_message
+            ):
+                # Runner persists final events to the session service itself.
+                if getattr(event, "invocation_id", None):
+                    invocation_id = event.invocation_id
+        await _append_terminal_safe(
+            session_service,
+            app_name,
+            user_id,
+            session_id,
+            build_terminal_event("done", invocation_id=invocation_id),
         )
-        await session_service.append_event(
-            session, build_terminal_event("done", invocation_id=invocation_id)
+    except TimeoutError:
+        logging.error(
+            "detached run timed out after %ss app=%s session=%s",
+            RUN_MAX_SECONDS,
+            app_name,
+            session_id,
+        )
+        await _append_terminal_safe(
+            session_service,
+            app_name,
+            user_id,
+            session_id,
+            build_terminal_event(
+                "error",
+                f"run exceeded {RUN_MAX_SECONDS}s timeout",
+                invocation_id=invocation_id,
+            ),
         )
     except Exception as exc:  # noqa: BLE001 — terminal marker is the contract; log+persist, never raise
         logging.exception("detached run failed app=%s session=%s", app_name, session_id)
-        session = await session_service.get_session(
-            app_name=app_name, user_id=user_id, session_id=session_id
-        )
-        await session_service.append_event(
-            session,
+        await _append_terminal_safe(
+            session_service,
+            app_name,
+            user_id,
+            session_id,
             build_terminal_event("error", str(exc), invocation_id=invocation_id),
         )
 

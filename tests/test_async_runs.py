@@ -15,9 +15,11 @@ from google.adk.events import Event, EventActions
 from google.adk.sessions import InMemorySessionService
 from google.genai import types
 
+from runserver import async_runs
 from runserver.async_runs import (
     RUN_ERROR_KEY,
     RUN_STATUS_KEY,
+    RUNSERVER_AUTHOR,
     build_resume_message,
     build_terminal_event,
     build_user_message,
@@ -266,6 +268,95 @@ def test_kickoff_uses_existing_session():
     session = asyncio.run(_go())
     # Pre-existing state survives — the run appended events, didn't recreate/wipe.
     assert session.state.get("brand") == "X"
+
+
+class _TerminalMarkerFailingService:
+    """Wraps InMemorySessionService but raises when appending a terminal
+    (runserver) marker — exercising _drive_run's guarantee that a failing marker
+    write never escapes the detached task (which would leave the run hung
+    ``running`` forever). Normal agent events pass through to the real service."""
+
+    def __init__(self):
+        self._inner = InMemorySessionService()
+
+    async def create_session(self, **kwargs):
+        return await self._inner.create_session(**kwargs)
+
+    async def get_session(self, **kwargs):
+        return await self._inner.get_session(**kwargs)
+
+    async def append_event(self, session, event):
+        if event.author == RUNSERVER_AUTHOR:
+            raise RuntimeError("marker append boom")
+        return await self._inner.append_event(session, event)
+
+
+def test_kickoff_does_not_raise_when_terminal_marker_append_fails():
+    """If the terminal-marker append itself fails (transient session service),
+    the detached task must still complete cleanly — never re-raise — so the run
+    doesn't hang ``running`` forever with an unretrieved task exception."""
+
+    async def _go():
+        svc = _TerminalMarkerFailingService()
+        fake = _FakeRunner(svc, "creative_agent", "u", "s", [_agent_event("one")])
+        _result, task = await start_run(
+            app_name="creative_agent",
+            user_id="u",
+            session_id="s",
+            message="hi",
+            session_service=svc,
+            runner_factory=lambda app_name: fake,
+        )
+        await task  # must NOT raise even though every marker write fails
+        return await svc.get_session(
+            app_name="creative_agent", user_id="u", session_id="s"
+        )
+
+    session = asyncio.run(_go())
+    # The run's own event survives; the marker never landed (its write failed).
+    texts = [e.content.parts[0].text for e in session.events if e.content]
+    assert texts == ["one"]
+    assert not any(
+        (getattr(getattr(e, "actions", None), "state_delta", None) or {}).get(
+            RUN_STATUS_KEY
+        )
+        for e in session.events
+    )
+
+
+class _SlowRunner:
+    """Runner double whose run_async blocks past the injected deadline, to trip
+    _drive_run's asyncio.timeout guard."""
+
+    async def run_async(self, *, user_id, session_id, new_message, **kwargs):
+        await asyncio.sleep(10)
+        yield _agent_event("never")  # unreachable — cancelled by the timeout
+
+
+def test_kickoff_times_out_and_writes_error_marker(monkeypatch):
+    """A wedged run must be bounded by RUN_MAX_SECONDS and resolve to a terminal
+    ``error`` marker (timeout), not hang ``running`` forever."""
+    monkeypatch.setattr(async_runs, "RUN_MAX_SECONDS", 0.05)
+
+    async def _go():
+        svc = InMemorySessionService()
+        _result, task = await start_run(
+            app_name="creative_agent",
+            user_id="u",
+            session_id="s",
+            message="hi",
+            session_service=svc,
+            runner_factory=lambda app_name: _SlowRunner(),
+        )
+        await task  # must not raise
+        return await svc.get_session(
+            app_name="creative_agent", user_id="u", session_id="s"
+        )
+
+    session = asyncio.run(_go())
+    delta = session.events[-1].actions.state_delta
+    assert delta[RUN_STATUS_KEY] == "error"
+    assert "timeout" in delta[RUN_ERROR_KEY].lower()
 
 
 # --- Task 3: poll (status + events-since + state) -----------------------------
