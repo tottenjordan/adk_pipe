@@ -1,0 +1,1309 @@
+{
+  "arm": "regional_25_fixed",
+  "concurrency": 5,
+  "batch_id": "regional_25_fixed_N5_r0",
+  "revision": "trend-trawler-api-00075-cah",
+  "session_id": "7503751450334330880",
+  "status": "done",
+  "error": null,
+  "started_at_epoch": 1784345012.224237,
+  "ended_at_epoch": 1784345920.1682956,
+  "count_429": 58,
+  "research_s": 68.44860601425171,
+  "visual_s": 278.097265958786,
+  "eval_s": 287.40753293037415,
+  "total_s": 904.5392899513245,
+  "exhaustion": [],
+  "summary": {
+    "total_wall_s": 904.5392899513245,
+    "phase_wall_s": {
+      "research": 68.44860601425171,
+      "persistence": 144.16225814819336,
+      "ad_copy": 20.996448040008545,
+      "visual": 278.097265958786,
+      "eval": 287.40753293037415,
+      "runserver": 73.62938594818115,
+      "orchestrator": 31.79779291152954
+    },
+    "model_calls": {
+      "orchestrator": 11
+    },
+    "tool_calls": {
+      "memorize": 5,
+      "combined_research_pipeline": 1,
+      "save_draft_report_artifact": 1,
+      "ad_creative_pipeline": 1,
+      "visual_production_pipeline": 1,
+      "creative_eval_agent": 1,
+      "save_eval_report_to_gcs": 1,
+      "save_creative_gallery_html": 1,
+      "write_trends_to_bq": 1,
+      "write_eval_report_to_bq": 1
+    },
+    "exhaustion": [],
+    "status": "done",
+    "event_count": 24,
+    "started_at_epoch": 1784345013.538618,
+    "extra": {}
+  },
+  "state": {
+    "_state_init": true,
+    "gcs_bucket": "gs://trend-trawler-deploy-ae",
+    "gcs_bucket_name": "trend-trawler-deploy-ae",
+    "agent_output_dir": "creative_output",
+    "gcs_folder": "2026_07_18_03_23_39ef",
+    "brand": "PRS Guitars",
+    "target_product": "PRS SE CE 24 electric guitar",
+    "target_audience": "Aspiring and intermediate electric guitarists, ages 18-35",
+    "key_selling_points": "Wide tonal range, bolt-on maple neck, pro-level build quality at an accessible price",
+    "target_search_trends": "summer music festival season",
+    "reference_image_uri": "",
+    "timer_start": 1784345014.0974429,
+    "request_count": 14,
+    "initial_campaign_queries": {
+      "queries": [
+        {
+          "search_query": "\"PRS SE CE 24\" electric guitar reviews aspiring intermediate guitarists"
+        },
+        {
+          "search_query": "best electric guitars for intermediate players 18-35"
+        },
+        {
+          "search_query": "PRS SE CE 24 tonal range versatility"
+        },
+        {
+          "search_query": "what matters most to beginner electric guitarists price vs quality"
+        },
+        {
+          "search_query": "aspirational electric guitarists gear choices for stage performance"
+        }
+      ]
+    },
+    "initial_gs_queries": {
+      "queries": [
+        {
+          "search_query": "PRS SE CE 24 review for indie and alternative festival guitarists"
+        },
+        {
+          "search_query": "popular guitar gear for summer music festival performers 2024"
+        },
+        {
+          "search_query": "PRS SE series target audience demographic and brand perception"
+        },
+        {
+          "search_query": "how do trending festival guitar tones influence gear purchase decisions for ages 18-35"
+        },
+        {
+          "search_query": "PRS SE CE 24 versatility vs specialized guitars for live stage performance"
+        }
+      ]
+    },
+    "campaign_web_search_raw": "",
+    "url_to_short_id": {
+      "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHM5foXVOaPj9OhqoqbfdR4dpc2pl4lhyYXJhlMmVPSMCPnaxiTfydqpaBCxBG0yPNepWMEc2AW3vZR687cf82V6AzNY408OgOILBj9QO9zsb58HpFChHHsSOlJhnDDFkyV4t6F4w==": "src-1",
+      "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQFredFUOFjeC4YzE7b2FL-yqgc8RsFkd57VvVMXkzYvAW5yXz85kPSnvacipp5vMZtsp7BAkcKX1eXWSawWRyxCS3YzJR7UW29p7FOm4q4bAro92OwtbCzXR308JOwSi129EyoYCD7AzrDOoDeI-R6EuO0Mjlx9i74vXG-eTLxs9JbMuEwj8x8dl1IM_Xn70wO9oQJhdIU5": "src-2",
+      "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEUonrYK-UoIA2nmbh7AYU3Ql60dzLNaFN7iANHKdvngWVa5kKueBEjR7fhh1TOqaPd9o6PeR0XMSDMWi4V5eiRzT5DpNBPS8Gx3jtvMZCCB_QIYu4zNm5DWa99_dAwFKWvAeZUgL6jTPUg8SBJL9BydNMdBmRb27E=": "src-3",
+      "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQGiHIRA5DsMOcJy-iPhHXPK73_mIVOcK6meVS9UI2WnTbRVNgK1BajYUIe2glm1r43rVDiktl4eZWl2ACN4FxyVVbcVZ25Mnx3bhXeDVkb0_4x9bMEmjFowhh36pq10IsngGAAenEJkNMv2y2ULmyuZN5imyOGBEAK8nsorNXjZCnSWRnUW9ccNdsxkTZWqrUKKbRfdpHGc": "src-4",
+      "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEn0KlvfmCu0uY3HLBiALwpNEvu3rVsyKe_906CEef6Dt_efy_PdHxLz3ff-PnvwOhxVAvwqEUy5dGvlZPUnfkXlqr8xk8FZMygLlioVBhLr7vMY8ucuT-hBzhVRltmTcOkTaffOXDvN31NrebVvvxETQXH2n2JAHLkPjGI1npS6QUPz_AgI_kPr67hjQ==": "src-5",
+      "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHXYzbsXDrPzFCcxh4YsTSNIsywNiImJhXlQS1aQ4CyyVUNo6nFqG7RuvnyD4qIopQ0C4Z--i0RNKth3pkYsca2GFND1IlLW_tVYq-MyDeicqGIRUR0yF9cjFW1EJEptQ9x": "src-6",
+      "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQGMX9A9xWKm9ngHDaUjGD5wM_aknvt7Zq31I-HaRb94HlpSE4QoxkGrE1Wh4GMd2g6H3DkndF7b_EFwN-CsBWBLJ401c5O6lmIaolMUUTdVZmzRnzQC6ox0K_xWOzvw81glePVdO9zT4QM-4vAth22nxFNvpg37LLbPdPK8ynw1KP8I9V6mz8P25xx9PZKaZJsCsg_7EUWF2hjP3fiRj6E=": "src-7",
+      "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQG-yMuo2auF8poT12viWga9gUDRZ4LgMTbFg8fePson5nZGtKD8MERmDWK6bd7DwmqVkRD5wXBHa_e8IB2ioJmn6bmo6artkggRf7jTjoNJPvGlWJen6y4VyjKrjLT4PMZkwfJb4pNM_jyM-raKRI7KodljBkrQZe4BoEbM7GLgBLmwCqKA9BE=": "src-8",
+      "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEAtyG-eCYDJ8-9G1hRJiDuBFyXTyvpccuPN9ou13bD9jm3IuohaZTGQZISCCFMrGvWC87Cj0sD78luk6hHHSdm7IvosUcjsVswTnCt13wzlgYf3PGNtoFWsvGqV3TKCyyAcaabIfeEXJk1yg==": "src-9",
+      "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQFaeAiJtfNaDPJFH7h4aEgcuEzDG1YtL7CMFyl8Pq1ejTMSc0TdKVxNE4Rfk2wswETCcjHjWH7AKcSGkKkbKjRVjjttPufgEeBYgy5aUJoH9KoYUjitR4rfIlqVi3KStGWgAvO1Rfe4_AYgyOkBSnw=": "src-10",
+      "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQFAD_m2_C73QwDGaUc56zErEu7B_r-UKX4jRqXP3sDVJEBjaCFJbZIp0nAA2RFt2bTfVgTpgiNTDUjQrjc6JLjIDrzbsH5K-XscYY9KujGWksmcGB8zYja9Upau_ia1m6cqh3OlIJCwrxBvK_TC7uvdlPc=": "src-11",
+      "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEfk3fQAK1SkNexI5G0KkP1FcUSoaLewOtLIi_iwsp90y_H3G0fbO8HuzrjNixckphlhCkKp0y7VI2fujncPAmfFNCqkFk-ar-lBiKkPRPOE3AQq56j8eCLiLv6PEtsT9FE_SExqpvFlJIkfsMZFxxT-ZD_YEHm_HGD3ysx3-UFaXiDf4TAZCFUwThvPw==": "src-12",
+      "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHk2nfX0oqQAGTn9zBKsFQfhmjNcFBJKjbPTSHhfxik6y7VnBBRRCWWpTOK5uWA8FaEdeVj4GGae12qwMpS5C19JDfFDr2yvrxqliEyxb7NPP9cWLI1WfknCzHcFmt6msktLljta3E=": "src-13",
+      "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHtZGFWFmTPc7FupZI6xQrXv8XJN0MT4TlPcjBsuZABNY9EjpUmk-iOuNeU6444Te_Z8sUKJGL_RJLwV09PMY5O2yWH3YB8gZCFz6fEEQoqGJeLb6rf9XoynWiybA_oPIcTQE71mpo=": "src-14",
+      "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQFIIWnFGQ5iuIyD_smyDuJORDAeMmb7lBKxfAJKPkYGuWvTnEkMZ56At4nlCyRYl10d-BqtEfOWNX2BtWuFDnaRZbiRKXUCf5Vj3U2V1S0azwhymFA1nwOHLrhypwASObO5FurAWh1AztCp4b0kT9NBXeI41Vy4D8MyVos=": "src-15",
+      "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQFzXILJK8e9oSGHSfvNYo0GzW8u0MMLFiOiOXdhFlM4mWJfvqlw0PQ7FjlFENgTGP-dY1Ea3BhNRkUnAPo3TgMoPesllgP_SUBet3sj4Wmky1qc1oOsepDm9nSCNSILThuXgdPdKTZok3pAAO8T9V1hRQ==": "src-16",
+      "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHUqgOsXZbEWWrjA9yCrzIlaUnlKFnaCr5KLSRVl7IC2R9pytC6OFGza55UdtwfVdyAkqYATBTl1l2d9BtYp-SFt5DA_UthoJao5zgGQR-zD2oNTyjfbv4NBLVDON4_xmglg1bH0Qc=": "src-17",
+      "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHHGn2VswnSE8PZx3DbQTvrMavk-SZ0vMsINf7tqGZDmkI06dZAMARBoRJDs0RLL_pmmSsXKUDLdXkFD78Rge4pKsCZ9bIFKE7oQuqLLq3_W3d6B4i5Ql7WMXkxh0D0NYYdoCs8HWtNPw7u8KxyTiucCASAdoPKLe-P5bnKeipBcr29b2VglvU4ZyEzFtIbH9h5BvMrdqHfnOR2tetuQuWKecKG3dgLmw0Vg6ogUjm1VVPAbAR2": "src-18",
+      "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQFV1w6o8L7vO-WY6QJZZAxhhhfdpQtC59rro2Ui3cK-H7gZg8Z7hvyF-47JwdR5p4uroetMPw7AZ0P1kHyuNm9RPcJEBgwe1yls7uySRfv2D0iBsmqamiSUmdtsc9yZDMVmmVNZWaoWSQGHYsQYTDzZNQFtpq2PD38-qH9NLFfGfzpsmVUvBrYR_Q==": "src-19",
+      "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQFRKsaGUwHdm5pu58cuneuoyQ1HX46Iypfo_8wwdPwa9OVU93dmXI4Nf8xTafq1oz1aFYmF9I45dKivxemsVrDzMucTbd28_oKWbZfYUgJ8s9WNyqhu4Tsd26WEUu4LaGG2I4YC1cUZUr40dVcqSRac2vnZd394": "src-20",
+      "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEmijmEnksvZa1BCFn-QhxXKV5wnmpMHVJQjikU_N3drqjyGgvx4KJw6iryHL-t9IQkBQm3GUCFYB3CAklZuzX-RMhEah4j35BK6EeqFUKqOJ_ZzUPbldd8PTxhuPxjX7Xjnp_NpFXBJVKVQkwM_HyhopA0Q-mCJzr2vn9ldhB-zrdQjjuCkynE1mMEdy3pwdyA1n1dp0jnBJo7": "src-21"
+    },
+    "sources": {
+      "src-1": {
+        "short_id": "src-1",
+        "title": "musicngear.com",
+        "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHM5foXVOaPj9OhqoqbfdR4dpc2pl4lhyYXJhlMmVPSMCPnaxiTfydqpaBCxBG0yPNepWMEc2AW3vZR687cf82V6AzNY408OgOILBj9QO9zsb58HpFChHHsSOlJhnDDFkyV4t6F4w==",
+        "domain": null,
+        "supported_claims": [
+          {
+            "text_segment": "PRS SE CE 24 review for indie and alternative festival guitarists\n*   **Target Demographics & Alignment:** Match-testing data reveals that the PRS SE CE 24 has a high suitability rating (88% match score) for players who prefer **Indie Rock, Synthpop, and New Wave**",
+            "confidence": 0.5
+          }
+        ]
+      },
+      "src-2": {
+        "short_id": "src-2",
+        "title": "sweetwater.com",
+        "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQFredFUOFjeC4YzE7b2FL-yqgc8RsFkd57VvVMXkzYvAW5yXz85kPSnvacipp5vMZtsp7BAkcKX1eXWSawWRyxCS3YzJR7UW29p7FOm4q4bAro92OwtbCzXR308JOwSi129EyoYCD7AzrDOoDeI-R6EuO0Mjlx9i74vXG-eTLxs9JbMuEwj8x8dl1IM_Xn70wO9oQJhdIU5",
+        "domain": null,
+        "supported_claims": [
+          {
+            "text_segment": "*   **Key Design Features Relevant to Stage Performance:**\n    *   **Neck & Wood Construction:** Features a bolt-on maple neck (Wide Thin profile) with a rosewood fretboard",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "The bolt-on neck yields a \"snappier, more percussive response\" with a \"sharp attack and immaculately defined trebles\"",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **Body Wood:** Solid mahogany body (offered in either gloss flamed-maple veneer or the ultra-affordable solid satin finishes)",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **Tone & Versatility for Alt/Indie:** \n    *   Equipped with **PRS 85/15 \"S\" humbuckers** with a push-pull coil-tap tone control",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **Single Guitar Solution:** The 85/15 \"S\" pickups with coil-tap split allow a guitarist to go from heavy humbucking rock/metal tones to sparkling, glassy indie-pop cleans in a single push-pull action",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **Reliability & Tuning:** Features a highly stable PRS patented tremolo system and 18:1 ratio tuners",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "Offers humbucking power without the hum, yet mimics single-coil chime when split",
+            "confidence": 0.5
+          }
+        ]
+      },
+      "src-3": {
+        "short_id": "src-3",
+        "title": "americanmusical.com",
+        "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEUonrYK-UoIA2nmbh7AYU3Ql60dzLNaFN7iANHKdvngWVa5kKueBEjR7fhh1TOqaPd9o6PeR0XMSDMWi4V5eiRzT5DpNBPS8Gx3jtvMZCCB_QIYu4zNm5DWa99_dAwFKWvAeZUgL6jTPUg8SBJL9BydNMdBmRb27E=",
+        "domain": null,
+        "supported_claims": [
+          {
+            "text_segment": "The bolt-on neck yields a \"snappier, more percussive response\" with a \"sharp attack and immaculately defined trebles\"",
+            "confidence": 0.5
+          }
+        ]
+      },
+      "src-4": {
+        "short_id": "src-4",
+        "title": "heidmusic.com",
+        "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQGiHIRA5DsMOcJy-iPhHXPK73_mIVOcK6meVS9UI2WnTbRVNgK1BajYUIe2glm1r43rVDiktl4eZWl2ACN4FxyVVbcVZ25Mnx3bhXeDVkb0_4x9bMEmjFowhh36pq10IsngGAAenEJkNMv2y2ULmyuZN5imyOGBEAK8nsorNXjZCnSWRnUW9ccNdsxkTZWqrUKKbRfdpHGc",
+        "domain": null,
+        "supported_claims": [
+          {
+            "text_segment": "*   **Body Wood:** Solid mahogany body (offered in either gloss flamed-maple veneer or the ultra-affordable solid satin finishes)",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **Tone & Versatility for Alt/Indie:** \n    *   Equipped with **PRS 85/15 \"S\" humbuckers** with a push-pull coil-tap tone control",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **Single Guitar Solution:** The 85/15 \"S\" pickups with coil-tap split allow a guitarist to go from heavy humbucking rock/metal tones to sparkling, glassy indie-pop cleans in a single push-pull action",
+            "confidence": 0.5
+          }
+        ]
+      },
+      "src-5": {
+        "short_id": "src-5",
+        "title": "guitarworld.com",
+        "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEn0KlvfmCu0uY3HLBiALwpNEvu3rVsyKe_906CEef6Dt_efy_PdHxLz3ff-PnvwOhxVAvwqEUy5dGvlZPUnfkXlqr8xk8FZMygLlioVBhLr7vMY8ucuT-hBzhVRltmTcOkTaffOXDvN31NrebVvvxETQXH2n2JAHLkPjGI1npS6QUPz_AgI_kPr67hjQ==",
+        "domain": null,
+        "supported_claims": [
+          {
+            "text_segment": "*   **Weight & Stage Comfort:** The SE CE 24 is notably lightweight\u2014climbing in at **3.34 kg (7.35 lbs)**",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **Weight & Stage Comfort:** The SE CE 24 is notably lightweight\u2014climbing in at **3.34 kg (7.35 lbs)**, which is lighter than the PRS SE Custom 24 (3.43 kg) and the Swamp Ash Special (3.86 kg)",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   It sits tonally **\"between a Les Paul and a Stratocaster\"**\u2014achieving Strat-like glassiness and single-coil chime when split and rolled back slightly, while maintaining humbucker punch for high-gain alternative drive",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "Gibson's typical 4+ kg) and features a bolt-on neck with a snappier, more percussive attack that cuts through a festival mix better",
+            "confidence": 0.5
+          }
+        ]
+      },
+      "src-6": {
+        "short_id": "src-6",
+        "title": "equipboard.com",
+        "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHXYzbsXDrPzFCcxh4YsTSNIsywNiImJhXlQS1aQ4CyyVUNo6nFqG7RuvnyD4qIopQ0C4Z--i0RNKth3pkYsca2GFND1IlLW_tVYq-MyDeicqGIRUR0yF9cjFW1EJEptQ9x",
+        "domain": null,
+        "supported_claims": [
+          {
+            "text_segment": "*   It sits tonally **\"between a Les Paul and a Stratocaster\"**\u2014achieving Strat-like glassiness and single-coil chime when split and rolled back slightly, while maintaining humbucker punch for high-gain alternative drive",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "PRS SE CE 24 versatility vs specialized guitars for live stage performance\n*   **The Case for Versatility (The SE CE 24):**\n    *   **Sits in the \"Sweet Spot\":** Tonally, the SE CE 24 is described as sitting in the gap between a Les Paul (warmth, mahogany body, humbucker thickness) and a Stratocaster (snappy bolt-on attack, maple neck, single-coil bite)",
+            "confidence": 0.5
+          }
+        ]
+      },
+      "src-7": {
+        "short_id": "src-7",
+        "title": "sweetwater.com",
+        "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQGMX9A9xWKm9ngHDaUjGD5wM_aknvt7Zq31I-HaRb94HlpSE4QoxkGrE1Wh4GMd2g6H3DkndF7b_EFwN-CsBWBLJ401c5O6lmIaolMUUTdVZmzRnzQC6ox0K_xWOzvw81glePVdO9zT4QM-4vAth22nxFNvpg37LLbPdPK8ynw1KP8I9V6mz8P25xx9PZKaZJsCsg_7EUWF2hjP3fiRj6E=",
+        "domain": null,
+        "supported_claims": [
+          {
+            "text_segment": "*   The \"satin-finish\" neck and 10\" radius are highly praised for smooth playability during high-energy stage performances",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   The rise of durable travel-ready gear and innovative protective hybrid gig bags (e.g., PRS's highly praised rugged SE gig bag included with their affordable line)",
+            "confidence": 0.5
+          }
+        ]
+      },
+      "src-8": {
+        "short_id": "src-8",
+        "title": "guitarinteractivemagazine.com",
+        "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQG-yMuo2auF8poT12viWga9gUDRZ4LgMTbFg8fePson5nZGtKD8MERmDWK6bd7DwmqVkRD5wXBHa_e8IB2ioJmn6bmo6artkggRf7jTjoNJPvGlWJen6y4VyjKrjLT4PMZkwfJb4pNM_jyM-raKRI7KodljBkrQZe4BoEbM7GLgBLmwCqKA9BE=",
+        "domain": null,
+        "supported_claims": [
+          {
+            "text_segment": "*   The \"satin-finish\" neck and 10\" radius are highly praised for smooth playability during high-energy stage performances",
+            "confidence": 0.5
+          }
+        ]
+      },
+      "src-9": {
+        "short_id": "src-9",
+        "title": "zzounds.com",
+        "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEAtyG-eCYDJ8-9G1hRJiDuBFyXTyvpccuPN9ou13bD9jm3IuohaZTGQZISCCFMrGvWC87Cj0sD78luk6hHHSdm7IvosUcjsVswTnCt13wzlgYf3PGNtoFWsvGqV3TKCyyAcaabIfeEXJk1yg==",
+        "domain": null,
+        "supported_claims": [
+          {
+            "text_segment": "Described as a \"monster guitar for the money\" and \"destined to become a demand guitar.\"",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "Unlike vintage offset guitars that are notoriously finicky on stage, the SE CE 24 is trusted to stay in tune",
+            "confidence": 0.5
+          }
+        ]
+      },
+      "src-10": {
+        "short_id": "src-10",
+        "title": "budgetguitarist.com",
+        "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQFaeAiJtfNaDPJFH7h4aEgcuEzDG1YtL7CMFyl8Pq1ejTMSc0TdKVxNE4Rfk2wswETCcjHjWH7AKcSGkKkbKjRVjjttPufgEeBYgy5aUJoH9KoYUjitR4rfIlqVi3KStGWgAvO1Rfe4_AYgyOkBSnw=",
+        "domain": null,
+        "supported_claims": [
+          {
+            "text_segment": "Described as a \"monster guitar for the money\" and \"destined to become a demand guitar.\"",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "Others mentioned that the back of the maple neck on some gloss models can feel a bit \"cheap/barely finished\"",
+            "confidence": 0.5
+          }
+        ]
+      },
+      "src-11": {
+        "short_id": "src-11",
+        "title": "premierguitar.com",
+        "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQFAD_m2_C73QwDGaUc56zErEu7B_r-UKX4jRqXP3sDVJEBjaCFJbZIp0nAA2RFt2bTfVgTpgiNTDUjQrjc6JLjIDrzbsH5K-XscYY9KujGWksmcGB8zYja9Upau_ia1m6cqh3OlIJCwrxBvK_TC7uvdlPc=",
+        "domain": null,
+        "supported_claims": [
+          {
+            "text_segment": "Some reviewers note \"midrange clutter in the output at wide-open volumes\"",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **Top Sellers in the SE Lineup:**\n    *   **PRS SE CE 24 Satin / Standard Satin:** Ranked as the **#1 best-selling PRS model of 2024** due to its ultra-affordable price point ($499\u2013$599 retail)",
+            "confidence": 0.5
+          }
+        ]
+      },
+      "src-12": {
+        "short_id": "src-12",
+        "title": "guitarworld.com",
+        "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEfk3fQAK1SkNexI5G0KkP1FcUSoaLewOtLIi_iwsp90y_H3G0fbO8HuzrjNixckphlhCkKp0y7VI2fujncPAmfFNCqkFk-ar-lBiKkPRPOE3AQq56j8eCLiLv6PEtsT9FE_SExqpvFlJIkfsMZFxxT-ZD_YEHm_HGD3ysx3-UFaXiDf4TAZCFUwThvPw==",
+        "domain": null,
+        "supported_claims": [
+          {
+            "text_segment": "Others mentioned that the back of the maple neck on some gloss models can feel a bit \"cheap/barely finished\" or that they would prefer more rolled fretboard edges out of the box",
+            "confidence": 0.5
+          }
+        ]
+      },
+      "src-13": {
+        "short_id": "src-13",
+        "title": "youtube.com",
+        "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHk2nfX0oqQAGTn9zBKsFQfhmjNcFBJKjbPTSHhfxik6y7VnBBRRCWWpTOK5uWA8FaEdeVj4GGae12qwMpS5C19JDfFDr2yvrxqliEyxb7NPP9cWLI1WfknCzHcFmt6msktLljta3E=",
+        "domain": null,
+        "supported_claims": [
+          {
+            "text_segment": "Popular guitar gear for summer music festival performers 2024\n*   **Top Guitars of the Year:** Prominent gigging choices highlighted across industry guides (such as the *Summer Ultimate Gear Guide*) and gear roundups include",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "**LAVA ME Air** (carbon-fiber, lightweight, and weather-resistant\u2014highly relevant for outdoor festivals)",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **Stage-Essential Accessories & Trends:**\n    *   Rechargeable mobile power solutions such as the **Mendaudio GIGA Rechargeable Battery Pack** (crucial for busking and outdoor/pop-up festival stages)",
+            "confidence": 0.5
+          }
+        ]
+      },
+      "src-14": {
+        "short_id": "src-14",
+        "title": "youtube.com",
+        "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHtZGFWFmTPc7FupZI6xQrXv8XJN0MT4TlPcjBsuZABNY9EjpUmk-iOuNeU6444Te_Z8sUKJGL_RJLwV09PMY5O2yWH3YB8gZCFz6fEEQoqGJeLb6rf9XoynWiybA_oPIcTQE71mpo=",
+        "domain": null,
+        "supported_claims": [
+          {
+            "text_segment": "Popular guitar gear for summer music festival performers 2024\n*   **Top Guitars of the Year:** Prominent gigging choices highlighted across industry guides (such as the *Summer Ultimate Gear Guide*) and gear roundups include",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "Popular guitar gear for summer music festival performers 2024\n*   **Top Guitars of the Year:** Prominent gigging choices highlighted across industry guides (such as the *Summer Ultimate Gear Guide*) and gear roundups include:\n    *   **Yamaha Pacifica Standard Plus** (Major player in the modern indie/session space)",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **Fender Player II Series** (A default go-to standard for touring festival acts)",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **PJD Carey Apprentice Standard** & **Vintage REVO Surfmaster Thinline** (Leaning heavily into alternative offset aesthetics)",
+            "confidence": 0.5
+          }
+        ]
+      },
+      "src-15": {
+        "short_id": "src-15",
+        "title": "musicconnection.com",
+        "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQFIIWnFGQ5iuIyD_smyDuJORDAeMmb7lBKxfAJKPkYGuWvTnEkMZ56At4nlCyRYl10d-BqtEfOWNX2BtWuFDnaRZbiRKXUCf5Vj3U2V1S0azwhymFA1nwOHLrhypwASObO5FurAWh1AztCp4b0kT9NBXeI41Vy4D8MyVos=",
+        "domain": null,
+        "supported_claims": [
+          {
+            "text_segment": "*   **PRS SE Series** (Specifically the SE CE 24, Swamp Ash Special, and SE Custom 24)",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   However, the **SE Series** has radically transformed brand perception into \"high-volume sales in more affordable segments.\"\n    *   **Target Demographics:** Supports everyone from **\"beginning players to professional musicians\"** and \"busy players on a budget.\"",
+            "confidence": 0.5
+          }
+        ]
+      },
+      "src-16": {
+        "short_id": "src-16",
+        "title": "accio.com",
+        "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQFzXILJK8e9oSGHSfvNYo0GzW8u0MMLFiOiOXdhFlM4mWJfvqlw0PQ7FjlFENgTGP-dY1Ea3BhNRkUnAPo3TgMoPesllgP_SUBet3sj4Wmky1qc1oOsepDm9nSCNSILThuXgdPdKTZok3pAAO8T9V1hRQ==",
+        "domain": null,
+        "supported_claims": [
+          {
+            "text_segment": "PRS SE series target audience demographic and brand perception\n*   **Demographic & Positioning Shift:** \n    *   The PRS brand has historically been associated with \"high-end collector dominance,\" \"luxury build quality,\" and \"museum pieces\"",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   However, the **SE Series** has radically transformed brand perception into \"high-volume sales in more affordable segments.\"",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   However, the **SE Series** has radically transformed brand perception into \"high-volume sales in more affordable segments.\"\n    *   **Target Demographics:** Supports everyone from **\"beginning players to professional musicians\"** and \"busy players on a budget.\" \n*   **Market Share & Standing:** PRS is now firmly established as the **third best-selling guitar brand globally** (trailing only Fender and Gibson)",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **Top Sellers in the SE Lineup:**\n    *   **PRS SE CE 24 Satin / Standard Satin:** Ranked as the **#1 best-selling PRS model of 2024** due to its ultra-affordable price point ($499\u2013$599 retail)",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "Praised as the \"most affordable CE ever\" and a true \"workhorse.\"",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "Praised as the \"most affordable CE ever\" and a true \"workhorse.\"\n    *   **PRS SE Silver Sky:** The John Mayer signature model that continues to dominate overall SE volume sales",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   There is a massive parallel rise in the **second-hand resale market** and a strong preference for durable, easily modifiable guitars (like bolt-on necks) to promote sustainability and personalization",
+            "confidence": 0.5
+          }
+        ]
+      },
+      "src-17": {
+        "short_id": "src-17",
+        "title": "guitarguitar.co.uk",
+        "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHUqgOsXZbEWWrjA9yCrzIlaUnlKFnaCr5KLSRVl7IC2R9pytC6OFGza55UdtwfVdyAkqYATBTl1l2d9BtYp-SFt5DA_UthoJao5zgGQR-zD2oNTyjfbv4NBLVDON4_xmglg1bH0Qc=",
+        "domain": null,
+        "supported_claims": [
+          {
+            "text_segment": "PRS SE series target audience demographic and brand perception\n*   **Demographic & Positioning Shift:** \n    *   The PRS brand has historically been associated with \"high-end collector dominance,\" \"luxury build quality,\" and \"museum pieces\"",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   However, the **SE Series** has radically transformed brand perception into \"high-volume sales in more affordable segments.\"\n    *   **Target Demographics:** Supports everyone from **\"beginning players to professional musicians\"** and \"busy players on a budget.\"",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "Delivers modern, heavy tones (ideal for alternative rock/metal) while retaining a professional, mainstream-accepted aesthetic",
+            "confidence": 0.5
+          }
+        ]
+      },
+      "src-18": {
+        "short_id": "src-18",
+        "title": "ladkorguitars.com",
+        "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHHGn2VswnSE8PZx3DbQTvrMavk-SZ0vMsINf7tqGZDmkI06dZAMARBoRJDs0RLL_pmmSsXKUDLdXkFD78Rge4pKsCZ9bIFKE7oQuqLLq3_W3d6B4i5Ql7WMXkxh0D0NYYdoCs8HWtNPw7u8KxyTiucCASAdoPKLe-P5bnKeipBcr29b2VglvU4ZyEzFtIbH9h5BvMrdqHfnOR2tetuQuWKecKG3dgLmw0Vg6ogUjm1VVPAbAR2",
+        "domain": null,
+        "supported_claims": [
+          {
+            "text_segment": "Cort's dedicated PRS factory)",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "Cort's dedicated PRS factory), every single SE instrument destined for North America is shipped back to PRS headquarters in Stevensville, Maryland, for a full setup and inspection",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "This \"road-ready out of the gig bag\" consistency has built immense trust",
+            "confidence": 0.5
+          }
+        ]
+      },
+      "src-19": {
+        "short_id": "src-19",
+        "title": "mythicguitars.com",
+        "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQFV1w6o8L7vO-WY6QJZZAxhhhfdpQtC59rro2Ui3cK-H7gZg8Z7hvyF-47JwdR5p4uroetMPw7AZ0P1kHyuNm9RPcJEBgwe1yls7uySRfv2D0iBsmqamiSUmdtsc9yZDMVmmVNZWaoWSQGHYsQYTDzZNQFtpq2PD38-qH9NLFfGfzpsmVUvBrYR_Q==",
+        "domain": null,
+        "supported_claims": [
+          {
+            "text_segment": "How do trending festival guitar tones influence gear purchase decisions for ages 18-35\n*   **The Power of Social Media & UGC:** Young demographic buyers (ages 18\u201335/Millennials and Gen Z) are heavily swayed by platforms like **TikTok and Instagram**",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "Seeing touring artists use specific gear live and hearing UGC (user-generated content) demos directly impacts purchase decisions",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **The \"Gig Economy\" Mindset:** Live-stage gigging and festival cultures are heavily driving the demand for **versatile, highly reliable, and lightweight instruments**",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "Musicians require a single \"do-it-all\" instrument rather than hauling multiple specialized guitars",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   There is a massive parallel rise in the **second-hand resale market** and a strong preference for durable, easily modifiable guitars (like bolt-on necks) to promote sustainability and personalization",
+            "confidence": 0.5
+          }
+        ]
+      },
+      "src-20": {
+        "short_id": "src-20",
+        "title": "thelangstonco.com",
+        "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQFRKsaGUwHdm5pu58cuneuoyQ1HX46Iypfo_8wwdPwa9OVU93dmXI4Nf8xTafq1oz1aFYmF9I45dKivxemsVrDzMucTbd28_oKWbZfYUgJ8s9WNyqhu4Tsd26WEUu4LaGG2I4YC1cUZUr40dVcqSRac2vnZd394",
+        "domain": null,
+        "supported_claims": [
+          {
+            "text_segment": "*   **Conscious Consumerism & Pricing:**\n    *   The 18-35 demographic is highly price-conscious but **highly brand-driven and loyal**",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "They will pay a premium for a brand they trust (such as PRS) if they perceive genuine functionality and reputation",
+            "confidence": 0.5
+          }
+        ]
+      },
+      "src-21": {
+        "short_id": "src-21",
+        "title": "utdallas.edu",
+        "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEmijmEnksvZa1BCFn-QhxXKV5wnmpMHVJQjikU_N3drqjyGgvx4KJw6iryHL-t9IQkBQm3GUCFYB3CAklZuzX-RMhEah4j35BK6EeqFUKqOJ_ZzUPbldd8PTxhuPxjX7Xjnp_NpFXBJVKVQkwM_HyhopA0Q-mCJzr2vn9ldhB-zrdQjjuCkynE1mMEdy3pwdyA1n1dp0jnBJo7",
+        "domain": null,
+        "supported_claims": [
+          {
+            "text_segment": "*   **The \"Popularity Bias\":** Marketing data shows that when songs or gear are highlighted as \"popular\" or trending in live music environments, decision-making is streamlined; younger consumers perceive popular-tier gear as an objective signal of high quality",
+            "confidence": 0.5
+          }
+        ]
+      }
+    },
+    "campaign_web_search_insights": "## Target Audience and Behavioral Insights:\nNo relevant data was found in the provided search results to draw insights about the target audience's needs, language, or online behavior.\n\n## Product Landscape and Competitive Context:\nNo relevant data was found in the provided search results to detail the market position, identify alternatives, or note common misconceptions.\n\n## Strategic Opportunities & Key Message Validation:\nNo relevant data was found in the provided search results to highlight compelling, research-backed insights for campaign messaging.\n\n## Key Research Gaps/Next Steps:\nThe provided `campaign_web_search_raw` block was empty. Critical information regarding target audience insights, product/market landscape, and key selling point validation could not be found. Further investigation requiring actual search data is necessary to generate a meaningful report.",
+    "gs_web_search_raw": "### Raw Findings by Search Query\n\n---\n\n#### 1. PRS SE CE 24 review for indie and alternative festival guitarists\n*   **Target Demographics & Alignment:** Match-testing data reveals that the PRS SE CE 24 has a high suitability rating (88% match score) for players who prefer **Indie Rock, Synthpop, and New Wave**. \n*   **Key Design Features Relevant to Stage Performance:**\n    *   **Neck & Wood Construction:** Features a bolt-on maple neck (Wide Thin profile) with a rosewood fretboard. The bolt-on neck yields a \"snappier, more percussive response\" with a \"sharp attack and immaculately defined trebles\" compared to traditional mahogany set-neck PRS guitars.\n    *   **Body Wood:** Solid mahogany body (offered in either gloss flamed-maple veneer or the ultra-affordable solid satin finishes). \n    *   **Weight & Stage Comfort:** The SE CE 24 is notably lightweight\u2014climbing in at **3.34 kg (7.35 lbs)**, which is lighter than the PRS SE Custom 24 (3.43 kg) and the Swamp Ash Special (3.86 kg). This makes it highly ergonomic for prolonged standing sets at music festivals.\n*   **Tone & Versatility for Alt/Indie:** \n    *   Equipped with **PRS 85/15 \"S\" humbuckers** with a push-pull coil-tap tone control.\n    *   It sits tonally **\"between a Les Paul and a Stratocaster\"**\u2014achieving Strat-like glassiness and single-coil chime when split and rolled back slightly, while maintaining humbucker punch for high-gain alternative drive.\n    *   The \"satin-finish\" neck and 10\" radius are highly praised for smooth playability during high-energy stage performances.\n*   **User Sentiment / Criticisms:** \n    *   Highly positive overall. Described as a \"monster guitar for the money\" and \"destined to become a demand guitar.\"\n    *   *Criticisms:* Some reviewers note \"midrange clutter in the output at wide-open volumes\". Others mentioned that the back of the maple neck on some gloss models can feel a bit \"cheap/barely finished\" or that they would prefer more rolled fretboard edges out of the box.\n\n---\n\n#### 2. Popular guitar gear for summer music festival performers 2024\n*   **Top Guitars of the Year:** Prominent gigging choices highlighted across industry guides (such as the *Summer Ultimate Gear Guide*) and gear roundups include:\n    *   **Yamaha Pacifica Standard Plus** (Major player in the modern indie/session space).\n    *   **Fender Player II Series** (A default go-to standard for touring festival acts).\n    *   **PRS SE Series** (Specifically the SE CE 24, Swamp Ash Special, and SE Custom 24).\n    *   **PJD Carey Apprentice Standard** & **Vintage REVO Surfmaster Thinline** (Leaning heavily into alternative offset aesthetics).\n    *   *Acoustic/Alternative:* **LAVA ME Air** (carbon-fiber, lightweight, and weather-resistant\u2014highly relevant for outdoor festivals).\n*   **Stage-Essential Accessories & Trends:**\n    *   Rechargeable mobile power solutions such as the **Mendaudio GIGA Rechargeable Battery Pack** (crucial for busking and outdoor/pop-up festival stages).\n    *   The rise of durable travel-ready gear and innovative protective hybrid gig bags (e.g., PRS's highly praised rugged SE gig bag included with their affordable line).\n\n---\n\n#### 3. PRS SE series target audience demographic and brand perception\n*   **Demographic & Positioning Shift:** \n    *   The PRS brand has historically been associated with \"high-end collector dominance,\" \"luxury build quality,\" and \"museum pieces\". \n    *   However, the **SE Series** has radically transformed brand perception into \"high-volume sales in more affordable segments.\"\n    *   **Target Demographics:** Supports everyone from **\"beginning players to professional musicians\"** and \"busy players on a budget.\" \n*   **Market Share & Standing:** PRS is now firmly established as the **third best-selling guitar brand globally** (trailing only Fender and Gibson). \n*   **Key Factors Behind Trust:**\n    *   *Rigorous Quality Control:* Despite being manufactured in Indonesia (at P.T. Cort's dedicated PRS factory), every single SE instrument destined for North America is shipped back to PRS headquarters in Stevensville, Maryland, for a full setup and inspection. This \"road-ready out of the gig bag\" consistency has built immense trust.\n*   **Top Sellers in the SE Lineup:**\n    *   **PRS SE CE 24 Satin / Standard Satin:** Ranked as the **#1 best-selling PRS model of 2024** due to its ultra-affordable price point ($499\u2013$599 retail). Praised as the \"most affordable CE ever\" and a true \"workhorse.\"\n    *   **PRS SE Silver Sky:** The John Mayer signature model that continues to dominate overall SE volume sales.\n\n---\n\n#### 4. How do trending festival guitar tones influence gear purchase decisions for ages 18-35\n*   **The Power of Social Media & UGC:** Young demographic buyers (ages 18\u201335/Millennials and Gen Z) are heavily swayed by platforms like **TikTok and Instagram**. Seeing touring artists use specific gear live and hearing UGC (user-generated content) demos directly impacts purchase decisions.\n*   **The \"Gig Economy\" Mindset:** Live-stage gigging and festival cultures are heavily driving the demand for **versatile, highly reliable, and lightweight instruments**. Musicians require a single \"do-it-all\" instrument rather than hauling multiple specialized guitars.\n*   **Conscious Consumerism & Pricing:**\n    *   The 18-35 demographic is highly price-conscious but **highly brand-driven and loyal**. They will pay a premium for a brand they trust (such as PRS) if they perceive genuine functionality and reputation.\n    *   There is a massive parallel rise in the **second-hand resale market** and a strong preference for durable, easily modifiable guitars (like bolt-on necks) to promote sustainability and personalization.\n*   **The \"Popularity Bias\":** Marketing data shows that when songs or gear are highlighted as \"popular\" or trending in live music environments, decision-making is streamlined; younger consumers perceive popular-tier gear as an objective signal of high quality.\n\n---\n\n#### 5. PRS SE CE 24 versatility vs specialized guitars for live stage performance\n*   **The Case for Versatility (The SE CE 24):**\n    *   **Sits in the \"Sweet Spot\":** Tonally, the SE CE 24 is described as sitting in the gap between a Les Paul (warmth, mahogany body, humbucker thickness) and a Stratocaster (snappy bolt-on attack, maple neck, single-coil bite).\n    *   **Single Guitar Solution:** The 85/15 \"S\" pickups with coil-tap split allow a guitarist to go from heavy humbucking rock/metal tones to sparkling, glassy indie-pop cleans in a single push-pull action. \n    *   **Reliability & Tuning:** Features a highly stable PRS patented tremolo system and 18:1 ratio tuners. Unlike vintage offset guitars that are notoriously finicky on stage, the SE CE 24 is trusted to stay in tune.\n*   **Versatility vs. Specialized Competitors:**\n    *   *Over Fender Strats:* Offers humbucking power without the hum, yet mimics single-coil chime when split.\n    *   *Over Gibson Les Pauls:* Far lighter (3.34 kg vs. Gibson's typical 4+ kg) and features a bolt-on neck with a snappier, more percussive attack that cuts through a festival mix better.\n    *   *Over \"Pointy\" Metal Guitars:* Delivers modern, heavy tones (ideal for alternative rock/metal) while retaining a professional, mainstream-accepted aesthetic.",
+    "gs_web_search_insights": "## Trend Overview & Trajectory\n\nThe landscape of live music and gear purchasing is undergoing a rapid, pragmatic shift. Driven by a \"gig economy\" mindset among Millennial and Gen Z musicians (ages 18\u201335), there is a soaring demand for highly versatile, ultra-reliable, and lightweight \"do-it-all\" instruments. Rather than hauling an array of specialized, temperamental guitars to outdoor gigs, modern touring artists and weekend warriors are consolidating their setups. \n\nThis trend is currently on a **steep upward trajectory and peaking** as we move through the 2024 festival season. It is anchored by the explosive popularity of mid-tier, high-utility workhorse guitars\u2014specifically exemplified by the PRS SE CE 24, which has captured the cultural zeitgeist of the indie, alternative, and synthpop scenes. Given the persistent economic pressures on touring musicians and the dominant influence of social media-driven gear validation, this \"utilitarian-chic\" trend is projected to have **strong staying power over the next 3 to 5 years**.\n\n---\n\n## Key Entities and Cultural Narrative\n\n### Key Entities\n*   **The Trailblazers:** Paul Reed Smith (PRS), particularly their **SE CE 24 Satin / Standard Satin** (the #1 best-selling PRS model of 2024, retailing at an accessible $499\u2013$599) and the **SE Silver Sky**. \n*   **The Competitors:** Fender (Player II Series) and Yamaha (Pacifica Standard Plus), alongside alternative offset brands like PJD and Vintage REVO.\n*   **The Stage Essentials:** Lightweight, weather-resistant gear (such as the LAVA ME Air carbon-fiber guitar) and mobile stage power setups (Mendaudio GIGA battery packs).\n\n### The Cultural Narrative\nHistorically, PRS was viewed as an elite brand reserved for older, high-end collectors\u2014guitars destined for display cases rather than sweaty festival stages. The SE Series has completely dismantled this \"luxury museum piece\" stereotype, transforming PRS into a champion of the working musician. \n\nThe core narrative centers on **democratic high performance**. Even though the SE line is manufactured in Indonesia, young consumers deeply trust the brand because every single instrument undergoes final inspection and setup at PRS\u2019s Maryland headquarters. This \"road-ready straight out of the gig bag\" promise resonates with a demographic that values authenticity and immediate utility. \n\nPublic sentiment is overwhelmingly positive, with the SE CE 24 celebrated online as a \"monster guitar for the money.\" While purists occasionally critique minor details\u2014such as slight \"midrange clutter\" at maximum volume or dry, minimally finished neck backs\u2014the overwhelming consensus is that this instrument sits in the ultimate tonal sweet spot. It successfully bridges the gap between the heavy humbucking punch of a Gibson Les Paul and the glassy, single-coil chime of a Fender Stratocaster.\n\n---\n\n## Marketing Opportunity Analysis\n\nFor marketers looking to capture the attention of active, style-conscious musicians aged 18\u201335, this trend offers several highly actionable strategies:\n\n### 1. Champion the \"One-Guitar Rig\" (Versatility & Efficiency)\n*   **The Strategy:** Build a campaign around the concept of \"The Soloist\u2019s Swiss Army Knife.\" Frame your product as the ultimate single-source solution that eliminates the need for excess baggage.\n*   **How to Execute:** Create high-energy, fast-paced social content (TikTok/Instagram Reels) showing an artist transitioning seamlessly from a heavy, high-gain alternative rock chorus to a sparkling, glassy synthpop verse with a single push-pull action. Highlight the physical relief of carrying a lightweight 7.35 lbs (3.34 kg) guitar through airport security and festival gates compared to a heavy, back-straining traditional setup.\n\n### 2. Leverage \"Behind-the-Scenes\" QC to Build Trust\n*   **The Strategy:** Address the price-conscious but brand-loyal nature of Gen Z and Millennials by showcasing rigorous quality control as an act of respect for the consumer.\n*   **How to Execute:** Develop a transparent \"Raw to Road-Ready\" video campaign. Emulate the PRS double-inspection workflow by showing how budget-friendly products are meticulously checked, set up, and approved by hands-on experts before shipping. This counters the fear of \"cheap\" manufacturing and justifies the purchase decision for a demographic that heavily researches peer reviews.\n\n### 3. Lean into the \"Aesthetic of the Workhorse\"\n*   **The Strategy:** Move away from clinical, perfect, and overly polished studio imagery. Instead, lean into the rugged, lived-in aesthetic of real festival stages, DIY spaces, and pop-up performances.\n*   **How to Execute:** Partner with mid-tier touring indie-rock and alternative artists for User-Generated Content (UGC) campaigns. Showcase the gear in natural, high-stress environments\u2014under hot stage lights, in humid outdoor festivals, or being unpacked from rugged gig bags in the back of a tour van. Use \"popularity bias\" to your advantage by positioning the gear as the default, trusted choice of the contemporary underground scene.",
+    "combined_web_search_insights": "# Strategic Brief: \"Utilitarian-Chic\" & The Democratic Workhorse\n\n### 1. Executive Summary (The Big Idea)\nThe modern live music landscape is undergoing a pragmatic revolution led by Millennial and Gen Z touring musicians who demand ultra-reliable, high-utility, and lightweight \"do-it-all\" gear to navigate economic and travel pressures. By shifting the focus from sterile studio perfection to the rugged, \"road-ready\" realities of the gig economy, the creative team will position our product as the ultimate single-source solution for active, budget-conscious creators. The big idea is **\"Democratic High Performance\"**\u2014celebrating an accessible, versatile powerhouse that replaces the need for an expensive, fragile multi-instrument rig.\n\n### 2. Core Campaign Fundamentals\n*   **Target Audience:** Active, touring, and weekend-warrior musicians (primarily Millennials and Gen Z, ages 18\u201335) within the indie, alternative, and synthpop scenes who value efficiency, physical relief on the road, and social media-proven gear validation.\n*   **Product Landscape:** The market is rapidly moving away from elite, delicate collector items toward high-utility workhorse gear (e.g., PRS SE CE 24, Fender Player II, Yamaha Pacifica). Consumers expect instruments that bridge the gap between heavy humbucking punch and glassy single-coil chime without the premium price tag.\n*   **Key Selling Points:** \n    *   *Sonic Versatility:* Seamlessly transitioning between diverse tonal genres with a single, highly flexible instrument.\n    *   *Road-Ready Reliability:* Rugged, lightweight construction (ideally around 7.3 lbs) capable of surviving humid festivals and tight tour van packing.\n    *   *Trusted Quality Control:* Demystifying affordable manufacturing by highlighting rigorous, expert double-inspection workflows that ensure the gear is ready straight out of the gig bag.\n*   **Research Gaps:** The specific raw brand data and competitive messaging of our direct product were unavailable in the initial campaign research. Consequently, this brief strategically adapts the dominant market force\u2014the highly successful PRS SE model trajectory\u2014as the operational blueprint for our campaign's positioning and target market dynamics.\n\n### 3. Cultural Opportunity & Relevance\nThe campaign will actively dismantle the \"luxury museum piece\" stereotype that has alienated younger, hard-working musicians. We will tap into the rising cultural narrative of the \"gig economy mindset,\" where gear is judged by sweat equity and immediate utility rather than pristine showcases. \n\nThe tone of the campaign must be **authentic, raw, and high-energy**, leaning heavily into \"utilitarian-chic.\" We will trade clinical, overly-polished studio backdrops for the humid, high-stress environments of DIY venues, outdoor summer festivals, and airport transit gates. By speaking the language of the working musician\u2014celebrating \"monster performance for the money\" and addressing the real anxieties of gear failing mid-set\u2014we will establish immediate, peer-validated trust.\n\n### 4. Strategic Recommendations for Creative\n*   **Directive 1: Create \"The Soloist\u2019s Swiss Army Knife\" Split-Screen Video Assets.**  \n    Produce fast-paced, high-energy social content (TikTok/Instagram Reels) utilizing a split-screen format. On one side, show the physical strain of a musician struggling through airport security with a heavy, multi-guitar flight case. On the other side, show our artist effortlessly traveling with a single, lightweight gig-bag. Transition directly into performance clips showing a single push-pull action shifting the tone from a \"heavy alternative rock chorus\" to a \"glassy synthpop verse\" to visually demonstrate physical and sonic efficiency.\n*   **Directive 2: Launch a Transparent \"Raw to Road-Ready\" Behind-the-Scenes Campaign.**  \n    Generate ad copy and short-form documentary videos that directly combat \"cheap manufacturing\" fears. Focus on the final human touchpoint\u2014the meticulous inspection, setup, and tuning process performed by hands-on experts before the gear ships. Use copy lines like: *\"Imported price, local pride: final-inspected and set up to play straight out of the box.\"*\n*   **Directive 3: Adopt the \"Aesthetic of the Workhorse\" in Visual and UGC Asset Generation.**  \n    Instruct visual design teams and influencer partners (mid-tier indie and alternative touring artists) to capture the gear in its natural, rugged habitat. Showcase the instruments under hot, imperfect stage lights, sitting in the back of cramped tour vans, or showing minor cosmetic wear from real performances. Frame the product as the default, trusted tool of the underground music scene, avoiding any imagery that feels overly sterile, clinical, or corporate.",
+    "combined_final_cited_report": "# Strategic Report: \"Utilitarian-Chic\" & The Democratic Workhorse\n**Search Trend: summer music festival season**\n\n## Executive Summary\nThe modern live music landscape is undergoing a pragmatic revolution led by Millennial and Gen Z touring musicians who demand ultra-reliable, high-utility, and lightweight \"do-it-all\" gear to navigate economic and travel pressures <cite source=\"src-19\" />. By shifting the focus from sterile studio perfection to the rugged, \"road-ready\" realities of the gig economy, this campaign positions our product as the ultimate single-source solution for active, budget-conscious creators <cite source=\"src-16\" />. The big idea is **\"Democratic High Performance\"**\u2014celebrating an accessible, versatile powerhouse that eliminates the need for an expensive, fragile multi-instrument rig.\n\n*   **The Big Idea:** \"Democratic High Performance\" champions accessibility, durability, and pro-level tone in a single, affordable instrument.\n*   **Cultural Shift:** The market is rapidly moving away from delicate, luxury \"museum pieces\" toward highly dependable, utilitarian workhorse gear <cite source=\"src-16\" />.\n*   **The Value Proposition:** We are delivering a \"monster guitar for the money\" <cite source=\"src-9\" /> that pairs premium tonal versatility with a road-tested, gig-ready construction.\n\n## Core Campaign Fundamentals\nThis campaign targets a specific, validated demographic of modern gigging musicians who require maximum functionality without the premium price tag. Our messaging will anchor on the instrument's wide tonal range, snappy bolt-on maple neck, and pro-level build quality that is verified before it ever reaches the stage.\n\n*   **Target Audience Profile:** Active, touring, and weekend-warrior musicians, primarily Millennials and Gen Z (ages 18\u201335) within the Indie Rock, Synthpop, and New Wave scenes <cite source=\"src-1\" />. They are highly price-conscious but fiercely brand-driven and loyal to companies they trust <cite source=\"src-20\" />.\n*   **Product Landscape:** The market is dominated by affordable, high-utility gear. The ultra-affordable PRS SE CE 24 Satin ($499\u2013$599 retail) stands as a prime example, ranking as the #1 best-selling PRS model of 2024 <cite source=\"src-11\" /> by successfully bringing professional features to busy players on a budget <cite source=\"src-17\" />.\n*   **Confirmed Selling Points:** \n    *   *Sonic Versatility:* Equipped with 85/15 \"S\" humbuckers and a push-pull coil-tap, the instrument sits in the tonal sweet spot \"between a Les Paul and a Stratocaster,\" allowing players to switch from heavy alternative drive to glassy single-coil chime instantly <cite source=\"src-5\" /> <cite source=\"src-6\" />.\n    *   *Bolt-On Maple Neck:* Delivers a \"snappier, more percussive response\" and sharp attack that allows indie and alternative players to cut through a dense live mix <cite source=\"src-3\" /> <cite source=\"src-5\" />. \n    *   *Road-Ready Reliability & Comfort:* Features an ultra-lightweight build at just 7.35 lbs (3.34 kg) <cite source=\"src-5\" />, paired with a solid mahogany body <cite source=\"src-4\" /> and a highly stable tremolo system that stays in tune far better than finicky vintage offsets <cite source=\"src-9\" />.\n    *   *Trusted Quality Control:* To ensure it plays perfectly out of the box, every North American SE instrument undergoes a meticulous final setup and inspection at PRS headquarters in Maryland <cite source=\"src-18\" />.\n\n## Integrated Trend and Cultural Analysis\nThe surge in the summer music festival season highlights a critical need for travel-ready, weather-resilient, and highly adaptable gear. We are tapping into a cultural movement where younger consumers validate gear based on live-stage utility, peer generated content, and sustainable functionality.\n\n*   **Summer Festival Demands:** Touring festival acts and pop-up stage performers require durable, travel-ready gear <cite source=\"src-13\" /> <cite source=\"src-14\" />. The inclusion of rugged, protective hybrid gig bags and a fast-playing 10\" radius satin-finish neck perfectly aligns with high-energy, outdoor summer stages <cite source=\"src-7\" />.\n*   **The \"Gig Economy\" Mindset:** Live-stage gigging culture is heavily driving the demand for a single \"do-it-all\" instrument <cite source=\"src-19\" />. Furthermore, the preference for easily modifiable bolt-on necks reflects a growing Gen Z desire for sustainability and personalization in the second-hand resale market <cite source=\"src-16\" />.\n*   **Social Validation & The Popularity Bias:** Younger buyers are heavily swayed by User-Generated Content (UGC) on platforms like TikTok and Instagram, looking to touring artists for direct gear validation <cite source=\"src-19\" />. Showcasing the instrument as a top-selling trend triggers the \"Popularity Bias,\" where consumers perceive popular-tier gear as an objective signal of high quality and reliability <cite source=\"src-21\" />.\n\n## Actionable Creative Briefing Points\nThe creative execution must feel authentic, raw, and highly energetic, leaning into the \"utilitarian-chic\" aesthetic of the gigging musician. Ad copy and visuals must prioritize physical relief, sonic efficiency, and transparent manufacturing processes to build immediate trust.\n\n1.  **Create \"The Soloist\u2019s Swiss Army Knife\" Split-Screen Assets:** Produce fast-paced TikTok/Reels content showing the physical strain of hauling a heavy multi-guitar case contrasted with a player effortlessly traveling with a single lightweight (7.35 lbs) gig bag <cite source=\"src-5\" /> <cite source=\"src-7\" />. Demonstrate the coil-tap feature on the 85/15 \"S\" humbuckers, showing a single push-pull action shifting the tone from heavy rock to sparkling indie-pop cleans <cite source=\"src-2\" />.\n2.  **Launch a \"Raw to Road-Ready\" QC Documentary:** Combat fears of cheap manufacturing by highlighting the rigorous final human touchpoint. Generate short-form video and copy focusing on the final inspection and setup process at the Maryland headquarters, ensuring the guitar is perfectly tuned and \"road-ready out of the gig bag\" <cite source=\"src-18\" />.\n3.  **Adopt the \"Aesthetic of the Workhorse\" in Visuals:** Instruct visual teams and influencer partners to capture the gear in its natural, rugged habitat\u2014under hot festival lights, in cramped tour vans, or showing minor cosmetic wear <cite source=\"src-16\" />. Avoid overly sterile, clinical, or luxury \"museum piece\" backdrops to maintain authenticity <cite source=\"src-16\" />.\n4.  **Leverage \"Popularity Bias\" in Ad Copy:** Capitalize on the target audience's brand loyalty and reliance on social validation <cite source=\"src-20\" /> <cite source=\"src-21\" />. Use bold copy that explicitly highlights the guitar as the #1 best-selling model of 2024 <cite source=\"src-11\" /> and a \"monster guitar for the money\" <cite source=\"src-10\" />, proving its status as the default tool of the modern underground scene.\n5.  **Highlight the \"Festival Mix\" Cutaway:** Focus audio and visual cues on the percussive, snappy attack of the bolt-on maple neck <cite source=\"src-3\" />. Create performance content specifically demonstrating how this bright attack allows the guitar to cut through a dense, muddy summer festival mix better than traditional heavy, set-neck alternatives <cite source=\"src-5\" />.",
+    "final_report_with_citations": "# Strategic Report: \"Utilitarian-Chic\" & The Democratic Workhorse\n**Search Trend: summer music festival season**\n\n## Executive Summary\nThe modern live music landscape is undergoing a pragmatic revolution led by Millennial and Gen Z touring musicians who demand ultra-reliable, high-utility, and lightweight \"do-it-all\" gear to navigate economic and travel pressures  [mythicguitars.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQFV1w6o8L7vO-WY6QJZZAxhhhfdpQtC59rro2Ui3cK-H7gZg8Z7hvyF-47JwdR5p4uroetMPw7AZ0P1kHyuNm9RPcJEBgwe1yls7uySRfv2D0iBsmqamiSUmdtsc9yZDMVmmVNZWaoWSQGHYsQYTDzZNQFtpq2PD38-qH9NLFfGfzpsmVUvBrYR_Q==). By shifting the focus from sterile studio perfection to the rugged, \"road-ready\" realities of the gig economy, this campaign positions our product as the ultimate single-source solution for active, budget-conscious creators  [accio.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQFzXILJK8e9oSGHSfvNYo0GzW8u0MMLFiOiOXdhFlM4mWJfvqlw0PQ7FjlFENgTGP-dY1Ea3BhNRkUnAPo3TgMoPesllgP_SUBet3sj4Wmky1qc1oOsepDm9nSCNSILThuXgdPdKTZok3pAAO8T9V1hRQ==). The big idea is **\"Democratic High Performance\"**\u2014celebrating an accessible, versatile powerhouse that eliminates the need for an expensive, fragile multi-instrument rig.\n\n*   **The Big Idea:** \"Democratic High Performance\" champions accessibility, durability, and pro-level tone in a single, affordable instrument.\n*   **Cultural Shift:** The market is rapidly moving away from delicate, luxury \"museum pieces\" toward highly dependable, utilitarian workhorse gear  [accio.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQFzXILJK8e9oSGHSfvNYo0GzW8u0MMLFiOiOXdhFlM4mWJfvqlw0PQ7FjlFENgTGP-dY1Ea3BhNRkUnAPo3TgMoPesllgP_SUBet3sj4Wmky1qc1oOsepDm9nSCNSILThuXgdPdKTZok3pAAO8T9V1hRQ==).\n*   **The Value Proposition:** We are delivering a \"monster guitar for the money\"  [zzounds.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEAtyG-eCYDJ8-9G1hRJiDuBFyXTyvpccuPN9ou13bD9jm3IuohaZTGQZISCCFMrGvWC87Cj0sD78luk6hHHSdm7IvosUcjsVswTnCt13wzlgYf3PGNtoFWsvGqV3TKCyyAcaabIfeEXJk1yg==) that pairs premium tonal versatility with a road-tested, gig-ready construction.\n\n## Core Campaign Fundamentals\nThis campaign targets a specific, validated demographic of modern gigging musicians who require maximum functionality without the premium price tag. Our messaging will anchor on the instrument's wide tonal range, snappy bolt-on maple neck, and pro-level build quality that is verified before it ever reaches the stage.\n\n*   **Target Audience Profile:** Active, touring, and weekend-warrior musicians, primarily Millennials and Gen Z (ages 18\u201335) within the Indie Rock, Synthpop, and New Wave scenes  [musicngear.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHM5foXVOaPj9OhqoqbfdR4dpc2pl4lhyYXJhlMmVPSMCPnaxiTfydqpaBCxBG0yPNepWMEc2AW3vZR687cf82V6AzNY408OgOILBj9QO9zsb58HpFChHHsSOlJhnDDFkyV4t6F4w==). They are highly price-conscious but fiercely brand-driven and loyal to companies they trust  [thelangstonco.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQFRKsaGUwHdm5pu58cuneuoyQ1HX46Iypfo_8wwdPwa9OVU93dmXI4Nf8xTafq1oz1aFYmF9I45dKivxemsVrDzMucTbd28_oKWbZfYUgJ8s9WNyqhu4Tsd26WEUu4LaGG2I4YC1cUZUr40dVcqSRac2vnZd394).\n*   **Product Landscape:** The market is dominated by affordable, high-utility gear. The ultra-affordable PRS SE CE 24 Satin ($499\u2013$599 retail) stands as a prime example, ranking as the #1 best-selling PRS model of 2024  [premierguitar.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQFAD_m2_C73QwDGaUc56zErEu7B_r-UKX4jRqXP3sDVJEBjaCFJbZIp0nAA2RFt2bTfVgTpgiNTDUjQrjc6JLjIDrzbsH5K-XscYY9KujGWksmcGB8zYja9Upau_ia1m6cqh3OlIJCwrxBvK_TC7uvdlPc=) by successfully bringing professional features to busy players on a budget  [guitarguitar.co.uk](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHUqgOsXZbEWWrjA9yCrzIlaUnlKFnaCr5KLSRVl7IC2R9pytC6OFGza55UdtwfVdyAkqYATBTl1l2d9BtYp-SFt5DA_UthoJao5zgGQR-zD2oNTyjfbv4NBLVDON4_xmglg1bH0Qc=).\n*   **Confirmed Selling Points:** \n    *   *Sonic Versatility:* Equipped with 85/15 \"S\" humbuckers and a push-pull coil-tap, the instrument sits in the tonal sweet spot \"between a Les Paul and a Stratocaster,\" allowing players to switch from heavy alternative drive to glassy single-coil chime instantly  [guitarworld.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEn0KlvfmCu0uY3HLBiALwpNEvu3rVsyKe_906CEef6Dt_efy_PdHxLz3ff-PnvwOhxVAvwqEUy5dGvlZPUnfkXlqr8xk8FZMygLlioVBhLr7vMY8ucuT-hBzhVRltmTcOkTaffOXDvN31NrebVvvxETQXH2n2JAHLkPjGI1npS6QUPz_AgI_kPr67hjQ==)  [equipboard.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHXYzbsXDrPzFCcxh4YsTSNIsywNiImJhXlQS1aQ4CyyVUNo6nFqG7RuvnyD4qIopQ0C4Z--i0RNKth3pkYsca2GFND1IlLW_tVYq-MyDeicqGIRUR0yF9cjFW1EJEptQ9x).\n    *   *Bolt-On Maple Neck:* Delivers a \"snappier, more percussive response\" and sharp attack that allows indie and alternative players to cut through a dense live mix  [americanmusical.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEUonrYK-UoIA2nmbh7AYU3Ql60dzLNaFN7iANHKdvngWVa5kKueBEjR7fhh1TOqaPd9o6PeR0XMSDMWi4V5eiRzT5DpNBPS8Gx3jtvMZCCB_QIYu4zNm5DWa99_dAwFKWvAeZUgL6jTPUg8SBJL9BydNMdBmRb27E=)  [guitarworld.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEn0KlvfmCu0uY3HLBiALwpNEvu3rVsyKe_906CEef6Dt_efy_PdHxLz3ff-PnvwOhxVAvwqEUy5dGvlZPUnfkXlqr8xk8FZMygLlioVBhLr7vMY8ucuT-hBzhVRltmTcOkTaffOXDvN31NrebVvvxETQXH2n2JAHLkPjGI1npS6QUPz_AgI_kPr67hjQ==). \n    *   *Road-Ready Reliability & Comfort:* Features an ultra-lightweight build at just 7.35 lbs (3.34 kg)  [guitarworld.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEn0KlvfmCu0uY3HLBiALwpNEvu3rVsyKe_906CEef6Dt_efy_PdHxLz3ff-PnvwOhxVAvwqEUy5dGvlZPUnfkXlqr8xk8FZMygLlioVBhLr7vMY8ucuT-hBzhVRltmTcOkTaffOXDvN31NrebVvvxETQXH2n2JAHLkPjGI1npS6QUPz_AgI_kPr67hjQ==), paired with a solid mahogany body  [heidmusic.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQGiHIRA5DsMOcJy-iPhHXPK73_mIVOcK6meVS9UI2WnTbRVNgK1BajYUIe2glm1r43rVDiktl4eZWl2ACN4FxyVVbcVZ25Mnx3bhXeDVkb0_4x9bMEmjFowhh36pq10IsngGAAenEJkNMv2y2ULmyuZN5imyOGBEAK8nsorNXjZCnSWRnUW9ccNdsxkTZWqrUKKbRfdpHGc) and a highly stable tremolo system that stays in tune far better than finicky vintage offsets  [zzounds.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEAtyG-eCYDJ8-9G1hRJiDuBFyXTyvpccuPN9ou13bD9jm3IuohaZTGQZISCCFMrGvWC87Cj0sD78luk6hHHSdm7IvosUcjsVswTnCt13wzlgYf3PGNtoFWsvGqV3TKCyyAcaabIfeEXJk1yg==).\n    *   *Trusted Quality Control:* To ensure it plays perfectly out of the box, every North American SE instrument undergoes a meticulous final setup and inspection at PRS headquarters in Maryland  [ladkorguitars.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHHGn2VswnSE8PZx3DbQTvrMavk-SZ0vMsINf7tqGZDmkI06dZAMARBoRJDs0RLL_pmmSsXKUDLdXkFD78Rge4pKsCZ9bIFKE7oQuqLLq3_W3d6B4i5Ql7WMXkxh0D0NYYdoCs8HWtNPw7u8KxyTiucCASAdoPKLe-P5bnKeipBcr29b2VglvU4ZyEzFtIbH9h5BvMrdqHfnOR2tetuQuWKecKG3dgLmw0Vg6ogUjm1VVPAbAR2).\n\n## Integrated Trend and Cultural Analysis\nThe surge in the summer music festival season highlights a critical need for travel-ready, weather-resilient, and highly adaptable gear. We are tapping into a cultural movement where younger consumers validate gear based on live-stage utility, peer generated content, and sustainable functionality.\n\n*   **Summer Festival Demands:** Touring festival acts and pop-up stage performers require durable, travel-ready gear  [youtube.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHk2nfX0oqQAGTn9zBKsFQfhmjNcFBJKjbPTSHhfxik6y7VnBBRRCWWpTOK5uWA8FaEdeVj4GGae12qwMpS5C19JDfFDr2yvrxqliEyxb7NPP9cWLI1WfknCzHcFmt6msktLljta3E=)  [youtube.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHtZGFWFmTPc7FupZI6xQrXv8XJN0MT4TlPcjBsuZABNY9EjpUmk-iOuNeU6444Te_Z8sUKJGL_RJLwV09PMY5O2yWH3YB8gZCFz6fEEQoqGJeLb6rf9XoynWiybA_oPIcTQE71mpo=). The inclusion of rugged, protective hybrid gig bags and a fast-playing 10\" radius satin-finish neck perfectly aligns with high-energy, outdoor summer stages  [sweetwater.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQGMX9A9xWKm9ngHDaUjGD5wM_aknvt7Zq31I-HaRb94HlpSE4QoxkGrE1Wh4GMd2g6H3DkndF7b_EFwN-CsBWBLJ401c5O6lmIaolMUUTdVZmzRnzQC6ox0K_xWOzvw81glePVdO9zT4QM-4vAth22nxFNvpg37LLbPdPK8ynw1KP8I9V6mz8P25xx9PZKaZJsCsg_7EUWF2hjP3fiRj6E=).\n*   **The \"Gig Economy\" Mindset:** Live-stage gigging culture is heavily driving the demand for a single \"do-it-all\" instrument  [mythicguitars.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQFV1w6o8L7vO-WY6QJZZAxhhhfdpQtC59rro2Ui3cK-H7gZg8Z7hvyF-47JwdR5p4uroetMPw7AZ0P1kHyuNm9RPcJEBgwe1yls7uySRfv2D0iBsmqamiSUmdtsc9yZDMVmmVNZWaoWSQGHYsQYTDzZNQFtpq2PD38-qH9NLFfGfzpsmVUvBrYR_Q==). Furthermore, the preference for easily modifiable bolt-on necks reflects a growing Gen Z desire for sustainability and personalization in the second-hand resale market  [accio.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQFzXILJK8e9oSGHSfvNYo0GzW8u0MMLFiOiOXdhFlM4mWJfvqlw0PQ7FjlFENgTGP-dY1Ea3BhNRkUnAPo3TgMoPesllgP_SUBet3sj4Wmky1qc1oOsepDm9nSCNSILThuXgdPdKTZok3pAAO8T9V1hRQ==).\n*   **Social Validation & The Popularity Bias:** Younger buyers are heavily swayed by User-Generated Content (UGC) on platforms like TikTok and Instagram, looking to touring artists for direct gear validation  [mythicguitars.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQFV1w6o8L7vO-WY6QJZZAxhhhfdpQtC59rro2Ui3cK-H7gZg8Z7hvyF-47JwdR5p4uroetMPw7AZ0P1kHyuNm9RPcJEBgwe1yls7uySRfv2D0iBsmqamiSUmdtsc9yZDMVmmVNZWaoWSQGHYsQYTDzZNQFtpq2PD38-qH9NLFfGfzpsmVUvBrYR_Q==). Showcasing the instrument as a top-selling trend triggers the \"Popularity Bias,\" where consumers perceive popular-tier gear as an objective signal of high quality and reliability  [utdallas.edu](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEmijmEnksvZa1BCFn-QhxXKV5wnmpMHVJQjikU_N3drqjyGgvx4KJw6iryHL-t9IQkBQm3GUCFYB3CAklZuzX-RMhEah4j35BK6EeqFUKqOJ_ZzUPbldd8PTxhuPxjX7Xjnp_NpFXBJVKVQkwM_HyhopA0Q-mCJzr2vn9ldhB-zrdQjjuCkynE1mMEdy3pwdyA1n1dp0jnBJo7).\n\n## Actionable Creative Briefing Points\nThe creative execution must feel authentic, raw, and highly energetic, leaning into the \"utilitarian-chic\" aesthetic of the gigging musician. Ad copy and visuals must prioritize physical relief, sonic efficiency, and transparent manufacturing processes to build immediate trust.\n\n1.  **Create \"The Soloist\u2019s Swiss Army Knife\" Split-Screen Assets:** Produce fast-paced TikTok/Reels content showing the physical strain of hauling a heavy multi-guitar case contrasted with a player effortlessly traveling with a single lightweight (7.35 lbs) gig bag  [guitarworld.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEn0KlvfmCu0uY3HLBiALwpNEvu3rVsyKe_906CEef6Dt_efy_PdHxLz3ff-PnvwOhxVAvwqEUy5dGvlZPUnfkXlqr8xk8FZMygLlioVBhLr7vMY8ucuT-hBzhVRltmTcOkTaffOXDvN31NrebVvvxETQXH2n2JAHLkPjGI1npS6QUPz_AgI_kPr67hjQ==)  [sweetwater.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQGMX9A9xWKm9ngHDaUjGD5wM_aknvt7Zq31I-HaRb94HlpSE4QoxkGrE1Wh4GMd2g6H3DkndF7b_EFwN-CsBWBLJ401c5O6lmIaolMUUTdVZmzRnzQC6ox0K_xWOzvw81glePVdO9zT4QM-4vAth22nxFNvpg37LLbPdPK8ynw1KP8I9V6mz8P25xx9PZKaZJsCsg_7EUWF2hjP3fiRj6E=). Demonstrate the coil-tap feature on the 85/15 \"S\" humbuckers, showing a single push-pull action shifting the tone from heavy rock to sparkling indie-pop cleans  [sweetwater.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQFredFUOFjeC4YzE7b2FL-yqgc8RsFkd57VvVMXkzYvAW5yXz85kPSnvacipp5vMZtsp7BAkcKX1eXWSawWRyxCS3YzJR7UW29p7FOm4q4bAro92OwtbCzXR308JOwSi129EyoYCD7AzrDOoDeI-R6EuO0Mjlx9i74vXG-eTLxs9JbMuEwj8x8dl1IM_Xn70wO9oQJhdIU5).\n2.  **Launch a \"Raw to Road-Ready\" QC Documentary:** Combat fears of cheap manufacturing by highlighting the rigorous final human touchpoint. Generate short-form video and copy focusing on the final inspection and setup process at the Maryland headquarters, ensuring the guitar is perfectly tuned and \"road-ready out of the gig bag\"  [ladkorguitars.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHHGn2VswnSE8PZx3DbQTvrMavk-SZ0vMsINf7tqGZDmkI06dZAMARBoRJDs0RLL_pmmSsXKUDLdXkFD78Rge4pKsCZ9bIFKE7oQuqLLq3_W3d6B4i5Ql7WMXkxh0D0NYYdoCs8HWtNPw7u8KxyTiucCASAdoPKLe-P5bnKeipBcr29b2VglvU4ZyEzFtIbH9h5BvMrdqHfnOR2tetuQuWKecKG3dgLmw0Vg6ogUjm1VVPAbAR2).\n3.  **Adopt the \"Aesthetic of the Workhorse\" in Visuals:** Instruct visual teams and influencer partners to capture the gear in its natural, rugged habitat\u2014under hot festival lights, in cramped tour vans, or showing minor cosmetic wear  [accio.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQFzXILJK8e9oSGHSfvNYo0GzW8u0MMLFiOiOXdhFlM4mWJfvqlw0PQ7FjlFENgTGP-dY1Ea3BhNRkUnAPo3TgMoPesllgP_SUBet3sj4Wmky1qc1oOsepDm9nSCNSILThuXgdPdKTZok3pAAO8T9V1hRQ==). Avoid overly sterile, clinical, or luxury \"museum piece\" backdrops to maintain authenticity  [accio.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQFzXILJK8e9oSGHSfvNYo0GzW8u0MMLFiOiOXdhFlM4mWJfvqlw0PQ7FjlFENgTGP-dY1Ea3BhNRkUnAPo3TgMoPesllgP_SUBet3sj4Wmky1qc1oOsepDm9nSCNSILThuXgdPdKTZok3pAAO8T9V1hRQ==).\n4.  **Leverage \"Popularity Bias\" in Ad Copy:** Capitalize on the target audience's brand loyalty and reliance on social validation  [thelangstonco.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQFRKsaGUwHdm5pu58cuneuoyQ1HX46Iypfo_8wwdPwa9OVU93dmXI4Nf8xTafq1oz1aFYmF9I45dKivxemsVrDzMucTbd28_oKWbZfYUgJ8s9WNyqhu4Tsd26WEUu4LaGG2I4YC1cUZUr40dVcqSRac2vnZd394)  [utdallas.edu](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEmijmEnksvZa1BCFn-QhxXKV5wnmpMHVJQjikU_N3drqjyGgvx4KJw6iryHL-t9IQkBQm3GUCFYB3CAklZuzX-RMhEah4j35BK6EeqFUKqOJ_ZzUPbldd8PTxhuPxjX7Xjnp_NpFXBJVKVQkwM_HyhopA0Q-mCJzr2vn9ldhB-zrdQjjuCkynE1mMEdy3pwdyA1n1dp0jnBJo7). Use bold copy that explicitly highlights the guitar as the #1 best-selling model of 2024  [premierguitar.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQFAD_m2_C73QwDGaUc56zErEu7B_r-UKX4jRqXP3sDVJEBjaCFJbZIp0nAA2RFt2bTfVgTpgiNTDUjQrjc6JLjIDrzbsH5K-XscYY9KujGWksmcGB8zYja9Upau_ia1m6cqh3OlIJCwrxBvK_TC7uvdlPc=) and a \"monster guitar for the money\"  [budgetguitarist.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQFaeAiJtfNaDPJFH7h4aEgcuEzDG1YtL7CMFyl8Pq1ejTMSc0TdKVxNE4Rfk2wswETCcjHjWH7AKcSGkKkbKjRVjjttPufgEeBYgy5aUJoH9KoYUjitR4rfIlqVi3KStGWgAvO1Rfe4_AYgyOkBSnw=), proving its status as the default tool of the modern underground scene.\n5.  **Highlight the \"Festival Mix\" Cutaway:** Focus audio and visual cues on the percussive, snappy attack of the bolt-on maple neck  [americanmusical.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEUonrYK-UoIA2nmbh7AYU3Ql60dzLNaFN7iANHKdvngWVa5kKueBEjR7fhh1TOqaPd9o6PeR0XMSDMWi4V5eiRzT5DpNBPS8Gx3jtvMZCCB_QIYu4zNm5DWa99_dAwFKWvAeZUgL6jTPUg8SBJL9BydNMdBmRb27E=). Create performance content specifically demonstrating how this bright attack allows the guitar to cut through a dense, muddy summer festival mix better than traditional heavy, set-neck alternatives  [guitarworld.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEn0KlvfmCu0uY3HLBiALwpNEvu3rVsyKe_906CEef6Dt_efy_PdHxLz3ff-PnvwOhxVAvwqEUy5dGvlZPUnfkXlqr8xk8FZMygLlioVBhLr7vMY8ucuT-hBzhVRltmTcOkTaffOXDvN31NrebVvvxETQXH2n2JAHLkPjGI1npS6QUPz_AgI_kPr67hjQ==).",
+    "research_report_gcs_uri": "gs://trend-trawler-deploy-ae/2026_07_18_03_23_39ef/creative_output/research_report_with_citations.pdf",
+    "ad_copy_draft": {
+      "ad_copies": [
+        {
+          "id": 1,
+          "tone_style": "Problem/Solution",
+          "headline": "Stop hauling three guitars to one gig.",
+          "body_text": "Stop throwing your back out packing for summer music festival season. The lightweight 7.35-pound PRS SE CE 24 packs a punchy bolt-on maple neck and push-pull coil tapping to deliver every tone from humbucker growl to single-coil chime. It is the ultimate single-source solution for your heavy festival lineup.",
+          "trend_connection": "This copy addresses the literal pain point of gigging musicians traveling during the busy summer music festival season.",
+          "audience_appeal_rationale": "It directly speaks to the practical, physical demands of active gigging musicians seeking lightweight, high-utility gear on a budget.",
+          "social_caption": "Your back called\u2014it wants you to swap the multi-guitar rack for the 7.35-lb PRS SE CE 24 this summer. \ud83c\udfb8 #PRSGuitars #GiggingMusician #FestivalSeason"
+        },
+        {
+          "id": 2,
+          "tone_style": "Humorous",
+          "headline": "Unlike your outdoor set, this guitar won't fall apart in the heat.",
+          "body_text": "Is the humidity trying to kill your tuning? While your bassist is struggling with finicky vintage offsets, the PRS SE CE 24 features a rock-solid tremolo and stable bolt-on neck to survive any extreme summer music festival stage. Save the drama for your lyrics, not your gear.",
+          "trend_connection": "It jokes about the unpredictable weather conditions and high-energy atmosphere typical of the summer music festival season.",
+          "audience_appeal_rationale": "It leverages humor surrounding gig mishaps to build an authentic, relatable connection with active, young touring musicians.",
+          "social_caption": "Survives outdoor humidity, muddy vans, and three-encore sets. Your bass player can't say the same. \ud83d\ude09 #PRSSE #LiveMusic #SummerFestival"
+        },
+        {
+          "id": 3,
+          "tone_style": "Relatable/Meme-based",
+          "headline": "That feeling when you cut through the muddy mix perfectly...",
+          "body_text": "We've all heard that outdoor soundboard mix that sounds like mud. Fortunately, the snappy, percussive attack of the bolt-on maple neck on the PRS SE CE 24 slices right through the densest live sound. You will finally hear your own solos over the kick drum.",
+          "trend_connection": "It uses relatable performance struggles on large summer music festival stages with suboptimal acoustics.",
+          "audience_appeal_rationale": "Gigging musicians instantly recognize the dread of a bad festival mix and will appreciate a technical feature that solves it.",
+          "social_caption": "POV: The outdoor festival soundguy has your guitar buried in the mix, but your snappy bolt-on neck cuts through anyway. \ud83d\ude0e #PRS #FOH #FestivalStage"
+        },
+        {
+          "id": 4,
+          "tone_style": "Educational/Informative",
+          "headline": "Maryland inspected. Festival-ready out of the box.",
+          "body_text": "Worried about cheap factory setups? Every single PRS SE instrument undergoes a rigorous final inspection and professional setup at our Maryland headquarters before it reaches you. Unbox it, tune it, and take it straight to your headlining summer festival spot with absolute confidence.",
+          "trend_connection": "It focuses on the rapid, turn-key reliability required by bands playing sudden, high-profile summer music festival slots.",
+          "audience_appeal_rationale": "It targets younger buyers' skepticism about budget imports by highlighting hands-on Quality Control validation.",
+          "social_caption": "No tech? No problem. Every PRS SE is professionally inspected and set up at PRS HQ in Maryland before it hits your hands. \ud83d\udee0\ufe0f #BehindTheScenes #GuitarSetup"
+        },
+        {
+          "id": 5,
+          "tone_style": "Aspirational",
+          "headline": "The sound of the main stage, priced for the local venue.",
+          "body_text": "Own the exact model named the #1 best-selling PRS of 2024. The PRS SE CE 24 delivers the prestige, tone, and impeccable design of our iconic instruments at an accessible price. Elevate your performance from local basements to major summer music festival lineups.",
+          "trend_connection": "It taps into the dreams of rising artists striving to move from local gigs to big summer music festival bills.",
+          "audience_appeal_rationale": "It leverages popularity bias to prove that this budget-friendly model is a respected standard in the modern underground scene.",
+          "social_caption": "Go from local rehearsals to the summer festival stage. Tap to shop the best-selling PRS SE CE 24. \u26a1 #GearUpgrade #Guitarist"
+        },
+        {
+          "id": 6,
+          "tone_style": "Emotional/Authentic",
+          "headline": "Built for the tour van. Crafted for the song.",
+          "body_text": "We designed the PRS SE CE 24 for the late-night drives, the crowded green rooms, and the sweat of outdoor stages. Combining a solid mahogany body with 85/15 'S' pickups, this is a workhorse engineered to tell your story. It is not a museum piece\u2014it is your musical companion.",
+          "trend_connection": "It highlights the visceral, gritty touring lifestyle typical of artists during the summer music festival season.",
+          "audience_appeal_rationale": "It appeals directly to the 'utilitarian-chic' aesthetic of Gen Z and Millennial musicians who value rugged authenticity over clean luxury.",
+          "social_caption": "No museum pieces here. This is a road-ready workhorse ready for sweat, scratches, and epic festival stages. \ud83d\udda4 #MusicLifestyle #IndieRock"
+        },
+        {
+          "id": 7,
+          "tone_style": "Problem/Solution",
+          "headline": "The 'One-Guitar' touring rig is finally here.",
+          "body_text": "Carrying multiple backup instruments to an outdoor festival gig is a massive logistical nightmare. Instantly morph your sound from a thick humbucker crunch to glassy single-coil tones with a single pull of our coil-tap tone knob. Pack light and dominate your set.",
+          "trend_connection": "It focuses on travel logistics and gear constraints that peak during the summer music festival season.",
+          "audience_appeal_rationale": "It highlights sonic versatility as a direct cost-saving and space-saving strategy for touring artists.",
+          "social_caption": "Why pack three guitars when one PRS SE CE 24 covers all your tonal bases? \ud83e\uddf3\u2708\ufe0f #GuitarPlayer #TourLife #ToneChase"
+        },
+        {
+          "id": 8,
+          "tone_style": "Humorous",
+          "headline": "Because your summer festival slot is too short for a guitar change.",
+          "body_text": "You only got a 30-minute set, and 5 minutes of it cannot be spent tuning three different instruments. Go from indie-pop sparkle to alternative overdrive instantly with the ultra-versatile PRS SE CE 24. Keep the crowd jumping, keep the energy high.",
+          "trend_connection": "It plays on the notoriously short, fast-paced set times of daytime summer music festival performers.",
+          "audience_appeal_rationale": "It highlights the practical efficiency of a single, highly flexible instrument in a stressful, fast-paced live environment.",
+          "social_caption": "30-minute festival set? Zero time to waste on tuning. Stay versatile with the push-pull coil tap on the PRS SE CE 24. \u23f0 #FastGigs #LiveGuitarist"
+        },
+        {
+          "id": 9,
+          "tone_style": "Educational/Informative",
+          "headline": "The secret behind the snap: Bolt-On Neck construction.",
+          "body_text": "Why do live players love the PRS SE CE 24? The answer is our snappy bolt-on maple neck, designed for a bright, percussive attack that cuts through outdoor noise. Learn how we built the ultimate 'Democratic High Performance' guitar without breaking your budget.",
+          "trend_connection": "It explains the acoustic physics needed to play successfully during outdoor, breezy summer music festival gigs.",
+          "audience_appeal_rationale": "It targets tech-minded players who value understanding the construction details behind their instrument's projection.",
+          "social_caption": "Why the bolt-on neck? Get the snappy, instant attack you need to dominate those wide-open outdoor festival mixes. \ud83e\udeb5\ud83c\udfb6 #LuthierStuff #ToneTips"
+        },
+        {
+          "id": 10,
+          "tone_style": "Aspirational",
+          "headline": "Your music. Your crowd. Your moments.",
+          "body_text": "Make this summer music festival season the moment everyone remembers your name. Play the PRS SE CE 24 and enjoy pro-level tones, elegant aesthetics, and unmatched reliability at a fraction of the cost. The stage is waiting for you.",
+          "trend_connection": "It references the magical, high-exposure live performance moments defining the summer music festival season.",
+          "audience_appeal_rationale": "It connects emotional fulfillment and artistic breakthrough with the accessibility of a top-tier instrument.",
+          "social_caption": "This summer, write your own breakthrough story. Do it with the guitar built to withstand the journey. \ud83c\udf1f\ud83c\udfb8 #NewMusic #FestivalVibes #PRSSECE24"
+        }
+      ]
+    },
+    "ad_copy_critique": {
+      "ad_copies": [
+        {
+          "original_id": 1,
+          "tone_style": "Problem/Solution",
+          "headline": "Stop hauling three guitars to one gig.",
+          "body_text": "Stop throwing your back out packing for summer music festival season. The lightweight 7.35-pound PRS SE CE 24 packs a punchy bolt-on maple neck and push-pull coil tapping to deliver every tone from humbucker growl to single-coil chime. It is the ultimate single-source solution for your heavy festival lineup.",
+          "trend_connection": "This copy addresses the literal pain point of gigging musicians traveling during the busy summer music festival season.",
+          "audience_appeal_rationale": "It directly speaks to the practical, physical demands of active gigging musicians seeking lightweight, high-utility gear on a budget.",
+          "social_caption": "Your back called\u2014it wants you to swap the multi-guitar rack for the 7.35-lb PRS SE CE 24 this summer. \ud83c\udfb8 #PRSGuitars #GiggingMusician #FestivalSeason",
+          "call_to_action": "Lighten your load today!",
+          "detailed_performance_rationale": "This copy addresses a highly tangible physical pain point for touring artists. By pairing a relatable struggle with concrete product specs like weight and coil-tapping, it establishes immediate utility, driving high click-through rates from active gigging musicians."
+        },
+        {
+          "original_id": 2,
+          "tone_style": "Humorous",
+          "headline": "Unlike your outdoor set, this guitar won't fall apart in the heat.",
+          "body_text": "Is the humidity trying to kill your tuning? While your bassist is struggling with finicky vintage offsets, the PRS SE CE 24 features a rock-solid tremolo and stable bolt-on neck to survive any extreme summer music festival stage. Save the drama for your lyrics, not your gear.",
+          "trend_connection": "It jokes about the unpredictable weather conditions and high-energy atmosphere typical of the summer music festival season.",
+          "audience_appeal_rationale": "It leverages humor surrounding gig mishaps to build an authentic, relatable connection with active, young touring musicians.",
+          "social_caption": "Survives outdoor humidity, muddy vans, and three-encore sets. Your bass player can't say the same. \ud83d\ude09 #PRSSE #LiveMusic #SummerFestival",
+          "call_to_action": "Claim your stage-ready gear!",
+          "detailed_performance_rationale": "Humor is incredibly effective on TikTok and Instagram. This copy relies on authentic inside jokes within the band community, which drives organic engagement, comments, and shares, ultimately lowering acquisition costs."
+        },
+        {
+          "original_id": 3,
+          "tone_style": "Relatable/Meme-based",
+          "headline": "That feeling when you cut through the muddy mix perfectly...",
+          "body_text": "We've all heard that outdoor soundboard mix that sounds like mud. Fortunately, the snappy, percussive attack of the bolt-on maple neck on the PRS SE CE 24 slices right through the densest live sound. You will finally hear your own solos over the kick drum.",
+          "trend_connection": "It uses relatable performance struggles on large summer music festival stages with suboptimal acoustics.",
+          "audience_appeal_rationale": "Gigging musicians instantly recognize the dread of a bad festival mix and will appreciate a technical feature that solves it.",
+          "social_caption": "POV: The outdoor festival soundguy has your guitar buried in the mix, but your snappy bolt-on neck cuts through anyway. \ud83d\ude0e #PRS #FOH #FestivalStage",
+          "call_to_action": "Hear the difference now!",
+          "detailed_performance_rationale": "The 'POV' format and meme-style angle are perfectly optimized for short-form social feeds. It immediately captures attention by visualizing a common, frustrating scenario and offers a clear, technical reason why this product resolves it."
+        },
+        {
+          "original_id": 6,
+          "tone_style": "Emotional/Authentic",
+          "headline": "Built for the tour van. Crafted for the song.",
+          "body_text": "We designed the PRS SE CE 24 for the late-night drives, the crowded green rooms, and the sweat of outdoor stages. Combining a solid mahogany body with 85/15 'S' pickups, this is a workhorse engineered to tell your story. It is not a museum piece\u2014it is your musical companion.",
+          "trend_connection": "It highlights the visceral, gritty touring lifestyle typical of artists during the summer music festival season.",
+          "audience_appeal_rationale": "It appeals directly to the 'utilitarian-chic' aesthetic of Gen Z and Millennial musicians who value rugged authenticity over clean luxury.",
+          "social_caption": "No museum pieces here. This is a road-ready workhorse ready for sweat, scratches, and epic festival stages. \ud83d\udda4 #MusicLifestyle #IndieRock",
+          "call_to_action": "Start your journey today!",
+          "detailed_performance_rationale": "This copy builds strong emotional resonance by romanticizing the realities of indie touring. By framing the instrument as an accessible, durable workhorse rather than an untouchable luxury, it lowers the barrier to entry for younger buyers."
+        }
+      ]
+    },
+    "visual_direction": "### Visual Direction Brief: \"Democratic High Performance\"\n\n#### 1. Mood & Tone\nThe campaign\u2019s visual identity is **raw, high-energy, and sweat-soaked**. It rejects sterile, high-end studio photography in favor of the visceral, chaotic reality of the summer festival circuit. The imagery should evoke the physical relief of lightweight gear, the gritty romance of the touring lifestyle, and the high-contrast adrenaline of live performance. It should feel authentic, lived-in, and immediate\u2014less \"luxury catalog,\" more \"backstage pass.\"\n\n#### 2. Colour Palette\n*   **Stage-Light Amber (Dominant):** A warm, high-intensity gold/orange representing hot outdoor stages, stage lights, and late-afternoon festival sets.\n*   **Asphalt Black (Supporting):** A deep, textured charcoal/black representing road cases, gaffer tape, and dark club venues.\n*   **Satin Cherry Red (Accent):** A bold, punchy red that highlights the guitar\u2019s finish and adds youthful, high-contrast energy.\n*   **Gaffer Teal (Minor Accent):** A cool, synthetic teal blue reminiscent of stage markings and neon festival wristbands.\n\n#### 3. Recurring Visual Motifs\n*   **The Single-Bag Escape:** A singular, sleek hybrid gig bag slung over a shoulder, contrasted against a pile of heavy, abandoned multi-guitar flight cases.\n*   **Sweat & Humidity:** Condensation on gear, stage fog, haze, and high-energy motion blur to emphasize the physical reality of outdoor summer sets.\n*   **The \"Cutaway\" Soundwave:** Graphic, sharp vector lines or light trails slicing through a dusty, textured background to visually represent a snappy tone cutting through a \"muddy\" mix.\n*   **The Maryland QA Tag:** A subtle, physical inspection tag hanging from the headstock, reinforcing the \"road-ready out of the box\" promise.\n\n#### 4. Brand Visual Cues\n*   **The PRS Silhouette:** Focus framing on the iconic PRS double-cutaway body shape and the trademark bird fretboard inlays, capturing them under dynamic, directional lighting.\n*   **The Satin Finish:** Visual treatments must highlight the tactile, non-glossy, rugged satin finish of the SE CE 24, emphasizing its scratch-resistant, utilitarian nature.\n*   **In-Image Branding:** Minimalist, bold typography utilizing clean, modern sans-serif fonts for copy overlays, avoiding overly ornate scripts to keep the \"utilitarian-chic\" aesthetic intact.\n\n#### 5. Recommended Style Families\nTo match the diverse ad-copy tones, we will avoid uniform photorealism and use three distinct style families:\n*   **The Gritty Gig-Photo (For Emotional/Authentic copy):** High-contrast, analog-style photography with film grain, motion blur, and dramatic stage lighting. Captures the guitar in cramped green rooms, tour vans, or mid-set under festival lights.\n*   **The \"POV\" Meme/Sticker Style (For Relatable/Meme-based and Humorous copy):** A collage-style aesthetic combining raw smartphone-style photography with bold, hand-drawn vector elements, \"FOH\" (Front of House) soundboard stickers, and bold text overlays.\n*   **Vector Graphic/Split-Screen Minimalist (For Problem/Solution copy):** A clean, high-impact split-screen style. One side features a heavy, red-crossed \"X\" over a cluttered pile of gear; the other features a single, highlighted, lightweight PRS guitar glowing in a clean, high-contrast spotlight.",
+    "visual_draft": {
+      "visual_concepts": [
+        {
+          "ad_copy_id": 1,
+          "concept_name": "The Single-Bag Escape Split-Screen",
+          "trend_visual_link": "The visual represents the chaotic physical strain of transporting massive amounts of gear on foot to crowded summer music festival stages.",
+          "concept_summary": "A high-contrast split-screen demonstrating problem and solution. On the left side, a frustrated guitarist is burdened by several heavy black flight cases, while the right side shows a guitarist smiling, carrying just one sleek hybrid gig bag and a lightweight cherry red PRS guitar. This visually reinforces the message of 'Stop hauling three guitars to one gig' in a highly direct way.",
+          "visual_style": "Vector Graphic/Split-Screen Minimalist",
+          "aspect_ratio": "9:16",
+          "image_generation_prompt": "A vector graphic split-screen illustration for a social-media ad targeting active touring musicians. On the left half, styled in dull charcoal asphalt-black, a musician struggles under a massive red 'X' to drag a heavy, cluttered pile of metal-bound multi-guitar flight cases. On the right half, bathed in warm stage-light amber, a smiling young guitarist effortlessly carries a single sleek black hybrid gig bag over their shoulder while holding a Satin Cherry Red PRS SE CE 24 electric guitar highlighted in a clean spotlight. The illustration features clean, flat minimalist vector art with high-contrast lines, generous negative space at the top, and bold white sans-serif text overlays."
+        },
+        {
+          "ad_copy_id": 2,
+          "concept_name": "Stage Survival vs Vintage Fail",
+          "trend_visual_link": "The background scene is a sweaty, smoke-filled, humid outdoor summer music festival stage under intense late-afternoon sun.",
+          "concept_summary": "A playful, slightly chaotic scene illustrating a direct contrast between gear failure and road-ready stability on an outdoor festival stage. While the background player struggles with an out-of-tune guitar in the humid atmosphere, the main subject's PRS guitar remains perfectly ready.",
+          "visual_style": "comic panel",
+          "aspect_ratio": "1:1",
+          "image_generation_prompt": "A vibrant, humorous comic book panel depicting a high-energy summer music festival stage filled with sweat, haze, and hot stage-light amber glare. In the background, a bassist comic-character sweatily panics over a warped, out-of-tune vintage offset bass. In the foreground focal point, a close-up panel highlights the sleek, stable neck joint and signature bird-inlay headstock of a Satin Cherry Red PRS SE CE 24 guitar with a classic Maryland inspection tag hanging from its headstock. Bold black comic ink outlines, halftone dot textures, and a classic yellow comic speech bubble that reads 'In Tune and Ready!' in handwritten sans-serif comic font."
+        },
+        {
+          "ad_copy_id": 3,
+          "concept_name": "The Soundwave Cutaway POV",
+          "trend_visual_link": "The aesthetic mirrors the visual clutter of outdoor front-of-house soundboards and chaotic festival credential badges.",
+          "concept_summary": "A highly relatable 'POV' layout designed to look like a smartphone snap layered with music stickers, depicting how a clean bolt-on neck cuts through a terrible muddy mix. Sharp vector graphic light trails literally cut through a dusty, dark, charcoal-haze background to represent sound clarity.",
+          "visual_style": "Meme aesthetic",
+          "aspect_ratio": "9:16",
+          "image_generation_prompt": "A raw, meme-style collage advertisement layout for Instagram. The main background image is a slightly blurry, dark smartphone-style photo of an outdoor festival stage and an overloaded soundboard, covered in stage condensation and fake fluorescent festival gaffer teal wristband stickers. Cutting right across the middle of the frame are sharp, neon Satin Cherry Red vector graphic soundwave light trails slicing through the dark mud of the scene. Superimposed top and bottom is a bold white Impact font caption with a black outline: 'POV: THE MIX IS A MUDDY MESS BUT THE BOLT-ON MAPLE ATTACK SAID ABSOLUTELY NOT'."
+        },
+        {
+          "ad_copy_id": 6,
+          "concept_name": "The Tour Van Companion",
+          "trend_visual_link": "The gritty atmosphere of long summer tour van rides during busy, high-energy festival road trips is brought to life.",
+          "concept_summary": "An authentic, intimate shot that positions the guitar as a real, rugged companion rather than a delicate luxury item. Nestled inside a worn touring van, the physical details of the wood finish are captured with organic grit.",
+          "visual_style": "candid 35mm film photo",
+          "aspect_ratio": "3:4",
+          "image_generation_prompt": "A candid 35mm film photo of a Satin Cherry Red PRS SE CE 24 guitar resting comfortably inside the cozy, worn interior of a musician's touring van. Intense stage-light amber beams of late-afternoon summer sun filter through the dusty window, catching the non-glossy, rugged texture of the mahogany body satin finish and highlighting the iconic bird fretboard inlays. Around the guitar lie a single simple gig bag, old energy drink cans, and crumpled setlists. Soft vintage color grade, warm lens flare, natural heavy film grain, with shallow depth of field focusing sharply on the body texture."
+        }
+      ]
+    },
+    "visual_concept_critique": {
+      "visual_concepts": [
+        {
+          "ad_copy_id": 1,
+          "concept_name": "The Single-Bag Escape Split-Screen",
+          "trend_visual_link": "The visual represents the chaotic physical strain of transporting massive amounts of gear on foot to crowded summer music festival stages.",
+          "concept_summary": "A high-contrast split-screen demonstrating problem and solution. On the left side, a frustrated guitarist is burdened by several heavy black flight cases, while the right side shows a guitarist smiling, carrying just one sleek hybrid gig bag and a lightweight cherry red PRS guitar. This visually reinforces the message of 'Stop hauling three guitars to one gig' in a highly direct way.",
+          "visual_style": "2D flat / vector cartoon",
+          "aspect_ratio": "9:16",
+          "image_generation_prompt": "A flat 2D vector illustration split-screen social-media advertisement for touring musicians. On the left half, styled in a dull charcoal gray, a frustrated guitarist struggles under a heavy, cluttered pile of metal-bound multi-guitar flight cases. On the right half, bathed in warm stage-light amber, a smiling young guitarist effortlessly carries a single sleek black hybrid gig bag over their shoulder while holding a Satin Cherry Red PRS SE CE 24 electric guitar. Clean, flat minimalist vector art, bold outlines, simple geometric shapes, limited color palette, with generous negative space at the top for ad text.",
+          "critique_summary": "Refined the style to '2D flat / vector cartoon' for maximum clarity. Removed complex, competing visual elements like the red 'X' and spotlight to maintain a clean, flat minimalist aesthetic."
+        },
+        {
+          "ad_copy_id": 2,
+          "concept_name": "Stage Survival vs Vintage Fail",
+          "trend_visual_link": "The background scene is a sweaty, smoke-filled, humid outdoor summer music festival stage under intense late-afternoon sun.",
+          "concept_summary": "A playful, slightly chaotic scene illustrating a direct contrast between gear failure and road-ready stability on an outdoor festival stage. While the background player struggles with an out-of-tune guitar in the humid atmosphere, the main subject's PRS guitar remains perfectly ready.",
+          "visual_style": "comic panel",
+          "aspect_ratio": "1:1",
+          "image_generation_prompt": "A comic-book panel of a high-energy summer music festival stage filled with stage haze and hot amber light. In the background, a sweat-drenched bassist comic character panics over an out-of-tune vintage bass. In the foreground focal point, a close-up highlights the sleek, stable neck joint and signature bird-inlay fretboard of a Satin Cherry Red PRS SE CE 24 guitar. Bold black ink outlines, halftone shading, and a classic yellow comic speech bubble that reads 'In Tune and Ready!' in handwritten sans-serif comic font.",
+          "critique_summary": "Tightened the comic panel description, centering the composition around the bird-inlay fretboard and the bold speech bubble, while preserving the halftone shading style."
+        },
+        {
+          "ad_copy_id": 3,
+          "concept_name": "The Soundwave Cutaway POV",
+          "trend_visual_link": "The aesthetic mirrors the visual clutter of outdoor front-of-house soundboards and chaotic festival credential badges.",
+          "concept_summary": "A highly relatable 'POV' layout designed to look like a smartphone snap layered with music stickers, depicting how a clean bolt-on neck cuts through a terrible muddy mix. Sharp vector graphic light trails literally cut through a dusty, dark, charcoal-haze background to represent sound clarity.",
+          "visual_style": "Meme aesthetic",
+          "aspect_ratio": "9:16",
+          "image_generation_prompt": "A raw, meme-style collage advertisement layout for Instagram. The main background image is a slightly blurry, dark smartphone-style photo of an outdoor festival stage and an overloaded soundboard, covered in stage condensation and fake fluorescent festival gaffer teal wristband stickers. Cutting right across the middle of the frame are sharp, neon Satin Cherry Red vector graphic soundwave light trails slicing through the dark mud of the scene. Superimposed top and bottom is a bold white Impact font caption with a black outline: 'POV: THE MIX IS A MUDDY MESS BUT THE BOLT-ON MAPLE ATTACK SAID ABSOLUTELY NOT'.",
+          "critique_summary": "Maintained the highly effective raw meme aesthetic and verified that the in-image text is correctly formatted with the required semantic style cues."
+        },
+        {
+          "ad_copy_id": 6,
+          "concept_name": "The Tour Van Companion",
+          "trend_visual_link": "The gritty atmosphere of long summer tour van rides during busy, high-energy festival road trips is brought to life.",
+          "concept_summary": "An authentic, intimate shot that positions the guitar as a real, rugged companion rather than a delicate luxury item. Nestled inside a worn touring van, the physical details of the wood finish are captured with organic grit.",
+          "visual_style": "candid 35mm film photo",
+          "aspect_ratio": "3:4",
+          "image_generation_prompt": "A candid 35mm film photo of a Satin Cherry Red PRS SE CE 24 guitar resting comfortably inside the cozy, worn interior of a musician's touring van. Intense stage-light amber beams of late-afternoon summer sun filter through the dusty window, catching the non-glossy, rugged texture of the mahogany body satin finish and highlighting the iconic bird fretboard inlays. Around the guitar lie a single simple gig bag, old energy drink cans, and crumpled setlists. Soft vintage color grade, warm lens flare, natural heavy film grain, with shallow depth of field focusing sharply on the body texture.",
+          "critique_summary": "Preserved the detailed, highly evocative 35mm film photo style, ensuring the focus remains on the tactile quality of the PRS mahogany wood finish."
+        }
+      ]
+    },
+    "final_visual_concepts": {
+      "visual_concepts": [
+        {
+          "ad_copy_id": 1,
+          "concept_name": "The Single-Bag Escape Split-Screen",
+          "trend": "Summer Music Festivals",
+          "trend_reference": "The visual represents the chaotic physical strain of transporting massive amounts of gear on foot to crowded summer music festival stages.",
+          "markets_product": "Highlights the ultra-lightweight 7.35-pound PRS SE CE 24 as the ultimate single-guitar alternative to packing multiple heavy flight cases.",
+          "audience_appeal": "Appeals directly to the practical, physical demands of active gigging musicians seeking lightweight, high-utility gear on a budget.",
+          "selection_rationale": "This concept provides excellent visual-style diversity with its bold, clean 2D vector cartoon aesthetic, perfectly contrasting the physical burden of gigging with the effortless utility of the PRS SE CE 24.",
+          "headline": "Stop hauling three guitars to one gig.",
+          "social_caption": "Your back called\u2014it wants you to swap the multi-guitar rack for the 7.35-lb PRS SE CE 24 this summer. \ud83c\udfb8 #PRSGuitars #GiggingMusician #FestivalSeason",
+          "call_to_action": "Lighten your load today!",
+          "concept_summary": "A high-contrast split-screen demonstrating problem and solution. On the left side, a frustrated guitarist is burdened by several heavy black flight cases, while the right side shows a guitarist smiling, carrying just one sleek hybrid gig bag and a lightweight cherry red PRS guitar. This visually reinforces the message of 'Stop hauling three guitars to one gig' in a highly direct way.",
+          "visual_style": "2D flat / vector cartoon",
+          "aspect_ratio": "9:16",
+          "image_generation_prompt": "A flat 2D vector illustration split-screen social-media advertisement for touring musicians. On the left half, styled in a dull charcoal gray, a frustrated guitarist struggles under a heavy, cluttered pile of metal-bound multi-guitar flight cases. On the right half, bathed in warm stage-light amber, a smiling young guitarist effortlessly carries a single sleek black hybrid gig bag over their shoulder while holding a Satin Cherry Red PRS SE CE 24 electric guitar. Clean, flat minimalist vector art, bold outlines, simple geometric shapes, limited color palette, with generous negative space at the top for ad text."
+        },
+        {
+          "ad_copy_id": 2,
+          "concept_name": "Stage Survival vs Vintage Fail",
+          "trend": "Summer Music Festivals",
+          "trend_reference": "The background scene is a sweaty, smoke-filled, humid outdoor summer music festival stage under intense late-afternoon sun.",
+          "markets_product": "Showcases the extreme tuning stability and road-ready construction of the bolt-on neck and tremolo on the PRS SE CE 24.",
+          "audience_appeal": "Leverages humor surrounding live-performance mishaps to build an authentic, relatable connection with active, young touring musicians.",
+          "selection_rationale": "The comic panel style with halftone shading brings an engaging, lighthearted aesthetic that stands out on social feeds while delivering a high-impact product benefit.",
+          "headline": "Unlike your outdoor set, this guitar won't fall apart in the heat.",
+          "social_caption": "Survives outdoor humidity, muddy vans, and three-encore sets. Your bass player can't say the same. \ud83d\ude09 #PRSSE #LiveMusic #SummerFestival",
+          "call_to_action": "Claim your stage-ready gear!",
+          "concept_summary": "A playful, slightly chaotic scene illustrating a direct contrast between gear failure and road-ready stability on an outdoor festival stage. While the background player struggles with an out-of-tune guitar in the humid atmosphere, the main subject's PRS guitar remains perfectly ready.",
+          "visual_style": "comic panel",
+          "aspect_ratio": "1:1",
+          "image_generation_prompt": "A comic-book panel of a high-energy summer music festival stage filled with stage haze and hot amber light. In the background, a sweat-drenched bassist comic character panics over an out-of-tune vintage bass. In the foreground focal point, a close-up highlights the sleek, stable neck joint and signature bird-inlay fretboard of a Satin Cherry Red PRS SE CE 24 guitar. Bold black ink outlines, halftone shading, and a classic yellow comic speech bubble that reads 'In Tune and Ready!' in handwritten sans-serif comic font."
+        },
+        {
+          "ad_copy_id": 3,
+          "concept_name": "The Soundwave Cutaway POV",
+          "trend": "Summer Music Festivals",
+          "trend_reference": "The aesthetic mirrors the visual clutter of outdoor front-of-house soundboards and chaotic festival credential badges.",
+          "markets_product": "Visually represents how the percussive, snappy attack of the PRS bolt-on maple neck slices through muddy live mixes.",
+          "audience_appeal": "Gigging musicians instantly recognize the dread of a bad festival mix and will appreciate a technical feature that solves it.",
+          "selection_rationale": "The raw meme aesthetic is highly optimized for short-form social feeds, capturing fast-scrolling users with a highly relatable scenario and bold, native styling.",
+          "headline": "That feeling when you cut through the muddy mix perfectly...",
+          "social_caption": "POV: The outdoor festival soundguy has your guitar buried in the mix, but your snappy bolt-on neck cuts through anyway. \ud83d\ude0e #PRS #FOH #FestivalStage",
+          "call_to_action": "Hear the difference now!",
+          "concept_summary": "A highly relatable 'POV' layout designed to look like a smartphone snap layered with music stickers, depicting how a clean bolt-on neck cuts through a terrible muddy mix. Sharp vector graphic light trails literally cut through a dusty, dark, charcoal-haze background to represent sound clarity.",
+          "visual_style": "Meme aesthetic",
+          "aspect_ratio": "9:16",
+          "image_generation_prompt": "A raw, meme-style collage advertisement layout for Instagram. The main background image is a slightly blurry, dark smartphone-style photo of an outdoor festival stage and an overloaded soundboard, covered in stage condensation and fake fluorescent festival gaffer teal wristband stickers. Cutting right across the middle of the frame are sharp, neon Satin Cherry Red vector graphic soundwave light trails slicing through the dark mud of the scene. Superimposed top and bottom is a bold white Impact font caption with a black outline: 'POV: THE MIX IS A MUDDY MESS BUT THE BOLT-ON MAPLE ATTACK SAID ABSOLUTELY NOT'."
+        },
+        {
+          "ad_copy_id": 6,
+          "concept_name": "The Tour Van Companion",
+          "trend": "Summer Music Festivals",
+          "trend_reference": "The gritty atmosphere of long summer tour van rides during busy, high-energy festival road trips is brought to life.",
+          "markets_product": "Highlights the rugged, tactile, and non-glossy satin finish of the mahogany body as an authentic road-ready companion.",
+          "audience_appeal": "Appeals directly to the 'utilitarian-chic' aesthetic of Gen Z and Millennial musicians who value rugged authenticity over clean luxury.",
+          "selection_rationale": "The candid 35mm film photo aesthetic establishes an emotional, nostalgic connection with touring artists, showcasing the physical beauty of the wood in a realistic, non-commercial way.",
+          "headline": "Built for the tour van. Crafted for the song.",
+          "social_caption": "No museum pieces here. This is a road-ready workhorse ready for sweat, scratches, and epic festival stages. \ud83d\udda4 #MusicLifestyle #IndieRock",
+          "call_to_action": "Start your journey today!",
+          "concept_summary": "An authentic, intimate shot that positions the guitar as a real, rugged companion rather than a delicate luxury item. Nestled inside a worn touring van, the physical details of the wood finish are captured with organic grit.",
+          "visual_style": "candid 35mm film photo",
+          "aspect_ratio": "3:4",
+          "image_generation_prompt": "A candid 35mm film photo of a Satin Cherry Red PRS SE CE 24 guitar resting comfortably inside the cozy, worn interior of a musician's touring van. Intense stage-light amber beams of late-afternoon summer sun filter through the dusty window, catching the non-glossy, rugged texture of the mahogany body satin finish and highlighting the iconic bird fretboard inlays. Around the guitar lie a single simple gig bag, old energy drink cans, and crumpled setlists. Soft vintage color grade, warm lens flare, natural heavy film grain, with shallow depth of field focusing sharply on the body texture."
+        }
+      ]
+    },
+    "_images_generated": true,
+    "_generated_artifact_keys": [
+      "The_SingleBag_Escape_SplitScreen.png",
+      "Stage_Survival_vs_Vintage_Fail.png",
+      "The_Soundwave_Cutaway_POV.png",
+      "The_Tour_Van_Companion.png"
+    ],
+    "creative_evaluation_report": {
+      "brand": "PRS Guitars",
+      "target_product": "PRS SE CE 24 electric guitar",
+      "target_search_trend": "summer music festival season",
+      "ad_copy_evaluations": [
+        {
+          "original_id": 1,
+          "headline": "Stop hauling three guitars to one gig.",
+          "tone_style": "Problem/Solution",
+          "score": {
+            "overall_score": 0.817,
+            "passed": true,
+            "verdicts": [
+              {
+                "dimension": "strategic_alignment",
+                "score": 9,
+                "verdict": "pass",
+                "rationale": "Effectively highlights the wide tonal range and bolt-on neck, though it slightly misses the accessible price point."
+              },
+              {
+                "dimension": "trend_authenticity",
+                "score": 8,
+                "verdict": "pass",
+                "rationale": "Tying the summer festival season to the physical toll of hauling gear is a clever, natural connection for gigging musicians."
+              },
+              {
+                "dimension": "platform_viability",
+                "score": 8,
+                "verdict": "pass",
+                "rationale": "The punchy caption and relatable hook are well-suited for Instagram, though the body text is slightly dense for TikTok."
+              },
+              {
+                "dimension": "copy_quality",
+                "score": 9,
+                "verdict": "pass",
+                "rationale": "The headline is highly compelling, and the body text persuasively translates technical specs into practical benefits."
+              },
+              {
+                "dimension": "audience_fit",
+                "score": 8,
+                "verdict": "pass",
+                "rationale": "Speaks directly to the pain points of active gigging musicians, serving as an aspirational hook for intermediate players."
+              },
+              {
+                "dimension": "call_to_action_strength",
+                "score": 7,
+                "verdict": "pass",
+                "rationale": "The phrase Lighten your load today is thematic and clever, but could benefit from a more direct shopping directive."
+              }
+            ],
+            "strengths": [
+              "Strong, relatable hook addressing a specific musician pain point.",
+              "Excellent integration of product specs as practical solutions to real-world problems."
+            ],
+            "improvements": [
+              "Explicitly mention the accessible price to better target intermediate players on a budget.",
+              "Add a more direct action verb to the CTA, such as Shop now or Discover the SE CE 24."
+            ]
+          }
+        },
+        {
+          "original_id": 1,
+          "headline": "Unlike your outdoor set, this guitar won't fall apart in the heat.",
+          "tone_style": "Humorous",
+          "score": {
+            "overall_score": 0.867,
+            "passed": true,
+            "verdicts": [
+              {
+                "dimension": "strategic_alignment",
+                "score": 8,
+                "verdict": "pass",
+                "rationale": "Successfully highlights the bolt-on neck and build quality, though it misses the accessible price point."
+              },
+              {
+                "dimension": "trend_authenticity",
+                "score": 9,
+                "verdict": "pass",
+                "rationale": "The summer festival trend is naturally woven into the relatable struggles of playing outdoor gigs in the heat."
+              },
+              {
+                "dimension": "platform_viability",
+                "score": 9,
+                "verdict": "pass",
+                "rationale": "The punchy, humorous tone and concise caption are perfectly optimized for fast-scrolling Instagram and TikTok feeds."
+              },
+              {
+                "dimension": "copy_quality",
+                "score": 9,
+                "verdict": "pass",
+                "rationale": "The headline is instantly engaging, and the body copy is witty, polished, and highly persuasive."
+              },
+              {
+                "dimension": "audience_fit",
+                "score": 10,
+                "verdict": "pass",
+                "rationale": "The inside jokes about bassists and gigging mishaps perfectly match the communication style of young, active musicians."
+              },
+              {
+                "dimension": "call_to_action_strength",
+                "score": 7,
+                "verdict": "pass",
+                "rationale": "The CTA creates some urgency, but the word claim can confusingly imply a free giveaway rather than a purchase."
+              }
+            ],
+            "strengths": [
+              "Excellent use of musician-specific humor and inside jokes to build instant rapport.",
+              "Strong, natural integration of the summer festival trend through the lens of outdoor gigging."
+            ],
+            "improvements": [
+              "Incorporate a mention of the accessible price point to fully hit all key selling points.",
+              "Change the CTA verb from claim to something more purchase-oriented like shop or get to avoid giveaway confusion."
+            ]
+          }
+        },
+        {
+          "original_id": 1,
+          "headline": "That feeling when you cut through the muddy mix perfectly...",
+          "tone_style": "Relatable/Meme-based",
+          "score": {
+            "overall_score": 0.85,
+            "passed": true,
+            "verdicts": [
+              {
+                "dimension": "strategic_alignment",
+                "score": 9,
+                "verdict": "pass",
+                "rationale": "The copy effectively translates the bolt-on maple neck KSP into a tangible benefit for musicians. While it omits the accessible price point, it strongly aligns with the product's performance value."
+              },
+              {
+                "dimension": "trend_authenticity",
+                "score": 8,
+                "verdict": "pass",
+                "rationale": "Tying the summer festival trend to the relatable struggle of bad outdoor live mixes is a clever, authentic angle for gigging musicians."
+              },
+              {
+                "dimension": "platform_viability",
+                "score": 9,
+                "verdict": "pass",
+                "rationale": "The use of 'POV' and 'That feeling when' formats makes this highly native and engaging for fast-scrolling feeds like TikTok and Instagram Reels."
+              },
+              {
+                "dimension": "copy_quality",
+                "score": 8,
+                "verdict": "pass",
+                "rationale": "The writing is punchy, grammatically sound, and uses vivid descriptive language like 'snappy, percussive attack' to make its point."
+              },
+              {
+                "dimension": "audience_fit",
+                "score": 10,
+                "verdict": "pass",
+                "rationale": "Using industry jargon like 'FOH' and 'muddy mix' demonstrates a deep understanding of the target audience's specific pain points and experiences."
+              },
+              {
+                "dimension": "call_to_action_strength",
+                "score": 7,
+                "verdict": "pass",
+                "rationale": "The CTA is action-oriented but slightly generic. It could be improved by directly referencing the guitar or a specific purchasing next step."
+              }
+            ],
+            "strengths": [
+              "Excellent use of musician-specific jargon (FOH, muddy mix) that builds instant credibility with the target audience.",
+              "Strong native social media formatting (POV, TFW) that fits perfectly on TikTok and Instagram Reels.",
+              "Successfully translates a highly technical feature (bolt-on maple neck) into a practical, emotional benefit."
+            ],
+            "improvements": [
+              "Enhance the CTA to be more specific to the PRS SE CE 24 rather than a generic 'Hear the difference now!'.",
+              "Briefly weave in the 'accessible price' KSP to fully hit all strategic campaign points."
+            ]
+          }
+        },
+        {
+          "original_id": 1,
+          "headline": "Built for the tour van. Crafted for the song.",
+          "tone_style": "Emotional/Authentic",
+          "score": {
+            "overall_score": 0.783,
+            "passed": true,
+            "verdicts": [
+              {
+                "dimension": "strategic_alignment",
+                "score": 7,
+                "verdict": "pass",
+                "rationale": "Captures the essence of the product as a reliable workhorse, though it misses explicitly mentioning the bolt-on maple neck and accessible price point."
+              },
+              {
+                "dimension": "trend_authenticity",
+                "score": 9,
+                "verdict": "pass",
+                "rationale": "The connection to summer festivals feels highly authentic and natural, perfectly capturing the gritty, visceral reality of gigging."
+              },
+              {
+                "dimension": "platform_viability",
+                "score": 8,
+                "verdict": "pass",
+                "rationale": "The copy is punchy and well-suited for Instagram, with a strong, scroll-stopping caption and relevant hashtags."
+              },
+              {
+                "dimension": "copy_quality",
+                "score": 9,
+                "verdict": "pass",
+                "rationale": "The headline is highly compelling and memorable, while the body text is beautifully written, concise, and persuasive."
+              },
+              {
+                "dimension": "audience_fit",
+                "score": 9,
+                "verdict": "pass",
+                "rationale": "Resonates deeply with Gen Z and Millennial musicians by romanticizing the indie touring lifestyle and valuing rugged authenticity."
+              },
+              {
+                "dimension": "call_to_action_strength",
+                "score": 5,
+                "verdict": "fail",
+                "rationale": "The CTA 'Start your journey today!' is overly generic and lacks urgency; it should be more specific to the product or the festival season."
+              }
+            ],
+            "strengths": [
+              "Highly emotional and authentic storytelling that resonates with gigging musicians.",
+              "Excellent, memorable headline that immediately grabs attention.",
+              "Strong, natural integration of the summer music festival season trend."
+            ],
+            "improvements": [
+              "Revise the CTA to be more specific and action-oriented, such as 'Gear up for festival season' or 'Find your SE CE 24'.",
+              "Weave in a subtle mention of the accessible price point to further emphasize the 'not a museum piece' angle.",
+              "Briefly highlight the bolt-on maple neck to fully cover the key selling points."
+            ]
+          }
+        }
+      ],
+      "visual_concept_evaluations": [
+        {
+          "ad_copy_id": 1,
+          "concept_name": "The Single-Bag Escape Split-Screen",
+          "score": {
+            "overall_score": 0.733,
+            "passed": true,
+            "verdicts": [
+              {
+                "dimension": "trend_visual_connection",
+                "score": 6,
+                "verdict": "fail",
+                "rationale": "While highly relevant to gigging, the visual prompt lacks specific elements tying it to the summer music festival season trend, focusing more on general touring."
+              },
+              {
+                "dimension": "brand_product_representation",
+                "score": 7,
+                "verdict": "pass",
+                "rationale": "The prompt explicitly names the guitar model and color, though the 2D vector style may slightly obscure the premium build quality of the instrument."
+              },
+              {
+                "dimension": "audience_appeal",
+                "score": 8,
+                "verdict": "pass",
+                "rationale": "The relatable pain point of hauling heavy gear resonates strongly with gigging musicians, and the modern vector style fits the 18-35 demographic well."
+              },
+              {
+                "dimension": "prompt_technical_quality",
+                "score": 6,
+                "verdict": "fail",
+                "rationale": "The prompt provides good stylistic direction and composition but misses an explicit aspect ratio and falls just short of the 100-word threshold for maximum detail."
+              },
+              {
+                "dimension": "stopping_power",
+                "score": 8,
+                "verdict": "pass",
+                "rationale": "The high-contrast split-screen design and relatable emotional shift from frustration to joy create strong visual impact for social media feeds."
+              },
+              {
+                "dimension": "concept_coherence",
+                "score": 9,
+                "verdict": "pass",
+                "rationale": "The visual perfectly mirrors the headline and caption, creating a highly unified and easily digestible problem-solution narrative."
+              }
+            ],
+            "strengths": [
+              "Highly relatable problem-solution narrative for gigging musicians.",
+              "Excellent coherence between ad copy and visual elements.",
+              "Strong use of contrasting colors to drive the emotional message."
+            ],
+            "improvements": [
+              "Add specific summer music festival visual cues like outdoor stages or sunny skies to better align with the trend.",
+              "Expand the image prompt to include an aspect ratio and more intricate details to exceed the 100-word mark.",
+              "Ensure the 2D vector style still highlights the guitar's premium features like the bolt-on maple neck."
+            ]
+          }
+        },
+        {
+          "ad_copy_id": 1,
+          "concept_name": "Stage Survival vs Vintage Fail",
+          "score": {
+            "overall_score": 0.817,
+            "passed": true,
+            "verdicts": [
+              {
+                "dimension": "trend_visual_connection",
+                "score": 9,
+                "verdict": "pass",
+                "rationale": "The summer music festival trend is seamlessly integrated into the outdoor stage setting, making the connection visually clear and relevant."
+              },
+              {
+                "dimension": "brand_product_representation",
+                "score": 8,
+                "verdict": "pass",
+                "rationale": "Effectively highlights the bolt-on neck and signature bird inlays, though AI generation may struggle with exact model accuracy and text."
+              },
+              {
+                "dimension": "audience_appeal",
+                "score": 9,
+                "verdict": "pass",
+                "rationale": "The humor surrounding live performance mishaps and bass players perfectly targets the 18-35 aspiring guitarist demographic."
+              },
+              {
+                "dimension": "prompt_technical_quality",
+                "score": 6,
+                "verdict": "fail",
+                "rationale": "The prompt specifies style and lighting well, but fails the length requirement (under 100 words) and lacks an aspect ratio."
+              },
+              {
+                "dimension": "stopping_power",
+                "score": 8,
+                "verdict": "pass",
+                "rationale": "The bold comic-book style with halftone shading and hot amber light provides a striking contrast to typical photo-heavy social feeds."
+              },
+              {
+                "dimension": "concept_coherence",
+                "score": 9,
+                "verdict": "pass",
+                "rationale": "Headline, caption, and visual are perfectly unified around the theme of surviving a hot, humid outdoor gig."
+              }
+            ],
+            "strengths": [
+              "Highly relatable humor tailored to gigging musicians.",
+              "Distinct comic-book visual style provides excellent stopping power.",
+              "Strong, cohesive integration of the summer festival trend across copy and visuals."
+            ],
+            "improvements": [
+              "Expand the image prompt to over 100 words and include specific aspect ratio parameters.",
+              "Remove exact text generation requests from the prompt as AI often struggles with typography.",
+              "Add more specific lighting and camera angle keywords to the prompt for higher fidelity."
+            ]
+          }
+        },
+        {
+          "ad_copy_id": 1,
+          "concept_name": "The Soundwave Cutaway POV",
+          "score": {
+            "overall_score": 0.767,
+            "passed": true,
+            "verdicts": [
+              {
+                "dimension": "trend_visual_connection",
+                "score": 9,
+                "verdict": "pass",
+                "rationale": "The festival soundboard and muddy mix concept is a highly relevant and creative take on the summer music festival season for gigging musicians."
+              },
+              {
+                "dimension": "brand_product_representation",
+                "score": 5,
+                "verdict": "fail",
+                "rationale": "The prompt focuses heavily on the soundboard and light trails but fails to actually include the PRS SE CE 24 guitar in the image, making product identification difficult."
+              },
+              {
+                "dimension": "audience_appeal",
+                "score": 9,
+                "verdict": "pass",
+                "rationale": "Gigging musicians in the 18-35 demographic will heavily relate to the 'bad soundguy' trope and appreciate the meme aesthetic."
+              },
+              {
+                "dimension": "prompt_technical_quality",
+                "score": 6,
+                "verdict": "fail",
+                "rationale": "The prompt is under 100 words (95 words) and lacks specific technical details like aspect ratio and precise lighting instructions."
+              },
+              {
+                "dimension": "stopping_power",
+                "score": 8,
+                "verdict": "pass",
+                "rationale": "The native meme layout with bold Impact font and neon light trails over a dark background is highly optimized to stop social media scrollers."
+              },
+              {
+                "dimension": "concept_coherence",
+                "score": 9,
+                "verdict": "pass",
+                "rationale": "The headline, caption, CTA, and visual metaphor all perfectly align around the central theme of cutting through a muddy mix."
+              }
+            ],
+            "strengths": [
+              "Highly relatable concept for gigging musicians leveraging a common pain point.",
+              "Strong native social media meme aesthetic that effectively stops the scroll.",
+              "Excellent coherence between the visual metaphor and the ad copy."
+            ],
+            "improvements": [
+              "Include the actual PRS SE CE 24 guitar in the image prompt to ensure product visibility.",
+              "Expand the image generation prompt to include aspect ratio, specific lighting, and exceed 100 words."
+            ]
+          }
+        },
+        {
+          "ad_copy_id": 1,
+          "concept_name": "The Tour Van Companion",
+          "score": {
+            "overall_score": 0.817,
+            "passed": true,
+            "verdicts": [
+              {
+                "dimension": "trend_visual_connection",
+                "score": 8,
+                "verdict": "pass",
+                "rationale": "The tour van setting authentically captures the gritty lifestyle of summer music festivals, though it focuses more on the journey than the festival itself."
+              },
+              {
+                "dimension": "brand_product_representation",
+                "score": 8,
+                "verdict": "pass",
+                "rationale": "The prompt clearly highlights the PRS brand identifiers like the bird inlays and satin finish, though it misses an opportunity to showcase the specific bolt-on maple neck."
+              },
+              {
+                "dimension": "audience_appeal",
+                "score": 9,
+                "verdict": "pass",
+                "rationale": "The candid 35mm film aesthetic and utilitarian-chic vibe perfectly align with the authentic, anti-gloss preferences of Gen Z and Millennial musicians."
+              },
+              {
+                "dimension": "prompt_technical_quality",
+                "score": 6,
+                "verdict": "fail",
+                "rationale": "The prompt features excellent descriptive language for lighting and texture but falls short of the 100-word count and lacks technical parameters like aspect ratio."
+              },
+              {
+                "dimension": "stopping_power",
+                "score": 8,
+                "verdict": "pass",
+                "rationale": "The warm, nostalgic lighting and gritty realism create a highly atmospheric image that stands out against typical polished product photography."
+              },
+              {
+                "dimension": "concept_coherence",
+                "score": 10,
+                "verdict": "pass",
+                "rationale": "The visual, headline, and social caption work in perfect harmony to deliver a unified message of rugged, road-ready authenticity."
+              }
+            ],
+            "strengths": [
+              "Strong emotional resonance with the target audience's indie lifestyle.",
+              "Excellent thematic coherence across the headline, caption, and visual.",
+              "Distinctive, scroll-stopping 35mm film aesthetic that contrasts with polished ads."
+            ],
+            "improvements": [
+              "Expand the image prompt to over 100 words and include technical parameters like aspect ratio.",
+              "Visually incorporate the bolt-on maple neck to highlight a key product selling point."
+            ]
+          }
+        }
+      ],
+      "summary": {
+        "total_ad_copies": 4,
+        "ad_copies_passed": 4,
+        "avg_ad_copy_score": 0.829,
+        "total_visual_concepts": 4,
+        "visual_concepts_passed": 4,
+        "avg_visual_score": 0.783,
+        "overall_pass_rate": 1,
+        "weakest_dimensions": [
+          "prompt_technical_quality",
+          "call_to_action_strength",
+          "brand_product_representation"
+        ]
+      },
+      "warnings": []
+    },
+    "eval_report_gcs_uri": "gs://trend-trawler-deploy-ae/2026_07_18_03_23_39ef/creative_output/creative_eval_report.json",
+    "creative_row_uuid": "11e3f965",
+    "__run_status": "done"
+  }
+}
