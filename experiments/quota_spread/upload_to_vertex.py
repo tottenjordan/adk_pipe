@@ -9,8 +9,9 @@ tree via :func:`analyze.load_records` **after** the batches finish and creates o
 ``analyze.py`` stays stdlib-only + authoritative for the H1 slope; this is a
 dashboard/store bolt-on for sortable side-by-side comparison in the console.
 
-The record→(run_name, params, metrics) shaping is pure and unit-tested; the
-``aiplatform`` calls in :func:`upload` are the live path (integration only).
+The record→(run_name, params, metrics) and record→time-series shaping are both
+pure and unit-tested; the ``aiplatform`` calls in :func:`upload` (scalar metrics
+plus per-run phase-progression time series) are the live path (integration only).
 
 Usage (after a live DoE batch, in a cool window — no model quota is touched):
     PYTHONPATH="$PWD" GOOGLE_CLOUD_PROJECT=<proj> \\
@@ -33,6 +34,21 @@ EXPERIMENT_NAME = "quota-bucket-spread-doe"
 
 # Vertex experiment-run names: lowercase alphanumerics + hyphens only, <=128.
 _SANITIZE = re.compile(r"[^a-z0-9-]+")
+
+# Canonical sequential order of the creative_agent pipeline phases (matches the
+# AgentTool spans in parse_run._SPAN_TOOLS). The per-run time series steps by
+# this order so the SAME phase lands on the SAME x-position across every run —
+# the console overlays all runs' curves aligned by phase, and the N=5 contention
+# tail shows up as diverging ``cumulative_wall_s`` lines. The cross-cutting
+# ``orchestrator``/``runserver`` buckets are overhead, not pipeline stages, so
+# they stay out of the linear progression curve.
+_PHASE_SERIES_ORDER: tuple[str, ...] = (
+    "research",
+    "ad_copy",
+    "visual",
+    "eval",
+    "persistence",
+)
 
 
 def _run_name(record: dict) -> str:
@@ -84,6 +100,32 @@ def record_to_run(record: dict) -> tuple[str, dict, dict]:
     return _run_name(record), params, metrics
 
 
+def record_to_timeseries(record: dict) -> list[tuple[int, dict[str, float]]]:
+    """Shape one record into ordered ``(step, metrics)`` time-series points — pure.
+
+    Emits one point per pipeline phase present in the run's ``summary.phase_wall_s``,
+    stepped by that phase's CANONICAL index in :data:`_PHASE_SERIES_ORDER` (so a
+    run missing a phase keeps every other phase on its own x-position, and runs
+    stay aligned for the console overlay). Each point carries that phase's
+    ``phase_duration_s`` and the run's ``cumulative_wall_s`` through it. Returns
+    ``[]`` when no phase timing is available (e.g. an error record with no
+    summary), so the caller logs nothing for it.
+    """
+    summary = record.get("summary") or {}
+    phase_wall = summary.get("phase_wall_s") or {}
+    points: list[tuple[int, dict[str, float]]] = []
+    cumulative = 0.0
+    for step, phase in enumerate(_PHASE_SERIES_ORDER):
+        dur = phase_wall.get(phase)
+        if dur is None:
+            continue
+        cumulative += float(dur)
+        points.append(
+            (step, {"phase_duration_s": float(dur), "cumulative_wall_s": cumulative})
+        )
+    return points
+
+
 def upload(
     *,
     results_root: Path | str = RESULTS_ROOT,
@@ -98,11 +140,15 @@ def upload(
     so the shaping can be eyeballed offline before spending a GCP resource.
     """
     records = load_records(results_root)
-    shaped = [record_to_run(r) for r in records]
+    shaped = [(*record_to_run(r), record_to_timeseries(r)) for r in records]
 
     if dry_run:
-        for name, params, metrics in shaped:
-            print(f"{name}\n    params={params}\n    metrics={metrics}", flush=True)
+        for name, params, metrics, series in shaped:
+            print(
+                f"{name}\n    params={params}\n    metrics={metrics}\n"
+                f"    timeseries={len(series)} pt(s)",
+                flush=True,
+            )
         print(f"[dry-run] {len(shaped)} run(s) would be logged to '{experiment}'.")
         return len(shaped)
 
@@ -112,7 +158,7 @@ def upload(
     aiplatform.init(experiment=experiment, project=project, location=location)
     print(f"[upload] {len(shaped)} run(s) -> experiment '{experiment}' @ {location}")
     logged = 0
-    for name, params, metrics in shaped:
+    for name, params, metrics, series in shaped:
         # Idempotent: create a fresh run; if it already exists (re-upload), resume
         # it. ``resume=True`` alone 404s on the first upload (nothing to resume).
         try:
@@ -124,10 +170,19 @@ def upload(
                 aiplatform.log_params(params)
             if metrics:
                 aiplatform.log_metrics(metrics)
+            # Per-run phase-progression curve -> the experiment's backing
+            # TensorBoard, rendered as line charts in the console's Time Series tab.
+            for step, ts_metrics in series:
+                aiplatform.log_time_series_metrics(ts_metrics, step=step)
         logged += 1
-        print(f"  logged {name}: metrics={list(metrics)}", flush=True)
-    print(f"[upload] done ({logged}/{len(shaped)}). "
-          f"View at console → Vertex AI → Experiments → {experiment}")
+        print(
+            f"  logged {name}: metrics={list(metrics)} timeseries={len(series)}pt",
+            flush=True,
+        )
+    print(
+        f"[upload] done ({logged}/{len(shaped)}). "
+        f"View at console → Vertex AI → Experiments → {experiment}"
+    )
     return len(shaped)
 
 
@@ -137,7 +192,9 @@ def _parse_args(argv=None) -> argparse.Namespace:
     p.add_argument("--experiment", default=EXPERIMENT_NAME)
     p.add_argument("--project", default=None, help="defaults to $GOOGLE_CLOUD_PROJECT")
     p.add_argument("--location", default="us-central1")
-    p.add_argument("--dry-run", action="store_true", help="print shaped runs, no GCP calls")
+    p.add_argument(
+        "--dry-run", action="store_true", help="print shaped runs, no GCP calls"
+    )
     return p.parse_args(argv)
 
 

@@ -6,7 +6,10 @@ metrics) shaping, including quality harvest and Vertex-name sanitization.
 
 from __future__ import annotations
 
-from experiments.quota_spread.upload_to_vertex import record_to_run
+from experiments.quota_spread.upload_to_vertex import (
+    record_to_run,
+    record_to_timeseries,
+)
 
 
 def _report(pass_rate: float, overall: float) -> dict:
@@ -70,3 +73,53 @@ def test_record_to_run_drops_none_metrics_and_handles_error_record():
     assert params["status"] == "error"
     assert "revision" not in params  # absent -> dropped
     assert metrics == {}  # nothing measured -> no metrics logged
+
+
+def test_record_to_timeseries_orders_phases_cumulatively():
+    record = {
+        "summary": {
+            "phase_wall_s": {
+                "research": 100.0,
+                "ad_copy": 20.0,
+                "visual": 160.0,
+                "eval": 80.0,
+                "persistence": 40.0,
+                # cross-cutting overhead -> excluded from the linear curve
+                "orchestrator": 16.0,
+                "runserver": 6.0,
+            }
+        }
+    }
+    series = record_to_timeseries(record)
+
+    # One point per pipeline phase, in canonical execution order (overhead dropped).
+    assert [step for step, _ in series] == [0, 1, 2, 3, 4]
+    assert [m["phase_duration_s"] for _, m in series] == [
+        100.0,
+        20.0,
+        160.0,
+        80.0,
+        40.0,
+    ]
+    # cumulative_wall_s is the running sum through each phase.
+    assert [m["cumulative_wall_s"] for _, m in series] == [
+        100.0,
+        120.0,
+        280.0,
+        360.0,
+        400.0,
+    ]
+
+
+def test_record_to_timeseries_preserves_phase_index_and_handles_empty():
+    # Only research + eval present -> steps keep their CANONICAL phase index
+    # (0 and 3), so the same phase overlays at the same x across runs.
+    record = {"summary": {"phase_wall_s": {"research": 50.0, "eval": 30.0}}}
+    series = record_to_timeseries(record)
+    assert [step for step, _ in series] == [0, 3]
+    assert [m["phase_duration_s"] for _, m in series] == [50.0, 30.0]
+    assert [m["cumulative_wall_s"] for _, m in series] == [50.0, 80.0]
+
+    # Error record with no phase timing -> no series.
+    assert record_to_timeseries({"status": "error", "summary": {}}) == []
+    assert record_to_timeseries({}) == []

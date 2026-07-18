@@ -1,0 +1,1802 @@
+{
+  "arm": "regional_25_fixed",
+  "concurrency": 5,
+  "batch_id": "regional_25_fixed_N5_r2",
+  "revision": "trend-trawler-api-00075-cah",
+  "session_id": "6021785697952727040",
+  "status": "done",
+  "error": null,
+  "started_at_epoch": 1784347226.9304647,
+  "ended_at_epoch": 1784348219.374031,
+  "count_429": null,
+  "research_s": 70.24271416664124,
+  "visual_s": 191.50888681411743,
+  "eval_s": 214.61140394210815,
+  "total_s": 986.2091360092163,
+  "exhaustion": [],
+  "summary": {
+    "total_wall_s": 986.2091360092163,
+    "phase_wall_s": {
+      "research": 70.24271416664124,
+      "persistence": 265.1850211620331,
+      "ad_copy": 33.66445779800415,
+      "visual": 191.50888681411743,
+      "eval": 214.61140394210815,
+      "runserver": 5.301465034484863,
+      "orchestrator": 205.6951870918274
+    },
+    "model_calls": {
+      "orchestrator": 11
+    },
+    "tool_calls": {
+      "memorize": 5,
+      "combined_research_pipeline": 1,
+      "save_draft_report_artifact": 1,
+      "ad_creative_pipeline": 1,
+      "visual_production_pipeline": 1,
+      "creative_eval_agent": 1,
+      "save_eval_report_to_gcs": 1,
+      "save_creative_gallery_html": 1,
+      "write_trends_to_bq": 1,
+      "write_eval_report_to_bq": 1
+    },
+    "exhaustion": [],
+    "status": "done",
+    "event_count": 24,
+    "started_at_epoch": 1784347229.770615,
+    "extra": {}
+  },
+  "state": {
+    "_state_init": true,
+    "gcs_bucket": "gs://trend-trawler-deploy-ae",
+    "gcs_bucket_name": "trend-trawler-deploy-ae",
+    "agent_output_dir": "creative_output",
+    "gcs_folder": "2026_07_18_04_00_3659",
+    "brand": "PRS Guitars",
+    "target_product": "PRS SE CE 24 electric guitar",
+    "target_audience": "Aspiring and intermediate electric guitarists, ages 18-35",
+    "key_selling_points": "Wide tonal range, bolt-on maple neck, pro-level build quality at an accessible price",
+    "target_search_trends": "summer music festival season",
+    "reference_image_uri": "",
+    "timer_start": 1784347230.4269862,
+    "request_count": 14,
+    "initial_campaign_queries": {
+      "queries": [
+        {
+          "search_query": "\"PRS SE CE 24\" review beginner intermediate"
+        },
+        {
+          "search_query": "electric guitar buying guide aspiring players 18-35"
+        },
+        {
+          "search_query": "PRS SE CE 24 tone versatility bolt-on neck"
+        },
+        {
+          "search_query": "best electric guitars under $1500 pro build quality"
+        },
+        {
+          "search_query": "influencer marketing electric guitarists 18-35"
+        }
+      ]
+    },
+    "initial_gs_queries": {
+      "queries": [
+        {
+          "search_query": "summer 2024 music festival guitar trends for young players"
+        },
+        {
+          "search_query": "PRS SE CE 24 reviews and target audience sentiment"
+        },
+        {
+          "search_query": "why are electric guitars trending for summer 2024 music festivals"
+        },
+        {
+          "search_query": "PRS Guitars marketing strategy for young adult guitarists"
+        },
+        {
+          "search_query": "popular guitar genres and techniques in 2024 festival lineups"
+        }
+      ]
+    },
+    "campaign_web_search_raw": "### Raw Findings by Query\n\n#### Query: \"PRS SE CE 24\" review beginner intermediate\n\n*   Information specifically on the \"PRS SE CE 24\" model for beginner or intermediate players was not directly found in the provided search results.\n*   PRS (Paul Reed Smith) is generally identified as a more upscale brand known for its quality and craftsmanship.\n*   PRS SE models, in general, are listed among electric guitars available under $1500.\n\n#### Query: electric guitar buying guide aspiring players 18-35\n\n*   **Beginner-Friendly Brands & Models:**\n    *   Big brands like Fender (Squier line) and Gibson (Epiphone) offer good beginner options.\n    *   Epiphone Les Paul Junior and Squier Bullet Stratocaster are cited as good choices for beginners.\n    *   Ibanez GRG131DX is recommended as a starter for metal and hard rock.\n*   **Key Factors for Beginners:**\n    *   **Comfort:** The guitar should feel easy to hold and comfortable to play. Poorly chosen instruments can make playing a chore. Strat-style guitars are often preferred by beginners due to ergonomics and versatility.\n    *   **Size and Weight:** Most adult beginners should opt for full-size guitars with standard scale lengths (24.75\" to 25.5\"). Younger players or adults under 5'4\" with smaller hands might consider 3/4 size or short-scale (24\") options. Weights around 3.5 kg are considered good for most beginners, while 2.5 kg is light for small hands, and 4 kg can be challenging. Shorter scale length means less string tension, making fretting easier.\n    *   **Playability:** The instrument should inspire daily practice and steady progress. A good beginner guitar should stay in tune and feel smooth.\n    *   **Versatility:** It's important to choose a guitar that can handle multiple genres as musical tastes may change. HSS or SSS pickup configurations are good for beginners for this reason.\n*   **Ease of Learning (Electric vs. Acoustic):** Many beginners find electric guitars easier to play than acoustic guitars because they have softer strings, slimmer necks, require less fretting pressure, and are more comfortable for long practice sessions.\n*   **Budget:** A good beginner guitar generally falls in the $200-$800 range, while more advanced guitars are in the $800-$2,000 range.\n*   **Pickups:** Single-coil pickups are good for clean sounds. Humbucker pickups (two coils side-by-side) are recommended for playing with distortion as they reduce noise and hum.\n*   **Tremolo:** Tremolo systems are generally not recommended for beginners due to potential tuning stability issues if used incorrectly.\n*   **Brands for Beginners (beyond major affordable lines):** PRS is mentioned as an \"upscale brand known for its quality and craftsmanship,\" while Gretsch and Schecter also offer unique options.\n\n#### Query: PRS SE CE 24 tone versatility bolt-on neck\n\n*   Specific details regarding the tone, versatility, or the characteristics of the bolt-on neck for the \"PRS SE CE 24\" model were not found in the provided search results.\n*   PRS SE guitars are mentioned within the context of electric guitars under $1500.\n\n#### Query: best electric guitars under $1500 pro build quality\n\n*   **Price Range Characteristics:** The $1,000\u2013$1,500 price range signifies a significant quality improvement over guitars under $800. This range is suitable for players with 2\u20135 years of serious playing experience who want to invest in a long-term instrument.\n*   **Quality Improvements in this Range:**\n    *   **USA Manufacturing:** Options for USA-made guitars become available, offering stricter quality control and better build consistency (e.g., Fender American Professional II vs. Mexican-made Player series).\n    *   **Premium Electronics:** Custom-designed, precisely voiced pickups (e.g., V-Mod II pickups in Fender American Pro II) offer audibly clearer differences in recording contexts.\n    *   **Quality Hardware:** Premium machine heads, precisely fitted bridges, and quality nut materials contribute to tuning stability that lasts for years.\n    *   **Better Tonewoods:** More carefully selected, lighter, and more resonant tonewoods improve acoustic character and response to pickup amplification.\n*   **Recommended Guitars (under/around $1500 with pro build quality):**\n    *   **Fender American Professional II Stratocaster** ($1,599): Touted as the \"Best USA Strat\".\n    *   **Fender American Professional II Telecaster** ($1,599): Touted as the \"Best USA Tele\".\n    *   **PRS SE Silver Sky** ($949): Described as a \"John Mayer-designed Strat alternative\".\n    *   **Fender American Ultra Stratocaster / American Ultra II Stratocaster HSS:** Described as the \"Mercedes-Benz of the Fender line,\" offering noiseless pickups, a super smooth neck, top-of-the-line electronics, and adaptability. The Ultra II HSS is noted for flattering playability, faultless build, and versatile tones.\n    *   **John Page Classic Ashburn & AJ:** These models have received multiple awards and positive reviews for their custom shop features, soulful playability, killer looks, and quality for the price. John Page Guitars offers a Lifetime Performance Guarantee\u2122 covering mechanical, electrical, and structural failures under normal use.\n    *   **PRS SE:** Listed as a brand with models available under $1500.\n*   **Other Brands with Guitars Under $1500:** Epiphone, Sire, Ibanez, Charvel, ESP LTD, Fender, Gretsch, Kramer, Legator, Jackson, Yamaha, Pacifica, EVH, Steinberger are brands that offer electric guitars in this price range.\n\n#### Query: influencer marketing electric guitarists 18-35\n\n*   **Influencer Marketing Concept:** In the guitar market, influencer marketing operates similarly to other industries (e.g., skincare), where influencers implicitly convey, \"If you want to sound like me, buy my guitar\".\n*   **Platforms:** Social media platforms like YouTube, Instagram, and TikTok provide significant access to musicians, teachers, and \"info-tainers\" who can influence purchasing decisions.\n*   **Historical Context:** The influence of musicians on gear choices is not new (e.g., Dick Dale and the Fender Stratocaster, Gibson Les Paul in 70s rock).\n*   **\"Aspirational\" Guitar Players:** These are social media influencers who post short playing clips and often endorse guitar companies, allowing consumers to pick up on market trends.\n*   **Target Audience Insights:** Influencers can make or break brands by exposing their products to a wider audience.\n*   **Examples of Electric Guitar Influencers (relevant to 18-35 age group):**\n    *   **Seyran Khalatyan:** Guitarist and content creator with over 1 million TikTok followers and 180K+ Instagram followers. Creates high-energy electric guitar content blending music, trends, and visuals. His followers are \"mainly young music lovers, guitar enthusiasts, and creatives\".\n    *   **Lester Mitchell:** A full-time YouTuber and TikTok guitar influencer who creates engaging reviews, covers, and original compositions.\n    *   **Emanuel Hedberg:** Has 723.4K Instagram followers.\n    *   **Jess Lai:** Has 127.6K Instagram followers.\n    *   Other listed influencers include Alex Jung, Guthrie Trapp, Moises Gonzalez, Sasha Ivantic, Gareth Brough, Georgi Dobrev, Casey Overdriven, Daniel Bautista, Joshua Cruz, and David Bong.\n*   **Finding Influencers:** Platforms like Collabstr and Feedspot exist to help find guitar influencers.\n*   **Demographic Considerations:** While many influencers target a younger, broad audience of \"music lovers, guitar enthusiasts, and creatives\", some established channels, like the social media presence of \"Guitarist\" magazine, tend to have an older, more experienced, and predominantly male audience (nearly 4 in 10 viewers are 45 and above), making them less suitable for the 18-35 demographic specifically.",
+    "url_to_short_id": {
+      "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEFEcg05kzKSnrjxqE67XQGqDdVLhCD-RRFULm7NT8S2-Gs5JJS_Y0WDhZi6Sz2M2La1IUI2b5bStIgUR4RhRZVV-VK-BGFXxEO9g485Ax2-qrpDXNrsnwP1K0BIFGuPgq1qE1jSKjwZPTzAyeAcsMYasuTH92826T8KqQgHS-glTitOReQ0-WJdw==": "src-1",
+      "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQFVoBSllS-hngwUwUPgn0TUY7zws7XQmUizI7wq3Tu-OgLRcZQbJCwQeC5wYWDKBaONhLRxWKsKHiFO6INinMq5kQiISVR4HC13RDB0TVX4vL4uSr-7s8xtH9bz2taGlLgENY-TQWqJoMDW6cCIvMEb-EFUlYJ81Vj_": "src-2",
+      "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHUeOL5gouzKIrdVbZ-HLbsKfx6xeCzOTcpzRLrY7SNH5xYKdaGhLfcRmkPlPSaqSE18EdM-LaoK94RURuvahYFLusujppdJ_6jPBi5nv4jfLc_PY3OIEVSYccwe6zhkio2_E2nKZT4fYQWAJfD5NZnlJrScBQptpaWAWSYwgkvW_1BWNMt_j55fklUrU5gI2yYEO9vCA==": "src-3",
+      "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHUWFgGpfU7hD7vhREND68M1RNPSzFj5WUbwqOMDqQxGsPycF9Sql8QQvJD7WJMN1l-8538h5RgmrosgfpDuCay7rzMpof1uQYgjXPVT4v-B80vwf9As8zbSsoCeu994wWvZhce8uTGyULGW_hBDjsNnumwIZELJKTDZMKnG9COtH8zGqfxBg==": "src-4",
+      "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEffysoTkGw6a_B0IKijyEXRvXduE_WLNkfBPLkobAeBf7gW1l5VYdSjWLOncUXcW18-HXBtKhE9PvixGzWFqnnCn4Kc38pC2fKb64_CHGv7gFgFEPZ4z71XPbEosP4YCgczrWkZuhUEiRaK--xzNdBhvdFMKij3-bImxiKoCASDvyW_VGfaYnfcq85-psvOOCOnyFZxmamyDnwvSuTBuAc": "src-5",
+      "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQH7IolP9OPySmOZD9XLi__VyAAJdauKmE1tPasQXF14rRmIWqxXREFH8dFUgot21ivQdKVQQC8dgojfGbwtOH6Qrmqf5_ELWupWKJ5AtrTUpa8vxH1LL_JCvbo2C5ot8gICL0UXLosgr-mu0Pp_EayltqJwcWJBbARE9VwZ5guOilF5R3Ni692ZzHTE991xZzJ8Wpd36A==": "src-6",
+      "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHijuua1BEnWG4KkxrAPH-ZMhWQ2dXYW2LoKjohBgp6HWFRAi-BSWqgeIoU5-0TUyj5W2Tkiseiu0eVFngJ3dp71YiwGDGJNyaLiwyFR5DvQ5t_pr8Gjbc507xhglceMXnSlyeUxacR4AZXcUKc0dBoK684PmhVyL7U-yJv9CE=": "src-7",
+      "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQGWoAUXOix7X0I6VbY-nORv-MxwxqG9PS6dCWU5jKv3znZbAeyuUwVsFj_lSIx-oYBx2YVMaW9Ahr5qF1VjCScCpjB7sgpDmi5KJhJHoPC-TERp5fLkTC-C_97eJXgBK9TmNxi-MvPPuxjanAPT-jQHUl7I": "src-8",
+      "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEu7ejXu7hJKP0rk9I6fXEJza4468Z-H9taR6IratXBbddn_4AZ3PfedCZmDzFCCfnPVBb8x9GakhfFTAEYaBKa0VQtvw7q0-DT4FMkWAtyL9d1pywF6qsbhFn9A9BQy_nME9RnGpO2uDSY-_yo60klx6jYQoVZ9A==": "src-9",
+      "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEPHLhTOt6JhWa_LnkaZBKKJhTHjkQv0b3wBdd3W8ngxtx_PxDazgZD5kLPmf8h0aRuzuxYJcF0uI7-VuDJAeimIajyxnQ5A-2PQmXWwq6sFh6K_IDx4Xn8Mzbq1mKBhnWmZiGAsohKQd8IaQIIPp91N8iXD-uQ08cTcCCC0NX5XZyYJJmSN_0N5v-vFA==": "src-10",
+      "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHHqco3KZJ6ohERGu21o6PGHNUjHtLO06b213eoYq_1ZguTawpbjfJ6XnKmC_nURtRJaFT7RiNhQyJ6qKvwEUgsaXVeZVsebaLm-VAB-ZVYn9y-F5hUBgKcRnNDPMPEsvW8CNxv8BM=": "src-11",
+      "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHEI1GGwmYiIs1WBniH7MeTMzQJLLqaAG5lcexKT9ng_o28rQlhxFNDtYe-dZi1hYc-pvdes5g1rPozCvIiDtExFDlE1-lKutmjs8BhgsLpNbmFUo0slFBMl6u-f9SmJaE1ZQwt4IghEU1NeHC5Q11QnJMZDTFV6_RXqyOkPgiXqs4=": "src-12",
+      "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEoQbVFqcNhxcudmvS5MKXePdWQRRwr_18AZjwqpxdCEyOauDAjljE2xS486Mya4u_wxLvH_pP5zM6vIVeQf6fA225YssvhtNWGH1y1eMUYxO7_kUHsJzaXF5gTCkwSL7FbqES-2b8d": "src-13",
+      "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQF1ziP_2gG_WsscIrIA6_fn9TRg9y22zw7M0wk_StMnI4SpIpOoRkxZJOGhYtLKOkow0YUXSK2HQSKdx-E2RmguzPXkolng2gLMvJYUocg5viCa43qPEnZOwUPyPwBu1oGiq9cXycnqDbFRbyDZ75T0DFVFynall5Le7F192J48Dz7Drg9wx69cYfmeAX9wDOQ6DdonE7iNRMJ9FOKIU0jC9G_d0qxsDI8T4X4AYxAJRN7Iy42zIvw=": "src-14",
+      "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQGZelc4tctUWCIOYpxuoMbz_kAgRRRRHZHkvnd-6j9kGU4b811EJE-rfnChc0Yu9UfgvJJruLhUpTw3wlVozdIf_dDu-A38xI_FDWbC-lyUzGOKLBo2EU1seuBT_DF-fIHavWbSU4WqAPcegn_OpncPo4TlsIZQymFeIlfGhKZNG3af": "src-15",
+      "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEdwhtijVO216U6FO7FoXTZDX8PKbCn3IvHOrRymmfVYyh1OPNtn2xF7UOpQkORnvp4Nf2R3da57TateQY3UxuTJriKr-DO83ZeAnSWsAsnAvY_yJe0BTWEFYF_wi7IKrhIJGM4-QTKdohwrSJk1q-0hZ7lnvpVza37zLhO0Djodb9dLcBoYs5JUekz978qZ7KFg1VT930k23ADZQwWb5g=": "src-16",
+      "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQGjCQbEvDErZ6z5Ceho6G1SKVRx-dISKZU14l--Ft2wHcrLimhq5cWGT1Q7kdLeKe6sNSsMpR6_wSWBlVTBhZHCWlu7p9w2XlkNQhaisY6tgl6NfMDAZp8iW7m32S2qJG_4MRwv7fguYqtnVwoN9guQd7e1PK-UFNGRtBGOnZkVZiG9cyVICHiYWIY=": "src-17",
+      "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQG6tzckKn_u9QlNs_cGGUBpMr6nRw6jJkL9HYpdJ5SLM0U0YOiNMe6vEckp2zdUwodDyLrEdUC15EPTMeXCE6RVaVn69wHYmFzju8VyELuWBM0cQAcv1lJVd7CtLSM7gci-ce6bi_7VDDQwpNjx9hzhnBkiBQzxgHUsG4HD6rLlSYcSwFoN31BPhpSwlz5_p45zEqpBeFHKa71ojE0rLpJ5M3AOr6sT0veN": "src-18",
+      "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQH_CaR7t27Nan54g1dycMeyHnSBsW3u9guQSA4Xw-manF92FNpkOZIM8bodh4nBVZepsv6kqfIhIfHrc2s7sZStOGhzAYeZdp8A14DZHkrFFxG3JWT3cBj4uooGx_eggConAqX2Jk-Y20KizYgUGqTJxEOTKV-EJZ1JaDsLsF2nrLBcy334bCCs379bQ_S1q3EFCKn39VH5vyCB": "src-19",
+      "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQG1lEh9tUkSqmWKlgvLVr98H8NruflEFdfpduoPr9MKVvePXdZ4lyOvQJsWYANuQzkNGDiS2qZVV7WQFySN3HpxCaVa1qwfophkQCvkYlnjM_RLpNYovf3iOEExv3zGoUApnXuwetgCi-aDOXgyV7wHQNRSjtMx6dsP2wcCeXbARsdNYt3TAYo=": "src-20",
+      "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQGDe6HPX6UMkLaPamNkisSpjFVdpPhzPfnEaEZxdZ6Pj34hWiVk7J-m4aEgo2JpPF6hzcZq9JjXQBJ6dca3dwGlvfEnu0-cvUu0ZmH9yzQ14ObfcJazTVw71b3VCEtmQnPXGPoAMLuGgE5wmJygJHA=": "src-21",
+      "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQE0bjyyPj8wRTuL6og4d1QFfVMK7si7dsF6RRaRL6ejvbJxSbKp_1B83twXa6RmvNXMM02BySlR80mnebhjqC6_Jl0yZIjG4SlUoT0NsBF0ji5dr3rjO9AUVj_7XYcsKoK_RH5AQCI3OmIvm60eCUDfAA-DYBlFSDTZunE3DOuCVPvJxVRStmY=": "src-22",
+      "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHsVKnVZGJvTMZcS8nR8w6cZlE6TampinRwAebNnsCq58LKibiwPG6Cvulh8ychZOQhIJf03Jgby6nZlnyZdBcgE6ZQ_za5kIayHbR4cDRWZ3tGzi4vhOKRZx78nHmXVd9FipiugTinHeZ_OJQbVZIydD2O": "src-23",
+      "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHcmf0Y9vUfhZAHFfn_-IyPb-y0C0cAIsJ0rrjkeKRL4j6lpweQb7sFa3ImBtGCspSpQMrezsBokJYjBul_TGIWUDFcxRuuCy0iUjcvYpzZxtfhLtdg8u9updxfghEdVd8lP-pSUqE=": "src-24",
+      "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHOaCNIW71LiMgsg9JvnP3aJMbthELaJcWPMcRg2lKrZxSHCDnnOj5N2K7yg73iv3_UbwpnqPAl_A83LcAwi3815TQiYwXrKQifdMkJNWTSOxh6O6vgM-t3MaQ0-mAOUKjIRd8tR1QxTHgH4wl0YUo8s5Gn6rPZJ3dE6_VeHA1BKsVK-gPZB6cjP918ULb9MxlmOyLPTFhkLNPYj3KeNNs5KR55zaXxKmMVN9oTYgD6ql6B_dEaDiM=": "src-25",
+      "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQE6AgGFbw2Dcda8my2ZzZo1iWAj-lfD3PPWHcpLJ0VTXS0AIYY3V691vmy8Iva6CUuXVPIQyEWnfouVuXh4ToSUHawQpO1C07gAV0NbGib2PyKlRH2fe6y0VQapHzlgg-0BTyzgXPDUs1wMSgTxKrC8nCjCk77oUd1_Kl9PWHgz9suN90TjiL5YKcCD": "src-26",
+      "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEk2hOoIu5ffu5i4Js6NcO5VlJ8r7uxxdkgoInMFFaUDEXcC6UT7emlff-Xumyoc-xqAhSmwztGDpoXE3DMSY8sok0hTHbOdtoyedcT3Vxp15-h2_w_jajfn6UfGq1gcGHO8tHbfTZVzI2luDFEKPYnicaJb1HSaYJrZqiBEkSjImDMNlbSq0LXutmrCHLlpPwbRhTfNVsFXO1ussDngKOCfIEh": "src-27",
+      "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQGqNI6LQSnQ0ZOTz4BTEMmIs-tiJHIRwwt3T-u0zHoaVG3yfVEcssRzvEFRVk9RVtBxle3Z2eFxdMY1EAFrykp1-nzAhh-FP0F7wkd0I5RRDukx5BGMrtTmoFnNVppwYmo7t7h2EFkxNPSNu-uywb5wZ8Y=": "src-28",
+      "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQErHktHtLhzMNXFVBOhwHf0lpr-A1kDX3WKhMQy1BDsL9LTsLvWstUP9gqlMWJ4eWdh4aXrHD0Xmdu5b03t8CRm0x5k7Hp00B1PM9hSgatOvGRgu7BfgBuyf1QKcOjS": "src-29",
+      "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQGg-FuDJntKu0FoG7RRWiWI-6f4LpUhCaEbHh4Ve7LOE6eljLJg5sSgC2hR0K9VQuXDLoJaV4GMn1GmZYzH9I3UH9Z5-zztDIdksoIPAz5SYmdeFgfdDM7jau_DA9-4zuZ42I2GGssG6qRwmfMV9XcHMiWxE96m_tRxlFKOZvBgRSuzG7zrwCkdRhnSYCHOsTS9vFjoSb_e32YiIDSp": "src-30",
+      "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEjTyw-bUnLTXBVdzoP7F9JxCGWq2evXQcawzukXrg9L8-3mgWP6tH8AT7QVox5vJwfr9whP792pBOcp3brOyqn6p4i_LRGT-Iv9pyu926s6oBsElRFqQtRcKmcxz3AA6mA73nLl0WSJ6tWFPJmKjD_lQb4MLniDo0EaL8hNEMrmaIwtOKsaIoC0_L8bSlOw76CeOE5359mIrnhyemN": "src-31",
+      "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEJWuLpN04E15SrXHI2NbsfH7XK2okFm9Aw_oJAWxjLz_wdO1Xq8277PoTiOAVOeLwuDX94t5S3vf6t-eeXT2tXhdKYAK2Co58wrWHBswW2FQCIPTjyAUFwa49NXi6hCChvjFNM66lINL5dlDflgnyXcjLVGGwAfNSFRkuwrlyY-epe-B0RFfay1EX527XyioISprluMQ==": "src-32",
+      "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEIOBcV5YknVi44xrPe65G3fVjL6Fsl9N03r7x3woxhG5Lk7yNZM0p_ypUL81mF42UJtyr5Cv7U4tiHz3uXF-ebfUP9teJpUMc1t63MrqCD8BiJ9qB-6kuc8XYATa_JAIyB5p3e0dMHCt0iETGs3CwI2NFuSoSHhWWFXPIib6ZcjcUX0fqRODzD6d6d4J-Vt-stWNhHTA==": "src-33",
+      "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHtBUpOD1QEQB287diSxgO68c0QfhT_7MnnMHGKmN8Zt1wIBhWf0gyoM9udubWTkT9T_wISHudWcoX5ni5hq1APsVyrICXf4jwgZVePFWpZuubqK0oQfzpFnqBdS2bNorxBhbPG-4X3W9D2sBccJRDm": "src-34",
+      "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQGsLRD8Dp6WlwYhqVW9X3esoIOAaMaOdrcJEH6o6-s2eF7pUrXwmaMCpttq5i7mKzjafz0rTq_XJHsHnaOJKDpjBogvM1ekqP7Kiu-7dX6bAqI25NCGM6UfFBH-dTd0rDT5DxumgcALbw860pRQveIjbw5vFShguU5swGwdniaprIaWp6scpjdI": "src-35",
+      "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEgOkhRPQUaikkktUJXDCm8OYsGqn8V0p0tzM6niwVKNSSXwmSi_YDrvGoCRT5DWV009wuAimgFZjPDaadL3F5MkBJ8a01nRci4VRwL3MAsRbF_WUM4t6vk5dLsa68j3i4qlXlinZcaHLB7YLFM3j9IW4Dnd1pwLfIv2xw4ihYwuFsGNUndxINNLnA5o_1kAlwd9207yYWQHSAblHoqtqsAtRVk5pc=": "src-36"
+    },
+    "sources": {
+      "src-1": {
+        "short_id": "src-1",
+        "title": "schoolofrock.com",
+        "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEFEcg05kzKSnrjxqE67XQGqDdVLhCD-RRFULm7NT8S2-Gs5JJS_Y0WDhZi6Sz2M2La1IUI2b5bStIgUR4RhRZVV-VK-BGFXxEO9g485Ax2-qrpDXNrsnwP1K0BIFGuPgq1qE1jSKjwZPTzAyeAcsMYasuTH92826T8KqQgHS-glTitOReQ0-WJdw==",
+        "domain": "schoolofrock.com",
+        "supported_claims": [
+          {
+            "text_segment": "*   PRS (Paul Reed Smith) is generally identified as a more upscale brand known for its quality and craftsmanship",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "Shorter scale length means less string tension, making fretting easier",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **Brands for Beginners (beyond major affordable lines):** PRS is mentioned as an \"upscale brand known for its quality and craftsmanship,\" while Gretsch and Schecter also offer unique options",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   PRS (Paul Reed Smith) is generally identified as a more upscale brand known for its quality and craftsmanship",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "Shorter scale length means less string tension, making fretting easier",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **Brands for Beginners (beyond major affordable lines):** PRS is mentioned as an \"upscale brand known for its quality and craftsmanship,\" while Gretsch and Schecter also offer unique options",
+            "confidence": 0.5
+          }
+        ]
+      },
+      "src-2": {
+        "short_id": "src-2",
+        "title": "chucklevins.com",
+        "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQFVoBSllS-hngwUwUPgn0TUY7zws7XQmUizI7wq3Tu-OgLRcZQbJCwQeC5wYWDKBaONhLRxWKsKHiFO6INinMq5kQiISVR4HC13RDB0TVX4vL4uSr-7s8xtH9bz2taGlLgENY-TQWqJoMDW6cCIvMEb-EFUlYJ81Vj_",
+        "domain": "chucklevins.com",
+        "supported_claims": [
+          {
+            "text_segment": "*   PRS SE models, in general, are listed among electric guitars available under $1500",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   PRS SE guitars are mentioned within the context of electric guitars under $1500",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **PRS SE:** Listed as a brand with models available under $1500",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **Other Brands with Guitars Under $1500:** Epiphone, Sire, Ibanez, Charvel, ESP LTD, Fender, Gretsch, Kramer, Legator, Jackson, Yamaha, Pacifica, EVH, Steinberger are brands that offer electric guitars in this price range",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   PRS SE models, in general, are listed among electric guitars available under $1500",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   PRS SE guitars are mentioned within the context of electric guitars under $1500",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **PRS SE:** Listed as a brand with models available under $1500",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **Other Brands with Guitars Under $1500:** Epiphone, Sire, Ibanez, Charvel, ESP LTD, Fender, Gretsch, Kramer, Legator, Jackson, Yamaha, Pacifica, EVH, Steinberger are brands that offer electric guitars in this price range",
+            "confidence": 0.5
+          }
+        ]
+      },
+      "src-3": {
+        "short_id": "src-3",
+        "title": "positivegrid.com",
+        "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHUeOL5gouzKIrdVbZ-HLbsKfx6xeCzOTcpzRLrY7SNH5xYKdaGhLfcRmkPlPSaqSE18EdM-LaoK94RURuvahYFLusujppdJ_6jPBi5nv4jfLc_PY3OIEVSYccwe6zhkio2_E2nKZT4fYQWAJfD5NZnlJrScBQptpaWAWSYwgkvW_1BWNMt_j55fklUrU5gI2yYEO9vCA==",
+        "domain": "positivegrid.com",
+        "supported_claims": [
+          {
+            "text_segment": "*   **Beginner-Friendly Brands & Models:**\n    *   Big brands like Fender (Squier line) and Gibson (Epiphone) offer good beginner options",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   Epiphone Les Paul Junior and Squier Bullet Stratocaster are cited as good choices for beginners",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   Ibanez GRG131DX is recommended as a starter for metal and hard rock",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **Budget:** A good beginner guitar generally falls in the $200-$800 range, while more advanced guitars are in the $800-$2,000 range",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "The Ultra II HSS is noted for flattering playability, faultless build, and versatile tones",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **Beginner-Friendly Brands & Models:**\n    *   Big brands like Fender (Squier line) and Gibson (Epiphone) offer good beginner options",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   Epiphone Les Paul Junior and Squier Bullet Stratocaster are cited as good choices for beginners",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   Ibanez GRG131DX is recommended as a starter for metal and hard rock",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **Budget:** A good beginner guitar generally falls in the $200-$800 range, while more advanced guitars are in the $800-$2,000 range",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "The Ultra II HSS is noted for flattering playability, faultless build, and versatile tones",
+            "confidence": 0.5
+          }
+        ]
+      },
+      "src-4": {
+        "short_id": "src-4",
+        "title": "samash.com",
+        "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHUWFgGpfU7hD7vhREND68M1RNPSzFj5WUbwqOMDqQxGsPycF9Sql8QQvJD7WJMN1l-8538h5RgmrosgfpDuCay7rzMpof1uQYgjXPVT4v-B80vwf9As8zbSsoCeu994wWvZhce8uTGyULGW_hBDjsNnumwIZELJKTDZMKnG9COtH8zGqfxBg==",
+        "domain": "samash.com",
+        "supported_claims": [
+          {
+            "text_segment": "Poorly chosen instruments can make playing a chore",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **Size and Weight:** Most adult beginners should opt for full-size guitars with standard scale lengths (24.75\" to 25.5\")",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "Younger players or adults under 5'4\" with smaller hands might consider 3/4 size or short-scale (24\") options",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "A good beginner guitar should stay in tune and feel smooth",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "Poorly chosen instruments can make playing a chore",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **Size and Weight:** Most adult beginners should opt for full-size guitars with standard scale lengths (24.75\" to 25.5\")",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "Younger players or adults under 5'4\" with smaller hands might consider 3/4 size or short-scale (24\") options",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "A good beginner guitar should stay in tune and feel smooth",
+            "confidence": 0.5
+          }
+        ]
+      },
+      "src-5": {
+        "short_id": "src-5",
+        "title": "furtadosonline.com",
+        "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEffysoTkGw6a_B0IKijyEXRvXduE_WLNkfBPLkobAeBf7gW1l5VYdSjWLOncUXcW18-HXBtKhE9PvixGzWFqnnCn4Kc38pC2fKb64_CHGv7gFgFEPZ4z71XPbEosP4YCgczrWkZuhUEiRaK--xzNdBhvdFMKij3-bImxiKoCASDvyW_VGfaYnfcq85-psvOOCOnyFZxmamyDnwvSuTBuAc",
+        "domain": "furtadosonline.com",
+        "supported_claims": [
+          {
+            "text_segment": "Poorly chosen instruments can make playing a chore",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "Strat-style guitars are often preferred by beginners due to ergonomics and versatility",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "A good beginner guitar should stay in tune and feel smooth",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "HSS or SSS pickup configurations are good for beginners for this reason",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "Acoustic):** Many beginners find electric guitars easier to play than acoustic guitars because they have softer strings, slimmer necks, require less fretting pressure, and are more comfortable for long practice sessions",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "Poorly chosen instruments can make playing a chore",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "Strat-style guitars are often preferred by beginners due to ergonomics and versatility",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "A good beginner guitar should stay in tune and feel smooth",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "HSS or SSS pickup configurations are good for beginners for this reason",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "Acoustic):** Many beginners find electric guitars easier to play than acoustic guitars because they have softer strings, slimmer necks, require less fretting pressure, and are more comfortable for long practice sessions",
+            "confidence": 0.5
+          }
+        ]
+      },
+      "src-6": {
+        "short_id": "src-6",
+        "title": "artistguitars.com.au",
+        "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQH7IolP9OPySmOZD9XLi__VyAAJdauKmE1tPasQXF14rRmIWqxXREFH8dFUgot21ivQdKVQQC8dgojfGbwtOH6Qrmqf5_ELWupWKJ5AtrTUpa8vxH1LL_JCvbo2C5ot8gICL0UXLosgr-mu0Pp_EayltqJwcWJBbARE9VwZ5guOilF5R3Ni692ZzHTE991xZzJ8Wpd36A==",
+        "domain": "artistguitars.com.au",
+        "supported_claims": [
+          {
+            "text_segment": "Weights around 3.5 kg are considered good for most beginners, while 2.5 kg is light for small hands, and 4 kg can be challenging",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "Humbucker pickups (two coils side-by-side) are recommended for playing with distortion as they reduce noise and hum",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **Tremolo:** Tremolo systems are generally not recommended for beginners due to potential tuning stability issues if used incorrectly",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "Weights around 3.5 kg are considered good for most beginners, while 2.5 kg is light for small hands, and 4 kg can be challenging",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "Humbucker pickups (two coils side-by-side) are recommended for playing with distortion as they reduce noise and hum",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **Tremolo:** Tremolo systems are generally not recommended for beginners due to potential tuning stability issues if used incorrectly",
+            "confidence": 0.5
+          }
+        ]
+      },
+      "src-7": {
+        "short_id": "src-7",
+        "title": "myguitarmatch.com",
+        "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHijuua1BEnWG4KkxrAPH-ZMhWQ2dXYW2LoKjohBgp6HWFRAi-BSWqgeIoU5-0TUyj5W2Tkiseiu0eVFngJ3dp71YiwGDGJNyaLiwyFR5DvQ5t_pr8Gjbc507xhglceMXnSlyeUxacR4AZXcUKc0dBoK684PmhVyL7U-yJv9CE=",
+        "domain": "myguitarmatch.com",
+        "supported_claims": [
+          {
+            "text_segment": "*   **Price Range Characteristics:** The $1,000\u2013$1,500 price range signifies a significant quality improvement over guitars under $800",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "This range is suitable for players with 2\u20135 years of serious playing experience who want to invest in a long-term instrument",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "Mexican-made Player series)",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **Premium Electronics:** Custom-designed, precisely voiced pickups (e.g., V-Mod II pickups in Fender American Pro II) offer audibly clearer differences in recording contexts",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **Quality Hardware:** Premium machine heads, precisely fitted bridges, and quality nut materials contribute to tuning stability that lasts for years",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **Better Tonewoods:** More carefully selected, lighter, and more resonant tonewoods improve acoustic character and response to pickup amplification",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **Recommended Guitars (under/around $1500 with pro build quality):**\n    *   **Fender American Professional II Stratocaster** ($1,599): Touted as the \"Best USA Strat\"",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **Fender American Professional II Telecaster** ($1,599): Touted as the \"Best USA Tele\"",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **PRS SE Silver Sky** ($949): Described as a \"John Mayer-designed Strat alternative\"",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **Price Range Characteristics:** The $1,000\u2013$1,500 price range signifies a significant quality improvement over guitars under $800",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "This range is suitable for players with 2\u20135 years of serious playing experience who want to invest in a long-term instrument",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "Mexican-made Player series)",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **Premium Electronics:** Custom-designed, precisely voiced pickups (e.g., V-Mod II pickups in Fender American Pro II) offer audibly clearer differences in recording contexts",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **Quality Hardware:** Premium machine heads, precisely fitted bridges, and quality nut materials contribute to tuning stability that lasts for years",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **Better Tonewoods:** More carefully selected, lighter, and more resonant tonewoods improve acoustic character and response to pickup amplification",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **Recommended Guitars (under/around $1500 with pro build quality):**\n    *   **Fender American Professional II Stratocaster** ($1,599): Touted as the \"Best USA Strat\"",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **Fender American Professional II Telecaster** ($1,599): Touted as the \"Best USA Tele\"",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **PRS SE Silver Sky** ($949): Described as a \"John Mayer-designed Strat alternative\"",
+            "confidence": 0.5
+          }
+        ]
+      },
+      "src-8": {
+        "short_id": "src-8",
+        "title": "musicradar.com",
+        "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQGWoAUXOix7X0I6VbY-nORv-MxwxqG9PS6dCWU5jKv3znZbAeyuUwVsFj_lSIx-oYBx2YVMaW9Ahr5qF1VjCScCpjB7sgpDmi5KJhJHoPC-TERp5fLkTC-C_97eJXgBK9TmNxi-MvPPuxjanAPT-jQHUl7I",
+        "domain": "musicradar.com",
+        "supported_claims": [
+          {
+            "text_segment": "The Ultra II HSS is noted for flattering playability, faultless build, and versatile tones",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "The Ultra II HSS is noted for flattering playability, faultless build, and versatile tones",
+            "confidence": 0.5
+          }
+        ]
+      },
+      "src-9": {
+        "short_id": "src-9",
+        "title": "johnpageguitars.com",
+        "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEu7ejXu7hJKP0rk9I6fXEJza4468Z-H9taR6IratXBbddn_4AZ3PfedCZmDzFCCfnPVBb8x9GakhfFTAEYaBKa0VQtvw7q0-DT4FMkWAtyL9d1pywF6qsbhFn9A9BQy_nME9RnGpO2uDSY-_yo60klx6jYQoVZ9A==",
+        "domain": "johnpageguitars.com",
+        "supported_claims": [
+          {
+            "text_segment": "*   **John Page Classic Ashburn & AJ:** These models have received multiple awards and positive reviews for their custom shop features, soulful playability, killer looks, and quality for the price",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "John Page Guitars offers a Lifetime Performance Guarantee\u2122 covering mechanical, electrical, and structural failures under normal use",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **John Page Classic Ashburn & AJ:** These models have received multiple awards and positive reviews for their custom shop features, soulful playability, killer looks, and quality for the price",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "John Page Guitars offers a Lifetime Performance Guarantee\u2122 covering mechanical, electrical, and structural failures under normal use",
+            "confidence": 0.5
+          }
+        ]
+      },
+      "src-10": {
+        "short_id": "src-10",
+        "title": "weebly.com",
+        "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEPHLhTOt6JhWa_LnkaZBKKJhTHjkQv0b3wBdd3W8ngxtx_PxDazgZD5kLPmf8h0aRuzuxYJcF0uI7-VuDJAeimIajyxnQ5A-2PQmXWwq6sFh6K_IDx4Xn8Mzbq1mKBhnWmZiGAsohKQd8IaQIIPp91N8iXD-uQ08cTcCCC0NX5XZyYJJmSN_0N5v-vFA==",
+        "domain": "weebly.com",
+        "supported_claims": [
+          {
+            "text_segment": "*   **Influencer Marketing Concept:** In the guitar market, influencer marketing operates similarly to other industries (e.g., skincare), where influencers implicitly convey, \"If you want to sound like me, buy my guitar\"",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **Platforms:** Social media platforms like YouTube, Instagram, and TikTok provide significant access to musicians, teachers, and \"info-tainers\" who can influence purchasing decisions",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **Historical Context:** The influence of musicians on gear choices is not new (e.g., Dick Dale and the Fender Stratocaster, Gibson Les Paul in 70s rock)",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **\"Aspirational\" Guitar Players:** These are social media influencers who post short playing clips and often endorse guitar companies, allowing consumers to pick up on market trends",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **Target Audience Insights:** Influencers can make or break brands by exposing their products to a wider audience",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **Influencer Marketing Concept:** In the guitar market, influencer marketing operates similarly to other industries (e.g., skincare), where influencers implicitly convey, \"If you want to sound like me, buy my guitar\"",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **Platforms:** Social media platforms like YouTube, Instagram, and TikTok provide significant access to musicians, teachers, and \"info-tainers\" who can influence purchasing decisions",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **Historical Context:** The influence of musicians on gear choices is not new (e.g., Dick Dale and the Fender Stratocaster, Gibson Les Paul in 70s rock)",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **\"Aspirational\" Guitar Players:** These are social media influencers who post short playing clips and often endorse guitar companies, allowing consumers to pick up on market trends",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **Target Audience Insights:** Influencers can make or break brands by exposing their products to a wider audience",
+            "confidence": 0.5
+          }
+        ]
+      },
+      "src-11": {
+        "short_id": "src-11",
+        "title": "collabstr.com",
+        "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHHqco3KZJ6ohERGu21o6PGHNUjHtLO06b213eoYq_1ZguTawpbjfJ6XnKmC_nURtRJaFT7RiNhQyJ6qKvwEUgsaXVeZVsebaLm-VAB-ZVYn9y-F5hUBgKcRnNDPMPEsvW8CNxv8BM=",
+        "domain": "collabstr.com",
+        "supported_claims": [
+          {
+            "text_segment": "His followers are \"mainly young music lovers, guitar enthusiasts, and creatives\"",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **Lester Mitchell:** A full-time YouTuber and TikTok guitar influencer who creates engaging reviews, covers, and original compositions",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **Finding Influencers:** Platforms like Collabstr and Feedspot exist to help find guitar influencers",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **Demographic Considerations:** While many influencers target a younger, broad audience of \"music lovers, guitar enthusiasts, and creatives\"",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "His followers are \"mainly young music lovers, guitar enthusiasts, and creatives\"",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **Lester Mitchell:** A full-time YouTuber and TikTok guitar influencer who creates engaging reviews, covers, and original compositions",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **Finding Influencers:** Platforms like Collabstr and Feedspot exist to help find guitar influencers",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **Demographic Considerations:** While many influencers target a younger, broad audience of \"music lovers, guitar enthusiasts, and creatives\"",
+            "confidence": 0.5
+          }
+        ]
+      },
+      "src-12": {
+        "short_id": "src-12",
+        "title": "feedspot.com",
+        "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHEI1GGwmYiIs1WBniH7MeTMzQJLLqaAG5lcexKT9ng_o28rQlhxFNDtYe-dZi1hYc-pvdes5g1rPozCvIiDtExFDlE1-lKutmjs8BhgsLpNbmFUo0slFBMl6u-f9SmJaE1ZQwt4IghEU1NeHC5Q11QnJMZDTFV6_RXqyOkPgiXqs4=",
+        "domain": "feedspot.com",
+        "supported_claims": [
+          {
+            "text_segment": "*   **Emanuel Hedberg:** Has 723.4K Instagram followers",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **Jess Lai:** Has 127.6K Instagram followers",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   Other listed influencers include Alex Jung, Guthrie Trapp, Moises Gonzalez, Sasha Ivantic, Gareth Brough, Georgi Dobrev, Casey Overdriven, Daniel Bautista, Joshua Cruz, and David Bong",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **Finding Influencers:** Platforms like Collabstr and Feedspot exist to help find guitar influencers",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **Emanuel Hedberg:** Has 723.4K Instagram followers",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **Jess Lai:** Has 127.6K Instagram followers",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   Other listed influencers include Alex Jung, Guthrie Trapp, Moises Gonzalez, Sasha Ivantic, Gareth Brough, Georgi Dobrev, Casey Overdriven, Daniel Bautista, Joshua Cruz, and David Bong",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **Finding Influencers:** Platforms like Collabstr and Feedspot exist to help find guitar influencers",
+            "confidence": 0.5
+          }
+        ]
+      },
+      "src-13": {
+        "short_id": "src-13",
+        "title": "creatordb.app",
+        "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEoQbVFqcNhxcudmvS5MKXePdWQRRwr_18AZjwqpxdCEyOauDAjljE2xS486Mya4u_wxLvH_pP5zM6vIVeQf6fA225YssvhtNWGH1y1eMUYxO7_kUHsJzaXF5gTCkwSL7FbqES-2b8d",
+        "domain": "creatordb.app",
+        "supported_claims": [
+          {
+            "text_segment": ", some established channels, like the social media presence of \"Guitarist\" magazine, tend to have an older, more experienced, and predominantly male audience (nearly 4 in 10 viewers are 45 and above), making them less suitable for the 18-35 demographic specifically",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": ", some established channels, like the social media presence of \"Guitarist\" magazine, tend to have an older, more experienced, and predominantly male audience (nearly 4 in 10 viewers are 45 and above), making them less suitable for the 18-35 demographic specifically",
+            "confidence": 0.5
+          }
+        ]
+      },
+      "src-14": {
+        "short_id": "src-14",
+        "title": "ultimate-guitar.com",
+        "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQF1ziP_2gG_WsscIrIA6_fn9TRg9y22zw7M0wk_StMnI4SpIpOoRkxZJOGhYtLKOkow0YUXSK2HQSKdx-E2RmguzPXkolng2gLMvJYUocg5viCa43qPEnZOwUPyPwBu1oGiq9cXycnqDbFRbyDZ75T0DFVFynall5Le7F192J48Dz7Drg9wx69cYfmeAX9wDOQ6DdonE7iNRMJ9FOKIU0jC9G_d0qxsDI8T4X4AYxAJRN7Iy42zIvw=",
+        "domain": null,
+        "supported_claims": [
+          {
+            "text_segment": "### Query 1: Summer 2024 music festival guitar trends for young players\n*   **Dominance of Offset and Classic S-Style Designs:** Observations from summer/fall live music experiences (including regional street events like \"Porchfest\" in Washington, DC, and brewery gigs) show that **Fender Stratocasters** compromise roughly **50% of all electric guitars** seen in the hands of younger players (under 30 years old)",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "**Fender Telecasters** and **Jazzmasters** are the most common guitars flanking them",
+            "confidence": 0.5
+          }
+        ]
+      },
+      "src-15": {
+        "short_id": "src-15",
+        "title": "pastemagazine.com",
+        "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQGZelc4tctUWCIOYpxuoMbz_kAgRRRRHZHkvnd-6j9kGU4b811EJE-rfnChc0Yu9UfgvJJruLhUpTw3wlVozdIf_dDu-A38xI_FDWbC-lyUzGOKLBo2EU1seuBT_DF-fIHavWbSU4WqAPcegn_OpncPo4TlsIZQymFeIlfGhKZNG3af",
+        "domain": null,
+        "supported_claims": [
+          {
+            "text_segment": "\"Pink Pony Club\" Duality (Summer 2024):** The overall music festival landscape was heavily defined by the aesthetic rise of Charli XCX's *Brat* (electronic, raw, minimalism) and Chappell Roan's theatrical indie pop",
+            "confidence": 0.5
+          }
+        ]
+      },
+      "src-16": {
+        "short_id": "src-16",
+        "title": "upressonline.com",
+        "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEdwhtijVO216U6FO7FoXTZDX8PKbCn3IvHOrRymmfVYyh1OPNtn2xF7UOpQkORnvp4Nf2R3da57TateQY3UxuTJriKr-DO83ZeAnSWsAsnAvY_yJe0BTWEFYF_wi7IKrhIJGM4-QTKdohwrSJk1q-0hZ7lnvpVza37zLhO0Djodb9dLcBoYs5JUekz978qZ7KFg1VT930k23ADZQwWb5g=",
+        "domain": null,
+        "supported_claims": [
+          {
+            "text_segment": "\"Pink Pony Club\" Duality (Summer 2024):** The overall music festival landscape was heavily defined by the aesthetic rise of Charli XCX's *Brat* (electronic, raw, minimalism) and Chappell Roan's theatrical indie pop",
+            "confidence": 0.5
+          }
+        ]
+      },
+      "src-17": {
+        "short_id": "src-17",
+        "title": "guitarworld.com",
+        "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQGjCQbEvDErZ6z5Ceho6G1SKVRx-dISKZU14l--Ft2wHcrLimhq5cWGT1Q7kdLeKe6sNSsMpR6_wSWBlVTBhZHCWlu7p9w2XlkNQhaisY6tgl6NfMDAZp8iW7m32S2qJG_4MRwv7fguYqtnVwoN9guQd7e1PK-UFNGRtBGOnZkVZiG9cyVICHiYWIY=",
+        "domain": null,
+        "supported_claims": [
+          {
+            "text_segment": "For guitarists, this manifested in two contrasting lanes: highly polished, synth-friendly, compressed clean tones on one side, and ultra-distorted, noisy, unpretentious slacker-rock/garage tones on the other",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **Grace Bowers:** Described as \"the prodigy everyone is talking about\" in late 2024, lighting up festival lineups and year-end lists with retro-soul/funk guitar mastery",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **Genre-Blending & Cross-Pollination:** Musicians are increasingly rejecting strict genre limits, integrating jazz fusion into metal, or blending electronic beats with heavy, progressive guitar licks (like **Spiritbox**'s \"Soft Spine,\" which features heavily distorted progressive metal guitar interacting with digital VSTs and hip-hop beats)",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "gee)** became one of the most talked-about guitarists of late 2024",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "His signature technique involves using a **baritone-tuned Fender Jaguar** pushed through an old **Tascam tape recorder** to achieve a highly compressed, brittle preamp break-up sound that has heavily influenced bedroom pop and indie-rock circles",
+            "confidence": 0.5
+          }
+        ]
+      },
+      "src-18": {
+        "short_id": "src-18",
+        "title": "thevirginiasportsman.com",
+        "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQG6tzckKn_u9QlNs_cGGUBpMr6nRw6jJkL9HYpdJ5SLM0U0YOiNMe6vEckp2zdUwodDyLrEdUC15EPTMeXCE6RVaVn69wHYmFzju8VyELuWBM0cQAcv1lJVd7CtLSM7gci-ce6bi_7VDDQwpNjx9hzhnBkiBQzxgHUsG4HD6rLlSYcSwFoN31BPhpSwlz5_p45zEqpBeFHKa71ojE0rLpJ5M3AOr6sT0veN",
+        "domain": null,
+        "supported_claims": [
+          {
+            "text_segment": "For guitarists, this manifested in two contrasting lanes: highly polished, synth-friendly, compressed clean tones on one side, and ultra-distorted, noisy, unpretentious slacker-rock/garage tones on the other",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "Characterized by \"fuzzy, Neil Young-style ragged riffs,\" crooked country-rock twang, pedal-steel inflections, and messy, emotionally raw distortion",
+            "confidence": 0.5
+          }
+        ]
+      },
+      "src-19": {
+        "short_id": "src-19",
+        "title": "territorialimperatives.com",
+        "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQH_CaR7t27Nan54g1dycMeyHnSBsW3u9guQSA4Xw-manF92FNpkOZIM8bodh4nBVZepsv6kqfIhIfHrc2s7sZStOGhzAYeZdp8A14DZHkrFFxG3JWT3cBj4uooGx_eggConAqX2Jk-Y20KizYgUGqTJxEOTKV-EJZ1JaDsLsF2nrLBcy334bCCs379bQ_S1q3EFCKn39VH5vyCB",
+        "domain": null,
+        "supported_claims": [
+          {
+            "text_segment": "*   **Young/New Discoveries on the Festival Circuit:**\n    *   **Tiger Eye:** A breakout young band from Potsdam, NY, spotted at the *Finger Lakes Grassroots Festival 2024*, heavily influenced by **Big Thief**",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "A primary example is the rising popularity of **African Desert Blues** artists like **Mdou Moctar** and **Tinariwen** at summer festivals (e.g., Green River Festival), which has sold younger audiences on the raw energy of loud, highly improvisational electric guitar",
+            "confidence": 0.5
+          }
+        ]
+      },
+      "src-20": {
+        "short_id": "src-20",
+        "title": "guitarinteractivemagazine.com",
+        "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQG1lEh9tUkSqmWKlgvLVr98H8NruflEFdfpduoPr9MKVvePXdZ4lyOvQJsWYANuQzkNGDiS2qZVV7WQFySN3HpxCaVa1qwfophkQCvkYlnjM_RLpNYovf3iOEExv3zGoUApnXuwetgCi-aDOXgyV7wHQNRSjtMx6dsP2wcCeXbARsdNYt3TAYo=",
+        "domain": null,
+        "supported_claims": [
+          {
+            "text_segment": "### Query 2: PRS SE CE 24 reviews and target audience sentiment\n*   **The Value Proposition & Price Point:** Released as a major market disruptor, the **PRS SE CE 24 Satin / Standard Satin** sits at a highly competitive retail price of **$499 USD / \u00a3489** (with some street sales dropping below $600 depending on configurations)",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "It is widely heralded by reviewers as \"the answer to the pain of skyrocketing prices for new guitars.\"\n*   **Technical Specifications & Review Highlights:**\n    *   **Construction:** Solid mahogany body (some variants feature a maple top), bolt-on maple neck, rosewood fingerboard, 24 frets, 25-inch scale length, Wide/Thin neck shape, 10-inch fretboard radius, and the iconic PRS bird inlays",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **Pickups & Electronics:** Loaded with **85/15 \"S\" humbuckers** with a push/pull tone knob for coil-tapping",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "Reviewers describe the pickups as balanced\u2014tight, high-output bridge and warm, low-output neck\u2014offering bright and clear single-coil split tones",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "Reviewers note it looks \"lush,\" feels great, and offers a \"raw guitar sound that makes me feel more connected to it\"",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "Others noted the stock tuners are fine for bedroom play but would need to be upgraded to locking tuners for heavy gigging",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "It is viewed as an unpretentious, highly versatile \"shred machine\" that bridges the gap between smooth blues, hard rock, and metal",
+            "confidence": 0.5
+          }
+        ]
+      },
+      "src-21": {
+        "short_id": "src-21",
+        "title": "budgetguitarist.com",
+        "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQGDe6HPX6UMkLaPamNkisSpjFVdpPhzPfnEaEZxdZ6Pj34hWiVk7J-m4aEgo2JpPF6hzcZq9JjXQBJ6dca3dwGlvfEnu0-cvUu0ZmH9yzQ14ObfcJazTVw71b3VCEtmQnPXGPoAMLuGgE5wmJygJHA=",
+        "domain": null,
+        "supported_claims": [
+          {
+            "text_segment": "### Query 2: PRS SE CE 24 reviews and target audience sentiment\n*   **The Value Proposition & Price Point:** Released as a major market disruptor, the **PRS SE CE 24 Satin / Standard Satin** sits at a highly competitive retail price of **$499 USD / \u00a3489** (with some street sales dropping below $600 depending on configurations)",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **The Criticism (\"The Bad & The Ugly\"):** Some reviewers point out that the back of the maple neck has the \"lightest finish possible,\" which can closed-eyes feel \"cheap\" or like a \"Squier\" / \"lumber yard\" rather than a premium PRS neck",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "Users appreciate that it doesn't have the \"harsh, sharp-ish forearm edge\" of the expensive Core series carve, making it physically more comfortable to play",
+            "confidence": 0.5
+          }
+        ]
+      },
+      "src-22": {
+        "short_id": "src-22",
+        "title": "guitarinteractivemagazine.com",
+        "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQE0bjyyPj8wRTuL6og4d1QFfVMK7si7dsF6RRaRL6ejvbJxSbKp_1B83twXa6RmvNXMM02BySlR80mnebhjqC6_Jl0yZIjG4SlUoT0NsBF0ji5dr3rjO9AUVj_7XYcsKoK_RH5AQCI3OmIvm60eCUDfAA-DYBlFSDTZunE3DOuCVPvJxVRStmY=",
+        "domain": null,
+        "supported_claims": [
+          {
+            "text_segment": "### Query 2: PRS SE CE 24 reviews and target audience sentiment\n*   **The Value Proposition & Price Point:** Released as a major market disruptor, the **PRS SE CE 24 Satin / Standard Satin** sits at a highly competitive retail price of **$499 USD / \u00a3489** (with some street sales dropping below $600 depending on configurations)",
+            "confidence": 0.5
+          }
+        ]
+      },
+      "src-23": {
+        "short_id": "src-23",
+        "title": "thatguitarlover.com",
+        "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHsVKnVZGJvTMZcS8nR8w6cZlE6TampinRwAebNnsCq58LKibiwPG6Cvulh8ychZOQhIJf03Jgby6nZlnyZdBcgE6ZQ_za5kIayHbR4cDRWZ3tGzi4vhOKRZx78nHmXVd9FipiugTinHeZ_OJQbVZIydD2O",
+        "domain": null,
+        "supported_claims": [
+          {
+            "text_segment": "It is widely heralded by reviewers as \"the answer to the pain of skyrocketing prices for new guitars.\"",
+            "confidence": 0.5
+          }
+        ]
+      },
+      "src-24": {
+        "short_id": "src-24",
+        "title": "youtube.com",
+        "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHcmf0Y9vUfhZAHFfn_-IyPb-y0C0cAIsJ0rrjkeKRL4j6lpweQb7sFa3ImBtGCspSpQMrezsBokJYjBul_TGIWUDFcxRuuCy0iUjcvYpzZxtfhLtdg8u9updxfghEdVd8lP-pSUqE=",
+        "domain": null,
+        "supported_claims": [
+          {
+            "text_segment": "Reviewers note it looks \"lush,\" feels great, and offers a \"raw guitar sound that makes me feel more connected to it\"",
+            "confidence": 0.5
+          }
+        ]
+      },
+      "src-25": {
+        "short_id": "src-25",
+        "title": "sweetwater.com",
+        "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHOaCNIW71LiMgsg9JvnP3aJMbthELaJcWPMcRg2lKrZxSHCDnnOj5N2K7yg73iv3_UbwpnqPAl_A83LcAwi3815TQiYwXrKQifdMkJNWTSOxh6O6vgM-t3MaQ0-mAOUKjIRd8tR1QxTHgH4wl0YUo8s5Gn6rPZJ3dE6_VeHA1BKsVK-gPZB6cjP918ULb9MxlmOyLPTFhkLNPYj3KeNNs5KR55zaXxKmMVN9oTYgD6ql6B_dEaDiM=",
+        "domain": null,
+        "supported_claims": [
+          {
+            "text_segment": "*   **Target Audience Sentiment:** Demographically targeted at developing players, budget-conscious gigging musicians, and genre-hopping guitarists",
+            "confidence": 0.5
+          }
+        ]
+      },
+      "src-26": {
+        "short_id": "src-26",
+        "title": "wnycstudios.org",
+        "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQE6AgGFbw2Dcda8my2ZzZo1iWAj-lfD3PPWHcpLJ0VTXS0AIYY3V691vmy8Iva6CUuXVPIQyEWnfouVuXh4ToSUHawQpO1C07gAV0NbGib2PyKlRH2fe6y0VQapHzlgg-0BTyzgXPDUs1wMSgTxKrC8nCjCk77oUd1_Kl9PWHgz9suN90TjiL5YKcCD",
+        "domain": null,
+        "supported_claims": [
+          {
+            "text_segment": "*   **The \"New York Guitar Festival\" and Kaufman Music Center (June 14\u201315, 2024):** Celebrating its 25th anniversary, this festival highlighted the genre-agnostic future of the instrument",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "Key performances, like the duo of experimental noise guitarist **Marc Ribot** and banjo/cellist **Leyla McCalla**, proved that younger festival audiences are demanding acoustic-electric hybrid acts that blend Cajun, Haitian classical, and avant-noise",
+            "confidence": 0.5
+          }
+        ]
+      },
+      "src-27": {
+        "short_id": "src-27",
+        "title": "shorefire.com",
+        "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEk2hOoIu5ffu5i4Js6NcO5VlJ8r7uxxdkgoInMFFaUDEXcC6UT7emlff-Xumyoc-xqAhSmwztGDpoXE3DMSY8sok0hTHbOdtoyedcT3Vxp15-h2_w_jajfn6UfGq1gcGHO8tHbfTZVzI2luDFEKPYnicaJb1HSaYJrZqiBEkSjImDMNlbSq0LXutmrCHLlpPwbRhTfNVsFXO1ussDngKOCfIEh",
+        "domain": null,
+        "supported_claims": [
+          {
+            "text_segment": "*   **The \"New York Guitar Festival\" and Kaufman Music Center (June 14\u201315, 2024):** Celebrating its 25th anniversary, this festival highlighted the genre-agnostic future of the instrument",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **The \"Tapping\" Revolution:** \n    *   **Yasmin Williams:** A central figure at festivals like the New York Guitar Festival and Big Ears Festival, Williams has re-popularized acoustic \"tapping\" techniques",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "She approaches the guitar like a percussion instrument, playing it flat on her lap, frequently pairing her fingerstyle tapping with tap-shoes and a kalimba mounted to the guitar body",
+            "confidence": 0.5
+          }
+        ]
+      },
+      "src-28": {
+        "short_id": "src-28",
+        "title": "saltlakemagazine.com",
+        "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQGqNI6LQSnQ0ZOTz4BTEMmIs-tiJHIRwwt3T-u0zHoaVG3yfVEcssRzvEFRVk9RVtBxle3Z2eFxdMY1EAFrykp1-nzAhh-FP0F7wkd0I5RRDukx5BGMrtTmoFnNVppwYmo7t7h2EFkxNPSNu-uywb5wZ8Y=",
+        "domain": null,
+        "supported_claims": [
+          {
+            "text_segment": "*   **Physicality and \"Face-Melting\" Virtuosity:** Artists like **Celisse** (Ogden Music Festival 2024) have built massive, ticket-selling reputations solely on live electric guitar prowess, serving as touring guitarists for Lizzo, Brandi Carlile, and Joni Mitchell, which inspires younger demographics to view the electric guitar as a tool of ultimate live command",
+            "confidence": 0.5
+          }
+        ]
+      },
+      "src-29": {
+        "short_id": "src-29",
+        "title": "prsguitars.com",
+        "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQErHktHtLhzMNXFVBOhwHf0lpr-A1kDX3WKhMQy1BDsL9LTsLvWstUP9gqlMWJ4eWdh4aXrHD0Xmdu5b03t8CRm0x5k7Hp00B1PM9hSgatOvGRgu7BfgBuyf1QKcOjS",
+        "domain": null,
+        "supported_claims": [
+          {
+            "text_segment": "Launched to recognize up-and-coming, regional players \"making waves in their local music scenes,\" it bypasses traditional high-profile celebrity endorsements",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **How it Works:** Intermediate/advanced players with strong social media engagement apply through local Authorized PRS Dealers",
+            "confidence": 0.5
+          }
+        ]
+      },
+      "src-30": {
+        "short_id": "src-30",
+        "title": "prsguitars.com",
+        "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQGg-FuDJntKu0FoG7RRWiWI-6f4LpUhCaEbHh4Ve7LOE6eljLJg5sSgC2hR0K9VQuXDLoJaV4GMn1GmZYzH9I3UH9Z5-zztDIdksoIPAz5SYmdeFgfdDM7jau_DA9-4zuZ42I2GGssG6qRwmfMV9XcHMiWxE96m_tRxlFKOZvBgRSuzG7zrwCkdRhnSYCHOsTS9vFjoSb_e32YiIDSp",
+        "domain": null,
+        "supported_claims": [
+          {
+            "text_segment": "Launched to recognize up-and-coming, regional players \"making waves in their local music scenes,\" it bypasses traditional high-profile celebrity endorsements",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "*   **Class of 2026/2027 Specs:** The Class of 2026 reached a record high of **145 artists from 30 countries** (a 6% year-over-year increase)",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "Applications for the Class of 2027 opened from July 15 to August 31, 2026",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "Promising Pulse artists are regularly promoted to the \"Official PRS Artist\" roster (e.g., Leoni Jane Kennedy, Bay Melnick Virgolino, and Jem Manuel)",
+            "confidence": 0.5
+          }
+        ]
+      },
+      "src-31": {
+        "short_id": "src-31",
+        "title": "prsguitars.com",
+        "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEjTyw-bUnLTXBVdzoP7F9JxCGWq2evXQcawzukXrg9L8-3mgWP6tH8AT7QVox5vJwfr9whP792pBOcp3brOyqn6p4i_LRGT-Iv9pyu926s6oBsElRFqQtRcKmcxz3AA6mA73nLl0WSJ6tWFPJmKjD_lQb4MLniDo0EaL8hNEMrmaIwtOKsaIoC0_L8bSlOw76CeOE5359mIrnhyemN",
+        "domain": null,
+        "supported_claims": [
+          {
+            "text_segment": "If accepted, they get exclusive discounts, \"membership kits\" (picks, strings, cables), and massive exposure via PRS's social channels",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "Promising Pulse artists are regularly promoted to the \"Official PRS Artist\" roster (e.g., Leoni Jane Kennedy, Bay Melnick Virgolino, and Jem Manuel)",
+            "confidence": 0.5
+          }
+        ]
+      },
+      "src-32": {
+        "short_id": "src-32",
+        "title": "socialhouseinc.com",
+        "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEJWuLpN04E15SrXHI2NbsfH7XK2okFm9Aw_oJAWxjLz_wdO1Xq8277PoTiOAVOeLwuDX94t5S3vf6t-eeXT2tXhdKYAK2Co58wrWHBswW2FQCIPTjyAUFwa49NXi6hCChvjFNM66lINL5dlDflgnyXcjLVGGwAfNSFRkuwrlyY-epe-B0RFfay1EX527XyioISprluMQ==",
+        "domain": null,
+        "supported_claims": [
+          {
+            "text_segment": "*, PRS implemented a highly structured digital media strategy across Meta, Google, and Reddit, targeting keywords associated with artist signature models to drive high conversion",
+            "confidence": 0.5
+          }
+        ]
+      },
+      "src-33": {
+        "short_id": "src-33",
+        "title": "prsguitars.com",
+        "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEIOBcV5YknVi44xrPe65G3fVjL6Fsl9N03r7x3woxhG5Lk7yNZM0p_ypUL81mF42UJtyr5Cv7U4tiHz3uXF-ebfUP9teJpUMc1t63MrqCD8BiJ9qB-6kuc8XYATa_JAIyB5p3e0dMHCt0iETGs3CwI2NFuSoSHhWWFXPIib6ZcjcUX0fqRODzD6d6d4J-Vt-stWNhHTA==",
+        "domain": null,
+        "supported_claims": [
+          {
+            "text_segment": "*   **The \"Gateway Drug\" Strategy:** Historically, young adult guitarists identify the \"SE\" series (begun in the early 2000s with Santana and Tremonti models) as their gateway",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "Young players note starting on a cheap SE in college, using it for years, and eventually buying premium US Core models once their careers matured",
+            "confidence": 0.5
+          }
+        ]
+      },
+      "src-34": {
+        "short_id": "src-34",
+        "title": "pixaura.com",
+        "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHtBUpOD1QEQB287diSxgO68c0QfhT_7MnnMHGKmN8Zt1wIBhWf0gyoM9udubWTkT9T_wISHudWcoX5ni5hq1APsVyrICXf4jwgZVePFWpZuubqK0oQfzpFnqBdS2bNorxBhbPG-4X3W9D2sBccJRDm",
+        "domain": null,
+        "supported_claims": [
+          {
+            "text_segment": "### Query 5: Popular guitar genres and techniques in 2024 festival lineups\n*   **The \"Asheville Sound\" (Alt-Americana, Shoegaze, and Southern Gothic):**\n    *   **MJ Lenderman and Wednesday:** This cohort represents the defining guitar sound of the mid-2024 era",
+            "confidence": 0.5
+          },
+          {
+            "text_segment": "Characterized by \"fuzzy, Neil Young-style ragged riffs,\" crooked country-rock twang, pedal-steel inflections, and messy, emotionally raw distortion",
+            "confidence": 0.5
+          }
+        ]
+      },
+      "src-35": {
+        "short_id": "src-35",
+        "title": "guitarworld.com",
+        "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQGsLRD8Dp6WlwYhqVW9X3esoIOAaMaOdrcJEH6o6-s2eF7pUrXwmaMCpttq5i7mKzjafz0rTq_XJHsHnaOJKDpjBogvM1ekqP7Kiu-7dX6bAqI25NCGM6UfFBH-dTd0rDT5DxumgcALbw860pRQveIjbw5vFShguU5swGwdniaprIaWp6scpjdI",
+        "domain": null,
+        "supported_claims": [
+          {
+            "text_segment": "*   **Gear and Tonal Techniques:** To achieve these signature tones, Lenderman famously plays a **Fender Jazzmaster** or a **'79 Gibson Firebrand SG** through a **Death by Audio Interstellar Overdriver** pedal, keeping his amps (Vox AC15 or Fender Deluxe) on the drive setting at all times to output \"sprawling, squiggly, gnarly leads\"",
+            "confidence": 0.5
+          }
+        ]
+      },
+      "src-36": {
+        "short_id": "src-36",
+        "title": "guitarstrength.com",
+        "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEgOkhRPQUaikkktUJXDCm8OYsGqn8V0p0tzM6niwVKNSSXwmSi_YDrvGoCRT5DWV009wuAimgFZjPDaadL3F5MkBJ8a01nRci4VRwL3MAsRbF_WUM4t6vk5dLsa68j3i4qlXlinZcaHLB7YLFM3j9IW4Dnd1pwLfIv2xw4ihYwuFsGNUndxINNLnA5o_1kAlwd9207yYWQHSAblHoqtqsAtRVk5pc=",
+        "domain": null,
+        "supported_claims": [
+          {
+            "text_segment": "*   **Genre-Blending & Cross-Pollination:** Musicians are increasingly rejecting strict genre limits, integrating jazz fusion into metal, or blending electronic beats with heavy, progressive guitar licks (like **Spiritbox**'s \"Soft Spine,\" which features heavily distorted progressive metal guitar interacting with digital VSTs and hip-hop beats)",
+            "confidence": 0.5
+          }
+        ]
+      }
+    },
+    "gs_web_search_raw": "Here is the raw, unedited research material gathered across your requested queries, capturing specific names, dates, numbers, technical details, and direct quotes.\n\n---\n\n### Query 1: Summer 2024 music festival guitar trends for young players\n*   **Dominance of Offset and Classic S-Style Designs:** Observations from summer/fall live music experiences (including regional street events like \"Porchfest\" in Washington, DC, and brewery gigs) show that **Fender Stratocasters** compromise roughly **50% of all electric guitars** seen in the hands of younger players (under 30 years old). **Fender Telecasters** and **Jazzmasters** are the most common guitars flanking them.\n*   **The \"Brat Summer\" vs. \"Pink Pony Club\" Duality (Summer 2024):** The overall music festival landscape was heavily defined by the aesthetic rise of Charli XCX's *Brat* (electronic, raw, minimalism) and Chappell Roan's theatrical indie pop. For guitarists, this manifested in two contrasting lanes: highly polished, synth-friendly, compressed clean tones on one side, and ultra-distorted, noisy, unpretentious slacker-rock/garage tones on the other.\n*   **Young/New Discoveries on the Festival Circuit:**\n    *   **Tiger Eye:** A breakout young band from Potsdam, NY, spotted at the *Finger Lakes Grassroots Festival 2024*, heavily influenced by **Big Thief**.\n    *   **Grace Bowers:** Described as \"the prodigy everyone is talking about\" in late 2024, lighting up festival lineups and year-end lists with retro-soul/funk guitar mastery. \n\n---\n\n### Query 2: PRS SE CE 24 reviews and target audience sentiment\n*   **The Value Proposition & Price Point:** Released as a major market disruptor, the **PRS SE CE 24 Satin / Standard Satin** sits at a highly competitive retail price of **$499 USD / \u00a3489** (with some street sales dropping below $600 depending on configurations). It is widely heralded by reviewers as \"the answer to the pain of skyrocketing prices for new guitars.\"\n*   **Technical Specifications & Review Highlights:**\n    *   **Construction:** Solid mahogany body (some variants feature a maple top), bolt-on maple neck, rosewood fingerboard, 24 frets, 25-inch scale length, Wide/Thin neck shape, 10-inch fretboard radius, and the iconic PRS bird inlays. \n    *   **Pickups & Electronics:** Loaded with **85/15 \"S\" humbuckers** with a push/pull tone knob for coil-tapping. Reviewers describe the pickups as balanced\u2014tight, high-output bridge and warm, low-output neck\u2014offering bright and clear single-coil split tones.\n    *   **The Finish:** The thin satin finish on the body is highly praised. Reviewers note it looks \"lush,\" feels great, and offers a \"raw guitar sound that makes me feel more connected to it\".\n    *   **The Criticism (\"The Bad & The Ugly\"):** Some reviewers point out that the back of the maple neck has the \"lightest finish possible,\" which can closed-eyes feel \"cheap\" or like a \"Squier\" / \"lumber yard\" rather than a premium PRS neck. Others noted the stock tuners are fine for bedroom play but would need to be upgraded to locking tuners for heavy gigging.\n*   **Target Audience Sentiment:** Demographically targeted at developing players, budget-conscious gigging musicians, and genre-hopping guitarists. Sentiment is overwhelmingly positive. Users appreciate that it doesn't have the \"harsh, sharp-ish forearm edge\" of the expensive Core series carve, making it physically more comfortable to play. It is viewed as an unpretentious, highly versatile \"shred machine\" that bridges the gap between smooth blues, hard rock, and metal.\n\n---\n\n### Query 3: Why are electric guitars trending for summer 2024 music festivals\n*   **The \"Desert Blues\" / Global Loud Guitar Wave:** Festival-goers are heavily gravitating toward loud, deeply expressive electric guitar genres. A primary example is the rising popularity of **African Desert Blues** artists like **Mdou Moctar** and **Tinariwen** at summer festivals (e.g., Green River Festival), which has sold younger audiences on the raw energy of loud, highly improvisational electric guitar.\n*   **The \"New York Guitar Festival\" and Kaufman Music Center (June 14\u201315, 2024):** Celebrating its 25th anniversary, this festival highlighted the genre-agnostic future of the instrument. Key performances, like the duo of experimental noise guitarist **Marc Ribot** and banjo/cellist **Leyla McCalla**, proved that younger festival audiences are demanding acoustic-electric hybrid acts that blend Cajun, Haitian classical, and avant-noise.\n*   **Physicality and \"Face-Melting\" Virtuosity:** Artists like **Celisse** (Ogden Music Festival 2024) have built massive, ticket-selling reputations solely on live electric guitar prowess, serving as touring guitarists for Lizzo, Brandi Carlile, and Joni Mitchell, which inspires younger demographics to view the electric guitar as a tool of ultimate live command.\n\n---\n\n### Query 4: PRS Guitars marketing strategy for young adult guitarists\n*   **The PRS \"Pulse Artist\" Program:** This is a cornerstone of PRS\u2019s grassroots marketing. Launched to recognize up-and-coming, regional players \"making waves in their local music scenes,\" it bypasses traditional high-profile celebrity endorsements. \n    *   **Class of 2026/2027 Specs:** The Class of 2026 reached a record high of **145 artists from 30 countries** (a 6% year-over-year increase). Applications for the Class of 2027 opened from July 15 to August 31, 2026.\n    *   **How it Works:** Intermediate/advanced players with strong social media engagement apply through local Authorized PRS Dealers. If accepted, they get exclusive discounts, \"membership kits\" (picks, strings, cables), and massive exposure via PRS's social channels. Promising Pulse artists are regularly promoted to the \"Official PRS Artist\" roster (e.g., Leoni Jane Kennedy, Bay Melnick Virgolino, and Jem Manuel).\n*   **Digital Full-Funnel Strategy:** In partnering with *Social House, Inc.*, PRS implemented a highly structured digital media strategy across Meta, Google, and Reddit, targeting keywords associated with artist signature models to drive high conversion.\n*   **The \"Gateway Drug\" Strategy:** Historically, young adult guitarists identify the \"SE\" series (begun in the early 2000s with Santana and Tremonti models) as their gateway. Young players note starting on a cheap SE in college, using it for years, and eventually buying premium US Core models once their careers matured. \n\n---\n\n### Query 5: Popular guitar genres and techniques in 2024 festival lineups\n*   **The \"Asheville Sound\" (Alt-Americana, Shoegaze, and Southern Gothic):**\n    *   **MJ Lenderman and Wednesday:** This cohort represents the defining guitar sound of the mid-2024 era. Characterized by \"fuzzy, Neil Young-style ragged riffs,\" crooked country-rock twang, pedal-steel inflections, and messy, emotionally raw distortion.\n    *   **Gear and Tonal Techniques:** To achieve these signature tones, Lenderman famously plays a **Fender Jazzmaster** or a **'79 Gibson Firebrand SG** through a **Death by Audio Interstellar Overdriver** pedal, keeping his amps (Vox AC15 or Fender Deluxe) on the drive setting at all times to output \"sprawling, squiggly, gnarly leads\".\n*   **Genre-Blending & Cross-Pollination:** Musicians are increasingly rejecting strict genre limits, integrating jazz fusion into metal, or blending electronic beats with heavy, progressive guitar licks (like **Spiritbox**'s \"Soft Spine,\" which features heavily distorted progressive metal guitar interacting with digital VSTs and hip-hop beats).\n*   **The \"Tapping\" Revolution:** \n    *   **Yasmin Williams:** A central figure at festivals like the New York Guitar Festival and Big Ears Festival, Williams has re-popularized acoustic \"tapping\" techniques. She approaches the guitar like a percussion instrument, playing it flat on her lap, frequently pairing her fingerstyle tapping with tap-shoes and a kalimba mounted to the guitar body.\n*   **Mk.gee's Brittle Tape Tones:** Artist **Michael Gordon (Mk.gee)** became one of the most talked-about guitarists of late 2024. His signature technique involves using a **baritone-tuned Fender Jaguar** pushed through an old **Tascam tape recorder** to achieve a highly compressed, brittle preamp break-up sound that has heavily influenced bedroom pop and indie-rock circles.",
+    "campaign_web_search_insights": "## Target Audience and Behavioral Insights\n\nAspiring electric guitar players aged 18-35 prioritize comfort, playability, and versatility when selecting an instrument. They seek guitars that are easy to hold, inspiring for daily practice, and capable of handling various genres as their musical tastes evolve. Many beginners find electric guitars easier to learn than acoustic ones due to softer strings, slimmer necks, and reduced fretting pressure, contributing to more comfortable and longer practice sessions.\n\nThis demographic is actively engaged on social media platforms such as YouTube, Instagram, and TikTok, where they are significantly influenced by musicians, teachers, and \"info-tainers.\" Influencers like Seyran Khalatyan, Lester Mitchell, Emanuel Hedberg, and Jess Lai command large followings among \"young music lovers, guitar enthusiasts, and creatives,\" demonstrating the power of aspirational content and endorsements in driving purchasing decisions. Traditional guitar magazine channels tend to cater to an older, more experienced audience and are less suitable for reaching this specific age group. Budget for a good beginner guitar typically ranges from $200-$800, while more advanced options are considered in the $800-$2,000 range.\n\n## Product Landscape and Competitive Context\n\nThe electric guitar market for aspiring and intermediate players (18-35) is segmented by price and perceived quality. The $200-$800 range offers entry-level options, while the $1,000-$1,500 range signifies a substantial increase in quality, often sought by players with 2-5 years of experience looking for a long-term instrument.\n\n**Key Competitors and Alternatives:**\n\n*   **Beginner Options (under $800):** Dominated by major brands' more affordable lines such as Fender (Squier) and Gibson (Epiphone), including models like the Epiphone Les Paul Junior, Squier Bullet Stratocaster, and Ibanez GRG131DX (for metal/hard rock). These options focus on foundational playability and affordability.\n*   **Intermediate/Advanced Options ($800-$1500+):** This segment features enhanced build quality, premium electronics (e.g., custom-designed pickups), superior hardware (e.g., machine heads, bridges, nut materials for tuning stability), and more carefully selected tonewoods. Competitors include:\n    *   Fender American Professional II Stratocaster/Telecaster\n    *   PRS SE Silver Sky (described as a \"John Mayer-designed Strat alternative\")\n    *   Fender American Ultra Stratocaster/Ultra II HSS (offering noiseless pickups, smooth necks, and versatility)\n    *   John Page Classic Ashburn & AJ (noted for custom shop features and quality)\n    *   Other brands offering models in this range include Sire, Ibanez, Charvel, ESP LTD, Gretsch, Kramer, and Yamaha.\n\nPRS (Paul Reed Smith) is recognized as an \"upscale brand\" known for its quality and craftsmanship, with its SE models specifically mentioned as being available under $1500. A common misconception or feature to avoid for beginners is the tremolo system, due to potential tuning instability issues if used incorrectly. Strat-style guitars are often favored by beginners for their ergonomics and versatility (HSS or SSS pickup configurations).\n\n## Strategic Opportunities & Key Message Validation\n\n1.  **Emphasize Playability and Comfort for Progression:** The target audience values ease of play as a critical factor in maintaining practice and improving. Messaging should highlight features that contribute to comfort (e.g., ergonomic design, appropriate weight), easy fretting (e.g., shorter scale length meaning less string tension), and overall playability that inspires daily use. Electric guitars are already perceived as easier than acoustics, a point that can be reinforced.\n2.  **Promote Versatility and Enduring Value:** Aspiring players need guitars that can adapt to evolving musical tastes (validated by the need for HSS or SSS pickup configurations). Positioning the PRS SE as a quality, versatile instrument available under $1500, capable of supporting a player's journey for \"2-5 years of serious playing experience\" (as seen in the $1,000-$1,500 market segment), would resonate. This counters the need to frequently upgrade from true beginner models.\n3.  **Leverage Social Media Influencers for Aspirational Appeal:** The 18-35 age group is highly receptive to influencer marketing on platforms like TikTok, Instagram, and YouTube. Partnering with credible, high-energy guitar content creators (e.g., those mentioned like Seyran Khalatyan or Lester Mitchell) who appeal to \"young music lovers, guitar enthusiasts, and creatives\" would be highly effective. The historical context of musicians influencing gear choices is strong, and current \"aspirational\" guitar players on social media serve a similar role. The PRS SE line's association with an \"upscale brand\" and the positive mention of the PRS SE Silver Sky in the under-$1500 quality segment lend credibility to its potential for endorsement.\n\n## Key Research Gaps/Next Steps\n\nA significant gap exists in the specific details regarding the \"PRS SE CE 24\" model itself. The provided research did not yield information on its suitability for beginner/intermediate players, unique tonal characteristics, versatility, or specific attributes of its bolt-on neck. Further investigation into these specific model features is crucial to tailor campaign messaging effectively and address any potential unique selling propositions or limitations for the target audience.",
+    "gs_web_search_insights": "## Trend Overview & Trajectory\n\nThe electric guitar is experiencing a massive, genre-fluid resurgence on the global music festival circuit, driven by a younger demographic (under 30) that rejects traditional acoustic-versus-electric boundaries. No longer confined to classic rock or metal, the instrument has emerged as a tool of ultimate live command, sonic experimentation, and raw performance art. \n\nThe trajectory of this trend is **accelerating and highly adaptive**. It is fueled by two distinct cultural dynamics: the physical energy of live festival environments and the DIY ethos of bedroom music production. Rather than a short-lived fad, this movement represents a long-term shift in how Gen Z and younger Millennials interact with guitar music. They are moving away from polished pop perfection in favor of \"face-melting\" virtuosity, experimental acoustic-electric hybrids, and highly textured, lo-fi analog tones.\n\n---\n\n## Key Entities and Cultural Narrative\n\nThe cultural conversation surrounding this guitar revival is defined by several prominent artists, hardware innovations, and sonic aesthetics:\n\n*   **The Aesthetic Duality (\"Brat Summer\" vs. \"Pink Pony Club\"):** The summer festival season highlights two opposing yet equally vibrant sonic lanes. On one side sits the raw, minimal, electronic-friendly, and highly compressed clean tones (aligned with the aesthetic of Charli XCX\u2019s *Brat*). On the other is the theatrical, hyper-expressive, and unpretentious slacker-rock/garage distortion (evoking Chappell Roan's theatrical indie pop).\n*   **The \"Asheville Sound\" & Lo-Fi Innovators:** Led by artists like **MJ Lenderman** and the band **Wednesday**, this defining sound relies on fuzzy, \"ragged Neil Young-style\" riffs and messy distortion. Lenderman achieves this with a Fender Jazzmaster or a '79 Gibson Firebrand SG pushed through a Death by Audio Interstellar Overdriver pedal. Concurrently, **Michael Gordon (Mk.gee)** has captivated the indie scene with his brittle, highly compressed tape-saturated tones, achieved by running a baritone-tuned Fender Jaguar through a vintage Tascam tape recorder.\n*   **Global Loud Guitar & Virtuosity:** Artists like **Mdou Moctar** and **Tinariwen** are bringing African \"Desert Blues\" to massive western festival stages (like the Green River Festival), selling younger audiences on the raw, hypnotic power of improvisational electric guitar. At the same time, guitarists like **Celisse** and young prodigy **Grace Bowers** are earning mainstream acclaim for their retro-soul, funk, and rock virtuosity.\n*   **The Tapping Revolution:** **Yasmin Williams** is redefining the instrument by playing acoustic guitar flat on her lap, treating it as a percussion instrument while integrating tap-shoes and mounted kalimbas. \n*   **The \"Gateway\" Disruptor (PRS SE CE 24 Satin):** In terms of hardware, PRS Guitars has captured the budget-conscious, developing, and gigging musician market with the **PRS SE CE 24 Satin** (retailing at a highly competitive **$499 USD / \u00a3489**). Heralded as \"the answer to skyrocketing new guitar prices,\" it offers premium features like 85/15 \"S\" humbuckers, coil-tapping, and a raw satin finish. While critics point to a ultra-light neck finish that can feel \"cheap\" and basic stock tuners, the overwhelmingly positive sentiment praises it as an unpretentious, ergonomic, and highly versatile \"shred machine.\"\n\n---\n\n## Marketing Opportunity Analysis\n\nMarketers can leverage this guitar-driven cultural wave to build highly relevant, authentic campaigns for developing musicians and young creatives:\n\n### 1. Leverage the \"Pulse Artist\" Grassroots Model\nFollowing the success of the **PRS \"Pulse Artist\" Program**\u2014which grew to a record 145 regional artists from 30 countries\u2014brands should bypass traditional top-tier celebrity endorsements. Instead, build campaigns around local, high-engagement, regional \"heroes.\" Create localized digital-first content that highlights these intermediate-to-advanced players who are actively gigging at local street festivals or \"Porchfests.\" Showcasing these real-world, accessible tastemakers builds intense brand credibility among younger consumers who value community and authenticity over polished corporate backing.\n\n### 2. Design Around the \"Raw & Unpretentious\" Aesthetic\nAlign campaign messaging with the \"anti-perfectionist\" ethos of the current music scene. Young players are rejecting clinical, expensive, and intimidating high-end gear in favor of approachable, tactile tools like the PRS SE CE 24 Satin or character-rich retro setups. \n*   **Actionable Strategy:** Build marketing assets that focus on the tactile \"feel\" of gear (e.g., the raw connection of a satin finish) rather than overly clinical, technical jargon. Use lo-fi, tape-saturated visual aesthetics and warm, compressed sound design across TikTok, Instagram, and Reddit to mirror the bedroom-producer-to-festival-stage pipeline popularized by Mk.gee and MJ Lenderman.\n\n### 3. Embrace Genre-Blending and Cross-Pollination in Content\nThe modern young guitarist does not identify with a single genre; they seamlessly transition from metal to jazz fusion, or blend progressive metal riffs with digital VSTs and hip-hop beats (as seen with bands like Spiritbox). \n*   **Actionable Strategy:** Create educational and promotional content that actively celebrates this hybridity. Develop campaign tutorials, presets, or social media challenges that show how a single piece of hardware\u2014like a highly versatile, coil-tapped electric guitar\u2014can bridge the gap between \"bedroom pop,\" \"desert blues,\" \"shoegaze,\" and \"progressive metal.\" Position the product as a limitless tool for creative self-expression rather than a genre-specific instrument.",
+    "combined_web_search_insights": "# Strategic Brief: The Genre-Fluid Guitar Revival\n\n### **1. Executive Summary (The Big Idea)**\nThe traditional, rigid boundaries of electric guitar playing are dead; today\u2019s young creatives demand a tactile, unpretentious \"shred machine\" that can bridge the bedroom-to-festival pipeline. By positioning the highly accessible **PRS SE CE 24 Satin** at the intersection of ergonomics and genre-fluid versatility, this campaign will capture the raw, DIY energy of Gen Z and Millennial players who reject clinical perfection in favor of expressive, authentic self-expression.\n\n### **2. Core Campaign Fundamentals**\n*   **Target Audience:** Aspiring and intermediate players aged 18\u201335 (Gen Z and younger Millennials) who prioritize playing comfort, low string tension, and effortless neck ergonomics. They seek an inspiring instrument that eases daily practice while offering the sonic headroom to evolve over 2\u20135 years of serious playing.\n*   **Product Landscape:** The market is split between sub-$800 entry-level models (e.g., Squier, Epiphone) and $1,000\u2013$1,500 intermediate workhorses (e.g., Fender Player II, PRS SE Silver Sky). The **PRS SE CE 24 Satin** disrupts this hierarchy as a \"gateway\" instrument. At a highly disruptive **$499 USD / \u00a3489**, it delivers elite bolt-on performance, custom 85/15 \"S\" humbuckers, and coil-tapping versatility, effectively rendering the traditional \"beginner vs. intermediate\" price gap obsolete.\n*   **Key Selling Points:** \n    *   *Tactile Ergonomics:* An ultra-light, satin-finished neck that prioritizes pure playability and fast, comfortable fretting.\n    *   *Absolute Versatility:* Coil-splitting humbuckers that shift seamlessly from thick, high-output rock tones to highly compressed, single-coil clean sounds.\n    *   *Unbeatable Value:* True PRS craftsmanship, hardware stability, and premium gig-ready tone at an entry-level price point.\n\n### **3. Cultural Opportunity & Relevance**\nThe electric guitar is undergoing a massive, festival-driven resurgence led by sub-30 artists who champion a \"raw & unpretentious\" aesthetic. Young players are turning away from intimidating, clinical high-end gear, instead embracing character-rich, lo-fi setups. \n\nThis campaign will tap into the current cultural duality of the music scene: the hyper-compressed, electronic-friendly clean tones of \"Brat Summer\" and the fuzzy, \"slacker-rock\" garage distortion of the \"Asheville Sound\" (e.g., MJ Lenderman, Wednesday). By framing the PRS SE CE 24 Satin\u2019s coil-tapped pickups as the ultimate sonic bridge, the campaign directly aligns with how modern \"bedroom-to-stage\" artists (such as Mk.gee) use gear\u2014treating the instrument as an experimental, highly tactile palette rather than a museum piece. \n\n### **4. Strategic Recommendations for Creative**\n*   **Ditch the Corporate Gloss for a \"Lo-Fi, High-Tactility\" Visual Style:** Creative assets across TikTok, Instagram, and YouTube Shorts must reject polished, high-definition studio environments. Instead, use warm, tape-saturated visual filters, vintage analog color grading, and close-up, tactile shots of the raw satin finish. Frame the PRS SE CE 24 Satin's light neck finish not as \"budget,\" but as an unpretentious, road-ready invitation to play.\n*   **De-Emphasize Jargon, Highlight \"Genre-Crossing\" Versatility:** Avoid intimidating technical spec-sheets in ad copy. Instead, show\u2014don\u2019t tell\u2014how the coil-tap function operates. Launch a video series showing a single player using the PRS SE CE 24 Satin to transition instantly from the glassy, compressed clean tones of contemporary bedroom pop to the ragged, fuzzy garage distortion of the indie rock scene. \n*   **Bypass Traditional \"Guitar Gods\" for Grassroots \"Pulse Artists\":** Rather than partnering with legacy guitar magazine channels or traditional virtuosos, build the campaign around regional, high-engagement \"heroes\" and digital info-tainers (similar to the PRS \"Pulse Artist\" model). Showcase young, diverse, and authentic creators gigging at local block parties, writing in bedroom studios, and demonstrating real-world tips to demystify the instrument for the next generation of players.",
+    "combined_final_cited_report": "# Campaign Strategy: The Genre-Fluid Guitar Revival\n**Search Trend: summer music festival season**\n\n## Executive Summary\nThe traditional, rigid boundaries of electric guitar playing are evolving, with today\u2019s young creatives demanding a tactile, unpretentious instrument that bridges the bedroom-to-festival pipeline. By positioning the highly accessible PRS SE CE 24 Satin at the intersection of ergonomics and genre-fluid versatility, this campaign captures the raw, DIY energy of Gen Z and Millennial players. We will empower artists who reject clinical perfection in favor of expressive, authentic self-expression, framing this guitar as the ultimate creative catalyst.\n*   **Market Disruption:** The campaign leverages a disruptive $499 pricing model to challenge traditional beginner/intermediate tiers, offering premium features without the premium barrier <cite source=\"src-20\" />.\n*   **Sonic Agility:** Focuses on tactile ergonomics and coil-splitting versatility, directly answering the sonic demands of diverse summer festival lineups <cite source=\"src-20\" />.\n*   **Authentic Outreach:** Bypasses traditional legacy media in favor of grassroots influencer marketing and regional \"Pulse Artists\" to reach young creatives where they actually consume content <cite source=\"src-10\" /> <cite source=\"src-29\" />.\n\n## Core Campaign Fundamentals\nThis campaign targets aspiring and intermediate players aged 18\u201335 who prioritize playing comfort and need a versatile instrument to evolve with their skills over their next 2\u20135 years of serious playing <cite source=\"src-7\" />. The PRS SE CE 24 Satin acts as the ultimate \"gateway\" instrument, delivering pro-level build quality and wide tonal range at an accessible price point, effectively rendering the traditional \"beginner vs. intermediate\" price gap obsolete <cite source=\"src-33\" />.\n*   **Target Audience Profile:** Gen Z and younger Millennials (18-35), including budget-conscious gigging musicians and genre-hopping guitarists <cite source=\"src-25\" />. They seek comfort\u2014such as lower fretting pressure and slimmer necks\u2014paired with highly inspiring tone <cite source=\"src-5\" />.\n*   **Product Landscape Context:** The guitar market is heavily bifurcated between sub-$800 entry-level models and $1,000\u2013$1,500 intermediate workhorses <cite source=\"src-7\" />. The PRS SE CE 24 Satin disrupts this ecosystem entirely at $499 USD / \u00a3489 <cite source=\"src-20\" />.\n*   **Validated Selling Points:**\n    *   *Tactile Ergonomics:* Features a bolt-on maple neck with a highly comfortable, light satin finish that avoids the harsh forearm edge of more expensive Core models, maximizing physical comfort <cite source=\"src-21\" />.\n    *   *Absolute Versatility:* Equipped with custom 85/15 \"S\" humbuckers and a push/pull tone knob for coil-tapping, providing tight, high-output rock tones and bright, clear single-coil splits <cite source=\"src-20\" />.\n    *   *Unbeatable Value:* True PRS craftsmanship that provides a \"lush,\" raw guitar sound allowing players to feel physically connected to the instrument at an entry-level price <cite source=\"src-20\" /> <cite source=\"src-24\" />.\n\n## Integrated Trend and Cultural Analysis\nThe electric guitar is experiencing a massive resurgence fueled by the summer music festival season, where sub-30 artists are championing a \"raw & unpretentious\" aesthetic. Young players are turning away from intimidating, clinical high-end gear, instead embracing character-rich, lo-fi setups that cross genre boundaries effortlessly.\n*   **The Festival Duality:** The current live music scene is culturally split between the hyper-compressed, electronic-friendly clean tones of pop aesthetics (e.g., Charli XCX's *Brat*) and the fuzzy, slacker-rock garage distortion of the \"Asheville Sound\" (e.g., MJ Lenderman, Wednesday) <cite source=\"src-15\" /> <cite source=\"src-17\" /> <cite source=\"src-34\" />. \n*   **Genre-Fluidity & Cross-Pollination:** Modern musicians increasingly reject strict genre limits. They are blending electronic beats with heavy progressive guitar licks (e.g., Spiritbox) and popularizing highly compressed, tape-saturated bedroom pop sounds (e.g., Mk.gee) <cite source=\"src-17\" /> <cite source=\"src-36\" />.\n*   **Aesthetic Flexibility:** While classic offset designs currently dominate the hands of under-30 festival players <cite source=\"src-14\" />, the PRS SE CE 24 Satin must position its versatile coil-tap capabilities and stripped-back satin finish as the sonic and aesthetic equivalent to this unpretentious, genre-hopping flexibility.\n\n## Actionable Creative Briefing Points\nTo resonate with our target demographic, all creative assets must embrace a highly tactile, grassroots visual and messaging strategy. The directives below outline a prioritized roadmap for the Ad Copy and Visual teams to capture the unpretentious, versatile spirit of modern guitar culture.\n1.  **Adopt a \"Lo-Fi, High-Tactility\" Visual Style:** Reject polished, high-definition studio environments in favor of warm, tape-saturated visual filters and vintage analog color grading <cite source=\"src-17\" />. Use close-up shots of the raw satin finish to frame the guitar as an unpretentious, road-ready tool rather than a delicate museum piece <cite source=\"src-20\" />.\n2.  **Showcase \"Genre-Crossing\" Versatility Without Jargon:** Avoid intimidating technical spec-sheets in ad copy. Instead, create short-form video series demonstrating the coil-tap function seamlessly transitioning from glassy, compressed bedroom-pop clean tones to ragged, fuzzy indie rock distortion <cite source=\"src-20\" /> <cite source=\"src-34\" />.\n3.  **Bypass Legacy Media for \"Info-tainers\":** Avoid traditional legacy guitar magazines, which skew heavily toward a 45+ male audience <cite source=\"src-13\" />. Partner exclusively with TikTok, Instagram, and YouTube Shorts creators and \"aspirational\" guitar influencers whose followers are young music lovers and creatives <cite source=\"src-10\" /> <cite source=\"src-11\" />.\n4.  **Leverage Grassroots \"Pulse Artists\":** Build campaign narratives around regional, high-engagement heroes who are making waves in local music scenes, rather than relying on traditional \"guitar gods\" or high-profile celebrity endorsements <cite source=\"src-29\" /> <cite source=\"src-30\" />.\n5.  **Emphasize the \"Gateway\" Narrative:** Frame the $499 PRS SE CE 24 Satin as the ultimate bridge instrument. Highlight how its accessible price point doesn't sacrifice the premium feel and hardware stability required for a player's crucial 2\u20135 year skill development window <cite source=\"src-7\" /> <cite source=\"src-33\" />.",
+    "final_report_with_citations": "# Campaign Strategy: The Genre-Fluid Guitar Revival\n**Search Trend: summer music festival season**\n\n## Executive Summary\nThe traditional, rigid boundaries of electric guitar playing are evolving, with today\u2019s young creatives demanding a tactile, unpretentious instrument that bridges the bedroom-to-festival pipeline. By positioning the highly accessible PRS SE CE 24 Satin at the intersection of ergonomics and genre-fluid versatility, this campaign captures the raw, DIY energy of Gen Z and Millennial players. We will empower artists who reject clinical perfection in favor of expressive, authentic self-expression, framing this guitar as the ultimate creative catalyst.\n*   **Market Disruption:** The campaign leverages a disruptive $499 pricing model to challenge traditional beginner/intermediate tiers, offering premium features without the premium barrier  [guitarinteractivemagazine.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQG1lEh9tUkSqmWKlgvLVr98H8NruflEFdfpduoPr9MKVvePXdZ4lyOvQJsWYANuQzkNGDiS2qZVV7WQFySN3HpxCaVa1qwfophkQCvkYlnjM_RLpNYovf3iOEExv3zGoUApnXuwetgCi-aDOXgyV7wHQNRSjtMx6dsP2wcCeXbARsdNYt3TAYo=).\n*   **Sonic Agility:** Focuses on tactile ergonomics and coil-splitting versatility, directly answering the sonic demands of diverse summer festival lineups  [guitarinteractivemagazine.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQG1lEh9tUkSqmWKlgvLVr98H8NruflEFdfpduoPr9MKVvePXdZ4lyOvQJsWYANuQzkNGDiS2qZVV7WQFySN3HpxCaVa1qwfophkQCvkYlnjM_RLpNYovf3iOEExv3zGoUApnXuwetgCi-aDOXgyV7wHQNRSjtMx6dsP2wcCeXbARsdNYt3TAYo=).\n*   **Authentic Outreach:** Bypasses traditional legacy media in favor of grassroots influencer marketing and regional \"Pulse Artists\" to reach young creatives where they actually consume content  [weebly.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEPHLhTOt6JhWa_LnkaZBKKJhTHjkQv0b3wBdd3W8ngxtx_PxDazgZD5kLPmf8h0aRuzuxYJcF0uI7-VuDJAeimIajyxnQ5A-2PQmXWwq6sFh6K_IDx4Xn8Mzbq1mKBhnWmZiGAsohKQd8IaQIIPp91N8iXD-uQ08cTcCCC0NX5XZyYJJmSN_0N5v-vFA==)  [prsguitars.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQErHktHtLhzMNXFVBOhwHf0lpr-A1kDX3WKhMQy1BDsL9LTsLvWstUP9gqlMWJ4eWdh4aXrHD0Xmdu5b03t8CRm0x5k7Hp00B1PM9hSgatOvGRgu7BfgBuyf1QKcOjS).\n\n## Core Campaign Fundamentals\nThis campaign targets aspiring and intermediate players aged 18\u201335 who prioritize playing comfort and need a versatile instrument to evolve with their skills over their next 2\u20135 years of serious playing  [myguitarmatch.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHijuua1BEnWG4KkxrAPH-ZMhWQ2dXYW2LoKjohBgp6HWFRAi-BSWqgeIoU5-0TUyj5W2Tkiseiu0eVFngJ3dp71YiwGDGJNyaLiwyFR5DvQ5t_pr8Gjbc507xhglceMXnSlyeUxacR4AZXcUKc0dBoK684PmhVyL7U-yJv9CE=). The PRS SE CE 24 Satin acts as the ultimate \"gateway\" instrument, delivering pro-level build quality and wide tonal range at an accessible price point, effectively rendering the traditional \"beginner vs. intermediate\" price gap obsolete  [prsguitars.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEIOBcV5YknVi44xrPe65G3fVjL6Fsl9N03r7x3woxhG5Lk7yNZM0p_ypUL81mF42UJtyr5Cv7U4tiHz3uXF-ebfUP9teJpUMc1t63MrqCD8BiJ9qB-6kuc8XYATa_JAIyB5p3e0dMHCt0iETGs3CwI2NFuSoSHhWWFXPIib6ZcjcUX0fqRODzD6d6d4J-Vt-stWNhHTA==).\n*   **Target Audience Profile:** Gen Z and younger Millennials (18-35), including budget-conscious gigging musicians and genre-hopping guitarists  [sweetwater.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHOaCNIW71LiMgsg9JvnP3aJMbthELaJcWPMcRg2lKrZxSHCDnnOj5N2K7yg73iv3_UbwpnqPAl_A83LcAwi3815TQiYwXrKQifdMkJNWTSOxh6O6vgM-t3MaQ0-mAOUKjIRd8tR1QxTHgH4wl0YUo8s5Gn6rPZJ3dE6_VeHA1BKsVK-gPZB6cjP918ULb9MxlmOyLPTFhkLNPYj3KeNNs5KR55zaXxKmMVN9oTYgD6ql6B_dEaDiM=). They seek comfort\u2014such as lower fretting pressure and slimmer necks\u2014paired with highly inspiring tone  [furtadosonline.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEffysoTkGw6a_B0IKijyEXRvXduE_WLNkfBPLkobAeBf7gW1l5VYdSjWLOncUXcW18-HXBtKhE9PvixGzWFqnnCn4Kc38pC2fKb64_CHGv7gFgFEPZ4z71XPbEosP4YCgczrWkZuhUEiRaK--xzNdBhvdFMKij3-bImxiKoCASDvyW_VGfaYnfcq85-psvOOCOnyFZxmamyDnwvSuTBuAc).\n*   **Product Landscape Context:** The guitar market is heavily bifurcated between sub-$800 entry-level models and $1,000\u2013$1,500 intermediate workhorses  [myguitarmatch.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHijuua1BEnWG4KkxrAPH-ZMhWQ2dXYW2LoKjohBgp6HWFRAi-BSWqgeIoU5-0TUyj5W2Tkiseiu0eVFngJ3dp71YiwGDGJNyaLiwyFR5DvQ5t_pr8Gjbc507xhglceMXnSlyeUxacR4AZXcUKc0dBoK684PmhVyL7U-yJv9CE=). The PRS SE CE 24 Satin disrupts this ecosystem entirely at $499 USD / \u00a3489  [guitarinteractivemagazine.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQG1lEh9tUkSqmWKlgvLVr98H8NruflEFdfpduoPr9MKVvePXdZ4lyOvQJsWYANuQzkNGDiS2qZVV7WQFySN3HpxCaVa1qwfophkQCvkYlnjM_RLpNYovf3iOEExv3zGoUApnXuwetgCi-aDOXgyV7wHQNRSjtMx6dsP2wcCeXbARsdNYt3TAYo=).\n*   **Validated Selling Points:**\n    *   *Tactile Ergonomics:* Features a bolt-on maple neck with a highly comfortable, light satin finish that avoids the harsh forearm edge of more expensive Core models, maximizing physical comfort  [budgetguitarist.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQGDe6HPX6UMkLaPamNkisSpjFVdpPhzPfnEaEZxdZ6Pj34hWiVk7J-m4aEgo2JpPF6hzcZq9JjXQBJ6dca3dwGlvfEnu0-cvUu0ZmH9yzQ14ObfcJazTVw71b3VCEtmQnPXGPoAMLuGgE5wmJygJHA=).\n    *   *Absolute Versatility:* Equipped with custom 85/15 \"S\" humbuckers and a push/pull tone knob for coil-tapping, providing tight, high-output rock tones and bright, clear single-coil splits  [guitarinteractivemagazine.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQG1lEh9tUkSqmWKlgvLVr98H8NruflEFdfpduoPr9MKVvePXdZ4lyOvQJsWYANuQzkNGDiS2qZVV7WQFySN3HpxCaVa1qwfophkQCvkYlnjM_RLpNYovf3iOEExv3zGoUApnXuwetgCi-aDOXgyV7wHQNRSjtMx6dsP2wcCeXbARsdNYt3TAYo=).\n    *   *Unbeatable Value:* True PRS craftsmanship that provides a \"lush,\" raw guitar sound allowing players to feel physically connected to the instrument at an entry-level price  [guitarinteractivemagazine.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQG1lEh9tUkSqmWKlgvLVr98H8NruflEFdfpduoPr9MKVvePXdZ4lyOvQJsWYANuQzkNGDiS2qZVV7WQFySN3HpxCaVa1qwfophkQCvkYlnjM_RLpNYovf3iOEExv3zGoUApnXuwetgCi-aDOXgyV7wHQNRSjtMx6dsP2wcCeXbARsdNYt3TAYo=)  [youtube.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHcmf0Y9vUfhZAHFfn_-IyPb-y0C0cAIsJ0rrjkeKRL4j6lpweQb7sFa3ImBtGCspSpQMrezsBokJYjBul_TGIWUDFcxRuuCy0iUjcvYpzZxtfhLtdg8u9updxfghEdVd8lP-pSUqE=).\n\n## Integrated Trend and Cultural Analysis\nThe electric guitar is experiencing a massive resurgence fueled by the summer music festival season, where sub-30 artists are championing a \"raw & unpretentious\" aesthetic. Young players are turning away from intimidating, clinical high-end gear, instead embracing character-rich, lo-fi setups that cross genre boundaries effortlessly.\n*   **The Festival Duality:** The current live music scene is culturally split between the hyper-compressed, electronic-friendly clean tones of pop aesthetics (e.g., Charli XCX's *Brat*) and the fuzzy, slacker-rock garage distortion of the \"Asheville Sound\" (e.g., MJ Lenderman, Wednesday)  [pastemagazine.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQGZelc4tctUWCIOYpxuoMbz_kAgRRRRHZHkvnd-6j9kGU4b811EJE-rfnChc0Yu9UfgvJJruLhUpTw3wlVozdIf_dDu-A38xI_FDWbC-lyUzGOKLBo2EU1seuBT_DF-fIHavWbSU4WqAPcegn_OpncPo4TlsIZQymFeIlfGhKZNG3af)  [guitarworld.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQGjCQbEvDErZ6z5Ceho6G1SKVRx-dISKZU14l--Ft2wHcrLimhq5cWGT1Q7kdLeKe6sNSsMpR6_wSWBlVTBhZHCWlu7p9w2XlkNQhaisY6tgl6NfMDAZp8iW7m32S2qJG_4MRwv7fguYqtnVwoN9guQd7e1PK-UFNGRtBGOnZkVZiG9cyVICHiYWIY=)  [pixaura.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHtBUpOD1QEQB287diSxgO68c0QfhT_7MnnMHGKmN8Zt1wIBhWf0gyoM9udubWTkT9T_wISHudWcoX5ni5hq1APsVyrICXf4jwgZVePFWpZuubqK0oQfzpFnqBdS2bNorxBhbPG-4X3W9D2sBccJRDm). \n*   **Genre-Fluidity & Cross-Pollination:** Modern musicians increasingly reject strict genre limits. They are blending electronic beats with heavy progressive guitar licks (e.g., Spiritbox) and popularizing highly compressed, tape-saturated bedroom pop sounds (e.g., Mk.gee)  [guitarworld.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQGjCQbEvDErZ6z5Ceho6G1SKVRx-dISKZU14l--Ft2wHcrLimhq5cWGT1Q7kdLeKe6sNSsMpR6_wSWBlVTBhZHCWlu7p9w2XlkNQhaisY6tgl6NfMDAZp8iW7m32S2qJG_4MRwv7fguYqtnVwoN9guQd7e1PK-UFNGRtBGOnZkVZiG9cyVICHiYWIY=)  [guitarstrength.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEgOkhRPQUaikkktUJXDCm8OYsGqn8V0p0tzM6niwVKNSSXwmSi_YDrvGoCRT5DWV009wuAimgFZjPDaadL3F5MkBJ8a01nRci4VRwL3MAsRbF_WUM4t6vk5dLsa68j3i4qlXlinZcaHLB7YLFM3j9IW4Dnd1pwLfIv2xw4ihYwuFsGNUndxINNLnA5o_1kAlwd9207yYWQHSAblHoqtqsAtRVk5pc=).\n*   **Aesthetic Flexibility:** While classic offset designs currently dominate the hands of under-30 festival players  [ultimate-guitar.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQF1ziP_2gG_WsscIrIA6_fn9TRg9y22zw7M0wk_StMnI4SpIpOoRkxZJOGhYtLKOkow0YUXSK2HQSKdx-E2RmguzPXkolng2gLMvJYUocg5viCa43qPEnZOwUPyPwBu1oGiq9cXycnqDbFRbyDZ75T0DFVFynall5Le7F192J48Dz7Drg9wx69cYfmeAX9wDOQ6DdonE7iNRMJ9FOKIU0jC9G_d0qxsDI8T4X4AYxAJRN7Iy42zIvw=), the PRS SE CE 24 Satin must position its versatile coil-tap capabilities and stripped-back satin finish as the sonic and aesthetic equivalent to this unpretentious, genre-hopping flexibility.\n\n## Actionable Creative Briefing Points\nTo resonate with our target demographic, all creative assets must embrace a highly tactile, grassroots visual and messaging strategy. The directives below outline a prioritized roadmap for the Ad Copy and Visual teams to capture the unpretentious, versatile spirit of modern guitar culture.\n1.  **Adopt a \"Lo-Fi, High-Tactility\" Visual Style:** Reject polished, high-definition studio environments in favor of warm, tape-saturated visual filters and vintage analog color grading  [guitarworld.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQGjCQbEvDErZ6z5Ceho6G1SKVRx-dISKZU14l--Ft2wHcrLimhq5cWGT1Q7kdLeKe6sNSsMpR6_wSWBlVTBhZHCWlu7p9w2XlkNQhaisY6tgl6NfMDAZp8iW7m32S2qJG_4MRwv7fguYqtnVwoN9guQd7e1PK-UFNGRtBGOnZkVZiG9cyVICHiYWIY=). Use close-up shots of the raw satin finish to frame the guitar as an unpretentious, road-ready tool rather than a delicate museum piece  [guitarinteractivemagazine.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQG1lEh9tUkSqmWKlgvLVr98H8NruflEFdfpduoPr9MKVvePXdZ4lyOvQJsWYANuQzkNGDiS2qZVV7WQFySN3HpxCaVa1qwfophkQCvkYlnjM_RLpNYovf3iOEExv3zGoUApnXuwetgCi-aDOXgyV7wHQNRSjtMx6dsP2wcCeXbARsdNYt3TAYo=).\n2.  **Showcase \"Genre-Crossing\" Versatility Without Jargon:** Avoid intimidating technical spec-sheets in ad copy. Instead, create short-form video series demonstrating the coil-tap function seamlessly transitioning from glassy, compressed bedroom-pop clean tones to ragged, fuzzy indie rock distortion  [guitarinteractivemagazine.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQG1lEh9tUkSqmWKlgvLVr98H8NruflEFdfpduoPr9MKVvePXdZ4lyOvQJsWYANuQzkNGDiS2qZVV7WQFySN3HpxCaVa1qwfophkQCvkYlnjM_RLpNYovf3iOEExv3zGoUApnXuwetgCi-aDOXgyV7wHQNRSjtMx6dsP2wcCeXbARsdNYt3TAYo=)  [pixaura.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHtBUpOD1QEQB287diSxgO68c0QfhT_7MnnMHGKmN8Zt1wIBhWf0gyoM9udubWTkT9T_wISHudWcoX5ni5hq1APsVyrICXf4jwgZVePFWpZuubqK0oQfzpFnqBdS2bNorxBhbPG-4X3W9D2sBccJRDm).\n3.  **Bypass Legacy Media for \"Info-tainers\":** Avoid traditional legacy guitar magazines, which skew heavily toward a 45+ male audience  [creatordb.app](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEoQbVFqcNhxcudmvS5MKXePdWQRRwr_18AZjwqpxdCEyOauDAjljE2xS486Mya4u_wxLvH_pP5zM6vIVeQf6fA225YssvhtNWGH1y1eMUYxO7_kUHsJzaXF5gTCkwSL7FbqES-2b8d). Partner exclusively with TikTok, Instagram, and YouTube Shorts creators and \"aspirational\" guitar influencers whose followers are young music lovers and creatives  [weebly.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEPHLhTOt6JhWa_LnkaZBKKJhTHjkQv0b3wBdd3W8ngxtx_PxDazgZD5kLPmf8h0aRuzuxYJcF0uI7-VuDJAeimIajyxnQ5A-2PQmXWwq6sFh6K_IDx4Xn8Mzbq1mKBhnWmZiGAsohKQd8IaQIIPp91N8iXD-uQ08cTcCCC0NX5XZyYJJmSN_0N5v-vFA==)  [collabstr.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHHqco3KZJ6ohERGu21o6PGHNUjHtLO06b213eoYq_1ZguTawpbjfJ6XnKmC_nURtRJaFT7RiNhQyJ6qKvwEUgsaXVeZVsebaLm-VAB-ZVYn9y-F5hUBgKcRnNDPMPEsvW8CNxv8BM=).\n4.  **Leverage Grassroots \"Pulse Artists\":** Build campaign narratives around regional, high-engagement heroes who are making waves in local music scenes, rather than relying on traditional \"guitar gods\" or high-profile celebrity endorsements  [prsguitars.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQErHktHtLhzMNXFVBOhwHf0lpr-A1kDX3WKhMQy1BDsL9LTsLvWstUP9gqlMWJ4eWdh4aXrHD0Xmdu5b03t8CRm0x5k7Hp00B1PM9hSgatOvGRgu7BfgBuyf1QKcOjS)  [prsguitars.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQGg-FuDJntKu0FoG7RRWiWI-6f4LpUhCaEbHh4Ve7LOE6eljLJg5sSgC2hR0K9VQuXDLoJaV4GMn1GmZYzH9I3UH9Z5-zztDIdksoIPAz5SYmdeFgfdDM7jau_DA9-4zuZ42I2GGssG6qRwmfMV9XcHMiWxE96m_tRxlFKOZvBgRSuzG7zrwCkdRhnSYCHOsTS9vFjoSb_e32YiIDSp).\n5.  **Emphasize the \"Gateway\" Narrative:** Frame the $499 PRS SE CE 24 Satin as the ultimate bridge instrument. Highlight how its accessible price point doesn't sacrifice the premium feel and hardware stability required for a player's crucial 2\u20135 year skill development window  [myguitarmatch.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQHijuua1BEnWG4KkxrAPH-ZMhWQ2dXYW2LoKjohBgp6HWFRAi-BSWqgeIoU5-0TUyj5W2Tkiseiu0eVFngJ3dp71YiwGDGJNyaLiwyFR5DvQ5t_pr8Gjbc507xhglceMXnSlyeUxacR4AZXcUKc0dBoK684PmhVyL7U-yJv9CE=)  [prsguitars.com](https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQEIOBcV5YknVi44xrPe65G3fVjL6Fsl9N03r7x3woxhG5Lk7yNZM0p_ypUL81mF42UJtyr5Cv7U4tiHz3uXF-ebfUP9teJpUMc1t63MrqCD8BiJ9qB-6kuc8XYATa_JAIyB5p3e0dMHCt0iETGs3CwI2NFuSoSHhWWFXPIib6ZcjcUX0fqRODzD6d6d4J-Vt-stWNhHTA==).",
+    "research_report_gcs_uri": "gs://trend-trawler-deploy-ae/2026_07_18_04_00_3659/creative_output/research_report_with_citations.pdf",
+    "ad_copy_draft": {
+      "ad_copies": [
+        {
+          "id": 1,
+          "tone_style": "Relatable/Meme-based",
+          "headline": "Tell me you play indie rock AND pop without telling me...",
+          "body_text": "Me changing genres 4 times in one song. Good thing the PRS SE CE 24 coil-split can keep up with my musical identity crisis. Glassy single-coils to dirty humbuckers in one click.",
+          "trend_connection": "This copy references the genre-fluid lineups of the summer music festival season where artists jump from indie-pop cleans to heavy alt-rock mid-set.",
+          "audience_appeal_rationale": "It targets Gen Z's rejection of rigid genres by highlighting the push/pull tone knob in a lighthearted, viral-friendly format.",
+          "social_caption": "My music taste on shuffle but make it a guitar \ud83c\udfb8 Let's go: #GuitarHumor #PRSGuitars #FestivalVibes #GenreFluid #GuitaristLife"
+        },
+        {
+          "id": 2,
+          "tone_style": "Aspirational",
+          "headline": "From the Bedroom to the Main Stage.",
+          "body_text": "Stop waiting for the 'right time' to upgrade. The PRS SE CE 24 Satin delivers professional-grade, road-ready build quality that feels alive in your hands. This is the catalyst for your next tour.",
+          "trend_connection": "It captures the dream of aspiring players watching their favorite breakthrough artists perform on the summer music festival circuit.",
+          "audience_appeal_rationale": "It appeals directly to the 18-35 age group's desire to bridge the gap between practicing at home and gigging live.",
+          "social_caption": "Built for where your music is going next. \ud83c\udfb8\u2728 Link in bio to find your local dealer. #PRS #StageReady #IndieMusic #FestivalSeason #NewGear"
+        },
+        {
+          "id": 3,
+          "tone_style": "Educational/Informative",
+          "headline": "Why Satin Finish and Bolt-On Necks Matter.",
+          "body_text": "It is all about the snappy response and comfort. The bolt-on maple neck on the PRS SE CE 24 Satin gives you instant note attack, while the smooth satin neck means no sticking during sweaty outdoor summer gigs.",
+          "trend_connection": "It directly speaks to the physical demands of playing outdoor, high-energy sets during the peak summer music festival season.",
+          "audience_appeal_rationale": "It satisfies the technical curiosity of young, developing guitarists without using intimidating or elitist gear-head jargon.",
+          "social_caption": "Quick specs breakdown! Why the SE CE 24 is built for speed and comfort. \ud83e\udd13\ud83d\udc47 #GuitarSpecs #PrsSeCe24 #Guitarist #GearTalk"
+        },
+        {
+          "id": 4,
+          "tone_style": "Humorous",
+          "headline": "Looks expensive. Sounds expensive. Costs $499.",
+          "body_text": "Your landlord doesn't need to know why your tone sounds this rich. Skip the instant ramen diet and get pro-level PRS craftsmanship for less than the cost of a three-day festival VIP pass.",
+          "trend_connection": "It links the economic reality of young musicians attending expensive summer music festivals with the accessible $499 price point.",
+          "audience_appeal_rationale": "It connects with budget-conscious players by poking fun at the typical financial trade-offs of acquiring premium gear.",
+          "social_caption": "Unreal tone, very real bank account balance. \ud83e\udd1d Grab the PRS SE CE 24. #BudgetMusician #PrsGuitars #IndieBand #GuitarLife"
+        },
+        {
+          "id": 5,
+          "tone_style": "Emotional/Authentic",
+          "headline": "Stop chasing someone else's tone. Find yours.",
+          "body_text": "There are no rules in music anymore. The PRS SE CE 24 offers a raw, unpretentious, organic connection to your sound, letting you switch from bedroom-pop intimacy to garage-fuzz power seamlessly.",
+          "trend_connection": "It aligns with the raw, authentic slacker-rock and bedroom-pop trends currently dominating alternative summer music festivals.",
+          "audience_appeal_rationale": "It validation-seeks with young creators who value authentic self-expression and rejects clinical perfection in gear.",
+          "social_caption": "Raw tone for real stories. No gatekeeping, just pure creativity. \ud83d\udda4 #AestheticGuitar #Songwriter #PRSSE #UnfilteredMusic"
+        },
+        {
+          "id": 6,
+          "tone_style": "Problem/Solution",
+          "headline": "Are heavy, glossy necks slowing you down?",
+          "body_text": "Sweaty hands + sticky gloss finishes = missed notes on stage. The PRS SE CE 24's ultra-smooth, lightweight satin-finished maple neck is built to keep you moving fast, even under hot festival stage lights.",
+          "trend_connection": "It solves the physical, real-world issue of playing in hot, outdoor summer festival settings.",
+          "audience_appeal_rationale": "It targets players seeking physical comfort and low fretting pressure for their active, high-intensity gigs.",
+          "social_caption": "Say goodbye to sticky necks forever. \ud83e\udd75\u26a1 Say hello to raw maple. #PRS #GuitaristProblems #LiveMusic #SummerVibes"
+        },
+        {
+          "id": 7,
+          "tone_style": "Aspirational",
+          "headline": "Write the anthem of your summer.",
+          "body_text": "From writing riffs in your dorm to soundchecking at a local festival. The PRS SE CE 24's custom 85/15 'S' pickups give you the expressive dynamic range to bring your sonic vision to life.",
+          "trend_connection": "It leans into the creative inspiration of the summer festival season, encouraging players to write their own crowd-pleasing anthems.",
+          "audience_appeal_rationale": "It inspires 18-35 creatives by positioning the guitar as an essential, enabling partner in their artistic journey.",
+          "social_caption": "Summer is here, and so is your next track. Start writing with the SE CE 24. \u2600\ufe0f\ud83c\udf0a #GuitaristOfInstagram #NewMusic #PRSElectric #FestivalInspo"
+        },
+        {
+          "id": 8,
+          "tone_style": "Relatable/Meme-based",
+          "headline": "My bandmates: 'How did you afford that?'",
+          "body_text": "When you show up to festival rehearsals with a legendary PRS bird-inlay fretboard and they think you spent your whole rent. Jokes on them\u2014it's a $499 powerhouse.",
+          "trend_connection": "It captures the excitement of showing off fresh gear during festival prep and summer rehearsal sessions.",
+          "audience_appeal_rationale": "It uses humor surrounding the 'expensive' look of PRS bird-inlays contrasted with the highly disruptive $499 price point.",
+          "social_caption": "Keep them guessing. \ud83d\ude09 Absolute quality that won't break the bank. #BandLife #GuitarMeme #PRSCe24 #IndependentArtist #SummerTour"
+        },
+        {
+          "id": 9,
+          "tone_style": "Educational/Informative",
+          "headline": "The 2-in-1 Secret Weapon.",
+          "body_text": "Why carry two guitars when you can carry one? Pull the tone knob for glassy, compressed single-coil pop clean tones, or push it in for thick, heavy humbucker drive ideal for indie-rock festival stages.",
+          "trend_connection": "It speaks directly to festival line-ups that blend indie-pop aesthetic clean tones with raw garage distortion.",
+          "audience_appeal_rationale": "It targets practical, genre-hopping gigging guitarists who value travel-friendly, versatile instruments.",
+          "social_caption": "Humbuckers AND single-coils on one guitar. Here is how we do it! \ud83c\udf9b\ufe0f\u26a1 #GearReview #ToneHacks #PrsSe #ModernGuitarist"
+        },
+        {
+          "id": 10,
+          "tone_style": "Emotional/Authentic",
+          "headline": "For the raw, unpolished, and real.",
+          "body_text": "We stripped away the thick glossy coatings to give you a natural, satin-finished mahogany body and bolt-on maple neck. It feels alive, organic, and ready to turn your emotions into wall-to-wall sound.",
+          "trend_connection": "It aligns with the rising lo-fi aesthetic and raw, unpretentious garage indie trends visible across global summer music festivals.",
+          "audience_appeal_rationale": "It appeals directly to younger demographics seeking an organic, tactile physical connection to their instrument.",
+          "social_caption": "Feel the wood, hear the music. Pure, uncompromised vibe. \ud83c\udf42\u2728 #AestheticGuitars #OrganicVibe #PRSStyle #AltRock"
+        }
+      ]
+    },
+    "ad_copy_critique": {
+      "ad_copies": [
+        {
+          "original_id": 1,
+          "tone_style": "Relatable/Meme-based",
+          "headline": "Tell me you play indie rock AND pop without telling me...",
+          "body_text": "Me changing genres 4 times in one song. Good thing the PRS SE CE 24 coil-split can keep up with my musical identity crisis. Glassy single-coils to dirty humbuckers in one click.",
+          "trend_connection": "This copy references the genre-fluid lineups of the summer music festival season where artists jump from indie-pop cleans to heavy alt-rock mid-set.",
+          "audience_appeal_rationale": "It targets Gen Z's rejection of rigid genres by highlighting the push/pull tone knob in a lighthearted, viral-friendly format.",
+          "social_caption": "My music taste on shuffle but make it a guitar \ud83c\udfb8 Let's go: #GuitarHumor #PRSGuitars #FestivalVibes #GenreFluid #GuitaristLife",
+          "call_to_action": "Claim your tone shift today!",
+          "detailed_performance_rationale": "This copy leverages a highly recognizable social media format that immediately captures attention in fast-scrolling feeds. By framing the coil-split feature as a solution to a 'musical identity crisis,' it successfully matches the genre-fluid nature of modern music festivals. This relatable, low-friction framing will drive high engagement and organic shares among Gen Z creators."
+        },
+        {
+          "original_id": 4,
+          "tone_style": "Humorous",
+          "headline": "Looks expensive. Sounds expensive. Costs $499.",
+          "body_text": "Your landlord doesn't need to know why your tone sounds this rich. Skip the instant ramen diet and get pro-level PRS craftsmanship for less than the cost of a three-day festival VIP pass.",
+          "trend_connection": "It links the economic reality of young musicians attending expensive summer music festivals with the accessible $499 price point.",
+          "audience_appeal_rationale": "It connects with budget-conscious players by poking fun at the typical financial trade-offs of acquiring premium gear.",
+          "social_caption": "Unreal tone, very real bank account balance. \ud83e\udd1d Grab the PRS SE CE 24. #BudgetMusician #PrsGuitars #IndieBand #GuitarLife",
+          "call_to_action": "Get pro-level tone for $499!",
+          "detailed_performance_rationale": "Humor combined with a strong value proposition makes this ad copy incredibly high-converting. By comparing the cost of the guitar to a festival VIP pass, it contextualizes the price in a language the target demographic understands and prioritizes. It addresses the financial pain point head-on while maintaining a playful, brand-aligned personality."
+        },
+        {
+          "original_id": 6,
+          "tone_style": "Problem/Solution",
+          "headline": "Are heavy, glossy necks slowing you down?",
+          "body_text": "Sweaty hands + sticky gloss finishes = missed notes on stage. The PRS SE CE 24's ultra-smooth, lightweight satin-finished maple neck is built to keep you moving fast, even under hot festival stage lights.",
+          "trend_connection": "It solves the physical, real-world issue of playing in hot, outdoor summer festival settings.",
+          "audience_appeal_rationale": "It targets players seeking physical comfort and low fretting pressure for their active, high-intensity gigs.",
+          "social_caption": "Say goodbye to sticky necks forever. \ud83e\udd75\u26a1 Say hello to raw maple. #PRS #GuitaristProblems #LiveMusic #SummerVibes",
+          "call_to_action": "Upgrade to smooth satin playability!",
+          "detailed_performance_rationale": "This copy directly addresses a highly specific physical pain point that gigging guitarists experience during summer outdoor shows. By positioning the satin-finished neck as the ultimate solution to sticky, hot festival stages, it creates a compelling, logical reason to buy. The clear problem-and-solution structure is proven to drive high click-through rates among active performers."
+        },
+        {
+          "original_id": 9,
+          "tone_style": "Educational/Informative",
+          "headline": "The 2-in-1 Secret Weapon.",
+          "body_text": "Why carry two guitars when you can carry one? Pull the tone knob for glassy, compressed single-coil pop clean tones, or push it in for thick, heavy humbucker drive ideal for indie-rock festival stages.",
+          "trend_connection": "It speaks directly to festival line-ups that blend indie-pop aesthetic clean tones with raw garage distortion.",
+          "audience_appeal_rationale": "It targets practical, genre-hopping gigging guitarists who value travel-friendly, versatile instruments.",
+          "social_caption": "Humbuckers AND single-coils on one guitar. Here is how we do it! \ud83c\udf9b\ufe0f\u26a1 #GearReview #ToneHacks #PrsSe #ModernGuitarist",
+          "call_to_action": "Unlock your secret weapon now!",
+          "detailed_performance_rationale": "This copy excels because it highlights the instrument's versatility, which is crucial for modern multi-genre guitarists. Framing the coil-tap feature as a '2-in-1 secret weapon' simplifies a technical spec into a powerful, tangible benefit. It appeals directly to the practical need for efficiency when traveling to and playing at summer music festivals."
+        }
+      ]
+    },
+    "visual_direction": "### Visual Direction Brief: The Genre-Fluid Guitar Revival\n\n#### 1. Mood & Tone\nThe visual tone is **raw, tactile, and unpretentious**. It rejects clinical studio perfection in favor of high-energy, DIY authenticity. The imagery should feel alive, capturing the warm, kinetic, and slightly chaotic energy of live summer music festivals, bedroom rehearsals, and backstage moments. It balance a sense of effortless cool with relatable, lighthearted humor.\n\n#### 2. Colour Palette\n*   **Brat Green & Electric Teal (Primary - 40%):** High-energy, modern festival pop accents that pop against dark backgrounds.\n*   **Saturated Sunset Amber (Secondary - 30%):** Warm, tape-saturated, golden-hour stage light tones representing classic indie rock festivals.\n*   **Raw Charcoal & Natural Maple (Neutral/Base - 30%):** Earthy, organic tones derived from the PRS SE CE 24\u2019s raw satin wood finish, keeping the aesthetic grounded and tactile.\n\n#### 3. Recurring Visual Motifs\n*   **Stage-Side Chaos & Festival Ephemera:** Overlapping elements like VIP festival wristbands, crumpled setlists, colorful guitar picks, and glowing stage lights.\n*   **The \"Push/Pull\" Split Screen:** A recurring visual division (using diagonal rips, tape textures, or distinct lighting) showing two sonic worlds colliding (e.g., bubblegum bedroom pop versus gritty garage rock).\n*   **Analog Textures:** Subtle VHS scan lines, light leaks, half-tone dots, and duct-tape borders that emphasize a grassroots, lo-fi aesthetic.\n\n#### 4. Brand Visual Cues\n*   **The Satin Close-Up:** Always emphasize the tactile, non-reflective quality of the satin-finished maple neck. Show sweat drops, finger placement, and the raw wood texture.\n*   **PRS Signature Elements:** Keep the iconic PRS bird inlays and the sleek headstock shape clearly visible, but present them naturally (e.g., caught in a sweep of stage light or angled dynamically in a player's hands) rather than as static product placement.\n*   **Pricing Tag:** Position the \"$499\" price point in a bold, DIY stencil or label-maker sticker style rather than sleek corporate typography.\n\n#### 5. Recommended Style Families\nTo match the diverse range of ad copy tones, we will bypass standard polished studio photography in favor of these distinct visual styles:\n*   **Saturated Lo-Fi Photorealism:** For the *Problem/Solution* copy. Warm, grainy, high-contrast photography that captures the physical reality of sweaty, high-intensity festival performances under warm sunset stage lights.\n*   **Meme/Sticker Collage (Mixed Media):** For the *Relatable/Meme-based* copy. A chaotic, fun mix of real product cutouts, hand-drawn digital doodles, colorful stickers, and text blocks that mimic a Gen-Z scrapboard or social media story.\n*   **Graphic Split-Screen Minimalist:** For the *Educational/Informative* copy. A bold, two-tone graphic treatment splitting the frame down the middle to contrast the clean, glassy pop aesthetic on one side with raw, distorted garage rock on the other.",
+    "visual_draft": {
+      "visual_concepts": [
+        {
+          "ad_copy_id": 1,
+          "concept_name": "Genre-Crossing Identity Collage",
+          "trend_visual_link": "Visual elements feature overlapping neon VIP festival wristbands and bold, music shuffle playlist cues on a scrapboard.",
+          "concept_summary": "This concept illustrates a playful 'musical identity crisis' by placing a cut-out of the PRS SE CE 24 at the center of a chaotic collage. Half-doodles of brat-green electronic pop waves clash beautifully against grungy, charcoal garage-rock textures. It visually maps to the quick-switching coil-split capability highlighted in the copy.",
+          "visual_style": "Collage / mixed-media",
+          "aspect_ratio": "9:16",
+          "image_generation_prompt": "A chaotic, edgy cut-paper collage social media ad targeting young festival-goers. In the center, a raw photo cutout of the PRS SE CE 24 guitar rests on a background divided by a torn, jagged duct-tape line. On the left side, bright brat-green and electric teal hand-drawn digital doodles of bubblegum synth waves; on the right side, raw charcoal and sunset-amber analog VHS-glitch graphics representing heavy grunge. Textured festival wristbands, colorful guitar picks, and a label-maker style sticker that reads 'Tell me you play indie rock AND pop without telling me...' are layered over the scene."
+        },
+        {
+          "ad_copy_id": 4,
+          "concept_name": "Ramen vs Rich Tone Meme",
+          "trend_visual_link": "A humorous visual contrasting the expense of a summer music festival VIP pass with the budget-friendly $499 guitar price point.",
+          "concept_summary": "A high-concept, relatable meme layout highlighting the extreme value of the guitar compared to luxury festival tickets or endless instant ramen diets. The visual presents a split, humorous choice under clean, funny text banners.",
+          "visual_style": "Meme aesthetic",
+          "aspect_ratio": "1:1",
+          "image_generation_prompt": "A humorous meme-style social media ad for young guitarists. The top half shows an ultra-closeup photo of a cup of instant ramen with a sad smiley face drawn in sriracha. The bottom half shows a warm, premium-looking close-up photo of the PRS SE CE 24 body highlighting the satin maple neck, under warm golden festival stage lighting. The in-image text in white bold Impact font with a black outline reads at the top: 'LANDLORD IS ANGRY, BUT THE TONE IS CRISP' and at the bottom: '$499 FOR A REAL BEAST'. "
+        },
+        {
+          "ad_copy_id": 6,
+          "concept_name": "The High-Intensity Satin Escape",
+          "trend_visual_link": "The visual depicts sweaty hands playing on a hot, crowded outdoor summer festival stage under intense lights.",
+          "concept_summary": "A close-up, tactile photo showcasing the satin-finished neck. Sweat beads are visible but do not stick, illustrating how the wood grain prevents friction during high-energy summer live sets, solving the problem of sticky gloss necks under stage lights.",
+          "visual_style": "Saturated Lo-Fi Photorealism",
+          "aspect_ratio": "9:16",
+          "image_generation_prompt": "A grainy, saturated lo-fi photograph capturing the heat of an outdoor festival stage at sunset. High-contrast close-up shot of a guitarist's sweaty hand moving effortlessly along the non-reflective, satin-finished maple neck of a PRS SE CE 24 guitar. Beautiful warm sunset-amber backlighting flares into the lens, illuminating fine wood grain textures, subtle sweat drops, and the signature bird inlays. Earthy charcoal and warm maple tones dominate, with high energy. Ad copy watermark reads: 'Are heavy, glossy necks slowing you down?'."
+        },
+        {
+          "ad_copy_id": 9,
+          "concept_name": "The Push/Pull Split-Screen Secret",
+          "trend_visual_link": "The image splits two festival stages: a glassy pop music mainstage and a smoky, grungy alternative tent.",
+          "concept_summary": "A graphic treatment visually demonstrating the dual modes of the guitar. By splitting the graphic down the center, we show the push/pull tone knob transitioning clean pop-single coil aesthetics directly into gritty, humbucking rock vibes.",
+          "visual_style": "Graphic Split-Screen Minimalist",
+          "aspect_ratio": "3:4",
+          "image_generation_prompt": "A bold graphic split-screen illustration targeting gigging musicians. On the left side: a minimalist neon electric teal backdrop with a single-coil pickup icon symbolizing glassy pop clean tones. On the right side: a gritty, charcoal-gray backdrop with a classic humbucker pickup icon representing heavy, distorted indie-rock festival riffs. Separating them is a diagonal jagged rip, showing a close-up of a hand pulling up on the push/pull chrome tone knob of the PRS guitar. Bold stencil text at the bottom reads 'The 2-in-1 Secret Weapon' on a DIY sticker style block."
+        }
+      ]
+    },
+    "visual_concept_critique": {
+      "visual_concepts": [
+        {
+          "ad_copy_id": 1,
+          "concept_name": "Genre-Crossing Identity Collage",
+          "trend_visual_link": "Visual elements feature overlapping neon VIP festival wristbands and bold, music shuffle playlist cues on a scrapboard.",
+          "concept_summary": "This concept illustrates a playful 'musical identity crisis' by placing a cut-out of the PRS SE CE 24 at the center of a chaotic collage. Half-doodles of brat-green electronic pop waves clash beautifully against grungy, charcoal garage-rock textures. It visually maps to the quick-switching coil-split capability highlighted in the copy.",
+          "visual_style": "Collage / mixed-media",
+          "aspect_ratio": "9:16",
+          "image_generation_prompt": "A cut-paper collage social media ad of a PRS SE CE 24 electric guitar, featuring mixed textures and torn edges. The guitar is a central photographic cutout, resting on a background split diagonally by a strip of textured gray duct tape. The left half features a bright brat-green and electric teal background filled with hand-drawn neon doodles of synth-pop soundwaves. The right half features a gritty charcoal-gray background with sunset-amber analog VHS-glitch patterns. Overlapping the composition are textured neon-pink festival VIP wristbands, scattered guitar picks, and a label-maker sticker at the bottom with legible text reading \"Tell me you play indie rock AND pop without telling me...\"",
+          "critique_summary": "Refined the prompt to lead with the explicit style declaration and cleaned up the spatial arrangement of the collage layers. Ensured the text label is clearly specified for legibility."
+        },
+        {
+          "ad_copy_id": 4,
+          "concept_name": "Ramen vs Rich Tone Meme",
+          "trend_visual_link": "A humorous visual contrasting the expense of a summer music festival VIP pass with the budget-friendly $499 guitar price point.",
+          "concept_summary": "A high-concept, relatable meme layout highlighting the extreme value of the guitar compared to luxury festival tickets or endless instant ramen diets. The visual presents a split, humorous choice under clean, funny text banners.",
+          "visual_style": "Meme aesthetic",
+          "aspect_ratio": "1:1",
+          "image_generation_prompt": "A meme aesthetic social media ad in a two-panel vertical split layout targeting young musicians. The top panel shows a close-up photo of a Styrofoam cup of instant ramen with a sad smiley face drawn in red hot sauce. The bottom panel shows a warm, premium close-up photo of a PRS SE CE 24 electric guitar under golden festival stage lights, highlighting its satin maple neck. Large, bold, white Impact font text with a black outline is overlaid, with the top panel reading \"LANDLORD IS ANGRY, BUT THE TONE IS CRISP\" and the bottom panel reading \"$499 FOR A REAL BEAST\".",
+          "critique_summary": "Formatted the prompt specifically for the classic two-panel meme structure, clarifying font styles, text placement, and high-contrast visuals."
+        },
+        {
+          "ad_copy_id": 6,
+          "concept_name": "The High-Intensity Satin Escape",
+          "trend_visual_link": "The visual depicts sweaty hands playing on a hot, crowded outdoor summer festival stage under intense lights.",
+          "concept_summary": "A close-up, tactile photo showcasing the satin-finished neck. Sweat beads are visible but do not stick, illustrating how the wood grain prevents friction during high-energy summer live sets, solving the problem of sticky gloss necks under stage lights.",
+          "visual_style": "Saturated Lo-Fi Photorealism",
+          "aspect_ratio": "9:16",
+          "image_generation_prompt": "A candid 35mm film photo of a guitarist's hand sliding effortlessly along the non-reflective satin-finished maple neck of a PRS SE CE 24 electric guitar during a high-energy live performance on an outdoor festival stage. Extreme close-up shot focusing on the tactile wood grain texture, subtle sweat droplets on the skin, and the iconic PRS bird fretboard inlays. Warm sunset-amber backlighting flares directly into the camera lens, creating a hazy, golden-hour atmosphere with rich charcoal and warm maple tones. Clean negative space at the top features legible, retro-styled text that reads \"Are heavy, glossy necks slowing you down?\"",
+          "critique_summary": "Transformed into a candid 35mm film photo style, focusing on tactile wood textures and lens flare. Refined the text overlay to sit in a clean, non-obstructive negative space."
+        },
+        {
+          "ad_copy_id": 9,
+          "concept_name": "The Push/Pull Split-Screen Secret",
+          "trend_visual_link": "The image splits two festival stages: a glassy pop music mainstage and a smoky, grungy alternative tent.",
+          "concept_summary": "A graphic treatment visually demonstrating the dual modes of the guitar. By splitting the graphic down the center, we show the push/pull tone knob transitioning clean pop-single coil aesthetics directly into gritty, humbucking rock vibes.",
+          "visual_style": "Graphic Split-Screen Minimalist",
+          "aspect_ratio": "3:4",
+          "image_generation_prompt": "A flat 2D vector graphic illustration of a split-screen layout targeting gigging guitarists. The left half features a minimalist neon electric teal background with a clean single-coil pickup icon. The right half features a gritty, charcoal-gray background with a bold humbucker pickup icon. A diagonal jagged rip separates the two halves, revealing a detailed close-up illustration of a hand pulling up on the chrome push/pull tone knob of a PRS SE CE 24 guitar. At the bottom, a bold stencil-style DIY sticker graphic contains the legible text \"The 2-in-1 Secret Weapon\".",
+          "critique_summary": "Standardized to a flat 2D vector graphic style, clarifying the split-screen composition and making the central push/pull knob interaction more visually distinct."
+        }
+      ]
+    },
+    "final_visual_concepts": {
+      "visual_concepts": [
+        {
+          "ad_copy_id": 1,
+          "concept_name": "Genre-Crossing Identity Collage",
+          "trend": "Summer festival multi-genre lineups and playlist-shuffling music tastes",
+          "trend_reference": "Visual elements feature overlapping neon VIP festival wristbands and bold, music shuffle playlist cues on a scrapboard.",
+          "markets_product": "Demonstrates the PRS SE CE 24's versatile push/pull tone knob which easily switches between indie-rock humbucker tones and pop single-coil tones.",
+          "audience_appeal": "Appeals to Gen Z and millennial bedroom producers who refuse to stick to a single musical genre.",
+          "selection_rationale": "This concept delivers outstanding visual style diversity by introducing a vibrant, multi-layered mixed-media collage layout. It perfectly complements the high-energy, relatable tone of the ad copy.",
+          "headline": "Tell me you play indie rock AND pop without telling me...",
+          "social_caption": "My music taste on shuffle but make it a guitar \ud83c\udfb8 Let's go: #GuitarHumor #PRSGuitars #FestivalVibes #GenreFluid #GuitaristLife",
+          "call_to_action": "Claim your tone shift today!",
+          "concept_summary": "This concept illustrates a playful 'musical identity crisis' by placing a cut-out of the PRS SE CE 24 at the center of a chaotic collage. Half-doodles of brat-green electronic pop waves clash beautifully against grungy, charcoal garage-rock textures, visually mapping to the quick-switching coil-split capability.",
+          "visual_style": "Collage / mixed-media",
+          "aspect_ratio": "9:16",
+          "image_generation_prompt": "A cut-paper collage social media ad of a PRS SE CE 24 electric guitar, featuring mixed textures and torn edges. The guitar is a central photographic cutout, resting on a background split diagonally by a strip of textured gray duct tape. The left half features a bright brat-green and electric teal background filled with hand-drawn neon doodles of synth-pop soundwaves. The right half features a gritty charcoal-gray background with sunset-amber analog VHS-glitch patterns. Overlapping the composition are textured neon-pink festival VIP wristbands, scattered guitar picks, and a label-maker sticker at the bottom with legible text reading \"Tell me you play indie rock AND pop without telling me...\""
+        },
+        {
+          "ad_copy_id": 4,
+          "concept_name": "Ramen vs Rich Tone Meme",
+          "trend": "The skyrocketing ticket costs of major summer music festivals vs young musician budgets",
+          "trend_reference": "A humorous visual contrasting the expense of a summer music festival VIP pass with the budget-friendly $499 guitar price point.",
+          "markets_product": "Positions the $499 price tag of the premium PRS SE CE 24 as an unbeatable, high-value alternative to festival ticket prices.",
+          "audience_appeal": "Engages budget-conscious young players with direct humor about typical financial trade-offs in music gear acquisition.",
+          "selection_rationale": "This concept leverages the highly viral meme aesthetic. It maximizes social media engagement rates by using humor to make the $499 price point highly attractive and relatable.",
+          "headline": "Looks expensive. Sounds expensive. Costs $499.",
+          "social_caption": "Unreal tone, very real bank account balance. \ud83e\udd1d Grab the PRS SE CE 24. #BudgetMusician #PrsGuitars #IndieBand #GuitarLife",
+          "call_to_action": "Get pro-level tone for $499!",
+          "concept_summary": "A high-concept, relatable meme layout highlighting the extreme value of the guitar compared to luxury festival tickets or endless instant ramen diets. The visual presents a split, humorous choice under clean, funny text banners.",
+          "visual_style": "Meme aesthetic",
+          "aspect_ratio": "1:1",
+          "image_generation_prompt": "A meme aesthetic social media ad in a two-panel vertical split layout targeting young musicians. The top panel shows a close-up photo of a Styrofoam cup of instant ramen with a sad smiley face drawn in red hot sauce. The bottom panel shows a warm, premium close-up photo of a PRS SE CE 24 electric guitar under golden festival stage lights, highlighting its satin maple neck. Large, bold, white Impact font text with a black outline is overlaid, with the top panel reading \"LANDLORD IS ANGRY, BUT THE TONE IS CRISP\" and the bottom panel reading \"$499 FOR A REAL BEAST\"."
+        },
+        {
+          "ad_copy_id": 6,
+          "concept_name": "The High-Intensity Satin Escape",
+          "trend": "Playing live in hot, humid outdoor summer festival environments",
+          "trend_reference": "The visual depicts sweaty hands playing on a hot, crowded outdoor summer festival stage under intense lights.",
+          "markets_product": "Highlights the tactile benefits of the raw, satin-finished maple neck which prevents drag and sticking during intense live performances.",
+          "audience_appeal": "Targets active, gigging guitarists who face the frustrating physical issue of sticky gloss necks under stage lights.",
+          "selection_rationale": "This concept provides a striking lo-fi photorealistic option that targets a highly specific physical pain point, establishing high credibility and immediate technical trust with active performers.",
+          "headline": "Are heavy, glossy necks slowing you down?",
+          "social_caption": "Say goodbye to sticky necks forever. \ud83e\udd75\u26a1 Say hello to raw maple. #PRS #GuitaristProblems #LiveMusic #SummerVibes",
+          "call_to_action": "Upgrade to smooth satin playability!",
+          "concept_summary": "A close-up, tactile photo showcasing the satin-finished neck. Sweat beads are visible but do not stick, illustrating how the wood grain prevents friction during high-energy summer live sets, solving the problem of sticky gloss necks under stage lights.",
+          "visual_style": "Saturated Lo-Fi Photorealism",
+          "aspect_ratio": "9:16",
+          "image_generation_prompt": "A candid 35mm film photo of a guitarist's hand sliding effortlessly along the non-reflective satin-finished maple neck of a PRS SE CE 24 electric guitar during a high-energy live performance on an outdoor festival stage. Extreme close-up shot focusing on the tactile wood grain texture, subtle sweat droplets on the skin, and the iconic PRS bird fretboard inlays. Warm sunset-amber backlighting flares directly into the camera lens, creating a hazy, golden-hour atmosphere with rich charcoal and warm maple tones. Clean negative space at the top features legible, retro-styled text that reads \"Are heavy, glossy necks slowing you down?\""
+        },
+        {
+          "ad_copy_id": 9,
+          "concept_name": "The Push/Pull Split-Screen Secret",
+          "trend": "Dual-genre festival stages blending sleek pop acts with raw garage rock",
+          "trend_reference": "The image splits two festival stages: a glassy pop music mainstage and a smoky, grungy alternative tent.",
+          "markets_product": "Explains the technical utility of the push/pull pot, showing the mechanical transition between pop-style single-coils and heavy-rock humbuckers.",
+          "audience_appeal": "Appeals to practical, gigging guitarists who want a single, lightweight instrument to handle diverse sets.",
+          "selection_rationale": "This concept balances the overall campaign selection with a clean, vector graphic style, translating a mechanical guitar feature into an easily understood visual diagram.",
+          "headline": "The 2-in-1 Secret Weapon.",
+          "social_caption": "Humbuckers AND single-coils on one guitar. Here is how we do it! \ud83c\udf9b\ufe0f\u26a1 #GearReview #ToneHacks #PrsSe #ModernGuitarist",
+          "call_to_action": "Unlock your secret weapon now!",
+          "concept_summary": "A graphic treatment visually demonstrating the dual modes of the guitar. By splitting the graphic down the center, we show the push/pull tone knob transitioning clean pop-single coil aesthetics directly into gritty, humbucking rock vibes.",
+          "visual_style": "Graphic Split-Screen Minimalist",
+          "aspect_ratio": "3:4",
+          "image_generation_prompt": "A flat 2D vector graphic illustration of a split-screen layout targeting gigging guitarists. The left half features a minimalist neon electric teal background with a clean single-coil pickup icon. The right half features a gritty, charcoal-gray background with a bold humbucker pickup icon. A diagonal jagged rip separates the two halves, revealing a detailed close-up illustration of a hand pulling up on the chrome push/pull tone knob of a PRS SE CE 24 guitar. At the bottom, a bold stencil-style DIY sticker graphic contains the legible text \"The 2-in-1 Secret Weapon\"."
+        }
+      ]
+    },
+    "_images_generated": true,
+    "_generated_artifact_keys": [
+      "GenreCrossing_Identity_Collage.png",
+      "Ramen_vs_Rich_Tone_Meme.png",
+      "The_HighIntensity_Satin_Escape.png",
+      "The_PushPull_SplitScreen_Secret.png"
+    ],
+    "creative_evaluation_report": {
+      "brand": "PRS Guitars",
+      "target_product": "PRS SE CE 24 electric guitar",
+      "target_search_trend": "summer music festival season",
+      "ad_copy_evaluations": [
+        {
+          "original_id": 1,
+          "headline": "Tell me you play indie rock AND pop without telling me...",
+          "tone_style": "Relatable/Meme-based",
+          "score": {
+            "overall_score": 0.783,
+            "passed": true,
+            "verdicts": [
+              {
+                "dimension": "strategic_alignment",
+                "score": 8,
+                "verdict": "pass",
+                "rationale": "Effectively highlights the wide tonal range and coil-split feature, though it omits the bolt-on neck and price points."
+              },
+              {
+                "dimension": "trend_authenticity",
+                "score": 7,
+                "verdict": "pass",
+                "rationale": "The connection to summer music festivals is slightly indirect, relying more on the concept of genre-fluidity than explicit festival imagery."
+              },
+              {
+                "dimension": "platform_viability",
+                "score": 9,
+                "verdict": "pass",
+                "rationale": "Uses a highly recognizable, native social media meme format that is perfect for TikTok and Instagram Reels."
+              },
+              {
+                "dimension": "copy_quality",
+                "score": 9,
+                "verdict": "pass",
+                "rationale": "The writing is punchy, concise, and uses excellent guitar-specific terminology that adds credibility and flavor."
+              },
+              {
+                "dimension": "audience_fit",
+                "score": 9,
+                "verdict": "pass",
+                "rationale": "The meme-based humor and focus on genre-hopping perfectly match the media consumption habits of 18-35 year old guitarists."
+              },
+              {
+                "dimension": "call_to_action_strength",
+                "score": 5,
+                "verdict": "fail",
+                "rationale": "The CTA 'Claim your tone shift today!' feels slightly unnatural and sounds more like a software preset download than a guitar purchase."
+              }
+            ],
+            "strengths": [
+              "Highly engaging native social media format that stops the scroll.",
+              "Excellent use of guitar-specific terminology to describe the tonal range."
+            ],
+            "improvements": [
+              "Make the connection to summer music festivals more explicit in the actual body text.",
+              "Revise the CTA to be more natural for a physical product purchase, such as 'Find your sound' or 'Shop the SE CE 24'."
+            ]
+          }
+        },
+        {
+          "original_id": 1,
+          "headline": "Looks expensive. Sounds expensive. Costs $499.",
+          "tone_style": "Humorous",
+          "score": {
+            "overall_score": 0.867,
+            "passed": true,
+            "verdicts": [
+              {
+                "dimension": "strategic_alignment",
+                "score": 8,
+                "verdict": "pass",
+                "rationale": "Strongly aligns with the accessible price and pro-level quality selling points. It omits specific technical details like the bolt-on neck, but effectively communicates the core value proposition."
+              },
+              {
+                "dimension": "trend_authenticity",
+                "score": 7,
+                "verdict": "pass",
+                "rationale": "The connection to summer music festivals is clever and contextualizes the price well for the demographic. However, it is a slightly tangential mention rather than a core thematic integration."
+              },
+              {
+                "dimension": "platform_viability",
+                "score": 9,
+                "verdict": "pass",
+                "rationale": "The short, punchy headline and relatable humor are perfect for fast-scrolling platforms like Instagram and TikTok. The caption uses appropriate emojis and hashtags to maximize reach."
+              },
+              {
+                "dimension": "copy_quality",
+                "score": 10,
+                "verdict": "pass",
+                "rationale": "The headline is exceptionally strong, creating immediate intrigue and clearly stating the value. The body text is witty, concise, and highly persuasive without feeling overly salesy."
+              },
+              {
+                "dimension": "audience_fit",
+                "score": 10,
+                "verdict": "pass",
+                "rationale": "The messaging perfectly nails the 18-35 demographic by referencing relatable financial struggles like rent and instant ramen. It speaks their language and validates their desire for premium gear on a budget."
+              },
+              {
+                "dimension": "call_to_action_strength",
+                "score": 8,
+                "verdict": "pass",
+                "rationale": "The CTA is clear, specific, and reinforces the primary value proposition of the ad. It could be slightly more action-oriented by adding a direct verb like 'Shop now', but it remains highly effective."
+              }
+            ],
+            "strengths": [
+              "Exceptional headline that immediately hooks the reader and establishes value.",
+              "Highly relatable humor tailored perfectly to the 18-35 demographic's financial realities.",
+              "Strong platform viability for fast-scrolling social media feeds."
+            ],
+            "improvements": [
+              "Could integrate the summer music festival trend more deeply into the core narrative rather than just a price comparison.",
+              "Might benefit from briefly mentioning the wide tonal range or bolt-on neck to satisfy gear enthusiasts."
+            ]
+          }
+        },
+        {
+          "original_id": 1,
+          "headline": "Are heavy, glossy necks slowing you down?",
+          "tone_style": "Problem/Solution",
+          "score": {
+            "overall_score": 0.85,
+            "passed": true,
+            "verdicts": [
+              {
+                "dimension": "strategic_alignment",
+                "score": 8,
+                "verdict": "pass",
+                "rationale": "Strongly highlights the bolt-on maple neck and its playability benefits, though it omits the accessible price and tonal range KSPs."
+              },
+              {
+                "dimension": "trend_authenticity",
+                "score": 9,
+                "verdict": "pass",
+                "rationale": "The connection to summer music festivals is highly authentic, addressing a real physical pain point gigging musicians face."
+              },
+              {
+                "dimension": "platform_viability",
+                "score": 9,
+                "verdict": "pass",
+                "rationale": "The short, punchy problem/solution format, combined with relatable emojis and hashtags, is perfectly optimized for fast-scrolling feeds."
+              },
+              {
+                "dimension": "copy_quality",
+                "score": 9,
+                "verdict": "pass",
+                "rationale": "The headline asks a highly relatable question, and the body text uses a clear, concise equation to persuade the reader."
+              },
+              {
+                "dimension": "audience_fit",
+                "score": 9,
+                "verdict": "pass",
+                "rationale": "Speaks directly to the gigging experience of 18-35 year old guitarists, using insider terminology that resonates with their specific interests."
+              },
+              {
+                "dimension": "call_to_action_strength",
+                "score": 7,
+                "verdict": "pass",
+                "rationale": "The CTA clearly states the benefit of upgrading, but lacks a direct click-oriented verb like Shop or Discover to drive immediate traffic."
+              }
+            ],
+            "strengths": [
+              "Highly authentic integration of the summer festival trend by addressing a real-world gigging pain point.",
+              "Strong, relatable hook in the headline and social caption tailored for social media feeds."
+            ],
+            "improvements": [
+              "Incorporate the accessible price or wide tonal range KSPs to provide a more holistic view of the product.",
+              "Strengthen the CTA by adding a direct, click-driving verb to improve conversion rates."
+            ]
+          }
+        },
+        {
+          "original_id": 1,
+          "headline": "The 2-in-1 Secret Weapon.",
+          "tone_style": "Educational/Informative",
+          "score": {
+            "overall_score": 0.833,
+            "passed": true,
+            "verdicts": [
+              {
+                "dimension": "strategic_alignment",
+                "score": 8,
+                "verdict": "pass",
+                "rationale": "Effectively highlights the wide tonal range and versatility, though it omits the bolt-on neck and price key selling points."
+              },
+              {
+                "dimension": "trend_authenticity",
+                "score": 8,
+                "verdict": "pass",
+                "rationale": "The connection to summer music festivals is practical and natural, focusing on the gigging musician's need to travel light."
+              },
+              {
+                "dimension": "platform_viability",
+                "score": 9,
+                "verdict": "pass",
+                "rationale": "The concise body text and engaging social caption with relevant hashtags are perfectly optimized for fast-scrolling feeds."
+              },
+              {
+                "dimension": "copy_quality",
+                "score": 9,
+                "verdict": "pass",
+                "rationale": "The headline is highly compelling, and the body text uses excellent sensory language to describe the guitar's tones."
+              },
+              {
+                "dimension": "audience_fit",
+                "score": 9,
+                "verdict": "pass",
+                "rationale": "The educational tone and focus on tone hacks perfectly match the interests of modern, intermediate guitarists looking to maximize their gear."
+              },
+              {
+                "dimension": "call_to_action_strength",
+                "score": 7,
+                "verdict": "pass",
+                "rationale": "The CTA is action-oriented and ties back to the headline, though it could be slightly more specific about the product itself."
+              }
+            ],
+            "strengths": [
+              "Excellent use of sensory language to describe tone.",
+              "Strong hook and hashtag strategy for social media feeds.",
+              "Highly relevant practical angle for gigging musicians."
+            ],
+            "improvements": [
+              "Include a mention of the accessible price point to better target intermediate buyers.",
+              "Make the CTA more specific to the product, such as 'Shop the SE CE 24'."
+            ]
+          }
+        }
+      ],
+      "visual_concept_evaluations": [
+        {
+          "ad_copy_id": 1,
+          "concept_name": "Genre-Crossing Identity Collage",
+          "score": {
+            "overall_score": 0.85,
+            "passed": true,
+            "verdicts": [
+              {
+                "dimension": "trend_visual_connection",
+                "score": 9,
+                "verdict": "pass",
+                "rationale": "The inclusion of neon VIP festival wristbands and the multi-genre theme perfectly captures the eclectic nature of summer music festivals."
+              },
+              {
+                "dimension": "brand_product_representation",
+                "score": 8,
+                "verdict": "pass",
+                "rationale": "The PRS SE CE 24 is placed front and center as a photographic cutout, ensuring product visibility, though the chaotic background might slightly distract from its pro-level build details."
+              },
+              {
+                "dimension": "audience_appeal",
+                "score": 9,
+                "verdict": "pass",
+                "rationale": "The mixed-media collage style, brat-green references, and genre-fluid messaging are highly tailored to the 18-35 demographic's aesthetic and musical habits."
+              },
+              {
+                "dimension": "prompt_technical_quality",
+                "score": 7,
+                "verdict": "pass",
+                "rationale": "The prompt is detailed regarding textures, colors, and layout, but lacks specific aspect ratio and lighting instructions, and relies on AI generating a long string of legible text."
+              },
+              {
+                "dimension": "stopping_power",
+                "score": 9,
+                "verdict": "pass",
+                "rationale": "The stark diagonal contrast between neon synth-pop and gritty grunge elements creates a visually arresting image that will easily disrupt social media scrolling."
+              },
+              {
+                "dimension": "concept_coherence",
+                "score": 9,
+                "verdict": "pass",
+                "rationale": "The visual split perfectly mirrors the headline's 'indie rock AND pop' premise, creating a seamless integration of copy and imagery."
+              }
+            ],
+            "strengths": [
+              "Highly engaging and trendy visual style (mixed-media collage) that resonates strongly with Gen Z and Millennial aesthetics.",
+              "Brilliant conceptual tie between the guitar's coil-split feature and multi-genre festival lineups.",
+              "Excellent stopping power due to high-contrast colors, torn edges, and dynamic textures."
+            ],
+            "improvements": [
+              "Add specific lighting cues and aspect ratio parameters to the image generation prompt to ensure optimal output.",
+              "Consider removing the long text requirement from the prompt, as AI image generators often struggle with rendering long, legible sentences.",
+              "Ensure the guitar's bolt-on maple neck (a key selling point) is explicitly highlighted or visible in the central cutout."
+            ]
+          }
+        },
+        {
+          "ad_copy_id": 1,
+          "concept_name": "Ramen vs Rich Tone Meme",
+          "score": {
+            "overall_score": 0.717,
+            "passed": true,
+            "verdicts": [
+              {
+                "dimension": "trend_visual_connection",
+                "score": 5,
+                "verdict": "fail",
+                "rationale": "The visual prompt focuses on rent and ramen rather than the target trend of summer music festival season, making the connection to the trend weak."
+              },
+              {
+                "dimension": "brand_product_representation",
+                "score": 8,
+                "verdict": "pass",
+                "rationale": "The product is prominently featured in the bottom panel with specific details like the satin maple neck highlighted attractively."
+              },
+              {
+                "dimension": "audience_appeal",
+                "score": 9,
+                "verdict": "pass",
+                "rationale": "The meme aesthetic and relatable humor about being a broke musician perfectly align with the 18-35 aspiring guitarist demographic."
+              },
+              {
+                "dimension": "prompt_technical_quality",
+                "score": 7,
+                "verdict": "pass",
+                "rationale": "The prompt provides good detail on composition, lighting, and text overlays, though it falls just shy of the 100-word recommendation and could use more high-fidelity keywords."
+              },
+              {
+                "dimension": "stopping_power",
+                "score": 8,
+                "verdict": "pass",
+                "rationale": "The familiar two-panel meme format combined with the stark visual contrast between cheap ramen and a premium guitar creates strong scroll-stopping power."
+              },
+              {
+                "dimension": "concept_coherence",
+                "score": 6,
+                "verdict": "fail",
+                "rationale": "There is a disconnect between the concept summary's focus on festival ticket prices and the actual image prompt's focus on angry landlords and ramen."
+              }
+            ],
+            "strengths": [
+              "Highly relatable humor that perfectly targets the 18-35 aspiring musician demographic.",
+              "Strong product visibility and attractive lighting in the bottom panel.",
+              "Excellent use of a native social media format (meme) to drive high engagement."
+            ],
+            "improvements": [
+              "Align the visual joke directly with the summer music festival trend (e.g., showing a VIP festival pass instead of ramen).",
+              "Ensure the text in the image prompt matches the thematic focus of the headline and concept summary.",
+              "Expand the image generation prompt with more high-fidelity keywords to ensure top-tier rendering."
+            ]
+          }
+        },
+        {
+          "ad_copy_id": 1,
+          "concept_name": "The High-Intensity Satin Escape",
+          "score": {
+            "overall_score": 0.867,
+            "passed": true,
+            "verdicts": [
+              {
+                "dimension": "trend_visual_connection",
+                "score": 9,
+                "verdict": "pass",
+                "rationale": "The concept brilliantly ties the summer festival trend to a specific physical pain point, making the connection both natural and highly relevant."
+              },
+              {
+                "dimension": "brand_product_representation",
+                "score": 9,
+                "verdict": "pass",
+                "rationale": "The extreme close-up effectively highlights the product's key feature and iconic brand identifiers in an attractive, authentic way."
+              },
+              {
+                "dimension": "audience_appeal",
+                "score": 9,
+                "verdict": "pass",
+                "rationale": "The 35mm lo-fi aesthetic and focus on a highly relatable gigging pain point will strongly resonate with active, younger guitarists."
+              },
+              {
+                "dimension": "prompt_technical_quality",
+                "score": 7,
+                "verdict": "pass",
+                "rationale": "The prompt is highly descriptive regarding lighting, composition, and texture, though it falls slightly short of the 100-word recommendation and lacks an aspect ratio."
+              },
+              {
+                "dimension": "stopping_power",
+                "score": 8,
+                "verdict": "pass",
+                "rationale": "The golden-hour lens flare and tactile sweat details create a visually striking, atmospheric image that will easily grab attention."
+              },
+              {
+                "dimension": "concept_coherence",
+                "score": 10,
+                "verdict": "pass",
+                "rationale": "The visual, headline, caption, and CTA are perfectly aligned, delivering a singular, compelling message about playability in hot conditions."
+              }
+            ],
+            "strengths": [
+              "Excellent integration of the summer festival trend with a tangible product benefit.",
+              "Strong, cohesive messaging across the headline, caption, and visual elements.",
+              "High audience appeal through the trendy 35mm lo-fi photorealistic aesthetic."
+            ],
+            "improvements": [
+              "Expand the image generation prompt to over 100 words by adding specific camera settings and aspect ratio details.",
+              "Ensure the retro text overlay does not clutter the negative space or detract from the tactile visual details."
+            ]
+          }
+        },
+        {
+          "ad_copy_id": 1,
+          "concept_name": "The Push/Pull Split-Screen Secret",
+          "score": {
+            "overall_score": 0.683,
+            "passed": false,
+            "verdicts": [
+              {
+                "dimension": "trend_visual_connection",
+                "score": 4,
+                "verdict": "fail",
+                "rationale": "The visual prompt completely omits the summer music festival trend, relying only on abstract colors instead of actual festival imagery."
+              },
+              {
+                "dimension": "brand_product_representation",
+                "score": 8,
+                "verdict": "pass",
+                "rationale": "Accurately highlights the push/pull tone knob of the PRS SE CE 24, effectively showcasing its tonal versatility."
+              },
+              {
+                "dimension": "audience_appeal",
+                "score": 8,
+                "verdict": "pass",
+                "rationale": "The focus on gear hacks and tonal flexibility strongly appeals to intermediate, gigging guitarists."
+              },
+              {
+                "dimension": "prompt_technical_quality",
+                "score": 5,
+                "verdict": "fail",
+                "rationale": "The prompt is under 100 words and lacks critical technical specifications like aspect ratio and lighting details."
+              },
+              {
+                "dimension": "stopping_power",
+                "score": 7,
+                "verdict": "pass",
+                "rationale": "The high-contrast split-screen design and clear focal point create a visually striking graphic."
+              },
+              {
+                "dimension": "concept_coherence",
+                "score": 9,
+                "verdict": "pass",
+                "rationale": "The headline, caption, and visual concept are perfectly unified around the 2-in-1 secret weapon theme."
+              }
+            ],
+            "strengths": [
+              "Highly coherent messaging that perfectly aligns the visual with the ad copy.",
+              "Effectively highlights a key technical selling point that appeals to the target audience."
+            ],
+            "improvements": [
+              "Integrate explicit summer music festival imagery into the prompt to connect with the target search trend.",
+              "Expand the image prompt to include aspect ratio, lighting, and more detailed compositional elements to exceed 100 words."
+            ]
+          }
+        }
+      ],
+      "summary": {
+        "total_ad_copies": 4,
+        "ad_copies_passed": 4,
+        "avg_ad_copy_score": 0.833,
+        "total_visual_concepts": 4,
+        "visual_concepts_passed": 3,
+        "avg_visual_score": 0.779,
+        "overall_pass_rate": 0.875,
+        "weakest_dimensions": [
+          "prompt_technical_quality",
+          "call_to_action_strength",
+          "trend_visual_connection"
+        ]
+      },
+      "warnings": []
+    },
+    "eval_report_gcs_uri": "gs://trend-trawler-deploy-ae/2026_07_18_04_00_3659/creative_output/creative_eval_report.json",
+    "creative_row_uuid": "e4564384",
+    "__run_status": "done"
+  }
+}
