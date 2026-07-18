@@ -135,10 +135,25 @@ def test_requery_recovers_stuck_queued_rows(mocked_clients):
     bq.query.return_value.to_dataframe.return_value = pd.DataFrame()
     payload = {"bq_dataset": "ds", "bq_table": "tbl", "agent_resource_id": "123"}
     main.crf_entrypoint(_pubsub_event(payload))
-    # empty df → only the SELECT runs (no update/dispatch); it is the first query.
-    select_sql = bq.query.call_args_list[0][0][0]
+    # empty df → the reap UPDATE runs first, then the SELECT (no dispatch); the
+    # SELECT is the second query.
+    select_sql = bq.query.call_args_list[1][0][0]
+    assert "SELECT" in select_sql
     assert "QUEUED" in select_sql
     assert "IS NULL" in select_sql  # still picks up brand-new rows too
+
+
+def test_crf_entrypoint_reaps_before_requery(mocked_clients):
+    """The orchestrator must reap stale PROCESSING rows BEFORE the unprocessed
+    re-query, so any reaped (re-queued) rows are picked up and re-dispatched in
+    the same invocation."""
+    bq, publisher = mocked_clients
+    bq.query.return_value.to_dataframe.return_value = pd.DataFrame()  # nothing to dispatch
+    payload = {"bq_dataset": "ds", "bq_table": "tbl", "agent_resource_id": "123"}
+    main.crf_entrypoint(_pubsub_event(payload))
+    first_sql = bq.query.call_args_list[0].args[0]
+    assert "processed_status = 'PROCESSING'" in first_sql  # the reap UPDATE ran first
+    assert "TIMESTAMP_SUB" in first_sql
 
 
 def test_publish_failure_is_counted_and_does_not_crash(mocked_clients, caplog):
@@ -179,3 +194,39 @@ def test_acquire_processing_lock_false_when_zero_rows_updated():
     bq.query.return_value.result.return_value.num_dml_affected_rows = 0
     got = main.acquire_processing_lock(bq, "ds", "tbl", "2026-07-12T00:00:00")
     assert got is False
+
+
+def test_lock_sql_stamps_started_at_and_increments_attempts():
+    """The lock UPDATE must record when PROCESSING began (so a hard-crashed
+    worker's row can be aged out) and bump an attempt counter (poison-pill
+    guard) — while preserving the exactly-once QUEUED->PROCESSING semantics."""
+    sql = main._build_lock_sql("p", "d", "t", "2026-07-18T00:00:00+00:00")
+    assert "processing_started_at = CURRENT_TIMESTAMP()" in sql
+    assert "processing_attempts = COALESCE(processing_attempts, 0) + 1" in sql
+    assert "SET processed_status = 'PROCESSING'" in sql
+    assert "AND processed_status = 'QUEUED'" in sql  # lock semantics preserved
+
+
+def test_reap_sql_requeues_under_cap_and_fails_over_cap():
+    """The reaper UPDATE must target only stale PROCESSING rows, re-queue those
+    under the attempt cap and fail those at/over it."""
+    sql = main._build_reap_sql("p", "d", "t", stale_minutes=45, max_attempts=3)
+    assert "processed_status = 'PROCESSING'" in sql  # only targets PROCESSING
+    assert "TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 45 MINUTE)" in sql
+    assert "COALESCE(processing_attempts, 0) >= 3 THEN 'FAILED'" in sql
+    assert "ELSE 'QUEUED'" in sql
+
+
+def test_reap_returns_reclaimed_count(mocked_clients):
+    """reap_stale_processing_rows returns the number of rows reclaimed."""
+    bq, _ = mocked_clients
+    bq.query.return_value.result.return_value.num_dml_affected_rows = 2
+    n = main.reap_stale_processing_rows(bq, "d", "t")
+    assert n == 2
+
+
+def test_reap_is_non_fatal_on_bq_error(mocked_clients):
+    """A BQ error while reaping must not crash the orchestrator: returns 0."""
+    bq, _ = mocked_clients
+    bq.query.side_effect = RuntimeError("bq boom")
+    assert main.reap_stale_processing_rows(bq, "d", "t") == 0

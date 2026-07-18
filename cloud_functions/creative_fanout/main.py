@@ -305,18 +305,31 @@ async def _execute_agent_and_update_status(
         raise
 
 
+def _build_lock_sql(project, dataset, table, timestamp):
+    """Atomic QUEUED->PROCESSING lock UPDATE for a single row.
+
+    Also stamps `processing_started_at` (so a worker that hard-crashes while
+    holding the lock can be aged out by the reaper) and increments
+    `processing_attempts` (bounded-retry / poison-pill guard). Gating on
+    `processed_status = 'QUEUED'` preserves the exactly-once lock semantics.
+    """
+    return f"""
+        UPDATE `{project}.{dataset}.{table}`
+        SET processed_status = 'PROCESSING',
+            processing_started_at = CURRENT_TIMESTAMP(),
+            processing_attempts = COALESCE(processing_attempts, 0) + 1
+        WHERE
+            entry_timestamp = TIMESTAMP('{timestamp}')
+            AND processed_status = 'QUEUED'
+    """
+
+
 def acquire_processing_lock(bq_client, dataset, table, timestamp):
     """
     Atomically changes status from 'QUEUED' to 'PROCESSING' for a single row.
     Returns True if the lock was acquired (1 row updated), False otherwise.
     """
-    lock_query = f"""
-        UPDATE `{bq_client.project}.{dataset}.{table}`
-        SET processed_status = 'PROCESSING'
-        WHERE 
-            entry_timestamp = TIMESTAMP('{timestamp}')
-            AND processed_status = 'QUEUED'
-    """
+    lock_query = _build_lock_sql(bq_client.project, dataset, table, timestamp)
 
     # Execute the update
     try:
@@ -343,6 +356,58 @@ def acquire_processing_lock(bq_client, dataset, table, timestamp):
         logging.error(f"Failed to acquire lock for row {timestamp}: {e}")
         # Re-raise to ensure the Pub/Sub message retries in case of system error
         raise
+
+
+def _build_reap_sql(project, dataset, table, stale_minutes, max_attempts):
+    """Reclaim rows stranded in PROCESSING by a hard-crashed worker.
+
+    A row still legitimately running holds PROCESSING for at most the worker's
+    Cloud Run timeout, so only rows older than `stale_minutes` are reaped. Rows
+    already attempted `max_attempts` times go FAILED (poison-pill guard); the
+    rest go back to QUEUED to be re-dispatched.
+
+    NULL `processing_started_at` is excluded by the `<` comparison (SQL NULL
+    semantics) — pre-migration stranded rows are handled by the one-time cleanup
+    in the deploy runbook, not by this recurring reaper.
+    """
+    return f"""
+        UPDATE `{project}.{dataset}.{table}`
+        SET processed_status = CASE
+                WHEN COALESCE(processing_attempts, 0) >= {max_attempts} THEN 'FAILED'
+                ELSE 'QUEUED'
+            END
+        WHERE processed_status = 'PROCESSING'
+            AND processing_started_at < TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {stale_minutes} MINUTE)
+    """
+
+
+def reap_stale_processing_rows(bq_client, dataset, table):
+    """Reclaim rows stranded in PROCESSING by a hard-crashed worker.
+
+    Re-queues stale rows under the attempt cap (re-dispatched by the re-query
+    that follows) and fails them over it. Returns the number of rows reclaimed.
+    Best-effort: a failure here is logged and swallowed so it never crashes the
+    orchestrator's normal dispatch.
+    """
+    sql = _build_reap_sql(
+        bq_client.project,
+        dataset,
+        table,
+        config.REAP_STALE_PROCESSING_MINUTES,
+        config.MAX_PROCESSING_ATTEMPTS,
+    )
+    try:
+        n = bq_client.query(sql).result().num_dml_affected_rows or 0
+        if n:
+            logging.warning(
+                f"Reaped {n} stale PROCESSING row(s) "
+                f"(>{config.REAP_STALE_PROCESSING_MINUTES}min): re-queued under "
+                f"{config.MAX_PROCESSING_ATTEMPTS} attempts, else FAILED."
+            )
+        return n
+    except Exception as e:
+        logging.error(f"Reaper failed (continuing without reaping): {e}")
+        return 0
 
 
 # ==================================================
@@ -409,15 +474,19 @@ def crf_entrypoint(cloud_event: CloudEvent) -> None:
     # The triggering message should pass the necessary config,
     # OR the orchestrator uses a hardcoded worker topic name.
 
+    # 0. Reap stale PROCESSING rows: a worker that hard-crashes AFTER acquiring
+    # the lock strands its row in PROCESSING forever (a clean failure self-reports
+    # FAILED). Re-queue those older than the staleness bound under the attempt cap
+    # so the re-query below re-dispatches them (or fail them over the cap).
+    reap_stale_processing_rows(bq_client, dataset, table)
+
     # 1. Fetch unprocessed rows: brand-new (processed_status IS NULL) AND rows
     # orphaned in QUEUED by a prior run that set them QUEUED then crashed or only
-    # partially published (a failed publish leaves the row QUEUED). Re-dispatch is
-    # safe: a row a worker already grabbed is PROCESSING/PROCESSED (not selected
-    # here), and a genuinely-stuck QUEUED row is re-sent — the worker's atomic
-    # QUEUED->PROCESSING lock (acquire_processing_lock) dedups any double delivery.
-    # KNOWN FOLLOW-UP (out of scope): a worker that hard-crashes AFTER acquiring
-    # the lock strands its row in PROCESSING forever; recovering that needs a
-    # `processing_started_at` column migration + a reaper for stale PROCESSING rows.
+    # partially published (a failed publish leaves the row QUEUED), plus rows the
+    # reap step above just re-queued. Re-dispatch is safe: a row a worker already
+    # grabbed is PROCESSING/PROCESSED (not selected here), and a genuinely-stuck
+    # QUEUED row is re-sent — the worker's atomic QUEUED->PROCESSING lock
+    # (acquire_processing_lock) dedups any double delivery.
     rows_to_process_query = f"""
         SELECT * FROM `{bq_client.project}.{dataset}.{table}`
         WHERE processed_status IS NULL OR processed_status = 'QUEUED'
