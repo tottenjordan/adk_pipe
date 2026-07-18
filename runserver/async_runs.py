@@ -301,6 +301,88 @@ async def start_run(
     return {"runId": session_id, "status": "running"}, task
 
 
+# Per-concept fields a user may directly edit at the checkpoint-3 review. These
+# map straight onto VisualConceptFinal fields the renderer/reviser read.
+_EDITABLE_CONCEPT_FIELDS = ("image_generation_prompt", "aspect_ratio", "visual_style")
+
+
+def merge_visual_concept_edits(
+    current: dict | None, edits: list | None
+) -> tuple[dict, str]:
+    """Merge per-concept direct edits into a ``final_visual_concepts`` envelope.
+
+    Pure (no I/O). ``current`` is the ``{"visual_concepts": [...]}`` envelope from
+    session state; ``edits`` is a list of ``{index, image_generation_prompt?,
+    aspect_ratio?, visual_style?, revision_note?}``. Direct field edits are applied
+    by 0-based ``index`` (out-of-range/invalid indices ignored); ``revision_note``
+    values are collected into a single human-readable notes string for the LLM
+    reviser (``visual_concept_reviser``). Concepts/fields not named are left
+    untouched, the envelope shape is preserved, and the input is not mutated.
+
+    Returns ``(merged_envelope, revision_notes)``.
+    """
+    envelope = dict(current) if isinstance(current, dict) else {}
+    concepts = [
+        dict(c) if isinstance(c, dict) else c
+        for c in (envelope.get("visual_concepts") or [])
+    ]
+
+    notes_lines: list[str] = []
+    for edit in edits or []:
+        if not isinstance(edit, dict):
+            continue
+        idx = edit.get("index")
+        if not isinstance(idx, int) or isinstance(idx, bool):
+            continue
+        if idx < 0 or idx >= len(concepts):
+            continue
+        concept = concepts[idx]
+        if not isinstance(concept, dict):
+            continue
+        for field in _EDITABLE_CONCEPT_FIELDS:
+            value = edit.get(field)
+            if value is not None:
+                concept[field] = value
+        note = (edit.get("revision_note") or "").strip()
+        if note:
+            name = concept.get("concept_name")
+            label = f"Concept {idx} ({name})" if name else f"Concept {idx}"
+            notes_lines.append(f"{label}: {note}")
+
+    envelope["visual_concepts"] = concepts
+    return envelope, "\n".join(notes_lines)
+
+
+async def _apply_visual_concept_edits(
+    session_service, app_name, user_id, session_id, edits
+) -> None:
+    """Merge checkpoint-3 direct edits into session state BEFORE the resumed run.
+
+    The renderer reads ``final_visual_concepts`` from STATE, not from the resume
+    ``functionResponse`` (which only reaches the LLM). So direct field edits must
+    be written deterministically as a ``state_delta`` event appended before the
+    Runner relaunches; any free-text notes land in ``visual_revision_notes`` for
+    the ``visual_concept_reviser`` to apply. Best-effort: a missing session is a
+    no-op (the resume itself will surface the error)."""
+    session = await session_service.get_session(
+        app_name=app_name, user_id=user_id, session_id=session_id
+    )
+    if session is None:
+        return
+    merged, notes = merge_visual_concept_edits(
+        session.state.get("final_visual_concepts"), edits
+    )
+    delta: dict = {"final_visual_concepts": merged}
+    if notes:
+        delta["visual_revision_notes"] = notes
+    event = Event(
+        author=RUNSERVER_AUTHOR,
+        invocation_id=RUNSERVER_AUTHOR,
+        actions=EventActions(state_delta=delta),
+    )
+    await session_service.append_event(session, event)
+
+
 async def _reset_status_to_running(
     session_service, app_name, user_id, session_id
 ) -> None:
@@ -335,6 +417,7 @@ async def start_resume(
     session_service,
     runner_factory,
     function_call_event_id=None,
+    edits=None,
 ) -> tuple[dict, asyncio.Task]:
     """Resume a paused ``LongRunningFunctionTool`` run by driving the Runner with
     a ``functionResponse`` message (matched internally by the tool-call id).
@@ -347,9 +430,17 @@ async def start_resume(
     ``function_call_event_id`` is accepted for API symmetry with the frontend
     (which sends ``functionCallEventId``) but is unused: ``Runner.run_async`` has
     no resume-event-id parameter — the ``functionResponse.id`` alone re-binds the
-    paused tool call."""
+    paused tool call.
+
+    ``edits`` (checkpoint-3 visual-concept edits) are merged deterministically
+    into session state before relaunch (see _apply_visual_concept_edits), since
+    the renderer reads state, not the functionResponse."""
     runner = runner_factory(app_name)
     new_message = build_resume_message(function_call_id, function_name, response)
+    if edits:
+        await _apply_visual_concept_edits(
+            session_service, app_name, user_id, session_id, edits
+        )
     # Clear the paused segment's terminal 'done' marker before relaunching, so a
     # poll during the resumed segment sees 'running' (see _reset_status_to_running).
     await _reset_status_to_running(session_service, app_name, user_id, session_id)
@@ -399,6 +490,10 @@ class _ResumeBody(BaseModel):
     functionName: str  # noqa: N815
     response: dict
     functionCallEventId: str | None = None  # noqa: N815
+    # Optional checkpoint-3 per-concept edits: [{index, image_generation_prompt?,
+    # aspect_ratio?, visual_style?, revision_note?}]. Merged into session state
+    # before the resumed run (see start_resume / _apply_visual_concept_edits).
+    edits: list[dict] | None = None
 
 
 router = APIRouter()
@@ -447,5 +542,6 @@ async def http_start_resume(
         session_service=_SESSION_SERVICE,
         runner_factory=_RUNNER_FACTORY,
         function_call_event_id=body.functionCallEventId,
+        edits=body.edits,
     )
     return result
