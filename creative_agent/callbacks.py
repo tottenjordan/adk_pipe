@@ -64,6 +64,21 @@ def _set_initial_states(source: Dict[str, Any], target: State | dict[str, Any]):
         # it is deliberately NOT in `source` above, which would overwrite it.
         target.setdefault("reference_image_uri", "")
 
+        # Optional user-supplied visual intent (image-intent-capture). Same
+        # channel + rule as reference_image_uri: seeded via createSession
+        # initialState, defaulted here with setdefault so the keys always exist
+        # for downstream {token?} reads / .get() without clobbering caller values.
+        # Deliberately NOT in `source` (which would blank a seeded value).
+        for _intent_key in (
+            "visual_intent",  # free-text art direction
+            "brand_colors",  # palette description
+            "visual_style_preference",  # preferred STYLE_PALETTE family (seed)
+            "visual_avoid",  # elements to keep out (reframed positively)
+            "visual_aspect_ratio",  # deterministic aspect-ratio override
+            "reference_image_role",  # product | logo | style role label
+        ):
+            target.setdefault(_intent_key, "")
+
 
 def load_session_state(callback_context: CallbackContext):
     """

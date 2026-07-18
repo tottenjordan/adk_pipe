@@ -121,6 +121,53 @@ class TestSetInitialStates:
         assert target["agent_output_dir"] == "trawler_output"
         assert target["brand"] == "PRS"
 
+    # --- Optional visual-intent keys (image-intent-capture) ---
+    _INTENT_KEYS = (
+        "visual_intent",
+        "brand_colors",
+        "visual_style_preference",
+        "visual_avoid",
+        "visual_aspect_ratio",
+        "reference_image_role",
+    )
+
+    def test_intent_keys_default_to_empty_when_unseeded(self):
+        from creative_agent.callbacks import _set_initial_states
+
+        target = {}
+        source = {"brand": "TestBrand"}
+        _set_initial_states(source, target)
+
+        for key in self._INTENT_KEYS:
+            assert target[key] == "", f"{key} should default to empty string"
+
+    def test_intent_keys_survive_caller_seeding(self):
+        """Caller-seeded intent values must NOT be blanked by state init.
+
+        These flow via createSession initialState, so they are already present
+        on `target` before _set_initial_states runs. setdefault must preserve
+        them (they are deliberately absent from `source`).
+        """
+        from creative_agent.callbacks import _set_initial_states
+
+        target = {
+            "visual_intent": "moody film noir",
+            "brand_colors": "#1a1a1a and gold",
+            "visual_style_preference": "cinematic",
+            "visual_avoid": "clutter",
+            "visual_aspect_ratio": "1:1",
+            "reference_image_role": "product",
+        }
+        source = {"brand": "TestBrand"}
+        _set_initial_states(source, target)
+
+        assert target["visual_intent"] == "moody film noir"
+        assert target["brand_colors"] == "#1a1a1a and gold"
+        assert target["visual_style_preference"] == "cinematic"
+        assert target["visual_avoid"] == "clutter"
+        assert target["visual_aspect_ratio"] == "1:1"
+        assert target["reference_image_role"] == "product"
+
 
 # --- Rate limit callback ---
 class TestRateLimitLogic:
