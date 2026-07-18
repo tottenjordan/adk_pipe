@@ -417,6 +417,13 @@ ART_DIRECTOR_INSTR = """Role: You are the Art Director. Before any individual vi
         <target_audience>{target_audience}</target_audience>
         <target_search_trends>{target_search_trends}</target_search_trends>
 
+        <user_visual_direction>
+        Optional art direction supplied directly by the user. When non-empty,
+        treat it as a primary constraint and prioritize it over the default
+        tone→style inference; when empty, ignore it.
+        {visual_intent?}
+        </user_visual_direction>
+
         <research_report>
         {combined_final_cited_report?}
         </research_report>
@@ -447,6 +454,13 @@ VISUAL_CONCEPT_DRAFTER_INSTR = (
         <visual_direction>
         {visual_direction}
         </visual_direction>
+
+        <user_visual_direction>
+        Optional art direction supplied directly by the user. When non-empty,
+        treat it as a primary constraint and prioritize it over the default
+        tone→style mapping; when empty, ignore it.
+        {visual_intent?}
+        </user_visual_direction>
 
         <brand>{brand}</brand>
         <target_audience>{target_audience}</target_audience>
