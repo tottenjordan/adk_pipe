@@ -179,7 +179,7 @@ bq --location=US mk --dataset $BQ_PROJECT_ID:$BQ_DATASET_ID
 bq mk \
  -t \
  $BQ_PROJECT_ID:$BQ_DATASET_ID.$BQ_TABLE_TARGETS \
- uuid:STRING,processed_status:STRING,target_trend:STRING,refresh_date:DATE,trawler_date:DATE,entry_timestamp:TIMESTAMP,trawler_gcs:STRING,brand:STRING,target_audience:STRING,target_product:STRING,key_selling_point:STRING
+ uuid:STRING,processed_status:STRING,target_trend:STRING,refresh_date:DATE,trawler_date:DATE,entry_timestamp:TIMESTAMP,trawler_gcs:STRING,brand:STRING,target_audience:STRING,target_product:STRING,key_selling_point:STRING,processing_started_at:TIMESTAMP,processing_attempts:INTEGER
 
 # target-trend creatives
 bq mk \

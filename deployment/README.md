@@ -189,6 +189,40 @@ gcloud pubsub topics create $CREATIVE_WORKER_TOPIC_NAME
 * see [gcloud reference doc](https://cloud.google.com/sdk/gcloud/reference/run/deploy)
 
 
+**3.0 Schema migration — `processing_started_at` + `processing_attempts`** (stale-PROCESSING reaper)
+
+The orchestrator reaps rows a worker stranded in `PROCESSING` by hard-crashing
+after acquiring its lock (OOM / the 1800s Cloud Run timeout kill / segfault).
+The worker's lock stamps `processing_started_at` + bumps `processing_attempts`;
+the orchestrator re-queues rows older than `REAP_STALE_PROCESSING_MINUTES`
+(default 45, > the worker's 30-min timeout) under `MAX_PROCESSING_ATTEMPTS`
+(default 3), failing them over the cap. Both are env-configurable.
+
+Run the additive migration **FIRST, before deploying the code that writes these
+columns** — a DML naming a missing column fails (same ordering rule as the
+`research_gaps` migration in `docs/plans/2026-07-15-trend-scout-degradation-surfacing.md`):
+
+```sql
+-- 1. Additive migration (idempotent; preserves all rows):
+ALTER TABLE `<BQ_PROJECT_ID>.<BQ_DATASET_ID>.target_trends_crf`
+  ADD COLUMN IF NOT EXISTS processing_started_at TIMESTAMP,
+  ADD COLUMN IF NOT EXISTS processing_attempts INT64;
+
+-- 2. One-time cleanup of any PRE-EXISTING stranded rows. Their
+--    processing_started_at is NULL, so the recurring reaper (which compares
+--    `< TIMESTAMP_SUB(...)`) will never catch them. Run ONLY when no run is in
+--    flight (serialized single worker + no live users makes this trivial):
+UPDATE `<BQ_PROJECT_ID>.<BQ_DATASET_ID>.target_trends_crf`
+  SET processed_status = 'QUEUED'
+  WHERE processed_status = 'PROCESSING' AND processing_started_at IS NULL;
+```
+
+**Redeploy order (the reaper spans both functions):** migration → **worker**
+`$CREATIVE_WORKER_CRF_NAME` (3.3 — ships the timestamp/attempt-stamping lock) →
+**orchestrator** `$CREATIVE_CRF_NAME` (3.1 — ships the reap call). CRF functions
+auto-route to LATEST and the Eventarc triggers bind by service name, so triggers
+survive a redeploy and are **not** re-created.
+
 **3.1 Creative Agent Orchestrator:** cloud run function
 
 ```bash
