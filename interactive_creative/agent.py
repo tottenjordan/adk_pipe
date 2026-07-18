@@ -3,17 +3,18 @@ from google.adk.apps import App, ResumabilityConfig
 from google.adk.tools.agent_tool import AgentTool
 from google.genai import types
 
-# Reuse existing sub-agents from creative_agent
-from creative_agent.agent import (
-    combined_research_pipeline,
+# Reuse existing building blocks from the creative_agent public facade.
+from creative_agent import (
     ad_creative_pipeline,
+    callbacks,
+    combined_research_pipeline,
+    tools,
     visual_generation_pipeline,
     visual_generator_resilient,
+    VisualConceptFinalList,
 )
-from creative_eval.agent import creative_eval_agent
-from creative_agent import tools, callbacks
 from creative_agent.config import config, INFRA_RETRY, SCHEMA_RETRY
-from creative_agent.schemas import VisualConceptFinalList
+from creative_eval.agent import creative_eval_agent
 from agent_common import build_gemini
 from interactive_creative import prompts as ic_prompts
 from interactive_creative.review_tools import (
