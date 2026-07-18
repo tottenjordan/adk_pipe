@@ -14,7 +14,11 @@ import {
   getSession,
   getEventError,
 } from "@/lib/api";
-import { formatStateValue } from "@/lib/utils";
+import {
+  buildDisplayFields,
+  VISUAL_DIRECTION_FIELDS,
+  type DisplayFieldDef,
+} from "@/lib/utils";
 import { gcsProxyUrl, parseGsUri } from "@/lib/gcs";
 import { hasStartedRun, markRunStarted } from "@/lib/run-kickoff";
 import type { AgentEvent } from "@/lib/types";
@@ -25,6 +29,14 @@ import {
 } from "./run-config";
 import { PipelineWidget } from "./run-widgets";
 import { ReviewPanel } from "./ReviewPanel";
+
+const CAMPAIGN_FIELD_DEFS: DisplayFieldDef[] = [
+  { label: "Brand", key: "brand" },
+  { label: "Target Audience", key: "target_audience" },
+  { label: "Target Product", key: "target_product" },
+  { label: "Key Selling Points", key: "key_selling_points" },
+  { label: "Search Trend", key: "target_search_trends", altKey: "target_search_trend" },
+];
 
 type Status = "running" | "completed" | "error" | "paused" | "stalled";
 
@@ -327,21 +339,16 @@ export default function RunPage({
   ]);
 
   // Campaign metadata fields for left sidebar
-  const campaignFields = useMemo(() => {
-    const fields: { label: string; key: string; altKey?: string }[] = [
-      { label: "Brand", key: "brand" },
-      { label: "Target Audience", key: "target_audience" },
-      { label: "Target Product", key: "target_product" },
-      { label: "Key Selling Points", key: "key_selling_points" },
-      { label: "Search Trend", key: "target_search_trends", altKey: "target_search_trend" },
-    ];
-    return fields
-      .map((f) => ({
-        ...f,
-        value: formatStateValue(sessionState[f.key] ?? (f.altKey ? sessionState[f.altKey] : undefined)),
-      }))
-      .filter((f) => f.value);
-  }, [sessionState]);
+  const campaignFields = useMemo(
+    () => buildDisplayFields(sessionState, CAMPAIGN_FIELD_DEFS),
+    [sessionState],
+  );
+
+  // Optional user visual art-direction inputs (PR #114) — hidden when unset
+  const visualDirectionFields = useMemo(
+    () => buildDisplayFields(sessionState, VISUAL_DIRECTION_FIELDS),
+    [sessionState],
+  );
 
   // Pipeline state widgets — newest first
   const pipelineWidgets = useMemo(() => {
@@ -418,6 +425,24 @@ export default function RunPage({
                 </dd>
               </div>
             ))
+          )}
+
+          {visualDirectionFields.length > 0 && (
+            <>
+              <h2 className="text-[10px] font-bold text-primary tracking-wider uppercase pt-3">
+                Visual Direction
+              </h2>
+              {visualDirectionFields.map((f) => (
+                <div key={f.key} className="glass rounded-xl px-4 py-3 animate-fadeInUpSmooth">
+                  <dt className="text-[10px] font-bold uppercase tracking-wider text-indigo-500">
+                    {f.label}
+                  </dt>
+                  <dd className="mt-1 text-sm font-medium leading-snug text-foreground break-words break-all">
+                    {f.value}
+                  </dd>
+                </div>
+              ))}
+            </>
           )}
         </div>
 
