@@ -163,3 +163,167 @@ def test_bad_aspect_ratio_falls_back_to_default(monkeypatch):
     ar1 = models.calls[1]["config"].image_config.aspect_ratio
     assert ar0 == image_tools.config.image_aspect_ratio_default
     assert ar1 == "1:1"
+
+
+# --- Deterministic state-level aspect-ratio override (visual_aspect_ratio) ---
+class TestResolveAspectRatio:
+    """Pure resolution: state override wins, else per-concept, else default."""
+
+    ALLOWED = ("9:16", "1:1", "4:5", "16:9", "3:4")
+    DEFAULT = "9:16"
+
+    def test_valid_override_wins_over_per_concept(self):
+        assert (
+            image_tools._resolve_aspect_ratio(
+                {"aspect_ratio": "3:4"}, "1:1", self.ALLOWED, self.DEFAULT
+            )
+            == "1:1"
+        )
+
+    def test_no_override_uses_per_concept(self):
+        assert (
+            image_tools._resolve_aspect_ratio(
+                {"aspect_ratio": "16:9"}, "", self.ALLOWED, self.DEFAULT
+            )
+            == "16:9"
+        )
+
+    def test_invalid_override_ignored_falls_to_per_concept(self):
+        assert (
+            image_tools._resolve_aspect_ratio(
+                {"aspect_ratio": "1:1"}, "banana", self.ALLOWED, self.DEFAULT
+            )
+            == "1:1"
+        )
+
+    def test_bad_per_concept_falls_to_default(self):
+        assert (
+            image_tools._resolve_aspect_ratio(
+                {"aspect_ratio": "nope"}, "", self.ALLOWED, self.DEFAULT
+            )
+            == self.DEFAULT
+        )
+
+    def test_missing_everything_uses_default(self):
+        assert (
+            image_tools._resolve_aspect_ratio({}, "", self.ALLOWED, self.DEFAULT)
+            == self.DEFAULT
+        )
+
+
+def test_new_aspect_ratios_are_allowed():
+    """4:5 and 16:9 were added to the allowed set."""
+    allowed = image_tools.config.image_aspect_ratios_allowed
+    assert "4:5" in allowed
+    assert "16:9" in allowed
+
+
+def test_state_aspect_ratio_override_applies_to_all_concepts(monkeypatch):
+    """A valid state['visual_aspect_ratio'] overrides every concept's own ratio."""
+    models = _patch_client(monkeypatch)
+    ctx = MockToolContext()
+    ctx.state["visual_aspect_ratio"] = "16:9"
+    ctx.state["final_visual_concepts"] = {
+        "visual_concepts": [
+            {
+                "image_generation_prompt": "p1",
+                "concept_name": "c1",
+                "aspect_ratio": "9:16",
+            },
+            {
+                "image_generation_prompt": "p2",
+                "concept_name": "c2",
+                "aspect_ratio": "3:4",
+            },
+        ]
+    }
+
+    result = asyncio.run(image_tools.generate_image(ctx))
+    assert result["status"] == "success"
+    assert models.calls[0]["config"].image_config.aspect_ratio == "16:9"
+    assert models.calls[1]["config"].image_config.aspect_ratio == "16:9"
+
+
+def test_empty_state_aspect_ratio_preserves_per_concept(monkeypatch):
+    """An empty/unset override leaves the per-concept diversity intact."""
+    models = _patch_client(monkeypatch)
+    ctx = MockToolContext()
+    ctx.state["visual_aspect_ratio"] = ""
+    ctx.state["final_visual_concepts"] = {
+        "visual_concepts": [
+            {
+                "image_generation_prompt": "p1",
+                "concept_name": "c1",
+                "aspect_ratio": "1:1",
+            },
+            {
+                "image_generation_prompt": "p2",
+                "concept_name": "c2",
+                "aspect_ratio": "4:5",
+            },
+        ]
+    }
+
+    result = asyncio.run(image_tools.generate_image(ctx))
+    assert result["status"] == "success"
+    assert models.calls[0]["config"].image_config.aspect_ratio == "1:1"
+    assert models.calls[1]["config"].image_config.aspect_ratio == "4:5"
+
+
+# --- Reference-image role labeling (reference_image_role) ---
+class TestRolePrefixedPrompt:
+    """Pure: role → an appended instruction about the reference image."""
+
+    def test_product_role(self):
+        out = image_tools._role_prefixed_prompt("a studio shot", "product")
+        assert "a studio shot" in out
+        assert "product shown in the reference image" in out
+
+    def test_logo_role(self):
+        out = image_tools._role_prefixed_prompt("a scene", "logo")
+        assert "brand logo shown in the reference image" in out
+
+    def test_style_role(self):
+        out = image_tools._role_prefixed_prompt("a scene", "style")
+        assert "visual style" in out and "reference image" in out
+
+    def test_no_role_unchanged(self):
+        assert image_tools._role_prefixed_prompt("a scene", "") == "a scene"
+
+    def test_unknown_role_unchanged(self):
+        assert image_tools._role_prefixed_prompt("a scene", "banana") == "a scene"
+
+
+def test_reference_role_adds_instruction_to_prompt(monkeypatch):
+    """With a reference present + a role set, the prompt text gains the role
+    instruction (contents[0]); the reference Part is still appended."""
+    models = _patch_client(monkeypatch)
+    monkeypatch.setattr(image_tools, "_download_blob", lambda *a, **k: b"\x89PNGREF")
+
+    ctx = MockToolContext()
+    ctx.state["reference_image_uri"] = "gs://b/logo.png"
+    ctx.state["reference_image_role"] = "logo"
+    ctx.state["final_visual_concepts"] = {
+        "visual_concepts": [{"image_generation_prompt": "a scene", "concept_name": "c"}]
+    }
+
+    result = asyncio.run(image_tools.generate_image(ctx))
+    assert result["status"] == "success"
+    contents = models.calls[0]["contents"]
+    assert isinstance(contents, list) and len(contents) == 2
+    assert "a scene" in contents[0]
+    assert "brand logo shown in the reference image" in contents[0]
+
+
+def test_reference_role_ignored_without_reference(monkeypatch):
+    """A role with no reference image leaves the prompt unchanged (text-only)."""
+    models = _patch_client(monkeypatch)
+    ctx = MockToolContext()
+    ctx.state["reference_image_role"] = "product"
+    ctx.state["final_visual_concepts"] = {
+        "visual_concepts": [{"image_generation_prompt": "a scene", "concept_name": "c"}]
+    }
+
+    result = asyncio.run(image_tools.generate_image(ctx))
+    assert result["status"] == "success"
+    assert models.calls[0]["contents"] == "a scene"

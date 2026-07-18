@@ -70,4 +70,21 @@ export interface CampaignInput {
    * concept for likeness/consistency.
    */
   referenceImageUri?: string;
+  /**
+   * creative_agent / interactive_creative only: optional user-supplied visual
+   * intent, all threaded into the session's initial state as snake_case keys
+   * (see buildInitialState) and consumed by the visual prompts / image tool.
+   */
+  /** Free-text art direction → `visual_intent` prompt token. */
+  visualIntent?: string;
+  /** Brand colour palette → `brand_colors` prompt token. */
+  brandColors?: string;
+  /** Preferred STYLE_PALETTE family → `visual_style_preference` (seed). */
+  visualStylePreference?: string;
+  /** Elements to keep out → `visual_avoid` (reframed positively). */
+  visualAvoid?: string;
+  /** Deterministic aspect-ratio override → `visual_aspect_ratio`. */
+  visualAspectRatio?: string;
+  /** How to use the reference image → `reference_image_role` (product|logo|style). */
+  referenceImageRole?: string;
 }

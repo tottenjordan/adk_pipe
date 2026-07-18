@@ -259,14 +259,21 @@ export default function RunPage({
       // job. Then re-enter pollRun (from since=0) to consume new events —
       // seenEventIds dedup makes the replay idempotent, so a resume that hits
       // the NEXT checkpoint pauses again and one that finishes completes.
+      // Checkpoint-3 sends its per-concept `edits` inside the response object;
+      // split them out so they ride as the top-level resume `edits` field (merged
+      // into session state server-side) rather than the LLM functionResponse.
+      const { edits, ...fnResponse } = response as {
+        edits?: Record<string, unknown>[];
+      } & Record<string, unknown>;
       await resumeRun(
         appName,
         userId,
         sessionId,
         ctx.functionCallId,
         ctx.functionName,
-        response,
-        ctx.eventId
+        fnResponse,
+        ctx.eventId,
+        edits
       );
 
       // Resume stops at the first pause (returns immediately) and does not

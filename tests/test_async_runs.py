@@ -26,6 +26,7 @@ from runserver.async_runs import (
     events_since,
     get_root_agent,
     get_run_status,
+    merge_visual_concept_edits,
     router,
     start_resume,
     start_run,
@@ -529,6 +530,135 @@ def test_resume_builds_function_response_message_and_drives_run():
     assert fr.name == "review_research"
     assert fr.response == {"approved": True}
     assert session.events[-1].actions.state_delta == {RUN_STATUS_KEY: "done"}
+
+
+# --- merge_visual_concept_edits (pure, checkpoint-3 direct edits) ------------
+
+
+def _envelope():
+    return {
+        "visual_concepts": [
+            {
+                "concept_name": "c0",
+                "image_generation_prompt": "p0",
+                "aspect_ratio": "9:16",
+                "visual_style": "photoreal",
+            },
+            {
+                "concept_name": "c1",
+                "image_generation_prompt": "p1",
+                "aspect_ratio": "1:1",
+                "visual_style": "cartoon",
+            },
+        ]
+    }
+
+
+def test_merge_applies_direct_field_edits_by_index():
+    merged, notes = merge_visual_concept_edits(
+        _envelope(),
+        [{"index": 1, "image_generation_prompt": "NEW", "aspect_ratio": "16:9"}],
+    )
+    concepts = merged["visual_concepts"]
+    # Edited concept updated; other fields on it untouched.
+    assert concepts[1]["image_generation_prompt"] == "NEW"
+    assert concepts[1]["aspect_ratio"] == "16:9"
+    assert concepts[1]["visual_style"] == "cartoon"
+    # Unmentioned concept fully untouched.
+    assert concepts[0] == _envelope()["visual_concepts"][0]
+    assert notes == ""
+
+
+def test_merge_preserves_envelope_and_does_not_mutate_input():
+    original = _envelope()
+    merged, _ = merge_visual_concept_edits(
+        original, [{"index": 0, "visual_style": "anime"}]
+    )
+    assert set(merged.keys()) == {"visual_concepts"}
+    assert len(merged["visual_concepts"]) == 2
+    # Input envelope not mutated in place.
+    assert original["visual_concepts"][0]["visual_style"] == "photoreal"
+
+
+def test_merge_collects_revision_notes_with_labels():
+    _merged, notes = merge_visual_concept_edits(
+        _envelope(),
+        [
+            {"index": 0, "revision_note": "make it brighter"},
+            {"index": 1, "image_generation_prompt": "x", "revision_note": "add a dog"},
+        ],
+    )
+    assert "Concept 0 (c0): make it brighter" in notes
+    assert "Concept 1 (c1): add a dog" in notes
+
+
+def test_merge_ignores_out_of_range_and_invalid_indices():
+    merged, notes = merge_visual_concept_edits(
+        _envelope(),
+        [
+            {"index": 9, "image_generation_prompt": "ignored"},
+            {"index": -1, "image_generation_prompt": "ignored"},
+            {"image_generation_prompt": "no index"},
+            "not a dict",
+        ],
+    )
+    assert merged["visual_concepts"] == _envelope()["visual_concepts"]
+    assert notes == ""
+
+
+def test_merge_handles_empty_and_missing_inputs():
+    # No edits → concepts unchanged, no notes.
+    merged, notes = merge_visual_concept_edits(_envelope(), [])
+    assert merged["visual_concepts"] == _envelope()["visual_concepts"]
+    assert notes == ""
+    # Missing/None current → empty envelope, no crash.
+    merged2, notes2 = merge_visual_concept_edits(None, [{"index": 0}])
+    assert merged2 == {"visual_concepts": []}
+    assert notes2 == ""
+
+
+def test_resume_with_edits_appends_state_delta_before_relaunch():
+    """Direct field edits + notes are merged into final_visual_concepts (and
+    visual_revision_notes) via a state_delta event appended BEFORE the resumed
+    segment runs, so the renderer/reviser read the user's edits."""
+
+    async def _go():
+        svc = InMemorySessionService()
+        await svc.create_session(
+            app_name="interactive_creative",
+            user_id="u",
+            session_id="s",
+            state={"final_visual_concepts": _envelope()},
+        )
+        fake = _FakeRunner(
+            svc, "interactive_creative", "u", "s", [_agent_event("resumed")]
+        )
+        _result, task = await start_resume(
+            app_name="interactive_creative",
+            user_id="u",
+            session_id="s",
+            function_call_id="call-9",
+            function_name="review_visual_concepts",
+            response={"approved": True},
+            session_service=svc,
+            runner_factory=lambda a: fake,
+            edits=[
+                {"index": 0, "image_generation_prompt": "EDITED"},
+                {"index": 1, "revision_note": "more neon"},
+            ],
+        )
+        await task
+        return await svc.get_session(
+            app_name="interactive_creative", user_id="u", session_id="s"
+        )
+
+    session = asyncio.run(_go())
+    state = session.state
+    assert (
+        state["final_visual_concepts"]["visual_concepts"][0]["image_generation_prompt"]
+        == "EDITED"
+    )
+    assert "Concept 1 (c1): more neon" in state["visual_revision_notes"]
 
 
 # --- Task 5: router registration (creds-light — importing the router must NOT

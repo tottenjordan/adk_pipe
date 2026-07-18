@@ -3,10 +3,18 @@
 import { useState, useMemo } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { extractItems, parseRawGtrends } from "./run-helpers";
+import {
+  buildConceptEdits,
+  extractItems,
+  parseRawGtrends,
+  type ConceptDraft,
+} from "./run-helpers";
+
+const ASPECT_RATIO_OPTIONS = ["9:16", "1:1", "4:5", "3:4", "16:9"];
 
 /* ── Review panel components for interactive mode ── */
 
@@ -189,8 +197,34 @@ function ReviewVisualConcepts({
   state: Record<string, unknown>;
   onResume: (response: Record<string, unknown>) => void;
 }) {
-  const [feedback, setFeedback] = useState("");
-  const concepts = extractItems(state.final_visual_concepts);
+  const concepts = useMemo(
+    () => extractItems(state.final_visual_concepts) ?? [],
+    [state.final_visual_concepts]
+  );
+  // Editable per-concept drafts, seeded once from the finalized concepts.
+  const [drafts, setDrafts] = useState<ConceptDraft[]>(() =>
+    concepts.map((c) => ({
+      image_generation_prompt: String(c.image_generation_prompt ?? ""),
+      aspect_ratio: String(c.aspect_ratio ?? ""),
+      visual_style: String(c.visual_style ?? ""),
+      revision_note: "",
+    }))
+  );
+
+  const update = (i: number, field: keyof ConceptDraft, value: string) =>
+    setDrafts((prev) =>
+      prev.map((d, j) => (i === j ? { ...d, [field]: value } : d))
+    );
+
+  const submit = () => {
+    const edits = buildConceptEdits(concepts, drafts);
+    onResume({
+      status: "approved",
+      edits,
+      instruction:
+        "User reviewed the visual concepts. Continue to the next step in the WORKFLOW — apply any revision notes, then generate images.",
+    });
+  };
 
   return (
     <div className="glass rounded-2xl p-6 space-y-4 animate-fadeInUp">
@@ -199,32 +233,85 @@ function ReviewVisualConcepts({
         <h2 className="text-lg font-semibold">Review Visual Concepts</h2>
       </div>
       <p className="text-sm text-muted-foreground">
-        Review the visual concepts and image prompts. Approve to generate images.
+        Edit the image prompt, aspect ratio, or style directly, and/or add a
+        revision note (applied by the AI before rendering). Approve to generate
+        images. Note: changing the style label alone won&apos;t change the image
+        unless the prompt or note reflects it.
       </p>
-      {concepts && (
-        <div className="space-y-3 max-h-96 overflow-y-auto">
+      {concepts.length > 0 && (
+        <div className="space-y-3 max-h-[32rem] overflow-y-auto">
           {concepts.map((concept, i) => (
-            <div key={i} className="rounded-lg border p-4 space-y-2">
-              <div className="font-medium">{String(concept.concept_name ?? `Concept ${i + 1}`)}</div>
-              <div className="text-sm text-muted-foreground">{String(concept.concept_summary ?? "")}</div>
-              <div className="text-xs text-cyan-600 font-mono bg-muted/30 rounded p-2">
-                {String(concept.image_generation_prompt ?? "")}
+            <div key={i} className="rounded-lg border p-4 space-y-3">
+              <div className="font-medium">
+                {String(concept.concept_name ?? `Concept ${i + 1}`)}
               </div>
+              <div className="text-sm text-muted-foreground">
+                {String(concept.concept_summary ?? "")}
+              </div>
+
+              <label className="block text-[10px] font-bold uppercase tracking-wider text-cyan-600">
+                Image prompt
+              </label>
+              <Textarea
+                value={drafts[i]?.image_generation_prompt ?? ""}
+                onChange={(e) =>
+                  update(i, "image_generation_prompt", e.target.value)
+                }
+                rows={4}
+                className="bg-muted/30 border-border font-mono text-xs leading-relaxed"
+              />
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-violet-500">
+                    Aspect ratio
+                  </label>
+                  <select
+                    value={drafts[i]?.aspect_ratio ?? ""}
+                    onChange={(e) => update(i, "aspect_ratio", e.target.value)}
+                    className="mt-1 w-full rounded-md border border-border bg-background px-2 py-1.5 text-sm"
+                  >
+                    {/* Keep whatever the concept currently has, even if custom. */}
+                    {drafts[i]?.aspect_ratio &&
+                      !ASPECT_RATIO_OPTIONS.includes(drafts[i].aspect_ratio) && (
+                        <option value={drafts[i].aspect_ratio}>
+                          {drafts[i].aspect_ratio}
+                        </option>
+                      )}
+                    {ASPECT_RATIO_OPTIONS.map((r) => (
+                      <option key={r} value={r}>
+                        {r}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-amber-600">
+                    Style
+                  </label>
+                  <Input
+                    value={drafts[i]?.visual_style ?? ""}
+                    onChange={(e) => update(i, "visual_style", e.target.value)}
+                    className="mt-1 bg-background border-border text-sm"
+                  />
+                </div>
+              </div>
+
+              <label className="block text-[10px] font-bold uppercase tracking-wider text-emerald-600">
+                Revision note (applied by AI)
+              </label>
+              <Input
+                placeholder="e.g., make the background brighter, add a dog"
+                value={drafts[i]?.revision_note ?? ""}
+                onChange={(e) => update(i, "revision_note", e.target.value)}
+                className="bg-background border-border text-sm"
+              />
             </div>
           ))}
         </div>
       )}
-      <Textarea
-        placeholder="Optional feedback..."
-        value={feedback}
-        onChange={(e) => setFeedback(e.target.value)}
-        rows={3}
-        className="bg-background border-border"
-      />
       <div className="flex gap-3">
-        <Button onClick={() => onResume({ status: "approved", feedback, instruction: "User approved the visual concepts. Continue to the next step in the WORKFLOW — generate images." })}>
-          Approve &amp; Generate Images
-        </Button>
+        <Button onClick={submit}>Approve &amp; Generate Images</Button>
       </div>
     </div>
   );

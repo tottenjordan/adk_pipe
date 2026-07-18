@@ -22,6 +22,69 @@ export function extractItems(data: unknown): Record<string, unknown>[] | null {
   return null;
 }
 
+/** A per-concept draft edited in the checkpoint-3 review panel. */
+export interface ConceptDraft {
+  image_generation_prompt: string;
+  aspect_ratio: string;
+  visual_style: string;
+  revision_note: string;
+}
+
+/** One entry in the resume `edits` payload (only changed fields + notes). */
+export interface ConceptEdit {
+  index: number;
+  image_generation_prompt?: string;
+  aspect_ratio?: string;
+  visual_style?: string;
+  revision_note?: string;
+}
+
+/**
+ * Diff the user's edited concept drafts against the originals from session
+ * state, producing the minimal `edits` array the resume endpoint expects.
+ *
+ * Only concepts with a changed direct field (image_generation_prompt /
+ * aspect_ratio / visual_style) or a non-empty revision note are included; each
+ * entry carries its 0-based `index` and only the fields that actually changed
+ * (notes are trimmed). Pure — no dependence on the number/order beyond index.
+ */
+export function buildConceptEdits(
+  originals: Record<string, unknown>[],
+  drafts: ConceptDraft[]
+): ConceptEdit[] {
+  const edits: ConceptEdit[] = [];
+  const directFields = [
+    "image_generation_prompt",
+    "aspect_ratio",
+    "visual_style",
+  ] as const;
+
+  drafts.forEach((draft, index) => {
+    const original = originals[index] ?? {};
+    const edit: ConceptEdit = { index };
+    let changed = false;
+
+    for (const field of directFields) {
+      const before = String(original[field] ?? "");
+      const after = draft[field] ?? "";
+      if (after !== before) {
+        edit[field] = after;
+        changed = true;
+      }
+    }
+
+    const note = (draft.revision_note ?? "").trim();
+    if (note) {
+      edit.revision_note = note;
+      changed = true;
+    }
+
+    if (changed) edits.push(edit);
+  });
+
+  return edits;
+}
+
 /**
  * Normalize the candidate trend terms from session state `raw_gtrends`.
  * The backend stores a `string[]` of ~25 terms; guard against absent/malformed

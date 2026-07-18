@@ -143,6 +143,49 @@ async def _generate_image_with_backoff(**kwargs):
             await asyncio.sleep(delay)
 
 
+def _resolve_aspect_ratio(
+    entry: dict,
+    override: str,
+    allowed: tuple[str, ...],
+    default: str,
+) -> str:
+    """Resolve one concept's aspect ratio — pure, no SDK/state access.
+
+    Precedence: a valid state-level ``override`` (the user's
+    ``visual_aspect_ratio``) wins for every concept; otherwise the per-concept
+    ``entry["aspect_ratio"]``; otherwise the configured ``default``. Any value
+    outside ``allowed`` is ignored at its level and falls through.
+    """
+    if override and override in allowed:
+        return override
+    candidate = entry.get("aspect_ratio") or default
+    if candidate not in allowed:
+        return default
+    return candidate
+
+
+# How a user-labeled reference image should be used, phrased for the image model.
+# flash-image supports object/character reference (product, logo) but NOT true
+# style-by-example, so the `style` role is text-described guidance, not transfer.
+_REFERENCE_ROLE_INSTRUCTIONS = {
+    "product": "Incorporate the product shown in the reference image.",
+    "logo": "Include the brand logo shown in the reference image.",
+    "style": "Match the visual style/aesthetic of the reference image.",
+}
+
+
+def _role_prefixed_prompt(prompt_text: str, role: str) -> str:
+    """Append a role instruction for the reference image to the prompt — pure.
+
+    Returns ``prompt_text`` unchanged for an empty/unknown role (the caller only
+    invokes this when a reference image is actually present).
+    """
+    instruction = _REFERENCE_ROLE_INSTRUCTIONS.get((role or "").strip())
+    if not instruction:
+        return prompt_text
+    return f"{prompt_text}\n\n{instruction}"
+
+
 async def generate_image(
     tool_context: ToolContext,
 ):
@@ -180,30 +223,47 @@ async def generate_image(
         if reference_part is not None:
             logging.info(f"Using product reference image: {reference_uri}")
 
+    # Optional user-supplied role for the reference image (product | logo |
+    # style). Only meaningful when a reference part was actually fetched; it adds
+    # a text instruction telling the model how to use the reference.
+    reference_role = (tool_context.state.get("reference_image_role") or "").strip()
+
+    # Optional user-supplied deterministic aspect-ratio override. When set to a
+    # valid value it pins EVERY concept to that ratio; when empty/invalid, each
+    # concept keeps its own LLM-chosen ratio (preserving diversity). Read once.
+    aspect_ratio_override = (
+        tool_context.state.get("visual_aspect_ratio") or ""
+    ).strip()
+    if aspect_ratio_override and (
+        aspect_ratio_override not in config.image_aspect_ratios_allowed
+    ):
+        logging.warning(
+            f"visual_aspect_ratio override '{aspect_ratio_override}' not in "
+            f"allowed set {config.image_aspect_ratios_allowed}; ignoring override."
+        )
+        aspect_ratio_override = ""
+    elif aspect_ratio_override:
+        logging.info(f"Applying user aspect-ratio override: {aspect_ratio_override}")
+
     artifact_keys_list = []
     for entry in final_visual_concepts_list:
         try:
-            # Per-concept aspect ratio: the LLM may pick one from the allowed set;
-            # anything else (or unset) falls back to the configured default so a
-            # bad/empty value never reaches the SDK. .get() keeps concepts that
-            # only carry image_generation_prompt working (see test_tools_retry).
-            aspect_ratio = (
-                entry.get("aspect_ratio") or config.image_aspect_ratio_default
+            # Per-concept aspect ratio, unless a valid state override pins all
+            # concepts. .get() keeps concepts that only carry
+            # image_generation_prompt working (see test_tools_retry).
+            aspect_ratio = _resolve_aspect_ratio(
+                entry,
+                aspect_ratio_override,
+                config.image_aspect_ratios_allowed,
+                config.image_aspect_ratio_default,
             )
-            if aspect_ratio not in config.image_aspect_ratios_allowed:
-                logging.warning(
-                    f"Aspect ratio '{aspect_ratio}' not in allowed set "
-                    f"{config.image_aspect_ratios_allowed}; "
-                    f"falling back to '{config.image_aspect_ratio_default}'"
-                )
-                aspect_ratio = config.image_aspect_ratio_default
 
             prompt_text = entry["image_generation_prompt"]
-            contents = (
-                [prompt_text, reference_part]
-                if reference_part is not None
-                else prompt_text
-            )
+            if reference_part is not None:
+                prompt_text = _role_prefixed_prompt(prompt_text, reference_role)
+                contents = [prompt_text, reference_part]
+            else:
+                contents = prompt_text
             response = await _generate_image_with_backoff(
                 model=config.image_gen_model,
                 contents=contents,

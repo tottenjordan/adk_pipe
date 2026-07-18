@@ -417,6 +417,27 @@ ART_DIRECTOR_INSTR = """Role: You are the Art Director. Before any individual vi
         <target_audience>{target_audience}</target_audience>
         <target_search_trends>{target_search_trends}</target_search_trends>
 
+        <user_visual_direction>
+        Optional art direction supplied directly by the user. When non-empty,
+        treat it as a primary constraint and prioritize it over the default
+        tone→style inference; when empty, ignore it.
+        {visual_intent?}
+        </user_visual_direction>
+
+        <user_brand_colors>
+        Optional brand colour palette from the user. When non-empty, fold it
+        into the Colour palette section; when empty, choose colours yourself.
+        {brand_colors?}
+        </user_brand_colors>
+
+        <user_avoid>
+        Optional elements the user wants kept OUT of the imagery. When non-empty,
+        honour it, but express the guidance POSITIVELY — describe what to show
+        instead of the excluded thing (e.g. "a clean empty background" rather
+        than "no clutter"), never as a negative. When empty, ignore it.
+        {visual_avoid?}
+        </user_avoid>
+
         <research_report>
         {combined_final_cited_report?}
         </research_report>
@@ -447,6 +468,28 @@ VISUAL_CONCEPT_DRAFTER_INSTR = (
         <visual_direction>
         {visual_direction}
         </visual_direction>
+
+        <user_visual_direction>
+        Optional art direction supplied directly by the user. When non-empty,
+        treat it as a primary constraint and prioritize it over the default
+        tone→style mapping; when empty, ignore it.
+        {visual_intent?}
+        </user_visual_direction>
+
+        <user_brand_colors>
+        Optional brand colour palette from the user. When non-empty, use it for
+        the colour & mood building block of every concept; when empty, choose
+        colours from the visual_direction brief.
+        {brand_colors?}
+        </user_brand_colors>
+
+        <user_style_preference>
+        Optional preferred style family from the user. When non-empty, bias ALL
+        concepts toward this style family, but keep variety in lighting,
+        composition, and framing so the set is still visually diverse. When
+        empty, use the normal tone→style mapping for a diverse style mix.
+        {visual_style_preference?}
+        </user_style_preference>
 
         <brand>{brand}</brand>
         <target_audience>{target_audience}</target_audience>
