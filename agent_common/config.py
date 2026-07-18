@@ -68,7 +68,13 @@ class BaseAgentConfiguration:
     image_aspect_ratio_default: str = os.environ.get(
         "IMAGE_ASPECT_RATIO_DEFAULT", "9:16"
     )
-    image_aspect_ratios_allowed: tuple[str, ...] = ("9:16", "1:1", "3:4")
+    image_aspect_ratios_allowed: tuple[str, ...] = (
+        "9:16",
+        "1:1",
+        "4:5",
+        "16:9",
+        "3:4",
+    )
 
     # Adjust these values to limit the rate at which the agent queries the LLM API.
     rate_limit_seconds: int = 60
