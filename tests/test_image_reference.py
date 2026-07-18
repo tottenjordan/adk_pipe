@@ -268,3 +268,62 @@ def test_empty_state_aspect_ratio_preserves_per_concept(monkeypatch):
     assert result["status"] == "success"
     assert models.calls[0]["config"].image_config.aspect_ratio == "1:1"
     assert models.calls[1]["config"].image_config.aspect_ratio == "4:5"
+
+
+# --- Reference-image role labeling (reference_image_role) ---
+class TestRolePrefixedPrompt:
+    """Pure: role → an appended instruction about the reference image."""
+
+    def test_product_role(self):
+        out = image_tools._role_prefixed_prompt("a studio shot", "product")
+        assert "a studio shot" in out
+        assert "product shown in the reference image" in out
+
+    def test_logo_role(self):
+        out = image_tools._role_prefixed_prompt("a scene", "logo")
+        assert "brand logo shown in the reference image" in out
+
+    def test_style_role(self):
+        out = image_tools._role_prefixed_prompt("a scene", "style")
+        assert "visual style" in out and "reference image" in out
+
+    def test_no_role_unchanged(self):
+        assert image_tools._role_prefixed_prompt("a scene", "") == "a scene"
+
+    def test_unknown_role_unchanged(self):
+        assert image_tools._role_prefixed_prompt("a scene", "banana") == "a scene"
+
+
+def test_reference_role_adds_instruction_to_prompt(monkeypatch):
+    """With a reference present + a role set, the prompt text gains the role
+    instruction (contents[0]); the reference Part is still appended."""
+    models = _patch_client(monkeypatch)
+    monkeypatch.setattr(image_tools, "_download_blob", lambda *a, **k: b"\x89PNGREF")
+
+    ctx = MockToolContext()
+    ctx.state["reference_image_uri"] = "gs://b/logo.png"
+    ctx.state["reference_image_role"] = "logo"
+    ctx.state["final_visual_concepts"] = {
+        "visual_concepts": [{"image_generation_prompt": "a scene", "concept_name": "c"}]
+    }
+
+    result = asyncio.run(image_tools.generate_image(ctx))
+    assert result["status"] == "success"
+    contents = models.calls[0]["contents"]
+    assert isinstance(contents, list) and len(contents) == 2
+    assert "a scene" in contents[0]
+    assert "brand logo shown in the reference image" in contents[0]
+
+
+def test_reference_role_ignored_without_reference(monkeypatch):
+    """A role with no reference image leaves the prompt unchanged (text-only)."""
+    models = _patch_client(monkeypatch)
+    ctx = MockToolContext()
+    ctx.state["reference_image_role"] = "product"
+    ctx.state["final_visual_concepts"] = {
+        "visual_concepts": [{"image_generation_prompt": "a scene", "concept_name": "c"}]
+    }
+
+    result = asyncio.run(image_tools.generate_image(ctx))
+    assert result["status"] == "success"
+    assert models.calls[0]["contents"] == "a scene"

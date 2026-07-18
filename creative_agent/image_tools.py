@@ -164,6 +164,28 @@ def _resolve_aspect_ratio(
     return candidate
 
 
+# How a user-labeled reference image should be used, phrased for the image model.
+# flash-image supports object/character reference (product, logo) but NOT true
+# style-by-example, so the `style` role is text-described guidance, not transfer.
+_REFERENCE_ROLE_INSTRUCTIONS = {
+    "product": "Incorporate the product shown in the reference image.",
+    "logo": "Include the brand logo shown in the reference image.",
+    "style": "Match the visual style/aesthetic of the reference image.",
+}
+
+
+def _role_prefixed_prompt(prompt_text: str, role: str) -> str:
+    """Append a role instruction for the reference image to the prompt — pure.
+
+    Returns ``prompt_text`` unchanged for an empty/unknown role (the caller only
+    invokes this when a reference image is actually present).
+    """
+    instruction = _REFERENCE_ROLE_INSTRUCTIONS.get((role or "").strip())
+    if not instruction:
+        return prompt_text
+    return f"{prompt_text}\n\n{instruction}"
+
+
 async def generate_image(
     tool_context: ToolContext,
 ):
@@ -201,6 +223,11 @@ async def generate_image(
         if reference_part is not None:
             logging.info(f"Using product reference image: {reference_uri}")
 
+    # Optional user-supplied role for the reference image (product | logo |
+    # style). Only meaningful when a reference part was actually fetched; it adds
+    # a text instruction telling the model how to use the reference.
+    reference_role = (tool_context.state.get("reference_image_role") or "").strip()
+
     # Optional user-supplied deterministic aspect-ratio override. When set to a
     # valid value it pins EVERY concept to that ratio; when empty/invalid, each
     # concept keeps its own LLM-chosen ratio (preserving diversity). Read once.
@@ -232,11 +259,11 @@ async def generate_image(
             )
 
             prompt_text = entry["image_generation_prompt"]
-            contents = (
-                [prompt_text, reference_part]
-                if reference_part is not None
-                else prompt_text
-            )
+            if reference_part is not None:
+                prompt_text = _role_prefixed_prompt(prompt_text, reference_role)
+                contents = [prompt_text, reference_part]
+            else:
+                contents = prompt_text
             response = await _generate_image_with_backoff(
                 model=config.image_gen_model,
                 contents=contents,
