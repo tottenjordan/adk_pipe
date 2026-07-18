@@ -409,11 +409,18 @@ def crf_entrypoint(cloud_event: CloudEvent) -> None:
     # The triggering message should pass the necessary config,
     # OR the orchestrator uses a hardcoded worker topic name.
 
-    # 1. Fetch ALL unprocessed rows (processed_status is NULL)
-    # optionally fetch FAILED rows
+    # 1. Fetch unprocessed rows: brand-new (processed_status IS NULL) AND rows
+    # orphaned in QUEUED by a prior run that set them QUEUED then crashed or only
+    # partially published (a failed publish leaves the row QUEUED). Re-dispatch is
+    # safe: a row a worker already grabbed is PROCESSING/PROCESSED (not selected
+    # here), and a genuinely-stuck QUEUED row is re-sent — the worker's atomic
+    # QUEUED->PROCESSING lock (acquire_processing_lock) dedups any double delivery.
+    # KNOWN FOLLOW-UP (out of scope): a worker that hard-crashes AFTER acquiring
+    # the lock strands its row in PROCESSING forever; recovering that needs a
+    # `processing_started_at` column migration + a reaper for stale PROCESSING rows.
     rows_to_process_query = f"""
         SELECT * FROM `{bq_client.project}.{dataset}.{table}`
-        WHERE processed_status IS NULL
+        WHERE processed_status IS NULL OR processed_status = 'QUEUED'
         ORDER BY entry_timestamp ASC
     """
     try:
@@ -462,8 +469,12 @@ def crf_entrypoint(cloud_event: CloudEvent) -> None:
         # but the next successful run will see these rows are now QUEUED,
         # preventing duplication (assuming the next step succeeds).
 
-        # 5. Dispatch Step: Publish one message per row to the worker topic
-        dispatched_count = 0
+        # 5. Dispatch Step: Publish one message per row to the worker topic, then
+        # confirm each publish resolved. A publish that fails silently would leave
+        # its row QUEUED forever under the old IS-NULL-only re-query; now such a row
+        # is recovered by the broadened re-query on the next orchestrator run, so we
+        # only need to surface the failure (don't crash the whole batch over one).
+        publish_futures = []
         for row_dict in row_list:
             # Create a dedicated payload for the worker
             worker_payload = {
@@ -475,13 +486,23 @@ def crf_entrypoint(cloud_event: CloudEvent) -> None:
 
             data_str = json.dumps(worker_payload)
             data_bytes = data_str.encode("utf-8")
+            publish_futures.append(pubsub_publisher.publish(_WORKER_TOPIC_NAME, data_bytes))
 
-            # Publish the message
-            # Note: We don't await the publish result here, fire-and-forget is usually fine,
-            # but you might want to handle publishing errors.
-            pubsub_publisher.publish(_WORKER_TOPIC_NAME, data_bytes)
-            dispatched_count += 1
+        dispatched_count = 0
+        failed_count = 0
+        for future in publish_futures:
+            try:
+                future.result()
+                dispatched_count += 1
+            except Exception as e:  # noqa: BLE001 — one bad publish shouldn't sink the batch
+                failed_count += 1
+                logging.error(f"Failed to publish a worker message: {e}")
 
+        if failed_count:
+            logging.warning(
+                f"{failed_count}/{len(row_list)} worker publishes failed; those rows "
+                "remain QUEUED and will be recovered on the next orchestrator run."
+            )
         logging.info(
             f"Successfully dispatched {dispatched_count} tasks to the worker queue."
         )
