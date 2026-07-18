@@ -2,6 +2,8 @@
 
 import string
 
+import pytest
+
 
 # --- Artifact name sanitization ---
 REMOVE_PUNCTUATION = str.maketrans("", "", string.punctuation)
@@ -413,3 +415,72 @@ class TestWriteTrendsUuidStash:
         assert "tswift engaged" not in captured["sql"]
         param_names = {p.name for p in captured["job_config"].query_parameters}
         assert "target_trend" in param_names
+
+
+class TestWriteTrendsRaisesOnBqErrors:
+    """A BigQuery insert that reports job-level errors must NOT be reported as
+    success (silent data loss). Both write_trends_to_bq implementations must
+    raise, matching write_eval_report_to_bq's contract, so ADK RetryConfig can
+    retry and a genuine failure surfaces instead of masquerading as success."""
+
+    class _FailingJob:
+        errors = [{"reason": "invalid", "message": "boom"}]
+        job_id = "j-fail"
+        num_dml_affected_rows = 0
+
+        def result(self):
+            return None
+
+    def test_creative_agent_write_trends_raises(self, monkeypatch):
+        import creative_agent.bq_tools as t
+
+        outer = self
+
+        class _BQ:
+            def query(self, sql, job_config=None):
+                return outer._FailingJob()
+
+        monkeypatch.setattr(t, "_get_bigquery_client", lambda: _BQ())
+
+        ctx = MockToolContext()
+        ctx.state.update(
+            {
+                "gcs_folder": "2026_07_13_run",
+                "agent_output_dir": "creative_output",
+                "target_search_trends": "tswift engaged",
+                "brand": "PRS",
+                "target_audience": "musicians",
+                "target_product": "SE CE24",
+                "key_selling_points": "wide tonal range",
+            }
+        )
+        with pytest.raises(RuntimeError, match="BigQuery insert returned errors"):
+            t.write_trends_to_bq(ctx)
+
+    def test_trend_scout_write_trends_raises(self, monkeypatch):
+        import trend_scout.tools as t
+
+        outer = self
+
+        class _BQ:
+            def query(self, sql, job_config=None):
+                return outer._FailingJob()
+
+        monkeypatch.setattr(t, "_get_bigquery_client", lambda: _BQ())
+        # avoid the live max-date lookup used to build the insert SQL
+        monkeypatch.setattr(t, "_get_gtrends_max_date", lambda: "2026-07-17")
+
+        ctx = MockToolContext()
+        ctx.state.update(
+            {
+                "gcs_folder": "2026_07_13_run",
+                "agent_output_dir": "trawler_output",
+                "target_search_trends": {"target_search_trends": ["tswift engaged"]},
+                "brand": "PRS",
+                "target_audience": "musicians",
+                "target_product": "SE CE24",
+                "key_selling_points": "wide tonal range",
+            }
+        )
+        with pytest.raises(RuntimeError, match="BigQuery insert returned errors"):
+            t.write_trends_to_bq(ctx)

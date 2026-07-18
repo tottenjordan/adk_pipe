@@ -136,6 +136,7 @@ def write_trends_to_bq(tool_context: ToolContext) -> dict:
             logging.error(
                 f"DML INSERT job for trend: '{target_trend}' failed: {job.errors}"
             )
+            raise RuntimeError(f"BigQuery insert returned errors: {job.errors}")
         else:
             logging.info(
                 f"DML INSERT job {job.job_id} for trend: '{target_trend}' completed; added {job.num_dml_affected_rows} rows."
