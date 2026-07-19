@@ -18,6 +18,7 @@ import { gcsProxyUrl } from "@/lib/gcs";
 import {
   buildDisplayFields,
   imagesRetryExhausted,
+  nonImageWarnings,
   VISUAL_DIRECTION_FIELDS,
   type DisplayFieldDef,
 } from "@/lib/utils";
@@ -62,6 +63,8 @@ interface EvalReport {
   target_search_trend: string;
   ad_copy_evaluations: AdCopyEvaluation[];
   visual_concept_evaluations: VisualConceptEvaluation[];
+  /** Degradation notes from retry-exhausted pipeline steps (may be absent on older reports). */
+  warnings?: string[];
   summary: {
     total_ad_copies: number;
     ad_copies_passed: number;
@@ -225,6 +228,10 @@ export default function ResultsPage({
 
   const state = session?.state || {};
   const noImages = imagesRetryExhausted(state);
+  // Degradation warnings from the eval report, minus the image-exhaustion note
+  // (already surfaced by the dedicated zero-image banner above) — what remains is
+  // the research-producer exhaustions worth flagging on their own.
+  const degradationWarnings = nonImageWarnings(evalReport?.warnings);
   const gcsUri = [state.gcs_bucket, state.gcs_folder, state.agent_output_dir]
     .filter(Boolean)
     .join("/");
@@ -429,6 +436,26 @@ export default function ResultsPage({
             </Button>
           </div>
         )}
+
+      {/* Degraded-research warning: one or more research producers exhausted their
+          retries and shipped no output, so the creative brief was built on partial
+          research. Distinct from (and filtered against) the zero-image banner. */}
+      {degradationWarnings.length > 0 && (
+        <div className="mb-6 rounded-2xl border border-amber-500/40 bg-amber-500/10 px-5 py-4 animate-fadeIn">
+          <h2 className="text-sm font-semibold text-amber-700">
+            Some research steps produced no output
+          </h2>
+          <p className="mt-0.5 text-xs text-amber-700/80">
+            Parts of the pipeline exhausted their retries, so this run&apos;s
+            creative was built on incomplete research:
+          </p>
+          <ul className="mt-2 list-disc space-y-0.5 pl-5 text-xs text-amber-700/80">
+            {degradationWarnings.map((w) => (
+              <li key={w}>{w}</li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {/* Eval summary header */}
       {evalReport && (

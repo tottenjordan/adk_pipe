@@ -37,6 +37,19 @@ export function imagesRetryExhausted(state: Record<string, unknown>): boolean {
   return Boolean(state["_images_generated__retry_exhausted"])
 }
 
+/**
+ * The eval report's degradation warnings (from `collect_degradation_warnings`),
+ * minus the image-exhaustion note — that one is already surfaced by the dedicated
+ * zero-image banner (issue #116) via {@link imagesRetryExhausted}, so filtering it
+ * here keeps the two amber banners from duplicating the same message. What remains
+ * is the research-producer exhaustions (e.g. `gs_web_search_insights`,
+ * `campaign_web_search_insights`). Tolerates `undefined` (reports predating the
+ * `warnings` field simply show nothing).
+ */
+export function nonImageWarnings(warnings: string[] | undefined): string[] {
+  return (warnings ?? []).filter((w) => !w.includes("_images_generated"))
+}
+
 /** A label→state-key mapping for a read-only metadata display. */
 export interface DisplayFieldDef {
   label: string
