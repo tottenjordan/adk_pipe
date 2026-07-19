@@ -17,6 +17,7 @@ import { fetchEvalReport } from "@/lib/eval-report";
 import { gcsProxyUrl } from "@/lib/gcs";
 import {
   buildDisplayFields,
+  imagesRetryExhausted,
   VISUAL_DIRECTION_FIELDS,
   type DisplayFieldDef,
 } from "@/lib/utils";
@@ -223,6 +224,7 @@ export default function ResultsPage({
   }
 
   const state = session?.state || {};
+  const noImages = imagesRetryExhausted(state);
   const gcsUri = [state.gcs_bucket, state.gcs_folder, state.agent_output_dir]
     .filter(Boolean)
     .join("/");
@@ -313,6 +315,22 @@ export default function ResultsPage({
 
   return (
     <div className="mx-auto max-w-[1600px] px-6 py-8">
+      {/* Zero-image warning: the image producer exhausted all retries (issue #116),
+          so this run shipped no visuals. Surface it prominently — otherwise the
+          only signal is an easy-to-miss eval-report note and empty image tabs. */}
+      {noImages && (
+        <div className="mb-6 rounded-2xl border border-amber-500/40 bg-amber-500/10 px-5 py-4 animate-fadeIn">
+          <h2 className="text-sm font-semibold text-amber-700">
+            No images were generated for this run
+          </h2>
+          <p className="mt-0.5 text-xs text-amber-700/80">
+            The image model failed repeatedly (MALFORMED_FUNCTION_CALL), so no
+            visual concepts were rendered. This is usually transient — start a new
+            run of the same campaign to generate visuals.
+          </p>
+        </div>
+      )}
+
       {/* Header row */}
       <div className="mb-6 flex items-center justify-between animate-fadeIn">
         <div>

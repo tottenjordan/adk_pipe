@@ -190,6 +190,9 @@ def test_visual_production_pipeline_wraps_generator_in_retry():
     assert isinstance(w, RetryUntilKeyAgent)
     assert w.output_key == "_images_generated"
     assert w.sub_agents[0] is ca.visual_generator
+    # MALFORMED_FUNCTION_CALL is a transient producer flake (issue #116); each
+    # attempt is an independent turn, so a higher cap materially raises recovery.
+    assert w.max_attempts == 6
 
 
 def test_parallel_planner_has_both_researchers():

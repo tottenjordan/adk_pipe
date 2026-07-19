@@ -25,6 +25,18 @@ export function formatStateValue(value: unknown): string {
   return String(value)
 }
 
+/**
+ * True when the image step exhausted all its retries and produced no visuals
+ * (issue #116). `visual_generator_resilient` (a RetryUntilKeyAgent) writes the
+ * `_images_generated__retry_exhausted` marker to session state on exhaustion, so
+ * a "successful" run can still ship an empty gallery — this lets the results page
+ * flag that clearly. Coerced to a plain boolean since ADK may serialize the
+ * marker as a truthy non-bool.
+ */
+export function imagesRetryExhausted(state: Record<string, unknown>): boolean {
+  return Boolean(state["_images_generated__retry_exhausted"])
+}
+
 /** A label→state-key mapping for a read-only metadata display. */
 export interface DisplayFieldDef {
   label: string
