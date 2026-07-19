@@ -435,11 +435,18 @@ visual_generator = Agent(
 # spend); on exhaustion the wrapper emits _images_generated__retry_exhausted, which
 # collect_degradation_warnings surfaces on the gallery/eval banner. Single shared
 # instance (also used by interactive_creative via AgentTool) to avoid double-parenting.
+#
+# max_attempts=6 (issue #116): the MALFORMED flake is transient — a fresh producer
+# turn usually clears it, and each attempt IS an independent turn — but 3 attempts
+# occasionally weren't enough, dropping the WHOLE run to zero images. A higher cap
+# only costs extra *failed* producer turns (the idempotency guard prevents double
+# image spend, and the first successful turn returns immediately), so the common
+# path is unchanged while rare-failure recovery odds rise materially.
 visual_generator_resilient = RetryUntilKeyAgent(
     name="visual_generator_resilient",
     sub_agents=[visual_generator],
     output_key="_images_generated",
-    max_attempts=3,
+    max_attempts=6,
 )
 
 
