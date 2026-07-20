@@ -420,7 +420,15 @@ visual_generator = Agent(
             "subagent": "visual_generator",
         },
     ),
-    before_model_callback=callbacks.rate_limit_callback,
+    # Chain: rate-limit first, then force the generate_image tool call (issue #116).
+    # Both return None, so ADK runs them in order every turn. force_image_tool_call
+    # is gated on _images_generated so it only constrains the turn until the image
+    # step succeeds — belt (deterministic tool_config) AND suspenders (the resilient
+    # retry wrapper below) against the MALFORMED_FUNCTION_CALL empty-gallery flake.
+    before_model_callback=[
+        callbacks.rate_limit_callback,
+        callbacks.force_image_tool_call,
+    ],
     after_model_callback=callbacks.log_empty_turn_finish_reason,
 )
 
