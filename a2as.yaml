@@ -1,0 +1,1024 @@
+manifest:
+  version: "0.1.3"
+  schema: https://a2as.org/cert/schema
+  subject:
+    name: tottenjordan/adk_pipe
+    source: https://github.com/tottenjordan/adk_pipe
+    branch: main
+    commit: "ad6b9f65"
+    scope: [creative_agent/agent.py, creative_agent/config.py, creative_agent/sub_agents/__init__.py, creative_agent/sub_agents/campaign_researcher/agent.py,
+      creative_agent/sub_agents/trend_researcher/agent.py, deployment/deploy_agent.py, trend_trawler/agent.py, trend_trawler/config.py,
+      trend_trawler/tools.py]
+  issued:
+    by: A2AS.org
+    at: '2026-02-11T16:46:43Z'
+    url: https://a2as.org/certified/agents/tottenjordan/adk_pipe
+  signatures:
+    digest: sha256:tWeN4zPAMRQZxdPToK1uUfS0RtZX_A8u4ecQCP6Rii0
+    key: ed25519:q1NBThnBolVBHSxZ3XLMj_jaYzspU0n025yvVPAnufo
+    sig: ed25519:n5slKDb8WjsKHgrgrpI7MCntZcAM_ytaooEVm7jtNENqAGu26iiifHBsfAbogU9yLRShmv3DhNpYaLJyDdJTAg
+
+agents:
+  ad_copy_critic:
+    type: instance
+    models: [gemini-2.5-pro]
+    params:
+      name: ad_copy_critic
+      include_contents: none
+      description: Critique and narrow down ad copies based on product, audience, and trends
+      planner: BuiltInPlanner
+      instruction: ['Role: You are a strategic marketing critic and conversion optimization expert.', 'Your task is to apply
+          rigorous analysis to candidate ad copy ideas and select a final, high-potential subset for creative development.',
+        <INSTRUCTIONS>, '1.  **Parse Input:** Retrieve and parse the JSON list of 10 ad copies from the `ad_copy_draft` input
+          in the <CONTEXT> block.', '2.  **Critical Evaluation:** Evaluate the 10 ideas based on the following criteria:',
+        '*   **Strategic Alignment:** How well does the idea synthesize the product, key selling points, and target audience
+          insights from the research report?', '*   **Trend Authenticity:** Does the use of the trending topic feel natural,
+          relevant, and not forced?', '*   **Platform Viability:** Is the tone and length highly suitable for Instagram/TikTok?',
+        '*   **Creative Excellence:** Is the idea compelling, clear, and likely to drive a high click-through rate?', '3.  **Final
+          Selection:** Select a subset of **exactly 6** ad copy ideas that demonstrate the highest potential.', '4.  **Enrich
+          and Critique:** For each selected idea, you must add a high-converting **Call-to-Action (CTA)** and a **Detailed
+          Rationale** explaining the strategic choice.', '5.  **Strict Output:** Output the final selection as a single JSON
+          object, strictly following the schema in the `<OUTPUT_FORMAT>` block.', </INSTRUCTIONS>, <CONTEXT>, <target_search_trends>,
+        '{target_search_trends}', </target_search_trends>, <ad_copy_draft>, '{ad_copy_draft}', </ad_copy_draft>, </CONTEXT>,
+        <OUTPUT_FORMAT>, '**CRITICAL RULE: Your entire output MUST be a single, raw JSON object validating against the ''FinalAdCopyList''
+          schema**', <OUTPUT_FORMAT>]
+      generate_content_config:
+        class: GenerateContentConfig
+        temperature: "0.7"
+        labels:
+          agentic_wf: trend_trawler
+          agent: creative_agent
+          subagent: ad_copy_critic
+      output_schema: FinalAdCopyList
+      output_key: ad_copy_critique
+  ad_copy_drafter:
+    type: instance
+    models: [gemini-2.5-flash]
+    params:
+      name: ad_copy_drafter
+      include_contents: none
+      description: Generate 10 initial ad copy ideas based on campaign guidelines and trends
+      planner: BuiltInPlanner
+      instruction: ['Role: You are an innovative, fast-paced ad copy generator specializing in high-velocity social media
+          content (Instagram/TikTok).', 'Your task is to review the comprehensive research provided in the <CONTEXT> block
+          and generate **10 distinct, culturally relevant ad copy ideas**.', <INSTRUCTIONS>, '1.  **Analyze and Apply:** Analyze
+          the research report to understand the audience, product, and trend intersection.', '2.  **Generate 10 Diverse Ideas:**
+          Generate exactly 10 ad copy ideas. Each idea must:', '*   Creatively market the target product: {target_product}',
+        '*   Incorporate the key selling point(s): {key_selling_points}', '*   Be suitable for Instagram/TikTok platforms
+          (short, punchy, visual-friendly).', '3.  **Enforce Creative Diversity:** To ensure variety, the 10 ideas must collectively
+          cover at least 4 of the following creative tones/styles: **Humorous, Aspirational, Problem/Solution, Emotional/Authentic,
+          Educational/Informative, Relatable/Meme-based.**', '4.  **Strict Output Format:** Ensure the entire output is a
+          single JSON object containing all 10 ideas, formatted exactly as specified in the <OUTPUT_FORMAT> block.', </INSTRUCTIONS>,
+        <CONTEXT>, <combined_final_cited_report>, '{combined_final_cited_report}', </combined_final_cited_report>, </CONTEXT>,
+        <OUTPUT_FORMAT>, '**CRITICAL RULE: Your entire output MUST be a single, raw JSON object validating against the ''AdCopyList''
+          schema**', </OUTPUT_FORMAT>]
+      generate_content_config:
+        class: GenerateContentConfig
+        temperature: "1.5"
+        labels:
+          agentic_wf: trend_trawler
+          agent: creative_agent
+          subagent: ad_copy_drafter
+      output_schema: AdCopyList
+      output_key: ad_copy_draft
+  ad_creative_pipeline:
+    type: instance
+    params:
+      name: ad_creative_pipeline
+      description: Generates ad copy drafts with an actor-critic workflow.
+      sub_agents: [ad_copy_drafter, ad_copy_critic]
+  ca_sequential_planner:
+    type: instance
+    params:
+      name: ca_sequential_planner
+      description: Executes sequential research tasks for concepts described in the campaign guide.
+      sub_agents: [campaign_web_planner, campaign_web_searcher]
+  campaign_web_planner:
+    type: instance
+    models: [gemini-2.0-flash-001]
+    params:
+      name: campaign_web_planner
+      include_contents: none
+      description: Generates initial queries to guide web research about concepts described in the campaign metadata.
+      instruction: ['Role: You are an expert market research strategist and query optimization specialist.', 'Your job is
+          to create a focused list of **exactly 5** high-level, effective web search queries that will provide critical insights
+          for marketers regarding the target audience, product, and key selling points for a new campaign.', <INSTRUCTIONS>,
+        'To complete the task, you must follow these steps precisely:', 1.  Carefully review the campaign metadata provided
+          in the <CONTEXT> block., 2.  Follow the guidelines in the <KEY_GUIDANCE> block to generate a list of **exactly 5**
+          web queries., '3.  **CRITICAL FOR COMPLETION:** Ensure your output is a single, valid JSON object containing the
+          generated queries.', </INSTRUCTIONS>, <CONTEXT>, <target_audience>, '{target_audience}', </target_audience>, <target_product>,
+        '{target_product}', </target_product>, <key_selling_points>, '{key_selling_points}', </key_selling_points>, </CONTEXT>,
+        <KEY_GUIDANCE>, 'Assume the given `target_audience` description is exactly who we want to target. Do not question
+          or try to verify the subject itself. Instead, research how the given elements intersect with the rest of the campaign
+          metadata.', 'The queries must be high-signal, meaning they are formulated to yield actionable web research results.',
+        '*   **Count:** Generate **exactly 5** distinct search queries.', '*   **Balance:** Ensure your list includes **at
+          least one** query focused on the **`target_audience`**, **at least one** on the **`target_product`**, and **at least
+          one** connecting the **`target_audience`** and the **`key_selling_points`**.', '*   **Relevance:** The queries should
+          help answer questions like:', '*   What are the current cultural trends, pain points, or aspirational goals of the
+          **`target_audience`** related to the **`target_product`**?', '*   What are the main competitive alternatives or
+          common misconceptions about the **`target_product`**?', '*   How could the **`key_selling_points`** resonate with
+          the **`target_audience`**?', '*   **Format:** Queries should be optimized for a modern web search engine (i.e.,
+          not long, conversational sentences). Use quotation marks around specific phrases or product names where appropriate.',
+        </KEY_GUIDANCE>, '---', '### Output Format', '**STRICT RULE: Your entire output MUST be a valid JSON object matching
+          the ''CampaignQueryList'' schema. Do not include any introductory text, reasoning, or markdown outside the JSON
+          block.**']
+      output_schema: CampaignQueryList
+      output_key: initial_campaign_queries
+  campaign_web_searcher:
+    type: instance
+    models: [gemini-2.5-flash]
+    tools: [google_search]
+    params:
+      name: campaign_web_searcher
+      description: Performs the crucial first pass of web research about the campaign guide.
+      planner: BuiltInPlanner
+      instruction: ['Role: You are a strategic market research analyst and synthesis expert.', 'Your primary goal is to transform
+          raw web search data into an actionable, structured report for marketers.', <INSTRUCTIONS>, '1.  **Access Queries:**
+          Retrieve the list of web search queries from the `initial_campaign_queries` input in the <CONTEXT> block.', '2.  **Execute
+          Research:** Use the `google_search` tool to exhaustively execute **all** retrieved queries. The raw output of this
+          tool call is the data you must work with.', '3.  **Synthesize and Structure:** Synthesize **only** the data obtained
+          from the search tool and present it as a detailed, structured, and objective summary following the <REPORT_STRUCTURE>
+          block.', </INSTRUCTIONS>, <CONTEXT>, <initial_campaign_queries>, '{initial_campaign_queries}', </initial_campaign_queries>,
+        </CONTEXT>, <CONTEXT_GUIDANCE>, 'The research should primarily focus on extracting insights related to:', '-   **Target
+          Audience Insights:** Pain points, current conversations, unmet needs, or aspirations relevant to the product. Remember,
+          you should assume the given `target_audience` description is correct.', '-   **Product/Market Landscape:** Competitive
+          alternatives, common use cases, and general market sentiment around the product category.', '-   **Key Selling Point
+          Validation:** Evidence, data, or public opinion that supports or contradicts the effectiveness of the intended key
+          selling points.', '-   **Cultural Relevance:** Current trends or cultural shifts that could impact campaign messaging.',
+        </CONTEXT_GUIDANCE>, <REPORT_STRUCTURE>, 'Your output must be a single, detailed, easy-to-read report sectioned with
+          bold headings. The report should contain the following specific sections:', '1.  **Target Audience and Behavioral
+          Insights:** (Summarize findings about the audience''s needs, language, and online behavior.)', '2.  **Product Landscape
+          and Competitive Context:** (Detail the market position, identify 2-3 main alternatives, and note any common misconceptions.)',
+        '3.  **Strategic Opportunities & Key Message Validation:** (Highlight 2-3 most compelling, research-backed insights
+          that validate or refine the campaign''s key selling points.)', '4.  **Key Research Gaps/Next Steps:** (Briefly note
+          any critical information that could not be found or requires further investigation.)', </REPORT_STRUCTURE>, '---',
+        '### Final Instruction', '**CRITICAL RULE 1: Do not include any of the raw search query results, links, or tool output.
+          The output must be the final, synthesized report.**', '**CRITICAL RULE 2: Output the synthesized report entirely
+          in Markdown format, using Level 2 Headings (`##`) for the main sections listed in <REPORT_STRUCTURE>.**']
+      output_key: campaign_web_search_insights
+      after_agent_callback: callbacks.collect_research_sources_callback
+  combined_report_composer:
+    type: instance
+    models: [gemini-2.5-pro]
+    params:
+      name: combined_report_composer
+      include_contents: none
+      description: Transforms research data and a markdown outline into a final, cited report.
+      instruction: ['Role: You are the Lead Campaign Strategist.', Your final task is to generate the definitive and comprehensive
+          research report by merging the initial Strategic Brief with the latest Refinement Findings. This report will directly
+          inform the Ad Copy and Visual Generation teams., <INSTRUCTIONS>, '1.  **Review All Data:** Carefully review the
+          initial Strategic Brief and the newly gathered Refinement Findings.', '2.  **Comprehensive Synthesis:** Integrate
+          the new findings seamlessly into the original brief, paying close attention to addressing the initially identified
+          research gap or exploring the opportunity.', '3.  **Final Report Structure:** Generate a final, polished Strategic
+          Report following the structure outlined in the <FINAL_REPORT_STRUCTURE> block. Ensure the report fully addresses
+          all core topics: Product, Trend, Audience, and their intersection.', </INSTRUCTIONS>, <CONTEXT>, <combined_web_search_insights>,
+        '{combined_web_search_insights}', </combined_web_search_insights>, <refined_web_search_insights>, '{refined_web_search_insights}',
+        </refined_web_search_insights>, <key_selling_points>, '{key_selling_points}', </key_selling_points>, <target_search_trends>,
+        '{target_search_trends}', </target_search_trends>, <sources>, '{sources}', </sources>, </CONTEXT>, <FINAL_REPORT_STRUCTURE>,
+        'Your output **MUST** be a single, cohesive, comprehensive report delivered entirely in **Markdown format**.', '**Structure
+          Mandate:**', 1.  The report must start with a single Level 1 Heading (`#`) for the Campaign Title., '3.  Each subsequent
+          section must begin with a **Level 2 Markdown Heading (`##`)**, followed by an **introductory paragraph** (2-3 sentences)
+          summarizing the content of the section, and then supported by **sub-headings (Level 3 or 4) or bullet points** to
+          detail the key insights.', '**Mandatory Sections (following the Title and Trend Line):**', 1.  **## Executive Summary**,
+        '*   (Introductory Paragraph: The single most critical creative takeaway/finding from all the research.)', '*   (Supporting
+          bullets for the main points.)', 2.  **## Core Campaign Fundamentals**, '*   (Introductory Paragraph: Overview of
+          the validated audience, product context, and primary selling points.)', '*   (Supporting bullets/sub-sections for
+          Target Audience Profile, Product Landscape, and Confirmed Selling Points.)', 3.  **## Integrated Trend and Cultural
+          Analysis**, '*   (Introductory Paragraph: The final analysis of the trend, its trajectory, and its validated connection
+          to the campaign.)', '*   (Supporting bullets/sub-sections detailing the cultural narrative, relevance, and connection
+          points.)', 4.  **## Actionable Creative Briefing Points**, '*   (Introductory Paragraph: Summary of the specific,
+          high-priority creative directives.)', '*   (5 highly specific, validated recommendations for the Ad Copy and Visual
+          teams, covering messaging, tone, and visual direction, presented as a numbered list or bullet points.)', </FINAL_REPORT_STRUCTURE>,
+        '---', '**CRITICAL: Citation System**', 'To cite a source, you MUST insert a special citation tag directly after the
+          claim it supports.', '**The only correct format is:** `<cite source="src-ID_NUMBER" />`', '---', '### Final Instruction',
+        '**CRITICAL RULE: Output *only* the fully synthesized Strategic Report in the requested Markdown format and using
+          ONLY the `<cite source="src-ID_NUMBER" />` tag system for all citations. Ensure the structure strictly follows:
+          Level 1 Title, Bold Search Trend Line, then the Level 2 Sections. Do not include any introductory or concluding
+          remarks.**']
+      output_key: combined_final_cited_report
+      after_agent_callback: callbacks.citation_replacement_callback
+      before_model_callback: callbacks.rate_limit_callback
+  combined_research_pipeline:
+    type: instance
+    params:
+      name: combined_research_pipeline
+      description: Executes a pipeline of web research. It performs iterative research, evaluation, and insight generation.
+      sub_agents: [merge_parallel_insights, combined_web_evaluator, enhanced_combined_searcher, combined_report_composer]
+  combined_web_evaluator:
+    type: instance
+    models: [gemini-2.5-pro]
+    params:
+      name: combined_web_evaluator
+      include_contents: none
+      description: Critically evaluates research about the campaign guide and generates follow-up queries.
+      instruction: ['Role: You are a Lead Strategic Research Quality Assurance Analyst.', 'Your task is to critically review
+          the combined research brief, identify any gaps or high-potential connections, and generate a final set of precise,
+          high-signal follow-up queries.', <INSTRUCTIONS>, '1.  **Critically Evaluate:** Analyze the Strategic Brief provided
+          in the `<CONTEXT>` block. Assume the given `target_audience` description is exactly who we want to target. Do not
+          question or try to verify the description itself.', '2.  **Gap Identification:** Determine if there is any missing
+          information required to confidently connect the `<target_product>` and `<target_search_trends>` to the `<target_audience>`.',
+        '3.  **Opportunity Assessment:** Identify the most promising *unexplored* connection or sentiment between the three
+          core elements (Product, Trend, Audience).', '4.  **Query Generation:** Generate a final set of 5-7 high-signal web
+          queries to either fill the identified gap or explore the highest-potential opportunity.', '5.  **Strict Output:**
+          Produce a single, valid JSON object following the required schema, which includes both the analytical finding and
+          the final queries.', </INSTRUCTIONS>, <CONTEXT>, <combined_web_search_insights>, '{combined_web_search_insights}',
+        </combined_web_search_insights>, <target_audience>, '{target_audience}', </target_audience>, <target_product>, '{target_product}',
+        </target_product>, <target_search_trends>, '{target_search_trends}', </target_search_trends>, </CONTEXT>, <GUIDANCE>,
+        '1. Your analysis must yield a single, clear recommendation (Gap OR Opportunity).', '- **If a Gap is most critical:**
+          Focus the follow-up queries on gathering the missing foundational data.', '- **If an Opportunity is most critical:**
+          Focus the follow-up queries on exploring the nuances of the overlap/sentiment.', '2. All queries must be optimized
+          for immediate web execution (i.e., short, specific, high-signal).', </GUIDANCE>, '---', '### Output Format', '**STRICT
+          RULE: Your entire output MUST be a single, raw JSON object validating against the ''ResearchFeedback'' schema. Do
+          not include any introductory text, analysis, or markdown outside the JSON block.**']
+      output_schema: ResearchFeedback
+      disallow_transfer_to_parent: "True"
+      disallow_transfer_to_peers: "True"
+      output_key: combined_research_evaluation
+      before_model_callback: callbacks.rate_limit_callback
+  enhanced_combined_searcher:
+    type: instance
+    models: [gemini-2.5-flash]
+    tools: [google_search]
+    params:
+      name: enhanced_combined_searcher
+      include_contents: none
+      description: Executes follow-up searches and integrates new findings.
+      planner: BuiltInPlanner
+      instruction: ['Role: You are a focused Research Refinement Specialist.', Your sole task is to execute the final set
+          of follow-up web queries and generate a concise summary of only the *new* insights discovered., <INSTRUCTIONS>,
+        '1.  **Access Queries:** The follow-up queries are contained within the `combined_research_evaluation` JSON object
+          in the `follow_up_queries` key.', '2.  **Execute Search:** Use the `google_search` tool to execute **all** queries
+          from the `follow_up_queries` list.', '3.  **Synthesize New Findings:** Synthesize the results of these new searches
+          into a **brief, structured summary** focusing *only* on the information that addresses the identified research gap
+          or opportunity.', </INSTRUCTIONS>, <CONTEXT>, <combined_research_evaluation>, '{combined_research_evaluation}',
+        </combined_research_evaluation>, </CONTEXT>, <OUTPUT_FORMAT>, '**CRITICAL RULE: Your entire output MUST be a brief,
+          new summary section using clear, bold headings. Do not include any introductory or concluding text.**', '# New Research
+          Findings and Connections', '## Key Insights Addressing Research Gap/Opportunity:', (Present 3-5 concise bullet points
+          summarizing the new data gathered.), </OUTPUT_FORMAT>]
+      output_key: refined_web_search_insights
+      after_agent_callback: callbacks.collect_research_sources_callback
+  gather_trends_agent:
+    type: instance
+    models: [gemini-2.5-flash]
+    tools: [get_daily_gtrends]
+    params:
+      name: gather_trends_agent
+      include_contents: none
+      description: Get top 25 trending terms from Google Search.
+      instruction: ['Role: You are a data pipeline controller.', 1. Call `get_daily_gtrends` to retrieve the latest trends.,
+        2. The tool will automatically save the raw list to the session state., Output a confirmation message containing the
+          count of trends retrieved. Do NOT list them.]
+      generate_content_config:
+        class: GenerateContentConfig
+        temperature: "1.0"
+        response_modalities: [TEXT]
+        labels:
+          agentic_wf: trend_trawler
+          agent: trend_trawler
+          subagent: gather_trends_agent
+      before_model_callback: callbacks.rate_limit_callback
+  gs_sequential_planner:
+    type: instance
+    params:
+      name: gs_sequential_planner
+      description: Executes sequential research tasks for trends in Google Search.
+      sub_agents: [gs_web_planner, gs_web_searcher]
+  gs_web_planner:
+    type: instance
+    models: [gemini-2.0-flash-001]
+    params:
+      name: gs_web_planner
+      include_contents: none
+      description: Generates initial queries to understand why the 'target_search_trends' are trending.
+      instruction: ['Role: You are an expert cultural strategist and trend analyst.', Your job is to create a focused list
+          of **exactly 5** high-signal web search queries that will help marketers understand the cultural significance and
+          context of a trending Google Search topic., <INSTRUCTIONS>, 'To complete the task, you must follow these steps precisely:',
+        1.  Review the trending topic and target audience provided in the <CONTEXT> block., 2.  Follow the guidelines in the
+          <KEY_GUIDANCE> block to generate a list of **exactly 5** highly effective search queries., '3.  **CRITICAL FOR COMPLETION:**
+          Ensure your output is a single, valid JSON object containing the generated queries.', </INSTRUCTIONS>, <CONTEXT>,
+        <target_search_trends>, '{target_search_trends}', </target_search_trends>, <target_audience>, '{target_audience}',
+        </target_audience>, </CONTEXT>, <KEY_GUIDANCE>, 'The queries must be high-signal, meaning they are formulated to yield
+          actionable insights for campaign development.', '*   **Count:** Generate **exactly 5** distinct search queries.',
+        '*   **Balance:** Your queries must cover **three primary areas**:', '1.  **Trend Context:** Why is the trend happening
+          now? (e.g., recent event, new product, cultural shift)', '2.  **Trend Entities & Narrative:** Who are the key players
+          (people, brands, movements) involved, and what is the underlying narrative or conflict?', '3.  **Audience Connection:**
+          How does the trend intersect with the interests, language, or values of the **`target_audience`**?', '*   **Format:**
+          Queries should be optimized for a modern web search engine (i.e., not long, conversational sentences). Use specific
+          keywords and quotation marks for precision.', </KEY_GUIDANCE>, '---', '### Output Format', '**STRICT RULE: Your
+          entire output MUST be a valid JSON object matching the ''TrendQueryList'' schema. Do not include any introductory
+          text, reasoning, or markdown outside the JSON block.**']
+      output_schema: TrendQueryList
+      output_key: initial_gs_queries
+  gs_web_searcher:
+    type: instance
+    models: [gemini-2.5-flash]
+    tools: [google_search]
+    params:
+      name: gs_web_searcher
+      description: Performs the crucial first pass of web research about the trending Search terms.
+      planner: BuiltInPlanner
+      instruction: ['Role: You are a cultural trend analyst and synthesis expert. Your primary goal is to transform raw web
+          search data about a trending topic into an urgent, actionable, and culturally relevant summary for marketers.',
+        <INSTRUCTIONS>, '1.  **Access Queries:** Retrieve the list of web search queries from the `initial_gs_queries` input
+          in the <CONTEXT> block.', '2.  **Execute Research:** Use the `google_search` tool to exhaustively execute **all**
+          retrieved queries. The raw output of this tool call is the data you must synthesize.', '3.  **Synthesize and Structure:**
+          Synthesize **only** the data obtained from the search tool and present it as a detailed, structured, and objective
+          trend report following the <REPORT_STRUCTURE> block.', </INSTRUCTIONS>, <CONTEXT>, <initial_gs_queries>, '{initial_gs_queries}',
+        </initial_gs_queries>, </CONTEXT>, <CONTEXT_GUIDANCE>, 'The research synthesis must focus on providing marketers with
+          timely, strategic insight. Specifically, prioritize:', '-   **Immediacy and Trajectory:** What is the current status
+          of the trend? Is it peaking, or is it gaining momentum?', '-   **Cultural Narrative:** What is the central story,
+          sentiment (positive/negative), or public conversation surrounding the trend? What are the key quotes or memes?',
+        '-   **Audience Resonance:** How does the trend connect to the target audience''s values, language, or social platforms?
+          What is the *potential* for this trend to intersect with the campaign?', </CONTEXT_GUIDANCE>, <REPORT_STRUCTURE>,
+        'Your output must be a single, detailed, easy-to-read report sectioned with bold headings. The report should contain
+          the following specific sections:', '1.  **Trend Overview & Trajectory:** (Briefly define the trend, its current
+          status, and an estimate of its immediate lifespan or staying power.)', '2.  **Key Entities and Cultural Narrative:**
+          (Identify the core people/brands/events driving the trend and summarize the public sentiment or underlying cultural
+          story.)', '3.  **Marketing Opportunity Analysis:** (**CRITICAL:** Identify 2-3 specific, actionable ways the trend
+          could be leveraged to create culturally relevant messaging for the campaign, specifically considering the target
+          audience.)', </REPORT_STRUCTURE>, '---', '### Final Instruction', '**CRITICAL RULE 1: Do not include any of the
+          raw search query results, links, or tool output. The output must be the final, synthesized report.**', '**CRITICAL
+          RULE 2: Output the synthesized report entirely in Markdown format, using Level 2 Headings (`##`) for the main sections
+          listed in <REPORT_STRUCTURE>.**']
+      output_key: gs_web_search_insights
+      after_agent_callback: callbacks.collect_research_sources_callback
+  merge_parallel_insights:
+    type: instance
+    params:
+      name: merge_parallel_insights
+      description: Coordinates parallel research and synthesizes the results.
+      sub_agents: [parallel_planner_agent, merge_planners]
+  merge_planners:
+    type: instance
+    models: [gemini-2.5-flash]
+    params:
+      name: merge_planners
+      include_contents: none
+      description: Combine results from state keys 'campaign_web_search_insights' and 'gs_web_search_insights'
+      instruction: ['Role: You are an expert Strategic Synthesis Analyst.', 'Your core function is to critically analyze,
+          cross-reference, and integrate two separate research reports (Campaign and Trend) into a single, cohesive, and actionable
+          Strategic Brief for the creative team.', <INSTRUCTIONS>, '1.  **Analyze and Integrate:** Carefully read the two
+          provided research summaries (Campaign and Trend).', '2.  **Cross-Reference:** Identify areas of overlap or synergy
+          between the campaign insights and the trend analysis (e.g., does the trend reinforce a key selling point?)', '3.  **Synthesize
+          and Structure:** Generate a new, integrated Strategic Brief, following the structure and guidance in the <REPORT_STRUCTURE>
+          block. **Do not simply paste the old reports.**', </INSTRUCTIONS>, <CONTEXT>, 'The following research reports have
+          been completed:', '- **Campaign Insights:** {campaign_web_search_insights}', '- **Trend Analysis:** {gs_web_search_insights}',
+        </CONTEXT>, <REPORT_STRUCTURE>, 'Your output must be a single, detailed, easy-to-read Strategic Brief sectioned with
+          bold headings. The brief must synthesize the information to provide a clear path forward for creative development.',
+        '1.  **Executive Summary (The Big Idea):** (A short, 2-3 sentence overview of the combined research. What is the single
+          most important takeaway for the creative team?)', '2.  **Core Campaign Fundamentals:** (A synthesized summary of
+          the Target Audience, Product Landscape, and Key Selling Points, drawing primarily from the Campaign Insights.)',
+        '3.  **Cultural Opportunity & Relevance:** (An integrated analysis that connects the trending topic to the core campaign.
+          How can the trend be used to make the campaign relevant? What specific tone, language, or narrative from the trend
+          should be adopted?)', '4.  **Strategic Recommendations for Creative:** (Provide 3 specific, actionable directives
+          for the ad copy and visual generation agents, based on the integrated findings. *Example: "Use ''X'' phrase from
+          the trend to frame ''Y'' selling point."*', '---', '### Final Instruction', '**CRITICAL RULE: Output *only* the
+          fully synthesized Strategic Brief in the format described in the <REPORT_STRUCTURE> block. Do not include the original
+          content of the two input reports, and do not use introductory/concluding remarks outside of the suggested sections.**']
+      output_key: combined_web_search_insights
+  parallel_planner_agent:
+    type: instance
+    params:
+      name: parallel_planner_agent
+      description: Runs multiple research planning agents in parallel.
+      sub_agents: [gs_sequential_planner, ca_sequential_planner]
+  pick_trends_agent:
+    type: instance
+    models: [gemini-2.5-flash]
+    params:
+      name: pick_trends_agent
+      include_contents: none
+      description: Determine subset of Search trends most culturally relevant to the target audience.
+      planner: BuiltInPlanner
+      instruction: [You are a Lead Creative Strategist., Your goal is to identify the "Strategic Bridge" between current cultural
+          trends and a specific brand campaign., <CONTEXT>, <campaign_data>, 'Brand: {brand}', 'Product: {target_product}',
+        'Key Selling Point(s): {key_selling_points}', 'Target Audience: {target_audience}', </campaign_data>, <trend_research>,
+        '{info_gtrends}', </trend_research>, </CONTEXT>, <INSTRUCTIONS>, 1. Analyze the <trend_research> JSON., 2. Select
+          the top 3 trends that offer the strongest narrative alignment with the <campaign_data>., '*   *Filter:* Discard
+          trends that are too tragic, controversial, or irrelevant to be safe for brand association.', '3. For each selected
+          trend, define the "Strategic Bridge"—the specific angle that connects the trend''s cultural mood to the product''s
+          unique selling points.', Output your findings in the requested format., </INSTRUCTIONS>, <OUTPUT_FORMAT>, '## Selected
+          Trends Strategy', '### [trending search term]', '* **The "Hook":** [One distinct, punchy headline summarizing the
+          marketing angle]', '* **Context:** [1 sentence on what the trend is, based on provided research]', '* **Why it fits:**
+          [Explain why the `target_audience` cares about this]', </OUTPUT_FORMAT>, '**Constraint:** Do not repeat campaign
+          metadata. Focus 100% on the analysis.']
+      generate_content_config:
+        class: GenerateContentConfig
+        temperature: "1.5"
+        labels:
+          agentic_wf: trend_trawler
+          agent: trend_trawler
+          subagent: pick_trends_agent
+      output_key: selected_gtrends
+      before_model_callback: callbacks.rate_limit_callback
+  root_agent:
+    type: instance
+    models: [gemini-2.0-flash-001]
+    tools: [combined_research_pipeline, ad_creative_pipeline, visual_generation_pipeline, visual_generator, save_draft_report_artifact,
+      save_creative_gallery_html, write_trends_to_bq, memorize]
+    params:
+      name: root_agent
+      description: Help with ad generation; brainstorm and refine ad copy and visual concept ideas with actor-critic workflows;
+        generate final ad creatives.
+      instruction: ['**Role:** You are the orchestrator for a comprehensive ad content generation workflow.', '**Objective:**
+          Your goal is to generate a complete set of ad creatives including ad copy and images, using the **provided campaign
+          metadata inputs**. To achieve this, strictly use the <AVAILABLE_TOOLS/> available to complete the <INSTRUCTIONS/>
+          below.', <AVAILABLE_TOOLS>, 1. Use the `memorize` tool to store trends and campaign metadata in the session state.,
+        2. Use the `combined_research_pipeline` tool to conduct web research on the campaign metadata and selected trends.,
+        3. Use the `save_draft_report_artifact` tool to save a research PDf report to Cloud Storage., 4. Use the `ad_creative_pipeline`
+          tool to generate ad copies., 5. Use the `visual_generation_pipeline` tool to generate visual concepts., 6. Use the
+          `visual_generator` tool to generate image creatives., 7. Use the `save_creative_gallery_html` tool to build an HTML
+          file for displaying a portfolio of the generated creatives generated during the session., 8. Use the `write_trends_to_bq`
+          tool to insert rows to BigQuery., </AVAILABLE_TOOLS>, <INPUT_PARAMETERS>, The following campaign metadata will be
+          provided as input to this agent. You must receive and store these values before proceeding to the <WORKFLOW/>.,
+        '- brand: [string] The client''s brand name.', '- target_audience: [string] The specific demographic or group the
+          ad is targeting.', '- target_product: [string] The name of the product or service being advertised.', '- key_selling_points:
+          [string] The main benefits or features to highlight.', '- target_search_trends: [string] Trending topics or keywords
+          relevant to the campaign.', </INPUT_PARAMETERS>, <INSTRUCTIONS>, '1. First, **receive and validate** the inputs
+          defined in the <INPUT_PARAMETERS> block. If any critical input is missing (brand, target_audience, target_product,
+          key_selling_points), respond with an error and halt execution.', '2. Use the `memorize` tool to store **all** the
+          validated input campaign metadata into the corresponding session state variables: `brand`, `target_audience`, `target_product`,
+          `key_selling_points`, and `target_search_trends`. Call the `memorize` tool for ALL of them in a single turn (or
+          as parallel calls).', '3. Once all metadata is successfully stored in the session state, strictly follow all steps
+          in the <WORKFLOW/> block one-by-one.', </INSTRUCTIONS>, <WORKFLOW>, '1. First, use the `combined_research_pipeline`
+          tool to conduct web research, leveraging the stored campaign metadata and trends.', '2. Once all research tasks
+          are complete, use the `save_draft_report_artifact` tool to save the research as a markdown file in Cloud Storage.',
+        3. Invoke the `ad_creative_pipeline` tool to generate a set of candidate ad copies., '4. Then, call the `visual_generation_pipeline`
+          tool to generate visual concepts for the finalized ad copies.', '5. Next, call the `visual_generator` tool to generate
+          high-fidelity image creatives based on the visual concepts.', '6. Then, call the `save_creative_gallery_html` tool
+          to create an HTML portfolio and save it to Cloud Storage.', '7. Finally as the last step, call the `write_trends_to_bq`
+          tool to save trend information to BigQuery for logging and analytics.', '8. Once the previous steps are complete,
+          perform the following action:', 'Action 1: Display Cloud Storage location to the user', </WORKFLOW>, Your job is
+          complete when all tasks in the <WORKFLOW> block are complete and the final Cloud Storage URI has been displayed.]
+      generate_content_config:
+        class: GenerateContentConfig
+        temperature: "1.0"
+        labels:
+          agentic_wf: trend_trawler
+          agent: creative_agent
+          subagent: root_agent
+      before_agent_callback: callbacks.load_session_state
+      before_model_callback: callbacks.rate_limit_callback
+  trend_trawler:
+    type: instance
+    models: [gemini-2.5-flash]
+    tools: [gather_trends_agent, understand_trends_agent, pick_trends_agent, save_search_trends_to_session_state, save_session_state_to_gcs,
+      write_trends_to_bq, write_to_file, memorize]
+    params:
+      name: trend_trawler
+      description: Determines culturally relevant Search trends to use for ad creatives.
+      instruction: [You are the Lead Campaign Orchestrator., Your goal is to manage the end-to-end execution of the Trend
+          Research Pipeline., '### Phase 1: Initialization', '1. **Check & Store:** Verify if the following variables are
+          present. If present, immediately call the `memorize` tool for ALL of them in a single turn (or as parallel calls).',
+        '- `brand`', '- `target_audience`', '- `target_product`', '- `key_selling_points`', '### Phase 2: Execution Pipeline',
+        Execute the following agents in strict sequence. Do not proceed to the next until the current tool reports success.,
+        '1. **Gather:** Call `gather_trends_agent`.', '2. **Research:** Call `understand_trends_agent`.', '3. **Select:**
+          Call `pick_trends_agent`. *Note: This agent will determine the final trends.', '4. For each trending topic in the
+          ''selected_gtrends'' state key, call the `save_search_trends_to_session_state` tool to save them to the session
+          state.', '### Phase 3: Finalization & Persistence', 'Once Phase 2 is complete, trigger the persistence layer. You
+          may call these tools in parallel if supported, otherwise execute sequentially:', 1. `write_trends_to_bq`, 2. `write_to_file`
+          (saving the 'selected_gtrends' key), 3. `save_session_state_to_gcs`, '### Phase 4: Handoff', Refuse to output any
+          conversational text until all previous phases are confirmed., 'Once complete, output the final summary exactly as
+          follows:', '**Cloud Storage Location:**', '**Selected Strategy:**', '[Display the content of the ''selected_gtrends''
+          state key]']
+      generate_content_config:
+        class: GenerateContentConfig
+        temperature: "0.01"
+        response_modalities: [TEXT]
+        labels:
+          agentic_wf: trend_trawler
+          agent: trend_trawler
+          subagent: root_agent
+      before_agent_callback: [callbacks.load_session_state]
+      before_model_callback: callbacks.rate_limit_callback
+  understand_trends_agent:
+    type: instance
+    models: [gemini-2.5-flash]
+    tools: [google_search]
+    params:
+      name: understand_trends_agent
+      include_contents: none
+      description: Conduct initial web research to briefly understand each trending topic
+      planner: BuiltInPlanner
+      instruction: [You are a Cultural Trend Researcher., 'Your goal is to prepare a structured briefing for a creative strategist.
+          You want to find topics that possess cultural, social, or entertainment value.', <CONTEXT>, <raw_gtrends>, '{raw_gtrends}',
+        </raw_gtrends>, </CONTEXT>, '### Instructions', '1. **Filter:** Review the list in <raw_gtrends>. Select the top 5-8
+          terms that appear to be narrative-driven stories (news, memes, celebrity, sports, entertainment). Ignore searches
+          about specific sporting events.', '2. **Research:** Use the `google_search` tool to investigate *only* these selected
+          terms.', '3. **Synthesize:** Create a JSON output summarizing the cultural context of these terms.', '### Output
+          Format', Output *only* a valid JSON object with the list of analyzed trends. Do not output markdown., 'Structure:',
+        '{', '"analyzed_trends": [', '{', '"term": "Search Term",', '"category": "Broad Category (e.g., Sports, Pop Culture,
+          Politics)",', '"context": "Brief explanation of what happened.",', '"cultural_angle": "Why this matters to culture/society
+          right now (e.g., ''Sparking debate on AI'', ''Nostalgia for 90s'')."', '}', ']', '}']
+      generate_content_config:
+        class: GenerateContentConfig
+        temperature: "1.5"
+        labels:
+          agentic_wf: trend_trawler
+          agent: trend_trawler
+          subagent: understand_trends_agent
+      output_key: info_gtrends
+      before_model_callback: callbacks.rate_limit_callback
+  visual_concept_critic:
+    type: instance
+    models: [gemini-2.5-pro]
+    params:
+      name: visual_concept_critic
+      include_contents: none
+      description: Critique and narrow down visual concepts
+      planner: BuiltInPlanner
+      instruction: ['Role: You are an expert Visual Prompt Engineer and Creative Quality Assurance Specialist.', 'Your task
+          is to apply rigorous technical and creative analysis to a set of draft image generation prompts, refining them for
+          maximum visual impact and adherence to the core brief.', <INSTRUCTIONS>, '1.  **Parse and Map:** Retrieve and parse
+          the JSON list of visual concepts from the **`<CONTEXT>` block''s `visual_draft`** input.', '2.  **Critical Review
+          and Revision:** For each concept, critique and **REWRITE** the `image_generation_prompt` based on the following
+          criteria:', '*   **Technical Compliance:** Ensure the prompt is over **100 words**, uses high-fidelity keywords,
+          specifies aspect ratio, and clearly defines lighting, style, and composition elements (as per prompt best practices).',
+        '*   **Stopping Power:** The resulting image must have high visual appeal and "stopping power" for a social media
+          feed.', '3.  **Strict Output Format:** The output must be a single, structured JSON object containing the **revised**
+          concepts. Do not include any external commentary or separate critique text.', </INSTRUCTIONS>, <CONTEXT>, <visual_draft>,
+        '{visual_draft}', </visual_draft>, </CONTEXT>, <OUTPUT_FORMAT>, '**CRITICAL RULE: Your entire output MUST be a single,
+          raw JSON object validating against the ''VisualConceptCritiqueList'' schema**', </OUTPUT_FORMAT>]
+      generate_content_config:
+        class: GenerateContentConfig
+        temperature: "0.7"
+        labels:
+          agentic_wf: trend_trawler
+          agent: creative_agent
+          subagent: visual_concept_critic
+      output_schema: VisualConceptCritiqueList
+      output_key: visual_concept_critique
+  visual_concept_drafter:
+    type: instance
+    models: [gemini-2.5-flash]
+    params:
+      name: visual_concept_drafter
+      include_contents: none
+      description: Generate initial visual concepts for selected ad copies
+      planner: BuiltInPlanner
+      instruction: ['Role: You are a visionary visual creative director and prompt engineer specializing in high-impact social
+          media advertising (Instagram/TikTok).', Your task is to translate approved ad copy into executable visual concepts.,
+        <INSTRUCTIONS>, '1.  **Parse and Map:** Parse the JSON list of final ad copies from the `ad_copy_critique` input in
+          the <CONTEXT> block.', '2.  **Concept Generation:** For *each* ad copy, generate exactly one distinct visual concept.
+          The concept must:', '*   Be a direct, visual representation of the core ad message (headline + body).', '*   Leverage
+          or subtly reference the trending topic: {target_search_trends}.', '*   Be optimized for quick consumption on a social
+          media feed (e.g., strong composition, clear focus).', '*   Cleverly market the target product: {target_product}.',
+        '3.  **Prompt Engineering:** For each concept, generate a professional, high-fidelity text-to-image generation prompt
+          adhering to the <PROMPT_ENGINEERING_GUIDANCE> block.', '4.  **Strict Output Format:** Ensure the entire output is
+          a single JSON object containing all generated concepts, strictly following the schema in the <OUTPUT_FORMAT> block.',
+        </INSTRUCTIONS>, <CONTEXT>, <ad_copy_critique>, '{ad_copy_critique}', </ad_copy_critique>, </CONTEXT>, <PROMPT_ENGINEERING_GUIDANCE>,
+        'The final generated prompt for the image model must be:', '-   **Highly descriptive:** Include subject, setting,
+          style, mood, and lighting.', '-   **Technical:** Specify aspect ratio (e.g., 9:16 for vertical), camera angle, and
+          lens type (e.g., telephoto, wide-angle).', '-   **Optimized:** Use high-quality keywords (e.g., "photorealistic,"
+          "award-winning studio lighting," "8k resolution").', </PROMPT_ENGINEERING_GUIDANCE>, <OUTPUT_FORMAT>, '**CRITICAL
+          RULE: Your entire output MUST be a single, raw JSON object validating against the ''VisualConceptList'' schema**',
+        </OUTPUT_FORMAT>]
+      generate_content_config:
+        class: GenerateContentConfig
+        temperature: "1.5"
+        labels:
+          agentic_wf: trend_trawler
+          agent: creative_agent
+          subagent: visual_concept_drafter
+      output_schema: VisualConceptList
+      output_key: visual_draft
+  visual_concept_finalizer:
+    type: instance
+    models: [gemini-2.5-flash]
+    params:
+      name: visual_concept_finalizer
+      include_contents: none
+      description: Finalize visual concepts to proceed with.
+      instruction: ['Role: You are the Lead Creative Director and Final Gatekeeper.', 'Your task is to apply ultimate strategic
+          judgment to the final set of visual concepts, selecting the absolute best for production (image generation).', <INSTRUCTIONS>,
+        '1.  **Parse and Map:** Retrieve and parse the JSON list of revised visual concepts from the **`<CONTEXT>` block''s
+          `visual_concept_critique` input.', '2.  **Final Selection Criteria:** Select a subset of **exactly 6** concepts
+          that offer the best balance of:', '*   **Creative Diversity:** Ensure the final 6 represent a good mix of styles/tones
+          from the original ad copy set.', '*   **Commercial Viability:** Highest potential to drive engagement and sales,
+          based on the `critique_summary`.', '*   **Technical Excellence:** Possesses the most compelling and robust `revised_image_generation_prompt`.',
+        '3.  **Finalize and Enrich:** For the 6 selected concepts, you must combine the original ad copy details with the
+          revised visual details to create a final, unified creative brief.', '4.  **Strict Output Format:** Output the final
+          selection as a single JSON object, strictly following the schema in the `<OUTPUT_FORMAT>` block.', </INSTRUCTIONS>,
+        <CONTEXT>, <visual_concept_critique>, '{visual_concept_critique}', </visual_concept_critique>, </CONTEXT>, <OUTPUT_FORMAT>,
+        '**CRITICAL RULE: Your entire output MUST be a single, raw JSON object validating against the ''VisualConceptFinalList''
+          schema**', </OUTPUT_FORMAT>]
+      generate_content_config:
+        class: GenerateContentConfig
+        temperature: "0.8"
+        labels:
+          agentic_wf: trend_trawler
+          agent: creative_agent
+          subagent: visual_concept_finalizer
+      output_schema: VisualConceptFinalList
+      output_key: final_visual_concepts
+  visual_generation_pipeline:
+    type: instance
+    params:
+      name: visual_generation_pipeline
+      description: Generates visual concepts with an actor-critic workflow.
+      sub_agents: [visual_concept_drafter, visual_concept_critic, visual_concept_finalizer]
+  visual_generator:
+    type: instance
+    models: [gemini-2.5-pro]
+    tools: [generate_image]
+    params:
+      name: visual_generator
+      include_contents: none
+      description: Generate final visuals using image generation tools
+      instruction: [You are a visual content producer generating image creatives., Your job is to invoke the `generate_image`
+          tool.]
+      generate_content_config:
+        class: GenerateContentConfig
+        temperature: "1.2"
+        labels:
+          agentic_wf: trend_trawler
+          agent: creative_agent
+          subagent: visual_generator
+      before_model_callback: callbacks.rate_limit_callback
+
+models:
+  gemini-2.0-flash-001:
+    type: literal
+    agents: [gs_web_planner, root_agent, campaign_web_planner]
+  gemini-2.5-flash:
+    type: literal
+    agents: [gather_trends_agent, understand_trends_agent, pick_trends_agent, trend_trawler, gs_web_searcher, merge_planners,
+      enhanced_combined_searcher, ad_copy_drafter, visual_concept_drafter, visual_concept_finalizer, campaign_web_searcher]
+  gemini-2.5-pro:
+    type: literal
+    agents: [combined_web_evaluator, combined_report_composer, ad_copy_critic, visual_concept_critic, visual_generator]
+
+tools:
+  ad_creative_pipeline:
+    type: agent
+    agents: [root_agent]
+    params:
+      wrapper: AgentTool
+      agent: ad_creative_pipeline
+  combined_research_pipeline:
+    type: agent
+    agents: [root_agent]
+    params:
+      wrapper: AgentTool
+      agent: combined_research_pipeline
+  gather_trends_agent:
+    type: agent
+    agents: [trend_trawler]
+    params:
+      wrapper: AgentTool
+      agent: gather_trends_agent
+  generate_image:
+    type: function
+    agents: [visual_generator]
+    params:
+      module: tools.generate_image
+  get_daily_gtrends:
+    type: function
+    agents: [gather_trends_agent]
+    params:
+      description: |-
+        Retrieves the top 25 Google Search Trends (term, rank, refresh_date).
+
+        Args:
+            tool_context (ToolContext): The tool context.
+
+        Returns:
+            str: A markdown-formatted string listing the Google Search Trends and their corresponding
+                 rank, or an error message if the query fails.
+                 The table includes columns for 'term', 'rank', and 'refresh_date'.
+                 Returns 25 rows of results.
+  google_search:
+    type: module
+    agents: [understand_trends_agent, gs_web_searcher, enhanced_combined_searcher, campaign_web_searcher]
+  memorize:
+    type: function
+    agents: [trend_trawler, root_agent]
+    params:
+      description: |-
+        Memorize pieces of information, one key-value pair at a time.
+
+        Args:
+            key: the label indexing the memory to store the value.
+            value: the information to be stored.
+            tool_context: The ADK tool context.
+
+        Returns:
+            A status message.
+  pick_trends_agent:
+    type: agent
+    agents: [trend_trawler]
+    params:
+      wrapper: AgentTool
+      agent: pick_trends_agent
+  save_creative_gallery_html:
+    type: function
+    agents: [root_agent]
+    params:
+      module: tools.save_creative_gallery_html
+  save_draft_report_artifact:
+    type: function
+    agents: [root_agent]
+    params:
+      module: tools.save_draft_report_artifact
+  save_search_trends_to_session_state:
+    type: function
+    agents: [trend_trawler]
+    params:
+      description: |-
+        Tool to save `trend_term` to the 'target_search_trends' state key.
+        Use this tool once the subset of trends have been selected.
+
+        Args:
+            trend_term (str): the selected trending search term.
+            tool_context: The tool context.
+
+        Returns:
+            A status message.
+  save_session_state_to_gcs:
+    type: function
+    agents: [trend_trawler]
+    params:
+      description: |-
+        Writes the session state to JSON. Saves the JSON file to Cloud Storage.
+
+        Args:
+            tool_context (ToolContext): The tool context.
+
+        Returns:
+            dict: A dictionary containing the status and the json file's Cloud Storage URI (gcs_uri).
+  understand_trends_agent:
+    type: agent
+    agents: [trend_trawler]
+    params:
+      wrapper: AgentTool
+      agent: understand_trends_agent
+  visual_generation_pipeline:
+    type: agent
+    agents: [root_agent]
+    params:
+      wrapper: AgentTool
+      agent: visual_generation_pipeline
+  visual_generator:
+    type: agent
+    agents: [root_agent]
+    params:
+      wrapper: AgentTool
+      agent: visual_generator
+  write_to_file:
+    type: function
+    agents: [trend_trawler]
+    params:
+      description: |-
+        Writes the given content to a markdown file. Saves the file to Google Cloud Storage.
+
+        Args:
+            content (str): Full markdown content as a string to be saved to disk.
+            tool_context (ToolContext): The tool context.
+
+        Returns:
+            dict: A dictionary containing the status and the markdown file's Cloud Storage URI (gcs_uri).
+  write_trends_to_bq:
+    type: function
+    agents: [trend_trawler, root_agent]
+    params:
+      description: |-
+        Writes selected trends to a BigQuery Table.
+
+        Args:
+            tool_context (ToolContext): The tool context.
+
+        Returns:
+            dict: A dictionary containing a 'status' key ('success' or 'error').
+                  On success, status is 'success' and includes a 'trends' key with the inserted terms
+                  On failure, status is 'error' and includes an 'error_message'.
+
+teams:
+  ad_creative_pipeline:
+    type: sequential
+    agents: [ad_creative_pipeline, ad_copy_drafter, ad_copy_critic]
+  ca_sequential_planner:
+    type: sequential
+    agents: [ca_sequential_planner, campaign_web_planner, campaign_web_searcher]
+  combined_research_pipeline:
+    type: sequential
+    agents: [combined_research_pipeline, merge_parallel_insights, combined_web_evaluator, enhanced_combined_searcher, combined_report_composer]
+  gs_sequential_planner:
+    type: sequential
+    agents: [gs_sequential_planner, gs_web_planner, gs_web_searcher]
+  merge_parallel_insights:
+    type: sequential
+    agents: [merge_parallel_insights, parallel_planner_agent, merge_planners]
+  parallel_planner_agent:
+    type: parallel
+    agents: [parallel_planner_agent, gs_sequential_planner, ca_sequential_planner]
+  visual_generation_pipeline:
+    type: sequential
+    agents: [visual_generation_pipeline, visual_concept_drafter, visual_concept_critic, visual_concept_finalizer]
+
+imports:
+  Agent: google.adk.agents.Agent
+  agent: agent
+  AgentTool: google.adk.tools.agent_tool.AgentTool
+  app: absl.app
+  BaseModel: pydantic.BaseModel
+  bigquery: google.cloud.bigquery
+  BuiltInPlanner: google.adk.planners.BuiltInPlanner
+  ca_sequential_planner: campaign_researcher.agent.ca_sequential_planner
+  callbacks: callbacks
+  config: config.config
+  dataclass: dataclasses.dataclass
+  datetime: datetime
+  dotenv: dotenv
+  Field: pydantic.Field
+  flags: absl.flags
+  get_daily_gtrends: tools.get_daily_gtrends
+  google_search: google.adk.tools.google_search
+  gs_sequential_planner: trend_researcher.agent.gs_sequential_planner
+  json: json
+  Literal: typing.Literal
+  load_dotenv: dotenv.load_dotenv
+  logging: logging
+  memorize: tools.memorize
+  os: os
+  ParallelAgent: google.adk.agents.ParallelAgent
+  Path: pathlib.Path
+  pd: pandas
+  root_agent: creative_agent.agent.root_agent
+  save_search_trends_to_session_state: tools.save_search_trends_to_session_state
+  save_session_state_to_gcs: tools.save_session_state_to_gcs
+  SequentialAgent: google.adk.agents.SequentialAgent
+  shutil: shutil
+  storage: google.cloud.storage
+  sys: sys
+  ToolContext: google.adk.tools.ToolContext
+  tools: tools
+  types: google.genai.types
+  uuid: uuid
+  vertexai: vertexai
+  warnings: warnings
+  write_to_file: tools.write_to_file
+  write_trends_to_bq: tools.write_trends_to_bq
+
+functions:
+  _get_bigquery_client:
+    type: sync
+    module: trend_trawler.tools
+    params:
+      returns: bigquery.Client
+  _get_gcs_client:
+    type: sync
+    module: trend_trawler.tools
+    params:
+      returns: storage.Client
+  _get_gtrends_max_date:
+    type: sync
+    module: trend_trawler.tools
+    params:
+      returns: str
+  delete:
+    type: sync
+    module: deployment.deploy_agent
+    args: [resource_id]
+    params:
+      returns: None
+  deploy_creative_agent:
+    type: sync
+    module: deployment.deploy_agent
+    args: [version]
+    params:
+      returns: None
+  deploy_trawler:
+    type: sync
+    module: deployment.deploy_agent
+    args: [version]
+    params:
+      returns: None
+  get_daily_gtrends:
+    type: sync
+    module: trend_trawler.tools
+    args: [tool_context]
+    params:
+      returns: str
+  list_agents:
+    type: sync
+    module: deployment.deploy_agent
+    params:
+      returns: None
+  main:
+    type: sync
+    module: deployment.deploy_agent
+    args: [argv]
+  memorize:
+    type: sync
+    module: trend_trawler.tools
+    args: [key, value, tool_context]
+  save_search_trends_to_session_state:
+    type: sync
+    module: trend_trawler.tools
+    args: [trend_term, tool_context]
+    params:
+      returns: dict
+  save_session_state_to_gcs:
+    type: sync
+    module: trend_trawler.tools
+    args: [tool_context]
+    params:
+      returns: dict
+  update_env_file:
+    type: sync
+    module: deployment.deploy_agent
+    args: [prefix, agent_engine_id, env_file_path]
+  write_to_file:
+    type: sync
+    module: trend_trawler.tools
+    args: [content, tool_context]
+    params:
+      returns: dict
+  write_trends_to_bq:
+    type: sync
+    module: trend_trawler.tools
+    args: [tool_context]
+    params:
+      returns: dict
+
+variables:
+  BQ_DATASET_ID:
+    type: env
+    params:
+      caller: [os.environ.get, os.getenv]
+      path: [ENV_FILE_PATH]
+  BQ_PROJECT_ID:
+    type: env
+    params:
+      caller: [os.environ.get, os.getenv]
+      path: [ENV_FILE_PATH]
+  BQ_TABLE_ALL_TRENDS:
+    type: env
+    params:
+      caller: [os.environ.get, os.getenv]
+      path: [ENV_FILE_PATH]
+  BQ_TABLE_CREATIVES:
+    type: env
+    params:
+      caller: [os.environ.get, os.getenv]
+      path: [ENV_FILE_PATH]
+  BQ_TABLE_TARGETS:
+    type: env
+    params:
+      caller: [os.environ.get, os.getenv]
+      path: [ENV_FILE_PATH]
+  BUCKET:
+    type: env
+    params:
+      caller: [os.environ.get, os.getenv]
+      path: [ENV_FILE_PATH]
+  GOOGLE_CLOUD_LOCATION:
+    type: env
+    params:
+      caller: [os.environ.get, os.getenv]
+      path: [ENV_FILE_PATH]
+  GOOGLE_CLOUD_PROJECT:
+    type: env
+    params:
+      caller: [os.environ.get, os.getenv]
+      path: [ENV_FILE_PATH]
+  GOOGLE_CLOUD_PROJECT_NUMBER:
+    type: env
+    params:
+      caller: [os.environ.get, os.getenv]
+      path: [ENV_FILE_PATH]
+  GOOGLE_CLOUD_STORAGE_BUCKET:
+    type: env
+    params:
+      caller: [os.environ.get, os.getenv]
+      path: [ENV_FILE_PATH]
+  GOOGLE_GENAI_USE_VERTEXAI:
+    type: env
+    params:
+      caller: [os.getenv]
+      path: [ENV_FILE_PATH]
+
+files:
+  "..":
+    type: pattern
+    actions: [read]
+    params:
+      caller: [os.path.join]
+      pattern: [os.path.dirname(), ".."]
+  .env:
+    type: pattern
+    actions: [read]
+    params:
+      caller: [os.path.join]
+      pattern: [os.path.dirname(), "..", .env]
+  LOCAL_DIR:
+    type: variable
+    actions: [read, delete]
+    params:
+      caller: [Path, shutil.rmtree]
+  local_file:
+    type: pattern
+    actions: [read]
+    params:
+      caller: [os.path.join]
+      pattern: [gcs_folder, local_file]
