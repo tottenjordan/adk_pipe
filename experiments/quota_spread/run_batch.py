@@ -199,7 +199,7 @@ def _parse_args(argv=None) -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--base-url", required=True, help="URL requests are sent to (tag URL).")
     p.add_argument("--audience", default=None, help="Token audience = BASE service URL.")
-    p.add_argument("--arm", required=True, help="regional_25 | global_3x | global_altbucket")
+    p.add_argument("--arm", required=True, help="global_altbucket | global_3x (regional_25 retired 2026-09)")
     p.add_argument("--concurrency", type=int, required=True, help="runs to fire at once (N)")
     p.add_argument("--batch-id", required=True, help="unique id for this batch")
     p.add_argument("--revision", default="", help="Cloud Run revision serving this arm.")

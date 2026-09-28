@@ -33,8 +33,8 @@ warnings.filterwarnings("ignore")
 
 # --- TREND SUBAGENTS ---
 gather_trends_agent = Agent(
-    # Trivial tool-output formatting; runs on its own regional gemini-2.5 bucket.
-    model=build_gemini(config.gather_model, location=config.regional_model_location),
+    # Trivial tool-output formatting; runs on its own global bucket (gather_model).
+    model=build_gemini(config.gather_model),
     name="gather_trends_agent",
     include_contents="none",
     description="Get top 25 trending terms from Google Search.",
@@ -62,8 +62,8 @@ gather_trends_agent = Agent(
 # the JSON briefing. trend_scout has no citation flow, so (unlike the creative
 # producers) there is NO source-collection callback here.
 understand_trends_searcher = Agent(
-    # google_search + retry-wrapped (call-heavy); kept on gemini-3.5-flash but
-    # now the sole occupant of that global bucket, so its retries can't 429.
+    # google_search + retry-wrapped (call-heavy); on worker_model (gemini-3.8-flash)
+    # as the sole occupant of that global bucket, so its retries can't 429.
     model=build_gemini(config.worker_model),
     name="understand_trends_searcher",
     include_contents="none",
@@ -139,9 +139,9 @@ understand_trends_agent_resilient = RetryUntilKeyAgent(
 
 
 pick_trends_agent = Agent(
-    # The 25->3 strategic judgment step: gemini-2.5-pro on its own regional
-    # bucket — both quota isolation and a quality upgrade for the pick.
-    model=build_gemini(config.picker_model, location=config.regional_model_location),
+    # The 25->3 strategic judgment step: picker_model (a full flash) on its own
+    # global bucket, isolated from the searcher/synth/root buckets.
+    model=build_gemini(config.picker_model),
     name="pick_trends_agent",
     include_contents="none",
     description="Determine subset of Search trends most culturally relevant to the target audience.",

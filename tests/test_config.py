@@ -17,6 +17,7 @@ mutate the *already-imported* module in place and break identity checks elsewher
 """
 
 import importlib
+import logging
 import sys
 
 import pytest
@@ -90,11 +91,8 @@ def test_both_agents_resolve_bucket_name_from_same_var(monkeypatch, fresh_config
 _SHARED_CONFIG_FIELDS = (
     "critic_model",
     "worker_model",
-    "video_analysis_model",
     "lite_planner_model",
     "image_gen_model",
-    "video_gen_model",
-    "max_results_yt_trends",
     "rate_limit_seconds",
     "rpm_quota",
     "GCS_BUCKET",
@@ -133,56 +131,59 @@ class TestBaseAgentConfiguration:
         for name in (
             "critic_model",
             "worker_model",
-            "video_analysis_model",
             "lite_planner_model",
             "image_gen_model",
-            "video_gen_model",
         ):
             assert getattr(tt.config, name) == getattr(ca.config, name)
         assert tt.config.critic_model == "gemini-3.1-pro-preview"
 
-    def test_trend_scout_regional_model_spread(self):
-        """trend_scout fans its 5 agents across separate quota buckets.
-
-        The two gemini-2.5 agents are pinned to a region (us-central1) so they
-        land in the regional per-base-model quota, separate from the global
-        buckets the gemini-3.x agents use.
-        """
+    def test_trend_scout_model_spread(self):
+        """trend_scout fans its 5 agents across 5 distinct base-model buckets."""
         import trend_scout.config as tt
 
-        assert tt.config.gather_model == "gemini-2.5-flash-lite"
-        assert tt.config.picker_model == "gemini-2.5-pro"
-        assert tt.config.regional_model_location == "us-central1"
+        assert tt.config.gather_model == "gemini-3.1-flash-lite"
+        assert tt.config.picker_model == "gemini-3.5-flash"
+        assert not hasattr(tt.config, "regional_model_location")
+        buckets = {
+            tt.config.worker_model,
+            tt.config.lite_planner_model,
+            tt.config.critic_model,
+            tt.config.gather_model,
+            tt.config.picker_model,
+        }
+        assert len(buckets) == 5
 
-    def test_creative_agent_regional_model_spread(self):
-        """creative_agent pins its campaign-research pipeline to a separate
-        regional (gemini-2.5 @ us-central1) quota bucket (mirrors trend_scout #94).
-
-        Halves parallel_planner_agent's contention: the trend-research half stays
-        on the global flash/flash-lite buckets while the campaign half draws from
-        the regional pool instead of doubling up on the same global buckets.
-        """
+    def test_base_models_are_2026_09_lineup(self):
+        """Trend half + shared models: current-gen gemini-3.x (no gemini-2.5)."""
         import creative_agent.config as ca
 
-        assert ca.config.regional_model_location == "us-central1"
-        assert ca.config.regional_worker_model == "gemini-2.5-flash"
-        assert ca.config.regional_lite_planner_model == "gemini-2.5-flash-lite"
-        # the global base-model names must be UNCHANGED (spread != rename)
-        assert ca.config.worker_model == "gemini-3.5-flash"
-        assert ca.config.lite_planner_model == "gemini-3.1-flash-lite"
+        assert ca.config.worker_model == "gemini-3.8-flash"
+        assert ca.config.lite_planner_model == "gemini-3.5-flash-lite"
+        assert ca.config.critic_model == "gemini-3.1-pro-preview"
+        assert ca.config.image_gen_model == "gemini-3.1-flash-image"
 
-    def test_campaign_placement_default_is_regional(self, monkeypatch, fresh_config):
-        """Env unset → the shipped #101 behavior: campaign on gemini-2.5 @ us-central1.
+    def test_regional_25_arm_fields_removed(self):
+        """The retired gemini-2.5 campaign arm's fields are gone."""
+        import creative_agent.config as ca
 
-        The DoE arm seam must be behavior-preserving by default so prod is
-        untouched unless CAMPAIGN_RESEARCH_PLACEMENT is set explicitly.
-        """
+        for name in (
+            "regional_model_location",
+            "regional_worker_model",
+            "regional_lite_planner_model",
+        ):
+            assert not hasattr(ca.config, name)
+
+    def test_campaign_placement_default_is_global_altbucket(
+        self, monkeypatch, fresh_config
+    ):
+        """Env unset → campaign on the distinct global gemini-3.5-flash bucket."""
         monkeypatch.delenv("CAMPAIGN_RESEARCH_PLACEMENT", raising=False)
         ca = fresh_config("creative_agent.config")
+        assert ca.config.campaign_research_placement == "global_altbucket"
         assert ca.config.campaign_models() == (
-            "gemini-2.5-flash-lite",
-            "gemini-2.5-flash",
-            "us-central1",
+            "gemini-3.5-flash",
+            "gemini-3.5-flash",
+            "global",
         )
 
     def test_campaign_placement_global_3x_arm(self, monkeypatch, fresh_config):
@@ -190,36 +191,22 @@ class TestBaseAgentConfiguration:
         monkeypatch.setenv("CAMPAIGN_RESEARCH_PLACEMENT", "global_3x")
         ca = fresh_config("creative_agent.config")
         assert ca.config.campaign_models() == (
-            "gemini-3.1-flash-lite",
+            "gemini-3.5-flash-lite",
+            "gemini-3.8-flash",
+            "global",
+        )
+
+    @pytest.mark.parametrize("arm", ["bogus_arm", "regional_25"])
+    def test_campaign_placement_unknown_or_retired_falls_back_to_default(
+        self, arm, monkeypatch, fresh_config
+    ):
+        """An unrecognized (or the retired regional_25) arm → global_altbucket."""
+        monkeypatch.setenv("CAMPAIGN_RESEARCH_PLACEMENT", arm)
+        ca = fresh_config("creative_agent.config")
+        assert ca.config.campaign_models() == (
+            "gemini-3.5-flash",
             "gemini-3.5-flash",
             "global",
-        )
-
-    def test_campaign_placement_global_altbucket_arm(self, monkeypatch, fresh_config):
-        """Arm C (global_altbucket): a DISTINCT global 3.x bucket.
-
-        Task 0a probe confirmed gemini-3-flash-preview both calls and grounds via
-        google_search @ global — the one distinct global flash base model, so the
-        campaign planner + worker both use it.
-        """
-        monkeypatch.setenv("CAMPAIGN_RESEARCH_PLACEMENT", "global_altbucket")
-        ca = fresh_config("creative_agent.config")
-        assert ca.config.campaign_models() == (
-            "gemini-3-flash-preview",
-            "gemini-3-flash-preview",
-            "global",
-        )
-
-    def test_campaign_placement_unknown_falls_back_to_regional(
-        self, monkeypatch, fresh_config
-    ):
-        """An unrecognized arm degrades to the safe default (regional)."""
-        monkeypatch.setenv("CAMPAIGN_RESEARCH_PLACEMENT", "bogus_arm")
-        ca = fresh_config("creative_agent.config")
-        assert ca.config.campaign_models() == (
-            "gemini-2.5-flash-lite",
-            "gemini-2.5-flash",
-            "us-central1",
         )
 
 
@@ -260,3 +247,58 @@ class TestBuildInfraRetry:
         assert "ValidationError" in names  # the invalid-JSON crash
         assert "ServiceUnavailable" in names  # infra set included (503)
         assert "ServerError" in names  # genai 5xx included
+
+
+# --- 2026-09 model-lineup refresh: retire gemini-2.5 from the campaign half ---
+# Vertex blocks gemini-2.5 for idle projects ~Oct 2026 (shutdown early 2027), so
+# the default campaign arm must be off 2.5 while keeping the PR #101 spread.
+
+
+def test_default_campaign_arm_uses_no_retiring_models(monkeypatch, fresh_config):
+    monkeypatch.delenv("CAMPAIGN_RESEARCH_PLACEMENT", raising=False)
+    ca = fresh_config("creative_agent.config")
+
+    lite, worker, loc = ca.config.campaign_models()
+    assert not lite.startswith("gemini-2.5") and not worker.startswith("gemini-2.5")
+    assert loc == "global"
+
+
+def test_campaign_default_bucket_differs_from_trend_bucket(monkeypatch, fresh_config):
+    monkeypatch.delenv("CAMPAIGN_RESEARCH_PLACEMENT", raising=False)
+    ca = fresh_config("creative_agent.config")
+
+    cfg = ca.config
+    _, worker, _ = cfg.campaign_models()
+    assert worker not in {cfg.worker_model, cfg.lite_planner_model}
+
+
+def test_unknown_campaign_arm_logs_warning(monkeypatch, fresh_config, caplog):
+    """A retired/unknown arm warns (naming it + the fallback) before degrading."""
+    monkeypatch.setenv("CAMPAIGN_RESEARCH_PLACEMENT", "regional_25")
+    ca = fresh_config("creative_agent.config")
+
+    with caplog.at_level(logging.WARNING, logger="creative_agent.config"):
+        ca.config.campaign_models()
+
+    assert any(
+        r.levelno == logging.WARNING
+        and "regional_25" in r.getMessage()
+        and "global_altbucket" in r.getMessage()
+        for r in caplog.records
+    )
+
+
+def test_trend_scout_config_uses_no_retiring_models():
+    """Every *_model on trend_scout's config is off the retiring gemini-2.5 line."""
+    import dataclasses
+
+    import trend_scout.config as tt
+
+    models = {
+        f.name: getattr(tt.config, f.name)
+        for f in dataclasses.fields(tt.config)
+        if f.name.endswith("_model")
+    }
+    assert {"gather_model", "picker_model", "worker_model"} <= models.keys()
+    for name, model in models.items():
+        assert not model.startswith("gemini-2.5"), f"{name}={model}"

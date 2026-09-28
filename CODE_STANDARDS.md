@@ -69,7 +69,7 @@ uv run ty check
 Models and other cloud resources use **different** locations — keep them separate:
 
 - **`GOOGLE_CLOUD_LOCATION=global`** — the Vertex GenAI model endpoint. The gemini-3
-  models (`gemini-3.5-flash`, `gemini-3.1-pro-preview`, `gemini-3.1-flash-lite`) are
+  models (`gemini-3.8-flash`, `gemini-3.1-pro-preview`, `gemini-3.5-flash-lite`) are
   only served from `global`; requesting them in `us-central1` returns `404 NOT_FOUND`.
 - **`GCP_REGION=us-central1`** — the default region for all other resources
   (BigQuery, GCS, PubSub, Cloud Run Functions, Agent Engine).

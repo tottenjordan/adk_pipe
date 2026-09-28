@@ -92,7 +92,13 @@ PICK_TRENDS_INSTR = """
            - **Otherwise**, select exactly 3 trends from <trend_research> that offer
              the strongest narrative alignment with <campaign_data>. You MUST return
              3. Only return fewer if <trend_research> contains fewer than 3 distinct
-             trends, in which case return every trend available.
+             trends, or fewer than 3 pass the brand-safety rule below.
+           - **Brand safety (when you select; overrides relevance):** NEVER select a
+             trend centered on violence or terrorism, crime or criminals, mass-casualty
+             events, deaths or tragedies, disasters, hate or extremism, sexual content,
+             self-harm, drugs, or divisive political/partisan controversy —
+             regardless of search volume. If fewer than 3 brand-safe trends remain,
+             return fewer rather than an unsafe one.
         2. For each trend in the chosen set, define the "Strategic Bridge"—the specific angle that connects the trend's cultural mood to the product's unique selling points.
 
         Output your findings in the requested format.

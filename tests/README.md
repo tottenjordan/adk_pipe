@@ -10,7 +10,7 @@ measurement harnesses (see [../experiments/README.md](../experiments/README.md))
 uv run pytest tests/ -v
 
 # ADK evals — end-to-end LLM-as-judge (real API calls, ~5 min per case)
-uv run adk eval trend_scout tests/eval/evalsets/trend_scout_evalset.json \
+PYTHONPATH="$PWD" uv run adk eval trend_scout tests/eval/evalsets/trend_scout_evalset.json \
   --config_file_path=tests/eval/eval_config.json --print_detailed_results
 
 # creative_agent eval — needs PYTHONPATH + its own rubric config

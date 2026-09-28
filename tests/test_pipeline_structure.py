@@ -303,10 +303,11 @@ def test_gs_searcher_keeps_source_collection():
     assert gs_web_synthesizer.after_agent_callback is None
 
 
-def test_campaign_pipeline_uses_regional_bucket():
-    """Quota spread (#94-style): the campaign-research half of the one
-    ParallelAgent is pinned to gemini-2.5 @ us-central1, a separate per-base-model
-    quota pool from the global buckets the trend half uses."""
+def test_campaign_pipeline_uses_distinct_global_bucket():
+    """Quota spread (#94/#101-style): the campaign-research half of the one
+    ParallelAgent runs on gemini-3.5-flash @ global — a different per-base-model
+    quota bucket from the trend half's gemini-3.8-flash / gemini-3.5-flash-lite."""
+    from creative_agent.config import config
     from creative_agent.sub_agents.campaign_researcher.agent import (
         campaign_web_planner,
         campaign_web_searcher,
@@ -314,10 +315,9 @@ def test_campaign_pipeline_uses_regional_bucket():
     )
 
     for a in (campaign_web_planner, campaign_web_searcher, campaign_web_synthesizer):
-        assert a.model.client_kwargs["location"] == "us-central1"
-    assert campaign_web_planner.model.model == "gemini-2.5-flash-lite"
-    assert campaign_web_searcher.model.model == "gemini-2.5-flash"
-    assert campaign_web_synthesizer.model.model == "gemini-2.5-flash"
+        assert a.model.client_kwargs["location"] == "global"
+        assert a.model.model == "gemini-3.5-flash"
+        assert a.model.model not in {config.worker_model, config.lite_planner_model}
 
 
 def test_campaign_pipeline_respects_placement_env(monkeypatch):
@@ -325,8 +325,9 @@ def test_campaign_pipeline_respects_placement_env(monkeypatch):
     CAMPAIGN_RESEARCH_PLACEMENT, resolved via config.campaign_models(). The models
     are bound at import time, so re-import fresh under the patched env.
 
-    Arm A (global_3x) is asserted here; the default (regional) arm is covered by
-    test_campaign_pipeline_uses_regional_bucket. The trend half is unaffected.
+    Arm A (global_3x) is asserted here; the default (global_altbucket) arm is
+    covered by test_campaign_pipeline_uses_distinct_global_bucket. The trend half
+    is unaffected.
     """
     import sys
 
@@ -358,9 +359,9 @@ def test_campaign_pipeline_respects_placement_env(monkeypatch):
             camp.campaign_web_synthesizer,
         ):
             assert a.model.client_kwargs["location"] == "global"
-        assert camp.campaign_web_planner.model.model == "gemini-3.1-flash-lite"
-        assert camp.campaign_web_searcher.model.model == "gemini-3.5-flash"
-        assert camp.campaign_web_synthesizer.model.model == "gemini-3.5-flash"
+        assert camp.campaign_web_planner.model.model == "gemini-3.5-flash-lite"
+        assert camp.campaign_web_searcher.model.model == "gemini-3.8-flash"
+        assert camp.campaign_web_synthesizer.model.model == "gemini-3.8-flash"
     finally:
         # Teardown: drop the placement-bound copies and restore the originals so
         # later tests see the same module objects they were already bound to.
@@ -379,9 +380,20 @@ def test_trend_pipeline_stays_global():
 
     for a in (gs_web_planner, gs_web_searcher, gs_web_synthesizer):
         assert a.model.client_kwargs["location"] == "global"
-    assert gs_web_planner.model.model == "gemini-3.1-flash-lite"
-    assert gs_web_searcher.model.model == "gemini-3.5-flash"
-    assert gs_web_synthesizer.model.model == "gemini-3.5-flash"
+    assert gs_web_planner.model.model == "gemini-3.5-flash-lite"
+    assert gs_web_searcher.model.model == "gemini-3.8-flash"
+    assert gs_web_synthesizer.model.model == "gemini-3.8-flash"
+
+
+def test_trend_scout_gather_and_pick_run_global_3x():
+    """2026-09: trend_scout's gather/pick left the retiring gemini-2.5 regional pool
+    for distinct gemini-3.x base models @ global (quota spread preserved)."""
+    from trend_scout.agent import gather_trends_agent, pick_trends_agent
+
+    assert gather_trends_agent.model.model == "gemini-3.1-flash-lite"
+    assert pick_trends_agent.model.model == "gemini-3.5-flash"
+    for a in (gather_trends_agent, pick_trends_agent):
+        assert a.model.client_kwargs["location"] == "global"
 
 
 def test_merge_planners_inputs_are_optional():
@@ -834,3 +846,18 @@ def test_interactive_creative_memorizes_target_search_trends():
     # The memorize step must name every state key it has to persist, mirroring
     # creative_agent, not just say "all campaign metadata".
     assert "`key_selling_points`, and `target_search_trends`" in instr
+
+
+def test_pick_trends_agent_excludes_brand_unsafe_trends():
+    """A live run picked "unabomber" as campaign-relevant. The picker must carry an
+    explicit brand-safety exclusion (violence/terrorism, crime, tragedies, etc.)
+    that overrides search volume, and prefer returning fewer trends over an
+    unsafe one."""
+    from trend_scout.agent import pick_trends_agent
+
+    instr = pick_trends_agent.instruction.lower()
+    assert "brand safety" in instr
+    for term in ("terrorism", "violence", "crime", "hate", "self-harm", "political"):
+        assert term in instr, f"brand-safety rule missing {term!r}"
+    assert "regardless of search volume" in instr
+    assert "fewer" in instr and "unsafe" in instr

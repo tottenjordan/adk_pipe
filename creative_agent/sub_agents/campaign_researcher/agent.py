@@ -20,10 +20,11 @@ logging.basicConfig(
 warnings.filterwarnings("ignore")
 
 
-# DoE arm seam (2026-07-17): the campaign half's (planner, worker, location) come
-# from config.campaign_models(), driven by CAMPAIGN_RESEARCH_PLACEMENT. Default
-# `regional_25` = the shipped #101 spread (gemini-2.5 @ us-central1); `global_3x`
-# and `global_altbucket` are the DoE treatment arms. Resolved once at import.
+# Placement seam: the campaign half's (planner, worker, location) come from
+# config.campaign_models(), driven by CAMPAIGN_RESEARCH_PLACEMENT. Default
+# `global_altbucket` = gemini-3.5-flash @ global, a distinct base-model bucket from
+# the trend half (the #101 spread); `global_3x` shares the trend buckets. Resolved
+# once at import.
 _CA_LITE, _CA_WORKER, _CA_LOC = config.campaign_models()
 
 
@@ -41,8 +42,8 @@ class CampaignQueryList(BaseModel):
 # --- AGENT DEFINITIONS ---
 campaign_web_planner = Agent(
     # Quota spread (#94/#101): campaign half runs on a separate bucket so it doesn't
-    # double up on the trend planner's bucket. Model+location come from the DoE arm
-    # (config.campaign_models()); default arm = regional gemini-2.5 @ us-central1.
+    # double up on the trend planner's bucket. Model+location come from the placement arm
+    # (config.campaign_models()); default arm = gemini-3.5-flash @ global.
     model=build_gemini(_CA_LITE, location=_CA_LOC),
     name="campaign_web_planner",
     include_contents="none",
@@ -99,9 +100,9 @@ campaign_web_planner = Agent(
 # no single turn has to think, search, AND author a long report. Grounding
 # metadata lives on this turn, so `collect_research_sources_callback` stays here.
 campaign_web_searcher = Agent(
-    # Quota spread (#94/#101): campaign worker bucket from the DoE arm. google_search
-    # grounding is verified on each arm's model @ its location (default:
-    # gemini-2.5-flash @ us-central1; Arm C: gemini-3-flash-preview @ global — Task 0a).
+    # Quota spread (#94/#101): campaign worker bucket from the placement arm. google_search
+    # grounding is verified on each arm's model @ its location (default
+    # global_altbucket: gemini-3.5-flash @ global — probed 2026-09-28).
     model=build_gemini(_CA_WORKER, location=_CA_LOC),
     name="campaign_web_searcher",
     include_contents="none",
@@ -147,7 +148,7 @@ campaign_web_searcher = Agent(
 # wrapper retries the whole pair rather than raising KeyError inside it) and shapes
 # them into the existing consumer-facing report.
 campaign_web_synthesizer = Agent(
-    # Quota spread (#94/#101): campaign worker bucket from the DoE arm (no grounding here).
+    # Quota spread (#94/#101): campaign worker bucket from the placement arm (no grounding here).
     model=build_gemini(_CA_WORKER, location=_CA_LOC),
     name="campaign_web_synthesizer",
     include_contents="none",

@@ -17,7 +17,7 @@
         }
       ],
       "judge_model_options": {
-        "judge_model": "gemini-2.5-flash",
+        "judge_model": "gemini-3.8-flash",
         "num_samples": 3
       }
     },
@@ -38,7 +38,7 @@
         }
       ],
       "judge_model_options": {
-        "judge_model": "gemini-2.5-flash",
+        "judge_model": "gemini-3.8-flash",
         "num_samples": 3
       }
     }

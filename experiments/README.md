@@ -93,6 +93,11 @@ the one `ParallelAgent`). One codebase deploys as multiple **arms** via the
 `(arm, load)` cell — the one capability `creative_latency` deliberately lacks —
 because here contention is the signal, not noise.
 
+> **2026-09-28:** the `regional_25` arm (gemini-2.5 @ us-central1) is retired —
+> gemini-2.5 is being shut down on Vertex. Live arms are now `global_altbucket`
+> (the production default, campaign on `gemini-3.5-flash` @ global) and `global_3x`;
+> `regional_25` survives only as a label in the committed historical `results/`.
+
 Primary metric: the **slope of median research-phase wall-clock vs concurrency N**
 per arm (flatter ⇒ the spread absorbed the contention, H1). Quality (H3
 non-inferiority) is harvested **free** from each run's in-pipeline `creative_eval`
