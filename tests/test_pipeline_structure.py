@@ -846,3 +846,18 @@ def test_interactive_creative_memorizes_target_search_trends():
     # The memorize step must name every state key it has to persist, mirroring
     # creative_agent, not just say "all campaign metadata".
     assert "`key_selling_points`, and `target_search_trends`" in instr
+
+
+def test_pick_trends_agent_excludes_brand_unsafe_trends():
+    """A live run picked "unabomber" as campaign-relevant. The picker must carry an
+    explicit brand-safety exclusion (violence/terrorism, crime, tragedies, etc.)
+    that overrides search volume, and prefer returning fewer trends over an
+    unsafe one."""
+    from trend_scout.agent import pick_trends_agent
+
+    instr = pick_trends_agent.instruction.lower()
+    assert "brand safety" in instr
+    for term in ("terrorism", "violence", "crime", "hate", "self-harm", "political"):
+        assert term in instr, f"brand-safety rule missing {term!r}"
+    assert "regardless of search volume" in instr
+    assert "fewer" in instr and "unsafe" in instr
