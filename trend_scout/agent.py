@@ -221,8 +221,8 @@ root_agent = trend_scout
 
 # Wrap in an App with resumability enabled — required for the opt-in
 # `review_trends` LongRunningFunctionTool to pause and resume across separate
-# /runs calls. `root_agent` stays exported unchanged (deployment/deploy_agent.py
-# imports the bare agent); the resumable App is used by the runserver runner.
+# /runs calls. `root_agent` stays exported unchanged; the resumable App is what
+# both the runserver runner and deployment/deploy_agent.py (via AdkApp) use.
 app = App(
     name="trend_scout",
     root_agent=root_agent,

@@ -1,7 +1,9 @@
 """Tests for deployment utility functions (deploy_agent.py)."""
 
+import importlib
 import os
 import sys
+import types
 import pytest
 import dotenv
 
@@ -213,3 +215,46 @@ class TestValidateExtraPackages:
         da = _import_deploy_agent()
         with pytest.raises(FileNotFoundError):
             da.validate_extra_packages(["./trend_scout", "./does_not_exist_pkg"])
+
+
+# --- resolve_deploy_target: deploy the resumable App, not the bare root_agent ---
+# Agent Engine must receive the module's `App` (with ResumabilityConfig) when one
+# is exported, otherwise LongRunningFunctionTool review checkpoints can't pause.
+class TestResolveDeployTarget:
+    def test_prefers_resumable_app_when_module_exports_one(self):
+        da = _import_deploy_agent()
+        mod = types.SimpleNamespace(root_agent="agent", app="app")
+        assert da.resolve_deploy_target(mod) == ("app", "app")
+
+    def test_falls_back_to_root_agent(self):
+        da = _import_deploy_agent()
+        mod = types.SimpleNamespace(root_agent="agent")
+        assert da.resolve_deploy_target(mod) == ("agent", "agent")
+
+    @pytest.mark.parametrize(
+        ("name", "expected_kind"),
+        [
+            ("trend_scout", "app"),
+            ("interactive_creative", "app"),
+            ("creative_agent", "agent"),
+        ],
+    )
+    def test_real_agent_modules_resolve_as_expected(self, name, expected_kind):
+        da = _import_deploy_agent()
+        module = importlib.import_module(da.AGENT_DEPLOY_SPECS[name]["module"])
+        kind, target = da.resolve_deploy_target(module)
+        assert kind == expected_kind
+        if kind == "app":
+            assert target is module.app
+            assert target.resumability_config.is_resumable is True
+            assert target.root_agent is module.root_agent
+        else:
+            assert target is module.root_agent
+
+    def test_every_deploy_spec_is_covered(self):
+        da = _import_deploy_agent()
+        assert set(da.AGENT_DEPLOY_SPECS) == {
+            "trend_scout",
+            "interactive_creative",
+            "creative_agent",
+        }

@@ -14,7 +14,6 @@ if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
 import vertexai
-# from vertexai.agent_engines import AdkApp
 
 
 # ==============================
@@ -155,6 +154,22 @@ def validate_extra_packages(packages: list[str]) -> None:
         )
 
 
+def resolve_deploy_target(module) -> tuple[str, object]:
+    """Pick what to hand AdkApp for an agent module: its App if it has one.
+
+    Modules that export an ADK ``App`` (``trend_scout``, ``interactive_creative``)
+    carry ``ResumabilityConfig(is_resumable=True)`` on it, which the
+    ``LongRunningFunctionTool`` review checkpoints need to pause/resume. Deploying
+    the bare ``root_agent`` would silently drop that config on Agent Engine.
+
+    Returns ``(kind, target)`` where ``kind`` is the ``AdkApp`` keyword to use:
+    ``("app", module.app)`` if present, else ``("agent", module.root_agent)``.
+    """
+    if hasattr(module, "app"):
+        return "app", module.app
+    return "agent", module.root_agent
+
+
 # Function to update the .env file
 def update_env_file(prefix: str, agent_engine_id: str, env_file_path: str):
     """Updates the .env file with the agent engine ID."""
@@ -186,13 +201,18 @@ def deploy_agent(name: str, version: str) -> None:
     extra_packages = AGENT_EXTRA_PACKAGES[name]
     validate_extra_packages(extra_packages)
 
-    root_agent = importlib.import_module(spec["module"]).root_agent
-    # adk_app = AdkApp(agent=root_agent, enable_tracing=True)
+    # Imported lazily (like the client) so this module stays importable offline.
+    from vertexai.agent_engines import AdkApp
+
+    module = importlib.import_module(spec["module"])
+    root_agent = module.root_agent
+    kind, target = resolve_deploy_target(module)
+    adk_app = AdkApp(**{kind: target})
 
     try:
         logging.info(f"Deploying `{name}` agent...")
         remote_agent = _get_client().agent_engines.create(
-            agent=root_agent,  # adk_app
+            agent=adk_app,
             config={
                 "requirements": "./requirements.txt",
                 "extra_packages": extra_packages,
