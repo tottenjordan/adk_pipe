@@ -65,3 +65,55 @@ This baseline was run against the **local working tree**, not the pristine commi
   `generate_videos` call). Would need a regional client.
 - `ruff` / `ty` not yet configured in `pyproject.toml` (see CODE_STANDARDS.md gaps).
 - Baseline uses gemini-3 + newer deps, so it is not byte-identical to the deployed env.
+
+## 2026-09-28 model-lineup refresh
+
+Validation of branch `feat/model-lineup-2026-09` (retire gemini-2.5 before Vertex
+blocks it ~Oct 20 2026). New lineup, all served @ `global`:
+
+| Role | Before | After |
+|---|---|---|
+| `worker_model` (trend research searcher/synth, trend_scout searcher) | gemini-3.5-flash | **gemini-3.8-flash** |
+| `lite_planner_model` (trend planner, trend_scout synthesizer) | gemini-3.1-flash-lite | **gemini-3.5-flash-lite** |
+| creative_agent campaign research (default arm) | gemini-2.5-flash / -lite @ us-central1 (`regional_25`) | **gemini-3.5-flash** (`global_altbucket`) |
+| trend_scout `gather_model` | gemini-2.5-flash-lite @ us-central1 | **gemini-3.1-flash-lite** |
+| trend_scout `picker_model` | gemini-2.5-pro @ us-central1 | **gemini-3.5-flash** |
+| critic / creative_eval judge / image | gemini-3.1-pro-preview / gemini-3.1-flash-image | unchanged |
+
+All runs local (`InMemorySessionService`, ADC, project `hybrid-vertex`), run
+sequentially except where noted. **Every figure below is N=1 (or N=2)** — single
+runs on shared project-wide quota are noisy (the 2026-07 DoE saw N=1 totals range
+371–742 s for one arm), so treat deltas as sanity checks, not measurements.
+
+| Run | Wall | Result | 429 / 404 | `*__retry_exhausted` |
+|---|---|---|---|---|
+| trend_scout (gather/pick still on 2.5) | 116 s | ✅ full pipeline, 3 trends to BQ | 0 / 0 | none |
+| trend_scout (final, all 3.x) | 103 s | ✅ full pipeline, 3 trends to BQ | 0 / 0 | none |
+| creative_agent `headless_run.py` (PRS / "tswift wedding") | 500 s | ✅ 4 images, eval report, gallery, BQ | 0 / 0 | none (report `warnings: []`) |
+| `adk eval creative_agent` (2 cases, run **concurrently** by adk eval) | 965 s | ✅ 2/2 PASSED, all 4 rubrics 1.0 | 0 / 0 | none |
+
+In-pipeline `creative_eval` (unchanged gemini-3.1-pro-preview judge):
+
+| Run | Ad copy pass / avg | Visual pass / avg | Overall pass |
+|---|---|---|---|
+| headless PRS | 3/4 · 0.758 | 4/4 · 0.867 | 0.875 |
+| eval — Estée Lauder | 4/4 · 0.842 | 4/4 · 0.900 | 1.00 |
+| eval — PRS | 4/4 · 0.771 | 2/4 · 0.733 | 0.75 |
+| **Pooled (3 runs)** | 11/12 · 0.790 | 10/12 · 0.833 | **0.875** |
+
+**Comparison to prior references** (different runtime — Cloud Run — and older code,
+so directional only):
+
+- trend_scout: 103 s vs 67 s on 2026-07-11, but that predates the WS2
+  searcher/synthesizer split + retry wrapper (extra model turns); no regression signal.
+- creative_agent latency: 500 s local vs the 2026-07-17 DoE `regional_25` N=1
+  Cloud Run median 449 s (range 371–742) — inside the historical N=1 range.
+- creative_agent quality: pooled pass 0.875 / mean ≈0.81 vs DoE `regional_25` N=1
+  0.969 / 0.839 and `global_3x` N=1 0.906 / 0.815. Slightly lower but within the
+  run-to-run spread seen then; one eval-case image concept was dropped because the
+  (unchanged) image model returned `finish_reason=OTHER`, which also pulled the PRS
+  visual score down. Worth re-checking with more runs before reading anything into it.
+- Observed: the final trend_scout run picked "unabomber" among its 3 trends for a
+  guitar brand. `PICK_TRENDS_INSTR` has no brand-safety guidance, and one run
+  can't say whether gemini-3.5-flash (vs the old gemini-2.5-pro) is to blame —
+  flagged as a follow-up.
