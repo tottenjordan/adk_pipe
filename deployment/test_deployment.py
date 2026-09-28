@@ -19,6 +19,8 @@ if project_root not in sys.path:
 
 import vertexai
 
+from deployment.deploy_agent import AGENT_DEPLOY_SPECS, engine_env_key
+
 
 # ==============================
 # config
@@ -53,9 +55,9 @@ parser.add_argument(
 )
 parser.add_argument(
     "--agent",
-    choices=["trend_scout", "creative_agent"],
+    choices=list(AGENT_DEPLOY_SPECS),
     default=None,
-    help="name of agent to deploy",
+    help="name of deployed agent to test",
     required=True,
 )
 args = parser.parse_args()
@@ -155,12 +157,8 @@ async def main() -> None:  # pylint: disable=unused-argument
     if not args.agent:
         logging.error("Error: --agent is required for the create operation.")
         return
-    if args.agent == "trend_scout":
-        remote_agent = client.agent_engines.get(name=os.getenv("SCOUT_AGENT_ENGINE_ID"))
-    elif args.agent == "creative_agent":
-        remote_agent = client.agent_engines.get(
-            name=os.getenv("CREATIVE_AGENT_ENGINE_ID")
-        )
+    env_key = engine_env_key(args.agent)
+    remote_agent = client.agent_engines.get(name=os.getenv(env_key))
     logging.info(f"\n\nremote_agent: {remote_agent}")
 
     # get session — create → stream → delete under one user_id (delete-on-error).

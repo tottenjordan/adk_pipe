@@ -2,7 +2,7 @@
 
 Runs against live GCP infrastructure. Requires:
   - Authenticated GCP credentials (gcloud auth application-default login)
-  - .env file with SCOUT_AGENT_ENGINE_ID and/or CREATIVE_AGENT_ENGINE_ID populated
+  - .env file with SCOUT_/CREATIVE_/INTERACTIVE_AGENT_ENGINE_ID populated
   - Deployed agents on Agent Engine
 
 Usage:
@@ -15,7 +15,7 @@ Usage:
   # Smoke test — run agent end-to-end, assert session state keys
   python deployment/integration_test.py --check smoke --agent creative_agent
 
-  # Run all checks for both agents
+  # Run all checks for all agents
   python deployment/integration_test.py --check all
 """
 
@@ -36,6 +36,8 @@ if project_root not in sys.path:
 
 import vertexai
 
+from deployment.deploy_agent import AGENT_DEPLOY_SPECS, engine_env_key
+
 
 # ==============================
 # config
@@ -48,10 +50,9 @@ warnings.filterwarnings("ignore")
 ENV_FILE_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".env"))
 dotenv.load_dotenv(dotenv_path=ENV_FILE_PATH)
 
-AGENT_ENV_KEYS = {
-    "trend_scout": "SCOUT_AGENT_ENGINE_ID",
-    "creative_agent": "CREATIVE_AGENT_ENGINE_ID",
-}
+# Derived from deploy_agent's spec map so every deployable agent is testable and
+# the env key always matches what `deploy_agent.py --create` writes to .env.
+AGENT_ENV_KEYS = {name: engine_env_key(name) for name in AGENT_DEPLOY_SPECS}
 
 # Session state keys that should be populated after a successful agent run
 EXPECTED_STATE_KEYS = {
@@ -62,6 +63,15 @@ EXPECTED_STATE_KEYS = {
         "key_selling_points",
     ],
     "creative_agent": [
+        "brand",
+        "target_product",
+        "target_audience",
+        "key_selling_points",
+        "target_search_trends",
+    ],
+    # Runs until the first human-review checkpoint (review_research) pauses it;
+    # the campaign metadata is memorized before that.
+    "interactive_creative": [
         "brand",
         "target_product",
         "target_audience",
@@ -82,27 +92,42 @@ class TestResult:
     passed: bool
     message: str
     duration_s: float = 0.0
+    # Not run (e.g. agent not deployed: engine-ID env var unset). Reported as SKIP
+    # and excluded from failures / the exit code.
+    skipped: bool = False
+
+    @property
+    def failed(self) -> bool:
+        return not self.passed and not self.skipped
+
+
+class EngineIdNotSetError(ValueError):
+    """The agent's engine-ID env var is unset — i.e. it isn't deployed (skip)."""
 
 
 def print_results(results: list[TestResult]) -> bool:
-    """Print test results and return True if all passed."""
+    """Print test results and return True if nothing failed (skips are OK)."""
     print("\n" + "=" * 60)
     print("INTEGRATION TEST RESULTS")
     print("=" * 60)
 
     all_passed = True
     for r in results:
-        status = "PASS" if r.passed else "FAIL"
+        status = "SKIP" if r.skipped else "PASS" if r.passed else "FAIL"
         duration = f" ({r.duration_s:.1f}s)" if r.duration_s > 0 else ""
         print(f"  [{status}] {r.name}{duration}")
         if not r.passed:
             print(f"         {r.message}")
+        if r.failed:
             all_passed = False
 
     print("=" * 60)
     passed = sum(1 for r in results if r.passed)
-    failed = sum(1 for r in results if not r.passed)
-    print(f"  {passed} passed, {failed} failed, {len(results)} total")
+    failed = sum(1 for r in results if r.failed)
+    skipped = sum(1 for r in results if r.skipped)
+    print(
+        f"  {passed} passed, {failed} failed, {skipped} skipped, {len(results)} total"
+    )
     print("=" * 60 + "\n")
     return all_passed
 
@@ -124,7 +149,9 @@ def get_remote_agent(client, agent_name: str):
     env_key = AGENT_ENV_KEYS[agent_name]
     resource_id = os.getenv(env_key)
     if not resource_id:
-        raise ValueError(f"{env_key} is not set in .env — deploy the agent first")
+        raise EngineIdNotSetError(
+            f"{env_key} not set in .env — agent not deployed, skip"
+        )
     return client.agent_engines.get(name=resource_id)
 
 
@@ -143,6 +170,7 @@ def check_health(client) -> list[TestResult]:
                     name=f"health:{agent_name}",
                     passed=False,
                     message=f"{env_key} not set in .env — skip",
+                    skipped=True,
                 )
             )
             continue
@@ -206,12 +234,13 @@ async def check_session(client, agent_name: str) -> list[TestResult]:
 
     try:
         remote_agent = get_remote_agent(client, agent_name)
-    except ValueError as e:
+    except EngineIdNotSetError as e:
         return [
             TestResult(
                 name=f"session:{agent_name}:get_agent",
                 passed=False,
                 message=str(e),
+                skipped=True,
             )
         ]
 
@@ -342,12 +371,13 @@ async def check_smoke(client, agent_name: str) -> list[TestResult]:
 
     try:
         remote_agent = get_remote_agent(client, agent_name)
-    except ValueError as e:
+    except EngineIdNotSetError as e:
         return [
             TestResult(
                 name=f"smoke:{agent_name}:get_agent",
                 passed=False,
                 message=str(e),
+                skipped=True,
             )
         ]
 
@@ -513,7 +543,7 @@ async def run_checks(check_type: str, agent_name: str | None) -> bool:
     client = get_client()
     all_results: list[TestResult] = []
 
-    agents_to_test = [agent_name] if agent_name else ["trend_scout", "creative_agent"]
+    agents_to_test = [agent_name] if agent_name else list(AGENT_DEPLOY_SPECS)
 
     if check_type in ("health", "all"):
         logging.info("Running health checks...")
@@ -553,9 +583,9 @@ Examples:
     )
     parser.add_argument(
         "--agent",
-        choices=["trend_scout", "creative_agent"],
+        choices=list(AGENT_DEPLOY_SPECS),
         default=None,
-        help="Agent to test (default: both). Required for session and smoke checks.",
+        help="Agent to test (default: all). Required for session and smoke checks.",
     )
     args = parser.parse_args()
 

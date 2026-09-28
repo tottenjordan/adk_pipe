@@ -14,7 +14,6 @@ if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
 import vertexai
-# from vertexai.agent_engines import AdkApp
 
 
 # ==============================
@@ -155,10 +154,40 @@ def validate_extra_packages(packages: list[str]) -> None:
         )
 
 
+def resolve_deploy_target(module) -> tuple[str, object]:
+    """Pick what to hand AdkApp for an agent module: its App if it has one.
+
+    Modules that export an ADK ``App`` (``trend_scout``, ``interactive_creative``)
+    carry ``ResumabilityConfig(is_resumable=True)`` on it, which the
+    ``LongRunningFunctionTool`` review checkpoints need to pause/resume. Deploying
+    the bare ``root_agent`` would silently drop that config on Agent Engine.
+
+    Returns ``(kind, target)`` where ``kind`` is the ``AdkApp`` keyword to use:
+    ``("app", module.app)`` if it is an ``App``, else ``("agent", module.root_agent)``
+    (an unrelated ``app`` attribute, e.g. a FastAPI app, is ignored).
+    """
+    # Lazy import keeps this module importable without ADK loaded up front.
+    from google.adk.apps import App
+
+    app_obj = getattr(module, "app", None)
+    if isinstance(app_obj, App):
+        return "app", app_obj
+    return "agent", module.root_agent
+
+
+def engine_env_key(name: str) -> str:
+    """The .env key holding a deployed agent's Agent Engine resource ID.
+
+    Single source of truth for the ``<PREFIX>_AGENT_ENGINE_ID`` format, shared by
+    deploy (writes it) and the test/integration scripts (read it).
+    """
+    return f"{AGENT_DEPLOY_SPECS[name]['env_prefix']}_AGENT_ENGINE_ID"
+
+
 # Function to update the .env file
-def update_env_file(prefix: str, agent_engine_id: str, env_file_path: str):
-    """Updates the .env file with the agent engine ID."""
-    KEY_NAME = f"{prefix}_AGENT_ENGINE_ID"
+def update_env_file(name: str, agent_engine_id: str, env_file_path: str):
+    """Updates the .env file with the agent engine ID for agent ``name``."""
+    KEY_NAME = engine_env_key(name)
     try:
         dotenv.set_key(env_file_path, KEY_NAME, agent_engine_id)
         logging.info(f"Updated {KEY_NAME} in {env_file_path} to {agent_engine_id}")
@@ -186,13 +215,18 @@ def deploy_agent(name: str, version: str) -> None:
     extra_packages = AGENT_EXTRA_PACKAGES[name]
     validate_extra_packages(extra_packages)
 
-    root_agent = importlib.import_module(spec["module"]).root_agent
-    # adk_app = AdkApp(agent=root_agent, enable_tracing=True)
+    # Imported lazily (like the client) so this module stays importable offline.
+    from vertexai.agent_engines import AdkApp
+
+    module = importlib.import_module(spec["module"])
+    root_agent = module.root_agent
+    kind, target = resolve_deploy_target(module)
+    adk_app = AdkApp(**{kind: target})
 
     try:
         logging.info(f"Deploying `{name}` agent...")
         remote_agent = _get_client().agent_engines.create(
-            agent=root_agent,  # adk_app
+            agent=adk_app,
             config={
                 "requirements": "./requirements.txt",
                 "extra_packages": extra_packages,
@@ -212,7 +246,7 @@ def deploy_agent(name: str, version: str) -> None:
             f"\n\nSuccessfully created remote agent: {remote_agent.api_resource.name}\n\n"
         )
         update_env_file(
-            prefix=spec["env_prefix"],
+            name=name,
             agent_engine_id=remote_agent.api_resource.name,
             env_file_path=ENV_FILE_PATH,
             # remove=False,
@@ -263,13 +297,6 @@ def delete(
     remote_agent = _get_client().agent_engines.get(name=RESOURCE_NAME)
     remote_agent.delete(force=True)
     logging.info(f"Successfully deleted remote agent: {resource_id}")
-
-    # update_env_file(
-    #     prefix="SCOUT" if agent_name == "trend_scout" else "CREATIVE",
-    #     agent_engine_id="",
-    #     env_file_path=ENV_FILE_PATH,
-    #     # remove=True,
-    # )
 
 
 def main(argv):

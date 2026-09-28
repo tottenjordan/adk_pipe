@@ -1,52 +1,41 @@
 """Tests for deployment utility functions (deploy_agent.py)."""
 
+import importlib
 import os
+import subprocess
 import sys
+import re
+import types
+from unittest.mock import MagicMock
+
 import pytest
 import dotenv
 
 
-# --- update_env_file ---
-# Replicate the function to avoid module-level vertexai.Client() import
-def update_env_file(prefix: str, agent_engine_id: str, env_file_path: str):
-    """Updates the .env file with the agent engine ID."""
-    KEY_NAME = f"{prefix}_AGENT_ENGINE_ID"
-    dotenv.set_key(env_file_path, KEY_NAME, agent_engine_id)
-
-
+# --- update_env_file (the real function; _import_deploy_agent is defined below) ---
 class TestUpdateEnvFile:
-    def test_writes_trawler_key(self, tmp_path):
+    def test_writes_scout_key(self, tmp_path):
+        da = _import_deploy_agent()
         env_file = tmp_path / ".env"
         env_file.write_text("")
-        update_env_file("TRAWLER", "12345", str(env_file))
-        content = env_file.read_text()
-        assert "TRAWLER_AGENT_ENGINE_ID" in content
-        assert "12345" in content
-
-    def test_writes_creative_key(self, tmp_path):
-        env_file = tmp_path / ".env"
-        env_file.write_text("")
-        update_env_file("CREATIVE", "67890", str(env_file))
-        content = env_file.read_text()
-        assert "CREATIVE_AGENT_ENGINE_ID" in content
-        assert "67890" in content
+        da.update_env_file("trend_scout", "12345", str(env_file))
+        assert dotenv.dotenv_values(env_file) == {"SCOUT_AGENT_ENGINE_ID": "12345"}
 
     def test_overwrites_existing_value(self, tmp_path):
+        da = _import_deploy_agent()
         env_file = tmp_path / ".env"
-        env_file.write_text('TRAWLER_AGENT_ENGINE_ID="old_id"\n')
-        update_env_file("TRAWLER", "new_id", str(env_file))
-        content = env_file.read_text()
-        assert "new_id" in content
-        assert "old_id" not in content
+        env_file.write_text('CREATIVE_AGENT_ENGINE_ID="old_id"\n')
+        da.update_env_file("creative_agent", "new_id", str(env_file))
+        assert dotenv.dotenv_values(env_file) == {"CREATIVE_AGENT_ENGINE_ID": "new_id"}
 
     def test_preserves_other_keys(self, tmp_path):
+        da = _import_deploy_agent()
         env_file = tmp_path / ".env"
         env_file.write_text('SOME_OTHER_KEY="keep_me"\n')
-        update_env_file("TRAWLER", "12345", str(env_file))
-        content = env_file.read_text()
-        assert "SOME_OTHER_KEY" in content
-        assert "keep_me" in content
-        assert "TRAWLER_AGENT_ENGINE_ID" in content
+        da.update_env_file("trend_scout", "12345", str(env_file))
+        values = dotenv.dotenv_values(env_file)
+        assert values["SOME_OTHER_KEY"] == "keep_me"
+        assert values["SCOUT_AGENT_ENGINE_ID"] == "12345"
 
 
 # --- ENV_VAR_DICT keys ---
@@ -213,3 +202,191 @@ class TestValidateExtraPackages:
         da = _import_deploy_agent()
         with pytest.raises(FileNotFoundError):
             da.validate_extra_packages(["./trend_scout", "./does_not_exist_pkg"])
+
+
+# --- resolve_deploy_target: deploy the resumable App, not the bare root_agent ---
+# Agent Engine must receive the module's `App` (with ResumabilityConfig) when one
+# is exported, otherwise LongRunningFunctionTool review checkpoints can't pause.
+class TestResolveDeployTarget:
+    def test_prefers_resumable_app_when_module_exports_one(self):
+        from google.adk.apps import App
+
+        da = _import_deploy_agent()
+        app = MagicMock(spec=App)
+        mod = types.SimpleNamespace(root_agent="agent", app=app)
+        assert da.resolve_deploy_target(mod) == ("app", app)
+
+    def test_non_app_attribute_falls_back_to_root_agent(self):
+        """An unrelated `app` attr (e.g. a FastAPI app) must not be deployed."""
+        da = _import_deploy_agent()
+        mod = types.SimpleNamespace(root_agent="agent", app="not-an-App")
+        assert da.resolve_deploy_target(mod) == ("agent", "agent")
+
+    def test_falls_back_to_root_agent(self):
+        da = _import_deploy_agent()
+        mod = types.SimpleNamespace(root_agent="agent")
+        assert da.resolve_deploy_target(mod) == ("agent", "agent")
+
+    @pytest.mark.parametrize(
+        ("name", "expected_kind"),
+        [
+            ("trend_scout", "app"),
+            ("interactive_creative", "app"),
+            ("creative_agent", "agent"),
+        ],
+    )
+    def test_real_agent_modules_resolve_as_expected(self, name, expected_kind):
+        da = _import_deploy_agent()
+        module = importlib.import_module(da.AGENT_DEPLOY_SPECS[name]["module"])
+        kind, target = da.resolve_deploy_target(module)
+        assert kind == expected_kind
+        if kind == "app":
+            assert target is module.app
+            assert target.resumability_config.is_resumable is True
+            assert target.root_agent is module.root_agent
+        else:
+            assert target is module.root_agent
+
+    def test_every_deploy_spec_is_covered(self):
+        da = _import_deploy_agent()
+        assert set(da.AGENT_DEPLOY_SPECS) == {
+            "trend_scout",
+            "interactive_creative",
+            "creative_agent",
+        }
+
+
+# --- test/integration scripts derive --agent choices from AGENT_DEPLOY_SPECS ---
+class TestScriptAgentChoices:
+    def test_integration_env_keys_derived_from_specs(self):
+        da = _import_deploy_agent()
+        import deployment.integration_test as it
+
+        assert set(it.AGENT_ENV_KEYS) == set(da.AGENT_DEPLOY_SPECS)
+        for name in da.AGENT_DEPLOY_SPECS:
+            assert it.AGENT_ENV_KEYS[name] == da.engine_env_key(name)
+
+    def test_integration_expected_state_keys_cover_every_agent(self):
+        da = _import_deploy_agent()
+        import deployment.integration_test as it
+
+        assert set(it.EXPECTED_STATE_KEYS) == set(da.AGENT_DEPLOY_SPECS)
+
+    @pytest.mark.parametrize(
+        "script", ["deployment/test_deployment.py", "deployment/integration_test.py"]
+    )
+    def test_cli_agent_choices_include_every_deployable_agent(self, script):
+        da = _import_deploy_agent()
+        result = subprocess.run(
+            [sys.executable, os.path.join(PROJECT_ROOT, script), "--help"],
+            capture_output=True,
+            text=True,
+            cwd=PROJECT_ROOT,
+            timeout=120,
+            check=True,
+        )
+        # Match inside argparse's `{a,b,c}` choices set, not a bare substring
+        # (which could hit the epilog/help text).
+        choice_sets = re.findall(r"\{([^}]*)\}", result.stdout)
+        agent_sets = [
+            set(c.split(",")) for c in choice_sets if "creative_agent" in c.split(",")
+        ]
+        assert agent_sets, f"{script} --help has no --agent choices set"
+        for name in da.AGENT_DEPLOY_SPECS:
+            assert re.search(r"\{[^}]*" + re.escape(name) + r"[^}]*\}", result.stdout)
+            assert name in agent_sets[0], f"{script} --agent missing {name}"
+
+
+# --- engine_env_key: one source of truth for `<PREFIX>_AGENT_ENGINE_ID` ---
+class TestEngineEnvKey:
+    @pytest.mark.parametrize(
+        ("name", "expected"),
+        [
+            ("trend_scout", "SCOUT_AGENT_ENGINE_ID"),
+            ("creative_agent", "CREATIVE_AGENT_ENGINE_ID"),
+            ("interactive_creative", "INTERACTIVE_AGENT_ENGINE_ID"),
+        ],
+    )
+    def test_key_format(self, name, expected):
+        da = _import_deploy_agent()
+        assert da.engine_env_key(name) == expected
+
+    def test_update_env_file_writes_engine_env_key(self, tmp_path):
+        da = _import_deploy_agent()
+        env_file = tmp_path / ".env"
+        env_file.write_text("")
+        da.update_env_file("interactive_creative", "abc123", str(env_file))
+        assert dotenv.dotenv_values(env_file) == {
+            "INTERACTIVE_AGENT_ENGINE_ID": "abc123"
+        }
+
+
+# --- integration_test: an undeployed agent (unset engine ID) is a SKIP ---
+def _import_integration_test():
+    _import_deploy_agent()
+    import deployment.integration_test as it
+
+    return it
+
+
+def _unset_all_engine_ids(monkeypatch, it, keep=()):
+    for name, key in it.AGENT_ENV_KEYS.items():
+        if name not in keep:
+            monkeypatch.delenv(key, raising=False)
+
+
+class TestIntegrationMissingEngineIdSkips:
+    def test_health_missing_id_is_skip_not_failure(self, monkeypatch):
+        it = _import_integration_test()
+        _unset_all_engine_ids(monkeypatch, it)
+        results = it.check_health(client=MagicMock())
+        assert len(results) == len(it.AGENT_ENV_KEYS)
+        assert all(r.skipped and not r.failed for r in results)
+
+    def test_health_mixes_pass_and_skip(self, monkeypatch):
+        it = _import_integration_test()
+        _unset_all_engine_ids(monkeypatch, it, keep=("trend_scout",))
+        monkeypatch.setenv(it.AGENT_ENV_KEYS["trend_scout"], "projects/p/x/1")
+        client = MagicMock()
+        results = {r.name: r for r in it.check_health(client)}
+        assert results["health:trend_scout"].passed
+        assert results["health:interactive_creative"].skipped
+        assert it.print_results(list(results.values())) is True
+
+    @pytest.mark.parametrize("check", ["check_session", "check_smoke"])
+    def test_session_and_smoke_missing_id_is_skip(self, monkeypatch, check):
+        import asyncio
+
+        it = _import_integration_test()
+        _unset_all_engine_ids(monkeypatch, it)
+        results = asyncio.run(getattr(it, check)(MagicMock(), "interactive_creative"))
+        assert len(results) == 1
+        assert results[0].skipped and not results[0].failed
+
+    def test_print_results_success_with_only_skips_and_passes(self, capsys):
+        it = _import_integration_test()
+        results = [
+            it.TestResult(name="a", passed=True, message="ok"),
+            it.TestResult(name="b", passed=False, message="unset", skipped=True),
+        ]
+        assert it.print_results(results) is True
+        out = capsys.readouterr().out
+        assert "[SKIP] b" in out
+        assert "1 passed, 0 failed, 1 skipped, 2 total" in out
+
+    def test_print_results_fails_on_real_failure(self):
+        it = _import_integration_test()
+        results = [
+            it.TestResult(name="a", passed=False, message="boom"),
+            it.TestResult(name="b", passed=False, message="unset", skipped=True),
+        ]
+        assert it.print_results(results) is False
+
+    def test_main_exits_zero_when_only_skips(self, monkeypatch):
+        it = _import_integration_test()
+        _unset_all_engine_ids(monkeypatch, it)
+        monkeypatch.setattr(it, "get_client", MagicMock)
+        monkeypatch.setattr(sys, "argv", ["integration_test.py", "--check", "all"])
+        with pytest.raises(SystemExit) as exc:
+            it.main()
+        assert exc.value.code == 0
