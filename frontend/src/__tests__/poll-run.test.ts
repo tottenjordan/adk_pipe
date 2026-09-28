@@ -53,6 +53,26 @@ describe("startRun", () => {
       /Failed to start run \(500\)/
     );
   });
+
+  it("treats 409 run-already-active as a running run (caller just polls)", async () => {
+    // The server's duplicate-run guard returns 409 when a run is already active
+    // for this session (e.g. the first POST landed but its response was lost and
+    // the page reloaded before markRunStarted). The run IS live, so startRun must
+    // resolve and let the page poll it instead of showing a start error.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ detail: "Run already active" }), {
+            status: 409,
+          })
+      )
+    );
+    await expect(startRun("creative_agent", "u1", "s1", "hi")).resolves.toEqual({
+      runId: "s1",
+      status: "running",
+    });
+  });
 });
 
 describe("pollRun", () => {

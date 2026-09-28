@@ -134,6 +134,10 @@ export async function startRun(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ userId, sessionId, message }),
   });
+  // 409 = the server's duplicate-run guard: a run is ALREADY active for this
+  // session (e.g. an earlier POST landed but its response was lost). The run is
+  // live, so treat it as started and let the caller poll it.
+  if (res.status === 409) return { runId: sessionId, status: "running" };
   if (!res.ok) {
     throw new Error(`Failed to start run (${res.status}): ${await res.text()}`);
   }
