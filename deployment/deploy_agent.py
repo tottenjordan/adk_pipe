@@ -298,13 +298,6 @@ def delete(
     remote_agent.delete(force=True)
     logging.info(f"Successfully deleted remote agent: {resource_id}")
 
-    # update_env_file(
-    #     prefix="SCOUT" if agent_name == "trend_scout" else "CREATIVE",
-    #     agent_engine_id="",
-    #     env_file_path=ENV_FILE_PATH,
-    #     # remove=True,
-    # )
-
 
 def main(argv):
     """Main function that uses the defined flags."""

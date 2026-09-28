@@ -12,47 +12,30 @@ import pytest
 import dotenv
 
 
-# --- update_env_file ---
-# Replicate the function to avoid module-level vertexai.Client() import
-def update_env_file(prefix: str, agent_engine_id: str, env_file_path: str):
-    """Updates the .env file with the agent engine ID."""
-    KEY_NAME = f"{prefix}_AGENT_ENGINE_ID"
-    dotenv.set_key(env_file_path, KEY_NAME, agent_engine_id)
-
-
+# --- update_env_file (the real function; _import_deploy_agent is defined below) ---
 class TestUpdateEnvFile:
-    def test_writes_trawler_key(self, tmp_path):
+    def test_writes_scout_key(self, tmp_path):
+        da = _import_deploy_agent()
         env_file = tmp_path / ".env"
         env_file.write_text("")
-        update_env_file("TRAWLER", "12345", str(env_file))
-        content = env_file.read_text()
-        assert "TRAWLER_AGENT_ENGINE_ID" in content
-        assert "12345" in content
-
-    def test_writes_creative_key(self, tmp_path):
-        env_file = tmp_path / ".env"
-        env_file.write_text("")
-        update_env_file("CREATIVE", "67890", str(env_file))
-        content = env_file.read_text()
-        assert "CREATIVE_AGENT_ENGINE_ID" in content
-        assert "67890" in content
+        da.update_env_file("trend_scout", "12345", str(env_file))
+        assert dotenv.dotenv_values(env_file) == {"SCOUT_AGENT_ENGINE_ID": "12345"}
 
     def test_overwrites_existing_value(self, tmp_path):
+        da = _import_deploy_agent()
         env_file = tmp_path / ".env"
-        env_file.write_text('TRAWLER_AGENT_ENGINE_ID="old_id"\n')
-        update_env_file("TRAWLER", "new_id", str(env_file))
-        content = env_file.read_text()
-        assert "new_id" in content
-        assert "old_id" not in content
+        env_file.write_text('CREATIVE_AGENT_ENGINE_ID="old_id"\n')
+        da.update_env_file("creative_agent", "new_id", str(env_file))
+        assert dotenv.dotenv_values(env_file) == {"CREATIVE_AGENT_ENGINE_ID": "new_id"}
 
     def test_preserves_other_keys(self, tmp_path):
+        da = _import_deploy_agent()
         env_file = tmp_path / ".env"
         env_file.write_text('SOME_OTHER_KEY="keep_me"\n')
-        update_env_file("TRAWLER", "12345", str(env_file))
-        content = env_file.read_text()
-        assert "SOME_OTHER_KEY" in content
-        assert "keep_me" in content
-        assert "TRAWLER_AGENT_ENGINE_ID" in content
+        da.update_env_file("trend_scout", "12345", str(env_file))
+        values = dotenv.dotenv_values(env_file)
+        assert values["SOME_OTHER_KEY"] == "keep_me"
+        assert values["SCOUT_AGENT_ENGINE_ID"] == "12345"
 
 
 # --- ENV_VAR_DICT keys ---
