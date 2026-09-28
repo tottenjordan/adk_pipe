@@ -61,7 +61,7 @@ cd frontend && npm run test:watch  # watch mode
 uv run pytest tests/ -v
 
 # ADK evals — end-to-end agent evaluation with LLM-as-judge (real API calls, ~5 min per case)
-uv run adk eval trend_scout tests/eval/evalsets/trend_scout_evalset.json \
+PYTHONPATH="$PWD" uv run adk eval trend_scout tests/eval/evalsets/trend_scout_evalset.json \
   --config_file_path=tests/eval/eval_config.json --print_detailed_results
 
 # creative_agent eval — needs PYTHONPATH (adk eval's file-spec loader doesn't put the

@@ -392,7 +392,7 @@ uv run pytest tests/ -v
 uv run python -m creative_eval.run_eval_test
 
 # ADK evals — end-to-end LLM-as-judge (real API calls, ~5 min per case)
-uv run adk eval trend_scout tests/eval/evalsets/trend_scout_evalset.json \
+PYTHONPATH="$PWD" uv run adk eval trend_scout tests/eval/evalsets/trend_scout_evalset.json \
   --config_file_path=tests/eval/eval_config.json --print_detailed_results
 
 # Integration tests — requires deployed agents + GCP credentials

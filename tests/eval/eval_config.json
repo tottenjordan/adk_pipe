@@ -39,7 +39,7 @@
         {
           "rubric_id": "all_tools_used",
           "rubric_content": {
-            "text_property": "The agent MUST call all of these tools at least once: memorize, gather_trends_agent, understand_trends_agent, pick_trends_agent, save_search_trends_to_session_state, write_trends_to_bq, write_to_file, save_session_state_to_gcs."
+            "text_property": "The agent MUST call all of these tools at least once: memorize, gather_trends_agent, understand_trends_agent_resilient, pick_trends_agent, save_search_trends_to_session_state, write_trends_to_bq, write_to_file, save_session_state_to_gcs."
           }
         }
       ],
