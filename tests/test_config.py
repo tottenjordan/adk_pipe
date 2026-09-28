@@ -17,6 +17,7 @@ mutate the *already-imported* module in place and break identity checks elsewher
 """
 
 import importlib
+import logging
 import sys
 
 import pytest
@@ -253,27 +254,38 @@ class TestBuildInfraRetry:
 # the default campaign arm must be off 2.5 while keeping the PR #101 spread.
 
 
-def test_default_campaign_arm_uses_no_retiring_models():
-    from creative_agent.config import ResearchConfiguration
+def test_default_campaign_arm_uses_no_retiring_models(monkeypatch, fresh_config):
+    monkeypatch.delenv("CAMPAIGN_RESEARCH_PLACEMENT", raising=False)
+    ca = fresh_config("creative_agent.config")
 
-    lite, worker, loc = ResearchConfiguration().campaign_models()
+    lite, worker, loc = ca.config.campaign_models()
     assert not lite.startswith("gemini-2.5") and not worker.startswith("gemini-2.5")
     assert loc == "global"
 
 
-def test_campaign_default_bucket_differs_from_trend_bucket():
-    from creative_agent.config import ResearchConfiguration
+def test_campaign_default_bucket_differs_from_trend_bucket(monkeypatch, fresh_config):
+    monkeypatch.delenv("CAMPAIGN_RESEARCH_PLACEMENT", raising=False)
+    ca = fresh_config("creative_agent.config")
 
-    cfg = ResearchConfiguration()
+    cfg = ca.config
     _, worker, _ = cfg.campaign_models()
     assert worker not in {cfg.worker_model, cfg.lite_planner_model}
 
 
-def test_unknown_arm_falls_back_to_default():
-    from creative_agent.config import ResearchConfiguration
+def test_unknown_campaign_arm_logs_warning(monkeypatch, fresh_config, caplog):
+    """A retired/unknown arm warns (naming it + the fallback) before degrading."""
+    monkeypatch.setenv("CAMPAIGN_RESEARCH_PLACEMENT", "regional_25")
+    ca = fresh_config("creative_agent.config")
 
-    cfg = ResearchConfiguration(campaign_research_placement="bogus")
-    assert cfg.campaign_models() == ResearchConfiguration().campaign_models()
+    with caplog.at_level(logging.WARNING, logger="creative_agent.config"):
+        ca.config.campaign_models()
+
+    assert any(
+        r.levelno == logging.WARNING
+        and "regional_25" in r.getMessage()
+        and "global_altbucket" in r.getMessage()
+        for r in caplog.records
+    )
 
 
 def test_trend_scout_config_uses_no_retiring_models():

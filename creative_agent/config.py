@@ -1,3 +1,4 @@
+import logging
 import os
 import warnings
 from dataclasses import dataclass
@@ -9,6 +10,8 @@ from agent_common.config import BaseAgentConfiguration
 from agent_common.retry import build_infra_retry
 
 warnings.filterwarnings("ignore")
+
+logger = logging.getLogger(__name__)
 
 # creative_agent calls genai directly (image gen), so it also retries the genai
 # 5xx ServerError on top of the shared transient set.
@@ -82,7 +85,15 @@ class ResearchConfiguration(BaseAgentConfiguration):
             "global_3x": (self.lite_planner_model, self.worker_model, "global"),
             "global_altbucket": (ALT_GLOBAL_MODEL, ALT_GLOBAL_MODEL, "global"),
         }
-        return arms.get(self.campaign_research_placement, arms[DEFAULT_CAMPAIGN_ARM])
+        arm = self.campaign_research_placement
+        if arm not in arms:
+            logger.warning(
+                "Unknown CAMPAIGN_RESEARCH_PLACEMENT %r; falling back to %r",
+                arm,
+                DEFAULT_CAMPAIGN_ARM,
+            )
+            return arms[DEFAULT_CAMPAIGN_ARM]
+        return arms[arm]
 
 
 config = ResearchConfiguration()

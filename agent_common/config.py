@@ -51,8 +51,8 @@ class BaseAgentConfiguration:
     # Models (2026-09 lineup refresh). All gemini-3.x, served only @ global.
     # critic stays on 3.1-pro-preview: no GA Pro exists yet.
     critic_model: str = "gemini-3.1-pro-preview"
-    worker_model: str = "gemini-3.8-flash"  # was gemini-3.5-flash
-    lite_planner_model: str = "gemini-3.5-flash-lite"  # was gemini-3.1-flash-lite
+    worker_model: str = "gemini-3.8-flash"
+    lite_planner_model: str = "gemini-3.5-flash-lite"
     image_gen_model: str = "gemini-3.1-flash-image"
 
     # Image generation ImageConfig knobs (env-overridable). The default 9:16 is
