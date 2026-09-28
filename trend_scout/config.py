@@ -26,20 +26,21 @@ class ResearchConfiguration(BaseAgentConfiguration):
     - searcher      → ``worker_model``       gemini-3.8-flash        @ global
     - synthesizer   → ``lite_planner_model`` gemini-3.5-flash-lite   @ global
     - root          → ``critic_model``       gemini-3.1-pro-preview  @ global
-    - gather        → ``gather_model``       gemini-2.5-flash-lite   @ us-central1
-    - pick          → ``picker_model``       gemini-2.5-pro          @ us-central1
+    - gather        → ``gather_model``       gemini-3.1-flash-lite   @ global
+    - pick          → ``picker_model``       gemini-3.5-flash        @ global
 
-    The two gemini-2.5 agents run at ``regional_model_location`` (us-central1),
-    landing in the *regional* per-base-model quota — a pool entirely separate
-    from the ``global`` buckets the gemini-3.x agents use, and unused elsewhere
-    in the pipeline. ``pick`` on gemini-2.5-pro is also a deliberate quality
-    upgrade for the 25→3 judgment step. creative_agent is untouched.
+    All five are distinct gemini-3.x base models, so each still owns its own
+    per-base-model bucket. Until 2026-09 gather/pick ran on gemini-2.5-flash-lite /
+    gemini-2.5-pro @ us-central1 (the regional pool); retired because Vertex
+    blocks/shuts down gemini-2.5. gather is trivial tool-output formatting, so the
+    previous-gen flash-lite suffices; pick (the 25→3 judgment) gets a full flash
+    model rather than the critic's pro bucket, which the root orchestrator
+    already drives. creative_agent's campaign half also uses gemini-3.5-flash,
+    but the two agents don't run inside one ParallelAgent together.
     """
 
-    # gemini-2.5 models are served regionally; global 404s them.
-    regional_model_location: str = "us-central1"
-    gather_model: str = "gemini-2.5-flash-lite"
-    picker_model: str = "gemini-2.5-pro"
+    gather_model: str = "gemini-3.1-flash-lite"
+    picker_model: str = "gemini-3.5-flash"
 
 
 config = ResearchConfiguration()

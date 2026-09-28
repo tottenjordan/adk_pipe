@@ -385,6 +385,17 @@ def test_trend_pipeline_stays_global():
     assert gs_web_synthesizer.model.model == "gemini-3.8-flash"
 
 
+def test_trend_scout_gather_and_pick_run_global_3x():
+    """2026-09: trend_scout's gather/pick left the retiring gemini-2.5 regional pool
+    for distinct gemini-3.x base models @ global (quota spread preserved)."""
+    from trend_scout.agent import gather_trends_agent, pick_trends_agent
+
+    assert gather_trends_agent.model.model == "gemini-3.1-flash-lite"
+    assert pick_trends_agent.model.model == "gemini-3.5-flash"
+    for a in (gather_trends_agent, pick_trends_agent):
+        assert a.model.client_kwargs["location"] == "global"
+
+
 def test_merge_planners_inputs_are_optional():
     """merge_planners' two research inputs must use the optional `{var?}` syntax so
     a producer that exhausted its retries (key unset) degrades observably instead of

@@ -136,18 +136,21 @@ class TestBaseAgentConfiguration:
             assert getattr(tt.config, name) == getattr(ca.config, name)
         assert tt.config.critic_model == "gemini-3.1-pro-preview"
 
-    def test_trend_scout_regional_model_spread(self):
-        """trend_scout fans its 5 agents across separate quota buckets.
-
-        The two gemini-2.5 agents are pinned to a region (us-central1) so they
-        land in the regional per-base-model quota, separate from the global
-        buckets the gemini-3.x agents use.
-        """
+    def test_trend_scout_model_spread(self):
+        """trend_scout fans its 5 agents across 5 distinct base-model buckets."""
         import trend_scout.config as tt
 
-        assert tt.config.gather_model == "gemini-2.5-flash-lite"
-        assert tt.config.picker_model == "gemini-2.5-pro"
-        assert tt.config.regional_model_location == "us-central1"
+        assert tt.config.gather_model == "gemini-3.1-flash-lite"
+        assert tt.config.picker_model == "gemini-3.5-flash"
+        assert not hasattr(tt.config, "regional_model_location")
+        buckets = {
+            tt.config.worker_model,
+            tt.config.lite_planner_model,
+            tt.config.critic_model,
+            tt.config.gather_model,
+            tt.config.picker_model,
+        }
+        assert len(buckets) == 5
 
     def test_base_models_are_2026_09_lineup(self):
         """Trend half + shared models: current-gen gemini-3.x (no gemini-2.5)."""
@@ -271,3 +274,19 @@ def test_unknown_arm_falls_back_to_default():
 
     cfg = ResearchConfiguration(campaign_research_placement="bogus")
     assert cfg.campaign_models() == ResearchConfiguration().campaign_models()
+
+
+def test_trend_scout_config_uses_no_retiring_models():
+    """Every *_model on trend_scout's config is off the retiring gemini-2.5 line."""
+    import dataclasses
+
+    import trend_scout.config as tt
+
+    models = {
+        f.name: getattr(tt.config, f.name)
+        for f in dataclasses.fields(tt.config)
+        if f.name.endswith("_model")
+    }
+    assert {"gather_model", "picker_model", "worker_model"} <= models.keys()
+    for name, model in models.items():
+        assert not model.startswith("gemini-2.5"), f"{name}={model}"
