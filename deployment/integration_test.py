@@ -2,7 +2,7 @@
 
 Runs against live GCP infrastructure. Requires:
   - Authenticated GCP credentials (gcloud auth application-default login)
-  - .env file with SCOUT_AGENT_ENGINE_ID and/or CREATIVE_AGENT_ENGINE_ID populated
+  - .env file with SCOUT_/CREATIVE_/INTERACTIVE_AGENT_ENGINE_ID populated
   - Deployed agents on Agent Engine
 
 Usage:
@@ -15,7 +15,7 @@ Usage:
   # Smoke test — run agent end-to-end, assert session state keys
   python deployment/integration_test.py --check smoke --agent creative_agent
 
-  # Run all checks for both agents
+  # Run all checks for all agents
   python deployment/integration_test.py --check all
 """
 
@@ -36,6 +36,8 @@ if project_root not in sys.path:
 
 import vertexai
 
+from deployment.deploy_agent import AGENT_DEPLOY_SPECS
+
 
 # ==============================
 # config
@@ -48,9 +50,11 @@ warnings.filterwarnings("ignore")
 ENV_FILE_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".env"))
 dotenv.load_dotenv(dotenv_path=ENV_FILE_PATH)
 
+# Derived from deploy_agent's spec map so every deployable agent is testable and
+# the env key always matches what `deploy_agent.py --create` writes to .env.
 AGENT_ENV_KEYS = {
-    "trend_scout": "SCOUT_AGENT_ENGINE_ID",
-    "creative_agent": "CREATIVE_AGENT_ENGINE_ID",
+    name: f"{spec['env_prefix']}_AGENT_ENGINE_ID"
+    for name, spec in AGENT_DEPLOY_SPECS.items()
 }
 
 # Session state keys that should be populated after a successful agent run
@@ -62,6 +66,15 @@ EXPECTED_STATE_KEYS = {
         "key_selling_points",
     ],
     "creative_agent": [
+        "brand",
+        "target_product",
+        "target_audience",
+        "key_selling_points",
+        "target_search_trends",
+    ],
+    # Runs until the first human-review checkpoint (review_research) pauses it;
+    # the campaign metadata is memorized before that.
+    "interactive_creative": [
         "brand",
         "target_product",
         "target_audience",
@@ -513,7 +526,7 @@ async def run_checks(check_type: str, agent_name: str | None) -> bool:
     client = get_client()
     all_results: list[TestResult] = []
 
-    agents_to_test = [agent_name] if agent_name else ["trend_scout", "creative_agent"]
+    agents_to_test = [agent_name] if agent_name else list(AGENT_DEPLOY_SPECS)
 
     if check_type in ("health", "all"):
         logging.info("Running health checks...")
@@ -553,9 +566,9 @@ Examples:
     )
     parser.add_argument(
         "--agent",
-        choices=["trend_scout", "creative_agent"],
+        choices=list(AGENT_DEPLOY_SPECS),
         default=None,
-        help="Agent to test (default: both). Required for session and smoke checks.",
+        help="Agent to test (default: all). Required for session and smoke checks.",
     )
     args = parser.parse_args()
 

@@ -2,6 +2,7 @@
 
 import importlib
 import os
+import subprocess
 import sys
 import types
 import pytest
@@ -258,3 +259,36 @@ class TestResolveDeployTarget:
             "interactive_creative",
             "creative_agent",
         }
+
+
+# --- test/integration scripts derive --agent choices from AGENT_DEPLOY_SPECS ---
+class TestScriptAgentChoices:
+    def test_integration_env_keys_derived_from_specs(self):
+        da = _import_deploy_agent()
+        import deployment.integration_test as it
+
+        assert set(it.AGENT_ENV_KEYS) == set(da.AGENT_DEPLOY_SPECS)
+        for name, spec in da.AGENT_DEPLOY_SPECS.items():
+            assert it.AGENT_ENV_KEYS[name] == f"{spec['env_prefix']}_AGENT_ENGINE_ID"
+
+    def test_integration_expected_state_keys_cover_every_agent(self):
+        da = _import_deploy_agent()
+        import deployment.integration_test as it
+
+        assert set(it.EXPECTED_STATE_KEYS) == set(da.AGENT_DEPLOY_SPECS)
+
+    @pytest.mark.parametrize(
+        "script", ["deployment/test_deployment.py", "deployment/integration_test.py"]
+    )
+    def test_cli_agent_choices_include_every_deployable_agent(self, script):
+        da = _import_deploy_agent()
+        result = subprocess.run(
+            [sys.executable, os.path.join(PROJECT_ROOT, script), "--help"],
+            capture_output=True,
+            text=True,
+            cwd=PROJECT_ROOT,
+            timeout=120,
+            check=True,
+        )
+        for name in da.AGENT_DEPLOY_SPECS:
+            assert name in result.stdout, f"{script} --agent missing {name}"
