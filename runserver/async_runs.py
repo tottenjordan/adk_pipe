@@ -194,6 +194,11 @@ _BACKGROUND_TASKS: set = set()
 _RunKey = tuple[str, str, str]
 _CLAIMING = object()
 _ACTIVE_RUNS: dict[_RunKey, asyncio.Task | object] = {}
+# The long-running function-call id an active RESUME segment is answering, kept in
+# lockstep with ``_ACTIVE_RUNS`` (set on claim, dropped on the same release). Lets
+# a duplicate resume for the SAME call be told apart from one blocked by a
+# still-running prior segment — see ``RunAlreadyActive.reason``.
+_ACTIVE_RESUME_CALL_IDS: dict[_RunKey, str] = {}
 
 # How long a resume waits for the PREVIOUS segment's task to finish before
 # rejecting with RunAlreadyActive. The frontend shows a review panel as soon as it
@@ -202,14 +207,28 @@ _ACTIVE_RUNS: dict[_RunKey, asyncio.Task | object] = {}
 # with its bounded retry). A resume in that window waits instead of 409ing — and
 # waiting also stops the stale 'done' marker landing AFTER the resume's 'running'
 # reset (which would make pollers stop early).
+# The wait holds the resume HTTP request open: fine under the api service's 900s
+# Cloud Run request timeout and the /api/adk proxy, which sets no timeout of its
+# own (Node fetch/undici default: 300s to response headers).
 RESUME_PRIOR_SEGMENT_GRACE_SECONDS = 30.0
+
+# ``RunAlreadyActive.reason`` values (surfaced as ``detail.reason`` on the 409):
+#   run_active           — a start hit an active run; it is live, just poll it.
+#   resume_in_progress   — a duplicate resume for the SAME call; the first one is
+#                          already serving the user's response, just poll it.
+#   prior_segment_active — the previous segment was still running after the
+#                          grace wait; this response was NOT applied, retry it.
+REASON_RUN_ACTIVE = "run_active"
+REASON_RESUME_IN_PROGRESS = "resume_in_progress"
+REASON_PRIOR_SEGMENT_ACTIVE = "prior_segment_active"
 
 
 class RunAlreadyActive(Exception):
     """A detached run is already active for this (app, user, session)."""
 
-    def __init__(self, key: _RunKey):
+    def __init__(self, key: _RunKey, reason: str = REASON_RUN_ACTIVE):
         self.key = key
+        self.reason = reason
         app_name, user_id, session_id = key
         super().__init__(
             f"a run is already active for app={app_name} user={user_id} "
@@ -217,17 +236,42 @@ class RunAlreadyActive(Exception):
         )
 
 
-def _claim_run(key: _RunKey) -> None:
-    """Atomically claim ``key`` (synchronous — never await inside) or raise."""
-    if key in _ACTIVE_RUNS:
-        raise RunAlreadyActive(key)
+def _is_live(key: _RunKey) -> bool:
+    """True if ``key`` holds a claim sentinel or a not-yet-done Task. A done Task
+    whose release callback hasn't run yet counts as released."""
+    held = _ACTIVE_RUNS.get(key)
+    if held is None:
+        return False
+    return not (isinstance(held, asyncio.Task) and held.done())
+
+
+def _conflict_reason(key: _RunKey, function_call_id: str | None) -> str:
+    if function_call_id is None:
+        return REASON_RUN_ACTIVE
+    if _ACTIVE_RESUME_CALL_IDS.get(key) == function_call_id:
+        return REASON_RESUME_IN_PROGRESS
+    return REASON_PRIOR_SEGMENT_ACTIVE
+
+
+def _claim_run(key: _RunKey, function_call_id: str | None = None) -> None:
+    """Atomically claim ``key`` (synchronous — never await inside) or raise.
+
+    ``function_call_id`` is the long-running call a resume answers (``None`` for
+    a start); it decides the ``RunAlreadyActive.reason`` on conflict."""
+    if _is_live(key):
+        raise RunAlreadyActive(key, _conflict_reason(key, function_call_id))
     _ACTIVE_RUNS[key] = _CLAIMING
+    if function_call_id is None:
+        _ACTIVE_RESUME_CALL_IDS.pop(key, None)
+    else:
+        _ACTIVE_RESUME_CALL_IDS[key] = function_call_id
 
 
 def _release_claim(key: _RunKey) -> None:
     """Release a sentinel claim whose Task was never spawned (setup failed)."""
     if _ACTIVE_RUNS.get(key) is _CLAIMING:
         del _ACTIVE_RUNS[key]
+        _ACTIVE_RESUME_CALL_IDS.pop(key, None)
 
 
 def _register_run_task(key: _RunKey, task: asyncio.Task) -> None:
@@ -239,6 +283,7 @@ def _register_run_task(key: _RunKey, task: asyncio.Task) -> None:
     def _release(t: asyncio.Task) -> None:
         if _ACTIVE_RUNS.get(key) is t:
             del _ACTIVE_RUNS[key]
+            _ACTIVE_RESUME_CALL_IDS.pop(key, None)
 
     task.add_done_callback(_release)
 
@@ -530,11 +575,15 @@ async def start_resume(
     Duplicate guard: if the previous (paused) segment's task is still finishing
     (appending its terminal marker), wait up to
     ``RESUME_PRIOR_SEGMENT_GRACE_SECONDS`` for it; if a run is still active after
-    that — or a concurrent duplicate resume already claimed the key — raise
-    ``RunAlreadyActive`` (→ HTTP 409)."""
+    that, raise ``RunAlreadyActive`` (→ HTTP 409) with reason
+    ``prior_segment_active`` (this response was NOT applied). A duplicate resume
+    for the SAME ``function_call_id`` while that resume is active is rejected at
+    once with reason ``resume_in_progress`` (the first one is serving it)."""
     key = (app_name, user_id, session_id)
+    if _is_live(key) and _ACTIVE_RESUME_CALL_IDS.get(key) == function_call_id:
+        raise RunAlreadyActive(key, REASON_RESUME_IN_PROGRESS)
     await _await_prior_segment(key)
-    _claim_run(key)  # synchronous check+claim, before any further await
+    _claim_run(key, function_call_id)  # sync check+claim, before any further await
     try:
         runner = runner_factory(app_name)
         new_message = build_resume_message(function_call_id, function_name, response)
@@ -603,12 +652,24 @@ class _ResumeBody(BaseModel):
 router = APIRouter()
 
 
-def _already_active_detail(exc: RunAlreadyActive) -> str:
-    return (
-        f"Run already active for this session ({exc}); poll "
-        "GET /runs/{app}/{user}/{session} for its progress instead of starting "
-        "another."
-    )
+_ALREADY_ACTIVE_HINTS = {
+    REASON_RUN_ACTIVE: "poll GET /runs/{app}/{user}/{session} for its progress "
+    "instead of starting another.",
+    REASON_RESUME_IN_PROGRESS: "this resume is already being processed; poll "
+    "GET /runs/{app}/{user}/{session} for its progress.",
+    REASON_PRIOR_SEGMENT_ACTIVE: "the previous step is still finishing, so this "
+    "response was NOT applied; retry the resume shortly.",
+}
+
+
+def _already_active_detail(exc: RunAlreadyActive) -> dict:
+    """409 ``detail``: a machine-readable ``reason`` (see ``REASON_*``) plus a
+    human-readable ``message``."""
+    hint = _ALREADY_ACTIVE_HINTS.get(exc.reason, "")
+    return {
+        "reason": exc.reason,
+        "message": f"Run already active for this session ({exc}); {hint}",
+    }
 
 
 @router.post("/runs/{app_name}")
@@ -623,7 +684,9 @@ async def http_start_run(app_name: str, body: _StartRunBody) -> dict:
             runner_factory=_RUNNER_FACTORY,
         )
     except RunAlreadyActive as exc:
-        raise HTTPException(status_code=409, detail=_already_active_detail(exc))
+        raise HTTPException(
+            status_code=409, detail=_already_active_detail(exc)
+        ) from exc
     return result
 
 
@@ -661,5 +724,7 @@ async def http_start_resume(
             edits=body.edits,
         )
     except RunAlreadyActive as exc:
-        raise HTTPException(status_code=409, detail=_already_active_detail(exc))
+        raise HTTPException(
+            status_code=409, detail=_already_active_detail(exc)
+        ) from exc
     return result

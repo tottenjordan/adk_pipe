@@ -796,9 +796,11 @@ def test_resume_resets_status_to_running_before_segment_completes():
 
 @pytest.fixture(autouse=True)
 def _clear_active_runs():
-    getattr(async_runs, "_ACTIVE_RUNS", {}).clear()
+    async_runs._ACTIVE_RUNS.clear()
+    async_runs._ACTIVE_RESUME_CALL_IDS.clear()
     yield
-    getattr(async_runs, "_ACTIVE_RUNS", {}).clear()
+    async_runs._ACTIVE_RUNS.clear()
+    async_runs._ACTIVE_RESUME_CALL_IDS.clear()
 
 
 class _GatedRunner:
@@ -837,10 +839,30 @@ def test_duplicate_start_on_active_session_raises_run_already_active():
         gate = asyncio.Event()
         runner = _GatedRunner(svc, "creative_agent", gate)
         _r, task = await _kick(svc, runner)
-        with pytest.raises(async_runs.RunAlreadyActive):
+        with pytest.raises(async_runs.RunAlreadyActive) as exc_info:
             await _kick(svc, runner)
+        assert exc_info.value.reason == "run_active"
         gate.set()
         await task
+
+    asyncio.run(_go())
+
+
+def test_claim_treats_done_task_as_released():
+    """A stored Task that is already done but whose done-callback (the key
+    release) hasn't run yet is a finished run — the claim must overwrite it
+    rather than 409."""
+
+    async def _go():
+        async def _noop():
+            return None
+
+        done = asyncio.ensure_future(_noop())
+        await done
+        key = ("creative_agent", "u", "s")
+        async_runs._ACTIVE_RUNS[key] = done  # release callback never ran
+        async_runs._claim_run(key)
+        assert async_runs._ACTIVE_RUNS[key] is async_runs._CLAIMING
 
     asyncio.run(_go())
 
@@ -958,20 +980,77 @@ def test_resume_while_run_active_beyond_grace_raises(monkeypatch):
         gate = asyncio.Event()
         runner = _GatedRunner(svc, "interactive_creative", gate)
         _r, task = await _kick(svc, runner, app_name="interactive_creative")
-        with pytest.raises(async_runs.RunAlreadyActive):
+        with pytest.raises(async_runs.RunAlreadyActive) as exc_info:
             await _resume(svc, runner)
+        # The approval was NOT applied (the prior segment is still running), so
+        # the client must re-offer the review rather than just poll.
+        assert exc_info.value.reason == "prior_segment_active"
         gate.set()
         await task
 
     asyncio.run(_go())
 
 
-def test_resume_waits_for_prior_segment_still_finishing():
+def test_duplicate_resume_same_call_is_rejected_immediately(monkeypatch):
+    """A double-submitted/retried resume for the SAME function call while the
+    first resume's segment runs is already being served: reject at once with
+    reason 'resume_in_progress' (no grace wait — the running segment is the
+    resume itself, not a finishing prior segment)."""
+    monkeypatch.setattr(async_runs, "RESUME_PRIOR_SEGMENT_GRACE_SECONDS", 5.0)
+
+    async def _go():
+        svc = InMemorySessionService()
+        await svc.create_session(
+            app_name="interactive_creative", user_id="u", session_id="s"
+        )
+        gate = asyncio.Event()
+        runner = _GatedRunner(svc, "interactive_creative", gate)
+        _r, t1 = await _resume(svc, runner)
+        loop = asyncio.get_running_loop()
+        started = loop.time()
+        with pytest.raises(async_runs.RunAlreadyActive) as exc_info:
+            await _resume(svc, runner)
+        assert loop.time() - started < 1.0
+        assert exc_info.value.reason == "resume_in_progress"
+        gate.set()
+        await t1
+
+    asyncio.run(_go())
+
+
+def test_concurrent_duplicate_resumes_waiting_on_prior_segment():
+    """Two resumes for the same call both waiting on the finishing prior
+    segment: the first to claim wins, the other is a served duplicate."""
+
+    async def _go():
+        svc = InMemorySessionService()
+        gate = asyncio.Event()
+        runner = _GatedRunner(svc, "interactive_creative", gate)
+        _r, t0 = await _kick(svc, runner, app_name="interactive_creative")
+        r1 = asyncio.create_task(_resume(svc, runner))
+        r2 = asyncio.create_task(_resume(svc, runner))
+        await asyncio.sleep(0.01)
+        gate.set()
+        results = await asyncio.gather(r1, r2, return_exceptions=True)
+        errors = [r for r in results if isinstance(r, BaseException)]
+        wins = [r for r in results if not isinstance(r, BaseException)]
+        assert len(wins) == 1 and len(errors) == 1
+        assert isinstance(errors[0], async_runs.RunAlreadyActive)
+        assert errors[0].reason == "resume_in_progress"
+        await asyncio.gather(t0, wins[0][1])
+
+    asyncio.run(_go())
+
+
+def test_resume_waits_for_prior_segment_still_finishing(monkeypatch):
     """Pause/resume race: the frontend shows the review panel as soon as it
     polls the long-running function-call event, but the paused segment's task is
     still alive until it appends its terminal marker. A resume in that window
     must wait for the prior segment to finish (not 409, and not let the stale
     'done' marker land AFTER the resume's 'running' reset)."""
+    # Bounded so a regression (no wait → 409, or a hang) fails fast instead of
+    # stalling on the production 30s grace; still far above the 0.1s hold below.
+    monkeypatch.setattr(async_runs, "RESUME_PRIOR_SEGMENT_GRACE_SECONDS", 5.0)
 
     async def _go():
         svc = InMemorySessionService()
@@ -979,7 +1058,7 @@ def test_resume_waits_for_prior_segment_still_finishing():
         runner = _GatedRunner(svc, "interactive_creative", gate)
         _r, t1 = await _kick(svc, runner, app_name="interactive_creative")
         resume = asyncio.create_task(_resume(svc, runner))
-        await asyncio.sleep(0.01)
+        await asyncio.sleep(0.1)
         assert not resume.done()  # waiting on the prior segment, not rejected
         gate.set()
         result, t2 = await resume
@@ -1017,26 +1096,43 @@ def test_router_maps_run_already_active_to_409_on_start_and_resume(monkeypatch):
             body = {"userId": "u", "sessionId": "s", "message": "hi"}
             first = await c.post("/runs/interactive_creative", json=body)
             second = await c.post("/runs/interactive_creative", json=body)
+            resume_body = {
+                "functionCallId": "call-1",
+                "functionName": "review_research",
+                "response": {"status": "approved"},
+            }
             resumed = await c.post(
-                "/runs/interactive_creative/u/s/resume",
-                json={
-                    "functionCallId": "call-1",
-                    "functionName": "review_research",
-                    "response": {"status": "approved"},
-                },
+                "/runs/interactive_creative/u/s/resume", json=resume_body
+            )
+            # Let the initial segment finish, then resume for real and retry the
+            # same resume while it runs → a served duplicate.
+            gate.set()
+            for t in list(async_runs._ACTIVE_RUNS.values()):
+                if isinstance(t, asyncio.Task):
+                    await t
+            await asyncio.sleep(0)
+            gate.clear()
+            ok = await c.post("/runs/interactive_creative/u/s/resume", json=resume_body)
+            dup = await c.post(
+                "/runs/interactive_creative/u/s/resume", json=resume_body
             )
         gate.set()
         for t in list(async_runs._ACTIVE_RUNS.values()):
             if isinstance(t, asyncio.Task):
                 await t
-        return first, second, resumed
+        return first, second, resumed, ok, dup
 
     try:
-        first, second, resumed = asyncio.run(_go())
+        first, second, resumed, ok, dup = asyncio.run(_go())
     finally:
         async_runs.configure(session_service=None, runner_factory=None)
     assert first.status_code == 200
     assert second.status_code == 409
-    assert "already" in second.json()["detail"].lower()
+    assert second.json()["detail"]["reason"] == "run_active"
+    assert "already" in second.json()["detail"]["message"].lower()
     assert resumed.status_code == 409
-    assert "already" in resumed.json()["detail"].lower()
+    assert resumed.json()["detail"]["reason"] == "prior_segment_active"
+    assert "already" in resumed.json()["detail"]["message"].lower()
+    assert ok.status_code == 200
+    assert dup.status_code == 409
+    assert dup.json()["detail"]["reason"] == "resume_in_progress"
