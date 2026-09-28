@@ -23,8 +23,8 @@ class ResearchConfiguration(BaseAgentConfiguration):
     ``global``, **per-region**), so we fan the 5 agents across five separate
     buckets instead of one:
 
-    - searcher      → ``worker_model``       gemini-3.5-flash        @ global
-    - synthesizer   → ``lite_planner_model`` gemini-3.1-flash-lite   @ global
+    - searcher      → ``worker_model``       gemini-3.8-flash        @ global
+    - synthesizer   → ``lite_planner_model`` gemini-3.5-flash-lite   @ global
     - root          → ``critic_model``       gemini-3.1-pro-preview  @ global
     - gather        → ``gather_model``       gemini-2.5-flash-lite   @ us-central1
     - pick          → ``picker_model``       gemini-2.5-pro          @ us-central1

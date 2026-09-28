@@ -34,11 +34,8 @@ class BaseAgentConfiguration:
         state_init (str): a key indicating the state dict is initialized.
         critic_model (str): Model for evaluation tasks.
         worker_model (str): Model for working/generation tasks.
-        video_analysis_model (str): Model for video understanding.
         lite_planner_model (str): Lightweight planner model.
         image_gen_model (str): Model for generating images.
-        video_gen_model (str): Model for generating video.
-        max_results_yt_trends (int): `max_results` for the YouTube API.
         rate_limit_seconds (int): window for the LLM API rate limiter.
         rpm_quota (int): requests-per-minute threshold for the rate limiter.
         GCS_BUCKET (str): Cloud Storage bucket used to save artifacts.
@@ -51,14 +48,12 @@ class BaseAgentConfiguration:
 
     state_init = "_state_init"
 
-    # Models
-    critic_model: str = "gemini-3.1-pro-preview"  # gemini-3-pro-preview
-    worker_model: str = "gemini-3.5-flash"  # gemini-3-flash-preview
-    video_analysis_model: str = "gemini-3.1-pro-preview"  # gemini-3-pro-preview
-    lite_planner_model: str = "gemini-3.1-flash-lite"  # gemini-3-flash-preview
+    # Models (2026-09 lineup refresh). All gemini-3.x, served only @ global.
+    # critic stays on 3.1-pro-preview: no GA Pro exists yet.
+    critic_model: str = "gemini-3.1-pro-preview"
+    worker_model: str = "gemini-3.8-flash"  # was gemini-3.5-flash
+    lite_planner_model: str = "gemini-3.5-flash-lite"  # was gemini-3.1-flash-lite
     image_gen_model: str = "gemini-3.1-flash-image"
-    video_gen_model: str = "veo-3.1-generate-001"  # "veo-3.0-generate-001"
-    max_results_yt_trends: int = 45
 
     # Image generation ImageConfig knobs (env-overridable). The default 9:16 is
     # the vertical social-reel framing (the model otherwise defaults to 1:1); the

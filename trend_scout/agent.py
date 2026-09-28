@@ -62,8 +62,8 @@ gather_trends_agent = Agent(
 # the JSON briefing. trend_scout has no citation flow, so (unlike the creative
 # producers) there is NO source-collection callback here.
 understand_trends_searcher = Agent(
-    # google_search + retry-wrapped (call-heavy); kept on gemini-3.5-flash but
-    # now the sole occupant of that global bucket, so its retries can't 429.
+    # google_search + retry-wrapped (call-heavy); on worker_model (gemini-3.8-flash)
+    # as the sole occupant of that global bucket, so its retries can't 429.
     model=build_gemini(config.worker_model),
     name="understand_trends_searcher",
     include_contents="none",
