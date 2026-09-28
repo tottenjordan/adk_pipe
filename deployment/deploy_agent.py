@@ -163,17 +163,31 @@ def resolve_deploy_target(module) -> tuple[str, object]:
     the bare ``root_agent`` would silently drop that config on Agent Engine.
 
     Returns ``(kind, target)`` where ``kind`` is the ``AdkApp`` keyword to use:
-    ``("app", module.app)`` if present, else ``("agent", module.root_agent)``.
+    ``("app", module.app)`` if it is an ``App``, else ``("agent", module.root_agent)``
+    (an unrelated ``app`` attribute, e.g. a FastAPI app, is ignored).
     """
-    if hasattr(module, "app"):
-        return "app", module.app
+    # Lazy import keeps this module importable without ADK loaded up front.
+    from google.adk.apps import App
+
+    app_obj = getattr(module, "app", None)
+    if isinstance(app_obj, App):
+        return "app", app_obj
     return "agent", module.root_agent
 
 
+def engine_env_key(name: str) -> str:
+    """The .env key holding a deployed agent's Agent Engine resource ID.
+
+    Single source of truth for the ``<PREFIX>_AGENT_ENGINE_ID`` format, shared by
+    deploy (writes it) and the test/integration scripts (read it).
+    """
+    return f"{AGENT_DEPLOY_SPECS[name]['env_prefix']}_AGENT_ENGINE_ID"
+
+
 # Function to update the .env file
-def update_env_file(prefix: str, agent_engine_id: str, env_file_path: str):
-    """Updates the .env file with the agent engine ID."""
-    KEY_NAME = f"{prefix}_AGENT_ENGINE_ID"
+def update_env_file(name: str, agent_engine_id: str, env_file_path: str):
+    """Updates the .env file with the agent engine ID for agent ``name``."""
+    KEY_NAME = engine_env_key(name)
     try:
         dotenv.set_key(env_file_path, KEY_NAME, agent_engine_id)
         logging.info(f"Updated {KEY_NAME} in {env_file_path} to {agent_engine_id}")
@@ -232,7 +246,7 @@ def deploy_agent(name: str, version: str) -> None:
             f"\n\nSuccessfully created remote agent: {remote_agent.api_resource.name}\n\n"
         )
         update_env_file(
-            prefix=spec["env_prefix"],
+            name=name,
             agent_engine_id=remote_agent.api_resource.name,
             env_file_path=ENV_FILE_PATH,
             # remove=False,

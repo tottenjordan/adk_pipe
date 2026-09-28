@@ -19,7 +19,7 @@ if project_root not in sys.path:
 
 import vertexai
 
-from deployment.deploy_agent import AGENT_DEPLOY_SPECS
+from deployment.deploy_agent import AGENT_DEPLOY_SPECS, engine_env_key
 
 
 # ==============================
@@ -157,7 +157,7 @@ async def main() -> None:  # pylint: disable=unused-argument
     if not args.agent:
         logging.error("Error: --agent is required for the create operation.")
         return
-    env_key = f"{AGENT_DEPLOY_SPECS[args.agent]['env_prefix']}_AGENT_ENGINE_ID"
+    env_key = engine_env_key(args.agent)
     remote_agent = client.agent_engines.get(name=os.getenv(env_key))
     logging.info(f"\n\nremote_agent: {remote_agent}")
 

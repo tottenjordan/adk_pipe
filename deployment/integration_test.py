@@ -36,7 +36,7 @@ if project_root not in sys.path:
 
 import vertexai
 
-from deployment.deploy_agent import AGENT_DEPLOY_SPECS
+from deployment.deploy_agent import AGENT_DEPLOY_SPECS, engine_env_key
 
 
 # ==============================
@@ -52,10 +52,7 @@ dotenv.load_dotenv(dotenv_path=ENV_FILE_PATH)
 
 # Derived from deploy_agent's spec map so every deployable agent is testable and
 # the env key always matches what `deploy_agent.py --create` writes to .env.
-AGENT_ENV_KEYS = {
-    name: f"{spec['env_prefix']}_AGENT_ENGINE_ID"
-    for name, spec in AGENT_DEPLOY_SPECS.items()
-}
+AGENT_ENV_KEYS = {name: engine_env_key(name) for name in AGENT_DEPLOY_SPECS}
 
 # Session state keys that should be populated after a successful agent run
 EXPECTED_STATE_KEYS = {
@@ -95,27 +92,42 @@ class TestResult:
     passed: bool
     message: str
     duration_s: float = 0.0
+    # Not run (e.g. agent not deployed: engine-ID env var unset). Reported as SKIP
+    # and excluded from failures / the exit code.
+    skipped: bool = False
+
+    @property
+    def failed(self) -> bool:
+        return not self.passed and not self.skipped
+
+
+class EngineIdNotSetError(ValueError):
+    """The agent's engine-ID env var is unset — i.e. it isn't deployed (skip)."""
 
 
 def print_results(results: list[TestResult]) -> bool:
-    """Print test results and return True if all passed."""
+    """Print test results and return True if nothing failed (skips are OK)."""
     print("\n" + "=" * 60)
     print("INTEGRATION TEST RESULTS")
     print("=" * 60)
 
     all_passed = True
     for r in results:
-        status = "PASS" if r.passed else "FAIL"
+        status = "SKIP" if r.skipped else "PASS" if r.passed else "FAIL"
         duration = f" ({r.duration_s:.1f}s)" if r.duration_s > 0 else ""
         print(f"  [{status}] {r.name}{duration}")
         if not r.passed:
             print(f"         {r.message}")
+        if r.failed:
             all_passed = False
 
     print("=" * 60)
     passed = sum(1 for r in results if r.passed)
-    failed = sum(1 for r in results if not r.passed)
-    print(f"  {passed} passed, {failed} failed, {len(results)} total")
+    failed = sum(1 for r in results if r.failed)
+    skipped = sum(1 for r in results if r.skipped)
+    print(
+        f"  {passed} passed, {failed} failed, {skipped} skipped, {len(results)} total"
+    )
     print("=" * 60 + "\n")
     return all_passed
 
@@ -137,7 +149,9 @@ def get_remote_agent(client, agent_name: str):
     env_key = AGENT_ENV_KEYS[agent_name]
     resource_id = os.getenv(env_key)
     if not resource_id:
-        raise ValueError(f"{env_key} is not set in .env — deploy the agent first")
+        raise EngineIdNotSetError(
+            f"{env_key} not set in .env — agent not deployed, skip"
+        )
     return client.agent_engines.get(name=resource_id)
 
 
@@ -156,6 +170,7 @@ def check_health(client) -> list[TestResult]:
                     name=f"health:{agent_name}",
                     passed=False,
                     message=f"{env_key} not set in .env — skip",
+                    skipped=True,
                 )
             )
             continue
@@ -219,12 +234,13 @@ async def check_session(client, agent_name: str) -> list[TestResult]:
 
     try:
         remote_agent = get_remote_agent(client, agent_name)
-    except ValueError as e:
+    except EngineIdNotSetError as e:
         return [
             TestResult(
                 name=f"session:{agent_name}:get_agent",
                 passed=False,
                 message=str(e),
+                skipped=True,
             )
         ]
 
@@ -355,12 +371,13 @@ async def check_smoke(client, agent_name: str) -> list[TestResult]:
 
     try:
         remote_agent = get_remote_agent(client, agent_name)
-    except ValueError as e:
+    except EngineIdNotSetError as e:
         return [
             TestResult(
                 name=f"smoke:{agent_name}:get_agent",
                 passed=False,
                 message=str(e),
+                skipped=True,
             )
         ]
 
