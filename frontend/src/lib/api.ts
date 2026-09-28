@@ -193,6 +193,34 @@ export async function* pollRun(
 }
 
 /**
+ * Thrown by `resumeRun` when the server's duplicate-run guard rejected the resume
+ * WITHOUT applying it (409 `prior_segment_active`: the previous segment was still
+ * finishing after the server's grace wait). The run is still paused at the same
+ * checkpoint, so the caller should re-offer the review for the user to re-submit
+ * — polling would neither re-show the (already-deduped) review panel nor apply
+ * the response.
+ */
+export class ResumeNotAppliedError extends Error {
+  constructor(
+    message = "The previous step is still finishing, so your review wasn't applied yet. Please wait a moment and submit it again."
+  ) {
+    super(message);
+    this.name = "ResumeNotAppliedError";
+  }
+}
+
+/** Machine-readable `detail.reason` from a 409 body, or null if absent. */
+async function conflictReason(res: Response): Promise<string | null> {
+  try {
+    const body = await res.json();
+    const reason = body?.detail?.reason;
+    return typeof reason === "string" ? reason : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Resume a paused interactive run by submitting a human-review function
  * response. The server builds the `functionResponse` message and re-launches
  * the detached job; the caller re-enters `pollRun` to consume new events.
@@ -223,6 +251,18 @@ export async function resumeRun(
       }),
     }
   );
+  // 409 = the server's duplicate-run guard. `resume_in_progress`: a resume for
+  // this same checkpoint (double-submit / retried POST) is already running, so
+  // the user's intent is being served — treat as running and let the caller
+  // poll (like startRun). Anything else (`prior_segment_active`, or an
+  // unrecognised body) means this response was NOT applied: surface it so the
+  // caller can re-offer the review (re-submitting is safe either way).
+  if (res.status === 409) {
+    if ((await conflictReason(res)) === "resume_in_progress") {
+      return { runId: sessionId, status: "running" };
+    }
+    throw new ResumeNotAppliedError();
+  }
   if (!res.ok) {
     throw new Error(`Failed to resume run (${res.status}): ${await res.text()}`);
   }
