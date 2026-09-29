@@ -550,6 +550,9 @@ visual_generator = Agent(
 # path is unchanged while rare-failure recovery odds rise materially.
 visual_generator_resilient = RetryUntilKeyNode(
     name="visual_generator_resilient",
+    # An explicit description: NodeTool otherwise falls back to "Executes the
+    # node: <name>" (AgentTool used to expose an empty one).
+    description="Generates the image creatives from the final visual concepts.",
     node=visual_generator,
     output_key="_images_generated",
     max_attempts=6,

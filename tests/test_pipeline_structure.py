@@ -288,6 +288,21 @@ def test_populated_result_nodes_return_the_pipeline_output():
     )
 
 
+def test_exposed_node_tools_have_real_descriptions():
+    """No exposed node relies on NodeTool's "Executes the node: <name>" fallback
+    description; the root model picks tools by these descriptions."""
+    from google.adk.tools._node_tool import NodeTool
+
+    from creative_agent.agent import root_agent as ca_root
+    from interactive_creative.agent import root_agent as ic_root
+
+    for root in (ca_root, ic_root):
+        for tool in root.tools:
+            if isinstance(tool, NodeTool):
+                assert tool.description.strip(), tool.name
+                assert not tool.description.startswith("Executes the node"), tool.name
+
+
 def test_exposed_workflows_take_a_pipeline_request():
     """Every node exposed to a root as a NodeTool declares the single
     `request: str` argument (PipelineRequest), keeping the tool declarations the
