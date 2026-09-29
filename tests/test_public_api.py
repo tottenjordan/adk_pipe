@@ -6,6 +6,8 @@ import sys
 import types
 from pathlib import Path
 
+import pytest
+
 
 def test_facade_exposes_reusable_pipelines_and_schema():
     import creative_agent
@@ -112,12 +114,14 @@ def _import_fresh(*modules: str) -> subprocess.CompletedProcess[str]:
     )
 
 
+@pytest.mark.subprocess
 def test_agent_modules_import_without_legacy_agent_deprecation():
     """Building every agent emits no Sequential/Parallel/LoopAgent deprecation."""
     result = _import_fresh(*_AGENT_MODULES)
     assert result.returncode == 0, result.stderr[-4000:]
 
 
+@pytest.mark.subprocess
 def test_legacy_agent_deprecation_filter_actually_fires():
     """Positive control: the scoped filter really turns ADK's legacy-container
     notice into an error (so the guard above can't pass vacuously)."""

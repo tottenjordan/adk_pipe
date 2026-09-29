@@ -15,32 +15,26 @@ import os
 from concurrent.futures import ThreadPoolExecutor
 
 from creative_agent import gcs_tools, tools
+from tests._fakes import FakeStorageClient, FakeToolContext
 
 
-class MockState(dict):
-    pass
-
-
-class MockToolContext:
-    """Mirror of the double in tests/test_tools_retry.py, with the extra state
-    keys the export tools read. ``gcs_folder`` is parameterized so two contexts
-    represent two distinct concurrent runs."""
-
-    def __init__(self, gcs_folder: str):
-        self.state = MockState()
-        self.state["gcs_folder"] = gcs_folder
-        self.state["agent_output_dir"] = "creative_output"
-        self.state["final_report_with_citations"] = f"# Report {gcs_folder}"
-        self.state["final_visual_concepts"] = {"visual_concepts": []}
-        self.state["ad_copy_critique"] = {"ad_copies": []}
-        self.state["brand"] = "b"
-        self.state["target_audience"] = "a"
-        self.state["target_product"] = "p"
-        self.state["key_selling_points"] = "k"
-        self.state["target_search_trends"] = {"target_search_trends": ["t1"]}
-
-    async def save_artifact(self, *a, **k):
-        return None
+def _ctx(gcs_folder: str) -> FakeToolContext:
+    """The extra state keys the export tools read. ``gcs_folder`` is
+    parameterized so two contexts represent two distinct concurrent runs."""
+    return FakeToolContext(
+        {
+            "gcs_folder": gcs_folder,
+            "agent_output_dir": "creative_output",
+            "final_report_with_citations": f"# Report {gcs_folder}",
+            "final_visual_concepts": {"visual_concepts": []},
+            "ad_copy_critique": {"ad_copies": []},
+            "brand": "b",
+            "target_audience": "a",
+            "target_product": "p",
+            "key_selling_points": "k",
+            "target_search_trends": {"target_search_trends": ["t1"]},
+        }
+    )
 
 
 class _FakeSection:
@@ -80,8 +74,8 @@ def test_save_draft_report_artifact_isolates_concurrent_runs(monkeypatch, tmp_pa
 
     monkeypatch.setattr(gcs_tools, "_upload_blob_to_gcs", _fake_upload)
 
-    ctx_a = MockToolContext("run_a")
-    ctx_b = MockToolContext("run_b")
+    ctx_a = _ctx("run_a")
+    ctx_b = _ctx("run_b")
 
     async def _both():
         return await asyncio.gather(
@@ -111,8 +105,8 @@ def test_save_creative_gallery_html_isolates_concurrent_runs(monkeypatch, tmp_pa
 
     monkeypatch.setattr(tools, "_upload_blob_to_gcs", _fake_upload)
 
-    ctx_a = MockToolContext("run_a")
-    ctx_b = MockToolContext("run_b")
+    ctx_a = _ctx("run_a")
+    ctx_b = _ctx("run_b")
 
     async def _both():
         return await asyncio.gather(
@@ -126,35 +120,6 @@ def test_save_creative_gallery_html_isolates_concurrent_runs(monkeypatch, tmp_pa
     assert len(recorded) == 2
     assert recorded[0] != recorded[1]
     assert not os.path.exists("creative_portfolio_gallery.html")
-
-
-class _FakeBlob:
-    def __init__(self, name, uploads):
-        self.name = name
-        self._uploads = uploads
-
-    def download_to_file(self, file_obj):
-        file_obj.write(b"origbytes")
-
-    def upload_from_filename(self, path):
-        assert os.path.exists(path), path
-        self._uploads.append((self.name, path))
-
-
-class _FakeBucket:
-    def __init__(self, uploads):
-        self._uploads = uploads
-
-    def blob(self, name):
-        return _FakeBlob(name, self._uploads)
-
-
-class _FakeStorageClient:
-    def __init__(self, uploads):
-        self._uploads = uploads
-
-    def bucket(self, name):
-        return _FakeBucket(self._uploads)
 
 
 class _FakeResized:
@@ -191,7 +156,9 @@ def test_get_high_res_img_isolates_concurrent_runs(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     uploads: list[tuple[str, str]] = []
     monkeypatch.setattr(
-        gcs_tools, "_get_gcs_client", lambda: _FakeStorageClient(uploads)
+        gcs_tools,
+        "_get_gcs_client",
+        lambda: FakeStorageClient(uploads, download_bytes=b"origbytes"),
     )
     monkeypatch.setattr(gcs_tools, "Image", _FakeImage)
 

@@ -1,35 +1,25 @@
 """Infra tools must propagate exceptions (not swallow into status dicts) so ADK
 2.0's RetryConfig can retry transient failures."""
 
-from types import SimpleNamespace
-
 import pytest
 from google.api_core import exceptions as api_exceptions
 
+from tests._fakes import FakeToolContext, noop_async
 
-async def _noop_async(*a, **k):
-    """Stand-in for asyncio.sleep so backoff retries don't wall-clock in tests."""
-    return None
+# Seed state the infra tools read (gcs_folder / output dir / campaign metadata).
+_STATE = {
+    "gcs_folder": "f",
+    "agent_output_dir": "d",
+    "target_search_trends": {"target_search_trends": ["t1"]},
+    "brand": "b",
+    "target_audience": "a",
+    "target_product": "p",
+    "key_selling_points": "k",
+}
 
 
-class MockState(dict):
-    pass
-
-
-class MockToolContext:
-    def __init__(self):
-        self.state = MockState()
-        self.session = SimpleNamespace(id="test-session")
-        self.state["gcs_folder"] = "f"
-        self.state["agent_output_dir"] = "d"
-        self.state["target_search_trends"] = {"target_search_trends": ["t1"]}
-        self.state["brand"] = "b"
-        self.state["target_audience"] = "a"
-        self.state["target_product"] = "p"
-        self.state["key_selling_points"] = "k"
-
-    async def save_artifact(self, *a, **k):
-        return None
+def _ctx() -> FakeToolContext:
+    return FakeToolContext(_STATE)
 
 
 class _BoomBQClient:
@@ -54,7 +44,7 @@ class TestTrendTrawlerToolsPropagate:
         monkeypatch.setattr(tools, "_get_bigquery_client", boom)
 
         with pytest.raises(api_exceptions.InternalServerError):
-            tools.get_daily_gtrends(MockToolContext())
+            tools.get_daily_gtrends(_ctx())
 
     def test_write_trends_to_bq_raises_on_transient(self, monkeypatch):
         from trend_scout import tools
@@ -65,7 +55,7 @@ class TestTrendTrawlerToolsPropagate:
         monkeypatch.setattr(tools, "_get_bigquery_client", lambda: _BoomBQClient())
 
         with pytest.raises(api_exceptions.ServiceUnavailable):
-            tools.write_trends_to_bq(MockToolContext())
+            tools.write_trends_to_bq(_ctx())
 
 
 class TestCreativeAgentToolsPropagate:
@@ -73,13 +63,9 @@ class TestCreativeAgentToolsPropagate:
         # write_trends_to_bq + _get_bigquery_client now live in creative_agent.bq_tools.
         from creative_agent import bq_tools
 
-        class _BoomBQClient:
-            def query(self, *a, **k):
-                raise api_exceptions.ServiceUnavailable("503")
-
         monkeypatch.setattr(bq_tools, "_get_bigquery_client", lambda: _BoomBQClient())
         with pytest.raises(api_exceptions.ServiceUnavailable):
-            bq_tools.write_trends_to_bq(MockToolContext())
+            bq_tools.write_trends_to_bq(_ctx())
 
     def test_save_to_gcs_raises_on_transient(self, monkeypatch):
         # _save_to_gcs + _get_gcs_client now live in creative_agent.gcs_tools.
@@ -99,7 +85,7 @@ class TestCreativeAgentToolsPropagate:
 
         monkeypatch.setattr(gcs_tools, "_get_gcs_client", lambda: _BoomGCSClient())
         with pytest.raises(api_exceptions.ServiceUnavailable):
-            gcs_tools._save_to_gcs(MockToolContext(), b"x", "a.png")
+            gcs_tools._save_to_gcs(_ctx(), b"x", "a.png")
 
     def test_generate_image_retries_then_raises_on_persistent_503(self, monkeypatch):
         """A persistent 503 exhausts the backoff retries, then propagates."""
@@ -125,9 +111,9 @@ class TestCreativeAgentToolsPropagate:
             image_tools, "_get_genai_client", lambda: _BoomGenaiClient()
         )
         # Don't actually sleep through the backoff in tests.
-        monkeypatch.setattr(image_tools.asyncio, "sleep", _noop_async)
+        monkeypatch.setattr(image_tools.asyncio, "sleep", noop_async)
 
-        ctx = MockToolContext()
+        ctx = _ctx()
         ctx.state["final_visual_concepts"] = {
             "visual_concepts": [{"image_generation_prompt": "p", "concept_name": "c"}]
         }
@@ -157,9 +143,9 @@ class TestCreativeAgentToolsPropagate:
         monkeypatch.setattr(
             image_tools, "_get_genai_client", lambda: _BoomGenaiClient()
         )
-        monkeypatch.setattr(image_tools.asyncio, "sleep", _noop_async)
+        monkeypatch.setattr(image_tools.asyncio, "sleep", noop_async)
 
-        ctx = MockToolContext()
+        ctx = _ctx()
         ctx.state["final_visual_concepts"] = {
             "visual_concepts": [{"image_generation_prompt": "p", "concept_name": "c"}]
         }
@@ -204,11 +190,11 @@ class TestCreativeAgentToolsPropagate:
         monkeypatch.setattr(
             image_tools, "_get_genai_client", lambda: _FlakyGenaiClient()
         )
-        monkeypatch.setattr(image_tools.asyncio, "sleep", _noop_async)
+        monkeypatch.setattr(image_tools.asyncio, "sleep", noop_async)
         # Isolate from real GCS + artifact I/O.
         monkeypatch.setattr(image_tools, "_save_to_gcs", lambda *a, **k: "gs://b/c.png")
 
-        ctx = MockToolContext()
+        ctx = _ctx()
         ctx.state["final_visual_concepts"] = {
             "visual_concepts": [{"image_generation_prompt": "p", "concept_name": "c"}]
         }

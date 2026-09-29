@@ -16,13 +16,8 @@ import pytest
 from cloud_functions.creative_fanout import main
 from cloud_functions.creative_fanout.session import agent_session
 
-
-@pytest.fixture(autouse=True)
-def _crf_project_env(monkeypatch):
-    """The CRF config reads the (required) project at use time; pin a dummy so
-    these tests don't depend on the caller's shell/.env (CI sets only this)."""
-    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "test-project")
-    monkeypatch.delenv("GOOGLE_CLOUD_PROJECT_NUMBER", raising=False)
+# The CRF config reads the (required) project at use time; pin a dummy.
+pytestmark = pytest.mark.usefixtures("gcp_project_env")
 
 
 def test_async_send_message_reraises_streaming_error():

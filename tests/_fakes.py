@@ -1,4 +1,9 @@
-"""Shared offline test doubles for the retry-on-empty and graph-Workflow tests.
+"""Shared offline test doubles for the tool, retry-on-empty and graph-Workflow tests.
+
+Tool doubles: ``FakeToolContext`` / ``FakeState`` stand in for ADK's
+``ToolContext`` in direct tool calls, ``FakeStorageClient`` records GCS uploads
+(concurrency tests), and ``noop_async`` replaces ``asyncio.sleep`` so backoff
+retries don't wall-clock.
 
 The producer fakes drive ``tests/test_retry_node.py`` (``RetryUntilKeyNode``)
 and the graph tests. ``StubLlm`` and the ``fc_response`` / ``text_response`` /
@@ -14,7 +19,9 @@ shallow copy shares the list, so the original instance observes every run (see
 ``tests/test_workflow_api_contract.py``).
 """
 
+import os
 from collections.abc import AsyncGenerator, Iterator
+from types import SimpleNamespace
 from typing import Any
 
 from google.adk.agents import BaseAgent
@@ -216,3 +223,82 @@ def text_response(text: str) -> LlmResponse:
 def user_message(text: str) -> types.Content:
     """A user turn (the ``new_message`` passed to ``Runner.run_async``)."""
     return types.Content(role="user", parts=[types.Part(text=text)])
+
+
+# --- Tool doubles -----------------------------------------------------------
+
+
+async def noop_async(*a: Any, **k: Any) -> None:
+    """Stand-in for ``asyncio.sleep`` so backoff retries don't wall-clock."""
+    return None
+
+
+class FakeState(dict):
+    """dict-backed ``ToolContext.state``; ``to_dict`` mirrors ADK's ``State``."""
+
+    def to_dict(self) -> dict[str, Any]:
+        return dict(self)
+
+
+class FakeToolContext:
+    """Minimal ADK ``ToolContext`` for calling tools directly.
+
+    ``state`` is copied, so a shared seed dict is never mutated across tests.
+    BQ writers derive their idempotent row keys from ``session.id``.
+    """
+
+    def __init__(
+        self, state: dict[str, Any] | None = None, *, session_id: str = "test-session"
+    ):
+        self.state = FakeState(state or {})
+        self.session = SimpleNamespace(id=session_id)
+
+    async def save_artifact(self, *a: Any, **k: Any) -> None:
+        return None
+
+
+class _FakeBlob:
+    def __init__(self, name: str, client: "FakeStorageClient"):
+        self.name = name
+        self._client = client
+
+    def download_to_file(self, file_obj: Any) -> None:
+        assert self._client.download_bytes is not None, (
+            f"unexpected download: {self.name}"
+        )
+        file_obj.write(self._client.download_bytes)
+
+    def upload_from_filename(self, path: str) -> None:
+        # The scratch file must still exist on disk at upload time (a racing
+        # rmtree would have deleted it under the old, shared-CWD code).
+        assert os.path.exists(path), path
+        self._client.uploads.append((self.name, path))
+        with open(path, "rb") as f:
+            self._client.contents[self.name] = f.read()
+
+
+class _FakeBucket:
+    def __init__(self, client: "FakeStorageClient"):
+        self._client = client
+
+    def blob(self, name: str) -> _FakeBlob:
+        return _FakeBlob(name, self._client)
+
+
+class FakeStorageClient:
+    """GCS client double recording ``(object_name, local_path)`` per upload in
+    ``uploads`` and the uploaded bytes by object name in ``contents``.
+
+    ``download_bytes`` is what ``blob.download_to_file`` writes; left ``None``,
+    any download fails the test (for tools that should only upload).
+    """
+
+    def __init__(
+        self, uploads: list[tuple[str, str]], download_bytes: bytes | None = None
+    ):
+        self.uploads = uploads
+        self.download_bytes = download_bytes
+        self.contents: dict[str, bytes] = {}
+
+    def bucket(self, name: str) -> _FakeBucket:
+        return _FakeBucket(self)

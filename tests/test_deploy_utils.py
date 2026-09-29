@@ -129,8 +129,6 @@ PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 
 def _import_deploy_agent():
     """Import deploy_agent.py, skipping if its (non-cred) deps are unavailable."""
-    if PROJECT_ROOT not in sys.path:
-        sys.path.insert(0, PROJECT_ROOT)
     try:
         import deployment.deploy_agent as deploy_agent
     except ImportError as e:  # e.g. agentplatform/absl missing in a bare env

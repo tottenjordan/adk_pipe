@@ -3,6 +3,8 @@
 import pytest
 from pydantic import ValidationError
 
+from tests._fakes import FakeToolContext
+
 
 class TestEvalVerdict:
     def test_valid_pass_verdict(self):
@@ -397,20 +399,13 @@ SAMPLE_VISUAL_CONCEPTS = {
 }
 
 
-class _FakeToolContext:
-    """Minimal mock of ADK ToolContext for testing evaluate_all_creatives."""
-
-    def __init__(self, state: dict):
-        self.state = dict(state)
-
-
 class TestEvaluateAllCreativesInputs:
     """Test that evaluate_all_creatives correctly reads inputs from session state."""
 
     def test_returns_error_when_no_creatives_in_state(self):
         from creative_eval.agent import evaluate_all_creatives
 
-        ctx = _FakeToolContext({**SAMPLE_CAMPAIGN_STATE})
+        ctx = FakeToolContext({**SAMPLE_CAMPAIGN_STATE})
         result = evaluate_all_creatives(ctx)
         assert result["status"] == "error"
         assert "No ad copies or visual concepts" in result["message"]
@@ -418,7 +413,7 @@ class TestEvaluateAllCreativesInputs:
     def test_returns_error_with_empty_lists(self):
         from creative_eval.agent import evaluate_all_creatives
 
-        ctx = _FakeToolContext(
+        ctx = FakeToolContext(
             {
                 **SAMPLE_CAMPAIGN_STATE,
                 "ad_copy_critique": {"ad_copies": []},
@@ -435,7 +430,7 @@ class TestEvaluateAllCreativesInputs:
 
         from creative_eval.agent import evaluate_all_creatives
 
-        ctx = _FakeToolContext(
+        ctx = FakeToolContext(
             {
                 **SAMPLE_CAMPAIGN_STATE,
                 "ad_copy_critique": json.dumps(SAMPLE_AD_COPIES),
@@ -501,7 +496,7 @@ class TestEvaluateAllCreativesInputs:
 
         from creative_eval.agent import evaluate_all_creatives
 
-        ctx = _FakeToolContext(
+        ctx = FakeToolContext(
             {
                 **SAMPLE_CAMPAIGN_STATE,
                 "ad_copy_critique": SAMPLE_AD_COPIES,
@@ -581,7 +576,7 @@ class TestEvaluateAllCreativesOutputs:
             for i in range(len(vis_scores))
         ]
 
-        ctx = _FakeToolContext(
+        ctx = FakeToolContext(
             {
                 **SAMPLE_CAMPAIGN_STATE,
                 "ad_copy_critique": {"ad_copies": ad_copies},

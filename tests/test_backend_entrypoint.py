@@ -8,6 +8,10 @@ Dockerfile CMD literal. ADK_DRYRUN=1 makes the script print the argv it would ex
 import subprocess
 from pathlib import Path
 
+import pytest
+
+pytestmark = pytest.mark.subprocess
+
 SCRIPT = Path(__file__).resolve().parent.parent / "deployment" / "backend_entrypoint.sh"
 
 

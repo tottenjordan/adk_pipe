@@ -13,50 +13,13 @@ Config values are read at class-definition (import) time, so these tests import
 the config module fresh under a patched environment. `importlib.reload` would
 mutate the *already-imported* module in place and break identity checks elsewhere
 (e.g. `agent.retry_config is INFRA_RETRY`), so instead we swap the module out of
-`sys.modules`, import a throwaway copy, and restore the original in teardown.
+`sys.modules`, import a throwaway copy, and restore the original in teardown
+(the `fresh_config` fixture in `tests/conftest.py`).
 """
 
-import importlib
 import logging
-import sys
 
 import pytest
-
-# Importing `<pkg>.config` also runs `<pkg>/__init__.py`, which imports the agent
-# module (binding its own INFRA_RETRY). So a fresh config import has side effects
-# across the whole package; we snapshot and fully restore this module subset to
-# avoid leaving agents bound to a stale config (which breaks `is INFRA_RETRY`).
-_PKG_PREFIXES = (
-    "creative_agent",
-    "trend_scout",
-    "creative_eval",
-    "interactive_creative",
-    "agent_common",
-)
-
-
-def _relevant_modules():
-    return [name for name in sys.modules if name.startswith(_PKG_PREFIXES)]
-
-
-@pytest.fixture
-def fresh_config():
-    """Import config modules fresh under patched env, fully rolled back after."""
-    saved = {name: sys.modules[name] for name in _relevant_modules()}
-
-    def _import(name):
-        # Drop every cached copy so agent + config re-import together against the
-        # patched env (keeping their INFRA_RETRY identities mutually consistent).
-        for cached in _relevant_modules():
-            del sys.modules[cached]
-        return importlib.import_module(name)
-
-    try:
-        yield _import
-    finally:
-        for cached in _relevant_modules():
-            del sys.modules[cached]
-        sys.modules.update(saved)
 
 
 def test_creative_agent_bucket_name_reads_storage_bucket_var(monkeypatch, fresh_config):

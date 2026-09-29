@@ -24,12 +24,8 @@ DS = config.BQ_DATASET_ID
 TBL = config.BQ_TABLE_TARGETS
 
 
-@pytest.fixture(autouse=True)
-def _crf_project_env(monkeypatch):
-    """The CRF config reads the (required) project at use time; pin a dummy so
-    these tests don't depend on the caller's shell/.env (CI sets only this)."""
-    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "test-project")
-    monkeypatch.delenv("GOOGLE_CLOUD_PROJECT_NUMBER", raising=False)
+# The CRF config reads the (required) project at use time; pin a dummy.
+pytestmark = pytest.mark.usefixtures("gcp_project_env")
 
 
 def _event(data):

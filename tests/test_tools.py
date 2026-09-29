@@ -6,6 +6,8 @@ from types import SimpleNamespace
 
 import pytest
 
+from tests._fakes import FakeToolContext
+
 # --- Artifact name sanitization ---
 REMOVE_PUNCTUATION = str.maketrans("", "", string.punctuation)
 
@@ -40,24 +42,11 @@ class TestArtifactNameSanitization:
 
 
 # --- Memorize tool ---
-class MockState(dict):
-    """Simple dict-based mock for ToolContext.state."""
-
-    pass
-
-
-class MockToolContext:
-    def __init__(self, session_id: str = "test-session"):
-        self.state = MockState()
-        # BQ writers derive their idempotent row keys from the session id.
-        self.session = SimpleNamespace(id=session_id)
-
-
 class TestMemorizeTool:
     def test_memorize_stores_value(self):
         from creative_agent.tools import memorize
 
-        ctx = MockToolContext()
+        ctx = FakeToolContext()
         result = memorize("brand", "PRS Guitars", ctx)
         assert ctx.state["brand"] == "PRS Guitars"
         assert result["status"] == 'Stored "brand": "PRS Guitars"'
@@ -65,7 +54,7 @@ class TestMemorizeTool:
     def test_memorize_overwrites_existing(self):
         from creative_agent.tools import memorize
 
-        ctx = MockToolContext()
+        ctx = FakeToolContext()
         memorize("brand", "Old Brand", ctx)
         memorize("brand", "New Brand", ctx)
         assert ctx.state["brand"] == "New Brand"
@@ -73,7 +62,7 @@ class TestMemorizeTool:
     def test_memorize_different_keys(self):
         from creative_agent.tools import memorize
 
-        ctx = MockToolContext()
+        ctx = FakeToolContext()
         memorize("brand", "PRS", ctx)
         memorize("target_product", "SE CE24", ctx)
         assert ctx.state["brand"] == "PRS"
@@ -84,7 +73,7 @@ class TestTrendTrawlerMemorizeTool:
     def test_memorize_stores_value(self):
         from trend_scout.tools import memorize
 
-        ctx = MockToolContext()
+        ctx = FakeToolContext()
         result = memorize("target_audience", "Musicians", ctx)
         assert ctx.state["target_audience"] == "Musicians"
         assert "status" in result
@@ -96,7 +85,6 @@ class TestReviewTrendsTool:
         """A tool_context double exposing the `.actions.skip_summarization`
         attribute the LongRunningFunctionTool checkpoint sets (mirrors the shape
         interactive_creative's review_* checkpoints rely on)."""
-        from types import SimpleNamespace
 
         return SimpleNamespace(actions=SimpleNamespace(skip_summarization=False))
 
@@ -121,7 +109,7 @@ class TestRecordResearchGaps:
     def test_exhaustion_marker_becomes_note(self):
         from trend_scout.tools import record_research_gaps
 
-        ctx = MockToolContext()
+        ctx = FakeToolContext()
         ctx.state["info_gtrends__retry_exhausted"] = True
         result = record_research_gaps(ctx)
 
@@ -133,7 +121,7 @@ class TestRecordResearchGaps:
     def test_clean_state_is_empty_string(self):
         from trend_scout.tools import record_research_gaps
 
-        ctx = MockToolContext()
+        ctx = FakeToolContext()
         ctx.state["info_gtrends"] = "some real briefing"
         result = record_research_gaps(ctx)
 
@@ -238,7 +226,7 @@ class TestTrendScoutWriteTrendsIdempotent:
 
         monkeypatch.setattr(t, "_get_bigquery_client", lambda: _BQ())
         monkeypatch.setattr(t, "_get_gtrends_max_date", lambda: "07/17/2026")
-        ctx = MockToolContext(session_id)
+        ctx = FakeToolContext(session_id=session_id)
         ctx.state.update(
             {
                 "gcs_folder": "2026_07_13_run",
@@ -278,7 +266,7 @@ class TestSaveSearchTrends:
     def test_appends_trend_to_existing_list(self):
         from trend_scout.tools import save_search_trends_to_session_state
 
-        ctx = MockToolContext()
+        ctx = FakeToolContext()
         ctx.state["target_search_trends"] = {"target_search_trends": ["trend_a"]}
 
         result = save_search_trends_to_session_state("trend_b", ctx)
@@ -292,7 +280,7 @@ class TestSaveSearchTrends:
         must still be appended (regression guard for the old identity check)."""
         from trend_scout.tools import save_search_trends_to_session_state
 
-        ctx = MockToolContext()
+        ctx = FakeToolContext()
         ctx.state["target_search_trends"] = {"target_search_trends": []}
 
         result = save_search_trends_to_session_state("trend_a", ctx)
@@ -530,7 +518,7 @@ class TestWriteEvalReportIdempotent:
 
     @staticmethod
     def _ctx(session_id="sess-1"):
-        ctx = MockToolContext(session_id)
+        ctx = FakeToolContext(session_id=session_id)
         ctx.state.update(
             {
                 "creative_evaluation_report": SAMPLE_REPORT,
@@ -568,7 +556,7 @@ class TestWriteEvalReportIdempotent:
 
     def test_missing_report_returns_error(self, monkeypatch):
         t, captured = self._patch(monkeypatch)
-        ctx = MockToolContext()
+        ctx = FakeToolContext()
         assert t.write_eval_report_to_bq(ctx)["status"] == "error"
         assert captured == []
 
@@ -620,7 +608,7 @@ class TestWriteTrendsUuidStash:
 
         monkeypatch.setattr(t, "_get_bigquery_client", lambda: _BQ())
 
-        ctx = MockToolContext()
+        ctx = FakeToolContext()
         ctx.state.update(
             {
                 "gcs_folder": "2026_07_13_run",
@@ -675,7 +663,7 @@ class TestWriteTrendsIdempotent:
                 return _Job()
 
         monkeypatch.setattr(t, "_get_bigquery_client", lambda: _BQ())
-        ctx = MockToolContext(session_id)
+        ctx = FakeToolContext(session_id=session_id)
         ctx.state.update(self.STATE)
         t.write_trends_to_bq(ctx)
         return ctx.state["creative_row_uuid"], captured
@@ -728,7 +716,7 @@ class TestWriteTrendsRaisesOnBqErrors:
 
         monkeypatch.setattr(t, "_get_bigquery_client", lambda: _BQ())
 
-        ctx = MockToolContext()
+        ctx = FakeToolContext()
         ctx.state.update(
             {
                 "gcs_folder": "2026_07_13_run",
@@ -756,7 +744,7 @@ class TestWriteTrendsRaisesOnBqErrors:
         # avoid the live max-date lookup used to build the insert SQL
         monkeypatch.setattr(t, "_get_gtrends_max_date", lambda: "2026-07-17")
 
-        ctx = MockToolContext()
+        ctx = FakeToolContext()
         ctx.state.update(
             {
                 "gcs_folder": "2026_07_13_run",
