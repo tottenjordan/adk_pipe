@@ -599,7 +599,7 @@ async def run_checks(check_type: str, agent_name: str | None) -> bool:
     return print_results(all_results)
 
 
-def main():
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Integration tests for deployed Agent Engine instances.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -623,7 +623,11 @@ Examples:
         default=None,
         help="Agent to test (default: all). Required for session and smoke checks.",
     )
-    args = parser.parse_args()
+    return parser
+
+
+def main():
+    args = build_parser().parse_args()
 
     all_passed = asyncio.run(run_checks(args.check, args.agent))
     sys.exit(0 if all_passed else 1)

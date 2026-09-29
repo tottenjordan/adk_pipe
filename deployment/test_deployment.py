@@ -22,16 +22,14 @@ from deployment.deploy_agent import AGENT_DEPLOY_SPECS, engine_env_key
 # ==============================
 # config
 # ==============================
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
-)
-
-# load .env file
+# Side effects (.env load, logging config, argv parsing, client construction)
+# happen only in main(), so tests can import this module and build_parser().
 ENV_FILE_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".env"))
-dotenv.load_dotenv(dotenv_path=ENV_FILE_PATH)
 
 
-TEST_QUERY = f"""Brand: {os.getenv("BRAND")}
+def build_test_query() -> str:
+    """The campaign prompt sent to the deployed agent (read from .env)."""
+    return f"""Brand: {os.getenv("BRAND")}
 Target Product: {os.getenv("TARGET_PRODUCT")}
 Key Selling Point(s): {os.getenv("KEY_SELLING_POINT")}
 Target Audience: {os.getenv("TARGET_AUDIENCE")}
@@ -39,32 +37,25 @@ Target Search Trend: {os.getenv("TARGET_SEARCH_TREND")}
 """
 
 
-parser = argparse.ArgumentParser(
-    description="An asyncio application with command-line arguments."
-)
-parser.add_argument(
-    "--user_id",
-    type=str,
-    default=None,
-    help="User ID (can be any string).",
-    required=True,
-)
-parser.add_argument(
-    "--agent",
-    choices=list(AGENT_DEPLOY_SPECS),
-    default=None,
-    help="name of deployed agent to test",
-    required=True,
-)
-args = parser.parse_args()
-
-
-# Agent Engine is a *regional* resource, so it uses GCP_REGION (us-central1) —
-# NOT GOOGLE_CLOUD_LOCATION, which is set to `global` for the gemini-3.x models.
-client = agentplatform.Client(
-    project=os.getenv("GOOGLE_CLOUD_PROJECT"),
-    location=os.getenv("GCP_REGION", "us-central1"),
-)  # pyright: ignore[reportCallIssue]
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description="An asyncio application with command-line arguments."
+    )
+    parser.add_argument(
+        "--user_id",
+        type=str,
+        default=None,
+        help="User ID (can be any string).",
+        required=True,
+    )
+    parser.add_argument(
+        "--agent",
+        choices=list(AGENT_DEPLOY_SPECS),
+        default=None,
+        help="name of deployed agent to test",
+        required=True,
+    )
+    return parser
 
 
 def pretty_print_event(event):
@@ -115,7 +106,7 @@ async def async_send_message(remote_agent, user_id, session) -> None:
         async for event in remote_agent.async_stream_query(
             user_id=user_id,
             session_id=session["id"],
-            message=TEST_QUERY,  # user_input
+            message=build_test_query(),  # user_input
         ):
             events.append(event)
             pretty_print_event(event)
@@ -149,6 +140,18 @@ async def agent_session(remote_agent, user_id):
 
 async def main() -> None:  # pylint: disable=unused-argument
     """Main function that uses the defined flags."""
+    logging.basicConfig(
+        level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+    )
+    dotenv.load_dotenv(dotenv_path=ENV_FILE_PATH)
+    args = build_parser().parse_args()
+
+    # Agent Engine is a *regional* resource, so it uses GCP_REGION (us-central1) —
+    # NOT GOOGLE_CLOUD_LOCATION, which is set to `global` for the gemini-3.x models.
+    client = agentplatform.Client(
+        project=os.getenv("GOOGLE_CLOUD_PROJECT"),
+        location=os.getenv("GCP_REGION", "us-central1"),
+    )  # pyright: ignore[reportCallIssue]
 
     # get instance of agent
     logging.info("\n\nGetting Agent Engine Runtime...\n\n")

@@ -4,8 +4,6 @@ import importlib
 import importlib.util
 import logging
 import os
-import re
-import subprocess
 import sys
 import types
 from unittest.mock import MagicMock
@@ -273,29 +271,17 @@ class TestScriptAgentChoices:
 
         assert set(it.EXPECTED_STATE_KEYS) == set(da.AGENT_DEPLOY_SPECS)
 
-    @pytest.mark.parametrize(
-        "script", ["deployment/test_deployment.py", "deployment/integration_test.py"]
-    )
+    @pytest.mark.parametrize("script", ["test_deployment", "integration_test"])
     def test_cli_agent_choices_include_every_deployable_agent(self, script):
+        """Each script's --agent choices cover every deployable agent. Built
+        in-process via build_parser() (no `--help` subprocess)."""
         da = _import_deploy_agent()
-        result = subprocess.run(
-            [sys.executable, os.path.join(PROJECT_ROOT, script), "--help"],
-            capture_output=True,
-            text=True,
-            cwd=PROJECT_ROOT,
-            timeout=120,
-            check=True,
-        )
-        # Match inside argparse's `{a,b,c}` choices set, not a bare substring
-        # (which could hit the epilog/help text).
-        choice_sets = re.findall(r"\{([^}]*)\}", result.stdout)
-        agent_sets = [
-            set(c.split(",")) for c in choice_sets if "creative_agent" in c.split(",")
+        module = _load_script(script)
+        agent_actions = [
+            a for a in module.build_parser()._actions if "--agent" in a.option_strings
         ]
-        assert agent_sets, f"{script} --help has no --agent choices set"
-        for name in da.AGENT_DEPLOY_SPECS:
-            assert re.search(r"\{[^}]*" + re.escape(name) + r"[^}]*\}", result.stdout)
-            assert name in agent_sets[0], f"{script} --agent missing {name}"
+        assert agent_actions, f"{script} has no --agent option"
+        assert set(agent_actions[0].choices) == set(da.AGENT_DEPLOY_SPECS)
 
 
 # --- engine_env_key: one source of truth for `<PREFIX>_AGENT_ENGINE_ID` ---
@@ -626,20 +612,13 @@ class TestIntegrationEventAndSessionHelpers:
 
 
 # --- test_deployment: tool-call logging handles 2.x snake_case stream events ---
-def _import_test_deployment(monkeypatch):
-    """Load test_deployment.py in-process: it parses argv and builds an
-    agentplatform.Client at import time, so stub both. Executed from its file
-    spec WITHOUT registering in sys.modules, so the mocked-client module can't
-    leak into other tests."""
+def _load_script(name):
+    """Load a deployment/ script from its file spec WITHOUT registering it in
+    sys.modules. Its side effects (.env load, argv parsing, client) live in
+    main(), so importing is inert."""
     _import_deploy_agent()
-    import agentplatform
-
-    monkeypatch.setattr(agentplatform, "Client", MagicMock())
-    monkeypatch.setattr(
-        sys, "argv", ["test_deployment.py", "--user_id", "u", "--agent", "trend_scout"]
-    )
-    path = os.path.join(PROJECT_ROOT, "deployment", "test_deployment.py")
-    spec = importlib.util.spec_from_file_location("_test_deployment_isolated", path)
+    path = os.path.join(PROJECT_ROOT, "deployment", f"{name}.py")
+    spec = importlib.util.spec_from_file_location(f"_{name}_isolated", path)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -652,9 +631,9 @@ class TestPrettyPrintEvent:
         [("function_call", "function_response"), ("functionCall", "functionResponse")],
     )
     def test_logs_function_call_and_response_in_both_casings(
-        self, monkeypatch, caplog, call_key, resp_key
+        self, caplog, call_key, resp_key
     ):
-        td = _import_test_deployment(monkeypatch)
+        td = _load_script("test_deployment")
         event = {
             "author": "root_agent",
             "content": {
@@ -669,11 +648,9 @@ class TestPrettyPrintEvent:
         assert "[root_agent]: Function call: memorize" in caplog.text
         assert "[root_agent]: Function response: memorize" in caplog.text
 
-    def test_snake_case_part_with_null_fields_logs_function_call(
-        self, monkeypatch, caplog
-    ):
+    def test_snake_case_part_with_null_fields_logs_function_call(self, caplog):
         """Defensive: a part with a null ``text`` alongside ``function_call`` still logs the call."""
-        td = _import_test_deployment(monkeypatch)
+        td = _load_script("test_deployment")
         part = {"text": None, "function_call": {"name": "memorize", "args": {}}}
         event = {"author": "a", "content": {"parts": [part]}}
         with caplog.at_level(logging.INFO):
@@ -681,7 +658,7 @@ class TestPrettyPrintEvent:
         assert "[a]: Function call: memorize" in caplog.text
         assert "[a]: None" not in caplog.text
 
-    def test_null_content_and_parts_do_not_raise(self, monkeypatch):
-        td = _import_test_deployment(monkeypatch)
+    def test_null_content_and_parts_do_not_raise(self):
+        td = _load_script("test_deployment")
         td.pretty_print_event({"author": "a", "content": None})
         td.pretty_print_event({"author": "a", "content": {"parts": None}})

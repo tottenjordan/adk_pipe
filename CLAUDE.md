@@ -68,6 +68,7 @@ cd frontend && npm run test:watch  # watch mode
 # genai.Client(vertexai=True) construction (e.g. the lazily built creative_eval judge
 # client, exercised by tests) resolves the project eagerly
 uv run pytest tests/ -v
+uv run pytest tests/ -q -n 4   # parallel via pytest-xdist (~2x faster; -n auto is SLOWER — each worker re-imports the agents)
 
 # ADK evals — end-to-end agent evaluation with LLM-as-judge (real API calls, ~5 min per case)
 PYTHONPATH="$PWD" uv run adk eval trend_scout tests/eval/evalsets/trend_scout_evalset.json \
@@ -85,7 +86,7 @@ PYTHONPATH="$PWD" uv run adk eval creative_agent tests/eval/evalsets/creative_ag
 - ADK Evals: `tests/eval/` — end-to-end agent evaluation using `adk eval` CLI with rubric-based LLM-as-judge scoring (response quality + tool use quality). Runs against real APIs. One evalset + rubric config per agent: `evalsets/trend_scout_evalset.json` + `eval_config.json`; `evalsets/creative_agent_evalset.json` + `creative_eval_config.json`. The `creative_agent` eval must be run with `PYTHONPATH="$PWD"` (see command above).
 - Integration: `deployment/integration_test.py` — live GCP checks (health, session lifecycle, smoke tests). Requires deployed agents.
 - CI (three workflows; all PR-only plus manual `workflow_dispatch` — no `push: main` re-run, since the PR run already tests the squash-merge result — path-gated, with `timeout-minutes`):
-  - `.github/workflows/python-ci.yml` — PRs touching `**.py`/`pyproject.toml`/`uv.lock`/`requirements*.txt`/`agents/**`: `uv sync --locked`, requirements.txt-vs-`uv export` drift check, `ruff check`, `ruff format --check`, `ty check`, `pytest tests/` (no GCP creds; dummy `GOOGLE_CLOUD_PROJECT`)
+  - `.github/workflows/python-ci.yml` — PRs touching `**.py`/`pyproject.toml`/`uv.lock`/`requirements*.txt`/`agents/**`: `uv sync --locked`, requirements.txt-vs-`uv export` drift check, `ruff check`, `ruff format --check`, `ty check`, `pytest tests/ -n 4` (no GCP creds; dummy `GOOGLE_CLOUD_PROJECT`)
   - `.github/workflows/crf-deps.yml` — PRs touching `cloud_functions/**`/`tests/test_crf_*.py`: installs the Cloud Function's own `requirements.txt` into a clean venv and runs `tests/test_crf_*.py` there
   - `.github/workflows/frontend-tests.yml` — PRs touching `frontend/**`: `npm run lint`, `npm test`, `npm run build` (`next build` type-checks everything in tsconfig's include, tests too, so there is no separate `tsc --noEmit`)
 
