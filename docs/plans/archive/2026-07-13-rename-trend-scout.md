@@ -1,5 +1,7 @@
 # Rename the Phase-1 Agent: `trend_trawler` → `trend_scout`
 
+**Status:** shipped (#52)
+
 > **For Claude:** REQUIRED SUB-SKILL: Use `executing-plans` to implement this task-by-task.
 > On execution, first copy this plan to `docs/plans/2026-07-13-rename-trend-scout.md`.
 > Branch `refactor/rename-trend-scout` already exists (off fresh `main`, PR #51 merged).

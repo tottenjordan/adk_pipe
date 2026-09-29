@@ -1,5 +1,7 @@
 # Issue #104 N=5 Concurrency Re-Validation
 
+**Status:** shipped (#113) — runbook executed; N=5 failures 2/20 → 0/20
+
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to run this runbook task-by-task.
 
 **Goal:** Empirically confirm the merged #104 fixes drive the `creative_agent` N=5 concurrent-run failure rate from the original **15% (6/40, regional_25 2/20)** down to ~0, by re-running the DoE harness at N=5 against a fresh fixed-code revision and logging the result into the existing `quota-bucket-spread-doe` Vertex experiment as a distinct cohort.

@@ -1,5 +1,7 @@
 # Workstream 2 — Split Research Producers (searcher + synthesizer) — Implementation Plan
 
+**Status:** shipped (#73)
+
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
 **Goal:** Eliminate the intermittent "empty-turn" flake at its root by splitting each of the **four** combined `google_search`+thinking+synthesis research producers (three in `creative_agent` + `trend_scout`'s `understand_trends_agent`) into two agents — a tool-using **searcher** (runs `google_search`, emits raw findings) and a tool-free **synthesizer** (shapes the raw findings into the existing report, no tools/no planner) — while preserving the WS1 retry safety net and the WS3 observability surfaces.

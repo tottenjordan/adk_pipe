@@ -1,5 +1,7 @@
 # Async-Job Run Model Implementation Plan
 
+**Status:** shipped (#79; hardening follow-up #110)
+
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
 **Goal:** Replace the browser-held synchronous SSE run (which silently drops multi-minute runs on any network blip, IAP re-auth, tab sleep, proxy recycle, or 429) with a fire-and-forget async-job model: kick the run off server-side, let it run to completion untied to the HTTP request, and have the UI poll the already-persisted session event log.

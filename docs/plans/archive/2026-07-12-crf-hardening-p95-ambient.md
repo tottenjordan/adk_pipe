@@ -1,5 +1,7 @@
 # CRF Hardening → p95 Data → Ambient Experiment Implementation Plan
 
+**Status:** partially shipped — Part 1 CRF fixes #45/#46 (#48, on top of the #47 duration marker); Part 2 p95 measured during #49; Part 3 ambient experiment not run (deferred: duration-cleared but quota/idempotency-gated, see `docs/notes/ambient-agents-vs-cloud-functions.md`)
+
 > **For Claude:** REQUIRED SUB-SKILL: Use `executing-plans` to implement this plan task-by-task.
 > On execution, copy this plan to `docs/plans/2026-07-12-crf-hardening-p95-ambient.md` first.
 

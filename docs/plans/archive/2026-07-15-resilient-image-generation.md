@@ -1,5 +1,7 @@
 # Resilient Image Generation (visual_generator retry-on-empty) Implementation Plan
 
+**Status:** shipped (#80)
+
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
 **Goal:** Stop `creative_agent` / `interactive_creative` runs from finishing "done" with an empty image gallery when the `visual_generator` model turn flakes (`MALFORMED_FUNCTION_CALL`) and never invokes `generate_image`.

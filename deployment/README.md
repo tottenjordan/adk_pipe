@@ -223,7 +223,7 @@ the orchestrator re-queues rows older than `REAP_STALE_PROCESSING_MINUTES`
 
 Run the additive migration **FIRST, before deploying the code that writes these
 columns** — a DML naming a missing column fails (same ordering rule as the
-`research_gaps` migration in `docs/plans/2026-07-15-trend-scout-degradation-surfacing.md`):
+`research_gaps` migration in `docs/plans/archive/2026-07-15-trend-scout-degradation-surfacing.md`):
 
 ```sql
 -- 1. Additive migration (idempotent; preserves all rows):

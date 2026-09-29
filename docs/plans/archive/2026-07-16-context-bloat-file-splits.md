@@ -1,5 +1,7 @@
 # Context-Bloat File Splits — Implementation Plan
 
+**Status:** shipped (#91)
+
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
 **Goal:** Shrink the four biggest load-bearing source files by extracting cohesive

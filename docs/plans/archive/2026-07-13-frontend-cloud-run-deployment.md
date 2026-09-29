@@ -1,5 +1,7 @@
 # Frontend + api_server Cloud Run Deployment Implementation Plan
 
+**Status:** shipped (#60; build fix #61)
+
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
 **Goal:** Ship the Next.js frontend and the ADK `api_server` as two containerized Cloud Run

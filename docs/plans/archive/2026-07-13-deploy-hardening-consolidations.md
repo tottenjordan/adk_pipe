@@ -1,5 +1,7 @@
 # CRF/Agent Fixes → p95 → Deploy-Hardening Consolidations
 
+**Status:** shipped (#49)
+
 > **For Claude:** REQUIRED SUB-SKILL: Use `executing-plans` to implement this plan task-by-task.
 > On execution, copy this plan to `docs/plans/2026-07-13-deploy-hardening-consolidations.md` first.
 

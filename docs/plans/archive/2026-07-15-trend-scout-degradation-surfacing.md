@@ -1,5 +1,7 @@
 # trend_scout Degradation-Surfacing + raw_gtrends Hardening — Implementation Plan
 
+**Status:** shipped (#81)
+
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
 **Goal:** Make `trend_scout` (a) surface a `RetryUntilKeyAgent` retry-exhaustion as a user-visible note instead of only a log line, and (b) degrade gracefully instead of `KeyError` if `raw_gtrends` is ever missing.

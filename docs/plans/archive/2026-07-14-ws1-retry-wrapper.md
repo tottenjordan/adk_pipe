@@ -1,5 +1,7 @@
 # Workstream 1 — Retry-on-Empty Wrapper Rollout (Implementation Plan)
 
+**Status:** shipped (#70)
+
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
 **Goal:** Wire the already-built `RetryUntilKeyAgent` around all three flaky research producers, plus a minimal downstream guard, so a producer that finishes without writing its `output_key` no longer crashes the `creative_agent` / `interactive_creative` run — it retries, and on total exhaustion degrades observably instead of raising `KeyError: Context variable not found`.

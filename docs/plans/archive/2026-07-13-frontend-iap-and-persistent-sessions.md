@@ -1,5 +1,7 @@
 # Frontend IAP + Persistent Agent-Engine Sessions Implementation Plan
 
+**Status:** shipped (#65)
+
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
 **Goal:** Close the two remaining Cloud Run follow-ups: (1) put **Identity-Aware Proxy**

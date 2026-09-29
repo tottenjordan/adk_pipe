@@ -1,5 +1,7 @@
 # ADK 2.0 Retry Adoption Implementation Plan
 
+**Status:** shipped (#44)
+
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
 **Goal:** Adopt ADK 2.0's automatic node retries by attaching a scoped `RetryConfig` to the agents that call transient infrastructure, and stop the broad `except Exception` blocks in `tools.py` from swallowing retryable errors.
