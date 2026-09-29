@@ -8,6 +8,7 @@ on:
       - "pyproject.toml"
       - "uv.lock"
       - "requirements*.txt"
+      - "cloud_functions/**"
       - "agents/**"
       - "tests/**"
       - ".github/workflows/python-ci.yml"
@@ -17,6 +18,7 @@ on:
       - "pyproject.toml"
       - "uv.lock"
       - "requirements*.txt"
+      - "cloud_functions/**"
       - "agents/**"
       - "tests/**"
       - ".github/workflows/python-ci.yml"
@@ -33,9 +35,9 @@ jobs:
     runs-on: ubuntu-latest
     env:
       # The suite runs with NO GCP credentials and no .env (CI has neither).
-      # The only thing it needs is a project ID: module-level genai.Client
-      # construction (vertexai=True) resolves the project from ADC otherwise and
-      # raises "Could not resolve project". Any dummy value works — every test
+      # The only thing it needs is a project ID: the genai.Client (vertexai=True)
+      # that tests build lazily (e.g. the creative_eval judge) resolves the
+      # project from ADC otherwise and raises "Could not resolve project". Any dummy value works — every test
       # mocks the actual network calls.
       GOOGLE_CLOUD_PROJECT: test-project
     steps:
@@ -64,3 +66,28 @@ jobs:
 
       - name: pytest
         run: uv run pytest tests/ -q
+
+  cloud-function-deps:
+    # The Cloud Function deploys from its own requirements.txt (not uv.lock), so
+    # the job above never exercises it. Install it alone into a clean venv and
+    # run the CRF tests there: catches unsatisfiable pins (e.g. a Dependabot
+    # cloudevents 2.x bump vs functions-framework's <=1.12 pin) and missing deps.
+    runs-on: ubuntu-latest
+    env:
+      GOOGLE_CLOUD_PROJECT: test-project
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@v10.2.0
+        with:
+          version: "0.12.19"
+          python-version: "3.13"
+          enable-cache: true
+
+      - name: Install Cloud Function requirements (+ pytest)
+        run: |
+          uv venv .crf-venv
+          VIRTUAL_ENV=.crf-venv uv pip install -r cloud_functions/creative_fanout/requirements.txt pytest
+
+      - name: CRF tests against the function's own deps
+        run: .crf-venv/bin/python -m pytest tests/test_crf_*.py -q
