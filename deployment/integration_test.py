@@ -34,7 +34,7 @@ project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
-import vertexai
+import agentplatform
 
 from deployment.deploy_agent import AGENT_DEPLOY_SPECS, engine_env_key
 
@@ -131,12 +131,12 @@ def print_results(results: list[TestResult]) -> bool:
 
 
 # ==============================
-# Vertex AI client
+# Agent Runtime (agentplatform) client
 # ==============================
 def get_client():
     # Agent Engine is a *regional* resource, so it uses GCP_REGION (us-central1) —
     # NOT GOOGLE_CLOUD_LOCATION, which is set to `global` for the gemini-3.x models.
-    return vertexai.Client(
+    return agentplatform.Client(
         project=os.getenv("GOOGLE_CLOUD_PROJECT"),
         location=os.getenv("GCP_REGION", "us-central1"),
     )  # pyright: ignore[reportCallIssue]
@@ -150,7 +150,7 @@ def get_remote_agent(client, agent_name: str):
         raise EngineIdNotSetError(
             f"{env_key} not set in .env — agent not deployed, skip"
         )
-    return client.agent_engines.get(name=resource_id)
+    return client.runtimes.get(name=resource_id)
 
 
 # ==============================
@@ -175,7 +175,7 @@ def check_health(client) -> list[TestResult]:
 
         start = time.time()
         try:
-            remote_agent = client.agent_engines.get(name=resource_id)
+            remote_agent = client.runtimes.get(name=resource_id)
 
             # Verify basic properties are populated
             api_resource = remote_agent.api_resource

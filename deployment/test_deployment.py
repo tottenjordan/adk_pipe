@@ -15,7 +15,7 @@ project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
-import vertexai
+import agentplatform
 
 from deployment.deploy_agent import AGENT_DEPLOY_SPECS, engine_env_key
 
@@ -61,7 +61,7 @@ args = parser.parse_args()
 
 # Agent Engine is a *regional* resource, so it uses GCP_REGION (us-central1) —
 # NOT GOOGLE_CLOUD_LOCATION, which is set to `global` for the gemini-3.x models.
-client = vertexai.Client(
+client = agentplatform.Client(
     project=os.getenv("GOOGLE_CLOUD_PROJECT"),
     location=os.getenv("GCP_REGION", "us-central1"),
 )  # pyright: ignore[reportCallIssue]
@@ -154,7 +154,7 @@ async def main() -> None:  # pylint: disable=unused-argument
         logging.error("Error: --agent is required for the create operation.")
         return
     env_key = engine_env_key(args.agent)
-    remote_agent = client.agent_engines.get(name=os.getenv(env_key))
+    remote_agent = client.runtimes.get(name=os.getenv(env_key))
     logging.info(f"\n\nremote_agent: {remote_agent}")
 
     # get session — create → stream → delete under one user_id (delete-on-error).
