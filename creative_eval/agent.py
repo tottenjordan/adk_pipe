@@ -96,7 +96,7 @@ def evaluate_all_creatives(tool_context) -> dict:
 
     summary = _build_summary(ad_evals, visual_evals)
 
-    # Surface any research producers that exhausted their retries (RetryUntilKeyAgent
+    # Surface any research producers that exhausted their retries (RetryUntilKeyNode
     # markers) as structured, consumable degradation notes on the report.
     warnings = collect_degradation_warnings(state)
 

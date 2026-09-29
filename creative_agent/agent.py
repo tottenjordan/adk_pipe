@@ -14,9 +14,9 @@ from google.genai import types
 
 from agent_common import (
     PipelineRequest,
-    RetryUntilKeyAgent,
     RetryUntilKeyNode,
     build_gemini,
+    is_populated,
 )
 from creative_eval.agent import creative_eval_agent
 
@@ -235,8 +235,7 @@ def refinement_gate(ctx: Context) -> Event:
 # ends in one of these function nodes instead: it returns a truthy result when
 # the pipeline's output key is populated, else a short non-empty notice (the key
 # itself stays unset so downstream `{var?}` guards still apply). "Populated" is
-# the same check the retry wrappers use (RetryUntilKeyNode reuses it too).
-_populated = RetryUntilKeyAgent._is_populated
+# the same check RetryUntilKeyNode uses (agent_common.retry_node.is_populated).
 
 
 def _missing_notice(producer: str, key: str) -> str:
@@ -254,7 +253,7 @@ def research_report_ready(ctx: Context) -> str:
     in state for save_draft_report_artifact and the creative stages, and
     repeating it in the root's context would only add tokens.
     """
-    if _populated(ctx.state.get("combined_final_cited_report")):
+    if is_populated(ctx.state.get("combined_final_cited_report")):
         return (
             "Research report complete: saved to session state as "
             "'combined_final_cited_report' (with resolved citations in "
@@ -363,7 +362,7 @@ def ad_copies_ready(ctx: Context) -> Any:
     returned), or a non-empty notice when the critic produced none.
     """
     value = ctx.state.get("ad_copy_critique")
-    if _populated(value):
+    if is_populated(value):
         return value
     return _missing_notice("ad_copy_critic", "ad_copy_critique")
 
@@ -571,7 +570,7 @@ def visual_concepts_ready(ctx: Context) -> Any:
     returned), or a non-empty notice when the finalizer produced none.
     """
     value = ctx.state.get("final_visual_concepts")
-    if _populated(value):
+    if is_populated(value):
         return value
     return _missing_notice("visual_concept_finalizer", "final_visual_concepts")
 
@@ -595,7 +594,7 @@ def images_ready(ctx: Context) -> str:
     step. When the render step exhausted its retries, a non-empty notice
     (degradation is also surfaced via ``_images_generated__retry_exhausted``).
     """
-    if _populated(ctx.state.get("_images_generated")):
+    if is_populated(ctx.state.get("_images_generated")):
         keys = ctx.state.get("_generated_artifact_keys") or []
         return (
             f"Image creatives rendered: {len(keys)} image artifact(s) saved "

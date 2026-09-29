@@ -601,7 +601,7 @@ def test_gs_searcher_keeps_source_collection():
 
 def test_campaign_pipeline_uses_distinct_global_bucket():
     """Quota spread (#94/#101-style): the campaign-research half of the one
-    ParallelAgent runs on gemini-3.5-flash @ global — a different per-base-model
+    parallel fan-out runs on gemini-3.5-flash @ global — a different per-base-model
     quota bucket from the trend half's gemini-3.8-flash / gemini-3.5-flash-lite."""
     from creative_agent.config import config
     from creative_agent.sub_agents.campaign_researcher.agent import (

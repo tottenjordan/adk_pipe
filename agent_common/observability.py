@@ -17,7 +17,7 @@ diagnosable:
   run stalled.
 
 Plus `collect_degradation_warnings(state)`, the single source of truth for
-turning `*__retry_exhausted` markers (left by `RetryUntilKeyAgent`) into
+turning `*__retry_exhausted` markers (left by `RetryUntilKeyNode`) into
 human-readable degradation notes consumed by the eval report, BigQuery row, and
 HTML gallery.
 
@@ -84,7 +84,7 @@ def make_final_state_summary(agent_label: str, keys: tuple[str, ...]):
 
     `keys` are the agent's load-bearing state keys. The returned callback logs
     each key's presence (present/empty/MISSING) plus any `*__retry_exhausted`
-    markers left by `RetryUntilKeyAgent`, making it trivial to see *where* a run
+    markers left by `RetryUntilKeyNode`, making it trivial to see *where* a run
     stalled: e.g. `raw_gtrends` present but `info_gtrends` MISSING means the
     understand step was skipped or emitted an empty turn — the exact ambiguity
     that was impossible to resolve from logs alone during the 2026-07-14

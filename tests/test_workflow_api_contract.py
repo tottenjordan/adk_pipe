@@ -427,8 +427,9 @@ def test_nodetool_no_output_workflow_stalls_root(resumable: bool, tool: Any) -> 
 
 class _RetryUntilOut(BaseNode):
     """Wrapper node: re-runs ``child`` (distinct run_id per attempt) until
-    ``state['out']`` is non-empty, max 3 attempts. The Workflow-native analogue
-    of ``agent_common.RetryUntilKeyAgent``."""
+    ``state['out']`` is non-empty, max 3 attempts. The minimal prototype of
+    ``agent_common.RetryUntilKeyNode`` (which replaced the pre-P2
+    ``RetryUntilKeyAgent``)."""
 
     child: BaseNode
     rerun_on_resume: bool = True
