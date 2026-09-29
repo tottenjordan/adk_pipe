@@ -1,9 +1,7 @@
 """Shared offline test doubles for the retry-on-empty and graph-Workflow tests.
 
-The producer fakes are used by both ``tests/test_retry_agent.py``
-(``RetryUntilKeyAgent``) and ``tests/test_retry_node.py`` (``RetryUntilKeyNode``),
-so the agent and the graph node are exercised against the exact same producer
-behaviors. ``StubLlm`` and the ``fc_response`` / ``text_response`` /
+The producer fakes drive ``tests/test_retry_node.py`` (``RetryUntilKeyNode``)
+and the graph tests. ``StubLlm`` and the ``fc_response`` / ``text_response`` /
 ``user_message`` builders script root agents in the graph tests
 (``test_workflow_api_contract``, ``test_retry_node``, ``test_trend_scout_graph``,
 ``test_creative_agent_graph``); ``RecordingLlm`` additionally keeps every

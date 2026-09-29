@@ -458,18 +458,19 @@ The `creative_agent` eval must run with `PYTHONPATH="$PWD"` and its own rubric c
 │   ├── run_eval_test.py
 │   └── schemas.py
 ├── agent_common/                 # shared building blocks bundled into every engine (depends on ADK; no per-agent logic)
-│   ├── __init__.py               # public re-exports + the one targeted ADK deprecation filter
+│   ├── __init__.py               # public re-exports
 │   ├── clients.py                # lazy GCS / BigQuery client getters
-│   ├── conditional_agent.py      # RunIfAgent (run a block only when a state predicate holds)
 │   ├── config.py                 # BaseAgentConfiguration — model / rate-limit / GCP env source of truth
 │   ├── genai_retry.py            # build_genai_http_retry() — status-code HTTP retry (429/5xx)
+│   ├── idempotency.py            # stable_row_id() — deterministic BigQuery row keys
 │   ├── locations.py              # MODEL_LOCATION (pins gemini-3.x to `global`)
 │   ├── models.py                 # build_gemini(name)
 │   ├── observability.py          # shared debugging callbacks + degradation-warning collection
 │   ├── rate_limit.py             # build_rate_limit_callback(config)
 │   ├── retry.py                  # build_infra_retry()
-│   ├── retry_agent.py            # RetryUntilKeyAgent (retry-on-empty producer wrapper)
+│   ├── retry_node.py             # RetryUntilKeyNode (retry-on-empty graph wrapper) + is_populated()
 │   ├── sanitize.py               # lone-surrogate scrubber for structured-output JSON
+│   ├── schemas.py                # PipelineRequest (NodeTool input_schema)
 │   └── state.py                  # shared memorize tool + seed_initial_state()
 ├── agents/                       # api_server serving view — one relative symlink per runnable agent (see agents/README.md)
 │   ├── README.md

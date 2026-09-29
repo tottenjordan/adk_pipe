@@ -1,9 +1,9 @@
 """Tests for RetryUntilKeyNode — the graph-Workflow retry-on-empty wrapper.
 
-One-for-one port of tests/test_retry_agent.py (``RetryUntilKeyAgent``) to the
-``BaseNode`` wrapper the P2 migration uses, with the same fakes
-(tests/_fakes.py). The split-producer child is a ``Workflow`` pair instead of a
-``SequentialAgent``. Plus the node-only contracts: the wrapper always yields a
+Carries every case of the retired pre-P2 agent wrapper's suite (deleted in P2
+T4) over to the ``BaseNode`` wrapper, using the shared fakes (tests/_fakes.py);
+the split-producer child is a ``Workflow`` pair. Also pins the ``is_populated``
+truth table, plus the node-only contracts: the wrapper always yields a
 truthy output value (the populated key, or an exhaustion notice), so a root LlmAgent
 calling it as a ``NodeTool`` never stalls (see
 tests/test_workflow_api_contract.py, section 4).
@@ -27,7 +27,7 @@ from google.adk.tools._node_tool import NodeTool
 from google.adk.workflow import BaseNode, Workflow
 from pydantic import ValidationError
 
-from agent_common import PipelineRequest, RetryUntilKeyNode
+from agent_common import PipelineRequest, RetryUntilKeyNode, is_populated
 from tests._fakes import (
     FlakyFlagProducer,
     FlakyProducer,
@@ -72,8 +72,8 @@ def _wrap(child: BaseNode, key: str, name: str = "retry_wrapper") -> RetryUntilK
 
 
 def _single(producer: BaseNode) -> Workflow:
-    # A one-node Workflow child: the agent-wrapper tests wrapped a bare producer
-    # agent; the node wraps any BaseNode, and a Workflow is the realistic child.
+    # A one-node Workflow child: the node wraps any BaseNode, and a Workflow is
+    # the realistic child.
     return Workflow(name="single", edges=[("START", producer)])
 
 
@@ -87,8 +87,33 @@ def _pair(fail_first: int) -> tuple[Workflow, RawSearcher, FlakySynthesizer]:
 
 
 # --------------------------------------------------------------------------
-# Ported from tests/test_retry_agent.py
+# Retry-on-empty contract (ported from the retired agent-wrapper suite)
 # --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        ("REAL", True),
+        ("  x ", True),
+        ("", False),
+        ("   ", False),
+        (True, True),  # the image-generation flag
+        (False, False),
+        (["k.png"], True),  # non-empty artifact-keys list
+        ([], False),
+        (0, False),
+        (None, False),
+    ],
+)
+def test_is_populated_accepts_truthy_non_strings(value, expected):
+    """A non-blank string OR any truthy non-string counts as populated.
+
+    Research producers write a non-blank string; the image producer writes a
+    bool ``_images_generated`` flag. Falsy values (blank string, ``[]``, ``0``,
+    ``False``, ``None``) must count as unpopulated so the wrapper retries.
+    """
+    assert is_populated(value) is expected
 
 
 def test_recovers_after_empty_attempts():
@@ -116,8 +141,9 @@ def test_no_retry_when_first_attempt_succeeds():
 def test_bounded_and_observable_when_never_populated(caplog):
     """Producer never populates — wrapper stops at max_attempts and logs loudly.
 
-    Same contract as the agent: no placeholder in ``output_key``; an observable
-    ``<key>__retry_exhausted`` marker + an error log. The node additionally
+    The wrapper must NOT corrupt ``output_key`` with a placeholder (that would
+    feed garbage to the downstream consumer): it leaves the key unset, records
+    an observable ``<key>__retry_exhausted`` marker, and logs an error. It also
     yields a non-empty notice so a NodeTool caller still gets a response.
     """
     producer = FlakyProducer(name="producer", output_key="report", fail_first=99)
@@ -134,12 +160,9 @@ def test_bounded_and_observable_when_never_populated(caplog):
 
 
 def test_whitespace_only_value_counts_as_empty():
-    """A whitespace-only final text is treated as unpopulated and retried.
-
-    The predicate's truth table (bools, lists, ``0``, ``None``) is not re-ported
-    here: the node calls ``RetryUntilKeyAgent._is_populated`` directly, which
-    ``test_retry_agent.py::test_is_populated_accepts_truthy_non_strings`` pins.
-    """
+    """A whitespace-only final text is treated as unpopulated and retried
+    (the full predicate truth table is pinned by
+    ``test_is_populated_accepts_truthy_non_strings``)."""
     producer = FlakyProducer(
         name="producer", output_key="report", fail_first=2, empty_value="   \n"
     )

@@ -32,7 +32,7 @@ class ResearchConfiguration(BaseAgentConfiguration):
     previous-gen flash-lite suffices; pick (the 25→3 judgment) gets a full flash
     model rather than the critic's pro bucket, which the root orchestrator
     already drives. creative_agent's campaign half also uses gemini-3.5-flash,
-    but the two agents don't run inside one ParallelAgent together.
+    but the two agents never share one parallel fan-out.
     """
 
     gather_model: str = "gemini-3.1-flash-lite"

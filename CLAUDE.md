@@ -115,7 +115,7 @@ as its import path (`tarfile.add(path)` → arcname), so nesting would break eve
 ```
 trend_scout (root Agent `trend_scout`; App + ResumabilityConfig(is_resumable=True); sub-agents via AgentTool)
 ├── gather_trends_agent (get_daily_gtrends tool)
-├── understand_trends_agent_resilient (RetryUntilKeyAgent over searcher → synthesizer → info_gtrends)
+├── understand_trends_agent_resilient (RetryUntilKeyNode over a searcher → synthesizer Workflow → info_gtrends; bare node → NodeTool)
 ├── pick_trends_agent (strategic filtering → selected_gtrends)
 ├── review_trends (LongRunningFunctionTool — opt-in interactive trend pick)
 └── Persistence tools (BigQuery, GCS, record_research_gaps, memorize)
@@ -143,7 +143,7 @@ interactive_creative (root Agent `root_agent`; App + ResumabilityConfig(is_resum
 └── Persistence tools (same as creative_agent)
 ```
 
-Key ADK patterns used: `Agent`, graph `Workflow`s (`google.adk.workflow`: fan-out + `JoinNode`, routed function nodes, truthy terminal nodes; exposed to roots as bare nodes → `NodeTool`), `RetryUntilKeyNode` (graph retry wrapper in `agent_common/`), `AgentTool` (wraps agents as tools), `LongRunningFunctionTool` (pause/resume for human-in-the-loop), and `App` + `ResumabilityConfig` (resumable sessions). `SequentialAgent`/`ParallelAgent` are deprecated in ADK 2.x in favor of graph Workflows; the agent pipelines no longer use them (Workflow migration = proposal P2 in `docs/plans/2026-09-28-repo-refresh.md`), and a single targeted `warnings.filterwarnings` in `agent_common/__init__.py` silences that notice.
+Key ADK patterns used: `Agent`, graph `Workflow`s (`google.adk.workflow`: fan-out + `JoinNode`, routed function nodes, truthy terminal nodes; exposed to roots as bare nodes → `NodeTool`), `RetryUntilKeyNode` (graph retry wrapper in `agent_common/`), `AgentTool` (wraps agents as tools), `LongRunningFunctionTool` (pause/resume for human-in-the-loop), and `App` + `ResumabilityConfig` (resumable sessions). The ADK Workflow migration (proposal P2, complete 2026-09-29; `docs/plans/2026-09-29-p2-adk-workflow-migration.md`) retired the deprecated `SequentialAgent`/`ParallelAgent`/`LoopAgent` containers and the `RunIfAgent`/`RetryUntilKeyAgent` wrappers; `tests/test_public_api.py` guards against their return (no references in the agent packages, and importing every agent emits no legacy-container `DeprecationWarning`).
 
 ### Frontend — `frontend/`
 
@@ -177,8 +177,8 @@ Fan-out pattern using two Cloud Run Function deployments from the same source (`
 Shared building blocks live in **`agent_common/`** (a lightweight package bundled into every deployed engine; it depends on `google-adk` but is deliberately free of any per-agent business logic, and no cloud function imports it):
 - `agent_common/config.py` — `BaseAgentConfiguration`, the single source of truth for the model names, rate-limit knobs, and GCP/BigQuery env vars. Each agent's `config.py` subclasses it (`ResearchConfiguration(BaseAgentConfiguration)`) and adds only its genuine differences (e.g. `trend_scout`'s `SetupConfiguration`), which is why the two agent configs no longer drift.
 - `agent_common/retry.py` — `build_infra_retry(extra_exceptions=(), max_attempts=3)`, the one place the ADK `RetryConfig` transient-exception list is defined (`creative_agent` passes the genai `ServerError`).
-- `agent_common/retry_agent.py` — `RetryUntilKeyAgent`, the retry-on-empty producer wrapper (re-runs a flaky `google_search`+thinking producer until its `output_key` is populated, bounded; degrades observably on exhaustion). Shared here so both `creative_agent` and `trend_scout` wrap producers without cross-importing each other's package.
-- `agent_common/conditional_agent.py` — `RunIfAgent`, a `BaseAgent` that runs its sub-agents only when a predicate over session state is truthy; only wrap stages whose outputs are consumed behind `{var?}` guards. Unused since P2 G3: `creative_agent`'s refinement gate is now a routed function node (`refinement_gate`) in the research graph Workflow.
+- `agent_common/retry_node.py` — `RetryUntilKeyNode`, the retry-on-empty graph wrapper (a `BaseNode` that re-runs a flaky `google_search`+thinking producer child — usually a searcher → synthesizer `Workflow` — until its `output_key` is populated, bounded; on exhaustion leaves the key unset, records `<key>__retry_exhausted`, and still yields a truthy notice so a `NodeTool` caller never stalls), plus `is_populated(value)`, the shared populated-check (also used by `creative_agent`'s truthy terminal nodes). Shared here so every agent wraps producers without cross-importing another agent's package.
+- `agent_common/schemas.py` — `PipelineRequest`, the `input_schema` (`request: str`) that gives a graph `Workflow`/node exposed as a `NodeTool` the same model-facing declaration `AgentTool` had.
 - `agent_common/genai_retry.py` — `build_genai_http_retry()`, the status-code-based genai HTTP retry (429/500/503/504 with backoff; permanent 4xx fail fast), wired into `build_gemini()` and the `creative_eval` judge client; ADK-free.
 - `agent_common/rate_limit.py` — `build_rate_limit_callback(config)`, the shared `before_model_callback` enforcing each agent's `rpm_quota`.
 - `agent_common/sanitize.py` — `scrub_lone_surrogates` / `scrub_surrogates_in_response` (`after_model_callback`), which strip lone Unicode surrogates from model JSON before `output_schema` validation.

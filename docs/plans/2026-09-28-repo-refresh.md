@@ -269,7 +269,7 @@ Replace the hardcoded `hybrid-vertex`, project number, engine ID (`cloud_functio
 
 > **Status (2026-09-29):** each proposal now has its own plan doc (all *proposal, not started*):
 > - P1 → [`2026-09-29-p1-agentplatform-sdk-migration.md`](2026-09-29-p1-agentplatform-sdk-migration.md) — **gated**: google-adk 2.10 still pins `google-cloud-aiplatform<2`; the Cloud Function can move to `google-cloud-agentplatform` now. Errors are genai `APIError`, not `GoogleAPICallError` as assumed below.
-> - P2 → [`2026-09-29-p2-adk-workflow-migration.md`](2026-09-29-p2-adk-workflow-migration.md) — BigQuery-write idempotency prerequisites (I-1…I-3) first; T0 API-contract spike gates the migration.
+> - P2 → [`2026-09-29-p2-adk-workflow-migration.md`](2026-09-29-p2-adk-workflow-migration.md) — BigQuery-write idempotency prerequisites (I-1…I-3) first; T0 API-contract spike gates the migration. **Complete 2026-09-29.**
 > - P3 → [`2026-09-29-p3-per-user-runs-authz.md`](2026-09-29-p3-per-user-runs-authz.md) — proxy verifies the IAP JWT and is authoritative; backend trusts `X-TT-User` only from `tt-web-sa`.
 > - P4.1 → [`2026-09-29-p4a-infrastructure-as-code.md`](2026-09-29-p4a-infrastructure-as-code.md) — Terraform foundation with import-based adoption; app deploys stay in scripts.
 > - P4.2–P4.6 → [`2026-09-29-p4b-showcase-enhancements.md`](2026-09-29-p4b-showcase-enhancements.md).
@@ -286,7 +286,7 @@ Replace the hardcoded `hybrid-vertex`, project number, engine ID (`cloud_functio
   3. A nightly or manual `adk eval` GitHub workflow using ADK 2.8 efficiency metrics (tokens, latency) as a regression gate.
   4. Cloud Trace/OpenTelemetry via `AdkApp(enable_tracing=True)` once Task 1.1 lands.
   5. Model Armor plugin as a safety demo.
-  6. Regenerate the architecture diagrams after P2.
+  6. ~~Regenerate the architecture diagrams after P2.~~ **Done 2026-09-29** (P2 G5: `docs/diagrams/{trend_scout,creative_agent}_architecture.png` + `docs/diagrams/README.md`).
 
 ---
 

@@ -36,7 +36,7 @@ _get_bigquery_client = get_bigquery_client
 
 
 def record_research_gaps(tool_context: ToolContext) -> dict:
-    """Turn any RetryUntilKeyAgent exhaustion markers into a human-readable note.
+    """Turn any RetryUntilKeyNode exhaustion markers into a human-readable note.
 
     Reads the `*__retry_exhausted` markers left in state by the resilient research
     wrapper and stores a single `research_gaps` string (empty when research was
