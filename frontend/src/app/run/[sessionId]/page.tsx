@@ -23,6 +23,7 @@ import {
 import { gcsProxyUrl, parseGsUri } from "@/lib/gcs";
 import { hasStartedRun, markRunStarted } from "@/lib/run-kickoff";
 import type { AgentEvent } from "@/lib/types";
+import { PendingLongRunningCalls, type PauseContext } from "@/lib/pause-detection";
 import {
   RUN_STALL_TIMEOUT_MS,
   RUNSERVER_MARKER_AUTHOR,
@@ -40,12 +41,6 @@ const CAMPAIGN_FIELD_DEFS: DisplayFieldDef[] = [
 ];
 
 type Status = "running" | "completed" | "error" | "paused" | "stalled";
-
-interface PauseContext {
-  functionCallId: string;
-  functionName: string;
-  eventId: string;
-}
 
 export default function RunPage({
   params,
@@ -95,20 +90,23 @@ export default function RunPage({
   // Shared poll consumer used by BOTH the initial run effect and the resume
   // path. This is the single copy of what used to be two byte-identical loops
   // (event-id dedup, error surfacing, setEvents, state-delta merge, and
-  // long-running-tool pause detection). The only per-call differences are
+  // long-running-tool pause detection). The only per-call difference is
   // captured by `opts`:
   //   - syncOnPause: fetch full session state on pause (the initial run does;
   //     the resume path relies on state already loaded).
-  //   - stopOnPause: stop consuming as soon as a pause is detected (the resume
-  //     path returns immediately; the initial run drains the generator).
+  // The pause is decided when the poll segment ENDS (a paused segment ends
+  // right after its checkpoint call, with a terminal marker): it is the
+  // long-running call still unanswered. A long-running call alone is not a
+  // pause — pipeline NodeTools are long-running too but are answered in the
+  // same segment (see PendingLongRunningCalls).
   // Returns true when a terminal UI state (paused or error) was already set, so
   // the caller must not override it; false means the run completed normally.
   const consumePollEvents = useCallback(
     async (
       poll: AsyncGenerator<AgentEvent>,
-      opts: { syncOnPause?: boolean; stopOnPause?: boolean } = {}
+      opts: { syncOnPause?: boolean } = {}
     ): Promise<boolean> => {
-      let paused = false;
+      const pending = new PendingLongRunningCalls();
       for await (const event of poll) {
         // Skip the server's internal run-status marker events — status/error
         // come from the poll payload, not these (see RUNSERVER_MARKER_AUTHOR).
@@ -137,38 +135,15 @@ export default function RunPage({
           }));
         }
 
-        // Detect long-running tool pause (interactive mode).
-        // IMPORTANT: Skip partial (streaming) events — their function call
-        // IDs are regenerated per chunk and won't match the session's final
-        // event. Only capture pause context from the non-partial event.
-        if (
-          !event.partial &&
-          event.longRunningToolIds &&
-          event.longRunningToolIds.length > 0
-        ) {
-          const functionCalls = event.content?.parts
-            ?.filter((p) => p.functionCall)
-            ?.map((p) => p.functionCall!) ?? [];
-
-          const pausedCall = functionCalls.find((fc) =>
-            event.longRunningToolIds!.includes(fc.id ?? "")
-          );
-
-          if (pausedCall) {
-            setPauseContext({
-              functionCallId: pausedCall.id ?? "",
-              functionName: pausedCall.name ?? "",
-              eventId: event.id,
-            });
-            setStatus("paused");
-            paused = true;
-            // Fetch full session state so campaign metadata is available
-            if (opts.syncOnPause) syncSessionState();
-            if (opts.stopOnPause) return true;
-          }
-        }
+        pending.observe(event);
       }
-      return paused;
+      const pause = pending.pause();
+      if (!pause) return false;
+      setPauseContext(pause);
+      setStatus("paused");
+      // Fetch full session state so campaign metadata is available
+      if (opts.syncOnPause) syncSessionState();
+      return true;
     },
     [syncSessionState]
   );
@@ -207,7 +182,7 @@ export default function RunPage({
         if (seed.state) setSessionState((prev) => ({ ...prev, ...seed.state }));
 
         // Drain the poll to completion; the initial run fetches session state
-        // on pause and keeps consuming (does not stop on the first pause).
+        // on pause.
         const terminal = await consumePollEvents(
           pollRun(appName, userId, sessionId, { signal }),
           { syncOnPause: true }
@@ -292,11 +267,10 @@ export default function RunPage({
         edits
       );
 
-      // Resume stops at the first pause (returns immediately) and does not
-      // re-sync session state — same as the former inline loop.
+      // The resumed segment ends at the next checkpoint (paused) or at the end
+      // of the run; it does not re-sync session state on pause.
       const terminal = await consumePollEvents(
-        pollRun(appName, userId, sessionId, { signal: controller.signal }),
-        { stopOnPause: true }
+        pollRun(appName, userId, sessionId, { signal: controller.signal })
       );
       if (!terminal) setStatus("completed");
     } catch (err) {
