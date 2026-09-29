@@ -586,7 +586,7 @@ class TestPrettyPrintEvent:
     def test_snake_case_part_with_null_fields_logs_function_call(
         self, monkeypatch, caplog
     ):
-        """2.x dumps every Part field, so ``text`` is present but None."""
+        """Defensive: a part with a null ``text`` alongside ``function_call`` still logs the call."""
         td = _import_test_deployment(monkeypatch)
         part = {"text": None, "function_call": {"name": "memorize", "args": {}}}
         event = {"author": "a", "content": {"parts": [part]}}
