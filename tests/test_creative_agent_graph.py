@@ -29,7 +29,7 @@ from google.adk.models.llm_response import LlmResponse
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.genai import types
-from pydantic import PrivateAttr
+from pydantic import PrivateAttr, ValidationError
 
 from tests._fakes import StubLlm, fc_response, text_response, user_message
 
@@ -104,7 +104,9 @@ _SEED = {
 
 
 def _run_root(
-    monkeypatch: pytest.MonkeyPatch, tool: str
+    monkeypatch: pytest.MonkeyPatch,
+    tool: str,
+    extra_state: dict[str, Any] | None = None,
 ) -> tuple[_RecordingLlm, list[Event], dict[str, Any]]:
     """Run the real root once: it calls ``tool`` then finishes with text."""
     import creative_agent.agent as ca
@@ -122,7 +124,9 @@ def _run_root(
             agent=ca.root_agent, app_name="creative_agent", session_service=svc
         )
         session = await svc.create_session(
-            app_name="creative_agent", user_id="u", state=dict(_SEED)
+            app_name="creative_agent",
+            user_id="u",
+            state={**_SEED, **(extra_state or {})},
         )
         events = [
             e
@@ -221,4 +225,97 @@ def test_research_graph_degraded_path_runs_refinement(monkeypatch):
     assert "REFINED INSIGHTS" in composer_prompt
     assert "final_report_with_citations" in state
     assert len(_responses(events)) == 1
+    assert root_llm.calls == 2
+
+
+# --------------------------------------------------------------------------
+# Ad / visual pipelines
+# --------------------------------------------------------------------------
+
+_ADS = '{"ad_copies": []}'
+_ADS_FINAL = '{"ad_copies": [{"id": 1, "tone_style": "Humorous"}]}'
+_CONCEPTS = '{"visual_concepts": []}'
+
+
+def test_ad_creative_graph_returns_final_copies(monkeypatch):
+    import creative_agent.agent as ca
+
+    llms = _stub_graph(monkeypatch, ca.ad_creative_pipeline)
+    llms["ad_copy_drafter"].push(text_response(_ADS))
+    # The critic's first turn is empty: the terminal node must still answer.
+    llms["ad_copy_critic"].push(text_response("   "))
+
+    root_llm, events, state = _run_root(
+        monkeypatch,
+        "ad_creative_pipeline",
+        {"combined_final_cited_report": "# Report"},
+    )
+
+    assert state["ad_copy_draft"] == {"ad_copies": []}
+    assert "ad_copy_critique" not in state
+    (response,) = _responses(events)
+    assert "ad_copy_critique" in str(response)  # the non-empty notice
+    assert root_llm.calls == 2  # not stalled
+
+
+def _fake_generate_image(tool_context) -> dict:
+    """Stands in for creative_agent.tools.generate_image (same name + flag)."""
+    tool_context.state["_images_generated"] = True
+    return {"status": "ok"}
+
+
+_fake_generate_image.__name__ = "generate_image"
+
+
+def _script_visuals(llms: dict[str, _RecordingLlm], generator_turns: int):
+    llms["art_director"].push(text_response("DIRECTION"))
+    llms["visual_concept_drafter"].push(text_response(_CONCEPTS))
+    llms["visual_concept_critic"].push(text_response(_CONCEPTS))
+    llms["visual_concept_finalizer"].push(text_response(_CONCEPTS))
+    # MALFORMED_FUNCTION_CALL stand-in: turns that never call the tool.
+    for _ in range(generator_turns - 1):
+        llms["visual_generator"].push(text_response(""))
+    llms["visual_generator"].push(
+        fc_response("generate_image", {}, "img1"), text_response("Rendered.")
+    )
+
+
+def test_visual_production_graph_retries_render_until_images(monkeypatch):
+    import creative_agent.agent as ca
+
+    llms = _stub_graph(monkeypatch, ca.visual_production_pipeline)
+    (generator,) = [
+        a
+        for a in _llm_agents(ca.visual_production_pipeline)
+        if a.name == "visual_generator"
+    ]
+    monkeypatch.setattr(generator, "tools", [_fake_generate_image])
+    _script_visuals(llms, generator_turns=2)
+
+    root_llm, events, state = _run_root(
+        monkeypatch,
+        "visual_production_pipeline",
+        {"combined_final_cited_report": "# Report", "ad_copy_critique": _ADS_FINAL},
+    )
+
+    assert state["visual_direction"] == "DIRECTION"
+    assert state["final_visual_concepts"] == {"visual_concepts": []}
+    assert state["_images_generated"] is True
+    assert "_images_generated__retry_exhausted" not in state
+    # The retry node re-ran the bare LlmAgent: empty turn, then call + confirm.
+    assert llms["visual_generator"].calls == 3
+    # Reaching the generator at all proves render_barrier works: fed the
+    # concepts dict directly, the retry node's PipelineRequest input_schema
+    # would reject it (asserted below, independently of the run).
+    wrapper = [
+        n
+        for n in ca.visual_production_pipeline.graph.nodes
+        if n.name == "visual_generator_resilient"
+    ][0]
+    with pytest.raises(ValidationError):
+        wrapper._validate_input_data({"visual_concepts": []})
+    responses = _responses(events)
+    assert responses[0] == {"status": "ok"}  # the inner generate_image call
+    assert len(responses) == 2
+    assert responses[-1]  # truthy pipeline result → root re-called
     assert root_llm.calls == 2

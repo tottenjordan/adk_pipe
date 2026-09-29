@@ -116,10 +116,10 @@ root_agent = Agent(
     """,
     tools=[
         combined_research_pipeline,
-        AgentTool(agent=ad_creative_pipeline),
-        AgentTool(agent=visual_generation_pipeline),
+        ad_creative_pipeline,
+        visual_generation_pipeline,
         AgentTool(agent=visual_concept_reviser),
-        AgentTool(agent=visual_generator_resilient),
+        visual_generator_resilient,
         AgentTool(agent=creative_eval_agent),
         review_research_tool,
         review_ad_copies_tool,

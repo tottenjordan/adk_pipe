@@ -1,7 +1,7 @@
 import logging
 from typing import Any
 
-from google.adk.agents import Agent, SequentialAgent
+from google.adk.agents import Agent
 from google.adk.agents.context import Context
 from google.adk.events.event import Event
 from google.adk.events.event_actions import EventActions
@@ -13,7 +13,6 @@ from google.genai import types
 
 from agent_common import (
     PipelineRequest,
-    RetryUntilKeyAgent,
     RetryUntilKeyNode,
     build_gemini,
 )
@@ -296,6 +295,7 @@ combined_research_pipeline = Workflow(
 ad_copy_drafter = Agent(
     model=build_gemini(config.worker_model),
     name="ad_copy_drafter",
+    mode="single_turn",
     include_contents="none",
     description="Generate 10 initial ad copy ideas based on campaign guidelines and trends",
     planner=BuiltInPlanner(
@@ -327,6 +327,7 @@ ad_copy_critic = Agent(
     # critic_model (pro) to drop one serial 5-RPM PRO turn from the ad_copy phase.
     model=build_gemini(config.worker_model),
     name="ad_copy_critic",
+    mode="single_turn",
     include_contents="none",
     description="Critique and narrow down ad copies based on product, audience, and trends",
     planner=BuiltInPlanner(
@@ -351,14 +352,24 @@ ad_copy_critic = Agent(
 )
 
 
-# Sequential agent for ad creative generation
-ad_creative_pipeline = SequentialAgent(
+def ad_copies_ready(ctx: Context) -> Any:
+    """Terminal node of ad_creative_pipeline (the root's tool result).
+
+    Returns the critic's final ad copies (the payload the pre-graph AgentTool
+    returned), or a non-empty notice when the critic produced none.
+    """
+    value = ctx.state.get("ad_copy_critique")
+    if _populated(value):
+        return value
+    return _missing_notice("ad_copy_critic", "ad_copy_critique")
+
+
+# Ad creative generation graph (draft → critique), ending in a truthy result node.
+ad_creative_pipeline = Workflow(
     name="ad_creative_pipeline",
     description="Generates ad copy drafts with an actor-critic workflow.",
-    sub_agents=[
-        ad_copy_drafter,
-        ad_copy_critic,
-    ],
+    input_schema=PipelineRequest,
+    edges=[("START", ad_copy_drafter, ad_copy_critic, ad_copies_ready)],
 )
 
 
@@ -370,6 +381,7 @@ ad_creative_pipeline = SequentialAgent(
 art_director = Agent(
     model=build_gemini(config.worker_model),
     name="art_director",
+    mode="single_turn",
     include_contents="none",
     description="Set the campaign-wide visual direction before concept drafting",
     planner=BuiltInPlanner(
@@ -393,6 +405,7 @@ art_director = Agent(
 visual_concept_drafter = Agent(
     model=build_gemini(config.worker_model),
     name="visual_concept_drafter",
+    mode="single_turn",
     include_contents="none",
     description="Generate initial visual concepts for selected ad copies",
     planner=BuiltInPlanner(
@@ -420,6 +433,7 @@ visual_concept_critic = Agent(
     # concepts is low-quality-dependence, so use worker_model (flash) not pro.
     model=build_gemini(config.worker_model),
     name="visual_concept_critic",
+    mode="single_turn",
     include_contents="none",
     description="Critique and narrow down visual concepts",
     planner=BuiltInPlanner(
@@ -445,6 +459,7 @@ visual_concept_critic = Agent(
 visual_concept_finalizer = Agent(
     model=build_gemini(config.worker_model),
     name="visual_concept_finalizer",
+    mode="single_turn",
     include_contents="none",
     description="Finalize visual concepts to proceed with.",
     instruction=prompts.VISUAL_CONCEPT_FINALIZER_INSTR,
@@ -472,8 +487,9 @@ visual_concept_finalizer = Agent(
 visual_generator = Agent(
     model=build_gemini(config.critic_model),
     name="visual_generator",
+    mode="single_turn",
     retry_config=INFRA_RETRY,
-    include_contents="none",  # new
+    include_contents="none",
     description="Generate final visuals using image generation tools",
     # thinking_level=LOW: this is a mechanical single-tool step, not a reasoning task,
     # so we constrain thinking to keep the model from emitting MULTIPLE parallel
@@ -518,12 +534,13 @@ visual_generator = Agent(
 # intermittently returns MALFORMED_FUNCTION_CALL and never emits the generate_image
 # tool call, leaving _images_generated unset and shipping an empty gallery (run
 # 2032568396381421568). retry_config=INFRA_RETRY only covers infra EXCEPTIONS, not a
-# malformed-call finish reason — so wrap in RetryUntilKeyAgent (same pattern as the
+# malformed-call finish reason — so wrap in RetryUntilKeyNode (same pattern as the
 # research producers), keyed on the _images_generated flag generate_image already sets
 # on success. That flag also makes a re-run safe (idempotency guard → no double image
 # spend); on exhaustion the wrapper emits _images_generated__retry_exhausted, which
-# collect_degradation_warnings surfaces on the gallery/eval banner. Single shared
-# instance (also used by interactive_creative via AgentTool) to avoid double-parenting.
+# collect_degradation_warnings surfaces on the gallery/eval banner. Also exposed
+# directly to interactive_creative's root (a bare node → NodeTool), hence the
+# PipelineRequest input_schema.
 #
 # max_attempts=6 (issue #116): the MALFORMED flake is transient — a fresh producer
 # turn usually clears it, and each attempt IS an independent turn — but 3 attempts
@@ -531,24 +548,53 @@ visual_generator = Agent(
 # only costs extra *failed* producer turns (the idempotency guard prevents double
 # image spend, and the first successful turn returns immediately), so the common
 # path is unchanged while rare-failure recovery odds rise materially.
-visual_generator_resilient = RetryUntilKeyAgent(
+visual_generator_resilient = RetryUntilKeyNode(
     name="visual_generator_resilient",
-    sub_agents=[visual_generator],
+    node=visual_generator,
     output_key="_images_generated",
     max_attempts=6,
+    input_schema=PipelineRequest,
 )
+
+
+def visual_concepts_ready(ctx: Context) -> Any:
+    """Terminal node of visual_generation_pipeline (the root's tool result).
+
+    Returns the finalized visual concepts (the payload the pre-graph AgentTool
+    returned), or a non-empty notice when the finalizer produced none.
+    """
+    value = ctx.state.get("final_visual_concepts")
+    if _populated(value):
+        return value
+    return _missing_notice("visual_concept_finalizer", "final_visual_concepts")
+
+
+def render_barrier() -> None:
+    """No-output pass-through between the concepts and the render step.
+
+    visual_generator_resilient validates its input against PipelineRequest (it
+    is also a root tool in interactive_creative), so the concepts payload from
+    visual_generation_pipeline must not reach it; generate_image reads
+    final_visual_concepts from state anyway.
+    """
+    return None
 
 
 # Sequential agent for visual concepts (draft -> critique -> finalize). Shared with
 # interactive_creative, which pauses for human review after this stage before rendering.
-visual_generation_pipeline = SequentialAgent(
+visual_generation_pipeline = Workflow(
     name="visual_generation_pipeline",
     description="Generates visual concepts with an actor-critic workflow.",
-    sub_agents=[
-        art_director,
-        visual_concept_drafter,
-        visual_concept_critic,
-        visual_concept_finalizer,
+    input_schema=PipelineRequest,
+    edges=[
+        (
+            "START",
+            art_director,
+            visual_concept_drafter,
+            visual_concept_critic,
+            visual_concept_finalizer,
+            visual_concepts_ready,
+        )
     ],
 )
 
@@ -558,12 +604,19 @@ visual_generation_pipeline = SequentialAgent(
 # skip image generation — which it did when creative_eval_agent looked like the next
 # step, jumping straight from visual concepts to evaluation. interactive_creative does
 # NOT use this: it keeps concepts and images split around a review checkpoint.
-visual_production_pipeline = SequentialAgent(
+# Ends in the retry node, whose output is truthy by construction (the
+# generator's output or the exhaustion notice).
+visual_production_pipeline = Workflow(
     name="visual_production_pipeline",
     description="Generate visual concepts, then render their image creatives.",
-    sub_agents=[
-        visual_generation_pipeline,
-        visual_generator_resilient,
+    input_schema=PipelineRequest,
+    edges=[
+        (
+            "START",
+            visual_generation_pipeline,
+            render_barrier,
+            visual_generator_resilient,
+        )
     ],
 )
 
@@ -577,8 +630,8 @@ root_agent = Agent(
     instruction=prompts.ROOT_AGENT_INSTR,
     tools=[
         combined_research_pipeline,
-        AgentTool(agent=ad_creative_pipeline),
-        AgentTool(agent=visual_production_pipeline),
+        ad_creative_pipeline,
+        visual_production_pipeline,
         AgentTool(agent=creative_eval_agent),
         tools.save_eval_report_to_gcs,
         tools.save_draft_report_artifact,
