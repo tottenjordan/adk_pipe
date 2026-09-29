@@ -381,7 +381,7 @@ def test_refined_searcher_keeps_source_collection():
     assert refined_web_synthesizer.after_agent_callback is None
 
 
-def test_ad_creative_pipeline_sub_agent_order():
+def test_ad_creative_pipeline_graph_edges():
     from google.adk.workflow import Workflow
 
     from creative_agent.agent import ad_creative_pipeline
@@ -394,7 +394,7 @@ def test_ad_creative_pipeline_sub_agent_order():
     }
 
 
-def test_visual_generation_pipeline_sub_agent_order():
+def test_visual_generation_pipeline_graph_edges():
     from google.adk.workflow import Workflow
 
     from creative_agent.agent import visual_generation_pipeline
@@ -616,7 +616,7 @@ def test_campaign_pipeline_uses_distinct_global_bucket():
         assert a.model.model not in {config.worker_model, config.lite_planner_model}
 
 
-def test_campaign_pipeline_respects_placement_env(monkeypatch):
+def test_campaign_pipeline_respects_placement_env(monkeypatch, fresh_config):
     """DoE arm seam: the campaign half's models+location follow
     CAMPAIGN_RESEARCH_PLACEMENT, resolved via config.campaign_models(). The models
     are bound at import time, so re-import fresh under the patched env.
@@ -625,44 +625,18 @@ def test_campaign_pipeline_respects_placement_env(monkeypatch):
     covered by test_campaign_pipeline_uses_distinct_global_bucket. The trend half
     is unaffected.
     """
-    import sys
-
-    # Re-importing agent_common fresh rebinds INFRA_RETRY etc., so any package that
-    # already imported it (trend_scout/creative_eval) would be left referencing a
-    # stale copy → identity breaks in unrelated tests. Snapshot and fully RESTORE
-    # the whole package subset, exactly like test_config.py's fresh_config fixture.
-    prefixes = (
-        "creative_agent",
-        "trend_scout",
-        "creative_eval",
-        "interactive_creative",
-        "agent_common",
-    )
-    saved = {k: sys.modules[k] for k in list(sys.modules) if k.startswith(prefixes)}
-
-    def _drop():
-        for m in [k for k in sys.modules if k.startswith(prefixes)]:
-            del sys.modules[m]
-
-    _drop()
     monkeypatch.setenv("CAMPAIGN_RESEARCH_PLACEMENT", "global_3x")
-    try:
-        from creative_agent.sub_agents.campaign_researcher import agent as camp
+    camp = fresh_config("creative_agent.sub_agents.campaign_researcher.agent")
 
-        for a in (
-            camp.campaign_web_planner,
-            camp.campaign_web_searcher,
-            camp.campaign_web_synthesizer,
-        ):
-            assert a.model.client_kwargs["location"] == "global"
-        assert camp.campaign_web_planner.model.model == "gemini-3.5-flash-lite"
-        assert camp.campaign_web_searcher.model.model == "gemini-3.8-flash"
-        assert camp.campaign_web_synthesizer.model.model == "gemini-3.8-flash"
-    finally:
-        # Teardown: drop the placement-bound copies and restore the originals so
-        # later tests see the same module objects they were already bound to.
-        _drop()
-        sys.modules.update(saved)
+    for a in (
+        camp.campaign_web_planner,
+        camp.campaign_web_searcher,
+        camp.campaign_web_synthesizer,
+    ):
+        assert a.model.client_kwargs["location"] == "global"
+    assert camp.campaign_web_planner.model.model == "gemini-3.5-flash-lite"
+    assert camp.campaign_web_searcher.model.model == "gemini-3.8-flash"
+    assert camp.campaign_web_synthesizer.model.model == "gemini-3.8-flash"
 
 
 def test_trend_pipeline_stays_global():

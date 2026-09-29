@@ -54,6 +54,22 @@ dev = [
     "ty==0.0.84",
 ]
 
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# Put the repo root on sys.path so tests import the flat first-party packages
+# (and `deployment.*`) without per-test sys.path hacks.
+pythonpath = ["."]
+markers = [
+    "subprocess: spawns a child process (fresh-import guards, shell entrypoint)",
+]
+# Silence only known third-party noise, scoped by message + category (+ module),
+# so any new first-party DeprecationWarning still surfaces.
+filterwarnings = [
+    "ignore:GOOGLE_GENAI_USE_VERTEXAI is deprecated:DeprecationWarning",
+    "ignore:\\[EXPERIMENTAL\\]:UserWarning",
+    "ignore::pydantic.warnings.PydanticDeprecatedSince212:(agentplatform|vertexai)\\._genai\\.",
+]
+
 [tool.ruff]
 target-version = "py313"
 line-length = 88

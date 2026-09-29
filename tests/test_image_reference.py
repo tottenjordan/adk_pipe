@@ -8,24 +8,13 @@ contents, with a text-only fallback) and the Phase-1 aspect-ratio config
 import asyncio
 
 from creative_agent import image_tools
+from tests._fakes import FakeToolContext, noop_async
+
+_STATE = {"gcs_folder": "f", "agent_output_dir": "d"}
 
 
-async def _noop_async(*a, **k):
-    return None
-
-
-class MockState(dict):
-    pass
-
-
-class MockToolContext:
-    def __init__(self):
-        self.state = MockState()
-        self.state["gcs_folder"] = "f"
-        self.state["agent_output_dir"] = "d"
-
-    async def save_artifact(self, *a, **k):
-        return None
+def _ctx() -> FakeToolContext:
+    return FakeToolContext(_STATE)
 
 
 class _Part:
@@ -66,7 +55,7 @@ def _patch_client(monkeypatch):
     client = _Client()
     client.models = models
     monkeypatch.setattr(image_tools, "_get_genai_client", lambda: client)
-    monkeypatch.setattr(image_tools.asyncio, "sleep", _noop_async)
+    monkeypatch.setattr(image_tools.asyncio, "sleep", noop_async)
     monkeypatch.setattr(image_tools, "_save_to_gcs", lambda *a, **k: "gs://b/c.png")
     return models
 
@@ -74,7 +63,7 @@ def _patch_client(monkeypatch):
 def test_no_reference_uses_bare_string_contents(monkeypatch):
     """Without reference_image_uri, contents is the bare prompt string."""
     models = _patch_client(monkeypatch)
-    ctx = MockToolContext()
+    ctx = _ctx()
     ctx.state["final_visual_concepts"] = {
         "visual_concepts": [
             {"image_generation_prompt": "a flat cartoon", "concept_name": "c"}
@@ -99,7 +88,7 @@ def test_gs_reference_appends_part_to_contents(monkeypatch):
 
     monkeypatch.setattr(image_tools, "_download_blob", fake_download)
 
-    ctx = MockToolContext()
+    ctx = _ctx()
     ctx.state["reference_image_uri"] = "gs://my-bucket/products/guitar.png"
     ctx.state["final_visual_concepts"] = {
         "visual_concepts": [
@@ -126,7 +115,7 @@ def test_reference_fetch_failure_falls_back_to_text_only(monkeypatch):
 
     monkeypatch.setattr(image_tools, "_download_blob", boom)
 
-    ctx = MockToolContext()
+    ctx = _ctx()
     ctx.state["reference_image_uri"] = "gs://my-bucket/x.png"
     ctx.state["final_visual_concepts"] = {
         "visual_concepts": [{"image_generation_prompt": "a scene", "concept_name": "c"}]
@@ -141,7 +130,7 @@ def test_bad_aspect_ratio_falls_back_to_default(monkeypatch):
     """An aspect_ratio outside the allowed set falls back to the configured
     default; a valid choice is passed through."""
     models = _patch_client(monkeypatch)
-    ctx = MockToolContext()
+    ctx = _ctx()
     ctx.state["final_visual_concepts"] = {
         "visual_concepts": [
             {
@@ -221,7 +210,7 @@ def test_new_aspect_ratios_are_allowed():
 def test_state_aspect_ratio_override_applies_to_all_concepts(monkeypatch):
     """A valid state['visual_aspect_ratio'] overrides every concept's own ratio."""
     models = _patch_client(monkeypatch)
-    ctx = MockToolContext()
+    ctx = _ctx()
     ctx.state["visual_aspect_ratio"] = "16:9"
     ctx.state["final_visual_concepts"] = {
         "visual_concepts": [
@@ -247,7 +236,7 @@ def test_state_aspect_ratio_override_applies_to_all_concepts(monkeypatch):
 def test_empty_state_aspect_ratio_preserves_per_concept(monkeypatch):
     """An empty/unset override leaves the per-concept diversity intact."""
     models = _patch_client(monkeypatch)
-    ctx = MockToolContext()
+    ctx = _ctx()
     ctx.state["visual_aspect_ratio"] = ""
     ctx.state["final_visual_concepts"] = {
         "visual_concepts": [
@@ -300,7 +289,7 @@ def test_reference_role_adds_instruction_to_prompt(monkeypatch):
     models = _patch_client(monkeypatch)
     monkeypatch.setattr(image_tools, "_download_blob", lambda *a, **k: b"\x89PNGREF")
 
-    ctx = MockToolContext()
+    ctx = _ctx()
     ctx.state["reference_image_uri"] = "gs://b/logo.png"
     ctx.state["reference_image_role"] = "logo"
     ctx.state["final_visual_concepts"] = {
@@ -318,7 +307,7 @@ def test_reference_role_adds_instruction_to_prompt(monkeypatch):
 def test_reference_role_ignored_without_reference(monkeypatch):
     """A role with no reference image leaves the prompt unchanged (text-only)."""
     models = _patch_client(monkeypatch)
-    ctx = MockToolContext()
+    ctx = _ctx()
     ctx.state["reference_image_role"] = "product"
     ctx.state["final_visual_concepts"] = {
         "visual_concepts": [{"image_generation_prompt": "a scene", "concept_name": "c"}]

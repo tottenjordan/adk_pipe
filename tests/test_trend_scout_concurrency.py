@@ -16,49 +16,15 @@ import json
 import os
 from concurrent.futures import ThreadPoolExecutor
 
+from tests._fakes import FakeStorageClient, FakeToolContext
 from trend_scout import tools
 
 
-class MockState(dict):
-    def to_dict(self):
-        return dict(self)
-
-
-class MockToolContext:
+def _ctx(gcs_folder: str) -> FakeToolContext:
     """A distinct concurrent run per ``gcs_folder``."""
-
-    def __init__(self, gcs_folder: str):
-        self.state = MockState()
-        self.state["gcs_folder"] = gcs_folder
-        self.state["agent_output_dir"] = "trawler_output"
-
-
-class _FakeBlob:
-    def __init__(self, name, uploads):
-        self.name = name
-        self._uploads = uploads
-
-    def upload_from_filename(self, path):
-        # The scratch file must still exist on disk at upload time (a racing
-        # rmtree would have deleted it under the old code).
-        assert os.path.exists(path), path
-        self._uploads.append((self.name, path))
-
-
-class _FakeBucket:
-    def __init__(self, uploads):
-        self._uploads = uploads
-
-    def blob(self, name):
-        return _FakeBlob(name, self._uploads)
-
-
-class _FakeStorageClient:
-    def __init__(self, uploads):
-        self._uploads = uploads
-
-    def bucket(self, name):
-        return _FakeBucket(self._uploads)
+    return FakeToolContext(
+        {"gcs_folder": gcs_folder, "agent_output_dir": "trawler_output"}
+    )
 
 
 def test_write_to_file_isolates_concurrent_runs(monkeypatch, tmp_path):
@@ -67,10 +33,10 @@ def test_write_to_file_isolates_concurrent_runs(monkeypatch, tmp_path):
     ``trawler_output`` directory in the CWD."""
     monkeypatch.chdir(tmp_path)
     uploads: list[tuple[str, str]] = []
-    monkeypatch.setattr(tools, "_get_gcs_client", lambda: _FakeStorageClient(uploads))
+    monkeypatch.setattr(tools, "_get_gcs_client", lambda: FakeStorageClient(uploads))
 
     def _call(folder):
-        return tools.write_to_file(f"# trends for {folder}", MockToolContext(folder))
+        return tools.write_to_file(f"# trends for {folder}", _ctx(folder))
 
     with ThreadPoolExecutor(max_workers=2) as ex:
         results = list(ex.map(_call, ["run_a", "run_b"]))
@@ -92,10 +58,10 @@ def test_save_session_state_isolates_concurrent_runs(monkeypatch, tmp_path):
     files and leave no bare ``trawler_output`` directory in the CWD."""
     monkeypatch.chdir(tmp_path)
     uploads: list[tuple[str, str]] = []
-    monkeypatch.setattr(tools, "_get_gcs_client", lambda: _FakeStorageClient(uploads))
+    monkeypatch.setattr(tools, "_get_gcs_client", lambda: FakeStorageClient(uploads))
 
     def _call(folder):
-        return tools.save_session_state_to_gcs(MockToolContext(folder))
+        return tools.save_session_state_to_gcs(_ctx(folder))
 
     with ThreadPoolExecutor(max_workers=2) as ex:
         results = list(ex.map(_call, ["run_a", "run_b"]))
@@ -117,52 +83,22 @@ def test_write_to_file_uploads_correct_content(monkeypatch, tmp_path):
     must contain THIS run's content (not another run's), so the object key uses
     the file basename and the temp dir never leaks into it."""
     monkeypatch.chdir(tmp_path)
-    captured: dict[str, str] = {}
+    client = FakeStorageClient([])
+    monkeypatch.setattr(tools, "_get_gcs_client", lambda: client)
 
-    class _CapBlob(_FakeBlob):
-        def upload_from_filename(self, path):
-            assert os.path.exists(path), path
-            with open(path) as f:
-                captured[self.name] = f.read()
-
-    class _CapBucket(_FakeBucket):
-        def blob(self, name):
-            return _CapBlob(name, self._uploads)
-
-    class _CapClient(_FakeStorageClient):
-        def bucket(self, name):
-            return _CapBucket(self._uploads)
-
-    monkeypatch.setattr(tools, "_get_gcs_client", lambda: _CapClient([]))
-
-    tools.write_to_file("# unique content", MockToolContext("solo"))
-    assert captured["solo/selected_trends.txt"] == "# unique content"
+    tools.write_to_file("# unique content", _ctx("solo"))
+    assert client.contents["solo/selected_trends.txt"] == b"# unique content"
 
 
 def test_save_session_state_uploads_valid_json(monkeypatch, tmp_path):
     """The session-state export must upload parseable JSON of this run's state."""
     monkeypatch.chdir(tmp_path)
-    captured: dict[str, str] = {}
+    client = FakeStorageClient([])
+    monkeypatch.setattr(tools, "_get_gcs_client", lambda: client)
 
-    class _CapBlob(_FakeBlob):
-        def upload_from_filename(self, path):
-            assert os.path.exists(path), path
-            with open(path) as f:
-                captured[self.name] = f.read()
-
-    class _CapBucket(_FakeBucket):
-        def blob(self, name):
-            return _CapBlob(name, self._uploads)
-
-    class _CapClient(_FakeStorageClient):
-        def bucket(self, name):
-            return _CapBucket(self._uploads)
-
-    monkeypatch.setattr(tools, "_get_gcs_client", lambda: _CapClient([]))
-
-    ctx = MockToolContext("solo")
+    ctx = _ctx("solo")
     ctx.state["some_key"] = "some_value"
     tools.save_session_state_to_gcs(ctx)
 
-    parsed = json.loads(captured["solo/trawler_session_state.json"])
+    parsed = json.loads(client.contents["solo/trawler_session_state.json"])
     assert parsed["some_key"] == "some_value"

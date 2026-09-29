@@ -83,7 +83,11 @@ def test_assemble_batch_records_tolerates_missing_summary():
         }
     ]
     recs = assemble_batch_records(
-        arm="regional_25", concurrency=1, batch_id="b0", revision="", per_run=per_run
+        arm="global_altbucket",
+        concurrency=1,
+        batch_id="b0",
+        revision="",
+        per_run=per_run,
     )
     assert len(recs) == 1
     assert recs[0]["status"] == "error"
@@ -96,7 +100,7 @@ def test_plan_cell_order_no_consecutive_arm_within_load():
     row (so temporal drift hits every arm equally), and loads are blocked."""
     from experiments.quota_spread.run_doe import plan_cell_order
 
-    arms = ["global_3x", "regional_25"]
+    arms = ["global_3x", "global_altbucket"]
     loads = [1, 5]
     order = plan_cell_order(arms, loads, reps=4)
 
@@ -118,10 +122,13 @@ def test_plan_cell_order_no_consecutive_arm_within_load():
 
 
 def test_plan_cell_order_three_arms_no_consecutive():
-    """The no-consecutive-arm guarantee must hold for the 3-arm (Arm C in) case."""
+    """The no-consecutive-arm guarantee must hold for a 3-arm design.
+
+    plan_cell_order is arm-agnostic; only two arms are live (global_altbucket retired
+    2026-09), so the third arm name is synthetic."""
     from experiments.quota_spread.run_doe import plan_cell_order
 
-    arms = ["global_3x", "regional_25", "global_altbucket"]
+    arms = ["global_3x", "global_altbucket", "synthetic_arm"]
     order = plan_cell_order(arms, [1], reps=3)
 
     arms_seq = [a for (a, n, r) in order]
@@ -134,6 +141,6 @@ def test_plan_cell_order_is_deterministic():
     """Same inputs → identical order (no random / no wall-clock)."""
     from experiments.quota_spread.run_doe import plan_cell_order
 
-    a = plan_cell_order(["global_3x", "regional_25"], [1, 5], reps=3)
-    b = plan_cell_order(["global_3x", "regional_25"], [1, 5], reps=3)
+    a = plan_cell_order(["global_3x", "global_altbucket"], [1, 5], reps=3)
+    b = plan_cell_order(["global_3x", "global_altbucket"], [1, 5], reps=3)
     assert a == b

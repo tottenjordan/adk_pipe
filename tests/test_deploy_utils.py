@@ -57,8 +57,7 @@ class TestEnvVarDict:
         # Verify the expected keys against .env.example (the source of the
         # deploy env), independent of deploy_agent.py's agentplatform.Client.
         env_example_path = os.path.join(os.path.dirname(__file__), "..", ".env.example")
-        if not os.path.exists(env_example_path):
-            pytest.skip(".env.example not found")
+        assert os.path.exists(env_example_path), ".env.example not found"
 
         env_values = dotenv.dotenv_values(env_example_path)
         for key in EXPECTED_ENV_VAR_KEYS:
@@ -67,8 +66,7 @@ class TestEnvVarDict:
     def test_env_example_has_agent_engine_ids(self):
         """Verify .env.example has placeholder Agent Engine ID fields."""
         env_example_path = os.path.join(os.path.dirname(__file__), "..", ".env.example")
-        if not os.path.exists(env_example_path):
-            pytest.skip(".env.example not found")
+        assert os.path.exists(env_example_path), ".env.example not found"
 
         env_values = dotenv.dotenv_values(env_example_path)
         assert "CREATIVE_AGENT_ENGINE_ID" in env_values
@@ -82,8 +80,7 @@ class TestEnvVarDict:
     def test_requirements_includes_adk(self):
         """Verify requirements.txt includes google-adk."""
         req_path = os.path.join(os.path.dirname(__file__), "..", "requirements.txt")
-        if not os.path.exists(req_path):
-            pytest.skip("requirements.txt not found")
+        assert os.path.exists(req_path), "requirements.txt not found"
         with open(req_path) as f:
             content = f.read()
         assert "google-adk" in content
@@ -115,8 +112,7 @@ class TestAgentEngineLocation:
 
     def test_env_example_defines_gcp_region(self):
         env_example_path = os.path.join(os.path.dirname(__file__), "..", ".env.example")
-        if not os.path.exists(env_example_path):
-            pytest.skip(".env.example not found")
+        assert os.path.exists(env_example_path), ".env.example not found"
         env_values = dotenv.dotenv_values(env_example_path)
         assert env_values.get("GCP_REGION") == "us-central1"
 
@@ -129,8 +125,6 @@ PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 
 def _import_deploy_agent():
     """Import deploy_agent.py, skipping if its (non-cred) deps are unavailable."""
-    if PROJECT_ROOT not in sys.path:
-        sys.path.insert(0, PROJECT_ROOT)
     try:
         import deployment.deploy_agent as deploy_agent
     except ImportError as e:  # e.g. agentplatform/absl missing in a bare env
