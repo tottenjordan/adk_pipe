@@ -117,3 +117,13 @@ so directional only):
   guitar brand. `PICK_TRENDS_INSTR` has no brand-safety guidance, and one run
   can't say whether gemini-3.5-flash (vs the old gemini-2.5-pro) is to blame —
   flagged as a follow-up.
+
+## adk eval efficiency baseline
+
+Per-case efficiency baselines for the nightly `adk eval` CI gate live in
+[`eval_efficiency.json`](eval_efficiency.json) (`{agent: {eval_id: {metric: value}}}` over
+ADK's informational `token_usage_v1`, `inference_call_count_v1`, `tool_call_count_v1`,
+`invocation_duration_v1`). **Not yet seeded** (`{}`) — until it is, the gate only fails
+on non-PASSED cases. Seed/refresh with `tests/eval/efficiency_gate.py --update-baseline`
+in a reviewed PR; policy in
+[deployment/README.md → Eval CI (WIF)](../../deployment/README.md#eval-ci-wif).
