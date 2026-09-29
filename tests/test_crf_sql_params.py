@@ -71,7 +71,7 @@ class TestIdentifierAllowList:
         with pytest.raises(ValueError):
             main._build_reap_sql("p", dataset, table, 45, 3)
         with pytest.raises(ValueError):
-            main._build_select_unprocessed_sql("p", dataset, table)
+            main._build_select_unprocessed_sql("p", dataset, table, max_rows=10)
 
     def test_update_rows_status_rejects_bad_table_without_querying(self):
         bq = _bq()
@@ -176,6 +176,57 @@ class TestValuesAreParameterized:
         main.crf_entrypoint(types.SimpleNamespace(data={"message": {"data": encoded}}))
         select_sql = bq.query.call_args_list[1].args[0]
         assert f"FROM `test-project.{DS}.{TBL}`" in select_sql
+
+
+# ============================================================
+# orchestrator row limit (caps how many rows one trigger dispatches)
+# ============================================================
+class TestOrchestratorRowLimit:
+    def _run(self, monkeypatch, payload):
+        bq = _bq()
+        bq.query.return_value.to_dataframe.return_value = pd.DataFrame()
+        monkeypatch.setattr(main, "_get_bigquery_client", lambda: bq)
+        monkeypatch.setattr(main, "_get_pubsub_client", MagicMock)
+        encoded = base64.b64encode(json.dumps(payload).encode()).decode()
+        main.crf_entrypoint(types.SimpleNamespace(data={"message": {"data": encoded}}))
+        return bq.query.call_args_list[1]  # [0] is the reap UPDATE
+
+    def test_select_sql_binds_limit_as_param(self):
+        sql, params = main._build_select_unprocessed_sql("p", DS, TBL, max_rows=7)
+        assert "LIMIT @max_rows" in sql
+        assert sql.index("ORDER BY") < sql.index("LIMIT")
+        (p,) = params
+        assert (p.name, p.type_, p.value) == ("max_rows", "INT64", 7)
+
+    @pytest.mark.parametrize(
+        ("requested", "expected"),
+        [
+            (None, 10),  # unset -> config cap
+            (3, 3),  # lower than the cap -> honored
+            (500, 10),  # above the cap -> clamped
+            ("4", 4),  # numeric string -> honored
+            (0, 10),  # non-positive -> cap
+            (-2, 10),
+            ("lots", 10),  # garbage -> cap
+            (True, 10),  # bool is not a row count
+        ],
+    )
+    def test_resolve_max_rows(self, requested, expected):
+        assert main._resolve_max_rows(requested, cap=10) == expected
+
+    def test_default_cap_comes_from_config(self, monkeypatch):
+        monkeypatch.setattr(config, "CRF_MAX_ROWS_PER_RUN", 5)
+        payload = {"bq_dataset": DS, "bq_table": TBL, "agent_resource_id": "1"}
+        call = self._run(monkeypatch, payload)
+        assert _params(call)["max_rows"] == ("INT64", 5)
+
+    def test_message_max_rows_lowers_limit_but_cannot_exceed_cap(self, monkeypatch):
+        monkeypatch.setattr(config, "CRF_MAX_ROWS_PER_RUN", 5)
+        base = {"bq_dataset": DS, "bq_table": TBL, "agent_resource_id": "1"}
+        call = self._run(monkeypatch, {**base, "max_rows": 2})
+        assert _params(call)["max_rows"] == ("INT64", 2)
+        call = self._run(monkeypatch, {**base, "max_rows": 999})
+        assert _params(call)["max_rows"] == ("INT64", 5)
 
 
 # ============================================================

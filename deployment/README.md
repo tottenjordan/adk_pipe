@@ -35,6 +35,7 @@ Cloud Run Functions, which do **not** read `.env`). All vars are documented in
 | `BQ_DATASET_ID` / `BQ_TABLE_TARGETS` | CRFs (SQL identifier allow-list) | No | `trend_trawler` / `target_trends_crf` |
 | `CRF_EXTRA_ALLOWED_TABLES` | CRFs (extra allow-listed tables) | No | empty |
 | `REAP_STALE_PROCESSING_MINUTES` / `MAX_PROCESSING_ATTEMPTS` | CRF orchestrator (stale-PROCESSING reaper) | No | `45` / `3` |
+| `CRF_MAX_ROWS_PER_RUN` | CRF orchestrator (max rows one trigger dispatches, oldest first; a message's `max_rows` can only lower it) | No | `10` |
 | `<PREFIX>_AGENT_ENGINE_ID` | `test_deployment.py`, `integration_test.py` (written by `deploy_agent.py --create`) | Yes, per tested agent | none |
 
 `create_session_engine.py` also accepts `--project` / `--region` flags, which
@@ -418,6 +419,14 @@ A message naming any other dataset/table is logged and dropped (ACKed). To targe
 an extra table (e.g. a `_p95` load-test copy), deploy **both** functions with
 `CRF_EXTRA_ALLOWED_TABLES=<table>[,<table>...]` added to their `--set-env-vars` list
 (or `--update-env-vars` to add it without dropping the required vars).
+
+Row limit: one trigger dispatches at most `CRF_MAX_ROWS_PER_RUN` rows (default
+10, oldest `entry_timestamp` first); the rest stay unclaimed until the next
+trigger, so publishing a message can't accidentally fan out the whole backlog.
+Add an optional `"max_rows": N` to the message to dispatch fewer (e.g. `1` for a
+smoke test). Values above the cap are clamped, and invalid values fall back to it.
+To raise the cap, add `CRF_MAX_ROWS_PER_RUN=<n>` to the orchestrator's
+`--set-env-vars`.
 
 Worker failure semantics: if the agent run fails, the worker marks the row
 `FAILED` and **ACKs** (no Pub/Sub retry — a redelivery can't re-lock a `FAILED`
