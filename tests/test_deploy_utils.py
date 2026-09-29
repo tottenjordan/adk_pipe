@@ -1,6 +1,7 @@
 """Tests for deployment utility functions (deploy_agent.py)."""
 
 import importlib
+import logging
 import os
 import re
 import subprocess
@@ -542,3 +543,59 @@ class TestIntegrationEventAndSessionHelpers:
         it = _import_integration_test()
         events = [{"content": {"parts": [{"function_call": {"name": "memorize"}}]}}]
         assert not it._check_text_output("interactive_creative", events).passed
+
+
+# --- test_deployment: tool-call logging handles 2.x snake_case stream events ---
+def _import_test_deployment(monkeypatch):
+    """Import test_deployment.py in-process: it parses argv and builds an
+    agentplatform.Client at import time, so stub both."""
+    _import_deploy_agent()
+    import agentplatform
+
+    monkeypatch.setattr(agentplatform, "Client", MagicMock())
+    monkeypatch.setattr(
+        sys, "argv", ["test_deployment.py", "--user_id", "u", "--agent", "trend_scout"]
+    )
+    monkeypatch.delitem(sys.modules, "deployment.test_deployment", raising=False)
+    return importlib.import_module("deployment.test_deployment")
+
+
+class TestPrettyPrintEvent:
+    @pytest.mark.parametrize(
+        ("call_key", "resp_key"),
+        [("function_call", "function_response"), ("functionCall", "functionResponse")],
+    )
+    def test_logs_function_call_and_response_in_both_casings(
+        self, monkeypatch, caplog, call_key, resp_key
+    ):
+        td = _import_test_deployment(monkeypatch)
+        event = {
+            "author": "root_agent",
+            "content": {
+                "parts": [
+                    {call_key: {"name": "memorize", "args": {"key": "k"}}},
+                    {resp_key: {"name": "memorize", "response": {"ok": True}}},
+                ]
+            },
+        }
+        with caplog.at_level(logging.INFO):
+            td.pretty_print_event(event)
+        assert "[root_agent]: Function call: memorize" in caplog.text
+        assert "[root_agent]: Function response: memorize" in caplog.text
+
+    def test_snake_case_part_with_null_fields_logs_function_call(
+        self, monkeypatch, caplog
+    ):
+        """2.x dumps every Part field, so ``text`` is present but None."""
+        td = _import_test_deployment(monkeypatch)
+        part = {"text": None, "function_call": {"name": "memorize", "args": {}}}
+        event = {"author": "a", "content": {"parts": [part]}}
+        with caplog.at_level(logging.INFO):
+            td.pretty_print_event(event)
+        assert "[a]: Function call: memorize" in caplog.text
+        assert "[a]: None" not in caplog.text
+
+    def test_null_content_and_parts_do_not_raise(self, monkeypatch):
+        td = _import_test_deployment(monkeypatch)
+        td.pretty_print_event({"author": "a", "content": None})
+        td.pretty_print_event({"author": "a", "content": {"parts": None}})
