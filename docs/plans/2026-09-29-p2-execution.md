@@ -57,15 +57,16 @@ These supersede Correction 1's hypothesis.
    - A bare `NodeTool` works from both a plain root and a resumable `App` root, *provided the workflow's last node returns a value*.
    - If the workflow finishes with **no output**, `run_node(..., raise_on_wait=True)` raises `NodeInterruptedError` (`_dynamic_node_scheduler.py:746-751`). `NodeTool` re-raises it: no function response comes back, and the root's turn ends silently.
    - A non-long-running subclass does **not** help. So `PipelineTool` is dropped, and bare nodes go into `tools=[...]`.
-   - **Rule:** every tool-exposed Workflow must end in a node that returns a value.
-     - `RetryUntilKeyNode` yields `state[output_key]` as its output, and `""` on exhaustion, alongside the marker.
+   - **Rule:** every tool-exposed Workflow must end in a node that returns a **truthy** value. `NodeTool` is long-running, and ADK skips the function response for a falsy long-running result (`flows/llm_flows/tools/_caller.py:895-897`), so `""` stalls the root too.
+     - `RetryUntilKeyNode` yields `state[output_key]` as its output. On exhaustion it yields a non-empty "unavailable" notice alongside the marker (T1).
      - A final `LlmAgent` yields its text.
      - Any other terminal node (fakes, state-only nodes) needs a function node after it that returns a value.
    - A structure test asserts this for every exposed pipeline.
 7. **Nodes are cloned on every run** (a shallow `clone()`). Per-instance counters or state on a node are lost, so tests count runs through shared lists.
 8. **Two calls to the same pipeline tool in one invocation replay the cached result;** a call in the next user message runs fresh. So retry-on-empty must live *inside* the pipeline (`RetryUntilKeyNode`), never in root re-calls. Same-invocation replay also means a failed-then-retried tool call re-runs only the failed node: the first node ran once across two calls in (d).
 9. **The `JoinNode` output is a dict keyed by upstream node name.** This confirms the need for `research_barrier` (Correction 4).
-10. **`r.tools` keeps the raw Workflow;** it is wrapped into `NodeTool` only in `await r.canonical_tools()`. Structure tests must inspect `canonical_tools()`, or `isinstance(t, Workflow | BaseNode)` on `r.tools`. The declaration is the workflow's name and description plus a required `request` string, the same shape as `AgentTool`.
+10. **The `NodeTool` wrapping happens when the agent is constructed:** `_pre_validate_tools` (`agents/llm_agent.py:1255-1264`) turns every non-agent `BaseNode` into a `NodeTool`, so `r.tools` already holds `NodeTool`s. The declaration is the workflow's name and description plus a required `request` string, the same shape as `AgentTool` (pydantic adds titles, plus the field description).
+11. **Inner pipeline events now land in the parent session** on branch `<tool>@<fc_id>`. `AgentTool` used to keep them in an isolated sub-runner. They don't reach the root model's context, but the session event count and the frontend timeline grow. Check the frontend rendering in the G4 manual run, and count events in the G3 eval (open question 3).
 
 ## Conventions (restate in every subagent dispatch)
 
