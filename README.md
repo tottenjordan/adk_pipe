@@ -12,7 +12,7 @@
 ![uv](https://img.shields.io/badge/packaging-uv-DE5FE9?logo=uv&logoColor=white)
 ![Ruff](https://img.shields.io/badge/lint-ruff-261230?logo=ruff&logoColor=white)
 ![ty](https://img.shields.io/badge/types-ty-261230?logo=astral&logoColor=white)
-![Google ADK](https://img.shields.io/badge/Google%20ADK-2.4-4285F4?logo=google&logoColor=white)
+![Google ADK](https://img.shields.io/badge/Google%20ADK-2.10-4285F4?logo=google&logoColor=white)
 ![Vertex AI](https://img.shields.io/badge/Vertex%20AI-Agent%20Engine-4285F4?logo=googlecloud&logoColor=white)
 ![Gemini](https://img.shields.io/badge/Gemini-886FBF?logo=googlegemini&logoColor=white)
 ![Next.js](https://img.shields.io/badge/Next.js-16-000000?logo=nextdotjs&logoColor=white)
@@ -157,7 +157,8 @@ BQ_TABLE_EVALS='creative_evals'
 
 # Agent Engine (leave blank)
 CREATIVE_AGENT_ENGINE_ID=""
-TRAWLER_AGENT_ENGINE_ID=""
+SCOUT_AGENT_ENGINE_ID=""
+INTERACTIVE_AGENT_ENGINE_ID=""
 
 
 # campaign metadata
@@ -234,13 +235,13 @@ Key Selling Points: 'The 85/15 S Humbucker pickups deliver a wide tonal range, f
 * who are they? what do they want? 
 * go beyond typical demographics with...
   * **psychographics:** *people who are frustrated with...* 
-  * **lisfestyle:** *frequent travelers; spending most income on concert experiences.*
+  * **lifestyle:** *frequent travelers; spending most income on concert experiences.*
   * **hobbies, interests, humor**: *music lovers, attend lots of jam band concerts. love surreal memes*
   * **lifestage**: *recent empty-nesters*
 
 **Key Selling Points**
 
-This will be the `{target_products}` 's flavor in the messaging and visual concepts
+This will be the `{target_product}`'s flavor in the messaging and visual concepts
 *can be used multiple ways. here are some...*
 
 * What is the `{target_audience}` 's benefit? what will make them really care?
@@ -266,7 +267,7 @@ uv run adk web .
 ```bash
 user: Brand Name: "YOUR BRAND OF CHOICE"
       Target Audience: "YOUR TARGET AUDIENCE OF CHOICE"
-      Target Product: "YOU TARGET PRODUCT OF CHOICE"
+      Target Product: "YOUR TARGET PRODUCT OF CHOICE"
       Key Selling Points: "YOU KEY SELLING POINT(S)"
 
 agent: `[end-to-end workflow >> recommended subset of trends]` 
@@ -277,7 +278,7 @@ agent: `[end-to-end workflow >> recommended subset of trends]`
 ```bash
 user: Brand Name: "YOUR BRAND OF CHOICE"
       Target Audience: "YOUR TARGET AUDIENCE OF CHOICE"
-      Target Product: "YOU TARGET PRODUCT OF CHOICE"
+      Target Product: "YOUR TARGET PRODUCT OF CHOICE"
       Key Selling Points: "YOU KEY SELLING POINT(S)"
       target_search_trend: "YOUR_SEARCH_TREND_OF_CHOICE"
 
@@ -290,9 +291,9 @@ Same inputs as the `creative_agent`, but the pipeline pauses at 3 checkpoints fo
 
 1. **After research** — review the research report, approve or request changes
 2. **After ad copies** — review generated ad copies before visual concept generation
-3. **After visual concepts** — review visual concepts and image prompts before image generation
+3. **After visual concepts** — review (and directly edit) visual concepts and image prompts before image generation; free-text revision notes are applied by a `visual_concept_reviser` agent before rendering
 
-At each checkpoint the UI displays a review panel where you can approve and continue, or provide feedback. Uses ADK's `LongRunningFunctionTool` for pause/resume.
+At each checkpoint the UI displays a review panel where you can approve and continue, or provide feedback. Uses ADK's `LongRunningFunctionTool` for pause/resume, on a resumable ADK `App` (`ResumabilityConfig(is_resumable=True)`).
 
 
 ## Evaluation
@@ -361,7 +362,7 @@ A custom React frontend (Next.js + Tailwind CSS + shadcn/ui) for running agents 
 # SESSION_SERVICE_URI=memory:// avoids ADK's local SQLite path check on the agents/ symlinks.
 TRUST_CLIENT_USER_ID=1 SESSION_SERVICE_URI=memory:// ALLOW_ORIGINS=http://localhost:3000 uv run uvicorn deployment.async_app:app --port 8000
 
-# terminal 2 — frontend (Node.js >= 18)
+# terminal 2 — frontend (Node.js >= 22.13)
 cd frontend && npm install && npm run dev   # http://localhost:3000
 ```
 
@@ -370,12 +371,13 @@ cd frontend && npm install && npm run dev   # http://localhost:3000
 
 ## Deployment
 
-Trend Trawler deploys in two layers:
+Trend Trawler deploys in three layers:
 
 | Layer | What | Where |
 | --- | --- | --- |
 | **Agents** | `trend_scout`, `creative_agent`, `interactive_creative` | Vertex AI Agent Engine (one instance each) |
 | **Fan-out** | orchestrator (`crf_entrypoint`) + worker (`agent_worker_entrypoint`) | Cloud Run Functions + Pub/Sub |
+| **Web** | `trend-trawler-web` (Next.js, IAP-gated proxy) + `trend-trawler-api` (private `deployment/async_app.py` backend, persistent Agent Engine sessions) | Cloud Run |
 
 <p align="center">
   <img src="docs/diagrams/crf_fanout_system_architecture.png" alt="Cloud Run Functions fan-out orchestration" width="720">
@@ -391,6 +393,8 @@ python deployment/deploy_agent.py --version=v1 --agent=creative_agent --create
 agents, the Cloud Run alternative, and [redeploy + rollback via traffic tags](deployment/README.md#8-redeploying-a-new-build--rollback-traffic-tags) —
 **live in [deployment/README.md](deployment/README.md).**
 
+**Per-user authz:** the web proxy verifies the IAP JWT and asserts the caller as `X-TT-User`; the backend (`runserver/authz.py`) trusts that header only alongside a verified ID token from the proxy's service account (`USER_AUTHZ_MODE=enforce` by default, `observe` for dry runs; `TRUST_CLIENT_USER_ID=1` is local-dev only and refused on Cloud Run). See [deployment/README.md → Per-user authz](deployment/README.md#9-per-user-authz-p3-env-vars--verification).
+
 
 ## Testing
 
@@ -398,8 +402,8 @@ agents, the Cloud Run alternative, and [redeploy + rollback via traffic tags](de
 # Frontend tests (Vitest + React Testing Library + jsdom)
 cd frontend && npm test              # single run; npm run test:watch for watch mode
 
-# Python tests (pytest) — no GCP credentials needed; GOOGLE_CLOUD_PROJECT must be set (any dummy value)
-uv run pytest tests/ -v
+# Python tests (pytest; config in pyproject.toml) — no GCP credentials needed; GOOGLE_CLOUD_PROJECT must be set (any dummy value)
+uv run pytest tests/ -q -n 4   # parallel via pytest-xdist; drop -n 4 / add -v for serial verbose output
 
 # Creative evaluation test (real Gemini API calls, ~2 min)
 uv run python -m creative_eval.run_eval_test
@@ -459,6 +463,7 @@ The `creative_agent` eval must run with `PYTHONPATH="$PWD"` and its own rubric c
 ├── interactive_creative/         # Phase 2 — human-in-the-loop variant
 │   ├── __init__.py
 │   ├── agent.py                  # also defines visual_concept_reviser
+│   ├── callbacks.py
 │   ├── prompts.py
 │   └── review_tools.py           # LongRunningFunctionTool review checkpoints
 ├── creative_eval/                # LLM-as-judge evaluation module
@@ -491,12 +496,14 @@ The `creative_agent` eval must run with `PYTHONPATH="$PWD"` and its own rubric c
 │   └── trend_scout -> ../trend_scout
 ├── runserver/                    # async-job run model: /runs FastAPI router (kick-off / poll / resume) + pure helpers
 │   ├── __init__.py
-│   └── async_runs.py
+│   ├── async_runs.py
+│   └── authz.py                  # per-user authz middleware (trusts the proxy's X-TT-User)
 ├── cloud_functions/              # event-driven fan-out (orchestrator + worker)
 │   ├── creative_fanout/
 │   │   ├── config.py
 │   │   ├── main.py               # crf_entrypoint + agent_worker_entrypoint
-│   │   └── requirements.txt
+│   │   ├── requirements.txt
+│   │   └── session.py            # agent_session context manager (create → query → delete)
 ├── deployment/
 │   ├── README.md                 # full deploy guide (Agent Engine, CRF fan-out, Cloud Run)
 │   ├── async_app.py              # launcher: mounts the async-job /runs router on ADK's canned FastAPI app
@@ -522,7 +529,8 @@ The `creative_agent` eval must run with `PYTHONPATH="$PWD"` and its own rubric c
 │   ├── diagrams/                 # generated architecture diagrams
 │   ├── experiments/              # experiment writeups (e.g. creative_agent latency)
 │   ├── notes/                    # hard-won session notes
-│   └── plans/                    # implementation plans (historical)
+│   ├── plans/                    # implementation plans (historical)
+│   └── screenshots/              # frontend screenshots
 ├── experiments/                  # external measurement harnesses — never bundled into an engine (see experiments/README.md)
 │   ├── README.md                 # index + shared conventions for the harnesses below
 │   ├── creative_latency/         # latency experiment: driver, parser, plots, results
@@ -533,6 +541,7 @@ The `creative_agent` eval must run with `PYTHONPATH="$PWD"` and its own rubric c
 │   ├── crf-deps.yml
 │   └── frontend-tests.yml
 ├── .env.example
+├── Dockerfile                    # trend-trawler-api (Cloud Run backend) image
 ├── CLAUDE.md
 ├── CODE_STANDARDS.md
 ├── pyproject.toml
