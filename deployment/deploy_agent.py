@@ -181,10 +181,13 @@ def validate_extra_packages(packages: list[str]) -> None:
 def resolve_deploy_target(module) -> tuple[str, object]:
     """Pick what to hand AdkApp for an agent module: its App if it has one.
 
-    Modules that export an ADK ``App`` (``trend_scout``, ``interactive_creative``)
-    carry ``ResumabilityConfig(is_resumable=True)`` on it, which the
-    ``LongRunningFunctionTool`` review checkpoints need to pause/resume. Deploying
-    the bare ``root_agent`` would silently drop that config on Agent Engine.
+    Every agent module now exports an ADK ``App``, so all three deploy as
+    ``AdkApp(app=...)``. ``trend_scout`` / ``interactive_creative`` carry
+    ``ResumabilityConfig(is_resumable=True)``, which the ``LongRunningFunctionTool``
+    review checkpoints need to pause/resume; ``creative_agent``'s App is
+    non-resumable. All carry App-level ``plugins`` (the opt-in Model Armor screen,
+    ``agent_common/safety.py``). Deploying the bare ``root_agent`` would silently
+    drop both on Agent Engine.
 
     Returns ``(kind, target)`` where ``kind`` is the ``AdkApp`` keyword to use:
     ``("app", module.app)`` if it is an ``App``, else ``("agent", module.root_agent)``

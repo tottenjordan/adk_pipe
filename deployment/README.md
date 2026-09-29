@@ -919,6 +919,57 @@ gcloud run services update trend-trawler-api --region $REGION \
 
 (A revision change kills in-flight runs, and re-check the traffic pin afterwards — Step 8.)
 
+**Model Armor (opt-in, api + Agent Engine).** Off by default. When
+`MODEL_ARMOR_TEMPLATE` is set, `agent_common/safety.py` adds a Model Armor plugin to every
+agent's `App`, screening the user prompt and the model response of the **root
+orchestrator's turns only** (sub-agent research/drafter/critic calls are not screened —
+`AgentTool`/`NodeTool` would otherwise propagate the plugin into all of them). A blocked
+turn is replaced with a canned refusal. It is **fail-closed** by default: if the Model
+Armor call itself fails, the turn is blocked (`MODEL_ARMOR_FAIL_CLOSED=false` to let it
+through instead). Input screening runs only on a *fresh* user message (the root's first
+model call of a turn); later root calls in the same turn, whose newest content is a tool
+result, are not re-screened.
+
+Known gaps: interactive checkpoint edits / revision notes arrive at the root as
+`function_response` data on resume and are not screened; `NodeTool` pipeline (sub-branch)
+outputs are not screened, only what the root model says back. ADK's Model Armor client
+binds to the first event loop that uses it, so agents must be driven through the async
+path (`Runner.run_async` / Agent Engine `async_stream_query`); every caller in this repo
+does.
+
+| Env var | Value / behavior |
+|---|---|
+| `MODEL_ARMOR_TEMPLATE` | `projects/$PROJECT/locations/us-central1/templates/tt-demo`. Unset/blank = off. |
+| `MODEL_ARMOR_RESPONSE_TEMPLATE` | Optional separate response template (same location). Defaults to `MODEL_ARMOR_TEMPLATE`. |
+| `MODEL_ARMOR_FAIL_CLOSED` | Default `true`; `false`/`0`/`no`/`off` = fail-open. |
+
+```bash
+gcloud services enable modelarmor.googleapis.com
+# Model Armor is regional: point gcloud at the regional endpoint for template admin.
+gcloud config set api_endpoint_overrides/modelarmor https://modelarmor.us-central1.rep.googleapis.com/
+gcloud model-armor templates create tt-demo --location=us-central1 \
+  --rai-settings-filters='[{"filterType":"HATE_SPEECH","confidenceLevel":"MEDIUM_AND_ABOVE"},{"filterType":"DANGEROUS","confidenceLevel":"MEDIUM_AND_ABOVE"},{"filterType":"HARASSMENT","confidenceLevel":"MEDIUM_AND_ABOVE"},{"filterType":"SEXUALLY_EXPLICIT","confidenceLevel":"MEDIUM_AND_ABOVE"}]' \
+  --pi-and-jailbreak-filter-settings-enforcement=enabled \
+  --pi-and-jailbreak-filter-settings-confidence-level=medium-and-above \
+  --malicious-uri-filter-settings-enforcement=enabled
+
+# The screening callers need roles/modelarmor.user: the api SA and the Agent Engine
+# (Reasoning Engine) service agent.
+for M in serviceAccount:$API_SA \
+         serviceAccount:service-$PROJECT_NUMBER@gcp-sa-aiplatform-re.iam.gserviceaccount.com; do
+  gcloud projects add-iam-policy-binding $PROJECT --member=$M --role=roles/modelarmor.user
+done
+
+# api: try it on a tagged, 0%-traffic revision first (then pin traffic — Step 8).
+gcloud run services update trend-trawler-api --region $REGION --tag armor \
+  --update-env-vars MODEL_ARMOR_TEMPLATE=projects/$PROJECT/locations/us-central1/templates/tt-demo
+```
+
+For **Agent Engine**, the plugin list is built when the agent module is imported and is
+pickled into the deployed `App`, so set `MODEL_ARMOR_TEMPLATE` in the shell that runs
+`deploy_agent.py` (it is not read from the engine's env vars). On the api, a revision
+change kills in-flight runs, as with any env change.
+
 **Authed verification (bypassing the proxy).** The impersonated token must carry `email`,
 so pass `--include-email` — without it the api rejects it as untrusted (401):
 

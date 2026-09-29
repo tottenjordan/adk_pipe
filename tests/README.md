@@ -71,6 +71,7 @@ tests/
 ├── test_public_api.py               # creative_agent public facade (curated __all__ reuse surface) + guards: no legacy SequentialAgent/ParallelAgent/LoopAgent
 ├── test_retry_node.py               # RetryUntilKeyNode (retry-on-empty graph wrapper; is_populated; NodeTool no-stall)
 ├── test_retry_config.py             # scoped RetryConfig constants on infra agents
+├── test_safety_plugins.py           # opt-in Model Armor (agent_common.safety): env parsing, root-only scoping, every agent's App + canned-loader wiring
 ├── test_sanitize.py                 # lone-surrogate scrubber (agent_common.sanitize)
 ├── test_schemas.py                  # Pydantic schemas in the creative_agent pipeline
 ├── test_sdk_versions.py             # guard: aiplatform 2.x ships both agentplatform + vertexai surfaces
@@ -128,6 +129,10 @@ tests/
   `running` first so multi-checkpoint interactive runs don't stop early).
   `test_otel_flag.py`: the opt-in `ADK_OTEL_TO_CLOUD` flag parser and its (static)
   wiring into `async_app.py`'s `get_fast_api_app(otel_to_cloud=...)`.
+- **Safety** — `test_safety_plugins.py`: `build_safety_plugins` returns `[]` unless
+  `MODEL_ARMOR_TEMPLATE` is set (response-template + fail-closed overrides), the plugin
+  screens only root-agent turns (sub-agent callbacks short-circuit), and all three
+  agents expose an `App` whose `plugins` list the runner + ADK's canned loader use.
 - **Experiments harnesses** — `test_creative_latency_poll.py`, `test_experiment_*.py`,
   `test_quota_spread_*.py`: the pure/offline core of the `experiments/` measurement
   harnesses (event-log parsing, N-trial aggregation, 429/503 log-filter building, figure

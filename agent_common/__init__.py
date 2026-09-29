@@ -14,6 +14,7 @@ from agent_common.observability import (
 from agent_common.rate_limit import build_rate_limit_callback
 from agent_common.retry import build_infra_retry
 from agent_common.retry_node import RetryUntilKeyNode, is_populated
+from agent_common.safety import ScopedModelArmorPlugin, build_safety_plugins
 from agent_common.sanitize import (
     scrub_lone_surrogates,
     scrub_surrogates_in_response,
@@ -29,7 +30,9 @@ __all__ = [
     "build_gemini_with_fallback",
     "build_infra_retry",
     "build_rate_limit_callback",
+    "build_safety_plugins",
     "RetryUntilKeyNode",
+    "ScopedModelArmorPlugin",
     "collect_degradation_warnings",
     "get_bigquery_client",
     "get_gcs_client",
