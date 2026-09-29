@@ -116,16 +116,14 @@ def _build_eval_merge_sql(
 
 
 def write_trends_to_bq(tool_context: ToolContext) -> dict:
-    """
-    Writes selected trends to a BigQuery Table.
+    """Writes this run's creative-results row (campaign metadata + GCS folder) to BigQuery.
 
     Args:
         tool_context (ToolContext): The tool context.
 
     Returns:
-        dict: A dictionary containing a 'status' key ('success' or 'error').
-              On success, status is 'success' and includes a 'trends' key with the inserted terms
-              On failure, status is 'error' and includes an 'error_message'.
+        dict: On success, ``{"status": "success", "trend": <target_search_trends>}``.
+              Raises on failure (so transient BigQuery errors can be retried).
     """
     bq_client = _get_bigquery_client()
 
@@ -229,6 +227,8 @@ def write_eval_report_to_bq(tool_context: ToolContext) -> dict:
     build_eval_bq_row, and MERGEs it into the ``BQ_TABLE_EVALS`` table. The row
     foreign-keys to the trend_creatives row via ``creative_row_uuid`` and links
     to the full per-dimension JSON already saved in GCS.
+
+    Call after `save_eval_report_to_gcs` and `write_trends_to_bq` (it links to both).
     """
     report = tool_context.state.get("creative_evaluation_report")
     if not report:

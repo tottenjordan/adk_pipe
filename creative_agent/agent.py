@@ -269,7 +269,7 @@ def research_report_ready(ctx: Context) -> str:
 # round (degraded research) or straight to the composer (healthy path).
 combined_research_pipeline = Workflow(
     name="combined_research_pipeline",
-    description="Executes a pipeline of web research. It performs iterative research, evaluation, and insight generation.",
+    description="Runs parallel campaign + trend research, a refinement round only when that research is degraded, then a cited report.",
     input_schema=PipelineRequest,
     edges=[
         (
@@ -438,7 +438,7 @@ visual_concept_critic = Agent(
     name="visual_concept_critic",
     mode="single_turn",
     include_contents="none",
-    description="Critique and narrow down visual concepts",
+    description="Critique and refine visual concepts",
     planner=BuiltInPlanner(
         thinking_config=types.ThinkingConfig(include_thoughts=False)
     ),
@@ -677,5 +677,3 @@ root_agent = Agent(
     after_model_callback=callbacks.log_empty_turn_finish_reason,
     after_agent_callback=callbacks.log_final_state_summary,
 )
-
-# To ensure correct state management, **chain the calls** such that you only call the next `memorize` after the previous call has successfully responded.

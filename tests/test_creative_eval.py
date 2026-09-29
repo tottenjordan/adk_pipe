@@ -660,8 +660,30 @@ class TestEvaluateAllCreativesOutputs:
             "avg_visual_score",
             "overall_pass_rate",
             "weakest_dimensions",
+            "failed_creatives",
         }
         assert set(result.keys()) == expected_keys
+
+    def test_failed_creatives_lists_only_failures(self):
+        result, _ = self._run_with_mocks(ad_scores=[0.8, 0.5], vis_scores=[0.6])
+        failed = result["failed_creatives"]
+        assert [(f["type"], f["id"]) for f in failed] == [
+            ("ad_copy", 1),
+            ("visual_concept", 0),
+        ]
+        assert failed[0]["overall_score"] == 0.5
+        assert failed[0]["improvements"] == ["d1"]
+        assert set(failed[1]) == {
+            "type",
+            "id",
+            "name",
+            "overall_score",
+            "improvements",
+        }
+
+    def test_failed_creatives_empty_when_all_pass(self):
+        result, _ = self._run_with_mocks(ad_scores=[0.8], vis_scores=[0.9])
+        assert result["failed_creatives"] == []
 
     def test_counts_match_inputs(self):
         result, _ = self._run_with_mocks(

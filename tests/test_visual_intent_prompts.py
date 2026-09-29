@@ -32,10 +32,30 @@ class TestTier2IntentTokens:
         assert "{brand_colors?}" in prompts.ART_DIRECTOR_INSTR
         assert "{brand_colors?}" in prompts.VISUAL_CONCEPT_DRAFTER_INSTR
 
-    def test_style_preference_token_in_drafter_only(self):
-        # Seed-with-diversity: bias the drafter, not the art_director brief.
+    def test_style_preference_token_in_concept_agents(self):
+        # Seed-with-diversity: bias the concept agents, not the art_director brief.
+        # The critic/finalizer see it too so their diversity rule doesn't undo it.
         assert "{visual_style_preference?}" in prompts.VISUAL_CONCEPT_DRAFTER_INSTR
+        assert "{visual_style_preference?}" in prompts.VISUAL_CONCEPT_CRITIC_INSTR
+        assert "{visual_style_preference?}" in prompts.VISUAL_CONCEPT_FINALIZER_INSTR
+        assert "{visual_style_preference?}" not in prompts.ART_DIRECTOR_INSTR
 
-    def test_avoid_token_in_art_director_only(self):
-        # visual_avoid is a campaign-wide exclusion → art_director sets it once.
+    def test_avoid_token_in_art_director_drafter_and_critic(self):
         assert "{visual_avoid?}" in prompts.ART_DIRECTOR_INSTR
+        assert "{visual_avoid?}" in prompts.VISUAL_CONCEPT_DRAFTER_INSTR
+        assert "{visual_avoid?}" in prompts.VISUAL_CONCEPT_CRITIC_INSTR
+
+    def test_aspect_ratio_override_token_in_drafter_and_critic(self):
+        assert "{visual_aspect_ratio?}" in prompts.VISUAL_CONCEPT_DRAFTER_INSTR
+        assert "{visual_aspect_ratio?}" in prompts.VISUAL_CONCEPT_CRITIC_INSTR
+
+    def test_reference_role_token_in_drafter(self):
+        assert "{reference_image_role?}" in prompts.VISUAL_CONCEPT_DRAFTER_INSTR
+
+    def test_checkpoint_feedback_tokens(self):
+        # Interactive checkpoint feedback (memorized by the interactive root);
+        # harmlessly empty in creative_agent.
+        assert "{research_feedback?}" in prompts.AD_COPY_DRAFTER_INSTR
+        assert "{research_feedback?}" in prompts.ART_DIRECTOR_INSTR
+        assert "{ad_copy_feedback?}" in prompts.ART_DIRECTOR_INSTR
+        assert "{ad_copy_feedback?}" in prompts.VISUAL_CONCEPT_DRAFTER_INSTR

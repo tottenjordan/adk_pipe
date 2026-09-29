@@ -329,7 +329,8 @@ def _build_trend_insert_sql(
 # refresh_date: Latest refresh date from the trends table in the format 'MM/DD/YYYY'. Use the default value provided.
 def write_trends_to_bq(tool_context: ToolContext) -> dict:
     """
-    Writes selected trends to a BigQuery Table.
+    Writes the trends saved in the 'target_search_trends' state key to a BigQuery
+    table. Call `save_search_trends_to_session_state` for each trend first.
 
     Args:
         tool_context (ToolContext): The tool context.
@@ -353,8 +354,8 @@ def write_trends_to_bq(tool_context: ToolContext) -> dict:
 
     gcs_url_prefix = "https://console.cloud.google.com/storage/browser"
     gcs_folder = tool_context.state["gcs_folder"]
-    gcs_dir = tool_context.state["agent_output_dir"]
-    trawler_gcs = f"{gcs_url_prefix}/{config.GCS_BUCKET_NAME}/{gcs_folder}/{gcs_dir}"
+    # The folder write_to_file / save_session_state_to_gcs actually write into.
+    trawler_gcs = f"{gcs_url_prefix}/{config.GCS_BUCKET_NAME}/{gcs_folder}"
 
     # Degradation note: empty on a clean run, or the collect_degradation_warnings
     # note(s) recorded by record_research_gaps when the resilient research wrapper

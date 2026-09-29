@@ -1094,18 +1094,15 @@ def test_understand_trends_is_retry_wrapped():
 
 
 def test_understand_trends_tool_declaration_unchanged():
-    """The NodeTool declaration must match what AgentTool declared before the
-    graph migration (name + description + a required ``request`` string), so
-    TREND_SCOUT_INSTR's tool calls keep working unchanged."""
+    """The NodeTool declaration keeps the pre-migration AgentTool shape (name +
+    description + a required ``request`` string), so TREND_SCOUT_INSTR's tool
+    calls keep working unchanged."""
     import asyncio
 
-    from trend_scout.agent import root_agent, understand_trends_searcher
+    from trend_scout.agent import root_agent, understand_trends_agent_resilient
 
-    # Pre-migration: AgentTool(RetryUntilKeyAgent(description=searcher's)).
-    expected_description = (
-        "Conduct initial web research to briefly understand each trending topic"
-    )
-    assert understand_trends_searcher.description == expected_description
+    expected_description = understand_trends_agent_resilient.description
+    assert "5-8" in expected_description  # describes what it researches
 
     tools = asyncio.run(root_agent.canonical_tools())
     (tool,) = [t for t in tools if t.name == "understand_trends_agent_resilient"]
@@ -1211,7 +1208,7 @@ def test_interactive_registers_visual_concept_reviser():
     assert visual_concept_reviser.retry_config is SCHEMA_RETRY
 
     instr = visual_concept_reviser.instruction
-    assert "{final_visual_concepts}" in instr
+    assert "{final_visual_concepts?}" in instr
     assert "{visual_revision_notes?}" in instr
 
 

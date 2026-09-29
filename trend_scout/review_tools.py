@@ -12,13 +12,13 @@ def review_trends(tool_context: ToolContext) -> None:
 
     When the run resumes, this tool call receives a function response of the shape:
         {
-            "status": str,               # e.g. "approved"
+            "status": str,                 # "selected"
             "selected_trends": list[str],  # the terms the user chose to keep
-            "instruction": str,          # tells you to continue the workflow
+            "instruction": str,            # optional free-text user note (may be "")
         }
-    Read the `instruction` field and continue: for each term in `selected_trends`,
-    call `save_search_trends_to_session_state(term)`, then call `write_trends_to_bq`.
-    Do NOT call `pick_trends_agent` in this branch.
+    Then follow the orchestrator instruction: save each selected term with
+    `save_search_trends_to_session_state`, then research and write up exactly
+    those trends. Do not persist anything from this step.
     """
     tool_context.actions.skip_summarization = True
     return None
