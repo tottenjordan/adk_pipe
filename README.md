@@ -404,7 +404,7 @@ The `creative_agent` eval must run with `PYTHONPATH="$PWD"` and its own rubric c
 
 **→ See [tests/README.md](tests/README.md)** for the full test-suite layout and what each test file covers.
 
-**CI:** GitHub Actions runs `ruff check`, `ruff format --check`, `ty check` and `pytest` on push/PR to `main` touching Python files (`.github/workflows/python-ci.yml`), and frontend lint, typecheck, tests and build when `frontend/**` changes (`.github/workflows/frontend-tests.yml`).
+**CI:** GitHub Actions runs on pull requests (plus manual `workflow_dispatch`), path-gated: `ruff check`, `ruff format --check`, `ty check`, `pytest` and a requirements.txt drift check when Python files change (`.github/workflows/python-ci.yml`); the Cloud Function tests against the function's own `requirements.txt` when `cloud_functions/**` changes (`.github/workflows/crf-deps.yml`); and frontend lint, tests and build (which type-checks) when `frontend/**` changes (`.github/workflows/frontend-tests.yml`).
 
 
 ## Repo Structure
@@ -516,6 +516,8 @@ The `creative_agent` eval must run with `PYTHONPATH="$PWD"` and its own rubric c
 │   └── quota_spread/             # quota-bucket-spread DoE: concurrent batch runner, slope analysis, plots
 ├── imgs/                         # README media
 ├── .github/workflows/
+│   ├── python-ci.yml
+│   ├── crf-deps.yml
 │   └── frontend-tests.yml
 ├── .env.example
 ├── CLAUDE.md

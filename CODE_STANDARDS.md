@@ -112,6 +112,6 @@ resource, target `GCP_REGION`.
 - `ruff` and `ty` are pinned in the `dev` dependency group and configured in
   `pyproject.toml` (`[tool.ruff]` with an explicit `E,F,I,UP,B` rule set; `[tool.ty]`,
   which excludes `tests/`). `.github/workflows/python-ci.yml` enforces `ruff check`,
-  `ruff format --check`, `ty check`, and `pytest` on push/PR to `main` whenever Python
-  sources, dependency files, `agents/` or `tests/` change.
+  `ruff format --check`, `ty check`, and `pytest` on pull requests whenever Python
+  sources, dependency files or `agents/` change.
 - No coverage minimum is enforced yet.
