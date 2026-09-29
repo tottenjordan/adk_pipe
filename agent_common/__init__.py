@@ -19,6 +19,7 @@ from agent_common.sanitize import (
     scrub_lone_surrogates,
     scrub_surrogates_in_response,
 )
+from agent_common.state import memorize, seed_initial_state
 
 # ADK 2.x marks SequentialAgent/ParallelAgent `@deprecated` in favor of graph
 # Workflows; typing_extensions emits a DeprecationWarning on every instantiation.
@@ -43,6 +44,8 @@ __all__ = [
     "log_empty_turn_finish_reason",
     "log_run_start",
     "make_final_state_summary",
+    "memorize",
+    "seed_initial_state",
     "scrub_lone_surrogates",
     "scrub_surrogates_in_response",
 ]

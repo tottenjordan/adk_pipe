@@ -1,9 +1,7 @@
 import logging
 import re
-import uuid
 from typing import Any
 
-import pandas as pd
 from google.adk.agents.callback_context import CallbackContext
 from google.adk.models.llm_request import LlmRequest
 from google.adk.sessions.state import State
@@ -11,6 +9,7 @@ from google.genai import types
 
 from agent_common import observability, sanitize
 from agent_common.rate_limit import build_rate_limit_callback
+from agent_common.state import seed_initial_state
 
 from .config import config
 
@@ -43,39 +42,38 @@ def _set_initial_states(source: dict[str, Any], target: State | dict[str, Any]):
         source: A JSON object of states.
         target: The session state object to insert into.
     """
-    unique_id = f"{str(uuid.uuid4())[:4]}"
-    formatted_now = pd.Timestamp.now("UTC").strftime("%Y_%m_%d_%H_%M")
-    if config.state_init not in target:
-        target[config.state_init] = True
-        target["gcs_bucket"] = config.GCS_BUCKET
-        target["gcs_bucket_name"] = config.GCS_BUCKET_NAME
-        target["agent_output_dir"] = "creative_output"
-        target["gcs_folder"] = f"{formatted_now}_{unique_id}"
-        logging.info(f"gcs_folder: {target['gcs_folder']}")
+    seeded = seed_initial_state(
+        source,
+        target,
+        state_init_key=config.state_init,
+        gcs_bucket=config.GCS_BUCKET,
+        agent_output_dir="creative_output",
+        extra={"gcs_bucket_name": config.GCS_BUCKET_NAME},
+    )
+    if not seeded:
+        return
 
-        target.update(source)
+    # Optional product/brand reference image for image generation, supplied
+    # by the caller via createSession initialState (same mechanism as
+    # interactive_trend_pick). Use setdefault so the key always exists for
+    # downstream .get() reads WITHOUT clobbering a caller-provided value —
+    # it is deliberately NOT in `source` above, which would overwrite it.
+    target.setdefault("reference_image_uri", "")
 
-        # Optional product/brand reference image for image generation, supplied
-        # by the caller via createSession initialState (same mechanism as
-        # interactive_trend_pick). Use setdefault so the key always exists for
-        # downstream .get() reads WITHOUT clobbering a caller-provided value —
-        # it is deliberately NOT in `source` above, which would overwrite it.
-        target.setdefault("reference_image_uri", "")
-
-        # Optional user-supplied visual intent (image-intent-capture). Same
-        # channel + rule as reference_image_uri: seeded via createSession
-        # initialState, defaulted here with setdefault so the keys always exist
-        # for downstream {token?} reads / .get() without clobbering caller values.
-        # Deliberately NOT in `source` (which would blank a seeded value).
-        for _intent_key in (
-            "visual_intent",  # free-text art direction
-            "brand_colors",  # palette description
-            "visual_style_preference",  # preferred STYLE_PALETTE family (seed)
-            "visual_avoid",  # elements to keep out (reframed positively)
-            "visual_aspect_ratio",  # deterministic aspect-ratio override
-            "reference_image_role",  # product | logo | style role label
-        ):
-            target.setdefault(_intent_key, "")
+    # Optional user-supplied visual intent (image-intent-capture). Same
+    # channel + rule as reference_image_uri: seeded via createSession
+    # initialState, defaulted here with setdefault so the keys always exist
+    # for downstream {token?} reads / .get() without clobbering caller values.
+    # Deliberately NOT in `source` (which would blank a seeded value).
+    for _intent_key in (
+        "visual_intent",  # free-text art direction
+        "brand_colors",  # palette description
+        "visual_style_preference",  # preferred STYLE_PALETTE family (seed)
+        "visual_avoid",  # elements to keep out (reframed positively)
+        "visual_aspect_ratio",  # deterministic aspect-ratio override
+        "reference_image_role",  # product | logo | style role label
+    ):
+        target.setdefault(_intent_key, "")
 
 
 def load_session_state(callback_context: CallbackContext):

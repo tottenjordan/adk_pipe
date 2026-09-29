@@ -1,13 +1,12 @@
 import logging
-import uuid
 from typing import Any
 
-import pandas as pd
 from google.adk.agents.callback_context import CallbackContext
 from google.adk.sessions.state import State
 
 from agent_common import observability
 from agent_common.rate_limit import build_rate_limit_callback
+from agent_common.state import seed_initial_state
 
 from .config import config
 
@@ -33,16 +32,13 @@ def _set_initial_states(source: dict[str, Any], target: State | dict[str, Any]):
         source: A JSON object of states.
         target: The session state object to insert into.
     """
-    unique_id = f"{str(uuid.uuid4())[:4]}"
-    formatted_now = pd.Timestamp.now("UTC").strftime("%Y_%m_%d_%H_%M")
-    if config.state_init not in target:
-        target[config.state_init] = True
-        target["gcs_bucket"] = config.GCS_BUCKET
-        target["agent_output_dir"] = "trawler_output"
-        target["gcs_folder"] = f"{formatted_now}_{unique_id}"
-        logging.info(f"gcs_folder: {target['gcs_folder']}")
-
-        target.update(source)
+    seed_initial_state(
+        source,
+        target,
+        state_init_key=config.state_init,
+        gcs_bucket=config.GCS_BUCKET,
+        agent_output_dir="trawler_output",
+    )
 
 
 def load_session_state(callback_context: CallbackContext):
