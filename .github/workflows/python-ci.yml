@@ -7,13 +7,18 @@ on:
       - "**.py"
       - "pyproject.toml"
       - "uv.lock"
+      - "requirements*.txt"
+      - "agents/**"
+      - "tests/**"
       - ".github/workflows/python-ci.yml"
   pull_request:
-    branches: [main]
     paths:
       - "**.py"
       - "pyproject.toml"
       - "uv.lock"
+      - "requirements*.txt"
+      - "agents/**"
+      - "tests/**"
       - ".github/workflows/python-ci.yml"
 
 permissions:
