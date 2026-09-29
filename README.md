@@ -235,13 +235,13 @@ Key Selling Points: 'The 85/15 S Humbucker pickups deliver a wide tonal range, f
 * who are they? what do they want? 
 * go beyond typical demographics with...
   * **psychographics:** *people who are frustrated with...* 
-  * **lisfestyle:** *frequent travelers; spending most income on concert experiences.*
+  * **lifestyle:** *frequent travelers; spending most income on concert experiences.*
   * **hobbies, interests, humor**: *music lovers, attend lots of jam band concerts. love surreal memes*
   * **lifestage**: *recent empty-nesters*
 
 **Key Selling Points**
 
-This will be the `{target_products}` 's flavor in the messaging and visual concepts
+This will be the `{target_product}`'s flavor in the messaging and visual concepts
 *can be used multiple ways. here are some...*
 
 * What is the `{target_audience}` 's benefit? what will make them really care?
@@ -267,7 +267,7 @@ uv run adk web .
 ```bash
 user: Brand Name: "YOUR BRAND OF CHOICE"
       Target Audience: "YOUR TARGET AUDIENCE OF CHOICE"
-      Target Product: "YOU TARGET PRODUCT OF CHOICE"
+      Target Product: "YOUR TARGET PRODUCT OF CHOICE"
       Key Selling Points: "YOU KEY SELLING POINT(S)"
 
 agent: `[end-to-end workflow >> recommended subset of trends]` 
@@ -278,7 +278,7 @@ agent: `[end-to-end workflow >> recommended subset of trends]`
 ```bash
 user: Brand Name: "YOUR BRAND OF CHOICE"
       Target Audience: "YOUR TARGET AUDIENCE OF CHOICE"
-      Target Product: "YOU TARGET PRODUCT OF CHOICE"
+      Target Product: "YOUR TARGET PRODUCT OF CHOICE"
       Key Selling Points: "YOU KEY SELLING POINT(S)"
       target_search_trend: "YOUR_SEARCH_TREND_OF_CHOICE"
 
