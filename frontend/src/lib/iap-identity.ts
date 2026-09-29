@@ -20,7 +20,9 @@ export async function verifyIapJwt(
 ): Promise<string> {
   const { payload } = await jwtVerify(token, opts.keys ?? IAP_JWKS, {
     issuer: IAP_ISSUER, audience: opts.audience, algorithms: ["ES256"], clockTolerance: 30,
+    requiredClaims: ["exp", "iat", "email"],
   });
+  if (payload.email_verified === false) throw new Error("IAP JWT email is not verified");
   if (opts.allowedHd !== undefined && payload.hd !== opts.allowedHd) {
     throw new Error(`IAP JWT hd ${JSON.stringify(payload.hd)} is not allowed`);
   }
@@ -29,18 +31,32 @@ export async function verifyIapJwt(
 }
 
 let audiencePromise: Promise<string> | undefined;
+/** Test hook: drop the cached audience. */
+export function resetIapAudienceCache(): void { audiencePromise = undefined; }
+
+async function metadata(p: string): Promise<string> {
+  const res = await fetch(`${MD}/${p}`, {
+    headers: { "Metadata-Flavor": "Google" }, signal: AbortSignal.timeout(1000),
+  });
+  if (!res.ok) throw new Error(`metadata ${p}: HTTP ${res.status}`);
+  return (await res.text()).trim();
+}
+
 /** `/projects/N/locations/REGION/services/K_SERVICE` from the metadata server
- *  (no env vars → web redeploys stay env-flag-free); IAP_AUDIENCE overrides. */
+ *  (no env vars → web redeploys stay env-flag-free); IAP_AUDIENCE overrides. Only a fully
+ *  resolved value is cached — any failure clears the cache so the next call retries. */
 export function iapAudience(): Promise<string> {
   if (process.env.IAP_AUDIENCE) return Promise.resolve(process.env.IAP_AUDIENCE);
-  audiencePromise ??= (async () => {
-    const get = async (p: string) =>
-      (await (await fetch(`${MD}/${p}`, { headers: { "Metadata-Flavor": "Google" } })).text()).trim();
-    const num = await get("project/numeric-project-id");
-    const region = (await get("instance/region")).split("/").pop(); // projects/N/regions/R
-    return `/projects/${num}/locations/${region}/services/${process.env.K_SERVICE}`;
-  })().catch((e) => { audiencePromise = undefined; throw e; });
-  return audiencePromise;
+  const p = (audiencePromise ??= (async () => {
+    const service = process.env.K_SERVICE;
+    if (!service) throw new Error("K_SERVICE unset");
+    const num = await metadata("project/numeric-project-id");
+    const region = (await metadata("instance/region")).split("/").pop(); // projects/N/regions/R
+    if (!num || !region) throw new Error("metadata returned an empty project number or region");
+    return `/projects/${num}/locations/${region}/services/${service}`;
+  })());
+  p.catch(() => { if (audiencePromise === p) audiencePromise = undefined; });
+  return p;
 }
 
 export type ResolvedUser =
