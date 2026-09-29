@@ -5,18 +5,20 @@
 version: 2
 updates:
   - package-ecosystem: "uv"
-    # Note: Dependabot may also bump the root requirements.txt on its own; that
-    # file is a `uv export` of uv.lock, so CI's drift check fails such PRs —
-    # close them (updates land via uv.lock).
+    # The root requirements.txt is a `uv export` of uv.lock (CI drift-checks it).
+    # Dependabot otherwise scans it as a pip manifest, where every exported
+    # transitive pin counts as "direct", and opens requirements.txt-only PRs
+    # that fail CI (e.g. #162). Exclude it; updates land via uv.lock.
+    exclude-paths:
+      - "requirements.txt"
     # pyproject [tool.uv] override-dependencies lifts google-adk[eval]'s
     # aiplatform <2 cap; a google-adk bump never removes it — drop it by hand
     # when ADK allows 2.x, and bump the override too on an aiplatform major.
     directory: "/"
     schedule:
       interval: "weekly"
-    # Direct deps only: transitive bumps (otel, google-api-core, pydantic-core,
-    # ...) are capped by google-adk / aiplatform, so they only ever arrived as
-    # requirements.txt-only PRs that desync from uv.lock.
+    # Direct deps only: transitive bumps (otel, pydantic-core, litellm, ...) are
+    # pinned/capped by google-adk / pydantic / aiplatform, so uv.lock can't take them.
     allow:
       - dependency-type: "direct"
     groups:
