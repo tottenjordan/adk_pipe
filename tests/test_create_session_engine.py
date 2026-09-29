@@ -67,6 +67,15 @@ class TestCreateOrReuse:
         assert "agent" not in kwargs and "agent_engine" not in kwargs
         assert kwargs["config"]["display_name"] == "sessions"
 
+    def test_create_without_resource_raises(self):
+        client = MagicMock()
+        client.agent_engines.list.return_value = []
+        client.agent_engines.create.return_value = types.SimpleNamespace(
+            api_resource=None
+        )
+        with pytest.raises(RuntimeError, match="returned no resource"):
+            cse.create_or_reuse(client, "sessions")
+
 
 def test_main_builds_client_from_args(monkeypatch, capsys):
     client = MagicMock()

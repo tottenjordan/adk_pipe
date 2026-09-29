@@ -79,7 +79,7 @@ class TestPubSubDecoding:
         payload = {
             "bq_dataset": "trend_trawler",
             "bq_table": "target_trends_crf",
-            "agent_resource_id": "47239417575768064",
+            "agent_resource_id": "1234567890",
         }
         data = self._make_cloud_event_data(payload)
         result = decode_pubsub_payload(data)

@@ -69,7 +69,7 @@ python deployment/deploy_agent.py --version=v1 --agent=interactive_creative --cr
 python deployment/deploy_agent.py --list
 
 # delete an Agent Engine Runtime
-python deployment/deploy_agent.py --resource_id=890256972824182784 --delete
+python deployment/deploy_agent.py --resource_id=<RESOURCE_ID> --delete
 ```
 
 > The local packages bundled into each engine are derived from a single
@@ -255,7 +255,7 @@ gcloud run deploy $CREATIVE_CRF_NAME \
   --source . \
   --function $CRF_ENTRYPOINT \
   --base-image $BASE_IMAGE \
-  --region $GOOGLE_CLOUD_LOCATION \
+  --region $GCP_REGION \
   --memory 8Gi \
   --cpu 4 \
   --min-instances 0 \
@@ -266,15 +266,18 @@ gcloud run deploy $CREATIVE_CRF_NAME \
   --labels agent-workflow=trend-trawler,function=creative-orchestrator
 
   # High concurrency since it's just dispatching
+  # --set-env-vars: GOOGLE_CLOUD_PROJECT is REQUIRED (the function reads no .env);
+  #   see "Required environment" above. --set-env-vars REPLACES the env, so any
+  #   other overrides (e.g. CRF_EXTRA_ALLOWED_TABLES) must be in the same list.
 ```
 
 **3.2 Creative Agent Orchestrator:** eventarc trigger
 
 ```bash
 gcloud eventarc triggers create $CREATIVE_TRIGGER_NAME  \
-  --location=$GOOGLE_CLOUD_LOCATION \
+  --location=$GCP_REGION \
   --destination-run-service=$CREATIVE_CRF_NAME \
-  --destination-run-region=$GOOGLE_CLOUD_LOCATION \
+  --destination-run-region=$GCP_REGION \
   --event-filters="type=google.cloud.pubsub.topic.v1.messagePublished" \
   --transport-topic=$CREATIVE_TOPIC_NAME \
   --service-account=$SERVICE_ACCOUNT
@@ -295,7 +298,7 @@ gcloud run deploy $CREATIVE_WORKER_CRF_NAME \
   --memory 8Gi \
   --cpu 4 \
   --no-allow-unauthenticated \
-  --set-env-vars "GOOGLE_CLOUD_PROJECT=$GOOGLE_CLOUD_PROJECT,GOOGLE_CLOUD_PROJECT_NUMBER=$GOOGLE_CLOUD_PROJECT_NUMBER,GCP_REGION=$GCP_REGION,AGENT_WORKER_USER_ID=crf_worker" \
+  --set-env-vars "GOOGLE_CLOUD_PROJECT=$GOOGLE_CLOUD_PROJECT,GOOGLE_CLOUD_PROJECT_NUMBER=$GOOGLE_CLOUD_PROJECT_NUMBER,GCP_REGION=$GCP_REGION,AGENT_WORKER_USER_ID=${AGENT_WORKER_USER_ID:-crf_worker}" \
   --labels agent-workflow=trend-trawler,function=creative-worker
   
   # Note:
@@ -327,9 +330,9 @@ Effect of setting `concurrency=1`
 
 ```bash
 gcloud eventarc triggers create $CREATIVE_WORKER_TRIGGER_NAME  \
-  --location=$GOOGLE_CLOUD_LOCATION \
+  --location=$GCP_REGION \
   --destination-run-service=$CREATIVE_WORKER_CRF_NAME \
-  --destination-run-region=$GOOGLE_CLOUD_LOCATION \
+  --destination-run-region=$GCP_REGION \
   --event-filters="type=google.cloud.pubsub.topic.v1.messagePublished" \
   --transport-topic=$CREATIVE_WORKER_TOPIC_NAME \
   --service-account=$SERVICE_ACCOUNT
@@ -342,16 +345,16 @@ gcloud eventarc triggers create $CREATIVE_WORKER_TRIGGER_NAME  \
 *4.1 confirm triggers successfully created:*
 
 ```bash
-gcloud eventarc triggers list --location=$GOOGLE_CLOUD_LOCATION
+gcloud eventarc triggers list --location=$GCP_REGION
 ```
 
 *4.2 assign each trigger's PubSub topic to variable:*
 
 ```bash
-CREATIVE_PUB_TOPIC=$(gcloud eventarc triggers describe $CREATIVE_TRIGGER_NAME --location $GOOGLE_CLOUD_LOCATION --format='value(transport.pubsub.topic)')
+CREATIVE_PUB_TOPIC=$(gcloud eventarc triggers describe $CREATIVE_TRIGGER_NAME --location $GCP_REGION --format='value(transport.pubsub.topic)')
 echo $CREATIVE_PUB_TOPIC
 
-CREATIVE_WORKER_PUB_TOPIC=$(gcloud eventarc triggers describe $CREATIVE_WORKER_TRIGGER_NAME --location $GOOGLE_CLOUD_LOCATION --format='value(transport.pubsub.topic)')
+CREATIVE_WORKER_PUB_TOPIC=$(gcloud eventarc triggers describe $CREATIVE_WORKER_TRIGGER_NAME --location $GCP_REGION --format='value(transport.pubsub.topic)')
 echo $CREATIVE_WORKER_PUB_TOPIC
 ```
 

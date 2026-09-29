@@ -88,6 +88,8 @@ def create_or_reuse(client, display_name: str) -> tuple[str, bool]:
             ),
         }
     )
+    if not engine.api_resource:
+        raise RuntimeError("agent_engines.create returned no resource")
     return engine.api_resource.name, True
 
 

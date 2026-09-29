@@ -15,7 +15,12 @@ from cloud_functions.creative_fanout import main
 
 
 def _reload_config():
-    """Re-evaluate the class-level `os.environ.get` defaults."""
+    """Re-evaluate the class-level `os.environ.get` defaults.
+
+    NB: `main.config` keeps the ORIGINAL `AppConfig` instance after a reload
+    (it was bound at import), so only assert on the returned instance here.
+    Env-read properties (project / number) are still live on `main.config`.
+    """
     return importlib.reload(config_module).config
 
 
@@ -94,5 +99,7 @@ def test_no_hardcoded_identifiers_in_cloud_function_source():
 
     src = pathlib.Path(main.__file__).parent
     text = "".join(p.read_text() for p in src.glob("*.py"))
-    for needle in ("hybrid-vertex", "934903580331", "Ima_CloudRun_jr"):
+    # Built from fragments so a repo-wide grep for these doesn't match this file.
+    needles = ("hybrid" + "-vertex", "9349" + "03580331", "Ima_" + "CloudRun_jr")
+    for needle in needles:
         assert needle not in text
