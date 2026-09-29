@@ -139,7 +139,12 @@ def test_bounded_and_observable_when_never_populated(caplog):
 
 
 def test_whitespace_only_value_counts_as_empty():
-    """A whitespace-only final text is treated as unpopulated and retried."""
+    """A whitespace-only final text is treated as unpopulated and retried.
+
+    The predicate's truth table (bools, lists, ``0``, ``None``) is not re-ported
+    here: the node calls ``RetryUntilKeyAgent._is_populated`` directly, which
+    ``test_retry_agent.py::test_is_populated_accepts_truthy_non_strings`` pins.
+    """
     producer = FlakyProducer(
         name="producer", output_key="report", fail_first=2, empty_value="   \n"
     )
