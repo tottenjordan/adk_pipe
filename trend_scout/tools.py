@@ -87,11 +87,6 @@ def _get_gtrends_max_date() -> str:
     return max_date_df.max_date.iloc[0].strftime("%m/%d/%Y")
 
 
-# max_date = _get_gtrends_max_date()
-
-
-# today_date: str = max_date
-# today_date: Today's date in the format 'MM/DD/YYYY'. Use the default value provided.
 def get_daily_gtrends(tool_context: ToolContext) -> str:
     """
     Retrieves the top 25 Google Search Trends (term, rank, refresh_date).

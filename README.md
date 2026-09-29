@@ -475,10 +475,6 @@ The `creative_agent` eval must run with `PYTHONPATH="$PWD"` and its own rubric c
 │   │   ├── config.py
 │   │   ├── main.py               # crf_entrypoint + agent_worker_entrypoint
 │   │   └── requirements.txt
-│   └── trawler_scheduler/
-│       ├── config.py
-│       ├── main.py
-│       └── requirements.txt
 ├── deployment/
 │   ├── README.md                 # full deploy guide (Agent Engine, CRF fan-out, Cloud Run)
 │   ├── async_app.py              # launcher: mounts the async-job /runs router on ADK's canned FastAPI app
@@ -512,7 +508,6 @@ The `creative_agent` eval must run with `PYTHONPATH="$PWD"` and its own rubric c
 ├── imgs/                         # README media
 ├── .github/workflows/
 │   └── frontend-tests.yml
-├── deploy-to-agent-engine.ipynb
 ├── .env.example
 ├── CLAUDE.md
 ├── CODE_STANDARDS.md

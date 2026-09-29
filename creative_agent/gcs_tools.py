@@ -46,7 +46,6 @@ def _download_blob(bucket_name, source_blob_name):
     Returns:
         Blob content as bytes.
     """
-    # storage_client = storage.Client()
     storage_client = _get_gcs_client()
     bucket = storage_client.bucket(bucket_name)
     blob = bucket.blob(source_blob_name)

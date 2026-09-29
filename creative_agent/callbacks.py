@@ -96,10 +96,6 @@ def load_session_state(callback_context: CallbackContext):
         "target_audience": "",
         "key_selling_points": "",
         "target_search_trends": "",
-        # "img_artifact_keys": {"img_artifact_keys": []},
-        # "vid_artifact_keys": {"vid_artifact_keys": []},
-        # "final_select_ad_copies": {"final_select_ad_copies": []},
-        # "final_select_vis_concepts": {"final_select_vis_concepts": []},
     }
     _set_initial_states(data["state"], callback_context.state)
 
@@ -237,5 +233,4 @@ def citation_replacement_callback(
     )
     processed_report = re.sub(r"\s+([.,;:])", r"\1", processed_report)
     callback_context.state["final_report_with_citations"] = processed_report
-    # return types.Content(parts=[types.Part(text=processed_report)])
     return types.Content(parts=[types.Part(text="PDF report saved to memory 📝 !!")])

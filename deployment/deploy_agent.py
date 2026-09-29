@@ -111,7 +111,6 @@ flags.DEFINE_enum(
     default=None,
     enum_values=list(AGENT_NAMES),
     help="name of agent to deploy",
-    # required=True,
 )
 flags.DEFINE_string(
     "resource_id", None, "Agent Engine resource id for deletion.", short_name="r"
@@ -243,7 +242,6 @@ def deploy_agent(name: str, version: str) -> None:
                 "display_name": f"{spec['display_name']}-{version}",
                 "description": root_agent.description,
                 "env_vars": ENV_VAR_DICT,
-                # "service_account": SERVICE_ACCOUNT,
                 "min_instances": 1,
                 "max_instances": 100,
                 "resource_limits": {"cpu": "4", "memory": "8Gi"},
@@ -257,7 +255,6 @@ def deploy_agent(name: str, version: str) -> None:
             name=name,
             agent_engine_id=remote_agent.api_resource.name,
             env_file_path=ENV_FILE_PATH,
-            # remove=False,
         )
     except Exception as e:
         logging.exception(f"Error deploying agent to Agent Engine Runtime: {e}")

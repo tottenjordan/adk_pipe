@@ -58,10 +58,10 @@ def load_session_state(callback_context: CallbackContext):
 
     data = {}
     data["state"] = {
-        "brand": "",  # BRAND,
-        "target_product": "",  # TARGET_PRODUCT,
-        "target_audience": "",  # TARGET_AUDIENCE,
-        "key_selling_points": "",  # KEY_SELLING_POINT,
+        "brand": "",
+        "target_product": "",
+        "target_audience": "",
+        "key_selling_points": "",
         "target_search_trends": {"target_search_trends": []},
     }
 

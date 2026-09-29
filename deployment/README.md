@@ -90,8 +90,6 @@ Created session for user ID: ...
 INFO - Deleted session for user ID: ima_user
 ```
 
-* [deploy-to-agent-engine.ipynb](../deploy-to-agent-engine.ipynb) notebook
-    * *WIP: migrating code to the refactored client-based `Agent Engine` SDK... see [migration guide](https://cloud.google.com/vertex-ai/generative-ai/docs/deprecations/agent-engine-migration)*
 
 
 **View logs for an agent**
