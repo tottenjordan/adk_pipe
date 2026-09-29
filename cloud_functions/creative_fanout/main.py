@@ -28,6 +28,7 @@ message = {
     "bq_dataset": "trend_trawler",
     "bq_table": "target_trends_crf",
     "agent_resource_id": "<AGENT_ENGINE_ID>",
+    "max_rows": 5,  # optional; clamped to CRF_MAX_ROWS_PER_RUN (default 10)
 }
 """
 
@@ -211,17 +212,37 @@ def _build_update_status_sql(project, dataset, table, timestamps, status):
     return sql, params
 
 
-def _build_select_unprocessed_sql(project, dataset, table):
-    """Rows not yet claimed: brand-new (NULL) or orphaned in QUEUED.
+def _build_select_unprocessed_sql(project, dataset, table, max_rows):
+    """Up to ``max_rows`` oldest rows not yet claimed: brand-new (NULL) or
+    orphaned in QUEUED.
 
-    Returns ``(sql, query_parameters)`` (no values to bind; kept for symmetry).
+    Returns ``(sql, query_parameters)``.
     """
     sql = f"""
         SELECT * FROM {_table_ref(project, dataset, table)}
         WHERE processed_status IS NULL OR processed_status = 'QUEUED'
         ORDER BY entry_timestamp ASC
+        LIMIT @max_rows
     """
-    return sql, []
+    return sql, [bigquery.ScalarQueryParameter("max_rows", "INT64", int(max_rows))]
+
+
+def _resolve_max_rows(requested, cap):
+    """The trigger message's optional ``max_rows``, clamped to ``[1, cap]``.
+
+    Unset or invalid (non-integer, non-positive, bool) falls back to ``cap``.
+    """
+    if requested is None or isinstance(requested, bool):
+        return cap
+    try:
+        value = int(requested)
+    except (TypeError, ValueError):
+        logger.warning(f"Ignoring invalid max_rows={requested!r}; using {cap}.")
+        return cap
+    if value < 1:
+        logger.warning(f"Ignoring non-positive max_rows={value}; using {cap}.")
+        return cap
+    return min(value, cap)
 
 
 def _run_query(bq_client, sql, params):
@@ -610,9 +631,15 @@ def crf_entrypoint(cloud_event: CloudEvent) -> None:
     # grabbed is PROCESSING/PROCESSED (not selected here), and a genuinely-stuck
     # QUEUED row is re-sent — the worker's atomic QUEUED->PROCESSING lock
     # (acquire_processing_lock) dedups any double delivery.
-    select_sql, select_params = _build_select_unprocessed_sql(
-        bq_client.project, dataset, table
+    # Capped at CRF_MAX_ROWS_PER_RUN (oldest first) so one trigger can't fan
+    # out the whole backlog; rows past the limit stay unclaimed for next time.
+    max_rows = _resolve_max_rows(
+        message_payload.get("max_rows"), config.CRF_MAX_ROWS_PER_RUN
     )
+    select_sql, select_params = _build_select_unprocessed_sql(
+        bq_client.project, dataset, table, max_rows
+    )
+    logging.info(f"Selecting up to {max_rows} unprocessed rows.")
     try:
         df = _run_query(bq_client, select_sql, select_params).to_dataframe()
     except Exception as e:
