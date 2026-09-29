@@ -1,5 +1,7 @@
 # Weekly dependency updates. Minor + patch bumps are grouped into one PR per
 # ecosystem; majors come as individual PRs so they can be reviewed on their own.
+# `ignore` entries hold back majors that need a deliberate migration (see
+# docs/plans/2026-09-28-repo-refresh.md Phase 4) or are blocked by a co-dependency.
 version: 2
 updates:
   - package-ecosystem: "uv"
@@ -9,6 +11,15 @@ updates:
     groups:
       python-minor-patch:
         update-types: ["minor", "patch"]
+    ignore:
+      # aiplatform 2.x = AgentPlatform SDK migration (proposal P1).
+      - dependency-name: "google-cloud-aiplatform"
+        update-types: ["version-update:semver-major"]
+      # Held at <3 in pyproject.toml (ADK 3 / genai 3 drop APIs we use).
+      - dependency-name: "google-adk"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "google-genai"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: "pip"
     directory: "/cloud_functions/creative_fanout"
@@ -17,6 +28,13 @@ updates:
     groups:
       crf-minor-patch:
         update-types: ["minor", "patch"]
+    ignore:
+      # aiplatform 2.x = AgentPlatform SDK migration (proposal P1).
+      - dependency-name: "google-cloud-aiplatform"
+        update-types: ["version-update:semver-major"]
+      # functions-framework 3.x pins cloudevents<=1.12.0.
+      - dependency-name: "cloudevents"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: "npm"
     directory: "/frontend"
@@ -25,6 +43,13 @@ updates:
     groups:
       frontend-minor-patch:
         update-types: ["minor", "patch"]
+    ignore:
+      # eslint-config-next supports eslint 9; bump with Next.
+      - dependency-name: "eslint"
+        update-types: ["version-update:semver-major"]
+      # Tracks the Node 22 runtime (.nvmrc, Dockerfile, CI).
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: "github-actions"
     directory: "/"
@@ -41,3 +66,11 @@ updates:
     groups:
       docker-minor-patch:
         update-types: ["minor", "patch"]
+    ignore:
+      # Runtime versions are chosen deliberately (Python 3.13 per pyproject
+      # requires-python/CI; Node 22 LTS per .nvmrc/engines). Docker tags treat
+      # 3.13 -> 3.14 as a minor bump, so pin by version range.
+      - dependency-name: "python"
+        versions: [">=3.14"]
+      - dependency-name: "node"
+        update-types: ["version-update:semver-major"]
