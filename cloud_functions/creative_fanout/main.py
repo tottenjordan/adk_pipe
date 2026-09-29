@@ -27,7 +27,7 @@ Example PubSub msg format:
 message = {
     "bq_dataset": "trend_trawler",
     "bq_table": "target_trends_crf",
-    "agent_resource_id": "47239417575768064",
+    "agent_resource_id": "<AGENT_ENGINE_ID>",
 }
 """
 
@@ -58,10 +58,18 @@ logging.basicConfig(
 # Module logger for new code (propagates to the root handler configured above).
 logger = logging.getLogger(__name__)
 
-_USER_ID = "Ima_CloudRun_jr"
-_PROJECT_NUMBER = config.GOOGLE_CLOUD_PROJECT_NUMBER
+_USER_ID = config.AGENT_WORKER_USER_ID
 _LOCATION = config.GCP_REGION
-_WORKER_TOPIC_NAME = f"projects/{_PROJECT_NUMBER}/topics/{config.CREATIVE_WORKER_TOPIC_NAME}"  # Configuration for the worker topic
+
+
+def _worker_topic_path() -> str:
+    """Fully-qualified worker topic, resolved at use time (the project is a
+    required env var, so resolving it at import would break credential-free
+    imports)."""
+    return (
+        f"projects/{config.GOOGLE_CLOUD_PROJECT_NUMBER}"
+        f"/topics/{config.CREATIVE_WORKER_TOPIC_NAME}"
+    )
 
 
 # ==============================
@@ -293,7 +301,7 @@ async def create_agent_run(
     logging.info(f"Invoking Agent Run {msg_dict['index'] + 1}...")
 
     remote_agent = _get_vertex_client().agent_engines.get(
-        name=f"projects/{_PROJECT_NUMBER}/locations/{_LOCATION}/reasoningEngines/{agent_id}"
+        name=f"projects/{config.GOOGLE_CLOUD_PROJECT_NUMBER}/locations/{_LOCATION}/reasoningEngines/{agent_id}"
     )
 
     USER_QUERY = f"""Brand: {msg_dict["brand"]}
@@ -656,6 +664,7 @@ def crf_entrypoint(cloud_event: CloudEvent) -> None:
         # its row QUEUED forever under the old IS-NULL-only re-query; now such a row
         # is recovered by the broadened re-query on the next orchestrator run, so we
         # only need to surface the failure (don't crash the whole batch over one).
+        worker_topic = _worker_topic_path()
         publish_futures = []
         for row_dict in row_list:
             # Create a dedicated payload for the worker
@@ -668,9 +677,7 @@ def crf_entrypoint(cloud_event: CloudEvent) -> None:
 
             data_str = json.dumps(worker_payload)
             data_bytes = data_str.encode("utf-8")
-            publish_futures.append(
-                pubsub_publisher.publish(_WORKER_TOPIC_NAME, data_bytes)
-            )
+            publish_futures.append(pubsub_publisher.publish(worker_topic, data_bytes))
 
         dispatched_count = 0
         failed_count = 0

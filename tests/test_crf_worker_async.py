@@ -17,6 +17,14 @@ from cloud_functions.creative_fanout import main
 from cloud_functions.creative_fanout.session import agent_session
 
 
+@pytest.fixture(autouse=True)
+def _crf_project_env(monkeypatch):
+    """The CRF config reads the (required) project at use time; pin a dummy so
+    these tests don't depend on the caller's shell/.env (CI sets only this)."""
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "test-project")
+    monkeypatch.delenv("GOOGLE_CLOUD_PROJECT_NUMBER", raising=False)
+
+
 def test_async_send_message_reraises_streaming_error():
     """A failure while streaming events must propagate, not be swallowed."""
 
@@ -87,8 +95,8 @@ def test_session_created_and_deleted_with_same_user_id(monkeypatch):
 
     Regression for the Agent Engine `FAILED_PRECONDITION: Session <id> does not
     belong to user <...>` error: `create_agent_run` creates the session with a
-    per-row user id (e.g. ``Ima_CloudRun_jr_0``) but `my_delete_task` used the
-    bare module constant ``_USER_ID`` (``Ima_CloudRun_jr``), so the delete never
+    per-row user id (e.g. ``crf_worker_0``) but `my_delete_task` used the
+    bare module constant ``_USER_ID`` (``crf_worker``), so the delete never
     matched the session owner.
     """
 

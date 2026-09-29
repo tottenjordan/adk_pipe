@@ -80,7 +80,7 @@ tools rather than reading state for them.
 - GCS output: `gs://{GCS_BUCKET_NAME}/{gcs_folder}/{agent_output_dir}/` where
   `agent_output_dir="creative_output"` and `gcs_folder` is
   `YYYY_MM_DD_HH_MM_<4hex>` (set in `_set_initial_states`).
-- Bucket: `GCS_BUCKET_NAME=trend-trawler-deploy-ae`.
+- Bucket: `GCS_BUCKET_NAME=<YOUR_BUCKET>`.
 
 ## Gotcha: pkill/pgrep self-match
 

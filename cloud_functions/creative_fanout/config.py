@@ -8,14 +8,50 @@ def _csv_env(name: str) -> set[str]:
     return {v.strip() for v in os.environ.get(name, "").split(",") if v.strip()}
 
 
+def _required_env(name: str) -> str:
+    """Read a required env var at *use* time; raise loudly if unset/blank.
+
+    Deliberately not evaluated at import so the module (and `main.py`) stays
+    importable without GCP config — the tests import it with only a dummy
+    `GOOGLE_CLOUD_PROJECT` (or none at all).
+    """
+    value = os.environ.get(name, "").strip()
+    if not value:
+        raise RuntimeError(
+            f"{name} is not set. Deploy the function with "
+            f"`--set-env-vars {name}=...` (see deployment/README.md)."
+        )
+    return value
+
+
 class AppConfig:
-    # gcp project
-    GOOGLE_CLOUD_PROJECT = "hybrid-vertex"
+    @property
+    def GOOGLE_CLOUD_PROJECT(self) -> str:
+        """GCP project ID (required; no default — a wrong project is worse
+        than a loud failure). Read on access, not at import."""
+        return _required_env("GOOGLE_CLOUD_PROJECT")
+
+    @property
+    def GOOGLE_CLOUD_PROJECT_NUMBER(self) -> str:
+        """Project number for resource paths (Pub/Sub topic, Reasoning Engine).
+
+        Optional: both APIs accept the project ID in place of the number, so an
+        unset value falls back to `GOOGLE_CLOUD_PROJECT` (which is required).
+        """
+        return (
+            os.environ.get("GOOGLE_CLOUD_PROJECT_NUMBER", "").strip()
+            or self.GOOGLE_CLOUD_PROJECT
+        )
+
     # Agent Engine is a *regional* resource — this is us-central1, NOT the
     # `global` model location used for the gemini-3.x endpoints.
-    GCP_REGION = "us-central1"
-    GOOGLE_CLOUD_PROJECT_NUMBER = 934903580331
-    CREATIVE_WORKER_TOPIC_NAME = "creative-worker-queue-topic"
+    GCP_REGION = os.environ.get("GCP_REGION", "us-central1")
+    CREATIVE_WORKER_TOPIC_NAME = os.environ.get(
+        "CREATIVE_WORKER_TOPIC_NAME", "creative-worker-queue-topic"
+    )
+    # Base user ID for the worker's Agent Engine sessions; each row's session
+    # runs under `f"{AGENT_WORKER_USER_ID}_{index}"`.
+    AGENT_WORKER_USER_ID = os.environ.get("AGENT_WORKER_USER_ID", "crf_worker")
     # Reaper: a PROCESSING row older than this (worker presumed hard-crashed) is
     # reclaimed. Must exceed the worker's 1800s/30min Cloud Run timeout + margin.
     REAP_STALE_PROCESSING_MINUTES = int(

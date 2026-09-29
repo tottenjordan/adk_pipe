@@ -5,6 +5,7 @@ see the [main README](../README.md).
 
 ## Contents
 - [Prerequisites](#prerequisites)
+- [Required environment](#required-environment)
 - [Deploying Agents to Agent Engine](#deploying-agents-to-agent-engine)
 - [Cloud Run Functions Fan-out Pattern](#cloud-run-functions-fan-out-pattern)
 - [Frontend + api_server on Cloud Run](#frontend--api_server-on-cloud-run)
@@ -16,6 +17,30 @@ see the [main README](../README.md).
   `GCP_REGION=us-central1`, GCS bucket, Pub/Sub topics, Cloud Run Function names, and BigQuery IDs.
 - `gcloud` authenticated (`gcloud auth application-default login`) and the project set.
 - BigQuery dataset + tables created — see [main README → Quickstart](../README.md#quickstart).
+
+## Required environment
+
+Nothing in the code hardcodes a GCP project: every identifier comes from the
+environment (the repo `.env` for local scripts; `--set-env-vars` for deployed
+Cloud Run Functions, which do **not** read `.env`). All vars are documented in
+[.env.example](../.env.example).
+
+| Variable | Used by | Required? | Default |
+|---|---|---|---|
+| `GOOGLE_CLOUD_PROJECT` | CRF orchestrator + worker, `deploy_agent.py`, `test_deployment.py`, `integration_test.py`, `create_session_engine.py` | **Yes** — the CRFs raise `RuntimeError` at first use if unset (imports stay side-effect-free) | none |
+| `GOOGLE_CLOUD_PROJECT_NUMBER` | CRF orchestrator (worker topic path) + worker (Reasoning Engine path); `deploy_agent.py --delete` | CRFs: optional; deploy scripts: yes | CRFs fall back to `GOOGLE_CLOUD_PROJECT` (both APIs accept the ID) |
+| `GCP_REGION` | CRFs (Agent Engine client), all deploy scripts | No | `us-central1` |
+| `CREATIVE_WORKER_TOPIC_NAME` | CRF orchestrator (publishes to it) | No | `creative-worker-queue-topic` |
+| `AGENT_WORKER_USER_ID` | CRF worker (Agent Engine session owner, `<id>_<row index>`) | No | `crf_worker` |
+| `BQ_DATASET_ID` / `BQ_TABLE_TARGETS` | CRFs (SQL identifier allow-list) | No | `trend_trawler` / `target_trends_crf` |
+| `CRF_EXTRA_ALLOWED_TABLES` | CRFs (extra allow-listed tables) | No | empty |
+| `REAP_STALE_PROCESSING_MINUTES` / `MAX_PROCESSING_ATTEMPTS` | CRF orchestrator (stale-PROCESSING reaper) | No | `45` / `3` |
+| `<PREFIX>_AGENT_ENGINE_ID` | `test_deployment.py`, `integration_test.py` (written by `deploy_agent.py --create`) | Yes, per tested agent | none |
+
+`create_session_engine.py` also accepts `--project` / `--region` flags, which
+override the env vars. Agent Engine resource IDs are never constants: pass them via
+`--resource_id` (`deploy_agent.py --delete`), the `*_AGENT_ENGINE_ID` env vars, or
+the `agent_resource_id` field of the orchestrator's Pub/Sub message.
 
 ---
 
@@ -44,7 +69,7 @@ python deployment/deploy_agent.py --version=v1 --agent=interactive_creative --cr
 python deployment/deploy_agent.py --list
 
 # delete an Agent Engine Runtime
-python deployment/deploy_agent.py --resource_id=890256972824182784 --delete
+python deployment/deploy_agent.py --resource_id=<RESOURCE_ID> --delete
 ```
 
 > The local packages bundled into each engine are derived from a single
@@ -230,25 +255,29 @@ gcloud run deploy $CREATIVE_CRF_NAME \
   --source . \
   --function $CRF_ENTRYPOINT \
   --base-image $BASE_IMAGE \
-  --region $GOOGLE_CLOUD_LOCATION \
+  --region $GCP_REGION \
   --memory 8Gi \
   --cpu 4 \
   --min-instances 0 \
   --concurrency=100 \
   --timeout=600s \
   --no-allow-unauthenticated \
+  --set-env-vars "GOOGLE_CLOUD_PROJECT=$GOOGLE_CLOUD_PROJECT,GOOGLE_CLOUD_PROJECT_NUMBER=$GOOGLE_CLOUD_PROJECT_NUMBER,GCP_REGION=$GCP_REGION,CREATIVE_WORKER_TOPIC_NAME=$CREATIVE_WORKER_TOPIC_NAME" \
   --labels agent-workflow=trend-trawler,function=creative-orchestrator
 
   # High concurrency since it's just dispatching
+  # --set-env-vars: GOOGLE_CLOUD_PROJECT is REQUIRED (the function reads no .env);
+  #   see "Required environment" above. --set-env-vars REPLACES the env, so any
+  #   other overrides (e.g. CRF_EXTRA_ALLOWED_TABLES) must be in the same list.
 ```
 
 **3.2 Creative Agent Orchestrator:** eventarc trigger
 
 ```bash
 gcloud eventarc triggers create $CREATIVE_TRIGGER_NAME  \
-  --location=$GOOGLE_CLOUD_LOCATION \
+  --location=$GCP_REGION \
   --destination-run-service=$CREATIVE_CRF_NAME \
-  --destination-run-region=$GOOGLE_CLOUD_LOCATION \
+  --destination-run-region=$GCP_REGION \
   --event-filters="type=google.cloud.pubsub.topic.v1.messagePublished" \
   --transport-topic=$CREATIVE_TOPIC_NAME \
   --service-account=$SERVICE_ACCOUNT
@@ -269,9 +298,13 @@ gcloud run deploy $CREATIVE_WORKER_CRF_NAME \
   --memory 8Gi \
   --cpu 4 \
   --no-allow-unauthenticated \
+  --set-env-vars "GOOGLE_CLOUD_PROJECT=$GOOGLE_CLOUD_PROJECT,GOOGLE_CLOUD_PROJECT_NUMBER=$GOOGLE_CLOUD_PROJECT_NUMBER,GCP_REGION=$GCP_REGION,AGENT_WORKER_USER_ID=${AGENT_WORKER_USER_ID:-crf_worker}" \
   --labels agent-workflow=trend-trawler,function=creative-worker
   
   # Note:
+  # --set-env-vars: GOOGLE_CLOUD_PROJECT is REQUIRED (the function reads no .env);
+  #   see "Required environment" above. --set-env-vars REPLACES the env, so any
+  #   other overrides (e.g. CRF_EXTRA_ALLOWED_TABLES) must be in the same list.
   # region=$GCP_REGION (us-central1) — Cloud Run is regional; GOOGLE_CLOUD_LOCATION
   #   is `global` for the gemini-3.x models and is NOT a valid Cloud Run region.
   # concurrency=1 # ensures only one row is processed per instance
@@ -297,9 +330,9 @@ Effect of setting `concurrency=1`
 
 ```bash
 gcloud eventarc triggers create $CREATIVE_WORKER_TRIGGER_NAME  \
-  --location=$GOOGLE_CLOUD_LOCATION \
+  --location=$GCP_REGION \
   --destination-run-service=$CREATIVE_WORKER_CRF_NAME \
-  --destination-run-region=$GOOGLE_CLOUD_LOCATION \
+  --destination-run-region=$GCP_REGION \
   --event-filters="type=google.cloud.pubsub.topic.v1.messagePublished" \
   --transport-topic=$CREATIVE_WORKER_TOPIC_NAME \
   --service-account=$SERVICE_ACCOUNT
@@ -312,16 +345,16 @@ gcloud eventarc triggers create $CREATIVE_WORKER_TRIGGER_NAME  \
 *4.1 confirm triggers successfully created:*
 
 ```bash
-gcloud eventarc triggers list --location=$GOOGLE_CLOUD_LOCATION
+gcloud eventarc triggers list --location=$GCP_REGION
 ```
 
 *4.2 assign each trigger's PubSub topic to variable:*
 
 ```bash
-CREATIVE_PUB_TOPIC=$(gcloud eventarc triggers describe $CREATIVE_TRIGGER_NAME --location $GOOGLE_CLOUD_LOCATION --format='value(transport.pubsub.topic)')
+CREATIVE_PUB_TOPIC=$(gcloud eventarc triggers describe $CREATIVE_TRIGGER_NAME --location $GCP_REGION --format='value(transport.pubsub.topic)')
 echo $CREATIVE_PUB_TOPIC
 
-CREATIVE_WORKER_PUB_TOPIC=$(gcloud eventarc triggers describe $CREATIVE_WORKER_TRIGGER_NAME --location $GOOGLE_CLOUD_LOCATION --format='value(transport.pubsub.topic)')
+CREATIVE_WORKER_PUB_TOPIC=$(gcloud eventarc triggers describe $CREATIVE_WORKER_TRIGGER_NAME --location $GCP_REGION --format='value(transport.pubsub.topic)')
 echo $CREATIVE_WORKER_PUB_TOPIC
 ```
 
@@ -358,7 +391,7 @@ VALUES
     PARSE_DATE('%m/%d/%Y', '11/11/2025'), --refresh_date
     PARSE_DATE('%m/%d/%Y', '11/12/2025'), --trawler_date
     CURRENT_TIMESTAMP(), --entry_timestamp
-    "https://console.cloud.google.com/storage/browser/trend-trawler-deploy-ae", --trawler_gcs
+    "https://console.cloud.google.com/storage/browser/<GOOGLE_CLOUD_STORAGE_BUCKET>", --trawler_gcs
     "Paul Reed Smith (PRS)", -- brand
     "millennials who follow jam bands (e.g., Widespread Panic and Phish), respond positively to nostalgic messages", -- target_audience
     "PRS SE CE24 Electric Guitar", -- target_product
@@ -383,7 +416,8 @@ the config allow-list (`BQ_DATASET_ID` / `BQ_TABLE_TARGETS`, defaults
 `trend_trawler` / `target_trends_crf`, in `cloud_functions/creative_fanout/config.py`).
 A message naming any other dataset/table is logged and dropped (ACKed). To target
 an extra table (e.g. a `_p95` load-test copy), deploy **both** functions with
-`--set-env-vars CRF_EXTRA_ALLOWED_TABLES=<table>[,<table>...]`.
+`CRF_EXTRA_ALLOWED_TABLES=<table>[,<table>...]` added to their `--set-env-vars` list
+(or `--update-env-vars` to add it without dropping the required vars).
 
 Worker failure semantics: if the agent run fails, the worker marks the row
 `FAILED` and **ACKs** (no Pub/Sub retry — a redelivery can't re-lock a `FAILED`
@@ -469,17 +503,16 @@ branch — run the deploy from a checkout (or git worktree) of **that** branch, 
 
 ```bash
 gcloud auth login                                   # if not already authenticated
-gcloud config set project hybrid-vertex
+gcloud config set project "$GOOGLE_CLOUD_PROJECT"   # e.g. from `set -a; source .env; set +a`
 
 # APIs the --source build (Cloud Build + Artifact Registry) and Cloud Run need:
 gcloud services enable run.googleapis.com cloudbuild.googleapis.com artifactregistry.googleapis.com
 
 # Shared vars (values sourced from .env / deploy_agent.py:ENV_VAR_DICT):
-PROJECT=hybrid-vertex
-PROJECT_NUMBER=934903580331
-REGION=us-central1
-GCS_BUCKET=trend-trawler-deploy-ae   # = GOOGLE_CLOUD_STORAGE_BUCKET (NO gs:// prefix).
-                                     # The gs:// form is derived from it in code.
+PROJECT=$GOOGLE_CLOUD_PROJECT                 # <PROJECT_ID>
+PROJECT_NUMBER=$(gcloud projects describe "$PROJECT" --format='value(projectNumber)')
+REGION=${GCP_REGION:-us-central1}
+GCS_BUCKET=$GOOGLE_CLOUD_STORAGE_BUCKET      # NO gs:// prefix; the gs:// form is derived in code.
 ```
 
 ### 1. IAM — service accounts + role bindings

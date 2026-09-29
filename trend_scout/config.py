@@ -13,7 +13,7 @@ class ResearchConfiguration(BaseAgentConfiguration):
 
     Quota spread: all 5 trend_scout agents used to drive off ``worker_model``,
     funneling into the single ``gemini-3.5-flash`` default quota bucket (5 RPM,
-    project-wide/shared on ``hybrid-vertex``). One UI run overshoots it →
+    project-wide/shared). One UI run overshoots it →
     ``429 RESOURCE_EXHAUSTED``, and waiting doesn't help (the 5/min is shared and
     a single run bursts past it). Vertex quota is **per-base-model** (and, off
     ``global``, **per-region**), so we fan the 5 agents across five separate

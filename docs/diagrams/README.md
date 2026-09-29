@@ -33,7 +33,7 @@ The Next.js web app (`frontend/`), how it connects to the ADK backend, and how i
 
 ### Live Cloud Run Deployment
 
-The as-built two-service Cloud Run deployment (project `hybrid-vertex`, `us-central1`),
+The as-built two-service Cloud Run deployment (project `<PROJECT_ID>`, `us-central1`),
 captured from three angles. Complements `frontend_cloudrun_deployment.png` above (which
 contrasts the dev workstation vs. the Cloud Run target) with the detail of the live system.
 
