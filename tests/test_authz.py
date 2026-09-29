@@ -47,6 +47,9 @@ def test_normalize_strips_iap_prefix_and_lowercases():
         ("/runs/trend_scout/u1/123", "u1"),
         ("/runs/trend_scout/u1/123/resume", "u1"),
         ("/runs/trend_scout", None),
+        # pre-rewrite form (ADK _DefaultAppRewriteMiddleware adds /apps/<default>)
+        ("/users/u1/sessions", "u1"),
+        ("/users/u1", "u1"),
         ("/list-apps", None),
     ],
 )
@@ -72,6 +75,11 @@ def test_decide_enforce():
     assert decide(E, f"/runs/x/{A}/1", None)[0] == 401
     assert decide(E, "/run_sse", A)[0] == 404
     assert decide(E, f"/apps/x/users/{A}/memory", A)[0] == 404
+    # pre-rewrite forms of the same routes (ADK_DEFAULT_APP_NAME set)
+    assert decide(E, f"/users/{A}/memory", A)[0] == 404
+    assert decide(E, "/users/bob@example.com/sessions", A)[0] == 403
+    assert decide(E, f"/users/{A}/sessions", None)[0] == 401
+    assert decide(E, f"/users/{A}/sessions", A) is None
 
 
 @pytest.mark.parametrize(
@@ -81,10 +89,23 @@ def test_decide_blocks_agent_identity_finalize(path):
     assert decide(AuthzMode.ENFORCE, path, A) == (404, "Not found")
 
 
-def test_decide_observe_and_trust_client_never_block():
+def test_decide_observe_blocks_only_blocked_routes_and_trust_client_never_blocks():
     for mode in (AuthzMode.OBSERVE, AuthzMode.TRUST_CLIENT):
         assert decide(mode, "/runs/x/bob@x.com/1", A) is None
-        assert decide(mode, "/run_sse", None) is None
+        assert decide(mode, "/runs/x/bob@x.com/1", None) is None
+    # blocked canned routes are denied in observe too (nothing calls them)
+    assert decide(AuthzMode.OBSERVE, "/run_sse", None) == (404, "Not found")
+    assert decide(AuthzMode.OBSERVE, f"/users/{A}/memory", A) == (404, "Not found")
+    assert decide(AuthzMode.TRUST_CLIENT, "/run_sse", None) is None
+
+
+def test_observe_logs_user_ids_with_repr(caplog):
+    evil = "bob@x.com\nFAKE LOG LINE"
+    with caplog.at_level("WARNING", logger="runserver.authz"):
+        decide(AuthzMode.OBSERVE, "/runs/x/bob@x.com/1", evil)
+        authorize_body_user(AuthzMode.OBSERVE, A, evil)
+    text = caplog.text
+    assert "\nFAKE" not in text and "\\nFAKE" in text
 
 
 def test_authorize_body_user():
@@ -139,7 +160,7 @@ def _ok(auth):
         auth,
         audiences=[AUD, "https://other-allowed.example"],
         trusted_sa=SA,
-        certs=lambda: {"k1": _PUB},
+        certs=lambda **_: {"k1": _PUB},
     )
 
 
@@ -167,11 +188,112 @@ def test_verify_proxy_caller_rejects_bad_signature_and_malformed():
     assert not _ok(None) and not _ok("Basic abc") and not _ok("Bearer not-a-jwt")
 
 
-def test_verify_proxy_caller_fails_closed_when_certs_unreachable():
-    def _down():
+def test_verify_proxy_caller_tolerates_small_clock_skew():
+    now = int(time.time())
+    assert _ok(_tok(iat=now + 10, exp=now + 310))
+
+
+def test_verify_proxy_caller_fails_closed_when_certs_unreachable(caplog, monkeypatch):
+    import runserver.authz as authz
+
+    monkeypatch.setattr(authz, "_last_reject_log", float("-inf"))
+
+    def _down(**_):
         raise OSError("network unreachable")
 
-    assert not verify_proxy_caller(_tok(), audiences=[AUD], trusted_sa=SA, certs=_down)
+    with caplog.at_level("INFO", logger="runserver.authz"):
+        tok = _tok()
+        assert not verify_proxy_caller(tok, audiences=[AUD], trusted_sa=SA, certs=_down)
+    assert "OSError" in caplog.text
+    assert tok[7:] not in caplog.text  # never log the token
+
+
+def test_verify_proxy_caller_refetches_certs_once_for_unknown_kid():
+    calls = []
+
+    def _certs(*, refresh=False):
+        calls.append(refresh)
+        return {"k1": _PUB} if refresh else {"old": _PUB}
+
+    assert verify_proxy_caller(_tok(), audiences=[AUD], trusted_sa=SA, certs=_certs)
+    assert calls == [False, True]
+
+
+class _FakeClock:
+    def __init__(self):
+        self.t = 10_000.0
+
+    def __call__(self):
+        return self.t
+
+
+@pytest.fixture
+def certs_env(monkeypatch):
+    """Reset the module-level certs cache; fake the clock and the HTTP fetch."""
+    import io
+    import json
+
+    import runserver.authz as authz
+
+    clock, state = _FakeClock(), {"fail": False, "fetches": 0}
+
+    def _urlopen(url, timeout):
+        state["fetches"] += 1
+        if state["fail"]:
+            raise OSError("down")
+        return io.BytesIO(json.dumps({"k1": _PUB.decode()}).encode())
+
+    monkeypatch.setattr(authz.time, "monotonic", clock)
+    monkeypatch.setattr(authz.urllib.request, "urlopen", _urlopen)
+    monkeypatch.setattr(authz, "_certs", {})
+    monkeypatch.setattr(authz, "_certs_at", float("-inf"))
+    monkeypatch.setattr(authz, "_certs_failed_at", float("-inf"))
+    return authz, clock, state
+
+
+def test_google_certs_caches_for_ttl(certs_env):
+    authz, clock, state = certs_env
+    assert "k1" in authz.google_certs()
+    clock.t += 100
+    authz.google_certs()
+    assert state["fetches"] == 1
+    clock.t += 3600
+    authz.google_certs()
+    assert state["fetches"] == 2
+
+
+def test_google_certs_backs_off_after_failure(certs_env):
+    authz, clock, state = certs_env
+    state["fail"] = True
+    with pytest.raises(OSError):
+        authz.google_certs()
+    # During backoff: fail closed without another network attempt.
+    clock.t += 10
+    with pytest.raises(OSError):
+        authz.google_certs()
+    assert state["fetches"] == 1
+    # After backoff: retry, and recover.
+    state["fail"] = False
+    clock.t += 60
+    assert "k1" in authz.google_certs()
+    assert state["fetches"] == 2
+
+
+def test_google_certs_refresh_is_rate_limited(certs_env):
+    authz, clock, state = certs_env
+    authz.google_certs()
+    authz.google_certs(refresh=True)  # just fetched: no refetch
+    assert state["fetches"] == 1
+    clock.t += 61
+    authz.google_certs(refresh=True)
+    assert state["fetches"] == 2
+    # A failed refresh keeps serving the still-fresh cached certs.
+    state["fail"] = True
+    clock.t += 61
+    assert "k1" in authz.google_certs(refresh=True)
+    clock.t += 1
+    authz.google_certs(refresh=True)  # in backoff: no new attempt
+    assert state["fetches"] == 3
 
 
 def _app(mode):
@@ -266,6 +388,27 @@ def test_middleware_trust_client_passes_everything():
         _get(_app(AuthzMode.TRUST_CLIENT), "/apps/x/users/me/sessions/1").status_code
         == 200
     )
+
+
+def test_middleware_verifies_caller_off_the_event_loop():
+    import threading
+
+    seen = []
+
+    def caller_ok(auth):
+        seen.append(threading.get_ident())
+        return auth == "Bearer proxy"
+
+    app = FastAPI()
+
+    @app.get("/apps/{a}/users/{u}/sessions")
+    async def list_sessions(a: str, u: str):
+        return {"loop_thread": threading.get_ident()}
+
+    app.add_middleware(UserAuthzMiddleware, mode=AuthzMode.ENFORCE, caller_ok=caller_ok)
+    resp = _get(app, f"/apps/x/users/{A}/sessions", **_PROXY)
+    assert resp.status_code == 200
+    assert seen and seen[0] != resp.json()["loop_thread"]
 
 
 def _raw_asgi(mode, scope, messages):

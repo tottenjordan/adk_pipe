@@ -656,6 +656,7 @@ def configure(
     *,
     session_service,
     runner_factory,
+    # TRUST_CLIENT default is for tests/local; async_app always passes the resolved mode.
     authz_mode: AuthzMode = AuthzMode.TRUST_CLIENT,
 ) -> None:
     """Bind the shared session service + runner factory used by the routes, and

@@ -105,8 +105,10 @@ def _runner_factory(app_name: str) -> Runner:
 # runserver/authz.py). Resolve + validate the mode up front so a misconfigured
 # deploy fails at boot, not on the first request.
 _AUTHZ_MODE = resolve_mode()
-_PROXY_AUDIENCES = [a for a in os.getenv("TRUSTED_PROXY_AUDIENCES", "").split(",") if a]
-_PROXY_SA = os.getenv("TRUSTED_PROXY_SA", "")
+_PROXY_AUDIENCES = [
+    a.strip() for a in os.getenv("TRUSTED_PROXY_AUDIENCES", "").split(",") if a.strip()
+]
+_PROXY_SA = os.getenv("TRUSTED_PROXY_SA", "").strip()
 if _AUTHZ_MODE is AuthzMode.ENFORCE and not (_PROXY_AUDIENCES and _PROXY_SA):
     raise RuntimeError(
         "USER_AUTHZ_MODE=enforce needs TRUSTED_PROXY_SA + TRUSTED_PROXY_AUDIENCES"
