@@ -131,24 +131,38 @@ def test_fallback_moves_on_after_429():
 ```python
 from google.adk.models import FallbackModel, Gemini
 
-def build_gemini(model_name: str, location: str | None = None,
-                 retry_attempts: int | None = None) -> Gemini:
-    retry = (genai_retry.build_genai_http_retry() if retry_attempts is None
-             else genai_retry.build_genai_http_retry(attempts=retry_attempts))
-    return Gemini(model=model_name, retry_options=retry,
-                  client_kwargs={"location": location or locations.MODEL_LOCATION})
+
+def build_gemini(
+    model_name: str, location: str | None = None, retry_attempts: int | None = None
+) -> Gemini:
+    retry = (
+        genai_retry.build_genai_http_retry()
+        if retry_attempts is None
+        else genai_retry.build_genai_http_retry(attempts=retry_attempts)
+    )
+    return Gemini(
+        model=model_name,
+        retry_options=retry,
+        client_kwargs={"location": location or locations.MODEL_LOCATION},
+    )
+
 
 PRIMARY_FAILOVER_ATTEMPTS = 2  # ~10s of backoff before failing over, not ~130s
 
-def build_gemini_with_fallback(primary: str, fallback: str | None) -> Gemini | FallbackModel:
+
+def build_gemini_with_fallback(
+    primary: str, fallback: str | None
+) -> Gemini | FallbackModel:
     """Pro-quota-bound producer model: primary, then ``fallback`` on 429/5xx.
     Empty ``fallback`` disables (kill switch) and returns the plain pinned model."""
     if not fallback:
         return build_gemini(primary)
-    return FallbackModel(models=[
-        build_gemini(primary, retry_attempts=PRIMARY_FAILOVER_ATTEMPTS),
-        build_gemini(fallback),
-    ])
+    return FallbackModel(
+        models=[
+            build_gemini(primary, retry_attempts=PRIMARY_FAILOVER_ATTEMPTS),
+            build_gemini(fallback),
+        ]
+    )
 ```
 4. Re-run the tests and expect PASS. Run the full verification loop.
 5. Commit: `feat(agent_common): add build_gemini_with_fallback (ADK FallbackModel, global-pinned)`
@@ -177,14 +191,17 @@ def test_critic_fallback_never_uses_campaign_bucket():
 import pytest
 
 
-@pytest.mark.parametrize("path", [
-    "creative_agent.agent:root_agent",
-    "creative_agent.agent:visual_generator",
-    "creative_agent.agent:combined_report_composer",
-    "creative_agent.agent:combined_web_evaluator",
-    "interactive_creative.agent:root_agent",
-    "trend_scout.agent:root_agent",
-])
+@pytest.mark.parametrize(
+    "path",
+    [
+        "creative_agent.agent:root_agent",
+        "creative_agent.agent:visual_generator",
+        "creative_agent.agent:combined_report_composer",
+        "creative_agent.agent:combined_web_evaluator",
+        "interactive_creative.agent:root_agent",
+        "trend_scout.agent:root_agent",
+    ],
+)
 def test_pro_producers_fall_back_to_worker(path):
     import importlib
 
@@ -194,7 +211,9 @@ def test_pro_producers_fall_back_to_worker(path):
     agent = getattr(importlib.import_module(mod), attr)
     assert isinstance(agent.model, FallbackModel)
     assert [m.model for m in agent.model.models] == [
-        "gemini-3.1-pro-preview", "gemini-3.8-flash"]
+        "gemini-3.1-pro-preview",
+        "gemini-3.8-flash",
+    ]
 ```
 2. Run `uv run pytest tests/test_config.py tests/test_pipeline_structure.py -q` and expect FAIL.
 3. Implement. Add this to `BaseAgentConfiguration`:
@@ -225,12 +244,23 @@ def test_report_records_judge_model(monkeypatch):
 def test_judge_model_defaults_empty_for_old_reports():
     from creative_eval.schemas import CreativeEvaluationReport
 
-    payload = {"brand": "B", "target_product": "P", "target_search_trend": "t",
-               "ad_copy_evaluations": [], "visual_concept_evaluations": [],
-               "summary": {"total_ad_copies": 0, "ad_copies_passed": 0,
-                           "avg_ad_copy_score": 0.0, "total_visual_concepts": 0,
-                           "visual_concepts_passed": 0, "avg_visual_score": 0.0,
-                           "overall_pass_rate": 0.0, "weakest_dimensions": []}}
+    payload = {
+        "brand": "B",
+        "target_product": "P",
+        "target_search_trend": "t",
+        "ad_copy_evaluations": [],
+        "visual_concept_evaluations": [],
+        "summary": {
+            "total_ad_copies": 0,
+            "ad_copies_passed": 0,
+            "avg_ad_copy_score": 0.0,
+            "total_visual_concepts": 0,
+            "visual_concepts_passed": 0,
+            "avg_visual_score": 0.0,
+            "overall_pass_rate": 0.0,
+            "weakest_dimensions": [],
+        },
+    }
     assert CreativeEvaluationReport.model_validate(payload).judge_model == ""
 ```
 2. Run `uv run pytest tests/test_creative_eval.py -q` and expect FAIL.
@@ -266,17 +296,30 @@ Baselines are refreshed deliberately with `--update-baseline` in a reviewed PR, 
 from tests.eval.efficiency_gate import compare, extract_metrics
 
 _RESULT = {
-    "eval_set_result_id": "r1", "eval_set_id": "trend_scout_evalset",
-    "eval_case_results": [{
-        "eval_set_id": "trend_scout_evalset", "eval_id": "case_a",
-        "final_eval_status": 1, "session_id": "s",
-        "overall_eval_metric_results": [
-            {"metric_name": "token_usage_v1", "score": 1000.0, "eval_status": 4},
-            {"metric_name": "inference_call_count_v1", "score": 10.0, "eval_status": 4},
-            {"metric_name": "invocation_duration_v1", "score": 60.0, "eval_status": 4},
-        ],
-        "eval_metric_result_per_invocation": [],
-    }],
+    "eval_set_result_id": "r1",
+    "eval_set_id": "trend_scout_evalset",
+    "eval_case_results": [
+        {
+            "eval_set_id": "trend_scout_evalset",
+            "eval_id": "case_a",
+            "final_eval_status": 1,
+            "session_id": "s",
+            "overall_eval_metric_results": [
+                {"metric_name": "token_usage_v1", "score": 1000.0, "eval_status": 4},
+                {
+                    "metric_name": "inference_call_count_v1",
+                    "score": 10.0,
+                    "eval_status": 4,
+                },
+                {
+                    "metric_name": "invocation_duration_v1",
+                    "score": 60.0,
+                    "eval_status": 4,
+                },
+            ],
+            "eval_metric_result_per_invocation": [],
+        }
+    ],
 }
 
 
@@ -391,8 +434,17 @@ class TestTelemetryEnv:
 import pytest
 
 
-@pytest.mark.parametrize("val,expected", [(None, False), ("", False), ("false", False),
-                                          ("0", False), ("true", True), ("1", True)])
+@pytest.mark.parametrize(
+    "val,expected",
+    [
+        (None, False),
+        ("", False),
+        ("false", False),
+        ("0", False),
+        ("true", True),
+        ("1", True),
+    ],
+)
 def test_otel_to_cloud_flag(monkeypatch, val, expected):
     from runserver.otel import otel_to_cloud_enabled
 
@@ -466,7 +518,9 @@ def test_sub_agents_are_not_screened(monkeypatch):
 
     (plugin,) = build_safety_plugins(root_agent_names={"root_agent"})
     ctx = MagicMock(agent_name="combined_report_composer")
-    out = asyncio.run(plugin.before_model_callback(callback_context=ctx, llm_request=MagicMock()))
+    out = asyncio.run(
+        plugin.before_model_callback(callback_context=ctx, llm_request=MagicMock())
+    )
     assert out is None  # skipped without calling Model Armor
 
 

@@ -144,8 +144,14 @@ def test_worker_uses_runtimes_api_not_agent_engines(monkeypatch):
     fake_client.runtimes.get.return_value = remote_agent
     monkeypatch.setattr(main, "_get_vertex_client", lambda: fake_client)
 
-    msg = {"index": 0, "brand": "B", "target_product": "p", "key_selling_point": "k",
-           "target_audience": "a", "target_search_trend": "t"}
+    msg = {
+        "index": 0,
+        "brand": "B",
+        "target_product": "p",
+        "key_selling_point": "k",
+        "target_audience": "a",
+        "target_search_trend": "t",
+    }
     asyncio.run(main.create_agent_run(agent_id="123", msg_dict=msg, user_id="u_0"))
 
     name = fake_client.runtimes.get.call_args.kwargs["name"]
@@ -203,18 +209,27 @@ Then publish one trend message (see README §3 smoke) and confirm a `PROCESSED` 
 
 1. Branch `spike/p1-source-packages`. Add `trend_scout/runtime_entry.py` (scratch, not merged):
    ```python
-   from vertexai.agent_engines import AdkApp  # 1.165.1; agentplatform.frameworks after Task 3
+   from vertexai.agent_engines import (
+       AdkApp,
+   )  # 1.165.1; agentplatform.frameworks after Task 3
    from trend_scout.agent import root_agent
+
    adk_app = AdkApp(agent=root_agent)
    ```
 2. Scratch deploy script (`uv run python - <<'EOF' ... EOF`). Generate `class_methods` from the local app with `vertexai._genai._agent_engines_utils._generate_class_methods_spec_or_raise` (1.165.1 `:611`), then:
    ```python
-   client.agent_engines.create(config={
-       "display_name": "p1-spike-trend-scout-src",
-       "source_packages": ["trend_scout", "agent_common"],
-       "entrypoint_module": "trend_scout.runtime_entry", "entrypoint_object": "adk_app",
-       "requirements_file": "requirements.txt", "class_methods": class_methods,
-       "env_vars": ENV_VAR_DICT, "min_instances": 0})   # NO staging_bucket
+   client.agent_engines.create(
+       config={
+           "display_name": "p1-spike-trend-scout-src",
+           "source_packages": ["trend_scout", "agent_common"],
+           "entrypoint_module": "trend_scout.runtime_entry",
+           "entrypoint_object": "adk_app",
+           "requirements_file": "requirements.txt",
+           "class_methods": class_methods,
+           "env_vars": ENV_VAR_DICT,
+           "min_instances": 0,
+       }
+   )  # NO staging_bucket
    ```
    Deploy a control twin with the current pickle path: `deploy_agent.deploy_agent("trend_scout", "p1spike")` with `min_instances` overridden to 0 in the scratch copy.
 3. Measure: 5 cold starts each (wait until scaled to zero, ≥15 min idle). Time `get()` → `async_create_session` → first event of `async_stream_query` using `deployment/test_deployment.py`'s flow. Record p50/max deploy duration and first-event latency in a table.
@@ -253,8 +268,13 @@ Step 1 (red): in the test file, `sed -i 's/client\.agent_engines\./client.runtim
 def test_create_or_reuse_never_touches_agent_engines():
     client = MagicMock(spec=["runtimes"])
     client.runtimes.list.return_value = iter([])  # 2.x list() is a generator
-    client.runtimes.create.return_value = _engine("projects/p/locations/r/reasoningEngines/9", "s")
-    assert cse.create_or_reuse(client, "s") == ("projects/p/locations/r/reasoningEngines/9", True)
+    client.runtimes.create.return_value = _engine(
+        "projects/p/locations/r/reasoningEngines/9", "s"
+    )
+    assert cse.create_or_reuse(client, "s") == (
+        "projects/p/locations/r/reasoningEngines/9",
+        True,
+    )
 ```
 `uv run pytest tests/test_create_session_engine.py -q` → **FAIL** (`no attribute 'agent_engines'` / `'agentplatform'`).
 
@@ -269,14 +289,18 @@ Commit: `git commit -m "refactor(deploy): create_session_engine uses agentplatfo
 Step 1 (red), appended to `tests/test_deploy_utils.py` (reuses `_import_deploy_agent`):
 ```python
 class TestRuntimesApi:
-    def test_list_agents_uses_runtimes_and_handles_empty_generator(self, monkeypatch, caplog):
+    def test_list_agents_uses_runtimes_and_handles_empty_generator(
+        self, monkeypatch, caplog
+    ):
         da = _import_deploy_agent()
         client = MagicMock(spec=["runtimes"])
         client.runtimes.list.return_value = iter([])
         monkeypatch.setattr(da, "_get_client", lambda: client)
         with caplog.at_level("INFO"):
             da.list_agents()
-        assert "No agents found." in caplog.text   # generator bug: old code never hit this
+        assert (
+            "No agents found." in caplog.text
+        )  # generator bug: old code never hit this
 
     def test_delete_uses_runtimes_delete_with_force(self, monkeypatch):
         da = _import_deploy_agent()
