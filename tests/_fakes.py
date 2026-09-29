@@ -1,8 +1,11 @@
-"""Shared offline test doubles for the retry-on-empty wrapper tests.
+"""Shared offline test doubles for the retry-on-empty and graph-Workflow tests.
 
-Used by both ``tests/test_retry_agent.py`` (``RetryUntilKeyAgent``) and
-``tests/test_retry_node.py`` (``RetryUntilKeyNode``), so the agent and the graph
-node are exercised against the exact same producer behaviors.
+The producer fakes are used by both ``tests/test_retry_agent.py``
+(``RetryUntilKeyAgent``) and ``tests/test_retry_node.py`` (``RetryUntilKeyNode``),
+so the agent and the graph node are exercised against the exact same producer
+behaviors. ``StubLlm`` and the ``fc_response`` / ``text_response`` /
+``user_message`` builders script root agents in the graph tests
+(``test_workflow_api_contract``, ``test_retry_node``, ``test_trend_scout_graph``).
 
 Run counts live in a shared mutable list, not an int ``PrivateAttr``: a graph
 ``Workflow`` clones agent nodes per run (``BaseAgent.clone`` -> shallow
@@ -18,6 +21,10 @@ from google.adk.agents import BaseAgent
 from google.adk.agents.invocation_context import InvocationContext
 from google.adk.events.event import Event
 from google.adk.events.event_actions import EventActions
+from google.adk.models.base_llm import BaseLlm
+from google.adk.models.llm_request import LlmRequest
+from google.adk.models.llm_response import LlmResponse
+from google.genai import types
 from pydantic import PrivateAttr
 
 
@@ -128,3 +135,48 @@ class FlakySynthesizer(_CountingAgent):
             yield _empty(self, ctx)
             return
         yield _write(self, ctx, self.output_key, self.value)
+
+
+# --------------------------------------------------------------------------
+# Scripted model + content builders
+# --------------------------------------------------------------------------
+
+
+class StubLlm(BaseLlm):
+    """Scripted model: each call pops the next canned ``LlmResponse``."""
+
+    model: str = "stub-model"
+    _script: list[LlmResponse] = PrivateAttr(default_factory=list)
+    _calls: int = PrivateAttr(default=0)
+
+    @property
+    def calls(self) -> int:
+        return self._calls
+
+    def push(self, *responses: LlmResponse) -> None:
+        self._script.extend(responses)
+
+    async def generate_content_async(
+        self, llm_request: LlmRequest, stream: bool = False
+    ) -> AsyncGenerator[LlmResponse]:
+        self._calls += 1
+        assert self._script, f"stub model called unexpectedly (call #{self._calls})"
+        yield self._script.pop(0)
+
+
+def fc_response(name: str, args: dict[str, Any], fc_id: str) -> LlmResponse:
+    """A model turn that makes a single function call."""
+    part = types.Part(function_call=types.FunctionCall(id=fc_id, name=name, args=args))
+    return LlmResponse(content=types.Content(role="model", parts=[part]))
+
+
+def text_response(text: str) -> LlmResponse:
+    """A model turn that returns plain text."""
+    return LlmResponse(
+        content=types.Content(role="model", parts=[types.Part(text=text)])
+    )
+
+
+def user_message(text: str) -> types.Content:
+    """A user turn (the ``new_message`` passed to ``Runner.run_async``)."""
+    return types.Content(role="user", parts=[types.Part(text=text)])

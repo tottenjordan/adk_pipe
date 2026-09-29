@@ -728,17 +728,21 @@ def test_understand_trends_is_retry_wrapped():
     from trend_scout.agent import root_agent
 
     # LlmAgent's tools validator wraps a bare BaseNode into a NodeTool at
-    # construction; tolerate either form.
-    nodes = [t.node if isinstance(t, NodeTool) else t for t in root_agent.tools]
+    # construction, so the wrapper must appear as a NodeTool.
     matching = [
-        n
-        for n in nodes
-        if isinstance(n, RetryUntilKeyNode) and n.output_key == "info_gtrends"
+        t
+        for t in root_agent.tools
+        if isinstance(getattr(t, "node", None), RetryUntilKeyNode)
+        and t.node.output_key == "info_gtrends"
     ]
     assert matching, "no RetryUntilKeyNode producing info_gtrends in root tools"
-    assert matching[0].max_attempts == 3
+    tool = matching[0]
+    assert isinstance(tool, NodeTool)
+    wrapper = tool.node
+    assert isinstance(wrapper, RetryUntilKeyNode)
+    assert wrapper.max_attempts == 3
 
-    pair = matching[0].node
+    pair = wrapper.node
     assert isinstance(pair, Workflow)
     assert pair.graph is not None
     names = [n.name for n in pair.graph.nodes if n.name != "__START__"]

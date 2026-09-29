@@ -22,16 +22,16 @@ from google.adk.agents.invocation_context import InvocationContext
 from google.adk.apps import App, ResumabilityConfig
 from google.adk.events.event import Event
 from google.adk.events.event_actions import EventActions
-from google.adk.models.base_llm import BaseLlm
-from google.adk.models.llm_request import LlmRequest
-from google.adk.models.llm_response import LlmResponse
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.adk.tools._node_tool import NodeTool
 from google.adk.tools.agent_tool import AgentTool
 from google.adk.workflow import BaseNode, JoinNode, Workflow
 from google.genai import types
-from pydantic import BaseModel, PrivateAttr
+from pydantic import PrivateAttr
+
+from agent_common import PipelineRequest
+from tests._fakes import StubLlm, fc_response, text_response, user_message
 
 APP = "contract_app"
 USER = "u"
@@ -40,12 +40,6 @@ USER = "u"
 # --------------------------------------------------------------------------
 # Test doubles
 # --------------------------------------------------------------------------
-
-
-class PipelineRequest(BaseModel):
-    """The input_schema a pipeline Workflow exposes when called as a tool."""
-
-    request: str
 
 
 class _Writer(BaseAgent):
@@ -98,59 +92,11 @@ class _FlakyWriter(BaseAgent):
         )
 
 
-class _StubLlm(BaseLlm):
-    """Scripted model: each call pops the next canned ``LlmResponse``."""
-
-    model: str = "stub-model"
-    _script: list[LlmResponse] = PrivateAttr(default_factory=list)
-    _calls: int = PrivateAttr(default=0)
-
-    @property
-    def calls(self) -> int:
-        return self._calls
-
-    def push(self, *responses: LlmResponse) -> None:
-        self._script.extend(responses)
-
-    async def generate_content_async(
-        self, llm_request: LlmRequest, stream: bool = False
-    ) -> AsyncGenerator[LlmResponse]:
-        self._calls += 1
-        if not self._script:
-            raise AssertionError(
-                f"stub model called unexpectedly (call #{self._calls})"
-            )
-        yield self._script.pop(0)
-
-
-def _fc(name: str, args: dict[str, Any], fc_id: str) -> LlmResponse:
-    return LlmResponse(
-        content=types.Content(
-            role="model",
-            parts=[
-                types.Part(
-                    function_call=types.FunctionCall(id=fc_id, name=name, args=args)
-                )
-            ],
-        )
-    )
-
-
-def _text(text: str) -> LlmResponse:
-    return LlmResponse(
-        content=types.Content(role="model", parts=[types.Part(text=text)])
-    )
-
-
-def _user(text: str) -> types.Content:
-    return types.Content(role="user", parts=[types.Part(text=text)])
-
-
 async def _run(runner: Runner, session_id: str, text: str) -> list[Event]:
     return [
         e
         async for e in runner.run_async(
-            user_id=USER, session_id=session_id, new_message=_user(text)
+            user_id=USER, session_id=session_id, new_message=user_message(text)
         )
     ]
 
@@ -296,9 +242,11 @@ def test_workflow_in_llm_agent_tools_is_wrapped_as_nodetool() -> None:
         edges=[("START", _Writer(name="w", key="wk"))],
         input_schema=PipelineRequest,
     )
-    root = LlmAgent(name="r", model=_StubLlm(), tools=[wf])
+    root = LlmAgent(name="r", model=StubLlm(), tools=[wf])
 
-    # ``tools`` keeps the raw Workflow; wrapping happens in canonical_tools().
+    # Wrapped at construction (``LlmAgent._pre_validate_tools``), so ``tools``
+    # already holds the NodeTool; canonical_tools() passes it through.
+    assert isinstance(root.tools[0], NodeTool)
     tools = asyncio.run(root.canonical_tools())
     assert len(tools) == 1
     tool = tools[0]
@@ -319,7 +267,7 @@ def test_workflow_in_llm_agent_tools_is_wrapped_as_nodetool() -> None:
     # ``parameters_json_schema`` (pydantic JSON schema, incl. a ``title``);
     # AgentTool emits ``parameters_json_schema`` or genai ``parameters``
     # depending on the JSON_SCHEMA_FOR_FUNC_DECL feature flag.
-    legacy = AgentTool(agent=LlmAgent(name="legacy", model=_StubLlm(), description="d"))
+    legacy = AgentTool(agent=LlmAgent(name="legacy", model=StubLlm(), description="d"))
     legacy_decl = legacy._get_declaration()
     legacy_props, legacy_required = _decl_properties(legacy_decl)
     assert "request" in legacy_props and "request" in legacy_required
@@ -343,7 +291,7 @@ class _NonLongRunningNodeTool(NodeTool):
 
 def _tool_root(
     *, with_output: bool, tool: Any = None
-) -> tuple[LlmAgent, _StubLlm, _Writer]:
+) -> tuple[LlmAgent, StubLlm, _Writer]:
     """Root LlmAgent whose only tool is a Workflow ``wf`` running a writer.
 
     ``with_output=True`` appends a terminal function node that returns a dict,
@@ -360,7 +308,7 @@ def _tool_root(
     wf = Workflow(
         name="wf", description="pipeline", edges=edges, input_schema=PipelineRequest
     )
-    llm = _StubLlm()
+    llm = StubLlm()
     root = LlmAgent(name="root", model=llm, tools=[tool(wf) if tool else wf])
     return root, llm, writer
 
@@ -376,7 +324,7 @@ def test_nodetool_from_plain_llm_root_does_not_pause() -> None:
     ``test_nodetool_no_output_workflow_stalls_root``.)
     """
     root, llm, writer = _tool_root(with_output=True)
-    llm.push(_fc("wf", {"request": "go"}, "fc1"), _text("DONE"))
+    llm.push(fc_response("wf", {"request": "go"}, "fc1"), text_response("DONE"))
 
     async def go() -> tuple[list[Event], dict[str, Any]]:
         svc = InMemorySessionService()
@@ -405,7 +353,7 @@ def test_nodetool_from_resumable_app_root_does_not_pause() -> None:
     be swallowed as a "resume".
     """
     root, llm, writer = _tool_root(with_output=True)
-    llm.push(_fc("wf", {"request": "go"}, "fc1"), _text("DONE"))
+    llm.push(fc_response("wf", {"request": "go"}, "fc1"), text_response("DONE"))
     app = App(
         name=APP,
         root_agent=root,
@@ -417,7 +365,7 @@ def test_nodetool_from_resumable_app_root_does_not_pause() -> None:
         runner = Runner(app=app, session_service=svc)
         sid = await _new_session(svc)
         first = await _run(runner, sid, "hi")
-        llm.push(_text("AGAIN"))
+        llm.push(text_response("AGAIN"))
         second = await _run(runner, sid, "again")
         return first, second, await _state(svc, sid)
 
@@ -447,7 +395,7 @@ def test_nodetool_no_output_workflow_stalls_root(resumable: bool, tool: Any) -> 
     output (fake BaseAgents / custom wrappers that only write state do not).
     """
     root, llm, writer = _tool_root(with_output=False, tool=tool)
-    llm.push(_fc("wf", {"request": "go"}, "fc1"), _text("DONE"))
+    llm.push(fc_response("wf", {"request": "go"}, "fc1"), text_response("DONE"))
 
     async def go() -> tuple[list[Event], dict[str, Any]]:
         svc = InMemorySessionService()
@@ -528,8 +476,8 @@ def test_run_node_reexecutes_inside_nodetool_from_llm_root() -> None:
     pair, searcher, synth = _searcher_synth_pair()
     wrapper = _RetryUntilOut(name="retry", child=pair)
     wf = Workflow(name="wf", edges=[("START", wrapper)], input_schema=PipelineRequest)
-    llm = _StubLlm()
-    llm.push(_fc("wf", {"request": "go"}, "fc1"), _text("DONE"))
+    llm = StubLlm()
+    llm.push(fc_response("wf", {"request": "go"}, "fc1"), text_response("DONE"))
     root = LlmAgent(name="root", model=llm, tools=[wf])
 
     async def go() -> tuple[list[Event], dict[str, Any]]:
@@ -573,11 +521,11 @@ def test_nodetool_failure_characterization() -> None:
     wf = Workflow(
         name="wf", edges=[("START", first, boom)], input_schema=PipelineRequest
     )
-    llm = _StubLlm()
+    llm = StubLlm()
     llm.push(
-        _fc("wf", {"request": "one"}, "fc1"),
-        _fc("wf", {"request": "two"}, "fc2"),
-        _text("DONE"),
+        fc_response("wf", {"request": "one"}, "fc1"),
+        fc_response("wf", {"request": "two"}, "fc2"),
+        text_response("DONE"),
     )
     root = LlmAgent(name="root", model=llm, tools=[wf])
 
@@ -628,7 +576,7 @@ def test_nodetool_repeat_call_replay_scope() -> None:
     wf = Workflow(
         name="wf", edges=[("START", first, fin)], input_schema=PipelineRequest
     )
-    llm = _StubLlm()
+    llm = StubLlm()
     root = LlmAgent(name="root", model=llm, tools=[wf])
 
     async def go() -> tuple[list[Event], list[Event]]:
@@ -636,12 +584,12 @@ def test_nodetool_repeat_call_replay_scope() -> None:
         runner = Runner(agent=root, app_name=APP, session_service=svc)
         sid = await _new_session(svc)
         llm.push(
-            _fc("wf", {"request": "one"}, "fc1"),
-            _fc("wf", {"request": "two"}, "fc2"),
-            _text("DONE"),
+            fc_response("wf", {"request": "one"}, "fc1"),
+            fc_response("wf", {"request": "two"}, "fc2"),
+            text_response("DONE"),
         )
         turn1 = await _run(runner, sid, "hi")
-        llm.push(_fc("wf", {"request": "three"}, "fc3"), _text("DONE2"))
+        llm.push(fc_response("wf", {"request": "three"}, "fc3"), text_response("DONE2"))
         turn2 = await _run(runner, sid, "next")
         return turn1, turn2
 

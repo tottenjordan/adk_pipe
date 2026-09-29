@@ -19,16 +19,20 @@ from google.adk.events.event import Event
 from google.adk.models.llm_request import LlmRequest
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
-from pydantic import Field
+from pydantic import PrivateAttr
 
-from tests.test_retry_node import _fc, _StubLlm, _text, _user
+from tests._fakes import StubLlm, fc_response, text_response, user_message
 
 
-class _RecordingLlm(_StubLlm):
-    requests: list[LlmRequest] = Field(default_factory=list)
+class _RecordingLlm(StubLlm):
+    _requests: list[LlmRequest] = PrivateAttr(default_factory=list)
+
+    @property
+    def requests(self) -> list[LlmRequest]:
+        return self._requests
 
     async def generate_content_async(self, llm_request: LlmRequest, stream=False):
-        self.requests.append(llm_request)
+        self._requests.append(llm_request)
         async for r in super().generate_content_async(llm_request, stream):
             yield r
 
@@ -53,16 +57,14 @@ def _run(monkeypatch: pytest.MonkeyPatch, empty_synth_turns: int):
     for agent in (ts.root_agent, searcher, synth):
         monkeypatch.setattr(agent, "before_model_callback", None)
 
-    root_llm._script.extend(
-        [
-            _fc("understand_trends_agent_resilient", {"request": "go"}, "fc1"),
-            _text("ROOT DONE"),
-        ]
+    root_llm.push(
+        fc_response("understand_trends_agent_resilient", {"request": "go"}, "fc1"),
+        text_response("ROOT DONE"),
     )
     for i in range(3):
-        search_llm._script.append(_text(f"RAW {i}"))
+        search_llm.push(text_response(f"RAW {i}"))
         brief = "   " if i < empty_synth_turns else '{"analyzed_trends": []}'
-        synth_llm._script.append(_text(brief))
+        synth_llm.push(text_response(brief))
 
     async def go() -> tuple[list[Event], dict[str, Any]]:
         svc = InMemorySessionService()
@@ -73,7 +75,7 @@ def _run(monkeypatch: pytest.MonkeyPatch, empty_synth_turns: int):
         events = [
             e
             async for e in runner.run_async(
-                user_id="u", session_id=session.id, new_message=_user("hi")
+                user_id="u", session_id=session.id, new_message=user_message("hi")
             )
         ]
         final = await svc.get_session(
@@ -98,9 +100,23 @@ def test_understand_trends_graph_recovers_after_empty_synthesis(monkeypatch):
     assert root_llm.calls == 2
     # The synthesizer reads the searcher's findings through its state token.
     assert "RAW 2" in str(synth_llm.requests[-1].config.system_instruction)
-    # The root's follow-up turn sees only its own call + the function response,
-    # not the pipeline's inner events (those live on the tool's branch).
-    assert len(root_llm.requests[-1].contents) == 3
+    # The root's follow-up turn sees only the user turn, its own call and the
+    # function response, not the pipeline's inner events (those live on the
+    # tool's branch): no searcher/synthesizer text leaks into its context.
+    contents = root_llm.requests[-1].contents
+    kinds = [
+        "function_call"
+        if p.function_call
+        else "function_response"
+        if p.function_response
+        else "text"
+        for c in contents
+        for p in c.parts or []
+    ]
+    assert kinds == ["text", "function_call", "function_response"]
+    assert [c.role for c in contents] == ["user", "model", "user"]
+    assert contents[0].parts and contents[0].parts[0].text == "hi"
+    assert not any("RAW" in str(c) for c in contents)
 
 
 def test_understand_trends_graph_exhaustion_does_not_stall_root(monkeypatch):

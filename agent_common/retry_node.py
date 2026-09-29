@@ -29,6 +29,11 @@ need no change.
   that returns a falsy result (``flows/llm_flows/tools/_caller.py``), so ``""``
   would stall too. The notice goes only to the caller as the tool result;
   ``output_key`` itself stays unset for downstream ``{var?}`` guards.
+- Retries cover empty results only; an exception raised by the child propagates
+  (not retried), matching ``RetryUntilKeyAgent``.
+- Known limitation (same as ``RetryUntilKeyAgent``): a value already present in
+  ``output_key`` from an earlier turn counts as populated, so the first attempt
+  succeeds even if this run's child wrote nothing.
 """
 
 from __future__ import annotations
@@ -66,7 +71,9 @@ class RetryUntilKeyNode(BaseNode):
     """Maximum number of times to run the child (>= 1)."""
 
     rerun_on_resume: bool = True
-    """Resume re-runs the retry loop rather than treating resume input as output."""
+    """Required by ADK: ``ctx.run_node`` raises ``ValueError`` unless the calling
+    node has ``rerun_on_resume=True`` (``_dynamic_node_scheduler.py``); do not
+    override."""
 
     @override
     async def _run_impl(self, *, ctx: Context, node_input: Any) -> AsyncGenerator[Any]:

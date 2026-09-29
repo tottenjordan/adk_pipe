@@ -61,7 +61,7 @@ These supersede Correction 1's hypothesis.
      - `RetryUntilKeyNode` yields `state[output_key]` as its output. On exhaustion it yields a non-empty "unavailable" notice alongside the marker (T1).
      - A final `LlmAgent` yields its text.
      - Any other terminal node (fakes, state-only nodes) needs a function node after it that returns a value.
-   - A structure test asserts this for every exposed pipeline.
+   - trend_scout's only exposed node is a `RetryUntilKeyNode`, truthy by construction (pinned by `test_retry_node`). A generic structure test over every root-tool node lands in T2, when `creative_agent` exposes pipeline Workflows.
 7. **Nodes are cloned on every run** (a shallow `clone()`). Per-instance counters or state on a node are lost, so tests count runs through shared lists.
 8. **Two calls to the same pipeline tool in one invocation replay the cached result;** a call in the next user message runs fresh. So retry-on-empty must live *inside* the pipeline (`RetryUntilKeyNode`), never in root re-calls. Same-invocation replay also means a failed-then-retried tool call re-runs only the failed node: the first node ran once across two calls in (d).
 9. **The `JoinNode` output is a dict keyed by upstream node name.** This confirms the need for `research_barrier` (Correction 4).

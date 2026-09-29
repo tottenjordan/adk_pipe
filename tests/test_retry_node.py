@@ -3,7 +3,7 @@
 One-for-one port of tests/test_retry_agent.py (``RetryUntilKeyAgent``) to the
 ``BaseNode`` wrapper the P2 migration uses, with the same fakes
 (tests/_fakes.py). The split-producer child is a ``Workflow`` pair instead of a
-``SequentialAgent``. Plus the node-only contracts: the wrapper always yields an
+``SequentialAgent``. Plus the node-only contracts: the wrapper always yields a
 truthy output value (the populated key, or an exhaustion notice), so a root LlmAgent
 calling it as a ``NodeTool`` never stalls (see
 tests/test_workflow_api_contract.py, section 4).
@@ -15,22 +15,17 @@ Fully offline: fake producers + a stub ``BaseLlm`` driven through a real
 
 import asyncio
 import logging
-from collections.abc import AsyncGenerator
 from typing import Any
 
 import pytest
 from google.adk.agents import LlmAgent
 from google.adk.apps import App, ResumabilityConfig
 from google.adk.events.event import Event
-from google.adk.models.base_llm import BaseLlm
-from google.adk.models.llm_request import LlmRequest
-from google.adk.models.llm_response import LlmResponse
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.adk.tools._node_tool import NodeTool
 from google.adk.workflow import BaseNode, Workflow
-from google.genai import types
-from pydantic import PrivateAttr, ValidationError
+from pydantic import ValidationError
 
 from agent_common import PipelineRequest, RetryUntilKeyNode
 from tests._fakes import (
@@ -38,14 +33,14 @@ from tests._fakes import (
     FlakyProducer,
     FlakySynthesizer,
     RawSearcher,
+    StubLlm,
+    fc_response,
+    text_response,
+    user_message,
 )
 
 APP = "retry_node_test"
 USER = "u"
-
-
-def _user(text: str) -> types.Content:
-    return types.Content(role="user", parts=[types.Part(text=text)])
 
 
 def _run_node(node: BaseNode) -> tuple[list[Event], dict[str, Any]]:
@@ -58,7 +53,7 @@ def _run_node(node: BaseNode) -> tuple[list[Event], dict[str, Any]]:
         events = [
             e
             async for e in runner.run_async(
-                user_id=USER, session_id=session.id, new_message=_user("go")
+                user_id=USER, session_id=session.id, new_message=user_message("go")
             )
         ]
         final = await svc.get_session(app_name=APP, user_id=USER, session_id=session.id)
@@ -231,36 +226,6 @@ def test_max_attempts_must_be_positive(bad):
 # --------------------------------------------------------------------------
 
 
-class _StubLlm(BaseLlm):
-    """Scripted model: each call pops the next canned ``LlmResponse``."""
-
-    model: str = "stub-model"
-    _script: list[LlmResponse] = PrivateAttr(default_factory=list)
-    _calls: int = PrivateAttr(default=0)
-
-    @property
-    def calls(self) -> int:
-        return self._calls
-
-    async def generate_content_async(
-        self, llm_request: LlmRequest, stream: bool = False
-    ) -> AsyncGenerator[LlmResponse]:
-        self._calls += 1
-        assert self._script, f"stub model called unexpectedly (call #{self._calls})"
-        yield self._script.pop(0)
-
-
-def _fc(name: str, args: dict[str, Any], fc_id: str) -> LlmResponse:
-    part = types.Part(function_call=types.FunctionCall(id=fc_id, name=name, args=args))
-    return LlmResponse(content=types.Content(role="model", parts=[part]))
-
-
-def _text(text: str) -> LlmResponse:
-    return LlmResponse(
-        content=types.Content(role="model", parts=[types.Part(text=text)])
-    )
-
-
 def _run_as_tool(fail_first: int, resumable: bool = False):
     pair, searcher, synth = _pair(fail_first=fail_first)
     wrapper = RetryUntilKeyNode(
@@ -271,9 +236,10 @@ def _run_as_tool(fail_first: int, resumable: bool = False):
         max_attempts=3,
         input_schema=PipelineRequest,
     )
-    llm = _StubLlm()
-    llm._script.extend(
-        [_fc("research_resilient", {"request": "go"}, "fc1"), _text("DONE")]
+    llm = StubLlm()
+    llm.push(
+        fc_response("research_resilient", {"request": "go"}, "fc1"),
+        text_response("DONE"),
     )
     root = LlmAgent(name="root", model=llm, tools=[wrapper])
 
@@ -293,7 +259,7 @@ def _run_as_tool(fail_first: int, resumable: bool = False):
         events = [
             e
             async for e in runner.run_async(
-                user_id=USER, session_id=session.id, new_message=_user("hi")
+                user_id=USER, session_id=session.id, new_message=user_message("hi")
             )
         ]
         final = await svc.get_session(app_name=APP, user_id=USER, session_id=session.id)
