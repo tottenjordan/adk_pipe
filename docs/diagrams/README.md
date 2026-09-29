@@ -2,13 +2,15 @@
 
 Per-agent ADK architecture diagrams generated with the PaperBanana MCP pipeline
 (`gemini-3.1-flash-image`), in the style of official Google Cloud documentation.
-Each shows the multi-agent tree (Sequential/Parallel composition, `AgentTool`
-wrapping) and the per-agent tooling.
+Each shows the agent/graph composition (ADK 2 graph `Workflow`s exposed as
+`NodeTool`s, `AgentTool` wrapping, `RetryUntilKeyNode` retry wrappers) and the
+per-agent tooling. The `trend_scout` and `creative_agent` diagrams were regenerated
+2026-09-29 for the P2 graph-Workflow migration (no more Sequential/Parallel/RunIf agents).
 
 | Diagram | Agent | Highlights |
 |---|---|---|
-| ![trend_scout](trend_scout_architecture.png) | `trend_scout/` | Root orchestrator → 3 `AgentTool` sub-agents (gather → understand → pick) → flat persistence tools; shared session state; BigQuery + GCS sinks |
-| ![creative_agent](creative_agent_architecture.png) | `creative_agent/` | Nested `SequentialAgent` research pipeline with a `ParallelAgent` fan-out (trend + campaign branches → merge); ad-copy pipeline; visual pipeline (art_director → drafter → critic → finalizer → image gen); LLM-judge; all sinks |
+| ![trend_scout](trend_scout_architecture.png) | `trend_scout/` | Root `LlmAgent` (resumable `App`) → `AgentTool` gather/pick sub-agents + `understand_trends_agent_resilient` (`NodeTool`: `RetryUntilKeyNode`, max 3, over a START → searcher → synthesizer graph `Workflow`) → opt-in `review_trends` checkpoint → flat persistence tools; shared session state; BigQuery (idempotent `MERGE`) + GCS sinks |
+| ![creative_agent](creative_agent_architecture.png) | `creative_agent/` | Three graph-`Workflow` `NodeTool`s: research (START fan-out to trend + campaign planners, each a `RetryUntilKeyNode` searcher→synthesizer → `research_join` `JoinNode` → barrier → `merge_planners` → `refinement_gate` routing `refine`/`skip` → composer); ad copy (drafter → critic); visual (art_director → drafter → critic → finalizer → `RetryUntilKeyNode` image gen); `creative_eval_agent` `AgentTool` LLM-judge; all sinks |
 | ![creative_eval](creative_eval_architecture.png) | `creative_eval/` | LLM-as-judge: `evaluate_all_creatives` → `ThreadPoolExecutor` concurrent fan-out to N Gemini judges → 6 ad-copy + 6 visual dims → `EvaluationSummary` → `CreativeEvaluationReport` → GCS JSON + BigQuery `creative_evals` (join on `creative_uuid`) |
 
 ## Infrastructure Diagrams
