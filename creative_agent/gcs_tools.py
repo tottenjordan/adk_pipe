@@ -84,7 +84,6 @@ def _save_to_gcs(
 def _upload_blob_to_gcs(
     source_file_name: str,
     destination_blob_name: str,
-    # gcs_bucket: str,
 ) -> str:
     """
     Uploads a blob to a GCS bucket.

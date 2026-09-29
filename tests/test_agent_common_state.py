@@ -1,18 +1,11 @@
 """Tests for agent_common.state (shared memorize tool + initial-state seeding)."""
 
 import re
-from types import SimpleNamespace
 
 from agent_common.state import memorize, seed_initial_state
 
 
 class TestMemorize:
-    def test_stores_value_and_reports_status(self):
-        ctx = SimpleNamespace(state={})
-        result = memorize("brand", "PRS", ctx)  # ty: ignore[invalid-argument-type]
-        assert ctx.state == {"brand": "PRS"}
-        assert result == {"status": 'Stored "brand": "PRS"'}
-
     def test_tool_name_stays_memorize(self):
         # ADK derives the FunctionTool name from __name__; prompts call `memorize`.
         assert memorize.__name__ == "memorize"

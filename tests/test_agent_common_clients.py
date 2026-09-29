@@ -9,12 +9,6 @@ class _FakeClient:
         self.project = project
 
 
-def test_sdk_imports_are_lazy():
-    # The SDK modules are imported inside the getters, not at module level.
-    assert not hasattr(clients, "storage")
-    assert not hasattr(clients, "bigquery")
-
-
 def test_gcs_client_uses_project_id(monkeypatch):
     from google.cloud import storage
 

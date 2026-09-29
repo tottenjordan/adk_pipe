@@ -12,7 +12,7 @@ test monkeypatch points keep working.
 
 from typing import TYPE_CHECKING
 
-from agent_common.config import BaseAgentConfiguration
+from agent_common import config as _cfg
 
 if TYPE_CHECKING:
     from google.cloud import bigquery, storage
@@ -22,11 +22,11 @@ def get_gcs_client() -> "storage.Client":
     """Build a Cloud Storage client for the configured GCP project."""
     from google.cloud import storage
 
-    return storage.Client(project=BaseAgentConfiguration.PROJECT_ID)
+    return storage.Client(project=_cfg.BaseAgentConfiguration.PROJECT_ID)
 
 
 def get_bigquery_client() -> "bigquery.Client":
     """Build a BigQuery client for the configured BigQuery project."""
     from google.cloud import bigquery
 
-    return bigquery.Client(project=BaseAgentConfiguration.BQ_PROJECT_ID)
+    return bigquery.Client(project=_cfg.BaseAgentConfiguration.BQ_PROJECT_ID)

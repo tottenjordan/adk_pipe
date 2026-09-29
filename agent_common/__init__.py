@@ -48,7 +48,7 @@ __all__ = [
     "log_run_start",
     "make_final_state_summary",
     "memorize",
-    "seed_initial_state",
     "scrub_lone_surrogates",
     "scrub_surrogates_in_response",
+    "seed_initial_state",
 ]
