@@ -111,7 +111,7 @@ gepa==0.1.4
     # via google-adk
 google-adk==2.10.0
     # via adk-pipe
-google-api-core==2.34.0
+google-api-core==2.39.0
     # via
     #   google-cloud-aiplatform
     #   google-cloud-appengine-logging
@@ -268,7 +268,7 @@ kiwisolver==1.5.1
     # via matplotlib
 litellm==1.85.7 ; python_full_version < '3.14'
     # via google-cloud-aiplatform
-litellm==1.96.2 ; python_full_version >= '3.14'
+litellm==1.102.1 ; python_full_version >= '3.14'
     # via google-cloud-aiplatform
 logistro==2.0.1
     # via
@@ -314,7 +314,7 @@ openai==2.54.0
     # via litellm
 openpyxl==3.1.5
     # via google-adk
-opentelemetry-api==1.42.1
+opentelemetry-api==1.45.0
     # via
     #   google-adk
     #   google-cloud-logging
@@ -326,17 +326,17 @@ opentelemetry-api==1.42.1
     #   opentelemetry-semantic-conventions
 opentelemetry-exporter-gcp-logging==1.15.0a0
     # via google-cloud-aiplatform
-opentelemetry-exporter-otlp-proto-common==1.42.1
+opentelemetry-exporter-otlp-proto-common==1.45.0
     # via opentelemetry-exporter-otlp-proto-http
-opentelemetry-exporter-otlp-proto-http==1.42.1
+opentelemetry-exporter-otlp-proto-http==1.45.0
     # via google-cloud-aiplatform
-opentelemetry-proto==1.42.1
+opentelemetry-proto==1.45.0
     # via
     #   opentelemetry-exporter-otlp-proto-common
     #   opentelemetry-exporter-otlp-proto-http
 opentelemetry-resourcedetector-gcp==1.14.0
     # via opentelemetry-exporter-gcp-logging
-opentelemetry-sdk==1.42.1
+opentelemetry-sdk==1.45.0
     # via
     #   google-adk
     #   google-cloud-aiplatform
@@ -344,7 +344,7 @@ opentelemetry-sdk==1.42.1
     #   opentelemetry-exporter-gcp-logging
     #   opentelemetry-exporter-otlp-proto-http
     #   opentelemetry-resourcedetector-gcp
-opentelemetry-semantic-conventions==0.63b1
+opentelemetry-semantic-conventions==0.66b0
     # via opentelemetry-sdk
 orjson==3.12.0
     # via kaleido
@@ -422,7 +422,7 @@ pydantic==2.13.5
     #   litellm
     #   openai
     #   pydantic-settings
-pydantic-core==2.46.5
+pydantic-core==2.49.0
     # via pydantic
 pydantic-settings==2.15.0 ; python_full_version >= '3.14'
     # via litellm
