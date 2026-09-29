@@ -115,7 +115,7 @@ root_agent = Agent(
     </WORKFLOW>
     """,
     tools=[
-        AgentTool(agent=combined_research_pipeline),
+        combined_research_pipeline,
         AgentTool(agent=ad_creative_pipeline),
         AgentTool(agent=visual_generation_pipeline),
         AgentTool(agent=visual_concept_reviser),

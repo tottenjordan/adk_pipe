@@ -1,12 +1,22 @@
 import logging
+from typing import Any
 
-from google.adk.agents import Agent, ParallelAgent, SequentialAgent
+from google.adk.agents import Agent, SequentialAgent
+from google.adk.agents.context import Context
+from google.adk.events.event import Event
+from google.adk.events.event_actions import EventActions
 from google.adk.planners import BuiltInPlanner
 from google.adk.tools import google_search
 from google.adk.tools.agent_tool import AgentTool
+from google.adk.workflow import JoinNode, Workflow
 from google.genai import types
 
-from agent_common import RetryUntilKeyAgent, RunIfAgent, build_gemini
+from agent_common import (
+    PipelineRequest,
+    RetryUntilKeyAgent,
+    RetryUntilKeyNode,
+    build_gemini,
+)
 from creative_eval.agent import creative_eval_agent
 
 from . import callbacks, prompts, tools
@@ -34,16 +44,18 @@ logging.basicConfig(
 )
 
 
-# --- PARALLEL RESEARCH SUBAGENTS --- #
-parallel_planner_agent = ParallelAgent(
-    name="parallel_planner_agent",
-    sub_agents=[gs_sequential_planner, ca_sequential_planner],
-    description="Runs multiple research planning agents in parallel.",
-)
+# Every LlmAgent placed in a graph Workflow below sets mode="single_turn"
+# explicitly (the node default). single_turn injects the predecessor node's
+# output as a user turn; every instruction here reads its inputs only through
+# `{state}` tokens (and all of them keep include_contents="none"), so that
+# injected turn is not load-bearing.
 
+
+# --- RESEARCH MERGE --- #
 merge_planners = Agent(
     name="merge_planners",
     model=build_gemini(config.worker_model),
+    mode="single_turn",
     include_contents="none",
     description="Combine results from state keys 'campaign_web_search_insights' and 'gs_web_search_insights'",
     instruction=prompts.MERGE_PLANNERS_INSTR,
@@ -52,16 +64,10 @@ merge_planners = Agent(
 )
 
 
-merge_parallel_insights = SequentialAgent(
-    name="merge_parallel_insights",
-    sub_agents=[parallel_planner_agent, merge_planners],
-    description="Coordinates parallel research and synthesizes the results.",
-)
-
-
 combined_web_evaluator = Agent(
     model=build_gemini(config.critic_model),
     name="combined_web_evaluator",
+    mode="single_turn",
     include_contents="none",
     description="Critically evaluates research about the campaign guide and generates follow-up queries.",
     instruction=prompts.COMBINED_WEB_EVALUATOR_INSTR,
@@ -82,6 +88,7 @@ combined_web_evaluator = Agent(
 enhanced_combined_searcher = Agent(
     model=build_gemini(config.worker_model),
     name="enhanced_combined_searcher",
+    mode="single_turn",
     include_contents="none",
     description="Executes follow-up searches and returns raw new findings.",
     planner=BuiltInPlanner(
@@ -102,6 +109,7 @@ enhanced_combined_searcher = Agent(
 refined_web_synthesizer = Agent(
     model=build_gemini(config.worker_model),
     name="refined_web_synthesizer",
+    mode="single_turn",
     include_contents="none",
     description="Synthesizes the raw follow-up findings into a concise new-insights summary.",
     instruction=prompts.REFINED_WEB_SYNTHESIZER_INSTR,
@@ -109,10 +117,10 @@ refined_web_synthesizer = Agent(
     after_model_callback=callbacks.log_empty_turn_finish_reason,
 )
 
-refined_search_and_synthesize = SequentialAgent(
+refined_search_and_synthesize = Workflow(
     name="refined_search_and_synthesize",
     description="Runs the follow-up web search then synthesizes the new findings.",
-    sub_agents=[enhanced_combined_searcher, refined_web_synthesizer],
+    edges=[("START", enhanced_combined_searcher, refined_web_synthesizer)],
 )
 
 
@@ -120,11 +128,11 @@ refined_search_and_synthesize = SequentialAgent(
 # `refined_web_search_insights` unset), re-run the whole pair until populated
 # (bounded). combined_report_composer already guards with
 # `{refined_web_search_insights?}`, but retrying recovers the refinement (a
-# quality gain) instead of silently dropping it. The wrapper runs only
-# sub_agents[0], so we wrap the SequentialAgent pair.
-enhanced_combined_searcher_resilient = RetryUntilKeyAgent(
+# quality gain) instead of silently dropping it. Each attempt re-runs the whole
+# Workflow pair (under a distinct run_id).
+enhanced_combined_searcher_resilient = RetryUntilKeyNode(
     name="enhanced_combined_searcher_resilient",
-    sub_agents=[refined_search_and_synthesize],
+    node=refined_search_and_synthesize,
     output_key="refined_web_search_insights",
     max_attempts=3,
 )
@@ -139,6 +147,7 @@ enhanced_combined_searcher_resilient = RetryUntilKeyAgent(
 combined_report_composer = Agent(
     model=build_gemini(config.critic_model),
     name="combined_report_composer",
+    mode="single_turn",
     include_contents="none",
     description="Transforms research data and a markdown outline into a final, cited report.",
     instruction=prompts.COMBINED_REPORT_COMPOSER_INSTR,
@@ -161,15 +170,16 @@ combined_report_composer = Agent(
 # `{refined_web_search_insights?}`. So the refinement is only *worth* an extra
 # serial PRO call when the base research came back thin.
 #
-# `_base_research_is_degraded` gates the block on exactly that: run it only when
+# `_base_research_is_degraded` gates the round on exactly that: run it only when
 # the merged brief is blank/missing, or an upstream producer exhausted its
-# retries (`*__retry_exhausted`, set by the RetryUntilKeyAgent wrappers on the
-# gs/campaign producers). On the healthy common path the gate skips the block —
-# dropping one gemini-3.1-pro-preview call (the 5 RPM quota is the wall-clock
-# bottleneck) plus a google_search + synthesis pass — while keeping the round as
-# a self-healing fallback for degraded runs. No `output_key`/`{var?}` guard is
-# disturbed: the evaluator's output is consumed only inside the block, and the
-# composer already tolerates a missing `refined_web_search_insights`.
+# retries (`*__retry_exhausted`, set by the RetryUntilKeyNode wrappers on the
+# gs/campaign producers). On the healthy common path `refinement_gate` routes
+# straight to the composer — dropping one gemini-3.1-pro-preview call (the 5 RPM
+# quota is the wall-clock bottleneck) plus a google_search + synthesis pass —
+# while keeping the round as a self-healing fallback for degraded runs. No
+# `output_key`/`{var?}` guard is disturbed: the evaluator's output is consumed
+# only inside the round, and the composer already tolerates a missing
+# `refined_web_search_insights`.
 def _base_research_is_degraded(state) -> bool:
     """True when the base research is thin enough to warrant a refinement round."""
     brief = state.get("combined_web_search_insights")
@@ -184,25 +194,100 @@ def _base_research_is_degraded(state) -> bool:
     return False
 
 
-research_refinement_block = RunIfAgent(
-    name="research_refinement_block",
-    description="Runs the follow-up evaluate+search round only when base research is degraded.",
-    predicate=_base_research_is_degraded,
-    sub_agents=[
-        combined_web_evaluator,
-        enhanced_combined_searcher_resilient,
-    ],
-)
+def refinement_gate_route(state) -> str:
+    """The refinement gate's route: ``"refine"`` when degraded, else ``"skip"``."""
+    return "refine" if _base_research_is_degraded(state) else "skip"
 
 
-# --- COMPLETE RESEARCH PIPELINE SUBAGENT --- #
-combined_research_pipeline = SequentialAgent(
+# Barrier: waits for BOTH research branches before merging.
+research_join = JoinNode(name="research_join")
+
+
+def research_barrier() -> None:
+    """No-output pass-through between the join and merge_planners.
+
+    A JoinNode's output is a dict keyed by upstream node name; a single_turn
+    merge_planners would receive it as its injected user turn. Yielding nothing
+    here keeps that dict out of its prompt — merge_planners reads both research
+    reports from state (`{campaign_web_search_insights?}` /
+    `{gs_web_search_insights?}`).
+    """
+    return None
+
+
+def refinement_gate(ctx: Context) -> Event:
+    """Route to the refinement round only when the base research is degraded."""
+    # EventActions(route=...) is the typed spelling of Event(route=...).
+    return Event(actions=EventActions(route=refinement_gate_route(ctx.state)))
+
+
+# --- PIPELINE RESULT NODES --- #
+# A pipeline exposed to a root agent as a tool (auto-wrapped into a NodeTool)
+# MUST finish with a truthy output: a Workflow ending with no output, or a falsy
+# one, silently stalls the root's turn (no function response; see
+# tests/test_workflow_api_contract.py). A final LlmAgent can emit an empty turn
+# (the flake the retry wrappers exist for), so each LlmAgent-terminated pipeline
+# ends in one of these function nodes instead: it returns a truthy result when
+# the pipeline's output key is populated, else a short non-empty notice (the key
+# itself stays unset so downstream `{var?}` guards still apply).
+def _populated(value: Any) -> bool:
+    if isinstance(value, str):
+        return bool(value.strip())
+    return bool(value)
+
+
+def _missing_notice(producer: str, key: str) -> str:
+    return (
+        f"{producer} did not produce '{key}'; it is unavailable for this run. "
+        "Continue with the next workflow step."
+    )
+
+
+def research_report_ready(ctx: Context) -> str:
+    """Terminal node of combined_research_pipeline (the root's tool result).
+
+    A short confirmation, not the report itself, mirroring the pre-graph
+    AgentTool result (the composer's citation-callback text): the report lives
+    in state for save_draft_report_artifact and the creative stages, and
+    repeating it in the root's context would only add tokens.
+    """
+    if _populated(ctx.state.get("combined_final_cited_report")):
+        return (
+            "Research report complete: saved to session state as "
+            "'combined_final_cited_report' (with resolved citations in "
+            "'final_report_with_citations')."
+        )
+    return _missing_notice("combined_report_composer", "combined_final_cited_report")
+
+
+# --- COMPLETE RESEARCH PIPELINE --- #
+# Graph: both research chains fan out from START and run concurrently, a
+# JoinNode waits for both, the barrier drops the join dict, merge_planners
+# synthesizes the base brief, and the gate routes either through the refinement
+# round (degraded research) or straight to the composer (healthy path).
+combined_research_pipeline = Workflow(
     name="combined_research_pipeline",
     description="Executes a pipeline of web research. It performs iterative research, evaluation, and insight generation.",
-    sub_agents=[
-        merge_parallel_insights,
-        research_refinement_block,
-        combined_report_composer,
+    input_schema=PipelineRequest,
+    edges=[
+        (
+            "START",
+            (gs_sequential_planner, ca_sequential_planner),
+            research_join,
+            research_barrier,
+            merge_planners,
+            refinement_gate,
+        ),
+        (
+            refinement_gate,
+            {"refine": combined_web_evaluator, "skip": combined_report_composer},
+        ),
+        (
+            combined_web_evaluator,
+            enhanced_combined_searcher_resilient,
+            combined_report_composer,
+            research_report_ready,
+        ),
     ],
 )
 
@@ -491,7 +576,7 @@ root_agent = Agent(
     description="Help with ad generation; brainstorm and refine ad copy and visual concept ideas with actor-critic workflows; generate final ad creatives.",
     instruction=prompts.ROOT_AGENT_INSTR,
     tools=[
-        AgentTool(agent=combined_research_pipeline),
+        combined_research_pipeline,
         AgentTool(agent=ad_creative_pipeline),
         AgentTool(agent=visual_production_pipeline),
         AgentTool(agent=creative_eval_agent),

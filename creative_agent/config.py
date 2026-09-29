@@ -41,7 +41,8 @@ class ResearchConfiguration(BaseAgentConfiguration):
     """Research config for creative_agent.
 
     Quota spread (mirrors trend_scout PR #94, shipped as PR #101): the one
-    ``ParallelAgent`` in the tree, ``parallel_planner_agent``, runs the trend- and
+    parallel fan-out in the tree (``combined_research_pipeline``'s START →
+    ``gs_sequential_planner`` / ``ca_sequential_planner``) runs the trend- and
     campaign-research pipelines at the same time. If both drive off the same
     buckets, each step fires *two* concurrent calls into one small pool →
     ``429 RESOURCE_EXHAUSTED``. Vertex quota is **per-base-model**, so the

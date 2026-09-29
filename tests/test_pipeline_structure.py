@@ -34,42 +34,234 @@ def test_creative_agent_root_output_key_not_set():
     )
 
 
-def test_combined_research_pipeline_sub_agent_order():
-    """Lever A: the PRO evaluator + follow-up searcher are wrapped in a
-    RunIfAgent gate so they're skipped on the healthy common path (dropping one
-    serial gemini-3.1-pro-preview call) and run only to compensate for degraded
-    base research. The base synthesis and the final composer stay unconditional."""
-    from agent_common import RetryUntilKeyAgent, RunIfAgent
-    from creative_agent.agent import (
-        combined_research_pipeline,
-        research_refinement_block,
+def _graph_nodes(wf):
+    """Graph nodes by name (graph nodes are clones: compare names, never identity)."""
+    assert wf.graph is not None
+    return {n.name: n for n in wf.graph.nodes}
+
+
+def _graph_edges(wf):
+    return {(e.from_node.name, e.to_node.name, e.route) for e in wf.graph.edges}
+
+
+def _walk_nodes(node):
+    """Yield ``node`` and every node nested in it (Workflow graphs, retry children)."""
+    from google.adk.workflow import Workflow
+
+    from agent_common import RetryUntilKeyNode
+
+    yield node
+    if isinstance(node, Workflow):
+        for child in node.graph.nodes:
+            if child.name != "__START__":
+                yield from _walk_nodes(child)
+    elif isinstance(node, RetryUntilKeyNode):
+        yield from _walk_nodes(node.node)
+
+
+def test_combined_research_pipeline_graph():
+    """P2 T2a: the research pipeline is a graph Workflow. The two planner chains
+    fan out from START into a JoinNode; a no-output barrier keeps the join's
+    dict out of merge_planners' user turn; a routed gate replaces RunIfAgent
+    (Lever A: the PRO evaluator + follow-up search run only when the base
+    research is degraded, skipping one serial gemini-3.1-pro-preview call on the
+    healthy path); the composer always runs."""
+    from google.adk.workflow import JoinNode, Workflow
+
+    from creative_agent.agent import combined_research_pipeline as wf
+
+    assert isinstance(wf, Workflow)
+    names = set(_graph_nodes(wf))
+    assert {
+        "gs_sequential_planner",
+        "ca_sequential_planner",
+        "research_join",
+        "research_barrier",
+        "merge_planners",
+        "refinement_gate",
+        "combined_web_evaluator",
+        "enhanced_combined_searcher_resilient",
+        "combined_report_composer",
+        "research_report_ready",
+    } <= names
+    edges = _graph_edges(wf)
+    assert ("__START__", "gs_sequential_planner", None) in edges
+    assert ("__START__", "ca_sequential_planner", None) in edges  # parallel fan-out
+    assert isinstance(_graph_nodes(wf)["research_join"], JoinNode)
+    assert ("gs_sequential_planner", "research_join", None) in edges
+    assert ("ca_sequential_planner", "research_join", None) in edges
+    assert ("research_join", "research_barrier", None) in edges
+    assert ("research_barrier", "merge_planners", None) in edges
+    assert ("merge_planners", "refinement_gate", None) in edges
+    assert ("refinement_gate", "combined_web_evaluator", "refine") in edges
+    assert ("refinement_gate", "combined_report_composer", "skip") in edges
+    assert (
+        "combined_web_evaluator",
+        "enhanced_combined_searcher_resilient",
+        None,
+    ) in edges
+    assert (
+        "enhanced_combined_searcher_resilient",
+        "combined_report_composer",
+        None,
+    ) in edges
+    # Terminal: a function node that always returns a truthy tool result.
+    assert ("combined_report_composer", "research_report_ready", None) in edges
+    assert not any(src == "research_report_ready" for src, _, _ in edges)
+
+
+def test_refinement_pair_is_retry_wrapped_workflow():
+    """The follow-up searcher+synthesizer pair runs as a Workflow inside a
+    RetryUntilKeyNode keyed on refined_web_search_insights (same key/attempts
+    as the pre-graph RetryUntilKeyAgent)."""
+    from google.adk.workflow import Workflow
+
+    from agent_common import RetryUntilKeyNode
+    from creative_agent.agent import combined_research_pipeline
+
+    w = _graph_nodes(combined_research_pipeline)["enhanced_combined_searcher_resilient"]
+    assert isinstance(w, RetryUntilKeyNode)
+    assert w.output_key == "refined_web_search_insights"
+    assert w.max_attempts == 3
+    pair = w.node
+    assert isinstance(pair, Workflow)
+    assert _graph_edges(pair) == {
+        ("__START__", "enhanced_combined_searcher", None),
+        ("enhanced_combined_searcher", "refined_web_synthesizer", None),
+    }
+    by_name = _graph_nodes(pair)
+    assert by_name["enhanced_combined_searcher"].output_key == "refined_web_search_raw"
+    assert (
+        by_name["refined_web_synthesizer"].output_key == "refined_web_search_insights"
     )
 
-    names = [a.name for a in combined_research_pipeline.sub_agents]
-    assert names == [
-        "merge_parallel_insights",
-        "research_refinement_block",
+
+def test_refinement_gate_routes_on_degradation():
+    from creative_agent.agent import refinement_gate_route
+
+    assert refinement_gate_route({"combined_web_search_insights": "ok"}) == "skip"
+    assert refinement_gate_route({}) == "refine"
+    assert (
+        refinement_gate_route(
+            {
+                "combined_web_search_insights": "ok",
+                "gs_web_search_insights__retry_exhausted": True,
+            }
+        )
+        == "refine"
+    )
+
+
+def test_composer_keeps_citation_callback_in_graph():
+    """The composer's citation after_agent_callback survives the graph clone
+    (whether it FIRES on the node path is covered by
+    tests/test_creative_agent_graph.py)."""
+    from creative_agent import callbacks
+    from creative_agent.agent import combined_research_pipeline
+
+    composer = _graph_nodes(combined_research_pipeline)["combined_report_composer"]
+    assert composer.after_agent_callback is callbacks.citation_replacement_callback
+    assert composer.output_key == "combined_final_cited_report"
+
+
+def test_research_graph_llm_agents_are_single_turn():
+    """Every LlmAgent in the research graph sets mode='single_turn' explicitly
+    and reads its inputs only from state (include_contents='none', set
+    explicitly so the node wrapper's default is not what we rely on)."""
+    from google.adk.agents import LlmAgent
+
+    from creative_agent.agent import combined_research_pipeline
+
+    agents = [
+        n for n in _walk_nodes(combined_research_pipeline) if isinstance(n, LlmAgent)
+    ]
+    assert {a.name for a in agents} == {
+        "gs_web_planner",
+        "gs_web_searcher",
+        "gs_web_synthesizer",
+        "campaign_web_planner",
+        "campaign_web_searcher",
+        "campaign_web_synthesizer",
+        "merge_planners",
+        "combined_web_evaluator",
+        "enhanced_combined_searcher",
+        "refined_web_synthesizer",
         "combined_report_composer",
+    }
+    for a in agents:
+        assert a.mode == "single_turn", a.name
+        assert a.include_contents == "none", a.name
+        assert "include_contents" in a.model_fields_set, a.name
+
+
+def _terminal_names(wf):
+    sources = {e.from_node.name for e in wf.graph.edges}
+    return {n.name for n in wf.graph.nodes if n.name not in sources}
+
+
+# Function nodes designated as pipeline terminals: each returns the pipeline's
+# output-key value (or a short confirmation) when populated, else a non-empty
+# notice -- never a falsy/None result.
+_RESULT_NODES = {"research_report_ready", "ad_copies_ready", "visual_concepts_ready"}
+
+
+def _assert_truthy_terminal(node, path):
+    from google.adk.workflow import Workflow
+
+    from agent_common import RetryUntilKeyNode
+
+    if isinstance(node, RetryUntilKeyNode):
+        return  # truthy by construction (value or exhaustion notice)
+    if isinstance(node, Workflow):
+        by_name = _graph_nodes(node)
+        terminals = _terminal_names(node)
+        assert terminals, f"{path}: no terminal node"
+        for t in terminals:
+            _assert_truthy_terminal(by_name[t], f"{path}/{t}")
+        return
+    assert node.name in _RESULT_NODES, (
+        f"{path}: terminal node {node.name!r} ({type(node).__name__}) may yield no "
+        "or a falsy output, which silently stalls the calling root agent (P2 rule 1)"
+    )
+
+
+def test_exposed_node_tools_end_in_truthy_terminals():
+    """P2 rule 1: every node exposed to a root agent as a NodeTool must finish
+    with a truthy output, or the root's turn silently stalls (no function
+    response). A final LlmAgent is NOT accepted: an empty model turn (the
+    recurring flake this repo retries around) would yield ""/None."""
+    from google.adk.tools._node_tool import NodeTool
+
+    from creative_agent.agent import root_agent as ca_root
+    from interactive_creative.agent import root_agent as ic_root
+
+    for root in (ca_root, ic_root):
+        node_tools = [t for t in root.tools if isinstance(t, NodeTool)]
+        assert node_tools, root.name
+        for tool in node_tools:
+            _assert_truthy_terminal(tool.node, f"{root.name}:{tool.name}")
+
+
+def _result_node_cases():
+    from creative_agent import agent as ca
+
+    return [
+        (ca.research_report_ready, "combined_final_cited_report", "# Report"),
     ]
 
-    gate = combined_research_pipeline.sub_agents[1]
-    assert gate is research_refinement_block
-    assert isinstance(gate, RunIfAgent)
 
-    # The gate wraps the evaluator + the resilient follow-up searcher, in order.
-    gated = [a.name for a in gate.sub_agents]
-    assert gated == ["combined_web_evaluator", "enhanced_combined_searcher_resilient"]
+def test_pipeline_result_nodes_are_never_falsy():
+    """The designated terminal functions return a truthy value when their key
+    is populated and a non-empty notice naming the key otherwise (missing,
+    None, blank string, empty container)."""
+    from types import SimpleNamespace
 
-    from google.adk.agents import SequentialAgent
-
-    w = gate.sub_agents[1]
-    assert isinstance(w, RetryUntilKeyAgent)
-    assert w.output_key == "refined_web_search_insights"
-
-    pair = w.sub_agents[0]
-    assert isinstance(pair, SequentialAgent)
-    assert pair.sub_agents[0].output_key == "refined_web_search_raw"
-    assert pair.sub_agents[-1].output_key == "refined_web_search_insights"
+    for fn, key, value in _result_node_cases():
+        for empty in ({}, {key: None}, {key: ""}, {key: "   "}, {key: {}}):
+            out = fn(SimpleNamespace(state=empty))
+            assert isinstance(out, str) and out.strip(), (fn.__name__, empty)
+            assert key in out, (fn.__name__, out)
+        assert fn(SimpleNamespace(state={key: value})), fn.__name__
 
 
 def test_research_refinement_gate_predicate():
@@ -197,34 +389,51 @@ def test_visual_production_pipeline_wraps_generator_in_retry():
 
 
 def test_parallel_planner_has_both_researchers():
-    from creative_agent.agent import parallel_planner_agent
+    """Both research chains fan out from START (the graph replacement for the
+    ParallelAgent) and join before merge_planners."""
+    from creative_agent.agent import combined_research_pipeline
 
-    names = [a.name for a in parallel_planner_agent.sub_agents]
-    assert "gs_sequential_planner" in names
-    assert "ca_sequential_planner" in names
+    edges = _graph_edges(combined_research_pipeline)
+    starts = {dst for src, dst, _ in edges if src == "__START__"}
+    assert starts == {"gs_sequential_planner", "ca_sequential_planner"}
+    joined = {src for src, dst, _ in edges if dst == "research_join"}
+    assert joined == {"gs_sequential_planner", "ca_sequential_planner"}
 
 
 def test_campaign_producer_is_retry_wrapped():
-    """WS2: campaign_web_searcher is split into a tool-using searcher (writes
-    `campaign_web_search_raw`) + a tool-free synthesizer (writes
-    `campaign_web_search_insights`), wrapped as a SequentialAgent inside the
-    existing RetryUntilKeyAgent so an empty turn retries the pair instead of
-    crashing merge_planners."""
-    from google.adk.agents import SequentialAgent
+    """WS2 + P2: campaign_web_searcher is split into a tool-using searcher (writes
+    `campaign_web_search_raw`) + a tool-free synthesizer (writes `campaign_web_search_insights`), run as a graph Workflow
+    pair inside a RetryUntilKeyNode, so an empty turn retries the WHOLE pair
+    instead of crashing merge_planners. The chain is planner -> resilient pair."""
+    from google.adk.workflow import Workflow
 
-    from agent_common import RetryUntilKeyAgent
+    from agent_common import RetryUntilKeyNode
     from creative_agent.sub_agents.campaign_researcher.agent import (
         ca_sequential_planner,
     )
 
-    w = ca_sequential_planner.sub_agents[-1]
-    assert isinstance(w, RetryUntilKeyAgent)
+    assert isinstance(ca_sequential_planner, Workflow)
+    assert _graph_edges(ca_sequential_planner) == {
+        ("__START__", "campaign_web_planner", None),
+        ("campaign_web_planner", "campaign_web_searcher_resilient", None),
+    }
+    w = _graph_nodes(ca_sequential_planner)["campaign_web_searcher_resilient"]
+    assert isinstance(w, RetryUntilKeyNode)
     assert w.output_key == "campaign_web_search_insights"
+    assert w.max_attempts == 3
 
-    pair = w.sub_agents[0]
-    assert isinstance(pair, SequentialAgent)
-    assert pair.sub_agents[0].output_key == "campaign_web_search_raw"
-    assert pair.sub_agents[-1].output_key == "campaign_web_search_insights"
+    pair = w.node
+    assert isinstance(pair, Workflow)
+    assert pair.name == "campaign_search_and_synthesize"
+    assert _graph_edges(pair) == {
+        ("__START__", "campaign_web_searcher", None),
+        ("campaign_web_searcher", "campaign_web_synthesizer", None),
+    }
+    by_name = _graph_nodes(pair)
+    assert by_name["campaign_web_searcher"].output_key == "campaign_web_search_raw"
+    assert (
+        by_name["campaign_web_synthesizer"].output_key == "campaign_web_search_insights"
+    )
 
 
 def test_campaign_searcher_has_tool_synthesizer_is_tool_free():
@@ -255,26 +464,35 @@ def test_campaign_searcher_keeps_source_collection():
 
 
 def test_trend_producer_is_retry_wrapped():
-    """WS2: gs_web_searcher is split into a tool-using searcher (writes
-    `gs_web_search_raw`) + a tool-free synthesizer (writes
-    `gs_web_search_insights`), wrapped as a SequentialAgent inside the existing
-    RetryUntilKeyAgent so an empty turn retries the pair instead of crashing
-    merge_planners."""
-    from google.adk.agents import SequentialAgent
+    """WS2 + P2: gs_web_searcher is split into a tool-using searcher (writes
+    `gs_web_search_raw`) + a tool-free synthesizer (writes `gs_web_search_insights`), run as a graph Workflow
+    pair inside a RetryUntilKeyNode, so an empty turn retries the WHOLE pair
+    instead of crashing merge_planners. The chain is planner -> resilient pair."""
+    from google.adk.workflow import Workflow
 
-    from agent_common import RetryUntilKeyAgent
-    from creative_agent.sub_agents.trend_researcher.agent import (
-        gs_sequential_planner,
-    )
+    from agent_common import RetryUntilKeyNode
+    from creative_agent.sub_agents.trend_researcher.agent import gs_sequential_planner
 
-    w = gs_sequential_planner.sub_agents[-1]
-    assert isinstance(w, RetryUntilKeyAgent)
+    assert isinstance(gs_sequential_planner, Workflow)
+    assert _graph_edges(gs_sequential_planner) == {
+        ("__START__", "gs_web_planner", None),
+        ("gs_web_planner", "gs_web_searcher_resilient", None),
+    }
+    w = _graph_nodes(gs_sequential_planner)["gs_web_searcher_resilient"]
+    assert isinstance(w, RetryUntilKeyNode)
     assert w.output_key == "gs_web_search_insights"
+    assert w.max_attempts == 3
 
-    pair = w.sub_agents[0]
-    assert isinstance(pair, SequentialAgent)
-    assert pair.sub_agents[0].output_key == "gs_web_search_raw"
-    assert pair.sub_agents[-1].output_key == "gs_web_search_insights"
+    pair = w.node
+    assert isinstance(pair, Workflow)
+    assert pair.name == "gs_search_and_synthesize"
+    assert _graph_edges(pair) == {
+        ("__START__", "gs_web_searcher", None),
+        ("gs_web_searcher", "gs_web_synthesizer", None),
+    }
+    by_name = _graph_nodes(pair)
+    assert by_name["gs_web_searcher"].output_key == "gs_web_search_raw"
+    assert by_name["gs_web_synthesizer"].output_key == "gs_web_search_insights"
 
 
 def test_gs_searcher_has_tool_synthesizer_is_tool_free():

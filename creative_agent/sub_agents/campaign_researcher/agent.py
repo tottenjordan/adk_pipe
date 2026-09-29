@@ -1,12 +1,13 @@
 import logging
 
-from google.adk.agents import Agent, SequentialAgent
+from google.adk.agents import Agent
 from google.adk.planners import BuiltInPlanner
 from google.adk.tools import google_search
+from google.adk.workflow import Workflow
 from google.genai import types
 from pydantic import BaseModel, Field
 
-from agent_common import RetryUntilKeyAgent, build_gemini
+from agent_common import RetryUntilKeyNode, build_gemini
 
 from ... import callbacks
 from ...config import config
@@ -44,6 +45,10 @@ campaign_web_planner = Agent(
     # (config.campaign_models()); default arm = gemini-3.5-flash @ global.
     model=build_gemini(_CA_LITE, location=_CA_LOC),
     name="campaign_web_planner",
+    # A graph node: single_turn set explicitly (the node default). Inputs are
+    # read only via `{state}` tokens, so the injected predecessor output is
+    # not load-bearing.
+    mode="single_turn",
     include_contents="none",
     description="Generates initial queries to guide web research about concepts described in the campaign metadata.",
     instruction="""Role: You are an expert market research strategist and query optimization specialist.
@@ -103,6 +108,7 @@ campaign_web_searcher = Agent(
     # global_altbucket: gemini-3.5-flash @ global — probed 2026-09-28).
     model=build_gemini(_CA_WORKER, location=_CA_LOC),
     name="campaign_web_searcher",
+    mode="single_turn",
     include_contents="none",
     description="Performs the crucial first pass of web research about the campaign guide.",
     planner=BuiltInPlanner(
@@ -149,6 +155,7 @@ campaign_web_synthesizer = Agent(
     # Quota spread (#94/#101): campaign worker bucket from the placement arm (no grounding here).
     model=build_gemini(_CA_WORKER, location=_CA_LOC),
     name="campaign_web_synthesizer",
+    mode="single_turn",
     include_contents="none",
     description="Synthesizes the raw campaign findings into a structured strategic report.",
     instruction="""Role: You are a strategic market research analyst and synthesis expert. Your goal is to transform the raw web-research findings into an actionable, structured report for marketers.
@@ -189,26 +196,31 @@ campaign_web_synthesizer = Agent(
     after_model_callback=callbacks.log_empty_turn_finish_reason,
 )
 
-campaign_search_and_synthesize = SequentialAgent(
+# NOTE: a Workflow graph holds its own copies of its nodes, so mutating the
+# module-level agents after this point does not affect the pipeline.
+campaign_search_and_synthesize = Workflow(
     name="campaign_search_and_synthesize",
     description="Runs the raw web search then synthesizes the campaign report.",
-    sub_agents=[campaign_web_searcher, campaign_web_synthesizer],
+    edges=[("START", campaign_web_searcher, campaign_web_synthesizer)],
 )
 
 # Retry-on-empty: if the searcher OR synthesizer emits no final text (leaving
 # `campaign_web_search_insights` unset), re-run the whole pair until the key is
-# populated (bounded by max_attempts). The wrapper runs only sub_agents[0], so we
-# wrap the SequentialAgent pair — the searcher re-runs too, which is the only way
-# to recover a searcher that itself emptied.
-campaign_web_searcher_resilient = RetryUntilKeyAgent(
+# populated (bounded by max_attempts). Each attempt re-executes the Workflow pair
+# under a distinct run_id — the searcher re-runs too, which is the only way to
+# recover a searcher that itself emptied. On exhaustion it records
+# `campaign_web_search_insights__retry_exhausted` (which gates the research
+# refinement round) and still yields a truthy notice.
+campaign_web_searcher_resilient = RetryUntilKeyNode(
     name="campaign_web_searcher_resilient",
-    sub_agents=[campaign_search_and_synthesize],
+    node=campaign_search_and_synthesize,
     output_key="campaign_web_search_insights",
     max_attempts=3,
 )
 
-ca_sequential_planner = SequentialAgent(
+# One branch of the research fan-out: planner -> resilient search/synthesis pair.
+ca_sequential_planner = Workflow(
     name="ca_sequential_planner",
     description="Executes sequential research tasks for concepts described in the campaign guide.",
-    sub_agents=[campaign_web_planner, campaign_web_searcher_resilient],
+    edges=[("START", campaign_web_planner, campaign_web_searcher_resilient)],
 )
