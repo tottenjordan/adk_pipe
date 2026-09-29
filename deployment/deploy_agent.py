@@ -53,6 +53,20 @@ ENV_VAR_DICT = {
 }
 
 
+def build_env_vars(enable_tracing: bool = False) -> dict[str, str | None]:
+    """Return a copy of ENV_VAR_DICT, plus the Agent Engine telemetry flag if asked.
+
+    With ``AdkApp(enable_tracing=None)`` (our construction), Agent Engine turns on
+    Cloud Trace export when ``GOOGLE_CLOUD_AGENT_ENGINE_ENABLE_TELEMETRY=true``.
+    We deliberately do NOT pass ``enable_tracing=True`` to AdkApp: that also forces
+    prompt/response content capture into the spans.
+    """
+    env = {**ENV_VAR_DICT}
+    if enable_tracing:
+        env["GOOGLE_CLOUD_AGENT_ENGINE_ENABLE_TELEMETRY"] = "true"
+    return env
+
+
 # ==============================
 # per-agent deploy definitions
 # ==============================
@@ -121,6 +135,12 @@ flags.DEFINE_string(
 flags.DEFINE_bool("list", False, "list all agent engine instances.")
 flags.DEFINE_bool("create", False, "create new agent engine runtime (deployment)")
 flags.DEFINE_bool("delete", False, "delete existing agent engine instance")
+flags.DEFINE_bool(
+    "enable_tracing",
+    False,
+    "with --create: export Cloud Trace spans (sets "
+    "GOOGLE_CLOUD_AGENT_ENGINE_ENABLE_TELEMETRY=true; no prompt/response content).",
+)
 flags.mark_bool_flags_as_mutual_exclusive(["create", "delete", "list"])
 
 
@@ -206,12 +226,13 @@ def update_env_file(name: str, agent_engine_id: str, env_file_path: str):
 
 
 # create deployment (unified): any agent in AGENT_DEPLOY_SPECS
-def deploy_agent(name: str, version: str) -> None:
+def deploy_agent(name: str, version: str, enable_tracing: bool = False) -> None:
     """Creates and deploys an Agent to Vertex AI Agent Engine Runtime.
 
     Parameterized by AGENT_DEPLOY_SPECS (module/prefix/naming) and
     AGENT_EXTRA_PACKAGES (bundled dirs) so all agents share one deploy path and
-    a new agent only needs an entry in those two maps.
+    a new agent only needs an entry in those two maps. ``enable_tracing`` opts the
+    engine into Cloud Trace export (see ``build_env_vars``).
     """
     import importlib
 
@@ -242,7 +263,7 @@ def deploy_agent(name: str, version: str) -> None:
                 "gcs_dir_name": f"adk-pipe/{spec['gcs_subdir']}/{version}/staging",
                 "display_name": f"{spec['display_name']}-{version}",
                 "description": root_agent.description,
-                "env_vars": ENV_VAR_DICT,
+                "env_vars": build_env_vars(enable_tracing),
                 "min_instances": 1,
                 "max_instances": 100,
                 "resource_limits": {"cpu": "4", "memory": "8Gi"},
@@ -327,7 +348,11 @@ def main(argv):
             sys.exit(1)
         logging.info(f"Creating Agent Engine Runtime for `{FLAGS.agent}`...")
         try:
-            deploy_agent(name=FLAGS.agent, version=FLAGS.version)
+            deploy_agent(
+                name=FLAGS.agent,
+                version=FLAGS.version,
+                enable_tracing=FLAGS.enable_tracing,
+            )
         except Exception:
             logging.error("Deploy failed; exiting non-zero.")
             sys.exit(1)

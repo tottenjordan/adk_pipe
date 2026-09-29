@@ -516,11 +516,23 @@ class TestDeployAgentCreate:
         assert config["gcs_dir_name"] == f"adk-pipe/{spec['gcs_subdir']}/v9/staging"
         assert config["display_name"] == f"{spec['display_name']}-v9"
         assert config["description"] == f"{name} desc"
-        assert config["env_vars"] is da.ENV_VAR_DICT
+        assert config["env_vars"] == da.ENV_VAR_DICT
+        assert "GOOGLE_CLOUD_AGENT_ENGINE_ENABLE_TELEMETRY" not in config["env_vars"]
 
         update_env.assert_called_once_with(
             name=name, agent_engine_id=self.RESOURCE, env_file_path=da.ENV_FILE_PATH
         )
+
+    def test_create_with_tracing_sets_telemetry_env_only(self, monkeypatch):
+        da, module, adk_app_cls, client, _ = self._setup(
+            monkeypatch, "creative_agent", with_app=False
+        )
+        da.deploy_agent("creative_agent", "v9", enable_tracing=True)
+        env = client.runtimes.create.call_args.kwargs["config"]["env_vars"]
+        assert env["GOOGLE_CLOUD_AGENT_ENGINE_ENABLE_TELEMETRY"] == "true"
+        # AdkApp's own enable_tracing stays unset: True would force prompt/response
+        # content capture into the spans.
+        adk_app_cls.assert_called_once_with(agent=module.root_agent)
 
     def test_create_failure_reraises_without_env_update(self, monkeypatch):
         da, _, _, client, update_env = self._setup(
@@ -656,3 +668,27 @@ class TestPrettyPrintEvent:
         td = _load_script("test_deployment")
         td.pretty_print_event({"author": "a", "content": None})
         td.pretty_print_event({"author": "a", "content": {"parts": None}})
+
+
+# --- opt-in Agent Engine Cloud Trace (P4b §3) ---
+class TestTelemetryEnv:
+    FLAG = "GOOGLE_CLOUD_AGENT_ENGINE_ENABLE_TELEMETRY"
+
+    def test_tracing_off_by_default(self):
+        da = _import_deploy_agent()
+        assert self.FLAG not in da.build_env_vars()
+
+    def test_tracing_enabled_sets_flag_without_reserved_vars(self):
+        da = _import_deploy_agent()
+        env = da.build_env_vars(enable_tracing=True)
+        assert env[self.FLAG] == "true"
+        # Reserved by Agent Engine (FAILED_PRECONDITION if shipped).
+        assert "GOOGLE_CLOUD_LOCATION" not in env
+        assert "GOOGLE_CLOUD_PROJECT" not in env
+
+    def test_returns_a_copy(self):
+        da = _import_deploy_agent()
+        env = da.build_env_vars(enable_tracing=True)
+        env["MUTATED"] = "x"
+        assert "MUTATED" not in da.ENV_VAR_DICT
+        assert self.FLAG not in da.ENV_VAR_DICT

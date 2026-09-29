@@ -71,7 +71,18 @@ python deployment/deploy_agent.py --list
 
 # delete an Agent Engine Runtime
 python deployment/deploy_agent.py --resource_id=<RESOURCE_ID> --delete
+
+# opt-in Cloud Trace for a new engine (off by default)
+python deployment/deploy_agent.py --version=v1 --agent=creative_agent --create --enable_tracing
 ```
+
+> **Cloud Trace (opt-in).** `--enable_tracing` ships
+> `GOOGLE_CLOUD_AGENT_ENGINE_ENABLE_TELEMETRY=true` in the engine's env vars, which turns
+> on span export to Cloud Trace. `AdkApp(enable_tracing=...)` is deliberately left unset:
+> passing `True` would also force prompt/response content capture into the spans. The
+> Reasoning Engine service agent
+> (`service-$PROJECT_NUMBER@gcp-sa-aiplatform-re.iam.gserviceaccount.com`) needs
+> `roles/cloudtrace.agent`, and `cloudtrace.googleapis.com` must be enabled.
 
 > The local packages bundled into each engine are derived from a single
 > `AGENT_EXTRA_PACKAGES` map in `deployment/deploy_agent.py` (from the real import
@@ -889,6 +900,24 @@ gcloud run services update trend-trawler-web --region $REGION \
 ```
 
 After any api env change, re-check traffic (see Step 8 — pin to the new revision if needed).
+
+**Cloud Trace (opt-in, api).** Tracing on the backend is off by default:
+
+| Service | Env var | Value / behavior |
+|---|---|---|
+| api | `ADK_OTEL_TO_CLOUD` | `true`/`1`/`yes` → `get_fast_api_app(otel_to_cloud=True)` (ADK, experimental): OTLP export to `telemetry.googleapis.com` (`runserver/otel.py`). Unset/other = off. (`trace_to_cloud` is not used — its exporter isn't installed.) |
+| api | `ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS` | Set `false` whenever tracing is on — ADK defaults it to `true`, which writes prompt/response content into spans. |
+
+Prereqs: enable `telemetry.googleapis.com` + `cloudtrace.googleapis.com`, and grant
+`tt-api-sa` `roles/cloudtrace.agent`, `roles/telemetry.tracesWriter`,
+`roles/monitoring.metricWriter`, and `roles/logging.logWriter`. Then:
+
+```bash
+gcloud run services update trend-trawler-api --region $REGION \
+  --update-env-vars ADK_OTEL_TO_CLOUD=true,ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS=false
+```
+
+(A revision change kills in-flight runs, and re-check the traffic pin afterwards — Step 8.)
 
 **Authed verification (bypassing the proxy).** The impersonated token must carry `email`,
 so pass `--include-email` — without it the api rejects it as untrusted (401):

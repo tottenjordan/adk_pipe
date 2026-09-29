@@ -35,6 +35,7 @@ from runserver.authz import (
     resolve_mode,
     verify_proxy_caller,
 )
+from runserver.otel import otel_to_cloud_enabled
 
 _AGENTS_DIR = "agents"
 _SESSION_URI = os.getenv("SESSION_SERVICE_URI") or None
@@ -47,6 +48,8 @@ app = get_fast_api_app(
     artifact_service_uri=_ARTIFACT_URI,
     allow_origins=_ALLOW.split(",") if _ALLOW else None,
     web=False,
+    # Opt-in Cloud Trace export (ADK_OTEL_TO_CLOUD); see runserver/otel.py.
+    otel_to_cloud=otel_to_cloud_enabled(),
 )
 
 
