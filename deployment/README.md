@@ -741,8 +741,11 @@ run keeps going server-side; re-polling from `since=0` replays the whole timelin
 - **Instance recycling can still orphan a run.** If the instance running the task is
   redeployed / scaled down / OOM-killed mid-run, no terminal marker is written and the poll
   would report `running` forever. Mitigations: the frontend **stall-timeout** surfaces it to
-  the user, and you should avoid mid-run redeploys. The durable escalation (only if this
-  bites under real load) is **Variant 2**: hand UI runs to the existing PubSub worker
+  the user, and you should avoid mid-run redeploys. Any api revision change (a
+  deploy **or** a `services update --update-env-vars`, followed by the traffic pin) shuts the
+  old revision's instance down within about a minute. Before one, confirm nothing is running:
+  check that no `run start:` line in the recent api logs lacks a matching terminal
+  `__run_status`, and ask the user. The durable escalation (only if this bites under real load) is **Variant 2**: hand UI runs to the existing PubSub worker
   (`cloud_functions/creative_fanout` pattern) so PubSub redelivery + a BQ status lock
   survive an instance crash.
 - **`partial` (token-streaming) chunks are not persisted**, so the poll renders **final**
