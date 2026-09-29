@@ -380,6 +380,18 @@ VALUES
 }
 ```
 
+`bq_dataset`/`bq_table` become SQL identifiers, so both functions only accept
+the config allow-list (`BQ_DATASET_ID` / `BQ_TABLE_TARGETS`, defaults
+`trend_trawler` / `target_trends_crf`, in `cloud_functions/creative_fanout/config.py`).
+A message naming any other dataset/table is logged and dropped (ACKed). To target
+an extra table (e.g. a `_p95` load-test copy), deploy **both** functions with
+`--set-env-vars CRF_EXTRA_ALLOWED_TABLES=<table>[,<table>...]`.
+
+Worker failure semantics: if the agent run fails, the worker marks the row
+`FAILED` and **ACKs** (no Pub/Sub retry — a redelivery can't re-lock a `FAILED`
+row). Only an error before/while writing that status NACKs for redelivery; rows
+stranded in `PROCESSING` are recovered by the orchestrator's stale-PROCESSING reaper.
+
 *5.3  Publish message to the Creative Orchestrator's topic:*
 
 ```bash

@@ -2,7 +2,9 @@
 
 Guard the fix for #45: a streaming failure inside `async_send_message` must
 propagate so `_execute_agent_and_update_status` marks the row `FAILED` instead
-of silently marking it `PROCESSED`. Coroutines are driven with `asyncio.run`
+of silently marking it `PROCESSED`. Once FAILED is written the worker returns
+(ACK) rather than re-raising: a redelivery can't re-acquire the QUEUED->PROCESSING
+lock on a FAILED row, so a NACK would only add a no-op retry. Coroutines are driven with `asyncio.run`
 (no pytest-asyncio in this project).
 """
 
@@ -31,7 +33,8 @@ def test_async_send_message_reraises_streaming_error():
 
 
 def test_streaming_error_marks_row_failed_end_to_end(monkeypatch):
-    """End-to-end: a streaming failure marks the row FAILED (never PROCESSED)."""
+    """End-to-end: a streaming failure marks the row FAILED (never PROCESSED)
+    and, once FAILED is durably written, returns instead of re-raising."""
 
     async def _raising_stream(**kwargs):
         raise RuntimeError("stream boom")
@@ -68,10 +71,11 @@ def test_streaming_error_marks_row_failed_end_to_end(monkeypatch):
     }
     bq = MagicMock()
 
-    with pytest.raises(RuntimeError, match="stream boom"):
-        asyncio.run(
-            main._execute_agent_and_update_status(trend, "agent-123", bq, "ds", "tbl")
-        )
+    # FAILED was written successfully → return normally so the worker message is
+    # ACKed (a redelivery could never re-lock a FAILED row; it'd be a no-op).
+    asyncio.run(
+        main._execute_agent_and_update_status(trend, "agent-123", bq, "ds", "tbl")
+    )
 
     statuses = [c.kwargs.get("status") for c in update_mock.call_args_list]
     assert "FAILED" in statuses
@@ -227,3 +231,107 @@ def test_create_agent_run_deletes_session_on_stream_error(monkeypatch):
         )
 
     assert deleted == {"user_id": user_id, "session_id": "sess-stream"}
+
+
+# ============================================================
+# Worker error contract (ACK after FAILED is durably written)
+# ============================================================
+_TREND = {
+    "entry_timestamp": "2026-07-12T00:00:00",
+    "index": 0,
+    "brand": "BrandX",
+    "target_product": "prod",
+    "key_selling_point": "ksp",
+    "target_audience": "aud",
+    "target_search_trend": "trend",
+}
+
+
+def _failing_agent_run(monkeypatch):
+    async def _boom(**kwargs):
+        raise RuntimeError("agent boom")
+
+    monkeypatch.setattr(main, "create_agent_run", _boom)
+    monkeypatch.setattr(main, "acquire_processing_lock", lambda *a, **k: True)
+
+
+def test_agent_failure_after_failed_write_returns_and_logs(monkeypatch, caplog):
+    _failing_agent_run(monkeypatch)
+    update_mock = MagicMock()
+    monkeypatch.setattr(main, "update_rows_status", update_mock)
+
+    with caplog.at_level("ERROR"):
+        # must NOT raise
+        asyncio.run(
+            main._execute_agent_and_update_status(
+                _TREND, "agent-123", MagicMock(), "ds", "tbl"
+            )
+        )
+
+    assert [c.kwargs["status"] for c in update_mock.call_args_list] == ["FAILED"]
+    assert _TREND["entry_timestamp"] in caplog.text
+    assert "agent boom" in caplog.text
+
+
+def test_failed_status_write_error_still_reraises(monkeypatch):
+    """If the FAILED write itself fails, the row is stranded in PROCESSING —
+    re-raise so Pub/Sub redelivers (and the reaper is the backstop)."""
+    _failing_agent_run(monkeypatch)
+
+    def _update(**kwargs):
+        raise RuntimeError("bq write boom")
+
+    monkeypatch.setattr(main, "update_rows_status", _update)
+
+    with pytest.raises(RuntimeError, match="bq write boom"):
+        asyncio.run(
+            main._execute_agent_and_update_status(
+                _TREND, "agent-123", MagicMock(), "ds", "tbl"
+            )
+        )
+
+
+def test_error_before_status_write_reraises(monkeypatch):
+    """An unexpected error before any status write (e.g. the lock query) must
+    still propagate so Pub/Sub retries."""
+
+    def _lock(*a, **k):
+        raise RuntimeError("lock boom")
+
+    monkeypatch.setattr(main, "acquire_processing_lock", _lock)
+    update_mock = MagicMock()
+    monkeypatch.setattr(main, "update_rows_status", update_mock)
+
+    with pytest.raises(RuntimeError, match="lock boom"):
+        asyncio.run(
+            main._execute_agent_and_update_status(
+                _TREND, "agent-123", MagicMock(), "ds", "tbl"
+            )
+        )
+    update_mock.assert_not_called()
+
+
+def test_worker_entrypoint_acks_after_failed_write(monkeypatch):
+    """Through the real entrypoint: agent failure + successful FAILED write → ACK."""
+    import base64
+    import json
+    import types
+
+    from cloud_functions.creative_fanout.config import config
+
+    _failing_agent_run(monkeypatch)
+    update_mock = MagicMock()
+    monkeypatch.setattr(main, "update_rows_status", update_mock)
+    monkeypatch.setattr(main, "_get_bigquery_client", MagicMock)
+
+    payload = {
+        "bq_dataset": config.BQ_DATASET_ID,
+        "bq_table": config.BQ_TABLE_TARGETS,
+        "agent_resource_id": "agent-123",
+        "row_data": _TREND,
+    }
+    encoded = base64.b64encode(json.dumps(payload).encode()).decode()
+    main.agent_worker_entrypoint(
+        types.SimpleNamespace(data={"message": {"data": encoded}})
+    )  # must NOT raise
+    assert [c.kwargs["status"] for c in update_mock.call_args_list] == ["FAILED"]

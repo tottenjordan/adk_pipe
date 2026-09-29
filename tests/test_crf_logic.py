@@ -56,28 +56,6 @@ def build_row_dict(index: int, row: dict) -> dict:
     }
 
 
-def build_update_sql(project, dataset, table, timestamps, status="PROCESSED"):
-    """Build the SQL for updating row statuses."""
-    ts_list = [f"TIMESTAMP('{t}')" for t in timestamps]
-    ts_string = ", ".join(ts_list)
-    return f"""
-        UPDATE `{project}.{dataset}.{table}`
-        SET processed_status = '{status}'
-        WHERE entry_timestamp IN ({ts_string})
-    """
-
-
-def build_lock_sql(project, dataset, table, timestamp):
-    """Build the SQL for acquiring a processing lock on a single row."""
-    return f"""
-        UPDATE `{project}.{dataset}.{table}`
-        SET processed_status = 'PROCESSING'
-        WHERE
-            entry_timestamp = TIMESTAMP('{timestamp}')
-            AND processed_status = 'QUEUED'
-    """
-
-
 def build_user_query(msg_dict: dict) -> str:
     """Build the user query string sent to the agent."""
     return f"""Brand: {msg_dict["brand"]}
@@ -214,50 +192,9 @@ class TestWorkerPayload:
         assert trends == ["trend_0", "trend_1", "trend_2"]
 
 
-# ============================================================
-# Tests: SQL generation
-# ============================================================
-class TestUpdateStatusSQL:
-    def test_single_timestamp(self):
-        sql = build_update_sql(
-            "my-project",
-            "trend_trawler",
-            "target_trends_crf",
-            ["2025-01-15T10:00:00+00:00"],
-            status="PROCESSED",
-        )
-        assert "SET processed_status = 'PROCESSED'" in sql
-        assert "TIMESTAMP('2025-01-15T10:00:00+00:00')" in sql
-        assert "my-project.trend_trawler.target_trends_crf" in sql
-
-    def test_multiple_timestamps(self):
-        timestamps = [
-            "2025-01-15T10:00:00+00:00",
-            "2025-01-15T11:00:00+00:00",
-            "2025-01-15T12:00:00+00:00",
-        ]
-        sql = build_update_sql("proj", "ds", "tbl", timestamps, status="QUEUED")
-        assert "SET processed_status = 'QUEUED'" in sql
-        for ts in timestamps:
-            assert f"TIMESTAMP('{ts}')" in sql
-
-    def test_status_values(self):
-        for status in ["QUEUED", "PROCESSING", "PROCESSED", "FAILED"]:
-            sql = build_update_sql("p", "d", "t", ["ts1"], status=status)
-            assert f"SET processed_status = '{status}'" in sql
-
-
-class TestLockSQL:
-    def test_lock_targets_queued_rows(self):
-        sql = build_lock_sql(
-            "my-project",
-            "trend_trawler",
-            "target_trends_crf",
-            "2025-01-15T10:00:00+00:00",
-        )
-        assert "SET processed_status = 'PROCESSING'" in sql
-        assert "AND processed_status = 'QUEUED'" in sql
-        assert "TIMESTAMP('2025-01-15T10:00:00+00:00')" in sql
+# SQL generation is tested against the REAL builders in main.py (allow-listed,
+# backtick-quoted identifiers + query parameters) in test_crf_sql_params.py and
+# test_crf_entrypoint.py — not replicated here.
 
 
 # ============================================================
@@ -293,36 +230,6 @@ class TestAcquireProcessingLock:
         mock_client.query.side_effect = Exception("BQ unavailable")
         with pytest.raises(Exception, match="BQ unavailable"):
             mock_client.query("UPDATE ...")
-
-
-# ============================================================
-# Tests: update_rows_status behavior (mocked BQ client)
-# ============================================================
-class TestUpdateRowsStatus:
-    def test_executes_query_and_waits(self):
-        mock_client = MagicMock()
-        mock_client.project = "test-project"
-
-        # Replicate the update_rows_status logic
-        timestamps = ["2025-01-15T10:00:00+00:00"]
-        ts_list = [f"TIMESTAMP('{t}')" for t in timestamps]
-        ts_string = ", ".join(ts_list)
-        update_query = f"""
-            UPDATE `{mock_client.project}.ds.tbl`
-            SET processed_status = 'PROCESSED'
-            WHERE entry_timestamp IN ({ts_string})
-        """
-        query_job = mock_client.query(update_query)
-        query_job.result()
-
-        mock_client.query.assert_called_once()
-        query_job.result.assert_called_once()
-
-    def test_skips_empty_timestamp_list(self):
-        """With no timestamps, no query should be made."""
-        timestamps = []
-        # Replicate the guard from update_rows_status
-        assert len(timestamps) == 0
 
 
 # ============================================================

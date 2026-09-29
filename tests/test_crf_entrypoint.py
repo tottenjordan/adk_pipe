@@ -17,6 +17,11 @@ import pandas as pd
 import pytest
 
 from cloud_functions.creative_fanout import main
+from cloud_functions.creative_fanout.config import config
+
+# Allow-listed identifiers (the SQL builders reject anything else).
+DS = config.BQ_DATASET_ID
+TBL = config.BQ_TABLE_TARGETS
 
 
 def _event(data):
@@ -70,7 +75,7 @@ def test_valid_payload_empty_dataframe_no_dispatch(mocked_clients):
     """Valid payload but no unprocessed rows → query runs, nothing dispatched."""
     bq, publisher = mocked_clients
     bq.query.return_value.to_dataframe.return_value = pd.DataFrame()
-    payload = {"bq_dataset": "ds", "bq_table": "tbl", "agent_resource_id": "123"}
+    payload = {"bq_dataset": DS, "bq_table": TBL, "agent_resource_id": "123"}
     main.crf_entrypoint(_pubsub_event(payload))
     publisher.publish.assert_not_called()
 
@@ -99,7 +104,7 @@ def test_valid_payload_with_rows_dispatches_one_message_per_row(mocked_clients):
         ]
     )
     bq.query.return_value.to_dataframe.return_value = df
-    payload = {"bq_dataset": "ds", "bq_table": "tbl", "agent_resource_id": "123"}
+    payload = {"bq_dataset": DS, "bq_table": TBL, "agent_resource_id": "123"}
     main.crf_entrypoint(_pubsub_event(payload))
     assert publisher.publish.call_count == 2
 
@@ -133,7 +138,7 @@ def test_requery_recovers_stuck_queued_rows(mocked_clients):
     otherwise those rows are never re-selected and never dispatched again."""
     bq, publisher = mocked_clients
     bq.query.return_value.to_dataframe.return_value = pd.DataFrame()
-    payload = {"bq_dataset": "ds", "bq_table": "tbl", "agent_resource_id": "123"}
+    payload = {"bq_dataset": DS, "bq_table": TBL, "agent_resource_id": "123"}
     main.crf_entrypoint(_pubsub_event(payload))
     # empty df → the reap UPDATE runs first, then the SELECT (no dispatch); the
     # SELECT is the second query.
@@ -149,7 +154,7 @@ def test_crf_entrypoint_reaps_before_requery(mocked_clients):
     the same invocation."""
     bq, publisher = mocked_clients
     bq.query.return_value.to_dataframe.return_value = pd.DataFrame()  # nothing to dispatch
-    payload = {"bq_dataset": "ds", "bq_table": "tbl", "agent_resource_id": "123"}
+    payload = {"bq_dataset": DS, "bq_table": TBL, "agent_resource_id": "123"}
     main.crf_entrypoint(_pubsub_event(payload))
     first_sql = bq.query.call_args_list[0].args[0]
     assert "processed_status = 'PROCESSING'" in first_sql  # the reap UPDATE ran first
@@ -167,7 +172,7 @@ def test_publish_failure_is_counted_and_does_not_crash(mocked_clients, caplog):
     bad_future.result.side_effect = RuntimeError("publish boom")
     publisher.publish.side_effect = [ok_future, bad_future]
 
-    payload = {"bq_dataset": "ds", "bq_table": "tbl", "agent_resource_id": "123"}
+    payload = {"bq_dataset": DS, "bq_table": TBL, "agent_resource_id": "123"}
     with caplog.at_level(logging.WARNING):
         main.crf_entrypoint(_pubsub_event(payload))  # must NOT raise
 
@@ -181,7 +186,7 @@ def test_acquire_processing_lock_true_when_one_row_updated():
     bq = MagicMock()
     bq.project = "test-project"
     bq.query.return_value.result.return_value.num_dml_affected_rows = 1
-    got = main.acquire_processing_lock(bq, "ds", "tbl", "2026-07-12T00:00:00")
+    got = main.acquire_processing_lock(bq, DS, TBL, "2026-07-12T00:00:00")
     assert got is True
     lock_sql = bq.query.call_args[0][0]
     assert "AND processed_status = 'QUEUED'" in lock_sql
@@ -192,7 +197,7 @@ def test_acquire_processing_lock_false_when_zero_rows_updated():
     bq = MagicMock()
     bq.project = "test-project"
     bq.query.return_value.result.return_value.num_dml_affected_rows = 0
-    got = main.acquire_processing_lock(bq, "ds", "tbl", "2026-07-12T00:00:00")
+    got = main.acquire_processing_lock(bq, DS, TBL, "2026-07-12T00:00:00")
     assert got is False
 
 
@@ -200,7 +205,7 @@ def test_lock_sql_stamps_started_at_and_increments_attempts():
     """The lock UPDATE must record when PROCESSING began (so a hard-crashed
     worker's row can be aged out) and bump an attempt counter (poison-pill
     guard) — while preserving the exactly-once QUEUED->PROCESSING semantics."""
-    sql = main._build_lock_sql("p", "d", "t", "2026-07-18T00:00:00+00:00")
+    sql, _ = main._build_lock_sql("p", DS, TBL, "2026-07-18T00:00:00+00:00")
     assert "processing_started_at = CURRENT_TIMESTAMP()" in sql
     assert "processing_attempts = COALESCE(processing_attempts, 0) + 1" in sql
     assert "SET processed_status = 'PROCESSING'" in sql
@@ -210,18 +215,19 @@ def test_lock_sql_stamps_started_at_and_increments_attempts():
 def test_reap_sql_requeues_under_cap_and_fails_over_cap():
     """The reaper UPDATE must target only stale PROCESSING rows, re-queue those
     under the attempt cap and fail those at/over it."""
-    sql = main._build_reap_sql("p", "d", "t", stale_minutes=45, max_attempts=3)
+    sql, params = main._build_reap_sql("p", DS, TBL, stale_minutes=45, max_attempts=3)
     assert "processed_status = 'PROCESSING'" in sql  # only targets PROCESSING
-    assert "TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 45 MINUTE)" in sql
-    assert "COALESCE(processing_attempts, 0) >= 3 THEN 'FAILED'" in sql
+    assert "TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL @stale_minutes MINUTE)" in sql
+    assert "COALESCE(processing_attempts, 0) >= @max_attempts THEN 'FAILED'" in sql
     assert "ELSE 'QUEUED'" in sql
+    assert {p.name: p.value for p in params} == {"stale_minutes": 45, "max_attempts": 3}
 
 
 def test_reap_returns_reclaimed_count(mocked_clients):
     """reap_stale_processing_rows returns the number of rows reclaimed."""
     bq, _ = mocked_clients
     bq.query.return_value.result.return_value.num_dml_affected_rows = 2
-    n = main.reap_stale_processing_rows(bq, "d", "t")
+    n = main.reap_stale_processing_rows(bq, DS, TBL)
     assert n == 2
 
 
@@ -229,4 +235,4 @@ def test_reap_is_non_fatal_on_bq_error(mocked_clients):
     """A BQ error while reaping must not crash the orchestrator: returns 0."""
     bq, _ = mocked_clients
     bq.query.side_effect = RuntimeError("bq boom")
-    assert main.reap_stale_processing_rows(bq, "d", "t") == 0
+    assert main.reap_stale_processing_rows(bq, DS, TBL) == 0
