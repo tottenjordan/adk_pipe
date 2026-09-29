@@ -6,6 +6,10 @@ import type { Session, AgentEvent } from "./types";
 // Override with NEXT_PUBLIC_API_BASE to call an api_server directly if needed.
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "/api/adk";
 
+/** Placeholder `userId` sent by every client call; the /api/adk proxy substitutes the
+ *  IAP-verified user (locally, with no IAP, it passes through as-is). */
+export const SELF_USER_ID = "me";
+
 /**
  * Extract a human-readable error from a streamed run event, or null if the
  * event is not an error. The ADK run_sse stream reports model/agent failures

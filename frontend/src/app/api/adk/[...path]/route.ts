@@ -1,5 +1,7 @@
 import { NextRequest } from "next/server";
 import { getIdentityToken } from "@/lib/gcp-auth";
+import { resolveUser } from "@/lib/iap-identity";
+import { scopeRequestToUser } from "@/lib/user-scoping";
 
 // Same-origin proxy to the ADK api_server. The browser calls /api/adk/* (same origin
 // as the app, so no CORS and no Cloud Workstations port-auth), and Next forwards
@@ -27,7 +29,8 @@ export function backendNeedsAuth(base: string): boolean {
  *  (wrong audience) and returns `401 "The access token could not be verified"`, ignoring the
  *  service-account token we set. Stripping them all guarantees the backend sees only our
  *  minted token. The `cookie` (large IAP session cookie) is dropped too — the backend has no
- *  use for it. */
+ *  use for it. A client-supplied `x-tt-user` is dropped so only the proxy can assert the
+ *  (IAP-verified) user to the backend. */
 export const INBOUND_CREDENTIAL_HEADERS = [
   "authorization",
   "x-serverless-authorization",
@@ -35,6 +38,7 @@ export const INBOUND_CREDENTIAL_HEADERS = [
   "x-goog-iap-jwt-assertion",
   "x-goog-authenticated-user-email",
   "x-goog-authenticated-user-id",
+  "x-tt-user",
 ] as const;
 
 /** Remove every inbound credential header so IAP's edge credentials never leak to the
@@ -49,7 +53,15 @@ async function proxy(
   ctx: { params: Promise<{ path: string[] }> }
 ): Promise<Response> {
   const { path } = await ctx.params;
-  const target = `${BACKEND}/${path.join("/")}${request.nextUrl.search}`;
+
+  // Resolve the caller from the IAP assertion BEFORE stripInboundCredentials deletes it.
+  // On Cloud Run a missing/invalid assertion (or unset IAP_ALLOWED_HD) fails closed; locally
+  // there is no assertion and the request passes through unscoped.
+  const who = await resolveUser(request.headers, {
+    onCloudRun: !!process.env.K_SERVICE,
+    allowedHd: process.env.IAP_ALLOWED_HD || undefined,
+  });
+  if (who.kind === "reject") return new Response("Unauthenticated", { status: who.status });
 
   const headers = new Headers(request.headers);
   headers.delete("host");
@@ -78,10 +90,23 @@ async function proxy(
   const body =
     method === "GET" || method === "HEAD" ? undefined : await request.text();
 
+  // Only allowlisted routes reach the backend, with every userId (path segment or kick-off
+  // body) rewritten to the verified caller, who is also asserted via x-tt-user.
+  let upstreamPath = path.join("/"), upstreamBody = body;
+  if (who.kind === "user") {
+    let scoped;
+    try { scoped = scopeRequestToUser(method, path, body, who.userId); }
+    catch { return new Response("Bad JSON body", { status: 400 }); }
+    if (!scoped) return new Response("Not found", { status: 404 });
+    ({ path: upstreamPath, body: upstreamBody } = scoped);
+    headers.set("x-tt-user", who.userId);
+  }
+  const target = `${BACKEND}/${upstreamPath}${request.nextUrl.search}`;
+
   const init: RequestInit = {
     method,
     headers,
-    body,
+    body: upstreamBody,
     redirect: "manual",
   };
   const upstream = await fetch(target, init);

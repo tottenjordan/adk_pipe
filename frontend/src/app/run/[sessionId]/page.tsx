@@ -14,6 +14,7 @@ import {
   ResumeNotAppliedError,
   getSession,
   getEventError,
+  SELF_USER_ID,
 } from "@/lib/api";
 import {
   buildDisplayFields,
@@ -66,7 +67,7 @@ export default function RunPage({
   const resumeAbortRef = useRef<AbortController | null>(null);
 
   const appName = searchParams.get("app") || "trend_scout";
-  const userId = searchParams.get("userId") || "default_user";
+  const userId = searchParams.get("userId") || SELF_USER_ID;
 
   const resultsUrl = useMemo(() => {
     const p = new URLSearchParams({ app: appName, userId });

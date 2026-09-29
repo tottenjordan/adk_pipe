@@ -14,7 +14,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { createSession } from "@/lib/api";
+import { createSession, SELF_USER_ID } from "@/lib/api";
 import { buildInitialState } from "@/lib/initial-state";
 import type { CampaignInput } from "@/lib/types";
 import {
@@ -82,7 +82,7 @@ function HomeContent() {
     setError(null);
 
     try {
-      const userId = `user_${Date.now()}`;
+      const userId = SELF_USER_ID;
       // Seed the session's initial state: trend_scout's interactive-trend-pick
       // opt-in, or the creative agents' optional visual-intent fields. See
       // buildInitialState (snake_case keys match creative_agent/callbacks.py).

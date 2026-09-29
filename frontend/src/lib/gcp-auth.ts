@@ -21,11 +21,13 @@ export async function getAccessToken(): Promise<string> {
 }
 
 /** Google-signed ID token whose `aud` is `audience` — used to call a private Cloud Run
- *  service. The metadata `identity` endpoint returns the raw JWT as text. */
+ *  service. The metadata `identity` endpoint returns the raw JWT as text. `format=full`
+ *  makes it carry `email`/`email_verified`, which the backend needs to recognise the proxy
+ *  SA before trusting `X-TT-User`. */
 export async function getIdentityToken(audience: string): Promise<string> {
   try {
     const res = await fetch(
-      `${METADATA_BASE}/identity?audience=${encodeURIComponent(audience)}`,
+      `${METADATA_BASE}/identity?audience=${encodeURIComponent(audience)}&format=full`,
       { headers: METADATA_HEADERS, signal: AbortSignal.timeout(1000) },
     );
     if (!res.ok) throw new Error("metadata identity non-ok");
