@@ -33,7 +33,10 @@ ENV_FILE_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".
 dotenv.load_dotenv(dotenv_path=ENV_FILE_PATH)
 
 ENV_VAR_DICT = {
-    "GOOGLE_GENAI_USE_VERTEXAI": os.getenv("GOOGLE_GENAI_USE_VERTEXAI"),
+    # google-genai/ADK renamed GOOGLE_GENAI_USE_VERTEXAI (now deprecated); fall back
+    # to the old name so a not-yet-updated local .env still deploys a Vertex engine.
+    "GOOGLE_GENAI_USE_ENTERPRISE": os.getenv("GOOGLE_GENAI_USE_ENTERPRISE")
+    or os.getenv("GOOGLE_GENAI_USE_VERTEXAI"),
     # NOTE: GOOGLE_CLOUD_PROJECT and GOOGLE_CLOUD_LOCATION are RESERVED by Agent
     # Engine (it rejects them with `FAILED_PRECONDITION ... is reserved`) and are
     # auto-injected into the runtime as the engine's project + region. Because the

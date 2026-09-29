@@ -116,7 +116,7 @@ source .env
   <summary>key <code>.env</code> values</summary>
 
 ```bash
-GOOGLE_GENAI_USE_VERTEXAI=1
+GOOGLE_GENAI_USE_ENTERPRISE=1
 GOOGLE_CLOUD_PROJECT=this-my-project-id
 # gemini-3.x models are only served from the `global` Vertex location;
 # regional resources (BigQuery, GCS, PubSub, Agent Engine) use us-central1.
