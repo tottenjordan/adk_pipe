@@ -1,96 +1,29 @@
-"""Tests for trend_scout's debugging-observability callbacks.
+"""Wiring tests for trend_scout's debugging-observability callbacks.
 
-These lock in the *predicate* behind `log_empty_turn_finish_reason` — the line
-between a healthy turn (stay quiet) and a pathological empty/abnormal turn
-(warn). A wrong predicate is silently costly: too loose spams the logs on every
-normal tool call, too tight misses the exact MAX_TOKENS/MALFORMED empty turns
-that cause the producer-empty landmine. `log_final_state_summary` is checked for
-the skip-vs-empty signal it exists to provide.
+The callback *behaviour* (empty-turn predicate, final-state summary format) is
+covered once in `test_observability.py`; `trend_scout/callbacks.py` only
+re-exports the shared functions. These lock in that wiring: trend_scout uses the
+shared empty-turn logger, and its final-state summary carries the trend_scout
+label + load-bearing keys and is attached to the root agent.
 """
 
 import logging
 from types import SimpleNamespace
 
-from google.adk.models.llm_response import LlmResponse
 from google.adk.sessions.state import State
-from google.genai import types
 
+from agent_common import observability
 from trend_scout import callbacks
 
 
-def _ctx():
-    return SimpleNamespace(agent_name="understand_trends_agent", invocation_id="inv-1")
-
-
-def _resp(*, parts=None, finish_reason=None, partial=None):
-    content = types.Content(role="model", parts=parts) if parts is not None else None
-    return LlmResponse(
-        content=content,
-        finish_reason=finish_reason,
-        partial=partial,
-        usage_metadata=types.GenerateContentResponseUsageMetadata(
-            prompt_token_count=100,
-            candidates_token_count=0,
-            thoughts_token_count=200,
-        ),
+def test_empty_turn_callback_is_the_shared_observability_function():
+    assert (
+        callbacks.log_empty_turn_finish_reason
+        is observability.log_empty_turn_finish_reason
     )
 
 
-def test_normal_text_turn_is_silent(caplog):
-    resp = _resp(
-        parts=[types.Part(text="some analysis")],
-        finish_reason=types.FinishReason.STOP,
-    )
-    with caplog.at_level(logging.WARNING):
-        callbacks.log_empty_turn_finish_reason(_ctx(), resp)
-    assert not caplog.records
-
-
-def test_tool_call_turn_is_silent(caplog):
-    """A google_search tool call (STOP + function_call, no text) is normal."""
-    resp = _resp(
-        parts=[
-            types.Part(function_call=types.FunctionCall(name="google_search", args={}))
-        ],
-        finish_reason=types.FinishReason.STOP,
-    )
-    with caplog.at_level(logging.WARNING):
-        callbacks.log_empty_turn_finish_reason(_ctx(), resp)
-    assert not caplog.records
-
-
-def test_max_tokens_empty_turn_warns(caplog):
-    """Thinking budget exhausted: MAX_TOKENS, no text, no tool call -> warn."""
-    resp = _resp(parts=[], finish_reason=types.FinishReason.MAX_TOKENS)
-    with caplog.at_level(logging.WARNING):
-        callbacks.log_empty_turn_finish_reason(_ctx(), resp)
-    assert len(caplog.records) == 1
-    msg = caplog.records[0].getMessage()
-    assert "MAX_TOKENS" in msg
-    assert "understand_trends_agent" in msg
-    assert "thoughts_tokens=200" in msg
-
-
-def test_stop_but_empty_turn_warns(caplog):
-    """A 'successful' STOP that produced neither text nor a tool call is the
-    exact failure that leaves output_key unset -> warn."""
-    resp = _resp(parts=[], finish_reason=types.FinishReason.STOP)
-    with caplog.at_level(logging.WARNING):
-        callbacks.log_empty_turn_finish_reason(_ctx(), resp)
-    assert len(caplog.records) == 1
-
-
-def test_partial_streaming_chunk_is_ignored(caplog):
-    resp = _resp(parts=[], finish_reason=types.FinishReason.MAX_TOKENS, partial=True)
-    with caplog.at_level(logging.WARNING):
-        callbacks.log_empty_turn_finish_reason(_ctx(), resp)
-    assert not caplog.records
-
-
-def test_final_state_summary_flags_missing_key(caplog):
-    # Use a real ADK State, not a plain dict: State supports .get()/__contains__
-    # but NOT iteration, so `for k in state` raises `KeyError: 0`. A dict here
-    # would be a false oracle (it was — this crashed live on 2026-07-14).
+def test_final_state_summary_uses_trend_scout_label_and_keys(caplog):
     ctx = SimpleNamespace(
         invocation_id="inv-2",
         state=State(
@@ -101,7 +34,15 @@ def test_final_state_summary_flags_missing_key(caplog):
     with caplog.at_level(logging.INFO):
         callbacks.log_final_state_summary(ctx)
     msg = caplog.records[-1].getMessage()
+    assert "trend_scout final state" in msg
     assert "'raw_gtrends': 'present" in msg
     assert "'info_gtrends': 'MISSING'" in msg
     assert "'selected_gtrends': 'MISSING'" in msg
     assert "retry_exhausted=['info_gtrends__retry_exhausted']" in msg
+
+
+def test_root_agent_wires_the_observability_callbacks():
+    from trend_scout.agent import root_agent
+
+    assert root_agent.after_model_callback is callbacks.log_empty_turn_finish_reason
+    assert root_agent.after_agent_callback is callbacks.log_final_state_summary

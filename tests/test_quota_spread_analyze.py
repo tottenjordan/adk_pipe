@@ -277,7 +277,7 @@ def test_doe_plot_render_all_writes_pngs(tmp_path):
             "state": {},
         },
         {
-            "arm": "regional_25",
+            "arm": "global_altbucket",
             "concurrency": 1,
             "status": "done",
             "research_s": 100.0,
@@ -285,7 +285,7 @@ def test_doe_plot_render_all_writes_pngs(tmp_path):
             "state": {},
         },
         {
-            "arm": "regional_25",
+            "arm": "global_altbucket",
             "concurrency": 5,
             "status": "done",
             "research_s": 120.0,

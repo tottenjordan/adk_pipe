@@ -381,7 +381,7 @@ def test_refined_searcher_keeps_source_collection():
     assert refined_web_synthesizer.after_agent_callback is None
 
 
-def test_ad_creative_pipeline_sub_agent_order():
+def test_ad_creative_pipeline_graph_edges():
     from google.adk.workflow import Workflow
 
     from creative_agent.agent import ad_creative_pipeline
@@ -394,7 +394,7 @@ def test_ad_creative_pipeline_sub_agent_order():
     }
 
 
-def test_visual_generation_pipeline_sub_agent_order():
+def test_visual_generation_pipeline_graph_edges():
     from google.adk.workflow import Workflow
 
     from creative_agent.agent import visual_generation_pipeline

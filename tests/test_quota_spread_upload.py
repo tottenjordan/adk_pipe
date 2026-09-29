@@ -56,9 +56,9 @@ def test_record_to_run_shapes_params_metrics_and_quality():
 
 def test_record_to_run_drops_none_metrics_and_handles_error_record():
     record = {
-        "arm": "regional_25",
+        "arm": "global_altbucket",
         "concurrency": 1,
-        "batch_id": "regional_25_N1_r0",
+        "batch_id": "global_altbucket_N1_r0",
         "status": "error",
         "session_id": None,
         "research_s": None,
@@ -68,7 +68,7 @@ def test_record_to_run_drops_none_metrics_and_handles_error_record():
     }
     name, params, metrics = record_to_run(record)
 
-    assert name.startswith("regional-25-n1-")
+    assert name.startswith("global-altbucket-n1-")
     assert name.endswith("nosessio")  # sid fallback, truncated to 8 chars
     assert params["status"] == "error"
     assert "revision" not in params  # absent -> dropped
