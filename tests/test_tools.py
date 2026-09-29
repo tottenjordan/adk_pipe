@@ -1,5 +1,6 @@
 """Tests for backend tool functions (pure logic, no external service calls)."""
 
+import datetime
 import string
 from types import SimpleNamespace
 
@@ -349,6 +350,161 @@ class TestBuildEvalBqRow:
             "research_gaps",
         }
         assert set(self._row().keys()) == expected
+
+
+class TestBuildEvalMergeSql:
+    """The eval row dict stays the single source of columns; the MERGE builder
+    types + parameterizes every value and keys on the row's uuid."""
+
+    TABLE = "test-project.trend_trawler.creative_evals"
+
+    def _row(self, **overrides):
+        from creative_agent.tools import build_eval_bq_row
+
+        kwargs = dict(
+            report=SAMPLE_REPORT,
+            eval_uuid="ev123456",
+            creative_uuid="cr789012",
+            now_datetime="2026-07-13 10:30:00",
+            target_trend='Taylor\'s "engaged"',
+            brand="PRS Guitars",
+            target_product="SE CE24",
+            eval_report_gcs_uri="gs://bucket/run/creative_output/creative_eval_report.json",
+        )
+        kwargs.update(overrides)
+        return build_eval_bq_row(**kwargs)
+
+    def _build(self, row):
+        from creative_agent.bq_tools import _build_eval_merge_sql
+
+        return _build_eval_merge_sql(self.TABLE, row)
+
+    def test_merge_keyed_on_uuid(self):
+        sql, _ = self._build(self._row())
+        assert "MERGE" in sql
+        assert self.TABLE in sql
+        assert "ON T.uuid = S.uuid" in sql
+        assert "WHEN NOT MATCHED THEN" in sql
+
+    def test_every_row_column_inserted_and_bound(self):
+        row = self._row()
+        sql, params = self._build(row)
+        by_name = {p.name: p for p in params}
+        assert set(by_name) == set(row)
+        for col, value in row.items():
+            assert f"@{col} AS {col}" in sql
+            assert f"S.{col}" in sql
+            if col == "datetime":
+                # DATETIME is bound as a datetime, not the row's string form
+                value = datetime.datetime.fromisoformat(value)
+            assert by_name[col].value == value
+
+    def test_values_not_interpolated(self):
+        row = self._row()
+        sql, _ = self._build(row)
+        for value in ("Taylor", "PRS Guitars", "ev123456", "cr789012", "2026-07-13"):
+            assert value not in sql
+
+    def test_param_types_match_table_schema(self):
+        _, params = self._build(self._row())
+        types = {p.name: p.type_ for p in params}
+        assert types["datetime"] == "DATETIME"
+        assert types["overall_pass_rate"] == "FLOAT64"
+        assert types["avg_visual_score"] == "FLOAT64"
+        assert types["total_ad_copies"] == "INT64"
+        assert types["visual_concepts_passed"] == "INT64"
+        assert types["uuid"] == "STRING"
+        assert types["research_gaps"] == "STRING"
+
+    def test_none_becomes_typed_null(self):
+        row = {**self._row(), "avg_visual_score": None}
+        _, params = self._build(row)
+        p = next(p for p in params if p.name == "avg_visual_score")
+        assert p.type_ == "FLOAT64" and p.value is None
+
+    def test_column_types_cover_row_keys(self):
+        from creative_agent.bq_tools import EVAL_COLUMN_TYPES
+
+        assert set(EVAL_COLUMN_TYPES) == set(self._row())
+
+    def test_unknown_column_rejected(self):
+        with pytest.raises(KeyError):
+            self._build({**self._row(), "bogus": "x"})
+
+
+class TestWriteEvalReportIdempotent:
+    """write_eval_report_to_bq must derive eval_uuid from the session and MERGE,
+    never stream (insert_rows_json can't dedupe an at-least-once re-run)."""
+
+    def _patch(self, monkeypatch, errors=None):
+        import creative_agent.bq_tools as t
+
+        captured = []
+
+        class _Job:
+            job_id = "j1"
+            num_dml_affected_rows = 1
+
+            def __init__(self):
+                self.errors = errors
+
+            def result(self):
+                return None
+
+        class _BQ:
+            def insert_rows_json(self, *a, **k):
+                raise AssertionError("streaming insert is not idempotent")
+
+            def query(self, sql, job_config=None):
+                captured.append((sql, job_config))
+                return _Job()
+
+        monkeypatch.setattr(t, "_get_bigquery_client", lambda: _BQ())
+        return t, captured
+
+    @staticmethod
+    def _ctx(session_id="sess-1"):
+        ctx = MockToolContext(session_id)
+        ctx.state.update(
+            {
+                "creative_evaluation_report": SAMPLE_REPORT,
+                "creative_row_uuid": "abcd1234",
+                "target_search_trends": "tswift engaged",
+                "brand": "PRS",
+                "target_product": "SE CE24",
+            }
+        )
+        return ctx
+
+    def test_same_session_same_eval_uuid_via_merge(self, monkeypatch):
+        t, captured = self._patch(monkeypatch)
+        first = t.write_eval_report_to_bq(self._ctx())
+        second = t.write_eval_report_to_bq(self._ctx())
+        assert first["status"] == second["status"] == "success"
+        assert first["eval_uuid"] == second["eval_uuid"]
+        assert len(first["eval_uuid"]) == 8
+        assert len(captured) == 2
+        assert all("MERGE" in sql for sql, _ in captured)
+        params = {p.name: p.value for p in captured[0][1].query_parameters}
+        assert params["uuid"] == first["eval_uuid"]
+        assert params["creative_uuid"] == "abcd1234"
+
+    def test_different_sessions_different_eval_uuid(self, monkeypatch):
+        t, _ = self._patch(monkeypatch)
+        a = t.write_eval_report_to_bq(self._ctx("sess-1"))
+        b = t.write_eval_report_to_bq(self._ctx("sess-2"))
+        assert a["eval_uuid"] != b["eval_uuid"]
+
+    def test_raises_on_job_errors(self, monkeypatch):
+        t, _ = self._patch(monkeypatch, errors=[{"reason": "invalid"}])
+        with pytest.raises(RuntimeError, match="BigQuery insert returned errors"):
+            t.write_eval_report_to_bq(self._ctx())
+
+    def test_missing_report_returns_error(self, monkeypatch):
+        t, captured = self._patch(monkeypatch)
+        ctx = MockToolContext()
+        assert t.write_eval_report_to_bq(ctx)["status"] == "error"
+        assert captured == []
 
 
 class TestResearchWarningBanner:
