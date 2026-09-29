@@ -42,7 +42,6 @@ ENV_VAR_DICT = {
     # see MODEL_LOCATION in the agent configs — NOT via these env vars.
     "GOOGLE_CLOUD_PROJECT_NUMBER": os.getenv("GOOGLE_CLOUD_PROJECT_NUMBER"),
     "GOOGLE_CLOUD_STORAGE_BUCKET": os.getenv("GOOGLE_CLOUD_STORAGE_BUCKET"),
-    "BUCKET": os.getenv("BUCKET"),
     "BQ_PROJECT_ID": os.getenv("BQ_PROJECT_ID"),
     "BQ_DATASET_ID": os.getenv("BQ_DATASET_ID"),
     "BQ_TABLE_TARGETS": os.getenv("BQ_TABLE_TARGETS"),

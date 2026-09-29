@@ -114,8 +114,8 @@ GOOGLE_CLOUD_PROJECT_NUMBER=12345678910
 
 
 # Cloud Storage
+# bare bucket name (no gs:// prefix); the gs:// form is derived in code
 GOOGLE_CLOUD_STORAGE_BUCKET=this-my-bucket-name
-BUCKET=gs://this-my-bucket-name
 
 
 # PubSub
