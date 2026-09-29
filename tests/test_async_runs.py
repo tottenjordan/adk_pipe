@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 
 import pytest
+from google.adk.errors.session_not_found_error import SessionNotFoundError
 from google.adk.events import Event, EventActions
 from google.adk.sessions import InMemorySessionService
 from google.genai import types
@@ -195,6 +196,38 @@ def test_kickoff_starts_detached_task_and_returns_runid():
     assert texts == ["one", "two"]
     last = session.events[-1]
     assert last.actions.state_delta == {RUN_STATUS_KEY: "done"}
+
+
+class _NotFoundRaisingInMemory(InMemorySessionService):
+    """InMemory service whose ``get_session`` raises ``SessionNotFoundError`` for a
+    missing session (the ADK 2.9 changelog contract) instead of returning None."""
+
+    async def get_session(self, **kwargs):
+        session = await super().get_session(**kwargs)
+        if session is None:
+            raise SessionNotFoundError("not found")
+        return session
+
+
+def test_kickoff_creates_session_when_get_session_raises_not_found():
+    async def _go():
+        svc = _NotFoundRaisingInMemory()
+        fake = _FakeRunner(svc, "creative_agent", "u", "s", [_agent_event("one")])
+        _result, task = await start_run(
+            app_name="creative_agent",
+            user_id="u",
+            session_id="s",
+            message="hello",
+            session_service=svc,
+            runner_factory=lambda app_name: fake,
+        )
+        await task  # drain
+        return await svc.get_session(
+            app_name="creative_agent", user_id="u", session_id="s"
+        )
+
+    session = asyncio.run(_go())
+    assert session.events[-1].actions.state_delta == {RUN_STATUS_KEY: "done"}
 
 
 def test_kickoff_records_error_marker_on_exception():

@@ -7,6 +7,7 @@ import logging
 import os
 
 from fastapi import APIRouter, HTTPException, Query
+from google.adk.errors.session_not_found_error import SessionNotFoundError
 from google.adk.events import Event, EventActions
 from google.genai import types
 from pydantic import BaseModel
@@ -26,6 +27,22 @@ RUN_MAX_SECONDS = int(os.environ.get("RUN_MAX_SECONDS", "1800"))
 # _append_terminal_safe). The marker IS the poller contract, so its own write is
 # retried a little against a transient session service, then dropped (never raised).
 _MARKER_APPEND_ATTEMPTS = 2
+
+
+async def _get_session_or_none(session_service, app_name, user_id, session_id):
+    """``get_session`` that maps ``SessionNotFoundError`` to ``None``.
+
+    ADK session services are typed to return ``None`` for a missing session, but
+    the ADK 2.9 changelog moves toward raising ``SessionNotFoundError`` instead
+    (2.10's InMemory service still returns None). Normalize so the
+    ``is None`` branches below (create-on-kickoff, best-effort no-ops) keep working
+    whichever contract the configured service follows."""
+    try:
+        return await session_service.get_session(
+            app_name=app_name, user_id=user_id, session_id=session_id
+        )
+    except SessionNotFoundError:
+        return None
 
 
 def get_root_agent(app_name: str):
@@ -315,8 +332,8 @@ async def _append_terminal_safe(
     dropped. A missing session is unrecoverable → log and give up."""
     for attempt in range(1, _MARKER_APPEND_ATTEMPTS + 1):
         try:
-            session = await session_service.get_session(
-                app_name=app_name, user_id=user_id, session_id=session_id
+            session = await _get_session_or_none(
+                session_service, app_name, user_id, session_id
             )
             if session is None:
                 logging.error(
@@ -412,8 +429,8 @@ async def start_run(
     key = (app_name, user_id, session_id)
     _claim_run(key)  # synchronous check+claim, before any await
     try:
-        existing = await session_service.get_session(
-            app_name=app_name, user_id=user_id, session_id=session_id
+        existing = await _get_session_or_none(
+            session_service, app_name, user_id, session_id
         )
         if existing is None:
             await session_service.create_session(
@@ -500,9 +517,7 @@ async def _apply_visual_concept_edits(
     Runner relaunches; any free-text notes land in ``visual_revision_notes`` for
     the ``visual_concept_reviser`` to apply. Best-effort: a missing session is a
     no-op (the resume itself will surface the error)."""
-    session = await session_service.get_session(
-        app_name=app_name, user_id=user_id, session_id=session_id
-    )
+    session = await _get_session_or_none(session_service, app_name, user_id, session_id)
     if session is None:
         return
     merged, notes = merge_visual_concept_edits(
@@ -534,9 +549,7 @@ async def _reset_status_to_running(
     give up before the next checkpoint / final completion. Called synchronously
     (awaited) by ``start_resume`` BEFORE the detached task launches, so the very
     next poll already sees ``running``."""
-    session = await session_service.get_session(
-        app_name=app_name, user_id=user_id, session_id=session_id
-    )
+    session = await _get_session_or_none(session_service, app_name, user_id, session_id)
     if session is None:
         return
     await session_service.append_event(session, build_terminal_event("running"))
