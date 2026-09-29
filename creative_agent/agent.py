@@ -1,4 +1,5 @@
 import logging
+from collections.abc import Mapping
 from typing import Any
 
 from google.adk.agents import Agent
@@ -13,6 +14,7 @@ from google.genai import types
 
 from agent_common import (
     PipelineRequest,
+    RetryUntilKeyAgent,
     RetryUntilKeyNode,
     build_gemini,
 )
@@ -44,7 +46,9 @@ logging.basicConfig(
 
 
 # Every LlmAgent placed in a graph Workflow below sets mode="single_turn"
-# explicitly (the node default). single_turn injects the predecessor node's
+# explicitly: an agent that gets a parent_agent (as graph nodes do) otherwise
+# defaults to "chat" mode (wait_for_output=True), which would stall the graph on
+# an empty model turn instead of moving on. single_turn injects the predecessor node's
 # output as a user turn; every instruction here reads its inputs only through
 # `{state}` tokens (and all of them keep include_contents="none"), so that
 # injected turn is not load-bearing.
@@ -179,7 +183,7 @@ combined_report_composer = Agent(
 # `output_key`/`{var?}` guard is disturbed: the evaluator's output is consumed
 # only inside the round, and the composer already tolerates a missing
 # `refined_web_search_insights`.
-def _base_research_is_degraded(state) -> bool:
+def _base_research_is_degraded(state: Mapping[str, Any]) -> bool:
     """True when the base research is thin enough to warrant a refinement round."""
     brief = state.get("combined_web_search_insights")
     if not (isinstance(brief, str) and brief.strip()):
@@ -193,7 +197,7 @@ def _base_research_is_degraded(state) -> bool:
     return False
 
 
-def refinement_gate_route(state) -> str:
+def refinement_gate_route(state: Mapping[str, Any]) -> str:
     """The refinement gate's route: ``"refine"`` when degraded, else ``"skip"``."""
     return "refine" if _base_research_is_degraded(state) else "skip"
 
@@ -216,8 +220,10 @@ def research_barrier() -> None:
 
 def refinement_gate(ctx: Context) -> Event:
     """Route to the refinement round only when the base research is degraded."""
-    # EventActions(route=...) is the typed spelling of Event(route=...).
-    return Event(actions=EventActions(route=refinement_gate_route(ctx.state)))
+    # EventActions(route=...) is the typed spelling of Event(route=...). An ADK
+    # State is not a Mapping; to_dict() snapshots it (committed + pending delta).
+    route = refinement_gate_route(ctx.state.to_dict())
+    return Event(actions=EventActions(route=route))
 
 
 # --- PIPELINE RESULT NODES --- #
@@ -228,11 +234,9 @@ def refinement_gate(ctx: Context) -> Event:
 # (the flake the retry wrappers exist for), so each LlmAgent-terminated pipeline
 # ends in one of these function nodes instead: it returns a truthy result when
 # the pipeline's output key is populated, else a short non-empty notice (the key
-# itself stays unset so downstream `{var?}` guards still apply).
-def _populated(value: Any) -> bool:
-    if isinstance(value, str):
-        return bool(value.strip())
-    return bool(value)
+# itself stays unset so downstream `{var?}` guards still apply). "Populated" is
+# the same check the retry wrappers use (RetryUntilKeyNode reuses it too).
+_populated = RetryUntilKeyAgent._is_populated
 
 
 def _missing_notice(producer: str, key: str) -> str:
@@ -583,7 +587,24 @@ def render_barrier() -> None:
     return None
 
 
-# Sequential agent for visual concepts (draft -> critique -> finalize). Shared with
+def images_ready(ctx: Context) -> str:
+    """Terminal node of visual_production_pipeline (the root's tool result).
+
+    A short confirmation, mirroring research_report_ready: the rendered image
+    artifact keys live in state for save_creative_gallery_html and the eval
+    step. When the render step exhausted its retries, a non-empty notice
+    (degradation is also surfaced via ``_images_generated__retry_exhausted``).
+    """
+    if _populated(ctx.state.get("_images_generated")):
+        keys = ctx.state.get("_generated_artifact_keys") or []
+        return (
+            f"Image creatives rendered: {len(keys)} image artifact(s) saved "
+            "(keys in session state '_generated_artifact_keys')."
+        )
+    return _missing_notice("visual_generator", "_images_generated")
+
+
+# Graph for visual concepts (draft -> critique -> finalize). Shared with
 # interactive_creative, which pauses for human review after this stage before rendering.
 visual_generation_pipeline = Workflow(
     name="visual_generation_pipeline",
@@ -607,8 +628,8 @@ visual_generation_pipeline = Workflow(
 # skip image generation — which it did when creative_eval_agent looked like the next
 # step, jumping straight from visual concepts to evaluation. interactive_creative does
 # NOT use this: it keeps concepts and images split around a review checkpoint.
-# Ends in the retry node, whose output is truthy by construction (the
-# generator's output or the exhaustion notice).
+# Ends in images_ready, a short confirmation for the root (the retry node's own
+# output would be the bare `_images_generated` flag, or its exhaustion notice).
 visual_production_pipeline = Workflow(
     name="visual_production_pipeline",
     description="Generate visual concepts, then render their image creatives.",
@@ -619,6 +640,7 @@ visual_production_pipeline = Workflow(
             visual_generation_pipeline,
             render_barrier,
             visual_generator_resilient,
+            images_ready,
         )
     ],
 )

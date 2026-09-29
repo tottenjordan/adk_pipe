@@ -5,7 +5,9 @@ The producer fakes are used by both ``tests/test_retry_agent.py``
 so the agent and the graph node are exercised against the exact same producer
 behaviors. ``StubLlm`` and the ``fc_response`` / ``text_response`` /
 ``user_message`` builders script root agents in the graph tests
-(``test_workflow_api_contract``, ``test_retry_node``, ``test_trend_scout_graph``).
+(``test_workflow_api_contract``, ``test_retry_node``, ``test_trend_scout_graph``,
+``test_creative_agent_graph``); ``RecordingLlm`` additionally keeps every
+request, and ``walk_nodes`` enumerates a graph's nested nodes.
 
 Run counts live in a shared mutable list, not an int ``PrivateAttr``: a graph
 ``Workflow`` clones agent nodes per run (``BaseAgent.clone`` -> shallow
@@ -14,7 +16,7 @@ shallow copy shares the list, so the original instance observes every run (see
 ``tests/test_workflow_api_contract.py``).
 """
 
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Iterator
 from typing import Any
 
 from google.adk.agents import BaseAgent
@@ -162,6 +164,42 @@ class StubLlm(BaseLlm):
         self._calls += 1
         assert self._script, f"stub model called unexpectedly (call #{self._calls})"
         yield self._script.pop(0)
+
+
+class RecordingLlm(StubLlm):
+    """``StubLlm`` that also records every ``LlmRequest`` it receives."""
+
+    _requests: list[LlmRequest] = PrivateAttr(default_factory=list)
+
+    @property
+    def requests(self) -> list[LlmRequest]:
+        return self._requests
+
+    async def generate_content_async(
+        self, llm_request: LlmRequest, stream: bool = False
+    ) -> AsyncGenerator[LlmResponse]:
+        self._requests.append(llm_request)
+        async for r in super().generate_content_async(llm_request, stream):
+            yield r
+
+
+def walk_nodes(node: Any) -> Iterator[Any]:
+    """Yield ``node`` and every node nested in it (Workflow graphs, retry children).
+
+    Graph nodes are per-graph clones: compare them by name, never identity.
+    """
+    from google.adk.workflow import Workflow
+
+    from agent_common import RetryUntilKeyNode
+
+    yield node
+    if isinstance(node, Workflow):
+        assert node.graph is not None
+        for child in node.graph.nodes:
+            if child.name != "__START__":
+                yield from walk_nodes(child)
+    elif isinstance(node, RetryUntilKeyNode):
+        yield from walk_nodes(node.node)
 
 
 def fc_response(name: str, args: dict[str, Any], fc_id: str) -> LlmResponse:

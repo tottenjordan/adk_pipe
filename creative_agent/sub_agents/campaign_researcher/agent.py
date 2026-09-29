@@ -45,9 +45,10 @@ campaign_web_planner = Agent(
     # (config.campaign_models()); default arm = gemini-3.5-flash @ global.
     model=build_gemini(_CA_LITE, location=_CA_LOC),
     name="campaign_web_planner",
-    # A graph node: single_turn set explicitly (the node default). Inputs are
-    # read only via `{state}` tokens, so the injected predecessor output is
-    # not load-bearing.
+    # A graph node: single_turn is set explicitly because a node with a parent_agent
+    # otherwise defaults to "chat" mode (wait_for_output=True), which would stall the
+    # graph on an empty turn. Inputs are read only via `{state}` tokens, so the
+    # injected predecessor output is not load-bearing.
     mode="single_turn",
     include_contents="none",
     description="Generates initial queries to guide web research about concepts described in the campaign metadata.",

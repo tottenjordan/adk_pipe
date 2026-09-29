@@ -12,7 +12,7 @@ scripted stub model per LlmAgent, so it checks what the structure tests can't:
   ``combined_report_composer``'s ``citation_replacement_callback`` survives the
   graph clone AND fires on the node path (it sees the composer's output_key);
 * every exposed pipeline returns a function response, so the root is
-  re-called (never stalled).
+  re-called (never stalled), even when a research fan-out branch raises.
 
 Stubs are patched onto the Workflow's own graph nodes: a Workflow holds
 per-graph copies of its agents, not the module-level objects.
@@ -24,30 +24,22 @@ from typing import Any
 import pytest
 from google.adk.agents import LlmAgent
 from google.adk.events.event import Event
-from google.adk.models.llm_request import LlmRequest
 from google.adk.models.llm_response import LlmResponse
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.genai import types
-from pydantic import PrivateAttr, ValidationError
+from pydantic import ValidationError
 
-from tests._fakes import StubLlm, fc_response, text_response, user_message
+from tests._fakes import (
+    RecordingLlm,
+    fc_response,
+    text_response,
+    user_message,
+    walk_nodes,
+)
 
 _URL = "https://example.com/trend"
 _QUERIES = '{"queries": [{"search_query": "q"}]}'
-
-
-class _RecordingLlm(StubLlm):
-    _requests: list[LlmRequest] = PrivateAttr(default_factory=list)
-
-    @property
-    def requests(self) -> list[LlmRequest]:
-        return self._requests
-
-    async def generate_content_async(self, llm_request: LlmRequest, stream=False):
-        self._requests.append(llm_request)
-        async for r in super().generate_content_async(llm_request, stream):
-            yield r
 
 
 def _grounded(text: str) -> LlmResponse:
@@ -65,26 +57,16 @@ def _grounded(text: str) -> LlmResponse:
     return resp
 
 
-def _llm_agents(node):
+def _llm_agents(node) -> list[LlmAgent]:
     """Every LlmAgent reachable from ``node`` (Workflow graphs, retry children)."""
-    from google.adk.workflow import Workflow
-
-    from agent_common import RetryUntilKeyNode
-
-    if isinstance(node, LlmAgent):
-        yield node
-    elif isinstance(node, Workflow):
-        for child in node.graph.nodes:
-            yield from _llm_agents(child)
-    elif isinstance(node, RetryUntilKeyNode):
-        yield from _llm_agents(node.node)
+    return [n for n in walk_nodes(node) if isinstance(n, LlmAgent)]
 
 
-def _stub_graph(monkeypatch: pytest.MonkeyPatch, workflow) -> dict[str, _RecordingLlm]:
+def _stub_graph(monkeypatch: pytest.MonkeyPatch, workflow) -> dict[str, RecordingLlm]:
     """Patch a stub model onto every LlmAgent node of ``workflow``; by name."""
-    llms: dict[str, _RecordingLlm] = {}
+    llms: dict[str, RecordingLlm] = {}
     for agent in _llm_agents(workflow):
-        llm = llms.setdefault(agent.name, _RecordingLlm())
+        llm = llms.setdefault(agent.name, RecordingLlm())
         monkeypatch.setattr(agent, "model", llm)
         monkeypatch.setattr(agent, "planner", None)
         monkeypatch.setattr(agent, "tools", [])  # no built-in google_search
@@ -107,11 +89,11 @@ def _run_root(
     monkeypatch: pytest.MonkeyPatch,
     tool: str,
     extra_state: dict[str, Any] | None = None,
-) -> tuple[_RecordingLlm, list[Event], dict[str, Any]]:
+) -> tuple[RecordingLlm, list[Event], dict[str, Any]]:
     """Run the real root once: it calls ``tool`` then finishes with text."""
     import creative_agent.agent as ca
 
-    root_llm = _RecordingLlm()
+    root_llm = RecordingLlm()
     monkeypatch.setattr(ca.root_agent, "model", root_llm)
     monkeypatch.setattr(ca.root_agent, "instruction", "orchestrate")
     monkeypatch.setattr(ca.root_agent, "before_agent_callback", None)
@@ -150,7 +132,7 @@ def _responses(events: list[Event]) -> list[dict[str, Any]]:
     ]
 
 
-def _script_research(llms: dict[str, _RecordingLlm], campaign_synth: list[str]):
+def _script_research(llms: dict[str, RecordingLlm], campaign_synth: list[str]):
     llms["gs_web_planner"].push(text_response(_QUERIES))
     llms["gs_web_searcher"].push(_grounded("gs raw"))
     llms["gs_web_synthesizer"].push(text_response("GS INSIGHTS"))
@@ -228,6 +210,43 @@ def test_research_graph_degraded_path_runs_refinement(monkeypatch):
     assert root_llm.calls == 2
 
 
+class _BoomLlm(RecordingLlm):
+    """A model whose every call raises (a hard, non-retryable branch failure)."""
+
+    async def generate_content_async(self, llm_request, stream=False):
+        self._requests.append(llm_request)
+        raise RuntimeError("planner branch exploded")
+        yield  # pragma: no cover - makes this an async generator
+
+
+def test_research_graph_branch_failure_does_not_stall_root(monkeypatch):
+    import creative_agent.agent as ca
+
+    llms = _stub_graph(monkeypatch, ca.combined_research_pipeline)
+    (planner,) = [
+        a
+        for a in _llm_agents(ca.combined_research_pipeline)
+        if a.name == "gs_web_planner"
+    ]
+    boom = _BoomLlm()
+    monkeypatch.setattr(planner, "model", boom)
+    _script_research(llms, ["CA INSIGHTS"])
+
+    root_llm, events, state = _run_root(monkeypatch, "combined_research_pipeline")
+
+    assert boom.requests  # the gs branch really was attempted and raised
+    # The root still got a function response for the pipeline tool and was
+    # re-called: a failing fan-out branch must not stall the root's turn.
+    fc_ids = {fr.id for e in events for fr in e.get_function_responses() or [] if fr.id}
+    assert "fc1" in fc_ids
+    # NodeTool turns the node failure into an error result the root can act on
+    # (the whole pipeline fails; there is no partial-research fallback).
+    (response,) = _responses(events)
+    assert "Error running node combined_research_pipeline" in str(response)
+    assert "combined_final_cited_report" not in state
+    assert root_llm.calls == 2
+
+
 # --------------------------------------------------------------------------
 # Ad / visual pipelines
 # --------------------------------------------------------------------------
@@ -267,7 +286,7 @@ def _fake_generate_image(tool_context) -> dict:
 _fake_generate_image.__name__ = "generate_image"
 
 
-def _script_visuals(llms: dict[str, _RecordingLlm], generator_turns: int):
+def _script_visuals(llms: dict[str, RecordingLlm], generator_turns: int):
     llms["art_director"].push(text_response("DIRECTION"))
     llms["visual_concept_drafter"].push(text_response(_CONCEPTS))
     llms["visual_concept_critic"].push(text_response(_CONCEPTS))
@@ -317,5 +336,6 @@ def test_visual_production_graph_retries_render_until_images(monkeypatch):
     responses = _responses(events)
     assert responses[0] == {"status": "ok"}  # the inner generate_image call
     assert len(responses) == 2
-    assert responses[-1]  # truthy pipeline result → root re-called
+    # The images_ready terminal's confirmation, not the bare True flag.
+    assert "Image creatives rendered" in str(responses[-1])
     assert root_llm.calls == 2

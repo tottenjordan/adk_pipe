@@ -1,5 +1,9 @@
 """Tests for agent pipeline structure and configuration."""
 
+from google.adk.tools._node_tool import NodeTool
+
+from tests._fakes import walk_nodes
+
 
 def test_creative_agent_root_has_expected_tools():
     from creative_agent.agent import root_agent
@@ -42,21 +46,6 @@ def _graph_nodes(wf):
 
 def _graph_edges(wf):
     return {(e.from_node.name, e.to_node.name, e.route) for e in wf.graph.edges}
-
-
-def _walk_nodes(node):
-    """Yield ``node`` and every node nested in it (Workflow graphs, retry children)."""
-    from google.adk.workflow import Workflow
-
-    from agent_common import RetryUntilKeyNode
-
-    yield node
-    if isinstance(node, Workflow):
-        for child in node.graph.nodes:
-            if child.name != "__START__":
-                yield from _walk_nodes(child)
-    elif isinstance(node, RetryUntilKeyNode):
-        yield from _walk_nodes(node.node)
 
 
 def test_combined_research_pipeline_graph():
@@ -183,7 +172,7 @@ def test_graph_llm_agents_are_single_turn():
             ad_creative_pipeline,
             visual_production_pipeline,
         )
-        for n in _walk_nodes(wf)
+        for n in walk_nodes(wf)
         if isinstance(n, LlmAgent)
     ]
     assert {a.name for a in agents} == {
@@ -220,7 +209,12 @@ def _terminal_names(wf):
 # Function nodes designated as pipeline terminals: each returns the pipeline's
 # output-key value (or a short confirmation) when populated, else a non-empty
 # notice -- never a falsy/None result.
-_RESULT_NODES = {"research_report_ready", "ad_copies_ready", "visual_concepts_ready"}
+_RESULT_NODES = {
+    "research_report_ready",
+    "ad_copies_ready",
+    "visual_concepts_ready",
+    "images_ready",
+}
 
 
 def _assert_truthy_terminal(node, path):
@@ -248,8 +242,6 @@ def test_exposed_node_tools_end_in_truthy_terminals():
     with a truthy output, or the root's turn silently stalls (no function
     response). A final LlmAgent is NOT accepted: an empty model turn (the
     recurring flake this repo retries around) would yield ""/None."""
-    from google.adk.tools._node_tool import NodeTool
-
     from creative_agent.agent import root_agent as ca_root
     from interactive_creative.agent import root_agent as ic_root
 
@@ -267,6 +259,7 @@ def _result_node_cases():
         (ca.research_report_ready, "combined_final_cited_report", "# Report"),
         (ca.ad_copies_ready, "ad_copy_critique", {"ad_copies": [{"id": 1}]}),
         (ca.visual_concepts_ready, "final_visual_concepts", {"visual_concepts": []}),
+        (ca.images_ready, "_images_generated", True),
     ]
 
 
@@ -291,8 +284,6 @@ def test_populated_result_nodes_return_the_pipeline_output():
 def test_exposed_node_tools_have_real_descriptions():
     """No exposed node relies on NodeTool's "Executes the node: <name>" fallback
     description; the root model picks tools by these descriptions."""
-    from google.adk.tools._node_tool import NodeTool
-
     from creative_agent.agent import root_agent as ca_root
     from interactive_creative.agent import root_agent as ic_root
 
@@ -307,8 +298,6 @@ def test_exposed_workflows_take_a_pipeline_request():
     """Every node exposed to a root as a NodeTool declares the single
     `request: str` argument (PipelineRequest), keeping the tool declarations the
     pre-graph AgentTools exposed."""
-    from google.adk.tools._node_tool import NodeTool
-
     from agent_common import PipelineRequest
     from creative_agent.agent import root_agent as ca_root
     from interactive_creative.agent import root_agent as ic_root
@@ -440,7 +429,7 @@ def test_structured_output_producers_carry_schema_retry():
             ad_creative_pipeline,
             visual_production_pipeline,
         )
-        for n in _walk_nodes(wf)
+        for n in walk_nodes(wf)
     }
     for name in (
         "combined_web_evaluator",
@@ -471,6 +460,8 @@ def test_visual_production_pipeline_wraps_generator_in_retry():
         ("__START__", "visual_generation_pipeline", None),
         ("visual_generation_pipeline", "render_barrier", None),
         ("render_barrier", "visual_generator_resilient", None),
+        # Terminal: a short truthy confirmation, not the bare True flag.
+        ("visual_generator_resilient", "images_ready", None),
     }
 
     w = _graph_nodes(wf)["visual_generator_resilient"]
@@ -480,18 +471,6 @@ def test_visual_production_pipeline_wraps_generator_in_retry():
     # MALFORMED_FUNCTION_CALL is a transient producer flake (issue #116); each
     # attempt is an independent turn, so a higher cap materially raises recovery.
     assert w.max_attempts == 6
-
-
-def test_parallel_planner_has_both_researchers():
-    """Both research chains fan out from START (the graph replacement for the
-    ParallelAgent) and join before merge_planners."""
-    from creative_agent.agent import combined_research_pipeline
-
-    edges = _graph_edges(combined_research_pipeline)
-    starts = {dst for src, dst, _ in edges if src == "__START__"}
-    assert starts == {"gs_sequential_planner", "ca_sequential_planner"}
-    joined = {src for src, dst, _ in edges if dst == "research_join"}
-    assert joined == {"gs_sequential_planner", "ca_sequential_planner"}
 
 
 def test_campaign_producer_is_retry_wrapped():
@@ -903,8 +882,6 @@ def test_interactive_creative_uses_resilient_visual_generator():
     after a review checkpoint, so it has the same MALFORMED_FUNCTION_CALL flaw as
     creative_agent. It must invoke the resilient retry node, never the raw
     visual_generator (compared by name)."""
-    from google.adk.tools._node_tool import NodeTool
-
     from agent_common import RetryUntilKeyNode
     from interactive_creative import agent as ic
 
@@ -929,7 +906,6 @@ def test_interactive_creative_uses_resilient_visual_generator():
 def test_interactive_creative_exposes_pipelines_as_node_tools():
     """G3 minimal change: the reused creative_agent pipelines are bare nodes
     (auto-wrapped NodeTools); the reviser + eval judge stay AgentTools."""
-    from google.adk.tools._node_tool import NodeTool
     from google.adk.tools.agent_tool import AgentTool
 
     from interactive_creative import agent as ic
@@ -1054,7 +1030,6 @@ def test_understand_trends_is_retry_wrapped():
     graph Workflow pair inside a RetryUntilKeyNode so an empty turn retries the
     WHOLE pair instead of crashing pick_trends_agent. The wrapper is a bare node
     in the orchestrator's tools (auto-wrapped into a NodeTool)."""
-    from google.adk.tools._node_tool import NodeTool
     from google.adk.workflow import Workflow
 
     from agent_common import RetryUntilKeyNode
@@ -1090,7 +1065,8 @@ def test_understand_trends_is_retry_wrapped():
     synthesizer = by_name["understand_trends_synthesizer"]
     assert searcher.output_key == "info_gtrends_raw"
     assert synthesizer.output_key == "info_gtrends"
-    # Graph LlmAgents set single_turn explicitly (not left to the node default).
+    # Graph LlmAgents set single_turn explicitly (a parented node would default
+    # to "chat" mode, which stalls the graph on an empty turn).
     assert searcher.mode == "single_turn"
     assert synthesizer.mode == "single_turn"
 
@@ -1100,8 +1076,6 @@ def test_understand_trends_tool_declaration_unchanged():
     graph migration (name + description + a required ``request`` string), so
     TREND_SCOUT_INSTR's tool calls keep working unchanged."""
     import asyncio
-
-    from google.adk.tools._node_tool import NodeTool
 
     from trend_scout.agent import root_agent, understand_trends_searcher
 
@@ -1263,7 +1237,6 @@ def test_pick_trends_agent_excludes_brand_unsafe_trends():
 def test_creative_agent_root_exposes_pipelines_as_node_tools():
     """The pipelines are bare graph nodes on the root (auto-wrapped NodeTools);
     creative_eval_agent stays an AgentTool."""
-    from google.adk.tools._node_tool import NodeTool
     from google.adk.tools.agent_tool import AgentTool
 
     from creative_agent.agent import root_agent

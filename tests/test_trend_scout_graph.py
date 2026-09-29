@@ -16,25 +16,10 @@ from typing import Any
 
 import pytest
 from google.adk.events.event import Event
-from google.adk.models.llm_request import LlmRequest
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
-from pydantic import PrivateAttr
 
-from tests._fakes import StubLlm, fc_response, text_response, user_message
-
-
-class _RecordingLlm(StubLlm):
-    _requests: list[LlmRequest] = PrivateAttr(default_factory=list)
-
-    @property
-    def requests(self) -> list[LlmRequest]:
-        return self._requests
-
-    async def generate_content_async(self, llm_request: LlmRequest, stream=False):
-        self._requests.append(llm_request)
-        async for r in super().generate_content_async(llm_request, stream):
-            yield r
+from tests._fakes import RecordingLlm, fc_response, text_response, user_message
 
 
 def _run(monkeypatch: pytest.MonkeyPatch, empty_synth_turns: int):
@@ -43,9 +28,9 @@ def _run(monkeypatch: pytest.MonkeyPatch, empty_synth_turns: int):
     graph = {n.name: n for n in ts.understand_trends_search_and_synthesize.graph.nodes}
     searcher = graph["understand_trends_searcher"]
     synth = graph["understand_trends_synthesizer"]
-    root_llm = _RecordingLlm()
-    search_llm = _RecordingLlm()
-    synth_llm = _RecordingLlm()
+    root_llm = RecordingLlm()
+    search_llm = RecordingLlm()
+    synth_llm = RecordingLlm()
     for agent, llm in ((ts.root_agent, root_llm), (searcher, search_llm)):
         monkeypatch.setattr(agent, "model", llm)
         monkeypatch.setattr(agent, "planner", None)

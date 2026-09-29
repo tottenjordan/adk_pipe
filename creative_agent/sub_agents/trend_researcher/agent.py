@@ -34,9 +34,10 @@ class TrendQueryList(BaseModel):
 gs_web_planner = Agent(
     model=build_gemini(config.lite_planner_model),
     name="gs_web_planner",
-    # A graph node: single_turn set explicitly (the node default). Inputs are
-    # read only via `{state}` tokens, so the injected predecessor output is
-    # not load-bearing.
+    # A graph node: single_turn is set explicitly because a node with a parent_agent
+    # otherwise defaults to "chat" mode (wait_for_output=True), which would stall the
+    # graph on an empty turn. Inputs are read only via `{state}` tokens, so the
+    # injected predecessor output is not load-bearing.
     mode="single_turn",
     include_contents="none",
     description="Generates initial queries to understand why the 'target_search_trends' are trending.",
