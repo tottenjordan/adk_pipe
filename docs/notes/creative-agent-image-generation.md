@@ -46,10 +46,12 @@ cost/waste bug only.
 instruction so it emits a single deterministic tool call:
 
 ```python
-planner=BuiltInPlanner(
-    thinking_config=types.ThinkingConfig(thinking_budget=0, include_thoughts=False)
-),
-instruction="""... Call the `generate_image` tool EXACTLY ONCE — a single
+planner = (
+    BuiltInPlanner(
+        thinking_config=types.ThinkingConfig(thinking_budget=0, include_thoughts=False)
+    ),
+)
+instruction = """... Call the `generate_image` tool EXACTLY ONCE — a single
     function call, never in parallel and never more than once. ..."""
 ```
 

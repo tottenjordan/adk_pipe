@@ -55,6 +55,8 @@ tests for #45/#46 need the real module. This also removes an import-time GCP/net
    existing `_get_bigquery_client()`/`_get_pubsub_client()` pattern:
    ```python
    _vertex_client = None
+
+
    def _get_vertex_client():
        global _vertex_client
        if _vertex_client is None:

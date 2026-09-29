@@ -47,7 +47,7 @@ FIGURES_DIR = Path(__file__).parent / "figures"
 # Stable per-arm colors; unknown arms fall back to the matplotlib cycle.
 _ARM_COLORS = {
     "regional_25": "#2ca02c",  # the shipped #101 spread (treatment B)
-    "global_3x": "#888888",    # baseline double-up (Arm A)
+    "global_3x": "#888888",  # baseline double-up (Arm A)
     "global_altbucket": "#1f77b4",  # distinct global bucket (Arm C)
 }
 _ARM_LABELS = {
@@ -107,15 +107,27 @@ def _plot_research_tail(records: list[dict], out: Path) -> Path:
         p90s = [s["p90"] for _, s in points]
         maxes = [s["max"] for _, s in points]
         ax.plot(xs, p90s, marker="o", color=_color(arm), label=f"{arm} p90")
-        ax.plot(xs, maxes, marker="^", linestyle="--", color=_color(arm), alpha=0.7,
-                label=f"{arm} max")
+        ax.plot(
+            xs,
+            maxes,
+            marker="^",
+            linestyle="--",
+            color=_color(arm),
+            alpha=0.7,
+            label=f"{arm} max",
+        )
         # annotate error rate at N=5 (the contention cell)
         for n, _ in points:
             rate = err.get((arm, n))
             if rate:
-                ax.annotate(f"{rate:.0%} err", (n, by_arm[arm][n]["max"]),
-                            textcoords="offset points", xytext=(6, 4), fontsize=8,
-                            color=_color(arm))
+                ax.annotate(
+                    f"{rate:.0%} err",
+                    (n, by_arm[arm][n]["max"]),
+                    textcoords="offset points",
+                    xytext=(6, 4),
+                    fontsize=8,
+                    color=_color(arm),
+                )
     ax.set_xlabel("concurrency N (simultaneous runs)")
     ax.set_ylabel("research-phase wall-clock tail (s)")
     ax.set_title("Research-phase tail latency vs concurrency (H1 — the real signal)")
@@ -177,8 +189,20 @@ def _plot_quality(records: list[dict], out: Path, quality_fn) -> Path:
     fig, ax = plt.subplots(figsize=(8, 5))
     xs = range(len(arms))
     width = 0.35
-    ax.bar([x - width / 2 for x in xs], mean_scores, width, label="mean eval score", color="#1f77b4")
-    ax.bar([x + width / 2 for x in xs], pass_rates, width, label="pass rate", color="#ff7f0e")
+    ax.bar(
+        [x - width / 2 for x in xs],
+        mean_scores,
+        width,
+        label="mean eval score",
+        color="#1f77b4",
+    )
+    ax.bar(
+        [x + width / 2 for x in xs],
+        pass_rates,
+        width,
+        label="pass rate",
+        color="#ff7f0e",
+    )
     ax.axhline(0.7, color="red", linestyle="--", alpha=0.6, label="pass threshold 0.7")
     ax.set_xticks(list(xs))
     ax.set_xticklabels(arms, rotation=0)
@@ -193,7 +217,9 @@ def _plot_quality(records: list[dict], out: Path, quality_fn) -> Path:
     return out
 
 
-def render_all(records: list[dict], figures_dir: Path | str = FIGURES_DIR, quality_fn=None) -> list[Path]:
+def render_all(
+    records: list[dict], figures_dir: Path | str = FIGURES_DIR, quality_fn=None
+) -> list[Path]:
     """Render the three DoE figures; return the written PNG paths.
 
     ``quality_fn`` (state -> (pass, mean_score)) defaults to no-quality so the

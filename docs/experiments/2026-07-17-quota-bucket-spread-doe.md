@@ -382,14 +382,30 @@ and creates one `ExperimentRun` per record. This keeps the timed runs fully offl
 `analyze.py` stdlib-only. Sketch (~30 lines):
 
 ```python
-aiplatform.init(experiment="quota-bucket-spread-doe", project=PROJECT, location="us-central1")
+aiplatform.init(
+    experiment="quota-bucket-spread-doe", project=PROJECT, location="us-central1"
+)
 for r in load_records():
-    with aiplatform.start_run(f'{r["arm"]}-N{r["concurrency"]}-{r["session_id"][:8]}'):
-        aiplatform.log_params({"arm": r["arm"], "concurrency": r["concurrency"],
-                               "revision": r["revision"], "batch_id": r["batch_id"]})
-        aiplatform.log_metrics({k: v for k, v in {
-            "research_s": r.get("research_s"), "total_s": r.get("total_s"),
-            "count_429": r.get("count_429")}.items() if v is not None})
+    with aiplatform.start_run(f"{r['arm']}-N{r['concurrency']}-{r['session_id'][:8]}"):
+        aiplatform.log_params(
+            {
+                "arm": r["arm"],
+                "concurrency": r["concurrency"],
+                "revision": r["revision"],
+                "batch_id": r["batch_id"],
+            }
+        )
+        aiplatform.log_metrics(
+            {
+                k: v
+                for k, v in {
+                    "research_s": r.get("research_s"),
+                    "total_s": r.get("total_s"),
+                    "count_429": r.get("count_429"),
+                }.items()
+                if v is not None
+            }
+        )
 ```
 
 **What it does *not* replace.** It's a dashboard/store, not an analysis engine — the H1 headline

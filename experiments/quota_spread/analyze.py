@@ -130,7 +130,9 @@ def research_slope_by_arm(records: list[dict]) -> dict[str, float]:
     return {arm: research_slope(cells) for arm, cells in by_arm.items()}
 
 
-def to_tidy_rows(records: list[dict], quality_fn: QualityFn = _no_quality) -> list[dict]:
+def to_tidy_rows(
+    records: list[dict], quality_fn: QualityFn = _no_quality
+) -> list[dict]:
     """One tidy dict per run (the CSV schema). ``quality_fn`` reads final state."""
     rows: list[dict] = []
     for r in records:
@@ -197,7 +199,9 @@ def cell_summary(records: list[dict]) -> dict[str, dict]:
         buckets[(r["arm"], r["concurrency"])].append(r)
     out: dict[str, dict] = {}
     for (arm, n), rs in sorted(buckets.items()):
-        research = [float(r["research_s"]) for r in rs if r.get("research_s") is not None]
+        research = [
+            float(r["research_s"]) for r in rs if r.get("research_s") is not None
+        ]
         total = [float(r["total_s"]) for r in rs if r.get("total_s") is not None]
         out[f"{arm}|{n}"] = {
             "arm": arm,

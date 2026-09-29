@@ -114,7 +114,7 @@ Tests:
    )
 
    gs_web_searcher_resilient = RetryUntilKeyAgent(
-       name="gs_web_searcher_resilient",   # keep name: outer composition unchanged
+       name="gs_web_searcher_resilient",  # keep name: outer composition unchanged
        sub_agents=[gs_search_and_synthesize],
        output_key="gs_web_search_insights",
        max_attempts=3,

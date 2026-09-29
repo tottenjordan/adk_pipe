@@ -43,6 +43,20 @@ dev = [
     "ty==0.0.84",
 ]
 
+[tool.ruff]
+target-version = "py313"
+line-length = 88
+# `agents/` holds symlinks back to the root agent packages (ADK web discovery),
+# so linting it would double-report every file. Notebooks are exploratory.
+extend-exclude = ["agents/", "frontend/", "outputs/", "a_stash/", "*.ipynb"]
+
+[tool.ruff.lint]
+# Pin the rule set explicitly (ruff's default set grows between releases).
+select = ["E", "F", "I", "UP", "B"]
+# Line length is owned by `ruff format`; the lines it can't wrap are long string
+# literals (prompts, SQL, URLs) where hard-wrapping would hurt readability.
+ignore = ["E501"]
+
 [tool.ruff.lint.per-file-ignores]
 # Package __init__.py files re-export submodules/symbols as the public API.
 "__init__.py" = ["F401"]

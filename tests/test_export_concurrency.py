@@ -190,7 +190,9 @@ def test_get_high_res_img_isolates_concurrent_runs(monkeypatch, tmp_path):
     object name must be the file basename, not the temp-dir path."""
     monkeypatch.chdir(tmp_path)
     uploads: list[tuple[str, str]] = []
-    monkeypatch.setattr(gcs_tools, "_get_gcs_client", lambda: _FakeStorageClient(uploads))
+    monkeypatch.setattr(
+        gcs_tools, "_get_gcs_client", lambda: _FakeStorageClient(uploads)
+    )
     monkeypatch.setattr(gcs_tools, "Image", _FakeImage)
 
     artifact_key = "concept.png"  # identical key => same bare filename on old code

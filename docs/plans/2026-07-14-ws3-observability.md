@@ -65,6 +65,7 @@ WS3 closes both. **Scope confirmed with the user:** extract the callbacks to `ag
 1. In `trend_scout/callbacks.py`: delete the local `_describe_state_value`, `log_final_state_summary`, `log_empty_turn_finish_reason`; replace the inline run-start block in `load_session_state` with `observability.log_run_start(callback_context)`. Add re-export shims so `trend_scout/agent.py` needs no change:
    ```python
    from agent_common import observability
+
    log_empty_turn_finish_reason = observability.log_empty_turn_finish_reason
    log_final_state_summary = observability.make_final_state_summary(
        "trend_scout", ("raw_gtrends", "info_gtrends", "selected_gtrends")

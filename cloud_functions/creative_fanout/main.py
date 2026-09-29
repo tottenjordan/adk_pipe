@@ -670,7 +670,9 @@ def crf_entrypoint(cloud_event: CloudEvent) -> None:
 
             data_str = json.dumps(worker_payload)
             data_bytes = data_str.encode("utf-8")
-            publish_futures.append(pubsub_publisher.publish(_WORKER_TOPIC_NAME, data_bytes))
+            publish_futures.append(
+                pubsub_publisher.publish(_WORKER_TOPIC_NAME, data_bytes)
+            )
 
         dispatched_count = 0
         failed_count = 0

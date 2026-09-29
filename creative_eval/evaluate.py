@@ -46,9 +46,7 @@ def _get_client(config: EvalConfig) -> genai.Client:
         vertexai=True,
         project=config.project_id,
         location=config.location,
-        http_options=genai.types.HttpOptions(
-            retry_options=build_genai_http_retry()
-        ),
+        http_options=genai.types.HttpOptions(retry_options=build_genai_http_retry()),
     )
 
 
