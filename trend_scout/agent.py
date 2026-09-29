@@ -1,13 +1,14 @@
 import logging
 
-from google.adk.agents import Agent, SequentialAgent
+from google.adk.agents import Agent
 from google.adk.apps import App, ResumabilityConfig
 from google.adk.planners import BuiltInPlanner
 from google.adk.tools import google_search
 from google.adk.tools.agent_tool import AgentTool
+from google.adk.workflow import Workflow
 from google.genai import types
 
-from agent_common import RetryUntilKeyAgent, build_gemini
+from agent_common import PipelineRequest, RetryUntilKeyNode, build_gemini
 
 from . import callbacks, prompts
 from .config import INFRA_RETRY, config
@@ -63,6 +64,10 @@ understand_trends_searcher = Agent(
     # as the sole occupant of that global bucket, so its retries can't 429.
     model=build_gemini(config.worker_model),
     name="understand_trends_searcher",
+    # A graph node: single_turn set explicitly (the node default). Both halves
+    # read their inputs only via `{state}` tokens, so the injected predecessor
+    # output / request message is not load-bearing.
+    mode="single_turn",
     include_contents="none",
     description="Conduct initial web research to briefly understand each trending topic",
     planner=BuiltInPlanner(
@@ -92,6 +97,7 @@ understand_trends_synthesizer = Agent(
     # Tool-free synthesis into structured JSON; its own global flash-lite bucket.
     model=build_gemini(config.lite_planner_model),
     name="understand_trends_synthesizer",
+    mode="single_turn",
     include_contents="none",
     description="Synthesizes the raw trend findings into the structured JSON briefing.",
     instruction=prompts.UNDERSTAND_TRENDS_SYNTHESIZER_INSTR,
@@ -108,30 +114,33 @@ understand_trends_synthesizer = Agent(
     after_model_callback=callbacks.log_empty_turn_finish_reason,
 )
 
-understand_trends_search_and_synthesize = SequentialAgent(
+# NOTE: the Workflow graph holds its own copies of the two agents, so mutating
+# the module-level agents after this point does not affect the pipeline.
+understand_trends_search_and_synthesize = Workflow(
     name="understand_trends_search_and_synthesize",
     description="Runs the raw trend search then synthesizes the JSON briefing.",
-    sub_agents=[understand_trends_searcher, understand_trends_synthesizer],
+    edges=[("START", understand_trends_searcher, understand_trends_synthesizer)],
 )
 
 
 # Retry-on-empty: if the searcher OR synthesizer emits no final text (leaving
 # `info_gtrends` unset), re-run the whole pair until populated (bounded), instead
-# of crashing pick_trends_agent with `KeyError: Context variable not found`. The
-# wrapper runs only sub_agents[0], so we wrap the SequentialAgent pair. It is
-# exposed to the orchestrator as an AgentTool, so the retry runs inside AgentTool's
-# isolated sub-Runner — state-delta timing across that boundary is identical to the
-# top-level case the wrapper was verified against (agent_tool.py forwards each inner
-# event's state_delta before our generator resumes). Keep the `name` + `description`
-# so AgentTool builds the same tool declaration the orchestrator already knows.
-understand_trends_agent_resilient = RetryUntilKeyAgent(
+# of crashing pick_trends_agent with `KeyError: Context variable not found`. Each
+# attempt re-executes the Workflow pair under a distinct run_id. It sits in the
+# orchestrator's tools as a bare node, which ADK wraps into a NodeTool running in
+# the parent session (state lands there directly). Keep the `name` +
+# `description` and the `PipelineRequest` input schema so the NodeTool declares
+# the same tool (name, description, `request: str`) the orchestrator already
+# calls under AgentTool.
+understand_trends_agent_resilient = RetryUntilKeyNode(
     name="understand_trends_agent_resilient",
-    # Preserve the original tool-facing description so AgentTool builds the same
-    # declaration the orchestrator already calls (the searcher carries it verbatim).
+    # Preserve the original tool-facing description (the searcher carries it
+    # verbatim).
     description=understand_trends_searcher.description,
-    sub_agents=[understand_trends_search_and_synthesize],
+    node=understand_trends_search_and_synthesize,
     output_key="info_gtrends",
     max_attempts=3,
+    input_schema=PipelineRequest,
 )
 
 
@@ -186,7 +195,7 @@ trend_scout = Agent(
     instruction=prompts.TREND_SCOUT_INSTR,
     tools=[
         AgentTool(agent=gather_trends_agent),
-        AgentTool(agent=understand_trends_agent_resilient),
+        understand_trends_agent_resilient,
         AgentTool(agent=pick_trends_agent),
         review_trends_tool,
         save_search_trends_to_session_state,

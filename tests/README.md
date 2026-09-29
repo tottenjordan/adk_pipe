@@ -66,6 +66,7 @@ tests/
 ├── test_sdk_versions.py             # guard: aiplatform 2.x ships both agentplatform + vertexai surfaces
 ├── test_tools.py                    # backend tool functions (pure logic, no I/O)
 ├── test_tools_retry.py              # infra tools propagate (don't swallow) exceptions
+├── test_trend_scout_graph.py        # trend_scout understand_trends graph run end-to-end (stub models)
 ├── test_trend_scout_concurrency.py  # trend_scout GCS-export tools: per-run scratch isolation
 ├── test_trend_scout_logging.py      # trend_scout debugging-observability callbacks
 ├── test_visual_intent_prompts.py    # optional visual-intent {key?} tokens + IMAGE_PROMPT_GUIDE no-braces
