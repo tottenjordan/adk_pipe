@@ -389,3 +389,83 @@ class TestIntegrationMissingEngineIdSkips:
         with pytest.raises(SystemExit) as exc:
             it.main()
         assert exc.value.code == 0
+
+
+class TestRuntimesApi:
+    def test_list_agents_uses_runtimes_and_handles_empty_generator(
+        self, monkeypatch, caplog
+    ):
+        da = _import_deploy_agent()
+        client = MagicMock(spec=["runtimes"])
+        client.runtimes.list.return_value = iter([])
+        monkeypatch.setattr(da, "_get_client", lambda: client)
+        with caplog.at_level("INFO"):
+            da.list_agents()
+        # A generator is always truthy, so the old `if not remote_agents` never
+        # reported an empty project.
+        assert "No agents found." in caplog.text
+
+    def test_delete_uses_runtimes_delete_with_force(self, monkeypatch, caplog):
+        da = _import_deploy_agent()
+        client = MagicMock(spec=["runtimes"])
+        monkeypatch.setattr(da, "_get_client", lambda: client)
+        monkeypatch.setenv("GOOGLE_CLOUD_PROJECT_NUMBER", "123")
+        op = client.runtimes.delete.return_value
+        op.name = "operations/789"  # MagicMock(name=...) sets the repr, not .name
+        op.error = None
+        with caplog.at_level("INFO"):
+            da.delete("456")
+        client.runtimes.delete.assert_called_once_with(
+            name=f"projects/123/locations/{da.AGENT_ENGINE_LOCATION}/reasoningEngines/456",
+            force=True,
+        )
+        # runtimes.delete returns an unpolled operation — don't claim success.
+        assert "Delete requested for 456 (operation operations/789)" in caplog.text
+        assert "Successfully deleted" not in caplog.text
+
+    def test_delete_warns_on_operation_error(self, monkeypatch, caplog):
+        da = _import_deploy_agent()
+        client = MagicMock(spec=["runtimes"])
+        op = client.runtimes.delete.return_value
+        op.name = "operations/789"
+        op.error = {"code": 9, "message": "boom"}
+        monkeypatch.setattr(da, "_get_client", lambda: client)
+        monkeypatch.setenv("GOOGLE_CLOUD_PROJECT_NUMBER", "123")
+        with caplog.at_level("INFO"):
+            da.delete("456")
+        assert any(
+            r.levelname == "WARNING" and "boom" in r.getMessage()
+            for r in caplog.records
+        )
+
+    def test_client_is_agentplatform(self, monkeypatch):
+        da = _import_deploy_agent()
+        ctor = MagicMock()
+        monkeypatch.setattr(da.agentplatform, "Client", ctor)
+        monkeypatch.setattr(da, "_client", None)
+        monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "proj-x")  # read at call time
+        first = da._get_client()
+        assert ctor.call_args.kwargs["location"] == da.AGENT_ENGINE_LOCATION
+        assert ctor.call_args.kwargs["project"] == "proj-x"
+        # Cached: a second call must not construct another client.
+        assert da._get_client() is first
+        ctor.assert_called_once()
+
+    def test_list_agents_logs_runtime_fields(self, monkeypatch, caplog):
+        da = _import_deploy_agent()
+        runtime = MagicMock()
+        runtime.api_resource.name = (
+            "projects/1/locations/us-central1/reasoningEngines/42"
+        )
+        runtime.api_resource.display_name = "trend-scout-v9"
+        runtime.api_resource.create_time = "2026-09-29T00:00:00Z"
+        runtime.api_resource.update_time = "2026-09-29T01:00:00Z"
+        runtime.api_resource.description = "scout"
+        client = MagicMock(spec=["runtimes"])
+        client.runtimes.list.return_value = iter([runtime])
+        monkeypatch.setattr(da, "_get_client", lambda: client)
+        with caplog.at_level("INFO"):
+            da.list_agents()
+        assert "projects/1/locations/us-central1/reasoningEngines/42" in caplog.text
+        assert "trend-scout-v9" in caplog.text
+        assert "No agents found." not in caplog.text

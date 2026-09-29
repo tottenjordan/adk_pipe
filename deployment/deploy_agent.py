@@ -14,7 +14,7 @@ project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
-import vertexai
+import agentplatform
 
 if TYPE_CHECKING:
     from google.adk.agents import BaseAgent
@@ -125,17 +125,17 @@ flags.mark_bool_flags_as_mutual_exclusive(["create", "delete", "list"])
 # NOT GOOGLE_CLOUD_LOCATION, which is set to `global` for the gemini-3.x models.
 AGENT_ENGINE_LOCATION = os.getenv("GCP_REGION", "us-central1")
 
-# vertex ai SDK client — created lazily so the module imports without GCP creds
+# Agent Runtime (agentplatform) client — created lazily so the module imports without GCP creds
 # (mirrors the lazy-client pattern in cloud_functions/creative_fanout/main.py) and
 # so unit tests can assert on the deploy mappings without a live client.
 _client = None
 
 
 def _get_client():
-    """Return a cached vertexai SDK client, creating it on first use."""
+    """Return a cached Agent Runtime (agentplatform) client, creating it on first use."""
     global _client
     if _client is None:
-        _client = vertexai.Client(
+        _client = agentplatform.Client(
             project=os.getenv("GOOGLE_CLOUD_PROJECT"),
             location=AGENT_ENGINE_LOCATION,
         )  # pyright: ignore[reportCallIssue]
@@ -143,7 +143,7 @@ def _get_client():
 
 
 def validate_extra_packages(packages: list[str]) -> None:
-    """Assert every bundled package dir exists before calling agent_engines.create.
+    """Assert every bundled package dir exists before calling runtimes.create.
 
     Guards against a typo'd or forgotten path silently shipping a runtime that
     fails to start with `No module named ...`.
@@ -217,7 +217,7 @@ def deploy_agent(name: str, version: str) -> None:
     validate_extra_packages(extra_packages)
 
     # Imported lazily (like the client) so this module stays importable offline.
-    from vertexai.agent_engines import AdkApp
+    from agentplatform.frameworks import AdkApp
 
     module = importlib.import_module(spec["module"])
     root_agent = module.root_agent
@@ -230,7 +230,7 @@ def deploy_agent(name: str, version: str) -> None:
 
     try:
         logging.info(f"Deploying `{name}` agent...")
-        remote_agent = _get_client().agent_engines.create(
+        remote_agent = _get_client().runtimes.create(
             agent=adk_app,
             config={
                 "requirements": "./requirements.txt",
@@ -266,7 +266,7 @@ def deploy_agent(name: str, version: str) -> None:
 def list_agents() -> None:
     """Lists all Agent Engine Runtimes in the Project and Location"""
     logging.info("Listing all deployed Agent Engine Runtimes...")
-    remote_agents = _get_client().agent_engines.list()
+    remote_agents = list(_get_client().runtimes.list())
     if not remote_agents:
         logging.info("No agents found.")
         return
@@ -297,9 +297,14 @@ def delete(
     PROJECT_NUM = os.getenv("GOOGLE_CLOUD_PROJECT_NUMBER")
     RESOURCE_NAME = f"projects/{PROJECT_NUM}/locations/{AGENT_ENGINE_LOCATION}/reasoningEngines/{resource_id}"
 
-    remote_agent = _get_client().agent_engines.get(name=RESOURCE_NAME)
-    remote_agent.delete(force=True)
-    logging.info(f"Successfully deleted remote agent: {resource_id}")
+    # runtimes.delete returns the long-running operation without polling it, so
+    # report the request rather than claiming the engine is already gone.
+    op = _get_client().runtimes.delete(name=RESOURCE_NAME, force=True)
+    if op.error:
+        logging.warning(
+            f"Delete operation {op.name} for {resource_id} error: {op.error}"
+        )
+    logging.info(f"Delete requested for {resource_id} (operation {op.name})")
 
 
 def main(argv):
