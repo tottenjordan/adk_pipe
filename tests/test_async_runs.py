@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 
 import pytest
+from google.adk.errors.session_not_found_error import SessionNotFoundError
 from google.adk.events import Event, EventActions
 from google.adk.sessions import InMemorySessionService
 from google.genai import types
@@ -197,6 +198,38 @@ def test_kickoff_starts_detached_task_and_returns_runid():
     assert last.actions.state_delta == {RUN_STATUS_KEY: "done"}
 
 
+class _NotFoundRaisingInMemory(InMemorySessionService):
+    """InMemory service whose ``get_session`` raises ``SessionNotFoundError`` for a
+    missing session (the ADK 2.9 changelog contract) instead of returning None."""
+
+    async def get_session(self, **kwargs):
+        session = await super().get_session(**kwargs)
+        if session is None:
+            raise SessionNotFoundError("not found")
+        return session
+
+
+def test_kickoff_creates_session_when_get_session_raises_not_found():
+    async def _go():
+        svc = _NotFoundRaisingInMemory()
+        fake = _FakeRunner(svc, "creative_agent", "u", "s", [_agent_event("one")])
+        _result, task = await start_run(
+            app_name="creative_agent",
+            user_id="u",
+            session_id="s",
+            message="hello",
+            session_service=svc,
+            runner_factory=lambda app_name: fake,
+        )
+        await task  # drain
+        return await svc.get_session(
+            app_name="creative_agent", user_id="u", session_id="s"
+        )
+
+    session = asyncio.run(_go())
+    assert session.events[-1].actions.state_delta == {RUN_STATUS_KEY: "done"}
+
+
 def test_kickoff_records_error_marker_on_exception():
     async def _go():
         svc = InMemorySessionService()
@@ -223,6 +256,60 @@ def test_kickoff_records_error_marker_on_exception():
     assert delta[RUN_STATUS_KEY] == "error"
     assert RUN_ERROR_KEY in delta
     assert "boom" in delta[RUN_ERROR_KEY]
+
+
+class _CountingNotFoundService(_NotFoundRaisingInMemory):
+    """Raising-on-missing stub that also counts get_session / append_event calls."""
+
+    def __init__(self):
+        super().__init__()
+        self.get_calls = 0
+        self.append_calls = 0
+
+    async def get_session(self, **kwargs):
+        self.get_calls += 1
+        return await super().get_session(**kwargs)
+
+    async def append_event(self, session, event):
+        self.append_calls += 1
+        return await super().append_event(session, event)
+
+
+def test_append_terminal_safe_gives_up_without_retry_when_session_missing(caplog):
+    svc = _CountingNotFoundService()
+    with caplog.at_level("ERROR"):
+        asyncio.run(
+            async_runs._append_terminal_safe(
+                svc, "creative_agent", "u", "missing", build_terminal_event("done")
+            )
+        )
+    assert svc.get_calls == 1  # missing session → no bounded retry
+    assert svc.append_calls == 0
+    assert "session missing" in caplog.text
+
+
+def test_reset_status_to_running_noop_when_session_missing():
+    svc = _CountingNotFoundService()
+    asyncio.run(
+        async_runs._reset_status_to_running(svc, "interactive_creative", "u", "missing")
+    )
+    assert svc.get_calls == 1
+    assert svc.append_calls == 0
+
+
+def test_apply_visual_concept_edits_noop_when_session_missing():
+    svc = _CountingNotFoundService()
+    asyncio.run(
+        async_runs._apply_visual_concept_edits(
+            svc,
+            "interactive_creative",
+            "u",
+            "missing",
+            [{"index": 0, "revision_note": "warmer palette"}],
+        )
+    )
+    assert svc.get_calls == 1
+    assert svc.append_calls == 0
 
 
 def test_kickoff_creates_session_if_missing():
