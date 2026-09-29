@@ -78,7 +78,7 @@ python deployment/deploy_agent.py --resource_id=<RESOURCE_ID> --delete
 > graph — e.g. `creative_agent` → `creative_eval` + `agent_common`), so a
 > cross-package dependency can't be silently left out of a deploy.
 
-* Once agent is deployed to Agent Engine, the agent's resource ID will be added to your `.env` file (`SCOUT_AGENT_ENGINE_ID`, `CREATIVE_AGENT_ENGINE_ID` or `INTERACTIVE_AGENT_ENGINE_ID`). And this will be used later in the `test_deployment.py` script
+* Once agent is deployed to Agent Engine, the agent's resource ID will be added to your `.env` file (`SCOUT_AGENT_ENGINE_ID`, `CREATIVE_AGENT_ENGINE_ID` or `INTERACTIVE_AGENT_ENGINE_ID`). And this will be used later by the `test_deployment.py` / `integration_test.py` scripts
 * The deploy/test scripts use the AgentPlatform SDK: `agentplatform.Client().runtimes` and `agentplatform.frameworks.AdkApp` (google-cloud-aiplatform 2.x, via the `[tool.uv]` override in `pyproject.toml`)
 
 ### Test deployment

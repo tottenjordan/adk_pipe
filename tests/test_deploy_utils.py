@@ -1,6 +1,7 @@
 """Tests for deployment utility functions (deploy_agent.py)."""
 
 import importlib
+import importlib.util
 import logging
 import os
 import re
@@ -472,6 +473,85 @@ class TestRuntimesApi:
         assert "No agents found." not in caplog.text
 
 
+# --- deploy_agent(): the runtimes.create path (client, AdkApp, .env all mocked) ---
+# Fake agent modules are injected into sys.modules so no heavy agent package is
+# imported; resolve_deploy_target runs for real, so an App export must yield
+# AdkApp(app=...) and a bare module AdkApp(agent=root_agent).
+class TestDeployAgentCreate:
+    RESOURCE = "projects/1/locations/us-central1/reasoningEngines/42"
+
+    def _setup(self, monkeypatch, name, *, with_app):
+        from google.adk.apps import App
+
+        da = _import_deploy_agent()
+        import agentplatform.frameworks
+
+        root_agent = types.SimpleNamespace(description=f"{name} desc")
+        module = types.SimpleNamespace(root_agent=root_agent)
+        if with_app:
+            module.app = MagicMock(spec=App)
+        monkeypatch.setitem(sys.modules, da.AGENT_DEPLOY_SPECS[name]["module"], module)
+
+        adk_app_cls = MagicMock()
+        monkeypatch.setattr(agentplatform.frameworks, "AdkApp", adk_app_cls)
+        client = MagicMock(spec=["runtimes"])
+        client.runtimes.create.return_value.api_resource.name = self.RESOURCE
+        monkeypatch.setattr(da, "_get_client", lambda: client)
+        update_env = MagicMock()  # never touch the real .env
+        monkeypatch.setattr(da, "update_env_file", update_env)
+        monkeypatch.setenv("GOOGLE_CLOUD_STORAGE_BUCKET", "my-bucket")
+        return da, module, adk_app_cls, client, update_env
+
+    @pytest.mark.parametrize(
+        ("name", "with_app"),
+        [
+            ("trend_scout", True),
+            ("interactive_creative", True),
+            ("creative_agent", False),
+        ],
+    )
+    def test_create_builds_adkapp_config_and_updates_env(
+        self, monkeypatch, name, with_app
+    ):
+        da, module, adk_app_cls, client, update_env = self._setup(
+            monkeypatch, name, with_app=with_app
+        )
+        da.deploy_agent(name, "v9")
+
+        # Resumable agents deploy their App (keeps ResumabilityConfig); others
+        # deploy the bare root_agent.
+        if with_app:
+            adk_app_cls.assert_called_once_with(app=module.app)
+        else:
+            adk_app_cls.assert_called_once_with(agent=module.root_agent)
+
+        client.runtimes.create.assert_called_once()
+        kwargs = client.runtimes.create.call_args.kwargs
+        assert kwargs["agent"] is adk_app_cls.return_value
+        spec = da.AGENT_DEPLOY_SPECS[name]
+        config = kwargs["config"]
+        assert config["requirements"] == "./requirements.txt"
+        assert config["extra_packages"] == da.AGENT_EXTRA_PACKAGES[name]
+        assert config["staging_bucket"] == "gs://my-bucket"
+        assert config["gcs_dir_name"] == f"adk-pipe/{spec['gcs_subdir']}/v9/staging"
+        assert config["display_name"] == f"{spec['display_name']}-v9"
+        assert config["description"] == f"{name} desc"
+        assert config["env_vars"] is da.ENV_VAR_DICT
+
+        update_env.assert_called_once_with(
+            name=name, agent_engine_id=self.RESOURCE, env_file_path=da.ENV_FILE_PATH
+        )
+
+    def test_create_failure_reraises_without_env_update(self, monkeypatch):
+        da, _, _, client, update_env = self._setup(
+            monkeypatch, "creative_agent", with_app=False
+        )
+        client.runtimes.create.side_effect = RuntimeError("quota")
+        with pytest.raises(RuntimeError, match="quota"):
+            da.deploy_agent("creative_agent", "v9")
+        update_env.assert_not_called()
+
+
 class TestIntegrationEventAndSessionHelpers:
     @pytest.mark.parametrize(
         "resp",
@@ -547,8 +627,10 @@ class TestIntegrationEventAndSessionHelpers:
 
 # --- test_deployment: tool-call logging handles 2.x snake_case stream events ---
 def _import_test_deployment(monkeypatch):
-    """Import test_deployment.py in-process: it parses argv and builds an
-    agentplatform.Client at import time, so stub both."""
+    """Load test_deployment.py in-process: it parses argv and builds an
+    agentplatform.Client at import time, so stub both. Executed from its file
+    spec WITHOUT registering in sys.modules, so the mocked-client module can't
+    leak into other tests."""
     _import_deploy_agent()
     import agentplatform
 
@@ -556,8 +638,12 @@ def _import_test_deployment(monkeypatch):
     monkeypatch.setattr(
         sys, "argv", ["test_deployment.py", "--user_id", "u", "--agent", "trend_scout"]
     )
-    monkeypatch.delitem(sys.modules, "deployment.test_deployment", raising=False)
-    return importlib.import_module("deployment.test_deployment")
+    path = os.path.join(PROJECT_ROOT, "deployment", "test_deployment.py")
+    spec = importlib.util.spec_from_file_location("_test_deployment_isolated", path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 class TestPrettyPrintEvent:

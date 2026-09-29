@@ -43,21 +43,30 @@ tests/
 ├── test_callbacks.py                # citation replacement, state init, rate limiting
 ├── test_conditional_agent.py        # RunIfAgent — conditional-block control-flow wrapper
 ├── test_config.py                   # per-agent config resolution (incl. campaign-placement resolver)
+├── test_create_session_engine.py    # create_session_engine.py (reuse-or-create sessions-only engine)
 ├── test_creative_eval.py            # creative_eval schemas, scoring logic, config
+├── test_crf_config.py               # env-driven CRF config (required project, no hardcoding)
 ├── test_crf_entrypoint.py           # crf_entrypoint orchestrator (issue #46)
 ├── test_crf_logic.py                # Cloud Run Function logic (orchestrator + worker)
+├── test_crf_sql_params.py           # CRF SQL safety: allow-listed identifiers, parameterized values
 ├── test_crf_worker_async.py         # async worker path of the CRF (issue #45)
-├── test_deploy_utils.py             # deploy_agent.py utils (env file, extra_packages)
+├── test_deploy_utils.py             # deploy_agent.py utils (env file, extra_packages, runtimes.create)
+├── test_export_concurrency.py       # creative_agent export tools: per-run scratch isolation (issue #104)
 ├── test_image_reference.py          # generate_image multimodal contents + valid ImageConfig
+├── test_no_legacy_agent_engines_api.py # guard: no legacy vertexai agent_engines API in repo call sites
 ├── test_observability.py            # shared agent_common observability callbacks
 ├── test_pipeline_structure.py       # agent pipeline composition + placement-env wiring
+├── test_public_api.py               # creative_agent public facade (curated __all__ reuse surface)
 ├── test_retry_agent.py              # RetryUntilKeyAgent (retry-on-empty producer wrapper)
 ├── test_retry_config.py             # scoped RetryConfig constants on infra agents
 ├── test_sanitize.py                 # lone-surrogate scrubber (agent_common.sanitize)
 ├── test_schemas.py                  # Pydantic schemas in the creative_agent pipeline
+├── test_sdk_versions.py             # guard: aiplatform 2.x ships both agentplatform + vertexai surfaces
 ├── test_tools.py                    # backend tool functions (pure logic, no I/O)
 ├── test_tools_retry.py              # infra tools propagate (don't swallow) exceptions
+├── test_trend_scout_concurrency.py  # trend_scout GCS-export tools: per-run scratch isolation
 ├── test_trend_scout_logging.py      # trend_scout debugging-observability callbacks
+├── test_visual_intent_prompts.py    # optional visual-intent {key?} tokens + IMAGE_PROMPT_GUIDE no-braces
 │                                    #
 │                                    # experiments/ harness unit tests (pure/offline — no creds, no network)
 ├── test_creative_latency_poll.py    # poll_to_terminal retries a transient slow/failed poll
@@ -81,9 +90,18 @@ tests/
   scoped `RetryConfig`.
 - **Tools** — `test_tools.py`, `test_tools_retry.py`: pure tool logic, plus the contract
   that infra tools raise (rather than swallow errors into status dicts) so ADK retry works.
-- **Deployment & fan-out** — `test_deploy_utils.py`, `test_crf_entrypoint.py`,
-  `test_crf_logic.py`, `test_crf_worker_async.py`: deploy mappings/env wiring and the
-  orchestrator + worker Cloud Run Function paths.
+- **Deployment & fan-out** — `test_deploy_utils.py`, `test_create_session_engine.py`,
+  `test_crf_entrypoint.py`, `test_crf_logic.py`, `test_crf_worker_async.py`,
+  `test_crf_config.py`, `test_crf_sql_params.py`: deploy mappings/env wiring, the
+  `runtimes.create` path, and the orchestrator + worker Cloud Run Function paths
+  (env-driven config, SQL identifier/parameter safety).
+- **SDK guards** — `test_sdk_versions.py`, `test_no_legacy_agent_engines_api.py`: the
+  aiplatform 2.x `agentplatform` + `vertexai` surfaces are present, and no repo call site
+  uses the deprecated `agent_engines` API.
+- **Concurrency** — `test_export_concurrency.py`, `test_trend_scout_concurrency.py`:
+  in-process concurrent runs get isolated scratch dirs (issue #104).
+- **Prompts & facade** — `test_visual_intent_prompts.py`, `test_public_api.py`: optional
+  visual-intent state tokens, and `creative_agent`'s curated public reuse surface.
 - **Async-job run model** — `test_async_runs.py`: detached kick-off returns immediately,
   `_drive_run` appends a `done`/`error` terminal marker, poll derives status + slices
   events by cursor, and resume re-runs with a `functionResponse` (resetting status to
