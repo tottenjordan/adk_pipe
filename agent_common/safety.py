@@ -20,6 +20,21 @@ drafter, and critic call. The user-facing trust boundary is the root turn — wh
 the user typed and what the orchestrator says back — so sub-agent turns are
 skipped.
 
+Only a *fresh* user message is screened on input: the root's first model call of
+a turn, when the newest content is the user's text. Later root calls in the same
+turn end with a tool's user-role ``function_response``; ADK's extractor would walk
+back past it and re-screen the same original prompt on every call.
+
+Known gaps (by design of root-only, fresh-input screening):
+
+- Interactive checkpoint edits / revision notes reach the root as
+  ``function_response`` data on resume, so they are not screened on input.
+- ``NodeTool`` sub-branch outputs (pipeline results) are not screened; only what
+  the root model itself says back is (``after_model_callback``).
+- ADK's Model Armor client is a ``grpc.aio`` client bound to the first event loop
+  that uses it, so drive agents through the async path (``Runner.run_async`` /
+  Agent Engine ``async_stream_query``) — every caller in this repo does.
+
 The ADK plugin builds its Model Armor client lazily on first screening call, so
 constructing it needs no credentials and an unused instance pickles cleanly
 (Agent Engine deploy cloudpickles the App).
@@ -29,7 +44,10 @@ import os
 from collections.abc import Iterable
 from typing import Any
 
+from google.adk.agents.callback_context import CallbackContext
 from google.adk.integrations.model_armor import ModelArmorConfig, ModelArmorPlugin
+from google.adk.models.llm_request import LlmRequest
+from google.adk.models.llm_response import LlmResponse
 from google.adk.plugins.base_plugin import BasePlugin
 
 _FALSY = frozenset({"false", "0", "no", "off"})
@@ -42,22 +60,42 @@ class ScopedModelArmorPlugin(ModelArmorPlugin):
         super().__init__(**kwargs)
         self.root_agent_names: frozenset[str] = frozenset(root_agent_names)
 
-    def _in_scope(self, callback_context: Any) -> bool:
+    def _in_scope(self, callback_context: CallbackContext) -> bool:
         return callback_context.agent_name in self.root_agent_names
 
-    async def before_model_callback(self, *, callback_context, llm_request):
-        if not self._in_scope(callback_context):
+    async def before_model_callback(
+        self, *, callback_context: CallbackContext, llm_request: LlmRequest
+    ) -> LlmResponse | None:
+        # Screen only a fresh user message. On later root calls the newest
+        # user-role content is a tool's function_response, and ADK's extractor
+        # walks back to re-screen the same original prompt every call: wasted
+        # Model Armor calls, and with fail-closed a transient screening failure
+        # mid-pipeline would replace the root turn with a refusal after the
+        # expensive work already ran.
+        if not self._in_scope(callback_context) or not _is_fresh_user_turn(llm_request):
             return None
         return await super().before_model_callback(
             callback_context=callback_context, llm_request=llm_request
         )
 
-    async def after_model_callback(self, *, callback_context, llm_response):
+    async def after_model_callback(
+        self, *, callback_context: CallbackContext, llm_response: LlmResponse
+    ) -> LlmResponse | None:
         if not self._in_scope(callback_context):
             return None
         return await super().after_model_callback(
             callback_context=callback_context, llm_response=llm_response
         )
+
+
+def _is_fresh_user_turn(llm_request: LlmRequest) -> bool:
+    """True iff the request's LAST content is a user message with non-empty text."""
+    if not llm_request.contents:
+        return False
+    last = llm_request.contents[-1]
+    if last.role != "user":
+        return False
+    return any(part.text and part.text.strip() for part in last.parts or [])
 
 
 def build_safety_plugins(root_agent_names: Iterable[str]) -> list[BasePlugin]:

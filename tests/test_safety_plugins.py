@@ -11,11 +11,14 @@ first screening call, and the parent callbacks are patched out here.
 """
 
 import asyncio
+import os
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
 from google.adk.integrations.model_armor import ModelArmorPlugin
+from google.adk.models.llm_request import LlmRequest
+from google.genai import types
 
 from agent_common.safety import ScopedModelArmorPlugin, build_safety_plugins
 
@@ -100,6 +103,42 @@ def _ctx(agent_name):
     return SimpleNamespace(agent_name=agent_name)
 
 
+def _user_text_request(text="make me an ad"):
+    return LlmRequest(
+        contents=[types.Content(role="user", parts=[types.Part(text=text)])]
+    )
+
+
+def _function_response_request():
+    """A later root turn: the original prompt, a tool call, then its result (which
+    ADK sends back as a user-role function_response)."""
+    return LlmRequest(
+        contents=[
+            types.Content(role="user", parts=[types.Part(text="make me an ad")]),
+            types.Content(
+                role="model",
+                parts=[
+                    types.Part(
+                        function_call=types.FunctionCall(
+                            name="ad_creative_pipeline", args={}
+                        )
+                    )
+                ],
+            ),
+            types.Content(
+                role="user",
+                parts=[
+                    types.Part(
+                        function_response=types.FunctionResponse(
+                            name="ad_creative_pipeline", response={"ok": True}
+                        )
+                    )
+                ],
+            ),
+        ]
+    )
+
+
 def test_sub_agent_before_model_is_not_screened(monkeypatch):
     plugin = _plugin(monkeypatch)
     with patch.object(
@@ -130,7 +169,7 @@ def test_sub_agent_after_model_is_not_screened(monkeypatch):
 
 def test_root_before_model_delegates_to_model_armor(monkeypatch):
     plugin = _plugin(monkeypatch)
-    ctx, request, sentinel = _ctx("root_agent"), object(), object()
+    ctx, request, sentinel = _ctx("root_agent"), _user_text_request(), object()
     with patch.object(
         ModelArmorPlugin,
         "before_model_callback",
@@ -142,6 +181,38 @@ def test_root_before_model_delegates_to_model_armor(monkeypatch):
         )
     assert result is sentinel
     parent.assert_awaited_once_with(callback_context=ctx, llm_request=request)
+
+
+@pytest.mark.parametrize(
+    "request_factory",
+    [
+        _function_response_request,
+        lambda: LlmRequest(contents=[]),
+        lambda: _user_text_request(text="   "),
+        lambda: LlmRequest(
+            contents=[
+                types.Content(role="user", parts=[types.Part(text="hi")]),
+                types.Content(role="model", parts=[types.Part(text="hello")]),
+            ]
+        ),
+    ],
+    ids=["function_response", "empty", "blank_text", "last_is_model"],
+)
+def test_root_before_model_skips_non_fresh_user_turns(monkeypatch, request_factory):
+    """Only a fresh user message is screened: on later root turns the newest
+    user-role content is a function_response, and ADK's extractor would walk back
+    and re-screen the original prompt every turn."""
+    plugin = _plugin(monkeypatch)
+    with patch.object(
+        ModelArmorPlugin, "before_model_callback", new_callable=AsyncMock
+    ) as parent:
+        result = asyncio.run(
+            plugin.before_model_callback(
+                callback_context=_ctx("root_agent"), llm_request=request_factory()
+            )
+        )
+    assert result is None
+    parent.assert_not_called()
 
 
 def test_root_after_model_delegates_to_model_armor(monkeypatch):
@@ -185,6 +256,10 @@ def test_agent_apps_carry_empty_plugin_list_by_default(module_name):
     from google.adk.apps import App
 
     module = importlib.import_module(module_name)
+    # Agents are built at import (after load_dotenv): a developer .env that enables
+    # Model Armor legitimately yields a non-empty list.
+    if os.environ.get("MODEL_ARMOR_TEMPLATE"):
+        pytest.skip("MODEL_ARMOR_TEMPLATE set in the environment (e.g. via .env)")
     assert isinstance(module.app, App)
     assert module.app.root_agent is module.root_agent
     assert isinstance(module.app.plugins, list)
@@ -209,3 +284,56 @@ def test_canned_agent_loader_serves_the_app(app_name):
     loaded = AgentLoader(str(agents_dir)).load_agent(app_name)
     assert isinstance(loaded, App)
     assert loaded is importlib.import_module(f"{app_name}.agent").app
+
+
+def _descendant_names(root):
+    """Names of every agent/node reachable below ``root``.
+
+    Generic walk over pydantic fields (sub_agents, tools, AgentTool.agent,
+    NodeTool.node, Workflow edges/graph nodes, RetryUntilKeyNode children, ...),
+    skipping the ``parent_agent`` back-reference. Only objects with a ``name`` that
+    are agents/nodes are recorded; ``root`` itself is excluded."""
+    from google.adk.agents import BaseAgent
+    from google.adk.tools.base_tool import BaseTool
+    from google.adk.workflow import BaseNode
+    from pydantic import BaseModel
+
+    names: list[str] = []
+    seen: set[int] = set()
+
+    def visit(obj, is_root=False):
+        if isinstance(obj, (list, tuple, set, frozenset)):
+            for item in obj:
+                visit(item)
+            return
+        if isinstance(obj, dict):
+            for item in obj.values():
+                visit(item)
+            return
+        if not isinstance(obj, (BaseModel, BaseTool)) or id(obj) in seen:
+            return
+        seen.add(id(obj))
+        if isinstance(obj, (BaseAgent, BaseNode)) and not is_root:
+            names.append(obj.name)
+        for key, value in vars(obj).items():
+            if key != "parent_agent":
+                visit(value)
+
+    visit(root, is_root=True)
+    return names
+
+
+@pytest.mark.parametrize(
+    "module_name",
+    ["creative_agent.agent", "interactive_creative.agent", "trend_scout.agent"],
+)
+def test_no_descendant_shares_the_root_name(module_name):
+    """Scoping is by agent name, so a sub-agent/node named like its root would be
+    screened too (and every root turn's name must stay unique in the graph)."""
+    import importlib
+
+    root = importlib.import_module(module_name).root_agent
+    names = _descendant_names(root)
+    # Sanity: the walk actually reaches into AgentTool/NodeTool/Workflow graphs.
+    assert len(names) > 3
+    assert root.name not in names

@@ -926,7 +926,16 @@ orchestrator's turns only** (sub-agent research/drafter/critic calls are not scr
 `AgentTool`/`NodeTool` would otherwise propagate the plugin into all of them). A blocked
 turn is replaced with a canned refusal. It is **fail-closed** by default: if the Model
 Armor call itself fails, the turn is blocked (`MODEL_ARMOR_FAIL_CLOSED=false` to let it
-through instead).
+through instead). Input screening runs only on a *fresh* user message (the root's first
+model call of a turn); later root calls in the same turn, whose newest content is a tool
+result, are not re-screened.
+
+Known gaps: interactive checkpoint edits / revision notes arrive at the root as
+`function_response` data on resume and are not screened; `NodeTool` pipeline (sub-branch)
+outputs are not screened, only what the root model says back. ADK's Model Armor client
+binds to the first event loop that uses it, so agents must be driven through the async
+path (`Runner.run_async` / Agent Engine `async_stream_query`); every caller in this repo
+does.
 
 | Env var | Value / behavior |
 |---|---|
