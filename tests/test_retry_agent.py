@@ -1,7 +1,8 @@
 """Tests for RetryUntilKeyAgent — the retry-on-empty producer wrapper.
 
-These are fully offline: a fake inner agent (`_FlakyProducer`) deterministically
-emits no `output_key` for its first N runs, then a real value. Everything is
+These are fully offline: a fake inner agent (`FlakyProducer`, shared with the
+graph-node tests via tests/_fakes.py) deterministically emits no `output_key`
+for its first N runs, then a real value. Everything is
 driven through a real `InMemoryRunner`, so the wrapper's state check exercises
 the genuine ADK state-delta application path (runner appends each yielded event
 and merges its `state_delta` into `session.state` before the wrapper resumes) —
@@ -13,137 +14,19 @@ see tests/test_crf_worker_async.py).
 
 import asyncio
 import logging
-from collections.abc import AsyncGenerator
 
 import pytest
 from google.adk.agents import BaseAgent, SequentialAgent
-from google.adk.agents.invocation_context import InvocationContext
-from google.adk.events.event import Event
-from google.adk.events.event_actions import EventActions
 from google.adk.runners import InMemoryRunner
 from google.genai import types
-from pydantic import PrivateAttr
 
 from agent_common import RetryUntilKeyAgent
-
-
-class _FlakyProducer(BaseAgent):
-    """Test double for a research producer with an ``output_key``.
-
-    Emits an event carrying no ``state_delta`` (simulating a model turn that
-    returns only tool calls / thinking and no final text, leaving output_key
-    unset) for its first ``fail_first`` runs, then an event that writes the
-    real value. ``runs`` counts how many times it was invoked.
-    """
-
-    output_key: str
-    value: str = "REAL_REPORT"
-    fail_first: int = 0
-    _runs: int = PrivateAttr(default=0)
-
-    @property
-    def runs(self) -> int:
-        return self._runs
-
-    async def _run_async_impl(self, ctx: InvocationContext) -> AsyncGenerator[Event]:
-        self._runs += 1
-        if self._runs <= self.fail_first:
-            # No state_delta → output_key never written (the landmine).
-            yield Event(invocation_id=ctx.invocation_id, author=self.name)
-            return
-        yield Event(
-            invocation_id=ctx.invocation_id,
-            author=self.name,
-            actions=EventActions(state_delta={self.output_key: self.value}),
-        )
-
-
-class _FlakyFlagProducer(BaseAgent):
-    """Test double for a producer whose ``output_key`` is a boolean flag.
-
-    Mirrors ``creative_agent.tools.generate_image``, which signals success by
-    writing ``state["_images_generated"] = True`` (not a text summary). Emits an
-    event carrying no ``state_delta`` (simulating a MALFORMED_FUNCTION_CALL turn
-    that never invoked the tool) for its first ``fail_first`` runs, then an event
-    that writes the bool flag. ``runs`` counts how many times it was invoked.
-    """
-
-    output_key: str
-    value: bool = True
-    fail_first: int = 0
-    _runs: int = PrivateAttr(default=0)
-
-    @property
-    def runs(self) -> int:
-        return self._runs
-
-    async def _run_async_impl(self, ctx: InvocationContext) -> AsyncGenerator[Event]:
-        self._runs += 1
-        if self._runs <= self.fail_first:
-            # No state_delta → flag never set (malformed-call landmine).
-            yield Event(invocation_id=ctx.invocation_id, author=self.name)
-            return
-        yield Event(
-            invocation_id=ctx.invocation_id,
-            author=self.name,
-            actions=EventActions(state_delta={self.output_key: self.value}),
-        )
-
-
-class _RawSearcher(BaseAgent):
-    """Test double for the tool-using *searcher* half of a split producer.
-
-    Always writes an intermediate ``raw_key`` (simulating a healthy
-    google_search turn that emits raw findings). ``runs`` counts invocations.
-    """
-
-    raw_key: str
-    raw_value: str = "RAW_FINDINGS"
-    _runs: int = PrivateAttr(default=0)
-
-    @property
-    def runs(self) -> int:
-        return self._runs
-
-    async def _run_async_impl(self, ctx: InvocationContext) -> AsyncGenerator[Event]:
-        self._runs += 1
-        yield Event(
-            invocation_id=ctx.invocation_id,
-            author=self.name,
-            actions=EventActions(state_delta={self.raw_key: self.raw_value}),
-        )
-
-
-class _FlakySynthesizer(BaseAgent):
-    """Test double for the tool-free *synthesizer* half of a split producer.
-
-    Reads ``raw_key`` from state (asserting the searcher ran first), then for
-    its first ``fail_first`` runs emits no ``output_key`` (the empty-turn
-    landmine), and thereafter writes the real value. ``runs`` counts invocations.
-    """
-
-    raw_key: str
-    output_key: str
-    value: str = "REAL_REPORT"
-    fail_first: int = 0
-    _runs: int = PrivateAttr(default=0)
-
-    @property
-    def runs(self) -> int:
-        return self._runs
-
-    async def _run_async_impl(self, ctx: InvocationContext) -> AsyncGenerator[Event]:
-        self._runs += 1
-        # The searcher in the same sequence must have populated raw_key first.
-        assert ctx.session.state.get(self.raw_key) == "RAW_FINDINGS"
-        if self._runs <= self.fail_first:
-            yield Event(invocation_id=ctx.invocation_id, author=self.name)
-            return
-        yield Event(
-            invocation_id=ctx.invocation_id,
-            author=self.name,
-            actions=EventActions(state_delta={self.output_key: self.value}),
-        )
+from tests._fakes import (
+    FlakyFlagProducer,
+    FlakyProducer,
+    FlakySynthesizer,
+    RawSearcher,
+)
 
 
 def _run(agent: BaseAgent):
@@ -169,7 +52,7 @@ def _run(agent: BaseAgent):
 
 def test_recovers_after_empty_attempts():
     """Producer fails twice, succeeds on the third — wrapper retries and recovers."""
-    producer = _FlakyProducer(name="producer", output_key="report", fail_first=2)
+    producer = FlakyProducer(name="producer", output_key="report", fail_first=2)
     wrapper = RetryUntilKeyAgent(
         name="retry_wrapper", sub_agents=[producer], output_key="report", max_attempts=3
     )
@@ -182,7 +65,7 @@ def test_recovers_after_empty_attempts():
 
 def test_no_retry_when_first_attempt_succeeds():
     """A healthy producer runs exactly once — no wasted retries."""
-    producer = _FlakyProducer(name="producer", output_key="report", fail_first=0)
+    producer = FlakyProducer(name="producer", output_key="report", fail_first=0)
     wrapper = RetryUntilKeyAgent(
         name="retry_wrapper", sub_agents=[producer], output_key="report", max_attempts=3
     )
@@ -201,7 +84,7 @@ def test_bounded_and_observable_when_never_populated(caplog):
     records an observable ``<key>__retry_exhausted`` marker, and logs an error —
     mitigation #3 (observable guardrail), not silent degradation.
     """
-    producer = _FlakyProducer(name="producer", output_key="report", fail_first=99)
+    producer = FlakyProducer(name="producer", output_key="report", fail_first=99)
     wrapper = RetryUntilKeyAgent(
         name="retry_wrapper", sub_agents=[producer], output_key="report", max_attempts=3
     )
@@ -224,8 +107,8 @@ def test_retries_sequential_pair_until_synthesizer_populates():
     synthesizer), not just the synthesizer, until the synthesizer writes the
     consumer-facing key.
     """
-    searcher = _RawSearcher(name="searcher", raw_key="report_raw")
-    synth = _FlakySynthesizer(
+    searcher = RawSearcher(name="searcher", raw_key="report_raw")
+    synth = FlakySynthesizer(
         name="synth", raw_key="report_raw", output_key="report", fail_first=2
     )
     pair = SequentialAgent(name="search_and_synthesize", sub_agents=[searcher, synth])
@@ -246,8 +129,8 @@ def test_sequential_pair_exhaustion_is_observable():
     """WS2: when the synthesizer never populates, the wrapped pair stops at
     max_attempts, leaves the key unset, and records the retry-exhausted marker
     (so WS3's degradation surfaces still fire on the split producer)."""
-    searcher = _RawSearcher(name="searcher", raw_key="report_raw")
-    synth = _FlakySynthesizer(
+    searcher = RawSearcher(name="searcher", raw_key="report_raw")
+    synth = FlakySynthesizer(
         name="synth", raw_key="report_raw", output_key="report", fail_first=99
     )
     pair = SequentialAgent(name="search_and_synthesize", sub_agents=[searcher, synth])
@@ -295,7 +178,7 @@ def test_recovers_when_producer_writes_bool_flag():
     bool ``_images_generated`` flag, not a string, so the wrapper must treat a
     truthy flag as populated.
     """
-    producer = _FlakyFlagProducer(
+    producer = FlakyFlagProducer(
         name="imggen", output_key="_images_generated", fail_first=1
     )
     wrapper = RetryUntilKeyAgent(
@@ -314,7 +197,7 @@ def test_recovers_when_producer_writes_bool_flag():
 
 def test_no_false_exhaustion_when_flag_set_first_try():
     """A healthy bool-flag producer runs exactly once — no false exhaustion."""
-    producer = _FlakyFlagProducer(
+    producer = FlakyFlagProducer(
         name="imggen", output_key="_images_generated", fail_first=0
     )
     wrapper = RetryUntilKeyAgent(

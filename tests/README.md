@@ -28,6 +28,7 @@ per-agent rubric configs, integration tests).
 ```bash
 tests/
 ├── __init__.py
+├── _fakes.py                        # shared fake producers for the retry-wrapper tests
 ├── eval/                            # ADK evals — rubric-based LLM-as-judge (real APIs)
 │   ├── eval_config.json             # trend_scout rubric config
 │   ├── creative_eval_config.json    # creative_agent rubric config
@@ -58,6 +59,7 @@ tests/
 ├── test_pipeline_structure.py       # agent pipeline composition + placement-env wiring
 ├── test_public_api.py               # creative_agent public facade (curated __all__ reuse surface)
 ├── test_retry_agent.py              # RetryUntilKeyAgent (retry-on-empty producer wrapper)
+├── test_retry_node.py               # RetryUntilKeyNode (graph-Workflow port; NodeTool no-stall)
 ├── test_retry_config.py             # scoped RetryConfig constants on infra agents
 ├── test_sanitize.py                 # lone-surrogate scrubber (agent_common.sanitize)
 ├── test_schemas.py                  # Pydantic schemas in the creative_agent pipeline
