@@ -1,6 +1,7 @@
 """Tests for deployment utility functions (deploy_agent.py)."""
 
 import importlib
+import importlib.util
 import logging
 import os
 import re
@@ -626,8 +627,10 @@ class TestIntegrationEventAndSessionHelpers:
 
 # --- test_deployment: tool-call logging handles 2.x snake_case stream events ---
 def _import_test_deployment(monkeypatch):
-    """Import test_deployment.py in-process: it parses argv and builds an
-    agentplatform.Client at import time, so stub both."""
+    """Load test_deployment.py in-process: it parses argv and builds an
+    agentplatform.Client at import time, so stub both. Executed from its file
+    spec WITHOUT registering in sys.modules, so the mocked-client module can't
+    leak into other tests."""
     _import_deploy_agent()
     import agentplatform
 
@@ -635,8 +638,12 @@ def _import_test_deployment(monkeypatch):
     monkeypatch.setattr(
         sys, "argv", ["test_deployment.py", "--user_id", "u", "--agent", "trend_scout"]
     )
-    monkeypatch.delitem(sys.modules, "deployment.test_deployment", raising=False)
-    return importlib.import_module("deployment.test_deployment")
+    path = os.path.join(PROJECT_ROOT, "deployment", "test_deployment.py")
+    spec = importlib.util.spec_from_file_location("_test_deployment_isolated", path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 class TestPrettyPrintEvent:

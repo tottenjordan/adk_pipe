@@ -77,7 +77,8 @@ def pretty_print_event(event):
     parts = event["content"].get("parts") or []
 
     for part in parts:
-        # 2.x streams snake_case dicts; accept camelCase too (as integration_test).
+        # 2.x streams snake_case dicts; accept camelCase too
+        # (same as integration_test._function_call_names).
         func_call = part.get("function_call") or part.get("functionCall")
         func_response = part.get("function_response") or part.get("functionResponse")
         if part.get("text"):
