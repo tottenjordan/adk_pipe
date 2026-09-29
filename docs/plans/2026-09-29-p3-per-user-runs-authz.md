@@ -2,7 +2,7 @@
 
 > **For Claude:** REQUIRED SUB-SKILL: Use `executing-plans` (or `subagent-driven-development`) to implement this plan task-by-task.
 
-**Status:** proposal (not started)
+**Status:** executing 2026-09-29 via 2026-09-29-p3-execution.md
 **Goal:** Each IAP user can only create, read, poll, or resume their own sessions. Today any IAP-authenticated user who knows (or guesses) a `userId` + `sessionId` pair can read, poll, or resume that session.
 **Architecture:** The Next.js `/api/adk` proxy is the single authoritative place that turns the browser's IAP identity into a user id. It verifies `X-Goog-IAP-JWT-Assertion` (ES256, issuer, Cloud Run audience), rewrites every `userId` (URL path and `POST /runs` body) to the normalized email, only forwards an allowlist of routes, and sends the id as `X-TT-User`. The backend trusts `X-TT-User` only when the request's Cloud Run-verified `Authorization` ID token belongs to `tt-web-sa`. It returns 403 when the path or body `userId` doesn't match, and it blocks the canned routes the frontend never uses.
 **Tech Stack:** Python 3.13, FastAPI/Starlette ASGI middleware, `google-auth` (`google.auth.jwt`), `google-adk` 2.10 `VertexAiSessionService`, Next.js 16 route handlers, `jose` (JWKS/ES256), pytest + httpx `ASGITransport`, Vitest.
