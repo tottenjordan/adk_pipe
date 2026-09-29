@@ -1,5 +1,9 @@
 """Tests for agent pipeline structure and configuration."""
 
+from google.adk.tools._node_tool import NodeTool
+
+from tests._fakes import walk_nodes
+
 
 def test_creative_agent_root_has_expected_tools():
     from creative_agent.agent import root_agent
@@ -34,42 +38,288 @@ def test_creative_agent_root_output_key_not_set():
     )
 
 
-def test_combined_research_pipeline_sub_agent_order():
-    """Lever A: the PRO evaluator + follow-up searcher are wrapped in a
-    RunIfAgent gate so they're skipped on the healthy common path (dropping one
-    serial gemini-3.1-pro-preview call) and run only to compensate for degraded
-    base research. The base synthesis and the final composer stay unconditional."""
-    from agent_common import RetryUntilKeyAgent, RunIfAgent
-    from creative_agent.agent import (
-        combined_research_pipeline,
-        research_refinement_block,
+def _graph_nodes(wf):
+    """Graph nodes by name (graph nodes are clones: compare names, never identity)."""
+    assert wf.graph is not None
+    return {n.name: n for n in wf.graph.nodes}
+
+
+def _graph_edges(wf):
+    return {(e.from_node.name, e.to_node.name, e.route) for e in wf.graph.edges}
+
+
+def test_combined_research_pipeline_graph():
+    """P2 T2a: the research pipeline is a graph Workflow. The two planner chains
+    fan out from START into a JoinNode; a no-output barrier keeps the join's
+    dict out of merge_planners' user turn; a routed gate replaces RunIfAgent
+    (Lever A: the PRO evaluator + follow-up search run only when the base
+    research is degraded, skipping one serial gemini-3.1-pro-preview call on the
+    healthy path); the composer always runs."""
+    from google.adk.workflow import JoinNode, Workflow
+
+    from creative_agent.agent import combined_research_pipeline as wf
+
+    assert isinstance(wf, Workflow)
+    names = set(_graph_nodes(wf))
+    assert {
+        "gs_sequential_planner",
+        "ca_sequential_planner",
+        "research_join",
+        "research_barrier",
+        "merge_planners",
+        "refinement_gate",
+        "combined_web_evaluator",
+        "enhanced_combined_searcher_resilient",
+        "combined_report_composer",
+        "research_report_ready",
+    } <= names
+    edges = _graph_edges(wf)
+    assert ("__START__", "gs_sequential_planner", None) in edges
+    assert ("__START__", "ca_sequential_planner", None) in edges  # parallel fan-out
+    assert isinstance(_graph_nodes(wf)["research_join"], JoinNode)
+    assert ("gs_sequential_planner", "research_join", None) in edges
+    assert ("ca_sequential_planner", "research_join", None) in edges
+    assert ("research_join", "research_barrier", None) in edges
+    assert ("research_barrier", "merge_planners", None) in edges
+    assert ("merge_planners", "refinement_gate", None) in edges
+    assert ("refinement_gate", "combined_web_evaluator", "refine") in edges
+    assert ("refinement_gate", "combined_report_composer", "skip") in edges
+    assert (
+        "combined_web_evaluator",
+        "enhanced_combined_searcher_resilient",
+        None,
+    ) in edges
+    assert (
+        "enhanced_combined_searcher_resilient",
+        "combined_report_composer",
+        None,
+    ) in edges
+    # Terminal: a function node that always returns a truthy tool result.
+    assert ("combined_report_composer", "research_report_ready", None) in edges
+    assert not any(src == "research_report_ready" for src, _, _ in edges)
+
+
+def test_refinement_pair_is_retry_wrapped_workflow():
+    """The follow-up searcher+synthesizer pair runs as a Workflow inside a
+    RetryUntilKeyNode keyed on refined_web_search_insights (same key/attempts
+    as the pre-graph RetryUntilKeyAgent)."""
+    from google.adk.workflow import Workflow
+
+    from agent_common import RetryUntilKeyNode
+    from creative_agent.agent import combined_research_pipeline
+
+    w = _graph_nodes(combined_research_pipeline)["enhanced_combined_searcher_resilient"]
+    assert isinstance(w, RetryUntilKeyNode)
+    assert w.output_key == "refined_web_search_insights"
+    assert w.max_attempts == 3
+    pair = w.node
+    assert isinstance(pair, Workflow)
+    assert _graph_edges(pair) == {
+        ("__START__", "enhanced_combined_searcher", None),
+        ("enhanced_combined_searcher", "refined_web_synthesizer", None),
+    }
+    by_name = _graph_nodes(pair)
+    assert by_name["enhanced_combined_searcher"].output_key == "refined_web_search_raw"
+    assert (
+        by_name["refined_web_synthesizer"].output_key == "refined_web_search_insights"
     )
 
-    names = [a.name for a in combined_research_pipeline.sub_agents]
-    assert names == [
-        "merge_parallel_insights",
-        "research_refinement_block",
+
+def test_refinement_gate_routes_on_degradation():
+    from creative_agent.agent import refinement_gate_route
+
+    assert refinement_gate_route({"combined_web_search_insights": "ok"}) == "skip"
+    assert refinement_gate_route({}) == "refine"
+    assert (
+        refinement_gate_route(
+            {
+                "combined_web_search_insights": "ok",
+                "gs_web_search_insights__retry_exhausted": True,
+            }
+        )
+        == "refine"
+    )
+
+
+def test_composer_keeps_citation_callback_in_graph():
+    """The composer's citation after_agent_callback survives the graph clone
+    (whether it FIRES on the node path is covered by
+    tests/test_creative_agent_graph.py)."""
+    from creative_agent import callbacks
+    from creative_agent.agent import combined_research_pipeline
+
+    composer = _graph_nodes(combined_research_pipeline)["combined_report_composer"]
+    assert composer.after_agent_callback is callbacks.citation_replacement_callback
+    assert composer.output_key == "combined_final_cited_report"
+
+
+def test_graph_llm_agents_are_single_turn():
+    """Every LlmAgent in the creative graphs sets mode='single_turn' explicitly
+    and reads its inputs only from state (include_contents='none', set
+    explicitly so the node wrapper's default is not what we rely on)."""
+    from google.adk.agents import LlmAgent
+
+    from creative_agent.agent import (
+        ad_creative_pipeline,
+        combined_research_pipeline,
+        visual_production_pipeline,
+    )
+
+    agents = [
+        n
+        for wf in (
+            combined_research_pipeline,
+            ad_creative_pipeline,
+            visual_production_pipeline,
+        )
+        for n in walk_nodes(wf)
+        if isinstance(n, LlmAgent)
+    ]
+    assert {a.name for a in agents} == {
+        "gs_web_planner",
+        "gs_web_searcher",
+        "gs_web_synthesizer",
+        "campaign_web_planner",
+        "campaign_web_searcher",
+        "campaign_web_synthesizer",
+        "merge_planners",
+        "combined_web_evaluator",
+        "enhanced_combined_searcher",
+        "refined_web_synthesizer",
         "combined_report_composer",
+        "ad_copy_drafter",
+        "ad_copy_critic",
+        "art_director",
+        "visual_concept_drafter",
+        "visual_concept_critic",
+        "visual_concept_finalizer",
+        "visual_generator",
+    }
+    for a in agents:
+        assert a.mode == "single_turn", a.name
+        assert a.include_contents == "none", a.name
+        assert "include_contents" in a.model_fields_set, a.name
+
+
+def _terminal_names(wf):
+    sources = {e.from_node.name for e in wf.graph.edges}
+    return {n.name for n in wf.graph.nodes if n.name not in sources}
+
+
+# Function nodes designated as pipeline terminals: each returns the pipeline's
+# output-key value (or a short confirmation) when populated, else a non-empty
+# notice -- never a falsy/None result.
+_RESULT_NODES = {
+    "research_report_ready",
+    "ad_copies_ready",
+    "visual_concepts_ready",
+    "images_ready",
+}
+
+
+def _assert_truthy_terminal(node, path):
+    from google.adk.workflow import Workflow
+
+    from agent_common import RetryUntilKeyNode
+
+    if isinstance(node, RetryUntilKeyNode):
+        return  # truthy by construction (value or exhaustion notice)
+    if isinstance(node, Workflow):
+        by_name = _graph_nodes(node)
+        terminals = _terminal_names(node)
+        assert terminals, f"{path}: no terminal node"
+        for t in terminals:
+            _assert_truthy_terminal(by_name[t], f"{path}/{t}")
+        return
+    assert node.name in _RESULT_NODES, (
+        f"{path}: terminal node {node.name!r} ({type(node).__name__}) may yield no "
+        "or a falsy output, which silently stalls the calling root agent (P2 rule 1)"
+    )
+
+
+def test_exposed_node_tools_end_in_truthy_terminals():
+    """P2 rule 1: every node exposed to a root agent as a NodeTool must finish
+    with a truthy output, or the root's turn silently stalls (no function
+    response). A final LlmAgent is NOT accepted: an empty model turn (the
+    recurring flake this repo retries around) would yield ""/None."""
+    from creative_agent.agent import root_agent as ca_root
+    from interactive_creative.agent import root_agent as ic_root
+
+    for root in (ca_root, ic_root):
+        node_tools = [t for t in root.tools if isinstance(t, NodeTool)]
+        assert node_tools, root.name
+        for tool in node_tools:
+            _assert_truthy_terminal(tool.node, f"{root.name}:{tool.name}")
+
+
+def _result_node_cases():
+    from creative_agent import agent as ca
+
+    return [
+        (ca.research_report_ready, "combined_final_cited_report", "# Report"),
+        (ca.ad_copies_ready, "ad_copy_critique", {"ad_copies": [{"id": 1}]}),
+        (ca.visual_concepts_ready, "final_visual_concepts", {"visual_concepts": []}),
+        (ca.images_ready, "_images_generated", True),
     ]
 
-    gate = combined_research_pipeline.sub_agents[1]
-    assert gate is research_refinement_block
-    assert isinstance(gate, RunIfAgent)
 
-    # The gate wraps the evaluator + the resilient follow-up searcher, in order.
-    gated = [a.name for a in gate.sub_agents]
-    assert gated == ["combined_web_evaluator", "enhanced_combined_searcher_resilient"]
+def test_populated_result_nodes_return_the_pipeline_output():
+    """ad/visual terminals hand the root the same payload the pre-graph
+    AgentTool returned (the final agent's structured output)."""
+    from types import SimpleNamespace
 
-    from google.adk.agents import SequentialAgent
+    from creative_agent import agent as ca
 
-    w = gate.sub_agents[1]
-    assert isinstance(w, RetryUntilKeyAgent)
-    assert w.output_key == "refined_web_search_insights"
+    ads = {"ad_copies": [{"id": 1}]}
+    assert ca.ad_copies_ready(SimpleNamespace(state={"ad_copy_critique": ads})) == ads
+    concepts = {"visual_concepts": [{"name": "x"}]}
+    assert (
+        ca.visual_concepts_ready(
+            SimpleNamespace(state={"final_visual_concepts": concepts})
+        )
+        == concepts
+    )
 
-    pair = w.sub_agents[0]
-    assert isinstance(pair, SequentialAgent)
-    assert pair.sub_agents[0].output_key == "refined_web_search_raw"
-    assert pair.sub_agents[-1].output_key == "refined_web_search_insights"
+
+def test_exposed_node_tools_have_real_descriptions():
+    """No exposed node relies on NodeTool's "Executes the node: <name>" fallback
+    description; the root model picks tools by these descriptions."""
+    from creative_agent.agent import root_agent as ca_root
+    from interactive_creative.agent import root_agent as ic_root
+
+    for root in (ca_root, ic_root):
+        for tool in root.tools:
+            if isinstance(tool, NodeTool):
+                assert tool.description.strip(), tool.name
+                assert not tool.description.startswith("Executes the node"), tool.name
+
+
+def test_exposed_workflows_take_a_pipeline_request():
+    """Every node exposed to a root as a NodeTool declares the single
+    `request: str` argument (PipelineRequest), keeping the tool declarations the
+    pre-graph AgentTools exposed."""
+    from agent_common import PipelineRequest
+    from creative_agent.agent import root_agent as ca_root
+    from interactive_creative.agent import root_agent as ic_root
+
+    for root in (ca_root, ic_root):
+        for tool in root.tools:
+            if isinstance(tool, NodeTool):
+                assert tool.node.input_schema is PipelineRequest, tool.name
+
+
+def test_pipeline_result_nodes_are_never_falsy():
+    """The designated terminal functions return a truthy value when their key
+    is populated and a non-empty notice naming the key otherwise (missing,
+    None, blank string, empty container)."""
+    from types import SimpleNamespace
+
+    for fn, key, value in _result_node_cases():
+        for empty in ({}, {key: None}, {key: ""}, {key: "   "}, {key: {}}):
+            out = fn(SimpleNamespace(state=empty))
+            assert isinstance(out, str) and out.strip(), (fn.__name__, empty)
+            assert key in out, (fn.__name__, out)
+        assert fn(SimpleNamespace(state={key: value})), fn.__name__
 
 
 def test_research_refinement_gate_predicate():
@@ -132,99 +382,131 @@ def test_refined_searcher_keeps_source_collection():
 
 
 def test_ad_creative_pipeline_sub_agent_order():
+    from google.adk.workflow import Workflow
+
     from creative_agent.agent import ad_creative_pipeline
 
-    names = [a.name for a in ad_creative_pipeline.sub_agents]
-    assert names == ["ad_copy_drafter", "ad_copy_critic"]
+    assert isinstance(ad_creative_pipeline, Workflow)
+    assert _graph_edges(ad_creative_pipeline) == {
+        ("__START__", "ad_copy_drafter", None),
+        ("ad_copy_drafter", "ad_copy_critic", None),
+        ("ad_copy_critic", "ad_copies_ready", None),
+    }
 
 
 def test_visual_generation_pipeline_sub_agent_order():
+    from google.adk.workflow import Workflow
+
     from creative_agent.agent import visual_generation_pipeline
 
-    names = [a.name for a in visual_generation_pipeline.sub_agents]
-    assert names == [
-        "art_director",
-        "visual_concept_drafter",
-        "visual_concept_critic",
-        "visual_concept_finalizer",
-    ]
+    assert isinstance(visual_generation_pipeline, Workflow)
+    assert _graph_edges(visual_generation_pipeline) == {
+        ("__START__", "art_director", None),
+        ("art_director", "visual_concept_drafter", None),
+        ("visual_concept_drafter", "visual_concept_critic", None),
+        ("visual_concept_critic", "visual_concept_finalizer", None),
+        ("visual_concept_finalizer", "visual_concepts_ready", None),
+    }
 
 
 def test_structured_output_producers_carry_schema_retry():
     """Structured-output producers retry on ValidationError + infra (issue #104):
     a bad-JSON model turn (e.g. visual_concept_finalizer at high temp emitting raw
     control chars) crashed the run unretried. Identity check keeps them on one
-    shared config."""
+    shared config. Checked on the graph nodes that actually run (looked up by
+    name: graph nodes are clones)."""
     from creative_agent.agent import (
-        ad_copy_critic,
-        ad_copy_drafter,
-        combined_web_evaluator,
-        visual_concept_critic,
-        visual_concept_drafter,
-        visual_concept_finalizer,
+        ad_creative_pipeline,
+        combined_research_pipeline,
+        visual_production_pipeline,
     )
     from creative_agent.config import SCHEMA_RETRY
 
-    for producer in (
-        combined_web_evaluator,
-        ad_copy_drafter,
-        ad_copy_critic,
-        visual_concept_drafter,
-        visual_concept_critic,
-        visual_concept_finalizer,
+    by_name = {
+        n.name: n
+        for wf in (
+            combined_research_pipeline,
+            ad_creative_pipeline,
+            visual_production_pipeline,
+        )
+        for n in walk_nodes(wf)
+    }
+    for name in (
+        "combined_web_evaluator",
+        "ad_copy_drafter",
+        "ad_copy_critic",
+        "visual_concept_drafter",
+        "visual_concept_critic",
+        "visual_concept_finalizer",
     ):
-        assert producer.retry_config is SCHEMA_RETRY, producer.name
+        assert by_name[name].retry_config is SCHEMA_RETRY, name
 
 
 def test_visual_production_pipeline_wraps_generator_in_retry():
     """The image step must be retry-wrapped: visual_generator intermittently
     returns MALFORMED_FUNCTION_CALL and never emits generate_image, shipping an
-    empty gallery. RetryUntilKeyAgent re-runs it until _images_generated is set
-    (generate_image's idempotency guard makes a re-run safe)."""
-    from agent_common import RetryUntilKeyAgent
+    empty gallery. RetryUntilKeyNode re-runs it until _images_generated is set
+    (generate_image's idempotency guard makes a re-run safe). A no-output
+    render_barrier sits between the concepts and the render step: it keeps the
+    concepts payload out of the retry node's PipelineRequest-validated input."""
+    from google.adk.workflow import Workflow
+
+    from agent_common import RetryUntilKeyNode
     from creative_agent import agent as ca
 
-    names = [a.name for a in ca.visual_production_pipeline.sub_agents]
-    assert names == ["visual_generation_pipeline", "visual_generator_resilient"]
+    wf = ca.visual_production_pipeline
+    assert isinstance(wf, Workflow)
+    assert _graph_edges(wf) == {
+        ("__START__", "visual_generation_pipeline", None),
+        ("visual_generation_pipeline", "render_barrier", None),
+        ("render_barrier", "visual_generator_resilient", None),
+        # Terminal: a short truthy confirmation, not the bare True flag.
+        ("visual_generator_resilient", "images_ready", None),
+    }
 
-    w = ca.visual_production_pipeline.sub_agents[-1]
-    assert isinstance(w, RetryUntilKeyAgent)
+    w = _graph_nodes(wf)["visual_generator_resilient"]
+    assert isinstance(w, RetryUntilKeyNode)
     assert w.output_key == "_images_generated"
-    assert w.sub_agents[0] is ca.visual_generator
+    assert w.node.name == "visual_generator"
     # MALFORMED_FUNCTION_CALL is a transient producer flake (issue #116); each
     # attempt is an independent turn, so a higher cap materially raises recovery.
     assert w.max_attempts == 6
 
 
-def test_parallel_planner_has_both_researchers():
-    from creative_agent.agent import parallel_planner_agent
-
-    names = [a.name for a in parallel_planner_agent.sub_agents]
-    assert "gs_sequential_planner" in names
-    assert "ca_sequential_planner" in names
-
-
 def test_campaign_producer_is_retry_wrapped():
-    """WS2: campaign_web_searcher is split into a tool-using searcher (writes
-    `campaign_web_search_raw`) + a tool-free synthesizer (writes
-    `campaign_web_search_insights`), wrapped as a SequentialAgent inside the
-    existing RetryUntilKeyAgent so an empty turn retries the pair instead of
-    crashing merge_planners."""
-    from google.adk.agents import SequentialAgent
+    """WS2 + P2: campaign_web_searcher is split into a tool-using searcher (writes
+    `campaign_web_search_raw`) + a tool-free synthesizer (writes `campaign_web_search_insights`), run as a graph Workflow
+    pair inside a RetryUntilKeyNode, so an empty turn retries the WHOLE pair
+    instead of crashing merge_planners. The chain is planner -> resilient pair."""
+    from google.adk.workflow import Workflow
 
-    from agent_common import RetryUntilKeyAgent
+    from agent_common import RetryUntilKeyNode
     from creative_agent.sub_agents.campaign_researcher.agent import (
         ca_sequential_planner,
     )
 
-    w = ca_sequential_planner.sub_agents[-1]
-    assert isinstance(w, RetryUntilKeyAgent)
+    assert isinstance(ca_sequential_planner, Workflow)
+    assert _graph_edges(ca_sequential_planner) == {
+        ("__START__", "campaign_web_planner", None),
+        ("campaign_web_planner", "campaign_web_searcher_resilient", None),
+    }
+    w = _graph_nodes(ca_sequential_planner)["campaign_web_searcher_resilient"]
+    assert isinstance(w, RetryUntilKeyNode)
     assert w.output_key == "campaign_web_search_insights"
+    assert w.max_attempts == 3
 
-    pair = w.sub_agents[0]
-    assert isinstance(pair, SequentialAgent)
-    assert pair.sub_agents[0].output_key == "campaign_web_search_raw"
-    assert pair.sub_agents[-1].output_key == "campaign_web_search_insights"
+    pair = w.node
+    assert isinstance(pair, Workflow)
+    assert pair.name == "campaign_search_and_synthesize"
+    assert _graph_edges(pair) == {
+        ("__START__", "campaign_web_searcher", None),
+        ("campaign_web_searcher", "campaign_web_synthesizer", None),
+    }
+    by_name = _graph_nodes(pair)
+    assert by_name["campaign_web_searcher"].output_key == "campaign_web_search_raw"
+    assert (
+        by_name["campaign_web_synthesizer"].output_key == "campaign_web_search_insights"
+    )
 
 
 def test_campaign_searcher_has_tool_synthesizer_is_tool_free():
@@ -255,26 +537,35 @@ def test_campaign_searcher_keeps_source_collection():
 
 
 def test_trend_producer_is_retry_wrapped():
-    """WS2: gs_web_searcher is split into a tool-using searcher (writes
-    `gs_web_search_raw`) + a tool-free synthesizer (writes
-    `gs_web_search_insights`), wrapped as a SequentialAgent inside the existing
-    RetryUntilKeyAgent so an empty turn retries the pair instead of crashing
-    merge_planners."""
-    from google.adk.agents import SequentialAgent
+    """WS2 + P2: gs_web_searcher is split into a tool-using searcher (writes
+    `gs_web_search_raw`) + a tool-free synthesizer (writes `gs_web_search_insights`), run as a graph Workflow
+    pair inside a RetryUntilKeyNode, so an empty turn retries the WHOLE pair
+    instead of crashing merge_planners. The chain is planner -> resilient pair."""
+    from google.adk.workflow import Workflow
 
-    from agent_common import RetryUntilKeyAgent
-    from creative_agent.sub_agents.trend_researcher.agent import (
-        gs_sequential_planner,
-    )
+    from agent_common import RetryUntilKeyNode
+    from creative_agent.sub_agents.trend_researcher.agent import gs_sequential_planner
 
-    w = gs_sequential_planner.sub_agents[-1]
-    assert isinstance(w, RetryUntilKeyAgent)
+    assert isinstance(gs_sequential_planner, Workflow)
+    assert _graph_edges(gs_sequential_planner) == {
+        ("__START__", "gs_web_planner", None),
+        ("gs_web_planner", "gs_web_searcher_resilient", None),
+    }
+    w = _graph_nodes(gs_sequential_planner)["gs_web_searcher_resilient"]
+    assert isinstance(w, RetryUntilKeyNode)
     assert w.output_key == "gs_web_search_insights"
+    assert w.max_attempts == 3
 
-    pair = w.sub_agents[0]
-    assert isinstance(pair, SequentialAgent)
-    assert pair.sub_agents[0].output_key == "gs_web_search_raw"
-    assert pair.sub_agents[-1].output_key == "gs_web_search_insights"
+    pair = w.node
+    assert isinstance(pair, Workflow)
+    assert pair.name == "gs_search_and_synthesize"
+    assert _graph_edges(pair) == {
+        ("__START__", "gs_web_searcher", None),
+        ("gs_web_searcher", "gs_web_synthesizer", None),
+    }
+    by_name = _graph_nodes(pair)
+    assert by_name["gs_web_searcher"].output_key == "gs_web_search_raw"
+    assert by_name["gs_web_synthesizer"].output_key == "gs_web_search_insights"
 
 
 def test_gs_searcher_has_tool_synthesizer_is_tool_free():
@@ -587,31 +878,49 @@ def test_interactive_root_has_observability_callbacks():
 
 
 def test_interactive_creative_uses_resilient_visual_generator():
-    """interactive_creative renders images standalone via AgentTool after a review
-    checkpoint, so it has the same MALFORMED_FUNCTION_CALL flaw as creative_agent.
-    It must invoke the SAME shared resilient wrapper instance (AgentTool does not
-    reparent), not the raw visual_generator."""
-    from google.adk.tools.agent_tool import AgentTool
-
-    from agent_common import RetryUntilKeyAgent
-    from creative_agent.agent import visual_generator, visual_generator_resilient
+    """interactive_creative renders images standalone (a bare node → NodeTool)
+    after a review checkpoint, so it has the same MALFORMED_FUNCTION_CALL flaw as
+    creative_agent. It must invoke the resilient retry node, never the raw
+    visual_generator (compared by name)."""
+    from agent_common import RetryUntilKeyNode
     from interactive_creative import agent as ic
 
-    matching = [
-        t
-        for t in ic.root_agent.tools
-        if isinstance(t, AgentTool) and t.agent is visual_generator_resilient
-    ]
-    assert matching, "interactive_creative must invoke the resilient image wrapper"
-    assert isinstance(matching[0].agent, RetryUntilKeyAgent)
+    node_tools = {
+        t.name: t.node for t in ic.root_agent.tools if isinstance(t, NodeTool)
+    }
+    assert "visual_generator_resilient" in node_tools, (
+        "interactive_creative must invoke the resilient image wrapper"
+    )
+    w = node_tools["visual_generator_resilient"]
+    assert isinstance(w, RetryUntilKeyNode)
+    assert w.node.name == "visual_generator"
+    assert w.max_attempts == 6
 
     # The raw generator must NOT be exposed directly (would bypass the retry).
-    raw = [
-        t
-        for t in ic.root_agent.tools
-        if isinstance(t, AgentTool) and t.agent is visual_generator
-    ]
-    assert not raw, "raw visual_generator must not be exposed; use the wrapper"
+    names = {getattr(t, "name", None) for t in ic.root_agent.tools}
+    assert "visual_generator" not in names, (
+        "raw visual_generator must not be exposed; use the wrapper"
+    )
+
+
+def test_interactive_creative_exposes_pipelines_as_node_tools():
+    """G3 minimal change: the reused creative_agent pipelines are bare nodes
+    (auto-wrapped NodeTools); the reviser + eval judge stay AgentTools."""
+    from google.adk.tools.agent_tool import AgentTool
+
+    from interactive_creative import agent as ic
+
+    node_tools = {t.name for t in ic.root_agent.tools if isinstance(t, NodeTool)}
+    assert node_tools == {
+        "combined_research_pipeline",
+        "ad_creative_pipeline",
+        "visual_generation_pipeline",
+        "visual_generator_resilient",
+    }
+    agent_tools = {
+        t.agent.name for t in ic.root_agent.tools if isinstance(t, AgentTool)
+    }
+    assert agent_tools == {"visual_concept_reviser", "creative_eval_agent"}
 
 
 def test_trend_scout_root_has_expected_tools():
@@ -721,7 +1030,6 @@ def test_understand_trends_is_retry_wrapped():
     graph Workflow pair inside a RetryUntilKeyNode so an empty turn retries the
     WHOLE pair instead of crashing pick_trends_agent. The wrapper is a bare node
     in the orchestrator's tools (auto-wrapped into a NodeTool)."""
-    from google.adk.tools._node_tool import NodeTool
     from google.adk.workflow import Workflow
 
     from agent_common import RetryUntilKeyNode
@@ -757,7 +1065,8 @@ def test_understand_trends_is_retry_wrapped():
     synthesizer = by_name["understand_trends_synthesizer"]
     assert searcher.output_key == "info_gtrends_raw"
     assert synthesizer.output_key == "info_gtrends"
-    # Graph LlmAgents set single_turn explicitly (not left to the node default).
+    # Graph LlmAgents set single_turn explicitly (a parented node would default
+    # to "chat" mode, which stalls the graph on an empty turn).
     assert searcher.mode == "single_turn"
     assert synthesizer.mode == "single_turn"
 
@@ -767,8 +1076,6 @@ def test_understand_trends_tool_declaration_unchanged():
     graph migration (name + description + a required ``request`` string), so
     TREND_SCOUT_INSTR's tool calls keep working unchanged."""
     import asyncio
-
-    from google.adk.tools._node_tool import NodeTool
 
     from trend_scout.agent import root_agent, understand_trends_searcher
 
@@ -925,3 +1232,20 @@ def test_pick_trends_agent_excludes_brand_unsafe_trends():
         assert term in instr, f"brand-safety rule missing {term!r}"
     assert "regardless of search volume" in instr
     assert "fewer" in instr and "unsafe" in instr
+
+
+def test_creative_agent_root_exposes_pipelines_as_node_tools():
+    """The pipelines are bare graph nodes on the root (auto-wrapped NodeTools);
+    creative_eval_agent stays an AgentTool."""
+    from google.adk.tools.agent_tool import AgentTool
+
+    from creative_agent.agent import root_agent
+
+    node_tools = {t.name for t in root_agent.tools if isinstance(t, NodeTool)}
+    assert node_tools == {
+        "combined_research_pipeline",
+        "ad_creative_pipeline",
+        "visual_production_pipeline",
+    }
+    agent_tools = {t.agent.name for t in root_agent.tools if isinstance(t, AgentTool)}
+    assert agent_tools == {"creative_eval_agent"}

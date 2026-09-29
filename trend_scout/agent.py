@@ -64,9 +64,10 @@ understand_trends_searcher = Agent(
     # as the sole occupant of that global bucket, so its retries can't 429.
     model=build_gemini(config.worker_model),
     name="understand_trends_searcher",
-    # A graph node: single_turn set explicitly (the node default). Both halves
-    # read their inputs only via `{state}` tokens, so the injected predecessor
-    # output / request message is not load-bearing.
+    # A graph node: single_turn is set explicitly because a node with a parent_agent
+    # otherwise defaults to "chat" mode (wait_for_output=True), which would stall the
+    # graph on an empty turn. Both halves read their inputs only via `{state}` tokens,
+    # so the injected predecessor output / request message is not load-bearing.
     mode="single_turn",
     include_contents="none",
     description="Conduct initial web research to briefly understand each trending topic",

@@ -1,12 +1,13 @@
 import logging
 
-from google.adk.agents import Agent, SequentialAgent
+from google.adk.agents import Agent
 from google.adk.planners import BuiltInPlanner
 from google.adk.tools import google_search
+from google.adk.workflow import Workflow
 from google.genai import types
 from pydantic import BaseModel, Field
 
-from agent_common import RetryUntilKeyAgent, build_gemini
+from agent_common import RetryUntilKeyNode, build_gemini
 
 from ... import callbacks
 from ...config import config
@@ -33,6 +34,11 @@ class TrendQueryList(BaseModel):
 gs_web_planner = Agent(
     model=build_gemini(config.lite_planner_model),
     name="gs_web_planner",
+    # A graph node: single_turn is set explicitly because a node with a parent_agent
+    # otherwise defaults to "chat" mode (wait_for_output=True), which would stall the
+    # graph on an empty turn. Inputs are read only via `{state}` tokens, so the
+    # injected predecessor output is not load-bearing.
+    mode="single_turn",
     include_contents="none",
     description="Generates initial queries to understand why the 'target_search_trends' are trending.",
     instruction="""Role: You are an expert cultural strategist and trend analyst. 
@@ -84,6 +90,7 @@ gs_web_planner = Agent(
 gs_web_searcher = Agent(
     model=build_gemini(config.worker_model),
     name="gs_web_searcher",
+    mode="single_turn",
     include_contents="none",
     description="Performs the crucial first pass of web research about the trending Search terms.",
     planner=BuiltInPlanner(
@@ -129,6 +136,7 @@ gs_web_searcher = Agent(
 gs_web_synthesizer = Agent(
     model=build_gemini(config.worker_model),
     name="gs_web_synthesizer",
+    mode="single_turn",
     include_contents="none",
     description="Synthesizes the raw trend findings into a structured cultural report.",
     instruction="""Role: You are a cultural trend analyst and synthesis expert. Your goal is to transform the raw web-research findings about a trending topic into an urgent, actionable, and culturally relevant summary for marketers.
@@ -169,26 +177,31 @@ gs_web_synthesizer = Agent(
 
 # 4.  **Risk Assessment:** (Identify any potential pitfalls, controversies, or negative associations linked to the trend that marketers must be aware of.)
 
-gs_search_and_synthesize = SequentialAgent(
+# NOTE: a Workflow graph holds its own copies of its nodes, so mutating the
+# module-level agents after this point does not affect the pipeline.
+gs_search_and_synthesize = Workflow(
     name="gs_search_and_synthesize",
     description="Runs the raw web search then synthesizes the trend report.",
-    sub_agents=[gs_web_searcher, gs_web_synthesizer],
+    edges=[("START", gs_web_searcher, gs_web_synthesizer)],
 )
 
 # Retry-on-empty: if the searcher OR synthesizer emits no final text (leaving
 # `gs_web_search_insights` unset), re-run the whole pair until the key is
-# populated (bounded by max_attempts). The wrapper runs only sub_agents[0], so we
-# wrap the SequentialAgent pair — the searcher re-runs too, which is the only way
-# to recover a searcher that itself emptied.
-gs_web_searcher_resilient = RetryUntilKeyAgent(
+# populated (bounded by max_attempts). Each attempt re-executes the Workflow pair
+# under a distinct run_id — the searcher re-runs too, which is the only way to
+# recover a searcher that itself emptied. On exhaustion it records
+# `gs_web_search_insights__retry_exhausted` (which gates the research
+# refinement round) and still yields a truthy notice.
+gs_web_searcher_resilient = RetryUntilKeyNode(
     name="gs_web_searcher_resilient",
-    sub_agents=[gs_search_and_synthesize],
+    node=gs_search_and_synthesize,
     output_key="gs_web_search_insights",
     max_attempts=3,
 )
 
-gs_sequential_planner = SequentialAgent(
+# One branch of the research fan-out: planner -> resilient search/synthesis pair.
+gs_sequential_planner = Workflow(
     name="gs_sequential_planner",
     description="Executes sequential research tasks for trends in Google Search.",
-    sub_agents=[gs_web_planner, gs_web_searcher_resilient],
+    edges=[("START", gs_web_planner, gs_web_searcher_resilient)],
 )

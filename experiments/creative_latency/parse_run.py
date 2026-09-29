@@ -32,6 +32,11 @@ _EXACT_PHASES: dict[str, str] = {
     "creative_eval_agent": "eval",
     "visual_generation_pipeline": "visual_concepts",
     "visual_production_pipeline": "image_gen",
+    # P2 graph function nodes whose names don't carry a phase prefix.
+    "refinement_gate": "research",
+    "ad_copies_ready": "ad_copy",
+    "render_barrier": "image_gen",
+    "images_ready": "image_gen",
 }
 
 # Order matters: more specific prefixes first (visual_concept before the
@@ -44,7 +49,8 @@ _PREFIX_PHASES: tuple[tuple[str, str], ...] = (
     ("combined_", "research"),
     ("enhanced_combined_", "research"),
     ("refined_", "research"),
-    ("parallel_planner", "research"),
+    ("research_", "research"),  # research_join/_barrier/_report_ready (P2 graph)
+    ("parallel_planner", "research"),  # pre-P2 runs (ParallelAgent)
     ("ad_copy", "ad_copy"),
     ("ad_creative", "ad_copy"),
     ("art_director", "visual_concepts"),

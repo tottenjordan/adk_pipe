@@ -120,29 +120,30 @@ trend_scout (root Agent `trend_scout`; App + ResumabilityConfig(is_resumable=Tru
 ├── review_trends (LongRunningFunctionTool — opt-in interactive trend pick)
 └── Persistence tools (BigQuery, GCS, record_research_gaps, memorize)
 
-creative_agent (root Agent `root_agent`; no App wrapper; sub-agents via AgentTool)
-├── combined_research_pipeline (SequentialAgent)
-│   ├── merge_parallel_insights: parallel_planner_agent (ParallelAgent: gs_/ca_sequential_planner,
-│   │   each planner → RetryUntilKeyAgent-wrapped searcher+synthesizer) → merge_planners
-│   ├── research_refinement_block (RunIfAgent — only when base research is degraded;
-│   │   evaluator + RetryUntilKeyAgent-wrapped refined search)
-│   └── combined_report_composer (→ combined_final_cited_report)
-├── ad_creative_pipeline (SequentialAgent: drafter + critic)
-├── visual_production_pipeline (SequentialAgent)
-│   ├── visual_generation_pipeline (art_director + concept drafter/critic/finalizer)
-│   └── visual_generator_resilient (RetryUntilKeyAgent → visual_generator, generate_image)
+creative_agent (root Agent `root_agent`; no App wrapper; pipelines = graph Workflows exposed as bare nodes → NodeTool; creative_eval_agent via AgentTool)
+├── combined_research_pipeline (Workflow, input_schema=PipelineRequest)
+│   START → (gs_/ca_sequential_planner: each a Workflow planner → RetryUntilKeyNode-wrapped
+│   searcher+synthesizer Workflow) → research_join (JoinNode) → research_barrier (no output)
+│   → merge_planners → refinement_gate ("refine" only when base research is degraded:
+│   evaluator → RetryUntilKeyNode-wrapped refined search; else "skip")
+│   → combined_report_composer → research_report_ready (truthy terminal)
+├── ad_creative_pipeline (Workflow: drafter → critic → ad_copies_ready)
+├── visual_production_pipeline (Workflow)
+│   visual_generation_pipeline (Workflow: art_director → concept drafter/critic/finalizer
+│   → visual_concepts_ready) → render_barrier → visual_generator_resilient
+│   (RetryUntilKeyNode → visual_generator, generate_image) → images_ready (truthy terminal)
 ├── creative_eval_agent (LLM-as-judge scoring, from creative_eval)
 └── Persistence tools (GCS, BigQuery, HTML gallery, memorize)
 
-interactive_creative (root Agent `root_agent`; App + ResumabilityConfig(is_resumable=True); sub-agents via AgentTool)
-├── combined_research_pipeline / ad_creative_pipeline / visual_generation_pipeline (reused from creative_agent)
+interactive_creative (root Agent `root_agent`; App + ResumabilityConfig(is_resumable=True); reviser + eval via AgentTool)
+├── combined_research_pipeline / ad_creative_pipeline / visual_generation_pipeline (reused from creative_agent; bare nodes → NodeTool)
 ├── review_research / review_ad_copies / review_visual_concepts (LongRunningFunctionTool checkpoints 1–3)
 ├── visual_concept_reviser (applies checkpoint-3 revision notes → final_visual_concepts)
 ├── visual_generator_resilient + creative_eval_agent (reused; render after the reviser)
 └── Persistence tools (same as creative_agent)
 ```
 
-Key ADK patterns used: `Agent`, `SequentialAgent`, `ParallelAgent`, custom `BaseAgent` wrappers (`RetryUntilKeyAgent`, `RunIfAgent` in `agent_common/`), `AgentTool` (wraps agents as tools), `LongRunningFunctionTool` (pause/resume for human-in-the-loop), and `App` + `ResumabilityConfig` (resumable sessions). `SequentialAgent`/`ParallelAgent` are deprecated in ADK 2.x in favor of graph Workflows; a single targeted `warnings.filterwarnings` in `agent_common/__init__.py` silences that notice, and the Workflow migration is proposal P2 in `docs/plans/2026-09-28-repo-refresh.md`.
+Key ADK patterns used: `Agent`, graph `Workflow`s (`google.adk.workflow`: fan-out + `JoinNode`, routed function nodes, truthy terminal nodes; exposed to roots as bare nodes → `NodeTool`), `RetryUntilKeyNode` (graph retry wrapper in `agent_common/`), `AgentTool` (wraps agents as tools), `LongRunningFunctionTool` (pause/resume for human-in-the-loop), and `App` + `ResumabilityConfig` (resumable sessions). `SequentialAgent`/`ParallelAgent` are deprecated in ADK 2.x in favor of graph Workflows; the agent pipelines no longer use them (Workflow migration = proposal P2 in `docs/plans/2026-09-28-repo-refresh.md`), and a single targeted `warnings.filterwarnings` in `agent_common/__init__.py` silences that notice.
 
 ### Frontend — `frontend/`
 
@@ -177,7 +178,7 @@ Shared building blocks live in **`agent_common/`** (a lightweight package bundle
 - `agent_common/config.py` — `BaseAgentConfiguration`, the single source of truth for the model names, rate-limit knobs, and GCP/BigQuery env vars. Each agent's `config.py` subclasses it (`ResearchConfiguration(BaseAgentConfiguration)`) and adds only its genuine differences (e.g. `trend_scout`'s `SetupConfiguration`), which is why the two agent configs no longer drift.
 - `agent_common/retry.py` — `build_infra_retry(extra_exceptions=(), max_attempts=3)`, the one place the ADK `RetryConfig` transient-exception list is defined (`creative_agent` passes the genai `ServerError`).
 - `agent_common/retry_agent.py` — `RetryUntilKeyAgent`, the retry-on-empty producer wrapper (re-runs a flaky `google_search`+thinking producer until its `output_key` is populated, bounded; degrades observably on exhaustion). Shared here so both `creative_agent` and `trend_scout` wrap producers without cross-importing each other's package.
-- `agent_common/conditional_agent.py` — `RunIfAgent`, a `BaseAgent` that runs its sub-agents only when a predicate over session state is truthy (gates `creative_agent`'s `research_refinement_block`); only wrap stages whose outputs are consumed behind `{var?}` guards.
+- `agent_common/conditional_agent.py` — `RunIfAgent`, a `BaseAgent` that runs its sub-agents only when a predicate over session state is truthy; only wrap stages whose outputs are consumed behind `{var?}` guards. Unused since P2 G3: `creative_agent`'s refinement gate is now a routed function node (`refinement_gate`) in the research graph Workflow.
 - `agent_common/genai_retry.py` — `build_genai_http_retry()`, the status-code-based genai HTTP retry (429/500/503/504 with backoff; permanent 4xx fail fast), wired into `build_gemini()` and the `creative_eval` judge client; ADK-free.
 - `agent_common/rate_limit.py` — `build_rate_limit_callback(config)`, the shared `before_model_callback` enforcing each agent's `rpm_quota`.
 - `agent_common/sanitize.py` — `scrub_lone_surrogates` / `scrub_surrogates_in_response` (`after_model_callback`), which strip lone Unicode surrogates from model JSON before `output_schema` validation.
@@ -192,7 +193,7 @@ The bucket name comes from `GOOGLE_CLOUD_STORAGE_BUCKET` (the var deploy actuall
 - **Model location**: gemini-3.x models are only served from the `global` Vertex location — set `GOOGLE_CLOUD_LOCATION=global`. Regional resources (BigQuery, GCS, PubSub, Agent Engine) stay in `us-central1`.
   - **Agent Engine region (`GCP_REGION`):** Agent Engine / Reasoning Engine is a *regional* resource, so its Vertex AI SDK clients read `GCP_REGION` (default `us-central1`), decoupled from `GOOGLE_CLOUD_LOCATION=global`. Wired through `deployment/deploy_agent.py`, `deployment/test_deployment.py`, `deployment/integration_test.py`, and the `cloud_functions/*/config.py` constants (`config.GCP_REGION`). The `global` model location is used only by the genai model clients (`creative_agent/image_tools.py`, `creative_eval/evaluate.py` — the eval judge defaults to `MODEL_LOCATION`, overridable via `EVAL_MODEL_LOCATION`) plus the ADK agents' `build_gemini()` models; BigQuery and GCS clients take no location.
 - **Rate limiting**: `before_model_callback` enforces rpm_quota (1000) over 60s intervals
-- **Campaign-research placement (`CAMPAIGN_RESEARCH_PLACEMENT`)**: selects which model bucket the `campaign_researcher` sub-agent runs on, via `ResearchConfiguration.campaign_models()` in `creative_agent/config.py`. Default `global_altbucket` runs campaign research on `ALT_GLOBAL_MODEL` = `gemini-3.5-flash` @ `global` — a different per-base-model quota bucket from the trend half's `gemini-3.8-flash`/`gemini-3.5-flash-lite` (the PR #101 spread that halves contention in the one `ParallelAgent`). Alternate arm `global_3x` shares the trend buckets (comparison baseline); unknown values (incl. the retired `regional_25` gemini-2.5 arm) fall back to the default — see `experiments/quota_spread/` and [experiments/README.md](experiments/README.md). Leave unset for production behavior.
+- **Campaign-research placement (`CAMPAIGN_RESEARCH_PLACEMENT`)**: selects which model bucket the `campaign_researcher` sub-agent runs on, via `ResearchConfiguration.campaign_models()` in `creative_agent/config.py`. Default `global_altbucket` runs campaign research on `ALT_GLOBAL_MODEL` = `gemini-3.5-flash` @ `global` — a different per-base-model quota bucket from the trend half's `gemini-3.8-flash`/`gemini-3.5-flash-lite` (the PR #101 spread that halves contention in the research fan-out). Alternate arm `global_3x` shares the trend buckets (comparison baseline); unknown values (incl. the retired `regional_25` gemini-2.5 arm) fall back to the default — see `experiments/quota_spread/` and [experiments/README.md](experiments/README.md). Leave unset for production behavior.
 - **Session state keys**: `brand`, `target_product`, `target_audience`, `key_selling_points`, `target_search_trends`
 - **Optional visual-intent keys** (`creative_agent`/`interactive_creative`, all default `""`, seeded via `createSession` initialState → `setdefault` in `creative_agent/callbacks.py`, never via the user message): `visual_intent` (free-text art direction → `{visual_intent?}` in art_director + drafter), `brand_colors` (→ `{brand_colors?}` in both), `visual_style_preference` (preferred STYLE_PALETTE family → `{visual_style_preference?}` in drafter, seed-with-diversity), `visual_avoid` (→ `{visual_avoid?}` in art_director, reframed positively), `visual_aspect_ratio` (deterministic per-render override read in `image_tools.generate_image`; empty = keep per-concept diversity; allowed set in `agent_common/config.py`), `reference_image_role` (`product`|`logo`|`style` → text role instruction appended to the prompt when a `reference_image_uri` is present; flash-image cannot do true style transfer). Interactive mode also writes `visual_revision_notes` on resume (from checkpoint-3 edits — see `runserver/async_runs.merge_visual_concept_edits`), consumed by the `visual_concept_reviser` before rendering.
 

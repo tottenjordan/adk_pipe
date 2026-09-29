@@ -32,21 +32,29 @@ class TestPhaseOf:
             "refined_web_synthesizer",
             "combined_report_composer",
             "parallel_planner_agent",
+            "research_join",
+            "research_barrier",
+            "refinement_gate",
+            "research_report_ready",
         ):
             assert phase_of(author) == "research", author
 
     def test_ad_copy(self):
         assert phase_of("ad_copy_drafter") == "ad_copy"
         assert phase_of("ad_copy_critic") == "ad_copy"
+        assert phase_of("ad_copies_ready") == "ad_copy"
 
     def test_visual_concepts(self):
         assert phase_of("art_director") == "visual_concepts"
         assert phase_of("visual_concept_drafter") == "visual_concepts"
         assert phase_of("visual_concept_finalizer") == "visual_concepts"
+        assert phase_of("visual_concepts_ready") == "visual_concepts"
 
     def test_image_gen(self):
         assert phase_of("visual_generator") == "image_gen"
         assert phase_of("visual_generator_resilient") == "image_gen"
+        assert phase_of("render_barrier") == "image_gen"
+        assert phase_of("images_ready") == "image_gen"
 
     def test_eval(self):
         assert phase_of("creative_eval_agent") == "eval"

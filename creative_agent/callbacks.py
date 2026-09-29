@@ -111,7 +111,7 @@ def force_image_tool_call(
 
     Root-cause backstop for issue #116: visual_generator (gemini-3.1-pro-preview)
     intermittently returns MALFORMED_FUNCTION_CALL and emits NO tool call, leaving
-    `_images_generated` unset and shipping an empty gallery. `RetryUntilKeyAgent`
+    `_images_generated` unset and shipping an empty gallery. `RetryUntilKeyNode`
     (visual_generator_resilient) retries that, but each retry is still a free-choice
     turn that can flake again. Setting `tool_config` mode=ANY with
     `allowed_function_names=["generate_image"]` forces the model to predict that one
