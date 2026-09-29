@@ -23,7 +23,7 @@ Vertex AI Agent Engine.
 
 | Diagram | Scope | Highlights |
 |---|---|---|
-| ![crf fan-out](crf_fanout_system_architecture.png) | System (breadth) | Pub/Sub trigger → **Eventarc** → Orchestrator (`crf_entrypoint`, concurrency=100) queries BigQuery + marks `QUEUED` → **fans out** one worker message per trend → **Eventarc** → serialized Worker (`agent_worker_entrypoint`, concurrency=1 / max-instances=1 for project-wide Gemini quota) → **Vertex AI Agent Engine** (`creative_agent`) → BigQuery + GCS |
+| ![crf fan-out](crf_fanout_system_architecture.png) | System (breadth) | Pub/Sub trigger → **Eventarc** → Orchestrator (`crf_entrypoint`, concurrency=100) reaps stale `PROCESSING` rows (>45 min → re-queue, or `FAILED` after 3 attempts), claims up to `max_rows` oldest `NULL`/orphaned-`QUEUED` trends (`CRF_MAX_ROWS_PER_RUN`, default 3) + marks `QUEUED` → **fans out** one worker message per trend → **Eventarc** → serialized Worker (`agent_worker_entrypoint`, concurrency=1 / max-instances=1 for project-wide Gemini quota) → atomic `QUEUED→PROCESSING` lock (`processing_attempts + 1`) → **Vertex AI Agent Engine** (`creative_agent`, AgentPlatform SDK `client.runtimes.get`) → `PROCESSED`/`FAILED` → BigQuery (`target_trends_crf`, `trend_creatives`, `creative_evals`) + GCS (regenerated 2026-09-29) |
 | ![crf worker](crf_worker_reliability_deepdive.png) | Worker (depth) | How one worker turns Pub/Sub **at-least-once** delivery into **exactly-once** processing: atomic BigQuery lock (`NULL→QUEUED→PROCESSING→PROCESSED/FAILED`), duplicate-redelivery short-circuit (return + ACK), the `agent_session` create→stream→delete triad (same `user_id`, delete always in `finally`), and the ACK-success / NACK-retry semantics |
 
 ## Frontend Diagrams
