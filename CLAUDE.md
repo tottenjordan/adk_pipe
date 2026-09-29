@@ -218,7 +218,7 @@ Image-generation prompt guidance lives in `creative_agent/prompts.py` as `IMAGE_
 ## Requirements
 
 - Python >=3.13
-- `google-adk[eval]>=2.4.0,<3.0.0`
+- `google-adk[eval]>=2.10.0,<3.0.0`
 - Node.js >=18 (for frontend)
 - GCP project with BigQuery, Cloud Storage, PubSub, and Agent Engine enabled
 - `.env` file populated from `.env.example`
