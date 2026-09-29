@@ -2,7 +2,7 @@
 
 > **For Claude:** REQUIRED SUB-SKILL: Use `executing-plans` (or `subagent-driven-development`) to implement this plan task-by-task.
 
-**Status:** proposal (not started). **Partly blocked:** the root uv project is gated on a google-adk release (see "Blockers & gate"). The Cloud Run Function (Task 1) and the cold-start spike (Task 2) are **unblocked today**. Gate re-checked 2026-09-29: FAIL (google-adk 2.10.0 still caps aiplatform <2). Tasks 1–2 executing via [2026-09-29-p1a-crf-agentplatform-and-spike.md](2026-09-29-p1a-crf-agentplatform-and-spike.md).
+**Status:** proposal (not started). **Partly blocked:** the root uv project is gated on a google-adk release (see "Blockers & gate"). The Cloud Run Function (Task 1) and the cold-start spike (Task 2) are **unblocked today**. Gate re-checked 2026-09-29: FAIL (google-adk 2.10.0 still caps aiplatform <2). Tasks 1–2 executing via [2026-09-29-p1a-crf-agentplatform-and-spike.md](2026-09-29-p1a-crf-agentplatform-and-spike.md). Task 2 spike **done** 2026-09-29: keep `extra_packages` + `staging_bucket` (see [Spike findings](#spike-findings-2026-09-29)).
 **Goal:** Move every Agent Engine call site off the deprecated `vertexai.Client().agent_engines` onto `agentplatform.Client().runtimes` / `.sessions`. Lift the `google-cloud-aiplatform<2` pin and its Dependabot hold, without breaking deploys, the CRF fan-out, or the persistent-session backend.
 **Architecture:** There are two dependency islands, and we migrate them separately:
 1. **CRF function** (`cloud_functions/creative_fanout/`, its own `requirements.txt`, no ADK). It can switch now to the standalone `google-cloud-agentplatform` distribution.
@@ -392,3 +392,20 @@ Smoke: start an `interactive_creative` run from the IAP-gated web UI, reload mid
 - CI green (both Python jobs incl. the CRF-own-deps job).
 - No `FutureWarning: vertexai.Client` in our code paths. ADK's own session service may still emit it (Path A) until ADK migrates, which is acceptable and tracked upstream.
 - Both aiplatform ignores are removed from `.github/dependabot.yml`.
+
+## Spike findings (2026-09-29)
+
+Two scratch `trend_scout` engines (resumable `App` via `AdkApp(app=app)`), both `min_instances=0`, `max_instances=2`, 4 CPU / 8Gi, concurrency 9, on google-cloud-aiplatform 1.165.1. Both are torn down. Cold = ≥15 min idle, verified cold because every cold round started a fresh container in the logs. **Reduced sample: n=3 cold rounds per twin, not the planned 5 (user-approved).** Each round ran both twins, alternating which went first.
+
+| twin | deploy duration | cold `create_session` p50 / max | cold first-event p50 / max | cold total p50 | container boot p50 (logs) | warm reference (create / first-event) |
+|---|---|---|---|---|---|---|
+| `source_packages` (no staging) | 349 s | 23.0 s / 38.9 s | 3.8 s / 64.8 s | 26.8 s | 19.2 s | 0.51 s / 2.53 s |
+| pickle + `extra_packages` + `staging_bucket` | 390 s | 18.1 s / 19.8 s | 4.3 s / 12.0 s | 22.3 s | 14.8 s | 0.47 s / 0.55 s |
+
+Raw cold totals, rounds 1–3: src 103.7 / 26.8 / 19.0 s; ctl 31.8 / 22.2 / 22.3 s. Deploy durations are the server-side create→update span (client-side: src 355.5 s, ctl ~394 s).
+
+- **Staging bucket:** `source_packages` wrote **nothing** to GCS. No objects appeared under `adk-pipe/p1-spike/` or anywhere else in the bucket during the src deploy window, because the tarball is sent inline (base64 `inline_source.source_archive`). The pickle twin wrote the usual 3 objects (`agent_engine.pkl`, `requirements.txt`, `dependencies.tar.gz`).
+- **Flat imports:** these resolved in the src twin. The code lands at `/code/trend_scout/...` with `/code` on the path, so `from agent_common ...` and `from trend_scout ...` imported fine. The first event (`trend_scout` `_state_init` state_delta from the `agent_common`-seeded callback) came back normally.
+- **Cold-start behaviour:** src's worst case came in round 1, the first boot after deploy. That container took 35 s to boot (vs 16 s for ctl), and the service then scaled out a *second* cold container for the stream call, which produced the 64.8 s first-event. Once the image was cached (rounds 2–3), src boots were 19.2 s and 13.2 s vs 14.8 s and 14.2 s for ctl, so the two are close but noisy. In the src container, each uvicorn worker spends about 20 s longer between importing the agent and "Application startup complete" (telemetry/setup) than the unpickle path does.
+- **Errors / workarounds:** the src deploy succeeded first try, with no fixes needed. `requirements_file: "requirements.txt"` is a path relative to the tarball root, so `requirements.txt` must also be listed in `source_packages`. `class_methods` is required; generate it with `_generate_class_methods_spec_or_raise(agent=..., operations=_get_registered_operations(agent=...))`, which gives 13 methods. The SDK logs "agent framework None ... Defaulting to custom" for source deploys, which is harmless. A scratch script outside the repo needs `PYTHONPATH=$PWD` because `_create_base64_encoded_tarball` tars paths relative to the cwd and rejects paths outside it.
+- **Decision: keep `extra_packages` + `staging_bucket` in Task 5.** Deploys succeed, but cold `create_session` p50 is +27% and cold total p50 is +20%, both over the +10% bar. The only win, skipping staging, doesn't offset that. A re-spike with ≥5 post-deploy-warmed rounds could flip the result, since rounds 2–3 were near parity.
