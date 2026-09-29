@@ -11,6 +11,7 @@ measurement harnesses (see [../experiments/README.md](../experiments/README.md))
 # construction resolves the project eagerly
 uv run pytest tests/ -v
 uv run pytest tests/ -q -n 4   # parallel (pytest-xdist); CI uses -n 4. Avoid -n auto: per-worker agent imports make it slower
+uv run pytest -m "not subprocess"  # skip the child-process tests (fresh-import guards, shell entrypoint)
 
 # ADK evals — end-to-end LLM-as-judge (real API calls, ~5 min per case)
 PYTHONPATH="$PWD" uv run adk eval trend_scout tests/eval/evalsets/trend_scout_evalset.json \
@@ -21,6 +22,10 @@ PYTHONPATH="$PWD" uv run adk eval creative_agent tests/eval/evalsets/creative_ag
   --config_file_path=tests/eval/creative_eval_config.json --print_detailed_results
 ```
 
+Pytest config lives in `pyproject.toml` `[tool.pytest.ini_options]`: `testpaths`,
+`pythonpath = ["."]` (so tests import the flat packages without `sys.path` hacks), the
+`subprocess` marker, and `filterwarnings` scoped to known third-party noise only.
+
 See [CLAUDE.md](../CLAUDE.md) for the full testing notes (eval invocation gotchas,
 per-agent rubric configs, integration tests).
 
@@ -29,7 +34,8 @@ per-agent rubric configs, integration tests).
 ```bash
 tests/
 ├── __init__.py
-├── _fakes.py                        # shared fake producers for the retry-wrapper tests
+├── _fakes.py                        # shared test doubles: fake producers + stub/recording LLMs (retry-node + graph-Workflow tests), FakeToolContext/FakeState, FakeStorageClient, noop_async
+├── conftest.py                      # shared fixtures: gcp_project_env (dummy GOOGLE_CLOUD_PROJECT), fresh_config (fresh package import, restored after)
 ├── eval/                            # ADK evals — rubric-based LLM-as-judge (real APIs)
 │   ├── eval_config.json             # trend_scout rubric config
 │   ├── creative_eval_config.json    # creative_agent rubric config
@@ -37,6 +43,7 @@ tests/
 │       ├── trend_scout_evalset.json
 │       └── creative_agent_evalset.json
 ├── test_agent_common_clients.py     # shared lazy GCS/BigQuery client getters
+├── test_agent_common_idempotency.py # stable_row_id deterministic BigQuery row keys
 ├── test_agent_common_models.py      # shared model location + build_gemini() factory
 ├── test_agent_common_state.py       # shared memorize tool + seed_initial_state()
 ├── test_agents_dir.py               # agents/ serving-view symlinks used by the Cloud Run api_server
@@ -70,8 +77,9 @@ tests/
 ├── test_tools_retry.py              # infra tools propagate (don't swallow) exceptions
 ├── test_trend_scout_graph.py        # trend_scout understand_trends graph run end-to-end (stub models)
 ├── test_trend_scout_concurrency.py  # trend_scout GCS-export tools: per-run scratch isolation
-├── test_trend_scout_logging.py      # trend_scout debugging-observability callbacks
+├── test_trend_scout_logging.py      # trend_scout wiring of the shared observability callbacks
 ├── test_visual_intent_prompts.py    # optional visual-intent {key?} tokens + IMAGE_PROMPT_GUIDE no-braces
+├── test_workflow_api_contract.py    # offline pins on the upstream ADK graph-Workflow behaviours the P2 migration relies on
 │                                    #
 │                                    # experiments/ harness unit tests (pure/offline — no creds, no network)
 ├── test_creative_latency_poll.py    # poll_to_terminal retries a transient slow/failed poll
@@ -91,8 +99,14 @@ tests/
   `test_agent_common_models.py`: Pydantic validation, model-location pinning, per-agent
   config resolution.
 - **Pipeline & callbacks** — `test_pipeline_structure.py`, `test_callbacks.py`,
-  `test_agent_common_state.py`, `test_agent_common_clients.py`, `test_retry_config.py`: agent composition, state init, rate limiting, citation regex,
-  scoped `RetryConfig`.
+  `test_agent_common_state.py`, `test_agent_common_clients.py`,
+  `test_agent_common_idempotency.py`, `test_retry_config.py`: agent composition, state
+  init, rate limiting, citation regex, idempotent BigQuery row keys, scoped `RetryConfig`.
+- **Graph Workflows** — `test_workflow_api_contract.py`, `test_retry_node.py`,
+  `test_creative_agent_graph.py`, `test_trend_scout_graph.py`,
+  `test_interactive_resume_graph.py`: the upstream ADK Workflow contract, the
+  `RetryUntilKeyNode` wrapper, and each agent's graphs run end-to-end over stub models
+  (doubles in `_fakes.py`).
 - **Tools** — `test_tools.py`, `test_tools_retry.py`: pure tool logic, plus the contract
   that infra tools raise (rather than swallow errors into status dicts) so ADK retry works.
 - **Deployment & fan-out** — `test_deploy_utils.py`, `test_create_session_engine.py`,
