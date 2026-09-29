@@ -388,7 +388,7 @@ proto-plus==1.28.4
     #   google-cloud-pubsub
     #   google-cloud-resource-manager
     #   google-cloud-texttospeech
-protobuf==6.33.6
+protobuf==7.36.2
     # via
     #   google-api-core
     #   google-cloud-aiplatform
