@@ -10,6 +10,7 @@ measurement harnesses (see [../experiments/README.md](../experiments/README.md))
 # (any dummy value; the repo .env normally provides it) — genai.Client(vertexai=True)
 # construction resolves the project eagerly
 uv run pytest tests/ -v
+uv run pytest tests/ -q -n 4   # parallel (pytest-xdist); CI uses -n 4. Avoid -n auto: per-worker agent imports make it slower
 
 # ADK evals — end-to-end LLM-as-judge (real API calls, ~5 min per case)
 PYTHONPATH="$PWD" uv run adk eval trend_scout tests/eval/evalsets/trend_scout_evalset.json \
