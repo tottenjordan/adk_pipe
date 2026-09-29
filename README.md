@@ -69,8 +69,18 @@ Trend Trawler is a two-phase agent pipeline built on Google's [ADK](https://goog
 Deployed agents run on **Vertex AI Agent Engine**; batch runs fan out one creative job per trend via **Cloud Run Functions + Pub/Sub**.
 
 <p align="center">
-  <img src="docs/architecture/agent-engine-pipeline.png" alt="creative_agent pipeline on Agent Engine" width="720">
+  <img src="docs/architecture/system-architecture.png" alt="Trend Trawler system architecture" width="880">
 </p>
+
+The web path runs the agents in-process on the private `trend-trawler-api` Cloud Run service behind the IAP-gated `trend-trawler-web` proxy (per-user authz via a verified `X-TT-User`), persisting sessions to a dedicated Agent Engine session store. The batch path runs `creative_agent` on Agent Engine via the Pub/Sub fan-out.
+
+### Agent architecture
+
+Each root agent calls its ADK 2 graph `Workflow`s as `NodeTool`s, its sub-agents as `AgentTool`s, and its flaky producers through `RetryUntilKeyNode` retry wrappers. There is one diagram per agent in [`docs/diagrams/`](docs/diagrams/README.md):
+
+| `trend_scout` | `creative_agent` | `interactive_creative` |
+|---|---|---|
+| <img src="docs/diagrams/trend_scout_architecture.png" alt="trend_scout agent architecture" width="280"> | <img src="docs/diagrams/creative_agent_architecture.png" alt="creative_agent agent architecture" width="280"> | <img src="docs/diagrams/interactive_creative_architecture.png" alt="interactive_creative agent architecture" width="280"> |
 
 **Helpful references**
 * [Overview of prompting strategies](https://cloud.google.com/vertex-ai/generative-ai/docs/learn/prompts/prompt-design-strategies#best-practices)

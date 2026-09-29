@@ -52,7 +52,7 @@ Deploying Agents to separate Agent Engine instances...
 > [Agent Engine](https://google.github.io/adk-docs/deploy/agent-engine/) is a fully managed auto-scaling service on Google Cloud specifically designed for deploying, managing, and scaling AI agents built with frameworks such as ADK.
 
 <p align="center">
-  <img src="../docs/architecture/agent-engine-pipeline.png" alt="creative_agent pipeline on Agent Engine" width="720">
+  <img src="../docs/architecture/system-architecture.png" alt="Trend Trawler system architecture" width="720">
 </p>
 
 
