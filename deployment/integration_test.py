@@ -19,15 +19,16 @@ Usage:
   python deployment/integration_test.py --check all
 """
 
-import os
-import sys
-import dotenv
+import argparse
 import asyncio
 import logging
-import argparse
+import os
+import sys
 import time
 import warnings
 from dataclasses import dataclass
+
+import dotenv
 
 # Add the project root to sys.path
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -37,7 +38,6 @@ if project_root not in sys.path:
 import vertexai
 
 from deployment.deploy_agent import AGENT_DEPLOY_SPECS, engine_env_key
-
 
 # ==============================
 # config

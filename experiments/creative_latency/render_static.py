@@ -92,7 +92,7 @@ def render_stacked_phases(summaries: dict[str, dict], out_path: Path) -> Path:
             edgecolor="white",
             linewidth=0.5,
         )
-        bottoms = [b + v for b, v in zip(bottoms, vals)]
+        bottoms = [b + v for b, v in zip(bottoms, vals, strict=False)]
 
     for i, config in enumerate(configs):
         total = _total(summaries, config)

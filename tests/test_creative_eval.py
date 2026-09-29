@@ -100,7 +100,7 @@ class TestAdCopyEvaluation:
 
 class TestVisualConceptEvaluation:
     def test_valid_evaluation(self):
-        from creative_eval.schemas import VisualConceptEvaluation, CreativeScore
+        from creative_eval.schemas import CreativeScore, VisualConceptEvaluation
 
         eval_result = VisualConceptEvaluation(
             ad_copy_id=3,
@@ -137,11 +137,11 @@ class TestEvaluationSummary:
 class TestCreativeEvaluationReport:
     def test_valid_report(self):
         from creative_eval.schemas import (
-            CreativeEvaluationReport,
             AdCopyEvaluation,
-            VisualConceptEvaluation,
+            CreativeEvaluationReport,
             CreativeScore,
             EvaluationSummary,
+            VisualConceptEvaluation,
         )
 
         report = CreativeEvaluationReport(
@@ -431,8 +431,9 @@ class TestEvaluateAllCreativesInputs:
     def test_parses_string_state_values(self):
         """State values may arrive as JSON strings — verify they're handled."""
         import json
+        from unittest.mock import MagicMock, patch
+
         from creative_eval.agent import evaluate_all_creatives
-        from unittest.mock import patch, MagicMock
 
         ctx = _FakeToolContext(
             {
@@ -453,9 +454,9 @@ class TestEvaluateAllCreativesInputs:
             # Setup return values
             from creative_eval.schemas import (
                 AdCopyEvaluation,
-                VisualConceptEvaluation,
                 CreativeScore,
                 EvaluationSummary,
+                VisualConceptEvaluation,
             )
 
             mock_score = CreativeScore(
@@ -496,8 +497,9 @@ class TestEvaluateAllCreativesInputs:
 
     def test_extracts_campaign_context_keys(self):
         """Verify the campaign context dict passed to evaluators has the right keys."""
-        from creative_eval.agent import evaluate_all_creatives
         from unittest.mock import patch
+
+        from creative_eval.agent import evaluate_all_creatives
 
         ctx = _FakeToolContext(
             {
@@ -560,14 +562,15 @@ class TestEvaluateAllCreativesOutputs:
 
     def _run_with_mocks(self, ad_scores, vis_scores, threshold=0.7, extra_state=None):
         """Helper: run evaluate_all_creatives with mocked evaluators returning given scores."""
+        from unittest.mock import patch
+
         from creative_eval.agent import evaluate_all_creatives
         from creative_eval.schemas import (
             AdCopyEvaluation,
-            VisualConceptEvaluation,
             CreativeScore,
             EvalVerdict,
+            VisualConceptEvaluation,
         )
-        from unittest.mock import patch
 
         ad_copies = [
             {**SAMPLE_AD_COPIES["ad_copies"][0], "original_id": i}

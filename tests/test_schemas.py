@@ -69,7 +69,7 @@ def test_final_ad_copy_schema():
 
 
 def test_ad_copy_list_schema():
-    from creative_agent.agent import AdCopyList, AdCopy
+    from creative_agent.agent import AdCopy, AdCopyList
 
     copies = [
         AdCopy(

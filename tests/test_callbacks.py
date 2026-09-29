@@ -4,7 +4,6 @@ import re
 import time
 import types as pytypes
 
-
 # --- Citation replacement regex ---
 # Extracted from creative_agent/callbacks.py citation_replacement_callback
 CITE_PATTERN = r'<cite\s+source\s*=\s*["\']?\s*(src-\d+)\s*["\']?\s*/>'

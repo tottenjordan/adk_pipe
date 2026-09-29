@@ -43,14 +43,14 @@ marker and logs an error, so the failure is visible instead of silent.
 from __future__ import annotations
 
 import logging
-from typing import AsyncGenerator
+from collections.abc import AsyncGenerator
+from typing import override
 
 from google.adk.agents import BaseAgent
 from google.adk.agents.invocation_context import InvocationContext
 from google.adk.events.event import Event
 from google.adk.events.event_actions import EventActions
 from google.adk.utils.context_utils import Aclosing
-from typing_extensions import override
 
 logger = logging.getLogger("google_adk." + __name__)
 
@@ -84,9 +84,7 @@ class RetryUntilKeyAgent(BaseAgent):
         return bool(value)
 
     @override
-    async def _run_async_impl(
-        self, ctx: InvocationContext
-    ) -> AsyncGenerator[Event, None]:
+    async def _run_async_impl(self, ctx: InvocationContext) -> AsyncGenerator[Event]:
         if not self.sub_agents:
             return
         inner = self.sub_agents[0]

@@ -9,7 +9,7 @@ Coroutines are driven with ``asyncio.run`` (no pytest-asyncio in this project).
 """
 
 import asyncio
-from typing import AsyncGenerator
+from collections.abc import AsyncGenerator
 
 from google.adk.agents import BaseAgent, SequentialAgent
 from google.adk.agents.invocation_context import InvocationContext
@@ -33,9 +33,7 @@ class _Marker(BaseAgent):
     def runs(self) -> int:
         return self._runs
 
-    async def _run_async_impl(
-        self, ctx: InvocationContext
-    ) -> AsyncGenerator[Event, None]:
+    async def _run_async_impl(self, ctx: InvocationContext) -> AsyncGenerator[Event]:
         self._runs += 1
         yield Event(
             invocation_id=ctx.invocation_id,
@@ -50,9 +48,7 @@ class _Seeder(BaseAgent):
     key: str
     value: str
 
-    async def _run_async_impl(
-        self, ctx: InvocationContext
-    ) -> AsyncGenerator[Event, None]:
+    async def _run_async_impl(self, ctx: InvocationContext) -> AsyncGenerator[Event]:
         yield Event(
             invocation_id=ctx.invocation_id,
             author=self.name,

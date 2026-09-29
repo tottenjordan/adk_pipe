@@ -22,9 +22,9 @@ was, and it crashed live on 2026-07-14 (commit 9ec1c92).
 import logging
 from types import SimpleNamespace
 
-from google.genai import types
 from google.adk.models.llm_response import LlmResponse
 from google.adk.sessions.state import State
+from google.genai import types
 
 from agent_common import observability
 

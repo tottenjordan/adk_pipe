@@ -5,12 +5,12 @@ cloud_functions/creative_fanout/main.py without requiring GCP credentials,
 functions_framework, or vertexai imports.
 """
 
-import json
 import base64
-import pytest
+import json
+from datetime import UTC, datetime
 from unittest.mock import MagicMock
-from datetime import datetime, timezone
 
+import pytest
 
 # ============================================================
 # Replicated helpers (avoids importing main.py with its heavy
@@ -113,7 +113,7 @@ class TestPubSubDecoding:
 
     def test_raises_on_invalid_base64(self):
         data = {"message": {"data": "not-valid-base64!!!"}}
-        with pytest.raises(Exception):
+        with pytest.raises(ValueError):
             decode_pubsub_payload(data)
 
     def test_raises_on_non_json_payload(self):
@@ -156,7 +156,7 @@ class TestRowMapping:
     def test_serializes_datetime_object(self):
         row = {
             **SAMPLE_BQ_ROW,
-            "entry_timestamp": datetime(2025, 1, 15, 10, 0, 0, tzinfo=timezone.utc),
+            "entry_timestamp": datetime(2025, 1, 15, 10, 0, 0, tzinfo=UTC),
         }
         result = build_row_dict(0, row)
         assert isinstance(result["entry_timestamp"], str)

@@ -21,7 +21,7 @@ import json
 import time
 from pathlib import Path
 
-from .run_batch import RESULTS_ROOT, INVOKER_SA, run_batch
+from .run_batch import INVOKER_SA, RESULTS_ROOT, run_batch
 
 
 def plan_cell_order(

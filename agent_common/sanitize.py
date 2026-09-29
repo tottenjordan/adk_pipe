@@ -22,8 +22,8 @@ This module imports `google.adk`/`google.genai` types but builds no genai
 client, so it stays non-creds-gated and unit-testable offline.
 """
 
-from google.adk.models.llm_response import LlmResponse
 from google.adk.agents.callback_context import CallbackContext
+from google.adk.models.llm_response import LlmResponse
 
 _HIGH_MIN, _HIGH_MAX = 0xD800, 0xDBFF
 _LOW_MIN, _LOW_MAX = 0xDC00, 0xDFFF

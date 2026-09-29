@@ -19,8 +19,8 @@ import csv as _csv
 import json
 import statistics
 from collections import defaultdict
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
 
 from .run_batch import RESULTS_ROOT
 
