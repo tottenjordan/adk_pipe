@@ -2,7 +2,7 @@
 
 > **For Claude:** REQUIRED SUB-SKILL: Use `executing-plans` (or `subagent-driven-development`) to implement this plan task-by-task.
 
-**Status:** proposal (not started)
+**Status:** executing 2026-09-29 via `2026-09-29-p4b-execution.md` (Sections 1–4; Section 5 done via #187/#188/#192)
 **Goal:** Carry out Phase 4 items P4.2–P4.6 of `docs/plans/2026-09-28-repo-refresh.md`. That means graceful degradation when the Pro quota is exhausted, a scheduled `adk eval` regression gate with efficiency metrics, Cloud Trace for Agent Engine and the Cloud Run api, an opt-in Model Armor safety demo, and refreshed diagrams after the P2 migration.
 **Architecture:** Each section below is independent and ships as its own PR, in priority order. Every enhancement is either default-safe or opt-in through an env flag, so nothing in prod changes until a flag is flipped or a deploy is made. Shared helpers go in `agent_common/`, which is bundled into every engine. Host wiring goes in `deployment/` and `runserver/`.
 **Tech Stack:** Python 3.13, uv, google-adk 2.10 (`FallbackModel`, `ModelArmorPlugin`, `get_fast_api_app(otel_to_cloud=)`, efficiency eval metrics), google-cloud-aiplatform 1.165.1 (`AdkApp`), GitHub Actions with Workload Identity Federation, Cloud Trace via the Telemetry (OTLP) API, Model Armor, and the PaperBanana MCP.
@@ -541,7 +541,7 @@ def test_apps_carry_plugin_list(monkeypatch):
 
 ---
 
-## Section 5 — P4.6: Regenerate architecture diagrams after P2
+## Section 5 — P4.6: Regenerate architecture diagrams after P2 — DONE (#187/#188/#192)
 
 **Dependency:** this is **blocked on P2**, the ADK graph-Workflow migration, which has not been started (`docs/plans/2026-09-28-repo-refresh.md`, Phase 4). Diagrams that show `SequentialAgent`/`ParallelAgent` would be wrong after P2 and are premature before it. Sections 1 and 4 also change the picture: FallbackModel badges on the Pro producers and a Model Armor gate at the root. So regenerate once, after P2 plus whichever of 1/3/4 have merged.
 
