@@ -28,6 +28,7 @@ per-agent rubric configs, integration tests).
 ```bash
 tests/
 ├── __init__.py
+├── _fakes.py                        # shared fake producers for the retry-wrapper tests
 ├── eval/                            # ADK evals — rubric-based LLM-as-judge (real APIs)
 │   ├── eval_config.json             # trend_scout rubric config
 │   ├── creative_eval_config.json    # creative_agent rubric config
@@ -58,12 +59,14 @@ tests/
 ├── test_pipeline_structure.py       # agent pipeline composition + placement-env wiring
 ├── test_public_api.py               # creative_agent public facade (curated __all__ reuse surface)
 ├── test_retry_agent.py              # RetryUntilKeyAgent (retry-on-empty producer wrapper)
+├── test_retry_node.py               # RetryUntilKeyNode (graph-Workflow port; NodeTool no-stall)
 ├── test_retry_config.py             # scoped RetryConfig constants on infra agents
 ├── test_sanitize.py                 # lone-surrogate scrubber (agent_common.sanitize)
 ├── test_schemas.py                  # Pydantic schemas in the creative_agent pipeline
 ├── test_sdk_versions.py             # guard: aiplatform 2.x ships both agentplatform + vertexai surfaces
 ├── test_tools.py                    # backend tool functions (pure logic, no I/O)
 ├── test_tools_retry.py              # infra tools propagate (don't swallow) exceptions
+├── test_trend_scout_graph.py        # trend_scout understand_trends graph run end-to-end (stub models)
 ├── test_trend_scout_concurrency.py  # trend_scout GCS-export tools: per-run scratch isolation
 ├── test_trend_scout_logging.py      # trend_scout debugging-observability callbacks
 ├── test_visual_intent_prompts.py    # optional visual-intent {key?} tokens + IMAGE_PROMPT_GUIDE no-braces

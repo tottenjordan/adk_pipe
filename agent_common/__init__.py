@@ -17,10 +17,12 @@ from agent_common.observability import (
 from agent_common.rate_limit import build_rate_limit_callback
 from agent_common.retry import build_infra_retry
 from agent_common.retry_agent import RetryUntilKeyAgent
+from agent_common.retry_node import RetryUntilKeyNode
 from agent_common.sanitize import (
     scrub_lone_surrogates,
     scrub_surrogates_in_response,
 )
+from agent_common.schemas import PipelineRequest
 from agent_common.state import memorize, seed_initial_state
 
 # ADK 2.x marks SequentialAgent/ParallelAgent `@deprecated` in favor of graph
@@ -37,10 +39,12 @@ warnings.filterwarnings(
 __all__ = [
     "BaseAgentConfiguration",
     "MODEL_LOCATION",
+    "PipelineRequest",
     "build_gemini",
     "build_infra_retry",
     "build_rate_limit_callback",
     "RetryUntilKeyAgent",
+    "RetryUntilKeyNode",
     "RunIfAgent",
     "collect_degradation_warnings",
     "get_bigquery_client",

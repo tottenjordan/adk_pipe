@@ -615,11 +615,13 @@ def test_interactive_creative_uses_resilient_visual_generator():
 
 
 def test_trend_scout_root_has_expected_tools():
+    import asyncio
+
     from trend_scout.agent import root_agent
 
-    tool_names = [
-        getattr(t, "name", getattr(t, "__name__", str(t))) for t in root_agent.tools
-    ]
+    # canonical_tools(): the resolved tool list the model sees (the bare
+    # understand_trends graph node surfaces as a NodeTool).
+    tool_names = [t.name for t in asyncio.run(root_agent.canonical_tools())]
     expected = [
         "gather_trends_agent",
         "understand_trends_agent_resilient",
@@ -715,28 +717,80 @@ def test_understand_trends_searcher_has_tool_synthesizer_is_tool_free():
 
 
 def test_understand_trends_is_retry_wrapped():
-    """WS2: understand_trends is split into searcher + synthesizer, wrapped as a
-    SequentialAgent inside the existing RetryUntilKeyAgent so an empty turn
-    retries the pair instead of crashing pick_trends_agent. The wrapper is still
-    exposed to the orchestrator as an AgentTool."""
-    from google.adk.agents import SequentialAgent
-    from google.adk.tools.agent_tool import AgentTool
+    """WS2 + P2: understand_trends is split into searcher + synthesizer, run as a
+    graph Workflow pair inside a RetryUntilKeyNode so an empty turn retries the
+    WHOLE pair instead of crashing pick_trends_agent. The wrapper is a bare node
+    in the orchestrator's tools (auto-wrapped into a NodeTool)."""
+    from google.adk.tools._node_tool import NodeTool
+    from google.adk.workflow import Workflow
 
-    from agent_common import RetryUntilKeyAgent
+    from agent_common import RetryUntilKeyNode
     from trend_scout.agent import root_agent
 
-    wrapped = [
-        t.agent
+    # LlmAgent's tools validator wraps a bare BaseNode into a NodeTool at
+    # construction, so the wrapper must appear as a NodeTool.
+    matching = [
+        t
         for t in root_agent.tools
-        if isinstance(t, AgentTool) and isinstance(t.agent, RetryUntilKeyAgent)
+        if isinstance(getattr(t, "node", None), RetryUntilKeyNode)
+        and t.node.output_key == "info_gtrends"
     ]
-    matching = [a for a in wrapped if a.output_key == "info_gtrends"]
-    assert matching, "no AgentTool wraps a RetryUntilKeyAgent producing info_gtrends"
+    assert matching, "no RetryUntilKeyNode producing info_gtrends in root tools"
+    tool = matching[0]
+    assert isinstance(tool, NodeTool)
+    wrapper = tool.node
+    assert isinstance(wrapper, RetryUntilKeyNode)
+    assert wrapper.max_attempts == 3
 
-    pair = matching[0].sub_agents[0]
-    assert isinstance(pair, SequentialAgent)
-    assert pair.sub_agents[0].output_key == "info_gtrends_raw"
-    assert pair.sub_agents[-1].output_key == "info_gtrends"
+    pair = wrapper.node
+    assert isinstance(pair, Workflow)
+    assert pair.graph is not None
+    names = [n.name for n in pair.graph.nodes if n.name != "__START__"]
+    assert names == ["understand_trends_searcher", "understand_trends_synthesizer"]
+    edges = {(e.from_node.name, e.to_node.name) for e in pair.graph.edges}
+    assert edges == {
+        ("__START__", "understand_trends_searcher"),
+        ("understand_trends_searcher", "understand_trends_synthesizer"),
+    }
+    by_name = {n.name: n for n in pair.graph.nodes}
+    searcher = by_name["understand_trends_searcher"]
+    synthesizer = by_name["understand_trends_synthesizer"]
+    assert searcher.output_key == "info_gtrends_raw"
+    assert synthesizer.output_key == "info_gtrends"
+    # Graph LlmAgents set single_turn explicitly (not left to the node default).
+    assert searcher.mode == "single_turn"
+    assert synthesizer.mode == "single_turn"
+
+
+def test_understand_trends_tool_declaration_unchanged():
+    """The NodeTool declaration must match what AgentTool declared before the
+    graph migration (name + description + a required ``request`` string), so
+    TREND_SCOUT_INSTR's tool calls keep working unchanged."""
+    import asyncio
+
+    from google.adk.tools._node_tool import NodeTool
+
+    from trend_scout.agent import root_agent, understand_trends_searcher
+
+    # Pre-migration: AgentTool(RetryUntilKeyAgent(description=searcher's)).
+    expected_description = (
+        "Conduct initial web research to briefly understand each trending topic"
+    )
+    assert understand_trends_searcher.description == expected_description
+
+    tools = asyncio.run(root_agent.canonical_tools())
+    (tool,) = [t for t in tools if t.name == "understand_trends_agent_resilient"]
+    assert isinstance(tool, NodeTool)
+    decl = tool._get_declaration()
+    assert decl is not None
+    assert decl.name == "understand_trends_agent_resilient"
+    assert decl.description == expected_description
+    schema = decl.parameters_json_schema
+    assert isinstance(schema, dict)
+    assert schema["required"] == ["request"]
+    assert set(schema["properties"]) == {"request"}
+    assert schema["properties"]["request"]["type"] == "string"
+    assert "description" not in schema  # no schema docstring shown to the model
 
 
 def test_pick_trends_info_gtrends_optional():

@@ -49,6 +49,25 @@ Paths are relative to `.venv/lib/python3.13/site-packages/google/adk/`.
    - **T1/T2 step:** before moving a stage, grep its instruction for dependence on prior-turn text. It should read only `{key}` / `{key?}` state tokens. Add the P2 doc's "no-output function node" between `research_join` and `merge_planners` **up front**, so the JoinNode dict isn't injected as a user turn. Don't wait for the eval.
 5. **Distinct `run_id` ⇒ fresh execution** (`_dynamic_node_scheduler.py:321-376`). This confirms the `RetryUntilKeyNode` design: `run_id=f"{self.name}_attempt_{n}"` contains a non-digit, as required.
 
+### T0 spike results (2026-09-29; pinned in `tests/test_workflow_api_contract.py`)
+
+These supersede Correction 1's hypothesis.
+
+6. **What actually pauses the root is a workflow with no output, not `is_long_running`.**
+   - A bare `NodeTool` works from both a plain root and a resumable `App` root, *provided the workflow's last node returns a value*.
+   - If the workflow finishes with **no output**, `run_node(..., raise_on_wait=True)` raises `NodeInterruptedError` (`_dynamic_node_scheduler.py:746-751`). `NodeTool` re-raises it: no function response comes back, and the root's turn ends silently.
+   - A non-long-running subclass does **not** help. So `PipelineTool` is dropped, and bare nodes go into `tools=[...]`.
+   - **Rule:** every tool-exposed Workflow must end in a node that returns a **truthy** value. `NodeTool` is long-running, and ADK skips the function response for a falsy long-running result (`flows/llm_flows/tools/_caller.py:895-897`), so `""` stalls the root too.
+     - `RetryUntilKeyNode` yields `state[output_key]` as its output. On exhaustion it yields a non-empty "unavailable" notice alongside the marker (T1).
+     - A final `LlmAgent` yields its text.
+     - Any other terminal node (fakes, state-only nodes) needs a function node after it that returns a value.
+   - trend_scout's only exposed node is a `RetryUntilKeyNode`, truthy by construction (pinned by `test_retry_node`). A generic structure test over every root-tool node lands in T2, when `creative_agent` exposes pipeline Workflows.
+7. **Nodes are cloned on every run** (a shallow `clone()`). Per-instance counters or state on a node are lost, so tests count runs through shared lists.
+8. **Two calls to the same pipeline tool in one invocation replay the cached result;** a call in the next user message runs fresh. So retry-on-empty must live *inside* the pipeline (`RetryUntilKeyNode`), never in root re-calls. Same-invocation replay also means a failed-then-retried tool call re-runs only the failed node: the first node ran once across two calls in (d).
+9. **The `JoinNode` output is a dict keyed by upstream node name.** This confirms the need for `research_barrier` (Correction 4).
+10. **The `NodeTool` wrapping happens when the agent is constructed:** `_pre_validate_tools` (`agents/llm_agent.py:1255-1264`) turns every non-agent `BaseNode` into a `NodeTool`, so `r.tools` already holds `NodeTool`s. The declaration is the workflow's name and description plus a required `request` string, the same shape as `AgentTool` (pydantic adds titles, plus the field description).
+11. **Inner pipeline events now land in the parent session** on branch `<tool>@<fc_id>`. `AgentTool` used to keep them in an isolated sub-runner. They don't reach the root model's context, but the session event count and the frontend timeline grow. Check the frontend rendering in the G4 manual run, and count events in the G3 eval (open question 3).
+
 ## Conventions (restate in every subagent dispatch)
 
 - Branch off `main`, one PR per group: **G1** idempotency, **G2** T0+T1, **G3** T2, **G4** T3, **G5** T4. Squash-merge only after CI is green.
