@@ -13,7 +13,7 @@ formatting (`ruff`), type checking (`ty`), testing (`pytest`), and commit conven
 
 Trend Trawler is a multi-agent system that automates trend-to-creative ad generation. It identifies culturally relevant Google Search trends, conducts web research, and generates candidate ad copy and visual concepts for a given brand/campaign. Built with Google's ADK (Agent Development Kit), deployed to Vertex AI Agent Engine, and orchestrated via Cloud Run Functions with PubSub triggers.
 
-**Naming:** Agent Engine = *Agent Runtime*. As of 2026 Vertex AI is branded "Gemini Enterprise Agent Platform" and Agent Engine was renamed Agent Runtime; this repo (and these docs) still say Agent Engine because the code uses the `google-cloud-aiplatform` 1.x `vertexai.Client().agent_engines` API. Migrating to the `google-cloud-agentplatform` SDK is proposal P1 in `docs/plans/2026-09-28-repo-refresh.md`.
+**Naming:** Agent Engine = *Agent Runtime* (2026 rebrand, Gemini Enterprise Agent Platform). The code still uses the aiplatform 1.x `agent_engines` API; SDK migration is P1 in `docs/plans/2026-09-28-repo-refresh.md` (full note in README).
 
 ## Commands
 
@@ -112,43 +112,32 @@ as its import path (`tarfile.add(path)` → arcname), so nesting would break eve
 ### Agent Composition
 
 ```
-trend_scout (root Agent `trend_scout`; app = App(..., ResumabilityConfig(is_resumable=True)))
-├── gather_trends_agent (AgentTool; get_daily_gtrends tool)
-├── understand_trends_agent_resilient (AgentTool; RetryUntilKeyAgent → info_gtrends)
-│   └── understand_trends_search_and_synthesize (SequentialAgent)
-│       ├── understand_trends_searcher (google_search → info_gtrends_raw)
-│       └── understand_trends_synthesizer (→ info_gtrends)
-├── pick_trends_agent (AgentTool; strategic filtering → selected_gtrends)
+trend_scout (root Agent `trend_scout`; App + ResumabilityConfig(is_resumable=True); sub-agents via AgentTool)
+├── gather_trends_agent (get_daily_gtrends tool)
+├── understand_trends_agent_resilient (RetryUntilKeyAgent over searcher → synthesizer → info_gtrends)
+├── pick_trends_agent (strategic filtering → selected_gtrends)
 ├── review_trends (LongRunningFunctionTool — opt-in interactive trend pick)
 └── Persistence tools (BigQuery, GCS, record_research_gaps, memorize)
 
-creative_agent (root Agent `root_agent`; no App wrapper)
-├── combined_research_pipeline (AgentTool; SequentialAgent)
-│   ├── merge_parallel_insights (SequentialAgent)
-│   │   ├── parallel_planner_agent (ParallelAgent)
-│   │   │   ├── gs_sequential_planner (trend_researcher: gs_web_planner → gs_web_searcher_resilient)
-│   │   │   └── ca_sequential_planner (campaign_researcher: campaign_web_planner → campaign_web_searcher_resilient)
-│   │   │       (each *_resilient = RetryUntilKeyAgent over a searcher → synthesizer SequentialAgent)
-│   │   └── merge_planners (→ combined_web_search_insights)
-│   ├── research_refinement_block (RunIfAgent — runs only when base research is degraded)
-│   │   ├── combined_web_evaluator
-│   │   └── enhanced_combined_searcher_resilient (RetryUntilKeyAgent: enhanced_combined_searcher → refined_web_synthesizer)
+creative_agent (root Agent `root_agent`; no App wrapper; sub-agents via AgentTool)
+├── combined_research_pipeline (SequentialAgent)
+│   ├── merge_parallel_insights: parallel_planner_agent (ParallelAgent: gs_/ca_sequential_planner,
+│   │   each planner → RetryUntilKeyAgent-wrapped searcher+synthesizer) → merge_planners
+│   ├── research_refinement_block (RunIfAgent — only when base research is degraded;
+│   │   evaluator + RetryUntilKeyAgent-wrapped refined search)
 │   └── combined_report_composer (→ combined_final_cited_report)
-├── ad_creative_pipeline (AgentTool; SequentialAgent: ad_copy_drafter → ad_copy_critic)
-├── visual_production_pipeline (AgentTool; SequentialAgent)
-│   ├── visual_generation_pipeline (SequentialAgent: art_director → visual_concept_drafter → visual_concept_critic → visual_concept_finalizer)
-│   └── visual_generator_resilient (RetryUntilKeyAgent → visual_generator, generate_image tool)
-├── creative_eval_agent (AgentTool; LLM-as-judge scoring, from creative_eval)
+├── ad_creative_pipeline (SequentialAgent: drafter + critic)
+├── visual_production_pipeline (SequentialAgent)
+│   ├── visual_generation_pipeline (art_director + concept drafter/critic/finalizer)
+│   └── visual_generator_resilient (RetryUntilKeyAgent → visual_generator, generate_image)
+├── creative_eval_agent (LLM-as-judge scoring, from creative_eval)
 └── Persistence tools (GCS, BigQuery, HTML gallery, memorize)
 
-interactive_creative (root Agent `root_agent`; app = App(..., ResumabilityConfig(is_resumable=True)))
+interactive_creative (root Agent `root_agent`; App + ResumabilityConfig(is_resumable=True); sub-agents via AgentTool)
 ├── combined_research_pipeline / ad_creative_pipeline / visual_generation_pipeline (reused from creative_agent)
-├── review_research (LongRunningFunctionTool checkpoint 1)
-├── review_ad_copies (LongRunningFunctionTool checkpoint 2)
-├── review_visual_concepts (LongRunningFunctionTool checkpoint 3)
+├── review_research / review_ad_copies / review_visual_concepts (LongRunningFunctionTool checkpoints 1–3)
 ├── visual_concept_reviser (applies checkpoint-3 revision notes → final_visual_concepts)
-├── visual_generator_resilient (reused; renders after the reviser)
-├── creative_eval_agent
+├── visual_generator_resilient + creative_eval_agent (reused; render after the reviser)
 └── Persistence tools (same as creative_agent)
 ```
 

@@ -42,7 +42,7 @@ Functions are thin orchestration glue (`cloud_functions/creative_fanout/main.py`
 - **Orchestrator** (`crf_entrypoint`, concurrency=100): Eventarc→Pub/Sub-triggered
   (`CREATIVE_TOPIC_NAME`/`CREATIVE_TRIGGER_NAME`) → queries BigQuery for `processed_status IS NULL`
   rows → marks them `QUEUED` → publishes one worker message per row (fire-and-forget).
-- **Worker** (`agent_worker_entrypoint`, concurrency=1, timeout=900s): Pub/Sub-triggered
+- **Worker** (`agent_worker_entrypoint`, concurrency=1, timeout=900s — worker timeout since raised to 1800s): Pub/Sub-triggered
   (`CREATIVE_WORKER_TOPIC_NAME`) → **atomic BigQuery lock** (`acquire_processing_lock`:
   conditional `UPDATE … WHERE processed_status='QUEUED'`, verifying `num_dml_affected_rows == 1`)
   → invokes Agent Engine via `async_stream_query` → marks `PROCESSED` / `FAILED`.
