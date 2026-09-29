@@ -9,6 +9,7 @@ see the [main README](../README.md).
 - [Deploying Agents to Agent Engine](#deploying-agents-to-agent-engine)
 - [Cloud Run Functions Fan-out Pattern](#cloud-run-functions-fan-out-pattern)
 - [Frontend + api_server on Cloud Run](#frontend--api_server-on-cloud-run)
+- [Eval CI (WIF)](#eval-ci-wif)
 - [Alternative Deployment: deploy to Cloud Run instances](#alternative-deployment-deploy-to-cloud-run-instances)
 
 ## Prerequisites
@@ -990,6 +991,127 @@ credential; `runserver/authz.py` logs only the rejection reason, rate-limited.
 **Rollback:** `--update-env-vars USER_AUTHZ_MODE=observe` on the api (keeps the new code,
 stops enforcing). Always move the api to `observe` *before* rolling back web alone —
 an old proxy sends no `X-TT-User`, so an enforcing api would 401 every UI call.
+
+---
+
+## Eval CI (WIF)
+
+`.github/workflows/adk-eval.yml` runs the end-to-end `adk eval` suites (trend_scout,
+creative_agent; serialized) **nightly at 02:17 PT** and on manual dispatch — never on
+PRs (each run spends the shared 5-RPM Pro quota). It authenticates with **Workload
+Identity Federation** (no SA key) and is **inert until `EVAL_WIF_PROVIDER` is set**
+(the job is skipped otherwise).
+
+> **Isolation is mandatory.** trend_scout's eval writes rows into `target_trends_crf`,
+> which the CRF orchestrator claims and fans out into paid creative runs. Evals must
+> point at the isolated **`trend_trawler_eval`** dataset and a dedicated eval bucket; the
+> workflow refuses to run if `EVAL_BQ_DATASET_ID` is empty or equals `trend_trawler`,
+> and the CI SA has write access to the eval dataset/bucket **only**.
+
+### One-time setup
+
+```bash
+PROJECT=$GOOGLE_CLOUD_PROJECT
+PROJECT_NUMBER=$(gcloud projects describe $PROJECT --format='value(projectNumber)')
+REPO=tottenjordan/adk_pipe
+SA=tt-eval-ci-sa@$PROJECT.iam.gserviceaccount.com
+EVAL_BUCKET=$PROJECT-trend-trawler-eval
+
+# 1. WIF pool + GitHub OIDC provider (only main of this repo can mint tokens)
+gcloud iam workload-identity-pools create github \
+  --project=$PROJECT --location=global --display-name="GitHub Actions"
+gcloud iam workload-identity-pools providers create-oidc adk-pipe \
+  --project=$PROJECT --location=global --workload-identity-pool=github \
+  --issuer-uri="https://token.actions.githubusercontent.com" \
+  --attribute-mapping="google.subject=assertion.sub,attribute.repository=assertion.repository,attribute.ref=assertion.ref" \
+  --attribute-condition="assertion.repository=='$REPO' && assertion.ref=='refs/heads/main'"
+
+# 2. CI service account + let the repo's WIF principals impersonate it
+gcloud iam service-accounts create tt-eval-ci-sa --project=$PROJECT \
+  --display-name="Trend Trawler eval CI"
+gcloud iam service-accounts add-iam-policy-binding $SA --project=$PROJECT \
+  --role=roles/iam.workloadIdentityUser \
+  --member="principalSet://iam.googleapis.com/projects/$PROJECT_NUMBER/locations/global/workloadIdentityPools/github/attribute.repository/$REPO"
+
+# 3. Project roles: Vertex model calls + running BQ jobs (no project-wide data access)
+for ROLE in roles/aiplatform.user roles/bigquery.jobUser; do
+  gcloud projects add-iam-policy-binding $PROJECT --member="serviceAccount:$SA" --role=$ROLE
+done
+
+# 4. Isolated eval dataset, with EMPTY tables cloned from the prod schemas
+bq mk --dataset --location=us-central1 $PROJECT:trend_trawler_eval
+for T in target_trends_crf trend_creatives creative_evals; do
+  bq show --schema --format=prettyjson $PROJECT:trend_trawler.$T > /tmp/$T.schema.json
+  bq mk --table $PROJECT:trend_trawler_eval.$T /tmp/$T.schema.json
+done
+# dataEditor on the eval dataset ONLY (dataset-scoped grant)
+bq add-iam-policy-binding --member="serviceAccount:$SA" \
+  --role=roles/bigquery.dataEditor $PROJECT:trend_trawler_eval
+
+# 5. Eval bucket (30-day auto-delete) — objectAdmin on this bucket ONLY
+gcloud storage buckets create gs://$EVAL_BUCKET --project=$PROJECT --location=us-central1 \
+  --uniform-bucket-level-access
+cat > /tmp/eval-lifecycle.json <<'EOF'
+{"rule": [{"action": {"type": "Delete"}, "condition": {"age": 30}}]}
+EOF
+gcloud storage buckets update gs://$EVAL_BUCKET --lifecycle-file=/tmp/eval-lifecycle.json
+gcloud storage buckets add-iam-policy-binding gs://$EVAL_BUCKET \
+  --member="serviceAccount:$SA" --role=roles/storage.objectAdmin
+```
+
+### Repo variables
+
+```bash
+gh variable set EVAL_WIF_PROVIDER --body \
+  "projects/$PROJECT_NUMBER/locations/global/workloadIdentityPools/github/providers/adk-pipe"
+gh variable set EVAL_SERVICE_ACCOUNT --body "$SA"
+gh variable set GOOGLE_CLOUD_PROJECT --body "$PROJECT"
+gh variable set EVAL_BQ_DATASET_ID   --body trend_trawler_eval
+gh variable set EVAL_GCS_BUCKET      --body "$EVAL_BUCKET"   # bare name, no gs://
+```
+
+The workflow derives the rest: `BQ_PROJECT_ID` = `GOOGLE_CLOUD_PROJECT`, the table names
+are the prod literals (`target_trends_crf` / `trend_creatives` / `creative_evals` — the
+dataset is what isolates them), `GOOGLE_CLOUD_LOCATION=global`, `GCP_REGION=us-central1`,
+`GOOGLE_GENAI_USE_ENTERPRISE=1`.
+
+### Running
+
+```bash
+gh workflow run adk-eval.yml -f agent=trend_scout     # or creative_agent | all
+```
+
+Each matrix leg uploads `<agent>/.adk/eval_history/` as an artifact and writes the gate's
+table to the job summary.
+
+### Efficiency gate
+
+**`adk eval` exits 0 even when cases fail**, so the gate step
+(`tests/eval/efficiency_gate.py`) is the pass/fail signal. It reads the newest
+`<agent>/.adk/eval_history/*.evalset_result.json` and compares ADK's informational
+per-invocation metrics against [`docs/baselines/eval_efficiency.json`](../docs/baselines/eval_efficiency.json)
+(`{agent: {eval_id: {metric: value}}}`). Per case:
+
+| Check | Result |
+|---|---|
+| `final_eval_status` != PASSED (with or without a baseline) | **FAIL** |
+| `token_usage_v1` > baseline +25% | **FAIL** |
+| `inference_call_count_v1` / `tool_call_count_v1` > baseline +30% | **FAIL** |
+| `invocation_duration_v1` > baseline +50% | warn only (latency is quota-noisy) |
+| no baseline for the case/metric, or a baseline of 0 | noted, not gated |
+
+(These metrics can't be given thresholds in `tests/eval/*.json` — ADK raises — hence the
+separate gate.)
+
+**Refreshing the baseline:** run the evals (locally or download a CI artifact into
+`<agent>/.adk/eval_history/`), then
+
+```bash
+uv run python tests/eval/efficiency_gate.py --agent trend_scout --update-baseline
+```
+
+It refuses to write if any case failed, preserves the other agents' entries, and the
+resulting diff to `docs/baselines/eval_efficiency.json` lands via a reviewed PR.
 
 ---
 

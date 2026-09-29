@@ -37,6 +37,8 @@ tests/
 ├── _fakes.py                        # shared test doubles: fake producers + stub/recording LLMs (retry-node + graph-Workflow tests), FakeToolContext/FakeState, FakeStorageClient, noop_async
 ├── conftest.py                      # shared fixtures: gcp_project_env (dummy GOOGLE_CLOUD_PROJECT), fresh_config (fresh package import, restored after)
 ├── eval/                            # ADK evals — rubric-based LLM-as-judge (real APIs)
+│   ├── __init__.py                  # makes tests.eval importable (for the gate's unit tests)
+│   ├── efficiency_gate.py           # CI regression gate over adk eval's informational metrics (not a pytest file)
 │   ├── eval_config.json             # trend_scout rubric config
 │   ├── creative_eval_config.json    # creative_agent rubric config
 │   └── evalsets/
@@ -54,6 +56,7 @@ tests/
 ├── test_config.py                   # per-agent config resolution (incl. campaign-placement resolver)
 ├── test_create_session_engine.py    # create_session_engine.py (reuse-or-create sessions-only engine)
 ├── test_creative_agent_graph.py     # creative_agent graph pipelines end-to-end (stub models): routing, citations, no-stall
+├── test_eval_efficiency_gate.py     # efficiency gate: metric extraction, tolerances, warn-only latency, CLI exit codes, --update-baseline
 ├── test_creative_eval.py            # creative_eval schemas, scoring logic, config
 ├── test_crf_config.py               # env-driven CRF config (required project, no hardcoding)
 ├── test_crf_entrypoint.py           # crf_entrypoint orchestrator (issue #46)
@@ -141,4 +144,7 @@ tests/
   drivers are integration-only. See [../experiments/README.md](../experiments/README.md).
 - **Evals** (`eval/`) — end-to-end `adk eval` cases with rubric-based LLM-as-judge scoring
   (response quality + tool-use quality). One evalset + rubric config per agent. Runs
-  against real APIs.
+  against real APIs. `eval/efficiency_gate.py` gates the nightly `adk-eval.yml` CI run on
+  final status + token/call-count regressions vs `docs/baselines/eval_efficiency.json`
+  (unit-tested offline by `test_eval_efficiency_gate.py`; see
+  [deployment/README.md → Eval CI (WIF)](../deployment/README.md#eval-ci-wif)).

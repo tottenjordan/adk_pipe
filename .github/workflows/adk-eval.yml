@@ -1,0 +1,130 @@
+name: ADK eval
+
+# End-to-end `adk eval` (LLM-as-judge, real Vertex calls, ~5 min per case) plus
+# the efficiency regression gate (tests/eval/efficiency_gate.py). NOT on PRs:
+# every run spends the shared, project-wide 5-RPM Pro quota and writes to
+# BigQuery/GCS, so it runs nightly and on demand only.
+#
+# Inert until set up: the job is skipped unless the repo variable
+# EVAL_WIF_PROVIDER is set (see deployment/README.md -> "Eval CI (WIF)").
+on:
+  workflow_dispatch:
+    inputs:
+      agent:
+        description: "Agent to evaluate"
+        type: choice
+        options:
+          - all
+          - trend_scout
+          - creative_agent
+        default: all
+  schedule:
+    # 09:17 UTC = 02:17 PT: off-peak for the shared 5-RPM Pro quota, and off the
+    # top of the hour (GitHub's scheduler is congested at :00).
+    - cron: "17 9 * * *"
+
+permissions:
+  contents: read
+  # Mint the GitHub OIDC token that Workload Identity Federation exchanges for
+  # short-lived GCP credentials (no service-account key in the repo).
+  id-token: write
+
+# One eval run at a time across the whole repo (both agents share the Pro and
+# image quotas); queue rather than cancel so a manual run never kills a nightly.
+concurrency:
+  group: adk-eval
+  cancel-in-progress: false
+
+jobs:
+  eval:
+    # Skip entirely until the WIF provider is configured.
+    if: vars.EVAL_WIF_PROVIDER != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      # Serialize the agents (shared quota) and let one agent's failure not
+      # cancel the other's run.
+      max-parallel: 1
+      fail-fast: false
+      matrix:
+        # The matrix itself is filtered: `matrix` isn't available in a job-level
+        # `if`, and `include`-based per-agent config would create phantom combos
+        # when an agent is filtered out. `inputs.agent` is empty on schedule,
+        # which (like "all") runs both agents.
+        agent: ${{ fromJSON((inputs.agent == '' || inputs.agent == 'all') && '["trend_scout","creative_agent"]' || format('["{0}"]', inputs.agent)) }}
+    env:
+      # Per-agent rubric config (see CLAUDE.md -> Testing).
+      EVAL_CONFIG: ${{ matrix.agent == 'creative_agent' && 'tests/eval/creative_eval_config.json' || 'tests/eval/eval_config.json' }}
+      GOOGLE_CLOUD_PROJECT: ${{ vars.GOOGLE_CLOUD_PROJECT }}
+      # gemini-3.x is only served from `global`; regional resources use GCP_REGION.
+      GOOGLE_CLOUD_LOCATION: global
+      GOOGLE_GENAI_USE_ENTERPRISE: "1"
+      GCP_REGION: us-central1
+      # !!! ISOLATION — DO NOT POINT AT PROD !!!
+      # Evals MUST use the isolated `trend_trawler_eval` dataset and the eval
+      # bucket: trend_scout's eval writes rows into `target_trends_crf`, which the
+      # CRF orchestrator claims and fans out to (paid) creative runs. The
+      # "Refuse prod data targets" step below enforces this.
+      GOOGLE_CLOUD_STORAGE_BUCKET: ${{ vars.EVAL_GCS_BUCKET }}
+      BQ_PROJECT_ID: ${{ vars.GOOGLE_CLOUD_PROJECT }}
+      BQ_DATASET_ID: ${{ vars.EVAL_BQ_DATASET_ID }}
+      # Same table names as prod (.env.example); the dataset is what isolates them.
+      BQ_TABLE_TARGETS: target_trends_crf
+      BQ_TABLE_CREATIVES: trend_creatives
+      BQ_TABLE_EVALS: creative_evals
+    steps:
+      - name: Refuse prod data targets
+        run: |
+          if [ -z "$BQ_DATASET_ID" ] || [ "$BQ_DATASET_ID" = "trend_trawler" ]; then
+            echo "::error::EVAL_BQ_DATASET_ID must be set to the isolated eval dataset (trend_trawler_eval), got '${BQ_DATASET_ID}'"
+            exit 1
+          fi
+          if [ -z "$GOOGLE_CLOUD_STORAGE_BUCKET" ] || [ -z "$GOOGLE_CLOUD_PROJECT" ]; then
+            echo "::error::EVAL_GCS_BUCKET and GOOGLE_CLOUD_PROJECT repo variables must be set"
+            exit 1
+          fi
+
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@v10.2.0
+        with:
+          # Match python-ci.yml / the Dockerfile.
+          version: "0.12.19"
+          python-version: "3.13"
+          enable-cache: true
+
+      - uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.EVAL_WIF_PROVIDER }}
+          service_account: ${{ vars.EVAL_SERVICE_ACCOUNT }}
+
+      - name: Install dependencies
+        run: uv sync --locked
+
+      # PYTHONPATH: adk eval's loader doesn't put the repo root on sys.path, so
+      # sibling imports (creative_eval, agent_common) would fail otherwise.
+      # NOTE: `adk eval` exits 0 even when cases FAIL — the gate below is the signal.
+      - name: adk eval
+        run: |
+          PYTHONPATH="$PWD" uv run adk eval ${{ matrix.agent }} \
+            tests/eval/evalsets/${{ matrix.agent }}_evalset.json \
+            --config_file_path="$EVAL_CONFIG" \
+            --print_detailed_results
+
+      # Fails on any non-PASSED case and on token/call-count regressions vs the
+      # committed baseline; latency only warns. Writes a table to the job summary.
+      - name: Efficiency gate
+        run: |
+          uv run python tests/eval/efficiency_gate.py \
+            --agent ${{ matrix.agent }} \
+            --baseline docs/baselines/eval_efficiency.json
+
+      - name: Upload eval history
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: eval-history-${{ matrix.agent }}
+          path: ${{ matrix.agent }}/.adk/eval_history/
+          if-no-files-found: warn
+          # The path is under .adk/; upload-artifact skips hidden paths by default.
+          include-hidden-files: true
