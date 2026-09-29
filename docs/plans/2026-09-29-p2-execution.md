@@ -2,6 +2,8 @@
 
 > **For Claude:** REQUIRED SUB-SKILL: Use `subagent-driven-development` (or `executing-plans`) to implement this plan task-by-task.
 > Approved 2026-09-29; P2 doc Status updated accordingly.
+>
+> **Status: P2 complete (2026-09-29).** G1–G5 all implemented; G5 (T4 cleanup) retired the deprecation filter and the legacy `RunIfAgent`/`RetryUntilKeyAgent` wrappers.
 
 **Goal:** Carry out `docs/plans/2026-09-29-p2-adk-workflow-migration.md` (the "P2 doc") end to end. That means:
 - make the BigQuery writes idempotent;
@@ -219,6 +221,11 @@ Branch `chore/p2-t4-cleanup`. Implement P2 doc Task T4 in full:
 
 Then PR → merge → **DEPLOY(api)** only. The engines are behavior-identical, and the removed filter only affects warnings. Run integration `--check health`.
 
+G5 as implemented (2026-09-29):
+- `_is_populated` became the public module function `agent_common.retry_node.is_populated` (re-exported from `agent_common`); `creative_agent`'s truthy terminal nodes call it directly. Its truth table moved into `tests/test_retry_node.py`; every other `test_retry_agent.py` case was already mirrored there.
+- No `pipeline_tool.py` exists (dropped in T0, finding 6), so there is no bullet for it.
+- The no-deprecation guard can't use a blanket `simplefilter("error", DeprecationWarning)`: unrelated third-party imports already raise DeprecationWarning at import time (e.g. typing's `_UnionGenericAlias` notice on Python 3.14). So the guard scopes the error filter to ADK's `(Sequential|Parallel|Loop)Agent is deprecated` message, with a positive-control test proving the filter fires. It also imports the agent modules in a fresh subprocess instead of `importlib.reload`, because reloading in-process would rebuild agent objects that other tests hold (e.g. interactive_creative's reused creative_agent pipelines).
+
 ---
 
 ## Stop conditions (report to the user; don't improvise)
@@ -232,7 +239,7 @@ Then PR → merge → **DEPLOY(api)** only. The engines are behavior-identical, 
 
 - CI is green on every PR; offline suite + `ty` + ruff pass locally.
 - `grep -rnE "SequentialAgent|ParallelAgent|LoopAgent|RunIfAgent|RetryUntilKeyAgent" --include=*.py . | grep -v .venv` finds nothing outside the historical docs.
-- Importing all three agent modules under `warnings.simplefilter("error", DeprecationWarning)` succeeds (the G5 guard test).
+- Importing all three agent modules with ADK's legacy-container DeprecationWarning turned into an error succeeds (the G5 guard test; scoped rather than blanket, see G5).
 - Evals for trend_scout (G2) and creative_agent (G3, G4) are within tolerance of same-day `main` baselines, with the results recorded in each PR body.
 - After each deploy: integration `--check all` passes, api traffic is pinned to the new revision, old engines are deleted, and the CRF worker points at the current creative engine.
 - BQ: one row per smoke run in `trend_creatives` / `creative_evals`, even after a resumed run.
