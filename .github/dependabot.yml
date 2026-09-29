@@ -11,6 +11,11 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    # Direct deps only: transitive bumps (otel, google-api-core, pydantic-core,
+    # ...) are capped by google-adk / aiplatform 1.x, so they only ever arrived as
+    # requirements.txt-only PRs that desync from uv.lock.
+    allow:
+      - dependency-type: "direct"
     groups:
       python-minor-patch:
         update-types: ["minor", "patch"]
@@ -52,6 +57,10 @@ updates:
         update-types: ["version-update:semver-major"]
       # Tracks the Node 22 runtime (.nvmrc, Dockerfile, CI).
       - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
+      # typescript-eslint (via eslint-config-next) peers typescript <6.1;
+      # bump with it.
+      - dependency-name: "typescript"
         update-types: ["version-update:semver-major"]
 
   - package-ecosystem: "github-actions"
