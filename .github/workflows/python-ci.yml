@@ -55,6 +55,14 @@ jobs:
       - name: Install dependencies
         run: uv sync --locked
 
+      # requirements.txt (the Agent Engine deploy file) is an export of uv.lock.
+      # Fail if it drifts — e.g. a Dependabot PR that bumps requirements.txt
+      # alone, which CI (installing from uv.lock) would otherwise never exercise.
+      - name: requirements.txt matches uv.lock export
+        run: |
+          uv export --format requirements-txt --no-hashes --no-dev -o requirements.txt
+          git diff --exit-code requirements.txt
+
       - name: Ruff lint
         run: uv run ruff check .
 
