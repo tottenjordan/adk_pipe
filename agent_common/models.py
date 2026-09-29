@@ -20,6 +20,9 @@ from google.adk.models import FallbackModel, Gemini
 
 from agent_common import genai_retry, locations
 
+# ~10s of HTTP backoff on the primary before failing over, not the full ~130s.
+PRIMARY_FAILOVER_ATTEMPTS = 2
+
 
 def build_gemini(
     model_name: str, location: str | None = None, retry_attempts: int | None = None
@@ -53,10 +56,6 @@ def build_gemini(
         retry_options=retry,
         client_kwargs={"location": location or locations.MODEL_LOCATION},
     )
-
-
-# ~10s of HTTP backoff on the primary before failing over, not the full ~130s.
-PRIMARY_FAILOVER_ATTEMPTS = 2
 
 
 def build_gemini_with_fallback(

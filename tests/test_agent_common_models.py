@@ -90,6 +90,8 @@ def test_build_gemini_with_fallback_wraps_pinned_models(monkeypatch):
     _fresh_locations(monkeypatch)
     from google.adk.models import FallbackModel, Gemini
 
+    from agent_common import models
+    from agent_common.genai_retry import build_genai_http_retry
     from agent_common.models import build_gemini_with_fallback
 
     m = build_gemini_with_fallback("gemini-3.1-pro-preview", "gemini-3.8-flash")
@@ -102,8 +104,8 @@ def test_build_gemini_with_fallback_wraps_pinned_models(monkeypatch):
     assert backup.client_kwargs == {"location": "global"}
     # primary fails over fast; backup keeps the full quota-paced retry
     assert primary.retry_options is not None and backup.retry_options is not None
-    assert primary.retry_options.attempts == 2
-    assert backup.retry_options.attempts == 5
+    assert primary.retry_options.attempts == models.PRIMARY_FAILOVER_ATTEMPTS
+    assert backup.retry_options.attempts == build_genai_http_retry().attempts
     assert {429, 503} <= m.retriable_status_codes
 
 

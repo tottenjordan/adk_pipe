@@ -61,7 +61,9 @@ class BaseAgentConfiguration:
     # Pro producers fail over to this on 429/5xx (ADK FallbackModel, see
     # agent_common.models.build_gemini_with_fallback). Defaults to worker_model's
     # bucket — never ALT_GLOBAL_MODEL (PR #101 campaign spread). os.getenv (not
-    # `or`) so CRITIC_FALLBACK_MODEL="" stays empty: the kill switch.
+    # `or`) so CRITIC_FALLBACK_MODEL="" stays empty: the kill switch. The literal
+    # mirrors worker_model (drift guarded by
+    # test_critic_fallback_defaults_to_worker_bucket).
     critic_fallback_model: str = field(
         default_factory=lambda: os.getenv("CRITIC_FALLBACK_MODEL", "gemini-3.8-flash")
     )
