@@ -16,6 +16,7 @@ from agent_common import (
     PipelineRequest,
     RetryUntilKeyNode,
     build_gemini,
+    build_gemini_with_fallback,
     is_populated,
 )
 from creative_eval.agent import creative_eval_agent
@@ -68,7 +69,7 @@ merge_planners = Agent(
 
 
 combined_web_evaluator = Agent(
-    model=build_gemini(config.critic_model),
+    model=build_gemini_with_fallback(config.critic_model, config.critic_fallback_model),
     name="combined_web_evaluator",
     mode="single_turn",
     include_contents="none",
@@ -148,7 +149,7 @@ enhanced_combined_searcher_resilient = RetryUntilKeyNode(
 # research. The refinement is additive — the full base research is in
 # `{combined_web_search_insights}` — so degrading to an empty section is the right fallback.
 combined_report_composer = Agent(
-    model=build_gemini(config.critic_model),
+    model=build_gemini_with_fallback(config.critic_model, config.critic_fallback_model),
     name="combined_report_composer",
     mode="single_turn",
     include_contents="none",
@@ -488,7 +489,7 @@ visual_concept_finalizer = Agent(
 # a separate step AFTER a human review checkpoint (review concepts before spending on
 # image generation), so it must also remain usable as a standalone agent.
 visual_generator = Agent(
-    model=build_gemini(config.critic_model),
+    model=build_gemini_with_fallback(config.critic_model, config.critic_fallback_model),
     name="visual_generator",
     mode="single_turn",
     retry_config=INFRA_RETRY,
@@ -647,7 +648,7 @@ visual_production_pipeline = Workflow(
 
 # --- MAIN ORCHESTRATOR AGENT ---
 root_agent = Agent(
-    model=build_gemini(config.critic_model),
+    model=build_gemini_with_fallback(config.critic_model, config.critic_fallback_model),
     name="root_agent",
     retry_config=INFRA_RETRY,
     description="Help with ad generation; brainstorm and refine ad copy and visual concept ideas with actor-critic workflows; generate final ad creatives.",
