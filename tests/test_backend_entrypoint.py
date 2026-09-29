@@ -30,7 +30,7 @@ def test_session_uri_not_a_cli_flag():
     # The URI is consumed inside async_app.py, never passed as a CLI argument, so
     # it must not appear in the exec'd argv regardless of whether it is set.
     uri = (
-        "agentengine://projects/934903580331/locations/us-central1/reasoningEngines/123"
+        "agentengine://projects/123456789012/locations/us-central1/reasoningEngines/123"
     )
     assert "--session_service_uri" not in _run({})
     cmd = _run({"SESSION_SERVICE_URI": uri})

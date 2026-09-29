@@ -144,7 +144,7 @@ class TestBuildTrendInsertSql:
         from trend_scout.tools import _build_trend_insert_sql
 
         params = dict(
-            table="hybrid-vertex.trend_trawler.target_trends_crf",
+            table="test-project.trend_trawler.target_trends_crf",
             unique_id="abcd1234",
             trend="Golden Dip",
             max_date="07/15/2026",
