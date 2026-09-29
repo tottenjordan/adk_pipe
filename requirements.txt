@@ -136,7 +136,7 @@ google-auth==2.59.0
     #   google-cloud-storage
     #   google-cloud-texttospeech
     #   google-genai
-google-cloud-aiplatform==1.165.1
+google-cloud-aiplatform==2.2.0
     # via
     #   adk-pipe
     #   google-adk

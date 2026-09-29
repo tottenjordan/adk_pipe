@@ -8,11 +8,14 @@ updates:
     # Note: Dependabot may also bump the root requirements.txt on its own; that
     # file is a `uv export` of uv.lock, so CI's drift check fails such PRs —
     # close them (updates land via uv.lock).
+    # pyproject [tool.uv] override-dependencies lifts google-adk[eval]'s
+    # aiplatform <2 cap; a google-adk bump never removes it — drop it by hand
+    # when ADK allows 2.x, and bump the override too on an aiplatform major.
     directory: "/"
     schedule:
       interval: "weekly"
     # Direct deps only: transitive bumps (otel, google-api-core, pydantic-core,
-    # ...) are capped by google-adk / aiplatform 1.x, so they only ever arrived as
+    # ...) are capped by google-adk / aiplatform, so they only ever arrived as
     # requirements.txt-only PRs that desync from uv.lock.
     allow:
       - dependency-type: "direct"
@@ -20,9 +23,6 @@ updates:
       python-minor-patch:
         update-types: ["minor", "patch"]
     ignore:
-      # aiplatform 2.x = AgentPlatform SDK migration (proposal P1).
-      - dependency-name: "google-cloud-aiplatform"
-        update-types: ["version-update:semver-major"]
       # Held at <3 in pyproject.toml (ADK 3 / genai 3 drop APIs we use).
       - dependency-name: "google-adk"
         update-types: ["version-update:semver-major"]
