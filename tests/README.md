@@ -66,6 +66,7 @@ tests/
 ├── test_interactive_resume_graph.py # real interactive_creative App via start_run/start_resume: checkpoint pause → NodeTool resume, fail-once retry counts, one BQ key
 ├── test_no_legacy_agent_engines_api.py # guard: no legacy vertexai agent_engines API in repo call sites
 ├── test_observability.py            # shared agent_common observability callbacks
+├── test_otel_flag.py                # ADK_OTEL_TO_CLOUD parsing + async_app wiring (opt-in Cloud Trace on the api)
 ├── test_pipeline_structure.py       # pipeline composition (graph nodes/edges by name, truthy terminals) + placement-env wiring
 ├── test_public_api.py               # creative_agent public facade (curated __all__ reuse surface) + guards: no legacy SequentialAgent/ParallelAgent/LoopAgent
 ├── test_retry_node.py               # RetryUntilKeyNode (retry-on-empty graph wrapper; is_populated; NodeTool no-stall)
@@ -125,6 +126,8 @@ tests/
   `_drive_run` appends a `done`/`error` terminal marker, poll derives status + slices
   events by cursor, and resume re-runs with a `functionResponse` (resetting status to
   `running` first so multi-checkpoint interactive runs don't stop early).
+  `test_otel_flag.py`: the opt-in `ADK_OTEL_TO_CLOUD` flag parser and its (static)
+  wiring into `async_app.py`'s `get_fast_api_app(otel_to_cloud=...)`.
 - **Experiments harnesses** — `test_creative_latency_poll.py`, `test_experiment_*.py`,
   `test_quota_spread_*.py`: the pure/offline core of the `experiments/` measurement
   harnesses (event-log parsing, N-trial aggregation, 429/503 log-filter building, figure
