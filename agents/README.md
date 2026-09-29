@@ -27,3 +27,8 @@ Two things make it work, both required — see `tests/test_agents_dir.py`:
 
 Do not add an `__init__.py`, `agent.py`, or `root_agent.yaml` here — a marker file
 would flip ADK into single-agent mode and break multi-agent serving.
+
+**Container note:** `gcloud run deploy --source` uploads a zip that drops symlinks, so
+these entries arrive in the build context as empty directories. The root `Dockerfile`
+re-creates them as relative symlinks after `COPY . .` (required since ADK 2.10, whose
+`list_agents()` also demands an `__init__.py` in each entry).
