@@ -5,12 +5,16 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+from typing import TYPE_CHECKING
 
 from fastapi import APIRouter, HTTPException, Query
 from google.adk.errors.session_not_found_error import SessionNotFoundError
 from google.adk.events import Event, EventActions
 from google.genai import types
 from pydantic import BaseModel
+
+if TYPE_CHECKING:
+    from google.adk.sessions import Session
 
 RUNSERVER_AUTHOR = "__runserver__"
 RUN_STATUS_KEY = "__run_status"
@@ -29,7 +33,9 @@ RUN_MAX_SECONDS = int(os.environ.get("RUN_MAX_SECONDS", "1800"))
 _MARKER_APPEND_ATTEMPTS = 2
 
 
-async def _get_session_or_none(session_service, app_name, user_id, session_id):
+async def _get_session_or_none(
+    session_service, app_name, user_id, session_id
+) -> Session | None:
     """``get_session`` that maps ``SessionNotFoundError`` to ``None``.
 
     ADK session services are typed to return ``None`` for a missing session, but
