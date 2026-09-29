@@ -49,7 +49,7 @@ class AdCopy(BaseModel):
         description="2-3 sentences of concise and compelling ad copy."
     )
     trend_connection: str = Field(
-        description="A sentence explaining how this copy leverages or references the trend: {target_search_trends}."
+        description="A sentence explaining how this copy leverages or references the target search trend."
     )
     audience_appeal_rationale: str = Field(
         description="A brief, 1-sentence rationale for why this idea will appeal to the target audience, based on the research report."
@@ -84,7 +84,7 @@ class FinalAdCopy(BaseModel):
     headline: str = Field(description="The finalized, attention-grabbing Headline.")
     body_text: str = Field(description="The finalized, concise and compelling ad copy.")
     trend_connection: str = Field(
-        description="A sentence explaining how this copy leverages or references the trend: {target_search_trends}."
+        description="A sentence explaining how this copy leverages or references the target search trend."
     )
     audience_appeal_rationale: str = Field(
         description="A brief, 1-sentence rationale for target audience appeal."
@@ -120,7 +120,7 @@ class VisualConcept(BaseModel):
         description="A short, intuitive name for the visual concept."
     )
     trend_visual_link: str = Field(
-        description="A 1-sentence description of how the visual specifically incorporates the {target_search_trends}."
+        description="A 1-sentence description of how the visual specifically incorporates the target search trend."
     )
     concept_summary: str = Field(
         description="A 2-3 sentence explanation of the creative concept and its link to the ad copy's message."
@@ -131,7 +131,7 @@ class VisualConcept(BaseModel):
     )
     aspect_ratio: str = Field(
         default="",
-        description="The chosen aspect ratio for this concept: '9:16' (default vertical reel), '1:1' (square feed), or '3:4' (portrait).",
+        description="The chosen aspect ratio for this concept: '9:16' (default vertical reel), '1:1' (square feed), or '3:4' (portrait) — or the campaign-wide aspect-ratio override when one is set.",
     )
     image_generation_prompt: str = Field(
         description="A draft prompt for image generation."
@@ -203,7 +203,7 @@ class VisualConceptFinal(BaseModel):
         description="A brief explanation for the target audience appeal."
     )
     selection_rationale: str = Field(
-        description="A brief rationale explaining why this visual concept was selected and why it will perform well"
+        description="A brief rationale explaining why this final visual concept will perform well"
     )
     headline: str = Field(
         description="The final Headline text from the original ad copy."

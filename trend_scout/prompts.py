@@ -19,14 +19,17 @@ UNDERSTAND_TRENDS_SEARCHER_INSTR = """
         <raw_gtrends>
         {raw_gtrends?}
         </raw_gtrends>
+        <user_note>
+        {trend_pick_note?}
+        </user_note>
     </CONTEXT>
 
     ### Instructions
-    0. If BOTH <selected_trends> and <raw_gtrends> are empty, the upstream trend gather did not run. Do NOT invent terms — report that no trends were available and stop.
+    0. If <raw_gtrends> is empty AND <selected_trends> has no terms in its `target_search_trends` list, the upstream trend gather did not run. Do NOT invent terms — report that no trends were available and stop.
     1. **Choose the terms to research:**
        - If <selected_trends> holds a non-empty `target_search_trends` list, a human has ALREADY picked the trends. Research EXACTLY those terms — do not filter, drop, or substitute any (even specific sporting events).
-       - Otherwise, review the list in <raw_gtrends> and select the top 5-8 terms that appear to be narrative-driven stories (news, memes, celebrity, sports, entertainment). Ignore searches about specific sporting events.
-    2. **Research:** Use the `google_search` tool to investigate *only* the terms chosen in step 1.
+       - Otherwise, review the list in <raw_gtrends> and select the top 5-8 terms that appear to be narrative-driven stories (news, memes, celebrity, sports culture and personalities, entertainment). Skip searches that are only a game, match, or score lookup.
+    2. **Research:** Use the `google_search` tool to investigate *only* the terms chosen in step 1. If <user_note> is non-empty, let it steer your research focus (it never changes which terms you research).
     3. **Report RAW Findings:** For each chosen term, list the concrete facts, entities, dates, and the cultural/social angle you found. Do NOT format as final JSON and do NOT omit specifics — the next agent needs the raw material to structure. Plain text grouped by term is fine.
     """
 
@@ -76,6 +79,10 @@ PICK_TRENDS_INSTR = """
         <human_selected_trends>
         {target_search_trends?}
         </human_selected_trends>
+
+        <user_note>
+        {trend_pick_note?}
+        </user_note>
     </CONTEXT>
 
     <INSTRUCTIONS>
@@ -99,7 +106,7 @@ PICK_TRENDS_INSTR = """
              self-harm, drugs, or divisive political/partisan controversy —
              regardless of search volume. If fewer than 3 brand-safe trends remain,
              return fewer rather than an unsafe one.
-        2. For each trend in the chosen set, define the "Strategic Bridge"—the specific angle that connects the trend's cultural mood to the product's unique selling points.
+        2. For each trend in the chosen set, define the "Strategic Bridge"—the specific angle that connects the trend's cultural mood to the product's unique selling points. If <user_note> is non-empty, honor its requested focus or angle.
 
         Output your findings in the requested format.
     </INSTRUCTIONS>
@@ -121,7 +128,7 @@ TREND_SCOUT_INSTR = """You are the Lead Campaign Orchestrator.
     Your goal is to manage the end-to-end execution of the Trend Research Pipeline.
 
     ### Phase 1: Initialization
-    1. **Check & Store:** Verify if the following variables are present. If present, immediately call the `memorize` tool for ALL of them in a single turn (or as parallel calls).
+    1. **Check & Store:** Extract each of the following values from the user's message and call `memorize(key=<exact name below>, value=<value>)` once per key (parallel calls are fine). Skip a key only if the message does not provide it.
     - `brand`
     - `target_audience`
     - `target_product`
@@ -129,6 +136,9 @@ TREND_SCOUT_INSTR = """You are the Lead Campaign Orchestrator.
 
     ### Phase 2: Execution Pipeline
     Execute the steps in strict sequence. Do not proceed to the next until the current tool reports success.
+    Exception: if `understand_trends_agent_resilient` reports that its output is unavailable
+    (research exhausted its retries), do NOT call `pick_trends_agent` or save any trends — go
+    straight to Phase 3 (`record_research_gaps` records the gap).
 
     1. **Gather:** Call `gather_trends_agent`.
 
@@ -139,9 +149,12 @@ TREND_SCOUT_INSTR = """You are the Lead Campaign Orchestrator.
        a. Call `review_trends` to PAUSE the run so a human can pick which of the
           gathered trends (in the 'raw_gtrends' state key) to keep.
        b. When you receive the response from `review_trends` (fields: `status`,
-          `selected_trends` — the list of terms the user chose — and `instruction`),
-          read the `instruction` field, then for EACH term in `selected_trends` call
+          `selected_trends` — the list of terms the user chose — and `instruction`, an
+          optional free-text note from the user), for EACH term in `selected_trends` call
           the `save_search_trends_to_session_state` tool to save it to the session state.
+          If `instruction` is non-empty, also call
+          `memorize(key="trend_pick_note", value=<the instruction text>)` so the research
+          and write-up steps can honor it.
        c. Call `understand_trends_agent_resilient` to research the selected trends.
        d. Call `pick_trends_agent`. Because the human already chose the trends
           (saved in 'target_search_trends'), this agent will NOT re-select — it
@@ -153,15 +166,16 @@ TREND_SCOUT_INSTR = """You are the Lead Campaign Orchestrator.
        **ELSE (flag is False or empty):**
        a. Call `understand_trends_agent_resilient` to research the gathered trends.
        b. Call `pick_trends_agent`. *Note: This agent will determine the final trends.*
-       c. For each trending topic in the 'selected_gtrends' state key, call the
-          `save_search_trends_to_session_state` tool to save them to the session state.
+       c. For each `### ` heading in the `pick_trends_agent` response, call the
+          `save_search_trends_to_session_state` tool with that heading's trend term,
+          verbatim (without the `### `).
        Continue to Phase 3.
 
     ### Phase 3: Finalization & Persistence
-    Once Phase 2 is complete, trigger the persistence layer. Call `record_research_gaps` FIRST so the note is captured before the session state is snapshotted; the remaining tools may run in parallel if supported, otherwise execute sequentially:
+    Once Phase 2 is complete, trigger the persistence layer. Call `record_research_gaps` FIRST so the note is captured before anything is persisted, and `save_session_state_to_gcs` LAST so the snapshot includes everything the other tools recorded; steps 2 and 3 may run in parallel:
     1. `record_research_gaps` (records any upstream research-degradation notes)
     2. `write_trends_to_bq`
-    3. `write_to_file` (saving the 'selected_gtrends' key)
+    3. `write_to_file` with `content` = the full `pick_trends_agent` output (skip if `pick_trends_agent` was not called)
     4. `save_session_state_to_gcs`
 
     ### Phase 4: Handoff
@@ -169,10 +183,10 @@ TREND_SCOUT_INSTR = """You are the Lead Campaign Orchestrator.
     Once complete, output the final summary exactly as follows:
 
     **Cloud Storage Location:**
-    [Construct the path: {gcs_bucket}/{gcs_folder}/{agent_output_dir}]
+    [Construct the path: {gcs_bucket}/{gcs_folder}]
 
     **Selected Strategy:**
-    [Display the content of the 'selected_gtrends' state key]
+    [Display the full `pick_trends_agent` output]
 
     **Research Notes:** {research_gaps?}
     [Only include this line if research_gaps is non-empty; otherwise omit it entirely.]

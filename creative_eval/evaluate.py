@@ -179,7 +179,10 @@ def evaluate_visual_concept(
 
     user_prompt = prompts.VISUAL_CONCEPT_EVAL_USER.format(
         **campaign_context,
-        **visual_concept,
+        **{
+            **visual_concept,
+            "aspect_ratio": visual_concept.get("aspect_ratio") or "unspecified",
+        },
     )
 
     try:

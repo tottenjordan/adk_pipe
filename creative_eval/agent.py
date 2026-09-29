@@ -42,7 +42,9 @@ def evaluate_all_creatives(tool_context) -> dict:
       - creative_evaluation_report (CreativeEvaluationReport JSON)
 
     Returns:
-        Summary dict with pass rates and weakest dimensions.
+        Summary dict with pass rates, weakest dimensions, and a compact
+        ``failed_creatives`` list (type, id, name, overall_score, top-2
+        improvement dimensions) for each creative below the passing threshold.
     """
     state = tool_context.state
 
@@ -113,6 +115,30 @@ def evaluate_all_creatives(tool_context) -> dict:
     # Store in session state
     state["creative_evaluation_report"] = report.model_dump()
 
+    # Compact per-creative list of failures so the agent can say which failed and
+    # why (improvements are the lowest-scoring failed dimensions, top 2).
+    failed_creatives = [
+        {
+            "type": "ad_copy",
+            "id": e.original_id,
+            "name": e.headline,
+            "overall_score": e.score.overall_score,
+            "improvements": e.score.improvements[:2],
+        }
+        for e in ad_evals
+        if not e.score.passed
+    ] + [
+        {
+            "type": "visual_concept",
+            "id": e.ad_copy_id,
+            "name": e.concept_name,
+            "overall_score": e.score.overall_score,
+            "improvements": e.score.improvements[:2],
+        }
+        for e in visual_evals
+        if not e.score.passed
+    ]
+
     return {
         "status": "success",
         "total_ad_copies": summary.total_ad_copies,
@@ -123,6 +149,7 @@ def evaluate_all_creatives(tool_context) -> dict:
         "avg_visual_score": summary.avg_visual_score,
         "overall_pass_rate": summary.overall_pass_rate,
         "weakest_dimensions": summary.weakest_dimensions,
+        "failed_creatives": failed_creatives,
     }
 
 
@@ -139,7 +166,7 @@ creative_eval_agent = Agent(
     <INSTRUCTIONS>
     1. Call the `evaluate_all_creatives` tool to score all creatives in the session.
     2. Report the results: overall pass rate, average scores, and weakest dimensions.
-    3. Highlight any creatives that failed (score < 0.7) and explain why.
+    3. Highlight any creatives listed in `failed_creatives` (score < 0.7) and explain why, using their `improvements` (the weakest failed dimensions).
     </INSTRUCTIONS>
 
     Call the tool now and report the results.

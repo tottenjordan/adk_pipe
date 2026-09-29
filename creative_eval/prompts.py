@@ -83,6 +83,7 @@ Target Search Trend: {target_search_trend}
 <VISUAL_CONCEPT>
 Concept Name: {concept_name}
 Visual Style: {visual_style}
+Aspect Ratio: {aspect_ratio}
 Trend: {trend}
 Trend Reference: {trend_reference}
 Markets Product: {markets_product}
@@ -104,7 +105,7 @@ Score each dimension from 1-10:
 
 3. **audience_appeal**: Would the target audience find this visually compelling? Does the style, tone, and aesthetic match their preferences?
 
-4. **prompt_technical_quality**: Is the image generation prompt technically strong? Does it specify style, lighting, composition, aspect ratio, and use high-fidelity keywords? Is it over 100 words?
+4. **prompt_technical_quality**: Is the image generation prompt technically strong? Does it name its style family first and give concrete subject, composition, lighting and colour cues at a length appropriate to that style (short for minimalist/sticker/meme, layered for cinematic/photoreal)? Is the scene composed for its stated aspect ratio?
 
 5. **stopping_power**: Would this image stop someone scrolling through a social media feed? Does it have visual impact, strong composition, and emotional resonance?
 

@@ -190,17 +190,9 @@ def _role_prefixed_prompt(prompt_text: str, role: str) -> str:
 async def generate_image(
     tool_context: ToolContext,
 ):
-    # NOTE: this f-string is NOT a docstring (``generate_image.__doc__`` is None),
-    # so ADK exposes no description for this tool. Kept as-is to avoid changing the
-    # tool declaration the model sees; converting it is a separate behavior change.
-    f"""Generates an image based on the prompt for {config.image_gen_model}
-
-    Args:
-        tool_context (ToolContext): The tool context.
-
-    Returns:
-        dict: Status and the artifact_key of the generated image.
-    """  # noqa: B021
+    """Render one image per concept in the 'final_visual_concepts' state key and save them as artifacts. Takes no arguments; call it exactly once."""
+    # Renders with config.image_gen_model; returns a dict with 'status' and a
+    # 'message' listing the saved artifact keys.
     # Idempotency guard: skip if images were already generated
     if tool_context.state.get("_images_generated"):
         existing_keys = tool_context.state.get("_generated_artifact_keys", [])

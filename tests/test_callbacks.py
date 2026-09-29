@@ -262,3 +262,83 @@ class TestForceImageToolCall:
         assert result is None
         # Already succeeded → must NOT re-force the tool (idempotent re-run).
         assert req.config.tool_config is None
+
+
+class TestSkipReviserWithoutNotes:
+    """interactive_creative's visual_concept_reviser before_agent_callback: skip the
+    model unless there are both revision notes and finalized concepts, so merged
+    checkpoint-3 edits are never paraphrased away. The skip reply must validate
+    against the reviser's output_schema (ADK validates it for output_key/AgentTool).
+    """
+
+    _CONCEPTS = {
+        "visual_concepts": [
+            {
+                "ad_copy_id": 1,
+                "concept_name": "Edited",
+                "trend": "t",
+                "trend_reference": "r",
+                "markets_product": "m",
+                "audience_appeal": "a",
+                "selection_rationale": "s",
+                "headline": "h",
+                "social_caption": "c",
+                "call_to_action": "cta",
+                "concept_summary": "sum",
+                "visual_style": "diecut sticker",
+                "aspect_ratio": "1:1",
+                "image_generation_prompt": "A diecut sticker of a user-edited prompt",
+            }
+        ]
+    }
+
+    @staticmethod
+    def _ctx(state):
+        return pytypes.SimpleNamespace(state=state)
+
+    @staticmethod
+    def _reply_as_concepts(content):
+        from creative_agent.schemas import VisualConceptFinalList
+
+        assert content is not None
+        text = "".join(p.text for p in content.parts)
+        return VisualConceptFinalList.model_validate_json(text).model_dump(
+            exclude_none=True
+        )
+
+    def test_skips_and_echoes_concepts_when_notes_empty(self):
+        from interactive_creative.callbacks import skip_reviser_without_notes
+
+        for notes in (None, "", "   \n"):
+            state = {"final_visual_concepts": self._CONCEPTS}
+            if notes is not None:
+                state["visual_revision_notes"] = notes
+            content = skip_reviser_without_notes(self._ctx(state))
+            assert self._reply_as_concepts(content) == self._CONCEPTS
+
+    def test_skips_with_empty_list_when_concepts_missing(self):
+        from interactive_creative.callbacks import skip_reviser_without_notes
+
+        for concepts in (None, {}, {"visual_concepts": []}):
+            state = {"visual_revision_notes": "Concept 0: make it blue"}
+            if concepts is not None:
+                state["final_visual_concepts"] = concepts
+            content = skip_reviser_without_notes(self._ctx(state))
+            assert self._reply_as_concepts(content) == {"visual_concepts": []}
+
+    def test_runs_model_when_notes_and_concepts_present(self):
+        from interactive_creative.callbacks import skip_reviser_without_notes
+
+        state = {
+            "final_visual_concepts": self._CONCEPTS,
+            "visual_revision_notes": "Concept 0 (Edited): make it blue",
+        }
+        assert skip_reviser_without_notes(self._ctx(state)) is None
+
+    def test_wired_on_reviser(self):
+        from interactive_creative.agent import visual_concept_reviser
+        from interactive_creative.callbacks import skip_reviser_without_notes
+
+        assert (
+            visual_concept_reviser.before_agent_callback is skip_reviser_without_notes
+        )

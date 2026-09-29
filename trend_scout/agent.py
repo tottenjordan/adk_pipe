@@ -137,7 +137,10 @@ understand_trends_agent_resilient = RetryUntilKeyNode(
     name="understand_trends_agent_resilient",
     # Preserve the original tool-facing description (the searcher carries it
     # verbatim).
-    description=understand_trends_searcher.description,
+    description=(
+        "Web-research the human-picked trends (or the 5-8 most narrative-driven "
+        "gathered trends) and store a structured JSON briefing."
+    ),
     node=understand_trends_search_and_synthesize,
     output_key="info_gtrends",
     max_attempts=3,
@@ -151,7 +154,10 @@ pick_trends_agent = Agent(
     model=build_gemini(config.picker_model),
     name="pick_trends_agent",
     include_contents="none",
-    description="Determine subset of Search trends most culturally relevant to the target audience.",
+    description=(
+        "Write the strategic narrative for the human-picked trends, or select the 3 "
+        "trends most relevant to the campaign and write it for those."
+    ),
     planner=BuiltInPlanner(
         thinking_config=types.ThinkingConfig(include_thoughts=False)
     ),
