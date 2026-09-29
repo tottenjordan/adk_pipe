@@ -120,22 +120,23 @@ trend_scout (root Agent `trend_scout`; App + ResumabilityConfig(is_resumable=Tru
 ├── review_trends (LongRunningFunctionTool — opt-in interactive trend pick)
 └── Persistence tools (BigQuery, GCS, record_research_gaps, memorize)
 
-creative_agent (root Agent `root_agent`; no App wrapper; sub-agents via AgentTool)
-├── combined_research_pipeline (SequentialAgent)
-│   ├── merge_parallel_insights: parallel_planner_agent (ParallelAgent: gs_/ca_sequential_planner,
-│   │   each planner → RetryUntilKeyAgent-wrapped searcher+synthesizer) → merge_planners
-│   ├── research_refinement_block (RunIfAgent — only when base research is degraded;
-│   │   evaluator + RetryUntilKeyAgent-wrapped refined search)
-│   └── combined_report_composer (→ combined_final_cited_report)
-├── ad_creative_pipeline (SequentialAgent: drafter + critic)
-├── visual_production_pipeline (SequentialAgent)
-│   ├── visual_generation_pipeline (art_director + concept drafter/critic/finalizer)
-│   └── visual_generator_resilient (RetryUntilKeyAgent → visual_generator, generate_image)
+creative_agent (root Agent `root_agent`; no App wrapper; pipelines = graph Workflows exposed as bare nodes → NodeTool; creative_eval_agent via AgentTool)
+├── combined_research_pipeline (Workflow, input_schema=PipelineRequest)
+│   START → (gs_/ca_sequential_planner: each a Workflow planner → RetryUntilKeyNode-wrapped
+│   searcher+synthesizer Workflow) → research_join (JoinNode) → research_barrier (no output)
+│   → merge_planners → refinement_gate ("refine" only when base research is degraded:
+│   evaluator → RetryUntilKeyNode-wrapped refined search; else "skip")
+│   → combined_report_composer → research_report_ready (truthy terminal)
+├── ad_creative_pipeline (Workflow: drafter → critic → ad_copies_ready)
+├── visual_production_pipeline (Workflow)
+│   visual_generation_pipeline (Workflow: art_director → concept drafter/critic/finalizer
+│   → visual_concepts_ready) → render_barrier → visual_generator_resilient
+│   (RetryUntilKeyNode → visual_generator, generate_image)
 ├── creative_eval_agent (LLM-as-judge scoring, from creative_eval)
 └── Persistence tools (GCS, BigQuery, HTML gallery, memorize)
 
-interactive_creative (root Agent `root_agent`; App + ResumabilityConfig(is_resumable=True); sub-agents via AgentTool)
-├── combined_research_pipeline / ad_creative_pipeline / visual_generation_pipeline (reused from creative_agent)
+interactive_creative (root Agent `root_agent`; App + ResumabilityConfig(is_resumable=True); reviser + eval via AgentTool)
+├── combined_research_pipeline / ad_creative_pipeline / visual_generation_pipeline (reused from creative_agent; bare nodes → NodeTool)
 ├── review_research / review_ad_copies / review_visual_concepts (LongRunningFunctionTool checkpoints 1–3)
 ├── visual_concept_reviser (applies checkpoint-3 revision notes → final_visual_concepts)
 ├── visual_generator_resilient + creative_eval_agent (reused; render after the reviser)

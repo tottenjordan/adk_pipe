@@ -42,9 +42,10 @@ tests/
 ├── test_async_runs.py               # async-job run model: kick-off/poll/resume, terminal markers
 ├── test_backend_entrypoint.py       # backend container entrypoint (uvicorn serves async_app.py)
 ├── test_callbacks.py                # citation replacement, state init, rate limiting
-├── test_conditional_agent.py        # RunIfAgent — conditional-block control-flow wrapper
+├── test_conditional_agent.py        # RunIfAgent — conditional-block wrapper (unused by agents since P2 G3)
 ├── test_config.py                   # per-agent config resolution (incl. campaign-placement resolver)
 ├── test_create_session_engine.py    # create_session_engine.py (reuse-or-create sessions-only engine)
+├── test_creative_agent_graph.py     # creative_agent graph pipelines end-to-end (stub models): routing, citations, no-stall
 ├── test_creative_eval.py            # creative_eval schemas, scoring logic, config
 ├── test_crf_config.py               # env-driven CRF config (required project, no hardcoding)
 ├── test_crf_entrypoint.py           # crf_entrypoint orchestrator (issue #46)
@@ -56,7 +57,7 @@ tests/
 ├── test_image_reference.py          # generate_image multimodal contents + valid ImageConfig
 ├── test_no_legacy_agent_engines_api.py # guard: no legacy vertexai agent_engines API in repo call sites
 ├── test_observability.py            # shared agent_common observability callbacks
-├── test_pipeline_structure.py       # agent pipeline composition + placement-env wiring
+├── test_pipeline_structure.py       # pipeline composition (graph nodes/edges by name, truthy terminals) + placement-env wiring
 ├── test_public_api.py               # creative_agent public facade (curated __all__ reuse surface)
 ├── test_retry_agent.py              # RetryUntilKeyAgent (retry-on-empty producer wrapper)
 ├── test_retry_node.py               # RetryUntilKeyNode (graph-Workflow port; NodeTool no-stall)
