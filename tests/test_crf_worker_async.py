@@ -446,4 +446,19 @@ def test_pretty_print_event_text_part_and_null_content(caplog):
         main.pretty_print_event({"author": "b", "content": None})
 
     assert "[a]: hello" in caplog.text
-    assert "[b]: {" in caplog.text
+    assert "[b]: " in caplog.text
+    assert "'content': None" in caplog.text
+
+
+def test_pretty_print_event_null_text_with_function_call_logs_call(caplog):
+    """A part with a null ``text`` alongside ``function_call`` still logs the call."""
+    part = {"text": None, "function_call": {"name": "memorize", "args": {}}}
+    with caplog.at_level("INFO"):
+        main.pretty_print_event({"author": "a", "content": {"parts": [part]}})
+
+    assert "[a]: Function call: memorize" in caplog.text
+    assert "[a]: None" not in caplog.text
+
+
+def test_pretty_print_event_null_parts_does_not_raise():
+    main.pretty_print_event({"author": "a", "content": {"parts": None}})
