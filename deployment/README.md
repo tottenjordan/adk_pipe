@@ -123,7 +123,7 @@ To view log entries in the [Logs Explorer](https://cloud.google.com/logging/docs
 
 ```bash
 resource.type="aiplatform.googleapis.com/ReasoningEngine"
-resource.labels.location="GOOGLE_CLOUD_LOCATION"
+resource.labels.location="GCP_REGION"
 resource.labels.reasoning_engine_id="YOUR_AGENT_ENGINE_ID"
 ```
 
@@ -838,7 +838,7 @@ export SERVICE_NAME="trend-trawler-cr"
 
 adk deploy cloud_run \
   --project=$GOOGLE_CLOUD_PROJECT \
-  --region=$GOOGLE_CLOUD_LOCATION \
+  --region=$GCP_REGION \
   --port 8000 \
   --service_name=$SERVICE_NAME \
   --with_ui \
@@ -853,7 +853,7 @@ adk deploy cloud_run \
 
 ```bash
 gcloud run services update $SERVICE_NAME \
-  --region=$GOOGLE_CLOUD_LOCATION \
+  --region=$GCP_REGION \
   --timeout=600
 ```
 
@@ -871,7 +871,7 @@ export SERVICE_NAME="trend-creative-cr"
 
 adk deploy cloud_run \
   --project=$GOOGLE_CLOUD_PROJECT \
-  --region=$GOOGLE_CLOUD_LOCATION \
+  --region=$GCP_REGION \
   --port 8000 \
   --service_name=$SERVICE_NAME \
   --with_ui \
@@ -886,6 +886,6 @@ adk deploy cloud_run \
 
 ```bash
 gcloud run services update $SERVICE_NAME \
-  --region=$GOOGLE_CLOUD_LOCATION \
+  --region=$GCP_REGION \
   --timeout=600
 ```

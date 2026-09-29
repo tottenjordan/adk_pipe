@@ -13,6 +13,8 @@ formatting (`ruff`), type checking (`ty`), testing (`pytest`), and commit conven
 
 Trend Trawler is a multi-agent system that automates trend-to-creative ad generation. It identifies culturally relevant Google Search trends, conducts web research, and generates candidate ad copy and visual concepts for a given brand/campaign. Built with Google's ADK (Agent Development Kit), deployed to Vertex AI Agent Engine, and orchestrated via Cloud Run Functions with PubSub triggers.
 
+**Naming:** Agent Engine = *Agent Runtime*. As of 2026 Vertex AI is branded "Gemini Enterprise Agent Platform" and Agent Engine was renamed Agent Runtime; this repo (and these docs) still say Agent Engine because the code uses the `google-cloud-aiplatform` 1.x `vertexai.Client().agent_engines` API. Migrating to the `google-cloud-agentplatform` SDK is proposal P1 in `docs/plans/2026-09-28-repo-refresh.md`.
+
 ## Commands
 
 ```bash
@@ -59,7 +61,8 @@ cd frontend && npm run test:watch  # watch mode
 
 # Python tests (pytest) — no GCP credentials needed, but GOOGLE_CLOUD_PROJECT must be set
 # (any dummy value, e.g. test-project; the repo .env normally provides it) because
-# module-level genai.Client construction resolves the project eagerly
+# genai.Client(vertexai=True) construction (e.g. the lazily built creative_eval judge
+# client, exercised by tests) resolves the project eagerly
 uv run pytest tests/ -v
 
 # ADK evals — end-to-end agent evaluation with LLM-as-judge (real API calls, ~5 min per case)
@@ -109,32 +112,47 @@ as its import path (`tarfile.add(path)` → arcname), so nesting would break eve
 ### Agent Composition
 
 ```
-trend_scout (root Agent)
-├── gather_trends_agent (get_daily_gtrends tool)
-├── understand_trends_agent (google_search tool)
-├── pick_trends_agent (strategic filtering)
-└── Persistence tools (BigQuery, GCS)
+trend_scout (root Agent `trend_scout`; app = App(..., ResumabilityConfig(is_resumable=True)))
+├── gather_trends_agent (AgentTool; get_daily_gtrends tool)
+├── understand_trends_agent_resilient (AgentTool; RetryUntilKeyAgent → info_gtrends)
+│   └── understand_trends_search_and_synthesize (SequentialAgent)
+│       ├── understand_trends_searcher (google_search → info_gtrends_raw)
+│       └── understand_trends_synthesizer (→ info_gtrends)
+├── pick_trends_agent (AgentTool; strategic filtering → selected_gtrends)
+├── review_trends (LongRunningFunctionTool — opt-in interactive trend pick)
+└── Persistence tools (BigQuery, GCS, record_research_gaps, memorize)
 
-creative_agent (root Agent)
-├── combined_research_pipeline (SequentialAgent)
-│   ├── parallel_planner_agent (ParallelAgent)
-│   │   ├── gs_sequential_planner (trend_researcher sub-agent)
-│   │   └── ca_sequential_planner (campaign_researcher sub-agent)
-│   └── merge_planners (synthesizes insights)
-├── ad_creative_pipeline (SequentialAgent)
-├── visual_generation_pipeline (SequentialAgent)
-├── visual_generator (image generation)
-├── creative_eval_agent (LLM-as-judge scoring)
-└── Persistence tools (GCS, BigQuery, HTML gallery)
+creative_agent (root Agent `root_agent`; no App wrapper)
+├── combined_research_pipeline (AgentTool; SequentialAgent)
+│   ├── merge_parallel_insights (SequentialAgent)
+│   │   ├── parallel_planner_agent (ParallelAgent)
+│   │   │   ├── gs_sequential_planner (trend_researcher: gs_web_planner → gs_web_searcher_resilient)
+│   │   │   └── ca_sequential_planner (campaign_researcher: campaign_web_planner → campaign_web_searcher_resilient)
+│   │   │       (each *_resilient = RetryUntilKeyAgent over a searcher → synthesizer SequentialAgent)
+│   │   └── merge_planners (→ combined_web_search_insights)
+│   ├── research_refinement_block (RunIfAgent — runs only when base research is degraded)
+│   │   ├── combined_web_evaluator
+│   │   └── enhanced_combined_searcher_resilient (RetryUntilKeyAgent: enhanced_combined_searcher → refined_web_synthesizer)
+│   └── combined_report_composer (→ combined_final_cited_report)
+├── ad_creative_pipeline (AgentTool; SequentialAgent: ad_copy_drafter → ad_copy_critic)
+├── visual_production_pipeline (AgentTool; SequentialAgent)
+│   ├── visual_generation_pipeline (SequentialAgent: art_director → visual_concept_drafter → visual_concept_critic → visual_concept_finalizer)
+│   └── visual_generator_resilient (RetryUntilKeyAgent → visual_generator, generate_image tool)
+├── creative_eval_agent (AgentTool; LLM-as-judge scoring, from creative_eval)
+└── Persistence tools (GCS, BigQuery, HTML gallery, memorize)
 
-interactive_creative (root Agent, resumable)
-├── [same sub-agents as creative_agent]
-├── review_research (LongRunningFunctionTool checkpoint)
-├── review_ad_copies (LongRunningFunctionTool checkpoint)
-└── review_visual_concepts (LongRunningFunctionTool checkpoint)
+interactive_creative (root Agent `root_agent`; app = App(..., ResumabilityConfig(is_resumable=True)))
+├── combined_research_pipeline / ad_creative_pipeline / visual_generation_pipeline (reused from creative_agent)
+├── review_research (LongRunningFunctionTool checkpoint 1)
+├── review_ad_copies (LongRunningFunctionTool checkpoint 2)
+├── review_visual_concepts (LongRunningFunctionTool checkpoint 3)
+├── visual_concept_reviser (applies checkpoint-3 revision notes → final_visual_concepts)
+├── visual_generator_resilient (reused; renders after the reviser)
+├── creative_eval_agent
+└── Persistence tools (same as creative_agent)
 ```
 
-Key ADK patterns used: `Agent`, `SequentialAgent`, `ParallelAgent`, `AgentTool` (wraps agents as tools), `LongRunningFunctionTool` (pause/resume for human-in-the-loop).
+Key ADK patterns used: `Agent`, `SequentialAgent`, `ParallelAgent`, custom `BaseAgent` wrappers (`RetryUntilKeyAgent`, `RunIfAgent` in `agent_common/`), `AgentTool` (wraps agents as tools), `LongRunningFunctionTool` (pause/resume for human-in-the-loop), and `App` + `ResumabilityConfig` (resumable sessions). `SequentialAgent`/`ParallelAgent` are deprecated in ADK 2.x in favor of graph Workflows; a single targeted `warnings.filterwarnings` in `agent_common/__init__.py` silences that notice, and the Workflow migration is proposal P2 in `docs/plans/2026-09-28-repo-refresh.md`.
 
 ### Frontend — `frontend/`
 
@@ -161,7 +179,7 @@ Both the run view and results view also surface the optional visual art-directio
 
 Fan-out pattern using two Cloud Run Function deployments from the same source (`cloud_functions/creative_fanout/`):
 - **Orchestrator** (`crf_entrypoint`): Triggered by `CREATIVE_TOPIC_NAME` PubSub topic, queries BigQuery for unprocessed trends, dispatches one message per trend to worker topic. Concurrency=100.
-- **Worker** (`agent_worker_entrypoint`): Triggered by `CREATIVE_WORKER_TOPIC_NAME`, processes a single trend row by invoking Agent Engine. Concurrency=1 (prevents duplicate processing). Timeout=900s.
+- **Worker** (`agent_worker_entrypoint`): Triggered by `CREATIVE_WORKER_TOPIC_NAME`, processes a single trend row by invoking Agent Engine. Concurrency=1 (prevents duplicate processing), max-instances=1 (serializes runs under the project-wide pro/image quotas). Timeout=1800s.
 
 ### Configuration
 
@@ -169,6 +187,10 @@ Shared building blocks live in **`agent_common/`** (a lightweight package bundle
 - `agent_common/config.py` — `BaseAgentConfiguration`, the single source of truth for the model names, rate-limit knobs, and GCP/BigQuery env vars. Each agent's `config.py` subclasses it (`ResearchConfiguration(BaseAgentConfiguration)`) and adds only its genuine differences (e.g. `trend_scout`'s `SetupConfiguration`), which is why the two agent configs no longer drift.
 - `agent_common/retry.py` — `build_infra_retry(extra_exceptions=(), max_attempts=3)`, the one place the ADK `RetryConfig` transient-exception list is defined (`creative_agent` passes the genai `ServerError`).
 - `agent_common/retry_agent.py` — `RetryUntilKeyAgent`, the retry-on-empty producer wrapper (re-runs a flaky `google_search`+thinking producer until its `output_key` is populated, bounded; degrades observably on exhaustion). Shared here so both `creative_agent` and `trend_scout` wrap producers without cross-importing each other's package.
+- `agent_common/conditional_agent.py` — `RunIfAgent`, a `BaseAgent` that runs its sub-agents only when a predicate over session state is truthy (gates `creative_agent`'s `research_refinement_block`); only wrap stages whose outputs are consumed behind `{var?}` guards.
+- `agent_common/genai_retry.py` — `build_genai_http_retry()`, the status-code-based genai HTTP retry (429/500/503/504 with backoff; permanent 4xx fail fast), wired into `build_gemini()` and the `creative_eval` judge client; ADK-free.
+- `agent_common/rate_limit.py` — `build_rate_limit_callback(config)`, the shared `before_model_callback` enforcing each agent's `rpm_quota`.
+- `agent_common/sanitize.py` — `scrub_lone_surrogates` / `scrub_surrogates_in_response` (`after_model_callback`), which strip lone Unicode surrogates from model JSON before `output_schema` validation.
 - `agent_common/state.py` — the shared `memorize` ADK tool (re-exported from each agent's `tools.py`; the tool name must stay `memorize`) and `seed_initial_state(...)`, the one-time session-state seeding behind each agent's `callbacks._set_initial_states` (per-agent output dir / extra keys / `setdefault` defaults stay local).
 - `agent_common/clients.py` — `get_gcs_client()` / `get_bigquery_client()`, the shared lazy client getters (SDK imports inside the functions). Agent modules bind them to their `_get_gcs_client` / `_get_bigquery_client` names (the test monkeypatch points); `creative_agent.gcs_tools` wraps its GCS getter in `functools.cache`.
 - `agent_common/locations.py` + `agent_common/models.py` — `MODEL_LOCATION` (default `global`) and `build_gemini(name)`, which pin every gemini-3.x call's serving location in code (Agent Engine *reserves* `GOOGLE_CLOUD_LOCATION`, so it can't be forced via deploy env vars).
@@ -177,7 +199,7 @@ Shared building blocks live in **`agent_common/`** (a lightweight package bundle
 The bucket name comes from `GOOGLE_CLOUD_STORAGE_BUCKET` (the var deploy actually ships) — not the local-only `GCS_BUCKET_NAME`; the `gs://` form (`GCS_BUCKET`) is derived from it (there is no `BUCKET` env var). Key settings:
 - **Models**: `gemini-3.8-flash` (worker), `gemini-3.1-pro-preview` (critic + `creative_eval` judge — no GA Pro yet), `gemini-3.5-flash-lite` (lite planner), `gemini-3.5-flash` (creative_agent campaign research, see below; `trend_scout` `picker_model`), `gemini-3.1-flash-lite` (`trend_scout` `gather_model`), `gemini-3.1-flash-image` (image gen). The 2026-09 refresh retired every gemini-2.5 agent model (Vertex shuts 2.5 down Oct 2026–Mar 2027); `trend_scout` still fans its 5 agents across 5 distinct base-model buckets, now all @ `global`.
 - **Model location**: gemini-3.x models are only served from the `global` Vertex location — set `GOOGLE_CLOUD_LOCATION=global`. Regional resources (BigQuery, GCS, PubSub, Agent Engine) stay in `us-central1`.
-  - **Agent Engine region (`GCP_REGION`):** Agent Engine / Reasoning Engine is a *regional* resource, so its Vertex AI SDK clients read `GCP_REGION` (default `us-central1`), decoupled from `GOOGLE_CLOUD_LOCATION=global`. Wired through `deployment/deploy_agent.py`, `deployment/test_deployment.py`, `deployment/integration_test.py`, and the `cloud_functions/*/config.py` constants (`config.GCP_REGION`). The `global` model location is used only by the genai model clients (`creative_agent/tools.py`, `creative_eval/evaluate.py`); BigQuery and GCS clients take no location.
+  - **Agent Engine region (`GCP_REGION`):** Agent Engine / Reasoning Engine is a *regional* resource, so its Vertex AI SDK clients read `GCP_REGION` (default `us-central1`), decoupled from `GOOGLE_CLOUD_LOCATION=global`. Wired through `deployment/deploy_agent.py`, `deployment/test_deployment.py`, `deployment/integration_test.py`, and the `cloud_functions/*/config.py` constants (`config.GCP_REGION`). The `global` model location is used only by the genai model clients (`creative_agent/image_tools.py`, `creative_eval/evaluate.py` — the eval judge defaults to `MODEL_LOCATION`, overridable via `EVAL_MODEL_LOCATION`) plus the ADK agents' `build_gemini()` models; BigQuery and GCS clients take no location.
 - **Rate limiting**: `before_model_callback` enforces rpm_quota (1000) over 60s intervals
 - **Campaign-research placement (`CAMPAIGN_RESEARCH_PLACEMENT`)**: selects which model bucket the `campaign_researcher` sub-agent runs on, via `ResearchConfiguration.campaign_models()` in `creative_agent/config.py`. Default `global_altbucket` runs campaign research on `ALT_GLOBAL_MODEL` = `gemini-3.5-flash` @ `global` — a different per-base-model quota bucket from the trend half's `gemini-3.8-flash`/`gemini-3.5-flash-lite` (the PR #101 spread that halves contention in the one `ParallelAgent`). Alternate arm `global_3x` shares the trend buckets (comparison baseline); unknown values (incl. the retired `regional_25` gemini-2.5 arm) fall back to the default — see `experiments/quota_spread/` and [experiments/README.md](experiments/README.md). Leave unset for production behavior.
 - **Session state keys**: `brand`, `target_product`, `target_audience`, `key_selling_points`, `target_search_trends`

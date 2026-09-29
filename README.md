@@ -6,6 +6,8 @@
 
 > Turn trending Google Search terms into campaign-ready ad creatives — a multi-agent system built with Google's **ADK**, deployed to **Vertex AI Agent Engine**, and fanned out via **Cloud Run Functions + Pub/Sub**.
 
+> **Naming:** as of 2026, Vertex AI is branded *Gemini Enterprise Agent Platform* and Agent Engine is now *Agent Runtime*. This repo keeps the "Agent Engine" name because it still uses the `google-cloud-aiplatform` 1.x `vertexai.Client().agent_engines` API; migrating to the `google-cloud-agentplatform` SDK is proposal P1 in [docs/plans/2026-09-28-repo-refresh.md](docs/plans/2026-09-28-repo-refresh.md).
+
 ![Python](https://img.shields.io/badge/Python-3.13-3776AB?logo=python&logoColor=white)
 ![uv](https://img.shields.io/badge/packaging-uv-DE5FE9?logo=uv&logoColor=white)
 ![Ruff](https://img.shields.io/badge/lint-ruff-261230?logo=ruff&logoColor=white)
@@ -385,7 +387,7 @@ agents, the Cloud Run alternative, and [redeploy + rollback via traffic tags](de
 # Frontend tests (Vitest + React Testing Library + jsdom)
 cd frontend && npm test              # single run; npm run test:watch for watch mode
 
-# Python tests (pytest) — requires GCP credentials
+# Python tests (pytest) — no GCP credentials needed; GOOGLE_CLOUD_PROJECT must be set (any dummy value)
 uv run pytest tests/ -v
 
 # Creative evaluation test (real Gemini API calls, ~2 min)
@@ -403,7 +405,7 @@ The `creative_agent` eval must run with `PYTHONPATH="$PWD"` and its own rubric c
 
 **→ See [tests/README.md](tests/README.md)** for the full test-suite layout and what each test file covers.
 
-**CI:** GitHub Actions runs frontend tests on push/PR to `main` when `frontend/**` files change (`.github/workflows/frontend-tests.yml`).
+**CI:** GitHub Actions runs `ruff check`, `ruff format --check`, `ty check` and `pytest` on push/PR to `main` touching Python files (`.github/workflows/python-ci.yml`), and frontend lint, typecheck, tests and build when `frontend/**` changes (`.github/workflows/frontend-tests.yml`).
 
 
 ## Repo Structure
@@ -429,6 +431,7 @@ The `creative_agent` eval must run with `PYTHONPATH="$PWD"` and its own rubric c
 │   ├── callbacks.py
 │   ├── config.py
 │   ├── prompts.py                # agent instruction templates (per-agent *_INSTR constants)
+│   ├── schemas.py                # output_schema Pydantic models
 │   ├── tools.py                  # thin orchestration + re-export surface (memorize, gallery)
 │   ├── image_tools.py            # image generation (lazy genai client + retry backoff)
 │   ├── bq_tools.py               # BigQuery writers (trends + eval-report rows)
@@ -444,7 +447,8 @@ The `creative_agent` eval must run with `PYTHONPATH="$PWD"` and its own rubric c
 │           └── agent.py
 ├── interactive_creative/         # Phase 2 — human-in-the-loop variant
 │   ├── __init__.py
-│   ├── agent.py
+│   ├── agent.py                  # also defines visual_concept_reviser
+│   ├── prompts.py
 │   └── review_tools.py           # LongRunningFunctionTool review checkpoints
 ├── creative_eval/                # LLM-as-judge evaluation module
 │   ├── __init__.py
@@ -455,13 +459,19 @@ The `creative_agent` eval must run with `PYTHONPATH="$PWD"` and its own rubric c
 │   ├── run_eval_test.py
 │   └── schemas.py
 ├── agent_common/                 # shared building blocks bundled into every engine (depends on ADK; no per-agent logic)
-│   ├── __init__.py
+│   ├── __init__.py               # public re-exports + the one targeted ADK deprecation filter
+│   ├── clients.py                # lazy GCS / BigQuery client getters
+│   ├── conditional_agent.py      # RunIfAgent (run a block only when a state predicate holds)
 │   ├── config.py                 # BaseAgentConfiguration — model / rate-limit / GCP env source of truth
+│   ├── genai_retry.py            # build_genai_http_retry() — status-code HTTP retry (429/5xx)
 │   ├── locations.py              # MODEL_LOCATION (pins gemini-3.x to `global`)
 │   ├── models.py                 # build_gemini(name)
 │   ├── observability.py          # shared debugging callbacks + degradation-warning collection
+│   ├── rate_limit.py             # build_rate_limit_callback(config)
 │   ├── retry.py                  # build_infra_retry()
-│   └── retry_agent.py            # RetryUntilKeyAgent (retry-on-empty producer wrapper)
+│   ├── retry_agent.py            # RetryUntilKeyAgent (retry-on-empty producer wrapper)
+│   ├── sanitize.py               # lone-surrogate scrubber for structured-output JSON
+│   └── state.py                  # shared memorize tool + seed_initial_state()
 ├── agents/                       # api_server serving view — one relative symlink per runnable agent (see agents/README.md)
 │   ├── README.md
 │   ├── creative_agent -> ../creative_agent
