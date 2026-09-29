@@ -310,7 +310,7 @@ numpy==2.5.3
     #   rouge-score
     #   scikit-learn
     #   scipy
-openai==2.54.0
+openai==3.19.2
     # via litellm
 openpyxl==3.1.5
     # via google-adk
