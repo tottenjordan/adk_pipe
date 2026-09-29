@@ -347,7 +347,9 @@ A custom React frontend (Next.js + Tailwind CSS + shadcn/ui) for running agents 
 # terminal 1 — backend. Run the async_app launcher, NOT bare `adk api_server`:
 # it mounts the async-job /runs endpoints the run page polls, on top of ADK's
 # canned session/artifact CRUD (a superset of `adk api_server`).
-ALLOW_ORIGINS=http://localhost:3000 uv run uvicorn deployment.async_app:app --port 8000
+# TRUST_CLIENT_USER_ID=1: local dev only (default per-user authz mode is enforce).
+# SESSION_SERVICE_URI=memory:// avoids ADK's local SQLite path check on the agents/ symlinks.
+TRUST_CLIENT_USER_ID=1 SESSION_SERVICE_URI=memory:// ALLOW_ORIGINS=http://localhost:3000 uv run uvicorn deployment.async_app:app --port 8000
 
 # terminal 2 — frontend (Node.js >= 18)
 cd frontend && npm install && npm run dev   # http://localhost:3000

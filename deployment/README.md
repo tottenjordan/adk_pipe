@@ -500,6 +500,10 @@ diagram into real, reproducible infrastructure.
   metadata server. The **browser only ever calls same-origin** route handlers, so there
   is **no CORS** and no direct backend exposure (`NEXT_PUBLIC_API_BASE` defaults to
   `/api/adk`).
+- **Per-user authz (P3)** — the proxy also verifies the IAP JWT, rewrites every `userId` to
+  the caller's normalized email, allowlists routes, and asserts the user via `X-TT-User`;
+  the backend trusts that header only alongside a verified `tt-web-sa` ID token. Env vars
+  and runbook: [9. Per-user authz](#9-per-user-authz-p3-env-vars--verification).
 
 Each service has its own service account: `tt-api-sa` (backend) and `tt-web-sa`
 (frontend).
@@ -613,6 +617,10 @@ gcloud run deploy trend-trawler-api \
 > model calls to a regional endpoint. Confirm the actual table names against `.env`
 > before running.
 
+> **Post-P3:** the api defaults to `USER_AUTHZ_MODE=enforce` and **refuses to boot**
+> without `TRUSTED_PROXY_SA` + `TRUSTED_PROXY_AUDIENCES` — add them to this
+> `--set-env-vars` list (see [Step 9](#9-per-user-authz-p3-env-vars--verification)).
+
 Capture the URL:
 
 ```bash
@@ -638,6 +646,10 @@ gcloud run deploy trend-trawler-web \
   --memory 1Gi --cpu 1 --min-instances 0 \
   --set-env-vars "ADK_API_BASE=$API_URL"
 ```
+
+> Historical first deploy only. Once IAP is on (Step 7) the web service must **never** be
+> redeployed with `--allow-unauthenticated` or `--set-env-vars` (which would drop
+> `IAP_ALLOWED_HD` and make every proxied call 401) — use `--update-env-vars`.
 
 ### 5. End-to-end verification (live)
 
@@ -836,6 +848,65 @@ gcloud run services update-traffic trend-trawler-api --region $REGION \
 Old, untagged, 0%-traffic revisions are safe to leave (they cost nothing idle) or prune with
 `gcloud run revisions delete <rev> --region $REGION`. Keep at least the current
 `main-clean` / `main-current` pair as your safety net.
+
+### 9. Per-user authz (P3): env vars + verification
+
+Trust model: the `/api/adk` proxy is authoritative (verifies the IAP JWT, pins the `hd`
+domain, rewrites every path/body `userId` to the caller's normalized email, forwards only
+allowlisted routes + `since`/`version` query params, and sets `X-TT-User`); the api
+(`runserver/authz.py`) trusts `X-TT-User` only when the request also carries a valid Google
+ID token for `TRUSTED_PROXY_SA` (the proxy mints it via the metadata server with
+`format=full`, so it includes `email`). Backend responses: **403** path/body `userId` ≠
+`X-TT-User`, **401** missing/untrusted `X-TT-User` on a user-scoped route, **404** blocked
+canned routes (`/run`, `/run_sse`, `/run_live`, memory, agent-identity) and foreign
+sessions. Design: `docs/plans/2026-09-29-p3-per-user-runs-authz.md`.
+
+| Service | Env var | Value / behavior |
+|---|---|---|
+| api | `USER_AUTHZ_MODE` | `enforce` (default) or `observe` (log `authz observe: would deny …` instead of 401/403; blocked routes still 404). Used for rollout/rollback. |
+| api | `TRUSTED_PROXY_SA` | `tt-web-sa@$PROJECT.iam.gserviceaccount.com` — the only identity whose `X-TT-User` is trusted. |
+| api | `TRUSTED_PROXY_AUDIENCES` | Comma-separated accepted ID-token audiences: **both** Cloud Run URL forms of the api (`https://trend-trawler-api-<hash>-uc.a.run.app,https://trend-trawler-api-$PROJECT_NUMBER.$REGION.run.app`). |
+| api | `TRUST_CLIENT_USER_ID` | `1` = trust the client `userId` (local dev only). The api **refuses to boot** with it when `K_SERVICE` is set — never set it on Cloud Run. |
+| web | `IAP_ALLOWED_HD` | Required Workspace domain (`jordantotten.altostrat.com`). Unset on Cloud Run → every proxied call 401s (fail closed). |
+| web | `IAP_AUDIENCE` | Optional override of the JWT audience (default `/projects/N/locations/R/services/$K_SERVICE` from the metadata server). Set only if the proxy logs an audience mismatch. |
+
+The api **refuses to boot in `enforce`** without both `TRUSTED_PROXY_*` vars. Set/change
+them without dropping the rest of the env:
+
+```bash
+API_URLS="$(gcloud run services describe trend-trawler-api --region $REGION --format='value(status.url)'),https://trend-trawler-api-$PROJECT_NUMBER.$REGION.run.app"
+gcloud run services update trend-trawler-api --region $REGION \
+  --update-env-vars "^;^USER_AUTHZ_MODE=enforce;TRUSTED_PROXY_SA=$WEB_SA;TRUSTED_PROXY_AUDIENCES=$API_URLS"
+# (the ^;^ prefix switches gcloud's list delimiter so the comma-separated value survives)
+
+# Web: ALWAYS --update-env-vars (never --set-env-vars, never --allow-unauthenticated —
+# either would wipe ADK_API_BASE/IAP_ALLOWED_HD or re-open the IAP-gated service).
+gcloud run services update trend-trawler-web --region $REGION \
+  --update-env-vars IAP_ALLOWED_HD=jordantotten.altostrat.com
+```
+
+After any api env change, re-check traffic (see Step 8 — pin to the new revision if needed).
+
+**Authed verification (bypassing the proxy).** The impersonated token must carry `email`,
+so pass `--include-email` — without it the api rejects it as untrusted (401):
+
+```bash
+TOK=$(gcloud auth print-identity-token --impersonate-service-account=$WEB_SA \
+  --audiences=$API_URL --include-email)
+curl -s -o /dev/null -w '%{http_code}\n' -H "Authorization: Bearer $TOK" -H "X-TT-User: you@jordantotten.altostrat.com" \
+  "$API_URL/apps/trend_scout/users/you@jordantotten.altostrat.com/sessions"   # 200
+curl -s -o /dev/null -w '%{http_code}\n' -H "Authorization: Bearer $TOK" -H "X-TT-User: you@jordantotten.altostrat.com" \
+  "$API_URL/apps/trend_scout/users/someone-else@jordantotten.altostrat.com/sessions"   # 403
+curl -s -o /dev/null -w '%{http_code}\n' -H "Authorization: Bearer $TOK" \
+  "$API_URL/apps/trend_scout/users/you@jordantotten.altostrat.com/sessions"   # 401 (no X-TT-User)
+```
+
+**Never log the proxy's `Authorization` header** (or `$TOK`) — it is a live `tt-web-sa`
+credential; `runserver/authz.py` logs only the rejection reason, rate-limited.
+
+**Rollback:** `--update-env-vars USER_AUTHZ_MODE=observe` on the api (keeps the new code,
+stops enforcing). Always move the api to `observe` *before* rolling back web alone —
+an old proxy sends no `X-TT-User`, so an enforcing api would 401 every UI call.
 
 ---
 
