@@ -8,12 +8,13 @@ from zoneinfo import ZoneInfo
 from google.adk.tools import ToolContext
 from google.cloud import bigquery
 
+from agent_common.clients import get_bigquery_client
+
 from .config import config
 
-
-def _get_bigquery_client() -> bigquery.Client:
-    """Get a configured BigQuery client."""
-    return bigquery.Client(project=config.BQ_PROJECT_ID)
+# Shared lazy getter (agent_common.clients), bound to the historical private name
+# so call sites + test monkeypatch points are unchanged.
+_get_bigquery_client = get_bigquery_client
 
 
 def build_eval_bq_row(

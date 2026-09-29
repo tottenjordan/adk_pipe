@@ -7,9 +7,10 @@ import uuid
 from pathlib import Path
 
 from google.adk.tools import ToolContext
-from google.cloud import bigquery, storage
+from google.cloud import bigquery
 
 from agent_common import collect_degradation_warnings
+from agent_common.clients import get_bigquery_client, get_gcs_client
 from agent_common.state import memorize  # noqa: F401  (ADK tool; re-exported)
 
 from .config import config
@@ -23,14 +24,10 @@ logging.basicConfig(
 # ==============================
 # clients
 # =============================
-def _get_gcs_client() -> storage.Client:
-    """Get a configured GCS client."""
-    return storage.Client(project=config.PROJECT_ID)
-
-
-def _get_bigquery_client() -> bigquery.Client:
-    """Get a configured BigQuery client."""
-    return bigquery.Client(project=config.BQ_PROJECT_ID)
+# Shared lazy getters (agent_common.clients), bound to the historical private
+# names so call sites + test monkeypatch points are unchanged.
+_get_gcs_client = get_gcs_client
+_get_bigquery_client = get_bigquery_client
 
 
 # =============================

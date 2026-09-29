@@ -9,10 +9,11 @@ import string
 import tempfile
 
 from google.adk.tools import ToolContext
-from google.cloud import storage
 from google.genai import types
 from markdown_pdf import MarkdownPdf, Section
 from PIL import Image
+
+from agent_common.clients import get_gcs_client
 
 from .config import config
 
@@ -31,10 +32,10 @@ def artifact_key_for(concept_name: str) -> str:
     return concept_name.translate(REMOVE_PUNCTUATION).replace(" ", "_") + ".png"
 
 
-@functools.cache
-def _get_gcs_client() -> storage.Client:
-    """Get a configured GCS client (cached; built lazily on first use)."""
-    return storage.Client(project=config.PROJECT_ID)
+# Shared lazy getter (agent_common.clients), cached here so creative_agent keeps
+# reusing one client (built lazily on first use). Bound to the historical private
+# name so call sites + test monkeypatch points are unchanged.
+_get_gcs_client = functools.cache(get_gcs_client)
 
 
 def _download_blob(bucket_name, source_blob_name):

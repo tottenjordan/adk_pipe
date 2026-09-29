@@ -2,6 +2,7 @@
 
 import warnings
 
+from agent_common.clients import get_bigquery_client, get_gcs_client
 from agent_common.conditional_agent import RunIfAgent
 from agent_common.config import BaseAgentConfiguration
 from agent_common.locations import MODEL_LOCATION
@@ -41,6 +42,8 @@ __all__ = [
     "RetryUntilKeyAgent",
     "RunIfAgent",
     "collect_degradation_warnings",
+    "get_bigquery_client",
+    "get_gcs_client",
     "log_empty_turn_finish_reason",
     "log_run_start",
     "make_final_state_summary",
