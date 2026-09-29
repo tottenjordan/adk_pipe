@@ -266,6 +266,13 @@ Replace the hardcoded `hybrid-vertex`, project number, engine ID (`cloud_functio
 - Delete the 27 merged remote branches: list them with `git branch -r --merged` (squash merges won't show there), cross-check each against merged PRs with `gh pr list --state merged --json headRefName`, then run `git push origin --delete <b>` for each one confirmed.
 
 ### Phase 4 — Follow-up proposals (write-ups only; each becomes its own plan)
+
+> **Status (2026-09-29):** each proposal now has its own plan doc (all *proposal, not started*):
+> - P1 → [`2026-09-29-p1-agentplatform-sdk-migration.md`](2026-09-29-p1-agentplatform-sdk-migration.md) — **gated**: google-adk 2.10 still pins `google-cloud-aiplatform<2`; the Cloud Function can move to `google-cloud-agentplatform` now. Errors are genai `APIError`, not `GoogleAPICallError` as assumed below.
+> - P2 → [`2026-09-29-p2-adk-workflow-migration.md`](2026-09-29-p2-adk-workflow-migration.md) — BigQuery-write idempotency prerequisites (I-1…I-3) first; T0 API-contract spike gates the migration.
+> - P3 → [`2026-09-29-p3-per-user-runs-authz.md`](2026-09-29-p3-per-user-runs-authz.md) — proxy verifies the IAP JWT and is authoritative; backend trusts `X-TT-User` only from `tt-web-sa`.
+> - P4.1 → [`2026-09-29-p4a-infrastructure-as-code.md`](2026-09-29-p4a-infrastructure-as-code.md) — Terraform foundation with import-based adoption; app deploys stay in scripts.
+> - P4.2–P4.6 → [`2026-09-29-p4b-showcase-enhancements.md`](2026-09-29-p4b-showcase-enhancements.md).
 - **P1. AgentPlatform SDK migration (aiplatform 2.x):**
   - Move `vertexai.Client().agent_engines` to `agentplatform.Client().runtimes` in `deploy_agent.py`, `test_deployment.py`, `integration_test.py` and `cloud_functions/creative_fanout/main.py:83-210`.
   - Move sessions to `client.sessions`.
