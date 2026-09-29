@@ -17,6 +17,8 @@ from collections.abc import Callable, Iterable, Mapping
 
 import google.auth.exceptions
 from google.auth import jwt as google_jwt
+from starlette.requests import Request
+from starlette.responses import JSONResponse
 
 TRUSTED_USER_HEADER = "x-tt-user"
 _EMAIL_RE = re.compile(r"^[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}$")
@@ -30,6 +32,8 @@ _BLOCKED_RE = re.compile(
     r"|^/apps/[^/]+/users/[^/]+/memory/?$"
     r"|^/agent-identity/finalize/?$"
 )
+# The exact VertexAiSessionService ownership-mismatch message (get/delete_session).
+_OWNERSHIP_RE = re.compile(r"Session \S+ does not belong to user .+\.")
 GOOGLE_CERTS_URL = "https://www.googleapis.com/oauth2/v1/certs"
 _certs: dict[str, str] = {}
 _certs_at = float("-inf")
@@ -141,3 +145,61 @@ def verify_proxy_caller(
         and claims.get("email") == trusted_sa
         and claims.get("email_verified") is True
     )
+
+
+class UserAuthzMiddleware:
+    """Pure-ASGI: derive the trusted user, stash it on scope state, deny per ``decide``."""
+
+    def __init__(
+        self, app, *, mode: AuthzMode, caller_ok: Callable[[str | None], bool]
+    ):
+        self.app, self.mode, self.caller_ok = app, mode, caller_ok
+
+    async def __call__(self, scope, receive, send):
+        if (
+            scope["type"] not in ("http", "websocket")
+            or self.mode is AuthzMode.TRUST_CLIENT
+        ):
+            return await self.app(scope, receive, send)
+        headers = {
+            k.decode("latin-1").lower(): v.decode("latin-1")
+            for k, v in scope["headers"]
+        }
+        trusted = None
+        if (claimed := headers.get(TRUSTED_USER_HEADER)) and self.caller_ok(
+            headers.get("authorization")
+        ):
+            try:
+                trusted = normalize_user_id(claimed)
+            except ValueError:
+                trusted = None
+        scope.setdefault("state", {})["tt_user"] = trusted
+        denial = decide(self.mode, scope["path"], trusted)
+        if denial is None:
+            return await self.app(scope, receive, send)
+        if scope["type"] == "websocket":
+            # Consume the handshake, then refuse it (policy violation); the app
+            # never sees the connection.
+            if (await receive())["type"] == "websocket.connect":
+                await send({"type": "websocket.close", "code": 1008})
+            return
+        await JSONResponse({"detail": denial[1]}, status_code=denial[0])(
+            scope, receive, send
+        )
+
+
+def trusted_user(request: Request) -> str | None:
+    return getattr(request.state, "tt_user", None)
+
+
+def install_ownership_handler(app) -> None:
+    """VertexAiSessionService raises ValueError('Session X does not belong to user
+    Y.') on an ownership mismatch; the canned routes (and /runs start/resume) would
+    500. Map exactly that to 404 (don't leak existence); re-raise anything else."""
+
+    async def _handler(request: Request, exc: Exception):
+        if type(exc) is ValueError and _OWNERSHIP_RE.fullmatch(str(exc)):
+            return JSONResponse({"detail": "Session not found"}, status_code=404)
+        raise exc
+
+    app.add_exception_handler(ValueError, _handler)

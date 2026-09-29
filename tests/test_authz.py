@@ -2,19 +2,24 @@
 
 from __future__ import annotations
 
+import asyncio
 import time
 
+import httpx
 import pytest
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
+from fastapi import FastAPI
 from google.auth import crypt
 from google.auth import jwt as gjwt
 
 from runserver.authz import (
     AuthzMode,
     UserAuthzError,
+    UserAuthzMiddleware,
     authorize_body_user,
     decide,
+    install_ownership_handler,
     normalize_user_id,
     path_user_id,
     resolve_mode,
@@ -167,3 +172,137 @@ def test_verify_proxy_caller_fails_closed_when_certs_unreachable():
         raise OSError("network unreachable")
 
     assert not verify_proxy_caller(_tok(), audiences=[AUD], trusted_sa=SA, certs=_down)
+
+
+def _app(mode):
+    app = FastAPI()
+
+    @app.get("/apps/{a}/users/{u}/sessions")
+    async def list_sessions(a: str, u: str):
+        return {"user": u}
+
+    @app.get("/apps/{a}/users/{u}/sessions/{s}")
+    async def get(a: str, u: str, s: str):
+        if s == "foreign":
+            raise ValueError(f"Session {s} does not belong to user {u}.")
+        if s == "boom":
+            raise ValueError("some unrelated failure")
+        return {"user": u}
+
+    install_ownership_handler(app)
+    app.add_middleware(
+        UserAuthzMiddleware, mode=mode, caller_ok=lambda auth: auth == "Bearer proxy"
+    )
+    return app
+
+
+def _get(app, path, **headers):
+    async def go():
+        t = httpx.ASGITransport(app=app, raise_app_exceptions=False)
+        async with httpx.AsyncClient(transport=t, base_url="http://t") as c:
+            return await c.get(path, headers=headers)
+
+    return asyncio.run(go())
+
+
+_PROXY = {"authorization": "Bearer proxy", "x-tt-user": A}
+
+
+def test_middleware_enforce():
+    app, ok = _app(AuthzMode.ENFORCE), _PROXY
+    assert _get(app, f"/apps/x/users/{A}/sessions/1", **ok).status_code == 200
+    assert _get(app, "/apps/x/users/bob@x.com/sessions/1", **ok).status_code == 403
+    # the artifacts listing route (7 segments) is user-scoped too
+    assert (
+        _get(app, "/apps/x/users/bob@x.com/sessions/1/artifacts", **ok).status_code
+        == 403
+    )
+    # X-TT-User from a non-proxy caller is ignored -> no trusted identity -> 401
+    assert (
+        _get(
+            app,
+            f"/apps/x/users/{A}/sessions/1",
+            authorization="Bearer other",
+            **{"x-tt-user": A},
+        ).status_code
+        == 401
+    )
+    assert _get(app, f"/apps/x/users/{A}/sessions/foreign", **ok).status_code == 404
+    assert _get(app, "/run_sse", **ok).status_code == 404
+
+
+def test_middleware_normalizes_trusted_header():
+    hdrs = {
+        "authorization": "Bearer proxy",
+        "x-tt-user": "accounts.google.com:Alice@Example.com",
+    }
+    assert (
+        _get(
+            _app(AuthzMode.ENFORCE), f"/apps/x/users/{A}/sessions/1", **hdrs
+        ).status_code
+        == 200
+    )
+
+
+def test_middleware_accepts_percent_encoded_path_user():
+    # Starlette's scope["path"] is percent-decoded, so %40 compares as "@".
+    resp = _get(
+        _app(AuthzMode.ENFORCE),
+        "/apps/a/users/alice%40x.com/sessions",
+        authorization="Bearer proxy",
+        **{"x-tt-user": "alice@x.com"},
+    )
+    assert resp.status_code == 200
+    assert resp.json() == {"user": "alice@x.com"}
+
+
+def test_ownership_handler_only_maps_the_ownership_message():
+    app = _app(AuthzMode.ENFORCE)
+    assert _get(app, f"/apps/x/users/{A}/sessions/boom", **_PROXY).status_code == 500
+
+
+def test_middleware_trust_client_passes_everything():
+    assert (
+        _get(_app(AuthzMode.TRUST_CLIENT), "/apps/x/users/me/sessions/1").status_code
+        == 200
+    )
+
+
+def _raw_asgi(mode, scope, messages):
+    """Drive UserAuthzMiddleware directly; return (inner_app_called, sent)."""
+    called, sent = [], []
+    inbox = list(messages)
+
+    async def inner(scope, receive, send):
+        called.append(scope["type"])
+
+    async def receive():
+        return inbox.pop(0)
+
+    async def send(msg):
+        sent.append(msg)
+
+    mw = UserAuthzMiddleware(inner, mode=mode, caller_ok=lambda auth: True)
+    asyncio.run(mw(scope, receive, send))
+    return called, sent
+
+
+def _ws_scope(path, headers=()):
+    return {"type": "websocket", "path": path, "headers": list(headers)}
+
+
+def test_middleware_rejects_blocked_websocket_without_calling_app():
+    called, sent = _raw_asgi(
+        AuthzMode.ENFORCE,
+        _ws_scope("/run_live", [(b"x-tt-user", A.encode())]),
+        [{"type": "websocket.connect"}],
+    )
+    assert called == []
+    assert sent == [{"type": "websocket.close", "code": 1008}]
+
+
+def test_middleware_passes_allowed_websocket_and_lifespan():
+    called, sent = _raw_asgi(AuthzMode.ENFORCE, _ws_scope("/some-ws"), [])
+    assert called == ["websocket"] and sent == []
+    called, _ = _raw_asgi(AuthzMode.ENFORCE, {"type": "lifespan"}, [])
+    assert called == ["lifespan"]
