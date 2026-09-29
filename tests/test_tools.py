@@ -206,6 +206,72 @@ class TestBuildTrendInsertSql:
         assert tricky not in sql
         assert self._param_value(params, "trend") == tricky
 
+    def test_is_insert_only_merge_keyed_on_uuid_and_trend(self):
+        # at-least-once tool execution: a repeat write for the same session's
+        # (uuid, trend) must be a no-op, so the statement is an INSERT-only MERGE.
+        sql, _ = self._sql()
+        assert "MERGE" in sql
+        assert "INSERT INTO" not in sql
+        assert "ON T.uuid = S.uuid AND T.target_trend = S.target_trend" in sql
+        assert "WHEN NOT MATCHED THEN" in sql
+        assert "WHEN MATCHED" not in sql
+
+
+class TestTrendScoutWriteTrendsIdempotent:
+    def _run(self, monkeypatch, session_id):
+        import trend_scout.tools as t
+
+        class _Job:
+            errors = None
+            job_id = "j1"
+            num_dml_affected_rows = 1
+
+            def result(self):
+                return None
+
+        captured = []
+
+        class _BQ:
+            def query(self, sql, job_config=None):
+                captured.append((sql, job_config))
+                return _Job()
+
+        monkeypatch.setattr(t, "_get_bigquery_client", lambda: _BQ())
+        monkeypatch.setattr(t, "_get_gtrends_max_date", lambda: "07/17/2026")
+        ctx = MockToolContext(session_id)
+        ctx.state.update(
+            {
+                "gcs_folder": "2026_07_13_run",
+                "agent_output_dir": "trawler_output",
+                "target_search_trends": {"target_search_trends": ["t1", "t2", "t3"]},
+                "brand": "PRS",
+                "target_audience": "musicians",
+                "target_product": "SE CE24",
+                "key_selling_points": "wide tonal range",
+            }
+        )
+        t.write_trends_to_bq(ctx)
+        out = []
+        for sql, job_config in captured:
+            assert "MERGE" in sql
+            params = {p.name: p.value for p in job_config.query_parameters}
+            out.append((params["unique_id"], params["trend"]))
+        return out
+
+    def test_same_session_same_ids_per_trend(self, monkeypatch):
+        first = self._run(monkeypatch, "sess-1")
+        second = self._run(monkeypatch, "sess-1")
+        assert first == second
+        assert [trend for _, trend in first] == ["t1", "t2", "t3"]
+        # one batch per session: every trend row shares the session-derived uuid
+        assert len({uid for uid, _ in first}) == 1
+        assert len(first[0][0]) == 8
+
+    def test_different_sessions_different_ids(self, monkeypatch):
+        a = self._run(monkeypatch, "sess-1")
+        b = self._run(monkeypatch, "sess-2")
+        assert a[0][0] != b[0][0]
+
 
 # --- save_search_trends_to_session_state logic ---
 class TestSaveSearchTrends:

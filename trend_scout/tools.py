@@ -3,7 +3,6 @@ import json
 import logging
 import os
 import tempfile
-import uuid
 from pathlib import Path
 
 from google.adk.tools import ToolContext
@@ -11,6 +10,7 @@ from google.cloud import bigquery
 
 from agent_common import collect_degradation_warnings
 from agent_common.clients import get_bigquery_client, get_gcs_client
+from agent_common.idempotency import stable_row_id
 from agent_common.state import memorize  # noqa: F401  (ADK tool; re-exported)
 
 from .config import config
@@ -249,7 +249,7 @@ def _build_trend_insert_sql(
     key_selling_points: str,
     research_gaps: str,
 ) -> tuple[str, list[bigquery.ScalarQueryParameter]]:
-    """Build the single-row INSERT for `target_trends_crf` (pure, unit-testable).
+    """Build the single-row MERGE for `target_trends_crf` (pure, unit-testable).
 
     Returns the parameterized SQL plus its bound query parameters. Values are
     passed as `@named` BigQuery query parameters (never string-interpolated) so a
@@ -261,10 +261,30 @@ def _build_trend_insert_sql(
     clean run, or the `collect_degradation_warnings` note(s) when the resilient
     research wrapper exhausted its retries. The `research_gaps` column must already
     exist (additive `ALTER TABLE ... ADD COLUMN research_gaps STRING`).
+
+    INSERT-only MERGE keyed on `(uuid, target_trend)`: `unique_id` is
+    session-derived, so an at-least-once re-run of the tool leaves one row per
+    trend instead of duplicating the batch.
     """
     sql = f"""
-    INSERT INTO
-      `{table}` (uuid,
+    MERGE `{table}` T
+    USING (
+      SELECT
+        @unique_id AS uuid,
+        @trend AS target_trend,
+        PARSE_DATE('%m/%d/%Y', @max_date) AS refresh_date,
+        PARSE_DATE('%m/%d/%Y', @current_date) AS trawler_date,
+        CURRENT_TIMESTAMP() AS entry_timestamp,
+        @trawler_gcs AS trawler_gcs,
+        @brand AS brand,
+        @target_audience AS target_audience,
+        @target_product AS target_product,
+        @key_selling_points AS key_selling_point,
+        @research_gaps AS research_gaps
+    ) S
+    ON T.uuid = S.uuid AND T.target_trend = S.target_trend
+    WHEN NOT MATCHED THEN
+      INSERT (uuid,
         -- processed_status, -- omitting will make it NULL
         target_trend,
         refresh_date,
@@ -276,20 +296,17 @@ def _build_trend_insert_sql(
         target_product,
         key_selling_point,
         research_gaps)
-    VALUES
-    (
-        @unique_id,
-        @trend,
-        PARSE_DATE('%m/%d/%Y', @max_date),
-        PARSE_DATE('%m/%d/%Y', @current_date),
-        CURRENT_TIMESTAMP(),
-        @trawler_gcs,
-        @brand,
-        @target_audience,
-        @target_product,
-        @key_selling_points,
-        @research_gaps
-    );
+      VALUES (S.uuid,
+        S.target_trend,
+        S.refresh_date,
+        S.trawler_date,
+        S.entry_timestamp,
+        S.trawler_gcs,
+        S.brand,
+        S.target_audience,
+        S.target_product,
+        S.key_selling_point,
+        S.research_gaps);
     """
     params = [
         bigquery.ScalarQueryParameter("unique_id", "STRING", unique_id),
@@ -328,8 +345,10 @@ def write_trends_to_bq(tool_context: ToolContext) -> dict:
     max_date = _get_gtrends_max_date()
     logging.info(f"\n\nmax_date in trends_assistant: {max_date}\n\n")
 
-    # values to insert
-    unique_id = f"{str(uuid.uuid4())[:8]}"
+    # values to insert. One batch per session: every selected trend shares this
+    # session-derived id (not uuid4), so an at-least-once re-run (resumed app)
+    # MERGEs onto the same (uuid, target_trend) rows instead of duplicating them.
+    unique_id = stable_row_id(tool_context.session.id)
     current_date = datetime.datetime.now().strftime("%m/%d/%Y")
 
     gcs_url_prefix = "https://console.cloud.google.com/storage/browser"
@@ -369,12 +388,12 @@ def write_trends_to_bq(tool_context: ToolContext) -> dict:
             job.result()  # wait for job to complete
             if job.errors:
                 logging.error(
-                    f"DML INSERT job for trend: '{trend}' failed: {job.errors}"
+                    f"DML MERGE job for trend: '{trend}' failed: {job.errors}"
                 )
                 raise RuntimeError(f"BigQuery insert returned errors: {job.errors}")
             else:
                 logging.info(
-                    f"DML INSERT job {job.job_id} for trend: `{trend}` completed; added {job.num_dml_affected_rows} rows."
+                    f"DML MERGE job {job.job_id} for trend: `{trend}` completed; added {job.num_dml_affected_rows} rows."
                 )
         return {
             "status": "success",
