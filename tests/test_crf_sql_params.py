@@ -209,3 +209,81 @@ def test_worker_acks_non_allow_listed_table(monkeypatch):
     }
     main.agent_worker_entrypoint(_event(payload))  # must not raise
     bq.query.assert_not_called()
+
+
+def test_worker_acks_malformed_entry_timestamp(monkeypatch, caplog):
+    """A malformed timestamp can never parse on redelivery → log error + ACK."""
+    bq = _bq()
+    monkeypatch.setattr(main, "_get_bigquery_client", lambda: bq)
+    payload = {
+        "bq_dataset": DS,
+        "bq_table": TBL,
+        "agent_resource_id": "1",
+        "row_data": {"entry_timestamp": "not-a-timestamp", "index": 0},
+    }
+    with caplog.at_level("ERROR"):
+        main.agent_worker_entrypoint(_event(payload))  # must not raise
+    bq.query.assert_not_called()
+    assert any(
+        r.levelname == "ERROR" and "not-a-timestamp" in r.getMessage()
+        for r in caplog.records
+    )
+
+
+@pytest.mark.parametrize("bad", [12345, None, "2026-07-12') OR TRUE --"])
+def test_worker_acks_non_string_or_injected_timestamp(monkeypatch, bad):
+    bq = _bq()
+    monkeypatch.setattr(main, "_get_bigquery_client", lambda: bq)
+    payload = {
+        "bq_dataset": DS,
+        "bq_table": TBL,
+        "agent_resource_id": "1",
+        "row_data": {"entry_timestamp": bad, "index": 0},
+    }
+    main.agent_worker_entrypoint(_event(payload))  # must not raise
+    bq.query.assert_not_called()
+
+
+# ============================================================
+# real orchestrator serialization round-trips through the builders
+# ============================================================
+_REAL_INSTANT = datetime(2026, 9, 1, 12, 34, 56, 123456, tzinfo=UTC)
+
+
+def _orchestrator_serialize(ts):
+    """Mirror crf_entrypoint: `row["entry_timestamp"].isoformat()` on the
+    tz-aware pandas Timestamp BigQuery's to_dataframe returns, then JSON."""
+    return json.loads(json.dumps({"entry_timestamp": ts.isoformat()}))[
+        "entry_timestamp"
+    ]
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "2026-09-01T12:34:56.123456+00:00",
+        # Same instant expressed with a non-UTC offset.
+        "2026-09-01T14:34:56.123456+02:00",
+    ],
+)
+def test_orchestrator_timestamp_round_trips_through_builders(raw):
+    serialized = _orchestrator_serialize(pd.Timestamp(raw))
+
+    _, lock_params = main._build_lock_sql("p", DS, TBL, serialized)
+    (lock_param,) = lock_params
+    assert lock_param.type_ == "TIMESTAMP"
+    val = lock_param.value
+    assert val == _REAL_INSTANT
+    assert val.microsecond == 123456
+    assert val.utcoffset().total_seconds() == 0
+    assert val.astimezone(UTC).isoformat() == "2026-09-01T12:34:56.123456+00:00"
+
+    _, update_params = main._build_update_status_sql(
+        "p", DS, TBL, [serialized], "PROCESSED"
+    )
+    ts_param = next(p for p in update_params if p.name == "timestamps")
+    assert ts_param.array_type == "TIMESTAMP"
+    (uval,) = ts_param.values
+    assert uval == _REAL_INSTANT
+    assert uval.microsecond == 123456
+    assert uval.utcoffset().total_seconds() == 0

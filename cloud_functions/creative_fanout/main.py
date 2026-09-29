@@ -35,24 +35,22 @@ import os
 
 os.environ["PYTHONUNBUFFERED"] = "1"
 
-import json
-import time
-import re
-import base64
 import asyncio
+import base64
+import json
 import logging
+import re
+import time
 import warnings
 from datetime import UTC, datetime
 
-import vertexai
 import functions_framework
-from google.cloud import bigquery
-from google.cloud import pubsub_v1
+import vertexai
 from cloudevents.http import CloudEvent
+from google.cloud import bigquery, pubsub_v1
 
 from .config import config
 from .session import agent_session
-
 
 # --- config ---
 logging.basicConfig(
@@ -174,10 +172,16 @@ def _to_utc_datetime(ts):
     """Parse an ISO-8601 timestamp string for a TIMESTAMP query parameter.
 
     Naive values are treated as UTC, matching the old `TIMESTAMP('<naive>')`
-    SQL. Raises ValueError on anything that isn't a timestamp.
+    SQL; aware values are normalized to UTC (same instant, microseconds kept).
+    Raises ValueError on anything that isn't a timestamp.
     """
-    dt = ts if isinstance(ts, datetime) else datetime.fromisoformat(ts)
-    return dt if dt.tzinfo is not None else dt.replace(tzinfo=UTC)
+    try:
+        dt = ts if isinstance(ts, datetime) else datetime.fromisoformat(ts)
+    except TypeError as e:  # e.g. None / int from a malformed payload
+        raise ValueError(f"Invalid entry_timestamp {ts!r}: {e}") from e
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=UTC)
+    return dt.astimezone(UTC)
 
 
 def _build_update_status_sql(project, dataset, table, timestamps, status):
@@ -721,8 +725,12 @@ def agent_worker_entrypoint(cloud_event: CloudEvent) -> None:
         # dataset/table stay in the worker message (compatible with messages
         # already in flight across a deploy) but must be allow-listed. A bad
         # identifier never becomes valid on redelivery -> log and ACK.
+        # Same for a malformed entry_timestamp: it can never parse on
+        # redelivery, so validate it up front and ACK instead of letting the
+        # lock builder raise into the NACK path below.
         try:
             _validate_target(dataset, table)
+            _to_utc_datetime(row_data["entry_timestamp"])
         except ValueError as e:
             logger.error(f"Rejecting worker message: {e}")
             return
