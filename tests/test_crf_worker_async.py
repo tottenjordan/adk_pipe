@@ -402,3 +402,48 @@ def test_vertex_client_is_agentplatform_client(monkeypatch):
     ctor.assert_called_once_with(
         project=main.config.GOOGLE_CLOUD_PROJECT, location=main.config.GCP_REGION
     )
+
+
+# ------------------------------------------------------------
+# pretty_print_event: deployed AdkApp engines stream snake_case dicts
+# (`function_call`/`function_response`, nulls dropped); camelCase must still work.
+# ------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("call_key", "response_key"),
+    [
+        ("function_call", "function_response"),
+        ("functionCall", "functionResponse"),
+    ],
+)
+def test_pretty_print_event_logs_tool_calls_both_spellings(
+    caplog, call_key, response_key
+):
+    event = {
+        "author": "root_agent",
+        "content": {
+            "parts": [
+                {call_key: {"name": "save_to_gcs", "args": {"path": "a"}}},
+                {response_key: {"name": "save_to_gcs", "response": {"ok": 1}}},
+            ]
+        },
+    }
+    with caplog.at_level("INFO"):
+        main.pretty_print_event(event)
+
+    assert "[root_agent]: Function call: save_to_gcs" in caplog.text
+    assert '"path": "a"' in caplog.text
+    assert "[root_agent]: Function response: save_to_gcs" in caplog.text
+    assert '"ok": 1' in caplog.text
+
+
+def test_pretty_print_event_text_part_and_null_content(caplog):
+    with caplog.at_level("INFO"):
+        main.pretty_print_event(
+            {"author": "a", "content": {"parts": [{"text": "hello"}]}}
+        )
+        main.pretty_print_event({"author": "b", "content": None})
+
+    assert "[a]: hello" in caplog.text
+    assert "[b]: {" in caplog.text

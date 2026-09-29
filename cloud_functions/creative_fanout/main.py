@@ -110,19 +110,23 @@ def _get_vertex_client():
 # ==============================
 def pretty_print_event(event):
     """Pretty prints an event with truncation for long content."""
-    if "content" not in event:
+    if not event.get("content"):
         logging.info(f"[{event.get('author', 'unknown')}]: {event}")
         return
 
     author = event.get("author", "unknown")
-    parts = event["content"].get("parts", [])
+    parts = event["content"].get("parts") or []
 
     for part in parts:
-        if "text" in part:
+        # Deployed AdkApp engines stream snake_case dicts (nulls dropped); accept
+        # camelCase too. Inline mirror of deployment/test_deployment.py (the CRF
+        # package can't import deployment/).
+        func_call = part.get("function_call") or part.get("functionCall")
+        func_response = part.get("function_response") or part.get("functionResponse")
+        if part.get("text"):
             text = part["text"]
             logging.info(f"[{author}]: {text}")
-        elif "functionCall" in part:
-            func_call = part["functionCall"]
+        elif func_call:
             logging.info(
                 f"[{author}]: Function call: {func_call.get('name', 'unknown')}"
             )
@@ -131,8 +135,7 @@ def pretty_print_event(event):
             if len(args) > 100:
                 args = args[:97] + "..."
             logging.info(f"  Args: {args}")
-        elif "functionResponse" in part:
-            func_response = part["functionResponse"]
+        elif func_response:
             logging.info(
                 f"[{author}]: Function response: {func_response.get('name', 'unknown')}"
             )
