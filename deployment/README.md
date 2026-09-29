@@ -285,6 +285,16 @@ gcloud eventarc triggers create $CREATIVE_TRIGGER_NAME  \
   --service-account=$SERVICE_ACCOUNT
 ```
 
+Raise the trigger subscription's ack deadline from the Eventarc default (10s).
+Otherwise a cold start longer than 10s gets the message redelivered, and the
+orchestrator re-dispatches the rows it just marked QUEUED:
+
+```bash
+ORCH_SUB=$(gcloud eventarc triggers describe $CREATIVE_TRIGGER_NAME --location=$GCP_REGION \
+  --format='value(transport.pubsub.subscription)')
+gcloud pubsub subscriptions update $ORCH_SUB --ack-deadline=60
+```
+
 
 **3.3 Creative Agent Worker:** cloud run function
 
@@ -338,6 +348,16 @@ gcloud eventarc triggers create $CREATIVE_WORKER_TRIGGER_NAME  \
   --event-filters="type=google.cloud.pubsub.topic.v1.messagePublished" \
   --transport-topic=$CREATIVE_WORKER_TOPIC_NAME \
   --service-account=$SERVICE_ACCOUNT
+```
+
+Worker runs take ~500s, so set the maximum ack deadline (600s). With the 10s
+default, Pub/Sub redelivers mid-run; the QUEUED->PROCESSING lock turns each
+redelivery into a no-op, but they still occupy the single worker instance:
+
+```bash
+WORKER_SUB=$(gcloud eventarc triggers describe $CREATIVE_WORKER_TRIGGER_NAME --location=$GCP_REGION \
+  --format='value(transport.pubsub.subscription)')
+gcloud pubsub subscriptions update $WORKER_SUB --ack-deadline=600
 ```
 
 
