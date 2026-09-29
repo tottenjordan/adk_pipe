@@ -136,12 +136,17 @@ class TestWriteTrendsIdempotent:
     def _ctx(self, session_id="sess-abc"):
         ctx = MockToolContext()
         ctx.session = SimpleNamespace(id=session_id)
-        ctx.state.update({
-            "gcs_folder": "f", "agent_output_dir": "d",
-            "target_search_trends": "tswift engaged", "brand": "PRS",
-            "target_audience": "musicians", "target_product": "SE CE24",
-            "key_selling_points": "tone",
-        })
+        ctx.state.update(
+            {
+                "gcs_folder": "f",
+                "agent_output_dir": "d",
+                "target_search_trends": "tswift engaged",
+                "brand": "PRS",
+                "target_audience": "musicians",
+                "target_product": "SE CE24",
+                "key_selling_points": "tone",
+            }
+        )
         return ctx
 
     def _patch(self, monkeypatch, captured):
@@ -228,8 +233,12 @@ class TestWriteEvalReportIdempotent:
         monkeypatch.setattr(t, "_get_bigquery_client", lambda: _BQ())
         ctx = MockToolContext()
         ctx.session = SimpleNamespace(id="sess-1")
-        ctx.state.update({"creative_evaluation_report": {"summary": {}},
-                          "creative_row_uuid": "abcd1234"})
+        ctx.state.update(
+            {
+                "creative_evaluation_report": {"summary": {}},
+                "creative_row_uuid": "abcd1234",
+            }
+        )
         r1 = t.write_eval_report_to_bq(ctx)
         r2 = t.write_eval_report_to_bq(ctx)
         assert r1["eval_uuid"] == r2["eval_uuid"]
@@ -281,20 +290,29 @@ class _Writer(BaseAgent):
     value: str = "v"
 
     async def _run_async_impl(self, ctx):
-        yield Event(invocation_id=ctx.invocation_id, author=self.name,
-                    actions=EventActions(state_delta={self.key: self.value}))
+        yield Event(
+            invocation_id=ctx.invocation_id,
+            author=self.name,
+            actions=EventActions(state_delta={self.key: self.value}),
+        )
 
 
 def _run_node(node):
     runner = InMemoryRunner(node=node, app_name="wf_contract")
 
     async def go():
-        s = await runner.session_service.create_session(app_name="wf_contract", user_id="u")
-        async for _ in runner.run_async(user_id="u", session_id=s.id,
-                new_message=types.Content(role="user", parts=[types.Part(text="go")])):
+        s = await runner.session_service.create_session(
+            app_name="wf_contract", user_id="u"
+        )
+        async for _ in runner.run_async(
+            user_id="u",
+            session_id=s.id,
+            new_message=types.Content(role="user", parts=[types.Part(text="go")]),
+        ):
             pass
         return await runner.session_service.get_session(
-            app_name="wf_contract", user_id="u", session_id=s.id)
+            app_name="wf_contract", user_id="u", session_id=s.id
+        )
 
     return asyncio.run(go())
 
@@ -323,8 +341,14 @@ def test_route_skips_unselected_branch():
     def compose(ctx):
         ran.append("compose")
 
-    wf = Workflow(name="wf", edges=[("START", gate), (gate, {"refine": refine, "skip": compose}),
-                                    (refine, compose)])
+    wf = Workflow(
+        name="wf",
+        edges=[
+            ("START", gate),
+            (gate, {"refine": refine, "skip": compose}),
+            (refine, compose),
+        ],
+    )
     _run_node(wf)
     assert ran == ["compose"]
 ```
@@ -377,8 +401,11 @@ def test_understand_trends_is_retry_wrapped():
     from trend_scout.agent import root_agent
 
     nodes = [t.node for t in root_agent.tools if isinstance(t, NodeTool)]
-    matching = [n for n in nodes
-                if isinstance(n, RetryUntilKeyNode) and n.output_key == "info_gtrends"]
+    matching = [
+        n
+        for n in nodes
+        if isinstance(n, RetryUntilKeyNode) and n.output_key == "info_gtrends"
+    ]
     assert matching, "no NodeTool wraps a RetryUntilKeyNode producing info_gtrends"
     pair = matching[0].node
     assert isinstance(pair, Workflow)
@@ -421,16 +448,29 @@ def test_combined_research_pipeline_graph():
 
     assert isinstance(wf, Workflow)
     names = {n.name for n in wf.graph.nodes}
-    assert {"gs_sequential_planner", "ca_sequential_planner", "research_join",
-            "merge_planners", "refinement_gate", "combined_web_evaluator",
-            "enhanced_combined_searcher_resilient", "combined_report_composer"} <= names
+    assert {
+        "gs_sequential_planner",
+        "ca_sequential_planner",
+        "research_join",
+        "merge_planners",
+        "refinement_gate",
+        "combined_web_evaluator",
+        "enhanced_combined_searcher_resilient",
+        "combined_report_composer",
+    } <= names
     edges = {(e.from_node.name, e.to_node.name, e.route) for e in wf.graph.edges}
     assert ("__START__", "gs_sequential_planner", None) in edges
     assert ("__START__", "ca_sequential_planner", None) in edges  # parallel fan-out
-    assert isinstance(next(n for n in wf.graph.nodes if n.name == "research_join"), JoinNode)
+    assert isinstance(
+        next(n for n in wf.graph.nodes if n.name == "research_join"), JoinNode
+    )
     assert ("refinement_gate", "combined_web_evaluator", "refine") in edges
     assert ("refinement_gate", "combined_report_composer", "skip") in edges
-    assert ("enhanced_combined_searcher_resilient", "combined_report_composer", None) in edges
+    assert (
+        "enhanced_combined_searcher_resilient",
+        "combined_report_composer",
+        None,
+    ) in edges
 
 
 def test_refinement_gate_routes_on_degradation():
@@ -438,8 +478,15 @@ def test_refinement_gate_routes_on_degradation():
 
     assert refinement_gate_route({"combined_web_search_insights": "ok"}) == "skip"
     assert refinement_gate_route({}) == "refine"
-    assert refinement_gate_route({"combined_web_search_insights": "ok",
-                                  "gs_web_search_insights__retry_exhausted": True}) == "refine"
+    assert (
+        refinement_gate_route(
+            {
+                "combined_web_search_insights": "ok",
+                "gs_web_search_insights__retry_exhausted": True,
+            }
+        )
+        == "refine"
+    )
 ```
 
 (`refinement_gate_route(state) -> str` is the pure helper that wraps `_base_research_is_degraded`. Keep `test_research_refinement_gate_predicate` as is.)
@@ -518,7 +565,11 @@ def test_no_deprecated_workflow_agents_instantiated():
 
     with warnings.catch_warnings():
         warnings.simplefilter("error", DeprecationWarning)
-        for mod in ("trend_scout.agent", "creative_agent.agent", "interactive_creative.agent"):
+        for mod in (
+            "trend_scout.agent",
+            "creative_agent.agent",
+            "interactive_creative.agent",
+        ):
             importlib.reload(importlib.import_module(mod))
 ```
 

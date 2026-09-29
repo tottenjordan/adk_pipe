@@ -93,5 +93,4 @@ class BaseAgentConfiguration:
     BQ_DATASET_ID = os.environ.get("BQ_DATASET_ID")
     BQ_TABLE_TARGETS = os.environ.get("BQ_TABLE_TARGETS")
     BQ_TABLE_CREATIVES = os.environ.get("BQ_TABLE_CREATIVES")
-    BQ_TABLE_ALL_TRENDS = os.environ.get("BQ_TABLE_ALL_TRENDS")
     BQ_TABLE_EVALS = os.environ.get("BQ_TABLE_EVALS")

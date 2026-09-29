@@ -82,32 +82,43 @@ This is the complete route list from `get_fast_api_app(agents_dir="agents", web=
 **Step 1: Write the failing test** (`tests/test_authz.py`):
 ```python
 """P3 per-user authorization helpers (offline, no creds)."""
+
 from __future__ import annotations
 
 import pytest
 
 from runserver.authz import (
-    AuthzMode, UserAuthzError, authorize_body_user, decide, normalize_user_id,
-    path_user_id, resolve_mode,
+    AuthzMode,
+    UserAuthzError,
+    authorize_body_user,
+    decide,
+    normalize_user_id,
+    path_user_id,
+    resolve_mode,
 )
 
 A = "alice@example.com"
 
 
 def test_normalize_strips_iap_prefix_and_lowercases():
-    assert normalize_user_id(" accounts.google.com:Alice@JordanTotten.Altostrat.com ") == A
+    assert (
+        normalize_user_id(" accounts.google.com:Alice@JordanTotten.Altostrat.com ") == A
+    )
     with pytest.raises(ValueError):
         normalize_user_id("user_1727600000000")
 
 
-@pytest.mark.parametrize(("path", "user"), [
-    ("/apps/trend_scout/users/u1/sessions", "u1"),
-    ("/apps/trend_scout/users/u1/sessions/123/artifacts/a/b.png", "u1"),
-    ("/runs/trend_scout/u1/123", "u1"),
-    ("/runs/trend_scout/u1/123/resume", "u1"),
-    ("/runs/trend_scout", None),
-    ("/list-apps", None),
-])
+@pytest.mark.parametrize(
+    ("path", "user"),
+    [
+        ("/apps/trend_scout/users/u1/sessions", "u1"),
+        ("/apps/trend_scout/users/u1/sessions/123/artifacts/a/b.png", "u1"),
+        ("/runs/trend_scout/u1/123", "u1"),
+        ("/runs/trend_scout/u1/123/resume", "u1"),
+        ("/runs/trend_scout", None),
+        ("/list-apps", None),
+    ],
+)
 def test_path_user_id(path, user):
     assert path_user_id(path) == user
 
@@ -159,6 +170,7 @@ def test_authorize_body_user():
 The /api/adk proxy verifies the IAP JWT and sends the normalized email as
 ``X-TT-User``. This module trusts that header only from the proxy SA (see
 ``verify_proxy_caller``) and rejects any path/body ``userId`` that differs."""
+
 from __future__ import annotations
 
 import enum
@@ -174,7 +186,9 @@ _PATH_USER_RES = (
     re.compile(r"^/runs/[^/]+/(?P<user>[^/]+)/[^/]+(?:/resume)?/?$"),
 )
 # Canned routes the frontend never calls; they bypass /runs or mutate user data.
-_BLOCKED_RE = re.compile(r"^/(?:run|run_sse|run_live)/?$|^/apps/[^/]+/users/[^/]+/memory/?$")
+_BLOCKED_RE = re.compile(
+    r"^/(?:run|run_sse|run_live)/?$|^/apps/[^/]+/users/[^/]+/memory/?$"
+)
 log = logging.getLogger(__name__)
 
 
@@ -193,7 +207,9 @@ class UserAuthzError(Exception):
 def resolve_mode(env: Mapping[str, str] = os.environ) -> AuthzMode:
     if env.get("TRUST_CLIENT_USER_ID") == "1":
         if env.get("K_SERVICE"):
-            raise RuntimeError("TRUST_CLIENT_USER_ID=1 is local-dev only; refusing on Cloud Run")
+            raise RuntimeError(
+                "TRUST_CLIENT_USER_ID=1 is local-dev only; refusing on Cloud Run"
+            )
         return AuthzMode.TRUST_CLIENT
     return AuthzMode(env.get("USER_AUTHZ_MODE", "enforce").strip().lower())
 
@@ -225,7 +241,9 @@ def decide(mode: AuthzMode, path: str, trusted: str | None) -> tuple[int, str] |
         elif claimed != trusted:
             denial = (403, "user mismatch")
     if denial and mode is AuthzMode.OBSERVE:
-        log.warning("authz observe: would deny %s %s (trusted=%s)", denial[0], path, trusted)
+        log.warning(
+            "authz observe: would deny %s %s (trusted=%s)", denial[0], path, trusted
+        )
         return None
     return denial
 
@@ -266,21 +284,36 @@ from runserver.authz import verify_proxy_caller
 SA = "tt-web-sa@PROJECT_ID.iam.gserviceaccount.com"
 AUD = "$API"
 _KEY = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-_PUB = _KEY.public_key().public_bytes(serialization.Encoding.PEM, serialization.PublicFormat.PKCS1)
+_PUB = _KEY.public_key().public_bytes(
+    serialization.Encoding.PEM, serialization.PublicFormat.PKCS1
+)
 _SIGNER = crypt.RSASigner.from_string(
-    _KEY.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8,
-                       serialization.NoEncryption()), key_id="k1")
+    _KEY.private_bytes(
+        serialization.Encoding.PEM,
+        serialization.PrivateFormat.PKCS8,
+        serialization.NoEncryption(),
+    ),
+    key_id="k1",
+)
 
 
 def _tok(**over) -> str:
     now = int(time.time())
-    claims = {"iss": "https://accounts.google.com", "aud": AUD, "email": SA,
-              "email_verified": True, "iat": now, "exp": now + 300} | over
+    claims = {
+        "iss": "https://accounts.google.com",
+        "aud": AUD,
+        "email": SA,
+        "email_verified": True,
+        "iat": now,
+        "exp": now + 300,
+    } | over
     return "Bearer " + gjwt.encode(_SIGNER, claims).decode()
 
 
 def _ok(auth):
-    return verify_proxy_caller(auth, audiences=[AUD], trusted_sa=SA, certs=lambda: {"k1": _PUB})
+    return verify_proxy_caller(
+        auth, audiences=[AUD], trusted_sa=SA, certs=lambda: {"k1": _PUB}
+    )
 
 
 def test_verify_proxy_caller():
@@ -319,19 +352,26 @@ def google_certs(ttl: float = 3600.0) -> dict[str, str]:
 
 
 def verify_proxy_caller(
-    authorization: str | None, *, audiences: Iterable[str], trusted_sa: str,
+    authorization: str | None,
+    *,
+    audiences: Iterable[str],
+    trusted_sa: str,
     certs: Callable[[], Mapping[str, str | bytes]] = google_certs,
 ) -> bool:
     """True iff ``authorization`` is a valid Google ID token minted for ``trusted_sa``."""
     if not authorization or not authorization.lower().startswith("bearer "):
         return False
     try:
-        claims = google_jwt.decode(authorization[7:].strip(), certs=dict(certs()),
-                                   audience=list(audiences))
+        claims = google_jwt.decode(
+            authorization[7:].strip(), certs=dict(certs()), audience=list(audiences)
+        )
     except (ValueError, google.auth.exceptions.GoogleAuthError):
         return False
-    return (claims.get("iss") in ("https://accounts.google.com", "accounts.google.com")
-            and claims.get("email") == trusted_sa and claims.get("email_verified") is True)
+    return (
+        claims.get("iss") in ("https://accounts.google.com", "accounts.google.com")
+        and claims.get("email") == trusted_sa
+        and claims.get("email_verified") is True
+    )
 ```
 
 **Step 4:** `uv run pytest tests/test_authz.py -v && uv run ty check`. Expected: PASS.
@@ -362,8 +402,9 @@ def _app(mode):
         return {"user": u}
 
     install_ownership_handler(app)
-    app.add_middleware(UserAuthzMiddleware, mode=mode,
-                       caller_ok=lambda auth: auth == "Bearer proxy")
+    app.add_middleware(
+        UserAuthzMiddleware, mode=mode, caller_ok=lambda auth: auth == "Bearer proxy"
+    )
     return app
 
 
@@ -372,6 +413,7 @@ def _get(app, path, **headers):
         t = httpx.ASGITransport(app=app)
         async with httpx.AsyncClient(transport=t, base_url="http://t") as c:
             return await c.get(path, headers=headers)
+
     return asyncio.run(go())
 
 
@@ -380,15 +422,28 @@ def test_middleware_enforce():
     assert _get(app, f"/apps/x/users/{A}/sessions/1", **ok).status_code == 200
     assert _get(app, "/apps/x/users/bob@x.com/sessions/1", **ok).status_code == 403
     # the artifacts listing route (7 segments) is user-scoped too
-    assert _get(app, "/apps/x/users/bob@x.com/sessions/1/artifacts", **ok).status_code == 403
+    assert (
+        _get(app, "/apps/x/users/bob@x.com/sessions/1/artifacts", **ok).status_code
+        == 403
+    )
     # X-TT-User from a non-proxy caller is ignored -> no trusted identity -> 401
-    assert _get(app, f"/apps/x/users/{A}/sessions/1", authorization="Bearer other",
-                **{"x-tt-user": A}).status_code == 401
+    assert (
+        _get(
+            app,
+            f"/apps/x/users/{A}/sessions/1",
+            authorization="Bearer other",
+            **{"x-tt-user": A},
+        ).status_code
+        == 401
+    )
     assert _get(app, f"/apps/x/users/{A}/sessions/foreign", **ok).status_code == 404
 
 
 def test_middleware_trust_client_passes_everything():
-    assert _get(_app(AuthzMode.TRUST_CLIENT), "/apps/x/users/me/sessions/1").status_code == 200
+    assert (
+        _get(_app(AuthzMode.TRUST_CLIENT), "/apps/x/users/me/sessions/1").status_code
+        == 200
+    )
 ```
 Append to `tests/test_async_runs.py` (next to `test_router_maps_run_already_active_to_409_on_start_and_resume`):
 ```python
@@ -405,21 +460,35 @@ def test_router_start_run_enforces_body_user_id():
         gate = asyncio.Event()
         gate.set()
         runner = _GatedRunner(svc, "creative_agent", gate)
-        async_runs.configure(session_service=svc, runner_factory=lambda a: runner,
-                             authz_mode=AuthzMode.ENFORCE)
+        async_runs.configure(
+            session_service=svc,
+            runner_factory=lambda a: runner,
+            authz_mode=AuthzMode.ENFORCE,
+        )
         app = FastAPI()
         app.include_router(router)
-        app.add_middleware(UserAuthzMiddleware, mode=AuthzMode.ENFORCE,
-                           caller_ok=lambda auth: auth == "Bearer proxy")
+        app.add_middleware(
+            UserAuthzMiddleware,
+            mode=AuthzMode.ENFORCE,
+            caller_ok=lambda auth: auth == "Bearer proxy",
+        )
         hdrs = {"authorization": "Bearer proxy", "x-tt-user": me}
         t = httpx.ASGITransport(app=app)
         async with httpx.AsyncClient(transport=t, base_url="http://t") as c:
-            bad = await c.post("/runs/creative_agent", headers=hdrs,
-                               json={"userId": "bob@x.com", "sessionId": "s", "message": "hi"})
-            anon = await c.post("/runs/creative_agent",
-                                json={"userId": me, "sessionId": "s", "message": "hi"})
-            good = await c.post("/runs/creative_agent", headers=hdrs,
-                                json={"userId": me, "sessionId": "s", "message": "hi"})
+            bad = await c.post(
+                "/runs/creative_agent",
+                headers=hdrs,
+                json={"userId": "bob@x.com", "sessionId": "s", "message": "hi"},
+            )
+            anon = await c.post(
+                "/runs/creative_agent",
+                json={"userId": me, "sessionId": "s", "message": "hi"},
+            )
+            good = await c.post(
+                "/runs/creative_agent",
+                headers=hdrs,
+                json={"userId": me, "sessionId": "s", "message": "hi"},
+            )
         for task in list(async_runs._ACTIVE_RUNS.values()):
             if isinstance(task, asyncio.Task):
                 await task
@@ -445,15 +514,25 @@ from starlette.responses import JSONResponse
 class UserAuthzMiddleware:
     """Pure-ASGI: derive the trusted user, stash it on scope state, deny per ``decide``."""
 
-    def __init__(self, app, *, mode: AuthzMode, caller_ok: Callable[[str | None], bool]):
+    def __init__(
+        self, app, *, mode: AuthzMode, caller_ok: Callable[[str | None], bool]
+    ):
         self.app, self.mode, self.caller_ok = app, mode, caller_ok
 
     async def __call__(self, scope, receive, send):
-        if scope["type"] not in ("http", "websocket") or self.mode is AuthzMode.TRUST_CLIENT:
+        if (
+            scope["type"] not in ("http", "websocket")
+            or self.mode is AuthzMode.TRUST_CLIENT
+        ):
             return await self.app(scope, receive, send)
-        headers = {k.decode("latin-1").lower(): v.decode("latin-1") for k, v in scope["headers"]}
+        headers = {
+            k.decode("latin-1").lower(): v.decode("latin-1")
+            for k, v in scope["headers"]
+        }
         trusted = None
-        if (claimed := headers.get(TRUSTED_USER_HEADER)) and self.caller_ok(headers.get("authorization")):
+        if (claimed := headers.get(TRUSTED_USER_HEADER)) and self.caller_ok(
+            headers.get("authorization")
+        ):
             try:
                 trusted = normalize_user_id(claimed)
             except ValueError:
@@ -464,7 +543,9 @@ class UserAuthzMiddleware:
             return await self.app(scope, receive, send)
         if scope["type"] == "websocket":
             return await send({"type": "websocket.close", "code": 1008})
-        await JSONResponse({"detail": denial[1]}, status_code=denial[0])(scope, receive, send)
+        await JSONResponse({"detail": denial[1]}, status_code=denial[0])(
+            scope, receive, send
+        )
 
 
 def trusted_user(request: Request) -> str | None:
@@ -500,14 +581,23 @@ _AUTHZ_MODE = resolve_mode()
 _PROXY_AUDIENCES = [a for a in os.getenv("TRUSTED_PROXY_AUDIENCES", "").split(",") if a]
 _PROXY_SA = os.getenv("TRUSTED_PROXY_SA", "")
 if _AUTHZ_MODE is AuthzMode.ENFORCE and not (_PROXY_AUDIENCES and _PROXY_SA):
-    raise RuntimeError("USER_AUTHZ_MODE=enforce needs TRUSTED_PROXY_SA + TRUSTED_PROXY_AUDIENCES")
+    raise RuntimeError(
+        "USER_AUTHZ_MODE=enforce needs TRUSTED_PROXY_SA + TRUSTED_PROXY_AUDIENCES"
+    )
 
-configure(session_service=session_service, runner_factory=_runner_factory, authz_mode=_AUTHZ_MODE)
+configure(
+    session_service=session_service,
+    runner_factory=_runner_factory,
+    authz_mode=_AUTHZ_MODE,
+)
 app.include_router(router)
 install_ownership_handler(app)
 app.add_middleware(
-    UserAuthzMiddleware, mode=_AUTHZ_MODE,
-    caller_ok=partial(verify_proxy_caller, audiences=_PROXY_AUDIENCES, trusted_sa=_PROXY_SA),
+    UserAuthzMiddleware,
+    mode=_AUTHZ_MODE,
+    caller_ok=partial(
+        verify_proxy_caller, audiences=_PROXY_AUDIENCES, trusted_sa=_PROXY_SA
+    ),
 )
 ```
 Add the imports `from functools import partial` and `from runserver.authz import AuthzMode, UserAuthzMiddleware, install_ownership_handler, resolve_mode, verify_proxy_caller`. Update the `CLAUDE.md` local-dev command in Task 7 to `TRUST_CLIENT_USER_ID=1 ALLOW_ORIGINS=… uv run uvicorn deployment.async_app:app --port 8000`.
