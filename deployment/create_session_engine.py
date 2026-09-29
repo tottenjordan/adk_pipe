@@ -1,14 +1,16 @@
 """Create (or reuse) the dedicated Agent Engine that backs persistent ADK sessions.
 
-The Cloud Run backend runs `adk api_server agents --session_service_uri
-agentengine://<resource>`, which builds a `VertexAiSessionService`. That service
+The Cloud Run backend runs the `deployment/async_app.py` launcher under uvicorn,
+which reads `SESSION_SERVICE_URI=agentengine://<resource>` and builds a
+`VertexAiSessionService`. That service
 stores sessions *inside* a Reasoning Engine (Agent Engine). We give it a
 **dedicated** engine — `trend-trawler-sessions` — that serves no agent, so the
 session store's lifetime is decoupled from any served-agent deploy.
 
-The engine is created with no `agent_engine` payload (the SDK allows a bare
-container) in `us-central1`, which pins the session store to the region while the
-gemini-3.x models stay pinned to `global` in code. The printed, fully-qualified
+The engine is created via `agentplatform.Client().runtimes.create` with no
+`agent`/`runtime` payload (the SDK allows a bare container) in `us-central1`,
+which pins the session store to the region while the gemini-3.x models stay
+pinned to `global` in code. The printed, fully-qualified
 resource name is what ships as `SESSION_SERVICE_URI=agentengine://<resource>`.
 
 Idempotent: reuses an existing engine with the same display name if one exists.
@@ -26,8 +28,8 @@ from __future__ import annotations
 import argparse
 import os
 
+import agentplatform
 import dotenv
-import vertexai
 
 ENV_FILE_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".env"))
 
@@ -65,7 +67,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 def find_engine(client, display_name: str) -> str | None:
     """Return the resource name of an existing engine with `display_name`."""
-    for existing in client.agent_engines.list():
+    for existing in client.runtimes.list():
         if existing.api_resource.display_name == display_name:
             return existing.api_resource.name
     return None
@@ -80,7 +82,7 @@ def create_or_reuse(client, display_name: str) -> tuple[str, bool]:
     name = find_engine(client, display_name)
     if name:
         return name, False
-    engine = client.agent_engines.create(
+    engine = client.runtimes.create(
         config={
             "display_name": display_name,
             "description": (
@@ -89,14 +91,14 @@ def create_or_reuse(client, display_name: str) -> tuple[str, bool]:
         }
     )
     if not engine.api_resource:
-        raise RuntimeError("agent_engines.create returned no resource")
+        raise RuntimeError("runtimes.create returned no resource")
     return engine.api_resource.name, True
 
 
 def main(argv: list[str] | None = None) -> None:
     dotenv.load_dotenv(dotenv_path=ENV_FILE_PATH)
     args = parse_args(argv)
-    client = vertexai.Client(
+    client = agentplatform.Client(
         project=args.project,
         location=args.region,
     )  # pyright: ignore[reportCallIssue]
