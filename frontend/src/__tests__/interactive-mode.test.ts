@@ -1,34 +1,104 @@
 import { describe, it, expect } from "vitest";
 import type { AgentEvent } from "@/lib/types";
 
-// Test pause detection logic used in the run page
+import { PendingLongRunningCalls } from "@/lib/pause-detection";
 
-function detectPause(event: AgentEvent): {
-  functionCallId: string;
-  functionName: string;
-  eventId: string;
-} | null {
-  if (!event.longRunningToolIds || event.longRunningToolIds.length === 0) {
-    return null;
-  }
+// Pause detection used by the run page (lib/pause-detection). A single
+// unanswered long-running call is a pause.
+function detectPause(event: AgentEvent) {
+  const pending = new PendingLongRunningCalls();
+  pending.observe(event);
+  return pending.pause();
+}
 
-  const functionCalls =
-    event.content?.parts
-      ?.filter((p) => p.functionCall)
-      ?.map((p) => p.functionCall!) ?? [];
-
-  const pausedCall = functionCalls.find((fc) =>
-    event.longRunningToolIds!.includes(fc.id ?? "")
-  );
-
-  if (!pausedCall) return null;
-
+function call(id: string, name: string, eventId: string): AgentEvent {
   return {
-    functionCallId: pausedCall.id ?? "",
-    functionName: pausedCall.name ?? "",
-    eventId: event.id,
+    id: eventId,
+    invocationId: "inv-1",
+    author: "root_agent",
+    content: { role: "model", parts: [{ functionCall: { id, name, args: {} } }] },
+    longRunningToolIds: [id],
+    timestamp: Date.now(),
   };
 }
+
+function answer(
+  id: string,
+  name: string,
+  eventId: string,
+  author = "root_agent"
+): AgentEvent {
+  return {
+    id: eventId,
+    invocationId: "inv-1",
+    author,
+    content: {
+      role: "user",
+      parts: [{ functionResponse: { id, name, response: { result: "ok" } } }],
+    },
+    timestamp: Date.now(),
+  };
+}
+
+function text(eventId: string, author: string, body: string): AgentEvent {
+  return {
+    id: eventId,
+    invocationId: "inv-1",
+    author,
+    content: { role: "model", parts: [{ text: body }] },
+    timestamp: Date.now(),
+  };
+}
+
+function segmentPause(events: AgentEvent[]) {
+  const pending = new PendingLongRunningCalls();
+  for (const e of events) pending.observe(e);
+  return pending.pause();
+}
+
+// P2 graph-Workflow migration: pipeline tools are ADK NodeTools, which are
+// long-running too, so their call events carry longRunningToolIds. Only the
+// call left UNANSWERED at the end of the poll segment is the pause.
+describe("Pause detection with long-running pipeline NodeTools", () => {
+  it("does not pause on an answered pipeline NodeTool call", () => {
+    const events = [
+      call("fc-research", "combined_research_pipeline", "e1"),
+      // inner pipeline event on the tool's branch, authored by an inner agent
+      text("e2", "combined_report_composer", "# Report"),
+      answer("fc-research", "combined_research_pipeline", "e3"),
+      text("e4", "root_agent", "DONE"),
+    ];
+    expect(segmentPause(events)).toBeNull();
+  });
+
+  it("pauses on the checkpoint, not the earlier pipeline call", () => {
+    const events = [
+      call("fc-research", "combined_research_pipeline", "e1"),
+      answer("fc-research", "combined_research_pipeline", "e2"),
+      call("fc-cp1", "review_research", "e3"),
+    ];
+    expect(segmentPause(events)).toEqual({
+      functionCallId: "fc-cp1",
+      functionName: "review_research",
+      eventId: "e3",
+    });
+  });
+
+  it("does not re-pause when replaying a finished run from since=0", () => {
+    const events = [
+      call("fc-cp1", "review_research", "e1"),
+      answer("fc-cp1", "review_research", "e2", "user"),
+      call("fc-ads", "ad_creative_pipeline", "e3"),
+      answer("fc-ads", "ad_creative_pipeline", "e4"),
+    ];
+    expect(segmentPause(events)).toBeNull();
+  });
+
+  it("ignores partial (streaming) events", () => {
+    const partial = { ...call("fc-1", "review_research", "e1"), partial: true };
+    expect(detectPause(partial)).toBeNull();
+  });
+});
 
 describe("Interactive mode pause detection", () => {
   it("detects a long-running tool pause event", () => {
