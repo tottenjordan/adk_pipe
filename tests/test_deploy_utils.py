@@ -469,3 +469,76 @@ class TestRuntimesApi:
         assert "projects/1/locations/us-central1/reasoningEngines/42" in caplog.text
         assert "trend-scout-v9" in caplog.text
         assert "No agents found." not in caplog.text
+
+
+class TestIntegrationEventAndSessionHelpers:
+    @pytest.mark.parametrize(
+        "resp",
+        [
+            {"sessions": [{"id": "a"}, {"id": "b"}]},
+            [{"id": "a"}, {"id": "b"}],
+            {"sessions": [types.SimpleNamespace(id="a"), {"id": "b"}]},
+            types.SimpleNamespace(
+                sessions=[types.SimpleNamespace(id="a"), types.SimpleNamespace(id="b")]
+            ),
+        ],
+    )
+    def test_session_ids_handles_wrapper_and_list_shapes(self, resp):
+        it = _import_integration_test()
+        assert it._session_ids(resp) == ["a", "b"]
+
+    @pytest.mark.parametrize("resp", [{"sessions": None}, {}, None, []])
+    def test_session_ids_empty(self, resp):
+        it = _import_integration_test()
+        assert it._session_ids(resp) == []
+
+    @pytest.mark.parametrize("key", ["function_call", "functionCall"])
+    def test_function_call_names_accepts_both_casings(self, key):
+        it = _import_integration_test()
+        event = {"content": {"parts": [{key: {"name": "review_research"}}]}}
+        assert it._function_call_names(event) == ["review_research"]
+
+    @pytest.mark.parametrize(
+        "event",
+        [
+            {"content": {"parts": [{"text": "hi"}]}},
+            {"content": {"parts": None}},
+            {"content": None},
+            {"author": "x"},
+            "not-a-dict",
+        ],
+    )
+    def test_function_call_names_empty(self, event):
+        it = _import_integration_test()
+        assert it._function_call_names(event) == []
+
+    def test_event_texts_skips_blank_and_none(self):
+        it = _import_integration_test()
+        event = {"content": {"parts": [{"text": "  "}, {"text": None}, {"text": "ok"}]}}
+        assert it._event_texts(event) == ["ok"]
+
+    def test_has_text_output_passes_on_text(self):
+        it = _import_integration_test()
+        events = [{"content": {"parts": [{"text": "done"}]}}]
+        assert it._check_text_output("creative_agent", events).passed
+
+    def test_has_text_output_paused_interactive_passes(self):
+        it = _import_integration_test()
+        events = [
+            {"content": {"parts": [{"function_call": {"name": "review_research"}}]}}
+        ]
+        result = it._check_text_output("interactive_creative", events)
+        assert result.passed
+        assert "review_research" in result.message
+
+    def test_has_text_output_checkpoint_does_not_count_for_other_agents(self):
+        it = _import_integration_test()
+        events = [
+            {"content": {"parts": [{"function_call": {"name": "review_research"}}]}}
+        ]
+        assert not it._check_text_output("creative_agent", events).passed
+
+    def test_has_text_output_interactive_without_checkpoint_fails(self):
+        it = _import_integration_test()
+        events = [{"content": {"parts": [{"function_call": {"name": "memorize"}}]}}]
+        assert not it._check_text_output("interactive_creative", events).passed
