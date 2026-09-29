@@ -78,6 +78,11 @@ T2 findings (G3, 2026-09-29; pinned in `tests/test_creative_agent_graph.py` + `t
 17. **Callbacks survive the clone and fire on the node path.** `collect_research_sources_callback` still harvests `grounding_metadata` from `session.events` (inner events land in the parent session, finding 11). `citation_replacement_callback` sees the composer's `output_key` in state and writes `final_report_with_citations`. Its return value is no longer the tool result, because the terminal node replaces it.
 18. **A NodeTool works from creative_agent's plain (non-App, non-resumable) root:** the offline runs use `Runner(agent=root_agent)` with no App.
 
+T3 findings (G4, 2026-09-29; pinned in `tests/test_interactive_resume_graph.py`, which drives the real interactive App through `runserver.async_runs.start_run`/`start_resume`):
+
+19. **A checkpoint resume re-uses the paused invocation id.** So a pipeline tool that fails and is retried within the resumed turn replays its completed nodes: the ad drafter ran once and only the failed critic re-ran. A retry that arrives in the next user message is a new invocation and re-runs the whole pipeline (drafter ran twice). Research is never re-run by a resume. The BQ write called before and after the resume binds the same `stable_row_id(session.id, trend)`.
+20. **A NodeTool's function-call event carries `long_running_tool_ids` too.** The frontend used to treat any long-running call as a pause, which falsely paused every run at its first pipeline tool (including trend_scout since G2). It now pauses only on the long-running call still unanswered at the end of the poll segment (`frontend/src/lib/pause-detection.ts`). That also stops a reload of a finished interactive run from re-pausing at an answered checkpoint. `runserver/async_runs.py` needed no change: resume only builds the `functionResponse` by id.
+
 ## Conventions (restate in every subagent dispatch)
 
 - Branch off `main`, one PR per group: **G1** idempotency, **G2** T0+T1, **G3** T2, **G4** T3, **G5** T4. Squash-merge only after CI is green.

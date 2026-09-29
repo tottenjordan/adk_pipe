@@ -892,9 +892,19 @@ def test_interactive_creative_uses_resilient_visual_generator():
         "interactive_creative must invoke the resilient image wrapper"
     )
     w = node_tools["visual_generator_resilient"]
+    assert w.name == "visual_generator_resilient"
     assert isinstance(w, RetryUntilKeyNode)
     assert w.node.name == "visual_generator"
     assert w.max_attempts == 6
+
+    # The checkpoint-3 reviser runs BEFORE the render as its own AgentTool step
+    # (not a node in the render graph).
+    from google.adk.tools.agent_tool import AgentTool
+
+    assert any(
+        isinstance(t, AgentTool) and t.agent.name == "visual_concept_reviser"
+        for t in ic.root_agent.tools
+    )
 
     # The raw generator must NOT be exposed directly (would bypass the retry).
     names = {getattr(t, "name", None) for t in ic.root_agent.tools}
@@ -921,6 +931,18 @@ def test_interactive_creative_exposes_pipelines_as_node_tools():
         t.agent.name for t in ic.root_agent.tools if isinstance(t, AgentTool)
     }
     assert agent_tools == {"visual_concept_reviser", "creative_eval_agent"}
+    # The human-review checkpoints stay LongRunningFunctionTools (they pause the
+    # resumable App until the resume's function response arrives).
+    from google.adk.tools.long_running_tool import LongRunningFunctionTool
+
+    checkpoints = {
+        t.name for t in ic.root_agent.tools if isinstance(t, LongRunningFunctionTool)
+    }
+    assert checkpoints == {
+        "review_research",
+        "review_ad_copies",
+        "review_visual_concepts",
+    }
 
 
 def test_trend_scout_root_has_expected_tools():
