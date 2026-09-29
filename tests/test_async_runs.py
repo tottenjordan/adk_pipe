@@ -106,12 +106,17 @@ def test_get_root_agent_maps_three_agents():
     for app_name in ("creative_agent", "trend_scout", "interactive_creative"):
         assert get_root_agent(app_name) is not None
 
-    # The interactive agents (LongRunningFunctionTool checkpoints) return a
-    # resumable App so the Runner can pause/resume; creative_agent has no
-    # checkpoints and stays a bare Agent.
-    assert isinstance(get_root_agent("trend_scout"), App)
-    assert isinstance(get_root_agent("interactive_creative"), App)
-    assert not isinstance(get_root_agent("creative_agent"), App)
+    # Every agent returns its App (so App-level plugins reach the Runner). The
+    # interactive agents (LongRunningFunctionTool checkpoints) are resumable;
+    # creative_agent has no checkpoints, so its App is not.
+    for app_name in ("creative_agent", "trend_scout", "interactive_creative"):
+        assert isinstance(get_root_agent(app_name), App)
+    assert get_root_agent("trend_scout").resumability_config.is_resumable is True
+    assert (
+        get_root_agent("interactive_creative").resumability_config.is_resumable is True
+    )
+    creative_rc = get_root_agent("creative_agent").resumability_config
+    assert creative_rc is None or creative_rc.is_resumable is False
 
     with pytest.raises(KeyError):
         get_root_agent("nope")

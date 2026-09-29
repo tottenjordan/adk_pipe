@@ -83,11 +83,13 @@ if session_service is None:
 
 
 def _runner_factory(app_name: str) -> Runner:
-    # get_root_agent returns a resumable App for the interactive agents (trend_scout,
-    # interactive_creative) and a bare Agent for creative_agent. A Runner derives
-    # resumability ONLY from an App — passing a bare agent= wraps it into a default
-    # App with is_resumable=False, so LongRunningFunctionTool checkpoints could never
-    # resume. Build with app= when we get an App, else fall back to agent=.
+    # get_root_agent returns each agent's App: resumable for the interactive agents
+    # (trend_scout, interactive_creative), non-resumable for creative_agent, all
+    # carrying the App-level plugins (opt-in Model Armor, agent_common/safety.py).
+    # A Runner derives resumability and plugins ONLY from an App — passing a bare
+    # agent= wraps it into a default App (is_resumable=False, no plugins), so
+    # checkpoints could never resume and the safety screen would be skipped. Build
+    # with app= when we get an App; the agent= fallback is kept for robustness.
     obj = get_root_agent(app_name)
     if isinstance(obj, App):
         return Runner(

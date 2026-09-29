@@ -29,6 +29,8 @@ def test_facade_exposes_reusable_pipelines_and_schema():
         is creative_agent.agent.visual_generator_resilient
     )
     assert creative_agent.root_agent is creative_agent.agent.root_agent
+    # `app` must be on the facade so ADK's canned loader serves the App (plugins).
+    assert creative_agent.app is creative_agent.agent.app
 
     # Shared visual schema
     from creative_agent.schemas import VisualConceptFinalList
@@ -63,6 +65,7 @@ def test_facade_all_is_complete_and_importable():
         "tools",
         "callbacks",
         "root_agent",
+        "app",
         "combined_research_pipeline",
         "ad_creative_pipeline",
         "visual_generation_pipeline",

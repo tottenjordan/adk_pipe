@@ -13,6 +13,7 @@ from agent_common import (
     RetryUntilKeyNode,
     build_gemini,
     build_gemini_with_fallback,
+    build_safety_plugins,
 )
 
 from . import callbacks, prompts
@@ -241,8 +242,11 @@ root_agent = trend_scout
 # `review_trends` LongRunningFunctionTool to pause and resume across separate
 # /runs calls. `root_agent` stays exported unchanged; the resumable App is what
 # both the runserver runner and deployment/deploy_agent.py (via AdkApp) use.
+# `plugins` is the opt-in Model Armor screen (empty unless MODEL_ARMOR_TEMPLATE
+# is set), scoped to the root's own turns — see agent_common/safety.py.
 app = App(
     name="trend_scout",
     root_agent=root_agent,
     resumability_config=ResumabilityConfig(is_resumable=True),
+    plugins=build_safety_plugins(root_agent_names={root_agent.name}),
 )

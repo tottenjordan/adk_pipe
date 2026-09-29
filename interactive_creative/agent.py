@@ -3,7 +3,11 @@ from google.adk.apps import App, ResumabilityConfig
 from google.adk.tools.agent_tool import AgentTool
 from google.genai import types
 
-from agent_common import build_gemini, build_gemini_with_fallback
+from agent_common import (
+    build_gemini,
+    build_gemini_with_fallback,
+    build_safety_plugins,
+)
 
 # Reuse existing building blocks from the creative_agent public facade.
 from creative_agent import (
@@ -96,9 +100,12 @@ root_agent = Agent(
 )
 
 # Wrap in App with resumability enabled — required for LongRunningFunctionTool
-# to properly pause and resume across multiple /run_sse calls.
+# to properly pause and resume across multiple /run_sse calls. `plugins` is the
+# opt-in Model Armor screen (empty unless MODEL_ARMOR_TEMPLATE is set), scoped to
+# the root's own turns — see agent_common/safety.py.
 app = App(
     name="interactive_creative",
     root_agent=root_agent,
     resumability_config=ResumabilityConfig(is_resumable=True),
+    plugins=build_safety_plugins(root_agent_names={root_agent.name}),
 )

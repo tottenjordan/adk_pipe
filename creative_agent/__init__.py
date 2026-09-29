@@ -12,6 +12,12 @@ NOTE: the config singleton stays at its stable submodule home
 (`import creative_agent.config` would return the instance, not the module). Import
 it as `from creative_agent.config import config, INFRA_RETRY, SCHEMA_RETRY`.
 
+`app` (the non-resumable ``App`` carrying the opt-in safety plugins) is
+re-exported deliberately: ADK's canned ``AgentLoader`` imports the *package*
+first and, because it finds ``root_agent`` here, would otherwise serve the bare
+agent and never reach ``creative_agent.agent.app`` — silently dropping the App's
+plugins. It checks ``app`` before ``root_agent``, so exporting it here wins.
+
 Importing this package builds the full agent graph (via `from . import agent`),
 which is the pre-existing behavior — the facade only adds names, it does not
 change import cost or the lazy-import pattern used by `runserver.get_root_agent`.
@@ -20,6 +26,7 @@ change import cost or the lazy-import pattern used by `runserver.get_root_agent`
 from . import agent, callbacks, tools  # noqa: F401  (submodule access + graph build)
 from .agent import (
     ad_creative_pipeline,
+    app,
     combined_research_pipeline,
     root_agent,
     visual_generation_pipeline,
@@ -32,8 +39,9 @@ __all__ = [
     "agent",
     "callbacks",
     "tools",
-    # root + reusable pipelines
+    # root + its App (see NOTE on `app` above) + reusable pipelines
     "root_agent",
+    "app",
     "combined_research_pipeline",
     "ad_creative_pipeline",
     "visual_generation_pipeline",

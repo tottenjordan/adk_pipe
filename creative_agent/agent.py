@@ -4,6 +4,7 @@ from typing import Any
 
 from google.adk.agents import Agent
 from google.adk.agents.context import Context
+from google.adk.apps import App
 from google.adk.events.event import Event
 from google.adk.events.event_actions import EventActions
 from google.adk.planners import BuiltInPlanner
@@ -17,6 +18,7 @@ from agent_common import (
     RetryUntilKeyNode,
     build_gemini,
     build_gemini_with_fallback,
+    build_safety_plugins,
     is_populated,
 )
 from creative_eval.agent import creative_eval_agent
@@ -677,4 +679,15 @@ root_agent = Agent(
     before_model_callback=callbacks.rate_limit_callback,
     after_model_callback=callbacks.log_empty_turn_finish_reason,
     after_agent_callback=callbacks.log_final_state_summary,
+)
+
+# Non-resumable App wrapper (creative_agent has no LongRunningFunctionTool
+# checkpoints, so no ResumabilityConfig). It exists to carry App-level `plugins`:
+# the opt-in Model Armor screen (empty unless MODEL_ARMOR_TEMPLATE is set), scoped
+# to the root's own turns — see agent_common/safety.py. The runserver runner, the
+# canned ADK loader, and deployment/deploy_agent.py (via AdkApp) all use this App.
+app = App(
+    name="creative_agent",
+    root_agent=root_agent,
+    plugins=build_safety_plugins(root_agent_names={root_agent.name}),
 )

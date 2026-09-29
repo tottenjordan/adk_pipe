@@ -197,9 +197,9 @@ class TestValidateExtraPackages:
             da.validate_extra_packages(["./trend_scout", "./does_not_exist_pkg"])
 
 
-# --- resolve_deploy_target: deploy the resumable App, not the bare root_agent ---
-# Agent Engine must receive the module's `App` (with ResumabilityConfig) when one
-# is exported, otherwise LongRunningFunctionTool review checkpoints can't pause.
+# --- resolve_deploy_target: deploy the App, not the bare root_agent ---
+# Agent Engine must receive the module's `App` when one is exported, otherwise its
+# ResumabilityConfig (LongRunningFunctionTool checkpoints) and plugins are dropped.
 class TestResolveDeployTarget:
     def test_prefers_resumable_app_when_module_exports_one(self):
         from google.adk.apps import App
@@ -225,7 +225,7 @@ class TestResolveDeployTarget:
         [
             ("trend_scout", "app"),
             ("interactive_creative", "app"),
-            ("creative_agent", "agent"),
+            ("creative_agent", "app"),
         ],
     )
     def test_real_agent_modules_resolve_as_expected(self, name, expected_kind):
@@ -233,12 +233,15 @@ class TestResolveDeployTarget:
         module = importlib.import_module(da.AGENT_DEPLOY_SPECS[name]["module"])
         kind, target = da.resolve_deploy_target(module)
         assert kind == expected_kind
-        if kind == "app":
-            assert target is module.app
-            assert target.resumability_config.is_resumable is True
-            assert target.root_agent is module.root_agent
-        else:
-            assert target is module.root_agent
+        assert target is module.app
+        assert target.root_agent is module.root_agent
+        # Resumability is per-agent: only the agents with LongRunningFunctionTool
+        # checkpoints are resumable; creative_agent's App is non-resumable (it exists
+        # to carry App-level plugins).
+        resumable = target.resumability_config is not None and (
+            target.resumability_config.is_resumable
+        )
+        assert resumable is (name != "creative_agent")
 
     def test_every_deploy_spec_is_covered(self):
         da = _import_deploy_agent()

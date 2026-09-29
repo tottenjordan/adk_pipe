@@ -59,21 +59,23 @@ async def _get_session_or_none(
 
 
 def get_root_agent(app_name: str):
-    """Map an app_name to its root Agent (lazy import — builds a genai client).
+    """Map an app_name to its ADK ``App`` (lazy import — builds a genai client).
 
-    The interactive agents return a resumable ``App`` (not a bare agent): a
-    ``LongRunningFunctionTool`` checkpoint only pauses/resumes when the Runner is
-    built from an ``App`` carrying ``ResumabilityConfig(is_resumable=True)``.
-    ``trend_scout`` needs it for its opt-in ``review_trends`` checkpoint;
-    ``interactive_creative`` for its three review checkpoints. ``creative_agent``
-    has no checkpoints, so it stays a bare agent. The runner factory branches on
-    the returned type (App vs Agent)."""
-    from creative_agent.agent import root_agent as creative
+    Every agent returns its ``App`` (not the bare root agent), so App-level
+    ``plugins`` (the opt-in Model Armor screen, ``agent_common/safety.py``) reach
+    the Runner. The interactive agents' Apps also carry
+    ``ResumabilityConfig(is_resumable=True)``: a ``LongRunningFunctionTool``
+    checkpoint only pauses/resumes when the Runner is built from such an App
+    (``trend_scout``'s opt-in ``review_trends``; ``interactive_creative``'s three
+    review checkpoints). ``creative_agent`` has no checkpoints, so its App is
+    non-resumable. The runner factory still branches on the returned type
+    (App vs Agent) for robustness."""
+    from creative_agent.agent import app as creative_app
     from interactive_creative.agent import app as interactive_app
     from trend_scout.agent import app as scout_app
 
     agents = {
-        "creative_agent": creative,
+        "creative_agent": creative_app,
         "trend_scout": scout_app,
         "interactive_creative": interactive_app,
     }
