@@ -43,8 +43,8 @@ import re
 import time
 from datetime import UTC, datetime
 
+import agentplatform
 import functions_framework
-import vertexai
 from cloudevents.http import CloudEvent
 from google.cloud import bigquery, pubsub_v1
 
@@ -89,7 +89,7 @@ _vertex_client = None
 
 
 def _get_vertex_client():
-    """Get a lazily-initialized Vertex AI client.
+    """Get a lazily-initialized Agent Runtime client (``agentplatform.Client``).
 
     Lazy so importing this module does not require GCP credentials or network
     access (lets the entrypoints be unit-tested), mirroring the BigQuery/Pub/Sub
@@ -97,7 +97,7 @@ def _get_vertex_client():
     """
     global _vertex_client
     if _vertex_client is None:
-        _vertex_client = vertexai.Client(
+        _vertex_client = agentplatform.Client(
             project=config.GOOGLE_CLOUD_PROJECT,
             location=config.GCP_REGION,
         )  # pyright: ignore[reportCallIssue]
@@ -300,7 +300,7 @@ async def create_agent_run(
     """
     logging.info(f"Invoking Agent Run {msg_dict['index'] + 1}...")
 
-    remote_agent = _get_vertex_client().agent_engines.get(
+    remote_agent = _get_vertex_client().runtimes.get(
         name=f"projects/{config.GOOGLE_CLOUD_PROJECT_NUMBER}/locations/{_LOCATION}/reasoningEngines/{agent_id}"
     )
 

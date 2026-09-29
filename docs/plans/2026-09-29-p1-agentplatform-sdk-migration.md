@@ -2,7 +2,7 @@
 
 > **For Claude:** REQUIRED SUB-SKILL: Use `executing-plans` (or `subagent-driven-development`) to implement this plan task-by-task.
 
-**Status:** proposal (not started). **Partly blocked:** the root uv project is gated on a google-adk release (see "Blockers & gate"). The Cloud Run Function (Task 1) and the cold-start spike (Task 2) are **unblocked today**.
+**Status:** proposal (not started). **Partly blocked:** the root uv project is gated on a google-adk release (see "Blockers & gate"). The Cloud Run Function (Task 1) and the cold-start spike (Task 2) are **unblocked today**. Gate re-checked 2026-09-29: FAIL (google-adk 2.10.0 still caps aiplatform <2). Tasks 1–2 executing via [2026-09-29-p1a-crf-agentplatform-and-spike.md](2026-09-29-p1a-crf-agentplatform-and-spike.md).
 **Goal:** Move every Agent Engine call site off the deprecated `vertexai.Client().agent_engines` onto `agentplatform.Client().runtimes` / `.sessions`. Lift the `google-cloud-aiplatform<2` pin and its Dependabot hold, without breaking deploys, the CRF fan-out, or the persistent-session backend.
 **Architecture:** There are two dependency islands, and we migrate them separately:
 1. **CRF function** (`cloud_functions/creative_fanout/`, its own `requirements.txt`, no ADK). It can switch now to the standalone `google-cloud-agentplatform` distribution.

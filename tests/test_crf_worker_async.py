@@ -60,7 +60,7 @@ def test_streaming_error_marks_row_failed_end_to_end(monkeypatch):
     remote_agent.async_delete_session = _delete_session
 
     fake_vertex = MagicMock()
-    fake_vertex.agent_engines.get.return_value = remote_agent
+    fake_vertex.runtimes.get.return_value = remote_agent
     monkeypatch.setattr(main, "_get_vertex_client", lambda: fake_vertex)
 
     # Win the lock so we proceed into the agent run.
@@ -121,7 +121,7 @@ def test_session_created_and_deleted_with_same_user_id(monkeypatch):
     remote_agent.async_delete_session = _delete_session
 
     fake_vertex = MagicMock()
-    fake_vertex.agent_engines.get.return_value = remote_agent
+    fake_vertex.runtimes.get.return_value = remote_agent
     monkeypatch.setattr(main, "_get_vertex_client", lambda: fake_vertex)
 
     msg = {
@@ -220,7 +220,7 @@ def test_create_agent_run_deletes_session_on_stream_error(monkeypatch):
     remote_agent.async_delete_session = _delete_session
 
     fake_vertex = MagicMock()
-    fake_vertex.agent_engines.get.return_value = remote_agent
+    fake_vertex.runtimes.get.return_value = remote_agent
     monkeypatch.setattr(main, "_get_vertex_client", lambda: fake_vertex)
 
     msg = {
@@ -343,3 +343,62 @@ def test_worker_entrypoint_acks_after_failed_write(monkeypatch):
         types.SimpleNamespace(data={"message": {"data": encoded}})
     )  # must NOT raise
     assert [c.kwargs["status"] for c in update_mock.call_args_list] == ["FAILED"]
+
+
+# ============================================================
+# Agent Runtime SDK (google-cloud-agentplatform) client surface
+# ============================================================
+def test_worker_uses_runtimes_api_not_agent_engines(monkeypatch):
+    """The worker resolves the engine via ``client.runtimes.get`` — the
+    agentplatform 2.x surface — never the deprecated ``agent_engines``."""
+
+    async def _create_session(*, user_id):
+        return {"id": "sess-1"}
+
+    async def _stream(**kwargs):
+        return
+        yield  # pragma: no cover - makes this an async generator
+
+    async def _delete_session(*, user_id, session_id):
+        return None
+
+    remote_agent = MagicMock()
+    remote_agent.async_create_session = _create_session
+    remote_agent.async_stream_query = _stream
+    remote_agent.async_delete_session = _delete_session
+
+    # spec'd so touching `.agent_engines` raises AttributeError.
+    fake_client = MagicMock(spec=["runtimes"])
+    fake_client.runtimes.get.return_value = remote_agent
+    monkeypatch.setattr(main, "_get_vertex_client", lambda: fake_client)
+
+    msg = {
+        "index": 0,
+        "brand": "BrandX",
+        "target_product": "prod",
+        "key_selling_point": "ksp",
+        "target_audience": "aud",
+        "target_search_trend": "trend",
+    }
+
+    asyncio.run(
+        main.create_agent_run(
+            agent_id="123", msg_dict=msg, user_id=f"{main._USER_ID}_0"
+        )
+    )
+
+    name = fake_client.runtimes.get.call_args.kwargs["name"]
+    assert name.endswith("/reasoningEngines/123")
+
+
+def test_vertex_client_is_agentplatform_client(monkeypatch):
+    """The lazy client is an ``agentplatform.Client`` on the regional location."""
+    ctor = MagicMock()
+    monkeypatch.setattr(main.agentplatform, "Client", ctor)
+    monkeypatch.setattr(main, "_vertex_client", None)
+
+    main._get_vertex_client()
+
+    ctor.assert_called_once_with(
+        project=main.config.GOOGLE_CLOUD_PROJECT, location=main.config.GCP_REGION
+    )
