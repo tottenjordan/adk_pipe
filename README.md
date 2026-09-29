@@ -142,7 +142,6 @@ BQ_PROJECT_ID='this-my-project-bq-id'
 BQ_DATASET_ID='trend_trawler'
 BQ_TABLE_TARGETS='target_trends_crf'
 BQ_TABLE_CREATIVES='trend_creatives'
-BQ_TABLE_ALL_TRENDS='all_trends'
 BQ_TABLE_EVALS='creative_evals'
 
 
