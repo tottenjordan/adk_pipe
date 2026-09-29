@@ -6,7 +6,7 @@
 
 > Turn trending Google Search terms into campaign-ready ad creatives — a multi-agent system built with Google's **ADK**, deployed to **Vertex AI Agent Engine**, and fanned out via **Cloud Run Functions + Pub/Sub**.
 
-> **Naming:** as of 2026, Vertex AI is branded *Gemini Enterprise Agent Platform* and Agent Engine is now *Agent Runtime*. This repo keeps the "Agent Engine" name because it still uses the `google-cloud-aiplatform` 1.x `vertexai.Client().agent_engines` API; migrating to the `google-cloud-agentplatform` SDK is proposal P1 in [docs/plans/2026-09-28-repo-refresh.md](docs/plans/2026-09-28-repo-refresh.md).
+> **Naming:** as of 2026, Vertex AI is branded *Gemini Enterprise Agent Platform* and Agent Engine is now *Agent Runtime*. This repo still says "Agent Engine" in most docs. The code uses the AgentPlatform SDK (`agentplatform.Client().runtimes`); the root env gets it from google-cloud-aiplatform 2.x via a uv override (see `pyproject.toml` `[tool.uv]`).
 
 ![Python](https://img.shields.io/badge/Python-3.13-3776AB?logo=python&logoColor=white)
 ![uv](https://img.shields.io/badge/packaging-uv-DE5FE9?logo=uv&logoColor=white)

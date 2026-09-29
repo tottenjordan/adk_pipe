@@ -138,7 +138,7 @@ payoff, it *lowers* the long-run ceiling, and it leaves both ❌ rows unsolved.
 ## 6. Option B migration checklist (only if/when we consolidate)
 
 - [ ] Publish agents via `AdkApp(agent=root_agent, enable_tracing=True)` +
-      `agent_engines.create(...)` — scaffold already stubbed in `deployment/deploy_agent.py`.
+      `agentplatform.Client().runtimes.create(...)` — scaffold already stubbed in `deployment/deploy_agent.py`.
 - [ ] Point the **UI at the same engine IDs the CRF batch uses** (single source of truth);
       pass the engine ID via config, not baked into an image.
 - [ ] Build the proxy translation: `async_stream_query` ⇄ the frontend's event shape;

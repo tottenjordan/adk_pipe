@@ -54,8 +54,8 @@ EXPECTED_ENV_VAR_KEYS = [
 class TestEnvVarDict:
     def test_all_expected_keys_present(self):
         """Verify the deploy script's ENV_VAR_DICT includes all required keys."""
-        # We can't import deploy_agent.py directly (module-level vertexai.Client),
-        # so we verify the expected keys against .env.example
+        # Verify the expected keys against .env.example (the source of the
+        # deploy env), independent of deploy_agent.py's agentplatform.Client.
         env_example_path = os.path.join(os.path.dirname(__file__), "..", ".env.example")
         if not os.path.exists(env_example_path):
             pytest.skip(".env.example not found")
@@ -91,7 +91,7 @@ class TestEnvVarDict:
 
 # --- Agent Engine location resolution ---
 # Replicate the deploy/test/integration client's location logic to avoid the
-# module-level vertexai.Client() import. Agent Engine is a *regional* resource,
+# agentplatform.Client() construction. Agent Engine is a *regional* resource,
 # so it must resolve to GCP_REGION (us-central1) — NOT GOOGLE_CLOUD_LOCATION,
 # which is `global` for the gemini-3.x models.
 def resolve_agent_engine_location() -> str:
@@ -122,7 +122,7 @@ class TestAgentEngineLocation:
 
 
 # --- Part B: centralized extra_packages mapping ---
-# deploy_agent.py is now importable without GCP creds (lazy vertexai.Client via
+# deploy_agent.py is now importable without GCP creds (lazy agentplatform.Client via
 # _get_client), so we assert on the REAL mapping/specs rather than a replica.
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 
@@ -133,7 +133,7 @@ def _import_deploy_agent():
         sys.path.insert(0, PROJECT_ROOT)
     try:
         import deployment.deploy_agent as deploy_agent
-    except ImportError as e:  # e.g. vertexai/absl missing in a bare env
+    except ImportError as e:  # e.g. agentplatform/absl missing in a bare env
         pytest.skip(f"deploy_agent import unavailable: {e}")
     return deploy_agent
 

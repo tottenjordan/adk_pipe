@@ -8,6 +8,8 @@
 
 **Tech Stack:** Python 3.13, uv (override-dependencies), google-adk 2.10.0, google-cloud-aiplatform 2.2.x, pytest, ruff, ty, Cloud Run (`trend-trawler-api`), Vertex AI Agent Runtime (formerly Agent Engine), Cloud Run Functions (CRF, already on standalone `google-cloud-agentplatform` 2.2.0 since #163).
 
+**Status:** Complete 2026-09-29: all tasks done (P1 Tasks 3–8) (#168–#171, #173); all three engines redeployed on 2.x (interactive_creative gained its own engine). v1 rollback engines pending deletion ≥2026-10-06.
+
 ---
 
 ## Context (verified 2026-09-29)
