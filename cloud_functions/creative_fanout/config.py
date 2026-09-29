@@ -64,7 +64,7 @@ class AppConfig:
     # first). A guard against fanning out the whole backlog by accident — the
     # rest stay unclaimed for the next trigger. A message may ask for fewer via
     # `max_rows`, never more.
-    CRF_MAX_ROWS_PER_RUN = int(os.environ.get("CRF_MAX_ROWS_PER_RUN", "10"))
+    CRF_MAX_ROWS_PER_RUN = int(os.environ.get("CRF_MAX_ROWS_PER_RUN", "3"))
     # BigQuery status-tracking table. The Pub/Sub payloads name the dataset/table
     # (`bq_dataset`/`bq_table`), and BigQuery can't parameterize identifiers, so
     # every SQL builder validates them against these allow-lists before quoting.
