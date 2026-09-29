@@ -1,6 +1,8 @@
 """Infra tools must propagate exceptions (not swallow into status dicts) so ADK
 2.0's RetryConfig can retry transient failures."""
 
+from types import SimpleNamespace
+
 import pytest
 from google.api_core import exceptions as api_exceptions
 
@@ -17,6 +19,7 @@ class MockState(dict):
 class MockToolContext:
     def __init__(self):
         self.state = MockState()
+        self.session = SimpleNamespace(id="test-session")
         self.state["gcs_folder"] = "f"
         self.state["agent_output_dir"] = "d"
         self.state["target_search_trends"] = {"target_search_trends": ["t1"]}

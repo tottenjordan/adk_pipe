@@ -9,6 +9,7 @@ from google.adk.tools import ToolContext
 from google.cloud import bigquery
 
 from agent_common.clients import get_bigquery_client
+from agent_common.idempotency import stable_row_id
 
 from .config import config
 
@@ -72,8 +73,11 @@ def write_trends_to_bq(tool_context: ToolContext) -> dict:
     """
     bq_client = _get_bigquery_client()
 
-    # values to insert
-    unique_id = f"{str(uuid.uuid4())[:8]}"
+    # values to insert. The row key is derived from the session (not uuid4) so an
+    # at-least-once re-run (resumed app, CRF retry) maps to the same row, and the
+    # MERGE below inserts it only once. 8 chars: CRF joins on creative_uuid.
+    target_trend = tool_context.state["target_search_trends"]
+    unique_id = stable_row_id(tool_context.session.id, target_trend)
     tool_context.state["creative_row_uuid"] = unique_id
     gcs_url_prefix = "https://console.cloud.google.com/storage/browser"
     gcs_folder = tool_context.state["gcs_folder"]
@@ -81,32 +85,42 @@ def write_trends_to_bq(tool_context: ToolContext) -> dict:
     creative_gcs = f"{gcs_url_prefix}/{config.GCS_BUCKET_NAME}/{gcs_folder}/{gcs_dir}"
 
     try:
-        # insert a row for the target search trend
-        target_trend = tool_context.state["target_search_trends"]
         # write SQL — parameterized (@named) so a trend/brand/field containing a
         # quote or apostrophe can't break the statement or inject SQL. The table
         # name is a config-derived identifier (not parameterizable), not user input.
+        # INSERT-only MERGE on uuid: a repeat call for the same session is a no-op.
         sql_query = f"""
-        INSERT INTO
-            `{config.BQ_PROJECT_ID}.{config.BQ_DATASET_ID}.{config.BQ_TABLE_CREATIVES}` (uuid,
-            target_trend,
-            datetime,
-            creative_gcs,
-            brand,
-            target_audience,
-            target_product,
-            key_selling_point)
-        VALUES
-        (
-            @unique_id,
-            @target_trend,
-            CURRENT_DATETIME('America/New_York'),
-            @creative_gcs,
-            @brand,
-            @target_audience,
-            @target_product,
-            @key_selling_points
-        );
+        MERGE
+            `{config.BQ_PROJECT_ID}.{config.BQ_DATASET_ID}.{config.BQ_TABLE_CREATIVES}` T
+        USING (
+            SELECT
+                @unique_id AS uuid,
+                @target_trend AS target_trend,
+                CURRENT_DATETIME('America/New_York') AS datetime,
+                @creative_gcs AS creative_gcs,
+                @brand AS brand,
+                @target_audience AS target_audience,
+                @target_product AS target_product,
+                @key_selling_points AS key_selling_point
+        ) S
+        ON T.uuid = S.uuid
+        WHEN NOT MATCHED THEN
+            INSERT (uuid,
+                target_trend,
+                datetime,
+                creative_gcs,
+                brand,
+                target_audience,
+                target_product,
+                key_selling_point)
+            VALUES (S.uuid,
+                S.target_trend,
+                S.datetime,
+                S.creative_gcs,
+                S.brand,
+                S.target_audience,
+                S.target_product,
+                S.key_selling_point);
         """
         query_params = [
             bigquery.ScalarQueryParameter("unique_id", "STRING", unique_id),
@@ -135,12 +149,12 @@ def write_trends_to_bq(tool_context: ToolContext) -> dict:
         job.result()  # wait for job to complete
         if job.errors:
             logging.error(
-                f"DML INSERT job for trend: '{target_trend}' failed: {job.errors}"
+                f"DML MERGE job for trend: '{target_trend}' failed: {job.errors}"
             )
             raise RuntimeError(f"BigQuery insert returned errors: {job.errors}")
         else:
             logging.info(
-                f"DML INSERT job {job.job_id} for trend: '{target_trend}' completed; added {job.num_dml_affected_rows} rows."
+                f"DML MERGE job {job.job_id} for trend: '{target_trend}' completed; added {job.num_dml_affected_rows} rows."
             )
         return {
             "status": "success",

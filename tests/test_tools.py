@@ -1,6 +1,7 @@
 """Tests for backend tool functions (pure logic, no external service calls)."""
 
 import string
+from types import SimpleNamespace
 
 import pytest
 
@@ -45,8 +46,10 @@ class MockState(dict):
 
 
 class MockToolContext:
-    def __init__(self):
+    def __init__(self, session_id: str = "test-session"):
         self.state = MockState()
+        # BQ writers derive their idempotent row keys from the session id.
+        self.session = SimpleNamespace(id=session_id)
 
 
 class TestMemorizeTool:
@@ -415,6 +418,67 @@ class TestWriteTrendsUuidStash:
         assert "tswift engaged" not in captured["sql"]
         param_names = {p.name for p in captured["job_config"].query_parameters}
         assert "target_trend" in param_names
+
+
+class TestWriteTrendsIdempotent:
+    """Resumable apps / CRF retries give at-least-once tool execution, so the
+    creative row key must be session-derived and the write a MERGE."""
+
+    STATE = {
+        "gcs_folder": "2026_07_13_run",
+        "agent_output_dir": "creative_output",
+        "target_search_trends": "tswift engaged",
+        "brand": "PRS",
+        "target_audience": "musicians",
+        "target_product": "SE CE24",
+        "key_selling_points": "wide tonal range",
+    }
+
+    def _run(self, monkeypatch, session_id):
+        import creative_agent.bq_tools as t
+
+        class _Job:
+            errors = None
+            job_id = "j1"
+            num_dml_affected_rows = 1
+
+            def result(self):
+                return None
+
+        captured = []
+
+        class _BQ:
+            def query(self, sql, job_config=None):
+                captured.append((sql, job_config))
+                return _Job()
+
+        monkeypatch.setattr(t, "_get_bigquery_client", lambda: _BQ())
+        ctx = MockToolContext(session_id)
+        ctx.state.update(self.STATE)
+        t.write_trends_to_bq(ctx)
+        return ctx.state["creative_row_uuid"], captured
+
+    def test_same_session_same_uuid(self, monkeypatch):
+        first, _ = self._run(monkeypatch, "sess-1")
+        second, _ = self._run(monkeypatch, "sess-1")
+        assert first == second
+        assert len(first) == 8  # CRF joins on the 8-char creative_uuid
+
+    def test_different_sessions_different_uuid(self, monkeypatch):
+        a, _ = self._run(monkeypatch, "sess-1")
+        b, _ = self._run(monkeypatch, "sess-2")
+        assert a != b
+
+    def test_sql_is_parameterized_merge(self, monkeypatch):
+        uid, captured = self._run(monkeypatch, "sess-1")
+        (sql, job_config), *_ = captured
+        assert "MERGE" in sql
+        assert "WHEN NOT MATCHED" in sql
+        assert "INSERT INTO" not in sql
+        assert "tswift engaged" not in sql
+        params = {p.name: p.value for p in job_config.query_parameters}
+        assert params["unique_id"] == uid
+        assert params["target_trend"] == "tswift engaged"
 
 
 class TestWriteTrendsRaisesOnBqErrors:
