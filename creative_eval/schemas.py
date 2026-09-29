@@ -97,3 +97,6 @@ class CreativeEvaluationReport(BaseModel):
         default_factory=list,
         description="Human-readable notes about degraded/incomplete pipeline steps (e.g. research retries exhausted).",
     )
+    # The judge has no model fallback (a silent swap would skew pass rates), so
+    # record which model graded the report. Default "" keeps old reports valid.
+    judge_model: str = Field(default="", description="Model that judged this report.")

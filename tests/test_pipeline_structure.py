@@ -1,5 +1,6 @@
 """Tests for agent pipeline structure and configuration."""
 
+import pytest
 from google.adk.tools._node_tool import NodeTool
 
 from tests._fakes import walk_nodes
@@ -1242,3 +1243,35 @@ def test_creative_agent_root_exposes_pipelines_as_node_tools():
     }
     agent_tools = {t.agent.name for t in root_agent.tools if isinstance(t, AgentTool)}
     assert agent_tools == {"creative_eval_agent"}
+
+
+# The six Pro (critic_model) producers fail over to worker_model on 429/5xx via
+# ADK FallbackModel. Agents are built at import time, so the backup is compared to
+# the agent package's own config.critic_fallback_model (as resolved at import).
+@pytest.mark.parametrize(
+    "path",
+    [
+        "creative_agent.agent:root_agent",
+        "creative_agent.agent:visual_generator",
+        "creative_agent.agent:combined_report_composer",
+        "creative_agent.agent:combined_web_evaluator",
+        "interactive_creative.agent:root_agent",
+        "trend_scout.agent:root_agent",
+    ],
+)
+def test_pro_producers_fall_back_to_worker(path):
+    import importlib
+
+    from google.adk.models import FallbackModel
+
+    mod, attr = path.split(":")
+    module = importlib.import_module(mod)
+    agent, config = getattr(module, attr), module.config
+    assert isinstance(agent.model, FallbackModel)
+    assert [m.model for m in agent.model.models] == [
+        config.critic_model,
+        config.critic_fallback_model,
+    ]
+    # Both delegates must carry the global pin (bare strings would lose it).
+    for m in agent.model.models:
+        assert m.client_kwargs == {"location": "global"}

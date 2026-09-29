@@ -17,7 +17,7 @@ This module has NO ADK/genai imports so it stays lightweight; the ADK
 """
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from dotenv import load_dotenv
 
@@ -34,6 +34,8 @@ class BaseAgentConfiguration:
         state_init (str): a key indicating the state dict is initialized.
         critic_model (str): Model for evaluation tasks.
         worker_model (str): Model for working/generation tasks.
+        critic_fallback_model (str): Failover model for the Pro (critic_model)
+            producers on 429/5xx, from CRITIC_FALLBACK_MODEL; empty disables.
         lite_planner_model (str): Lightweight planner model.
         image_gen_model (str): Model for generating images.
         rate_limit_seconds (int): window for the LLM API rate limiter.
@@ -56,6 +58,15 @@ class BaseAgentConfiguration:
     worker_model: str = "gemini-3.8-flash"
     lite_planner_model: str = "gemini-3.5-flash-lite"
     image_gen_model: str = "gemini-3.1-flash-image"
+    # Pro producers fail over to this on 429/5xx (ADK FallbackModel, see
+    # agent_common.models.build_gemini_with_fallback). Defaults to worker_model's
+    # bucket — never ALT_GLOBAL_MODEL (PR #101 campaign spread). os.getenv (not
+    # `or`) so CRITIC_FALLBACK_MODEL="" stays empty: the kill switch. The literal
+    # mirrors worker_model (drift guarded by
+    # test_critic_fallback_defaults_to_worker_bucket).
+    critic_fallback_model: str = field(
+        default_factory=lambda: os.getenv("CRITIC_FALLBACK_MODEL", "gemini-3.8-flash")
+    )
 
     # Image generation ImageConfig knobs (env-overridable). The default 9:16 is
     # the vertical social-reel framing (the model otherwise defaults to 1:1); the

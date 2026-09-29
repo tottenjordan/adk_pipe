@@ -22,6 +22,7 @@ class ResearchConfiguration(BaseAgentConfiguration):
     - searcher      → ``worker_model``       gemini-3.8-flash        @ global
     - synthesizer   → ``lite_planner_model`` gemini-3.5-flash-lite   @ global
     - root          → ``critic_model``       gemini-3.1-pro-preview  @ global
+      (fails over to ``worker_model`` on 429/5xx — see build_gemini_with_fallback)
     - gather        → ``gather_model``       gemini-3.1-flash-lite   @ global
     - pick          → ``picker_model``       gemini-3.5-flash        @ global
 

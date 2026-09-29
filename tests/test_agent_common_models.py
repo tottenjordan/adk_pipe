@@ -76,3 +76,82 @@ def test_model_location_env_override(monkeypatch):
     # restore module state for other tests
     monkeypatch.delenv("MODEL_LOCATION", raising=False)
     importlib.reload(locations)
+
+
+def _fresh_locations(monkeypatch):
+    monkeypatch.delenv("MODEL_LOCATION", raising=False)
+    import agent_common.locations as locations
+
+    importlib.reload(locations)
+
+
+def test_build_gemini_with_fallback_wraps_pinned_models(monkeypatch):
+    """Primary + backup are both global-pinned Gemini instances; primary fails fast."""
+    _fresh_locations(monkeypatch)
+    from google.adk.models import FallbackModel, Gemini
+
+    from agent_common import models
+    from agent_common.genai_retry import build_genai_http_retry
+    from agent_common.models import build_gemini_with_fallback
+
+    m = build_gemini_with_fallback("gemini-3.1-pro-preview", "gemini-3.8-flash")
+    assert isinstance(m, FallbackModel)
+    assert m.model == "gemini-3.1-pro-preview"  # primary name drives spans/requests
+    primary, backup = m.models
+    assert isinstance(primary, Gemini) and isinstance(backup, Gemini)
+    # bare strings would bypass the global pin (LLMRegistry.new_llm)
+    assert primary.client_kwargs == {"location": "global"}
+    assert backup.client_kwargs == {"location": "global"}
+    # primary fails over fast; backup keeps the full quota-paced retry
+    assert primary.retry_options is not None and backup.retry_options is not None
+    assert primary.retry_options.attempts == models.PRIMARY_FAILOVER_ATTEMPTS
+    assert backup.retry_options.attempts == build_genai_http_retry().attempts
+    assert {429, 503} <= m.retriable_status_codes
+
+
+def test_build_gemini_with_fallback_disabled_returns_plain(monkeypatch):
+    """Empty fallback (kill switch) returns the plain pinned model."""
+    _fresh_locations(monkeypatch)
+    from google.adk.models import FallbackModel
+
+    from agent_common.models import build_gemini_with_fallback
+
+    m = build_gemini_with_fallback("gemini-3.1-pro-preview", "")
+    assert not isinstance(m, FallbackModel)
+    assert m.model == "gemini-3.1-pro-preview"
+
+
+def test_fallback_moves_on_after_429():
+    """Behavioural: a 429 from the primary is served by the backup."""
+    import asyncio
+    from collections.abc import AsyncGenerator
+
+    from google.adk.models import BaseLlm, FallbackModel
+    from google.adk.models.llm_request import LlmRequest
+    from google.adk.models.llm_response import LlmResponse
+    from google.genai import errors as genai_errors
+    from google.genai import types
+
+    class _Quota(BaseLlm):
+        async def generate_content_async(
+            self, llm_request, stream=False
+        ) -> AsyncGenerator[LlmResponse]:
+            raise genai_errors.ClientError(429, {"error": {"message": "quota"}})
+            yield  # pragma: no cover
+
+    class _Ok(BaseLlm):
+        async def generate_content_async(
+            self, llm_request, stream=False
+        ) -> AsyncGenerator[LlmResponse]:
+            yield LlmResponse(
+                content=types.Content(role="model", parts=[types.Part(text=self.model)])
+            )
+
+    fm = FallbackModel(models=[_Quota(model="pro"), _Ok(model="flash")])
+
+    async def _go():
+        return [r async for r in fm.generate_content_async(LlmRequest(model="pro"))]
+
+    (resp,) = asyncio.run(_go())
+    assert resp.content is not None and resp.content.parts
+    assert resp.content.parts[0].text == "flash"

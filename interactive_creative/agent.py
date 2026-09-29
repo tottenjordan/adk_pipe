@@ -3,7 +3,7 @@ from google.adk.apps import App, ResumabilityConfig
 from google.adk.tools.agent_tool import AgentTool
 from google.genai import types
 
-from agent_common import build_gemini
+from agent_common import build_gemini, build_gemini_with_fallback
 
 # Reuse existing building blocks from the creative_agent public facade.
 from creative_agent import (
@@ -59,7 +59,7 @@ visual_concept_reviser = Agent(
 )
 
 root_agent = Agent(
-    model=build_gemini(config.critic_model),
+    model=build_gemini_with_fallback(config.critic_model, config.critic_fallback_model),
     name="root_agent",
     description="Interactive ad generation with human review checkpoints after research, ad copies, and visual concepts.",
     instruction=ic_prompts.ROOT_AGENT_INSTR,

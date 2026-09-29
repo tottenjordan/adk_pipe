@@ -287,3 +287,31 @@ def test_trend_scout_config_uses_no_retiring_models():
     assert {"gather_model", "picker_model", "worker_model"} <= models.keys()
     for name, model in models.items():
         assert not model.startswith("gemini-2.5"), f"{name}={model}"
+
+
+# --- P4b: Pro-producer failover model (CRITIC_FALLBACK_MODEL) ---
+# The fallback field is a default_factory, so it reads the env at *instantiation*
+# (not import) — a fresh BaseAgentConfiguration() sees the patched env directly.
+
+
+def test_critic_fallback_defaults_to_worker_bucket(monkeypatch):
+    monkeypatch.delenv("CRITIC_FALLBACK_MODEL", raising=False)
+    from agent_common.config import BaseAgentConfiguration
+
+    cfg = BaseAgentConfiguration()
+    assert cfg.critic_fallback_model == cfg.worker_model == "gemini-3.8-flash"
+
+
+def test_critic_fallback_empty_string_is_kill_switch(monkeypatch):
+    """CRITIC_FALLBACK_MODEL="" must stay empty (disables failover), not re-default."""
+    monkeypatch.setenv("CRITIC_FALLBACK_MODEL", "")
+    from agent_common.config import BaseAgentConfiguration
+
+    assert BaseAgentConfiguration().critic_fallback_model == ""
+
+
+def test_critic_fallback_never_uses_campaign_bucket():
+    """Keep the PR #101 spread: failover must not land on ALT_GLOBAL_MODEL."""
+    from creative_agent.config import ALT_GLOBAL_MODEL, config
+
+    assert config.critic_fallback_model != ALT_GLOBAL_MODEL
