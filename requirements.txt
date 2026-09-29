@@ -556,7 +556,7 @@ watchdog==6.0.0
     # via
     #   functions-framework
     #   google-adk
-websockets==15.0.1
+websockets==17.1
     # via
     #   google-adk
     #   google-genai
