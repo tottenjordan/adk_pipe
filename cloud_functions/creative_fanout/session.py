@@ -21,7 +21,7 @@ async def agent_session(remote_agent, user_id):
     """Create → yield → delete an Agent Engine session with ONE ``user_id``.
 
     Args:
-        remote_agent: the Agent Engine handle (from ``agent_engines.get``).
+        remote_agent: the Agent Engine handle (from ``client.runtimes.get``).
         user_id: the user id to create AND delete the session under. Passing it
             once here is what prevents the create/delete drift.
 

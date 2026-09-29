@@ -37,8 +37,8 @@ updates:
       crf-minor-patch:
         update-types: ["minor", "patch"]
     ignore:
-      # aiplatform 2.x = AgentPlatform SDK migration (proposal P1).
-      - dependency-name: "google-cloud-aiplatform"
+      # google-cloud-agentplatform 3.x would be a new SDK major; migrate deliberately.
+      - dependency-name: "google-cloud-agentplatform"
         update-types: ["version-update:semver-major"]
       # functions-framework 3.10.2 (latest) pins cloudevents<=1.12.0.
       - dependency-name: "cloudevents"
