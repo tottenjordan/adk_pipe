@@ -6,7 +6,7 @@ import asyncio
 import logging
 import os
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, HTTPException, Query
 from google.adk.events import Event, EventActions
 from google.genai import types
 from pydantic import BaseModel
@@ -172,6 +172,134 @@ async def get_run_status(
 # they finish (a classic footgun — create_task keeps only a weak reference).
 _BACKGROUND_TASKS: set = set()
 
+# Duplicate-run guard: at most ONE active detached run per (app, user, session).
+# Without it a double POST (double-clicked Start, a retried resume) starts two
+# concurrent Runners interleaving events into one session log.
+#
+# SINGLE-PROCESS, BEST-EFFORT guard. It is correct for the deployed backend
+# because trend-trawler-api runs ONE uvicorn process (backend_entrypoint.sh
+# passes no --workers) and all requests for a run normally land on that one
+# instance (--min-instances 1). It is NOT a distributed lock: multiple uvicorn
+# workers, or Cloud Run scaling out past one instance (max-instances > 1 — the
+# service does not currently pin it), would each hold their own registry and
+# defeat it. A multi-instance deploy would need a distributed lock (e.g. a
+# conditional write on the session / a Firestore lease).
+#
+# Check + claim is atomic because it happens synchronously (no ``await`` between
+# the check and the insert) on a single event loop. The key is claimed with the
+# ``_CLAIMING`` sentinel BEFORE the kickoff's own awaits (session create, resume
+# state writes), then swapped for the Task; the Task's done-callback releases it
+# (only if the stored value is still that Task), and a setup failure before the
+# Task exists releases the sentinel.
+_RunKey = tuple[str, str, str]
+_CLAIMING = object()
+_ACTIVE_RUNS: dict[_RunKey, asyncio.Task | object] = {}
+# The long-running function-call id an active RESUME segment is answering, kept in
+# lockstep with ``_ACTIVE_RUNS`` (set on claim, dropped on the same release). Lets
+# a duplicate resume for the SAME call be told apart from one blocked by a
+# still-running prior segment — see ``RunAlreadyActive.reason``.
+_ACTIVE_RESUME_CALL_IDS: dict[_RunKey, str] = {}
+
+# How long a resume waits for the PREVIOUS segment's task to finish before
+# rejecting with RunAlreadyActive. The frontend shows a review panel as soon as it
+# polls the long-running function-call event, but the paused segment's task stays
+# alive a little longer (remaining Runner events + the terminal-marker append,
+# with its bounded retry). A resume in that window waits instead of 409ing — and
+# waiting also stops the stale 'done' marker landing AFTER the resume's 'running'
+# reset (which would make pollers stop early).
+# The wait holds the resume HTTP request open: fine under the api service's 900s
+# Cloud Run request timeout and the /api/adk proxy, which sets no timeout of its
+# own (Node fetch/undici default: 300s to response headers).
+RESUME_PRIOR_SEGMENT_GRACE_SECONDS = 30.0
+
+# ``RunAlreadyActive.reason`` values (surfaced as ``detail.reason`` on the 409):
+#   run_active           — a start hit an active run; it is live, just poll it.
+#   resume_in_progress   — a duplicate resume for the SAME call; the first one is
+#                          already serving the user's response, just poll it.
+#   prior_segment_active — the previous segment was still running after the
+#                          grace wait; this response was NOT applied, retry it.
+REASON_RUN_ACTIVE = "run_active"
+REASON_RESUME_IN_PROGRESS = "resume_in_progress"
+REASON_PRIOR_SEGMENT_ACTIVE = "prior_segment_active"
+
+
+class RunAlreadyActive(Exception):
+    """A detached run is already active for this (app, user, session)."""
+
+    def __init__(self, key: _RunKey, reason: str = REASON_RUN_ACTIVE):
+        self.key = key
+        self.reason = reason
+        app_name, user_id, session_id = key
+        super().__init__(
+            f"a run is already active for app={app_name} user={user_id} "
+            f"session={session_id}"
+        )
+
+
+def _is_live(key: _RunKey) -> bool:
+    """True if ``key`` holds a claim sentinel or a not-yet-done Task. A done Task
+    whose release callback hasn't run yet counts as released."""
+    held = _ACTIVE_RUNS.get(key)
+    if held is None:
+        return False
+    return not (isinstance(held, asyncio.Task) and held.done())
+
+
+def _conflict_reason(key: _RunKey, function_call_id: str | None) -> str:
+    if function_call_id is None:
+        return REASON_RUN_ACTIVE
+    if _ACTIVE_RESUME_CALL_IDS.get(key) == function_call_id:
+        return REASON_RESUME_IN_PROGRESS
+    return REASON_PRIOR_SEGMENT_ACTIVE
+
+
+def _claim_run(key: _RunKey, function_call_id: str | None = None) -> None:
+    """Atomically claim ``key`` (synchronous — never await inside) or raise.
+
+    ``function_call_id`` is the long-running call a resume answers (``None`` for
+    a start); it decides the ``RunAlreadyActive.reason`` on conflict."""
+    if _is_live(key):
+        raise RunAlreadyActive(key, _conflict_reason(key, function_call_id))
+    _ACTIVE_RUNS[key] = _CLAIMING
+    if function_call_id is None:
+        _ACTIVE_RESUME_CALL_IDS.pop(key, None)
+    else:
+        _ACTIVE_RESUME_CALL_IDS[key] = function_call_id
+
+
+def _release_claim(key: _RunKey) -> None:
+    """Release a sentinel claim whose Task was never spawned (setup failed)."""
+    if _ACTIVE_RUNS.get(key) is _CLAIMING:
+        del _ACTIVE_RUNS[key]
+        _ACTIVE_RESUME_CALL_IDS.pop(key, None)
+
+
+def _register_run_task(key: _RunKey, task: asyncio.Task) -> None:
+    """Swap the claim sentinel for ``task``; hold a strong ref; release on done."""
+    _ACTIVE_RUNS[key] = task
+    _BACKGROUND_TASKS.add(task)
+    task.add_done_callback(_BACKGROUND_TASKS.discard)
+
+    def _release(t: asyncio.Task) -> None:
+        if _ACTIVE_RUNS.get(key) is t:
+            del _ACTIVE_RUNS[key]
+            _ACTIVE_RESUME_CALL_IDS.pop(key, None)
+
+    task.add_done_callback(_release)
+
+
+async def _await_prior_segment(key: _RunKey) -> None:
+    """If a previous segment's Task is still finishing, wait (bounded) for it.
+
+    Only a real Task is awaited; a ``_CLAIMING`` sentinel means a concurrent
+    duplicate request is mid-kickoff, which ``_claim_run`` then rejects. The
+    prior task is never cancelled (``asyncio.wait`` doesn't cancel on timeout)."""
+    prior = _ACTIVE_RUNS.get(key)
+    if isinstance(prior, asyncio.Task) and not prior.done():
+        await asyncio.wait({prior}, timeout=RESUME_PRIOR_SEGMENT_GRACE_SECONDS)
+        # Let the prior task's done-callbacks (key release) run.
+        await asyncio.sleep(0)
+
 
 async def _append_terminal_safe(
     session_service, app_name, user_id, session_id, event
@@ -277,27 +405,35 @@ async def start_run(
     """Ensure the session exists, spawn a detached task that drives the run to
     completion, and return ``({"runId", "status": "running"}, task)`` without
     awaiting the task. Returning the task lets callers/tests drain it; the HTTP
-    handler ignores the second element."""
-    existing = await session_service.get_session(
-        app_name=app_name, user_id=user_id, session_id=session_id
-    )
-    if existing is None:
-        await session_service.create_session(
-            app_name=app_name, user_id=user_id, session_id=session_id, state={}
+    handler ignores the second element.
+
+    Raises ``RunAlreadyActive`` (→ HTTP 409) if a run is already active for this
+    (app, user, session) in this process — see ``_ACTIVE_RUNS``."""
+    key = (app_name, user_id, session_id)
+    _claim_run(key)  # synchronous check+claim, before any await
+    try:
+        existing = await session_service.get_session(
+            app_name=app_name, user_id=user_id, session_id=session_id
         )
-    runner = runner_factory(app_name)
-    task = asyncio.create_task(
-        _drive_run(
-            runner,
-            session_service,
-            app_name,
-            user_id,
-            session_id,
-            build_user_message(message),
+        if existing is None:
+            await session_service.create_session(
+                app_name=app_name, user_id=user_id, session_id=session_id, state={}
+            )
+        runner = runner_factory(app_name)
+        task = asyncio.create_task(
+            _drive_run(
+                runner,
+                session_service,
+                app_name,
+                user_id,
+                session_id,
+                build_user_message(message),
+            )
         )
-    )
-    _BACKGROUND_TASKS.add(task)
-    task.add_done_callback(_BACKGROUND_TASKS.discard)
+    except BaseException:
+        _release_claim(key)
+        raise
+    _register_run_task(key, task)
     return {"runId": session_id, "status": "running"}, task
 
 
@@ -434,28 +570,45 @@ async def start_resume(
 
     ``edits`` (checkpoint-3 visual-concept edits) are merged deterministically
     into session state before relaunch (see _apply_visual_concept_edits), since
-    the renderer reads state, not the functionResponse."""
-    runner = runner_factory(app_name)
-    new_message = build_resume_message(function_call_id, function_name, response)
-    if edits:
-        await _apply_visual_concept_edits(
-            session_service, app_name, user_id, session_id, edits
+    the renderer reads state, not the functionResponse.
+
+    Duplicate guard: if the previous (paused) segment's task is still finishing
+    (appending its terminal marker), wait up to
+    ``RESUME_PRIOR_SEGMENT_GRACE_SECONDS`` for it; if a run is still active after
+    that, raise ``RunAlreadyActive`` (→ HTTP 409) with reason
+    ``prior_segment_active`` (this response was NOT applied). A duplicate resume
+    for the SAME ``function_call_id`` while that resume is active is rejected at
+    once with reason ``resume_in_progress`` (the first one is serving it)."""
+    key = (app_name, user_id, session_id)
+    if _is_live(key) and _ACTIVE_RESUME_CALL_IDS.get(key) == function_call_id:
+        raise RunAlreadyActive(key, REASON_RESUME_IN_PROGRESS)
+    await _await_prior_segment(key)
+    _claim_run(key, function_call_id)  # sync check+claim, before any further await
+    try:
+        runner = runner_factory(app_name)
+        new_message = build_resume_message(function_call_id, function_name, response)
+        if edits:
+            await _apply_visual_concept_edits(
+                session_service, app_name, user_id, session_id, edits
+            )
+        # Clear the paused segment's terminal 'done' marker before relaunching, so
+        # a poll during the resumed segment sees 'running' (see
+        # _reset_status_to_running).
+        await _reset_status_to_running(session_service, app_name, user_id, session_id)
+        task = asyncio.create_task(
+            _drive_run(
+                runner,
+                session_service,
+                app_name,
+                user_id,
+                session_id,
+                new_message,
+            )
         )
-    # Clear the paused segment's terminal 'done' marker before relaunching, so a
-    # poll during the resumed segment sees 'running' (see _reset_status_to_running).
-    await _reset_status_to_running(session_service, app_name, user_id, session_id)
-    task = asyncio.create_task(
-        _drive_run(
-            runner,
-            session_service,
-            app_name,
-            user_id,
-            session_id,
-            new_message,
-        )
-    )
-    _BACKGROUND_TASKS.add(task)
-    task.add_done_callback(_BACKGROUND_TASKS.discard)
+    except BaseException:
+        _release_claim(key)
+        raise
+    _register_run_task(key, task)
     return {"runId": session_id, "status": "running"}, task
 
 
@@ -499,16 +652,41 @@ class _ResumeBody(BaseModel):
 router = APIRouter()
 
 
+_ALREADY_ACTIVE_HINTS = {
+    REASON_RUN_ACTIVE: "poll GET /runs/{app}/{user}/{session} for its progress "
+    "instead of starting another.",
+    REASON_RESUME_IN_PROGRESS: "this resume is already being processed; poll "
+    "GET /runs/{app}/{user}/{session} for its progress.",
+    REASON_PRIOR_SEGMENT_ACTIVE: "the previous step is still finishing, so this "
+    "response was NOT applied; retry the resume shortly.",
+}
+
+
+def _already_active_detail(exc: RunAlreadyActive) -> dict:
+    """409 ``detail``: a machine-readable ``reason`` (see ``REASON_*``) plus a
+    human-readable ``message``."""
+    hint = _ALREADY_ACTIVE_HINTS.get(exc.reason, "")
+    return {
+        "reason": exc.reason,
+        "message": f"Run already active for this session ({exc}); {hint}",
+    }
+
+
 @router.post("/runs/{app_name}")
 async def http_start_run(app_name: str, body: _StartRunBody) -> dict:
-    result, _task = await start_run(
-        app_name=app_name,
-        user_id=body.userId,
-        session_id=body.sessionId,
-        message=body.message,
-        session_service=_SESSION_SERVICE,
-        runner_factory=_RUNNER_FACTORY,
-    )
+    try:
+        result, _task = await start_run(
+            app_name=app_name,
+            user_id=body.userId,
+            session_id=body.sessionId,
+            message=body.message,
+            session_service=_SESSION_SERVICE,
+            runner_factory=_RUNNER_FACTORY,
+        )
+    except RunAlreadyActive as exc:
+        raise HTTPException(
+            status_code=409, detail=_already_active_detail(exc)
+        ) from exc
     return result
 
 
@@ -532,16 +710,21 @@ async def http_get_run_status(
 async def http_start_resume(
     app_name: str, user_id: str, session_id: str, body: _ResumeBody
 ) -> dict:
-    result, _task = await start_resume(
-        app_name=app_name,
-        user_id=user_id,
-        session_id=session_id,
-        function_call_id=body.functionCallId,
-        function_name=body.functionName,
-        response=body.response,
-        session_service=_SESSION_SERVICE,
-        runner_factory=_RUNNER_FACTORY,
-        function_call_event_id=body.functionCallEventId,
-        edits=body.edits,
-    )
+    try:
+        result, _task = await start_resume(
+            app_name=app_name,
+            user_id=user_id,
+            session_id=session_id,
+            function_call_id=body.functionCallId,
+            function_name=body.functionName,
+            response=body.response,
+            session_service=_SESSION_SERVICE,
+            runner_factory=_RUNNER_FACTORY,
+            function_call_event_id=body.functionCallEventId,
+            edits=body.edits,
+        )
+    except RunAlreadyActive as exc:
+        raise HTTPException(
+            status_code=409, detail=_already_active_detail(exc)
+        ) from exc
     return result

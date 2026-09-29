@@ -1,5 +1,11 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { startRun, pollRun, getRunStatus, resumeRun } from "@/lib/api";
+import {
+  startRun,
+  pollRun,
+  getRunStatus,
+  resumeRun,
+  ResumeNotAppliedError,
+} from "@/lib/api";
 import type { AgentEvent } from "@/lib/types";
 
 // The async-job run model replaces the SSE async-generator with a REST job:
@@ -52,6 +58,26 @@ describe("startRun", () => {
     await expect(startRun("creative_agent", "u1", "s1", "hi")).rejects.toThrow(
       /Failed to start run \(500\)/
     );
+  });
+
+  it("treats 409 run-already-active as a running run (caller just polls)", async () => {
+    // The server's duplicate-run guard returns 409 when a run is already active
+    // for this session (e.g. the first POST landed but its response was lost and
+    // the page reloaded before markRunStarted). The run IS live, so startRun must
+    // resolve and let the page poll it instead of showing a start error.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ detail: "Run already active" }), {
+            status: 409,
+          })
+      )
+    );
+    await expect(startRun("creative_agent", "u1", "s1", "hi")).resolves.toEqual({
+      runId: "s1",
+      status: "running",
+    });
   });
 });
 
@@ -218,5 +244,52 @@ describe("resumeRun", () => {
       },
       functionCallEventId: "evt-8",
     });
+  });
+
+  function conflict(reason: string | null): Response {
+    const detail =
+      reason === null ? "Run already active" : { reason, message: "Run already active" };
+    return new Response(JSON.stringify({ detail }), { status: 409 });
+  }
+
+  const call = () =>
+    resumeRun(
+      "interactive_creative",
+      "u1",
+      "s1",
+      "fc-1",
+      "review_research",
+      { status: "approved" }
+    );
+
+  it("treats 409 resume_in_progress as running (a duplicate resume is already being served)", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => conflict("resume_in_progress")));
+    await expect(call()).resolves.toEqual({ runId: "s1", status: "running" });
+  });
+
+  it("throws ResumeNotAppliedError on 409 prior_segment_active (response NOT applied)", async () => {
+    // The previous segment was still finishing after the server's grace wait, so
+    // the approval was dropped. Polling would NOT re-show the review panel (the
+    // pause event is already deduped) and the prior segment's 'done' would read
+    // as completed — so the caller must re-offer the review instead.
+    vi.stubGlobal("fetch", vi.fn(async () => conflict("prior_segment_active")));
+    const err = await call().catch((e) => e);
+    expect(err).toBeInstanceOf(ResumeNotAppliedError);
+    expect((err as Error).message).toMatch(/still finishing/i);
+  });
+
+  it("treats an unrecognised 409 as not applied (safe: the user can re-submit)", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => conflict(null)));
+    await expect(call()).rejects.toBeInstanceOf(ResumeNotAppliedError);
+  });
+
+  it("still throws a generic error on other failures", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("boom", { status: 500 }))
+    );
+    const err = await call().catch((e) => e);
+    expect(err).not.toBeInstanceOf(ResumeNotAppliedError);
+    expect((err as Error).message).toMatch(/Failed to resume run \(500\)/);
   });
 });

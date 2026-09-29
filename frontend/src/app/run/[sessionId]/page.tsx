@@ -11,6 +11,7 @@ import {
   pollRun,
   getRunStatus,
   resumeRun,
+  ResumeNotAppliedError,
   getSession,
   getEventError,
 } from "@/lib/api";
@@ -57,6 +58,8 @@ export default function RunPage({
   const [events, setEvents] = useState<AgentEvent[]>([]);
   const [status, setStatus] = useState<Status>("running");
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  // Non-error, informational notice (e.g. a resume that must be re-submitted).
+  const [notice, setNotice] = useState<string | null>(null);
   const [sessionState, setSessionState] = useState<Record<string, unknown>>({});
   const [toastDismissed, setToastDismissed] = useState(false);
   const [pauseContext, setPauseContext] = useState<PauseContext | null>(null);
@@ -260,6 +263,7 @@ export default function RunPage({
   async function handleResume(response: Record<string, unknown>) {
     if (!pauseContext) return;
     setStatus("running");
+    setNotice(null);
     const ctx = pauseContext;
     setPauseContext(null);
 
@@ -301,6 +305,17 @@ export default function RunPage({
         controller.signal.aborted ||
         (err instanceof Error && err.name === "AbortError")
       ) {
+        return;
+      }
+      // The server's duplicate-run guard rejected this resume WITHOUT applying
+      // it (the previous segment was still finishing). The run is still paused
+      // at the same checkpoint, but polling would not re-show the review panel
+      // (the pause event is already deduped) — so restore it and let the user
+      // re-submit, with a calm notice rather than a failure.
+      if (err instanceof ResumeNotAppliedError) {
+        setPauseContext(ctx);
+        setStatus("paused");
+        setNotice(err.message);
         return;
       }
       setStatus("error");
@@ -397,6 +412,12 @@ export default function RunPage({
           )}
         </div>
       </div>
+
+      {notice && (
+        <div className="mb-4 rounded-xl bg-amber-50 border border-amber-200 px-5 py-4 animate-fadeIn">
+          <p className="text-sm text-amber-700">{notice}</p>
+        </div>
+      )}
 
       {errorMsg && (
         <div className="mb-4 rounded-xl bg-red-50 border border-red-200 px-5 py-4 animate-fadeIn">
