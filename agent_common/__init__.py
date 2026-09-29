@@ -1,5 +1,7 @@
 """Shared building blocks used across the agent packages."""
 
+import warnings
+
 from agent_common.conditional_agent import RunIfAgent
 from agent_common.config import BaseAgentConfiguration
 from agent_common.locations import MODEL_LOCATION
@@ -16,6 +18,17 @@ from agent_common.retry_agent import RetryUntilKeyAgent
 from agent_common.sanitize import (
     scrub_lone_surrogates,
     scrub_surrogates_in_response,
+)
+
+# ADK 2.x marks SequentialAgent/ParallelAgent `@deprecated` in favor of graph
+# Workflows; typing_extensions emits a DeprecationWarning on every instantiation.
+# Silence only that known notice (every agent package imports agent_common before
+# building agents). Remove once migrated -- see proposal P2 (ADK graph-Workflow
+# migration) in docs/plans/2026-09-28-repo-refresh.md.
+warnings.filterwarnings(
+    "ignore",
+    message=r"(Sequential|Parallel)Agent is deprecated in favor of Workflow",
+    category=DeprecationWarning,
 )
 
 __all__ = [

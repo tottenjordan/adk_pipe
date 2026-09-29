@@ -86,7 +86,8 @@ class TestEnvVarDict:
         req_path = os.path.join(os.path.dirname(__file__), "..", "requirements.txt")
         if not os.path.exists(req_path):
             pytest.skip("requirements.txt not found")
-        content = open(req_path).read()
+        with open(req_path) as f:
+            content = f.read()
         assert "google-adk" in content
 
 

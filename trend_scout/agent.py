@@ -1,5 +1,4 @@
 import logging
-import warnings
 
 from google.adk.agents import Agent, SequentialAgent
 from google.adk.apps import App, ResumabilityConfig
@@ -27,7 +26,6 @@ from .tools import (
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
 )
-warnings.filterwarnings("ignore")
 
 
 # --- TREND SUBAGENTS ---

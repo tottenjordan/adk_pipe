@@ -18,7 +18,6 @@ import json
 import logging
 import os
 import sys
-import warnings
 from collections import Counter
 
 import dotenv
@@ -34,7 +33,6 @@ dotenv.load_dotenv(dotenv_path=ENV_FILE_PATH)
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
 )
-warnings.filterwarnings("ignore")
 
 from google.adk.artifacts.file_artifact_service import FileArtifactService
 from google.adk.runners import Runner

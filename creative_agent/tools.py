@@ -2,7 +2,6 @@ import asyncio
 import logging
 import os
 import tempfile
-import warnings
 
 from google.adk.tools import ToolContext
 
@@ -44,7 +43,6 @@ from .image_tools import (  # noqa: F401
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
 )
-warnings.filterwarnings("ignore")
 
 
 def memorize(key: str, value: str, tool_context: ToolContext):

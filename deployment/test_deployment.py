@@ -6,7 +6,6 @@ import json
 import logging
 import os
 import sys
-import warnings
 from contextlib import asynccontextmanager
 
 import dotenv
@@ -28,7 +27,6 @@ from deployment.deploy_agent import AGENT_DEPLOY_SPECS, engine_env_key
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
 )
-warnings.filterwarnings("ignore")
 
 # load .env file
 ENV_FILE_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".env"))

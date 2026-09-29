@@ -41,7 +41,6 @@ import json
 import logging
 import re
 import time
-import warnings
 from datetime import UTC, datetime
 
 import functions_framework
@@ -56,7 +55,6 @@ from .session import agent_session
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
 )
-warnings.filterwarnings("ignore")
 # Module logger for new code (propagates to the root handler configured above).
 logger = logging.getLogger(__name__)
 
