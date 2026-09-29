@@ -345,6 +345,7 @@ def evaluate_creatives(
         ad_copy_evaluations=ad_evals,
         visual_concept_evaluations=visual_evals,
         summary=summary,
+        judge_model=config.eval_model,
     )
 
     logger.info(

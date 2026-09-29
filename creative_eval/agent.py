@@ -110,6 +110,7 @@ def evaluate_all_creatives(tool_context) -> dict:
         visual_concept_evaluations=visual_evals,
         summary=summary,
         warnings=warnings,
+        judge_model=_config.eval_model,
     )
 
     # Store in session state
