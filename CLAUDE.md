@@ -167,7 +167,7 @@ Both the run view and results view also surface the optional visual art-directio
 ### Event-Driven Orchestration — `cloud_functions/`
 
 Fan-out pattern using two Cloud Run Function deployments from the same source (`cloud_functions/creative_fanout/`):
-- **Orchestrator** (`crf_entrypoint`): Triggered by `CREATIVE_TOPIC_NAME` PubSub topic, queries BigQuery for unprocessed trends (oldest first, capped at `CRF_MAX_ROWS_PER_RUN`, default 10; a message's optional `max_rows` can only lower it), dispatches one message per trend to worker topic. Concurrency=100.
+- **Orchestrator** (`crf_entrypoint`): Triggered by `CREATIVE_TOPIC_NAME` PubSub topic, queries BigQuery for unprocessed trends (oldest first, capped at `CRF_MAX_ROWS_PER_RUN`, default 3; a message's optional `max_rows` can only lower it), dispatches one message per trend to worker topic. Concurrency=100.
 - **Worker** (`agent_worker_entrypoint`): Triggered by `CREATIVE_WORKER_TOPIC_NAME`, processes a single trend row by invoking Agent Engine. Concurrency=1 (prevents duplicate processing), max-instances=1 (serializes runs under the project-wide pro/image quotas). Timeout=1800s.
 
 ### Configuration

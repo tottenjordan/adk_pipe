@@ -28,7 +28,7 @@ message = {
     "bq_dataset": "trend_trawler",
     "bq_table": "target_trends_crf",
     "agent_resource_id": "<AGENT_ENGINE_ID>",
-    "max_rows": 5,  # optional; clamped to CRF_MAX_ROWS_PER_RUN (default 10)
+    "max_rows": 1,  # optional; clamped to CRF_MAX_ROWS_PER_RUN (default 3)
 }
 """
 
