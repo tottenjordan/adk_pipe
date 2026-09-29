@@ -1,5 +1,4 @@
 import logging
-import warnings
 
 from google.adk.agents import Agent, ParallelAgent, SequentialAgent
 from google.adk.planners import BuiltInPlanner
@@ -33,7 +32,6 @@ from .sub_agents.trend_researcher.agent import gs_sequential_planner
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
 )
-warnings.filterwarnings("ignore")
 
 
 # --- PARALLEL RESEARCH SUBAGENTS --- #

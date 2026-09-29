@@ -25,7 +25,6 @@ import logging
 import os
 import sys
 import time
-import warnings
 from dataclasses import dataclass
 
 import dotenv
@@ -45,7 +44,6 @@ from deployment.deploy_agent import AGENT_DEPLOY_SPECS, engine_env_key
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
 )
-warnings.filterwarnings("ignore")
 
 ENV_FILE_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".env"))
 dotenv.load_dotenv(dotenv_path=ENV_FILE_PATH)

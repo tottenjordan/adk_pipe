@@ -1,6 +1,5 @@
 import logging
 import uuid
-import warnings
 from typing import Any
 
 import pandas as pd
@@ -16,7 +15,6 @@ from .config import config
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
 )
-warnings.filterwarnings("ignore")
 
 
 # Shared debugging-observability callbacks (extracted to agent_common in WS3).

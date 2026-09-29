@@ -1,5 +1,4 @@
 import logging
-import warnings
 
 from google.adk.agents import Agent, SequentialAgent
 from google.adk.planners import BuiltInPlanner
@@ -17,7 +16,6 @@ from ...schemas import SearchQuery
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
 )
-warnings.filterwarnings("ignore")
 
 
 # Placement seam: the campaign half's (planner, worker, location) come from

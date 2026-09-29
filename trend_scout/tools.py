@@ -4,7 +4,6 @@ import logging
 import os
 import tempfile
 import uuid
-import warnings
 from pathlib import Path
 
 from google.adk.tools import ToolContext
@@ -18,7 +17,6 @@ from .config import config
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
 )
-warnings.filterwarnings("ignore")
 
 
 # ==============================

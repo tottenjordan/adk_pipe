@@ -26,7 +26,6 @@ it stays non-creds-gated and unit-testable offline.
 """
 
 import logging
-import warnings
 from typing import Any
 
 from google.adk.agents.callback_context import CallbackContext
@@ -38,7 +37,6 @@ from google.genai import types
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
 )
-warnings.filterwarnings("ignore")
 
 
 _EXHAUSTED_SUFFIX = "__retry_exhausted"
