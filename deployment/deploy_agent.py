@@ -3,6 +3,7 @@
 import logging
 import os
 import sys
+from typing import TYPE_CHECKING, cast
 
 import dotenv
 import pandas as pd
@@ -14,6 +15,10 @@ if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
 import vertexai
+
+if TYPE_CHECKING:
+    from google.adk.agents import BaseAgent
+    from google.adk.apps import App
 
 # ==============================
 # config
@@ -220,7 +225,11 @@ def deploy_agent(name: str, version: str) -> None:
     module = importlib.import_module(spec["module"])
     root_agent = module.root_agent
     kind, target = resolve_deploy_target(module)
-    adk_app = AdkApp(**{kind: target})
+    # Explicit branch (not ``AdkApp(**{kind: target})``) so the keyword is typed.
+    if kind == "app":
+        adk_app = AdkApp(app=cast("App", target))
+    else:
+        adk_app = AdkApp(agent=cast("BaseAgent", target))
 
     try:
         logging.info(f"Deploying `{name}` agent...")
