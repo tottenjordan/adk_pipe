@@ -1,5 +1,7 @@
 # Image-Generation Prompting Overhaul Implementation Plan
 
+**Status:** shipped (#97)
+
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
 **Goal:** Produce dramatically better, style-diverse ad images by (1) giving the visual

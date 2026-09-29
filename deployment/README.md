@@ -123,7 +123,7 @@ To view log entries in the [Logs Explorer](https://cloud.google.com/logging/docs
 
 ```bash
 resource.type="aiplatform.googleapis.com/ReasoningEngine"
-resource.labels.location="GOOGLE_CLOUD_LOCATION"
+resource.labels.location="GCP_REGION"
 resource.labels.reasoning_engine_id="YOUR_AGENT_ENGINE_ID"
 ```
 
@@ -223,7 +223,7 @@ the orchestrator re-queues rows older than `REAP_STALE_PROCESSING_MINUTES`
 
 Run the additive migration **FIRST, before deploying the code that writes these
 columns** — a DML naming a missing column fails (same ordering rule as the
-`research_gaps` migration in `docs/plans/2026-07-15-trend-scout-degradation-surfacing.md`):
+`research_gaps` migration in `docs/plans/archive/2026-07-15-trend-scout-degradation-surfacing.md`):
 
 ```sql
 -- 1. Additive migration (idempotent; preserves all rows):
@@ -401,7 +401,7 @@ VALUES
 </details>
 
 
-*5.2 edit [../cloud_functions/creative_fanout/message.json](../cloud_functions/creative_fanout/message.json) to match your `.env` file:*
+*5.2 create `cloud_functions/creative_fanout/message.json` (gitignored, so not in a fresh clone) to match your `.env` file:*
 
 ```json
 {
@@ -838,7 +838,7 @@ export SERVICE_NAME="trend-trawler-cr"
 
 adk deploy cloud_run \
   --project=$GOOGLE_CLOUD_PROJECT \
-  --region=$GOOGLE_CLOUD_LOCATION \
+  --region=$GCP_REGION \
   --port 8000 \
   --service_name=$SERVICE_NAME \
   --with_ui \
@@ -853,7 +853,7 @@ adk deploy cloud_run \
 
 ```bash
 gcloud run services update $SERVICE_NAME \
-  --region=$GOOGLE_CLOUD_LOCATION \
+  --region=$GCP_REGION \
   --timeout=600
 ```
 
@@ -871,7 +871,7 @@ export SERVICE_NAME="trend-creative-cr"
 
 adk deploy cloud_run \
   --project=$GOOGLE_CLOUD_PROJECT \
-  --region=$GOOGLE_CLOUD_LOCATION \
+  --region=$GCP_REGION \
   --port 8000 \
   --service_name=$SERVICE_NAME \
   --with_ui \
@@ -886,6 +886,6 @@ adk deploy cloud_run \
 
 ```bash
 gcloud run services update $SERVICE_NAME \
-  --region=$GOOGLE_CLOUD_LOCATION \
+  --region=$GCP_REGION \
   --timeout=600
 ```

@@ -1,5 +1,7 @@
 # README Reorg (Thin Landing Page) + `deployment/README.md` Consolidation — Implementation Plan
 
+**Status:** shipped (#51)
+
 > **For Claude:** REQUIRED SUB-SKILL: Use `executing-plans` to implement this plan task-by-task.
 > This is a documentation-only change (no code, no tests to write) — a single-writer, tightly-coupled
 > edit (main README and `deployment/README.md` must stay consistent), so `executing-plans` /

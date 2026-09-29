@@ -6,7 +6,9 @@ logic, ADK end-to-end evals, and the offline unit tests for the `experiments/`
 measurement harnesses (see [../experiments/README.md](../experiments/README.md)).
 
 ```bash
-# Python tests (pytest) — requires GCP credentials (module-level genai.Client)
+# Python tests (pytest) — no GCP credentials needed, but GOOGLE_CLOUD_PROJECT must be set
+# (any dummy value; the repo .env normally provides it) — genai.Client(vertexai=True)
+# construction resolves the project eagerly
 uv run pytest tests/ -v
 
 # ADK evals — end-to-end LLM-as-judge (real API calls, ~5 min per case)

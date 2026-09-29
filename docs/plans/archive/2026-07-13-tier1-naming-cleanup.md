@@ -1,5 +1,7 @@
 # Tier 1 Repo Naming Cleanup + Subagent-Driven-Development Skill Set — Implementation Plan
 
+**Status:** shipped (#50); Tasks 1–2 (skills) were authored in user scope, outside the repo
+
 > **For Claude:** REQUIRED SUB-SKILL: Use `executing-plans` to implement this plan task-by-task
 > — OR, once **Tasks 1–2** land, use the newly-created `subagent-driven-development` skill for
 > Tasks 3–6 (fresh implementer subagent per task + spec-then-quality review).

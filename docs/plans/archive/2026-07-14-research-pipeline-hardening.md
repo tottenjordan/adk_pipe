@@ -1,5 +1,7 @@
 # Research Pipeline Hardening Implementation Plan
 
+**Status:** shipped via the workstream plans — WS1 (#70), WS3 (#72), WS2 (#73)
+
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
 **Goal:** Eliminate the class of crashes where a `creative_agent` research producer finishes without writing its `output_key`, making the next agent's `{var}` instruction template raise `KeyError: Context variable not found` and abort the whole run.

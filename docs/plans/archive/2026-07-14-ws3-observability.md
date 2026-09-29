@@ -1,5 +1,7 @@
 # Workstream 3 — Richer Observability (Implementation Plan)
 
+**Status:** shipped (#72)
+
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
 **Goal:** Give `creative_agent` / `interactive_creative` the same debugging observability `trend_scout` got (run-start correlation, end-of-run state summary, empty-turn finish_reason warnings) by extracting those callbacks into a shared `agent_common` module, AND surface retry-exhaustion degradation (`*__retry_exhausted` markers) into three user-visible places: the eval report JSON, the `creative_evals` BigQuery row, and the HTML portfolio gallery.
