@@ -28,5 +28,11 @@
         "venv",
         "vertexai"
     ],
-    "editor.defaultFormatter": "ms-python.black-formatter"
+    "[python]": {
+        "editor.defaultFormatter": "charliermarsh.ruff",
+        "editor.formatOnSave": true,
+        "editor.codeActionsOnSave": {
+            "source.organizeImports.ruff": "explicit"
+        }
+    }
 }

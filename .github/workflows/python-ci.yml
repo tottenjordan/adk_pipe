@@ -1,0 +1,61 @@
+name: Python CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "**.py"
+      - "pyproject.toml"
+      - "uv.lock"
+      - ".github/workflows/python-ci.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "**.py"
+      - "pyproject.toml"
+      - "uv.lock"
+      - ".github/workflows/python-ci.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint-type-test:
+    runs-on: ubuntu-latest
+    env:
+      # The suite runs with NO GCP credentials and no .env (CI has neither).
+      # The only thing it needs is a project ID: module-level genai.Client
+      # construction (vertexai=True) resolves the project from ADC otherwise and
+      # raises "Could not resolve project". Any dummy value works — every test
+      # mocks the actual network calls.
+      GOOGLE_CLOUD_PROJECT: test-project
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@v10.2.0
+        with:
+          # Match the uv pinned in the Dockerfile.
+          version: "0.12.19"
+          # .python-version is gitignored, so pin the interpreter here
+          # (Dockerfile uses python:3.13-slim).
+          python-version: "3.13"
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --locked
+
+      - name: Ruff lint
+        run: uv run ruff check .
+
+      - name: Ruff format
+        run: uv run ruff format --check .
+
+      - name: ty
+        run: uv run ty check
+
+      - name: pytest
+        run: uv run pytest tests/ -q

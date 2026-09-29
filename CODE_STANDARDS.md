@@ -93,11 +93,8 @@ resource, target `GCP_REGION`.
 
 ## 8. Current State / Known Gaps
 
-These reflect the repo as of writing and are follow-ups, not exceptions to the rules:
-
-- `ruff` and `ty` are **not yet** declared in `pyproject.toml` `[dependency-groups]`.
-  They should be added via `uv add --group dev ruff ty` before the standards above are
-  fully enforceable.
-- `ruff` is partially configured (`[tool.ruff.lint.per-file-ignores]`); `[tool.ty]` is
-  not configured yet.
-- The `dev` dependency group currently contains only `pytest`.
+- `ruff` and `ty` are pinned in the `dev` dependency group and configured in
+  `pyproject.toml` (`[tool.ruff]` with an explicit `E,F,I,UP,B` rule set; `[tool.ty]`).
+  `.github/workflows/python-ci.yml` enforces `ruff check`, `ruff format --check`,
+  `ty check`, and `pytest` on every push/PR to `main`.
+- No coverage minimum is enforced yet.
