@@ -238,7 +238,7 @@ idna==3.20
     #   httpx
     #   requests
     #   yarl
-importlib-metadata==8.9.0
+importlib-metadata==9.0.1
     # via litellm
 itsdangerous==2.2.0
     # via flask
