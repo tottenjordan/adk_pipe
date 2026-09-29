@@ -3,6 +3,11 @@
 import os
 
 
+def _csv_env(name: str) -> set[str]:
+    """Comma-separated env var -> set of non-empty, stripped names."""
+    return {v.strip() for v in os.environ.get(name, "").split(",") if v.strip()}
+
+
 class AppConfig:
     # gcp project
     GOOGLE_CLOUD_PROJECT = "hybrid-vertex"
@@ -19,6 +24,17 @@ class AppConfig:
     # After this many lock acquisitions, a reaped row goes FAILED instead of
     # QUEUED (poison-pill guard).
     MAX_PROCESSING_ATTEMPTS = int(os.environ.get("MAX_PROCESSING_ATTEMPTS", "3"))
+    # BigQuery status-tracking table. The Pub/Sub payloads name the dataset/table
+    # (`bq_dataset`/`bq_table`), and BigQuery can't parameterize identifiers, so
+    # every SQL builder validates them against these allow-lists before quoting.
+    BQ_DATASET_ID = os.environ.get("BQ_DATASET_ID", "trend_trawler")
+    BQ_TABLE_TARGETS = os.environ.get("BQ_TABLE_TARGETS", "target_trends_crf")
+    ALLOWED_BQ_DATASETS = frozenset({BQ_DATASET_ID})
+    # Extra opt-in tables (e.g. a `target_trends_crf_p95` load-test copy):
+    # CRF_EXTRA_ALLOWED_TABLES="t1,t2".
+    ALLOWED_BQ_TABLES = frozenset(
+        {BQ_TABLE_TARGETS} | _csv_env("CRF_EXTRA_ALLOWED_TABLES")
+    )
 
 
 config = AppConfig()

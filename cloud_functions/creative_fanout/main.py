@@ -35,28 +35,30 @@ import os
 
 os.environ["PYTHONUNBUFFERED"] = "1"
 
-import json
-import time
-import base64
 import asyncio
+import base64
+import json
 import logging
+import re
+import time
 import warnings
+from datetime import UTC, datetime
 
-import vertexai
 import functions_framework
-from google.cloud import bigquery
-from google.cloud import pubsub_v1
+import vertexai
 from cloudevents.http import CloudEvent
+from google.cloud import bigquery, pubsub_v1
 
 from .config import config
 from .session import agent_session
-
 
 # --- config ---
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
 )
 warnings.filterwarnings("ignore")
+# Module logger for new code (propagates to the root handler configured above).
+logger = logging.getLogger(__name__)
 
 _USER_ID = "Ima_CloudRun_jr"
 _PROJECT_NUMBER = config.GOOGLE_CLOUD_PROJECT_NUMBER
@@ -134,27 +136,112 @@ def pretty_print_event(event):
             logging.info(f"  Response: {response}")
 
 
+# ==============================
+# SQL builders
+# ==============================
+# BigQuery can't parameterize identifiers, and the dataset/table arrive in the
+# Pub/Sub payload, so identifiers are validated against a config allow-list and
+# backtick-quoted; every *value* goes through a query parameter.
+_VALID_STATUSES = frozenset({"QUEUED", "PROCESSING", "PROCESSED", "FAILED"})
+_PROJECT_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9.:-]*")
+
+
+def _validate_target(dataset, table):
+    """Raise ValueError unless dataset/table are on the config allow-lists."""
+    if dataset not in config.ALLOWED_BQ_DATASETS:
+        raise ValueError(
+            f"BigQuery dataset {dataset!r} not allowed "
+            f"(allowed: {sorted(config.ALLOWED_BQ_DATASETS)})"
+        )
+    if table not in config.ALLOWED_BQ_TABLES:
+        raise ValueError(
+            f"BigQuery table {table!r} not allowed "
+            f"(allowed: {sorted(config.ALLOWED_BQ_TABLES)})"
+        )
+
+
+def _table_ref(project, dataset, table):
+    """Validated, backtick-quoted `project.dataset.table` reference."""
+    if not isinstance(project, str) or not _PROJECT_ID_RE.fullmatch(project):
+        raise ValueError(f"Invalid BigQuery project id {project!r}")
+    _validate_target(dataset, table)
+    return f"`{project}.{dataset}.{table}`"
+
+
+def _to_utc_datetime(ts):
+    """Parse an ISO-8601 timestamp string for a TIMESTAMP query parameter.
+
+    Naive values are treated as UTC, matching the old `TIMESTAMP('<naive>')`
+    SQL; aware values are normalized to UTC (same instant, microseconds kept).
+    Raises ValueError on anything that isn't a timestamp.
+    """
+    try:
+        dt = ts if isinstance(ts, datetime) else datetime.fromisoformat(ts)
+    except TypeError as e:  # e.g. None / int from a malformed payload
+        raise ValueError(f"Invalid entry_timestamp {ts!r}: {e}") from e
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=UTC)
+    return dt.astimezone(UTC)
+
+
+def _build_update_status_sql(project, dataset, table, timestamps, status):
+    """Set `processed_status` for the rows whose entry_timestamp is listed.
+
+    Returns ``(sql, query_parameters)``.
+    """
+    if status not in _VALID_STATUSES:
+        raise ValueError(f"Invalid processed_status {status!r}")
+    sql = f"""
+        UPDATE {_table_ref(project, dataset, table)}
+        SET processed_status = @status
+        WHERE entry_timestamp IN UNNEST(@timestamps)
+    """
+    params = [
+        bigquery.ScalarQueryParameter("status", "STRING", status),
+        bigquery.ArrayQueryParameter(
+            "timestamps", "TIMESTAMP", [_to_utc_datetime(t) for t in timestamps]
+        ),
+    ]
+    return sql, params
+
+
+def _build_select_unprocessed_sql(project, dataset, table):
+    """Rows not yet claimed: brand-new (NULL) or orphaned in QUEUED.
+
+    Returns ``(sql, query_parameters)`` (no values to bind; kept for symmetry).
+    """
+    sql = f"""
+        SELECT * FROM {_table_ref(project, dataset, table)}
+        WHERE processed_status IS NULL OR processed_status = 'QUEUED'
+        ORDER BY entry_timestamp ASC
+    """
+    return sql, []
+
+
+def _run_query(bq_client, sql, params):
+    """Submit a parameterized query and return the QueryJob."""
+    return bq_client.query(
+        sql, job_config=bigquery.QueryJobConfig(query_parameters=params)
+    )
+
+
 def update_rows_status(bq_client, dataset, table, timestamps, status="PROCESSED"):
-    """Updates the processing status of multiple rows atomically."""
+    """Updates the processing status of multiple rows atomically.
+
+    Raises ValueError for a non-allow-listed dataset/table or unknown status.
+    """
 
     if not timestamps:
         logging.info("No rows to update status for.")
         return
 
-    # Create a list of timestamp strings for the WHERE IN clause
-    ts_list = [f"TIMESTAMP('{t}')" for t in timestamps]
-    ts_string = ", ".join(ts_list)
-
-    update_query = f"""
-        UPDATE `{bq_client.project}.{dataset}.{table}`
-        SET processed_status = '{status}'
-        WHERE entry_timestamp IN ({ts_string})
-    """
+    sql, params = _build_update_status_sql(
+        bq_client.project, dataset, table, timestamps, status
+    )
 
     # Execute the update
     try:
-        query_job = bq_client.query(update_query)
-        query_job.result()
+        _run_query(bq_client, sql, params).result()
         logging.info(
             f"Successfully updated status to {status} for {len(timestamps)} rows."
         )
@@ -182,8 +269,8 @@ async def async_send_message(remote_agent, user_id, session, user_query) -> None
 
     except Exception as e:
         logging.error(f"Error during streaming: {type(e).__name__}: {e}")
-        # Propagate so the caller marks the row FAILED (not PROCESSED) and the
-        # worker Pub/Sub message NACKs for retry (#45).
+        # Propagate so the caller marks the row FAILED, never PROCESSED (#45).
+        # The caller then ACKs; only a failed FAILED-write NACKs for retry.
         raise
 
 
@@ -279,30 +366,37 @@ async def _execute_agent_and_update_status(
         )
         logging.info(f"Successfully processed and marked row {timestamp} as PROCESSED.")
 
-    except Exception as e:
-        # If the Agent Run fails, we update the status to FAILED and re-raise.
-        # This keeps the FAILED status visible and ensures the worker Pub/Sub message retries
-        # (if you want retries for FAILED status, otherwise just return here too).
+    except Exception as e:  # noqa: BLE001 — recorded as FAILED below, then ACKed
+        # The agent run (or the PROCESSED write) failed: record FAILED, then
+        # RETURN so the worker message is ACKed. Re-raising would only buy a
+        # no-op retry: the redelivery's QUEUED->PROCESSING lock can't match a
+        # FAILED row, so it would just log "Lock failed" and ACK anyway.
         logging.info(
             f"AGENT_RUN_DURATION_SECS row={timestamp} index={trend_dict['index']} "
             f"status=FAILED secs={time.monotonic() - run_start:.1f}"
         )
-        logging.error(f"Failed processing row {timestamp}: {e}")
+        logging.error(
+            f"Failed processing row {timestamp} (index={trend_dict['index']}): "
+            f"{type(e).__name__}: {e}"
+        )
 
-        # 4. Update status to FAILED
+        # 4. Update status PROCESSING -> FAILED. If THIS write raises, it
+        # propagates (failed invocation / NACK) so the error is loud. The row is
+        # left in PROCESSING, which the orchestrator's stale-PROCESSING reaper
+        # re-queues (or fails, over the attempt cap) after
+        # REAP_STALE_PROCESSING_MINUTES.
         update_rows_status(
             bq_client=bq_client,
             dataset=dataset,
             table=table,
             timestamps=[timestamp],
             status="FAILED",
-            # We change it from PROCESSING to FAILED.
         )
-        # Reraise to trigger NACK/retry for the worker message.
-        # The next attempt will hit the FAILED status and be handled by the lock failure
-        # (which returns/ACKs the message if you update the lock check logic, but for now,
-        # keeping the original NACK/retry behavior).
-        raise
+        logger.error(
+            f"Marked row {timestamp} as FAILED; ACKing the worker message "
+            "(no retry: a FAILED row can't be re-locked)."
+        )
+        return
 
 
 def _build_lock_sql(project, dataset, table, timestamp):
@@ -312,16 +406,24 @@ def _build_lock_sql(project, dataset, table, timestamp):
     holding the lock can be aged out by the reaper) and increments
     `processing_attempts` (bounded-retry / poison-pill guard). Gating on
     `processed_status = 'QUEUED'` preserves the exactly-once lock semantics.
+
+    Returns ``(sql, query_parameters)``.
     """
-    return f"""
-        UPDATE `{project}.{dataset}.{table}`
+    sql = f"""
+        UPDATE {_table_ref(project, dataset, table)}
         SET processed_status = 'PROCESSING',
             processing_started_at = CURRENT_TIMESTAMP(),
             processing_attempts = COALESCE(processing_attempts, 0) + 1
         WHERE
-            entry_timestamp = TIMESTAMP('{timestamp}')
+            entry_timestamp = @entry_timestamp
             AND processed_status = 'QUEUED'
     """
+    params = [
+        bigquery.ScalarQueryParameter(
+            "entry_timestamp", "TIMESTAMP", _to_utc_datetime(timestamp)
+        )
+    ]
+    return sql, params
 
 
 def acquire_processing_lock(bq_client, dataset, table, timestamp):
@@ -329,11 +431,13 @@ def acquire_processing_lock(bq_client, dataset, table, timestamp):
     Atomically changes status from 'QUEUED' to 'PROCESSING' for a single row.
     Returns True if the lock was acquired (1 row updated), False otherwise.
     """
-    lock_query = _build_lock_sql(bq_client.project, dataset, table, timestamp)
+    lock_sql, lock_params = _build_lock_sql(
+        bq_client.project, dataset, table, timestamp
+    )
 
     # Execute the update
     try:
-        query_job = bq_client.query(lock_query)
+        query_job = _run_query(bq_client, lock_sql, lock_params)
         # Wait for the query to finish and get the rows affected count
         result = query_job.result()
         rows_updated = result.num_dml_affected_rows
@@ -369,16 +473,23 @@ def _build_reap_sql(project, dataset, table, stale_minutes, max_attempts):
     NULL `processing_started_at` is excluded by the `<` comparison (SQL NULL
     semantics) — pre-migration stranded rows are handled by the one-time cleanup
     in the deploy runbook, not by this recurring reaper.
+
+    Returns ``(sql, query_parameters)``.
     """
-    return f"""
-        UPDATE `{project}.{dataset}.{table}`
+    sql = f"""
+        UPDATE {_table_ref(project, dataset, table)}
         SET processed_status = CASE
-                WHEN COALESCE(processing_attempts, 0) >= {max_attempts} THEN 'FAILED'
+                WHEN COALESCE(processing_attempts, 0) >= @max_attempts THEN 'FAILED'
                 ELSE 'QUEUED'
             END
         WHERE processed_status = 'PROCESSING'
-            AND processing_started_at < TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL {stale_minutes} MINUTE)
+            AND processing_started_at < TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL @stale_minutes MINUTE)
     """
+    params = [
+        bigquery.ScalarQueryParameter("max_attempts", "INT64", int(max_attempts)),
+        bigquery.ScalarQueryParameter("stale_minutes", "INT64", int(stale_minutes)),
+    ]
+    return sql, params
 
 
 def reap_stale_processing_rows(bq_client, dataset, table):
@@ -389,7 +500,7 @@ def reap_stale_processing_rows(bq_client, dataset, table):
     Best-effort: a failure here is logged and swallowed so it never crashes the
     orchestrator's normal dispatch.
     """
-    sql = _build_reap_sql(
+    sql, params = _build_reap_sql(
         bq_client.project,
         dataset,
         table,
@@ -397,7 +508,7 @@ def reap_stale_processing_rows(bq_client, dataset, table):
         config.MAX_PROCESSING_ATTEMPTS,
     )
     try:
-        n = bq_client.query(sql).result().num_dml_affected_rows or 0
+        n = _run_query(bq_client, sql, params).result().num_dml_affected_rows or 0
         if n:
             logging.warning(
                 f"Reaped {n} stale PROCESSING row(s) "
@@ -471,8 +582,14 @@ def crf_entrypoint(cloud_event: CloudEvent) -> None:
     dataset = message_payload["bq_dataset"]
     table = message_payload["bq_table"]
     agent_resource_id = message_payload["agent_resource_id"]
-    # The triggering message should pass the necessary config,
-    # OR the orchestrator uses a hardcoded worker topic name.
+    # The trigger message names the dataset/table; they become SQL identifiers,
+    # so they must be on the config allow-list. A bad one can never become valid
+    # on redelivery, so log and ACK rather than NACK into a redelivery loop.
+    try:
+        _validate_target(dataset, table)
+    except ValueError as e:
+        logger.error(f"Rejecting trigger message: {e}")
+        return
 
     # 0. Reap stale PROCESSING rows: a worker that hard-crashes AFTER acquiring
     # the lock strands its row in PROCESSING forever (a clean failure self-reports
@@ -487,13 +604,11 @@ def crf_entrypoint(cloud_event: CloudEvent) -> None:
     # grabbed is PROCESSING/PROCESSED (not selected here), and a genuinely-stuck
     # QUEUED row is re-sent — the worker's atomic QUEUED->PROCESSING lock
     # (acquire_processing_lock) dedups any double delivery.
-    rows_to_process_query = f"""
-        SELECT * FROM `{bq_client.project}.{dataset}.{table}`
-        WHERE processed_status IS NULL OR processed_status = 'QUEUED'
-        ORDER BY entry_timestamp ASC
-    """
+    select_sql, select_params = _build_select_unprocessed_sql(
+        bq_client.project, dataset, table
+    )
     try:
-        df = bq_client.query(rows_to_process_query).to_dataframe()
+        df = _run_query(bq_client, select_sql, select_params).to_dataframe()
     except Exception as e:
         logging.error(f"Error querying BQ: {e}")
         raise  # Re-raise to signal failure to Pub/Sub
@@ -606,6 +721,19 @@ def agent_worker_entrypoint(cloud_event: CloudEvent) -> None:
         table = worker_payload["bq_table"]
         agent_resource_id = worker_payload["agent_resource_id"]
         row_data = worker_payload["row_data"]
+
+        # dataset/table stay in the worker message (compatible with messages
+        # already in flight across a deploy) but must be allow-listed. A bad
+        # identifier never becomes valid on redelivery -> log and ACK.
+        # Same for a malformed entry_timestamp: it can never parse on
+        # redelivery, so validate it up front and ACK instead of letting the
+        # lock builder raise into the NACK path below.
+        try:
+            _validate_target(dataset, table)
+            _to_utc_datetime(row_data["entry_timestamp"])
+        except ValueError as e:
+            logger.error(f"Rejecting worker message: {e}")
+            return
 
         # Since the core agent logic is async, we run it here
         asyncio.run(
