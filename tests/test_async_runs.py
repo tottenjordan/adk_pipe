@@ -1223,3 +1223,127 @@ def test_router_maps_run_already_active_to_409_on_start_and_resume(monkeypatch):
     assert ok.status_code == 200
     assert dup.status_code == 409
     assert dup.json()["detail"]["reason"] == "resume_in_progress"
+
+
+def test_router_start_run_enforces_body_user_id():
+    import httpx
+    from fastapi import FastAPI
+
+    from runserver.authz import AuthzMode, UserAuthzMiddleware
+
+    me = "alice@example.com"
+
+    async def _go():
+        svc = InMemorySessionService()
+        gate = asyncio.Event()
+        gate.set()
+        runner = _GatedRunner(svc, "creative_agent", gate)
+        async_runs.configure(
+            session_service=svc,
+            runner_factory=lambda a: runner,
+            authz_mode=AuthzMode.ENFORCE,
+        )
+        app = FastAPI()
+        app.include_router(router)
+        app.add_middleware(
+            UserAuthzMiddleware,
+            mode=AuthzMode.ENFORCE,
+            caller_ok=lambda auth: auth == "Bearer proxy",
+        )
+        hdrs = {"authorization": "Bearer proxy", "x-tt-user": me}
+        t = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=t, base_url="http://t") as c:
+            bad = await c.post(
+                "/runs/creative_agent",
+                headers=hdrs,
+                json={"userId": "bob@x.com", "sessionId": "s", "message": "hi"},
+            )
+            anon = await c.post(
+                "/runs/creative_agent",
+                json={"userId": me, "sessionId": "s", "message": "hi"},
+            )
+            good = await c.post(
+                "/runs/creative_agent",
+                headers=hdrs,
+                json={"userId": me, "sessionId": "s", "message": "hi"},
+            )
+        for task in list(async_runs._ACTIVE_RUNS.values()):
+            if isinstance(task, asyncio.Task):
+                await task
+        return bad, anon, good
+
+    try:
+        bad, anon, good = asyncio.run(_go())
+    finally:
+        async_runs.configure(session_service=None, runner_factory=None)
+    assert bad.status_code == 403
+    assert anon.status_code == 401
+    assert good.status_code == 200
+
+
+class _ForeignSessionService(InMemorySessionService):
+    """Mimics ``VertexAiSessionService`` on an ownership mismatch: ``get_session``
+    raises a bare ``ValueError`` (or ``error`` when given)."""
+
+    def __init__(self, error: Exception | None = None):
+        super().__init__()
+        self._error = error
+
+    async def get_session(self, *, app_name, user_id, session_id, config=None):
+        raise self._error or ValueError(
+            f"Session {session_id} does not belong to user {user_id}."
+        )
+
+
+def _foreign_session_requests(svc):
+    import httpx
+    from fastapi import FastAPI
+
+    from runserver.authz import install_ownership_handler
+
+    async def _go():
+        runner = _GatedRunner(svc, "interactive_creative", asyncio.Event())
+        async_runs.configure(session_service=svc, runner_factory=lambda a: runner)
+        app = FastAPI()
+        app.include_router(router)
+        install_ownership_handler(app)
+        t = httpx.ASGITransport(app=app, raise_app_exceptions=False)
+        async with httpx.AsyncClient(transport=t, base_url="http://t") as c:
+            start = await c.post(
+                "/runs/interactive_creative",
+                json={"userId": "u", "sessionId": "s", "message": "hi"},
+            )
+            resume = await c.post(
+                "/runs/interactive_creative/u/s/resume",
+                json={
+                    "functionCallId": "call-1",
+                    "functionName": "review_research",
+                    "response": {"status": "approved"},
+                },
+            )
+            poll = await c.get("/runs/interactive_creative/u/s")
+        return start, resume, poll
+
+    try:
+        return asyncio.run(_go())
+    finally:
+        async_runs.configure(session_service=None, runner_factory=None)
+
+
+def test_router_maps_foreign_session_to_404_on_start_and_resume():
+    start, resume, poll = _foreign_session_requests(_ForeignSessionService())
+    assert start.status_code == 404
+    assert resume.status_code == 404
+    assert start.json() == resume.json() == {"detail": "Session not found"}
+    assert poll.status_code == 200
+    assert poll.json()["status"] == "not_found"
+    # The claim was released on the 404, so no phantom active run lingers.
+    assert not async_runs._ACTIVE_RUNS
+
+
+def test_router_does_not_map_unrelated_value_errors_to_404():
+    start, resume, _poll = _foreign_session_requests(
+        _ForeignSessionService(ValueError("backend exploded"))
+    )
+    assert start.status_code == 500
+    assert resume.status_code == 500

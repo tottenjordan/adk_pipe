@@ -39,4 +39,10 @@ describe("stripInboundCredentials", () => {
     // Non-credential headers are preserved.
     expect(headers.get("content-type")).toBe("application/json");
   });
+
+  it("strips a client-supplied x-tt-user so only the proxy can set it", () => {
+    const headers = new Headers({ "x-tt-user": "bob@x.com" });
+    stripInboundCredentials(headers);
+    expect(headers.get("x-tt-user")).toBeNull();
+  });
 });

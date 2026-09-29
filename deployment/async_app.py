@@ -17,6 +17,7 @@ the canned ``adk api_server`` path, not this launcher).
 from __future__ import annotations
 
 import os
+from functools import partial
 
 from google.adk.apps import App
 from google.adk.cli.fast_api import get_fast_api_app
@@ -27,6 +28,13 @@ from google.adk.cli.utils.service_factory import (
 from google.adk.runners import Runner
 
 from runserver.async_runs import configure, get_root_agent, router
+from runserver.authz import (
+    AuthzMode,
+    UserAuthzMiddleware,
+    install_ownership_handler,
+    resolve_mode,
+    verify_proxy_caller,
+)
 
 _AGENTS_DIR = "agents"
 _SESSION_URI = os.getenv("SESSION_SERVICE_URI") or None
@@ -93,5 +101,30 @@ def _runner_factory(app_name: str) -> Runner:
     )
 
 
-configure(session_service=session_service, runner_factory=_runner_factory)
+# P3 per-user authz: trust X-TT-User only from the /api/adk proxy SA (see
+# runserver/authz.py). Resolve + validate the mode up front so a misconfigured
+# deploy fails at boot, not on the first request.
+_AUTHZ_MODE = resolve_mode()
+_PROXY_AUDIENCES = [
+    a.strip() for a in os.getenv("TRUSTED_PROXY_AUDIENCES", "").split(",") if a.strip()
+]
+_PROXY_SA = os.getenv("TRUSTED_PROXY_SA", "").strip()
+if _AUTHZ_MODE is AuthzMode.ENFORCE and not (_PROXY_AUDIENCES and _PROXY_SA):
+    raise RuntimeError(
+        "USER_AUTHZ_MODE=enforce needs TRUSTED_PROXY_SA + TRUSTED_PROXY_AUDIENCES"
+    )
+
+configure(
+    session_service=session_service,
+    runner_factory=_runner_factory,
+    authz_mode=_AUTHZ_MODE,
+)
 app.include_router(router)
+install_ownership_handler(app)
+app.add_middleware(
+    UserAuthzMiddleware,
+    mode=_AUTHZ_MODE,
+    caller_ok=partial(
+        verify_proxy_caller, audiences=_PROXY_AUDIENCES, trusted_sa=_PROXY_SA
+    ),
+)

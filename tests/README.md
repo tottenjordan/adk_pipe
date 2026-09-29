@@ -40,6 +40,7 @@ tests/
 ├── test_agent_common_state.py       # shared memorize tool + seed_initial_state()
 ├── test_agents_dir.py               # agents/ serving-view symlinks used by the Cloud Run api_server
 ├── test_async_runs.py               # async-job run model: kick-off/poll/resume, terminal markers
+├── test_authz.py                    # P3 per-user authz: modes, userId normalization, proxy ID-token check, middleware 401/403/404, ownership → 404
 ├── test_backend_entrypoint.py       # backend container entrypoint (uvicorn serves async_app.py)
 ├── test_callbacks.py                # citation replacement, state init, rate limiting
 ├── test_config.py                   # per-agent config resolution (incl. campaign-placement resolver)

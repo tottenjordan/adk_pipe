@@ -29,7 +29,11 @@ uv run adk web .
 # polls the async-job `/runs` endpoints, which only the launcher mounts. It also
 # serves all the canned ADK CRUD/getSession/artifact endpoints, so this is a
 # superset of `adk api_server`.
-ALLOW_ORIGINS=http://localhost:3000 uv run uvicorn deployment.async_app:app --port 8000
+# TRUST_CLIENT_USER_ID=1 is required locally: the default per-user authz mode is enforce
+# (401 without a proxy-asserted X-TT-User), and the app refuses the flag on Cloud Run.
+# SESSION_SERVICE_URI=memory:// sidesteps ADK's per-agent local SQLite path check, which
+# rejects the agents/ symlinks (pre-existing 400 "resolves outside base directory").
+TRUST_CLIENT_USER_ID=1 SESSION_SERVICE_URI=memory:// ALLOW_ORIGINS=http://localhost:3000 uv run uvicorn deployment.async_app:app --port 8000
 cd frontend && npm install && npm run dev   # http://localhost:3000
 
 # Deploy agent to Agent Engine (the per-agent packages bundled into the engine
@@ -76,7 +80,7 @@ PYTHONPATH="$PWD" uv run adk eval creative_agent tests/eval/evalsets/creative_ag
   --config_file_path=tests/eval/creative_eval_config.json --print_detailed_results
 ```
 
-- Frontend: `frontend/src/__tests__/` — pure logic tests (async-job poll client in `poll-run.test.ts`, form validation, GCS URI building, widget layouts, trend markdown parsing, extractItems, interactive mode pause/resume)
+- Frontend: `frontend/src/__tests__/` — pure logic tests (async-job poll client in `poll-run.test.ts`, P3 proxy identity in `iap-identity.test.ts` (IAP JWT verify, audience lookup, `resolveUser`) + `user-scoping.test.ts` (route allowlist, userId rewrite, encoded-slash/app-name rejection, query allowlist), form validation, GCS URI building, widget layouts, trend markdown parsing, extractItems, interactive mode pause/resume)
 - Python: `tests/` — Pydantic schema validation, agent pipeline structure, tool functions, callbacks (citation regex, state init, rate limiting), async-job run helpers (`test_async_runs.py`), deployment utilities, cloud function logic. See [tests/README.md](tests/README.md) for the per-file breakdown.
 - ADK Evals: `tests/eval/` — end-to-end agent evaluation using `adk eval` CLI with rubric-based LLM-as-judge scoring (response quality + tool use quality). Runs against real APIs. One evalset + rubric config per agent: `evalsets/trend_scout_evalset.json` + `eval_config.json`; `evalsets/creative_agent_evalset.json` + `creative_eval_config.json`. The `creative_agent` eval must be run with `PYTHONPATH="$PWD"` (see command above).
 - Integration: `deployment/integration_test.py` — live GCP checks (health, session lifecycle, smoke tests). Requires deployed agents.
@@ -150,6 +154,11 @@ Key ADK patterns used: `Agent`, graph `Workflow`s (`google.adk.workflow`: fan-ou
 Next.js 16 (App Router) + TypeScript + Tailwind CSS + shadcn/ui. Light theme with Sora font. Consumes the backend REST endpoints at `localhost:8000` — ADK's canned session/artifact CRUD plus the async-job `/runs` kick-off/poll/resume endpoints (served together by `deployment/async_app.py`).
 
 **Deployment:** the frontend now ships to Cloud Run as two services — `trend-trawler-web` (Next.js standalone) and `trend-trawler-api`. The backend runs the **custom launcher `deployment/async_app.py`** under uvicorn (entrypoint `deployment/backend_entrypoint.sh`): it mounts ADK's canned FastAPI app (session/artifact CRUD, `getSession`, `list-apps`) **plus** the async-job `/runs` router from the flat `runserver/` package — both sharing one `VertexAiSessionService`. It **must** be deployed with `--no-cpu-throttling --min-instances 1` so detached runs keep CPU and aren't killed by scale-to-zero (see the async-run runbook). The backend is private; the same-origin `/api/adk` proxy reaches it with a metadata-server ID token (`roles/run.invoker`). The frontend is **IAP-gated** (domain-restricted to `jordantotten.altostrat.com` via Cloud Run direct IAP), and the backend uses **persistent Agent Engine sessions** via `SESSION_SERVICE_URI` (a dedicated `trend-trawler-sessions` Reasoning Engine). Runbook: [deployment/README.md → Frontend + api_server on Cloud Run](deployment/README.md#frontend--api_server-on-cloud-run).
+
+**Per-user authz (P3 trust model, `docs/plans/2026-09-29-p3-per-user-runs-authz.md`):** the proxy is authoritative; the backend only trusts it.
+- **Proxy** (`frontend/src/lib/iap-identity.ts`, `user-scoping.ts`, `app/api/adk/[...path]/route.ts`): verifies the `x-goog-iap-jwt-assertion` (ES256, IAP issuer, audience = `/projects/N/locations/R/services/K_SERVICE` from the metadata server or `IAP_AUDIENCE`; requires `exp`/`iat`/`email`, `hd == IAP_ALLOWED_HD`; the spoofable `x-goog-authenticated-user-*` headers are never read) → normalized email (strip, lowercase, drop `accounts.google.com:`). Only allowlisted UI routes pass (else 404; segments with a decoded `/` or `\` or a non-identifier app name are refused); every path/body `userId` (clients send placeholder `me`) is rewritten to the caller, only `since`/`version` query params forwarded, and `X-TT-User` set. On Cloud Run a missing/invalid JWT or unset `IAP_ALLOWED_HD` → 401; locally (no JWT, no `K_SERVICE`) it passes through unscoped (fail-open by design).
+- **Backend** (`runserver/authz.py`, installed in `deployment/async_app.py`): trusts `X-TT-User` only alongside a verified Google ID token for `TRUSTED_PROXY_SA` (`tt-web-sa`; minted with `format=full` so it carries `email`) with `aud ∈ TRUSTED_PROXY_AUDIENCES`. Path/body `userId` ≠ trusted user → 403; missing/untrusted `X-TT-User` on a user-scoped route → 401; blocked canned routes (`/run`, `/run_sse`, `/run_live`, memory, agent-identity) → 404; a foreign session (`VertexAiSessionService` ownership `ValueError`) → 404.
+- **Modes:** `USER_AUTHZ_MODE=enforce` (default; refuses to boot without `TRUSTED_PROXY_SA` + `TRUSTED_PROXY_AUDIENCES`) | `observe` (logs `authz observe: would deny …`, blocked routes still 404); `TRUST_CLIENT_USER_ID=1` = trust the client `userId` (local dev only; refused when `K_SERVICE` is set).
 
 **Pages:**
 - `/` — Campaign input form (brand, audience, product, selling points, agent selector: `trend_scout`, `creative_agent`, `interactive_creative`)
@@ -231,6 +240,7 @@ Image-generation prompt guidance lives in `creative_agent/prompts.py` as `IMAGE_
 - `deployment/deploy_agent.py` — Agent Engine deploy/list/delete CLI; `AGENT_EXTRA_PACKAGES`/`AGENT_DEPLOY_SPECS` maps are the single source of truth for what each agent bundles
 - `deployment/test_deployment.py` — Invoke deployed agents for testing
 - `runserver/async_runs.py` — async-job run model: `/runs` FastAPI router + pure helpers. Kicks off a **detached `asyncio` task** driving `Runner.run_async` to completion decoupled from the HTTP request, appends a terminal `__run_status` marker event on done/error, and serves poll (`GET ?since=N`) + resume endpoints. Replaces browser-held SSE so runs survive client disconnect.
+- `runserver/authz.py` — P3 per-user authz: `resolve_mode` (`TRUST_CLIENT_USER_ID` / `USER_AUTHZ_MODE`), `normalize_user_id`, `verify_proxy_caller` (proxy-SA ID-token check), `UserAuthzMiddleware` (401/403/404 per `decide`), `authorize_body_user` (kick-off body), and the ownership-`ValueError` → 404 handler
 - `deployment/async_app.py` — launcher that mounts the `/runs` router on ADK's canned FastAPI app, sharing one `VertexAiSessionService`; run under uvicorn by `deployment/backend_entrypoint.sh`
 - `cloud_functions/creative_fanout/main.py` — Orchestrator and worker entry points
 - `cloud_functions/creative_fanout/session.py` — `agent_session` async context manager (create→query→delete under one `user_id`, delete-on-error)

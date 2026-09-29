@@ -32,6 +32,7 @@ dependencies = [
     "matplotlib>=3.11.2,<4.0.0",
     "google-cloud-storage>=3.15.0,<4.0.0",
     "pyarrow>=25.0.1,<26.0.0",
+    "google-auth>=2.59.0,<3.0.0",
 ]
 
 [tool.uv]

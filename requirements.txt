@@ -124,6 +124,7 @@ google-api-core==2.34.0
     #   google-cloud-texttospeech
 google-auth==2.59.0
     # via
+    #   adk-pipe
     #   google-adk
     #   google-api-core
     #   google-cloud-aiplatform

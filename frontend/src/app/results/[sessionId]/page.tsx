@@ -12,7 +12,7 @@ import {
 } from "@/components/ui/collapsible";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { GcsWidget } from "@/components/gcs-widget";
-import { getSession, listArtifacts, getArtifact } from "@/lib/api";
+import { getSession, listArtifacts, getArtifact, SELF_USER_ID } from "@/lib/api";
 import { fetchEvalReport } from "@/lib/eval-report";
 import { gcsProxyUrl } from "@/lib/gcs";
 import {
@@ -127,7 +127,7 @@ export default function ResultsPage({
   const { sessionId } = use(params);
   const searchParams = useSearchParams();
   const appName = searchParams.get("app") || "trend_scout";
-  const userId = searchParams.get("userId") || "default_user";
+  const userId = searchParams.get("userId") || SELF_USER_ID;
 
   const [session, setSession] = useState<Session | null>(null);
   const [artifacts, setArtifacts] = useState<ArtifactData[]>([]);

@@ -7,11 +7,18 @@ import logging
 import os
 from typing import TYPE_CHECKING
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 from google.adk.errors.session_not_found_error import SessionNotFoundError
 from google.adk.events import Event, EventActions
 from google.genai import types
 from pydantic import BaseModel
+
+from runserver.authz import (
+    AuthzMode,
+    UserAuthzError,
+    authorize_body_user,
+    trusted_user,
+)
 
 if TYPE_CHECKING:
     from google.adk.sessions import Session
@@ -642,13 +649,23 @@ async def start_resume(
 
 _SESSION_SERVICE = None
 _RUNNER_FACTORY = None
+_AUTHZ_MODE = AuthzMode.TRUST_CLIENT
 
 
-def configure(*, session_service, runner_factory) -> None:
-    """Bind the shared session service + runner factory used by the routes."""
-    global _SESSION_SERVICE, _RUNNER_FACTORY
+def configure(
+    *,
+    session_service,
+    runner_factory,
+    # TRUST_CLIENT default is for tests/local; async_app always passes the resolved mode.
+    authz_mode: AuthzMode = AuthzMode.TRUST_CLIENT,
+) -> None:
+    """Bind the shared session service + runner factory used by the routes, and
+    the per-user authz mode for the ``POST /runs`` body ``userId`` check (the
+    path-scoped poll/resume routes are gated by ``UserAuthzMiddleware``)."""
+    global _SESSION_SERVICE, _RUNNER_FACTORY, _AUTHZ_MODE
     _SESSION_SERVICE = session_service
     _RUNNER_FACTORY = runner_factory
+    _AUTHZ_MODE = authz_mode
 
 
 class _StartRunBody(BaseModel):
@@ -692,11 +709,15 @@ def _already_active_detail(exc: RunAlreadyActive) -> dict:
 
 
 @router.post("/runs/{app_name}")
-async def http_start_run(app_name: str, body: _StartRunBody) -> dict:
+async def http_start_run(app_name: str, body: _StartRunBody, request: Request) -> dict:
+    try:
+        user_id = authorize_body_user(_AUTHZ_MODE, trusted_user(request), body.userId)
+    except UserAuthzError as exc:
+        raise HTTPException(status_code=exc.status, detail=exc.detail) from exc
     try:
         result, _task = await start_run(
             app_name=app_name,
-            user_id=body.userId,
+            user_id=user_id,
             session_id=body.sessionId,
             message=body.message,
             session_service=_SESSION_SERVICE,

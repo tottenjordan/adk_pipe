@@ -25,4 +25,14 @@ describe("gcp-auth", () => {
       expect.objectContaining({ headers: { "Metadata-Flavor": "Google" } }),
     );
   });
+
+  it("getIdentityToken asks for format=full so the token carries email/email_verified", async () => {
+    // The backend trusts X-TT-User only from the proxy SA, identified by the token's email.
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("eyJ.jwt.token", { status: 200 })));
+    await getIdentityToken("https://api.example.run.app");
+    expect(fetch).toHaveBeenCalledWith(
+      expect.stringContaining("format=full"),
+      expect.anything(),
+    );
+  });
 });
