@@ -82,6 +82,28 @@ def test_both_agents_resolve_bucket_name_from_same_var(monkeypatch, fresh_config
     assert ca_config.config.GCS_BUCKET_NAME == "shared-bucket"
 
 
+def test_gcs_bucket_uri_derived_from_bucket_name(monkeypatch, fresh_config):
+    """GCS_BUCKET is the gs:// form of GOOGLE_CLOUD_STORAGE_BUCKET; BUCKET is ignored."""
+    monkeypatch.setenv("GOOGLE_CLOUD_STORAGE_BUCKET", "derived-bucket")
+    monkeypatch.setenv("BUCKET", "gs://stale-separate-var")
+
+    base = fresh_config("agent_common.config").BaseAgentConfiguration
+    assert base.GCS_BUCKET == "gs://derived-bucket"
+    ca_config = fresh_config("creative_agent.config")
+    tt_config = fresh_config("trend_scout.config")
+    assert ca_config.config.GCS_BUCKET == "gs://derived-bucket"
+    assert tt_config.config.GCS_BUCKET == "gs://derived-bucket"
+
+
+def test_gcs_bucket_uri_none_when_bucket_name_unset(monkeypatch, fresh_config):
+    """No bucket name -> GCS_BUCKET is None (not the literal "gs://None")."""
+    # Empty (not deleted) so load_dotenv(override=False) can't refill it from .env.
+    monkeypatch.setenv("GOOGLE_CLOUD_STORAGE_BUCKET", "")
+
+    base = fresh_config("agent_common.config").BaseAgentConfiguration
+    assert base.GCS_BUCKET is None
+
+
 # --- Part C: shared BaseAgentConfiguration + build_infra_retry ---
 # The two agents' ResearchConfiguration classes were ~95% identical; both now
 # subclass a single BaseAgentConfiguration in agent_common, and both build their

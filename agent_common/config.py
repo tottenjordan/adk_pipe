@@ -38,8 +38,10 @@ class BaseAgentConfiguration:
         image_gen_model (str): Model for generating images.
         rate_limit_seconds (int): window for the LLM API rate limiter.
         rpm_quota (int): requests-per-minute threshold for the rate limiter.
-        GCS_BUCKET (str): Cloud Storage bucket used to save artifacts.
-        GCS_BUCKET_NAME (str): bucket name (no `gs://` prefix).
+        GCS_BUCKET (str | None): `gs://` bucket URI used to save artifacts,
+            derived from GCS_BUCKET_NAME (None when the name is unset).
+        GCS_BUCKET_NAME (str): bucket name (no `gs://` prefix), from
+            GOOGLE_CLOUD_STORAGE_BUCKET.
         PROJECT_ID (str): GCP project id.
         PROJECT_NUMBER (str): GCP project number.
         LOCATION (str): GOOGLE_CLOUD_LOCATION (vestigial — model calls pin the
@@ -76,11 +78,13 @@ class BaseAgentConfiguration:
     rpm_quota: int = 1000
 
     # env vars (read at import)
-    GCS_BUCKET = os.environ.get("BUCKET")
     # Read GOOGLE_CLOUD_STORAGE_BUCKET (what deploy_agent.py ships to Agent
     # Engine), NOT the local-only GCS_BUCKET_NAME — a deployed engine got None ->
     # "Cannot determine path without bucket name".
     GCS_BUCKET_NAME = os.environ.get("GOOGLE_CLOUD_STORAGE_BUCKET")
+    # The gs:// form is derived from the bare name (there is no separate BUCKET
+    # env var any more), so the two can never disagree.
+    GCS_BUCKET = f"gs://{GCS_BUCKET_NAME}" if GCS_BUCKET_NAME else None
     PROJECT_ID = os.environ.get("GOOGLE_CLOUD_PROJECT")
     PROJECT_NUMBER = os.environ.get("GOOGLE_CLOUD_PROJECT_NUMBER")
     LOCATION = os.environ.get("GOOGLE_CLOUD_LOCATION")

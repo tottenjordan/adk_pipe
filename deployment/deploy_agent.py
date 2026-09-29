@@ -42,7 +42,6 @@ ENV_VAR_DICT = {
     # see MODEL_LOCATION in the agent configs — NOT via these env vars.
     "GOOGLE_CLOUD_PROJECT_NUMBER": os.getenv("GOOGLE_CLOUD_PROJECT_NUMBER"),
     "GOOGLE_CLOUD_STORAGE_BUCKET": os.getenv("GOOGLE_CLOUD_STORAGE_BUCKET"),
-    "BUCKET": os.getenv("BUCKET"),
     "BQ_PROJECT_ID": os.getenv("BQ_PROJECT_ID"),
     "BQ_DATASET_ID": os.getenv("BQ_DATASET_ID"),
     "BQ_TABLE_TARGETS": os.getenv("BQ_TABLE_TARGETS"),
@@ -111,7 +110,6 @@ flags.DEFINE_enum(
     default=None,
     enum_values=list(AGENT_NAMES),
     help="name of agent to deploy",
-    # required=True,
 )
 flags.DEFINE_string(
     "resource_id", None, "Agent Engine resource id for deletion.", short_name="r"
@@ -243,7 +241,6 @@ def deploy_agent(name: str, version: str) -> None:
                 "display_name": f"{spec['display_name']}-{version}",
                 "description": root_agent.description,
                 "env_vars": ENV_VAR_DICT,
-                # "service_account": SERVICE_ACCOUNT,
                 "min_instances": 1,
                 "max_instances": 100,
                 "resource_limits": {"cpu": "4", "memory": "8Gi"},
@@ -257,7 +254,6 @@ def deploy_agent(name: str, version: str) -> None:
             name=name,
             agent_engine_id=remote_agent.api_resource.name,
             env_file_path=ENV_FILE_PATH,
-            # remove=False,
         )
     except Exception as e:
         logging.exception(f"Error deploying agent to Agent Engine Runtime: {e}")

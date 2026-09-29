@@ -32,7 +32,9 @@ tests/
 │   └── evalsets/
 │       ├── trend_scout_evalset.json
 │       └── creative_agent_evalset.json
+├── test_agent_common_clients.py     # shared lazy GCS/BigQuery client getters
 ├── test_agent_common_models.py      # shared model location + build_gemini() factory
+├── test_agent_common_state.py       # shared memorize tool + seed_initial_state()
 ├── test_agents_dir.py               # agents/ serving-view symlinks used by the Cloud Run api_server
 ├── test_async_runs.py               # async-job run model: kick-off/poll/resume, terminal markers
 ├── test_backend_entrypoint.py       # backend container entrypoint (uvicorn serves async_app.py)
@@ -73,7 +75,7 @@ tests/
   `test_agent_common_models.py`: Pydantic validation, model-location pinning, per-agent
   config resolution.
 - **Pipeline & callbacks** — `test_pipeline_structure.py`, `test_callbacks.py`,
-  `test_retry_config.py`: agent composition, state init, rate limiting, citation regex,
+  `test_agent_common_state.py`, `test_agent_common_clients.py`, `test_retry_config.py`: agent composition, state init, rate limiting, citation regex,
   scoped `RetryConfig`.
 - **Tools** — `test_tools.py`, `test_tools_retry.py`: pure tool logic, plus the contract
   that infra tools raise (rather than swallow errors into status dicts) so ADK retry works.

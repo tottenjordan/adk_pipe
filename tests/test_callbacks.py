@@ -94,6 +94,7 @@ class TestSetInitialStates:
 
         assert target[config.state_init] is True
         assert target["gcs_bucket"] == config.GCS_BUCKET
+        assert target["gcs_bucket_name"] == config.GCS_BUCKET_NAME
         assert target["agent_output_dir"] == "creative_output"
         assert "gcs_folder" in target
         assert target["brand"] == "TestBrand"
@@ -119,6 +120,7 @@ class TestSetInitialStates:
         _set_initial_states(source, target)
 
         assert target["agent_output_dir"] == "trawler_output"
+        assert "gcs_bucket_name" not in target
         assert target["brand"] == "PRS"
 
     # --- Optional visual-intent keys (image-intent-capture) ---

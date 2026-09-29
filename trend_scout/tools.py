@@ -7,9 +7,11 @@ import uuid
 from pathlib import Path
 
 from google.adk.tools import ToolContext
-from google.cloud import bigquery, storage
+from google.cloud import bigquery
 
 from agent_common import collect_degradation_warnings
+from agent_common.clients import get_bigquery_client, get_gcs_client
+from agent_common.state import memorize  # noqa: F401  (ADK tool; re-exported)
 
 from .config import config
 
@@ -22,34 +24,15 @@ logging.basicConfig(
 # ==============================
 # clients
 # =============================
-def _get_gcs_client() -> storage.Client:
-    """Get a configured GCS client."""
-    return storage.Client(project=config.PROJECT_ID)
-
-
-def _get_bigquery_client() -> bigquery.Client:
-    """Get a configured BigQuery client."""
-    return bigquery.Client(project=config.BQ_PROJECT_ID)
+# Shared lazy getters (agent_common.clients), bound to the historical private
+# names so call sites + test monkeypatch points are unchanged.
+_get_gcs_client = get_gcs_client
+_get_bigquery_client = get_bigquery_client
 
 
 # =============================
 # tools
 # =============================
-def memorize(key: str, value: str, tool_context: ToolContext):
-    """
-    Memorize pieces of information, one key-value pair at a time.
-
-    Args:
-        key: the label indexing the memory to store the value.
-        value: the information to be stored.
-        tool_context: The ADK tool context.
-
-    Returns:
-        A status message.
-    """
-    mem_dict = tool_context.state
-    mem_dict[key] = value
-    return {"status": f'Stored "{key}": "{value}"'}
 
 
 def record_research_gaps(tool_context: ToolContext) -> dict:
@@ -87,11 +70,6 @@ def _get_gtrends_max_date() -> str:
     return max_date_df.max_date.iloc[0].strftime("%m/%d/%Y")
 
 
-# max_date = _get_gtrends_max_date()
-
-
-# today_date: str = max_date
-# today_date: Today's date in the format 'MM/DD/YYYY'. Use the default value provided.
 def get_daily_gtrends(tool_context: ToolContext) -> str:
     """
     Retrieves the top 25 Google Search Trends (term, rank, refresh_date).

@@ -50,7 +50,7 @@ Functions are thin orchestration glue (`cloud_functions/creative_fanout/main.py`
 The BigQuery status column (`NULL → QUEUED → PROCESSING → PROCESSED/FAILED`) does triple duty as
 **work queue + idempotency lock + observability surface**.
 
-> Note: `cloud_functions/trawler_scheduler/main.py` is currently a documented stub (`# TODO(scheduler):`) — the trend_scout
+> Note: there is no scheduler Cloud Run Function yet (the empty `trawler_scheduler` stub was removed) — the trend_scout
 > half of the pipeline is not yet wired for scheduled/event-driven execution. The target
 > architecture below is greenfield for that side.
 
@@ -293,7 +293,7 @@ the ambient experiment is duration-cleared and quota/idempotency-gated.**
 Two workflows, two trigger styles:
 
 1. **trend_scout → scheduled.** Cloud Scheduler (cron) → Pub/Sub topic → trigger. This is the
-   natural fit and low-risk (`trawler_scheduler/main.py` is a stub today, so it's greenfield).
+   natural fit and low-risk (no scheduler function exists today, so it's greenfield).
 2. **creative_agent → on new BigQuery rows.** This is the nuanced one.
 
 > **Caveat — BigQuery has no native per-row "row inserted" event.** Eventarc can trigger on BQ

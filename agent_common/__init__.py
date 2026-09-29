@@ -2,6 +2,7 @@
 
 import warnings
 
+from agent_common.clients import get_bigquery_client, get_gcs_client
 from agent_common.conditional_agent import RunIfAgent
 from agent_common.config import BaseAgentConfiguration
 from agent_common.locations import MODEL_LOCATION
@@ -19,6 +20,7 @@ from agent_common.sanitize import (
     scrub_lone_surrogates,
     scrub_surrogates_in_response,
 )
+from agent_common.state import memorize, seed_initial_state
 
 # ADK 2.x marks SequentialAgent/ParallelAgent `@deprecated` in favor of graph
 # Workflows; typing_extensions emits a DeprecationWarning on every instantiation.
@@ -40,9 +42,13 @@ __all__ = [
     "RetryUntilKeyAgent",
     "RunIfAgent",
     "collect_degradation_warnings",
+    "get_bigquery_client",
+    "get_gcs_client",
     "log_empty_turn_finish_reason",
     "log_run_start",
     "make_final_state_summary",
+    "memorize",
     "scrub_lone_surrogates",
     "scrub_surrogates_in_response",
+    "seed_initial_state",
 ]
