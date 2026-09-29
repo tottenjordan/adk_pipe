@@ -1,6 +1,8 @@
 """Tests for backend tool functions (pure logic, no external service calls)."""
 
+import datetime
 import string
+from types import SimpleNamespace
 
 import pytest
 
@@ -45,8 +47,10 @@ class MockState(dict):
 
 
 class MockToolContext:
-    def __init__(self):
+    def __init__(self, session_id: str = "test-session"):
         self.state = MockState()
+        # BQ writers derive their idempotent row keys from the session id.
+        self.session = SimpleNamespace(id=session_id)
 
 
 class TestMemorizeTool:
@@ -202,6 +206,72 @@ class TestBuildTrendInsertSql:
         assert tricky not in sql
         assert self._param_value(params, "trend") == tricky
 
+    def test_is_insert_only_merge_keyed_on_uuid_and_trend(self):
+        # at-least-once tool execution: a repeat write for the same session's
+        # (uuid, trend) must be a no-op, so the statement is an INSERT-only MERGE.
+        sql, _ = self._sql()
+        assert "MERGE" in sql
+        assert "INSERT INTO" not in sql
+        assert "ON T.uuid = S.uuid AND T.target_trend = S.target_trend" in sql
+        assert "WHEN NOT MATCHED THEN" in sql
+        assert "WHEN MATCHED" not in sql
+
+
+class TestTrendScoutWriteTrendsIdempotent:
+    def _run(self, monkeypatch, session_id):
+        import trend_scout.tools as t
+
+        class _Job:
+            errors = None
+            job_id = "j1"
+            num_dml_affected_rows = 1
+
+            def result(self):
+                return None
+
+        captured = []
+
+        class _BQ:
+            def query(self, sql, job_config=None):
+                captured.append((sql, job_config))
+                return _Job()
+
+        monkeypatch.setattr(t, "_get_bigquery_client", lambda: _BQ())
+        monkeypatch.setattr(t, "_get_gtrends_max_date", lambda: "07/17/2026")
+        ctx = MockToolContext(session_id)
+        ctx.state.update(
+            {
+                "gcs_folder": "2026_07_13_run",
+                "agent_output_dir": "trawler_output",
+                "target_search_trends": {"target_search_trends": ["t1", "t2", "t3"]},
+                "brand": "PRS",
+                "target_audience": "musicians",
+                "target_product": "SE CE24",
+                "key_selling_points": "wide tonal range",
+            }
+        )
+        t.write_trends_to_bq(ctx)
+        out = []
+        for sql, job_config in captured:
+            assert "MERGE" in sql
+            params = {p.name: p.value for p in job_config.query_parameters}
+            out.append((params["unique_id"], params["trend"]))
+        return out
+
+    def test_same_session_same_ids_per_trend(self, monkeypatch):
+        first = self._run(monkeypatch, "sess-1")
+        second = self._run(monkeypatch, "sess-1")
+        assert first == second
+        assert [trend for _, trend in first] == ["t1", "t2", "t3"]
+        # one batch per session: every trend row shares the session-derived uuid
+        assert len({uid for uid, _ in first}) == 1
+        assert len(first[0][0]) == 8
+
+    def test_different_sessions_different_ids(self, monkeypatch):
+        a = self._run(monkeypatch, "sess-1")
+        b = self._run(monkeypatch, "sess-2")
+        assert a[0][0] != b[0][0]
+
 
 # --- save_search_trends_to_session_state logic ---
 class TestSaveSearchTrends:
@@ -348,6 +418,161 @@ class TestBuildEvalBqRow:
         assert set(self._row().keys()) == expected
 
 
+class TestBuildEvalMergeSql:
+    """The eval row dict stays the single source of columns; the MERGE builder
+    types + parameterizes every value and keys on the row's uuid."""
+
+    TABLE = "test-project.trend_trawler.creative_evals"
+
+    def _row(self, **overrides):
+        from creative_agent.tools import build_eval_bq_row
+
+        kwargs = dict(
+            report=SAMPLE_REPORT,
+            eval_uuid="ev123456",
+            creative_uuid="cr789012",
+            now_datetime="2026-07-13 10:30:00",
+            target_trend='Taylor\'s "engaged"',
+            brand="PRS Guitars",
+            target_product="SE CE24",
+            eval_report_gcs_uri="gs://bucket/run/creative_output/creative_eval_report.json",
+        )
+        kwargs.update(overrides)
+        return build_eval_bq_row(**kwargs)
+
+    def _build(self, row):
+        from creative_agent.bq_tools import _build_eval_merge_sql
+
+        return _build_eval_merge_sql(self.TABLE, row)
+
+    def test_merge_keyed_on_uuid(self):
+        sql, _ = self._build(self._row())
+        assert "MERGE" in sql
+        assert self.TABLE in sql
+        assert "ON T.uuid = S.uuid" in sql
+        assert "WHEN NOT MATCHED THEN" in sql
+
+    def test_every_row_column_inserted_and_bound(self):
+        row = self._row()
+        sql, params = self._build(row)
+        by_name = {p.name: p for p in params}
+        assert set(by_name) == set(row)
+        for col, value in row.items():
+            assert f"@{col} AS {col}" in sql
+            assert f"S.{col}" in sql
+            if col == "datetime":
+                # DATETIME is bound as a datetime, not the row's string form
+                value = datetime.datetime.fromisoformat(value)
+            assert by_name[col].value == value
+
+    def test_values_not_interpolated(self):
+        row = self._row()
+        sql, _ = self._build(row)
+        for value in ("Taylor", "PRS Guitars", "ev123456", "cr789012", "2026-07-13"):
+            assert value not in sql
+
+    def test_param_types_match_table_schema(self):
+        _, params = self._build(self._row())
+        types = {p.name: p.type_ for p in params}
+        assert types["datetime"] == "DATETIME"
+        assert types["overall_pass_rate"] == "FLOAT64"
+        assert types["avg_visual_score"] == "FLOAT64"
+        assert types["total_ad_copies"] == "INT64"
+        assert types["visual_concepts_passed"] == "INT64"
+        assert types["uuid"] == "STRING"
+        assert types["research_gaps"] == "STRING"
+
+    def test_none_becomes_typed_null(self):
+        row = {**self._row(), "avg_visual_score": None}
+        _, params = self._build(row)
+        p = next(p for p in params if p.name == "avg_visual_score")
+        assert p.type_ == "FLOAT64" and p.value is None
+
+    def test_column_types_cover_row_keys(self):
+        from creative_agent.bq_tools import EVAL_COLUMN_TYPES
+
+        assert set(EVAL_COLUMN_TYPES) == set(self._row())
+
+    def test_unknown_column_rejected(self):
+        with pytest.raises(KeyError):
+            self._build({**self._row(), "bogus": "x"})
+
+
+class TestWriteEvalReportIdempotent:
+    """write_eval_report_to_bq must derive eval_uuid from the session and MERGE,
+    never stream (insert_rows_json can't dedupe an at-least-once re-run)."""
+
+    def _patch(self, monkeypatch, errors=None):
+        import creative_agent.bq_tools as t
+
+        captured = []
+
+        class _Job:
+            job_id = "j1"
+            num_dml_affected_rows = 1
+
+            def __init__(self):
+                self.errors = errors
+
+            def result(self):
+                return None
+
+        class _BQ:
+            def insert_rows_json(self, *a, **k):
+                raise AssertionError("streaming insert is not idempotent")
+
+            def query(self, sql, job_config=None):
+                captured.append((sql, job_config))
+                return _Job()
+
+        monkeypatch.setattr(t, "_get_bigquery_client", lambda: _BQ())
+        return t, captured
+
+    @staticmethod
+    def _ctx(session_id="sess-1"):
+        ctx = MockToolContext(session_id)
+        ctx.state.update(
+            {
+                "creative_evaluation_report": SAMPLE_REPORT,
+                "creative_row_uuid": "abcd1234",
+                "target_search_trends": "tswift engaged",
+                "brand": "PRS",
+                "target_product": "SE CE24",
+            }
+        )
+        return ctx
+
+    def test_same_session_same_eval_uuid_via_merge(self, monkeypatch):
+        t, captured = self._patch(monkeypatch)
+        first = t.write_eval_report_to_bq(self._ctx())
+        second = t.write_eval_report_to_bq(self._ctx())
+        assert first["status"] == second["status"] == "success"
+        assert first["eval_uuid"] == second["eval_uuid"]
+        assert len(first["eval_uuid"]) == 8
+        assert len(captured) == 2
+        assert all("MERGE" in sql for sql, _ in captured)
+        params = {p.name: p.value for p in captured[0][1].query_parameters}
+        assert params["uuid"] == first["eval_uuid"]
+        assert params["creative_uuid"] == "abcd1234"
+
+    def test_different_sessions_different_eval_uuid(self, monkeypatch):
+        t, _ = self._patch(monkeypatch)
+        a = t.write_eval_report_to_bq(self._ctx("sess-1"))
+        b = t.write_eval_report_to_bq(self._ctx("sess-2"))
+        assert a["eval_uuid"] != b["eval_uuid"]
+
+    def test_raises_on_job_errors(self, monkeypatch):
+        t, _ = self._patch(monkeypatch, errors=[{"reason": "invalid"}])
+        with pytest.raises(RuntimeError, match="BigQuery insert returned errors"):
+            t.write_eval_report_to_bq(self._ctx())
+
+    def test_missing_report_returns_error(self, monkeypatch):
+        t, captured = self._patch(monkeypatch)
+        ctx = MockToolContext()
+        assert t.write_eval_report_to_bq(ctx)["status"] == "error"
+        assert captured == []
+
+
 class TestResearchWarningBanner:
     """The HTML gallery must surface research degradation as a visible banner."""
 
@@ -415,6 +640,67 @@ class TestWriteTrendsUuidStash:
         assert "tswift engaged" not in captured["sql"]
         param_names = {p.name for p in captured["job_config"].query_parameters}
         assert "target_trend" in param_names
+
+
+class TestWriteTrendsIdempotent:
+    """Resumable apps / CRF retries give at-least-once tool execution, so the
+    creative row key must be session-derived and the write a MERGE."""
+
+    STATE = {
+        "gcs_folder": "2026_07_13_run",
+        "agent_output_dir": "creative_output",
+        "target_search_trends": "tswift engaged",
+        "brand": "PRS",
+        "target_audience": "musicians",
+        "target_product": "SE CE24",
+        "key_selling_points": "wide tonal range",
+    }
+
+    def _run(self, monkeypatch, session_id):
+        import creative_agent.bq_tools as t
+
+        class _Job:
+            errors = None
+            job_id = "j1"
+            num_dml_affected_rows = 1
+
+            def result(self):
+                return None
+
+        captured = []
+
+        class _BQ:
+            def query(self, sql, job_config=None):
+                captured.append((sql, job_config))
+                return _Job()
+
+        monkeypatch.setattr(t, "_get_bigquery_client", lambda: _BQ())
+        ctx = MockToolContext(session_id)
+        ctx.state.update(self.STATE)
+        t.write_trends_to_bq(ctx)
+        return ctx.state["creative_row_uuid"], captured
+
+    def test_same_session_same_uuid(self, monkeypatch):
+        first, _ = self._run(monkeypatch, "sess-1")
+        second, _ = self._run(monkeypatch, "sess-1")
+        assert first == second
+        assert len(first) == 8  # CRF joins on the 8-char creative_uuid
+
+    def test_different_sessions_different_uuid(self, monkeypatch):
+        a, _ = self._run(monkeypatch, "sess-1")
+        b, _ = self._run(monkeypatch, "sess-2")
+        assert a != b
+
+    def test_sql_is_parameterized_merge(self, monkeypatch):
+        uid, captured = self._run(monkeypatch, "sess-1")
+        (sql, job_config), *_ = captured
+        assert "MERGE" in sql
+        assert "WHEN NOT MATCHED" in sql
+        assert "INSERT INTO" not in sql
+        assert "tswift engaged" not in sql
+        params = {p.name: p.value for p in job_config.query_parameters}
+        assert params["unique_id"] == uid
+        assert params["target_trend"] == "tswift engaged"
 
 
 class TestWriteTrendsRaisesOnBqErrors:

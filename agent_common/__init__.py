@@ -5,6 +5,7 @@ import warnings
 from agent_common.clients import get_bigquery_client, get_gcs_client
 from agent_common.conditional_agent import RunIfAgent
 from agent_common.config import BaseAgentConfiguration
+from agent_common.idempotency import stable_row_id
 from agent_common.locations import MODEL_LOCATION
 from agent_common.models import build_gemini
 from agent_common.observability import (
@@ -51,4 +52,5 @@ __all__ = [
     "scrub_lone_surrogates",
     "scrub_surrogates_in_response",
     "seed_initial_state",
+    "stable_row_id",
 ]
