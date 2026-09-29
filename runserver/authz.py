@@ -7,10 +7,16 @@ The /api/adk proxy verifies the IAP JWT and sends the normalized email as
 from __future__ import annotations
 
 import enum
+import json
 import logging
 import os
 import re
-from collections.abc import Mapping
+import time
+import urllib.request
+from collections.abc import Callable, Iterable, Mapping
+
+import google.auth.exceptions
+from google.auth import jwt as google_jwt
 
 TRUSTED_USER_HEADER = "x-tt-user"
 _EMAIL_RE = re.compile(r"^[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}$")
@@ -24,6 +30,9 @@ _BLOCKED_RE = re.compile(
     r"|^/apps/[^/]+/users/[^/]+/memory/?$"
     r"|^/agent-identity/finalize/?$"
 )
+GOOGLE_CERTS_URL = "https://www.googleapis.com/oauth2/v1/certs"
+_certs: dict[str, str] = {}
+_certs_at = float("-inf")
 log = logging.getLogger(__name__)
 
 
@@ -95,3 +104,40 @@ def authorize_body_user(mode: AuthzMode, trusted: str | None, claimed: str) -> s
     if claimed != trusted:
         raise UserAuthzError(403, "user mismatch")
     return trusted
+
+
+def google_certs(ttl: float = 3600.0) -> dict[str, str]:
+    """Google OAuth2 signing certs (PEM by kid), cached ``ttl`` seconds."""
+    global _certs, _certs_at
+    if time.monotonic() - _certs_at > ttl:
+        with urllib.request.urlopen(GOOGLE_CERTS_URL, timeout=5) as resp:
+            _certs = json.load(resp)
+        _certs_at = time.monotonic()
+    return _certs
+
+
+def verify_proxy_caller(
+    authorization: str | None,
+    *,
+    audiences: Iterable[str],
+    trusted_sa: str,
+    certs: Callable[[], Mapping[str, str | bytes]] = google_certs,
+) -> bool:
+    """True iff ``authorization`` is a valid Google ID token minted for ``trusted_sa``."""
+    if not authorization or not authorization.lower().startswith("bearer "):
+        return False
+    try:
+        claims = google_jwt.decode(
+            authorization[7:].strip(), certs=dict(certs()), audience=list(audiences)
+        )
+    except (ValueError, google.auth.exceptions.GoogleAuthError):
+        return False
+    except OSError:
+        # Certs fetch failed (network): fail closed rather than 500.
+        log.warning("authz: could not fetch Google certs", exc_info=True)
+        return False
+    return (
+        claims.get("iss") in ("https://accounts.google.com", "accounts.google.com")
+        and claims.get("email") == trusted_sa
+        and claims.get("email_verified") is True
+    )

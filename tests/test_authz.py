@@ -2,7 +2,13 @@
 
 from __future__ import annotations
 
+import time
+
 import pytest
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
+from google.auth import crypt
+from google.auth import jwt as gjwt
 
 from runserver.authz import (
     AuthzMode,
@@ -12,6 +18,7 @@ from runserver.authz import (
     normalize_user_id,
     path_user_id,
     resolve_mode,
+    verify_proxy_caller,
 )
 
 A = "alice@example.com"
@@ -85,3 +92,78 @@ def test_authorize_body_user():
     with pytest.raises(UserAuthzError) as e:
         authorize_body_user(AuthzMode.ENFORCE, None, A)
     assert e.value.status == 401
+
+
+SA = "tt-web-sa@test-project.iam.gserviceaccount.com"
+AUD = "https://trend-trawler-api.example.run.app"
+
+
+def _signer(key, kid="k1"):
+    pem = key.private_bytes(
+        serialization.Encoding.PEM,
+        serialization.PrivateFormat.PKCS8,
+        serialization.NoEncryption(),
+    )
+    return crypt.RSASigner.from_string(pem, key_id=kid)
+
+
+_KEY = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+_PUB = _KEY.public_key().public_bytes(
+    serialization.Encoding.PEM, serialization.PublicFormat.PKCS1
+)
+_SIGNER = _signer(_KEY)
+# A different key presenting the trusted kid: a forged/bad signature.
+_EVIL_SIGNER = _signer(rsa.generate_private_key(public_exponent=65537, key_size=2048))
+
+
+def _tok(signer=_SIGNER, **over) -> str:
+    now = int(time.time())
+    claims = {
+        "iss": "https://accounts.google.com",
+        "aud": AUD,
+        "email": SA,
+        "email_verified": True,
+        "iat": now,
+        "exp": now + 300,
+    } | over
+    return "Bearer " + gjwt.encode(signer, claims).decode()
+
+
+def _ok(auth):
+    return verify_proxy_caller(
+        auth,
+        audiences=[AUD, "https://other-allowed.example"],
+        trusted_sa=SA,
+        certs=lambda: {"k1": _PUB},
+    )
+
+
+def test_verify_proxy_caller_accepts_valid_proxy_token():
+    assert _ok(_tok())
+
+
+@pytest.mark.parametrize(
+    "over",
+    [
+        {"email": "someone@test-project.iam.gserviceaccount.com"},
+        {"aud": "https://evil.example"},
+        {"email_verified": False},
+        {"iss": "https://evil.example"},
+        {"exp": int(time.time()) - 600},
+    ],
+    ids=["wrong-email", "aud-not-allowed", "email-unverified", "bad-iss", "expired"],
+)
+def test_verify_proxy_caller_rejects_bad_claims(over):
+    assert not _ok(_tok(**over))
+
+
+def test_verify_proxy_caller_rejects_bad_signature_and_malformed():
+    assert not _ok(_tok(signer=_EVIL_SIGNER))
+    assert not _ok(None) and not _ok("Basic abc") and not _ok("Bearer not-a-jwt")
+
+
+def test_verify_proxy_caller_fails_closed_when_certs_unreachable():
+    def _down():
+        raise OSError("network unreachable")
+
+    assert not verify_proxy_caller(_tok(), audiences=[AUD], trusted_sa=SA, certs=_down)
