@@ -47,8 +47,12 @@ uv run ruff check --fix .   # lint + autofix
 Use **`ty`** for type checking (from the Astral team). Never use `mypy` or `pyright`.
 
 ```bash
-uv run ty check src/   # or the relevant package directories
+uv run ty check   # whole repo; scope + rules live in pyproject.toml [tool.ty] (tests/ excluded)
 ```
+
+There is no `src/` directory: the agent packages live **flat at the repo root** on purpose
+(Agent Engine's `extra_packages` staging preserves each package's relative path as its
+import path — see "Flat package layout" in [CLAUDE.md](./CLAUDE.md)). Don't nest them.
 
 ## 5. Testing
 
@@ -88,13 +92,26 @@ resource, target `GCP_REGION`.
 | `mypy` / `pyright` | `ty` |
 | `[project.optional-dependencies]` for dev tools | `[dependency-groups]` (PEP 735) |
 | `source .venv/bin/activate` | `uv run <cmd>` |
-| `requirements.txt` | `pyproject.toml` (projects) / PEP 723 (scripts) |
+| hand-written `requirements.txt` | `pyproject.toml` (projects) / PEP 723 (scripts) — see exceptions below |
 | `Co-Authored-By` trailers | (never add them) |
+
+**Allowed `requirements.txt` exceptions** (both exist because a deploy target demands one):
+
+- **Root `requirements.txt`** — the Agent Engine deploy's `requirements` input
+  (`deployment/deploy_agent.py`). It is *generated* from `uv.lock`; never edit it by hand.
+  Regenerate after dependency changes with
+  `uv export --format requirements-txt --no-hashes --no-dev -o requirements.txt`
+  (the exact command recorded in its header).
+- **`cloud_functions/creative_fanout/requirements.txt`** — the Cloud Function buildpack's
+  dependency manifest. The function deliberately ships a small, separately pinned dependency
+  set (it is not part of the uv project), so this file is its own pin list: bumps come via
+  Dependabot's `pip` ecosystem (`.github/dependabot.yml`) or a deliberate edit, not `uv add`.
 
 ## 8. Current State / Known Gaps
 
 - `ruff` and `ty` are pinned in the `dev` dependency group and configured in
-  `pyproject.toml` (`[tool.ruff]` with an explicit `E,F,I,UP,B` rule set; `[tool.ty]`).
-  `.github/workflows/python-ci.yml` enforces `ruff check`, `ruff format --check`,
-  `ty check`, and `pytest` on every push/PR to `main`.
+  `pyproject.toml` (`[tool.ruff]` with an explicit `E,F,I,UP,B` rule set; `[tool.ty]`,
+  which excludes `tests/`). `.github/workflows/python-ci.yml` enforces `ruff check`,
+  `ruff format --check`, `ty check`, and `pytest` on push/PR to `main` whenever Python
+  sources, dependency files, `agents/` or `tests/` change.
 - No coverage minimum is enforced yet.
