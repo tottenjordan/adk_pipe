@@ -1,5 +1,5 @@
 functions-framework==3.10.2
-cloudevents==1.12.0
+cloudevents==1.13.0
 google-cloud-aiplatform[agent_engines]==1.165.1
 google-cloud-bigquery[pandas]==3.45.2
 google-cloud-logging==3.16.3
