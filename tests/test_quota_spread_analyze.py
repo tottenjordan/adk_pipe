@@ -46,15 +46,19 @@ def test_research_tail_by_cell_reports_p90_and_max():
     absorbed by genai retry, so medians stay flat). p90/max expose the blowout."""
     from experiments.quota_spread.analyze import research_tail_by_cell
 
-    records = [
-        {"arm": "A", "concurrency": 5, "status": "done", "research_s": r}
-        for r in (80.0, 90.0, 100.0, 110.0, 800.0)  # one long tail
-    ] + [
-        {"arm": "B", "concurrency": 5, "status": "done", "research_s": r}
-        for r in (100.0, 105.0, 110.0, 115.0, 120.0)  # tight
-    ] + [
-        {"arm": "A", "concurrency": 5, "status": "error", "research_s": None},
-    ]
+    records = (
+        [
+            {"arm": "A", "concurrency": 5, "status": "done", "research_s": r}
+            for r in (80.0, 90.0, 100.0, 110.0, 800.0)  # one long tail
+        ]
+        + [
+            {"arm": "B", "concurrency": 5, "status": "done", "research_s": r}
+            for r in (100.0, 105.0, 110.0, 115.0, 120.0)  # tight
+        ]
+        + [
+            {"arm": "A", "concurrency": 5, "status": "error", "research_s": None},
+        ]
+    )
     tail = research_tail_by_cell(records)
     assert tail[("A", 5)]["max"] == 800.0
     assert tail[("B", 5)]["max"] == 120.0
@@ -156,8 +160,16 @@ def _sample_eval_state():
                         "overall_score": 0.8,
                         "passed": True,
                         "verdicts": [
-                            {"dimension": "copy_quality", "score": 9, "verdict": "pass"},
-                            {"dimension": "audience_fit", "score": 7, "verdict": "pass"},
+                            {
+                                "dimension": "copy_quality",
+                                "score": 9,
+                                "verdict": "pass",
+                            },
+                            {
+                                "dimension": "audience_fit",
+                                "score": 7,
+                                "verdict": "pass",
+                            },
                         ],
                     }
                 },
@@ -248,14 +260,38 @@ def test_doe_plot_render_all_writes_pngs(tmp_path):
     from experiments.quota_spread.doe_plot import render_all
 
     records = [
-        {"arm": "global_3x", "concurrency": 1, "status": "done",
-         "research_s": 100.0, "total_s": 300.0, "state": {}},
-        {"arm": "global_3x", "concurrency": 5, "status": "done",
-         "research_s": 260.0, "total_s": 480.0, "state": {}},
-        {"arm": "regional_25", "concurrency": 1, "status": "done",
-         "research_s": 100.0, "total_s": 300.0, "state": {}},
-        {"arm": "regional_25", "concurrency": 5, "status": "done",
-         "research_s": 120.0, "total_s": 330.0, "state": {}},
+        {
+            "arm": "global_3x",
+            "concurrency": 1,
+            "status": "done",
+            "research_s": 100.0,
+            "total_s": 300.0,
+            "state": {},
+        },
+        {
+            "arm": "global_3x",
+            "concurrency": 5,
+            "status": "done",
+            "research_s": 260.0,
+            "total_s": 480.0,
+            "state": {},
+        },
+        {
+            "arm": "regional_25",
+            "concurrency": 1,
+            "status": "done",
+            "research_s": 100.0,
+            "total_s": 300.0,
+            "state": {},
+        },
+        {
+            "arm": "regional_25",
+            "concurrency": 5,
+            "status": "done",
+            "research_s": 120.0,
+            "total_s": 330.0,
+            "state": {},
+        },
     ]
     paths = render_all(records, figures_dir=tmp_path)
     assert len(paths) == 4

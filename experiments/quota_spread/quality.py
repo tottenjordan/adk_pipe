@@ -55,9 +55,7 @@ def extract_quality(state: dict) -> dict | None:
     scores = _all_scores(report)
 
     overalls = [
-        float(s["overall_score"])
-        for s in scores
-        if s.get("overall_score") is not None
+        float(s["overall_score"]) for s in scores if s.get("overall_score") is not None
     ]
     mean_score = statistics.mean(overalls) if overalls else None
 

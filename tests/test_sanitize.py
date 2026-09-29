@@ -16,8 +16,8 @@ These lock in that:
 
 from types import SimpleNamespace
 
-from google.genai import types
 from google.adk.models.llm_response import LlmResponse
+from google.genai import types
 from pydantic import BaseModel
 
 from agent_common import sanitize

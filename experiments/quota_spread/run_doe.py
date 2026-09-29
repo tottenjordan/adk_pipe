@@ -21,7 +21,7 @@ import json
 import time
 from pathlib import Path
 
-from .run_batch import RESULTS_ROOT, INVOKER_SA, run_batch
+from .run_batch import INVOKER_SA, RESULTS_ROOT, run_batch
 
 
 def plan_cell_order(
@@ -121,9 +121,13 @@ def _parse_args(argv=None) -> argparse.Namespace:
         required=True,
         help='JSON file: {"<arm>": {"base_url","audience","revision","tag"}, …}',
     )
-    p.add_argument("--loads", type=int, nargs="+", default=[1, 5], help="concurrency levels")
+    p.add_argument(
+        "--loads", type=int, nargs="+", default=[1, 5], help="concurrency levels"
+    )
     p.add_argument("--reps", type=int, default=4, help="batches per (arm, load) cell")
-    p.add_argument("--cool-secs", type=float, default=120.0, help="sleep between batches")
+    p.add_argument(
+        "--cool-secs", type=float, default=120.0, help="sleep between batches"
+    )
     p.add_argument("--invoker-sa", default=INVOKER_SA, help="SA to impersonate.")
     return p.parse_args(argv)
 

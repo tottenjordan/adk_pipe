@@ -1,17 +1,17 @@
 import logging
 import warnings
+
+from google.adk.agents import Agent, SequentialAgent
+from google.adk.planners import BuiltInPlanner
+from google.adk.tools import google_search
+from google.genai import types
 from pydantic import BaseModel, Field
 
-from google.genai import types
-from google.adk.tools import google_search
-from google.adk.planners import BuiltInPlanner
-from google.adk.agents import Agent, SequentialAgent
+from agent_common import RetryUntilKeyAgent, build_gemini
 
-from agent_common import build_gemini, RetryUntilKeyAgent
+from ... import callbacks
 from ...config import config
 from ...schemas import SearchQuery
-from ... import callbacks
-
 
 # --- config ---
 logging.basicConfig(

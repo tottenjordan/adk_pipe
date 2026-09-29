@@ -11,9 +11,9 @@ the skip-vs-empty signal it exists to provide.
 import logging
 from types import SimpleNamespace
 
-from google.genai import types
 from google.adk.models.llm_response import LlmResponse
 from google.adk.sessions.state import State
+from google.genai import types
 
 from trend_scout import callbacks
 

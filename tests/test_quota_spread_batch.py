@@ -61,9 +61,7 @@ def test_assemble_batch_records_shapes_rows():
     assert recs[0]["count_429"] == 2
     assert recs[1]["count_429"] is None
     assert recs[0]["session_id"] == "s1"
-    assert recs[1]["exhaustion"] == [
-        "campaign_web_search_insights__retry_exhausted"
-    ]
+    assert recs[1]["exhaustion"] == ["campaign_web_search_insights__retry_exhausted"]
     # the full state must ride along for the free quality harvest (Task 8)
     assert recs[0]["state"] == {"final_creative_eval": {"pass": True}}
 

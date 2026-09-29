@@ -39,11 +39,11 @@ def test_combined_research_pipeline_sub_agent_order():
     RunIfAgent gate so they're skipped on the healthy common path (dropping one
     serial gemini-3.1-pro-preview call) and run only to compensate for degraded
     base research. The base synthesis and the final composer stay unconditional."""
+    from agent_common import RetryUntilKeyAgent, RunIfAgent
     from creative_agent.agent import (
         combined_research_pipeline,
         research_refinement_block,
     )
-    from agent_common import RetryUntilKeyAgent, RunIfAgent
 
     names = [a.name for a in combined_research_pipeline.sub_agents]
     assert names == [
@@ -106,6 +106,7 @@ def test_research_refinement_gate_predicate():
 
 def test_refined_searcher_has_tool_synthesizer_is_tool_free():
     from google.adk.tools import google_search
+
     from creative_agent.agent import (
         enhanced_combined_searcher,
         refined_web_synthesizer,
@@ -154,15 +155,15 @@ def test_structured_output_producers_carry_schema_retry():
     a bad-JSON model turn (e.g. visual_concept_finalizer at high temp emitting raw
     control chars) crashed the run unretried. Identity check keeps them on one
     shared config."""
-    from creative_agent.config import SCHEMA_RETRY
     from creative_agent.agent import (
-        combined_web_evaluator,
-        ad_copy_drafter,
         ad_copy_critic,
-        visual_concept_drafter,
+        ad_copy_drafter,
+        combined_web_evaluator,
         visual_concept_critic,
+        visual_concept_drafter,
         visual_concept_finalizer,
     )
+    from creative_agent.config import SCHEMA_RETRY
 
     for producer in (
         combined_web_evaluator,
@@ -180,8 +181,8 @@ def test_visual_production_pipeline_wraps_generator_in_retry():
     returns MALFORMED_FUNCTION_CALL and never emits generate_image, shipping an
     empty gallery. RetryUntilKeyAgent re-runs it until _images_generated is set
     (generate_image's idempotency guard makes a re-run safe)."""
-    from creative_agent import agent as ca
     from agent_common import RetryUntilKeyAgent
+    from creative_agent import agent as ca
 
     names = [a.name for a in ca.visual_production_pipeline.sub_agents]
     assert names == ["visual_generation_pipeline", "visual_generator_resilient"]
@@ -209,8 +210,9 @@ def test_campaign_producer_is_retry_wrapped():
     `campaign_web_search_insights`), wrapped as a SequentialAgent inside the
     existing RetryUntilKeyAgent so an empty turn retries the pair instead of
     crashing merge_planners."""
-    from agent_common import RetryUntilKeyAgent
     from google.adk.agents import SequentialAgent
+
+    from agent_common import RetryUntilKeyAgent
     from creative_agent.sub_agents.campaign_researcher.agent import (
         ca_sequential_planner,
     )
@@ -227,6 +229,7 @@ def test_campaign_producer_is_retry_wrapped():
 
 def test_campaign_searcher_has_tool_synthesizer_is_tool_free():
     from google.adk.tools import google_search
+
     from creative_agent.sub_agents.campaign_researcher.agent import (
         campaign_web_searcher,
         campaign_web_synthesizer,
@@ -257,8 +260,9 @@ def test_trend_producer_is_retry_wrapped():
     `gs_web_search_insights`), wrapped as a SequentialAgent inside the existing
     RetryUntilKeyAgent so an empty turn retries the pair instead of crashing
     merge_planners."""
-    from agent_common import RetryUntilKeyAgent
     from google.adk.agents import SequentialAgent
+
+    from agent_common import RetryUntilKeyAgent
     from creative_agent.sub_agents.trend_researcher.agent import (
         gs_sequential_planner,
     )
@@ -277,6 +281,7 @@ def test_gs_searcher_has_tool_synthesizer_is_tool_free():
     """The searcher runs google_search; the synthesizer is tool-free and
     planner-free (its reliability is the whole point of the split)."""
     from google.adk.tools import google_search
+
     from creative_agent.sub_agents.trend_researcher.agent import (
         gs_web_searcher,
         gs_web_synthesizer,
@@ -409,16 +414,16 @@ def test_merge_planners_inputs_are_optional():
 
 def test_output_keys_are_set_correctly():
     from creative_agent.agent import (
-        merge_planners,
+        ad_copy_critic,
+        ad_copy_drafter,
+        art_director,
+        combined_report_composer,
         combined_web_evaluator,
         enhanced_combined_searcher,
+        merge_planners,
         refined_web_synthesizer,
-        combined_report_composer,
-        ad_copy_drafter,
-        ad_copy_critic,
-        art_director,
-        visual_concept_drafter,
         visual_concept_critic,
+        visual_concept_drafter,
         visual_concept_finalizer,
     )
 
@@ -443,18 +448,18 @@ def test_output_keys_are_set_correctly():
 
 def test_output_schemas_assigned():
     from creative_agent.agent import (
-        combined_web_evaluator,
-        ad_copy_drafter,
-        ad_copy_critic,
-        visual_concept_drafter,
-        visual_concept_critic,
-        visual_concept_finalizer,
-        ResearchFeedback,
         AdCopyList,
         FinalAdCopyList,
-        VisualConceptList,
+        ResearchFeedback,
         VisualConceptCritiqueList,
         VisualConceptFinalList,
+        VisualConceptList,
+        ad_copy_critic,
+        ad_copy_drafter,
+        combined_web_evaluator,
+        visual_concept_critic,
+        visual_concept_drafter,
+        visual_concept_finalizer,
     )
 
     assert combined_web_evaluator.output_schema == ResearchFeedback
@@ -532,8 +537,8 @@ def test_creative_researcher_agents_have_finish_reason_callback():
     """The planner + searcher + synthesizer sub-agents (both halves of each split
     producer) all get the finish_reason callback (WS3 log parity)."""
     from creative_agent import callbacks
-    from creative_agent.sub_agents.trend_researcher import agent as tr
     from creative_agent.sub_agents.campaign_researcher import agent as cr
+    from creative_agent.sub_agents.trend_researcher import agent as tr
 
     for a in (tr.gs_web_planner, tr.gs_web_searcher, tr.gs_web_synthesizer):
         assert a.after_model_callback is callbacks.log_empty_turn_finish_reason
@@ -559,23 +564,23 @@ def test_trend_scout_split_agents_have_finish_reason_callback():
 
 
 def test_creative_root_has_final_state_summary():
-    from creative_agent.agent import root_agent
     from creative_agent import callbacks
+    from creative_agent.agent import root_agent
 
     assert root_agent.after_agent_callback is callbacks.log_final_state_summary
     assert callable(root_agent.after_agent_callback)
 
 
 def test_creative_eval_agent_has_finish_reason_callback():
-    from creative_eval.agent import creative_eval_agent
     from agent_common import log_empty_turn_finish_reason
+    from creative_eval.agent import creative_eval_agent
 
     assert creative_eval_agent.after_model_callback is log_empty_turn_finish_reason
 
 
 def test_interactive_root_has_observability_callbacks():
-    from interactive_creative.agent import root_agent
     from creative_agent import callbacks
+    from interactive_creative.agent import root_agent
 
     assert root_agent.after_model_callback is callbacks.log_empty_turn_finish_reason
     assert root_agent.after_agent_callback is callbacks.log_final_state_summary
@@ -586,10 +591,11 @@ def test_interactive_creative_uses_resilient_visual_generator():
     checkpoint, so it has the same MALFORMED_FUNCTION_CALL flaw as creative_agent.
     It must invoke the SAME shared resilient wrapper instance (AgentTool does not
     reparent), not the raw visual_generator."""
-    from interactive_creative import agent as ic
-    from creative_agent.agent import visual_generator, visual_generator_resilient
     from google.adk.tools.agent_tool import AgentTool
+
     from agent_common import RetryUntilKeyAgent
+    from creative_agent.agent import visual_generator, visual_generator_resilient
+    from interactive_creative import agent as ic
 
     matching = [
         t
@@ -634,6 +640,7 @@ def test_trend_scout_exposes_resumable_app():
     ResumabilityConfig(is_resumable=True). trend_scout.agent must expose such an
     `app` (while still exporting the bare `root_agent` for deploy_agent.py)."""
     from google.adk.apps import App
+
     from trend_scout.agent import app, root_agent
 
     assert isinstance(app, App)
@@ -682,9 +689,9 @@ def test_trend_scout_sub_agent_output_keys():
     """WS2: understand_trends_agent is split into a searcher (writes
     `info_gtrends_raw`) + a synthesizer (writes JSON `info_gtrends`)."""
     from trend_scout.agent import (
+        pick_trends_agent,
         understand_trends_searcher,
         understand_trends_synthesizer,
-        pick_trends_agent,
     )
 
     assert understand_trends_searcher.output_key == "info_gtrends_raw"
@@ -696,6 +703,7 @@ def test_understand_trends_searcher_has_tool_synthesizer_is_tool_free():
     """The searcher runs google_search under a thinking planner; the synthesizer
     is tool-free / planner-free and emits the JSON analyzed_trends structure."""
     from google.adk.tools import google_search
+
     from trend_scout.agent import (
         understand_trends_searcher,
         understand_trends_synthesizer,
@@ -711,9 +719,10 @@ def test_understand_trends_is_retry_wrapped():
     SequentialAgent inside the existing RetryUntilKeyAgent so an empty turn
     retries the pair instead of crashing pick_trends_agent. The wrapper is still
     exposed to the orchestrator as an AgentTool."""
-    from agent_common import RetryUntilKeyAgent
     from google.adk.agents import SequentialAgent
     from google.adk.tools.agent_tool import AgentTool
+
+    from agent_common import RetryUntilKeyAgent
     from trend_scout.agent import root_agent
 
     wrapped = [
@@ -801,10 +810,11 @@ def test_interactive_registers_visual_concept_reviser():
     """The NL-revision reviser must be exposed as an AgentTool and be a proper
     structured-output producer that re-emits final_visual_concepts."""
     from google.adk.tools.agent_tool import AgentTool
-    from interactive_creative import agent as ic
-    from interactive_creative.agent import visual_concept_reviser
+
     from creative_agent.config import SCHEMA_RETRY
     from creative_agent.schemas import VisualConceptFinalList
+    from interactive_creative import agent as ic
+    from interactive_creative.agent import visual_concept_reviser
 
     exposed = [
         t

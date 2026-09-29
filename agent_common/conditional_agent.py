@@ -30,13 +30,13 @@ from reappearing when the block is skipped.
 from __future__ import annotations
 
 import logging
-from typing import AsyncGenerator, Callable
+from collections.abc import AsyncGenerator, Callable
+from typing import override
 
 from google.adk.agents import BaseAgent
 from google.adk.agents.invocation_context import InvocationContext
 from google.adk.events.event import Event
 from google.adk.utils.context_utils import Aclosing
-from typing_extensions import override
 
 logger = logging.getLogger("google_adk." + __name__)
 
@@ -54,9 +54,7 @@ class RunIfAgent(BaseAgent):
     """Called with ``ctx.session.state``; truthy → run the block, falsy → skip."""
 
     @override
-    async def _run_async_impl(
-        self, ctx: InvocationContext
-    ) -> AsyncGenerator[Event, None]:
+    async def _run_async_impl(self, ctx: InvocationContext) -> AsyncGenerator[Event]:
         if not self.sub_agents:
             return
 

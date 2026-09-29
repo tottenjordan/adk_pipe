@@ -95,7 +95,7 @@ Independent of all prompt work. Fixes framing (1:1→9:16) and resolution now.
 - Per concept: `ar = entry.get("aspect_ratio") or config.image_aspect_ratio_default`; if `ar
   not in config.image_aspect_ratios_allowed`, fall back to the default (log a warning). Then:
   ```python
-  config=types.GenerateContentConfig(
+  config = types.GenerateContentConfig(
       response_modalities=["IMAGE"],
       image_config=types.ImageConfig(aspect_ratio=ar, image_size=config.image_size),
   )

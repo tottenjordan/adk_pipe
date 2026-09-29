@@ -13,14 +13,13 @@ see tests/test_crf_worker_async.py).
 
 import asyncio
 import logging
-from typing import AsyncGenerator
+from collections.abc import AsyncGenerator
 
 import pytest
-from google.adk.agents import BaseAgent
+from google.adk.agents import BaseAgent, SequentialAgent
 from google.adk.agents.invocation_context import InvocationContext
 from google.adk.events.event import Event
 from google.adk.events.event_actions import EventActions
-from google.adk.agents import SequentialAgent
 from google.adk.runners import InMemoryRunner
 from google.genai import types
 from pydantic import PrivateAttr
@@ -46,9 +45,7 @@ class _FlakyProducer(BaseAgent):
     def runs(self) -> int:
         return self._runs
 
-    async def _run_async_impl(
-        self, ctx: InvocationContext
-    ) -> AsyncGenerator[Event, None]:
+    async def _run_async_impl(self, ctx: InvocationContext) -> AsyncGenerator[Event]:
         self._runs += 1
         if self._runs <= self.fail_first:
             # No state_delta → output_key never written (the landmine).
@@ -80,9 +77,7 @@ class _FlakyFlagProducer(BaseAgent):
     def runs(self) -> int:
         return self._runs
 
-    async def _run_async_impl(
-        self, ctx: InvocationContext
-    ) -> AsyncGenerator[Event, None]:
+    async def _run_async_impl(self, ctx: InvocationContext) -> AsyncGenerator[Event]:
         self._runs += 1
         if self._runs <= self.fail_first:
             # No state_delta → flag never set (malformed-call landmine).
@@ -110,9 +105,7 @@ class _RawSearcher(BaseAgent):
     def runs(self) -> int:
         return self._runs
 
-    async def _run_async_impl(
-        self, ctx: InvocationContext
-    ) -> AsyncGenerator[Event, None]:
+    async def _run_async_impl(self, ctx: InvocationContext) -> AsyncGenerator[Event]:
         self._runs += 1
         yield Event(
             invocation_id=ctx.invocation_id,
@@ -139,9 +132,7 @@ class _FlakySynthesizer(BaseAgent):
     def runs(self) -> int:
         return self._runs
 
-    async def _run_async_impl(
-        self, ctx: InvocationContext
-    ) -> AsyncGenerator[Event, None]:
+    async def _run_async_impl(self, ctx: InvocationContext) -> AsyncGenerator[Event]:
         self._runs += 1
         # The searcher in the same sequence must have populated raw_key first.
         assert ctx.session.state.get(self.raw_key) == "RAW_FINDINGS"

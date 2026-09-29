@@ -101,6 +101,7 @@ class TestCreativeAgentToolsPropagate:
     def test_generate_image_retries_then_raises_on_persistent_503(self, monkeypatch):
         """A persistent 503 exhausts the backoff retries, then propagates."""
         import asyncio
+
         from google.genai import errors as genai_errors
 
         # generate_image now lives in creative_agent.image_tools and builds its
@@ -135,7 +136,9 @@ class TestCreativeAgentToolsPropagate:
     def test_generate_image_does_not_retry_non_transient(self, monkeypatch):
         """A non-transient error (e.g. 400) propagates immediately, no retries."""
         import asyncio
+
         from google.genai import errors as genai_errors
+
         from creative_agent import image_tools
 
         calls = {"n": 0}
@@ -164,7 +167,9 @@ class TestCreativeAgentToolsPropagate:
     def test_generate_image_retries_then_succeeds(self, monkeypatch):
         """Two transient 503s then a good response → the image is saved (no failure)."""
         import asyncio
+
         from google.genai import errors as genai_errors
+
         from creative_agent import image_tools
 
         calls = {"n": 0}

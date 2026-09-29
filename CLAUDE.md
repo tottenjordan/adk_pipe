@@ -48,7 +48,7 @@ python deployment/test_deployment.py --agent=trend_scout --user_id=$USER_ID
 python deployment/test_deployment.py --agent=creative_agent --user_id=$USER_ID
 ```
 
-Code formatting uses Black (via VSCode).
+Formatting and linting use ruff (`uv run ruff format .` / `uv run ruff check .`; config in `pyproject.toml`, rule set pinned to `E,F,I,UP,B`); type checking uses `uv run ty check`.
 
 ### Testing
 
@@ -57,7 +57,9 @@ Code formatting uses Black (via VSCode).
 cd frontend && npm test            # single run
 cd frontend && npm run test:watch  # watch mode
 
-# Python tests (pytest) — requires GCP credentials (module-level genai.Client)
+# Python tests (pytest) — no GCP credentials needed, but GOOGLE_CLOUD_PROJECT must be set
+# (any dummy value, e.g. test-project; the repo .env normally provides it) because
+# module-level genai.Client construction resolves the project eagerly
 uv run pytest tests/ -v
 
 # ADK evals — end-to-end agent evaluation with LLM-as-judge (real API calls, ~5 min per case)
@@ -75,7 +77,9 @@ PYTHONPATH="$PWD" uv run adk eval creative_agent tests/eval/evalsets/creative_ag
 - Python: `tests/` — Pydantic schema validation, agent pipeline structure, tool functions, callbacks (citation regex, state init, rate limiting), async-job run helpers (`test_async_runs.py`), deployment utilities, cloud function logic. See [tests/README.md](tests/README.md) for the per-file breakdown.
 - ADK Evals: `tests/eval/` — end-to-end agent evaluation using `adk eval` CLI with rubric-based LLM-as-judge scoring (response quality + tool use quality). Runs against real APIs. One evalset + rubric config per agent: `evalsets/trend_scout_evalset.json` + `eval_config.json`; `evalsets/creative_agent_evalset.json` + `creative_eval_config.json`. The `creative_agent` eval must be run with `PYTHONPATH="$PWD"` (see command above).
 - Integration: `deployment/integration_test.py` — live GCP checks (health, session lifecycle, smoke tests). Requires deployed agents.
-- CI: `.github/workflows/frontend-tests.yml` — runs frontend tests on push/PR to `main` when `frontend/**` changes
+- CI (two workflows):
+  - `.github/workflows/python-ci.yml` — on push/PR to `main` touching `**.py`/`pyproject.toml`/`uv.lock`: `uv sync --locked`, `ruff check`, `ruff format --check`, `ty check`, `pytest tests/` (no GCP creds; dummy `GOOGLE_CLOUD_PROJECT`)
+  - `.github/workflows/frontend-tests.yml` — on push/PR when `frontend/**` changes: `npm run lint`, `tsc --noEmit`, `npm test`, `npm run build`
 
 ```bash
 # Integration tests (requires deployed agents + GCP credentials)

@@ -1,20 +1,19 @@
+import logging
+import re
 import uuid
 import warnings
-import pandas as pd
-import re
-import logging
-from typing import Optional, Dict, Any
+from typing import Any
 
-from google.genai import types
-from google.adk.sessions.state import State
+import pandas as pd
 from google.adk.agents.callback_context import CallbackContext
 from google.adk.models.llm_request import LlmRequest
+from google.adk.sessions.state import State
+from google.genai import types
 
 from agent_common import observability, sanitize
 from agent_common.rate_limit import build_rate_limit_callback
 
 from .config import config
-
 
 # --- config ---
 logging.basicConfig(
@@ -38,7 +37,7 @@ log_final_state_summary = observability.make_final_state_summary(
 )
 
 
-def _set_initial_states(source: Dict[str, Any], target: State | dict[str, Any]):
+def _set_initial_states(source: dict[str, Any], target: State | dict[str, Any]):
     """
     Setting the initial session state given a JSON object of states.
 
@@ -208,7 +207,7 @@ def collect_research_sources_callback(callback_context: CallbackContext) -> None
 
 def citation_replacement_callback(
     callback_context: CallbackContext,
-) -> Optional[types.Content]:
+) -> types.Content | None:
     """Replaces citation tags in a report with Markdown-formatted links.
 
     Processes 'combined_final_cited_report' from context state, converting tags like

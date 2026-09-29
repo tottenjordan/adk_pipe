@@ -13,11 +13,11 @@ api_server uses so save_artifact calls persist identically. Verifies:
 Run:  uv run python deployment/headless_run.py
 """
 
+import asyncio
+import json
+import logging
 import os
 import sys
-import json
-import asyncio
-import logging
 import warnings
 from collections import Counter
 
@@ -36,10 +36,10 @@ logging.basicConfig(
 )
 warnings.filterwarnings("ignore")
 
-from google.genai import types
+from google.adk.artifacts.file_artifact_service import FileArtifactService
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
-from google.adk.artifacts.file_artifact_service import FileArtifactService
+from google.genai import types
 
 from creative_agent.agent import root_agent
 

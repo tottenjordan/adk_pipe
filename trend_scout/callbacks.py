@@ -1,17 +1,16 @@
-import uuid
 import logging
+import uuid
 import warnings
-import pandas as pd
-from typing import Dict, Any
+from typing import Any
 
-from google.adk.sessions.state import State
+import pandas as pd
 from google.adk.agents.callback_context import CallbackContext
+from google.adk.sessions.state import State
 
 from agent_common import observability
 from agent_common.rate_limit import build_rate_limit_callback
 
 from .config import config
-
 
 # --- config ---
 logging.basicConfig(
@@ -28,7 +27,7 @@ log_final_state_summary = observability.make_final_state_summary(
 )
 
 
-def _set_initial_states(source: Dict[str, Any], target: State | dict[str, Any]):
+def _set_initial_states(source: dict[str, Any], target: State | dict[str, Any]):
     """
     Setting the initial session state given a JSON object of states.
 

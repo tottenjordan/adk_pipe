@@ -104,6 +104,7 @@ that prints the command instead of exec'ing.
 Keeps the session store opt-in (local `adk web` / CI unaffected) and out of the
 Dockerfile CMD literal. ADK_DRYRUN=1 makes the script print the argv it would exec.
 """
+
 import subprocess
 from pathlib import Path
 
@@ -117,6 +118,7 @@ def _run(env_extra):
     )
     return out.stdout.strip()
 
+
 def test_no_session_uri_omits_flag():
     cmd = _run({})
     assert "adk api_server agents" in cmd
@@ -124,11 +126,15 @@ def test_no_session_uri_omits_flag():
     assert "--port 8080" in cmd
     assert "--session_service_uri" not in cmd
 
+
 def test_empty_session_uri_omits_flag():
     assert "--session_service_uri" not in _run({"SESSION_SERVICE_URI": ""})
 
+
 def test_session_uri_present_appends_flag():
-    uri = "agentengine://projects/934903580331/locations/us-central1/reasoningEngines/123"
+    uri = (
+        "agentengine://projects/934903580331/locations/us-central1/reasoningEngines/123"
+    )
     cmd = _run({"SESSION_SERVICE_URI": uri})
     assert f"--session_service_uri {uri}" in cmd
 ```
@@ -243,12 +249,14 @@ Region is us-central1 (regional resource); models stay pinned to `global` elsewh
 Idempotency: re-running creates another engine — list first and reuse if one named
 `trend-trawler-sessions` already exists.
 """
+
 import vertexai
 from vertexai import agent_engines
 
 PROJECT = "hybrid-vertex"
 REGION = "us-central1"
 NAME = "trend-trawler-sessions"
+
 
 def main() -> None:
     vertexai.init(project=PROJECT, location=REGION)
@@ -258,6 +266,7 @@ def main() -> None:
             return
     created = agent_engines.create(display_name=NAME)
     print(f"CREATED {created.resource_name}")
+
 
 if __name__ == "__main__":
     main()

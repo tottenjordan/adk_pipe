@@ -116,15 +116,18 @@
 ```python
 from creative_agent.config import ResearchConfiguration
 
+
 def test_default_campaign_arm_uses_no_retiring_models():
     lite, worker, loc = ResearchConfiguration().campaign_models()
     assert not lite.startswith("gemini-2.5") and not worker.startswith("gemini-2.5")
     assert loc == "global"
 
+
 def test_campaign_default_bucket_differs_from_trend_bucket():
     cfg = ResearchConfiguration()
     _, worker, _ = cfg.campaign_models()
     assert worker not in {cfg.worker_model, cfg.lite_planner_model}
+
 
 def test_unknown_arm_falls_back_to_default(monkeypatch):
     monkeypatch.setenv("CAMPAIGN_RESEARCH_PLACEMENT", "bogus")
@@ -153,9 +156,11 @@ def test_unknown_arm_falls_back_to_default(monkeypatch):
 import types
 from deployment.deploy_agent import resolve_deploy_target
 
+
 def test_prefers_resumable_app_when_module_exports_one():
     mod = types.SimpleNamespace(root_agent="agent", app="app")
     assert resolve_deploy_target(mod) == ("app", "app")
+
 
 def test_falls_back_to_root_agent():
     mod = types.SimpleNamespace(root_agent="agent")

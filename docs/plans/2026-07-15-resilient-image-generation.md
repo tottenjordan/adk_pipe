@@ -46,6 +46,7 @@ This is a **model-side flake, runtime-independent** (not caused by the async-job
   import pytest
   from agent_common import RetryUntilKeyAgent
 
+
   @pytest.mark.parametrize(
       "value,expected",
       [
@@ -53,9 +54,9 @@ This is a **model-side flake, runtime-independent** (not caused by the async-job
           ("  x ", True),
           ("", False),
           ("   ", False),
-          (True, True),      # the image flag
+          (True, True),  # the image flag
           (False, False),
-          (["k.png"], True), # non-empty artifact-keys list
+          (["k.png"], True),  # non-empty artifact-keys list
           ([], False),
           (0, False),
           (None, False),
@@ -67,21 +68,30 @@ This is a **model-side flake, runtime-independent** (not caused by the async-job
 - Add an integration test with a producer that writes a **bool** flag (mirrors `generate_image`), reusing the existing `_run` harness and the `_FlakyProducer` pattern. Add a sibling double `_FlakyFlagProducer` (identical to `_FlakyProducer` but `value: bool = True` and it writes `{output_key: True}`), then:
   ```python
   def test_recovers_when_producer_writes_bool_flag():
-      producer = _FlakyFlagProducer(name="imggen", output_key="_images_generated", fail_first=1)
+      producer = _FlakyFlagProducer(
+          name="imggen", output_key="_images_generated", fail_first=1
+      )
       wrapper = RetryUntilKeyAgent(
-          name="imggen_resilient", sub_agents=[producer],
-          output_key="_images_generated", max_attempts=3,
+          name="imggen_resilient",
+          sub_agents=[producer],
+          output_key="_images_generated",
+          max_attempts=3,
       )
       session = _run(wrapper)
       assert producer.runs == 2
       assert session.state.get("_images_generated") is True
       assert session.state.get("_images_generated__retry_exhausted") is None
 
+
   def test_no_false_exhaustion_when_flag_set_first_try():
-      producer = _FlakyFlagProducer(name="imggen", output_key="_images_generated", fail_first=0)
+      producer = _FlakyFlagProducer(
+          name="imggen", output_key="_images_generated", fail_first=0
+      )
       wrapper = RetryUntilKeyAgent(
-          name="imggen_resilient", sub_agents=[producer],
-          output_key="_images_generated", max_attempts=3,
+          name="imggen_resilient",
+          sub_agents=[producer],
+          output_key="_images_generated",
+          max_attempts=3,
       )
       session = _run(wrapper)
       assert producer.runs == 1  # healthy path runs exactly once
@@ -120,9 +130,7 @@ def _is_populated(value: object) -> bool:
 
 **Step 2 — Implement.** In `collect_degradation_warnings`, replace the appended note with:
 ```python
-notes.append(
-    f"Step '{step}' exhausted retries and produced no output."
-)
+notes.append(f"Step '{step}' exhausted retries and produced no output.")
 ```
 (Drop the research-specific "downstream synthesis used partial data" tail so it reads sensibly for image gen; the research case still gets a clear, accurate note.)
 
@@ -193,7 +201,8 @@ def test_interactive_creative_uses_resilient_visual_generator():
     from agent_common import RetryUntilKeyAgent
 
     matching = [
-        t for t in ic.root_agent.tools
+        t
+        for t in ic.root_agent.tools
         if isinstance(t, AgentTool) and t.agent is visual_generator_resilient
     ]
     assert matching, "interactive_creative must invoke the resilient image wrapper"

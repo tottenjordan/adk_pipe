@@ -105,7 +105,11 @@ deploy failure). Supersedes Task A1's ad-hoc `extra_packages` edit.
 AGENT_EXTRA_PACKAGES = {
     "trend_trawler": ["./trend_trawler"],
     "creative_agent": ["./creative_agent", "./creative_eval"],
-    "interactive_creative": ["./interactive_creative", "./creative_agent", "./creative_eval"],
+    "interactive_creative": [
+        "./interactive_creative",
+        "./creative_agent",
+        "./creative_eval",
+    ],
 }
 ```
 - Both `deploy_trawler`/`deploy_creative_agent` read from the mapping (collapse the near-duplicate
@@ -179,6 +183,7 @@ modify `cloud_funktions/creative_crf/main.py`, `deployment/test_deployment.py`; 
 ```python
 from contextlib import asynccontextmanager
 
+
 @asynccontextmanager
 async def agent_session(remote_agent, user_id):
     """Create → yield → delete an Agent Engine session with ONE user_id (no drift)."""
@@ -186,7 +191,9 @@ async def agent_session(remote_agent, user_id):
     try:
         yield session
     finally:
-        await remote_agent.async_delete_session(user_id=user_id, session_id=session["id"])
+        await remote_agent.async_delete_session(
+            user_id=user_id, session_id=session["id"]
+        )
 ```
 - `main.py::create_agent_run`: replace the manual create + `my_delete_task` with
   `async with agent_session(remote_agent, user_id) as session: await async_send_message(...)`.

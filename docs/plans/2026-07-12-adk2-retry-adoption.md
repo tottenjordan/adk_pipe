@@ -108,10 +108,10 @@ from google.api_core import exceptions as api_exceptions
 INFRA_RETRY = RetryConfig(
     max_attempts=3,
     exceptions=[
-        api_exceptions.ServiceUnavailable,   # 503
+        api_exceptions.ServiceUnavailable,  # 503
         api_exceptions.InternalServerError,  # 500
-        api_exceptions.GatewayTimeout,       # 504
-        api_exceptions.TooManyRequests,      # 429
+        api_exceptions.GatewayTimeout,  # 504
+        api_exceptions.TooManyRequests,  # 429
         api_exceptions.DeadlineExceeded,
         ConnectionError,
         TimeoutError,
@@ -150,8 +150,8 @@ class TestCreativeAgentRetryConfig:
 
         assert INFRA_RETRY.max_attempts == 3
         names = set(INFRA_RETRY.exceptions)
-        assert "ServerError" in names           # genai 5xx
-        assert "ServiceUnavailable" in names     # api_core
+        assert "ServerError" in names  # genai 5xx
+        assert "ServiceUnavailable" in names  # api_core
         assert "TimeoutError" in names
 ```
 
@@ -175,11 +175,11 @@ from google.genai import errors as genai_errors
 INFRA_RETRY = RetryConfig(
     max_attempts=3,
     exceptions=[
-        genai_errors.ServerError,            # genai 5xx
-        api_exceptions.ServiceUnavailable,   # 503
+        genai_errors.ServerError,  # genai 5xx
+        api_exceptions.ServiceUnavailable,  # 503
         api_exceptions.InternalServerError,  # 500
-        api_exceptions.GatewayTimeout,       # 504
-        api_exceptions.TooManyRequests,      # 429
+        api_exceptions.GatewayTimeout,  # 504
+        api_exceptions.TooManyRequests,  # 429
         api_exceptions.DeadlineExceeded,
         ConnectionError,
         TimeoutError,

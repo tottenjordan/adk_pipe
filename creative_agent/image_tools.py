@@ -5,20 +5,21 @@ this module has no side effects.
 """
 
 import asyncio
-import random
-import logging
 import functools
+import logging
+import random
 import urllib.request
 from urllib.parse import urlparse
 
 from google import genai
-from google.genai import types
-from google.genai import errors as genai_errors
 from google.adk.tools import ToolContext
+from google.genai import errors as genai_errors
+from google.genai import types
 
 from agent_common.locations import MODEL_LOCATION
+
 from .config import config
-from .gcs_tools import _save_to_gcs, _download_blob, artifact_key_for
+from .gcs_tools import _download_blob, _save_to_gcs, artifact_key_for
 
 # Fetch timeout for an http(s) reference image (stdlib urllib, no new dep).
 _REFERENCE_FETCH_TIMEOUT_SECS = 20
@@ -189,6 +190,9 @@ def _role_prefixed_prompt(prompt_text: str, role: str) -> str:
 async def generate_image(
     tool_context: ToolContext,
 ):
+    # NOTE: this f-string is NOT a docstring (``generate_image.__doc__`` is None),
+    # so ADK exposes no description for this tool. Kept as-is to avoid changing the
+    # tool declaration the model sees; converting it is a separate behavior change.
     f"""Generates an image based on the prompt for {config.image_gen_model}
 
     Args:
@@ -196,7 +200,7 @@ async def generate_image(
 
     Returns:
         dict: Status and the artifact_key of the generated image.
-    """
+    """  # noqa: B021
     # Idempotency guard: skip if images were already generated
     if tool_context.state.get("_images_generated"):
         existing_keys = tool_context.state.get("_generated_artifact_keys", [])

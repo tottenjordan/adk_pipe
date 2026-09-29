@@ -19,16 +19,16 @@ from google import genai
 
 from agent_common.genai_retry import build_genai_http_retry
 
+from . import prompts
 from .config import EvalConfig
 from .schemas import (
     AdCopyEvaluation,
-    VisualConceptEvaluation,
     CreativeEvaluationReport,
     CreativeScore,
-    EvalVerdict,
     EvaluationSummary,
+    EvalVerdict,
+    VisualConceptEvaluation,
 )
-from . import prompts
 
 logger = logging.getLogger(__name__)
 
@@ -46,9 +46,7 @@ def _get_client(config: EvalConfig) -> genai.Client:
         vertexai=True,
         project=config.project_id,
         location=config.location,
-        http_options=genai.types.HttpOptions(
-            retry_options=build_genai_http_retry()
-        ),
+        http_options=genai.types.HttpOptions(retry_options=build_genai_http_retry()),
     )
 
 

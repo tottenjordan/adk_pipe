@@ -82,10 +82,12 @@ RUN_ERROR_KEY = "__run_error"
 
 ROOT_AGENTS = {}  # populated lazily to keep import creds-light where possible
 
+
 def get_root_agent(app_name: str):
     from creative_agent.agent import root_agent as creative
     from trend_scout.agent import root_agent as scout
     from interactive_creative.agent import root_agent as interactive
+
     agents = {
         "creative_agent": creative,
         "trend_scout": scout,
@@ -95,13 +97,23 @@ def get_root_agent(app_name: str):
         raise KeyError(app_name)
     return agents[app_name]
 
+
 def build_user_message(text: str) -> types.Content:
     return types.Content(role="user", parts=[types.Part(text=text)])
 
+
 def build_resume_message(function_call_id, name, response) -> types.Content:
-    return types.Content(role="user", parts=[types.Part(
-        function_response=types.FunctionResponse(id=function_call_id, name=name, response=response)
-    )])
+    return types.Content(
+        role="user",
+        parts=[
+            types.Part(
+                function_response=types.FunctionResponse(
+                    id=function_call_id, name=name, response=response
+                )
+            )
+        ],
+    )
+
 
 def build_terminal_event(status: str, error: str | None = None) -> Event:
     delta = {RUN_STATUS_KEY: status}
@@ -109,8 +121,9 @@ def build_terminal_event(status: str, error: str | None = None) -> Event:
         delta[RUN_ERROR_KEY] = error
     return Event(author=RUNSERVER_AUTHOR, actions=EventActions(state_delta=delta))
 
+
 def events_since(events, n: int):
-    return events[max(n, 0):] if n and n > 0 else list(events)
+    return events[max(n, 0) :] if n and n > 0 else list(events)
 ```
 Confirm the exact `Event`/`EventActions` import paths and the `state_delta` field name against the installed adk (`uv run python -c "from google.adk.events import Event, EventActions; import inspect; print(inspect.signature(EventActions))"`) before finalizing.
 
@@ -139,25 +152,54 @@ Design the runner wrapper to accept an injected `runner_factory(app_name) -> Run
 
 **Step 3 — implement:**
 ```python
-async def _drive_run(runner, session_service, app_name, user_id, session_id, new_message):
+async def _drive_run(
+    runner, session_service, app_name, user_id, session_id, new_message
+):
     try:
-        async for event in runner.run_async(user_id=user_id, session_id=session_id, new_message=new_message):
+        async for event in runner.run_async(
+            user_id=user_id, session_id=session_id, new_message=new_message
+        ):
             pass  # Runner already persists final events to session_service
-        session = await session_service.get_session(app_name=app_name, user_id=user_id, session_id=session_id)
+        session = await session_service.get_session(
+            app_name=app_name, user_id=user_id, session_id=session_id
+        )
         await session_service.append_event(session, build_terminal_event("done"))
     except Exception as exc:  # noqa: BLE001 — terminal marker is the contract; log+persist, never raise
         logging.exception("detached run failed app=%s session=%s", app_name, session_id)
-        session = await session_service.get_session(app_name=app_name, user_id=user_id, session_id=session_id)
-        await session_service.append_event(session, build_terminal_event("error", str(exc)))
+        session = await session_service.get_session(
+            app_name=app_name, user_id=user_id, session_id=session_id
+        )
+        await session_service.append_event(
+            session, build_terminal_event("error", str(exc))
+        )
 
-async def start_run(*, app_name, user_id, session_id, message, session_service, runner_factory):
+
+async def start_run(
+    *, app_name, user_id, session_id, message, session_service, runner_factory
+):
     # ensure session exists
-    existing = await session_service.get_session(app_name=app_name, user_id=user_id, session_id=session_id)
+    existing = await session_service.get_session(
+        app_name=app_name, user_id=user_id, session_id=session_id
+    )
     if existing is None:
-        await session_service.create_session(app_name=app_name, user_id=user_id, session_id=session_id, state={})
+        await session_service.create_session(
+            app_name=app_name, user_id=user_id, session_id=session_id, state={}
+        )
     runner = runner_factory(app_name)
-    task = asyncio.create_task(_drive_run(runner, session_service, app_name, user_id, session_id, build_user_message(message)))
-    _BACKGROUND_TASKS.add(task); task.add_done_callback(_BACKGROUND_TASKS.discard)  # keep a ref so GC can't cancel it
+    task = asyncio.create_task(
+        _drive_run(
+            runner,
+            session_service,
+            app_name,
+            user_id,
+            session_id,
+            build_user_message(message),
+        )
+    )
+    _BACKGROUND_TASKS.add(task)
+    task.add_done_callback(
+        _BACKGROUND_TASKS.discard
+    )  # keep a ref so GC can't cancel it
     return {"runId": session_id, "status": "running"}, task
 ```
 Keep a module-level `_BACKGROUND_TASKS: set` (prevents the task being GC'd — a real asyncio footgun). Verify `Runner.run_async` persists final events to `VertexAiSessionService` without an explicit append (it does for the canned server; confirm in Task 10 live smoke). The `append_event` signature must be confirmed against installed adk.
@@ -233,7 +275,9 @@ from runserver.async_runs import router
 app = get_fast_api_app(
     agents_dir="agents",
     session_service_uri=os.getenv("SESSION_SERVICE_URI") or None,
-    allow_origins=(os.getenv("ALLOW_ORIGINS") or "").split(",") if os.getenv("ALLOW_ORIGINS") else None,
+    allow_origins=(os.getenv("ALLOW_ORIGINS") or "").split(",")
+    if os.getenv("ALLOW_ORIGINS")
+    else None,
     web=False,
 )
 app.include_router(router)

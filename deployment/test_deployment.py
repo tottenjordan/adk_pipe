@@ -1,14 +1,15 @@
 """Test deployment of Trend Trawler Agents."""
 
+import argparse
+import asyncio
+import json
+import logging
 import os
 import sys
-import json
-import dotenv
-import asyncio
-import logging
 import warnings
-import argparse
 from contextlib import asynccontextmanager
+
+import dotenv
 
 # from absl import app, flags
 
@@ -20,7 +21,6 @@ if project_root not in sys.path:
 import vertexai
 
 from deployment.deploy_agent import AGENT_DEPLOY_SPECS, engine_env_key
-
 
 # ==============================
 # config

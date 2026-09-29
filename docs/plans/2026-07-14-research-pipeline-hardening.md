@@ -65,7 +65,9 @@ Expected: `3 passed`. If red, stop — the prototype must be green before wiring
 def test_research_producers_are_retry_wrapped():
     """The two unguarded research producers must be wrapped for retry-on-empty."""
     from creative_agent.retry_agent import RetryUntilKeyAgent
-    from creative_agent.sub_agents.campaign_researcher.agent import ca_sequential_planner
+    from creative_agent.sub_agents.campaign_researcher.agent import (
+        ca_sequential_planner,
+    )
     from creative_agent.sub_agents.trend_researcher.agent import gs_sequential_planner
 
     ca_last = ca_sequential_planner.sub_agents[-1]

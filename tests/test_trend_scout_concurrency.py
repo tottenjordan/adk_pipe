@@ -80,7 +80,10 @@ def test_write_to_file_isolates_concurrent_runs(monkeypatch, tmp_path):
     scratch_paths = [p for _, p in uploads]
     assert scratch_paths[0] != scratch_paths[1]  # per-run isolation
     object_names = [n for n, _ in uploads]
-    assert sorted(object_names) == ["run_a/selected_trends.txt", "run_b/selected_trends.txt"]
+    assert sorted(object_names) == [
+        "run_a/selected_trends.txt",
+        "run_b/selected_trends.txt",
+    ]
     assert not os.path.exists("trawler_output")  # no bare CWD artifact leak
 
 

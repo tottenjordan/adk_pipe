@@ -151,7 +151,7 @@ def poll_to_terminal(
 def _iso(epoch: float) -> str:
     """Epoch seconds -> RFC3339 UTC string gcloud logging filters accept."""
     return (
-        datetime.datetime.fromtimestamp(epoch, tz=datetime.timezone.utc)
+        datetime.datetime.fromtimestamp(epoch, tz=datetime.UTC)
         .isoformat()
         .replace("+00:00", "Z")
     )

@@ -4,7 +4,6 @@ import string
 
 import pytest
 
-
 # --- Artifact name sanitization ---
 REMOVE_PUNCTUATION = str.maketrans("", "", string.punctuation)
 
@@ -107,6 +106,7 @@ class TestReviewTrendsTool:
 
     def test_wrapped_in_long_running_function_tool(self):
         from google.adk.tools.long_running_tool import LongRunningFunctionTool
+
         from trend_scout.review_tools import review_trends_tool
 
         assert isinstance(review_trends_tool, LongRunningFunctionTool)

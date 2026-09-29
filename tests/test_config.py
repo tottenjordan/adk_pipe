@@ -116,17 +116,17 @@ class TestBaseAgentConfiguration:
             assert hasattr(base, name), f"BaseAgentConfiguration missing {name}"
 
     def test_both_agent_configs_subclass_the_base(self):
-        from agent_common.config import BaseAgentConfiguration
-        import trend_scout.config as tt
         import creative_agent.config as ca
+        import trend_scout.config as tt
+        from agent_common.config import BaseAgentConfiguration
 
         assert isinstance(tt.config, BaseAgentConfiguration)
         assert isinstance(ca.config, BaseAgentConfiguration)
 
     def test_agent_configs_share_model_names(self):
         """Dedup proof: both agents expose identical base model-name values."""
-        import trend_scout.config as tt
         import creative_agent.config as ca
+        import trend_scout.config as tt
 
         for name in (
             "critic_model",
@@ -229,8 +229,9 @@ class TestBuildInfraRetry:
         assert "ServerError" not in names
 
     def test_extra_exceptions_appended(self):
-        from agent_common.retry import build_infra_retry
         from google.genai import errors as genai_errors
+
+        from agent_common.retry import build_infra_retry
 
         rc = build_infra_retry(extra_exceptions=[genai_errors.ServerError])
         names = set(rc.exceptions)

@@ -41,14 +41,14 @@ class TestAgentsHaveRetryConfig:
         assert trend_scout.retry_config is INFRA_RETRY
 
     def test_creative_agent_agents_have_retry(self):
-        from creative_agent.agent import visual_generator, root_agent
+        from creative_agent.agent import root_agent, visual_generator
         from creative_agent.config import INFRA_RETRY
 
         assert visual_generator.retry_config is INFRA_RETRY
         assert root_agent.retry_config is INFRA_RETRY
 
     def test_interactive_creative_agent_has_retry(self):
-        from interactive_creative.agent import root_agent
         from creative_agent.config import INFRA_RETRY
+        from interactive_creative.agent import root_agent
 
         assert root_agent.retry_config is INFRA_RETRY

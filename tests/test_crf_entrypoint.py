@@ -153,7 +153,9 @@ def test_crf_entrypoint_reaps_before_requery(mocked_clients):
     re-query, so any reaped (re-queued) rows are picked up and re-dispatched in
     the same invocation."""
     bq, publisher = mocked_clients
-    bq.query.return_value.to_dataframe.return_value = pd.DataFrame()  # nothing to dispatch
+    bq.query.return_value.to_dataframe.return_value = (
+        pd.DataFrame()
+    )  # nothing to dispatch
     payload = {"bq_dataset": DS, "bq_table": TBL, "agent_resource_id": "123"}
     main.crf_entrypoint(_pubsub_event(payload))
     first_sql = bq.query.call_args_list[0].args[0]

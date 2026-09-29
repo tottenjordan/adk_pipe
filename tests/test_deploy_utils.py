@@ -2,14 +2,14 @@
 
 import importlib
 import os
+import re
 import subprocess
 import sys
-import re
 import types
 from unittest.mock import MagicMock
 
-import pytest
 import dotenv
+import pytest
 
 
 # --- update_env_file (the real function; _import_deploy_agent is defined below) ---

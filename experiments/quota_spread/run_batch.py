@@ -126,7 +126,9 @@ def _one_run(
         }
 
 
-def write_batch_records(records: list[dict], arm: str, concurrency: int, batch_id: str) -> Path:
+def write_batch_records(
+    records: list[dict], arm: str, concurrency: int, batch_id: str
+) -> Path:
     """Write one JSON per run under ``results/<arm>/N<k>/<batch_id>/``; return the dir."""
     out_dir = RESULTS_ROOT / arm / f"N{concurrency}" / batch_id
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -191,19 +193,38 @@ def run_batch(
     )
     if write:
         out_dir = write_batch_records(records, arm, concurrency, batch_id)
-        print(f"[batch {batch_id}] wrote {len(records)} record(s) to {out_dir}", flush=True)
+        print(
+            f"[batch {batch_id}] wrote {len(records)} record(s) to {out_dir}",
+            flush=True,
+        )
     return records
 
 
 def _parse_args(argv=None) -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--base-url", required=True, help="URL requests are sent to (tag URL).")
-    p.add_argument("--audience", default=None, help="Token audience = BASE service URL.")
-    p.add_argument("--arm", required=True, help="global_altbucket | global_3x (regional_25 retired 2026-09)")
-    p.add_argument("--concurrency", type=int, required=True, help="runs to fire at once (N)")
+    p.add_argument(
+        "--base-url", required=True, help="URL requests are sent to (tag URL)."
+    )
+    p.add_argument(
+        "--audience", default=None, help="Token audience = BASE service URL."
+    )
+    p.add_argument(
+        "--arm",
+        required=True,
+        help="global_altbucket | global_3x (regional_25 retired 2026-09)",
+    )
+    p.add_argument(
+        "--concurrency", type=int, required=True, help="runs to fire at once (N)"
+    )
     p.add_argument("--batch-id", required=True, help="unique id for this batch")
-    p.add_argument("--revision", default="", help="Cloud Run revision serving this arm.")
-    p.add_argument("--invoker-sa", default=INVOKER_SA, help="SA to impersonate (default $EXP_INVOKER_SA).")
+    p.add_argument(
+        "--revision", default="", help="Cloud Run revision serving this arm."
+    )
+    p.add_argument(
+        "--invoker-sa",
+        default=INVOKER_SA,
+        help="SA to impersonate (default $EXP_INVOKER_SA).",
+    )
     return p.parse_args(argv)
 
 
