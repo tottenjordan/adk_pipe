@@ -212,6 +212,7 @@ def test_lock_sql_stamps_started_at_and_increments_attempts():
     worker's row can be aged out) and bump an attempt counter (poison-pill
     guard) — while preserving the exactly-once QUEUED->PROCESSING semantics."""
     sql, _ = main._build_lock_sql("p", DS, TBL, "2026-07-18T00:00:00+00:00")
+    sql = " ".join(sql.split())  # whitespace-insensitive fragment checks
     assert "processing_started_at = CURRENT_TIMESTAMP()" in sql
     assert "processing_attempts = COALESCE(processing_attempts, 0) + 1" in sql
     assert "SET processed_status = 'PROCESSING'" in sql
@@ -222,6 +223,7 @@ def test_reap_sql_requeues_under_cap_and_fails_over_cap():
     """The reaper UPDATE must target only stale PROCESSING rows, re-queue those
     under the attempt cap and fail those at/over it."""
     sql, params = main._build_reap_sql("p", DS, TBL, stale_minutes=45, max_attempts=3)
+    sql = " ".join(sql.split())
     assert "processed_status = 'PROCESSING'" in sql  # only targets PROCESSING
     assert "TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL @stale_minutes MINUTE)" in sql
     assert "COALESCE(processing_attempts, 0) >= @max_attempts THEN 'FAILED'" in sql

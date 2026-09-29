@@ -8,6 +8,12 @@ import pytest
 
 from tests._fakes import FakeToolContext
 
+
+def _squash(sql: str) -> str:
+    """Collapse whitespace so SQL-fragment asserts ignore layout/indentation."""
+    return " ".join(sql.split())
+
+
 # --- Artifact name sanitization ---
 REMOVE_PUNCTUATION = str.maketrans("", "", string.punctuation)
 
@@ -197,7 +203,7 @@ class TestBuildTrendInsertSql:
     def test_is_insert_only_merge_keyed_on_uuid_and_trend(self):
         # at-least-once tool execution: a repeat write for the same session's
         # (uuid, trend) must be a no-op, so the statement is an INSERT-only MERGE.
-        sql, _ = self._sql()
+        sql = _squash(self._sql()[0])
         assert "MERGE" in sql
         assert "INSERT INTO" not in sql
         assert "ON T.uuid = S.uuid AND T.target_trend = S.target_trend" in sql
@@ -434,7 +440,7 @@ class TestBuildEvalMergeSql:
         return _build_eval_merge_sql(self.TABLE, row)
 
     def test_merge_keyed_on_uuid(self):
-        sql, _ = self._build(self._row())
+        sql = _squash(self._build(self._row())[0])
         assert "MERGE" in sql
         assert self.TABLE in sql
         assert "ON T.uuid = S.uuid" in sql
@@ -445,8 +451,9 @@ class TestBuildEvalMergeSql:
         sql, params = self._build(row)
         by_name = {p.name: p for p in params}
         assert set(by_name) == set(row)
+        flat = _squash(sql)
         for col, value in row.items():
-            assert f"@{col} AS {col}" in sql
+            assert f"@{col} AS {col}" in flat
             assert f"S.{col}" in sql
             if col == "datetime":
                 # DATETIME is bound as a datetime, not the row's string form

@@ -909,6 +909,26 @@ class _GatedRunner:
         yield ev
 
 
+def _spy_prior_segment_waits(monkeypatch, expected):
+    """Return an Event set once ``expected`` resumes have entered
+    ``_await_prior_segment``. The spy calls straight into the real wait with no
+    await in between, so when the test wakes on the Event every counted resume
+    is parked in the bounded wait on the prior segment (no sleep-ordering)."""
+    reached = asyncio.Event()
+    entered = 0
+    original = async_runs._await_prior_segment
+
+    async def _spy(key):
+        nonlocal entered
+        entered += 1
+        if entered == expected:
+            reached.set()
+        await original(key)
+
+    monkeypatch.setattr(async_runs, "_await_prior_segment", _spy)
+    return reached
+
+
 def _kick(svc, runner, *, session_id="s", app_name="creative_agent"):
     return start_run(
         app_name=app_name,
@@ -1105,7 +1125,7 @@ def test_duplicate_resume_same_call_is_rejected_immediately(monkeypatch):
     asyncio.run(_go())
 
 
-def test_concurrent_duplicate_resumes_waiting_on_prior_segment():
+def test_concurrent_duplicate_resumes_waiting_on_prior_segment(monkeypatch):
     """Two resumes for the same call both waiting on the finishing prior
     segment: the first to claim wins, the other is a served duplicate."""
 
@@ -1114,9 +1134,10 @@ def test_concurrent_duplicate_resumes_waiting_on_prior_segment():
         gate = asyncio.Event()
         runner = _GatedRunner(svc, "interactive_creative", gate)
         _r, t0 = await _kick(svc, runner, app_name="interactive_creative")
+        both_waiting = _spy_prior_segment_waits(monkeypatch, expected=2)
         r1 = asyncio.create_task(_resume(svc, runner))
         r2 = asyncio.create_task(_resume(svc, runner))
-        await asyncio.sleep(0.01)
+        await both_waiting.wait()
         gate.set()
         results = await asyncio.gather(r1, r2, return_exceptions=True)
         errors = [r for r in results if isinstance(r, BaseException)]
@@ -1136,7 +1157,7 @@ def test_resume_waits_for_prior_segment_still_finishing(monkeypatch):
     must wait for the prior segment to finish (not 409, and not let the stale
     'done' marker land AFTER the resume's 'running' reset)."""
     # Bounded so a regression (no wait → 409, or a hang) fails fast instead of
-    # stalling on the production 30s grace; still far above the 0.1s hold below.
+    # stalling on the production 30s grace.
     monkeypatch.setattr(async_runs, "RESUME_PRIOR_SEGMENT_GRACE_SECONDS", 5.0)
 
     async def _go():
@@ -1144,9 +1165,13 @@ def test_resume_waits_for_prior_segment_still_finishing(monkeypatch):
         gate = asyncio.Event()
         runner = _GatedRunner(svc, "interactive_creative", gate)
         _r, t1 = await _kick(svc, runner, app_name="interactive_creative")
+        waiting = _spy_prior_segment_waits(monkeypatch, expected=1)
         resume = asyncio.create_task(_resume(svc, runner))
-        await asyncio.sleep(0.1)
-        assert not resume.done()  # waiting on the prior segment, not rejected
+        await waiting.wait()
+        # Parked in the bounded wait on the (gated, so unfinishable) prior
+        # segment rather than rejected: a no-wait 409 would finish the task
+        # before it ever yields back here.
+        assert not resume.done()
         gate.set()
         result, t2 = await resume
         assert result["status"] == "running"
