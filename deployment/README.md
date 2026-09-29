@@ -36,7 +36,7 @@ Cloud Run Functions, which do **not** read `.env`). All vars are documented in
 | `CRF_EXTRA_ALLOWED_TABLES` | CRFs (extra allow-listed tables) | No | empty |
 | `REAP_STALE_PROCESSING_MINUTES` / `MAX_PROCESSING_ATTEMPTS` | CRF orchestrator (stale-PROCESSING reaper) | No | `45` / `3` |
 | `CRF_MAX_ROWS_PER_RUN` | CRF orchestrator (max rows one trigger dispatches, oldest first; a message's `max_rows` can only lower it) | No | `3` |
-| `<PREFIX>_AGENT_ENGINE_ID` | `test_deployment.py`, `integration_test.py` (written by `deploy_agent.py --create`) | Yes, per tested agent | none |
+| `<PREFIX>_AGENT_ENGINE_ID` (`SCOUT_`, `CREATIVE_`, `INTERACTIVE_`) | `test_deployment.py`, `integration_test.py` (written by `deploy_agent.py --create`) | Yes, per tested agent | none |
 
 `create_session_engine.py` also accepts `--project` / `--region` flags, which
 override the env vars. Agent Engine resource IDs are never constants: pass them via
@@ -78,7 +78,8 @@ python deployment/deploy_agent.py --resource_id=<RESOURCE_ID> --delete
 > graph — e.g. `creative_agent` → `creative_eval` + `agent_common`), so a
 > cross-package dependency can't be silently left out of a deploy.
 
-* Once agent is deployed to Agent Engine, the agent's resource ID will be added to your `.env` file. And this will be used later in the `test_deployment.py` script
+* Once agent is deployed to Agent Engine, the agent's resource ID will be added to your `.env` file (`SCOUT_AGENT_ENGINE_ID`, `CREATIVE_AGENT_ENGINE_ID` or `INTERACTIVE_AGENT_ENGINE_ID`). And this will be used later in the `test_deployment.py` script
+* The deploy/test scripts use the AgentPlatform SDK: `agentplatform.Client().runtimes` and `agentplatform.frameworks.AdkApp` (google-cloud-aiplatform 2.x, via the `[tool.uv]` override in `pyproject.toml`)
 
 ### Test deployment
 

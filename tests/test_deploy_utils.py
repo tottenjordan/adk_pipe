@@ -1,6 +1,7 @@
 """Tests for deployment utility functions (deploy_agent.py)."""
 
 import importlib
+import logging
 import os
 import re
 import subprocess
@@ -54,8 +55,8 @@ EXPECTED_ENV_VAR_KEYS = [
 class TestEnvVarDict:
     def test_all_expected_keys_present(self):
         """Verify the deploy script's ENV_VAR_DICT includes all required keys."""
-        # We can't import deploy_agent.py directly (module-level vertexai.Client),
-        # so we verify the expected keys against .env.example
+        # Verify the expected keys against .env.example (the source of the
+        # deploy env), independent of deploy_agent.py's agentplatform.Client.
         env_example_path = os.path.join(os.path.dirname(__file__), "..", ".env.example")
         if not os.path.exists(env_example_path):
             pytest.skip(".env.example not found")
@@ -91,7 +92,7 @@ class TestEnvVarDict:
 
 # --- Agent Engine location resolution ---
 # Replicate the deploy/test/integration client's location logic to avoid the
-# module-level vertexai.Client() import. Agent Engine is a *regional* resource,
+# agentplatform.Client() construction. Agent Engine is a *regional* resource,
 # so it must resolve to GCP_REGION (us-central1) — NOT GOOGLE_CLOUD_LOCATION,
 # which is `global` for the gemini-3.x models.
 def resolve_agent_engine_location() -> str:
@@ -122,7 +123,7 @@ class TestAgentEngineLocation:
 
 
 # --- Part B: centralized extra_packages mapping ---
-# deploy_agent.py is now importable without GCP creds (lazy vertexai.Client via
+# deploy_agent.py is now importable without GCP creds (lazy agentplatform.Client via
 # _get_client), so we assert on the REAL mapping/specs rather than a replica.
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 
@@ -133,7 +134,7 @@ def _import_deploy_agent():
         sys.path.insert(0, PROJECT_ROOT)
     try:
         import deployment.deploy_agent as deploy_agent
-    except ImportError as e:  # e.g. vertexai/absl missing in a bare env
+    except ImportError as e:  # e.g. agentplatform/absl missing in a bare env
         pytest.skip(f"deploy_agent import unavailable: {e}")
     return deploy_agent
 
@@ -542,3 +543,59 @@ class TestIntegrationEventAndSessionHelpers:
         it = _import_integration_test()
         events = [{"content": {"parts": [{"function_call": {"name": "memorize"}}]}}]
         assert not it._check_text_output("interactive_creative", events).passed
+
+
+# --- test_deployment: tool-call logging handles 2.x snake_case stream events ---
+def _import_test_deployment(monkeypatch):
+    """Import test_deployment.py in-process: it parses argv and builds an
+    agentplatform.Client at import time, so stub both."""
+    _import_deploy_agent()
+    import agentplatform
+
+    monkeypatch.setattr(agentplatform, "Client", MagicMock())
+    monkeypatch.setattr(
+        sys, "argv", ["test_deployment.py", "--user_id", "u", "--agent", "trend_scout"]
+    )
+    monkeypatch.delitem(sys.modules, "deployment.test_deployment", raising=False)
+    return importlib.import_module("deployment.test_deployment")
+
+
+class TestPrettyPrintEvent:
+    @pytest.mark.parametrize(
+        ("call_key", "resp_key"),
+        [("function_call", "function_response"), ("functionCall", "functionResponse")],
+    )
+    def test_logs_function_call_and_response_in_both_casings(
+        self, monkeypatch, caplog, call_key, resp_key
+    ):
+        td = _import_test_deployment(monkeypatch)
+        event = {
+            "author": "root_agent",
+            "content": {
+                "parts": [
+                    {call_key: {"name": "memorize", "args": {"key": "k"}}},
+                    {resp_key: {"name": "memorize", "response": {"ok": True}}},
+                ]
+            },
+        }
+        with caplog.at_level(logging.INFO):
+            td.pretty_print_event(event)
+        assert "[root_agent]: Function call: memorize" in caplog.text
+        assert "[root_agent]: Function response: memorize" in caplog.text
+
+    def test_snake_case_part_with_null_fields_logs_function_call(
+        self, monkeypatch, caplog
+    ):
+        """Defensive: a part with a null ``text`` alongside ``function_call`` still logs the call."""
+        td = _import_test_deployment(monkeypatch)
+        part = {"text": None, "function_call": {"name": "memorize", "args": {}}}
+        event = {"author": "a", "content": {"parts": [part]}}
+        with caplog.at_level(logging.INFO):
+            td.pretty_print_event(event)
+        assert "[a]: Function call: memorize" in caplog.text
+        assert "[a]: None" not in caplog.text
+
+    def test_null_content_and_parts_do_not_raise(self, monkeypatch):
+        td = _import_test_deployment(monkeypatch)
+        td.pretty_print_event({"author": "a", "content": None})
+        td.pretty_print_event({"author": "a", "content": {"parts": None}})

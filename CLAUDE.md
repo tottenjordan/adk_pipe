@@ -13,7 +13,7 @@ formatting (`ruff`), type checking (`ty`), testing (`pytest`), and commit conven
 
 Trend Trawler is a multi-agent system that automates trend-to-creative ad generation. It identifies culturally relevant Google Search trends, conducts web research, and generates candidate ad copy and visual concepts for a given brand/campaign. Built with Google's ADK (Agent Development Kit), deployed to Vertex AI Agent Engine, and orchestrated via Cloud Run Functions with PubSub triggers.
 
-**Naming:** Agent Engine = *Agent Runtime* (2026 rebrand, Gemini Enterprise Agent Platform). The code still uses the aiplatform 1.x `agent_engines` API; SDK migration is P1 in `docs/plans/2026-09-28-repo-refresh.md` (full note in README).
+**Naming:** Agent Engine = *Agent Runtime* (2026 rebrand, Gemini Enterprise Agent Platform). The code uses the AgentPlatform SDK (`agentplatform.Client().runtimes`); the root env gets it from google-cloud-aiplatform 2.x via a uv override (see `pyproject.toml` `[tool.uv]`). (Full note in README.)
 
 ## Commands
 
@@ -236,6 +236,7 @@ Image-generation prompt guidance lives in `creative_agent/prompts.py` as `IMAGE_
 
 - Python >=3.13
 - `google-adk[eval]>=2.10.0,<3.0.0`
+- google-cloud-aiplatform 2.x (via `[tool.uv] override-dependencies` — google-adk[eval] caps <2)
 - Node.js >=22.13 (for frontend)
 - GCP project with BigQuery, Cloud Storage, PubSub, and Agent Engine enabled
 - `.env` file populated from `.env.example`
