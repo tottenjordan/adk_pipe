@@ -9,8 +9,11 @@ updates:
     # Dependabot otherwise scans it as a pip manifest, where every exported
     # transitive pin counts as "direct", and opens requirements.txt-only PRs
     # that fail CI (e.g. #162). Exclude it; updates land via uv.lock.
+    # The Cloud Function's requirements.txt is owned by the pip entry below
+    # (with its own ignores); scanned here too, it yields unresolvable bumps.
     exclude-paths:
       - "requirements.txt"
+      - "cloud_functions/**"
     # pyproject [tool.uv] override-dependencies lifts google-adk[eval]'s
     # aiplatform <2 cap; a google-adk bump never removes it — drop it by hand
     # when ADK allows 2.x, and bump the override too on an aiplatform major.
