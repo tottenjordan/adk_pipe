@@ -80,6 +80,68 @@ EXPECTED_STATE_KEYS = {
 
 TEST_USER_ID = "integration_test_user"
 
+# interactive_creative's LongRunningFunctionTool checkpoints: a smoke run pauses at
+# the first one instead of emitting final text.
+INTERACTIVE_CHECKPOINT_TOOLS = frozenset(
+    {"review_research", "review_ad_copies", "review_visual_concepts"}
+)
+
+
+# ==============================
+# Response/event parsing helpers
+# ==============================
+def _get(obj, key: str):
+    return obj.get(key) if isinstance(obj, dict) else getattr(obj, key, None)
+
+
+def _session_ids(resp) -> list[str]:
+    """Session ids from list_sessions: a `{'sessions': [...]}` wrapper (2.x) or a list."""
+    if resp is None:
+        return []
+    if isinstance(resp, dict) or hasattr(resp, "sessions"):
+        resp = _get(resp, "sessions") or []
+    return [sid for s in resp if (sid := _get(s, "id")) is not None]
+
+
+def _event_parts(event) -> list:
+    if not isinstance(event, dict):
+        return []
+    return (event.get("content") or {}).get("parts") or []
+
+
+def _function_call_names(event) -> list[str]:
+    names = []
+    for part in _event_parts(event):
+        call = part.get("function_call") or part.get("functionCall")
+        if call:
+            names.append(call.get("name", "?"))
+    return names
+
+
+def _event_texts(event) -> list[str]:
+    return [t for part in _event_parts(event) if (t := part.get("text")) and t.strip()]
+
+
+def _check_text_output(agent_name: str, events: list) -> "TestResult":
+    name = f"smoke:{agent_name}:has_text_output"
+    texts = [t for e in events for t in _event_texts(e)]
+    if texts:
+        return TestResult(
+            name=name, passed=True, message=f"{len(texts)} text responses"
+        )
+    if agent_name == "interactive_creative":
+        paused = [
+            n
+            for e in events
+            for n in _function_call_names(e)
+            if n in INTERACTIVE_CHECKPOINT_TOOLS
+        ]
+        if paused:
+            return TestResult(
+                name=name, passed=True, message=f"Paused at checkpoint: {paused[0]}"
+            )
+    return TestResult(name=name, passed=False, message="No text output from agent")
+
 
 # ==============================
 # Result tracking
@@ -275,12 +337,9 @@ async def check_session(client, agent_name: str) -> list[TestResult]:
     # 2. List sessions — verify ours exists
     start = time.time()
     try:
-        sessions = await remote_agent.async_list_sessions(user_id=TEST_USER_ID)
-        # sessions may be a list of dicts or objects
-        session_ids = []
-        for s in sessions:
-            sid = s["id"] if isinstance(s, dict) else s.id
-            session_ids.append(sid)
+        session_ids = _session_ids(
+            await remote_agent.async_list_sessions(user_id=TEST_USER_ID)
+        )
 
         found = session_id in session_ids
         results.append(
@@ -330,11 +389,9 @@ async def check_session(client, agent_name: str) -> list[TestResult]:
     # 4. Verify session is gone
     start = time.time()
     try:
-        sessions_after = await remote_agent.async_list_sessions(user_id=TEST_USER_ID)
-        session_ids_after = []
-        for s in sessions_after:
-            sid = s["id"] if isinstance(s, dict) else s.id
-            session_ids_after.append(sid)
+        session_ids_after = _session_ids(
+            await remote_agent.async_list_sessions(user_id=TEST_USER_ID)
+        )
 
         gone = session_id not in session_ids_after
         results.append(
@@ -429,13 +486,8 @@ async def check_smoke(client, agent_name: str) -> list[TestResult]:
             author = (
                 event.get("author", "unknown") if isinstance(event, dict) else "unknown"
             )
-            if isinstance(event, dict) and "content" in event:
-                parts = event["content"].get("parts", [])
-                for part in parts:
-                    if "functionCall" in part:
-                        logging.info(
-                            f"  [{author}] tool: {part['functionCall'].get('name', '?')}"
-                        )
+            for tool_name in _function_call_names(event):
+                logging.info(f"  [{author}] tool: {tool_name}")
 
         results.append(
             TestResult(
@@ -503,23 +555,9 @@ async def check_smoke(client, agent_name: str) -> list[TestResult]:
             )
         )
 
-    # 4. Check that at least one text response was generated
-    text_events = []
-    for event in events:
-        if isinstance(event, dict) and "content" in event:
-            for part in event["content"].get("parts", []):
-                if "text" in part and part["text"].strip():
-                    text_events.append(part["text"][:80])
-
-    results.append(
-        TestResult(
-            name=f"smoke:{agent_name}:has_text_output",
-            passed=len(text_events) > 0,
-            message=f"{len(text_events)} text responses"
-            if text_events
-            else "No text output from agent",
-        )
-    )
+    # 4. Check that at least one text response was generated (or, for
+    # interactive_creative, that the run paused at a review checkpoint)
+    results.append(_check_text_output(agent_name, events))
 
     # 5. Cleanup — delete session
     try:
