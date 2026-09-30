@@ -1,1 +1,30 @@
-{}
+{
+  "creative_agent": {
+    "anr_skincare_creative": {
+      "inference_call_count_v1": 25.0,
+      "invocation_duration_v1": 609.116,
+      "token_usage_v1": 315591.0,
+      "tool_call_count_v1": 15.0
+    },
+    "prs_guitars_creative": {
+      "inference_call_count_v1": 27.0,
+      "invocation_duration_v1": 682.878,
+      "token_usage_v1": 381463.0,
+      "tool_call_count_v1": 15.0
+    }
+  },
+  "trend_scout": {
+    "anr_skincare_campaign": {
+      "inference_call_count_v1": 10.0,
+      "invocation_duration_v1": 118.581,
+      "token_usage_v1": 60774.0,
+      "tool_call_count_v1": 14.0
+    },
+    "prs_guitars_campaign": {
+      "inference_call_count_v1": 10.0,
+      "invocation_duration_v1": 128.155,
+      "token_usage_v1": 65655.0,
+      "tool_call_count_v1": 14.0
+    }
+  }
+}

@@ -2,7 +2,13 @@
 
 > **For Claude:** REQUIRED SUB-SKILL: Use `executing-plans` (or `subagent-driven-development`) to implement this plan task-by-task.
 
-**Status:** executing 2026-09-29 via `2026-09-29-p4b-execution.md` (Sections 1–4; Section 5 done via #187/#188/#192)
+**Status:** COMPLETE 2026-09-30 via `2026-09-29-p4b-execution.md`. S1 #194, S3 #195 (+#198 engine span-content off), S4 #196, S2 #197 (+#199 baseline seeded). Section 5 was done earlier via #187/#188/#192.
+- **Live:** api `00122-qik` (FallbackModel, `ADK_OTEL_TO_CLOUD=true`, Model Armor OFF); creative engine v7 `4743178263260561408` (`--enable_tracing`); eval CI armed (WIF `github-pool/adk-pipe` → `tt-eval-ci-sa`, dataset `trend_trawler_eval`, bucket `hybrid-vertex-trend-trawler-eval`).
+- **Model Armor:** checked on a tag only; the prompt-injection was blocked, and each screen adds about 0.2s.
+- **Open items:**
+  - A forced-429 failover check (a possible thought-signature 400 when a turn moves between models).
+  - The `google-adk[otel-gcp]` extra for GenAI SDK spans.
+  - Engine v7 still captures span content until its next redeploy.
 **Goal:** Carry out Phase 4 items P4.2–P4.6 of `docs/plans/2026-09-28-repo-refresh.md`. That means graceful degradation when the Pro quota is exhausted, a scheduled `adk eval` regression gate with efficiency metrics, Cloud Trace for Agent Engine and the Cloud Run api, an opt-in Model Armor safety demo, and refreshed diagrams after the P2 migration.
 **Architecture:** Each section below is independent and ships as its own PR, in priority order. Every enhancement is either default-safe or opt-in through an env flag, so nothing in prod changes until a flag is flipped or a deploy is made. Shared helpers go in `agent_common/`, which is bundled into every engine. Host wiring goes in `deployment/` and `runserver/`.
 **Tech Stack:** Python 3.13, uv, google-adk 2.10 (`FallbackModel`, `ModelArmorPlugin`, `get_fast_api_app(otel_to_cloud=)`, efficiency eval metrics), google-cloud-aiplatform 1.165.1 (`AdkApp`), GitHub Actions with Workload Identity Federation, Cloud Trace via the Telemetry (OTLP) API, Model Armor, and the PaperBanana MCP.
