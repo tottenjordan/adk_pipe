@@ -1019,7 +1019,9 @@ REPO=tottenjordan/adk_pipe
 SA=tt-eval-ci-sa@$PROJECT.iam.gserviceaccount.com
 EVAL_BUCKET=$PROJECT-trend-trawler-eval
 
-# 1. WIF pool + GitHub OIDC provider (only main of this repo can mint tokens)
+# 1. WIF pool + GitHub OIDC provider (only main of this repo can mint tokens).
+#    Live (hybrid-vertex): the provider `adk-pipe` sits in the pre-existing pool
+#    `github-pool`, so skip the pool create and substitute that pool name below.
 gcloud iam workload-identity-pools create github \
   --project=$PROJECT --location=global --display-name="GitHub Actions"
 gcloud iam workload-identity-pools providers create-oidc adk-pipe \
@@ -1041,7 +1043,8 @@ for ROLE in roles/aiplatform.user roles/bigquery.jobUser; do
 done
 
 # 4. Isolated eval dataset, with EMPTY tables cloned from the prod schemas
-bq mk --dataset --location=us-central1 $PROJECT:trend_trawler_eval
+# Same location as the prod dataset (hybrid-vertex: US multi-region).
+bq mk --dataset --location=US $PROJECT:trend_trawler_eval
 for T in target_trends_crf trend_creatives creative_evals; do
   bq show --schema --format=prettyjson $PROJECT:trend_trawler.$T > /tmp/$T.schema.json
   bq mk --table $PROJECT:trend_trawler_eval.$T /tmp/$T.schema.json

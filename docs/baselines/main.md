@@ -123,7 +123,21 @@ so directional only):
 Per-case efficiency baselines for the nightly `adk eval` CI gate live in
 [`eval_efficiency.json`](eval_efficiency.json) (`{agent: {eval_id: {metric: value}}}` over
 ADK's informational `token_usage_v1`, `inference_call_count_v1`, `tool_call_count_v1`,
-`invocation_duration_v1`). **Not yet seeded** (`{}`) — until it is, the gate only fails
-on non-PASSED cases. Seed/refresh with `tests/eval/efficiency_gate.py --update-baseline`
-in a reviewed PR; policy in
+`invocation_duration_v1`). Seeded 2026-09-30 from the first CI runs on main `a83ef85` (P4b:
+FallbackModel on the Pro producers, creative `App`, Model Armor off). All 4 cases PASSED
+their rubrics. The runs wrote to `trend_trawler_eval` and the eval bucket only (prod tables
+checked unchanged).
+
+| agent | case | tokens | LLM calls | tool calls | duration (s) |
+|---|---|---:|---:|---:|---:|
+| trend_scout | anr_skincare_campaign | 60,774 | 10 | 14 | 118.6 |
+| trend_scout | prs_guitars_campaign | 65,655 | 10 | 14 | 128.2 |
+| creative_agent | anr_skincare_creative | 315,591 | 25 | 15 | 609.1 |
+| creative_agent | prs_guitars_creative | 381,463 | 27 | 15 | 682.9 |
+
+Runs: trend_scout [36721615767](https://github.com/tottenjordan/adk_pipe/actions/runs/36721615767),
+creative_agent [36722206668](https://github.com/tottenjordan/adk_pipe/actions/runs/36722206668).
+The gate fails on tokens >25% or call counts >30% over these numbers, and on any
+non-PASSED case. Duration only warns, since it tracks quota contention more than code.
+Refresh with `tests/eval/efficiency_gate.py --update-baseline` in a reviewed PR. Policy is in
 [deployment/README.md → Eval CI (WIF)](../../deployment/README.md#eval-ci-wif).
