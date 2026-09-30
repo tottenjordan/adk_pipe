@@ -44,7 +44,7 @@ python deployment/deploy_agent.py --version=v1 --agent=trend_scout --create
 python deployment/deploy_agent.py --version=v1 --agent=creative_agent --create
 python deployment/deploy_agent.py --version=v1 --agent=interactive_creative --create
 # add --enable_tracing to opt a new engine into Cloud Trace
-# (GOOGLE_CLOUD_AGENT_ENGINE_ENABLE_TELEMETRY=true; no prompt/response content)
+# (GOOGLE_CLOUD_AGENT_ENGINE_ENABLE_TELEMETRY=true + ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS=false)
 
 # List/delete Agent Engine instances
 python deployment/deploy_agent.py --list

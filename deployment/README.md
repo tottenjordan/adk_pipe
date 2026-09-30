@@ -80,7 +80,9 @@ python deployment/deploy_agent.py --version=v1 --agent=creative_agent --create -
 > **Cloud Trace (opt-in).** `--enable_tracing` ships
 > `GOOGLE_CLOUD_AGENT_ENGINE_ENABLE_TELEMETRY=true` in the engine's env vars, which turns
 > on span export to Cloud Trace. `AdkApp(enable_tracing=...)` is deliberately left unset:
-> passing `True` would also force prompt/response content capture into the spans. The
+> passing `True` would also force prompt/response content capture into the spans. The flag
+> also ships `ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS=false`, because ADK's own spans otherwise
+> carry the full `gcp.vertex.agent.llm_request`/`llm_response`. The
 > Reasoning Engine service agent
 > (`service-$PROJECT_NUMBER@gcp-sa-aiplatform-re.iam.gserviceaccount.com`) needs
 > `roles/cloudtrace.agent`, and `cloudtrace.googleapis.com` must be enabled.
