@@ -59,11 +59,14 @@ def build_env_vars(enable_tracing: bool = False) -> dict[str, str | None]:
     With ``AdkApp(enable_tracing=None)`` (our construction), Agent Engine turns on
     Cloud Trace export when ``GOOGLE_CLOUD_AGENT_ENGINE_ENABLE_TELEMETRY=true``.
     We deliberately do NOT pass ``enable_tracing=True`` to AdkApp: that also forces
-    prompt/response content capture into the spans.
+    prompt/response content capture into the spans. ADK's own spans capture the
+    full LLM request/response by default too, so tracing also sets
+    ``ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS=false`` (as ``adk deploy`` does).
     """
     env = {**ENV_VAR_DICT}
     if enable_tracing:
         env["GOOGLE_CLOUD_AGENT_ENGINE_ENABLE_TELEMETRY"] = "true"
+        env["ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS"] = "false"
     return env
 
 

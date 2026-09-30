@@ -679,7 +679,15 @@ class TestTelemetryEnv:
 
     def test_tracing_off_by_default(self):
         da = _import_deploy_agent()
-        assert self.FLAG not in da.build_env_vars()
+        env = da.build_env_vars()
+        assert self.FLAG not in env
+        assert "ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS" not in env
+
+    def test_tracing_disables_span_content_capture(self):
+        # ADK spans default to carrying full prompts/responses (llm_request/_response).
+        da = _import_deploy_agent()
+        env = da.build_env_vars(enable_tracing=True)
+        assert env["ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS"] == "false"
 
     def test_tracing_enabled_sets_flag_without_reserved_vars(self):
         da = _import_deploy_agent()
