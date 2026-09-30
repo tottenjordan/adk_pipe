@@ -255,7 +255,7 @@ Image-generation prompt guidance lives in `creative_agent/prompts.py` as `IMAGE_
 ## Requirements
 
 - Python >=3.13
-- `google-adk[eval]>=2.10.0,<3.0.0`
+- `google-adk[eval,otel-gcp]>=2.10.0,<3.0.0` (`otel-gcp` adds the GenAI SDK instrumentor, so `generate_content` spans appear when tracing is on; content capture stays off by default)
 - google-cloud-aiplatform 2.x (via `[tool.uv] override-dependencies` — google-adk[eval] caps <2)
 - Node.js >=22.13 (for frontend)
 - GCP project with BigQuery, Cloud Storage, PubSub, and Agent Engine enabled

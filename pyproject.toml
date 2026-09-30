@@ -13,7 +13,7 @@ dependencies = [
     "google-genai>=2.25.0,<3.0.0",
     # [tool.uv] override-dependencies below takes precedence; bump both together.
     "google-cloud-aiplatform[agent-engines]>=2.2.0,<3.0.0",
-    "google-adk[eval]>=2.10.0,<3.0.0",
+    "google-adk[eval,otel-gcp]>=2.10.0,<3.0.0",
     "pandas>=3.0.6,<4.0.0",
     "google-cloud-bigquery>=3.45.2,<4.0.0",
     "db-dtypes>=1.7.1,<2.0.0",
