@@ -82,6 +82,8 @@ Each root agent calls its ADK 2 graph `Workflow`s as `NodeTool`s, its sub-agents
 |---|---|---|
 | <img src="docs/diagrams/trend_scout_architecture.png" alt="trend_scout agent architecture" width="280"> | <img src="docs/diagrams/creative_agent_architecture.png" alt="creative_agent agent architecture" width="280"> | <img src="docs/diagrams/interactive_creative_architecture.png" alt="interactive_creative agent architecture" width="280"> |
 
+For the step-by-step run order of each agent (including `creative_eval` and the interactive review checkpoints), see the [workflow diagrams](docs/diagrams/README.md#agent-workflow-diagrams).
+
 **Helpful references**
 * [Overview of prompting strategies](https://cloud.google.com/vertex-ai/generative-ai/docs/learn/prompts/prompt-design-strategies#best-practices)
 * [ADK documentation](https://google.github.io/adk-docs/get-started/)
