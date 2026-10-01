@@ -15,6 +15,20 @@ the `interactive_creative` diagram was added 2026-09-29.
 | ![interactive_creative](interactive_creative_architecture.png) | `interactive_creative/` | Resumable root (`App` + `ResumabilityConfig`) reusing `creative_agent`'s research / ad-copy / visual graph-`Workflow` `NodeTool`s, with three `LongRunningFunctionTool` checkpoints (`review_research` → `review_ad_copies` → `review_visual_concepts`, human approve/feedback/edits → resume) → `visual_concept_reviser` `AgentTool` (applies `visual_revision_notes`, skipped when none) → `visual_generator_resilient` (`RetryUntilKeyNode`, max 6) → `creative_eval_agent`; same GCS + BigQuery sinks |
 | ![creative_eval](creative_eval_architecture.png) | `creative_eval/` | LLM-as-judge: `evaluate_all_creatives` → `ThreadPoolExecutor` concurrent fan-out to N Gemini judges → 6 ad-copy + 6 visual dims → `EvaluationSummary` → `CreativeEvaluationReport` → GCS JSON + BigQuery `creative_evals` (join on `creative_uuid`) |
 
+## Agent Workflow Diagrams
+
+Companion diagrams to the architecture set above, also generated with PaperBanana
+(2026-10-01). Where the architecture diagrams show *how an agent is composed*, these
+show *the order a run executes in*: phases, branches, human-review pauses, retries,
+and where results are persisted.
+
+| Diagram | Agent | Run order |
+|---|---|---|
+| ![trend_scout workflow](trend_scout_workflow.png) | `trend_scout/` | Input → gather top 25 trends → branch on `interactive_trend_pick` (pause at `review_trends` for a human pick, or autonomous pick of the 3 most relevant) → research via `understand_trends_agent_resilient` → persist (`record_research_gaps`, BigQuery `target_trends_crf`, `selected_trends.txt`, session state to GCS) |
+| ![creative_agent workflow](creative_agent_workflow.png) | `creative_agent/` | Parallel trend + campaign research joined at `research_join` → `refinement_gate` (refine only when degraded) → report + research PDF → ad copy drafter → critic → art director → concept drafter/critic/finalizer → retry-wrapped image rendering → `creative_eval_agent` → GCS + BigQuery persistence |
+| ![interactive_creative workflow](interactive_creative_workflow.png) | `interactive_creative/` | The `creative_agent` pipeline with three `LongRunningFunctionTool` pauses (research, ad copies, editable visual concepts), `visual_concept_reviser` applying checkpoint-3 notes before rendering, then eval + persistence |
+| ![creative_eval workflow](creative_eval_workflow.png) | `creative_eval/` | `creative_eval_agent` → `evaluate_all_creatives` reads session state → independent Gemini judge per creative (max 2 concurrent, 6 dimensions each; visuals judged on concept text + image prompt) → score = mean/10, pass at 0.7 → `CreativeEvaluationReport` back to the root, which saves it to GCS + BigQuery `creative_evals` |
+
 ## Infrastructure Diagrams
 
 Event-driven orchestration diagrams for the Cloud Run functions + Eventarc
