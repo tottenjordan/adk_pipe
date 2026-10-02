@@ -11,11 +11,13 @@ import random
 import urllib.request
 from urllib.parse import urlparse
 
+import httpx
 from google import genai
 from google.adk.tools import ToolContext
 from google.genai import errors as genai_errors
 from google.genai import types
 
+from agent_common import genai_retry
 from agent_common.locations import MODEL_LOCATION
 
 from .config import config
@@ -89,11 +91,16 @@ def _get_genai_client() -> genai.Client:
     The image-gen model (gemini-3.1-flash-image) is a gemini-3.x model served only
     from ``global`` — hence MODEL_LOCATION, not config.LOCATION (which is the
     injected regional value inside a deployed Agent Engine).
+
+    Carries the shared per-request timeout (MILLISECONDS) so a hung render can't
+    stall the run; the resulting ``httpx`` timeout is retried by
+    ``_generate_image_with_backoff`` (this client has no genai retry_options).
     """
     return genai.Client(
         vertexai=True,
         project=config.PROJECT_ID,
         location=MODEL_LOCATION,
+        http_options=types.HttpOptions(timeout=genai_retry.model_request_timeout_ms()),
     )
 
 
@@ -109,7 +116,9 @@ _IMAGE_GEN_MAX_DELAY_SECS = 90.0
 
 
 def _is_retryable_genai_error(exc: Exception) -> bool:
-    """True for transient/quota-paced genai errors: 5xx (ServerError) and 429."""
+    """True for transient/quota-paced genai errors: 5xx, 429, client timeouts."""
+    if isinstance(exc, httpx.TimeoutException):  # per-request timeout hit
+        return True
     if isinstance(exc, genai_errors.ServerError):  # 5xx incl. 503 UNAVAILABLE
         return True
     if isinstance(exc, genai_errors.ClientError) and getattr(exc, "code", None) == 429:

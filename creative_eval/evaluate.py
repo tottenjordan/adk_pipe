@@ -17,6 +17,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from google import genai
 
+from agent_common import genai_retry
 from agent_common.genai_retry import build_genai_http_retry
 
 from . import prompts
@@ -41,12 +42,18 @@ def _get_client(config: EvalConfig) -> genai.Client:
     (via evaluate_ad_copy/evaluate_visual_concept's except) degrade that creative
     to a zero score — sinking the report for a transient error. Retrying at the
     HTTP layer lets those calls self-heal instead. See agent_common.genai_retry.
+
+    The shared per-request timeout (MILLISECONDS) bounds a hung judge call; this
+    sync client uses httpx, whose ``ReadTimeout`` genai's retry_options retries.
     """
     return genai.Client(
         vertexai=True,
         project=config.project_id,
         location=config.location,
-        http_options=genai.types.HttpOptions(retry_options=build_genai_http_retry()),
+        http_options=genai.types.HttpOptions(
+            retry_options=build_genai_http_retry(),
+            timeout=genai_retry.model_request_timeout_ms(),
+        ),
     )
 
 

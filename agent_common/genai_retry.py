@@ -14,11 +14,60 @@ permanent 4xx (``400``/``403``/``404``) fail fast. Wired via
 for every agent model call, and via a direct ``HttpOptions`` on the standalone
 ``creative_eval`` judge client.
 
+It also owns the per-request model timeout (``MODEL_REQUEST_TIMEOUT_SECONDS``),
+the single source of truth applied to every agent model call (via
+:class:`agent_common.models.TimeoutRetryingGemini`), the ``creative_eval`` judge
+client and the image-gen client. genai's ``HttpOptions.timeout`` is in
+MILLISECONDS — use :func:`model_request_timeout_ms`.
+
 Deliberately free of any ``google.adk`` import so the ADK-free ``creative_eval``
 pipeline can share it (mirrors :mod:`agent_common.locations`).
 """
 
+import os
+
 from google.genai import types
+
+# Per-request model timeout. Incident 2026-10-02: one google_search-grounded
+# research call never returned and stalled a detached run until RUN_MAX_SECONDS.
+# 240s comfortably covers a healthy Pro thinking turn; 0 (or negative) disables.
+DEFAULT_MODEL_REQUEST_TIMEOUT_SECONDS = 240
+MIN_MODEL_REQUEST_TIMEOUT_SECONDS = 30
+MAX_MODEL_REQUEST_TIMEOUT_SECONDS = 900
+
+
+def resolve_model_request_timeout(raw: str | None) -> int | None:
+    """Parse ``MODEL_REQUEST_TIMEOUT_SECONDS``: default 240, clamp 30..900, <=0 off.
+
+    Blank / unparseable values fall back to the default rather than disabling the
+    timeout (a typo must not silently re-open the hang).
+    """
+    if raw is None or not raw.strip():
+        return DEFAULT_MODEL_REQUEST_TIMEOUT_SECONDS
+    try:
+        value = int(float(raw))
+    except ValueError:
+        return DEFAULT_MODEL_REQUEST_TIMEOUT_SECONDS
+    if value <= 0:
+        return None
+    return max(
+        MIN_MODEL_REQUEST_TIMEOUT_SECONDS, min(MAX_MODEL_REQUEST_TIMEOUT_SECONDS, value)
+    )
+
+
+# Read at import: for Agent Engine the deployer's env is baked into the pickled
+# models; on Cloud Run it is read at service start.
+MODEL_REQUEST_TIMEOUT_SECONDS = resolve_model_request_timeout(
+    os.environ.get("MODEL_REQUEST_TIMEOUT_SECONDS")
+)
+
+
+def model_request_timeout_ms() -> int | None:
+    """The per-request timeout in MILLISECONDS (genai ``HttpOptions.timeout``)."""
+    if MODEL_REQUEST_TIMEOUT_SECONDS is None:
+        return None
+    return MODEL_REQUEST_TIMEOUT_SECONDS * 1000
+
 
 # Transient HTTP statuses worth retrying. 429 is the load-bearing one: the
 # gemini base models are capped at a few RPM project-wide/shared, so concurrent
