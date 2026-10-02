@@ -314,14 +314,14 @@ Each dimension is scored 1–10. Scores are normalized to 0.0–1.0 with a **0.7
 **1. the `creative_agent` conducts web research to inform the creative process. a PDF of this web research is saved for humans:**
 
 <p align="center" width="100%">
-    <img src="imgs/tt_prs_research_overview_p050_15fps.gif">
+    <img src="docs/examples/tt_prs_research_overview_p050_15fps.gif">
 </p>
 
 
 **2. the agents final step produces an HTML display of all generated ad creatives:**
 
 <p align="center" width="100%">
-    <img src="imgs/tt_prs_html_overview_p050_15fps.gif">
+    <img src="docs/examples/tt_prs_html_overview_p050_15fps.gif">
 </p>
 
 <details>
@@ -336,7 +336,7 @@ Each dimension is scored 1–10. Scores are normalized to 0.0–1.0 with a **0.7
 
 #### each creative has a headline (title) and a caption
 
-![trend trawler creative outputs](imgs/gallery_sample_prs.png)
+![trend trawler creative outputs](docs/examples/gallery_sample_prs.png)
 
 #### hovering over a creative will display:
 
@@ -344,7 +344,7 @@ Each dimension is scored 1–10. Scores are normalized to 0.0–1.0 with a **0.7
 * how it markets the target product
 * why the target audience will find it appealing
 
-![trend trawler creative outputs](imgs/its_complicated.png)
+![trend trawler creative outputs](docs/examples/its_complicated.png)
 
 
 *remember: these are ad candidates to start the ideation process. the prompts are saved so you can easily tweak the creative*
