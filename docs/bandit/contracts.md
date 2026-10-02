@@ -168,3 +168,36 @@ type ExperimentMetrics = { experimentId: string; episodes: number; horizon: numb
   - Store updates only rewrite the columns that changed, so the api never overwrites the `progress` written by the traffic job.
 - **Default horizons** (frontend): `clear_winner` 20k, `segment_winners` and `drift` 40k in demo mode; ×10 (max 400k) in realistic mode.
 - **Local development:** `BANDIT_DEPLOY_MODE=fake` (in-memory store, fake deployer, fake jobs; `BANDIT_FAKE_DEPLOY_SECONDS`, default 2).
+
+## 7. PR 1 + PR 2 decisions (2026-10-02)
+
+**PR 1 (`bandit/` core):**
+- **Features:** `d = 19` (bias plus one-hot groups with the first level of each dropped as the reference). A context must carry **exactly** the 10 §4 keys: missing, unknown or sensitive keys and unknown levels raise `ValueError`. An integer `freq_24h` is accepted (`>= 2` maps to `"2+"`).
+- **Posterior parameterization:** precision form, `Λ_k = I/τ² + Σ x xᵀ / σ²` and `b_k = Σ r x / σ²`. The mean is `μ_k = Λ_k⁻¹ b_k`, and draws use covariance `s² Λ_k⁻¹` (`s = exploration_scale`).
+- **Discount:** `γ` is applied once per `update` call (per batch, not per round): `Λ ← γΛ + (1−γ)I/τ²`, `b ← γb`. Pull counts `n` and `step` are never discounted.
+- **Propensity floor:** `min_propensity` only affects the **logged** propensities (water-filled to the floor and renormalized over eligible arms). `select` never applies it.
+- **Noise variance calibration:** the `LinTSParams.noise_var = 0.25` default over-explores at ad CTRs (about 6× the Bernoulli variance at 4%). The calibrated `σ²` is `p(1−p)` for `click` and `2p − p²` for `engaged`, where `p` is the scenario's `target_ctr[ctr_mode]` (for example `clear_winner` demo 0.0467, `segment_winners` demo 0.04 / realistic 0.008). It is rounded to 6 decimal places. The source of truth is `bandit.config.default_noise_var` / `scenario_noise_var`.
+  - The api (`runserver/experiments.py`) always writes `policy.noise_var` explicitly. It duplicates the formula and the scenario CTR table, and a test checks parity with `bandit`.
+  - `BanditPredictor` fills in the same value when `experiment.json` has no `policy.noise_var` or it is null.
+- **Engaged reward scale:** in `engaged` mode, rewards are divided by the scenario's `dwell_base_s` (30 s) before every policy update, both in the simulator (`TrueModel.reward_scale`) and in the predictor (`bandit.config.reward_scale`). Clients send **unscaled** rewards (click × dwell seconds).
+- **`ArmSpec.overall` fallback:** use `scores["overall"]` if present. Otherwise use the mean of `ad_copy_overall` / `visual_overall` (api arms, §6). Otherwise use the mean of all scores, and 0.5 if there are none.
+- **Policy spec strings:** `name` or `name:key=value[,key=value]`, for example `linear_ts:discount=0.98` or `ucb1:c=0.01`. The spec string becomes the policy label in the output. The CLI aliases are `lints`, `egreedy` and `bbts`.
+- **Extra episode-row keys:** beyond the §3 columns, simulator rows also carry `realized_regret`, `optimal_avg_reward`, `suboptimal_pulls` {creative_id: n} and `regret_by_arm` {creative_id: f}.
+
+**PR 2 (`bandit_serving/`, CPR):**
+- **Response shape:** CPR's `PredictionHandler` serializes whatever `postprocess` returns, so `postprocess` returns the whole `{"predictions": [...]}`.
+- **Request validation:**
+  - A malformed envelope is a 400: the body is not an object, `instances` is not a list, `parameters` is not an object, or there are more than **1000 instances**.
+  - Anything else wrong with a single instance becomes a per-instance `error`. That includes a non-object instance, an unknown `type`, a bad context, unknown or empty `eligible_arms`, an unknown reward `arm`, a non-finite `reward`, `clicked ∉ {0,1}`, a negative or non-integer reset `episode`, and a `request_id` that is missing or longer than 256 characters.
+- **Order:** instances are processed in order. Each maximal run of consecutive `decision` (or `reward`) instances is batched, so a `state` or `decision` that follows a reward in the same request sees the update.
+- **Rewards:**
+  - A reward is accepted only for a pending decision whose chosen arm equals `arm`. Otherwise the ack has `accepted:false` plus a `reason`: `duplicate`, `unknown request_id`, or `arm does not match the decision`.
+  - The pending map (200k) and the seen-id set (400k) are bounded and evict oldest first. Neither is checkpointed, so rewards for decisions made before a restart are rejected.
+  - A request whose rewards are all rejected does not bump the version.
+- **`model_version`** is `{experiment_id}-e{episode}-v{n}`, where `n` is the number of reward batches applied this episode. A decision reports the version it was sampled from. `step` is the number of rewarded rounds the posterior has seen.
+- **Reset:** fresh prior, PRNG `key(seed)` (per-call `fold_in`), empty pending/seen maps, then an immediate checkpoint.
+- **Request `parameters`:** clamped to the §2 bounds and quantized (`exploration_scale` to 0.1, `propensity_samples` to 100) so the jit cache stays bounded.
+- **Checkpoints:** `{AIP_STORAGE_URI}/checkpoints/{model_version}.npz` (`precision`, `b`, `n`, `step`) plus `checkpoints/latest.json` (`experiment_id`, `model_version`, `npz`, `episode`, `seed`, `n_updates`, `calls`, `feature_spec_version`, `saved_at`).
+  - A checkpoint is written every `BANDIT_CHECKPOINT_EVERY` (50) reward batches or `BANDIT_CHECKPOINT_SECONDS` (120 s), checked on update, and on every reset.
+  - Writes go through a background thread. A failure is logged and never blocks serving.
+  - On load, a `latest.json` for a different `experiment_id` (or with mismatched shapes) is ignored.
