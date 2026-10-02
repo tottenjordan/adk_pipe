@@ -35,9 +35,9 @@ export function BarChart({
 }) {
   const uid = useId();
   const [hover, setHover] = useState<string | null>(null);
-  const W = 640;
-  const ROW = 30;
-  const M = { top: 8, right: 96, bottom: 40, left: 220 };
+  const W = 480;
+  const ROW = 28;
+  const M = { top: 8, right: 84, bottom: 40, left: 184 };
   const H = M.top + bars.length * ROW + M.bottom;
   const plotW = W - M.left - M.right;
   const max = Math.max(0, ...bars.map((b) => b.mean + Math.max(0, b.err)));
@@ -99,7 +99,7 @@ export function BarChart({
                 y={cy}
                 dy="0.32em"
                 textAnchor="end"
-                className="fill-foreground text-[12px]"
+                className="fill-foreground text-[11px]"
               >
                 {b.label}
               </text>

@@ -52,10 +52,11 @@ export interface LineChartProps {
   className?: string;
 }
 
-const W = 640;
-const H = 300;
-const M = { top: 16, right: 16, bottom: 44, left: 56 };
-const LABEL_GUTTER = 104;
+// Sized so a half-width panel renders near 1:1 (text stays ~11px).
+const W = 480;
+const H = 280;
+const M = { top: 14, right: 12, bottom: 42, left: 50 };
+const LABEL_GUTTER = 92;
 
 /**
  * Multi-series SVG line chart: optional log x, CI bands (low-opacity fills),

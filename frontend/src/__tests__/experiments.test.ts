@@ -317,7 +317,7 @@ describe("series shaping", () => {
   it("builds arm share series in arm order with stable colours", () => {
     const s = armShareSeries(METRICS, ARMS);
     expect(s.map((x) => x.id)).toEqual(["aaaa1111xx", "bbbb2222xx"]);
-    expect(s[0].label).toBe("Golf cart");
+    expect(s[0].label).toBe("The Golden Golf Cart Gig");
     expect(s[0].color).toBe(armColor(ARMS, "aaaa1111xx"));
     expect(s[1].color).toBe(armColor(ARMS, "bbbb2222xx"));
   });
@@ -325,7 +325,7 @@ describe("series shaping", () => {
     expect(segmentRows(METRICS, ARMS)).toEqual([
       {
         segment: "mobile_young",
-        optimalArm: "Jackpot",
+        optimalArm: "The Jackpot Reveal",
         linearTs: 0.8,
         bestBaseline: { policy: "uniform", label: "Uniform random", pctOptimal: 0.5 },
       },
@@ -334,7 +334,7 @@ describe("series shaping", () => {
   it("orders total bars and arm stats", () => {
     expect(totalBars(METRICS).map((b) => b.id)).toEqual(["linear_ts", "uniform", "oracle"]);
     const rows = armStatRows(METRICS, ARMS);
-    expect(rows.map((r) => r.name)).toEqual(["Golf cart", "Jackpot"]);
+    expect(rows.map((r) => r.name)).toEqual(["The Golden Golf Cart Gig", "The Jackpot Reveal"]);
     expect(rows[0].impressions).toBe(900);
   });
   it("detects whether there is anything to chart", () => {

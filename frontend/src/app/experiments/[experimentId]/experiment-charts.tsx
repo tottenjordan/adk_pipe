@@ -7,6 +7,7 @@ import { formatCompact, formatInt, formatPercent } from "@/lib/chart";
 import {
   armShareSeries,
   armStatRows,
+  policyShortLabel,
   curveSeries,
   segmentRows,
   shortId,
@@ -125,6 +126,7 @@ export function ExperimentCharts({
             logX
             yDomain={[0, 1]}
             formatY={pct}
+            directLabels={false}
           />
         ) : (
           <p className="text-sm text-muted-foreground">No arm share recorded yet.</p>
@@ -190,9 +192,9 @@ export function ExperimentCharts({
       >
         <BarChart
           title="Expected total reward per episode by policy, mean plus or minus one standard deviation"
-          bars={totals.map((b) => ({ id: b.id, label: b.label, color: b.color, mean: b.mean, err: b.std }))}
+          bars={totals.map((b) => ({ id: b.id, label: policyShortLabel(b.id), color: b.color, mean: b.mean, err: b.std }))}
           xLabel={clickReward ? "Total clicks per episode" : "Total engaged seconds per episode"}
-          format={(v) => formatCompact(v)}
+          format={formatInt}
         />
       </ChartPanel>
 

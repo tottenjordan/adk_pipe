@@ -113,8 +113,10 @@ export default function ExperimentsPage() {
                       {scenarioLabel(row.scenario)}
                     </Link>
                     <span className="truncate text-foreground/80" title={names.join(", ")}>
-                      <span className="tabular-nums">{row.arms.length}</span>
-                      <span className="text-muted-foreground">: {names.join(", ")}</span>
+                      <span className="tabular-nums">
+                        {row.arms.length} {row.arms.length === 1 ? "creative" : "creatives"}:
+                      </span>{" "}
+                      <span className="text-muted-foreground">{names.join(", ")}</span>
                     </span>
                     <ExperimentStatusLabel status={row.status} />
                     <span className="text-xs whitespace-nowrap text-muted-foreground tabular-nums">

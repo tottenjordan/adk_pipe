@@ -261,9 +261,9 @@ export default function ExperimentPage({
                     className="mt-1.5 size-2 shrink-0 rounded-full"
                     style={{ backgroundColor: armColor(arms, arm.creativeId) }}
                   />
-                  <span className="line-clamp-2">{armName(arm)}</span>
+                  <span className="line-clamp-2">{arm.label || armName(arm)}</span>
                 </p>
-                <p className="mt-0.5 truncate text-xs text-muted-foreground">{arm.conceptName}</p>
+                <p className="mt-0.5 truncate text-xs text-muted-foreground">{armName(arm)}</p>
                 <div className="mt-auto flex items-center justify-between pt-2 text-xs text-muted-foreground tabular-nums">
                   <span>
                     {arm.overallScore === null ? "Not scored" : `Score ${Math.round(arm.overallScore * 100)}%`}

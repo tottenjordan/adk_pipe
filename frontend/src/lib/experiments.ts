@@ -388,9 +388,9 @@ export function armImageUrl(arm: Pick<Arm, "imageUri">): string | null {
   return parsed ? gcsProxyUrl(parsed.bucket, parsed.path) : null;
 }
 
-/** "Golden Golf Cart Gig" style name for an arm (label falls back to the concept). */
+/** Short name for an arm in charts and tables: the concept name (headlines run long). */
 export function armName(arm: Pick<Arm, "label" | "conceptName" | "creativeId">): string {
-  return arm.label || arm.conceptName || shortId(arm.creativeId);
+  return arm.conceptName || arm.label || shortId(arm.creativeId);
 }
 
 // ── Deploy panel ─────────────────────────────────────────────────────────────
