@@ -25,6 +25,7 @@ import {
   type VisualConcept,
 } from "@/lib/eval-matching";
 import { campaignSummary } from "@/lib/results-copy";
+import { imagesNotRendered, sessionStoppedEarly } from "@/lib/run-completion";
 import { ResearchReport } from "@/components/research-report";
 import type { ReportSources } from "@/lib/research-report";
 import { ArtifactsPanel, QuietDisclosure, type ArtifactData } from "./artifacts-panel";
@@ -110,7 +111,10 @@ export default function ResultsPage({
         setArtifacts(loaded);
         setLoading(false);
 
-        // Fetch eval report (retries on 404 for the last-written-artifact race).
+        // A run that stopped early never writes its eval report, so don't poll
+        // for it (that would show "still being written" for a report that won't
+        // come). Otherwise fetch it, retrying on 404 for the last-written race.
+        if (sessionStoppedEarly(appName, sess.state ?? {}, sess.events ?? [])) return;
         await loadEval(sess);
       } catch (err) {
         setError(
@@ -131,6 +135,10 @@ export default function ResultsPage({
     return buildProofs(vcRaw?.visual_concepts || [], acRaw?.ad_copies || [], evalReport);
   }, [state, evalReport]);
   const sortedProofs = useMemo(() => sortProofs(proofs, sort), [proofs, sort]);
+  const stopped = useMemo(
+    () => (session ? sessionStoppedEarly(appName, state, session.events ?? []) : null),
+    [appName, state, session]
+  );
 
   if (loading) {
     return (
@@ -187,7 +195,11 @@ export default function ResultsPage({
 
   const outputUrl = (filename: string): string | null =>
     hasOutputDir ? gcsProxyUrl(bucketName, `${folder}/${subdir}/${filename}`) : null;
-  const imageUrlFor = (conceptName: string) => outputUrl(conceptNameToFilename(conceptName));
+  // No rendered images → no URLs (they'd only 404); tiles show "Image not rendered".
+  const imagesMissing = imagesNotRendered(state);
+  const imageUrlFor = (conceptName: string) =>
+    imagesMissing ? null : outputUrl(conceptNameToFilename(conceptName));
+  const runUrl = `/run/${sessionId}?${new URLSearchParams({ app: appName, userId }).toString()}`;
 
   const campaignFields = buildDisplayFields(state, CAMPAIGN_FIELD_DEFS);
   // Optional user visual art-direction inputs (PR #114) — hidden when unset
@@ -221,6 +233,8 @@ export default function ResultsPage({
         refreshDisabled={!session}
         noImages={noImages}
         degradationWarnings={degradationWarnings}
+        stoppedBefore={stopped?.stage ?? null}
+        runUrl={runUrl}
       />
 
       {hasCreativeView && (

@@ -42,6 +42,8 @@ export function ResultsSummary({
   refreshDisabled,
   noImages,
   degradationWarnings,
+  stoppedBefore = null,
+  runUrl,
 }: {
   report: EvalReport | null;
   status: EvalStatus;
@@ -49,6 +51,10 @@ export function ResultsSummary({
   refreshDisabled: boolean;
   noImages: boolean;
   degradationWarnings: string[];
+  /** Label of the stage the run stopped before, when it stopped early. */
+  stoppedBefore?: string | null;
+  /** The run page, where a stopped run can be continued. */
+  runUrl?: string;
 }) {
   const threshold = passThreshold(report);
   const weakest = report?.summary.weakest_dimensions ?? [];
@@ -56,8 +62,32 @@ export function ResultsSummary({
 
   return (
     <>
+      {/* Stopped early: the run ended before its last stage. Takes precedence
+          over the zero-image banner (continuing the run is the fix for both). */}
+      {stoppedBefore && (
+        <Notice
+          title={`This run stopped before ${stoppedBefore}, so some outputs are missing.`}
+          action={
+            runUrl ? (
+              <Link
+                href={runUrl}
+                className={buttonVariants({
+                  variant: "outline",
+                  size: "sm",
+                  className: "shrink-0",
+                })}
+              >
+                Open run
+              </Link>
+            ) : undefined
+          }
+        >
+          Open the run to continue it from where it left off.
+        </Notice>
+      )}
+
       {/* Zero-image warning: the image producer exhausted all retries (issue #116). */}
-      {noImages && (
+      {noImages && !stoppedBefore && (
         <Notice
           title="No images were generated for this run"
           action={
