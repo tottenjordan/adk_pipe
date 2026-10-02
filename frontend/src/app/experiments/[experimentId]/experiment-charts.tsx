@@ -70,16 +70,25 @@ export function ExperimentCharts({
 
   return (
     <div className="grid gap-4 lg:grid-cols-2">
+      <p className="text-sm text-muted-foreground lg:col-span-2">
+        In the first three charts each line is a <span className="text-foreground">strategy</span> for
+        choosing which creative to show: <span className="text-foreground">Linear TS</span> is your live
+        endpoint, the others are baselines replayed on the same simulated readers, and the oracle always
+        knows the best creative. The traffic chart and the table below show the{" "}
+        <span className="text-foreground">creatives</span> themselves, matched to the coloured dots on the
+        creative cards.
+      </p>
       <ChartPanel
         title="Cumulative average reward against the optimum"
         note={`Mean of ${ep}. The dashed line is the oracle, which always shows the best creative for the reader.`}
       >
         <LineChart
-          title="Cumulative average reward by policy, with the oracle as reference"
+          title="Cumulative average reward by strategy, with the oracle as reference"
           series={avg}
           xLabel={roundLabel}
           yLabel={rewardAxis}
           logX
+          minX={100}
           yZero={false}
           formatY={formatReward}
         />
@@ -90,24 +99,26 @@ export function ExperimentCharts({
         note="Reward lost against the oracle; flatter is better. Bands are 95% intervals across episodes."
       >
         <LineChart
-          title="Cumulative pseudo-regret by policy, with 95% confidence bands"
+          title="Cumulative pseudo-regret by strategy, with 95% confidence bands"
           series={regret}
           xLabel={roundLabel}
           yLabel={clickReward ? "Clicks lost" : "Seconds lost"}
           logX
+          minX={100}
         />
       </ChartPanel>
 
       <ChartPanel
         title="Share of rounds on the best creative"
-        note="How often each policy showed the reader's optimal creative. Bands are 95% intervals."
+        note="How often each strategy showed the reader's optimal creative. Bands are 95% intervals."
       >
         <LineChart
-          title="Percent of rounds choosing the optimal creative, by policy"
+          title="Percent of rounds choosing the optimal creative, by strategy"
           series={optimal}
           xLabel={roundLabel}
           yLabel="Optimal choices"
           logX
+          minX={100}
           yDomain={[0, 1]}
           formatY={pct}
         />
@@ -115,7 +126,7 @@ export function ExperimentCharts({
 
       <ChartPanel
         title="Where the endpoint sends traffic"
-        note="Share of each checkpoint window's impressions per creative, for linear Thompson sampling."
+        note="Each line is one creative: its share of the live endpoint's impressions over time."
       >
         {share.length ? (
           <LineChart
@@ -124,6 +135,7 @@ export function ExperimentCharts({
             xLabel={roundLabel}
             yLabel="Share of impressions"
             logX
+            minX={100}
             yDomain={[0, 1]}
             formatY={pct}
             directLabels={false}
@@ -135,7 +147,7 @@ export function ExperimentCharts({
 
       <ChartPanel
         title="Winners by reader segment"
-        note="Each segment's optimal creative, and how often each policy found it."
+        note="Each segment's optimal creative, and how often each strategy found it."
       >
         {segments.length ? (
           <div className="overflow-x-auto">
@@ -191,7 +203,7 @@ export function ExperimentCharts({
         }.`}
       >
         <BarChart
-          title="Expected total reward per episode by policy, mean plus or minus one standard deviation"
+          title="Expected total reward per episode by strategy, mean plus or minus one standard deviation"
           bars={totals.map((b) => ({ id: b.id, label: policyShortLabel(b.id), color: b.color, mean: b.mean, err: b.std }))}
           xLabel={clickReward ? "Total clicks per episode" : "Total engaged seconds per episode"}
           format={formatInt}

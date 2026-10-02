@@ -70,13 +70,33 @@ def mean_ci(values: Sequence[float]) -> tuple[float, float, float]:
     return mean, mean - half, mean + half
 
 
-def _band(series: Sequence[Sequence[float]]) -> dict[str, list[float]]:
+# Mirrors runserver/experiments_metrics.CURVE_BOUNDS: CIs on bounded curves are
+# clamped to their natural range.
+CURVE_BOUNDS: dict[str, tuple[float | None, float | None]] = {
+    "cum_avg_reward": (0.0, None),
+    "cum_regret": (0.0, None),
+    "pct_optimal": (0.0, 1.0),
+}
+
+
+def _clamp(v: float, lo: float | None, hi: float | None) -> float:
+    if lo is not None and v < lo:
+        return lo
+    if hi is not None and v > hi:
+        return hi
+    return v
+
+
+def _band(
+    series: Sequence[Sequence[float]],
+    bounds: tuple[float | None, float | None] = (None, None),
+) -> dict[str, list[float]]:
     out: dict[str, list[float]] = {"mean": [], "lo": [], "hi": []}
     for col in zip(*series, strict=True):
         m, lo, hi = mean_ci(col)
         out["mean"].append(_r(m))
-        out["lo"].append(_r(lo))
-        out["hi"].append(_r(hi))
+        out["lo"].append(_r(_clamp(lo, *bounds)))
+        out["hi"].append(_r(_clamp(hi, *bounds)))
     return out
 
 
@@ -138,7 +158,7 @@ def aggregate_episode_metrics(
     episodes = max(len({r["episode"] for r in rs}) for rs in by_policy.values())
 
     curves = {
-        p: {k: _band([r["curve"][k] for r in rs]) for k in _CURVE_KEYS}
+        p: {k: _band([r["curve"][k] for r in rs], CURVE_BOUNDS[k]) for k in _CURVE_KEYS}
         for p, rs in by_policy.items()
     }
     totals = {}
