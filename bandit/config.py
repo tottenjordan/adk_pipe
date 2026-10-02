@@ -139,7 +139,7 @@ def _strict_kwargs(cls: Any, data: Mapping[str, Any], what: str) -> dict[str, An
     return dict(data)
 
 
-def _arm_from_dict(d: Mapping[str, Any]) -> ArmSpec:
+def arm_from_dict(d: Mapping[str, Any]) -> ArmSpec:
     kw = _strict_kwargs(ArmSpec, d, "arm")
     kw["scores"] = {str(k): float(v) for k, v in dict(kw.get("scores", {})).items()}
     return ArmSpec(**kw)
@@ -156,7 +156,7 @@ def load_experiment_config(src: str | Path | Mapping[str, Any]) -> ExperimentCon
         raise ValueError("experiment config must be a mapping")
     kw = _strict_kwargs(ExperimentConfig, data, "experiment config")
     try:
-        kw["arms"] = tuple(_arm_from_dict(a) for a in kw.get("arms", ()))
+        kw["arms"] = tuple(arm_from_dict(a) for a in kw.get("arms", ()))
         kw["policy"] = LinTSParams(
             **_strict_kwargs(LinTSParams, kw.get("policy") or {}, "policy")
         )
@@ -368,3 +368,55 @@ def with_segment_mix(sc: ScenarioConfig, weights: list[float]) -> ScenarioConfig
         for s, w in zip(sc.segments, weights, strict=True)
     )
     return dataclasses.replace(sc, segments=segs)
+
+
+def build_sim_config(
+    scenario: str,
+    *,
+    ctr_mode: str = "demo",
+    reward_mode: str = "click",
+    arms: tuple[ArmSpec, ...] | None = None,
+    num_arms: int | None = None,
+    horizon: int | None = None,
+    batch_size: int | None = None,
+    episodes: int | None = None,
+    seed: int = 0,
+    policy: LinTSParams | None = None,
+    experiment_id: str = "sim",
+) -> ExperimentConfig:
+    """An ``ExperimentConfig`` for offline simulation, defaulting the arms to
+    ``default_arms(scenario.default_num_arms)`` and horizon/batch/episodes to the
+    scenario preset for ``ctr_mode``. The default policy uses
+    ``default_noise_var`` for the scenario's target CTR."""
+    sc = load_scenario(scenario)
+    cfg = ExperimentConfig(
+        experiment_id=experiment_id,
+        arms=arms
+        if arms is not None
+        else default_arms(num_arms or sc.default_num_arms),
+        scenario=scenario,
+        ctr_mode=ctr_mode,
+        reward_mode=reward_mode,
+        horizon=horizon if horizon is not None else sc.horizon.get(ctr_mode, 20000),
+        batch_size=batch_size if batch_size is not None else sc.batch_size,
+        episodes=episodes if episodes is not None else sc.episodes,
+        seed=seed,
+        policy=policy
+        if policy is not None
+        else LinTSParams(
+            noise_var=default_noise_var(sc.target_ctr[ctr_mode], reward_mode)
+        ),
+    )
+    return validate_experiment_config(cfg)
+
+
+def default_noise_var(ctr: float, reward_mode: str) -> float:
+    """Reward variance the linear-Gaussian model should assume at mean CTR ``ctr``.
+
+    click: Bernoulli variance p(1-p). engaged (rewards scaled by the base dwell,
+    so dwell ~ Exponential(≈1)): E[r²] - E[r]² = 2p - p². ``LinTSParams``'s 0.25
+    default is ~6x the Bernoulli variance at a 4% CTR and over-explores.
+    """
+    if reward_mode == "engaged":
+        return round(2 * ctr - ctr * ctr, 6)
+    return round(ctr * (1 - ctr), 6)

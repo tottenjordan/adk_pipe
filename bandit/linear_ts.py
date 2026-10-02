@@ -66,13 +66,17 @@ def posterior_mean(state: LinTSState) -> Array:
 
 
 def _score_moments(state: LinTSState, X: Array) -> tuple[Array, Array]:
-    """Posterior mean and variance of xᵀθ_k for each row/arm: two (n, K) arrays."""
+    """Posterior mean and variance of xᵀθ_k for each row/arm: two (n, K) arrays.
+
+    Uses the explicit posterior covariance Λ_k⁻¹ = cho_solve(L_k, I) (d×d per
+    arm): far cheaper on CPU than a triangular solve against all n rows.
+    """
     chol = _chol(state.precision)
+    eye = jnp.eye(state.b.shape[1], dtype=state.b.dtype)
     mu = jax.vmap(lambda c, b: cho_solve((c, True), b))(chol, state.b)
+    cov = jax.vmap(lambda c: cho_solve((c, True), eye))(chol)  # (K, d, d)
     means = X @ mu.T
-    # xᵀ Λ_k⁻¹ x for all rows at once: solve Λ_k V = Xᵀ, then column-wise dot.
-    sol = jax.vmap(lambda c: cho_solve((c, True), X.T))(chol)  # (K, d, n)
-    var = jnp.einsum("nd,kdn->nk", X, sol)
+    var = jnp.einsum("nd,kde,ne->nk", X, cov, X)
     return means, jnp.maximum(var, 0.0)
 
 
@@ -148,6 +152,26 @@ def _apply_floor(freq: Array, floor: float, eligible: Array) -> Array:
     return p / jnp.sum(p)
 
 
+def propensities_batch(
+    key: Array,
+    state: LinTSState,
+    X: Array,
+    params: LinTSParams,
+    eligible: Array | None = None,
+) -> Array:
+    """``propensities`` for every row of ``X`` (n, d) at once: shape (n, K)."""
+    means, var = _score_moments(state, X)
+    n, k = means.shape
+    m = params.propensity_samples
+    z = jax.random.normal(key, (n, m, k), means.dtype)
+    sd = params.exploration_scale * jnp.sqrt(var)
+    scores = _mask(means[:, None, :] + sd[:, None, :] * z, eligible)
+    wins = jnp.argmax(scores, axis=-1)  # (n, m)
+    freq = jax.nn.one_hot(wins, k, dtype=jnp.float32).mean(axis=1)  # (n, k)
+    elig = jnp.ones((k,), bool) if eligible is None else eligible
+    return jax.vmap(lambda f: _apply_floor(f, params.min_propensity, elig))(freq)
+
+
 def propensities(
     key: Array,
     state: LinTSState,
@@ -158,15 +182,7 @@ def propensities(
     """P(select = k | x), shape (K,), by Monte Carlo over ``propensity_samples``
     posterior draws (win frequencies), then floor-clipped to ``min_propensity``
     on eligible arms and renormalised (sums to 1; ineligible arms are 0)."""
-    means, var = _score_moments(state, x[None, :])
-    m = params.propensity_samples
-    z = jax.random.normal(key, (m, means.shape[1]), means.dtype)
-    scores = _mask(means + params.exploration_scale * jnp.sqrt(var) * z, eligible)
-    wins = jnp.argmax(scores, axis=-1)
-    k = means.shape[1]
-    freq = jnp.zeros((k,), jnp.float32).at[wins].add(1.0) / m
-    elig = jnp.ones((k,), bool) if eligible is None else eligible
-    return _apply_floor(freq, params.min_propensity, elig)
+    return propensities_batch(key, state, x[None, :], params, eligible)[0]
 
 
 def update(
