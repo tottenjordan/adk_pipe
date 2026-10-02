@@ -39,6 +39,124 @@ RUN_MAX_SECONDS = int(os.environ.get("RUN_MAX_SECONDS", "1800"))
 # retried a little against a transient session service, then dropped (never raised).
 _MARKER_APPEND_ATTEMPTS = 2
 
+# --- Auto-continue after an empty root turn ------------------------------------
+#
+# A gemini Pro root agent occasionally returns an EMPTY final turn (finish_reason
+# STOP, no text, no function call) right after a long NodeTool response. ADK
+# treats that as the end of the invocation, so the segment would end ``done``
+# with the workflow unfinished (e.g. interactive_creative never calling its next
+# checkpoint). A plain re-prompt recovers it, so ``_drive_run`` re-prompts with
+# ``AUTO_CONTINUE_MESSAGE`` — bounded by ``MAX_AUTO_CONTINUES`` per detached
+# run — when ``should_auto_continue`` says the segment ended on that signature.
+AUTO_CONTINUE_MESSAGE = (
+    "Continue the WORKFLOW from where it stopped. Do not repeat completed steps; "
+    "call the next step now."
+)
+AUTO_CONTINUES_KEY = "__auto_continues"
+_DEFAULT_MAX_AUTO_CONTINUES = 1
+_MAX_AUTO_CONTINUES_CEILING = 3
+
+# Per-app state key whose (non-empty) presence means the workflow has finished.
+_COMPLETION_KEYS = {
+    "creative_agent": "eval_report_gcs_uri",
+    "interactive_creative": "eval_report_gcs_uri",
+    "trend_scout": "select_trends_markdown_gcs_uri",
+}
+
+
+def _parse_max_auto_continues(raw: str | None) -> int:
+    """``RUN_MAX_AUTO_CONTINUES`` → int clamped to 0..3; unset/invalid → 1."""
+    try:
+        value = int(raw) if raw is not None and raw.strip() else None
+    except ValueError:
+        value = None
+    if value is None:
+        return _DEFAULT_MAX_AUTO_CONTINUES
+    return max(0, min(_MAX_AUTO_CONTINUES_CEILING, value))
+
+
+MAX_AUTO_CONTINUES = _parse_max_auto_continues(os.environ.get("RUN_MAX_AUTO_CONTINUES"))
+
+
+def _field(obj, snake: str, camel: str | None = None):
+    """Read a field from an ADK/genai model OR its serialized (camelCase) dict."""
+    if isinstance(obj, dict):
+        if snake in obj:
+            return obj[snake]
+        return obj.get(camel) if camel else None
+    return getattr(obj, snake, None)
+
+
+def _event_parts(event) -> list:
+    content = _field(event, "content")
+    return list(_field(content, "parts") or []) if content is not None else []
+
+
+def _part_has_text(part) -> bool:
+    text = _field(part, "text")
+    return bool(text and text.strip()) and not _field(part, "thought")
+
+
+def _has_unanswered_long_running_call(events) -> bool:
+    """True if a long-running function call in ``events`` (its id listed in that
+    event's ``long_running_tool_ids``) has no matching function_response in
+    ``events`` — i.e. the segment legitimately paused at a checkpoint."""
+    pending: set[str] = set()
+    answered: set[str] = set()
+    for ev in events:
+        lr_ids = set(_field(ev, "long_running_tool_ids", "longRunningToolIds") or ())
+        for part in _event_parts(ev):
+            call = _field(part, "function_call", "functionCall")
+            if call is not None and _field(call, "id") in lr_ids:
+                pending.add(_field(call, "id"))
+            resp = _field(part, "function_response", "functionResponse")
+            if resp is not None and _field(resp, "id"):
+                answered.add(_field(resp, "id"))
+    return bool(pending - answered)
+
+
+def _is_empty_turn(event) -> bool:
+    """The empty-turn signature: no (non-thought) text, no function call, and no
+    function response (a tool-output event is not a model turn)."""
+    for part in _event_parts(event):
+        if _part_has_text(part):
+            return False
+        if _field(part, "function_call", "functionCall") is not None:
+            return False
+        if _field(part, "function_response", "functionResponse") is not None:
+            return False
+    return True
+
+
+def should_auto_continue(
+    app_name: str, state: dict, segment_events: list, root_author: str, attempts: int
+) -> bool:
+    """Whether a segment that completed without error should be re-prompted.
+
+    True only when ALL hold: ``attempts < MAX_AUTO_CONTINUES``; the app's
+    completion key (``_COMPLETION_KEYS``) is missing/blank in ``state`` (unknown
+    app → False); the segment did not pause at an unanswered long-running call;
+    and the segment's last ``root_author`` event is an empty turn. Accepts ADK
+    ``Event`` objects or their serialized dicts."""
+    if attempts >= MAX_AUTO_CONTINUES or not root_author:
+        return False
+    completion_key = _COMPLETION_KEYS.get(app_name)
+    if completion_key is None:
+        return False
+    done_value = (state or {}).get(completion_key)
+    if done_value and (not isinstance(done_value, str) or done_value.strip()):
+        return False
+    if _has_unanswered_long_running_call(segment_events):
+        return False
+    root_events = [ev for ev in segment_events if _field(ev, "author") == root_author]
+    return bool(root_events) and _is_empty_turn(root_events[-1])
+
+
+def _root_author(runner) -> str:
+    """The root agent's name (= its events' ``author``); '' if undeterminable."""
+    name = getattr(getattr(runner, "agent", None), "name", None)
+    return name if isinstance(name, str) else ""
+
 
 async def _get_session_or_none(
     session_service, app_name, user_id, session_id
@@ -375,6 +493,69 @@ async def _append_terminal_safe(
     )
 
 
+async def _maybe_record_auto_continue(
+    session_service,
+    app_name,
+    user_id,
+    session_id,
+    segment_events,
+    root_author,
+    attempts,
+    invocation_id,
+) -> bool:
+    """Decide whether to auto-continue after a cleanly-completed segment; if so,
+    log it and record the cumulative ``__auto_continues`` count in session state.
+
+    Never raises: a failed session read means "don't continue" (the segment
+    finishes ``done`` as before); a failed record write is logged and the
+    continue still happens (the count is observability, not control)."""
+    # Cheap pre-check without state: state can only turn a True into False.
+    if not should_auto_continue(app_name, {}, segment_events, root_author, attempts):
+        return False
+    try:
+        session = await _get_session_or_none(
+            session_service, app_name, user_id, session_id
+        )
+    except Exception:  # noqa: BLE001 — can't read state → don't continue
+        logging.exception(
+            "auto-continue check failed to read session app=%s session=%s",
+            app_name,
+            session_id,
+        )
+        return False
+    if session is None:
+        return False
+    state = dict(session.state)
+    if not should_auto_continue(app_name, state, segment_events, root_author, attempts):
+        return False
+    attempt = attempts + 1
+    logging.warning(
+        "auto-continue after empty root turn: app=%s session=%s attempt=%d",
+        app_name,
+        session_id,
+        attempt,
+    )
+    prior = state.get(AUTO_CONTINUES_KEY)
+    total = (prior if isinstance(prior, int) else 0) + 1
+    try:
+        await session_service.append_event(
+            session,
+            Event(
+                author=RUNSERVER_AUTHOR,
+                invocation_id=invocation_id or RUNSERVER_AUTHOR,
+                actions=EventActions(state_delta={AUTO_CONTINUES_KEY: total}),
+            ),
+        )
+    except Exception:  # noqa: BLE001 — record is best-effort; still continue
+        logging.exception(
+            "failed to record %s app=%s session=%s",
+            AUTO_CONTINUES_KEY,
+            app_name,
+            session_id,
+        )
+    return True
+
+
 async def _drive_run(
     runner, session_service, app_name, user_id, session_id, new_message
 ) -> None:
@@ -382,19 +563,44 @@ async def _drive_run(
     terminal status marker to the session. Never re-raises — the terminal
     ``error`` marker IS the failure contract for pollers (even when the marker
     write itself fails; see ``_append_terminal_safe``). Bounded by
-    ``RUN_MAX_SECONDS`` so a wedged run can't hang ``running`` forever."""
+    ``RUN_MAX_SECONDS`` so a wedged run can't hang ``running`` forever.
+
+    If a segment ends on an empty root turn with the workflow unfinished (see
+    ``should_auto_continue``), the run is re-prompted with
+    ``AUTO_CONTINUE_MESSAGE`` on the same runner/session — still inside this one
+    task (so the run stays claimed and pollers keep seeing ``running``) and
+    under the same ``RUN_MAX_SECONDS`` budget — before the terminal marker."""
     # Reuse the run's own invocation id on the terminal marker (Vertex requires a
     # non-empty invocation_id); fall back to the marker author if the run emitted
     # no events (e.g. an immediate error).
     invocation_id = RUNSERVER_AUTHOR
+    root_author = _root_author(runner)
     try:
         async with asyncio.timeout(RUN_MAX_SECONDS):
-            async for event in runner.run_async(
-                user_id=user_id, session_id=session_id, new_message=new_message
-            ):
-                # Runner persists final events to the session service itself.
-                if getattr(event, "invocation_id", None):
-                    invocation_id = event.invocation_id
+            message = new_message
+            attempts = 0
+            while True:
+                segment_events: list[Event] = []
+                async for event in runner.run_async(
+                    user_id=user_id, session_id=session_id, new_message=message
+                ):
+                    # Runner persists final events to the session service itself.
+                    segment_events.append(event)
+                    if getattr(event, "invocation_id", None):
+                        invocation_id = event.invocation_id
+                if not await _maybe_record_auto_continue(
+                    session_service,
+                    app_name,
+                    user_id,
+                    session_id,
+                    segment_events,
+                    root_author,
+                    attempts,
+                    invocation_id,
+                ):
+                    break
+                attempts += 1
+                message = build_user_message(AUTO_CONTINUE_MESSAGE)
         await _append_terminal_safe(
             session_service,
             app_name,
