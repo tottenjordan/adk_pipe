@@ -267,6 +267,26 @@ def test_malformed_request_is_400(art):
         assert e.value.status_code == 400
 
 
+def test_instance_limit(art):
+    p = _predictor(art)
+    assert len(run(p, _decisions(1000))) == 1000
+    with pytest.raises(HTTPException) as e:
+        p.preprocess({"instances": [{"type": "state"}] * 1001})
+    assert e.value.status_code == 400
+
+
+def test_traffic_job_request_id_format(art):
+    """PR 3 ids look like ``{experiment_id}-e{episode}-r{round}``."""
+    p = _predictor(art)
+    preds = run(p, _decisions(3, "exp1-e0-r"))
+    assert [d["request_id"] for d in preds] == [
+        "exp1-e0-r0",
+        "exp1-e0-r1",
+        "exp1-e0-r2",
+    ]
+    assert all(a["accepted"] for a in run(p, _rewards(preds)))
+
+
 def test_parameters_are_clamped(art):
     p = _predictor(art)
     base = p.params

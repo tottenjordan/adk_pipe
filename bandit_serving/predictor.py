@@ -65,6 +65,7 @@ POLICY_NAME = "linear_ts"
 EXPLORATION_SCALE_BOUNDS = (0.1, 5.0)
 PROPENSITY_SAMPLES_BOUNDS = (100, 5000)
 MAX_REQUEST_ID_LEN = 256
+MAX_INSTANCES = 1000  # per request (contracts §2; the traffic client splits at 500)
 MIN_BUCKET = 16  # pad batches to powers of two >= this (bounded jit recompiles)
 MAX_CHUNK = 1024  # rows per decision kernel call (bounds the MC propensity tensor)
 
@@ -504,6 +505,11 @@ class BanditPredictor(Predictor):
         parameters = prediction_input.get("parameters")
         if not isinstance(instances, list):
             raise HTTPException(status_code=400, detail="'instances' must be a list")
+        if len(instances) > MAX_INSTANCES:
+            raise HTTPException(
+                status_code=400,
+                detail=f"at most {MAX_INSTANCES} instances per request; split the batch",
+            )
         if parameters is not None and not isinstance(parameters, Mapping):
             raise HTTPException(
                 status_code=400, detail="'parameters' must be an object"
