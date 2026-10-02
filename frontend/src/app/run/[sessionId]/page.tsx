@@ -1,12 +1,15 @@
 "use client";
 
 import React, { useEffect, useState, useRef, useMemo, useCallback, use } from "react";
+import Link from "next/link";
 import { useSearchParams, useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { EventLog } from "@/components/event-log";
+import { formatEventTime } from "@/components/event-log";
 import { TrendCards, parseTrendsMarkdown } from "@/components/trend-cards";
 import { GcsWidget } from "@/components/gcs-widget";
-import { FieldLabel } from "@/components/field-label";
+import { FileDown } from "lucide-react";
+import { agentLabel, isCreativeAgent } from "@/lib/agents";
+import { answeredReviewNames, currentStage, deriveStages } from "@/lib/run-stages";
 import {
   startRun,
   pollRun,
@@ -23,7 +26,7 @@ import {
   type DisplayFieldDef,
 } from "@/lib/utils";
 import { gcsProxyUrl, parseGsUri } from "@/lib/gcs";
-import { hasStartedRun, markRunStarted } from "@/lib/run-kickoff";
+import { ensureRunStarted, isUnstartedRun, readRunMessage } from "@/lib/run-kickoff";
 import type { AgentEvent } from "@/lib/types";
 import {
   PendingLongRunningCalls,
@@ -37,6 +40,8 @@ import {
   PIPELINE_STATE_KEYS,
 } from "./run-config";
 import { PipelineWidget } from "./run-widgets";
+import { StageSpine } from "./stage-spine";
+import { BriefSummary, CurrentStagePanel, TechnicalLog } from "./run-sections";
 import { ReviewPanel } from "./ReviewPanel";
 
 const CAMPAIGN_FIELD_DEFS: DisplayFieldDef[] = [
@@ -63,9 +68,9 @@ export default function RunPage({
   // Non-error, informational notice (e.g. a resume that must be re-submitted).
   const [notice, setNotice] = useState<string | null>(null);
   const [sessionState, setSessionState] = useState<Record<string, unknown>>({});
-  const [toastDismissed, setToastDismissed] = useState(false);
   const [pauseContext, setPauseContext] = useState<PauseContext | null>(null);
-  const startedRef = useRef(false);
+  // Viewing a session the server has no run for (and no kick-off message).
+  const [notStarted, setNotStarted] = useState(false);
   const seenEventIds = useRef(new Set<string>());
   const lastEventAt = useRef<number>(Date.now());
   // Aborts the resume poll loop on unmount (handleResume is a click handler,
@@ -184,36 +189,41 @@ export default function RunPage({
   }, [appName, userId, sessionId, consumePollEvents]);
 
   useEffect(() => {
-    if (startedRef.current) return;
-    startedRef.current = true;
-
-    const stored = sessionStorage.getItem(`run:${sessionId}`);
-    const message = stored ? JSON.parse(stored).message : "";
-    if (!message) {
-      setStatus("error");
-      setErrorMsg("No message found for this session. Please start a new run.");
-      return;
-    }
-
+    // Each effect run owns its own poll (and AbortController); cleanup aborts
+    // it. Under StrictMode the effect runs twice: the first poll is aborted, the
+    // second re-polls from since=0 and the seenEventIds dedup keeps that replay
+    // idempotent. The kick-off itself is exactly-once via ensureRunStarted
+    // (durable sessionStorage claim + shared in-flight promise).
     const controller = new AbortController();
     const { signal } = controller;
+    const message = readRunMessage(sessionId);
 
     async function run() {
       try {
-        // Kick off the detached background run — but ONLY once per session. The
-        // run page remounts on every browser reload (startedRef resets), so
-        // without this durable guard a reload would spawn a second detached run
-        // (see run-kickoff). On reload we skip straight to polling, which
-        // replays the existing run from since=0.
-        if (!hasStartedRun(sessionId)) {
-          await startRun(appName, userId, sessionId, message);
-          markRunStarted(sessionId);
+        // Kick off the detached background run — ONLY once per session (see
+        // run-kickoff). On reload (already started) this resolves immediately
+        // and we skip straight to polling, which replays from since=0. With no
+        // stored message this tab never kicks off; it views the run instead.
+        if (message) {
+          await ensureRunStarted(sessionId, () =>
+            startRun(appName, userId, sessionId, message)
+          );
         }
+        if (signal.aborted) return;
 
         // Seed session state once so the sidebar populates immediately, even for
         // keys set before any event and on reconnect/reload. (pollRun replays
         // from since=0 too, but this is more robust for pre-event state.)
         const seed = await getRunStatus(appName, userId, sessionId, 0);
+        if (signal.aborted) return;
+
+        // View mode (no stored message): only follow a run the server knows.
+        // An empty log means nothing was ever kicked off for this session.
+        if (!message && isUnstartedRun(seed)) {
+          setStatus("error");
+          setNotStarted(true);
+          return;
+        }
         if (seed.state) setSessionState((prev) => ({ ...prev, ...seed.state }));
 
         // Drain the poll to completion; the initial run fetches session state
@@ -353,9 +363,7 @@ export default function RunPage({
     await followRun();
   }
 
-  // Fetch session state from backend to populate campaign metadata
-  // that was set during a prior run/resume phase
-  // Parse trend trawler output into clickable cards
+  // Parse trend_scout output into clickable cards
   const trends = useMemo(() => {
     const selectedGtrends = sessionState.selected_gtrends;
     if (appName !== "trend_scout" || typeof selectedGtrends !== "string")
@@ -383,7 +391,7 @@ export default function RunPage({
     sessionState.agent_output_dir,
   ]);
 
-  // Campaign metadata fields for left sidebar
+  // Campaign metadata fields for the brief summary
   const campaignFields = useMemo(
     () => buildDisplayFields(sessionState, CAMPAIGN_FIELD_DEFS),
     [sessionState],
@@ -395,52 +403,69 @@ export default function RunPage({
     [sessionState],
   );
 
-  // Pipeline state widgets — newest first
+  // Pipeline outputs, in pipeline order
   const pipelineWidgets = useMemo(() => {
     return PIPELINE_STATE_KEYS.filter((p) => sessionState[p.key] != null);
   }, [sessionState]);
 
-  const statusConfig: Record<Status, { color: string }> = {
-    running: { color: "bg-primary" },
-    paused: { color: "bg-mark-pending" },
-    completed: { color: "bg-mark-pass" },
-    error: { color: "bg-mark-fail" },
-    stalled: { color: "bg-mark-pending" },
+  // Stage spine (pure derivation from state + pause + status)
+  const answeredReviews = useMemo(() => answeredReviewNames(events), [events]);
+  const stages = useMemo(
+    () => deriveStages(appName, sessionState, pauseContext, status, answeredReviews),
+    [appName, sessionState, pauseContext, status, answeredReviews]
+  );
+  const current = useMemo(() => currentStage(stages), [stages]);
+
+  // Local time of the newest event (events arrive in order).
+  const lastUpdate = formatEventTime(events[events.length - 1]?.timestamp);
+
+  const showResults = status === "completed" && isCreativeAgent(appName);
+  const resultsButton = showResults ? (
+    <Button size="lg" onClick={() => router.push(resultsUrl)}>
+      View results
+    </Button>
+  ) : null;
+
+  const statusLine: Record<Status, { text: string; dot: string; tone: string }> = {
+    running: { text: "Running", dot: "bg-primary", tone: "text-foreground" },
+    paused: { text: "Waiting for your review", dot: "bg-mark-pending", tone: "text-mark-pending" },
+    completed: { text: "Completed", dot: "bg-mark-pass", tone: "text-mark-pass" },
+    error: {
+      text: notStarted ? "Not started" : "Failed",
+      dot: "bg-mark-fail",
+      tone: "text-mark-fail",
+    },
+    stalled: { text: "No recent activity", dot: "bg-mark-pending", tone: "text-mark-pending" },
   };
 
-  const showResultsToast =
-    status === "completed" && appName !== "trend_scout" && !toastDismissed;
-
-  // Right column content: pipeline widgets, GCS, research report, or trend cards
-  const hasRightColumn =
-    pipelineWidgets.length > 0 ||
-    gcsUri ||
-    researchReportUrl ||
-    (status === "completed" && trends.length > 0);
+  const hasOutputs = pipelineWidgets.length > 0 || gcsUri || researchReportUrl;
 
   return (
-    <div className="mx-auto max-w-[1600px] px-6 py-8">
+    <div className="mx-auto max-w-[1400px] px-4 py-6 sm:px-6 sm:py-8">
       {/* Page header */}
-      <div className="mb-6 flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-foreground">
-            Agent run
-          </h1>
-          <p className="mt-1 text-sm text-muted-foreground font-mono">
-            {appName} / {sessionId}
+      <div className="mb-4 flex flex-wrap items-start justify-between gap-4">
+        <div className="min-w-0">
+          <h1 className="text-2xl font-bold text-foreground">{agentLabel(appName)}</h1>
+          <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+            <span className={`inline-block h-2 w-2 rounded-full ${statusLine[status].dot}`} aria-hidden />
+            <span className={`font-medium ${statusLine[status].tone}`}>{statusLine[status].text}</span>
+            <span className="text-muted-foreground" aria-hidden>·</span>
+            <span className="min-w-0 truncate font-mono text-xs text-muted-foreground" title={sessionId}>
+              {sessionId}
+            </span>
           </p>
         </div>
-        <div className="flex items-center gap-3">
-          {status === "completed" && appName !== "trend_scout" && (
-            <Button
-              size="lg"
-              onClick={() => router.push(resultsUrl)}
-            >
-              View results
-            </Button>
-          )}
-        </div>
+        {resultsButton}
       </div>
+
+      {!notStarted && (
+        <div className="mb-6">
+          <BriefSummary
+            campaignFields={campaignFields}
+            visualDirectionFields={visualDirectionFields}
+          />
+        </div>
+      )}
 
       {notice && (
         <div className="mb-4 rounded-lg border border-mark-pending/40 bg-mark-pending/10 px-5 py-4">
@@ -448,198 +473,96 @@ export default function RunPage({
         </div>
       )}
 
-      {errorMsg && (
+      {notStarted && (
         <div className="mb-4 rounded-lg border border-mark-fail/40 bg-mark-fail/5 px-5 py-4">
+          <p className="text-sm text-mark-fail">
+            This run hasn&apos;t started. Start a new run from{" "}
+            <Link href="/" className="font-medium underline underline-offset-2">
+              New run
+            </Link>
+            .
+          </p>
+        </div>
+      )}
+
+      {errorMsg && (
+        <div role="alert" className="mb-4 rounded-lg border border-mark-fail/40 bg-mark-fail/5 px-5 py-4">
           <p className="text-sm text-mark-fail">{errorMsg}</p>
         </div>
       )}
 
-      <div className="grid gap-6 lg:grid-cols-[260px_1fr]">
-        {/* Left sidebar — campaign metadata only */}
-        <div className="space-y-3">
-          <h2 className="pt-1 text-sm font-semibold text-foreground">
-            Campaign metadata
-          </h2>
-          {campaignFields.length === 0 ? (
-            <p className="text-xs text-muted-foreground italic">
-              Waiting for metadata...
-            </p>
-          ) : (
-            campaignFields.map((f) => (
-              <dl key={f.key} className="rounded-lg border border-border bg-card px-4 py-3">
-                <FieldLabel as="dt">{f.label}</FieldLabel>
-                <dd className="mt-1 text-sm font-medium leading-snug text-foreground">
-                  {f.value}
-                </dd>
-              </dl>
-            ))
-          )}
-
-          {visualDirectionFields.length > 0 && (
-            <>
-              <h2 className="pt-3 text-sm font-semibold text-foreground">
-                Visual direction
-              </h2>
-              {visualDirectionFields.map((f) => (
-                <dl key={f.key} className="rounded-lg border border-border bg-card px-4 py-3">
-                  <FieldLabel as="dt">{f.label}</FieldLabel>
-                  <dd className="mt-1 text-sm font-medium leading-snug text-foreground break-words break-all">
-                    {f.value}
-                  </dd>
-                </dl>
-              ))}
-            </>
-          )}
-        </div>
-
-        {/* Right content area */}
-        <div>
-          <div
-            className={`grid gap-6 ${hasRightColumn ? "lg:grid-cols-[1fr_380px]" : ""}`}
-          >
-            {/* Event stream */}
-            <div className="rounded-lg border border-border bg-card overflow-hidden">
-              <div className="px-5 py-3 border-b border-border flex items-center justify-between">
-                <h3 className="text-sm font-semibold text-foreground">
-                  Event stream
-                </h3>
-                <span className="text-xs text-muted-foreground tabular-nums">
-                  {events.length} event{events.length !== 1 ? "s" : ""}
-                </span>
-              </div>
-              <EventLog events={events} className="h-[600px]" />
-
-              {/* Status bar */}
-              <div className="border-t border-border px-5 py-3 flex items-center gap-2.5">
-                <span
-                  className={`inline-block h-2.5 w-2.5 rounded-full ${statusConfig[status].color} ${status === "running" ? "animate-pulse" : ""}`}
-                />
-                {status === "running" && (
-                  <span className="text-sm text-muted-foreground flex items-center gap-1.5">
-                    Agent is processing
-                    <span className="processing-dots text-primary">
-                      <span />
-                      <span />
-                      <span />
-                    </span>
-                  </span>
-                )}
-                {status === "paused" && (
-                  <span className="text-sm text-mark-pending font-medium">
-                    Waiting for review
-                  </span>
-                )}
-                {status === "completed" && (
-                  <span className="text-sm text-mark-pass font-medium">
-                    Run completed
-                  </span>
-                )}
-                {status === "error" && (
-                  <span className="text-sm text-mark-fail font-medium">
-                    Run failed
-                  </span>
-                )}
-                {status === "stalled" && (
-                  <span className="text-sm text-mark-pending font-medium">
-                    Run may have stalled — no activity for a while. It may still
-                    be running in the background; reload to reconnect.
-                  </span>
-                )}
-              </div>
-            </div>
-
-            {/* Review panel for interactive mode */}
-            {status === "paused" && pauseContext && (
-              <div className="lg:col-span-full">
-                <ReviewPanel
-                  functionName={pauseContext.functionName}
-                  sessionState={sessionState}
-                  onResume={handleResume}
-                />
-              </div>
-            )}
-
-            {/* Right column: GCS output, research report, pipeline widgets, trend cards */}
-            {hasRightColumn && (
-              <div className="space-y-3 max-h-[700px] overflow-y-auto">
-                {/* Cloud Storage Output */}
-                {gcsUri && <GcsWidget uri={gcsUri} />}
-
-                {/* Research Report */}
-                {researchReportUrl && (
-                  <dl className="rounded-lg border border-border bg-card px-4 py-3">
-                    <FieldLabel as="dt">Research report</FieldLabel>
-                    <dd className="mt-1.5">
-                      <a
-                        href={researchReportUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:text-primary/80 hover:underline transition-colors"
-                      >
-                        <svg
-                          className="h-4 w-4 shrink-0"
-                          fill="none"
-                          viewBox="0 0 24 24"
-                          stroke="currentColor"
-                          strokeWidth={2}
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-                          />
-                        </svg>
-                        View PDF report
-                      </a>
-                    </dd>
-                  </dl>
-                )}
-
-                {/* Trend cards — only for completed trend_scout runs */}
-                {status === "completed" && trends.length > 0 && (
-                  <TrendCards trends={trends} campaignState={sessionState} />
-                )}
-
-                {/* Pipeline state widgets — newest at top */}
-                {pipelineWidgets.map((p) => (
-                  <PipelineWidget
-                    key={p.key}
-                    label={p.label}
-                    stateKey={p.key}
-                    data={sessionState[p.key]}
-                  />
-                ))}
-              </div>
-            )}
+      {!notStarted && (
+        <div className="grid gap-6 lg:grid-cols-[220px_minmax(0,1fr)]">
+          {/* Stage spine (vertical on lg, compact step bar below) */}
+          <div className="min-w-0 lg:pt-1">
+            <StageSpine stages={stages} current={current} runStatus={status} />
           </div>
-        </div>
-      </div>
 
-      {/* Floating toast to guide user to results page */}
-      {showResultsToast && (
-        <div className="fixed bottom-6 right-6 z-50 animate-in slide-in-from-bottom-4 fade-in duration-300">
-          <div className="rounded-lg border border-border bg-card shadow-lg flex items-center gap-4 px-5 py-4">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-mark-pass/10">
-              <span className="inline-block h-3 w-3 rounded-full bg-mark-pass" />
-            </div>
-            <div className="mr-2">
-              <p className="text-sm font-semibold text-foreground">
-                Run complete!
-              </p>
-              <p className="text-xs text-muted-foreground">
-                View results here
-              </p>
-            </div>
-            <Button size="sm" onClick={() => router.push(resultsUrl)}>
-              View results
-            </Button>
-            <button
-              onClick={() => setToastDismissed(true)}
-              className="ml-1 flex h-6 w-6 items-center justify-center rounded-sm text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-              aria-label="Dismiss"
-            >
-              &times;
-            </button>
+          {/* Main area */}
+          <div className="min-w-0 space-y-4">
+            {status === "paused" && pauseContext ? (
+              <ReviewPanel
+                functionName={pauseContext.functionName}
+                sessionState={sessionState}
+                onResume={handleResume}
+              />
+            ) : (
+              <CurrentStagePanel
+                stage={current}
+                stages={stages}
+                status={status}
+                lastUpdate={lastUpdate}
+              />
+            )}
+
+            {/* Trend cards — only for completed trend_scout runs */}
+            {status === "completed" && trends.length > 0 && (
+              <TrendCards trends={trends} campaignState={sessionState} />
+            )}
+
+            {hasOutputs && (
+              <section aria-labelledby="run-outputs-heading">
+                <h2 id="run-outputs-heading" className="mb-2 text-sm font-semibold text-foreground">
+                  {status === "completed" ? "Outputs" : "Outputs so far"}
+                </h2>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {researchReportUrl && (
+                    <a
+                      href={researchReportUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="block rounded-lg border border-border bg-card px-4 py-3 transition-colors hover:border-primary/40"
+                    >
+                      <span className="block text-xs font-medium text-muted-foreground">
+                        Research report
+                      </span>
+                      <span className="mt-0.5 flex items-center gap-1.5 text-sm font-medium text-primary">
+                        <FileDown className="h-4 w-4 shrink-0" aria-hidden />
+                        Open PDF report
+                      </span>
+                    </a>
+                  )}
+
+                  {pipelineWidgets.map((p) => (
+                    <PipelineWidget
+                      key={p.key}
+                      label={p.label}
+                      stateKey={p.key}
+                      noun={p.noun}
+                      data={sessionState[p.key]}
+                    />
+                  ))}
+
+                  {gcsUri && (
+                    <div className="sm:col-span-2">
+                      <GcsWidget uri={gcsUri} />
+                    </div>
+                  )}
+                </div>
+              </section>
+            )}
+
+            <TechnicalLog events={events} />
           </div>
         </div>
       )}

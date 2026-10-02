@@ -7,13 +7,11 @@ import {
   formatRunTime,
   formatTrend,
   inferAgent,
-  prepareRunView,
   RUN_ACTIVE_WINDOW_MS,
   stashDuplicateBrief,
   takeDuplicateBrief,
   toRunRow,
 } from "@/lib/run-history";
-import { hasStartedRun } from "@/lib/run-kickoff";
 import type { Session } from "@/lib/types";
 
 const NOW = Date.UTC(2026, 9, 2, 12, 0, 0);
@@ -235,22 +233,5 @@ describe("sessionStorage helpers", () => {
   it("ignores a corrupt stash", () => {
     sessionStorage.setItem(DUPLICATE_BRIEF_KEY, "{not json");
     expect(takeDuplicateBrief()).toBeNull();
-  });
-
-  it("prepareRunView marks a run started so the run page only polls", () => {
-    prepareRunView({ id: "s1", status: "Completed", href: "/run/s1?app=trend_scout&userId=me" });
-    expect(hasStartedRun("s1")).toBe(true);
-    expect(JSON.parse(sessionStorage.getItem("run:s1")!).message).toBeTruthy();
-  });
-
-  it("prepareRunView keeps an existing message and skips not-started or results links", () => {
-    sessionStorage.setItem("run:s2", JSON.stringify({ message: "real" }));
-    prepareRunView({ id: "s2", status: "Running", href: "/run/s2" });
-    expect(JSON.parse(sessionStorage.getItem("run:s2")!).message).toBe("real");
-
-    prepareRunView({ id: "s3", status: "Not started", href: "/run/s3" });
-    expect(hasStartedRun("s3")).toBe(false);
-    prepareRunView({ id: "s4", status: "Completed", href: "/results/s4" });
-    expect(hasStartedRun("s4")).toBe(false);
   });
 });
