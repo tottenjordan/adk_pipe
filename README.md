@@ -359,7 +359,7 @@ A custom React frontend (Next.js + Tailwind CSS + shadcn/ui) for running agents 
 <p align="center">
   <img src="docs/screenshots/user-journey.gif" alt="Walkthrough: fill in a brief, follow the run through three review checkpoints, then browse the scored creatives, a proof detail, the research report and run history" width="900">
 </p>
-<p align="center"><em>An interactive creative run, from brief to scored creatives (mocked fixtures from a real run).</em></p>
+<p align="center"><em>An interactive creative run, from brief to scored creatives: the amber spotlights mark what to look at in each step, and the top strip shows where you are (mocked fixtures from a real run).</em></p>
 
 - **`/`**: campaign input form with agent tiles and a recent-runs sidebar.
 - **`/runs`**: run history (brand, trend, agent, status) with **Duplicate brief** to start a new run from an old one.
