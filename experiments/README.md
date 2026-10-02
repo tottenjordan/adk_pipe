@@ -20,6 +20,7 @@ pre-registered / written-up design under [`docs/experiments/`](../docs/experimen
 |---|---|---|
 | [`creative_latency/`](#creative_latency) | Measure end-to-end + per-phase `creative_agent` run latency; compare code variants (baseline vs. levers). **Strictly serial** — self-contention would corrupt the signal. | [`docs/experiments/2026-07-15-creative-latency.md`](../docs/experiments/2026-07-15-creative-latency.md) |
 | [`quota_spread/`](#quota_spread) | The quota-bucket-spread **DoE**: fire N *concurrent* runs per cell to measure how research-phase latency inflates with load, per model-placement arm (PR #101). **Concurrency is the signal.** | [`docs/experiments/2026-07-17-quota-bucket-spread-doe.md`](../docs/experiments/2026-07-17-quota-bucket-spread-doe.md) |
+| `bandit/` | Offline notebook-parity figures for the JAX contextual bandit (`bandit/` package): `notebook_parity.py` runs `bandit.cli` simulations (no GCP) and writes `figures/*.png`. | [`docs/experiments/bandit-simulation.md`](../docs/experiments/bandit-simulation.md) |
 
 ## Shared conventions
 

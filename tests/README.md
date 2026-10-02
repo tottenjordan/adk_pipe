@@ -54,6 +54,7 @@ tests/
 ├── test_backend_entrypoint.py       # backend container entrypoint (uvicorn serves async_app.py)
 ├── test_bandit_endpoint_lib.py      # deployment/bandit/endpoint.py vs a fake aiplatform (single-worker env, 1 replica, labels)
 ├── test_create_bq_tables.py         # create_bq_tables.sh with a stub bq: bandit_* schemas, partitioning, idempotency
+├── test_bandit_*.py                 # JAX bandit core (bandit/): features, config, linear TS, baselines, environment, simulate+metrics+aggregate, notebook-parity smoke
 ├── test_callbacks.py                # citation replacement, state init, rate limiting
 ├── test_config.py                   # per-agent config resolution (incl. campaign-placement resolver)
 ├── test_create_session_engine.py    # create_session_engine.py (reuse-or-create sessions-only engine)
@@ -118,6 +119,10 @@ tests/
   `test_interactive_resume_graph.py`: the upstream ADK Workflow contract, the
   `RetryUntilKeyNode` wrapper, and each agent's graphs run end-to-end over stub models
   (doubles in `_fakes.py`).
+- **Bandit core** — `test_bandit_features.py`, `test_bandit_config.py`,
+  `test_bandit_linear_ts.py`, `test_bandit_baselines.py`, `test_bandit_environment.py`,
+  `test_bandit_simulate_metrics.py`, `test_bandit_notebook_parity.py`: the offline JAX
+  contextual bandit (PR 1 of the bandit plan); JAX comes from the uv dev group.
 - **Tools** — `test_tools.py`, `test_tools_retry.py`: pure tool logic, plus the contract
   that infra tools raise (rather than swallow errors into status dicts) so ADK retry works.
 - **Deployment & fan-out** — `test_deploy_utils.py`, `test_create_session_engine.py`,
