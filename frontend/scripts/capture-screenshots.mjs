@@ -29,9 +29,12 @@
 // docs/screenshots/*.png, it captures a sequence of 1440x900 VIEWPORT frames
 // walking the interactive flow (brief → research → three reviews → complete →
 // results → proof detail → research report → history) into JOURNEY_OUT
-// (default /tmp/tt-journey-frames) plus a frames.json manifest (file, caption,
-// hold seconds). scripts/build-journey-gif.py assembles them into
-// docs/screenshots/user-journey.gif:
+// (default /tmp/tt-journey-frames) plus a journey-frames.json manifest:
+//   [{file, step, phase, title, caption, hold_ms, highlights: [{x, y, w, h, label}]}]
+// Each highlight is a key UI element's box in 1440x900 viewport CSS px (Playwright
+// boundingBox(), padded and clipped to the viewport; max 2 per frame; a locator
+// that isn't found is logged and skipped). scripts/build-journey-gif.py turns them
+// into docs/screenshots/user-journey.gif with spotlights, callouts and a progress strip:
 //   JOURNEY=1 SCREENSHOT_BASE_URL=http://localhost:3600 npm run screenshots
 //   uv run --no-project --with pillow python scripts/build-journey-gif.py
 
@@ -590,15 +593,67 @@ async function scrollToLocator(page, locator, offset = 80) {
   await page.waitForTimeout(200);
 }
 
+// Box of one or more locators (union), padded, intersected with `clip` (a
+// scroll container) and the viewport. Null (logged) if nothing is visible.
+// `place` (above|below|right|left) is an optional callout-placement hint for the GIF.
+async function highlightBox(page, { target, label, clip, pad = 8, place }) {
+  const targets = Array.isArray(target) ? target : [target];
+  const boxes = [];
+  for (const t of targets) {
+    try {
+      await t.first().waitFor({ state: "visible", timeout: 3000 });
+      const b = await t.first().boundingBox();
+      if (b) boxes.push(b);
+    } catch {
+      // not found: logged below if no target produced a box
+    }
+  }
+  if (!boxes.length) {
+    console.warn(`  ! highlight not found: "${label}"`);
+    return null;
+  }
+  let x0 = Math.min(...boxes.map((b) => b.x)) - pad;
+  let y0 = Math.min(...boxes.map((b) => b.y)) - pad;
+  let x1 = Math.max(...boxes.map((b) => b.x + b.width)) + pad;
+  let y1 = Math.max(...boxes.map((b) => b.y + b.height)) + pad;
+  if (clip) {
+    const c = await clip.first().boundingBox();
+    if (c) {
+      x0 = Math.max(x0, c.x - pad);
+      y0 = Math.max(y0, c.y - pad);
+      x1 = Math.min(x1, c.x + c.width + pad);
+      y1 = Math.min(y1, c.y + c.height + pad);
+    }
+  }
+  const vp = page.viewportSize();
+  x0 = Math.max(x0, 2);
+  y0 = Math.max(y0, 2);
+  x1 = Math.min(x1, vp.width - 2);
+  y1 = Math.min(y1, vp.height - 2);
+  if (x1 - x0 < 8 || y1 - y0 < 8) {
+    console.warn(`  ! highlight off-screen: "${label}"`);
+    return null;
+  }
+  const r = (v) => Math.round(v);
+  return { x: r(x0), y: r(y0), w: r(x1 - x0), h: r(y1 - y0), label, ...(place && { place }) };
+}
+
 async function journey() {
   rmSync(JOURNEY_OUT, { recursive: true, force: true });
   mkdirSync(JOURNEY_OUT, { recursive: true });
   const frames = [];
-  const frame = async (page, caption, hold = 1.8) => {
-    const file = `${String(frames.length + 1).padStart(2, "0")}.png`;
+  // One GIF frame: screenshot + manifest entry with the resolved highlight boxes.
+  const frame = async (page, { phase, title, caption, hold_ms = 3200, highlights = [] }) => {
+    const step = frames.length + 1;
+    const file = `${String(step).padStart(2, "0")}.png`;
+    const boxes = [];
+    for (const h of highlights.slice(0, 2)) {
+      const b = await highlightBox(page, h);
+      if (b) boxes.push(b);
+    }
     await page.screenshot({ path: join(JOURNEY_OUT, file) });
-    frames.push({ file, caption, hold });
-    console.log("  frame", file, "-", caption);
+    frames.push({ file, step, phase, title, caption, hold_ms, highlights: boxes });
+    console.log("  frame", file, "-", title, `(${boxes.length} highlights)`);
   };
 
   const browser = await chromium.launch({ headless: true });
@@ -607,6 +662,9 @@ async function journey() {
     deviceScaleFactor: 2,
   });
   const review = (page) => page.locator('section[aria-label="Review"]');
+  const spine = (page) => page.locator('nav[aria-label="Run stages"]');
+  // The scrollable list/report box inside the review panel.
+  const reviewScroller = (page) => review(page).locator("div.overflow-y-auto").first();
   // Open an interactive run in view mode with the given poll payload.
   const openRun = async (sid, { status = "done", evts, st }) => {
     currentSession = { id: sid, appName: "interactive_creative", userId: USER, state: st, events: [] };
@@ -632,7 +690,23 @@ async function journey() {
     await page.locator("#referenceImage").blur();
     await page.getByRole("link", { name: "Google" }).first().waitFor();
     await settle(page, { pinHeader: false });
-    await frame(page, "1 · Pick an agent and fill in the brief", 2.4);
+    await frame(page, {
+      phase: "Brief",
+      title: "Start a run",
+      caption: "Choose the creative run with reviews, then describe the brand, product, audience and trend.",
+      hold_ms: 3600,
+      highlights: [
+        {
+          target: page.locator("label", { has: page.locator('input[value="interactive_creative"]') }),
+          label: "Pick the agent",
+          pad: 4,
+        },
+        {
+          target: [page.getByText("Brand name", { exact: true }), page.locator("#referenceImage")],
+          label: "Describe the campaign",
+        },
+      ],
+    });
     await page.close();
   }
 
@@ -645,11 +719,24 @@ async function journey() {
     });
     await page.getByText(STAGE_RESEARCH_TEXT).first().waitFor();
     await settle(page, { pinHeader: false });
-    await frame(page, "2 · The agents research the trend and the brand", 2.0);
+    await frame(page, {
+      phase: "Research",
+      title: "Agents research the trend",
+      caption: "Agents search the web for the trend and the brand; the run keeps going if you close the tab.",
+      hold_ms: 3200,
+      highlights: [
+        { target: spine(page), label: "Live progress through each stage" },
+        {
+          target: page.locator("section[aria-live]").filter({ hasText: STAGE_RESEARCH_TEXT }),
+          label: "What's running now",
+          pad: 4,
+        },
+      ],
+    });
     await page.close();
   }
 
-  // c. Checkpoint 1: review the research report, then edit it.
+  // c. Checkpoint 1: review the research report, edit it, approve.
   {
     const page = await openRun("journey-review-research", {
       evts: [pauseAt("review_research", 180)],
@@ -659,7 +746,23 @@ async function journey() {
     await page.getByRole("heading", { name: /Sources/ }).waitFor();
     await settle(page, { pinHeader: false });
     await scrollToLocator(page, review(page));
-    await frame(page, "3 · Review the cited research report", 2.4);
+    const reportBox = reviewScroller(page);
+    await frame(page, {
+      phase: "Reviews",
+      title: "Review the research",
+      caption: "The run pauses so you can check the cited research before any creative is written.",
+      hold_ms: 3800,
+      highlights: [
+        { target: reportBox, label: "Review the research", pad: 4 },
+        {
+          target: reportBox.locator("sup").first(),
+          label: "Cited sources",
+          clip: reportBox,
+          pad: 6,
+          place: "right",
+        },
+      ],
+    });
 
     await page.getByRole("button", { name: "Edit", exact: true }).click();
     const ta = review(page).locator("textarea").first();
@@ -674,22 +777,24 @@ async function journey() {
       el.scrollTop = 0;
     });
     await page.waitForTimeout(200);
-    await frame(page, "4 · Edit the report to steer the creative", 2.4);
+    await frame(page, {
+      phase: "Reviews",
+      title: "Steer it with an edit",
+      caption: "Anything you add or cut here shapes the ad copy and visuals that follow.",
+      hold_ms: 3600,
+      highlights: [{ target: ta, label: "Edit the report to steer the creative", pad: 4 }],
+    });
 
-    // Approve: the resume POST is mocked; the next poll shows the run moving on.
-    const researchState = stateWith(...RESEARCH_KEYS);
-    currentSession = { ...currentSession, state: researchState };
-    currentPoll = {
-      status: "running",
-      events: [pauseAt("review_research", 180), answeredAt("review_research", 200)],
-      nextCursor: 2,
-      state: researchState,
-    };
-    await page.getByRole("button", { name: /Approve/ }).first().click();
-    await page.getByText("Drafting and critiquing ad copy.").first().waitFor();
-    await page.evaluate(() => window.scrollTo({ top: 0 }));
-    await page.waitForTimeout(300);
-    await frame(page, "5 · Approve, and the run moves on to ad copy", 1.8);
+    // Approve: bring the button into view with the edited report above it.
+    const approve = page.getByRole("button", { name: /Approve/ }).first();
+    await scrollToLocator(page, approve, 620);
+    await frame(page, {
+      phase: "Reviews",
+      title: "Approve and continue",
+      caption: "Approving resumes the run, which moves on to writing ad copy.",
+      hold_ms: 2800,
+      highlights: [{ target: approve, label: "Approve to continue", pad: 6 }],
+    });
     await page.close();
   }
 
@@ -702,7 +807,20 @@ async function journey() {
     await page.getByRole("heading", { name: "Review ad copies" }).waitFor();
     await settle(page, { pinHeader: false });
     await scrollToLocator(page, review(page));
-    await frame(page, "6 · Review the ad copy", 2.0);
+    await frame(page, {
+      phase: "Reviews",
+      title: "Review the ad copy",
+      caption: "Each draft comes with its call to action, caption and how it ties to the trend.",
+      hold_ms: 3400,
+      highlights: [
+        {
+          target: review(page).locator("dl").first(),
+          label: "Review ad copy",
+          clip: reviewScroller(page),
+          pad: 4,
+        },
+      ],
+    });
     await page.close();
   }
 
@@ -719,7 +837,20 @@ async function journey() {
     await page.getByRole("heading", { name: "Review visual concepts" }).waitFor();
     await settle(page, { pinHeader: false });
     await scrollToLocator(page, review(page));
-    await frame(page, "7 · Review the visual concepts before images render", 2.0);
+    await frame(page, {
+      phase: "Reviews",
+      title: "Shape the visuals",
+      caption: "Change a prompt, aspect ratio or style before any image is rendered.",
+      hold_ms: 3400,
+      highlights: [
+        {
+          target: reviewScroller(page).locator("> div").first(),
+          label: "Tweak visual concepts before images render",
+          clip: reviewScroller(page),
+          pad: 4,
+        },
+      ],
+    });
     await page.close();
   }
 
@@ -735,9 +866,19 @@ async function journey() {
       ],
       st: state,
     });
-    await page.getByRole("button", { name: "View results" }).first().waitFor();
+    const viewResults = page.getByRole("button", { name: "View results" }).first();
+    await viewResults.waitFor();
     await settle(page, { pinHeader: false });
-    await frame(page, "8 · All stages done, so open the results", 2.0);
+    await frame(page, {
+      phase: "Images & eval",
+      title: "Images rendered and judged",
+      caption: "Images are generated and every creative is scored by an AI judge, then saved.",
+      hold_ms: 3200,
+      highlights: [
+        { target: spine(page), label: "Every stage done" },
+        { target: viewResults, label: "Open the results", pad: 6 },
+      ],
+    });
     await page.close();
   }
 
@@ -753,7 +894,29 @@ async function journey() {
       () => [...document.querySelectorAll("img")].filter((im) => im.naturalWidth > 0).length >= 4
     );
     await settle(page, { pinHeader: false });
-    await frame(page, "9 · Compare the scored creatives on the contact sheet", 3.0);
+    const firstProof = page.locator('section[aria-labelledby="proofs-heading"] li').first();
+    await frame(page, {
+      phase: "Results",
+      title: "Compare the creatives",
+      caption: "The contact sheet shows every image with its headline and a pass or fail per score.",
+      hold_ms: 4000,
+      highlights: [
+        {
+          target: page
+            .getByText(/ad copies and .* visuals pass/)
+            .first()
+            .locator('xpath=ancestor::div[contains(@class,"rounded-lg")][1]'),
+          label: "Pass rate at a glance",
+          pad: 3,
+        },
+        {
+          target: firstProof.locator("div.border-t").first(),
+          label: "Scores per creative",
+          pad: 6,
+          place: "below",
+        },
+      ],
+    });
 
     await page.locator('section[aria-labelledby="proofs-heading"] li button').first().click();
     await page.getByRole("dialog").waitFor();
@@ -761,14 +924,40 @@ async function journey() {
       [...document.querySelectorAll('[role="dialog"] img')].some((im) => im.naturalWidth > 0)
     );
     await page.waitForTimeout(300);
-    await frame(page, "10 · Open a proof for its copy, prompt and scores", 3.0);
+    await frame(page, {
+      phase: "Results",
+      title: "Open a proof",
+      caption: "Each creative breaks its score down by dimension, with strengths and fixes.",
+      hold_ms: 3600,
+      highlights: [
+        {
+          target: page.getByRole("dialog").locator("ul").filter({ hasText: "Strategy fit" }).first(),
+          label: "Why it scored that way",
+          pad: 6,
+          place: "below",
+        },
+      ],
+    });
     await page.keyboard.press("Escape");
     await page.getByRole("dialog").waitFor({ state: "detached" });
 
     const trigger = page.getByRole("button", { name: "Research report" });
     await trigger.click();
     await scrollToLocator(page, trigger, 90);
-    await frame(page, "11 · Read the research behind the creatives", 2.6);
+    const summaryHeading = page.getByRole("heading", { name: "Executive Summary" }).first();
+    await frame(page, {
+      phase: "Results",
+      title: "Read the research",
+      caption: "The research behind the creatives reads like a brief, with numbered citations.",
+      hold_ms: 3200,
+      highlights: [
+        {
+          target: [summaryHeading, summaryHeading.locator("xpath=following-sibling::ul[1]")],
+          label: "Readable report with sources",
+          place: "right",
+        },
+      ],
+    });
     await page.close();
   }
 
@@ -778,11 +967,24 @@ async function journey() {
     await page.goto(`${BASE}/runs`, { waitUntil: "networkidle" });
     await page.getByRole("button", { name: /Duplicate brief/ }).first().waitFor();
     await settle(page, { pinHeader: false });
-    await frame(page, "12 · Find past runs and duplicate a brief", 2.4);
+    await frame(page, {
+      phase: "History",
+      title: "Find past runs",
+      caption: "Every run is kept; duplicate a brief to start a new run from an old one.",
+      hold_ms: 3600,
+      highlights: [
+        {
+          target: page.locator('section[aria-label="Run history"]'),
+          label: "Every run, with Duplicate brief",
+          pad: 4,
+          place: "below",
+        },
+      ],
+    });
     await page.close();
   }
 
-  writeFileSync(join(JOURNEY_OUT, "frames.json"), JSON.stringify(frames, null, 2));
+  writeFileSync(join(JOURNEY_OUT, "journey-frames.json"), JSON.stringify(frames, null, 2));
   await context.close();
   await browser.close();
   console.log("done →", JOURNEY_OUT);
