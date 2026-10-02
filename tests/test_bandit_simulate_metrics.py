@@ -2,6 +2,7 @@
 ``bandit.metrics`` / ``bandit.aggregate``)."""
 
 import json
+import re
 
 import jax
 import numpy as np
@@ -126,6 +127,11 @@ def test_log_checkpoints():
     assert cps[0] == 1 and cps[-1] == 20000
     assert cps == sorted(set(cps))
     assert metrics.log_checkpoints(10) == list(range(1, 11))
+    lin = metrics.linear_checkpoints(1000, 200)
+    assert len(lin) == 200 and lin[0] == 5 and lin[-1] == 1000
+    assert metrics.make_checkpoints(1000, 200, "linear") == lin
+    with pytest.raises(ValueError):
+        metrics.make_checkpoints(1000, 50, "cubic")
 
 
 def test_steps_to_converge_synthetic():
@@ -279,6 +285,6 @@ def test_bandit_not_imported_by_runserver_or_agents():
         str(p)
         for pkg in pkgs
         for p in (root / pkg).rglob("*.py")
-        if "import bandit" in p.read_text() or "from bandit" in p.read_text()
+        if re.search(r"^\s*(from|import)\s+bandit\b", p.read_text(), re.MULTILINE)
     ]
     assert offenders == []

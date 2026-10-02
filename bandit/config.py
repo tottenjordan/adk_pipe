@@ -26,6 +26,7 @@ CTR_MODES: tuple[str, ...] = ("demo", "realistic")
 REWARD_MODES: tuple[str, ...] = ("click", "engaged")
 MIN_ARMS, MAX_ARMS = 2, 4
 SCENARIO_DIR = Path(__file__).parent / "scenarios"
+_OVERALL_PARTS = ("ad_copy_overall", "visual_overall")
 
 
 @dataclass(frozen=True)
@@ -46,6 +47,10 @@ class ArmSpec:
     def overall(self) -> float:
         if "overall" in self.scores:
             return float(self.scores["overall"])
+        # api arms (contracts §6): mean of the ad-copy and visual overall scores
+        parts = [self.scores[k] for k in _OVERALL_PARTS if k in self.scores]
+        if parts:
+            return float(sum(parts) / len(parts))
         if not self.scores:
             return 0.5
         return float(sum(self.scores.values()) / len(self.scores))

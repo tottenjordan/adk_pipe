@@ -238,7 +238,8 @@ def build_true_model(
             u[s_idx, w] += best_other + lift_logit - v[w]
 
     # alpha by bisection on a fixed calibration sample
-    seg_logits = np.log(np.array([seg.weight for seg in sc.segments]))
+    with np.errstate(divide="ignore"):  # zero-weight segments -> -inf logits
+        seg_logits = np.log(np.array([seg.weight for seg in sc.segments]))
     with np.errstate(divide="ignore"):
         level_logits = np.log(level_probs)
     partial = TrueModel(

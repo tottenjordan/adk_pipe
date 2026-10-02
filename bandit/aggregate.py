@@ -16,12 +16,18 @@ Output (snake_case mirror of §5)::
 
 - ``Band`` = ``{mean, lo, hi}`` per checkpoint: mean ± t₀.₉₇₅(n-1)·sd/√n
   (sample sd; lo = hi = mean when n = 1).
-- ``totals.std`` is the population std (ddof=0), like the notebooks' np.std.
-- ``policies`` order: ``linear_ts`` first, ``oracle`` last, others in first-seen
-  order. The *endpoint policy* is ``policies[0]`` (``linear_ts`` when present).
-- ``arms``: ``impressions`` = mean per episode, ``estimated_ctr`` = pooled
-  clicks / pooled impressions, ``true_ctr`` = mean across episodes.
-- ``per_segment.optimal_arm`` = most common per-episode value.
+- ``totals.std`` is the sample std (ddof=1; 0 for one episode).
+- ``policies`` order: ``linear_ts``, then the known baselines in contract order
+  (``ucb1``, ``epsilon_greedy``, ``beta_bernoulli_ts``, ``uniform``), then any
+  other labels (e.g. ``linear_ts:discount=0.98``) sorted, ``oracle`` last.
+- ``arm_share`` and ``arms`` come from ``linear_ts`` rows only (empty if absent):
+  ``impressions`` = summed over episodes, ``estimated_ctr`` = pooled clicks /
+  pooled impressions, ``true_ctr`` = mean across episodes.
+- ``per_segment.optimal_arm`` = most common per-episode value (ties -> the
+  larger creative id); segments sorted by name.
+
+These semantics deliberately match the api's own aggregator
+(``runserver/experiments_metrics.py``, PR 4), which emits the camelCase form.
 """
 
 from __future__ import annotations
@@ -82,16 +88,24 @@ def _normalise(row: Mapping[str, Any]) -> dict[str, Any]:
     return r
 
 
+ENDPOINT_POLICY = "linear_ts"
+_POLICY_ORDER = ("linear_ts", "ucb1", "epsilon_greedy", "beta_bernoulli_ts", "uniform")
+
+
 def order_policies(names: Iterable[str]) -> list[str]:
-    seen: list[str] = []
-    for n in names:
-        if n not in seen:
-            seen.append(n)
-    rank = {n: i for i, n in enumerate(seen)}
-    return sorted(
-        seen,
-        key=lambda n: (0 if n == "linear_ts" else 2 if n == "oracle" else 1, rank[n]),
-    )
+    """``linear_ts``, known baselines, other labels (sorted), ``oracle`` last."""
+    present = set(names)
+    known = [p for p in _POLICY_ORDER if p in present]
+    extra = sorted(present - set(_POLICY_ORDER) - {"oracle"})
+    return known + extra + (["oracle"] if "oracle" in present else [])
+
+
+def sample_std(values: Sequence[float]) -> float:
+    n = len(values)
+    if n < 2:
+        return 0.0
+    mean = sum(values) / n
+    return math.sqrt(sum((v - mean) ** 2 for v in values) / (n - 1))
 
 
 def aggregate_episode_metrics(
@@ -130,12 +144,10 @@ def aggregate_episode_metrics(
     totals = {}
     for p, rs in by_policy.items():
         vals = [float(r["total_reward"]) for r in rs]
-        mean = sum(vals) / len(vals)
-        std = math.sqrt(sum((v - mean) ** 2 for v in vals) / len(vals))
-        totals[p] = {"mean": _r(mean), "std": _r(std)}
+        totals[p] = {"mean": _r(sum(vals) / len(vals)), "std": _r(sample_std(vals))}
 
-    endpoint = by_policy[policies[0]]
-    arm_ids = list(endpoint[0]["arm_stats"])
+    endpoint = by_policy.get(ENDPOINT_POLICY, [])
+    arm_ids = list(endpoint[0]["arm_stats"]) if endpoint else []
     arm_share = {
         cid: [
             _r(sum(col) / len(col))
@@ -146,12 +158,12 @@ def aggregate_episode_metrics(
     arms = []
     for cid in arm_ids:
         stats = [r["arm_stats"][cid] for r in endpoint]
-        imps = sum(s["impressions"] for s in stats)
+        imps = sum(int(s["impressions"]) for s in stats)
         clicks = sum(s["clicks"] for s in stats)
         arms.append(
             {
                 "creative_id": cid,
-                "impressions": _r(imps / len(stats)),
+                "impressions": imps,
                 "estimated_ctr": _r(clicks / imps) if imps else 0.0,
                 "true_ctr": _r(sum(s["true_ctr"] for s in stats) / len(stats)),
             }
@@ -161,12 +173,13 @@ def aggregate_episode_metrics(
     segments: list[str] = []
     for r in rows:
         segments.extend(s for s in r["per_segment"] if s not in segments)
-    for seg in segments:
-        opt = Counter(
+    for seg in sorted(segments):
+        votes = Counter(
             r["per_segment"][seg]["optimal_arm"]
             for r in rows
             if seg in r["per_segment"]
-        ).most_common(1)[0][0]
+        )
+        opt = max(votes, key=lambda a: (votes[a], a))
         pols = {}
         for p, rs in by_policy.items():
             vals = [r["per_segment"][seg] for r in rs if seg in r["per_segment"]]
@@ -202,7 +215,7 @@ def summarize_totals(rows: Sequence[Mapping[str, Any]]) -> dict[str, dict[str, A
         for key in ("total_reward", "total_clicks", "cumulative_regret", "pct_optimal"):
             vals = [float(r[key]) for r in rs]
             m, lo, hi = mean_ci(vals)
-            std = math.sqrt(sum((v - m) ** 2 for v in vals) / len(vals))
+            std = sample_std(vals)
             summary[key] = {"mean": _r(m), "std": _r(std), "lo": _r(lo), "hi": _r(hi)}
         conv = [
             r["steps_to_converge"] for r in rs if r.get("steps_to_converge") is not None

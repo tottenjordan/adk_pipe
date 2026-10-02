@@ -63,6 +63,8 @@ def simulate(
     judge_wrong: float | None = None,
     noise_var: float | None = None,
     log_propensity: bool = True,
+    num_checkpoints: int = 50,
+    checkpoint_spacing: str = "log",
     experiment_id: str = "sim",
 ) -> dict[str, Any]:
     """Run a simulation and return the JSON-ready output document."""
@@ -100,7 +102,7 @@ def simulate(
         scenario=sc,
         log_propensity=log_propensity,
     )
-    rows = experiment_rows(result)
+    rows = experiment_rows(result, num_checkpoints, checkpoint_spacing)
     env = result.env
     pre = envm.marginal_ctrs(env, jax.random.key(seed + 1), t=0)
     post = envm.marginal_ctrs(env, jax.random.key(seed + 1), t=cfg.horizon - 1)
@@ -169,6 +171,8 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--judge-wrong", type=float, default=None)
     s.add_argument("--noise-var", type=float, default=None)
     s.add_argument("--no-propensity", action="store_true", help="skip MC propensities")
+    s.add_argument("--num-checkpoints", type=int, default=50)
+    s.add_argument("--checkpoint-spacing", choices=("log", "linear"), default="log")
     s.add_argument("--experiment-id", default="sim")
     s.add_argument("--out", type=Path, required=True)
     return parser
@@ -193,6 +197,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         judge_wrong=args.judge_wrong,
         noise_var=args.noise_var,
         log_propensity=not args.no_propensity,
+        num_checkpoints=args.num_checkpoints,
+        checkpoint_spacing=args.checkpoint_spacing,
         experiment_id=args.experiment_id,
     )
     args.out.parent.mkdir(parents=True, exist_ok=True)

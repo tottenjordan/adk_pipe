@@ -69,6 +69,19 @@ def test_validation_errors(over):
         load_experiment_config(_cfg(**over))
 
 
+def test_arm_overall_resolution():
+    # contracts §6: api arms carry ad_copy_overall + visual_overall, no "overall"
+    api_arm = ArmSpec(
+        "c", "C", {"ad_copy_overall": 0.8, "visual_overall": 0.6, "audience_fit": 0.1}
+    )
+    assert api_arm.overall == pytest.approx(0.7)
+    assert api_arm.score("stopping_power") == pytest.approx(0.7)
+    assert api_arm.score("audience_fit") == pytest.approx(0.1)
+    assert ArmSpec("x", "X", {"overall": 0.4, "a": 1.0}).overall == 0.4
+    assert ArmSpec("y", "Y", {"a": 0.2, "b": 0.4}).overall == pytest.approx(0.3)
+    assert ArmSpec("z", "Z", {}).overall == 0.5
+
+
 def test_default_arms_and_scenarios():
     arms = default_arms(3)
     assert len(arms) == 3 and len({a.creative_id for a in arms}) == 3

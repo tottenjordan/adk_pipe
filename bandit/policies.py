@@ -10,6 +10,7 @@ Names follow the contract: ``linear_ts``, ``ucb1``, ``epsilon_greedy``,
 from __future__ import annotations
 
 import dataclasses
+import functools
 
 import jax
 import jax.numpy as jnp
@@ -88,6 +89,7 @@ def _parse_spec(spec: str) -> tuple[str, dict[str, float]]:
     return name.strip(), kwargs
 
 
+@functools.lru_cache(maxsize=128)
 def make_policy(
     spec: str,
     *,
@@ -95,7 +97,11 @@ def make_policy(
     reward_mode: str = "click",
     log_propensity: bool = True,
 ) -> Policy:
-    """Build a policy from a spec string (see module docstring)."""
+    """Build a policy from a spec string (see module docstring).
+
+    Cached: identical arguments return the same ``Policy`` object, so repeated
+    simulations reuse the jit-compiled episode function.
+    """
     name, kw = _parse_spec(spec)
 
     def take(allowed: set[str]) -> dict[str, float]:

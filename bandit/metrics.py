@@ -194,11 +194,29 @@ def episode_metrics(
     }
 
 
-def experiment_rows(result: Any, num_checkpoints: int = 50) -> list[dict[str, Any]]:
+def linear_checkpoints(horizon: int, num: int) -> list[int]:
+    """``num`` evenly spaced round counts ending at T (offline drift/injection
+    plots that need resolution late in the episode; the contract default is
+    ``log_checkpoints``)."""
+    pts = np.unique(np.round(np.linspace(horizon / num, horizon, num)).astype(int))
+    return [int(p) for p in pts if p >= 1]
+
+
+def make_checkpoints(horizon: int, num: int = 50, spacing: str = "log") -> list[int]:
+    if spacing == "log":
+        return log_checkpoints(horizon, num)
+    if spacing == "linear":
+        return linear_checkpoints(horizon, num)
+    raise ValueError(f"unknown checkpoint spacing {spacing!r}")
+
+
+def experiment_rows(
+    result: Any, num_checkpoints: int = 50, spacing: str = "log"
+) -> list[dict[str, Any]]:
     """Per-(episode, policy) rows for a ``bandit.simulate.ExperimentResult``."""
     env = result.env
     horizon = result.cfg.horizon
-    cps = log_checkpoints(horizon, num_checkpoints)
+    cps = make_checkpoints(horizon, num_checkpoints, spacing)
     rows = []
     for policy in result.policies:
         outs = result.results[policy]
