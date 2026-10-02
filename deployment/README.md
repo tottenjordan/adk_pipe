@@ -10,6 +10,7 @@ see the [main README](../README.md).
 - [Deploying Agents to Agent Engine](#deploying-agents-to-agent-engine)
 - [Cloud Run Functions Fan-out Pattern](#cloud-run-functions-fan-out-pattern)
 - [Frontend + api_server on Cloud Run](#frontend--api_server-on-cloud-run)
+- [Bandit experiments](#bandit-experiments)
 - [Eval CI (WIF)](#eval-ci-wif)
 - [Alternative Deployment: deploy to Cloud Run instances](#alternative-deployment-deploy-to-cloud-run-instances)
 
@@ -96,7 +97,8 @@ existed need the additive migrations instead: `processing_started_at` /
 `processing_attempts` and `weakest_dimension_labels`, both under
 [3. Create event-driven functions and eventarc triggers](#3-create-event-driven-functions-and-eventarc-triggers).
 The nightly eval CI uses an isolated dataset cloned from these schemas (see
-[Eval CI (WIF)](#eval-ci-wif)).
+[Eval CI (WIF)](#eval-ci-wif)). The script also creates the three `bandit_*` tables used by
+deployed-creative experiments; see [Bandit experiments](#bandit-experiments).
 
 ---
 
@@ -1090,6 +1092,96 @@ credential; `runserver/authz.py` logs only the rejection reason, rate-limited.
 **Rollback:** `--update-env-vars USER_AUTHZ_MODE=observe` on the api (keeps the new code,
 stops enforcing). Always move the api to `observe` *before* rolling back web alone —
 an old proxy sends no `X-TT-User`, so an enforcing api would 401 every UI call.
+
+---
+
+## Bandit experiments
+
+The api can deploy a run's selected creatives as the arms of a contextual bandit (a
+Linear Thompson Sampling CPR container on a Vertex AI endpoint), drive synthetic traffic at
+it with a Cloud Run Job, and chart the results. Contracts: [`docs/bandit/contracts.md`](../docs/bandit/contracts.md);
+plan: [`docs/plans/2026-10-02-bandit-experiments.md`](../docs/plans/2026-10-02-bandit-experiments.md).
+
+**Backend pieces (`runserver/`):** `experiments.py` (REST routes under `/experiments`, status
+machine, arm snapshot, TTL reconcile), `experiments_store.py` (BigQuery MERGE upsert into
+`bandit_experiments`), `experiments_deploy.py` (`VertexDeployer` over
+`deployment/bandit/endpoint.py`), `experiments_jobs.py` (`CloudRunJobsRunner`, which runs the
+traffic job with env overrides `EXPERIMENT_ID`, `CONFIG_URI`, `ENDPOINT_ID`, `EPISODES`,
+`HORIZON`) and `experiments_metrics.py` (pure aggregation of `bandit_episode_metrics`).
+`deployment/async_app.py` wires them up and runs a TTL reaper every 5 minutes that tears down
+endpoints past `ttl_expires_at` (status `expired`). At most one active experiment
+(`deploying`, `ready`, `running_traffic`, `stopping`) per user, because each one holds a
+dedicated `n2-standard-2` replica.
+
+### Tables
+
+Created by `deployment/create_bq_tables.sh` (idempotent; schemas exactly per contracts §3,
+JSON payloads as `STRING`):
+
+| Table (env var, default) | Written by | Contents |
+|---|---|---|
+| `bandit_experiments` (`BQ_TABLE_BANDIT_EXPERIMENTS`) | the api (MERGE on `experiment_id`); the traffic job updates `progress` | One row per experiment: owner, session, status, arms JSON, config URI, model/endpoint/deployed-model ids, TTL, traffic execution, error |
+| `bandit_events` (`BQ_TABLE_BANDIT_EVENTS`) | the traffic job (`insertId = request_id`) | One row per endpoint-policy round; partitioned by `DATE(ts)`, clustered on `experiment_id` |
+| `bandit_episode_metrics` (`BQ_TABLE_BANDIT_METRICS`) | the traffic job | One row per (episode, policy): totals, regret, % optimal, and the `curve` / `arm_share` / `per_segment` / `arm_stats` JSON |
+
+```bash
+bq mk -t --time_partitioning_field ts --time_partitioning_type DAY \
+  --clustering_fields experiment_id \
+  $BQ_PROJECT_ID:$BQ_DATASET_ID.bandit_events \
+  experiment_id:STRING,episode:INTEGER,round:INTEGER,batch:INTEGER,request_id:STRING,ts:TIMESTAMP,policy:STRING,segment:STRING,context:STRING,arm:STRING,propensity:FLOAT,reward:FLOAT,clicked:INTEGER,dwell_s:FLOAT,p_chosen:FLOAT,p_optimal:FLOAT,optimal_arm:STRING,regret:FLOAT,model_version:STRING,latency_ms:FLOAT
+```
+
+(The other two tables are plain `bq mk -t`; see the script for their column lists.)
+
+### Environment (api service)
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `BANDIT_DEPLOY_MODE` | `vertex` | `vertex` = BigQuery store + Vertex endpoint + Cloud Run Job. `fake` = in-memory store, instant fake endpoint and fake job (local dev). `vertex` falls back to `fake` with a warning when `BQ_PROJECT_ID`/`BQ_DATASET_ID` are unset |
+| `BANDIT_ARTIFACTS_PREFIX` | `gs://$GOOGLE_CLOUD_STORAGE_BUCKET/bandit` | Where `{experiment_id}/experiment.json` (the model's `artifact_uri`, i.e. `AIP_STORAGE_URI`) is written |
+| `BANDIT_SERVING_IMAGE` | (required in `vertex` mode) | The CPR serving image URI |
+| `BANDIT_TRAFFIC_JOB` | `trend-trawler-bandit-traffic` | Cloud Run Job name (in `GCP_REGION`) |
+| `BANDIT_TTL_MINUTES` | `120` | Default lifetime; a request's `ttlMinutes` overrides it (clamped to 10–480) |
+| `BANDIT_ENDPOINT_SA` | (none: Vertex default) | Service account the deployed model runs as (`tt-bandit-endpoint-sa`) |
+| `BQ_TABLE_BANDIT_EXPERIMENTS` / `_EVENTS` / `_METRICS` | `bandit_experiments` / `bandit_events` / `bandit_episode_metrics` | Table names in `BQ_DATASET_ID` |
+
+The endpoint and model are created in `GCP_REGION` (default `us-central1`) with labels
+`app=trend-trawler,experiment=<id>`, and the container always gets
+`VERTEX_CPR_WEB_CONCURRENCY=1` (one worker, one in-memory posterior) on exactly one replica.
+Manual lifecycle CLI: `python -m deployment.bandit.endpoint --create|--state|--delete`.
+
+### IAM (documentation only; run where GCP creds exist)
+
+```bash
+gcloud iam service-accounts create tt-bandit-endpoint-sa --display-name="trend-trawler bandit endpoint"
+gcloud iam service-accounts create tt-bandit-traffic-sa  --display-name="trend-trawler bandit traffic job"
+ENDPOINT_SA=tt-bandit-endpoint-sa@$PROJECT.iam.gserviceaccount.com
+TRAFFIC_SA=tt-bandit-traffic-sa@$PROJECT.iam.gserviceaccount.com
+API_SA=tt-api-sa@$PROJECT.iam.gserviceaccount.com
+
+# Endpoint SA: read/write experiment.json + checkpoints under gs://$GCS_BUCKET/bandit/
+gcloud storage buckets add-iam-policy-binding gs://$GCS_BUCKET \
+  --member="serviceAccount:$ENDPOINT_SA" --role=roles/storage.objectAdmin
+# Traffic SA: call the endpoint, write events/metrics, read the config
+for ROLE in roles/aiplatform.user roles/bigquery.dataEditor roles/bigquery.jobUser \
+            roles/storage.objectViewer; do
+  gcloud projects add-iam-policy-binding $PROJECT \
+    --member="serviceAccount:$TRAFFIC_SA" --role="$ROLE" --condition=None
+done
+# api SA: run the job with env overrides, and act as both SAs (deploy as the endpoint SA;
+# the job runs as the traffic SA). aiplatform.user (model upload, endpoint
+# create/deploy/undeploy/delete) is already granted in "1. IAM" above.
+gcloud run jobs add-iam-policy-binding trend-trawler-bandit-traffic --region=$REGION \
+  --member="serviceAccount:$API_SA" --role=roles/run.jobsExecutorWithOverrides
+for SA in $ENDPOINT_SA $TRAFFIC_SA; do
+  gcloud iam service-accounts add-iam-policy-binding $SA \
+    --member="serviceAccount:$API_SA" --role=roles/iam.serviceAccountUser
+done
+```
+
+`tt-api-sa` also needs `roles/bigquery.dataEditor` + `roles/bigquery.jobUser` (already granted
+in "1. IAM") for `bandit_experiments` and to read `bandit_episode_metrics`, and
+`roles/storage.objectAdmin` (already granted) to write `experiment.json`.
 
 ---
 
