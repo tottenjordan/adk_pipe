@@ -371,6 +371,22 @@ class TestBuildEvalBqRow:
         }
         assert self._row(report=report)["weakest_dimensions"] == ""
 
+    def test_weakest_dimension_labels_human_readable(self):
+        report = {
+            **SAMPLE_REPORT,
+            "summary": {
+                **SAMPLE_REPORT["summary"],
+                "weakest_dimensions": ["trend_visual_connection", "copy_quality"],
+            },
+        }
+        row = self._row(report=report)
+        assert row["weakest_dimension_labels"] == "Trend connection, Copy quality"
+        empty = {
+            **SAMPLE_REPORT,
+            "summary": {**SAMPLE_REPORT["summary"], "weakest_dimensions": []},
+        }
+        assert self._row(report=empty)["weakest_dimension_labels"] == ""
+
     def test_research_gaps_pipe_joined_from_warnings(self):
         report = {
             **SAMPLE_REPORT,
@@ -406,6 +422,7 @@ class TestBuildEvalBqRow:
             "visual_concepts_passed",
             "avg_visual_score",
             "weakest_dimensions",
+            "weakest_dimension_labels",
             "eval_report_gcs_uri",
             "research_gaps",
         }

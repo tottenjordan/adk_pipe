@@ -9,6 +9,7 @@ from google.cloud import bigquery
 
 from agent_common.clients import get_bigquery_client
 from agent_common.idempotency import stable_row_id
+from creative_eval.dimensions import dimension_labels_csv
 
 from .config import config
 
@@ -51,6 +52,8 @@ def build_eval_bq_row(
         "visual_concepts_passed": int(summary.get("visual_concepts_passed", 0)),
         "avg_visual_score": float(summary.get("avg_visual_score", 0.0)),
         "weakest_dimensions": ",".join(weakest),
+        # Same dimensions, readable ("Trend connection, Copy quality") for BI/UI.
+        "weakest_dimension_labels": dimension_labels_csv(weakest),
         "eval_report_gcs_uri": eval_report_gcs_uri,
         # Degradation notes (research retries exhausted, etc.) surfaced from the
         # eval report's structured `warnings`. Empty string when research was clean.
@@ -76,6 +79,7 @@ EVAL_COLUMN_TYPES = {
     "visual_concepts_passed": "INT64",
     "avg_visual_score": "FLOAT64",
     "weakest_dimensions": "STRING",
+    "weakest_dimension_labels": "STRING",
     "eval_report_gcs_uri": "STRING",
     "research_gaps": "STRING",
 }
