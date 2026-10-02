@@ -1,0 +1,20 @@
+# Build + push the bandit traffic job image (bandit_traffic/Dockerfile).
+# Run from the repo root (the build context must include bandit/ and bandit_traffic/):
+#   gcloud builds submit --config deployment/bandit/cloudbuild.traffic.yaml \
+#     --substitutions=SHORT_SHA=$(git rev-parse --short HEAD) .
+# Deploy the job afterwards with deployment/bandit/deploy_traffic_job.sh.
+steps:
+  - id: build
+    name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -f
+      - bandit_traffic/Dockerfile
+      - -t
+      - us-central1-docker.pkg.dev/$PROJECT_ID/cpr/trend-trawler-bandit-traffic:$SHORT_SHA
+      - .
+images:
+  - us-central1-docker.pkg.dev/$PROJECT_ID/cpr/trend-trawler-bandit-traffic:$SHORT_SHA
+options:
+  logging: CLOUD_LOGGING_ONLY
+timeout: 1800s

@@ -83,6 +83,52 @@ def schedule_masks(
     return masks
 
 
+def episode_streams(key: Array) -> tuple[Array, Array, Array]:
+    """An episode key's independent ``(contexts, rewards, policy)`` streams."""
+    k_ctx, k_rew, k_pol = (jax.random.fold_in(key, i) for i in range(3))
+    return k_ctx, k_rew, k_pol
+
+
+def batch_draws(
+    model: envm.TrueModel,
+    k_ctx: Array,
+    k_rew: Array,
+    b: Array | int,
+    batch_size: int,
+    reward_mode: str,
+    eligible: Array,
+) -> dict[str, Array]:
+    """Everything the environment draws for batch ``b`` (policy-independent).
+
+    ``segment`` (n,), ``levels`` (n, G), ``X`` (n, d), ``t`` (n,) round indices,
+    ``p`` / ``mean`` (n, K) true click probs / expected rewards, ``clicked_all`` /
+    ``reward_all`` (n, K) pre-sampled counterfactual outcomes (common random
+    numbers) and ``opt`` (n,) the optimal eligible arm. The simulator scans this;
+    the traffic job (``bandit_traffic``) calls it per batch so the endpoint and
+    the locally replayed baselines see identical users and coin flips.
+    """
+    seg, levels, X = envm.sample_contexts(
+        jax.random.fold_in(k_ctx, b), model, batch_size
+    )
+    t = b * batch_size + jnp.arange(batch_size)
+    p = envm.click_probs(model, X, seg, t)
+    mean = envm.expected_rewards(model, p, seg, reward_mode)
+    clicked_all, reward_all = envm.sample_rewards(
+        jax.random.fold_in(k_rew, b), p, reward_mode, model.dwell_means[seg]
+    )
+    return {
+        "segment": seg,
+        "levels": levels,
+        "X": X,
+        "t": t,
+        "p": p,
+        "mean": mean,
+        "clicked_all": clicked_all,
+        "reward_all": reward_all,
+        "opt": envm.optimal_arms(mean, eligible),
+    }
+
+
 def _episode(
     policy: Policy,
     batch_size: int,
@@ -95,20 +141,13 @@ def _episode(
     masks: Array,
     key: Array,
 ) -> dict[str, Array]:
-    k_ctx, k_rew, k_pol = (jax.random.fold_in(key, i) for i in range(3))
+    k_ctx, k_rew, k_pol = episode_streams(key)
 
     def step(state: Any, xs: tuple[Array, Array]) -> tuple[Any, dict[str, Array]]:
         b, elig = xs
-        seg, _, X = envm.sample_contexts(
-            jax.random.fold_in(k_ctx, b), model, batch_size
-        )
-        t = b * batch_size + jnp.arange(batch_size)
-        p = envm.click_probs(model, X, seg, t)
-        mean = envm.expected_rewards(model, p, seg, reward_mode)
-        clicked_all, reward_all = envm.sample_rewards(
-            jax.random.fold_in(k_rew, b), p, reward_mode, model.dwell_means[seg]
-        )
-        opt = envm.optimal_arms(mean, elig)
+        d = batch_draws(model, k_ctx, k_rew, b, batch_size, reward_mode, elig)
+        seg, X, p, mean = d["segment"], d["X"], d["p"], d["mean"]
+        clicked_all, reward_all, opt = d["clicked_all"], d["reward_all"], d["opt"]
         arms, prop = policy.select(jax.random.fold_in(k_pol, b), state, X, elig, mean)
 
         def pick(m: Array, a: Array) -> Array:
@@ -220,6 +259,17 @@ def episode_keys(seed: int, scenario: str, episodes: int) -> Array:
     return jax.vmap(lambda e: jax.random.fold_in(stream, e))(jnp.arange(episodes))
 
 
+def build_environment(
+    cfg: ExperimentConfig, *, scenario: ScenarioConfig | None = None
+) -> envm.Environment:
+    """The experiment's ground truth (model key = ``fold_in(base, 0)``)."""
+    return envm.build_true_model(
+        cfg,
+        jax.random.fold_in(scenario_key(cfg.seed, cfg.scenario), 0),
+        scenario=scenario,
+    )
+
+
 @dataclass
 class ExperimentResult:
     cfg: ExperimentConfig
@@ -241,11 +291,7 @@ def run_experiment(
     """Run every policy for ``episodes`` (default ``cfg.episodes``) episodes on the
     ground truth built from ``cfg`` (model key = ``fold_in(base, 0)``), with
     common random numbers across policies."""
-    env = envm.build_true_model(
-        cfg,
-        jax.random.fold_in(scenario_key(cfg.seed, cfg.scenario), 0),
-        scenario=scenario,
-    )
+    env = build_environment(cfg, scenario=scenario)
     keys = episode_keys(cfg.seed, cfg.scenario, episodes or cfg.episodes)
     result = ExperimentResult(cfg=cfg, env=env, policies=[], arm_schedule=arm_schedule)
     for spec in policies:

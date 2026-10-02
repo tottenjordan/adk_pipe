@@ -1,0 +1,9 @@
+# Bandit traffic job image (bandit_traffic/Dockerfile). Separate from the root
+# requirements.txt, which stays JAX-free. Pins match uv.lock.
+jax[cpu]==0.11.2
+numpy==2.5.3
+pyyaml==6.0.3
+google-cloud-aiplatform==2.2.0
+google-cloud-bigquery==3.45.2
+google-cloud-storage==3.15.0
+requests==2.34.2

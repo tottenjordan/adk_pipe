@@ -64,6 +64,10 @@ Requests go to `POST …:predict` with `{"instances": [...], "parameters": {...}
 
 `parameters` (optional, bounded): `exploration_scale` [0.1, 5], `propensity_samples` [100, 5000].
 
+Reward instances carry the **unscaled** reward (`click` mode: 0/1; `engaged` mode: click × dwell seconds, with `dwell_s` set). Like the simulator, the predictor divides engaged rewards by the scenario's `dwell_base_s` before its `update`. A reward is accepted only for a pending decision whose `arm` matches the chosen arm.
+
+The traffic job (PR 3) sends `request_id = "{experiment_id}-e{episode}-r{round}"`, where `round` is the 0-based round index within the episode (also `bandit_events.round`). It splits a batch into requests of at most 500 instances and about 1.2 MB, sends one `reset` per episode with `seed = (experiment seed × 1000003 + episode) mod 2³¹`, and sends a batch's rewards only after all of that batch's decisions.
+
 The CPR container is always deployed with `VERTEX_CPR_WEB_CONCURRENCY=1`, i.e. one worker process holding a single in-memory posterior. `AIP_STORAGE_URI` holds `experiment.json` (a §1 `experiment_config_to_dict`) and `checkpoints/`.
 
 ## 3. BigQuery tables (DDL in `deployment/create_bq_tables.sh`, PR 4; written by PR 3 and PR 4)
