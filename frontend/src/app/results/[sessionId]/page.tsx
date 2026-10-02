@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback, use } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import {
   Collapsible,
   CollapsibleContent,
@@ -217,10 +217,8 @@ export default function ResultsPage({
       <div className="mx-auto max-w-4xl px-6 py-12">
         <div className="rounded-lg border border-border bg-card p-6">
           <p className="text-mark-fail">{error}</p>
-          <Link href="/">
-            <Button variant="outline" className="mt-4">
-              Back to home
-            </Button>
+          <Link href="/" className={buttonVariants({ variant: "outline", className: "mt-4" })}>
+            Back to home
           </Link>
         </div>
       </div>
@@ -360,10 +358,8 @@ export default function ResultsPage({
               Open portfolio gallery
             </Button>
           )}
-          <Link href="/">
-            <Button variant="outline" size="sm">
-              New run
-            </Button>
+          <Link href="/" className={buttonVariants({ variant: "outline", size: "sm" })}>
+            New run
           </Link>
         </div>
       </div>

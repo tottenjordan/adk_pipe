@@ -1,72 +1,48 @@
 import { describe, it, expect } from "vitest";
+import { isFormValid } from "@/lib/form-validation";
+import type { CampaignInput } from "@/lib/types";
 
-// Replicate form validation logic from page.tsx
-interface CampaignInput {
-  agent: "trend_scout" | "creative_agent";
-  brand: string;
-  targetAudience: string;
-  targetProduct: string;
-  keySellingPoints: string;
-  targetSearchTrend: string;
-}
+const base: CampaignInput = {
+  agent: "trend_scout",
+  brand: "PRS Guitars",
+  targetAudience: "Musicians aged 25-45",
+  targetProduct: "PRS SE CE24",
+  keySellingPoints: "Great tone, versatile",
+  targetSearchTrend: "",
+};
 
-function isFormValid(form: CampaignInput): boolean {
-  return !!(
-    form.brand &&
-    form.targetAudience &&
-    form.targetProduct &&
-    form.keySellingPoints &&
-    (form.agent !== "creative_agent" || form.targetSearchTrend)
-  );
-}
+const AGENTS = ["trend_scout", "creative_agent", "interactive_creative"] as const;
+const CREATIVE = ["creative_agent", "interactive_creative"] as const;
+const WITH_TREND = { targetSearchTrend: "tswift engaged" };
 
-describe("form validation", () => {
-  const base: CampaignInput = {
-    agent: "trend_scout",
-    brand: "PRS Guitars",
-    targetAudience: "Musicians aged 25-45",
-    targetProduct: "PRS SE CE24",
-    keySellingPoints: "Great tone, versatile",
-    targetSearchTrend: "",
-  };
-
-  it("is valid for trend_scout with all required fields", () => {
+describe("isFormValid", () => {
+  it("is valid for trend_scout without a trend", () => {
     expect(isFormValid(base)).toBe(true);
   });
 
-  it("is valid for trend_scout even without targetSearchTrend", () => {
-    expect(isFormValid({ ...base, targetSearchTrend: "" })).toBe(true);
+  it.each(CREATIVE)("needs a trend for %s", (agent) => {
+    expect(isFormValid({ ...base, agent })).toBe(false);
+    expect(isFormValid({ ...base, agent, targetSearchTrend: "   " })).toBe(false);
+    expect(isFormValid({ ...base, agent, ...WITH_TREND })).toBe(true);
   });
 
-  it("is invalid when brand is empty", () => {
-    expect(isFormValid({ ...base, brand: "" })).toBe(false);
+  it("does not need targetSearchTrend set at all for trend_scout", () => {
+    const { targetSearchTrend: _unused, ...rest } = base;
+    void _unused;
+    expect(isFormValid(rest)).toBe(true);
   });
 
-  it("is invalid when targetAudience is empty", () => {
-    expect(isFormValid({ ...base, targetAudience: "" })).toBe(false);
-  });
-
-  it("is invalid when targetProduct is empty", () => {
-    expect(isFormValid({ ...base, targetProduct: "" })).toBe(false);
-  });
-
-  it("is invalid when keySellingPoints is empty", () => {
-    expect(isFormValid({ ...base, keySellingPoints: "" })).toBe(false);
-  });
-
-  it("is invalid for creative_agent without targetSearchTrend", () => {
-    expect(
-      isFormValid({ ...base, agent: "creative_agent", targetSearchTrend: "" })
-    ).toBe(false);
-  });
-
-  it("is valid for creative_agent with targetSearchTrend", () => {
-    expect(
-      isFormValid({
-        ...base,
-        agent: "creative_agent",
-        targetSearchTrend: "tswift engaged",
-      })
-    ).toBe(true);
-  });
+  for (const agent of AGENTS) {
+    describe(agent, () => {
+      const valid = { ...base, agent, ...WITH_TREND };
+      it.each(["brand", "targetAudience", "targetProduct", "keySellingPoints"] as const)(
+        "is invalid when %s is empty or whitespace",
+        (field) => {
+          expect(isFormValid(valid)).toBe(true);
+          expect(isFormValid({ ...valid, [field]: "" })).toBe(false);
+          expect(isFormValid({ ...valid, [field]: "  \n " })).toBe(false);
+        },
+      );
+    });
+  }
 });

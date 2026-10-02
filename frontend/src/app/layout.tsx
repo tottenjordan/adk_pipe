@@ -52,14 +52,12 @@ export default function RootLayout({
               >
                 New run
               </Link>
-              {/* Plain <a> until the /runs page lands in P1: a <Link> would
-                  prefetch the 404 route (which never settles the network). */}
-              <a
+              <Link
                 href="/runs"
                 className="rounded-sm px-3 py-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
               >
                 Runs
-              </a>
+              </Link>
             </nav>
           </div>
         </header>
