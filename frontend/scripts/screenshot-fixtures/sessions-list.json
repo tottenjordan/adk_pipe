@@ -1,0 +1,79 @@
+[
+  {
+    "id": "sess-creative-prs",
+    "minutesAgo": 18,
+    "state": {
+      "ui_app": "creative_agent",
+      "agent_output_dir": "creative_output",
+      "brand": "Paul Reed Smith (PRS)",
+      "target_audience": "Millennials who follow jam bands (e.g., Widespread Panic and Phish), respond positively to nostalgic messages, and love surreal memes",
+      "target_product": "SE CE24 Electric Guitar",
+      "key_selling_points": "The 85/15 S Humbucker pickups deliver a wide tonal range, from thick humbucker tones to clear single-coil sounds, making the guitar suitable for various genres.",
+      "target_search_trends": "Powerball",
+      "reference_image_uri": "gs://reference-images-jt-trend-trawler/prs.png",
+      "reference_image_role": "product",
+      "visual_intent": "warm 70s concert-poster palette",
+      "__run_status": "done",
+      "eval_report_gcs_uri": "gs://demo/creative_output/creative_eval"
+    }
+  },
+  {
+    "id": "sess-running-pixel",
+    "minutesAgo": 3,
+    "state": {
+      "ui_app": "creative_agent",
+      "agent_output_dir": "creative_output",
+      "brand": "Google",
+      "target_product": "Pixel 10",
+      "target_search_trends": "{'target_search_trends': ['World Series']}"
+    }
+  },
+  {
+    "id": "sess-review-coors",
+    "minutesAgo": 52,
+    "state": {
+      "ui_app": "interactive_creative",
+      "agent_output_dir": "creative_output",
+      "brand": "Miller Coors",
+      "target_product": "Coors Light",
+      "target_search_trends": "Monday Night Football",
+      "__run_status": "done"
+    }
+  },
+  {
+    "id": "sess-trends-estee",
+    "minutesAgo": 190,
+    "state": {
+      "ui_app": "trend_scout",
+      "agent_output_dir": "trawler_output",
+      "brand": "Estee Lauder",
+      "target_product": "Advanced Night Repair",
+      "target_search_trends": { "target_search_trends": ["Harvest moon", "Daylight saving time", "Pumpkin spice"] },
+      "__run_status": "done",
+      "select_trends_markdown_gcs_uri": "gs://demo/trawler_output/selected_trends.md"
+    }
+  },
+  {
+    "id": "sess-failed-prs",
+    "minutesAgo": 1500,
+    "state": {
+      "ui_app": "creative_agent",
+      "agent_output_dir": "creative_output",
+      "brand": "Paul Reed Smith (PRS)",
+      "target_product": "SE CE24 Electric Guitar",
+      "target_search_trends": "Taylor Swift Eras",
+      "__run_status": "error"
+    }
+  },
+  {
+    "id": "sess-legacy-google",
+    "minutesAgo": 7200,
+    "state": {
+      "agent_output_dir": "creative_output",
+      "brand": "Google",
+      "target_product": "Pixel 10",
+      "target_search_trends": "['spam calls']",
+      "eval_report_gcs_uri": "gs://demo/creative_output/creative_eval"
+    }
+  }
+]
