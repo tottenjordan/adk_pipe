@@ -50,6 +50,7 @@ override-dependencies = [
 
 [dependency-groups]
 dev = [
+    "docker>=7.1.0",
     "jax[cpu]>=0.11.2",
     "matplotlib>=3.11.2",
     "pytest>=9.1.1",
