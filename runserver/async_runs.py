@@ -521,6 +521,43 @@ def merge_visual_concept_edits(
     return envelope, "\n".join(notes_lines)
 
 
+RESEARCH_EDIT_FIELD = "combined_final_cited_report"
+RESEARCH_EDIT_MAX_CHARS = 200_000
+
+
+def merge_research_edit(state: dict | None, edits: list | None) -> dict:
+    """Pure: turn a checkpoint-1 report edit into a state delta ({} = no-op).
+
+    Writes the raw report (read by the creative prompts) and re-renders
+    ``final_report_with_citations`` (read by the PDF tool) with the same
+    citation renderer the composer callback uses. Unchanged, blank, oversized
+    or non-string values are ignored."""
+    # Lazy import: importing anything under ``creative_agent`` runs its package
+    # ``__init__`` (which builds the full agent graph + a genai client), and this
+    # module must stay importable without agents/GCP creds (see the router note).
+    from creative_agent.citations import render_citations
+
+    state = state if isinstance(state, dict) else {}
+    for edit in edits or []:
+        if not isinstance(edit, dict) or edit.get("field") != RESEARCH_EDIT_FIELD:
+            continue
+        value = edit.get("value")
+        if not isinstance(value, str) or not value.strip():
+            return {}
+        if len(value) > RESEARCH_EDIT_MAX_CHARS:
+            return {}
+        if value.strip() == str(state.get(RESEARCH_EDIT_FIELD) or "").strip():
+            return {}
+        return {
+            RESEARCH_EDIT_FIELD: value,
+            "final_report_with_citations": render_citations(
+                value, state.get("sources") or {}
+            ),
+            "research_report_edited": True,
+        }
+    return {}
+
+
 async def _apply_visual_concept_edits(
     session_service, app_name, user_id, session_id, edits
 ) -> None:

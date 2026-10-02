@@ -18,6 +18,7 @@ from google.genai import types
 
 from runserver import async_runs
 from runserver.async_runs import (
+    RESEARCH_EDIT_MAX_CHARS,
     RUN_ERROR_KEY,
     RUN_STATUS_KEY,
     RUNSERVER_AUTHOR,
@@ -27,6 +28,7 @@ from runserver.async_runs import (
     events_since,
     get_root_agent,
     get_run_status,
+    merge_research_edit,
     merge_visual_concept_edits,
     router,
     start_resume,
@@ -707,6 +709,53 @@ def test_merge_handles_empty_and_missing_inputs():
     merged2, notes2 = merge_visual_concept_edits(None, [{"index": 0}])
     assert merged2 == {"visual_concepts": []}
     assert notes2 == ""
+
+
+# --- merge_research_edit (pure, checkpoint-1 report edit) -------------------
+
+SRC = {"src-1": {"title": "T", "url": "u"}}
+
+
+def test_research_edit_writes_raw_and_rendered_report():
+    delta = merge_research_edit(
+        {"combined_final_cited_report": "old", "sources": SRC},
+        [
+            {
+                "field": "combined_final_cited_report",
+                "value": 'new <cite source="src-1"/>',
+            }
+        ],
+    )
+    # render_citations prefixes each link with a space (existing composer
+    # behaviour), hence the double space.
+    assert delta == {
+        "combined_final_cited_report": 'new <cite source="src-1"/>',
+        "final_report_with_citations": "new  [T](u)",
+        "research_report_edited": True,
+    }
+
+
+def test_research_edit_ignores_unchanged_blank_wrong_field_and_bad_types():
+    st = {"combined_final_cited_report": "same", "sources": {}}
+    for edits in (
+        [{"field": "combined_final_cited_report", "value": " same "}],
+        [{"field": "combined_final_cited_report", "value": "   "}],
+        [{"field": "other", "value": "x"}],
+        [{"field": "combined_final_cited_report", "value": 5}],
+        None,
+    ):
+        assert merge_research_edit(st, edits) == {}
+
+
+def test_research_edit_rejects_oversized_value():
+    st = {"combined_final_cited_report": "a", "sources": {}}
+    edits = [
+        {
+            "field": "combined_final_cited_report",
+            "value": "x" * (RESEARCH_EDIT_MAX_CHARS + 1),
+        }
+    ]
+    assert merge_research_edit(st, edits) == {}
 
 
 def test_resume_with_edits_appends_state_delta_before_relaunch():
