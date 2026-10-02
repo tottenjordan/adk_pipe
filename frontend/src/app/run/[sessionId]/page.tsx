@@ -10,6 +10,7 @@ import { GcsWidget } from "@/components/gcs-widget";
 import { FileDown } from "lucide-react";
 import { agentLabel, isCreativeAgent } from "@/lib/agents";
 import { answeredReviewNames, currentStage, deriveStages } from "@/lib/run-stages";
+import { CONTINUE_MESSAGE, stoppedEarly } from "@/lib/run-completion";
 import {
   startRun,
   pollRun,
@@ -76,6 +77,9 @@ export default function RunPage({
   // Aborts the resume poll loop on unmount (handleResume is a click handler,
   // not an effect, so it can't own an effect-scoped AbortController itself).
   const resumeAbortRef = useRef<AbortController | null>(null);
+  // "Continue run" for a run that stopped early: in flight, and its kick-off error.
+  const [continuing, setContinuing] = useState(false);
+  const [continueError, setContinueError] = useState<string | null>(null);
 
   const appName = searchParams.get("app") || "trend_scout";
   const userId = searchParams.get("userId") || SELF_USER_ID;
@@ -416,14 +420,48 @@ export default function RunPage({
   );
   const current = useMemo(() => currentStage(stages), [stages]);
 
+  // The segment ended but the workflow never wrote its final key (e.g. the root
+  // model returned an empty turn). Derived for display only — the page's own
+  // `status` stays "completed" until the user continues the run.
+  const stopped = useMemo(
+    () => stoppedEarly(appName, sessionState, status, pauseContext, answeredReviews),
+    [appName, sessionState, status, pauseContext, answeredReviews]
+  );
+
+  // Continue a run that stopped early: post a new message to the same session
+  // (the backend runs a new segment and the agent picks up from its history),
+  // then follow it like a resume — to the next checkpoint or the end.
+  async function handleContinue() {
+    setContinuing(true);
+    setContinueError(null);
+    setNotice(null);
+    try {
+      await startRun(appName, userId, sessionId, CONTINUE_MESSAGE);
+    } catch (err) {
+      setContinueError(err instanceof Error ? err.message : "Unknown error");
+      setContinuing(false);
+      return;
+    }
+    setStatus("running");
+    setContinuing(false);
+    await followRun();
+  }
+
   // Local time of the newest event (events arrive in order).
   const lastUpdate = formatEventTime(events[events.length - 1]?.timestamp);
 
   const showResults = status === "completed" && isCreativeAgent(appName);
+  // A stopped run's primary action is "Continue run"; its results are partial.
   const resultsButton = showResults ? (
-    <Button size="lg" onClick={() => router.push(resultsUrl)}>
-      View results
-    </Button>
+    stopped ? (
+      <Button size="lg" variant="outline" onClick={() => router.push(resultsUrl)}>
+        View partial results
+      </Button>
+    ) : (
+      <Button size="lg" onClick={() => router.push(resultsUrl)}>
+        View results
+      </Button>
+    )
   ) : null;
 
   const statusLine: Record<Status, { text: string; dot: string; tone: string }> = {
@@ -438,6 +476,10 @@ export default function RunPage({
     stalled: { text: "No recent activity", dot: "bg-mark-pending", tone: "text-mark-pending" },
   };
 
+  const statusDisplay = stopped
+    ? { text: `Stopped before ${stopped.stage}`, dot: "bg-mark-pending", tone: "text-mark-pending" }
+    : statusLine[status];
+
   const hasOutputs = pipelineWidgets.length > 0 || gcsUri || researchReportUrl;
 
   return (
@@ -447,8 +489,8 @@ export default function RunPage({
         <div className="min-w-0">
           <h1 className="text-2xl font-bold text-foreground">{agentLabel(appName)}</h1>
           <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
-            <span className={`inline-block h-2 w-2 rounded-full ${statusLine[status].dot}`} aria-hidden />
-            <span className={`font-medium ${statusLine[status].tone}`}>{statusLine[status].text}</span>
+            <span className={`inline-block h-2 w-2 rounded-full ${statusDisplay.dot}`} aria-hidden />
+            <span className={`font-medium ${statusDisplay.tone}`}>{statusDisplay.text}</span>
             <span className="ml-2 min-w-0 truncate font-mono text-xs text-muted-foreground" title={sessionId}>
               {sessionId}
             </span>
@@ -522,6 +564,16 @@ export default function RunPage({
                 stages={stages}
                 status={status}
                 lastUpdate={lastUpdate}
+                stopped={
+                  stopped
+                    ? {
+                        stage: stopped.stage,
+                        onContinue: handleContinue,
+                        continuing,
+                        error: continueError,
+                      }
+                    : null
+                }
               />
             )}
 
@@ -533,7 +585,7 @@ export default function RunPage({
             {hasOutputs && (
               <section aria-labelledby="run-outputs-heading">
                 <h2 id="run-outputs-heading" className="mb-2 text-sm font-semibold text-foreground">
-                  {status === "completed" ? "Outputs" : "Outputs so far"}
+                  {status === "completed" && !stopped ? "Outputs" : "Outputs so far"}
                 </h2>
                 <div className="grid gap-3 sm:grid-cols-2">
                   {researchReportUrl && (

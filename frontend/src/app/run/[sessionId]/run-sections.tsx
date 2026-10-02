@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { ChevronDown } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { EventLog } from "@/components/event-log";
 import { FieldLabel } from "@/components/field-label";
 import { cn, type DisplayField } from "@/lib/utils";
@@ -107,19 +108,68 @@ function describe(stage: Stage | null, status: RunStageStatus, stages: Stage[]):
   return STAGE_DESCRIPTIONS[stage.id] ?? "The agent is working.";
 }
 
+/** A run whose segment ended before the workflow finished, and how to continue it. */
+export interface StoppedEarlyProps {
+  /** Label of the first stage that didn't finish. */
+  stage: string;
+  onContinue: () => void;
+  /** The continue request is in flight. */
+  continuing: boolean;
+  /** Why the last continue attempt failed, or null. */
+  error: string | null;
+}
+
+/** The current-stage panel for a run that stopped early: explanation + "Continue run". */
+function StoppedEarlyPanel({
+  stopped,
+  lastUpdate,
+}: {
+  stopped: StoppedEarlyProps;
+  lastUpdate: string;
+}) {
+  return (
+    <section aria-live="polite" className="rounded-lg border border-border bg-card px-5 py-4">
+      <h2 className="text-lg font-semibold text-foreground">Stopped before {stopped.stage}</h2>
+      <p className="mt-1 text-sm text-muted-foreground">
+        The run stopped before {stopped.stage}. This sometimes happens when the model returns an
+        empty response. Continue the run to pick up where it left off.
+      </p>
+      {stopped.error && (
+        <p role="alert" className="mt-3 text-sm text-mark-fail">
+          Couldn&apos;t continue the run: {stopped.error}. Try again, or start a new run.
+        </p>
+      )}
+      <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2">
+        <Button onClick={stopped.onContinue} disabled={stopped.continuing}>
+          {stopped.continuing ? "Continuing…" : "Continue run"}
+        </Button>
+        {lastUpdate && (
+          <span className="text-xs text-muted-foreground tabular-nums">
+            Last update {lastUpdate}
+          </span>
+        )}
+      </div>
+    </section>
+  );
+}
+
 /** The main-area panel describing what the run is doing right now. */
 export function CurrentStagePanel({
   stage,
   stages,
   status,
   lastUpdate,
+  stopped = null,
 }: {
   stage: Stage | null;
   stages: Stage[];
   status: RunStageStatus;
   /** Formatted local time of the latest event, or "". */
   lastUpdate: string;
+  /** Set when the run stopped early (replaces the "Run complete" panel). */
+  stopped?: StoppedEarlyProps | null;
 }) {
+  if (stopped) return <StoppedEarlyPanel stopped={stopped} lastUpdate={lastUpdate} />;
   const index = stage ? stages.findIndex((s) => s.id === stage.id) : -1;
   const heading =
     status === "completed" ? "Run complete" : stage ? stage.label : "Starting";

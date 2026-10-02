@@ -1,6 +1,6 @@
 "use client";
 
-import type { Ref } from "react";
+import { useState, type Ref } from "react";
 import { cn } from "@/lib/utils";
 import type { Proof, ProofSort } from "@/lib/eval-matching";
 import { CONDENSED, ScoreMark } from "./score-mark";
@@ -11,7 +11,11 @@ const SORT_OPTIONS: { value: ProofSort; label: string }[] = [
   { value: "lowest", label: "Lowest score" },
 ];
 
-/** The proof image, or the "No image available" fallback when there's no URL. */
+/**
+ * The proof image, or a quiet "Image not rendered" placeholder when there's no
+ * URL or the image fails to load (e.g. a run that stopped before rendering, so
+ * the file was never written and the GCS proxy 404s).
+ */
 export function ProofImage({
   src,
   alt,
@@ -23,7 +27,9 @@ export function ProofImage({
   className?: string;
   fit?: "cover" | "contain";
 }) {
-  if (!src) {
+  // Keyed on the src that failed, so a new src (detail navigation) retries.
+  const [failedSrc, setFailedSrc] = useState<string | null>(null);
+  if (!src || failedSrc === src) {
     return (
       <div
         className={cn(
@@ -31,7 +37,7 @@ export function ProofImage({
           className
         )}
       >
-        No image available
+        Image not rendered
       </div>
     );
   }
@@ -40,6 +46,7 @@ export function ProofImage({
     <img
       src={src}
       alt={alt}
+      onError={() => setFailedSrc(src)}
       className={cn(
         "rounded-none bg-muted",
         fit === "cover" ? "object-cover" : "object-contain",

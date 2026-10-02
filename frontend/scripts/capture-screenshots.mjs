@@ -96,6 +96,44 @@ const ARTIFACT_NAMES = [
   "creative_portfolio_gallery.html",
 ];
 
+// An interactive run that stopped right after visual concepts: concepts exist,
+// but no rendered images and no eval report.
+function stoppedEarlyState() {
+  const {
+    _images_generated: _ig,
+    _generated_artifact_keys: _gak,
+    eval_report_gcs_uri: _er,
+    ...rest
+  } = state;
+  return rest;
+}
+
+// Checkpoints 1 and 2 answered, then the root model's empty final turn.
+function stoppedEarlyEvents() {
+  const t0 = events[0]?.timestamp ?? 0;
+  const answered = (name, offset) => ({
+    id: `evt-${name}-answer`,
+    invocationId: "inv-interactive",
+    author: "user",
+    timestamp: t0 + offset,
+    content: {
+      role: "user",
+      parts: [{ functionResponse: { id: `fc-${name}`, name, response: { status: "approved" } } }],
+    },
+  });
+  return [
+    answered("review_research", 200),
+    answered("review_ad_copies", 420),
+    {
+      id: "evt-empty-turn",
+      invocationId: "inv-interactive",
+      author: "interactive_creative",
+      timestamp: t0 + 610,
+      content: { role: "model", parts: [] },
+    },
+  ];
+}
+
 // ── Per-screen mock state (set before each navigation) ────────────────────────
 let currentSession = { state: {}, events: [] };
 let currentPoll = { status: "done", events: [], nextCursor: 0, state: {} };
@@ -377,6 +415,30 @@ async function main() {
     await page.getByRole("heading", { name: /Sources/ }).waitFor();
     await settle(page);
     await shot(page, "07-run-research-review.png");
+    await page.close();
+  }
+
+  // ── 8. Interactive run that stopped early (after visual concepts) ───────
+  {
+    console.log("08-run-stopped-early");
+    const sid = "interactive-stopped-demo";
+    // The segment ended "done" right after visual concepts: no checkpoint-3
+    // pause, no images, no eval report — so the page offers "Continue run".
+    const stoppedState = stoppedEarlyState();
+    currentSession = { id: sid, appName: "interactive_creative", userId: USER, state: stoppedState, events: [] };
+    currentPoll = {
+      status: "done",
+      events: stoppedEarlyEvents(),
+      nextCursor: 3,
+      state: stoppedState,
+    };
+    const page = await newPage(context);
+    await page.goto(`${BASE}/run/${sid}?app=interactive_creative&userId=${USER}`, {
+      waitUntil: "networkidle",
+    });
+    await page.getByRole("button", { name: "Continue run" }).waitFor();
+    await settle(page);
+    await shot(page, "08-run-stopped-early.png");
     await page.close();
   }
 
