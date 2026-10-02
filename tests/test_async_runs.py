@@ -31,6 +31,7 @@ from runserver.async_runs import (
     merge_research_edit,
     merge_visual_concept_edits,
     router,
+    should_auto_continue,
     start_resume,
     start_run,
 )
@@ -1501,3 +1502,349 @@ def test_router_does_not_map_unrelated_value_errors_to_404():
     )
     assert start.status_code == 500
     assert resume.status_code == 500
+
+
+# --- auto-continue after an empty root turn ----------------------------------
+#
+# A gemini Pro root can return an EMPTY final turn (STOP, no text, no function
+# call) right after a long NodeTool response; ADK ends the invocation there and
+# the run would silently stop. _drive_run re-prompts once (bounded) when the
+# workflow is unfinished and the segment did not end at a checkpoint pause.
+
+ROOT = "root_agent"
+
+
+def _empty_root_event() -> Event:
+    # The prod signature: a root event with no content parts, only a state_delta.
+    return Event(author=ROOT, actions=EventActions(state_delta={"request_count": 3}))
+
+
+def _root_text_event(text="done for now") -> Event:
+    return Event(
+        author=ROOT,
+        content=types.Content(role="model", parts=[types.Part(text=text)]),
+    )
+
+
+def _root_call_event(name="visual_generation_pipeline", call_id="c-1") -> Event:
+    return Event(
+        author=ROOT,
+        content=types.Content(
+            role="model",
+            parts=[
+                types.Part(
+                    function_call=types.FunctionCall(id=call_id, name=name, args={})
+                )
+            ],
+        ),
+    )
+
+
+def _root_response_event(name="visual_generation_pipeline", call_id="c-1") -> Event:
+    return Event(
+        author=ROOT,
+        content=types.Content(
+            role="user",
+            parts=[
+                types.Part(
+                    function_response=types.FunctionResponse(
+                        id=call_id, name=name, response={"result": "ok"}
+                    )
+                )
+            ],
+        ),
+    )
+
+
+def _lr_call_event(name="review_visual_concepts", call_id="lr-1") -> Event:
+    ev = _root_call_event(name, call_id)
+    ev.long_running_tool_ids = {call_id}
+    return ev
+
+
+def _sub_agent_text_event() -> Event:
+    return Event(
+        author="visual_concept_drafter",
+        content=types.Content(role="model", parts=[types.Part(text="concepts")]),
+    )
+
+
+_EMPTY_SEGMENT = [_root_call_event(), _root_response_event(), _empty_root_event()]
+
+
+def _sac(*, app="interactive_creative", state=None, events=None, attempts=0):
+    return should_auto_continue(
+        app,
+        {} if state is None else state,
+        list(_EMPTY_SEGMENT) if events is None else events,
+        ROOT,
+        attempts,
+    )
+
+
+def test_should_auto_continue_true_on_empty_root_turn_unfinished_workflow():
+    assert _sac() is True
+    assert _sac(app="creative_agent") is True
+
+
+def test_should_auto_continue_respects_attempt_cap(monkeypatch):
+    monkeypatch.setattr(async_runs, "MAX_AUTO_CONTINUES", 1)
+    assert _sac(attempts=1) is False
+    monkeypatch.setattr(async_runs, "MAX_AUTO_CONTINUES", 0)
+    assert _sac(attempts=0) is False
+
+
+def test_should_auto_continue_false_when_workflow_complete():
+    assert _sac(state={"eval_report_gcs_uri": "gs://b/r.json"}) is False
+    # Empty/blank completion values still count as unfinished.
+    assert _sac(state={"eval_report_gcs_uri": ""}) is True
+    assert _sac(state={"eval_report_gcs_uri": "  "}) is True
+
+
+def test_should_auto_continue_uses_trend_scout_completion_key():
+    ev = _empty_root_event()
+    ev.author = "trend_scout"
+    assert should_auto_continue("trend_scout", {}, [ev], "trend_scout", 0) is True
+    done = {"select_trends_markdown_gcs_uri": "gs://b/t.md"}
+    assert should_auto_continue("trend_scout", done, [ev], "trend_scout", 0) is False
+
+
+def test_should_auto_continue_false_for_unknown_app():
+    assert _sac(app="some_other_app") is False
+
+
+def test_should_auto_continue_false_at_unanswered_long_running_pause():
+    events = [_root_call_event(), _root_response_event(), _lr_call_event()]
+    assert _sac(events=events) is False
+    # Even if an empty root event trails the pause call, a pause is a pause.
+    assert _sac(events=[*events, _empty_root_event()]) is False
+
+
+def test_should_auto_continue_ignores_answered_long_running_call():
+    events = [
+        _lr_call_event(call_id="lr-1"),
+        _root_response_event("review_visual_concepts", "lr-1"),
+        _empty_root_event(),
+    ]
+    assert _sac(events=events) is True
+
+
+def test_should_auto_continue_false_when_last_root_turn_has_text_or_call():
+    assert _sac(events=[_root_response_event(), _root_text_event()]) is False
+    assert _sac(events=[_root_response_event(), _root_call_event()]) is False
+    # A trailing NON-root event doesn't mask the root's last (text) turn.
+    assert _sac(events=[_root_text_event(), _sub_agent_text_event()]) is False
+
+
+def test_should_auto_continue_treats_blank_and_thought_text_as_empty():
+    blank = Event(
+        author=ROOT,
+        content=types.Content(
+            role="model",
+            parts=[types.Part(text="  "), types.Part(text="hmm", thought=True)],
+        ),
+    )
+    assert _sac(events=[_root_response_event(), blank]) is True
+
+
+def test_should_auto_continue_false_without_root_event_or_root_author():
+    assert _sac(events=[_sub_agent_text_event()]) is False
+    assert _sac(events=[]) is False
+    assert should_auto_continue("creative_agent", {}, _EMPTY_SEGMENT, "", 0) is False
+
+
+def test_should_auto_continue_accepts_serialized_dict_events():
+    empty = [async_runs._serialize_event(e) for e in _EMPTY_SEGMENT]
+    assert should_auto_continue("creative_agent", {}, empty, ROOT, 0) is True
+    paused = [
+        async_runs._serialize_event(e)
+        for e in (_root_response_event(), _lr_call_event())
+    ]
+    assert should_auto_continue("creative_agent", {}, paused, ROOT, 0) is False
+
+
+def test_max_auto_continues_env_parsing():
+    parse = async_runs._parse_max_auto_continues
+    assert parse(None) == 1
+    assert parse("") == 1
+    assert parse("junk") == 1
+    assert parse("0") == 0
+    assert parse("2") == 2
+    assert parse("9") == 3
+    assert parse("-4") == 0
+
+
+class _ScriptedRunner:
+    """Runner double with a root agent name, yielding one scripted event list per
+    ``run_async`` call (the last list repeats) and recording every message."""
+
+    def __init__(self, svc, app_name, segments, *, root=ROOT, raise_on_segment=None):
+        self._svc = svc
+        self._app_name = app_name
+        self._segments = segments
+        self._raise_on_segment = raise_on_segment
+        self.agent = type("_Agent", (), {"name": root})()
+        self.messages: list[types.Content] = []
+
+    async def run_async(self, *, user_id, session_id, new_message, **kwargs):
+        idx = len(self.messages)
+        self.messages.append(new_message)
+        if self._raise_on_segment == idx:
+            raise RuntimeError("continued boom")
+        template = self._segments[min(idx, len(self._segments) - 1)]
+        for tmpl in template:
+            ev = tmpl.model_copy(deep=True)
+            ev.id = Event.new_id()
+            ev.invocation_id = f"inv-{idx}"
+            s = await self._svc.get_session(
+                app_name=self._app_name, user_id=user_id, session_id=session_id
+            )
+            await self._svc.append_event(s, ev)
+            yield ev
+
+
+def _run_scripted(runner, *, app_name="interactive_creative", state=None):
+    async def _go():
+        svc = runner._svc
+        await svc.create_session(
+            app_name=app_name, user_id="u", session_id="s", state=state or {}
+        )
+        _result, task = await start_run(
+            app_name=app_name,
+            user_id="u",
+            session_id="s",
+            message="go",
+            session_service=svc,
+            runner_factory=lambda a: runner,
+        )
+        await task
+        return await svc.get_session(app_name=app_name, user_id="u", session_id="s")
+
+    return asyncio.run(_go())
+
+
+def _text_of(msg: types.Content) -> str | None:
+    return msg.parts[0].text
+
+
+def _status_markers(session) -> list:
+    return [
+        e.actions.state_delta[RUN_STATUS_KEY]
+        for e in session.events
+        if e.actions.state_delta and RUN_STATUS_KEY in e.actions.state_delta
+    ]
+
+
+def test_drive_run_auto_continues_once_after_empty_root_turn(caplog):
+    svc = InMemorySessionService()
+    runner = _ScriptedRunner(
+        svc,
+        "interactive_creative",
+        [list(_EMPTY_SEGMENT), [_root_text_event("calling"), _lr_call_event()]],
+    )
+    with caplog.at_level("WARNING"):
+        session = _run_scripted(runner)
+    assert len(runner.messages) == 2
+    assert _text_of(runner.messages[0]) == "go"
+    assert _text_of(runner.messages[1]) == async_runs.AUTO_CONTINUE_MESSAGE
+    assert session.state[async_runs.AUTO_CONTINUES_KEY] == 1
+    # No 'done' between the segments: exactly one terminal marker, at the end.
+    assert _status_markers(session) == ["done"]
+    assert session.events[-1].actions.state_delta == {RUN_STATUS_KEY: "done"}
+    rec = [
+        e
+        for e in session.events
+        if e.actions.state_delta
+        and async_runs.AUTO_CONTINUES_KEY in e.actions.state_delta
+    ]
+    assert len(rec) == 1
+    assert rec[0].author == RUNSERVER_AUTHOR
+    assert rec[0].invocation_id  # Vertex rejects an empty invocation_id
+    assert "auto-continue after empty root turn" in caplog.text
+
+
+def test_drive_run_no_continue_at_legitimate_pause():
+    svc = InMemorySessionService()
+    runner = _ScriptedRunner(
+        svc, "interactive_creative", [[_root_response_event(), _lr_call_event()]]
+    )
+    session = _run_scripted(runner)
+    assert len(runner.messages) == 1
+    assert async_runs.AUTO_CONTINUES_KEY not in session.state
+    assert _status_markers(session) == ["done"]
+
+
+def test_drive_run_no_continue_when_workflow_complete():
+    svc = InMemorySessionService()
+    runner = _ScriptedRunner(svc, "interactive_creative", [list(_EMPTY_SEGMENT)])
+    session = _run_scripted(runner, state={"eval_report_gcs_uri": "gs://b/r.json"})
+    assert len(runner.messages) == 1
+    assert async_runs.AUTO_CONTINUES_KEY not in session.state
+    assert _status_markers(session) == ["done"]
+
+
+def test_drive_run_auto_continue_respects_cap(monkeypatch):
+    monkeypatch.setattr(async_runs, "MAX_AUTO_CONTINUES", 1)
+    svc = InMemorySessionService()
+    runner = _ScriptedRunner(svc, "interactive_creative", [list(_EMPTY_SEGMENT)])
+    session = _run_scripted(runner)
+    assert len(runner.messages) == 2  # one continue, then give up
+    assert session.state[async_runs.AUTO_CONTINUES_KEY] == 1
+    assert _status_markers(session) == ["done"]
+
+
+def test_drive_run_auto_continue_count_is_cumulative_across_segments():
+    svc = InMemorySessionService()
+    runner = _ScriptedRunner(
+        svc, "interactive_creative", [list(_EMPTY_SEGMENT), [_lr_call_event()]]
+    )
+    session = _run_scripted(runner, state={async_runs.AUTO_CONTINUES_KEY: 2})
+    assert len(runner.messages) == 2
+    assert session.state[async_runs.AUTO_CONTINUES_KEY] == 3
+
+
+def test_drive_run_error_in_continued_segment_writes_error_marker():
+    svc = InMemorySessionService()
+    runner = _ScriptedRunner(
+        svc, "interactive_creative", [list(_EMPTY_SEGMENT)], raise_on_segment=1
+    )
+    session = _run_scripted(runner)
+    assert len(runner.messages) == 2
+    delta = session.events[-1].actions.state_delta
+    assert delta[RUN_STATUS_KEY] == "error"
+    assert "continued boom" in delta[RUN_ERROR_KEY]
+    assert _status_markers(session) == ["error"]
+
+
+def test_drive_run_without_root_agent_name_never_continues():
+    # Runner doubles / runners without ``.agent`` keep today's behaviour.
+    svc = InMemorySessionService()
+    runner = _ScriptedRunner(svc, "interactive_creative", [list(_EMPTY_SEGMENT)])
+    del runner.agent
+    session = _run_scripted(runner)
+    assert len(runner.messages) == 1
+    assert _status_markers(session) == ["done"]
+
+
+def test_resume_segment_also_auto_continues():
+    async def _go():
+        svc = InMemorySessionService()
+        await svc.create_session(
+            app_name="interactive_creative", user_id="u", session_id="s", state={}
+        )
+        runner = _ScriptedRunner(
+            svc, "interactive_creative", [list(_EMPTY_SEGMENT), [_lr_call_event()]]
+        )
+        _r, task = await _resume(svc, runner)
+        await task
+        session = await svc.get_session(
+            app_name="interactive_creative", user_id="u", session_id="s"
+        )
+        return session, runner
+
+    session, runner = asyncio.run(_go())
+    assert len(runner.messages) == 2
+    assert runner.messages[0].parts[0].function_response.id == "call-1"
+    assert _text_of(runner.messages[1]) == async_runs.AUTO_CONTINUE_MESSAGE
+    # The resume's 'running' reset, then a single terminal 'done'.
+    assert _status_markers(session) == ["running", "done"]

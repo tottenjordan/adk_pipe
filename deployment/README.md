@@ -773,6 +773,21 @@ finishes, `_drive_run` appends a **terminal marker** event (`author="__runserver
 an in-pipeline error event), so a client can disconnect and reconnect — or reload — and the
 run keeps going server-side; re-polling from `since=0` replays the whole timeline.
 
+**Auto-continue after an empty root turn.** A Pro root model occasionally returns an
+empty final turn (STOP, no text, no function call) right after a long NodeTool
+response; ADK ends the invocation there, so the segment would finish `done` with the workflow
+unfinished. For example, `interactive_creative` never calls `review_visual_concepts`. Before
+writing `done`, `_drive_run` checks `should_auto_continue`. It re-prompts the same session
+with "Continue the WORKFLOW from where it stopped…" only when all of these hold: the app's
+completion key is unset (`eval_report_gcs_uri`, or `select_trends_markdown_gcs_uri` for
+`trend_scout`); the segment did not pause at an unanswered long-running checkpoint call; and
+the root agent's last event is empty. The re-prompt runs inside the same detached task, so
+the run stays claimed and `running`. It also counts against the same `RUN_MAX_SECONDS`
+budget. Each re-prompt logs `auto-continue after empty root turn: app=… session=… attempt=n`
+and records the cumulative count as the `__auto_continues` state key. The number of
+re-prompts per kick-off/resume segment is capped by `RUN_MAX_AUTO_CONTINUES` (default `1`,
+clamped `0`–`3`; `0` disables it).
+
 **Requirements / caveats:**
 - **`--no-cpu-throttling` + `--min-instances 1`** (see Step 2) — the detached task needs CPU
   allocated outside requests, and a warm instance so scale-to-zero can't kill an in-flight
