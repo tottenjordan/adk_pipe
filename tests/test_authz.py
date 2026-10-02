@@ -83,6 +83,34 @@ def test_decide_enforce():
 
 
 @pytest.mark.parametrize(
+    ("path", "user"),
+    [
+        ("/experiments/u1", "u1"),
+        ("/experiments/u1/", "u1"),
+        ("/experiments/u1/abc123", "u1"),
+        ("/experiments/u1/abc123/metrics", "u1"),
+        ("/experiments/u1/abc123/traffic", "u1"),
+        ("/experiments/u1/abc123/stop", "u1"),
+        # the bare create route is body-scoped (authorize_body_user)
+        ("/experiments", None),
+        ("/experiments/", None),
+        ("/experimentsX/u1", None),
+    ],
+)
+def test_path_user_id_experiments(path, user):
+    assert path_user_id(path) == user
+
+
+def test_decide_enforce_experiments():
+    E = AuthzMode.ENFORCE
+    assert decide(E, f"/experiments/{A}", A) is None
+    assert decide(E, f"/experiments/{A}/e1/stop", A) is None
+    assert decide(E, "/experiments/bob@example.com/e1", A) == (403, "user mismatch")
+    assert decide(E, f"/experiments/{A}/e1/metrics", None)[0] == 401
+    assert decide(E, "/experiments", A) is None  # handler checks the body userId
+
+
+@pytest.mark.parametrize(
     "path", ["/agent-identity/finalize", "/agent-identity/finalize/"]
 )
 def test_decide_blocks_agent_identity_finalize(path):

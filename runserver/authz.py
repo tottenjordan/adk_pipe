@@ -28,6 +28,9 @@ _EMAIL_RE = re.compile(r"^[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}$")
 _PATH_USER_RES = (
     re.compile(r"^/apps/[^/]+/users/(?P<user>[^/]+)(?:/|$)"),
     re.compile(r"^/runs/[^/]+/(?P<user>[^/]+)/[^/]+(?:/resume)?/?$"),
+    # Bandit experiments: GET list/detail/metrics, POST traffic/stop. The bare
+    # POST /experiments is body-scoped (authorize_body_user in the handler).
+    re.compile(r"^/experiments/(?P<user>[^/]+)(?:/.*)?$"),
     # Pre-rewrite form: ADK's _DefaultAppRewriteMiddleware (ADK_DEFAULT_APP_NAME)
     # maps /users/... -> /apps/<default>/users/... *after* this middleware runs.
     re.compile(r"^/users/(?P<user>[^/]+)(?:/|$)"),

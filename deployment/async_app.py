@@ -16,6 +16,8 @@ the canned ``adk api_server`` path, not this launcher).
 
 from __future__ import annotations
 
+import contextlib
+import logging
 import os
 from functools import partial
 
@@ -27,6 +29,7 @@ from google.adk.cli.utils.service_factory import (
 )
 from google.adk.runners import Runner
 
+from runserver import experiments
 from runserver.async_runs import configure, get_root_agent, router
 from runserver.authz import (
     AuthzMode,
@@ -125,6 +128,39 @@ configure(
     authz_mode=_AUTHZ_MODE,
 )
 app.include_router(router)
+
+# Bandit experiments (/experiments): BANDIT_DEPLOY_MODE=vertex (BigQuery + Vertex
+# endpoint + Cloud Run Job) or fake (in-memory; also the fallback when the BigQuery
+# env is missing, i.e. local dev). See runserver/experiments.py.
+_BANDIT = experiments.build_backend_from_env()
+logging.getLogger(__name__).info("bandit experiments mode: %s", _BANDIT["mode"])
+experiments.configure(
+    session_service=session_service,
+    store=_BANDIT["store"],
+    deployer=_BANDIT["deployer"],
+    jobs=_BANDIT["jobs"],
+    authz_mode=_AUTHZ_MODE,
+    settings=_BANDIT["settings"],
+)
+app.include_router(experiments.router)
+
+# Start the experiments TTL reaper (every 5 min; also resumes deploys/teardowns a
+# previous revision left mid-flight) inside ADK's own lifespan, which we wrap
+# rather than replace.
+_adk_lifespan = app.router.lifespan_context
+
+
+@contextlib.asynccontextmanager
+async def _lifespan(fast_api_app):
+    async with _adk_lifespan(fast_api_app) as state:
+        reaper = experiments.start_reaper()
+        try:
+            yield state
+        finally:
+            reaper.cancel()
+
+
+app.router.lifespan_context = _lifespan
 install_ownership_handler(app)
 app.add_middleware(
     UserAuthzMiddleware,
