@@ -377,15 +377,22 @@ see numbers. You still need a finished creative run in the session store to depl
 ## Live measurements
 
 <!-- LIVE-MEASUREMENTS -->
-_To be filled in from the live rollout._
+Measured on the first live rollout, 2026-10-02 (experiment `0693ea62bb7144ef`: 3 PRS creatives,
+`segment_winners`, demo click rates, click reward; serving image `trend-trawler-bandit:06f4717`).
 
 | Measurement | Value |
 |---|---|
-| Deploy time (POST → `ready`) | TBD |
-| Decision latency (`latency_ms`, p50 / p95) | TBD |
-| Traffic job wall time (20 episodes, `segment_winners` demo) | TBD |
-| Endpoint cost per hour (1 × n2-standard-2) | TBD |
-| Teardown time (Stop → endpoint deleted) | TBD |
+| Deploy time (POST → `ready`) | **~11 min**: model upload ~3 min, endpoint create a few seconds, model deploy ~7.5 min |
+| Decision latency, server side (`latency_ms`, per batch of 100) | **p50 13.5 ms / p95 26.3 ms** (mean 15.2 ms over 800,000 decisions) |
+| Client round trip (`:predict`, small request) | ~85–100 ms warm, ~235 ms cold |
+| Traffic job wall time (20 episodes × 40,000 rounds) | **~23 min**: ~3.5 min to provision the first execution, then ~1 min per episode |
+| Endpoint cost | One n2-standard-2 replica, billed while deployed. That was ~35 min of deployed time for this run; see [Vertex AI pricing](https://cloud.google.com/vertex-ai/pricing) for the current hourly rate |
+| Teardown time (Stop → endpoint and model deleted) | **~2 s** (UndeployModel → DeleteEndpoint → DeleteModel) |
+
+**Result** (mean over 20 episodes): Linear TS on the endpoint had cumulative regret **257** and chose
+each reader's optimal creative **56%** of the time (1,760 clicks per episode). The best baseline,
+ε-greedy, had regret 335 and 42% optimal; non-contextual TS 345 / 41%; UCB 351 / 40%; uniform 403 / 33%;
+the oracle collected 2,028 clicks. Linear TS had the lowest regret in every episode.
 <!-- /LIVE-MEASUREMENTS -->
 
 ## Limitations (not HA)
