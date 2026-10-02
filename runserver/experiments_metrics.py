@@ -92,10 +92,31 @@ def mean_std(values: Sequence[float]) -> tuple[float, float]:
     return mean, math.sqrt(var)
 
 
-def band(series: Sequence[Sequence[float]]) -> dict:
+# Natural bounds per curve: a confidence interval on a bounded quantity is clamped
+# to its range (a rate can't be < 0 or > 1; reward and regret are never negative).
+CURVE_BOUNDS: dict[str, tuple[float | None, float | None]] = {
+    "cum_avg_reward": (0.0, None),
+    "cum_regret": (0.0, None),
+    "pct_optimal": (0.0, 1.0),
+}
+
+
+def _clamp(v: float, lo: float | None, hi: float | None) -> float:
+    if lo is not None and v < lo:
+        return lo
+    if hi is not None and v > hi:
+        return hi
+    return v
+
+
+def band(
+    series: Sequence[Sequence[float]],
+    bounds: tuple[float | None, float | None] = (None, None),
+) -> dict:
     """``{mean, lo, hi}`` per position across ``series`` (95% CI on the mean).
 
-    Series are truncated to the shortest one so every position has every episode."""
+    Series are truncated to the shortest one so every position has every episode.
+    ``lo``/``hi`` are clamped to ``bounds`` (see ``CURVE_BOUNDS``)."""
     if not series:
         return {"mean": [], "lo": [], "hi": []}
     length = min(len(s) for s in series)
@@ -105,8 +126,8 @@ def band(series: Sequence[Sequence[float]]) -> dict:
         mean, std = mean_std([float(s[i]) for s in series])
         half = t * std / math.sqrt(len(series)) if len(series) > 1 else 0.0
         out["mean"].append(mean)
-        out["lo"].append(mean - half)
-        out["hi"].append(mean + half)
+        out["lo"].append(_clamp(mean - half, *bounds))
+        out["hi"].append(_clamp(mean + half, *bounds))
     return out
 
 
@@ -225,7 +246,8 @@ def aggregate_episode_metrics(
                     curves_json[id(r)][snake]
                     for r in prow
                     if isinstance(curves_json[id(r)].get(snake), list)
-                ]
+                ],
+                CURVE_BOUNDS.get(snake, (None, None)),
             )
             for snake, camel in _CURVE_KEYS.items()
         }

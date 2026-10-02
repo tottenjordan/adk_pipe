@@ -49,6 +49,8 @@ export interface LineChartProps {
   referenceLines?: { y: number; label: string }[];
   /** Label each line at its right end (keep to ≤ 6 series). */
   directLabels?: boolean;
+  /** Drop points (and bands) before this x, e.g. the noisy rounds before the first update. */
+  minX?: number;
   className?: string;
 }
 
@@ -57,6 +59,8 @@ const W = 480;
 const H = 280;
 const M = { top: 14, right: 12, bottom: 42, left: 50 };
 const LABEL_GUTTER = 92;
+
+const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 
 /**
  * Multi-series SVG line chart: optional log x, CI bands (low-opacity fills),
@@ -76,9 +80,19 @@ export function LineChart({
   formatY = formatCompact,
   referenceLines = [],
   directLabels = true,
+  minX,
   className,
 }: LineChartProps) {
   const uid = useId();
+  // Points before `minX` (e.g. rounds before the first posterior update) are pure
+  // noise on a cumulative average, so they are not drawn at all.
+  if (minX !== undefined) {
+    series = series.map((s) => ({
+      ...s,
+      points: s.points.filter((p) => p.x >= minX),
+      band: s.band?.filter((b) => b.x >= minX),
+    }));
+  }
   const [hidden, setHidden] = useState<Set<string>>(new Set());
   const [hoverX, setHoverX] = useState<number | null>(null);
 
@@ -90,10 +104,10 @@ export function LineChart({
   const geom = (() => {
     const allX = series.flatMap((s) => s.points.map((p) => p.x)).filter((x) => !logX || x > 0);
     const xe = extent(allX) ?? [logX ? 1 : 0, logX ? 10 : 1];
-    const ys = visible.flatMap((s) => [
-      ...s.points.map((p) => p.y),
-      ...(s.band ?? []).flatMap((b) => [b.lo, b.hi]),
-    ]);
+    // The y domain follows the lines, not the CI bands: early bands on a few
+    // episodes can span far outside the data and would squash the curves. Bands
+    // are clamped to the domain when drawn instead.
+    const ys = visible.flatMap((s) => s.points.map((p) => p.y)).filter(Number.isFinite);
     ys.push(...referenceLines.map((r) => r.y));
     const ye = extent(ys) ?? [0, 1];
     const yd: [number, number] =
@@ -151,6 +165,7 @@ export function LineChart({
 
   const titleId = `${uid}-title`;
   const descId = `${uid}-desc`;
+  const clipId = `${uid}-plot`.replace(/:/g, "");
 
   return (
     <figure className={cn("min-w-0", className)}>
@@ -165,6 +180,12 @@ export function LineChart({
         >
           <title id={titleId}>{title}</title>
           {description && <desc id={descId}>{description}</desc>}
+          <defs>
+            {/* Bands and lines never paint outside the plot area. */}
+            <clipPath id={clipId}>
+              <rect x={M.left} y={M.top} width={plotW} height={plotH} />
+            </clipPath>
+          </defs>
 
           {/* Recessive grid + y ticks */}
           {yTicks.map((t) => (
@@ -244,7 +265,14 @@ export function LineChart({
               s.band && (
                 <path
                   key={`band-${s.id}`}
-                  d={bandPath(s.band.map((b) => ({ x: x(b.x), lo: y(b.lo), hi: y(b.hi) })))}
+                  d={bandPath(
+                    s.band.map((b) => ({
+                      x: x(b.x),
+                      lo: y(clamp(b.lo, geom.yd[0], geom.yd[1])),
+                      hi: y(clamp(b.hi, geom.yd[0], geom.yd[1])),
+                    }))
+                  )}
+                  clipPath={`url(#${clipId})`}
                   fill={s.color}
                   fillOpacity={0.12}
                   stroke="none"
@@ -285,6 +313,7 @@ export function LineChart({
               strokeDasharray={s.dash}
               strokeLinejoin="round"
               strokeLinecap="round"
+              clipPath={`url(#${clipId})`}
             />
           ))}
 

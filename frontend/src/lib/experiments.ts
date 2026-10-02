@@ -450,7 +450,9 @@ export const POLICY_COLORS: Record<Policy, string> = {
 const POLICY_DASH: Partial<Record<Policy, string>> = { uniform: "2 3", oracle: "6 4" };
 
 /** Arm colours in arm order (the four chromatic slots; arms are capped at 4). */
-export const ARM_COLORS = ["#2a78d6", "#ff7f50", "#6b3fa6", "#d36fa6"] as const;
+// Creatives get their own earth-tone palette so a creative line never shares a
+// colour with a strategy line (POLICY_COLORS): teal, ochre-brown, olive, navy.
+export const ARM_COLORS = ["#0f766e", "#8a5a2b", "#5f7a1f", "#1e3a5f"] as const;
 
 const CANONICAL_ORDER: Policy[] = [
   "linear_ts",

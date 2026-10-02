@@ -128,7 +128,9 @@ def test_aggregate_shapes_and_values():
     # cum_regret at checkpoint 0 across episodes: 1, 2, 3 -> mean 2, sd 1, n 3
     half = 4.303 * 1.0 / math.sqrt(3)
     assert lin["cumRegret"]["mean"][0] == pytest.approx(2.0)
-    assert lin["cumRegret"]["lo"][0] == pytest.approx(2.0 - half)
+    assert lin["cumRegret"]["lo"][0] == pytest.approx(
+        max(0.0, 2.0 - half)
+    )  # clamped ≥ 0
     assert lin["cumRegret"]["hi"][0] == pytest.approx(2.0 + half)
     # identical episodes -> zero-width band
     assert m["curves"]["oracle"]["pctOptimal"]["lo"] == [0.3, 0.6, 0.9]
@@ -178,3 +180,14 @@ def test_missing_json_columns_are_tolerated():
     m = aggregate_episode_metrics([row], "exp1")
     assert m["arms"] == [] and m["perSegment"] == {} and m["checkpoints"] == []
     assert m["curves"]["linear_ts"]["cumRegret"] == {"mean": [], "lo": [], "hi": []}
+
+
+def test_bands_clamped_to_natural_bounds():
+    from runserver.experiments_metrics import CURVE_BOUNDS, band
+
+    # Few, very noisy episodes: the raw CI would leave [0, 1].
+    out = band([[0.0, 1.0], [1.0, 0.0]], CURVE_BOUNDS["pct_optimal"])
+    assert all(0.0 <= v <= 1.0 for v in out["lo"] + out["hi"])
+    out = band([[0.0, 5.0], [10.0, 0.0]], CURVE_BOUNDS["cum_regret"])
+    assert min(out["lo"]) == 0.0
+    assert band([[0.0], [1.0]])["lo"][0] < 0  # unbounded by default
