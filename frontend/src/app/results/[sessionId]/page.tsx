@@ -24,92 +24,19 @@ import {
   type DisplayFieldDef,
 } from "@/lib/utils";
 import type { Session } from "@/lib/types";
+import {
+  conceptNameToFilename,
+  findAdCopyEvalForVisual,
+  findAdCopyForVisual,
+  findVisualEval,
+  type AdCopy,
+  type EvalReport,
+  type VisualConcept,
+} from "@/lib/eval-matching";
 
 interface ArtifactData {
   name: string;
   data: unknown;
-}
-
-interface EvalVerdict {
-  dimension: string;
-  score: number;
-  verdict: "pass" | "fail";
-  rationale: string;
-}
-
-interface CreativeScore {
-  overall_score: number;
-  passed: boolean;
-  verdicts: EvalVerdict[];
-  strengths: string[];
-  improvements: string[];
-}
-
-interface AdCopyEvaluation {
-  original_id: number;
-  headline: string;
-  tone_style: string;
-  score: CreativeScore;
-}
-
-interface VisualConceptEvaluation {
-  ad_copy_id: number;
-  concept_name: string;
-  score: CreativeScore;
-}
-
-interface EvalReport {
-  brand: string;
-  target_product: string;
-  target_search_trend: string;
-  ad_copy_evaluations: AdCopyEvaluation[];
-  visual_concept_evaluations: VisualConceptEvaluation[];
-  /** Degradation notes from retry-exhausted pipeline steps (may be absent on older reports). */
-  warnings?: string[];
-  summary: {
-    total_ad_copies: number;
-    ad_copies_passed: number;
-    avg_ad_copy_score: number;
-    total_visual_concepts: number;
-    visual_concepts_passed: number;
-    avg_visual_score: number;
-    overall_pass_rate: number;
-    weakest_dimensions: string[];
-  };
-}
-
-// Visual concept data from session state (final_visual_concepts)
-interface VisualConcept {
-  ad_copy_id: number;
-  concept_name: string;
-  trend: string;
-  trend_reference: string;
-  markets_product: string;
-  audience_appeal: string;
-  selection_rationale: string;
-  headline: string;
-  social_caption: string;
-  call_to_action: string;
-  concept_summary: string;
-  image_generation_prompt: string;
-}
-
-// Ad copy data from session state (ad_copy_critique)
-interface AdCopy {
-  original_id: number;
-  headline: string;
-  body_text: string;
-  tone_style: string;
-  trend_connection: string;
-  audience_appeal_rationale: string;
-  social_caption: string;
-  call_to_action: string;
-  detailed_performance_rationale: string;
-}
-
-/** Replicate Python's REMOVE_PUNCTUATION + replace(" ", "_") for image filenames. */
-function conceptNameToFilename(name: string): string {
-  return name.replace(/[^\w\s]/g, "").replace(/ /g, "_") + ".png";
 }
 
 const CAMPAIGN_FIELD_DEFS: DisplayFieldDef[] = [
@@ -259,42 +186,6 @@ export default function ResultsPage({
     if (!bucketName || !folder || !subdir) return null;
     const filename = conceptNameToFilename(conceptName);
     return gcsProxyUrl(bucketName, `${folder}/${subdir}/${filename}`);
-  }
-
-  // Find matching eval for a visual concept
-  function findVisualEval(conceptName: string): VisualConceptEvaluation | undefined {
-    return evalReport?.visual_concept_evaluations.find(
-      (ve) => ve.concept_name === conceptName
-    );
-  }
-
-  // Find matching ad copy eval for a visual concept.
-  // Try by ad_copy_id → original_id first, then by headline match, then by index.
-  function findAdCopyEvalForVisual(vc: VisualConcept, vcIndex: number): AdCopyEvaluation | undefined {
-    if (!evalReport) return undefined;
-    const evals = evalReport.ad_copy_evaluations;
-    // 1. Match by ID
-    const byId = evals.find((ae) => ae.original_id === vc.ad_copy_id);
-    if (byId) return byId;
-    // 2. Match by headline (visual concept carries the ad copy headline)
-    const byHeadline = evals.find((ae) => ae.headline === vc.headline);
-    if (byHeadline) return byHeadline;
-    // 3. Fall back to index position
-    if (vcIndex < evals.length) return evals[vcIndex];
-    return undefined;
-  }
-
-  // Find matching ad copy data from session state for a visual concept.
-  function findAdCopyForVisual(vc: VisualConcept, vcIndex: number): AdCopy | undefined {
-    // 1. Match by ID
-    const byId = adCopies.find((ac) => ac.original_id === vc.ad_copy_id);
-    if (byId) return byId;
-    // 2. Match by headline
-    const byHeadline = adCopies.find((ac) => ac.headline === vc.headline);
-    if (byHeadline) return byHeadline;
-    // 3. Fall back to index position
-    if (vcIndex < adCopies.length) return adCopies[vcIndex];
-    return undefined;
   }
 
   const imageArtifacts = artifacts.filter(
@@ -504,9 +395,9 @@ export default function ResultsPage({
         <div className="space-y-6 mb-6">
           {visualConcepts.map((vc, i) => {
             const imgUrl = getImageUrl(vc.concept_name);
-            const vcEval = findVisualEval(vc.concept_name);
-            const acEval = findAdCopyEvalForVisual(vc, i);
-            const ac = findAdCopyForVisual(vc, i);
+            const vcEval = findVisualEval(evalReport, vc.concept_name);
+            const acEval = findAdCopyEvalForVisual(evalReport, vc, i);
+            const ac = findAdCopyForVisual(adCopies, vc, i);
 
             return (
               <div

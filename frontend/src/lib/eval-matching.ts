@@ -1,0 +1,203 @@
+/**
+ * Creative evaluation report types and the pure logic that pairs each visual
+ * concept (session state) with its ad copy and its two eval verdicts.
+ *
+ * Matching rules (unchanged from the original results page):
+ * - visual eval: by exact `concept_name`
+ * - ad copy eval / ad copy: by `ad_copy_id` → `original_id`, then by headline,
+ *   then by index position
+ */
+
+export interface EvalVerdict {
+  dimension: string;
+  score: number;
+  verdict: "pass" | "fail";
+  rationale: string;
+}
+
+export interface CreativeScore {
+  overall_score: number;
+  passed: boolean;
+  verdicts: EvalVerdict[];
+  strengths: string[];
+  improvements: string[];
+}
+
+export interface AdCopyEvaluation {
+  original_id: number;
+  headline: string;
+  tone_style: string;
+  score: CreativeScore;
+}
+
+export interface VisualConceptEvaluation {
+  ad_copy_id: number;
+  concept_name: string;
+  score: CreativeScore;
+}
+
+export interface EvalReport {
+  brand: string;
+  target_product: string;
+  target_search_trend: string;
+  ad_copy_evaluations: AdCopyEvaluation[];
+  visual_concept_evaluations: VisualConceptEvaluation[];
+  /** Degradation notes from retry-exhausted pipeline steps (may be absent on older reports). */
+  warnings?: string[];
+  /** Pass threshold (0–1) when the report carries it; current reports don't. */
+  passing_threshold?: number;
+  summary: {
+    total_ad_copies: number;
+    ad_copies_passed: number;
+    avg_ad_copy_score: number;
+    total_visual_concepts: number;
+    visual_concepts_passed: number;
+    avg_visual_score: number;
+    overall_pass_rate: number;
+    weakest_dimensions: string[];
+  };
+}
+
+/** creative_eval's default `passing_threshold` (creative_eval/config.py). */
+export const DEFAULT_PASS_THRESHOLD = 0.7;
+
+/** The report's pass threshold, or the creative_eval default when absent/invalid. */
+export function passThreshold(
+  report: Pick<EvalReport, "passing_threshold"> | null | undefined
+): number {
+  const t = report?.passing_threshold;
+  return typeof t === "number" && t > 0 && t <= 1 ? t : DEFAULT_PASS_THRESHOLD;
+}
+
+/** Visual concept data from session state (`final_visual_concepts`). */
+export interface VisualConcept {
+  ad_copy_id: number;
+  concept_name: string;
+  trend: string;
+  trend_reference: string;
+  markets_product: string;
+  audience_appeal: string;
+  selection_rationale: string;
+  headline: string;
+  social_caption: string;
+  call_to_action: string;
+  concept_summary: string;
+  image_generation_prompt: string;
+  visual_style?: string;
+}
+
+/** Ad copy data from session state (`ad_copy_critique`). */
+export interface AdCopy {
+  original_id: number;
+  headline: string;
+  body_text: string;
+  tone_style: string;
+  trend_connection: string;
+  audience_appeal_rationale: string;
+  social_caption: string;
+  call_to_action: string;
+  detailed_performance_rationale: string;
+}
+
+/** Replicate Python's REMOVE_PUNCTUATION + replace(" ", "_") for image filenames. */
+export function conceptNameToFilename(name: string): string {
+  return name.replace(/[^\w\s]/g, "").replace(/ /g, "_") + ".png";
+}
+
+/** Find the visual eval for a concept (exact concept_name match). */
+export function findVisualEval(
+  report: EvalReport | null | undefined,
+  conceptName: string
+): VisualConceptEvaluation | undefined {
+  return report?.visual_concept_evaluations.find(
+    (ve) => ve.concept_name === conceptName
+  );
+}
+
+type ConceptKey = Pick<VisualConcept, "ad_copy_id" | "headline">;
+
+/** id → headline → index fallback shared by ad copy and ad copy eval lookup. */
+function matchByIdHeadlineIndex<T extends { original_id: number; headline: string }>(
+  items: T[],
+  vc: ConceptKey,
+  vcIndex: number
+): T | undefined {
+  // 1. Match by ID
+  const byId = items.find((it) => it.original_id === vc.ad_copy_id);
+  if (byId) return byId;
+  // 2. Match by headline (visual concept carries the ad copy headline)
+  const byHeadline = items.find((it) => it.headline === vc.headline);
+  if (byHeadline) return byHeadline;
+  // 3. Fall back to index position
+  if (vcIndex < items.length) return items[vcIndex];
+  return undefined;
+}
+
+/** Find the ad copy eval for a visual concept: by id, then headline, then index. */
+export function findAdCopyEvalForVisual(
+  report: EvalReport | null | undefined,
+  vc: ConceptKey,
+  vcIndex: number
+): AdCopyEvaluation | undefined {
+  if (!report) return undefined;
+  return matchByIdHeadlineIndex(report.ad_copy_evaluations, vc, vcIndex);
+}
+
+/** Find the session-state ad copy for a visual concept: by id, then headline, then index. */
+export function findAdCopyForVisual(
+  adCopies: AdCopy[],
+  vc: ConceptKey,
+  vcIndex: number
+): AdCopy | undefined {
+  return matchByIdHeadlineIndex(adCopies, vc, vcIndex);
+}
+
+/** One creative on the contact sheet: concept + its ad copy + both evals. */
+export interface Proof {
+  /** Pipeline position (index into final_visual_concepts). */
+  index: number;
+  concept: VisualConcept;
+  adCopy?: AdCopy;
+  adCopyEval?: AdCopyEvaluation;
+  visualEval?: VisualConceptEvaluation;
+}
+
+export function buildProofs(
+  concepts: VisualConcept[],
+  adCopies: AdCopy[],
+  report: EvalReport | null | undefined
+): Proof[] {
+  return concepts.map((concept, index) => ({
+    index,
+    concept,
+    adCopy: findAdCopyForVisual(adCopies, concept, index),
+    adCopyEval: findAdCopyEvalForVisual(report, concept, index),
+    visualEval: findVisualEval(report, concept.concept_name),
+  }));
+}
+
+/** Mean of the available overall scores (0–1), or null when unevaluated. */
+export function proofScore(p: Proof): number | null {
+  const scores = [
+    p.adCopyEval?.score.overall_score,
+    p.visualEval?.score.overall_score,
+  ].filter((s): s is number => typeof s === "number");
+  if (scores.length === 0) return null;
+  return scores.reduce((a, b) => a + b, 0) / scores.length;
+}
+
+export type ProofSort = "pipeline" | "highest" | "lowest";
+
+/** Sort proofs; unevaluated proofs always go last, ties keep pipeline order. */
+export function sortProofs(proofs: Proof[], mode: ProofSort): Proof[] {
+  if (mode === "pipeline") return [...proofs].sort((a, b) => a.index - b.index);
+  const dir = mode === "highest" ? -1 : 1;
+  return [...proofs].sort((a, b) => {
+    const sa = proofScore(a);
+    const sb = proofScore(b);
+    if (sa === null && sb === null) return a.index - b.index;
+    if (sa === null) return 1;
+    if (sb === null) return -1;
+    return sa === sb ? a.index - b.index : (sa - sb) * dir;
+  });
+}
