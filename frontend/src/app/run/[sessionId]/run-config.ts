@@ -25,55 +25,33 @@ export const RUNSERVER_MARKER_AUTHOR = "__runserver__";
 
 /** Pipeline state keys to surface as collapsible widgets, in display order (newest first). */
 export const PIPELINE_STATE_KEYS = [
-  { key: "final_visual_concepts", label: "Final Visual Concepts" },
-  { key: "ad_copy_critique", label: "Ad Copy Critique" },
+  { key: "final_visual_concepts", label: "Final visual concepts" },
+  { key: "ad_copy_critique", label: "Ad copy critique" },
 ];
 
 /** Human-readable labels for schema field keys. */
 export const FIELD_LABELS: Record<string, string> = {
   id: "ID",
   original_id: "ID",
-  ad_copy_id: "Ad Copy ID",
-  tone_style: "Tone / Style",
+  ad_copy_id: "Ad copy ID",
+  tone_style: "Tone / style",
   headline: "Headline",
-  body_text: "Body Text",
-  trend_connection: "Trend Connection",
-  audience_appeal_rationale: "Audience Appeal",
-  audience_appeal: "Audience Appeal",
-  social_caption: "Social Caption",
-  call_to_action: "Call to Action",
-  detailed_performance_rationale: "Performance Rationale",
-  selection_rationale: "Selection Rationale",
-  concept_name: "Concept Name",
-  trend_visual_link: "Trend Visual Link",
+  body_text: "Body text",
+  trend_connection: "Trend connection",
+  audience_appeal_rationale: "Audience appeal",
+  audience_appeal: "Audience appeal",
+  social_caption: "Social caption",
+  call_to_action: "Call to action",
+  detailed_performance_rationale: "Performance rationale",
+  selection_rationale: "Selection rationale",
+  concept_name: "Concept name",
+  trend_visual_link: "Trend visual link",
   trend: "Trend",
-  trend_reference: "Trend Reference",
-  markets_product: "Markets Product",
-  concept_summary: "Concept Summary",
-  image_generation_prompt: "Image Prompt",
-  critique_summary: "Critique Summary",
-};
-
-/** Color accent for specific field labels to make key fields pop. */
-export const FIELD_COLORS: Record<string, string> = {
-  headline: "text-indigo-600",
-  body_text: "text-indigo-500",
-  concept_name: "text-violet-600",
-  concept_summary: "text-violet-500",
-  call_to_action: "text-amber-600",
-  social_caption: "text-amber-500",
-  trend_connection: "text-emerald-600",
-  trend_visual_link: "text-emerald-600",
-  trend: "text-emerald-600",
-  trend_reference: "text-emerald-500",
-  audience_appeal: "text-pink-600",
-  audience_appeal_rationale: "text-pink-600",
-  markets_product: "text-pink-500",
-  tone_style: "text-violet-500",
-  image_generation_prompt: "text-cyan-600",
-  critique_summary: "text-orange-600",
-  selection_rationale: "text-orange-500",
-  detailed_performance_rationale: "text-orange-500",
+  trend_reference: "Trend reference",
+  markets_product: "Markets product",
+  concept_summary: "Concept summary",
+  image_generation_prompt: "Image prompt",
+  critique_summary: "Critique summary",
 };
 
 /** Fields to hide from item cards. */

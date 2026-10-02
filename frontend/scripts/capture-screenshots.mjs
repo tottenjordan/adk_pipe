@@ -204,7 +204,7 @@ async function main() {
     await page.goto(`${BASE}/run/${sid}?app=creative_agent&userId=${USER}`, {
       waitUntil: "networkidle",
     });
-    await page.getByRole("button", { name: "View Results" }).first().waitFor();
+    await page.getByRole("button", { name: "View results" }).first().waitFor();
     await settle(page);
     await shot(page, "02-run-creative.png");
     await page.close();
@@ -260,7 +260,7 @@ async function main() {
     await page.goto(`${BASE}/run/${sid}?app=interactive_creative&userId=${USER}`, {
       waitUntil: "networkidle",
     });
-    await page.getByRole("heading", { name: "Review Ad Copies" }).waitFor();
+    await page.getByRole("heading", { name: "Review ad copies" }).waitFor();
     await page.getByRole("button", { name: /Approve/ }).first().waitFor();
     await settle(page);
     await shot(page, "04-run-interactive-review.png");

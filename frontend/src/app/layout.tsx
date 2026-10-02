@@ -1,11 +1,14 @@
 import type { Metadata } from "next";
-import { Sora, JetBrains_Mono } from "next/font/google";
+import { Archivo, JetBrains_Mono } from "next/font/google";
 import Link from "next/link";
 import "./globals.css";
 
-const sora = Sora({
-  variable: "--font-sora",
+// Variable Archivo with the width axis: condensed heavy weights for creative
+// headlines/scores, normal width for body text.
+const archivo = Archivo({
+  variable: "--font-archivo",
   subsets: ["latin"],
+  axes: ["wdth"],
 });
 
 const jetbrainsMono = JetBrains_Mono({
@@ -26,29 +29,37 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${sora.variable} ${jetbrainsMono.variable} h-full antialiased`}
+      className={`${archivo.variable} ${jetbrainsMono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">
-        <header className="glass-strong sticky top-0 z-40">
+        <header className="sticky top-0 z-40 border-b border-border bg-card shadow-[0_1px_2px_rgb(26_29_33/0.04)]">
           <div className="mx-auto flex h-14 max-w-[1600px] items-center justify-between px-6">
-            <Link href="/" className="flex items-center gap-2.5 group">
+            <Link href="/" className="flex items-center gap-2.5 rounded-sm">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src="/trend_trawler_banner.png"
-                alt="Trend Trawler"
-                className="h-9 w-auto rounded-md object-cover"
+                alt=""
+                className="h-9 w-auto rounded-sm object-cover"
               />
-              <span className="text-lg font-semibold tracking-tight text-foreground">
+              <span className="text-lg font-semibold text-foreground">
                 Trend Trawler
               </span>
             </Link>
-            <nav className="flex items-center gap-4 text-sm text-muted-foreground">
+            <nav aria-label="Main" className="flex items-center gap-1 text-sm">
               <Link
                 href="/"
-                className="rounded-md px-3 py-1.5 transition-colors hover:text-foreground hover:bg-black/5"
+                className="rounded-sm px-3 py-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
               >
-                New Run
+                New run
               </Link>
+              {/* Plain <a> until the /runs page lands in P1: a <Link> would
+                  prefetch the 404 route (which never settles the network). */}
+              <a
+                href="/runs"
+                className="rounded-sm px-3 py-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              >
+                Runs
+              </a>
             </nav>
           </div>
         </header>

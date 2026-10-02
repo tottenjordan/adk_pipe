@@ -4,7 +4,7 @@ import { Suspense, useState, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { FieldLabel } from "@/components/field-label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -122,14 +122,11 @@ function HomeContent() {
   return (
     <div className="flex-1 flex flex-col items-center justify-center px-4 py-16">
       <div
-        className="w-full max-w-2xl glass rounded-2xl p-8
-                    shadow-xl shadow-black/5
-                    transition-all duration-300 hover:shadow-2xl hover:shadow-black/8
-                    animate-fadeInUp"
+        className="w-full max-w-2xl rounded-lg border border-border bg-card p-8"
       >
         <div className="text-center space-y-3 mb-8">
-          <h1 className="text-3xl font-bold tracking-tight text-foreground">
-            New Campaign Run
+          <h1 className="text-3xl font-bold text-foreground">
+            New campaign run
           </h1>
           <p className="text-muted-foreground max-w-md mx-auto">
             Enter your campaign metadata to generate trend-informed ad
@@ -138,7 +135,7 @@ function HomeContent() {
         </div>
 
         {isPreFilled && (
-          <div className="mb-6 flex items-center gap-3 rounded-xl bg-primary/8 border border-primary/15 px-4 py-3">
+          <div className="mb-6 flex items-center gap-3 rounded-md bg-primary/5 border border-primary/20 px-4 py-3">
             <Badge
               variant="secondary"
               className="bg-primary/15 text-primary border-0"
@@ -154,16 +151,16 @@ function HomeContent() {
 
         <form onSubmit={handleSubmit} className="space-y-5">
           <div className="space-y-2">
-            <Label htmlFor="agent" className="text-muted-foreground text-xs uppercase tracking-wider">
+            <FieldLabel as="label" htmlFor="agent">
               Agent
-            </Label>
+            </FieldLabel>
             <Select
               value={form.agent}
               onValueChange={(v) =>
                 v && setForm({ ...form, agent: v as CampaignInput["agent"] })
               }
             >
-              <SelectTrigger id="agent" className="w-full min-w-[400px] bg-background border-border hover:border-foreground/20 transition-colors">
+              <SelectTrigger id="agent" className="w-full min-w-[400px] hover:border-foreground/30 transition-colors">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -183,7 +180,7 @@ function HomeContent() {
           {form.agent === "trend_scout" && (
             <label
               htmlFor="interactive-trend-pick"
-              className="flex items-start gap-3 rounded-xl border border-border bg-background px-4 py-3 cursor-pointer hover:border-foreground/20 transition-colors animate-fadeInUpSmooth"
+              className="flex items-start gap-3 rounded-md border border-border bg-background px-4 py-3 cursor-pointer hover:border-foreground/20 transition-colors"
             >
               <input
                 id="interactive-trend-pick"
@@ -192,7 +189,7 @@ function HomeContent() {
                 onChange={(e) =>
                   setForm({ ...form, interactiveTrendPick: e.target.checked })
                 }
-                className="mt-0.5 h-4 w-4 shrink-0 rounded border-border accent-primary cursor-pointer"
+                className="mt-0.5 h-4 w-4 shrink-0 rounded-sm border-border accent-primary cursor-pointer"
               />
               <span className="space-y-0.5">
                 <span className="block text-sm font-medium text-foreground">
@@ -207,14 +204,14 @@ function HomeContent() {
           )}
 
           <div className="space-y-2">
-            <Label htmlFor="brand" className="text-muted-foreground text-xs uppercase tracking-wider">
-              Brand Name
-            </Label>
+            <FieldLabel as="label" htmlFor="brand">
+              Brand name
+            </FieldLabel>
             <Select
               value=""
               onValueChange={(v) => v && setForm({ ...form, brand: v })}
             >
-              <SelectTrigger className="w-full bg-background border-border hover:border-foreground/20 transition-colors text-muted-foreground">
+              <SelectTrigger className="w-full hover:border-foreground/30 transition-colors text-muted-foreground">
                 <SelectValue placeholder="Select a preset..." />
               </SelectTrigger>
               <SelectContent>
@@ -228,19 +225,19 @@ function HomeContent() {
               placeholder='e.g., "Paul Reed Smith (PRS)"'
               value={form.brand}
               onChange={(e) => setForm({ ...form, brand: e.target.value })}
-              className="bg-background border-border hover:border-foreground/20 focus:border-primary/50 transition-colors"
+             
             />
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="audience" className="text-muted-foreground text-xs uppercase tracking-wider">
-              Target Audience
-            </Label>
+            <FieldLabel as="label" htmlFor="audience">
+              Target audience
+            </FieldLabel>
             <Select
               value=""
               onValueChange={(v) => v && setForm({ ...form, targetAudience: v })}
             >
-              <SelectTrigger className="w-full bg-background border-border hover:border-foreground/20 transition-colors text-muted-foreground">
+              <SelectTrigger className="w-full hover:border-foreground/30 transition-colors text-muted-foreground">
                 <SelectValue placeholder="Select a preset..." />
               </SelectTrigger>
               <SelectContent>
@@ -259,19 +256,19 @@ function HomeContent() {
               onChange={(e) =>
                 setForm({ ...form, targetAudience: e.target.value })
               }
-              className="bg-background border-border hover:border-foreground/20 focus:border-primary/50 transition-colors resize-none"
+              className="resize-none"
             />
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="product" className="text-muted-foreground text-xs uppercase tracking-wider">
-              Target Product
-            </Label>
+            <FieldLabel as="label" htmlFor="product">
+              Target product
+            </FieldLabel>
             <Select
               value=""
               onValueChange={(v) => v && setForm({ ...form, targetProduct: v })}
             >
-              <SelectTrigger className="w-full bg-background border-border hover:border-foreground/20 transition-colors text-muted-foreground">
+              <SelectTrigger className="w-full hover:border-foreground/30 transition-colors text-muted-foreground">
                 <SelectValue placeholder="Select a preset..." />
               </SelectTrigger>
               <SelectContent>
@@ -287,19 +284,19 @@ function HomeContent() {
               onChange={(e) =>
                 setForm({ ...form, targetProduct: e.target.value })
               }
-              className="bg-background border-border hover:border-foreground/20 focus:border-primary/50 transition-colors"
+             
             />
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="selling-points" className="text-muted-foreground text-xs uppercase tracking-wider">
-              Key Selling Points
-            </Label>
+            <FieldLabel as="label" htmlFor="selling-points">
+              Key selling points
+            </FieldLabel>
             <Select
               value=""
               onValueChange={(v) => v && setForm({ ...form, keySellingPoints: v })}
             >
-              <SelectTrigger className="w-full bg-background border-border hover:border-foreground/20 transition-colors text-muted-foreground">
+              <SelectTrigger className="w-full hover:border-foreground/30 transition-colors text-muted-foreground">
                 <SelectValue placeholder="Select a preset..." />
               </SelectTrigger>
               <SelectContent>
@@ -318,15 +315,15 @@ function HomeContent() {
               onChange={(e) =>
                 setForm({ ...form, keySellingPoints: e.target.value })
               }
-              className="bg-background border-border hover:border-foreground/20 focus:border-primary/50 transition-colors resize-none"
+              className="resize-none"
             />
           </div>
 
           {(form.agent === "creative_agent" || form.agent === "interactive_creative") && (
-            <div className="space-y-2 animate-fadeInUpSmooth">
-              <Label htmlFor="trend" className="text-muted-foreground text-xs uppercase tracking-wider">
-                Target Search Trend
-              </Label>
+            <div className="space-y-2">
+              <FieldLabel as="label" htmlFor="trend">
+                Target search trend
+              </FieldLabel>
               <Input
                 id="trend"
                 placeholder='e.g., "tswift engaged"'
@@ -334,16 +331,16 @@ function HomeContent() {
                 onChange={(e) =>
                   setForm({ ...form, targetSearchTrend: e.target.value })
                 }
-                className="bg-background border-border hover:border-foreground/20 focus:border-primary/50 transition-colors"
+               
               />
             </div>
           )}
 
           {(form.agent === "creative_agent" || form.agent === "interactive_creative") && (
-            <div className="space-y-2 animate-fadeInUpSmooth">
-              <Label htmlFor="referenceImage" className="text-muted-foreground text-xs uppercase tracking-wider">
-                Reference Image URL (optional)
-              </Label>
+            <div className="space-y-2">
+              <FieldLabel as="label" htmlFor="referenceImage">
+                Reference image URL (optional)
+              </FieldLabel>
               <Input
                 id="referenceImage"
                 placeholder='gs://bucket/product.png or https://…'
@@ -351,7 +348,7 @@ function HomeContent() {
                 onChange={(e) =>
                   setForm({ ...form, referenceImageUri: e.target.value })
                 }
-                className="bg-background border-border hover:border-foreground/20 focus:border-primary/50 transition-colors"
+               
               />
               {form.referenceImageUri?.trim() && (
                 <Select
@@ -360,7 +357,7 @@ function HomeContent() {
                     v && setForm({ ...form, referenceImageRole: v })
                   }
                 >
-                  <SelectTrigger className="w-full bg-background border-border hover:border-foreground/20 transition-colors">
+                  <SelectTrigger className="w-full hover:border-foreground/30 transition-colors">
                     <SelectValue placeholder="How to use the reference image..." />
                   </SelectTrigger>
                   <SelectContent>
@@ -374,15 +371,15 @@ function HomeContent() {
           )}
 
           {(form.agent === "creative_agent" || form.agent === "interactive_creative") && (
-            <div className="space-y-4 animate-fadeInUpSmooth rounded-xl border border-border bg-background/50 p-4">
-              <p className="text-xs uppercase tracking-wider text-muted-foreground">
+            <fieldset className="space-y-4 rounded-md border border-border bg-background p-4">
+              <legend className="px-1 text-sm font-semibold text-foreground">
                 Visual direction (all optional)
-              </p>
+              </legend>
 
               <div className="space-y-2">
-                <Label htmlFor="visualIntent" className="text-muted-foreground text-xs uppercase tracking-wider">
+                <FieldLabel as="label" htmlFor="visualIntent">
                   Art direction
-                </Label>
+                </FieldLabel>
                 <Textarea
                   id="visualIntent"
                   placeholder="e.g., moody film-noir look, dramatic lighting, close-up on the product"
@@ -391,14 +388,14 @@ function HomeContent() {
                   onChange={(e) =>
                     setForm({ ...form, visualIntent: e.target.value })
                   }
-                  className="bg-background border-border hover:border-foreground/20 focus:border-primary/50 transition-colors resize-none"
+                  className="resize-none"
                 />
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="brandColors" className="text-muted-foreground text-xs uppercase tracking-wider">
+                <FieldLabel as="label" htmlFor="brandColors">
                   Brand colors
-                </Label>
+                </FieldLabel>
                 <Input
                   id="brandColors"
                   placeholder="e.g., deep charcoal #1a1a1a with warm gold accents"
@@ -406,14 +403,14 @@ function HomeContent() {
                   onChange={(e) =>
                     setForm({ ...form, brandColors: e.target.value })
                   }
-                  className="bg-background border-border hover:border-foreground/20 focus:border-primary/50 transition-colors"
+                 
                 />
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="visualStyle" className="text-muted-foreground text-xs uppercase tracking-wider">
+                <FieldLabel as="label" htmlFor="visualStyle">
                   Preferred style
-                </Label>
+                </FieldLabel>
                 <Input
                   id="visualStyle"
                   placeholder="e.g., cinematic, flat vector cartoon, 3D character, anime, watercolor"
@@ -421,14 +418,14 @@ function HomeContent() {
                   onChange={(e) =>
                     setForm({ ...form, visualStylePreference: e.target.value })
                   }
-                  className="bg-background border-border hover:border-foreground/20 focus:border-primary/50 transition-colors"
+                 
                 />
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="visualAvoid" className="text-muted-foreground text-xs uppercase tracking-wider">
+                <FieldLabel as="label" htmlFor="visualAvoid">
                   Avoid
-                </Label>
+                </FieldLabel>
                 <Input
                   id="visualAvoid"
                   placeholder="e.g., busy backgrounds, crowds"
@@ -436,14 +433,14 @@ function HomeContent() {
                   onChange={(e) =>
                     setForm({ ...form, visualAvoid: e.target.value })
                   }
-                  className="bg-background border-border hover:border-foreground/20 focus:border-primary/50 transition-colors"
+                 
                 />
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="aspectRatio" className="text-muted-foreground text-xs uppercase tracking-wider">
+                <FieldLabel as="label" htmlFor="aspectRatio">
                   Aspect ratio
-                </Label>
+                </FieldLabel>
                 <Select
                   value={form.visualAspectRatio || ""}
                   onValueChange={(v) =>
@@ -451,7 +448,7 @@ function HomeContent() {
                     setForm({ ...form, visualAspectRatio: v === "auto" ? "" : v })
                   }
                 >
-                  <SelectTrigger id="aspectRatio" className="w-full bg-background border-border hover:border-foreground/20 transition-colors">
+                  <SelectTrigger id="aspectRatio" className="w-full hover:border-foreground/30 transition-colors">
                     <SelectValue placeholder="Auto (let AI choose)" />
                   </SelectTrigger>
                   <SelectContent>
@@ -464,18 +461,18 @@ function HomeContent() {
                   </SelectContent>
                 </Select>
               </div>
-            </div>
+            </fieldset>
           )}
 
           {error && (
-            <div className="rounded-lg bg-destructive/8 border border-destructive/15 px-4 py-3">
+            <div className="rounded-md bg-destructive/5 border border-destructive/30 px-4 py-3">
               <p className="text-sm text-destructive">{error}</p>
             </div>
           )}
 
           <Button
             type="submit"
-            className="w-full h-11 text-sm font-semibold tracking-wide"
+            className="w-full h-11 text-sm font-semibold"
             disabled={!isValid || loading}
           >
             {loading ? (
@@ -484,7 +481,7 @@ function HomeContent() {
                 Starting...
               </span>
             ) : (
-              "Run Agent"
+              "Run agent"
             )}
           </Button>
         </form>

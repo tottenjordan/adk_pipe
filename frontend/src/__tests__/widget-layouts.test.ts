@@ -43,9 +43,9 @@ describe("HIDDEN_FIELDS", () => {
 
 describe("FIELD_LABELS", () => {
   it("maps field keys to human-readable labels", () => {
-    expect(FIELD_LABELS["tone_style"]).toBe("Tone / Style");
-    expect(FIELD_LABELS["call_to_action"]).toBe("Call to Action");
-    expect(FIELD_LABELS["image_generation_prompt"]).toBe("Image Prompt");
+    expect(FIELD_LABELS["tone_style"]).toBe("Tone / style");
+    expect(FIELD_LABELS["call_to_action"]).toBe("Call to action");
+    expect(FIELD_LABELS["image_generation_prompt"]).toBe("Image prompt");
   });
 
   it("all layout pair fields have labels", () => {

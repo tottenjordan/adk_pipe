@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { FieldLabel } from "@/components/field-label";
 
 export interface ParsedTrend {
   term: string;
@@ -79,20 +80,15 @@ export function TrendCards({
 
   return (
     <div className="space-y-3">
-      <h3 className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
-        Recommended Trends
-      </h3>
+      <FieldLabel as="h3">Recommended trends</FieldLabel>
       <p className="text-xs text-muted-foreground">
-        Click a trend to start the Creative Agent workflow with it.
+        Click a trend to start a creative run with it.
       </p>
       <div className="grid gap-3">
-        {trends.map((trend, i) => (
+        {trends.map((trend) => (
           <div
             key={trend.term}
-            className="glass rounded-xl cursor-pointer transition-all duration-200
-                       hover:shadow-md hover:shadow-black/5
-                       animate-fadeInUp opacity-0"
-            style={{ animationDelay: `${i * 100}ms`, animationFillMode: "forwards" }}
+            className="rounded-lg border border-border bg-card cursor-pointer transition-colors hover:border-primary/40"
             onClick={() => handleClick(trend)}
           >
             <div className="p-4">
@@ -100,19 +96,16 @@ export function TrendCards({
                 <h4 className="text-sm font-semibold text-foreground">
                   {trend.term}
                 </h4>
-                <Badge
-                  variant="secondary"
-                  className="text-[10px] bg-primary/10 text-primary border-0"
-                >
+                <Badge variant="secondary" className="text-[10px]">
                   Click to run
                 </Badge>
               </div>
               {trend.hook && (
-                <p className="text-xs font-medium text-primary mb-2">
+                <p className="text-xs font-medium text-foreground mb-2">
                   {trend.hook}
                 </p>
               )}
-              <div className="space-y-1.5 text-xs text-foreground/75">
+              <div className="space-y-1.5 text-xs text-foreground/85">
                 {trend.context && (
                   <div>
                     <span className="font-medium text-muted-foreground">
@@ -141,13 +134,13 @@ export function TrendCards({
               <Button
                 size="sm"
                 variant="outline"
-                className="mt-3 text-xs border-border bg-muted/50 hover:bg-muted"
+                className="mt-3 text-xs"
                 onClick={(e) => {
                   e.stopPropagation();
                   handleClick(trend);
                 }}
               >
-                Generate Creatives &rarr;
+                Generate creatives &rarr;
               </Button>
             </div>
           </div>

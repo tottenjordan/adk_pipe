@@ -92,11 +92,11 @@ export function buildDisplayFields(
  * `buildDisplayFields` filters them out and non-creative runs show nothing.
  */
 export const VISUAL_DIRECTION_FIELDS: DisplayFieldDef[] = [
-  { label: "Art Direction", key: "visual_intent" },
-  { label: "Brand Colors", key: "brand_colors" },
-  { label: "Preferred Style", key: "visual_style_preference" },
+  { label: "Art direction", key: "visual_intent" },
+  { label: "Brand colors", key: "brand_colors" },
+  { label: "Preferred style", key: "visual_style_preference" },
   { label: "Avoid", key: "visual_avoid" },
-  { label: "Aspect Ratio", key: "visual_aspect_ratio" },
-  { label: "Reference Image", key: "reference_image_uri" },
-  { label: "Reference Role", key: "reference_image_role" },
+  { label: "Aspect ratio", key: "visual_aspect_ratio" },
+  { label: "Reference image", key: "reference_image_uri" },
+  { label: "Reference role", key: "reference_image_role" },
 ]
