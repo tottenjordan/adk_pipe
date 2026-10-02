@@ -21,3 +21,6 @@ creative_eval_test_report.json
 # docs/architecture/*.png, ignore the transient per-run working dirs)
 outputs/
 docs/architecture/run_*/.crf-venv/
+
+# Internal reference notebooks (bandit simulations) — never commit
+notebook-examples/
