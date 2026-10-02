@@ -262,6 +262,31 @@ UPDATE `<BQ_PROJECT_ID>.<BQ_DATASET_ID>.target_trends_crf`
 auto-route to LATEST and the Eventarc triggers bind by service name, so triggers
 survive a redeploy and are **not** re-created.
 
+**weakest_dimension_labels migration (2026-10-02)** — `creative_evals` gains a
+readable `weakest_dimension_labels` column ("Trend connection, Copy quality",
+from `creative_eval/dimensions.py`) next to the snake_case `weakest_dimensions`.
+Same ordering rule: run the ALTER on **both** datasets **BEFORE deploying** the
+code that writes it (the `creative_agent` / `interactive_creative` engines and
+the `trend-trawler-api` backend), since the eval-row MERGE names every column:
+
+```sql
+ALTER TABLE `<BQ_PROJECT_ID>.trend_trawler.creative_evals`
+  ADD COLUMN IF NOT EXISTS weakest_dimension_labels STRING;
+ALTER TABLE `<BQ_PROJECT_ID>.trend_trawler_eval.creative_evals`
+  ADD COLUMN IF NOT EXISTS weakest_dimension_labels STRING;
+```
+
+Then backfill pre-existing rows (only `IS NULL` rows are touched, so it is
+idempotent). Without `--execute` it prints the SQL, a dry-run byte estimate, and
+the count of rows to update; re-run with `--execute` to apply (repeat per dataset):
+
+```bash
+uv run python deployment/backfill_eval_dimension_labels.py \
+  --table=<BQ_PROJECT_ID>.trend_trawler.creative_evals
+uv run python deployment/backfill_eval_dimension_labels.py \
+  --table=<BQ_PROJECT_ID>.trend_trawler.creative_evals --execute
+```
+
 **3.1 Creative Agent Orchestrator:** cloud run function
 
 ```bash
@@ -1043,6 +1068,9 @@ for ROLE in roles/aiplatform.user roles/bigquery.jobUser; do
 done
 
 # 4. Isolated eval dataset, with EMPTY tables cloned from the prod schemas
+# (the clone copies the live schema, so it includes later columns such as
+# creative_evals.weakest_dimension_labels; an eval dataset cloned BEFORE a prod
+# migration needs the same ALTER — see the 3.0 migration notes)
 # Same location as the prod dataset (hybrid-vertex: US multi-region).
 bq mk --dataset --location=US $PROJECT:trend_trawler_eval
 for T in target_trends_crf trend_creatives creative_evals; do
