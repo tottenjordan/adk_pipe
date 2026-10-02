@@ -1,98 +1,127 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Trend Trawler frontend
 
-## Getting Started
+The web UI for Trend Trawler: write a campaign brief, start one of the three agents
+(`trend_scout`, `creative_agent`, `interactive_creative`), follow the run live, answer
+the review checkpoints, and look through the finished creatives.
 
-First, run the development server:
+**Stack:** Next.js 16 (App Router), React 19, TypeScript, Tailwind CSS 4, and
+shadcn/ui on `@base-ui/react`.
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+**Design system ("proof room"):** design tokens live in `src/app/globals.css`, where
+`primary` is the only action colour and `mark-pass`/`mark-fail`/`mark-pending` are the
+status marks. Type is Archivo, labels use the sentence-case `FieldLabel`
+(`src/components/field-label.tsx`), and mono is only for code-like data. The rationale
+is in [the proof-room plan](../docs/plans/2026-10-02-frontend-proof-room.md).
+
+> **Next.js version note:** see [`AGENTS.md`](AGENTS.md). This Next.js release has
+> breaking changes compared with older versions, so check the guides in
+> `node_modules/next/dist/docs/` before you write framework code.
+
+## Pages
+
+| Route | What it does |
+|---|---|
+| `/` | Campaign brief form, agent tiles, and a recent-runs sidebar |
+| `/runs` | Run history (brand, trend, agent, status, updated). **Duplicate brief** fills in a new run from an old one |
+| `/run/[sessionId]` | Live run view. It polls the async-job run (`GET /runs/...?since=N`), so a run keeps going through a reload or disconnect. Shows a stage spine, the current stage, and outputs so far. Review checkpoints take over the main area. A run that stopped early shows **Continue run** |
+| `/results/[sessionId]` | Contact sheet of creatives with scores, a proof-detail dialog for each creative, a research report panel, the eval report, and artifacts |
+
+## Source layout
+
+```
+src/
+├── app/
+│   ├── layout.tsx, page.tsx, globals.css
+│   ├── runs/page.tsx
+│   ├── run/[sessionId]/page.tsx
+│   ├── results/[sessionId]/page.tsx
+│   └── api/
+│       ├── adk/[...path]/route.ts
+│       └── gcs/route.ts
+├── components/          # app components + ui/ (shadcn primitives)
+├── lib/                 # pure logic, unit-tested
+└── __tests__/           # Vitest + React Testing Library
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+### Key modules
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+- `lib/api.ts`: API client for session CRUD, the async-job `startRun`/`pollRun`/`resumeRun` calls, and artifact fetching
+- `lib/run-history.ts`: turns the session list into run-history rows (status, trend, agent)
+- `lib/run-stages.ts`: per-agent stage lists, with progress derived from session state (feeds the stage spine)
+- `lib/run-completion.ts`: detects a run that stopped early and holds the **Continue run** message
+- `lib/pause-detection.ts`: finds the unanswered long-running call that marks a real review pause
+- `lib/run-kickoff.ts`: kick-off guard that stops a reload or StrictMode remount from starting a second run
+- `lib/eval-matching.ts`: eval-report types; pairs each visual concept with its ad copy and both verdicts
+- `lib/eval-dimensions.ts`: short labels for the 12 `creative_eval` dimensions
+- `lib/research-report.ts`: citation helpers for the cited research report (display and edit)
+- `lib/agents.ts`: agent catalog (labels, descriptions, durations, review pauses)
+- `lib/presets.ts`: preset values for the brief form
+- `lib/initial-state.ts`: builds the `createSession` initial state (`ui_app`, trend-pick opt-in, visual-intent keys)
+- `components/research-report.tsx`: renders the research report with numbered citations
+- `components/main-nav.tsx`: header nav that highlights the active page
+- `components/run-list.tsx`: run-history list used on `/runs` and in the home sidebar
+- `app/api/adk/[...path]/route.ts`: same-origin proxy to the private backend. It verifies the IAP JWT and scopes every request to the caller (`lib/iap-identity.ts` + `lib/user-scoping.ts`)
+- `app/api/gcs/route.ts`: authenticated Cloud Storage proxy for serving artifacts (`/api/gcs?bucket=...&path=...`)
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Local development
 
-## Project Structure
+Start the backend from the repo root. Use the async-job launcher, not bare
+`adk api_server`, because the run page polls the `/runs` endpoints and only the
+launcher mounts them:
 
 ```bash
-frontend/
-├── src/
-│   ├── app/                                # Next.js App Router — routes + server-side API proxies
-│   │   ├── layout.tsx                      # root layout: fonts (Archivo + JetBrains Mono), header + active-page nav
-│   │   ├── page.tsx                        # "/" campaign input form (brand, audience, product, agent selector)
-│   │   ├── globals.css                     # Tailwind base + light-theme design tokens
-│   │   ├── favicon.ico
-│   │   ├── api/
-│   │   │   ├── adk/[...path]/route.ts      # same-origin proxy to the backend (ID-token auth; forwards session CRUD + /runs poll)
-│   │   │   └── gcs/route.ts                # authenticated GCS proxy for serving artifacts
-│   │   ├── run/[sessionId]/page.tsx        # "/run/*" async-job polling (pollRun), pipeline widgets, status tracking, stall-timeout
-│   │   └── results/[sessionId]/page.tsx    # "/results/*" artifacts gallery, research PDF, eval report, state inspector
-│   ├── components/
-│   │   ├── event-log.tsx                   # timeline of polled agent events
-│   │   ├── gallery-viewer.tsx              # image gallery for generated visual concepts
-│   │   ├── gcs-widget.tsx                  # renders a gs:// URI as a Cloud Console link
-│   │   ├── trend-cards.tsx                 # trend selection cards (parsed from agent output)
-│   │   └── ui/                             # shadcn/ui primitives (self-contained, generated)
-│   │       ├── badge.tsx
-│   │       ├── button.tsx
-│   │       ├── card.tsx
-│   │       ├── collapsible.tsx
-│   │       ├── dialog.tsx
-│   │       ├── input.tsx
-│   │       ├── label.tsx
-│   │       ├── scroll-area.tsx
-│   │       ├── select.tsx
-│   │       ├── separator.tsx
-│   │       ├── tabs.tsx
-│   │       └── textarea.tsx
-│   ├── lib/
-│   │   ├── api.ts                          # API client: session CRUD, async-job startRun/pollRun/resumeRun, artifact fetching
-│   │   ├── presets.ts                      # preset dropdown values for the campaign form
-│   │   ├── types.ts                        # shared TS types (ADK event Parts, agent events, …)
-│   │   └── utils.ts                        # cn() class-merge helper + formatStateValue
-│   └── __tests__/                          # Vitest + React Testing Library unit tests
-│       ├── setup.ts                        # test bootstrap (jsdom, matchers)
-│       ├── api-client.test.ts              # API client (session CRUD, proxy)
-│       ├── poll-run.test.ts                # async-job client: startRun / pollRun / getRunStatus / resumeRun
-│       ├── extract-items.test.ts           # extractItems helper
-│       ├── form-validation.test.ts         # campaign form validation
-│       ├── gcs-uri.test.ts                 # gs:// URI building
-│       ├── interactive-mode.test.ts        # interactive-mode pause/resume logic
-│       ├── parse-trends.test.ts            # trend markdown parsing
-│       └── widget-layouts.test.ts          # pipeline widget layouts
-├── public/                                 # static assets (create-next-app svgs + trend_trawler_banner.png)
-├── components.json                         # shadcn/ui config (aliases, style)
-├── eslint.config.mjs                       # ESLint flat config
-├── next.config.ts                          # Next.js config
-├── postcss.config.mjs                      # PostCSS / Tailwind config
-├── tsconfig.json                           # TypeScript config
-├── vitest.config.ts                        # Vitest config
-├── package.json
-├── package-lock.json
-├── AGENTS.md                               # ⚠️ modified Next.js — read node_modules/next/dist/docs before coding
-├── CLAUDE.md                               # → @AGENTS.md
-└── README.md                               # this file
+TRUST_CLIENT_USER_ID=1 SESSION_SERVICE_URI=memory:// ALLOW_ORIGINS=http://localhost:3000 uv run uvicorn deployment.async_app:app --port 8000
 ```
 
-## Learn More
+Then start the frontend:
 
-To learn more about Next.js, take a look at the following resources:
+```bash
+cd frontend
+npm install
+npm run dev   # http://localhost:3000
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Environment variables (read server-side by the proxy):
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+| Variable | Meaning | Local default |
+|---|---|---|
+| `ADK_API_BASE` | Backend URL that `/api/adk/*` forwards to | `http://localhost:8000` |
+| `IAP_ALLOWED_HD` | Required Google Workspace domain (`hd` claim) on the IAP JWT. If it is unset on Cloud Run, every proxied call returns 401 | unset. Locally there is no JWT and no `K_SERVICE`, so the proxy passes requests through unscoped |
+| `IAP_AUDIENCE` | Overrides the IAP audience that is otherwise looked up from the metadata server | unset |
+| `NEXT_PUBLIC_API_BASE` | Client-side API base used by `lib/api.ts` | `/api/adk` |
 
-## Deploy on Vercel
+## Testing
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+```bash
+npm run lint    # ESLint
+npm test        # Vitest + React Testing Library (tests in src/__tests__/)
+npm run build   # next build, which also type-checks everything in tsconfig's include (tests too)
+```
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+CI runs all three on PRs that touch `frontend/**`:
+[`.github/workflows/frontend-tests.yml`](../.github/workflows/frontend-tests.yml).
+
+## Screenshots and journey GIF
+
+`npm run screenshots` (`scripts/capture-screenshots.mjs`) uses Playwright to capture
+the reference PNGs. It needs a server on `:3000`, or one set with
+`SCREENSHOT_BASE_URL`. Backend calls are not live: every `**/api/**` request is mocked
+from the fixtures in `scripts/screenshot-fixtures/`, so no GCP credentials or model
+quota are needed. `JOURNEY=1 npm run screenshots` captures annotated journey frames
+instead, and the GIF is built with:
+
+```bash
+uv run --no-project --with pillow python scripts/build-journey-gif.py
+```
+
+The full recipe (capture against a production standalone build, frame metadata,
+GIF knobs) and the list of captures are in
+[docs/screenshots/README.md](../docs/screenshots/README.md).
+
+## Deployment
+
+The frontend runs on Cloud Run as `trend-trawler-web`. It builds from the
+[`Dockerfile`](Dockerfile) using Next.js `output: "standalone"`
+(`next.config.ts`). The service is IAP-gated and reaches the private
+`trend-trawler-api` backend with a metadata-server ID token. Runbook:
+[deployment/README.md → Frontend + api_server on Cloud Run](../deployment/README.md#frontend--api_server-on-cloud-run).
