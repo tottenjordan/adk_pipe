@@ -3,7 +3,7 @@ from google.adk.tools.tool_context import ToolContext
 
 
 def review_research(tool_context: ToolContext) -> None:
-    """Pause for user to review the research report. When this tool returns a response, you MUST continue to the next workflow step (ad_creative_pipeline) — do not re-run the research; any feedback is carried forward via `memorize` (key 'research_feedback'). The response contains 'status' ('approved' | 'revision_requested'), optional 'feedback' (free text), and 'instruction'."""
+    """Pause for user to review the research report. When this tool returns a response, you MUST continue to the next workflow step (ad_creative_pipeline) — do not re-run the research; any feedback is carried forward via `memorize` (key 'research_feedback'). The response contains 'status' ('approved' | 'revision_requested'), optional 'feedback' (free text), optional 'report_edited' (boolean; true when the user edited the report, which is already applied to session state — call `save_draft_report_artifact` again so the PDF matches), and 'instruction'."""
     tool_context.actions.skip_summarization = True
     return None
 
