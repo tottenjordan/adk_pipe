@@ -25,6 +25,8 @@ import {
   type VisualConcept,
 } from "@/lib/eval-matching";
 import { campaignSummary } from "@/lib/results-copy";
+import { ResearchReport } from "@/components/research-report";
+import type { ReportSources } from "@/lib/research-report";
 import { ArtifactsPanel, QuietDisclosure, type ArtifactData } from "./artifacts-panel";
 import { ProofDetail } from "./proof-detail";
 import { ProofGrid } from "./proof-grid";
@@ -191,6 +193,11 @@ export default function ResultsPage({
   // Optional user visual art-direction inputs (PR #114) — hidden when unset
   const visualDirectionFields = buildDisplayFields(state, VISUAL_DIRECTION_FIELDS);
 
+  const researchReport =
+    typeof state.combined_final_cited_report === "string"
+      ? state.combined_final_cited_report
+      : "";
+
   // Does this run have the creative asset + eval view?
   const hasCreativeView =
     (appName === "creative_agent" || appName === "interactive_creative") && proofs.length > 0;
@@ -242,6 +249,16 @@ export default function ResultsPage({
             returnFocusTo={(i) => proofButtons.current.get(i) ?? null}
           />
         </>
+      )}
+
+      {researchReport && (
+        <QuietDisclosure title="Research report" className="mb-4">
+          <ResearchReport
+            markdown={researchReport}
+            sources={state.sources as ReportSources | undefined}
+            className="border-0 bg-transparent p-1"
+          />
+        </QuietDisclosure>
       )}
 
       <ArtifactsPanel artifacts={artifacts} urlFor={outputUrl} />

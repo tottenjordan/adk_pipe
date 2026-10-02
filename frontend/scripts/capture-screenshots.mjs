@@ -340,6 +340,46 @@ async function main() {
     await page.close();
   }
 
+  // ── 7. Interactive run paused at checkpoint 1 (Review research report) ──
+  {
+    console.log("07-run-research-review");
+    const sid = "interactive-research-demo";
+    // Paused right after research: the report + its sources exist, nothing
+    // downstream yet. ReviewResearch renders the cited report with numbered
+    // superscript citations and a Sources list.
+    const researchState = {
+      brand: state.brand,
+      target_product: state.target_product,
+      target_audience: state.target_audience,
+      key_selling_points: state.key_selling_points,
+      target_search_trends: state.target_search_trends,
+      combined_final_cited_report: state.combined_final_cited_report,
+      sources: state.sources,
+    };
+    const pauseEvent = {
+      id: "evt-review-research",
+      invocationId: "inv-interactive",
+      author: "interactive_creative",
+      timestamp: (events[0]?.timestamp ?? 0) + 180,
+      longRunningToolIds: ["fc-review-research"],
+      content: {
+        role: "model",
+        parts: [{ functionCall: { id: "fc-review-research", name: "review_research", args: {} } }],
+      },
+    };
+    currentSession = { id: sid, appName: "interactive_creative", userId: USER, state: researchState, events: [] };
+    currentPoll = { status: "done", events: [pauseEvent], nextCursor: 1, state: researchState };
+    const page = await newPage(context);
+    await page.goto(`${BASE}/run/${sid}?app=interactive_creative&userId=${USER}`, {
+      waitUntil: "networkidle",
+    });
+    await page.getByRole("heading", { name: "Review research report" }).waitFor();
+    await page.getByRole("heading", { name: /Sources/ }).waitFor();
+    await settle(page);
+    await shot(page, "07-run-research-review.png");
+    await page.close();
+  }
+
   // ── 6. trend_scout paused at the opt-in trend pick (review_trends) ──────
   {
     console.log("06-run-trend-pick");

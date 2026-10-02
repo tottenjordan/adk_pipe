@@ -1,3 +1,5 @@
+import { canonicalizeCitations, fromEditableReport } from "@/lib/research-report";
+
 /** Extract the list of items from pipeline state data (dict with one key holding an array). */
 export function extractItems(data: unknown): Record<string, unknown>[] | null {
   if (!data || typeof data !== "object") return null;
@@ -40,6 +42,19 @@ export function buildResearchEdit(
 ): ResearchEdit[] | null {
   if (!edited.trim() || edited.trim() === original.trim()) return null;
   return [{ field: "combined_final_cited_report", value: edited }];
+}
+
+/**
+ * Research edit from the checkpoint-1 textarea, which shows `[src-N]` markers
+ * (see `toEditableReport`). The markers go back to canonical cite tags, and
+ * the original is canonicalised too, so an untouched report yields no edit
+ * even when its tags were written as `<cite source="src-N" />`.
+ */
+export function buildEditableResearchEdit(
+  original: string,
+  editedText: string
+): ResearchEdit[] | null {
+  return buildResearchEdit(canonicalizeCitations(original), fromEditableReport(editedText));
 }
 
 /**
