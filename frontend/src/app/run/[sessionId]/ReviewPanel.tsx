@@ -10,6 +10,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
   buildConceptEdits,
+  buildResearchEdit,
   extractItems,
   parseRawGtrends,
   type ConceptDraft,
@@ -66,8 +67,16 @@ function ReviewResearch({
   const [editMode, setEditMode] = useState(false);
   const report = state.combined_final_cited_report as string | undefined;
   const [editedReport, setEditedReport] = useState(report ?? "");
+  const edits = buildResearchEdit(report ?? "", editedReport);
+  const resume = (status: string, instruction: string) =>
+    onResume({
+      status,
+      feedback,
+      instruction,
+      ...(edits ? { edits, report_edited: true } : {}),
+    });
   const approve = () =>
-    onResume({ status: "approved", feedback, instruction: "User approved the research. Continue to the next step in the WORKFLOW." });
+    resume("approved", "User approved the research. Continue to the next step in the WORKFLOW.");
   useApproveShortcut(approve);
 
   return (
@@ -78,18 +87,22 @@ function ReviewResearch({
           <h2 className="text-lg font-semibold">Review research report</h2>
         </div>
         {report && (
-          <button
-            onClick={() => setEditMode((v) => !v)}
-            className="rounded-sm text-xs font-medium text-primary hover:underline"
-          >
-            {editMode ? "Preview" : "Edit"}
-          </button>
+          <div className="flex items-center gap-3">
+            {edits && (
+              <span className="text-xs text-muted-foreground">Edited</span>
+            )}
+            <button
+              onClick={() => setEditMode((v) => !v)}
+              className="rounded-sm text-xs font-medium text-primary hover:underline"
+            >
+              {editMode ? "Preview" : "Edit"}
+            </button>
+          </div>
         )}
       </div>
       <p className="text-sm text-muted-foreground">
-        Approve to continue to ad copy. To steer the next steps, add feedback
-        and choose Request changes — the feedback is passed on; the research
-        itself isn&apos;t re-run.
+        Edit the report to change what ad copy and visuals are based on; the
+        PDF is regenerated. Feedback is passed on as guidance.
       </p>
       {report && !editMode && (
         <div className="max-h-[28rem] overflow-y-auto rounded-md bg-background p-5 border border-border prose prose-sm prose-neutral max-w-none
@@ -101,7 +114,7 @@ function ReviewResearch({
           prose-li:text-foreground/85
           prose-code:text-xs prose-code:bg-muted prose-code:rounded prose-code:px-1
           prose-blockquote:border-l-primary/30 prose-blockquote:text-muted-foreground">
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>{report}</ReactMarkdown>
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>{edits ? editedReport : report}</ReactMarkdown>
         </div>
       )}
       {report && editMode && (
@@ -129,8 +142,8 @@ function ReviewResearch({
         </Button>
         <Button
           variant="outline"
-          onClick={() => onResume({ status: "revision_requested", feedback, instruction: "User requested changes to the research. Address their feedback, then continue the WORKFLOW." })}
-          disabled={!feedback}
+          onClick={() => resume("revision_requested", "User requested changes to the research. Address their feedback, then continue the WORKFLOW.")}
+          disabled={!feedback && !edits}
         >
           Request changes
         </Button>
