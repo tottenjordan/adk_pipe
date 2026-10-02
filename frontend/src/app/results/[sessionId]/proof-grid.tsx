@@ -3,6 +3,7 @@
 import { useState, type Ref } from "react";
 import { cn } from "@/lib/utils";
 import type { Proof, ProofSort } from "@/lib/eval-matching";
+import { SegmentedControl } from "@/components/segmented-control";
 import { CONDENSED, ScoreMark } from "./score-mark";
 
 const SORT_OPTIONS: { value: ProofSort; label: string }[] = [
@@ -85,31 +86,12 @@ export function ProofGrid({
             {proofs.length}
           </span>
         </h2>
-        <div
-          role="group"
-          aria-label="Sort creatives"
-          className="inline-flex rounded-sm border border-border bg-card p-0.5"
-        >
-          {SORT_OPTIONS.map((o) => {
-            const active = o.value === sort;
-            return (
-              <button
-                key={o.value}
-                type="button"
-                aria-pressed={active}
-                onClick={() => onSortChange(o.value)}
-                className={cn(
-                  "h-7 rounded-sm px-2.5 text-xs font-medium transition-colors",
-                  active
-                    ? "bg-foreground text-background"
-                    : "text-muted-foreground hover:bg-muted hover:text-foreground"
-                )}
-              >
-                {o.label}
-              </button>
-            );
-          })}
-        </div>
+        <SegmentedControl
+          label="Sort creatives"
+          options={SORT_OPTIONS}
+          value={sort}
+          onChange={onSortChange}
+        />
       </div>
 
       <ul className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">

@@ -28,6 +28,7 @@ import { campaignSummary } from "@/lib/results-copy";
 import { imagesNotRendered, sessionStoppedEarly } from "@/lib/run-completion";
 import { ResearchReport } from "@/components/research-report";
 import type { ReportSources } from "@/lib/research-report";
+import { DeployPanel } from "./deploy-panel";
 import { ArtifactsPanel, QuietDisclosure, type ArtifactData } from "./artifacts-panel";
 import { ProofDetail } from "./proof-detail";
 import { ProofGrid } from "./proof-grid";
@@ -261,6 +262,13 @@ export default function ResultsPage({
             onClose={() => setDetailOpen(false)}
             imageUrlFor={imageUrlFor}
             returnFocusTo={(i) => proofButtons.current.get(i) ?? null}
+          />
+          <DeployPanel
+            proofs={proofs}
+            appName={appName}
+            sessionId={sessionId}
+            imageUrlFor={imageUrlFor}
+            stoppedEarly={Boolean(stopped)}
           />
         </>
       )}
