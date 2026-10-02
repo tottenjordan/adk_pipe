@@ -224,6 +224,17 @@ cd frontend && npm install && npm run dev   # http://localhost:3000
 
 For pages, design system and configuration, see the [frontend guide](frontend/README.md). For per-user authz and the Cloud Run deployment, see [CLAUDE.md](CLAUDE.md#frontend--frontend) and [deployment/README.md](deployment/README.md#frontend--api_server-on-cloud-run).
 
+### Creative experiments (contextual bandit)
+
+From a finished creative run, the results page's Deploy panel turns 2–4 approved creatives into the arms of a contextual bandit: JAX linear Thompson sampling served from a single-replica Agent Platform (Vertex AI) Custom Prediction Routine endpoint. A Cloud Run Job drives synthetic readers of a publisher page about the trend at it and replays five baseline policies on the same readers, and `/experiments/[id]` charts reward, regret, % optimal, arm share and per-segment winners. The api tears the endpoint down on Stop or when its TTL expires. Everything is synthetic. See the **[bandit experiments guide](docs/bandit/README.md)**.
+
+<table>
+  <tr>
+    <td align="center"><a href="docs/screenshots/12-experiment-detail.png"><img src="docs/screenshots/12-experiment-detail.png" alt="Bandit experiment detail page" width="420"></a><br><sub>Experiment detail: controls, arms and bandit charts</sub></td>
+    <td align="center"><a href="docs/screenshots/10-deploy-panel.png"><img src="docs/screenshots/10-deploy-panel.png" alt="Deploy creatives panel" width="420"></a><br><sub>Deploy creatives as a live experiment</sub></td>
+  </tr>
+</table>
+
 ## Evaluation
 
 `creative_eval` runs automatically at the end of every `creative_agent` and `interactive_creative` run. It is an LLM-as-judge: each creative gets its own concurrent judge call with structured output.
@@ -283,12 +294,15 @@ The agent packages sit flat at the repo root on purpose. Agent Engine's `extra_p
 ├── creative_eval/         # LLM-as-judge scoring of ad copy and visual concepts
 ├── agent_common/          # shared config, models, retry, rate limiting, state (bundled into every engine)
 ├── agents/                # symlinks: the api_server's view of the runnable agents
-├── runserver/             # async-job /runs API + per-user authz for the web backend
+├── runserver/             # async-job /runs + /experiments APIs, per-user authz for the web backend
+├── bandit/                # contextual-bandit core: JAX linear TS, synthetic env, simulator (dev only)
+├── bandit_serving/        # CPR predictor for the bandit experiment endpoint
+├── bandit_traffic/        # synthetic-traffic Cloud Run Job for bandit experiments
 ├── cloud_functions/       # Pub/Sub fan-out: orchestrator + worker Cloud Run Functions
 ├── deployment/            # deploy/test scripts, backend launcher, BigQuery setup, deployment guide
 ├── frontend/              # Next.js web UI
 ├── tests/                 # pytest suite + ADK evalsets
-├── experiments/           # measurement harnesses (latency, quota spread); never deployed
+├── experiments/           # measurement harnesses (latency, quota spread, bandit parity); never deployed
 ├── docs/                  # architecture diagrams, examples, screenshots, plans, notes
 ├── imgs/                  # README banner
 ├── .env.example           # environment reference

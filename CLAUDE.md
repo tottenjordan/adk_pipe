@@ -83,8 +83,8 @@ PYTHONPATH="$PWD" uv run adk eval creative_agent tests/eval/evalsets/creative_ag
   --config_file_path=tests/eval/creative_eval_config.json --print_detailed_results
 ```
 
-- Frontend: `frontend/src/__tests__/` — pure logic tests (async-job poll client in `poll-run.test.ts`, P3 proxy identity in `iap-identity.test.ts` (IAP JWT verify, audience lookup, `resolveUser`) + `user-scoping.test.ts` (route allowlist, userId rewrite, encoded-slash/app-name rejection, query allowlist), form validation, GCS URI building, widget layouts, trend markdown parsing, extractItems, interactive mode pause/resume)
-- Python: `tests/` — Pydantic schema validation, agent pipeline structure, tool functions, callbacks (citation regex, state init, rate limiting), async-job run helpers (`test_async_runs.py`), deployment utilities, cloud function logic. See [tests/README.md](tests/README.md) for the per-file breakdown.
+- Frontend: `frontend/src/__tests__/` — pure logic tests (async-job poll client in `poll-run.test.ts`, P3 proxy identity in `iap-identity.test.ts` (IAP JWT verify, audience lookup, `resolveUser`) + `user-scoping.test.ts` (route allowlist, userId rewrite, encoded-slash/app-name rejection, query allowlist), form validation, GCS URI building, bandit experiments (`experiments.test.ts`, `chart.test.ts`, `deploy-selection.test.ts`), widget layouts, trend markdown parsing, extractItems, interactive mode pause/resume)
+- Python: `tests/` — Pydantic schema validation, agent pipeline structure, tool functions, callbacks (citation regex, state init, rate limiting), async-job run helpers (`test_async_runs.py`), deployment utilities, cloud function logic, bandit experiments (`test_bandit_*.py` core/predictor/traffic, `test_experiment*_*.py` api/store/metrics, `test_build_image.py`). See [tests/README.md](tests/README.md) for the per-file breakdown.
 - ADK Evals: `tests/eval/` — end-to-end agent evaluation using `adk eval` CLI with rubric-based LLM-as-judge scoring (response quality + tool use quality). Runs against real APIs. One evalset + rubric config per agent: `evalsets/trend_scout_evalset.json` + `eval_config.json`; `evalsets/creative_agent_evalset.json` + `creative_eval_config.json`. The `creative_agent` eval must be run with `PYTHONPATH="$PWD"` (see command above).
 - Integration: `deployment/integration_test.py` — live GCP checks (health, session lifecycle, smoke tests). Requires deployed agents.
 - CI (four workflows, all with `timeout-minutes`; the first three are PR-only plus manual `workflow_dispatch` — no `push: main` re-run, since the PR run already tests the squash-merge result — and path-gated):
@@ -186,6 +186,14 @@ Both the run view and results view also surface the optional visual art-directio
 - `frontend/src/lib/agents.ts` — agent catalog (labels, descriptions, durations, review pauses)
 - `frontend/src/app/api/gcs/route.ts` — Authenticated GCS proxy for serving artifacts
 
+### Bandit experiments — `bandit/`, `bandit_serving/`, `bandit_traffic/`
+
+Optional post-run step (guide: [docs/bandit/README.md](docs/bandit/README.md)): the results-page Deploy panel turns 2–4 creatives into the arms of a contextual bandit for a synthetic publisher page about the trend. `bandit/` is the JAX core (linear Thompson sampling, `ctx-v1` features d=19, synthetic scenarios `clear_winner`/`segment_winners`/`drift`, simulator + baselines, `python -m bandit.cli simulate`); `bandit_serving/predictor.py` is the CPR `BanditPredictor` (typed `decision`/`reward`/`reset`/`state` instances over `:predict`, posterior checkpointed to GCS); `bandit_traffic/` is the synthetic-traffic Cloud Run Job (CRN baseline replay → BigQuery `bandit_events`/`bandit_episode_metrics`); `runserver/experiments*.py` is the user-scoped `/experiments` API (status machine, Vertex deploy via `deployment/bandit/endpoint.py`, Cloud Run Job launch, TTL reaper every 5 min, metrics aggregation); the frontend adds `/experiments` + `/experiments/[experimentId]` with hand-drawn SVG charts.
+- **Single worker, single replica:** the posterior is in-memory, so the CPR model is always deployed with `VERTEX_CPR_WEB_CONCURRENCY=1` on exactly one replica (not HA; pending decisions are lost on restart). One active experiment per user.
+- **JAX is dev-group only:** never add `jax` to the root `[project] dependencies` or `requirements.txt` (the api image and Agent Engine bundles must stay JAX-free); it lives in the uv dev group plus `bandit_serving/requirements.txt` / `bandit_traffic/requirements.txt` (same pin). `runserver/` never imports `bandit/` (it duplicates the noise-var formula, parity-tested).
+- **Contracts:** [docs/bandit/contracts.md](docs/bandit/contracts.md) is the source of truth for the core API, endpoint instances, BigQuery tables, context object and REST API; change it in the same PR as any interface change.
+- **Local dev:** `BANDIT_DEPLOY_MODE=fake` (in-memory store, fake deployer + jobs; no metrics) on the api; `python -m bandit_traffic.main --in-process --dry-run` for the traffic loop without GCP.
+
 ### Event-Driven Orchestration — `cloud_functions/`
 
 Fan-out pattern using two Cloud Run Function deployments from the same source (`cloud_functions/creative_fanout/`):
@@ -258,6 +266,13 @@ Image-generation prompt guidance lives in `creative_agent/prompts.py` as `IMAGE_
 - `deployment/async_app.py` — launcher that mounts the `/runs` router on ADK's canned FastAPI app, sharing one `VertexAiSessionService`; run under uvicorn by `deployment/backend_entrypoint.sh`
 - `cloud_functions/creative_fanout/main.py` — Orchestrator and worker entry points
 - `cloud_functions/creative_fanout/session.py` — `agent_session` async context manager (create→query→delete under one `user_id`, delete-on-error)
+- `bandit/linear_ts.py` / `bandit/features.py` / `bandit/config.py` — JAX LinTS core, `ctx-v1` context encoding (privacy key rejection), `experiment.json` config + calibrated noise variance
+- `bandit/simulate.py` / `bandit/cli.py` — offline simulator + CLI (`experiments/bandit/notebook_parity.py` regenerates the parity figures)
+- `bandit_serving/predictor.py` — CPR `BanditPredictor` (contracts §2/§7)
+- `bandit_traffic/main.py` / `bandit_traffic/traffic.py` — synthetic-traffic Cloud Run Job entrypoint + episode loop
+- `runserver/experiments.py` — `/experiments` REST API, status machine, TTL reaper, `BANDIT_DEPLOY_MODE`; helpers in `experiments_store.py` / `experiments_deploy.py` / `experiments_jobs.py` / `experiments_metrics.py`
+- `deployment/bandit/build_image.py` / `deployment/bandit/endpoint.py` — CPR image build/local-test/push; model upload + endpoint lifecycle
+- `docs/bandit/contracts.md` — bandit interface contracts (source of truth)
 
 ## Requirements
 

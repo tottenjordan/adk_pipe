@@ -1,6 +1,6 @@
 # Bandit Creative Experiments: Implementation Plan (JAX LinTS on Agent Platform CPR)
 
-> **Status:** approved 2026-10-02; executing PR by PR. **Pinned:** `jax[cpu]==0.11.2` / `jaxlib==0.11.2` (dev group only; `uv.lock`) — use the same pin in `bandit_serving/requirements.txt` and `bandit_traffic/requirements.txt`. jax ≥0.5 uses `jax_threefry_partitionable=True` by default (PRNG outputs differ from older versions).
+> **Status:** approved 2026-10-02. COMPLETE 2026-10-02: PRs #219–#227 merged; live rollout done (api 00137-sup, web 00045-vuf, traffic job, serving image 06f4717); first live experiment 0693ea62bb7144ef verified and torn down. **Pinned:** `jax[cpu]==0.11.2` / `jaxlib==0.11.2` (dev group only; `uv.lock`) — use the same pin in `bandit_serving/requirements.txt` and `bandit_traffic/requirements.txt`. jax ≥0.5 uses `jax_threefry_partitionable=True` by default (PRNG outputs differ from older versions).
 > Execution: `subagent-driven-development`, one implementer per PR, with my review between PRs. PRs 1 and 2 can run in parallel worktrees.
 
 ## Context
