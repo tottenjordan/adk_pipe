@@ -1183,6 +1183,54 @@ done
 in "1. IAM") for `bandit_experiments` and to read `bandit_episode_metrics`, and
 `roles/storage.objectAdmin` (already granted) to write `experiment.json`.
 
+### Traffic job (`bandit_traffic/`)
+
+The Cloud Run Job `trend-trawler-bandit-traffic` drives synthetic users at the experiment's
+endpoint. For each episode it sends `reset`, then for each batch it draws users with the
+simulator's own streams (`bandit.simulate.batch_draws`, so the draws are common random
+numbers), sends the decisions, reads each chosen arm's outcome from the pre-drawn coin flips,
+and sends the rewards. After the episode it replays `ucb1`, `epsilon_greedy`,
+`beta_bernoulli_ts`, `uniform` and `oracle` locally on the identical users. It then writes:
+- `bandit_events` rows (endpoint policy only; streaming insert, `insertId = request_id`);
+- one `bandit_episode_metrics` row per policy;
+- `bandit_experiments.progress` (`{episodes_done, episodes_total}`). This is a column-level
+  `UPDATE` of `progress` and `updated_at` only. The api moves `running_traffic` back to
+  `ready` once `episodes_done >= episodes_total`.
+
+If a decision comes back as a per-instance error, that round is not logged or rewarded. The
+episode aborts (exit 1) once more than `ERROR_THRESHOLD` (default 5%) of its decisions fail.
+Exit codes: 0 means done, 1 means the run failed (endpoint, BigQuery or error rate), 2 means
+a configuration error.
+
+| Variable | Set by | Meaning |
+|---|---|---|
+| `EXPERIMENT_ID`, `CONFIG_URI`, `ENDPOINT_ID`, `EPISODES`, `HORIZON` | the api (execution overrides) | Row key; `gs://…/experiment.json`; full endpoint resource name; run size |
+| `BATCH_SIZE`, `REWARD_MODE`, `ERROR_THRESHOLD`, `LOG_LEVEL` | optional | Overrides (default: `experiment.json` / 0.05 / INFO) |
+| `BQ_PROJECT_ID`, `BQ_DATASET_ID`, `BQ_TABLE_BANDIT_*` | `deploy_traffic_job.sh` | Output tables |
+
+Build, push and deploy (documentation only; run where GCP creds exist):
+
+```bash
+# Image -> us-central1-docker.pkg.dev/$PROJECT/cpr/trend-trawler-bandit-traffic:<sha>
+gcloud builds submit --config deployment/bandit/cloudbuild.traffic.yaml \
+  --substitutions=SHORT_SHA=$(git rev-parse --short HEAD) .
+# Job: tt-bandit-traffic-sa, 2 CPU / 2Gi, task timeout 3600 s, no retries
+IMAGE_TAG=$(git rev-parse --short HEAD) BQ_DATASET_ID=trend_trawler \
+  deployment/bandit/deploy_traffic_job.sh
+```
+
+Local run with no GCP: the `--in-process` fake endpoint (`bandit_traffic/fake_endpoint.py`, the
+contracts §2 semantics over `bandit.linear_ts`) and JSONL output instead of BigQuery:
+
+```bash
+uv run python -m bandit_traffic.main --in-process --config /tmp/experiment.json \
+  --episodes 2 --horizon 4000 --dry-run --out /tmp/traffic
+# or against a local CPR container: --local-url http://localhost:8080/predict
+```
+
+The image installs `bandit_traffic/requirements.txt` (JAX included). The root
+`requirements.txt` stays JAX-free.
+
 ---
 
 ## Eval CI (WIF)
