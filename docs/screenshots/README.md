@@ -16,6 +16,7 @@ Reference captures of the Next.js frontend (`frontend/`), used in the README and
 | `10-deploy-panel.png` | `/results/[sessionId]` | **Deploy creatives as a live experiment** panel with three creatives picked (viewport capture) |
 | `11-experiments.png` | `/experiments` | Experiments list: scenario, creatives, status, created, endpoint lifetime |
 | `12-experiment-detail.png` | `/experiments/[experimentId]` | Experiment detail after 20 episodes: controls, arms, bandit charts (log-x reward vs oracle, regret and % optimal with 95% bands, arm share, per-segment winners, total reward ± std) |
+| `13-experiment-help.png` | `/experiments/[experimentId]` | The Stop "ⓘ" help popover open (keyboard focus), explaining that stopping deletes the endpoint and keeps results (viewport capture) |
 | `user-journey.gif` | all | Annotated walkthrough of an interactive run (brief → research → three reviews → results → proof detail → research report → history): amber spotlight + callout on the key UI per step, a phase progress strip, and a step title + one-line explanation |
 
 The experiment captures (10–12) use synthetic, contract-shaped bandit fixtures
@@ -41,7 +42,7 @@ cd frontend
 npm run build
 cp -r .next/static .next/standalone/.next/static && cp -r public .next/standalone/public
 PORT=3600 node .next/standalone/server.js                                  # terminal 1
-SCREENSHOT_BASE_URL=http://localhost:3600 npm run screenshots              # terminal 2 → 01–12 PNGs
+SCREENSHOT_BASE_URL=http://localhost:3600 npm run screenshots              # terminal 2 → 01–13 PNGs
 JOURNEY=1 SCREENSHOT_BASE_URL=http://localhost:3600 npm run screenshots    # journey frames + journey-frames.json → /tmp/tt-journey-frames
 uv run --no-project --with pillow python scripts/build-journey-gif.py      # → user-journey.gif
 ```
