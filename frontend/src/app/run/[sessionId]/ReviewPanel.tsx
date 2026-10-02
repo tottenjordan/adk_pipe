@@ -6,11 +6,15 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { FieldLabel } from "@/components/field-label";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
+import { ResearchReport } from "@/components/research-report";
+import {
+  fromEditableReport,
+  toEditableReport,
+  type ReportSources,
+} from "@/lib/research-report";
 import {
   buildConceptEdits,
-  buildResearchEdit,
+  buildEditableResearchEdit,
   extractItems,
   parseRawGtrends,
   type ConceptDraft,
@@ -66,8 +70,12 @@ function ReviewResearch({
   const [feedback, setFeedback] = useState("");
   const [editMode, setEditMode] = useState(false);
   const report = state.combined_final_cited_report as string | undefined;
-  const [editedReport, setEditedReport] = useState(report ?? "");
-  const edits = buildResearchEdit(report ?? "", editedReport);
+  const sources = state.sources as ReportSources | undefined;
+  // The textarea shows `[src-N]` markers instead of raw cite tags; they go
+  // back to canonical `<cite source="src-N"/>` tags for preview and resume.
+  const [editedReport, setEditedReport] = useState(() => toEditableReport(report ?? ""));
+  const edits = buildEditableResearchEdit(report ?? "", editedReport);
+  const previewSource = edits ? fromEditableReport(editedReport) : (report ?? "");
   const resume = (status: string, instruction: string) =>
     onResume({
       status,
@@ -105,25 +113,21 @@ function ReviewResearch({
         PDF is regenerated. Feedback is passed on as guidance.
       </p>
       {report && !editMode && (
-        <div className="max-h-[28rem] overflow-y-auto rounded-md bg-background p-5 border border-border prose prose-sm prose-neutral max-w-none
-          prose-headings:text-foreground prose-headings:font-bold
-          prose-h1:text-lg prose-h2:text-base prose-h3:text-sm
-          prose-p:text-foreground/85 prose-p:leading-relaxed
-          prose-a:text-primary prose-a:no-underline hover:prose-a:underline
-          prose-strong:text-foreground prose-strong:font-semibold
-          prose-li:text-foreground/85
-          prose-code:text-xs prose-code:bg-muted prose-code:rounded prose-code:px-1
-          prose-blockquote:border-l-primary/30 prose-blockquote:text-muted-foreground">
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>{edits ? editedReport : report}</ReactMarkdown>
-        </div>
+        <ResearchReport markdown={previewSource} sources={sources} scroll />
       )}
       {report && editMode && (
-        <Textarea
-          value={editedReport}
-          onChange={(e) => setEditedReport(e.target.value)}
-          rows={16}
-          className="font-mono text-xs leading-relaxed max-h-[28rem]"
-        />
+        <div className="space-y-1.5">
+          <Textarea
+            value={editedReport}
+            onChange={(e) => setEditedReport(e.target.value)}
+            rows={16}
+            aria-describedby="review-research-markers-hint"
+            className="font-mono text-xs leading-relaxed max-h-[28rem]"
+          />
+          <p id="review-research-markers-hint" className="text-xs text-muted-foreground">
+            Source markers like [src-12] keep their citations. Leave them in place or delete them.
+          </p>
+        </div>
       )}
       <FieldLabel as="label" htmlFor="review-research-feedback">
         Feedback (optional)
