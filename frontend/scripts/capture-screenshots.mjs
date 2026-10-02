@@ -107,6 +107,27 @@ const SESSIONS = JSON.parse(
   lastUpdateTime: (Date.now() - minutesAgo * 60_000) / 1000,
 }));
 
+// Bandit experiments (docs/bandit/contracts.md §5): synthetic, contract-shaped
+// fixtures over three of the PRS creatives. Relative `*MinutesAgo` /
+// `ttlMinutesLeft` become ISO timestamps at capture time so the "created" and
+// TTL countdown text reads the same on every regeneration.
+const hydrateExperiment = ({ createdMinutesAgo, updatedMinutesAgo, ttlMinutesLeft, ...e }) => ({
+  ...e,
+  createdAt: new Date(Date.now() - createdMinutesAgo * 60_000).toISOString(),
+  updatedAt: new Date(Date.now() - updatedMinutesAgo * 60_000).toISOString(),
+  ttlExpiresAt:
+    ttlMinutesLeft == null ? null : new Date(Date.now() + ttlMinutesLeft * 60_000).toISOString(),
+});
+const EXPERIMENTS = JSON.parse(
+  readFileSync(join(FIX, "experiments-list.json"), "utf8")
+).experiments.map(hydrateExperiment);
+const EXPERIMENT_DETAIL = hydrateExperiment(
+  JSON.parse(readFileSync(join(FIX, "experiment-detail.json"), "utf8"))
+);
+const EXPERIMENT_METRICS = JSON.parse(
+  readFileSync(join(FIX, "experiment-metrics.json"), "utf8")
+);
+
 // The real .png artifact keys the run produced (from harvested state), so the
 // results page's Artifacts list + gallery grid render authentically.
 const ARTIFACT_NAMES = [
@@ -199,6 +220,35 @@ async function installMocks(page) {
         }
         // GET poll (getRunStatus seed + pollRun loop).
         return json(route, currentPoll);
+      }
+
+      // Bandit experiments: create / list / detail / metrics / traffic / stop.
+      if (rest === "experiments" || rest.startsWith("experiments/")) {
+        const seg = rest.split("/"); // ["experiments", user?, id?, action?]
+        if (method === "POST" && seg.length === 1) {
+          return json(route, { experimentId: EXPERIMENT_DETAIL.experimentId, status: "deploying" });
+        }
+        if (method === "POST" && seg[3] === "traffic") {
+          return json(route, { status: "running_traffic", execution: "mock" });
+        }
+        if (method === "POST" && seg[3] === "stop") return json(route, { status: "stopping" });
+        if (seg.length === 2) return json(route, { experiments: EXPERIMENTS });
+        if (seg[3] === "metrics") {
+          return json(
+            route,
+            seg[2] === EXPERIMENT_METRICS.experimentId
+              ? EXPERIMENT_METRICS
+              : { ...EXPERIMENT_METRICS, experimentId: seg[2], episodes: 0, checkpoints: [] }
+          );
+        }
+        if (seg.length === 3) {
+          const found =
+            seg[2] === EXPERIMENT_DETAIL.experimentId
+              ? EXPERIMENT_DETAIL
+              : EXPERIMENTS.find((e) => e.experimentId === seg[2]);
+          if (found) return json(route, found);
+          return route.fulfill({ status: 404, contentType: "application/json", body: "{}" });
+        }
       }
 
       // Session CRUD.
@@ -334,6 +384,56 @@ async function main() {
     );
     await page.waitForTimeout(300);
     await shot(page, "09-results-proof-detail.png", { fullPage: false });
+    await page.close();
+  }
+
+  // ── 10. Deploy panel on the results page (three creatives picked) ────────
+  {
+    console.log("10-deploy-panel");
+    const sid = "results-creative-demo";
+    currentSession = { id: sid, appName: "creative_agent", userId: USER, state, events: [] };
+    const page = await newPage(context);
+    await page.goto(`${BASE}/results/${sid}?app=creative_agent&userId=${USER}`, {
+      waitUntil: "networkidle",
+    });
+    const panel = page.locator('section[aria-labelledby="deploy-heading"]');
+    await panel.waitFor();
+    for (const i of [0, 1, 2]) await page.locator(`#deploy-creative-${i}`).check();
+    await page.waitForFunction(() =>
+      [...document.querySelectorAll('section[aria-labelledby="deploy-heading"] img')].every(
+        (im) => im.naturalWidth > 0
+      )
+    );
+    await settle(page);
+    await scrollToLocator(page, panel, 24);
+    await shot(page, "10-deploy-panel.png", { fullPage: false });
+    await page.close();
+  }
+
+  // ── 11. Experiments list ────────────────────────────────────────────────
+  {
+    console.log("11-experiments");
+    const page = await newPage(context);
+    await page.goto(`${BASE}/experiments`, { waitUntil: "networkidle" });
+    await page.getByRole("link", { name: "Segment-specific winners" }).first().waitFor();
+    await settle(page);
+    await shot(page, "11-experiments.png");
+    await page.close();
+  }
+
+  // ── 12. Experiment detail with metrics (ready, after 20 episodes) ────────
+  {
+    console.log("12-experiment-detail");
+    const page = await newPage(context);
+    await page.goto(`${BASE}/experiments/${EXPERIMENT_DETAIL.experimentId}`, {
+      waitUntil: "networkidle",
+    });
+    await page.getByRole("heading", { name: "Cumulative regret" }).waitFor();
+    await page.waitForFunction(() =>
+      [...document.querySelectorAll("img")].some((im) => im.naturalWidth > 0)
+    );
+    await settle(page);
+    await shot(page, "12-experiment-detail.png");
     await page.close();
   }
 
