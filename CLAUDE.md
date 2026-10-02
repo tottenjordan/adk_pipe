@@ -175,7 +175,7 @@ Next.js 16 (App Router) + TypeScript + Tailwind CSS + shadcn/ui. Light theme wit
 Both the run view and results view also surface the optional visual art-direction inputs (the PR #114 visual-intent keys) read-only in a "Visual Direction" section alongside the campaign metadata — driven by `buildDisplayFields` + `VISUAL_DIRECTION_FIELDS` in `frontend/src/lib/utils.ts`; unset keys collapse to `""` so non-creative/no-intent runs show nothing.
 
 **Key files:**
-- `frontend/src/app/layout.tsx` — Root layout, fonts (Sora + JetBrains Mono), glass header
+- `frontend/src/app/layout.tsx` — Root layout, fonts (Archivo + JetBrains Mono), header with active-page nav (`components/main-nav.tsx`)
 - `frontend/src/app/page.tsx` — Campaign input form
 - `frontend/src/app/run/[sessionId]/page.tsx` — async-job polling (`pollRun`), pipeline widgets, status tracking, stall-timeout
 - `frontend/src/app/results/[sessionId]/page.tsx` — Results viewer with artifact tabs
