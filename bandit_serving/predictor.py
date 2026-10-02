@@ -173,17 +173,23 @@ def resolve_params(
     base: LinTSParams, parameters: Mapping[str, Any] | None
 ) -> LinTSParams:
     """Apply the request ``parameters`` (contracts §2), clamped to their bounds;
-    non-numeric values are ignored."""
+    non-numeric values are ignored.
+
+    ``params`` is a static jit argument, so each distinct value compiles the
+    decision kernel once; values are quantised (exploration_scale to 0.1,
+    propensity_samples to 100) to keep that cache small and bounded."""
     if not parameters:
         return base
     changes: dict[str, Any] = {}
     scale = _finite(parameters.get("exploration_scale"))
     if scale is not None:
-        changes["exploration_scale"] = _clamp(scale, *EXPLORATION_SCALE_BOUNDS)
+        changes["exploration_scale"] = round(
+            _clamp(round(scale, 1), *EXPLORATION_SCALE_BOUNDS), 1
+        )
     samples = _finite(parameters.get("propensity_samples"))
     if samples is not None:
         changes["propensity_samples"] = int(
-            _clamp(int(samples), *PROPENSITY_SAMPLES_BOUNDS)
+            _clamp(round(samples / 100) * 100, *PROPENSITY_SAMPLES_BOUNDS)
         )
     return dataclasses.replace(base, **changes) if changes else base
 
@@ -243,7 +249,21 @@ def _update_kernel(state, arms, X, rewards, valid, params):
     return new._replace(n=state.n + counts, step=state.step + jnp.sum(valid))
 
 
+_posterior_mean = jax.jit(lts.posterior_mean)
+
+
 # --------------------------------------------------------------------- predictor
+
+
+def warmup_buckets() -> list[int]:
+    """Padded batch sizes to pre-compile (``BANDIT_WARMUP_BUCKETS``; default
+    16..128 covers the traffic job's 100-round batches); ``BANDIT_WARMUP=0``
+    disables warm-up."""
+    if os.environ.get("BANDIT_WARMUP", "1") == "0":
+        return []
+    raw = os.environ.get("BANDIT_WARMUP_BUCKETS", "16,32,64,128")
+    sizes = {_bucket(int(v)) for v in raw.split(",") if v.strip().isdigit()}
+    return sorted(min(size, MAX_CHUNK) for size in sizes)
 
 
 def _env_number(name: str, default: float) -> float:
@@ -328,6 +348,8 @@ class BanditPredictor(Predictor):
         with self._lock:
             self._fresh(episode=0, seed=cfg.seed)
             self._restore()
+        if warmup_buckets():
+            self._warmup()
         log.info(
             "bandit predictor loaded: experiment=%s arms=%s version=%s noise_var=%s",
             cfg.experiment_id,
@@ -335,6 +357,28 @@ class BanditPredictor(Predictor):
             self._version(),
             self.params.noise_var,
         )
+
+    def _warmup(self) -> None:
+        """Compile the default-params kernels for the ``BANDIT_WARMUP_BUCKETS``
+        batch sizes before the model server reports healthy (a cold jit costs
+        ~0.3-1 s per kernel and shape). ``BANDIT_WARMUP=0`` skips it."""
+        t0 = time.perf_counter()
+        k = len(self.arm_ids)
+        state = lts.init_state(k, self._dim, self.params.prior_var)
+        eligible = jnp.ones((k,), bool)
+        for size in warmup_buckets():
+            X = jnp.zeros((size, self._dim), jnp.float32)
+            zeros = jnp.zeros((size,), jnp.int32)
+            jax.block_until_ready(
+                _decide_kernel(jax.random.key(0), state, X, eligible, self.params)
+            )
+            jax.block_until_ready(
+                _update_kernel(
+                    state, zeros, X, zeros.astype(jnp.float32), zeros > 0, self.params
+                )
+            )
+        jax.block_until_ready(_posterior_mean(state))
+        log.info("jit warm-up: %.0f ms", (time.perf_counter() - t0) * 1000.0)
 
     def _fresh(self, episode: int, seed: int) -> None:
         self._state = lts.init_state(
@@ -681,7 +725,7 @@ class BanditPredictor(Predictor):
         return out
 
     def _summary(self) -> dict[str, Any]:
-        mu = np.asarray(lts.posterior_mean(self._state))
+        mu = np.asarray(_posterior_mean(self._state))
         pulls = np.asarray(self._state.n)
         return {
             "type": "state",

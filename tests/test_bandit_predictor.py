@@ -81,6 +81,11 @@ def _state(p):
     return run(p, [{"type": "state"}])[0]
 
 
+@pytest.fixture(autouse=True)
+def _no_warmup(monkeypatch):
+    monkeypatch.setenv("BANDIT_WARMUP", "0")  # fast tests; covered separately
+
+
 @pytest.fixture
 def art(tmp_path):
     return _write_config(tmp_path / "artifacts")
@@ -270,6 +275,8 @@ def test_parameters_are_clamped(art):
     lo = resolve_params(base, {"exploration_scale": 0, "propensity_samples": 1})
     assert (lo.exploration_scale, lo.propensity_samples) == (0.1, 100)
     assert resolve_params(base, {"exploration_scale": "x"}) == base
+    q = resolve_params(base, {"exploration_scale": 1.234, "propensity_samples": 1249})
+    assert (q.exploration_scale, q.propensity_samples) == (1.2, 1200)  # quantised
     assert resolve_params(base, None) == base
     preds = run(p, _decisions(3), parameters={"exploration_scale": 50})
     assert all(d["type"] == "decision" for d in preds)
@@ -394,3 +401,17 @@ def test_concurrency_smoke(art):
     total = per_thread * rounds * batch
     assert s["step"] == total and sum(s["pulls"].values()) == total
     assert s["model_version"] == f"exp1-e0-v{per_thread * rounds}"
+
+
+def test_warmup_buckets_and_warm_load(art, monkeypatch, caplog):
+    from bandit_serving.predictor import warmup_buckets
+
+    assert warmup_buckets() == []
+    monkeypatch.setenv("BANDIT_WARMUP", "1")
+    monkeypatch.setenv("BANDIT_WARMUP_BUCKETS", "1,20,x,5000")
+    assert warmup_buckets() == [16, 32, 1024]
+    monkeypatch.setenv("BANDIT_WARMUP_BUCKETS", "16")
+    caplog.set_level("INFO", logger="bandit_serving.predictor")
+    p = _predictor(art)
+    assert "jit warm-up" in caplog.text
+    assert _state(p)["step"] == 0  # warm-up never touches the live posterior
