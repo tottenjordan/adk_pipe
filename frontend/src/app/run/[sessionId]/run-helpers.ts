@@ -26,6 +26,22 @@ export interface ConceptEdit {
   revision_note?: string;
 }
 
+/** A checkpoint-1 research-report edit, as the resume endpoint expects it. */
+export type ResearchEdit = { field: string; value: string };
+
+/**
+ * Build the checkpoint-1 `edits` payload for an edited research report.
+ * Returns null when the edit is blank or matches the original (whitespace
+ * at either end ignored); otherwise the edited text is sent verbatim.
+ */
+export function buildResearchEdit(
+  original: string,
+  edited: string
+): ResearchEdit[] | null {
+  if (!edited.trim() || edited.trim() === original.trim()) return null;
+  return [{ field: "combined_final_cited_report", value: edited }];
+}
+
 /**
  * Diff the user's edited concept drafts against the originals from session
  * state, producing the minimal `edits` array the resume endpoint expects.

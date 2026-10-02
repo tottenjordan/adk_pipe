@@ -18,6 +18,7 @@ from google.genai import types
 
 from runserver import async_runs
 from runserver.async_runs import (
+    RESEARCH_EDIT_MAX_CHARS,
     RUN_ERROR_KEY,
     RUN_STATUS_KEY,
     RUNSERVER_AUTHOR,
@@ -27,6 +28,7 @@ from runserver.async_runs import (
     events_since,
     get_root_agent,
     get_run_status,
+    merge_research_edit,
     merge_visual_concept_edits,
     router,
     start_resume,
@@ -709,6 +711,53 @@ def test_merge_handles_empty_and_missing_inputs():
     assert notes2 == ""
 
 
+# --- merge_research_edit (pure, checkpoint-1 report edit) -------------------
+
+SRC = {"src-1": {"title": "T", "url": "u"}}
+
+
+def test_research_edit_writes_raw_and_rendered_report():
+    delta = merge_research_edit(
+        {"combined_final_cited_report": "old", "sources": SRC},
+        [
+            {
+                "field": "combined_final_cited_report",
+                "value": 'new <cite source="src-1"/>',
+            }
+        ],
+    )
+    # render_citations prefixes each link with a space (existing composer
+    # behaviour), hence the double space.
+    assert delta == {
+        "combined_final_cited_report": 'new <cite source="src-1"/>',
+        "final_report_with_citations": "new  [T](u)",
+        "research_report_edited": True,
+    }
+
+
+def test_research_edit_ignores_unchanged_blank_wrong_field_and_bad_types():
+    st = {"combined_final_cited_report": "same", "sources": {}}
+    for edits in (
+        [{"field": "combined_final_cited_report", "value": " same "}],
+        [{"field": "combined_final_cited_report", "value": "   "}],
+        [{"field": "other", "value": "x"}],
+        [{"field": "combined_final_cited_report", "value": 5}],
+        None,
+    ):
+        assert merge_research_edit(st, edits) == {}
+
+
+def test_research_edit_rejects_oversized_value():
+    st = {"combined_final_cited_report": "a", "sources": {}}
+    edits = [
+        {
+            "field": "combined_final_cited_report",
+            "value": "x" * (RESEARCH_EDIT_MAX_CHARS + 1),
+        }
+    ]
+    assert merge_research_edit(st, edits) == {}
+
+
 def test_resume_with_edits_appends_state_delta_before_relaunch():
     """Direct field edits + notes are merged into final_visual_concepts (and
     visual_revision_notes) via a state_delta event appended BEFORE the resumed
@@ -751,6 +800,81 @@ def test_resume_with_edits_appends_state_delta_before_relaunch():
         == "EDITED"
     )
     assert "Concept 1 (c1): more neon" in state["visual_revision_notes"]
+
+
+def _resume_with_edits(function_name, state, edits):
+    """Drive start_resume with ``edits`` against an in-memory session and return
+    the final session."""
+
+    async def _go():
+        svc = InMemorySessionService()
+        await svc.create_session(
+            app_name="interactive_creative", user_id="u", session_id="s", state=state
+        )
+        fake = _FakeRunner(
+            svc, "interactive_creative", "u", "s", [_agent_event("resumed")]
+        )
+        _result, task = await start_resume(
+            app_name="interactive_creative",
+            user_id="u",
+            session_id="s",
+            function_call_id="call-1",
+            function_name=function_name,
+            response={"status": "approved"},
+            session_service=svc,
+            runner_factory=lambda a: fake,
+            edits=edits,
+        )
+        await task
+        return await svc.get_session(
+            app_name="interactive_creative", user_id="u", session_id="s"
+        )
+
+    return asyncio.run(_go())
+
+
+def _runserver_state_events(session):
+    return [
+        (i, ev)
+        for i, ev in enumerate(session.events)
+        if ev.author == RUNSERVER_AUTHOR
+        and ev.actions
+        and ev.actions.state_delta
+        and RUN_STATUS_KEY not in ev.actions.state_delta
+    ]
+
+
+def test_resume_research_edit_appends_state_delta_before_relaunch():
+    """A checkpoint-1 report edit is written to state (raw + rendered report)
+    via a runserver state_delta event appended BEFORE the resumed segment."""
+    session = _resume_with_edits(
+        "review_research",
+        {"combined_final_cited_report": "old", "sources": {}},
+        [{"field": "combined_final_cited_report", "value": "NEW REPORT"}],
+    )
+    edit_events = _runserver_state_events(session)
+    assert len(edit_events) == 1
+    idx, ev = edit_events[0]
+    delta = ev.actions.state_delta
+    assert delta["combined_final_cited_report"] == "NEW REPORT"
+    assert delta["final_report_with_citations"] == "NEW REPORT"
+    assert delta["research_report_edited"] is True
+    assert "final_visual_concepts" not in delta
+    resumed_idx = next(
+        i for i, e in enumerate(session.events) if e.author == "creative_agent"
+    )
+    assert idx < resumed_idx
+    assert session.state["combined_final_cited_report"] == "NEW REPORT"
+
+
+def test_resume_edits_for_other_checkpoints_append_no_state_event():
+    session = _resume_with_edits(
+        "review_ad_copies",
+        {"combined_final_cited_report": "old"},
+        [{"field": "combined_final_cited_report", "value": "NEW REPORT"}],
+    )
+    assert _runserver_state_events(session) == []
+    assert session.state["combined_final_cited_report"] == "old"
 
 
 # --- Task 5: router registration (creds-light — importing the router must NOT
