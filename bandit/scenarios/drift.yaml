@@ -1,0 +1,43 @@
+# Clear-winner ground truth whose best arm becomes the worst at T/2 (the best
+# and worst arm bases swap). `kind: gradual` ramps the swap linearly over
+# width_frac * T centred on at_frac * T instead.
+name: drift
+description: The best creative becomes the worst at T/2.
+default_num_arms: 3
+arm_effect: rank_ctrs
+rank_ctrs: [0.060, 0.045, 0.035]
+target_ctr: {demo: 0.0467, realistic: 0.00933}
+horizon: {demo: 40000, realistic: 400000}
+batch_size: 100
+episodes: 50
+kappa: 1.0
+lam: 0.3
+eta: 0.3
+noise_sd: 0.03
+theta_sd: 0.03
+judge_wrong: 0.0
+dwell_base_s: 30.0
+dwell_score_scale: 1.0
+drift: {kind: abrupt, at_frac: 0.5, width_frac: 0.2}
+segments:
+  - name: commuters
+    weight: 0.4
+    dwell_factor: 0.7
+    marginals:
+      devicetype: {mobile: 0.85, desktop: 0.05, tablet: 0.10}
+      connectiontype: {wifi: 0.35, cellular: 0.65}
+      daypart: {morning: 0.5, afternoon: 0.2, evening: 0.2, night: 0.1}
+  - name: desk_researchers
+    weight: 0.35
+    dwell_factor: 1.3
+    marginals:
+      devicetype: {mobile: 0.2, desktop: 0.75, tablet: 0.05}
+      daypart: {morning: 0.3, afternoon: 0.55, evening: 0.1, night: 0.05}
+      topic_matches_trend: 0.7
+  - name: evening_browsers
+    weight: 0.25
+    dwell_factor: 1.0
+    marginals:
+      devicetype: {mobile: 0.5, desktop: 0.1, tablet: 0.4}
+      daypart: {morning: 0.05, afternoon: 0.15, evening: 0.6, night: 0.2}
+      weekend: 0.45

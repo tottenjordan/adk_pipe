@@ -1,0 +1,67 @@
+# Each segment has a different oracle arm: segments pick their winner greedily
+# by `winner_key` score among not-yet-assigned arms (cycling when there are
+# fewer arms than segments), and the winner gets +lift_pp (demo; x0.2 in
+# realistic) over the best other arm in that segment. Segments are latent but
+# have strongly different context marginals, so a contextual policy can tell
+# them apart while a non-contextual one only sees the pooled average.
+name: segment_winners
+description: Four segments, each with a different oracle creative (+1.5 pp demo).
+default_num_arms: 4
+arm_effect: segment_winners
+lift_pp: 0.015
+target_ctr: {demo: 0.04, realistic: 0.008}
+horizon: {demo: 40000, realistic: 400000}
+batch_size: 100
+episodes: 50
+kappa: 0.5
+lam: 0.3
+eta: 0.3
+noise_sd: 0.03
+theta_sd: 0.03
+judge_wrong: 0.0
+dwell_base_s: 30.0
+dwell_score_scale: 1.0
+drift: {kind: none}
+segments:
+  - name: mobile_scrollers
+    weight: 0.25
+    winner_key: stopping_power
+    dwell_factor: 0.6
+    marginals:
+      devicetype: {mobile: 0.92, desktop: 0.03, tablet: 0.05}
+      connectiontype: {wifi: 0.3, cellular: 0.7}
+      age_bucket: {"21-34": 0.75, "35-54": 0.2, "55+": 0.05}
+      freq_24h: {"0": 0.2, "1": 0.3, "2+": 0.5}
+      topic_matches_trend: 0.3
+      interest_matches_product: 0.15
+  - name: trend_followers
+    weight: 0.25
+    winner_key: trend_authenticity
+    dwell_factor: 1.0
+    marginals:
+      devicetype: {mobile: 0.45, desktop: 0.45, tablet: 0.10}
+      daypart: {morning: 0.1, afternoon: 0.25, evening: 0.55, night: 0.1}
+      topic_matches_trend: 0.95
+      interest_matches_product: 0.15
+      freq_24h: {"0": 0.7, "1": 0.2, "2+": 0.1}
+  - name: product_intenders
+    weight: 0.25
+    winner_key: audience_fit
+    dwell_factor: 1.5
+    marginals:
+      devicetype: {mobile: 0.15, desktop: 0.8, tablet: 0.05}
+      age_bucket: {"21-34": 0.2, "35-54": 0.6, "55+": 0.2}
+      daypart: {morning: 0.35, afternoon: 0.5, evening: 0.1, night: 0.05}
+      topic_matches_trend: 0.2
+      interest_matches_product: 0.92
+  - name: late_night_casual
+    weight: 0.25
+    winner_key: overall
+    dwell_factor: 0.9
+    marginals:
+      devicetype: {mobile: 0.3, desktop: 0.1, tablet: 0.6}
+      age_bucket: {"21-34": 0.15, "35-54": 0.3, "55+": 0.55}
+      daypart: {morning: 0.05, afternoon: 0.05, evening: 0.3, night: 0.6}
+      weekend: 0.6
+      topic_matches_trend: 0.2
+      interest_matches_product: 0.15
