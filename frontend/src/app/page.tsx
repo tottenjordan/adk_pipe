@@ -256,8 +256,9 @@ function HomeContent() {
                   <span className="text-xs leading-snug text-muted-foreground">
                     {a.description}
                   </span>
-                  <span className="mt-auto pt-1 text-xs text-muted-foreground">
-                    <span className="tabular-nums">{a.duration}</span> · {a.pauses}
+                  <span className="mt-auto flex flex-wrap gap-x-3 pt-1 text-xs text-muted-foreground">
+                    <span className="tabular-nums">{a.duration}</span>
+                    <span>{a.pauses}</span>
                   </span>
                 </label>
               ))}
@@ -439,7 +440,7 @@ function HomeContent() {
                 </span>
                 Visual direction (all optional)
                 {!visualOpen && hasVisualDirection(form) && (
-                  <span className="text-xs font-normal text-muted-foreground">· set</span>
+                  <span className="text-xs font-normal text-muted-foreground">(set)</span>
                 )}
               </summary>
 
@@ -588,7 +589,7 @@ function HomeContent() {
           </p>
         ) : recentRows.length === 0 ? (
           <p className="px-4 py-4 text-sm text-muted-foreground">
-            No runs yet. Your runs will show up here.
+            No runs yet. Fill in the brief to start your first one.
           </p>
         ) : (
           <RunList rows={recentRows} now={history.now} onDuplicate={duplicateHere} compact />

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Archivo, JetBrains_Mono } from "next/font/google";
 import Link from "next/link";
+import { MainNav } from "@/components/main-nav";
 import "./globals.css";
 
 // Variable Archivo with the width axis: condensed heavy weights for creative
@@ -45,20 +46,7 @@ export default function RootLayout({
                 Trend Trawler
               </span>
             </Link>
-            <nav aria-label="Main" className="flex items-center gap-1 text-sm">
-              <Link
-                href="/"
-                className="rounded-sm px-3 py-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-              >
-                New run
-              </Link>
-              <Link
-                href="/runs"
-                className="rounded-sm px-3 py-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-              >
-                Runs
-              </Link>
-            </nav>
+            <MainNav />
           </div>
         </header>
         <main className="flex-1">{children}</main>

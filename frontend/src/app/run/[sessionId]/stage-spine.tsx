@@ -151,7 +151,7 @@ export function StageSpine({
         <p className="mt-2 text-sm text-muted-foreground lg:hidden" aria-hidden>
           Step {currentIndex + 1} of {stages.length}:{" "}
           <span className="font-medium text-foreground">{current.label}</span>
-          {" · "}
+          {", "}
           <span className={STATE_TEXT_CLASS[current.state]}>
             {stageStateText(current.state, runStatus)}
           </span>

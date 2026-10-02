@@ -47,7 +47,7 @@ function EventItem({ event, isLast }: { event: AgentEvent; isLast: boolean }) {
         <div className="flex items-center gap-2">
           <Badge
             variant="outline"
-            className="text-[10px] font-mono bg-muted"
+            className="text-xs font-mono bg-muted"
           >
             {event.author}
           </Badge>

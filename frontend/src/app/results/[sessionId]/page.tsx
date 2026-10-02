@@ -144,10 +144,19 @@ export default function ResultsPage({
     return (
       <div className="mx-auto max-w-4xl px-6 py-12">
         <div className="rounded-lg border border-border bg-card p-6">
-          <p className="text-mark-fail">{error}</p>
-          <Link href="/" className={buttonVariants({ variant: "outline", className: "mt-4" })}>
-            Back to home
-          </Link>
+          <h1 className="text-lg font-semibold text-foreground">These results didn&apos;t load</h1>
+          <p className="mt-1 text-sm text-mark-fail">{error}</p>
+          <p className="mt-2 text-sm text-muted-foreground">
+            Check the session link, or open the run again from your run history.
+          </p>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <Link href="/runs" className={buttonVariants({ variant: "outline" })}>
+              Open run history
+            </Link>
+            <Link href="/" className={buttonVariants({ variant: "ghost" })}>
+              Start a new run
+            </Link>
+          </div>
         </div>
       </div>
     );

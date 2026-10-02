@@ -96,7 +96,7 @@ export function TrendCards({
                 <h4 className="text-sm font-semibold text-foreground">
                   {trend.term}
                 </h4>
-                <Badge variant="secondary" className="text-[10px]">
+                <Badge variant="secondary" className="text-xs">
                   Click to run
                 </Badge>
               </div>
