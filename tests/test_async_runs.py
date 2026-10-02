@@ -802,6 +802,81 @@ def test_resume_with_edits_appends_state_delta_before_relaunch():
     assert "Concept 1 (c1): more neon" in state["visual_revision_notes"]
 
 
+def _resume_with_edits(function_name, state, edits):
+    """Drive start_resume with ``edits`` against an in-memory session and return
+    the final session."""
+
+    async def _go():
+        svc = InMemorySessionService()
+        await svc.create_session(
+            app_name="interactive_creative", user_id="u", session_id="s", state=state
+        )
+        fake = _FakeRunner(
+            svc, "interactive_creative", "u", "s", [_agent_event("resumed")]
+        )
+        _result, task = await start_resume(
+            app_name="interactive_creative",
+            user_id="u",
+            session_id="s",
+            function_call_id="call-1",
+            function_name=function_name,
+            response={"status": "approved"},
+            session_service=svc,
+            runner_factory=lambda a: fake,
+            edits=edits,
+        )
+        await task
+        return await svc.get_session(
+            app_name="interactive_creative", user_id="u", session_id="s"
+        )
+
+    return asyncio.run(_go())
+
+
+def _runserver_state_events(session):
+    return [
+        (i, ev)
+        for i, ev in enumerate(session.events)
+        if ev.author == RUNSERVER_AUTHOR
+        and ev.actions
+        and ev.actions.state_delta
+        and RUN_STATUS_KEY not in ev.actions.state_delta
+    ]
+
+
+def test_resume_research_edit_appends_state_delta_before_relaunch():
+    """A checkpoint-1 report edit is written to state (raw + rendered report)
+    via a runserver state_delta event appended BEFORE the resumed segment."""
+    session = _resume_with_edits(
+        "review_research",
+        {"combined_final_cited_report": "old", "sources": {}},
+        [{"field": "combined_final_cited_report", "value": "NEW REPORT"}],
+    )
+    edit_events = _runserver_state_events(session)
+    assert len(edit_events) == 1
+    idx, ev = edit_events[0]
+    delta = ev.actions.state_delta
+    assert delta["combined_final_cited_report"] == "NEW REPORT"
+    assert delta["final_report_with_citations"] == "NEW REPORT"
+    assert delta["research_report_edited"] is True
+    assert "final_visual_concepts" not in delta
+    resumed_idx = next(
+        i for i, e in enumerate(session.events) if e.author == "creative_agent"
+    )
+    assert idx < resumed_idx
+    assert session.state["combined_final_cited_report"] == "NEW REPORT"
+
+
+def test_resume_edits_for_other_checkpoints_append_no_state_event():
+    session = _resume_with_edits(
+        "review_ad_copies",
+        {"combined_final_cited_report": "old"},
+        [{"field": "combined_final_cited_report", "value": "NEW REPORT"}],
+    )
+    assert _runserver_state_events(session) == []
+    assert session.state["combined_final_cited_report"] == "old"
+
+
 # --- Task 5: router registration (creds-light — importing the router must NOT
 # import agents; get_root_agent is only called inside runner_factory at request
 # time, so the route table is inspectable without GCP ADC). -------------------

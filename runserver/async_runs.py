@@ -586,6 +586,37 @@ async def _apply_visual_concept_edits(
     await session_service.append_event(session, event)
 
 
+async def _apply_research_edit(
+    session_service, app_name, user_id, session_id, edits
+) -> None:
+    """Write a checkpoint-1 research-report edit into session state BEFORE the
+    resumed run.
+
+    The creative prompts read ``{combined_final_cited_report?}`` and the PDF tool
+    reads ``final_report_with_citations`` from STATE, so the edit is appended as a
+    ``state_delta`` event (see merge_research_edit). Best-effort: a missing
+    session or a no-op edit appends nothing."""
+    session = await _get_session_or_none(session_service, app_name, user_id, session_id)
+    if session is None:
+        return
+    delta = merge_research_edit(session.state, edits)
+    if not delta:
+        return
+    event = Event(
+        author=RUNSERVER_AUTHOR,
+        invocation_id=RUNSERVER_AUTHOR,
+        actions=EventActions(state_delta=delta),
+    )
+    await session_service.append_event(session, event)
+
+
+# Resume ``edits`` appliers keyed by the paused checkpoint's function name.
+_EDIT_APPLIERS = {
+    "review_visual_concepts": _apply_visual_concept_edits,
+    "review_research": _apply_research_edit,
+}
+
+
 async def _reset_status_to_running(
     session_service, app_name, user_id, session_id
 ) -> None:
@@ -633,9 +664,11 @@ async def start_resume(
     no resume-event-id parameter — the ``functionResponse.id`` alone re-binds the
     paused tool call.
 
-    ``edits`` (checkpoint-3 visual-concept edits) are merged deterministically
-    into session state before relaunch (see _apply_visual_concept_edits), since
-    the renderer reads state, not the functionResponse.
+    ``edits`` are routed by checkpoint (``_EDIT_APPLIERS``) and merged
+    deterministically into session state before relaunch, since downstream
+    agents read state, not the functionResponse: checkpoint-1 report edits
+    (_apply_research_edit) and checkpoint-3 visual-concept edits
+    (_apply_visual_concept_edits). Edits for any other checkpoint are ignored.
 
     Duplicate guard: if the previous (paused) segment's task is still finishing
     (appending its terminal marker), wait up to
@@ -652,10 +685,10 @@ async def start_resume(
     try:
         runner = runner_factory(app_name)
         new_message = build_resume_message(function_call_id, function_name, response)
-        if edits:
-            await _apply_visual_concept_edits(
-                session_service, app_name, user_id, session_id, edits
-            )
+        if edits and (applier := _EDIT_APPLIERS.get(function_name)):
+            await applier(session_service, app_name, user_id, session_id, edits)
+        elif edits:
+            logging.warning("resume edits ignored for %s", function_name)
         # Clear the paused segment's terminal 'done' marker before relaunching, so
         # a poll during the resumed segment sees 'running' (see
         # _reset_status_to_running).
