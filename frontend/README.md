@@ -24,7 +24,9 @@ is in [the proof-room plan](../docs/plans/2026-10-02-frontend-proof-room.md).
 | `/` | Campaign brief form, agent tiles, and a recent-runs sidebar |
 | `/runs` | Run history (brand, trend, agent, status, updated). **Duplicate brief** fills in a new run from an old one |
 | `/run/[sessionId]` | Live run view. It polls the async-job run (`GET /runs/...?since=N`), so a run keeps going through a reload or disconnect. Shows a stage spine, the current stage, and outputs so far. Review checkpoints take over the main area. A run that stopped early shows **Continue run** |
-| `/results/[sessionId]` | Contact sheet of creatives with scores, a proof-detail dialog for each creative, a research report panel, the eval report, and artifacts |
+| `/results/[sessionId]` | Contact sheet of creatives with scores, a proof-detail dialog for each creative, a research report panel, the eval report, and artifacts. The **Deploy creatives as a live experiment** panel starts a bandit experiment from 2–4 creatives |
+| `/experiments` | Bandit experiments list: scenario, creatives, status, created, endpoint lifetime |
+| `/experiments/[experimentId]` | One experiment: status and TTL, **Start traffic** / **Stop**, the arms, and SVG charts (reward vs oracle, regret, % optimal, arm share, per-segment winners, total reward ± std, per-arm CTRs). See the [bandit guide](../docs/bandit/README.md) |
 
 ## Source layout
 
@@ -34,7 +36,9 @@ src/
 │   ├── layout.tsx, page.tsx, globals.css
 │   ├── runs/page.tsx
 │   ├── run/[sessionId]/page.tsx
-│   ├── results/[sessionId]/page.tsx
+│   ├── results/[sessionId]/page.tsx, deploy-panel.tsx
+│   ├── experiments/page.tsx
+│   ├── experiments/[experimentId]/page.tsx, experiment-charts.tsx
 │   └── api/
 │       ├── adk/[...path]/route.ts
 │       └── gcs/route.ts
@@ -57,6 +61,11 @@ src/
 - `lib/agents.ts`: agent catalog (labels, descriptions, durations, review pauses)
 - `lib/presets.ts`: preset values for the brief form
 - `lib/initial-state.ts`: builds the `createSession` initial state (`ui_app`, trend-pick opt-in, visual-intent keys)
+- `lib/experiments.ts`: bandit experiments API client (`createExperiment`, `startTraffic`, `stopExperiment`, `pollExperiment`, …), status and TTL helpers, deploy-selection payload, chart series shaping
+- `lib/chart.ts`: dependency-free chart math (linear/log scales, nice ticks, line and band paths, downsampling, formatters)
+- `components/charts/line-chart.tsx` / `bar-chart.tsx`: hand-drawn SVG line chart (bands, log x) and bar chart (error bars)
+- `components/experiment-status.tsx`: experiment status label
+- `app/results/[sessionId]/deploy-panel.tsx`: the Deploy panel (creative picks, scenario, CTR/reward mode, TTL)
 - `components/research-report.tsx`: renders the research report with numbered citations
 - `components/main-nav.tsx`: header nav that highlights the active page
 - `components/run-list.tsx`: run-history list used on `/runs` and in the home sidebar
