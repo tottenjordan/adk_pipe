@@ -1,0 +1,58 @@
+{
+ "experimentId": "exp-prs-powerball-3f9a",
+ "userId": "demo_user",
+ "sessionId": "results-creative-demo",
+ "appName": "creative_agent",
+ "createdMinutesAgo": 52,
+ "updatedMinutesAgo": 22,
+ "ttlMinutesLeft": 68,
+ "status": "ready",
+ "scenario": "segment_winners",
+ "ctrMode": "demo",
+ "rewardMode": "click",
+ "arms": [
+  {
+   "creativeId": "c1a7e93f04b2",
+   "index": 0,
+   "label": "If I Won The $1.8B Powerball, There To Be Signs.",
+   "conceptName": "The Golden Golf Cart Gig",
+   "overallScore": 0.858,
+   "scores": {
+    "ad_copy": 0.85,
+    "visual": 0.867
+   },
+   "imageUri": "gs://trend-trawler-deploy-ae/2026_07_16_23_51_47c9/creative_output/The_Golden_Golf_Cart_Gig.png"
+  },
+  {
+   "creativeId": "5d2b80c6e1f9",
+   "index": 1,
+   "label": "My Retirement Plan? Powerball and A PRS SE CE24.",
+   "conceptName": "Nihilistic Retirement Plan",
+   "overallScore": 0.85,
+   "scores": {
+    "ad_copy": 0.833,
+    "visual": 0.867
+   },
+   "imageUri": "gs://trend-trawler-deploy-ae/2026_07_16_23_51_47c9/creative_output/Nihilistic_Retirement_Plan.png"
+  },
+  {
+   "creativeId": "9e40f1a3b7c8",
+   "index": 2,
+   "label": "Looks Like a Jackpot. Sounds Like a Masterpiece.",
+   "conceptName": "The Jackpot Reveal",
+   "overallScore": 0.692,
+   "scores": {
+    "ad_copy": 0.75,
+    "visual": 0.633
+   },
+   "imageUri": "gs://trend-trawler-deploy-ae/2026_07_16_23_51_47c9/creative_output/The_Jackpot_Reveal.png"
+  }
+ ],
+ "endpointId": "4417903452819718144",
+ "trafficExecution": "bandit-traffic-x7k2p",
+ "progress": {
+  "episodesDone": 20,
+  "episodesTotal": 20
+ },
+ "error": null
+}

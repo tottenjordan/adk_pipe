@@ -66,3 +66,43 @@ describe("scopeQuery", () => {
     expect(scopeQuery(new URLSearchParams(""))).toBe("");
   });
 });
+
+describe("scopeRequestToUser: experiments", () => {
+  const ID = "exp-3f9a2c1d";
+  it("overwrites the create body userId", () => {
+    const body = JSON.stringify({ userId: "bob", appName: "creative_agent", sessionId: "42", creativeIndices: [0, 1] });
+    const r = scopeRequestToUser("POST", ["experiments"], body, U);
+    expect(r?.path).toBe("experiments");
+    expect(JSON.parse(r!.body!)).toEqual({ userId: U, appName: "creative_agent", sessionId: "42", creativeIndices: [0, 1] });
+  });
+  it("rewrites the user segment on list, detail and metrics", () => {
+    expect(scopeRequestToUser("GET", ["experiments", "me"], undefined, U)?.path).toBe("experiments/alice%40x.com");
+    expect(scopeRequestToUser("GET", ["experiments", "bob@x.com", ID], undefined, U)?.path)
+      .toBe(`experiments/alice%40x.com/${ID}`);
+    expect(scopeRequestToUser("GET", ["experiments", "me", ID, "metrics"], undefined, U)?.path)
+      .toBe(`experiments/alice%40x.com/${ID}/metrics`);
+  });
+  it("rewrites the user segment on traffic and stop", () => {
+    expect(scopeRequestToUser("POST", ["experiments", "bob", ID, "traffic"], '{"episodes":20}', U))
+      .toEqual({ path: `experiments/alice%40x.com/${ID}/traffic`, body: '{"episodes":20}' });
+    expect(scopeRequestToUser("POST", ["experiments", "me", ID, "stop"], "{}", U)?.path)
+      .toBe(`experiments/alice%40x.com/${ID}/stop`);
+  });
+  it("refuses malformed experiment ids", () => {
+    for (const bad of ["Exp-1", "-abc", "ab", "a_b_c", "x".repeat(65), "abc.def", "abc%2Fdef"]) {
+      expect(scopeRequestToUser("GET", ["experiments", "me", bad], undefined, U)).toBeNull();
+      expect(scopeRequestToUser("POST", ["experiments", "me", bad, "stop"], "{}", U)).toBeNull();
+    }
+    expect(scopeRequestToUser("POST", ["experiments", "me", "../x", "stop"], "{}", U)).toBeNull();
+    expect(scopeRequestToUser("GET", ["experiments", "me", "a/b/c"], undefined, U)).toBeNull();
+    expect(scopeRequestToUser("GET", ["experiments", "a/b"], undefined, U)).toBeNull();
+  });
+  it("blocks methods and shapes the UI never uses", () => {
+    expect(scopeRequestToUser("DELETE", ["experiments", "me", ID], undefined, U)).toBeNull();
+    expect(scopeRequestToUser("GET", ["experiments"], undefined, U)).toBeNull();
+    expect(scopeRequestToUser("POST", ["experiments", "me"], "{}", U)).toBeNull();
+    expect(scopeRequestToUser("POST", ["experiments", "me", ID, "delete"], "{}", U)).toBeNull();
+    expect(scopeRequestToUser("GET", ["experiments", "me", ID, "traffic"], undefined, U)).toBeNull();
+    expect(scopeRequestToUser("GET", ["experiments", "me", ID, "metrics", "x"], undefined, U)).toBeNull();
+  });
+});

@@ -7,10 +7,18 @@ const ROUTES: { method: string; match: (p: string[]) => boolean; userAt?: number
   { method: "POST", match: (p) => p.length === 2 && p[0] === "runs", bodyUser: true },
   { method: "GET", match: (p) => p.length === 4 && p[0] === "runs", userAt: 2 },
   { method: "POST", match: (p) => p.length === 5 && p[0] === "runs" && p[4] === "resume", userAt: 2 },
+  // Bandit experiments (docs/bandit/contracts.md §5). Ids are validated below.
+  { method: "POST", match: (p) => p.length === 1 && p[0] === "experiments", bodyUser: true },
+  { method: "GET", match: (p) => p[0] === "experiments" && (p.length === 2 || p.length === 3
+      || (p.length === 4 && p[3] === "metrics")), userAt: 1 },
+  { method: "POST", match: (p) => p.length === 4 && p[0] === "experiments"
+      && (p[3] === "traffic" || p[3] === "stop"), userAt: 1 },
 ];
 
 // ADK app names are Python identifiers (the agent package name).
 const APP_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
+/** Experiment ids: lowercase slug, 3–64 chars (the backend mints them). */
+export const EXPERIMENT_ID_RE = /^[a-z0-9][a-z0-9-]{2,63}$/;
 /** Query params the UI actually sends (poll `since`, artifact `version`); all else is dropped. */
 const ALLOWED_QUERY = ["since", "version"] as const;
 
@@ -24,6 +32,7 @@ export function scopeRequestToUser(
 ): { path: string; body: string | undefined } | null {
   if (path.some((s) => s === "." || s === ".." || s.includes("/") || s.includes("\\"))) return null;
   if ((path[0] === "apps" || path[0] === "runs") && !APP_RE.test(path[1] ?? "")) return null;
+  if (path[0] === "experiments" && path.length >= 3 && !EXPERIMENT_ID_RE.test(path[2])) return null;
   const route = ROUTES.find((r) => r.method === method && r.match(path));
   if (!route) return null;
   const segs = [...path];
