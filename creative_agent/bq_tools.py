@@ -61,8 +61,8 @@ def build_eval_bq_row(
     }
 
 
-# BigQuery types of the `creative_evals` columns (mirrors the README `bq mk`
-# schema). build_eval_bq_row stays the single source of *which* columns are
+# BigQuery types of the `creative_evals` columns (mirrors the `bq mk` schema in
+# deployment/README.md). build_eval_bq_row stays the single source of *which* columns are
 # written; this map only types them so values can be bound as query parameters.
 EVAL_COLUMN_TYPES = {
     "uuid": "STRING",

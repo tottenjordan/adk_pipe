@@ -2,373 +2,190 @@
 
 <img src="imgs/trend_trawler_banner.png" alt="Trend Trawler — a trawler casting a wide net at golden hour" width="480" />
 
-<h1 align="center">🌊 Trend Trawler 🎣</h1>
+<h1 align="center">Trend Trawler</h1>
 
-> Turn trending Google Search terms into campaign-ready ad creatives — a multi-agent system built with Google's **ADK**, deployed to **Vertex AI Agent Engine**, and fanned out via **Cloud Run Functions + Pub/Sub**.
+**Turn trending Google Search terms into campaign-ready ad creatives.**
 
-> **Naming:** as of 2026, Vertex AI is branded *Gemini Enterprise Agent Platform* and Agent Engine is now *Agent Runtime*. This repo still says "Agent Engine" in most docs. The code uses the AgentPlatform SDK (`agentplatform.Client().runtimes`); the root env gets it from google-cloud-aiplatform 2.x via a uv override (see `pyproject.toml` `[tool.uv]`).
-
-![Python](https://img.shields.io/badge/Python-3.13-3776AB?logo=python&logoColor=white)
+![Python](https://img.shields.io/badge/Python-%E2%89%A53.13-3776AB?logo=python&logoColor=white)
 ![uv](https://img.shields.io/badge/packaging-uv-DE5FE9?logo=uv&logoColor=white)
 ![Ruff](https://img.shields.io/badge/lint-ruff-261230?logo=ruff&logoColor=white)
 ![ty](https://img.shields.io/badge/types-ty-261230?logo=astral&logoColor=white)
-![Google ADK](https://img.shields.io/badge/Google%20ADK-2.10-4285F4?logo=google&logoColor=white)
-![Vertex AI](https://img.shields.io/badge/Vertex%20AI-Agent%20Engine-4285F4?logo=googlecloud&logoColor=white)
-![Gemini](https://img.shields.io/badge/Gemini-886FBF?logo=googlegemini&logoColor=white)
+![Google ADK](https://img.shields.io/badge/Google%20ADK-2.x-4285F4?logo=google&logoColor=white)
+![Agent Runtime](https://img.shields.io/badge/Agent%20Platform-Agent%20Runtime-4285F4?logo=googlecloud&logoColor=white)
+![Gemini](https://img.shields.io/badge/Gemini-3.x-886FBF?logo=googlegemini&logoColor=white)
 ![Next.js](https://img.shields.io/badge/Next.js-16-000000?logo=nextdotjs&logoColor=white)
 
 </div>
 
-**Trend Trawler** runs a two-phase, event-driven pipeline: first it finds culturally relevant Google Search trends for a campaign, then it researches each trend and generates, evaluates, and exports candidate ad copy and visual concepts. It can run headless (offline, event-triggered) or interactively through a custom web UI.
+Trend Trawler is a multi-agent system built with Google's [Agent Development Kit (ADK)](https://google.github.io/adk-docs/). It finds the Google Search trends that are culturally relevant to your campaign, researches each one on the web, and then generates, scores and exports candidate ad copy and rendered visual concepts. You can run it headless, with Pub/Sub fanning out one creative run per trend, or interactively through a web UI that pauses for your review.
 
-| Stage | Agent | What it does |
-| :---: | --- | --- |
-| 1 | 🔦 **`trend_scout`** | Gathers the top 25 Google Search trends, researches cultural context, and filters to the 3 most campaign-relevant |
-| 2 | 🎨 **`creative_agent`** | Researches a `<trend, campaign>` pair and generates candidate ad copy + visual concepts, rendering an image for each |
-| 2 | ⚖️ **`creative_eval`** | Scores every ad copy and visual concept via LLM-as-judge across 12 quality dimensions |
-| 2 | 🧑‍💻 **`interactive_creative`** | Same pipeline as `creative_agent`, with human-in-the-loop review checkpoints after research, ad copies, and visual concepts |
+## Demo
 
-<details>
-  <summary>casting a wide net — how the pipeline flows</summary>
+<p align="center">
+  <img src="docs/screenshots/user-journey.gif" alt="Walkthrough: fill in a brief, follow the run through three review checkpoints, then browse the scored creatives, a proof detail, the research report and run history" width="900">
+</p>
+<p align="center"><em>An interactive creative run in the web UI, from brief to scored creatives. Amber spotlights mark the key UI in each step (mocked fixtures from a real run).</em></p>
 
-<br />
+## Table of contents
 
-Trend Trawler works like its namesake: it drops a **wide net** over the day's Search trends, then hauls in only the catch worth keeping.
-
-1. **Cast** — `trend_scout` pulls the top 25 Google Search trends and researches each for cultural context.
-2. **Haul in** — it filters to the 3 trends most relevant to your campaign and writes them to BigQuery.
-3. **Work the catch** — for each `<trend, campaign>` pair, `creative_agent` runs parallel web research, synthesizes a strategic brief, and generates candidate ad copy plus a rendered image per visual concept.
-4. **Grade it** — `creative_eval` scores every ad copy and visual concept with an LLM-as-judge across 12 quality dimensions (passing threshold 0.7).
-5. **Land it** — the research PDF, HTML gallery, and evaluation report are exported to Cloud Storage.
-
-Prefer to stay hands-on? `interactive_creative` runs the same flow but pauses for your review after the research report, the ad copies, and the visual concepts.
-
-</details>
-
-
-## Table of Contents
-- [Architecture](#architecture)
+- [What it does](#what-it-does)
+- [Example outputs](#example-outputs)
+- [Prerequisites](#prerequisites)
 - [Quickstart](#quickstart)
 - [Usage](#usage)
-- [Evaluation](#evaluation)
-- [Example Outputs](#example-outputs)
 - [Frontend UI](#frontend-ui)
+- [Evaluation](#evaluation)
 - [Deployment](#deployment)
 - [Testing](#testing)
-- [Repo Structure](#repo-structure)
-- [TODO](#todo)
+- [Repo structure](#repo-structure)
+- [Contributing](#contributing)
+- [Roadmap](#roadmap)
+- [References](#references)
 
+## What it does
 
-## Architecture
+Trend Trawler works like its namesake: it casts a wide net over the day's Search trends and keeps only the catch worth keeping.
 
-Trend Trawler is a two-phase agent pipeline built on Google's [ADK](https://google.github.io/adk-docs/get-started/):
-
-- **Phase 1 — `trend_scout`** gathers the top 25 Google Search trends, researches cultural context via web search, filters to the 3 most campaign-relevant trends, and writes them to BigQuery.
-- **Phase 2 — `creative_agent`** takes a single `<trend, campaign>` pair, runs parallel web research (campaign + trend researchers), synthesizes a strategic brief, generates ad copy and visual concepts, evaluates every creative with `creative_eval`, and exports a research PDF, an HTML gallery, and an evaluation report to Cloud Storage. `interactive_creative` is the same pipeline with human-in-the-loop checkpoints.
-
-Deployed agents run on **Vertex AI Agent Engine**; batch runs fan out one creative job per trend via **Cloud Run Functions + Pub/Sub**.
+1. **Find trends (`trend_scout`).** Pulls the top 25 Google Search trends, researches each one's cultural context, keeps the 3 most relevant to your campaign and writes them to BigQuery. You can opt in to picking the trends yourself.
+2. **Make creatives (`creative_agent`).** For one `<trend, campaign>` pair, it runs campaign and trend web research in parallel and writes a cited research report. It then drafts and critiques ad copy and visual concepts and renders one image per concept. `interactive_creative` runs the same pipeline but pauses for human review after the research, the ad copies and the visual concepts.
+3. **Score and export (`creative_eval`).** An LLM judge scores every ad copy and visual concept across 12 dimensions. The run exports a research PDF, an HTML gallery and an evaluation report to Cloud Storage, and writes summary rows to BigQuery.
 
 <p align="center">
   <img src="docs/architecture/system-architecture.png" alt="Trend Trawler system architecture" width="880">
 </p>
 
-The web path runs the agents in-process on the private `trend-trawler-api` Cloud Run service behind the IAP-gated `trend-trawler-web` proxy (per-user authz via a verified `X-TT-User`), persisting sessions to a dedicated Agent Engine session store. The batch path runs `creative_agent` on Agent Engine via the Pub/Sub fan-out.
-
-### Agent architecture
-
-Each root agent calls its ADK 2 graph `Workflow`s as `NodeTool`s, its sub-agents as `AgentTool`s, and its flaky producers through `RetryUntilKeyNode` retry wrappers. There is one diagram per agent in [`docs/diagrams/`](docs/diagrams/README.md):
+Each root agent calls its ADK graph `Workflow`s as `NodeTool`s and its sub-agents as `AgentTool`s. Flaky producers run inside `RetryUntilKeyNode` retry wrappers. There is one diagram per agent in [docs/diagrams/](docs/diagrams/README.md):
 
 | `trend_scout` | `creative_agent` | `interactive_creative` |
 |---|---|---|
 | <img src="docs/diagrams/trend_scout_architecture.png" alt="trend_scout agent architecture" width="280"> | <img src="docs/diagrams/creative_agent_architecture.png" alt="creative_agent agent architecture" width="280"> | <img src="docs/diagrams/interactive_creative_architecture.png" alt="interactive_creative agent architecture" width="280"> |
 
-For the step-by-step run order of each agent (including `creative_eval` and the interactive review checkpoints), see the [workflow diagrams](docs/diagrams/README.md#agent-workflow-diagrams).
+For the step-by-step run order of each agent, see the [workflow diagrams](docs/diagrams/README.md#agent-workflow-diagrams). For the full agent composition, see [CLAUDE.md → Architecture](CLAUDE.md#architecture).
 
-**Helpful references**
-* [Overview of prompting strategies](https://cloud.google.com/vertex-ai/generative-ai/docs/learn/prompts/prompt-design-strategies#best-practices)
-* [ADK documentation](https://google.github.io/adk-docs/get-started/)
-* [Sample Agents](https://github.com/google/adk-samples/tree/main/python/agents)
-* [adk-python SDK samples](https://github.com/google/adk-python/tree/main/contributing/samples)
+## Example outputs
 
+Every creative run produces an HTML gallery of the creatives, a cited research PDF and a JSON evaluation report. Here is the gallery from a recent run for Paul Reed Smith (PRS) guitars:
+
+<p align="center">
+  <img src="docs/examples/gallery-overview.jpg" alt="Top of a generated HTML gallery for Paul Reed Smith: campaign metadata cards and the first two ad creatives" width="720">
+</p>
+
+**See [docs/examples/](docs/examples/README.md)** for the full gallery (hover facts and lightbox), research report pages, an evaluation report excerpt, where each output is saved, and the earlier Oct 2025 outputs.
+
+## Prerequisites
+
+- **Python ≥ 3.13** and [**uv**](https://docs.astral.sh/uv/)
+- **Node.js ≥ 22.13**, only for the web UI in `frontend/`
+- **Google Cloud SDK** (`gcloud`, `bq`), authenticated with application-default credentials
+- **A GCP project** with the Vertex AI, BigQuery and Cloud Storage APIs enabled, plus a Cloud Storage bucket. `trend_scout` reads the public `bigquery-public-data.google_trends` dataset. Deploying also needs Agent Engine (Vertex AI), Pub/Sub, Eventarc, Cloud Run, Cloud Build and Artifact Registry. See [deployment/README.md](deployment/README.md).
+- **Locations:** Gemini 3.x models are served only from the `global` Vertex location, so set `GOOGLE_CLOUD_LOCATION=global`. Regional resources (BigQuery, Cloud Storage, Pub/Sub, Agent Engine) stay in `GCP_REGION` (default `us-central1`).
 
 ## Quickstart
 
-**1. Clone and authenticate**
+**1. Clone, authenticate and install**
 
 ```bash
 git clone https://github.com/tottenjordan/adk_pipe.git
 cd adk_pipe
 
-export GOOGLE_CLOUD_PROJECT=$(gcloud config get-value project)
-export GOOGLE_CLOUD_PROJECT_NUMBER=$(gcloud projects describe $GOOGLE_CLOUD_PROJECT --format="value(projectNumber)")
-
-gcloud config set project $GOOGLE_CLOUD_PROJECT
+gcloud config set project <your-project-id>
 gcloud auth application-default login
-```
 
-**2. Configure `.env`** — copy [.env.example](./.env.example) and fill in your project values, then `source .env`.
-
-```bash
-cp .env.example .env
-# edit .env ...
-source .env
-```
-
-<details>
-  <summary>key <code>.env</code> values</summary>
-
-```bash
-GOOGLE_GENAI_USE_ENTERPRISE=1
-GOOGLE_CLOUD_PROJECT=this-my-project-id
-# gemini-3.x models are only served from the `global` Vertex location;
-# regional resources (BigQuery, GCS, PubSub, Agent Engine) use us-central1.
-GOOGLE_CLOUD_LOCATION=global
-GCP_REGION=us-central1
-GOOGLE_CLOUD_PROJECT_NUMBER=12345678910
-
-
-# Cloud Storage
-# bare bucket name (no gs:// prefix); the gs:// form is derived in code
-GOOGLE_CLOUD_STORAGE_BUCKET=this-my-bucket-name
-
-
-# PubSub
-CREATIVE_TOPIC_NAME=creative-eventarc-topic
-CREATIVE_WORKER_TOPIC_NAME=creative-worker-queue-topic
-
-
-# Cloud Run Functions
-BASE_IMAGE=python313
-
-CREATIVE_CRF_NAME=creative-trawler-crf
-CRF_ENTRYPOINT=crf_entrypoint
-CREATIVE_TRIGGER_NAME=creative-eventarc-trigger
-
-CREATIVE_WORKER_CRF_NAME=creative-worker-crf
-CREATIVE_WORKER_ENTRYPOINT=agent_worker_entrypoint
-CREATIVE_WORKER_TRIGGER_NAME=creative-worker-starter-trigger
-
-
-# BigQuery 
-BQ_PROJECT_ID='this-my-project-bq-id'
-BQ_DATASET_ID='trend_trawler'
-BQ_TABLE_TARGETS='target_trends_crf'
-BQ_TABLE_CREATIVES='trend_creatives'
-BQ_TABLE_EVALS='creative_evals'
-
-
-# Agent Engine (leave blank)
-CREATIVE_AGENT_ENGINE_ID=""
-SCOUT_AGENT_ENGINE_ID=""
-INTERACTIVE_AGENT_ENGINE_ID=""
-
-
-# campaign metadata
-BRAND="Paul Reed Smith (PRS)"
-TARGET_AUDIENCE="millennials who follow jam bands (e.g., Widespread Panic and Phish), respond positively to nostalgic messages"
-TARGET_PRODUCT="PRS SE CE24 Electric Guitar"
-KEY_SELLING_POINT="The 85/15 S Humbucker pickups deliver a wide tonal range, from thick humbucker tones to clear single-coil sounds, making the guitar suitable for various genres."
-TARGET_SEARCH_TREND="tswift engaged"
-```
-
-</details>
-
-**3. Install dependencies**
-
-```bash
 uv sync
 ```
 
-**4. Create the BigQuery dataset and tables**
+**2. Configure `.env`.** [.env.example](.env.example) is the full, commented reference.
 
 ```bash
-bq --location=US mk --dataset $BQ_PROJECT_ID:$BQ_DATASET_ID
+cp .env.example .env
 ```
 
-<details>
-  <summary>create the target-trends and creatives tables</summary>
+At a minimum, set these values:
+
+| Variable | Value |
+|---|---|
+| `GOOGLE_CLOUD_PROJECT` | your project ID (required; nothing hardcodes a project) |
+| `GOOGLE_CLOUD_LOCATION` | `global` (Gemini 3.x) |
+| `GOOGLE_CLOUD_STORAGE_BUCKET` | bare bucket name, without `gs://` |
+| `BQ_PROJECT_ID`, `BQ_DATASET_ID` | where the three tables live (dataset defaults to `trend_trawler`) |
+| `GOOGLE_CLOUD_PROJECT_NUMBER` | needed for deployment (`gcloud projects describe <id> --format='value(projectNumber)'`) |
+
+**3. Create the BigQuery tables.** The agents' persistence steps write to them. `trend_scout` writes the selected trends. `creative_agent` and `interactive_creative` write a creative row and an evaluation row per run, and both read and write the bucket. The script is idempotent. The schemas are in [deployment/README.md → Create BigQuery tables](deployment/README.md#create-bigquery-tables).
 
 ```bash
-# selected search trends
-bq mk \
- -t \
- $BQ_PROJECT_ID:$BQ_DATASET_ID.$BQ_TABLE_TARGETS \
- uuid:STRING,processed_status:STRING,target_trend:STRING,refresh_date:DATE,trawler_date:DATE,entry_timestamp:TIMESTAMP,trawler_gcs:STRING,brand:STRING,target_audience:STRING,target_product:STRING,key_selling_point:STRING,research_gaps:STRING,processing_started_at:TIMESTAMP,processing_attempts:INTEGER
-
-# target-trend creatives
-bq mk \
- -t \
- $BQ_PROJECT_ID:$BQ_DATASET_ID.$BQ_TABLE_CREATIVES \
- uuid:STRING,target_trend:STRING,datetime:DATETIME,creative_gcs:STRING,brand:STRING,target_audience:STRING,target_product:STRING,key_selling_point:STRING
-
-# creative evaluation summaries (one row per run; links to trend_creatives.uuid)
-bq mk \
- -t \
- $BQ_PROJECT_ID:$BQ_DATASET_ID.$BQ_TABLE_EVALS \
- uuid:STRING,creative_uuid:STRING,datetime:DATETIME,target_trend:STRING,brand:STRING,target_product:STRING,overall_pass_rate:FLOAT,total_ad_copies:INTEGER,ad_copies_passed:INTEGER,avg_ad_copy_score:FLOAT,total_visual_concepts:INTEGER,visual_concepts_passed:INTEGER,avg_visual_score:FLOAT,weakest_dimensions:STRING,eval_report_gcs_uri:STRING,research_gaps:STRING,weakest_dimension_labels:STRING
+set -a && source .env && set +a
+bash deployment/create_bq_tables.sh
 ```
-</details>
 
-**5. Run an agent locally**
+**4. Run an agent in the ADK dev UI**
 
 ```bash
 uv run adk web .
 ```
 
-Open the dev UI, pick an agent from the top-left drop-down, and provide your campaign metadata — see [Usage](#usage).
-
+Pick an agent from the drop-down at the top left and send it your campaign brief (see [Usage](#usage)). To use the custom web UI instead, see [Frontend UI](#frontend-ui).
 
 ## Usage
 
-Define your `campaign metadata` — these are the inputs to `trend_scout` and `creative_agent`.
+Each run starts from a campaign brief. This sample is the one in `.env.example`:
 
-```bash
-# example campaign metadata
-Brand Name: 'Paul Reed Smith (PRS)'
-Target Audience: 'millennials who follow jam bands (e.g., Widespread Panic and Phish), respond positively to nostalgic messages, and love surreal memes'
-Target Product: 'SE CE24 Electric Guitar'
-Key Selling Points: 'The 85/15 S Humbucker pickups deliver a wide tonal range, from thick humbucker tones to clear single-coil sounds, making the guitar suitable for various genres.'
+```text
+Brand Name:         Paul Reed Smith (PRS)
+Target Audience:    millennials who follow jam bands (e.g., Widespread Panic and Phish), respond positively to nostalgic messages
+Target Product:     PRS SE CE24 Electric Guitar
+Key Selling Points: The 85/15 S Humbucker pickups deliver a wide tonal range, from thick humbucker tones to clear single-coil sounds, making the guitar suitable for various genres.
 ```
 
 <details>
-  <summary>guidance on what works well here</summary>
+  <summary>What makes a good brief</summary>
 
-**Target Audience:** 
-* who are they? what do they want? 
-* go beyond typical demographics with...
-  * **psychographics:** *people who are frustrated with...* 
-  * **lifestyle:** *frequent travelers; spending most income on concert experiences.*
-  * **hobbies, interests, humor**: *music lovers, attend lots of jam band concerts. love surreal memes*
-  * **lifestage**: *recent empty-nesters*
+**Target audience:** who are they, and what do they want? Go beyond demographics:
 
-**Key Selling Points**
+- **Psychographics:** *people who are frustrated with ...*
+- **Lifestyle:** *frequent travelers; spend most of their income on concerts*
+- **Hobbies, interests and humor:** *music lovers who attend lots of jam band concerts and love surreal memes*
+- **Life stage:** *recent empty-nesters*
 
-This will be the `{target_product}`'s flavor in the messaging and visual concepts
-*can be used multiple ways. here are some...*
+**Key selling points** give the `{target_product}` its flavor in the messaging and visual concepts. Some ways to use them:
 
-* What is the `{target_audience}` 's benefit? what will make them really care?
-* external factors e.g., if selling sweaters: `it's cold outside`
-* don't have to choose a single benefit. if there are several, explain them (experiment with this). However, can hyper-focused on one benefit as well...
-
-  * *"Advanced Night Repair - Ideal for visible age prevention with double action to fight visible effects of free radical damage"*
-  * *"Call Screen - Goodbye, spam calls. With Call Screen, Pixel can now detect and filter out even more spam calls. For other calls, it can tell you who’s calling and why before you pick up. Detect and decline spam calls without distracting you."*
-  * *"Best Take - Group pics, perfected. Pixel’s Best Take combines similar photos into one fantastic picture where everyone looks their best. AI is able to blend multiple still images to give everyone their best look"*
+- What is the `{target_audience}`'s benefit? What will make them really care?
+- External factors, e.g. when selling sweaters: *it's cold outside*.
+- You don't have to choose a single benefit. If there are several, explain them (experiment with this), or hyper-focus on one:
+  - *"Advanced Night Repair - Ideal for visible age prevention with double action to fight visible effects of free radical damage"*
+  - *"Call Screen - Goodbye, spam calls. With Call Screen, Pixel can now detect and filter out even more spam calls. For other calls, it can tell you who's calling and why before you pick up."*
+  - *"Best Take - Group pics, perfected. Pixel's Best Take combines similar photos into one fantastic picture where everyone looks their best."*
 
 </details>
 
-### Running an Agent
+### Running an agent
 
-Start the local dev UI:
+Start the dev UI with `uv run adk web .` and choose an agent:
 
-```bash
-uv run adk web .
+| Agent | Send | Gets you |
+|---|---|---|
+| `trend_scout` | the brief | today's top 25 trends, researched and filtered to the 3 most relevant, saved to BigQuery |
+| `creative_agent` | the brief plus a search trend (stored as the state key `target_search_trends`) | research report, ad copies, visual concepts, rendered images, evaluation report and HTML gallery |
+| `interactive_creative` | same as `creative_agent` | the same outputs, with three human-review pauses |
+
+```text
+user: Brand Name: "YOUR BRAND"
+      Target Audience: "YOUR TARGET AUDIENCE"
+      Target Product: "YOUR TARGET PRODUCT"
+      Key Selling Points: "YOUR KEY SELLING POINT(S)"
+      Search Trend: "YOUR SEARCH TREND"      # creative_agent / interactive_creative only
 ```
 
-**[a] choose `trend_scout` from the drop-down menu (top left)...**
+**Optional trend pick (`trend_scout`).** Opt in from the web UI's home form, which sets the `interactive_trend_pick` session flag. The run then pauses after gathering the 25 trends so you can choose which ones to keep, instead of having the agent pick 3.
 
-```bash
-user: Brand Name: "YOUR BRAND OF CHOICE"
-      Target Audience: "YOUR TARGET AUDIENCE OF CHOICE"
-      Target Product: "YOUR TARGET PRODUCT OF CHOICE"
-      Key Selling Points: "YOU KEY SELLING POINT(S)"
+**Review checkpoints (`interactive_creative`).** The run pauses three times. Each pause uses ADK's `LongRunningFunctionTool` on a resumable `App`.
 
-agent: `[end-to-end workflow >> recommended subset of trends]` 
-```
-
-**[b] choose `creative agent` in the top-left drop-down menu...**
-
-```bash
-user: Brand Name: "YOUR BRAND OF CHOICE"
-      Target Audience: "YOUR TARGET AUDIENCE OF CHOICE"
-      Target Product: "YOUR TARGET PRODUCT OF CHOICE"
-      Key Selling Points: "YOU KEY SELLING POINT(S)"
-      target_search_trend: "YOUR_SEARCH_TREND_OF_CHOICE"
-
-agent: `[end-to-end workflow >> candidate creatives]`
-```
-
-**[c] choose `interactive_creative` for human-in-the-loop mode...**
-
-Same inputs as the `creative_agent`, but the pipeline pauses at 3 checkpoints for human review:
-
-1. **After research** — review the research report, approve or request changes
-2. **After ad copies** — review generated ad copies before visual concept generation
-3. **After visual concepts** — review (and directly edit) visual concepts and image prompts before image generation; free-text revision notes are applied by a `visual_concept_reviser` agent before rendering
-
-At each checkpoint the UI displays a review panel where you can approve and continue, or provide feedback. Uses ADK's `LongRunningFunctionTool` for pause/resume, on a resumable ADK `App` (`ResumabilityConfig(is_resumable=True)`).
-
-
-## Evaluation
-
-The `creative_eval` module runs automatically as part of both the `creative_agent` and `interactive_creative` pipelines. It evaluates every generated ad copy and visual concept using an LLM-as-judge approach (`gemini-3.1-pro-preview`). Each creative is scored by an independent judge call, run concurrently in a thread pool. Because the judge is a gemini-3 model, its client uses the `global` Vertex location.
-
-**Ad Copy Dimensions (6):** strategic alignment, trend authenticity, platform viability, copy quality, audience fit, CTA strength
-
-**Visual Concept Dimensions (6):** trend-visual connection, brand representation, audience appeal, prompt technical quality, stopping power, concept coherence
-
-Each dimension is scored 1–10. Scores are normalized to 0.0–1.0 with a **0.7 passing threshold**. The evaluation report includes per-dimension verdicts with rationale, strengths, suggested improvements, and a summary with pass rates and weakest dimensions. The report is saved as JSON to GCS.
-
-
-## Example Outputs
-
-**1. the `creative_agent` conducts web research to inform the creative process. a PDF of this web research is saved for humans:**
-
-<p align="center" width="100%">
-    <img src="imgs/tt_prs_research_overview_p050_15fps.gif">
-</p>
-
-
-**2. the agents final step produces an HTML display of all generated ad creatives:**
-
-<p align="center" width="100%">
-    <img src="imgs/tt_prs_html_overview_p050_15fps.gif">
-</p>
-
-<details>
-  <summary>some details on the HTML report</summary>
-
-#### see campaign metadata at the top:
-
-* brand
-* target product
-* key selling point
-* target audience
-
-#### each creative has a headline (title) and a caption
-
-![trend trawler creative outputs](imgs/gallery_sample_prs.png)
-
-#### hovering over a creative will display:
-
-* how it references the search trend
-* how it markets the target product
-* why the target audience will find it appealing
-
-![trend trawler creative outputs](imgs/its_complicated.png)
-
-
-*remember: these are ad candidates to start the ideation process. the prompts are saved so you can easily tweak the creative*
-
-</details>
-
+1. **After research:** review the cited research report, then approve it or request changes.
+2. **After ad copies:** review the ad copies before any visual concepts are generated.
+3. **After visual concepts:** review and directly edit the concepts and image prompts before rendering. A `visual_concept_reviser` agent applies any free-text revision notes.
 
 ## Frontend UI
 
-A custom React frontend (Next.js + Tailwind CSS + shadcn/ui) for running agents and viewing results:
-
-<p align="center">
-  <img src="docs/screenshots/user-journey.gif" alt="Walkthrough: fill in a brief, follow the run through three review checkpoints, then browse the scored creatives, a proof detail, the research report and run history" width="900">
-</p>
-<p align="center"><em>An interactive creative run, from brief to scored creatives: the amber spotlights mark what to look at in each step, and the top strip shows where you are (mocked fixtures from a real run).</em></p>
-
-- **`/`**: campaign input form with agent tiles and a recent-runs sidebar.
-- **`/runs`**: run history (brand, trend, agent, status) with **Duplicate brief** to start a new run from an old one.
-- **`/run/[sessionId]`**: live run view that **polls** the async-job `/runs` API (so a run survives disconnect/reload/re-auth). A stage spine shows progress, interactive review checkpoints take over the main area, and the technical log is collapsed. Opening an existing run reconnects to it and never re-sends the kick-off message.
-- **`/results/[sessionId]`**: a contact sheet of the creatives with per-creative scores, a proof-detail dialog for each one, and the artifacts, HTML portfolio and evaluation report.
-
-The visual design ("proof room") uses tokens in `frontend/src/app/globals.css`, the Archivo typeface and a sentence-case `FieldLabel`. See [docs/plans/2026-10-02-frontend-proof-room.md](docs/plans/2026-10-02-frontend-proof-room.md).
-
-Screenshots (click for full size; regenerate with `npm run screenshots`, see [docs/screenshots/](docs/screenshots/README.md)):
+The custom web UI is built with Next.js, Tailwind CSS and shadcn/ui. Use it to start runs, follow them live, answer review checkpoints and browse results. It polls an async-job `/runs` API, so a run survives a disconnect or a page reload. Screenshots below (click for full size; to regenerate them, see [docs/screenshots/](docs/screenshots/README.md)):
 
 <table>
   <tr>
@@ -393,209 +210,112 @@ Screenshots (click for full size; regenerate with `npm run screenshots`, see [do
   </tr>
 </table>
 
-```bash
-# terminal 1 — backend. Run the async_app launcher, NOT bare `adk api_server`:
-# it mounts the async-job /runs endpoints the run page polls, on top of ADK's
-# canned session/artifact CRUD (a superset of `adk api_server`).
-# TRUST_CLIENT_USER_ID=1: local dev only (default per-user authz mode is enforce).
-# SESSION_SERVICE_URI=memory:// avoids ADK's local SQLite path check on the agents/ symlinks.
-TRUST_CLIENT_USER_ID=1 SESSION_SERVICE_URI=memory:// ALLOW_ORIGINS=http://localhost:3000 uv run uvicorn deployment.async_app:app --port 8000
+Run it locally:
 
-# terminal 2 — frontend (Node.js >= 22.13)
+```bash
+# terminal 1: backend. Run the async_app launcher, not bare `adk api_server`; it adds the
+# /runs endpoints the run page polls. TRUST_CLIENT_USER_ID=1 is for local dev only.
+TRUST_CLIENT_USER_ID=1 SESSION_SERVICE_URI=memory:// ALLOW_ORIGINS=http://localhost:3000 \
+  uv run uvicorn deployment.async_app:app --port 8000
+
+# terminal 2: frontend
 cd frontend && npm install && npm run dev   # http://localhost:3000
 ```
 
-**→ See [frontend/README.md](frontend/README.md)** for the full component tree and details.
+For pages, design system and configuration, see the [frontend guide](frontend/README.md). For per-user authz and the Cloud Run deployment, see [CLAUDE.md](CLAUDE.md#frontend--frontend) and [deployment/README.md](deployment/README.md#frontend--api_server-on-cloud-run).
 
+## Evaluation
+
+`creative_eval` runs automatically at the end of every `creative_agent` and `interactive_creative` run. It is an LLM-as-judge: each creative gets its own concurrent judge call with structured output.
+
+- **Ad copy (6 dimensions):** strategy fit, trend authenticity, platform fit, copy quality, audience fit, call to action
+- **Visual concept (6 dimensions):** trend connection, brand & product, audience appeal, prompt quality, stopping power, coherence
+
+Each dimension gets a 1–10 score, a verdict and a rationale. Per-creative scores are normalized to 0.0–1.0, and **0.7 passes**. The report adds strengths, suggested improvements and a summary (pass rates, average scores, weakest dimensions), and it records `judge_model` and any research-degradation `warnings`. It is saved as `creative_eval_report.json` in the run's Cloud Storage folder. A summary row also goes to the BigQuery `creative_evals` table: pass rate, counts, average scores, `weakest_dimensions` and the readable `weakest_dimension_labels` (labels from `creative_eval/dimensions.py`).
+
+The judge defaults to `gemini-3.1-pro-preview` at `global`. Override it with `EVAL_MODEL` and `EVAL_MODEL_LOCATION`. The judge has no fallback model, so a silent swap can't skew pass rates.
 
 ## Deployment
 
-Trend Trawler deploys in three layers:
-
-| Layer | What | Where |
-| --- | --- | --- |
-| **Agents** | `trend_scout`, `creative_agent`, `interactive_creative` | Vertex AI Agent Engine (one instance each) |
-| **Fan-out** | orchestrator (`crf_entrypoint`) + worker (`agent_worker_entrypoint`) | Cloud Run Functions + Pub/Sub |
-| **Web** | `trend-trawler-web` (Next.js, IAP-gated proxy) + `trend-trawler-api` (private `deployment/async_app.py` backend, persistent Agent Engine sessions) | Cloud Run |
-
-<p align="center">
-  <img src="docs/diagrams/crf_fanout_system_architecture.png" alt="Cloud Run Functions fan-out orchestration" width="720">
-</p>
-
-Deploy an agent to Agent Engine:
+The three agents deploy to Agent Engine, one instance each. Two Cloud Run Functions (orchestrator + worker) fan out one `creative_agent` run per trend via Pub/Sub. The web UI runs as two Cloud Run services: an IAP-gated frontend and a private backend.
 
 ```bash
-python deployment/deploy_agent.py --version=v1 --agent=creative_agent --create
+uv run python deployment/deploy_agent.py --version=v1 --agent=trend_scout --create   # or creative_agent / interactive_creative
+uv run python deployment/deploy_agent.py --list
 ```
 
-**→ Full instructions** — IAM, Pub/Sub topics, eventarc triggers, invoking the fan-out, testing deployed
-agents, the Cloud Run alternative, and [redeploy + rollback via traffic tags](deployment/README.md#8-redeploying-a-new-build--rollback-traffic-tags) —
-**live in [deployment/README.md](deployment/README.md).**
+For IAM, Pub/Sub topics, Eventarc triggers, the web services, per-user authz, eval CI, and redeploy and rollback, see the **[deployment guide](deployment/README.md)**.
 
-**Per-user authz:** the web proxy verifies the IAP JWT and asserts the caller as `X-TT-User`; the backend (`runserver/authz.py`) trusts that header only alongside a verified ID token from the proxy's service account (`USER_AUTHZ_MODE=enforce` by default, `observe` for dry runs; `TRUST_CLIENT_USER_ID=1` is local-dev only and refused on Cloud Run). See [deployment/README.md → Per-user authz](deployment/README.md#9-per-user-authz-p3-env-vars--verification).
-
+> **Naming:** in 2026, Vertex AI was rebranded *Gemini Enterprise Agent Platform*, and Agent Engine became *Agent Runtime*. These docs still say "Agent Engine". The code uses the AgentPlatform SDK (`agentplatform.Client().runtimes`), which the root environment gets from google-cloud-aiplatform 2.x through a uv override (see `[tool.uv]` in `pyproject.toml`).
 
 ## Testing
 
 ```bash
-# Frontend tests (Vitest + React Testing Library + jsdom)
-cd frontend && npm test              # single run; npm run test:watch for watch mode
+uv run pytest tests/ -q -n 4   # Python unit tests; no GCP credentials, but set GOOGLE_CLOUD_PROJECT (any dummy value)
+cd frontend && npm test        # frontend tests (Vitest + React Testing Library)
 
-# Python tests (pytest; config in pyproject.toml) — no GCP credentials needed; GOOGLE_CLOUD_PROJECT must be set (any dummy value)
-uv run pytest tests/ -q -n 4   # parallel via pytest-xdist; drop -n 4 / add -v for serial verbose output
-
-# Creative evaluation test (real Gemini API calls, ~2 min)
-uv run python -m creative_eval.run_eval_test
-
-# ADK evals — end-to-end LLM-as-judge (real API calls, ~5 min per case)
+# ADK evals: end-to-end LLM-as-judge against real APIs (~5 min per case)
 PYTHONPATH="$PWD" uv run adk eval trend_scout tests/eval/evalsets/trend_scout_evalset.json \
   --config_file_path=tests/eval/eval_config.json --print_detailed_results
 
-# Integration tests — requires deployed agents + GCP credentials
-python deployment/integration_test.py --check all
+uv run python deployment/integration_test.py --check all   # live checks against deployed agents
 ```
 
-The `creative_agent` eval must run with `PYTHONPATH="$PWD"` and its own rubric config — see [CLAUDE.md](CLAUDE.md) for the exact invocation and per-agent details.
+The `creative_agent` eval uses its own rubric config. For the exact command, see [CLAUDE.md → Testing](CLAUDE.md#testing). For what each test file covers, see [tests/README.md](tests/README.md).
 
-**→ See [tests/README.md](tests/README.md)** for the full test-suite layout and what each test file covers.
+**CI (GitHub Actions):**
 
-**CI:** GitHub Actions runs on pull requests (plus manual `workflow_dispatch`), path-gated: `ruff check`, `ruff format --check`, `ty check`, `pytest` and a requirements.txt drift check when Python files change (`.github/workflows/python-ci.yml`); the Cloud Function tests against the function's own `requirements.txt` when `cloud_functions/**` changes (`.github/workflows/crf-deps.yml`); and frontend lint, tests and build (which type-checks) when `frontend/**` changes (`.github/workflows/frontend-tests.yml`).
+- [`python-ci.yml`](.github/workflows/python-ci.yml) runs on PRs that touch Python or dependency files. It checks `uv sync --locked`, requirements.txt drift, `ruff check`, `ruff format --check`, `ty check` and `pytest`.
+- [`crf-deps.yml`](.github/workflows/crf-deps.yml) runs on PRs that touch `cloud_functions/**`. It runs the Cloud Function tests against the function's own `requirements.txt`.
+- [`frontend-tests.yml`](.github/workflows/frontend-tests.yml) runs on PRs that touch `frontend/**`: lint, tests, and a build that type-checks.
+- [`adk-eval.yml`](.github/workflows/adk-eval.yml) runs nightly and on manual dispatch, not on PRs. It runs `adk eval` per agent against an isolated eval dataset and bucket. Then `tests/eval/efficiency_gate.py` gives the real pass/fail signal: it fails on non-passing cases or on token and call-count regressions against `docs/baselines/eval_efficiency.json`.
+- [`dependabot.yml`](.github/dependabot.yml) opens weekly dependency updates, with minor and patch bumps grouped.
 
+## Repo structure
 
-## Repo Structure
+The agent packages sit flat at the repo root on purpose. Agent Engine's `extra_packages` staging keeps each package's relative path as its import path, so nesting them would break imports like `from creative_agent …`.
 
-> The agent packages are kept **flat** at the repo root (not grouped under an `agents/` or `src/`
-> parent) on purpose: Agent Engine's `extra_packages` staging preserves each package's relative path
-> as its import path, so nesting them would break every bare `from creative_agent …` import. Flat is a
-> deploy constraint, not an oversight.
-
-```bash
+```text
 .
-├── trend_scout/                # Phase 1 — trend discovery agent
-│   ├── __init__.py
-│   ├── agent.py
-│   ├── callbacks.py              # state init, rate limiting, citation processing
-│   ├── config.py
-│   ├── prompts.py               # agent instruction templates
-│   ├── review_tools.py          # LongRunningFunctionTool — opt-in interactive trend pick
-│   └── tools.py
-├── creative_agent/               # Phase 2 — creative generation agent
-│   ├── __init__.py
-│   ├── agent.py
-│   ├── callbacks.py
-│   ├── config.py
-│   ├── prompts.py                # agent instruction templates (per-agent *_INSTR constants)
-│   ├── schemas.py                # output_schema Pydantic models
-│   ├── tools.py                  # thin orchestration + re-export surface (memorize, gallery)
-│   ├── image_tools.py            # image generation (lazy genai client + retry backoff)
-│   ├── bq_tools.py               # BigQuery writers (trends + eval-report rows)
-│   ├── gcs_tools.py              # GCS upload/download + PDF/eval-report exports
-│   ├── gallery_template.py       # static HTML/CSS gallery template fragments
-│   └── sub_agents/
-│       ├── __init__.py
-│       ├── campaign_researcher/
-│       │   ├── __init__.py
-│       │   └── agent.py
-│       └── trend_researcher/
-│           ├── __init__.py
-│           └── agent.py
-├── interactive_creative/         # Phase 2 — human-in-the-loop variant
-│   ├── __init__.py
-│   ├── agent.py                  # also defines visual_concept_reviser
-│   ├── callbacks.py
-│   ├── prompts.py
-│   └── review_tools.py           # LongRunningFunctionTool review checkpoints
-├── creative_eval/                # LLM-as-judge evaluation module
-│   ├── __init__.py
-│   ├── agent.py
-│   ├── config.py
-│   ├── evaluate.py               # concurrent per-creative scoring
-│   ├── prompts.py
-│   ├── run_eval_test.py
-│   └── schemas.py
-├── agent_common/                 # shared building blocks bundled into every engine (depends on ADK; no per-agent logic)
-│   ├── __init__.py               # public re-exports
-│   ├── clients.py                # lazy GCS / BigQuery client getters
-│   ├── config.py                 # BaseAgentConfiguration — model / rate-limit / GCP env source of truth
-│   ├── genai_retry.py            # build_genai_http_retry() — status-code HTTP retry (429/5xx)
-│   ├── idempotency.py            # stable_row_id() — deterministic BigQuery row keys
-│   ├── locations.py              # MODEL_LOCATION (pins gemini-3.x to `global`)
-│   ├── models.py                 # build_gemini(name)
-│   ├── observability.py          # shared debugging callbacks + degradation-warning collection
-│   ├── rate_limit.py             # build_rate_limit_callback(config)
-│   ├── retry.py                  # build_infra_retry()
-│   ├── retry_node.py             # RetryUntilKeyNode (retry-on-empty graph wrapper) + is_populated()
-│   ├── sanitize.py               # lone-surrogate scrubber for structured-output JSON
-│   ├── schemas.py                # PipelineRequest (NodeTool input_schema)
-│   └── state.py                  # shared memorize tool + seed_initial_state()
-├── agents/                       # api_server serving view — one relative symlink per runnable agent (see agents/README.md)
-│   ├── README.md
-│   ├── creative_agent -> ../creative_agent
-│   ├── interactive_creative -> ../interactive_creative
-│   └── trend_scout -> ../trend_scout
-├── runserver/                    # async-job run model: /runs FastAPI router (kick-off / poll / resume) + pure helpers
-│   ├── __init__.py
-│   ├── async_runs.py
-│   └── authz.py                  # per-user authz middleware (trusts the proxy's X-TT-User)
-├── cloud_functions/              # event-driven fan-out (orchestrator + worker)
-│   ├── creative_fanout/
-│   │   ├── config.py
-│   │   ├── main.py               # crf_entrypoint + agent_worker_entrypoint
-│   │   ├── requirements.txt
-│   │   └── session.py            # agent_session context manager (create → query → delete)
-├── deployment/
-│   ├── README.md                 # full deploy guide (Agent Engine, CRF fan-out, Cloud Run)
-│   ├── async_app.py              # launcher: mounts the async-job /runs router on ADK's canned FastAPI app
-│   ├── backend_entrypoint.sh     # uvicorn entrypoint for the Cloud Run api service
-│   ├── create_session_engine.py  # provision the persistent Agent Engine session service
-│   ├── deploy_agent.py           # deploy / list / delete Agent Engine instances
-│   ├── headless_run.py           # run creative_agent via a local ADK Runner
-│   ├── integration_test.py       # live GCP checks (health, session, smoke)
-│   └── test_deployment.py        # invoke deployed agents
-├── frontend/                     # Next.js + Tailwind + shadcn/ui web app
-│   ├── src/
-│   │   ├── app/                  # routes: campaign form, run history, run (async-job polling), results + API proxies
-│   │   ├── components/           # event log, gallery, GCS/trend widgets, ui/ primitives
-│   │   ├── lib/                  # api client, run history/stages, eval matching, agent catalog, presets, types, utils
-│   │   └── __tests__/            # Vitest unit tests
-│   ├── next.config.ts
-│   ├── package.json
-│   └── vitest.config.ts
-├── tests/                        # pytest suite + ADK evals — see tests/README.md
-├── docs/
-│   ├── architecture/             # pipeline + CRF fan-out diagrams
-│   ├── baselines/
-│   ├── diagrams/                 # generated architecture diagrams
-│   ├── experiments/              # experiment writeups (e.g. creative_agent latency)
-│   ├── notes/                    # hard-won session notes
-│   ├── plans/                    # implementation plans (historical)
-│   └── screenshots/              # frontend screenshots
-├── experiments/                  # external measurement harnesses — never bundled into an engine (see experiments/README.md)
-│   ├── README.md                 # index + shared conventions for the harnesses below
-│   ├── creative_latency/         # latency experiment: driver, parser, plots, results
-│   └── quota_spread/             # quota-bucket-spread DoE: concurrent batch runner, slope analysis, plots
-├── imgs/                         # README media
-├── .github/workflows/
-│   ├── python-ci.yml
-│   ├── crf-deps.yml
-│   └── frontend-tests.yml
-├── .env.example
-├── Dockerfile                    # trend-trawler-api (Cloud Run backend) image
-├── CLAUDE.md
-├── CODE_STANDARDS.md
-├── pyproject.toml
-├── requirements.txt
-├── uv.lock
-└── README.md
+├── trend_scout/           # phase 1: trend discovery agent
+├── creative_agent/        # phase 2: research → ad copy → visual concepts → images → exports
+├── interactive_creative/  # phase 2 with human-review checkpoints (reuses creative_agent)
+├── creative_eval/         # LLM-as-judge scoring of ad copy and visual concepts
+├── agent_common/          # shared config, models, retry, rate limiting, state (bundled into every engine)
+├── agents/                # symlinks: the api_server's view of the runnable agents
+├── runserver/             # async-job /runs API + per-user authz for the web backend
+├── cloud_functions/       # Pub/Sub fan-out: orchestrator + worker Cloud Run Functions
+├── deployment/            # deploy/test scripts, backend launcher, BigQuery setup, deployment guide
+├── frontend/              # Next.js web UI
+├── tests/                 # pytest suite + ADK evalsets
+├── experiments/           # measurement harnesses (latency, quota spread); never deployed
+├── docs/                  # architecture diagrams, examples, screenshots, plans, notes
+├── imgs/                  # README banner
+├── .env.example           # environment reference
+├── CLAUDE.md              # detailed architecture and per-file guide
+└── CODE_STANDARDS.md      # packaging, lint, typing, testing and commit conventions
 ```
 
+For a per-file breakdown, see [CLAUDE.md → Key files](CLAUDE.md#key-files).
 
-## TODO
+## Contributing
 
-* ~~deployment script for Vertex AI Agent Engine~~
-* ~~event-based triggers~~
-* ~~creative evaluation (LLM-as-judge)~~
-* ~~interactive mode (human-in-the-loop review checkpoints)~~
-* scheduled runs
-* email / notification
-* easy export to ~*live editor tool* to nano-banana
+Read [CODE_STANDARDS.md](CODE_STANDARDS.md) first. In short:
+
+- Use **uv** for everything: `uv add` / `uv sync` for dependencies, `uv run` for commands. Never use bare `pip` or `python`.
+- Before you push, run `uv run ruff format .`, `uv run ruff check .`, `uv run ty check` and `uv run pytest tests/ -n 4`. Frontend changes also need `npm run lint`, `npm test` and `npm run build`.
+- Work on a branch and open a pull request against `main`. CI runs the path-gated checks above.
+
+## Roadmap
+
+- Scheduled runs
+- Email or other notifications when a run finishes
+- Easy export to a live editing tool for image iteration (Nano Banana)
+
+## References
+
+- [ADK documentation](https://google.github.io/adk-docs/)
+- [ADK sample agents](https://github.com/google/adk-samples/tree/main/python/agents)
+- [adk-python SDK samples](https://github.com/google/adk-python/tree/main/contributing/samples)
+- [Deploy ADK agents to Agent Engine](https://google.github.io/adk-docs/deploy/agent-engine/)
+- [Prompt design strategies (Vertex AI)](https://cloud.google.com/vertex-ai/generative-ai/docs/learn/prompts/prompt-design-strategies)
