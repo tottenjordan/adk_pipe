@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import type { AgentEvent } from "@/lib/types";
 
-import { PendingLongRunningCalls } from "@/lib/pause-detection";
+import { PendingLongRunningCalls, isPauseAnswered } from "@/lib/pause-detection";
 
 // Pause detection used by the run page (lib/pause-detection). A single
 // unanswered long-running call is a pause.
@@ -333,5 +333,33 @@ describe("Resume run request body", () => {
     expect(body.response.status).toBe("selected");
     expect(body.response.selected_trends).toEqual(["Trend A", "Trend C"]);
     expect(body.response.instruction).toBe("focus on pop culture");
+  });
+});
+
+// A paused tab must notice when the checkpoint is answered elsewhere (another
+// tab or a reload resumed the run), otherwise it shows "Waiting for review"
+// forever. The paused page's watcher uses isPauseAnswered on each poll.
+describe("isPauseAnswered (stale paused tab)", () => {
+  it("is false while the checkpoint call is unanswered", () => {
+    const events = [call("lr-1", "review_trends", "e1")];
+    expect(isPauseAnswered(events, "lr-1")).toBe(false);
+  });
+
+  it("is true once a functionResponse for the paused call appears", () => {
+    const events = [
+      call("lr-1", "review_trends", "e1"),
+      answer("lr-1", "review_trends", "e2", "user"),
+    ];
+    expect(isPauseAnswered(events, "lr-1")).toBe(true);
+  });
+
+  it("ignores responses to other calls", () => {
+    const events = [answer("other", "pick_trends_agent", "e2")];
+    expect(isPauseAnswered(events, "lr-1")).toBe(false);
+  });
+
+  it("ignores partial (streaming) events", () => {
+    const partial = { ...answer("lr-1", "review_trends", "e2", "user"), partial: true };
+    expect(isPauseAnswered([partial], "lr-1")).toBe(false);
   });
 });
