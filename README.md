@@ -356,12 +356,42 @@ Each dimension is scored 1–10. Scores are normalized to 0.0–1.0 with a **0.7
 
 A custom React frontend (Next.js + Tailwind CSS + shadcn/ui) for running agents and viewing results:
 
+<p align="center">
+  <img src="docs/screenshots/user-journey.gif" alt="Walkthrough: fill in a brief, follow the run through three review checkpoints, then browse the scored creatives, a proof detail, the research report and run history" width="900">
+</p>
+<p align="center"><em>An interactive creative run, from brief to scored creatives (mocked fixtures from a real run).</em></p>
+
 - **`/`**: campaign input form with agent tiles and a recent-runs sidebar.
 - **`/runs`**: run history (brand, trend, agent, status) with **Duplicate brief** to start a new run from an old one.
 - **`/run/[sessionId]`**: live run view that **polls** the async-job `/runs` API (so a run survives disconnect/reload/re-auth). A stage spine shows progress, interactive review checkpoints take over the main area, and the technical log is collapsed. Opening an existing run reconnects to it and never re-sends the kick-off message.
 - **`/results/[sessionId]`**: a contact sheet of the creatives with per-creative scores, a proof-detail dialog for each one, and the artifacts, HTML portfolio and evaluation report.
 
-The visual design ("proof room") uses tokens in `frontend/src/app/globals.css`, the Archivo typeface and a sentence-case `FieldLabel`. See [docs/plans/2026-10-02-frontend-proof-room.md](docs/plans/2026-10-02-frontend-proof-room.md). Screenshots are in [docs/screenshots/](docs/screenshots/), including run history (`05-runs.png`) and the trend-pick review (`06-run-trend-pick.png`).
+The visual design ("proof room") uses tokens in `frontend/src/app/globals.css`, the Archivo typeface and a sentence-case `FieldLabel`. See [docs/plans/2026-10-02-frontend-proof-room.md](docs/plans/2026-10-02-frontend-proof-room.md).
+
+Screenshots (click for full size; regenerate with `npm run screenshots`, see [docs/screenshots/](docs/screenshots/README.md)):
+
+<table>
+  <tr>
+    <td align="center"><a href="docs/screenshots/01-home-form.png"><img src="docs/screenshots/01-home-form.png" alt="Home page campaign form" width="420"></a><br><sub>New run: agent tiles, brief and recent runs</sub></td>
+    <td align="center"><a href="docs/screenshots/05-runs.png"><img src="docs/screenshots/05-runs.png" alt="Run history page" width="420"></a><br><sub>Run history with duplicate brief</sub></td>
+  </tr>
+  <tr>
+    <td align="center"><a href="docs/screenshots/02-run-creative.png"><img src="docs/screenshots/02-run-creative.png" alt="Completed creative run" width="420"></a><br><sub>Completed run with the stage spine and outputs</sub></td>
+    <td align="center"><a href="docs/screenshots/07-run-research-review.png"><img src="docs/screenshots/07-run-research-review.png" alt="Research review checkpoint" width="420"></a><br><sub>Review 1: cited research report</sub></td>
+  </tr>
+  <tr>
+    <td align="center"><a href="docs/screenshots/04-run-interactive-review.png"><img src="docs/screenshots/04-run-interactive-review.png" alt="Ad copy review checkpoint" width="420"></a><br><sub>Review 2: ad copy</sub></td>
+    <td align="center"><a href="docs/screenshots/06-run-trend-pick.png"><img src="docs/screenshots/06-run-trend-pick.png" alt="Trend pick review" width="420"></a><br><sub>Trend scout: pick your trends</sub></td>
+  </tr>
+  <tr>
+    <td align="center"><a href="docs/screenshots/03-results-creative.png"><img src="docs/screenshots/03-results-creative.png" alt="Results contact sheet" width="420"></a><br><sub>Results contact sheet with judge scores</sub></td>
+    <td align="center"><a href="docs/screenshots/09-results-proof-detail.png"><img src="docs/screenshots/09-results-proof-detail.png" alt="Proof detail dialog" width="420"></a><br><sub>Proof detail for one creative</sub></td>
+  </tr>
+  <tr>
+    <td align="center"><a href="docs/screenshots/08-run-stopped-early.png"><img src="docs/screenshots/08-run-stopped-early.png" alt="Stopped-early run recovery" width="420"></a><br><sub>A run that stopped early, with continue run</sub></td>
+    <td></td>
+  </tr>
+</table>
 
 ```bash
 # terminal 1 — backend. Run the async_app launcher, NOT bare `adk api_server`:

@@ -18,9 +18,25 @@
 // for the run and replays it).
 //
 // Env overrides: SCREENSHOT_BASE_URL (default http://localhost:3000).
+//
+// Production build (no Next dev badge) — what the committed images use:
+//   npm run build
+//   cp -r .next/static .next/standalone/.next/static && cp -r public .next/standalone/public
+//   PORT=3600 node .next/standalone/server.js     # in one terminal
+//   SCREENSHOT_BASE_URL=http://localhost:3600 npm run screenshots
+//
+// JOURNEY=1 switches to user-journey mode: instead of the full-page
+// docs/screenshots/*.png, it captures a sequence of 1440x900 VIEWPORT frames
+// walking the interactive flow (brief → research → three reviews → complete →
+// results → proof detail → research report → history) into JOURNEY_OUT
+// (default /tmp/tt-journey-frames) plus a frames.json manifest (file, caption,
+// hold seconds). scripts/build-journey-gif.py assembles them into
+// docs/screenshots/user-journey.gif:
+//   JOURNEY=1 SCREENSHOT_BASE_URL=http://localhost:3600 npm run screenshots
+//   uv run --no-project --with pillow python scripts/build-journey-gif.py
 
 import { chromium } from "playwright";
-import { readFileSync, readdirSync } from "node:fs";
+import { mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
@@ -199,13 +215,14 @@ async function installMocks(page) {
 
 // Kill entrance animations so captures are stable (fadeInUp starts at opacity-0
 // with animation-fill forwards → zero duration jumps straight to the final state).
-async function settle(page) {
+async function settle(page, { pinHeader = true } = {}) {
   await page.addStyleTag({
     content:
       "*,*::before,*::after{animation-duration:0s!important;animation-delay:0s!important;transition-duration:0s!important;transition-delay:0s!important;}" +
       // fullPage capture re-paints sticky elements mid-page; pin the header
       // in-flow so it renders once at the true top with no content overlap.
-      "header{position:static!important;}" +
+      // (Viewport-only journey frames keep the sticky header.)
+      (pinHeader ? "header{position:static!important;}" : "") +
       // hide the Next dev-tools badge when capturing against `npm run dev`
       "nextjs-portal{display:none!important;}",
   });
@@ -235,8 +252,8 @@ async function newPage(context, { sessionId } = {}) {
   return page;
 }
 
-async function shot(page, name) {
-  await page.screenshot({ path: join(OUT, name), fullPage: true });
+async function shot(page, name, { fullPage = true } = {}) {
+  await page.screenshot({ path: join(OUT, name), fullPage });
   console.log("  wrote", name);
 }
 
@@ -303,6 +320,17 @@ async function main() {
     });
     await settle(page);
     await shot(page, "03-results-creative.png");
+
+    // ── 9. Proof-detail dialog for creative 1 (viewport: it's a modal) ──
+    console.log("09-results-proof-detail");
+    await page.locator("#proofs-heading").scrollIntoViewIfNeeded();
+    await page.locator('section[aria-labelledby="proofs-heading"] li button').first().click();
+    await page.getByRole("dialog").waitFor();
+    await page.waitForFunction(() =>
+      [...document.querySelectorAll('[role="dialog"] img')].some((im) => im.naturalWidth > 0)
+    );
+    await page.waitForTimeout(300);
+    await shot(page, "09-results-proof-detail.png", { fullPage: false });
     await page.close();
   }
 
@@ -393,6 +421,7 @@ async function main() {
       target_search_trends: state.target_search_trends,
       combined_final_cited_report: state.combined_final_cited_report,
       sources: state.sources,
+      research_report_gcs_uri: state.research_report_gcs_uri,
     };
     const pauseEvent = {
       id: "evt-review-research",
@@ -505,7 +534,261 @@ async function main() {
   console.log("done →", OUT);
 }
 
-main().catch((err) => {
+// ── User-journey mode (JOURNEY=1) ─────────────────────────────────────────────
+// Viewport frames of one coherent interactive_creative story. Each step is its
+// own mocked state (derived from the same harvested run), not one live session.
+
+const JOURNEY_OUT = process.env.JOURNEY_OUT ?? "/tmp/tt-journey-frames";
+const T0 = events[0]?.timestamp ?? 0;
+
+// The current-stage panel's description while research runs.
+const STAGE_RESEARCH_TEXT = "Searching the web for context on the trend and the campaign.";
+
+const pauseAt = (name, offset) => ({
+  id: `evt-${name}`,
+  invocationId: "inv-interactive",
+  author: "interactive_creative",
+  timestamp: T0 + offset,
+  longRunningToolIds: [`fc-${name}`],
+  content: { role: "model", parts: [{ functionCall: { id: `fc-${name}`, name, args: {} } }] },
+});
+
+const answeredAt = (name, offset) => ({
+  id: `evt-${name}-answer`,
+  invocationId: "inv-interactive",
+  author: "user",
+  timestamp: T0 + offset,
+  content: {
+    role: "user",
+    parts: [{ functionResponse: { id: `fc-${name}`, name, response: { status: "approved" } } }],
+  },
+});
+
+// State as it stands once the given keys exist (campaign keys always present).
+const CAMPAIGN_KEYS = [
+  "reference_image_uri",
+  "brand",
+  "target_product",
+  "target_audience",
+  "key_selling_points",
+  "target_search_trends",
+];
+const stateWith = (...keys) =>
+  Object.fromEntries(
+    [...CAMPAIGN_KEYS, ...keys].filter((k) => k in state).map((k) => [k, state[k]])
+  );
+
+const RESEARCH_KEYS = ["combined_final_cited_report", "sources", "research_report_gcs_uri"];
+const VISUAL_KEYS = ["visual_direction", "final_visual_concepts"];
+
+// Scroll so `locator` sits just below the sticky header.
+async function scrollToLocator(page, locator, offset = 80) {
+  await locator.evaluate(
+    (el, off) => window.scrollTo({ top: el.getBoundingClientRect().top + window.scrollY - off }),
+    offset
+  );
+  await page.waitForTimeout(200);
+}
+
+async function journey() {
+  rmSync(JOURNEY_OUT, { recursive: true, force: true });
+  mkdirSync(JOURNEY_OUT, { recursive: true });
+  const frames = [];
+  const frame = async (page, caption, hold = 1.8) => {
+    const file = `${String(frames.length + 1).padStart(2, "0")}.png`;
+    await page.screenshot({ path: join(JOURNEY_OUT, file) });
+    frames.push({ file, caption, hold });
+    console.log("  frame", file, "-", caption);
+  };
+
+  const browser = await chromium.launch({ headless: true });
+  const context = await browser.newContext({
+    viewport: { width: 1440, height: 900 },
+    deviceScaleFactor: 2,
+  });
+  const review = (page) => page.locator('section[aria-label="Review"]');
+  // Open an interactive run in view mode with the given poll payload.
+  const openRun = async (sid, { status = "done", evts, st }) => {
+    currentSession = { id: sid, appName: "interactive_creative", userId: USER, state: st, events: [] };
+    currentPoll = { status, events: evts, nextCursor: evts.length, state: st };
+    const page = await newPage(context);
+    await page.goto(`${BASE}/run/${sid}?app=interactive_creative&userId=${USER}`, {
+      waitUntil: "domcontentloaded",
+    });
+    return page;
+  };
+
+  // a. Home: pick the interactive agent, fill in the brief.
+  {
+    const page = await newPage(context);
+    const qs = new URLSearchParams({ brand: CAMPAIGN.brand });
+    await page.goto(`${BASE}/?${qs}`, { waitUntil: "networkidle" });
+    await page.getByText("Creative run with reviews", { exact: true }).first().click();
+    await page.fill("#audience", CAMPAIGN.targetAudience);
+    await page.fill("#product", CAMPAIGN.targetProduct);
+    await page.fill("#selling-points", CAMPAIGN.keySellingPoints);
+    await page.fill("#trend", CAMPAIGN.targetSearchTrend);
+    await page.fill("#referenceImage", CAMPAIGN.referenceImageUri);
+    await page.locator("#referenceImage").blur();
+    await page.getByRole("link", { name: "Google" }).first().waitFor();
+    await settle(page, { pinHeader: false });
+    await frame(page, "1 · Pick an agent and fill in the brief", 2.4);
+    await page.close();
+  }
+
+  // b. Research in progress (the poll keeps reporting "running").
+  {
+    const page = await openRun("journey-research", {
+      status: "running",
+      evts: events.slice(0, 4),
+      st: stateWith(),
+    });
+    await page.getByText(STAGE_RESEARCH_TEXT).first().waitFor();
+    await settle(page, { pinHeader: false });
+    await frame(page, "2 · The agents research the trend and the brand", 2.0);
+    await page.close();
+  }
+
+  // c. Checkpoint 1: review the research report, then edit it.
+  {
+    const page = await openRun("journey-review-research", {
+      evts: [pauseAt("review_research", 180)],
+      st: stateWith(...RESEARCH_KEYS),
+    });
+    await page.getByRole("heading", { name: "Review research report" }).waitFor();
+    await page.getByRole("heading", { name: /Sources/ }).waitFor();
+    await settle(page, { pinHeader: false });
+    await scrollToLocator(page, review(page));
+    await frame(page, "3 · Review the cited research report", 2.4);
+
+    await page.getByRole("button", { name: "Edit", exact: true }).click();
+    const ta = review(page).locator("textarea").first();
+    const original = await ta.inputValue();
+    // Insert a visible sentence after the report's first paragraph.
+    const added =
+      "Editor's note: lean into the jackpot daydream. The SE CE24 is the win you can actually hold.";
+    const cut = original.indexOf("\n\n", original.indexOf("\n") + 1);
+    const at = cut > 0 ? cut : 0;
+    await ta.fill(`${original.slice(0, at)}\n\n${added}${original.slice(at)}`);
+    await ta.evaluate((el) => {
+      el.scrollTop = 0;
+    });
+    await page.waitForTimeout(200);
+    await frame(page, "4 · Edit the report to steer the creative", 2.4);
+
+    // Approve: the resume POST is mocked; the next poll shows the run moving on.
+    const researchState = stateWith(...RESEARCH_KEYS);
+    currentSession = { ...currentSession, state: researchState };
+    currentPoll = {
+      status: "running",
+      events: [pauseAt("review_research", 180), answeredAt("review_research", 200)],
+      nextCursor: 2,
+      state: researchState,
+    };
+    await page.getByRole("button", { name: /Approve/ }).first().click();
+    await page.getByText("Drafting and critiquing ad copy.").first().waitFor();
+    await page.evaluate(() => window.scrollTo({ top: 0 }));
+    await page.waitForTimeout(300);
+    await frame(page, "5 · Approve, and the run moves on to ad copy", 1.8);
+    await page.close();
+  }
+
+  // d. Checkpoint 2: review ad copies.
+  {
+    const page = await openRun("journey-review-adcopies", {
+      evts: [answeredAt("review_research", 200), pauseAt("review_ad_copies", 420)],
+      st: stateWith(...RESEARCH_KEYS, "ad_copy_critique"),
+    });
+    await page.getByRole("heading", { name: "Review ad copies" }).waitFor();
+    await settle(page, { pinHeader: false });
+    await scrollToLocator(page, review(page));
+    await frame(page, "6 · Review the ad copy", 2.0);
+    await page.close();
+  }
+
+  // e. Checkpoint 3: review visual concepts.
+  {
+    const page = await openRun("journey-review-visuals", {
+      evts: [
+        answeredAt("review_research", 200),
+        answeredAt("review_ad_copies", 440),
+        pauseAt("review_visual_concepts", 620),
+      ],
+      st: stateWith(...RESEARCH_KEYS, "ad_copy_critique", ...VISUAL_KEYS),
+    });
+    await page.getByRole("heading", { name: "Review visual concepts" }).waitFor();
+    await settle(page, { pinHeader: false });
+    await scrollToLocator(page, review(page));
+    await frame(page, "7 · Review the visual concepts before images render", 2.0);
+    await page.close();
+  }
+
+  // f. Run complete: all three reviews answered, every stage key present.
+  {
+    const finalTurn = events.at(-1);
+    const page = await openRun("journey-complete", {
+      evts: [
+        answeredAt("review_research", 200),
+        answeredAt("review_ad_copies", 440),
+        answeredAt("review_visual_concepts", 640),
+        { ...finalTurn, author: "interactive_creative", timestamp: T0 + 900 },
+      ],
+      st: state,
+    });
+    await page.getByRole("button", { name: "View results" }).first().waitFor();
+    await settle(page, { pinHeader: false });
+    await frame(page, "8 · All stages done, so open the results", 2.0);
+    await page.close();
+  }
+
+  // g. Results: contact sheet, proof detail, research report.
+  {
+    const sid = "journey-results";
+    currentSession = { id: sid, appName: "interactive_creative", userId: USER, state, events: [] };
+    const page = await newPage(context);
+    await page.goto(`${BASE}/results/${sid}?app=interactive_creative&userId=${USER}`, {
+      waitUntil: "networkidle",
+    });
+    await page.waitForFunction(
+      () => [...document.querySelectorAll("img")].filter((im) => im.naturalWidth > 0).length >= 4
+    );
+    await settle(page, { pinHeader: false });
+    await frame(page, "9 · Compare the scored creatives on the contact sheet", 3.0);
+
+    await page.locator('section[aria-labelledby="proofs-heading"] li button').first().click();
+    await page.getByRole("dialog").waitFor();
+    await page.waitForFunction(() =>
+      [...document.querySelectorAll('[role="dialog"] img')].some((im) => im.naturalWidth > 0)
+    );
+    await page.waitForTimeout(300);
+    await frame(page, "10 · Open a proof for its copy, prompt and scores", 3.0);
+    await page.keyboard.press("Escape");
+    await page.getByRole("dialog").waitFor({ state: "detached" });
+
+    const trigger = page.getByRole("button", { name: "Research report" });
+    await trigger.click();
+    await scrollToLocator(page, trigger, 90);
+    await frame(page, "11 · Read the research behind the creatives", 2.6);
+    await page.close();
+  }
+
+  // h. Run history.
+  {
+    const page = await newPage(context);
+    await page.goto(`${BASE}/runs`, { waitUntil: "networkidle" });
+    await page.getByRole("button", { name: /Duplicate brief/ }).first().waitFor();
+    await settle(page, { pinHeader: false });
+    await frame(page, "12 · Find past runs and duplicate a brief", 2.4);
+    await page.close();
+  }
+
+  writeFileSync(join(JOURNEY_OUT, "frames.json"), JSON.stringify(frames, null, 2));
+  await context.close();
+  await browser.close();
+  console.log("done →", JOURNEY_OUT);
+}
+
+(process.env.JOURNEY ? journey : main)().catch((err) => {
   console.error(err);
   process.exit(1);
 });
