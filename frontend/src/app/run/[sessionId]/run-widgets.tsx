@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { FieldLabel } from "@/components/field-label";
 import {
@@ -117,63 +117,78 @@ function ItemCard({
   );
 }
 
+/** "4 ad copies" / "1 ad copy" — the descriptive open-button label. */
+export function countLabel(count: number, noun: [string, string]): string {
+  return `${count} ${count === 1 ? noun[0] : noun[1]}`;
+}
+
 export function PipelineWidget({
   label,
   stateKey,
+  noun,
   data,
 }: {
   label: string;
   stateKey: string;
+  noun: [string, string];
   data: unknown;
 }) {
   const [open, setOpen] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement>(null);
   const items = extractItems(data);
   const itemCount = items ? items.length : 0;
+  const summary = items ? countLabel(itemCount, noun) : `${label} details`;
+
+  // Escape closes the overlay (keyboard users have no other close path besides the button).
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("keydown", onKey);
+    const trigger = triggerRef.current;
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      trigger?.focus(); // return focus to the open button on close
+    };
+  }, [open]);
 
   return (
     <>
       <button
+        ref={triggerRef}
         type="button"
-        className="block w-full rounded-lg border border-border bg-card text-left transition-colors hover:border-primary/40"
+        className="block w-full rounded-lg border border-border bg-card px-4 py-3 text-left transition-colors hover:border-primary/40"
         onClick={() => setOpen(true)}
       >
-        <div className="py-2.5 px-4 flex items-center justify-between">
-          <span className="flex items-center gap-2 text-sm font-bold">
-            <span className="text-foreground">{label}</span>
-            {itemCount > 0 && (
-              <Badge
-                variant="secondary"
-                className="text-[10px] px-1.5 py-0 font-semibold tabular-nums"
-              >
-                {itemCount}
-              </Badge>
-            )}
-          </span>
-          <span className="text-xs text-primary">View</span>
-        </div>
+        <span className="block text-xs font-medium text-muted-foreground">{label}</span>
+        <span className="mt-0.5 block text-sm font-medium text-primary">{summary}</span>
       </button>
 
       {open && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/30 animate-in fade-in duration-150"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/30"
           onClick={() => setOpen(false)}
         >
           <div
             className="relative mx-4 w-full max-w-3xl max-h-[85vh] overflow-hidden flex flex-col
-                       rounded-lg border border-border bg-card shadow-lg
-                       animate-in zoom-in-95 duration-200"
+                       rounded-lg border border-border bg-card shadow-lg"
             onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-label={`${label}: ${summary}`}
           >
             <div className="flex items-center justify-between border-b border-border px-5 py-4">
               <h2 className="text-lg font-bold flex items-center gap-2">
                 <span>{label}</span>
-                {itemCount > 0 && (
-                  <Badge variant="secondary" className="font-semibold tabular-nums">
-                    {itemCount} items
-                  </Badge>
+                {items && (
+                  <span className="text-sm font-normal text-muted-foreground">
+                    {summary}
+                  </span>
                 )}
               </h2>
               <button
+                autoFocus
                 onClick={() => setOpen(false)}
                 className="flex h-7 w-7 items-center justify-center rounded-sm text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
                 aria-label="Close"

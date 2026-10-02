@@ -8,12 +8,14 @@
 // downscaled real renders in ./screenshot-fixtures/images/), and all four
 // screens reflect the same campaign.
 //
-// Usage:
+// Usage (dev or production build both work — the run page is StrictMode-safe):
 //   cd frontend
-//   npm run build && cp -r .next/static .next/standalone/.next/ && cp -r public .next/standalone/
-//   PORT=3000 node .next/standalone/server.js   # in one terminal (production build:
-//                                                # dev-mode StrictMode double-polls the run page)
+//   npm run dev                                  # in one terminal
 //   npm run screenshots                          # in another
+//
+// The run screens cover both start paths: 02 has the stored kick-off message
+// (kick-off + poll), 04 and 06 have none (view mode: the page asks the server
+// for the run and replays it).
 //
 // Env overrides: SCREENSHOT_BASE_URL (default http://localhost:3000).
 
@@ -58,6 +60,20 @@ const CAMPAIGN = {
 };
 
 const USER = "demo_user";
+
+// Candidate trends for the 06 trend-pick screen (a plausible top-trends list).
+const TREND_CANDIDATES = [
+  "Powerball",
+  "Phish tour dates",
+  "Harvest moon",
+  "Fantasy football rankings",
+  "iPhone 18 release",
+  "Hurricane season",
+  "Taylor Swift",
+  "College football scores",
+  "Pumpkin spice latte",
+  "Emmy nominations",
+];
 
 // Run history for the home "Recent runs" list and 05-runs.png. Each fixture's
 // `minutesAgo` becomes an ADK `lastUpdateTime` (epoch seconds) relative to now,
@@ -151,7 +167,9 @@ async function settle(page) {
       "*,*::before,*::after{animation-duration:0s!important;animation-delay:0s!important;transition-duration:0s!important;transition-delay:0s!important;}" +
       // fullPage capture re-paints sticky elements mid-page; pin the header
       // in-flow so it renders once at the true top with no content overlap.
-      "header{position:static!important;}",
+      "header{position:static!important;}" +
+      // hide the Next dev-tools badge when capturing against `npm run dev`
+      "nextjs-portal{display:none!important;}",
   });
   await page.waitForTimeout(400);
 }
@@ -159,7 +177,8 @@ async function settle(page) {
 async function newPage(context, { sessionId } = {}) {
   const page = await context.newPage();
   if (sessionId) {
-    // The run page refuses to render without the stored kickoff message.
+    // Store the home form's kick-off message so the run page takes the
+    // kick-off path (startRun is mocked) instead of view mode.
     await page.addInitScript(
       ([sid]) => {
         sessionStorage.setItem(
@@ -272,11 +291,45 @@ async function main() {
         ],
       },
     };
-    // ReviewAdCopies reads ad_copy_critique; keep the campaign keys for the sidebar.
-    const interactiveState = { ...state };
+    // Paused at checkpoint 2: research + ad copy exist, nothing after it yet.
+    // ReviewAdCopies reads ad_copy_critique; the campaign keys feed the brief.
+    const {
+      visual_direction: _vd,
+      final_visual_concepts: _fvc,
+      _images_generated: _ig,
+      _generated_artifact_keys: _gak,
+      eval_report_gcs_uri: _er,
+      ...interactiveState
+    } = state;
+    // Checkpoint 1 was already answered (so "Review research" reads done).
+    const answeredResearch = {
+      id: "evt-review-research-answer",
+      invocationId: "inv-interactive",
+      author: "user",
+      timestamp: (events[0]?.timestamp ?? 0) + 200,
+      content: {
+        role: "user",
+        parts: [
+          {
+            functionResponse: {
+              id: "fc-review-research",
+              name: "review_research",
+              response: { status: "approved", feedback: "" },
+            },
+          },
+        ],
+      },
+    };
+    pauseEvent.timestamp = (events[0]?.timestamp ?? 0) + 420;
     currentSession = { id: sid, appName: "interactive_creative", userId: USER, state: interactiveState, events: [] };
-    currentPoll = { status: "done", events: [pauseEvent], nextCursor: 1, state: interactiveState };
-    const page = await newPage(context, { sessionId: sid });
+    currentPoll = {
+      status: "done",
+      events: [answeredResearch, pauseEvent],
+      nextCursor: 2,
+      state: interactiveState,
+    };
+    // No stored message: opened from history, so the page views the run.
+    const page = await newPage(context);
     await page.goto(`${BASE}/run/${sid}?app=interactive_creative&userId=${USER}`, {
       waitUntil: "networkidle",
     });
@@ -284,6 +337,53 @@ async function main() {
     await page.getByRole("button", { name: /Approve/ }).first().waitFor();
     await settle(page);
     await shot(page, "04-run-interactive-review.png");
+    await page.close();
+  }
+
+  // ── 6. trend_scout paused at the opt-in trend pick (review_trends) ──────
+  {
+    console.log("06-run-trend-pick");
+    const sid = "trend-pick-demo";
+    const pickState = {
+      brand: state.brand,
+      target_product: state.target_product,
+      target_audience: state.target_audience,
+      key_selling_points: state.key_selling_points,
+      target_search_trends: { target_search_trends: [] },
+      interactive_trend_pick: true,
+      raw_gtrends: TREND_CANDIDATES,
+    };
+    const gatherEvent = {
+      id: "evt-gather",
+      invocationId: "inv-scout",
+      author: "trend_scout",
+      timestamp: events[0]?.timestamp ?? 0,
+      actions: { stateDelta: { raw_gtrends: TREND_CANDIDATES } },
+      content: { role: "model", parts: [{ text: "Gathered today's top 25 search trends." }] },
+    };
+    const pauseEvent = {
+      id: "evt-review-trends",
+      invocationId: "inv-scout",
+      author: "trend_scout",
+      timestamp: (events[0]?.timestamp ?? 0) + 40,
+      longRunningToolIds: ["fc-review-trends"],
+      content: {
+        role: "model",
+        parts: [{ functionCall: { id: "fc-review-trends", name: "review_trends", args: {} } }],
+      },
+    };
+    currentSession = { id: sid, appName: "trend_scout", userId: USER, state: pickState, events: [] };
+    currentPoll = { status: "done", events: [gatherEvent, pauseEvent], nextCursor: 2, state: pickState };
+    const page = await newPage(context);
+    await page.goto(`${BASE}/run/${sid}?app=trend_scout&userId=${USER}`, {
+      waitUntil: "networkidle",
+    });
+    await page.getByRole("heading", { name: "Pick your trends" }).waitFor();
+    // Pick two trends so the confirm action and shortcut hint show.
+    await page.getByRole("button", { name: TREND_CANDIDATES[0] }).click();
+    await page.getByRole("button", { name: TREND_CANDIDATES[3] }).click();
+    await settle(page);
+    await shot(page, "06-run-trend-pick.png");
     await page.close();
   }
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -19,6 +19,42 @@ const ASPECT_RATIO_OPTIONS = ["9:16", "1:1", "4:5", "3:4", "16:9"];
 
 /* ── Review panel components for interactive mode ── */
 
+/**
+ * Cmd/Ctrl+Enter runs the panel's primary (approve) action from anywhere on
+ * the page while the panel is shown. Skipped when `enabled` is false (e.g. no
+ * trends selected yet), on key repeat, and when another handler already took it.
+ */
+function useApproveShortcut(onApprove: () => void, enabled = true) {
+  const latest = useRef(onApprove);
+  useEffect(() => {
+    latest.current = onApprove;
+  });
+  useEffect(() => {
+    if (!enabled) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Enter" || !(e.metaKey || e.ctrlKey)) return;
+      if (e.repeat || e.defaultPrevented) return;
+      e.preventDefault();
+      latest.current();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [enabled]);
+}
+
+/** Inline hint for the approve shortcut, shown next to the action buttons. */
+function ShortcutHint({ action = "approve" }: { action?: string }) {
+  const key = "rounded-sm border border-border bg-muted px-1 font-sans text-[11px] text-foreground";
+  return (
+    <span className="text-xs text-muted-foreground">
+      <kbd className={key}>Ctrl</kbd> <kbd className={key}>Enter</kbd> or{" "}
+      <kbd className={key}>⌘</kbd> <kbd className={key}>Enter</kbd> to {action}
+    </span>
+  );
+}
+
+const ACTIONS_ROW = "flex flex-wrap items-center gap-3";
+
 function ReviewResearch({
   state,
   onResume,
@@ -30,6 +66,9 @@ function ReviewResearch({
   const [editMode, setEditMode] = useState(false);
   const report = state.combined_final_cited_report as string | undefined;
   const [editedReport, setEditedReport] = useState(report ?? "");
+  const approve = () =>
+    onResume({ status: "approved", feedback, instruction: "User approved the research. Continue to the next step in the WORKFLOW." });
+  useApproveShortcut(approve);
 
   return (
     <div className="rounded-lg border border-border bg-card p-6 space-y-4">
@@ -48,8 +87,9 @@ function ReviewResearch({
         )}
       </div>
       <p className="text-sm text-muted-foreground">
-        Review the research findings below. Approve to continue to ad copy generation,
-        or provide feedback for revisions.
+        Approve to continue to ad copy. To steer the next steps, add feedback
+        and choose Request changes — the feedback is passed on; the research
+        itself isn&apos;t re-run.
       </p>
       {report && !editMode && (
         <div className="max-h-[28rem] overflow-y-auto rounded-md bg-background p-5 border border-border prose prose-sm prose-neutral max-w-none
@@ -72,14 +112,19 @@ function ReviewResearch({
           className="font-mono text-xs leading-relaxed max-h-[28rem]"
         />
       )}
+      <FieldLabel as="label" htmlFor="review-research-feedback">
+        Feedback (optional)
+      </FieldLabel>
       <Textarea
-        placeholder="Optional feedback or revision requests..."
+        id="review-research-feedback"
+        placeholder="e.g. lean on the nostalgia angle, skip the price comparison"
         value={feedback}
         onChange={(e) => setFeedback(e.target.value)}
         rows={3}
+        className="-mt-2"
       />
-      <div className="flex gap-3">
-        <Button onClick={() => onResume({ status: "approved", feedback, instruction: "User approved the research. Continue to the next step in the WORKFLOW." })}>
+      <div className={ACTIONS_ROW}>
+        <Button onClick={approve}>
           Approve &amp; continue
         </Button>
         <Button
@@ -89,6 +134,7 @@ function ReviewResearch({
         >
           Request changes
         </Button>
+        <ShortcutHint />
       </div>
     </div>
   );
@@ -114,6 +160,9 @@ function ReviewAdCopies({
 }) {
   const [feedback, setFeedback] = useState("");
   const adCopies = extractItems(state.ad_copy_critique);
+  const approve = () =>
+    onResume({ status: "approved", feedback, instruction: "User approved the ad copies. Continue to the next step in the WORKFLOW — generate visual concepts." });
+  useApproveShortcut(approve);
 
   return (
     <div className="rounded-lg border border-border bg-card p-6 space-y-4">
@@ -122,7 +171,9 @@ function ReviewAdCopies({
         <h2 className="text-lg font-semibold">Review ad copies</h2>
       </div>
       <p className="text-sm text-muted-foreground">
-        Review the generated ad copies. Approve to continue to visual concept generation.
+        Approve to continue to visual concepts. To steer them, add feedback and
+        choose Request changes — the feedback is passed on; the ad copy itself
+        isn&apos;t rewritten.
       </p>
       {adCopies && (
         <div className="space-y-3 max-h-[28rem] overflow-y-auto">
@@ -139,7 +190,7 @@ function ReviewAdCopies({
               </div>
 
               {/* Two-column field grid */}
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid gap-3 sm:grid-cols-2">
                 <div className="rounded-md bg-card px-3 py-2">
                   <ReviewField label="Body text" value={String(copy.body_text ?? "")} />
                 </div>
@@ -174,16 +225,29 @@ function ReviewAdCopies({
           ))}
         </div>
       )}
+      <FieldLabel as="label" htmlFor="review-ad-copies-feedback">
+        Feedback (optional)
+      </FieldLabel>
       <Textarea
-        placeholder="Optional feedback..."
+        id="review-ad-copies-feedback"
+        placeholder="e.g. make the calls to action less salesy"
         value={feedback}
         onChange={(e) => setFeedback(e.target.value)}
         rows={3}
+        className="-mt-2"
       />
-      <div className="flex gap-3">
-        <Button onClick={() => onResume({ status: "approved", feedback, instruction: "User approved the ad copies. Continue to the next step in the WORKFLOW — generate visual concepts." })}>
+      <div className={ACTIONS_ROW}>
+        <Button onClick={approve}>
           Approve &amp; continue
         </Button>
+        <Button
+          variant="outline"
+          onClick={() => onResume({ status: "revision_requested", feedback, instruction: "User requested changes to the ad copies. Carry their feedback forward, then continue the WORKFLOW — generate visual concepts." })}
+          disabled={!feedback}
+        >
+          Request changes
+        </Button>
+        <ShortcutHint />
       </div>
     </div>
   );
@@ -224,6 +288,7 @@ function ReviewVisualConcepts({
         "User reviewed the visual concepts. Continue to the next step in the WORKFLOW — apply any revision notes, then generate images.",
     });
   };
+  useApproveShortcut(submit);
 
   return (
     <div className="rounded-lg border border-border bg-card p-6 space-y-4">
@@ -232,10 +297,10 @@ function ReviewVisualConcepts({
         <h2 className="text-lg font-semibold">Review visual concepts</h2>
       </div>
       <p className="text-sm text-muted-foreground">
-        Edit the image prompt, aspect ratio, or style directly, and/or add a
-        revision note (applied by the AI before rendering). Approve to generate
-        images. Note: changing the style label alone won&apos;t change the image
-        unless the prompt or note reflects it.
+        To change a concept, edit its image prompt, aspect ratio or style, or
+        add a revision note (applied by the AI before rendering). Approve to
+        generate images. Changing the style label alone won&apos;t change the
+        image unless the prompt or note reflects it.
       </p>
       {concepts.length > 0 && (
         <div className="space-y-3 max-h-[32rem] overflow-y-auto">
@@ -313,8 +378,9 @@ function ReviewVisualConcepts({
           ))}
         </div>
       )}
-      <div className="flex gap-3">
+      <div className={ACTIONS_ROW}>
         <Button onClick={submit}>Approve &amp; generate images</Button>
+        <ShortcutHint />
       </div>
     </div>
   );
@@ -333,6 +399,14 @@ function ReviewTrends({
   );
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [instruction, setInstruction] = useState("");
+
+  const confirm = () =>
+    onResume({
+      status: "selected",
+      selected_trends: [...selected],
+      instruction,
+    });
+  useApproveShortcut(confirm, selected.size > 0);
 
   const toggle = (term: string) => {
     setSelected((prev) => {
@@ -400,25 +474,26 @@ function ReviewTrends({
           })}
         </div>
       )}
+      <FieldLabel as="label" htmlFor="review-trends-note">
+        Note for the agent (optional)
+      </FieldLabel>
       <Textarea
-        placeholder="Optional note for the agent (e.g. focus, angle)..."
+        id="review-trends-note"
+        placeholder="e.g. focus on music and live events"
         value={instruction}
         onChange={(e) => setInstruction(e.target.value)}
         rows={2}
+        className="-mt-2"
       />
-      <div className="flex gap-3">
-        <Button
-          disabled={selected.size === 0}
-          onClick={() =>
-            onResume({
-              status: "selected",
-              selected_trends: [...selected],
-              instruction,
-            })
-          }
-        >
+      <div className={ACTIONS_ROW}>
+        <Button disabled={selected.size === 0} onClick={confirm}>
           Confirm selection
         </Button>
+        {selected.size > 0 ? (
+          <ShortcutHint action="confirm" />
+        ) : (
+          <span className="text-xs text-muted-foreground">Select at least one trend.</span>
+        )}
       </div>
     </div>
   );
@@ -433,17 +508,27 @@ export function ReviewPanel({
   sessionState: Record<string, unknown>;
   onResume: (response: Record<string, unknown>) => void;
 }) {
+  // Move focus to the panel when a checkpoint appears so keyboard and screen
+  // reader users land on the review instead of wherever they were.
+  const ref = useRef<HTMLElement>(null);
+  useEffect(() => {
+    ref.current?.focus();
+  }, [functionName]);
+
+  let panel: React.ReactNode = null;
   if (functionName === "review_research") {
-    return <ReviewResearch state={sessionState} onResume={onResume} />;
+    panel = <ReviewResearch state={sessionState} onResume={onResume} />;
+  } else if (functionName === "review_ad_copies") {
+    panel = <ReviewAdCopies state={sessionState} onResume={onResume} />;
+  } else if (functionName === "review_visual_concepts") {
+    panel = <ReviewVisualConcepts state={sessionState} onResume={onResume} />;
+  } else if (functionName === "review_trends") {
+    panel = <ReviewTrends state={sessionState} onResume={onResume} />;
   }
-  if (functionName === "review_ad_copies") {
-    return <ReviewAdCopies state={sessionState} onResume={onResume} />;
-  }
-  if (functionName === "review_visual_concepts") {
-    return <ReviewVisualConcepts state={sessionState} onResume={onResume} />;
-  }
-  if (functionName === "review_trends") {
-    return <ReviewTrends state={sessionState} onResume={onResume} />;
-  }
-  return null;
+  if (!panel) return null;
+  return (
+    <section ref={ref} tabIndex={-1} aria-label="Review" className="outline-none">
+      {panel}
+    </section>
+  );
 }

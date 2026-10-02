@@ -23,10 +23,22 @@ export const PAUSE_WATCH_INTERVAL_MS = 10_000;
  */
 export const RUNSERVER_MARKER_AUTHOR = "__runserver__";
 
-/** Pipeline state keys to surface as collapsible widgets, in display order (newest first). */
-export const PIPELINE_STATE_KEYS = [
-  { key: "final_visual_concepts", label: "Final visual concepts" },
-  { key: "ad_copy_critique", label: "Ad copy critique" },
+/**
+ * Pipeline state keys to surface as outputs on the run page, in pipeline order.
+ * `noun` is the [singular, plural] item name used in the open-button label
+ * (e.g. "4 ad copies").
+ */
+export const PIPELINE_STATE_KEYS: {
+  key: string;
+  label: string;
+  noun: [string, string];
+}[] = [
+  { key: "ad_copy_critique", label: "Ad copy", noun: ["ad copy", "ad copies"] },
+  {
+    key: "final_visual_concepts",
+    label: "Visual concepts",
+    noun: ["visual concept", "visual concepts"],
+  },
 ];
 
 /** Human-readable labels for schema field keys. */
