@@ -92,3 +92,24 @@ def test_default_arms_and_scenarios():
         assert abs(sum(s.weight for s in sc.segments) - 1.0) < 1e-9
     assert len(load_scenario("segment_winners").segments) == 4
     assert load_scenario("drift").drift.kind == "abrupt"
+
+
+@pytest.mark.parametrize("scenario", ["clear_winner", "segment_winners", "drift"])
+@pytest.mark.parametrize("ctr_mode", ["demo", "realistic"])
+@pytest.mark.parametrize("reward_mode", ["click", "engaged"])
+def test_scenario_noise_var_matches_sim_default(scenario, ctr_mode, reward_mode):
+    from bandit.config import build_sim_config, default_noise_var, scenario_noise_var
+
+    p = load_scenario(scenario).target_ctr[ctr_mode]
+    nv = scenario_noise_var(scenario, ctr_mode, reward_mode)
+    assert nv == default_noise_var(p, reward_mode)
+    sim = build_sim_config(scenario, ctr_mode=ctr_mode, reward_mode=reward_mode)
+    assert sim.policy.noise_var == nv
+    assert nv < LinTSParams().noise_var  # the 0.25 default over-explores
+
+
+def test_reward_scale_is_base_dwell_for_engaged_only():
+    from bandit.config import reward_scale
+
+    assert reward_scale("drift", "click") == 1.0
+    assert reward_scale("drift", "engaged") == load_scenario("drift").dwell_base_s

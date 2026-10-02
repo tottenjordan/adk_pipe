@@ -425,3 +425,18 @@ def default_noise_var(ctr: float, reward_mode: str) -> float:
     if reward_mode == "engaged":
         return round(2 * ctr - ctr * ctr, 6)
     return round(ctr * (1 - ctr), 6)
+
+
+def scenario_noise_var(scenario: str, ctr_mode: str, reward_mode: str) -> float:
+    """Calibrated σ² for an experiment: ``default_noise_var`` at the scenario's
+    target CTR for ``ctr_mode`` (what ``build_sim_config`` uses). The serving
+    container applies it when ``experiment.json`` has no ``policy.noise_var``;
+    ``runserver/experiments.py`` duplicates it (parity-tested)."""
+    return default_noise_var(load_scenario(scenario).target_ctr[ctr_mode], reward_mode)
+
+
+def reward_scale(scenario: str, reward_mode: str) -> float:
+    """Divisor applied to rewards before a policy update: the scenario's base
+    dwell for ``engaged`` (so rewards are ~Exponential(1)-scaled, matching
+    ``default_noise_var``), 1 for clicks. Mirrors ``TrueModel.reward_scale``."""
+    return load_scenario(scenario).dwell_base_s if reward_mode == "engaged" else 1.0

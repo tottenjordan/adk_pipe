@@ -318,12 +318,31 @@ def visual_styles(session_state: Mapping[str, Any], arms: Sequence[Mapping]) -> 
 
 DEFAULT_POLICY = {
     "prior_var": 1.0,
-    "noise_var": 0.25,
     "exploration_scale": 1.0,
     "propensity_samples": 1000,
     "min_propensity": 0.02,
     "discount": 1.0,
 }
+
+#: Scenario target mean CTRs, copied from ``bandit/scenarios/*.yaml``
+#: (``target_ctr``). runserver must not import ``bandit`` (contracts §1), so the
+#: tiny noise-variance rule is duplicated here; ``tests/test_experiments_api.py``
+#: asserts parity with ``bandit.config.scenario_noise_var`` (the source of truth).
+SCENARIO_TARGET_CTR = {
+    "clear_winner": {"demo": 0.0467, "realistic": 0.00933},
+    "segment_winners": {"demo": 0.04, "realistic": 0.008},
+    "drift": {"demo": 0.0467, "realistic": 0.00933},
+}
+
+
+def default_noise_var(scenario: str, ctr_mode: str, reward_mode: str) -> float:
+    """Calibrated LinTS σ² (contracts §7): p(1-p) for clicks, 2p-p² for engaged
+    (rewards scaled by the base dwell), at the scenario's target CTR p. Mirrors
+    ``bandit.config.default_noise_var``; unknown combos fall back to 0.04/demo."""
+    p = SCENARIO_TARGET_CTR.get(scenario, {}).get(ctr_mode, 0.04)
+    if reward_mode == "engaged":
+        return round(2 * p - p * p, 6)
+    return round(p * (1 - p), 6)
 
 
 def build_experiment_config(
@@ -363,7 +382,11 @@ def build_experiment_config(
         "batch_size": batch_size,
         "episodes": episodes,
         "seed": seed,
-        "policy": {**DEFAULT_POLICY, **(policy or {})},
+        "policy": {
+            **DEFAULT_POLICY,
+            "noise_var": default_noise_var(scenario, ctr_mode, reward_mode),
+            **(policy or {}),
+        },
     }
 
 

@@ -193,7 +193,7 @@ def test_build_experiment_config_matches_section_1_shape():
     }
     assert cfg["policy"] == {
         "prior_var": 1.0,
-        "noise_var": 0.25,
+        "noise_var": round(2 * 0.00933 - 0.00933**2, 6),  # drift/realistic/engaged
         "exploration_scale": 1.0,
         "propensity_samples": 1000,
         "min_propensity": 0.02,
@@ -202,6 +202,27 @@ def test_build_experiment_config_matches_section_1_shape():
     assert (cfg["horizon"], cfg["batch_size"], cfg["episodes"]) == (20000, 100, 20)
     assert 0 <= cfg["seed"] < 2**31
     assert ex.build_experiment_config("e1", arms, "drift")["seed"] == cfg["seed"]
+
+
+@pytest.mark.parametrize("scenario", ["clear_winner", "segment_winners", "drift"])
+@pytest.mark.parametrize("ctr_mode", ["demo", "realistic"])
+@pytest.mark.parametrize("reward_mode", ["click", "engaged"])
+def test_api_noise_var_parity_with_bandit(scenario, ctr_mode, reward_mode):
+    """The api duplicates the tiny noise_var rule (no jax/bandit import in
+    runserver); it must stay identical to ``bandit.config.scenario_noise_var``."""
+    from bandit.config import scenario_noise_var
+
+    expected = scenario_noise_var(scenario, ctr_mode, reward_mode)
+    assert ex.default_noise_var(scenario, ctr_mode, reward_mode) == expected
+    arms = [{"creativeId": "a", "label": "A"}, {"creativeId": "b", "label": "B"}]
+    cfg = ex.build_experiment_config("e1", arms, scenario, ctr_mode, reward_mode)
+    assert cfg["policy"]["noise_var"] == expected
+
+
+def test_api_policy_override_wins_over_calibrated_noise_var():
+    arms = [{"creativeId": "a", "label": "A"}]
+    cfg = ex.build_experiment_config("e1", arms, "drift", policy={"noise_var": 0.3})
+    assert cfg["policy"]["noise_var"] == 0.3
 
 
 def test_next_status_machine():
