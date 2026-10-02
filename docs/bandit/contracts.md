@@ -142,3 +142,25 @@ type ExperimentMetrics = { experimentId: string; episodes: number; horizon: numb
                                policies: Record<string, { pctOptimal: number; avgReward: number }> }>;
   arms: { creativeId: string; impressions: number; estimatedCtr: number; trueCtr: number }[] };
 ```
+
+## 6. Resolved decisions (PR 4 + PR 5, 2026-10-02)
+
+- **IDs:** `experimentId` is 16 lowercase hex characters (`[0-9a-f]{16}`). The frontend proxy accepts `^[a-z0-9][a-z0-9-]{2,63}$`. `endpointId` / `endpoint_id` and the job's `ENDPOINT_ID` are the **full resource name** `projects/P/locations/R/endpoints/N`.
+- **Arms:** `creativeIndices` index `final_visual_concepts.visual_concepts` (the results page's `Proof.index`).
+  - A selection must have 2–4 unique, in-range indices.
+  - `Arm.label` is the headline; charts display `conceptName`.
+  - Arm `scores` keys are the 12 judge dimensions (score/10, clipped to 0–1) plus `ad_copy_overall` and `visual_overall`. `overallScore` is the mean of the two overall scores.
+  - Ad-copy evals are matched headline first, then id, then position.
+  - `imageUri` is null when `_generated_artifact_keys` exists and doesn't include the concept's image.
+- **Error reasons** (`detail.reason`):
+  - 400: `too_few_arms`, `too_many_arms`, `duplicate_index`, `index_out_of_range`, `no_creatives`, `invalid_scenario`, `invalid_ctr_mode`, `invalid_reward_mode`, `invalid_episodes`, `invalid_horizon`;
+  - 409: `active_experiment`, `not_ready`;
+  - 404: `session_not_found`, `not_found`;
+  - 502: `config_write_failed`, `traffic_start_failed`.
+- **Lifecycle:**
+  - The api moves `running_traffic` back to `ready` on a detail GET once `progress.episodes_done >= episodes_total` or the job execution has finished. A failed job sets `error` and keeps the status `ready`.
+  - Stop waits up to 2 s, so it returns `stopped` if teardown finishes in time, otherwise `stopping`.
+  - `ttlMinutes` is clamped to 10–480.
+  - Store updates only rewrite the columns that changed, so the api never overwrites the `progress` written by the traffic job.
+- **Default horizons** (frontend): `clear_winner` 20k, `segment_winners` and `drift` 40k in demo mode; ×10 (max 400k) in realistic mode.
+- **Local development:** `BANDIT_DEPLOY_MODE=fake` (in-memory store, fake deployer, fake jobs; `BANDIT_FAKE_DEPLOY_SECONDS`, default 2).
