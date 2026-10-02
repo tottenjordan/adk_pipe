@@ -52,6 +52,8 @@ tests/
 ├── test_async_runs.py               # async-job run model: kick-off/poll/resume, terminal markers
 ├── test_authz.py                    # P3 per-user authz: modes, userId normalization, proxy ID-token check, middleware 401/403/404, ownership → 404
 ├── test_backend_entrypoint.py       # backend container entrypoint (uvicorn serves async_app.py)
+├── test_bandit_endpoint_lib.py      # deployment/bandit/endpoint.py vs a fake aiplatform (single-worker env, 1 replica, labels)
+├── test_create_bq_tables.py         # create_bq_tables.sh with a stub bq: bandit_* schemas, partitioning, idempotency
 ├── test_callbacks.py                # citation replacement, state init, rate limiting
 ├── test_config.py                   # per-agent config resolution (incl. campaign-placement resolver)
 ├── test_create_session_engine.py    # create_session_engine.py (reuse-or-create sessions-only engine)
@@ -64,6 +66,10 @@ tests/
 ├── test_crf_sql_params.py           # CRF SQL safety: allow-listed identifiers, parameterized values
 ├── test_crf_worker_async.py         # async worker path of the CRF (issue #45)
 ├── test_deploy_utils.py             # deploy_agent.py utils (env file, extra_packages, runtimes.create)
+├── test_experiments_api.py          # /experiments routes: create→ready, 400/404/409, traffic, stop, TTL reaper, reconcile, authz, snapshot_arms
+├── test_experiments_backends.py     # VertexDeployer (stepwise/resume) + CloudRunJobsRunner env overrides, fakes
+├── test_experiments_metrics.py      # pure ExperimentMetrics aggregation (CI bands, totals, arm share, segments)
+├── test_experiments_store.py        # bandit_experiments MERGE/SELECT builders, typed params, both stores
 ├── test_export_concurrency.py       # creative_agent export tools: per-run scratch isolation (issue #104)
 ├── test_image_reference.py          # generate_image multimodal contents + valid ImageConfig
 ├── test_interactive_resume_graph.py # real interactive_creative App via start_run/start_resume: checkpoint pause → NodeTool resume, fail-once retry counts, one BQ key

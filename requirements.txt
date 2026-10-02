@@ -121,6 +121,7 @@ google-api-core==2.34.0
     #   google-cloud-modelarmor
     #   google-cloud-pubsub
     #   google-cloud-resource-manager
+    #   google-cloud-run
     #   google-cloud-storage
     #   google-cloud-texttospeech
 google-auth==2.59.0
@@ -136,6 +137,7 @@ google-auth==2.59.0
     #   google-cloud-modelarmor
     #   google-cloud-pubsub
     #   google-cloud-resource-manager
+    #   google-cloud-run
     #   google-cloud-storage
     #   google-cloud-texttospeech
     #   google-genai
@@ -166,6 +168,8 @@ google-cloud-pubsub==2.41.0
     # via adk-pipe
 google-cloud-resource-manager==1.18.0
     # via google-cloud-aiplatform
+google-cloud-run==0.16.2
+    # via adk-pipe
 google-cloud-storage==3.15.0
     # via
     #   adk-pipe
@@ -199,6 +203,7 @@ grpc-google-iam-v1==0.14.5
     #   google-cloud-logging
     #   google-cloud-pubsub
     #   google-cloud-resource-manager
+    #   google-cloud-run
 grpcio==1.84.0
     # via
     #   google-api-core
@@ -207,6 +212,7 @@ grpcio==1.84.0
     #   google-cloud-modelarmor
     #   google-cloud-pubsub
     #   google-cloud-resource-manager
+    #   google-cloud-run
     #   google-cloud-texttospeech
     #   googleapis-common-protos
     #   grpc-google-iam-v1
@@ -422,6 +428,7 @@ proto-plus==1.28.4
     #   google-cloud-modelarmor
     #   google-cloud-pubsub
     #   google-cloud-resource-manager
+    #   google-cloud-run
     #   google-cloud-texttospeech
 protobuf==6.33.6
     # via
@@ -433,6 +440,7 @@ protobuf==6.33.6
     #   google-cloud-modelarmor
     #   google-cloud-pubsub
     #   google-cloud-resource-manager
+    #   google-cloud-run
     #   google-cloud-texttospeech
     #   googleapis-common-protos
     #   grpc-google-iam-v1

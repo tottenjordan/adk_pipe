@@ -34,6 +34,7 @@ dependencies = [
     "pyarrow>=25.0.1,<26.0.0",
     "google-auth>=2.59.0,<3.0.0",
     "google-cloud-modelarmor>=0.7,<1",
+    "google-cloud-run>=0.16.2,<1.0.0",
 ]
 
 [tool.uv]
