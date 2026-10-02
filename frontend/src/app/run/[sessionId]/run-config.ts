@@ -7,6 +7,13 @@
 export const RUN_STALL_TIMEOUT_MS = 3 * 60 * 1000;
 
 /**
+ * While paused at a review checkpoint, how often the run page re-checks the run
+ * for an answer submitted elsewhere (another tab, or a reload that resumed it).
+ * Without it a stale tab shows "Waiting for review" forever.
+ */
+export const PAUSE_WATCH_INTERVAL_MS = 10_000;
+
+/**
  * Author of the server's internal run-status marker events (`__run_status`
  * done/error/running). These are control-plane events the poll payload already
  * reflects in its top-level `status`/`error` fields — the run's coarse status

@@ -24,9 +24,14 @@ import {
 import { gcsProxyUrl, parseGsUri } from "@/lib/gcs";
 import { hasStartedRun, markRunStarted } from "@/lib/run-kickoff";
 import type { AgentEvent } from "@/lib/types";
-import { PendingLongRunningCalls, type PauseContext } from "@/lib/pause-detection";
+import {
+  PendingLongRunningCalls,
+  isPauseAnswered,
+  type PauseContext,
+} from "@/lib/pause-detection";
 import {
   RUN_STALL_TIMEOUT_MS,
+  PAUSE_WATCH_INTERVAL_MS,
   RUNSERVER_MARKER_AUTHOR,
   PIPELINE_STATE_KEYS,
 } from "./run-config";
@@ -149,6 +154,34 @@ export default function RunPage({
     [syncSessionState]
   );
 
+  // Follow a run that was just resumed (by this tab or elsewhere) until its next
+  // checkpoint or the end. Re-enters pollRun from since=0; seenEventIds dedup
+  // makes the replay idempotent. The poll is owned by resumeAbortRef (aborted on
+  // unmount), not by an effect, so a status change can't cancel it.
+  const followRun = useCallback(async () => {
+    resumeAbortRef.current?.abort();
+    const controller = new AbortController();
+    resumeAbortRef.current = controller;
+    try {
+      // The resumed segment ends at the next checkpoint (paused) or at the end
+      // of the run; it does not re-sync session state on pause.
+      const terminal = await consumePollEvents(
+        pollRun(appName, userId, sessionId, { signal: controller.signal })
+      );
+      if (!terminal) setStatus("completed");
+    } catch (err) {
+      // Unmount aborts the poll — that is not a real resume failure.
+      if (
+        controller.signal.aborted ||
+        (err instanceof Error && err.name === "AbortError")
+      ) {
+        return;
+      }
+      setStatus("error");
+      setErrorMsg(err instanceof Error ? err.message : "Resume failed");
+    }
+  }, [appName, userId, sessionId, consumePollEvents]);
+
   useEffect(() => {
     if (startedRef.current) return;
     startedRef.current = true;
@@ -229,6 +262,42 @@ export default function RunPage({
     return () => clearInterval(timer);
   }, [status]);
 
+  // Stale-tab watcher: while paused, re-check the run for an answer to this
+  // checkpoint submitted elsewhere (another tab, or a reload that resumed it).
+  // A paused page has stopped polling, so without this it would show "Waiting
+  // for review" forever. Only detects; followRun owns the follow-up poll.
+  useEffect(() => {
+    if (status !== "paused" || !pauseContext) return;
+    const { functionCallId } = pauseContext;
+    let cancelled = false;
+    let checking = false;
+    let cursor = 0;
+    const timer = setInterval(async () => {
+      if (checking) return;
+      checking = true;
+      try {
+        const res = await getRunStatus(appName, userId, sessionId, cursor);
+        if (cancelled) return;
+        cursor = res.nextCursor ?? cursor;
+        if (!isPauseAnswered(res.events ?? [], functionCallId)) return;
+        cancelled = true;
+        clearInterval(timer);
+        setPauseContext(null);
+        setStatus("running");
+        setNotice("This review was answered in another tab or window.");
+        followRun();
+      } catch {
+        // Transient poll failure — keep waiting; the next tick retries.
+      } finally {
+        checking = false;
+      }
+    }, PAUSE_WATCH_INTERVAL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [status, pauseContext, appName, userId, sessionId, followRun]);
+
   // Abort any in-flight resume poll on unmount (mirrors the initial effect's
   // controller cleanup — the resume path previously leaked its poll loop).
   useEffect(() => {
@@ -243,14 +312,11 @@ export default function RunPage({
     const ctx = pauseContext;
     setPauseContext(null);
 
-    const controller = new AbortController();
-    resumeAbortRef.current = controller;
-
     try {
       // Submit the human-review response; the server relaunches the detached
-      // job. Then re-enter pollRun (from since=0) to consume new events —
-      // seenEventIds dedup makes the replay idempotent, so a resume that hits
-      // the NEXT checkpoint pauses again and one that finishes completes.
+      // job. Then followRun re-enters pollRun (from since=0) to consume new
+      // events, so a resume that hits the NEXT checkpoint pauses again and one
+      // that finishes completes.
       // Checkpoint-3 sends its per-concept `edits` inside the response object;
       // split them out so they ride as the top-level resume `edits` field (merged
       // into session state server-side) rather than the LLM functionResponse.
@@ -267,21 +333,7 @@ export default function RunPage({
         ctx.eventId,
         edits
       );
-
-      // The resumed segment ends at the next checkpoint (paused) or at the end
-      // of the run; it does not re-sync session state on pause.
-      const terminal = await consumePollEvents(
-        pollRun(appName, userId, sessionId, { signal: controller.signal })
-      );
-      if (!terminal) setStatus("completed");
     } catch (err) {
-      // Unmount aborts the poll — that is not a real resume failure.
-      if (
-        controller.signal.aborted ||
-        (err instanceof Error && err.name === "AbortError")
-      ) {
-        return;
-      }
       // The server's duplicate-run guard rejected this resume WITHOUT applying
       // it (the previous segment was still finishing). The run is still paused
       // at the same checkpoint, but polling would not re-show the review panel
@@ -295,7 +347,9 @@ export default function RunPage({
       }
       setStatus("error");
       setErrorMsg(err instanceof Error ? err.message : "Resume failed");
+      return;
     }
+    await followRun();
   }
 
   // Fetch session state from backend to populate campaign metadata

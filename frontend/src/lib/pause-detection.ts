@@ -51,3 +51,22 @@ export class PendingLongRunningCalls {
     return last;
   }
 }
+
+/**
+ * Whether `events` contain the answer (a `functionResponse`) to the paused
+ * long-running call. A paused run page stops polling, so if the checkpoint is
+ * answered elsewhere (another tab, or a reload that resumed it) this is how the
+ * stale tab learns the pause is over.
+ */
+export function isPauseAnswered(
+  events: AgentEvent[],
+  functionCallId: string
+): boolean {
+  return events.some(
+    (event) =>
+      !event.partial &&
+      (event.content?.parts ?? []).some(
+        (part) => part.functionResponse?.id === functionCallId
+      )
+  );
+}
