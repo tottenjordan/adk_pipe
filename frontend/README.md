@@ -26,7 +26,7 @@ This project uses [`next/font`](https://nextjs.org/docs/app/building-your-applic
 frontend/
 ├── src/
 │   ├── app/                                # Next.js App Router — routes + server-side API proxies
-│   │   ├── layout.tsx                      # root layout: fonts (Sora + JetBrains Mono), glass header
+│   │   ├── layout.tsx                      # root layout: fonts (Archivo + JetBrains Mono), header + active-page nav
 │   │   ├── page.tsx                        # "/" campaign input form (brand, audience, product, agent selector)
 │   │   ├── globals.css                     # Tailwind base + light-theme design tokens
 │   │   ├── favicon.ico
