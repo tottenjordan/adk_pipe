@@ -12,8 +12,14 @@ const base: CampaignInput = {
 };
 
 describe("buildInitialState", () => {
-  it("returns undefined for a plain creative run with no intent", () => {
-    expect(buildInitialState(base)).toBeUndefined();
+  it("records only the agent for a plain creative run with no intent", () => {
+    expect(buildInitialState(base)).toEqual({ ui_app: "creative_agent" });
+  });
+
+  it("records ui_app for every agent", () => {
+    for (const agent of ["trend_scout", "creative_agent", "interactive_creative"] as const) {
+      expect(buildInitialState({ ...base, agent }).ui_app).toBe(agent);
+    }
   });
 
   it("maps set visual-intent fields to snake_case keys", () => {
@@ -28,6 +34,7 @@ describe("buildInitialState", () => {
       referenceImageRole: "logo",
     });
     expect(state).toEqual({
+      ui_app: "creative_agent",
       visual_intent: "moody film noir",
       brand_colors: "#1a1a1a and gold",
       visual_style_preference: "cinematic",
@@ -45,7 +52,7 @@ describe("buildInitialState", () => {
       brandColors: "   ",
       visualAspectRatio: "",
     });
-    expect(state).toEqual({ visual_intent: "bold retro" });
+    expect(state).toEqual({ ui_app: "creative_agent", visual_intent: "bold retro" });
   });
 
   it("works for interactive_creative too", () => {
@@ -54,7 +61,7 @@ describe("buildInitialState", () => {
       agent: "interactive_creative",
       visualAspectRatio: "16:9",
     });
-    expect(state).toEqual({ visual_aspect_ratio: "16:9" });
+    expect(state).toEqual({ ui_app: "interactive_creative", visual_aspect_ratio: "16:9" });
   });
 
   it("ignores visual-intent fields for trend_scout", () => {
@@ -63,7 +70,7 @@ describe("buildInitialState", () => {
       agent: "trend_scout",
       visualIntent: "ignored",
     });
-    expect(state).toBeUndefined();
+    expect(state).toEqual({ ui_app: "trend_scout" });
   });
 
   it("keeps trend_scout interactive-trend-pick seeding", () => {
@@ -72,6 +79,6 @@ describe("buildInitialState", () => {
       agent: "trend_scout",
       interactiveTrendPick: true,
     });
-    expect(state).toEqual({ interactive_trend_pick: true });
+    expect(state).toEqual({ ui_app: "trend_scout", interactive_trend_pick: true });
   });
 });

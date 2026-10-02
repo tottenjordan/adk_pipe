@@ -47,6 +47,8 @@ export interface Session {
   userId: string;
   state: Record<string, unknown>;
   events: AgentEvent[];
+  /** Seconds since the epoch (ADK serializes `last_update_time` as a float). */
+  lastUpdateTime?: number;
 }
 
 export interface CampaignInput {

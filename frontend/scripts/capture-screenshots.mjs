@@ -1,4 +1,4 @@
-// Regenerate the four docs/screenshots/*.png from committed fixtures.
+// Regenerate the docs/screenshots/*.png from committed fixtures.
 //
 // These captures are DETERMINISTIC and need no GCP credentials or quota: every
 // backend call (`/api/adk/**` and `/api/gcs?**`) is route-mocked from the
@@ -10,8 +10,10 @@
 //
 // Usage:
 //   cd frontend
-//   npm run dev                # in one terminal (serves localhost:3000)
-//   npm run screenshots        # in another
+//   npm run build && cp -r .next/static .next/standalone/.next/ && cp -r public .next/standalone/
+//   PORT=3000 node .next/standalone/server.js   # in one terminal (production build:
+//                                                # dev-mode StrictMode double-polls the run page)
+//   npm run screenshots                          # in another
 //
 // Env overrides: SCREENSHOT_BASE_URL (default http://localhost:3000).
 
@@ -56,6 +58,19 @@ const CAMPAIGN = {
 };
 
 const USER = "demo_user";
+
+// Run history for the home "Recent runs" list and 05-runs.png. Each fixture's
+// `minutesAgo` becomes an ADK `lastUpdateTime` (epoch seconds) relative to now,
+// so the relative dates read the same on every regeneration.
+const SESSIONS = JSON.parse(
+  readFileSync(join(FIX, "sessions-list.json"), "utf8")
+).map(({ minutesAgo, ...s }) => ({
+  appName: "trend_scout",
+  userId: USER,
+  events: [],
+  ...s,
+  lastUpdateTime: (Date.now() - minutesAgo * 60_000) / 1000,
+}));
 
 // The real .png artifact keys the run produced (from harvested state), so the
 // results page's Artifacts list + gallery grid render authentically.
@@ -117,6 +132,8 @@ async function installMocks(page) {
       if (method === "POST" && /sessions$/.test(rest)) {
         return json(route, { id: "demo", appName: "creative_agent", userId: USER, state: {}, events: [] });
       }
+      // listSessions (run history: home "Recent runs" + /runs).
+      if (method === "GET" && /sessions$/.test(rest)) return json(route, SESSIONS);
       if (/sessions\/[^/]+\/artifacts$/.test(rest)) return json(route, ARTIFACT_NAMES);
       if (/sessions\/[^/]+\/artifacts\/.+/.test(rest)) return json(route, {});
       if (/sessions\/[^/]+$/.test(rest)) return json(route, currentSession);
@@ -189,6 +206,9 @@ async function main() {
     await page.fill("#selling-points", CAMPAIGN.keySellingPoints);
     await page.fill("#trend", CAMPAIGN.targetSearchTrend);
     await page.fill("#referenceImage", CAMPAIGN.referenceImageUri);
+    await page.locator("#referenceImage").blur();
+    await page.getByRole("heading", { name: "Recent runs" }).waitFor();
+    await page.getByRole("link", { name: "Google" }).first().waitFor();
     await settle(page);
     await shot(page, "01-home-form.png");
     await page.close();
@@ -264,6 +284,17 @@ async function main() {
     await page.getByRole("button", { name: /Approve/ }).first().waitFor();
     await settle(page);
     await shot(page, "04-run-interactive-review.png");
+    await page.close();
+  }
+
+  // ── 5. Run history ──────────────────────────────────────────────────────
+  {
+    console.log("05-runs");
+    const page = await newPage(context);
+    await page.goto(`${BASE}/runs`, { waitUntil: "networkidle" });
+    await page.getByRole("button", { name: /Duplicate brief/ }).first().waitFor();
+    await settle(page);
+    await shot(page, "05-runs.png");
     await page.close();
   }
 
