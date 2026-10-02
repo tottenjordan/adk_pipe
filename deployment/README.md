@@ -6,6 +6,7 @@ see the [main README](../README.md).
 ## Contents
 - [Prerequisites](#prerequisites)
 - [Required environment](#required-environment)
+- [Create BigQuery tables](#create-bigquery-tables)
 - [Deploying Agents to Agent Engine](#deploying-agents-to-agent-engine)
 - [Cloud Run Functions Fan-out Pattern](#cloud-run-functions-fan-out-pattern)
 - [Frontend + api_server on Cloud Run](#frontend--api_server-on-cloud-run)
@@ -17,7 +18,7 @@ see the [main README](../README.md).
 - A populated `.env` (copy from [.env.example](../.env.example)) — project, `GOOGLE_CLOUD_LOCATION=global`,
   `GCP_REGION=us-central1`, GCS bucket, Pub/Sub topics, Cloud Run Function names, and BigQuery IDs.
 - `gcloud` authenticated (`gcloud auth application-default login`) and the project set.
-- BigQuery dataset + tables created — see [main README → Quickstart](../README.md#quickstart).
+- BigQuery dataset + tables created — see [Create BigQuery tables](#create-bigquery-tables) below.
 
 ## Required environment
 
@@ -43,6 +44,59 @@ Cloud Run Functions, which do **not** read `.env`). All vars are documented in
 override the env vars. Agent Engine resource IDs are never constants: pass them via
 `--resource_id` (`deploy_agent.py --delete`), the `*_AGENT_ENGINE_ID` env vars, or
 the `agent_resource_id` field of the orchestrator's Pub/Sub message.
+
+---
+
+## Create BigQuery tables
+
+Trend Trawler uses one BigQuery dataset (`BQ_DATASET_ID`) with three tables. Create them once,
+before running `trend_scout` (which writes the target trends), `creative_agent` /
+`interactive_creative` (which write a creative row and an evaluation row per run), or the
+fan-out (which reads and locks the target trends).
+
+| Table (env var) | Written by | Contents |
+|---|---|---|
+| `target_trends_crf` (`BQ_TABLE_TARGETS`) | `trend_scout` (`trend_scout/tools.py`); the CRF worker sets `processed_status` / `processing_*` | The selected trends plus campaign metadata; the fan-out queue |
+| `trend_creatives` (`BQ_TABLE_CREATIVES`) | `creative_agent` / `interactive_creative` (`creative_agent/bq_tools.py`) | One row per creative run: campaign metadata, trend and the `creative_gcs` folder |
+| `creative_evals` (`BQ_TABLE_EVALS`) | same (`EVAL_COLUMN_TYPES` in `creative_agent/bq_tools.py`) | One evaluation summary per run; `creative_uuid` joins `trend_creatives.uuid` |
+
+The idempotent helper script skips anything that already exists:
+
+```bash
+set -a && source .env && set +a
+bash deployment/create_bq_tables.sh     # BQ_LOCATION defaults to US
+```
+
+Or run the commands yourself:
+
+```bash
+bq --location=US mk --dataset $BQ_PROJECT_ID:$BQ_DATASET_ID
+
+# selected search trends
+bq mk \
+ -t \
+ $BQ_PROJECT_ID:$BQ_DATASET_ID.$BQ_TABLE_TARGETS \
+ uuid:STRING,processed_status:STRING,target_trend:STRING,refresh_date:DATE,trawler_date:DATE,entry_timestamp:TIMESTAMP,trawler_gcs:STRING,brand:STRING,target_audience:STRING,target_product:STRING,key_selling_point:STRING,research_gaps:STRING,processing_started_at:TIMESTAMP,processing_attempts:INTEGER
+
+# target-trend creatives
+bq mk \
+ -t \
+ $BQ_PROJECT_ID:$BQ_DATASET_ID.$BQ_TABLE_CREATIVES \
+ uuid:STRING,target_trend:STRING,datetime:DATETIME,creative_gcs:STRING,brand:STRING,target_audience:STRING,target_product:STRING,key_selling_point:STRING
+
+# creative evaluation summaries (one row per run; links to trend_creatives.uuid)
+bq mk \
+ -t \
+ $BQ_PROJECT_ID:$BQ_DATASET_ID.$BQ_TABLE_EVALS \
+ uuid:STRING,creative_uuid:STRING,datetime:DATETIME,target_trend:STRING,brand:STRING,target_product:STRING,overall_pass_rate:FLOAT,total_ad_copies:INTEGER,ad_copies_passed:INTEGER,avg_ad_copy_score:FLOAT,total_visual_concepts:INTEGER,visual_concepts_passed:INTEGER,avg_visual_score:FLOAT,weakest_dimensions:STRING,eval_report_gcs_uri:STRING,research_gaps:STRING,weakest_dimension_labels:STRING
+```
+
+These schemas already include every later column. Tables created before those columns
+existed need the additive migrations instead: `processing_started_at` /
+`processing_attempts` and `weakest_dimension_labels`, both under
+[3. Create event-driven functions and eventarc triggers](#3-create-event-driven-functions-and-eventarc-triggers).
+The nightly eval CI uses an isolated dataset cloned from these schemas (see
+[Eval CI (WIF)](#eval-ci-wif)).
 
 ---
 
@@ -229,6 +283,9 @@ gcloud pubsub topics create $CREATIVE_WORKER_TOPIC_NAME
 
 
 **3.0 Schema migration — `processing_started_at` + `processing_attempts`** (stale-PROCESSING reaper)
+
+*Only for tables created before these columns existed; fresh tables from
+[Create BigQuery tables](#create-bigquery-tables) already have them (and `weakest_dimension_labels`).*
 
 The orchestrator reaps rows a worker stranded in `PROCESSING` by hard-crashing
 after acquiring its lock (OOM / the 1800s Cloud Run timeout kill / segfault).
