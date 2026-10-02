@@ -151,10 +151,9 @@ export function RunList({ rows, now, onDuplicate, compact = false }: RunListProp
                   <RunStatusLabel status={row.status} />
                 </span>
               </div>
-              <div className="mt-0.5 flex items-center gap-2 text-xs text-muted-foreground">
-                <span className="truncate">
-                  {[row.agentLabel, row.trend].filter(Boolean).join(" · ")}
-                </span>
+              <div className="mt-0.5 flex items-center gap-3 text-xs text-muted-foreground">
+                <span className="shrink-0">{row.agentLabel}</span>
+                {row.trend && <span className="min-w-0 truncate">{row.trend}</span>}
                 <span className="ml-auto shrink-0 tabular-nums">{time}</span>
               </div>
               {/* Revealed on hover/focus so the sidebar stays two lines a row;

@@ -44,7 +44,7 @@ function useApproveShortcut(onApprove: () => void, enabled = true) {
 
 /** Inline hint for the approve shortcut, shown next to the action buttons. */
 function ShortcutHint({ action = "approve" }: { action?: string }) {
-  const key = "rounded-sm border border-border bg-muted px-1 font-sans text-[11px] text-foreground";
+  const key = "rounded-sm border border-border bg-muted px-1 font-sans text-xs text-foreground";
   return (
     <span className="text-xs text-muted-foreground">
       <kbd className={key}>Ctrl</kbd> <kbd className={key}>Enter</kbd> or{" "}
@@ -181,7 +181,7 @@ function ReviewAdCopies({
             <dl key={i} className="rounded-md border border-border bg-background p-4 space-y-3">
               {/* Title bar */}
               <div className="flex items-center gap-2 pb-2 border-b border-border">
-                <Badge variant="secondary" className="text-[10px] px-1.5 py-0 bg-card text-foreground border border-border font-semibold tabular-nums">
+                <Badge variant="secondary" className="text-xs px-1.5 py-0 bg-card text-foreground border border-border font-semibold tabular-nums">
                   {i + 1}
                 </Badge>
                 <span className="text-sm font-bold text-foreground">
@@ -427,7 +427,7 @@ function ReviewTrends({
         {candidates.length > 0 && (
           <Badge
             variant="secondary"
-            className="text-[10px] px-1.5 py-0 font-semibold tabular-nums"
+            className="text-xs px-1.5 py-0 font-semibold tabular-nums"
           >
             {selected.size} / {candidates.length} selected
           </Badge>

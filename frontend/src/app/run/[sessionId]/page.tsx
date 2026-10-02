@@ -449,8 +449,7 @@ export default function RunPage({
           <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
             <span className={`inline-block h-2 w-2 rounded-full ${statusLine[status].dot}`} aria-hidden />
             <span className={`font-medium ${statusLine[status].tone}`}>{statusLine[status].text}</span>
-            <span className="text-muted-foreground" aria-hidden>·</span>
-            <span className="min-w-0 truncate font-mono text-xs text-muted-foreground" title={sessionId}>
+            <span className="ml-2 min-w-0 truncate font-mono text-xs text-muted-foreground" title={sessionId}>
               {sessionId}
             </span>
           </p>
@@ -476,9 +475,13 @@ export default function RunPage({
       {notStarted && (
         <div className="mb-4 rounded-lg border border-mark-fail/40 bg-mark-fail/5 px-5 py-4">
           <p className="text-sm text-mark-fail">
-            This run hasn&apos;t started. Start a new run from{" "}
+            This session was created but its run never started. Start a new run from{" "}
             <Link href="/" className="font-medium underline underline-offset-2">
               New run
+            </Link>
+            , or reuse the brief with Duplicate in{" "}
+            <Link href="/runs" className="font-medium underline underline-offset-2">
+              Runs
             </Link>
             .
           </p>
@@ -487,7 +490,14 @@ export default function RunPage({
 
       {errorMsg && (
         <div role="alert" className="mb-4 rounded-lg border border-mark-fail/40 bg-mark-fail/5 px-5 py-4">
-          <p className="text-sm text-mark-fail">{errorMsg}</p>
+          <p className="text-sm font-medium text-mark-fail">{errorMsg}</p>
+          <p className="mt-1 text-sm text-foreground">
+            The technical log below shows the last step that ran. To try again, use Duplicate in{" "}
+            <Link href="/runs" className="font-medium text-primary underline-offset-4 hover:underline">
+              Runs
+            </Link>{" "}
+            to start a new run with the same brief.
+          </p>
         </div>
       )}
 

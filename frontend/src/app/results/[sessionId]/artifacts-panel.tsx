@@ -114,7 +114,7 @@ export function ArtifactsPanel({
                       No preview
                     </div>
                   )}
-                  <p className="truncate pt-1.5 font-mono text-[11px] text-muted-foreground">{a.name}</p>
+                  <p className="truncate pt-1.5 font-mono text-xs text-muted-foreground">{a.name}</p>
                 </li>
               );
             })}

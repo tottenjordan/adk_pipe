@@ -69,8 +69,9 @@ export function ResultsSummary({
             </Link>
           }
         >
-          The image model failed repeatedly (MALFORMED_FUNCTION_CALL). This is
-          usually transient: run the same campaign again to get visuals.
+          The image model failed on every retry (MALFORMED_FUNCTION_CALL), so this
+          run has copy but no visuals. This is usually transient: run the same
+          campaign again to get images.
         </Notice>
       )}
 
@@ -94,7 +95,7 @@ export function ResultsSummary({
             {status === "loading" && "Loading the evaluation report…"}
             {status === "pending" &&
               "The evaluation report is still being written. It's the last step of the run, so refresh in a minute."}
-            {status === "error" && "Couldn't load the evaluation report. Try refreshing."}
+            {status === "error" && "The evaluation report didn't load. Refresh to try again."}
           </p>
           <Button
             variant="outline"

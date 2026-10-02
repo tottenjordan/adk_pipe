@@ -64,7 +64,7 @@ function ItemCard({
       <div className="flex items-center gap-2 border-b border-border pb-2">
         <Badge
           variant="secondary"
-          className="text-[10px] px-1.5 py-0 bg-muted text-foreground border-0 font-semibold tabular-nums"
+          className="text-xs px-1.5 py-0 bg-muted text-foreground border-0 font-semibold tabular-nums"
         >
           {index + 1}
         </Badge>

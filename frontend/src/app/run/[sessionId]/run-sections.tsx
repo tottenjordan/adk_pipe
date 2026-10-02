@@ -13,7 +13,7 @@ import { ProcessingDots } from "./stage-spine";
 const BRIEF_SUMMARY_KEYS = ["brand", "target_product", "target_search_trends"];
 
 /**
- * One-line campaign brief (brand · product · trend) with a control that expands
+ * One-line campaign brief (brand, product, trend) with a control that expands
  * the full campaign fields and any visual direction.
  */
 export function BriefSummary({
@@ -42,8 +42,14 @@ export function BriefSummary({
         className="flex w-full items-center gap-3 rounded-lg px-4 py-2.5 text-left"
       >
         <span className="shrink-0 text-xs font-medium text-muted-foreground">Brief</span>
-        <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">
-          {summary.length > 0 ? summary.join(" · ") : "Campaign details"}
+        <span className="flex min-w-0 flex-1 items-baseline gap-x-4 truncate text-sm font-medium text-foreground">
+          {summary.length > 0
+            ? summary.map((part, i) => (
+                <span key={i} className={i === 0 ? "shrink-0" : "min-w-0 truncate"}>
+                  {part}
+                </span>
+              ))
+            : "Campaign details"}
         </span>
         <span className="flex shrink-0 items-center gap-1 text-xs font-medium text-primary">
           {open ? "Hide" : "Show all"}
@@ -93,7 +99,7 @@ function describe(stage: Stage | null, status: RunStageStatus, stages: Stage[]):
       ? "Every stage finished."
       : "The run finished. Stages marked not started produced no output.";
   }
-  if (status === "error") return "The run stopped. See the error above.";
+  if (status === "error") return "The run stopped before finishing. The error above says why.";
   if (status === "stalled") {
     return "No activity for a while. It may still be running in the background — reload to reconnect.";
   }
@@ -137,8 +143,10 @@ export function CurrentStagePanel({
             {describe(stage, status, stages)}
           </p>
           {meta.length > 0 && (
-            <p className="mt-2 text-xs text-muted-foreground tabular-nums">
-              {meta.join(" · ")}
+            <p className="mt-2 flex flex-wrap gap-x-4 text-xs text-muted-foreground tabular-nums">
+              {meta.map((m) => (
+                <span key={m}>{m}</span>
+              ))}
             </p>
           )}
         </div>
