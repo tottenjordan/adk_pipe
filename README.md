@@ -354,7 +354,14 @@ Each dimension is scored 1–10. Scores are normalized to 0.0–1.0 with a **0.7
 
 ## Frontend UI
 
-A custom React frontend (Next.js + Tailwind CSS + shadcn/ui) for running agents and viewing results: campaign input form with agent selector, a live run view that **polls** the async-job `/runs` API (so a run survives disconnect/reload/re-auth), pipeline-state widgets, interactive-mode review checkpoints, and a results page with the artifact gallery, HTML portfolio, and evaluation report.
+A custom React frontend (Next.js + Tailwind CSS + shadcn/ui) for running agents and viewing results:
+
+- **`/`**: campaign input form with agent tiles and a recent-runs sidebar.
+- **`/runs`**: run history (brand, trend, agent, status) with **Duplicate brief** to start a new run from an old one.
+- **`/run/[sessionId]`**: live run view that **polls** the async-job `/runs` API (so a run survives disconnect/reload/re-auth). A stage spine shows progress, interactive review checkpoints take over the main area, and the technical log is collapsed. Opening an existing run reconnects to it and never re-sends the kick-off message.
+- **`/results/[sessionId]`**: a contact sheet of the creatives with per-creative scores, a proof-detail dialog for each one, and the artifacts, HTML portfolio and evaluation report.
+
+The visual design ("proof room") uses tokens in `frontend/src/app/globals.css`, the Archivo typeface and a sentence-case `FieldLabel`. See [docs/plans/2026-10-02-frontend-proof-room.md](docs/plans/2026-10-02-frontend-proof-room.md). Screenshots are in [docs/screenshots/](docs/screenshots/), including run history (`05-runs.png`) and the trend-pick review (`06-run-trend-pick.png`).
 
 ```bash
 # terminal 1 — backend. Run the async_app launcher, NOT bare `adk api_server`:
@@ -517,9 +524,9 @@ The `creative_agent` eval must run with `PYTHONPATH="$PWD"` and its own rubric c
 │   └── test_deployment.py        # invoke deployed agents
 ├── frontend/                     # Next.js + Tailwind + shadcn/ui web app
 │   ├── src/
-│   │   ├── app/                  # routes: campaign form, run (async-job polling), results + API proxies
+│   │   ├── app/                  # routes: campaign form, run history, run (async-job polling), results + API proxies
 │   │   ├── components/           # event log, gallery, GCS/trend widgets, ui/ primitives
-│   │   ├── lib/                  # api client (session CRUD, async-job startRun/pollRun/resumeRun), presets, types, utils
+│   │   ├── lib/                  # api client, run history/stages, eval matching, agent catalog, presets, types, utils
 │   │   └── __tests__/            # Vitest unit tests
 │   ├── next.config.ts
 │   ├── package.json

@@ -164,10 +164,13 @@ Next.js 16 (App Router) + TypeScript + Tailwind CSS + shadcn/ui. Light theme wit
 - **Backend** (`runserver/authz.py`, installed in `deployment/async_app.py`): trusts `X-TT-User` only alongside a verified Google ID token for `TRUSTED_PROXY_SA` (`tt-web-sa`; minted with `format=full` so it carries `email`) with `aud ∈ TRUSTED_PROXY_AUDIENCES`. Path/body `userId` ≠ trusted user → 403; missing/untrusted `X-TT-User` on a user-scoped route → 401; blocked canned routes (`/run`, `/run_sse`, `/run_live`, memory, agent-identity) → 404; a foreign session (`VertexAiSessionService` ownership `ValueError`) → 404.
 - **Modes:** `USER_AUTHZ_MODE=enforce` (default; refuses to boot without `TRUSTED_PROXY_SA` + `TRUSTED_PROXY_AUDIENCES`) | `observe` (logs `authz observe: would deny …`, blocked routes still 404); `TRUST_CLIENT_USER_ID=1` = trust the client `userId` (local dev only; refused when `K_SERVICE` is set).
 
+**Design system ("proof room", `docs/plans/2026-10-02-frontend-proof-room.md`):** tokens in `src/app/globals.css` (`primary` #0077A8 is the only action colour; `mark-pass`/`mark-fail`/`mark-pending` status marks), Archivo, sentence-case `FieldLabel`; no uppercase eyebrows, glass cards or entrance animations; mono only for code-like data.
+
 **Pages:**
-- `/` — Campaign input form (brand, audience, product, selling points, agent selector: `trend_scout`, `creative_agent`, `interactive_creative`)
-- `/run/[sessionId]` — Live run view: the page **polls** the async-job run (fire-and-forget kick-off + `GET /runs/.../{session}?since=N`) and renders new events into a timeline, pipeline state widgets (modal overlays), and a campaign metadata sidebar. Because progress is read from the persistent session log (not a browser-held SSE stream), a run **survives disconnect/reload/IAP re-auth** — reloading re-polls from `since=0` and replays. Interactive mode adds pause/resume review panels at each checkpoint.
-- `/results/[sessionId]` — Artifacts gallery, research PDF viewer, evaluation report, session state inspector
+- `/` — Campaign input form (brand, audience, product, selling points, agent tiles: `trend_scout`, `creative_agent`, `interactive_creative`) plus a recent-runs sidebar
+- `/runs` — Run history (brand, trend, agent, status, updated) with **Duplicate brief** to prefill a new run from an old one
+- `/run/[sessionId]` — Live run view: the page **polls** the async-job run (fire-and-forget kick-off + `GET /runs/.../{session}?since=N`) and shows a stage spine, a current-stage panel, outputs so far, and a collapsed technical log. Because progress is read from the persistent session log (not a browser-held SSE stream), a run **survives disconnect/reload/IAP re-auth** — reloading re-polls from `since=0` and replays; opening an existing run follows it without re-sending the kick-off message. Interactive-mode review checkpoints take over the main area.
+- `/results/[sessionId]` — Contact sheet of creatives (image, headline, ad-copy/visual scores, sortable) with a proof-detail dialog per creative, plus artifacts, research PDF, evaluation report and session state
 
 Both the run view and results view also surface the optional visual art-direction inputs (the PR #114 visual-intent keys) read-only in a "Visual Direction" section alongside the campaign metadata — driven by `buildDisplayFields` + `VISUAL_DIRECTION_FIELDS` in `frontend/src/lib/utils.ts`; unset keys collapse to `""` so non-creative/no-intent runs show nothing.
 
@@ -177,6 +180,10 @@ Both the run view and results view also surface the optional visual art-directio
 - `frontend/src/app/run/[sessionId]/page.tsx` — async-job polling (`pollRun`), pipeline widgets, status tracking, stall-timeout
 - `frontend/src/app/results/[sessionId]/page.tsx` — Results viewer with artifact tabs
 - `frontend/src/lib/api.ts` — API client (session CRUD, async-job `startRun`/`pollRun`/`resumeRun`, artifact fetching)
+- `frontend/src/lib/run-history.ts` — session list → run-history rows (status, trend, agent) for `/runs` and the home sidebar
+- `frontend/src/lib/run-stages.ts` — per-agent stage lists whose progress is derived from session state, for the run page's stage spine
+- `frontend/src/lib/eval-matching.ts` — eval-report types + pairing of each visual concept with its ad copy and both eval verdicts (results contact sheet)
+- `frontend/src/lib/agents.ts` — agent catalog (labels, descriptions, durations, review pauses)
 - `frontend/src/app/api/gcs/route.ts` — Authenticated GCS proxy for serving artifacts
 
 ### Event-Driven Orchestration — `cloud_functions/`
