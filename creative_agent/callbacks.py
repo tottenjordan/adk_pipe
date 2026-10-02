@@ -1,5 +1,4 @@
 import logging
-import re
 from typing import Any
 
 from google.adk.agents.callback_context import CallbackContext
@@ -11,6 +10,7 @@ from agent_common import observability, sanitize
 from agent_common.rate_limit import build_rate_limit_callback
 from agent_common.state import seed_initial_state
 
+from .citations import render_citations
 from .config import config
 
 # --- config ---
@@ -215,20 +215,7 @@ def citation_replacement_callback(
     # types.Content: The processed report with Markdown citation links.
     final_report = callback_context.state.get("combined_final_cited_report", "")
     sources = callback_context.state.get("sources", {})
-
-    def tag_replacer(match: re.Match) -> str:
-        short_id = match.group(1)
-        if not (source_info := sources.get(short_id)):
-            logging.warning(f"Invalid citation tag found and removed: {match.group(0)}")
-            return ""
-        display_text = source_info.get("title", source_info.get("domain", short_id))
-        return f" [{display_text}]({source_info['url']})"
-
-    processed_report = re.sub(
-        r'<cite\s+source\s*=\s*["\']?\s*(src-\d+)\s*["\']?\s*/>',
-        tag_replacer,
-        final_report,
+    callback_context.state["final_report_with_citations"] = render_citations(
+        final_report, sources
     )
-    processed_report = re.sub(r"\s+([.,;:])", r"\1", processed_report)
-    callback_context.state["final_report_with_citations"] = processed_report
     return types.Content(parts=[types.Part(text="Research report composed 📝")])
