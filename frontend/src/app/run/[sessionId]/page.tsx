@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useState, useRef, useMemo, useCallback, use } from "react";
+import Link from "next/link";
 import { useSearchParams, useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { EventLog } from "@/components/event-log";
@@ -23,7 +24,7 @@ import {
   type DisplayFieldDef,
 } from "@/lib/utils";
 import { gcsProxyUrl, parseGsUri } from "@/lib/gcs";
-import { hasStartedRun, markRunStarted } from "@/lib/run-kickoff";
+import { ensureRunStarted, isUnstartedRun, readRunMessage } from "@/lib/run-kickoff";
 import type { AgentEvent } from "@/lib/types";
 import {
   PendingLongRunningCalls,
@@ -65,7 +66,8 @@ export default function RunPage({
   const [sessionState, setSessionState] = useState<Record<string, unknown>>({});
   const [toastDismissed, setToastDismissed] = useState(false);
   const [pauseContext, setPauseContext] = useState<PauseContext | null>(null);
-  const startedRef = useRef(false);
+  // Viewing a session the server has no run for (and no kick-off message).
+  const [notStarted, setNotStarted] = useState(false);
   const seenEventIds = useRef(new Set<string>());
   const lastEventAt = useRef<number>(Date.now());
   // Aborts the resume poll loop on unmount (handleResume is a click handler,
@@ -184,36 +186,41 @@ export default function RunPage({
   }, [appName, userId, sessionId, consumePollEvents]);
 
   useEffect(() => {
-    if (startedRef.current) return;
-    startedRef.current = true;
-
-    const stored = sessionStorage.getItem(`run:${sessionId}`);
-    const message = stored ? JSON.parse(stored).message : "";
-    if (!message) {
-      setStatus("error");
-      setErrorMsg("No message found for this session. Please start a new run.");
-      return;
-    }
-
+    // Each effect run owns its own poll (and AbortController); cleanup aborts
+    // it. Under StrictMode the effect runs twice: the first poll is aborted, the
+    // second re-polls from since=0 and the seenEventIds dedup keeps that replay
+    // idempotent. The kick-off itself is exactly-once via ensureRunStarted
+    // (durable sessionStorage claim + shared in-flight promise).
     const controller = new AbortController();
     const { signal } = controller;
+    const message = readRunMessage(sessionId);
 
     async function run() {
       try {
-        // Kick off the detached background run — but ONLY once per session. The
-        // run page remounts on every browser reload (startedRef resets), so
-        // without this durable guard a reload would spawn a second detached run
-        // (see run-kickoff). On reload we skip straight to polling, which
-        // replays the existing run from since=0.
-        if (!hasStartedRun(sessionId)) {
-          await startRun(appName, userId, sessionId, message);
-          markRunStarted(sessionId);
+        // Kick off the detached background run — ONLY once per session (see
+        // run-kickoff). On reload (already started) this resolves immediately
+        // and we skip straight to polling, which replays from since=0. With no
+        // stored message this tab never kicks off; it views the run instead.
+        if (message) {
+          await ensureRunStarted(sessionId, () =>
+            startRun(appName, userId, sessionId, message)
+          );
         }
+        if (signal.aborted) return;
 
         // Seed session state once so the sidebar populates immediately, even for
         // keys set before any event and on reconnect/reload. (pollRun replays
         // from since=0 too, but this is more robust for pre-event state.)
         const seed = await getRunStatus(appName, userId, sessionId, 0);
+        if (signal.aborted) return;
+
+        // View mode (no stored message): only follow a run the server knows.
+        // An empty log means nothing was ever kicked off for this session.
+        if (!message && isUnstartedRun(seed)) {
+          setStatus("error");
+          setNotStarted(true);
+          return;
+        }
         if (seed.state) setSessionState((prev) => ({ ...prev, ...seed.state }));
 
         // Drain the poll to completion; the initial run fetches session state
@@ -445,6 +452,18 @@ export default function RunPage({
       {notice && (
         <div className="mb-4 rounded-lg border border-mark-pending/40 bg-mark-pending/10 px-5 py-4">
           <p className="text-sm text-mark-pending">{notice}</p>
+        </div>
+      )}
+
+      {notStarted && (
+        <div className="mb-4 rounded-lg border border-mark-fail/40 bg-mark-fail/5 px-5 py-4">
+          <p className="text-sm text-mark-fail">
+            This run hasn&apos;t started. Start a new run from{" "}
+            <Link href="/" className="font-medium underline underline-offset-2">
+              New run
+            </Link>
+            .
+          </p>
         </div>
       )}
 

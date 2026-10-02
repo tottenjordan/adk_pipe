@@ -1,6 +1,5 @@
 import { SELF_USER_ID } from "@/lib/api";
 import { agentInfo, agentLabel, isAgentId, isCreativeAgent, type AgentId } from "@/lib/agents";
-import { markRunStarted } from "@/lib/run-kickoff";
 import type { CampaignInput, Session } from "@/lib/types";
 import { formatStateValue } from "@/lib/utils";
 
@@ -251,24 +250,4 @@ export function takeDuplicateBrief(): Brief | null {
   } catch {
     return null;
   }
-}
-
-/**
- * Let the run page open a past run in view-only mode. The run page kicks off a
- * run from the tab's stored message unless the tab already marked it started;
- * marking it started (plus a placeholder message) makes it skip the kick-off
- * and just poll the session log, which replays the run from the start. Not
- * started sessions are left alone so they never get a phantom "running" view.
- */
-export function prepareRunView(row: Pick<RunRow, "id" | "status" | "href">): void {
-  if (row.status === "Not started" || !row.href.startsWith("/run/")) return;
-  try {
-    const key = `run:${row.id}`;
-    if (!sessionStorage.getItem(key)) {
-      sessionStorage.setItem(key, JSON.stringify({ message: "(opened from run history)" }));
-    }
-  } catch {
-    return;
-  }
-  markRunStarted(row.id);
 }
