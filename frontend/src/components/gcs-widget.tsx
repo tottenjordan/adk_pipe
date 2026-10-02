@@ -1,5 +1,7 @@
 "use client";
 
+import { FieldLabel } from "@/components/field-label";
+
 export function GcsWidget({ uri }: { uri: string }) {
   if (!uri) return null;
 
@@ -10,8 +12,8 @@ export function GcsWidget({ uri }: { uri: string }) {
   const consoleUrl = `https://console.cloud.google.com/storage/browser/${bucket}/${objectPath}`;
 
   return (
-    <div className="glass rounded-xl px-4 py-3 flex items-start gap-3 animate-fadeInUpSmooth">
-      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary mt-0.5">
+    <div className="rounded-lg border border-border bg-card px-4 py-3 flex items-start gap-3">
+      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-sm bg-muted text-muted-foreground mt-0.5">
         <svg
           xmlns="http://www.w3.org/2000/svg"
           width="16"
@@ -27,14 +29,14 @@ export function GcsWidget({ uri }: { uri: string }) {
         </svg>
       </div>
       <div className="min-w-0 flex-1">
-        <p className="text-[10px] font-bold uppercase tracking-wider text-emerald-600 mb-1">
-          Cloud Storage Output
-        </p>
+        <FieldLabel as="p" className="mb-1">
+          Cloud Storage output
+        </FieldLabel>
         <a
           href={consoleUrl}
           target="_blank"
           rel="noopener noreferrer"
-          className="text-xs font-mono text-primary hover:text-primary/80 hover:underline break-all transition-colors"
+          className="rounded-sm text-xs font-mono text-primary hover:underline break-all"
         >
           {uri}
         </a>

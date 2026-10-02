@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { EventLog } from "@/components/event-log";
 import { TrendCards, parseTrendsMarkdown } from "@/components/trend-cards";
 import { GcsWidget } from "@/components/gcs-widget";
+import { FieldLabel } from "@/components/field-label";
 import {
   startRun,
   pollRun,
@@ -40,10 +41,10 @@ import { ReviewPanel } from "./ReviewPanel";
 
 const CAMPAIGN_FIELD_DEFS: DisplayFieldDef[] = [
   { label: "Brand", key: "brand" },
-  { label: "Target Audience", key: "target_audience" },
-  { label: "Target Product", key: "target_product" },
-  { label: "Key Selling Points", key: "key_selling_points" },
-  { label: "Search Trend", key: "target_search_trends", altKey: "target_search_trend" },
+  { label: "Target audience", key: "target_audience" },
+  { label: "Target product", key: "target_product" },
+  { label: "Key selling points", key: "key_selling_points" },
+  { label: "Search trend", key: "target_search_trends", altKey: "target_search_trend" },
 ];
 
 type Status = "running" | "completed" | "error" | "paused" | "stalled";
@@ -399,12 +400,12 @@ export default function RunPage({
     return PIPELINE_STATE_KEYS.filter((p) => sessionState[p.key] != null);
   }, [sessionState]);
 
-  const statusConfig: Record<Status, { color: string; glow: string }> = {
-    running: { color: "bg-blue-500", glow: "shadow-blue-500/20" },
-    paused: { color: "bg-amber-500", glow: "shadow-amber-500/20" },
-    completed: { color: "bg-emerald-500", glow: "shadow-emerald-500/20" },
-    error: { color: "bg-red-500", glow: "shadow-red-500/20" },
-    stalled: { color: "bg-yellow-500", glow: "shadow-yellow-500/20" },
+  const statusConfig: Record<Status, { color: string }> = {
+    running: { color: "bg-primary" },
+    paused: { color: "bg-mark-pending" },
+    completed: { color: "bg-mark-pass" },
+    error: { color: "bg-mark-fail" },
+    stalled: { color: "bg-mark-pending" },
   };
 
   const showResultsToast =
@@ -420,10 +421,10 @@ export default function RunPage({
   return (
     <div className="mx-auto max-w-[1600px] px-6 py-8">
       {/* Page header */}
-      <div className="mb-6 flex items-center justify-between animate-fadeIn">
+      <div className="mb-6 flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-foreground">
-            Agent Run
+          <h1 className="text-2xl font-bold text-foreground">
+            Agent run
           </h1>
           <p className="mt-1 text-sm text-muted-foreground font-mono">
             {appName} / {sessionId}
@@ -434,31 +435,30 @@ export default function RunPage({
             <Button
               size="lg"
               onClick={() => router.push(resultsUrl)}
-              className="animate-fadeInUpSmooth"
             >
-              View Results
+              View results
             </Button>
           )}
         </div>
       </div>
 
       {notice && (
-        <div className="mb-4 rounded-xl bg-amber-50 border border-amber-200 px-5 py-4 animate-fadeIn">
-          <p className="text-sm text-amber-700">{notice}</p>
+        <div className="mb-4 rounded-lg border border-mark-pending/40 bg-mark-pending/10 px-5 py-4">
+          <p className="text-sm text-mark-pending">{notice}</p>
         </div>
       )}
 
       {errorMsg && (
-        <div className="mb-4 rounded-xl bg-red-50 border border-red-200 px-5 py-4 animate-fadeIn">
-          <p className="text-sm text-red-600">{errorMsg}</p>
+        <div className="mb-4 rounded-lg border border-mark-fail/40 bg-mark-fail/5 px-5 py-4">
+          <p className="text-sm text-mark-fail">{errorMsg}</p>
         </div>
       )}
 
       <div className="grid gap-6 lg:grid-cols-[260px_1fr]">
         {/* Left sidebar — campaign metadata only */}
-        <div className="space-y-3 animate-fadeInUp animation-delay-100 opacity-0" style={{ animationFillMode: "forwards" }}>
-          <h2 className="text-[10px] font-bold text-primary tracking-wider uppercase pt-1">
-            Campaign Metadata
+        <div className="space-y-3">
+          <h2 className="pt-1 text-sm font-semibold text-foreground">
+            Campaign metadata
           </h2>
           {campaignFields.length === 0 ? (
             <p className="text-xs text-muted-foreground italic">
@@ -466,48 +466,44 @@ export default function RunPage({
             </p>
           ) : (
             campaignFields.map((f) => (
-              <div key={f.key} className="glass rounded-xl px-4 py-3 animate-fadeInUpSmooth">
-                <dt className="text-[10px] font-bold uppercase tracking-wider text-indigo-500">
-                  {f.label}
-                </dt>
+              <dl key={f.key} className="rounded-lg border border-border bg-card px-4 py-3">
+                <FieldLabel as="dt">{f.label}</FieldLabel>
                 <dd className="mt-1 text-sm font-medium leading-snug text-foreground">
                   {f.value}
                 </dd>
-              </div>
+              </dl>
             ))
           )}
 
           {visualDirectionFields.length > 0 && (
             <>
-              <h2 className="text-[10px] font-bold text-primary tracking-wider uppercase pt-3">
-                Visual Direction
+              <h2 className="pt-3 text-sm font-semibold text-foreground">
+                Visual direction
               </h2>
               {visualDirectionFields.map((f) => (
-                <div key={f.key} className="glass rounded-xl px-4 py-3 animate-fadeInUpSmooth">
-                  <dt className="text-[10px] font-bold uppercase tracking-wider text-indigo-500">
-                    {f.label}
-                  </dt>
+                <dl key={f.key} className="rounded-lg border border-border bg-card px-4 py-3">
+                  <FieldLabel as="dt">{f.label}</FieldLabel>
                   <dd className="mt-1 text-sm font-medium leading-snug text-foreground break-words break-all">
                     {f.value}
                   </dd>
-                </div>
+                </dl>
               ))}
             </>
           )}
         </div>
 
         {/* Right content area */}
-        <div className="animate-fadeInUp animation-delay-200 opacity-0" style={{ animationFillMode: "forwards" }}>
+        <div>
           <div
             className={`grid gap-6 ${hasRightColumn ? "lg:grid-cols-[1fr_380px]" : ""}`}
           >
             {/* Event stream */}
-            <div className="glass rounded-2xl overflow-hidden">
+            <div className="rounded-lg border border-border bg-card overflow-hidden">
               <div className="px-5 py-3 border-b border-border flex items-center justify-between">
                 <h3 className="text-sm font-semibold text-foreground">
-                  Event Stream
+                  Event stream
                 </h3>
-                <span className="text-[10px] text-muted-foreground tabular-nums">
+                <span className="text-xs text-muted-foreground tabular-nums">
                   {events.length} event{events.length !== 1 ? "s" : ""}
                 </span>
               </div>
@@ -516,12 +512,12 @@ export default function RunPage({
               {/* Status bar */}
               <div className="border-t border-border px-5 py-3 flex items-center gap-2.5">
                 <span
-                  className={`inline-block h-2.5 w-2.5 rounded-full ${statusConfig[status].color} ${status === "running" ? "animate-pulse" : ""} shadow-lg ${statusConfig[status].glow}`}
+                  className={`inline-block h-2.5 w-2.5 rounded-full ${statusConfig[status].color} ${status === "running" ? "animate-pulse" : ""}`}
                 />
                 {status === "running" && (
                   <span className="text-sm text-muted-foreground flex items-center gap-1.5">
                     Agent is processing
-                    <span className="processing-dots text-blue-500">
+                    <span className="processing-dots text-primary">
                       <span />
                       <span />
                       <span />
@@ -529,22 +525,22 @@ export default function RunPage({
                   </span>
                 )}
                 {status === "paused" && (
-                  <span className="text-sm text-amber-600 font-medium">
+                  <span className="text-sm text-mark-pending font-medium">
                     Waiting for review
                   </span>
                 )}
                 {status === "completed" && (
-                  <span className="text-sm text-emerald-600 font-medium">
+                  <span className="text-sm text-mark-pass font-medium">
                     Run completed
                   </span>
                 )}
                 {status === "error" && (
-                  <span className="text-sm text-red-600 font-medium">
+                  <span className="text-sm text-mark-fail font-medium">
                     Run failed
                   </span>
                 )}
                 {status === "stalled" && (
-                  <span className="text-sm text-yellow-700 font-medium">
+                  <span className="text-sm text-mark-pending font-medium">
                     Run may have stalled — no activity for a while. It may still
                     be running in the background; reload to reconnect.
                   </span>
@@ -571,10 +567,8 @@ export default function RunPage({
 
                 {/* Research Report */}
                 {researchReportUrl && (
-                  <div className="glass rounded-xl px-4 py-3 animate-fadeInUpSmooth">
-                    <dt className="text-[10px] font-bold uppercase tracking-wider text-amber-600">
-                      Research Report
-                    </dt>
+                  <dl className="rounded-lg border border-border bg-card px-4 py-3">
+                    <FieldLabel as="dt">Research report</FieldLabel>
                     <dd className="mt-1.5">
                       <a
                         href={researchReportUrl}
@@ -595,10 +589,10 @@ export default function RunPage({
                             d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
                           />
                         </svg>
-                        View PDF Report
+                        View PDF report
                       </a>
                     </dd>
-                  </div>
+                  </dl>
                 )}
 
                 {/* Trend cards — only for completed trend_scout runs */}
@@ -624,9 +618,9 @@ export default function RunPage({
       {/* Floating toast to guide user to results page */}
       {showResultsToast && (
         <div className="fixed bottom-6 right-6 z-50 animate-in slide-in-from-bottom-4 fade-in duration-300">
-          <div className="glass-strong rounded-2xl shadow-xl shadow-black/8 flex items-center gap-4 px-5 py-4">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-emerald-50">
-              <span className="inline-block h-3 w-3 rounded-full bg-emerald-500 shadow-lg shadow-emerald-500/20" />
+          <div className="rounded-lg border border-border bg-card shadow-lg flex items-center gap-4 px-5 py-4">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-mark-pass/10">
+              <span className="inline-block h-3 w-3 rounded-full bg-mark-pass" />
             </div>
             <div className="mr-2">
               <p className="text-sm font-semibold text-foreground">
@@ -637,11 +631,11 @@ export default function RunPage({
               </p>
             </div>
             <Button size="sm" onClick={() => router.push(resultsUrl)}>
-              View Results
+              View results
             </Button>
             <button
               onClick={() => setToastDismissed(true)}
-              className="ml-1 flex h-6 w-6 items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-black/5 transition-colors"
+              className="ml-1 flex h-6 w-6 items-center justify-center rounded-sm text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
               aria-label="Dismiss"
             >
               &times;

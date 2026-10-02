@@ -27,19 +27,8 @@ export function formatEventTime(timestamp: number | undefined | null): string {
   return Number.isNaN(d.getTime()) ? "" : d.toLocaleTimeString();
 }
 
-/** Map agent name to a colored dot */
-function agentColor(author: string): string {
-  if (author.includes("trend")) return "bg-emerald-500";
-  if (author.includes("creative") || author.includes("composer")) return "bg-violet-500";
-  if (author.includes("search") || author.includes("research")) return "bg-indigo-500";
-  if (author.includes("evaluator") || author.includes("critic")) return "bg-amber-500";
-  if (author.includes("planner")) return "bg-pink-500";
-  return "bg-blue-500";
-}
-
 function EventItem({ event, isLast }: { event: AgentEvent; isLast: boolean }) {
   const parts = event.content?.parts || [];
-  const color = agentColor(event.author || "");
 
   return (
     <div className="relative pl-8 pb-4 last:pb-2">
@@ -48,9 +37,9 @@ function EventItem({ event, isLast }: { event: AgentEvent; isLast: boolean }) {
 
       {/* Timeline dot */}
       <div
-        className={`absolute left-0 top-1.5 h-6 w-6 rounded-full flex items-center justify-center ring-4 ring-background ${color}/15`}
+        className="absolute left-0 top-1.5 h-6 w-6 rounded-full flex items-center justify-center bg-card ring-4 ring-card"
       >
-        <span className={`h-2.5 w-2.5 rounded-full ${color}`} />
+        <span className="h-2.5 w-2.5 rounded-full border-2 border-muted-foreground bg-card" />
       </div>
 
       {/* Content */}
@@ -58,12 +47,12 @@ function EventItem({ event, isLast }: { event: AgentEvent; isLast: boolean }) {
         <div className="flex items-center gap-2">
           <Badge
             variant="outline"
-            className="text-[10px] font-mono border-border bg-muted/50"
+            className="text-[10px] font-mono bg-muted"
           >
             {event.author}
           </Badge>
           {formatEventTime(event.timestamp) && (
-            <span className="text-[10px] text-muted-foreground tabular-nums">
+            <span className="text-xs text-muted-foreground tabular-nums">
               {formatEventTime(event.timestamp)}
             </span>
           )}
@@ -84,7 +73,7 @@ function EventItem({ event, isLast }: { event: AgentEvent; isLast: boolean }) {
             return (
               <div
                 key={i}
-                className="mt-1 rounded-lg bg-muted/50 border border-border px-3 py-2 font-mono text-xs"
+                className="mt-1 rounded-md bg-muted/60 px-3 py-2 font-mono text-xs"
               >
                 <span className="text-primary font-semibold">
                   {part.functionCall.name}
@@ -102,7 +91,7 @@ function EventItem({ event, isLast }: { event: AgentEvent; isLast: boolean }) {
             return (
               <div
                 key={i}
-                className="mt-1 rounded-lg bg-muted/30 border border-border px-3 py-2 font-mono text-xs text-muted-foreground"
+                className="mt-1 rounded-md bg-muted/40 px-3 py-2 font-mono text-xs text-muted-foreground"
               >
                 {part.functionResponse.name} {"->"}
                 {" "}
@@ -136,9 +125,9 @@ export function EventLog({
         {events.length === 0 && (
           <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
             <div className="mb-3 flex space-x-1">
-              <div className="h-2 w-2 rounded-full bg-blue-500 animate-bounce" style={{ animationDelay: "0ms" }} />
-              <div className="h-2 w-2 rounded-full bg-violet-500 animate-bounce" style={{ animationDelay: "150ms" }} />
-              <div className="h-2 w-2 rounded-full bg-emerald-500 animate-bounce" style={{ animationDelay: "300ms" }} />
+              <div className="h-2 w-2 rounded-full bg-primary animate-bounce" style={{ animationDelay: "0ms" }} />
+              <div className="h-2 w-2 rounded-full bg-primary/70 animate-bounce" style={{ animationDelay: "150ms" }} />
+              <div className="h-2 w-2 rounded-full bg-primary/40 animate-bounce" style={{ animationDelay: "300ms" }} />
             </div>
             <p className="text-sm">Waiting for events...</p>
           </div>

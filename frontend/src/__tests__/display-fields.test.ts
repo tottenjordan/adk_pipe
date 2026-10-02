@@ -68,8 +68,8 @@ describe("VISUAL_DIRECTION_FIELDS", () => {
     };
     const fields = buildDisplayFields(state, VISUAL_DIRECTION_FIELDS);
     expect(fields).toEqual([
-      { label: "Art Direction", key: "visual_intent", value: "moody film noir" },
-      { label: "Aspect Ratio", key: "visual_aspect_ratio", value: "1:1" },
+      { label: "Art direction", key: "visual_intent", value: "moody film noir" },
+      { label: "Aspect ratio", key: "visual_aspect_ratio", value: "1:1" },
     ]);
   });
 });
