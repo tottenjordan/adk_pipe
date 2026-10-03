@@ -7,10 +7,10 @@ const ROUTES: { method: string; match: (p: string[]) => boolean; userAt?: number
   { method: "POST", match: (p) => p.length === 2 && p[0] === "runs", bodyUser: true },
   { method: "GET", match: (p) => p.length === 4 && p[0] === "runs", userAt: 2 },
   { method: "POST", match: (p) => p.length === 5 && p[0] === "runs" && p[4] === "resume", userAt: 2 },
-  // Bandit experiments (docs/bandit/contracts.md §5). Ids are validated below.
+  // Bandit experiments (docs/bandit/contracts.md §5, §8). Ids are validated below.
   { method: "POST", match: (p) => p.length === 1 && p[0] === "experiments", bodyUser: true },
   { method: "GET", match: (p) => p[0] === "experiments" && (p.length === 2 || p.length === 3
-      || (p.length === 4 && p[3] === "metrics")), userAt: 1 },
+      || (p.length === 4 && (p[3] === "metrics" || p[3] === "creatives"))), userAt: 1 },
   { method: "POST", match: (p) => p.length === 4 && p[0] === "experiments"
       && (p[3] === "traffic" || p[3] === "stop"), userAt: 1 },
 ];
