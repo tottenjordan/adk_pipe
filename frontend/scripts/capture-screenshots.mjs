@@ -500,6 +500,25 @@ async function main() {
     await page.close();
   }
 
+  // ── 16. Creative detail drawer (opened from the top scoreboard row; viewport) ──
+  {
+    console.log("16-experiment-creative-detail");
+    liveMock = { summary: LIVE_EXPERIMENT, metrics: LIVE_METRICS, creatives: LIVE_CREATIVES };
+    const page = await newPage(context);
+    await page.goto(`${BASE}/experiments/${LIVE_EXPERIMENT.experimentId}`, { waitUntil: "networkidle" });
+    await page.locator("#scoreboard-heading").waitFor();
+    await page.getByRole("button", { name: "Details for The Tone Dividend Bailout" }).click();
+    const drawer = page.getByRole("dialog");
+    await drawer.waitFor();
+    await drawer.getByRole("heading", { name: "Click rate by audience segment" }).waitFor();
+    await page.waitForFunction(() =>
+      [...document.querySelectorAll('[role="dialog"] img')].some((im) => im.naturalWidth > 0)
+    );
+    await page.waitForTimeout(300);
+    await shot(page, "16-experiment-creative-detail.png", { fullPage: false });
+    await page.close();
+  }
+
   // ── 4. Interactive run paused at the Review Ad Copies checkpoint ─────────
   {
     console.log("04-run-interactive-review");

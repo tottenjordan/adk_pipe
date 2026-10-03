@@ -16,6 +16,18 @@ export const SCOREBOARD_EXPLAIN = {
     "Reader groups for which this creative is the best choice. A creative can win a group without winning overall traffic.",
 } as const;
 
+/** Creative detail drawer (opened from a scoreboard row). */
+export const CREATIVE_DETAIL_EXPLAIN = {
+  numbers:
+    "Lift compares this creative's click rate with the rate of all creatives pooled together. Traffic share against click share shows whether it earns its keep: a click share above its traffic share means it gets more clicks than its slice of impressions would suggest. Missed clicks are the clicks it lost, on average per episode, by being shown to readers another creative would have suited better.",
+  overTime:
+    "Each point is the click rate in one slice of the run, oldest on the left. The dashed line is the simulator's true rate. Early slices can wander while the creative is shown less; points settling near the dashed line mean the evidence has caught up with the truth.",
+  segments:
+    "Each row is a reader group, and every bar uses the same scale, so you can compare across groups and across creatives. The dark tick is the true rate for that group. Rows marked best are the groups this creative should be shown to; for the others, the named creative is the better choice.",
+  grid:
+    "Rows are creatives, columns are reader groups. A darker cell means a higher click rate, on one scale for the whole grid. The outlined cell in each column is the best creative for that group: if the outlines sit in different rows, different readers want different creatives.",
+} as const;
+
 /** Analysis charts, keyed like CHART_HELP. */
 export const CHART_EXPLAIN = {
   avgReward:

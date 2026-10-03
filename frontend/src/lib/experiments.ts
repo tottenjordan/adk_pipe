@@ -97,6 +97,25 @@ export type CreativeSeriesItem = {
   /** Segments where this creative is the optimal arm. */
   segmentsWon: string[];
   finalShare: number;
+  /** Per audience segment, sorted by segment name; the same list for every creative (absent from older APIs). */
+  segments?: CreativeSegmentStat[];
+  /** Mean per episode: expected clicks lost vs the best creative for the readers this one was shown to. */
+  missedClicks?: number;
+  /** Engaged seconds per 1,000 impressions; only for reward_mode "engaged", else null. */
+  engagedSecondsPer1k?: number | null;
+};
+
+/** One creative's results with one audience segment (contracts §8). */
+export type CreativeSegmentStat = {
+  segment: string;
+  impressions: number;
+  clicks: number;
+  /** Observed clicks / impressions; null with no impressions. */
+  ctr: number | null;
+  /** Simulator truth for this creative with this segment. */
+  trueCtr: number | null;
+  /** This creative is the best choice for the segment. */
+  isBest: boolean;
 };
 
 /** `GET …/creatives`: 20 equal round windows; creatives ordered by finalShare desc. */

@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, type PointerEvent } from "react";
+import { useState, type MouseEvent, type PointerEvent } from "react";
+import { ChevronRightIcon } from "lucide-react";
 import { ExplainPanel } from "@/components/explain";
 import { ProofImage } from "@/app/results/[sessionId]/proof-grid";
 import { CONDENSED } from "@/app/results/[sessionId]/score-mark";
@@ -15,7 +16,7 @@ const STRIP_W = 300;
 const STRIP_H = 64;
 
 const LANE_GRID =
-  "grid grid-cols-[4rem_minmax(0,1fr)] gap-x-4 gap-y-3 lg:grid-cols-[1.25rem_4rem_minmax(0,1fr)_6.5rem_6.5rem_6.5rem_minmax(0,1.35fr)] lg:items-center lg:gap-x-5";
+  "grid grid-cols-[4rem_minmax(0,1fr)] gap-x-4 gap-y-3 lg:grid-cols-[1.25rem_4rem_minmax(0,1fr)_6.5rem_6.5rem_6.5rem_minmax(0,1.35fr)_1.5rem] lg:items-center lg:gap-x-4";
 
 /** The experiment Overview: one interpretation sentence, then one lane per creative. */
 export function CreativeScoreboard({
@@ -24,6 +25,7 @@ export function CreativeScoreboard({
   series,
   explain,
   emptyMessage,
+  onOpen,
 }: {
   lanes: Lane[];
   insights: ExperimentInsights;
@@ -31,6 +33,8 @@ export function CreativeScoreboard({
   explain: boolean;
   /** Direction shown in place of the headline before there are results. */
   emptyMessage: string;
+  /** Open the creative detail drawer for a row. */
+  onOpen?: (creativeId: string) => void;
 }) {
   const k = lanes.length;
   const yMax = sharedShareMax(lanes, k);
@@ -79,7 +83,7 @@ export function CreativeScoreboard({
           <span className="text-right">Click rate</span>
           <span className="text-right">Segments won</span>
           <span className="flex flex-wrap justify-between gap-x-3">
-            <span>Share of traffic over the run{hasResults ? `, 0–${formatPercent(yMax)}` : ""}</span>
+            <span>Traffic share over the run{hasResults ? `, 0–${formatPercent(yMax)}` : ""}</span>
             {hasResults && even > 0 && (
               <span className="inline-flex items-center gap-1.5 tabular-nums">
                 <span className="h-px w-4 bg-[#9aa5ae]" />
@@ -87,6 +91,7 @@ export function CreativeScoreboard({
               </span>
             )}
           </span>
+          <span />
         </div>
 
         <ExplainPanel open={explain} className="px-4">
@@ -95,7 +100,17 @@ export function CreativeScoreboard({
 
         <ol className="divide-y divide-border">
           {lanes.map((lane) => (
-            <li key={lane.creativeId} className="px-4 py-4">
+            <li
+              key={lane.creativeId}
+              // The row's button is the accessible control; a click anywhere else on
+              // the row is a mouse shortcut for it (Explain text excepted).
+              onClick={onOpen ? (e) => rowClick(e, () => onOpen(lane.creativeId)) : undefined}
+              className={cn(
+                "relative px-4 py-4",
+                onOpen &&
+                  "cursor-pointer hover:bg-muted/45 has-[[data-row-open]:focus-visible]:bg-muted/45"
+              )}
+            >
               <div className={LANE_GRID}>
                 {/* Ranks only mean something once traffic has run. */}
                 <span
@@ -109,7 +124,7 @@ export function CreativeScoreboard({
                   alt={lane.name}
                   className="size-16 text-[0px]"
                 />
-                <div className="min-w-0 self-center">
+                <div className="min-w-0 self-center pr-8 lg:pr-0">
                   <p className="flex items-center gap-2 text-sm font-semibold text-foreground">
                     <span aria-hidden className="size-2.5 shrink-0 rounded-full" style={{ backgroundColor: lane.color }} />
                     <span className="truncate" title={lane.name}>
@@ -150,19 +165,45 @@ export function CreativeScoreboard({
                   )}
                   <ShareStrip lane={lane} yMax={yMax} even={even} windows={windows} />
                 </div>
+
+                {onOpen && (
+                  <button
+                    type="button"
+                    data-row-open
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onOpen(lane.creativeId);
+                    }}
+                    aria-label={`Details for ${lane.name}`}
+                    aria-haspopup="dialog"
+                    className="absolute top-4 right-3 inline-flex size-8 items-center justify-center rounded-sm text-muted-foreground outline-none hover:bg-muted hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50 lg:static lg:justify-self-end"
+                  >
+                    <ChevronRightIcon className="size-5" />
+                  </button>
+                )}
               </div>
 
-              <ExplainPanel
-                open={explain}
-                reading={insights.lanes[lane.creativeId]}
-                className="lg:pl-[7.75rem]"
-              />
+              <div data-explain className="cursor-auto">
+                <ExplainPanel
+                  open={explain}
+                  reading={insights.lanes[lane.creativeId]}
+                  className="lg:pl-[7.75rem]"
+                />
+              </div>
             </li>
           ))}
         </ol>
       </div>
     </section>
   );
+}
+
+/** Row click → open, unless it landed in the Explain text, on another control, or ended a text selection. */
+function rowClick(e: MouseEvent<HTMLLIElement>, open: () => void) {
+  const t = e.target as HTMLElement;
+  if (t.closest("[data-explain], a, button, input, select, textarea")) return;
+  if (window.getSelection()?.toString()) return;
+  open();
 }
 
 function Figure({ label, value, note, title }: { label: string; value: string; note?: string; title?: string }) {
