@@ -1,15 +1,22 @@
 """Pure aggregation of ``bandit_events`` rows into the contracts §8 ``CreativeSeries``.
 
-Inputs are the raw rows of the three ``runserver.experiments_store`` series queries:
+Inputs are the raw rows of the four ``runserver.experiments_store`` series queries:
 - ``rows``: one per (arm, episode, win) with ``impressions``, ``clicks``,
   ``horizon`` and ``n_windows`` (``build_creative_series_sql``);
 - ``segment_rows``: ``(segment, optimal_arm, n)`` (``build_segment_winners_sql``);
-- ``true_rows``: ``(arm, true_ctr)`` (``build_true_ctr_sql``).
+- ``true_rows``: ``(arm, true_ctr)`` (``build_true_ctr_sql``);
+- ``creative_segment_rows``: one per (arm, segment) with ``impressions``,
+  ``clicks``, ``p_sum``, ``p_n``, ``regret_sum``, ``dwell_sum``
+  (``build_creative_segments_sql``).
 
 Per window: ``share`` is the mean across episodes of each episode's share of that
 window's impressions (normalized to sum to 1 across creatives); ``ctr`` is pooled
 clicks / impressions (``None`` with no impressions); ``cumClicks`` is the mean
-cumulative clicks per episode at the window end. Pure Python: the api image has no
+cumulative clicks per episode at the window end. Per creative, ``segments`` is the
+per-segment breakdown (the same sorted segment list for every creative, zero rows
+included), ``missedClicks`` the mean per-episode ``SUM(regret)`` and
+``engagedSecondsPer1k`` the dwell seconds per 1000 impressions (``engaged`` reward
+mode only). Pure Python: the api image has no
 numpy/JAX.
 """
 
@@ -69,7 +76,70 @@ def _empty_creative(cid: str) -> dict:
         "trueCtr": None,
         "segmentsWon": [],
         "finalShare": 0.0,
+        "segments": [],
+        "missedClicks": 0,
+        "engagedSecondsPer1k": None,
     }
+
+
+def _segment_fields(
+    rows: Iterable[Mapping[str, Any]],
+    order: Sequence[str],
+    won: Mapping[str, list[str]],
+    n_eps: int,
+    reward_mode: str,
+) -> dict[str, dict[str, Any]]:
+    """``{creativeId: {segments, missedClicks, engagedSecondsPer1k}}`` from the
+    ``build_creative_segments_sql`` rows (rows with a NULL segment still count
+    towards the creative-level totals)."""
+    cells: dict[tuple[str, str], dict[str, float]] = defaultdict(
+        lambda: defaultdict(float)
+    )
+    totals: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
+    segs: set[str] = set()
+    for row in rows:
+        if row.get("arm") is None:
+            continue
+        cid, seg = str(row["arm"]), row.get("segment")
+        tot = totals[cid]
+        tot["impressions"] += int(row.get("impressions") or 0)
+        tot["regret"] += float(row.get("regret_sum") or 0.0)
+        tot["dwell"] += float(row.get("dwell_sum") or 0.0)
+        if seg is None:
+            continue
+        segs.add(str(seg))
+        cell = cells[(cid, str(seg))]
+        cell["impressions"] += int(row.get("impressions") or 0)
+        cell["clicks"] += int(row.get("clicks") or 0)
+        cell["p_sum"] += float(row.get("p_sum") or 0.0)
+        cell["p_n"] += int(row.get("p_n") or 0)
+
+    out: dict[str, dict[str, Any]] = {}
+    for cid in order:
+        segments = []
+        for seg in sorted(segs):
+            cell = cells.get((cid, seg), {})
+            imps, clicks = int(cell.get("impressions", 0)), int(cell.get("clicks", 0))
+            p_n = int(cell.get("p_n", 0))
+            segments.append(
+                {
+                    "segment": seg,
+                    "impressions": imps,
+                    "clicks": clicks,
+                    "ctr": _r(clicks / imps) if imps else None,
+                    "trueCtr": _r(cell["p_sum"] / p_n) if p_n else None,
+                    "isBest": seg in won.get(cid, []),
+                }
+            )
+        tot = totals.get(cid, {})
+        imps = int(tot.get("impressions", 0))
+        engaged = reward_mode == "engaged" and imps > 0
+        out[cid] = {
+            "segments": segments,
+            "missedClicks": _r(tot.get("regret", 0.0) / n_eps) if n_eps else 0,
+            "engagedSecondsPer1k": _r(1000 * tot["dwell"] / imps) if engaged else None,
+        }
+    return out
 
 
 def build_creative_series(
@@ -79,13 +149,18 @@ def build_creative_series(
     arms: Sequence[Any],
     windows: int = 20,
     experiment_id: str = "",
+    creative_segment_rows: Iterable[Mapping[str, Any]] = (),
+    reward_mode: str = "click",
 ) -> dict:
     """The §8 ``CreativeSeries`` (camelCase), creatives ordered by ``finalShare``
     desc (ties keep the experiment's arm order). ``arms`` is the experiment row's
-    §5 arm list (or bare creative ids); arms seen only in the events are appended."""
+    §5 arm list (or bare creative ids); arms seen only in the events are appended.
+    ``reward_mode`` is the experiment's (``engaged`` enables
+    ``engagedSecondsPer1k``)."""
     rows = list(rows)
+    seg_rows = list(creative_segment_rows)
     order = _arm_ids(arms)
-    for row in rows:
+    for row in [*rows, *seg_rows]:
         if row.get("arm") is not None and str(row["arm"]) not in order:
             order.append(str(row["arm"]))
     if not rows:
@@ -134,6 +209,8 @@ def build_creative_series(
     for seg, arm in sorted(segment_winners(segment_rows).items()):
         won[arm].append(seg)
 
+    extra = _segment_fields(seg_rows, order, won, n_eps, reward_mode)
+
     creatives: list[dict[str, Any]] = []
     for cid in order:
         share = [
@@ -160,6 +237,7 @@ def build_creative_series(
                 "trueCtr": _r(true_ctr[cid]) if cid in true_ctr else None,
                 "segmentsWon": won.get(cid, []),
                 "finalShare": share[-1] if share else 0.0,
+                **extra[cid],
             }
         )
     rank = {cid: i for i, cid in enumerate(order)}

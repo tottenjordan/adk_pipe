@@ -222,13 +222,24 @@ type CreativeSeries = {
     trueCtr: number | null;   // simulator truth: mean p_chosen when this creative was chosen
     segmentsWon: string[];    // segments whose most frequent bandit_events.optimal_arm is this creative (ties → lowest id), sorted
     finalShare: number;       // share in the last window
+    segments: {
+      segment: string;        // bandit_events.segment
+      impressions: number;    // total over all episodes
+      clicks: number;         // SUM(clicked)
+      ctr: number | null;     // clicks / impressions; null when 0 impressions
+      trueCtr: number | null; // mean p_chosen for this creative in this segment; null when 0 impressions
+      isBest: boolean;        // segment ∈ this creative's segmentsWon
+    }[];                      // every segment seen in the experiment's events (zero-impression rows included, so every creative has the same list), sorted by name
+    missedClicks: number;     // mean per episode of SUM(regret) over this creative's rows (expected clicks lost vs the best creative for those readers)
+    engagedSecondsPer1k: number | null; // 1000 · SUM(dwell_s) / impressions when the experiment's reward_mode is "engaged"; null otherwise or with 0 impressions
   }[];                        // ordered by finalShare desc (ties keep the experiment's arm order)
 };
 ```
 
 - **Source:** `bandit_events` rows with `policy = 'linear_ts'` only (the endpoint policy; the traffic job logs nothing else there).
 - **Windows:** `nw = min(20, horizon)` windows. A round's window is `DIV(round * nw, horizon)` (exact integer floor, clamped to `nw - 1`), so window `w` is `[ceil(w·H/nw), ceil((w+1)·H/nw))`. With the default horizons there are always 20.
-- **Numbers** are rounded to 4 decimal places; `share` is renormalized per window before rounding.
-- **Empty** (no events yet): `episodes: 0`, `horizon: null`, `windows: []`, and one entry per experiment arm with empty arrays, zero counts, `trueCtr: null`, `segmentsWon: []`, `finalShare: 0`. Creatives seen in events but not in the experiment's arms are appended.
+- **Numbers** are rounded to 4 decimal places (including `missedClicks` and `engagedSecondsPer1k`); `share` is renormalized per window before rounding.
+- **Empty** (no events yet): `episodes: 0`, `horizon: null`, `windows: []`, and one entry per experiment arm with empty arrays, zero counts, `trueCtr: null`, `segmentsWon: []`, `finalShare: 0`, `segments: []`, `missedClicks: 0`, `engagedSecondsPer1k: null`. Creatives seen in events but not in the experiment's arms are appended.
 - **Caching** (in-process LRU, 64 experiments): 30 s while the experiment is `running_traffic`; indefinitely once `stopped` or `expired` (the data is final); not cached in any other status.
-- **Implementation:** three parameterized queries (`runserver/experiments_store.py`: `build_creative_series_sql`, `build_segment_winners_sql`, `build_true_ctr_sql`) run concurrently; `runserver/experiments_series.py::build_creative_series` does the cross-episode aggregation in pure Python. A 20-episode × 40k-round experiment (800k events) processes about 134 MB across the three queries in about 1 s each.
+- **Implementation:** four parameterized queries (`runserver/experiments_store.py`: `build_creative_series_sql`, `build_segment_winners_sql`, `build_true_ctr_sql`, `build_creative_segments_sql`) run concurrently; `runserver/experiments_series.py::build_creative_series` does the cross-episode aggregation in pure Python. A 20-episode × 40k-round experiment (800k events) processes about 134 MB across the three queries in about 1 s each.
+- **Per-segment fields** (added 2026-10-03, additive): `build_creative_segments_sql` groups the `linear_ts` rows by `(arm, segment)` and returns `COUNT(*)`, `SUM(clicked)` (`clicked` is INT64 0/1), `SUM(p_chosen)` + `COUNT(p_chosen)`, `SUM(regret)` and `SUM(dwell_s)` (NULLs as 0). `segments[].trueCtr` = `SUM(p_chosen) / COUNT(p_chosen)`; `missedClicks` = the creative's `SUM(regret)` / `episodes`; `engagedSecondsPer1k` uses the experiment row's `reward_mode`. `isBest` mirrors `segmentsWon` (the `optimal_arm` mode, not this query).
