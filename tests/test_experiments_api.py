@@ -609,6 +609,62 @@ def test_metrics_empty_then_aggregated():
     assert full["arms"][0]["impressions"] == 20
 
 
+def test_creative_series_owner_empty_populated_and_cache():
+    h = Harness()
+
+    async def go():
+        await h.session()
+        eid = (await h.create()).json()["experimentId"]
+        await ex.drain()
+        c = h.client
+        foreign = await c.get(f"/experiments/{B}/{eid}/creatives")
+        missing = await c.get(f"/experiments/{A}/ffffffffffffffff/creatives")
+        empty = (await c.get(f"/experiments/{A}/{eid}/creatives")).json()
+        a0, a1 = (a["creativeId"] for a in h.store.rows[eid]["arms"])
+        h.store.add_events(
+            eid,
+            [
+                {
+                    "policy": "linear_ts",
+                    "episode": ep,
+                    "round": r,
+                    "arm": a1 if r >= 20 or r % 2 else a0,
+                    "clicked": int(r % 4 == 0),
+                    "segment": "seg",
+                    "optimal_arm": a1,
+                    "p_chosen": 0.05,
+                }
+                for ep in (0, 1)
+                for r in range(40)
+            ],
+        )
+        # "ready" is not cached, so the new events show up immediately.
+        full = (await c.get(f"/experiments/{A}/{eid}/creatives")).json()
+        await h.store.upsert({**h.store.rows[eid], "status": "stopped"})
+        stopped = (await c.get(f"/experiments/{A}/{eid}/creatives")).json()
+        h.store.add_events(
+            eid, [{"policy": "linear_ts", "episode": 9, "round": 0, "arm": a0}]
+        )
+        cached = (await c.get(f"/experiments/{A}/{eid}/creatives")).json()
+        return eid, (a0, a1), foreign, missing, empty, full, stopped, cached
+
+    eid, (a0, a1), foreign, missing, empty, full, stopped, cached = run(go)
+    assert foreign.status_code == 404 and missing.status_code == 404
+    assert foreign.json()["detail"]["reason"] == "not_found"
+    assert empty["experimentId"] == eid and empty["episodes"] == 0
+    assert empty["horizon"] is None and empty["windows"] == []
+    assert [c["creativeId"] for c in empty["creatives"]] == [a0, a1]
+    assert all(c["share"] == [] for c in empty["creatives"])
+    assert full["episodes"] == 2 and full["horizon"] == 40
+    assert len(full["windows"]) == 20
+    assert [c["creativeId"] for c in full["creatives"]] == [a1, a0]
+    top = full["creatives"][0]
+    assert top["finalShare"] == 1.0 and top["segmentsWon"] == ["seg"]
+    assert full["creatives"][1]["ctr"][-1] is None
+    assert stopped == full
+    assert cached == stopped  # stopped -> cached indefinitely
+
+
 def test_enforce_mode_foreign_users():
     h = Harness(mode=AuthzMode.ENFORCE)
     alice = {"authorization": "Bearer proxy", "x-tt-user": A}

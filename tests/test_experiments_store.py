@@ -12,10 +12,13 @@ from runserver.experiments_store import (
     EXPERIMENT_COLUMN_TYPES,
     BigQueryExperimentStore,
     InMemoryExperimentStore,
+    build_creative_series_sql,
     build_get_sql,
     build_list_active_sql,
     build_list_sql,
     build_metrics_sql,
+    build_segment_winners_sql,
+    build_true_ctr_sql,
     build_upsert_sql,
     decode_row,
     table_names,
@@ -106,6 +109,67 @@ def test_read_sql_builders():
     assert set(p.values) == {"deploying", "ready", "running_traffic", "stopping"}
     sql, (p,) = build_metrics_sql("p.d.m", "e1")
     assert "`p.d.m`" in sql and "ORDER BY episode, policy" in sql
+
+
+def _params(params):
+    return {p.name: (p.type_, p.value) for p in params}
+
+
+def test_creative_series_sql_window_expression_and_params():
+    sql, params = build_creative_series_sql("p.d.ev", "e1", windows=20)
+    assert "FROM `p.d.ev`" in sql
+    assert "WHERE experiment_id = @experiment_id AND policy = @policy" in sql
+    assert "MAX(round) + 1 AS horizon" in sql
+    assert "LEAST(@windows, MAX(round) + 1) AS nw" in sql
+    assert "LEAST(DIV(ev.round * h.nw, h.horizon), h.nw - 1) AS win" in sql
+    assert "GROUP BY arm, episode, win" in sql
+    assert "e1" not in sql  # bound, never interpolated
+    assert _params(params) == {
+        "experiment_id": ("STRING", "e1"),
+        "policy": ("STRING", "linear_ts"),
+        "windows": ("INT64", 20),
+    }
+    with pytest.raises(ValueError):
+        build_creative_series_sql("p.d.ev", "e1", windows=0)
+
+
+def test_segment_and_true_ctr_sql():
+    sql, params = build_segment_winners_sql("p.d.ev", "e1")
+    assert "GROUP BY segment, optimal_arm" in sql and "COUNT(*) AS n" in sql
+    assert "policy = @policy" in sql
+    assert _params(params)["policy"] == ("STRING", "linear_ts")
+    sql, params = build_true_ctr_sql("p.d.ev", "e1")
+    assert "AVG(p_chosen) AS true_ctr" in sql and "GROUP BY arm" in sql
+    assert _params(params)["experiment_id"] == ("STRING", "e1")
+
+
+def test_bigquery_store_creative_series_runs_three_queries():
+    fake = _FakeBQ([])
+    store = BigQueryExperimentStore(
+        tables={"experiments": T, "events": "p.d.ev", "metrics": "p.d.m"},
+        client_factory=lambda: fake,
+    )
+    got = asyncio.run(store.creative_series_rows("e1"))
+    assert got == {"series": [], "segments": [], "true_ctr": []}
+    assert len(fake.calls) == 3 and all("`p.d.ev`" in c[0] for c in fake.calls)
+
+
+def test_in_memory_store_creative_series_rows():
+    store = InMemoryExperimentStore()
+    assert asyncio.run(store.creative_series_rows("e1"))["series"] == []
+    store.add_events(
+        "e1",
+        [
+            {"policy": "linear_ts", "episode": 0, "round": r, "arm": "a", "clicked": 1}
+            for r in range(3)
+        ],
+    )
+    rows = asyncio.run(store.creative_series_rows("e1"))["series"]
+    assert [(r["win"], r["impressions"], r["horizon"]) for r in rows] == [
+        (0, 1, 3),
+        (1, 1, 3),
+        (2, 1, 3),
+    ]
 
 
 def test_table_names_from_env():

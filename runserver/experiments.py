@@ -4,7 +4,8 @@ A user picks 2-4 creatives from a finished creative run; the api snapshots them 
 bandit arms, writes ``experiment.json`` (a §1 ``experiment_config_to_dict``) under
 ``BANDIT_ARTIFACTS_PREFIX/{id}/``, records a ``bandit_experiments`` row and deploys a
 Vertex endpoint in a detached task. Synthetic traffic runs as a Cloud Run Job;
-``/metrics`` aggregates the job's ``bandit_episode_metrics`` rows.
+``/metrics`` aggregates the job's ``bandit_episode_metrics`` rows; ``/creatives``
+builds the §8 per-creative time series from ``bandit_events``.
 
 Status machine (``next_status``)::
 
@@ -29,7 +30,9 @@ import datetime as dt
 import json
 import logging
 import os
+import time
 import uuid
+from collections import OrderedDict
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
@@ -47,6 +50,7 @@ from runserver.authz import (
 from runserver.experiments_deploy import ID_FIELDS, FakeDeployer, VertexDeployer
 from runserver.experiments_jobs import CloudRunJobsRunner, FakeJobsRunner
 from runserver.experiments_metrics import aggregate_episode_metrics
+from runserver.experiments_series import build_creative_series
 from runserver.experiments_store import (
     ACTIVE_STATUSES,
     BigQueryExperimentStore,
@@ -521,6 +525,12 @@ _DEPLOY_TASKS: dict[str, asyncio.Task] = {}
 _TEARDOWN_TASKS: dict[str, asyncio.Task] = {}
 _TRAFFIC_STARTING: set[str] = set()
 _LOCKS: dict[str, asyncio.Lock] = {}
+# /creatives cache: experiment_id -> (expires_at monotonic | None = forever, body).
+# Live traffic refreshes every 30 s; a stopped/expired experiment's data is final.
+SERIES_LIVE_TTL_SECONDS = 30.0
+SERIES_FINAL_STATUSES = ("stopped", "expired")
+SERIES_CACHE_MAX = 64
+_SERIES_CACHE: OrderedDict[str, tuple[float | None, dict]] = OrderedDict()
 
 
 def configure(
@@ -544,6 +554,7 @@ def configure(
     _TEARDOWN_TASKS.clear()
     _TRAFFIC_STARTING.clear()
     _LOCKS.clear()
+    _SERIES_CACHE.clear()
 
 
 def _lock(key: str) -> asyncio.Lock:
@@ -934,6 +945,50 @@ async def http_get_metrics(user_id: str, experiment_id: str) -> dict:
     rows = await _STORE.metrics_rows(experiment_id)
     arm_order = [a.get("creativeId") for a in row.get("arms") or []]
     return aggregate_episode_metrics(rows, experiment_id, arm_order=arm_order)
+
+
+def _series_cache_get(experiment_id: str) -> dict | None:
+    hit = _SERIES_CACHE.get(experiment_id)
+    if hit is None:
+        return None
+    expires_at, body = hit
+    if expires_at is not None and time.monotonic() >= expires_at:
+        _SERIES_CACHE.pop(experiment_id, None)
+        return None
+    _SERIES_CACHE.move_to_end(experiment_id)
+    return body
+
+
+def _series_cache_put(experiment_id: str, status: str, body: dict) -> None:
+    if status in SERIES_FINAL_STATUSES:
+        expires_at = None
+    elif status == "running_traffic":
+        expires_at = time.monotonic() + SERIES_LIVE_TTL_SECONDS
+    else:
+        return
+    _SERIES_CACHE[experiment_id] = (expires_at, body)
+    _SERIES_CACHE.move_to_end(experiment_id)
+    while len(_SERIES_CACHE) > SERIES_CACHE_MAX:
+        _SERIES_CACHE.popitem(last=False)
+
+
+@router.get("/experiments/{user_id}/{experiment_id}/creatives")
+async def http_get_creative_series(user_id: str, experiment_id: str) -> dict:
+    """Per-creative windowed time series from ``bandit_events`` (contracts §8)."""
+    row = await _owned(user_id, experiment_id)
+    cached = _series_cache_get(experiment_id)
+    if cached is not None:
+        return cached
+    raw = await _STORE.creative_series_rows(experiment_id)
+    body = build_creative_series(
+        raw.get("series", []),
+        raw.get("segments", []),
+        raw.get("true_ctr", []),
+        row.get("arms") or [],
+        experiment_id=experiment_id,
+    )
+    _series_cache_put(experiment_id, str(row.get("status") or ""), body)
+    return body
 
 
 @router.post("/experiments/{user_id}/{experiment_id}/traffic")
