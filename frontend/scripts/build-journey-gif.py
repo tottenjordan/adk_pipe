@@ -24,8 +24,16 @@ default 600; 0 disables) so the eye sees the screen first, then the spotlight.
 Output is quantized to an adaptive palette and written as a looping, optimized GIF.
 GIF_EXPORT_DIR=/some/dir also saves each annotated frame as a PNG for review.
 Pillow is used ephemerally via `uv run --no-project --with pillow`; it is not a project dep.
+
+Second journey (the live bandit experiment, its own phase strip from the manifest):
+
+    JOURNEY=experiments SCREENSHOT_BASE_URL=http://localhost:3600 npm run screenshots
+    uv run --no-project --with pillow python scripts/build-journey-gif.py \
+        --frames /tmp/tt-experiments-journey-frames \
+        --out ../docs/screenshots/experiments-journey.gif
 """
 
+import argparse
 import json
 import os
 from pathlib import Path
@@ -40,7 +48,9 @@ TRANSITION_MS = int(os.environ.get("GIF_TRANSITION_MS", "600"))  # 0 disables
 EXPORT_DIR = os.environ.get("GIF_EXPORT_DIR")  # optional: also dump annotated PNGs
 CAPTURE_W = 1440  # viewport width the highlight boxes are measured in
 
-PHASES = ["Brief", "Research", "Reviews", "Images & eval", "Results", "History"]
+# Default phase strip (the interactive-run journey). A manifest written as
+# {"phases": [...], "frames": [...]} (e.g. JOURNEY=experiments) brings its own.
+DEFAULT_PHASES = ["Brief", "Research", "Reviews", "Images & eval", "Results", "History"]
 
 INK = (26, 29, 33)  # #1A1D21
 MUTED = (150, 156, 164)
@@ -97,20 +107,20 @@ def contains(outer: tuple, inner: tuple) -> bool:
     )
 
 
-def draw_strip(draw: ImageDraw.ImageDraw, phase: str) -> None:
+def draw_strip(draw: ImageDraw.ImageDraw, phase: str, phases: list[str]) -> None:
     draw.rectangle([0, 0, WIDTH, STRIP_H], fill="white")
     draw.line([(0, STRIP_H - 1), (WIDTH, STRIP_H - 1)], fill=RULE, width=1)
-    current = PHASES.index(phase)
+    current = phases.index(phase)
     arrow = "  →  "
     pad_x = 12
     widths = [
         text_w(draw, p, F_STRIP_B if i == current else F_STRIP) + 2 * pad_x
-        for i, p in enumerate(PHASES)
+        for i, p in enumerate(phases)
     ]
     aw = text_w(draw, arrow, F_STRIP)
-    x = (WIDTH - (sum(widths) + aw * (len(PHASES) - 1))) // 2
+    x = (WIDTH - (sum(widths) + aw * (len(phases) - 1))) // 2
     cy = STRIP_H // 2
-    for i, (p, w) in enumerate(zip(PHASES, widths, strict=True)):
+    for i, (p, w) in enumerate(zip(phases, widths, strict=True)):
         if i == current:
             draw.rounded_rectangle([x, cy - 14, x + w, cy + 14], radius=14, fill=ACCENT)
             draw.text((x + w // 2, cy), p, fill=INK, font=F_STRIP_B, anchor="mm")
@@ -123,7 +133,7 @@ def draw_strip(draw: ImageDraw.ImageDraw, phase: str) -> None:
                 anchor="mm",
             )
         x += w
-        if i < len(PHASES) - 1:
+        if i < len(phases) - 1:
             draw.text((x, cy), arrow, fill=MUTED, font=F_STRIP, anchor="lm")
             x += aw
 
@@ -167,7 +177,7 @@ def place_label(
 
 
 def annotate(
-    shot: Image.Image, frame: dict, total: int, spotlight: bool
+    shot: Image.Image, frame: dict, total: int, spotlight: bool, phases: list[str]
 ) -> Image.Image:
     h = round(shot.height * WIDTH / shot.width)
     shot = shot.resize((WIDTH, h), Image.Resampling.LANCZOS)
@@ -192,7 +202,7 @@ def annotate(
     canvas = Image.new("RGB", (WIDTH, STRIP_H + h + CAPTION_H), "white")
     canvas.paste(shot, (0, STRIP_H))
     draw = ImageDraw.Draw(canvas)
-    draw_strip(draw, frame["phase"])
+    draw_strip(draw, frame["phase"], phases)
 
     if spotlight and boxes:
         moved = [(x0, y0 + STRIP_H, x1, y1 + STRIP_H) for x0, y0, x1, y1 in boxes]
@@ -251,17 +261,43 @@ def annotate(
     return canvas
 
 
+def parse_args() -> argparse.Namespace:
+    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    ap.add_argument(
+        "--frames",
+        type=Path,
+        default=FRAMES_DIR,
+        help="directory with the frame PNGs + journey-frames.json (default: $JOURNEY_OUT)",
+    )
+    ap.add_argument(
+        "--manifest",
+        type=Path,
+        help="manifest path (default: <frames>/journey-frames.json)",
+    )
+    ap.add_argument(
+        "--out", type=Path, default=OUT, help=f"output GIF (default: {OUT})"
+    )
+    return ap.parse_args()
+
+
 def main() -> None:
-    manifest = json.loads((FRAMES_DIR / "journey-frames.json").read_text())
+    args = parse_args()
+    manifest = json.loads(
+        (args.manifest or args.frames / "journey-frames.json").read_text()
+    )
+    if isinstance(manifest, dict):  # {"phases": [...], "frames": [...]}
+        phases, manifest = manifest["phases"], manifest["frames"]
+    else:
+        phases = DEFAULT_PHASES
     total = len(manifest)
     frames: list[Image.Image] = []
     durations: list[int] = []
     for f in manifest:
-        shot = Image.open(FRAMES_DIR / f["file"]).convert("RGB")
+        shot = Image.open(args.frames / f["file"]).convert("RGB")
         if f["highlights"] and TRANSITION_MS > 0:
-            frames.append(annotate(shot, f, total, spotlight=False))
+            frames.append(annotate(shot, f, total, spotlight=False, phases=phases))
             durations.append(TRANSITION_MS)
-        final = annotate(shot, f, total, spotlight=True)
+        final = annotate(shot, f, total, spotlight=True, phases=phases)
         frames.append(final)
         durations.append(int(f["hold_ms"]))
         if EXPORT_DIR:
@@ -274,7 +310,7 @@ def main() -> None:
         for im in frames
     ]
     paletted[0].save(
-        OUT,
+        args.out,
         save_all=True,
         append_images=paletted[1:],
         duration=durations,
@@ -284,7 +320,7 @@ def main() -> None:
     )
     w, h = frames[0].size
     print(
-        f"wrote {OUT} ({OUT.stat().st_size / 1e6:.2f} MB, {len(frames)} frames, {w}x{h})"
+        f"wrote {args.out} ({args.out.stat().st_size / 1e6:.2f} MB, {len(frames)} frames, {w}x{h})"
     )
 
 

@@ -20,6 +20,11 @@ Everything is **synthetic**: no real users, real traffic or ad serving are invol
 demo-grade MVP for showing how a contextual bandit behaves on the creatives a run produced, not
 a production ad server (see [Limitations](#limitations-not-ha)).
 
+<p align="center">
+  <img src="../screenshots/experiments-journey.gif" alt="Walkthrough of the first live bandit experiment: deploy, endpoint, traffic, results, stop" width="900">
+</p>
+<p align="center"><em>The first live experiment (<code>0693ea62bb7144ef</code>), from the Deploy panel to Stop; the charts are its real metrics after 20 episodes (see <a href="#live-measurements">Live measurements</a>).</em></p>
+
 **Source of truth for every interface:** [`contracts.md`](contracts.md). Implementation plan:
 [`docs/plans/2026-10-02-bandit-experiments.md`](../plans/2026-10-02-bandit-experiments.md).
 Offline simulation results: [`docs/experiments/bandit-simulation.md`](../experiments/bandit-simulation.md).

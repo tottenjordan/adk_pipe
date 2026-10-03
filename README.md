@@ -228,6 +228,11 @@ For pages, design system and configuration, see the [frontend guide](frontend/RE
 
 From a finished creative run, the results page's Deploy panel turns 2–4 approved creatives into the arms of a contextual bandit: JAX linear Thompson sampling served from a single-replica Agent Platform (Vertex AI) Custom Prediction Routine endpoint. A Cloud Run Job drives synthetic readers of a publisher page about the trend at it and replays five baseline policies on the same readers, and `/experiments/[id]` charts reward, regret, % optimal, arm share and per-segment winners. The api tears the endpoint down on Stop or when its TTL expires. Everything is synthetic. See the **[bandit experiments guide](docs/bandit/README.md)**.
 
+<p align="center">
+  <img src="docs/screenshots/experiments-journey.gif" alt="Walkthrough of a live bandit experiment: pick three creatives in the Deploy panel, wait for the endpoint, start synthetic traffic, compare reward, regret, per-segment winners and traffic share across strategies, then stop" width="900">
+</p>
+<p align="center"><em>A live experiment: deploy three creatives, run 20 episodes of synthetic readers, compare strategies, stop.</em></p>
+
 <table>
   <tr>
     <td align="center"><a href="docs/screenshots/12-experiment-detail.png"><img src="docs/screenshots/12-experiment-detail.png" alt="Bandit experiment detail page" width="420"></a><br><sub>Experiment detail: controls, arms and bandit charts</sub></td>
