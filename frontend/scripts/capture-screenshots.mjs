@@ -434,6 +434,14 @@ async function main() {
     );
     await settle(page);
     await shot(page, "12-experiment-detail.png");
+
+    // ── 13. The Stop "ⓘ" help popover, opened by keyboard focus (viewport) ──
+    console.log("13-experiment-help");
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await page.getByRole("button", { name: "About stop" }).focus();
+    await page.getByText("Stopping deletes the live endpoint").waitFor();
+    await page.waitForTimeout(250);
+    await shot(page, "13-experiment-help.png", { fullPage: false });
     await page.close();
   }
 

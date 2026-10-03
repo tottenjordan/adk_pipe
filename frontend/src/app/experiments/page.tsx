@@ -3,7 +3,8 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { buttonVariants } from "@/components/ui/button";
-import { ExperimentStatusLabel } from "@/components/experiment-status";
+import { ExperimentStatusLabel, StatusHelp } from "@/components/experiment-status";
+import { InfoTip } from "@/components/ui/info-tip";
 import { formatRunTime } from "@/lib/run-history";
 import {
   armName,
@@ -80,18 +81,23 @@ export default function ExperimentsPage() {
           </div>
         ) : (
           <>
+            {/* Visual column headers; only the status help button is exposed to assistive tech. */}
             <div
-              aria-hidden
               className={cn(
                 "hidden border-b border-border px-4 py-2 text-xs font-medium text-muted-foreground",
                 COLUMNS
               )}
             >
-              <span>Scenario</span>
-              <span>Creatives</span>
-              <span>Status</span>
-              <span>Created</span>
-              <span>Lifetime</span>
+              <span aria-hidden>Scenario</span>
+              <span aria-hidden>Creatives</span>
+              <span className="inline-flex items-center gap-1">
+                <span aria-hidden>Status</span>
+                <InfoTip label="About experiment status">
+                  <StatusHelp />
+                </InfoTip>
+              </span>
+              <span aria-hidden>Created</span>
+              <span aria-hidden>Lifetime</span>
             </div>
             <ul className="divide-y divide-border">
               {rows.map((row) => {

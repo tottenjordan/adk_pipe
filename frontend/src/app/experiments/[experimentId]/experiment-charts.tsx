@@ -1,6 +1,8 @@
 "use client";
 
 import type { ReactNode } from "react";
+import { InfoTip } from "@/components/ui/info-tip";
+import { CHART_HELP } from "@/lib/experiment-help";
 import { BarChart } from "@/components/charts/bar-chart";
 import { LineChart, Swatch } from "@/components/charts/line-chart";
 import { formatCompact, formatInt, formatPercent } from "@/lib/chart";
@@ -19,17 +21,28 @@ import {
 function ChartPanel({
   title,
   note,
+  help,
+  helpLabel,
   children,
   className,
 }: {
   title: string;
   note?: string;
+  /** Plain-language explanation shown in the title's "ⓘ" popover. */
+  help: string;
+  /** Accessible name for the "ⓘ" trigger, e.g. "About cumulative regret". */
+  helpLabel: string;
   children: ReactNode;
   className?: string;
 }) {
   return (
     <section className={`rounded-lg border border-border bg-card p-4 ${className ?? ""}`}>
-      <h3 className="text-sm font-semibold text-foreground">{title}</h3>
+      <div className="flex items-start gap-1.5">
+        <h3 className="text-sm font-semibold text-foreground">{title}</h3>
+        <InfoTip label={helpLabel} className="mt-0.5">
+          {help}
+        </InfoTip>
+      </div>
       {note && <p className="mt-0.5 text-xs text-muted-foreground">{note}</p>}
       <div className="mt-3">{children}</div>
     </section>
@@ -80,6 +93,8 @@ export function ExperimentCharts({
       </p>
       <ChartPanel
         title="Cumulative average reward against the optimum"
+        help={CHART_HELP.avgReward}
+        helpLabel="About cumulative average reward"
         note={`Mean of ${ep}. The dashed line is the oracle, which always shows the best creative for the reader.`}
       >
         <LineChart
@@ -96,6 +111,8 @@ export function ExperimentCharts({
 
       <ChartPanel
         title="Cumulative regret"
+        help={CHART_HELP.regret}
+        helpLabel="About cumulative regret"
         note="Reward lost against the oracle; flatter is better. Bands are 95% intervals across episodes."
       >
         <LineChart
@@ -110,6 +127,8 @@ export function ExperimentCharts({
 
       <ChartPanel
         title="Share of rounds on the best creative"
+        help={CHART_HELP.optimalShare}
+        helpLabel="About share of rounds on the best creative"
         note="How often each strategy showed the reader's optimal creative. Bands are 95% intervals."
       >
         <LineChart
@@ -126,6 +145,8 @@ export function ExperimentCharts({
 
       <ChartPanel
         title="Where the endpoint sends traffic"
+        help={CHART_HELP.trafficShare}
+        helpLabel="About where the endpoint sends traffic"
         note="Each line is one creative: its share of the live endpoint's impressions over time."
       >
         {share.length ? (
@@ -147,6 +168,8 @@ export function ExperimentCharts({
 
       <ChartPanel
         title="Winners by reader segment"
+        help={CHART_HELP.segments}
+        helpLabel="About winners by reader segment"
         note="Each segment's optimal creative, and how often each strategy found it."
       >
         {segments.length ? (
@@ -198,6 +221,8 @@ export function ExperimentCharts({
 
       <ChartPanel
         title="Expected total reward per episode"
+        help={CHART_HELP.totals}
+        helpLabel="About expected total reward per episode"
         note={`Mean ± one standard deviation across ${ep}${
           metrics.horizon ? ` of ${formatInt(metrics.horizon)} rounds` : ""
         }.`}
@@ -212,6 +237,8 @@ export function ExperimentCharts({
 
       <ChartPanel
         title="Impressions and click rates by creative"
+        help={CHART_HELP.armTable}
+        helpLabel="About impressions and click rates"
         note="Linear Thompson sampling's estimate against the simulator's true click rate."
         className="lg:col-span-2"
       >

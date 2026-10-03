@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { FieldLabel } from "@/components/field-label";
+import { InfoTip, InfoTipList } from "@/components/ui/info-tip";
 import { SegmentedControl } from "@/components/segmented-control";
 import { proofScore, type Proof } from "@/lib/eval-matching";
 import {
@@ -20,21 +21,20 @@ import {
   type RewardMode,
   type Scenario,
 } from "@/lib/experiments";
+import {
+  CTR_MODE_HELP,
+  DEPLOY_HELP,
+  REWARD_HELP,
+  SCENARIO_HELP,
+} from "@/lib/experiment-help";
 import { cn } from "@/lib/utils";
 import { ProofImage } from "./proof-grid";
 import { pct } from "./score-mark";
 
-const SCENARIO_HELP: Record<Scenario, string> = {
-  clear_winner: "One creative beats the others for every reader.",
-  segment_winners:
-    "Each reader segment has a different best creative, so only a policy that uses context finds them all.",
-  drift: "The best creative changes partway through, so the policy has to keep exploring.",
-};
-
-const REWARD_HELP: Record<RewardMode, string> = {
-  click: "A click scores 1, anything else 0.",
-  engaged: "A click scores the seconds the reader then spends with the brand.",
-};
+/** "ⓘ" list content: every option's label with its one-line explanation. */
+const optionHelp = <T extends string>(opts: { value: T; label: string }[], help: Record<T, string>) => (
+  <InfoTipList items={opts.map((o) => ({ term: o.label, text: help[o.value] }))} />
+);
 
 /**
  * Optional last step on the results page: pick 2–4 creatives and deploy them as
@@ -114,6 +114,9 @@ export function DeployPanel({
               {count} of {ordered.length}
             </span>
           </FieldLabel>
+          <InfoTip label="About choosing creatives" align="start">
+            {DEPLOY_HELP.creatives}
+          </InfoTip>
           <span className="flex gap-1">
             <Button
               variant="ghost"
@@ -170,9 +173,12 @@ export function DeployPanel({
 
       <div className="mt-5 grid gap-5 md:grid-cols-2 xl:grid-cols-4">
         <div>
-          <FieldLabel id="deploy-scenario-label" className="mb-1.5">
-            Scenario
-          </FieldLabel>
+          <div className="mb-1.5 flex items-center gap-1">
+            <FieldLabel id="deploy-scenario-label">Scenario</FieldLabel>
+            <InfoTip label="About scenarios" align="start">
+              {optionHelp(SCENARIO_OPTIONS, SCENARIO_HELP)}
+            </InfoTip>
+          </div>
           <SegmentedControl
             labelledBy="deploy-scenario-label"
             options={SCENARIO_OPTIONS}
@@ -182,9 +188,12 @@ export function DeployPanel({
           <p className="mt-1.5 text-xs text-muted-foreground">{SCENARIO_HELP[scenario]}</p>
         </div>
         <div>
-          <FieldLabel id="deploy-ctr-label" className="mb-1.5">
-            Click rates
-          </FieldLabel>
+          <div className="mb-1.5 flex items-center gap-1">
+            <FieldLabel id="deploy-ctr-label">Click rates</FieldLabel>
+            <InfoTip label="About click rates" align="start">
+              {optionHelp(CTR_MODE_OPTIONS, CTR_MODE_HELP)}
+            </InfoTip>
+          </div>
           <SegmentedControl
             labelledBy="deploy-ctr-label"
             options={CTR_MODE_OPTIONS}
@@ -192,15 +201,16 @@ export function DeployPanel({
             onChange={setCtrMode}
           />
           <p className="mt-1.5 text-xs text-muted-foreground">
-            {ctrMode === "demo"
-              ? "Demo click rates are inflated so learning is visible quickly."
-              : "Realistic click rates (under 1%) need about ten times more rounds."}
+            {CTR_MODE_HELP[ctrMode]}
           </p>
         </div>
         <div>
-          <FieldLabel id="deploy-reward-label" className="mb-1.5">
-            Reward
-          </FieldLabel>
+          <div className="mb-1.5 flex items-center gap-1">
+            <FieldLabel id="deploy-reward-label">Reward</FieldLabel>
+            <InfoTip label="About reward" align="start">
+              {optionHelp(REWARD_MODE_OPTIONS, REWARD_HELP)}
+            </InfoTip>
+          </div>
           <SegmentedControl
             labelledBy="deploy-reward-label"
             options={REWARD_MODE_OPTIONS}
@@ -210,9 +220,14 @@ export function DeployPanel({
           <p className="mt-1.5 text-xs text-muted-foreground">{REWARD_HELP[rewardMode]}</p>
         </div>
         <div>
-          <FieldLabel as="label" htmlFor="deploy-ttl" className="mb-1.5">
-            Endpoint lifetime
-          </FieldLabel>
+          <div className="mb-1.5 flex items-center gap-1">
+            <FieldLabel as="label" htmlFor="deploy-ttl">
+              Endpoint lifetime
+            </FieldLabel>
+            <InfoTip label="About endpoint lifetime" align="start">
+              {DEPLOY_HELP.ttl}
+            </InfoTip>
+          </div>
           <select
             id="deploy-ttl"
             value={ttlMinutes}

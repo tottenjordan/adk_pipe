@@ -4,7 +4,8 @@ import { use, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { FieldLabel } from "@/components/field-label";
-import { ExperimentStatusLabel } from "@/components/experiment-status";
+import { InfoTip } from "@/components/ui/info-tip";
+import { ExperimentStatusLabel, StatusHelp } from "@/components/experiment-status";
 import { ProofImage } from "@/app/results/[sessionId]/proof-grid";
 import { formatInt } from "@/lib/chart";
 import {
@@ -27,6 +28,7 @@ import {
   type ExperimentMetrics,
   type ExperimentSummary,
 } from "@/lib/experiments";
+import { CARD_HELP, CONTROL_HELP, STOP_CONFIRM } from "@/lib/experiment-help";
 import { ExperimentCharts } from "./experiment-charts";
 
 const METRICS_INTERVAL_MS = 10_000;
@@ -172,8 +174,20 @@ export default function ExperimentPage({
           <p className="mt-1 font-mono text-xs text-muted-foreground">{exp.experimentId}</p>
         </div>
         <div className="flex flex-col items-end gap-1">
-          <ExperimentStatusLabel status={exp.status} className="text-sm" />
-          {ttl && <p className="text-xs text-muted-foreground tabular-nums">Endpoint: {ttl}</p>}
+          <span className="inline-flex items-center gap-1">
+            <ExperimentStatusLabel status={exp.status} className="text-sm" />
+            <InfoTip label="About experiment status" align="end">
+              <StatusHelp current={exp.status} />
+            </InfoTip>
+          </span>
+          {ttl && (
+            <span className="inline-flex items-center gap-1">
+              <span className="text-xs text-muted-foreground tabular-nums">Endpoint: {ttl}</span>
+              <InfoTip label="About the endpoint timer" align="end">
+                {CONTROL_HELP.ttl}
+              </InfoTip>
+            </span>
+          )}
         </div>
       </div>
 
@@ -183,9 +197,12 @@ export default function ExperimentPage({
 
         <div className="mt-3 flex flex-wrap items-end gap-x-6 gap-y-3">
           <div>
-            <FieldLabel as="label" htmlFor="traffic-episodes" className="mb-1.5">
-              Episodes
-            </FieldLabel>
+            <div className="mb-1.5 flex items-center gap-1">
+              <FieldLabel as="label" htmlFor="traffic-episodes">
+                Episodes
+              </FieldLabel>
+              <InfoTip label="About episodes">{CONTROL_HELP.episodes}</InfoTip>
+            </div>
             <select
               id="traffic-episodes"
               value={episodes}
@@ -201,35 +218,58 @@ export default function ExperimentPage({
             </select>
           </div>
           <div>
-            <FieldLabel className="mb-1.5">Rounds per episode</FieldLabel>
+            <div className="mb-1.5 flex items-center gap-1">
+              <FieldLabel>Rounds per episode</FieldLabel>
+              <InfoTip label="About rounds per episode">{CONTROL_HELP.rounds}</InfoTip>
+            </div>
             <p className="h-8 text-sm leading-8 text-foreground tabular-nums">{formatInt(horizon)}</p>
           </div>
-          <Button
-            onClick={onStartTraffic}
-            disabled={exp.status !== "ready" || busy !== null}
-          >
-            {busy === "traffic" ? "Starting…" : "Start traffic"}
-          </Button>
+          <div className="flex items-center gap-1.5">
+            <Button
+              onClick={onStartTraffic}
+              disabled={exp.status !== "ready" || busy !== null}
+            >
+              {busy === "traffic" ? "Starting…" : "Start traffic"}
+            </Button>
+            <InfoTip label="About start traffic">{CONTROL_HELP.startTraffic}</InfoTip>
+          </div>
 
           <div className="ml-auto flex flex-wrap items-center gap-2">
             {confirmStop ? (
-              <>
-                <span className="text-sm text-foreground">Stop and delete the endpoint?</span>
+              <div
+                role="group"
+                aria-labelledby="stop-confirm-title"
+                aria-describedby="stop-confirm-body"
+                className="flex flex-wrap items-center gap-x-3 gap-y-2"
+              >
+                <div className="max-w-sm">
+                  <p id="stop-confirm-title" className="text-sm font-medium text-foreground">
+                    {STOP_CONFIRM.title}
+                  </p>
+                  <p id="stop-confirm-body" className="text-xs text-muted-foreground">
+                    {STOP_CONFIRM.body}
+                  </p>
+                </div>
                 <Button variant="destructive" onClick={onStop} disabled={busy !== null}>
-                  {busy === "stop" ? "Stopping…" : "Stop experiment"}
+                  {busy === "stop" ? "Stopping…" : STOP_CONFIRM.confirm}
                 </Button>
                 <Button variant="ghost" onClick={() => setConfirmStop(false)} disabled={busy !== null}>
-                  Keep it running
+                  {STOP_CONFIRM.cancel}
                 </Button>
-              </>
+              </div>
             ) : (
-              <Button
-                variant="outline"
-                onClick={() => setConfirmStop(true)}
-                disabled={!canStop(exp.status) || busy !== null}
-              >
-                Stop
-              </Button>
+              <>
+                <Button
+                  variant="outline"
+                  onClick={() => setConfirmStop(true)}
+                  disabled={!canStop(exp.status) || busy !== null}
+                >
+                  Stop
+                </Button>
+                <InfoTip label="About stop" align="end">
+                  {CONTROL_HELP.stop}
+                </InfoTip>
+              </>
             )}
           </div>
         </div>
@@ -265,10 +305,18 @@ export default function ExperimentPage({
                 </p>
                 <p className="mt-0.5 truncate text-xs text-muted-foreground">{armName(arm)}</p>
                 <div className="mt-auto flex items-center justify-between pt-2 text-xs text-muted-foreground tabular-nums">
-                  <span>
+                  <span className="inline-flex items-center gap-1">
                     {arm.overallScore === null ? "Not scored" : `Score ${Math.round(arm.overallScore * 100)}%`}
+                    <InfoTip label="About the score" align="start">
+                      {CARD_HELP.score}
+                    </InfoTip>
                   </span>
-                  <span className="font-mono">{shortId(arm.creativeId)}</span>
+                  <span className="inline-flex items-center gap-1">
+                    <span className="font-mono">{shortId(arm.creativeId)}</span>
+                    <InfoTip label="About the creative id" align="end">
+                      {CARD_HELP.creativeId}
+                    </InfoTip>
+                  </span>
                 </div>
               </div>
             </li>
