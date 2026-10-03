@@ -80,7 +80,8 @@ class ExperimentStore(Protocol):
 
     async def creative_series_rows(self, experiment_id: str) -> dict[str, list[dict]]:
         """Raw ``bandit_events`` aggregates for contracts §8: ``{"series": ...,
-        "segments": ..., "true_ctr": ...}`` (the three builders' row shapes)."""
+        "segments": ..., "true_ctr": ..., "creative_segments": ...}`` (the four
+        builders' row shapes)."""
         ...
 
 
@@ -283,19 +284,56 @@ def build_true_ctr_sql(
     return sql, _series_params(experiment_id)
 
 
+def build_creative_segments_sql(
+    table: str, experiment_id: str
+) -> tuple[str, list[bigquery.ScalarQueryParameter]]:
+    """Per (arm, segment) totals over all episodes (pure).
+
+    Sums rather than means, so Python can derive per-segment CTR / true CTR and
+    per-creative missed clicks / engaged seconds: ``p_sum / p_n`` is the mean
+    ``p_chosen`` (``COUNT`` skips NULLs), ``regret_sum`` is divided by the episode
+    count, ``dwell_sum`` by impressions. ``clicked`` is INT64 0/1, so ``SUM``."""
+    sql = f"""
+        SELECT
+            arm,
+            segment,
+            COUNT(*) AS impressions,
+            SUM(IFNULL(clicked, 0)) AS clicks,
+            SUM(p_chosen) AS p_sum,
+            COUNT(p_chosen) AS p_n,
+            SUM(IFNULL(regret, 0)) AS regret_sum,
+            SUM(IFNULL(dwell_s, 0)) AS dwell_sum
+        FROM `{table}`
+        WHERE experiment_id = @experiment_id AND policy = @policy
+        GROUP BY arm, segment
+        ORDER BY arm, segment
+        """
+    return sql, _series_params(experiment_id)
+
+
 def series_rows_from_events(
     events: Iterable[dict], windows: int = SERIES_WINDOWS
 ) -> dict[str, list[dict]]:
-    """The three §8 queries evaluated over in-memory ``bandit_events`` rows (same
+    """The four §8 queries evaluated over in-memory ``bandit_events`` rows (same
     semantics as the SQL builders; used by ``InMemoryExperimentStore``)."""
     evs = [e for e in events if e.get("policy") == SERIES_POLICY]
     if not evs:
-        return {"series": [], "segments": [], "true_ctr": []}
+        return {"series": [], "segments": [], "true_ctr": [], "creative_segments": []}
     horizon = max(int(e["round"]) for e in evs) + 1
     nw = min(windows, horizon)
     cells: dict[tuple, list[int]] = defaultdict(lambda: [0, 0])
     seg: Counter = Counter()
     p_sum: dict[str, list[float]] = defaultdict(lambda: [0.0, 0])
+    by_seg: dict[tuple, dict[str, Any]] = defaultdict(
+        lambda: {
+            "impressions": 0,
+            "clicks": 0,
+            "p_sum": None,  # SQL SUM over all-NULL p_chosen is NULL
+            "p_n": 0,
+            "regret_sum": 0.0,
+            "dwell_sum": 0.0,
+        }
+    )
     for e in evs:
         w = min(int(e["round"]) * nw // horizon, nw - 1)
         cell = cells[(e["arm"], int(e["episode"]), w)]
@@ -306,6 +344,14 @@ def series_rows_from_events(
             acc = p_sum[e["arm"]]
             acc[0] += float(e["p_chosen"])
             acc[1] += 1
+        cs = by_seg[(e["arm"], e.get("segment"))]
+        cs["impressions"] += 1
+        cs["clicks"] += int(e.get("clicked") or 0)
+        if e.get("p_chosen") is not None:
+            cs["p_sum"] = (cs["p_sum"] or 0.0) + float(e["p_chosen"])
+            cs["p_n"] += 1
+        cs["regret_sum"] += float(e.get("regret") or 0.0)
+        cs["dwell_sum"] += float(e.get("dwell_s") or 0.0)
     return {
         "series": [
             {
@@ -325,6 +371,10 @@ def series_rows_from_events(
         "true_ctr": [
             {"arm": arm, "true_ctr": total / n if n else None}
             for arm, (total, n) in p_sum.items()
+        ],
+        "creative_segments": [
+            {"arm": arm, "segment": segment, **cell}
+            for (arm, segment), cell in by_seg.items()
         ],
     }
 
@@ -371,12 +421,18 @@ class BigQueryExperimentStore:
 
     async def creative_series_rows(self, experiment_id: str) -> dict[str, list[dict]]:
         table = self.tables["events"]
-        series, segments, true_ctr = await asyncio.gather(
+        series, segments, true_ctr, creative_segments = await asyncio.gather(
             self._run(build_creative_series_sql(table, experiment_id)),
             self._run(build_segment_winners_sql(table, experiment_id)),
             self._run(build_true_ctr_sql(table, experiment_id)),
+            self._run(build_creative_segments_sql(table, experiment_id)),
         )
-        return {"series": series, "segments": segments, "true_ctr": true_ctr}
+        return {
+            "series": series,
+            "segments": segments,
+            "true_ctr": true_ctr,
+            "creative_segments": creative_segments,
+        }
 
 
 class InMemoryExperimentStore:

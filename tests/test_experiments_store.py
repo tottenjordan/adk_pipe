@@ -12,6 +12,7 @@ from runserver.experiments_store import (
     EXPERIMENT_COLUMN_TYPES,
     BigQueryExperimentStore,
     InMemoryExperimentStore,
+    build_creative_segments_sql,
     build_creative_series_sql,
     build_get_sql,
     build_list_active_sql,
@@ -143,15 +144,42 @@ def test_segment_and_true_ctr_sql():
     assert _params(params)["experiment_id"] == ("STRING", "e1")
 
 
-def test_bigquery_store_creative_series_runs_three_queries():
+def test_creative_segments_sql():
+    sql, params = build_creative_segments_sql("p.d.ev", "e1")
+    assert "FROM `p.d.ev`" in sql
+    assert "WHERE experiment_id = @experiment_id AND policy = @policy" in sql
+    assert "GROUP BY arm, segment" in sql
+    for expr in (
+        "COUNT(*) AS impressions",
+        "SUM(IFNULL(clicked, 0)) AS clicks",  # INT64 0/1, not BOOL
+        "SUM(p_chosen) AS p_sum",
+        "COUNT(p_chosen) AS p_n",
+        "SUM(IFNULL(regret, 0)) AS regret_sum",
+        "SUM(IFNULL(dwell_s, 0)) AS dwell_sum",
+    ):
+        assert expr in sql
+    assert "e1" not in sql
+    assert _params(params) == {
+        "experiment_id": ("STRING", "e1"),
+        "policy": ("STRING", "linear_ts"),
+    }
+
+
+def test_bigquery_store_creative_series_runs_four_queries():
     fake = _FakeBQ([])
     store = BigQueryExperimentStore(
         tables={"experiments": T, "events": "p.d.ev", "metrics": "p.d.m"},
         client_factory=lambda: fake,
     )
     got = asyncio.run(store.creative_series_rows("e1"))
-    assert got == {"series": [], "segments": [], "true_ctr": []}
-    assert len(fake.calls) == 3 and all("`p.d.ev`" in c[0] for c in fake.calls)
+    assert got == {
+        "series": [],
+        "segments": [],
+        "true_ctr": [],
+        "creative_segments": [],
+    }
+    assert len(fake.calls) == 4 and all("`p.d.ev`" in c[0] for c in fake.calls)
+    assert any("GROUP BY arm, segment" in c[0] for c in fake.calls)
 
 
 def test_in_memory_store_creative_series_rows():

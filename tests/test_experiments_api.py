@@ -614,7 +614,7 @@ def test_creative_series_owner_empty_populated_and_cache():
 
     async def go():
         await h.session()
-        eid = (await h.create()).json()["experimentId"]
+        eid = (await h.create(rewardMode="engaged")).json()["experimentId"]
         await ex.drain()
         c = h.client
         foreign = await c.get(f"/experiments/{B}/{eid}/creatives")
@@ -630,9 +630,11 @@ def test_creative_series_owner_empty_populated_and_cache():
                     "round": r,
                     "arm": a1 if r >= 20 or r % 2 else a0,
                     "clicked": int(r % 4 == 0),
+                    "dwell_s": 10.0 if r % 4 == 0 else None,
                     "segment": "seg",
                     "optimal_arm": a1,
                     "p_chosen": 0.05,
+                    "regret": 0.0 if r >= 20 or r % 2 else 0.02,
                 }
                 for ep in (0, 1)
                 for r in range(40)
@@ -655,12 +657,32 @@ def test_creative_series_owner_empty_populated_and_cache():
     assert empty["horizon"] is None and empty["windows"] == []
     assert [c["creativeId"] for c in empty["creatives"]] == [a0, a1]
     assert all(c["share"] == [] for c in empty["creatives"])
+    assert all(
+        c["segments"] == [] and c["missedClicks"] == 0 for c in empty["creatives"]
+    )
+    assert all(c["engagedSecondsPer1k"] is None for c in empty["creatives"])
     assert full["episodes"] == 2 and full["horizon"] == 40
     assert len(full["windows"]) == 20
     assert [c["creativeId"] for c in full["creatives"]] == [a1, a0]
     top = full["creatives"][0]
     assert top["finalShare"] == 1.0 and top["segmentsWon"] == ["seg"]
     assert full["creatives"][1]["ctr"][-1] is None
+    # a0: rounds 0,2,..,18 per episode (all clicked on r % 4 == 0 -> 5 clicks)
+    low = full["creatives"][1]
+    assert low["segments"] == [
+        {
+            "segment": "seg",
+            "impressions": 20,
+            "clicks": 10,
+            "ctr": 0.5,
+            "trueCtr": 0.05,
+            "isBest": False,
+        }
+    ]
+    assert low["missedClicks"] == pytest.approx(0.2)  # 10 rows x 0.02 per ep
+    assert low["engagedSecondsPer1k"] == pytest.approx(1000 * 100 / 20)
+    assert top["segments"][0]["isBest"] is True and top["missedClicks"] == 0
+    assert top["segments"][0]["impressions"] == 60
     assert stopped == full
     assert cached == stopped  # stopped -> cached indefinitely
 

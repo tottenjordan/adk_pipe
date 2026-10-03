@@ -986,6 +986,8 @@ async def http_get_creative_series(user_id: str, experiment_id: str) -> dict:
         raw.get("true_ctr", []),
         row.get("arms") or [],
         experiment_id=experiment_id,
+        creative_segment_rows=raw.get("creative_segments", []),
+        reward_mode=str(row.get("reward_mode") or "click"),
     )
     _series_cache_put(experiment_id, str(row.get("status") or ""), body)
     return body
