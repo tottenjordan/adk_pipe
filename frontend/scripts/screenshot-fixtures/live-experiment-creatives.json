@@ -160,7 +160,43 @@
         "late_night_casual",
         "mobile_scrollers"
       ],
-      "finalShare": 0.4451
+      "finalShare": 0.4451,
+      "segments": [
+        {
+          "segment": "late_night_casual",
+          "impressions": 114750,
+          "clicks": 5587,
+          "ctr": 0.0487,
+          "trueCtr": 0.0482,
+          "isBest": true
+        },
+        {
+          "segment": "mobile_scrollers",
+          "impressions": 110336,
+          "clicks": 5764,
+          "ctr": 0.0522,
+          "trueCtr": 0.0515,
+          "isBest": true
+        },
+        {
+          "segment": "product_intenders",
+          "impressions": 48158,
+          "clicks": 1754,
+          "ctr": 0.0364,
+          "trueCtr": 0.0367,
+          "isBest": false
+        },
+        {
+          "segment": "trend_followers",
+          "impressions": 49435,
+          "clicks": 1782,
+          "ctr": 0.036,
+          "trueCtr": 0.036,
+          "isBest": false
+        }
+      ],
+      "missedClicks": 67.35,
+      "engagedSecondsPer1k": null
     },
     {
       "creativeId": "3fe4b3ec",
@@ -236,7 +272,43 @@
       "segmentsWon": [
         "product_intenders"
       ],
-      "finalShare": 0.3059
+      "finalShare": 0.3059,
+      "segments": [
+        {
+          "segment": "late_night_casual",
+          "impressions": 42525,
+          "clicks": 1418,
+          "ctr": 0.0333,
+          "trueCtr": 0.0348,
+          "isBest": false
+        },
+        {
+          "segment": "mobile_scrollers",
+          "impressions": 48136,
+          "clicks": 1823,
+          "ctr": 0.0379,
+          "trueCtr": 0.0357,
+          "isBest": false
+        },
+        {
+          "segment": "product_intenders",
+          "impressions": 122474,
+          "clicks": 6423,
+          "ctr": 0.0524,
+          "trueCtr": 0.0509,
+          "isBest": true
+        },
+        {
+          "segment": "trend_followers",
+          "impressions": 49881,
+          "clicks": 1770,
+          "ctr": 0.0355,
+          "trueCtr": 0.0338,
+          "isBest": false
+        }
+      ],
+      "missedClicks": 105.07,
+      "engagedSecondsPer1k": null
     },
     {
       "creativeId": "8c0e9ee8",
@@ -312,7 +384,43 @@
       "segmentsWon": [
         "trend_followers"
       ],
-      "finalShare": 0.2491
+      "finalShare": 0.2491,
+      "segments": [
+        {
+          "segment": "late_night_casual",
+          "impressions": 42656,
+          "clicks": 1487,
+          "ctr": 0.0349,
+          "trueCtr": 0.0354,
+          "isBest": false
+        },
+        {
+          "segment": "mobile_scrollers",
+          "impressions": 41538,
+          "clicks": 1553,
+          "ctr": 0.0374,
+          "trueCtr": 0.0379,
+          "isBest": false
+        },
+        {
+          "segment": "product_intenders",
+          "impressions": 29667,
+          "clicks": 901,
+          "ctr": 0.0304,
+          "trueCtr": 0.0311,
+          "isBest": false
+        },
+        {
+          "segment": "trend_followers",
+          "impressions": 100444,
+          "clicks": 4941,
+          "ctr": 0.0492,
+          "trueCtr": 0.0501,
+          "isBest": true
+        }
+      ],
+      "missedClicks": 84.67,
+      "engagedSecondsPer1k": null
     }
   ]
 }

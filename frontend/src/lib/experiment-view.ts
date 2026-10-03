@@ -20,6 +20,20 @@ export function urlForView(href: string, view: ExperimentView): string {
   return `${url.pathname}${url.search}${url.hash}`;
 }
 
+/** `?creative=` value → the open creative's id, or null (drawer closed). */
+export function parseCreativeParam(value: string | null | undefined): string | null {
+  const v = (value ?? "").trim();
+  return /^[A-Za-z0-9_-]{1,128}$/.test(v) ? v : null;
+}
+
+/** The current URL with `creative` set (null drops it), other params (e.g. `view`) kept. */
+export function urlForCreative(href: string, creativeId: string | null): string {
+  const url = new URL(href);
+  if (creativeId) url.searchParams.set("creative", creativeId);
+  else url.searchParams.delete("creative");
+  return `${url.pathname}${url.search}${url.hash}`;
+}
+
 export const EXPLAIN_KEY = "tt:explain";
 const EXPLAIN_EVENT = "tt:explain-change";
 

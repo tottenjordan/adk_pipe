@@ -35,10 +35,20 @@ import {
 } from "@/lib/experiments";
 import { buildInsights } from "@/lib/experiment-insights";
 import { buildLanes } from "@/lib/scoreboard";
-import { parseView, urlForView, useExplainPref, type ExperimentView } from "@/lib/experiment-view";
+import {
+  parseCreativeParam,
+  parseView,
+  urlForCreative,
+  urlForView,
+  useExplainPref,
+  type ExperimentView,
+} from "@/lib/experiment-view";
+import { segmentGrid } from "@/lib/creative-detail";
 import { CARD_HELP, CONTROL_HELP, STOP_CONFIRM } from "@/lib/experiment-help";
 import { ExperimentCharts } from "./experiment-charts";
 import { CreativeScoreboard } from "./creative-scoreboard";
+import { CreativeDetailDrawer } from "./creative-detail";
+import { SegmentGridView } from "./segment-grid";
 
 const METRICS_INTERVAL_MS = 10_000;
 
@@ -58,6 +68,14 @@ export default function ExperimentPage({
   const setView = useCallback((v: ExperimentView) => {
     setViewState(v);
     window.history.replaceState(null, "", urlForView(window.location.href, v));
+  }, []);
+  // The open creative detail drawer (deep-linkable as `?creative=<id>`).
+  const [openCreative, setOpenCreativeState] = useState<string | null>(() =>
+    parseCreativeParam(searchParams.get("creative"))
+  );
+  const setOpenCreative = useCallback((id: string | null) => {
+    setOpenCreativeState(id);
+    window.history.replaceState(null, "", urlForCreative(window.location.href, id));
   }, []);
   const [pollKey, setPollKey] = useState(0);
   const [now, setNow] = useState(() => Date.now());
@@ -135,6 +153,12 @@ export default function ExperimentPage({
     () => buildLanes(arms, hasMetrics(metrics) ? metrics : null, hasMetrics(metrics) ? series : null),
     [arms, metrics, series]
   );
+  const liveSeries = hasMetrics(metrics) ? series : null;
+  const grid = useMemo(
+    () => segmentGrid(liveSeries, lanes.map((l) => l.creativeId)),
+    [liveSeries, lanes]
+  );
+  const openLane = lanes.find((l) => l.creativeId === openCreative) ?? null;
 
   if (!exp) {
     return (
@@ -344,10 +368,14 @@ export default function ExperimentPage({
           <CreativeScoreboard
             lanes={lanes}
             insights={insights}
-            series={hasMetrics(metrics) ? series : null}
+            series={liveSeries}
             explain={explain}
             emptyMessage={scoreboardDirection(exp.status)}
+            onOpen={hasMetrics(metrics) ? setOpenCreative : undefined}
           />
+          {grid && (
+            <SegmentGridView grid={grid} lanes={lanes} explain={explain} onOpen={setOpenCreative} />
+          )}
         </TabsContent>
 
         <TabsContent value="analysis">
@@ -429,6 +457,14 @@ export default function ExperimentPage({
           </section>
         </TabsContent>
       </Tabs>
+
+      <CreativeDetailDrawer
+        lane={hasMetrics(metrics) ? openLane : null}
+        lanes={lanes}
+        series={liveSeries}
+        explain={explain}
+        onClose={() => setOpenCreative(null)}
+      />
     </div>
   );
 }
