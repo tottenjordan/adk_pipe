@@ -1,7 +1,10 @@
 "use client";
 
-import { use, useCallback, useEffect, useState } from "react";
+import { use, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ExplainSwitch } from "@/components/explain";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { FieldLabel } from "@/components/field-label";
 import { InfoTip } from "@/components/ui/info-tip";
@@ -16,6 +19,7 @@ import {
   ctrModeLabel,
   defaultHorizon,
   EPISODE_OPTIONS,
+  getCreativeSeries,
   getExperimentMetrics,
   hasMetrics,
   pollExperiment,
@@ -25,11 +29,16 @@ import {
   startTraffic,
   stopExperiment,
   ttlText,
+  type CreativeSeries,
   type ExperimentMetrics,
   type ExperimentSummary,
 } from "@/lib/experiments";
+import { buildInsights } from "@/lib/experiment-insights";
+import { buildLanes } from "@/lib/scoreboard";
+import { parseView, urlForView, useExplainPref, type ExperimentView } from "@/lib/experiment-view";
 import { CARD_HELP, CONTROL_HELP, STOP_CONFIRM } from "@/lib/experiment-help";
 import { ExperimentCharts } from "./experiment-charts";
+import { CreativeScoreboard } from "./creative-scoreboard";
 
 const METRICS_INTERVAL_MS = 10_000;
 
@@ -42,6 +51,14 @@ export default function ExperimentPage({
   const [exp, setExp] = useState<ExperimentSummary | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [metrics, setMetrics] = useState<ExperimentMetrics | null>(null);
+  const [series, setSeries] = useState<CreativeSeries | null>(null);
+  const searchParams = useSearchParams();
+  const [view, setViewState] = useState<ExperimentView>(() => parseView(searchParams.get("view")));
+  const [explain, setExplain] = useExplainPref();
+  const setView = useCallback((v: ExperimentView) => {
+    setViewState(v);
+    window.history.replaceState(null, "", urlForView(window.location.href, v));
+  }, []);
   const [pollKey, setPollKey] = useState(0);
   const [now, setNow] = useState(() => Date.now());
   const [episodes, setEpisodes] = useState<number>(20);
@@ -68,14 +85,18 @@ export default function ExperimentPage({
 
   const status = exp?.status;
 
-  // Metrics: once per status change, and on an interval while traffic runs.
+  // Metrics + the per-creative series: once per status change, and on an
+  // interval while traffic runs. Each keeps its last good value on failure (the
+  // status poll surfaces real failures; the series is optional, contracts §8).
   const loadMetrics = useCallback(
     async (signal?: AbortSignal) => {
-      try {
-        setMetrics(await getExperimentMetrics(experimentId, { signal }));
-      } catch {
-        // Keep the last good metrics; the status poll surfaces real failures.
-      }
+      const [m, c] = await Promise.allSettled([
+        getExperimentMetrics(experimentId, { signal }),
+        getCreativeSeries(experimentId, { signal }),
+      ]);
+      if (signal?.aborted) return;
+      if (m.status === "fulfilled") setMetrics(m.value);
+      if (c.status === "fulfilled") setSeries(c.value.creatives.length ? c.value : null);
     },
     [experimentId]
   );
@@ -97,6 +118,23 @@ export default function ExperimentPage({
     const t = setInterval(() => setNow(Date.now()), 30_000);
     return () => clearInterval(t);
   }, []);
+
+  const arms = useMemo(() => [...(exp?.arms ?? [])].sort((a, b) => a.index - b.index), [exp?.arms]);
+  const insights = useMemo(
+    () =>
+      buildInsights({
+        metrics: hasMetrics(metrics) ? metrics : null,
+        series,
+        arms,
+        rewardMode: exp?.rewardMode,
+        ctrMode: exp?.ctrMode,
+      }),
+    [metrics, series, arms, exp?.rewardMode, exp?.ctrMode]
+  );
+  const lanes = useMemo(
+    () => buildLanes(arms, hasMetrics(metrics) ? metrics : null, hasMetrics(metrics) ? series : null),
+    [arms, metrics, series]
+  );
 
   if (!exp) {
     return (
@@ -123,7 +161,6 @@ export default function ExperimentPage({
 
   const horizon = defaultHorizon(exp.scenario, exp.ctrMode);
   const ttl = canStop(exp.status) ? ttlText(exp.ttlExpiresAt, now) : "";
-  const arms = [...exp.arms].sort((a, b) => a.index - b.index);
 
   const onStartTraffic = async () => {
     setBusy("traffic");
@@ -285,80 +322,129 @@ export default function ExperimentPage({
         )}
       </section>
 
-      {/* Arms */}
-      <section aria-labelledby="arms-heading" className="mt-6">
-        <h2 id="arms-heading" className="mb-3 text-sm font-semibold text-foreground">
-          Creatives under test <span className="font-normal text-muted-foreground tabular-nums">{arms.length}</span>
-        </h2>
-        <ul className="grid grid-cols-2 gap-3 md:grid-cols-4">
-          {arms.map((arm) => (
-            <li key={arm.creativeId} className="flex flex-col rounded-lg border border-border bg-card p-2">
-              <ProofImage src={armImageUrl(arm)} alt={arm.conceptName} className="aspect-square w-full" />
-              <div className="flex flex-1 flex-col px-1 pt-2">
-                <p className="flex items-start gap-1.5 text-sm leading-snug font-medium text-foreground">
-                  <span
-                    aria-hidden
-                    className="mt-1.5 size-2 shrink-0 rounded-full"
-                    style={{ backgroundColor: armColor(arms, arm.creativeId) }}
-                  />
-                  <span className="line-clamp-2">{arm.label || armName(arm)}</span>
-                </p>
-                <p className="mt-0.5 truncate text-xs text-muted-foreground">{armName(arm)}</p>
-                <div className="mt-auto flex items-center justify-between pt-2 text-xs text-muted-foreground tabular-nums">
-                  <span className="inline-flex items-center gap-1">
-                    {arm.overallScore === null ? "Not scored" : `Score ${Math.round(arm.overallScore * 100)}%`}
-                    <InfoTip label="About the score" align="start">
-                      {CARD_HELP.score}
-                    </InfoTip>
-                  </span>
-                  <span className="inline-flex items-center gap-1">
-                    <span className="font-mono">{shortId(arm.creativeId)}</span>
-                    <InfoTip label="About the creative id" align="end">
-                      {CARD_HELP.creativeId}
-                    </InfoTip>
-                  </span>
-                </div>
-              </div>
-            </li>
-          ))}
-        </ul>
-      </section>
-
-      {/* Metrics */}
-      <section aria-labelledby="metrics-heading" className="mt-6">
-        <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
-          <h2 id="metrics-heading" className="text-sm font-semibold text-foreground">
-            Results
-          </h2>
-          {hasMetrics(metrics) && (
-            <p className="text-xs text-muted-foreground tabular-nums">
-              {metrics.episodes} {metrics.episodes === 1 ? "episode" : "episodes"}
-              {metrics.horizon ? ` of ${formatInt(metrics.horizon)} rounds` : ""}
-            </p>
-          )}
+      {/* Results: Overview (creative scoreboard) | Analysis (charts) */}
+      <Tabs
+        value={view}
+        onValueChange={(v) => setView(parseView(String(v)))}
+        className="mt-8 gap-6"
+      >
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border pb-3">
+          <TabsList aria-label="Results view" className="h-9">
+            <TabsTrigger value="overview" className="px-4 font-semibold">
+              Overview
+            </TabsTrigger>
+            <TabsTrigger value="analysis" className="px-4 font-semibold">
+              Analysis
+            </TabsTrigger>
+          </TabsList>
+          <ExplainSwitch on={explain} onChange={setExplain} />
         </div>
-        {hasMetrics(metrics) ? (
-          <>
-            <ExperimentCharts metrics={metrics} arms={arms} rewardMode={exp.rewardMode} />
-            <p className="mt-3 text-xs text-muted-foreground">
-              {exp.ctrMode === "demo" ? "Demo mode inflates click rates; " : ""}
-              pseudo-regret uses the simulator&apos;s true click probabilities.
-            </p>
-          </>
-        ) : (
-          <div className="rounded-lg border border-border bg-card px-4 py-6 text-sm text-muted-foreground">
-            {exp.status === "running_traffic"
-              ? "Traffic is running. Charts appear when the first episode finishes."
-              : exp.status === "ready"
-                ? "No traffic yet. Start traffic to simulate readers; each episode replays the same readers for every policy so they can be compared fairly."
-                : exp.status === "deploying"
-                  ? "Charts appear here once the endpoint is ready and traffic has run."
-                  : "This experiment has no results: no traffic ran before the endpoint was removed."}
-          </div>
-        )}
-      </section>
+
+        <TabsContent value="overview">
+          <CreativeScoreboard
+            lanes={lanes}
+            insights={insights}
+            series={hasMetrics(metrics) ? series : null}
+            explain={explain}
+            emptyMessage={scoreboardDirection(exp.status)}
+          />
+        </TabsContent>
+
+        <TabsContent value="analysis">
+          <section aria-labelledby="arms-heading" className="">
+            <h2 id="arms-heading" className="mb-3 text-sm font-semibold text-foreground">
+              Creatives under test <span className="font-normal text-muted-foreground tabular-nums">{arms.length}</span>
+            </h2>
+            <ul className="grid grid-cols-2 gap-3 md:grid-cols-4">
+              {arms.map((arm) => (
+                <li key={arm.creativeId} className="flex flex-col rounded-lg border border-border bg-card p-2">
+                  <ProofImage src={armImageUrl(arm)} alt={arm.conceptName} className="aspect-square w-full" />
+                  <div className="flex flex-1 flex-col px-1 pt-2">
+                    <p className="flex items-start gap-1.5 text-sm leading-snug font-medium text-foreground">
+                      <span
+                        aria-hidden
+                        className="mt-1.5 size-2 shrink-0 rounded-full"
+                        style={{ backgroundColor: armColor(arms, arm.creativeId) }}
+                      />
+                      <span className="line-clamp-2">{arm.label || armName(arm)}</span>
+                    </p>
+                    <p className="mt-0.5 truncate text-xs text-muted-foreground">{armName(arm)}</p>
+                    <div className="mt-auto flex items-center justify-between pt-2 text-xs text-muted-foreground tabular-nums">
+                      <span className="inline-flex items-center gap-1">
+                        {arm.overallScore === null ? "Not scored" : `Score ${Math.round(arm.overallScore * 100)}%`}
+                        <InfoTip label="About the score" align="start">
+                          {CARD_HELP.score}
+                        </InfoTip>
+                      </span>
+                      <span className="inline-flex items-center gap-1">
+                        <span className="font-mono">{shortId(arm.creativeId)}</span>
+                        <InfoTip label="About the creative id" align="end">
+                          {CARD_HELP.creativeId}
+                        </InfoTip>
+                      </span>
+                    </div>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </section>
+          {/* Metrics */}
+          <section aria-labelledby="metrics-heading" className="mt-6">
+            <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
+              <h2 id="metrics-heading" className="text-sm font-semibold text-foreground">
+                Strategies compared
+              </h2>
+              {hasMetrics(metrics) && (
+                <p className="text-xs text-muted-foreground tabular-nums">
+                  {metrics.episodes} {metrics.episodes === 1 ? "episode" : "episodes"}
+                  {metrics.horizon ? ` of ${formatInt(metrics.horizon)} rounds` : ""}
+                </p>
+              )}
+            </div>
+            {hasMetrics(metrics) ? (
+              <>
+                <ExperimentCharts
+                  metrics={metrics}
+                  arms={arms}
+                  rewardMode={exp.rewardMode}
+                  readings={insights.readings}
+                  explain={explain}
+                />
+                <p className="mt-3 text-xs text-muted-foreground">
+                  {exp.ctrMode === "demo" ? "Demo mode inflates click rates; " : ""}
+                  pseudo-regret uses the simulator&apos;s true click probabilities.
+                </p>
+              </>
+            ) : (
+              <div className="rounded-lg border border-border bg-card px-4 py-6 text-sm text-muted-foreground">
+                {exp.status === "running_traffic"
+                  ? "Traffic is running. Charts appear when the first episode finishes."
+                  : exp.status === "ready"
+                    ? "No traffic yet. Start traffic to simulate readers; each episode replays the same readers for every policy so they can be compared fairly."
+                    : exp.status === "deploying"
+                      ? "Charts appear here once the endpoint is ready and traffic has run."
+                      : "This experiment has no results: no traffic ran before the endpoint was removed."}
+              </div>
+            )}
+          </section>
+        </TabsContent>
+      </Tabs>
     </div>
   );
+}
+
+/** The scoreboard's direction before there are results. */
+function scoreboardDirection(status: string): string {
+  switch (status) {
+    case "running_traffic":
+      return "Traffic is running. The scoreboard fills in when the first episode finishes.";
+    case "ready":
+      return "Start traffic to see how each creative performs.";
+    case "deploying":
+      return "Once the endpoint is ready, start traffic to see how each creative performs.";
+    default:
+      return "No traffic ran before the endpoint was removed, so there is nothing to score. Deploy again from the run's results page.";
+  }
 }
 
 function StatusNote({ exp }: { exp: ExperimentSummary }) {
