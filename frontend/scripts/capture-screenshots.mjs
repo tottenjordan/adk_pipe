@@ -37,6 +37,10 @@
 // into docs/screenshots/user-journey.gif with spotlights, callouts and a progress strip:
 //   JOURNEY=1 SCREENSHOT_BASE_URL=http://localhost:3600 npm run screenshots
 //   uv run --no-project --with pillow python scripts/build-journey-gif.py
+//
+// JOURNEY=experiments captures the second journey instead: the first LIVE bandit
+// experiment from deploy to stop (see journeyExperiments below) →
+// docs/screenshots/experiments-journey.gif.
 
 import { chromium } from "playwright";
 import { mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
@@ -59,8 +63,11 @@ const evalReport = JSON.parse(
 // the lookup by basename (no extension) so a `.png` request resolves the `.jpg`
 // fixture; the mock then serves it with the image/jpeg content type.
 const imageBytes = new Map(); // basename (no ext) -> Buffer
-for (const f of readdirSync(join(FIX, "images"))) {
-  imageBytes.set(f.replace(/\.[^.]+$/, ""), readFileSync(join(FIX, "images", f)));
+// images/live/ holds the three creatives of the first live bandit experiment.
+for (const dir of [join(FIX, "images"), join(FIX, "images", "live")]) {
+  for (const f of readdirSync(dir, { withFileTypes: true })) {
+    if (f.isFile()) imageBytes.set(f.name.replace(/\.[^.]+$/, ""), readFileSync(join(dir, f.name)));
+  }
 }
 
 // Campaign metadata for the input-form screen (mirrors the harvested run).
@@ -127,6 +134,14 @@ const EXPERIMENT_DETAIL = hydrateExperiment(
 const EXPERIMENT_METRICS = JSON.parse(
   readFileSync(join(FIX, "experiment-metrics.json"), "utf8")
 );
+
+// The FIRST LIVE bandit experiment (2026-10-02, 0693ea62bb7144ef), exported from
+// the api as-is (only userId replaced): its final ExperimentSummary and the real
+// ExperimentMetrics after 20 episodes x 40,000 rounds. Used by JOURNEY=experiments.
+const LIVE_EXPERIMENT = JSON.parse(readFileSync(join(FIX, "live-experiment.json"), "utf8"));
+const LIVE_METRICS = JSON.parse(readFileSync(join(FIX, "live-experiment-metrics.json"), "utf8"));
+// What the mocks serve for LIVE_EXPERIMENT's id (set per journey frame).
+let liveMock = { summary: LIVE_EXPERIMENT, metrics: LIVE_METRICS };
 
 // The real .png artifact keys the run produced (from harvested state), so the
 // results page's Artifacts list + gallery grid render authentically.
@@ -233,6 +248,9 @@ async function installMocks(page) {
         }
         if (method === "POST" && seg[3] === "stop") return json(route, { status: "stopping" });
         if (seg.length === 2) return json(route, { experiments: EXPERIMENTS });
+        if (seg[2] === LIVE_EXPERIMENT.experimentId) {
+          return json(route, seg[3] === "metrics" ? liveMock.metrics : liveMock.summary);
+        }
         if (seg[3] === "metrics") {
           return json(
             route,
@@ -746,11 +764,12 @@ async function highlightBox(page, { target, label, clip, pad = 8, place }) {
   return { x: r(x0), y: r(y0), w: r(x1 - x0), h: r(y1 - y0), label, ...(place && { place }) };
 }
 
-async function journey() {
-  rmSync(JOURNEY_OUT, { recursive: true, force: true });
-  mkdirSync(JOURNEY_OUT, { recursive: true });
+// A fresh frames directory plus `frame(page, spec)`, which captures one GIF frame
+// (viewport screenshot + manifest entry with the resolved highlight boxes).
+function frameRecorder(outDir) {
+  rmSync(outDir, { recursive: true, force: true });
+  mkdirSync(outDir, { recursive: true });
   const frames = [];
-  // One GIF frame: screenshot + manifest entry with the resolved highlight boxes.
   const frame = async (page, { phase, title, caption, hold_ms = 3200, highlights = [] }) => {
     const step = frames.length + 1;
     const file = `${String(step).padStart(2, "0")}.png`;
@@ -759,10 +778,15 @@ async function journey() {
       const b = await highlightBox(page, h);
       if (b) boxes.push(b);
     }
-    await page.screenshot({ path: join(JOURNEY_OUT, file) });
+    await page.screenshot({ path: join(outDir, file) });
     frames.push({ file, step, phase, title, caption, hold_ms, highlights: boxes });
     console.log("  frame", file, "-", title, `(${boxes.length} highlights)`);
   };
+  return { frames, frame };
+}
+
+async function journey() {
+  const { frames, frame } = frameRecorder(JOURNEY_OUT);
 
   const browser = await chromium.launch({ headless: true });
   const context = await browser.newContext({
@@ -1098,7 +1122,255 @@ async function journey() {
   console.log("done →", JOURNEY_OUT);
 }
 
-(process.env.JOURNEY ? journey : main)().catch((err) => {
+// ── Experiments journey (JOURNEY=experiments) ─────────────────────────────────
+// The first LIVE bandit experiment (live-experiment*.json + images/live/), told as
+// deploy → endpoint → traffic → results → stop. Every chart frame shows the REAL
+// final metrics (20 episodes) and says so; the deploying / ready / running frames
+// show only the status and controls (no partial charts are invented). The Deploy
+// panel frames reuse the PRS results fixtures (the deploy UI, not the live arms).
+// Writes {phases, frames} to EXPERIMENTS_JOURNEY_OUT for build-journey-gif.py:
+//   JOURNEY=experiments SCREENSHOT_BASE_URL=http://localhost:3600 npm run screenshots
+//   uv run --no-project --with pillow python scripts/build-journey-gif.py \
+//     --frames /tmp/tt-experiments-journey-frames --out ../docs/screenshots/experiments-journey.gif
+
+const EXPERIMENTS_JOURNEY_OUT =
+  process.env.EXPERIMENTS_JOURNEY_OUT ?? "/tmp/tt-experiments-journey-frames";
+const EXPERIMENT_PHASES = ["Deploy", "Endpoint", "Traffic", "Results", "Stop"];
+
+// The live summary as it read `minutesIn` minutes after the deploy request
+// (measured: ready ~11 min in, traffic done ~47 min in; the endpoint TTL was 120 min).
+function liveSummaryAt(minutesIn, overrides) {
+  const created = Date.now() - minutesIn * 60_000;
+  return {
+    ...LIVE_EXPERIMENT,
+    createdAt: new Date(created).toISOString(),
+    updatedAt: new Date().toISOString(),
+    ttlExpiresAt: new Date(created + 120 * 60_000).toISOString(),
+    ...overrides,
+  };
+}
+const NO_METRICS = { ...LIVE_METRICS, episodes: 0, checkpoints: [], curves: {}, totals: {} };
+
+async function journeyExperiments() {
+  const { frames, frame } = frameRecorder(EXPERIMENTS_JOURNEY_OUT);
+  const browser = await chromium.launch({ headless: true });
+  const context = await browser.newContext({
+    viewport: { width: 1440, height: 900 },
+    deviceScaleFactor: 2,
+  });
+  const id = LIVE_EXPERIMENT.experimentId;
+  const status = (page) => page.locator("h1").locator("xpath=../..").locator("> div").last();
+  const chart = (page, title) =>
+    page.locator("section.bg-card").filter({ has: page.getByRole("heading", { name: title, exact: true }) });
+  const openExperiment = async (summary, metrics) => {
+    liveMock = { summary, metrics };
+    const page = await newPage(context);
+    await page.goto(`${BASE}/experiments/${id}`, { waitUntil: "networkidle" });
+    await page.locator("h1").waitFor();
+    await page.waitForFunction(
+      () => [...document.querySelectorAll("img")].filter((im) => im.naturalWidth > 0).length >= 3
+    );
+    await settle(page, { pinHeader: false });
+    return page;
+  };
+
+  // 1–2. Results page → Deploy panel: pick three creatives, then the options.
+  {
+    const sid = "results-creative-demo";
+    currentSession = { id: sid, appName: "creative_agent", userId: USER, state, events: [] };
+    const page = await newPage(context);
+    await page.goto(`${BASE}/results/${sid}?app=creative_agent&userId=${USER}`, {
+      waitUntil: "networkidle",
+    });
+    const panel = page.locator('section[aria-labelledby="deploy-heading"]');
+    await panel.waitFor();
+    for (const i of [0, 1, 2]) await page.locator(`#deploy-creative-${i}`).check();
+    await page.waitForFunction(() =>
+      [...document.querySelectorAll('section[aria-labelledby="deploy-heading"] img')].every(
+        (im) => im.naturalWidth > 0
+      )
+    );
+    await settle(page, { pinHeader: false });
+    await scrollToLocator(page, panel, 80);
+    await frame(page, {
+      phase: "Deploy",
+      title: "Pick creatives to test",
+      caption: "From a finished run's results, tick 2–4 scored creatives to become the arms of a bandit.",
+      hold_ms: 3400,
+      highlights: [{ target: panel.locator("fieldset"), label: "Pick 2–4 creatives to test", pad: 6 }],
+    });
+
+    const deployButton = panel.getByRole("button", { name: "Deploy 3 creatives" });
+    await frame(page, {
+      phase: "Deploy",
+      title: "Choose the simulation, then deploy",
+      caption: "This run: segment-specific winners, demo click rates, click reward, a 120-minute endpoint lifetime.",
+      hold_ms: 3800,
+      highlights: [
+        {
+          target: panel.locator("div.grid").filter({ has: page.locator("#deploy-ttl") }),
+          label: "Scenario, click rates, reward, lifetime",
+          pad: 6,
+          place: "above",
+        },
+        { target: deployButton, label: "Deploy 3 creatives", pad: 6, place: "right" },
+      ],
+    });
+    await page.close();
+  }
+
+  // 3. Deploying the endpoint.
+  {
+    const page = await openExperiment(liveSummaryAt(4, { status: "deploying" }), NO_METRICS);
+    await page.getByText("Deploying the endpoint").waitFor();
+    await frame(page, {
+      phase: "Endpoint",
+      title: "The endpoint deploys",
+      caption: "A JAX linear Thompson sampling bandit goes onto an Agent Platform endpoint: about 11 minutes here.",
+      hold_ms: 3400,
+      highlights: [
+        { target: status(page), label: "Deploying", pad: 6, place: "left" },
+        { target: page.getByText("Deploying the endpoint"), label: "You can leave the page", pad: 6, place: "below" },
+      ],
+    });
+    await page.close();
+  }
+
+  // 4. Ready: start synthetic traffic.
+  {
+    const page = await openExperiment(liveSummaryAt(11, { status: "ready" }), NO_METRICS);
+    const start = page.getByRole("button", { name: "Start traffic", exact: true });
+    await start.waitFor();
+    await frame(page, {
+      phase: "Endpoint",
+      title: "Ready: start synthetic readers",
+      caption: "This run used 20 episodes of 40,000 simulated readers each against the live endpoint.",
+      hold_ms: 3400,
+      highlights: [
+        {
+          target: [page.locator('label[for="traffic-episodes"]'), start],
+          label: "Start synthetic readers",
+          pad: 10,
+          place: "below",
+        },
+      ],
+    });
+    await page.close();
+  }
+
+  // 5. Traffic running (status + progress only; no charts until an episode finishes).
+  {
+    const summary = liveSummaryAt(12, {
+      status: "running_traffic",
+      progress: { episodesDone: 0, episodesTotal: 20 },
+    });
+    const page = await openExperiment(summary, NO_METRICS);
+    const note = page.getByText(/Simulating readers/);
+    await note.waitFor();
+    await frame(page, {
+      phase: "Traffic",
+      title: "Synthetic readers arrive",
+      caption: "A Cloud Run job sends readers to the endpoint; five baselines replay on the same readers (~23 min here).",
+      hold_ms: 3600,
+      highlights: [
+        { target: status(page), label: "Running traffic", pad: 6, place: "left" },
+        { target: note, label: "Episode 1 of 20", pad: 6, place: "below" },
+      ],
+    });
+    await page.close();
+  }
+
+  // 6–9. Results after all 20 episodes (the real final metrics).
+  {
+    const page = await openExperiment(liveSummaryAt(47, { status: "ready" }), LIVE_METRICS);
+    const avg = chart(page, "Cumulative average reward against the optimum");
+    await avg.waitFor();
+    await scrollToLocator(page, avg, 96);
+    await frame(page, {
+      phase: "Results",
+      title: "Reward vs the oracle, after 20 episodes",
+      caption: "Linear TS on the endpoint: 1,760 clicks per episode vs 1,602–1,667 for baselines (oracle 2,028).",
+      hold_ms: 4000,
+      highlights: [
+        { target: avg, label: "Reward vs the oracle", pad: 4, place: "below" },
+        {
+          target: avg.locator("svg g").filter({ has: page.locator("text", { hasText: /^Linear TS$/ }) }),
+          label: "Your endpoint closes in on the oracle",
+          pad: 6,
+          place: "right",
+        },
+      ],
+    });
+
+    const regret = chart(page, "Cumulative regret");
+    await frame(page, {
+      phase: "Results",
+      title: "Cumulative regret, after 20 episodes",
+      caption: "Clicks lost against the oracle, mean of 20 episodes: Linear TS 257, baselines 335–403.",
+      hold_ms: 4000,
+      highlights: [{ target: regret, label: "Lowest regret: 257 vs 335–403", pad: 4, place: "below" }],
+    });
+
+    const segments = chart(page, "Winners by reader segment");
+    await scrollToLocator(page, segments, 100);
+    await frame(page, {
+      phase: "Results",
+      title: "Winners by reader segment",
+      caption: "Each creative wins a segment; in the two niche segments Linear TS finds the winner 50–61% of the time, the best baseline 33%.",
+      hold_ms: 4200,
+      highlights: [
+        { target: segments, label: "Different creatives win for different readers", pad: 4, place: "above" },
+      ],
+    });
+
+    const share = chart(page, "Where the endpoint sends traffic");
+    await scrollToLocator(page, share, 140);
+    await frame(page, {
+      phase: "Results",
+      title: "Where the endpoint sends traffic",
+      caption: "The top segment winner ends at 44% of impressions; the other two keep 25–31% for their readers.",
+      hold_ms: 4000,
+      highlights: [
+        { target: share, label: "Traffic shifts toward each segment's winner", pad: 4, place: "above" },
+      ],
+    });
+
+    // 10. Stop, with its help open (keyboard focus on the ⓘ).
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await page.waitForTimeout(200);
+    const about = page.getByRole("button", { name: "About stop" });
+    await about.focus();
+    const help = page.getByText("Stopping deletes the live endpoint");
+    await help.waitFor();
+    await page.waitForTimeout(250);
+    await frame(page, {
+      phase: "Stop",
+      title: "Stop when you're done",
+      caption: "Stop deletes the endpoint and its model (about 2 seconds); results and charts stay on the page.",
+      hold_ms: 4200,
+      highlights: [
+        {
+          target: [page.getByRole("button", { name: "Stop", exact: true }), help],
+          label: "Stop deletes the endpoint; results are kept",
+          pad: 8,
+          place: "below",
+        },
+      ],
+    });
+    await page.close();
+  }
+
+  writeFileSync(
+    join(EXPERIMENTS_JOURNEY_OUT, "journey-frames.json"),
+    JSON.stringify({ phases: EXPERIMENT_PHASES, frames }, null, 2)
+  );
+  await context.close();
+  await browser.close();
+  console.log("done →", EXPERIMENTS_JOURNEY_OUT);
+}
+
+const MODE = process.env.JOURNEY;
+(MODE === "experiments" ? journeyExperiments : MODE ? journey : main)().catch((err) => {
   console.error(err);
   process.exit(1);
 });
