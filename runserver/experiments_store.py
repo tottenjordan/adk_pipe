@@ -19,6 +19,7 @@ import copy
 import datetime as dt
 import json
 import os
+from collections import Counter, defaultdict
 from collections.abc import Callable, Iterable
 from typing import Any, Protocol
 
@@ -27,6 +28,9 @@ from google.cloud import bigquery
 from agent_common.clients import get_bigquery_client
 
 ACTIVE_STATUSES = ("deploying", "ready", "running_traffic", "stopping")
+# The endpoint policy: the only one the traffic job logs to ``bandit_events``.
+SERIES_POLICY = "linear_ts"
+SERIES_WINDOWS = 20
 
 # bandit_experiments column types (mirrors deployment/create_bq_tables.sh).
 EXPERIMENT_COLUMN_TYPES = {
@@ -73,6 +77,11 @@ class ExperimentStore(Protocol):
         ...
 
     async def metrics_rows(self, experiment_id: str) -> list[dict]: ...
+
+    async def creative_series_rows(self, experiment_id: str) -> dict[str, list[dict]]:
+        """Raw ``bandit_events`` aggregates for contracts §8: ``{"series": ...,
+        "segments": ..., "true_ctr": ...}`` (the three builders' row shapes)."""
+        ...
 
 
 def table_names(env=os.environ) -> dict[str, str]:
@@ -198,6 +207,128 @@ def build_metrics_sql(
     ]
 
 
+def _series_params(
+    experiment_id: str, windows: int | None = None
+) -> list[bigquery.ScalarQueryParameter]:
+    params = [
+        bigquery.ScalarQueryParameter("experiment_id", "STRING", experiment_id),
+        bigquery.ScalarQueryParameter("policy", "STRING", SERIES_POLICY),
+    ]
+    if windows is not None:
+        params.append(bigquery.ScalarQueryParameter("windows", "INT64", windows))
+    return params
+
+
+def build_creative_series_sql(
+    table: str, experiment_id: str, windows: int = SERIES_WINDOWS
+) -> tuple[str, list[bigquery.ScalarQueryParameter]]:
+    """Per (arm, episode, window) impressions / clicks over ``bandit_events`` (pure).
+
+    ``horizon = MAX(round) + 1`` and ``nw = LEAST(@windows, horizon)`` equal round
+    windows; ``win = DIV(round * nw, horizon)`` (exact integer floor, clamped to
+    ``nw - 1``), so window ``w`` is ``[ceil(w*H/nw), ceil((w+1)*H/nw))``. Every row
+    carries ``horizon`` and ``n_windows``; the cross-episode means are computed in
+    Python (``runserver.experiments_series``)."""
+    if windows < 1:
+        raise ValueError("windows must be >= 1")
+    sql = f"""
+        WITH ev AS (
+            SELECT arm, episode, round, clicked
+            FROM `{table}`
+            WHERE experiment_id = @experiment_id AND policy = @policy
+        ),
+        h AS (
+            SELECT MAX(round) + 1 AS horizon,
+                   LEAST(@windows, MAX(round) + 1) AS nw
+            FROM ev
+        )
+        SELECT
+            ev.arm AS arm,
+            ev.episode AS episode,
+            LEAST(DIV(ev.round * h.nw, h.horizon), h.nw - 1) AS win,
+            COUNT(*) AS impressions,
+            SUM(IFNULL(ev.clicked, 0)) AS clicks,
+            ANY_VALUE(h.horizon) AS horizon,
+            ANY_VALUE(h.nw) AS n_windows
+        FROM ev CROSS JOIN h
+        GROUP BY arm, episode, win
+        ORDER BY arm, episode, win
+        """
+    return sql, _series_params(experiment_id, windows)
+
+
+def build_segment_winners_sql(
+    table: str, experiment_id: str
+) -> tuple[str, list[bigquery.ScalarQueryParameter]]:
+    """``optimal_arm`` frequency per segment (the argmax is picked in Python)."""
+    sql = f"""
+        SELECT segment, optimal_arm, COUNT(*) AS n
+        FROM `{table}`
+        WHERE experiment_id = @experiment_id AND policy = @policy
+        GROUP BY segment, optimal_arm
+        """
+    return sql, _series_params(experiment_id)
+
+
+def build_true_ctr_sql(
+    table: str, experiment_id: str
+) -> tuple[str, list[bigquery.ScalarQueryParameter]]:
+    """Simulator-truth CTR per arm: the mean ``p_chosen`` when it was chosen."""
+    sql = f"""
+        SELECT arm, AVG(p_chosen) AS true_ctr
+        FROM `{table}`
+        WHERE experiment_id = @experiment_id AND policy = @policy
+        GROUP BY arm
+        """
+    return sql, _series_params(experiment_id)
+
+
+def series_rows_from_events(
+    events: Iterable[dict], windows: int = SERIES_WINDOWS
+) -> dict[str, list[dict]]:
+    """The three §8 queries evaluated over in-memory ``bandit_events`` rows (same
+    semantics as the SQL builders; used by ``InMemoryExperimentStore``)."""
+    evs = [e for e in events if e.get("policy") == SERIES_POLICY]
+    if not evs:
+        return {"series": [], "segments": [], "true_ctr": []}
+    horizon = max(int(e["round"]) for e in evs) + 1
+    nw = min(windows, horizon)
+    cells: dict[tuple, list[int]] = defaultdict(lambda: [0, 0])
+    seg: Counter = Counter()
+    p_sum: dict[str, list[float]] = defaultdict(lambda: [0.0, 0])
+    for e in evs:
+        w = min(int(e["round"]) * nw // horizon, nw - 1)
+        cell = cells[(e["arm"], int(e["episode"]), w)]
+        cell[0] += 1
+        cell[1] += int(e.get("clicked") or 0)
+        seg[(e.get("segment"), e.get("optimal_arm"))] += 1
+        if e.get("p_chosen") is not None:
+            acc = p_sum[e["arm"]]
+            acc[0] += float(e["p_chosen"])
+            acc[1] += 1
+    return {
+        "series": [
+            {
+                "arm": arm,
+                "episode": ep,
+                "win": w,
+                "impressions": imps,
+                "clicks": clicks,
+                "horizon": horizon,
+                "n_windows": nw,
+            }
+            for (arm, ep, w), (imps, clicks) in sorted(cells.items())
+        ],
+        "segments": [
+            {"segment": s, "optimal_arm": a, "n": n} for (s, a), n in seg.items()
+        ],
+        "true_ctr": [
+            {"arm": arm, "true_ctr": total / n if n else None}
+            for arm, (total, n) in p_sum.items()
+        ],
+    }
+
+
 class BigQueryExperimentStore:
     def __init__(
         self,
@@ -238,6 +369,15 @@ class BigQueryExperimentStore:
     async def metrics_rows(self, experiment_id: str) -> list[dict]:
         return await self._run(build_metrics_sql(self.tables["metrics"], experiment_id))
 
+    async def creative_series_rows(self, experiment_id: str) -> dict[str, list[dict]]:
+        table = self.tables["events"]
+        series, segments, true_ctr = await asyncio.gather(
+            self._run(build_creative_series_sql(table, experiment_id)),
+            self._run(build_segment_winners_sql(table, experiment_id)),
+            self._run(build_true_ctr_sql(table, experiment_id)),
+        )
+        return {"series": series, "segments": segments, "true_ctr": true_ctr}
+
 
 class InMemoryExperimentStore:
     """Process-local store for tests and ``BANDIT_DEPLOY_MODE=fake`` local dev."""
@@ -245,6 +385,13 @@ class InMemoryExperimentStore:
     def __init__(self) -> None:
         self.rows: dict[str, dict] = {}
         self.metrics: dict[str, list[dict]] = {}
+        self.events: dict[str, list[dict]] = {}
+
+    def add_events(self, experiment_id: str, events: Iterable[dict]) -> None:
+        """Append ``bandit_events`` rows (contracts §3 columns) for tests/local dev."""
+        self.events.setdefault(experiment_id, []).extend(
+            copy.deepcopy(e) for e in events
+        )
 
     async def upsert(self, row: dict, fields: Iterable[str] | None = None) -> None:
         for col in row:
@@ -275,3 +422,6 @@ class InMemoryExperimentStore:
 
     async def metrics_rows(self, experiment_id: str) -> list[dict]:
         return copy.deepcopy(self.metrics.get(experiment_id, []))
+
+    async def creative_series_rows(self, experiment_id: str) -> dict[str, list[dict]]:
+        return series_rows_from_events(self.events.get(experiment_id, []))

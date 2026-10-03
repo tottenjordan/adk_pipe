@@ -201,3 +201,34 @@ type ExperimentMetrics = { experimentId: string; episodes: number; horizon: numb
   - A checkpoint is written every `BANDIT_CHECKPOINT_EVERY` (50) reward batches or `BANDIT_CHECKPOINT_SECONDS` (120 s), checked on update, and on every reset.
   - Writes go through a background thread. A failure is logged and never blocks serving.
   - On load, a `latest.json` for a different `experiment_id` (or with mismatched shapes) is ignored.
+
+## 8. Per-creative time series (`GET /experiments/{user_id}/{experiment_id}/creatives`, 2026-10-03)
+
+Binding for the frontend client. Owner and 404 semantics are identical to the `/metrics` route (`detail.reason: "not_found"` for a missing or foreign experiment).
+
+```ts
+type CreativeSeries = {
+  experimentId: string;
+  episodes: number;                            // distinct episodes in bandit_events (linear_ts)
+  horizon: number | null;                      // MAX(round) + 1; null when there are no events
+  windows: { start: number; end: number }[];   // equal round windows [start, end) over the horizon
+  creatives: {
+    creativeId: string;
+    share: number[];          // per window: mean over episodes of this creative's share of linear_ts impressions; sums to ~1 across creatives
+    ctr: (number | null)[];   // per window: pooled clicks / impressions; null when the creative had no impressions in that window
+    cumClicks: number[];      // per window end: mean cumulative clicks per episode
+    impressions: number;      // total over all episodes
+    clicks: number;
+    trueCtr: number | null;   // simulator truth: mean p_chosen when this creative was chosen
+    segmentsWon: string[];    // segments whose most frequent bandit_events.optimal_arm is this creative (ties → lowest id), sorted
+    finalShare: number;       // share in the last window
+  }[];                        // ordered by finalShare desc (ties keep the experiment's arm order)
+};
+```
+
+- **Source:** `bandit_events` rows with `policy = 'linear_ts'` only (the endpoint policy; the traffic job logs nothing else there).
+- **Windows:** `nw = min(20, horizon)` windows. A round's window is `DIV(round * nw, horizon)` (exact integer floor, clamped to `nw - 1`), so window `w` is `[ceil(w·H/nw), ceil((w+1)·H/nw))`. With the default horizons there are always 20.
+- **Numbers** are rounded to 4 decimal places; `share` is renormalized per window before rounding.
+- **Empty** (no events yet): `episodes: 0`, `horizon: null`, `windows: []`, and one entry per experiment arm with empty arrays, zero counts, `trueCtr: null`, `segmentsWon: []`, `finalShare: 0`. Creatives seen in events but not in the experiment's arms are appended.
+- **Caching** (in-process LRU, 64 experiments): 30 s while the experiment is `running_traffic`; indefinitely once `stopped` or `expired` (the data is final); not cached in any other status.
+- **Implementation:** three parameterized queries (`runserver/experiments_store.py`: `build_creative_series_sql`, `build_segment_winners_sql`, `build_true_ctr_sql`) run concurrently; `runserver/experiments_series.py::build_creative_series` does the cross-episode aggregation in pure Python. A 20-episode × 40k-round experiment (800k events) processes about 134 MB across the three queries in about 1 s each.
