@@ -140,8 +140,12 @@ const EXPERIMENT_METRICS = JSON.parse(
 // ExperimentMetrics after 20 episodes x 40,000 rounds. Used by JOURNEY=experiments.
 const LIVE_EXPERIMENT = JSON.parse(readFileSync(join(FIX, "live-experiment.json"), "utf8"));
 const LIVE_METRICS = JSON.parse(readFileSync(join(FIX, "live-experiment-metrics.json"), "utf8"));
+// Its per-creative series (contracts §8, GET …/creatives) for the Overview
+// scoreboard: 20 equal round windows derived from LIVE_METRICS (window shares
+// impression-weighted from armShare, clicks from the arms' observed rates).
+const LIVE_CREATIVES = JSON.parse(readFileSync(join(FIX, "live-experiment-creatives.json"), "utf8"));
 // What the mocks serve for LIVE_EXPERIMENT's id (set per journey frame).
-let liveMock = { summary: LIVE_EXPERIMENT, metrics: LIVE_METRICS };
+let liveMock = { summary: LIVE_EXPERIMENT, metrics: LIVE_METRICS, creatives: LIVE_CREATIVES };
 
 // The real .png artifact keys the run produced (from harvested state), so the
 // results page's Artifacts list + gallery grid render authentically.
@@ -249,7 +253,16 @@ async function installMocks(page) {
         if (method === "POST" && seg[3] === "stop") return json(route, { status: "stopping" });
         if (seg.length === 2) return json(route, { experiments: EXPERIMENTS });
         if (seg[2] === LIVE_EXPERIMENT.experimentId) {
+          if (seg[3] === "creatives") {
+            return liveMock.creatives
+              ? json(route, liveMock.creatives)
+              : route.fulfill({ status: 404, contentType: "application/json", body: "{}" });
+          }
           return json(route, seg[3] === "metrics" ? liveMock.metrics : liveMock.summary);
+        }
+        // The synthetic experiments have no creative series: the page falls back to metrics.
+        if (seg[3] === "creatives") {
+          return route.fulfill({ status: 404, contentType: "application/json", body: "{}" });
         }
         if (seg[3] === "metrics") {
           return json(
@@ -443,7 +456,7 @@ async function main() {
   {
     console.log("12-experiment-detail");
     const page = await newPage(context);
-    await page.goto(`${BASE}/experiments/${EXPERIMENT_DETAIL.experimentId}`, {
+    await page.goto(`${BASE}/experiments/${EXPERIMENT_DETAIL.experimentId}?view=analysis`, {
       waitUntil: "networkidle",
     });
     await page.getByRole("heading", { name: "Cumulative regret" }).waitFor();
@@ -460,6 +473,30 @@ async function main() {
     await page.getByText("Stopping deletes the live endpoint").waitFor();
     await page.waitForTimeout(250);
     await shot(page, "13-experiment-help.png", { fullPage: false });
+    await page.close();
+  }
+
+  // ── 14. Experiment Overview: the creative scoreboard (live experiment) ────
+  {
+    console.log("14-experiment-overview");
+    liveMock = { summary: LIVE_EXPERIMENT, metrics: LIVE_METRICS, creatives: LIVE_CREATIVES };
+    const page = await newPage(context);
+    await page.goto(`${BASE}/experiments/${LIVE_EXPERIMENT.experimentId}`, { waitUntil: "networkidle" });
+    await page.locator("#scoreboard-heading").waitFor();
+    await page.waitForFunction(
+      () => [...document.querySelectorAll("img")].filter((im) => im.naturalWidth > 0).length >= 3
+    );
+    await settle(page);
+    await shot(page, "14-experiment-overview.png");
+
+    // ── 15. Analysis with Explain on (the switch persists in localStorage) ──
+    console.log("15-experiment-explain");
+    await page.getByRole("tab", { name: "Analysis" }).click();
+    await page.getByRole("heading", { name: "Cumulative regret" }).waitFor();
+    await page.getByRole("switch", { name: "Explain" }).click();
+    await page.waitForTimeout(500);
+    await shot(page, "15-experiment-explain.png");
+    await page.evaluate(() => localStorage.removeItem("tt:explain"));
     await page.close();
   }
 
@@ -1163,9 +1200,9 @@ async function journeyExperiments() {
   const chart = (page, title) =>
     page.locator("section.bg-card").filter({ has: page.getByRole("heading", { name: title, exact: true }) });
   const openExperiment = async (summary, metrics) => {
-    liveMock = { summary, metrics };
+    liveMock = { summary, metrics, creatives: metrics.episodes ? LIVE_CREATIVES : null };
     const page = await newPage(context);
-    await page.goto(`${BASE}/experiments/${id}`, { waitUntil: "networkidle" });
+    await page.goto(`${BASE}/experiments/${id}?view=analysis`, { waitUntil: "networkidle" });
     await page.locator("h1").waitFor();
     await page.waitForFunction(
       () => [...document.querySelectorAll("img")].filter((im) => im.naturalWidth > 0).length >= 3

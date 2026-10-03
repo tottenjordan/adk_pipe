@@ -82,6 +82,13 @@ describe("scopeRequestToUser: experiments", () => {
     expect(scopeRequestToUser("GET", ["experiments", "me", ID, "metrics"], undefined, U)?.path)
       .toBe(`experiments/alice%40x.com/${ID}/metrics`);
   });
+  it("rewrites the user segment on the per-creative series (contracts §8)", () => {
+    expect(scopeRequestToUser("GET", ["experiments", "bob@x.com", ID, "creatives"], undefined, U)?.path)
+      .toBe(`experiments/alice%40x.com/${ID}/creatives`);
+    expect(scopeRequestToUser("POST", ["experiments", "me", ID, "creatives"], "{}", U)).toBeNull();
+    expect(scopeRequestToUser("GET", ["experiments", "me", ID, "creatives", "x"], undefined, U)).toBeNull();
+    expect(scopeRequestToUser("GET", ["experiments", "me", "Bad_Id", "creatives"], undefined, U)).toBeNull();
+  });
   it("rewrites the user segment on traffic and stop", () => {
     expect(scopeRequestToUser("POST", ["experiments", "bob", ID, "traffic"], '{"episodes":20}', U))
       .toEqual({ path: `experiments/alice%40x.com/${ID}/traffic`, body: '{"episodes":20}' });

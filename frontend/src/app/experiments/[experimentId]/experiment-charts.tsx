@@ -3,6 +3,9 @@
 import type { ReactNode } from "react";
 import { InfoTip } from "@/components/ui/info-tip";
 import { CHART_HELP } from "@/lib/experiment-help";
+import { CHART_EXPLAIN } from "@/lib/experiment-explain";
+import type { ChartReadings } from "@/lib/experiment-insights";
+import { ExplainPanel } from "@/components/explain";
 import { BarChart } from "@/components/charts/bar-chart";
 import { LineChart, Swatch } from "@/components/charts/line-chart";
 import { formatCompact, formatInt, formatPercent } from "@/lib/chart";
@@ -11,6 +14,7 @@ import {
   armStatRows,
   policyShortLabel,
   curveSeries,
+  segmentLabel,
   segmentRows,
   shortId,
   totalBars,
@@ -23,10 +27,18 @@ function ChartPanel({
   note,
   help,
   helpLabel,
+  reading,
+  explain,
+  explainOpen = false,
   children,
   className,
 }: {
   title: string;
+  /** One-line interpretation of this chart's data, always visible under it. */
+  reading?: string | null;
+  /** "How to read this" guidance, revealed by the Explain switch. */
+  explain?: string;
+  explainOpen?: boolean;
   note?: string;
   /** Plain-language explanation shown in the title's "ⓘ" popover. */
   help: string;
@@ -45,27 +57,32 @@ function ChartPanel({
       </div>
       {note && <p className="mt-0.5 text-xs text-muted-foreground">{note}</p>}
       <div className="mt-3">{children}</div>
+      {reading && (
+        <p className="mt-3 border-t border-border pt-2.5 text-sm leading-snug text-muted-foreground">{reading}</p>
+      )}
+      {explain && <ExplainPanel open={explainOpen}>{explain}</ExplainPanel>}
     </section>
   );
 }
 
 const roundLabel = "Round (log scale)";
 
-/** Segment keys arrive snake_case ("mobile_young"); show them as words. */
-const segmentName = (s: string) => {
-  const t = s.replace(/[_-]+/g, " ").trim();
-  return t.charAt(0).toUpperCase() + t.slice(1);
-};
+const segmentName = segmentLabel;
 
 /** All experiment charts and tables for one metrics payload (non-empty). */
 export function ExperimentCharts({
   metrics,
   arms,
   rewardMode,
+  readings,
+  explain = false,
 }: {
   metrics: ExperimentMetrics;
   arms: Arm[];
   rewardMode: string;
+  readings?: ChartReadings;
+  /** Explain mode: reveal each panel's "How to read this". */
+  explain?: boolean;
 }) {
   const clickReward = rewardMode !== "engaged";
   const formatReward = (v: number) => (clickReward ? formatPercent(v, 1) : `${formatCompact(v)} s`);
@@ -94,6 +111,9 @@ export function ExperimentCharts({
       <ChartPanel
         title="Cumulative average reward against the optimum"
         help={CHART_HELP.avgReward}
+        reading={readings?.avgReward}
+        explain={CHART_EXPLAIN.avgReward}
+        explainOpen={explain}
         helpLabel="About cumulative average reward"
         note={`Mean of ${ep}. The dashed line is the oracle, which always shows the best creative for the reader.`}
       >
@@ -112,6 +132,9 @@ export function ExperimentCharts({
       <ChartPanel
         title="Cumulative regret"
         help={CHART_HELP.regret}
+        reading={readings?.regret}
+        explain={CHART_EXPLAIN.regret}
+        explainOpen={explain}
         helpLabel="About cumulative regret"
         note="Reward lost against the oracle; flatter is better. Bands are 95% intervals across episodes."
       >
@@ -128,6 +151,9 @@ export function ExperimentCharts({
       <ChartPanel
         title="Share of rounds on the best creative"
         help={CHART_HELP.optimalShare}
+        reading={readings?.optimal}
+        explain={CHART_EXPLAIN.optimalShare}
+        explainOpen={explain}
         helpLabel="About share of rounds on the best creative"
         note="How often each strategy showed the reader's optimal creative. Bands are 95% intervals."
       >
@@ -146,6 +172,9 @@ export function ExperimentCharts({
       <ChartPanel
         title="Where the endpoint sends traffic"
         help={CHART_HELP.trafficShare}
+        reading={readings?.share}
+        explain={CHART_EXPLAIN.trafficShare}
+        explainOpen={explain}
         helpLabel="About where the endpoint sends traffic"
         note="Each line is one creative: its share of the live endpoint's impressions over time."
       >
@@ -169,6 +198,9 @@ export function ExperimentCharts({
       <ChartPanel
         title="Winners by reader segment"
         help={CHART_HELP.segments}
+        reading={readings?.segments}
+        explain={CHART_EXPLAIN.segments}
+        explainOpen={explain}
         helpLabel="About winners by reader segment"
         note="Each segment's optimal creative, and how often each strategy found it."
       >
@@ -222,6 +254,9 @@ export function ExperimentCharts({
       <ChartPanel
         title="Expected total reward per episode"
         help={CHART_HELP.totals}
+        reading={readings?.totals}
+        explain={CHART_EXPLAIN.totals}
+        explainOpen={explain}
         helpLabel="About expected total reward per episode"
         note={`Mean ± one standard deviation across ${ep}${
           metrics.horizon ? ` of ${formatInt(metrics.horizon)} rounds` : ""
@@ -238,6 +273,8 @@ export function ExperimentCharts({
       <ChartPanel
         title="Impressions and click rates by creative"
         help={CHART_HELP.armTable}
+        explain={CHART_EXPLAIN.armTable}
+        explainOpen={explain}
         helpLabel="About impressions and click rates"
         note="Linear Thompson sampling's estimate against the simulator's true click rate."
         className="lg:col-span-2"

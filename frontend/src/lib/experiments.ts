@@ -83,6 +83,31 @@ export type ExperimentMetrics = {
   arms: { creativeId: string; impressions: number; estimatedCtr: number; trueCtr: number }[];
 };
 
+/** One creative's per-window performance under the live endpoint (contracts §8). */
+export type CreativeSeriesItem = {
+  creativeId: string;
+  /** Share of the endpoint's impressions in each window (sums to ~1 across creatives). */
+  share: number[];
+  /** Observed click rate per window; null where the creative had no impressions. */
+  ctr: (number | null)[];
+  cumClicks: number[];
+  impressions: number;
+  clicks: number;
+  trueCtr: number | null;
+  /** Segments where this creative is the optimal arm. */
+  segmentsWon: string[];
+  finalShare: number;
+};
+
+/** `GET …/creatives`: 20 equal round windows; creatives ordered by finalShare desc. */
+export type CreativeSeries = {
+  experimentId: string;
+  episodes: number;
+  horizon: number | null;
+  windows: { start: number; end: number }[];
+  creatives: CreativeSeriesItem[];
+};
+
 export interface CreateExperimentRequest {
   userId: string;
   appName: string;
@@ -190,6 +215,21 @@ export async function getExperimentMetrics(
   const res = await fetch(`${experimentUrl(experimentId)}/metrics`, { signal: opts.signal });
   if (!res.ok) return fail(res, "Couldn't load the metrics");
   return res.json();
+}
+
+/** `GET /experiments/{user}/{id}/creatives` (contracts §8): per-creative series for the scoreboard. */
+export async function getCreativeSeries(
+  experimentId: string,
+  opts: { signal?: AbortSignal } = {}
+): Promise<CreativeSeries> {
+  const res = await fetch(`${experimentUrl(experimentId)}/creatives`, { signal: opts.signal });
+  if (!res.ok) return fail(res, "Couldn't load the creative series");
+  const data = await res.json();
+  return {
+    ...data,
+    windows: Array.isArray(data?.windows) ? data.windows : [],
+    creatives: Array.isArray(data?.creatives) ? data.creatives : [],
+  };
 }
 
 /** `POST …/traffic {episodes, horizon?}` — 409 unless the experiment is `ready`. */
@@ -386,6 +426,12 @@ export function shortId(id: string): string {
 export function armImageUrl(arm: Pick<Arm, "imageUri">): string | null {
   const parsed = parseGsUri(arm.imageUri);
   return parsed ? gcsProxyUrl(parsed.bucket, parsed.path) : null;
+}
+
+/** Segment keys arrive snake_case ("mobile_young"); show them as words ("Mobile young"). */
+export function segmentLabel(s: string): string {
+  const t = s.replace(/[_-]+/g, " ").trim();
+  return t.charAt(0).toUpperCase() + t.slice(1);
 }
 
 /** Short name for an arm in charts and tables: the concept name (headlines run long). */
