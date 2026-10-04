@@ -7,6 +7,7 @@
 import { SELF_USER_ID } from "./api";
 import { downsampleIndices, type Point } from "./chart";
 import { gcsProxyUrl, parseGsUri } from "./gcs";
+import { overridesFromValues, type TuneValues } from "./scenario-preview";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "/api/adk";
 
@@ -31,6 +32,23 @@ export type Policy =
   | "beta_bernoulli_ts"
   | "uniform"
   | "oracle";
+
+/**
+ * User-tuned tweaks to the scenario preset (contracts §9, REST camelCase). Every
+ * field optional; only knobs that differ from the preset are sent.
+ */
+export type ScenarioOverrides = {
+  /** One weight per segment (clear_winner/drift 3, segment_winners 4), each in [0.05, 1]. */
+  segmentMix?: number[];
+  /** [0.25, 2]: how far apart the creatives are. */
+  gapScale?: number;
+  /** [0, 1]: 0 judge right, 0.5 no information, 1 judge backwards. */
+  judgeWrong?: number;
+  /** [0, 2]: multiplies the simulator's random variation. */
+  noiseScale?: number;
+  /** [0.2, 0.8]: drift change point as a fraction of the run (drift only). */
+  driftAtFrac?: number;
+};
 
 export type Arm = {
   creativeId: string;
@@ -59,6 +77,8 @@ export type ExperimentSummary = {
   trafficExecution: string | null;
   progress: { episodesDone: number; episodesTotal: number } | null;
   error: string | null;
+  /** Set only when the experiment was deployed with tuned readers (absent from older APIs). */
+  scenarioOverrides?: ScenarioOverrides | null;
 };
 
 /** Mean ± 95% CI across episodes, one value per checkpoint. */
@@ -136,6 +156,7 @@ export interface CreateExperimentRequest {
   ctrMode: CtrMode;
   rewardMode: RewardMode;
   ttlMinutes?: number;
+  scenarioOverrides?: ScenarioOverrides;
 }
 
 // ── Errors ───────────────────────────────────────────────────────────────────
@@ -469,6 +490,8 @@ export interface DeploySelection {
   ctrMode: CtrMode;
   rewardMode: RewardMode;
   ttlMinutes: number;
+  /** The Advanced sliders; only values that differ from the scenario preset are sent. */
+  tuning?: TuneValues;
 }
 
 /** The deploy panel's choices → the `POST /experiments` body (indices sorted, de-duplicated). */
@@ -476,7 +499,7 @@ export function selectionToPayload(sel: DeploySelection): CreateExperimentReques
   const creativeIndices = [...new Set(sel.selected)]
     .filter((i) => Number.isInteger(i) && i >= 0)
     .sort((a, b) => a - b);
-  return {
+  const body: CreateExperimentRequest = {
     userId: SELF_USER_ID,
     appName: sel.appName,
     sessionId: sel.sessionId,
@@ -486,6 +509,13 @@ export function selectionToPayload(sel: DeploySelection): CreateExperimentReques
     rewardMode: sel.rewardMode,
     ttlMinutes: sel.ttlMinutes,
   };
+  const overrides = sel.tuning ? overridesFromValues(sel.scenario, sel.tuning) : undefined;
+  return overrides ? { ...body, scenarioOverrides: overrides } : body;
+}
+
+/** True when an experiment ran with tuned readers (at least one override set). */
+export function hasOverrides(ov: ScenarioOverrides | null | undefined): ov is ScenarioOverrides {
+  return Boolean(ov && Object.values(ov).some((v) => v !== undefined && v !== null));
 }
 
 /** Why the Deploy button is disabled, or null when deploying is allowed. */

@@ -1,0 +1,1501 @@
+{
+ "_generated": "by tests/test_scenario_preview_golden.py (bandit, noise_scale=0); set UPDATE_PREVIEW_GOLDEN=1 to rewrite",
+ "calibrationSamples": 400000,
+ "cases": [
+  {
+   "name": "clear_winner/three/preset",
+   "scenario": "clear_winner",
+   "ctrMode": "demo",
+   "arms": [
+    {
+     "ad_copy_overall": 0.86,
+     "visual_overall": 0.78,
+     "trend_authenticity": 0.9,
+     "audience_fit": 0.7,
+     "stopping_power": 0.8,
+     "clarity": 0.9
+    },
+    {
+     "ad_copy_overall": 0.72,
+     "visual_overall": 0.8,
+     "trend_authenticity": 0.6,
+     "audience_fit": 0.9,
+     "stopping_power": 0.6
+    },
+    {
+     "ad_copy_overall": 0.64,
+     "visual_overall": 0.7,
+     "trend_authenticity": 0.7,
+     "audience_fit": 0.5,
+     "stopping_power": 0.9
+    }
+   ],
+   "overrides": {},
+   "expected": {
+    "segments": [
+     "commuters",
+     "desk_researchers",
+     "evening_browsers"
+    ],
+    "ctr": [
+     [
+      0.0621904289,
+      0.0629798657,
+      0.0619869318
+     ],
+     [
+      0.0447251318,
+      0.0454356092,
+      0.0454847333
+     ],
+     [
+      0.0329610271,
+      0.0320188463,
+      0.0325206086
+     ]
+    ],
+    "oracle": [
+     0,
+     0,
+     0
+    ],
+    "overall": [
+     0.0624158575,
+     0.0451636992,
+     0.0325211592
+    ],
+    "alpha": -3.05171108
+   }
+  },
+  {
+   "name": "clear_winner/three/judge_backwards_gap_wide",
+   "scenario": "clear_winner",
+   "ctrMode": "demo",
+   "arms": [
+    {
+     "ad_copy_overall": 0.86,
+     "visual_overall": 0.78,
+     "trend_authenticity": 0.9,
+     "audience_fit": 0.7,
+     "stopping_power": 0.8,
+     "clarity": 0.9
+    },
+    {
+     "ad_copy_overall": 0.72,
+     "visual_overall": 0.8,
+     "trend_authenticity": 0.6,
+     "audience_fit": 0.9,
+     "stopping_power": 0.6
+    },
+    {
+     "ad_copy_overall": 0.64,
+     "visual_overall": 0.7,
+     "trend_authenticity": 0.7,
+     "audience_fit": 0.5,
+     "stopping_power": 0.9
+    }
+   ],
+   "overrides": {
+    "judgeWrong": 1.0,
+    "gapScale": 2.0
+   },
+   "expected": {
+    "segments": [
+     "commuters",
+     "desk_researchers",
+     "evening_browsers"
+    ],
+    "ctr": [
+     [
+      0.0233556578,
+      0.023048693,
+      0.0234357588
+     ],
+     [
+      0.0405256266,
+      0.0398893205,
+      0.0398560965
+     ],
+     [
+      0.0757056636,
+      0.0778330163,
+      0.0766969065
+     ]
+    ],
+    "oracle": [
+     2,
+     2,
+     2
+    ],
+    "overall": [
+     0.0232682453,
+     0.0401355369,
+     0.0766980478
+    ],
+    "alpha": -3.13376999
+   }
+  },
+  {
+   "name": "clear_winner/three/judge_partial_gap_subtle",
+   "scenario": "clear_winner",
+   "ctrMode": "demo",
+   "arms": [
+    {
+     "ad_copy_overall": 0.86,
+     "visual_overall": 0.78,
+     "trend_authenticity": 0.9,
+     "audience_fit": 0.7,
+     "stopping_power": 0.8,
+     "clarity": 0.9
+    },
+    {
+     "ad_copy_overall": 0.72,
+     "visual_overall": 0.8,
+     "trend_authenticity": 0.6,
+     "audience_fit": 0.9,
+     "stopping_power": 0.6
+    },
+    {
+     "ad_copy_overall": 0.64,
+     "visual_overall": 0.7,
+     "trend_authenticity": 0.7,
+     "audience_fit": 0.5,
+     "stopping_power": 0.9
+    }
+   ],
+   "overrides": {
+    "judgeWrong": 0.3,
+    "gapScale": 0.25
+   },
+   "expected": {
+    "segments": [
+     "commuters",
+     "desk_researchers",
+     "evening_browsers"
+    ],
+    "ctr": [
+     [
+      0.0508294821,
+      0.0510903006,
+      0.0507620232
+     ],
+     [
+      0.0464892808,
+      0.0467827695,
+      0.0468015473
+     ],
+     [
+      0.042754024,
+      0.0422657457,
+      0.0425260111
+     ]
+    ],
+    "oracle": [
+     0,
+     0,
+     0
+    ],
+    "overall": [
+     0.0509039038,
+     0.0466700685,
+     0.0425261234
+    ],
+    "alpha": -3.01895428
+   }
+  },
+  {
+   "name": "clear_winner/four/preset",
+   "scenario": "clear_winner",
+   "ctrMode": "demo",
+   "arms": [
+    {
+     "ad_copy_overall": 0.82,
+     "visual_overall": 0.8,
+     "trend_authenticity": 0.9
+    },
+    {
+     "ad_copy_overall": 0.74,
+     "visual_overall": 0.7,
+     "audience_fit": 0.95
+    },
+    {
+     "ad_copy_overall": 0.7,
+     "visual_overall": 0.62,
+     "stopping_power": 1.0
+    },
+    {
+     "ad_copy_overall": 0.66,
+     "visual_overall": 0.75
+    }
+   ],
+   "overrides": {},
+   "expected": {
+    "segments": [
+     "commuters",
+     "desk_researchers",
+     "evening_browsers"
+    ],
+    "ctr": [
+     [
+      0.0626117427,
+      0.0636865412,
+      0.0626040406
+     ],
+     [
+      0.0505372516,
+      0.0512212591,
+      0.0509881354
+     ],
+     [
+      0.0329653353,
+      0.0314811882,
+      0.032337129
+     ],
+     [
+      0.0403223571,
+      0.0409182822,
+      0.0407481362
+     ]
+    ],
+    "oracle": [
+     0,
+     0,
+     0
+    ],
+    "overall": [
+     0.0629859966,
+     0.0508893752,
+     0.0322888322,
+     0.0406373757
+    ],
+    "alpha": -3.04721403
+   }
+  },
+  {
+   "name": "clear_winner/four/judge_backwards_gap_wide",
+   "scenario": "clear_winner",
+   "ctrMode": "demo",
+   "arms": [
+    {
+     "ad_copy_overall": 0.82,
+     "visual_overall": 0.8,
+     "trend_authenticity": 0.9
+    },
+    {
+     "ad_copy_overall": 0.74,
+     "visual_overall": 0.7,
+     "audience_fit": 0.95
+    },
+    {
+     "ad_copy_overall": 0.7,
+     "visual_overall": 0.62,
+     "stopping_power": 1.0
+    },
+    {
+     "ad_copy_overall": 0.66,
+     "visual_overall": 0.75
+    }
+   ],
+   "overrides": {
+    "judgeWrong": 1.0,
+    "gapScale": 2.0
+   },
+   "expected": {
+    "segments": [
+     "commuters",
+     "desk_researchers",
+     "evening_browsers"
+    ],
+    "ctr": [
+     [
+      0.0236719901,
+      0.0232539539,
+      0.0236750238
+     ],
+     [
+      0.0340348242,
+      0.0335728101,
+      0.0337311167
+     ],
+     [
+      0.0771753083,
+      0.0806395703,
+      0.0786297778
+     ],
+     [
+      0.0511171448,
+      0.0503815899,
+      0.0505939125
+     ]
+    ],
+    "oracle": [
+     2,
+     2,
+     2
+    ],
+    "overall": [
+     0.0235264359,
+     0.0337971924,
+     0.0787514174,
+     0.0507288925
+    ],
+    "alpha": -3.11720586
+   }
+  },
+  {
+   "name": "clear_winner/four/judge_partial_gap_subtle",
+   "scenario": "clear_winner",
+   "ctrMode": "demo",
+   "arms": [
+    {
+     "ad_copy_overall": 0.82,
+     "visual_overall": 0.8,
+     "trend_authenticity": 0.9
+    },
+    {
+     "ad_copy_overall": 0.74,
+     "visual_overall": 0.7,
+     "audience_fit": 0.95
+    },
+    {
+     "ad_copy_overall": 0.7,
+     "visual_overall": 0.62,
+     "stopping_power": 1.0
+    },
+    {
+     "ad_copy_overall": 0.66,
+     "visual_overall": 0.75
+    }
+   ],
+   "overrides": {
+    "judgeWrong": 0.3,
+    "gapScale": 0.25
+   },
+   "expected": {
+    "segments": [
+     "commuters",
+     "desk_researchers",
+     "evening_browsers"
+    ],
+    "ctr": [
+     [
+      0.0508968385,
+      0.0512494807,
+      0.0508943026
+     ],
+     [
+      0.0480534502,
+      0.0483132071,
+      0.0482245364
+     ],
+     [
+      0.0426956594,
+      0.0419237323,
+      0.0423697577
+     ],
+     [
+      0.0451098551,
+      0.0453739617,
+      0.0452982988
+     ]
+    ],
+    "oracle": [
+     0,
+     0,
+     0
+    ],
+    "overall": [
+     0.0510196293,
+     0.0481871367,
+     0.0423440095,
+     0.0452494033
+    ],
+    "alpha": -3.01865005
+   }
+  },
+  {
+   "name": "clear_winner/two/preset",
+   "scenario": "clear_winner",
+   "ctrMode": "demo",
+   "arms": [
+    {
+     "ad_copy_overall": 0.8,
+     "visual_overall": 0.7,
+     "stopping_power": 0.6
+    },
+    {
+     "ad_copy_overall": 0.7,
+     "visual_overall": 0.76,
+     "stopping_power": 0.9
+    }
+   ],
+   "overrides": {},
+   "expected": {
+    "segments": [
+     "commuters",
+     "desk_researchers",
+     "evening_browsers"
+    ],
+    "ctr": [
+     [
+      0.059255011,
+      0.0609768798,
+      0.0601451982
+     ],
+     [
+      0.0337917795,
+      0.0328126313,
+      0.0332850663
+     ]
+    ],
+    "oracle": [
+     0,
+     0,
+     0
+    ],
+    "overall": [
+     0.0600802119,
+     0.0333223993
+    ],
+    "alpha": -3.05911064
+   }
+  },
+  {
+   "name": "clear_winner/three/judge_uninformative",
+   "scenario": "clear_winner",
+   "ctrMode": "demo",
+   "arms": [
+    {
+     "ad_copy_overall": 0.86,
+     "visual_overall": 0.78,
+     "trend_authenticity": 0.9,
+     "audience_fit": 0.7,
+     "stopping_power": 0.8,
+     "clarity": 0.9
+    },
+    {
+     "ad_copy_overall": 0.72,
+     "visual_overall": 0.8,
+     "trend_authenticity": 0.6,
+     "audience_fit": 0.9,
+     "stopping_power": 0.6
+    },
+    {
+     "ad_copy_overall": 0.64,
+     "visual_overall": 0.7,
+     "trend_authenticity": 0.7,
+     "audience_fit": 0.5,
+     "stopping_power": 0.9
+    }
+   ],
+   "overrides": {
+    "judgeWrong": 0.5
+   },
+   "expected": {
+    "segments": [
+     "commuters",
+     "desk_researchers",
+     "evening_browsers"
+    ],
+    "ctr": [
+     [
+      0.0600423539,
+      0.0600423539,
+      0.0600423539
+     ],
+     [
+      0.0450322723,
+      0.0450322723,
+      0.0450322723
+     ],
+     [
+      0.0350253637,
+      0.0350253637,
+      0.0350253637
+     ]
+    ],
+    "oracle": [
+     0,
+     0,
+     0
+    ],
+    "overall": [
+     0.0600423539,
+     0.0450322723,
+     0.0350253637
+    ],
+    "alpha": -3.0403707
+   }
+  },
+  {
+   "name": "clear_winner/three/skewed_mix_realistic",
+   "scenario": "clear_winner",
+   "ctrMode": "realistic",
+   "arms": [
+    {
+     "ad_copy_overall": 0.86,
+     "visual_overall": 0.78,
+     "trend_authenticity": 0.9,
+     "audience_fit": 0.7,
+     "stopping_power": 0.8,
+     "clarity": 0.9
+    },
+    {
+     "ad_copy_overall": 0.72,
+     "visual_overall": 0.8,
+     "trend_authenticity": 0.6,
+     "audience_fit": 0.9,
+     "stopping_power": 0.6
+    },
+    {
+     "ad_copy_overall": 0.64,
+     "visual_overall": 0.7,
+     "trend_authenticity": 0.7,
+     "audience_fit": 0.5,
+     "stopping_power": 0.9
+    }
+   ],
+   "overrides": {
+    "segmentMix": [
+     0.7,
+     0.2,
+     0.1
+    ],
+    "judgeWrong": 0.8
+   },
+   "expected": {
+    "segments": [
+     "commuters",
+     "desk_researchers",
+     "evening_browsers"
+    ],
+    "ctr": [
+     [
+      0.0067551181,
+      0.0067008759,
+      0.0067692372
+     ],
+     [
+      0.0089226292,
+      0.00883554,
+      0.0088307323
+     ],
+     [
+      0.0122939569,
+      0.0125145555,
+      0.0123967939
+     ]
+    ],
+    "oracle": [
+     2,
+     2,
+     2
+    ],
+    "overall": [
+     0.0067456815,
+     0.0088960217,
+     0.0123483603
+    ],
+    "alpha": -4.69590092
+   }
+  },
+  {
+   "name": "segment_winners/three/preset",
+   "scenario": "segment_winners",
+   "ctrMode": "demo",
+   "arms": [
+    {
+     "ad_copy_overall": 0.86,
+     "visual_overall": 0.78,
+     "trend_authenticity": 0.9,
+     "audience_fit": 0.7,
+     "stopping_power": 0.8,
+     "clarity": 0.9
+    },
+    {
+     "ad_copy_overall": 0.72,
+     "visual_overall": 0.8,
+     "trend_authenticity": 0.6,
+     "audience_fit": 0.9,
+     "stopping_power": 0.6
+    },
+    {
+     "ad_copy_overall": 0.64,
+     "visual_overall": 0.7,
+     "trend_authenticity": 0.7,
+     "audience_fit": 0.5,
+     "stopping_power": 0.9
+    }
+   ],
+   "overrides": {},
+   "expected": {
+    "segments": [
+     "mobile_scrollers",
+     "trend_followers",
+     "product_intenders",
+     "late_night_casual"
+    ],
+    "ctr": [
+     [
+      0.0373447309,
+      0.0478584694,
+      0.0370404272,
+      0.0516222663
+     ],
+     [
+      0.03618214,
+      0.0347483093,
+      0.0509958378,
+      0.0375174523
+     ],
+     [
+      0.0514059217,
+      0.0326353191,
+      0.0297144565,
+      0.0329315798
+     ]
+    ],
+    "oracle": [
+     2,
+     0,
+     1,
+     0
+    ],
+    "overall": [
+     0.0434664734,
+     0.0398609348,
+     0.0366718193
+    ],
+    "alpha": -3.29411101
+   }
+  },
+  {
+   "name": "segment_winners/three/judge_backwards_gap_wide",
+   "scenario": "segment_winners",
+   "ctrMode": "demo",
+   "arms": [
+    {
+     "ad_copy_overall": 0.86,
+     "visual_overall": 0.78,
+     "trend_authenticity": 0.9,
+     "audience_fit": 0.7,
+     "stopping_power": 0.8,
+     "clarity": 0.9
+    },
+    {
+     "ad_copy_overall": 0.72,
+     "visual_overall": 0.8,
+     "trend_authenticity": 0.6,
+     "audience_fit": 0.9,
+     "stopping_power": 0.6
+    },
+    {
+     "ad_copy_overall": 0.64,
+     "visual_overall": 0.7,
+     "trend_authenticity": 0.7,
+     "audience_fit": 0.5,
+     "stopping_power": 0.9
+    }
+   ],
+   "overrides": {
+    "judgeWrong": 1.0,
+    "gapScale": 2.0
+   },
+   "expected": {
+    "segments": [
+     "mobile_scrollers",
+     "trend_followers",
+     "product_intenders",
+     "late_night_casual"
+    ],
+    "ctr": [
+     [
+      0.029864977,
+      0.0275903951,
+      0.0658110814,
+      0.0300831951
+     ],
+     [
+      0.0579360378,
+      0.0321301419,
+      0.0268023707,
+      0.0297435748
+     ],
+     [
+      0.0329212345,
+      0.0565683387,
+      0.0375355898,
+      0.053064302
+     ]
+    ],
+    "oracle": [
+     1,
+     2,
+     0,
+     2
+    ],
+    "overall": [
+     0.0383374122,
+     0.0366530313,
+     0.0450223663
+    ],
+    "alpha": -3.43635559
+   }
+  },
+  {
+   "name": "segment_winners/three/judge_partial_gap_subtle",
+   "scenario": "segment_winners",
+   "ctrMode": "demo",
+   "arms": [
+    {
+     "ad_copy_overall": 0.86,
+     "visual_overall": 0.78,
+     "trend_authenticity": 0.9,
+     "audience_fit": 0.7,
+     "stopping_power": 0.8,
+     "clarity": 0.9
+    },
+    {
+     "ad_copy_overall": 0.72,
+     "visual_overall": 0.8,
+     "trend_authenticity": 0.6,
+     "audience_fit": 0.9,
+     "stopping_power": 0.6
+    },
+    {
+     "ad_copy_overall": 0.64,
+     "visual_overall": 0.7,
+     "trend_authenticity": 0.7,
+     "audience_fit": 0.5,
+     "stopping_power": 0.9
+    }
+   ],
+   "overrides": {
+    "judgeWrong": 0.3,
+    "gapScale": 0.25
+   },
+   "expected": {
+    "segments": [
+     "mobile_scrollers",
+     "trend_followers",
+     "product_intenders",
+     "late_night_casual"
+    ],
+    "ctr": [
+     [
+      0.0396307251,
+      0.0421184981,
+      0.0395015351,
+      0.0434224021
+     ],
+     [
+      0.0391323659,
+      0.0385051056,
+      0.0432078154,
+      0.0397010789
+     ],
+     [
+      0.043348197,
+      0.0375561829,
+      0.0361832106,
+      0.0376920006
+     ]
+    ],
+    "oracle": [
+     2,
+     0,
+     1,
+     0
+    ],
+    "overall": [
+     0.0411682901,
+     0.0401365914,
+     0.0386948978
+    ],
+    "alpha": -3.20553017
+   }
+  },
+  {
+   "name": "segment_winners/four/preset",
+   "scenario": "segment_winners",
+   "ctrMode": "demo",
+   "arms": [
+    {
+     "ad_copy_overall": 0.82,
+     "visual_overall": 0.8,
+     "trend_authenticity": 0.9
+    },
+    {
+     "ad_copy_overall": 0.74,
+     "visual_overall": 0.7,
+     "audience_fit": 0.95
+    },
+    {
+     "ad_copy_overall": 0.7,
+     "visual_overall": 0.62,
+     "stopping_power": 1.0
+    },
+    {
+     "ad_copy_overall": 0.66,
+     "visual_overall": 0.75
+    }
+   ],
+   "overrides": {},
+   "expected": {
+    "segments": [
+     "mobile_scrollers",
+     "trend_followers",
+     "product_intenders",
+     "late_night_casual"
+    ],
+    "ctr": [
+     [
+      0.0383511024,
+      0.0505540908,
+      0.0388835624,
+      0.0383407315
+     ],
+     [
+      0.0366896064,
+      0.0367250543,
+      0.0534879064,
+      0.0374032469
+     ],
+     [
+      0.0527695635,
+      0.0323157155,
+      0.031261232,
+      0.0333780635
+     ],
+     [
+      0.0358869823,
+      0.035737406,
+      0.0354596379,
+      0.0527528816
+     ]
+    ],
+    "oracle": [
+     2,
+     0,
+     1,
+     3
+    ],
+    "overall": [
+     0.0415323718,
+     0.0410764535,
+     0.0374311437,
+     0.0399592269
+    ],
+    "alpha": -3.2760148
+   }
+  },
+  {
+   "name": "segment_winners/four/judge_backwards_gap_wide",
+   "scenario": "segment_winners",
+   "ctrMode": "demo",
+   "arms": [
+    {
+     "ad_copy_overall": 0.82,
+     "visual_overall": 0.8,
+     "trend_authenticity": 0.9
+    },
+    {
+     "ad_copy_overall": 0.74,
+     "visual_overall": 0.7,
+     "audience_fit": 0.95
+    },
+    {
+     "ad_copy_overall": 0.7,
+     "visual_overall": 0.62,
+     "stopping_power": 1.0
+    },
+    {
+     "ad_copy_overall": 0.66,
+     "visual_overall": 0.75
+    }
+   ],
+   "overrides": {
+    "judgeWrong": 1.0,
+    "gapScale": 2.0
+   },
+   "expected": {
+    "segments": [
+     "mobile_scrollers",
+     "trend_followers",
+     "product_intenders",
+     "late_night_casual"
+    ],
+    "ctr": [
+     [
+      0.0310154757,
+      0.0286962483,
+      0.0666982532,
+      0.0310239295
+     ],
+     [
+      0.0324307648,
+      0.0324031947,
+      0.0291870945,
+      0.0626169227
+     ],
+     [
+      0.0342094114,
+      0.0585940176,
+      0.0380593412,
+      0.0356657538
+     ],
+     [
+      0.0601322516,
+      0.0332983297,
+      0.0335549796,
+      0.032415326
+     ]
+    ],
+    "oracle": [
+     3,
+     2,
+     0,
+     1
+    ],
+    "overall": [
+     0.0393584767,
+     0.0391594942,
+     0.041632131,
+     0.0398502217
+    ],
+    "alpha": -3.38779807
+   }
+  },
+  {
+   "name": "segment_winners/four/judge_partial_gap_subtle",
+   "scenario": "segment_winners",
+   "ctrMode": "demo",
+   "arms": [
+    {
+     "ad_copy_overall": 0.82,
+     "visual_overall": 0.8,
+     "trend_authenticity": 0.9
+    },
+    {
+     "ad_copy_overall": 0.74,
+     "visual_overall": 0.7,
+     "audience_fit": 0.95
+    },
+    {
+     "ad_copy_overall": 0.7,
+     "visual_overall": 0.62,
+     "stopping_power": 1.0
+    },
+    {
+     "ad_copy_overall": 0.66,
+     "visual_overall": 0.75
+    }
+   ],
+   "overrides": {
+    "judgeWrong": 0.3,
+    "gapScale": 0.25
+   },
+   "expected": {
+    "segments": [
+     "mobile_scrollers",
+     "trend_followers",
+     "product_intenders",
+     "late_night_casual"
+    ],
+    "ctr": [
+     [
+      0.0399000679,
+      0.0428938257,
+      0.0401204323,
+      0.0398957585
+     ],
+     [
+      0.0392005842,
+      0.0392151352,
+      0.043881185,
+      0.039502756
+     ],
+     [
+      0.0436415324,
+      0.0372645319,
+      0.0367779569,
+      0.0377483528
+     ],
+     [
+      0.0388569572,
+      0.0387915613,
+      0.0386717255,
+      0.0436364753
+     ]
+    ],
+    "oracle": [
+     2,
+     0,
+     1,
+     3
+    ],
+    "overall": [
+     0.0407025211,
+     0.0404499151,
+     0.0388580935,
+     0.0399891798
+    ],
+    "alpha": -3.2022965
+   }
+  },
+  {
+   "name": "segment_winners/two/preset",
+   "scenario": "segment_winners",
+   "ctrMode": "demo",
+   "arms": [
+    {
+     "ad_copy_overall": 0.8,
+     "visual_overall": 0.7,
+     "stopping_power": 0.6
+    },
+    {
+     "ad_copy_overall": 0.7,
+     "visual_overall": 0.76,
+     "stopping_power": 0.9
+    }
+   ],
+   "overrides": {},
+   "expected": {
+    "segments": [
+     "mobile_scrollers",
+     "trend_followers",
+     "product_intenders",
+     "late_night_casual"
+    ],
+    "ctr": [
+     [
+      0.0342107281,
+      0.0450924645,
+      0.044513947,
+      0.0353470888
+     ],
+     [
+      0.0471462674,
+      0.032701244,
+      0.0322762265,
+      0.0486906462
+     ]
+    ],
+    "oracle": [
+     1,
+     0,
+     0,
+     1
+    ],
+    "overall": [
+     0.0397910571,
+     0.040203596
+    ],
+    "alpha": -3.34890246
+   }
+  },
+  {
+   "name": "segment_winners/three/judge_uninformative",
+   "scenario": "segment_winners",
+   "ctrMode": "demo",
+   "arms": [
+    {
+     "ad_copy_overall": 0.86,
+     "visual_overall": 0.78,
+     "trend_authenticity": 0.9,
+     "audience_fit": 0.7,
+     "stopping_power": 0.8,
+     "clarity": 0.9
+    },
+    {
+     "ad_copy_overall": 0.72,
+     "visual_overall": 0.8,
+     "trend_authenticity": 0.6,
+     "audience_fit": 0.9,
+     "stopping_power": 0.6
+    },
+    {
+     "ad_copy_overall": 0.64,
+     "visual_overall": 0.7,
+     "trend_authenticity": 0.7,
+     "audience_fit": 0.5,
+     "stopping_power": 0.9
+    }
+   ],
+   "overrides": {
+    "judgeWrong": 0.5
+   },
+   "expected": {
+    "segments": [
+     "mobile_scrollers",
+     "trend_followers",
+     "product_intenders",
+     "late_night_casual"
+    ],
+    "ctr": [
+     [
+      0.0489395227,
+      0.035530236,
+      0.035530236,
+      0.0489395227
+     ],
+     [
+      0.035530236,
+      0.0489395227,
+      0.035530236,
+      0.035530236
+     ],
+     [
+      0.035530236,
+      0.035530236,
+      0.0489395227,
+      0.035530236
+     ]
+    ],
+    "oracle": [
+     0,
+     1,
+     2,
+     0
+    ],
+    "overall": [
+     0.0422348794,
+     0.0388825577,
+     0.0388825577
+    ],
+    "alpha": -3.30119443
+   }
+  },
+  {
+   "name": "segment_winners/three/skewed_mix_realistic",
+   "scenario": "segment_winners",
+   "ctrMode": "realistic",
+   "arms": [
+    {
+     "ad_copy_overall": 0.86,
+     "visual_overall": 0.78,
+     "trend_authenticity": 0.9,
+     "audience_fit": 0.7,
+     "stopping_power": 0.8,
+     "clarity": 0.9
+    },
+    {
+     "ad_copy_overall": 0.72,
+     "visual_overall": 0.8,
+     "trend_authenticity": 0.6,
+     "audience_fit": 0.9,
+     "stopping_power": 0.6
+    },
+    {
+     "ad_copy_overall": 0.64,
+     "visual_overall": 0.7,
+     "trend_authenticity": 0.7,
+     "audience_fit": 0.5,
+     "stopping_power": 0.9
+    }
+   ],
+   "overrides": {
+    "segmentMix": [
+     0.55,
+     0.05,
+     0.3,
+     0.1
+    ],
+    "judgeWrong": 0.8
+   },
+   "expected": {
+    "segments": [
+     "mobile_scrollers",
+     "trend_followers",
+     "product_intenders",
+     "late_night_casual"
+    ],
+    "ctr": [
+     [
+      0.0067634887,
+      0.0064426416,
+      0.0107074849,
+      0.0067937992
+     ],
+     [
+      0.009877346,
+      0.0070739398,
+      0.0063289385,
+      0.0067461367
+     ],
+     [
+      0.0071810888,
+      0.0097296307,
+      0.0077867574,
+      0.0093463081
+     ]
+    ],
+    "oracle": [
+     1,
+     2,
+     0,
+     2
+    ],
+    "overall": [
+     0.0079336763,
+     0.0083595325,
+     0.0077067384
+    ],
+    "alpha": -4.96277046
+   }
+  },
+  {
+   "name": "drift/three/preset",
+   "scenario": "drift",
+   "ctrMode": "demo",
+   "arms": [
+    {
+     "ad_copy_overall": 0.86,
+     "visual_overall": 0.78,
+     "trend_authenticity": 0.9,
+     "audience_fit": 0.7,
+     "stopping_power": 0.8,
+     "clarity": 0.9
+    },
+    {
+     "ad_copy_overall": 0.72,
+     "visual_overall": 0.8,
+     "trend_authenticity": 0.6,
+     "audience_fit": 0.9,
+     "stopping_power": 0.6
+    },
+    {
+     "ad_copy_overall": 0.64,
+     "visual_overall": 0.7,
+     "trend_authenticity": 0.7,
+     "audience_fit": 0.5,
+     "stopping_power": 0.9
+    }
+   ],
+   "overrides": {},
+   "expected": {
+    "segments": [
+     "commuters",
+     "desk_researchers",
+     "evening_browsers"
+    ],
+    "ctr": [
+     [
+      0.0621904289,
+      0.0629798657,
+      0.0619869318
+     ],
+     [
+      0.0447251318,
+      0.0454356092,
+      0.0454847333
+     ],
+     [
+      0.0329610271,
+      0.0320188463,
+      0.0325206086
+     ]
+    ],
+    "oracle": [
+     0,
+     0,
+     0
+    ],
+    "overall": [
+     0.0624158575,
+     0.0451636992,
+     0.0325211592
+    ],
+    "alpha": -3.05171108
+   }
+  },
+  {
+   "name": "drift/four/preset",
+   "scenario": "drift",
+   "ctrMode": "demo",
+   "arms": [
+    {
+     "ad_copy_overall": 0.82,
+     "visual_overall": 0.8,
+     "trend_authenticity": 0.9
+    },
+    {
+     "ad_copy_overall": 0.74,
+     "visual_overall": 0.7,
+     "audience_fit": 0.95
+    },
+    {
+     "ad_copy_overall": 0.7,
+     "visual_overall": 0.62,
+     "stopping_power": 1.0
+    },
+    {
+     "ad_copy_overall": 0.66,
+     "visual_overall": 0.75
+    }
+   ],
+   "overrides": {},
+   "expected": {
+    "segments": [
+     "commuters",
+     "desk_researchers",
+     "evening_browsers"
+    ],
+    "ctr": [
+     [
+      0.0626117427,
+      0.0636865412,
+      0.0626040406
+     ],
+     [
+      0.0505372516,
+      0.0512212591,
+      0.0509881354
+     ],
+     [
+      0.0329653353,
+      0.0314811882,
+      0.032337129
+     ],
+     [
+      0.0403223571,
+      0.0409182822,
+      0.0407481362
+     ]
+    ],
+    "oracle": [
+     0,
+     0,
+     0
+    ],
+    "overall": [
+     0.0629859966,
+     0.0508893752,
+     0.0322888322,
+     0.0406373757
+    ],
+    "alpha": -3.04721403
+   }
+  },
+  {
+   "name": "drift/two/preset",
+   "scenario": "drift",
+   "ctrMode": "demo",
+   "arms": [
+    {
+     "ad_copy_overall": 0.8,
+     "visual_overall": 0.7,
+     "stopping_power": 0.6
+    },
+    {
+     "ad_copy_overall": 0.7,
+     "visual_overall": 0.76,
+     "stopping_power": 0.9
+    }
+   ],
+   "overrides": {},
+   "expected": {
+    "segments": [
+     "commuters",
+     "desk_researchers",
+     "evening_browsers"
+    ],
+    "ctr": [
+     [
+      0.059255011,
+      0.0609768798,
+      0.0601451982
+     ],
+     [
+      0.0337917795,
+      0.0328126313,
+      0.0332850663
+     ]
+    ],
+    "oracle": [
+     0,
+     0,
+     0
+    ],
+    "overall": [
+     0.0600802119,
+     0.0333223993
+    ],
+    "alpha": -3.05911064
+   }
+  },
+  {
+   "name": "drift/three/skewed_mix_realistic",
+   "scenario": "drift",
+   "ctrMode": "realistic",
+   "arms": [
+    {
+     "ad_copy_overall": 0.86,
+     "visual_overall": 0.78,
+     "trend_authenticity": 0.9,
+     "audience_fit": 0.7,
+     "stopping_power": 0.8,
+     "clarity": 0.9
+    },
+    {
+     "ad_copy_overall": 0.72,
+     "visual_overall": 0.8,
+     "trend_authenticity": 0.6,
+     "audience_fit": 0.9,
+     "stopping_power": 0.6
+    },
+    {
+     "ad_copy_overall": 0.64,
+     "visual_overall": 0.7,
+     "trend_authenticity": 0.7,
+     "audience_fit": 0.5,
+     "stopping_power": 0.9
+    }
+   ],
+   "overrides": {
+    "segmentMix": [
+     0.7,
+     0.2,
+     0.1
+    ],
+    "judgeWrong": 0.8,
+    "driftAtFrac": 0.3
+   },
+   "expected": {
+    "segments": [
+     "commuters",
+     "desk_researchers",
+     "evening_browsers"
+    ],
+    "ctr": [
+     [
+      0.0067551181,
+      0.0067008759,
+      0.0067692372
+     ],
+     [
+      0.0089226292,
+      0.00883554,
+      0.0088307323
+     ],
+     [
+      0.0122939569,
+      0.0125145555,
+      0.0123967939
+     ]
+    ],
+    "oracle": [
+     2,
+     2,
+     2
+    ],
+    "overall": [
+     0.0067456815,
+     0.0088960217,
+     0.0123483603
+    ],
+    "alpha": -4.69590092
+   }
+  }
+ ]
+}
