@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import math
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -80,6 +81,41 @@ class LinTSParams:
     discount: float = 1.0
 
 
+#: Inclusive bounds per ``ScenarioOverrides`` field (contracts §9). ``segment_mix``
+#: bounds apply to each raw weight (before renormalisation). ``runserver``
+#: duplicates this table (parity-tested); keep the two in sync.
+OVERRIDE_BOUNDS: dict[str, tuple[float, float]] = {
+    "segment_mix": (0.05, 1.0),
+    "gap_scale": (0.25, 2.0),
+    "judge_wrong": (0.0, 1.0),
+    "noise_scale": (0.0, 2.0),
+    "drift_at_frac": (0.2, 0.8),
+}
+
+
+@dataclass(frozen=True)
+class ScenarioOverrides:
+    """User-tuned tweaks to a scenario preset (contracts §9); ``None`` = keep the
+    preset value. Applied by ``apply_scenario_overrides``.
+
+    - ``segment_mix``: one weight per scenario segment (renormalised to sum 1).
+    - ``gap_scale``: ``segment_winners`` scales ``lift_pp``; ``rank_ctrs``
+      scenarios spread the preset CTRs around their logit mean.
+    - ``judge_wrong``: replaces the preset's (0 right, 0.5 uninformative, 1 reversed).
+    - ``noise_scale``: multiplies ``noise_sd`` and ``theta_sd``.
+    - ``drift_at_frac``: the drift change point (``drift`` scenario only).
+    """
+
+    segment_mix: tuple[float, ...] | None = None
+    gap_scale: float | None = None
+    judge_wrong: float | None = None
+    noise_scale: float | None = None
+    drift_at_frac: float | None = None
+
+    def is_empty(self) -> bool:
+        return all(getattr(self, f.name) is None for f in dataclasses.fields(self))
+
+
 @dataclass(frozen=True)
 class ExperimentConfig:
     experiment_id: str
@@ -92,6 +128,7 @@ class ExperimentConfig:
     episodes: int = 20
     seed: int = 0
     policy: LinTSParams = field(default_factory=LinTSParams)
+    scenario_overrides: ScenarioOverrides | None = None
 
 
 def validate_lints_params(p: LinTSParams, num_arms: int = MIN_ARMS) -> LinTSParams:
@@ -133,7 +170,70 @@ def validate_experiment_config(cfg: ExperimentConfig) -> ExperimentConfig:
     if not 1 <= cfg.episodes <= 1000:
         raise ValueError("episodes must be in [1, 1000]")
     validate_lints_params(cfg.policy, len(cfg.arms))
+    if cfg.scenario_overrides is not None:
+        validate_scenario_overrides(cfg.scenario_overrides, load_scenario(cfg.scenario))
     return cfg
+
+
+def _check_bound(name: str, value: float) -> None:
+    lo, hi = OVERRIDE_BOUNDS[name]
+    if not (math.isfinite(value) and lo <= value <= hi):
+        raise ValueError(
+            f"scenario_overrides.{name} must be in [{lo}, {hi}], got {value}"
+        )
+
+
+def validate_scenario_overrides(
+    ov: ScenarioOverrides, scenario: ScenarioConfig
+) -> ScenarioOverrides:
+    """Check ``ov`` against ``OVERRIDE_BOUNDS`` and ``scenario`` (segment count,
+    drift-only fields). Raises ``ValueError`` naming the offending field."""
+    if ov.segment_mix is not None:
+        n = len(scenario.segments)
+        if len(ov.segment_mix) != n:
+            raise ValueError(
+                f"scenario_overrides.segment_mix needs {n} weights for "
+                f"{scenario.name}, got {len(ov.segment_mix)}"
+            )
+        for w in ov.segment_mix:
+            _check_bound("segment_mix", w)
+    for name in ("gap_scale", "judge_wrong", "noise_scale", "drift_at_frac"):
+        value = getattr(ov, name)
+        if value is not None:
+            _check_bound(name, value)
+    if ov.drift_at_frac is not None and scenario.name != "drift":
+        raise ValueError(
+            "scenario_overrides.drift_at_frac is only valid for the drift scenario"
+        )
+    return ov
+
+
+def _override_number(name: str, value: Any) -> float:
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        raise ValueError(f"scenario_overrides.{name} must be a number, got {value!r}")
+    return float(value)
+
+
+def scenario_overrides_from_dict(data: Any) -> ScenarioOverrides | None:
+    """Strictly parse ``experiment.json``'s ``scenario_overrides`` (types and
+    unknown keys only; bounds are checked by ``validate_scenario_overrides``).
+    ``None`` or an empty mapping -> ``None``."""
+    if data is None:
+        return None
+    if not isinstance(data, Mapping):
+        raise ValueError("scenario_overrides must be an object")
+    kw = _strict_kwargs(ScenarioOverrides, data, "scenario_overrides")
+    for name, value in list(kw.items()):
+        if value is None:
+            continue
+        if name == "segment_mix":
+            if not isinstance(value, list | tuple):
+                raise ValueError("scenario_overrides.segment_mix must be a list")
+            kw[name] = tuple(_override_number(name, v) for v in value)
+        else:
+            kw[name] = _override_number(name, value)
+    ov = ScenarioOverrides(**kw)
+    return None if ov.is_empty() else ov
 
 
 def _strict_kwargs(cls: Any, data: Mapping[str, Any], what: str) -> dict[str, Any]:
@@ -168,16 +268,38 @@ def load_experiment_config(src: str | Path | Mapping[str, Any]) -> ExperimentCon
         for name in ("horizon", "batch_size", "episodes", "seed"):
             if name in kw:
                 kw[name] = int(kw[name])
+        if "scenario_overrides" in kw:
+            kw["scenario_overrides"] = scenario_overrides_from_dict(
+                kw["scenario_overrides"]
+            )
         cfg = ExperimentConfig(**kw)
     except TypeError as exc:  # missing required fields
         raise ValueError(str(exc)) from exc
     return validate_experiment_config(cfg)
 
 
+def scenario_overrides_to_dict(ov: ScenarioOverrides | None) -> dict[str, Any] | None:
+    """JSON-ready dict of the *set* override fields, or ``None`` when none are set."""
+    if ov is None or ov.is_empty():
+        return None
+    return {
+        f.name: list(v) if isinstance(v, tuple) else v
+        for f in dataclasses.fields(ov)
+        if (v := getattr(ov, f.name)) is not None
+    }
+
+
 def experiment_config_to_dict(cfg: ExperimentConfig) -> dict[str, Any]:
-    """JSON-ready dict; ``load_experiment_config(experiment_config_to_dict(c)) == c``."""
+    """JSON-ready dict; ``load_experiment_config(experiment_config_to_dict(c)) == c``.
+
+    ``scenario_overrides`` is written only when at least one override is set
+    (contracts §9), so default configs serialise exactly as before."""
     d = dataclasses.asdict(cfg)
     d["arms"] = [dict(a) for a in d["arms"]]
+    d.pop("scenario_overrides")
+    ov = scenario_overrides_to_dict(cfg.scenario_overrides)
+    if ov is not None:
+        d["scenario_overrides"] = ov
     return d
 
 
@@ -375,6 +497,53 @@ def with_segment_mix(sc: ScenarioConfig, weights: list[float]) -> ScenarioConfig
     return dataclasses.replace(sc, segments=segs)
 
 
+def _logit(p: float) -> float:
+    return math.log(p) - math.log1p(-p)
+
+
+def _sigmoid(z: float) -> float:
+    return 1.0 / (1.0 + math.exp(-z))
+
+
+def apply_scenario_overrides(
+    sc: ScenarioConfig, ov: ScenarioOverrides | None
+) -> ScenarioConfig:
+    """``sc`` with ``ov`` applied (contracts §9). Does not validate; see
+    ``validate_scenario_overrides``.
+
+    ``gap_scale`` g: ``segment_winners`` -> ``lift_pp · g``; ``rank_ctrs``
+    scenarios -> each preset CTR becomes ``sigmoid(mid + g·(logit(ctr) - mid))``
+    with ``mid`` the mean logit, so CTRs stay in (0, 1).
+    """
+    if ov is None:
+        return sc
+    if ov.segment_mix is not None:
+        sc = with_segment_mix(sc, list(ov.segment_mix))
+    changes: dict[str, Any] = {}
+    if ov.gap_scale is not None:
+        g = ov.gap_scale
+        if sc.arm_effect == "segment_winners":
+            changes["lift_pp"] = sc.lift_pp * g
+        else:
+            logits = [_logit(c) for c in sc.rank_ctrs]
+            mid = sum(logits) / len(logits)
+            changes["rank_ctrs"] = tuple(_sigmoid(mid + g * (z - mid)) for z in logits)
+    if ov.judge_wrong is not None:
+        changes["judge_wrong"] = ov.judge_wrong
+    if ov.noise_scale is not None:
+        changes["noise_sd"] = sc.noise_sd * ov.noise_scale
+        changes["theta_sd"] = sc.theta_sd * ov.noise_scale
+    if ov.drift_at_frac is not None:
+        changes["drift"] = dataclasses.replace(sc.drift, at_frac=ov.drift_at_frac)
+    return dataclasses.replace(sc, **changes) if changes else sc
+
+
+def resolve_scenario(cfg: ExperimentConfig) -> ScenarioConfig:
+    """The experiment's effective scenario: the preset named by ``cfg.scenario``
+    with ``cfg.scenario_overrides`` applied (what the traffic job simulates)."""
+    return apply_scenario_overrides(load_scenario(cfg.scenario), cfg.scenario_overrides)
+
+
 def build_sim_config(
     scenario: str,
     *,
@@ -388,6 +557,7 @@ def build_sim_config(
     seed: int = 0,
     policy: LinTSParams | None = None,
     experiment_id: str = "sim",
+    scenario_overrides: ScenarioOverrides | None = None,
 ) -> ExperimentConfig:
     """An ``ExperimentConfig`` for offline simulation, defaulting the arms to
     ``default_arms(scenario.default_num_arms)`` and horizon/batch/episodes to the
@@ -411,6 +581,9 @@ def build_sim_config(
         else LinTSParams(
             noise_var=default_noise_var(sc.target_ctr[ctr_mode], reward_mode)
         ),
+        scenario_overrides=None
+        if scenario_overrides is None or scenario_overrides.is_empty()
+        else scenario_overrides,
     )
     return validate_experiment_config(cfg)
 

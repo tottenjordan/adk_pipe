@@ -315,6 +315,25 @@ def test_noise_var_calibrated_when_absent(tmp_path):
     assert q.params.discount == 0.99
 
 
+def test_loads_config_with_scenario_overrides(tmp_path):
+    ov = {
+        "segment_mix": [0.6, 0.2, 0.2],
+        "gap_scale": 1.5,
+        "judge_wrong": 0.8,
+        "noise_scale": 0,
+        "drift_at_frac": 0.3,
+    }
+    p = _predictor(_write_config(tmp_path, scenario="drift", scenario_overrides=ov))
+    assert p.config.scenario_overrides is not None
+    assert p.config.scenario_overrides.judge_wrong == 0.8
+    assert p.params.noise_var == scenario_noise_var("drift", "demo", "click")
+    preds = run(p, _decisions(3))
+    assert all(d["type"] == "decision" for d in preds)
+    # unknown override keys are rejected by the strict loader
+    with pytest.raises(ValueError, match="surprise"):
+        _predictor(_write_config(tmp_path / "bad", scenario_overrides={"surprise": 1}))
+
+
 def test_engaged_rewards_are_scaled_by_base_dwell(tmp_path):
     click = _predictor(_write_config(tmp_path / "a", policy={"noise_var": 0.1}))
     engaged = _predictor(

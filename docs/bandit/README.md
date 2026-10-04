@@ -219,6 +219,22 @@ calibrated to the scenario's target CTR.
 | `segment_winners` | Four segments (mobile scrollers, trend followers, product intenders, late-night casual), each with a different oracle creative (+1.5 pp demo) picked by a different judge dimension | 4 / 40k | Why context matters: pooled CTRs are nearly equal, so only a contextual policy can beat chance |
 | `drift` | `clear_winner` whose best arm becomes the worst at T/2 (abrupt; a `gradual` variant exists in the CLI) | 3 / 40k | Non-stationarity: how quickly each policy notices; why LinTS needs a discount (`linear_ts:discount=0.98`) |
 
+**Scenario overrides** ([contracts §9](contracts.md#9-scenario-overrides-experimentjson-scenario_overrides-2026-10-04)).
+An experiment can tune its preset without a new YAML file. `experiment.json` takes an optional
+`scenario_overrides` object with any of these fields:
+- `segment_mix`: the audience mix;
+- `gap_scale`: the gap between creatives;
+- `judge_wrong`: how much the judge's scores mislead (0 right, 0.5 uninformative, 1 reversed);
+- `noise_scale`: the scenario noise;
+- `drift_at_frac`: the drift point (`drift` only).
+
+`bandit.config.resolve_scenario(cfg)` applies the overrides to the preset. The traffic job
+simulates that resolved scenario, and its baselines share it. The key is omitted when no override
+is set, so default configs serialise exactly as before. The episode keys still come from the
+scenario name, so a tuned experiment sees the same random draws as its preset. The CLI exposes the
+same knobs with the same bounds: `--segment-mix`, `--gap-scale`, `--judge-wrong`, `--noise-scale`
+and `--drift-at`.
+
 ## Metrics and terminology
 
 **Terminology** (as in [contracts](contracts.md)):

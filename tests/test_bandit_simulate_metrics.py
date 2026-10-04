@@ -8,7 +8,7 @@ import jax
 import numpy as np
 import pytest
 
-from bandit import aggregate, metrics, simulate
+from bandit import aggregate, cli, metrics, simulate
 from bandit import environment as envm
 from bandit.config import build_sim_config
 from bandit.policies import make_policy
@@ -288,3 +288,84 @@ def test_bandit_not_imported_by_runserver_or_agents():
         if re.search(r"^\s*(from|import)\s+bandit\b", p.read_text(), re.MULTILINE)
     ]
     assert offenders == []
+
+
+# ------------------------------------------- CLI scenario overrides (contracts §9)
+
+
+def _cli_sim(**kw):
+    base = dict(
+        policies=["uniform", "oracle"], episodes=1, horizon=200, log_propensity=False
+    )
+    base.update(kw)
+    return cli.simulate(**base)
+
+
+def test_cli_overrides_go_through_apply_scenario_overrides():
+    doc = _cli_sim(
+        scenario="segment_winners", judge_wrong=1.0, gap_scale=0.5, noise_scale=0.0
+    )
+    assert doc["config"]["scenario_overrides"] == {
+        "gap_scale": 0.5,
+        "judge_wrong": 1.0,
+        "noise_scale": 0.0,
+    }
+    assert doc["scenario"]["lift_pp"] == pytest.approx(0.0075)
+    assert doc["scenario"]["judge_wrong"] == 1.0
+    assert doc["scenario"]["noise_sd"] == 0.0 and doc["scenario"]["theta_sd"] == 0.0
+    drift = _cli_sim(scenario="drift", drift_at=0.3)
+    assert drift["scenario"]["drift"]["at_frac"] == 0.3
+    plain = _cli_sim(scenario="clear_winner")
+    assert "scenario_overrides" not in plain["config"]
+
+
+@pytest.mark.parametrize(
+    "kw",
+    [
+        {"scenario": "clear_winner", "judge_wrong": 1.5},
+        {"scenario": "clear_winner", "gap_scale": 3.0},
+        {"scenario": "clear_winner", "noise_scale": -1.0},
+        {"scenario": "clear_winner", "drift_at": 0.5},  # not the drift scenario
+        {"scenario": "drift", "drift_at": 0.9},
+    ],
+)
+def test_cli_override_bounds(kw):
+    with pytest.raises(ValueError, match="scenario_overrides"):
+        _cli_sim(**kw)
+
+
+def test_cli_segment_mix_still_allows_zero_weights():
+    # the notebook-parity "users" figures pin the mix to single segments
+    doc = _cli_sim(scenario="segment_winners", segment_mix=[1, 0, 0, 0])
+    assert doc["env"]["segment_weights"] == [1.0, 0.0, 0.0, 0.0]
+    # a mix inside the §9 bounds is recorded as an override
+    tuned = _cli_sim(scenario="segment_winners", segment_mix=[0.4, 0.2, 0.2, 0.2])
+    assert tuned["config"]["scenario_overrides"] == {
+        "segment_mix": [0.4, 0.2, 0.2, 0.2]
+    }
+
+
+def test_cli_parser_override_flags():
+    args = cli.build_parser().parse_args(
+        [
+            "simulate",
+            "--scenario",
+            "drift",
+            "--gap-scale",
+            "1.5",
+            "--noise-scale",
+            "0.5",
+            "--drift-at",
+            "0.3",
+            "--judge-wrong",
+            "0.8",
+            "--out",
+            "/tmp/x.json",
+        ]
+    )
+    assert (args.gap_scale, args.noise_scale, args.drift_at, args.judge_wrong) == (
+        1.5,
+        0.5,
+        0.3,
+        0.8,
+    )

@@ -9,7 +9,12 @@ import pytest
 
 from bandit import environment as envm
 from bandit import features
-from bandit.config import build_sim_config, load_scenario
+from bandit.config import (
+    ScenarioOverrides,
+    build_sim_config,
+    load_scenario,
+    resolve_scenario,
+)
 
 KEY = jax.random.key(0)
 
@@ -154,3 +159,116 @@ def test_dwell_means_positive_and_engaged_mode():
     assert dm.shape == (3, 3) and np.all(dm > 0)
     assert env.reward_scale == pytest.approx(30.0)
     assert _env("clear_winner").reward_scale == 1.0
+
+
+# ------------------------------------------------- scenario overrides (contracts §9)
+
+
+def _env_ov(scenario, key=None, **ov):
+    """Ground truth for ``scenario`` tuned by ``ScenarioOverrides(**ov)``, built the
+    way the traffic job does it (``resolve_scenario(cfg)``)."""
+    horizon = ov.pop("horizon", None)
+    cfg = build_sim_config(
+        scenario, horizon=horizon, scenario_overrides=ScenarioOverrides(**ov)
+    )
+    return envm.build_true_model(
+        cfg, key if key is not None else KEY, scenario=resolve_scenario(cfg)
+    )
+
+
+def _rank_gap(env):
+    ctrs = envm.marginal_ctrs(env, jax.random.key(21))["overall"]
+    return float(ctrs.max() - ctrs.min())
+
+
+def _segment_lift(env):
+    by_seg = envm.marginal_ctrs(env, jax.random.key(22))["by_segment"]
+    lifts = [
+        by_seg[s, w] - np.delete(by_seg[s], w).max()
+        for s, w in enumerate(np.argmax(by_seg, axis=1))
+    ]
+    return float(np.mean(lifts))
+
+
+def test_segment_mix_override_shifts_sampled_segments():
+    env = _env_ov("segment_winners", segment_mix=(0.7, 0.1, 0.1, 0.1))
+    seg, _, _ = envm.sample_contexts(jax.random.key(13), env.model, 40000)
+    freq = np.bincount(np.asarray(seg), minlength=4) / seg.shape[0]
+    np.testing.assert_allclose(freq, [0.7, 0.1, 0.1, 0.1], atol=0.02)
+
+
+@pytest.mark.parametrize("scenario", ["clear_winner", "drift"])
+def test_gap_scale_widens_and_narrows_rank_ctr_gap(scenario):
+    base = _rank_gap(_env_ov(scenario))
+    wide = _rank_gap(_env_ov(scenario, gap_scale=2.0))
+    narrow = _rank_gap(_env_ov(scenario, gap_scale=0.5))
+    assert narrow < 0.7 * base and wide > 1.5 * base, (narrow, base, wide)
+
+
+def test_gap_scale_widens_and_narrows_segment_winner_lift():
+    base = _segment_lift(_env_ov("segment_winners"))
+    wide = _segment_lift(_env_ov("segment_winners", gap_scale=2.0))
+    narrow = _segment_lift(_env_ov("segment_winners", gap_scale=0.5))
+    assert narrow < 0.7 * base and wide > 1.5 * base, (narrow, base, wide)
+
+
+def test_judge_wrong_override_reverses_ranking():
+    env = _env_ov("clear_winner", judge_wrong=1.0)
+    ctrs = envm.marginal_ctrs(env, jax.random.key(1))["overall"]
+    assert env.arm_ids[int(np.argmax(ctrs))] == "synthetic-c"  # lowest judge score
+    assert env.arm_ids[int(np.argmin(ctrs))] == "synthetic-a"  # highest judge score
+
+
+@pytest.mark.parametrize("scenario", ["clear_winner", "segment_winners"])
+def test_noise_scale_zero_removes_noise(scenario):
+    a = _env_ov(scenario, jax.random.key(1), noise_scale=0.0)
+    b = _env_ov(scenario, jax.random.key(2), noise_scale=0.0)
+    for field in ("arm_base", "seg_aff", "theta"):
+        np.testing.assert_allclose(
+            np.asarray(getattr(a.model, field)), np.asarray(getattr(b.model, field))
+        )
+    # only the structured interaction columns carry weight in theta
+    names = features.feature_names()
+    structured = {
+        names.index(n)
+        for n in (
+            "topic_matches_trend",
+            "interest_matches_product",
+            "devicetype=desktop",
+            "devicetype=tablet",
+        )
+    }
+    theta = np.asarray(a.model.theta)
+    others = [c for c in range(theta.shape[1]) if c not in structured]
+    np.testing.assert_array_equal(theta[:, others], 0.0)
+    # with the default noise, different keys give different truths
+    c = _env_ov(scenario, jax.random.key(1))
+    d = _env_ov(scenario, jax.random.key(2))
+    assert not np.allclose(np.asarray(c.model.theta), np.asarray(d.model.theta))
+
+
+def test_drift_at_frac_moves_the_flip_point():
+    env = _env_ov("drift", horizon=1000, drift_at_frac=0.3)
+    before = envm.marginal_ctrs(env, jax.random.key(3), t=0)["overall"]
+    at_299 = envm.marginal_ctrs(env, jax.random.key(3), t=299)["overall"]
+    at_300 = envm.marginal_ctrs(env, jax.random.key(3), t=300)["overall"]
+    np.testing.assert_allclose(at_299, before, rtol=1e-6)
+    assert int(np.argmax(before)) == int(np.argmin(at_300))
+
+
+@pytest.mark.parametrize(
+    ("scenario", "ov"),
+    [
+        ("clear_winner", {"gap_scale": 2.0, "noise_scale": 2.0}),
+        ("clear_winner", {"segment_mix": (1.0, 0.05, 0.05), "judge_wrong": 0.5}),
+        ("segment_winners", {"gap_scale": 2.0, "segment_mix": (0.05, 0.05, 0.05, 1)}),
+        ("drift", {"gap_scale": 0.25, "drift_at_frac": 0.8, "noise_scale": 0.0}),
+    ],
+)
+def test_calibration_hits_target_with_overrides(scenario, ov):
+    env = _env_ov(scenario, **ov)
+    target = load_scenario(scenario).target_ctr["demo"]
+    seg, _, X = envm.sample_contexts(jax.random.key(123), env.model, 40000)
+    p = envm.click_probs(env.model, X, seg, jnp.zeros(seg.shape[0]))
+    mean_ctr = float(jnp.mean(p))
+    assert abs(mean_ctr - target) / target < 0.10, (mean_ctr, target)

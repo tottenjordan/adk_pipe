@@ -23,6 +23,11 @@ reward; for the metrics the round falls back to a uniformly random arm (what an
 ad server would serve by default). If the episode's decision error rate exceeds
 ``error_threshold`` the run aborts with ``EndpointErrorRate``.
 
+The ground truth is ``bandit.config.resolve_scenario(cfg)``: the scenario preset
+with ``experiment.json``'s optional ``scenario_overrides`` applied (contracts §9).
+The episode keys still derive from the scenario *name*, so a tuned experiment
+sees the same random draws as its preset.
+
 Engaged-mode rewards are sent unscaled (click × dwell seconds, plus ``dwell_s``);
 the predictor scales them like the simulator (contracts §2).
 """
@@ -40,7 +45,7 @@ import numpy as np
 
 from bandit import environment as envm
 from bandit import simulate
-from bandit.config import ExperimentConfig
+from bandit.config import ExperimentConfig, resolve_scenario
 from bandit.metrics import episode_metrics, log_checkpoints
 from bandit.policies import make_policy
 from bandit_traffic import bq
@@ -135,7 +140,9 @@ class TrafficRunner:
         self.s = settings
         self.experiment_id = experiment_id or cfg.experiment_id
         self.now = now
-        self.env = simulate.build_environment(cfg)
+        # the preset + experiment.json's scenario_overrides (contracts §9); the
+        # baselines share self.env, so they see the same tuned ground truth
+        self.env = simulate.build_environment(cfg, scenario=resolve_scenario(cfg))
         self.arm_ids = list(self.env.arm_ids)
         self.arm_index = {cid: i for i, cid in enumerate(self.arm_ids)}
         self.checkpoints = log_checkpoints(cfg.horizon, settings.num_checkpoints)

@@ -32,10 +32,13 @@ policy's label in the output, so you can compare variants side by side. The alia
 
 | Flag | What it does |
 |---|---|
-| `--segment-mix 1,0,0,0` | Overrides the scenario's segment mix. |
+| `--segment-mix 1,0,0,0` | Overrides the scenario's segment mix. A mix with every weight in [0.05, 1] is recorded as a contracts §9 `scenario_overrides.segment_mix`; any other mix (such as single-segment readers) is applied directly and isn't recorded. |
 | `--arm-schedule '[[0,[1,2,3]],[10000,[0,1,2]]]'` | Expires and injects arms at batch boundaries. |
 | `--drift gradual` | Switches the drift scenario to the gradual variant. |
-| `--judge-wrong 1` | Reverses the order the judge scores imply. |
+| `--judge-wrong 1` | Reverses the order the judge scores imply (0–1). |
+| `--gap-scale 0.5` | Narrows (< 1) or widens (> 1) the gap between creatives (0.25–2). |
+| `--noise-scale 0` | Multiplies the scenario's seeded noise (0–2). |
+| `--drift-at 0.3` | Moves the drift change point (0.2–0.8 of T; `drift` only). |
 | `--checkpoint-spacing linear --num-checkpoints 100` | Gives finer resolution late in the episode, for the drift and injection plots. The contract default is about 50 log-spaced checkpoints. |
 | `--no-propensity` | Skips the Monte Carlo propensities for LinTS. They don't feed any metric, and skipping them makes the run about 10x faster. |
 
