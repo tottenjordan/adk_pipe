@@ -202,6 +202,15 @@ def test_build_experiment_config_matches_section_1_shape():
     assert (cfg["horizon"], cfg["batch_size"], cfg["episodes"]) == (20000, 100, 20)
     assert 0 <= cfg["seed"] < 2**31
     assert ex.build_experiment_config("e1", arms, "drift")["seed"] == cfg["seed"]
+    # §9: scenario_overrides only when non-empty
+    assert "scenario_overrides" not in ex.build_experiment_config(
+        "e1", arms, "drift", scenario_overrides={}
+    )
+    tuned = ex.build_experiment_config(
+        "e1", arms, "drift", scenario_overrides={"drift_at_frac": 0.3}
+    )
+    assert tuned["scenario_overrides"] == {"drift_at_frac": 0.3}
+    assert set(tuned) == set(cfg) | {"scenario_overrides"}
 
 
 @pytest.mark.parametrize("scenario", ["clear_winner", "segment_winners", "drift"])
@@ -217,6 +226,100 @@ def test_api_noise_var_parity_with_bandit(scenario, ctr_mode, reward_mode):
     arms = [{"creativeId": "a", "label": "A"}, {"creativeId": "b", "label": "B"}]
     cfg = ex.build_experiment_config("e1", arms, scenario, ctr_mode, reward_mode)
     assert cfg["policy"]["noise_var"] == expected
+
+
+def test_api_scenario_segments_parity_with_bandit():
+    """runserver duplicates the per-scenario segment counts (contracts §9)."""
+    from bandit.config import load_scenario
+
+    assert set(ex.SCENARIO_SEGMENTS) == set(ex.SCENARIOS)
+    for name, n in ex.SCENARIO_SEGMENTS.items():
+        assert len(load_scenario(name).segments) == n, name
+
+
+def test_api_override_bounds_parity_with_bandit():
+    from bandit.config import OVERRIDE_BOUNDS
+
+    assert ex.OVERRIDE_BOUNDS == OVERRIDE_BOUNDS
+    assert set(ex.OVERRIDE_FIELDS.values()) == set(OVERRIDE_BOUNDS)
+
+
+_FULL_OVERRIDES = {
+    "clear_winner": {
+        "segmentMix": [0.6, 0.2, 0.2],
+        "gapScale": 1.5,
+        "judgeWrong": 0.8,
+        "noiseScale": 0,
+    },
+    "segment_winners": {"segmentMix": [0.05, 1, 0.3, 0.3], "gapScale": 0.25},
+    "drift": {"driftAtFrac": 0.3, "noiseScale": 2.0, "judgeWrong": 1},
+}
+
+
+@pytest.mark.parametrize("scenario", sorted(_FULL_OVERRIDES))
+def test_api_built_config_with_overrides_loads_strictly_in_bandit(scenario):
+    """An api-built experiment.json with overrides passes bandit's strict loader."""
+    from bandit.config import (
+        load_experiment_config,
+        scenario_overrides_to_dict,
+        validate_experiment_config,
+    )
+
+    ov = ex.validate_scenario_overrides(scenario, _FULL_OVERRIDES[scenario])
+    arms = [
+        {"creativeId": "a", "label": "A", "scores": {"visual_overall": 0.7}},
+        {"creativeId": "b", "label": "B", "scores": {"visual_overall": 0.4}},
+    ]
+    cfg = ex.build_experiment_config("e1", arms, scenario, scenario_overrides=ov)
+    loaded = validate_experiment_config(
+        load_experiment_config(json.loads(json.dumps(cfg)))
+    )
+    assert scenario_overrides_to_dict(loaded.scenario_overrides) == ov
+
+
+def test_validate_scenario_overrides_shapes():
+    v = ex.validate_scenario_overrides
+    assert v("drift", None) is None
+    assert v("drift", {}) is None
+    assert v("drift", {"gapScale": None}) is None
+    # stored as sent (bandit renormalises), ints become floats
+    assert v("clear_winner", {"segmentMix": [1, 1, 1], "judgeWrong": 0}) == {
+        "segment_mix": [1.0, 1.0, 1.0],
+        "judge_wrong": 0.0,
+    }
+
+
+@pytest.mark.parametrize(
+    ("scenario", "ov", "field"),
+    [
+        ("drift", {"bogus": 1}, "bogus"),
+        ("drift", {"gap_scale": 1.0}, "gap_scale"),
+        ("drift", {"gapScale": True}, "gapScale"),
+        ("drift", {"gapScale": "1.5"}, "gapScale"),
+        ("drift", {"gapScale": float("nan")}, "gapScale"),
+        ("drift", {"gapScale": float("inf")}, "gapScale"),
+        ("drift", {"gapScale": 0.2}, "gapScale"),
+        ("drift", {"gapScale": 2.01}, "gapScale"),
+        ("drift", {"judgeWrong": -0.1}, "judgeWrong"),
+        ("drift", {"judgeWrong": 1.1}, "judgeWrong"),
+        ("drift", {"noiseScale": 2.5}, "noiseScale"),
+        ("drift", {"driftAtFrac": 0.1}, "driftAtFrac"),
+        ("drift", {"driftAtFrac": 0.9}, "driftAtFrac"),
+        ("clear_winner", {"driftAtFrac": 0.5}, "driftAtFrac"),
+        ("segment_winners", {"driftAtFrac": 0.5}, "driftAtFrac"),
+        ("clear_winner", {"segmentMix": [0.5, 0.5]}, "segmentMix"),
+        ("segment_winners", {"segmentMix": [0.3, 0.3, 0.4]}, "segmentMix"),
+        ("clear_winner", {"segmentMix": [0.5, 0.5, 0.01]}, "segmentMix"),
+        ("clear_winner", {"segmentMix": [0.5, 0.5, 1.5]}, "segmentMix"),
+        ("clear_winner", {"segmentMix": [0.5, 0.5, False]}, "segmentMix"),
+        ("clear_winner", {"segmentMix": "0.3,0.3,0.4"}, "segmentMix"),
+        ("clear_winner", {"segmentMix": 0.5}, "segmentMix"),
+    ],
+)
+def test_validate_scenario_overrides_rejects(scenario, ov, field):
+    with pytest.raises(ex.ScenarioOverridesError) as e:
+        ex.validate_scenario_overrides(scenario, ov)
+    assert e.value.field == field
 
 
 def test_api_policy_override_wins_over_calibrated_noise_var():
@@ -274,8 +377,11 @@ def test_is_expired_and_to_summary():
     assert set(s) == {
         "experimentId", "userId", "sessionId", "appName", "createdAt", "updatedAt",
         "status", "scenario", "ctrMode", "rewardMode", "ttlExpiresAt", "arms",
-        "endpointId", "trafficExecution", "progress", "error",
+        "endpointId", "trafficExecution", "progress", "error", "scenarioOverrides",
     }  # fmt: skip
+    assert s["scenarioOverrides"] is None
+    stored = ex.to_summary({**row, "scenario_overrides": '{"gap_scale": 1.5}'})
+    assert stored["scenarioOverrides"] == {"gapScale": 1.5}
 
 
 def test_build_backend_from_env():
@@ -337,6 +443,50 @@ def test_create_deploys_to_ready_and_writes_config():
     }
 
 
+def test_create_with_scenario_overrides_round_trips():
+    h = Harness()
+
+    async def go():
+        await h.session()
+        r = await h.create(
+            scenario="drift",
+            scenarioOverrides={"driftAtFrac": 0.3, "gapScale": 1.5, "noiseScale": None},
+        )
+        assert r.status_code == 201, r.text
+        eid = r.json()["experimentId"]
+        await ex.drain()
+        detail = (await h.client.get(f"/experiments/{A}/{eid}")).json()
+        listed = (await h.client.get(f"/experiments/{A}")).json()
+        return eid, detail, listed
+
+    eid, detail, listed = run(go)
+    cfg = h.writer.files[f"gs://bkt/bandit/{eid}/experiment.json"]
+    assert cfg["scenario_overrides"] == {"gap_scale": 1.5, "drift_at_frac": 0.3}
+    assert h.store.rows[eid]["scenario_overrides"] == cfg["scenario_overrides"]
+    want = {"gapScale": 1.5, "driftAtFrac": 0.3}
+    assert detail["scenarioOverrides"] == want
+    assert listed["experiments"][0]["scenarioOverrides"] == want
+
+
+def test_create_without_overrides_writes_no_key():
+    h = Harness()
+
+    async def go():
+        await h.session()
+        r = await h.create(scenarioOverrides={})
+        assert r.status_code == 201, r.text
+        eid = r.json()["experimentId"]
+        await ex.drain()
+        return eid, (await h.client.get(f"/experiments/{A}/{eid}")).json()
+
+    eid, detail = run(go)
+    cfg = h.writer.files[f"gs://bkt/bandit/{eid}/experiment.json"]
+    assert "scenario_overrides" not in cfg
+    # the column isn't named, so an unmigrated table keeps working
+    assert "scenario_overrides" not in h.store.rows[eid]
+    assert detail["scenarioOverrides"] is None
+
+
 def test_create_validation_errors():
     h = Harness()
 
@@ -347,9 +497,20 @@ def test_create_validation_errors():
         oob = await h.create(indices=[0, 7])
         bad_scenario = await h.create(scenario="nope")
         missing = await h.create(sid="nope")
-        return empty, one, oob, bad_scenario, missing
+        bad_ov = [
+            await h.create(scenarioOverrides=ov)
+            for ov in (
+                {"unknownKnob": 1},
+                {"segmentMix": [0.5, 0.5]},
+                {"gapScale": 9},
+                {"judgeWrong": True},
+                {"noiseScale": "x"},
+                {"driftAtFrac": 0.5},  # clear_winner, not drift
+            )
+        ]
+        return empty, one, oob, bad_scenario, missing, bad_ov
 
-    empty, one, oob, bad_scenario, missing = run(go)
+    empty, one, oob, bad_scenario, missing, bad_ov = run(go)
     assert (
         empty.status_code == 400 and empty.json()["detail"]["reason"] == "too_few_arms"
     )
@@ -357,6 +518,12 @@ def test_create_validation_errors():
     assert oob.json()["detail"]["reason"] == "index_out_of_range"
     assert bad_scenario.json()["detail"]["reason"] == "invalid_scenario"
     assert missing.status_code == 404
+    fields = ["unknownKnob", "segmentMix", "gapScale", "judgeWrong", "noiseScale"]
+    for r, field in zip(bad_ov, [*fields, "driftAtFrac"], strict=True):
+        assert r.status_code == 400, r.text
+        detail = r.json()["detail"]
+        assert detail["reason"] == "invalid_scenario_overrides"
+        assert detail["field"] == field
     assert not h.store.rows
 
 

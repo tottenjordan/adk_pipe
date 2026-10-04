@@ -1,6 +1,6 @@
 # Advanced traffic controls: tunable synthetic scenarios with a live preview
 
-> **Status:** IN PROGRESS (2026-10-04). PR A (`feat/bandit-scenario-overrides`: bandit core + traffic job, contracts §9) in progress; PR B (api) and PR C (frontend) not started.
+> **Status:** IN PROGRESS (2026-10-04). PR A (`feat/bandit-scenario-overrides`: bandit core + traffic job, contracts §9) in progress; PR B (api, `feat/experiments-scenario-overrides-api`, stacked on A) implemented. PR C (frontend) in progress.
 
 ## Context
 Right now the synthetic traffic behind a bandit experiment can only be steered with presets: scenario, click-rate mode and reward mode. Everything that actually decides how hard the problem is lives in fixed YAML (`bandit/scenarios/*.yaml`):

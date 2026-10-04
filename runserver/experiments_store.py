@@ -54,8 +54,9 @@ EXPERIMENT_COLUMN_TYPES = {
     "traffic_execution": "STRING",
     "progress": "STRING",
     "error": "STRING",
+    "scenario_overrides": "STRING",
 }
-JSON_COLUMNS = ("arms", "progress")
+JSON_COLUMNS = ("arms", "progress", "scenario_overrides")
 # Never rewritten by an update: the key and the creation time.
 _IMMUTABLE = ("experiment_id", "created_at")
 LIST_LIMIT = 100

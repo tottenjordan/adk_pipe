@@ -1120,7 +1120,7 @@ JSON payloads as `STRING`):
 
 | Table (env var, default) | Written by | Contents |
 |---|---|---|
-| `bandit_experiments` (`BQ_TABLE_BANDIT_EXPERIMENTS`) | the api (MERGE on `experiment_id`); the traffic job updates `progress` | One row per experiment: owner, session, status, arms JSON, config URI, model/endpoint/deployed-model ids, TTL, traffic execution, error |
+| `bandit_experiments` (`BQ_TABLE_BANDIT_EXPERIMENTS`) | the api (MERGE on `experiment_id`); the traffic job updates `progress` | One row per experiment: owner, session, status, arms JSON, config URI, model/endpoint/deployed-model ids, TTL, traffic execution, error, scenario overrides JSON |
 | `bandit_events` (`BQ_TABLE_BANDIT_EVENTS`) | the traffic job (`insertId = request_id`) | One row per endpoint-policy round; partitioned by `DATE(ts)`, clustered on `experiment_id` |
 | `bandit_episode_metrics` (`BQ_TABLE_BANDIT_METRICS`) | the traffic job | One row per (episode, policy): totals, regret, % optimal, and the `curve` / `arm_share` / `per_segment` / `arm_stats` JSON |
 
@@ -1132,6 +1132,20 @@ bq mk -t --time_partitioning_field ts --time_partitioning_type DAY \
 ```
 
 (The other two tables are plain `bq mk -t`; see the script for their column lists.)
+
+**Migration: `scenario_overrides` (contracts §9, 2026-10-04).** `bandit_experiments` gained a
+`scenario_overrides STRING` column (the snake_case JSON of a request's `scenarioOverrides`).
+`create_bq_tables.sh` only creates missing tables, so add the column to existing ones on
+**both** datasets before deploying the api that writes it. The api only names the column
+when an experiment actually has overrides, so default deploys keep working on an unmigrated
+table, but a tuned one would fail its MERGE:
+
+```sql
+ALTER TABLE `$PROJECT.trend_trawler.bandit_experiments`
+  ADD COLUMN IF NOT EXISTS scenario_overrides STRING;
+ALTER TABLE `$PROJECT.trend_trawler_eval.bandit_experiments`
+  ADD COLUMN IF NOT EXISTS scenario_overrides STRING;
+```
 
 ### Environment (api service)
 

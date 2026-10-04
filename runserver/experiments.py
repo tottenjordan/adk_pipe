@@ -29,6 +29,7 @@ import asyncio
 import datetime as dt
 import json
 import logging
+import math
 import os
 import time
 import uuid
@@ -164,6 +165,7 @@ def to_summary(row: Mapping[str, Any]) -> dict:
             else None
         ),
         "error": row.get("error") or None,
+        "scenarioOverrides": overrides_to_camel(row.get("scenario_overrides")),
     }
 
 
@@ -349,6 +351,100 @@ def default_noise_var(scenario: str, ctr_mode: str, reward_mode: str) -> float:
     return round(p * (1 - p), 6)
 
 
+#: Segments per scenario preset (``len(load_scenario(name).segments)``) and the
+#: inclusive override bounds, duplicated from ``bandit`` (contracts §9; runserver
+#: never imports it). ``tests/test_experiments_api.py`` asserts parity.
+SCENARIO_SEGMENTS = {"clear_winner": 3, "segment_winners": 4, "drift": 3}
+OVERRIDE_BOUNDS: dict[str, tuple[float, float]] = {
+    "segment_mix": (0.05, 1.0),
+    "gap_scale": (0.25, 2.0),
+    "judge_wrong": (0.0, 1.0),
+    "noise_scale": (0.0, 2.0),
+    "drift_at_frac": (0.2, 0.8),
+}
+#: REST camelCase -> experiment.json snake_case (contracts §9).
+OVERRIDE_FIELDS = {
+    "segmentMix": "segment_mix",
+    "gapScale": "gap_scale",
+    "judgeWrong": "judge_wrong",
+    "noiseScale": "noise_scale",
+    "driftAtFrac": "drift_at_frac",
+}
+_OVERRIDE_CAMEL = {v: k for k, v in OVERRIDE_FIELDS.items()}
+
+
+class ScenarioOverridesError(ValueError):
+    """An invalid ``scenarioOverrides`` body; ``field`` is the camelCase name."""
+
+    def __init__(self, field: str, message: str):
+        super().__init__(message)
+        self.field = field
+
+
+def _override_number(field: str, value: Any) -> float:
+    # bool is an int subclass; JSON true/false is never a valid override.
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        raise ScenarioOverridesError(field, f"{field} must be a number")
+    lo, hi = OVERRIDE_BOUNDS[OVERRIDE_FIELDS[field]]
+    if not (math.isfinite(value) and lo <= value <= hi):
+        raise ScenarioOverridesError(field, f"{field} must be in [{lo}, {hi}]")
+    return float(value)
+
+
+def validate_scenario_overrides(
+    scenario: str, ov: Mapping[str, Any] | None
+) -> dict | None:
+    """Check a camelCase ``scenarioOverrides`` body against contracts §9 and return
+    the snake_case ``experiment.json`` object, or ``None`` when nothing is set
+    (``null`` fields count as unset). ``segment_mix`` is stored as sent; ``bandit``
+    renormalises it. Raises ``ScenarioOverridesError`` naming the field."""
+    if ov is None:
+        return None
+    if not isinstance(ov, Mapping):
+        raise ScenarioOverridesError(
+            "scenarioOverrides", "scenarioOverrides must be an object"
+        )
+    for key in ov:
+        if key not in OVERRIDE_FIELDS:
+            raise ScenarioOverridesError(
+                str(key), f"unknown scenarioOverrides field {key!r}"
+            )
+    out: dict[str, Any] = {}
+    mix = ov.get("segmentMix")
+    if mix is not None:
+        n = SCENARIO_SEGMENTS.get(scenario)
+        if not isinstance(mix, list):
+            raise ScenarioOverridesError("segmentMix", "segmentMix must be a list")
+        if n is None or len(mix) != n:
+            raise ScenarioOverridesError(
+                "segmentMix", f"segmentMix needs {n} weights for {scenario}"
+            )
+        out["segment_mix"] = [_override_number("segmentMix", w) for w in mix]
+    for field in ("gapScale", "judgeWrong", "noiseScale", "driftAtFrac"):
+        value = ov.get(field)
+        if value is None:
+            continue
+        if field == "driftAtFrac" and scenario != "drift":
+            raise ScenarioOverridesError(
+                field, "driftAtFrac is only valid for the drift scenario"
+            )
+        out[OVERRIDE_FIELDS[field]] = _override_number(field, value)
+    return out or None
+
+
+def overrides_to_camel(value: Any) -> dict | None:
+    """A stored snake_case ``scenario_overrides`` (dict or JSON string) -> the
+    camelCase ``ExperimentSummary.scenarioOverrides`` (``None`` when unset)."""
+    if isinstance(value, str):
+        try:
+            value = json.loads(value) if value else None
+        except ValueError:
+            return None
+    if not isinstance(value, Mapping) or not value:
+        return None
+    return {_OVERRIDE_CAMEL.get(k, k): v for k, v in value.items()}
+
+
 def build_experiment_config(
     experiment_id: str,
     arms: Sequence[Mapping],
@@ -362,13 +458,17 @@ def build_experiment_config(
     episodes: int = 20,
     seed: int | None = None,
     policy: Mapping[str, float] | None = None,
+    scenario_overrides: Mapping[str, Any] | None = None,
 ) -> dict:
     """The §1 ``experiment_config_to_dict`` JSON (pure; doesn't import ``bandit``).
 
-    ``seed`` defaults to a stable 31-bit hash of the experiment id."""
+    ``seed`` defaults to a stable 31-bit hash of the experiment id.
+    ``scenario_overrides`` (the snake_case §9 object from
+    ``validate_scenario_overrides``) is written only when non-empty, so a default
+    config stays loadable by images built before §9."""
     if seed is None:
         seed = int(stable_row_id(experiment_id), 16) % (2**31)
-    return {
+    cfg = {
         "experiment_id": experiment_id,
         "arms": [
             {
@@ -392,6 +492,9 @@ def build_experiment_config(
             **(policy or {}),
         },
     }
+    if scenario_overrides:
+        cfg["scenario_overrides"] = dict(scenario_overrides)
+    return cfg
 
 
 # --- Settings + wiring ----------------------------------------------------------
@@ -809,6 +912,8 @@ class _CreateBody(BaseModel):
     ctrMode: str = "demo"  # noqa: N815
     rewardMode: str = "click"  # noqa: N815
     ttlMinutes: int | None = None  # noqa: N815
+    # Contracts §9; keys are checked by validate_scenario_overrides (unknown -> 400).
+    scenarioOverrides: dict[str, Any] | None = None  # noqa: N815
 
 
 class _TrafficBody(BaseModel):
@@ -849,6 +954,12 @@ async def http_create_experiment(body: _CreateBody, request: Request) -> dict:
     _check_choice(body.scenario, SCENARIOS, "scenario")
     _check_choice(body.ctrMode, CTR_MODES, "ctr_mode")
     _check_choice(body.rewardMode, REWARD_MODES, "reward_mode")
+    try:
+        overrides = validate_scenario_overrides(body.scenario, body.scenarioOverrides)
+    except ScenarioOverridesError as exc:
+        raise _error(
+            400, "invalid_scenario_overrides", str(exc), field=exc.field
+        ) from exc
     session = await _get_session(body.appName, user_id, body.sessionId)
     if session is None:
         raise _error(404, "session_not_found", "session not found")
@@ -887,6 +998,7 @@ async def http_create_experiment(body: _CreateBody, request: Request) -> dict:
             horizon=_SETTINGS.default_horizon,
             batch_size=_SETTINGS.batch_size,
             episodes=_SETTINGS.default_episodes,
+            scenario_overrides=overrides,
         )
         config_uri = f"{_SETTINGS.artifacts_prefix}/{experiment_id}/experiment.json"
         writer = _SETTINGS.config_writer or MemoryConfigWriter()
@@ -898,31 +1010,34 @@ async def http_create_experiment(body: _CreateBody, request: Request) -> dict:
                 502, "config_write_failed", "could not write experiment.json"
             ) from exc
         now = _utcnow()
-        await _STORE.upsert(
-            {
-                "experiment_id": experiment_id,
-                "user_id": user_id,
-                "session_id": body.sessionId,
-                "app_name": body.appName,
-                "created_at": now,
-                "updated_at": now,
-                "status": "deploying",
-                "scenario": body.scenario,
-                "ctr_mode": body.ctrMode,
-                "reward_mode": body.rewardMode,
-                "arms": arms,
-                "config_uri": config_uri,
-                "model_resource": None,
-                "endpoint_id": None,
-                "deployed_model_id": None,
-                "ttl_expires_at": now
-                + dt.timedelta(minutes=_SETTINGS.clamp_ttl(body.ttlMinutes)),
-                "stopped_at": None,
-                "traffic_execution": None,
-                "progress": None,
-                "error": None,
-            }
-        )
+        row: dict[str, Any] = {
+            "experiment_id": experiment_id,
+            "user_id": user_id,
+            "session_id": body.sessionId,
+            "app_name": body.appName,
+            "created_at": now,
+            "updated_at": now,
+            "status": "deploying",
+            "scenario": body.scenario,
+            "ctr_mode": body.ctrMode,
+            "reward_mode": body.rewardMode,
+            "arms": arms,
+            "config_uri": config_uri,
+            "model_resource": None,
+            "endpoint_id": None,
+            "deployed_model_id": None,
+            "ttl_expires_at": now
+            + dt.timedelta(minutes=_SETTINGS.clamp_ttl(body.ttlMinutes)),
+            "stopped_at": None,
+            "traffic_execution": None,
+            "progress": None,
+            "error": None,
+        }
+        # Only written when set: a default experiment then never touches the
+        # column, so it keeps working against a table not yet migrated (§9).
+        if overrides:
+            row["scenario_overrides"] = overrides
+        await _STORE.upsert(row)
     _start_deploy(experiment_id)
     return {"experimentId": experiment_id, "status": "deploying"}
 
