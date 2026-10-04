@@ -66,6 +66,11 @@ export function CreativeScoreboard({
         {hasResults && insights.support && (
           <p className="mt-1.5 max-w-[72ch] text-sm leading-relaxed text-muted-foreground">{insights.support}</p>
         )}
+        {insights.notes.map((note) => (
+          <p key={note} className="mt-2 max-w-[72ch] border-l-2 border-foreground/25 pl-3 text-sm leading-snug text-foreground">
+            {note}
+          </p>
+        ))}
       </div>
 
       <div className="mt-8 rounded-lg border border-border bg-card">

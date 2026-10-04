@@ -5,6 +5,7 @@ import Link from "next/link";
 import { buttonVariants } from "@/components/ui/button";
 import { ExperimentStatusLabel, StatusHelp } from "@/components/experiment-status";
 import { InfoTip } from "@/components/ui/info-tip";
+import { CustomBadge } from "@/components/scenario-overrides";
 import { formatRunTime } from "@/lib/run-history";
 import {
   armName,
@@ -116,7 +117,7 @@ export default function ExperimentsPage() {
                       prefetch={false}
                       className="truncate font-medium text-foreground after:absolute after:inset-0 after:content-[''] focus-visible:outline-none"
                     >
-                      {scenarioLabel(row.scenario)}
+                      {scenarioLabel(row.scenario)} <CustomBadge overrides={row.scenarioOverrides} />
                     </Link>
                     <span className="truncate text-foreground/80" title={names.join(", ")}>
                       <span className="tabular-nums">

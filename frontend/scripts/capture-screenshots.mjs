@@ -134,6 +134,11 @@ const EXPERIMENT_DETAIL = hydrateExperiment(
 const EXPERIMENT_METRICS = JSON.parse(
   readFileSync(join(FIX, "experiment-metrics.json"), "utf8")
 );
+// The same experiment deployed with tuned readers (contracts §9) → 17-experiment-custom.png.
+const { _comment: _customNote, ...customFields } = JSON.parse(
+  readFileSync(join(FIX, "experiment-custom.json"), "utf8")
+);
+const CUSTOM_EXPERIMENT = { ...EXPERIMENT_DETAIL, ...customFields };
 
 // The FIRST LIVE bandit experiment (2026-10-02, 0693ea62bb7144ef), exported from
 // the api as-is (only userId replaced): its final ExperimentSummary and the real
@@ -269,14 +274,18 @@ async function installMocks(page) {
             route,
             seg[2] === EXPERIMENT_METRICS.experimentId
               ? EXPERIMENT_METRICS
-              : { ...EXPERIMENT_METRICS, experimentId: seg[2], episodes: 0, checkpoints: [] }
+              : seg[2] === CUSTOM_EXPERIMENT.experimentId
+                ? { ...EXPERIMENT_METRICS, experimentId: seg[2] }
+                : { ...EXPERIMENT_METRICS, experimentId: seg[2], episodes: 0, checkpoints: [] }
           );
         }
         if (seg.length === 3) {
           const found =
             seg[2] === EXPERIMENT_DETAIL.experimentId
               ? EXPERIMENT_DETAIL
-              : EXPERIMENTS.find((e) => e.experimentId === seg[2]);
+              : seg[2] === CUSTOM_EXPERIMENT.experimentId
+                ? CUSTOM_EXPERIMENT
+                : EXPERIMENTS.find((e) => e.experimentId === seg[2]);
           if (found) return json(route, found);
           return route.fulfill({ status: 404, contentType: "application/json", body: "{}" });
         }
@@ -435,9 +444,22 @@ async function main() {
         (im) => im.naturalWidth > 0
       )
     );
+    // Advanced open and tuned (contracts §9): segment winners, a skewed audience,
+    // a wider gap and a judge that is backwards. Keyboard-driven, like a user.
+    await panel.getByRole("button", { name: "Advanced: tune the simulated readers" }).click();
+    const nudge = async (name, key, times) => {
+      const slider = panel.getByRole("slider", { name });
+      await slider.focus();
+      for (let i = 0; i < times; i++) await slider.press(key);
+    };
+    await nudge("Mobile scrollers share of readers", "ArrowRight", 30);
+    await nudge("Gap between creatives", "ArrowRight", 10);
+    await nudge("Judge reliability", "End", 1);
+    await page.locator("body").click({ position: { x: 5, y: 5 } }); // drop thumb focus ring
+    await panel.getByText("Expected rates before random variation").waitFor();
     await settle(page);
-    await scrollToLocator(page, panel, 24);
-    await shot(page, "10-deploy-panel.png", { fullPage: false });
+    await page.screenshot({ path: join(OUT, "10-deploy-panel.png"), fullPage: true, clip: await clipOf(page, panel, 24) });
+    console.log("  wrote 10-deploy-panel.png");
     await page.close();
   }
 
@@ -516,6 +538,23 @@ async function main() {
     );
     await page.waitForTimeout(300);
     await shot(page, "16-experiment-creative-detail.png", { fullPage: false });
+    await page.close();
+  }
+
+  // ── 17. A custom experiment: "(custom)" badge + tuned settings disclosure open ──
+  {
+    console.log("17-experiment-custom");
+    const page = await newPage(context);
+    await page.setViewportSize({ width: 1440, height: 1010 }); // down to the tuned-reader notes
+    await page.goto(`${BASE}/experiments/${CUSTOM_EXPERIMENT.experimentId}`, { waitUntil: "networkidle" });
+    await page.locator("#scoreboard-heading").waitFor();
+    await page.getByText("Tuned reader settings").click();
+    await page.getByText("Scenario default:").first().waitFor();
+    await page.waitForFunction(() =>
+      [...document.querySelectorAll("img")].some((im) => im.naturalWidth > 0)
+    );
+    await settle(page);
+    await shot(page, "17-experiment-custom.png", { fullPage: false });
     await page.close();
   }
 
@@ -765,6 +804,18 @@ const stateWith = (...keys) =>
 
 const RESEARCH_KEYS = ["combined_final_cited_report", "sources", "research_report_gcs_uri"];
 const VISUAL_KEYS = ["visual_direction", "final_visual_concepts"];
+
+// Page-coordinate clip around `locator`, padded (element screenshots taller than
+// the viewport). Full-page coordinates, so pass it to page.screenshot({clip}).
+async function clipOf(page, locator, pad = 16) {
+  const box = await locator.evaluate((el) => {
+    const r = el.getBoundingClientRect();
+    return { x: r.left + window.scrollX, y: r.top + window.scrollY, width: r.width, height: r.height };
+  });
+  const width = page.viewportSize().width;
+  const x = Math.max(0, box.x - pad);
+  return { x, y: Math.max(0, box.y - pad), width: Math.min(width - x, box.width + 2 * pad), height: box.height + 2 * pad };
+}
 
 // Scroll so `locator` sits just below the sticky header.
 async function scrollToLocator(page, locator, offset = 80) {

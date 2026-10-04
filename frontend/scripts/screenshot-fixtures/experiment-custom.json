@@ -1,0 +1,9 @@
+{
+ "_comment": "Variant of experiment-detail.json deployed with tuned readers (contracts §9): merged over it by capture-screenshots.mjs for 17-experiment-custom.png.",
+ "experimentId": "exp-prs-powerball-custom-7c21",
+ "scenarioOverrides": {
+  "segmentMix": [0.55, 0.15, 0.15, 0.15],
+  "gapScale": 1.5,
+  "judgeWrong": 1
+ }
+}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -27,8 +27,10 @@ import {
   REWARD_HELP,
   SCENARIO_HELP,
 } from "@/lib/experiment-help";
+import { armScoresFromProof, presetValues, type TuneValues } from "@/lib/scenario-preview";
 import { cn } from "@/lib/utils";
 import { ProofImage } from "./proof-grid";
+import { ReaderTuning } from "./reader-tuning";
 import { pct } from "./score-mark";
 
 /** "ⓘ" list content: every option's label with its one-line explanation. */
@@ -64,8 +66,23 @@ export function DeployPanel({
   const [error, setError] = useState<string | null>(null);
   const [activeConflict, setActiveConflict] = useState(false);
 
-  const ordered = [...proofs].sort((a, b) => a.index - b.index);
+  const [tuning, setTuning] = useState<TuneValues>(() => presetValues("segment_winners"));
+
+  const ordered = useMemo(() => [...proofs].sort((a, b) => a.index - b.index), [proofs]);
+  const tuningCreatives = useMemo(
+    () =>
+      ordered
+        .filter((p) => selected.has(p.index))
+        .map((p) => ({ index: p.index, name: p.concept.concept_name || p.concept.headline, scores: armScoresFromProof(p) })),
+    [ordered, selected]
+  );
   const count = selected.size;
+
+  /** A new scenario reloads its preset into the Advanced sliders. */
+  const changeScenario = (s: Scenario) => {
+    setScenario(s);
+    setTuning(presetValues(s));
+  };
   const blocked = deployBlockedReason(count, stoppedEarly);
 
   const toggle = (index: number) =>
@@ -83,7 +100,7 @@ export function DeployPanel({
     setActiveConflict(false);
     try {
       const { experimentId } = await createExperiment(
-        selectionToPayload({ appName, sessionId, selected, scenario, ctrMode, rewardMode, ttlMinutes })
+        selectionToPayload({ appName, sessionId, selected, scenario, ctrMode, rewardMode, ttlMinutes, tuning })
       );
       router.push(`/experiments/${encodeURIComponent(experimentId)}`);
     } catch (err) {
@@ -183,7 +200,7 @@ export function DeployPanel({
             labelledBy="deploy-scenario-label"
             options={SCENARIO_OPTIONS}
             value={scenario}
-            onChange={setScenario}
+            onChange={changeScenario}
           />
           <p className="mt-1.5 text-xs text-muted-foreground">{SCENARIO_HELP[scenario]}</p>
         </div>
@@ -245,6 +262,14 @@ export function DeployPanel({
           </p>
         </div>
       </div>
+
+      <ReaderTuning
+        scenario={scenario}
+        ctrMode={ctrMode}
+        values={tuning}
+        onChange={setTuning}
+        creatives={tuningCreatives}
+      />
 
       <div className="mt-5 flex flex-wrap items-center gap-3 border-t border-border pt-4">
         <Button onClick={deploy} disabled={Boolean(blocked) || submitting}>

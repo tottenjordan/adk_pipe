@@ -9,6 +9,7 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { FieldLabel } from "@/components/field-label";
 import { InfoTip } from "@/components/ui/info-tip";
 import { ExperimentStatusLabel, StatusHelp } from "@/components/experiment-status";
+import { CustomBadge, OverridesDisclosure } from "@/components/scenario-overrides";
 import { ProofImage } from "@/app/results/[sessionId]/proof-grid";
 import { formatInt } from "@/lib/chart";
 import {
@@ -146,8 +147,10 @@ export default function ExperimentPage({
         arms,
         rewardMode: exp?.rewardMode,
         ctrMode: exp?.ctrMode,
+        scenario: exp?.scenario,
+        scenarioOverrides: exp?.scenarioOverrides,
       }),
-    [metrics, series, arms, exp?.rewardMode, exp?.ctrMode]
+    [metrics, series, arms, exp?.rewardMode, exp?.ctrMode, exp?.scenario, exp?.scenarioOverrides]
   );
   const lanes = useMemo(
     () => buildLanes(arms, hasMetrics(metrics) ? metrics : null, hasMetrics(metrics) ? series : null),
@@ -227,12 +230,15 @@ export default function ExperimentPage({
       {/* Header */}
       <div className="mt-2 flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-0">
-          <h1 className="text-2xl font-semibold text-foreground">{scenarioLabel(exp.scenario)}</h1>
+          <h1 className="text-2xl font-semibold text-foreground">
+            {scenarioLabel(exp.scenario)} <CustomBadge overrides={exp.scenarioOverrides} />
+          </h1>
           <p className="mt-0.5 text-sm text-muted-foreground">
             {ctrModeLabel(exp.ctrMode)}, {rewardModeLabel(exp.rewardMode).toLowerCase()},{" "}
             {arms.length} creatives
           </p>
           <p className="mt-1 font-mono text-xs text-muted-foreground">{exp.experimentId}</p>
+          <OverridesDisclosure scenario={exp.scenario} overrides={exp.scenarioOverrides} />
         </div>
         <div className="flex flex-col items-end gap-1">
           <span className="inline-flex items-center gap-1">

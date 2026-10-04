@@ -10,6 +10,8 @@ const UI_FILES = [
   "app/experiments/[experimentId]/experiment-charts.tsx",
   "app/experiments/page.tsx",
   "app/results/[sessionId]/deploy-panel.tsx",
+  "app/results/[sessionId]/reader-tuning.tsx",
+  "components/scenario-overrides.tsx",
   "components/experiment-status.tsx",
 ];
 

@@ -10,8 +10,8 @@ import { cn } from "@/lib/utils";
 import { CONDENSED } from "@/app/results/[sessionId]/score-mark";
 
 /** Ink alpha at the lowest and (MIN + SPAN) at the highest click rate: light enough for ink text. */
-const SHADE_MIN = 0.03;
-const SHADE_SPAN = 0.22;
+export const SHADE_MIN = 0.03;
+export const SHADE_SPAN = 0.22;
 
 /**
  * Creative × segment click-rate grid (Overview, below the scoreboard): one

@@ -20,7 +20,9 @@ import {
   type Band,
   type CreativeSeries,
   type ExperimentMetrics,
+  type ScenarioOverrides,
 } from "./experiments";
+import { segmentWords, skewedSegment } from "./scenario-preview";
 
 /** Below this many episodes the bands are too loose to call a winner. */
 export const MIN_EPISODES = 5;
@@ -50,6 +52,8 @@ export interface ExperimentInsights {
   readings: ChartReadings;
   /** One short reading per creative, by creativeId. */
   lanes: Record<string, string>;
+  /** Notes on tuned reader settings (misleading judge, skewed mix); [] for preset experiments. */
+  notes: string[];
 }
 
 export interface InsightInput {
@@ -58,6 +62,8 @@ export interface InsightInput {
   arms: Arm[];
   rewardMode?: string;
   ctrMode?: string;
+  scenario?: string;
+  scenarioOverrides?: ScenarioOverrides | null;
 }
 
 const LIN = "linear_ts";
@@ -493,12 +499,41 @@ const EMPTY_READINGS: ChartReadings = {
   totals: null,
 };
 
+// ── Tuned-reader notes (contracts §9) ────────────────────────────────────────
+
+/**
+ * Notes about a custom experiment's reader settings that change how to read its
+ * results: a misleading judge (judgeWrong > 0.5) and a skewed audience mix.
+ * Empty for preset experiments.
+ */
+export function setupNotes(scenario: string | undefined, ov: ScenarioOverrides | null | undefined): string[] {
+  if (!scenario || !ov) return [];
+  const notes: string[] = [];
+  if (finite(ov.judgeWrong) && ov.judgeWrong > 0.5) {
+    notes.push(
+      ov.judgeWrong >= 1
+        ? "The eval judge was set to mislead: readers click its top-scored creatives least, so the endpoint had to learn against the scores."
+        : "The eval judge was set to mislead: readers lean away from its top-scored creatives, so its scores are a poor guide here."
+    );
+  }
+  const skew = skewedSegment(scenario, ov.segmentMix);
+  if (skew) {
+    notes.push(
+      `Most simulated readers were ${segmentWords(skew.name).toLowerCase()} (${pct(
+        skew.share
+      )}), so the overall results lean toward what that segment prefers.`
+    );
+  }
+  return notes;
+}
+
 /** Interpret one experiment's results. Safe on empty / partial payloads. */
 export function buildInsights(input: InsightInput): ExperimentInsights {
   const { metrics, arms } = input;
   const verdict = verdictOf(metrics);
+  const notes = setupNotes(input.scenario, input.scenarioOverrides);
   if (verdict === "empty" || !metrics) {
-    return { verdict: "empty", headline: "", detail: "", support: "", readings: { ...EMPTY_READINGS }, lanes: {} };
+    return { verdict: "empty", headline: "", detail: "", support: "", notes, readings: { ...EMPTY_READINGS }, lanes: {} };
   }
   const units = unitsFor(input.rewardMode);
   const facts = creativeFacts(input);
@@ -510,6 +545,7 @@ export function buildInsights(input: InsightInput): ExperimentInsights {
     headline,
     detail,
     support: supportFor(verdict, metrics, input.ctrMode),
+    notes,
     readings: {
       avgReward: avgRewardReading(metrics, units),
       regret: regretReading(metrics, units),
