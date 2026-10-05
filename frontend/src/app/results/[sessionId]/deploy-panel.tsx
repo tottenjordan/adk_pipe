@@ -15,6 +15,7 @@ import {
   deployBlockedReason,
   REWARD_MODE_OPTIONS,
   SCENARIO_OPTIONS,
+  selectionColors,
   selectionToPayload,
   TTL_OPTIONS,
   type CtrMode,
@@ -69,12 +70,19 @@ export function DeployPanel({
   const [tuning, setTuning] = useState<TuneValues>(() => presetValues("segment_winners"));
 
   const ordered = useMemo(() => [...proofs].sort((a, b) => a.index - b.index), [proofs]);
+  /** Selected creative → colour, shared by the cards, the preview and the experiment page. */
+  const colors = useMemo(() => selectionColors(selected), [selected]);
   const tuningCreatives = useMemo(
     () =>
       ordered
-        .filter((p) => selected.has(p.index))
-        .map((p) => ({ index: p.index, name: p.concept.concept_name || p.concept.headline, scores: armScoresFromProof(p) })),
-    [ordered, selected]
+        .filter((p) => colors.has(p.index))
+        .map((p) => ({
+          index: p.index,
+          name: p.concept.concept_name || p.concept.headline,
+          color: colors.get(p.index)!,
+          scores: armScoresFromProof(p),
+        })),
+    [ordered, colors]
   );
   const count = selected.size;
 
@@ -174,6 +182,19 @@ export function DeployPanel({
                     className="size-14 shrink-0 rounded-sm text-[10px]"
                   />
                   <span className="min-w-0 flex-1">
+                    <span className="mb-0.5 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+                      <span
+                        aria-hidden
+                        className={cn(
+                          "size-2.5 shrink-0 rounded-full",
+                          !colors.has(p.index) && "border border-muted-foreground/40"
+                        )}
+                        style={colors.has(p.index) ? { backgroundColor: colors.get(p.index) } : undefined}
+                      />
+                      <span className="truncate" title={p.concept.concept_name}>
+                        {p.concept.concept_name}
+                      </span>
+                    </span>
                     <span className="line-clamp-2 text-sm leading-snug font-medium text-foreground">
                       {p.concept.headline}
                     </span>

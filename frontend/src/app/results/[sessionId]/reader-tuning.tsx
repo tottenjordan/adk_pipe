@@ -10,7 +10,7 @@ import { Slider } from "@/components/ui/slider";
 import { formatPercent } from "@/lib/chart";
 import { cellShade } from "@/lib/creative-detail";
 import { TUNE_HELP } from "@/lib/experiment-help";
-import { ARM_COLORS, type CtrMode, type Scenario } from "@/lib/experiments";
+import type { CtrMode, Scenario } from "@/lib/experiments";
 import {
   displayPercents,
   formatScale,
@@ -35,6 +35,8 @@ export interface TuningCreative {
   /** Pipeline index (the arm order the experiment page colours by). */
   index: number;
   name: string;
+  /** selectionColors(): the colour this creative keeps on the experiment page. */
+  color: string;
   scores: ArmScores;
 }
 
@@ -341,7 +343,7 @@ function PreviewGrid({
           </thead>
           <tbody>
             {creatives.map((c, a) => {
-              const color = ARM_COLORS[a % ARM_COLORS.length];
+              const color = c.color;
               return (
                 <tr key={c.index} className="grid border-b border-border last:border-b-0" style={{ gridTemplateColumns: cols }}>
                   <th scope="row" className="flex min-w-0 items-center gap-2 px-3 py-1 text-left font-semibold text-foreground">

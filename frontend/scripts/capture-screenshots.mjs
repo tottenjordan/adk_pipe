@@ -139,6 +139,10 @@ const { _comment: _customNote, ...customFields } = JSON.parse(
   readFileSync(join(FIX, "experiment-custom.json"), "utf8")
 );
 const CUSTOM_EXPERIMENT = { ...EXPERIMENT_DETAIL, ...customFields };
+// Its metrics use the four real segment_winners segments, shaped by the tuned settings.
+const { _comment: _customMetricsNote, ...CUSTOM_METRICS } = JSON.parse(
+  readFileSync(join(FIX, "experiment-custom-metrics.json"), "utf8")
+);
 
 // The FIRST LIVE bandit experiment (2026-10-02, 0693ea62bb7144ef), exported from
 // the api as-is (only userId replaced): its final ExperimentSummary and the real
@@ -275,7 +279,7 @@ async function installMocks(page) {
             seg[2] === EXPERIMENT_METRICS.experimentId
               ? EXPERIMENT_METRICS
               : seg[2] === CUSTOM_EXPERIMENT.experimentId
-                ? { ...EXPERIMENT_METRICS, experimentId: seg[2] }
+                ? CUSTOM_METRICS
                 : { ...EXPERIMENT_METRICS, experimentId: seg[2], episodes: 0, checkpoints: [] }
           );
         }

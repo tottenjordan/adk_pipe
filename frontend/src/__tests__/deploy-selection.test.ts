@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { deployBlockedReason, selectionToPayload } from "@/lib/experiments";
+import {
+  ARM_COLORS,
+  armColor,
+  deployBlockedReason,
+  selectionColors,
+  selectionToPayload,
+  type Arm,
+} from "@/lib/experiments";
 import { overridesFromValues, presetValues, rebalanceMix, valuesFromOverrides } from "@/lib/scenario-preview";
 
 const base = {
@@ -29,6 +36,24 @@ describe("selectionToPayload", () => {
   });
   it("passes an empty selection through (the button guards it)", () => {
     expect(selectionToPayload({ ...base, selected: [] }).creativeIndices).toEqual([]);
+  });
+});
+
+describe("selectionColors", () => {
+  it("colours selected creatives by sorted index, matching the experiment page's armColor", () => {
+    const colors = selectionColors(new Set([3, 0, 2]));
+    expect([...colors.entries()]).toEqual([
+      [0, ARM_COLORS[0]],
+      [2, ARM_COLORS[1]],
+      [3, ARM_COLORS[2]],
+    ]);
+    const arms = [3, 0, 2].map((index) => ({ creativeId: `c${index}`, index }) as Arm);
+    for (const a of arms) expect(armColor(arms, a.creativeId)).toBe(colors.get(a.index));
+  });
+  it("recolours consistently when the selection changes", () => {
+    expect(selectionColors([2, 3]).get(2)).toBe(ARM_COLORS[0]);
+    expect(selectionColors([0, 2, 3]).get(2)).toBe(ARM_COLORS[1]);
+    expect(selectionColors([]).size).toBe(0);
   });
 });
 

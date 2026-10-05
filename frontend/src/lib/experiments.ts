@@ -513,6 +513,17 @@ export function selectionToPayload(sel: DeploySelection): CreateExperimentReques
   return overrides ? { ...body, scenarioOverrides: overrides } : body;
 }
 
+/**
+ * Colour per selected creative, by position among the sorted selected pipeline
+ * indices: the order the api snapshots arms in (creativeIndices) and the order
+ * `armColor` colours them by on the experiment page, so the deploy cards, the
+ * Advanced preview and the experiment page agree.
+ */
+export function selectionColors(selected: Iterable<number>): Map<number, string> {
+  const sorted = [...new Set(selected)].filter((i) => Number.isInteger(i) && i >= 0).sort((a, b) => a - b);
+  return new Map(sorted.map((index, pos) => [index, ARM_COLORS[pos % ARM_COLORS.length]]));
+}
+
 /** True when an experiment ran with tuned readers (at least one override set). */
 export function hasOverrides(ov: ScenarioOverrides | null | undefined): ov is ScenarioOverrides {
   return Boolean(ov && Object.values(ov).some((v) => v !== undefined && v !== null));
