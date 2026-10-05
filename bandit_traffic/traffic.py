@@ -2,21 +2,39 @@
 
 For each episode ``e`` (key = ``bandit.simulate.episode_keys(seed, scenario)[e]``):
 
-1. send ``reset {episode, seed}``;
+1. send ``reset {episode, seed, policy_key, batch_size}`` (plus ``discount`` when
+   the run forgets); ``policy_key`` is the episode's simulator policy stream, so
+   the endpoint's LinTS draws exactly what ``simulate`` would (contracts §2);
 2. for each batch ``b``: draw the batch with ``bandit.simulate.batch_draws``
    (the simulator's own context / reward streams, i.e. common random numbers),
-   send the decision instances (split under the request limits), read each chosen
-   arm's outcome from the pre-drawn coin flips, send the reward instances;
+   send the decision instances (with their ``batch`` and ``row``, split under the
+   request limits), read each chosen arm's outcome from the pre-drawn coin flips,
+   send the reward instances;
 3. replay the baselines (``ucb1``, ``epsilon_greedy``, ``beta_bernoulli_ts``,
    ``uniform``, ``oracle``) locally with ``bandit.simulate.run_episodes`` on the
    same episode key, so they see identical users and coin flips;
-4. build one ``bandit_episode_metrics`` row per policy with
-   ``bandit.metrics.episode_metrics`` (shared log-spaced checkpoints), write them,
-   and update ``bandit_experiments.progress``.
+4. with shifts, replay the **ghost** ``linear_ts_unshifted``: a local LinTS
+   (the experiment's policy params, plus the run's discount when it forgets) on
+   the *unshifted* environment with the same episode key, i.e. the same users
+   and coin flips without the shifts;
+5. build one ``bandit_episode_metrics`` row per policy with
+   ``bandit.metrics.episode_metrics`` (shared checkpoints), write them, and
+   update ``bandit_experiments.progress``.
 
 ``bandit_events`` rows (endpoint policy only) are flushed in batches as the
 episode runs. ``round`` is the 0-based round index within the episode (the
-environment's ``t``); ``request_id`` is ``{experiment_id}-e{episode}-r{round}``.
+environment's ``t``); ``request_id`` is
+``{experiment_id}-r{traffic_run}-e{episode}-r{round}`` (the run is always
+included, run 1 too, so a rerun never collides with an earlier run's ids).
+
+**Traffic runs and shifts** (contracts §10): every event and metrics row carries
+``traffic_run``. With scripted ``shifts`` the endpoint and every baseline share
+the shifted environment; checkpoints are linear and merged around each shift
+round (``merge_checkpoints``), and every metrics row also carries
+``shift_response`` (against the shift rounds, the ghost's too) and ``regimes``
+(``regime_stats`` split at the shift and shock-end rounds). ``forget`` (default:
+on iff there are shifts) sends ``discount = default_shift_discount(...)``,
+floored at ``RESET_DISCOUNT_BOUNDS[0]``, in every ``reset``.
 
 A decision that comes back as a per-instance ``error`` gets no event row and no
 reward; for the metrics the round falls back to a uniformly random arm (what an
@@ -34,9 +52,11 @@ the predictor scales them like the simulator (contracts §2).
 
 from __future__ import annotations
 
+import dataclasses
 import datetime as dt
+import json
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -45,8 +65,21 @@ import numpy as np
 
 from bandit import environment as envm
 from bandit import simulate
-from bandit.config import ExperimentConfig, resolve_scenario
-from bandit.metrics import episode_metrics, log_checkpoints
+from bandit.config import (
+    RESET_DISCOUNT_BOUNDS,
+    ExperimentConfig,
+    ShiftSpec,
+    default_shift_discount,
+    resolve_scenario,
+)
+from bandit.metrics import (
+    episode_metrics,
+    log_checkpoints,
+    make_checkpoints,
+    merge_checkpoints,
+    regime_stats,
+    shift_response,
+)
 from bandit.policies import make_policy
 from bandit_traffic import bq
 from bandit_traffic.endpoint_client import (
@@ -59,6 +92,7 @@ from bandit_traffic.endpoint_client import (
 log = logging.getLogger(__name__)
 
 ENDPOINT_POLICY = "linear_ts"
+GHOST_POLICY = "linear_ts_unshifted"
 BASELINES: tuple[str, ...] = (
     "ucb1",
     "epsilon_greedy",
@@ -90,6 +124,8 @@ class TrafficSettings:
     baselines: tuple[str, ...] = BASELINES
     parameters: dict | None = None
     num_checkpoints: int = 50
+    #: keep each episode's per-round arrays in ``TrafficRunner.outputs`` (tests)
+    keep_outputs: bool = False
 
 
 @dataclass
@@ -101,6 +137,9 @@ class TrafficSummary:
     reward_errors: int = 0
     rewards_rejected: int = 0
     requests: int = 0
+    traffic_run: int = 1
+    resolved_shifts: list[dict] = field(default_factory=list)
+    discount: float | None = None
     metrics: list[dict] = field(default_factory=list)
 
     def regret_by_policy(self) -> dict[str, float]:
@@ -113,6 +152,25 @@ class TrafficSummary:
 def reset_seed(seed: int, episode: int) -> int:
     """The endpoint's PRNG seed for an episode (31-bit, distinct per episode)."""
     return (int(seed) * 1_000_003 + int(episode)) % (2**31)
+
+
+def run_discount(cfg: ExperimentConfig) -> float:
+    """The endpoint's discount for a forgetting run (contracts §10):
+    ``default_shift_discount`` floored at the reset bound (short runs would
+    otherwise forget faster than the predictor accepts)."""
+    gamma = default_shift_discount(cfg.ctr_mode, cfg.batch_size, cfg.horizon)
+    return max(RESET_DISCOUNT_BOUNDS[0], gamma)
+
+
+def policy_stream_fields(k_pol: Any, batch_size: int) -> dict[str, Any]:
+    """The ``reset`` fields that key the endpoint like the simulator (contracts
+    §2): ``policy_key`` = the uint32 ``key_data`` of the episode's policy stream
+    (``simulate.episode_streams(key)[2]``) and the simulator ``batch_size``. With
+    each decision's ``batch``/``row``, the endpoint draws batch ``b`` from
+    ``fold_in(k_pol, b)`` at the simulator's batch shape, so its LinTS picks the
+    same arms as ``simulate.run_episodes`` (and as the ghost before a shift)."""
+    words = np.asarray(jax.random.key_data(k_pol)).ravel()
+    return {"policy_key": [int(w) for w in words], "batch_size": int(batch_size)}
 
 
 def _utcnow() -> dt.datetime:
@@ -133,21 +191,58 @@ class TrafficRunner:
         *,
         experiment_id: str | None = None,
         now: Callable[[], dt.datetime] = _utcnow,
+        shifts: Sequence[ShiftSpec] = (),
+        traffic_run: int = 1,
+        forget: bool | None = None,
     ):
+        if traffic_run < 1:
+            raise ValueError(f"traffic_run must be >= 1, got {traffic_run}")
         self.cfg = cfg
         self.client = client
         self.writer = writer
         self.s = settings
         self.experiment_id = experiment_id or cfg.experiment_id
         self.now = now
-        # the preset + experiment.json's scenario_overrides (contracts §9); the
-        # baselines share self.env, so they see the same tuned ground truth
-        self.env = simulate.build_environment(cfg, scenario=resolve_scenario(cfg))
+        self.shifts = tuple(shifts)
+        self.traffic_run = int(traffic_run)
+        self.forget = bool(self.shifts) if forget is None else bool(forget)
+        self.discount = run_discount(cfg) if self.forget else None
+        # the preset + experiment.json's scenario_overrides (contracts §9) + the
+        # run's shifts (§10); the baselines share self.env, so they see the same
+        # ground truth
+        scenario = resolve_scenario(cfg)
+        self.env = simulate.build_environment(
+            cfg, scenario=scenario, shifts=self.shifts
+        )
+        self.resolved = envm.resolved_shifts(self.env)
+        self.shift_rounds = [int(rec["round"]) for rec in self.resolved]
+        # regime boundaries: every shift round plus every shock's end round
+        self.regime_bounds = sorted(
+            {*self.shift_rounds}
+            | {int(r["end_round"]) for r in self.resolved if r["end_round"] is not None}
+        )
+        # the ghost: same scenario and overrides, no shifts
+        self.ghost_env = (
+            simulate.build_environment(cfg, scenario=scenario) if self.shifts else None
+        )
         self.arm_ids = list(self.env.arm_ids)
         self.arm_index = {cid: i for i, cid in enumerate(self.arm_ids)}
-        self.checkpoints = log_checkpoints(cfg.horizon, settings.num_checkpoints)
+        if self.shifts:
+            self.checkpoints = merge_checkpoints(
+                make_checkpoints(cfg.horizon, settings.num_checkpoints, "linear"),
+                self.shift_rounds,
+                cfg.horizon,
+            )
+        else:
+            self.checkpoints = log_checkpoints(cfg.horizon, settings.num_checkpoints)
         self.keys = simulate.episode_keys(cfg.seed, cfg.scenario, cfg.episodes)
-        self.summary = TrafficSummary(self.experiment_id)
+        self.summary = TrafficSummary(
+            self.experiment_id,
+            traffic_run=self.traffic_run,
+            resolved_shifts=self.resolved,
+            discount=self.discount,
+        )
+        self.outputs: dict[tuple[int, str], dict[str, np.ndarray]] = {}
         self._events: list[dict] = []
 
     # ------------------------------------------------------------- transport
@@ -171,6 +266,14 @@ class TrafficRunner:
     # --------------------------------------------------------------- episode
     def run(self) -> TrafficSummary:
         total = self.cfg.episodes
+        log.info(
+            "traffic run %d: %d shift(s), forget=%s, discount=%s, resolved shifts %s",
+            self.traffic_run,
+            len(self.shifts),
+            self.forget,
+            self.discount,
+            json.dumps(self.resolved, separators=(",", ":")),
+        )
         for e in range(total):
             rows = self.run_episode(e)
             self.writer.write_metrics(rows)
@@ -189,19 +292,19 @@ class TrafficRunner:
         cfg, s, env = self.cfg, self.s, self.env
         T, bs, K = cfg.horizon, cfg.batch_size, len(self.arm_ids)
         key = self.keys[episode]
-        k_ctx, k_rew, _ = simulate.episode_streams(key)
+        k_ctx, k_rew, k_pol = simulate.episode_streams(key)
         elig = jax.numpy.ones((K,), bool)
         fallback = np.random.default_rng([cfg.seed, episode])
 
-        reset = self._send(
-            [
-                {
-                    "type": "reset",
-                    "episode": episode,
-                    "seed": reset_seed(cfg.seed, episode),
-                }
-            ]
-        )[0]
+        reset_inst: dict[str, Any] = {
+            "type": "reset",
+            "episode": episode,
+            "seed": reset_seed(cfg.seed, episode),
+            **policy_stream_fields(k_pol, bs),
+        }
+        if self.discount is not None:
+            reset_inst["discount"] = self.discount
+        reset = self._send([reset_inst])[0]
         if _is_error(reset):
             raise TrafficError(f"reset failed for episode {episode}: {reset}")
 
@@ -232,11 +335,19 @@ class TrafficRunner:
             ts = bq.iso_ts(self.now())
             contexts = envm.decode_contexts(d["levels"])
             rounds = d["t"].astype(int)
-            rids = [f"{self.experiment_id}-e{episode}-r{t}" for t in rounds]
+            prefix = f"{self.experiment_id}-r{self.traffic_run}-e{episode}"
+            rids = [f"{prefix}-r{t}" for t in rounds]
             preds = self._send(
                 [
-                    {"type": "decision", "request_id": rid, "ts": ts, "context": ctx}
-                    for rid, ctx in zip(rids, contexts, strict=True)
+                    {
+                        "type": "decision",
+                        "request_id": rid,
+                        "ts": ts,
+                        "context": ctx,
+                        "batch": b,
+                        "row": j,
+                    }
+                    for j, (rid, ctx) in enumerate(zip(rids, contexts, strict=True))
                 ]
             )
             arms = np.empty(n, np.int64)
@@ -304,6 +415,7 @@ class TrafficRunner:
                         regret=float(mean[j, o] - mean[j, a]),
                         model_version=pred.get("model_version"),
                         latency_ms=pred.get("latency_ms"),
+                        traffic_run=self.traffic_run,
                     )
                 )
             self._flush_events()
@@ -345,9 +457,31 @@ class TrafficRunner:
             if not np.array_equal(ep["segment"], ours["segment"]):
                 raise TrafficError("baseline replay diverged from the endpoint's users")
             rows.append(self._metrics(name, episode, ep))
+        if self.ghost_env is not None:
+            rows.append(self._metrics(GHOST_POLICY, episode, self._ghost(key)))
         return rows
 
+    def _ghost(self, key: Any) -> dict[str, np.ndarray]:
+        """The ghost episode: LinTS (with the run's discount when it forgets)
+        on the unshifted environment, same episode key."""
+        assert self.ghost_env is not None
+        params = self.cfg.policy
+        if self.discount is not None:
+            params = dataclasses.replace(params, discount=self.discount)
+        pol = make_policy(
+            "linear_ts",
+            lints_params=params,
+            reward_mode=self.cfg.reward_mode,
+            log_propensity=False,
+        )
+        out = simulate.run_episodes(
+            pol, self.ghost_env, key[None], self.cfg.horizon, self.cfg.batch_size
+        )
+        return {k: v[0] for k, v in out.items()}
+
     def _metrics(self, policy: str, episode: int, out: dict[str, np.ndarray]) -> dict:
+        if self.s.keep_outputs:
+            self.outputs[(episode, policy)] = out
         m = episode_metrics(
             out,
             policy=policy,
@@ -356,8 +490,16 @@ class TrafficRunner:
             segment_names=self.env.segment_names,
             checkpoints=self.checkpoints,
         )
+        if self.shifts:
+            m["shift_response"] = shift_response(out, self.shift_rounds)
+            m["regimes"] = regime_stats(
+                out, self.regime_bounds, self.arm_ids, self.env.segment_names
+            )
         return bq.build_episode_metrics_row(
-            m, experiment_id=self.experiment_id, created_at=self.now()
+            m,
+            experiment_id=self.experiment_id,
+            created_at=self.now(),
+            traffic_run=self.traffic_run,
         )
 
 
@@ -369,7 +511,18 @@ def run_traffic(
     *,
     experiment_id: str | None = None,
     now: Callable[[], dt.datetime] = _utcnow,
+    shifts: Sequence[ShiftSpec] = (),
+    traffic_run: int = 1,
+    forget: bool | None = None,
 ) -> TrafficSummary:
     return TrafficRunner(
-        cfg, client, writer, settings, experiment_id=experiment_id, now=now
+        cfg,
+        client,
+        writer,
+        settings,
+        experiment_id=experiment_id,
+        now=now,
+        shifts=shifts,
+        traffic_run=traffic_run,
+        forget=forget,
     ).run()

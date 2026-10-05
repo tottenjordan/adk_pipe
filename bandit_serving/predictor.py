@@ -17,6 +17,13 @@ response body, so ``postprocess`` returns the full ``{"predictions": [...]}``):
   Carlo ``propensities``; rewards are de-duplicated against the bounded
   ``pending`` map (request_id -> (arm, x)) / seen-id set and applied as one
   batched ``linear_ts.update``, which bumps ``model_version``.
+- ``reset`` starts a fresh posterior; its optional ``discount`` (the traffic
+  run's forgetting γ, contracts §10) replaces ``policy.discount`` for every
+  update until the next reset, and a reset without one restores the config value.
+  Its optional ``policy_key`` + ``batch_size`` (the simulator's policy stream)
+  key every decision carrying ``batch``/``row`` exactly like ``bandit.simulate``
+  (``fold_in(k_pol, batch)``, noise at the simulator batch shape), so the
+  endpoint's arms match a local LinTS replay round for round (contracts §2).
 - Checkpoints (``checkpoints/<model_version>.npz`` + ``checkpoints/latest.json``
   under ``AIP_STORAGE_URI``) are written by a background thread every
   ``BANDIT_CHECKPOINT_EVERY`` update batches or ``BANDIT_CHECKPOINT_SECONDS``
@@ -51,6 +58,7 @@ from google.cloud.aiplatform.prediction.predictor import Predictor
 
 from bandit import linear_ts as lts
 from bandit.config import (
+    RESET_DISCOUNT_BOUNDS,
     ExperimentConfig,
     LinTSParams,
     load_experiment_config,
@@ -137,6 +145,8 @@ class _Decision:
     request_id: str
     levels: np.ndarray  # (G,) context level indices
     eligible: tuple[bool, ...]
+    batch: int | None = None  # simulator batch index (with ``row``), contracts §2
+    row: int | None = None  # row within that batch
 
 
 @dataclass(frozen=True)
@@ -147,9 +157,27 @@ class _Reward:
 
 
 @dataclass(frozen=True)
+class _PolicyStream:
+    """The simulator's policy stream for an episode (contracts §2 ``reset``):
+    ``key_data`` of ``bandit.simulate.episode_streams(episode_key)[2]`` and the
+    batch size the simulator's draws are shaped by."""
+
+    key_data: tuple[int, ...]
+    batch_size: int
+
+    def key(self) -> jax.Array:
+        return jax.random.wrap_key_data(jnp.asarray(self.key_data, jnp.uint32))
+
+    def to_json(self) -> dict[str, Any]:
+        return {"key_data": list(self.key_data), "batch_size": self.batch_size}
+
+
+@dataclass(frozen=True)
 class _Reset:
     episode: int
     seed: int
+    discount: float | None = None
+    policy_stream: _PolicyStream | None = None
 
 
 @dataclass(frozen=True)
@@ -202,6 +230,72 @@ def _finite(v: Any) -> float | None:
     return float(v) if math.isfinite(v) else None
 
 
+def _reset_discount(inst: Mapping[str, Any]) -> float | None:
+    """A reset's optional per-run ``discount`` (contracts §2 / §10): absent or
+    null = the config's ``policy.discount``; else a finite number in
+    ``RESET_DISCOUNT_BOUNDS``, quantised to 0.001 (it is a static jit argument of
+    the update kernel, so the compile cache stays bounded)."""
+    raw = inst.get("discount")
+    if raw is None:
+        return None
+    value = _finite(raw)
+    lo, hi = RESET_DISCOUNT_BOUNDS
+    if value is None or not lo <= value <= hi:
+        raise ValueError(f"discount must be a number in [{lo}, {hi}]")
+    return round(value, 3)
+
+
+#: length of ``jax.random.key_data`` for the default PRNG implementation
+KEY_DATA_LEN = int(np.prod(jax.random.key_data(jax.random.key(0)).shape))
+MAX_POLICY_BATCH = 10_000  # bound on a reset's batch_size (a static jit argument)
+
+
+def _integral(v: Any) -> int | None:
+    """``v`` as an int if it is an integer or an integral float (a JSON number
+    may come back as a float after a protobuf round trip), else None."""
+    if isinstance(v, bool):
+        return None
+    if isinstance(v, int):
+        return v
+    if isinstance(v, float) and math.isfinite(v) and v.is_integer():
+        return int(v)
+    return None
+
+
+def _policy_stream(inst: Mapping[str, Any]) -> _PolicyStream | None:
+    """A reset's optional ``policy_key`` + ``batch_size`` (contracts §2). Both
+    absent: None (the legacy per-call key). Otherwise ``policy_key`` is the
+    ``jax.random.key_data`` (uint32 words) of the simulator's policy stream and
+    ``batch_size`` the simulator batch size."""
+    raw_key, raw_bs = inst.get("policy_key"), inst.get("batch_size")
+    if raw_key is None and raw_bs is None:
+        return None
+    msg = f"policy_key must be a list of {KEY_DATA_LEN} uint32 words"
+    if not isinstance(raw_key, list) or len(raw_key) != KEY_DATA_LEN:
+        raise ValueError(msg)
+    words: list[int] = []
+    for w in raw_key:
+        v = _integral(w)
+        if v is None or not 0 <= v < 2**32:
+            raise ValueError(msg)
+        words.append(v)
+    bs = _integral(raw_bs)
+    if bs is None or not 1 <= bs <= MAX_POLICY_BATCH:
+        raise ValueError(f"batch_size must be an integer in [1, {MAX_POLICY_BATCH}]")
+    return _PolicyStream(tuple(words), bs)
+
+
+def _batch_row(inst: Mapping[str, Any]) -> tuple[int | None, int | None]:
+    """A decision's optional ``batch`` + ``row`` (both or neither, ints >= 0)."""
+    raw_b, raw_r = inst.get("batch"), inst.get("row")
+    if raw_b is None and raw_r is None:
+        return None, None
+    b, r = _integral(raw_b), _integral(raw_r)
+    if b is None or r is None or b < 0 or r < 0:
+        raise ValueError("batch and row must both be integers >= 0")
+    return b, r
+
+
 def _request_id(inst: Mapping[str, Any]) -> str:
     rid = inst.get("request_id")
     if not isinstance(rid, str) or not rid or len(rid) > MAX_REQUEST_ID_LEN:
@@ -241,11 +335,27 @@ def _decide_kernel(key, state, X, eligible, params):
     return arms, probs, jnp.argmax(greedy_scores, axis=-1)
 
 
-@functools.partial(jax.jit, static_argnames=("params",))
-def _update_kernel(state, arms, X, rewards, valid, params):
+@functools.partial(jax.jit, static_argnames=("params", "batch_size"))
+def _decide_rows_kernel(key, state, X, rows, eligible, params, batch_size):
+    """``_decide_kernel`` keyed like ``bandit.simulate``: ``key`` is the batch's
+    ``fold_in(k_pol, batch)``, and the selection noise is drawn at the simulator's
+    ``(batch_size, K)`` shape and indexed by each served row's ``rows`` (padding
+    rows read row 0 and are discarded). A row's arm therefore doesn't depend on
+    padding, request splitting or retries."""
+    k_sel, k_prop = jax.random.split(key)
+    z = jax.random.normal(k_sel, (batch_size, state.b.shape[0]), state.b.dtype)
+    arms, _ = lts.select_with_noise(state, X, z[rows], params, eligible)
+    probs = lts.propensities_batch(k_prop, state, X, params, eligible)
+    greedy_scores = jnp.where(eligible, X @ lts.posterior_mean(state).T, -jnp.inf)
+    return arms, probs, jnp.argmax(greedy_scores, axis=-1)
+
+
+@functools.partial(jax.jit, static_argnames=("params", "reward_scale"))
+def _update_kernel(state, arms, X, rewards, valid, params, reward_scale=1.0):
     """``lts.update`` on zero-padded rows; padding adds nothing to Λ/b and is
-    excluded from the pull counts and step."""
-    new = lts.update(state, arms, X, rewards, params)
+    excluded from the pull counts and step. The raw float32 rewards are divided
+    by ``reward_scale`` in here: the same float32 op as ``simulate._episode``."""
+    new = lts.update(state, arms, X, rewards / reward_scale, params)
     counts = jnp.zeros_like(state.n).at[arms].add(valid.astype(state.n.dtype))
     return new._replace(n=state.n + counts, step=state.step + jnp.sum(valid))
 
@@ -374,26 +484,61 @@ class BanditPredictor(Predictor):
                 _decide_kernel(jax.random.key(0), state, X, eligible, self.params)
             )
             jax.block_until_ready(
+                _decide_rows_kernel(
+                    jax.random.key(0),
+                    state,
+                    X,
+                    zeros,
+                    eligible,
+                    self.params,
+                    self.config.batch_size,
+                )
+            )
+            jax.block_until_ready(
                 _update_kernel(
-                    state, zeros, X, zeros.astype(jnp.float32), zeros > 0, self.params
+                    state,
+                    zeros,
+                    X,
+                    zeros.astype(jnp.float32),
+                    zeros > 0,
+                    self.params,
+                    self._reward_scale,
                 )
             )
         jax.block_until_ready(_posterior_mean(state))
         log.info("jit warm-up: %.0f ms", (time.perf_counter() - t0) * 1000.0)
 
-    def _fresh(self, episode: int, seed: int) -> None:
+    def _fresh(
+        self,
+        episode: int,
+        seed: int,
+        discount: float | None = None,
+        policy_stream: _PolicyStream | None = None,
+    ) -> None:
         self._state = lts.init_state(
             len(self.arm_ids), self._dim, self.params.prior_var
         )
         self._episode = episode
         self._seed = seed
+        self._discount: float | None = discount
         self._base_key = jax.random.key(seed)
-        self._calls = 0  # PRNG fold-in counter
+        self._calls = 0  # PRNG fold-in counter (legacy, unkeyed decisions)
+        self._policy_stream = policy_stream
+        self._policy_key = None if policy_stream is None else policy_stream.key()
         self._n_updates = 0
-        self._pending: OrderedDict[str, tuple[int, np.ndarray]] = OrderedDict()
+        self._pending: OrderedDict[str, tuple[int, np.ndarray, int | None]] = (
+            OrderedDict()
+        )
+        self._last_update_batch: int | None = None
         self._seen: OrderedDict[str, None] = OrderedDict()
         self._updates_since_ckpt = 0
         self._last_ckpt = time.monotonic()
+
+    def _update_params(self) -> LinTSParams:
+        """``self.params`` with the episode's reset ``discount``, if any."""
+        if self._discount is None:
+            return self.params
+        return dataclasses.replace(self.params, discount=self._discount)
 
     def _version(self) -> str:
         return f"{self.config.experiment_id}-e{self._episode}-v{self._n_updates}"
@@ -431,7 +576,19 @@ class BanditPredictor(Predictor):
                     "checkpoint shape %s mismatches config; ignoring", state.b.shape
                 )
                 return
-            self._fresh(episode=int(meta["episode"]), seed=int(meta["seed"]))
+            discount = meta.get("discount")
+            stream = meta.get("policy_stream")
+            self._fresh(
+                episode=int(meta["episode"]),
+                seed=int(meta["seed"]),
+                discount=None if discount is None else float(discount),
+                policy_stream=None
+                if stream is None
+                else _PolicyStream(
+                    tuple(int(w) for w in stream["key_data"]),
+                    int(stream["batch_size"]),
+                ),
+            )
             self._state = state
             self._n_updates = int(meta["n_updates"])
             self._calls = int(meta["calls"])
@@ -457,6 +614,10 @@ class BanditPredictor(Predictor):
             "npz": npz_name,
             "episode": self._episode,
             "seed": self._seed,
+            "discount": self._discount,
+            "policy_stream": None
+            if self._policy_stream is None
+            else self._policy_stream.to_json(),
             "n_updates": self._n_updates,
             "calls": self._calls,
             "feature_spec_version": FEATURE_SPEC_VERSION,
@@ -531,7 +692,12 @@ class BanditPredictor(Predictor):
             if kind == "reward":
                 return self._parse_reward(inst)
             if kind == "reset":
-                return _Reset(_int_field(inst, "episode", 0), _int_field(inst, "seed"))
+                return _Reset(
+                    _int_field(inst, "episode", 0),
+                    _int_field(inst, "seed"),
+                    _reset_discount(inst),
+                    _policy_stream(inst),
+                )
             if kind == "state":
                 return _StateReq()
             raise ValueError(f"unknown instance type {kind!r}")
@@ -556,7 +722,8 @@ class BanditPredictor(Predictor):
             if unknown:
                 raise ValueError(f"unknown eligible_arms: {unknown}")
             eligible = tuple(cid in eligible_ids for cid in self.arm_ids)
-        return _Decision(rid, levels, eligible)
+        batch, row = _batch_row(inst)
+        return _Decision(rid, levels, eligible, batch, row)
 
     def _parse_reward(self, inst: Mapping[str, Any]) -> _Reward:
         rid = _request_id(inst)
@@ -598,12 +765,15 @@ class BanditPredictor(Predictor):
                     i = j
                     continue
                 if isinstance(item, _Reset):
-                    self._fresh(item.episode, item.seed)
+                    self._fresh(
+                        item.episode, item.seed, item.discount, item.policy_stream
+                    )
                     self._schedule_checkpoint()
                     out[i] = {
                         "type": "reset",
                         "episode": item.episode,
                         "model_version": self._version(),
+                        "discount": self._update_params().discount,
                     }
                 elif isinstance(item, _StateReq):
                     out[i] = self._summary()
@@ -625,37 +795,64 @@ class BanditPredictor(Predictor):
     def _decide(
         self, decisions: Sequence[_Decision], params: LinTSParams
     ) -> list[dict]:
+        """Thompson-sample each decision. Rows are grouped by eligibility and, when
+        the episode's reset carried a policy stream, by simulator ``batch``: such
+        a group is keyed ``fold_in(k_pol, batch)`` with noise drawn at the
+        simulator's batch shape (``_decide_rows_kernel``), exactly like
+        ``bandit.simulate._episode``. Otherwise (no stream, or a decision without
+        ``batch``/``row``) the legacy per-call key is used."""
         t0 = time.perf_counter()
         results: list[dict | None] = [None] * len(decisions)
-        groups: dict[tuple[bool, ...], list[int]] = {}
+        stream = self._policy_stream
+        groups: dict[tuple[tuple[bool, ...], int | None], list[int]] = {}
         for k, d in enumerate(decisions):
-            groups.setdefault(d.eligible, []).append(k)
+            batch = d.batch if stream is not None else None
+            if stream is not None and d.row is not None and d.row >= stream.batch_size:
+                results[k] = {
+                    "type": "error",
+                    "request_id": d.request_id,
+                    "error": f"row must be < the reset batch_size {stream.batch_size}",
+                }
+                continue
+            groups.setdefault((d.eligible, batch), []).append(k)
         version, step = self._version(), int(self._state.step)
-        rows: list[tuple[int, int, np.ndarray, np.ndarray, int]] = []
+        rows: list[tuple[int, int, np.ndarray, np.ndarray, int, int | None]] = []
         chunks = [
-            (eligible, idx[c : c + MAX_CHUNK])
-            for eligible, idx in groups.items()
+            (eligible, batch, idx[c : c + MAX_CHUNK])
+            for (eligible, batch), idx in groups.items()
             for c in range(0, len(idx), MAX_CHUNK)
         ]
-        for eligible, idx in chunks:
+        for eligible, batch, idx in chunks:
             X = levels_to_matrix(np.stack([decisions[k].levels for k in idx]))
             n = X.shape[0]
-            arms, probs, greedy = _decide_kernel(
-                self._next_key(),
-                self._state,
-                jnp.asarray(_pad_rows(X, _bucket(n))),
-                jnp.asarray(eligible),
-                params,
-            )
+            size = _bucket(n)
+            X_pad = jnp.asarray(_pad_rows(X, size))
+            if batch is None or stream is None or self._policy_key is None:
+                arms, probs, greedy = _decide_kernel(
+                    self._next_key(), self._state, X_pad, jnp.asarray(eligible), params
+                )
+            else:
+                served = np.asarray([decisions[k].row for k in idx], np.int32)
+                arms, probs, greedy = _decide_rows_kernel(
+                    jax.random.fold_in(self._policy_key, batch),
+                    self._state,
+                    X_pad,
+                    jnp.asarray(_pad_rows(served, size)),
+                    jnp.asarray(eligible),
+                    params,
+                    stream.batch_size,
+                )
             arms_np = np.asarray(arms)[:n]
             probs_np = np.asarray(probs)[:n]
             greedy_np = np.asarray(greedy)[:n]
             for r, k in enumerate(idx):
-                rows.append((k, int(arms_np[r]), probs_np[r], X[r], int(greedy_np[r])))
+                rows.append(
+                    (k, int(arms_np[r]), probs_np[r], X[r], int(greedy_np[r]), batch)
+                )
         latency_ms = (time.perf_counter() - t0) * 1000.0
-        for k, arm, prob, x, greedy in rows:
+        for k, arm, prob, x, greedy, batch in rows:
             d = decisions[k]
-            self._remember(d.request_id, arm, x)
+            self._remember(d.request_id, arm, x, batch)
             results[k] = {
                 "request_id": d.request_id,
                 "type": "decision",
@@ -674,17 +871,23 @@ class BanditPredictor(Predictor):
             }
         return [r for r in results if r is not None]
 
-    def _remember(self, request_id: str, arm: int, x: np.ndarray) -> None:
-        self._pending[request_id] = (arm, x)
+    def _remember(
+        self, request_id: str, arm: int, x: np.ndarray, batch: int | None = None
+    ) -> None:
+        self._pending[request_id] = (arm, x, batch)
         self._pending.move_to_end(request_id)
         while len(self._pending) > self.max_pending:
             self._pending.popitem(last=False)
 
     def _apply_rewards(self, rewards: Sequence[_Reward]) -> list[dict]:
+        """Accept/reject each reward, then apply the accepted ones as one batched
+        ``update`` per run of consecutive rewards from the same decision batch
+        (one update for the whole request when decisions carried no ``batch``).
+        A run that continues the previous update's batch (a batch whose rewards
+        were split over requests) is applied without decaying again, so γ is
+        applied once per simulator batch as in ``bandit.simulate``."""
         verdicts: list[str | None] = []
-        arms: list[int] = []
-        xs: list[np.ndarray] = []
-        values: list[float] = []
+        runs: list[tuple[int | None, list[int], list[np.ndarray], list[float]]] = []
         for r in rewards:
             reason = None
             if r.request_id in self._seen:
@@ -694,15 +897,21 @@ class BanditPredictor(Predictor):
             elif self._pending[r.request_id][0] != r.arm:
                 reason = "arm does not match the decision"
             if reason is None:
-                arm, x = self._pending.pop(r.request_id)
+                arm, x, batch = self._pending.pop(r.request_id)
                 self._seen[r.request_id] = None
                 while len(self._seen) > self.max_seen:
                     self._seen.popitem(last=False)
-                arms.append(arm)
-                xs.append(x)
-                values.append(r.reward / self._reward_scale)
+                if not runs or (batch is not None and runs[-1][0] != batch):
+                    runs.append((batch, [], [], []))
+                runs[-1][1].append(arm)
+                runs[-1][2].append(x)
+                runs[-1][3].append(r.reward)
             verdicts.append(reason)
-        if arms:
+        for batch, arms, xs, values in runs:
+            params = self._update_params()
+            if batch is not None and batch == self._last_update_batch:
+                params = dataclasses.replace(params, discount=1.0)
+            self._last_update_batch = batch
             n = len(arms)
             size = _bucket(n)
             self._state = _update_kernel(
@@ -711,7 +920,8 @@ class BanditPredictor(Predictor):
                 jnp.asarray(_pad_rows(np.stack(xs), size)),
                 jnp.asarray(_pad_rows(np.asarray(values, np.float32), size)),
                 jnp.asarray(np.arange(size) < n),
-                self.params,
+                params,
+                self._reward_scale,
             )
             self._n_updates += 1
             self._updates_since_ckpt += 1

@@ -76,6 +76,8 @@ def test_build_event_row():
     assert json.loads(row["context"]) == {"devicetype": "mobile", "weekend": True}
     assert isinstance(row["episode"], int) and isinstance(row["reward"], float)
     assert row["dwell_s"] is None
+    assert row["traffic_run"] == 1  # default
+    assert _event(traffic_run=4)["traffic_run"] == 4
     # NaN propensity (unknown) -> NULL; naive datetimes are treated as UTC
     row = _event(propensity=float("nan"), ts=dt.datetime(2026, 1, 1))
     assert row["propensity"] is None and row["ts"] == "2026-01-01T00:00:00Z"
@@ -101,11 +103,35 @@ def test_build_episode_metrics_row():
     row = bq.build_episode_metrics_row(metrics, experiment_id="e1", created_at=NOW)
     assert list(row) == list(bq.METRICS_COLUMN_TYPES)
     assert row["experiment_id"] == "e1" and row["steps_to_converge"] is None
-    for col in bq.METRICS_JSON_COLUMNS:
+    for col in ("curve", "arm_share", "per_segment", "arm_stats"):
         assert isinstance(row[col], str)
     assert json.loads(row["curve"])["checkpoints"] == [1, 100]
     assert row["created_at"] == "2026-10-02T12:00:00Z"
-    assert bq.metrics_row_id(row) == "e1-e0-ucb1"
+    assert row["traffic_run"] == 1
+    assert row["shift_response"] is None and row["regimes"] is None
+    assert bq.metrics_row_id(row) == "e1-r1-e0-ucb1"
+
+
+def test_metrics_row_carries_run_and_shift_payloads():
+    metrics = {
+        "policy": "linear_ts_unshifted",
+        "episode": 2,
+        "horizon": 100,
+        "shift_response": [{"round": 50, "recovery_rounds": None}],
+        "regimes": [{"start": 0, "end": 50, "per_segment": {}, "true_ctr": {}}],
+    }
+    row = bq.build_episode_metrics_row(
+        metrics, experiment_id="e1", created_at=NOW, traffic_run=3
+    )
+    assert row["traffic_run"] == 3
+    assert json.loads(row["shift_response"]) == metrics["shift_response"]
+    assert json.loads(row["regimes"]) == metrics["regimes"]
+    assert bq.metrics_row_id(row) == "e1-r3-e2-linear_ts_unshifted"
+    # a legacy row without a run dedupes as run 1
+    assert (
+        bq.metrics_row_id({**row, "traffic_run": None})
+        == "e1-r1-e2-linear_ts_unshifted"
+    )
 
 
 def test_progress_update_sql_sets_only_progress_and_updated_at():

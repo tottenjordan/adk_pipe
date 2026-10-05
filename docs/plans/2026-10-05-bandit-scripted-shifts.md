@@ -1,6 +1,6 @@
 # Scripted behaviour shifts: steer the simulated readers during a traffic run
 
-> **Status:** IN PROGRESS (2026-10-05). PR A (bandit core, `feat/bandit-shifts-core`) in progress; PRs B–D not started.
+> **Status:** IN PROGRESS (2026-10-05). PR A (bandit core, `feat/bandit-shifts-core`) in progress; PR B (traffic job + predictor, `feat/bandit-shifts-traffic`) in progress; PRs C–D not started.
 
 ## Context
 The deep research (2026-10-05) recommended a forward-only, scripted shift timeline as phase 1 of "orient and influence the simulation". Live "apply now" steering comes later.

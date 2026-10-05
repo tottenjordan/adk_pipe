@@ -9,6 +9,10 @@
     python -m bandit_traffic.main --in-process --config /tmp/experiment.json \\
       --episodes 2 --horizon 4000 --dry-run --out /tmp/traffic
 
+    # A numbered traffic run with scripted behaviour shifts (contracts §10)
+    SHIFTS_JSON='[{"kind":"demote","at_frac":0.5,"creative_id":"leader",
+      "drop_pp":0.015}]' TRAFFIC_RUN=2 FORGET=true python -m bandit_traffic.main ...
+
 Every setting is a flag or the env var named in its help. Exactly one target:
 ``--in-process`` (the ``fake_endpoint`` stand-in), ``--local-url`` (a local CPR
 container's predict URL) or ``ENDPOINT_ID`` (a Vertex endpoint, full resource
@@ -31,8 +35,12 @@ from typing import Any
 from bandit.config import (
     REWARD_MODES,
     ExperimentConfig,
+    ShiftSpec,
     load_experiment_config,
+    resolve_scenario,
+    shifts_from_dict,
     validate_experiment_config,
+    validate_shifts,
 )
 from bandit_traffic import bq
 from bandit_traffic.endpoint_client import (
@@ -72,6 +80,21 @@ def build_parser() -> argparse.ArgumentParser:
         type=float,
         help="env ERROR_THRESHOLD: max decision error rate per episode (0.05)",
     )
+    p.add_argument(
+        "--shifts",
+        help="env SHIFTS_JSON: contracts §10 snake_case shift list (JSON, or a path "
+        "to a JSON file)",
+    )
+    p.add_argument(
+        "--traffic-run", type=int, help="env TRAFFIC_RUN: 1-based run number (1)"
+    )
+    p.add_argument(
+        "--forget",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="env FORGET (true|false): send the run's discount on every reset "
+        "(default: on iff there are shifts)",
+    )
     p.add_argument("--dry-run", action="store_true", help="write JSONL, not BigQuery")
     p.add_argument("--out", default="traffic_out", help="--dry-run output directory")
     p.add_argument("--log-level", default=os.environ.get("LOG_LEVEL", "INFO"))
@@ -92,6 +115,63 @@ def _int(value: Any, name: str) -> int | None:
         return int(value)
     except (TypeError, ValueError) as exc:
         raise ConfigError(f"{name} must be an integer, got {value!r}") from exc
+
+
+_TRUE = frozenset({"1", "true", "yes", "on"})
+_FALSE = frozenset({"0", "false", "no", "off"})
+
+
+def _bool(value: Any, name: str) -> bool | None:
+    if value is None or isinstance(value, bool):
+        return value
+    text = str(value).strip().lower()
+    if text in _TRUE:
+        return True
+    if text in _FALSE:
+        return False
+    raise ConfigError(f"{name} must be true or false, got {value!r}")
+
+
+@dataclasses.dataclass(frozen=True)
+class RunOptions:
+    """The per-traffic-run settings (contracts §10)."""
+
+    shifts: tuple[ShiftSpec, ...] = ()
+    traffic_run: int = 1
+    forget: bool = False
+
+
+def resolve_run_options(
+    args: argparse.Namespace, env: Mapping[str, str], cfg: ExperimentConfig
+) -> RunOptions:
+    """``SHIFTS_JSON`` / ``TRAFFIC_RUN`` / ``FORGET`` (or the flags), validated
+    against the experiment's scenario (with its overrides), arms and ctr mode."""
+    text = _pick(args.shifts, env, "SHIFTS_JSON")
+    shifts: tuple[ShiftSpec, ...] = ()
+    if text:
+        if not text.lstrip().startswith("[") and Path(text).is_file():
+            text = Path(text).read_text()
+        try:
+            data = json.loads(text)
+        except json.JSONDecodeError as exc:
+            raise ConfigError(f"SHIFTS_JSON is not valid JSON: {exc}") from exc
+        try:
+            shifts = validate_shifts(
+                shifts_from_dict(data), resolve_scenario(cfg), cfg.arms, cfg.ctr_mode
+            )
+        except ValueError as exc:
+            raise ConfigError(f"bad SHIFTS_JSON: {exc}") from exc
+    run = _int(_pick(args.traffic_run, env, "TRAFFIC_RUN"), "TRAFFIC_RUN")
+    if run is not None and run < 1:
+        raise ConfigError(f"TRAFFIC_RUN must be >= 1, got {run}")
+    forget = args.forget
+    if forget is None:
+        forget = _bool(env.get("FORGET", "").strip() or None, "FORGET")
+    return RunOptions(
+        shifts=shifts,
+        traffic_run=1 if run is None else run,
+        forget=bool(shifts) if forget is None else forget,
+    )
 
 
 def read_config_source(uri: str, storage_client: Any = None) -> dict:
@@ -202,6 +282,7 @@ def main(
     )
     try:
         cfg, experiment_id = resolve_config(args, env)
+        options = resolve_run_options(args, env, cfg)
         client = client or build_client(args, env, cfg)
         writer = writer or build_writer(args, env)
         threshold = _pick(args.error_threshold, env, "ERROR_THRESHOLD")
@@ -213,8 +294,10 @@ def main(
         return EXIT_CONFIG
 
     log.info(
-        "experiment %s: %s/%s/%s, %d arms, %d episodes x %d rounds (batch %d)",
+        "experiment %s run %d: %s/%s/%s, %d arms, %d episodes x %d rounds "
+        "(batch %d), %d shift(s), forget=%s",
         experiment_id,
+        options.traffic_run,
         cfg.scenario,
         cfg.ctr_mode,
         cfg.reward_mode,
@@ -222,10 +305,19 @@ def main(
         cfg.episodes,
         cfg.horizon,
         cfg.batch_size,
+        len(options.shifts),
+        options.forget,
     )
     try:
         summary = run_traffic(
-            cfg, client, writer, settings, experiment_id=experiment_id
+            cfg,
+            client,
+            writer,
+            settings,
+            experiment_id=experiment_id,
+            shifts=options.shifts,
+            traffic_run=options.traffic_run,
+            forget=options.forget,
         )
     except (TrafficError, EndpointError, bq.BigQueryWriteError) as exc:
         log.error("traffic run failed: %s", exc)

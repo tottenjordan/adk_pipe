@@ -46,7 +46,8 @@ For unit tests without docker, run `uv run pytest tests/test_bandit_predictor.py
   checkpoints/
     {experiment_id}-e{episode}-v{n}.npz   # precision (K,d,d), b (K,d), n (K,), step ()
     latest.json                       # {experiment_id, model_version, npz, episode, seed,
-                                      #  n_updates, calls, feature_spec_version, saved_at}
+                                      #  discount, policy_stream, n_updates, calls,
+                                      #  feature_spec_version, saved_at}
 ```
 
 Checkpoints are written in the background after every `BANDIT_CHECKPOINT_EVERY` reward batches or `BANDIT_CHECKPOINT_SECONDS`, and on every reset. On restart, `load()` restores `latest.json`.

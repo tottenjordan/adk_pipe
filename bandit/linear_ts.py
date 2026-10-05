@@ -124,8 +124,25 @@ def select(
     Returns ``(arms (n,) int32, sampled_scores (n, K))``; ineligible arms score
     ``-inf`` and are never chosen. ``eligible`` is a (K,) bool mask.
     """
+    z = jax.random.normal(key, (X.shape[0], state.b.shape[0]), state.b.dtype)
+    return select_with_noise(state, X, z, params, eligible)
+
+
+def select_with_noise(
+    state: LinTSState,
+    X: Array,
+    z: Array,
+    params: LinTSParams,
+    eligible: Array | None = None,
+) -> tuple[Array, Array]:
+    """``select`` with its standard-normal draws ``z`` (n, K) supplied.
+
+    ``select(key, ...)`` is ``select_with_noise(..., normal(key, (n, K)))``. The
+    serving predictor uses it to draw a batch's noise at the simulator's batch
+    shape and then take only the rows it serves, so its choices match
+    ``bandit.simulate`` whatever padding or request splitting it applies.
+    """
     means, var = _score_moments(state, X)
-    z = jax.random.normal(key, means.shape, means.dtype)
     scores = _mask(means + params.exploration_scale * jnp.sqrt(var) * z, eligible)
     return jnp.argmax(scores, axis=-1).astype(jnp.int32), scores
 

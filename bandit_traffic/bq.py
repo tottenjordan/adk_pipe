@@ -44,6 +44,7 @@ EVENT_COLUMN_TYPES: dict[str, str] = {
     "regret": "FLOAT64",
     "model_version": "STRING",
     "latency_ms": "FLOAT64",
+    "traffic_run": "INT64",
 }
 EVENT_JSON_COLUMNS = ("context",)
 
@@ -62,8 +63,18 @@ METRICS_COLUMN_TYPES: dict[str, str] = {
     "per_segment": "STRING",
     "arm_stats": "STRING",
     "created_at": "TIMESTAMP",
+    "traffic_run": "INT64",
+    "shift_response": "STRING",
+    "regimes": "STRING",
 }
-METRICS_JSON_COLUMNS = ("curve", "arm_share", "per_segment", "arm_stats")
+METRICS_JSON_COLUMNS = (
+    "curve",
+    "arm_share",
+    "per_segment",
+    "arm_stats",
+    "shift_response",
+    "regimes",
+)
 
 DEFAULT_TABLES = {
     "experiments": "bandit_experiments",
@@ -138,6 +149,7 @@ def build_event_row(
     model_version: str | None,
     latency_ms: float | None,
     policy: str = "linear_ts",
+    traffic_run: int = 1,
 ) -> dict[str, Any]:
     """One ``bandit_events`` row (§3), keys exactly ``EVENT_COLUMN_TYPES``."""
     raw = {
@@ -161,6 +173,7 @@ def build_event_row(
         "regret": regret,
         "model_version": model_version,
         "latency_ms": latency_ms,
+        "traffic_run": traffic_run,
     }
     return {c: _coerce(c, raw[c], EVENT_COLUMN_TYPES) for c in EVENT_COLUMN_TYPES}
 
@@ -170,13 +183,16 @@ def build_episode_metrics_row(
     *,
     experiment_id: str,
     created_at: dt.datetime | str,
+    traffic_run: int = 1,
 ) -> dict[str, Any]:
     """One ``bandit_episode_metrics`` row (§3) from a ``bandit.metrics.episode_metrics``
-    dict. Extra keys (``realized_regret``, ``suboptimal_pulls``, ...) are dropped;
-    the JSON payload columns are serialized."""
+    dict (plus the optional ``shift_response`` / ``regimes`` payloads of a run
+    with shifts, §10). Extra keys (``realized_regret``, ``suboptimal_pulls``, ...)
+    are dropped; the JSON payload columns are serialized (absent -> NULL)."""
     raw = dict(metrics)
     raw["experiment_id"] = experiment_id
     raw["created_at"] = created_at
+    raw["traffic_run"] = traffic_run
     for col in METRICS_JSON_COLUMNS:
         raw[col] = _json_str(raw.get(col))
     return {
@@ -185,8 +201,11 @@ def build_episode_metrics_row(
 
 
 def metrics_row_id(row: Mapping[str, Any]) -> str:
-    """Best-effort streaming dedupe key for a metrics row."""
-    return f"{row['experiment_id']}-e{row['episode']}-{row['policy']}"
+    """Best-effort streaming dedupe key for a metrics row:
+    ``{experiment_id}-r{traffic_run}-e{episode}-{policy}`` (a NULL run counts
+    as run 1), so a second traffic run never dedupes against the first."""
+    run = row.get("traffic_run") or 1
+    return f"{row['experiment_id']}-r{run}-e{row['episode']}-{row['policy']}"
 
 
 # (name, BigQuery type, value): converted to ScalarQueryParameter by the writer so
