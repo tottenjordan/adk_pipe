@@ -91,6 +91,7 @@
   "episodesDone": 10,
   "episodesTotal": 10
  },
+ "policyDiscount": 1.0,
  "trafficRuns": [
   {
    "run": 1,
@@ -99,7 +100,7 @@
    "horizon": 40000,
    "shifts": [],
    "forget": false,
-   "status": "done"
+   "status": "finished"
   },
   {
    "run": 2,
@@ -112,10 +113,7 @@
      "atFrac": 0.5,
      "segment": "late_night_casual",
      "creativeId": "aae3f6b4",
-     "dropPp": 0.02,
-     "round": 20000,
-     "endRound": null,
-     "requestedCreativeId": "aae3f6b4"
+     "dropPp": 0.02
     },
     {
      "kind": "shock",
@@ -123,14 +121,11 @@
      "untilFrac": 0.75,
      "segment": null,
      "creativeId": "8c0e9ee8",
-     "ctrMultiplier": 0.6,
-     "round": 24000,
-     "endRound": 30000,
-     "requestedCreativeId": "leader"
+     "ctrMultiplier": 0.6
     }
    ],
    "forget": true,
-   "status": "done"
+   "status": "finished"
   }
  ]
 }

@@ -155,8 +155,8 @@ const LIVE_METRICS = JSON.parse(readFileSync(join(FIX, "live-experiment-metrics.
 const LIVE_CREATIVES = JSON.parse(readFileSync(join(FIX, "live-experiment-creatives.json"), "utf8"));
 // Scripted behaviour shifts (contracts §10): a REAL simulator run on the live
 // experiment's three creatives (segment_winners, demo, 10 x 40,000 rounds) with
-// two shifts and forgetting on, plus the ghost replay, shaped like the api's
-// per-run payloads. Regenerate: uv run python frontend/scripts/build_shift_fixture.py
+// the two shifts 18-shift-timeline.png scripts, forgetting on, and the ghost
+// replay, in the api's exact per-run shapes (contracts §5/§8/§10). Regenerate: uv run python frontend/scripts/build_shift_fixture.py
 const SHIFT_EXPERIMENT = JSON.parse(readFileSync(join(FIX, "shift-experiment.json"), "utf8"));
 const SHIFT_METRICS = JSON.parse(readFileSync(join(FIX, "shift-experiment-metrics.json"), "utf8"));
 const SHIFT_CREATIVES = JSON.parse(readFileSync(join(FIX, "shift-experiment-creatives.json"), "utf8"));
@@ -265,7 +265,7 @@ async function installMocks(page) {
           return json(route, { experimentId: EXPERIMENT_DETAIL.experimentId, status: "deploying" });
         }
         if (method === "POST" && seg[3] === "traffic") {
-          return json(route, { status: "running_traffic", execution: "mock" });
+          return json(route, { status: "running_traffic", execution: "mock", run: 3 });
         }
         if (method === "POST" && seg[3] === "stop") return json(route, { status: "stopping" });
         if (seg.length === 2) return json(route, { experiments: EXPERIMENTS });
@@ -1504,10 +1504,16 @@ async function shiftShots(context) {
     const page = await newPage(context);
     await page.goto(`${BASE}/experiments/${SHIFT_EXPERIMENT.experimentId}`, { waitUntil: "networkidle" });
     await page.locator("#shifts-heading").waitFor();
+    // The same script as the results fixture (build_shift_fixture.py): start from the
+    // presets, then name the segment and the creatives, as a user would.
     for (const preset of ["Demote the leader at halfway", "Ad fatigue on the leader 60–75%"]) {
       await page.getByRole("button", { name: "Add shift" }).click();
       await page.getByRole("menuitem", { name: new RegExp(`^${preset}`) }).click();
     }
+    const forms = page.locator('section[aria-labelledby="shifts-heading"] ol > li');
+    await forms.nth(0).getByLabel("Readers").selectOption("late_night_casual");
+    await forms.nth(0).getByRole("button", { name: "The Tone Dividend Bailout" }).click();
+    await forms.nth(1).getByRole("button", { name: "Ergonomic Lumbar Relief" }).click();
     await page.getByText("What readers will want, period by period").waitFor();
     await settle(page);
     const panel = page.locator('section[aria-label="Experiment controls"]');
