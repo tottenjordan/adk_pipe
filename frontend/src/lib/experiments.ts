@@ -50,6 +50,40 @@ export type ScenarioOverrides = {
   driftAtFrac?: number;
 };
 
+/** Scripted behaviour shift kinds (contracts §10). */
+export type ShiftKind = "promote" | "demote" | "mix" | "shock";
+
+/**
+ * One scripted behaviour shift in a traffic run (contracts §10, REST camelCase).
+ * Only the fields of its kind are set; `segment: null` means everyone, and
+ * `creativeId: "leader"` (demote and shock) means the leader at that moment.
+ */
+export type Shift = {
+  kind: ShiftKind;
+  /** [0.05, 0.95]: when the shift starts, as a fraction of each episode. */
+  atFrac: number;
+  /** Shock only: when it ends ([0.07, 1], at least 2% of the run after atFrac). */
+  untilFrac?: number;
+  segment?: string | null;
+  creativeId?: string;
+  liftPp?: number;
+  dropPp?: number;
+  segmentMix?: number[];
+  ctrMultiplier?: number;
+};
+
+/** One numbered traffic run (contracts §10, `ExperimentSummary.trafficRuns`). */
+export type TrafficRun = {
+  run: number;
+  startedAt: string | null;
+  episodes: number;
+  horizon: number | null;
+  /** As requested, or the resolved record (with `round`); normalise with `normalizeShift`. */
+  shifts: unknown[];
+  forget: boolean;
+  status: string;
+};
+
 export type Arm = {
   creativeId: string;
   index: number;
@@ -84,6 +118,8 @@ export type ExperimentSummary = {
    * evidence (drift experiments since 2026-10-05); 1 = full memory. Absent from older APIs.
    */
   policyDiscount?: number;
+  /** Numbered traffic runs, oldest first (contracts §10; absent from older APIs). */
+  trafficRuns?: TrafficRun[];
 };
 
 /** Mean ± 95% CI across episodes, one value per checkpoint. */
