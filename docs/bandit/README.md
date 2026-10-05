@@ -98,7 +98,10 @@ and `runserver/experiments.py` duplicates the noise-variance formula, with a tes
    traffic**. The horizon defaults per scenario (`clear_winner` 20k rounds, `segment_winners` and
    `drift` 40k in demo mode; ×10, max 400k, in realistic mode). The api starts one Cloud Run Job
    execution and moves to `running_traffic`; it moves back to `ready` once the job reports
-   `episodes_done >= episodes_total` or the execution finishes.
+   `episodes_done >= episodes_total` or the execution finishes. That check runs on the detail
+   GET, in the background on `/metrics` and `/creatives` GETs, and in the api's reaper loop
+   (about every 60 s for the `running_traffic` rows it knows of, plus the 5-minute full pass),
+   so the status advances even when no page is polling it.
 4. **Read the charts.** Charts fill in as episodes land in `bandit_episode_metrics`
    (see [Metrics](#metrics-and-terminology)). You can start more traffic while the endpoint is `ready`.
 5. **Stop or let it expire.** **Stop** undeploys the model and deletes the endpoint (the request
@@ -292,13 +295,18 @@ From the offline parity run in [docs/experiments/bandit-simulation.md](../experi
 | `segment_winners` (T = 40k) | **322** | 473 | 479 | 482 |
 | `drift` (T = 40k) | 690 (511 with γ = 0.98) | 172 | 459 | – |
 
+(3 arms. The 4-arm discount sweep behind the endpoint's drift default is in
+[bandit-simulation.md](../experiments/bandit-simulation.md#discount-sweep-drift).)
+
 - **LinTS wins when context matters.** In `segment_winners` it has 33 % less regret than
   Beta-Bernoulli TS and earns 1763 ± 51 clicks per episode against about 1590–1600 for every
   non-contextual policy (oracle 2081).
 - **LinTS over-explores when it doesn't.** In `clear_winner` it has about 5× the regret of
   Beta-Bernoulli TS: 19 coefficients per arm with no contextual signal keep its posterior wide.
 - **LinTS is slow on drift without a discount.** Discounting (γ = 0.98 per batch) cuts drift
-  regret from 690 to 511; UCB1's log t bonus recovers fastest.
+  regret from 690 to 511; UCB1's log t bonus recovers fastest. Drift endpoints are deployed
+  with that discount (γ = 0.98 demo, 0.998 realistic; contracts §7), but no discount makes
+  LinTS beat UCB1 there, and the results page says why when the endpoint trails.
 
 Figures: [cumulative average reward](../../experiments/bandit/figures/01_cum_avg_reward.png),
 [UCB small multiplier](../../experiments/bandit/figures/02_ucb_small_multiplier.png),

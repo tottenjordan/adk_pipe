@@ -144,9 +144,10 @@ experiments.configure(
 )
 app.include_router(experiments.router)
 
-# Start the experiments TTL reaper (every 5 min; also resumes deploys/teardowns a
-# previous revision left mid-flight) inside ADK's own lifespan, which we wrap
-# rather than replace.
+# Start the experiments TTL reaper (full pass every 5 min: expiry, resumes
+# deploys/teardowns a previous revision left mid-flight, finishes traffic runs; plus a
+# light 60 s pass over watched running_traffic rows) inside ADK's own lifespan,
+# which we wrap rather than replace.
 _adk_lifespan = app.router.lifespan_context
 
 

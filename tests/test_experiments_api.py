@@ -197,7 +197,7 @@ def test_build_experiment_config_matches_section_1_shape():
         "exploration_scale": 1.0,
         "propensity_samples": 1000,
         "min_propensity": 0.02,
-        "discount": 1.0,
+        "discount": 0.998,  # drift forgets (contracts §7)
     }
     assert (cfg["horizon"], cfg["batch_size"], cfg["episodes"]) == (20000, 100, 20)
     assert 0 <= cfg["seed"] < 2**31
@@ -226,6 +226,56 @@ def test_api_noise_var_parity_with_bandit(scenario, ctr_mode, reward_mode):
     arms = [{"creativeId": "a", "label": "A"}, {"creativeId": "b", "label": "B"}]
     cfg = ex.build_experiment_config("e1", arms, scenario, ctr_mode, reward_mode)
     assert cfg["policy"]["noise_var"] == expected
+
+
+@pytest.mark.parametrize("scenario", ["clear_winner", "segment_winners", "drift"])
+@pytest.mark.parametrize("ctr_mode", ["demo", "realistic"])
+@pytest.mark.parametrize("batch_size", [100, 50, 250])
+def test_api_discount_parity_with_bandit(scenario, ctr_mode, batch_size):
+    """runserver duplicates the per-scenario discount rule (contracts §7); it must
+    match ``bandit.config.default_discount``, and only drift forgets."""
+    from bandit.config import DISCOUNT_MEMORY_ROUNDS, default_discount
+
+    assert ex.DISCOUNT_MEMORY_ROUNDS == DISCOUNT_MEMORY_ROUNDS
+    expected = default_discount(scenario, ctr_mode, batch_size)
+    assert ex.default_discount(scenario, ctr_mode, batch_size) == expected
+    arms = [{"creativeId": "a", "label": "A"}, {"creativeId": "b", "label": "B"}]
+    cfg = ex.build_experiment_config(
+        "e1", arms, scenario, ctr_mode, batch_size=batch_size
+    )
+    assert cfg["policy"]["discount"] == expected
+    assert (expected < 1.0) == (scenario == "drift")
+
+
+def test_explicit_policy_discount_wins():
+    arms = [{"creativeId": "a", "label": "A"}, {"creativeId": "b", "label": "B"}]
+    cfg = ex.build_experiment_config("e1", arms, "drift", policy={"discount": 1.0})
+    assert cfg["policy"]["discount"] == 1.0
+
+
+def test_drift_experiment_records_its_discount():
+    """The row keeps the endpoint's discount (only when it forgets, so default
+    experiments never name the new column) and the summary reports it."""
+    h = Harness()
+
+    async def go():
+        await h.session()
+        drift = (await h.create(scenario="drift")).json()["experimentId"]
+        await ex.drain()
+        await h.client.post(f"/experiments/{A}/{drift}/stop")
+        plain = (await h.create(sid="s1")).json()["experimentId"]
+        await ex.drain()
+        d = (await h.client.get(f"/experiments/{A}/{drift}")).json()
+        p = (await h.client.get(f"/experiments/{A}/{plain}")).json()
+        return drift, plain, d, p
+
+    drift, plain, d, p = run(go)
+    cfg = h.writer.files[f"gs://bkt/bandit/{drift}/experiment.json"]
+    assert cfg["policy"]["discount"] == 0.98
+    assert h.store.rows[drift]["policy_discount"] == 0.98
+    assert "policy_discount" not in h.store.rows[plain]
+    assert d["policyDiscount"] == 0.98
+    assert p["policyDiscount"] == 1.0
 
 
 def test_api_scenario_segments_parity_with_bandit():
@@ -378,8 +428,11 @@ def test_is_expired_and_to_summary():
         "experimentId", "userId", "sessionId", "appName", "createdAt", "updatedAt",
         "status", "scenario", "ctrMode", "rewardMode", "ttlExpiresAt", "arms",
         "endpointId", "trafficExecution", "progress", "error", "scenarioOverrides",
+        "policyDiscount",
     }  # fmt: skip
     assert s["scenarioOverrides"] is None
+    assert s["policyDiscount"] == 1.0
+    assert ex.to_summary({**row, "policy_discount": 0.98})["policyDiscount"] == 0.98
     stored = ex.to_summary({**row, "scenario_overrides": '{"gap_scale": 1.5}'})
     assert stored["scenarioOverrides"] == {"gapScale": 1.5}
 
@@ -1004,3 +1057,193 @@ def test_enforce_mode_foreign_users():
     assert r["bob_list"].json() == {"experiments": []}
     assert r["alice"].status_code == 200
     assert r["no_user"].status_code == 401
+
+
+# --- traffic finish: advanced without anyone polling the detail GET ---------------
+
+
+async def _running_traffic(h: Harness, episodes: int = 5) -> tuple[str, str]:
+    await h.session()
+    eid = (await h.create()).json()["experimentId"]
+    await ex.drain()
+    ok = await h.client.post(
+        f"/experiments/{A}/{eid}/traffic", json={"episodes": episodes}
+    )
+    return eid, ok.json()["execution"]
+
+
+def test_reaper_pass_finishes_traffic_without_a_detail_get():
+    """Incident 2026-10-05: the page's status poll stopped, so the row sat in
+    running_traffic for 43 min after the job finished. The reaper advances it."""
+    h = Harness()
+
+    async def go():
+        eid, execution = await _running_traffic(h)
+        before = await ex.reap_expired()
+        still = h.store.rows[eid]["status"]
+        h.jobs.finish(execution)
+        await ex.reap_expired()
+        return eid, before, still
+
+    eid, before, still = run(go)
+    assert before == [] and still == "running_traffic"
+    row = h.store.rows[eid]
+    assert row["status"] == "ready"
+    assert row["error"] is None
+
+
+def test_reaper_pass_records_failed_traffic_job():
+    h = Harness()
+
+    async def go():
+        eid, execution = await _running_traffic(h)
+        h.jobs.finish(execution, ok=False)
+        await ex.reap_expired()
+        return eid
+
+    eid = run(go)
+    row = h.store.rows[eid]
+    assert row["status"] == "ready"
+    assert "traffic job failed" in row["error"]
+
+
+def test_light_traffic_pass_only_reads_watched_rows():
+    """The 60 s pass costs nothing when idle (no list query) and one point read
+    per running_traffic row this process knows about."""
+    h = Harness()
+    calls: list[str] = []
+
+    async def go():
+        eid, execution = await _running_traffic(h)
+        real_get, real_list = h.store.get, h.store.list_active
+
+        async def get(experiment_id):
+            calls.append(f"get:{experiment_id}")
+            return await real_get(experiment_id)
+
+        async def list_active():
+            calls.append("list")
+            return await real_list()
+
+        h.store.get, h.store.list_active = get, list_active
+        assert ex._TRAFFIC_WATCH == {eid}
+        waiting = await ex.finish_traffic_pass()
+        h.jobs.finish(execution)
+        finished = await ex.finish_traffic_pass()
+        watched_after = set(ex._TRAFFIC_WATCH)
+        calls_before_idle = len(calls)
+        idle = await ex.finish_traffic_pass()
+        return eid, waiting, finished, watched_after, calls_before_idle, idle
+
+    eid, waiting, finished, watched_after, n, idle = run(go)
+    assert waiting == [] and finished == [eid] and idle == []
+    assert watched_after == set()
+    assert "list" not in calls
+    assert len(calls) == n  # the idle pass issued no store reads at all
+    assert h.store.rows[eid]["status"] == "ready"
+
+
+def test_reaper_pass_adopts_running_traffic_started_elsewhere():
+    """A row another instance put in running_traffic is picked up by the full
+    pass and then watched by the light one."""
+    h = Harness()
+
+    async def go():
+        eid, execution = await _running_traffic(h)
+        ex._TRAFFIC_WATCH.clear()  # as if a different process started it
+        await ex.reap_expired()
+        adopted = set(ex._TRAFFIC_WATCH)
+        h.jobs.finish(execution)
+        finished = await ex.finish_traffic_pass()
+        return eid, adopted, finished
+
+    eid, adopted, finished = run(go)
+    assert adopted == {eid} and finished == [eid]
+
+
+def test_progress_done_finishes_even_if_job_state_unknown():
+    h = Harness()
+
+    async def go():
+        eid, _ = await _running_traffic(h, episodes=3)
+        h.store.rows[eid]["progress"] = {"episodes_done": 3, "episodes_total": 3}
+        return eid, await ex.finish_traffic_pass()
+
+    eid, finished = run(go)
+    assert finished == [eid]
+    assert h.store.rows[eid]["status"] == "ready"
+
+
+def test_finish_does_not_close_a_newer_traffic_run():
+    """A stale row (old execution) must not finish a newer run started since."""
+    h = Harness()
+
+    async def go():
+        eid, first = await _running_traffic(h)
+        stale = dict(h.store.rows[eid])
+        h.jobs.finish(first)
+        await ex.finish_traffic_pass()
+        second = (
+            await h.client.post(f"/experiments/{A}/{eid}/traffic", json={"episodes": 2})
+        ).json()["execution"]
+        result = await ex._maybe_finish_traffic(stale)  # old execution: succeeded
+        return eid, second, result
+
+    eid, second, result = run(go)
+    row = h.store.rows[eid]
+    assert row["status"] == "running_traffic"
+    assert row["traffic_execution"] == second
+    assert result["status"] == "running_traffic"
+
+
+def test_metrics_and_creatives_gets_advance_finished_traffic():
+    h = Harness()
+
+    async def go():
+        eid, execution = await _running_traffic(h)
+        h.jobs.finish(execution)
+        await h.client.get(f"/experiments/{A}/{eid}/metrics")
+        await ex.drain()
+        after_metrics = h.store.rows[eid]["status"]
+        execution2 = (
+            await h.client.post(f"/experiments/{A}/{eid}/traffic", json={"episodes": 2})
+        ).json()["execution"]
+        h.jobs.finish(execution2)
+        await h.client.get(f"/experiments/{A}/{eid}/creatives")
+        await ex.drain()
+        return eid, after_metrics
+
+    eid, after_metrics = run(go)
+    assert after_metrics == "ready"
+    assert h.store.rows[eid]["status"] == "ready"
+
+
+def test_reaper_loop_runs_light_pass_between_full_passes():
+    Harness()
+    seen: list[str] = []
+
+    async def go():
+        real_reap, real_finish = ex.reap_expired, ex.finish_traffic_pass
+
+        async def reap(now=None):
+            seen.append("full")
+            return await real_reap(now)
+
+        async def finish():
+            seen.append("light")
+            return []
+
+        ex.reap_expired, ex.finish_traffic_pass = reap, finish
+        ex._TRAFFIC_WATCH.add("watched")  # the light pass is skipped when idle
+        try:
+            task = asyncio.create_task(ex.reaper_loop(0.05, watch_interval=0.01))
+            await asyncio.sleep(0.12)
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+        finally:
+            ex.reap_expired, ex.finish_traffic_pass = real_reap, real_finish
+
+    run(go)
+    assert seen[0] == "full"
+    assert seen.count("full") >= 2
+    assert seen.count("light") > seen.count("full")

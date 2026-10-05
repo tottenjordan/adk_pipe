@@ -66,6 +66,14 @@ export function CreativeScoreboard({
         {hasResults && insights.support && (
           <p className="mt-1.5 max-w-[72ch] text-sm leading-relaxed text-muted-foreground">{insights.support}</p>
         )}
+        {hasResults && insights.why && (
+          <p className="mt-3 max-w-[72ch] text-sm leading-relaxed text-foreground">{insights.why}</p>
+        )}
+        {hasResults && insights.whyExplain && (
+          <ExplainPanel open={explain}>
+            {insights.whyExplain}
+          </ExplainPanel>
+        )}
         {insights.notes.map((note) => (
           <p key={note} className="mt-2 max-w-[72ch] border-l-2 border-foreground/25 pl-3 text-sm leading-snug text-foreground">
             {note}

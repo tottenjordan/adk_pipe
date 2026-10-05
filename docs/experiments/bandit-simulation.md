@@ -175,6 +175,85 @@ Thompson sampling keeps exploring.
 **Calibration** holds for every scenario in both CTR modes: α from bisection hits the target
 mean CTR within ±10 % (tested). The realized `clear_winner` arm CTRs are 6.03 / 4.55 / 3.42 %.
 
+## Discount sweep (drift)
+
+A live `drift` experiment (2026-10-05, demo, 4 arms, 20 × 40k) put the endpoint fifth of six:
+per-episode regret oracle 0, UCB1 219, Beta-Bernoulli TS 377, ε-greedy 449, **LinTS 566**,
+uniform 740. That endpoint never forgot (`discount = 1.0`). This sweep picks the per-batch
+discount the api now deploys for `drift` (contracts §7).
+
+**From a memory window to γ.** `update` applies γ once per batch, so a round `t` rounds old
+keeps weight γ^(t / batch). Choosing γ = exp(−batch / N) makes that exp(−t / N): an
+exponential memory of about N rounds (N ≈ batch / (1 − γ) for γ near 1). With `batch_size`
+100, N = 5k gives γ = 0.980 and N = 50k gives γ = 0.998 (`bandit.config.discount_for_memory`).
+Because realistic mode runs 10× the horizon, it needs 10× the window for the same behaviour,
+hence a much smaller per-batch discount.
+
+**Setup.** 4 synthetic arms, click reward, seed 0, `--no-propensity`. Values are mean ± sd of
+per-episode pseudo-regret (sd across episodes, not a CI). The CLI's `--policies` is
+comma-separated, so multi-option specs (`linear_ts:discount=0.95,exploration_scale=0.1`)
+were run through `bandit.cli.simulate(policies=[...])` from Python.
+
+Drift, demo (T = 40k, change at 20k; 20 episodes; the γ ≤ 0.95 rows are from a 10-episode run):
+
+| Policy | Regret | Memory N |
+|---|---|---|
+| oracle | 0 | |
+| UCB1 | 182 ± 66 | |
+| Beta-Bernoulli TS | 443 ± 146 | |
+| **LinTS γ = 0.98 (chosen)** | **583 ± 23** | 5k |
+| LinTS γ = 0.985 | 579 ± 21 | 6.6k |
+| LinTS γ = 0.99 | 586 ± 23 | 10k |
+| LinTS γ = 0.975 | 590 ± 21 | 4k |
+| LinTS γ = 0.995 | 596 ± 36 | 20k |
+| LinTS γ = 0.97 | 602 ± 18 | 3.3k |
+| LinTS γ = 0.95 | 626 ± 15 | 2k |
+| ε-greedy | 653 ± 88 | |
+| LinTS γ = 0.9 / 0.8 / 0.7 | 667 / 699 / 714 | 950 / 450 / 280 |
+| LinTS γ = 1 (old default) | 690 ± 34 | ∞ |
+| uniform | 764 ± 3 | |
+
+Drift, realistic (T = 400k, change at 200k; 10 episodes):
+
+| Policy | Regret | Memory N |
+|---|---|---|
+| UCB1 | 362 ± 91 | |
+| Beta-Bernoulli TS | 852 ± 323 | |
+| **LinTS γ = 0.998 (chosen)** | **1035 ± 49** | 50k |
+| LinTS γ = 0.999 | 1038 ± 70 | 100k |
+| LinTS γ = 0.996 | 1121 ± 46 | 25k |
+| LinTS γ = 0.993 | 1197 ± 31 | 14k |
+| ε-greedy | 1241 ± 212 | |
+| LinTS γ = 0.99 / 0.98 | 1258 / 1345 | 10k / 5k |
+| LinTS γ = 1 (old default) | 1367 ± 74 | ∞ |
+| uniform | 1549 ± 2 | |
+
+The optimum is flat around a window of 1/8 of the horizon in both modes (5k of 40k, 50k of
+400k), so that is the rule (`DISCOUNT_MEMORY_ROUNDS`): γ = 0.98 demo, 0.998 realistic.
+Discounting cuts LinTS's drift regret by 16 % (demo) and 24 % (realistic), enough to pass
+ε-greedy and uniform. **It does not make LinTS beat UCB1 or Beta-Bernoulli TS.** With 19
+coefficients per arm the posterior re-learns far more slowly after the swap than a
+one-rate-per-arm policy; UCB1's bonus keeps re-checking the arm it has shown least, which is
+exactly the old loser that became the winner.
+
+**Discount hurts the stationary scenarios**, so they keep γ = 1:
+
+| Scenario (4 arms) | γ = 1 | 0.995 | 0.99 | 0.98 | 0.95 | best baseline |
+|---|---|---|---|---|---|---|
+| clear_winner demo (T = 20k, 10 ep) | **177** | 189 | 195 | 206 | 225 | BB-TS 59 |
+| segment_winners demo (T = 40k, 10 ep) | **325** | 351 | 371 | 398 | 430 | UCB1 473 |
+| clear_winner realistic (T = 200k, 5 ep) | **271** | | | | | BB-TS 57 (γ = 0.998: 355) |
+| segment_winners realistic (T = 400k, 5 ep) | **563** | | | | | ε-greedy 910 (γ = 0.998: 708) |
+
+**What would close the gap (not shipped).** Lowering `exploration_scale` helps LinTS
+everywhere in this sweep. In drift demo, γ = 0.97 with `exploration_scale` 0.1 reaches
+393 ± 64 (γ = 0.95: 398; γ = 1: 750), level with Beta-Bernoulli TS (428 ± 125) but still
+2.5× UCB1 (155 ± 69, same 10 episodes). In `clear_winner` demo, `exploration_scale` 0.15 cuts
+LinTS from 177 to 142 (BB-TS 59). That is a separate change to the endpoint's exploration
+(and to every scenario), so it is left as a follow-up; beating UCB1 in drift likely needs a
+different model (a shared context effect plus per-arm intercepts, or change detection),
+not a tuning knob.
+
 ## Caveats
 
 - **Demo CTRs are inflated.** Demo mode averages about 4 % CTR, against about 0.8 % in

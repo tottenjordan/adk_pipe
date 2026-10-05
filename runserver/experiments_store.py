@@ -73,6 +73,8 @@ EXPERIMENT_COLUMN_TYPES = {
     # Deploy lease (2026-10-05): written only by the lease UPDATEs, never by upsert.
     "deploy_lease_until": "TIMESTAMP",
     "deploy_lease_owner": "STRING",
+    # The endpoint's LinTS discount γ (2026-10-05); written only when < 1 (drift).
+    "policy_discount": "FLOAT",
 }
 JSON_COLUMNS = ("arms", "progress", "scenario_overrides")
 # Never rewritten by an update: the key and the creation time.

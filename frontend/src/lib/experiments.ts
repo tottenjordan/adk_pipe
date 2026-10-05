@@ -79,6 +79,11 @@ export type ExperimentSummary = {
   error: string | null;
   /** Set only when the experiment was deployed with tuned readers (absent from older APIs). */
   scenarioOverrides?: ScenarioOverrides | null;
+  /**
+   * The endpoint's per-batch discount γ (contracts §7): below 1 it forgets old
+   * evidence (drift experiments since 2026-10-05); 1 = full memory. Absent from older APIs.
+   */
+  policyDiscount?: number;
 };
 
 /** Mean ± 95% CI across episodes, one value per checkpoint. */
@@ -315,31 +320,221 @@ export function isNonTerminal(status: string): boolean {
   return (NON_TERMINAL_STATUSES as readonly string[]).includes(status);
 }
 
+// ── Status poll ──────────────────────────────────────────────────────────────
+
+/** Default status-poll timings (overridable per call; tests pass small values). */
+export const POLL_DEFAULTS = {
+  intervalMs: 5000,
+  /** A single status GET slower than this is abandoned and retried. */
+  requestTimeoutMs: 15_000,
+  /** Cap on the retry backoff after consecutive transient failures. */
+  maxBackoffMs: 60_000,
+  /** Consecutive transient failures before `onError` is called (polling continues). */
+  errorAfter: 3,
+} as const;
+
+/**
+ * Lets the page cut a poll's wait short ("poll now"): on tab visible / window
+ * focus, or when the metrics say every episode has landed. A wake that arrives
+ * while a request is in flight makes the next wait zero.
+ */
+export class PollWaker {
+  private listeners = new Set<() => void>();
+  private pending = false;
+
+  wake(): void {
+    if (this.listeners.size === 0) {
+      this.pending = true;
+      return;
+    }
+    for (const fn of [...this.listeners]) fn();
+  }
+
+  /** Wait for a wake; returns an unsubscribe. Fires at once if a wake is pending. */
+  subscribe(fn: () => void): () => void {
+    if (this.pending) {
+      this.pending = false;
+      queueMicrotask(fn);
+      return () => {};
+    }
+    this.listeners.add(fn);
+    return () => {
+      this.listeners.delete(fn);
+    };
+  }
+
+  /** Drop a pending wake (the request about to start serves it). */
+  reset(): void {
+    this.pending = false;
+  }
+}
+
+/**
+ * Wake `waker` when the tab becomes visible or the window regains focus: a
+ * background tab's timers are throttled or frozen, so the poll may be minutes
+ * stale when the user comes back. Returns a cleanup function.
+ */
+export function wakeOnPageReturn(waker: PollWaker, target: Window = window): () => void {
+  const doc = target.document;
+  const onVisible = () => {
+    if (doc.visibilityState === "visible") waker.wake();
+  };
+  const onFocus = () => waker.wake();
+  doc.addEventListener("visibilitychange", onVisible);
+  target.addEventListener("focus", onFocus);
+  return () => {
+    doc.removeEventListener("visibilitychange", onVisible);
+    target.removeEventListener("focus", onFocus);
+  };
+}
+
+/** A status GET that took longer than `requestTimeoutMs`. */
+export class PollTimeoutError extends Error {
+  constructor(ms: number) {
+    super(`The status request timed out after ${Math.round(ms / 1000)} s`);
+    this.name = "PollTimeoutError";
+  }
+}
+
+/** True for failures worth retrying: network errors, timeouts, 408/429 and 5xx. */
+export function isTransientError(err: unknown): boolean {
+  if (err instanceof ExperimentApiError) {
+    return err.status >= 500 || err.status === 408 || err.status === 429;
+  }
+  // fetch rejects with a TypeError on a network failure.
+  return err instanceof PollTimeoutError || err instanceof TypeError;
+}
+
+/** Wait before retry number `failures` (1-based): interval × 2^(n-1), capped. */
+export function pollBackoffMs(failures: number, intervalMs: number, maxBackoffMs: number): number {
+  const base = Math.max(intervalMs, 1000);
+  return Math.min(base * 2 ** Math.max(0, failures - 1), maxBackoffMs);
+}
+
+/**
+ * True when the metrics already show every episode of the current traffic run
+ * while the status still says running_traffic, so the status is probably stale.
+ */
+export function statusLooksStale(
+  exp: Pick<ExperimentSummary, "status" | "progress"> | null | undefined,
+  metrics: Pick<ExperimentMetrics, "episodes"> | null | undefined
+): boolean {
+  const total = exp?.progress?.episodesTotal ?? 0;
+  return exp?.status === "running_traffic" && total > 0 && (metrics?.episodes ?? 0) >= total;
+}
+
+const abortReason = (signal?: AbortSignal) =>
+  signal?.reason ?? new DOMException("Aborted", "AbortError");
+
+/**
+ * One status GET bounded by `timeoutMs` and the caller's `signal`: the same as
+ * `AbortSignal.any([signal, AbortSignal.timeout(ms)])`, built from a controller +
+ * setTimeout so it behaves the same everywhere, fake timers included.
+ */
+async function getExperimentWithTimeout(
+  experimentId: string,
+  timeoutMs: number,
+  signal?: AbortSignal
+): Promise<ExperimentSummary> {
+  if (signal?.aborted) throw abortReason(signal);
+  const ctrl = new AbortController();
+  const onAbort = () => ctrl.abort(abortReason(signal));
+  signal?.addEventListener("abort", onAbort, { once: true });
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timedOut = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      const err = new PollTimeoutError(timeoutMs);
+      ctrl.abort(err);
+      reject(err);
+    }, timeoutMs);
+  });
+  try {
+    // Raced as well: a fetch that ignores its signal must not hang the poll.
+    return await Promise.race([getExperiment(experimentId, { signal: ctrl.signal }), timedOut]);
+  } catch (err) {
+    if (signal?.aborted) throw abortReason(signal);
+    if (ctrl.signal.reason instanceof PollTimeoutError) throw ctrl.signal.reason;
+    throw err;
+  } finally {
+    clearTimeout(timer);
+    signal?.removeEventListener("abort", onAbort);
+  }
+}
+
+/** Sleep `ms`, cut short by `waker.wake()`; rejects when `signal` aborts. */
+function pollWait(ms: number, signal?: AbortSignal, waker?: PollWaker): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    if (signal?.aborted) return reject(abortReason(signal));
+    let unsubscribe = () => {};
+    const cleanup = () => {
+      clearTimeout(t);
+      unsubscribe();
+      signal?.removeEventListener("abort", onAbort);
+    };
+    const onAbort = () => {
+      cleanup();
+      reject(abortReason(signal));
+    };
+    const finish = () => {
+      cleanup();
+      resolve();
+    };
+    const t = setTimeout(finish, ms);
+    signal?.addEventListener("abort", onAbort, { once: true });
+    if (waker) unsubscribe = waker.subscribe(finish);
+  });
+}
+
+export type PollOptions = {
+  intervalMs?: number;
+  signal?: AbortSignal;
+  requestTimeoutMs?: number;
+  maxBackoffMs?: number;
+  errorAfter?: number;
+  /** Called on each transient failure from the `errorAfter`-th in a row on. */
+  onError?: (err: Error, consecutiveFailures: number) => void;
+  /** `waker.wake()` re-polls at once instead of waiting out the interval/backoff. */
+  waker?: PollWaker;
+};
+
 /**
  * Poll an experiment, yielding each summary, until its status settles (anything
- * but deploying / running_traffic / stopping). Throws on an HTTP error; pass
- * `opts.signal` to cancel on unmount. Restart it after `startTraffic`/`stopExperiment`.
+ * but deploying / running_traffic / stopping).
+ *
+ * Resilient, after a page's poll silently stopped and a finished run looked stuck
+ * (2026-10-05): each GET has a timeout; transient failures (network, timeout,
+ * 408/429/5xx) are retried with exponential backoff indefinitely, reported via
+ * `onError` once `errorAfter` happen in a row; `waker` cuts any wait short. Only a
+ * non-transient HTTP error (e.g. 404) throws. Pass `opts.signal` to cancel on
+ * unmount; restart it after `startTraffic`/`stopExperiment`.
  */
 export async function* pollExperiment(
   experimentId: string,
-  opts: { intervalMs?: number; signal?: AbortSignal } = {}
+  opts: PollOptions = {}
 ): AsyncGenerator<ExperimentSummary> {
-  const intervalMs = opts.intervalMs ?? 5000;
+  const intervalMs = opts.intervalMs ?? POLL_DEFAULTS.intervalMs;
+  const timeoutMs = opts.requestTimeoutMs ?? POLL_DEFAULTS.requestTimeoutMs;
+  const maxBackoffMs = opts.maxBackoffMs ?? POLL_DEFAULTS.maxBackoffMs;
+  const errorAfter = opts.errorAfter ?? POLL_DEFAULTS.errorAfter;
+  let failures = 0;
   for (;;) {
-    const summary = await getExperiment(experimentId, { signal: opts.signal });
+    opts.waker?.reset();
+    let summary: ExperimentSummary;
+    try {
+      summary = await getExperimentWithTimeout(experimentId, timeoutMs, opts.signal);
+    } catch (err) {
+      if (opts.signal?.aborted || !isTransientError(err)) throw err;
+      failures += 1;
+      if (failures >= errorAfter) {
+        opts.onError?.(err instanceof Error ? err : new Error(String(err)), failures);
+      }
+      await pollWait(pollBackoffMs(failures, intervalMs, maxBackoffMs), opts.signal, opts.waker);
+      continue;
+    }
+    failures = 0;
     yield summary;
     if (!isNonTerminal(summary.status)) return;
-    await new Promise<void>((resolve, reject) => {
-      const t = setTimeout(resolve, intervalMs);
-      opts.signal?.addEventListener(
-        "abort",
-        () => {
-          clearTimeout(t);
-          reject(opts.signal?.reason ?? new DOMException("Aborted", "AbortError"));
-        },
-        { once: true }
-      );
-    });
+    await pollWait(intervalMs, opts.signal, opts.waker);
   }
 }
 

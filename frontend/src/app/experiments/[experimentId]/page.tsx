@@ -24,12 +24,15 @@ import {
   getExperimentMetrics,
   hasMetrics,
   pollExperiment,
+  PollWaker,
   rewardModeLabel,
   scenarioLabel,
   shortId,
   startTraffic,
+  statusLooksStale,
   stopExperiment,
   ttlText,
+  wakeOnPageReturn,
   type CreativeSeries,
   type ExperimentMetrics,
   type ExperimentSummary,
@@ -85,12 +88,22 @@ export default function ExperimentPage({
   const [actionError, setActionError] = useState<string | null>(null);
   const [confirmStop, setConfirmStop] = useState(false);
 
-  // Follow the experiment's status until it settles; restarted (pollKey) after an action.
+  // "Poll now": tab visible again, window focus, or metrics showing the run is done.
+  const [waker] = useState(() => new PollWaker());
+  useEffect(() => wakeOnPageReturn(waker), [waker]);
+
+  // Follow the experiment's status until it settles; restarted (pollKey) after an
+  // action. Transient failures retry with backoff (surfaced after a few in a row);
+  // only a hard error such as a 404 ends the poll.
   useEffect(() => {
     const ctrl = new AbortController();
     (async () => {
       try {
-        for await (const s of pollExperiment(experimentId, { signal: ctrl.signal })) {
+        for await (const s of pollExperiment(experimentId, {
+          signal: ctrl.signal,
+          waker,
+          onError: (err) => setLoadError(err.message),
+        })) {
           setExp(s);
           setLoadError(null);
         }
@@ -100,7 +113,7 @@ export default function ExperimentPage({
       }
     })();
     return () => ctrl.abort();
-  }, [experimentId, pollKey]);
+  }, [experimentId, pollKey, waker]);
 
   const status = exp?.status;
 
@@ -133,6 +146,12 @@ export default function ExperimentPage({
     };
   }, [status, loadMetrics]);
 
+  // Every episode has landed but the status still says running: ask again now.
+  const stale = statusLooksStale(exp, metrics);
+  useEffect(() => {
+    if (stale) waker.wake();
+  }, [stale, waker]);
+
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 30_000);
     return () => clearInterval(t);
@@ -149,8 +168,18 @@ export default function ExperimentPage({
         ctrMode: exp?.ctrMode,
         scenario: exp?.scenario,
         scenarioOverrides: exp?.scenarioOverrides,
+        policyDiscount: exp?.policyDiscount,
       }),
-    [metrics, series, arms, exp?.rewardMode, exp?.ctrMode, exp?.scenario, exp?.scenarioOverrides]
+    [
+      metrics,
+      series,
+      arms,
+      exp?.rewardMode,
+      exp?.ctrMode,
+      exp?.scenario,
+      exp?.scenarioOverrides,
+      exp?.policyDiscount,
+    ]
   );
   const lanes = useMemo(
     () => buildLanes(arms, hasMetrics(metrics) ? metrics : null, hasMetrics(metrics) ? series : null),
@@ -347,7 +376,7 @@ export default function ExperimentPage({
         )}
         {loadError && (
           <p role="status" className="mt-3 text-sm text-mark-pending">
-            Lost contact with the experiment ({loadError}). Reload to try again.
+            Lost contact with the experiment ({loadError}). Still retrying.
           </p>
         )}
       </section>
