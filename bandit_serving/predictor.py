@@ -17,6 +17,9 @@ response body, so ``postprocess`` returns the full ``{"predictions": [...]}``):
   Carlo ``propensities``; rewards are de-duplicated against the bounded
   ``pending`` map (request_id -> (arm, x)) / seen-id set and applied as one
   batched ``linear_ts.update``, which bumps ``model_version``.
+- ``reset`` starts a fresh posterior; its optional ``discount`` (the traffic
+  run's forgetting γ, contracts §10) replaces ``policy.discount`` for every
+  update until the next reset, and a reset without one restores the config value.
 - Checkpoints (``checkpoints/<model_version>.npz`` + ``checkpoints/latest.json``
   under ``AIP_STORAGE_URI``) are written by a background thread every
   ``BANDIT_CHECKPOINT_EVERY`` update batches or ``BANDIT_CHECKPOINT_SECONDS``
@@ -51,6 +54,7 @@ from google.cloud.aiplatform.prediction.predictor import Predictor
 
 from bandit import linear_ts as lts
 from bandit.config import (
+    RESET_DISCOUNT_BOUNDS,
     ExperimentConfig,
     LinTSParams,
     load_experiment_config,
@@ -150,6 +154,7 @@ class _Reward:
 class _Reset:
     episode: int
     seed: int
+    discount: float | None = None
 
 
 @dataclass(frozen=True)
@@ -200,6 +205,21 @@ def _finite(v: Any) -> float | None:
     if isinstance(v, bool) or not isinstance(v, int | float):
         return None
     return float(v) if math.isfinite(v) else None
+
+
+def _reset_discount(inst: Mapping[str, Any]) -> float | None:
+    """A reset's optional per-run ``discount`` (contracts §2 / §10): absent or
+    null = the config's ``policy.discount``; else a finite number in
+    ``RESET_DISCOUNT_BOUNDS``, quantised to 0.001 (it is a static jit argument of
+    the update kernel, so the compile cache stays bounded)."""
+    raw = inst.get("discount")
+    if raw is None:
+        return None
+    value = _finite(raw)
+    lo, hi = RESET_DISCOUNT_BOUNDS
+    if value is None or not lo <= value <= hi:
+        raise ValueError(f"discount must be a number in [{lo}, {hi}]")
+    return round(value, 3)
 
 
 def _request_id(inst: Mapping[str, Any]) -> str:
@@ -381,12 +401,13 @@ class BanditPredictor(Predictor):
         jax.block_until_ready(_posterior_mean(state))
         log.info("jit warm-up: %.0f ms", (time.perf_counter() - t0) * 1000.0)
 
-    def _fresh(self, episode: int, seed: int) -> None:
+    def _fresh(self, episode: int, seed: int, discount: float | None = None) -> None:
         self._state = lts.init_state(
             len(self.arm_ids), self._dim, self.params.prior_var
         )
         self._episode = episode
         self._seed = seed
+        self._discount: float | None = discount
         self._base_key = jax.random.key(seed)
         self._calls = 0  # PRNG fold-in counter
         self._n_updates = 0
@@ -394,6 +415,12 @@ class BanditPredictor(Predictor):
         self._seen: OrderedDict[str, None] = OrderedDict()
         self._updates_since_ckpt = 0
         self._last_ckpt = time.monotonic()
+
+    def _update_params(self) -> LinTSParams:
+        """``self.params`` with the episode's reset ``discount``, if any."""
+        if self._discount is None:
+            return self.params
+        return dataclasses.replace(self.params, discount=self._discount)
 
     def _version(self) -> str:
         return f"{self.config.experiment_id}-e{self._episode}-v{self._n_updates}"
@@ -431,7 +458,12 @@ class BanditPredictor(Predictor):
                     "checkpoint shape %s mismatches config; ignoring", state.b.shape
                 )
                 return
-            self._fresh(episode=int(meta["episode"]), seed=int(meta["seed"]))
+            discount = meta.get("discount")
+            self._fresh(
+                episode=int(meta["episode"]),
+                seed=int(meta["seed"]),
+                discount=None if discount is None else float(discount),
+            )
             self._state = state
             self._n_updates = int(meta["n_updates"])
             self._calls = int(meta["calls"])
@@ -457,6 +489,7 @@ class BanditPredictor(Predictor):
             "npz": npz_name,
             "episode": self._episode,
             "seed": self._seed,
+            "discount": self._discount,
             "n_updates": self._n_updates,
             "calls": self._calls,
             "feature_spec_version": FEATURE_SPEC_VERSION,
@@ -531,7 +564,11 @@ class BanditPredictor(Predictor):
             if kind == "reward":
                 return self._parse_reward(inst)
             if kind == "reset":
-                return _Reset(_int_field(inst, "episode", 0), _int_field(inst, "seed"))
+                return _Reset(
+                    _int_field(inst, "episode", 0),
+                    _int_field(inst, "seed"),
+                    _reset_discount(inst),
+                )
             if kind == "state":
                 return _StateReq()
             raise ValueError(f"unknown instance type {kind!r}")
@@ -598,12 +635,13 @@ class BanditPredictor(Predictor):
                     i = j
                     continue
                 if isinstance(item, _Reset):
-                    self._fresh(item.episode, item.seed)
+                    self._fresh(item.episode, item.seed, item.discount)
                     self._schedule_checkpoint()
                     out[i] = {
                         "type": "reset",
                         "episode": item.episode,
                         "model_version": self._version(),
+                        "discount": self._update_params().discount,
                     }
                 elif isinstance(item, _StateReq):
                     out[i] = self._summary()
@@ -711,7 +749,7 @@ class BanditPredictor(Predictor):
                 jnp.asarray(_pad_rows(np.stack(xs), size)),
                 jnp.asarray(_pad_rows(np.asarray(values, np.float32), size)),
                 jnp.asarray(np.arange(size) < n),
-                self.params,
+                self._update_params(),
             )
             self._n_updates += 1
             self._updates_since_ckpt += 1

@@ -892,3 +892,11 @@ def default_shift_discount(ctr_mode: str, batch_size: int, horizon: int) -> floa
     if ctr_mode not in CTR_MODES:
         raise ValueError(f"ctr_mode must be one of {CTR_MODES}")
     return discount_for_memory(horizon / 8, batch_size)
+
+
+#: Bounds on a ``reset`` instance's optional ``discount`` (contracts §2 / §10): the
+#: per-run forgetting γ the traffic job sends when ``forget`` is on. Short runs
+#: (``default_shift_discount`` below 0.95, i.e. horizon < ~15.6k at batch 100)
+#: are clamped up to the floor by the job. ``bandit_serving`` and the fake
+#: endpoint both validate against this.
+RESET_DISCOUNT_BOUNDS: tuple[float, float] = (0.95, 1.0)

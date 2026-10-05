@@ -184,12 +184,78 @@ def test_reset_clears_state(art):
     preds = run(p, _decisions(4))
     run(p, _rewards(preds[:2]))
     out = run(p, [{"type": "reset", "episode": 3, "seed": 11}])[0]
-    assert out == {"type": "reset", "episode": 3, "model_version": "exp1-e3-v0"}
+    assert out == {
+        "type": "reset",
+        "episode": 3,
+        "model_version": "exp1-e3-v0",
+        "discount": 1.0,
+    }
     s = _state(p)
     assert s["step"] == 0 and sum(s["pulls"].values()) == 0
     assert s["episode"] == 3
     # decisions from the old episode can't be rewarded any more
     assert run(p, _rewards(preds[2:3]))[0]["accepted"] is False
+
+
+def _spy_update_discounts(p, monkeypatch):
+    """Record the ``discount`` of the params every update kernel call gets."""
+    import bandit_serving.predictor as pred
+
+    seen: list[float] = []
+    real = pred._update_kernel
+
+    def spy(state, arms, X, rewards, valid, params):
+        seen.append(params.discount)
+        return real(state, arms, X, rewards, valid, params)
+
+    monkeypatch.setattr(pred, "_update_kernel", spy)
+    return seen
+
+
+def test_reset_discount_applies_until_the_next_reset(tmp_path, monkeypatch):
+    """A reset's ``discount`` (contracts §2 / §10) drives every update of that
+    episode; a later reset without one restores ``policy.discount``."""
+    p = _predictor(_write_config(tmp_path / "a", policy={"discount": 0.99}))
+    seen = _spy_update_discounts(p, monkeypatch)
+    out = run(p, [{"type": "reset", "episode": 1, "seed": 3, "discount": 0.96}])[0]
+    assert out["discount"] == 0.96
+    for b in range(2):
+        run(p, _rewards(run(p, _decisions(5, f"a{b}-"))))
+    assert seen == [0.96, 0.96]
+    assert p.params.discount == 0.99  # the config value itself is untouched
+    out = run(p, [{"type": "reset", "episode": 2, "seed": 3}])[0]
+    assert out["discount"] == 0.99
+    run(p, _rewards(run(p, _decisions(5, "b-"))))
+    assert seen[-1] == 0.99
+    # null = absent; values are quantised to 0.001 (bounded jit cache)
+    out = run(p, [{"type": "reset", "episode": 3, "seed": 3, "discount": None}])[0]
+    assert out["discount"] == 0.99
+    out = run(p, [{"type": "reset", "episode": 4, "seed": 3, "discount": 0.98049}])
+    assert out[0]["discount"] == 0.98
+    out = run(p, [{"type": "reset", "episode": 5, "seed": 3, "discount": 1}])
+    assert out[0]["discount"] == 1.0
+
+
+def test_invalid_reset_discount_keeps_the_current_episode(art):
+    p = _predictor(art)
+    run(p, [{"type": "reset", "episode": 1, "seed": 3, "discount": 0.97}])
+    out = run(p, [{"type": "reset", "episode": 2, "seed": 3, "discount": 0.5}])[0]
+    assert out["type"] == "error" and "discount" in out["error"]
+    assert _state(p)["episode"] == 1
+    assert p._update_params().discount == 0.97
+
+
+def test_reset_discount_survives_a_checkpoint_restore(art):
+    p = _predictor(art)
+    run(p, [{"type": "reset", "episode": 2, "seed": 3, "discount": 0.97}])
+    p.flush()
+    meta = json.loads((art / "checkpoints" / "latest.json").read_text())
+    assert meta["discount"] == 0.97
+    q = _predictor(art)
+    assert q._update_params().discount == 0.97
+    run(p, [{"type": "reset", "episode": 3, "seed": 3}])
+    p.flush()
+    assert _predictor(art)._update_params().discount == 1.0
 
 
 def test_reset_seed_is_deterministic(art):
@@ -240,6 +306,11 @@ def test_mixed_batch_preserves_order(art):
         {"type": "reward", "request_id": "x", "arm": "c1", "reward": 1.0, "clicked": 3},
         {"type": "reset", "episode": -1, "seed": 0},
         {"type": "reset", "episode": "1", "seed": 0},
+        {"type": "reset", "episode": 1, "seed": 0, "discount": 0.9},
+        {"type": "reset", "episode": 1, "seed": 0, "discount": 1.01},
+        {"type": "reset", "episode": 1, "seed": 0, "discount": "0.98"},
+        {"type": "reset", "episode": 1, "seed": 0, "discount": True},
+        {"type": "reset", "episode": 1, "seed": 0, "discount": float("nan")},
         42,
     ],
 )  # fmt: skip
@@ -276,13 +347,13 @@ def test_instance_limit(art):
 
 
 def test_traffic_job_request_id_format(art):
-    """PR 3 ids look like ``{experiment_id}-e{episode}-r{round}``."""
+    """Traffic job ids look like ``{experiment_id}-r{run}-e{episode}-r{round}``."""
     p = _predictor(art)
-    preds = run(p, _decisions(3, "exp1-e0-r"))
+    preds = run(p, _decisions(3, "exp1-r1-e0-r"))
     assert [d["request_id"] for d in preds] == [
-        "exp1-e0-r0",
-        "exp1-e0-r1",
-        "exp1-e0-r2",
+        "exp1-r1-e0-r0",
+        "exp1-r1-e0-r1",
+        "exp1-r1-e0-r2",
     ]
     assert all(a["accepted"] for a in run(p, _rewards(preds)))
 
