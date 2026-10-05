@@ -731,6 +731,120 @@ def test_deploy_resume_is_idempotent():
     assert h.deployer.created["endpoint_id"] == 1
 
 
+def test_concurrent_deploy_attempts_upload_once():
+    """Two deploy attempts for one experiment (e.g. the live revision and an old
+    one's reaper) race: the lease lets exactly one of them deploy."""
+    h = Harness()
+
+    async def go():
+        await h.session()
+        h.deployer.gate = asyncio.Event()
+        eid = (await h.create()).json()["experimentId"]
+        # bypass the in-process task guard, as a second instance would
+        racers = [asyncio.create_task(ex._deploy_task(eid)) for _ in range(2)]
+        await ex.reap_expired()
+        await h.client.get(f"/experiments/{A}/{eid}")
+        for _ in range(5):
+            await asyncio.sleep(0)
+        h.deployer.gate.set()
+        await asyncio.gather(*racers)
+        await ex.drain()
+        return eid
+
+    eid = run(go)
+    row = h.store.rows[eid]
+    assert row["status"] == "ready"
+    assert h.deployer.created == {
+        "model_resource": 1,
+        "endpoint_id": 1,
+        "deployed_model_id": 1,
+    }
+    assert row["deploy_lease_until"] is None  # released when the deploy finished
+    assert row["deploy_lease_owner"] is None
+
+
+def test_foreign_lease_blocks_resume_until_it_expires():
+    h = Harness()
+
+    async def go():
+        await h.session()
+        h.deployer.gate = asyncio.Event()
+        eid = (await h.create()).json()["experimentId"]
+        task = ex._DEPLOY_TASKS.pop(eid)
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+        # another (live) instance holds the lease
+        row = h.store.rows[eid]
+        row["deploy_lease_owner"] = "other-rev/1234"
+        row["deploy_lease_until"] = dt.datetime.now(dt.UTC) + dt.timedelta(minutes=3)
+        h.deployer.gate.set()
+        await ex.reap_expired()
+        await h.client.get(f"/experiments/{A}/{eid}")
+        await ex._deploy_task(eid)  # even a direct attempt backs off
+        await ex.drain()
+        blocked = (dict(row), dict(h.deployer.created))
+        # the holder died: its lease expires and the next reaper pass resumes
+        row["deploy_lease_until"] = dt.datetime.now(dt.UTC) - dt.timedelta(seconds=1)
+        await ex.reap_expired()
+        await ex.drain()
+        return eid, blocked
+
+    eid, (blocked_row, blocked_created) = run(go)
+    assert blocked_row["status"] == "deploying"
+    assert blocked_created["deployed_model_id"] == 0
+    assert h.store.rows[eid]["status"] == "ready"
+    assert h.deployer.created["model_resource"] == 1
+
+
+def test_deploy_lease_heartbeat_extends_and_failure_releases():
+    h = Harness(deployer=FakeDeployer(fail_at="deployed_model_id"))
+    h.settings.deploy_heartbeat_seconds = 0.01
+
+    async def go():
+        await h.session()
+        h.deployer.gate = asyncio.Event()
+        eid = (await h.create()).json()["experimentId"]
+        for _ in range(5):
+            await asyncio.sleep(0)
+        row = h.store.rows[eid]
+        first = row["deploy_lease_until"]
+        owner = row["deploy_lease_owner"]
+        await asyncio.sleep(0.05)
+        renewed = row["deploy_lease_until"]
+        h.deployer.gate.set()
+        await ex.drain()
+        return eid, first, renewed, owner
+
+    eid, first, renewed, owner = run(go)
+    assert owner == ex.LEASE_OWNER and first is not None
+    assert renewed > first  # the heartbeat pushed the expiry out
+    row = h.store.rows[eid]
+    assert row["status"] == "failed"
+    assert row["deploy_lease_until"] is None and row["deploy_lease_owner"] is None
+
+
+def test_deploy_reuses_labelled_resources_when_row_lost_ids():
+    """Second layer: even without the lease, a resumed deploy whose progress
+    writes were lost adopts the labelled model/endpoint instead of re-uploading."""
+    h = Harness()
+
+    async def go():
+        await h.session()
+        eid = (await h.create()).json()["experimentId"]
+        await ex.drain()
+        row = h.store.rows[eid]
+        row.update(status="deploying", model_resource=None, endpoint_id=None)
+        row["deployed_model_id"] = None
+        await ex.reap_expired()
+        await ex.drain()
+        return eid
+
+    eid = run(go)
+    assert h.store.rows[eid]["status"] == "ready"
+    assert h.deployer.created["model_resource"] == 1
+    assert h.deployer.created["endpoint_id"] == 1
+
+
 def test_metrics_empty_then_aggregated():
     h = Harness()
 

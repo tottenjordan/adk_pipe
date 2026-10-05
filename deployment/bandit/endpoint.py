@@ -81,6 +81,38 @@ def create_endpoint(display_name: str, labels: dict[str, str]) -> Any:
     return _sdk().Endpoint.create(display_name=display_name, labels=dict(labels))
 
 
+def label_filter(labels: dict[str, str]) -> str:
+    """Vertex list ``filter`` matching every label (``labels.k="v" AND ...``)."""
+    return " AND ".join(f'labels.{k}="{v}"' for k, v in sorted(labels.items()))
+
+
+def _oldest_first(resources: Any) -> list[str]:
+    """Resource names sorted by ``create_time`` (undated last, then by name)."""
+
+    def key(r: Any) -> tuple[float, str]:
+        created = getattr(r, "create_time", None)
+        return (created.timestamp() if created else float("inf"), r.resource_name)
+
+    return [r.resource_name for r in sorted(resources, key=key)]
+
+
+def find_models(labels: dict[str, str]) -> list[str]:
+    """Models carrying every label in ``labels`` (in ``GCP_REGION``), oldest first.
+
+    Lets a resumed deploy adopt a model an earlier attempt uploaded but never
+    recorded, instead of uploading a duplicate."""
+    return _oldest_first(
+        _sdk().Model.list(filter=label_filter(labels), order_by="create_time")
+    )
+
+
+def find_endpoints(labels: dict[str, str]) -> list[str]:
+    """Endpoints carrying every label in ``labels``, oldest first."""
+    return _oldest_first(
+        _sdk().Endpoint.list(filter=label_filter(labels), order_by="create_time")
+    )
+
+
 def get_model(model_resource: str) -> Any:
     return _sdk().Model(model_name=model_resource)
 

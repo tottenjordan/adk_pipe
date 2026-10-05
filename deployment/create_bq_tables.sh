@@ -57,7 +57,7 @@ make_table "${BQ_TABLE_EVALS}" \
 
 # Bandit experiments, one row per experiment (the api MERGE-upserts on experiment_id).
 make_table "${BQ_TABLE_BANDIT_EXPERIMENTS}" \
-  experiment_id:STRING,user_id:STRING,session_id:STRING,app_name:STRING,created_at:TIMESTAMP,updated_at:TIMESTAMP,status:STRING,scenario:STRING,ctr_mode:STRING,reward_mode:STRING,arms:STRING,config_uri:STRING,model_resource:STRING,endpoint_id:STRING,deployed_model_id:STRING,ttl_expires_at:TIMESTAMP,stopped_at:TIMESTAMP,traffic_execution:STRING,progress:STRING,error:STRING,scenario_overrides:STRING
+  experiment_id:STRING,user_id:STRING,session_id:STRING,app_name:STRING,created_at:TIMESTAMP,updated_at:TIMESTAMP,status:STRING,scenario:STRING,ctr_mode:STRING,reward_mode:STRING,arms:STRING,config_uri:STRING,model_resource:STRING,endpoint_id:STRING,deployed_model_id:STRING,ttl_expires_at:TIMESTAMP,stopped_at:TIMESTAMP,traffic_execution:STRING,progress:STRING,error:STRING,scenario_overrides:STRING,deploy_lease_until:TIMESTAMP,deploy_lease_owner:STRING
 
 # Bandit events, one row per endpoint-policy round (traffic job; insertId = request_id).
 make_table "${BQ_TABLE_BANDIT_EVENTS}" \

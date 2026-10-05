@@ -18,9 +18,18 @@ path-scoped routes are gated by ``UserAuthzMiddleware`` (the bare ``POST
 /experiments`` checks its body ``userId`` with ``authorize_body_user``). A foreign
 experiment is a 404. No JAX here: the api image doesn't ship it.
 
-Single-process, best-effort guards (one active experiment per user, one deploy /
-teardown task per experiment), the same trade-off as the ``/runs`` duplicate-run
-guard: the api runs one uvicorn process on one instance.
+Single-process, best-effort guards (one active experiment per user, one teardown
+task per experiment), the same trade-off as the ``/runs`` duplicate-run guard: the
+api runs one uvicorn process on one instance.
+
+Deploys are the exception, because a duplicate one leaks a Vertex model/endpoint:
+besides the in-process task guard, a deploy only runs while its process holds the
+row's **deploy lease** (``deploy_lease_until`` / ``deploy_lease_owner``, taken with a
+conditional UPDATE, renewed every ``deploy_heartbeat_seconds``, released when the
+deploy ends). So another instance, or an old revision kept alive by a traffic tag
+whose reaper sees a ``deploying`` row without a local task, backs off instead of
+uploading a second model (incident 2026-10-05). A crashed holder's lease expires
+after ``deploy_lease_seconds`` and the next reconcile/reaper pass resumes the deploy.
 """
 
 from __future__ import annotations
@@ -544,6 +553,9 @@ class ExperimentSettings:
     default_horizon: int = 20000
     default_episodes: int = 20
     batch_size: int = 100
+    # Deploy lease: expiry, and how often the running deploy renews it.
+    deploy_lease_seconds: int = 180
+    deploy_heartbeat_seconds: float = 60.0
 
     def clamp_ttl(self, minutes: int | None) -> int:
         value = self.ttl_minutes if minutes is None else minutes
@@ -634,6 +646,8 @@ SERIES_LIVE_TTL_SECONDS = 30.0
 SERIES_FINAL_STATUSES = ("stopped", "expired")
 SERIES_CACHE_MAX = 64
 _SERIES_CACHE: OrderedDict[str, tuple[float | None, dict]] = OrderedDict()
+# This process's deploy-lease identity: revision (Cloud Run) + a per-process nonce.
+LEASE_OWNER = f"{os.environ.get('K_REVISION') or 'local'}/{uuid.uuid4().hex[:12]}"
 
 
 def configure(
@@ -718,10 +732,51 @@ def _artifact_uri(row: Mapping[str, Any]) -> str:
 # --- Detached tasks -------------------------------------------------------------
 
 
+async def _lease_heartbeat(experiment_id: str) -> None:
+    """Renew this process's deploy lease until cancelled (or until it is lost)."""
+    while True:
+        await asyncio.sleep(_SETTINGS.deploy_heartbeat_seconds)
+        try:
+            renewed = await _STORE.renew_deploy_lease(
+                experiment_id, LEASE_OWNER, _SETTINGS.deploy_lease_seconds
+            )
+        except Exception:
+            log.exception("bandit deploy %s: lease heartbeat failed", experiment_id)
+            continue
+        if not renewed:
+            log.warning("bandit deploy %s: deploy lease lost", experiment_id)
+            return
+
+
 async def _deploy_task(experiment_id: str) -> None:
     row = await _STORE.get(experiment_id)
     if row is None or row["status"] != "deploying":
         return
+    try:
+        acquired = await _STORE.acquire_deploy_lease(
+            experiment_id, LEASE_OWNER, _SETTINGS.deploy_lease_seconds
+        )
+    except Exception:
+        log.exception("bandit deploy %s: lease acquire failed", experiment_id)
+        return  # the next reconcile/reaper pass retries
+    if not acquired:
+        log.info("bandit deploy %s: lease held elsewhere; not deploying", experiment_id)
+        return
+    heartbeat = asyncio.create_task(_lease_heartbeat(experiment_id))
+    try:
+        # Re-read under the lease: a previous holder may have recorded more ids.
+        await _deploy_locked(experiment_id, await _STORE.get(experiment_id) or row)
+    finally:
+        heartbeat.cancel()
+        await asyncio.gather(heartbeat, return_exceptions=True)
+        try:
+            await _STORE.release_deploy_lease(experiment_id, LEASE_OWNER)
+        except Exception:  # it expires on its own
+            log.exception("bandit deploy %s: lease release failed", experiment_id)
+
+
+async def _deploy_locked(experiment_id: str, row: dict) -> None:
+    """The deploy proper; only called while holding the deploy lease."""
 
     async def on_step(ids: dict) -> None:
         await _update(experiment_id, **ids)
@@ -797,6 +852,15 @@ def _live(registry: dict[str, asyncio.Task], key: str) -> bool:
     return task is not None and not task.done()
 
 
+def _should_resume_deploy(row: Mapping[str, Any], now: dt.datetime) -> bool:
+    """A ``deploying`` row with no local task and no unexpired lease seen on it.
+    (A cheap pre-check; ``_deploy_task``'s conditional acquire is authoritative.)"""
+    if _live(_DEPLOY_TASKS, row["experiment_id"]):
+        return False
+    until = _as_datetime(row.get("deploy_lease_until"))
+    return until is None or until <= now
+
+
 async def reconcile(row: dict, now: dt.datetime | None = None) -> dict:
     """Bring a row's status in line with the TTL, the endpoint and the job."""
     now = now or _utcnow()
@@ -806,7 +870,7 @@ async def reconcile(row: dict, now: dt.datetime | None = None) -> dict:
     if is_expired(row, now) and status != "stopping":
         await _wait_briefly(_start_teardown(eid, "expire"))
         return await _STORE.get(eid) or row
-    if status == "deploying" and not _live(_DEPLOY_TASKS, eid):
+    if status == "deploying" and _should_resume_deploy(row, now):
         _start_deploy(eid)  # resume after an api restart
     elif status == "stopping" and not _live(_TEARDOWN_TASKS, eid):
         _start_teardown(eid, "torn_down")
@@ -869,7 +933,7 @@ async def reap_expired(now: dt.datetime | None = None) -> list[str]:
         if is_expired(row, now) and status != "stopping":
             expired.append(eid)
             tasks.append(_start_teardown(eid, "expire"))
-        elif status == "deploying" and not _live(_DEPLOY_TASKS, eid):
+        elif status == "deploying" and _should_resume_deploy(row, now):
             _start_deploy(eid)
         elif status == "stopping" and not _live(_TEARDOWN_TASKS, eid):
             tasks.append(_start_teardown(eid, "torn_down"))

@@ -965,6 +965,23 @@ Old, untagged, 0%-traffic revisions are safe to leave (they cost nothing idle) o
 `gcloud run revisions delete <rev> --region $REGION`. Keep at least the current
 `main-clean` / `main-current` pair as your safety net.
 
+**api: don't keep tagged old revisions around.** A tagged api revision isn't idle: with
+`--min-instances 1` it keeps an instance up that runs the background loops (the bandit TTL
+reaper, which also resumes `deploying` experiments and tears down expired ones). On
+2026-10-05 an old revision behind a rollback tag resumed a bandit deploy the live revision
+was already running and uploaded a duplicate Vertex model. So after a new api revision is
+verified **and** traffic is pinned to it, remove the api's rollback tag (for example `prev`,
+or `main-clean` while it points at an old revision), and roll back by **revision name**:
+
+```bash
+gcloud run services update-traffic trend-trawler-api --region $REGION --remove-tags prev
+# Rollback without a tag: name the known-good revision (note it before deploying).
+gcloud run services update-traffic trend-trawler-api --region $REGION \
+  --to-revisions trend-trawler-api-000NN-xyz=100
+```
+
+The web service has no background loops, so its `main-current` tag is harmless.
+
 ### 9. Per-user authz (P3): env vars + verification
 
 Trust model: the `/api/adk` proxy is authoritative (verifies the IAP JWT, pins the `hd`
@@ -1146,6 +1163,33 @@ ALTER TABLE `$PROJECT.trend_trawler.bandit_experiments`
 ALTER TABLE `$PROJECT.trend_trawler_eval.bandit_experiments`
   ADD COLUMN IF NOT EXISTS scenario_overrides STRING;
 ```
+
+**Migration: deploy lease (contracts §6 "Single deployer", 2026-10-05).** `bandit_experiments`
+gained `deploy_lease_until TIMESTAMP` and `deploy_lease_owner STRING`, the lease that lets
+only one api process run an experiment's deploy. (Incident 2026-10-05: an old revision kept
+alive by a rollback tag resumed a deploy the live revision was already running and uploaded
+a second Vertex model.) Run this on **both** datasets **before** deploying the api that uses
+it. Against an unmigrated table the api logs an error and deploys without the lease (the old
+unguarded behaviour), so don't leave it unmigrated:
+
+```sql
+ALTER TABLE `$PROJECT.trend_trawler.bandit_experiments`
+  ADD COLUMN IF NOT EXISTS deploy_lease_until TIMESTAMP,
+  ADD COLUMN IF NOT EXISTS deploy_lease_owner STRING;
+ALTER TABLE `$PROJECT.trend_trawler_eval.bandit_experiments`
+  ADD COLUMN IF NOT EXISTS deploy_lease_until TIMESTAMP,
+  ADD COLUMN IF NOT EXISTS deploy_lease_owner STRING;
+```
+
+Older api revisions keep working on the migrated table (a partial update ignores columns it
+doesn't know), but they don't respect the lease, so remove their tags (below).
+
+**Old revisions run the background loops too.** Every api instance runs the TTL reaper (every
+5 minutes), and both the reaper and the detail GET resume `deploying` rows and tear down
+expired ones. A revision kept reachable by a traffic tag (such as a rollback anchor) keeps a
+min instance running those loops, even at 0% traffic. After a new api revision is verified
+and pinned, remove its rollback tag (`--remove-tags`, see "8. Redeploying") and roll back by
+revision name instead.
 
 ### Environment (api service)
 
