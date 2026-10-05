@@ -904,3 +904,86 @@ def test_env_overrides_carry_run_forget_and_snake_shifts():
     )
     names = {e["name"]: e["value"] for e in plain}
     assert names["FORGET"] == "false" and "SHIFTS_JSON" not in names
+
+
+# --- shiftCost: paired ghost - endpoint totals ----------------------------------------
+
+
+def test_shift_cost_pairs_ghost_and_endpoint_by_episode():
+    # (episode, endpoint reward, endpoint clicks, ghost reward, ghost clicks)
+    data = [
+        (0, 100.0, 100, 110.0, 112),
+        (1, 50.0, 50, 62.0, 60),
+        (2, 80.0, 80, 89.0, 88),
+    ]
+    rows = []
+    for ep, r_lin, c_lin, r_gh, c_gh in data:
+        rows.append(_metrics_row("e", ep, "linear_ts", 1, r_lin, total_clicks=c_lin))
+        rows.append(_metrics_row("e", ep, GHOST_POLICY, 1, r_gh, total_clicks=c_gh))
+    # unpaired rows are ignored: ghost episode 5 has no endpoint row and vice versa
+    rows.append(_metrics_row("e", 5, GHOST_POLICY, 1, 999.0, total_clicks=999))
+    rows.append(_metrics_row("e", 6, "linear_ts", 1, 1.0, total_clicks=1))
+    rows.append(_metrics_row("e", 0, "uniform", 1, 1.0, total_clicks=1))
+    cost = aggregate_episode_metrics(rows, "e")["shiftCost"]
+    assert set(cost) == {"episodes", "clicksPerEpisode", "rewardPerEpisode"}
+    assert cost["episodes"] == 3
+    diffs = [10.0, 12.0, 9.0]  # paired reward differences
+    mean = sum(diffs) / 3
+    sd = math.sqrt(sum((d - mean) ** 2 for d in diffs) / 2)
+    half = 4.303 * sd / math.sqrt(3)
+    reward = cost["rewardPerEpisode"]
+    assert reward["mean"] == pytest.approx(mean)
+    assert reward["lo"] == pytest.approx(mean - half)
+    assert reward["hi"] == pytest.approx(mean + half)
+    clicks = cost["clicksPerEpisode"]
+    assert clicks["mean"] == pytest.approx((12 + 10 + 8) / 3)
+    # pairing is much tighter than the unpaired spread of the two totals
+    assert reward["hi"] - reward["lo"] < 10.0
+    # a negative cost (the shift helped) is not clamped
+    flipped = [
+        {**r, "total_reward": -r["total_reward"]}
+        for r in rows
+        if r["policy"] in ("linear_ts", GHOST_POLICY)
+    ]
+    assert aggregate_episode_metrics(flipped, "e")["shiftCost"]["rewardPerEpisode"][
+        "mean"
+    ] == pytest.approx(-mean)
+
+
+def test_shift_cost_omitted_without_ghost_pairs():
+    lin = [
+        _metrics_row("e", ep, "linear_ts", 1, 10.0, total_clicks=10) for ep in (0, 1)
+    ]
+    assert "shiftCost" not in aggregate_episode_metrics(lin, "e")
+    ghost_other_eps = [_metrics_row("e", 7, GHOST_POLICY, 1, 9.0, total_clicks=9)]
+    assert "shiftCost" not in aggregate_episode_metrics(lin + ghost_other_eps, "e")
+    assert "shiftCost" not in aggregate_episode_metrics([], "e")
+    # one pair: the interval collapses to the mean
+    one = aggregate_episode_metrics(
+        [lin[0], _metrics_row("e", 0, GHOST_POLICY, 1, 12.5, total_clicks=13)], "e"
+    )["shiftCost"]
+    assert one["episodes"] == 1
+    assert one["rewardPerEpisode"] == {"mean": 2.5, "lo": 2.5, "hi": 2.5}
+    assert one["clicksPerEpisode"] == {"mean": 3.0, "lo": 3.0, "hi": 3.0}
+    no_clicks = aggregate_episode_metrics(
+        [_metrics_row("e", 0, n, 1, 1.0) for n in ("linear_ts", GHOST_POLICY)], "e"
+    )["shiftCost"]
+    assert no_clicks["episodes"] == 1 and no_clicks["clicksPerEpisode"] is None
+
+
+def test_shift_cost_on_the_metrics_route():
+    h = Harness()
+
+    async def go():
+        await h.session()
+        eid = (await h.create()).json()["experimentId"]
+        await ex.drain()
+        h.store.metrics[eid] = [
+            _metrics_row(eid, 0, "linear_ts", None, 10.0, total_clicks=10),
+            _metrics_row(eid, 0, GHOST_POLICY, None, 14.0, total_clicks=15),
+        ]
+        return (await h.client.get(f"/experiments/{A}/{eid}/metrics")).json()
+
+    body = run(go)
+    assert body["shiftCost"]["episodes"] == 1
+    assert body["shiftCost"]["clicksPerEpisode"]["mean"] == 5.0

@@ -211,7 +211,11 @@ type ExperimentMetrics = { experimentId: string; episodes: number; horizon: numb
   arms: { creativeId: string; impressions: number; estimatedCtr: number; trueCtr: number }[];
   run: number;                                                       // §10: the run these numbers are from
   shiftResponse: Record<string, ShiftResponse[]>;                    // §10; {} without shifts
-  regimes: MetricsRegime[] };                                        // §10; [] without shifts
+  regimes: MetricsRegime[];                                          // §10; [] without shifts
+  shiftCost?: ShiftCost };                                           // §10; omitted without ghost rows
+type ShiftCost = { episodes: number;                                 // episodes with both a linear_ts and a ghost row
+  clicksPerEpisode: Stat | null;                                     // paired ghost − linear_ts total_clicks
+  rewardPerEpisode: Stat };                                          // paired ghost − linear_ts total_reward
 type Stat = { mean: number; lo: number; hi: number };               // mean ± 95% CI across episodes
 type ShiftResponse = { round: number; episodes: number;              // one per shift, in time order
   pctOptimalBefore: Stat; pctOptimalAfter: Stat; regretRateBefore: Stat; regretRateAfter: Stat;
@@ -223,6 +227,7 @@ type MetricsRegime = { start: number; end: number;                   // rounds [
 ```
 
 - **Policies:** a run with shifts adds the ghost policy `linear_ts_unshifted` (Linear TS on the same draws without the shifts, §10). It is ordered right after `linear_ts` and appears in `curves`, `totals`, `perSegment` and `shiftResponse`, but never votes on an `optimalArm` (its winners come from the unshifted world).
+- **`shiftCost`** (2026-10-05): what the run's shifts cost the endpoint, as the **paired** per-episode difference `linear_ts_unshifted` − `linear_ts` of `total_clicks` and `total_reward`, matched by `episode` (unpaired rows on either side are ignored), with a 95% Student-t interval on the mean difference (not clamped; negative = the shifts helped; one pair collapses to the mean). Pairing is valid because the endpoint and the ghost replay the same episode keys, and it removes the between-episode variance, so the interval is much tighter than comparing the two `totals`. `clicksPerEpisode` is `null` when no pair has `total_clicks`. The key is omitted when there is no pair (no shifts, or ghost rows not written yet).
 - **Whole-run fields are unchanged** with shifts (`perSegment`, `arms[].trueCtr` still span the whole run); the per-regime split is the additive `regimes` list. `regimes` comes from the metrics rows' `regimes` JSON (no extra query); `start`/`end` come from the first row that carries them (the endpoint's).
 
 ## 6. Resolved decisions (PR 4 + PR 5, 2026-10-02)
@@ -456,7 +461,7 @@ PR B/C store it per run: the `traffic_runs` JSON on the experiment row, and `{id
 **REST (PR C, implemented 2026-10-05 in `runserver/experiments.py`):**
 - **Validation** (`validate_shifts(scenario, ctr_mode, arms, shifts)`): the rules above on the camelCase form, `null` fields counting as unset. runserver duplicates `SHIFT_KINDS`, `SHIFT_BOUNDS`, `MAX_SHIFTS`, `SHIFT_MIN_WINDOW`, `LEADER`, `LEADER_KINDS`, the per-kind field tables, the per-scenario segment names (`SCENARIO_SEGMENT_NAMES`) and `ctr_scale` (from `SCENARIO_TARGET_CTR`), under parity tests (`tests/test_experiments_shifts.py`, which also checks that `bandit` rejects every case the api rejects, naming the same field). Creative ids must be the experiment's arms. A failure is **400** `{reason: "invalid_shifts", field}` with the camelCase field (`shifts[1].untilFrac`, `shifts[0].creativeId`; `shifts` for a non-list or more than 4). A non-boolean `forget` is **400** `invalid_forget`.
 - **Run allocation:** `run = len(traffic_runs) + 1` (an experiment that ran traffic before runs were numbered counts as having a legacy run 1, so its next run is 2). Before starting the job the api writes `{artifacts}/{id}/runs/{n}.json`: `{experiment_id, run, started_at, episodes, horizon, forget, shifts (job form), request (the body as submitted)}`; `horizon` is the body's or the experiment default. It then starts the job with `TRAFFIC_RUN`, `FORGET` and (only when there are shifts) `SHIFTS_JSON`, and appends `{run, started_at, episodes, horizon, forget, shifts, execution}` to `traffic_runs` in the same guarded `traffic_started` transition (skipped, 409, if another process started a run since the read). The previous entry's `status` is frozen at that point. The response adds `run`.
-- **Reads:** `/metrics` and `/creatives` take `?run=N` (default the latest; `[1, latest]` else 400 `invalid_run`). Rows with a NULL `traffic_run` count as run 1. Both responses carry `run`; `/metrics` adds `shiftResponse` and `regimes` (§5), `/creatives` adds `regimes` (§8).
+- **Reads:** `/metrics` and `/creatives` take `?run=N` (default the latest; `[1, latest]` else 400 `invalid_run`). Rows with a NULL `traffic_run` count as run 1. Both responses carry `run`; `/metrics` adds `shiftResponse`, `regimes` and (when ghost rows exist) `shiftCost`, the paired per-episode ghost − endpoint clicks / reward with a 95% t-interval (§5); `/creatives` adds `regimes` (§8).
 - **Frontend proxy:** the `/api/adk` proxy forwards only the `since` / `version` query params today; PR D must add `run` to that allowlist (`frontend/src/lib/user-scoping.ts`).
 
 **Forgetting:** when `forget` is true, the endpoint's discount for the run is `bandit.config.default_shift_discount(ctr_mode, batch_size, horizon)` = `discount_for_memory(horizon / 8, batch_size)`. This is the §7 drift memory rule: 0.98 for 40k demo rounds and 0.998 for 400k realistic rounds at `batch_size = 100`.

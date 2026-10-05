@@ -303,6 +303,36 @@ def aggregate_shift_response(by_policy: Mapping[str, list[dict]]) -> dict:
     return out
 
 
+def aggregate_shift_cost(by_policy: Mapping[str, list[dict]]) -> dict | None:
+    """What the run's shifts cost the endpoint: the **paired** per-episode
+    difference ghost (``linear_ts_unshifted``) − endpoint (``linear_ts``) of
+    ``total_clicks`` and ``total_reward``, matched by episode, as ``stat`` (mean ±
+    95% t-interval, unclamped: a negative cost means the shift helped). Pairing is
+    valid because both replay the same episode keys, and it removes the
+    between-episode variance. ``episodes`` counts the reward pairs; clicks pair
+    only where both rows have ``total_clicks`` (``clicksPerEpisode`` is ``None``
+    when no pair has them). ``None`` without any pair."""
+    lin = {int(r.get("episode") or 0): r for r in by_policy.get(ENDPOINT_POLICY, [])}
+    ghost = {int(r.get("episode") or 0): r for r in by_policy.get(GHOST_POLICY, [])}
+    reward_diffs: list[float] = []
+    click_diffs: list[float] = []
+    for ep in sorted(lin.keys() & ghost.keys()):
+        g, e = ghost[ep], lin[ep]
+        rg, re_ = _finite(g.get("total_reward")), _finite(e.get("total_reward"))
+        if rg is not None and re_ is not None:
+            reward_diffs.append(rg - re_)
+        cg, ce = _finite(g.get("total_clicks")), _finite(e.get("total_clicks"))
+        if cg is not None and ce is not None:
+            click_diffs.append(cg - ce)
+    if not reward_diffs:
+        return None
+    return {
+        "episodes": len(reward_diffs),
+        "clicksPerEpisode": stat(click_diffs) if click_diffs else None,
+        "rewardPerEpisode": stat(reward_diffs),
+    }
+
+
 def aggregate_regimes(
     by_policy: Mapping[str, list[dict]],
     policies: list[str],
@@ -433,7 +463,7 @@ def aggregate_episode_metrics(
     share_order += [c for c in share_lists if c not in share_order]
 
     horizons = [int(r["horizon"]) for r in ordered if r.get("horizon") is not None]
-    return {
+    body: dict[str, Any] = {
         "experimentId": experiment_id,
         "episodes": len({ep for ep, _ in dedup}),
         "horizon": max(horizons) if horizons else None,
@@ -447,3 +477,7 @@ def aggregate_episode_metrics(
         "shiftResponse": aggregate_shift_response(by_policy),
         "regimes": aggregate_regimes(by_policy, policies, arm_order),
     }
+    # Only for a run with a ghost replay (i.e. with shifts); omitted otherwise.
+    if (cost := aggregate_shift_cost(by_policy)) is not None:
+        body["shiftCost"] = cost
+    return body
