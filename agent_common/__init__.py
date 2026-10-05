@@ -4,7 +4,11 @@ from agent_common.clients import get_bigquery_client, get_gcs_client
 from agent_common.config import BaseAgentConfiguration
 from agent_common.idempotency import stable_row_id
 from agent_common.locations import MODEL_LOCATION
-from agent_common.models import build_gemini, build_gemini_with_fallback
+from agent_common.models import (
+    ROOT_EMPTY_TURN_RETRIES,
+    build_gemini,
+    build_gemini_with_fallback,
+)
 from agent_common.observability import (
     collect_degradation_warnings,
     log_empty_turn_finish_reason,
@@ -26,6 +30,7 @@ __all__ = [
     "BaseAgentConfiguration",
     "MODEL_LOCATION",
     "PipelineRequest",
+    "ROOT_EMPTY_TURN_RETRIES",
     "build_gemini",
     "build_gemini_with_fallback",
     "build_infra_retry",

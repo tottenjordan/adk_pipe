@@ -20,6 +20,12 @@ per-request timeout (``MODEL_REQUEST_TIMEOUT_SECONDS``, see
 :mod:`agent_common.genai_retry`) and a timed-out request is retried a bounded
 number of times, so one hung Vertex call can't stall a run until
 ``RUN_MAX_SECONDS``.
+
+A root orchestrator's model can also opt into a bounded re-ask on an *empty
+turn* (``empty_turn_retries``): a Pro root sometimes answers a long tool result
+with ``STOP`` and no text or function call, and ADK then ends the invocation
+with the workflow unfinished. The runserver's auto-continue only covers the
+async ``/runs`` path; this covers every runner (``adk eval``, Agent Engine/CRF).
 """
 
 import asyncio
@@ -43,6 +49,27 @@ PRIMARY_FAILOVER_ATTEMPTS = 2
 # Worst case 3 x 240s = 12 min, inside the 30-min RUN_MAX_SECONDS budget.
 TIMEOUT_RETRY_ATTEMPTS = 3
 TIMEOUT_RETRY_DELAY_SECONDS = 2.0
+
+# Re-asks of an empty turn for the root orchestrators (each costs one prompt's
+# input tokens; the runserver auto-continue remains the backstop on exhaustion).
+ROOT_EMPTY_TURN_RETRIES = 2
+
+
+def is_empty_turn(response: LlmResponse) -> bool:
+    """True for a clean (``STOP``/unset, no error) turn with nothing to act on.
+
+    "Nothing" = no non-thought text and no function call. Abnormal finishes
+    (MAX_TOKENS, SAFETY, MALFORMED_FUNCTION_CALL, ...) and errors are NOT empty
+    turns — re-asking would not help those, so they pass through unchanged.
+    """
+    if response.partial or response.error_code:
+        return False
+    if response.finish_reason not in (None, types.FinishReason.STOP):
+        return False
+    parts = (
+        response.content.parts if response.content and response.content.parts else []
+    )
+    return not any((p.text and not p.thought) or p.function_call for p in parts)
 
 
 class TimeoutRetryingGemini(Gemini):
@@ -70,9 +97,41 @@ class TimeoutRetryingGemini(Gemini):
     request_timeout_ms: int | None = None
     """Per-request client timeout in MILLISECONDS; ``None`` = no timeout."""
 
+    empty_turn_retries: int = 0
+    """Re-asks of an empty non-streaming turn (see :func:`is_empty_turn`).
+
+    ``0`` (default) = pass every response through. The last attempt's response
+    is always returned as-is, so exhaustion behaves exactly like no retry.
+    Streaming calls are never buffered and so never re-asked.
+    """
+
     @override
     async def generate_content_async(
         self, llm_request: LlmRequest, stream: bool = False
+    ) -> AsyncGenerator[LlmResponse]:
+        retries_left = 0 if stream else self.empty_turn_retries
+        while retries_left > 0:
+            responses = [
+                r async for r in self._generate_with_timeout_retry(llm_request, stream)
+            ]
+            if not responses or not is_empty_turn(responses[-1]):
+                for response in responses:
+                    yield response
+                return
+            retries_left -= 1
+            logger.warning(
+                "Model %s returned an empty turn (finish_reason=%s, no text or "
+                "function call); re-asking (%d retr%s left after this)",
+                self.model,
+                responses[-1].finish_reason,
+                retries_left,
+                "y" if retries_left == 1 else "ies",
+            )
+        async for response in self._generate_with_timeout_retry(llm_request, stream):
+            yield response
+
+    async def _generate_with_timeout_retry(
+        self, llm_request: LlmRequest, stream: bool
     ) -> AsyncGenerator[LlmResponse]:
         if self.request_timeout_ms:
             if llm_request.config.http_options is None:
@@ -102,7 +161,10 @@ class TimeoutRetryingGemini(Gemini):
 
 
 def build_gemini(
-    model_name: str, location: str | None = None, retry_attempts: int | None = None
+    model_name: str,
+    location: str | None = None,
+    retry_attempts: int | None = None,
+    empty_turn_retries: int = 0,
 ) -> TimeoutRetryingGemini:
     """Return an ADK ``Gemini`` model pinned to a model-serving location.
 
@@ -122,6 +184,9 @@ def build_gemini(
     The model carries the shared per-request timeout
     (:func:`agent_common.genai_retry.model_request_timeout_ms`, MILLISECONDS) and
     retries a timed-out request — see :class:`TimeoutRetryingGemini`.
+
+    ``empty_turn_retries`` re-asks an empty turn (root orchestrators pass
+    :data:`ROOT_EMPTY_TURN_RETRIES`); the default ``0`` disables it.
     """
     # retry_options goes on the top-level param (NOT inside client_kwargs): ADK
     # merges it into the client's own http_options alongside its tracking
@@ -137,11 +202,12 @@ def build_gemini(
         retry_options=retry,
         client_kwargs={"location": location or locations.MODEL_LOCATION},
         request_timeout_ms=genai_retry.model_request_timeout_ms(),
+        empty_turn_retries=empty_turn_retries,
     )
 
 
 def build_gemini_with_fallback(
-    primary: str, fallback: str | None
+    primary: str, fallback: str | None, empty_turn_retries: int = 0
 ) -> Gemini | FallbackModel:
     """Pro-quota-bound producer model: ``primary``, then ``fallback`` on 429/5xx.
 
@@ -150,12 +216,19 @@ def build_gemini_with_fallback(
     global location pin. The primary gets a short HTTP retry so it fails over
     fast; the backup keeps the full quota-paced retry. An empty ``fallback``
     (the ``CRITIC_FALLBACK_MODEL=""`` kill switch) returns the plain pinned model.
+
+    ``empty_turn_retries`` is applied to both delegates (an empty turn is a
+    successful response, so ``FallbackModel`` itself never fails over on it).
     """
     if not fallback:
-        return build_gemini(primary)
+        return build_gemini(primary, empty_turn_retries=empty_turn_retries)
     return FallbackModel(
         models=[
-            build_gemini(primary, retry_attempts=PRIMARY_FAILOVER_ATTEMPTS),
-            build_gemini(fallback),
+            build_gemini(
+                primary,
+                retry_attempts=PRIMARY_FAILOVER_ATTEMPTS,
+                empty_turn_retries=empty_turn_retries,
+            ),
+            build_gemini(fallback, empty_turn_retries=empty_turn_retries),
         ]
     )
