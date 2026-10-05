@@ -14,6 +14,7 @@ from google.adk.workflow import JoinNode, Workflow
 from google.genai import types
 
 from agent_common import (
+    ROOT_EMPTY_TURN_RETRIES,
     PipelineRequest,
     RetryUntilKeyNode,
     build_gemini,
@@ -650,7 +651,11 @@ visual_production_pipeline = Workflow(
 
 # --- MAIN ORCHESTRATOR AGENT ---
 root_agent = Agent(
-    model=build_gemini_with_fallback(config.critic_model, config.critic_fallback_model),
+    model=build_gemini_with_fallback(
+        config.critic_model,
+        config.critic_fallback_model,
+        empty_turn_retries=ROOT_EMPTY_TURN_RETRIES,
+    ),
     name="root_agent",
     retry_config=INFRA_RETRY,
     description="Help with ad generation; brainstorm and refine ad copy and visual concept ideas with actor-critic workflows; generate final ad creatives.",

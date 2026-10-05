@@ -4,6 +4,7 @@ from google.adk.tools.agent_tool import AgentTool
 from google.genai import types
 
 from agent_common import (
+    ROOT_EMPTY_TURN_RETRIES,
     build_gemini,
     build_gemini_with_fallback,
     build_safety_plugins,
@@ -63,7 +64,11 @@ visual_concept_reviser = Agent(
 )
 
 root_agent = Agent(
-    model=build_gemini_with_fallback(config.critic_model, config.critic_fallback_model),
+    model=build_gemini_with_fallback(
+        config.critic_model,
+        config.critic_fallback_model,
+        empty_turn_retries=ROOT_EMPTY_TURN_RETRIES,
+    ),
     name="root_agent",
     description="Interactive ad generation with human review checkpoints after research, ad copies, and visual concepts.",
     instruction=ic_prompts.ROOT_AGENT_INSTR,

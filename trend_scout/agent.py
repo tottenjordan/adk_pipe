@@ -9,6 +9,7 @@ from google.adk.workflow import Workflow
 from google.genai import types
 
 from agent_common import (
+    ROOT_EMPTY_TURN_RETRIES,
     PipelineRequest,
     RetryUntilKeyNode,
     build_gemini,
@@ -186,7 +187,11 @@ trend_scout = Agent(
     # Root orchestrator: mechanical tool sequencing that must call AgentTools
     # reliably. gemini-3.1-pro-preview on its own global bucket (thinking_level
     # LOW is valid on gemini-3.x — see the note below).
-    model=build_gemini_with_fallback(config.critic_model, config.critic_fallback_model),
+    model=build_gemini_with_fallback(
+        config.critic_model,
+        config.critic_fallback_model,
+        empty_turn_retries=ROOT_EMPTY_TURN_RETRIES,
+    ),
     name="trend_scout",
     retry_config=INFRA_RETRY,
     description="Determines culturally relevant Search trends to use for ad creatives.",
