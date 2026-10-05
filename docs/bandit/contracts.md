@@ -116,7 +116,11 @@ progress STRING (JSON {episodes_done, episodes_total}), error STRING,
 scenario_overrides STRING (§9 snake_case JSON; set only when the experiment has overrides,
 added 2026-10-04 by `ALTER TABLE … ADD COLUMN IF NOT EXISTS`, see deployment/README.md),
 deploy_lease_until TIMESTAMP, deploy_lease_owner STRING (the §6 single-deployer lease; written
-only by the api's conditional lease UPDATEs, never by the MERGE; added 2026-10-05 the same way)
+only by the api's conditional lease UPDATEs, never by the MERGE; added 2026-10-05 the same way),
+traffic_runs STRING (§10 JSON list, one snake_case entry per numbered traffic run:
+`{run, started_at, episodes, horizon, forget, shifts, execution, status?}`, where `shifts` is the
+job form and `status` is frozen on an entry when the next run starts; added 2026-10-05; an
+api ahead of the migration drops the column from its MERGE with an error log)
 
 **`bandit_events`**, one row per round for the endpoint policy, written by the traffic job (`insertId = request_id`).
 It is partitioned by DATE(ts) and clustered on experiment_id:
@@ -167,11 +171,11 @@ All routes are user-scoped. The proxy rewrites `userId` / the `{user_id}` segmen
   - Errors: 400 for an empty or invalid selection (fewer than 2 arms, or an index out of range) or invalid `scenarioOverrides` (`detail.field` names the camelCase field), 409 `{detail:{reason:"active_experiment"}}` if the user already has an active experiment.
 - `GET /experiments/{user_id}` returns `{experiments: ExperimentSummary[]}`, newest first.
 - `GET /experiments/{user_id}/{experiment_id}` returns `ExperimentSummary`, with status reconciled against the endpoint and the TTL.
-- `GET /experiments/{user_id}/{experiment_id}/metrics` returns `ExperimentMetrics`. It is empty (`episodes: 0`) until traffic runs.
+- `GET /experiments/{user_id}/{experiment_id}/metrics[?run=N]` returns `ExperimentMetrics` for traffic run `N` (default the latest; §10). It is empty (`episodes: 0`) until traffic runs. A `run` outside `[1, latest]` (or not an integer) is a 400 `invalid_run`.
 - `POST /experiments/{user_id}/{experiment_id}/traffic`
-  - Body: `{episodes: 1..100, horizon?: 1000..400000}`.
-  - Success: `{status: "running_traffic", execution}`.
-  - Error: 409 unless status is `ready`.
+  - Body: `{episodes: 1..100, horizon?: 1000..400000, shifts?: Shift[] (≤ 4, §10), forget?: boolean | null}`.
+  - Success: `{status: "running_traffic", execution, run}` (`run` = the allocated 1-based run number).
+  - Errors: 400 `invalid_shifts` (with `detail.field`, e.g. `shifts[1].untilFrac`) or `invalid_forget`; 409 unless status is `ready`.
 - `POST /experiments/{user_id}/{experiment_id}/stop` returns `{status: "stopping" | "stopped"}`.
 
 **Status enum:** `deploying → ready → running_traffic → ready → stopping → stopped`; also `failed` and `expired` (the TTL reaper).
@@ -184,7 +188,16 @@ type ExperimentSummary = { experimentId: string; userId: string; sessionId: stri
   rewardMode: string; ttlExpiresAt: string | null; arms: Arm[]; endpointId: string | null;
   trafficExecution: string | null; progress: { episodesDone: number; episodesTotal: number } | null;
   error: string | null;
-  scenarioOverrides: ScenarioOverrides | null };                     // §9; null = preset as-is
+  scenarioOverrides: ScenarioOverrides | null;                       // §9; null = preset as-is
+  policyDiscount: number;                                            // §7
+  trafficRuns: TrafficRun[] };                                       // §10; oldest first, [] before any traffic
+type TrafficRun = { run: number; startedAt: string | null; episodes: number;
+  horizon: number | null;          // the run's horizon (the body's, else the experiment default)
+  shifts: Shift[];                 // §10 REST form as validated (camelCase; [] = no shifts)
+  forget: boolean;
+  status: "running" | "finished" | "failed" | "stopped" };
+  // An experiment that ran traffic before runs were numbered shows a legacy run 1
+  // (startedAt/horizon null, shifts [], forget false).
 type ScenarioOverrides = { segmentMix?: number[]; gapScale?: number; judgeWrong?: number;
   noiseScale?: number; driftAtFrac?: number };                       // only the fields that were set
 type Band = { mean: number[]; lo: number[]; hi: number[] };          // mean ± 95% CI across episodes
@@ -195,8 +208,22 @@ type ExperimentMetrics = { experimentId: string; episodes: number; horizon: numb
   armShare: Record<string, number[]>;                                // linear_ts only, by creativeId
   perSegment: Record<string, { optimalArm: string;
                                policies: Record<string, { pctOptimal: number; avgReward: number }> }>;
-  arms: { creativeId: string; impressions: number; estimatedCtr: number; trueCtr: number }[] };
+  arms: { creativeId: string; impressions: number; estimatedCtr: number; trueCtr: number }[];
+  run: number;                                                       // §10: the run these numbers are from
+  shiftResponse: Record<string, ShiftResponse[]>;                    // §10; {} without shifts
+  regimes: MetricsRegime[] };                                        // §10; [] without shifts
+type Stat = { mean: number; lo: number; hi: number };               // mean ± 95% CI across episodes
+type ShiftResponse = { round: number; episodes: number;              // one per shift, in time order
+  pctOptimalBefore: Stat; pctOptimalAfter: Stat; regretRateBefore: Stat; regretRateAfter: Stat;
+  recoveryRounds: Stat | null;                                       // over the episodes that recovered
+  recoveredEpisodes: number };
+type MetricsRegime = { start: number; end: number;                   // rounds [start, end)
+  perSegment: ExperimentMetrics["perSegment"];                       // same shape and rules, this regime only
+  arms: { creativeId: string; trueCtr: number }[] };                 // mean regime true CTR (linear_ts rows)
 ```
+
+- **Policies:** a run with shifts adds the ghost policy `linear_ts_unshifted` (Linear TS on the same draws without the shifts, §10). It is ordered right after `linear_ts` and appears in `curves`, `totals`, `perSegment` and `shiftResponse`, but never votes on an `optimalArm` (its winners come from the unshifted world).
+- **Whole-run fields are unchanged** with shifts (`perSegment`, `arms[].trueCtr` still span the whole run); the per-regime split is the additive `regimes` list. `regimes` comes from the metrics rows' `regimes` JSON (no extra query); `start`/`end` come from the first row that carries them (the endpoint's).
 
 ## 6. Resolved decisions (PR 4 + PR 5, 2026-10-02)
 
@@ -208,10 +235,10 @@ type ExperimentMetrics = { experimentId: string; episodes: number; horizon: numb
   - Ad-copy evals are matched headline first, then id, then position.
   - `imageUri` is null when `_generated_artifact_keys` exists and doesn't include the concept's image.
 - **Error reasons** (`detail.reason`):
-  - 400: `too_few_arms`, `too_many_arms`, `duplicate_index`, `index_out_of_range`, `no_creatives`, `invalid_scenario`, `invalid_ctr_mode`, `invalid_reward_mode`, `invalid_scenario_overrides` (with `detail.field`, §9), `invalid_episodes`, `invalid_horizon`;
+  - 400: `too_few_arms`, `too_many_arms`, `duplicate_index`, `index_out_of_range`, `no_creatives`, `invalid_scenario`, `invalid_ctr_mode`, `invalid_reward_mode`, `invalid_scenario_overrides` (with `detail.field`, §9), `invalid_episodes`, `invalid_horizon`, `invalid_shifts` (with `detail.field`, §10), `invalid_forget`, `invalid_run`;
   - 409: `active_experiment`, `not_ready`;
   - 404: `session_not_found`, `not_found`;
-  - 502: `config_write_failed`, `traffic_start_failed`.
+  - 502: `config_write_failed` (also the §10 `runs/{n}.json` record), `traffic_start_failed`.
 - **Lifecycle:**
   - The api moves `running_traffic` back to `ready` once `progress.episodes_done >= episodes_total` or the job execution has finished. A failed job sets `error` and keeps the status `ready`. The check runs on a detail GET, in the background on `/metrics` and `/creatives` GETs, on the reaper's full pass (every 5 min, which also adopts `running_traffic` rows another process started) and on a light pass every 60 s that point-reads only the `running_traffic` rows the process is watching (no query when idle; 2026-10-05, after a frozen browser poll left a finished run `running_traffic` for 43 min). Idempotent: the transition re-reads the row and is skipped if its `traffic_execution` changed since the check.
   - Stop waits up to 2 s, so it returns `stopped` if teardown finishes in time, otherwise `stopping`.
@@ -293,6 +320,23 @@ type CreativeSeries = {
     missedClicks: number;     // mean per episode of SUM(regret) over this creative's rows (expected clicks lost vs the best creative for those readers)
     engagedSecondsPer1k: number | null; // 1000 · SUM(dwell_s) / impressions when the experiment's reward_mode is "engaged"; null otherwise or with 0 impressions
   }[];                        // ordered by finalShare desc (ties keep the experiment's arm order)
+  run: number;                // §10: the traffic run (`?run=N`, default the latest)
+  regimes: {                  // §10: [] when the run has no shifts
+    index: number;            // 0-based; regime k = RANGE_BUCKET(round, boundaries) = k
+    start: number; end: number;          // rounds [start, end) of the run's horizon
+    impressions: number;                 // linear_ts impressions in the regime, all episodes
+    segmentWinners: Record<string, string>; // segment -> most frequent optimal_arm (ties → lowest id)
+    creatives: {                         // every creative, in the experiment's arm order
+      creativeId: string;
+      impressions: number; clicks: number;
+      share: number;                     // pooled impressions / regime impressions
+      ctr: number | null;                // clicks / impressions; null with 0 impressions
+      trueCtr: number | null;            // mean p_chosen; null with no p_chosen
+      segmentsWon: string[];             // sorted
+      segments: { segment: string; impressions: number; clicks: number; ctr: number | null;
+                  trueCtr: number | null; isBest: boolean }[]; // same sorted list in every regime
+    }[];
+  }[];
 };
 ```
 
@@ -300,7 +344,9 @@ type CreativeSeries = {
 - **Windows:** `nw = min(20, horizon)` windows. A round's window is `DIV(round * nw, horizon)` (exact integer floor, clamped to `nw - 1`), so window `w` is `[ceil(w·H/nw), ceil((w+1)·H/nw))`. With the default horizons there are always 20.
 - **Numbers** are rounded to 4 decimal places (including `missedClicks` and `engagedSecondsPer1k`); `share` is renormalized per window before rounding.
 - **Empty** (no events yet): `episodes: 0`, `horizon: null`, `windows: []`, and one entry per experiment arm with empty arrays, zero counts, `trueCtr: null`, `segmentsWon: []`, `finalShare: 0`, `segments: []`, `missedClicks: 0`, `engagedSecondsPer1k: null`. Creatives seen in events but not in the experiment's arms are appended.
-- **Caching** (in-process LRU, 64 experiments): 30 s while the experiment is `running_traffic`; indefinitely once `stopped` or `expired` (the data is final); not cached in any other status.
+- **Caching** (in-process LRU, 64 entries keyed `{experimentId}:r{run}`): 30 s while the experiment is `running_traffic`; indefinitely once `stopped` or `expired`, or for a run older than the latest (the data is final); not cached otherwise.
+- **Runs (2026-10-05, §10):** every query adds `AND IFNULL(traffic_run, 1) = @traffic_run`, so legacy rows count as run 1. Before the `traffic_run` column exists (unmigrated table) run 1 reads every row and later runs read nothing.
+- **Regimes (2026-10-05, §10):** a fifth query, `build_regimes_sql`, runs only when the run has shifts: `GROUP BY RANGE_BUCKET(round, @boundaries), segment, optimal_arm, arm` with `COUNT(*)`, `SUM(clicked)`, `SUM(p_chosen)`, `COUNT(p_chosen)`. `@boundaries` (`ARRAY<INT64>`, sorted, unique, strictly inside `(0, horizon)`) are the run's shift rounds `round(atFrac · horizon)` plus each shock's end round `round(untilFrac · horizon)`, i.e. the same boundaries `bandit.metrics.regime_stats` uses, computed from the run's `traffic_runs` entry (its recorded horizon).
 - **Implementation:** four parameterized queries (`runserver/experiments_store.py`: `build_creative_series_sql`, `build_segment_winners_sql`, `build_true_ctr_sql`, `build_creative_segments_sql`) run concurrently; `runserver/experiments_series.py::build_creative_series` does the cross-episode aggregation in pure Python. A 20-episode × 40k-round experiment (800k events) processes about 134 MB across the three queries in about 1 s each.
 - **Per-segment fields** (added 2026-10-03, additive): `build_creative_segments_sql` groups the `linear_ts` rows by `(arm, segment)` and returns `COUNT(*)`, `SUM(clicked)` (`clicked` is INT64 0/1), `SUM(p_chosen)` + `COUNT(p_chosen)`, `SUM(regret)` and `SUM(dwell_s)` (NULLs as 0). `segments[].trueCtr` = `SUM(p_chosen) / COUNT(p_chosen)`; `missedClicks` = the creative's `SUM(regret)` / `episodes`; `engagedSecondsPer1k` uses the experiment row's `reward_mode`. `isBest` mirrors `segmentsWon` (the `optimal_arm` mode, not this query).
 
@@ -405,7 +451,13 @@ Shifts belong to a **traffic run**, not to the experiment: `experiment.json` is 
 - the kind's magnitude (`lift_pp` / `drop_pp` / `ctr_multiplier` + `until_frac`), or for mix `segment_mix` + `segment_weights` (renormalised);
 - `targets`: per affected segment, `segment`, `ctr_before`, `ctr_after` (segment-level), plus `best_other_ctr` and `logit_offset` for promote and demote.
 
-PR B/C store it per run: the `traffic_runs` JSON on the experiment row, and `{id}/runs/{n}.json` in GCS. The traffic job (PR B) logs it once per run (`traffic run N: … resolved shifts [...]`) and returns it in its summary; the api (PR C) writes the authoritative record.
+PR B/C store it per run: the `traffic_runs` JSON on the experiment row, and `{id}/runs/{n}.json` in GCS. (The api has no `bandit` and so records the **validated requested** script in snake_case, together with the run's horizon; the resolved record is a deterministic function of it, the experiment config and the horizon, so a run replays exactly.) The traffic job (PR B) also logs the resolved record once per run (`traffic run N: … resolved shifts [...]`) and returns it in its summary.
+
+**REST (PR C, implemented 2026-10-05 in `runserver/experiments.py`):**
+- **Validation** (`validate_shifts(scenario, ctr_mode, arms, shifts)`): the rules above on the camelCase form, `null` fields counting as unset. runserver duplicates `SHIFT_KINDS`, `SHIFT_BOUNDS`, `MAX_SHIFTS`, `SHIFT_MIN_WINDOW`, `LEADER`, `LEADER_KINDS`, the per-kind field tables, the per-scenario segment names (`SCENARIO_SEGMENT_NAMES`) and `ctr_scale` (from `SCENARIO_TARGET_CTR`), under parity tests (`tests/test_experiments_shifts.py`, which also checks that `bandit` rejects every case the api rejects, naming the same field). Creative ids must be the experiment's arms. A failure is **400** `{reason: "invalid_shifts", field}` with the camelCase field (`shifts[1].untilFrac`, `shifts[0].creativeId`; `shifts` for a non-list or more than 4). A non-boolean `forget` is **400** `invalid_forget`.
+- **Run allocation:** `run = len(traffic_runs) + 1` (an experiment that ran traffic before runs were numbered counts as having a legacy run 1, so its next run is 2). Before starting the job the api writes `{artifacts}/{id}/runs/{n}.json`: `{experiment_id, run, started_at, episodes, horizon, forget, shifts (job form), request (the body as submitted)}`; `horizon` is the body's or the experiment default. It then starts the job with `TRAFFIC_RUN`, `FORGET` and (only when there are shifts) `SHIFTS_JSON`, and appends `{run, started_at, episodes, horizon, forget, shifts, execution}` to `traffic_runs` in the same guarded `traffic_started` transition (skipped, 409, if another process started a run since the read). The previous entry's `status` is frozen at that point. The response adds `run`.
+- **Reads:** `/metrics` and `/creatives` take `?run=N` (default the latest; `[1, latest]` else 400 `invalid_run`). Rows with a NULL `traffic_run` count as run 1. Both responses carry `run`; `/metrics` adds `shiftResponse` and `regimes` (§5), `/creatives` adds `regimes` (§8).
+- **Frontend proxy:** the `/api/adk` proxy forwards only the `since` / `version` query params today; PR D must add `run` to that allowlist (`frontend/src/lib/user-scoping.ts`).
 
 **Forgetting:** when `forget` is true, the endpoint's discount for the run is `bandit.config.default_shift_discount(ctr_mode, batch_size, horizon)` = `discount_for_memory(horizon / 8, batch_size)`. This is the §7 drift memory rule: 0.98 for 40k demo rounds and 0.998 for 400k realistic rounds at `batch_size = 100`.
 - The traffic job floors it at `RESET_DISCOUNT_BOUNDS[0]` = 0.95 (`bandit_traffic.traffic.run_discount`; short runs, below ~15.6k rounds at batch 100, would otherwise forget faster than the predictor accepts) and sends it as the `discount` of every `reset` (§2). The ghost uses the same value.

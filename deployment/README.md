@@ -1224,6 +1224,22 @@ Rows written before it keep `traffic_run` NULL (readers count them as run 1). Th
 also needs a rebuild for the reset `discount` (contracts §2); an older predictor ignores the
 field, so a forgetting run against it just keeps the config γ.
 
+**Migration: numbered traffic runs (contracts §10 "Scripted behaviour shifts", 2026-10-05).**
+`bandit_experiments` gained `traffic_runs STRING`, the JSON list of an experiment's numbered
+traffic runs (each with its shift script and forgetting switch). Run this on **both** datasets
+**after** deploying the api that writes it: until then the api logs an error and starts
+traffic without recording the run (so run numbers restart), and reads with a `traffic_run`
+filter treat every row as run 1. Older api revisions keep working on the migrated table (a
+partial update ignores columns it doesn't know). (The `bandit_events` / `bandit_episode_metrics`
+columns above must be added **before** the new traffic image runs.)
+
+```sql
+ALTER TABLE `$PROJECT.trend_trawler.bandit_experiments`
+  ADD COLUMN IF NOT EXISTS traffic_runs STRING;
+ALTER TABLE `$PROJECT.trend_trawler_eval.bandit_experiments`
+  ADD COLUMN IF NOT EXISTS traffic_runs STRING;
+```
+
 **Old revisions run the background loops too.** Every api instance runs the TTL reaper (every
 5 minutes), and both the reaper and the detail GET resume `deploying` rows and tear down
 expired ones. A revision kept reachable by a traffic tag (such as a rollback anchor) keeps a
