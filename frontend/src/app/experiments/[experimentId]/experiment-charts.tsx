@@ -2,7 +2,7 @@
 
 import type { ReactNode } from "react";
 import { InfoTip } from "@/components/ui/info-tip";
-import { CHART_HELP } from "@/lib/experiment-help";
+import { CHART_HELP, SHIFT_HELP } from "@/lib/experiment-help";
 import { CHART_EXPLAIN, SHIFT_EXPLAIN } from "@/lib/experiment-explain";
 import type { ChartReadings } from "@/lib/experiment-insights";
 import { ExplainPanel } from "@/components/explain";
@@ -105,7 +105,7 @@ export function ExperimentCharts({
   const avg = curveSeries(metrics, "cumAvgReward", { includeOracle: true });
   const regret = curveSeries(metrics, "cumRegret", { bands: true });
   const optimal = curveSeries(metrics, "pctOptimal", { bands: true });
-  const share = armShareSeries(metrics, arms);
+  const share = armShareSeries(metrics, arms, shifted && metrics.horizon ? { minWindow: metrics.horizon * 0.01 } : {});
   const segments = segmentRows(metrics, arms);
   const totals = totalBars(metrics);
   const armRows = armStatRows(metrics, arms);
@@ -134,7 +134,7 @@ export function ExperimentCharts({
       </p>
       <ChartPanel
         title="Cumulative average reward against the optimum"
-        help={CHART_HELP.avgReward}
+        help={hasGhost ? `${CHART_HELP.avgReward} ${SHIFT_HELP.ghost}` : CHART_HELP.avgReward}
         reading={readings?.avgReward}
         explain={explainFor(CHART_EXPLAIN.avgReward)}
         explainOpen={explain}
@@ -179,7 +179,7 @@ export function ExperimentCharts({
 
       <ChartPanel
         title="Share of rounds on the best creative"
-        help={CHART_HELP.optimalShare}
+        help={hasGhost ? `${CHART_HELP.optimalShare} ${SHIFT_HELP.ghost}` : CHART_HELP.optimalShare}
         reading={readings?.optimal}
         explain={explainFor(CHART_EXPLAIN.optimalShare)}
         explainOpen={explain}

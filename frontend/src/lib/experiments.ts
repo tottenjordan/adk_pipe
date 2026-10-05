@@ -924,9 +924,16 @@ export function curveSeries(
 }
 
 /** linear_ts arm share over time: one series per arm, coloured in arm order. */
-export function armShareSeries(metrics: ExperimentMetrics, arms: Arm[]): ChartSeries[] {
+export function armShareSeries(
+  metrics: ExperimentMetrics,
+  arms: Arm[],
+  opts: { minWindow?: number } = {}
+): ChartSeries[] {
+  // `minWindow` drops checkpoints whose window (rounds since the previous one) is
+  // shorter, e.g. the 1-round windows merged in around a shift, whose shares are noise.
   const xs = metrics.checkpoints ?? [];
-  const idx = downsampleIndices(xs.length, MAX_POINTS);
+  const min = opts.minWindow ?? 0;
+  const idx = downsampleIndices(xs.length, MAX_POINTS).filter((i) => xs[i] - (i > 0 ? xs[i - 1] : 0) >= min);
   const ordered = [...arms].sort((a, b) => a.index - b.index);
   const known = new Set(ordered.map((a) => a.creativeId));
   const extra = Object.keys(metrics.armShare ?? {}).filter((id) => !known.has(id));

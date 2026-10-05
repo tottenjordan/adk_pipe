@@ -275,7 +275,7 @@ function Timeline({
     <div className="mt-4 select-none">
       <div className="relative mx-3.5 h-[4.5rem]">
         {/* The run: a baseline with quarter ticks. */}
-        <div aria-hidden className="absolute inset-x-0 bottom-0 h-px bg-foreground/70" />
+        <div aria-hidden className="absolute inset-x-0 bottom-0 h-[2px] bg-foreground" />
         {[0, 0.25, 0.5, 0.75, 1].map((t) => (
           <span
             key={t}
@@ -356,7 +356,7 @@ function Timeline({
             className={cn("absolute", t === 0 ? "" : t === 1 ? "-translate-x-full" : "-translate-x-1/2")}
             style={{ left: `${t * 100}%` }}
           >
-            {t === 0 ? "Start of run" : t === 1 ? "End" : pct(t)}
+            {t === 0 ? "Start" : t === 1 ? "End" : pct(t)}
           </span>
         ))}
       </div>
@@ -397,7 +397,7 @@ function Pin({
       </div>
       <span
         className={cn(
-          "absolute left-1/2 ml-2 text-[11px] whitespace-nowrap text-muted-foreground",
+          "absolute left-1/2 ml-4 text-[11px] whitespace-nowrap text-muted-foreground",
           small ? "top-[-0.1rem]" : "top-0.5"
         )}
       >
@@ -754,7 +754,7 @@ function PreviewStrip({ pv, ctx }: { pv: NonNullable<ReturnType<typeof shiftPrev
         </span>
         <span className="text-xs text-muted-foreground">Expected click rate by segment, before random variation</span>
       </div>
-      <div className="mt-2 flex gap-3 overflow-x-auto pb-1">
+      <div className="mt-2 flex flex-wrap gap-2.5">
         {pv.regimes.map((g, gi) => {
           const prev = gi > 0 ? pv.regimes[gi - 1] : null;
           return (
@@ -780,7 +780,7 @@ function PreviewStrip({ pv, ctx }: { pv: NonNullable<ReturnType<typeof shiftPrev
                         key={sg}
                         scope="col"
                         title={segmentPhrase(sg)}
-                        className="max-w-[3.75rem] truncate px-0.5 text-center text-[11px] font-normal text-muted-foreground"
+                        className="max-w-[3.2rem] truncate px-0.5 text-center text-[11px] font-normal text-muted-foreground"
                       >
                         {segmentPhrase(sg).split(" ")[0]}
                       </th>
@@ -804,7 +804,7 @@ function PreviewStrip({ pv, ctx }: { pv: NonNullable<ReturnType<typeof shiftPrev
                               title={`${c.name}, ${segmentPhrase(sg)}: ${formatPercent(v, 2)}`}
                               className={cn(
                                 CONDENSED,
-                                "flex h-8 w-[3.75rem] items-center justify-center rounded-[3px] text-[0.95rem] leading-none tabular-nums",
+                                "flex h-7 w-[3.2rem] items-center justify-center rounded-[3px] text-[0.9rem] leading-none tabular-nums",
                                 moved ? "text-foreground" : "text-foreground/70"
                               )}
                               style={{

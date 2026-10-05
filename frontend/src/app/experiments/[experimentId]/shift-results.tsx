@@ -76,7 +76,7 @@ export function ShiftResults({
         })}
       </ol>
       {ghost && <p className="mt-3 max-w-[72ch] text-sm leading-snug text-foreground">{ghost}</p>}
-      <ExplainPanel open={explain}>{SHIFT_EXPLAIN.cards}</ExplainPanel>
+      <ExplainPanel open={explain}>{`${SHIFT_EXPLAIN.cards} ${SHIFT_EXPLAIN.forgetting}`}</ExplainPanel>
     </section>
   );
 }

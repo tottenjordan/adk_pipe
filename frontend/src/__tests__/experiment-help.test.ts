@@ -58,6 +58,25 @@ describe("experiment help copy", () => {
     expect(text).not.toMatch(/\b[A-Z]{2,}[a-z]*\s+[A-Z]{2,}\b/);
   });
 
+  it("every shift help and explain entry is used somewhere (contracts §10)", async () => {
+    const explain = await import("@/lib/experiment-explain");
+    const files = [
+      ...UI_FILES,
+      "app/experiments/[experimentId]/segment-grid.tsx",
+      "app/experiments/[experimentId]/creative-detail.tsx",
+    ];
+    const src = files.map((f) => readFileSync(path.join(SRC, f), "utf8")).join("\n");
+    const groups: [string, Record<string, string>][] = [
+      ["SHIFT_HELP", help.SHIFT_HELP],
+      ["SHIFT_EXPLAIN", explain.SHIFT_EXPLAIN],
+    ];
+    for (const [group, entries] of groups) {
+      for (const key of Object.keys(entries)) {
+        expect(src.includes(`${group}.${key}`), `${group}.${key}`).toBe(true);
+      }
+    }
+  });
+
   it("states the Stop consequences explicitly", () => {
     expect(help.STOP_CONFIRM.title).toBe("Stop this experiment?");
     expect(help.STOP_CONFIRM.body).toMatch(/deletes the live endpoint/);

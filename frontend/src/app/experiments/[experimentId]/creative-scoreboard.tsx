@@ -272,7 +272,7 @@ function PeriodFigures({ r }: { r: LaneRegime }) {
       <Figure
         label={`Click rate, ${r.latest.label.toLowerCase()}`}
         value={rate(r.latest.clickRate)}
-        note={`${r.latest.trueCtr === null ? "" : `true ${formatPercent(r.latest.trueCtr, 1)}, `}before ${rate(r.before.clickRate)}`}
+        note={`${r.latest.trueCtr === null ? "" : `true ${formatPercent(r.latest.trueCtr, 1)}\n`}before ${rate(r.before.clickRate)}`}
       />
       <Figure
         label={`Segments won, ${r.latest.label.toLowerCase()}`}
@@ -297,7 +297,7 @@ function Figure({ label, value, note, title }: { label: string; value: string; n
       >
         {value}
       </p>
-      {note && <p className="mt-1 text-xs text-muted-foreground tabular-nums">{note}</p>}
+      {note && <p className="mt-1 text-xs whitespace-pre-line text-muted-foreground tabular-nums">{note}</p>}
     </div>
   );
 }

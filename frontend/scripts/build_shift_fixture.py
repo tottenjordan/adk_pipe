@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import dataclasses
 import json
+from typing import Any
 from pathlib import Path
 
 import jax
@@ -35,14 +36,25 @@ from bandit.config import (
     shifts_from_dict,
     validate_shifts,
 )
-from bandit.metrics import make_checkpoints, merge_checkpoints, regime_stats, shift_response
+from bandit.metrics import (
+    make_checkpoints,
+    merge_checkpoints,
+    shift_response,
+)
 from bandit.policies import canonical_spec
 from bandit.simulate import build_environment, run_experiment
 
 FIX = Path(__file__).parent / "screenshot-fixtures"
 EPISODES = 10
 SEED = 0
-POLICIES = ["linear_ts", "ucb1", "epsilon_greedy", "beta_bernoulli_ts", "uniform", "oracle"]
+POLICIES = [
+    "linear_ts",
+    "ucb1",
+    "epsilon_greedy",
+    "beta_bernoulli_ts",
+    "uniform",
+    "oracle",
+]
 GHOST = "linear_ts_unshifted"
 
 
@@ -53,8 +65,16 @@ def r4(v: float) -> float:
 def band(x: np.ndarray) -> dict:
     """mean ± 95% CI across episodes (axis 0)."""
     m = x.mean(0)
-    half = 1.96 * x.std(0, ddof=1) / np.sqrt(x.shape[0]) if x.shape[0] > 1 else np.zeros_like(m)
-    return {"mean": [r4(v) for v in m], "lo": [r4(v) for v in m - half], "hi": [r4(v) for v in m + half]}
+    half = (
+        1.96 * x.std(0, ddof=1) / np.sqrt(x.shape[0])
+        if x.shape[0] > 1
+        else np.zeros_like(m)
+    )
+    return {
+        "mean": [r4(v) for v in m],
+        "lo": [r4(v) for v in m - half],
+        "hi": [r4(v) for v in m + half],
+    }
 
 
 def stat(xs: list[float]) -> dict | None:
@@ -62,13 +82,20 @@ def stat(xs: list[float]) -> dict | None:
         return None
     a = np.asarray(xs, np.float64)
     half = 1.96 * a.std(ddof=1) / np.sqrt(len(a)) if len(a) > 1 else 0.0
-    return {"mean": r4(a.mean()), "lo": r4(a.mean() - half), "hi": r4(a.mean() + half), "n": len(a)}
+    return {
+        "mean": r4(a.mean()),
+        "lo": r4(a.mean() - half),
+        "hi": r4(a.mean() + half),
+        "n": len(a),
+    }
 
 
 def curves(out: dict, cps: np.ndarray) -> dict:
     arm = np.asarray(out["arm"])
     reward = np.asarray(out["reward"], np.float64)
-    gap = np.asarray(out["mean_opt"], np.float64) - np.asarray(out["mean_chosen"], np.float64)
+    gap = np.asarray(out["mean_opt"], np.float64) - np.asarray(
+        out["mean_chosen"], np.float64
+    )
     is_opt = (arm == np.asarray(out["opt_arm"])).astype(np.float64)
     t = np.arange(1, arm.shape[1] + 1)
     idx = cps - 1
@@ -103,7 +130,11 @@ def per_segment(results: dict, segs: list[str], ids: list[str], sl: slice) -> di
 def main() -> None:
     live = json.loads((FIX / "live-experiment.json").read_text())
     arms = [
-        {"creative_id": a["creativeId"], "label": a["conceptName"], "scores": a["scores"]}
+        {
+            "creative_id": a["creativeId"],
+            "label": a["conceptName"],
+            "scores": a["scores"],
+        }
         for a in live["arms"]
     ]
     ids = [a["creative_id"] for a in arms]
@@ -124,9 +155,13 @@ def main() -> None:
     plain = build_environment(cfg, scenario=sc)
     marg = envm.marginal_ctrs(plain, jax.random.key(1), t=0)
     leader = int(np.argmax(marg["overall"]))
-    by_seg = np.asarray([marg["by_segment"][s] for s in range(len(plain.segment_names))])
+    by_seg = np.asarray(
+        [marg["by_segment"][s] for s in range(len(plain.segment_names))]
+    )
     won = [s for s in range(by_seg.shape[0]) if int(np.argmax(by_seg[s])) == leader]
-    target = max(won, key=lambda s: by_seg[s, leader] - np.sort(by_seg[s])[-2]) if won else 0
+    target = (
+        max(won, key=lambda s: by_seg[s, leader] - np.sort(by_seg[s])[-2]) if won else 0
+    )
     requested = [
         {
             "kind": "demote",
@@ -146,7 +181,9 @@ def main() -> None:
     ]
     shifts = validate_shifts(shifts_from_dict(requested), sc, cfg.arms, "demo")
     discount = default_shift_discount("demo", cfg.batch_size, horizon)
-    cfg = dataclasses.replace(cfg, policy=dataclasses.replace(cfg.policy, discount=discount))
+    cfg = dataclasses.replace(
+        cfg, policy=dataclasses.replace(cfg.policy, discount=discount)
+    )
 
     specs = [canonical_spec(p) for p in POLICIES]
     shifted = run_experiment(cfg, specs, scenario=sc, shifts=shifts)
@@ -155,11 +192,19 @@ def main() -> None:
     resolved = envm.resolved_shifts(env)
     rounds = [rec["round"] for rec in resolved]
     boundaries = rounds + [rec["end_round"] for rec in resolved if rec.get("end_round")]
-    cps = np.asarray(merge_checkpoints(make_checkpoints(horizon, 50, "linear"), rounds, horizon))
+    cps = np.asarray(
+        merge_checkpoints(make_checkpoints(horizon, 50, "linear"), rounds, horizon)
+    )
     segs = list(env.segment_names)
 
-    results = {p: {k: np.asarray(v) for k, v in shifted.results[p].items()} for p in shifted.policies}
-    results_all = {**results, GHOST: {k: np.asarray(v) for k, v in ghost.results["linear_ts"].items()}}
+    results = {
+        p: {k: np.asarray(v) for k, v in shifted.results[p].items()}
+        for p in shifted.policies
+    }
+    results_all = {
+        **results,
+        GHOST: {k: np.asarray(v) for k, v in ghost.results["linear_ts"].items()},
+    }
 
     def ep(p: str, e: int) -> dict:
         return {k: v[e] for k, v in results_all[p].items()}
@@ -187,12 +232,16 @@ def main() -> None:
         )
     order = [*POLICIES[:-1], GHOST, "oracle"]
     shift_resp = []
-    per_ep = {p: [shift_response(ep(p, e), rounds) for e in range(EPISODES)] for p in order}
+    per_ep = {
+        p: [shift_response(ep(p, e), rounds) for e in range(EPISODES)] for p in order
+    }
     for j, rec in enumerate(resolved):
         pols = {}
         for p in order:
             rows = [x[j] for x in per_ep[p]]
-            rec_rounds = [x["recovery_rounds"] for x in rows if x["recovery_rounds"] is not None]
+            rec_rounds = [
+                x["recovery_rounds"] for x in rows if x["recovery_rounds"] is not None
+            ]
             pols[p] = {
                 "pctOptimalBefore": stat([x["pct_optimal_before"] for x in rows]),
                 "pctOptimalAfter": stat([x["pct_optimal_after"] for x in rows]),
@@ -202,7 +251,14 @@ def main() -> None:
                 "recoveredEpisodes": len(rec_rounds),
                 "episodes": EPISODES,
             }
-        shift_resp.append({"index": rec["index"], "kind": rec["kind"], "round": rec["round"], "policies": pols})
+        shift_resp.append(
+            {
+                "index": rec["index"],
+                "kind": rec["kind"],
+                "round": rec["round"],
+                "policies": pols,
+            }
+        )
 
     regimes_m = []
     reg_edges = sorted({0, horizon} | {b for b in boundaries if 0 < b < horizon})
@@ -210,9 +266,14 @@ def main() -> None:
         sl = slice(start, end)
         true = {cid: r4(lin["p_all"][:, sl, a].mean()) for a, cid in enumerate(ids)}
         regimes_m.append(
-            {"start": start, "end": end, "perSegment": per_segment(results, segs, ids, sl), "trueCtr": true}
+            {
+                "start": start,
+                "end": end,
+                "perSegment": per_segment(results, segs, ids, sl),
+                "trueCtr": true,
+            }
         )
-    _ = regime_stats  # same split as bandit.metrics.regime_stats
+    # (the same split as bandit.metrics.regime_stats, aggregated across episodes)
 
     metrics = {
         "experimentId": cfg.experiment_id,
@@ -238,8 +299,11 @@ def main() -> None:
 
     # ── /creatives ──
     nw = 20
-    win = [(int(np.ceil(w * horizon / nw)), int(np.ceil((w + 1) * horizon / nw))) for w in range(nw)]
-    creatives = []
+    win = [
+        (int(np.ceil(w * horizon / nw)), int(np.ceil((w + 1) * horizon / nw)))
+        for w in range(nw)
+    ]
+    creatives: list[dict[str, Any]] = []
     seg_mode = {}
     for s, name in enumerate(segs):
         opt = lin["opt_arm"][lin["segment"] == s]
@@ -258,7 +322,7 @@ def main() -> None:
             cum.append(r4(running))
         p_chosen = lin["p_all"][..., a][m]
         regret = (lin["mean_opt"] - lin["mean_chosen"])[m]
-        seg_rows = []
+        seg_rows: list[dict[str, Any]] = []
         for s, name in enumerate(segs):
             ms = m & (lin["segment"] == s)
             imps = int(ms.sum())
@@ -297,7 +361,12 @@ def main() -> None:
         for s, name in enumerate(segs):
             opt = lin["opt_arm"][:, sl][lin["segment"][:, sl] == s]
             seg_list.append(
-                {"segment": name, "optimalCreativeId": ids[int(np.bincount(opt, minlength=len(ids)).argmax())]}
+                {
+                    "segment": name,
+                    "optimalCreativeId": ids[
+                        int(np.bincount(opt, minlength=len(ids)).argmax())
+                    ],
+                }
             )
         cr = []
         for a, cid in enumerate(ids):

@@ -363,7 +363,7 @@ function SegmentBars({
         <h3 id="detail-segments" className="text-base font-semibold text-foreground">
           {title ?? "Click rate by audience segment"}
         </h3>
-        <p className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+        <p className={cn("inline-flex items-center gap-1.5 text-xs text-muted-foreground", !detail.segments.some((x) => x.trueCtr !== null) && "invisible")}>
           <span aria-hidden className="h-3 w-0.5 bg-foreground" />
           True rate
         </p>
