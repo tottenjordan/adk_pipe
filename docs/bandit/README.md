@@ -238,6 +238,33 @@ scenario name, so a tuned experiment sees the same random draws as its preset. T
 same knobs with the same bounds: `--segment-mix`, `--gap-scale`, `--judge-wrong`, `--noise-scale`
 and `--drift-at`.
 
+### Scripted behaviour shifts
+
+Each **Start traffic** can carry a script of up to four shifts in what the simulated readers want
+([contracts §10](contracts.md#10-scripted-behaviour-shifts-per-traffic-run-2026-10-05)): promote a
+challenger, demote a creative (or the current leader), change the audience mix, or a temporary
+shock to one creative's clicks. The shift editor sits above **Start traffic** on the experiment
+page: a timeline of the run with one draggable pin per shift, an **Add shift** menu (the four kinds
+plus three ready-made shifts: demote the leader at halfway, a mobile surge at 30%, ad fatigue on
+the leader from 60% to 75%), one plain-language sentence per shift, and a live preview of the
+expected click rate per creative × segment in every period between shifts (a port of the
+simulator's shift resolution, golden-tested against `bandit`). **Let the endpoint forget old
+evidence** is on by default when there are shifts.
+
+Shifts apply to the endpoint and every replayed baseline alike. A **ghost line** (dashed, "Linear TS
+without your shifts") replays Linear TS on the same readers without them, so the gap is what the
+shifts cost. Each traffic run is numbered; the run picker (`?run=N`) switches between them. With
+shifts, the charts switch to a linear round axis with a rule at each shift (and a shaded recovery
+stretch on regret), the Overview gets one result card per shift (best-creative rate before and
+after, rounds to recover to 80% of the earlier rate, episodes and a 95% interval, "Too early to
+call" under five episodes), and every per-segment view (scoreboard click rate and segments won,
+the segment grid, the creative drawer, the winners and click-rate tables) reads one period at a
+time instead of blending the whole run.
+
+![Shift editor with two shifts and the period-by-period preview](../screenshots/18-shift-timeline.png)
+
+![Shift results: result cards, period grid, shift markers and the ghost line](../screenshots/19-shift-results.png)
+
 ## Metrics and terminology
 
 **Terminology** (as in [contracts](contracts.md)):
