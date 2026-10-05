@@ -1198,6 +1198,32 @@ ALTER TABLE `$PROJECT.trend_trawler_eval.bandit_experiments`
   ADD COLUMN IF NOT EXISTS policy_discount FLOAT64;
 ```
 
+**Migration: traffic runs + shifts (contracts §3 / §10, 2026-10-05).** The traffic job now
+writes `traffic_run INT64` on every `bandit_events` and `bandit_episode_metrics` row, and
+`shift_response STRING` / `regimes STRING` (JSON) on metrics rows. Streaming inserts that name
+a missing column fail, so run this on **both** datasets **before** deploying the traffic job
+image that writes them (the api's own `bandit_experiments.traffic_runs` column comes with the
+api change, PR C):
+
+```sql
+ALTER TABLE `$PROJECT.trend_trawler.bandit_events`
+  ADD COLUMN IF NOT EXISTS traffic_run INT64;
+ALTER TABLE `$PROJECT.trend_trawler.bandit_episode_metrics`
+  ADD COLUMN IF NOT EXISTS traffic_run INT64,
+  ADD COLUMN IF NOT EXISTS shift_response STRING,
+  ADD COLUMN IF NOT EXISTS regimes STRING;
+ALTER TABLE `$PROJECT.trend_trawler_eval.bandit_events`
+  ADD COLUMN IF NOT EXISTS traffic_run INT64;
+ALTER TABLE `$PROJECT.trend_trawler_eval.bandit_episode_metrics`
+  ADD COLUMN IF NOT EXISTS traffic_run INT64,
+  ADD COLUMN IF NOT EXISTS shift_response STRING,
+  ADD COLUMN IF NOT EXISTS regimes STRING;
+```
+
+Rows written before it keep `traffic_run` NULL (readers count them as run 1). The serving image
+also needs a rebuild for the reset `discount` (contracts §2); an older predictor ignores the
+field, so a forgetting run against it just keeps the config γ.
+
 **Old revisions run the background loops too.** Every api instance runs the TTL reaper (every
 5 minutes), and both the reaper and the detail GET resume `deploying` rows and tear down
 expired ones. A revision kept reachable by a traffic tag (such as a rollback anchor) keeps a
@@ -1277,6 +1303,7 @@ a configuration error.
 | Variable | Set by | Meaning |
 |---|---|---|
 | `EXPERIMENT_ID`, `CONFIG_URI`, `ENDPOINT_ID`, `EPISODES`, `HORIZON` | the api (execution overrides) | Row key; `gs://…/experiment.json`; full endpoint resource name; run size |
+| `SHIFTS_JSON`, `TRAFFIC_RUN`, `FORGET` | the api (execution overrides, contracts §10) | Scripted shifts (snake_case JSON list); 1-based run number (default 1); send the run's discount on every reset (default: on iff there are shifts). Bad values exit 2 |
 | `BATCH_SIZE`, `REWARD_MODE`, `ERROR_THRESHOLD`, `LOG_LEVEL` | optional | Overrides (default: `experiment.json` / 0.05 / INFO) |
 | `BQ_PROJECT_ID`, `BQ_DATASET_ID`, `BQ_TABLE_BANDIT_*` | `deploy_traffic_job.sh` | Output tables |
 

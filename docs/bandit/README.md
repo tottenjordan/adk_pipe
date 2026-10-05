@@ -172,7 +172,7 @@ routes are not used because `invokeRoutePrefix` is preview-only and disables `:p
 |---|---|---|
 | `decision` | Choose a creative for one impression | in: `request_id`, `ts`, `context`, `eligible_arms?`; out: `chosen_arm`, `propensity`, `arm_probabilities`, `explored`, `model_version` |
 | `reward` | Report the outcome of a pending decision | in: `request_id`, `arm`, `reward` (unscaled), `clicked`, `dwell_s?`; out: `accepted` |
-| `reset` | Start an episode from a fresh prior | in: `episode`, `seed` |
+| `reset` | Start an episode from a fresh prior | in: `episode`, `seed`, `discount?` (per-run forgetting) |
 | `state` | Inspect the posterior | out: `pulls`, `posterior_mean`, `feature_spec_version`, `step` |
 
 Full field lists, `parameters` bounds and request-id conventions are in
@@ -341,7 +341,8 @@ api service (full table: [deployment/README.md → Bandit experiments](../../dep
 The CPR container's own variables (`BANDIT_CHECKPOINT_EVERY`, `BANDIT_CHECKPOINT_SECONDS`,
 `BANDIT_MAX_PENDING`, `BANDIT_MAX_SEEN`, `BANDIT_WARMUP*`) are in
 [`bandit_serving/README.md`](../../bandit_serving/README.md#environment); the traffic job's
-(`EXPERIMENT_ID`, `CONFIG_URI`, `ENDPOINT_ID`, `EPISODES`, `HORIZON`, `ERROR_THRESHOLD`, …) are
+(`EXPERIMENT_ID`, `CONFIG_URI`, `ENDPOINT_ID`, `EPISODES`, `HORIZON`, `SHIFTS_JSON`, `TRAFFIC_RUN`,
+`FORGET`, `ERROR_THRESHOLD`, …) are
 in the [deployment guide](../../deployment/README.md#traffic-job-bandit_traffic).
 
 ### IAM
