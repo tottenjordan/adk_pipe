@@ -357,6 +357,43 @@ wide CI (± 50–220, because BB-TS sometimes never notices the swap). It is sti
 and beating UCB1 in `drift` likely needs a different model (a shared context effect plus
 per-arm intercepts, or change detection), not a tuning knob.
 
+## Scripted shifts
+
+A traffic run can script up to four behaviour shifts (contracts §10):
+- `promote` a challenger;
+- `demote` a creative (or `"leader"`, whoever leads at that moment);
+- change the audience `mix`;
+- a temporary `shock` to one creative's click rate.
+
+Shifts apply to every policy alike and keep the common random numbers. `--forget` gives
+`linear_ts` the shift discount (memory = T / 8, γ = 0.98 at 40k rounds):
+
+```bash
+uv run python -m bandit.cli simulate --scenario segment_winners --episodes 5 \
+  --policies 'linear_ts;linear_ts:discount=1.0;ucb1;epsilon_greedy;beta_bernoulli_ts;uniform;oracle' \
+  --shifts '[{"kind":"demote","at_frac":0.5,"segment":null,"creative_id":"leader","drop_pp":0.015}]' \
+  --forget --out /tmp/shift_sim.json
+```
+
+The pooled leader at round 20,000 resolves to `synthetic-d`. It is the `trend_followers`
+winner, and it drops from 5.5 % to 2.5 % there (1.5 pts under the runner-up). It is also
+nudged down in two other segments, so it ends at least 1.5 pts under the best creative everywhere.
+Only one segment's best creative changes, so the dent is small. `shift_response` (means
+over 5 episodes; windows of 2,000 rounds; recovery = trailing 1,000-round % optimal back to
+80 % of its pre-shift level):
+
+| Policy | % optimal before → after | Regret / round before → after | Recovery (rounds) |
+|---|---|---|---|
+| `linear_ts` (forgetting, γ = 0.98) | 0.440 → 0.408 | 0.0087 → 0.0082 | 1,690 (5/5) |
+| `linear_ts:discount=1.0` | 0.495 → 0.405 | 0.0076 → 0.0084 | 3,972 (5/5) |
+| `ucb1` | 0.249 → 0.234 | 0.0119 → 0.0102 | 1,080 (5/5) |
+| `oracle` | 1.000 → 1.000 | 0 → 0 | 1,000 (5/5) |
+
+- **Forgetting halves the recovery time** in this run, but it costs a little in the stationary
+  first half. Whole-run regret is 331 with forgetting and 325 without.
+- **1,000 is the floor:** the trailing window must hold only post-shift rounds, so a policy the
+  shift didn't dent reports exactly the window.
+
 ## Caveats
 
 - **Demo CTRs are inflated.** Demo mode averages about 4 % CTR, against about 0.8 % in

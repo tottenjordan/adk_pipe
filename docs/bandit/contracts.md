@@ -40,6 +40,27 @@ def experiment_config_to_dict(cfg) -> dict                               # JSON 
 def validate_scenario_overrides(ov, scenario: ScenarioConfig) -> ScenarioOverrides   # ValueError naming the field
 def apply_scenario_overrides(sc: ScenarioConfig, ov | None) -> ScenarioConfig
 def resolve_scenario(cfg) -> ScenarioConfig     # load_scenario(cfg.scenario) + cfg.scenario_overrides
+@dataclass(frozen=True)
+class ShiftSpec: kind: str; at_frac: float; segment: str | None = None; creative_id: str | None = None
+                 lift_pp: float | None = None; drop_pp: float | None = None
+                 segment_mix: tuple[float, ...] | None = None; until_frac: float | None = None
+                 ctr_multiplier: float | None = None                            # §10
+SHIFT_KINDS: tuple[str, ...]; SHIFT_BOUNDS: dict[str, tuple[float, float]]     # §10, inclusive
+MAX_SHIFTS = 4; SHIFT_MIN_WINDOW = 0.02; LEADER = "leader"; LEADER_KINDS = ("demote", "shock")
+def shifts_from_dict(data: list | None) -> tuple[ShiftSpec, ...]         # strict snake_case parse (SHIFTS_JSON)
+def shifts_to_dict(shifts) -> list[dict]                                 # JSON round-trip of shifts_from_dict
+def validate_shifts(shifts, scenario: ScenarioConfig, arms, ctr_mode) -> tuple[ShiftSpec, ...]  # ValueError "shifts[i].<field>"
+def default_shift_discount(ctr_mode, batch_size, horizon) -> float      # discount_for_memory(horizon / 8, batch_size)
+
+# bandit/environment.py + bandit/simulate.py (simulator; §10)
+def build_environment(cfg, *, scenario=None, shifts=()) -> Environment  # shifts resolved in time order; same keys
+def resolved_shifts(env) -> list[dict]                                   # concrete rounds / creatives / targets
+def sample_contexts(key, model, n, t=None) -> (segments, levels, X)      # t (n,): latest started mix shift applies
+
+# bandit/metrics.py (§10)
+def shift_response(out, shift_rounds, window=None, recovery_window=None, recovery_level=0.8) -> list[dict]
+def merge_checkpoints(checkpoints, shift_rounds, horizon) -> list[int]
+def regime_stats(out, boundaries, arm_ids, segment_names) -> list[dict]  # per-regime per_segment + true_ctr
 
 # bandit/features.py
 FEATURE_SPEC_VERSION: str            # e.g. "ctx-v1"
@@ -308,3 +329,83 @@ Binding for every layer: `bandit/`, the traffic job, the predictor, the api (`ru
 - **CLI:** `python -m bandit.cli simulate` exposes `--segment-mix`, `--gap-scale`, `--judge-wrong`, `--noise-scale` and `--drift-at`, with the same bounds, applied through `apply_scenario_overrides`.
   - The bounded overrides are recorded in the output's `config.scenario_overrides`.
   - The one exception is a `--segment-mix` with weights outside [0.05, 1] (for example the notebook-parity single-segment `1,0,0,0` readers). It is applied directly as a lab-only escape hatch and isn't recorded.
+
+## 10. Scripted behaviour shifts (per traffic run, 2026-10-05)
+
+Binding for every layer: `bandit/` (PR A, implemented), the traffic job and predictor (PR B), the api (PR C) and the frontend shift editor (PR D). Plan: [`docs/plans/2026-10-05-bandit-scripted-shifts.md`](../plans/2026-10-05-bandit-scripted-shifts.md).
+
+Shifts belong to a **traffic run**, not to the experiment: `experiment.json` is unchanged. They apply to the ground truth that the endpoint **and** every replayed baseline see.
+
+**REST form** (the `POST …/traffic` body, camelCase). `shifts` holds at most 4 entries. `forget` is a bool that defaults to `true` when there is at least one shift (else `false`):
+
+```jsonc
+"shifts": [
+  {"kind": "promote", "atFrac": 0.4, "segment": "mobile_scrollers" | null, "creativeId": "aae3f6b4", "liftPp": 0.015},
+  {"kind": "demote",  "atFrac": 0.5, "segment": null, "creativeId": "leader" | "<id>", "dropPp": 0.015},
+  {"kind": "mix",     "atFrac": 0.3, "segmentMix": [0.6, 0.2, 0.2]},
+  {"kind": "shock",   "atFrac": 0.6, "untilFrac": 0.7, "segment": null, "creativeId": "leader" | "<id>", "ctrMultiplier": 0.6}
+],
+"forget": true
+```
+
+**Job form** (snake_case; `bandit.config.shifts_from_dict` / `shifts_to_dict`): the same structure with `at_frac`, `until_frac`, `creative_id`, `lift_pp`, `drop_pp`, `segment_mix`, `ctr_multiplier`. The traffic job gets three env overrides:
+- `SHIFTS_JSON`: the snake_case list;
+- `TRAFFIC_RUN=N`: the 1-based run number;
+- `FORGET=true|false`.
+
+**Fields and bounds** (`bandit.config.SHIFT_KINDS` / `SHIFT_BOUNDS` / `MAX_SHIFTS` / `SHIFT_MIN_WINDOW`; inclusive; finite JSON numbers only, booleans and strings rejected; unknown keys and another kind's fields rejected):
+
+| Kind | Required | Optional | Bounds |
+|---|---|---|---|
+| all | `kind`, `at_frac` | | `at_frac` ∈ [0.05, 0.95] |
+| `promote` | `creative_id` (an arm), `lift_pp` | `segment` (`null` = everyone) | `lift_pp` ∈ [0.005, 0.03] × s |
+| `demote` | `creative_id` (an arm or `"leader"`), `drop_pp` | `segment` | `drop_pp` ∈ [0.005, 0.03] × s |
+| `mix` | `segment_mix` (one weight per scenario segment, as §9) | | each weight ∈ [0.05, 1], renormalised |
+| `shock` | `creative_id` (an arm or `"leader"`), `until_frac`, `ctr_multiplier` | `segment` | `until_frac` ∈ [0.07, 1.0] and ≥ `at_frac` + 0.02; `ctr_multiplier` ∈ [0.3, 2.0] |
+
+- **`s`** is the scenario's `ctr_scale(ctr_mode)` = `target_ctr[ctr_mode] / target_ctr["demo"]` (1 in demo; 0.2 realistic for every preset scenario). So realistic `lift_pp` / `drop_pp` are in [0.001, 0.006].
+- **`segment`** must be one of the scenario's segment names; `"leader"` is valid only for `demote` and `shock` (`bandit.config.LEADER_KINDS`; widened 2026-10-05 so a preset like "ad fatigue on the leader" needs no client-side resolution).
+- **Errors:** `ValueError` naming the field as `shifts[i].<field>` (`shifts_from_dict` checks types, fields per kind and the scenario-independent bounds; `validate_shifts(shifts, scenario, arms, ctr_mode)` adds segment names, the mix length, creative ids and the scaled magnitude bounds). The api (PR C) duplicates `SHIFT_KINDS` / `SHIFT_BOUNDS` under a parity test and answers **400** `detail.reason: "invalid_shifts"` with `detail.field`.
+- `scripts/gen_scenario_presets.py` writes the same constants (camelCase bound names) to `scenario-presets.generated.json` → `shifts`.
+
+**Resolution** (`bandit.environment.build_true_model(..., shifts=)`, reached through `simulate.build_environment(cfg, scenario=, shifts=)`):
+- A shift's **round** is `r = round(at_frac · T)` (0-based). It applies to rounds `t ≥ r`, so checkpoint `r` covers exactly the pre-shift rounds. A shock applies to `r ≤ t < round(until_frac · T)`. Shifts are abrupt.
+- Shifts resolve **in time order** (stable on `at_frac`, so ties keep list order), each **on top of the earlier ones**. The state at round `r` is the segment-level logit `V[s, k]`: α + `b_k` + `u[s, k]` + `θ_k · E[x | s]` (the quantity the `segment_winners` lift uses), with the drift blend at `r` and every earlier promote/demote offset. The segment-level CTR is σ(V). Shock multipliers are temporary and are ignored when resolving later shifts.
+- **`"leader"`** (demote and shock), resolved at the shift's own round on top of the earlier promote/demote/mix shifts and ignoring every shock, = argmax segment-level CTR in `segment`, or argmax of the pooled CTR (segment weights of the latest earlier mix, else the scenario mix) when `segment` is null. Ties go to the lowest arm index.
+- **`promote`:** in each targeted segment, the creative gets a logit offset `δ ≥ 0` so that σ(V + δ) = best other creative's CTR + `lift_pp`. A creative already ahead by more is left alone.
+- **`demote`:** `δ ≤ 0` so that σ(V + δ) = best other creative's CTR − `drop_pp` (for the leader, the best other is the runner-up). A creative already that far behind is left alone.
+- **`segment: null`** applies the per-segment rule in every segment.
+- **`mix`:** from `r`, segments are drawn from the latest started mix's weights.
+- **`shock`:** from `r` to the end round, the creative's click probability is multiplied by `ctr_multiplier`.
+- **α is not recalibrated.**
+
+**Click model with shifts** (`environment.click_probs`): `p = min(σ(drift_blend(pre) + Σ started offsets) · Π in-window shock multipliers, 1 − 1e-6)`. Offsets are added **after** the drift blend, so a promote or demote always targets the creative it names, even after the drift's swap. The drift's own swap still uses the pre-drift (unshifted) marginal CTRs.
+
+**Common random numbers:** shifts change no key and no draw shape. Segment draws are a Gumbel argmax of fixed shape (n, S) over per-row log-weights, levels (n, G, Lmax), and click uniforms (n, K). So a shifted and an unshifted environment with the same keys see identical uniforms and identical segments and levels, except on rows whose segment a mix shift flips. `sample_contexts(key, model, n, t)` takes the per-row round `t` (`simulate.batch_draws` passes it); `t=None` means the scenario mix.
+
+**Resolved record** (`environment.resolved_shifts(env)`, JSON-ready, in time order). Each entry has:
+- `index`: position in the requested list;
+- `kind`, `at_frac`, `round`;
+- `end_round`: shock only, else `null`;
+- for promote, demote and shock: `segment`, `requested_creative_id` (may be `"leader"`) and `creative_id` (concrete);
+- the kind's magnitude (`lift_pp` / `drop_pp` / `ctr_multiplier` + `until_frac`), or for mix `segment_mix` + `segment_weights` (renormalised);
+- `targets`: per affected segment, `segment`, `ctr_before`, `ctr_after` (segment-level), plus `best_other_ctr` and `logit_offset` for promote and demote.
+
+PR B/C store it per run: the `traffic_runs` JSON on the experiment row, and `{id}/runs/{n}.json` in GCS.
+
+**Forgetting:** when `forget` is true, the endpoint's discount for the run is `bandit.config.default_shift_discount(ctr_mode, batch_size, horizon)` = `discount_for_memory(horizon / 8, batch_size)`. This is the §7 drift memory rule: 0.98 for 40k demo rounds and 0.998 for 400k realistic rounds at `batch_size = 100`.
+
+**Metrics** (`bandit/metrics.py`):
+- **`shift_response(out, shift_rounds)`:** one entry per shift for one episode. It has `round`, `pct_optimal_before` / `_after` (the w rounds before `r` / from `r`, with w = `default_window(T)`, 2000 at the presets, clipped to the episode), `regret_rate_before` / `_after` (mean pseudo-regret per round in the same windows) and `recovery_rounds`.
+  - `recovery_rounds` = rounds from `r` until the trailing optimal-choice rate over post-shift rounds first reaches 80% of `pct_optimal_before`. The trailing window is w // 2, 1000 at the presets. It is `null` if the rate never gets there. Its floor is the trailing window itself: a policy the shift didn't dent reports exactly that.
+- **`merge_checkpoints(cps, shift_rounds, T)`:** adds `r − 1`, `r`, `r + 0.5%·T`, `r + 2%·T` and `r + 5%·T` per shift (sorted, unique, within [1, T], ending at T). Runs with shifts use `make_checkpoints(spacing="linear")` merged this way.
+- **`regime_stats(out, boundaries, arm_ids, segment_names)`:** per regime `[start, end)` between the boundary rounds (shift rounds and shock end rounds), the §3 `per_segment` and `true_ctr` {creative_id: mean true click prob}.
+
+**CLI:** `python -m bandit.cli simulate --shifts '<json>' | <path>` (snake_case) and `--forget` (`linear_ts` gets `default_shift_discount`). The output adds:
+- `shifts`: `{requested, resolved, forget, discount}`;
+- a `shift_response` list on every row;
+- a per-policy `shift_response` summary: means across episodes, with `recovery_rounds` averaged over the episodes that recovered (`recovered_episodes` / `episodes`).
+
+Checkpoints default to linear spacing when there are shifts.
+
+**Preview parity:** `tests/test_scenario_preview_golden.py` writes `frontend/src/__tests__/fixtures/scenario-shifts-golden.json`: the resolved shifts plus the exact creative × segment CTR matrix in every regime, for 6 shift combinations (one a shock on `"leader"`) (`noise_scale = 0`, pre-drift truth). The format is documented in the test module. PR D's `applyShifts` must reproduce it.
