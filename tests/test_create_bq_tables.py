@@ -17,7 +17,7 @@ BANDIT_EXPERIMENTS = (
     "ctr_mode:STRING,reward_mode:STRING,arms:STRING,config_uri:STRING,"
     "model_resource:STRING,endpoint_id:STRING,deployed_model_id:STRING,"
     "ttl_expires_at:TIMESTAMP,stopped_at:TIMESTAMP,traffic_execution:STRING,"
-    "progress:STRING,error:STRING"
+    "progress:STRING,error:STRING,scenario_overrides:STRING"
 )
 BANDIT_EVENTS = (
     "experiment_id:STRING,episode:INTEGER,round:INTEGER,batch:INTEGER,"

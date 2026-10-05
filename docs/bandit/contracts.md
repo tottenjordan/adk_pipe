@@ -86,7 +86,9 @@ experiment_id STRING, user_id STRING, session_id STRING, app_name STRING, create
 updated_at TIMESTAMP, status STRING, scenario STRING, ctr_mode STRING, reward_mode STRING,
 arms STRING (JSON list of §5 arm objects), config_uri STRING, model_resource STRING, endpoint_id STRING,
 deployed_model_id STRING, ttl_expires_at TIMESTAMP, stopped_at TIMESTAMP, traffic_execution STRING,
-progress STRING (JSON {episodes_done, episodes_total}), error STRING
+progress STRING (JSON {episodes_done, episodes_total}), error STRING,
+scenario_overrides STRING (§9 snake_case JSON; set only when the experiment has overrides,
+added 2026-10-04 by `ALTER TABLE … ADD COLUMN IF NOT EXISTS`, see deployment/README.md)
 
 **`bandit_events`**, one row per round for the endpoint policy, written by the traffic job (`insertId = request_id`).
 It is partitioned by DATE(ts) and clustered on experiment_id:
@@ -123,9 +125,10 @@ No IDs, IP addresses, latitude/longitude, ZIP code, city, or sensitive categorie
 All routes are user-scoped. The proxy rewrites `userId` / the `{user_id}` segment, and the backend checks the owner, returning 404 for a foreign experiment.
 
 - `POST /experiments`
-  - Body: `{userId, appName, sessionId, creativeIndices: number[], scenario, ctrMode, rewardMode, ttlMinutes?}`.
+  - Body: `{userId, appName, sessionId, creativeIndices: number[], scenario, ctrMode, rewardMode, ttlMinutes?, scenarioOverrides?}`.
+  - `scenarioOverrides` (§9, optional): `{segmentMix?, gapScale?, judgeWrong?, noiseScale?, driftAtFrac?}`. `null` fields count as unset; empty or omitted writes no `scenario_overrides`.
   - Success: **201** `{experimentId, status: "deploying"}`.
-  - Errors: 400 for an empty or invalid selection (fewer than 2 arms, or an index out of range), 409 `{detail:{reason:"active_experiment"}}` if the user already has an active experiment.
+  - Errors: 400 for an empty or invalid selection (fewer than 2 arms, or an index out of range) or invalid `scenarioOverrides` (`detail.field` names the camelCase field), 409 `{detail:{reason:"active_experiment"}}` if the user already has an active experiment.
 - `GET /experiments/{user_id}` returns `{experiments: ExperimentSummary[]}`, newest first.
 - `GET /experiments/{user_id}/{experiment_id}` returns `ExperimentSummary`, with status reconciled against the endpoint and the TTL.
 - `GET /experiments/{user_id}/{experiment_id}/metrics` returns `ExperimentMetrics`. It is empty (`episodes: 0`) until traffic runs.
@@ -144,7 +147,10 @@ type ExperimentSummary = { experimentId: string; userId: string; sessionId: stri
   createdAt: string; updatedAt: string; status: Status; scenario: string; ctrMode: string;
   rewardMode: string; ttlExpiresAt: string | null; arms: Arm[]; endpointId: string | null;
   trafficExecution: string | null; progress: { episodesDone: number; episodesTotal: number } | null;
-  error: string | null };
+  error: string | null;
+  scenarioOverrides: ScenarioOverrides | null };                     // §9; null = preset as-is
+type ScenarioOverrides = { segmentMix?: number[]; gapScale?: number; judgeWrong?: number;
+  noiseScale?: number; driftAtFrac?: number };                       // only the fields that were set
 type Band = { mean: number[]; lo: number[]; hi: number[] };          // mean ± 95% CI across episodes
 type ExperimentMetrics = { experimentId: string; episodes: number; horizon: number | null;
   checkpoints: number[]; policies: string[];                         // order: linear_ts first, oracle last
@@ -166,7 +172,7 @@ type ExperimentMetrics = { experimentId: string; episodes: number; horizon: numb
   - Ad-copy evals are matched headline first, then id, then position.
   - `imageUri` is null when `_generated_artifact_keys` exists and doesn't include the concept's image.
 - **Error reasons** (`detail.reason`):
-  - 400: `too_few_arms`, `too_many_arms`, `duplicate_index`, `index_out_of_range`, `no_creatives`, `invalid_scenario`, `invalid_ctr_mode`, `invalid_reward_mode`, `invalid_episodes`, `invalid_horizon`;
+  - 400: `too_few_arms`, `too_many_arms`, `duplicate_index`, `index_out_of_range`, `no_creatives`, `invalid_scenario`, `invalid_ctr_mode`, `invalid_reward_mode`, `invalid_scenario_overrides` (with `detail.field`, §9), `invalid_episodes`, `invalid_horizon`;
   - 409: `active_experiment`, `not_ready`;
   - 404: `session_not_found`, `not_found`;
   - 502: `config_write_failed`, `traffic_start_failed`.
@@ -282,11 +288,13 @@ Binding for every layer: `bandit/`, the traffic job, the predictor, the api (`ru
   - The traffic job builds its ground truth from it (`simulate.build_environment(cfg, scenario=resolve_scenario(cfg))`), and the locally replayed baselines share that environment.
   - The predictor needs no change: it reads only `target_ctr` (noise-var calibration) and `dwell_base_s` (engaged reward scale), and no override touches either.
   - The episode and model keys still derive from the scenario **name** (`simulate.scenario_key`), so a tuned experiment sees the same random draws as its preset.
-- **REST (PR B):**
+- **REST (PR B, implemented 2026-10-04 in `runserver/experiments.py`):**
   - `POST /experiments` takes an optional camelCase `scenarioOverrides {segmentMix, gapScale, judgeWrong, noiseScale, driftAtFrac}` with the same bounds and rules.
   - The api writes it to `experiment.json` as the snake_case object above, only when non-empty.
   - A failure is **400** with `detail.reason: "invalid_scenario_overrides"` and `detail.field`, the camelCase field name (for example `"segmentMix"`).
-  - runserver never imports `bandit`; it duplicates `OVERRIDE_BOUNDS` and the per-scenario segment counts, under parity tests.
+  - runserver never imports `bandit`; it duplicates `OVERRIDE_BOUNDS` and the per-scenario segment counts (`SCENARIO_SEGMENTS`), under parity tests (`tests/test_experiments_api.py`).
+  - `segmentMix` is stored as sent (each weight bounds-checked); `bandit` renormalises it. `null` fields are dropped.
+  - The `bandit_experiments.scenario_overrides` column (§3) holds the same snake_case object, and `ExperimentSummary.scenarioOverrides` (§5) returns it camelCase (`null` when unset).
 - **CLI:** `python -m bandit.cli simulate` exposes `--segment-mix`, `--gap-scale`, `--judge-wrong`, `--noise-scale` and `--drift-at`, with the same bounds, applied through `apply_scenario_overrides`.
   - The bounded overrides are recorded in the output's `config.scenario_overrides`.
   - The one exception is a `--segment-mix` with weights outside [0.05, 1] (for example the notebook-parity single-segment `1,0,0,0` readers). It is applied directly as a lab-only escape hatch and isn't recorded.

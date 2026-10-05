@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import datetime as dt
 import re
+from pathlib import Path
 
 import pytest
 
@@ -22,6 +23,7 @@ from runserver.experiments_store import (
     build_true_ctr_sql,
     build_upsert_sql,
     decode_row,
+    encode_row,
     table_names,
 )
 
@@ -62,7 +64,11 @@ def test_column_map_matches_contract_and_ddl():
         "updated_at", "status", "scenario", "ctr_mode", "reward_mode", "arms",
         "config_uri", "model_resource", "endpoint_id", "deployed_model_id",
         "ttl_expires_at", "stopped_at", "traffic_execution", "progress", "error",
+        "scenario_overrides",
     ]  # fmt: skip
+    ddl = (Path(__file__).parents[1] / "deployment/create_bq_tables.sh").read_text()
+    schema = re.search(r'BANDIT_EXPERIMENTS}" \\\n\s+(\S+)', ddl).group(1)
+    assert dict(c.split(":") for c in schema.split(",")) == EXPERIMENT_COLUMN_TYPES
 
 
 def test_upsert_sql_full_row_binds_typed_params():
@@ -217,6 +223,12 @@ def test_decode_row_parses_json_columns():
     row = decode_row({"arms": '[{"creativeId": "a"}]', "progress": ""})
     assert row["arms"] == [{"creativeId": "a"}] and row["progress"] is None
     assert decode_row({"arms": None})["arms"] == []
+    ov = decode_row({"scenario_overrides": '{"gap_scale": 1.5}'})
+    assert ov["scenario_overrides"] == {"gap_scale": 1.5}
+    assert decode_row({"scenario_overrides": ""})["scenario_overrides"] is None
+    assert encode_row({"scenario_overrides": {"gap_scale": 1.5}}) == {
+        "scenario_overrides": '{"gap_scale": 1.5}'
+    }
 
 
 class _FakeRow(dict):
