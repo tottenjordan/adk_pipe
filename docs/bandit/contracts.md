@@ -89,14 +89,16 @@ Requests go to `POST …:predict` with `{"instances": [...], "parameters": {...}
 |---|---|---|
 | `decision` | `request_id`, `ts`, `context` (§4), `eligible_arms?` (creative ids) | `request_id`, `type`, `chosen_arm` (creative_id), `arm_index`, `propensity`, `arm_probabilities` {creative_id: p}, `explored` (bool: chosen ≠ posterior-mean argmax), `model_version`, `policy:"linear_ts"`, `episode`, `step`, `latency_ms` |
 | `reward` | `request_id`, `arm` (creative_id), `reward` (float), `clicked` (0/1), `dwell_s?` | `request_id`, `type`, `accepted` (bool; false for a duplicate or unknown id), `model_version` |
-| `reset` | `episode` (int), `seed` (int) | `type`, `episode`, `model_version` |
+| `reset` | `episode` (int), `seed` (int), `discount?` (float in [0.95, 1.0]; §10) | `type`, `episode`, `model_version`, `discount` (the γ the episode's updates use) |
 | `state` | — | `type`, `episode`, `step`, `model_version`, `pulls` {creative_id: n}, `posterior_mean` {creative_id: [d floats]}, `feature_spec_version` |
 
 `parameters` (optional, bounded): `exploration_scale` [0.1, 5], `propensity_samples` [100, 5000].
 
+A `reset`'s optional `discount` (added 2026-10-05 for the §10 forgetting toggle; bounds `bandit.config.RESET_DISCOUNT_BOUNDS`) replaces `policy.discount` for every update until the next reset; a reset without it (or with `null`) restores the `experiment.json` value. It follows the per-request `parameters` pattern: a finite non-bool number, quantized to 0.001 (a static jit argument, so the compile cache stays bounded), and out of bounds or non-numeric is a per-instance `error` that leaves the current episode untouched. It is checkpointed (`latest.json` `discount`), so a restart mid-run keeps it. A predictor image older than this ignores the field (the reset still succeeds, at the config γ).
+
 Reward instances carry the **unscaled** reward (`click` mode: 0/1; `engaged` mode: click × dwell seconds, with `dwell_s` set). Like the simulator, the predictor divides engaged rewards by the scenario's `dwell_base_s` before its `update`. A reward is accepted only for a pending decision whose `arm` matches the chosen arm.
 
-The traffic job (PR 3) sends `request_id = "{experiment_id}-e{episode}-r{round}"`, where `round` is the 0-based round index within the episode (also `bandit_events.round`). It splits a batch into requests of at most 500 instances and about 1.2 MB, sends one `reset` per episode with `seed = (experiment seed × 1000003 + episode) mod 2³¹`, and sends a batch's rewards only after all of that batch's decisions.
+The traffic job (PR 3) sends `request_id = "{experiment_id}-r{traffic_run}-e{episode}-r{round}"`, where `traffic_run` is the 1-based traffic run (§10; always present, run 1 included, since 2026-10-05; earlier runs sent `{experiment_id}-e{episode}-r{round}`) and `round` is the 0-based round index within the episode (also `bandit_events.round`). It splits a batch into requests of at most 500 instances and about 1.2 MB, sends one `reset` per episode with `seed = (experiment seed × 1000003 + episode) mod 2³¹`, and sends a batch's rewards only after all of that batch's decisions.
 
 The CPR container is always deployed with `VERTEX_CPR_WEB_CONCURRENCY=1`, i.e. one worker process holding a single in-memory posterior. `AIP_STORAGE_URI` holds `experiment.json` (a §1 `experiment_config_to_dict`) and `checkpoints/`.
 
@@ -118,19 +120,27 @@ It is partitioned by DATE(ts) and clustered on experiment_id:
 experiment_id STRING, episode INT64, round INT64, batch INT64, request_id STRING, ts TIMESTAMP,
 policy STRING, segment STRING, context STRING (JSON), arm STRING, propensity FLOAT64, reward FLOAT64,
 clicked INT64, dwell_s FLOAT64, p_chosen FLOAT64, p_optimal FLOAT64, optimal_arm STRING,
-regret FLOAT64, model_version STRING, latency_ms FLOAT64
+regret FLOAT64, model_version STRING, latency_ms FLOAT64, traffic_run INT64
 
 **`bandit_episode_metrics`**, one row per (episode, policy), written by the traffic job:
 experiment_id STRING, episode INT64, policy STRING, horizon INT64, total_reward FLOAT64,
 total_clicks INT64, cumulative_regret FLOAT64, pct_optimal FLOAT64, steps_to_converge INT64,
 curve STRING (JSON), arm_share STRING (JSON), per_segment STRING (JSON), arm_stats STRING (JSON),
-created_at TIMESTAMP
+created_at TIMESTAMP, traffic_run INT64, shift_response STRING (JSON), regimes STRING (JSON)
+
+`traffic_run` (events and metrics, added 2026-10-05 by `ALTER TABLE … ADD COLUMN IF NOT EXISTS`, see
+deployment/README.md) is the 1-based traffic run (§10) that wrote the row; rows written before it
+have NULL, which readers count as run 1. `shift_response` and `regimes` (metrics only, same
+migration) are set only for a run with shifts (§10), else NULL. The metrics streaming `insertId` is
+`{experiment_id}-r{traffic_run}-e{episode}-{policy}`.
 
 The JSON payloads:
-- `curve`: `{"checkpoints":[r1..rm], "cum_avg_reward":[...], "cum_regret":[...], "pct_optimal":[...]}`. Checkpoints are about 50 log-spaced round indices, the same for every policy and episode in one experiment.
+- `curve`: `{"checkpoints":[r1..rm], "cum_avg_reward":[...], "cum_regret":[...], "pct_optimal":[...]}`. Checkpoints are about 50 log-spaced round indices, the same for every policy and episode in one traffic run. A run with shifts (§10) uses 50 linear ones merged around each shift round (`merge_checkpoints`).
 - `arm_share`: `{creative_id: [share of pulls in each checkpoint window]}`.
 - `per_segment`: `{segment: {"optimal_arm": creative_id, "pct_optimal": f, "avg_reward": f, "rounds": n}}`.
 - `arm_stats`: `{creative_id: {"impressions": n, "clicks": n, "estimated_ctr": f, "true_ctr": f}}`.
+- `shift_response` (runs with shifts): the §10 `bandit.metrics.shift_response` list for this episode and policy, one entry per shift in time order: `{"round", "pct_optimal_before", "pct_optimal_after", "regret_rate_before", "regret_rate_after", "recovery_rounds"}`.
+- `regimes` (runs with shifts): `[{"start", "end", "per_segment", "true_ctr"}]`, the §10 `bandit.metrics.regime_stats` split of `per_segment` (same shape as above) and of the true CTR per creative `{creative_id: f}` at the shift rounds and shock end rounds (`[start, end)`, 0-based rounds).
 
 ## 4. Context object (decision `context`, `bandit_events.context`)
 
@@ -391,9 +401,11 @@ Shifts belong to a **traffic run**, not to the experiment: `experiment.json` is 
 - the kind's magnitude (`lift_pp` / `drop_pp` / `ctr_multiplier` + `until_frac`), or for mix `segment_mix` + `segment_weights` (renormalised);
 - `targets`: per affected segment, `segment`, `ctr_before`, `ctr_after` (segment-level), plus `best_other_ctr` and `logit_offset` for promote and demote.
 
-PR B/C store it per run: the `traffic_runs` JSON on the experiment row, and `{id}/runs/{n}.json` in GCS.
+PR B/C store it per run: the `traffic_runs` JSON on the experiment row, and `{id}/runs/{n}.json` in GCS. The traffic job (PR B) logs it once per run (`traffic run N: … resolved shifts [...]`) and returns it in its summary; the api (PR C) writes the authoritative record.
 
 **Forgetting:** when `forget` is true, the endpoint's discount for the run is `bandit.config.default_shift_discount(ctr_mode, batch_size, horizon)` = `discount_for_memory(horizon / 8, batch_size)`. This is the §7 drift memory rule: 0.98 for 40k demo rounds and 0.998 for 400k realistic rounds at `batch_size = 100`.
+- The traffic job floors it at `RESET_DISCOUNT_BOUNDS[0]` = 0.95 (`bandit_traffic.traffic.run_discount`; short runs, below ~15.6k rounds at batch 100, would otherwise forget faster than the predictor accepts) and sends it as the `discount` of every `reset` (§2). The ghost uses the same value.
+- `forget` without shifts is allowed (the discount is sent, no ghost is replayed).
 
 **Metrics** (`bandit/metrics.py`):
 - **`shift_response(out, shift_rounds)`:** one entry per shift for one episode. It has `round`, `pct_optimal_before` / `_after` (the w rounds before `r` / from `r`, with w = `default_window(T)`, 2000 at the presets, clipped to the episode), `regret_rate_before` / `_after` (mean pseudo-regret per round in the same windows) and `recovery_rounds`.
@@ -407,5 +419,12 @@ PR B/C store it per run: the `traffic_runs` JSON on the experiment row, and `{id
 - a per-policy `shift_response` summary: means across episodes, with `recovery_rounds` averaged over the episodes that recovered (`recovered_episodes` / `episodes`).
 
 Checkpoints default to linear spacing when there are shifts.
+
+**Traffic job** (`bandit_traffic`, PR B):
+- Reads `SHIFTS_JSON` (or `--shifts <json|path>`), `TRAFFIC_RUN` (`--traffic-run`, int ≥ 1, default 1) and `FORGET` (`--forget/--no-forget`; `true|false|1|0|yes|no|on|off`, default on iff there are shifts). The shifts are validated with `shifts_from_dict` + `validate_shifts` against the experiment's resolved scenario (§9 overrides included), arms and ctr mode; any error exits 2.
+- The endpoint and every baseline share the shifted environment (their segments are checked identical). Checkpoints are 50 linear ones merged around each shift round; without shifts they stay log-spaced and nothing else changes except the run number.
+- Every `bandit_events` / `bandit_episode_metrics` row carries `traffic_run` (§3). The metrics `insertId` is `{experiment_id}-r{run}-e{episode}-{policy}`, the event `request_id` `{experiment_id}-r{run}-e{episode}-r{round}` (§2).
+- **Ghost** (`policy = "linear_ts_unshifted"`, only with shifts): after each episode, a local LinTS (`make_policy("linear_ts")` with the experiment's `policy`, plus the run's discount when `forget`) is replayed with `simulate.run_episodes` on the **unshifted** environment (same scenario and overrides) with the same episode key. Its users and coin flips match the endpoint's (segments differ only on rows a mix shift flips), so before the first shift its world is identical.
+- With shifts, every metrics row (endpoint, ghost and baselines) gets `shift_response` (against the shift rounds, the ghost's too, although its world is unshifted) and `regimes` (`regime_stats` at the shift rounds and shock end rounds).
 
 **Preview parity:** `tests/test_scenario_preview_golden.py` writes `frontend/src/__tests__/fixtures/scenario-shifts-golden.json`: the resolved shifts plus the exact creative × segment CTR matrix in every regime, for 6 shift combinations (one a shock on `"leader"`) (`noise_scale = 0`, pre-drift truth). The format is documented in the test module. PR D's `applyShifts` must reproduce it.

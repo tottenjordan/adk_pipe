@@ -15,13 +15,16 @@ Semantics:
   one batched ``update`` (bumping ``model_version``). Duplicates / unknown ids
   return ``accepted: false``. Engaged rewards (seconds) are divided by the
   scenario's ``dwell_base_s`` before the update, as in the simulator.
-- ``reset``: fresh prior state and PRNG key for a new episode.
+- ``reset``: fresh prior state and PRNG key for a new episode; an optional
+  ``discount`` (``RESET_DISCOUNT_BOUNDS``, quantised to 0.001) replaces
+  ``policy.discount`` for the episode's updates (contracts §2 / §10).
 - ``state``: pulls, posterior means, version and step.
 """
 
 from __future__ import annotations
 
 import dataclasses
+import math
 import time
 from collections import OrderedDict
 from typing import Any
@@ -32,7 +35,12 @@ import numpy as np
 
 from bandit import features
 from bandit import linear_ts as lts
-from bandit.config import ExperimentConfig, load_scenario, validate_lints_params
+from bandit.config import (
+    RESET_DISCOUNT_BOUNDS,
+    ExperimentConfig,
+    load_scenario,
+    validate_lints_params,
+)
 
 _select = jax.jit(lts.select, static_argnames=("params",))
 _propensities = jax.jit(lts.propensities_batch, static_argnames=("params",))
@@ -40,6 +48,24 @@ _update = jax.jit(lts.update, static_argnames=("params",))
 _posterior_mean = jax.jit(lts.posterior_mean)
 
 PENDING_LIMIT = 200_000
+
+
+def reset_discount(inst: dict) -> float | None:
+    """A reset's optional ``discount`` (contracts §2), validated like the
+    predictor's: absent / null -> None, else a finite non-bool number in
+    ``RESET_DISCOUNT_BOUNDS``, rounded to 3 decimals."""
+    raw = inst.get("discount")
+    if raw is None:
+        return None
+    lo, hi = RESET_DISCOUNT_BOUNDS
+    if (
+        isinstance(raw, bool)
+        or not isinstance(raw, int | float)
+        or not math.isfinite(raw)
+        or not lo <= raw <= hi
+    ):
+        raise ValueError(f"discount must be a number in [{lo}, {hi}]")
+    return round(float(raw), 3)
 
 
 def _error(inst: Any, msg: str) -> dict:
@@ -62,8 +88,9 @@ class FakeBanditEndpoint:
         self._reset(0, cfg.seed)
 
     # ------------------------------------------------------------------ state
-    def _reset(self, episode: int, seed: int) -> None:
+    def _reset(self, episode: int, seed: int, discount: float | None = None) -> None:
         self.episode = int(episode)
+        self.discount = discount
         self.key = jax.random.key(int(seed))
         self.state = lts.init_state(
             len(self.arm_ids), features.DIM, self.cfg.policy.prior_var
@@ -90,6 +117,12 @@ class FakeBanditEndpoint:
             )
         return params
 
+    def _update_params(self, params):
+        """``params`` with the episode's reset ``discount``, if any."""
+        if self.discount is None:
+            return params
+        return dataclasses.replace(params, discount=self.discount)
+
     def _remember(self, rid: str, value: tuple[int, np.ndarray]) -> None:
         self.pending[rid] = value
         while len(self.pending) > self.pending_limit:
@@ -113,11 +146,13 @@ class FakeBanditEndpoint:
             kind = inst.get("type") if isinstance(inst, dict) else None
             try:
                 if kind == "reset":
-                    self._reset(int(inst["episode"]), int(inst["seed"]))
+                    discount = reset_discount(inst)
+                    self._reset(int(inst["episode"]), int(inst["seed"]), discount)
                     out[i] = {
                         "type": "reset",
                         "episode": self.episode,
                         "model_version": self.model_version,
+                        "discount": self._update_params(params).discount,
                     }
                 elif kind == "state":
                     out[i] = self._state_prediction()
@@ -217,7 +252,7 @@ class FakeBanditEndpoint:
                 jnp.asarray(arms, jnp.int32),
                 jnp.asarray(np.stack(xs)),
                 jnp.asarray(rs, jnp.float32),
-                params,
+                self._update_params(params),
             )
             self.version += 1
         for i, _ in rewards:

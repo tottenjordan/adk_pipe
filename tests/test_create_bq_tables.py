@@ -25,13 +25,14 @@ BANDIT_EVENTS = (
     "request_id:STRING,ts:TIMESTAMP,policy:STRING,segment:STRING,context:STRING,"
     "arm:STRING,propensity:FLOAT,reward:FLOAT,clicked:INTEGER,dwell_s:FLOAT,"
     "p_chosen:FLOAT,p_optimal:FLOAT,optimal_arm:STRING,regret:FLOAT,"
-    "model_version:STRING,latency_ms:FLOAT"
+    "model_version:STRING,latency_ms:FLOAT,traffic_run:INTEGER"
 )
 BANDIT_METRICS = (
     "experiment_id:STRING,episode:INTEGER,policy:STRING,horizon:INTEGER,"
     "total_reward:FLOAT,total_clicks:INTEGER,cumulative_regret:FLOAT,"
     "pct_optimal:FLOAT,steps_to_converge:INTEGER,curve:STRING,arm_share:STRING,"
-    "per_segment:STRING,arm_stats:STRING,created_at:TIMESTAMP"
+    "per_segment:STRING,arm_stats:STRING,created_at:TIMESTAMP,traffic_run:INTEGER,"
+    "shift_response:STRING,regimes:STRING"
 )
 
 
