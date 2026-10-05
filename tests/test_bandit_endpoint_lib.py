@@ -151,3 +151,32 @@ def test_display_names_labels_and_default_region(monkeypatch):
     assert ep.label_value("A.B@c") == "a-b-c"
     monkeypatch.delenv("GCP_REGION", raising=False)
     assert ep.region() == "us-central1"
+
+
+def test_find_models_and_endpoints_by_label_oldest_first(fake_sdk):
+    import datetime as dt
+
+    t0 = dt.datetime(2026, 10, 5, 14, 3, tzinfo=dt.UTC)
+    calls: list[tuple] = []
+
+    def lister(items):
+        def _list(**kwargs):
+            calls.append(kwargs)
+            return items
+
+        return _list
+
+    newer = SimpleNamespace(resource_name="m/2", create_time=t0 + dt.timedelta(61))
+    older = SimpleNamespace(resource_name="m/1", create_time=t0)
+    undated = SimpleNamespace(resource_name="m/3", create_time=None)
+    _FakeModel.list = staticmethod(lister([newer, undated, older]))  # type: ignore[attr-defined]
+    _FakeEndpoint.list = staticmethod(lister([older]))  # type: ignore[attr-defined]
+    try:
+        labels = ep.experiment_labels("2a7685cf9c8d4d3e")
+        assert ep.find_models(labels) == ["m/1", "m/2", "m/3"]
+        assert ep.find_endpoints(labels) == ["m/1"]
+    finally:
+        del _FakeModel.list, _FakeEndpoint.list  # type: ignore[attr-defined]
+    want = 'labels.app="trend-trawler" AND labels.experiment="2a7685cf9c8d4d3e"'
+    assert calls[0]["filter"] == want and calls[1]["filter"] == want
+    assert fake_sdk.inits[0]["location"] == "europe-west4"

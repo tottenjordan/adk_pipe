@@ -88,7 +88,9 @@ arms STRING (JSON list of §5 arm objects), config_uri STRING, model_resource ST
 deployed_model_id STRING, ttl_expires_at TIMESTAMP, stopped_at TIMESTAMP, traffic_execution STRING,
 progress STRING (JSON {episodes_done, episodes_total}), error STRING,
 scenario_overrides STRING (§9 snake_case JSON; set only when the experiment has overrides,
-added 2026-10-04 by `ALTER TABLE … ADD COLUMN IF NOT EXISTS`, see deployment/README.md)
+added 2026-10-04 by `ALTER TABLE … ADD COLUMN IF NOT EXISTS`, see deployment/README.md),
+deploy_lease_until TIMESTAMP, deploy_lease_owner STRING (the §6 single-deployer lease; written
+only by the api's conditional lease UPDATEs, never by the MERGE; added 2026-10-05 the same way)
 
 **`bandit_events`**, one row per round for the endpoint policy, written by the traffic job (`insertId = request_id`).
 It is partitioned by DATE(ts) and clustered on experiment_id:
@@ -180,7 +182,8 @@ type ExperimentMetrics = { experimentId: string; episodes: number; horizon: numb
   - The api moves `running_traffic` back to `ready` on a detail GET once `progress.episodes_done >= episodes_total` or the job execution has finished. A failed job sets `error` and keeps the status `ready`.
   - Stop waits up to 2 s, so it returns `stopped` if teardown finishes in time, otherwise `stopping`.
   - `ttlMinutes` is clamped to 10–480.
-  - Store updates only rewrite the columns that changed, so the api never overwrites the `progress` written by the traffic job.
+  - Store updates only rewrite the columns that changed, so the api never overwrites the `progress` written by the traffic job. A partial update ignores (logs once) columns in the fetched row that this code doesn't know, so an older revision keeps working on a table a newer one migrated; writing an unknown column still fails.
+  - **Single deployer (2026-10-05):** a deploy (initial or resumed) runs only while its api process holds the row's lease: `UPDATE … SET deploy_lease_until = CURRENT_TIMESTAMP() + 180 s, deploy_lease_owner = '<K_REVISION>/<nonce>' WHERE experiment_id = @id AND status = 'deploying' AND (deploy_lease_until IS NULL OR deploy_lease_until < CURRENT_TIMESTAMP())`, won iff `num_dml_affected_rows = 1`. The holder renews it every 60 s and clears it when the deploy ends (success or failure). The reconcile GET and the reaper only resume a `deploying` row with no local task and no unexpired lease, so other instances or old revisions back off; a dead holder's lease expires and the next pass resumes. As a second layer the deployer adopts the oldest model/endpoint labelled `app=trend-trawler,experiment=<id>` before creating one (ids recorded on the row win), skips the deploy when the endpoint already has a deployed model, and teardown also deletes labelled extras.
 - **Default horizons** (frontend): `clear_winner` 20k, `segment_winners` and `drift` 40k in demo mode; ×10 (max 400k) in realistic mode.
 - **Local development:** `BANDIT_DEPLOY_MODE=fake` (in-memory store, fake deployer, fake jobs; `BANDIT_FAKE_DEPLOY_SECONDS`, default 2).
 

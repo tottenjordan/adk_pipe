@@ -10,6 +10,18 @@ value as a typed ``@named`` parameter (the ``creative_agent/bq_tools.py`` patter
 An update only SETs the columns the caller changed (``fields``), so the api never
 clobbers ``progress`` written concurrently by the traffic job. The SQL builders are
 pure; the blocking client calls run in ``asyncio.to_thread``.
+
+**Deploy lease** (``deploy_lease_until`` / ``deploy_lease_owner``): only the holder
+of an unexpired lease may run a deploy for an experiment, so several api instances
+(or an old revision kept alive by a traffic tag) can't each start one. It is taken
+with a conditional ``UPDATE ... WHERE lease is NULL or expired`` whose
+``num_dml_affected_rows`` says who won (BigQuery serializes concurrent mutating DML
+on a table), renewed by the holder's heartbeat and released when the deploy ends.
+The lease columns are only ever written by those statements, never by ``upsert``.
+
+**Rolling-deploy safety:** a row fetched from a table migrated by a newer revision
+can carry columns this code doesn't know. A partial ``upsert`` drops (and logs once)
+unknown columns it isn't writing; only writing an unknown column raises.
 """
 
 from __future__ import annotations
@@ -18,6 +30,7 @@ import asyncio
 import copy
 import datetime as dt
 import json
+import logging
 import os
 from collections import Counter, defaultdict
 from collections.abc import Callable, Iterable
@@ -26,6 +39,8 @@ from typing import Any, Protocol
 from google.cloud import bigquery
 
 from agent_common.clients import get_bigquery_client
+
+log = logging.getLogger(__name__)
 
 ACTIVE_STATUSES = ("deploying", "ready", "running_traffic", "stopping")
 # The endpoint policy: the only one the traffic job logs to ``bandit_events``.
@@ -55,11 +70,15 @@ EXPERIMENT_COLUMN_TYPES = {
     "progress": "STRING",
     "error": "STRING",
     "scenario_overrides": "STRING",
+    # Deploy lease (2026-10-05): written only by the lease UPDATEs, never by upsert.
+    "deploy_lease_until": "TIMESTAMP",
+    "deploy_lease_owner": "STRING",
 }
 JSON_COLUMNS = ("arms", "progress", "scenario_overrides")
 # Never rewritten by an update: the key and the creation time.
 _IMMUTABLE = ("experiment_id", "created_at")
 LIST_LIMIT = 100
+_WARNED_UNKNOWN: set[str] = set()
 
 
 class ExperimentStore(Protocol):
@@ -78,6 +97,22 @@ class ExperimentStore(Protocol):
         ...
 
     async def metrics_rows(self, experiment_id: str) -> list[dict]: ...
+
+    async def acquire_deploy_lease(
+        self, experiment_id: str, owner: str, ttl_seconds: int
+    ) -> bool:
+        """Take the deploy lease of a ``deploying`` row if it is free or expired."""
+        ...
+
+    async def renew_deploy_lease(
+        self, experiment_id: str, owner: str, ttl_seconds: int
+    ) -> bool:
+        """Extend ``owner``'s lease; False when ``owner`` no longer holds it."""
+        ...
+
+    async def release_deploy_lease(self, experiment_id: str, owner: str) -> None:
+        """Clear the lease if ``owner`` still holds it."""
+        ...
 
     async def creative_series_rows(self, experiment_id: str) -> dict[str, list[dict]]:
         """Raw ``bandit_events`` aggregates for contracts §8: ``{"series": ...,
@@ -132,15 +167,36 @@ def _param(col: str, value: Any) -> bigquery.ScalarQueryParameter:
     return bigquery.ScalarQueryParameter(col, bq_type, value)
 
 
+def _known_columns(row: dict, fields: list[str] | None) -> dict:
+    """``row`` minus unknown columns that aren't being written (logged once each).
+
+    A full write (``fields is None``) or an explicitly written unknown column raises
+    KeyError; an unknown column merely present in a fetched row (a newer revision
+    migrated the table) is dropped, so rolling deploys don't break partial updates."""
+    written = set(row if fields is None else fields)
+    out = {}
+    for col, value in row.items():
+        if col in EXPERIMENT_COLUMN_TYPES:
+            out[col] = value
+        elif col in written:
+            raise KeyError(f"unknown bandit_experiments column {col!r}")
+        elif col not in _WARNED_UNKNOWN:
+            _WARNED_UNKNOWN.add(col)
+            log.warning("bandit_experiments: ignoring unknown column %r", col)
+    return out
+
+
 def build_upsert_sql(
     table: str, row: dict, fields: Iterable[str] | None = None
 ) -> tuple[str, list[bigquery.ScalarQueryParameter]]:
     """MERGE one experiment row on ``experiment_id`` (pure).
 
-    WHEN NOT MATCHED inserts every column in ``row``; WHEN MATCHED sets only
+    WHEN NOT MATCHED inserts every (known) column in ``row``; WHEN MATCHED sets only
     ``fields`` (default: every column but the key and ``created_at``). Raises
-    KeyError for a column missing from ``EXPERIMENT_COLUMN_TYPES``."""
-    enc = encode_row(row)
+    KeyError for a written column missing from ``EXPERIMENT_COLUMN_TYPES``; unknown
+    columns that aren't written are ignored (``_known_columns``)."""
+    fields = None if fields is None else list(fields)
+    enc = encode_row(_known_columns(row, fields))
     cols = list(enc)
     params = [_param(c, enc[c]) for c in cols]
     update = [c for c in (cols if fields is None else fields) if c not in _IMMUTABLE]
@@ -167,6 +223,62 @@ def build_upsert_sql(
             VALUES ({", ".join(f"S.{c}" for c in cols)});
         """
     return sql, params
+
+
+def _lease_params(
+    experiment_id: str, owner: str, ttl_seconds: int | None = None
+) -> list[bigquery.ScalarQueryParameter]:
+    params = [
+        bigquery.ScalarQueryParameter("experiment_id", "STRING", experiment_id),
+        bigquery.ScalarQueryParameter("owner", "STRING", owner),
+    ]
+    if ttl_seconds is not None:
+        params.append(
+            bigquery.ScalarQueryParameter("ttl_seconds", "INT64", int(ttl_seconds))
+        )
+    return params
+
+
+def build_acquire_lease_sql(
+    table: str, experiment_id: str, owner: str, ttl_seconds: int
+) -> tuple[str, list[bigquery.ScalarQueryParameter]]:
+    """Conditional lease grab: one affected row means ``owner`` holds it (pure).
+    Server-side ``CURRENT_TIMESTAMP()``, so instance clock skew doesn't matter."""
+    sql = f"""
+        UPDATE `{table}`
+        SET deploy_lease_until =
+                TIMESTAMP_ADD(CURRENT_TIMESTAMP(), INTERVAL @ttl_seconds SECOND),
+            deploy_lease_owner = @owner
+        WHERE experiment_id = @experiment_id
+          AND status = @status
+          AND (deploy_lease_until IS NULL OR deploy_lease_until < CURRENT_TIMESTAMP())
+        """
+    params = _lease_params(experiment_id, owner, ttl_seconds)
+    params.append(bigquery.ScalarQueryParameter("status", "STRING", "deploying"))
+    return sql, params
+
+
+def build_renew_lease_sql(
+    table: str, experiment_id: str, owner: str, ttl_seconds: int
+) -> tuple[str, list[bigquery.ScalarQueryParameter]]:
+    sql = f"""
+        UPDATE `{table}`
+        SET deploy_lease_until =
+                TIMESTAMP_ADD(CURRENT_TIMESTAMP(), INTERVAL @ttl_seconds SECOND)
+        WHERE experiment_id = @experiment_id AND deploy_lease_owner = @owner
+        """
+    return sql, _lease_params(experiment_id, owner, ttl_seconds)
+
+
+def build_release_lease_sql(
+    table: str, experiment_id: str, owner: str
+) -> tuple[str, list[bigquery.ScalarQueryParameter]]:
+    sql = f"""
+        UPDATE `{table}`
+        SET deploy_lease_until = NULL, deploy_lease_owner = NULL
+        WHERE experiment_id = @experiment_id AND deploy_lease_owner = @owner
+        """
+    return sql, _lease_params(experiment_id, owner)
 
 
 def build_get_sql(
@@ -402,6 +514,54 @@ class BigQueryExperimentStore:
         sql, params = built
         return await asyncio.to_thread(self._query, sql, params)
 
+    def _dml(self, sql: str, params: list) -> int:
+        if self._client is None:
+            self._client = self._client_factory()
+        job = self._client.query(
+            sql, job_config=bigquery.QueryJobConfig(query_parameters=params)
+        )
+        job.result()
+        return int(job.num_dml_affected_rows or 0)
+
+    async def _lease_dml(self, built: tuple[str, list]) -> int | None:
+        """Affected rows, or None when the table predates the lease columns (the
+        lease then degrades to the old unguarded behaviour, loudly)."""
+        from google.api_core import exceptions as gexc
+
+        sql, params = built
+        try:
+            return await asyncio.to_thread(self._dml, sql, params)
+        except gexc.BadRequest as exc:
+            if "deploy_lease" not in str(exc):
+                raise
+            log.error(
+                "bandit_experiments has no deploy_lease_* columns: deploy lease "
+                "disabled until the migration runs (deployment/README.md)"
+            )
+            return None
+
+    async def acquire_deploy_lease(
+        self, experiment_id: str, owner: str, ttl_seconds: int
+    ) -> bool:
+        table = self.tables["experiments"]
+        n = await self._lease_dml(
+            build_acquire_lease_sql(table, experiment_id, owner, ttl_seconds)
+        )
+        return n is None or n > 0
+
+    async def renew_deploy_lease(
+        self, experiment_id: str, owner: str, ttl_seconds: int
+    ) -> bool:
+        table = self.tables["experiments"]
+        n = await self._lease_dml(
+            build_renew_lease_sql(table, experiment_id, owner, ttl_seconds)
+        )
+        return n is None or n > 0
+
+    async def release_deploy_lease(self, experiment_id: str, owner: str) -> None:
+        table = self.tables["experiments"]
+        await self._lease_dml(build_release_lease_sql(table, experiment_id, owner))
+
     async def upsert(self, row: dict, fields: Iterable[str] | None = None) -> None:
         await self._run(build_upsert_sql(self.tables["experiments"], row, fields))
 
@@ -451,8 +611,8 @@ class InMemoryExperimentStore:
         )
 
     async def upsert(self, row: dict, fields: Iterable[str] | None = None) -> None:
-        for col in row:
-            EXPERIMENT_COLUMN_TYPES[col]  # same KeyError contract as the SQL builder
+        fields = None if fields is None else list(fields)
+        row = _known_columns(row, fields)  # same KeyError contract as the SQL builder
         current = self.rows.get(row["experiment_id"])
         if current is None:
             self.rows[row["experiment_id"]] = copy.deepcopy(row)
@@ -479,6 +639,39 @@ class InMemoryExperimentStore:
 
     async def metrics_rows(self, experiment_id: str) -> list[dict]:
         return copy.deepcopy(self.metrics.get(experiment_id, []))
+
+    # Lease: same semantics as the BigQuery UPDATEs; atomic because there is no
+    # await between the check and the write.
+    async def acquire_deploy_lease(
+        self, experiment_id: str, owner: str, ttl_seconds: int
+    ) -> bool:
+        row = self.rows.get(experiment_id)
+        if row is None or row.get("status") != "deploying":
+            return False
+        now = dt.datetime.now(dt.UTC)
+        until = row.get("deploy_lease_until")
+        if until is not None and until >= now:
+            return False
+        row["deploy_lease_until"] = now + dt.timedelta(seconds=ttl_seconds)
+        row["deploy_lease_owner"] = owner
+        return True
+
+    async def renew_deploy_lease(
+        self, experiment_id: str, owner: str, ttl_seconds: int
+    ) -> bool:
+        row = self.rows.get(experiment_id)
+        if row is None or row.get("deploy_lease_owner") != owner:
+            return False
+        row["deploy_lease_until"] = dt.datetime.now(dt.UTC) + dt.timedelta(
+            seconds=ttl_seconds
+        )
+        return True
+
+    async def release_deploy_lease(self, experiment_id: str, owner: str) -> None:
+        row = self.rows.get(experiment_id)
+        if row is not None and row.get("deploy_lease_owner") == owner:
+            row["deploy_lease_until"] = None
+            row["deploy_lease_owner"] = None
 
     async def creative_series_rows(self, experiment_id: str) -> dict[str, list[dict]]:
         return series_rows_from_events(self.events.get(experiment_id, []))

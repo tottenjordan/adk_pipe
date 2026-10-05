@@ -13,12 +13,15 @@ from runserver.experiments_store import (
     EXPERIMENT_COLUMN_TYPES,
     BigQueryExperimentStore,
     InMemoryExperimentStore,
+    build_acquire_lease_sql,
     build_creative_segments_sql,
     build_creative_series_sql,
     build_get_sql,
     build_list_active_sql,
     build_list_sql,
     build_metrics_sql,
+    build_release_lease_sql,
+    build_renew_lease_sql,
     build_segment_winners_sql,
     build_true_ctr_sql,
     build_upsert_sql,
@@ -64,7 +67,7 @@ def test_column_map_matches_contract_and_ddl():
         "updated_at", "status", "scenario", "ctr_mode", "reward_mode", "arms",
         "config_uri", "model_resource", "endpoint_id", "deployed_model_id",
         "ttl_expires_at", "stopped_at", "traffic_execution", "progress", "error",
-        "scenario_overrides",
+        "scenario_overrides", "deploy_lease_until", "deploy_lease_owner",
     ]  # fmt: skip
     ddl = (Path(__file__).parents[1] / "deployment/create_bq_tables.sh").read_text()
     schema = re.search(r'BANDIT_EXPERIMENTS}" \\\n\s+(\S+)', ddl).group(1)
@@ -102,6 +105,132 @@ def test_upsert_sql_rejects_unknown_columns():
         build_upsert_sql(T, {**_row(), "bogus": 1})
     with pytest.raises(KeyError):
         build_upsert_sql(T, _row(), fields=["nope"])
+
+
+def test_upsert_ignores_unknown_fetched_columns_not_being_written(caplog):
+    """Rolling deploys: a row read from a table migrated by a newer revision may
+    carry columns this code doesn't know. A partial update must not crash on them."""
+    row = {**_row(), "future_col": "x"}
+    sql, params = build_upsert_sql(T, row, fields=["status", "updated_at"])
+    assert "future_col" not in sql
+    assert "future_col" not in {p.name for p in params}
+    assert "status = S.status" in sql
+    # still raises when the unknown column is explicitly written
+    with pytest.raises(KeyError):
+        build_upsert_sql(T, row, fields=["future_col"])
+    with pytest.raises(KeyError):
+        build_upsert_sql(T, row)  # full write names every column
+
+
+def test_in_memory_upsert_ignores_unknown_fetched_columns():
+    store = InMemoryExperimentStore()
+
+    async def go():
+        await store.upsert(_row())
+        await store.upsert({**_row(status="ready"), "future_col": 1}, fields=["status"])
+        with pytest.raises(KeyError):
+            await store.upsert({**_row(), "future_col": 1}, fields=["future_col"])
+        return await store.get("e1")
+
+    got = asyncio.run(go())
+    assert got["status"] == "ready" and "future_col" not in got
+
+
+def test_lease_sql_builders():
+    sql, params = build_acquire_lease_sql(T, "e1", "rev-1/abc", 180)
+    by_name = {p.name: p for p in params}
+    assert sql.split()[0] == "UPDATE" and f"`{T}`" in sql
+    assert "WHERE experiment_id = @experiment_id" in sql
+    assert "status = @status" in sql and by_name["status"].value == "deploying"
+    assert (
+        "deploy_lease_until IS NULL OR deploy_lease_until < CURRENT_TIMESTAMP()" in sql
+    )
+    assert "INTERVAL @ttl_seconds SECOND" in sql
+    assert by_name["ttl_seconds"].type_ == "INT64"
+    assert by_name["ttl_seconds"].value == 180
+    assert by_name["owner"].value == "rev-1/abc"
+    assert "rev-1/abc" not in sql and "e1" not in sql.replace(T, "")
+    sql, params = build_renew_lease_sql(T, "e1", "rev-1/abc", 180)
+    assert "deploy_lease_owner = @owner" in sql.split("WHERE")[1]
+    assert "INTERVAL @ttl_seconds SECOND" in sql
+    sql, params = build_release_lease_sql(T, "e1", "rev-1/abc")
+    assert "deploy_lease_until = NULL" in sql and "deploy_lease_owner = NULL" in sql
+    assert "deploy_lease_owner = @owner" in sql.split("WHERE")[1]
+    assert {p.name for p in params} == {"experiment_id", "owner"}
+
+
+def test_bigquery_store_lease_checks_affected_rows():
+    fake = _FakeBQ([])
+    store = BigQueryExperimentStore(
+        tables={"experiments": T, "events": "x", "metrics": "m"},
+        client_factory=lambda: fake,
+    )
+
+    async def go():
+        fake.affected = 1
+        won = await store.acquire_deploy_lease("e1", "o", 180)
+        renewed = await store.renew_deploy_lease("e1", "o", 180)
+        fake.affected = 0
+        lost = await store.acquire_deploy_lease("e1", "o2", 180)
+        not_renewed = await store.renew_deploy_lease("e1", "o2", 180)
+        await store.release_deploy_lease("e1", "o")
+        return won, renewed, lost, not_renewed
+
+    assert asyncio.run(go()) == (True, True, False, False)
+    assert [c[0].split()[0] for c in fake.calls] == ["UPDATE"] * 5
+
+
+def test_bigquery_store_lease_on_unmigrated_table_degrades(caplog):
+    from google.api_core import exceptions as gexc
+
+    class _Unmigrated(_FakeBQ):
+        def query(self, sql, job_config):
+            raise gexc.BadRequest("Unrecognized name: deploy_lease_until at [3:17]")
+
+    store = BigQueryExperimentStore(
+        tables={"experiments": T, "events": "x", "metrics": "m"},
+        client_factory=lambda: _Unmigrated([]),
+    )
+
+    async def go():
+        won = await store.acquire_deploy_lease("e1", "o", 180)
+        renewed = await store.renew_deploy_lease("e1", "o", 180)
+        await store.release_deploy_lease("e1", "o")
+        return won, renewed
+
+    assert asyncio.run(go()) == (True, True)
+    assert "migration" in caplog.text
+
+
+def test_in_memory_lease_semantics():
+    store = InMemoryExperimentStore()
+
+    async def go():
+        await store.upsert(_row())
+        first = await store.acquire_deploy_lease("e1", "a", 180)
+        second = await store.acquire_deploy_lease("e1", "b", 180)
+        renew_foreign = await store.renew_deploy_lease("e1", "b", 180)
+        before = store.rows["e1"]["deploy_lease_until"]
+        await asyncio.sleep(0.01)
+        renew_own = await store.renew_deploy_lease("e1", "a", 180)
+        extended = store.rows["e1"]["deploy_lease_until"] > before
+        await store.release_deploy_lease("e1", "b")  # not the owner: no-op
+        held = store.rows["e1"]["deploy_lease_owner"]
+        await store.release_deploy_lease("e1", "a")
+        after_release = await store.acquire_deploy_lease("e1", "b", 180)
+        # expiry: a stale lease can be taken over
+        store.rows["e1"]["deploy_lease_until"] = NOW
+        takeover = await store.acquire_deploy_lease("e1", "c", 180)
+        await store.upsert(_row(status="ready"), fields=["status"])
+        store.rows["e1"]["deploy_lease_until"] = None
+        not_deploying = await store.acquire_deploy_lease("e1", "d", 180)
+        missing = await store.acquire_deploy_lease("nope", "d", 180)
+        return (first, second, renew_foreign, renew_own, extended, held,
+                after_release, takeover, not_deploying, missing)  # fmt: skip
+
+    assert asyncio.run(go()) == (
+        True, False, False, True, True, "a", True, True, False, False,
+    )  # fmt: skip
 
 
 def test_read_sql_builders():
@@ -238,12 +367,16 @@ class _FakeRow(dict):
 class _FakeBQ:
     def __init__(self, result):
         self.calls, self.result = [], result
+        self.affected = 0
 
     def query(self, sql, job_config):
         self.calls.append((sql, job_config.query_parameters))
         result = self.result
+        affected = self.affected
 
         class _Job:
+            num_dml_affected_rows = affected
+
             def result(self):
                 return [_FakeRow(r) for r in result]
 

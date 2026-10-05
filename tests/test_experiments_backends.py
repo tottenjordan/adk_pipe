@@ -22,6 +22,17 @@ class _FakeLib:
     def __init__(self):
         self.calls: list[tuple] = []
         self.deployed: list[dict] = []
+        # label lookups: resource names, oldest first (endpoint.find_* contract)
+        self.labelled_models: list[str] = []
+        self.labelled_endpoints: list[str] = []
+
+    def find_models(self, labels):
+        self.calls.append(("find_models", labels))
+        return list(self.labelled_models)
+
+    def find_endpoints(self, labels):
+        self.calls.append(("find_endpoints", labels))
+        return list(self.labelled_endpoints)
 
     def experiment_labels(self, eid):
         return {"app": "trend-trawler", "experiment": eid}
@@ -75,7 +86,7 @@ def test_vertex_deployer_steps_and_reports_ids():
         {"endpoint_id": "endpoints/1"},
         {"deployed_model_id": "dm-9"},
     ]
-    assert lib.calls[0] == (
+    assert [c for c in lib.calls if c[0] == "upload"][0] == (
         "upload",
         "img:1",
         "gs://b/bandit/e1",
@@ -98,6 +109,78 @@ def test_vertex_deployer_resume_skips_existing_and_adopts_deployment():
     )
     assert ids["deployed_model_id"] == "dm-old"
     assert [c[0] for c in lib.calls] == ["state"]  # no upload/create/deploy
+
+
+def test_vertex_deployer_reuses_labelled_model_and_endpoint(caplog):
+    """The row lost its ids (e.g. a crashed on_step write) but the resources exist:
+    adopt the labelled ones (oldest on duplicates) instead of uploading again."""
+    lib = _FakeLib()
+    lib.labelled_models = ["models/old", "models/dup"]
+    lib.labelled_endpoints = ["endpoints/old"]
+    lib.deployed = [{"id": "dm-1", "model": "models/old"}]
+    d = VertexDeployer("img:1", lib=lib)
+    steps: list[dict] = []
+
+    async def on_step(ids):
+        steps.append(ids)
+
+    ids = asyncio.run(d.deploy("e1", "gs://x", on_step=on_step))
+    assert ids == {
+        "model_resource": "models/old",
+        "endpoint_id": "endpoints/old",
+        "deployed_model_id": "dm-1",
+    }
+    kinds = [c[0] for c in lib.calls]
+    assert "upload" not in kinds and "endpoint" not in kinds and "deploy" not in kinds
+    assert ("find_models", {"app": "trend-trawler", "experiment": "e1"}) in lib.calls
+    assert steps[0] == {"model_resource": "models/old"}
+    assert "models/dup" in caplog.text  # the extra is logged
+
+
+def test_vertex_deployer_reuses_labelled_model_and_creates_missing_endpoint():
+    lib = _FakeLib()
+    lib.labelled_models = ["models/old"]
+    d = VertexDeployer("img:1", lib=lib)
+    ids = asyncio.run(d.deploy("e1", "gs://x"))
+    kinds = [c[0] for c in lib.calls]
+    assert kinds.count("upload") == 0 and kinds.count("endpoint") == 1
+    assert ids["model_resource"] == "models/old"
+    assert ("deploy", "models/old", "endpoints/1", None) in lib.calls
+
+
+def test_vertex_deployer_teardown_also_deletes_labelled_extras():
+    lib = _FakeLib()
+    lib.labelled_models = ["models/1", "models/dup"]
+    lib.labelled_endpoints = ["endpoints/1", "endpoints/dup"]
+    d = VertexDeployer("img", lib=lib)
+    row = {
+        "experiment_id": "e1",
+        "endpoint_id": "endpoints/1",
+        "model_resource": "models/1",
+    }
+    asyncio.run(d.teardown(row))
+    assert [c for c in lib.calls if c[0] == "teardown"] == [
+        ("teardown", "endpoints/1", "models/1"),
+        ("teardown", "endpoints/dup", None),
+        ("teardown", None, "models/dup"),
+    ]
+
+
+def test_fake_deployer_reuses_labelled_resources():
+    d = FakeDeployer()
+    first = asyncio.run(d.deploy("e1", "gs://x"))
+    again = asyncio.run(d.deploy("e1", "gs://x"))  # no ids passed: label lookup
+    assert again == first
+    assert d.created == {"model_resource": 1, "endpoint_id": 1, "deployed_model_id": 1}
+    assert asyncio.run(d.find_existing("e1")) == {
+        "model_resource": first["model_resource"],
+        "endpoint_id": first["endpoint_id"],
+    }
+    asyncio.run(d.teardown({"experiment_id": "e1", **first}))
+    assert asyncio.run(d.find_existing("e1")) == {
+        "model_resource": None,
+        "endpoint_id": None,
+    }
 
 
 def test_vertex_deployer_requires_image_and_teardown_state():
