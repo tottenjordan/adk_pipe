@@ -19,6 +19,23 @@ export const CONTROL_HELP = {
   status: "What the experiment is doing now.",
 } as const;
 
+/** The shift editor and the per-run views (contracts §10). */
+export const SHIFT_HELP = {
+  section:
+    "Script up to four changes in what the simulated readers want, at set points in each episode. Every strategy sees the same changes, so the comparison stays fair, and a dashed line shows the endpoint on the same readers without them.",
+  forget:
+    "On: for this run the endpoint weighs each batch of readers a little less than the next, remembering roughly the last eighth of an episode, so it can let go of a winner that stopped winning. Off: it keeps every reader at full weight.",
+  preview:
+    "The click rate each creative should get with each segment in every period between shifts, before random variation. The outlined cell is the segment's best creative in that period.",
+  runs: "Each Start traffic is a numbered run with its own shift script. Pick a run to see its results; the newest is shown by default.",
+  results:
+    "How the endpoint's best-creative rate changed around each shift, and how many rounds it took to get back to 80% of its earlier rate. Numbers are means across episodes with 95% intervals; under five episodes it is too early to call.",
+  ghost:
+    "Linear TS without your shifts: the same endpoint settings replayed on the same simulated readers with no shifts. The gap to the solid Linear TS line is what the shifts cost.",
+  periods:
+    "Shifts split the run into periods. Pick one to see who was best for each segment then, instead of a blend of the whole run.",
+} as const;
+
 /** Copy for the Stop confirmation step. */
 export const STOP_CONFIRM = {
   title: "Stop this experiment?",

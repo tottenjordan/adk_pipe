@@ -9,7 +9,9 @@ import { formatInt, formatPercent } from "@/lib/chart";
 import { SCOREBOARD_EXPLAIN } from "@/lib/experiment-explain";
 import type { ExperimentInsights } from "@/lib/experiment-insights";
 import { armImageUrl, segmentLabel, type CreativeSeries } from "@/lib/experiments";
-import { evenSplit, shareY, sharedShareMax, stripPaths, type Lane } from "@/lib/scoreboard";
+import { evenSplit, periodAt, shareY, sharedShareMax, stripPaths, type Lane, type LaneRegime } from "@/lib/scoreboard";
+import type { RunView } from "@/lib/shifts";
+import { ShiftResults } from "./shift-results";
 import { cn } from "@/lib/utils";
 
 const STRIP_W = 300;
@@ -26,7 +28,13 @@ export function CreativeScoreboard({
   explain,
   emptyMessage,
   onOpen,
+  runView = null,
+  laneRegimes = {},
 }: {
+  /** The shown run's shifts: strip ticks, per-period hover, result cards (contracts §10). */
+  runView?: RunView | null;
+  /** Latest + before period per creative (click rate, segments won). */
+  laneRegimes?: Record<string, LaneRegime>;
   lanes: Lane[];
   insights: ExperimentInsights;
   series: CreativeSeries | null;
@@ -41,6 +49,10 @@ export function CreativeScoreboard({
   const even = evenSplit(k);
   const hasResults = insights.verdict !== "empty";
   const windows = series?.windows ?? [];
+  const horizon = runView?.horizon ?? series?.horizon ?? null;
+  const ticks =
+    runView && horizon ? runView.markers.map((m) => ({ frac: m.x / horizon, label: m.label })) : [];
+  const anyRegime = Object.values(laneRegimes)[0] ?? null;
 
   return (
     <section aria-labelledby="scoreboard-heading">
@@ -74,6 +86,7 @@ export function CreativeScoreboard({
             {insights.whyExplain}
           </ExplainPanel>
         )}
+        {hasResults && <ShiftResults cards={insights.shiftCards} ghost={insights.ghost} explain={explain} />}
         {insights.notes.map((note) => (
           <p key={note} className="mt-2 max-w-[72ch] border-l-2 border-foreground/25 pl-3 text-sm leading-snug text-foreground">
             {note}
@@ -110,6 +123,13 @@ export function CreativeScoreboard({
         <ExplainPanel open={explain} className="px-4">
           {SCOREBOARD_EXPLAIN.board}
         </ExplainPanel>
+        {hasResults && anyRegime && (
+          <p className="border-b border-border px-4 py-2 text-xs text-muted-foreground tabular-nums">
+            Click rate and segments won are for the last period ({anyRegime.latest.label.toLowerCase()}, rounds{" "}
+            {formatInt(anyRegime.latest.start + 1)}–{formatInt(anyRegime.latest.end)}); the small line under each is{" "}
+            {anyRegime.before.label.toLowerCase()} your shifts. Ticks on the strips mark the shifts.
+          </p>
+        )}
 
         <ol className="divide-y divide-border">
           {lanes.map((lane) => (
@@ -152,6 +172,10 @@ export function CreativeScoreboard({
 
                 <div className="col-span-2 grid grid-cols-3 gap-4 lg:contents">
                   <Figure label="Traffic now" value={lane.finalShare === null ? "–" : formatPercent(lane.finalShare)} />
+                  {laneRegimes[lane.creativeId] ? (
+                    <PeriodFigures r={laneRegimes[lane.creativeId]} />
+                  ) : (
+                  <>
                   <Figure
                     label="Click rate"
                     value={lane.clickRate === null ? "–" : formatPercent(lane.clickRate, 1)}
@@ -168,6 +192,8 @@ export function CreativeScoreboard({
                     note={hasResults && lane.segmentsWon.length ? undefined : hasResults ? "none" : undefined}
                     title={lane.segmentsWon.length ? lane.segmentsWon.map(segmentLabel).join(", ") : undefined}
                   />
+                  </>
+                  )}
                 </div>
 
                 <div className="col-span-2 lg:col-span-1">
@@ -176,7 +202,14 @@ export function CreativeScoreboard({
                       Share of traffic over the run, 0–{formatPercent(yMax)}; grey line is an even split
                     </p>
                   )}
-                  <ShareStrip lane={lane} yMax={yMax} even={even} windows={windows} />
+                  <ShareStrip
+                    lane={lane}
+                    yMax={yMax}
+                    even={even}
+                    windows={windows}
+                    ticks={ticks}
+                    periods={runView ? { regimes: runView.regimes, labels: runView.labels } : null}
+                  />
                 </div>
 
                 {onOpen && (
@@ -219,6 +252,38 @@ function rowClick(e: MouseEvent<HTMLLIElement>, open: () => void) {
   open();
 }
 
+/** "After shift 1, rounds 20,001–22,000: " / "Rounds 1–2,000: " for a strip window. */
+function hoverText(
+  win: { start: number; end: number } | undefined,
+  periods: { regimes: { start: number; end: number }[]; labels: string[] } | null
+): string {
+  if (!win) return "";
+  const rounds = `rounds ${formatInt(win.start + 1)}–${formatInt(win.end)}: `;
+  const i = periods ? periodAt(periods.regimes, Math.floor((win.start + win.end - 1) / 2)) : -1;
+  return i >= 0 && periods ? `${periods.labels[i]}, ${rounds}` : rounds.charAt(0).toUpperCase() + rounds.slice(1);
+}
+
+/** Click rate + segments won for the latest period, each with a "before" line (runs with shifts). */
+function PeriodFigures({ r }: { r: LaneRegime }) {
+  const rate = (v: number | null) => (v === null ? "–" : formatPercent(v, 1));
+  const won = (xs: string[]) => (xs.length ? xs.map(segmentLabel).join(", ") : "none");
+  return (
+    <>
+      <Figure
+        label={`Click rate, ${r.latest.label.toLowerCase()}`}
+        value={rate(r.latest.clickRate)}
+        note={`${r.latest.trueCtr === null ? "" : `true ${formatPercent(r.latest.trueCtr, 1)}, `}before ${rate(r.before.clickRate)}`}
+      />
+      <Figure
+        label={`Segments won, ${r.latest.label.toLowerCase()}`}
+        value={String(r.latest.segmentsWon.length)}
+        note={`before ${r.before.segmentsWon.length}`}
+        title={`${r.latest.label}: ${won(r.latest.segmentsWon)}. ${r.before.label}: ${won(r.before.segmentsWon)}.`}
+      />
+    </>
+  );
+}
+
 function Figure({ label, value, note, title }: { label: string; value: string; note?: string; title?: string }) {
   return (
     <div className="min-w-0 lg:text-right" title={title}>
@@ -247,11 +312,17 @@ function ShareStrip({
   yMax,
   even,
   windows,
+  ticks = [],
+  periods = null,
 }: {
   lane: Lane;
   yMax: number;
   even: number;
   windows: { start: number; end: number }[];
+  /** Shift ticks, as fractions of the run. */
+  ticks?: { frac: number; label: string }[];
+  /** Periods between shifts, for the hover readout. */
+  periods?: { regimes: { start: number; end: number }[]; labels: string[] } | null;
 }) {
   const [hover, setHover] = useState<number | null>(null);
   const { line, area, points } = stripPaths(lane.share, yMax, STRIP_W, STRIP_H);
@@ -297,6 +368,20 @@ function ShareStrip({
         {even > 0 && (
           <line x1={0} x2={STRIP_W} y1={evenY} y2={evenY} stroke="#9aa5ae" strokeWidth={1} vectorEffect="non-scaling-stroke" />
         )}
+        {ticks.map((t) => (
+          <line
+            key={`${t.frac}-${t.label}`}
+            x1={t.frac * STRIP_W}
+            x2={t.frac * STRIP_W}
+            y1={0}
+            y2={STRIP_H}
+            stroke="var(--foreground)"
+            strokeOpacity={0.45}
+            strokeWidth={1}
+            strokeDasharray="2 3"
+            vectorEffect="non-scaling-stroke"
+          />
+        ))}
         <path d={area} fill={lane.color} fillOpacity={0.08} />
         <path
           d={line}
@@ -333,7 +418,7 @@ function ShareStrip({
             )}
             style={{ left: `${(active.x / STRIP_W) * 100}%` }}
           >
-            {win ? `Rounds ${formatInt(win.start + 1)}–${formatInt(win.end)}: ` : ""}
+            {hoverText(win, periods)}
             {formatPercent(active.v)}
           </span>
         </>

@@ -410,7 +410,6 @@ export function segmentPhrase(segment: string | null | undefined): string {
   return segment ? segment.replace(/[_-]+/g, " ").trim().toLowerCase() : "everyone";
 }
 
-const capFirst = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
 /** "At 40% of the run" / "From 60% to 75% of the run". */
 function whenPhrase(s: Shift): string {
@@ -651,6 +650,11 @@ export interface SeriesRegime {
   /** Segment → optimal creative id in this regime. */
   optimal: Record<string, string>;
   creatives: { creativeId: string; ctr: number | null; trueCtr: number | null; impressions: number | null }[];
+  /**
+   * Optional per creative × segment numbers in this regime (`cells`), so the
+   * Overview grid can show the period itself; [] when the api doesn't send them.
+   */
+  cells: { creativeId: string; segment: string; ctr: number | null; impressions: number }[];
 }
 
 /** `series.regimes` (camel or snake); [] on older APIs. */
@@ -680,9 +684,60 @@ export function seriesRegimes(raw: unknown): SeriesRegime[] {
           };
         })
         .filter((c): c is SeriesRegime["creatives"][number] => c !== null);
-      return { start, end, optimal, creatives };
+      const cells = (Array.isArray(o.cells) ? (o.cells as Record<string, unknown>[]) : [])
+        .map((c) => {
+          const id = pick(c ?? {}, "creativeId", "creative_id");
+          if (typeof id !== "string" || typeof c.segment !== "string") return null;
+          const imps = num(c.impressions) ?? 0;
+          const clicks = num(c.clicks);
+          const ctr = num(c.ctr) ?? (clicks !== null && imps > 0 ? clicks / imps : null);
+          return { creativeId: id, segment: c.segment, ctr, impressions: imps };
+        })
+        .filter((c): c is SeriesRegime["cells"][number] => c !== null);
+      return { start, end, optimal, creatives, cells };
     })
     .filter((r): r is SeriesRegime => r !== null);
+}
+
+/** Everything the experiment page needs about the shown run's shifts. */
+export interface RunView {
+  shifts: RunShift[];
+  forget: boolean;
+  horizon: number | null;
+  markers: ChartMarker[];
+  metricRegimes: MetricRegime[];
+  seriesRegimes: SeriesRegime[];
+  /** The regimes the page splits by (series regimes when present, else metrics regimes). */
+  regimes: { start: number; end: number }[];
+  /** One label per entry of `regimes`. */
+  labels: string[];
+}
+
+/**
+ * The shown run's shift view, or null when the run has no shifts (older APIs,
+ * or a run without a script): the page then renders exactly as before.
+ */
+export function buildRunView(
+  run: Pick<TrafficRun, "shifts" | "horizon" | "forget"> | null | undefined,
+  metrics: { horizon?: number | null; regimes?: unknown } | null | undefined,
+  series: { regimes?: unknown } | null | undefined
+): RunView | null {
+  const horizon = metrics?.horizon ?? run?.horizon ?? null;
+  const shifts = runShifts(run, horizon);
+  if (!shifts.length) return null;
+  const metricR = metricRegimes(metrics?.regimes);
+  const seriesR = seriesRegimes(series?.regimes);
+  const regimes = seriesR.length ? seriesR : metricR;
+  return {
+    shifts,
+    forget: Boolean(run?.forget),
+    horizon,
+    markers: shiftMarkers(shifts, horizon),
+    metricRegimes: metricR,
+    seriesRegimes: seriesR,
+    regimes,
+    labels: regimeLabels(regimes, shifts),
+  };
 }
 
 // ── Shift response (per shift, per policy) ───────────────────────────────────
@@ -779,6 +834,27 @@ export function parseShiftResponse(raw: unknown): ShiftResult[] {
     }
   }
   return [...out.values()].sort((a, b) => a.round - b.round).map((r, i) => ({ ...r, order: i }));
+}
+
+/**
+ * Shaded recovery spans for the regret chart: from each shift's round for the
+ * endpoint's mean recovery time ("Recovery"), or to the end of the run when it
+ * never recovered. [] without shift response numbers.
+ */
+export function recoverySpans(
+  results: readonly ShiftResult[],
+  horizon: number | null,
+  policy = "linear_ts"
+): { x0: number; x1: number; label: string }[] {
+  return results
+    .map((r) => {
+      const p = r.policies[policy];
+      if (!p?.pctOptimalBefore) return null;
+      const rec = p.recoveryRounds?.mean;
+      if (finite(rec)) return { x0: r.round, x1: r.round + rec, label: "Recovery" };
+      return horizon ? { x0: r.round, x1: horizon, label: "Not recovered" } : null;
+    })
+    .filter((s): s is { x0: number; x1: number; label: string } => s !== null);
 }
 
 // ── Run selector ─────────────────────────────────────────────────────────────

@@ -10,6 +10,7 @@
  */
 import { formatInt, formatPercent, niceStep } from "./chart";
 import type { CreativeSeries, CreativeSeriesItem } from "./experiments";
+import type { SeriesRegime } from "./shifts";
 
 /** Fewer clicks than this overall and the drawer says the data is too thin to read. */
 export const MIN_CLICKS = 30;
@@ -237,6 +238,8 @@ export interface SegmentGrid {
     creativeId: string;
     cells: { segment: string; ctr: number | null; impressions: number; isBest: boolean }[];
   }[];
+  /** True when the rates cover the whole run while the outlines show one period (no per-period cells). */
+  blended?: boolean;
   /** Observed click-rate range across every cell (the shading domain); null with no rates. */
   range: [number, number] | null;
 }
@@ -273,6 +276,84 @@ export function segmentGrid(
     }),
   }));
   return { segments, rows, range: Number.isFinite(lo) ? [lo, hi] : null };
+}
+
+/**
+ * The grid for one period between shifts (contracts §10): the period's own
+ * creative × segment rates when the api sends them (`regime.cells`), with the
+ * period's best creative per segment outlined. Without cells it keeps the
+ * whole-run rates and says so (`blended`), outlining the period's best.
+ */
+export function periodSegmentGrid(
+  base: SegmentGrid,
+  regime: Pick<SeriesRegime, "optimal" | "cells">
+): SegmentGrid {
+  const cellOf = (id: string, seg: string) => regime.cells.find((c) => c.creativeId === id && c.segment === seg);
+  const hasCells = regime.cells.length > 0;
+  let lo = Infinity;
+  let hi = -Infinity;
+  const rows = base.rows.map((row) => ({
+    creativeId: row.creativeId,
+    cells: row.cells.map((c) => {
+      const pc = hasCells ? cellOf(row.creativeId, c.segment) : undefined;
+      const ctr = hasCells ? (pc?.ctr ?? null) : c.ctr;
+      if (ctr !== null) {
+        lo = Math.min(lo, ctr);
+        hi = Math.max(hi, ctr);
+      }
+      return {
+        segment: c.segment,
+        ctr,
+        impressions: hasCells ? (pc?.impressions ?? 0) : c.impressions,
+        isBest: c.segment in regime.optimal ? regime.optimal[c.segment] === row.creativeId : c.isBest,
+      };
+    }),
+  }));
+  return { segments: base.segments, rows, range: Number.isFinite(lo) ? [lo, hi] : null, blended: !hasCells };
+}
+
+/**
+ * The series restricted to one period (contracts §10), for the drawer's reading
+ * and segment bars: per creative, the period's impressions and clicks and its
+ * per-segment cells, with "best" from the period's optimal creatives. Null when
+ * the regime has no cells (the drawer then keeps the whole run).
+ */
+export function periodSeries(
+  series: CreativeSeries | null | undefined,
+  regime: Pick<SeriesRegime, "optimal" | "cells">
+): CreativeSeries | null {
+  if (!series || !regime.cells.length) return null;
+  return {
+    ...series,
+    creatives: series.creatives.map((c) => {
+      const cells = regime.cells.filter((x) => x.creativeId === c.creativeId);
+      const impressions = cells.reduce((a, x) => a + x.impressions, 0);
+      const clicks = cells.reduce((a, x) => a + (x.ctr ?? 0) * x.impressions, 0);
+      const segments = (c.segments ?? []).map((s) => {
+        const x = cells.find((y) => y.segment === s.segment);
+        const imps = x?.impressions ?? 0;
+        return {
+          segment: s.segment,
+          impressions: imps,
+          clicks: Math.round((x?.ctr ?? 0) * imps),
+          ctr: x?.ctr ?? null,
+          trueCtr: null,
+          isBest: regime.optimal[s.segment] === c.creativeId,
+        };
+      });
+      return {
+        ...c,
+        impressions,
+        clicks: Math.round(clicks),
+        trueCtr: null,
+        segments,
+        segmentsWon: Object.entries(regime.optimal)
+          .filter(([, id]) => id === c.creativeId)
+          .map(([s]) => s)
+          .sort(),
+      };
+    }),
+  };
 }
 
 /** 0–1 shading strength for a grid cell (0 at the lowest rate, 1 at the highest; 0.5 when all equal). */

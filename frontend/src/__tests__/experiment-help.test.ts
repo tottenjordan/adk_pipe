@@ -8,6 +8,9 @@ const SRC = path.resolve(__dirname, "..");
 const UI_FILES = [
   "app/experiments/[experimentId]/page.tsx",
   "app/experiments/[experimentId]/experiment-charts.tsx",
+  "app/experiments/[experimentId]/shift-timeline.tsx",
+  "app/experiments/[experimentId]/shift-results.tsx",
+  "app/experiments/[experimentId]/run-selector.tsx",
   "app/experiments/page.tsx",
   "app/results/[sessionId]/deploy-panel.tsx",
   "app/results/[sessionId]/reader-tuning.tsx",

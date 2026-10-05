@@ -23,6 +23,7 @@ import {
   getCreativeSeries,
   getExperimentMetrics,
   hasMetrics,
+  InvalidShiftsError,
   pollExperiment,
   PollWaker,
   rewardModeLabel,
@@ -38,7 +39,20 @@ import {
   type ExperimentSummary,
 } from "@/lib/experiments";
 import { buildInsights } from "@/lib/experiment-insights";
-import { buildLanes } from "@/lib/scoreboard";
+import { buildLanes, laneRegimes } from "@/lib/scoreboard";
+import {
+  buildRunView,
+  defaultForget,
+  parseRunParam,
+  selectedRun,
+  trafficRuns,
+  urlForRun,
+  validateShifts,
+  type EditorShift,
+  type ShiftContext,
+} from "@/lib/shifts";
+import { valuesFromOverrides } from "@/lib/scenario-preview";
+import type { Scenario, CtrMode } from "@/lib/experiments";
 import {
   parseCreativeParam,
   parseView,
@@ -53,6 +67,8 @@ import { ExperimentCharts } from "./experiment-charts";
 import { CreativeScoreboard } from "./creative-scoreboard";
 import { CreativeDetailDrawer } from "./creative-detail";
 import { SegmentGridView } from "./segment-grid";
+import { ShiftTimeline } from "./shift-timeline";
+import { RunSelector } from "./run-selector";
 
 const METRICS_INTERVAL_MS = 10_000;
 
@@ -81,6 +97,16 @@ export default function ExperimentPage({
     setOpenCreativeState(id);
     window.history.replaceState(null, "", urlForCreative(window.location.href, id));
   }, []);
+  // The traffic run the results show (`?run=N`, contracts §10); null = the latest.
+  const [runParam, setRunParamState] = useState<number | null>(() => parseRunParam(searchParams.get("run")));
+  const setRunParam = useCallback((run: number | null) => {
+    setRunParamState(run);
+    window.history.replaceState(null, "", urlForRun(window.location.href, run));
+  }, []);
+  // The shift editor's script for the next Start traffic, and the forgetting toggle (null = default).
+  const [draftShifts, setDraftShifts] = useState<EditorShift[]>([]);
+  const [forgetChoice, setForgetChoice] = useState<boolean | null>(null);
+  const [shiftError, setShiftError] = useState<string | null>(null);
   const [pollKey, setPollKey] = useState(0);
   const [now, setNow] = useState(() => Date.now());
   const [episodes, setEpisodes] = useState<number>(20);
@@ -116,6 +142,10 @@ export default function ExperimentPage({
   }, [experimentId, pollKey, waker]);
 
   const status = exp?.status;
+  const runs = useMemo(() => trafficRuns(exp?.trafficRuns), [exp?.trafficRuns]);
+  const shownRun = selectedRun(runs, runParam);
+  // Only ask for a specific run when the user picked an older one; the latest is the api's default.
+  const fetchRun = runParam !== null && shownRun?.run === runParam && runs.length > 0 && runParam !== runs[runs.length - 1].run ? runParam : null;
 
   // Metrics + the per-creative series: once per status change, and on an
   // interval while traffic runs. Each keeps its last good value on failure (the
@@ -123,15 +153,20 @@ export default function ExperimentPage({
   const loadMetrics = useCallback(
     async (signal?: AbortSignal) => {
       const [m, c] = await Promise.allSettled([
-        getExperimentMetrics(experimentId, { signal }),
-        getCreativeSeries(experimentId, { signal }),
+        getExperimentMetrics(experimentId, { signal, run: fetchRun }),
+        getCreativeSeries(experimentId, { signal, run: fetchRun }),
       ]);
       if (signal?.aborted) return;
       if (m.status === "fulfilled") setMetrics(m.value);
       if (c.status === "fulfilled") setSeries(c.value.creatives.length ? c.value : null);
     },
-    [experimentId]
+    [experimentId, fetchRun]
   );
+  // A different run: drop the previous run's numbers rather than show them under the new label.
+  useEffect(() => {
+    setMetrics(null);
+    setSeries(null);
+  }, [fetchRun]);
   useEffect(() => {
     if (!status) return;
     const ctrl = new AbortController();
@@ -158,9 +193,15 @@ export default function ExperimentPage({
   }, []);
 
   const arms = useMemo(() => [...(exp?.arms ?? [])].sort((a, b) => a.index - b.index), [exp?.arms]);
+  const runView = useMemo(
+    () => (hasMetrics(metrics) ? buildRunView(shownRun, metrics, series) : null),
+    [shownRun, metrics, series]
+  );
   const insights = useMemo(
     () =>
       buildInsights({
+        shifts: runView?.shifts,
+        forget: runView?.forget,
         metrics: hasMetrics(metrics) ? metrics : null,
         series,
         arms,
@@ -179,6 +220,7 @@ export default function ExperimentPage({
       exp?.scenario,
       exp?.scenarioOverrides,
       exp?.policyDiscount,
+      runView,
     ]
   );
   const lanes = useMemo(
@@ -191,6 +233,28 @@ export default function ExperimentPage({
     [liveSeries, lanes]
   );
   const openLane = lanes.find((l) => l.creativeId === openCreative) ?? null;
+  const regimesByLane = useMemo(
+    () => (runView ? laneRegimes(lanes, runView.seriesRegimes, runView.metricRegimes, runView.labels) : {}),
+    [runView, lanes]
+  );
+  const shiftCtx = useMemo<ShiftContext | null>(() => {
+    if (!exp || arms.length < 2 || !["clear_winner", "segment_winners", "drift"].includes(exp.scenario)) return null;
+    const scenario = exp.scenario as Scenario;
+    const ctrMode = (exp.ctrMode === "realistic" ? "realistic" : "demo") as CtrMode;
+    return {
+      scenario,
+      ctrMode,
+      horizon: defaultHorizon(exp.scenario, exp.ctrMode),
+      creatives: arms.map((a) => ({
+        creativeId: a.creativeId,
+        name: armName(a),
+        color: armColor(arms, a.creativeId),
+        scores: a.scores ?? {},
+      })),
+      values: valuesFromOverrides(scenario, exp.scenarioOverrides),
+    };
+  }, [exp, arms]);
+  const forget = forgetChoice ?? defaultForget(draftShifts.length);
 
   if (!exp) {
     return (
@@ -219,14 +283,22 @@ export default function ExperimentPage({
   const ttl = canStop(exp.status) ? ttlText(exp.ttlExpiresAt, now) : "";
 
   const onStartTraffic = async () => {
-    setBusy("traffic");
     setActionError(null);
+    setShiftError(null);
+    if (shiftCtx && validateShifts(draftShifts, shiftCtx).length) {
+      setShiftError("Fix the highlighted shifts before starting traffic.");
+      return;
+    }
+    setBusy("traffic");
     try {
-      await startTraffic(experimentId, episodes, horizon);
+      await startTraffic(experimentId, episodes, horizon, { shifts: draftShifts, forget });
       setExp((e) => (e ? { ...e, status: "running_traffic" } : e));
+      // The new run becomes the latest: follow it.
+      setRunParam(null);
       setPollKey((k) => k + 1);
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : "Couldn't start traffic.");
+      if (err instanceof InvalidShiftsError) setShiftError(err.message);
+      else setActionError(err instanceof Error ? err.message : "Couldn't start traffic.");
     } finally {
       setBusy(null);
     }
@@ -291,6 +363,23 @@ export default function ExperimentPage({
       <section aria-label="Experiment controls" className="mt-4 rounded-lg border border-border bg-card p-4">
         <StatusNote exp={exp} />
 
+        {shiftCtx && (exp.status === "ready" || exp.status === "deploying" || exp.status === "running_traffic") && (
+          <div className="mt-4">
+            <ShiftTimeline
+              ctx={shiftCtx}
+              shifts={draftShifts}
+              onChange={(next) => {
+                setDraftShifts(next);
+                setShiftError(null);
+              }}
+              forget={forget}
+              onForgetChange={setForgetChoice}
+              disabled={exp.status !== "ready" || busy !== null}
+              serverError={shiftError}
+            />
+          </div>
+        )}
+
         <div className="mt-3 flex flex-wrap items-end gap-x-6 gap-y-3">
           <div>
             <div className="mb-1.5 flex items-center gap-1">
@@ -325,7 +414,11 @@ export default function ExperimentPage({
               onClick={onStartTraffic}
               disabled={exp.status !== "ready" || busy !== null}
             >
-              {busy === "traffic" ? "Starting…" : "Start traffic"}
+              {busy === "traffic"
+                ? "Starting…"
+                : draftShifts.length
+                  ? `Start traffic with ${draftShifts.length} ${draftShifts.length === 1 ? "shift" : "shifts"}`
+                  : "Start traffic"}
             </Button>
             <InfoTip label="About start traffic">{CONTROL_HELP.startTraffic}</InfoTip>
           </div>
@@ -396,7 +489,10 @@ export default function ExperimentPage({
               Analysis
             </TabsTrigger>
           </TabsList>
-          <ExplainSwitch on={explain} onChange={setExplain} />
+          <div className="flex flex-wrap items-center gap-3">
+            {shownRun && <RunSelector runs={runs} selected={shownRun} onSelect={setRunParam} />}
+            <ExplainSwitch on={explain} onChange={setExplain} />
+          </div>
         </div>
 
         <TabsContent value="overview">
@@ -407,9 +503,21 @@ export default function ExperimentPage({
             explain={explain}
             emptyMessage={scoreboardDirection(exp.status)}
             onOpen={hasMetrics(metrics) ? setOpenCreative : undefined}
+            runView={runView}
+            laneRegimes={regimesByLane}
           />
           {grid && (
-            <SegmentGridView grid={grid} lanes={lanes} explain={explain} onOpen={setOpenCreative} />
+            <SegmentGridView
+              grid={grid}
+              lanes={lanes}
+              explain={explain}
+              onOpen={setOpenCreative}
+              periods={
+                runView && runView.seriesRegimes.length >= 2
+                  ? { labels: runView.labels, regimes: runView.seriesRegimes }
+                  : null
+              }
+            />
           )}
         </TabsContent>
 
@@ -472,6 +580,7 @@ export default function ExperimentPage({
                   rewardMode={exp.rewardMode}
                   readings={insights.readings}
                   explain={explain}
+                  runView={runView}
                 />
                 <p className="mt-3 text-xs text-muted-foreground">
                   {exp.ctrMode === "demo" ? "Demo mode inflates click rates; " : ""}
@@ -499,6 +608,7 @@ export default function ExperimentPage({
         series={liveSeries}
         explain={explain}
         onClose={() => setOpenCreative(null)}
+        runView={runView}
       />
     </div>
   );

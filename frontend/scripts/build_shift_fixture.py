@@ -312,7 +312,30 @@ def main() -> None:
                     "trueCtr": r4(lin["p_all"][:, sl, a].mean()),
                 }
             )
-        regimes_c.append({"start": start, "end": end, "segments": sorted(seg_list, key=lambda r: r["segment"]), "creatives": cr})
+        cells = []
+        for a, cid in enumerate(ids):
+            for s, name in enumerate(segs):
+                m = (lin["arm"][:, sl] == a) & (lin["segment"][:, sl] == s)
+                imps = int(m.sum())
+                clicks = int(lin["clicked"][:, sl][m].sum())
+                cells.append(
+                    {
+                        "creativeId": cid,
+                        "segment": name,
+                        "impressions": imps,
+                        "clicks": clicks,
+                        "ctr": r4(clicks / imps) if imps else None,
+                    }
+                )
+        regimes_c.append(
+            {
+                "start": start,
+                "end": end,
+                "segments": sorted(seg_list, key=lambda r: r["segment"]),
+                "creatives": cr,
+                "cells": cells,
+            }
+        )
     series = {
         "experimentId": cfg.experiment_id,
         "run": 2,

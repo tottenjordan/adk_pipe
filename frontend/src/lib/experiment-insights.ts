@@ -29,6 +29,7 @@ import { GHOST_POLICY, isReferencePolicy } from "./experiments";
 import { TRAILING_EXPLAIN } from "./experiment-explain";
 import { segmentWords, skewedSegment } from "./scenario-preview";
 import {
+  metricRegimes,
   parseShiftResponse,
   segmentPhrase,
   SHIFT_LEADER,
@@ -735,6 +736,17 @@ export function buildInsights(input: InsightInput): ExperimentInsights {
   const facts = creativeFacts(input);
   const k = Math.max(arms.length, facts.length);
   const shifts = input.shifts ?? [];
+  // With shifts, "best for a segment" means the latest period, never a whole-run blend.
+  const periods = shifts.length ? metricRegimes(metrics.regimes) : [];
+  const latest = periods.length >= 2 ? periods[periods.length - 1] : null;
+  if (latest) {
+    for (const f of facts) {
+      f.segmentsWon = Object.entries(latest.perSegment)
+        .filter(([, v]) => v.optimalArm === f.id)
+        .map(([seg]) => seg)
+        .sort();
+    }
+  }
   const drift: DriftContext | null = shifts.length
     ? {
         cause: "shifts",
@@ -774,7 +786,9 @@ export function buildInsights(input: InsightInput): ExperimentInsights {
       regret: withShiftNote(regretReading(metrics, units), shiftCards, "regret"),
       optimal: withShiftNote(optimalReading(metrics), shiftCards, "optimal"),
       share: withShiftNote(shareReading(facts, k), shiftCards, "share"),
-      segments: segmentsReading(metrics, name),
+      segments: latest
+        ? prefixed("In the last period of the run, ", segmentsReading({ ...metrics, perSegment: latest.perSegment }, name))
+        : segmentsReading(metrics, name),
       totals: withGhost(totalsReading(metrics, units, verdict), metrics, units, "totals"),
     },
     lanes: Object.fromEntries(facts.map((f) => [f.id, laneReading(f, units, hasSegments)])),
@@ -784,6 +798,9 @@ export function buildInsights(input: InsightInput): ExperimentInsights {
 }
 
 // ── Scripted shifts (contracts §10) ──────────────────────────────────────────
+
+const prefixed = (prefix: string, text: string | null) =>
+  text ? `${prefix}${text}` : text;
 
 /** Share of the pre-shift best-creative rate that counts as recovered (bandit.metrics.shift_response). */
 export const RECOVERY_LEVEL = 0.8;
