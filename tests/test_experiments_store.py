@@ -68,7 +68,7 @@ def test_column_map_matches_contract_and_ddl():
         "config_uri", "model_resource", "endpoint_id", "deployed_model_id",
         "ttl_expires_at", "stopped_at", "traffic_execution", "progress", "error",
         "scenario_overrides", "deploy_lease_until", "deploy_lease_owner",
-        "policy_discount",
+        "policy_discount", "traffic_runs",
     ]  # fmt: skip
     ddl = (Path(__file__).parents[1] / "deployment/create_bq_tables.sh").read_text()
     schema = re.search(r'BANDIT_EXPERIMENTS}" \\\n\s+(\S+)', ddl).group(1)
@@ -313,6 +313,7 @@ def test_bigquery_store_creative_series_runs_four_queries():
         "segments": [],
         "true_ctr": [],
         "creative_segments": [],
+        "regimes": [],
     }
     assert len(fake.calls) == 4 and all("`p.d.ev`" in c[0] for c in fake.calls)
     assert any("GROUP BY arm, segment" in c[0] for c in fake.calls)

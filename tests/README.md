@@ -71,6 +71,7 @@ tests/
 ├── test_experiments_backends.py     # VertexDeployer (stepwise/resume, labelled-resource reuse, teardown of extras) + CloudRunJobsRunner env overrides, fakes
 ├── test_experiments_metrics.py      # pure ExperimentMetrics aggregation (CI bands, totals, arm share, segments)
 ├── test_experiments_series.py       # pure §8 /creatives aggregation (windows, share, segments, missedClicks, engagedSecondsPer1k)
+├── test_experiments_shifts.py       # §10 in the api: shift validation + bandit parity, numbered traffic runs (runs/{n}.json, env overrides, trafficRuns), ?run= reads incl. legacy NULL rows, shift_response + regime aggregation, regime SQL, unmigrated-table fallbacks
 ├── test_experiments_store.py        # bandit_experiments MERGE/SELECT builders, typed params, §8 series SQL builders, both stores, deploy-lease UPDATEs, unknown-column tolerance
 ├── test_export_concurrency.py       # creative_agent export tools: per-run scratch isolation (issue #104)
 ├── test_image_reference.py          # generate_image multimodal contents + valid ImageConfig
