@@ -29,8 +29,17 @@ class ExperimentConfig: experiment_id: str; arms: tuple[ArmSpec, ...]; scenario:
                         ctr_mode: str = "demo"; reward_mode: str = "click"; horizon: int = 20000
                         batch_size: int = 100; episodes: int = 20; seed: int = 0
                         policy: LinTSParams = LinTSParams()
-def load_experiment_config(src: str | Path | dict) -> ExperimentConfig   # validates 2–4 arms etc.
-def experiment_config_to_dict(cfg) -> dict                               # JSON round-trip of load_*
+                        scenario_overrides: ScenarioOverrides | None = None   # §9
+@dataclass(frozen=True)
+class ScenarioOverrides: segment_mix: tuple[float, ...] | None = None; gap_scale: float | None = None
+                         judge_wrong: float | None = None; noise_scale: float | None = None
+                         drift_at_frac: float | None = None                    # §9
+OVERRIDE_BOUNDS: dict[str, tuple[float, float]]                          # §9 bounds, inclusive
+def load_experiment_config(src: str | Path | dict) -> ExperimentConfig   # validates 2–4 arms, §9 overrides etc.
+def experiment_config_to_dict(cfg) -> dict                               # JSON round-trip of load_*; omits unset overrides
+def validate_scenario_overrides(ov, scenario: ScenarioConfig) -> ScenarioOverrides   # ValueError naming the field
+def apply_scenario_overrides(sc: ScenarioConfig, ov | None) -> ScenarioConfig
+def resolve_scenario(cfg) -> ScenarioConfig     # load_scenario(cfg.scenario) + cfg.scenario_overrides
 
 # bandit/features.py
 FEATURE_SPEC_VERSION: str            # e.g. "ctx-v1"
@@ -243,3 +252,41 @@ type CreativeSeries = {
 - **Caching** (in-process LRU, 64 experiments): 30 s while the experiment is `running_traffic`; indefinitely once `stopped` or `expired` (the data is final); not cached in any other status.
 - **Implementation:** four parameterized queries (`runserver/experiments_store.py`: `build_creative_series_sql`, `build_segment_winners_sql`, `build_true_ctr_sql`, `build_creative_segments_sql`) run concurrently; `runserver/experiments_series.py::build_creative_series` does the cross-episode aggregation in pure Python. A 20-episode × 40k-round experiment (800k events) processes about 134 MB across the three queries in about 1 s each.
 - **Per-segment fields** (added 2026-10-03, additive): `build_creative_segments_sql` groups the `linear_ts` rows by `(arm, segment)` and returns `COUNT(*)`, `SUM(clicked)` (`clicked` is INT64 0/1), `SUM(p_chosen)` + `COUNT(p_chosen)`, `SUM(regret)` and `SUM(dwell_s)` (NULLs as 0). `segments[].trueCtr` = `SUM(p_chosen) / COUNT(p_chosen)`; `missedClicks` = the creative's `SUM(regret)` / `episodes`; `engagedSecondsPer1k` uses the experiment row's `reward_mode`. `isBest` mirrors `segmentsWon` (the `optimal_arm` mode, not this query).
+
+## 9. Scenario overrides (`experiment.json` `scenario_overrides`, 2026-10-04)
+
+Binding for every layer: `bandit/`, the traffic job, the predictor, the api (`runserver/experiments.py`) and the frontend Deploy panel. Plan: [`docs/plans/2026-10-04-bandit-advanced-traffic-controls.md`](../plans/2026-10-04-bandit-advanced-traffic-controls.md).
+
+`experiment.json` (§1 `experiment_config_to_dict`) gains **one optional key**. It is written only when at least one override is set. When `ScenarioOverrides` is `None` or every field is `None`, the key is omitted, so a default config serialises byte-for-byte as before and images built before §9 keep loading it. Inside the object, only the fields that are set are written.
+
+```jsonc
+"scenario_overrides": {            // every field optional
+  "segment_mix":   [0.6, 0.2, 0.2], // one weight per scenario segment (clear_winner/drift 3, segment_winners 4); each in [0.05, 1]; renormalised to sum 1
+  "gap_scale":     1.5,             // [0.25, 2.0]; see below
+  "judge_wrong":   0.8,             // [0, 1]; 0 = judge right, 0.5 = uninformative, 1 = reversed (replaces the preset value)
+  "noise_scale":   1.0,             // [0, 2]; multiplies the preset's noise_sd AND theta_sd
+  "drift_at_frac": 0.3              // [0.2, 0.8]; only valid when scenario == "drift" (replaces drift.at_frac)
+}
+```
+
+- **Bounds:** inclusive, `bandit.config.OVERRIDE_BOUNDS` = `{segment_mix: (0.05, 1.0), gap_scale: (0.25, 2.0), judge_wrong: (0.0, 1.0), noise_scale: (0.0, 2.0), drift_at_frac: (0.2, 0.8)}`. The `segment_mix` bound applies to each raw weight before renormalisation. Values must be finite JSON numbers (booleans and strings are rejected).
+- **`gap_scale` g:**
+  - `segment_winners` (`arm_effect: segment_winners`): `lift_pp × g`.
+  - `rank_ctrs` scenarios (`clear_winner`, `drift`): each preset CTR becomes `sigmoid(mid + g·(logit(ctr) − mid))`, where `mid` is the mean of `logit(rank_ctrs)`. The spread happens in logit space, so the CTRs stay in (0, 1). The usual `ctr_mode` scaling and `target_ctr` calibration then apply.
+- **Validation** (`load_experiment_config` → `validate_experiment_config` → `validate_scenario_overrides(ov, load_scenario(cfg.scenario))`) is strict:
+  - unknown keys inside `scenario_overrides` are rejected;
+  - so are a non-object value, a wrong `segment_mix` length, an out-of-bounds value, and `drift_at_frac` on a scenario other than `drift`.
+  - Every error is a `ValueError` whose message names the field (`scenario_overrides.<field>`).
+  - `null` or `{}` loads as no overrides.
+- **Application:** `resolve_scenario(cfg)` = `apply_scenario_overrides(load_scenario(cfg.scenario), cfg.scenario_overrides)`.
+  - The traffic job builds its ground truth from it (`simulate.build_environment(cfg, scenario=resolve_scenario(cfg))`), and the locally replayed baselines share that environment.
+  - The predictor needs no change: it reads only `target_ctr` (noise-var calibration) and `dwell_base_s` (engaged reward scale), and no override touches either.
+  - The episode and model keys still derive from the scenario **name** (`simulate.scenario_key`), so a tuned experiment sees the same random draws as its preset.
+- **REST (PR B):**
+  - `POST /experiments` takes an optional camelCase `scenarioOverrides {segmentMix, gapScale, judgeWrong, noiseScale, driftAtFrac}` with the same bounds and rules.
+  - The api writes it to `experiment.json` as the snake_case object above, only when non-empty.
+  - A failure is **400** with `detail.reason: "invalid_scenario_overrides"` and `detail.field`, the camelCase field name (for example `"segmentMix"`).
+  - runserver never imports `bandit`; it duplicates `OVERRIDE_BOUNDS` and the per-scenario segment counts, under parity tests.
+- **CLI:** `python -m bandit.cli simulate` exposes `--segment-mix`, `--gap-scale`, `--judge-wrong`, `--noise-scale` and `--drift-at`, with the same bounds, applied through `apply_scenario_overrides`.
+  - The bounded overrides are recorded in the output's `config.scenario_overrides`.
+  - The one exception is a `--segment-mix` with weights outside [0.05, 1] (for example the notebook-parity single-segment `1,0,0,0` readers). It is applied directly as a lab-only escape hatch and isn't recorded.

@@ -6,7 +6,9 @@
         --episodes 10 --horizon 20000 --out /tmp/sim.json
 
 Policy specs accept options (``ucb1:c=0.01``, ``linear_ts:discount=0.98``) and
-the aliases ``lints``/``egreedy``/``bbts``. The output JSON holds the config,
+the aliases ``lints``/``egreedy``/``bbts``. ``--segment-mix``, ``--gap-scale``,
+``--judge-wrong``, ``--noise-scale`` and ``--drift-at`` tune the scenario with the
+contracts §9 bounds (``bandit.config.apply_scenario_overrides``). The output JSON holds the config,
 the environment summary, one §3-shaped metrics row per (episode, policy)
 (``rows``), the §5-shaped ``aggregate`` (snake_case) and a scalar ``summary``.
 """
@@ -29,14 +31,18 @@ from bandit import environment as envm
 from bandit.aggregate import aggregate_episode_metrics, summarize_totals
 from bandit.config import (
     CTR_MODES,
+    OVERRIDE_BOUNDS,
     REWARD_MODES,
     SCENARIOS,
     LinTSParams,
+    ScenarioOverrides,
+    apply_scenario_overrides,
     arm_from_dict,
     build_sim_config,
     default_noise_var,
     experiment_config_to_dict,
     load_scenario,
+    validate_scenario_overrides,
     with_segment_mix,
 )
 from bandit.features import FEATURE_SPEC_VERSION
@@ -61,6 +67,9 @@ def simulate(
     arm_schedule: ArmSchedule | None = None,
     drift: str | None = None,
     judge_wrong: float | None = None,
+    gap_scale: float | None = None,
+    noise_scale: float | None = None,
+    drift_at: float | None = None,
     noise_var: float | None = None,
     log_propensity: bool = True,
     num_checkpoints: int = 50,
@@ -69,13 +78,29 @@ def simulate(
 ) -> dict[str, Any]:
     """Run a simulation and return the JSON-ready output document."""
     t0 = time.time()
-    sc = load_scenario(scenario)
-    if segment_mix is not None:
+    preset = load_scenario(scenario)
+    # contracts §9 overrides, with the same bounds the endpoint configs get. A
+    # segment mix outside them (e.g. the notebook's single-segment 1,0,0,0 users)
+    # is a lab-only escape hatch: applied directly and not recorded in the config.
+    mix_lo, mix_hi = OVERRIDE_BOUNDS["segment_mix"]
+    mix_in_bounds = segment_mix is not None and all(
+        mix_lo <= w <= mix_hi for w in segment_mix
+    )
+    overrides = ScenarioOverrides(
+        segment_mix=tuple(float(w) for w in segment_mix)
+        if segment_mix is not None and mix_in_bounds
+        else None,
+        gap_scale=gap_scale,
+        judge_wrong=judge_wrong,
+        noise_scale=noise_scale,
+        drift_at_frac=drift_at,
+    )
+    validate_scenario_overrides(overrides, preset)
+    sc = apply_scenario_overrides(preset, overrides)
+    if segment_mix is not None and not mix_in_bounds:
         sc = with_segment_mix(sc, segment_mix)
     if drift is not None:
         sc = dataclasses.replace(sc, drift=dataclasses.replace(sc.drift, kind=drift))
-    if judge_wrong is not None:
-        sc = dataclasses.replace(sc, judge_wrong=judge_wrong)
     nv = (
         noise_var
         if noise_var is not None
@@ -93,6 +118,7 @@ def simulate(
         seed=seed,
         policy=LinTSParams(noise_var=nv),
         experiment_id=experiment_id,
+        scenario_overrides=overrides,
     )
     specs = [canonical_spec(p) for p in policies]
     result = run_experiment(
@@ -168,7 +194,30 @@ def build_parser() -> argparse.ArgumentParser:
         help="JSON [[start_round, [arm indices]], ...], e.g. [[0,[1,2,3]],[10000,[0,1,2]]]",
     )
     s.add_argument("--drift", choices=("none", "abrupt", "gradual"), default=None)
-    s.add_argument("--judge-wrong", type=float, default=None)
+    s.add_argument(
+        "--judge-wrong",
+        type=float,
+        default=None,
+        help="0 judge right, 0.5 uninformative, 1 reversed (bounds: contracts §9)",
+    )
+    s.add_argument(
+        "--gap-scale",
+        type=float,
+        default=None,
+        help="0.25-2: scale the gap between creatives (lift_pp / rank_ctrs spread)",
+    )
+    s.add_argument(
+        "--noise-scale",
+        type=float,
+        default=None,
+        help="0-2: multiply the scenario's noise_sd and theta_sd",
+    )
+    s.add_argument(
+        "--drift-at",
+        type=float,
+        default=None,
+        help="0.2-0.8: drift change point as a fraction of T (drift scenario only)",
+    )
     s.add_argument("--noise-var", type=float, default=None)
     s.add_argument("--no-propensity", action="store_true", help="skip MC propensities")
     s.add_argument("--num-checkpoints", type=int, default=50)
@@ -195,6 +244,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         arm_schedule=args.arm_schedule,
         drift=args.drift,
         judge_wrong=args.judge_wrong,
+        gap_scale=args.gap_scale,
+        noise_scale=args.noise_scale,
+        drift_at=args.drift_at,
         noise_var=args.noise_var,
         log_propensity=not args.no_propensity,
         num_checkpoints=args.num_checkpoints,

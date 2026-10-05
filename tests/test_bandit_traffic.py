@@ -9,7 +9,13 @@ import numpy as np
 import pytest
 
 from bandit import simulate
-from bandit.config import build_sim_config, experiment_config_to_dict
+from bandit.config import (
+    ScenarioOverrides,
+    build_sim_config,
+    experiment_config_to_dict,
+    load_scenario,
+    resolve_scenario,
+)
 from bandit.policies import make_policy
 from bandit_traffic import bq, main, traffic
 from bandit_traffic.endpoint_client import InProcessClient
@@ -341,3 +347,69 @@ def test_main_endpoint_failure_exits_1(tmp_path):
         client=Down(),
     )
     assert code == 1
+
+
+# ------------------------------------------------- scenario overrides (contracts §9)
+
+MIX = (0.7, 0.1, 0.1, 0.1)
+
+
+def _segment_freqs(events, names):
+    counts = {n: 0 for n in names}
+    for e in events:
+        counts[e["segment"]] += 1
+    return np.array([counts[n] / len(events) for n in names])
+
+
+def test_traffic_with_overrides_uses_tuned_environment():
+    cfg = _cfg(
+        horizon=2000, episodes=1, scenario_overrides=ScenarioOverrides(segment_mix=MIX)
+    )
+    tr = traffic.TrafficRunner(
+        cfg,
+        InProcessClient(FakeBanditEndpoint(cfg)),
+        _writer(FakeBQ()),
+        traffic.TrafficSettings(),
+    )
+    assert tr.env.scenario == resolve_scenario(cfg)
+    assert [s.weight for s in tr.env.scenario.segments] == pytest.approx(MIX)
+
+    fake_bq = FakeBQ()
+    traffic.run_traffic(
+        cfg,
+        InProcessClient(FakeBanditEndpoint(cfg)),
+        _writer(fake_bq),
+        traffic.TrafficSettings(baselines=("oracle",)),
+    )
+    events = fake_bq.rows("bandit_events")
+    assert len(events) == 2000
+    names = [s.name for s in load_scenario("segment_winners").segments]
+    np.testing.assert_allclose(_segment_freqs(events, names), MIX, atol=0.04)
+
+
+def test_main_dry_run_reads_overrides_from_config(tmp_path):
+    cfg_path = _write_config(
+        tmp_path, scenario_overrides=ScenarioOverrides(segment_mix=MIX, gap_scale=1.5)
+    )
+    written = json.loads(cfg_path.read_text())
+    assert written["scenario_overrides"] == {"segment_mix": list(MIX), "gap_scale": 1.5}
+    out = tmp_path / "out"
+    code = main.main(
+        [
+            "--in-process",
+            "--config",
+            str(cfg_path),
+            "--episodes",
+            "1",
+            "--horizon",
+            "2000",
+            "--dry-run",
+            "--out",
+            str(out),
+        ],
+        env={},
+    )
+    assert code == 0
+    events = [json.loads(line) for line in (out / "events.jsonl").read_text().split()]
+    names = [s.name for s in load_scenario("segment_winners").segments]
+    np.testing.assert_allclose(_segment_freqs(events, names), MIX, atol=0.04)

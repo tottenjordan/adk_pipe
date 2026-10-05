@@ -124,6 +124,11 @@ tests/
   `test_bandit_linear_ts.py`, `test_bandit_baselines.py`, `test_bandit_environment.py`,
   `test_bandit_simulate_metrics.py`, `test_bandit_notebook_parity.py`: the offline JAX
   contextual bandit (PR 1 of the bandit plan); JAX comes from the uv dev group.
+  Contracts §9 scenario overrides are covered across `test_bandit_config.py` (strict
+  parsing, bounds, round-trip omission), `test_bandit_environment.py` (each knob's effect
+  on the ground truth), `test_bandit_simulate_metrics.py` (CLI flags),
+  `test_bandit_traffic.py` (the traffic job simulates the tuned scenario) and
+  `test_bandit_predictor.py` (configs with overrides load).
 - **Tools** — `test_tools.py`, `test_tools_retry.py`: pure tool logic, plus the contract
   that infra tools raise (rather than swallow errors into status dicts) so ADK retry works.
 - **Deployment & fan-out** — `test_deploy_utils.py`, `test_create_session_engine.py`,
