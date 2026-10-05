@@ -80,6 +80,26 @@ export const REWARD_HELP: Record<RewardMode, string> = {
   engaged: "A click scores the seconds the reader then spends with the brand (click × dwell seconds).",
 };
 
+/** Deploy panel "Advanced: tune the simulated readers" (contracts §9). */
+export const TUNE_HELP = {
+  section:
+    "Each scenario fills these in with its own defaults. Change them to make the bandit's job easier or harder; the experiment page marks tuned experiments as custom.",
+  mix: "What share of the simulated readers comes from each segment. Moving one slider rebalances the others in proportion, and every segment keeps at least 5%.",
+  gap: "How far apart the creatives' click rates are. Subtle gaps take the bandit more traffic to tell apart; obvious gaps are found quickly.",
+  judge:
+    "How well the eval judge's scores predict real clicks. When the judge is right, the creatives it scored highest also get clicked most. When it is backwards, they get clicked least, and the bandit has to learn that from the readers.",
+  noise:
+    "Random variation in how each creative lands with each kind of reader, beyond what the judge's scores explain. At zero, the expected rates below are exactly what the simulator uses.",
+  drift: "When, as a share of each episode, the best and worst creatives swap places.",
+  preview:
+    "The click rate each creative should get with each segment under these settings, before random variation. The outlined cell is the segment's best creative.",
+  reset: "Put every setting back to the scenario's defaults.",
+  custom: "This experiment was deployed with tuned reader settings instead of the scenario's defaults.",
+  judgeRight: "Readers agree with the judge: its top-scored creative is the one they click most.",
+  judgeNone: "The judge's scores tell the bandit nothing about which creative readers will click.",
+  judgeBackwards: "Readers disagree with the judge: its top-scored creative is the one they click least.",
+} as const;
+
 export const DEPLOY_HELP = {
   creatives:
     "Pick 2 to 4 creatives. Each becomes one option (arm) the bandit can show; more arms need more traffic to tell apart.",

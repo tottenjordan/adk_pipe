@@ -1,0 +1,504 @@
+{
+  "_generated": "by scripts/gen_scenario_presets.py from bandit/; do not edit",
+  "featureSpecVersion": "ctx-v1",
+  "contextSpec": [
+    {
+      "key": "devicetype",
+      "levels": [
+        "mobile",
+        "desktop",
+        "tablet"
+      ]
+    },
+    {
+      "key": "os",
+      "levels": [
+        "ios",
+        "android",
+        "other"
+      ]
+    },
+    {
+      "key": "connectiontype",
+      "levels": [
+        "wifi",
+        "cellular"
+      ]
+    },
+    {
+      "key": "region",
+      "levels": [
+        "northeast",
+        "midwest",
+        "south",
+        "west"
+      ]
+    },
+    {
+      "key": "age_bucket",
+      "levels": [
+        "21-34",
+        "35-54",
+        "55+"
+      ]
+    },
+    {
+      "key": "daypart",
+      "levels": [
+        "morning",
+        "afternoon",
+        "evening",
+        "night"
+      ]
+    },
+    {
+      "key": "weekend",
+      "levels": [
+        "false",
+        "true"
+      ]
+    },
+    {
+      "key": "topic_matches_trend",
+      "levels": [
+        "false",
+        "true"
+      ]
+    },
+    {
+      "key": "interest_matches_product",
+      "levels": [
+        "false",
+        "true"
+      ]
+    },
+    {
+      "key": "freq_24h",
+      "levels": [
+        "0",
+        "1",
+        "2+"
+      ]
+    }
+  ],
+  "boolKeys": [
+    "interest_matches_product",
+    "topic_matches_trend",
+    "weekend"
+  ],
+  "featureNames": [
+    "bias",
+    "devicetype=desktop",
+    "devicetype=tablet",
+    "os=android",
+    "os=other",
+    "connectiontype=cellular",
+    "region=midwest",
+    "region=south",
+    "region=west",
+    "age_bucket=35-54",
+    "age_bucket=55+",
+    "daypart=afternoon",
+    "daypart=evening",
+    "daypart=night",
+    "weekend",
+    "topic_matches_trend",
+    "interest_matches_product",
+    "freq_24h=1",
+    "freq_24h=2+"
+  ],
+  "baseMarginals": {
+    "devicetype": {
+      "mobile": 0.6,
+      "desktop": 0.32,
+      "tablet": 0.08
+    },
+    "os": {
+      "ios": 0.45,
+      "android": 0.4,
+      "other": 0.15
+    },
+    "connectiontype": {
+      "wifi": 0.65,
+      "cellular": 0.35
+    },
+    "region": {
+      "northeast": 0.17,
+      "midwest": 0.21,
+      "south": 0.38,
+      "west": 0.24
+    },
+    "age_bucket": {
+      "21-34": 0.35,
+      "35-54": 0.38,
+      "55+": 0.27
+    },
+    "daypart": {
+      "morning": 0.22,
+      "afternoon": 0.3,
+      "evening": 0.33,
+      "night": 0.15
+    },
+    "weekend": 0.2857142857142857,
+    "topic_matches_trend": 0.5,
+    "interest_matches_product": 0.3,
+    "freq_24h": {
+      "0": 0.55,
+      "1": 0.28,
+      "2+": 0.17
+    }
+  },
+  "overrideBounds": {
+    "segment_mix": [
+      0.05,
+      1.0
+    ],
+    "gap_scale": [
+      0.25,
+      2.0
+    ],
+    "judge_wrong": [
+      0.0,
+      1.0
+    ],
+    "noise_scale": [
+      0.0,
+      2.0
+    ],
+    "drift_at_frac": [
+      0.2,
+      0.8
+    ]
+  },
+  "scenarios": {
+    "clear_winner": {
+      "name": "clear_winner",
+      "description": "One creative wins in every segment (6.0 / 4.5 / 3.5 % demo CTR).",
+      "armEffect": "rank_ctrs",
+      "rankCtrs": [
+        0.06,
+        0.045,
+        0.035
+      ],
+      "liftPp": 0.015,
+      "targetCtr": {
+        "demo": 0.0467,
+        "realistic": 0.00933
+      },
+      "kappa": 1.0,
+      "lam": 0.3,
+      "eta": 0.3,
+      "noiseSd": 0.03,
+      "thetaSd": 0.03,
+      "judgeWrong": 0.0,
+      "drift": {
+        "kind": "none",
+        "atFrac": 0.5,
+        "widthFrac": 0.2
+      },
+      "segments": [
+        {
+          "name": "commuters",
+          "weight": 0.4,
+          "winnerKey": "overall",
+          "marginals": {
+            "devicetype": {
+              "mobile": 0.85,
+              "desktop": 0.05,
+              "tablet": 0.1
+            },
+            "connectiontype": {
+              "wifi": 0.35,
+              "cellular": 0.65
+            },
+            "daypart": {
+              "morning": 0.5,
+              "afternoon": 0.2,
+              "evening": 0.2,
+              "night": 0.1
+            }
+          }
+        },
+        {
+          "name": "desk_researchers",
+          "weight": 0.35,
+          "winnerKey": "overall",
+          "marginals": {
+            "devicetype": {
+              "mobile": 0.2,
+              "desktop": 0.75,
+              "tablet": 0.05
+            },
+            "daypart": {
+              "morning": 0.3,
+              "afternoon": 0.55,
+              "evening": 0.1,
+              "night": 0.05
+            },
+            "topic_matches_trend": 0.7
+          }
+        },
+        {
+          "name": "evening_browsers",
+          "weight": 0.25,
+          "winnerKey": "overall",
+          "marginals": {
+            "devicetype": {
+              "mobile": 0.5,
+              "desktop": 0.1,
+              "tablet": 0.4
+            },
+            "daypart": {
+              "morning": 0.05,
+              "afternoon": 0.15,
+              "evening": 0.6,
+              "night": 0.2
+            },
+            "weekend": 0.45
+          }
+        }
+      ]
+    },
+    "segment_winners": {
+      "name": "segment_winners",
+      "description": "Four segments, each with a different oracle creative (+1.5 pp demo).",
+      "armEffect": "segment_winners",
+      "rankCtrs": [
+        0.06,
+        0.045,
+        0.035
+      ],
+      "liftPp": 0.015,
+      "targetCtr": {
+        "demo": 0.04,
+        "realistic": 0.008
+      },
+      "kappa": 0.5,
+      "lam": 0.3,
+      "eta": 0.3,
+      "noiseSd": 0.03,
+      "thetaSd": 0.03,
+      "judgeWrong": 0.0,
+      "drift": {
+        "kind": "none",
+        "atFrac": 0.5,
+        "widthFrac": 0.2
+      },
+      "segments": [
+        {
+          "name": "mobile_scrollers",
+          "weight": 0.25,
+          "winnerKey": "stopping_power",
+          "marginals": {
+            "devicetype": {
+              "mobile": 0.95,
+              "desktop": 0.02,
+              "tablet": 0.03
+            },
+            "connectiontype": {
+              "wifi": 0.3,
+              "cellular": 0.7
+            },
+            "age_bucket": {
+              "21-34": 0.8,
+              "35-54": 0.15,
+              "55+": 0.05
+            },
+            "daypart": {
+              "morning": 0.35,
+              "afternoon": 0.35,
+              "evening": 0.2,
+              "night": 0.1
+            },
+            "freq_24h": {
+              "0": 0.15,
+              "1": 0.25,
+              "2+": 0.6
+            },
+            "topic_matches_trend": 0.1,
+            "interest_matches_product": 0.1
+          }
+        },
+        {
+          "name": "trend_followers",
+          "weight": 0.25,
+          "winnerKey": "trend_authenticity",
+          "marginals": {
+            "devicetype": {
+              "mobile": 0.4,
+              "desktop": 0.5,
+              "tablet": 0.1
+            },
+            "age_bucket": {
+              "21-34": 0.4,
+              "35-54": 0.45,
+              "55+": 0.15
+            },
+            "daypart": {
+              "morning": 0.1,
+              "afternoon": 0.25,
+              "evening": 0.55,
+              "night": 0.1
+            },
+            "topic_matches_trend": 0.97,
+            "interest_matches_product": 0.1,
+            "freq_24h": {
+              "0": 0.75,
+              "1": 0.2,
+              "2+": 0.05
+            }
+          }
+        },
+        {
+          "name": "product_intenders",
+          "weight": 0.25,
+          "winnerKey": "audience_fit",
+          "marginals": {
+            "devicetype": {
+              "mobile": 0.1,
+              "desktop": 0.85,
+              "tablet": 0.05
+            },
+            "age_bucket": {
+              "21-34": 0.2,
+              "35-54": 0.65,
+              "55+": 0.15
+            },
+            "daypart": {
+              "morning": 0.4,
+              "afternoon": 0.5,
+              "evening": 0.07,
+              "night": 0.03
+            },
+            "topic_matches_trend": 0.1,
+            "interest_matches_product": 0.95,
+            "freq_24h": {
+              "0": 0.6,
+              "1": 0.3,
+              "2+": 0.1
+            }
+          }
+        },
+        {
+          "name": "late_night_casual",
+          "weight": 0.25,
+          "winnerKey": "overall",
+          "marginals": {
+            "devicetype": {
+              "mobile": 0.2,
+              "desktop": 0.05,
+              "tablet": 0.75
+            },
+            "age_bucket": {
+              "21-34": 0.1,
+              "35-54": 0.3,
+              "55+": 0.6
+            },
+            "daypart": {
+              "morning": 0.03,
+              "afternoon": 0.07,
+              "evening": 0.2,
+              "night": 0.7
+            },
+            "weekend": 0.6,
+            "topic_matches_trend": 0.1,
+            "interest_matches_product": 0.1,
+            "freq_24h": {
+              "0": 0.6,
+              "1": 0.3,
+              "2+": 0.1
+            }
+          }
+        }
+      ]
+    },
+    "drift": {
+      "name": "drift",
+      "description": "The best creative becomes the worst at T/2.",
+      "armEffect": "rank_ctrs",
+      "rankCtrs": [
+        0.06,
+        0.045,
+        0.035
+      ],
+      "liftPp": 0.015,
+      "targetCtr": {
+        "demo": 0.0467,
+        "realistic": 0.00933
+      },
+      "kappa": 1.0,
+      "lam": 0.3,
+      "eta": 0.3,
+      "noiseSd": 0.03,
+      "thetaSd": 0.03,
+      "judgeWrong": 0.0,
+      "drift": {
+        "kind": "abrupt",
+        "atFrac": 0.5,
+        "widthFrac": 0.2
+      },
+      "segments": [
+        {
+          "name": "commuters",
+          "weight": 0.4,
+          "winnerKey": "overall",
+          "marginals": {
+            "devicetype": {
+              "mobile": 0.85,
+              "desktop": 0.05,
+              "tablet": 0.1
+            },
+            "connectiontype": {
+              "wifi": 0.35,
+              "cellular": 0.65
+            },
+            "daypart": {
+              "morning": 0.5,
+              "afternoon": 0.2,
+              "evening": 0.2,
+              "night": 0.1
+            }
+          }
+        },
+        {
+          "name": "desk_researchers",
+          "weight": 0.35,
+          "winnerKey": "overall",
+          "marginals": {
+            "devicetype": {
+              "mobile": 0.2,
+              "desktop": 0.75,
+              "tablet": 0.05
+            },
+            "daypart": {
+              "morning": 0.3,
+              "afternoon": 0.55,
+              "evening": 0.1,
+              "night": 0.05
+            },
+            "topic_matches_trend": 0.7
+          }
+        },
+        {
+          "name": "evening_browsers",
+          "weight": 0.25,
+          "winnerKey": "overall",
+          "marginals": {
+            "devicetype": {
+              "mobile": 0.5,
+              "desktop": 0.1,
+              "tablet": 0.4
+            },
+            "daypart": {
+              "morning": 0.05,
+              "afternoon": 0.15,
+              "evening": 0.6,
+              "night": 0.2
+            },
+            "weekend": 0.45
+          }
+        }
+      ]
+    }
+  }
+}

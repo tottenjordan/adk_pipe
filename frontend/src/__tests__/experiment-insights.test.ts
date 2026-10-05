@@ -5,6 +5,7 @@ import {
   buildInsights,
   joinList,
   relativeChange,
+  setupNotes,
   verdictOf,
   type ExperimentInsights,
 } from "@/lib/experiment-insights";
@@ -203,5 +204,40 @@ describe("partial payloads", () => {
     const i = buildInsights({ metrics: m, arms: ARMS });
     expect(i.readings.regret).toBeNull();
     expect(allText(i)).not.toMatch(/NaN|Infinity|undefined/);
+  });
+});
+
+describe("tuned-reader notes (contracts §9)", () => {
+  it("are empty for preset experiments", () => {
+    expect(setupNotes("segment_winners", null)).toEqual([]);
+    expect(setupNotes("segment_winners", { gapScale: 1.5, judgeWrong: 0.3 })).toEqual([]);
+    expect(buildInsights({ metrics: null, arms: ARMS }).notes).toEqual([]);
+  });
+
+  it("say when the judge was set to mislead", () => {
+    const [backwards] = setupNotes("clear_winner", { judgeWrong: 1 });
+    expect(backwards).toMatch(/^The eval judge was set to mislead; |^The eval judge was set to mislead: /);
+    expect(backwards).toMatch(/learn against the scores/);
+    expect(setupNotes("clear_winner", { judgeWrong: 0.7 })[0]).toMatch(/set to mislead/);
+    expect(setupNotes("clear_winner", { judgeWrong: 0.5 })).toEqual([]);
+  });
+
+  it("say when the audience mix is skewed, naming the dominant segment", () => {
+    const notes = setupNotes("segment_winners", { segmentMix: [0.55, 0.05, 0.3, 0.1] });
+    expect(notes).toEqual([
+      "Most simulated readers were mobile scrollers (55%), so the overall results lean toward what that segment prefers.",
+    ]);
+    expect(setupNotes("segment_winners", { segmentMix: [0.3, 0.25, 0.25, 0.2] })).toEqual([]);
+  });
+
+  it("reach buildInsights even before there are results", () => {
+    const i = buildInsights({
+      metrics: null,
+      arms: ARMS,
+      scenario: "segment_winners",
+      scenarioOverrides: { judgeWrong: 1, segmentMix: [0.55, 0.05, 0.3, 0.1] },
+    });
+    expect(i.verdict).toBe("empty");
+    expect(i.notes).toHaveLength(2);
   });
 });
