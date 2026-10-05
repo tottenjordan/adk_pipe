@@ -54,7 +54,7 @@ tests/
 ├── test_backend_entrypoint.py       # backend container entrypoint (uvicorn serves async_app.py)
 ├── test_bandit_endpoint_lib.py      # deployment/bandit/endpoint.py vs a fake aiplatform (single-worker env, 1 replica, labels, find_* by label oldest-first)
 ├── test_create_bq_tables.py         # create_bq_tables.sh with a stub bq: bandit_* schemas, partitioning, idempotency
-├── test_bandit_*.py                 # JAX bandit core (bandit/): features, config, linear TS, baselines, environment, simulate+metrics+aggregate, notebook-parity smoke
+├── test_bandit_*.py                 # JAX bandit core (bandit/): features, config, linear TS, baselines, environment, simulate+metrics+aggregate, notebook-parity smoke, scripted shifts
 ├── test_callbacks.py                # citation replacement, state init, rate limiting
 ├── test_config.py                   # per-agent config resolution (incl. campaign-placement resolver)
 ├── test_create_session_engine.py    # create_session_engine.py (reuse-or-create sessions-only engine)
@@ -129,6 +129,11 @@ tests/
   on the ground truth), `test_bandit_simulate_metrics.py` (CLI flags),
   `test_bandit_traffic.py` (the traffic job simulates the tuned scenario) and
   `test_bandit_predictor.py` (configs with overrides load).
+  Contracts §10 scripted shifts live in `test_bandit_shifts.py`: strict parsing and
+  ctr-mode-scaled bounds, common random numbers between shifted and unshifted
+  environments, each kind's effect at its round, time-order `"leader"` resolution,
+  drift composition, `shift_response` / `merge_checkpoints` / `regime_stats`, and the
+  CLI. `test_scenario_preview_golden.py` also writes the after-shift preview fixture.
 - **Tools** — `test_tools.py`, `test_tools_retry.py`: pure tool logic, plus the contract
   that infra tools raise (rather than swallow errors into status dicts) so ADK retry works.
 - **Deployment & fan-out** — `test_deploy_utils.py`, `test_create_session_engine.py`,
