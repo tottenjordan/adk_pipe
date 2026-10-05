@@ -32,6 +32,7 @@ from bandit import features  # noqa: E402
 from bandit.config import (  # noqa: E402
     BASE_MARGINALS,
     LEADER,
+    LEADER_KINDS,
     MAX_SHIFTS,
     OVERRIDE_BOUNDS,
     SCENARIOS,
@@ -101,6 +102,7 @@ def build_presets() -> dict[str, Any]:
             "maxShifts": MAX_SHIFTS,
             "minWindow": SHIFT_MIN_WINDOW,
             "leader": LEADER,
+            "leaderKinds": list(LEADER_KINDS),
             "bounds": {_camel(k): list(v) for k, v in SHIFT_BOUNDS.items()},
         },
         "scenarios": {name: _scenario(name) for name in SCENARIOS},

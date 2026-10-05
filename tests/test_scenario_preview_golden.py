@@ -408,6 +408,30 @@ SHIFT_COMBOS: list[tuple[str, str, str, str, dict, list[dict]]] = [
             },
         ],
     ),
+    (  # PR D's "Ad fatigue on the leader 60–75%" preset, after a promote
+        "promote_then_shock_on_leader",
+        "segment_winners",
+        "demo",
+        "four",
+        {},
+        [
+            {
+                "kind": "shock",
+                "atFrac": 0.6,
+                "untilFrac": 0.75,
+                "segment": None,
+                "creativeId": "leader",
+                "ctrMultiplier": 0.6,
+            },
+            {
+                "kind": "promote",
+                "atFrac": 0.3,
+                "segment": None,
+                "creativeId": "arm-2",
+                "liftPp": 0.005,
+            },
+        ],
+    ),
     (
         "realistic_promote_and_boost",
         "segment_winners",
@@ -614,6 +638,16 @@ def test_shift_golden_regimes_tell_the_story():
     assert mix["regimes"][1]["segmentWeights"] == pytest.approx([0.1, 0.1, 0.7, 0.1])
     pooled_leader = int(np.argmax(mix["regimes"][1]["overall"]))
     assert mix["resolved"][1]["creativeIndex"] == pooled_leader
+
+    fatigue = by_name["segment_winners/four/promote_then_shock_on_leader"]["expected"]
+    promo, shock_rec = fatigue["resolved"]
+    assert shock_rec["kind"] == "shock" and shock_rec["creativeIndex"] == 2
+    _, promoted, shocked, recovered = fatigue["regimes"]
+    assert promoted["oracle"] == [2, 2, 2, 2]
+    np.testing.assert_allclose(
+        np.array(shocked["ctr"][2]), 0.6 * np.array(promoted["ctr"][2]), atol=1e-9
+    )
+    assert recovered["ctr"] == promoted["ctr"]
 
     realistic = by_name["segment_winners/three/realistic_promote_and_boost"]
     tgt = realistic["expected"]["resolved"][0]["targets"][0]

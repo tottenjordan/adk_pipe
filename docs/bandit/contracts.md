@@ -46,7 +46,7 @@ class ShiftSpec: kind: str; at_frac: float; segment: str | None = None; creative
                  segment_mix: tuple[float, ...] | None = None; until_frac: float | None = None
                  ctr_multiplier: float | None = None                            # §10
 SHIFT_KINDS: tuple[str, ...]; SHIFT_BOUNDS: dict[str, tuple[float, float]]     # §10, inclusive
-MAX_SHIFTS = 4; SHIFT_MIN_WINDOW = 0.02; LEADER = "leader"
+MAX_SHIFTS = 4; SHIFT_MIN_WINDOW = 0.02; LEADER = "leader"; LEADER_KINDS = ("demote", "shock")
 def shifts_from_dict(data: list | None) -> tuple[ShiftSpec, ...]         # strict snake_case parse (SHIFTS_JSON)
 def shifts_to_dict(shifts) -> list[dict]                                 # JSON round-trip of shifts_from_dict
 def validate_shifts(shifts, scenario: ScenarioConfig, arms, ctr_mode) -> tuple[ShiftSpec, ...]  # ValueError "shifts[i].<field>"
@@ -343,7 +343,7 @@ Shifts belong to a **traffic run**, not to the experiment: `experiment.json` is 
   {"kind": "promote", "atFrac": 0.4, "segment": "mobile_scrollers" | null, "creativeId": "aae3f6b4", "liftPp": 0.015},
   {"kind": "demote",  "atFrac": 0.5, "segment": null, "creativeId": "leader" | "<id>", "dropPp": 0.015},
   {"kind": "mix",     "atFrac": 0.3, "segmentMix": [0.6, 0.2, 0.2]},
-  {"kind": "shock",   "atFrac": 0.6, "untilFrac": 0.7, "segment": null, "creativeId": "<id>", "ctrMultiplier": 0.6}
+  {"kind": "shock",   "atFrac": 0.6, "untilFrac": 0.7, "segment": null, "creativeId": "leader" | "<id>", "ctrMultiplier": 0.6}
 ],
 "forget": true
 ```
@@ -361,17 +361,17 @@ Shifts belong to a **traffic run**, not to the experiment: `experiment.json` is 
 | `promote` | `creative_id` (an arm), `lift_pp` | `segment` (`null` = everyone) | `lift_pp` ∈ [0.005, 0.03] × s |
 | `demote` | `creative_id` (an arm or `"leader"`), `drop_pp` | `segment` | `drop_pp` ∈ [0.005, 0.03] × s |
 | `mix` | `segment_mix` (one weight per scenario segment, as §9) | | each weight ∈ [0.05, 1], renormalised |
-| `shock` | `creative_id` (an arm), `until_frac`, `ctr_multiplier` | `segment` | `until_frac` ∈ [0.07, 1.0] and ≥ `at_frac` + 0.02; `ctr_multiplier` ∈ [0.3, 2.0] |
+| `shock` | `creative_id` (an arm or `"leader"`), `until_frac`, `ctr_multiplier` | `segment` | `until_frac` ∈ [0.07, 1.0] and ≥ `at_frac` + 0.02; `ctr_multiplier` ∈ [0.3, 2.0] |
 
 - **`s`** is the scenario's `ctr_scale(ctr_mode)` = `target_ctr[ctr_mode] / target_ctr["demo"]` (1 in demo; 0.2 realistic for every preset scenario). So realistic `lift_pp` / `drop_pp` are in [0.001, 0.006].
-- **`segment`** must be one of the scenario's segment names; `"leader"` is valid only for `demote`.
+- **`segment`** must be one of the scenario's segment names; `"leader"` is valid only for `demote` and `shock` (`bandit.config.LEADER_KINDS`; widened 2026-10-05 so a preset like "ad fatigue on the leader" needs no client-side resolution).
 - **Errors:** `ValueError` naming the field as `shifts[i].<field>` (`shifts_from_dict` checks types, fields per kind and the scenario-independent bounds; `validate_shifts(shifts, scenario, arms, ctr_mode)` adds segment names, the mix length, creative ids and the scaled magnitude bounds). The api (PR C) duplicates `SHIFT_KINDS` / `SHIFT_BOUNDS` under a parity test and answers **400** `detail.reason: "invalid_shifts"` with `detail.field`.
 - `scripts/gen_scenario_presets.py` writes the same constants (camelCase bound names) to `scenario-presets.generated.json` → `shifts`.
 
 **Resolution** (`bandit.environment.build_true_model(..., shifts=)`, reached through `simulate.build_environment(cfg, scenario=, shifts=)`):
 - A shift's **round** is `r = round(at_frac · T)` (0-based). It applies to rounds `t ≥ r`, so checkpoint `r` covers exactly the pre-shift rounds. A shock applies to `r ≤ t < round(until_frac · T)`. Shifts are abrupt.
 - Shifts resolve **in time order** (stable on `at_frac`, so ties keep list order), each **on top of the earlier ones**. The state at round `r` is the segment-level logit `V[s, k]`: α + `b_k` + `u[s, k]` + `θ_k · E[x | s]` (the quantity the `segment_winners` lift uses), with the drift blend at `r` and every earlier promote/demote offset. The segment-level CTR is σ(V). Shock multipliers are temporary and are ignored when resolving later shifts.
-- **`"leader"`** = argmax segment-level CTR in `segment`, or argmax of the pooled CTR (segment weights of the latest earlier mix, else the scenario mix) when `segment` is null. Ties go to the lowest arm index.
+- **`"leader"`** (demote and shock), resolved at the shift's own round on top of the earlier promote/demote/mix shifts and ignoring every shock, = argmax segment-level CTR in `segment`, or argmax of the pooled CTR (segment weights of the latest earlier mix, else the scenario mix) when `segment` is null. Ties go to the lowest arm index.
 - **`promote`:** in each targeted segment, the creative gets a logit offset `δ ≥ 0` so that σ(V + δ) = best other creative's CTR + `lift_pp`. A creative already ahead by more is left alone.
 - **`demote`:** `δ ≤ 0` so that σ(V + δ) = best other creative's CTR − `drop_pp` (for the leader, the best other is the runner-up). A creative already that far behind is left alone.
 - **`segment: null`** applies the per-segment rule in every segment.
@@ -408,4 +408,4 @@ PR B/C store it per run: the `traffic_runs` JSON on the experiment row, and `{id
 
 Checkpoints default to linear spacing when there are shifts.
 
-**Preview parity:** `tests/test_scenario_preview_golden.py` writes `frontend/src/__tests__/fixtures/scenario-shifts-golden.json`: the resolved shifts plus the exact creative × segment CTR matrix in every regime, for 5 shift combinations (`noise_scale = 0`, pre-drift truth). The format is documented in the test module. PR D's `applyShifts` must reproduce it.
+**Preview parity:** `tests/test_scenario_preview_golden.py` writes `frontend/src/__tests__/fixtures/scenario-shifts-golden.json`: the resolved shifts plus the exact creative × segment CTR matrix in every regime, for 6 shift combinations (one a shock on `"leader"`) (`noise_scale = 0`, pre-drift truth). The format is documented in the test module. PR D's `applyShifts` must reproduce it.

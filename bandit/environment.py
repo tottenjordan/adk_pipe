@@ -408,8 +408,10 @@ def _resolve_shifts(
     - promote: offset δ ≥ 0 on the creative's logit so σ(V + δ) = best other
       CTR + ``lift_pp`` (never lowers a creative already ahead by more).
     - demote: offset δ ≤ 0 so σ(V + δ) = best other CTR − ``drop_pp`` (never
-      raises). ``"leader"`` = argmax CTR in the segment, or of the pooled CTR
-      for everyone (ties: lowest arm index).
+      raises).
+    - ``"leader"`` (demote and shock) = argmax CTR in the segment, or of the
+      pooled CTR for everyone (ties: lowest arm index), at the shift's round
+      (other shocks ignored).
     - ``segment=None`` applies the per-segment rule in every segment.
     """
     s_count, k = seg_logit.shape

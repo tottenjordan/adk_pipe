@@ -110,7 +110,7 @@ def test_shift_spec_is_frozen():
         ({**SHIFT_DOCS[0], "drop_pp": 0.01}, "drop_pp"),  # another kind's field
         ({**SHIFT_DOCS[0], "color": "red"}, "color"),  # unknown key
         ({**SHIFT_DOCS[0], "creative_id": 3}, "creative_id"),
-        ({**SHIFT_DOCS[0], "creative_id": "leader"}, "creative_id"),  # demote only
+        ({**SHIFT_DOCS[0], "creative_id": "leader"}, "creative_id"),  # not promote
         ({**SHIFT_DOCS[0], "segment": 2}, "segment"),
         ({**SHIFT_DOCS[2], "segment": "mobile_scrollers"}, "segment"),
         ({**SHIFT_DOCS[2], "segment_mix": "0.5,0.5"}, "segment_mix"),
@@ -136,6 +136,15 @@ def test_shifts_from_dict_rejects_shape():
         shifts_from_dict(["promote"])
     with pytest.raises(ValueError, match="at most 4"):
         shifts_from_dict([SHIFT_DOCS[2]] * 5)
+
+
+def test_leader_is_valid_for_demote_and_shock_only():
+    ids = [a.creative_id for a in SEG_ARMS]
+    for doc in (SHIFT_DOCS[1], {**SHIFT_DOCS[3], "creative_id": "leader"}):
+        shifts = shifts_from_dict([doc])
+        assert validate_shifts(shifts, SEG_SC, ids, "demo") == shifts
+    with pytest.raises(ValueError, match=r"shifts\[0\]\.creative_id"):
+        shifts_from_dict([{**SHIFT_DOCS[0], "creative_id": "leader"}])
 
 
 def test_shock_window_boundary_is_inclusive():
@@ -333,6 +342,37 @@ def test_shock_multiplies_only_inside_its_window():
         np.testing.assert_allclose(p1[:, a], expect, rtol=1e-6)
     (rec,) = envm.resolved_shifts(env)
     assert (rec["round"], rec["end_round"]) == (start, end)
+
+
+def test_shock_on_leader_resolves_in_time_order_ignoring_other_shocks():
+    base = _env()
+    pooled = envm.marginal_ctrs(base, jax.random.key(5), n=60_000, t=0)["overall"]
+    leader = base.arm_ids[int(np.argmax(pooled))]
+    shock = {**SHIFT_DOCS[3], "creative_id": "leader", "ctr_multiplier": 0.3}
+    docs = [
+        {**shock, "at_frac": 0.2, "until_frac": 0.5},  # the leader, heavily shocked
+        {
+            **shock,
+            "at_frac": 0.3,
+            "until_frac": 0.4,
+        },  # still the leader: shocks ignored
+        {**SHIFT_DOCS[1], "at_frac": 0.6},  # demote the leader
+        {**shock, "at_frac": 0.7, "until_frac": 0.8},  # the new leader
+    ]
+    env = _env(docs)
+    first, second, demote, last = envm.resolved_shifts(env)
+    assert first["requested_creative_id"] == "leader"
+    assert first["creative_id"] == second["creative_id"] == leader
+    assert demote["creative_id"] == leader
+    assert last["creative_id"] != leader
+    after = envm.marginal_ctrs(env, jax.random.key(5), n=60_000, t=round(0.65 * H))
+    assert env.arm_ids[int(np.argmax(after["overall"]))] == last["creative_id"]
+    # a segment's leader is that segment's best creative
+    seg = "trend_followers"
+    s = env.segment_names.index(seg)
+    (rec,) = envm.resolved_shifts(_env([{**shock, "segment": seg}]))
+    assert rec["creative_id"] == base.arm_ids[int(np.argmax(_by_seg(base, 0)[s]))]
+    assert rec["segment"] == seg and len(rec["targets"]) == 1
 
 
 def test_shock_clips_probabilities_below_one():

@@ -1060,6 +1060,337 @@
    }
   },
   {
+   "name": "segment_winners/four/promote_then_shock_on_leader",
+   "scenario": "segment_winners",
+   "ctrMode": "demo",
+   "horizon": 40000,
+   "arms": [
+    {
+     "ad_copy_overall": 0.82,
+     "visual_overall": 0.8,
+     "trend_authenticity": 0.9
+    },
+    {
+     "ad_copy_overall": 0.74,
+     "visual_overall": 0.7,
+     "audience_fit": 0.95
+    },
+    {
+     "ad_copy_overall": 0.7,
+     "visual_overall": 0.62,
+     "stopping_power": 1.0
+    },
+    {
+     "ad_copy_overall": 0.66,
+     "visual_overall": 0.75
+    }
+   ],
+   "overrides": {},
+   "shifts": [
+    {
+     "kind": "shock",
+     "atFrac": 0.6,
+     "untilFrac": 0.75,
+     "segment": null,
+     "creativeId": "leader",
+     "ctrMultiplier": 0.6
+    },
+    {
+     "kind": "promote",
+     "atFrac": 0.3,
+     "segment": null,
+     "creativeId": "arm-2",
+     "liftPp": 0.005
+    }
+   ],
+   "expected": {
+    "segments": [
+     "mobile_scrollers",
+     "trend_followers",
+     "product_intenders",
+     "late_night_casual"
+    ],
+    "alpha": -3.2760148,
+    "resolved": [
+     {
+      "index": 1,
+      "kind": "promote",
+      "round": 12000,
+      "endRound": null,
+      "creativeIndex": 2,
+      "segment": null,
+      "segmentWeights": null,
+      "targets": [
+       {
+        "segment": "mobile_scrollers",
+        "ctrBefore": 0.0527621287,
+        "bestOtherCtr": 0.0383476903,
+        "ctrAfter": 0.0527621287,
+        "logitOffset": 0.0
+       },
+       {
+        "segment": "trend_followers",
+        "ctrBefore": 0.0323021093,
+        "bestOtherCtr": 0.0505526206,
+        "ctrAfter": 0.0555526206,
+        "logitOffset": 0.5665181293
+       },
+       {
+        "segment": "product_intenders",
+        "ctrBefore": 0.0312552163,
+        "bestOtherCtr": 0.0534836208,
+        "ctrAfter": 0.0584836208,
+        "logitOffset": 0.6550698938
+       },
+       {
+        "segment": "late_night_casual",
+        "ctrBefore": 0.0333673742,
+        "bestOtherCtr": 0.052748074,
+        "ctrAfter": 0.057748074,
+        "logitOffset": 0.5740572334
+       }
+      ]
+     },
+     {
+      "index": 0,
+      "kind": "shock",
+      "round": 24000,
+      "endRound": 30000,
+      "creativeIndex": 2,
+      "segment": null,
+      "segmentWeights": null,
+      "targets": [
+       {
+        "segment": "mobile_scrollers",
+        "ctrBefore": 0.0527621287,
+        "ctrAfter": 0.0316572772
+       },
+       {
+        "segment": "trend_followers",
+        "ctrBefore": 0.0555526206,
+        "ctrAfter": 0.0333315724
+       },
+       {
+        "segment": "product_intenders",
+        "ctrBefore": 0.0584836208,
+        "ctrAfter": 0.0350901725
+       },
+       {
+        "segment": "late_night_casual",
+        "ctrBefore": 0.057748074,
+        "ctrAfter": 0.0346488444
+       }
+      ]
+     }
+    ],
+    "regimes": [
+     {
+      "start": 0,
+      "end": 12000,
+      "active": [],
+      "segmentWeights": [
+       0.25,
+       0.25,
+       0.25,
+       0.25
+      ],
+      "ctr": [
+       [
+        0.0383511024,
+        0.0505540908,
+        0.0388835624,
+        0.0383407315
+       ],
+       [
+        0.0366896064,
+        0.0367250543,
+        0.0534879064,
+        0.0374032469
+       ],
+       [
+        0.0527695635,
+        0.0323157155,
+        0.031261232,
+        0.0333780635
+       ],
+       [
+        0.0358869823,
+        0.035737406,
+        0.0354596379,
+        0.0527528816
+       ]
+      ],
+      "oracle": [
+       2,
+       0,
+       1,
+       3
+      ],
+      "overall": [
+       0.0415323718,
+       0.0410764535,
+       0.0374311437,
+       0.0399592269
+      ]
+     },
+     {
+      "start": 12000,
+      "end": 24000,
+      "active": [
+       1
+      ],
+      "segmentWeights": [
+       0.25,
+       0.25,
+       0.25,
+       0.25
+      ],
+      "ctr": [
+       [
+        0.0383511024,
+        0.0505540908,
+        0.0388835624,
+        0.0383407315
+       ],
+       [
+        0.0366896064,
+        0.0367250543,
+        0.0534879064,
+        0.0374032469
+       ],
+       [
+        0.0527695635,
+        0.0555743177,
+        0.0584939112,
+        0.0577651528
+       ],
+       [
+        0.0358869823,
+        0.035737406,
+        0.0354596379,
+        0.0527528816
+       ]
+      ],
+      "oracle": [
+       2,
+       2,
+       2,
+       2
+      ],
+      "overall": [
+       0.0415323718,
+       0.0410764535,
+       0.0561507363,
+       0.0399592269
+      ]
+     },
+     {
+      "start": 24000,
+      "end": 30000,
+      "active": [
+       0,
+       1
+      ],
+      "segmentWeights": [
+       0.25,
+       0.25,
+       0.25,
+       0.25
+      ],
+      "ctr": [
+       [
+        0.0383511024,
+        0.0505540908,
+        0.0388835624,
+        0.0383407315
+       ],
+       [
+        0.0366896064,
+        0.0367250543,
+        0.0534879064,
+        0.0374032469
+       ],
+       [
+        0.0316617394,
+        0.033344592,
+        0.0350963481,
+        0.034659093
+       ],
+       [
+        0.0358869823,
+        0.035737406,
+        0.0354596379,
+        0.0527528816
+       ]
+      ],
+      "oracle": [
+       0,
+       0,
+       1,
+       3
+      ],
+      "overall": [
+       0.0415323718,
+       0.0410764535,
+       0.0336904431,
+       0.0399592269
+      ]
+     },
+     {
+      "start": 30000,
+      "end": 40000,
+      "active": [
+       1
+      ],
+      "segmentWeights": [
+       0.25,
+       0.25,
+       0.25,
+       0.25
+      ],
+      "ctr": [
+       [
+        0.0383511024,
+        0.0505540908,
+        0.0388835624,
+        0.0383407315
+       ],
+       [
+        0.0366896064,
+        0.0367250543,
+        0.0534879064,
+        0.0374032469
+       ],
+       [
+        0.0527695635,
+        0.0555743177,
+        0.0584939112,
+        0.0577651528
+       ],
+       [
+        0.0358869823,
+        0.035737406,
+        0.0354596379,
+        0.0527528816
+       ]
+      ],
+      "oracle": [
+       2,
+       2,
+       2,
+       2
+      ],
+      "overall": [
+       0.0415323718,
+       0.0410764535,
+       0.0561507363,
+       0.0399592269
+      ]
+     }
+    ]
+   }
+  },
+  {
    "name": "segment_winners/three/realistic_promote_and_boost",
    "scenario": "segment_winners",
    "ctrMode": "realistic",

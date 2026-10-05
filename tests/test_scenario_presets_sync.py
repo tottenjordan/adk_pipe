@@ -62,6 +62,7 @@ def test_json_carries_the_shift_contract():
     assert shifts["maxShifts"] == MAX_SHIFTS
     assert shifts["minWindow"] == SHIFT_MIN_WINDOW
     assert shifts["leader"] == "leader"
+    assert shifts["leaderKinds"] == ["demote", "shock"]
     camel = {
         "atFrac": "at_frac",
         "untilFrac": "until_frac",

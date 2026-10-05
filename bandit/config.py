@@ -662,8 +662,10 @@ SHIFT_KINDS: tuple[str, ...] = ("promote", "demote", "mix", "shock")
 MAX_SHIFTS = 4
 #: Shortest shock window, as a fraction of the run (``until_frac - at_frac``).
 SHIFT_MIN_WINDOW = 0.02
-#: ``demote``'s ``creative_id`` may name the creative leading at that moment.
+#: ``demote`` / ``shock`` ``creative_id`` may name the creative leading at that
+#: moment (``LEADER_KINDS``).
 LEADER = "leader"
+LEADER_KINDS: tuple[str, ...] = ("demote", "shock")
 
 #: Inclusive bounds per shift field (contracts §10). ``lift_pp`` / ``drop_pp`` are
 #: demo-mode CTR points; ``validate_shifts`` scales them by the scenario's
@@ -705,8 +707,8 @@ class ShiftSpec:
     - ``demote``: ``creative_id`` (or ``"leader"``, the creative leading at that
       moment) falls ``drop_pp`` below the best other creative.
     - ``mix``: the segment mix becomes ``segment_mix`` (renormalised).
-    - ``shock``: click probabilities of ``creative_id`` are multiplied by
-      ``ctr_multiplier`` over ``[at_frac, until_frac)``.
+    - ``shock``: click probabilities of ``creative_id`` (or ``"leader"``) are
+      multiplied by ``ctr_multiplier`` over ``[at_frac, until_frac)``.
     """
 
     kind: str
@@ -756,9 +758,10 @@ def _check_shift(i: int, s: ShiftSpec) -> None:
     if s.creative_id is not None:
         if not (isinstance(s.creative_id, str) and s.creative_id):
             raise ValueError(f"shifts[{i}].creative_id must be a creative id")
-        if s.creative_id == LEADER and s.kind != "demote":
+        if s.creative_id == LEADER and s.kind not in LEADER_KINDS:
             raise ValueError(
-                f'shifts[{i}].creative_id "{LEADER}" is only valid for demote'
+                f'shifts[{i}].creative_id "{LEADER}" is only valid for '
+                f"{' / '.join(LEADER_KINDS)}"
             )
     for name in ("lift_pp", "drop_pp"):  # ctr-mode bounds: validate_shifts
         value = getattr(s, name)
@@ -849,7 +852,7 @@ def validate_shifts(
     ctr_mode: str,
 ) -> tuple[ShiftSpec, ...]:
     """Check ``shifts`` against the scenario (segment names and count), the
-    experiment's arms (creative ids, or ``"leader"`` for demote) and the
+    experiment's arms (creative ids, or ``"leader"`` for demote / shock) and the
     ``ctr_mode``-scaled ``lift_pp`` / ``drop_pp`` bounds. Raises ``ValueError``
     naming the field (``shifts[i].<field>``)."""
     if ctr_mode not in CTR_MODES:
@@ -864,7 +867,7 @@ def validate_shifts(
         if s.segment is not None and s.segment not in names:
             raise ValueError(f"shifts[{i}].segment {s.segment!r} not in {names}")
         if s.creative_id is not None and s.creative_id not in ids:
-            if not (s.kind == "demote" and s.creative_id == LEADER):
+            if not (s.kind in LEADER_KINDS and s.creative_id == LEADER):
                 raise ValueError(
                     f"shifts[{i}].creative_id {s.creative_id!r} is not an arm"
                 )

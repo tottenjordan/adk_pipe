@@ -180,6 +180,10 @@
     "maxShifts": 4,
     "minWindow": 0.02,
     "leader": "leader",
+    "leaderKinds": [
+      "demote",
+      "shock"
+    ],
     "bounds": {
       "atFrac": [
         0.05,
