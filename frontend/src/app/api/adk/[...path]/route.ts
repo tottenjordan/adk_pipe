@@ -92,7 +92,7 @@ async function proxy(
 
   // Only allowlisted routes reach the backend, with every userId (path segment or kick-off
   // body) rewritten to the verified caller, who is also asserted via x-tt-user, and only
-  // allowlisted query params (since/version) forwarded.
+  // allowlisted query params (since/version; run on the experiment metrics/creatives routes) forwarded.
   // Local mode (no IAP assertion, no K_SERVICE) is intentionally fail-open: the request
   // passes through unscoped, and the backend's 401 on a missing X-TT-User (unless it runs
   // with TRUST_CLIENT_USER_ID=1) is the backstop.
@@ -103,7 +103,7 @@ async function proxy(
     catch { return new Response("Bad JSON body", { status: 400 }); }
     if (!scoped) return new Response("Not found", { status: 404 });
     ({ path: upstreamPath, body: upstreamBody } = scoped);
-    upstreamQuery = scopeQuery(request.nextUrl.searchParams);
+    upstreamQuery = scopeQuery(request.nextUrl.searchParams, path);
     headers.set("x-tt-user", who.userId);
   }
   const target = `${BACKEND}/${upstreamPath}${upstreamQuery}`;

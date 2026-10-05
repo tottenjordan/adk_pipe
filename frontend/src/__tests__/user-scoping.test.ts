@@ -61,6 +61,19 @@ describe("scopeQuery", () => {
     expect(scopeQuery(new URLSearchParams("since=3&version=2&userId=bob&x=1"))).toBe("?since=3&version=2");
     expect(scopeQuery(new URLSearchParams("since=0"))).toBe("?since=0");
   });
+  it("keeps run only on the experiment metrics and creatives routes, as a positive integer", () => {
+    const metrics = ["experiments", "me", "exp-123", "metrics"];
+    const creatives = ["experiments", "me", "exp-123", "creatives"];
+    expect(scopeQuery(new URLSearchParams("run=2"), metrics)).toBe("?run=2");
+    expect(scopeQuery(new URLSearchParams("run=12&userId=bob"), creatives)).toBe("?run=12");
+    for (const bad of ["0", "-1", "1.5", "2a", "", " 2", "1e3", "0012", "1234567"]) {
+      expect(scopeQuery(new URLSearchParams({ run: bad }), metrics), bad).toBe("");
+    }
+    expect(scopeQuery(new URLSearchParams("run=2"))).toBe("");
+    expect(scopeQuery(new URLSearchParams("run=2"), ["experiments", "me", "exp-123"])).toBe("");
+    expect(scopeQuery(new URLSearchParams("run=2"), ["experiments", "me", "exp-123", "traffic"])).toBe("");
+    expect(scopeQuery(new URLSearchParams("run=2"), ["runs", "app", "me", "42"])).toBe("");
+  });
   it("returns an empty string when nothing is allowed", () => {
     expect(scopeQuery(new URLSearchParams("userId=bob"))).toBe("");
     expect(scopeQuery(new URLSearchParams(""))).toBe("");

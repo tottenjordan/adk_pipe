@@ -25,8 +25,18 @@ import {
   type ExperimentMetrics,
   type ScenarioOverrides,
 } from "./experiments";
+import { GHOST_POLICY, isReferencePolicy } from "./experiments";
 import { TRAILING_EXPLAIN } from "./experiment-explain";
 import { segmentWords, skewedSegment } from "./scenario-preview";
+import {
+  parseShiftResponse,
+  segmentPhrase,
+  SHIFT_LEADER,
+  type PolicyShiftResponse,
+  type RunShift,
+  type ShiftResult,
+  type Stat,
+} from "./shifts";
 
 /** Below this many episodes the bands are too loose to call a winner. */
 export const MIN_EPISODES = 5;
@@ -68,6 +78,29 @@ export interface ExperimentInsights {
   why: string;
   /** Explain-mode background for `why` ("" when `why` is empty). */
   whyExplain: string;
+  /** One card per scripted shift, in time order ([] for runs without shifts). */
+  shiftCards: ShiftCard[];
+  /** What the shifts cost against the ghost replay ("" without a ghost). */
+  ghost: string;
+}
+
+/** One scripted shift's result (contracts §10 `shiftResponse`, the endpoint's numbers). */
+export interface ShiftCard {
+  key: string;
+  /** "Shift 1" … in time order. */
+  label: string;
+  /** What happened, past tense: "Demoted The Tone Dividend Bailout for late night casual readers". */
+  title: string;
+  /** "Round 20,000, 50% of the run". */
+  when: string;
+  /** Endpoint best-creative rate in the window before / after the shift. */
+  before: number | null;
+  after: number | null;
+  status: "too_early" | "held" | "recovered" | "partly" | "not_recovered" | "no_data";
+  /** The plain-language reading (no p-values). */
+  reading: string;
+  /** "10 episodes; ± is a 95% interval across episodes." */
+  evidence: string;
 }
 
 export interface InsightInput {
@@ -80,6 +113,10 @@ export interface InsightInput {
   scenarioOverrides?: ScenarioOverrides | null;
   /** The endpoint's per-batch discount γ (1 or missing = full memory). */
   policyDiscount?: number | null;
+  /** The shown traffic run's scripted shifts, in time order (contracts §10). */
+  shifts?: RunShift[];
+  /** Whether that run let the endpoint forget old evidence. */
+  forget?: boolean;
 }
 
 const LIN = "linear_ts";
@@ -119,7 +156,7 @@ export function bandsOverlap(
   return a.lo <= b.hi && b.lo <= a.hi;
 }
 
-const baselinesOf = (policies: string[]) => policies.filter((p) => p !== LIN && p !== ORACLE);
+const baselinesOf = (policies: string[]) => policies.filter((p) => p !== LIN && p !== ORACLE && !isReferencePolicy(p));
 
 /**
  * The best non-endpoint, non-oracle strategy for a curve at the last checkpoint
@@ -310,6 +347,16 @@ function headlineFor(
     return { headline: `${favour}${gain}`, detail };
   }
 
+  if (verdict === "behind" && drift?.cause === "shifts" && base) {
+    const label = policyShortLabel(base);
+    return {
+      headline: drift.forgets
+        ? `Linear TS trailed ${label} here: your shifts changed what readers want ${drift.when}, and even an endpoint that forgets old evidence has more to re-learn than ${label}.`
+        : `Linear TS trailed ${label} here: your shifts changed what readers want ${drift.when}, and an endpoint that weighs old evidence fully adapts slowly.`,
+      detail: "",
+    };
+  }
+
   if (verdict === "behind" && drift && base) {
     const label = policyShortLabel(base);
     return {
@@ -357,11 +404,15 @@ function supportFor(verdict: Verdict, metrics: ExperimentMetrics, ctrMode?: stri
 
 // ── Why the endpoint trails ──────────────────────────────────────────────────
 
-/** Drift-scenario facts the trailing copy needs. */
+/** Facts the trailing copy needs when readers' tastes change mid-run (drift, or scripted shifts). */
 interface DriftContext {
   forgets: boolean;
   /** "halfway through", "60% of the way through". */
   when: string;
+  /** What changed: the drift swap, or the run's scripted shifts. */
+  cause: "drift" | "shifts";
+  /** Readers the endpoint remembers when it forgets (overrides the discount-derived figure). */
+  memory?: number | null;
 }
 
 /** When the drift swap happens, from the `driftAtFrac` override (preset: halfway). */
@@ -432,15 +483,20 @@ function whyFor(
   const gap = `${label} earned ${pct1(lead)} more ${units.earn} per episode than your endpoint.`;
   const edge = BASELINE_EDGE[base];
   if (drift) {
-    const memory = drift.forgets ? memoryReaders(discount as number) : null;
+    const memory = drift.forgets ? (drift.memory ?? memoryReaders(discount as number)) : null;
+    const change = drift.cause === "shifts" ? "each shift" : "the swap";
     const how =
       memory !== null
         ? `This endpoint forgets old evidence on purpose: it weighs each batch of readers a little less than the next, remembering roughly the last ${formatInt(
             memory
-          )} readers, so it does recover after the swap. It still has ${FEATURE_DIM} reader features per creative to re-learn.`
-        : "This endpoint weighs every past reader as heavily as the latest one, so after the swap it keeps backing the old winner until the new evidence outweighs the old.";
+          )} readers, so it does recover after ${change}. It still has ${FEATURE_DIM} reader features per creative to re-learn.`
+        : `This endpoint weighs every past reader as heavily as the latest one, so after ${change} it keeps backing the old winner until the new evidence outweighs the old.`;
+    const setting =
+      drift.cause === "shifts"
+        ? `In this run your shifts changed what readers want ${drift.when}.`
+        : `In this scenario the best and worst creatives swap ${drift.when} the run.`;
     return {
-      why: [gap, `In this scenario the best and worst creatives swap ${drift.when} the run.`, how, edge?.drift]
+      why: [gap, setting, how, edge?.drift]
         .filter(Boolean)
         .join(" "),
       whyExplain: TRAILING_EXPLAIN.drift,
@@ -671,16 +727,38 @@ export function buildInsights(input: InsightInput): ExperimentInsights {
       whyExplain: "",
       readings: { ...EMPTY_READINGS },
       lanes: {},
+      shiftCards: [],
+      ghost: "",
     };
   }
   const units = unitsFor(input.rewardMode);
   const facts = creativeFacts(input);
   const k = Math.max(arms.length, facts.length);
-  const drift: DriftContext | null =
-    input.scenario === "drift"
-      ? { forgets: forgetsEvidence(input.policyDiscount), when: swapWhen(input.scenarioOverrides?.driftAtFrac) }
+  const shifts = input.shifts ?? [];
+  const drift: DriftContext | null = shifts.length
+    ? {
+        cause: "shifts",
+        forgets: Boolean(input.forget),
+        when: shiftsWhen(shifts, metrics.horizon),
+        memory: input.forget && metrics.horizon ? roundReaders(metrics.horizon / 8) : null,
+      }
+    : input.scenario === "drift"
+      ? {
+          cause: "drift",
+          forgets: forgetsEvidence(input.policyDiscount),
+          when: swapWhen(input.scenarioOverrides?.driftAtFrac),
+        }
       : null;
-  const { headline, detail } = headlineFor(verdict, metrics, facts, units, k, drift);
+  const name = nameLookup(arms);
+  const results = shifts.length ? parseShiftResponse(metrics.shiftResponse) : [];
+  const shiftCards = shifts.length ? buildShiftCards(shifts, results, metrics, name) : [];
+  let { headline, detail } = headlineFor(verdict, metrics, facts, units, k, drift);
+  if (shifts.length) {
+    const sh = shiftHeadline(shiftCards, shifts, metrics, name);
+    // The baseline comparison moves into the supporting line, after naming the shifts.
+    detail = [sh.detail, verdict === "behind" ? "" : baselineSentence(verdict, metrics, units)].filter(Boolean).join(" ");
+    if (verdict !== "behind") headline = sh.headline;
+  }
   const { why, whyExplain } = whyFor(metrics, units, input.scenario, drift, input.policyDiscount);
   const hasSegments = Object.keys(metrics.perSegment ?? {}).length > 0;
   return {
@@ -692,13 +770,256 @@ export function buildInsights(input: InsightInput): ExperimentInsights {
     why,
     whyExplain,
     readings: {
-      avgReward: avgRewardReading(metrics, units),
-      regret: regretReading(metrics, units),
-      optimal: optimalReading(metrics),
-      share: shareReading(facts, k),
-      segments: segmentsReading(metrics, nameLookup(arms)),
-      totals: totalsReading(metrics, units, verdict),
+      avgReward: withGhost(avgRewardReading(metrics, units), metrics, units, "avg"),
+      regret: withShiftNote(regretReading(metrics, units), shiftCards, "regret"),
+      optimal: withShiftNote(optimalReading(metrics), shiftCards, "optimal"),
+      share: withShiftNote(shareReading(facts, k), shiftCards, "share"),
+      segments: segmentsReading(metrics, name),
+      totals: withGhost(totalsReading(metrics, units, verdict), metrics, units, "totals"),
     },
     lanes: Object.fromEntries(facts.map((f) => [f.id, laneReading(f, units, hasSegments)])),
+    shiftCards,
+    ghost: ghostSentence(metrics, units),
   };
 }
+
+// ── Scripted shifts (contracts §10) ──────────────────────────────────────────
+
+/** Share of the pre-shift best-creative rate that counts as recovered (bandit.metrics.shift_response). */
+export const RECOVERY_LEVEL = 0.8;
+
+/** The trailing window recovery is measured over: default_window(T) // 2 (1,000 at the presets). */
+export function recoveryFloor(horizon: number | null | undefined): number {
+  if (!finite(horizon) || horizon <= 0) return 1000;
+  return Math.max(1, Math.floor(Math.min(2000, Math.max(10, Math.floor(horizon / 10))) / 2));
+}
+
+/** Two significant figures for round counts: 2634 → 2,600. */
+export function roundRounds(v: number): number {
+  if (!finite(v) || v <= 0) return 0;
+  const mag = 10 ** Math.max(0, Math.floor(Math.log10(v)) - 1);
+  return Math.round(v / mag) * mag;
+}
+
+function roundReaders(v: number): number {
+  const mag = 10 ** Math.max(0, Math.floor(Math.log10(v)));
+  return Math.round(v / mag) * mag;
+}
+
+/** Half the 95% interval, or null. */
+const halfWidth = (st: Stat | null | undefined) =>
+  st && st.lo !== null && st.hi !== null ? (st.hi - st.lo) / 2 : null;
+
+/** "at 50% of the run" / "at 50% and 60% of the run". */
+function shiftsWhen(shifts: RunShift[], horizon: number | null): string {
+  const fr = shifts.map((s) => (horizon ? s.round / horizon : s.atFrac));
+  return `at ${joinList([...new Set(fr.map((f) => pct(f)))])} of the run`;
+}
+
+/** Who a shift hit: the resolved creative's name, or "the leader at that point". */
+function shiftCreative(s: RunShift, name: (id: string) => string): string {
+  if (s.creativeId && s.creativeId !== SHIFT_LEADER) return name(s.creativeId);
+  return "the leader at that point";
+}
+
+/** Past-tense title per shift. */
+export function shiftTitle(s: RunShift, name: (id: string) => string): string {
+  const who = s.segment ? `for ${segmentPhrase(s.segment)} readers` : "for everyone";
+  const c = shiftCreative(s, name);
+  switch (s.kind) {
+    case "promote":
+      return `Promoted ${c} ${who}`;
+    case "demote":
+      return `Demoted ${c} ${who}`;
+    case "mix":
+      return "Changed the audience mix";
+    case "shock": {
+      const m = s.ctrMultiplier ?? 1;
+      const by = m < 1 ? `Cut ${c}'s clicks by ${pct(1 - m)}` : `Raised ${c}'s clicks by ${pct(m - 1)}`;
+      return `${by}${s.segment ? ` ${who}` : ""}`;
+    }
+  }
+}
+
+const lowerFirst = (t: string) => t.charAt(0).toLowerCase() + t.slice(1);
+
+function cardStatus(r: PolicyShiftResponse | undefined, horizon: number | null): ShiftCard["status"] {
+  if (!r || !r.pctOptimalBefore || !r.pctOptimalAfter) return "no_data";
+  const n = r.episodes ?? r.pctOptimalBefore.n ?? 0;
+  if (n < MIN_EPISODES) return "too_early";
+  const before = r.pctOptimalBefore.mean;
+  const after = r.pctOptimalAfter.mean;
+  const rec = r.recoveryRounds?.mean ?? null;
+  const recovered = r.recoveredEpisodes ?? (rec !== null ? n : 0);
+  if (after >= RECOVERY_LEVEL * before - 1e-9 && (rec === null || rec <= recoveryFloor(horizon) + 1e-9)) return "held";
+  if (recovered <= 0 || rec === null) return "not_recovered";
+  return recovered >= n ? "recovered" : "partly";
+}
+
+/** One result card per shift, from the endpoint's `shiftResponse` numbers. */
+export function buildShiftCards(
+  shifts: RunShift[],
+  results: ShiftResult[],
+  metrics: Pick<ExperimentMetrics, "horizon" | "episodes" | "totals" | "curves">,
+  name: (id: string) => string
+): ShiftCard[] {
+  const base = bestBaseline(metrics as ExperimentMetrics);
+  return shifts.map((s, j) => {
+    const res = results.find((r) => r.round === s.round) ?? results[j];
+    const lin = res?.policies?.[LIN];
+    const status = cardStatus(lin, metrics.horizon);
+    const n = lin?.episodes ?? lin?.pctOptimalBefore?.n ?? metrics.episodes ?? 0;
+    const label = `Shift ${j + 1}`;
+    const title = shiftTitle(s, name);
+    const when = `Round ${formatInt(s.round)}${metrics.horizon ? `, ${pct(s.round / metrics.horizon)} of the run` : ""}${
+      s.kind === "shock" && s.endRound !== null ? `, until round ${formatInt(s.endRound)}` : ""
+    }`;
+    const before = lin?.pctOptimalBefore?.mean ?? null;
+    const after = lin?.pctOptimalAfter?.mean ?? null;
+    const epText = `${formatInt(n)} ${n === 1 ? "episode" : "episodes"}`;
+    const evidence =
+      status === "too_early" || status === "no_data"
+        ? `${epText} so far.`
+        : `${epText}; ± is a 95% interval across episodes.`;
+    const lead = `After you ${lowerFirst(title)} at round ${formatInt(s.round)}`;
+    let reading: string;
+    if (status === "no_data") {
+      reading = "No response numbers for this shift yet.";
+    } else if (status === "too_early") {
+      reading = `Too early to call after ${epText}: run at least ${MIN_EPISODES} to read how the endpoint responded.`;
+    } else {
+      const b4 = before as number;
+      const af = after as number;
+      const fell = `the endpoint's best-creative rate ${af < b4 ? "fell" : "went"} from ${pct(b4)} to ${pct(af)}`;
+      const target = pct(RECOVERY_LEVEL * b4);
+      const rec = lin?.recoveryRounds ?? null;
+      const hw = halfWidth(rec);
+      const recText = rec
+        ? `${formatInt(roundRounds(rec.mean))} rounds${hw !== null && hw > 0 ? ` (± ${formatInt(roundRounds(hw))})` : ""}`
+        : "";
+      const recovered = lin?.recoveredEpisodes ?? n;
+      if (status === "held") {
+        reading = `${lead}, ${fell}: it stayed above ${target}, so the shift barely dented it.`;
+      } else if (status === "recovered") {
+        reading = `${lead}, ${fell} and took ${recText} to recover to ${target}.`;
+      } else if (status === "partly") {
+        reading = `${lead}, ${fell}; it recovered to ${target} in ${recovered} of ${n} episodes, after ${recText} on average.`;
+      } else {
+        reading = `${lead}, ${fell} and hadn't recovered to ${target} by the end of the run.`;
+      }
+      const b = base ? res?.policies?.[base] : undefined;
+      if (base && b?.recoveryRounds && status !== "held" && (b.recoveredEpisodes ?? 1) > 0) {
+        reading += ` ${policyShortLabel(base)}, the best baseline, took ${formatInt(roundRounds(b.recoveryRounds.mean))}.`;
+      }
+    }
+    return { key: `${j}-${s.round}`, label, title, when, before, after, status, reading, evidence };
+  });
+}
+
+/** The Overview headline + supporting line when the run has shifts. */
+function shiftHeadline(
+  cards: ShiftCard[],
+  shifts: RunShift[],
+  metrics: ExperimentMetrics,
+  name: (id: string) => string
+): { headline: string; detail: string } {
+  const n = shifts.length;
+  const what = joinList(shifts.map((s) => lowerFirst(shiftTitle(s, name))));
+  const detail = `You ${what}, ${shiftsWhen(shifts, metrics.horizon)}.`;
+  const counted = cards.filter((c) => c.status !== "no_data");
+  if (!counted.length) return { headline: `This run had ${n === 1 ? "one shift" : `${n} shifts`}.`, detail };
+  if (counted.some((c) => c.status === "too_early")) {
+    const ep = `${metrics.episodes} ${metrics.episodes === 1 ? "episode" : "episodes"}`;
+    return {
+      headline: `Too early to call after ${ep}: run more episodes to see how the endpoint absorbed your ${
+        n === 1 ? "shift" : "shifts"
+      }.`,
+      detail,
+    };
+  }
+  const ok = counted.filter((c) => c.status === "held" || c.status === "recovered");
+  const all = n === 2 ? "both shifts" : n === 1 ? "your shift" : `all ${n} shifts`;
+  if (ok.length === counted.length) {
+    const recs = parseShiftResponse(metrics.shiftResponse)
+      .map((r) => r.policies?.[LIN]?.recoveryRounds?.mean)
+      .filter(finite);
+    const worst = recs.length ? roundRounds(Math.max(...recs)) : null;
+    return {
+      headline:
+        worst !== null && cards.some((c) => c.status === "recovered")
+          ? `Your endpoint recovered from ${all}, back on the best creative within about ${formatInt(worst)} rounds${
+              n > 1 ? " each time" : ""
+            }.`
+          : `Your endpoint held steady through ${all}.`,
+      detail,
+    };
+  }
+  return {
+    headline: `Your endpoint recovered from ${ok.length} of ${counted.length} shifts; after the others it stayed short of its earlier best-creative rate.`,
+    detail,
+  };
+}
+
+/** The verdict against the best baseline, as a supporting sentence (shift runs). */
+function baselineSentence(verdict: Verdict, metrics: ExperimentMetrics, units: Units): string {
+  const base = bestBaseline(metrics);
+  if (!base) return "";
+  const lin = metrics.totals?.[LIN]?.mean;
+  const b = metrics.totals?.[base]?.mean;
+  const rel = finite(lin) && finite(b) ? relativeChange(lin, b) : null;
+  if (verdict === "ahead" && rel !== null && rel > 0) {
+    return `Over the whole run it earned ${pct1(rel)} more ${units.earn} than the best baseline, ${policyShortLabel(base)}.`;
+  }
+  if (verdict === "too_early") {
+    return `Against the best baseline, ${policyShortLabel(base)}, it is still within the margin of error.`;
+  }
+  return "";
+}
+
+/** Ghost minus endpoint total reward per episode, with an approximate 95% interval (unpaired). */
+export function ghostGap(
+  metrics: Pick<ExperimentMetrics, "totals" | "episodes">
+): { diff: number; half: number | null } | null {
+  const g = metrics.totals?.[GHOST_POLICY];
+  const l = metrics.totals?.[LIN];
+  if (!g || !l || !finite(g.mean) || !finite(l.mean)) return null;
+  const n = metrics.episodes ?? 0;
+  const half =
+    finite(g.std) && finite(l.std) && n > 1 ? (1.96 * Math.sqrt(g.std ** 2 + l.std ** 2)) / Math.sqrt(n) : null;
+  return { diff: g.mean - l.mean, half };
+}
+
+function ghostSentence(metrics: ExperimentMetrics, units: Units): string {
+  const gg = ghostGap(metrics);
+  if (!gg) return "";
+  const amount = `${formatInt(Math.abs(gg.diff))}${gg.half !== null ? ` (± ${formatInt(gg.half)})` : ""}`;
+  if (Math.round(gg.diff) === 0) {
+    return `Without your shifts, the same endpoint would have earned about the same ${units.count} per episode.`;
+  }
+  return gg.diff > 0
+    ? `Without your shifts, the same endpoint would have earned ${amount} more ${units.count} per episode: that is what the shifts cost.`
+    : `Without your shifts, the same endpoint would have earned ${amount} fewer ${units.count} per episode: the shifts helped it.`;
+}
+
+function withGhost(text: string | null, metrics: ExperimentMetrics, units: Units, where: "avg" | "totals"): string | null {
+  if (!text) return text;
+  if (where === "avg") {
+    const g = lastOfBand(metrics.curves?.[GHOST_POLICY]?.cumAvgReward).mean;
+    return g === null ? text : `${text} Without your shifts (dashed) it would have ended at ${units.rate(g)}.`;
+  }
+  const extra = ghostSentence(metrics, units);
+  return extra ? `${text} ${extra}` : text;
+}
+
+function withShiftNote(text: string | null, cards: ShiftCard[], where: "regret" | "optimal" | "share"): string | null {
+  if (!text || !cards.length) return text;
+  if (where === "regret") {
+    return `${text} The vertical rules mark your shifts; the shaded stretch after each is how long the endpoint took to recover.`;
+  }
+  if (where === "share") return `${text} The vertical rules mark your shifts.`;
+  const dips = cards
+    .filter((c) => c.before !== null && c.after !== null && c.status !== "too_early" && c.status !== "no_data")
+    .map((c) => `${c.label.toLowerCase()} took it from ${pct(c.before as number)} to ${pct(c.after as number)}`);
+  return dips.length ? `${text} Around the shifts, ${joinList(dips)}.` : text;
+}
+
