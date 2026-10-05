@@ -60,6 +60,15 @@ class ArmSpec:
         return float(self.scores.get(key, self.overall))
 
 
+#: Posterior-draw scale s for every scenario and ctr mode (contracts §7). Tuned in
+#: the 2026-10-05 exploration sweep (docs/experiments/bandit-simulation.md,
+#: "Exploration sweep"): s = 0.5 lowers LinTS regret in all 12 scenario × ctr mode
+#: × arm-count cells (4–26 %) without lock-in, while s ≤ 0.35 buys a little more
+#: mean at 2–3× the across-episode spread. ``runserver`` duplicates it in
+#: ``DEFAULT_POLICY`` (parity-tested).
+DEFAULT_EXPLORATION_SCALE = 0.5
+
+
 @dataclass(frozen=True)
 class LinTSParams:
     """Linear TS hyper-parameters.
@@ -75,7 +84,7 @@ class LinTSParams:
 
     prior_var: float = 1.0
     noise_var: float = 0.25
-    exploration_scale: float = 1.0
+    exploration_scale: float = DEFAULT_EXPLORATION_SCALE
     propensity_samples: int = 1000
     min_propensity: float = 0.02
     discount: float = 1.0

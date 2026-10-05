@@ -22,7 +22,9 @@ from bandit_traffic.endpoint_client import InProcessClient
 from bandit_traffic.fake_endpoint import FakeBanditEndpoint
 
 EID = "0123456789abcdef"
-E, T, BS = 2, 2000, 100
+# T = 4000: at 2000 rounds LinTS beats uniform by only ~1 sd of a 2-episode mean in
+# segment_winners (a fragile smoke check); 4000 makes it ~2 sd.
+E, T, BS = 2, 4000, 100
 POLICIES = {"linear_ts", *traffic.BASELINES}
 
 

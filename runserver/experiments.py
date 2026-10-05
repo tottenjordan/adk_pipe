@@ -344,9 +344,14 @@ def visual_styles(session_state: Mapping[str, Any], arms: Sequence[Mapping]) -> 
     }
 
 
+#: The LinTSParams defaults the api writes to ``experiment.json``, duplicated from
+#: ``bandit.config`` (runserver never imports it; ``tests/test_experiments_api.py``
+#: asserts parity). ``exploration_scale`` is the tuned
+#: ``bandit.config.DEFAULT_EXPLORATION_SCALE`` (contracts §7); ``discount`` is
+#: replaced per scenario by ``default_discount``.
 DEFAULT_POLICY = {
     "prior_var": 1.0,
-    "exploration_scale": 1.0,
+    "exploration_scale": 0.5,
     "propensity_samples": 1000,
     "min_propensity": 0.02,
     "discount": 1.0,

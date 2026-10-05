@@ -194,7 +194,7 @@ def test_build_experiment_config_matches_section_1_shape():
     assert cfg["policy"] == {
         "prior_var": 1.0,
         "noise_var": round(2 * 0.00933 - 0.00933**2, 6),  # drift/realistic/engaged
-        "exploration_scale": 1.0,
+        "exploration_scale": 0.5,  # tuned, every scenario (contracts §7)
         "propensity_samples": 1000,
         "min_propensity": 0.02,
         "discount": 0.998,  # drift forgets (contracts §7)
@@ -276,6 +276,23 @@ def test_drift_experiment_records_its_discount():
     assert "policy_discount" not in h.store.rows[plain]
     assert d["policyDiscount"] == 0.98
     assert p["policyDiscount"] == 1.0
+
+
+def test_api_default_policy_parity_with_bandit():
+    """runserver's DEFAULT_POLICY duplicates the LinTSParams defaults it writes
+    (runserver never imports bandit), including the tuned exploration_scale;
+    the discount is per scenario (``default_discount``, parity-tested above)."""
+    from bandit.config import DEFAULT_EXPLORATION_SCALE, LinTSParams
+
+    assert ex.DEFAULT_POLICY["exploration_scale"] == DEFAULT_EXPLORATION_SCALE
+    defaults = LinTSParams()
+    for key, value in ex.DEFAULT_POLICY.items():
+        if key != "discount":
+            assert getattr(defaults, key) == value, key
+    arms = [{"creativeId": "a", "label": "A"}, {"creativeId": "b", "label": "B"}]
+    for scenario in ex.SCENARIOS:
+        cfg = ex.build_experiment_config("e1", arms, scenario)
+        assert cfg["policy"]["exploration_scale"] == DEFAULT_EXPLORATION_SCALE
 
 
 def test_api_scenario_segments_parity_with_bandit():
