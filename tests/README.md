@@ -134,6 +134,10 @@ tests/
   environments, each kind's effect at its round, time-order `"leader"` resolution,
   drift composition, `shift_response` / `merge_checkpoints` / `regime_stats`, and the
   CLI. `test_scenario_preview_golden.py` also writes the after-shift preview fixture.
+  `test_bandit_endpoint_parity.py` drives the real `BanditPredictor` through the traffic
+  loop and checks that its LinTS picks the simulator's arms round for round (contracts §2
+  policy stream: click/engaged, discount, request splitting, and the §10 ghost up to the
+  first shift).
 - **Tools** — `test_tools.py`, `test_tools_retry.py`: pure tool logic, plus the contract
   that infra tools raise (rather than swallow errors into status dicts) so ADK retry works.
 - **Deployment & fan-out** — `test_deploy_utils.py`, `test_create_session_engine.py`,

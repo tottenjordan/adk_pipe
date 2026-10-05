@@ -2,11 +2,14 @@
 
 For each episode ``e`` (key = ``bandit.simulate.episode_keys(seed, scenario)[e]``):
 
-1. send ``reset {episode, seed}`` (plus ``discount`` when the run forgets);
+1. send ``reset {episode, seed, policy_key, batch_size}`` (plus ``discount`` when
+   the run forgets); ``policy_key`` is the episode's simulator policy stream, so
+   the endpoint's LinTS draws exactly what ``simulate`` would (contracts §2);
 2. for each batch ``b``: draw the batch with ``bandit.simulate.batch_draws``
    (the simulator's own context / reward streams, i.e. common random numbers),
-   send the decision instances (split under the request limits), read each chosen
-   arm's outcome from the pre-drawn coin flips, send the reward instances;
+   send the decision instances (with their ``batch`` and ``row``, split under the
+   request limits), read each chosen arm's outcome from the pre-drawn coin flips,
+   send the reward instances;
 3. replay the baselines (``ucb1``, ``epsilon_greedy``, ``beta_bernoulli_ts``,
    ``uniform``, ``oracle``) locally with ``bandit.simulate.run_episodes`` on the
    same episode key, so they see identical users and coin flips;
@@ -159,6 +162,17 @@ def run_discount(cfg: ExperimentConfig) -> float:
     return max(RESET_DISCOUNT_BOUNDS[0], gamma)
 
 
+def policy_stream_fields(k_pol: Any, batch_size: int) -> dict[str, Any]:
+    """The ``reset`` fields that key the endpoint like the simulator (contracts
+    §2): ``policy_key`` = the uint32 ``key_data`` of the episode's policy stream
+    (``simulate.episode_streams(key)[2]``) and the simulator ``batch_size``. With
+    each decision's ``batch``/``row``, the endpoint draws batch ``b`` from
+    ``fold_in(k_pol, b)`` at the simulator's batch shape, so its LinTS picks the
+    same arms as ``simulate.run_episodes`` (and as the ghost before a shift)."""
+    words = np.asarray(jax.random.key_data(k_pol)).ravel()
+    return {"policy_key": [int(w) for w in words], "batch_size": int(batch_size)}
+
+
 def _utcnow() -> dt.datetime:
     return dt.datetime.now(dt.UTC)
 
@@ -278,7 +292,7 @@ class TrafficRunner:
         cfg, s, env = self.cfg, self.s, self.env
         T, bs, K = cfg.horizon, cfg.batch_size, len(self.arm_ids)
         key = self.keys[episode]
-        k_ctx, k_rew, _ = simulate.episode_streams(key)
+        k_ctx, k_rew, k_pol = simulate.episode_streams(key)
         elig = jax.numpy.ones((K,), bool)
         fallback = np.random.default_rng([cfg.seed, episode])
 
@@ -286,6 +300,7 @@ class TrafficRunner:
             "type": "reset",
             "episode": episode,
             "seed": reset_seed(cfg.seed, episode),
+            **policy_stream_fields(k_pol, bs),
         }
         if self.discount is not None:
             reset_inst["discount"] = self.discount
@@ -324,8 +339,15 @@ class TrafficRunner:
             rids = [f"{prefix}-r{t}" for t in rounds]
             preds = self._send(
                 [
-                    {"type": "decision", "request_id": rid, "ts": ts, "context": ctx}
-                    for rid, ctx in zip(rids, contexts, strict=True)
+                    {
+                        "type": "decision",
+                        "request_id": rid,
+                        "ts": ts,
+                        "context": ctx,
+                        "batch": b,
+                        "row": j,
+                    }
+                    for j, (rid, ctx) in enumerate(zip(rids, contexts, strict=True))
                 ]
             )
             arms = np.empty(n, np.int64)

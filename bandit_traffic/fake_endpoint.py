@@ -15,7 +15,10 @@ Semantics:
   one batched ``update`` (bumping ``model_version``). Duplicates / unknown ids
   return ``accepted: false``. Engaged rewards (seconds) are divided by the
   scenario's ``dwell_base_s`` before the update, as in the simulator.
-- ``reset``: fresh prior state and PRNG key for a new episode; an optional
+- ``reset``: fresh prior state and PRNG key for a new episode; with
+  ``policy_key`` + ``batch_size``, decisions carrying ``batch``/``row`` are drawn
+  from the simulator's policy stream like the predictor's (one reward request
+  per batch, as the traffic job sends, gives the simulator's updates); an optional
   ``discount`` (``RESET_DISCOUNT_BOUNDS``, quantised to 0.001) replaces
   ``policy.discount`` for the episode's updates (contracts §2 / §10).
 - ``state``: pulls, posterior means, version and step.
@@ -24,6 +27,7 @@ Semantics:
 from __future__ import annotations
 
 import dataclasses
+import functools
 import math
 import time
 from collections import OrderedDict
@@ -44,7 +48,23 @@ from bandit.config import (
 
 _select = jax.jit(lts.select, static_argnames=("params",))
 _propensities = jax.jit(lts.propensities_batch, static_argnames=("params",))
-_update = jax.jit(lts.update, static_argnames=("params",))
+
+
+@functools.partial(jax.jit, static_argnames=("params", "batch_size"))
+def _select_rows(key, state, X, rows, params, eligible, batch_size):
+    """``select`` keyed like ``bandit.simulate`` (the predictor's
+    ``_decide_rows_kernel``): noise drawn at the simulator's batch shape."""
+    z = jax.random.normal(key, (batch_size, state.b.shape[0]), state.b.dtype)
+    return lts.select_with_noise(state, X, z[rows], params, eligible)
+
+
+@functools.partial(jax.jit, static_argnames=("params", "reward_scale"))
+def _update(state, arms, X, rewards, params, reward_scale=1.0):
+    """``lts.update`` on raw float32 rewards divided by ``reward_scale`` in
+    float32, the same op as ``bandit.simulate._episode``."""
+    return lts.update(state, arms, X, rewards / reward_scale, params)
+
+
 _posterior_mean = jax.jit(lts.posterior_mean)
 
 PENDING_LIMIT = 200_000
@@ -88,10 +108,24 @@ class FakeBanditEndpoint:
         self._reset(0, cfg.seed)
 
     # ------------------------------------------------------------------ state
-    def _reset(self, episode: int, seed: int, discount: float | None = None) -> None:
+    def _reset(
+        self,
+        episode: int,
+        seed: int,
+        discount: float | None = None,
+        policy_key: list | None = None,
+        batch_size: int | None = None,
+    ) -> None:
         self.episode = int(episode)
         self.discount = discount
         self.key = jax.random.key(int(seed))
+        # the simulator's policy stream (contracts §2 reset ``policy_key``)
+        self.policy_key = (
+            None
+            if policy_key is None
+            else jax.random.wrap_key_data(np.asarray(policy_key, np.uint32))
+        )
+        self.policy_batch_size = None if batch_size is None else int(batch_size)
         self.state = lts.init_state(
             len(self.arm_ids), features.DIM, self.cfg.policy.prior_var
         )
@@ -147,7 +181,13 @@ class FakeBanditEndpoint:
             try:
                 if kind == "reset":
                     discount = reset_discount(inst)
-                    self._reset(int(inst["episode"]), int(inst["seed"]), discount)
+                    self._reset(
+                        int(inst["episode"]),
+                        int(inst["seed"]),
+                        discount,
+                        inst.get("policy_key"),
+                        inst.get("batch_size"),
+                    )
                     out[i] = {
                         "type": "reset",
                         "episode": self.episode,
@@ -183,16 +223,35 @@ class FakeBanditEndpoint:
         return out
 
     def _decide(self, decisions, params, out) -> None:
-        # Group by eligibility mask (one jit call per distinct mask).
-        groups: dict[bytes | None, list] = {}
+        # Group by eligibility mask and, with a policy stream, simulator batch
+        # (one jit call per group).
+        keyed = self.policy_key is not None and self.policy_batch_size is not None
+        groups: dict[tuple[bytes | None, int | None], list] = {}
         for d in decisions:
-            groups.setdefault(None if d[3] is None else d[3].tobytes(), []).append(d)
+            batch = d[1].get("batch") if keyed else None
+            mask = None if d[3] is None else d[3].tobytes()
+            groups.setdefault((mask, batch), []).append(d)
         means = np.asarray(_posterior_mean(self.state))  # (K, d)
-        for group in groups.values():
+        for (_, batch), group in groups.items():
             X = jnp.asarray(np.stack([d[2] for d in group]))
             elig = None if group[0][3] is None else jnp.asarray(group[0][3])
-            self.key, k_sel, k_prop = jax.random.split(self.key, 3)
-            arms, _ = _select(k_sel, self.state, X, params, elig)
+            if batch is None or self.policy_key is None:
+                self.key, k_sel, k_prop = jax.random.split(self.key, 3)
+                arms, _ = _select(k_sel, self.state, X, params, elig)
+            else:
+                k_sel, k_prop = jax.random.split(
+                    jax.random.fold_in(self.policy_key, int(batch))
+                )
+                rows = jnp.asarray([int(d[1]["row"]) for d in group], jnp.int32)
+                arms, _ = _select_rows(
+                    k_sel,
+                    self.state,
+                    X,
+                    rows,
+                    params,
+                    elig,
+                    self.policy_batch_size,
+                )
             probs = np.asarray(_propensities(k_prop, self.state, X, params, elig))
             arms = np.asarray(arms)
             greedy_scores = np.asarray(X) @ means.T
@@ -243,7 +302,7 @@ class FakeBanditEndpoint:
                     self.rewarded.popitem(last=False)
                 arms.append(entry[0])
                 xs.append(entry[1])
-                rs.append(reward / self.reward_scale)
+                rs.append(reward)
                 accepted_idx.append(i)
             out[i] = {"request_id": rid, "type": "reward", "accepted": bool(ok)}
         if arms:
@@ -253,6 +312,7 @@ class FakeBanditEndpoint:
                 jnp.asarray(np.stack(xs)),
                 jnp.asarray(rs, jnp.float32),
                 self._update_params(params),
+                self.reward_scale,
             )
             self.version += 1
         for i, _ in rewards:

@@ -1,25 +1,24 @@
-"""Endpoint LinTS == simulator LinTS, round for round (contracts §7 "Serving parity").
+"""Endpoint LinTS == simulator LinTS, round for round (contracts §2 / §7 / §10).
 
 The live ``linear_ts`` curves come from the traffic job driving the CPR
-``BanditPredictor``, while every simulator sweep (exploration, discount, notebook
-parity) runs ``bandit.simulate.run_episodes`` with the ``linear_ts`` policy. The two
-paths only differ in their PRNG stream: the predictor folds a per-call counter into
-``key(reset seed)`` and pads each decision batch to a power of two, the simulator
-folds the batch index into the episode's policy stream. With the simulator's key
-injected and the padding switched off, the whole serving path (traffic loop ->
-request JSON -> feature encoding -> ``select`` -> pending map -> reward scaling ->
-batched ``update``) must reproduce the simulator's arm choices exactly, so any
-real algorithmic gap (params, reward scale, update timing, discount, dropped
-rewards) would show up as a divergence here.
+``BanditPredictor``; every simulator sweep (and the §10 ghost) runs
+``bandit.simulate.run_episodes`` with the ``linear_ts`` policy. The traffic job
+sends each episode's simulator policy stream in its ``reset`` (``policy_key`` +
+``batch_size``) and each decision's ``batch``/``row``, so the predictor draws
+batch ``b`` from ``fold_in(k_pol, b)`` at the simulator's batch shape and scales
+rewards with the simulator's float32 op. The whole serving path (traffic loop ->
+request JSON -> feature encoding -> ``select`` -> pending map -> reward scaling
+-> batched ``update``) must then reproduce the simulator's arm choices exactly,
+whatever the padding or request splitting, so any algorithmic gap (params,
+reward scale, update timing, discount, dropped rewards) shows up here.
 """
 
+import dataclasses
 import json
 
-import jax
 import numpy as np
 import pytest
 
-import bandit_serving.predictor as pm
 from bandit import simulate
 from bandit.config import (
     LinTSParams,
@@ -28,8 +27,14 @@ from bandit.config import (
     experiment_config_to_dict,
     load_scenario,
     resolve_scenario,
+    shifts_from_dict,
+    validate_shifts,
 )
 from bandit.policies import make_policy
+from bandit_serving.predictor import BanditPredictor
+from bandit_traffic import traffic
+from bandit_traffic.endpoint_client import InProcessClient
+from bandit_traffic.fake_endpoint import FakeBanditEndpoint
 from bandit_traffic.traffic import TrafficRunner, TrafficSettings
 
 
@@ -53,8 +58,10 @@ class _Client:
 
     def __init__(self, predictor):
         self.p = predictor
+        self.requests: list[list[dict]] = []
 
     def predict(self, instances, parameters=None):
+        self.requests.append(list(instances))
         body = {"instances": list(instances)}
         if parameters:
             body["parameters"] = parameters
@@ -63,68 +70,130 @@ class _Client:
         ]
 
 
-def _cfg(scenario, discount):
+def _cfg(scenario, reward_mode="click", discount=1.0, horizon=2000, episodes=2):
     sc = load_scenario(scenario)
     return build_sim_config(
         scenario,
-        horizon=2000,
-        episodes=2,
+        reward_mode=reward_mode,
+        horizon=horizon,
+        episodes=episodes,
         batch_size=100,
         policy=LinTSParams(
-            noise_var=default_noise_var(sc.target_ctr["demo"], "click"),
+            noise_var=default_noise_var(sc.target_ctr["demo"], reward_mode),
             discount=discount,
         ),
     )
 
 
-@pytest.mark.parametrize(
-    ("scenario", "discount"), [("segment_winners", 1.0), ("drift", 0.98)]
-)
-def test_endpoint_lints_matches_simulator_round_for_round(
-    tmp_path, monkeypatch, scenario, discount
-):
-    cfg = _cfg(scenario, discount)
-    keys = simulate.episode_keys(cfg.seed, cfg.scenario, cfg.episodes)
+def _predictor(tmp_path, monkeypatch, cfg):
     monkeypatch.setenv("BANDIT_WARMUP", "0")
-    # unpadded decision batches, so the normal draws have the simulator's shape
-    monkeypatch.setattr(pm, "_bucket", lambda n: n)
-
-    class Lockstep(pm.BanditPredictor):
-        def _next_key(self):  # decision call c of an episode = batch c
-            batch, self._calls = self._calls, self._calls + 1
-            policy_stream = simulate.episode_streams(keys[self._episode])[2]
-            return jax.random.fold_in(policy_stream, batch)
-
     (tmp_path / "experiment.json").write_text(
         json.dumps(experiment_config_to_dict(cfg))
     )
-    predictor = Lockstep(checkpoint_every=10**9, checkpoint_seconds=1e9)
+    predictor = BanditPredictor(checkpoint_every=10**9, checkpoint_seconds=1e9)
     predictor.load(str(tmp_path))
     assert predictor.params == cfg.policy
+    return predictor
 
-    writer = _Writer()
-    summary = TrafficRunner(
-        cfg, _Client(predictor), writer, TrafficSettings(baselines=())
-    ).run()
-    assert summary.decision_errors == summary.rewards_rejected == 0
 
+def _local(cfg, params=None):
     env = simulate.build_environment(cfg, scenario=resolve_scenario(cfg))
     pol = make_policy(
         "linear_ts",
-        lints_params=cfg.policy,
+        lints_params=params or cfg.policy,
         reward_mode=cfg.reward_mode,
         log_propensity=False,
     )
-    local = simulate.run_episodes(pol, env, keys, cfg.horizon, cfg.batch_size)
+    keys = simulate.episode_keys(cfg.seed, cfg.scenario, cfg.episodes)
+    return env, simulate.run_episodes(pol, env, keys, cfg.horizon, cfg.batch_size)
+
+
+def _served_arms(writer, env, episode):
     arm_index = {cid: i for i, cid in enumerate(env.arm_ids)}
+    rows = sorted(
+        (r for r in writer.events if r["episode"] == episode), key=lambda r: r["round"]
+    )
+    return np.array([arm_index[r["arm"]] for r in rows]), rows
+
+
+@pytest.mark.parametrize(
+    ("scenario", "reward_mode", "discount", "max_instances"),
+    [
+        ("segment_winners", "click", 1.0, None),
+        ("clear_winner", "engaged", 1.0, None),
+        ("drift", "click", 0.98, None),
+        # 37-instance requests: every decision batch and every reward batch is
+        # split over several requests (and padded to different buckets)
+        ("drift", "engaged", 0.98, 37),
+    ],
+)
+def test_endpoint_lints_matches_simulator_round_for_round(
+    tmp_path, monkeypatch, scenario, reward_mode, discount, max_instances
+):
+    cfg = _cfg(scenario, reward_mode, discount)
+    predictor = _predictor(tmp_path, monkeypatch, cfg)
+    settings = TrafficSettings(baselines=())
+    if max_instances:
+        settings = dataclasses.replace(settings, max_request_instances=max_instances)
+    writer, client = _Writer(), _Client(predictor)
+    summary = TrafficRunner(cfg, client, writer, settings).run()
+    assert summary.decision_errors == summary.rewards_rejected == 0
+    if max_instances:
+        sizes = {len(r) for r in client.requests if r[0]["type"] == "decision"}
+        assert max(sizes) == max_instances and len(sizes) > 1
+
+    env, local = _local(cfg)
     for e in range(cfg.episodes):
-        rows = sorted(
-            (r for r in writer.events if r["episode"] == e), key=lambda r: r["round"]
-        )
-        served = np.array([arm_index[r["arm"]] for r in rows])
+        served, rows = _served_arms(writer, env, e)
         np.testing.assert_array_equal(served, local["arm"][e])
         regret = sum(r["regret"] for r in rows)
         local_regret = float(np.sum(local["mean_opt"][e] - local["mean_chosen"][e]))
         assert regret == pytest.approx(local_regret, rel=1e-4)
     # the posterior the endpoint ends on saw every round's reward
     assert int(predictor._state.step) == cfg.horizon
+
+
+def test_fake_endpoint_matches_simulator_round_for_round():
+    """``--in-process`` runs (the fake endpoint) follow the simulator too."""
+    cfg = _cfg("segment_winners", "engaged")
+    writer = _Writer()
+    client = InProcessClient(FakeBanditEndpoint(cfg))
+    TrafficRunner(cfg, client, writer, TrafficSettings(baselines=())).run()
+    env, local = _local(cfg)
+    for e in range(cfg.episodes):
+        served, _ = _served_arms(writer, env, e)
+        np.testing.assert_array_equal(served, local["arm"][e])
+
+
+SHIFTS = [
+    {"kind": "demote", "at_frac": 0.5, "creative_id": "leader", "drop_pp": 0.015},
+]
+
+
+def test_endpoint_and_ghost_choose_identical_arms_until_the_first_shift(
+    tmp_path, monkeypatch
+):
+    """With shifts, the ghost (``linear_ts_unshifted``: local LinTS on the
+    unshifted world, same episode key, same discount) is the endpoint's twin up
+    to the first shift, so the post-shift gap is purely the shift's effect."""
+    cfg = _cfg("segment_winners", horizon=4000)
+    shifts = validate_shifts(
+        shifts_from_dict(SHIFTS), resolve_scenario(cfg), cfg.arms, cfg.ctr_mode
+    )
+    predictor = _predictor(tmp_path, monkeypatch, cfg)
+    tr = TrafficRunner(
+        cfg,
+        _Client(predictor),
+        _Writer(),
+        TrafficSettings(baselines=(), keep_outputs=True),
+        shifts=shifts,
+    )
+    tr.run()
+    assert tr.discount is not None and tr.discount < 1.0
+    r0 = tr.shift_rounds[0]
+    assert r0 == 2000
+    for e in range(cfg.episodes):
+        ours = tr.outputs[(e, traffic.ENDPOINT_POLICY)]["arm"]
+        ghost = tr.outputs[(e, traffic.GHOST_POLICY)]["arm"]
+        np.testing.assert_array_equal(ours[:r0], ghost[:r0])
+        assert not np.array_equal(ours[r0:], ghost[r0:])

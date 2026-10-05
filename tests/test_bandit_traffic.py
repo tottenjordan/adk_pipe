@@ -499,6 +499,15 @@ def test_shifted_run_sends_the_forget_discount(shifted):
     # T = 4000 -> default_shift_discount = exp(-0.2) ~ 0.819, floored at 0.95
     assert default_shift_discount(cfg.ctr_mode, BS, T) < RESET_DISCOUNT_BOUNDS[0]
     assert {r["discount"] for r in resets} == {RESET_DISCOUNT_BOUNDS[0]}
+    # the simulator's policy stream per episode (contracts §2)
+    for e, r in enumerate(resets):
+        k_pol = simulate.episode_streams(tr.keys[e])[2]
+        assert r["policy_key"] == [int(w) for w in jax.random.key_data(k_pol)]
+        assert r["batch_size"] == BS
+    decisions = [i for req in client.requests for i in req if i["type"] == "decision"]
+    assert [(d["batch"], d["row"]) for d in decisions[: BS + 1]] == [
+        (0, j) for j in range(BS)
+    ] + [(1, 0)]
     assert summary.discount == tr.discount == RESET_DISCOUNT_BOUNDS[0]
     assert client.inner.target.discount == RESET_DISCOUNT_BOUNDS[0]
     assert traffic.run_discount(_cfg(horizon=40_000)) == 0.98
@@ -565,11 +574,18 @@ def test_ghost_sees_the_same_world_until_the_first_shift(shifted):
         np.testing.assert_array_equal(ghost["opt_arm"][:r0], ours["opt_arm"][:r0])
 
 
-def test_ghost_matches_the_endpoint_statistically_before_the_shift(shifted):
+def test_ghost_matches_the_endpoint_exactly_before_the_shift(shifted):
     """Before the first shift ghost and endpoint are the same LinTS (same
-    params and discount) on the same world; only the policy randomness differs,
-    so their pre-shift % optimal is close."""
-    _, fake, _, _, _ = shifted
+    params, discount and policy stream, contracts §2) on the same world, so they
+    choose identical arms (tests/test_bandit_endpoint_parity.py does the same
+    against the real predictor)."""
+    _, fake, _, tr, _ = shifted
+    r0 = tr.shift_rounds[0]
+    for e in range(E):
+        np.testing.assert_array_equal(
+            tr.outputs[(e, "linear_ts")]["arm"][:r0],
+            tr.outputs[(e, traffic.GHOST_POLICY)]["arm"][:r0],
+        )
     rows = fake.rows("bandit_episode_metrics")
 
     def before(policy):
@@ -581,7 +597,7 @@ def test_ghost_matches_the_endpoint_statistically_before_the_shift(shifted):
             ]
         )
 
-    assert abs(before("linear_ts") - before(traffic.GHOST_POLICY)) < 0.2
+    assert before("linear_ts") == before(traffic.GHOST_POLICY)
     assert before("oracle") == 1.0
 
 

@@ -204,9 +204,9 @@ def _spy_update_discounts(p, monkeypatch):
     seen: list[float] = []
     real = pred._update_kernel
 
-    def spy(state, arms, X, rewards, valid, params):
+    def spy(state, arms, X, rewards, valid, params, reward_scale=1.0):
         seen.append(params.discount)
-        return real(state, arms, X, rewards, valid, params)
+        return real(state, arms, X, rewards, valid, params, reward_scale)
 
     monkeypatch.setattr(pred, "_update_kernel", spy)
     return seen
@@ -264,6 +264,113 @@ def test_reset_seed_is_deterministic(art):
         run(p, [{"type": "reset", "episode": 1, "seed": 7}])
     pick = [d["chosen_arm"] for d in run(a, _decisions(30))]
     assert pick == [d["chosen_arm"] for d in run(b, _decisions(30))]
+
+
+POLICY_RESET = {
+    "type": "reset",
+    "episode": 1,
+    "seed": 7,
+    "policy_key": [12345, 4000000000],
+    "batch_size": 8,
+}
+
+
+def _keyed(n, batch, prefix="k"):
+    return [d | {"batch": batch, "row": i} for i, d in enumerate(_decisions(n, prefix))]
+
+
+def test_policy_stream_keys_decisions_by_batch_and_row(art):
+    """With a reset policy stream, a row's arm depends only on (batch, row) and
+    the posterior: not on request splitting, padding, retries or call count."""
+    a, b = _predictor(art), _predictor(art)
+    for p in (a, b):
+        assert run(p, [POLICY_RESET])[0]["type"] == "reset"
+    whole = [d["chosen_arm"] for d in run(a, _keyed(8, 0))]
+    split = [d["chosen_arm"] for d in run(b, _keyed(8, 0)[:3])]
+    split += [d["chosen_arm"] for d in run(b, _keyed(8, 0)[3:])]
+    assert whole == split
+    # a retry (same batch/row, unchanged posterior) draws the same arms
+    assert [d["chosen_arm"] for d in run(a, _keyed(8, 0, "x"))] == whole
+    assert len({d["chosen_arm"] for d in run(a, _keyed(8, 1, "y"))}) >= 1
+    assert a._policy_stream is not None and a._calls == 0  # legacy counter unused
+
+
+def test_policy_stream_validation(art):
+    p = _predictor(art)
+    bad = [
+        {"policy_key": [1]},
+        {"policy_key": [1, -1], "batch_size": 8},
+        {"policy_key": [1, 2**32], "batch_size": 8},
+        {"policy_key": [1, "2"], "batch_size": 8},
+        {"policy_key": [1, 2]},
+        {"policy_key": [1, 2], "batch_size": 0},
+        {"batch_size": 8},
+    ]
+    for extra in bad:
+        out = run(p, [{"type": "reset", "episode": 1, "seed": 7} | extra])[0]
+        assert out["type"] == "error", extra
+    # integral floats (a protobuf round trip) are accepted
+    ok = run(p, [POLICY_RESET | {"policy_key": [12345.0, 4e9], "batch_size": 8.0}])
+    assert ok[0]["type"] == "reset"
+    assert p._policy_stream is not None
+    assert p._policy_stream.key_data == (12345, 4000000000)
+    preds = run(
+        p,
+        [
+            _keyed(1, 0)[0] | {"row": 8},  # row >= batch_size
+            _decisions(1, "nb")[0] | {"batch": 0},  # batch without row
+            _decisions(1, "neg")[0] | {"batch": -1, "row": 0},
+            _keyed(1, 0, "good")[0],
+        ],
+    )
+    assert [d["type"] for d in preds] == ["error", "error", "error", "decision"]
+
+
+def test_decisions_without_batch_use_the_legacy_key(art):
+    """An old traffic image sends neither reset policy_key nor decision batch;
+    a new image's batch/row are ignored after a reset without a stream."""
+    a, b = _predictor(art), _predictor(art)
+    for p in (a, b):
+        run(p, [{"type": "reset", "episode": 1, "seed": 7}])
+    legacy = [d["chosen_arm"] for d in run(a, _decisions(30))]
+    assert [d["chosen_arm"] for d in run(b, _keyed(30, 0, "r"))] == legacy
+    assert b._calls == 1
+
+
+def test_policy_stream_survives_a_checkpoint_restore(art):
+    p = _predictor(art)
+    run(p, [POLICY_RESET])
+    p.flush()
+    meta = json.loads((art / "checkpoints" / "latest.json").read_text())
+    assert meta["policy_stream"] == {"key_data": [12345, 4000000000], "batch_size": 8}
+    q = _predictor(art)
+    assert q._policy_stream == p._policy_stream
+    assert [d["chosen_arm"] for d in run(q, _keyed(8, 3))] == [
+        d["chosen_arm"] for d in run(p, _keyed(8, 3))
+    ]
+
+
+def test_split_reward_batch_decays_once(tmp_path):
+    """Rewards of one decision batch split over two requests decay the
+    posterior once (like one simulator update), not once per request."""
+    art = _write_config(tmp_path / "a", policy={"discount": 0.9, "noise_var": 0.04})
+    one, two = _predictor(art), _predictor(art)
+    for p in (one, two):
+        run(p, [POLICY_RESET])
+        run(p, _rewards(run(p, _keyed(8, 0))))  # batch 0 (decays a prior: no-op)
+    preds = run(one, _keyed(8, 1, "b"))
+    assert [d["chosen_arm"] for d in run(two, _keyed(8, 1, "b"))] == [
+        d["chosen_arm"] for d in preds
+    ]
+    run(one, _rewards(preds))
+    run(two, _rewards(preds[:5]))
+    run(two, _rewards(preds[5:]))
+    np.testing.assert_allclose(
+        np.asarray(one._state.precision), np.asarray(two._state.precision), rtol=1e-6
+    )
+    np.testing.assert_allclose(
+        np.asarray(one._state.b), np.asarray(two._state.b), rtol=1e-6, atol=1e-7
+    )
 
 
 def test_mixed_batch_preserves_order(art):
