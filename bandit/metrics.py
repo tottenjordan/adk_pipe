@@ -27,7 +27,13 @@ Definitions, for one episode of one policy (per-round arrays from
   w-round average reward reaches the trailing average optimum; ``None`` if it
   never does. w defaults to clamp(T // 10, 10, 2000).
 - **checkpoints**: ~50 log-spaced 1-based round counts ending at T, shared by
-  all policies/episodes of one experiment (``log_checkpoints``).
+  all policies/episodes of one experiment (``log_checkpoints``). With scripted
+  shifts (contracts §10): linear spacing, plus points around each shift round
+  (``merge_checkpoints``).
+- **shift response** (``shift_response``): per shift, % optimal and regret per
+  round in the windows just before / after it, and the rounds needed to get
+  back to 80 % of the pre-shift % optimal; ``regime_stats`` splits
+  ``per_segment`` and the true CTR per arm at the shift rounds.
 
 Cross-episode aggregation (mean ± 95% CI bands, expected total reward ± std)
 lives in the dependency-free ``bandit.aggregate``.
@@ -93,6 +99,31 @@ def steps_to_converge(
     return int(hits[0] + window) if len(hits) else None
 
 
+def _per_segment(
+    seg: np.ndarray,
+    opt_arm: np.ndarray,
+    is_opt: np.ndarray,
+    reward: np.ndarray,
+    arm_ids: Sequence[str],
+    segment_names: Sequence[str],
+) -> dict[str, dict[str, Any]]:
+    """§3 ``per_segment``: modal optimal arm, % optimal, avg reward, rounds."""
+    out: dict[str, dict[str, Any]] = {}
+    for s, name in enumerate(segment_names):
+        m = seg == s
+        n = int(m.sum())
+        if n == 0:
+            continue
+        seg_opt = int(np.bincount(opt_arm[m], minlength=len(arm_ids)).argmax())
+        out[name] = {
+            "optimal_arm": arm_ids[seg_opt],
+            "pct_optimal": _f(is_opt[m].mean()),
+            "avg_reward": _f(reward[m].mean()),
+            "rounds": n,
+        }
+    return out
+
+
 def episode_metrics(
     out: Mapping[str, np.ndarray],
     *,
@@ -142,19 +173,7 @@ def episode_metrics(
     share = pulls / np.maximum(pulls.sum(axis=1, keepdims=True), 1)
     arm_share = {cid: [_f(v) for v in share[:, a]] for a, cid in enumerate(arm_ids)}
 
-    per_segment: dict[str, dict[str, Any]] = {}
-    for s, name in enumerate(segment_names):
-        m = seg == s
-        n = int(m.sum())
-        if n == 0:
-            continue
-        seg_opt = int(np.bincount(opt_arm[m], minlength=k).argmax())
-        per_segment[name] = {
-            "optimal_arm": arm_ids[seg_opt],
-            "pct_optimal": _f(is_opt[m].mean()),
-            "avg_reward": _f(reward[m].mean()),
-            "rounds": n,
-        }
+    per_segment = _per_segment(seg, opt_arm, is_opt, reward, arm_ids, segment_names)
 
     p_all = np.asarray(out["p_all"], np.float64)
     arm_stats: dict[str, dict[str, Any]] = {}
@@ -210,13 +229,158 @@ def make_checkpoints(horizon: int, num: int = 50, spacing: str = "log") -> list[
     raise ValueError(f"unknown checkpoint spacing {spacing!r}")
 
 
-def experiment_rows(
-    result: Any, num_checkpoints: int = 50, spacing: str = "log"
+def merge_checkpoints(
+    checkpoints: Sequence[int], shift_rounds: Sequence[int], horizon: int
+) -> list[int]:
+    """``checkpoints`` plus, per shift round r (0-based first shifted round, so
+    checkpoint r covers exactly the pre-shift rounds): r-1, r and r + 0.5 %,
+    2 % and 5 % of the horizon. Sorted, unique, within [1, T], ending at T."""
+    pts = {int(c) for c in checkpoints}
+    for r in shift_rounds:
+        pts |= {r - 1, r}
+        pts |= {r + int(round(f * horizon)) for f in (0.005, 0.02, 0.05)}
+    pts.add(horizon)
+    return sorted(p for p in pts if 1 <= p <= horizon)
+
+
+def shift_response(
+    out: Mapping[str, np.ndarray],
+    shift_rounds: Sequence[int],
+    window: int | None = None,
+    recovery_window: int | None = None,
+    recovery_level: float = 0.8,
 ) -> list[dict[str, Any]]:
-    """Per-(episode, policy) rows for a ``bandit.simulate.ExperimentResult``."""
+    """How one episode's policy reacted to each shift (contracts §10).
+
+    Per shift round r (0-based first shifted round), with ``window`` w (default
+    ``default_window(T)``, 2000 at the preset horizons) clipped to the episode:
+
+    - ``pct_optimal_before`` / ``_after``: share of optimal choices in the w
+      rounds before r / from r;
+    - ``regret_rate_before`` / ``_after``: mean pseudo-regret per round there;
+    - ``recovery_rounds``: rounds from r until the trailing
+      ``recovery_window``-round optimal-choice rate (default w // 2, 1000 at
+      the presets; post-shift rounds only) first reaches ``recovery_level``
+      (80 %) of ``pct_optimal_before``; ``None`` if it never does.
+    """
+    arm = np.asarray(out["arm"])
+    is_opt = (arm == np.asarray(out["opt_arm"])).astype(np.float64)
+    gap = np.asarray(out["mean_opt"], np.float64) - np.asarray(
+        out["mean_chosen"], np.float64
+    )
+    horizon = len(arm)
+    w = window or default_window(horizon)
+    wr = recovery_window or max(1, w // 2)
+    csum = np.concatenate([[0.0], np.cumsum(is_opt)])
+    rows = []
+    for r in shift_rounds:
+        r = int(r)
+        lo, hi = max(0, r - w), min(horizon, r + w)
+        before = is_opt[lo:r].mean() if r > lo else 0.0
+        after = is_opt[r:hi].mean() if hi > r else 0.0
+        recovery = None
+        ends = np.arange(r + wr, horizon + 1)
+        if len(ends):
+            rate = (csum[ends] - csum[ends - wr]) / wr
+            hits = np.flatnonzero(rate >= recovery_level * before - 1e-12)
+            if len(hits):
+                recovery = int(ends[hits[0]] - r)
+        rows.append(
+            {
+                "round": r,
+                "pct_optimal_before": _f(before),
+                "pct_optimal_after": _f(after),
+                "regret_rate_before": _f(gap[lo:r].mean()) if r > lo else 0.0,
+                "regret_rate_after": _f(gap[r:hi].mean()) if hi > r else 0.0,
+                "recovery_rounds": recovery,
+            }
+        )
+    return rows
+
+
+def regime_stats(
+    out: Mapping[str, np.ndarray],
+    boundaries: Sequence[int],
+    arm_ids: Sequence[str],
+    segment_names: Sequence[str],
+) -> list[dict[str, Any]]:
+    """Per-regime ``per_segment`` (§3 shape) and true CTR per arm for one
+    episode. ``boundaries`` (0-based rounds, e.g. the shift and shock-end rounds)
+    split [0, T) into regimes ``[start, end)``; empty regimes are dropped."""
+    arm = np.asarray(out["arm"])
+    horizon = len(arm)
+    seg = np.asarray(out["segment"])
+    opt_arm = np.asarray(out["opt_arm"])
+    reward = np.asarray(out["reward"], np.float64)
+    p_all = np.asarray(out["p_all"], np.float64)
+    is_opt = arm == opt_arm
+    edges = sorted({0, horizon} | {int(b) for b in boundaries if 0 < b < horizon})
+    regimes = []
+    for start, end in zip(edges[:-1], edges[1:], strict=True):
+        sl = slice(start, end)
+        regimes.append(
+            {
+                "start": start,
+                "end": end,
+                "per_segment": _per_segment(
+                    seg[sl], opt_arm[sl], is_opt[sl], reward[sl], arm_ids, segment_names
+                ),
+                "true_ctr": {
+                    cid: _f(p_all[sl, a].mean()) for a, cid in enumerate(arm_ids)
+                },
+            }
+        )
+    return regimes
+
+
+def summarize_shift_response(
+    rows: Sequence[Mapping[str, Any]],
+) -> dict[str, list[dict[str, Any]]]:
+    """Per policy, per shift: the mean of each ``shift_response`` number across
+    episodes; ``recovery_rounds`` averages the episodes that recovered
+    (``recovered_episodes`` of ``episodes``; ``None`` when none did)."""
+    by_policy: dict[str, list[list[dict[str, Any]]]] = {}
+    for row in rows:
+        if row.get("shift_response"):
+            by_policy.setdefault(row["policy"], []).append(row["shift_response"])
+    out: dict[str, list[dict[str, Any]]] = {}
+    for policy, episodes in by_policy.items():
+        summary = []
+        for j, first in enumerate(episodes[0]):
+            per_ep = [ep[j] for ep in episodes]
+            entry: dict[str, Any] = {"round": first["round"], "episodes": len(per_ep)}
+            for key in (
+                "pct_optimal_before",
+                "pct_optimal_after",
+                "regret_rate_before",
+                "regret_rate_after",
+            ):
+                entry[key] = _f(np.mean([e[key] for e in per_ep]))
+            rec = [
+                e["recovery_rounds"] for e in per_ep if e["recovery_rounds"] is not None
+            ]
+            entry["recovery_rounds"] = _f(np.mean(rec)) if rec else None
+            entry["recovered_episodes"] = len(rec)
+            summary.append(entry)
+        out[policy] = summary
+    return out
+
+
+def experiment_rows(
+    result: Any,
+    num_checkpoints: int = 50,
+    spacing: str = "log",
+    shift_rounds: Sequence[int] = (),
+) -> list[dict[str, Any]]:
+    """Per-(episode, policy) rows for a ``bandit.simulate.ExperimentResult``.
+
+    With ``shift_rounds`` the checkpoints are merged around each shift
+    (``merge_checkpoints``) and every row gains ``shift_response``."""
     env = result.env
     horizon = result.cfg.horizon
     cps = make_checkpoints(horizon, num_checkpoints, spacing)
+    if shift_rounds:
+        cps = merge_checkpoints(cps, shift_rounds, horizon)
     rows = []
     for policy in result.policies:
         outs = result.results[policy]
@@ -230,6 +394,8 @@ def experiment_rows(
                 segment_names=env.segment_names,
                 checkpoints=cps,
             )
+            if shift_rounds:
+                row["shift_response"] = shift_response(ep, shift_rounds)
             row["experiment_id"] = result.cfg.experiment_id
             rows.append(row)
     return rows

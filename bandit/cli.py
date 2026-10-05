@@ -13,6 +13,13 @@ command line (``--policies 'lints:discount=0.97,exploration_scale=0.1,ucb1'``).
 contracts §9 bounds (``bandit.config.apply_scenario_overrides``). The output JSON holds the config,
 the environment summary, one §3-shaped metrics row per (episode, policy)
 (``rows``), the §5-shaped ``aggregate`` (snake_case) and a scalar ``summary``.
+
+``--shifts`` scripts behaviour shifts (contracts §10; inline JSON or a file) for
+every policy alike, and ``--forget`` gives ``linear_ts`` the default shift
+discount. The output then also holds ``shifts`` (requested + resolved records,
+forget, discount), a ``shift_response`` list on every row and a per-policy
+``shift_response`` summary; checkpoints default to linear spacing, merged
+around each shift round.
 """
 
 from __future__ import annotations
@@ -22,7 +29,7 @@ import dataclasses
 import json
 import sys
 import time
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -42,13 +49,17 @@ from bandit.config import (
     arm_from_dict,
     build_sim_config,
     default_noise_var,
+    default_shift_discount,
     experiment_config_to_dict,
     load_scenario,
+    shifts_from_dict,
+    shifts_to_dict,
     validate_scenario_overrides,
+    validate_shifts,
     with_segment_mix,
 )
 from bandit.features import FEATURE_SPEC_VERSION
-from bandit.metrics import experiment_rows
+from bandit.metrics import experiment_rows, summarize_shift_response
 from bandit.policies import POLICY_NAMES, canonical_spec
 from bandit.simulate import ArmSchedule, run_experiment
 
@@ -75,10 +86,16 @@ def simulate(
     noise_var: float | None = None,
     log_propensity: bool = True,
     num_checkpoints: int = 50,
-    checkpoint_spacing: str = "log",
+    checkpoint_spacing: str | None = None,
     experiment_id: str = "sim",
+    shifts: Sequence[Mapping[str, Any]] | None = None,
+    forget: bool = False,
 ) -> dict[str, Any]:
-    """Run a simulation and return the JSON-ready output document."""
+    """Run a simulation and return the JSON-ready output document.
+
+    ``shifts`` is the contracts §10 snake_case list; ``forget`` gives
+    ``linear_ts`` the ``default_shift_discount`` for this run. Checkpoints
+    default to linear spacing when there are shifts, log otherwise."""
     t0 = time.time()
     preset = load_scenario(scenario)
     # contracts §9 overrides, with the same bounds the endpoint configs get. A
@@ -122,16 +139,29 @@ def simulate(
         experiment_id=experiment_id,
         scenario_overrides=overrides,
     )
+    shift_specs = validate_shifts(
+        shifts_from_dict(list(shifts) if shifts else None), sc, cfg.arms, ctr_mode
+    )
+    discount = None
+    if forget:
+        discount = default_shift_discount(ctr_mode, cfg.batch_size, cfg.horizon)
+        cfg = dataclasses.replace(
+            cfg, policy=dataclasses.replace(cfg.policy, discount=discount)
+        )
     specs = [canonical_spec(p) for p in policies]
     result = run_experiment(
         cfg,
         specs,
         arm_schedule=arm_schedule,
         scenario=sc,
+        shifts=shift_specs,
         log_propensity=log_propensity,
     )
-    rows = experiment_rows(result, num_checkpoints, checkpoint_spacing)
     env = result.env
+    resolved = envm.resolved_shifts(env)
+    shift_rounds = [rec["round"] for rec in resolved]
+    spacing = checkpoint_spacing or ("linear" if shift_specs else "log")
+    rows = experiment_rows(result, num_checkpoints, spacing, shift_rounds)
     pre = envm.marginal_ctrs(env, jax.random.key(seed + 1), t=0)
     post = envm.marginal_ctrs(env, jax.random.key(seed + 1), t=cfg.horizon - 1)
     return {
@@ -157,9 +187,18 @@ def simulate(
                 for s, name in enumerate(env.segment_names)
             },
         },
+        "shifts": {
+            "requested": shifts_to_dict(shift_specs),
+            "resolved": resolved,
+            "forget": forget,
+            "discount": discount,
+        }
+        if shift_specs
+        else None,
         "policies": result.policies,
         "checkpoints": rows[0]["curve"]["checkpoints"] if rows else [],
         "rows": rows,
+        "shift_response": summarize_shift_response(rows) if shift_specs else None,
         "aggregate": aggregate_episode_metrics(rows, experiment_id=experiment_id),
         "summary": summarize_totals(rows),
         "runtime_s": round(time.time() - t0, 2),
@@ -200,6 +239,13 @@ def split_policy_specs(text: str) -> list[str]:
 
 def _floats(text: str) -> list[float]:
     return [float(v) for v in text.split(",") if v.strip()]
+
+
+def _shifts_arg(text: str) -> Any:
+    """``--shifts``: inline JSON (starts with ``[``) or a path to a JSON file."""
+    if text.lstrip().startswith("["):
+        return json.loads(text)
+    return json.loads(Path(text).read_text())
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -256,7 +302,25 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--noise-var", type=float, default=None)
     s.add_argument("--no-propensity", action="store_true", help="skip MC propensities")
     s.add_argument("--num-checkpoints", type=int, default=50)
-    s.add_argument("--checkpoint-spacing", choices=("log", "linear"), default="log")
+    s.add_argument(
+        "--checkpoint-spacing",
+        choices=("log", "linear"),
+        default=None,
+        help="default: linear with --shifts, else log",
+    )
+    s.add_argument(
+        "--shifts",
+        type=_shifts_arg,
+        default=None,
+        help="contracts §10 snake_case shift list: inline JSON or a JSON file path, "
+        'e.g. \'[{"kind":"demote","at_frac":0.5,"segment":null,'
+        '"creative_id":"leader","drop_pp":0.015}]\'',
+    )
+    s.add_argument(
+        "--forget",
+        action="store_true",
+        help="give linear_ts the default shift discount (memory = horizon / 8)",
+    )
     s.add_argument("--experiment-id", default="sim")
     s.add_argument("--out", type=Path, required=True)
     return parser
@@ -287,6 +351,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         num_checkpoints=args.num_checkpoints,
         checkpoint_spacing=args.checkpoint_spacing,
         experiment_id=args.experiment_id,
+        shifts=args.shifts,
+        forget=args.forget,
     )
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(doc))
@@ -298,6 +364,18 @@ def main(argv: Sequence[str] | None = None) -> int:
             f"  %opt {s['pct_optimal']['mean']:.3f}",
             file=sys.stderr,
         )
+    for policy, per_shift in (doc["shift_response"] or {}).items():
+        for s in per_shift:
+            rec = s["recovery_rounds"]
+            print(
+                f"{policy:32s} shift @{s['round']:>7d}  %opt "
+                f"{s['pct_optimal_before']:.3f} -> {s['pct_optimal_after']:.3f}  "
+                f"regret/round {s['regret_rate_before']:.4f} -> "
+                f"{s['regret_rate_after']:.4f}  recovery "
+                f"{'-' if rec is None else round(rec)} "
+                f"({s['recovered_episodes']}/{s['episodes']} episodes)",
+                file=sys.stderr,
+            )
     return 0
 
 

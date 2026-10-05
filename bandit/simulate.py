@@ -38,7 +38,7 @@ from jax import Array
 
 from bandit import environment as envm
 from bandit.baselines import Policy
-from bandit.config import ExperimentConfig, ScenarioConfig
+from bandit.config import ExperimentConfig, ScenarioConfig, ShiftSpec
 from bandit.policies import make_policy
 
 #: ``[(start_round, eligible_arm_indices), ...]``; first entry must start at 0.
@@ -107,10 +107,10 @@ def batch_draws(
     the traffic job (``bandit_traffic``) calls it per batch so the endpoint and
     the locally replayed baselines see identical users and coin flips.
     """
-    seg, levels, X = envm.sample_contexts(
-        jax.random.fold_in(k_ctx, b), model, batch_size
-    )
     t = b * batch_size + jnp.arange(batch_size)
+    seg, levels, X = envm.sample_contexts(
+        jax.random.fold_in(k_ctx, b), model, batch_size, t
+    )
     p = envm.click_probs(model, X, seg, t)
     mean = envm.expected_rewards(model, p, seg, reward_mode)
     clicked_all, reward_all = envm.sample_rewards(
@@ -260,13 +260,19 @@ def episode_keys(seed: int, scenario: str, episodes: int) -> Array:
 
 
 def build_environment(
-    cfg: ExperimentConfig, *, scenario: ScenarioConfig | None = None
+    cfg: ExperimentConfig,
+    *,
+    scenario: ScenarioConfig | None = None,
+    shifts: Sequence[ShiftSpec] = (),
 ) -> envm.Environment:
-    """The experiment's ground truth (model key = ``fold_in(base, 0)``)."""
+    """The experiment's ground truth (model key = ``fold_in(base, 0)``), with
+    ``shifts`` (contracts §10) resolved on top. Shifts change no key, so a
+    shifted and an unshifted environment share every random draw."""
     return envm.build_true_model(
         cfg,
         jax.random.fold_in(scenario_key(cfg.seed, cfg.scenario), 0),
         scenario=scenario,
+        shifts=shifts,
     )
 
 
@@ -286,12 +292,14 @@ def run_experiment(
     *,
     arm_schedule: ArmSchedule | None = None,
     scenario: ScenarioConfig | None = None,
+    shifts: Sequence[ShiftSpec] = (),
     log_propensity: bool = True,
 ) -> ExperimentResult:
     """Run every policy for ``episodes`` (default ``cfg.episodes``) episodes on the
     ground truth built from ``cfg`` (model key = ``fold_in(base, 0)``), with
-    common random numbers across policies."""
-    env = build_environment(cfg, scenario=scenario)
+    common random numbers across policies. ``shifts`` (contracts §10) apply to
+    every policy alike."""
+    env = build_environment(cfg, scenario=scenario, shifts=shifts)
     keys = episode_keys(cfg.seed, cfg.scenario, episodes or cfg.episodes)
     result = ExperimentResult(cfg=cfg, env=env, policies=[], arm_schedule=arm_schedule)
     for spec in policies:
