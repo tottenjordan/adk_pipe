@@ -6,8 +6,10 @@
         --episodes 10 --horizon 20000 --out /tmp/sim.json
 
 Policy specs accept options (``ucb1:c=0.01``, ``linear_ts:discount=0.98``) and
-the aliases ``lints``/``egreedy``/``bbts``. ``--segment-mix``, ``--gap-scale``,
-``--judge-wrong``, ``--noise-scale`` and ``--drift-at`` tune the scenario with the
+the aliases ``lints``/``egreedy``/``bbts``. Separate policies with ``,`` or ``;``; a
+bare ``key=value`` continues the previous spec, so multi-option specs work on the
+command line (``--policies 'lints:discount=0.97,exploration_scale=0.1,ucb1'``).
+``--segment-mix``, ``--gap-scale``, ``--judge-wrong``, ``--noise-scale`` and ``--drift-at`` tune the scenario with the
 contracts §9 bounds (``bandit.config.apply_scenario_overrides``). The output JSON holds the config,
 the environment summary, one §3-shaped metrics row per (episode, policy)
 (``rows``), the §5-shaped ``aggregate`` (snake_case) and a scalar ``summary``.
@@ -168,6 +170,34 @@ def _round(a: np.ndarray) -> list[float]:
     return [float(f"{v:.6g}") for v in np.asarray(a)]
 
 
+def split_policy_specs(text: str) -> list[str]:
+    """Split a ``--policies`` value into policy specs.
+
+    Policies are separated by ``,`` or ``;``. Because a spec's own options are
+    also comma-separated (``name:key=value[,key=value]``), a comma-separated part
+    that is a bare ``key=value`` (no ``:``) continues the previous spec's
+    options: ``linear_ts:discount=0.97,exploration_scale=0.1,ucb1`` is two
+    policies. ``;`` always starts a new policy. Empty parts are dropped.
+    """
+    specs: list[str] = []
+    for group in text.split(";"):
+        group_specs: list[str] = []
+        for raw in group.split(","):
+            part = raw.strip()
+            if not part:
+                continue
+            if "=" in part and ":" not in part:
+                if not group_specs:
+                    raise ValueError(
+                        f"policy option {part!r} must follow a policy name"
+                    )
+                group_specs[-1] += "," + part
+            else:
+                group_specs.append(part)
+        specs.extend(group_specs)
+    return specs
+
+
 def _floats(text: str) -> list[float]:
     return [float(v) for v in text.split(",") if v.strip()]
 
@@ -179,7 +209,12 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--scenario", choices=SCENARIOS, required=True)
     s.add_argument("--ctr-mode", choices=CTR_MODES, default="demo")
     s.add_argument("--reward-mode", choices=REWARD_MODES, default="click")
-    s.add_argument("--policies", default=",".join(POLICY_NAMES))
+    s.add_argument(
+        "--policies",
+        default=",".join(POLICY_NAMES),
+        help="policy specs separated by ',' or ';'; a bare key=value continues the "
+        "previous spec, e.g. 'lints:discount=0.97,exploration_scale=0.1,ucb1'",
+    )
     s.add_argument("--episodes", type=int, default=None)
     s.add_argument("--horizon", type=int, default=None)
     s.add_argument("--batch-size", type=int, default=None)
@@ -233,7 +268,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         scenario=args.scenario,
         ctr_mode=args.ctr_mode,
         reward_mode=args.reward_mode,
-        policies=[p for p in args.policies.split(",") if p.strip()],
+        policies=split_policy_specs(args.policies),
         episodes=args.episodes,
         horizon=args.horizon,
         batch_size=args.batch_size,

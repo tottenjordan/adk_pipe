@@ -156,6 +156,25 @@ def test_default_discount_values():
     assert default_discount("drift", "realistic") == 0.998
 
 
+def test_default_exploration_scale_is_tuned_and_used_everywhere():
+    """One exploration_scale for every scenario (contracts §7, 2026-10-05 sweep):
+    the LinTSParams default, so the simulator and an experiment.json without
+    ``policy.exploration_scale`` both use it."""
+    from bandit.config import DEFAULT_EXPLORATION_SCALE, validate_lints_params
+
+    assert DEFAULT_EXPLORATION_SCALE == 0.5
+    assert LinTSParams().exploration_scale == DEFAULT_EXPLORATION_SCALE
+    validate_lints_params(LinTSParams())
+    for scenario in ("clear_winner", "segment_winners", "drift"):
+        for ctr_mode in ("demo", "realistic"):
+            cfg = build_sim_config(scenario, ctr_mode=ctr_mode)
+            assert cfg.policy.exploration_scale == DEFAULT_EXPLORATION_SCALE
+            policy = experiment_config_to_dict(cfg)["policy"]
+            assert policy["exploration_scale"] == DEFAULT_EXPLORATION_SCALE
+    loaded = load_experiment_config(_cfg(policy={"noise_var": 0.04}))
+    assert loaded.policy.exploration_scale == DEFAULT_EXPLORATION_SCALE
+
+
 def test_reward_scale_is_base_dwell_for_engaged_only():
     from bandit.config import reward_scale
 

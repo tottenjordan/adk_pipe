@@ -286,27 +286,30 @@ mode's target CTR (`p(1−p)` for click; see contracts §7).
 
 ## Simulation results
 
-From the offline parity run in [docs/experiments/bandit-simulation.md](../experiments/bandit-simulation.md)
-(demo mode, click reward, 20 episodes; final pseudo-regret):
+From the exploration sweep in [docs/experiments/bandit-simulation.md](../experiments/bandit-simulation.md#exploration-sweep)
+(demo mode, click reward, each scenario's preset arm count, 30 episodes; final pseudo-regret,
+LinTS with the endpoint's defaults: `exploration_scale` 0.5, γ = 0.98 in `drift`):
 
-| Scenario | LinTS | UCB1 | BB-TS | uniform |
-|---|---|---|---|---|
-| `clear_winner` (T = 20k) | 155 | 37 | 31 | 273 |
-| `segment_winners` (T = 40k) | **322** | 473 | 479 | 482 |
-| `drift` (T = 40k) | 690 (511 with γ = 0.98) | 172 | 459 | – |
+| Scenario | LinTS | LinTS before (s = 1.0) | UCB1 | ε-greedy | BB-TS | uniform |
+|---|---|---|---|---|---|---|
+| `clear_winner` (3 arms, T = 20k) | 129 | 154 | 39 | 47 | 31 | 273 |
+| `segment_winners` (4 arms, T = 40k) | **311** | 325 | 474 | 478 | 478 | 482 |
+| `drift` (3 arms, T = 40k) | 422 | 513 (694 with no discount) | 159 | 705 | 466 | 784 |
 
-(3 arms. The 4-arm discount sweep behind the endpoint's drift default is in
-[bandit-simulation.md](../experiments/bandit-simulation.md#discount-sweep-drift).)
+(Realistic mode, both arm counts, the discount sweep and the variance checks behind
+`exploration_scale` 0.5 are on that page.)
 
-- **LinTS wins when context matters.** In `segment_winners` it has 33 % less regret than
-  Beta-Bernoulli TS and earns 1763 ± 51 clicks per episode against about 1590–1600 for every
-  non-contextual policy (oracle 2081).
-- **LinTS over-explores when it doesn't.** In `clear_winner` it has about 5× the regret of
+- **LinTS wins when context matters.** In `segment_winners` it has 34 % less regret than
+  the best non-contextual policy, and 34–53 % less across both ctr modes and arm counts.
+- **LinTS over-explores when it doesn't.** In `clear_winner` it has about 4× the regret of
   Beta-Bernoulli TS: 19 coefficients per arm with no contextual signal keep its posterior wide.
-- **LinTS is slow on drift without a discount.** Discounting (γ = 0.98 per batch) cuts drift
-  regret from 690 to 511; UCB1's log t bonus recovers fastest. Drift endpoints are deployed
-  with that discount (γ = 0.98 demo, 0.998 realistic; contracts §7), but no discount makes
-  LinTS beat UCB1 there, and the results page says why when the endpoint trails.
+  Halving the posterior-draw scale (1.0 → 0.5) cut that regret by 13–26 % without making
+  any run lock onto a wrong creative.
+- **LinTS is slow on drift without a discount.** Discounting (γ = 0.98 per batch) plus the
+  lower exploration cuts drift regret from 694 to 422, level with Beta-Bernoulli TS (466,
+  within its wide CI); UCB1's log t bonus still recovers fastest. Drift endpoints are
+  deployed with that discount (γ = 0.98 demo, 0.998 realistic; contracts §7), but no tuning
+  makes LinTS beat UCB1 there, and the results page says why when the endpoint trails.
 
 Figures: [cumulative average reward](../../experiments/bandit/figures/01_cum_avg_reward.png),
 [UCB small multiplier](../../experiments/bandit/figures/02_ucb_small_multiplier.png),

@@ -369,3 +369,34 @@ def test_cli_parser_override_flags():
         0.3,
         0.8,
     )
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("linear_ts,ucb1,oracle", ["linear_ts", "ucb1", "oracle"]),
+        ("ucb1:c=0.01,lints", ["ucb1:c=0.01", "lints"]),
+        # a bare key=value continues the previous policy's options
+        (
+            "linear_ts:discount=0.97,exploration_scale=0.1,ucb1,bbts",
+            ["linear_ts:discount=0.97,exploration_scale=0.1", "ucb1", "bbts"],
+        ),
+        # ';' separates policies explicitly
+        (
+            "lints:discount=0.97,exploration_scale=0.1; lints:exploration_scale=0.2;ucb1",
+            [
+                "lints:discount=0.97,exploration_scale=0.1",
+                "lints:exploration_scale=0.2",
+                "ucb1",
+            ],
+        ),
+        (" linear_ts , ,oracle,", ["linear_ts", "oracle"]),
+    ],
+)
+def test_cli_split_policy_specs(text, expected):
+    assert cli.split_policy_specs(text) == expected
+
+
+def test_cli_split_policy_specs_rejects_leading_option():
+    with pytest.raises(ValueError, match="discount=0.9"):
+        cli.split_policy_specs("discount=0.9,linear_ts")

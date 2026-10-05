@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 from fastapi import HTTPException
 
-from bandit.config import scenario_noise_var
+from bandit.config import DEFAULT_EXPLORATION_SCALE, scenario_noise_var
 from bandit_serving.predictor import BanditPredictor, resolve_params
 
 ARMS = [
@@ -302,6 +302,44 @@ def test_parameters_are_clamped(art):
     assert all(d["type"] == "decision" for d in preds)
 
 
+def test_exploration_scale_from_config_and_per_request(tmp_path):
+    """The endpoint samples with ``policy.exploration_scale`` from experiment.json
+    (the tuned default when absent); a request's ``parameters.exploration_scale``
+    overrides it for that request only (contracts §2 / §7)."""
+    absent = _predictor(_write_config(tmp_path / "a"))
+    assert absent.params.exploration_scale == DEFAULT_EXPLORATION_SCALE
+    p = _predictor(_write_config(tmp_path / "b", policy={"exploration_scale": 1.5}))
+    assert p.params.exploration_scale == 1.5
+    body = {"instances": _decisions(2)}
+    assert p.preprocess(body).params.exploration_scale == 1.5
+    tuned = p.preprocess(body | {"parameters": {"exploration_scale": 0.3}})
+    assert tuned.params.exploration_scale == 0.3
+    assert p.params.exploration_scale == 1.5  # the config default is untouched
+    assert all(d["type"] == "decision" for d in run(p, _decisions(2), {"x": 1}))
+
+
+def test_exploration_scale_shapes_decisions(tmp_path):
+    """A wider posterior draw explores more: with an untrained (prior) posterior
+    every scale is uniform, so train a little first, then compare how much
+    probability mass the leader gets (a wide noise_var keeps the posterior from
+    collapsing on a few rounds)."""
+    p = _predictor(_write_config(tmp_path / "a", policy={"noise_var": 1.0}))
+    preds = run(p, _decisions(10, "t"))
+    run(
+        p,
+        [
+            r | {"reward": float(d["chosen_arm"] == "c1")}
+            for d, r in zip(preds, _rewards(preds), strict=True)
+        ],
+    )
+
+    def leader_prob(scale):
+        preds = run(p, _decisions(50, f"s{scale}-"), {"exploration_scale": scale})
+        return np.mean([d["arm_probabilities"]["c1"] for d in preds])
+
+    assert leader_prob(0.1) > leader_prob(5.0) + 0.1
+
+
 def test_noise_var_calibrated_when_absent(tmp_path):
     p = _predictor(_write_config(tmp_path / "a", ctr_mode="realistic"))
     assert p.params.noise_var == scenario_noise_var(
@@ -352,10 +390,18 @@ def _flip_run(p, before: int, after: int, batch: int = 100) -> float:
 def test_discounted_config_forgets_after_a_flip(tmp_path):
     """The endpoint honours ``policy.discount`` (contracts §7): after the best
     creative flips, a discounted posterior moves to the new winner while a
-    full-memory one is still anchored to the old one."""
+    full-memory one is still anchored to the old one. Both pin
+    ``exploration_scale`` to 1 so only the discount differs: this deterministic
+    four-batch toy needs the wider draw to re-try the old loser that fast."""
     arms = ARMS[:2]
     full = _predictor(
-        _write_config(tmp_path / "full", arms=arms, scenario="drift", seed=3)
+        _write_config(
+            tmp_path / "full",
+            arms=arms,
+            scenario="drift",
+            seed=3,
+            policy={"exploration_scale": 1.0},
+        )
     )
     forget = _predictor(
         _write_config(
@@ -363,7 +409,7 @@ def test_discounted_config_forgets_after_a_flip(tmp_path):
             arms=arms,
             scenario="drift",
             seed=3,
-            policy={"discount": 0.8},
+            policy={"discount": 0.8, "exploration_scale": 1.0},
         )
     )
     assert full.params.discount == 1.0 and forget.params.discount == 0.8
