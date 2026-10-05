@@ -162,7 +162,7 @@ export function ExperimentCharts({
         explainOpen={explain}
         helpLabel="About cumulative regret"
         note={`Reward lost against the oracle; flatter is better. Bands are 95% intervals across episodes.${
-          spans.length ? " Shaded: the endpoint's recovery after each shift." : ""
+          spans.length ? " Shaded: rounds until the endpoint's best-creative rate was back to 80% of its pre-shift level." : ""
         }`}
       >
         <LineChart

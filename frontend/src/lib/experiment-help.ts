@@ -29,7 +29,7 @@ export const SHIFT_HELP = {
     "The click rate each creative should get with each segment in every period between shifts, before random variation. The outlined cell is the segment's best creative in that period.",
   runs: "Each Start traffic is a numbered run with its own shift script. Pick a run to see its results; the newest is shown by default.",
   results:
-    "How the endpoint's best-creative rate changed around each shift, and how many rounds it took to get back to 80% of its earlier rate. Numbers are means across episodes with 95% intervals; under five episodes it is too early to call.",
+    "How often the endpoint showed readers their best creative in the 2,000 rounds before and after each shift, and how many rounds it took to regain most of its footing: until its best-creative rate over the trailing 1,000 rounds was back to 80% of the pre-shift level. Numbers are means across episodes with 95% intervals; under five episodes it is too early to call.",
   ghost:
     "Linear TS without your shifts: the same endpoint settings replayed on the same simulated readers with no shifts. The gap to the solid Linear TS line is what the shifts cost.",
   periods:

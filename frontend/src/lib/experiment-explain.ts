@@ -49,7 +49,7 @@ export const CHART_EXPLAIN = {
 /** Runs with scripted shifts (contracts §10). */
 export const SHIFT_EXPLAIN = {
   cards:
-    "Each card is one shift. The two numbers are how often the endpoint showed readers their best creative in the stretch just before the shift and just after it. Recovery counts the rounds until it was back to 80% of the earlier rate. Read the interval, not just the mean: a wide one means episodes disagreed.",
+    "Each card is one shift. The two numbers are how often the endpoint showed readers their best creative in the 2,000 rounds just before the shift and the 2,000 just after it. The round count is how long it took to regain most of its footing: until its best-creative rate over the trailing 1,000 rounds was back to 80% of the pre-shift level. That is most of the way back, not all of it. Read the interval, not just the mean: a wide one means episodes disagreed.",
   markers:
     "The vertical rules mark your shifts, so you can see each line react. A cumulative line bends rather than jumps, because it averages everything since the start. The dashed blue line is the endpoint on the same readers without your shifts: where it pulls away from the solid line, the shift cost reward.",
   periods:

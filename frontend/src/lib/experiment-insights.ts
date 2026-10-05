@@ -30,6 +30,7 @@ import { TRAILING_EXPLAIN } from "./experiment-explain";
 import { segmentWords, skewedSegment } from "./scenario-preview";
 import {
   metricRegimes,
+  parseShiftCost,
   parseShiftResponse,
   segmentPhrase,
   SHIFT_LEADER,
@@ -836,12 +837,13 @@ function shiftsWhen(shifts: RunShift[], horizon: number | null): string {
 /** Who a shift hit: the resolved creative's name, or "the leader at that point". */
 function shiftCreative(s: RunShift, name: (id: string) => string): string {
   if (s.creativeId && s.creativeId !== SHIFT_LEADER) return name(s.creativeId);
-  return "the leader at that point";
+  return s.resolvedCreativeId ? `the leader at that point (${name(s.resolvedCreativeId)})` : "the leader at that point";
 }
 
 /** Past-tense title per shift. */
 export function shiftTitle(s: RunShift, name: (id: string) => string): string {
-  const who = s.segment ? `for ${segmentPhrase(s.segment)} readers` : "for everyone";
+  const seg = segmentPhrase(s.segment);
+  const who = s.segment ? `for ${seg}${seg.endsWith("s") ? "" : " readers"}` : "for everyone";
   const c = shiftCreative(s, name);
   switch (s.kind) {
     case "promote":
@@ -908,7 +910,7 @@ export function buildShiftCards(
       const b4 = before as number;
       const af = after as number;
       const fell = `the endpoint's best-creative rate ${af < b4 ? "fell" : "went"} from ${pct(b4)} to ${pct(af)}`;
-      const target = pct(RECOVERY_LEVEL * b4);
+      const target = `${pct(RECOVERY_LEVEL * b4)} (80% of where it was)`;
       const rec = lin?.recoveryRounds ?? null;
       const hw = halfWidth(rec);
       const recText = rec
@@ -916,17 +918,17 @@ export function buildShiftCards(
         : "";
       const recovered = lin?.recoveredEpisodes ?? n;
       if (status === "held") {
-        reading = `${lead}, ${fell}: it stayed above ${target}, so the shift barely dented it.`;
+        reading = `${lead}, ${fell}: it stayed above ${target}, so the shift only dented it.`;
       } else if (status === "recovered") {
-        reading = `${lead}, ${fell} and took ${recText} to recover to ${target}.`;
+        reading = `${lead}, ${fell}; it took ${recText} to climb back to ${target}.`;
       } else if (status === "partly") {
-        reading = `${lead}, ${fell}; it recovered to ${target} in ${recovered} of ${n} episodes, after ${recText} on average.`;
+        reading = `${lead}, ${fell}; it climbed back to ${target} in ${recovered} of ${n} episodes, after ${recText} on average.`;
       } else {
-        reading = `${lead}, ${fell} and hadn't recovered to ${target} by the end of the run.`;
+        reading = `${lead}, ${fell} and never climbed back to ${target} before the run ended.`;
       }
       const b = base ? res?.policies?.[base] : undefined;
       if (base && b?.recoveryRounds && status !== "held" && (b.recoveredEpisodes ?? 1) > 0) {
-        reading += ` ${policyShortLabel(base)}, the best baseline, took ${formatInt(roundRounds(b.recoveryRounds.mean))}.`;
+        reading += ` ${policyShortLabel(base)}, the best baseline, took ${formatInt(roundRounds(b.recoveryRounds.mean))} rounds to get back to 80% of its own rate.`;
       }
     }
     return { key: `${j}-${s.round}`, label, title, when, before, after, status, reading, evidence };
@@ -964,15 +966,16 @@ function shiftHeadline(
     return {
       headline:
         worst !== null && cards.some((c) => c.status === "recovered")
-          ? `Your endpoint recovered from ${all}, back on the best creative within about ${formatInt(worst)} rounds${
-              n > 1 ? " each time" : ""
-            }.`
-          : `Your endpoint held steady through ${all}.`,
+          ? `Your endpoint regained most of its footing after ${all}, within about ${formatInt(worst)} rounds.`
+          : `Your endpoint kept most of its footing through ${all}.`,
       detail,
     };
   }
+  const missed = counted.length - ok.length;
   return {
-    headline: `Your endpoint recovered from ${ok.length} of ${counted.length} shifts; after the others it stayed short of its earlier best-creative rate.`,
+    headline: `Your endpoint regained most of its footing after ${ok.length} of ${counted.length} shifts; after the ${
+      missed === 1 ? "other" : "others"
+    } it stayed below 80% of its earlier best-creative rate.`,
     detail,
   };
 }
@@ -993,23 +996,41 @@ function baselineSentence(verdict: Verdict, metrics: ExperimentMetrics, units: U
   return "";
 }
 
-/** Ghost minus endpoint total reward per episode, with an approximate 95% interval (unpaired). */
+/**
+ * Ghost minus endpoint reward per episode. Prefers the api's paired
+ * `shiftCost` (the per-episode difference, mean ± 95% interval); without it,
+ * falls back to the totals with an interval that treats the two as independent
+ * (`paired: false`, wider than the truth because both see the same readers).
+ */
 export function ghostGap(
-  metrics: Pick<ExperimentMetrics, "totals" | "episodes">
-): { diff: number; half: number | null } | null {
+  metrics: Pick<ExperimentMetrics, "totals" | "episodes" | "shiftCost">,
+  click = true
+): { diff: number; half: number | null; paired: boolean } | null {
+  const cost = parseShiftCost(metrics.shiftCost);
+  const st = cost ? (click ? (cost.clicksPerEpisode ?? cost.rewardPerEpisode) : cost.rewardPerEpisode) : null;
+  if (st) {
+    const half = st.lo !== null && st.hi !== null ? (st.hi - st.lo) / 2 : null;
+    return { diff: st.mean, half, paired: true };
+  }
   const g = metrics.totals?.[GHOST_POLICY];
   const l = metrics.totals?.[LIN];
   if (!g || !l || !finite(g.mean) || !finite(l.mean)) return null;
   const n = metrics.episodes ?? 0;
   const half =
     finite(g.std) && finite(l.std) && n > 1 ? (1.96 * Math.sqrt(g.std ** 2 + l.std ** 2)) / Math.sqrt(n) : null;
-  return { diff: g.mean - l.mean, half };
+  return { diff: g.mean - l.mean, half, paired: false };
 }
 
 function ghostSentence(metrics: ExperimentMetrics, units: Units): string {
-  const gg = ghostGap(metrics);
+  const gg = ghostGap(metrics, units.click);
   if (!gg) return "";
-  const amount = `${formatInt(Math.abs(gg.diff))}${gg.half !== null ? ` (± ${formatInt(gg.half)})` : ""}`;
+  const interval =
+    gg.half === null
+      ? ""
+      : gg.paired
+        ? ` (± ${formatInt(gg.half)})`
+        : ` (± ${formatInt(gg.half)}, a cautious interval that treats the two runs as independent)`;
+  const amount = `${formatInt(Math.abs(gg.diff))}${interval}`;
   if (Math.round(gg.diff) === 0) {
     return `Without your shifts, the same endpoint would have earned about the same ${units.count} per episode.`;
   }
@@ -1031,7 +1052,7 @@ function withGhost(text: string | null, metrics: ExperimentMetrics, units: Units
 function withShiftNote(text: string | null, cards: ShiftCard[], where: "regret" | "optimal" | "share"): string | null {
   if (!text || !cards.length) return text;
   if (where === "regret") {
-    return `${text} The vertical rules mark your shifts; the shaded stretch after each is how long the endpoint took to recover.`;
+    return `${text} The vertical rules mark your shifts; each shaded stretch runs until the endpoint's best-creative rate was back to 80% of its pre-shift level.`;
   }
   if (where === "share") return `${text} The vertical rules mark your shifts.`;
   const dips = cards

@@ -256,7 +256,7 @@ without your shifts") replays Linear TS on the same readers without them, so the
 shifts cost. Each traffic run is numbered; the run picker (`?run=N`) switches between them. With
 shifts, the charts switch to a linear round axis with a rule at each shift (and a shaded recovery
 stretch on regret), the Overview gets one result card per shift (best-creative rate before and
-after, rounds to recover to 80% of the earlier rate, episodes and a 95% interval, "Too early to
+after, rounds until its best-creative rate was back to 80% of the pre-shift level, episodes and a 95% interval, "Too early to
 call" under five episodes), and every per-segment view (scoreboard click rate and segments won,
 the segment grid, the creative drawer, the winners and click-rate tables) reads one period at a
 time instead of blending the whole run.
