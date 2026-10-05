@@ -26,7 +26,10 @@ uv run python experiments/bandit/notebook_parity.py --data-dir /tmp/bandit_parit
 **Policy specs.** A policy spec can take options, for example `ucb1:c=0.01`,
 `epsilon_greedy:epsilon=0.2` or `linear_ts:discount=0.98`. The spec string becomes the
 policy's label in the output, so you can compare variants side by side. The aliases
-`lints`, `egreedy` and `bbts` also work.
+`lints`, `egreedy` and `bbts` also work. `--policies` separates specs with `,` or `;`, and a
+bare `key=value` continues the previous spec, so multi-option specs work from the shell:
+`--policies 'lints:discount=0.97,exploration_scale=0.1,ucb1,bbts'` (or
+`'lints:discount=0.97,exploration_scale=0.1;ucb1;bbts'`).
 
 **Other CLI flags:**
 
@@ -147,6 +150,10 @@ is injected and arm d expires.
 
 ## Findings
 
+These figures and this table predate the exploration retune: LinTS ran with
+`exploration_scale` 1.0. The [exploration sweep](#exploration-sweep) has the current
+numbers (`exploration_scale` 0.5).
+
 | Scenario | LinTS | UCB1 | ε-greedy | BB-TS | uniform | oracle |
 |---|---|---|---|---|---|---|
 | clear_winner (T = 20k) | 155 | 37 | 50 | 31 | 273 | 0 |
@@ -189,10 +196,9 @@ exponential memory of about N rounds (N ≈ batch / (1 − γ) for γ near 1). W
 Because realistic mode runs 10× the horizon, it needs 10× the window for the same behaviour,
 hence a much smaller per-batch discount.
 
-**Setup.** 4 synthetic arms, click reward, seed 0, `--no-propensity`. Values are mean ± sd of
-per-episode pseudo-regret (sd across episodes, not a CI). The CLI's `--policies` is
-comma-separated, so multi-option specs (`linear_ts:discount=0.95,exploration_scale=0.1`)
-were run through `bandit.cli.simulate(policies=[...])` from Python.
+**Setup.** 4 synthetic arms, click reward, seed 0, `--no-propensity`, `exploration_scale`
+1.0 (the default at the time). Values are mean ± sd of per-episode pseudo-regret (sd across
+episodes, not a CI).
 
 Drift, demo (T = 40k, change at 20k; 20 episodes; the γ ≤ 0.95 rows are from a 10-episode run):
 
@@ -245,14 +251,111 @@ exactly the old loser that became the winner.
 | clear_winner realistic (T = 200k, 5 ep) | **271** | | | | | BB-TS 57 (γ = 0.998: 355) |
 | segment_winners realistic (T = 400k, 5 ep) | **563** | | | | | ε-greedy 910 (γ = 0.998: 708) |
 
-**What would close the gap (not shipped).** Lowering `exploration_scale` helps LinTS
-everywhere in this sweep. In drift demo, γ = 0.97 with `exploration_scale` 0.1 reaches
-393 ± 64 (γ = 0.95: 398; γ = 1: 750), level with Beta-Bernoulli TS (428 ± 125) but still
-2.5× UCB1 (155 ± 69, same 10 episodes). In `clear_winner` demo, `exploration_scale` 0.15 cuts
-LinTS from 177 to 142 (BB-TS 59). That is a separate change to the endpoint's exploration
-(and to every scenario), so it is left as a follow-up; beating UCB1 in drift likely needs a
-different model (a shared context effect plus per-arm intercepts, or change detection),
-not a tuning knob.
+Lowering `exploration_scale` looked like it helped LinTS everywhere in this sweep. The
+next section tests that properly and ships it.
+
+## Exploration sweep
+
+`exploration_scale` s scales the posterior draw: LinTS samples θ̃ ~ N(μ, s² Λ⁻¹). It was 1.0.
+It is now **0.5 for every scenario and ctr mode** (`bandit.config.DEFAULT_EXPLORATION_SCALE`,
+the `LinTSParams` default; contracts §7). The discount table above is unchanged.
+
+**Setup.** s ∈ {0.05, 0.1, 0.2, 0.35, 0.5, 1.0} × γ. For `drift`, γ ∈ {0.95, 0.97, 0.98, 0.99, 1}
+in demo mode and the same memory windows in realistic mode, γ ∈ {0.995, 0.997, 0.998, 0.999, 1}.
+For the stationary scenarios, γ ∈ {1, 0.995} in demo and {1, 0.9995} in realistic, to check
+whether a little forgetting helps once exploration is lower. Every scenario ran with 3 and
+4 synthetic arms in both ctr modes, against all five baselines, with click reward, seed 0
+and no propensities. Demo mode ran 30 episodes (T = 20k / 40k). Realistic mode ran 10
+episodes (T = 200k / 400k): with 35 policies, one realistic `drift` cell took about 20 min
+on a shared 32-core box. Policies share common random numbers, so each episode's
+difference from the old default is paired. The s = 0.05 rows sit below the validated
+range [0.1, 5]; they ran through `bandit.policies.linear_ts` directly to see the trend.
+
+**Old vs new default.** Values are mean pseudo-regret ± 95 % CI (1.96 · sd / √episodes). Δ is
+the paired per-episode difference, new minus old. `drift` uses γ = 0.98 (demo) and 0.998
+(realistic) in both columns. Worst is the highest single-episode regret. LQ min is the
+worst episode's share of optimal pulls over the last quarter of the horizon: a low value
+means a run that locked onto a wrong creative.
+
+| Scenario | Mode | K | Ep | s = 1.0 | **s = 0.5** | Δ (paired) | sd old / new | Worst old / new | % opt old / new | LQ min old / new | UCB1 | ε-greedy | BB-TS | uniform |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| clear_winner | demo | 3 | 30 | 154 ± 8 | **129 ± 14** | −24 ± 12 (−16 %) | 24 / 40 | 207 / 216 | 58 / 63 | 49 / 42 | 39 | 47 | 31 | 273 |
+| clear_winner | demo | 4 | 30 | 179 ± 8 | **155 ± 15** | −24 ± 14 (−13 %) | 22 / 43 | 231 / 240 | 43 / 49 | 30 / 32 | 70 | 72 | 61 | 268 |
+| clear_winner | realistic | 3 | 10 | 210 ± 24 | **155 ± 38** | −56 ± 28 (−26 %) | 39 / 61 | 262 / 260 | 69 / 75 | 72 / 71 | 147 | 72 | 30 | 546 |
+| clear_winner | realistic | 4 | 10 | 266 ± 23 | **202 ± 37** | −64 ± 33 (−24 %) | 36 / 60 | 322 / 331 | 56 / 63 | 59 / 49 | 215 | 109 | 58 | 536 |
+| segment_winners | demo | 3 | 30 | 255 ± 11 | **237 ± 18** | −18 ± 11 (−7 %) | 31 / 49 | 332 / 390 | 60 / 62 | 59 / 53 | 403 | 400 | 401 | 469 |
+| segment_winners | demo | 4 | 30 | 325 ± 10 | **311 ± 12** | −14 ± 9 (−4 %) | 27 / 34 | 379 / 403 | 46 / 48 | 43 / 43 | 474 | 478 | 478 | 482 |
+| segment_winners | realistic | 3 | 10 | 413 ± 24 | **367 ± 35** | −46 ± 27 (−11 %) | 39 / 56 | 461 / 460 | 67 / 69 | 70 / 67 | 860 | 775 | 798 | 943 |
+| segment_winners | realistic | 4 | 10 | 556 ± 28 | **518 ± 37** | −38 ± 34 (−7 %) | 45 / 59 | 631 / 594 | 54 / 56 | 52 / 58 | 960 | 934 | 953 | 967 |
+| drift | demo | 3 | 30 | 513 ± 9 | **422 ± 15** | −90 ± 11 (−18 %) | 25 / 42 | 568 / 501 | 55 / 63 | 52 / 59 | 159 | 705 | 466 | 784 |
+| drift | demo | 4 | 30 | 586 ± 8 | **502 ± 14** | −84 ± 12 (−14 %) | 23 / 40 | 633 / 573 | 40 / 49 | 35 / 41 | 174 | 640 | 451 | 765 |
+| drift | realistic | 3 | 10 | 856 ± 24 | **677 ± 34** | −179 ± 50 (−21 %) | 39 / 56 | 907 / 765 | 63 / 71 | 64 / 77 | 251 | 1423 | 798 | 1590 |
+| drift | realistic | 4 | 10 | 1035 ± 30 | **784 ± 31** | −251 ± 23 (−24 %) | 49 / 50 | 1100 / 845 | 47 / 60 | 46 / 59 | 362 | 1241 | 852 | 1549 |
+
+**s = 0.5 helps in every cell, beyond noise.** The paired CI excludes zero in all 12 cells.
+The gain is 4–16 % in the stationary scenarios and 14–24 % in `drift`. Early-horizon
+regret (the first T/8 rounds) is equal or lower in every cell, and so is regret after the
+drift swap (second half: 284 → 271, 307 → 293, 506 → 466, 568 → 488). `segment_winners` keeps
+its clear win: 34–53 % less regret than the best baseline (it was 31–47 %).
+
+**The cost is spread, not lock-in.** The across-episode sd grows 1.0–2.0×, but the worst
+episode stays within 5 % of the old worst in 6 of 8 stationary cells (+6 % and +17 % in the
+two `segment_winners` demo cells) and improves in all four `drift` cells. LQ min stays close
+to the old value everywhere (lowest cell: 32 % vs 30 % before).
+
+**Why not lower.** Mean regret at γ = 1 (sd across episodes in brackets):
+
+| s | cw demo 3 | cw demo 4 | cw real 3 | cw real 4 | seg demo 3 | seg demo 4 | seg real 3 | seg real 4 | LQ min (worst cell) |
+|---|---|---|---|---|---|---|---|---|---|
+| 0.05 | 113 (46) | 138 (50) | 113 (71) | 193 (103) | 236 (53) | 310 (41) | 354 (48) | 567 (52) | 22 % |
+| 0.1 | 121 (51) | 142 (44) | 120 (68) | 189 (69) | 234 (48) | 317 (47) | 361 (76) | 551 (75) | 29 % |
+| 0.2 | 120 (55) | 158 (42) | 124 (90) | 170 (81) | 240 (51) | 309 (39) | 351 (59) | 548 (51) | 24 % |
+| 0.35 | 128 (47) | 151 (38) | 143 (88) | 205 (97) | 232 (47) | 315 (48) | 356 (73) | 511 (71) | 15 % |
+| **0.5** | 129 (40) | 155 (43) | 155 (61) | 202 (60) | 237 (49) | 311 (34) | 367 (56) | 518 (59) | **32 %** |
+| 1.0 | 154 (24) | 179 (22) | 210 (39) | 266 (36) | 255 (31) | 325 (27) | 413 (39) | 556 (45) | 30 % |
+
+The table covers the eight stationary cells; LQ min is the lowest of the eight. Below 0.5
+the mean moves little: within noise in the `segment_winners` cells, and 10–27 % lower in
+`clear_winner` at the best smaller scale. But the sd reaches up to 3× the old one, and some
+episodes lock on: at s = 0.35 one `clear_winner` realistic 4-arm episode spent only 15 % of
+its last quarter on the best creative. s = 0.5 is the knee.
+
+**A small discount doesn't help the stationary scenarios.** At s = 0.5, γ = 0.995 (demo) or
+0.9995 (realistic) moved regret by −18 to +10 against γ = 1, inside the noise in every cell. It
+helps some cells at s ≤ 0.2, but not consistently, so stationary scenarios keep γ = 1.
+
+**Drift's discount stays.** At s = 0.5 the drift optimum stays flat around the shipped γ
+(demo 3 / 4 arms: γ = 0.98 → 422 / 502, 0.97 → 421 / 507; realistic: γ = 0.998 → 677 / 784,
+0.997 → 649 / 827). Lower exploration does want more forgetting, though. Mean regret, 4 arms:
+
+| s \ γ (demo) | 1.0 | 0.99 | 0.98 | 0.97 | 0.95 |
+|---|---|---|---|---|---|
+| 0.1 | 751 | 569 | 475 | 422 | 396 |
+| 0.2 | 743 | 548 | 485 | 444 | 434 |
+| 0.35 | 710 | 519 | 483 | 458 | 479 |
+| **0.5** | 710 | 535 | **502** | 507 | 531 |
+| 1.0 | 689 | 585 | 586 | 604 | 628 |
+
+| s \ γ (realistic) | 1.0 | 0.999 | 0.998 | 0.997 | 0.995 |
+|---|---|---|---|---|---|
+| 0.1 | 1482 | 1029 | 810 | 699 | 647 |
+| 0.2 | 1482 | 978 | 826 | 685 | 695 |
+| 0.35 | 1455 | 925 | 767 | 728 | 744 |
+| **0.5** | 1422 | 929 | **784** | 827 | 866 |
+| 1.0 | 1367 | 1038 | 1035 | 1072 | 1146 |
+
+**Not shipped: a drift-only retune.** s = 0.2 with a 2k / 20k-round memory (γ = 0.95 demo, 0.995
+realistic) reaches 370 / 434 (demo, 3 / 4 arms) and 570 / 695 (realistic): another 11–16 %
+below the shipped default. It would mean a per-scenario exploration scale on top of a retuned
+discount, and its sd is 1.0–2× the shipped default's (44–111). The single s = 0.5 already
+meets the bar, so the simpler change shipped.
+
+**Against the baselines.** LinTS still trails Beta-Bernoulli TS clearly in `clear_winner`
+(2.5–5×). In `drift` it is now level with Beta-Bernoulli TS: lower in 3 of 4 cells
+(422 vs 466, 677 vs 798, 784 vs 852; 502 vs 451 in demo with 4 arms), all within BB-TS's
+wide CI (± 50–220, because BB-TS sometimes never notices the swap). It is still 2–3× UCB1,
+and beating UCB1 in `drift` likely needs a different model (a shared context effect plus
+per-arm intercepts, or change detection), not a tuning knob.
 
 ## Caveats
 

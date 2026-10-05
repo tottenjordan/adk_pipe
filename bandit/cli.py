@@ -8,8 +8,8 @@
 Policy specs accept options (``ucb1:c=0.01``, ``linear_ts:discount=0.98``) and
 the aliases ``lints``/``egreedy``/``bbts``. Separate policies with ``,`` or ``;``; a
 bare ``key=value`` continues the previous spec, so multi-option specs work on the
-command line (``--policies 'lints:discount=0.97,exploration_scale=0.1,ucb1'``). ``--segment-mix``, ``--gap-scale``,
-``--judge-wrong``, ``--noise-scale`` and ``--drift-at`` tune the scenario with the
+command line (``--policies 'lints:discount=0.97,exploration_scale=0.1,ucb1'``).
+``--segment-mix``, ``--gap-scale``, ``--judge-wrong``, ``--noise-scale`` and ``--drift-at`` tune the scenario with the
 contracts §9 bounds (``bandit.config.apply_scenario_overrides``). The output JSON holds the config,
 the environment summary, one §3-shaped metrics row per (episode, policy)
 (``rows``), the §5-shaped ``aggregate`` (snake_case) and a scalar ``summary``.
