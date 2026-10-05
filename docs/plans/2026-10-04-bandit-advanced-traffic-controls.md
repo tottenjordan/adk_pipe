@@ -1,6 +1,6 @@
 # Advanced traffic controls: tunable synthetic scenarios with a live preview
 
-> **Status:** IN PROGRESS (2026-10-04). PR A (`feat/bandit-scenario-overrides`: bandit core + traffic job, contracts §9) in progress; PR B (api, `feat/experiments-scenario-overrides-api`, stacked on A) implemented. PR C (frontend) in progress.
+> **Status:** COMPLETE (2026-10-05). #235 (bandit core + traffic job), #236 (api + `bandit_experiments.scenario_overrides`), #237 (deploy-panel tuning + live preview + custom badge) merged and rolled out: BigQuery column added (prod + eval), CPR serving + traffic job images `b24936b`, api `00143-qec`, web `00036-bz6`.
 
 ## Context
 Right now the synthetic traffic behind a bandit experiment can only be steered with presets: scenario, click-rate mode and reward mode. Everything that actually decides how hard the problem is lives in fixed YAML (`bandit/scenarios/*.yaml`):
