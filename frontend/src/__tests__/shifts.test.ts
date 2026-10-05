@@ -273,20 +273,34 @@ describe("plain-language sentences", () => {
 });
 
 describe("run records, markers and regimes", () => {
-  const resolved = [
-    { kind: "shock", at_frac: 0.6, until_frac: 0.75, round: 24000, end_round: 30000, creative_id: "8c0e9ee8", requested_creative_id: "leader", ctr_multiplier: 0.6 },
-    { kind: "demote", atFrac: 0.5, round: 20000, endRound: null, segment: "late_night_casual", creativeId: "aae3f6b4", dropPp: 0.02 },
+  // trafficRuns[].shifts: the validated REST form (contracts §5), shuffled out of time order.
+  const recorded: Shift[] = [
+    { kind: "shock", atFrac: 0.6, untilFrac: 0.75, segment: null, creativeId: "leader", ctrMultiplier: 0.6 },
+    { kind: "demote", atFrac: 0.5, segment: "late_night_casual", creativeId: "aae3f6b4", dropPp: 0.02 },
   ];
+  const resolved = recorded;
 
-  it("normalises snake/camel records and sorts by round", () => {
-    const list = runShifts({ shifts: resolved, horizon: 40_000 });
-    expect(list.map((s) => [s.kind, s.round, s.endRound, s.creativeId, s.requestedCreativeId])).toEqual([
-      ["demote", 20000, null, "aae3f6b4", "aae3f6b4"],
-      ["shock", 24000, 30000, "8c0e9ee8", "leader"],
+  it("derives rounds per §10 and sorts by round", () => {
+    const list = runShifts({ shifts: recorded, horizon: 40_000 });
+    expect(list.map((s) => [s.kind, s.round, s.endRound, s.creativeId])).toEqual([
+      ["demote", 20000, null, "aae3f6b4"],
+      ["shock", 24000, 30000, "leader"],
     ]);
     expect(normalizeShift({ kind: "promote", atFrac: 0.4 }, 40_000)?.round).toBe(16000);
+    expect(normalizeShift({ kind: "shock", atFrac: 0.4 }, 40_000)?.endRound).toBe(40_000);
     expect(normalizeShift({ kind: "nope", atFrac: 0.4 }, 40_000)).toBeNull();
     expect(normalizeShift(null, 40_000)).toBeNull();
+  });
+
+  it("resolves the leader from the period that ends at the shift", () => {
+    const v = buildRunView({ shifts: recorded, horizon: 40_000, forget: true }, {
+      horizon: 40_000,
+      regimes: [
+        { start: 0, end: 20000, perSegment: {}, arms: [{ creativeId: "a", trueCtr: 0.04 }, { creativeId: "b", trueCtr: 0.03 }] },
+        { start: 20000, end: 24000, perSegment: {}, arms: [{ creativeId: "a", trueCtr: 0.03 }, { creativeId: "b", trueCtr: 0.035 }] },
+      ],
+    }, null)!;
+    expect(v.shifts[1].resolvedCreativeId).toBe("b");
   });
 
   it("places a marker at each shift round and at a shock's end", () => {
@@ -320,57 +334,45 @@ describe("run records, markers and regimes", () => {
   });
 });
 
-describe("shift response parsing", () => {
-  it("reads the list-of-shifts layout with intervals", () => {
-    const raw = [
-      {
-        round: 20000,
-        kind: "demote",
-        policies: {
-          linear_ts: {
-            pctOptimalBefore: { mean: 0.57, lo: 0.5, hi: 0.64, n: 10 },
-            pct_optimal_after: 0.44,
-            recoveryRounds: { mean: 2634, ci: 1896 },
-            recoveredEpisodes: 10,
-            episodes: 10,
-          },
-        },
-      },
-    ];
-    const [r] = parseShiftResponse(raw);
-    expect(r.round).toBe(20000);
-    expect(r.policies.linear_ts.pctOptimalBefore).toEqual({ mean: 0.57, lo: 0.5, hi: 0.64, n: 10 });
-    expect(r.policies.linear_ts.pctOptimalAfter?.mean).toBe(0.44);
-    expect(r.policies.linear_ts.recoveryRounds?.lo).toBeCloseTo(738, 0);
-  });
-
-  it("reads the CLI's policy → per-shift layout (snake_case)", () => {
+describe("shift response parsing (contracts §5: policy → per-shift list)", () => {
+  const st = (mean: number, half = 0) => ({ mean, lo: mean - half, hi: mean + half });
+  it("regroups per shift with intervals and episode counts", () => {
     const raw = {
-      linear_ts: [{ round: 24000, episodes: 5, pct_optimal_before: 0.49, pct_optimal_after: 0.44, recovery_rounds: null, recovered_episodes: 0 }],
-      ucb1: [{ round: 24000, episodes: 5, pct_optimal_before: 0.33, pct_optimal_after: 0.41, recovery_rounds: 1057, recovered_episodes: 5 }],
+      linear_ts: [
+        { round: 20000, episodes: 10, pctOptimalBefore: st(0.57, 0.07), pctOptimalAfter: st(0.44), regretRateBefore: st(0.01), regretRateAfter: st(0.02), recoveryRounds: st(2634, 1896), recoveredEpisodes: 10 },
+        { round: 24000, episodes: 10, pctOptimalBefore: st(0.49), pctOptimalAfter: st(0.44), regretRateBefore: st(0.01), regretRateAfter: st(0.02), recoveryRounds: null, recoveredEpisodes: 0 },
+      ],
+      ucb1: [
+        { round: 20000, episodes: 10, pctOptimalBefore: st(0.43), pctOptimalAfter: st(0.32), regretRateBefore: st(0.01), regretRateAfter: st(0.02), recoveryRounds: st(2658), recoveredEpisodes: 10 },
+      ],
     };
-    const [r] = parseShiftResponse(raw);
+    const [r, r2] = parseShiftResponse(raw);
+    expect(r.round).toBe(20000);
     expect(Object.keys(r.policies)).toEqual(["linear_ts", "ucb1"]);
-    expect(r.policies.linear_ts.recoveryRounds).toBeNull();
-    expect(r.policies.ucb1.recoveryRounds?.mean).toBe(1057);
+    expect(r.policies.linear_ts.pctOptimalBefore).toMatchObject({ mean: 0.57, n: 10 });
+    expect(r.policies.linear_ts.pctOptimalBefore?.hi).toBeCloseTo(0.64, 9);
+    expect(r.policies.linear_ts.recoveryRounds?.lo).toBeCloseTo(738, 0);
+    expect(r2.policies.linear_ts.recoveryRounds).toBeNull();
   });
 
-  it("tolerates garbage", () => {
+  it("tolerates garbage and the empty object", () => {
     expect(parseShiftResponse(undefined)).toEqual([]);
+    expect(parseShiftResponse({})).toEqual([]);
     expect(parseShiftResponse("x")).toEqual([]);
-    expect(parseShiftResponse([null, { round: "a" }])).toEqual([]);
-    expect(toStat("x")).toBeNull();
+    expect(parseShiftResponse({ linear_ts: [null, { round: "a" }] })).toEqual([]);
+    expect(toStat(0.5)).toBeNull();
   });
 
   it("turns recovery into shaded spans, to the end when never recovered", () => {
+    const st = (mean: number) => ({ mean, lo: mean, hi: mean });
     const results = parseShiftResponse({
       linear_ts: [
-        { round: 20000, pct_optimal_before: 0.5, pct_optimal_after: 0.3, recovery_rounds: 2600 },
-        { round: 30000, pct_optimal_before: 0.5, pct_optimal_after: 0.3, recovery_rounds: null },
+        { round: 20000, episodes: 5, pctOptimalBefore: st(0.5), pctOptimalAfter: st(0.3), recoveryRounds: st(2600), recoveredEpisodes: 5 },
+        { round: 30000, episodes: 5, pctOptimalBefore: st(0.5), pctOptimalAfter: st(0.3), recoveryRounds: null, recoveredEpisodes: 0 },
       ],
     });
     expect(recoverySpans(results, 40_000)).toEqual([
-      { x0: 20000, x1: 22600, label: "Recovery" },
+      { x0: 20000, x1: 22600, label: "Back to 80%" },
       { x0: 30000, x1: 40000, label: "Not recovered" },
     ]);
   });
@@ -387,10 +389,14 @@ describe("run selector URL state", () => {
     expect(urlForRun("https://x.test/experiments/abc?run=2&view=analysis", null)).toBe("/experiments/abc?view=analysis");
   });
 
+  const two = [
+    { kind: "demote", atFrac: 0.5, creativeId: "leader", dropPp: 0.02 },
+    { kind: "mix", atFrac: 0.3, segmentMix: [0.6, 0.2, 0.2] },
+  ];
   const runs = trafficRuns([
-    { run: 2, startedAt: null, episodes: 10, horizon: 40000, shifts: [{}, {}], forget: true, status: "done" },
-    { run: 1, startedAt: null, episodes: 5, horizon: 40000, shifts: [], forget: false, status: "done" },
-    { run: 0, startedAt: null, episodes: 5, horizon: 40000, shifts: [], forget: false, status: "done" },
+    { run: 2, startedAt: null, episodes: 10, horizon: 40000, shifts: two, forget: true, status: "finished" },
+    { run: 1, startedAt: null, episodes: 5, horizon: null, shifts: [], forget: false, status: "finished" },
+    { run: 0, startedAt: null, episodes: 5, horizon: 40000, shifts: [], forget: false, status: "finished" },
   ]);
 
   it("selects the requested run, else the latest", () => {

@@ -91,10 +91,10 @@ export type TrafficRun = {
   startedAt: string | null;
   episodes: number;
   horizon: number | null;
-  /** As requested, or the resolved record (with `round`); normalise with `normalizeShift`. */
-  shifts: unknown[];
+  /** The validated REST form (camelCase; [] = no shifts); read with `runShifts`. */
+  shifts: Shift[];
   forget: boolean;
-  status: string;
+  status: "running" | "finished" | "failed" | "stopped";
 };
 
 export type Arm = {
@@ -157,13 +157,12 @@ export type ExperimentMetrics = {
   arms: { creativeId: string; impressions: number; estimatedCtr: number; trueCtr: number }[];
   /** The traffic run these metrics describe (contracts §10; absent from older APIs). */
   run?: number;
-  /**
-   * Per shift, per policy: how the strategy reacted (contracts §10). Read it with
-   * `parseShiftResponse` (tolerates camel/snake and both layouts).
-   */
+  /** Policy → one entry per shift (contracts §5/§10; {} without shifts). Read with `parseShiftResponse`. */
   shiftResponse?: unknown;
-  /** Per regime between shift rounds: perSegment + true click rate per creative. Read with `metricRegimes`. */
+  /** Per regime between shift / shock-end rounds: perSegment + `arms[].trueCtr` (§5). Read with `metricRegimes`. */
   regimes?: unknown;
+  /** Paired cost of the shifts, ghost − endpoint per episode (§5). Read with `parseShiftCost`. */
+  shiftCost?: unknown;
 };
 
 /** One creative's per-window performance under the live endpoint (contracts §8). */
@@ -208,7 +207,9 @@ export type CreativeSeries = {
   horizon: number | null;
   windows: { start: number; end: number }[];
   creatives: CreativeSeriesItem[];
-  /** Per regime: optimal creative per segment and click rate per creative (contracts §10). Read with `seriesRegimes`. */
+  /** The traffic run (contracts §8/§10). */
+  run?: number;
+  /** Per regime: segment winners and per-creative / per-segment numbers (§8). Read with `seriesRegimes`. */
   regimes?: unknown;
 };
 
@@ -361,7 +362,7 @@ export async function startTraffic(
   episodes: number,
   horizon?: number,
   opts: { shifts?: readonly Shift[]; forget?: boolean } = {}
-): Promise<{ status: ExperimentStatus; execution?: string }> {
+): Promise<{ status: ExperimentStatus; execution?: string; run?: number }> {
   const res = await fetch(`${experimentUrl(experimentId)}/traffic`, {
     method: "POST",
     headers: JSON_HEADERS,

@@ -434,7 +434,9 @@ export function describeShift(
         ? `the leader at that point (${leaderName})`
         : "whichever creative leads at that point"
       : (ctx.creatives.find((c) => c.creativeId === id)?.name ?? "a creative");
-  const who = segmentPhrase(s.segment);
+  // "mobile scrollers" reads as a group already; "late night casual" needs a noun.
+  const phrase = segmentPhrase(s.segment);
+  const who = s.segment && !phrase.endsWith("s") ? `${phrase} readers` : phrase;
   const when = whenPhrase(s);
   switch (s.kind) {
     case "promote":
@@ -505,8 +507,14 @@ export interface RunShift {
   atFrac: number;
   untilFrac: number | null;
   segment: string | null;
-  /** Concrete creative when the record is resolved, else as requested (may be "leader"). */
+  /** As requested: an arm id, or "leader" (demote and shock). */
   creativeId: string | null;
+  /**
+   * For "leader": the creative that led just before the shift, read from the
+   * run's metrics regimes (highest true click rate in the period that ends at
+   * the shift's round); null when unknown.
+   */
+  resolvedCreativeId?: string | null;
   requestedCreativeId: string | null;
   liftPp: number | null;
   dropPp: number | null;
@@ -517,40 +525,35 @@ export interface RunShift {
   endRound: number | null;
 }
 
-const pick = (o: Record<string, unknown>, ...keys: string[]) => {
-  for (const k of keys) if (o[k] !== undefined) return o[k];
-  return undefined;
-};
 const num = (v: unknown): number | null => (finite(v) ? v : null);
 
-/** Read one shift from a traffic run's record; null when it isn't one. */
+/**
+ * Read one shift from a traffic run's record (contracts §5: the validated REST
+ * form, camelCase). Rounds follow §10: round(atFrac · T), and a shock ends at
+ * round(untilFrac · T). Null when it isn't a shift.
+ */
 export function normalizeShift(raw: unknown, horizon: number | null): RunShift | null {
   if (!raw || typeof raw !== "object") return null;
-  const o = raw as Record<string, unknown>;
+  const o = raw as Partial<Record<keyof Shift, unknown>>;
   const kind = o.kind as ShiftKind;
-  if (!SHIFT_KINDS.includes(kind)) return null;
-  const atFrac = num(pick(o, "atFrac", "at_frac"));
-  const round = num(o.round);
-  if (atFrac === null && round === null) return null;
-  const until = num(pick(o, "untilFrac", "until_frac"));
-  const end = num(pick(o, "endRound", "end_round"));
-  const at = atFrac ?? (horizon ? (round as number) / horizon : 0);
-  const requested = pick(o, "requestedCreativeId", "requested_creative_id");
-  const creative = pick(o, "creativeId", "creative_id");
-  const mix = pick(o, "segmentMix", "segment_mix");
+  const at = num(o.atFrac);
+  if (!SHIFT_KINDS.includes(kind) || at === null) return null;
+  const until = num(o.untilFrac);
+  const creative = typeof o.creativeId === "string" ? o.creativeId : null;
+  const mix = o.segmentMix;
   return {
     kind,
     atFrac: at,
     untilFrac: until,
     segment: typeof o.segment === "string" ? o.segment : null,
-    creativeId: typeof creative === "string" ? creative : null,
-    requestedCreativeId: typeof requested === "string" ? requested : typeof creative === "string" ? creative : null,
-    liftPp: num(pick(o, "liftPp", "lift_pp")),
-    dropPp: num(pick(o, "dropPp", "drop_pp")),
-    ctrMultiplier: num(pick(o, "ctrMultiplier", "ctr_multiplier")),
+    creativeId: creative,
+    requestedCreativeId: creative,
+    liftPp: num(o.liftPp),
+    dropPp: num(o.dropPp),
+    ctrMultiplier: num(o.ctrMultiplier),
     segmentMix: Array.isArray(mix) && mix.every(finite) ? (mix as number[]) : null,
-    round: round ?? (horizon ? shiftRound(at, horizon) : 0),
-    endRound: end ?? (kind === "shock" && horizon && until !== null ? shiftRound(until, horizon) : null),
+    round: horizon ? shiftRound(at, horizon) : 0,
+    endRound: kind === "shock" && horizon ? shiftRound(until ?? 1, horizon) : null,
   };
 }
 
@@ -606,38 +609,38 @@ export interface MetricRegime {
   start: number;
   end: number;
   perSegment: Record<string, { optimalArm: string; policies: Record<string, { pctOptimal: number; avgReward: number }> }>;
+  /** Mean true click rate per creative in the regime (from `arms[]`). */
   trueCtr: Record<string, number>;
 }
 
-/** `metrics.regimes` (camel or snake), dropping malformed entries; [] on older APIs. */
+type RawPerSegment = Record<string, { optimalArm?: unknown; policies?: Record<string, { pctOptimal?: unknown; avgReward?: unknown }> }>;
+
+/**
+ * `metrics.regimes` (contracts §5/§10: `[{start, end, perSegment, arms: [{creativeId,
+ * trueCtr}]}]`), dropping malformed entries; [] on older APIs or runs without shifts.
+ */
 export function metricRegimes(raw: unknown): MetricRegime[] {
   if (!Array.isArray(raw)) return [];
   return raw
-    .map((r) => {
+    .map((r): MetricRegime | null => {
       if (!r || typeof r !== "object") return null;
-      const o = r as Record<string, unknown>;
+      const o = r as { start?: unknown; end?: unknown; perSegment?: unknown; arms?: unknown };
       const start = num(o.start);
       const end = num(o.end);
       if (start === null || end === null) return null;
-      const ps = pick(o, "perSegment", "per_segment");
       const perSegment: MetricRegime["perSegment"] = {};
-      if (ps && typeof ps === "object") {
-        for (const [seg, v] of Object.entries(ps as Record<string, Record<string, unknown>>)) {
-          const opt = pick(v ?? {}, "optimalArm", "optimal_arm");
-          if (typeof opt !== "string") continue;
-          const pols: Record<string, { pctOptimal: number; avgReward: number }> = {};
-          for (const [p, pv] of Object.entries((v.policies ?? {}) as Record<string, Record<string, unknown>>)) {
-            const pct = num(pick(pv ?? {}, "pctOptimal", "pct_optimal"));
-            const avg = num(pick(pv ?? {}, "avgReward", "avg_reward"));
-            if (pct !== null) pols[p] = { pctOptimal: pct, avgReward: avg ?? 0 };
-          }
-          perSegment[seg] = { optimalArm: opt, policies: pols };
+      for (const [seg, v] of Object.entries((o.perSegment ?? {}) as RawPerSegment)) {
+        if (typeof v?.optimalArm !== "string") continue;
+        const pols: Record<string, { pctOptimal: number; avgReward: number }> = {};
+        for (const [p, pv] of Object.entries(v.policies ?? {})) {
+          const pct = num(pv?.pctOptimal);
+          if (pct !== null) pols[p] = { pctOptimal: pct, avgReward: num(pv?.avgReward) ?? 0 };
         }
+        perSegment[seg] = { optimalArm: v.optimalArm, policies: pols };
       }
-      const tc = pick(o, "trueCtr", "true_ctr");
       const trueCtr: Record<string, number> = {};
-      if (tc && typeof tc === "object") {
-        for (const [id, v] of Object.entries(tc as Record<string, unknown>)) if (finite(v)) trueCtr[id] = v;
+      for (const a of Array.isArray(o.arms) ? (o.arms as { creativeId?: unknown; trueCtr?: unknown }[]) : []) {
+        if (typeof a?.creativeId === "string" && finite(a.trueCtr)) trueCtr[a.creativeId] = a.trueCtr;
       }
       return { start, end, perSegment, trueCtr };
     })
@@ -647,53 +650,57 @@ export function metricRegimes(raw: unknown): MetricRegime[] {
 export interface SeriesRegime {
   start: number;
   end: number;
-  /** Segment → optimal creative id in this regime. */
+  /** Segment → optimal creative id in this regime (`segmentWinners`). */
   optimal: Record<string, string>;
   creatives: { creativeId: string; ctr: number | null; trueCtr: number | null; impressions: number | null }[];
-  /**
-   * Optional per creative × segment numbers in this regime (`cells`), so the
-   * Overview grid can show the period itself; [] when the api doesn't send them.
-   */
+  /** Per creative × segment numbers in this regime (from `creatives[].segments[]`). */
   cells: { creativeId: string; segment: string; ctr: number | null; impressions: number }[];
 }
 
-/** `series.regimes` (camel or snake); [] on older APIs. */
+type RawSeriesCreative = {
+  creativeId?: unknown;
+  impressions?: unknown;
+  clicks?: unknown;
+  ctr?: unknown;
+  trueCtr?: unknown;
+  segments?: { segment?: unknown; impressions?: unknown; clicks?: unknown; ctr?: unknown }[];
+};
+
+/**
+ * `series.regimes` (contracts §8/§10: `[{index, start, end, impressions,
+ * segmentWinners, creatives: [{creativeId, impressions, clicks, share, ctr,
+ * trueCtr, segmentsWon, segments[]}]}]`); [] on older APIs or runs without shifts.
+ */
 export function seriesRegimes(raw: unknown): SeriesRegime[] {
   if (!Array.isArray(raw)) return [];
   return raw
-    .map((r) => {
+    .map((r): SeriesRegime | null => {
       if (!r || typeof r !== "object") return null;
-      const o = r as Record<string, unknown>;
+      const o = r as { start?: unknown; end?: unknown; segmentWinners?: unknown; creatives?: unknown };
       const start = num(o.start);
       const end = num(o.end);
       if (start === null || end === null) return null;
       const optimal: Record<string, string> = {};
-      for (const s of Array.isArray(o.segments) ? (o.segments as Record<string, unknown>[]) : []) {
-        const id = pick(s ?? {}, "optimalCreativeId", "optimal_creative_id");
-        if (typeof s?.segment === "string" && typeof id === "string") optimal[s.segment] = id;
+      for (const [seg, id] of Object.entries((o.segmentWinners ?? {}) as Record<string, unknown>)) {
+        if (typeof id === "string") optimal[seg] = id;
       }
-      const creatives = (Array.isArray(o.creatives) ? (o.creatives as Record<string, unknown>[]) : [])
-        .map((c) => {
-          const id = pick(c ?? {}, "creativeId", "creative_id");
-          if (typeof id !== "string") return null;
-          return {
-            creativeId: id,
-            ctr: num(c.ctr),
-            trueCtr: num(pick(c, "trueCtr", "true_ctr")),
-            impressions: num(c.impressions),
-          };
-        })
-        .filter((c): c is SeriesRegime["creatives"][number] => c !== null);
-      const cells = (Array.isArray(o.cells) ? (o.cells as Record<string, unknown>[]) : [])
-        .map((c) => {
-          const id = pick(c ?? {}, "creativeId", "creative_id");
-          if (typeof id !== "string" || typeof c.segment !== "string") return null;
-          const imps = num(c.impressions) ?? 0;
-          const clicks = num(c.clicks);
-          const ctr = num(c.ctr) ?? (clicks !== null && imps > 0 ? clicks / imps : null);
-          return { creativeId: id, segment: c.segment, ctr, impressions: imps };
-        })
-        .filter((c): c is SeriesRegime["cells"][number] => c !== null);
+      const raws = (Array.isArray(o.creatives) ? (o.creatives as RawSeriesCreative[]) : []).filter(
+        (c): c is RawSeriesCreative & { creativeId: string } => typeof c?.creativeId === "string"
+      );
+      const rate = (ctr: unknown, clicks: unknown, imps: number | null) =>
+        num(ctr) ?? (finite(clicks) && imps ? clicks / imps : null);
+      const creatives = raws.map((c) => {
+        const imps = num(c.impressions);
+        return { creativeId: c.creativeId, ctr: rate(c.ctr, c.clicks, imps), trueCtr: num(c.trueCtr), impressions: imps };
+      });
+      const cells = raws.flatMap((c) =>
+        (c.segments ?? [])
+          .filter((s) => typeof s?.segment === "string")
+          .map((s) => {
+            const imps = num(s.impressions) ?? 0;
+            return { creativeId: c.creativeId, segment: s.segment as string, ctr: rate(s.ctr, s.clicks, imps), impressions: imps };
+          })
+      );
       return { start, end, optimal, creatives, cells };
     })
     .filter((r): r is SeriesRegime => r !== null);
@@ -722,12 +729,18 @@ export function buildRunView(
   metrics: { horizon?: number | null; regimes?: unknown } | null | undefined,
   series: { regimes?: unknown } | null | undefined
 ): RunView | null {
-  const horizon = metrics?.horizon ?? run?.horizon ?? null;
+  const horizon = run?.horizon ?? metrics?.horizon ?? null;
   const shifts = runShifts(run, horizon);
   if (!shifts.length) return null;
   const metricR = metricRegimes(metrics?.regimes);
   const seriesR = seriesRegimes(series?.regimes);
   const regimes = seriesR.length ? seriesR : metricR;
+  for (const s of shifts) {
+    if (s.creativeId !== SHIFT_LEADER) continue;
+    const prev = metricR.find((g) => g.end === s.round);
+    const ranked = Object.entries(prev?.trueCtr ?? {}).sort((a, b) => b[1] - a[1]);
+    s.resolvedCreativeId = ranked[0]?.[0] ?? null;
+  }
   return {
     shifts,
     forget: Boolean(run?.forget),
@@ -742,7 +755,7 @@ export function buildRunView(
 
 // ── Shift response (per shift, per policy) ───────────────────────────────────
 
-/** mean with an optional 95% interval and episode count. */
+/** Mean ± 95% interval across episodes (contracts §5 `Stat`), plus the episode count. */
 export interface Stat {
   mean: number;
   lo: number | null;
@@ -765,75 +778,78 @@ export interface ShiftResult {
   /** Position in time order (0-based). */
   order: number;
   round: number;
-  kind: ShiftKind | null;
   policies: Record<string, PolicyShiftResponse>;
 }
 
-/** A number or {mean, lo?, hi?, ci?, n?} (camel or snake) → Stat. */
+/** `{mean, lo, hi}` → Stat (null when malformed). */
 export function toStat(v: unknown, n?: number | null): Stat | null {
-  if (finite(v)) return { mean: v, lo: null, hi: null, n: n ?? null };
   if (!v || typeof v !== "object") return null;
-  const o = v as Record<string, unknown>;
+  const o = v as { mean?: unknown; lo?: unknown; hi?: unknown };
   const mean = num(o.mean);
   if (mean === null) return null;
-  const ci = num(pick(o, "ci", "halfWidth", "half_width"));
-  const lo = num(pick(o, "lo", "low", "ciLo", "ci_lo")) ?? (ci !== null ? mean - ci : null);
-  const hi = num(pick(o, "hi", "high", "ciHi", "ci_hi")) ?? (ci !== null ? mean + ci : null);
-  return { mean, lo, hi, n: num(pick(o, "n", "episodes")) ?? n ?? null };
+  return { mean, lo: num(o.lo), hi: num(o.hi), n: n ?? null };
 }
 
-function toPolicyResponse(o: Record<string, unknown>): PolicyShiftResponse {
-  const episodes = num(pick(o, "episodes", "n"));
-  const recovered = num(pick(o, "recoveredEpisodes", "recovered_episodes"));
+type RawShiftResponse = {
+  round?: unknown;
+  episodes?: unknown;
+  pctOptimalBefore?: unknown;
+  pctOptimalAfter?: unknown;
+  regretRateBefore?: unknown;
+  regretRateAfter?: unknown;
+  recoveryRounds?: unknown;
+  recoveredEpisodes?: unknown;
+};
+
+function toPolicyResponse(o: RawShiftResponse): PolicyShiftResponse {
+  const episodes = num(o.episodes);
+  const recovered = num(o.recoveredEpisodes);
   return {
-    pctOptimalBefore: toStat(pick(o, "pctOptimalBefore", "pct_optimal_before"), episodes),
-    pctOptimalAfter: toStat(pick(o, "pctOptimalAfter", "pct_optimal_after"), episodes),
-    regretRateBefore: toStat(pick(o, "regretRateBefore", "regret_rate_before"), episodes),
-    regretRateAfter: toStat(pick(o, "regretRateAfter", "regret_rate_after"), episodes),
-    recoveryRounds: toStat(pick(o, "recoveryRounds", "recovery_rounds"), recovered ?? episodes),
+    pctOptimalBefore: toStat(o.pctOptimalBefore, episodes),
+    pctOptimalAfter: toStat(o.pctOptimalAfter, episodes),
+    regretRateBefore: toStat(o.regretRateBefore, episodes),
+    regretRateAfter: toStat(o.regretRateAfter, episodes),
+    recoveryRounds: toStat(o.recoveryRounds, recovered),
     recoveredEpisodes: recovered,
     episodes,
   };
 }
 
 /**
- * `metrics.shiftResponse` in either layout — a list of shifts each holding
- * `policies`, or an object of policy → per-shift list (the CLI summary) — with
- * camel or snake keys. Sorted by round; [] when absent or malformed.
+ * `metrics.shiftResponse` (contracts §5/§10: policy → one entry per shift in
+ * time order), regrouped per shift. Sorted by round; [] when absent ({} without shifts).
  */
 export function parseShiftResponse(raw: unknown): ShiftResult[] {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return [];
   const out = new Map<number, ShiftResult>();
-  const get = (j: number, round: number, kind: unknown) => {
-    const prev = out.get(j);
-    if (prev) return prev;
-    const r: ShiftResult = { order: j, round, kind: SHIFT_KINDS.includes(kind as ShiftKind) ? (kind as ShiftKind) : null, policies: {} };
-    out.set(j, r);
-    return r;
-  };
-  if (Array.isArray(raw)) {
-    raw.forEach((e, j) => {
-      if (!e || typeof e !== "object") return;
-      const o = e as Record<string, unknown>;
-      const round = num(o.round);
-      if (round === null || !o.policies || typeof o.policies !== "object") return;
-      const r = get(j, round, o.kind);
-      for (const [p, v] of Object.entries(o.policies as Record<string, unknown>)) {
-        if (v && typeof v === "object") r.policies[p] = toPolicyResponse(v as Record<string, unknown>);
-      }
+  for (const [p, list] of Object.entries(raw as Record<string, unknown>)) {
+    if (!Array.isArray(list)) continue;
+    (list as RawShiftResponse[]).forEach((e, j) => {
+      const round = num(e?.round);
+      if (round === null) return;
+      const r = out.get(j) ?? { order: j, round, policies: {} };
+      out.set(j, r);
+      r.policies[p] = toPolicyResponse(e);
     });
-  } else if (raw && typeof raw === "object") {
-    for (const [p, list] of Object.entries(raw as Record<string, unknown>)) {
-      if (!Array.isArray(list)) continue;
-      list.forEach((e, j) => {
-        if (!e || typeof e !== "object") return;
-        const o = e as Record<string, unknown>;
-        const round = num(o.round);
-        if (round === null) return;
-        get(j, round, o.kind).policies[p] = toPolicyResponse(o);
-      });
-    }
   }
   return [...out.values()].sort((a, b) => a.round - b.round).map((r, i) => ({ ...r, order: i }));
+}
+
+/** The paired cost of the shifts (contracts §5 `shiftCost`): ghost − endpoint, per episode. */
+export interface ShiftCost {
+  episodes: number | null;
+  clicksPerEpisode: Stat | null;
+  rewardPerEpisode: Stat | null;
+}
+
+/** `metrics.shiftCost`, or null when absent. */
+export function parseShiftCost(raw: unknown): ShiftCost | null {
+  if (!raw || typeof raw !== "object") return null;
+  const o = raw as { episodes?: unknown; clicksPerEpisode?: unknown; rewardPerEpisode?: unknown };
+  const n = num(o.episodes);
+  const clicks = toStat(o.clicksPerEpisode, n);
+  const reward = toStat(o.rewardPerEpisode, n);
+  return clicks || reward ? { episodes: n, clicksPerEpisode: clicks, rewardPerEpisode: reward } : null;
 }
 
 /**
@@ -851,7 +867,7 @@ export function recoverySpans(
       const p = r.policies[policy];
       if (!p?.pctOptimalBefore) return null;
       const rec = p.recoveryRounds?.mean;
-      if (finite(rec)) return { x0: r.round, x1: r.round + rec, label: "Recovery" };
+      if (finite(rec)) return { x0: r.round, x1: r.round + rec, label: "Back to 80%" };
       return horizon ? { x0: r.round, x1: horizon, label: "Not recovered" } : null;
     })
     .filter((s): s is { x0: number; x1: number; label: string } => s !== null);
