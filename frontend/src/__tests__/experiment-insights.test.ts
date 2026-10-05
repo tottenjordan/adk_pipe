@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   bandsOverlap,
   bestBaseline,
+  forgetsEvidence,
+  memoryReaders,
+  swapWhen,
   buildInsights,
   joinList,
   relativeChange,
@@ -119,6 +122,124 @@ describe("verdict and headline", () => {
     expect(i.headline).toBe("The best baseline strategy, UCB, is earning 33.3% more clicks than your endpoint so far.");
   });
 
+  it("leaves `why` empty when the endpoint leads", () => {
+    const i = buildInsights({ metrics: metricsWith(), arms: ARMS, scenario: "drift" });
+    expect(i.verdict).toBe("ahead");
+    expect(i).toMatchObject({ why: "", whyExplain: "" });
+  });
+
+  it("explains a generic shortfall by the cost of learning reader context", () => {
+    const i = buildInsights({ metrics: metricsWith({ lin: 0.03, base: 0.04 }), arms: ARMS, scenario: "clear_winner" });
+    expect(i.why).toBe(
+      "UCB earned 33.3% more clicks per episode than your endpoint. In this scenario one creative is best for every reader, so knowing the reader adds nothing, and the endpoint pays for estimating 19 reader features per creative. UCB only tracks one click rate per creative, so it settles on the winner sooner."
+    );
+    expect(i.whyExplain).toMatch(/^Linear TS learns how each reader's context/);
+    // the headline itself is unchanged outside drift
+    expect(i.headline).toBe("The best baseline strategy, UCB, is earning 33.3% more clicks than your endpoint so far.");
+  });
+
+  it("explains a trailing endpoint even while the bands still overlap", () => {
+    const i = buildInsights({
+      metrics: metricsWith({ lin: 0.039, base: 0.04, half: 0.01 }),
+      arms: ARMS,
+      scenario: "segment_winners",
+    });
+    expect(i.verdict).toBe("too_early");
+    expect(i.why).toContain("needs more traffic before its reader-by-reader choices pay off");
+  });
+});
+
+describe("drift readings", () => {
+  // Experiment 2a7685cf9c8d4d3e (2026-10-05, drift, demo, 4 arms, 20 × 40k): per-episode
+  // reward oracle 2597, UCB 2394, BB-TS 2233, ε-greedy 2170, linear_ts 2048, uniform 1870.
+  function driftMetrics(): ExperimentMetrics {
+    const m = metricsWith({ lin: 0.0512, base: 0.05985 });
+    return {
+      ...m,
+      horizon: 40_000,
+      totals: {
+        linear_ts: { mean: 2047.6, std: 40 },
+        ucb1: { mean: 2394.0, std: 60 },
+        beta_bernoulli_ts: { mean: 2233.4, std: 70 },
+        epsilon_greedy: { mean: 2170.0, std: 80 },
+        uniform: { mean: 1869.6, std: 20 },
+        oracle: { mean: 2597.2, std: 30 },
+      },
+    };
+  }
+
+  it("says why linear TS trailed UCB for a full-memory endpoint", () => {
+    const i = buildInsights({ metrics: driftMetrics(), arms: ARMS, scenario: "drift", policyDiscount: 1 });
+    expect(i.verdict).toBe("behind");
+    expect(i.headline).toBe(
+      "Linear TS trailed UCB here: the best and worst creatives swap halfway through, and an endpoint that weighs old evidence fully adapts slowly."
+    );
+    expect(i.why).toBe(
+      "UCB earned 16.9% more clicks per episode than your endpoint. In this scenario the best and worst creatives swap halfway through the run. This endpoint weighs every past reader as heavily as the latest one, so after the swap it keeps backing the old winner until the new evidence outweighs the old. UCB keeps re-checking the creatives it has shown least, so it spots the new winner sooner."
+    );
+    expect(i.whyExplain).toMatch(/Forgetting old evidence \(a discount\) shortens that memory/);
+    expect(i.why).not.toMatch(/on purpose/);
+  });
+
+  it("treats a missing discount (older experiments) as full memory", () => {
+    const i = buildInsights({ metrics: driftMetrics(), arms: ARMS, scenario: "drift" });
+    expect(i.why).toContain("weighs every past reader as heavily as the latest one");
+  });
+
+  it("mentions that a discounted endpoint forgets on purpose", () => {
+    const i = buildInsights({ metrics: driftMetrics(), arms: ARMS, scenario: "drift", policyDiscount: 0.98 });
+    expect(i.headline).toBe(
+      "Linear TS trailed UCB here: the best and worst creatives swap halfway through, and even an endpoint that forgets old evidence has more to re-learn than UCB."
+    );
+    expect(i.why).toContain(
+      "This endpoint forgets old evidence on purpose: it weighs each batch of readers a little less than the next, remembering roughly the last 5,000 readers, so it does recover after the swap."
+    );
+    expect(i.why).toContain("19 reader features per creative to re-learn");
+  });
+
+  it("uses the tuned change point", () => {
+    const i = buildInsights({
+      metrics: driftMetrics(),
+      arms: ARMS,
+      scenario: "drift",
+      scenarioOverrides: { driftAtFrac: 0.3 },
+    });
+    expect(i.headline).toContain("swap 30% of the way through,");
+    expect(i.why).toContain("swap 30% of the way through the run.");
+  });
+
+  it("names what lets the baseline adapt when it isn't UCB", () => {
+    const m = driftMetrics();
+    const { ucb1: _drop, ...totals } = m.totals;
+    const curves = { ...m.curves };
+    delete curves.ucb1;
+    const i = buildInsights({
+      metrics: { ...m, totals, curves, policies: m.policies.filter((p) => p !== "ucb1") },
+      arms: ARMS,
+      scenario: "drift",
+    });
+    expect(i.why).toMatch(/^TS \(no context\) earned 9\.1% more clicks/);
+    expect(i.why).toContain("tracks one click rate per creative, so it has far less to re-learn");
+  });
+});
+
+describe("discount helpers", () => {
+  it("knows when an endpoint forgets and roughly how much it remembers", () => {
+    expect(forgetsEvidence(1)).toBe(false);
+    expect(forgetsEvidence(undefined)).toBe(false);
+    expect(forgetsEvidence(0.98)).toBe(true);
+    expect(memoryReaders(0.98)).toBe(5000); // 100 / -ln 0.98 ≈ 4950
+    expect(memoryReaders(0.998)).toBe(50_000);
+    expect(memoryReaders(1)).toBeNull();
+  });
+  it("phrases the drift change point", () => {
+    expect(swapWhen(undefined)).toBe("halfway through");
+    expect(swapWhen(0.5)).toBe("halfway through");
+    expect(swapWhen(0.7)).toBe("70% of the way through");
+  });
+});
+
+describe("empty and engaged", () => {
   it("is empty with no episodes", () => {
     const i = buildInsights({ metrics: { ...metricsWith(), episodes: 0, checkpoints: [] }, arms: ARMS });
     expect(i).toMatchObject({ verdict: "empty", headline: "", support: "", lanes: {} });

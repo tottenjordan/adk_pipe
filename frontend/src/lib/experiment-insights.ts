@@ -9,6 +9,9 @@
  * - The endpoint (linear_ts) is only called ahead or behind when its 95% band at
  *   the last checkpoint clears the best baseline's and there are at least
  *   MIN_EPISODES episodes; otherwise the copy says it is too early to call.
+ * - When the endpoint trails a baseline, say why in plain words (`why`) rather
+ *   than leave the reader to guess: drift (the best and worst creatives swap and
+ *   a full-memory endpoint adapts slowly) or the cost of learning reader context.
  */
 import { formatCompact, formatInt, formatPercent } from "./chart";
 import {
@@ -22,6 +25,7 @@ import {
   type ExperimentMetrics,
   type ScenarioOverrides,
 } from "./experiments";
+import { TRAILING_EXPLAIN } from "./experiment-explain";
 import { segmentWords, skewedSegment } from "./scenario-preview";
 
 /** Below this many episodes the bands are too loose to call a winner. */
@@ -29,6 +33,12 @@ export const MIN_EPISODES = 5;
 
 /** A share change smaller than this (3 points) counts as "no real movement". */
 const SHARE_MOVE_MIN = 0.03;
+
+/** Reader features the endpoint estimates per creative (ctx-v1, contracts §1). */
+const FEATURE_DIM = 19;
+
+/** Readers per endpoint update (the api's batch_size): the discount applies once per batch. */
+const BATCH_SIZE = 100;
 
 export type Verdict = "empty" | "too_early" | "ahead" | "behind";
 
@@ -54,6 +64,10 @@ export interface ExperimentInsights {
   lanes: Record<string, string>;
   /** Notes on tuned reader settings (misleading judge, skewed mix); [] for preset experiments. */
   notes: string[];
+  /** Why the endpoint trails the best baseline ("" when it doesn't, or with no results). */
+  why: string;
+  /** Explain-mode background for `why` ("" when `why` is empty). */
+  whyExplain: string;
 }
 
 export interface InsightInput {
@@ -64,6 +78,8 @@ export interface InsightInput {
   ctrMode?: string;
   scenario?: string;
   scenarioOverrides?: ScenarioOverrides | null;
+  /** The endpoint's per-batch discount γ (1 or missing = full memory). */
+  policyDiscount?: number | null;
 }
 
 const LIN = "linear_ts";
@@ -253,7 +269,8 @@ function headlineFor(
   metrics: ExperimentMetrics,
   facts: CreativeFacts[],
   units: Units,
-  k: number
+  k: number,
+  drift: DriftContext | null
 ): { headline: string; detail: string } {
   const leader = facts.find((f) => f.final !== null) ?? null;
   const base = bestBaseline(metrics);
@@ -293,6 +310,16 @@ function headlineFor(
     return { headline: `${favour}${gain}`, detail };
   }
 
+  if (verdict === "behind" && drift && base) {
+    const label = policyShortLabel(base);
+    return {
+      headline: drift.forgets
+        ? `Linear TS trailed ${label} here: the best and worst creatives swap ${drift.when}, and even an endpoint that forgets old evidence has more to re-learn than ${label}.`
+        : `Linear TS trailed ${label} here: the best and worst creatives swap ${drift.when}, and an endpoint that weighs old evidence fully adapts slowly.`,
+      detail: "",
+    };
+  }
+
   if (verdict === "behind") {
     const label = base ? policyShortLabel(base) : "a baseline";
     // Relative to the endpoint: "the baseline earns X% more than the endpoint".
@@ -326,6 +353,107 @@ function supportFor(verdict: Verdict, metrics: ExperimentMetrics, ctrMode?: stri
   if (verdict === "too_early") parts.push("Run more episodes to separate them.");
   if (ctrMode === "demo") parts.push("Demo click rates run high so learning shows quickly: compare creatives with each other, not with live campaigns.");
   return parts.filter(Boolean).join(" ");
+}
+
+// ── Why the endpoint trails ──────────────────────────────────────────────────
+
+/** Drift-scenario facts the trailing copy needs. */
+interface DriftContext {
+  forgets: boolean;
+  /** "halfway through", "60% of the way through". */
+  when: string;
+}
+
+/** When the drift swap happens, from the `driftAtFrac` override (preset: halfway). */
+export function swapWhen(driftAtFrac: number | null | undefined): string {
+  if (!finite(driftAtFrac) || Math.abs(driftAtFrac - 0.5) < 0.005) return "halfway through";
+  return `${pct(driftAtFrac)} of the way through`;
+}
+
+/** Whether the endpoint forgets old evidence: a per-batch discount γ in (0, 1). */
+export function forgetsEvidence(discount: number | null | undefined): boolean {
+  return finite(discount) && discount > 0 && discount < 1;
+}
+
+/**
+ * Roughly how many readers a discounted endpoint remembers: the effective window
+ * N = batch / −ln γ (γ applied once per batch), to one significant figure.
+ */
+export function memoryReaders(discount: number, batchSize = BATCH_SIZE): number | null {
+  if (!forgetsEvidence(discount)) return null;
+  const n = batchSize / -Math.log(discount);
+  const mag = 10 ** Math.max(0, Math.floor(Math.log10(n)));
+  return Math.round(n / mag) * mag;
+}
+
+/** How much more the best baseline earns than the endpoint (relative to the endpoint), or null. */
+function baselineLead(metrics: ExperimentMetrics, base: string): number | null {
+  const lin = metrics.totals?.[LIN]?.mean;
+  const b = metrics.totals?.[base]?.mean;
+  if (finite(lin) && finite(b)) return lin > 0 && b > lin ? (b - lin) / lin : null;
+  const l = lastOfBand(metrics.curves?.[LIN]?.cumAvgReward).mean;
+  const c = lastOfBand(metrics.curves?.[base]?.cumAvgReward).mean;
+  return l !== null && c !== null && l > 0 && c > l ? (c - l) / l : null;
+}
+
+/** One sentence on what lets this baseline adapt or settle faster. */
+const BASELINE_EDGE: Record<string, { drift: string; context: string }> = {
+  ucb1: {
+    drift: "UCB keeps re-checking the creatives it has shown least, so it spots the new winner sooner.",
+    context: "UCB only tracks one click rate per creative, so it settles on the winner sooner.",
+  },
+  beta_bernoulli_ts: {
+    drift: "Thompson sampling without context tracks one click rate per creative, so it has far less to re-learn.",
+    context: "Thompson sampling without context tracks one click rate per creative, so it settles on the winner sooner.",
+  },
+  epsilon_greedy: {
+    drift: "ε-greedy keeps showing a random creative a fixed share of the time, so it notices the swap sooner.",
+    context: "ε-greedy only tracks one click rate per creative, so it settles on the winner sooner.",
+  },
+};
+
+/**
+ * Why the endpoint trails the best baseline, when it does (by mean, whatever the
+ * bands say: the headline handles certainty). "" when it leads or ties.
+ */
+function whyFor(
+  metrics: ExperimentMetrics,
+  units: Units,
+  scenario: string | undefined,
+  drift: DriftContext | null,
+  discount: number | null | undefined
+): { why: string; whyExplain: string } {
+  const none = { why: "", whyExplain: "" };
+  const base = bestBaseline(metrics);
+  if (!base) return none;
+  const lead = baselineLead(metrics, base);
+  if (lead === null) return none;
+  const label = policyShortLabel(base);
+  const gap = `${label} earned ${pct1(lead)} more ${units.earn} per episode than your endpoint.`;
+  const edge = BASELINE_EDGE[base];
+  if (drift) {
+    const memory = drift.forgets ? memoryReaders(discount as number) : null;
+    const how =
+      memory !== null
+        ? `This endpoint forgets old evidence on purpose: it weighs each batch of readers a little less than the next, remembering roughly the last ${formatInt(
+            memory
+          )} readers, so it does recover after the swap. It still has ${FEATURE_DIM} reader features per creative to re-learn.`
+        : "This endpoint weighs every past reader as heavily as the latest one, so after the swap it keeps backing the old winner until the new evidence outweighs the old.";
+    return {
+      why: [gap, `In this scenario the best and worst creatives swap ${drift.when} the run.`, how, edge?.drift]
+        .filter(Boolean)
+        .join(" "),
+      whyExplain: TRAILING_EXPLAIN.drift,
+    };
+  }
+  const setting =
+    scenario === "clear_winner"
+      ? `In this scenario one creative is best for every reader, so knowing the reader adds nothing, and the endpoint pays for estimating ${FEATURE_DIM} reader features per creative.`
+      : `The endpoint estimates ${FEATURE_DIM} reader features per creative, so it needs more traffic before its reader-by-reader choices pay off.`;
+  return {
+    why: [gap, setting, edge?.context].filter(Boolean).join(" "),
+    whyExplain: TRAILING_EXPLAIN.context,
+  };
 }
 
 // ── Chart readings ───────────────────────────────────────────────────────────
@@ -533,12 +661,27 @@ export function buildInsights(input: InsightInput): ExperimentInsights {
   const verdict = verdictOf(metrics);
   const notes = setupNotes(input.scenario, input.scenarioOverrides);
   if (verdict === "empty" || !metrics) {
-    return { verdict: "empty", headline: "", detail: "", support: "", notes, readings: { ...EMPTY_READINGS }, lanes: {} };
+    return {
+      verdict: "empty",
+      headline: "",
+      detail: "",
+      support: "",
+      notes,
+      why: "",
+      whyExplain: "",
+      readings: { ...EMPTY_READINGS },
+      lanes: {},
+    };
   }
   const units = unitsFor(input.rewardMode);
   const facts = creativeFacts(input);
   const k = Math.max(arms.length, facts.length);
-  const { headline, detail } = headlineFor(verdict, metrics, facts, units, k);
+  const drift: DriftContext | null =
+    input.scenario === "drift"
+      ? { forgets: forgetsEvidence(input.policyDiscount), when: swapWhen(input.scenarioOverrides?.driftAtFrac) }
+      : null;
+  const { headline, detail } = headlineFor(verdict, metrics, facts, units, k, drift);
+  const { why, whyExplain } = whyFor(metrics, units, input.scenario, drift, input.policyDiscount);
   const hasSegments = Object.keys(metrics.perSegment ?? {}).length > 0;
   return {
     verdict,
@@ -546,6 +689,8 @@ export function buildInsights(input: InsightInput): ExperimentInsights {
     detail,
     support: supportFor(verdict, metrics, input.ctrMode),
     notes,
+    why,
+    whyExplain,
     readings: {
       avgReward: avgRewardReading(metrics, units),
       regret: regretReading(metrics, units),

@@ -45,3 +45,11 @@ export const CHART_EXPLAIN = {
   armTable:
     "Compare the two click-rate columns: when the estimate sits close to the true rate, the endpoint has seen enough of that creative to judge it. Creatives with few impressions have looser estimates.",
 } as const;
+
+/** Background for the "why the endpoint trails" reading (experiment-insights.ts `why`). */
+export const TRAILING_EXPLAIN = {
+  drift:
+    "Linear TS keeps a running summary of every reader it has seen. With full memory, the evidence from before a swap keeps pulling its estimates toward the old winner, and new readers only slowly outweigh it. Forgetting old evidence (a discount) shortens that memory: the endpoint recovers sooner after a change, at the price of noisier estimates while nothing changes. Strategies that track one click rate per creative have less to re-learn, so they can still recover first.",
+  context:
+    "Linear TS learns how each reader's context (device, time of day, topic and so on) changes each creative's click rate. That pays off when different readers want different creatives. When most readers want the same one, it is extra work: the endpoint keeps exploring to pin down effects that don't matter, while a strategy that only counts clicks per creative settles sooner.",
+} as const;
