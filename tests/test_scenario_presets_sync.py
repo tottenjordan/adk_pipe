@@ -12,7 +12,15 @@ import importlib.util
 import json
 from pathlib import Path
 
-from bandit.config import OVERRIDE_BOUNDS, SCENARIOS, load_scenario
+from bandit.config import (
+    MAX_SHIFTS,
+    OVERRIDE_BOUNDS,
+    SCENARIOS,
+    SHIFT_BOUNDS,
+    SHIFT_KINDS,
+    SHIFT_MIN_WINDOW,
+    load_scenario,
+)
 
 ROOT = Path(__file__).resolve().parent.parent
 _spec = importlib.util.spec_from_file_location(
@@ -46,3 +54,20 @@ def test_json_carries_every_scenario_and_bound():
         assert abs(sum(s["weight"] for s in js["segments"]) - 1.0) < 1e-12
         assert js["drift"]["atFrac"] == sc.drift.at_frac
     assert len(data["featureNames"]) == 19
+
+
+def test_json_carries_the_shift_contract():
+    shifts = json.loads(gen.OUTPUT.read_text())["shifts"]
+    assert shifts["kinds"] == list(SHIFT_KINDS)
+    assert shifts["maxShifts"] == MAX_SHIFTS
+    assert shifts["minWindow"] == SHIFT_MIN_WINDOW
+    assert shifts["leader"] == "leader"
+    camel = {
+        "atFrac": "at_frac",
+        "untilFrac": "until_frac",
+        "liftPp": "lift_pp",
+        "dropPp": "drop_pp",
+        "segmentMix": "segment_mix",
+        "ctrMultiplier": "ctr_multiplier",
+    }
+    assert {camel[k]: tuple(v) for k, v in shifts["bounds"].items()} == SHIFT_BOUNDS

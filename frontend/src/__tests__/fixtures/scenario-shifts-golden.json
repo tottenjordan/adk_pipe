@@ -1,0 +1,1355 @@
+{
+ "_generated": "by tests/test_scenario_preview_golden.py (bandit, noise_scale=0; contracts \u00a710 shifts); set UPDATE_PREVIEW_GOLDEN=1 to rewrite",
+ "calibrationSamples": 400000,
+ "cases": [
+  {
+   "name": "segment_winners/four/promote_one_segment",
+   "scenario": "segment_winners",
+   "ctrMode": "demo",
+   "horizon": 40000,
+   "arms": [
+    {
+     "ad_copy_overall": 0.82,
+     "visual_overall": 0.8,
+     "trend_authenticity": 0.9
+    },
+    {
+     "ad_copy_overall": 0.74,
+     "visual_overall": 0.7,
+     "audience_fit": 0.95
+    },
+    {
+     "ad_copy_overall": 0.7,
+     "visual_overall": 0.62,
+     "stopping_power": 1.0
+    },
+    {
+     "ad_copy_overall": 0.66,
+     "visual_overall": 0.75
+    }
+   ],
+   "overrides": {},
+   "shifts": [
+    {
+     "kind": "promote",
+     "atFrac": 0.4,
+     "segment": "mobile_scrollers",
+     "creativeId": "arm-3",
+     "liftPp": 0.015
+    }
+   ],
+   "expected": {
+    "segments": [
+     "mobile_scrollers",
+     "trend_followers",
+     "product_intenders",
+     "late_night_casual"
+    ],
+    "alpha": -3.2760148,
+    "resolved": [
+     {
+      "index": 0,
+      "kind": "promote",
+      "round": 16000,
+      "endRound": null,
+      "creativeIndex": 3,
+      "segment": "mobile_scrollers",
+      "segmentWeights": null,
+      "targets": [
+       {
+        "segment": "mobile_scrollers",
+        "ctrBefore": 0.0358852609,
+        "bestOtherCtr": 0.0527621287,
+        "ctrAfter": 0.0677621287,
+        "logitOffset": 0.6692991164
+       }
+      ]
+     }
+    ],
+    "regimes": [
+     {
+      "start": 0,
+      "end": 16000,
+      "active": [],
+      "segmentWeights": [
+       0.25,
+       0.25,
+       0.25,
+       0.25
+      ],
+      "ctr": [
+       [
+        0.0383511024,
+        0.0505540908,
+        0.0388835624,
+        0.0383407315
+       ],
+       [
+        0.0366896064,
+        0.0367250543,
+        0.0534879064,
+        0.0374032469
+       ],
+       [
+        0.0527695635,
+        0.0323157155,
+        0.031261232,
+        0.0333780635
+       ],
+       [
+        0.0358869823,
+        0.035737406,
+        0.0354596379,
+        0.0527528816
+       ]
+      ],
+      "oracle": [
+       2,
+       0,
+       1,
+       3
+      ],
+      "overall": [
+       0.0415323718,
+       0.0410764535,
+       0.0374311437,
+       0.0399592269
+      ]
+     },
+     {
+      "start": 16000,
+      "end": 40000,
+      "active": [
+       0
+      ],
+      "segmentWeights": [
+       0.25,
+       0.25,
+       0.25,
+       0.25
+      ],
+      "ctr": [
+       [
+        0.0383511024,
+        0.0505540908,
+        0.0388835624,
+        0.0383407315
+       ],
+       [
+        0.0366896064,
+        0.0367250543,
+        0.0534879064,
+        0.0374032469
+       ],
+       [
+        0.0527695635,
+        0.0323157155,
+        0.031261232,
+        0.0333780635
+       ],
+       [
+        0.0677650565,
+        0.035737406,
+        0.0354596379,
+        0.0527528816
+       ]
+      ],
+      "oracle": [
+       3,
+       0,
+       1,
+       3
+      ],
+      "overall": [
+       0.0415323718,
+       0.0410764535,
+       0.0374311437,
+       0.0479287455
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "name": "segment_winners/four/demote_leader_then_shock",
+   "scenario": "segment_winners",
+   "ctrMode": "demo",
+   "horizon": 40000,
+   "arms": [
+    {
+     "ad_copy_overall": 0.82,
+     "visual_overall": 0.8,
+     "trend_authenticity": 0.9
+    },
+    {
+     "ad_copy_overall": 0.74,
+     "visual_overall": 0.7,
+     "audience_fit": 0.95
+    },
+    {
+     "ad_copy_overall": 0.7,
+     "visual_overall": 0.62,
+     "stopping_power": 1.0
+    },
+    {
+     "ad_copy_overall": 0.66,
+     "visual_overall": 0.75
+    }
+   ],
+   "overrides": {},
+   "shifts": [
+    {
+     "kind": "shock",
+     "atFrac": 0.6,
+     "untilFrac": 0.7,
+     "segment": null,
+     "creativeId": "arm-1",
+     "ctrMultiplier": 0.6
+    },
+    {
+     "kind": "demote",
+     "atFrac": 0.5,
+     "segment": null,
+     "creativeId": "leader",
+     "dropPp": 0.015
+    }
+   ],
+   "expected": {
+    "segments": [
+     "mobile_scrollers",
+     "trend_followers",
+     "product_intenders",
+     "late_night_casual"
+    ],
+    "alpha": -3.2760148,
+    "resolved": [
+     {
+      "index": 1,
+      "kind": "demote",
+      "round": 20000,
+      "endRound": null,
+      "creativeIndex": 0,
+      "segment": null,
+      "segmentWeights": null,
+      "targets": [
+       {
+        "segment": "mobile_scrollers",
+        "ctrBefore": 0.0383476903,
+        "bestOtherCtr": 0.0527621287,
+        "ctrAfter": 0.0377621287,
+        "logitOffset": -0.0159963138
+       },
+       {
+        "segment": "trend_followers",
+        "ctrBefore": 0.0505526206,
+        "bestOtherCtr": 0.0367184137,
+        "ctrAfter": 0.0217184137,
+        "logitOffset": -0.8747717704
+       },
+       {
+        "segment": "product_intenders",
+        "ctrBefore": 0.0388801637,
+        "bestOtherCtr": 0.0534836208,
+        "ctrAfter": 0.0384836208,
+        "logitOffset": -0.0106639734
+       },
+       {
+        "segment": "late_night_casual",
+        "ctrBefore": 0.03833732,
+        "bestOtherCtr": 0.052748074,
+        "ctrAfter": 0.037748074,
+        "logitOffset": -0.0161019276
+       }
+      ]
+     },
+     {
+      "index": 0,
+      "kind": "shock",
+      "round": 24000,
+      "endRound": 28000,
+      "creativeIndex": 1,
+      "segment": null,
+      "segmentWeights": null,
+      "targets": [
+       {
+        "segment": "mobile_scrollers",
+        "ctrBefore": 0.036685136,
+        "ctrAfter": 0.0220110816
+       },
+       {
+        "segment": "trend_followers",
+        "ctrBefore": 0.0367184137,
+        "ctrAfter": 0.0220310482
+       },
+       {
+        "segment": "product_intenders",
+        "ctrBefore": 0.0534836208,
+        "ctrAfter": 0.0320901725
+       },
+       {
+        "segment": "late_night_casual",
+        "ctrBefore": 0.0373973843,
+        "ctrAfter": 0.0224384306
+       }
+      ]
+     }
+    ],
+    "regimes": [
+     {
+      "start": 0,
+      "end": 20000,
+      "active": [],
+      "segmentWeights": [
+       0.25,
+       0.25,
+       0.25,
+       0.25
+      ],
+      "ctr": [
+       [
+        0.0383511024,
+        0.0505540908,
+        0.0388835624,
+        0.0383407315
+       ],
+       [
+        0.0366896064,
+        0.0367250543,
+        0.0534879064,
+        0.0374032469
+       ],
+       [
+        0.0527695635,
+        0.0323157155,
+        0.031261232,
+        0.0333780635
+       ],
+       [
+        0.0358869823,
+        0.035737406,
+        0.0354596379,
+        0.0527528816
+       ]
+      ],
+      "oracle": [
+       2,
+       0,
+       1,
+       3
+      ],
+      "overall": [
+       0.0415323718,
+       0.0410764535,
+       0.0374311437,
+       0.0399592269
+      ]
+     },
+     {
+      "start": 20000,
+      "end": 24000,
+      "active": [
+       1
+      ],
+      "segmentWeights": [
+       0.25,
+       0.25,
+       0.25,
+       0.25
+      ],
+      "ctr": [
+       [
+        0.037765495,
+        0.0217191049,
+        0.0384869891,
+        0.0377514395
+       ],
+       [
+        0.0366896064,
+        0.0367250543,
+        0.0534879064,
+        0.0374032469
+       ],
+       [
+        0.0527695635,
+        0.0323157155,
+        0.031261232,
+        0.0333780635
+       ],
+       [
+        0.0358869823,
+        0.035737406,
+        0.0354596379,
+        0.0527528816
+       ]
+      ],
+      "oracle": [
+       2,
+       1,
+       1,
+       3
+      ],
+      "overall": [
+       0.0339307571,
+       0.0410764535,
+       0.0374311437,
+       0.0399592269
+      ]
+     },
+     {
+      "start": 24000,
+      "end": 28000,
+      "active": [
+       0,
+       1
+      ],
+      "segmentWeights": [
+       0.25,
+       0.25,
+       0.25,
+       0.25
+      ],
+      "ctr": [
+       [
+        0.037765495,
+        0.0217191049,
+        0.0384869891,
+        0.0377514395
+       ],
+       [
+        0.0220137647,
+        0.0220350335,
+        0.0320927451,
+        0.022441949
+       ],
+       [
+        0.0527695635,
+        0.0323157155,
+        0.031261232,
+        0.0333780635
+       ],
+       [
+        0.0358869823,
+        0.035737406,
+        0.0354596379,
+        0.0527528816
+       ]
+      ],
+      "oracle": [
+       2,
+       3,
+       0,
+       3
+      ],
+      "overall": [
+       0.0339307571,
+       0.0246458731,
+       0.0374311437,
+       0.0399592269
+      ]
+     },
+     {
+      "start": 28000,
+      "end": 40000,
+      "active": [
+       1
+      ],
+      "segmentWeights": [
+       0.25,
+       0.25,
+       0.25,
+       0.25
+      ],
+      "ctr": [
+       [
+        0.037765495,
+        0.0217191049,
+        0.0384869891,
+        0.0377514395
+       ],
+       [
+        0.0366896064,
+        0.0367250543,
+        0.0534879064,
+        0.0374032469
+       ],
+       [
+        0.0527695635,
+        0.0323157155,
+        0.031261232,
+        0.0333780635
+       ],
+       [
+        0.0358869823,
+        0.035737406,
+        0.0354596379,
+        0.0527528816
+       ]
+      ],
+      "oracle": [
+       2,
+       1,
+       1,
+       3
+      ],
+      "overall": [
+       0.0339307571,
+       0.0410764535,
+       0.0374311437,
+       0.0399592269
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "name": "segment_winners/four/mix_then_demote_leader",
+   "scenario": "segment_winners",
+   "ctrMode": "demo",
+   "horizon": 40000,
+   "arms": [
+    {
+     "ad_copy_overall": 0.82,
+     "visual_overall": 0.8,
+     "trend_authenticity": 0.9
+    },
+    {
+     "ad_copy_overall": 0.74,
+     "visual_overall": 0.7,
+     "audience_fit": 0.95
+    },
+    {
+     "ad_copy_overall": 0.7,
+     "visual_overall": 0.62,
+     "stopping_power": 1.0
+    },
+    {
+     "ad_copy_overall": 0.66,
+     "visual_overall": 0.75
+    }
+   ],
+   "overrides": {},
+   "shifts": [
+    {
+     "kind": "mix",
+     "atFrac": 0.3,
+     "segmentMix": [
+      0.1,
+      0.1,
+      0.7,
+      0.1
+     ]
+    },
+    {
+     "kind": "demote",
+     "atFrac": 0.5,
+     "segment": null,
+     "creativeId": "leader",
+     "dropPp": 0.01
+    }
+   ],
+   "expected": {
+    "segments": [
+     "mobile_scrollers",
+     "trend_followers",
+     "product_intenders",
+     "late_night_casual"
+    ],
+    "alpha": -3.2760148,
+    "resolved": [
+     {
+      "index": 0,
+      "kind": "mix",
+      "round": 12000,
+      "endRound": null,
+      "creativeIndex": null,
+      "segment": null,
+      "segmentWeights": [
+       0.1,
+       0.1,
+       0.7,
+       0.1
+      ],
+      "targets": []
+     },
+     {
+      "index": 1,
+      "kind": "demote",
+      "round": 20000,
+      "endRound": null,
+      "creativeIndex": 1,
+      "segment": null,
+      "segmentWeights": null,
+      "targets": [
+       {
+        "segment": "mobile_scrollers",
+        "ctrBefore": 0.036685136,
+        "bestOtherCtr": 0.0527621287,
+        "ctrAfter": 0.036685136,
+        "logitOffset": 0.0
+       },
+       {
+        "segment": "trend_followers",
+        "ctrBefore": 0.0367184137,
+        "bestOtherCtr": 0.0505526206,
+        "ctrAfter": 0.0367184137,
+        "logitOffset": 0.0
+       },
+       {
+        "segment": "product_intenders",
+        "ctrBefore": 0.0534836208,
+        "bestOtherCtr": 0.0388801637,
+        "ctrAfter": 0.0288801637,
+        "logitOffset": -0.641882071
+       },
+       {
+        "segment": "late_night_casual",
+        "ctrBefore": 0.0373973843,
+        "bestOtherCtr": 0.052748074,
+        "ctrAfter": 0.0373973843,
+        "logitOffset": 0.0
+       }
+      ]
+     }
+    ],
+    "regimes": [
+     {
+      "start": 0,
+      "end": 12000,
+      "active": [],
+      "segmentWeights": [
+       0.25,
+       0.25,
+       0.25,
+       0.25
+      ],
+      "ctr": [
+       [
+        0.0383511024,
+        0.0505540908,
+        0.0388835624,
+        0.0383407315
+       ],
+       [
+        0.0366896064,
+        0.0367250543,
+        0.0534879064,
+        0.0374032469
+       ],
+       [
+        0.0527695635,
+        0.0323157155,
+        0.031261232,
+        0.0333780635
+       ],
+       [
+        0.0358869823,
+        0.035737406,
+        0.0354596379,
+        0.0527528816
+       ]
+      ],
+      "oracle": [
+       2,
+       0,
+       1,
+       3
+      ],
+      "overall": [
+       0.0415323718,
+       0.0410764535,
+       0.0374311437,
+       0.0399592269
+      ]
+     },
+     {
+      "start": 12000,
+      "end": 20000,
+      "active": [
+       0
+      ],
+      "segmentWeights": [
+       0.0999999974,
+       0.0999999974,
+       0.7000000077,
+       0.0999999974
+      ],
+      "ctr": [
+       [
+        0.0383511024,
+        0.0505540908,
+        0.0388835624,
+        0.0383407315
+       ],
+       [
+        0.0366896064,
+        0.0367250543,
+        0.0534879064,
+        0.0374032469
+       ],
+       [
+        0.0527695635,
+        0.0323157155,
+        0.031261232,
+        0.0333780635
+       ],
+       [
+        0.0358869823,
+        0.035737406,
+        0.0354596379,
+        0.0527528816
+       ]
+      ],
+      "oracle": [
+       2,
+       0,
+       1,
+       3
+      ],
+      "overall": [
+       0.0399430861,
+       0.0485233254,
+       0.0337291966,
+       0.0372594734
+      ]
+     },
+     {
+      "start": 20000,
+      "end": 40000,
+      "active": [
+       0,
+       1
+      ],
+      "segmentWeights": [
+       0.0999999974,
+       0.0999999974,
+       0.7000000077,
+       0.0999999974
+      ],
+      "ctr": [
+       [
+        0.0383511024,
+        0.0505540908,
+        0.0388835624,
+        0.0383407315
+       ],
+       [
+        0.0366896064,
+        0.0367250543,
+        0.0288826659,
+        0.0374032469
+       ],
+       [
+        0.0527695635,
+        0.0323157155,
+        0.031261232,
+        0.0333780635
+       ],
+       [
+        0.0358869823,
+        0.035737406,
+        0.0354596379,
+        0.0527528816
+       ]
+      ],
+      "oracle": [
+       2,
+       0,
+       0,
+       3
+      ],
+      "overall": [
+       0.0399430861,
+       0.0312996568,
+       0.0337291966,
+       0.0372594734
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "name": "clear_winner/three/promote_everyone_judge_backwards",
+   "scenario": "clear_winner",
+   "ctrMode": "demo",
+   "horizon": 20000,
+   "arms": [
+    {
+     "ad_copy_overall": 0.86,
+     "visual_overall": 0.78,
+     "trend_authenticity": 0.9,
+     "audience_fit": 0.7,
+     "stopping_power": 0.8,
+     "clarity": 0.9
+    },
+    {
+     "ad_copy_overall": 0.72,
+     "visual_overall": 0.8,
+     "trend_authenticity": 0.6,
+     "audience_fit": 0.9,
+     "stopping_power": 0.6
+    },
+    {
+     "ad_copy_overall": 0.64,
+     "visual_overall": 0.7,
+     "trend_authenticity": 0.7,
+     "audience_fit": 0.5,
+     "stopping_power": 0.9
+    }
+   ],
+   "overrides": {
+    "judgeWrong": 1.0
+   },
+   "shifts": [
+    {
+     "kind": "promote",
+     "atFrac": 0.3,
+     "segment": null,
+     "creativeId": "arm-0",
+     "liftPp": 0.01
+    },
+    {
+     "kind": "demote",
+     "atFrac": 0.6,
+     "segment": "commuters",
+     "creativeId": "leader",
+     "dropPp": 0.02
+    },
+    {
+     "kind": "shock",
+     "atFrac": 0.8,
+     "untilFrac": 1.0,
+     "segment": "desk_researchers",
+     "creativeId": "arm-2",
+     "ctrMultiplier": 1.8
+    }
+   ],
+   "expected": {
+    "segments": [
+     "commuters",
+     "desk_researchers",
+     "evening_browsers"
+    ],
+    "alpha": -3.05230474,
+    "resolved": [
+     {
+      "index": 0,
+      "kind": "promote",
+      "round": 6000,
+      "endRound": null,
+      "creativeIndex": 0,
+      "segment": null,
+      "segmentWeights": null,
+      "targets": [
+       {
+        "segment": "commuters",
+        "ctrBefore": 0.033039192,
+        "bestOtherCtr": 0.0623438224,
+        "ctrAfter": 0.0723438224,
+        "logitOffset": 0.825232371
+       },
+       {
+        "segment": "desk_researchers",
+        "ctrBefore": 0.0326106076,
+        "bestOtherCtr": 0.0641207315,
+        "ctrAfter": 0.0741207315,
+        "logitOffset": 0.8649148962
+       },
+       {
+        "segment": "evening_browsers",
+        "ctrBefore": 0.0331511915,
+        "bestOtherCtr": 0.0631672533,
+        "ctrAfter": 0.0731672533,
+        "logitOffset": 0.8339383081
+       }
+      ]
+     },
+     {
+      "index": 1,
+      "kind": "demote",
+      "round": 12000,
+      "endRound": null,
+      "creativeIndex": 0,
+      "segment": "commuters",
+      "segmentWeights": null,
+      "targets": [
+       {
+        "segment": "commuters",
+        "ctrBefore": 0.0723438224,
+        "bestOtherCtr": 0.0623438224,
+        "ctrAfter": 0.0423438224,
+        "logitOffset": -0.5674351756
+       }
+      ]
+     },
+     {
+      "index": 2,
+      "kind": "shock",
+      "round": 16000,
+      "endRound": 20000,
+      "creativeIndex": 2,
+      "segment": "desk_researchers",
+      "segmentWeights": null,
+      "targets": [
+       {
+        "segment": "desk_researchers",
+        "ctrBefore": 0.0641207315,
+        "ctrAfter": 0.1154173167
+       }
+      ]
+     }
+    ],
+    "regimes": [
+     {
+      "start": 0,
+      "end": 6000,
+      "active": [],
+      "segmentWeights": [
+       0.4,
+       0.35,
+       0.25
+      ],
+      "ctr": [
+       [
+        0.0330487097,
+        0.0326186321,
+        0.0331609211
+       ],
+       [
+        0.0444015253,
+        0.0437071328,
+        0.0436708287
+       ],
+       [
+        0.0623691807,
+        0.0641478351,
+        0.0631979058
+       ]
+      ],
+      "oracle": [
+       2,
+       2,
+       2
+      ],
+      "overall": [
+       0.0329262354,
+       0.0439758138,
+       0.063198891
+      ]
+     },
+     {
+      "start": 6000,
+      "end": 12000,
+      "active": [
+       0
+      ],
+      "segmentWeights": [
+       0.4,
+       0.35,
+       0.25
+      ],
+      "ctr": [
+       [
+        0.0723621337,
+        0.0741366194,
+        0.0731860734
+       ],
+       [
+        0.0444015253,
+        0.0437071328,
+        0.0436708287
+       ],
+       [
+        0.0623691807,
+        0.0641478351,
+        0.0631979058
+       ]
+      ],
+      "oracle": [
+       0,
+       0,
+       0
+      ],
+      "overall": [
+       0.0731891886,
+       0.0439758138,
+       0.063198891
+      ]
+     },
+     {
+      "start": 12000,
+      "end": 16000,
+      "active": [
+       0,
+       1
+      ],
+      "segmentWeights": [
+       0.4,
+       0.35,
+       0.25
+      ],
+      "ctr": [
+       [
+        0.0423556619,
+        0.0741366194,
+        0.0731860734
+       ],
+       [
+        0.0444015253,
+        0.0437071328,
+        0.0436708287
+       ],
+       [
+        0.0623691807,
+        0.0641478351,
+        0.0631979058
+       ]
+      ],
+      "oracle": [
+       2,
+       0,
+       0
+      ],
+      "overall": [
+       0.0611865999,
+       0.0439758138,
+       0.063198891
+      ]
+     },
+     {
+      "start": 16000,
+      "end": 20000,
+      "active": [
+       0,
+       1,
+       2
+      ],
+      "segmentWeights": [
+       0.4,
+       0.35,
+       0.25
+      ],
+      "ctr": [
+       [
+        0.0423556619,
+        0.0741366194,
+        0.0731860734
+       ],
+       [
+        0.0444015253,
+        0.0437071328,
+        0.0436708287
+       ],
+       [
+        0.0623691807,
+        0.1154661001,
+        0.0631979058
+       ]
+      ],
+      "oracle": [
+       2,
+       2,
+       0
+      ],
+      "overall": [
+       0.0611865999,
+       0.0439758138,
+       0.0811602838
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "name": "segment_winners/three/realistic_promote_and_boost",
+   "scenario": "segment_winners",
+   "ctrMode": "realistic",
+   "horizon": 400000,
+   "arms": [
+    {
+     "ad_copy_overall": 0.86,
+     "visual_overall": 0.78,
+     "trend_authenticity": 0.9,
+     "audience_fit": 0.7,
+     "stopping_power": 0.8,
+     "clarity": 0.9
+    },
+    {
+     "ad_copy_overall": 0.72,
+     "visual_overall": 0.8,
+     "trend_authenticity": 0.6,
+     "audience_fit": 0.9,
+     "stopping_power": 0.6
+    },
+    {
+     "ad_copy_overall": 0.64,
+     "visual_overall": 0.7,
+     "trend_authenticity": 0.7,
+     "audience_fit": 0.5,
+     "stopping_power": 0.9
+    }
+   ],
+   "overrides": {
+    "segmentMix": [
+     0.55,
+     0.05,
+     0.3,
+     0.1
+    ]
+   },
+   "shifts": [
+    {
+     "kind": "promote",
+     "atFrac": 0.25,
+     "segment": "trend_followers",
+     "creativeId": "arm-2",
+     "liftPp": 0.003
+    },
+    {
+     "kind": "shock",
+     "atFrac": 0.5,
+     "untilFrac": 0.8,
+     "segment": null,
+     "creativeId": "arm-0",
+     "ctrMultiplier": 1.5
+    }
+   ],
+   "expected": {
+    "segments": [
+     "mobile_scrollers",
+     "trend_followers",
+     "product_intenders",
+     "late_night_casual"
+    ],
+    "alpha": -4.9495616,
+    "resolved": [
+     {
+      "index": 0,
+      "kind": "promote",
+      "round": 100000,
+      "endRound": null,
+      "creativeIndex": 2,
+      "segment": "trend_followers",
+      "segmentWeights": null,
+      "targets": [
+       {
+        "segment": "trend_followers",
+        "ctrBefore": 0.0064004775,
+        "bestOtherCtr": 0.0093899673,
+        "ctrAfter": 0.0123899673,
+        "logitOffset": 0.6665607837
+       }
+      ]
+     },
+     {
+      "index": 1,
+      "kind": "shock",
+      "round": 200000,
+      "endRound": 320000,
+      "creativeIndex": 0,
+      "segment": null,
+      "segmentWeights": null,
+      "targets": [
+       {
+        "segment": "mobile_scrollers",
+        "ctrBefore": 0.007354497,
+        "ctrAfter": 0.0110317455
+       },
+       {
+        "segment": "trend_followers",
+        "ctrBefore": 0.0093899673,
+        "ctrAfter": 0.014084951
+       },
+       {
+        "segment": "product_intenders",
+        "ctrBefore": 0.0072927027,
+        "ctrAfter": 0.010939054
+       },
+       {
+        "segment": "late_night_casual",
+        "ctrBefore": 0.0101600577,
+        "ctrAfter": 0.0152400865
+       }
+      ]
+     }
+    ],
+    "regimes": [
+     {
+      "start": 0,
+      "end": 100000,
+      "active": [],
+      "segmentWeights": [
+       0.55,
+       0.05,
+       0.3,
+       0.1
+      ],
+      "ctr": [
+       [
+        0.0073553342,
+        0.0093904045,
+        0.0072935483,
+        0.0101612598
+       ],
+       [
+        0.0071195215,
+        0.0068292948,
+        0.0100327407,
+        0.0073905571
+       ],
+       [
+        0.0101168797,
+        0.0064026971,
+        0.0058154815,
+        0.0064623919
+       ]
+      ],
+      "oracle": [
+       2,
+       0,
+       1,
+       0
+      ],
+      "overall": [
+       0.0077191445,
+       0.0080060795,
+       0.0082753023
+      ]
+     },
+     {
+      "start": 100000,
+      "end": 200000,
+      "active": [
+       0
+      ],
+      "segmentWeights": [
+       0.55,
+       0.05,
+       0.3,
+       0.1
+      ],
+      "ctr": [
+       [
+        0.0073553342,
+        0.0093904045,
+        0.0072935483,
+        0.0101612598
+       ],
+       [
+        0.0071195215,
+        0.0068292948,
+        0.0100327407,
+        0.0073905571
+       ],
+       [
+        0.0101168797,
+        0.0123941867,
+        0.0058154815,
+        0.0064623919
+       ]
+      ],
+      "oracle": [
+       2,
+       2,
+       1,
+       0
+      ],
+      "overall": [
+       0.0077191445,
+       0.0080060795,
+       0.0085748768
+      ]
+     },
+     {
+      "start": 200000,
+      "end": 320000,
+      "active": [
+       0,
+       1
+      ],
+      "segmentWeights": [
+       0.55,
+       0.05,
+       0.3,
+       0.1
+      ],
+      "ctr": [
+       [
+        0.0110330013,
+        0.0140856067,
+        0.0109403224,
+        0.0152418897
+       ],
+       [
+        0.0071195215,
+        0.0068292948,
+        0.0100327407,
+        0.0073905571
+       ],
+       [
+        0.0101168797,
+        0.0123941867,
+        0.0058154815,
+        0.0064623919
+       ]
+      ],
+      "oracle": [
+       0,
+       0,
+       0,
+       0
+      ],
+      "overall": [
+       0.0115787167,
+       0.0080060795,
+       0.0085748768
+      ]
+     },
+     {
+      "start": 320000,
+      "end": 400000,
+      "active": [
+       0
+      ],
+      "segmentWeights": [
+       0.55,
+       0.05,
+       0.3,
+       0.1
+      ],
+      "ctr": [
+       [
+        0.0073553342,
+        0.0093904045,
+        0.0072935483,
+        0.0101612598
+       ],
+       [
+        0.0071195215,
+        0.0068292948,
+        0.0100327407,
+        0.0073905571
+       ],
+       [
+        0.0101168797,
+        0.0123941867,
+        0.0058154815,
+        0.0064623919
+       ]
+      ],
+      "oracle": [
+       2,
+       2,
+       1,
+       0
+      ],
+      "overall": [
+       0.0077191445,
+       0.0080060795,
+       0.0085748768
+      ]
+     }
+    ]
+   }
+  }
+ ]
+}

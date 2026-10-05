@@ -5,8 +5,10 @@ sliders from the scenario presets and runs a noise-free port of
 ``bandit.environment.build_true_model`` for its live preview
 (``frontend/src/lib/scenario-preview.ts``). Both read this JSON, generated from
 ``bandit/scenarios/*.yaml``, ``bandit.config.BASE_MARGINALS`` /
-``OVERRIDE_BOUNDS`` and the ``ctx-v1`` feature spec (``bandit.features``), so the
-frontend never hand-copies simulator constants.
+``OVERRIDE_BOUNDS``, the scripted-shift constants (``SHIFT_KINDS``,
+``SHIFT_BOUNDS``, ``MAX_SHIFTS``, ``SHIFT_MIN_WINDOW``; contracts §10) and the
+``ctx-v1`` feature spec (``bandit.features``), so the frontend never hand-copies
+simulator constants.
 
     uv run python scripts/gen_scenario_presets.py          # rewrite the JSON
     uv run python scripts/gen_scenario_presets.py --check  # exit 1 if stale
@@ -29,12 +31,22 @@ if str(ROOT) not in sys.path:  # run as a script: make the flat packages importa
 from bandit import features  # noqa: E402
 from bandit.config import (  # noqa: E402
     BASE_MARGINALS,
+    LEADER,
+    MAX_SHIFTS,
     OVERRIDE_BOUNDS,
     SCENARIOS,
+    SHIFT_BOUNDS,
+    SHIFT_KINDS,
+    SHIFT_MIN_WINDOW,
     load_scenario,
 )
 
 OUTPUT = ROOT / "frontend" / "src" / "lib" / "scenario-presets.generated.json"
+
+
+def _camel(name: str) -> str:
+    head, *rest = name.split("_")
+    return head + "".join(part.title() for part in rest)
 
 
 def _scenario(name: str) -> dict[str, Any]:
@@ -82,6 +94,15 @@ def build_presets() -> dict[str, Any]:
         "featureNames": features.feature_names(),
         "baseMarginals": BASE_MARGINALS,
         "overrideBounds": {k: list(v) for k, v in OVERRIDE_BOUNDS.items()},
+        # contracts §10; liftPp / dropPp bounds are demo CTR points, scaled by
+        # targetCtr[ctrMode] / targetCtr.demo for the run's ctr mode
+        "shifts": {
+            "kinds": list(SHIFT_KINDS),
+            "maxShifts": MAX_SHIFTS,
+            "minWindow": SHIFT_MIN_WINDOW,
+            "leader": LEADER,
+            "bounds": {_camel(k): list(v) for k, v in SHIFT_BOUNDS.items()},
+        },
         "scenarios": {name: _scenario(name) for name in SCENARIOS},
     }
 
