@@ -967,7 +967,8 @@ Old, untagged, 0%-traffic revisions are safe to leave (they cost nothing idle) o
 
 **api: don't keep tagged old revisions around.** A tagged api revision isn't idle: with
 `--min-instances 1` it keeps an instance up that runs the background loops (the bandit TTL
-reaper, which also resumes `deploying` experiments and tears down expired ones). On
+reaper, which also resumes `deploying` experiments, finishes traffic runs and tears down
+expired ones). On
 2026-10-05 an old revision behind a rollback tag resumed a bandit deploy the live revision
 was already running and uploaded a duplicate Vertex model. So after a new api revision is
 verified **and** traffic is pinned to it, remove the api's rollback tag (for example `prev`,
@@ -1183,6 +1184,19 @@ ALTER TABLE `$PROJECT.trend_trawler_eval.bandit_experiments`
 
 Older api revisions keep working on the migrated table (a partial update ignores columns it
 doesn't know), but they don't respect the lease, so remove their tags (below).
+
+**Migration: `policy_discount` (contracts §7 "Discount calibration", 2026-10-05).**
+`bandit_experiments` gained `policy_discount FLOAT`, the endpoint's LinTS discount γ. The api
+writes it only for experiments whose endpoint forgets (the `drift` scenario), so other
+deploys keep working on an unmigrated table, but a **drift** deploy would fail its MERGE. Run
+this on **both** datasets before deploying the api that writes it:
+
+```sql
+ALTER TABLE `$PROJECT.trend_trawler.bandit_experiments`
+  ADD COLUMN IF NOT EXISTS policy_discount FLOAT64;
+ALTER TABLE `$PROJECT.trend_trawler_eval.bandit_experiments`
+  ADD COLUMN IF NOT EXISTS policy_discount FLOAT64;
+```
 
 **Old revisions run the background loops too.** Every api instance runs the TTL reaper (every
 5 minutes), and both the reaper and the detail GET resume `deploying` rows and tear down

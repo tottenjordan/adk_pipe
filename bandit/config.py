@@ -608,6 +608,36 @@ def scenario_noise_var(scenario: str, ctr_mode: str, reward_mode: str) -> float:
     return default_noise_var(load_scenario(scenario).target_ctr[ctr_mode], reward_mode)
 
 
+#: Effective memory, in rounds, of the endpoint's discounted posterior per scenario
+#: and ctr mode (contracts §7). Only ``drift`` forgets: a discount costs the
+#: stationary scenarios regret (docs/experiments/bandit-simulation.md, "Discount
+#: sweep"). The window is 1/8 of the preset horizon (5k of 40k demo rounds, 50k of
+#: 400k realistic ones), the flat optimum of that sweep. ``runserver`` duplicates
+#: this table and ``discount_for_memory`` (parity-tested).
+DISCOUNT_MEMORY_ROUNDS: dict[str, dict[str, int]] = {
+    "drift": {"demo": 5000, "realistic": 50000},
+}
+
+
+def discount_for_memory(memory_rounds: float, batch_size: int = 100) -> float:
+    """Per-update discount γ for an effective memory of ``memory_rounds`` rounds.
+
+    ``update`` applies γ once per batch, so evidence from ``b`` batches ago keeps
+    weight γᵇ; with γ = exp(-batch_size / N) a round ``t`` rounds old keeps
+    exp(-t / N), i.e. an exponential window of N rounds (equivalently
+    N ≈ batch_size / (1 - γ) for γ near 1). Rounded to 3 decimals."""
+    if not memory_rounds > 0 or not batch_size > 0:
+        raise ValueError("memory_rounds and batch_size must be > 0")
+    return round(math.exp(-batch_size / memory_rounds), 3)
+
+
+def default_discount(scenario: str, ctr_mode: str, batch_size: int = 100) -> float:
+    """The endpoint's ``policy.discount`` for an experiment: forgetting with the
+    ``DISCOUNT_MEMORY_ROUNDS`` window where one is set (``drift``), else 1.0."""
+    memory = DISCOUNT_MEMORY_ROUNDS.get(scenario, {}).get(ctr_mode)
+    return discount_for_memory(memory, batch_size) if memory else 1.0
+
+
 def reward_scale(scenario: str, reward_mode: str) -> float:
     """Divisor applied to rewards before a policy update: the scenario's base
     dwell for ``engaged`` (so rewards are ~Exponential(1)-scaled, matching

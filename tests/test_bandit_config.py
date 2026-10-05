@@ -116,6 +116,46 @@ def test_scenario_noise_var_matches_sim_default(scenario, ctr_mode, reward_mode)
     assert nv < LinTSParams().noise_var  # the 0.25 default over-explores
 
 
+def test_discount_from_memory_window():
+    """γ = exp(-batch / N): a memory of N rounds, applied once per batch."""
+    from bandit.config import discount_for_memory
+
+    assert discount_for_memory(5000, 100) == 0.98
+    assert discount_for_memory(50000, 100) == 0.998
+    assert discount_for_memory(5000, 200) == pytest.approx(
+        math.exp(-200 / 5000), abs=5e-4
+    )
+    with pytest.raises(ValueError):
+        discount_for_memory(0, 100)
+
+
+@pytest.mark.parametrize("ctr_mode", ["demo", "realistic"])
+def test_default_discount_forgets_only_in_drift(ctr_mode):
+    from bandit.config import (
+        DISCOUNT_MEMORY_ROUNDS,
+        default_discount,
+        validate_lints_params,
+    )
+
+    assert set(DISCOUNT_MEMORY_ROUNDS) == {"drift"}
+    assert default_discount("clear_winner", ctr_mode) == 1.0
+    assert default_discount("segment_winners", ctr_mode) == 1.0
+    assert default_discount("unknown", ctr_mode) == 1.0
+    gamma = default_discount("drift", ctr_mode)
+    assert 0.9 < gamma < 1.0
+    validate_lints_params(LinTSParams(discount=gamma))
+    # the memory is a fixed fraction (1/8) of the scenario's horizon in both modes
+    horizon = load_scenario("drift").horizon[ctr_mode]
+    assert DISCOUNT_MEMORY_ROUNDS["drift"][ctr_mode] * 8 == horizon
+
+
+def test_default_discount_values():
+    from bandit.config import default_discount
+
+    assert default_discount("drift", "demo") == 0.98
+    assert default_discount("drift", "realistic") == 0.998
+
+
 def test_reward_scale_is_base_dwell_for_engaged_only():
     from bandit.config import reward_scale
 

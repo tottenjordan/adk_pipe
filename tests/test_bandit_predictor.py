@@ -334,6 +334,46 @@ def test_loads_config_with_scenario_overrides(tmp_path):
         _predictor(_write_config(tmp_path / "bad", scenario_overrides={"surprise": 1}))
 
 
+def _flip_run(p, before: int, after: int, batch: int = 100) -> float:
+    """c1 pays until ``before`` batches, then only c2 pays for ``after`` batches
+    (the drift swap); returns c2's mean probability on a final decision batch."""
+    for b in range(before + after):
+        winner = "c1" if b < before else "c2"
+        preds = run(p, _decisions(batch, prefix=f"b{b}-"))
+        rewards = _rewards(preds)
+        for r in rewards:
+            r["reward"] = 1.0 if r["arm"] == winner else 0.0
+            r["clicked"] = int(r["reward"] > 0)
+        run(p, rewards)
+    final = run(p, _decisions(batch, prefix="final-"))
+    return float(np.mean([d["arm_probabilities"]["c2"] for d in final]))
+
+
+def test_discounted_config_forgets_after_a_flip(tmp_path):
+    """The endpoint honours ``policy.discount`` (contracts §7): after the best
+    creative flips, a discounted posterior moves to the new winner while a
+    full-memory one is still anchored to the old one."""
+    arms = ARMS[:2]
+    full = _predictor(
+        _write_config(tmp_path / "full", arms=arms, scenario="drift", seed=3)
+    )
+    forget = _predictor(
+        _write_config(
+            tmp_path / "forget",
+            arms=arms,
+            scenario="drift",
+            seed=3,
+            policy={"discount": 0.8},
+        )
+    )
+    assert full.params.discount == 1.0 and forget.params.discount == 0.8
+    p_full = _flip_run(full, before=20, after=4, batch=50)
+    p_forget = _flip_run(forget, before=20, after=4, batch=50)
+    assert p_forget > 0.9
+    assert p_full < 0.5
+    assert _state(forget)["pulls"]["c2"] > 0
+
+
 def test_engaged_rewards_are_scaled_by_base_dwell(tmp_path):
     click = _predictor(_write_config(tmp_path / "a", policy={"noise_var": 0.1}))
     engaged = _predictor(

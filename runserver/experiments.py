@@ -78,6 +78,10 @@ HORIZON_RANGE = (1000, 400000)
 TERMINAL_STATUSES = ("stopped", "failed", "expired")
 DEFAULT_TRAFFIC_JOB = "trend-trawler-bandit-traffic"
 REAPER_INTERVAL_SECONDS = 300.0
+#: The light pass between full reaper passes: only re-checks the ``running_traffic``
+#: rows this process knows about (``_TRAFFIC_WATCH``), one point read each, so an
+#: idle api issues no BigQuery queries for it.
+TRAFFIC_WATCH_INTERVAL_SECONDS = 60.0
 
 # (status, event) -> next status. Anything else is an InvalidTransition.
 _TRANSITIONS: dict[str, dict[str, str]] = {
@@ -175,7 +179,16 @@ def to_summary(row: Mapping[str, Any]) -> dict:
         ),
         "error": row.get("error") or None,
         "scenarioOverrides": overrides_to_camel(row.get("scenario_overrides")),
+        # Recorded only for an endpoint that forgets (contracts §7); every older
+        # or non-drift experiment ran with full memory.
+        "policyDiscount": _discount_or_one(row.get("policy_discount")),
     }
+
+
+def _discount_or_one(value: Any) -> float:
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return 1.0
+    return float(value) if 0.0 < value <= 1.0 else 1.0
 
 
 # --- Arm snapshot ---------------------------------------------------------------
@@ -360,6 +373,24 @@ def default_noise_var(scenario: str, ctr_mode: str, reward_mode: str) -> float:
     return round(p * (1 - p), 6)
 
 
+#: The endpoint's effective memory in rounds per scenario/ctr mode, and the
+#: γ = exp(-batch/N) rule, duplicated from ``bandit.config`` (contracts §7; runserver
+#: never imports it). ``tests/test_experiments_api.py`` asserts parity with
+#: ``bandit.config.default_discount``. Only drift forgets.
+DISCOUNT_MEMORY_ROUNDS: dict[str, dict[str, int]] = {
+    "drift": {"demo": 5000, "realistic": 50000},
+}
+
+
+def default_discount(scenario: str, ctr_mode: str, batch_size: int = 100) -> float:
+    """Per-batch LinTS discount γ = exp(-batch_size / N) for the scenario's memory
+    window N (3 decimals), or 1.0 (full memory) where none is set."""
+    memory = DISCOUNT_MEMORY_ROUNDS.get(scenario, {}).get(ctr_mode)
+    if not memory or batch_size <= 0:
+        return 1.0
+    return round(math.exp(-batch_size / memory), 3)
+
+
 #: Segments per scenario preset (``len(load_scenario(name).segments)``) and the
 #: inclusive override bounds, duplicated from ``bandit`` (contracts §9; runserver
 #: never imports it). ``tests/test_experiments_api.py`` asserts parity.
@@ -498,6 +529,7 @@ def build_experiment_config(
         "policy": {
             **DEFAULT_POLICY,
             "noise_var": default_noise_var(scenario, ctr_mode, reward_mode),
+            "discount": default_discount(scenario, ctr_mode, batch_size),
             **(policy or {}),
         },
     }
@@ -639,6 +671,10 @@ _BACKGROUND_TASKS: set[asyncio.Task] = set()
 _DEPLOY_TASKS: dict[str, asyncio.Task] = {}
 _TEARDOWN_TASKS: dict[str, asyncio.Task] = {}
 _TRAFFIC_STARTING: set[str] = set()
+# running_traffic experiments to re-check on the light pass (added on traffic start,
+# reconcile and the full reaper pass; dropped once the row leaves running_traffic).
+_TRAFFIC_WATCH: set[str] = set()
+_FINISH_TASKS: dict[str, asyncio.Task] = {}
 _LOCKS: dict[str, asyncio.Lock] = {}
 # /creatives cache: experiment_id -> (expires_at monotonic | None = forever, body).
 # Live traffic refreshes every 30 s; a stopped/expired experiment's data is final.
@@ -670,6 +706,8 @@ def configure(
     _DEPLOY_TASKS.clear()
     _TEARDOWN_TASKS.clear()
     _TRAFFIC_STARTING.clear()
+    _TRAFFIC_WATCH.clear()
+    _FINISH_TASKS.clear()
     _LOCKS.clear()
     _SERIES_CACHE.clear()
 
@@ -708,13 +746,21 @@ async def _update(experiment_id: str, **changes: Any) -> dict | None:
 
 
 async def _transition(
-    experiment_id: str, event: str, **changes: Any
+    experiment_id: str,
+    event: str,
+    *,
+    expect: Mapping[str, Any] | None = None,
+    **changes: Any,
 ) -> tuple[dict | None, bool]:
-    """Apply ``event`` (plus ``changes``) if allowed; returns ``(row, applied)``."""
+    """Apply ``event`` (plus ``changes``) if allowed; returns ``(row, applied)``.
+    ``expect``: column values the freshly read row must still have, else the
+    transition is skipped (guards decisions made on a stale read)."""
     async with _lock(experiment_id):
         row = await _STORE.get(experiment_id)
         if row is None:
             return None, False
+        if expect and any(row.get(k) != v for k, v in expect.items()):
+            return row, False
         try:
             status = next_status(row["status"], event)
         except InvalidTransition:
@@ -888,6 +934,7 @@ async def reconcile(row: dict, now: dt.datetime | None = None) -> dict:
                 _start_teardown_quietly(failed)
             return failed or row
         if status == "running_traffic":
+            _TRAFFIC_WATCH.add(eid)
             row = await _maybe_finish_traffic(row)
     return row
 
@@ -905,6 +952,12 @@ def _start_teardown_quietly(row: dict) -> None:
 
 
 async def _maybe_finish_traffic(row: dict) -> dict:
+    """``running_traffic`` -> ``ready`` once the job's progress shows every episode
+    done or its execution reached a terminal state. Idempotent: the state machine
+    rejects a second ``traffic_done``, and ``expect`` skips the transition if the
+    row has moved on to a newer traffic execution since ``row`` was read."""
+    if row.get("status") != "running_traffic":
+        return row
     raw = row.get("progress")
     progress: Mapping[str, Any] = raw if isinstance(raw, Mapping) else {}
     total = int(progress.get("episodes_total") or 0)
@@ -917,17 +970,71 @@ async def _maybe_finish_traffic(row: dict) -> dict:
     changes: dict[str, Any] = {}
     if job_state == "failed":
         changes["error"] = "traffic job failed (see the Cloud Run execution logs)"
-    updated, _ = await _transition(row["experiment_id"], "traffic_done", **changes)
+    updated, applied = await _transition(
+        row["experiment_id"],
+        "traffic_done",
+        expect={"traffic_execution": row.get("traffic_execution")},
+        **changes,
+    )
+    if applied:
+        _TRAFFIC_WATCH.discard(row["experiment_id"])
+        log.info("bandit traffic %s finished (job %s)", row["experiment_id"], job_state)
     return updated or row
 
 
+async def _finish_quietly(row: dict) -> str | None:
+    """``_maybe_finish_traffic`` for a background pass: returns the id if the row
+    left ``running_traffic``; errors are logged, never raised."""
+    try:
+        updated = await _maybe_finish_traffic(row)
+    except Exception:
+        log.exception("bandit traffic finish check %s", row["experiment_id"])
+        return None
+    if updated.get("status") != "running_traffic":
+        _TRAFFIC_WATCH.discard(row["experiment_id"])
+        return row["experiment_id"]
+    return None
+
+
+async def finish_traffic_pass(now: dt.datetime | None = None) -> list[str]:
+    """The light pass: re-check each watched ``running_traffic`` row (one point
+    read each; nothing when idle). Expired rows are left to the full pass.
+    Returns the ids whose traffic finished."""
+    now = now or _utcnow()
+    rows: list[dict] = []
+    for eid in sorted(_TRAFFIC_WATCH):
+        try:
+            row = await _STORE.get(eid)
+        except Exception:
+            log.exception("bandit traffic watch read %s", eid)
+            continue
+        if row is None or row.get("status") != "running_traffic":
+            _TRAFFIC_WATCH.discard(eid)
+        elif not is_expired(row, now):
+            rows.append(row)
+    done = await asyncio.gather(*(_finish_quietly(r) for r in rows))
+    return [eid for eid in done if eid]
+
+
+def _kick_finish_check(row: Mapping[str, Any]) -> None:
+    """Page activity (``/metrics``, ``/creatives``) also advances a finished
+    traffic run, in the background so the GET isn't slowed by the job probe."""
+    eid = row["experiment_id"]
+    if row.get("status") != "running_traffic" or _live(_FINISH_TASKS, eid):
+        return
+    _TRAFFIC_WATCH.add(eid)
+    _spawn(_finish_quietly(dict(row)), _FINISH_TASKS, eid)
+
+
 async def reap_expired(now: dt.datetime | None = None) -> list[str]:
-    """One reaper pass: tear down expired experiments (status ``expired``), and
-    resume deploys / teardowns whose task died with a previous api revision.
-    Returns the ids it expired."""
+    """One reaper pass: tear down expired experiments (status ``expired``), resume
+    deploys / teardowns whose task died with a previous api revision, and finish
+    ``running_traffic`` rows whose job is done (also those another process
+    started, which the light pass then watches). Returns the ids it expired."""
     now = now or _utcnow()
     expired: list[str] = []
     tasks: list[asyncio.Task] = []
+    finishing: list[dict] = []
     for row in await _STORE.list_active():
         eid, status = row["experiment_id"], row["status"]
         if is_expired(row, now) and status != "stopping":
@@ -937,23 +1044,45 @@ async def reap_expired(now: dt.datetime | None = None) -> list[str]:
             _start_deploy(eid)
         elif status == "stopping" and not _live(_TEARDOWN_TASKS, eid):
             tasks.append(_start_teardown(eid, "torn_down"))
+        elif status == "running_traffic":
+            _TRAFFIC_WATCH.add(eid)
+            finishing.append(row)
+    if finishing:
+        await asyncio.gather(*(_finish_quietly(r) for r in finishing))
     if tasks:
         await asyncio.gather(*tasks, return_exceptions=True)
     return expired
 
 
-async def reaper_loop(interval: float = REAPER_INTERVAL_SECONDS) -> None:
+async def reaper_loop(
+    interval: float = REAPER_INTERVAL_SECONDS,
+    *,
+    watch_interval: float = TRAFFIC_WATCH_INTERVAL_SECONDS,
+) -> None:
+    """A full pass (``reap_expired``, one ``list_active`` query) every ``interval``
+    seconds and the light ``finish_traffic_pass`` every ``watch_interval`` between
+    them, so a finished traffic job advances within about a minute even when
+    nobody has the experiment page open."""
+    next_full = 0.0
     while True:
         try:
-            if expired := await reap_expired():
-                log.info("bandit reaper expired %s", expired)
+            if time.monotonic() >= next_full:
+                next_full = time.monotonic() + interval
+                if expired := await reap_expired():
+                    log.info("bandit reaper expired %s", expired)
+            elif _TRAFFIC_WATCH:
+                await finish_traffic_pass()
         except Exception:
             log.exception("bandit reaper pass failed")
-        await asyncio.sleep(interval)
+        await asyncio.sleep(min(interval, watch_interval))
 
 
-def start_reaper(interval: float = REAPER_INTERVAL_SECONDS) -> asyncio.Task:
-    return _spawn(reaper_loop(interval))
+def start_reaper(
+    interval: float = REAPER_INTERVAL_SECONDS,
+    *,
+    watch_interval: float = TRAFFIC_WATCH_INTERVAL_SECONDS,
+) -> asyncio.Task:
+    return _spawn(reaper_loop(interval, watch_interval=watch_interval))
 
 
 # --- Routes ---------------------------------------------------------------------
@@ -1101,6 +1230,10 @@ async def http_create_experiment(body: _CreateBody, request: Request) -> dict:
         # column, so it keeps working against a table not yet migrated (§9).
         if overrides:
             row["scenario_overrides"] = overrides
+        # Same rule for the discount: only a forgetting (drift) endpoint names it.
+        discount = float(config["policy"]["discount"])
+        if discount < 1.0:
+            row["policy_discount"] = discount
         await _STORE.upsert(row)
     _start_deploy(experiment_id)
     return {"experimentId": experiment_id, "status": "deploying"}
@@ -1121,6 +1254,7 @@ async def http_get_experiment(user_id: str, experiment_id: str) -> dict:
 @router.get("/experiments/{user_id}/{experiment_id}/metrics")
 async def http_get_metrics(user_id: str, experiment_id: str) -> dict:
     row = await _owned(user_id, experiment_id)
+    _kick_finish_check(row)
     rows = await _STORE.metrics_rows(experiment_id)
     arm_order = [a.get("creativeId") for a in row.get("arms") or []]
     return aggregate_episode_metrics(rows, experiment_id, arm_order=arm_order)
@@ -1155,6 +1289,7 @@ def _series_cache_put(experiment_id: str, status: str, body: dict) -> None:
 async def http_get_creative_series(user_id: str, experiment_id: str) -> dict:
     """Per-creative windowed time series from ``bandit_events`` (contracts §8)."""
     row = await _owned(user_id, experiment_id)
+    _kick_finish_check(row)
     cached = _series_cache_get(experiment_id)
     if cached is not None:
         return cached
@@ -1217,6 +1352,8 @@ async def http_start_traffic(
             progress={"episodes_done": 0, "episodes_total": body.episodes},
             error=None,
         )
+        if applied:
+            _TRAFFIC_WATCH.add(experiment_id)
     finally:
         _TRAFFIC_STARTING.discard(experiment_id)
     if not applied:
