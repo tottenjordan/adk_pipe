@@ -11,6 +11,7 @@ measurement harnesses (see [../experiments/README.md](../experiments/README.md))
 # construction resolves the project eagerly
 uv run pytest tests/ -v
 uv run pytest tests/ -q -n 4   # parallel (pytest-xdist); CI uses -n 4. Avoid -n auto: per-worker agent imports make it slower
+uv run pytest tests/ -q -n 6 -m "not slow"  # fast local loop: skips the multi-second tests (CI runs everything)
 uv run pytest -m "not subprocess"  # skip the child-process tests (fresh-import guards, shell entrypoint)
 
 # ADK evals — end-to-end LLM-as-judge (real API calls, ~5 min per case)
@@ -24,7 +25,8 @@ PYTHONPATH="$PWD" uv run adk eval creative_agent tests/eval/evalsets/creative_ag
 
 Pytest config lives in `pyproject.toml` `[tool.pytest.ini_options]`: `testpaths`,
 `pythonpath = ["."]` (so tests import the flat packages without `sys.path` hacks), the
-`subprocess` marker, and `filterwarnings` scoped to known third-party noise only.
+`subprocess` and `slow` markers (`slow` = notebook-parity smoke, scenario-preview
+goldens, `test_build_image.py`), and `filterwarnings` scoped to known third-party noise only.
 
 See [CLAUDE.md](../CLAUDE.md) for the full testing notes (eval invocation gotchas,
 per-agent rubric configs, integration tests).
@@ -134,7 +136,9 @@ tests/
   ctr-mode-scaled bounds, common random numbers between shifted and unshifted
   environments, each kind's effect at its round, time-order `"leader"` resolution,
   drift composition, `shift_response` / `merge_checkpoints` / `regime_stats`, and the
-  CLI. `test_scenario_preview_golden.py` also writes the after-shift preview fixture.
+  CLI. `test_scenario_preview_golden.py` also checks the after-shift preview fixture.
+  The golden fixtures are only written with `UPDATE_PREVIEW_GOLDEN=1`; a missing one
+  fails the test instead of being regenerated silently.
   `test_bandit_endpoint_parity.py` drives the real `BanditPredictor` through the traffic
   loop and checks that its LinTS picks the simulator's arms round for round (contracts §2
   policy stream: click/engaged, discount, request splitting, and the §10 ghost up to the

@@ -66,6 +66,7 @@ testpaths = ["tests"]
 pythonpath = ["."]
 markers = [
     "subprocess: spawns a child process (fresh-import guards, shell entrypoint)",
+    "slow: multi-second test (JAX compile, golden regeneration, image staging); skip locally with -m 'not slow'",
 ]
 # Silence only known third-party noise, scoped by message + category (+ module),
 # so any new first-party DeprecationWarning still surfaces.

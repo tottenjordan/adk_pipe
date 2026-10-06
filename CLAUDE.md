@@ -71,6 +71,7 @@ cd frontend && npm run test:watch  # watch mode
 # client, exercised by tests) resolves the project eagerly
 uv run pytest tests/ -v
 uv run pytest tests/ -q -n 4   # parallel via pytest-xdist (~2x faster; -n auto is SLOWER — each worker re-imports the agents)
+uv run pytest tests/ -q -n 6 -m "not slow"   # fast local loop (skips JAX-compile/golden/image-staging tests; CI runs all)
 
 # ADK evals — end-to-end agent evaluation with LLM-as-judge (real API calls, ~5 min per case)
 PYTHONPATH="$PWD" uv run adk eval trend_scout tests/eval/evalsets/trend_scout_evalset.json \
