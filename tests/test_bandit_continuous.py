@@ -10,8 +10,18 @@ import jax
 import numpy as np
 import pytest
 
+from bandit import environment as envm
 from bandit import simulate
-from bandit.config import build_sim_config, resolve_scenario
+from bandit.config import (
+    LEARNING_MODES,
+    MAX_CONTINUOUS_ROUNDS,
+    build_sim_config,
+    continuous_world_config,
+    resolve_scenario,
+    shifts_from_dict,
+    validate_continuous_run,
+    validate_shifts,
+)
 from bandit.policies import make_policy
 from tests._bandit_sizes import BATCH, HORIZON_S
 
@@ -81,3 +91,63 @@ def test_run_segment_final_state_counts_every_round():
     assert jax.tree_util.tree_structure(state) == jax.tree_util.tree_structure(
         pol.init(env.num_arms, int(env.model.theta.shape[1]))
     )
+
+
+# ------------------------------------------- the whole-run world (contracts §11)
+
+
+def test_continuous_world_config_spans_the_whole_run():
+    cfg = build_sim_config("drift", horizon=T, batch_size=BS, episodes=SEGMENTS)
+    world = continuous_world_config(cfg)
+    assert world.horizon == SEGMENTS * T and world.episodes == 1
+    assert (world.seed, world.scenario, world.arms) == (
+        cfg.seed,
+        cfg.scenario,
+        cfg.arms,
+    )
+    # the total may exceed the per-episode horizon cap (1e6), up to 2e6
+    big = build_sim_config("drift", horizon=400_000, batch_size=BS, episodes=5)
+    assert continuous_world_config(big).horizon == MAX_CONTINUOUS_ROUNDS == 2_000_000
+
+
+@pytest.mark.parametrize(
+    ("episodes", "horizon", "batch_size", "field"),
+    [
+        (6, 400_000, 100, "episodes"),  # 2.4M rounds > 2M
+        (2, 1_050, 100, "horizon"),  # a batch would straddle segments
+    ],
+)
+def test_validate_continuous_run_rejects(episodes, horizon, batch_size, field):
+    with pytest.raises(ValueError, match=field):
+        validate_continuous_run(episodes, horizon, batch_size)
+    assert validate_continuous_run(5, 400_000, 100) == 2_000_000
+    assert LEARNING_MODES == ("per_episode", "continuous")
+
+
+def test_drift_flips_once_over_the_whole_run():
+    cfg = build_sim_config("drift", horizon=T, batch_size=BS, episodes=SEGMENTS)
+    sc = resolve_scenario(cfg)
+    env = simulate.build_environment(continuous_world_config(cfg), scenario=sc)
+    H = SEGMENTS * T
+    flip = sc.drift.at_frac * H
+    assert float(env.model.drift_start) == flip  # abrupt drift
+    t = np.arange(H)
+    w = np.asarray(envm.drift_weight(env.model, t))
+    np.testing.assert_array_equal(w, (t >= flip).astype(np.float32))
+    # once per run, not once per segment
+    assert int(np.sum(np.diff(w) != 0)) == 1
+
+
+def test_shift_resolves_against_the_whole_run():
+    cfg = build_sim_config(
+        "segment_winners", horizon=T, batch_size=BS, episodes=SEGMENTS
+    )
+    sc = resolve_scenario(cfg)
+    demote = {"kind": "demote", "at_frac": 0.5, "creative_id": "leader"}
+    shifts = validate_shifts(
+        shifts_from_dict([{**demote, "drop_pp": 0.015}]), sc, cfg.arms, cfg.ctr_mode
+    )
+    env = simulate.build_environment(
+        continuous_world_config(cfg), scenario=sc, shifts=shifts
+    )
+    assert [r["round"] for r in envm.resolved_shifts(env)] == [SEGMENTS * T // 2]
