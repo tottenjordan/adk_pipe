@@ -61,6 +61,11 @@ visual_concept_reviser = Agent(
     # apply, an LLM re-emit could only paraphrase away the merged direct edits.
     before_agent_callback=skip_reviser_without_notes,
     after_model_callback=callbacks.log_empty_turn_finish_reason,
+    # Same trend-motif + product guard as visual_concept_finalizer: a revision
+    # note must not drop either from the prompt that is rendered. (Not reached
+    # on the skip path: a before_agent reply ends the reviser's invocation, and
+    # the echoed concepts were already guarded by the finalizer.)
+    after_agent_callback=callbacks.ensure_trend_and_product_callback,
 )
 
 root_agent = Agent(

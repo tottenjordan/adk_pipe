@@ -133,6 +133,10 @@ class VisualConcept(BaseModel):
         default="",
         description="The chosen aspect ratio for this concept: '9:16' (default vertical reel), '1:1' (square feed), or '3:4' (portrait) — or the campaign-wide aspect-ratio override when one is set.",
     )
+    trend_motif: str = Field(
+        default="",
+        description="A short concrete VISUAL element from the trend (noun phrase, ≤8 words) that MUST appear verbatim in image_generation_prompt.",
+    )
     image_generation_prompt: str = Field(
         description="A draft prompt for image generation."
     )
@@ -166,6 +170,10 @@ class VisualConceptCritique(BaseModel):
     aspect_ratio: str = Field(
         default="",
         description="The chosen aspect ratio ('9:16', '1:1', or '3:4'), carried through from the draft.",
+    )
+    trend_motif: str = Field(
+        default="",
+        description="A short concrete VISUAL element from the trend (noun phrase, ≤8 words) that MUST appear verbatim in image_generation_prompt.",
     )
     image_generation_prompt: str = Field(
         description="The FINAL, refined image-generation prompt, written in the concept's chosen visual_style and at a length appropriate to that style."
@@ -224,6 +232,10 @@ class VisualConceptFinal(BaseModel):
     aspect_ratio: str = Field(
         default="",
         description="The final chosen aspect ratio ('9:16', '1:1', or '3:4') for this concept.",
+    )
+    trend_motif: str = Field(
+        default="",
+        description="A short concrete VISUAL element from the trend (noun phrase, ≤8 words) that MUST appear verbatim in image_generation_prompt.",
     )
     image_generation_prompt: str = Field(
         description="The final, revised image-generation prompt, written in the concept's chosen visual_style."

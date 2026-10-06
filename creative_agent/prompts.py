@@ -2,60 +2,67 @@
 
 # A prompting "grammar" for the
 # Nano Banana image model (config.image_gen_model). Deliberately STYLE-FIRST and
-# template-driven rather than a flat menu, and deliberately NOT photoreal-biased —
-# the goal is to accommodate many styles (cartoon, meme, sticker, 3D, anime,
-# minimalist, photoreal, …). It is spliced into the drafter/critic instructions at
-# author time, so it MUST NOT contain any `{...}` curly braces (ADK would treat
-# them as session-state tokens). Fill-in slots use [square brackets].
+# deliberately NOT photoreal-biased — the goal is to accommodate many styles
+# (cartoon, meme, sticker, 3D, anime, minimalist, photoreal, …). The palette
+# entries are DESCRIPTORS (when-to-use + cues), not fill-in sentence templates:
+# the prompt-writing model copied template openers verbatim, so every run looked
+# alike. Family names must match creative_agent/style_shortlist.py STYLE_GROUPS.
+# It is spliced into the drafter/critic instructions at author time, so it MUST
+# NOT contain any `{...}` curly braces (ADK would treat them as session-state
+# tokens). Any placeholder slots use [square brackets].
 IMAGE_PROMPT_GUIDE = """Here are best practices for writing prompts for a modern text-to-image model (Nano Banana). This is for a SINGLE STILL IMAGE used as a social-media ad creative (Instagram / TikTok feed & reels).
 
 <CORE_PRINCIPLES>
-- Be hyper-specific and concrete. Describe the scene as one coherent, vivid noun-phrase, not a keyword soup. "A [style] image of [subject] [doing action] in [setting], [lighting], [color/mood]" beats "product, nice, high quality".
-- NAME THE STYLE EXPLICITLY at the very start of the prompt (e.g. "A flat 2D vector cartoon of…", "A candid 35mm film photo of…", "A diecut sticker of…"). Do NOT default to photorealism — choose the style that fits the ad's tone and audience.
+- Be hyper-specific and concrete. Describe the scene as one coherent, vivid description — style, subject, action, setting, lighting, color and mood — not a keyword soup like "product, nice, high quality".
+- NAME THE STYLE EXPLICITLY at the start, in your own words tied to this scene. Do NOT copy the palette wording as an opener. Do NOT default to photorealism — choose the style that fits the ad's tone and audience.
 - Use POSITIVE, present-what-you-want framing. To exclude something, describe the desired alternative ("a clean empty background") rather than negatives ("no clutter"). If you must exclude, phrase it as a "semantic negative" ("the street is empty and quiet"), not "no cars".
 - State that it is a social-media advertisement and who it targets — the model composes framing/negative space differently for an ad than for a stock photo.
-- The model renders LEGIBLE IN-IMAGE TEXT. When it strengthens the ad, put the headline, a short caption, a call-to-action button, or the brand name directly in the image and specify the exact words in quotes, plus font vibe and placement (e.g. bold sans-serif caption top-and-bottom for a meme).
+- In-image text is OPTIONAL and the most common way an image fails. Use it in at most 2 of the 4 concepts in a set (meme and comic captions are the exception, see below). When used: one short, punchy headline OR call-to-action, exact words in quotes, a named font vibe and a placement that differs from the other text concept. Never put words across the top by default. No small print, labels, setlists, spec callouts, UI screens full of text, or style/technical terms (e.g. never print the style name). Concepts without text should leave clean negative space for the platform's own caption.
+- Meme and comic exception: a Meme aesthetic concept may use its native caption format (e.g. classic top-and-bottom Impact captions, a faux-screenshot post) and a Comic panel may use speech bubbles. These captions are part of the joke, do NOT count toward the 2-concept text cap, and may be as long as the meme needs — but keep each caption to one or two punchy lines, in quotes, in big legible type; still no small print or style terms.
+- Every concept must show at least one concrete trend motif (an object, symbol, setting or gesture from the trend or the visual_direction motifs) so the image reads as on-trend without any text.
 - Length follows the style: a minimalist or sticker prompt should be short and clean; a cinematic photoreal scene should be long and layered. Detail where detail matters — do not pad to a word count.
 </CORE_PRINCIPLES>
 
 <STYLE_PALETTE>
-Pick ONE primary style family per concept. Each has a when-to-use and a fill-in template.
-- Photoreal / editorial: aspirational, premium, trust. "A photorealistic editorial photograph of [subject], [camera + lens e.g. 85mm], [studio or natural lighting], shallow depth of field, [color palette]."
-- Cinematic film still: dramatic, story-driven, emotive. "A cinematic film still of [subject], anamorphic widescreen feel, [dramatic lighting e.g. golden-hour rim light], moody [color grade], shot on 35mm."
-- 3D character render (Pixar/Blender-ish): playful, friendly, mascot-driven. "A charming 3D-rendered character of [subject], soft global illumination, rounded shapes, glossy [colors], Pixar-like."
-- 2D flat / vector cartoon: clean, modern, explainer, tech. "A flat 2D vector illustration of [subject], bold outlines, simple geometric shapes, limited [2-3 color] palette, generous negative space."
-- Anime / manga: youthful, energetic, fandom. "An anime-style illustration of [subject], cel shading, expressive eyes, dynamic pose, [vibrant palette]."
-- Comic panel: narrative, humorous, bold. "A comic-book panel of [subject], halftone shading, bold ink outlines, [speech bubble reading '…']."
-- Meme aesthetic: relatable, viral, humor-led. Choose a sub-form: bold Impact-caption meme ("[subject] with top caption '…' and bottom caption '…' in white Impact font with black outline"), faux-screenshot, or reaction-image. Keep it scrappy and authentic, not polished.
-- Diecut sticker: fun, collectible, playful branding. "A diecut sticker of [subject], thick white border, glossy finish, simple bold shading, plain background."
-- Watercolor / gouache: warm, artisanal, human. "A soft watercolor painting of [subject], visible paper texture, gentle washes, [muted palette]."
-- Collage / mixed-media: edgy, zine, culturally-savvy. "A cut-paper collage of [subject], mixed textures, torn edges, [bold accent color]."
-- Retro / vaporwave: nostalgic, music/lifestyle. "An [era e.g. 1980s vaporwave] poster of [subject], neon gradients, grid horizon, chrome type."
-- Isometric: product/system/how-it-works. "A clean isometric illustration of [subject], 2:1 iso grid, soft shadows, [tidy palette]."
-- Minimalist negative-space: premium, calm, single-message. "A minimalist image of [subject] against a large [solid color] field, lots of negative space, one focal element, room for text."
+Pick ONE primary style family per concept, from the run's style shortlist when one is given. These are descriptors, not templates: combine the cues with your own scene; never copy them as a sentence.
+- Photoreal / editorial — aspirational, premium, trust. Cues: real camera and lens, studio or natural light, shallow depth of field, a restrained palette.
+- Cinematic film still — dramatic, story-driven, emotive. Cues: anamorphic widescreen feel, dramatic light such as a golden-hour rim, a moody color grade, 35mm texture.
+- Candid 35mm film photo — emotional, authentic, human. Cues: natural light, film grain, imperfect framing, real moments.
+- 3D character render — playful, friendly, mascot-driven. Cues: soft global illumination, rounded shapes, glossy colors, a Pixar/Blender-like charm.
+- 2D flat / vector cartoon — clean, modern, explainer, tech. Cues: bold outlines, simple geometric shapes, a limited 2–3 color palette, generous negative space.
+- Anime / manga — youthful, energetic, fandom. Cues: cel shading, expressive eyes, dynamic poses, a vibrant palette.
+- Comic panel — narrative, humorous, bold. Cues: halftone shading, bold ink outlines, optional speech bubbles (see the meme and comic exception).
+- Meme aesthetic — relatable, viral, humor-led. Choose a sub-form: a bold Impact-caption meme, a faux-screenshot, or a reaction image; use its native captions (see the meme and comic exception; they do not count toward the text cap). Keep it scrappy and authentic, not polished.
+- Diecut sticker — fun, collectible, playful branding. Cues: thick white border, glossy finish, simple bold shading, a plain background.
+- Watercolor / gouache — warm, artisanal, human. Cues: visible paper texture, gentle washes, a muted palette.
+- Collage / mixed-media — edgy, zine, culturally-savvy. Cues: cut paper, mixed textures, torn edges, one bold accent color.
+- Retro / vaporwave — nostalgic, music/lifestyle. Cues: a named era, neon gradients, a grid horizon, chrome sheen.
+- Isometric miniature world — playful systems, "a tiny world". Cues: tilted bird's-eye miniature diorama, soft shadows, tidy palette. A whimsical scene, NOT a technical diagram.
+- Minimalist negative-space — premium, calm, single-message. Cues: one focal element against a large solid color field, lots of negative space.
 </STYLE_PALETTE>
 
 <TONE_TO_STYLE_MAPPING>
-Use the ad copy's tone + audience + trend to pick the style (this is the selection rule, not a suggestion):
+Prefer these mappings when choosing among the families on the run's style shortlist (a preference, not a rule; the shortlist wins):
 - Meme-based / irreverent tone -> meme aesthetic, diecut sticker, or flat cartoon.
 - Humorous tone -> 3D character or comic panel.
 - Aspirational / premium tone -> cinematic photoreal or minimalist negative-space.
 - Emotional / authentic tone -> candid 35mm film photo or watercolor.
-- Educational / how-it-works tone -> minimalist with legible text, or isometric.
+- Educational / how-it-works tone -> a product hero with one short labelled callout, or a minimalist frame with one line of text; never a full technical diagram, schematic, cutaway or exploded view.
 - Problem–solution / direct-response tone -> clean studio product shot (photoreal) with in-image CTA.
 Diversity rule: across a set of concepts, vary the style family — do not render every concept in the same look.
 </TONE_TO_STYLE_MAPPING>
 
 <BUILDING_BLOCKS>
 Assemble the prompt from these, in roughly this order:
-- Style declaration (family from the palette, named first).
+- Style declaration (family from the palette, named first, in your own words).
 - Subject: the hero — product, person, or character — described concretely.
-- Composition / framing: focal point, rule-of-thirds, close-up vs wide, where negative space sits for text.
-- Setting: where the scene happens (or "plain [color] studio background").
+- Trend motif: the concrete visual element that ties the image to the trend.
+- Composition / framing: focal point, rule-of-thirds, close-up vs wide, where negative space sits.
+- Setting: where the scene happens (or a plain colored studio background).
 - Lighting: e.g. soft window light, hard studio key, neon glow, golden hour.
 - Color & mood: palette + emotional register aligned to the brand and trend.
 - Rendering cues: texture/finish appropriate to the style (grain, cel shading, glossy, paper texture).
-- In-image text & branding: exact headline/CTA/brand words in quotes, font vibe, placement — only when it strengthens the ad.
+- In-image text & branding: only in at most 2 concepts per set (see the text rule); otherwise none.
 </BUILDING_BLOCKS>
 
 <ASPECT_RATIO>
@@ -394,12 +401,13 @@ VISUAL_CONCEPT_DRAFTER_INSTR = (
     1.  **Parse and Map:** Parse the JSON list of final ad copies from the `ad_copy_critique` input in the <CONTEXT> block. If it is empty, output an object whose `visual_concepts` list is empty.
     2.  **Concept Generation:** For *each* ad copy, generate exactly one distinct visual concept. The concept must:
         *   Be a direct, visual representation of the core ad message (headline + body).
-        *   Leverage or subtly reference the trending topic: {target_search_trends}.
+        *   Visibly reference the trend {target_search_trends}: pick a concrete `trend_motif` (from the visual_direction motifs when present) and write it verbatim into the prompt.
         *   Be optimized for quick consumption on a social media feed (e.g., strong composition, clear focus).
         *   Cleverly market the target product: {target_product}.
-    3.  **Choose the Style (do NOT default to photorealism):** Using the <IMAGE_PROMPT_GUIDE> below and the <visual_direction> brief, select the `visual_style` family that best fits each ad copy's TONE and AUDIENCE via the tone→style mapping. Across the set, VARY the styles — cartoons, memes, stickers, 3D, anime, minimalist, and photoreal are all fair game. Record the chosen family in the `visual_style` field.
-    4.  **Prompt Engineering:** For each concept, write the `image_generation_prompt` following the <IMAGE_PROMPT_GUIDE> and honouring the <visual_direction> brief's mood, palette, motifs, and brand cues. Name the chosen style first, then build the scene. Also choose and record the `aspect_ratio` per concept (unless the campaign-wide override in <user_aspect_ratio> is set).
-    5.  **Strict Output Format:** Ensure the entire output is a single JSON object containing all generated concepts, strictly following the schema in the <OUTPUT_FORMAT> block (including `visual_style` and `aspect_ratio` for each).
+    3.  **Choose the Style (do NOT default to photorealism):** Choose 4 DIFFERENT `visual_style` families from <style_shortlist> (when non-empty), matching each ad copy's tone via the guide's mapping preference. When <user_style_preference> is non-empty it overrides the shortlist. Use the <IMAGE_PROMPT_GUIDE> below and the <visual_direction> brief. Record the chosen family in the `visual_style` field.
+    4.  **Composition variety (across the set):** Give each concept a different hero placement and camera distance: choose from centred hero, off-centre rule-of-thirds, small subject in a wide environment, extreme close-up detail, top-down flat lay, over-the-shoulder POV, environmental portrait. Use at most ONE centred product hero per set. In-image text in at most 2 concepts (see the guide; meme captions and comic speech bubbles are exempt), never both placed at the top. Every concept shows a trend motif.
+    5.  **Prompt Engineering:** For each concept, write the `image_generation_prompt` following the <IMAGE_PROMPT_GUIDE> and honouring the <visual_direction> brief's mood, palette, motifs, and brand cues. Name the chosen style first, then build the scene. Also choose and record the `aspect_ratio` per concept (unless the campaign-wide override in <user_aspect_ratio> is set).
+    6.  **Strict Output Format:** Ensure the entire output is a single JSON object containing all generated concepts, strictly following the schema in the <OUTPUT_FORMAT> block (including `visual_style`, `aspect_ratio` and `trend_motif` for each).
     </INSTRUCTIONS>
 
     <CONTEXT>
@@ -407,6 +415,11 @@ VISUAL_CONCEPT_DRAFTER_INSTR = (
         {visual_direction?}
         </visual_direction>
         If empty, rely on the IMAGE_PROMPT_GUIDE tone→style mapping.
+
+        <style_shortlist>
+        This run's style shortlist (choose 4 distinct families from it). When empty, use the guide's palette.
+        {style_shortlist?}
+        </style_shortlist>
 
         <user_visual_direction>
         Optional art direction supplied directly by the user. When non-empty,
@@ -494,14 +507,20 @@ VISUAL_CONCEPT_CRITIC_INSTR = (
         *   **Creative Fidelity:** Ensure the revised prompt vividly represents the **{target_product}** and makes a clear visual link to the **{target_search_trends}** trend in a way that aligns with the intended tone.
         *   **Stopping Power:** The resulting image must have high visual appeal and "stopping power" for a social media feed.
         *   **User intent:** Honour the <user_visual_direction>, <user_style_preference> and <user_avoid> blocks when non-empty. When the style preference is non-empty it overrides the style-diversity rule — keep concepts in that family and vary lighting/composition instead. Steer away from anything in <user_avoid> — phrase prompts positively, never as negations.
-        *   **Carry-through:** Keep the `aspect_ratio` field (adjust only if the composition demands it). When <user_aspect_ratio> is non-empty, set every concept's `aspect_ratio` to this value and compose for it.
-    3.  **Strict Output Format:** The output must be a single, structured JSON object containing the **revised** concepts (including `visual_style` and `aspect_ratio`). Do not include any external commentary or separate critique text.
+        *   **Carry-through:** Keep `trend_motif` and its verbatim presence in the prompt. Keep the `aspect_ratio` field (adjust only if the composition demands it). When <user_aspect_ratio> is non-empty, set every concept's `aspect_ratio` to this value and compose for it.
+        *   **Set-level checks:** families come from <style_shortlist> and are all different; at most ONE centred hero; in-image text in at most 2 concepts (meme/comic captions excepted), short and punchy, no small print or style terms; every concept has a trend motif. Fix violations by rewriting the weakest concept.
+    3.  **Strict Output Format:** The output must be a single, structured JSON object containing the **revised** concepts (including `visual_style`, `aspect_ratio` and `trend_motif`). Do not include any external commentary or separate critique text.
     </INSTRUCTIONS>
 
     <CONTEXT>
         <visual_draft>
         {visual_draft?}
         </visual_draft>
+
+        <style_shortlist>
+        This run's style shortlist (choose 4 distinct families from it). When empty, use the guide's palette.
+        {style_shortlist?}
+        </style_shortlist>
 
         <user_visual_direction>
         Optional art direction supplied directly by the user. When non-empty,
@@ -544,9 +563,9 @@ VISUAL_CONCEPT_FINALIZER_INSTR = """Role: You are the Lead Creative Director and
     <INSTRUCTIONS>
     1.  **Parse and Map:** Retrieve and parse the JSON list of revised visual concepts from the **`<CONTEXT>` block's `visual_concept_critique` input. If it is empty, fall back to the draft concepts in `visual_draft`.
     2.  **Keep Every Concept:** Keep ALL concepts — one per ad copy, in the same order. Do NOT drop, add, or reorder concepts.
-    3.  **Style Diversity:** If two or more concepts share a `visual_style` family, you may re-style the weakest (judged by its `critique_summary`) to a different family that fits its tone (updating its `image_generation_prompt` accordingly) — unless <user_style_preference> is non-empty: then it overrides the style-diversity rule — keep concepts in that family and vary lighting/composition instead. Otherwise carry each concept's `visual_style` and `aspect_ratio` through unchanged.
+    3.  **Style & Composition Diversity (MUST):** The final set MUST have 4 different `visual_style` families (from <style_shortlist> when non-empty), at most ONE centred hero, varied camera distance, and in-image text in at most 2 concepts (Meme aesthetic captions and Comic panel speech bubbles are exempt). If a rule is violated, re-style or re-compose the weakest concept (judged by its `critique_summary`) and update its prompt. Exception: when <user_style_preference> is non-empty, keep that family and vary lighting and composition instead. Otherwise carry `visual_style` and `aspect_ratio` through unchanged. Always keep `trend_motif` and its verbatim presence in the prompt.
     4.  **Finalize and Enrich:** For each concept, combine the original ad copy details with the revised visual details to create a final, unified creative brief, honouring <user_visual_direction> when non-empty.
-    5.  **Strict Output Format:** Output the final concepts as a single JSON object, strictly following the schema in the `<OUTPUT_FORMAT>` block (including `visual_style` and `aspect_ratio` per concept).
+    5.  **Strict Output Format:** Output the final concepts as a single JSON object, strictly following the schema in the `<OUTPUT_FORMAT>` block (including `visual_style`, `aspect_ratio` and `trend_motif` per concept).
     </INSTRUCTIONS>
 
     <CONTEXT>
@@ -561,6 +580,11 @@ VISUAL_CONCEPT_FINALIZER_INSTR = """Role: You are the Lead Creative Director and
         <ad_copy_critique>
         {ad_copy_critique?}
         </ad_copy_critique>
+
+        <style_shortlist>
+        This run's style shortlist (choose 4 distinct families from it). When empty, use the guide's palette.
+        {style_shortlist?}
+        </style_shortlist>
 
         <user_visual_direction>
         Optional art direction supplied directly by the user. When empty, ignore it.

@@ -59,10 +59,11 @@ tests/
 ├── test_bandit_endpoint_lib.py      # deployment/bandit/endpoint.py vs a fake aiplatform (single-worker env, 1 replica, labels, find_* by label oldest-first)
 ├── test_create_bq_tables.py         # create_bq_tables.sh with a stub bq: bandit_* schemas, partitioning, idempotency
 ├── test_bandit_*.py                 # JAX bandit core (bandit/): features, config, linear TS, baselines, environment, simulate+metrics+aggregate, notebook-parity smoke, scripted shifts
-├── test_callbacks.py                # citation replacement, state init, rate limiting
+├── test_callbacks.py                # citation replacement, state init (incl. style_shortlist seeding), rate limiting, trend/product guard callback
+├── test_concept_guard.py            # final image prompts always name the trend_motif + product (pure guard)
 ├── test_config.py                   # per-agent config resolution (incl. campaign-placement resolver)
 ├── test_create_session_engine.py    # create_session_engine.py (reuse-or-create sessions-only engine)
-├── test_creative_agent_graph.py     # creative_agent graph pipelines end-to-end (stub models): routing, citations, no-stall
+├── test_creative_agent_graph.py     # creative_agent graph pipelines end-to-end (stub models): routing, citations, no-stall, guard-repaired render prompts
 ├── test_eval_efficiency_gate.py     # efficiency gate: metric extraction, tolerances, warn-only latency, CLI exit codes, --update-baseline
 ├── test_creative_eval.py            # creative_eval schemas, scoring logic, config
 ├── test_crf_config.py               # env-driven CRF config (required project, no hardcoding)
@@ -78,6 +79,7 @@ tests/
 ├── test_experiments_shifts.py       # §10 in the api: shift validation + bandit parity, numbered traffic runs (runs/{n}.json, env overrides, trafficRuns), ?run= reads incl. legacy NULL rows, shift_response + regime aggregation, regime SQL, unmigrated-table fallbacks
 ├── test_experiments_store.py        # bandit_experiments MERGE/SELECT builders, typed params, §8 series SQL builders, both stores, deploy-lease UPDATEs, unknown-column tolerance
 ├── test_export_concurrency.py       # creative_agent export tools: per-run scratch isolation (issue #104)
+├── test_image_prompt_guide.py       # IMAGE_PROMPT_GUIDE rules: text cap, descriptors not templates, Educational mapping, trend motif, trend_motif schema field
 ├── test_image_reference.py          # generate_image multimodal contents + valid ImageConfig
 ├── test_interactive_resume_graph.py # real interactive_creative App via start_run/start_resume: checkpoint pause → NodeTool resume, fail-once retry counts, one BQ key
 ├── test_no_legacy_agent_engines_api.py # guard: no legacy vertexai agent_engines API in repo call sites
@@ -91,12 +93,13 @@ tests/
 ├── test_sanitize.py                 # lone-surrogate scrubber (agent_common.sanitize)
 ├── test_schemas.py                  # Pydantic schemas in the creative_agent pipeline
 ├── test_sdk_versions.py             # guard: aiplatform 2.x ships both agentplatform + vertexai surfaces
+├── test_style_shortlist.py          # per-session stratified style shortlist (families match the guide palette)
 ├── test_tools.py                    # backend tool functions (pure logic, no I/O)
 ├── test_tools_retry.py              # infra tools propagate (don't swallow) exceptions
 ├── test_trend_scout_graph.py        # trend_scout understand_trends graph run end-to-end (stub models)
 ├── test_trend_scout_concurrency.py  # trend_scout GCS-export tools: per-run scratch isolation
 ├── test_trend_scout_logging.py      # trend_scout wiring of the shared observability callbacks
-├── test_visual_intent_prompts.py    # optional visual-intent {key?} tokens + IMAGE_PROMPT_GUIDE no-braces
+├── test_visual_intent_prompts.py    # optional visual-intent {key?} tokens + IMAGE_PROMPT_GUIDE no-braces + {style_shortlist?}/composition/text-cap rules
 ├── test_workflow_api_contract.py    # offline pins on the upstream ADK graph-Workflow behaviours the P2 migration relies on
 │                                    #
 │                                    # experiments/ harness unit tests (pure/offline — no creds, no network)
@@ -173,6 +176,9 @@ tests/
   in-process concurrent runs get isolated scratch dirs (issue #104).
 - **Prompts & facade** — `test_visual_intent_prompts.py`, `test_public_api.py`: optional
   visual-intent state tokens, and `creative_agent`'s curated public reuse surface.
+- **Image diversity** — `test_image_prompt_guide.py`, `test_style_shortlist.py`,
+  `test_concept_guard.py`: the guide's text cap / descriptor palette / Educational mapping,
+  the per-session style shortlist, and the trend-motif + product prompt guard.
 - **Async-job run model** — `test_async_runs.py`: detached kick-off returns immediately,
   `_drive_run` appends a `done`/`error` terminal marker, poll derives status + slices
   events by cursor, and resume re-runs with a `functionResponse` (resetting status to
