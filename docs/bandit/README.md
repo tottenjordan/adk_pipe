@@ -374,8 +374,11 @@ and lets the Linear TS posterior accumulate over the whole run, like a productio
 - **Batch means instead.** The api turns each segment into one batch: the per-segment difference
   in total clicks between the endpoint and the best baseline (by whole-run total). It drops the
   first half of the segments as warm-up (`floor(0.5·n)`) and reports mean ± t·s/√m over the rest,
-  but only when the checks pass: at least 5 kept segments (9 segments in all), no significant
-  linear trend in the kept differences (5% test), and |lag-1 autocorrelation| ≤ 0.2. The headline
+  but only when the checks pass, in this order: at least 5 kept segments (9 segments in all);
+  |lag-1 autocorrelation| of the kept differences around their fitted line ≤ max(0.2, 1.96/√m)
+  (else "segments too correlated"); and no significant linear trend (5% test; else "still
+  learning"). Autocorrelation is checked first because strongly autocorrelated noise otherwise
+  reads as a trend (`runserver/batch_means.py`). The headline
   then reads, for example, "Over the last 10 segments the endpoint earned 234 more clicks per
   segment than TS without context (± 27, batch means after warm-up)". Otherwise it says why
   there is no estimate: still learning (the advantage is still changing), not enough segments, or
