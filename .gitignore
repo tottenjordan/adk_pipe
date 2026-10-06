@@ -5,6 +5,9 @@ output/*
 *.pyc
 **/__pycache__/
 __pycache__/
+# pytest cache, incl. the persistent JAX compile cache (.pytest_cache/jax, set in
+# tests/conftest.py), which JAX may create before pytest writes its own .gitignore
+.pytest_cache/
 a_stash/
 **cloud_functions/creative_fanout/message.json
 .adk
