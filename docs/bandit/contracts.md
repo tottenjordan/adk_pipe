@@ -8,7 +8,8 @@ build against. A change to any contract here must update this file in the same P
 - **round:** one impression and one decision.
 - **batch:** the rounds between two posterior updates.
 - **horizon (T):** the number of rounds per episode.
-- **episode:** one independent run that starts from a reset posterior and has its own seed.
+- **episode:** in per-episode mode (the default), one independent run that starts from a reset posterior and has its own seed. In continuous learning mode (§11) a traffic run is **one** episode of E × T rounds, cut into E **segments** of T rounds for progress and storage.
+- **segment:** a T-round slice of a continuous run (§11); its metrics rows use `episode` = the segment index.
 
 **Policy names:** `linear_ts` (the endpoint policy), `ucb1`, `epsilon_greedy`, `beta_bernoulli_ts`, `uniform`, `oracle`.
 **Scenarios:** `clear_winner`, `segment_winners`, `drift`.
@@ -51,11 +52,15 @@ def shifts_from_dict(data: list | None) -> tuple[ShiftSpec, ...]         # stric
 def shifts_to_dict(shifts) -> list[dict]                                 # JSON round-trip of shifts_from_dict
 def validate_shifts(shifts, scenario: ScenarioConfig, arms, ctr_mode) -> tuple[ShiftSpec, ...]  # ValueError "shifts[i].<field>"
 def default_shift_discount(ctr_mode, batch_size, horizon) -> float      # discount_for_memory(horizon / 8, batch_size)
+LEARNING_MODES = ("per_episode", "continuous"); MAX_CONTINUOUS_ROUNDS = 2_000_000   # §11
+def validate_continuous_run(episodes, horizon, batch_size) -> int        # §11: total rounds E·T, ValueError naming the field
+def continuous_world_config(cfg) -> ExperimentConfig                     # §11: cfg with horizon E·T, episodes 1 (world of one long run)
 
 # bandit/environment.py + bandit/simulate.py (simulator; §10)
 def build_environment(cfg, *, scenario=None, shifts=()) -> Environment  # shifts resolved in time order; same keys
 def resolved_shifts(env) -> list[dict]                                   # concrete rounds / creatives / targets
 def sample_contexts(key, model, n, t=None) -> (segments, levels, X)      # t (n,): latest started mix shift applies
+def run_segment(policy, env, key, start_batch, num_batches, batch_size, init_state=None) -> (outs, final_state)  # §11
 
 # bandit/metrics.py (§10)
 def shift_response(out, shift_rounds, window=None, recovery_window=None, recovery_level=0.8) -> list[dict]
@@ -101,7 +106,7 @@ A `reset`'s optional `discount` (added 2026-10-05 for the §10 forgetting toggle
 
 Reward instances carry the **unscaled** reward (`click` mode: 0/1; `engaged` mode: click × dwell seconds, with `dwell_s` set). Like the simulator, the predictor divides engaged rewards by the scenario's `dwell_base_s` before its `update`. A reward is accepted only for a pending decision whose `arm` matches the chosen arm.
 
-The traffic job (PR 3) sends `request_id = "{experiment_id}-r{traffic_run}-e{episode}-r{round}"`, where `traffic_run` is the 1-based traffic run (§10; always present, run 1 included, since 2026-10-05; earlier runs sent `{experiment_id}-e{episode}-r{round}`) and `round` is the 0-based round index within the episode (also `bandit_events.round`). It splits a batch into requests of at most 500 instances and about 1.2 MB, sends one `reset` per episode with `seed = (experiment seed × 1000003 + episode) mod 2³¹` plus the episode's `policy_key`/`batch_size` (`bandit_traffic.traffic.policy_stream_fields`), gives every decision its `batch` and `row`, and sends a batch's rewards only after all of that batch's decisions.
+The traffic job (PR 3) sends `request_id = "{experiment_id}-r{traffic_run}-e{episode}-r{round}"`, where `traffic_run` is the 1-based traffic run (§10; always present, run 1 included, since 2026-10-05; earlier runs sent `{experiment_id}-e{episode}-r{round}`) and `round` is the 0-based round index within the episode (also `bandit_events.round`). It splits a batch into requests of at most 500 instances and about 1.2 MB, sends one `reset` per episode with `seed = (experiment seed × 1000003 + episode) mod 2³¹` plus the episode's `policy_key`/`batch_size` (`bandit_traffic.traffic.policy_stream_fields`), gives every decision its `batch` and `row`, and sends a batch's rewards only after all of that batch's decisions. A **continuous** run (§11) sends exactly **one** `reset` for the whole run (`episode` 0, episode 0's seed and policy stream); decision `batch` is then the **global** batch index over the run (0 … E·T/batch_size − 1) and `round` the global round. The predictor needs no change for this: `batch` has no upper bound, `model_version` (`…-e0-v{n}`) keeps counting, the pending/seen maps are bounded and a batch's rewards follow its decisions, and checkpoints keep their update-count / time cadence.
 
 The CPR container is always deployed with `VERTEX_CPR_WEB_CONCURRENCY=1`, i.e. one worker process holding a single in-memory posterior. `AIP_STORAGE_URI` holds `experiment.json` (a §1 `experiment_config_to_dict`) and `checkpoints/`.
 
@@ -173,7 +178,8 @@ All routes are user-scoped. The proxy rewrites `userId` / the `{user_id}` segmen
 - `GET /experiments/{user_id}/{experiment_id}` returns `ExperimentSummary`, with status reconciled against the endpoint and the TTL.
 - `GET /experiments/{user_id}/{experiment_id}/metrics[?run=N]` returns `ExperimentMetrics` for traffic run `N` (default the latest; §10). It is empty (`episodes: 0`) until traffic runs. A `run` outside `[1, latest]` (or not an integer) is a 400 `invalid_run`.
 - `POST /experiments/{user_id}/{experiment_id}/traffic`
-  - Body: `{episodes: 1..100, horizon?: 1000..400000, shifts?: Shift[] (≤ 4, §10), forget?: boolean | null}`.
+  - Body: `{episodes: 1..100, horizon?: 1000..400000, shifts?: Shift[] (≤ 4, §10), forget?: boolean | null, learning?: "per_episode" | "continuous"}`.
+  - `learning` (§11, default `"per_episode"`): `"continuous"` keeps the endpoint's posterior across the run's episodes (then called segments). A continuous run is limited to `episodes × horizon ≤ 2,000,000` rounds (`bandit.config.MAX_CONTINUOUS_ROUNDS`) and needs `horizon` to be a multiple of the experiment's `batch_size`.
   - Success: `{status: "running_traffic", execution, run}` (`run` = the allocated 1-based run number).
   - Errors: 400 `invalid_shifts` (with `detail.field`, e.g. `shifts[1].untilFrac`) or `invalid_forget`; 409 unless status is `ready`.
 - `POST /experiments/{user_id}/{experiment_id}/stop` returns `{status: "stopping" | "stopped"}`.
@@ -293,8 +299,8 @@ type MetricsRegime = { start: number; end: number;                   // rounds [
   - The pending map (200k) and the seen-id set (400k) are bounded and evict oldest first. Neither is checkpointed, so rewards for decisions made before a restart are rejected.
   - A request whose rewards are all rejected does not bump the version.
 - **`model_version`** is `{experiment_id}-e{episode}-v{n}`, where `n` is the number of reward batches applied this episode. A decision reports the version it was sampled from. `step` is the number of rewarded rounds the posterior has seen.
-- **Reset:** fresh prior, PRNG `key(seed)` (per-call `fold_in`), empty pending/seen maps, then an immediate checkpoint.
-- **Serving parity (2026-10-05):** driven by the traffic job, the endpoint's LinTS **is** the simulator's: same params, reward scaling (float32, in the update kernel), one `update` (one γ) per batch, and, through the reset policy stream (§2), the same random draws. `tests/test_bandit_endpoint_parity.py` drives the real `BanditPredictor` through `TrafficRunner` (click and engaged, γ = 0.98, and 37-instance request splitting) and checks that the served arms match `simulate.run_episodes` round for round, so a live `linear_ts` episode equals a local replay of the same episode key. Before the policy stream there was no algorithmic gap either: the reported 0.254 vs 0.317 % optimal (in-process fake, `segment_winners` episodes 0–7) was policy-PRNG noise on heavy-tailed episodes (an early lock-in can drop an episode below uniform). Over 64 episodes the regret difference was −0.00 ± 0.59, and the three live experiments landed within about 1 SE of a local replay, with the replayed UCB1 matching exactly.
+- **Reset:** fresh prior, PRNG `key(seed)` (per-call `fold_in`), empty pending/seen maps, then an immediate checkpoint. A continuous traffic run (§11) sends one reset per run, so the posterior then accumulates over all E × T rounds.
+- **Serving parity (2026-10-05):** driven by the traffic job, the endpoint's LinTS **is** the simulator's: same params, reward scaling (float32, in the update kernel), one `update` (one γ) per batch, and, through the reset policy stream (§2), the same random draws. `tests/test_bandit_endpoint_parity.py` drives the real `BanditPredictor` through `TrafficRunner` (click and engaged, γ = 0.98, and 37-instance request splitting) and checks that the served arms match `simulate.run_episodes` round for round, so a live `linear_ts` episode equals a local replay of the same episode key. **Continuous parity (§11):** a continuous run is one long episode with episode 0's key and policy stream and the global batch index, so the endpoint's arms equal `simulate.run_segment` chained over the segments (equivalently `run_episodes` with horizon E·T), round for round (the `continuous` case in `tests/test_bandit_endpoint_parity.py`). Before the policy stream there was no algorithmic gap either: the reported 0.254 vs 0.317 % optimal (in-process fake, `segment_winners` episodes 0–7) was policy-PRNG noise on heavy-tailed episodes (an early lock-in can drop an episode below uniform). Over 64 episodes the regret difference was −0.00 ± 0.59, and the three live experiments landed within about 1 SE of a local replay, with the replayed UCB1 matching exactly.
 - **Request `parameters`:** clamped to the §2 bounds and quantized (`exploration_scale` to 0.1, `propensity_samples` to 100) so the jit cache stays bounded.
 - **Checkpoints:** `{AIP_STORAGE_URI}/checkpoints/{model_version}.npz` (`precision`, `b`, `n`, `step`) plus `checkpoints/latest.json` (`experiment_id`, `model_version`, `npz`, `episode`, `seed`, `n_updates`, `calls`, `feature_spec_version`, `saved_at`).
   - A checkpoint is written every `BANDIT_CHECKPOINT_EVERY` (50) reward batches or `BANDIT_CHECKPOINT_SECONDS` (120 s), checked on update, and on every reset.
@@ -495,4 +501,38 @@ Checkpoints default to linear spacing when there are shifts.
 - **Ghost** (`policy = "linear_ts_unshifted"`, only with shifts): after each episode, a local LinTS (`make_policy("linear_ts")` with the experiment's `policy`, plus the run's discount when `forget`) is replayed with `simulate.run_episodes` on the **unshifted** environment (same scenario and overrides) with the same episode key. Its users and coin flips match the endpoint's (segments differ only on rows a mix shift flips), so before the first shift its world is identical. With the §2 policy stream it also draws the endpoint's random numbers, so before the first shift it chooses the **same arms** as the endpoint in every round (tested in `tests/test_bandit_endpoint_parity.py`), and the post-shift gap between the two curves is purely the shift's effect.
 - With shifts, every metrics row (endpoint, ghost and baselines) gets `shift_response` (against the shift rounds, the ghost's too, although its world is unshifted; each entry carries the shift's resolved fields, §3) and `regimes` (`regime_stats` at the shift rounds and shock end rounds).
 
+**Continuous runs (§11):** shifts and the drift point are fractions of the **whole run**: a shift's round is `round(at_frac · E·T)` (global), a shock ends at `round(until_frac · E·T)`, and the drift flips once at `at_frac · E·T`, not once per segment. The forgetting discount uses the run's total: `default_shift_discount(ctr_mode, batch_size, E·T)`, floored at 0.95. The ghost is replayed continuously too (`run_segment` with its state carried across segments). `shift_response` and `regimes` are computed once, over the whole run's concatenated rounds, and ride only on the **last** segment's rows (§11).
+
 **Preview parity:** `tests/test_scenario_preview_golden.py` writes `frontend/src/__tests__/fixtures/scenario-shifts-golden.json`: the resolved shifts plus the exact creative × segment CTR matrix in every regime, for 6 shift combinations (one a shock on `"leader"`) (`noise_scale = 0`, pre-drift truth). The format is documented in the test module. PR D's `applyShifts` must reproduce it.
+
+## 11. Continuous learning mode (per traffic run, 2026-10-06)
+
+Plan: [`docs/plans/2026-10-06-bandit-continuous-learning.md`](../plans/2026-10-06-bandit-continuous-learning.md). Binding for the traffic job (PR A, implemented), the api (PR B) and the frontend (PR C).
+
+A traffic run's **learning mode** is `"per_episode"` (the default, every behaviour above) or `"continuous"`. A continuous run is **one long episode** of H = E × T rounds (E = `episodes`, T = `horizon`), cut into E **segments** of T rounds. The mode belongs to the traffic run (like shifts): `experiment.json` is unchanged, and each new run starts from a fresh posterior.
+
+**Limits** (`bandit.config.validate_continuous_run`): `E × T ≤ MAX_CONTINUOUS_ROUNDS = 2_000_000` (job runtime and memory; e.g. 50 × 40k demo or 5 × 400k realistic) and `T` a multiple of `batch_size` (so no policy batch straddles a segment boundary). This replaces the per-episode `horizon ≤ 1_000_000` cap for the world's total only; T itself keeps its bounds. Errors are `ValueError`s naming `episodes` / `horizon`; the job exits 2.
+
+**Job env:** `LEARNING_MODE=per_episode|continuous` (flag `--learning`; default `per_episode`; anything else exits 2). The api (PR B) sets it only for continuous runs.
+
+**Semantics** (`bandit_traffic.traffic.TrafficRunner`):
+- **World:** `simulate.build_environment(continuous_world_config(cfg))`, i.e. the ground truth built with horizon H, so the environment's `t` is the global round and drift points / shifts resolve over the whole run (§10). The model key is unchanged.
+- **Endpoint:** one `reset` (episode 0, `reset_seed(seed, 0)`, episode 0's `policy_key`, `batch_size`, plus the run's `discount` when forgetting, computed with H) before segment 0. Decisions carry the **global** `batch` (0 … H/batch_size − 1) and `row`. Every random stream (contexts, rewards, policy) is episode 0's, folded with the global batch index.
+- **Baselines and ghost:** replayed segment by segment with `simulate.run_segment(policy, env, key_0, start_batch = s·T/batch_size, num_batches = T/batch_size, batch_size, init_state=<carried>)`, each policy's state (LinTS posterior, counts incl. `step`) carried to the next segment. Chaining `run_segment` over the segments equals `run_episodes` at horizon H round for round.
+- **Rows:** one `bandit_episode_metrics` row per (segment, policy), `episode` = the segment index, `horizon` = T (the segment's rounds). Its `curve` holds the segment's own metrics on **segment-local**, **linear** checkpoints (50, merged around any shift round inside the segment), plus `"segment_start": s·T` (the global 0-based round where the segment starts). `insertId` stays `{experiment_id}-r{run}-e{segment}-{policy}`. Progress is updated after each segment (`episodes_done` = segments done).
+- **Events:** `episode` = the segment, `round` = the **global** round, `batch` = the global batch, `request_id = {experiment_id}-r{run}-e{segment}-r{global round}` (unique within the run).
+- **Shifts:** `shift_response` and `regimes` are computed once at the end from the whole run's concatenated per-round arrays (global rounds, windows of `default_window(H)`), and attached to the **last** segment's rows only, every entry with `"continuous": true`. Earlier segments' rows carry NULL for both.
+- **Decision error threshold:** checked per segment, as per episode.
+
+**`curve` concatenation rule (PR B):** sort a policy's rows by segment; a checkpoint `c` of segment `s` is global round count `segment_start + c`. Cumulative values carry across segments: cumulative reward at `c` = `cum_avg_reward[c] × c` + Σ earlier segments' `total_reward`; cumulative regret = `cum_regret[c]` + Σ earlier `cumulative_regret`; cumulative optimal count = `pct_optimal[c] × c` + Σ earlier `pct_optimal × horizon`. Rates divide by the global round count. Curves get no band (`lo = hi = mean`): pointwise intervals need independent replications.
+
+**`continuousSummary`** (`/metrics`, continuous runs only; PR B): the endpoint − best-baseline (by whole-run total) per-segment paired difference of `total_clicks`, with a batch-means 95% interval over the post-warm-up segments, given only when the checks pass:
+
+```ts
+continuousSummary?: {
+  segments: number; warmupSegments: number;
+  pairedDiff: { policy: string; perSegment: number[]; mean: number;
+                lo: number | null; hi: number | null; lag1: number | null;
+                status: "ok" | "too_few_segments" | "autocorrelated" | "still_trending" };
+}
+```
