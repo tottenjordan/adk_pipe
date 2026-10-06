@@ -88,7 +88,7 @@ def _fetch_reference_image(uri: str) -> types.Part | None:
 def _get_genai_client() -> genai.Client:
     """Get a configured genai client for the image model (cached, no import-time side effect).
 
-    The image-gen model (gemini-3.1-flash-image) is a gemini-3.x model served only
+    The image-gen model (``config.image_gen_model``, gemini-nano-banana-2.1) is served only
     from ``global`` — hence MODEL_LOCATION, not config.LOCATION (which is the
     injected regional value inside a deployed Agent Engine).
 
@@ -104,7 +104,8 @@ def _get_genai_client() -> genai.Client:
     )
 
 
-# The image model (gemini-3.1-flash-image) is capped at ~2 RPM on the `global`
+# The image model (gemini-3.1-flash-image was capped at ~2 RPM; re-measure for
+# gemini-nano-banana-2.1) is quota-limited on the `global`
 # endpoint (project-wide, shared), and this direct genai call is NOT wrapped by
 # ADK's workflow RetryConfig (that only retries Agent *model* calls, not tool
 # functions). A concurrent burst reliably trips 503 UNAVAILABLE / 429
