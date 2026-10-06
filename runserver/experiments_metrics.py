@@ -20,6 +20,9 @@ Traffic runs with scripted shifts (contracts §10) add:
 - regimes: ``perSegment`` and the per-arm true CTR split at the shift (and
   shock-end) rounds, from the rows' ``regimes`` JSON (no extra query). The
   whole-run fields keep their meaning.
+- resolvedShifts: the run's shifts as the traffic job resolved them (concrete
+  ``creativeId`` for ``"leader"``, targets), read from the resolved fields on the
+  rows' ``shift_response`` entries; omitted for older runs.
 
 The ghost's segment winners come from the unshifted world, so it never votes on
 an ``optimalArm`` (whole run or per regime).
@@ -28,9 +31,12 @@ an ``optimalArm`` (whole run or per regime).
 from __future__ import annotations
 
 import json
+import logging
 import math
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from typing import Any
+
+log = logging.getLogger(__name__)
 
 ENDPOINT_POLICY = "linear_ts"
 # Linear TS replayed on the same draws without the run's shifts (contracts §10).
@@ -303,6 +309,72 @@ def aggregate_shift_response(by_policy: Mapping[str, list[dict]]) -> dict:
     return out
 
 
+def _opt_int(value: Any) -> int | None:
+    return int(value) if _finite(value) is not None else None
+
+
+def _opt_str(value: Any) -> str | None:
+    return value if isinstance(value, str) else None
+
+
+def _resolved_entry(j: int, e: Mapping[str, Any]) -> dict:
+    """One ``shift_response`` entry's resolved-shift fields, camelCase."""
+    targets = e.get("targets")
+    return {
+        "index": idx if (idx := _opt_int(e.get("index"))) is not None else j,
+        "kind": str(e["kind"]),
+        "round": _opt_int(e.get("round")) or 0,
+        "endRound": _opt_int(e.get("end_round")),
+        "segment": _opt_str(e.get("segment")),
+        "creativeId": _opt_str(e.get("creative_id")),
+        "requestedCreativeId": _opt_str(e.get("requested_creative_id")),
+        "targets": [
+            {
+                "segment": str(t.get("segment")),
+                "ctrBefore": _finite(t.get("ctr_before")),
+                "ctrAfter": _finite(t.get("ctr_after")),
+            }
+            for t in (targets if isinstance(targets, list) else [])
+            if isinstance(t, Mapping)
+        ],
+    }
+
+
+def extract_resolved_shifts(
+    rows: Sequence[Mapping[str, Any]], experiment_id: str = ""
+) -> list[dict] | None:
+    """The run's resolved shifts (contracts §5/§10), camelCase, from the
+    resolved fields the traffic job adds to each ``shift_response`` entry
+    (``kind``, ``creative_id`` with ``"leader"`` made concrete, ...). They are
+    identical across rows; the first row (in ``rows`` order) that has them wins,
+    or, if rows disagree, the most common version (logged). ``None`` when no
+    row carries them (runs written before the traffic job recorded them)."""
+    counts: dict[str, int] = {}
+    first: dict[str, list[dict]] = {}
+    for row in rows:
+        sr = _json(row.get("shift_response"), None)
+        if not isinstance(sr, list) or not sr:
+            continue
+        if not all(isinstance(e, Mapping) and e.get("kind") for e in sr):
+            continue
+        resolved = [_resolved_entry(j, e) for j, e in enumerate(sr)]
+        key = json.dumps(resolved, sort_keys=True)
+        counts[key] = counts.get(key, 0) + 1
+        first.setdefault(key, resolved)
+    if not counts:
+        return None
+    if len(counts) > 1:
+        log.warning(
+            "experiment %s: resolved shifts differ across %d metrics rows "
+            "(%d versions); using the most common",
+            experiment_id,
+            sum(counts.values()),
+            len(counts),
+        )
+    # max keeps the first-seen version on a tie (dicts preserve insertion order)
+    return first[max(counts, key=lambda k: counts[k])]
+
+
 def aggregate_shift_cost(by_policy: Mapping[str, list[dict]]) -> dict | None:
     """What the run's shifts cost the endpoint: the **paired** per-episode
     difference ghost (``linear_ts_unshifted``) − endpoint (``linear_ts``) of
@@ -480,4 +552,8 @@ def aggregate_episode_metrics(
     # Only for a run with a ghost replay (i.e. with shifts); omitted otherwise.
     if (cost := aggregate_shift_cost(by_policy)) is not None:
         body["shiftCost"] = cost
+    # Omitted for runs whose rows predate the resolved shift_response fields.
+    endpoint_first = [r for p in policies for r in by_policy[p]]
+    if (resolved := extract_resolved_shifts(endpoint_first, experiment_id)) is not None:
+        body["resolvedShifts"] = resolved
     return body
