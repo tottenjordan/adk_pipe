@@ -82,6 +82,9 @@ from bandit.environment import (  # noqa: E402
 )
 
 ROOT = Path(__file__).resolve().parent.parent
+# Every test here builds (or reuses the cached) exact-expectation fixtures.
+pytestmark = pytest.mark.slow
+
 FIXTURE_DIR = ROOT / "frontend" / "src" / "__tests__" / "fixtures"
 FIXTURE = FIXTURE_DIR / "scenario-preview-golden.json"
 SHIFT_FIXTURE = FIXTURE_DIR / "scenario-shifts-golden.json"
@@ -264,6 +267,23 @@ def expected_matrix(case: dict) -> dict:
     }
 
 
+def _load_or_update_golden(path: Path, fresh: dict) -> dict:
+    """Return the committed golden at ``path``.
+
+    Only ``UPDATE_PREVIEW_GOLDEN=1`` (re)writes it; a missing fixture fails
+    rather than being silently generated, since the frontend tests read it.
+    """
+    if os.environ.get("UPDATE_PREVIEW_GOLDEN") == "1":
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(fresh, indent=1) + "\n")
+    elif not path.exists():
+        pytest.fail(
+            f"golden fixture {path.relative_to(ROOT)} is missing; "
+            "run with UPDATE_PREVIEW_GOLDEN=1 to generate it"
+        )
+    return json.loads(path.read_text())
+
+
 @functools.cache
 def _build_fixture() -> dict:
     return {
@@ -276,10 +296,7 @@ def _build_fixture() -> dict:
 
 def test_golden_fixture_matches_bandit():
     fresh = _build_fixture()
-    if os.environ.get("UPDATE_PREVIEW_GOLDEN") == "1" or not FIXTURE.exists():
-        FIXTURE.parent.mkdir(parents=True, exist_ok=True)
-        FIXTURE.write_text(json.dumps(fresh, indent=1) + "\n")
-    committed = json.loads(FIXTURE.read_text())
+    committed = _load_or_update_golden(FIXTURE, fresh)
     assert [c["name"] for c in committed["cases"]] == [
         c["name"] for c in fresh["cases"]
     ]
@@ -576,10 +593,7 @@ def _build_shift_fixture() -> dict:
 
 def test_shift_golden_fixture_matches_bandit():
     fresh = _build_shift_fixture()
-    if os.environ.get("UPDATE_PREVIEW_GOLDEN") == "1" or not SHIFT_FIXTURE.exists():
-        SHIFT_FIXTURE.parent.mkdir(parents=True, exist_ok=True)
-        SHIFT_FIXTURE.write_text(json.dumps(fresh, indent=1) + "\n")
-    committed = json.loads(SHIFT_FIXTURE.read_text())
+    committed = _load_or_update_golden(SHIFT_FIXTURE, fresh)
     assert [c["name"] for c in committed["cases"]] == [
         c["name"] for c in fresh["cases"]
     ]
