@@ -30,6 +30,7 @@ from bandit.config import (
     shifts_to_dict,
     validate_shifts,
 )
+from tests._bandit_sizes import BATCH, HORIZON_M, HORIZON_S
 
 SEG_ARMS = default_arms(4)  # synthetic-a..d
 SEG_SC = load_scenario("segment_winners")
@@ -543,15 +544,18 @@ def test_regime_stats_splits_per_segment_and_true_ctr():
 
 
 def test_simulated_demote_shows_in_shift_response():
-    cfg = _cfg(episodes=2)
+    # same world and sizes as test_experiments_shifts.py's simulated rows, so the
+    # uniform program is shared
+    cfg = build_sim_config("segment_winners", horizon=HORIZON_M, episodes=2)
     shifts = shifts_from_dict([SHIFT_DOCS[1]])
     res = simulate.run_experiment(cfg, ["oracle", "uniform"], shifts=shifts)
-    rows = metrics.experiment_rows(res, spacing="linear", shift_rounds=[20_000])
+    r0 = HORIZON_M // 2  # SHIFT_DOCS[1] is at_frac 0.5
+    rows = metrics.experiment_rows(res, spacing="linear", shift_rounds=[r0])
     assert all(len(r["shift_response"]) == 1 for r in rows)
     oracle = next(r for r in rows if r["policy"] == "oracle")
     assert oracle["shift_response"][0]["pct_optimal_after"] == 1.0
-    assert 20_000 in oracle["curve"]["checkpoints"]
-    assert 19_999 in oracle["curve"]["checkpoints"]
+    assert r0 in oracle["curve"]["checkpoints"]
+    assert r0 - 1 in oracle["curve"]["checkpoints"]
 
 
 # ---------------------------------------------------------------------- CLI
@@ -562,13 +566,13 @@ def test_cli_shifts_and_forget():
         scenario="segment_winners",
         policies=["linear_ts", "uniform"],
         episodes=1,
-        horizon=4_000,
+        horizon=HORIZON_M,  # the 0.819 forget discount below is HORIZON_M's
         log_propensity=False,
         shifts=[SHIFT_DOCS[1]],
         forget=True,
     )
     assert doc["config"]["policy"]["discount"] == default_shift_discount(
-        "demo", 100, 4_000
+        "demo", BATCH, HORIZON_M
     )
     block = doc["shifts"]
     assert block["requested"] == shifts_to_dict(shifts_from_dict([SHIFT_DOCS[1]]))
@@ -595,7 +599,7 @@ def test_cli_without_shifts_has_no_shift_block():
         scenario="clear_winner",
         policies=["uniform"],
         episodes=1,
-        horizon=200,
+        horizon=HORIZON_S,
         log_propensity=False,
     )
     assert doc["shifts"] is None and doc["shift_response"] is None
@@ -621,6 +625,6 @@ def test_cli_parser_shift_flags(tmp_path):
             scenario="segment_winners",
             policies=["uniform"],
             episodes=1,
-            horizon=200,
+            horizon=HORIZON_S,
             shifts=[{**SHIFT_DOCS[0], "creative_id": "nope"}],
         )

@@ -777,8 +777,11 @@ def test_shift_response_matches_bandit_summary_on_simulated_rows():
     simulator writes (so the aggregation consumes the exact PR A shape)."""
     from bandit import metrics, simulate
     from bandit.config import build_sim_config, shifts_from_dict
+    from tests._bandit_sizes import HORIZON_M
 
-    cfg = build_sim_config(SEG, horizon=4_000, episodes=3)
+    # same world and sizes as test_bandit_shifts.py's simulated demote (shared
+    # uniform program)
+    cfg = build_sim_config(SEG, horizon=HORIZON_M, episodes=2)
     snake = [{"kind": "demote", "at_frac": 0.5, "segment": None,
               "creative_id": "leader", "drop_pp": 0.015}]  # fmt: skip
     res = simulate.run_experiment(
