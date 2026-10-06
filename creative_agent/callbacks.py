@@ -12,6 +12,7 @@ from agent_common.state import seed_initial_state
 
 from .citations import render_citations
 from .config import config
+from .style_shortlist import format_shortlist, pick_style_shortlist
 
 # --- config ---
 logging.basicConfig(
@@ -74,6 +75,11 @@ def _set_initial_states(source: dict[str, Any], target: State | dict[str, Any]):
         "reference_image_role",  # product | logo | style role label
     ):
         target.setdefault(_intent_key, "")
+
+    # Per-session random style shortlist (image diversity): the visual agents
+    # pick their 4 styles from it, so runs don't converge on the same looks.
+    # setdefault: a caller/test-provided shortlist (or a resumed session) wins.
+    target.setdefault("style_shortlist", format_shortlist(pick_style_shortlist()))
 
 
 def load_session_state(callback_context: CallbackContext):

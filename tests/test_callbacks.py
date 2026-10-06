@@ -170,6 +170,27 @@ class TestSetInitialStates:
         assert target["visual_aspect_ratio"] == "1:1"
         assert target["reference_image_role"] == "product"
 
+    def test_style_shortlist_seeded_once(self):
+        from creative_agent.callbacks import _set_initial_states
+        from creative_agent.style_shortlist import STYLE_GROUPS
+
+        target: dict = {}
+        _set_initial_states({"brand": "TestBrand"}, target)
+        shortlist = target["style_shortlist"]
+        families = [f for fs in STYLE_GROUPS.values() for f in fs]
+        assert sum(f in shortlist for f in families) == 6
+
+        # A second call on the already-initialised state must not re-roll it.
+        _set_initial_states({"brand": "TestBrand"}, target)
+        assert target["style_shortlist"] == shortlist
+
+    def test_style_shortlist_not_clobbered(self):
+        from creative_agent.callbacks import _set_initial_states
+
+        target: dict = {"style_shortlist": "Comic panel; Diecut sticker"}
+        _set_initial_states({"brand": "TestBrand"}, target)
+        assert target["style_shortlist"] == "Comic panel; Diecut sticker"
+
 
 # --- Rate limit callback ---
 class TestRateLimitLogic:
