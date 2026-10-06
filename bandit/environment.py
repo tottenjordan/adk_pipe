@@ -174,10 +174,19 @@ def _greedy_winners(sc: ScenarioConfig, adj: dict[str, np.ndarray]) -> list[int]
 
 
 def _calibrate_alpha(logits_wo_alpha: np.ndarray, target: float) -> float:
+    """Bisect for the intercept α with mean(sigmoid(α + logits)) == target.
+
+    ``exp(-(α + L)) == exp(-α) * exp(-L)``, so ``exp(-L)`` is computed once and
+    each step costs one scalar ``exp`` plus a multiply. Stops once the bracket
+    is below 1e-12 (~45 steps), capped at 80 steps.
+    """
+    neg_exp = np.exp(-logits_wo_alpha)
     lo, hi = -20.0, 10.0
     for _ in range(80):
+        if hi - lo < 1e-12:
+            break
         mid = 0.5 * (lo + hi)
-        if np.mean(1.0 / (1.0 + np.exp(-(mid + logits_wo_alpha)))) < target:
+        if np.mean(1.0 / (1.0 + np.exp(-mid) * neg_exp)) < target:
             lo = mid
         else:
             hi = mid
