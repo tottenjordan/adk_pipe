@@ -135,7 +135,7 @@ class VisualConcept(BaseModel):
     )
     trend_motif: str = Field(
         default="",
-        description="A short concrete VISUAL element from the trend (noun phrase, ≤8 words) that MUST appear verbatim in image_generation_prompt.",
+        description="A short concrete VISUAL element SPECIFIC to the trend (noun phrase, ≤8 words): its signature imagery, recognisable at a glance; never generic social-media imagery (phones, feeds, chat bubbles). MUST appear verbatim in image_generation_prompt.",
     )
     image_generation_prompt: str = Field(
         description="A draft prompt for image generation."
@@ -173,7 +173,7 @@ class VisualConceptCritique(BaseModel):
     )
     trend_motif: str = Field(
         default="",
-        description="A short concrete VISUAL element from the trend (noun phrase, ≤8 words) that MUST appear verbatim in image_generation_prompt.",
+        description="A short concrete VISUAL element SPECIFIC to the trend (noun phrase, ≤8 words): its signature imagery, recognisable at a glance; never generic social-media imagery (phones, feeds, chat bubbles). MUST appear verbatim in image_generation_prompt.",
     )
     image_generation_prompt: str = Field(
         description="The FINAL, refined image-generation prompt, written in the concept's chosen visual_style and at a length appropriate to that style."
@@ -235,7 +235,7 @@ class VisualConceptFinal(BaseModel):
     )
     trend_motif: str = Field(
         default="",
-        description="A short concrete VISUAL element from the trend (noun phrase, ≤8 words) that MUST appear verbatim in image_generation_prompt.",
+        description="A short concrete VISUAL element SPECIFIC to the trend (noun phrase, ≤8 words): its signature imagery, recognisable at a glance; never generic social-media imagery (phones, feeds, chat bubbles). MUST appear verbatim in image_generation_prompt.",
     )
     image_generation_prompt: str = Field(
         description="The final, revised image-generation prompt, written in the concept's chosen visual_style."

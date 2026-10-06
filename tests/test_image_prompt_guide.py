@@ -60,3 +60,21 @@ def test_prompts_require_trend_motif_not_a_subtle_reference():
         prompts.VISUAL_CONCEPT_FINALIZER_INSTR,
     ):
         assert "trend_motif" in instr
+
+
+def test_trend_motif_must_be_specific_not_generic():
+    assert "SPECIFIC to this trend" in G
+    assert "do NOT count" in G and "chat bubbles" in G
+    assert "never a likeness" in G
+
+
+def test_background_texture_text_is_blank():
+    assert "never readable words and never gibberish" in G
+    assert "never readable print" in G
+
+
+def test_motif_specificity_enforced_downstream():
+    assert "trend-SPECIFIC `trend_motif`" in prompts.VISUAL_CONCEPT_DRAFTER_INSTR
+    assert "SPECIFIC and recognisable" in prompts.VISUAL_CONCEPT_CRITIC_INSTR
+    assert "Trend Connection (MUST)" in prompts.VISUAL_CONCEPT_FINALIZER_INSTR
+    assert "SPECIFIC to the trend" in prompts.ART_DIRECTOR_INSTR
