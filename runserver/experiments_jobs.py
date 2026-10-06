@@ -2,8 +2,8 @@
 
 ``CloudRunJobsRunner.run`` starts one execution of the traffic job with per-run
 container env overrides (``EXPERIMENT_ID``, ``CONFIG_URI``, ``ENDPOINT_ID``,
-``EPISODES``, ``HORIZON``, and per contracts §10 ``TRAFFIC_RUN``, ``FORGET`` and
-``SHIFTS_JSON``) and returns the execution resource name without waiting
+``EPISODES``, ``HORIZON``, per contracts §10 ``TRAFFIC_RUN``, ``FORGET`` and
+``SHIFTS_JSON``, and per §11 ``LEARNING_MODE``) and returns the execution resource name without waiting
 for it (the job can run for up to an hour). ``state`` maps an execution to
 ``running`` / ``succeeded`` / ``failed`` / ``unknown`` so the api can move a
 ``running_traffic`` experiment back to ``ready``. The google-cloud-run import is lazy.
@@ -31,6 +31,7 @@ class JobsRunner(Protocol):
         traffic_run: int | None = None,
         forget: bool | None = None,
         shifts: list[dict] | None = None,
+        learning: str | None = None,
     ) -> str:
         """Start a traffic execution; returns its resource name."""
         ...
@@ -50,11 +51,13 @@ def build_env_overrides(
     traffic_run: int | None = None,
     forget: bool | None = None,
     shifts: list[dict] | None = None,
+    learning: str | None = None,
 ) -> list[dict[str, str]]:
     """The job's per-execution env. ``shifts`` is the snake_case §10 job form
     (``SHIFTS_JSON``, compact JSON, set only when non-empty); ``traffic_run`` is the
     1-based run number (``TRAFFIC_RUN``) and ``forget`` the run's forgetting
-    switch (``FORGET=true|false``)."""
+    switch (``FORGET=true|false``). ``LEARNING_MODE=continuous`` (contracts §11)
+    is set only for a continuous run; the job defaults to ``per_episode``."""
     env = {
         "EXPERIMENT_ID": experiment_id,
         "CONFIG_URI": config_uri,
@@ -69,6 +72,8 @@ def build_env_overrides(
         env["FORGET"] = "true" if forget else "false"
     if shifts:
         env["SHIFTS_JSON"] = json.dumps(shifts, separators=(",", ":"))
+    if learning == "continuous":
+        env["LEARNING_MODE"] = "continuous"
     return [{"name": k, "value": v} for k, v in env.items()]
 
 
@@ -138,6 +143,7 @@ class CloudRunJobsRunner:
         traffic_run: int | None = None,
         forget: bool | None = None,
         shifts: list[dict] | None = None,
+        learning: str | None = None,
     ) -> str:
         env = build_env_overrides(
             experiment_id=experiment_id,
@@ -148,6 +154,7 @@ class CloudRunJobsRunner:
             traffic_run=traffic_run,
             forget=forget,
             shifts=shifts,
+            learning=learning,
         )
         return await asyncio.to_thread(
             self._run_blocking, build_run_job_request(self.job_name, env)
@@ -186,6 +193,7 @@ class FakeJobsRunner:
         traffic_run: int | None = None,
         forget: bool | None = None,
         shifts: list[dict] | None = None,
+        learning: str | None = None,
     ) -> str:
         name = f"projects/fake/locations/us-central1/jobs/traffic/executions/x{next(self._seq)}"
         self.runs.append(
@@ -198,6 +206,7 @@ class FakeJobsRunner:
                 "traffic_run": traffic_run,
                 "forget": forget,
                 "shifts": shifts,
+                "learning": learning,
                 "execution": name,
             }
         )

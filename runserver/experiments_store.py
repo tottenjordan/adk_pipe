@@ -141,11 +141,13 @@ class ExperimentStore(Protocol):
         experiment_id: str,
         run: int | None = None,
         boundaries: Iterable[int] = (),
+        continuous: bool = False,
     ) -> dict[str, list[dict]]:
         """Raw ``bandit_events`` aggregates for contracts §8: ``{"series": ...,
         "segments": ..., "true_ctr": ..., "creative_segments": ..., "regimes":
         ...}`` (the five builders' row shapes; ``regimes`` is ``[]`` without
-        ``boundaries``), restricted to traffic run ``run``."""
+        ``boundaries``), restricted to traffic run ``run``. ``continuous`` (a
+        §11 run) windows the series as one stream over the global round."""
         ...
 
 
@@ -384,6 +386,7 @@ def build_creative_series_sql(
     experiment_id: str,
     windows: int = SERIES_WINDOWS,
     run: int | None = None,
+    continuous: bool = False,
 ) -> tuple[str, list[bigquery.ScalarQueryParameter]]:
     """Per (arm, episode, window) impressions / clicks over ``bandit_events`` (pure).
 
@@ -391,9 +394,15 @@ def build_creative_series_sql(
     windows; ``win = DIV(round * nw, horizon)`` (exact integer floor, clamped to
     ``nw - 1``), so window ``w`` is ``[ceil(w*H/nw), ceil((w+1)*H/nw))``. Every row
     carries ``horizon`` and ``n_windows``; the cross-episode means are computed in
-    Python (``runserver.experiments_series``)."""
+    Python (``runserver.experiments_series``).
+
+    ``continuous`` (contracts §11): ``round`` is already global, so the windows
+    span the whole run; rows are grouped by (arm, window) only and report
+    ``episode = 0``, i.e. one stream rather than a mean over segments."""
     if windows < 1:
         raise ValueError("windows must be >= 1")
+    episode = "0" if continuous else "ev.episode"
+    keys = "arm, win" if continuous else "arm, episode, win"
     sql = f"""
         WITH ev AS (
             SELECT arm, episode, round, clicked
@@ -407,15 +416,15 @@ def build_creative_series_sql(
         )
         SELECT
             ev.arm AS arm,
-            ev.episode AS episode,
+            {episode} AS episode,
             LEAST(DIV(ev.round * h.nw, h.horizon), h.nw - 1) AS win,
             COUNT(*) AS impressions,
             SUM(IFNULL(ev.clicked, 0)) AS clicks,
             ANY_VALUE(h.horizon) AS horizon,
             ANY_VALUE(h.nw) AS n_windows
         FROM ev CROSS JOIN h
-        GROUP BY arm, episode, win
-        ORDER BY arm, episode, win
+        GROUP BY {keys}
+        ORDER BY {keys}
         """
     return sql, _series_params(experiment_id, windows, run)
 
@@ -538,10 +547,11 @@ def series_rows_from_events(
     windows: int = SERIES_WINDOWS,
     run: int | None = None,
     boundaries: Iterable[int] = (),
+    continuous: bool = False,
 ) -> dict[str, list[dict]]:
     """The five §8 queries evaluated over in-memory ``bandit_events`` rows (same
-    semantics as the SQL builders, including the ``run`` filter; used by
-    ``InMemoryExperimentStore``)."""
+    semantics as the SQL builders, including the ``run`` filter and the
+    ``continuous`` one-stream series; used by ``InMemoryExperimentStore``)."""
     evs = [
         e
         for e in events
@@ -570,7 +580,7 @@ def series_rows_from_events(
     )
     for e in evs:
         w = min(int(e["round"]) * nw // horizon, nw - 1)
-        cell = cells[(e["arm"], int(e["episode"]), w)]
+        cell = cells[(e["arm"], 0 if continuous else int(e["episode"]), w)]
         cell[0] += 1
         cell[1] += int(e.get("clicked") or 0)
         seg[(e.get("segment"), e.get("optimal_arm"))] += 1
@@ -767,6 +777,7 @@ class BigQueryExperimentStore:
         experiment_id: str,
         run: int | None = None,
         boundaries: Iterable[int] = (),
+        continuous: bool = False,
     ) -> dict[str, list[dict]]:
         table = self.tables["events"]
         bounds = regime_boundaries(boundaries)
@@ -776,7 +787,10 @@ class BigQueryExperimentStore:
 
         series, segments, true_ctr, creative_segments, regimes = await asyncio.gather(
             self._run_scoped(
-                lambda r: build_creative_series_sql(table, experiment_id, run=r), run
+                lambda r: build_creative_series_sql(
+                    table, experiment_id, run=r, continuous=continuous
+                ),
+                run,
             ),
             self._run_scoped(
                 lambda r: build_segment_winners_sql(table, experiment_id, r), run
@@ -890,7 +904,11 @@ class InMemoryExperimentStore:
         experiment_id: str,
         run: int | None = None,
         boundaries: Iterable[int] = (),
+        continuous: bool = False,
     ) -> dict[str, list[dict]]:
         return series_rows_from_events(
-            self.events.get(experiment_id, []), run=run, boundaries=boundaries
+            self.events.get(experiment_id, []),
+            run=run,
+            boundaries=boundaries,
+            continuous=continuous,
         )

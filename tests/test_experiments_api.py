@@ -658,6 +658,7 @@ def test_traffic_refused_unless_ready_then_starts_job():
         "traffic_run": 1,
         "forget": False,
         "shifts": None,
+        "learning": "per_episode",
         "execution": ok.json()["execution"],
     }
     assert ok.json()["run"] == 1

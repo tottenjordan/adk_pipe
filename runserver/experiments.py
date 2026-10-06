@@ -700,6 +700,58 @@ def validate_shifts(
     return out
 
 
+# Contracts §11, duplicated from bandit.config (runserver never imports bandit/;
+# parity-tested in tests/test_experiments_continuous.py).
+LEARNING_MODES = ("per_episode", "continuous")
+MAX_CONTINUOUS_ROUNDS = 2_000_000
+
+
+class LearningError(ValueError):
+    """A bad ``learning`` (or a continuous run outside its limits); ``field`` is
+    the camelCase body field to blame."""
+
+    def __init__(self, field: str, message: str):
+        super().__init__(message)
+        self.field = field
+
+
+def validate_learning(
+    learning: Any, episodes: int, horizon: int, batch_size: int
+) -> str:
+    """The traffic body's ``learning`` (``None`` = ``per_episode``). A continuous
+    run needs ``episodes * horizon <= MAX_CONTINUOUS_ROUNDS`` (field ``episodes``)
+    and ``horizon`` a multiple of ``batch_size`` (field ``horizon``), as
+    ``bandit.config.validate_continuous_run``."""
+    if learning is None:
+        return "per_episode"
+    if not isinstance(learning, str) or learning not in LEARNING_MODES:
+        raise LearningError(
+            "learning", f"learning must be one of {', '.join(LEARNING_MODES)}"
+        )
+    if learning == "continuous":
+        total = int(episodes) * int(horizon)
+        if total > MAX_CONTINUOUS_ROUNDS:
+            raise LearningError(
+                "episodes",
+                f"episodes x horizon must be <= {MAX_CONTINUOUS_ROUNDS:,} in a "
+                f"continuous run, got {episodes} x {horizon} = {total:,}",
+            )
+        if batch_size > 0 and int(horizon) % int(batch_size):
+            raise LearningError(
+                "horizon",
+                f"horizon must be a multiple of batch_size ({batch_size}) in a "
+                f"continuous run, got {horizon}",
+            )
+    return learning
+
+
+def run_learning(entry: Mapping[str, Any]) -> str:
+    """A ``traffic_runs`` entry's learning mode (entries written before §11 are
+    ``per_episode``)."""
+    value = entry.get("learning")
+    return value if value in LEARNING_MODES else "per_episode"
+
+
 def shifts_to_camel(shifts: Any) -> list[dict]:
     """A stored snake_case shift list -> the REST camelCase form."""
     if not isinstance(shifts, list):
@@ -763,6 +815,8 @@ def traffic_runs_of(row: Mapping[str, Any]) -> list[dict]:
                 "execution": row.get("traffic_execution"),
             }
         ]
+    for r in runs:
+        r["learning"] = run_learning(r)
     return runs
 
 
@@ -804,6 +858,7 @@ def traffic_runs_summary(row: Mapping[str, Any]) -> list[dict]:
                 "horizon": r.get("horizon"),
                 "shifts": shifts_to_camel(r.get("shifts")),
                 "forget": bool(r.get("forget")),
+                "learning": run_learning(r),
                 "status": (
                     _latest_run_status(row)
                     if latest
@@ -1444,6 +1499,8 @@ class _TrafficBody(BaseModel):
     # Contracts §10; checked by validate_shifts / the route (bad -> 400, not 422).
     shifts: Any = None
     forget: Any = None
+    # Contracts §11; checked by validate_learning (bad -> 400 invalid_learning).
+    learning: Any = None
 
 
 async def _get_session(app_name: str, user_id: str, session_id: str):
@@ -1611,7 +1668,12 @@ async def http_get_metrics(
     _kick_finish_check(row)
     rows = await _STORE.metrics_rows(experiment_id, run=n)
     arm_order = [a.get("creativeId") for a in row.get("arms") or []]
-    body = aggregate_episode_metrics(rows, experiment_id, arm_order=arm_order)
+    body = aggregate_episode_metrics(
+        rows,
+        experiment_id,
+        arm_order=arm_order,
+        learning=run_learning(_run_entry(row, n)),
+    )
     return {**body, "run": n}
 
 
@@ -1656,9 +1718,15 @@ async def http_get_creative_series(
     if cached is not None:
         return cached
     entry = _run_entry(row, n)
+    continuous = run_learning(entry) == "continuous"
     horizon = entry.get("horizon")
+    if continuous and horizon:
+        # §11: rounds (and the shift / shock-end rounds) span the whole run
+        horizon = int(horizon) * int(entry.get("episodes") or 1)
     boundaries = shift_boundaries(entry.get("shifts"), horizon)
-    raw = await _STORE.creative_series_rows(experiment_id, run=n, boundaries=boundaries)
+    raw = await _STORE.creative_series_rows(
+        experiment_id, run=n, boundaries=boundaries, continuous=continuous
+    )
     body = build_creative_series(
         raw.get("series", []),
         raw.get("segments", []),
@@ -1702,6 +1770,15 @@ async def http_start_traffic(
     except ShiftsError as exc:
         raise _error(400, "invalid_shifts", str(exc), field=exc.field) from exc
     forget = bool(shifts) if body.forget is None else body.forget
+    try:
+        learning = validate_learning(
+            body.learning,
+            body.episodes,
+            body.horizon or _SETTINGS.default_horizon,
+            _SETTINGS.batch_size,
+        )
+    except LearningError as exc:
+        raise _error(400, "invalid_learning", str(exc), field=exc.field) from exc
     if (
         row["status"] != "ready"
         or is_expired(row, _utcnow())
@@ -1732,11 +1809,13 @@ async def http_start_traffic(
             "horizon": horizon,
             "forget": forget,
             "shifts": shifts,
+            "learning": learning,
             "request": {
                 "episodes": body.episodes,
                 "horizon": body.horizon,
                 "shifts": body.shifts,
                 "forget": body.forget,
+                "learning": body.learning,
             },
         }
         writer = _SETTINGS.config_writer or MemoryConfigWriter()
@@ -1757,6 +1836,7 @@ async def http_start_traffic(
                 traffic_run=run,
                 forget=forget,
                 shifts=shifts or None,
+                learning=learning,
             )
         except Exception as exc:
             log.exception("bandit traffic start %s failed", experiment_id)
@@ -1770,6 +1850,7 @@ async def http_start_traffic(
             "horizon": horizon,
             "forget": forget,
             "shifts": shifts,
+            "learning": learning,
             "execution": execution,
         }
         updated, applied = await _transition(

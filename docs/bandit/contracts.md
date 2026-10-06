@@ -123,8 +123,9 @@ added 2026-10-04 by `ALTER TABLE … ADD COLUMN IF NOT EXISTS`, see deployment/R
 deploy_lease_until TIMESTAMP, deploy_lease_owner STRING (the §6 single-deployer lease; written
 only by the api's conditional lease UPDATEs, never by the MERGE; added 2026-10-05 the same way),
 traffic_runs STRING (§10 JSON list, one snake_case entry per numbered traffic run:
-`{run, started_at, episodes, horizon, forget, shifts, execution, status?}`, where `shifts` is the
-job form and `status` is frozen on an entry when the next run starts; added 2026-10-05; an
+`{run, started_at, episodes, horizon, forget, shifts, learning, execution, status?}`, where `shifts` is the
+job form, `learning` the §11 mode (entries written before 2026-10-06 lack it and read as
+`"per_episode"`) and `status` is frozen on an entry when the next run starts; added 2026-10-05; an
 api ahead of the migration drops the column from its MERGE with an error log)
 
 **`bandit_events`**, one row per round for the endpoint policy, written by the traffic job (`insertId = request_id`).
@@ -181,7 +182,7 @@ All routes are user-scoped. The proxy rewrites `userId` / the `{user_id}` segmen
   - Body: `{episodes: 1..100, horizon?: 1000..400000, shifts?: Shift[] (≤ 4, §10), forget?: boolean | null, learning?: "per_episode" | "continuous"}`.
   - `learning` (§11, default `"per_episode"`): `"continuous"` keeps the endpoint's posterior across the run's episodes (then called segments). A continuous run is limited to `episodes × horizon ≤ 2,000,000` rounds (`bandit.config.MAX_CONTINUOUS_ROUNDS`) and needs `horizon` to be a multiple of the experiment's `batch_size`.
   - Success: `{status: "running_traffic", execution, run}` (`run` = the allocated 1-based run number).
-  - Errors: 400 `invalid_shifts` (with `detail.field`, e.g. `shifts[1].untilFrac`) or `invalid_forget`; 409 unless status is `ready`.
+  - Errors: 400 `invalid_shifts` (with `detail.field`, e.g. `shifts[1].untilFrac`) or `invalid_forget`; 400 `invalid_learning` with `detail.field`: `learning` (not one of the two modes), `episodes` (a continuous run over 2,000,000 rounds; a missing `horizon` counts as the experiment default) or `horizon` (not a multiple of `batch_size`); 409 unless status is `ready`.
 - `POST /experiments/{user_id}/{experiment_id}/stop` returns `{status: "stopping" | "stopped"}`.
 
 **Status enum:** `deploying → ready → running_traffic → ready → stopping → stopped`; also `failed` and `expired` (the TTL reaper).
@@ -201,9 +202,10 @@ type TrafficRun = { run: number; startedAt: string | null; episodes: number;
   horizon: number | null;          // the run's horizon (the body's, else the experiment default)
   shifts: Shift[];                 // §10 REST form as validated (camelCase; [] = no shifts)
   forget: boolean;
+  learning: "per_episode" | "continuous";                            // §11; older runs "per_episode"
   status: "running" | "finished" | "failed" | "stopped" };
   // An experiment that ran traffic before runs were numbered shows a legacy run 1
-  // (startedAt/horizon null, shifts [], forget false).
+  // (startedAt/horizon null, shifts [], forget false, learning "per_episode").
 type ScenarioOverrides = { segmentMix?: number[]; gapScale?: number; judgeWrong?: number;
   noiseScale?: number; driftAtFrac?: number };                       // only the fields that were set
 type Band = { mean: number[]; lo: number[]; hi: number[] };          // mean ± 95% CI across episodes
@@ -219,7 +221,10 @@ type ExperimentMetrics = { experimentId: string; episodes: number; horizon: numb
   shiftResponse: Record<string, ShiftResponse[]>;                    // §10; {} without shifts
   regimes: MetricsRegime[];                                          // §10; [] without shifts
   shiftCost?: ShiftCost;                                             // §10; omitted without ghost rows
-  resolvedShifts?: ResolvedShift[] };                                // §10; omitted for older runs / no shifts
+  resolvedShifts?: ResolvedShift[];                                  // §10; omitted for older runs / no shifts
+  // §11, continuous runs only (a per-episode response has none of these keys):
+  learning?: "continuous"; segmentHorizon?: number | null; segmentStarts?: number[];
+  continuousSummary?: ContinuousSummary };                           // §11 shape and rules
 type ResolvedShift = { index: number;                                // position in the requested list; time order
   kind: "promote" | "demote" | "mix" | "shock"; round: number; endRound: number | null;
   segment: string | null; creativeId: string | null;                 // concrete ("leader" resolved); null for mix
@@ -473,7 +478,7 @@ PR B/C store it per run: the `traffic_runs` JSON on the experiment row, and `{id
 
 **REST (PR C, implemented 2026-10-05 in `runserver/experiments.py`):**
 - **Validation** (`validate_shifts(scenario, ctr_mode, arms, shifts)`): the rules above on the camelCase form, `null` fields counting as unset. runserver duplicates `SHIFT_KINDS`, `SHIFT_BOUNDS`, `MAX_SHIFTS`, `SHIFT_MIN_WINDOW`, `LEADER`, `LEADER_KINDS`, the per-kind field tables, the per-scenario segment names (`SCENARIO_SEGMENT_NAMES`) and `ctr_scale` (from `SCENARIO_TARGET_CTR`), under parity tests (`tests/test_experiments_shifts.py`, which also checks that `bandit` rejects every case the api rejects, naming the same field). Creative ids must be the experiment's arms. A failure is **400** `{reason: "invalid_shifts", field}` with the camelCase field (`shifts[1].untilFrac`, `shifts[0].creativeId`; `shifts` for a non-list or more than 4). A non-boolean `forget` is **400** `invalid_forget`.
-- **Run allocation:** `run = len(traffic_runs) + 1` (an experiment that ran traffic before runs were numbered counts as having a legacy run 1, so its next run is 2). Before starting the job the api writes `{artifacts}/{id}/runs/{n}.json`: `{experiment_id, run, started_at, episodes, horizon, forget, shifts (job form), request (the body as submitted)}`; `horizon` is the body's or the experiment default. It then starts the job with `TRAFFIC_RUN`, `FORGET` and (only when there are shifts) `SHIFTS_JSON`, and appends `{run, started_at, episodes, horizon, forget, shifts, execution}` to `traffic_runs` in the same guarded `traffic_started` transition (skipped, 409, if another process started a run since the read). The previous entry's `status` is frozen at that point. The response adds `run`.
+- **Run allocation:** `run = len(traffic_runs) + 1` (an experiment that ran traffic before runs were numbered counts as having a legacy run 1, so its next run is 2). Before starting the job the api writes `{artifacts}/{id}/runs/{n}.json`: `{experiment_id, run, started_at, episodes, horizon, forget, shifts (job form), learning (§11), request (the body as submitted)}`; `horizon` is the body's or the experiment default. It then starts the job with `TRAFFIC_RUN`, `FORGET` and (only when there are shifts) `SHIFTS_JSON`, and appends `{run, started_at, episodes, horizon, forget, shifts, learning, execution}` to `traffic_runs` in the same guarded `traffic_started` transition (skipped, 409, if another process started a run since the read). The previous entry's `status` is frozen at that point. The response adds `run`.
 - **Reads:** `/metrics` and `/creatives` take `?run=N` (default the latest; `[1, latest]` else 400 `invalid_run`). Rows with a NULL `traffic_run` count as run 1. Both responses carry `run`; `/metrics` adds `shiftResponse`, `regimes` and (when ghost rows exist) `shiftCost`, the paired per-episode ghost − endpoint clicks / reward with a 95% t-interval (§5); `/creatives` adds `regimes` (§8).
 - **Frontend proxy:** the `/api/adk` proxy forwards only the `since` / `version` query params today; PR D must add `run` to that allowlist (`frontend/src/lib/user-scoping.ts`).
 
@@ -515,6 +520,8 @@ A traffic run's **learning mode** is `"per_episode"` (the default, every behavio
 
 **Job env:** `LEARNING_MODE=per_episode|continuous` (flag `--learning`; default `per_episode`; anything else exits 2). The api (PR B) sets it only for continuous runs.
 
+**api record (PR B, implemented in `runserver/experiments.py`):** `validate_learning` checks the body (runserver duplicates `LEARNING_MODES` and `MAX_CONTINUOUS_ROUNDS` under a parity test, `tests/test_experiments_continuous.py`; the `batch_size` is the api's `ExperimentSettings.batch_size`, the one written into `experiment.json`). The validated mode is recorded as `learning` in `runs/{n}.json` (plus `request.learning` as submitted) and in the `traffic_runs` entry, and surfaced as `TrafficRun.learning` (§5). The `forget` default is unchanged (`true` iff there are shifts).
+
 **Semantics** (`bandit_traffic.traffic.TrafficRunner`):
 - **World:** `simulate.build_environment(continuous_world_config(cfg))`, i.e. the ground truth built with horizon H, so the environment's `t` is the global round and drift points / shifts resolve over the whole run (§10). The model key is unchanged.
 - **Endpoint:** one `reset` (episode 0, `reset_seed(seed, 0)`, episode 0's `policy_key`, `batch_size`, plus the run's `discount` when forgetting, computed with H) before segment 0. Decisions carry the **global** `batch` (0 … H/batch_size − 1) and `row`. Every random stream (contexts, rewards, policy) is episode 0's, folded with the global batch index.
@@ -536,3 +543,23 @@ continuousSummary?: {
                 status: "ok" | "too_few_segments" | "autocorrelated" | "still_trending" };
 }
 ```
+
+**Batch means** (`runserver/batch_means.py::batch_means_summary(diffs, warmup_frac=0.5, min_batches=5, max_lag1=0.2)`, pure Python): the warm-up is the first `floor(warmup_frac · n)` segments (`warmupSegments`); the `m` kept segments are the batches. `mean` is their mean (over all segments when none are kept). `lag1` is the lag-1 autocorrelation of the kept values **around their OLS line** (null for fewer than 3 kept or zero variance). `status`, checked in order:
+1. `too_few_segments`: `m < min_batches` (so 9 segments → 4 warm-up + 5 batches is the minimum);
+2. `autocorrelated`: `|lag1| > max(max_lag1, 1.96/√m)`, i.e. above 0.2 **and** significant at about 5% (with ~20 batches `max_lag1` alone would flag ~40% of iid runs);
+3. `still_trending`: the OLS slope of the kept values is significant (two-sided 5% t-test, df = m − 2);
+4. `ok`: `lo` / `hi` = `mean ± t(m − 1) · s/√m` (`experiments_metrics.t_critical`); null for every other status.
+
+Autocorrelation is checked before the trend because the naive slope test fires on most strongly autocorrelated series (an AR(1) with ρ = 0.8 wanders), while detrending keeps a genuine trend from reading as autocorrelation.
+
+**`/metrics` for a continuous run (PR B, implemented in `runserver/experiments_metrics.py::aggregate_continuous`; the route passes the run's `traffic_runs` `learning`):**
+- Only segments **every** policy has written are used (the contiguous run from segment 0), so a segment in flight never skews one curve.
+- `episodes` = those segments; `horizon` = the rounds they cover (Σ segment `horizon`, i.e. global; the planned total is `TrafficRun.episodes × TrafficRun.horizon`); `checkpoints` = the stitched global round counts (the endpoint's).
+- Additive keys, continuous only: `learning: "continuous"`, `segmentHorizon: number` (T), `segmentStarts: number[]` (each segment's `segment_start`, for boundary ticks), `continuousSummary` (omitted without an endpoint and a baseline sharing a segment). A per-episode response is byte-for-byte unchanged (no `learning` key).
+- `curves`: the concatenation rule above, `lo = hi = mean`.
+- `totals`, `perSegment`, `arms`: as per episode, over the segments (`totals` is the mean ± std **per segment**, not a CI; segments are equally long, so the means are whole-run means).
+- `armShare`: the endpoint's segment windows concatenated in order (aligned with `checkpoints`), not a mean.
+- `shiftResponse` / `regimes` / `resolvedShifts`: from the last segment's rows only (each `Stat` collapses to its single value, `episodes: 1`); `{}` / `[]` / omitted until the last segment is written.
+- `shiftCost`: the **whole-run** ghost − endpoint total (Σ over paired segments) in `clicksPerEpisode` / `rewardPerEpisode` with `lo = hi = mean` (no interval); `episodes` = paired segments.
+
+**`/creatives` for a continuous run:** the series query windows the **global** `round` (so `horizon` = `MAX(round) + 1` = the whole run) and groups by `(arm, window)` only, reporting `episode = 0`: one stream, so `episodes` is 1 and `cumClicks` / `missedClicks` are whole-run values. Regime boundaries use the run's total `episodes × horizon` (§10 continuous resolution).
