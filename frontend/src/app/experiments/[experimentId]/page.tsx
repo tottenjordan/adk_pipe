@@ -17,6 +17,7 @@ import {
   armImageUrl,
   armName,
   canStop,
+  continuousLimitError,
   ctrModeLabel,
   defaultHorizon,
   EPISODE_OPTIONS,
@@ -24,6 +25,10 @@ import {
   getExperimentMetrics,
   hasMetrics,
   InvalidShiftsError,
+  isContinuousMetrics,
+  isContinuousRun,
+  MAX_CONTINUOUS_ROUNDS,
+  parseContinuousSummary,
   pollExperiment,
   PollWaker,
   rewardModeLabel,
@@ -37,13 +42,17 @@ import {
   type CreativeSeries,
   type ExperimentMetrics,
   type ExperimentSummary,
+  type LearningMode,
 } from "@/lib/experiments";
+import { SegmentedControl } from "@/components/segmented-control";
 import { buildInsights } from "@/lib/experiment-insights";
 import { buildLanes, laneRegimes } from "@/lib/scoreboard";
 import {
   buildRunView,
   defaultForget,
   parseRunParam,
+  runRounds,
+  segmentMarkers,
   selectedRun,
   trafficRuns,
   urlForRun,
@@ -71,6 +80,17 @@ import { ShiftTimeline } from "./shift-timeline";
 import { RunSelector } from "./run-selector";
 
 const METRICS_INTERVAL_MS = 10_000;
+
+const LEARNING_OPTIONS: readonly { value: LearningMode; label: string }[] = [
+  { value: "per_episode", label: "Reset each episode" },
+  { value: "continuous", label: "Keep learning" },
+];
+
+/** "20 and 50" / "5, 20 and 50". */
+function joinCounts(ns: readonly number[]): string {
+  const s = ns.map(String);
+  return s.length <= 1 ? (s[0] ?? "") : `${s.slice(0, -1).join(", ")} and ${s[s.length - 1]}`;
+}
 
 export default function ExperimentPage({
   params,
@@ -110,6 +130,7 @@ export default function ExperimentPage({
   const [pollKey, setPollKey] = useState(0);
   const [now, setNow] = useState(() => Date.now());
   const [episodes, setEpisodes] = useState<number>(20);
+  const [learning, setLearning] = useState<LearningMode>("per_episode");
   const [busy, setBusy] = useState<"traffic" | "stop" | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [confirmStop, setConfirmStop] = useState(false);
@@ -197,9 +218,32 @@ export default function ExperimentPage({
     () => (hasMetrics(metrics) ? buildRunView(shownRun, metrics, series) : null),
     [shownRun, metrics, series]
   );
+  // The shown run kept learning (contracts §11): one stitched stream, no bands, batch means.
+  const continuous =
+    isContinuousRun(shownRun) ||
+    (hasMetrics(metrics) &&
+      (isContinuousMetrics(metrics) || parseContinuousSummary(metrics.continuousSummary) !== null));
+  const continuousView = useMemo(() => {
+    if (!continuous) return null;
+    // The run record has the plan (segments × rounds); the metrics, what has landed so far
+    // (for a continuous run `horizon` is the rounds covered, `segmentHorizon` the segment length).
+    const run = shownRun && isContinuousRun(shownRun) ? shownRun : null;
+    const segmentRounds = run?.horizon ?? metrics?.segmentHorizon ?? null;
+    const segments = run?.episodes ?? metrics?.episodes ?? 0;
+    const shape = { episodes: segments, horizon: segmentRounds, learning: "continuous" as const };
+    return {
+      segments,
+      segmentRounds,
+      totalRounds: runRounds(shape) ?? metrics?.horizon ?? null,
+      markers: segmentMarkers(shape, { starts: metrics?.segmentStarts }),
+    };
+  }, [continuous, shownRun, metrics?.episodes, metrics?.horizon, metrics?.segmentHorizon, metrics?.segmentStarts]);
   const insights = useMemo(
     () =>
       buildInsights({
+        continuous: continuousView
+          ? { segments: continuousView.segments, totalRounds: continuousView.totalRounds }
+          : null,
         shifts: runView?.shifts,
         forget: runView?.forget,
         metrics: hasMetrics(metrics) ? metrics : null,
@@ -221,6 +265,7 @@ export default function ExperimentPage({
       exp?.scenarioOverrides,
       exp?.policyDiscount,
       runView,
+      continuousView,
     ]
   );
   const lanes = useMemo(
@@ -281,6 +326,19 @@ export default function ExperimentPage({
 
   const horizon = defaultHorizon(exp.scenario, exp.ctrMode);
   const ttl = canStop(exp.status) ? ttlText(exp.ttlExpiresAt, now) : "";
+  const keepLearning = learning === "continuous";
+  const limitError = keepLearning ? continuousLimitError(episodes, horizon) : null;
+  const blockedCounts = keepLearning
+    ? EPISODE_OPTIONS.filter((n) => continuousLimitError(n, horizon) !== null)
+    : [];
+  // Switching to Keep learning moves an over-long choice down to the longest stream that fits.
+  const changeLearning = (mode: LearningMode) => {
+    setLearning(mode);
+    if (mode === "continuous" && continuousLimitError(episodes, horizon) !== null) {
+      const fits = EPISODE_OPTIONS.filter((n) => continuousLimitError(n, horizon) === null);
+      if (fits.length) setEpisodes(fits[fits.length - 1]);
+    }
+  };
 
   const onStartTraffic = async () => {
     setActionError(null);
@@ -291,7 +349,7 @@ export default function ExperimentPage({
     }
     setBusy("traffic");
     try {
-      await startTraffic(experimentId, episodes, horizon, { shifts: draftShifts, forget });
+      await startTraffic(experimentId, episodes, horizon, { shifts: draftShifts, forget, learning });
       setExp((e) => (e ? { ...e, status: "running_traffic" } : e));
       // The new run becomes the latest: follow it.
       setRunParam(null);
@@ -361,7 +419,7 @@ export default function ExperimentPage({
 
       {/* Status + controls */}
       <section aria-label="Experiment controls" className="mt-4 rounded-lg border border-border bg-card p-4">
-        <StatusNote exp={exp} />
+        <StatusNote exp={exp} continuous={isContinuousRun(runs[runs.length - 1])} />
 
         {shiftCtx && (exp.status === "ready" || exp.status === "deploying" || exp.status === "running_traffic") && (
           <div className="mt-4">
@@ -383,20 +441,38 @@ export default function ExperimentPage({
         <div className="mt-3 flex flex-wrap items-end gap-x-6 gap-y-3">
           <div>
             <div className="mb-1.5 flex items-center gap-1">
+              <FieldLabel id="traffic-learning-label">Learning</FieldLabel>
+              <InfoTip label="About learning" align="start">
+                {CONTROL_HELP.learning}
+              </InfoTip>
+            </div>
+            <SegmentedControl
+              labelledBy="traffic-learning-label"
+              options={LEARNING_OPTIONS}
+              value={learning}
+              onChange={changeLearning}
+              disabled={exp.status !== "ready" || busy !== null}
+            />
+          </div>
+          <div>
+            <div className="mb-1.5 flex items-center gap-1">
               <FieldLabel as="label" htmlFor="traffic-episodes">
-                Episodes
+                {keepLearning ? "Segments" : "Episodes"}
               </FieldLabel>
-              <InfoTip label="About episodes">{CONTROL_HELP.episodes}</InfoTip>
+              <InfoTip label={keepLearning ? "About segments" : "About episodes"}>
+                {keepLearning ? CONTROL_HELP.segments : CONTROL_HELP.episodes}
+              </InfoTip>
             </div>
             <select
               id="traffic-episodes"
               value={episodes}
               onChange={(e) => setEpisodes(Number(e.target.value))}
               disabled={exp.status !== "ready"}
+              aria-describedby={keepLearning ? "traffic-stream-total" : undefined}
               className="h-8 rounded-sm border border-input bg-card px-2 text-sm tabular-nums disabled:opacity-50"
             >
               {EPISODE_OPTIONS.map((n) => (
-                <option key={n} value={n}>
+                <option key={n} value={n} disabled={keepLearning && continuousLimitError(n, horizon) !== null}>
                   {n}
                 </option>
               ))}
@@ -404,15 +480,24 @@ export default function ExperimentPage({
           </div>
           <div>
             <div className="mb-1.5 flex items-center gap-1">
-              <FieldLabel>Rounds per episode</FieldLabel>
-              <InfoTip label="About rounds per episode">{CONTROL_HELP.rounds}</InfoTip>
+              <FieldLabel>{keepLearning ? "Rounds per segment" : "Rounds per episode"}</FieldLabel>
+              <InfoTip label={keepLearning ? "About rounds per segment" : "About rounds per episode"}>
+                {keepLearning ? CONTROL_HELP.segmentRounds : CONTROL_HELP.rounds}
+              </InfoTip>
             </div>
             <p className="h-8 text-sm leading-8 text-foreground tabular-nums">{formatInt(horizon)}</p>
           </div>
+          {keepLearning && (
+            <div id="traffic-stream-total" className="min-w-0 max-w-[22rem]">
+              <p className="h-8 text-sm leading-8 font-medium text-foreground tabular-nums">
+                {limitError ? "Too long for one stream" : `${formatInt(episodes * horizon)} rounds in one stream`}
+              </p>
+            </div>
+          )}
           <div className="flex items-center gap-1.5">
             <Button
               onClick={onStartTraffic}
-              disabled={exp.status !== "ready" || busy !== null}
+              disabled={exp.status !== "ready" || busy !== null || limitError !== null}
             >
               {busy === "traffic"
                 ? "Starting…"
@@ -462,6 +547,14 @@ export default function ExperimentPage({
             )}
           </div>
         </div>
+        {keepLearning && (limitError || blockedCounts.length > 0) && (
+          <p className="mt-2 max-w-[72ch] text-xs text-muted-foreground tabular-nums">
+            {limitError ??
+              `One stream is capped at ${formatInt(MAX_CONTINUOUS_ROUNDS)} rounds, so ${joinCounts(
+                blockedCounts
+              )} segments aren't available at ${formatInt(horizon)} rounds per segment.`}
+          </p>
+        )}
         {actionError && (
           <p role="alert" className="mt-3 text-sm text-mark-fail">
             {actionError}
@@ -567,8 +660,19 @@ export default function ExperimentPage({
               </h2>
               {hasMetrics(metrics) && (
                 <p className="text-xs text-muted-foreground tabular-nums">
-                  {metrics.episodes} {metrics.episodes === 1 ? "episode" : "episodes"}
-                  {metrics.horizon ? ` of ${formatInt(metrics.horizon)} rounds` : ""}
+                  {continuousView ? (
+                    <>
+                      {metrics.episodes < continuousView.segments ? `${metrics.episodes} of ` : ""}
+                      {continuousView.segments} {continuousView.segments === 1 ? "segment" : "segments"}
+                      {continuousView.segmentRounds ? ` of ${formatInt(continuousView.segmentRounds)} rounds` : ""}, one
+                      stream that keeps learning
+                    </>
+                  ) : (
+                    <>
+                      {metrics.episodes} {metrics.episodes === 1 ? "episode" : "episodes"}
+                      {metrics.horizon ? ` of ${formatInt(metrics.horizon)} rounds` : ""}
+                    </>
+                  )}
                 </p>
               )}
             </div>
@@ -581,6 +685,7 @@ export default function ExperimentPage({
                   readings={insights.readings}
                   explain={explain}
                   runView={runView}
+                  continuous={continuousView}
                 />
                 <p className="mt-3 text-xs text-muted-foreground">
                   {exp.ctrMode === "demo" ? "Demo mode inflates click rates; " : ""}
@@ -590,7 +695,9 @@ export default function ExperimentPage({
             ) : (
               <div className="rounded-lg border border-border bg-card px-4 py-6 text-sm text-muted-foreground">
                 {exp.status === "running_traffic"
-                  ? "Traffic is running. Charts appear when the first episode finishes."
+                  ? `Traffic is running. Charts appear when the first ${
+                      isContinuousRun(shownRun) ? "segment" : "episode"
+                    } finishes.`
                   : exp.status === "ready"
                     ? "No traffic yet. Start traffic to simulate readers; each episode replays the same readers for every policy so they can be compared fairly."
                     : exp.status === "deploying"
@@ -609,6 +716,7 @@ export default function ExperimentPage({
         explain={explain}
         onClose={() => setOpenCreative(null)}
         runView={runView}
+        continuous={continuous}
       />
     </div>
   );
@@ -628,8 +736,9 @@ function scoreboardDirection(status: string): string {
   }
 }
 
-function StatusNote({ exp }: { exp: ExperimentSummary }) {
+function StatusNote({ exp, continuous = false }: { exp: ExperimentSummary; continuous?: boolean }) {
   const p = exp.progress;
+  const unit = continuous ? "segment" : "episode";
   switch (exp.status) {
     case "deploying":
       return (
@@ -644,8 +753,8 @@ function StatusNote({ exp }: { exp: ExperimentSummary }) {
       return (
         <p className="text-sm text-foreground tabular-nums" role="status">
           Simulating readers
-          {p ? `: episode ${Math.min(p.episodesDone + 1, p.episodesTotal)} of ${p.episodesTotal}` : ""}. Charts
-          update as episodes finish.
+          {p ? `: ${unit} ${Math.min(p.episodesDone + 1, p.episodesTotal)} of ${p.episodesTotal}` : ""}
+          {continuous ? ", one stream that keeps learning" : ""}. Charts update as {unit}s finish.
         </p>
       );
     case "stopping":

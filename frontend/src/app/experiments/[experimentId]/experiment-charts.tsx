@@ -2,8 +2,8 @@
 
 import type { ReactNode } from "react";
 import { InfoTip } from "@/components/ui/info-tip";
-import { CHART_HELP, SHIFT_HELP } from "@/lib/experiment-help";
-import { CHART_EXPLAIN, SHIFT_EXPLAIN } from "@/lib/experiment-explain";
+import { CHART_HELP, CONTINUOUS_CHART_HELP, SHIFT_HELP } from "@/lib/experiment-help";
+import { CHART_EXPLAIN, CONTINUOUS_EXPLAIN, SHIFT_EXPLAIN } from "@/lib/experiment-explain";
 import type { ChartReadings } from "@/lib/experiment-insights";
 import { ExplainPanel } from "@/components/explain";
 import { BarChart } from "@/components/charts/bar-chart";
@@ -24,7 +24,18 @@ import {
   type Arm,
   type ExperimentMetrics,
 } from "@/lib/experiments";
-import { parseShiftResponse, recoverySpans, type RunView } from "@/lib/shifts";
+import { parseShiftResponse, recoverySpans, type ChartMarker, type RunView } from "@/lib/shifts";
+
+/** A continuous run's shape for the charts (contracts §11). */
+export interface ContinuousChartView {
+  segments: number;
+  /** Rounds per segment (T). */
+  segmentRounds: number | null;
+  /** Rounds in the whole stream (segments × T). */
+  totalRounds: number | null;
+  /** Subtle segment-boundary ticks (`segmentMarkers`). */
+  markers: ChartMarker[];
+}
 
 function ChartPanel({
   title,
@@ -80,6 +91,7 @@ export function ExperimentCharts({
   readings,
   explain = false,
   runView = null,
+  continuous = null,
 }: {
   metrics: ExperimentMetrics;
   arms: Arm[];
@@ -89,12 +101,20 @@ export function ExperimentCharts({
   explain?: boolean;
   /** The shown run's shifts (contracts §10): markers, linear rounds, ghost, per-period tables. */
   runView?: RunView | null;
+  /** The shown run kept learning (§11): one stitched stream on global rounds, linear x, no bands, segment ticks. */
+  continuous?: ContinuousChartView | null;
 }) {
   const shifted = Boolean(runView);
-  const roundLabel = shifted ? "Round" : "Round (log scale)";
-  const markers = runView?.markers;
-  const spans = shifted ? recoverySpans(parseShiftResponse(metrics.shiftResponse), metrics.horizon) : [];
-  const explainFor = (base: string) => (shifted ? `${base} ${SHIFT_EXPLAIN.markers}` : base);
+  const linear = shifted || Boolean(continuous);
+  const roundLabel = continuous ? "Round (whole run)" : shifted ? "Round" : "Round (log scale)";
+  const markers = [...(continuous?.markers ?? []), ...(runView?.markers ?? [])];
+  const spans = shifted
+    ? recoverySpans(parseShiftResponse(metrics.shiftResponse), runView?.horizon ?? metrics.horizon)
+    : [];
+  const help = (key: keyof typeof CHART_HELP) =>
+    (continuous ? CONTINUOUS_CHART_HELP[key] : undefined) ?? CHART_HELP[key];
+  const explainFor = (base: string) =>
+    [base, shifted ? SHIFT_EXPLAIN.markers : ""].filter(Boolean).join(" ");
   const hasGhost = Boolean(metrics.curves?.[GHOST_POLICY]);
   const ghostNote = hasGhost ? " The dashed blue line is Linear TS on the same readers without your shifts." : "";
   const clickReward = rewardMode !== "engaged";
@@ -102,14 +122,20 @@ export function ExperimentCharts({
   const rewardAxis = clickReward ? "Click rate so far" : "Engaged seconds per round so far";
   const pct = (v: number) => formatPercent(v);
 
-  const avg = curveSeries(metrics, "cumAvgReward", { includeOracle: true });
-  const regret = curveSeries(metrics, "cumRegret", { bands: true });
-  const optimal = curveSeries(metrics, "pctOptimal", { bands: true });
-  const share = armShareSeries(metrics, arms, shifted && metrics.horizon ? { minWindow: metrics.horizon * 0.01 } : {});
+  const avg = curveSeries(metrics, "cumAvgReward", { includeOracle: true, continuous: Boolean(continuous) });
+  const regret = curveSeries(metrics, "cumRegret", { bands: true, continuous: Boolean(continuous) });
+  const optimal = curveSeries(metrics, "pctOptimal", { bands: true, continuous: Boolean(continuous) });
+  // Drop the tiny windows merged in around a shift (their shares are noise): 1% of an episode, or of a segment.
+  const windowBase = continuous ? continuous.segmentRounds : metrics.horizon;
+  const share = armShareSeries(metrics, arms, linear && windowBase ? { minWindow: windowBase * 0.01 } : {});
   const segments = segmentRows(metrics, arms);
   const totals = totalBars(metrics);
   const armRows = armStatRows(metrics, arms);
-  const ep = `${metrics.episodes} ${metrics.episodes === 1 ? "episode" : "episodes"}`;
+  const ep = continuous
+    ? `${metrics.episodes} ${metrics.episodes === 1 ? "segment" : "segments"}`
+    : `${metrics.episodes} ${metrics.episodes === 1 ? "episode" : "episodes"}`;
+  const segmentRounds = continuous ? continuous.segmentRounds : metrics.horizon;
+  const noBands = "No bands: one continuous stream has no independent repeats to build them from.";
   const mr = runView?.metricRegimes ?? [];
   const periodRows = mr.length >= 2 ? mr : null;
   const latestTrue =
@@ -134,21 +160,21 @@ export function ExperimentCharts({
       </p>
       <ChartPanel
         title="Cumulative average reward against the optimum"
-        help={hasGhost ? `${CHART_HELP.avgReward} ${SHIFT_HELP.ghost}` : CHART_HELP.avgReward}
+        help={hasGhost ? `${help("avgReward")} ${SHIFT_HELP.ghost}` : help("avgReward")}
         reading={readings?.avgReward}
-        explain={explainFor(CHART_EXPLAIN.avgReward)}
+        explain={explainFor(continuous ? `${CHART_EXPLAIN.avgReward} ${CONTINUOUS_EXPLAIN.stream}` : CHART_EXPLAIN.avgReward)}
         explainOpen={explain}
         helpLabel="About cumulative average reward"
-        note={`Mean of ${ep}. The black dashed line is the oracle, which always shows the best creative for the reader.${ghostNote}`}
+        note={`${continuous ? `One stream of ${ep}; the ticks on the axis mark where each starts.` : `Mean of ${ep}.`} The black dashed line is the oracle, which always shows the best creative for the reader.${ghostNote}`}
       >
         <LineChart
           title="Cumulative average reward by strategy, with the oracle as reference"
           series={avg}
           xLabel={roundLabel}
           yLabel={rewardAxis}
-          logX={!shifted}
+          logX={!linear}
           markers={markers}
-          minX={shifted ? 1000 : 100}
+          minX={linear ? 1000 : 100}
           yZero={false}
           formatY={formatReward}
         />
@@ -156,21 +182,25 @@ export function ExperimentCharts({
 
       <ChartPanel
         title="Cumulative regret"
-        help={CHART_HELP.regret}
+        help={help("regret")}
         reading={readings?.regret}
-        explain={explainFor(CHART_EXPLAIN.regret)}
+        explain={explainFor(continuous ? CONTINUOUS_EXPLAIN.regret : CHART_EXPLAIN.regret)}
         explainOpen={explain}
         helpLabel="About cumulative regret"
-        note={`Reward lost against the oracle; flatter is better. Bands are 95% intervals across episodes.${
+        note={`Reward lost against the oracle; flatter is better. ${continuous ? noBands : "Bands are 95% intervals across episodes."}${
           spans.length ? " Shaded: rounds until the endpoint's best-creative rate was back to 80% of its pre-shift level." : ""
         }`}
       >
         <LineChart
-          title="Cumulative pseudo-regret by strategy, with 95% confidence bands"
+          title={
+            continuous
+              ? "Cumulative pseudo-regret by strategy over the whole run"
+              : "Cumulative pseudo-regret by strategy, with 95% confidence bands"
+          }
           series={regret}
           xLabel={roundLabel}
           yLabel={clickReward ? "Clicks lost" : "Seconds lost"}
-          logX={!shifted}
+          logX={!linear}
           markers={markers}
           spans={spans}
           minX={100}
@@ -179,21 +209,23 @@ export function ExperimentCharts({
 
       <ChartPanel
         title="Share of rounds on the best creative"
-        help={hasGhost ? `${CHART_HELP.optimalShare} ${SHIFT_HELP.ghost}` : CHART_HELP.optimalShare}
+        help={hasGhost ? `${help("optimalShare")} ${SHIFT_HELP.ghost}` : help("optimalShare")}
         reading={readings?.optimal}
         explain={explainFor(CHART_EXPLAIN.optimalShare)}
         explainOpen={explain}
         helpLabel="About share of rounds on the best creative"
-        note={`How often each strategy showed the reader's optimal creative. Bands are 95% intervals.${ghostNote}`}
+        note={`How often each strategy showed the reader's optimal creative. ${
+          continuous ? "Rates so far over the whole stream, without bands." : "Bands are 95% intervals."
+        }${ghostNote}`}
       >
         <LineChart
           title="Percent of rounds choosing the optimal creative, by strategy"
           series={optimal}
           xLabel={roundLabel}
           yLabel="Optimal choices"
-          logX={!shifted}
+          logX={!linear}
           markers={markers}
-          minX={shifted ? 1000 : 100}
+          minX={linear ? 1000 : 100}
           yDomain={[0, 1]}
           formatY={pct}
         />
@@ -214,7 +246,7 @@ export function ExperimentCharts({
             series={share}
             xLabel={roundLabel}
             yLabel="Share of impressions"
-            logX={!shifted}
+            logX={!linear}
             markers={markers}
             minX={100}
             yDomain={[0, 1]}
@@ -290,18 +322,18 @@ export function ExperimentCharts({
       </ChartPanel>
 
       <ChartPanel
-        title="Expected total reward per episode"
-        help={CHART_HELP.totals}
+        title={continuous ? "Expected total reward per segment" : "Expected total reward per episode"}
+        help={help("totals")}
         reading={readings?.totals}
         explain={CHART_EXPLAIN.totals}
         explainOpen={explain}
-        helpLabel="About expected total reward per episode"
-        note={`Mean ± one standard deviation across ${ep}${
-          metrics.horizon ? ` of ${formatInt(metrics.horizon)} rounds` : ""
-        }.`}
+        helpLabel={continuous ? "About expected total reward per segment" : "About expected total reward per episode"}
+        note={`Mean ± one standard deviation across ${ep}${segmentRounds ? ` of ${formatInt(segmentRounds)} rounds` : ""}.${
+          continuous ? " Early segments include the learning, so the spread is not an error bar." : ""
+        }`}
       >
         <BarChart
-          title="Expected total reward per episode by strategy, mean plus or minus one standard deviation"
+          title={`Expected total reward per ${continuous ? "segment" : "episode"} by strategy, mean plus or minus one standard deviation`}
           bars={totals.map((b) => ({
             id: b.id,
             label: policyShortLabel(b.id),
@@ -310,7 +342,7 @@ export function ExperimentCharts({
             mean: b.mean,
             err: b.std,
           }))}
-          xLabel={clickReward ? "Total clicks per episode" : "Total engaged seconds per episode"}
+          xLabel={`${clickReward ? "Total clicks" : "Total engaged seconds"} per ${continuous ? "segment" : "episode"}`}
           format={formatInt}
         />
       </ChartPanel>

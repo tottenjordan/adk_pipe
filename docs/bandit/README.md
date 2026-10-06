@@ -39,6 +39,7 @@ Deployment runbook (tables, env, IAM, traffic job): [deployment/README.md → Ba
 - [Feature spec and privacy rules](#feature-spec-and-privacy-rules)
 - [Synthetic readers (simulated users)](#synthetic-readers-simulated-users)
 - [Scenarios](#scenarios)
+- [Continuous learning mode](#continuous-learning-mode)
 - [Metrics and terminology](#metrics-and-terminology)
 - [Demo vs realistic CTR modes](#demo-vs-realistic-ctr-modes)
 - [Simulation results](#simulation-results)
@@ -65,7 +66,7 @@ Deployment runbook (tables, env, IAM, traffic job): [deployment/README.md → Ba
         │                                              │
         ▼                                              ▼
  Agent Platform endpoint (CPR, 1 replica)        Cloud Run Job trend-trawler-bandit-traffic
-   BanditPredictor (bandit_serving/)       ◄───   per episode: reset → for each batch:
+   BanditPredictor (bandit_serving/)       ◄───   per episode (or once per continuous run): reset → each batch:
    JAX LinTS posterior, in memory                   decisions → outcome from pre-drawn coin flips
    instances: decision | reward | reset | state     → rewards; then replay ucb1, epsilon_greedy,
    checkpoints → GCS (AIP_STORAGE_URI)              beta_bernoulli_ts, uniform, oracle locally (CRN)
@@ -97,8 +98,9 @@ and `runserver/experiments.py` duplicates the noise-variance formula, with a tes
 2. **Wait for `ready`.** The page polls the experiment. The api reconciles the status against the
    endpoint on each detail GET. Status flow: `deploying → ready → running_traffic → ready →
    stopping → stopped`, plus `failed` and `expired` (TTL).
-3. **Start traffic.** Choose the number of episodes (5 / 20 / 50, default 20) and press **Start
-   traffic**. The horizon defaults per scenario (`clear_winner` 20k rounds, `segment_winners` and
+3. **Start traffic.** Choose **Learning** (**Reset each episode**, the default, or **Keep learning**;
+   see [Continuous learning mode](#continuous-learning-mode)), the number of episodes (segments when
+   it keeps learning; 5 / 20 / 50, default 20) and press **Start traffic**. The horizon defaults per scenario (`clear_winner` 20k rounds, `segment_winners` and
    `drift` 40k in demo mode; ×10, max 400k, in realistic mode). The api starts one Cloud Run Job
    execution and moves to `running_traffic`; it moves back to `ready` once the job reports
    `episodes_done >= episodes_total` or the execution finishes. That check runs on the detail
@@ -343,15 +345,62 @@ time instead of blending the whole run.
 
 ![Shift results: result cards, period grid, shift markers and the ghost line](../screenshots/19-shift-results.png)
 
+## Continuous learning mode
+
+By default every episode starts with a `reset`: the endpoint forgets everything and learns again
+on fresh readers. That makes episodes independent replications, which is what the confidence
+bands need, but it never shows what happens after the first episode. **Keep learning** (the
+**Learning** control next to **Start traffic**, `learning: "continuous"` on `POST …/traffic`,
+[contracts §11](contracts.md#11-continuous-learning-mode-per-traffic-run-2026-10-06)) resets once
+and lets the Linear TS posterior accumulate over the whole run, like a production endpoint.
+
+- **Shape.** A continuous run is one long episode of E × T rounds, cut into E **segments** of T
+  rounds for progress and storage (one `bandit_episode_metrics` row per segment and policy). The
+  baselines and the ghost carry their state across segments too, on the same readers, so the
+  comparison stays paired. Drift points and shifts are fractions of the **whole run**, and the
+  forgetting discount remembers an eighth of the whole run. The endpoint matches the simulator
+  round for round (`tests/test_bandit_endpoint_parity.py`, continuous case).
+- **Limits.** At most **2,000,000 rounds** in one stream (job runtime and memory: 50 × 40k demo or
+  5 × 400k realistic), and T must be a multiple of the 100-reader update batch. The page disables
+  the segment counts that would pass the cap and shows the stream's total ("800,000 rounds in one
+  stream").
+- **When to use which.** Use **Reset each episode** to compare strategies with confidence bands
+  and repeatable runs (how fast does each one learn from nothing?). Use **Keep learning** to see
+  the long run: whether the endpoint keeps improving past what one episode reaches, how it settles,
+  and how forgetting copes with drift and shifts over a long horizon.
+- **Why no bands.** A pointwise interval needs independent replications, and one stream has
+  exactly one. The charts are a single timeline on a linear "Round (whole run)" axis, with a quiet
+  tick where each segment starts (nothing resets there), and no bands.
+- **Batch means instead.** The api turns each segment into one batch: the per-segment difference
+  in total clicks between the endpoint and the best baseline (by whole-run total). It drops the
+  first half of the segments as warm-up (`floor(0.5·n)`) and reports mean ± t·s/√m over the rest,
+  but only when the checks pass, in this order: at least 5 kept segments (9 segments in all);
+  |lag-1 autocorrelation| of the kept differences around their fitted line ≤ max(0.2, 1.96/√m)
+  (else "segments too correlated"); and no significant linear trend (5% test; else "still
+  learning"). Autocorrelation is checked first because strongly autocorrelated noise otherwise
+  reads as a trend (`runserver/batch_means.py`). The headline
+  then reads, for example, "Over the last 10 segments the endpoint earned 234 more clicks per
+  segment than TS without context (± 27, batch means after warm-up)". Otherwise it says why
+  there is no estimate: still learning (the advantage is still changing), not enough segments, or
+  segments too correlated. The run picker labels these runs "· keeps learning".
+
+![Keep learning: the control, the batch-means headline and one continuous timeline](../screenshots/20-continuous-learning.png)
+
+The screenshot comes from a real in-process run of the traffic job (20 segments × 40,000 rounds on
+the first live experiment's creatives; `frontend/scripts/build_continuous_fixture.py`): Linear TS
+keeps climbing to 86% best-creative choices by round 800,000 while every context-free baseline
+levels off near 49%.
+
 ## Metrics and terminology
 
 **Terminology** (as in [contracts](contracts.md)):
 - **round:** one impression and one decision.
 - **batch:** the rounds between two posterior updates (default `batch_size` 100).
 - **horizon (T):** the number of rounds per episode.
-- **episode:** one independent run from a reset posterior, with its own seed. Every policy in an
-  episode sees the same readers and the same coin flips (common random numbers), so policy
-  differences are paired.
+- **episode:** in the default per-episode mode, one independent run from a reset posterior, with
+  its own seed. Every policy in an episode sees the same readers and the same coin flips (common
+  random numbers), so policy differences are paired. A run that keeps learning is **one** episode
+  of segments × rounds, cut into **segments**; the posterior is reset once, at the start of the run.
 
 **Metrics** (definitions in `bandit/metrics.py`; aggregation in `bandit/aggregate.py` and
 `runserver/experiments_metrics.py`):
@@ -373,7 +422,8 @@ time instead of blending the whole run.
   trailing optimum (window `clamp(T/10, 10, 2000)`). Noisy; read it with regret and % optimal.
 - **Arm stats:** impressions and estimated vs true CTR per arm.
 
-Curves on the experiment page are mean ± 95% CI bands across episodes. Rewards are `click`
+Curves on the experiment page are mean ± 95% CI bands across episodes (one band-free stream for a
+run that keeps learning; see below). Rewards are `click`
 (0/1, default) or `engaged` (click × dwell seconds; policies see it divided by the scenario's
 30 s `dwell_base_s`).
 

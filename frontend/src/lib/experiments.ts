@@ -5,7 +5,7 @@
  * userId "me"; the proxy substitutes the IAP-verified caller (user-scoping.ts).
  */
 import { SELF_USER_ID } from "./api";
-import { downsampleIndices, type Point } from "./chart";
+import { downsampleIndices, formatInt, type Point } from "./chart";
 import { gcsProxyUrl, parseGsUri } from "./gcs";
 import { overridesFromValues, type TuneValues } from "./scenario-preview";
 import { trafficBody } from "./shifts";
@@ -85,6 +85,93 @@ export type Shift = {
   ctrMultiplier?: number;
 };
 
+/**
+ * How a traffic run learns (contracts §11): "per_episode" resets the endpoint
+ * every episode (repeatable, with confidence bands); "continuous" keeps its model
+ * for the whole run, one stream cut into segments.
+ */
+export type LearningMode = "per_episode" | "continuous";
+
+/** A continuous run's total rounds cap (bandit.config.MAX_CONTINUOUS_ROUNDS, §11). */
+export const MAX_CONTINUOUS_ROUNDS = 2_000_000;
+
+/** The experiment's policy batch size (§1 default); a continuous segment must be a multiple of it. */
+export const POLICY_BATCH_SIZE = 100;
+
+/**
+ * Why a continuous run of `episodes` segments × `horizon` rounds can't start
+ * (contracts §11 limits), or null when it can.
+ */
+export function continuousLimitError(
+  episodes: number,
+  horizon: number,
+  batchSize = POLICY_BATCH_SIZE
+): string | null {
+  if (!(episodes > 0) || !(horizon > 0)) return "Choose how many segments to run.";
+  if (horizon % batchSize !== 0) {
+    return `Rounds per segment must be a multiple of the ${batchSize}-reader update batch.`;
+  }
+  if (episodes * horizon > MAX_CONTINUOUS_ROUNDS) {
+    return `One stream is capped at ${formatInt(MAX_CONTINUOUS_ROUNDS)} rounds; ${episodes} segments of ${formatInt(
+      horizon
+    )} would be ${formatInt(episodes * horizon)}.`;
+  }
+  return null;
+}
+
+/** True when the run is continuous (contracts §11); legacy runs without the field are per episode. */
+export function isContinuousRun(run: Pick<TrafficRun, "learning"> | null | undefined): boolean {
+  return run?.learning === "continuous";
+}
+
+/** Batch-means summary of a continuous run (contracts §11 `continuousSummary`), validated. */
+export interface ContinuousSummary {
+  segments: number;
+  warmupSegments: number;
+  /** Endpoint − best baseline (by whole-run total), per segment, in clicks. */
+  pairedDiff: {
+    policy: string;
+    perSegment: number[];
+    mean: number;
+    lo: number | null;
+    hi: number | null;
+    lag1: number | null;
+    status: ContinuousStatus;
+  };
+}
+
+export type ContinuousStatus = "ok" | "too_few_segments" | "autocorrelated" | "still_trending";
+const CONTINUOUS_STATUSES: readonly ContinuousStatus[] = ["ok", "too_few_segments", "autocorrelated", "still_trending"];
+
+/** `metrics.continuousSummary` → a typed summary, or null when absent or malformed. */
+export function parseContinuousSummary(raw: unknown): ContinuousSummary | null {
+  if (!raw || typeof raw !== "object") return null;
+  const r = raw as Record<string, unknown>;
+  const pd = r.pairedDiff as Record<string, unknown> | null | undefined;
+  const num = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
+  if (!pd || typeof pd !== "object") return null;
+  const segments = num(r.segments);
+  const mean = num(pd.mean);
+  const status = pd.status as ContinuousStatus;
+  if (segments === null || typeof pd.policy !== "string" || !CONTINUOUS_STATUSES.includes(status)) return null;
+  // The interval is only meaningful when the checks passed (the api sends null otherwise).
+  const ok = status === "ok" && mean !== null && num(pd.lo) !== null && num(pd.hi) !== null;
+  return {
+    segments,
+    warmupSegments: Math.max(0, num(r.warmupSegments) ?? 0),
+    pairedDiff: {
+      policy: pd.policy,
+      perSegment: Array.isArray(pd.perSegment) ? pd.perSegment.filter((v): v is number => num(v) !== null) : [],
+      mean: mean ?? 0,
+      lo: ok ? (pd.lo as number) : null,
+      hi: ok ? (pd.hi as number) : null,
+      lag1: num(pd.lag1),
+      // "ok" without a usable interval can't be read as ok.
+      status: status === "ok" && !ok ? "too_few_segments" : status,
+    },
+  };
+}
+
 /** One numbered traffic run (contracts §10, `ExperimentSummary.trafficRuns`). */
 export type TrafficRun = {
   run: number;
@@ -95,6 +182,11 @@ export type TrafficRun = {
   shifts: Shift[];
   forget: boolean;
   status: "running" | "finished" | "failed" | "stopped";
+  /**
+   * Learning mode (contracts §11; absent from older APIs, read as "per_episode"):
+   * "continuous" = one long stream of `episodes` segments of `horizon` rounds.
+   */
+  learning?: LearningMode;
 };
 
 export type Arm = {
@@ -165,7 +257,24 @@ export type ExperimentMetrics = {
   shiftCost?: unknown;
   /** The run's shifts as the traffic job resolved them ("leader" made concrete; §5/§10). Read with `parseResolvedShifts`. */
   resolvedShifts?: unknown;
+  /**
+   * Continuous runs only (contracts §11), where the curves are one stream stitched
+   * on global round checkpoints with lo = hi = mean (no bands), `episodes` is the
+   * segments used, `horizon` the total rounds covered and `totals` per segment.
+   */
+  learning?: LearningMode;
+  /** Rounds per segment (continuous runs; §11). */
+  segmentHorizon?: number | null;
+  /** The global round where each segment starts (continuous runs; §11): the boundary ticks. */
+  segmentStarts?: number[];
+  /** The batch-means paired difference (continuous runs; omitted without an endpoint + baseline pair). Read with `parseContinuousSummary`. */
+  continuousSummary?: unknown;
 };
+
+/** True when a metrics payload describes a continuous run (contracts §11). */
+export function isContinuousMetrics(m: Pick<ExperimentMetrics, "learning"> | null | undefined): boolean {
+  return m?.learning === "continuous";
+}
 
 /** One creative's per-window performance under the live endpoint (contracts §8). */
 export type CreativeSeriesItem = {
@@ -355,7 +464,7 @@ export class InvalidShiftsError extends ExperimentApiError {
 }
 
 /**
- * `POST …/traffic {episodes, horizon?, shifts?, forget?}` — 409 unless the
+ * `POST …/traffic {episodes, horizon?, shifts?, forget?, learning?}` — 409 unless the
  * experiment is `ready`; 400 `invalid_shifts` (contracts §10) → InvalidShiftsError.
  * Without shifts the body is exactly what older APIs accept.
  */
@@ -363,12 +472,12 @@ export async function startTraffic(
   experimentId: string,
   episodes: number,
   horizon?: number,
-  opts: { shifts?: readonly Shift[]; forget?: boolean } = {}
+  opts: { shifts?: readonly Shift[]; forget?: boolean; learning?: LearningMode } = {}
 ): Promise<{ status: ExperimentStatus; execution?: string; run?: number }> {
   const res = await fetch(`${experimentUrl(experimentId)}/traffic`, {
     method: "POST",
     headers: JSON_HEADERS,
-    body: JSON.stringify(trafficBody(episodes, horizon, opts.shifts ?? [], opts.forget)),
+    body: JSON.stringify(trafficBody(episodes, horizon, opts.shifts ?? [], opts.forget, opts.learning)),
   });
   if (res.status === 400) {
     const text = await res.text().catch(() => "");
@@ -382,6 +491,14 @@ export async function startTraffic(
       const field = typeof detail.field === "string" ? detail.field : null;
       const msg = typeof detail.message === "string" ? detail.message : "";
       throw new InvalidShiftsError(`The api rejected the shift script${field ? ` (${field})` : ""}${msg ? `: ${msg}` : "."}`, field);
+    }
+    if (detail && typeof detail === "object" && detail.reason === "invalid_learning") {
+      const field = typeof detail.field === "string" ? detail.field : null;
+      const msg = typeof detail.message === "string" ? detail.message : "";
+      throw new ExperimentApiError(
+        `The api rejected the learning mode${field ? ` (${field})` : ""}${msg ? `: ${msg}` : "."}`,
+        400
+      );
     }
     throw new ExperimentApiError(`Couldn't start traffic (400)${text ? `: ${text}` : ""}`, 400);
   }
@@ -896,12 +1013,17 @@ const MAX_POINTS = 120;
  * Per-policy series for one curve. `oracle` becomes a dashed reference line when
  * `includeOracle` (the cumulative-reward chart) and is dropped otherwise (its
  * regret is 0 and its % optimal 100 by definition).
+ *
+ * `continuous` (contracts §11): the curves are one stream already stitched on
+ * global rounds, a single replication, so no band is drawn even when `bands`
+ * is asked for (the api sends lo = hi = mean).
  */
 export function curveSeries(
   metrics: ExperimentMetrics,
   key: CurveKey,
-  opts: { includeOracle?: boolean; bands?: boolean } = {}
+  opts: { includeOracle?: boolean; bands?: boolean; continuous?: boolean } = {}
 ): ChartSeries[] {
+  const withBands = Boolean(opts.bands && !opts.continuous);
   const xs = metrics.checkpoints ?? [];
   const idx = downsampleIndices(xs.length, MAX_POINTS);
   return orderPolicies(metrics.policies ?? [])
@@ -919,7 +1041,7 @@ export function curveSeries(
         reference,
         points: idx.map((i) => ({ x: xs[i], y: band.mean[i] })),
         band:
-          opts.bands && !reference && !ghost && band.lo?.length && band.hi?.length
+          withBands && !reference && !ghost && band.lo?.length && band.hi?.length
             ? idx.map((i) => ({ x: xs[i], lo: band.lo[i], hi: band.hi[i] }))
             : undefined,
       };

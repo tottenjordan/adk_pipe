@@ -58,6 +58,14 @@ export const SHIFT_EXPLAIN = {
     "Forgetting old evidence lets the endpoint recover from a shift faster, because readers from before the shift stop outvoting the new ones. The price is noisier estimates when nothing changes. Compare two runs, one with forgetting on and one off, in the run picker.",
 } as const;
 
+/** Runs that keep learning (contracts §11). */
+export const CONTINUOUS_EXPLAIN = {
+  stream:
+    "This run kept learning: the endpoint was reset once and carried its model through every segment, so each line is one strategy over every round of the run in order. The small ticks on the round axis mark where each segment starts; nothing resets there.",
+  regret:
+    "Every line starts at zero and can only rise. Steep means a strategy is still showing readers the wrong creative; flat means it has stopped losing. Compare where the lines end: lower is better. There are no bands because one stream has no independent repeats; the batch-means line in the headline says whether the gap holds up.",
+} as const;
+
 /** Background for the "why the endpoint trails" reading (experiment-insights.ts `why`). */
 export const TRAILING_EXPLAIN = {
   drift:

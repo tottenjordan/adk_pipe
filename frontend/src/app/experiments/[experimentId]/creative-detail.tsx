@@ -35,6 +35,7 @@ export function CreativeDetailDrawer({
   explain,
   onClose,
   runView = null,
+  continuous = false,
 }: {
   /** The open creative, or null when the drawer is closed. */
   lane: Lane | null;
@@ -44,6 +45,8 @@ export function CreativeDetailDrawer({
   onClose: () => void;
   /** The shown run's shifts (contracts §10): markers, per-period reading and segment bars. */
   runView?: RunView | null;
+  /** The shown run kept learning (contracts §11): the series is one stream, so its totals are whole-run. */
+  continuous?: boolean;
 }) {
   const item = lane ? (series?.creatives.find((c) => c.creativeId === lane.creativeId) ?? null) : null;
   const detail = useMemo(() => buildCreativeDetail(item, series), [item, series]);
@@ -88,6 +91,7 @@ export function CreativeDetailDrawer({
                     explain={explain}
                     markers={runView?.markers ?? []}
                     period={period}
+                    continuous={continuous}
                   />
                 ) : (
                   <p className="text-sm text-muted-foreground">
@@ -151,6 +155,7 @@ function DrawerBody({
   explain,
   markers = [],
   period = null,
+  continuous = false,
 }: {
   detail: CreativeDetail;
   lane: Lane;
@@ -158,6 +163,7 @@ function DrawerBody({
   explain: boolean;
   markers?: ChartMarker[];
   period?: PeriodView | null;
+  continuous?: boolean;
 }) {
   const others = new Map(lanes.map((l) => [l.creativeId, l]));
   const segDetail = period?.detail ?? detail;
@@ -202,7 +208,7 @@ function DrawerBody({
           )}
           {detail.missedClicks !== null && (
             <Figure
-              label="Missed clicks per episode"
+              label={continuous ? "Missed clicks over the run" : "Missed clicks per episode"}
               value={formatMissed(detail.missedClicks)}
               note={
                 detail.clicksPerEpisode === null

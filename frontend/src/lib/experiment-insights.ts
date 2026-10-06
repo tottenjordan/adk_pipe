@@ -9,6 +9,10 @@
  * - The endpoint (linear_ts) is only called ahead or behind when its 95% band at
  *   the last checkpoint clears the best baseline's and there are at least
  *   MIN_EPISODES episodes; otherwise the copy says it is too early to call.
+ * - A continuous run (contracts §11) is one stream with no bands, so it is never
+ *   called from the curves: the verdict and headline come only from the api's
+ *   batch-means `continuousSummary` (ahead / behind only when its 95% interval
+ *   clears zero), and otherwise say honestly why there is no estimate yet.
  * - When the endpoint trails a baseline, say why in plain words (`why`) rather
  *   than leave the reader to guess: drift (the best and worst creatives swap and
  *   a full-memory endpoint adapts slowly) or the cost of learning reader context.
@@ -21,6 +25,8 @@ import {
   shortId,
   type Arm,
   type Band,
+  parseContinuousSummary,
+  type ContinuousSummary,
   type CreativeSeries,
   type ExperimentMetrics,
   type ScenarioOverrides,
@@ -119,6 +125,11 @@ export interface InsightInput {
   shifts?: RunShift[];
   /** Whether that run let the endpoint forget old evidence. */
   forget?: boolean;
+  /**
+   * Set when the shown run kept learning (contracts §11): its segment count and
+   * the rounds in the whole stream (shift fractions and memory are measured on it).
+   */
+  continuous?: { segments: number; totalRounds: number | null } | null;
 }
 
 const LIN = "linear_ts";
@@ -207,6 +218,90 @@ export function verdictOf(metrics: ExperimentMetrics | null | undefined): Verdic
   const b = lastOfBand(metrics.curves?.[base]?.cumAvgReward);
   if (bandsOverlap(lin, b)) return "too_early";
   return (lin.mean ?? 0) > (b.mean ?? 0) ? "ahead" : "behind";
+}
+
+/**
+ * A continuous run's verdict, from its batch-means summary only (§11): ahead or
+ * behind when the 95% interval clears zero, else too early (no summary yet, an
+ * interval that straddles zero, or a check that failed).
+ */
+export function continuousVerdict(
+  metrics: ExperimentMetrics | null | undefined,
+  summary: ContinuousSummary | null
+): Verdict {
+  if (!metrics || !(metrics.episodes > 0) || !metrics.checkpoints?.length) return "empty";
+  const d = summary?.pairedDiff;
+  if (!d || d.status !== "ok" || d.lo === null || d.hi === null) return "too_early";
+  if (d.lo > 0) return "ahead";
+  if (d.hi < 0) return "behind";
+  return "too_early";
+}
+
+/** Clicks per segment: whole numbers from 10 up, one decimal below. */
+function clicksText(v: number): string {
+  const a = Math.abs(v);
+  return a >= 10 ? formatInt(a) : a.toFixed(1);
+}
+
+/** Segments the batch-means estimate is taken over (after the warm-up). */
+export function keptSegments(summary: ContinuousSummary): number {
+  return Math.max(0, summary.segments - summary.warmupSegments);
+}
+
+/**
+ * The Overview headline for a continuous run: the batch-means paired difference
+ * when its checks passed, else one honest status line (§11).
+ */
+export function continuousHeadline(summary: ContinuousSummary | null, segments: number, base: string | null): string {
+  if (!summary) {
+    const label = base ? policyShortLabel(base) : "the best baseline";
+    return `The endpoint kept learning across ${segments} ${segments === 1 ? "segment" : "segments"}; there is no batch-means estimate yet, so its edge over ${label} isn't settled.`;
+  }
+  const d = summary.pairedDiff;
+  // No nested brackets in the headline: "TS (no context)" reads as "TS without context".
+  const label = policyShortLabel(d.policy).replace(/ \(no context\)$/, " without context");
+  const n = keptSegments(summary);
+  const last = `Over the last ${n} ${n === 1 ? "segment" : "segments"}`;
+  switch (d.status) {
+    case "ok": {
+      const half = d.lo !== null && d.hi !== null ? (d.hi - d.lo) / 2 : null;
+      const pm = half !== null ? ` (± ${clicksText(half)}, batch means after warm-up)` : " (batch means after warm-up)";
+      if (d.lo !== null && d.lo > 0) {
+        return `${last} the endpoint earned ${clicksText(d.mean)} more clicks per segment than ${label}${pm}.`;
+      }
+      if (d.hi !== null && d.hi < 0) {
+        return `${last} ${label} earned ${clicksText(d.mean)} more clicks per segment than the endpoint${pm}.`;
+      }
+      const sign = d.mean > 0 ? "+" : d.mean < 0 ? "−" : "";
+      return `${last} the endpoint and ${label} earned about the same clicks per segment (${sign}${clicksText(d.mean)}${
+        half !== null ? ` ± ${clicksText(half)}` : ""
+      }, batch means after warm-up): too close to call.`;
+    }
+    case "still_trending":
+      return `Still learning: the endpoint's per-segment advantage over ${label} is still changing, so there is no steady-state estimate yet.`;
+    case "too_few_segments":
+      return `Not enough segments to estimate: ${n === 0 ? "none are" : `only ${n} ${n === 1 ? "is" : "are"}`} left after the ${
+        summary.warmupSegments
+      }-segment warm-up to compare the endpoint with ${label}. Run more segments.`;
+    case "autocorrelated":
+      return `Segments too correlated to estimate: neighbouring segments move together${
+        d.lag1 !== null ? ` (lag-1 correlation ${d.lag1.toFixed(2)})` : ""
+      }, so a batch-means interval against ${label} would look tighter than it is.`;
+  }
+}
+
+/** A short caveat for chart readings in a continuous run (no bands to lean on). */
+function continuousCaveat(summary: ContinuousSummary | null): string {
+  const d = summary?.pairedDiff;
+  if (!d) return "";
+  if (d.status === "ok") {
+    return d.lo !== null && d.hi !== null && d.lo <= 0 && d.hi >= 0
+      ? " The batch-means interval includes zero, so this gap isn't settled."
+      : "";
+  }
+  if (d.status === "still_trending") return " The per-segment gap is still changing, so it could move.";
+  if (d.status === "too_few_segments") return " Too few segments after the warm-up to put an interval on it.";
+  return " Neighbouring segments are too correlated to put an interval on it.";
 }
 
 // ── Formatting ───────────────────────────────────────────────────────────────
@@ -395,7 +490,27 @@ function headlineFor(
   };
 }
 
-function supportFor(verdict: Verdict, metrics: ExperimentMetrics, ctrMode?: string): string {
+function supportFor(
+  verdict: Verdict,
+  metrics: ExperimentMetrics,
+  ctrMode?: string,
+  continuous?: { segments: number; summary: ContinuousSummary | null } | null
+): string {
+  if (continuous) {
+    const segs = `${metrics.episodes} ${metrics.episodes === 1 ? "segment" : "segments"}`;
+    // A continuous payload's `horizon` is the rounds covered; `segmentHorizon` is one segment.
+    const t = metrics.segmentHorizon;
+    const size = t ? `${segs} of ${formatInt(t)} simulated readers` : segs;
+    const parts = [`${size} in one stream that kept learning, every strategy replayed on the same readers.`];
+    const s = continuous.summary;
+    if (s?.pairedDiff.status === "ok") {
+      parts.push(
+        `± is a 95% batch-means interval: each segment's click difference counts as one batch, over the segments after the first ${s.warmupSegments} (the warm-up).`
+      );
+    }
+    if (ctrMode === "demo") parts.push("Demo click rates run high so learning shows quickly: compare creatives with each other, not with live campaigns.");
+    return parts.join(" ");
+  }
   const ep = `${metrics.episodes} ${metrics.episodes === 1 ? "episode" : "episodes"}`;
   const size = metrics.horizon ? `${ep} of ${formatInt(metrics.horizon)} simulated readers each` : ep;
   const parts = [`${size}, every strategy replayed on the same readers.`];
@@ -474,7 +589,8 @@ function whyFor(
   units: Units,
   scenario: string | undefined,
   drift: DriftContext | null,
-  discount: number | null | undefined
+  discount: number | null | undefined,
+  per: "episode" | "segment" = "episode"
 ): { why: string; whyExplain: string } {
   const none = { why: "", whyExplain: "" };
   const base = bestBaseline(metrics);
@@ -482,7 +598,7 @@ function whyFor(
   const lead = baselineLead(metrics, base);
   if (lead === null) return none;
   const label = policyShortLabel(base);
-  const gap = `${label} earned ${pct1(lead)} more ${units.earn} per episode than your endpoint.`;
+  const gap = `${label} earned ${pct1(lead)} more ${units.earn} per ${per} than your endpoint.`;
   const edge = BASELINE_EDGE[base];
   if (drift) {
     const memory = drift.forgets ? (drift.memory ?? memoryReaders(discount as number)) : null;
@@ -623,7 +739,12 @@ function segmentsReading(metrics: ExperimentMetrics, name: (id: string) => strin
   return `${wins.charAt(0).toUpperCase()}${wins.slice(1)}. ${ledText}`;
 }
 
-function totalsReading(metrics: ExperimentMetrics, units: Units, verdict: Verdict): string | null {
+function totalsReading(
+  metrics: ExperimentMetrics,
+  units: Units,
+  verdict: Verdict,
+  continuous?: { summary: ContinuousSummary | null } | null
+): string | null {
   const lin = metrics.totals?.[LIN];
   const base = bestBaseline(metrics);
   const b = base ? metrics.totals?.[base] : undefined;
@@ -634,8 +755,12 @@ function totalsReading(metrics: ExperimentMetrics, units: Units, verdict: Verdic
   const relText = rel === null ? "" : ` (${diff >= 0 ? "+" : "−"}${pct1(Math.abs(rel))})`;
   const diffText =
     Math.round(diff) === 0 ? "about the same" : `${formatInt(Math.abs(diff))} ${diff > 0 ? "more" : "fewer"}${relText}`;
-  const note = verdict === "too_early" ? " That's within the margin of error, so it could still change." : "";
-  return `Linear TS collects ${formatInt(lin.mean)}${sd(lin)} ${units.count} per episode against ${formatInt(
+  const note = continuous
+    ? continuousCaveat(continuous.summary)
+    : verdict === "too_early"
+      ? " That's within the margin of error, so it could still change."
+      : "";
+  return `Linear TS collects ${formatInt(lin.mean)}${sd(lin)} ${units.count} per ${continuous ? "segment" : "episode"} against ${formatInt(
     b.mean
   )}${sd(b)} for ${policyShortLabel(base as string)}: ${diffText}.${note}`;
 }
@@ -716,7 +841,9 @@ export function setupNotes(scenario: string | undefined, ov: ScenarioOverrides |
 /** Interpret one experiment's results. Safe on empty / partial payloads. */
 export function buildInsights(input: InsightInput): ExperimentInsights {
   const { metrics, arms } = input;
-  const verdict = verdictOf(metrics);
+  const cont = input.continuous ?? null;
+  const summary = cont ? parseContinuousSummary(metrics?.continuousSummary) : null;
+  const verdict = cont ? continuousVerdict(metrics, summary) : verdictOf(metrics);
   const notes = setupNotes(input.scenario, input.scenarioOverrides);
   if (verdict === "empty" || !metrics) {
     return {
@@ -737,6 +864,9 @@ export function buildInsights(input: InsightInput): ExperimentInsights {
   const facts = creativeFacts(input);
   const k = Math.max(arms.length, facts.length);
   const shifts = input.shifts ?? [];
+  // Rounds the shift fractions and forgetting memory refer to: the whole stream when it kept learning.
+  const runHorizon = cont ? (cont.totalRounds ?? metrics.horizon) : metrics.horizon;
+  const per = cont ? "segment" : "episode";
   // With shifts, "best for a segment" means the latest period, never a whole-run blend.
   const periods = shifts.length ? metricRegimes(metrics.regimes) : [];
   const latest = periods.length >= 2 ? periods[periods.length - 1] : null;
@@ -752,8 +882,8 @@ export function buildInsights(input: InsightInput): ExperimentInsights {
     ? {
         cause: "shifts",
         forgets: Boolean(input.forget),
-        when: shiftsWhen(shifts, metrics.horizon),
-        memory: input.forget && metrics.horizon ? roundReaders(metrics.horizon / 8) : null,
+        when: shiftsWhen(shifts, runHorizon),
+        memory: input.forget && runHorizon ? roundReaders(runHorizon / 8) : null,
       }
     : input.scenario === "drift"
       ? {
@@ -764,21 +894,37 @@ export function buildInsights(input: InsightInput): ExperimentInsights {
       : null;
   const name = nameLookup(arms);
   const results = shifts.length ? parseShiftResponse(metrics.shiftResponse) : [];
-  const shiftCards = shifts.length ? buildShiftCards(shifts, results, metrics, name) : [];
+  const shiftCards = shifts.length
+    ? buildShiftCards(shifts, results, metrics, name, { horizon: runHorizon, continuous: Boolean(cont) })
+    : [];
   let { headline, detail } = headlineFor(verdict, metrics, facts, units, k, drift);
-  if (shifts.length) {
-    const sh = shiftHeadline(shiftCards, shifts, metrics, name);
+  if (cont) {
+    // One stream: the batch-means line is the headline, never a reading of the curves.
+    const statusLine = continuousHeadline(summary, cont.segments || metrics.episodes, bestBaseline(metrics));
+    if (shifts.length) {
+      const sh = shiftHeadline(shiftCards, shifts, metrics, name, runHorizon);
+      headline = sh.headline;
+      detail = [sh.detail, statusLine].filter(Boolean).join(" ");
+    } else {
+      headline = statusLine;
+      if (verdict !== "ahead") detail = "";
+    }
+  } else if (shifts.length) {
+    const sh = shiftHeadline(shiftCards, shifts, metrics, name, runHorizon);
     // The baseline comparison moves into the supporting line, after naming the shifts.
     detail = [sh.detail, verdict === "behind" ? "" : baselineSentence(verdict, metrics, units)].filter(Boolean).join(" ");
     if (verdict !== "behind") headline = sh.headline;
   }
-  const { why, whyExplain } = whyFor(metrics, units, input.scenario, drift, input.policyDiscount);
+  const { why, whyExplain } =
+    cont && verdict !== "behind"
+      ? { why: "", whyExplain: "" }
+      : whyFor(metrics, units, input.scenario, drift, input.policyDiscount, per);
   const hasSegments = Object.keys(metrics.perSegment ?? {}).length > 0;
   return {
     verdict,
     headline,
     detail,
-    support: supportFor(verdict, metrics, input.ctrMode),
+    support: supportFor(verdict, metrics, input.ctrMode, cont ? { segments: cont.segments, summary } : null),
     notes,
     why,
     whyExplain,
@@ -790,11 +936,11 @@ export function buildInsights(input: InsightInput): ExperimentInsights {
       segments: latest
         ? prefixed("In the last period of the run, ", segmentsReading({ ...metrics, perSegment: latest.perSegment }, name))
         : segmentsReading(metrics, name),
-      totals: withGhost(totalsReading(metrics, units, verdict), metrics, units, "totals"),
+      totals: withGhost(totalsReading(metrics, units, verdict, cont ? { summary } : null), metrics, units, "totals", Boolean(cont)),
     },
     lanes: Object.fromEntries(facts.map((f) => [f.id, laneReading(f, units, hasSegments)])),
     shiftCards,
-    ghost: ghostSentence(metrics, units),
+    ghost: ghostSentence(metrics, units, Boolean(cont)),
   };
 }
 
@@ -862,10 +1008,15 @@ export function shiftTitle(s: RunShift, name: (id: string) => string): string {
 
 const lowerFirst = (t: string) => t.charAt(0).toLowerCase() + t.slice(1);
 
-function cardStatus(r: PolicyShiftResponse | undefined, horizon: number | null): ShiftCard["status"] {
+function cardStatus(
+  r: PolicyShiftResponse | undefined,
+  horizon: number | null,
+  continuous = false
+): ShiftCard["status"] {
   if (!r || !r.pctOptimalBefore || !r.pctOptimalAfter) return "no_data";
-  const n = r.episodes ?? r.pctOptimalBefore.n ?? 0;
-  if (n < MIN_EPISODES) return "too_early";
+  // A continuous run is one stream: its single response is read as is (§11), never "too early".
+  const n = continuous ? 1 : (r.episodes ?? r.pctOptimalBefore.n ?? 0);
+  if (!continuous && n < MIN_EPISODES) return "too_early";
   const before = r.pctOptimalBefore.mean;
   const after = r.pctOptimalAfter.mean;
   const rec = r.recoveryRounds?.mean ?? null;
@@ -880,24 +1031,28 @@ export function buildShiftCards(
   shifts: RunShift[],
   results: ShiftResult[],
   metrics: Pick<ExperimentMetrics, "horizon" | "episodes" | "totals" | "curves">,
-  name: (id: string) => string
+  name: (id: string) => string,
+  opts: { horizon?: number | null; continuous?: boolean } = {}
 ): ShiftCard[] {
   const base = bestBaseline(metrics as ExperimentMetrics);
+  const horizon = opts.horizon ?? metrics.horizon;
+  const continuous = Boolean(opts.continuous);
   return shifts.map((s, j) => {
     const res = results.find((r) => r.round === s.round) ?? results[j];
     const lin = res?.policies?.[LIN];
-    const status = cardStatus(lin, metrics.horizon);
-    const n = lin?.episodes ?? lin?.pctOptimalBefore?.n ?? metrics.episodes ?? 0;
+    const status = cardStatus(lin, horizon, continuous);
+    const n = continuous ? 1 : (lin?.episodes ?? lin?.pctOptimalBefore?.n ?? metrics.episodes ?? 0);
     const label = `Shift ${j + 1}`;
     const title = shiftTitle(s, name);
-    const when = `Round ${formatInt(s.round)}${metrics.horizon ? `, ${pct(s.round / metrics.horizon)} of the run` : ""}${
+    const when = `Round ${formatInt(s.round)}${horizon ? `, ${pct(s.round / horizon)} of the run` : ""}${
       s.kind === "shock" && s.endRound !== null ? `, until round ${formatInt(s.endRound)}` : ""
     }`;
     const before = lin?.pctOptimalBefore?.mean ?? null;
     const after = lin?.pctOptimalAfter?.mean ?? null;
     const epText = `${formatInt(n)} ${n === 1 ? "episode" : "episodes"}`;
-    const evidence =
-      status === "too_early" || status === "no_data"
+    const evidence = continuous
+      ? "One continuous stream, so there is no interval across episodes."
+      : status === "too_early" || status === "no_data"
         ? `${epText} so far.`
         : `${epText}; ± is a 95% interval across episodes.`;
     const lead = `After you ${lowerFirst(title)} at round ${formatInt(s.round)}`;
@@ -940,11 +1095,12 @@ function shiftHeadline(
   cards: ShiftCard[],
   shifts: RunShift[],
   metrics: ExperimentMetrics,
-  name: (id: string) => string
+  name: (id: string) => string,
+  horizon: number | null = metrics.horizon
 ): { headline: string; detail: string } {
   const n = shifts.length;
   const what = joinList(shifts.map((s) => lowerFirst(shiftTitle(s, name))));
-  const detail = `You ${what}, ${shiftsWhen(shifts, metrics.horizon)}.`;
+  const detail = `You ${what}, ${shiftsWhen(shifts, horizon)}.`;
   const counted = cards.filter((c) => c.status !== "no_data");
   if (!counted.length) return { headline: `This run had ${n === 1 ? "one shift" : `${n} shifts`}.`, detail };
   if (counted.some((c) => c.status === "too_early")) {
@@ -1021,9 +1177,17 @@ export function ghostGap(
   return { diff: g.mean - l.mean, half, paired: false };
 }
 
-function ghostSentence(metrics: ExperimentMetrics, units: Units): string {
+function ghostSentence(metrics: ExperimentMetrics, units: Units, continuous = false): string {
   const gg = ghostGap(metrics, units.click);
   if (!gg) return "";
+  if (continuous) {
+    // §11: the whole-run ghost − endpoint total, a single stream with no interval.
+    const amount = formatInt(Math.abs(gg.diff));
+    if (Math.round(gg.diff) === 0) return `Without your shifts, the same endpoint would have earned about the same ${units.count} over the whole run.`;
+    return gg.diff > 0
+      ? `Without your shifts, the same endpoint would have earned ${amount} more ${units.count} over the whole run: that is what the shifts cost.`
+      : `Without your shifts, the same endpoint would have earned ${amount} fewer ${units.count} over the whole run: the shifts helped it.`;
+  }
   const interval =
     gg.half === null
       ? ""
@@ -1039,13 +1203,19 @@ function ghostSentence(metrics: ExperimentMetrics, units: Units): string {
     : `Without your shifts, the same endpoint would have earned ${amount} fewer ${units.count} per episode: the shifts helped it.`;
 }
 
-function withGhost(text: string | null, metrics: ExperimentMetrics, units: Units, where: "avg" | "totals"): string | null {
+function withGhost(
+  text: string | null,
+  metrics: ExperimentMetrics,
+  units: Units,
+  where: "avg" | "totals",
+  continuous = false
+): string | null {
   if (!text) return text;
   if (where === "avg") {
     const g = lastOfBand(metrics.curves?.[GHOST_POLICY]?.cumAvgReward).mean;
     return g === null ? text : `${text} Without your shifts (dashed) it would have ended at ${units.rate(g)}.`;
   }
-  const extra = ghostSentence(metrics, units);
+  const extra = ghostSentence(metrics, units, continuous);
   return extra ? `${text} ${extra}` : text;
 }
 
