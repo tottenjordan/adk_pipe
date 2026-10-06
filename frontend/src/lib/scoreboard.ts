@@ -11,6 +11,7 @@ import {
   type CreativeSeries,
   type ExperimentMetrics,
 } from "./experiments";
+import type { MetricRegime, SeriesRegime } from "./shifts";
 
 export interface Lane {
   creativeId: string;
@@ -146,4 +147,79 @@ export function buildLanes(
     };
   });
   return rankLanes(lanes).map((l, i) => ({ ...l, rank: i + 1 }));
+}
+
+// ── Regimes (scripted shifts, contracts §10) ─────────────────────────────────
+
+/** One creative's numbers in one period of the run. */
+export interface LanePeriod {
+  label: string;
+  start: number;
+  end: number;
+  clickRate: number | null;
+  trueCtr: number | null;
+  segmentsWon: string[];
+}
+
+/** A lane's latest period (what "Click rate" / "Segments won" show) and the first one ("before"). */
+export interface LaneRegime {
+  latest: LanePeriod;
+  before: LanePeriod;
+}
+
+/**
+ * Per-period numbers for one creative from the run's regimes: the observed click
+ * rate (series regimes), the true rate (series, else metrics regimes) and the
+ * segments it is best for. [] without at least two regimes.
+ */
+export function lanePeriods(
+  creativeId: string,
+  series: SeriesRegime[],
+  metric: MetricRegime[],
+  labels: string[]
+): LanePeriod[] {
+  const n = Math.max(series.length, metric.length);
+  if (n < 2) return [];
+  return Array.from({ length: n }, (_, i) => {
+    const sr = series[i];
+    const mr = metric.find((m) => m.start === (sr?.start ?? metric[i]?.start)) ?? metric[i];
+    const c = sr?.creatives.find((x) => x.creativeId === creativeId);
+    const won =
+      sr && Object.keys(sr.optimal).length
+        ? Object.entries(sr.optimal)
+            .filter(([, id]) => id === creativeId)
+            .map(([s]) => s)
+        : Object.entries(mr?.perSegment ?? {})
+            .filter(([, v]) => v.optimalArm === creativeId)
+            .map(([s]) => s);
+    const t = c?.trueCtr ?? mr?.trueCtr?.[creativeId];
+    return {
+      label: labels[i] ?? `Period ${i + 1}`,
+      start: sr?.start ?? mr?.start ?? 0,
+      end: sr?.end ?? mr?.end ?? 0,
+      clickRate: c?.ctr ?? null,
+      trueCtr: finite(t) ? t : null,
+      segmentsWon: won.sort(),
+    };
+  });
+}
+
+/** Latest + before periods for each lane, by creativeId ({} without regimes). */
+export function laneRegimes(
+  lanes: Pick<Lane, "creativeId">[],
+  series: SeriesRegime[],
+  metric: MetricRegime[],
+  labels: string[]
+): Record<string, LaneRegime> {
+  const out: Record<string, LaneRegime> = {};
+  for (const l of lanes) {
+    const ps = lanePeriods(l.creativeId, series, metric, labels);
+    if (ps.length >= 2) out[l.creativeId] = { latest: ps[ps.length - 1], before: ps[0] };
+  }
+  return out;
+}
+
+/** Which period a round falls in (index into the regimes), or -1. */
+export function periodAt(regimes: { start: number; end: number }[], round: number): number {
+  return regimes.findIndex((g) => round >= g.start && round < g.end);
 }

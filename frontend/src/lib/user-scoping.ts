@@ -42,13 +42,22 @@ export function scopeRequestToUser(
   return { path: segs.map(encodeURIComponent).join("/"), body: outBody };
 }
 
-/** Rebuild a scoped request's query string from the allowlisted params only ("" if none). */
-export function scopeQuery(params: URLSearchParams): string {
+/** `run` (a traffic run number, contracts §10): an integer ≥ 1, only on the per-run experiment routes. */
+const RUN_RE = /^[1-9][0-9]{0,5}$/;
+const isRunRoute = (path: string[] | undefined) =>
+  !!path && path.length === 4 && path[0] === "experiments" && (path[3] === "metrics" || path[3] === "creatives");
+
+/** Rebuild a scoped request's query string from the allowlisted params only ("" if none).
+ *  `run` is kept only for GET experiments/{u}/{id}/metrics|creatives and only as a plain
+ *  positive integer; pass the request's path segments to allow it. */
+export function scopeQuery(params: URLSearchParams, path?: string[]): string {
   const out = new URLSearchParams();
   for (const k of ALLOWED_QUERY) {
     const v = params.get(k);
     if (v !== null) out.set(k, v);
   }
+  const run = params.get("run");
+  if (run !== null && RUN_RE.test(run) && isRunRoute(path)) out.set("run", run);
   const q = out.toString();
   return q ? `?${q}` : "";
 }

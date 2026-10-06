@@ -8,8 +8,16 @@ import { Button } from "@/components/ui/button";
 import { ProofImage } from "@/app/results/[sessionId]/proof-grid";
 import { CONDENSED } from "@/app/results/[sessionId]/score-mark";
 import { formatInt, formatPercent, linePath, niceDomain, niceTicks, scaleLinear } from "@/lib/chart";
-import { buildCreativeDetail, formatSignedPercent, type CreativeDetail, type DetailSegment } from "@/lib/creative-detail";
-import { CREATIVE_DETAIL_EXPLAIN } from "@/lib/experiment-explain";
+import {
+  buildCreativeDetail,
+  formatSignedPercent,
+  periodSeries,
+  type CreativeDetail,
+  type DetailSegment,
+} from "@/lib/creative-detail";
+import { CREATIVE_DETAIL_EXPLAIN, SHIFT_EXPLAIN } from "@/lib/experiment-explain";
+import { SegmentedControl } from "@/components/segmented-control";
+import type { ChartMarker, RunView } from "@/lib/shifts";
 import { armImageUrl, segmentLabel, type CreativeSeries } from "@/lib/experiments";
 import type { Lane } from "@/lib/scoreboard";
 import { cn } from "@/lib/utils";
@@ -26,6 +34,7 @@ export function CreativeDetailDrawer({
   series,
   explain,
   onClose,
+  runView = null,
 }: {
   /** The open creative, or null when the drawer is closed. */
   lane: Lane | null;
@@ -33,9 +42,32 @@ export function CreativeDetailDrawer({
   series: CreativeSeries | null;
   explain: boolean;
   onClose: () => void;
+  /** The shown run's shifts (contracts §10): markers, per-period reading and segment bars. */
+  runView?: RunView | null;
 }) {
   const item = lane ? (series?.creatives.find((c) => c.creativeId === lane.creativeId) ?? null) : null;
   const detail = useMemo(() => buildCreativeDetail(item, series), [item, series]);
+  const regimes = useMemo(() => runView?.seriesRegimes ?? [], [runView]);
+  const [picked, setPicked] = useState<number | null>(null);
+  const sel = regimes.length >= 2 ? Math.min(picked ?? regimes.length - 1, regimes.length - 1) : -1;
+  const pSeries = useMemo(() => (sel >= 0 ? periodSeries(series, regimes[sel]) : null), [series, regimes, sel]);
+  const pDetail = useMemo(() => {
+    if (!pSeries || !lane) return null;
+    return buildCreativeDetail(pSeries.creatives.find((c) => c.creativeId === lane.creativeId) ?? null, pSeries);
+  }, [pSeries, lane]);
+  const period =
+    sel >= 0 && runView
+      ? {
+          labels: runView.labels,
+          sel,
+          onPick: setPicked,
+          detail: pDetail,
+          bars: regimes.map((g, i) => {
+            const c = g.creatives.find((x) => x.creativeId === lane?.creativeId);
+            return { label: runView.labels[i] ?? `Period ${i + 1}`, ctr: c?.ctr ?? null, trueCtr: c?.trueCtr ?? null };
+          }),
+        }
+      : null;
 
   return (
     <DialogPrimitive.Root open={lane !== null} onOpenChange={(open) => !open && onClose()}>
@@ -49,7 +81,14 @@ export function CreativeDetailDrawer({
               <DrawerHeader lane={lane} />
               <div className="min-h-0 flex-1 overflow-y-auto px-6 pt-5 pb-10">
                 {detail ? (
-                  <DrawerBody detail={detail} lane={lane} lanes={lanes} explain={explain} />
+                  <DrawerBody
+                    detail={detail}
+                    lane={lane}
+                    lanes={lanes}
+                    explain={explain}
+                    markers={runView?.markers ?? []}
+                    period={period}
+                  />
                 ) : (
                   <p className="text-sm text-muted-foreground">
                     The per-creative numbers aren&apos;t available for this experiment yet. They appear once traffic
@@ -96,22 +135,48 @@ function DrawerHeader({ lane }: { lane: Lane }) {
   );
 }
 
+interface PeriodView {
+  labels: string[];
+  sel: number;
+  onPick: (i: number) => void;
+  /** The creative's detail within the selected period (null without per-period cells). */
+  detail: CreativeDetail | null;
+  bars: { label: string; ctr: number | null; trueCtr: number | null }[];
+}
+
 function DrawerBody({
   detail,
   lane,
   lanes,
   explain,
+  markers = [],
+  period = null,
 }: {
   detail: CreativeDetail;
   lane: Lane;
   lanes: Lane[];
   explain: boolean;
+  markers?: ChartMarker[];
+  period?: PeriodView | null;
 }) {
   const others = new Map(lanes.map((l) => [l.creativeId, l]));
-  const showSegments = detail.segments.length > 0 && detail.segmentMax > 0;
+  const segDetail = period?.detail ?? detail;
+  const showSegments = segDetail.segments.length > 0 && segDetail.segmentMax > 0;
   return (
     <>
-      <p className="max-w-[56ch] text-lg leading-snug text-foreground text-pretty">{detail.reading}</p>
+      {period && (
+        <div className="mb-4 flex flex-wrap items-center gap-2">
+          <SegmentedControl
+            label="Period of the run"
+            options={period.labels.map((l, i) => ({ value: String(i), label: l }))}
+            value={String(period.sel)}
+            onChange={(v) => period.onPick(Number(v))}
+          />
+        </div>
+      )}
+      <p className="max-w-[56ch] text-lg leading-snug text-foreground text-pretty">
+        {period?.detail ? `${period.labels[period.sel]}: ${lowerFirst(period.detail.reading)}` : detail.reading}
+      </p>
 
       <section aria-labelledby="detail-numbers" className="mt-6">
         <h3 id="detail-numbers" className="sr-only">
@@ -157,9 +222,21 @@ function DrawerBody({
         <ExplainPanel open={explain}>{CREATIVE_DETAIL_EXPLAIN.numbers}</ExplainPanel>
       </section>
 
+      {period && period.bars.some((b) => b.ctr !== null) && (
+        <section aria-labelledby="detail-periods" className="mt-9">
+          <PeriodBars bars={period.bars} color={lane.color} sel={period.sel} />
+          <ExplainPanel open={explain}>{SHIFT_EXPLAIN.periods}</ExplainPanel>
+        </section>
+      )}
+
       {showSegments && (
         <section aria-labelledby="detail-segments" className="mt-9">
-          <SegmentBars detail={detail} lane={lane} others={others} />
+          <SegmentBars
+            detail={segDetail}
+            lane={lane}
+            others={others}
+            title={period?.detail ? `Click rate by audience segment, ${period.labels[period.sel].toLowerCase()}` : undefined}
+          />
           <ExplainPanel open={explain}>{CREATIVE_DETAIL_EXPLAIN.segments}</ExplainPanel>
         </section>
       )}
@@ -169,8 +246,10 @@ function DrawerBody({
           <h3 id="detail-over-time" className="text-base font-semibold text-foreground">
             Click rate over time
           </h3>
-          <CtrOverTime detail={detail} color={lane.color} name={lane.name} />
-          <ExplainPanel open={explain}>{CREATIVE_DETAIL_EXPLAIN.overTime}</ExplainPanel>
+          <CtrOverTime detail={detail} color={lane.color} name={lane.name} markers={markers} />
+          <ExplainPanel open={explain}>
+            {markers.length ? `${CREATIVE_DETAIL_EXPLAIN.overTime} ${SHIFT_EXPLAIN.markers}` : CREATIVE_DETAIL_EXPLAIN.overTime}
+          </ExplainPanel>
         </section>
       )}
     </>
@@ -178,6 +257,71 @@ function DrawerBody({
 }
 
 const formatMissed = (v: number) => (v >= 10 ? formatInt(v) : v.toFixed(1));
+const lowerFirst = (t: string) => t.charAt(0).toLowerCase() + t.slice(1);
+
+/**
+ * This creative's observed click rate in each period between shifts, as bars
+ * on one scale, with a dark tick at the period's true rate where known. The
+ * selected period is solid; the others a lighter tint.
+ */
+function PeriodBars({
+  bars,
+  color,
+  sel,
+}: {
+  bars: { label: string; ctr: number | null; trueCtr: number | null }[];
+  color: string;
+  sel: number;
+}) {
+  const max = Math.max(...bars.flatMap((b) => [b.ctr ?? 0, b.trueCtr ?? 0])) * 1.1 || 1;
+  const at = (v: number) => `${(Math.max(0, Math.min(v, max)) / max) * 100}%`;
+  return (
+    <>
+      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+        <h3 id="detail-periods" className="text-base font-semibold text-foreground">
+          Click rate by period
+        </h3>
+        <p className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+          <span aria-hidden className="h-3 w-0.5 bg-foreground" />
+          True rate
+        </p>
+      </div>
+      <ul className="mt-2">
+        {bars.map((b, i) => (
+          <li
+            key={b.label}
+            className="grid grid-cols-[9.5rem_minmax(0,1fr)_4rem] items-center border-t border-border py-2.5 first:border-t-0"
+          >
+            <span className={cn("truncate pr-3 text-sm", i === sel ? "font-semibold text-foreground" : "text-muted-foreground")}>
+              {b.label}
+            </span>
+            <span aria-hidden className="relative h-5">
+              {b.ctr !== null && (
+                <span
+                  className="absolute inset-y-0 left-0 rounded-r-[2px]"
+                  style={{
+                    width: at(b.ctr),
+                    backgroundColor: i === sel ? color : `color-mix(in srgb, ${color} 34%, var(--card))`,
+                  }}
+                />
+              )}
+              {b.trueCtr !== null && (
+                <span
+                  className="absolute -inset-y-1 w-0.5 -translate-x-1/2 bg-foreground ring-2 ring-card"
+                  style={{ left: at(b.trueCtr) }}
+                />
+              )}
+            </span>
+            <span className={cn(CONDENSED, "text-right text-[1.375rem] leading-none text-foreground tabular-nums")}>
+              {b.ctr === null ? "–" : formatPercent(b.ctr, 1)}
+              <span className="sr-only">{b.trueCtr === null ? "" : `, true rate ${formatPercent(b.trueCtr, 1)}`}</span>
+            </span>
+          </li>
+        ))}
+      </ul>
+    </>
+  );
+}
 
 /** Axis label: whole percents without decimals (2%), others with one (2.5%). */
 const tickPercent = (t: number) => formatPercent(t, Math.abs(t * 100 - Math.round(t * 100)) < 1e-6 ? 0 : 1);
@@ -203,10 +347,12 @@ function SegmentBars({
   detail,
   lane,
   others,
+  title,
 }: {
   detail: CreativeDetail;
   lane: Lane;
   others: Map<string, Lane>;
+  title?: string;
 }) {
   const max = detail.segmentMax;
   const ticks = niceTicks(0, max, 4).filter((t) => t <= max + 1e-9);
@@ -215,9 +361,9 @@ function SegmentBars({
     <>
       <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
         <h3 id="detail-segments" className="text-base font-semibold text-foreground">
-          Click rate by audience segment
+          {title ?? "Click rate by audience segment"}
         </h3>
-        <p className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+        <p className={cn("inline-flex items-center gap-1.5 text-xs text-muted-foreground", !detail.segments.some((x) => x.trueCtr !== null) && "invisible")}>
           <span aria-hidden className="h-3 w-0.5 bg-foreground" />
           True rate
         </p>
@@ -332,7 +478,17 @@ const CM = { top: 10, right: 72, bottom: 24, left: 40 };
  * rate (dashed). The viewBox follows the rendered width, so text stays 11px from
  * a phone to the full drawer.
  */
-function CtrOverTime({ detail, color, name }: { detail: CreativeDetail; color: string; name: string }) {
+function CtrOverTime({
+  detail,
+  color,
+  name,
+  markers = [],
+}: {
+  detail: CreativeDetail;
+  color: string;
+  name: string;
+  markers?: ChartMarker[];
+}) {
   const [CW, setWidth] = useState(560);
   const ref = useRef<HTMLElement>(null);
   useLayoutEffect(() => {
@@ -389,6 +545,31 @@ function CtrOverTime({ detail, color, name }: { detail: CreativeDetail; color: s
             {i === 0 ? "Start of run" : "End of run"}
           </text>
         ))}
+        {markers
+          .filter((m) => m.x >= x0 && m.x <= x1)
+          .map((m, i) => (
+            <g key={`${m.x}-${m.label}`}>
+              <line
+                x1={x(m.x)}
+                x2={x(m.x)}
+                y1={CM.top}
+                y2={CH - CM.bottom}
+                stroke="var(--foreground)"
+                strokeOpacity={0.55}
+                strokeDasharray="3 3"
+              />
+              <text
+                x={x(m.x) + 4}
+                y={CM.top + 9 + (i % 2) * 12}
+                className="fill-foreground text-[10.5px] font-medium"
+                stroke="var(--card)"
+                strokeWidth={3}
+                paintOrder="stroke"
+              >
+                {m.label}
+              </text>
+            </g>
+          ))}
         {detail.trueCtr !== null && (
           <>
             <line

@@ -153,6 +153,14 @@ const LIVE_METRICS = JSON.parse(readFileSync(join(FIX, "live-experiment-metrics.
 // scoreboard: 20 equal round windows derived from LIVE_METRICS (window shares
 // impression-weighted from armShare, clicks from the arms' observed rates).
 const LIVE_CREATIVES = JSON.parse(readFileSync(join(FIX, "live-experiment-creatives.json"), "utf8"));
+// Scripted behaviour shifts (contracts §10): a REAL simulator run on the live
+// experiment's three creatives (segment_winners, demo, 10 x 40,000 rounds) with
+// the two shifts 18-shift-timeline.png scripts, forgetting on, and the ghost
+// replay, in the api's exact per-run shapes (contracts §5/§8/§10). Regenerate: uv run python frontend/scripts/build_shift_fixture.py
+const SHIFT_EXPERIMENT = JSON.parse(readFileSync(join(FIX, "shift-experiment.json"), "utf8"));
+const SHIFT_METRICS = JSON.parse(readFileSync(join(FIX, "shift-experiment-metrics.json"), "utf8"));
+const SHIFT_CREATIVES = JSON.parse(readFileSync(join(FIX, "shift-experiment-creatives.json"), "utf8"));
+let shiftMock = { summary: SHIFT_EXPERIMENT };
 // What the mocks serve for LIVE_EXPERIMENT's id (set per journey frame).
 let liveMock = { summary: LIVE_EXPERIMENT, metrics: LIVE_METRICS, creatives: LIVE_CREATIVES };
 
@@ -257,10 +265,15 @@ async function installMocks(page) {
           return json(route, { experimentId: EXPERIMENT_DETAIL.experimentId, status: "deploying" });
         }
         if (method === "POST" && seg[3] === "traffic") {
-          return json(route, { status: "running_traffic", execution: "mock" });
+          return json(route, { status: "running_traffic", execution: "mock", run: 3 });
         }
         if (method === "POST" && seg[3] === "stop") return json(route, { status: "stopping" });
         if (seg.length === 2) return json(route, { experiments: EXPERIMENTS });
+        if (seg[2] === SHIFT_EXPERIMENT.experimentId) {
+          if (seg[3] === "creatives") return json(route, SHIFT_CREATIVES);
+          if (seg[3] === "metrics") return json(route, SHIFT_METRICS);
+          return json(route, shiftMock.summary);
+        }
         if (seg[2] === LIVE_EXPERIMENT.experimentId) {
           if (seg[3] === "creatives") {
             return liveMock.creatives
@@ -561,6 +574,8 @@ async function main() {
     await shot(page, "17-experiment-custom.png", { fullPage: false });
     await page.close();
   }
+
+  await shiftShots(context);
 
   // ── 4. Interactive run paused at the Review Ad Copies checkpoint ─────────
   {
@@ -1480,8 +1495,84 @@ async function journeyExperiments() {
   console.log("done →", EXPERIMENTS_JOURNEY_OUT);
 }
 
+// ── Scripted shifts (SHOTS=shifts runs only these two) ────────────────────────
+async function shiftShots(context) {
+  // ── 18. The shift editor: two shifts from the presets + the live preview ──
+  {
+    console.log("18-shift-timeline");
+    shiftMock = { summary: SHIFT_EXPERIMENT };
+    const page = await newPage(context);
+    await page.goto(`${BASE}/experiments/${SHIFT_EXPERIMENT.experimentId}`, { waitUntil: "networkidle" });
+    await page.locator("#shifts-heading").waitFor();
+    // The same script as the results fixture (build_shift_fixture.py): start from the
+    // presets, then name the segment and the creatives, as a user would.
+    for (const preset of ["Demote the leader at halfway", "Ad fatigue on the leader 60–75%"]) {
+      await page.getByRole("button", { name: "Add shift" }).click();
+      await page.getByRole("menuitem", { name: new RegExp(`^${preset}`) }).click();
+    }
+    const forms = page.locator('section[aria-labelledby="shifts-heading"] ol > li');
+    await forms.nth(0).getByLabel("Readers").selectOption("late_night_casual");
+    await forms.nth(0).getByRole("button", { name: "The Tone Dividend Bailout" }).click();
+    await forms.nth(1).getByRole("button", { name: "Ergonomic Lumbar Relief" }).click();
+    await page.getByText("What readers will want, period by period").waitFor();
+    await settle(page);
+    const panel = page.locator('section[aria-label="Experiment controls"]');
+    await page.screenshot({ path: join(OUT, "18-shift-timeline.png"), fullPage: true, clip: await clipOf(page, panel, 12) });
+    console.log("  wrote 18-shift-timeline.png");
+    await page.close();
+  }
+
+  // ── 19. Shift results: cards + scoreboard ticks + period grid, then the charts ──
+  {
+    console.log("19-shift-results");
+    shiftMock = { summary: { ...SHIFT_EXPERIMENT, status: "stopped", ttlExpiresAt: null } };
+    const page = await newPage(context);
+    await page.setViewportSize({ width: 1440, height: 2200 });
+    await page.goto(`${BASE}/experiments/${SHIFT_EXPERIMENT.experimentId}`, { waitUntil: "networkidle" });
+    await page.locator("#shift-results-heading").waitFor();
+    await page.waitForFunction(
+      () => [...document.querySelectorAll("img")].filter((im) => im.naturalWidth > 0).length >= 3
+    );
+    await settle(page);
+    const top = await clipOf(page, page.locator("#scoreboard-heading").locator(".."), 24);
+    const grid = await clipOf(page, page.locator("section[aria-labelledby='segment-grid-heading'] > div.overflow-x-auto"), 0);
+    const overviewClip = { x: 0, y: Math.max(0, top.y - 8), width: 1440, height: grid.y + grid.height - top.y + 16 };
+    const overview = await page.screenshot({ fullPage: true, clip: overviewClip });
+    await page.getByRole("tab", { name: "Analysis" }).click();
+    await page.getByRole("heading", { name: "Cumulative regret" }).waitFor();
+    await page.waitForTimeout(300);
+    const first = await clipOf(page, page.getByRole("heading", { name: "Cumulative average reward against the optimum" }).locator("../.."), 8);
+    const optimal = await clipOf(page, page.getByRole("heading", { name: "Where the endpoint sends traffic" }).locator("../.."), 8);
+    const chartsClip = { x: 0, y: first.y + 2, width: 1440, height: optimal.y + optimal.height - first.y + 12 };
+    const charts = await page.screenshot({ fullPage: true, clip: chartsClip });
+    await page.close();
+    // Stack the two captures into one PNG (same width) in a blank page.
+    const stack = await context.newPage();
+    await stack.setViewportSize({ width: 1440, height: 900 });
+    const b64 = (buf) => `data:image/png;base64,${buf.toString("base64")}`;
+    await stack.setContent(
+      `<body style="margin:0;background:#f7f8f9"><img src="${b64(overview)}" style="display:block;width:1440px">` +
+        `<div style="height:1px;background:#d5dbe0;margin:0 24px"></div>` +
+        `<img src="${b64(charts)}" style="display:block;width:1440px"></body>`
+    );
+    await stack.waitForFunction(() => [...document.images].every((im) => im.complete && im.naturalWidth > 0));
+    await stack.screenshot({ path: join(OUT, "19-shift-results.png"), fullPage: true });
+    console.log("  wrote 19-shift-results.png");
+    await stack.close();
+  }
+}
+
+async function shiftsOnly() {
+  const browser = await chromium.launch({ headless: true });
+  const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 2 });
+  await shiftShots(context);
+  await context.close();
+  await browser.close();
+  console.log("done →", OUT);
+}
+
 const MODE = process.env.JOURNEY;
-(MODE === "experiments" ? journeyExperiments : MODE ? journey : main)().catch((err) => {
+(process.env.SHOTS === "shifts" ? shiftsOnly : MODE === "experiments" ? journeyExperiments : MODE ? journey : main)().catch((err) => {
   console.error(err);
   process.exit(1);
 });

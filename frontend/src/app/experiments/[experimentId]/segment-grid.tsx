@@ -1,9 +1,14 @@
 "use client";
 
+import { useState } from "react";
 import { ExplainPanel } from "@/components/explain";
+import { SegmentedControl } from "@/components/segmented-control";
+import { InfoTip } from "@/components/ui/info-tip";
 import { formatInt, formatPercent } from "@/lib/chart";
-import { cellShade, type SegmentGrid } from "@/lib/creative-detail";
-import { CREATIVE_DETAIL_EXPLAIN } from "@/lib/experiment-explain";
+import { cellShade, periodSegmentGrid, type SegmentGrid } from "@/lib/creative-detail";
+import { CREATIVE_DETAIL_EXPLAIN, SHIFT_EXPLAIN } from "@/lib/experiment-explain";
+import { SHIFT_HELP } from "@/lib/experiment-help";
+import type { SeriesRegime } from "@/lib/shifts";
 import { segmentLabel } from "@/lib/experiments";
 import type { Lane } from "@/lib/scoreboard";
 import { cn } from "@/lib/utils";
@@ -19,16 +24,23 @@ export const SHADE_SPAN = 0.22;
  * outlined. Creative names open the detail drawer.
  */
 export function SegmentGridView({
-  grid,
+  grid: wholeRun,
   lanes,
   explain,
   onOpen,
+  periods = null,
 }: {
   grid: SegmentGrid;
   lanes: Lane[];
   explain: boolean;
   onOpen: (creativeId: string) => void;
+  /** Periods between shifts (contracts §10): a switcher, defaulting to the latest. */
+  periods?: { labels: string[]; regimes: SeriesRegime[] } | null;
 }) {
+  const n = periods?.regimes.length ?? 0;
+  const [picked, setPicked] = useState<number | null>(null);
+  const sel = n >= 2 ? Math.min(picked ?? n - 1, n - 1) : -1;
+  const grid = sel >= 0 && periods ? periodSegmentGrid(wholeRun, periods.regimes[sel]) : wholeRun;
   const byId = new Map(lanes.map((l) => [l.creativeId, l]));
   const cols = `minmax(9rem,1.2fr) repeat(${grid.segments.length}, minmax(5.5rem,1fr))`;
   return (
@@ -52,7 +64,24 @@ export function SegmentGridView({
           </p>
         )}
       </div>
-      <ExplainPanel open={explain}>{CREATIVE_DETAIL_EXPLAIN.grid}</ExplainPanel>
+      {sel >= 0 && periods && (
+        <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2">
+          <SegmentedControl
+            label="Period of the run"
+            options={periods.labels.map((l, i) => ({ value: String(i), label: l }))}
+            value={String(sel)}
+            onChange={(v) => setPicked(Number(v))}
+          />
+          <InfoTip label="About periods">{SHIFT_HELP.periods}</InfoTip>
+          <span className="text-xs text-muted-foreground tabular-nums">
+            Rounds {formatInt(periods.regimes[sel].start + 1)}–{formatInt(periods.regimes[sel].end)}
+            {grid.blended ? "; rates cover the whole run, outlines this period" : ""}
+          </span>
+        </div>
+      )}
+      <ExplainPanel open={explain}>
+        {sel >= 0 ? `${CREATIVE_DETAIL_EXPLAIN.grid} ${SHIFT_EXPLAIN.periods}` : CREATIVE_DETAIL_EXPLAIN.grid}
+      </ExplainPanel>
 
       <div className="mt-3 overflow-x-auto rounded-lg border border-border bg-card">
         <table className="w-full min-w-[34rem] border-collapse text-sm">

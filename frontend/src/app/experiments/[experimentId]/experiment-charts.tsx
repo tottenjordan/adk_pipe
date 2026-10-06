@@ -2,8 +2,8 @@
 
 import type { ReactNode } from "react";
 import { InfoTip } from "@/components/ui/info-tip";
-import { CHART_HELP } from "@/lib/experiment-help";
-import { CHART_EXPLAIN } from "@/lib/experiment-explain";
+import { CHART_HELP, SHIFT_HELP } from "@/lib/experiment-help";
+import { CHART_EXPLAIN, SHIFT_EXPLAIN } from "@/lib/experiment-explain";
 import type { ChartReadings } from "@/lib/experiment-insights";
 import { ExplainPanel } from "@/components/explain";
 import { BarChart } from "@/components/charts/bar-chart";
@@ -18,9 +18,13 @@ import {
   segmentRows,
   shortId,
   totalBars,
+  armColor,
+  armName,
+  GHOST_POLICY,
   type Arm,
   type ExperimentMetrics,
 } from "@/lib/experiments";
+import { parseShiftResponse, recoverySpans, type RunView } from "@/lib/shifts";
 
 function ChartPanel({
   title,
@@ -65,7 +69,6 @@ function ChartPanel({
   );
 }
 
-const roundLabel = "Round (log scale)";
 
 const segmentName = segmentLabel;
 
@@ -76,6 +79,7 @@ export function ExperimentCharts({
   rewardMode,
   readings,
   explain = false,
+  runView = null,
 }: {
   metrics: ExperimentMetrics;
   arms: Arm[];
@@ -83,7 +87,16 @@ export function ExperimentCharts({
   readings?: ChartReadings;
   /** Explain mode: reveal each panel's "How to read this". */
   explain?: boolean;
+  /** The shown run's shifts (contracts §10): markers, linear rounds, ghost, per-period tables. */
+  runView?: RunView | null;
 }) {
+  const shifted = Boolean(runView);
+  const roundLabel = shifted ? "Round" : "Round (log scale)";
+  const markers = runView?.markers;
+  const spans = shifted ? recoverySpans(parseShiftResponse(metrics.shiftResponse), metrics.horizon) : [];
+  const explainFor = (base: string) => (shifted ? `${base} ${SHIFT_EXPLAIN.markers}` : base);
+  const hasGhost = Boolean(metrics.curves?.[GHOST_POLICY]);
+  const ghostNote = hasGhost ? " The dashed blue line is Linear TS on the same readers without your shifts." : "";
   const clickReward = rewardMode !== "engaged";
   const formatReward = (v: number) => (clickReward ? formatPercent(v, 1) : `${formatCompact(v)} s`);
   const rewardAxis = clickReward ? "Click rate so far" : "Engaged seconds per round so far";
@@ -92,11 +105,22 @@ export function ExperimentCharts({
   const avg = curveSeries(metrics, "cumAvgReward", { includeOracle: true });
   const regret = curveSeries(metrics, "cumRegret", { bands: true });
   const optimal = curveSeries(metrics, "pctOptimal", { bands: true });
-  const share = armShareSeries(metrics, arms);
+  const share = armShareSeries(metrics, arms, shifted && metrics.horizon ? { minWindow: metrics.horizon * 0.01 } : {});
   const segments = segmentRows(metrics, arms);
   const totals = totalBars(metrics);
   const armRows = armStatRows(metrics, arms);
   const ep = `${metrics.episodes} ${metrics.episodes === 1 ? "episode" : "episodes"}`;
+  const mr = runView?.metricRegimes ?? [];
+  const periodRows = mr.length >= 2 ? mr : null;
+  const latestTrue =
+    mr.length >= 2
+      ? {
+          label: runView?.labels[runView.regimes.findIndex((g) => g.start === mr[mr.length - 1].start)] ??
+            "latest period",
+          now: mr[mr.length - 1].trueCtr,
+          before: mr[0].trueCtr,
+        }
+      : null;
 
   return (
     <div className="grid gap-4 lg:grid-cols-2">
@@ -110,20 +134,21 @@ export function ExperimentCharts({
       </p>
       <ChartPanel
         title="Cumulative average reward against the optimum"
-        help={CHART_HELP.avgReward}
+        help={hasGhost ? `${CHART_HELP.avgReward} ${SHIFT_HELP.ghost}` : CHART_HELP.avgReward}
         reading={readings?.avgReward}
-        explain={CHART_EXPLAIN.avgReward}
+        explain={explainFor(CHART_EXPLAIN.avgReward)}
         explainOpen={explain}
         helpLabel="About cumulative average reward"
-        note={`Mean of ${ep}. The dashed line is the oracle, which always shows the best creative for the reader.`}
+        note={`Mean of ${ep}. The black dashed line is the oracle, which always shows the best creative for the reader.${ghostNote}`}
       >
         <LineChart
           title="Cumulative average reward by strategy, with the oracle as reference"
           series={avg}
           xLabel={roundLabel}
           yLabel={rewardAxis}
-          logX
-          minX={100}
+          logX={!shifted}
+          markers={markers}
+          minX={shifted ? 1000 : 100}
           yZero={false}
           formatY={formatReward}
         />
@@ -133,37 +158,42 @@ export function ExperimentCharts({
         title="Cumulative regret"
         help={CHART_HELP.regret}
         reading={readings?.regret}
-        explain={CHART_EXPLAIN.regret}
+        explain={explainFor(CHART_EXPLAIN.regret)}
         explainOpen={explain}
         helpLabel="About cumulative regret"
-        note="Reward lost against the oracle; flatter is better. Bands are 95% intervals across episodes."
+        note={`Reward lost against the oracle; flatter is better. Bands are 95% intervals across episodes.${
+          spans.length ? " Shaded: rounds until the endpoint's best-creative rate was back to 80% of its pre-shift level." : ""
+        }`}
       >
         <LineChart
           title="Cumulative pseudo-regret by strategy, with 95% confidence bands"
           series={regret}
           xLabel={roundLabel}
           yLabel={clickReward ? "Clicks lost" : "Seconds lost"}
-          logX
+          logX={!shifted}
+          markers={markers}
+          spans={spans}
           minX={100}
         />
       </ChartPanel>
 
       <ChartPanel
         title="Share of rounds on the best creative"
-        help={CHART_HELP.optimalShare}
+        help={hasGhost ? `${CHART_HELP.optimalShare} ${SHIFT_HELP.ghost}` : CHART_HELP.optimalShare}
         reading={readings?.optimal}
-        explain={CHART_EXPLAIN.optimalShare}
+        explain={explainFor(CHART_EXPLAIN.optimalShare)}
         explainOpen={explain}
         helpLabel="About share of rounds on the best creative"
-        note="How often each strategy showed the reader's optimal creative. Bands are 95% intervals."
+        note={`How often each strategy showed the reader's optimal creative. Bands are 95% intervals.${ghostNote}`}
       >
         <LineChart
           title="Percent of rounds choosing the optimal creative, by strategy"
           series={optimal}
           xLabel={roundLabel}
           yLabel="Optimal choices"
-          logX
-          minX={100}
+          logX={!shifted}
+          markers={markers}
+          minX={shifted ? 1000 : 100}
           yDomain={[0, 1]}
           formatY={pct}
         />
@@ -184,7 +214,8 @@ export function ExperimentCharts({
             series={share}
             xLabel={roundLabel}
             yLabel="Share of impressions"
-            logX
+            logX={!shifted}
+            markers={markers}
             minX={100}
             yDomain={[0, 1]}
             formatY={pct}
@@ -202,9 +233,16 @@ export function ExperimentCharts({
         explain={CHART_EXPLAIN.segments}
         explainOpen={explain}
         helpLabel="About winners by reader segment"
-        note="Each segment's optimal creative, and how often each strategy found it."
+        note={
+          periodRows
+            ? "Each period's optimal creative per segment, and how often Linear TS and the best baseline found it then."
+            : "Each segment's optimal creative, and how often each strategy found it."
+        }
+        className={periodRows ? "lg:col-span-2" : undefined}
       >
-        {segments.length ? (
+        {periodRows && runView ? (
+          <PeriodWinners rows={periodRows} labels={runView.labels} arms={arms} />
+        ) : segments.length ? (
           <div className="overflow-x-auto">
             <table className="w-full text-sm tabular-nums">
               <thead>
@@ -264,7 +302,14 @@ export function ExperimentCharts({
       >
         <BarChart
           title="Expected total reward per episode by strategy, mean plus or minus one standard deviation"
-          bars={totals.map((b) => ({ id: b.id, label: policyShortLabel(b.id), color: b.color, mean: b.mean, err: b.std }))}
+          bars={totals.map((b) => ({
+            id: b.id,
+            label: policyShortLabel(b.id),
+            // The ghost is the endpoint's counterfactual: the same hue, lighter.
+            color: b.id === GHOST_POLICY ? "#9cc0ec" : b.color,
+            mean: b.mean,
+            err: b.std,
+          }))}
           xLabel={clickReward ? "Total clicks per episode" : "Total engaged seconds per episode"}
           format={formatInt}
         />
@@ -287,7 +332,9 @@ export function ExperimentCharts({
                 <th scope="col" className="py-1.5 pr-3 font-medium">Id</th>
                 <th scope="col" className="py-1.5 pr-3 text-right font-medium">Impressions</th>
                 <th scope="col" className="py-1.5 pr-3 text-right font-medium">Estimated click rate</th>
-                <th scope="col" className="py-1.5 text-right font-medium">True click rate</th>
+                <th scope="col" className="py-1.5 text-right font-medium">
+                  {latestTrue ? `True click rate, ${latestTrue.label.toLowerCase()}` : "True click rate"}
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
@@ -302,13 +349,111 @@ export function ExperimentCharts({
                   <td className="py-2 pr-3 font-mono text-xs text-muted-foreground">{shortId(r.creativeId)}</td>
                   <td className="py-2 pr-3 text-right text-foreground">{formatInt(r.impressions)}</td>
                   <td className="py-2 pr-3 text-right text-foreground">{formatPercent(r.estimatedCtr, 2)}</td>
-                  <td className="py-2 text-right text-muted-foreground">{formatPercent(r.trueCtr, 2)}</td>
+                  <td className="py-2 text-right text-muted-foreground">
+                    {latestTrue && typeof latestTrue.now[r.creativeId] === "number" ? (
+                      <>
+                        <span className="text-foreground">{formatPercent(latestTrue.now[r.creativeId], 2)}</span>
+                        {typeof latestTrue.before[r.creativeId] === "number" && (
+                          <span className="block text-xs">before {formatPercent(latestTrue.before[r.creativeId], 2)}</span>
+                        )}
+                      </>
+                    ) : (
+                      formatPercent(r.trueCtr, 2)
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
       </ChartPanel>
+    </div>
+  );
+}
+
+/**
+ * Winners by reader segment, one column per period between shifts: the best
+ * creative then, and how often Linear TS and the best baseline found it.
+ */
+function PeriodWinners({
+  rows,
+  labels,
+  arms,
+}: {
+  rows: NonNullable<RunView["metricRegimes"]>;
+  labels: string[];
+  arms: Arm[];
+}) {
+  const segs = [...new Set(rows.flatMap((r) => Object.keys(r.perSegment)))].sort();
+  const name = (id: string) => {
+    const a = arms.find((x) => x.creativeId === id);
+    return a ? armName(a) : shortId(id);
+  };
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full min-w-[44rem] text-sm tabular-nums">
+        <thead>
+          <tr className="border-b border-border text-left text-xs text-muted-foreground">
+            <th scope="col" className="py-1.5 pr-3 font-medium">
+              Segment
+            </th>
+            {rows.map((r, i) => (
+              <th key={r.start} scope="col" className="py-1.5 pr-3 font-medium">
+                <span className="block text-foreground">{labels[i] ?? `Period ${i + 1}`}</span>
+                <span className="font-normal">
+                  rounds {formatInt(r.start + 1)}–{formatInt(r.end)}
+                </span>
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-border">
+          {segs.map((seg) => (
+            <tr key={seg}>
+              <th scope="row" className="py-2 pr-3 text-left align-top font-medium text-foreground">
+                {segmentName(seg)}
+              </th>
+              {rows.map((r, i) => {
+                const cell = r.perSegment[seg];
+                if (!cell) {
+                  return (
+                    <td key={r.start} className="py-2 pr-3 text-muted-foreground">
+                      –
+                    </td>
+                  );
+                }
+                const changed = i > 0 && rows[i - 1].perSegment[seg]?.optimalArm !== cell.optimalArm;
+                const lin = cell.policies.linear_ts?.pctOptimal;
+                let best: { p: string; v: number } | null = null;
+                for (const [p, v] of Object.entries(cell.policies)) {
+                  if (p === "linear_ts" || p === "oracle" || p === GHOST_POLICY) continue;
+                  if (!best || v.pctOptimal > best.v) best = { p, v: v.pctOptimal };
+                }
+                return (
+                  <td key={r.start} className="max-w-[13rem] py-2 pr-3 align-top">
+                    <span className={`flex min-w-0 items-center gap-1.5 ${changed ? "font-semibold" : ""} text-foreground`}>
+                      <span
+                        aria-hidden
+                        className="size-2 shrink-0 rounded-full"
+                        style={{ backgroundColor: armColor(arms, cell.optimalArm) }}
+                      />
+                      <span className="truncate" title={name(cell.optimalArm)}>
+                        {name(cell.optimalArm)}
+                      </span>
+                      {changed && <span className="sr-only"> (new best in this period)</span>}
+                    </span>
+                    <span className="mt-0.5 block text-xs text-muted-foreground">
+                      Linear TS {typeof lin === "number" ? formatPercent(lin) : "–"}
+                      {best ? `, ${policyShortLabel(best.p)} ${formatPercent(best.v)}` : ""}
+                    </span>
+                  </td>
+                );
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <p className="mt-2 text-xs text-muted-foreground">Bold: the best creative changed in that period.</p>
     </div>
   );
 }

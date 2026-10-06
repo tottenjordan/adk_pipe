@@ -51,6 +51,13 @@ export interface LineChartProps {
   directLabels?: boolean;
   /** Drop points (and bands) before this x, e.g. the noisy rounds before the first update. */
   minX?: number;
+  /**
+   * Vertical event markers (e.g. scripted shifts): a rule and a label inside the
+   * plot, named in the hover readout ("Since shift 1, round 20k").
+   */
+  markers?: { x: number; label: string }[];
+  /** Shaded x ranges under the lines (e.g. recovery after a shift), each with an optional label. */
+  spans?: { x0: number; x1: number; label?: string }[];
   className?: string;
 }
 
@@ -81,6 +88,8 @@ export function LineChart({
   referenceLines = [],
   directLabels = true,
   minX,
+  markers = [],
+  spans = [],
   className,
 }: LineChartProps) {
   const uid = useId();
@@ -136,6 +145,15 @@ export function LineChart({
 
   const hoverIdx = hoverX === null ? -1 : nearestIndex(xs, hoverX);
   const hoverValue = hoverIdx >= 0 ? xs[hoverIdx] : null;
+
+  // Markers inside the x domain, with labels staggered onto a second row when they'd touch.
+  const [xMin, xMax] = xs.length ? [xs[0], xs[xs.length - 1]] : [0, 0];
+  const placed = placeMarkers(
+    markers.filter((m) => m.x >= xMin && m.x <= xMax).map((m) => ({ ...m, px: x(m.x) })),
+    M.left + plotW
+  );
+  const hoverMarker =
+    hoverValue === null ? null : [...markers].filter((m) => m.x <= hoverValue).sort((a, b) => b.x - a.x)[0] ?? null;
 
   const onMove = (e: PointerEvent<SVGRectElement>) => {
     const svg = e.currentTarget.ownerSVGElement;
@@ -259,6 +277,23 @@ export function LineChart({
             {yLabel}
           </text>
 
+          {/* Shaded spans (e.g. recovery) under everything else */}
+          {spans.map((sp, i) => {
+            const x0 = clamp(x(Math.max(sp.x0, xMin)), M.left, M.left + plotW);
+            const x1 = clamp(x(Math.min(sp.x1, xMax)), M.left, M.left + plotW);
+            if (!(x1 > x0)) return null;
+            return (
+              <g key={`span-${i}`}>
+                <rect x={x0} y={M.top} width={x1 - x0} height={plotH} className="fill-foreground" fillOpacity={0.06} />
+                {sp.label && x1 - x0 > 36 && (
+                  <text x={x0 + 4} y={M.top + plotH - 6} className="fill-muted-foreground text-[10.5px]">
+                    {sp.label}
+                  </text>
+                )}
+              </g>
+            );
+          })}
+
           {/* CI bands under the lines */}
           {visible.map(
             (s) =>
@@ -315,6 +350,33 @@ export function LineChart({
               strokeLinecap="round"
               clipPath={`url(#${clipId})`}
             />
+          ))}
+
+          {/* Event markers: a rule and a label at the top of the plot */}
+          {placed.map((m) => (
+            <g key={`mk-${m.x}-${m.label}`} pointerEvents="none">
+              <line
+                x1={m.px}
+                x2={m.px}
+                y1={M.top}
+                y2={M.top + plotH}
+                className="stroke-foreground"
+                strokeOpacity={0.55}
+                strokeWidth={1}
+                strokeDasharray="3 3"
+              />
+              <text
+                x={m.px > M.left + plotW - 52 ? m.px - 4 : m.px + 4}
+                textAnchor={m.px > M.left + plotW - 52 ? "end" : "start"}
+                y={M.top + 11 + m.row * 13}
+                className="fill-foreground text-[10.5px] font-medium"
+                stroke="var(--card)"
+                strokeWidth={3}
+                paintOrder="stroke"
+              >
+                {m.label}
+              </text>
+            </g>
           ))}
 
           {/* Direct labels at line ends */}
@@ -383,6 +445,12 @@ export function LineChart({
             <p className="mb-1 font-medium text-foreground">
               {xLabel}: {formatX(hoverValue)}
             </p>
+            {hoverMarker && (
+              <p className="mb-1 text-muted-foreground">
+                Since {hoverMarker.label.charAt(0).toLowerCase() + hoverMarker.label.slice(1)}, round{" "}
+                {formatX(hoverMarker.x)}
+              </p>
+            )}
             <ul className="space-y-0.5">
               {visible.map((s) => {
                 const p = s.points.find((q) => q.x === hoverValue);
@@ -427,6 +495,22 @@ export function LineChart({
       )}
     </figure>
   );
+}
+
+/**
+ * Marker label rows: a label moves to the second row when it would start
+ * within ~46px of the previous label on the same row, so close shifts stay legible.
+ * (Labels near the plot's right edge render left of their rule.)
+ */
+export function placeMarkers<T extends { px: number }>(markers: T[], right: number, minGap = 46): (T & { row: number })[] {
+  const lastOnRow = [-Infinity, -Infinity];
+  return [...markers]
+    .sort((a, b) => a.px - b.px)
+    .map((m) => {
+      const row = m.px - lastOnRow[0] >= minGap ? 0 : m.px - lastOnRow[1] >= minGap ? 1 : 0;
+      lastOnRow[row] = m.px;
+      return { ...m, row, px: Math.min(m.px, right) };
+    });
 }
 
 /** A short line sample in the series colour (dash pattern included). */
