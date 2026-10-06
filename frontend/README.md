@@ -26,7 +26,7 @@ is in [the proof-room plan](../docs/plans/2026-10-02-frontend-proof-room.md).
 | `/run/[sessionId]` | Live run view. It polls the async-job run (`GET /runs/...?since=N`), so a run keeps going through a reload or disconnect. Shows a stage spine, the current stage, and outputs so far. Review checkpoints take over the main area. A run that stopped early shows **Continue run** |
 | `/results/[sessionId]` | Contact sheet of creatives with scores, a proof-detail dialog for each creative, a research report panel, the eval report, and artifacts. The **Deploy creatives as a live experiment** panel starts a bandit experiment from 2–4 creatives |
 | `/experiments` | Bandit experiments list: scenario, creatives, status, created, endpoint lifetime |
-| `/experiments/[experimentId]` | One experiment: status and TTL, **Start traffic** / **Stop**, the arms, and SVG charts (reward vs oracle, regret, % optimal, arm share, per-segment winners, total reward ± std, per-arm CTRs). See the [bandit guide](../docs/bandit/README.md) |
+| `/experiments/[experimentId]` | One experiment: status and TTL, **Start traffic** / **Stop**, the arms, and SVG charts (reward vs oracle, regret, % optimal, arm share, per-segment winners, total reward ± std, per-arm CTRs). Above **Start traffic**, the shift editor scripts up to four behaviour shifts for the next traffic run; traffic runs are numbered and `?run=N` selects one (newest by default). With shifts, the charts use a linear round axis with a rule per shift and a dashed ghost line, and the Overview adds one result card per shift. See the [bandit guide](../docs/bandit/README.md#scripted-behaviour-shifts) |
 
 ## Source layout
 
@@ -38,7 +38,8 @@ src/
 │   ├── run/[sessionId]/page.tsx
 │   ├── results/[sessionId]/page.tsx, deploy-panel.tsx
 │   ├── experiments/page.tsx
-│   ├── experiments/[experimentId]/page.tsx, experiment-charts.tsx
+│   ├── experiments/[experimentId]/page.tsx, experiment-charts.tsx,
+│   │   shift-timeline.tsx, run-selector.tsx, shift-results.tsx
 │   └── api/
 │       ├── adk/[...path]/route.ts
 │       └── gcs/route.ts
@@ -62,14 +63,19 @@ src/
 - `lib/presets.ts`: preset values for the brief form
 - `lib/initial-state.ts`: builds the `createSession` initial state (`ui_app`, trend-pick opt-in, visual-intent keys)
 - `lib/experiments.ts`: bandit experiments API client (`createExperiment`, `startTraffic`, `stopExperiment`, `pollExperiment`, …), status and TTL helpers, deploy-selection payload, chart series shaping
+- `lib/shifts.ts`: scripted behaviour shifts ([contracts §10](../docs/bandit/contracts.md#10-scripted-behaviour-shifts-per-traffic-run-2026-10-05)): the shift editor's model (defaults, presets, validation, the `startTraffic` payload with `forget`, one plain-language sentence per shift), tolerant readers for the per-run api fields (traffic runs, shift response, regimes, paired `shiftCost`), chart markers and recovery spans, and the run selector's `?run=N` URL state. Kinds and bounds come from `scenario-presets.generated.json`, never hand-copied; on an older api every reader returns nothing and the page renders as before
+- `lib/scenario-preview.ts`: the Deploy panel's scenario preview; `applyShifts` ports the simulator's shift resolution (`bandit.environment._resolve_shifts`) to give the expected click rate per creative × segment in each period between shifts (pinned by `scenario-shifts-golden.json`)
 - `lib/chart.ts`: dependency-free chart math (linear/log scales, nice ticks, line and band paths, downsampling, formatters)
-- `components/charts/line-chart.tsx` / `bar-chart.tsx`: hand-drawn SVG line chart (bands, log x) and bar chart (error bars)
+- `components/charts/line-chart.tsx` / `bar-chart.tsx`: hand-drawn SVG line chart (bands, log x, `markers` for vertical event rules named in the hover readout, `spans` for shaded x ranges such as a post-shift recovery) and bar chart (error bars)
 - `components/experiment-status.tsx`: experiment status label
+- `app/experiments/[experimentId]/shift-timeline.tsx`: the shift editor above **Start traffic**: a run timeline with one draggable pin per shift, an **Add shift** menu (four kinds plus three presets), a sentence per shift, the period-by-period preview, and the **Let the endpoint forget old evidence** toggle (on by default when there are shifts)
+- `app/experiments/[experimentId]/run-selector.tsx`: which numbered traffic run the results show (`?run=N`); a plain label with one run, a select with several
+- `app/experiments/[experimentId]/shift-results.tsx`: one Overview result card per shift (best-creative rate before → after, rounds to recover, evidence; "Too early to call" under five episodes)
 - `app/results/[sessionId]/deploy-panel.tsx`: the Deploy panel (creative picks, scenario, CTR/reward mode, TTL)
 - `components/research-report.tsx`: renders the research report with numbered citations
 - `components/main-nav.tsx`: header nav that highlights the active page
 - `components/run-list.tsx`: run-history list used on `/runs` and in the home sidebar
-- `app/api/adk/[...path]/route.ts`: same-origin proxy to the private backend. It verifies the IAP JWT and scopes every request to the caller (`lib/iap-identity.ts` + `lib/user-scoping.ts`)
+- `app/api/adk/[...path]/route.ts`: same-origin proxy to the private backend. It verifies the IAP JWT and scopes every request to the caller (`lib/iap-identity.ts` + `lib/user-scoping.ts`). Only `since`/`version` query params are forwarded, plus `run` (a positive integer) on `GET experiments/{u}/{id}/metrics|creatives`
 - `app/api/gcs/route.ts`: authenticated Cloud Storage proxy for serving artifacts (`/api/gcs?bucket=...&path=...`)
 
 ## Local development
