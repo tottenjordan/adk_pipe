@@ -101,6 +101,8 @@ def server():
     thread.start()
     yield f"http://127.0.0.1:{srv.server_address[1]}/predict"
     srv.shutdown()
+    srv.server_close()
+    thread.join(timeout=5)
 
 
 def test_http_client_round_trip_and_retry_on_503(server):

@@ -31,6 +31,7 @@ def fast_compile():
     jax.config.update("jax_disable_most_optimizations", old)
 
 
+@pytest.mark.slow
 def test_parity_figures_produced(tmp_path, fast_compile):
     spec = importlib.util.spec_from_file_location(
         "notebook_parity", ROOT / "experiments/bandit/notebook_parity.py"

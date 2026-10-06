@@ -1,9 +1,9 @@
 """Tests for the runserver async-run pure helpers (offline, no creds).
 
-Only `runserver.async_runs` is imported at module top. Any test that touches an
-agent package builds a module-level genai client (needs GCP ADC), so it is gated
-behind a creds check — mirroring the lazy-import convention in
-`tests/test_pipeline_structure.py` (agent imports happen inside the test body).
+Only `runserver.async_runs` is imported at module top. Tests that touch an agent
+package import it inside the test body, mirroring the lazy-import convention in
+`tests/test_pipeline_structure.py`. Agent imports need no GCP credentials (only a
+`GOOGLE_CLOUD_PROJECT` value), so no test here is gated on ADC.
 """
 
 from __future__ import annotations
@@ -35,18 +35,6 @@ from runserver.async_runs import (
     start_resume,
     start_run,
 )
-
-
-def _have_adc() -> bool:
-    """True when Application Default Credentials resolve (agent imports build a
-    module-level genai client that requires ADC)."""
-    try:
-        import google.auth
-
-        google.auth.default()
-        return True
-    except Exception:
-        return False
 
 
 def test_build_user_message_text():
@@ -99,10 +87,6 @@ def test_events_since_slices_by_index():
     assert events_since([a, b, c], -2) == [a, b, c]
 
 
-@pytest.mark.skipif(
-    not _have_adc(),
-    reason="agent imports build a module-level genai client requiring GCP ADC",
-)
 def test_get_root_agent_maps_three_agents():
     from google.adk.apps import App
 

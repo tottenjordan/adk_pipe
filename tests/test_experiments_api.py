@@ -884,7 +884,13 @@ def test_deploy_lease_heartbeat_extends_and_failure_releases():
         row = h.store.rows[eid]
         first = row["deploy_lease_until"]
         owner = row["deploy_lease_owner"]
-        await asyncio.sleep(0.05)
+
+        # poll until the heartbeat renews (generous bound; no fixed sleep)
+        async def _renewed():
+            while row["deploy_lease_until"] == first:
+                await asyncio.sleep(0.005)
+
+        await asyncio.wait_for(_renewed(), timeout=10)
         renewed = row["deploy_lease_until"]
         h.deployer.gate.set()
         await ex.drain()
@@ -1240,9 +1246,31 @@ def test_metrics_and_creatives_gets_advance_finished_traffic():
     assert h.store.rows[eid]["status"] == "ready"
 
 
-def test_reaper_loop_runs_light_pass_between_full_passes():
+class _FakeClockAsyncio:
+    """Stands in for ``ex.asyncio`` / ``ex.time`` inside ``reaper_loop``: its
+    ``sleep`` advances a fake monotonic clock (then yields once) instead of
+    waiting, so the full/light schedule is exact rather than wall-clock bound."""
+
+    def __init__(self):
+        self.now = 0
+        self.sleeps = 0
+
+    def __getattr__(self, name):
+        return getattr(asyncio, name)
+
+    def monotonic(self):
+        return self.now
+
+    async def sleep(self, seconds):
+        self.now += seconds
+        self.sleeps += 1
+        await asyncio.sleep(0)
+
+
+def test_reaper_loop_runs_light_pass_between_full_passes(monkeypatch):
     Harness()
     seen: list[str] = []
+    fake = _FakeClockAsyncio()
 
     async def go():
         real_reap, real_finish = ex.reap_expired, ex.finish_traffic_pass
@@ -1257,15 +1285,21 @@ def test_reaper_loop_runs_light_pass_between_full_passes():
 
         ex.reap_expired, ex.finish_traffic_pass = reap, finish
         ex._TRAFFIC_WATCH.add("watched")  # the light pass is skipped when idle
+        monkeypatch.setattr(ex, "asyncio", fake)
+        monkeypatch.setattr(ex, "time", fake)
         try:
-            task = asyncio.create_task(ex.reaper_loop(0.05, watch_interval=0.01))
-            await asyncio.sleep(0.12)
+            # integer seconds keep the fake clock exact: full every 5, light every 1
+            task = asyncio.create_task(ex.reaper_loop(5, watch_interval=1))
+
+            async def eleven_passes():
+                while fake.sleeps < 11:
+                    await asyncio.sleep(0)
+
+            await asyncio.wait_for(eleven_passes(), timeout=10)
             task.cancel()
             await asyncio.gather(task, return_exceptions=True)
         finally:
             ex.reap_expired, ex.finish_traffic_pass = real_reap, real_finish
 
     run(go)
-    assert seen[0] == "full"
-    assert seen.count("full") >= 2
-    assert seen.count("light") > seen.count("full")
+    assert seen[:11] == (["full"] + ["light"] * 4) * 2 + ["full"]

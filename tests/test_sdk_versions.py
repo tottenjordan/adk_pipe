@@ -10,6 +10,7 @@ imports), so both surfaces must be present.
 import importlib.metadata
 
 import agentplatform
+import pytest
 import vertexai
 
 
@@ -32,7 +33,10 @@ def test_vertexai_compat_still_present_for_adk_session_service():
     # google/adk/sessions/vertex_ai_session_service.py calls
     # vertexai.Client(...).aio.agent_engines.sessions.*; drop this test once ADK
     # moves to agentplatform (then the override can go too).
-    client = vertexai.Client(project="p", location="us-central1")
+    # The compat class is deprecated in aiplatform 2.x; expect (and contain) the
+    # FutureWarning so it doesn't leak into the suite's warning summary.
+    with pytest.warns(FutureWarning, match="vertexai.Client class is deprecated"):
+        client = vertexai.Client(project="p", location="us-central1")
     assert hasattr(client.agent_engines, "sessions")
     assert hasattr(client.aio.agent_engines, "sessions")
     assert hasattr(client.aio.agent_engines.sessions, "events")

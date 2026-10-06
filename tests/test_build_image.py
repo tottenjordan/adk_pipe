@@ -4,8 +4,12 @@ import json
 import subprocess
 import sys
 
+import pytest
+
 from bandit.config import load_experiment_config
 from deployment.bandit import build_image as bi
+
+pytestmark = [pytest.mark.slow, pytest.mark.subprocess]
 
 
 def test_image_uri():
