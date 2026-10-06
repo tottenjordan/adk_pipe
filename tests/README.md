@@ -36,6 +36,8 @@ per-agent rubric configs, integration tests).
 ```bash
 tests/
 ├── __init__.py
+├── _bandit_sizes.py                 # standard bandit episode sizes (HORIZON_S / HORIZON_M / BATCH) so tests reuse compiled XLA programs
+├── _fake_bq.py                      # FakeBigQueryClient: configurable, dependency-free fake bigquery.Client (records queries + streaming inserts; canned rows, insert/job errors)
 ├── _fakes.py                        # shared test doubles: fake producers + stub/recording LLMs (retry-node + graph-Workflow tests), FakeToolContext/FakeState, FakeStorageClient, noop_async
 ├── conftest.py                      # shared fixtures: gcp_project_env (dummy GOOGLE_CLOUD_PROJECT), fresh_config (fresh package import, restored after); persistent JAX compile cache at .pytest_cache/jax (override with JAX_COMPILATION_CACHE_DIR; delete the dir to reset)
 ├── eval/                            # ADK evals — rubric-based LLM-as-judge (real APIs)
@@ -143,6 +145,20 @@ tests/
   loop and checks that its LinTS picks the simulator's arms round for round (contracts §2
   policy stream: click/engaged, discount, request splitting, and the §10 ghost up to the
   first shift).
+  **Sizes:** tests that run episodes use the shared sizes in `_bandit_sizes.py`
+  (`HORIZON_S` = 1000 for plumbing and exact parity, `HORIZON_M` = 4000, `BATCH` = 100).
+  `simulate.run_episodes` compiles one XLA program per policy x batch x number of
+  batches x arms x episode-chunk shape, so a shared size is a cache hit (in process, or
+  in the persistent compile cache across files and workers), while a one-off horizon
+  costs ~1-3 s per policy. Only keep a different size when the assertion needs it, and
+  say why in a comment (e.g. the statistical checks in `test_bandit_simulate_metrics.py`).
+  **On a JAX (or jaxlib) bump, seed-sweep the exact-parity tests**
+  (`test_bandit_endpoint_parity.py`, the ghost checks in `test_bandit_traffic.py`, the
+  golden fixtures): they compare float32 programs compiled on different paths (the
+  predictor's padded kernels vs the simulator's scan) bit for bit, so an XLA change in
+  fusion or reduction order can flip a near-tied arm choice. Re-run them over a few
+  `seed=` values in `_cfg` (or `build_sim_config(..., seed=s)`) before trusting a green
+  run on the default seed.
 - **Tools** — `test_tools.py`, `test_tools_retry.py`: pure tool logic, plus the contract
   that infra tools raise (rather than swallow errors into status dicts) so ADK retry works.
 - **Deployment & fan-out** — `test_deploy_utils.py`, `test_create_session_engine.py`,
