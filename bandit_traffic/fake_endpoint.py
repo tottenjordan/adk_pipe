@@ -20,7 +20,10 @@ Semantics:
   from the simulator's policy stream like the predictor's (one reward request
   per batch, as the traffic job sends, gives the simulator's updates); an optional
   ``discount`` (``RESET_DISCOUNT_BOUNDS``, quantised to 0.001) replaces
-  ``policy.discount`` for the episode's updates (contracts §2 / §10).
+  ``policy.discount`` for the episode's updates (contracts §2 / §10). A
+  continuous traffic run (§11) sends a single reset and *global* batch indices;
+  ``batch`` is unbounded and only enters ``fold_in``, so the fake follows the
+  simulator's one long episode exactly like the predictor (parity-tested).
 - ``state``: pulls, posterior means, version and step.
 """
 

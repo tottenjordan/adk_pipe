@@ -23,6 +23,7 @@ from bandit import simulate
 from bandit.config import (
     LinTSParams,
     build_sim_config,
+    continuous_world_config,
     default_noise_var,
     experiment_config_to_dict,
     load_scenario,
@@ -166,6 +167,98 @@ def test_fake_endpoint_matches_simulator_round_for_round():
     for e in range(cfg.episodes):
         served, _ = _served_arms(writer, env, e)
         np.testing.assert_array_equal(served, local["arm"][e])
+
+
+# ------------------------------------------- continuous learning (contracts §11)
+
+SEGMENTS = 3
+
+
+def _continuous_local(cfg):
+    """The continuous run replayed locally: ``run_segment`` chained over the
+    segments on the whole-run world, plus ``run_episodes`` at horizon E·T."""
+    world = continuous_world_config(cfg)
+    env = simulate.build_environment(world, scenario=resolve_scenario(cfg))
+    pol = make_policy(
+        "linear_ts",
+        lints_params=cfg.policy,
+        reward_mode=cfg.reward_mode,
+        log_propensity=False,
+    )
+    key = simulate.episode_keys(cfg.seed, cfg.scenario, 1)[0]
+    nb = cfg.horizon // cfg.batch_size
+    segs, state = [], None
+    for s in range(cfg.episodes):
+        out, state = simulate.run_segment(
+            pol, env, key, s * nb, nb, cfg.batch_size, state
+        )
+        segs.append(out["arm"])
+    long = simulate.run_episodes(pol, env, key[None], world.horizon, cfg.batch_size)
+    return env, np.concatenate(segs), long["arm"][0]
+
+
+def _global_served(writer, env):
+    arm_index = {cid: i for i, cid in enumerate(env.arm_ids)}
+    rows = sorted(writer.events, key=lambda r: r["round"])
+    assert [r["round"] for r in rows] == list(range(len(rows)))
+    return np.array([arm_index[r["arm"]] for r in rows])
+
+
+@pytest.mark.parametrize(
+    ("scenario", "reward_mode", "discount", "max_instances"),
+    [
+        ("segment_winners", "click", 1.0, None),
+        # drift flips once at half the *run* (inside segment 1), forgetting on,
+        # and every batch split over several requests
+        ("drift", "engaged", 0.98, 37),
+    ],
+)
+def test_endpoint_lints_matches_simulator_in_continuous_mode(
+    tmp_path, monkeypatch, scenario, reward_mode, discount, max_instances
+):
+    """One reset per run + the global batch index: the real predictor over a
+    3-segment continuous run equals ``run_segment`` chained (and one long
+    ``run_episodes``) round for round, with no predictor change."""
+    cfg = _cfg(scenario, reward_mode, discount, episodes=SEGMENTS)
+    predictor = _predictor(tmp_path, monkeypatch, cfg)
+    settings = TrafficSettings(baselines=())
+    if max_instances:
+        settings = dataclasses.replace(settings, max_request_instances=max_instances)
+    writer, client = _Writer(), _Client(predictor)
+    tr = TrafficRunner(cfg, client, writer, settings, learning="continuous")
+    summary = tr.run()
+    assert summary.decision_errors == summary.rewards_rejected == 0
+    resets = [i for req in client.requests for i in req if i["type"] == "reset"]
+    assert len(resets) == 1
+
+    env, chained, long = _continuous_local(cfg)
+    np.testing.assert_array_equal(chained, long)
+    np.testing.assert_array_equal(_global_served(writer, env), chained)
+    # the posterior accumulated over the whole run, in one episode
+    total = SEGMENTS * cfg.horizon
+    assert int(predictor._state.step) == total
+    # one episode's version counter over the whole run (split reward requests
+    # each count as an applied batch)
+    episode, _, n = predictor._version().rpartition("-v")
+    assert episode.endswith("-e0") and int(n) >= total // cfg.batch_size
+
+
+def test_fake_endpoint_matches_simulator_in_continuous_mode():
+    """The fake endpoint (``--in-process``) behaves identically under one reset
+    plus global batch indices."""
+    cfg = _cfg("segment_winners", "engaged", episodes=SEGMENTS)
+    writer = _Writer()
+    endpoint = FakeBanditEndpoint(cfg)
+    TrafficRunner(
+        cfg,
+        InProcessClient(endpoint),
+        writer,
+        TrafficSettings(baselines=()),
+        learning="continuous",
+    ).run()
+    env, chained, _ = _continuous_local(cfg)
+    np.testing.assert_array_equal(_global_served(writer, env), chained)
+    assert endpoint.model_version == f"e0-v{SEGMENTS * cfg.horizon // cfg.batch_size}"
 
 
 SHIFTS = [

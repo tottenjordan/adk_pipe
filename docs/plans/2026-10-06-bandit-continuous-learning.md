@@ -73,6 +73,7 @@ def test_segments_equal_one_long_episode():
     ...
     assert np.array_equal(long["arm"], np.concatenate([s["arm"] for s in segs]))
 
+
 def test_state_carries_across_segments():
     # segment 2 started from init_state=None differs from segment 2 started from segment 1's final state
     ...
@@ -141,8 +142,12 @@ Use small `HORIZON_S` / `BATCH` from `tests/_bandit_sizes.py`.
 **Files:**
 - Create `runserver/batch_means.py`. It's pure and has no numpy dependency in the api image:
   ```python
-  def batch_means_summary(diffs: list[float], warmup_frac: float = 0.5, min_batches: int = 5,
-                          max_lag1: float = 0.2) -> dict:
+  def batch_means_summary(
+      diffs: list[float],
+      warmup_frac: float = 0.5,
+      min_batches: int = 5,
+      max_lag1: float = 0.2,
+  ) -> dict:
       """Delete the warm-up (first warmup_frac of segments), then mean ± t·s/√m over the rest.
       status: too_few_segments (< min_batches after warm-up) | still_trending (a simple
       linear-trend test on the kept segments is significant at 5%) | autocorrelated
