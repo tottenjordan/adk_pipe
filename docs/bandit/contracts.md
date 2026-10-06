@@ -147,7 +147,7 @@ migration) are set only for a run with shifts (§10), else NULL. The metrics str
 `{experiment_id}-r{traffic_run}-e{episode}-{policy}`.
 
 The JSON payloads:
-- `curve`: `{"checkpoints":[r1..rm], "cum_avg_reward":[...], "cum_regret":[...], "pct_optimal":[...]}`. Checkpoints are about 50 log-spaced round indices, the same for every policy and episode in one traffic run. A run with shifts (§10) uses 50 linear ones merged around each shift round (`merge_checkpoints`).
+- `curve`: `{"checkpoints":[r1..rm], "cum_avg_reward":[...], "cum_regret":[...], "pct_optimal":[...]}`. Checkpoints are about 50 log-spaced round indices, the same for every policy and episode in one traffic run. A run with shifts (§10) uses 50 linear ones merged around each shift round (`merge_checkpoints`). A continuous run (§11) uses 50 linear segment-local ones per segment (merged around shift rounds inside the segment) and adds `"segment_start"`, the global 0-based round where the segment starts.
 - `arm_share`: `{creative_id: [share of pulls in each checkpoint window]}`.
 - `per_segment`: `{segment: {"optimal_arm": creative_id, "pct_optimal": f, "avg_reward": f, "rounds": n}}`.
 - `arm_stats`: `{creative_id: {"impressions": n, "clicks": n, "estimated_ctr": f, "true_ctr": f}}`.
