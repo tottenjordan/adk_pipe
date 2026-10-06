@@ -63,6 +63,14 @@ contrasts the dev workstation vs. the Cloud Run target) with the detail of the l
 
 Runbook: [`deployment/README.md` → Frontend + api_server on Cloud Run](../../deployment/README.md#frontend--api_server-on-cloud-run).
 
+## Bandit creative experiments
+
+| Diagram | Scope | Highlights |
+|---|---|---|
+| ![bandit experiments architecture](bandit_experiments_architecture.png) | Bandit experiments + scripted behaviour shifts | IAP-gated `trend-trawler-web` (Deploy panel, Behaviour shifts editor, run selector) → `/api/adk` proxy → `trend-trawler-api` `/experiments`, which writes `experiment.json` / `runs/N.json` to Cloud Storage, uploads + deploys the **CPR `BanditPredictor`** (JAX linear Thompson sampling, 1 replica) on Agent Platform, and starts **run N** of the synthetic-traffic **Cloud Run Job** (`SHIFTS_JSON`, `TRAFFIC_RUN`, `FORGET`). The job simulates readers with the scheduled shifts, calls the endpoint `:predict` in batches of 100, replays the baselines and the unshifted **ghost** Linear TS on the same random draws, and writes run-numbered events and episode metrics (`traffic_run`, `shift_response`, `regimes`) to **BigQuery**, which the api aggregates into per-shift responses and the paired shift cost |
+
+Guide: [`docs/bandit/README.md`](../bandit/README.md).
+
 ## Regenerating
 
 Diagrams are generated one at a time (respecting the shared 2 RPM
