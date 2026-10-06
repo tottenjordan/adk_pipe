@@ -1,6 +1,7 @@
 """The traffic loop end to end (``bandit_traffic.traffic`` / ``.main``), with the
 in-process fake endpoint and a fake BigQuery client (no GCP)."""
 
+import dataclasses
 import json
 import re
 
@@ -21,6 +22,7 @@ from bandit.config import (
     validate_shifts,
 )
 from bandit.metrics import log_checkpoints, make_checkpoints, merge_checkpoints
+from bandit.policies import make_policy
 from bandit_traffic import bq, main, traffic
 from bandit_traffic.endpoint_client import InProcessClient
 from bandit_traffic.fake_endpoint import FakeBanditEndpoint
@@ -674,3 +676,216 @@ def test_main_bad_run_options_exit_2(tmp_path, env):
     env = {"CONFIG_URI": str(cfg_path), **env}
     argv = ["--in-process", "--dry-run", "--out", str(tmp_path / "o")]
     assert main.main(argv, env=env) == 2
+
+
+# ------------------------------------------- continuous learning (contracts §11)
+
+SEGS = 3
+H = SEGS * T
+NB = T // BS
+# one demote at half the run: global round 1500, inside segment 1, so the ghost
+# must carry its state across the segment-0/1 boundary to match the endpoint
+CONT_SHIFTS = SHIFTS[:1]
+
+
+@pytest.fixture(scope="module")
+def continuous():
+    cfg = _cfg(episodes=SEGS)
+    shifts = validate_shifts(
+        shifts_from_dict(CONT_SHIFTS), resolve_scenario(cfg), cfg.arms, cfg.ctr_mode
+    )
+    fake_bq = FakeBQ()
+    client = RecordingClient(InProcessClient(FakeBanditEndpoint(cfg)))
+    tr = traffic.TrafficRunner(
+        cfg,
+        client,
+        _writer(fake_bq),
+        traffic.TrafficSettings(keep_outputs=True),
+        shifts=shifts,
+        traffic_run=RUN,
+        learning="continuous",
+    )
+    summary = tr.run()
+    return cfg, fake_bq, client, tr, summary
+
+
+def _chain(policy_name, env, key, cfg, params=None):
+    """``simulate.run_segment`` chained over the run's segments."""
+    pol = make_policy(
+        policy_name,
+        lints_params=params or cfg.policy,
+        reward_mode=cfg.reward_mode,
+        log_propensity=False,
+    )
+    outs, state = [], None
+    for s in range(SEGS):
+        out, state = simulate.run_segment(pol, env, key, s * NB, NB, BS, state)
+        outs.append(out)
+    return outs
+
+
+def _cat(tr, policy):
+    return np.concatenate([tr.outputs[(s, policy)]["arm"] for s in range(SEGS)])
+
+
+def test_continuous_run_sends_exactly_one_reset(continuous):
+    cfg, _, client, tr, summary = continuous
+    resets = [i for req in client.requests for i in req if i["type"] == "reset"]
+    assert len(resets) == 1
+    (reset,) = resets
+    assert reset["episode"] == 0
+    assert reset["seed"] == traffic.reset_seed(cfg.seed, 0)
+    k_pol = simulate.episode_streams(tr.keys[0])[2]
+    assert reset["policy_key"] == [int(w) for w in jax.random.key_data(k_pol)]
+    # forgetting uses the whole run's horizon (floored)
+    assert reset["discount"] == summary.discount == tr.discount
+    assert tr.discount == max(
+        RESET_DISCOUNT_BOUNDS[0], default_shift_discount(cfg.ctr_mode, BS, H)
+    )
+    assert summary.learning == "continuous" and summary.episodes_done == SEGS
+    # decisions carry the global batch index
+    decisions = [i for req in client.requests for i in req if i["type"] == "decision"]
+    assert len(decisions) == H
+    assert [d["batch"] for d in decisions[::BS]] == list(range(H // BS))
+
+
+def test_continuous_world_resolves_over_the_whole_run(continuous):
+    _, _, _, tr, summary = continuous
+    assert tr.env.horizon == H
+    assert tr.shift_rounds == [H // 2]
+    assert [r["round"] for r in summary.resolved_shifts] == [H // 2]
+
+
+def test_continuous_endpoint_matches_chained_run_segment(continuous):
+    cfg, _, _, tr, _ = continuous
+    params = dataclasses.replace(cfg.policy, discount=tr.discount)
+    local = _chain("linear_ts", tr.env, tr.keys[0], cfg, params)
+    for s in range(SEGS):
+        ours = tr.outputs[(s, traffic.ENDPOINT_POLICY)]
+        np.testing.assert_array_equal(ours["arm"], local[s]["arm"])
+        np.testing.assert_array_equal(ours["segment"], local[s]["segment"])
+
+
+def test_continuous_baselines_and_ghost_follow_the_endpoint(continuous):
+    cfg, _, _, tr, _ = continuous
+    ucb = _chain("ucb1", tr.env, tr.keys[0], cfg)
+    for s in range(SEGS):
+        ours = tr.outputs[(s, traffic.ENDPOINT_POLICY)]["segment"]
+        for name in (*traffic.BASELINES, traffic.GHOST_POLICY):
+            np.testing.assert_array_equal(tr.outputs[(s, name)]["segment"], ours)
+        # baselines carry their state across segments (== a chained replay)
+        np.testing.assert_array_equal(tr.outputs[(s, "ucb1")]["arm"], ucb[s]["arm"])
+    # the ghost is the endpoint's twin until the (global) shift round, across
+    # the segment boundary at T
+    r0 = tr.shift_rounds[0]
+    assert r0 > T
+    ours, ghost = _cat(tr, traffic.ENDPOINT_POLICY), _cat(tr, traffic.GHOST_POLICY)
+    np.testing.assert_array_equal(ours[:r0], ghost[:r0])
+
+
+def test_continuous_rows_per_segment_carry_segment_start(continuous):
+    _, fake, _, tr, _ = continuous
+    rows = fake.rows("bandit_episode_metrics")
+    policies = POLICIES | {traffic.GHOST_POLICY}
+    assert sorted((r["episode"], r["policy"]) for r in rows) == sorted(
+        (s, p) for s in range(SEGS) for p in policies
+    )
+    assert all(r["horizon"] == T and r["traffic_run"] == RUN for r in rows)
+    linear = make_checkpoints(T, 50, "linear")
+    for r in rows:
+        curve = json.loads(r["curve"])
+        s = r["episode"]
+        assert curve["segment_start"] == s * T
+        local = [x - s * T for x in tr.shift_rounds if s * T <= x < (s + 1) * T]
+        assert curve["checkpoints"] == merge_checkpoints(linear, local, T)
+    assert len(fake.queries) == SEGS  # progress after every segment
+
+
+def test_continuous_shift_payloads_ride_on_the_last_segment(continuous):
+    _, fake, _, tr, _ = continuous
+    for r in fake.rows("bandit_episode_metrics"):
+        if r["episode"] < SEGS - 1:
+            assert r["shift_response"] is None and r["regimes"] is None
+            continue
+        sr = json.loads(r["shift_response"])
+        assert [e["round"] for e in sr] == [H // 2]
+        assert all(e["continuous"] is True for e in sr)
+        assert sr[0]["creative_id"] in tr.arm_ids
+        regimes = json.loads(r["regimes"])
+        assert [(g["start"], g["end"]) for g in regimes] == [(0, H // 2), (H // 2, H)]
+        assert all(g["continuous"] is True for g in regimes)
+        rounds = [s["rounds"] for g in regimes for s in g["per_segment"].values()]
+        assert sum(rounds) == H
+
+
+def test_continuous_events_use_global_rounds(continuous):
+    _, fake, _, _, summary = continuous
+    events = fake.rows("bandit_events")
+    assert len(events) == H == summary.events_written
+    assert [r["round"] for r in events] == list(range(H))
+    assert all(r["batch"] == r["round"] // BS for r in events)
+    assert all(r["episode"] == r["round"] // T for r in events)
+    rids = [r["request_id"] for r in events]
+    assert len(set(rids)) == H
+    assert rids[T] == f"{EID}-r{RUN}-e1-r{T}"
+
+
+def test_per_episode_rows_have_no_segment_start(run):
+    _, fake, _, summary = run
+    assert summary.learning == "per_episode"
+    for r in fake.rows("bandit_episode_metrics"):
+        assert "segment_start" not in json.loads(r["curve"])
+
+
+def test_continuous_rejects_bad_runs():
+    settings = traffic.TrafficSettings()
+    with pytest.raises(ValueError, match="learning"):
+        traffic.TrafficRunner(_cfg(), None, None, settings, learning="forever")
+    with pytest.raises(ValueError, match="horizon"):
+        traffic.TrafficRunner(
+            _cfg(horizon=1_050), None, None, settings, learning="continuous"
+        )
+
+
+def test_main_learning_option(tmp_path):
+    assert _options(tmp_path).learning == "per_episode"
+    assert _options(tmp_path, LEARNING_MODE="continuous").learning == "continuous"
+    argv = ["--learning", "per_episode"]
+    opts = _options(tmp_path, argv, LEARNING_MODE="continuous")
+    assert opts.learning == "per_episode"
+
+
+@pytest.mark.parametrize(
+    "env",
+    [
+        {"LEARNING_MODE": "forever"},
+        {"LEARNING_MODE": "continuous", "EPISODES": "3", "HORIZON": "1050"},
+        {"LEARNING_MODE": "continuous", "EPISODES": "6", "HORIZON": "400000"},
+    ],
+)
+def test_main_bad_learning_exit_2(tmp_path, env):
+    cfg_path = _write_config(tmp_path)
+    env = {"CONFIG_URI": str(cfg_path), **env}
+
+    class Unreachable:
+        """Fails fast (exit 1, not a 2M-round run) if validation regresses."""
+
+        def predict(self, instances, parameters=None):
+            from bandit_traffic.endpoint_client import EndpointError
+
+            raise EndpointError("must not be called")
+
+    argv = ["--dry-run", "--out", str(tmp_path / "o")]
+    assert main.main(argv, env=env, client=Unreachable()) == 2
+
+
+def test_main_runs_continuous_from_env(tmp_path):
+    cfg_path = _write_config(tmp_path)
+    fake_bq = FakeBQ()
+    env = {"CONFIG_URI": str(cfg_path), "EPISODES": "2", "LEARNING_MODE": "continuous"}
+    client = RecordingClient(InProcessClient(FakeBanditEndpoint(_cfg())))
+    assert main.main([], env=env, client=client, writer=_writer(fake_bq)) == 0
+    resets = [i for req in client.requests for i in req if i["type"] == "reset"]
+    assert len(resets) == 1
+    events = fake_bq.rows("bandit_events")
+    assert [r["round"] for r in events] == list(range(2 * T))

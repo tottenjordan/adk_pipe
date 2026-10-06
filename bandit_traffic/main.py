@@ -13,6 +13,9 @@
     SHIFTS_JSON='[{"kind":"demote","at_frac":0.5,"creative_id":"leader",
       "drop_pp":0.015}]' TRAFFIC_RUN=2 FORGET=true python -m bandit_traffic.main ...
 
+    # Continuous learning (contracts §11): one reset, E segments of T rounds
+    LEARNING_MODE=continuous python -m bandit_traffic.main ...   # or --learning
+
 Every setting is a flag or the env var named in its help. Exactly one target:
 ``--in-process`` (the ``fake_endpoint`` stand-in), ``--local-url`` (a local CPR
 container's predict URL) or ``ENDPOINT_ID`` (a Vertex endpoint, full resource
@@ -33,12 +36,14 @@ from pathlib import Path
 from typing import Any
 
 from bandit.config import (
+    LEARNING_MODES,
     REWARD_MODES,
     ExperimentConfig,
     ShiftSpec,
     load_experiment_config,
     resolve_scenario,
     shifts_from_dict,
+    validate_continuous_run,
     validate_experiment_config,
     validate_shifts,
 )
@@ -95,6 +100,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="env FORGET (true|false): send the run's discount on every reset "
         "(default: on iff there are shifts)",
     )
+    p.add_argument(
+        "--learning",
+        choices=LEARNING_MODES,
+        help="env LEARNING_MODE: per_episode (reset every episode, default) or "
+        "continuous (one reset; the episodes become segments of one run)",
+    )
     p.add_argument("--dry-run", action="store_true", help="write JSONL, not BigQuery")
     p.add_argument("--out", default="traffic_out", help="--dry-run output directory")
     p.add_argument("--log-level", default=os.environ.get("LOG_LEVEL", "INFO"))
@@ -134,18 +145,20 @@ def _bool(value: Any, name: str) -> bool | None:
 
 @dataclasses.dataclass(frozen=True)
 class RunOptions:
-    """The per-traffic-run settings (contracts §10)."""
+    """The per-traffic-run settings (contracts §10 / §11)."""
 
     shifts: tuple[ShiftSpec, ...] = ()
     traffic_run: int = 1
     forget: bool = False
+    learning: str = "per_episode"
 
 
 def resolve_run_options(
     args: argparse.Namespace, env: Mapping[str, str], cfg: ExperimentConfig
 ) -> RunOptions:
-    """``SHIFTS_JSON`` / ``TRAFFIC_RUN`` / ``FORGET`` (or the flags), validated
-    against the experiment's scenario (with its overrides), arms and ctr mode."""
+    """``SHIFTS_JSON`` / ``TRAFFIC_RUN`` / ``FORGET`` / ``LEARNING_MODE`` (or the
+    flags), validated against the experiment's scenario (with its overrides),
+    arms and ctr mode; a continuous run also against the §11 limits."""
     text = _pick(args.shifts, env, "SHIFTS_JSON")
     shifts: tuple[ShiftSpec, ...] = ()
     if text:
@@ -167,10 +180,19 @@ def resolve_run_options(
     forget = args.forget
     if forget is None:
         forget = _bool(env.get("FORGET", "").strip() or None, "FORGET")
+    learning = _pick(args.learning, env, "LEARNING_MODE") or "per_episode"
+    if learning not in LEARNING_MODES:
+        raise ConfigError(f"LEARNING_MODE must be one of {LEARNING_MODES}")
+    if learning == "continuous":
+        try:
+            validate_continuous_run(cfg.episodes, cfg.horizon, cfg.batch_size)
+        except ValueError as exc:
+            raise ConfigError(str(exc)) from exc
     return RunOptions(
         shifts=shifts,
         traffic_run=1 if run is None else run,
         forget=bool(shifts) if forget is None else forget,
+        learning=learning,
     )
 
 
@@ -295,7 +317,7 @@ def main(
 
     log.info(
         "experiment %s run %d: %s/%s/%s, %d arms, %d episodes x %d rounds "
-        "(batch %d), %d shift(s), forget=%s",
+        "(batch %d), %d shift(s), forget=%s, learning=%s",
         experiment_id,
         options.traffic_run,
         cfg.scenario,
@@ -307,6 +329,7 @@ def main(
         cfg.batch_size,
         len(options.shifts),
         options.forget,
+        options.learning,
     )
     try:
         summary = run_traffic(
@@ -318,6 +341,7 @@ def main(
             shifts=options.shifts,
             traffic_run=options.traffic_run,
             forget=options.forget,
+            learning=options.learning,
         )
     except (TrafficError, EndpointError, bq.BigQueryWriteError) as exc:
         log.error("traffic run failed: %s", exc)

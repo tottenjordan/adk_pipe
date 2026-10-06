@@ -894,6 +894,44 @@ def default_shift_discount(ctr_mode: str, batch_size: int, horizon: int) -> floa
     return discount_for_memory(horizon / 8, batch_size)
 
 
+#: A traffic run's learning mode (contracts §11): ``per_episode`` resets the
+#: endpoint every episode; ``continuous`` sends one reset and keeps learning
+#: across the run's episodes (then called segments).
+LEARNING_MODES: tuple[str, ...] = ("per_episode", "continuous")
+#: Cap on a continuous run's total rounds E·T (job runtime and memory). It
+#: replaces the per-episode ``horizon <= 1_000_000`` cap for the world's total.
+MAX_CONTINUOUS_ROUNDS = 2_000_000
+
+
+def validate_continuous_run(episodes: int, horizon: int, batch_size: int) -> int:
+    """A continuous run's total rounds E·T (contracts §11). ``ValueError``
+    naming ``episodes`` when E·T > ``MAX_CONTINUOUS_ROUNDS``, or ``horizon``
+    when T is not a multiple of ``batch_size`` (a policy batch must not straddle
+    two segments)."""
+    total = int(episodes) * int(horizon)
+    if total > MAX_CONTINUOUS_ROUNDS:
+        raise ValueError(
+            f"episodes x horizon must be <= {MAX_CONTINUOUS_ROUNDS:,} in a "
+            f"continuous run, got {episodes} x {horizon} = {total:,}"
+        )
+    if int(horizon) % int(batch_size):
+        raise ValueError(
+            f"horizon must be a multiple of batch_size ({batch_size}) in a "
+            f"continuous run, got {horizon}"
+        )
+    return total
+
+
+def continuous_world_config(cfg: ExperimentConfig) -> ExperimentConfig:
+    """The config a continuous run's world is built from (contracts §11):
+    ``cfg`` with ``horizon`` = E·T and one episode, so drift points and shift
+    rounds resolve over the whole run. Seed, scenario and arms are unchanged, so
+    the model key is too. Deliberately not passed through
+    ``validate_experiment_config`` (its per-episode horizon cap)."""
+    total = validate_continuous_run(cfg.episodes, cfg.horizon, cfg.batch_size)
+    return dataclasses.replace(cfg, horizon=total, episodes=1)
+
+
 #: Bounds on a ``reset`` instance's optional ``discount`` (contracts §2 / §10): the
 #: per-run forgetting γ the traffic job sends when ``forget`` is on. Short runs
 #: (``default_shift_discount`` below 0.95, i.e. horizon < ~15.6k at batch 100)

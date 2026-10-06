@@ -16,6 +16,11 @@ policy: every policy sees identical users, and if two policies pick the same
 arm in the same round they get the same outcome (click = U < p with one shared
 U per (round, arm)). Episodes are vmapped (in chunks) for speed.
 
+**Continuous runs** (contracts §11) are one long episode cut into segments:
+``run_segment`` scans a slice of global batches from a carried policy state and
+returns the final state, so chaining segments equals one ``run_episodes`` over
+the whole run, round for round.
+
 Per-round outputs (numpy, shape (T,) unless noted): ``segment``, ``arm``,
 ``reward``, ``clicked``, ``p_chosen``/``p_opt`` (true click probs),
 ``mean_chosen``/``mean_opt`` (true expected reward; = p in click mode),
@@ -129,18 +134,23 @@ def batch_draws(
     }
 
 
-def _episode(
+def _run_batches(
     policy: Policy,
     batch_size: int,
     num_batches: int,
     reward_mode: str,
     reward_scale: float,
-    num_arms: int,
-    dim: int,
     model: envm.TrueModel,
     masks: Array,
     key: Array,
-) -> dict[str, Array]:
+    start_batch: Array | int,
+    init_state: Any,
+) -> tuple[Any, dict[str, Array]]:
+    """Scan ``num_batches`` batches of the episode keyed ``key`` from global batch
+    ``start_batch``, starting from ``init_state``; returns ``(final_state,
+    per-round outputs)``. Batch ``b`` draws from ``fold_in(stream, b)`` with the
+    *global* ``b``, so chaining segments (each from the previous final state)
+    equals one long scan (contracts §11)."""
     k_ctx, k_rew, k_pol = episode_streams(key)
 
     def step(state: Any, xs: tuple[Array, Array]) -> tuple[Any, dict[str, Array]]:
@@ -171,11 +181,38 @@ def _episode(
         }
         return state, out
 
-    xs = (jnp.arange(num_batches), masks)
-    _, outs = jax.lax.scan(step, policy.init(num_arms, dim), xs)
-    return {
+    xs = (start_batch + jnp.arange(num_batches), masks)
+    final, outs = jax.lax.scan(step, init_state, xs)
+    return final, {
         k: v.reshape((num_batches * batch_size, *v.shape[2:])) for k, v in outs.items()
     }
+
+
+def _episode(
+    policy: Policy,
+    batch_size: int,
+    num_batches: int,
+    reward_mode: str,
+    reward_scale: float,
+    num_arms: int,
+    dim: int,
+    model: envm.TrueModel,
+    masks: Array,
+    key: Array,
+) -> dict[str, Array]:
+    _, outs = _run_batches(
+        policy,
+        batch_size,
+        num_batches,
+        reward_mode,
+        reward_scale,
+        model,
+        masks,
+        key,
+        0,
+        policy.init(num_arms, dim),
+    )
+    return outs
 
 
 @functools.lru_cache(maxsize=64)
@@ -229,6 +266,48 @@ def run_episodes(
         out = fn(env.model, masks, keys[i : i + chunk])
         parts.append({k: np.asarray(v[:, :horizon]) for k, v in out.items()})
     return {k: np.concatenate([p[k] for p in parts]) for k in OUTPUT_KEYS}
+
+
+@functools.lru_cache(maxsize=64)
+def _compiled_segment(
+    policy: Policy,
+    batch_size: int,
+    num_batches: int,
+    reward_mode: str,
+    reward_scale: float,
+):
+    fn = functools.partial(
+        _run_batches, policy, batch_size, num_batches, reward_mode, reward_scale
+    )
+    return jax.jit(fn)
+
+
+def run_segment(
+    policy: Policy,
+    env: envm.Environment,
+    key: Array,
+    start_batch: int,
+    num_batches: int,
+    batch_size: int,
+    init_state: Any = None,
+) -> tuple[dict[str, np.ndarray], Any]:
+    """One segment of a continuous run (contracts §11): ``num_batches`` batches
+    of the episode keyed ``key``, from global batch ``start_batch``, starting
+    from ``init_state`` (``None`` = ``policy.init``). Returns ``(per-round
+    arrays shaped (num_batches * batch_size, ...), final policy state)``; pass
+    the state to the next segment. Chaining segments equals ``run_episodes``
+    over their total horizon, round for round. ``start_batch`` is traced, so
+    every segment of a run reuses one compiled program."""
+    if init_state is None:
+        init_state = policy.init(env.num_arms, int(env.model.theta.shape[1]))
+    fn = _compiled_segment(
+        policy, batch_size, num_batches, env.reward_mode, float(env.reward_scale)
+    )
+    masks = jnp.ones((num_batches, env.num_arms), bool)
+    final, out = fn(
+        env.model, masks, key, jnp.asarray(start_batch, jnp.int32), init_state
+    )
+    return {k: np.asarray(out[k]) for k in OUTPUT_KEYS}, final
 
 
 def run_episode(
