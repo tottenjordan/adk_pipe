@@ -9,7 +9,10 @@ from bandit import baselines
 from bandit.config import LinTSParams
 from bandit.policies import POLICY_NAMES, make_policy
 
-K, D, N = 3, 4, 2000
+# N rows per select: the empirical-frequency checks below (uniform, epsilon
+# greedy, bbts propensity) sit at >= 10 sd of their tolerance at 20k draws; at
+# 2k a 20-seed sweep came within 67% of the uniform tolerance.
+K, D, N = 3, 4, 20_000
 X = jnp.ones((N, D), jnp.float32)
 ALL = jnp.ones((K,), bool)
 MEAN = jnp.zeros((N, K), jnp.float32)

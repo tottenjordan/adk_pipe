@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { fetchEvalReport } from "@/lib/eval-report";
+import { jsonResponse } from "./helpers";
 
 // The creative eval report is the LAST artifact the pipeline writes to GCS, so the
 // results page can load (and fetch it) a few seconds before it exists — a 404 race.
@@ -7,14 +8,6 @@ import { fetchEvalReport } from "@/lib/eval-report";
 // distinct "pending" outcome instead of silently swallowing the miss.
 
 const noSleep = () => Promise.resolve();
-
-function jsonResponse(body: unknown, status = 200): Response {
-  return {
-    ok: status >= 200 && status < 300,
-    status,
-    json: async () => body,
-  } as Response;
-}
 
 describe("fetchEvalReport", () => {
   it("returns the parsed report on a 200", async () => {

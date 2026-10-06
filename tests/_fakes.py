@@ -3,7 +3,8 @@
 Tool doubles: ``FakeToolContext`` / ``FakeState`` stand in for ADK's
 ``ToolContext`` in direct tool calls, ``FakeStorageClient`` records GCS uploads
 (concurrency tests), and ``noop_async`` replaces ``asyncio.sleep`` so backoff
-retries don't wall-clock.
+retries don't wall-clock. The fake BigQuery client lives in ``tests/_fake_bq.py``
+(ADK-free, so bandit/experiments tests can use it without importing ``google.adk``).
 
 The producer fakes drive ``tests/test_retry_node.py`` (``RetryUntilKeyNode``)
 and the graph tests. ``StubLlm`` and the ``fc_response`` / ``text_response`` /

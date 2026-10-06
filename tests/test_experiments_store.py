@@ -29,6 +29,7 @@ from runserver.experiments_store import (
     encode_row,
     table_names,
 )
+from tests._fake_bq import FakeBigQueryClient
 
 T = "p.d.bandit_experiments"
 NOW = dt.datetime(2026, 10, 2, 12, 0, tzinfo=dt.UTC)
@@ -161,36 +162,35 @@ def test_lease_sql_builders():
 
 
 def test_bigquery_store_lease_checks_affected_rows():
-    fake = _FakeBQ([])
+    fake = FakeBigQueryClient([])
     store = BigQueryExperimentStore(
         tables={"experiments": T, "events": "x", "metrics": "m"},
         client_factory=lambda: fake,
     )
 
     async def go():
-        fake.affected = 1
+        fake.num_dml_affected_rows = 1
         won = await store.acquire_deploy_lease("e1", "o", 180)
         renewed = await store.renew_deploy_lease("e1", "o", 180)
-        fake.affected = 0
+        fake.num_dml_affected_rows = 0
         lost = await store.acquire_deploy_lease("e1", "o2", 180)
         not_renewed = await store.renew_deploy_lease("e1", "o2", 180)
         await store.release_deploy_lease("e1", "o")
         return won, renewed, lost, not_renewed
 
     assert asyncio.run(go()) == (True, True, False, False)
-    assert [c[0].split()[0] for c in fake.calls] == ["UPDATE"] * 5
+    assert [sql.split()[0] for sql in fake.sqls] == ["UPDATE"] * 5
 
 
 def test_bigquery_store_lease_on_unmigrated_table_degrades(caplog):
     from google.api_core import exceptions as gexc
 
-    class _Unmigrated(_FakeBQ):
-        def query(self, sql, job_config):
-            raise gexc.BadRequest("Unrecognized name: deploy_lease_until at [3:17]")
+    def unmigrated(sql, job_config):
+        raise gexc.BadRequest("Unrecognized name: deploy_lease_until at [3:17]")
 
     store = BigQueryExperimentStore(
         tables={"experiments": T, "events": "x", "metrics": "m"},
-        client_factory=lambda: _Unmigrated([]),
+        client_factory=lambda: FakeBigQueryClient(unmigrated),
     )
 
     async def go():
@@ -302,7 +302,7 @@ def test_creative_segments_sql():
 
 
 def test_bigquery_store_creative_series_runs_four_queries():
-    fake = _FakeBQ([])
+    fake = FakeBigQueryClient([])
     store = BigQueryExperimentStore(
         tables={"experiments": T, "events": "p.d.ev", "metrics": "p.d.m"},
         client_factory=lambda: fake,
@@ -315,8 +315,8 @@ def test_bigquery_store_creative_series_runs_four_queries():
         "creative_segments": [],
         "regimes": [],
     }
-    assert len(fake.calls) == 4 and all("`p.d.ev`" in c[0] for c in fake.calls)
-    assert any("GROUP BY arm, segment" in c[0] for c in fake.calls)
+    assert len(fake.queries) == 4 and all("`p.d.ev`" in sql for sql in fake.sqls)
+    assert any("GROUP BY arm, segment" in sql for sql in fake.sqls)
 
 
 def test_in_memory_store_creative_series_rows():
@@ -362,31 +362,10 @@ def test_decode_row_parses_json_columns():
     }
 
 
-class _FakeRow(dict):
-    pass
-
-
-class _FakeBQ:
-    def __init__(self, result):
-        self.calls, self.result = [], result
-        self.affected = 0
-
-    def query(self, sql, job_config):
-        self.calls.append((sql, job_config.query_parameters))
-        result = self.result
-        affected = self.affected
-
-        class _Job:
-            num_dml_affected_rows = affected
-
-            def result(self):
-                return [_FakeRow(r) for r in result]
-
-        return _Job()
-
-
 def test_bigquery_store_executes_via_client():
-    fake = _FakeBQ([{**_row(), "arms": '[{"creativeId": "a"}]', "progress": None}])
+    fake = FakeBigQueryClient(
+        [{**_row(), "arms": '[{"creativeId": "a"}]', "progress": None}]
+    )
     store = BigQueryExperimentStore(
         tables={"experiments": T, "events": "x", "metrics": "p.d.m"},
         client_factory=lambda: fake,
@@ -403,7 +382,7 @@ def test_bigquery_store_executes_via_client():
     got, listed = asyncio.run(go())
     assert got["arms"] == [{"creativeId": "a"}]
     assert len(listed) == 1
-    assert [c[0].split()[0] for c in fake.calls] == [
+    assert [sql.split()[0] for sql in fake.sqls] == [
         "MERGE",
         "SELECT",
         "SELECT",

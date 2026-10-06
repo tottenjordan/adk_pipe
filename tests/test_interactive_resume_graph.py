@@ -31,6 +31,7 @@ from google.adk.sessions import InMemorySessionService
 
 from agent_common import stable_row_id
 from runserver.async_runs import RUN_STATUS_KEY, start_resume, start_run
+from tests._fake_bq import FakeBigQueryClient
 from tests._fakes import RecordingLlm as _RecordingLlm
 from tests._fakes import fc_response, text_response
 from tests.test_creative_agent_graph import (
@@ -71,23 +72,10 @@ class _FailOnceLlm(_RecordingLlm):
             yield r
 
 
-class _Job:
-    errors = None
-    job_id = "j1"
-    num_dml_affected_rows = 1
-
-    def result(self):
-        return None
-
-
-class _BQ:
-    def __init__(self, captured: list[dict[str, Any]]):
-        self._captured = captured
-
-    def query(self, sql, job_config=None):
-        assert "MERGE" in sql
-        self._captured.append({p.name: p.value for p in job_config.query_parameters})
-        return _Job()
+def _merge_params(sql: str, job_config: Any) -> list[Any]:
+    """Every BQ write here is a MERGE; nothing to return (DML)."""
+    assert "MERGE" in sql
+    return []
 
 
 def _patch_root(monkeypatch: pytest.MonkeyPatch) -> _RecordingLlm:
@@ -168,8 +156,8 @@ def _run_paused_then_resumed(
     )
     critic_llm.push(text_response(json.dumps(_FINAL_ADS)))
 
-    bq_params: list[dict[str, Any]] = []
-    monkeypatch.setattr(bq_tools, "_get_bigquery_client", lambda: _BQ(bq_params))
+    bq = FakeBigQueryClient(_merge_params)
+    monkeypatch.setattr(bq_tools, "_get_bigquery_client", lambda: bq)
 
     # Segment 1: research NodeTool → BQ write → checkpoint 1 (pause).
     root_llm.push(
@@ -252,7 +240,10 @@ def _run_paused_then_resumed(
         "research": research,
         "ads": ads,
         "critic_llm": critic_llm,
-        "bq_params": bq_params,
+        "bq_params": [
+            {p.name: p.value for p in job_config.query_parameters}
+            for _, job_config in bq.queries
+        ],
     }
 
 

@@ -36,6 +36,7 @@ from bandit_traffic import traffic
 from bandit_traffic.endpoint_client import InProcessClient
 from bandit_traffic.fake_endpoint import FakeBanditEndpoint
 from bandit_traffic.traffic import TrafficRunner, TrafficSettings
+from tests._bandit_sizes import BATCH, HORIZON_M, HORIZON_S
 
 
 class _Writer:
@@ -70,14 +71,16 @@ class _Client:
         ]
 
 
-def _cfg(scenario, reward_mode="click", discount=1.0, horizon=2000, episodes=2):
+# One episode of HORIZON_S rounds per case: parity is exact round for round, so
+# it shows from the first diverging batch; more rounds or episodes add no power.
+def _cfg(scenario, reward_mode="click", discount=1.0, horizon=HORIZON_S, episodes=1):
     sc = load_scenario(scenario)
     return build_sim_config(
         scenario,
         reward_mode=reward_mode,
         horizon=horizon,
         episodes=episodes,
-        batch_size=100,
+        batch_size=BATCH,
         policy=LinTSParams(
             noise_var=default_noise_var(sc.target_ctr["demo"], reward_mode),
             discount=discount,
@@ -176,7 +179,10 @@ def test_endpoint_and_ghost_choose_identical_arms_until_the_first_shift(
     """With shifts, the ghost (``linear_ts_unshifted``: local LinTS on the
     unshifted world, same episode key, same discount) is the endpoint's twin up
     to the first shift, so the post-shift gap is purely the shift's effect."""
-    cfg = _cfg("segment_winners", horizon=4000)
+    # HORIZON_M, not HORIZON_S: the post-shift check below needs enough rounds for
+    # the demoted leader's lost clicks to move the posterior; with only 500
+    # rounds after the shift some seeds leave the arms identical
+    cfg = _cfg("segment_winners", horizon=HORIZON_M)
     shifts = validate_shifts(
         shifts_from_dict(SHIFTS), resolve_scenario(cfg), cfg.arms, cfg.ctr_mode
     )
@@ -191,7 +197,7 @@ def test_endpoint_and_ghost_choose_identical_arms_until_the_first_shift(
     tr.run()
     assert tr.discount is not None and tr.discount < 1.0
     r0 = tr.shift_rounds[0]
-    assert r0 == 2000
+    assert r0 == HORIZON_M // 2
     for e in range(cfg.episodes):
         ours = tr.outputs[(e, traffic.ENDPOINT_POLICY)]["arm"]
         ghost = tr.outputs[(e, traffic.GHOST_POLICY)]["arm"]

@@ -6,6 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from tests._fake_bq import FakeBigQueryClient
 from tests._fakes import FakeToolContext
 
 
@@ -215,22 +216,8 @@ class TestTrendScoutWriteTrendsIdempotent:
     def _run(self, monkeypatch, session_id):
         import trend_scout.tools as t
 
-        class _Job:
-            errors = None
-            job_id = "j1"
-            num_dml_affected_rows = 1
-
-            def result(self):
-                return None
-
-        captured = []
-
-        class _BQ:
-            def query(self, sql, job_config=None):
-                captured.append((sql, job_config))
-                return _Job()
-
-        monkeypatch.setattr(t, "_get_bigquery_client", lambda: _BQ())
+        bq = FakeBigQueryClient()
+        monkeypatch.setattr(t, "_get_bigquery_client", lambda: bq)
         monkeypatch.setattr(t, "_get_gtrends_max_date", lambda: "07/17/2026")
         ctx = FakeToolContext(session_id=session_id)
         ctx.state.update(
@@ -246,7 +233,7 @@ class TestTrendScoutWriteTrendsIdempotent:
         )
         t.write_trends_to_bq(ctx)
         out = []
-        for sql, job_config in captured:
+        for sql, job_config in bq.queries:
             assert "MERGE" in sql
             params = {p.name: p.value for p in job_config.query_parameters}
             out.append((params["unique_id"], params["trend"]))
@@ -517,28 +504,13 @@ class TestWriteEvalReportIdempotent:
     def _patch(self, monkeypatch, errors=None):
         import creative_agent.bq_tools as t
 
-        captured = []
-
-        class _Job:
-            job_id = "j1"
-            num_dml_affected_rows = 1
-
-            def __init__(self):
-                self.errors = errors
-
-            def result(self):
-                return None
-
-        class _BQ:
+        class _NoStreamingBQ(FakeBigQueryClient):
             def insert_rows_json(self, *a, **k):
                 raise AssertionError("streaming insert is not idempotent")
 
-            def query(self, sql, job_config=None):
-                captured.append((sql, job_config))
-                return _Job()
-
-        monkeypatch.setattr(t, "_get_bigquery_client", lambda: _BQ())
-        return t, captured
+        bq = _NoStreamingBQ(job_errors=errors)
+        monkeypatch.setattr(t, "_get_bigquery_client", lambda: bq)
+        return t, bq.queries
 
     @staticmethod
     def _ctx(session_id="sess-1"):
@@ -614,23 +586,8 @@ class TestWriteTrendsUuidStash:
         # tools); patch/call it there so the _get_bigquery_client stub takes effect.
         import creative_agent.bq_tools as t
 
-        class _Job:
-            errors = None
-            job_id = "j1"
-            num_dml_affected_rows = 1
-
-            def result(self):
-                return None
-
-        captured = {}
-
-        class _BQ:
-            def query(self, sql, job_config=None):
-                captured["sql"] = sql
-                captured["job_config"] = job_config
-                return _Job()
-
-        monkeypatch.setattr(t, "_get_bigquery_client", lambda: _BQ())
+        bq = FakeBigQueryClient()
+        monkeypatch.setattr(t, "_get_bigquery_client", lambda: bq)
 
         ctx = FakeToolContext()
         ctx.state.update(
@@ -649,8 +606,9 @@ class TestWriteTrendsUuidStash:
         assert ctx.state["creative_row_uuid"]  # non-empty 8-char id
         assert len(ctx.state["creative_row_uuid"]) == 8
         # the trend value must be a bound parameter, not interpolated into SQL
-        assert "tswift engaged" not in captured["sql"]
-        param_names = {p.name for p in captured["job_config"].query_parameters}
+        sql, job_config = bq.queries[-1]
+        assert "tswift engaged" not in sql
+        param_names = {p.name for p in job_config.query_parameters}
         assert "target_trend" in param_names
 
 
@@ -671,26 +629,12 @@ class TestWriteTrendsIdempotent:
     def _run(self, monkeypatch, session_id):
         import creative_agent.bq_tools as t
 
-        class _Job:
-            errors = None
-            job_id = "j1"
-            num_dml_affected_rows = 1
-
-            def result(self):
-                return None
-
-        captured = []
-
-        class _BQ:
-            def query(self, sql, job_config=None):
-                captured.append((sql, job_config))
-                return _Job()
-
-        monkeypatch.setattr(t, "_get_bigquery_client", lambda: _BQ())
+        bq = FakeBigQueryClient()
+        monkeypatch.setattr(t, "_get_bigquery_client", lambda: bq)
         ctx = FakeToolContext(session_id=session_id)
         ctx.state.update(self.STATE)
         t.write_trends_to_bq(ctx)
-        return ctx.state["creative_row_uuid"], captured
+        return ctx.state["creative_row_uuid"], bq.queries
 
     def test_same_session_same_uuid(self, monkeypatch):
         first, _ = self._run(monkeypatch, "sess-1")
@@ -721,24 +665,17 @@ class TestWriteTrendsRaisesOnBqErrors:
     raise, matching write_eval_report_to_bq's contract, so ADK RetryConfig can
     retry and a genuine failure surfaces instead of masquerading as success."""
 
-    class _FailingJob:
-        errors = [{"reason": "invalid", "message": "boom"}]
-        job_id = "j-fail"
-        num_dml_affected_rows = 0
-
-        def result(self):
-            return None
+    @staticmethod
+    def _failing_bq() -> FakeBigQueryClient:
+        return FakeBigQueryClient(
+            job_errors=[{"reason": "invalid", "message": "boom"}],
+            num_dml_affected_rows=0,
+        )
 
     def test_creative_agent_write_trends_raises(self, monkeypatch):
         import creative_agent.bq_tools as t
 
-        outer = self
-
-        class _BQ:
-            def query(self, sql, job_config=None):
-                return outer._FailingJob()
-
-        monkeypatch.setattr(t, "_get_bigquery_client", lambda: _BQ())
+        monkeypatch.setattr(t, "_get_bigquery_client", self._failing_bq)
 
         ctx = FakeToolContext()
         ctx.state.update(
@@ -758,13 +695,7 @@ class TestWriteTrendsRaisesOnBqErrors:
     def test_trend_scout_write_trends_raises(self, monkeypatch):
         import trend_scout.tools as t
 
-        outer = self
-
-        class _BQ:
-            def query(self, sql, job_config=None):
-                return outer._FailingJob()
-
-        monkeypatch.setattr(t, "_get_bigquery_client", lambda: _BQ())
+        monkeypatch.setattr(t, "_get_bigquery_client", self._failing_bq)
         # avoid the live max-date lookup used to build the insert SQL
         monkeypatch.setattr(t, "_get_gtrends_max_date", lambda: "2026-07-17")
 

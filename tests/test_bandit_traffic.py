@@ -21,38 +21,18 @@ from bandit.config import (
     validate_shifts,
 )
 from bandit.metrics import log_checkpoints, make_checkpoints, merge_checkpoints
-from bandit.policies import make_policy
 from bandit_traffic import bq, main, traffic
 from bandit_traffic.endpoint_client import InProcessClient
 from bandit_traffic.fake_endpoint import FakeBanditEndpoint
+from tests._bandit_sizes import BATCH, HORIZON_M, HORIZON_S
+from tests._fake_bq import FakeBigQueryClient as FakeBQ
 
 EID = "0123456789abcdef"
-# T = 4000: at 2000 rounds LinTS beats uniform by only ~1 sd of a 2-episode mean in
-# segment_winners (a fragile smoke check); 4000 makes it ~2 sd.
-E, T, BS = 2, 4000, 100
+# Plumbing checks only, on the shared test sizes (compiled programs are reused
+# across tests and files). Whether LinTS actually beats uniform is a statistical
+# question for the simulator tests (test_bandit_simulate_metrics.py).
+E, T, BS = 2, HORIZON_S, BATCH
 POLICIES = {"linear_ts", *traffic.BASELINES}
-
-
-class FakeBQ:
-    def __init__(self):
-        self.inserts: list[tuple[str, list[dict], list[str]]] = []
-        self.queries: list[tuple[str, list]] = []
-
-    def insert_rows_json(self, table, rows, row_ids=None):
-        self.inserts.append((table, list(rows), list(row_ids or [])))
-        return []
-
-    def query(self, sql, job_config=None):
-        self.queries.append((sql, job_config))
-        return self
-
-    def result(self):
-        return []
-
-    def rows(self, table_suffix):
-        return [
-            r for t, rows, _ in self.inserts if t.endswith(table_suffix) for r in rows
-        ]
 
 
 TABLES = {
@@ -122,11 +102,11 @@ def test_one_metrics_row_per_episode_and_policy(run):
     assert all(r["horizon"] == T for r in rows)
 
 
-def test_oracle_zero_regret_and_linear_ts_beats_uniform(run):
+def test_oracle_has_zero_regret(run):
     _, _, _, summary = run
     regret = summary.regret_by_policy()
     assert regret["oracle"] == 0.0
-    assert regret["linear_ts"] < regret["uniform"]
+    assert set(regret) == POLICIES
 
 
 def test_linear_ts_metrics_match_events(run):
@@ -172,27 +152,6 @@ def test_progress_updates_are_column_level(run):
         assert values["experiment_id"] == EID
 
 
-def test_batch_draws_reproduce_simulator_streams():
-    cfg = _cfg(horizon=300, episodes=1)
-    env = simulate.build_environment(cfg)
-    key = simulate.episode_keys(cfg.seed, cfg.scenario, 1)[0]
-    k_ctx, k_rew, _ = simulate.episode_streams(key)
-    elig = jax.numpy.ones((env.num_arms,), bool)
-    segs = np.concatenate(
-        [
-            np.asarray(
-                simulate.batch_draws(env.model, k_ctx, k_rew, b, BS, "click", elig)[
-                    "segment"
-                ]
-            )
-            for b in range(3)
-        ]
-    )
-    pol = make_policy("uniform", lints_params=cfg.policy)
-    out = simulate.run_episode(pol, env, key, 300, BS)
-    np.testing.assert_array_equal(segs, out["segment"])
-
-
 class RecordingClient:
     """Wraps a client; records request sizes; optionally turns decisions into errors."""
 
@@ -218,7 +177,7 @@ class RecordingClient:
         return preds
 
 
-def _small_run(client_wrapper, settings, horizon=400):
+def _small_run(client_wrapper, settings, horizon=T):
     cfg = _cfg(horizon=horizon, episodes=1)
     client = client_wrapper(InProcessClient(FakeBanditEndpoint(cfg)))
     fake_bq = FakeBQ()
@@ -235,12 +194,12 @@ def test_requests_split_under_size_limits():
         ),
     )
     decisions = [r for r in client.requests if r[0]["type"] == "decision"]
-    assert len(decisions) > 400 // 30
+    assert len(decisions) > T // 30
     for req in client.requests:
         assert len(req) <= 30
         assert len(json.dumps({"instances": req}, separators=(",", ":"))) <= max_bytes
-    assert sum(len(r) for r in decisions) == 400
-    assert len(fake.rows("bandit_events")) == 400
+    assert sum(len(r) for r in decisions) == T
+    assert len(fake.rows("bandit_events")) == T
 
 
 def test_per_instance_errors_tolerated():
@@ -248,17 +207,18 @@ def test_per_instance_errors_tolerated():
         lambda inner: RecordingClient(inner, error_every=50),
         traffic.TrafficSettings(baselines=("oracle",)),
     )
-    assert summary.decision_errors == 8
+    n_errors = T // 50
+    assert summary.decision_errors == n_errors
     events = fake.rows("bandit_events")
-    assert len(events) == 400 - 8
+    assert len(events) == T - n_errors
     metrics = fake.rows("bandit_episode_metrics")
     assert {r["policy"] for r in metrics} == {"linear_ts", "oracle"}
-    assert next(r for r in metrics if r["policy"] == "linear_ts")["horizon"] == 400
+    assert next(r for r in metrics if r["policy"] == "linear_ts")["horizon"] == T
     # errored decisions get no reward
     rewarded = [
         i["request_id"] for r in client.requests for i in r if i["type"] == "reward"
     ]
-    assert len(rewarded) == 400 - 8
+    assert len(rewarded) == T - n_errors
     assert set(rewarded) == {e["request_id"] for e in events}
 
 
@@ -267,7 +227,6 @@ def test_error_rate_above_threshold_aborts():
         _small_run(
             lambda inner: RecordingClient(inner, error_every=5),
             traffic.TrafficSettings(error_threshold=0.1, baselines=("oracle",)),
-            horizon=1000,
         )
 
 
@@ -278,7 +237,8 @@ def _write_config(tmp_path, **kw):
 
 
 def test_main_dry_run_writes_jsonl(tmp_path):
-    cfg_path = _write_config(tmp_path)
+    # --horizon overrides the config's horizon
+    cfg_path = _write_config(tmp_path, horizon=HORIZON_M)
     out = tmp_path / "out"
     code = main.main(
         [
@@ -288,7 +248,7 @@ def test_main_dry_run_writes_jsonl(tmp_path):
             "--episodes",
             "2",
             "--horizon",
-            "200",
+            str(T),
             "--dry-run",
             "--out",
             str(out),
@@ -303,7 +263,7 @@ def test_main_dry_run_writes_jsonl(tmp_path):
     progress = [
         json.loads(line) for line in (out / "progress.jsonl").read_text().splitlines()
     ]
-    assert len(events) == 2 * 200
+    assert len(events) == 2 * T
     assert len(metrics) == 2 * len(POLICIES)
     assert [json.loads(p["params"]["progress"]) for p in progress] == [
         {"episodes_done": 1, "episodes_total": 2},
@@ -313,12 +273,12 @@ def test_main_dry_run_writes_jsonl(tmp_path):
 
 
 def test_main_env_and_injected_writer(tmp_path):
-    cfg_path = _write_config(tmp_path, horizon=200)
+    cfg_path = _write_config(tmp_path)
     fake_bq = FakeBQ()
     env = {"CONFIG_URI": str(cfg_path), "EPISODES": "1", "EXPERIMENT_ID": EID}
     code = main.main(["--in-process"], env=env, writer=_writer(fake_bq))
     assert code == 0
-    assert len(fake_bq.rows("bandit_events")) == 200
+    assert len(fake_bq.rows("bandit_events")) == T
     assert len(fake_bq.queries) == 1
 
 
@@ -335,13 +295,13 @@ def test_main_env_and_injected_writer(tmp_path):
     ],
 )
 def test_main_config_errors_exit_2(tmp_path, argv, env):
-    cfg_path = _write_config(tmp_path, horizon=200)
+    cfg_path = _write_config(tmp_path)
     env = {k: (str(cfg_path) if v == "CFG" else v) for k, v in env.items()}
     assert main.main([*argv, "--out", str(tmp_path / "o")], env=env) == 2
 
 
 def test_main_endpoint_failure_exits_1(tmp_path):
-    cfg_path = _write_config(tmp_path, horizon=200)
+    cfg_path = _write_config(tmp_path)
 
     class Down:
         def predict(self, instances, parameters=None):
@@ -360,6 +320,11 @@ def test_main_endpoint_failure_exits_1(tmp_path):
 # ------------------------------------------------- scenario overrides (contracts §9)
 
 MIX = (0.7, 0.1, 0.1, 0.1)
+# Segment frequencies over T = 1000 users: the tuned mix is 0.45 away from the
+# default (uniform 0.25) on the first segment, so a 0.1 tolerance (~7 sd of the
+# p = 0.7 frequency, ~10 sd of the p = 0.1 ones) proves the override reached the
+# environment without depending on the seed (a 0.04 tolerance fails for some).
+MIX_ATOL = 0.1
 
 
 def _segment_freqs(events, names):
@@ -370,9 +335,7 @@ def _segment_freqs(events, names):
 
 
 def test_traffic_with_overrides_uses_tuned_environment():
-    cfg = _cfg(
-        horizon=2000, episodes=1, scenario_overrides=ScenarioOverrides(segment_mix=MIX)
-    )
+    cfg = _cfg(episodes=1, scenario_overrides=ScenarioOverrides(segment_mix=MIX))
     tr = traffic.TrafficRunner(
         cfg,
         InProcessClient(FakeBanditEndpoint(cfg)),
@@ -390,9 +353,9 @@ def test_traffic_with_overrides_uses_tuned_environment():
         traffic.TrafficSettings(baselines=("oracle",)),
     )
     events = fake_bq.rows("bandit_events")
-    assert len(events) == 2000
+    assert len(events) == T
     names = [s.name for s in load_scenario("segment_winners").segments]
-    np.testing.assert_allclose(_segment_freqs(events, names), MIX, atol=0.04)
+    np.testing.assert_allclose(_segment_freqs(events, names), MIX, atol=MIX_ATOL)
 
 
 def test_main_dry_run_reads_overrides_from_config(tmp_path):
@@ -410,7 +373,7 @@ def test_main_dry_run_reads_overrides_from_config(tmp_path):
             "--episodes",
             "1",
             "--horizon",
-            "2000",
+            str(T),
             "--dry-run",
             "--out",
             str(out),
@@ -420,7 +383,7 @@ def test_main_dry_run_reads_overrides_from_config(tmp_path):
     assert code == 0
     events = [json.loads(line) for line in (out / "events.jsonl").read_text().split()]
     names = [s.name for s in load_scenario("segment_winners").segments]
-    np.testing.assert_allclose(_segment_freqs(events, names), MIX, atol=0.04)
+    np.testing.assert_allclose(_segment_freqs(events, names), MIX, atol=MIX_ATOL)
 
 
 def test_no_shift_run_is_unchanged(run):
@@ -496,7 +459,7 @@ def test_shifted_run_sends_the_forget_discount(shifted):
     cfg, _, client, tr, summary = shifted
     resets = [i for req in client.requests for i in req if i["type"] == "reset"]
     assert len(resets) == E
-    # T = 4000 -> default_shift_discount = exp(-0.2) ~ 0.819, floored at 0.95
+    # T = 1000 -> default_shift_discount = exp(-0.8) ~ 0.449, floored at 0.95
     assert default_shift_discount(cfg.ctr_mode, BS, T) < RESET_DISCOUNT_BOUNDS[0]
     assert {r["discount"] for r in resets} == {RESET_DISCOUNT_BOUNDS[0]}
     # the simulator's policy stream per episode (contracts §2)
@@ -535,10 +498,10 @@ def test_shifted_rows_carry_shift_response_and_regimes(shifted):
         assert [s["round"] for s in sr] == tr.shift_rounds
         regimes = json.loads(r["regimes"])
         assert [(g["start"], g["end"]) for g in regimes] == [
-            (0, 2000),
-            (2000, 2800),
-            (2800, 3200),
-            (3200, T),
+            (0, T // 2),
+            (T // 2, int(0.7 * T)),
+            (int(0.7 * T), int(0.8 * T)),
+            (int(0.8 * T), T),
         ]
         for g in regimes:
             assert set(g["true_ctr"]) == set(tr.arm_ids)
@@ -620,8 +583,12 @@ def test_baselines_share_the_endpoints_users(shifted):
 def test_ghost_sees_the_same_world_until_the_first_shift(shifted):
     """No mix shift here, so the ghost's users are the endpoint's throughout;
     the true click probabilities match exactly before the first shift round and
-    differ after it (the shifted world)."""
-    _, _, _, tr, _ = shifted
+    differ after it (the shifted world). Before the shift the ghost and the fake
+    endpoint are also the same LinTS (same params, forget discount and policy
+    stream, contracts §2), so their pre-shift metrics agree;
+    tests/test_bandit_endpoint_parity.py checks arm-for-arm parity of the ghost
+    against the real predictor."""
+    _, fake, _, tr, _ = shifted
     r0 = tr.shift_rounds[0]
     for e in range(E):
         ours = tr.outputs[(e, "linear_ts")]
@@ -630,37 +597,22 @@ def test_ghost_sees_the_same_world_until_the_first_shift(shifted):
         np.testing.assert_allclose(ghost["p_all"][:r0], ours["p_all"][:r0], rtol=1e-6)
         assert not np.allclose(ghost["p_all"][r0:], ours["p_all"][r0:])
         np.testing.assert_array_equal(ghost["opt_arm"][:r0], ours["opt_arm"][:r0])
-
-
-def test_ghost_matches_the_endpoint_exactly_before_the_shift(shifted):
-    """Before the first shift ghost and endpoint are the same LinTS (same
-    params, discount and policy stream, contracts §2) on the same world, so they
-    choose identical arms (tests/test_bandit_endpoint_parity.py does the same
-    against the real predictor)."""
-    _, fake, _, tr, _ = shifted
-    r0 = tr.shift_rounds[0]
-    for e in range(E):
-        np.testing.assert_array_equal(
-            tr.outputs[(e, "linear_ts")]["arm"][:r0],
-            tr.outputs[(e, traffic.GHOST_POLICY)]["arm"][:r0],
-        )
+        np.testing.assert_array_equal(ghost["arm"][:r0], ours["arm"][:r0])
     rows = fake.rows("bandit_episode_metrics")
 
     def before(policy):
-        return np.mean(
-            [
-                json.loads(r["shift_response"])[0]["pct_optimal_before"]
-                for r in rows
-                if r["policy"] == policy
-            ]
-        )
+        return [
+            json.loads(r["shift_response"])[0]["pct_optimal_before"]
+            for r in sorted(rows, key=lambda r: r["episode"])
+            if r["policy"] == policy
+        ]
 
     assert before("linear_ts") == before(traffic.GHOST_POLICY)
-    assert before("oracle") == 1.0
+    assert before("oracle") == [1.0] * E
 
 
 def test_main_runs_shifts_from_env(tmp_path):
-    cfg_path = _write_config(tmp_path, horizon=1000)
+    cfg_path = _write_config(tmp_path)
     fake_bq = FakeBQ()
     env = {
         "CONFIG_URI": str(cfg_path),
@@ -676,7 +628,7 @@ def test_main_runs_shifts_from_env(tmp_path):
 
 
 def _options(tmp_path, argv=(), **env):
-    cfg_path = _write_config(tmp_path, horizon=1000)
+    cfg_path = _write_config(tmp_path)
     args = main.build_parser().parse_args(["--config", str(cfg_path), *argv])
     cfg, _ = main.resolve_config(args, {})
     return main.resolve_run_options(args, env, cfg)
@@ -718,7 +670,7 @@ def test_run_options_defaults_and_parsing(tmp_path):
     ],
 )  # fmt: skip
 def test_main_bad_run_options_exit_2(tmp_path, env):
-    cfg_path = _write_config(tmp_path, horizon=200)
+    cfg_path = _write_config(tmp_path)
     env = {"CONFIG_URI": str(cfg_path), **env}
     argv = ["--in-process", "--dry-run", "--out", str(tmp_path / "o")]
     assert main.main(argv, env=env) == 2

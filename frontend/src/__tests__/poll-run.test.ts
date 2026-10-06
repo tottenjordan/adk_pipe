@@ -7,6 +7,7 @@ import {
   ResumeNotAppliedError,
 } from "@/lib/api";
 import type { AgentEvent } from "@/lib/types";
+import { jsonResponse } from "./helpers";
 
 // The async-job run model replaces the SSE async-generator with a REST job:
 // POST /runs/{app} starts a background run, and GET /runs/{app}/{user}/{sid}?since=N
@@ -17,13 +18,6 @@ const API_BASE = "/api/adk";
 
 function ev(id: string): AgentEvent {
   return { id, author: "a", timestamp: 1 } as AgentEvent;
-}
-
-function jsonResponse(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { "content-type": "application/json" },
-  });
 }
 
 afterEach(() => vi.restoreAllMocks());

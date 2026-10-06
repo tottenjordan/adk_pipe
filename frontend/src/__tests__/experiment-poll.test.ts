@@ -12,15 +12,9 @@ import {
   type ExperimentSummary,
   type PollOptions,
 } from "@/lib/experiments";
+import { jsonResponse } from "./helpers";
 
 const ID = "exp-3f9a2c1d";
-
-function jsonResponse(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { "content-type": "application/json" },
-  });
-}
 
 function summary(status: ExperimentSummary["status"]): ExperimentSummary {
   return {

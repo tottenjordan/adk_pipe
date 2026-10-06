@@ -12,8 +12,12 @@ from bandit import aggregate, cli, metrics, simulate
 from bandit import environment as envm
 from bandit.config import build_sim_config
 from bandit.policies import make_policy
+from tests._bandit_sizes import BATCH, HORIZON_S
 
 POLICIES = ["linear_ts", "beta_bernoulli_ts", "uniform", "oracle"]
+# Not a shared size: the statistical checks below (LinTS beats uniform and the
+# non-contextual TS, uniform regret ~linear) need this many rounds x episodes
+# for a comfortable margin in segment_winners.
 T, E = 6000, 3
 
 
@@ -42,11 +46,14 @@ def test_output_shapes(seg_result):
 
 
 def test_linear_ts_logs_mc_propensities():
-    cfg = build_sim_config("clear_winner", horizon=400, episodes=1, batch_size=50)
+    cfg = build_sim_config(
+        "clear_winner", horizon=HORIZON_S, episodes=1, batch_size=BATCH
+    )
     out = simulate.run_experiment(cfg, ["linear_ts"]).results["linear_ts"]
     prop = out["propensity"]
     assert np.all((prop >= cfg.policy.min_propensity - 1e-6) & (prop <= 1))
-    assert prop[0, :50].mean() == pytest.approx(1 / 3, abs=0.1)  # prior: ~uniform
+    # first batch: drawn from the prior, so ~uniform over the 3 arms
+    assert prop[0, :BATCH].mean() == pytest.approx(1 / 3, abs=0.1)
 
 
 def test_regret_nonnegative_and_nondecreasing(seg_result):
@@ -85,25 +92,34 @@ def test_common_random_numbers_across_policies(seg_result):
 
 
 def test_episode_reproducible_and_episodes_differ():
-    cfg = build_sim_config("clear_winner", horizon=500, episodes=2, batch_size=50)
+    cfg = build_sim_config(
+        "clear_winner", horizon=HORIZON_S, episodes=2, batch_size=BATCH
+    )
     env = envm.build_true_model(cfg, jax.random.key(0))
     pol = make_policy("ucb1", lints_params=cfg.policy)
     k = simulate.episode_keys(0, "clear_winner", 2)
-    one = simulate.run_episode(pol, env, k[0], batch_size=50)
-    again = simulate.run_episode(pol, env, k[0], batch_size=50)
-    other = simulate.run_episode(pol, env, k[1], batch_size=50)
+    one = simulate.run_episode(pol, env, k[0], batch_size=BATCH)
+    again = simulate.run_episode(pol, env, k[0], batch_size=BATCH)
+    other = simulate.run_episode(pol, env, k[1], batch_size=BATCH)
     for key in simulate.OUTPUT_KEYS:
         np.testing.assert_array_equal(one[key], again[key])
     assert not np.array_equal(one["segment"], other["segment"])
 
 
 def test_horizon_not_multiple_of_batch():
-    cfg = build_sim_config("clear_winner", horizon=530, episodes=1, batch_size=100)
+    # must not be a multiple of the batch; still 10 batches, so it reuses the
+    # HORIZON_S program
+    horizon = HORIZON_S - BATCH // 2
+    cfg = build_sim_config(
+        "clear_winner", horizon=horizon, episodes=1, batch_size=BATCH
+    )
     res = simulate.run_experiment(cfg, ["uniform"])
-    assert res.results["uniform"]["arm"].shape == (1, 530)
+    assert res.results["uniform"]["arm"].shape == (1, horizon)
 
 
 def test_arm_schedule_expiry_and_injection():
+    # Not HORIZON_S: UCB needs ~1000 rounds after the injection to settle on the
+    # new arm (a seed sweep at 1000 total rounds dips to a 0.3 share, < 0.4).
     cfg = build_sim_config(
         "clear_winner", num_arms=4, horizon=2000, episodes=2, batch_size=100
     )
@@ -295,7 +311,10 @@ def test_bandit_not_imported_by_runserver_or_agents():
 
 def _cli_sim(**kw):
     base = dict(
-        policies=["uniform", "oracle"], episodes=1, horizon=200, log_propensity=False
+        policies=["uniform", "oracle"],
+        episodes=1,
+        horizon=HORIZON_S,
+        log_propensity=False,
     )
     base.update(kw)
     return cli.simulate(**base)

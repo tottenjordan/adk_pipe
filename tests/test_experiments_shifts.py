@@ -19,6 +19,7 @@ from runserver.experiments_metrics import (
     GHOST_POLICY,
     aggregate_episode_metrics,
     order_policies,
+    t_critical,
 )
 from runserver.experiments_series import build_creative_series
 from runserver.experiments_store import (
@@ -29,6 +30,7 @@ from runserver.experiments_store import (
     build_regimes_sql,
     series_rows_from_events,
 )
+from tests._fake_bq import FakeBigQueryClient
 from tests.test_experiments_api import A, Harness, run
 
 ARMS = [{"creativeId": "aa", "label": "A"}, {"creativeId": "bb", "label": "B"}]
@@ -588,31 +590,21 @@ def test_regimes_sql_builder():
         build_regimes_sql("p.d.ev", "e1", [0])
 
 
-class _FakeBQ:
+def _unmigrated_bq(missing: str) -> FakeBigQueryClient:
     """Fails queries mentioning a missing column, like an unmigrated table."""
 
-    def __init__(self, missing: str):
-        self.missing = missing
-        self.calls: list[str] = []
-
-    def query(self, sql, job_config):
+    def results(sql, job_config):
         from google.api_core import exceptions as gexc
 
-        self.calls.append(sql)
-        if self.missing in sql:
-            raise gexc.BadRequest(f"Unrecognized name: {self.missing} at [1:2]")
+        if missing in sql:
+            raise gexc.BadRequest(f"Unrecognized name: {missing} at [1:2]")
+        return []
 
-        class _Job:
-            num_dml_affected_rows = 0
-
-            def result(self):
-                return []
-
-        return _Job()
+    return FakeBigQueryClient(results, num_dml_affected_rows=0)
 
 
 def test_bigquery_store_tolerates_unmigrated_traffic_columns(caplog):
-    fake = _FakeBQ("traffic_run")
+    fake = _unmigrated_bq("traffic_run")
     store = BigQueryExperimentStore(
         tables={"experiments": "p.d.x", "events": "p.d.ev", "metrics": "p.d.m"},
         client_factory=lambda: fake,
@@ -620,21 +612,21 @@ def test_bigquery_store_tolerates_unmigrated_traffic_columns(caplog):
 
     async def go():
         run1 = await store.metrics_rows("e1", run=1)
-        n1 = len(fake.calls)
+        n1 = len(fake.queries)
         run2 = await store.metrics_rows("e1", run=2)
-        n2 = len(fake.calls) - n1
+        n2 = len(fake.queries) - n1
         series = await store.creative_series_rows("e1", run=1, boundaries=[500])
         return run1, n1, run2, n2, series
 
     run1, n1, run2, n2, series = asyncio.run(go())
-    assert run1 == [] and n1 == 2 and "traffic_run" not in fake.calls[1]
+    assert run1 == [] and n1 == 2 and "traffic_run" not in fake.sqls[1]
     assert run2 == [] and n2 == 1  # run > 1 can't exist before the migration
     assert series["regimes"] == []
     assert "every row is run 1" in caplog.text
 
 
 def test_bigquery_upsert_drops_traffic_runs_on_unmigrated_table(caplog):
-    fake = _FakeBQ("traffic_runs")
+    fake = _unmigrated_bq("traffic_runs")
     store = BigQueryExperimentStore(
         tables={"experiments": "p.d.x", "events": "p.d.ev", "metrics": "p.d.m"},
         client_factory=lambda: fake,
@@ -645,9 +637,9 @@ def test_bigquery_upsert_drops_traffic_runs_on_unmigrated_table(caplog):
         "traffic_runs": [{"run": 1}],
     }
     asyncio.run(store.upsert(row, fields=["status", "traffic_runs"]))
-    assert len(fake.calls) == 2 and "traffic_runs" not in fake.calls[1]
+    assert len(fake.queries) == 2 and "traffic_runs" not in fake.sqls[1]
     assert "migration" in caplog.text
-    fake_other = _FakeBQ("status")
+    fake_other = _unmigrated_bq("status")
     other = BigQueryExperimentStore(
         tables={"experiments": "p.d.x", "events": "p.d.ev", "metrics": "p.d.m"},
         client_factory=lambda: fake_other,
@@ -786,8 +778,11 @@ def test_shift_response_matches_bandit_summary_on_simulated_rows():
     simulator writes (so the aggregation consumes the exact PR A shape)."""
     from bandit import metrics, simulate
     from bandit.config import build_sim_config, shifts_from_dict
+    from tests._bandit_sizes import HORIZON_M
 
-    cfg = build_sim_config(SEG, horizon=4_000, episodes=3)
+    # same world and sizes as test_bandit_shifts.py's simulated demote (shared
+    # uniform program)
+    cfg = build_sim_config(SEG, horizon=HORIZON_M, episodes=2)
     snake = [{"kind": "demote", "at_frac": 0.5, "segment": None,
               "creative_id": "leader", "drop_pp": 0.015}]  # fmt: skip
     res = simulate.run_experiment(
@@ -930,7 +925,11 @@ def test_shift_cost_pairs_ghost_and_endpoint_by_episode():
     diffs = [10.0, 12.0, 9.0]  # paired reward differences
     mean = sum(diffs) / 3
     sd = math.sqrt(sum((d - mean) ** 2 for d in diffs) / 2)
-    half = 4.303 * sd / math.sqrt(3)
+    # the api's two-sided 95% t quantile for 3 pairs (df = 2) is 4.3027; checking
+    # it separately, then reusing it, keeps the interval check exact rather than
+    # depending on a rounded constant matching the api's table
+    assert t_critical(3) == pytest.approx(4.3027, abs=1e-3)
+    half = t_critical(3) * sd / math.sqrt(3)
     reward = cost["rewardPerEpisode"]
     assert reward["mean"] == pytest.approx(mean)
     assert reward["lo"] == pytest.approx(mean - half)
