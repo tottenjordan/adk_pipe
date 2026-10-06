@@ -59,3 +59,34 @@ class TestTier2IntentTokens:
         assert "{research_feedback?}" in prompts.ART_DIRECTOR_INSTR
         assert "{ad_copy_feedback?}" in prompts.ART_DIRECTOR_INSTR
         assert "{ad_copy_feedback?}" in prompts.VISUAL_CONCEPT_DRAFTER_INSTR
+
+
+class TestImageDiversityRules:
+    def test_shortlist_token_in_concept_agents(self):
+        for instr in (
+            prompts.VISUAL_CONCEPT_DRAFTER_INSTR,
+            prompts.VISUAL_CONCEPT_CRITIC_INSTR,
+            prompts.VISUAL_CONCEPT_FINALIZER_INSTR,
+        ):
+            assert "{style_shortlist?}" in instr
+
+    def test_composition_rule(self):
+        for instr in (
+            prompts.VISUAL_CONCEPT_DRAFTER_INSTR,
+            prompts.VISUAL_CONCEPT_FINALIZER_INSTR,
+        ):
+            assert "at most ONE centred" in instr
+            assert "camera distance" in instr
+
+    def test_finalizer_enforces_diversity(self):
+        section = prompts.VISUAL_CONCEPT_FINALIZER_INSTR.split(
+            "Style & Composition Diversity"
+        )[1]
+        assert "MUST" in section[:400]
+
+    def test_text_cap_checked_by_critic_and_finalizer(self):
+        for instr in (
+            prompts.VISUAL_CONCEPT_CRITIC_INSTR,
+            prompts.VISUAL_CONCEPT_FINALIZER_INSTR,
+        ):
+            assert "at most 2" in instr

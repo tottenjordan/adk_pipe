@@ -403,9 +403,10 @@ VISUAL_CONCEPT_DRAFTER_INSTR = (
         *   Leverage or subtly reference the trending topic: {target_search_trends}.
         *   Be optimized for quick consumption on a social media feed (e.g., strong composition, clear focus).
         *   Cleverly market the target product: {target_product}.
-    3.  **Choose the Style (do NOT default to photorealism):** Using the <IMAGE_PROMPT_GUIDE> below and the <visual_direction> brief, select the `visual_style` family that best fits each ad copy's TONE and AUDIENCE via the tone→style mapping. Across the set, VARY the styles — cartoons, memes, stickers, 3D, anime, minimalist, and photoreal are all fair game. Record the chosen family in the `visual_style` field.
-    4.  **Prompt Engineering:** For each concept, write the `image_generation_prompt` following the <IMAGE_PROMPT_GUIDE> and honouring the <visual_direction> brief's mood, palette, motifs, and brand cues. Name the chosen style first, then build the scene. Also choose and record the `aspect_ratio` per concept (unless the campaign-wide override in <user_aspect_ratio> is set).
-    5.  **Strict Output Format:** Ensure the entire output is a single JSON object containing all generated concepts, strictly following the schema in the <OUTPUT_FORMAT> block (including `visual_style` and `aspect_ratio` for each).
+    3.  **Choose the Style (do NOT default to photorealism):** Choose 4 DIFFERENT `visual_style` families from <style_shortlist> (when non-empty), matching each ad copy's tone via the guide's mapping preference. When <user_style_preference> is non-empty it overrides the shortlist. Use the <IMAGE_PROMPT_GUIDE> below and the <visual_direction> brief. Record the chosen family in the `visual_style` field.
+    4.  **Composition variety (across the set):** Give each concept a different hero placement and camera distance: choose from centred hero, off-centre rule-of-thirds, small subject in a wide environment, extreme close-up detail, top-down flat lay, over-the-shoulder POV, environmental portrait. Use at most ONE centred product hero per set. In-image text in at most 2 concepts (see the guide), never both placed at the top. Every concept shows a trend motif.
+    5.  **Prompt Engineering:** For each concept, write the `image_generation_prompt` following the <IMAGE_PROMPT_GUIDE> and honouring the <visual_direction> brief's mood, palette, motifs, and brand cues. Name the chosen style first, then build the scene. Also choose and record the `aspect_ratio` per concept (unless the campaign-wide override in <user_aspect_ratio> is set).
+    6.  **Strict Output Format:** Ensure the entire output is a single JSON object containing all generated concepts, strictly following the schema in the <OUTPUT_FORMAT> block (including `visual_style` and `aspect_ratio` for each).
     </INSTRUCTIONS>
 
     <CONTEXT>
@@ -413,6 +414,11 @@ VISUAL_CONCEPT_DRAFTER_INSTR = (
         {visual_direction?}
         </visual_direction>
         If empty, rely on the IMAGE_PROMPT_GUIDE tone→style mapping.
+
+        <style_shortlist>
+        This run's style shortlist (choose 4 distinct families from it). When empty, use the guide's palette.
+        {style_shortlist?}
+        </style_shortlist>
 
         <user_visual_direction>
         Optional art direction supplied directly by the user. When non-empty,
@@ -501,6 +507,7 @@ VISUAL_CONCEPT_CRITIC_INSTR = (
         *   **Stopping Power:** The resulting image must have high visual appeal and "stopping power" for a social media feed.
         *   **User intent:** Honour the <user_visual_direction>, <user_style_preference> and <user_avoid> blocks when non-empty. When the style preference is non-empty it overrides the style-diversity rule — keep concepts in that family and vary lighting/composition instead. Steer away from anything in <user_avoid> — phrase prompts positively, never as negations.
         *   **Carry-through:** Keep the `aspect_ratio` field (adjust only if the composition demands it). When <user_aspect_ratio> is non-empty, set every concept's `aspect_ratio` to this value and compose for it.
+        *   **Set-level checks:** families come from <style_shortlist> and are all different; at most ONE centred hero; text in at most 2 concepts, 6 words or fewer, no small print or style terms; every concept has a trend motif. Fix violations by rewriting the weakest concept.
     3.  **Strict Output Format:** The output must be a single, structured JSON object containing the **revised** concepts (including `visual_style` and `aspect_ratio`). Do not include any external commentary or separate critique text.
     </INSTRUCTIONS>
 
@@ -508,6 +515,11 @@ VISUAL_CONCEPT_CRITIC_INSTR = (
         <visual_draft>
         {visual_draft?}
         </visual_draft>
+
+        <style_shortlist>
+        This run's style shortlist (choose 4 distinct families from it). When empty, use the guide's palette.
+        {style_shortlist?}
+        </style_shortlist>
 
         <user_visual_direction>
         Optional art direction supplied directly by the user. When non-empty,
@@ -550,7 +562,7 @@ VISUAL_CONCEPT_FINALIZER_INSTR = """Role: You are the Lead Creative Director and
     <INSTRUCTIONS>
     1.  **Parse and Map:** Retrieve and parse the JSON list of revised visual concepts from the **`<CONTEXT>` block's `visual_concept_critique` input. If it is empty, fall back to the draft concepts in `visual_draft`.
     2.  **Keep Every Concept:** Keep ALL concepts — one per ad copy, in the same order. Do NOT drop, add, or reorder concepts.
-    3.  **Style Diversity:** If two or more concepts share a `visual_style` family, you may re-style the weakest (judged by its `critique_summary`) to a different family that fits its tone (updating its `image_generation_prompt` accordingly) — unless <user_style_preference> is non-empty: then it overrides the style-diversity rule — keep concepts in that family and vary lighting/composition instead. Otherwise carry each concept's `visual_style` and `aspect_ratio` through unchanged.
+    3.  **Style & Composition Diversity (MUST):** The final set MUST have 4 different `visual_style` families (from <style_shortlist> when non-empty), at most ONE centred hero, varied camera distance, and in-image text in at most 2 concepts. If a rule is violated, re-style or re-compose the weakest concept (judged by its `critique_summary`) and update its prompt. Exception: when <user_style_preference> is non-empty, keep that family and vary lighting and composition instead. Otherwise carry `visual_style` and `aspect_ratio` through unchanged.
     4.  **Finalize and Enrich:** For each concept, combine the original ad copy details with the revised visual details to create a final, unified creative brief, honouring <user_visual_direction> when non-empty.
     5.  **Strict Output Format:** Output the final concepts as a single JSON object, strictly following the schema in the `<OUTPUT_FORMAT>` block (including `visual_style` and `aspect_ratio` per concept).
     </INSTRUCTIONS>
@@ -567,6 +579,11 @@ VISUAL_CONCEPT_FINALIZER_INSTR = """Role: You are the Lead Creative Director and
         <ad_copy_critique>
         {ad_copy_critique?}
         </ad_copy_critique>
+
+        <style_shortlist>
+        This run's style shortlist (choose 4 distinct families from it). When empty, use the guide's palette.
+        {style_shortlist?}
+        </style_shortlist>
 
         <user_visual_direction>
         Optional art direction supplied directly by the user. When empty, ignore it.
