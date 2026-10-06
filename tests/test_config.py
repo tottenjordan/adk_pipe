@@ -144,7 +144,7 @@ class TestBaseAgentConfiguration:
         assert ca.config.worker_model == "gemini-3.8-flash"
         assert ca.config.lite_planner_model == "gemini-3.5-flash-lite"
         assert ca.config.critic_model == "gemini-3.1-pro-preview"
-        assert ca.config.image_gen_model == "gemini-3.1-flash-image"
+        assert ca.config.image_gen_model == "gemini-nano-banana-2.1"
 
     def test_regional_25_arm_fields_removed(self):
         """The retired gemini-2.5 campaign arm's fields are gone."""

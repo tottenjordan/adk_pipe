@@ -1,7 +1,7 @@
 """Prompts for ad content generator new agent and subagents"""
 
 # A prompting "grammar" for the
-# gemini-3.1-flash-image model (Nano Banana). Deliberately STYLE-FIRST and
+# Nano Banana image model (config.image_gen_model). Deliberately STYLE-FIRST and
 # template-driven rather than a flat menu, and deliberately NOT photoreal-biased —
 # the goal is to accommodate many styles (cartoon, meme, sticker, 3D, anime,
 # minimalist, photoreal, …). It is spliced into the drafter/critic instructions at
