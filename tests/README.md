@@ -37,7 +37,7 @@ per-agent rubric configs, integration tests).
 tests/
 ├── __init__.py
 ├── _fakes.py                        # shared test doubles: fake producers + stub/recording LLMs (retry-node + graph-Workflow tests), FakeToolContext/FakeState, FakeStorageClient, noop_async
-├── conftest.py                      # shared fixtures: gcp_project_env (dummy GOOGLE_CLOUD_PROJECT), fresh_config (fresh package import, restored after)
+├── conftest.py                      # shared fixtures: gcp_project_env (dummy GOOGLE_CLOUD_PROJECT), fresh_config (fresh package import, restored after); persistent JAX compile cache at .pytest_cache/jax (override with JAX_COMPILATION_CACHE_DIR; delete the dir to reset)
 ├── eval/                            # ADK evals — rubric-based LLM-as-judge (real APIs)
 │   ├── __init__.py                  # makes tests.eval importable (for the gate's unit tests)
 │   ├── efficiency_gate.py           # CI regression gate over adk eval's informational metrics (not a pytest file)

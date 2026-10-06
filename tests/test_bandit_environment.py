@@ -272,3 +272,25 @@ def test_calibration_hits_target_with_overrides(scenario, ov):
     p = envm.click_probs(env.model, X, seg, jnp.zeros(seg.shape[0]))
     mean_ctr = float(jnp.mean(p))
     assert abs(mean_ctr - target) / target < 0.10, (mean_ctr, target)
+
+
+def _calibrate_alpha_reference(logits_wo_alpha, target):
+    """The original 80-step bisection, kept as the oracle for the fast version."""
+    lo, hi = -20.0, 10.0
+    for _ in range(80):
+        mid = 0.5 * (lo + hi)
+        if np.mean(1.0 / (1.0 + np.exp(-(mid + logits_wo_alpha)))) < target:
+            lo = mid
+        else:
+            hi = mid
+    return 0.5 * (lo + hi)
+
+
+@pytest.mark.parametrize("seed", range(6))
+def test_fast_calibrate_alpha_matches_reference_bisection(seed):
+    rng = np.random.default_rng(seed)
+    logits = rng.normal(rng.uniform(-5.0, 0.0), rng.uniform(0.2, 2.0), (5000, 3))
+    target = float(rng.uniform(0.005, 0.3))
+    fast = envm._calibrate_alpha(logits, target)
+    ref = _calibrate_alpha_reference(logits, target)
+    assert abs(fast - ref) < 1e-9, (fast, ref)

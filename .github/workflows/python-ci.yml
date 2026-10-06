@@ -64,5 +64,19 @@ jobs:
       - name: ty
         run: uv run ty check
 
+      # Persistent JAX compile cache (tests/conftest.py points JAX at
+      # .pytest_cache/jax). XLA compiles dominate the bandit tests, and the
+      # programs only change with JAX (uv.lock) or the bandit code. A stale
+      # entry is harmless (JAX keys entries by program + version), so
+      # restore-keys reuses the closest older cache. Caches are branch-scoped:
+      # a PR can read main's, so a workflow_dispatch run on main seeds them all.
+      - name: Restore JAX compilation cache
+        uses: actions/cache@v6
+        with:
+          path: .pytest_cache/jax
+          key: jax-cache-${{ runner.os }}-py3.13-${{ hashFiles('uv.lock', 'bandit/**', 'bandit_serving/**', 'bandit_traffic/**') }}
+          restore-keys: |
+            jax-cache-${{ runner.os }}-py3.13-
+
       - name: pytest
         run: uv run pytest tests/ -q -n 4
