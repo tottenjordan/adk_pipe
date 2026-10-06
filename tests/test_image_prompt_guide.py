@@ -13,7 +13,9 @@ def test_no_braces():
 
 def test_in_image_text_is_capped():
     assert "at most 2 of the 4 concepts" in G
-    assert "6 words" in G
+    assert "6 words" not in G
+    assert "meme and comic exception" in G.lower()
+    assert "do not count toward the 2-concept text cap" in G.lower()
     assert "no small print" in G.lower()
 
 

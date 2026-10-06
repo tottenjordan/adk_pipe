@@ -2,6 +2,8 @@
 
 > **For Claude:** REQUIRED SUB-SKILL: Use `executing-plans` (or `subagent-driven-development`) skill to implement this plan task-by-task.
 
+> **Revision (2026-10-06, user review):** the 6-word text limit was removed. Headlines/CTAs are "short and punchy" with no fixed count, and Meme aesthetic captions (e.g. top-and-bottom Impact captions) and Comic panel speech bubbles are exempt from both the length guidance and the 2-of-4 text cap. Small print, labels and style terms stay banned everywhere.
+
 **Goal:** Make creative runs produce visibly different image sets from run to run, and cut the "one or two bad images per set". Three changes: cap in-image text, pick a random style shortlist in code plus an across-set composition rule, and de-template the prompt guide (also fixing the Educational mapping and requiring a trend motif in every concept).
 
 **Context (why):** The 2026-10-06 investigation looked at 564 concepts from 141 runs.
