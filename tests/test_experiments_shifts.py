@@ -19,6 +19,7 @@ from runserver.experiments_metrics import (
     GHOST_POLICY,
     aggregate_episode_metrics,
     order_policies,
+    t_critical,
 )
 from runserver.experiments_series import build_creative_series
 from runserver.experiments_store import (
@@ -924,7 +925,11 @@ def test_shift_cost_pairs_ghost_and_endpoint_by_episode():
     diffs = [10.0, 12.0, 9.0]  # paired reward differences
     mean = sum(diffs) / 3
     sd = math.sqrt(sum((d - mean) ** 2 for d in diffs) / 2)
-    half = 4.303 * sd / math.sqrt(3)
+    # the api's two-sided 95% t quantile for 3 pairs (df = 2) is 4.3027; checking
+    # it separately, then reusing it, keeps the interval check exact rather than
+    # depending on a rounded constant matching the api's table
+    assert t_critical(3) == pytest.approx(4.3027, abs=1e-3)
+    half = t_critical(3) * sd / math.sqrt(3)
     reward = cost["rewardPerEpisode"]
     assert reward["mean"] == pytest.approx(mean)
     assert reward["lo"] == pytest.approx(mean - half)
