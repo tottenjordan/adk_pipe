@@ -29,6 +29,7 @@ from runserver.experiments_store import (
     build_regimes_sql,
     series_rows_from_events,
 )
+from tests._fake_bq import FakeBigQueryClient
 from tests.test_experiments_api import A, Harness, run
 
 ARMS = [{"creativeId": "aa", "label": "A"}, {"creativeId": "bb", "label": "B"}]
@@ -588,31 +589,21 @@ def test_regimes_sql_builder():
         build_regimes_sql("p.d.ev", "e1", [0])
 
 
-class _FakeBQ:
+def _unmigrated_bq(missing: str) -> FakeBigQueryClient:
     """Fails queries mentioning a missing column, like an unmigrated table."""
 
-    def __init__(self, missing: str):
-        self.missing = missing
-        self.calls: list[str] = []
-
-    def query(self, sql, job_config):
+    def results(sql, job_config):
         from google.api_core import exceptions as gexc
 
-        self.calls.append(sql)
-        if self.missing in sql:
-            raise gexc.BadRequest(f"Unrecognized name: {self.missing} at [1:2]")
+        if missing in sql:
+            raise gexc.BadRequest(f"Unrecognized name: {missing} at [1:2]")
+        return []
 
-        class _Job:
-            num_dml_affected_rows = 0
-
-            def result(self):
-                return []
-
-        return _Job()
+    return FakeBigQueryClient(results, num_dml_affected_rows=0)
 
 
 def test_bigquery_store_tolerates_unmigrated_traffic_columns(caplog):
-    fake = _FakeBQ("traffic_run")
+    fake = _unmigrated_bq("traffic_run")
     store = BigQueryExperimentStore(
         tables={"experiments": "p.d.x", "events": "p.d.ev", "metrics": "p.d.m"},
         client_factory=lambda: fake,
@@ -620,21 +611,21 @@ def test_bigquery_store_tolerates_unmigrated_traffic_columns(caplog):
 
     async def go():
         run1 = await store.metrics_rows("e1", run=1)
-        n1 = len(fake.calls)
+        n1 = len(fake.queries)
         run2 = await store.metrics_rows("e1", run=2)
-        n2 = len(fake.calls) - n1
+        n2 = len(fake.queries) - n1
         series = await store.creative_series_rows("e1", run=1, boundaries=[500])
         return run1, n1, run2, n2, series
 
     run1, n1, run2, n2, series = asyncio.run(go())
-    assert run1 == [] and n1 == 2 and "traffic_run" not in fake.calls[1]
+    assert run1 == [] and n1 == 2 and "traffic_run" not in fake.sqls[1]
     assert run2 == [] and n2 == 1  # run > 1 can't exist before the migration
     assert series["regimes"] == []
     assert "every row is run 1" in caplog.text
 
 
 def test_bigquery_upsert_drops_traffic_runs_on_unmigrated_table(caplog):
-    fake = _FakeBQ("traffic_runs")
+    fake = _unmigrated_bq("traffic_runs")
     store = BigQueryExperimentStore(
         tables={"experiments": "p.d.x", "events": "p.d.ev", "metrics": "p.d.m"},
         client_factory=lambda: fake,
@@ -645,9 +636,9 @@ def test_bigquery_upsert_drops_traffic_runs_on_unmigrated_table(caplog):
         "traffic_runs": [{"run": 1}],
     }
     asyncio.run(store.upsert(row, fields=["status", "traffic_runs"]))
-    assert len(fake.calls) == 2 and "traffic_runs" not in fake.calls[1]
+    assert len(fake.queries) == 2 and "traffic_runs" not in fake.sqls[1]
     assert "migration" in caplog.text
-    fake_other = _FakeBQ("status")
+    fake_other = _unmigrated_bq("status")
     other = BigQueryExperimentStore(
         tables={"experiments": "p.d.x", "events": "p.d.ev", "metrics": "p.d.m"},
         client_factory=lambda: fake_other,
