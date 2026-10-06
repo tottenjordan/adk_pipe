@@ -37,6 +37,7 @@ Deployment runbook (tables, env, IAM, traffic job): [deployment/README.md → Ba
 - [Components and key files](#components-and-key-files)
 - [Endpoint contract](#endpoint-contract)
 - [Feature spec and privacy rules](#feature-spec-and-privacy-rules)
+- [Synthetic readers (simulated users)](#synthetic-readers-simulated-users)
 - [Scenarios](#scenarios)
 - [Metrics and terminology](#metrics-and-terminology)
 - [Demo vs realistic CTR modes](#demo-vs-realistic-ctr-modes)
@@ -211,6 +212,81 @@ unknown levels raise `ValueError`, which the endpoint returns as a per-instance 
   (`bandit.features.SENSITIVE_KEYS`).
 - **Adults only.** The youngest age bucket is 21-34, so every simulated reader is 21+. That
   covers alcohol brands by construction; there is no under-21 level to opt out of.
+
+## Synthetic readers (simulated users)
+
+Every "user" in a bandit experiment is a **synthetic reader** of the trend's publisher page.
+Readers are **defined** in YAML and Python under `bandit/` and **generated** fresh for every
+batch by the traffic job (or the offline simulator). From the UI you can change *how many of
+each kind* there are and how they behave over time, but not define new kinds of readers or
+change their attributes.
+
+### Where readers are defined
+
+| Layer | Where | What it defines |
+|---|---|---|
+| Attributes every reader has | `bandit/features.py` → `CONTEXT_SPEC` (`ctx-v1`) | The 10 coarse ad-request fields in the table above (device, OS, connection, census region, age band 21+, daypart, weekend, topic-matches-trend, interest-matches-product, ad frequency). Privacy-safe by construction: no IDs, location or IP, and sensitive keys are rejected. |
+| Default attribute mix | `bandit/config.py` → `BASE_MARGINALS` | Population-wide probabilities per attribute (e.g. 60% mobile, 32% desktop, 8% tablet; 2/7 weekend). |
+| Reader segments, per scenario | `bandit/scenarios/*.yaml` → `segments:` (`bandit.config.SegmentSpec`) | Each segment has a `name`, a `weight` (share of readers), `marginals` that override the defaults (e.g. `mobile_scrollers` are 95% mobile), a `dwell_factor` (engaged-time reward), and in `segment_winners` a `winner_key`: the creative-eval dimension (e.g. `stopping_power`, `trend_authenticity`, `audience_fit`) that picks the segment's best creative. |
+| How each reader responds to each creative | `bandit/environment.py` → `build_true_model` | Each reader's click probability per creative: a logistic model built from the creatives' eval-judge scores, the segment's affinity, and attribute × creative interactions, calibrated so the average click rate hits the scenario's `target_ctr`. That is about 4–4.7% in demo mode and about 0.8–0.9% in realistic mode. |
+
+Current segments:
+
+| Scenario | Segments |
+|---|---|
+| `clear_winner`, `drift` | `commuters`, `desk_researchers`, `evening_browsers` |
+| `segment_winners` | `mobile_scrollers`, `trend_followers`, `product_intenders`, `late_night_casual` |
+
+### How readers are generated
+
+`bandit/environment.py` → `sample_contexts()`, called once per batch (100 readers by default)
+from `bandit.simulate.batch_draws` inside the traffic job (`bandit_traffic/traffic.py`):
+
+1. **Segment.** Each reader is assigned a hidden segment, drawn from the segment weights (after
+   any audience-mix override or mix shift active at that round).
+2. **Attributes.** Each of the 10 attributes is drawn from that segment's probabilities (the
+   segment's `marginals`, falling back to `BASE_MARGINALS`).
+3. **Encoding.** The attributes are encoded into the endpoint's 19 features. The endpoint only
+   ever sees the attributes, never the segment.
+4. **Response.** Each reader's true click probability for every creative comes from the true
+   model (with any shift active at that round applied). Whether they click is a weighted coin
+   flip on the probability for the creative shown. In engaged-time mode, a click also earns a
+   random dwell time.
+
+All randomness is keyed per episode and batch (`jax.random.fold_in`), with fixed-shape draws.
+So the endpoint, every baseline and the "without your shifts" ghost see exactly the same
+readers and coin flips. Changing the audience mix or click rates only changes which segment or
+click outcome a given draw produces, never which draws happen. That keeps the comparisons
+paired (common random numbers).
+
+### What you can configure from the UI
+
+| Where | Control | Effect on readers |
+|---|---|---|
+| Results page → Deploy panel | **Scenario** | Which segment set is used (above). |
+| Deploy panel | **Click rates** (demo / realistic) | Their overall click level (`target_ctr`) and the default run length. |
+| Deploy panel | **Reward** (click / engaged time) | Whether dwell time counts; segments' `dwell_factor` scales it. |
+| Deploy panel → Advanced | **Audience mix** sliders | Each segment's share of readers (`scenario_overrides.segment_mix`, [contracts §9](contracts.md)). |
+| Deploy panel → Advanced | Gap between creatives, judge reliability, random variation, drift point | How strongly segments prefer particular creatives, how much the judge's scores predict real clicks, and how noisy responses are. |
+| Experiment page → Behaviour shifts | **Mix shift**, promote / demote for a segment, temporary shock | Changes to the audience mix or a segment's preferences partway through a traffic run ([Scripted behaviour shifts](#scripted-behaviour-shifts), contracts §10). |
+
+### What needs YAML or code changes
+
+- **Segment definitions:** adding, renaming or removing segments, or changing how many a
+  scenario has. Edit `bandit/scenarios/<scenario>.yaml`. The api duplicates the per-scenario
+  segment names and counts (`runserver/experiments.py` `SCENARIO_SEGMENT_NAMES`,
+  `SCENARIO_SEGMENTS`) under parity tests, and the frontend preview reads
+  `frontend/src/lib/scenario-presets.generated.json` (regenerate it with
+  `uv run python scripts/gen_scenario_presets.py`), so update those in the same PR.
+- **A segment's attribute mix** (e.g. "trend followers are 60% desktop, mostly evenings"):
+  the segment's `marginals` in the YAML.
+- **Dwell behaviour and preferred creative trait:** `dwell_factor` and `winner_key` in the YAML.
+- **The attribute set itself** (`ctx-v1`). Adding or changing a field changes the endpoint's
+  feature dimension. That needs a new `FEATURE_SPEC_VERSION`, contract updates (§1/§4),
+  predictor and traffic image rebuilds, and fresh endpoints.
+
+A UI segment editor (per-segment attribute mix, renaming, one custom segment, with the live
+preview) is listed under [Future work](#future-work).
 
 ## Scenarios
 
@@ -477,6 +553,8 @@ the oracle collected 2,028 clicks. Linear TS had the lowest regret in every epis
   `min_propensity` (0.02); the selection itself isn't floored.
 
 ## Future work
+
+- **Segment editor in the UI:** edit each segment's attribute mix, rename segments or add one custom segment from the Deploy panel, carried as a scenario override with the live preview (see [Synthetic readers](#synthetic-readers-simulated-users)).
 
 - **Reward delay and attribution windows:** delayed clicks and conversions, and how the
   attribution window trades bias for latency.
