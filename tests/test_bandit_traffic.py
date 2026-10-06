@@ -551,6 +551,64 @@ def test_shifted_rows_carry_shift_response_and_regimes(shifted):
     assert lt[1]["true_ctr"][leader] < lt[0]["true_ctr"][leader]
 
 
+def test_shift_response_entries_carry_the_resolved_shift(shifted):
+    """Each metrics row's shift_response entry carries the authoritative
+    resolution of its shift (contracts §3/§10), "leader" made concrete, while
+    keeping the shift_response numbers."""
+    _, fake, _, tr, _ = shifted
+    rows = fake.rows("bandit_episode_metrics")
+    assert rows
+    for r in rows:
+        sr = json.loads(r["shift_response"])
+        assert len(sr) == len(tr.resolved)
+        for entry, rec in zip(sr, tr.resolved, strict=True):
+            for key in (
+                "pct_optimal_before",
+                "pct_optimal_after",
+                "regret_rate_before",
+                "regret_rate_after",
+                "recovery_rounds",
+            ):
+                assert key in entry
+            assert entry["round"] == rec["round"]
+            assert entry["index"] == rec["index"]
+            assert entry["kind"] == rec["kind"]
+            assert entry["end_round"] == rec["end_round"]
+            assert entry["segment"] == rec["segment"]
+            assert entry["requested_creative_id"] == "leader"
+            assert entry["creative_id"] == rec["creative_id"]
+            assert entry["creative_id"] in tr.arm_ids
+            assert entry["targets"]
+            assert entry["targets"] == [
+                {k: t[k] for k in ("segment", "ctr_before", "ctr_after")}
+                for t in rec["targets"]
+            ]
+    first = json.loads(rows[0]["shift_response"])
+    assert first[1]["end_round"] == int(0.8 * T)
+
+
+def test_resolved_shift_fields_for_a_mix_shift():
+    rec = {
+        "index": 0,
+        "kind": "mix",
+        "at_frac": 0.5,
+        "round": 10,
+        "end_round": None,
+        "segment_mix": [1, 1],
+        "segment_weights": [0.5, 0.5],
+    }
+    assert traffic.resolved_shift_fields(rec) == {
+        "index": 0,
+        "kind": "mix",
+        "round": 10,
+        "end_round": None,
+        "segment": None,
+        "creative_id": None,
+        "requested_creative_id": None,
+        "targets": [],
+    }
+
+
 def test_baselines_share_the_endpoints_users(shifted):
     _, _, _, tr, _ = shifted
     for e in range(E):

@@ -3,7 +3,7 @@ import summary from "../../scripts/screenshot-fixtures/shift-experiment.json";
 import metricsJson from "../../scripts/screenshot-fixtures/shift-experiment-metrics.json";
 import { buildInsights, ghostGap, recoveryFloor, roundRounds } from "@/lib/experiment-insights";
 import { curveSeries, totalBars, type Arm, type ExperimentMetrics, type TrafficRun } from "@/lib/experiments";
-import { runShifts } from "@/lib/shifts";
+import { buildRunView, runShifts } from "@/lib/shifts";
 
 // A REAL simulator run with two shifts (frontend/scripts/build_shift_fixture.py).
 const metrics = metricsJson as unknown as ExperimentMetrics;
@@ -146,5 +146,26 @@ describe("chart series with the ghost", () => {
     expect(roundRounds(2634.1)).toBe(2600);
     expect(roundRounds(1057)).toBe(1100);
     expect(roundRounds(710.9)).toBe(710);
+  });
+});
+
+describe("a leader shift names the creative the traffic job resolved", () => {
+  // The same run, but shift 2 (the shock) recorded as "leader".
+  const leaderRun = structuredClone(run);
+  (leaderRun.shifts[1] as { creativeId: string }).creativeId = "leader";
+  const cards = (m: ExperimentMetrics) => {
+    const view = buildRunView(leaderRun, m, null)!;
+    return buildInsights({ metrics: m, arms, rewardMode: "click", ctrMode: "demo", scenario: "segment_winners", shifts: view.shifts, forget: true }).shiftCards;
+  };
+
+  it("uses metrics.resolvedShifts over the click-rate heuristic", () => {
+    const m = structuredClone(metrics);
+    // A heuristic answer that differs: make another creative top the pre-shift period.
+    const pre = (m.regimes as { end: number; arms: { creativeId: string; trueCtr: number }[] }[]).find((g) => g.end === 24000)!;
+    for (const a of pre.arms) a.trueCtr = a.creativeId === "aae3f6b4" ? 0.9 : 0.01;
+    expect(cards(m)[1].title).toBe("Cut the leader at that point (Ergonomic Lumbar Relief)'s clicks by 40%");
+    // Older run without resolvedShifts: the heuristic still names someone.
+    const old = { ...m, resolvedShifts: undefined };
+    expect(cards(old)[1].title).toBe("Cut the leader at that point (The Tone Dividend Bailout)'s clicks by 40%");
   });
 });

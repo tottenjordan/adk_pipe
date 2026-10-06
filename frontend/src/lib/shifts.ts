@@ -510,9 +510,10 @@ export interface RunShift {
   /** As requested: an arm id, or "leader" (demote and shock). */
   creativeId: string | null;
   /**
-   * For "leader": the creative that led just before the shift, read from the
-   * run's metrics regimes (highest true click rate in the period that ends at
-   * the shift's round); null when unknown.
+   * For "leader": the creative the shift hit. The traffic job's own resolution
+   * (`metrics.resolvedShifts`) when the run has it; for older runs, inferred
+   * from the run's metrics regimes (highest true click rate in the period that
+   * ends at the shift's round); null when unknown.
    */
   resolvedCreativeId?: string | null;
   requestedCreativeId: string | null;
@@ -647,6 +648,51 @@ export function metricRegimes(raw: unknown): MetricRegime[] {
     .filter((r): r is MetricRegime => r !== null);
 }
 
+/** One shift as the traffic job resolved it (contracts §5/§10 `metrics.resolvedShifts`). */
+export interface ResolvedShift {
+  /** Position in the requested list. */
+  index: number;
+  kind: ShiftKind;
+  round: number;
+  endRound: number | null;
+  segment: string | null;
+  /** Concrete creative ("leader" resolved); null for a mix shift. */
+  creativeId: string | null;
+  requestedCreativeId: string | null;
+  targets: { segment: string; ctrBefore: number | null; ctrAfter: number | null }[];
+}
+
+/**
+ * `metrics.resolvedShifts` (time order), dropping malformed entries; [] on older
+ * APIs or runs recorded before the traffic job wrote them.
+ */
+export function parseResolvedShifts(raw: unknown): ResolvedShift[] {
+  if (!Array.isArray(raw)) return [];
+  const str = (v: unknown): string | null => (typeof v === "string" ? v : null);
+  return raw
+    .map((r): ResolvedShift | null => {
+      if (!r || typeof r !== "object") return null;
+      const o = r as Record<string, unknown>;
+      const kind = o.kind as ShiftKind;
+      const round = num(o.round);
+      if (!SHIFT_KINDS.includes(kind) || round === null) return null;
+      const targets = (Array.isArray(o.targets) ? (o.targets as Record<string, unknown>[]) : [])
+        .filter((t) => typeof t?.segment === "string")
+        .map((t) => ({ segment: t.segment as string, ctrBefore: num(t.ctrBefore), ctrAfter: num(t.ctrAfter) }));
+      return {
+        index: num(o.index) ?? 0,
+        kind,
+        round,
+        endRound: num(o.endRound),
+        segment: str(o.segment),
+        creativeId: str(o.creativeId),
+        requestedCreativeId: str(o.requestedCreativeId),
+        targets,
+      };
+    })
+    .filter((r): r is ResolvedShift => r !== null);
+}
+
 export interface SeriesRegime {
   start: number;
   end: number;
@@ -726,7 +772,7 @@ export interface RunView {
  */
 export function buildRunView(
   run: Pick<TrafficRun, "shifts" | "horizon" | "forget"> | null | undefined,
-  metrics: { horizon?: number | null; regimes?: unknown } | null | undefined,
+  metrics: { horizon?: number | null; regimes?: unknown; resolvedShifts?: unknown } | null | undefined,
   series: { regimes?: unknown } | null | undefined
 ): RunView | null {
   const horizon = run?.horizon ?? metrics?.horizon ?? null;
@@ -735,12 +781,22 @@ export function buildRunView(
   const metricR = metricRegimes(metrics?.regimes);
   const seriesR = seriesRegimes(series?.regimes);
   const regimes = seriesR.length ? seriesR : metricR;
-  for (const s of shifts) {
-    if (s.creativeId !== SHIFT_LEADER) continue;
+  // The traffic job's resolution, in the same time order; used only when it
+  // lines up with the recorded script (same count, kind and round per shift).
+  const resolved = parseResolvedShifts(metrics?.resolvedShifts);
+  const aligned =
+    resolved.length === shifts.length &&
+    resolved.every((r, i) => r.kind === shifts[i].kind && (!horizon || r.round === shifts[i].round));
+  shifts.forEach((s, i) => {
+    if (s.creativeId !== SHIFT_LEADER) return;
+    if (aligned && resolved[i].creativeId) {
+      s.resolvedCreativeId = resolved[i].creativeId;
+      return;
+    }
     const prev = metricR.find((g) => g.end === s.round);
     const ranked = Object.entries(prev?.trueCtr ?? {}).sort((a, b) => b[1] - a[1]);
     s.resolvedCreativeId = ranked[0]?.[0] ?? null;
-  }
+  });
   return {
     shifts,
     forget: Boolean(run?.forget),

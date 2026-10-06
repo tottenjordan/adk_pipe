@@ -31,7 +31,9 @@ included, run 1 too, so a rerun never collides with an earlier run's ids).
 ``traffic_run``. With scripted ``shifts`` the endpoint and every baseline share
 the shifted environment; checkpoints are linear and merged around each shift
 round (``merge_checkpoints``), and every metrics row also carries
-``shift_response`` (against the shift rounds, the ghost's too) and ``regimes``
+``shift_response`` (against the shift rounds, the ghost's too; each entry also
+carries its shift's resolved record, ``resolved_shift_fields``, so readers
+without ``bandit`` see the concrete ``"leader"``) and ``regimes``
 (``regime_stats`` split at the shift and shock-end rounds). ``forget`` (default:
 on iff there are shifts) sends ``discount = default_shift_discount(...)``,
 floored at ``RESET_DISCOUNT_BOUNDS[0]``, in every ``reset``.
@@ -171,6 +173,28 @@ def policy_stream_fields(k_pol: Any, batch_size: int) -> dict[str, Any]:
     same arms as ``simulate.run_episodes`` (and as the ghost before a shift)."""
     words = np.asarray(jax.random.key_data(k_pol)).ravel()
     return {"policy_key": [int(w) for w in words], "batch_size": int(batch_size)}
+
+
+def resolved_shift_fields(rec: dict) -> dict:
+    """The part of a resolved shift record (``environment.resolved_shifts``)
+    that rides on each ``shift_response`` entry (contracts §3/§10): ``index``,
+    ``kind``, ``round``, ``end_round``, ``segment``, ``creative_id`` (concrete,
+    ``"leader"`` resolved), ``requested_creative_id`` and ``targets`` (per
+    segment ``ctr_before`` / ``ctr_after``). A mix shift has null creative /
+    segment fields and no targets."""
+    return {
+        "index": int(rec["index"]),
+        "kind": rec["kind"],
+        "round": int(rec["round"]),
+        "end_round": rec.get("end_round"),
+        "segment": rec.get("segment"),
+        "creative_id": rec.get("creative_id"),
+        "requested_creative_id": rec.get("requested_creative_id"),
+        "targets": [
+            {k: t[k] for k in ("segment", "ctr_before", "ctr_after")}
+            for t in rec.get("targets") or ()
+        ],
+    }
 
 
 def _utcnow() -> dt.datetime:
@@ -491,7 +515,12 @@ class TrafficRunner:
             checkpoints=self.checkpoints,
         )
         if self.shifts:
-            m["shift_response"] = shift_response(out, self.shift_rounds)
+            m["shift_response"] = [
+                {**sr, **resolved_shift_fields(rec)}
+                for sr, rec in zip(
+                    shift_response(out, self.shift_rounds), self.resolved, strict=True
+                )
+            ]
             m["regimes"] = regime_stats(
                 out, self.regime_bounds, self.arm_ids, self.env.segment_names
             )
