@@ -81,6 +81,8 @@ def test_empty_rows_give_zero_episodes():
         "armShare": {},
         "perSegment": {},
         "arms": [],
+        "shiftResponse": {},
+        "regimes": [],
     }
 
 
@@ -191,3 +193,136 @@ def test_bands_clamped_to_natural_bounds():
     out = band([[0.0, 5.0], [10.0, 0.0]], CURVE_BOUNDS["cum_regret"])
     assert min(out["lo"]) == 0.0
     assert band([[0.0], [1.0]])["lo"][0] < 0  # unbounded by default
+
+
+# ---------------------------------------------------------------- resolvedShifts
+
+
+def _sr_entry(round_, *, creative="b", resolved=True, index=0, kind="demote"):
+    entry = {
+        "round": round_,
+        "pct_optimal_before": 0.8,
+        "pct_optimal_after": 0.4,
+        "regret_rate_before": 0.001,
+        "regret_rate_after": 0.01,
+        "recovery_rounds": 500,
+    }
+    if resolved:
+        entry.update(
+            index=index,
+            kind=kind,
+            end_round=None,
+            segment=None,
+            creative_id=creative,
+            requested_creative_id="leader",
+            targets=[
+                {"segment": "mobile", "ctr_before": 0.05, "ctr_after": 0.03},
+                {"segment": "desktop", "ctr_before": 0.04, "ctr_after": 0.02},
+            ],
+        )
+    return entry
+
+
+def _shift_row(episode, policy, entries):
+    row = _row(episode, policy, 50.0)
+    row["shift_response"] = json.dumps(entries)
+    return row
+
+
+_TARGETS_CAMEL = [
+    {"segment": "mobile", "ctrBefore": 0.05, "ctrAfter": 0.03},
+    {"segment": "desktop", "ctrBefore": 0.04, "ctrAfter": 0.02},
+]
+
+
+def test_resolved_shifts_from_the_shift_response_entries():
+    shock = _sr_entry(800, creative="a", index=0, kind="shock")
+    shock["end_round"] = 900
+    shock["requested_creative_id"] = "a"
+    mix = {
+        **_sr_entry(700, resolved=False),
+        "index": 1,
+        "kind": "mix",
+        "end_round": None,
+        "segment": None,
+        "creative_id": None,
+        "requested_creative_id": None,
+        "targets": [],
+    }
+    entries = [_sr_entry(500, index=2), mix, shock]
+    rows = [
+        _shift_row(e, p, entries) for e in range(2) for p in ("linear_ts", "random")
+    ]
+    body = aggregate_episode_metrics(rows)
+    assert body["resolvedShifts"] == [
+        {
+            "index": 2,
+            "kind": "demote",
+            "round": 500,
+            "endRound": None,
+            "segment": None,
+            "creativeId": "b",
+            "requestedCreativeId": "leader",
+            "targets": _TARGETS_CAMEL,
+        },
+        {
+            "index": 1,
+            "kind": "mix",
+            "round": 700,
+            "endRound": None,
+            "segment": None,
+            "creativeId": None,
+            "requestedCreativeId": None,
+            "targets": [],
+        },
+        {
+            "index": 0,
+            "kind": "shock",
+            "round": 800,
+            "endRound": 900,
+            "segment": None,
+            "creativeId": "a",
+            "requestedCreativeId": "a",
+            "targets": _TARGETS_CAMEL,
+        },
+    ]
+    # the shiftResponse numbers are unchanged by the extra fields
+    assert [s["round"] for s in body["shiftResponse"]["linear_ts"]] == [500, 700, 800]
+
+
+def test_resolved_shifts_omitted_for_old_runs_and_runs_without_shifts():
+    old = [_shift_row(0, "linear_ts", [_sr_entry(500, resolved=False)])]
+    assert "resolvedShifts" not in aggregate_episode_metrics(old)
+    assert "resolvedShifts" not in aggregate_episode_metrics([_row(0, "linear_ts", 5)])
+
+
+def test_resolved_shifts_mismatch_uses_the_most_common(caplog):
+    rows = [
+        _shift_row(0, "linear_ts", [_sr_entry(500, creative="a")]),
+        _shift_row(1, "linear_ts", [_sr_entry(500, creative="b")]),
+        _shift_row(2, "linear_ts", [_sr_entry(500, creative="b")]),
+        _shift_row(0, "random", [_sr_entry(500, resolved=False)]),
+    ]
+    with caplog.at_level("WARNING"):
+        body = aggregate_episode_metrics(rows, experiment_id="exp1")
+    assert [s["creativeId"] for s in body["resolvedShifts"]] == ["b"]
+    assert "resolved shifts differ" in caplog.text
+
+
+def test_resolved_shifts_tolerate_a_malformed_entry():
+    bad = _sr_entry(500)
+    bad["targets"] = "nope"
+    del bad["index"]
+    body = aggregate_episode_metrics([_shift_row(0, "linear_ts", [bad])])
+    assert body["resolvedShifts"] == [
+        {
+            "index": 0,
+            "kind": "demote",
+            "round": 500,
+            "endRound": None,
+            "segment": None,
+            "creativeId": "b",
+            "requestedCreativeId": "leader",
+            "targets": [],
+        }
+    ]

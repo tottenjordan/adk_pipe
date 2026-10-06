@@ -8,6 +8,7 @@ import { SELF_USER_ID } from "./api";
 import { downsampleIndices, type Point } from "./chart";
 import { gcsProxyUrl, parseGsUri } from "./gcs";
 import { overridesFromValues, type TuneValues } from "./scenario-preview";
+import { trafficBody } from "./shifts";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "/api/adk";
 
@@ -31,7 +32,19 @@ export type Policy =
   | "epsilon_greedy"
   | "beta_bernoulli_ts"
   | "uniform"
-  | "oracle";
+  | "oracle"
+  | "linear_ts_unshifted";
+
+/**
+ * The ghost replay (contracts §10): Linear TS on the same random draws without
+ * the run's shifts. A counterfactual reference, never a baseline to beat.
+ */
+export const GHOST_POLICY = "linear_ts_unshifted";
+
+/** Strategies that are references rather than competitors (the oracle and the ghost). */
+export function isReferencePolicy(p: string): boolean {
+  return p === "oracle" || p === GHOST_POLICY;
+}
 
 /**
  * User-tuned tweaks to the scenario preset (contracts §9, REST camelCase). Every
@@ -48,6 +61,40 @@ export type ScenarioOverrides = {
   noiseScale?: number;
   /** [0.2, 0.8]: drift change point as a fraction of the run (drift only). */
   driftAtFrac?: number;
+};
+
+/** Scripted behaviour shift kinds (contracts §10). */
+export type ShiftKind = "promote" | "demote" | "mix" | "shock";
+
+/**
+ * One scripted behaviour shift in a traffic run (contracts §10, REST camelCase).
+ * Only the fields of its kind are set; `segment: null` means everyone, and
+ * `creativeId: "leader"` (demote and shock) means the leader at that moment.
+ */
+export type Shift = {
+  kind: ShiftKind;
+  /** [0.05, 0.95]: when the shift starts, as a fraction of each episode. */
+  atFrac: number;
+  /** Shock only: when it ends ([0.07, 1], at least 2% of the run after atFrac). */
+  untilFrac?: number;
+  segment?: string | null;
+  creativeId?: string;
+  liftPp?: number;
+  dropPp?: number;
+  segmentMix?: number[];
+  ctrMultiplier?: number;
+};
+
+/** One numbered traffic run (contracts §10, `ExperimentSummary.trafficRuns`). */
+export type TrafficRun = {
+  run: number;
+  startedAt: string | null;
+  episodes: number;
+  horizon: number | null;
+  /** The validated REST form (camelCase; [] = no shifts); read with `runShifts`. */
+  shifts: Shift[];
+  forget: boolean;
+  status: "running" | "finished" | "failed" | "stopped";
 };
 
 export type Arm = {
@@ -84,6 +131,8 @@ export type ExperimentSummary = {
    * evidence (drift experiments since 2026-10-05); 1 = full memory. Absent from older APIs.
    */
   policyDiscount?: number;
+  /** Numbered traffic runs, oldest first (contracts §10; absent from older APIs). */
+  trafficRuns?: TrafficRun[];
 };
 
 /** Mean ± 95% CI across episodes, one value per checkpoint. */
@@ -106,6 +155,16 @@ export type ExperimentMetrics = {
     { optimalArm: string; policies: Record<string, { pctOptimal: number; avgReward: number }> }
   >;
   arms: { creativeId: string; impressions: number; estimatedCtr: number; trueCtr: number }[];
+  /** The traffic run these metrics describe (contracts §10; absent from older APIs). */
+  run?: number;
+  /** Policy → one entry per shift (contracts §5/§10; {} without shifts). Read with `parseShiftResponse`. */
+  shiftResponse?: unknown;
+  /** Per regime between shift / shock-end rounds: perSegment + `arms[].trueCtr` (§5). Read with `metricRegimes`. */
+  regimes?: unknown;
+  /** Paired cost of the shifts, ghost − endpoint per episode (§5). Read with `parseShiftCost`. */
+  shiftCost?: unknown;
+  /** The run's shifts as the traffic job resolved them ("leader" made concrete; §5/§10). Read with `parseResolvedShifts`. */
+  resolvedShifts?: unknown;
 };
 
 /** One creative's per-window performance under the live endpoint (contracts §8). */
@@ -150,6 +209,10 @@ export type CreativeSeries = {
   horizon: number | null;
   windows: { start: number; end: number }[];
   creatives: CreativeSeriesItem[];
+  /** The traffic run (contracts §8/§10). */
+  run?: number;
+  /** Per regime: segment winners and per-creative / per-segment numbers (§8). Read with `seriesRegimes`. */
+  regimes?: unknown;
 };
 
 export interface CreateExperimentRequest {
@@ -252,12 +315,15 @@ export async function getExperiment(
   return res.json();
 }
 
-/** `GET /experiments/{user}/{id}/metrics` — `episodes: 0` until traffic runs. */
+/** `?run=N` for the per-run routes (contracts §10); nothing for the latest run. */
+export const runQuery = (run?: number | null) => (run && Number.isInteger(run) && run >= 1 ? `?run=${run}` : "");
+
+/** `GET /experiments/{user}/{id}/metrics[?run=N]` — `episodes: 0` until traffic runs. */
 export async function getExperimentMetrics(
   experimentId: string,
-  opts: { signal?: AbortSignal } = {}
+  opts: { signal?: AbortSignal; run?: number | null } = {}
 ): Promise<ExperimentMetrics> {
-  const res = await fetch(`${experimentUrl(experimentId)}/metrics`, { signal: opts.signal });
+  const res = await fetch(`${experimentUrl(experimentId)}/metrics${runQuery(opts.run)}`, { signal: opts.signal });
   if (!res.ok) return fail(res, "Couldn't load the metrics");
   return res.json();
 }
@@ -265,9 +331,9 @@ export async function getExperimentMetrics(
 /** `GET /experiments/{user}/{id}/creatives` (contracts §8): per-creative series for the scoreboard. */
 export async function getCreativeSeries(
   experimentId: string,
-  opts: { signal?: AbortSignal } = {}
+  opts: { signal?: AbortSignal; run?: number | null } = {}
 ): Promise<CreativeSeries> {
-  const res = await fetch(`${experimentUrl(experimentId)}/creatives`, { signal: opts.signal });
+  const res = await fetch(`${experimentUrl(experimentId)}/creatives${runQuery(opts.run)}`, { signal: opts.signal });
   if (!res.ok) return fail(res, "Couldn't load the creative series");
   const data = await res.json();
   return {
@@ -277,17 +343,48 @@ export async function getCreativeSeries(
   };
 }
 
-/** `POST …/traffic {episodes, horizon?}` — 409 unless the experiment is `ready`. */
+/** Thrown by `startTraffic` on 400 `invalid_shifts`: `field` names the offending field (e.g. `shifts[1].dropPp`). */
+export class InvalidShiftsError extends ExperimentApiError {
+  constructor(
+    message: string,
+    readonly field: string | null
+  ) {
+    super(message, 400);
+    this.name = "InvalidShiftsError";
+  }
+}
+
+/**
+ * `POST …/traffic {episodes, horizon?, shifts?, forget?}` — 409 unless the
+ * experiment is `ready`; 400 `invalid_shifts` (contracts §10) → InvalidShiftsError.
+ * Without shifts the body is exactly what older APIs accept.
+ */
 export async function startTraffic(
   experimentId: string,
   episodes: number,
-  horizon?: number
-): Promise<{ status: ExperimentStatus; execution?: string }> {
+  horizon?: number,
+  opts: { shifts?: readonly Shift[]; forget?: boolean } = {}
+): Promise<{ status: ExperimentStatus; execution?: string; run?: number }> {
   const res = await fetch(`${experimentUrl(experimentId)}/traffic`, {
     method: "POST",
     headers: JSON_HEADERS,
-    body: JSON.stringify(horizon ? { episodes, horizon } : { episodes }),
+    body: JSON.stringify(trafficBody(episodes, horizon, opts.shifts ?? [], opts.forget)),
   });
+  if (res.status === 400) {
+    const text = await res.text().catch(() => "");
+    let detail: { reason?: unknown; field?: unknown; message?: unknown } | undefined;
+    try {
+      detail = JSON.parse(text)?.detail;
+    } catch {
+      detail = undefined;
+    }
+    if (detail && typeof detail === "object" && detail.reason === "invalid_shifts") {
+      const field = typeof detail.field === "string" ? detail.field : null;
+      const msg = typeof detail.message === "string" ? detail.message : "";
+      throw new InvalidShiftsError(`The api rejected the shift script${field ? ` (${field})` : ""}${msg ? `: ${msg}` : "."}`, field);
+    }
+    throw new ExperimentApiError(`Couldn't start traffic (400)${text ? `: ${text}` : ""}`, 400);
+  }
   if (res.status === 409) {
     throw new ExperimentApiError(
       "Traffic can only start while the endpoint is ready. Wait for the current step to finish.",
@@ -598,6 +695,7 @@ const POLICY_LABELS: Record<Policy, string> = {
   beta_bernoulli_ts: "Thompson sampling (no context)",
   uniform: "Uniform random",
   oracle: "Oracle",
+  linear_ts_unshifted: "Linear TS without your shifts",
 };
 
 /** Shorter names for tight spots (direct line labels, bar rows). */
@@ -608,6 +706,7 @@ const POLICY_SHORT: Record<Policy, string> = {
   beta_bernoulli_ts: "TS (no context)",
   uniform: "Uniform",
   oracle: "Oracle",
+  linear_ts_unshifted: "Without shifts",
 };
 
 export function policyLabel(policy: string): string {
@@ -747,8 +846,10 @@ export const POLICY_COLORS: Record<Policy, string> = {
   beta_bernoulli_ts: "#d36fa6",
   uniform: "#7d858f",
   oracle: "#1a1d21",
+  // The ghost is the endpoint's own counterfactual: same hue, told apart by its dash.
+  linear_ts_unshifted: "#2a78d6",
 };
-const POLICY_DASH: Partial<Record<Policy, string>> = { uniform: "2 3", oracle: "6 4" };
+const POLICY_DASH: Partial<Record<Policy, string>> = { uniform: "2 3", oracle: "6 4", linear_ts_unshifted: "5 4" };
 
 /** Arm colours in arm order (the four chromatic slots; arms are capped at 4). */
 // Creatives get their own earth-tone palette so a creative line never shares a
@@ -757,6 +858,7 @@ export const ARM_COLORS = ["#0f766e", "#8a5a2b", "#5f7a1f", "#1e3a5f"] as const;
 
 const CANONICAL_ORDER: Policy[] = [
   "linear_ts",
+  "linear_ts_unshifted",
   "ucb1",
   "epsilon_greedy",
   "beta_bernoulli_ts",
@@ -807,6 +909,7 @@ export function curveSeries(
     .map((p) => {
       const band = metrics.curves[p][key];
       const reference = p === "oracle";
+      const ghost = p === GHOST_POLICY;
       return {
         id: p,
         label: policyLabel(p),
@@ -816,7 +919,7 @@ export function curveSeries(
         reference,
         points: idx.map((i) => ({ x: xs[i], y: band.mean[i] })),
         band:
-          opts.bands && !reference && band.lo?.length && band.hi?.length
+          opts.bands && !reference && !ghost && band.lo?.length && band.hi?.length
             ? idx.map((i) => ({ x: xs[i], lo: band.lo[i], hi: band.hi[i] }))
             : undefined,
       };
@@ -824,9 +927,16 @@ export function curveSeries(
 }
 
 /** linear_ts arm share over time: one series per arm, coloured in arm order. */
-export function armShareSeries(metrics: ExperimentMetrics, arms: Arm[]): ChartSeries[] {
+export function armShareSeries(
+  metrics: ExperimentMetrics,
+  arms: Arm[],
+  opts: { minWindow?: number } = {}
+): ChartSeries[] {
+  // `minWindow` drops checkpoints whose window (rounds since the previous one) is
+  // shorter, e.g. the 1-round windows merged in around a shift, whose shares are noise.
   const xs = metrics.checkpoints ?? [];
-  const idx = downsampleIndices(xs.length, MAX_POINTS);
+  const min = opts.minWindow ?? 0;
+  const idx = downsampleIndices(xs.length, MAX_POINTS).filter((i) => xs[i] - (i > 0 ? xs[i - 1] : 0) >= min);
   const ordered = [...arms].sort((a, b) => a.index - b.index);
   const known = new Set(ordered.map((a) => a.creativeId));
   const extra = Object.keys(metrics.armShare ?? {}).filter((id) => !known.has(id));
@@ -865,7 +975,7 @@ export function segmentRows(metrics: ExperimentMetrics, arms: Arm[]): SegmentRow
     .map(([segment, seg]) => {
       let best: SegmentRow["bestBaseline"] = null;
       for (const [policy, v] of Object.entries(seg.policies ?? {})) {
-        if (policy === "linear_ts" || policy === "oracle") continue;
+        if (policy === "linear_ts" || isReferencePolicy(policy)) continue;
         if (!best || v.pctOptimal > best.pctOptimal) {
           best = { policy, label: policyLabel(policy), pctOptimal: v.pctOptimal };
         }

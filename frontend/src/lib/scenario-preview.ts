@@ -22,7 +22,7 @@
  * (scripts/gen_scenario_presets.py), never hand-copied.
  */
 import presetsJson from "./scenario-presets.generated.json";
-import type { CtrMode, Scenario, ScenarioOverrides } from "./experiments";
+import type { CtrMode, Scenario, ScenarioOverrides, Shift, ShiftKind } from "./experiments";
 import type { Proof } from "./eval-matching";
 
 // ── Presets ──────────────────────────────────────────────────────────────────
@@ -59,10 +59,24 @@ interface PresetsFile {
   baseMarginals: Record<string, Marginal>;
   /** bandit.config.OVERRIDE_BOUNDS, snake_case keys. */
   overrideBounds: Record<"segment_mix" | "gap_scale" | "judge_wrong" | "noise_scale" | "drift_at_frac", [number, number]>;
+  /** bandit.config SHIFT_KINDS / SHIFT_BOUNDS / MAX_SHIFTS / SHIFT_MIN_WINDOW / LEADER_KINDS (camelCase bounds). */
+  shifts: {
+    kinds: ShiftKind[];
+    maxShifts: number;
+    minWindow: number;
+    leader: string;
+    leaderKinds: ShiftKind[];
+    bounds: Record<"atFrac" | "untilFrac" | "liftPp" | "dropPp" | "segmentMix" | "ctrMultiplier", [number, number]>;
+  };
   scenarios: Record<Scenario, ScenarioPreset>;
 }
 
 const PRESETS = presetsJson as unknown as PresetsFile;
+
+/** Scripted-shift constants from bandit.config (contracts §10), never hand-copied. */
+export const SHIFT_SPEC = PRESETS.shifts;
+/** The creativeId that means "whoever leads at that moment" (demote and shock only). */
+export const SHIFT_LEADER = PRESETS.shifts.leader;
 
 export const SCENARIO_PRESETS: Record<Scenario, ScenarioPreset> = PRESETS.scenarios;
 
@@ -332,6 +346,13 @@ export interface ScenarioPreview {
   /** Drift only: the best and worst creatives swap at `atFrac` of the run. */
   drift: { best: number; worst: number; atFrac: number } | null;
   alpha: number;
+  /**
+   * The pre-sigmoid structure `applyShifts` reuses (no re-bisection of α):
+   * per segment, the reader-type probabilities and logits without α
+   * (segment × cell × creative), and the segment-level logit without α at the
+   * segment's mean context (segment × creative, what shift resolution uses).
+   */
+  model: { cellP: number[][]; cellLogits: number[][][]; segLogits: number[][] };
 }
 
 /** `build_true_model`'s deterministic structure → expected click rates (see module doc). */
@@ -441,6 +462,11 @@ export function previewMatrix({ scenario, ctrMode, arms, values }: PreviewInput)
   const spread = Math.max(...rawOverall) - Math.min(...rawOverall);
   const judgeSignalWeak = sc.kappa * Math.abs(flip) * spread < 2 * sc.noiseSd * values.noiseScale;
 
+  const segLogits = segs.map((_, s) => {
+    const mSeg = { topic: pTopic[s], interest: pInterest[s], desktop: pDesktop[s], tablet: pTablet[s] };
+    return arms.map((_, a) => b[a] + u[s][a] + thetaDot(a, mSeg));
+  });
+
   return {
     segments: segs.map((s) => s.name),
     weights,
@@ -457,6 +483,7 @@ export function previewMatrix({ scenario, ctrMode, arms, values }: PreviewInput)
         ? { best: bestOverall, worst: argmin(overall), atFrac: values.driftAtFrac }
         : null,
     alpha,
+    model: { cellP: cells.map((cs) => cs.map((c) => c.p)), cellLogits: base, segLogits },
   };
 }
 
@@ -484,6 +511,219 @@ function argmin(xs: number[]): number {
   let best = 0;
   for (let i = 1; i < xs.length; i++) if (xs[i] < xs[best]) best = i;
   return best;
+}
+
+// ── Scripted shifts (contracts §10) ──────────────────────────────────────────
+
+/** Click probabilities are clipped below 1 after shock multipliers (bandit.environment.P_MAX). */
+const P_MAX = 1 - 1e-6;
+
+export interface ShiftTarget {
+  segment: string;
+  ctrBefore: number;
+  ctrAfter: number;
+  bestOtherCtr?: number;
+  logitOffset?: number;
+}
+
+/** One resolved shift (time order), as the golden fixture writes it. */
+export interface ResolvedPreviewShift {
+  /** Position in the requested list. */
+  index: number;
+  kind: ShiftKind;
+  round: number;
+  /** Shock only: first round after the window. */
+  endRound: number | null;
+  /** The concrete creative ("leader" resolved); null for mix. */
+  creativeIndex: number | null;
+  segment: string | null;
+  /** Mix only (renormalised). */
+  segmentWeights: number[] | null;
+  targets: ShiftTarget[];
+}
+
+/** A stretch of the run `[start, end)` with one set of shifts in effect. */
+export interface PreviewRegime {
+  start: number;
+  end: number;
+  /** Requested-list indices in effect (shocks only inside their window). */
+  active: number[];
+  segmentWeights: number[];
+  /** Expected click rate, creative × segment. */
+  ctr: number[][];
+  oracle: number[];
+  overall: number[];
+}
+
+export interface ShiftPreview {
+  resolved: ResolvedPreviewShift[];
+  regimes: PreviewRegime[];
+}
+
+/** `bandit.environment.shift_round`: round(frac · T), half to even like Python's round(). */
+export function shiftRound(frac: number, horizon: number): number {
+  const v = frac * horizon;
+  const f = Math.floor(v);
+  const d = v - f;
+  if (Math.abs(d - 0.5) < 1e-9) return f % 2 === 0 ? f : f + 1;
+  return Math.round(v);
+}
+
+/**
+ * The preview with scripted shifts applied: a port of
+ * `bandit.environment._resolve_shifts` plus the regime split of
+ * tests/test_scenario_preview_golden.py. It reuses the preview's pre-sigmoid
+ * logits and α (shifts never recalibrate α) and ignores drift, like the
+ * preview. `armIds[i]` is creative i's id, so a shift's `creativeId` (an id or
+ * "leader") maps to an index. Pinned by `scenario-shifts-golden.json`.
+ */
+export function applyShifts(
+  pv: ScenarioPreview,
+  shifts: readonly Shift[],
+  opts: { horizon: number; armIds: readonly string[] }
+): ShiftPreview {
+  const { cellP, cellLogits, segLogits } = pv.model;
+  const S = pv.segments.length;
+  const K = pv.ctr.length;
+  const H = opts.horizon;
+  const order = shifts.map((_, i) => i).sort((a, b) => shifts[a].atFrac - shifts[b].atFrac || a - b);
+  const zeros = () => Array.from({ length: S }, () => new Array<number>(K).fill(0));
+  const ones = () => Array.from({ length: S }, () => new Array<number>(K).fill(1));
+  const offsets = zeros();
+  let weights = [...pv.weights];
+  const leaves: {
+    start: number;
+    end: number;
+    logit: number[][];
+    mult: number[][];
+    mix: number[] | null;
+    index: number;
+    kind: ShiftKind;
+  }[] = [];
+  const resolved: ResolvedPreviewShift[] = [];
+
+  for (const i of order) {
+    const sh = shifts[i];
+    const r = shiftRound(sh.atFrac, H);
+    const leaf = { start: r, end: Infinity, logit: zeros(), mult: ones(), mix: null as number[] | null, index: i, kind: sh.kind };
+    leaves.push(leaf);
+    const V = segLogits.map((row, s) => row.map((v, a) => pv.alpha + v + offsets[s][a]));
+    const ctr = V.map((row) => row.map(sigmoid));
+    if (sh.kind === "mix") {
+      const mix = sh.segmentMix ?? [];
+      const total = mix.reduce((x, y) => x + y, 0);
+      weights = mix.map((w) => w / total);
+      leaf.mix = weights;
+      resolved.push({
+        index: i,
+        kind: "mix",
+        round: r,
+        endRound: null,
+        creativeIndex: null,
+        segment: null,
+        segmentWeights: weights,
+        targets: [],
+      });
+      continue;
+    }
+    const segIdx = sh.segment ? [pv.segments.indexOf(sh.segment)] : [...Array(S).keys()];
+    let a: number;
+    if (sh.creativeId === SHIFT_LEADER) {
+      const scores = sh.segment
+        ? ctr[segIdx[0]]
+        : Array.from({ length: K }, (_, k) => weights.reduce((acc, w, s) => acc + w * ctr[s][k], 0));
+      a = argmax(scores);
+    } else {
+      a = opts.armIds.indexOf(String(sh.creativeId));
+    }
+    const targets: ShiftTarget[] = [];
+    let endRound: number | null = null;
+    if (sh.kind === "shock") {
+      const m = sh.ctrMultiplier ?? 1;
+      endRound = shiftRound(sh.untilFrac ?? 1, H);
+      leaf.end = endRound;
+      for (const sg of segIdx) {
+        leaf.mult[sg][a] = m;
+        targets.push({ segment: pv.segments[sg], ctrBefore: ctr[sg][a], ctrAfter: Math.min(ctr[sg][a] * m, P_MAX) });
+      }
+    } else {
+      for (const sg of segIdx) {
+        const bestOther = Math.max(...ctr[sg].filter((_, k) => k !== a));
+        let delta: number;
+        if (sh.kind === "promote") {
+          const goal = Math.min(bestOther + (sh.liftPp ?? 0), 0.999);
+          delta = Math.max(0, logit(goal) - V[sg][a]);
+        } else {
+          const goal = Math.max(bestOther - (sh.dropPp ?? 0), 1e-6);
+          delta = Math.min(0, logit(goal) - V[sg][a]);
+        }
+        leaf.logit[sg][a] = delta;
+        offsets[sg][a] += delta;
+        targets.push({
+          segment: pv.segments[sg],
+          ctrBefore: ctr[sg][a],
+          bestOtherCtr: bestOther,
+          ctrAfter: sigmoid(V[sg][a] + delta),
+          logitOffset: delta,
+        });
+      }
+    }
+    resolved.push({
+      index: i,
+      kind: sh.kind,
+      round: r,
+      endRound,
+      creativeIndex: a,
+      segment: sh.segment ?? null,
+      segmentWeights: null,
+      targets,
+    });
+  }
+
+  const edgeSet = new Set<number>([0, H]);
+  for (const l of leaves) {
+    for (const v of [l.start, l.end]) if (v > 0 && v < H) edgeSet.add(v);
+  }
+  const edges = [...edgeSet].sort((x, y) => x - y);
+  const regimes: PreviewRegime[] = [];
+  for (let e = 0; e + 1 < edges.length; e++) {
+    const start = edges[e];
+    const end = edges[e + 1];
+    const off = zeros();
+    const mul = ones();
+    let w = pv.weights;
+    const active: number[] = [];
+    for (const l of leaves) {
+      if (l.start > start) continue;
+      const inWindow = start < l.end;
+      for (let s = 0; s < S; s++) {
+        for (let k = 0; k < K; k++) {
+          off[s][k] += l.logit[s][k];
+          if (inWindow) mul[s][k] *= l.mult[s][k];
+        }
+      }
+      if (l.mix) w = l.mix;
+      if (l.kind !== "shock" || inWindow) active.push(l.index);
+    }
+    const ctr = Array.from({ length: K }, (_, k) =>
+      pv.segments.map((_, s) =>
+        cellP[s].reduce(
+          (acc, p, c) => acc + p * Math.min(mul[s][k] * sigmoid(pv.alpha + cellLogits[s][c][k] + off[s][k]), P_MAX),
+          0
+        )
+      )
+    );
+    regimes.push({
+      start,
+      end,
+      active: active.sort((x, y) => x - y),
+      segmentWeights: [...w],
+      ctr,
+      oracle: pv.segments.map((_, s) => argmax(ctr.map((row) => row[s]))),
+      overall: ctr.map((row) => row.reduce((acc, v, s) => acc + w[s] * v, 0)),
+    });
+  }
+  return { resolved, regimes };
 }
 
 // ── Reading ──────────────────────────────────────────────────────────────────

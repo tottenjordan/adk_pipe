@@ -7,6 +7,12 @@ Vertex endpoint in a detached task. Synthetic traffic runs as a Cloud Run Job;
 ``/metrics`` aggregates the job's ``bandit_episode_metrics`` rows; ``/creatives``
 builds the §8 per-creative time series from ``bandit_events``.
 
+Traffic runs are numbered (contracts §10): each ``POST .../traffic`` allocates the
+next run, may carry a scripted shift timeline (``shifts``, validated here against
+duplicated ``bandit.config`` constants) and a ``forget`` switch, writes
+``{id}/runs/{n}.json`` and appends to the row's ``traffic_runs``. ``/metrics`` and
+``/creatives`` read one run (``?run=N``, default the latest).
+
 Status machine (``next_status``)::
 
     deploying -> ready -> running_traffic -> ready -> stopping -> stopped
@@ -182,6 +188,7 @@ def to_summary(row: Mapping[str, Any]) -> dict:
         # Recorded only for an endpoint that forgets (contracts §7); every older
         # or non-drift experiment ran with full memory.
         "policyDiscount": _discount_or_one(row.get("policy_discount")),
+        "trafficRuns": traffic_runs_summary(row),
     }
 
 
@@ -396,10 +403,21 @@ def default_discount(scenario: str, ctr_mode: str, batch_size: int = 100) -> flo
     return round(math.exp(-batch_size / memory), 3)
 
 
-#: Segments per scenario preset (``len(load_scenario(name).segments)``) and the
-#: inclusive override bounds, duplicated from ``bandit`` (contracts §9; runserver
-#: never imports it). ``tests/test_experiments_api.py`` asserts parity.
-SCENARIO_SEGMENTS = {"clear_winner": 3, "segment_winners": 4, "drift": 3}
+#: Segment names per scenario preset (``load_scenario(name).segments``, in order),
+#: their counts and the inclusive override bounds, duplicated from ``bandit``
+#: (contracts §9/§10; runserver never imports it). ``tests/test_experiments_api.py``
+#: asserts parity.
+SCENARIO_SEGMENT_NAMES: dict[str, tuple[str, ...]] = {
+    "clear_winner": ("commuters", "desk_researchers", "evening_browsers"),
+    "segment_winners": (
+        "mobile_scrollers",
+        "trend_followers",
+        "product_intenders",
+        "late_night_casual",
+    ),
+    "drift": ("commuters", "desk_researchers", "evening_browsers"),
+}
+SCENARIO_SEGMENTS = {k: len(v) for k, v in SCENARIO_SEGMENT_NAMES.items()}
 OVERRIDE_BOUNDS: dict[str, tuple[float, float]] = {
     "segment_mix": (0.05, 1.0),
     "gap_scale": (0.25, 2.0),
@@ -488,6 +506,312 @@ def overrides_to_camel(value: Any) -> dict | None:
     if not isinstance(value, Mapping) or not value:
         return None
     return {_OVERRIDE_CAMEL.get(k, k): v for k, v in value.items()}
+
+
+# --- Scripted behaviour shifts (contracts §10) ---------------------------------
+
+#: Shift kinds, limits and inclusive bounds, duplicated from ``bandit.config``
+#: (runserver never imports it; ``tests/test_experiments_api.py`` asserts parity).
+SHIFT_KINDS: tuple[str, ...] = ("promote", "demote", "mix", "shock")
+MAX_SHIFTS = 4
+SHIFT_MIN_WINDOW = 0.02
+LEADER = "leader"
+LEADER_KINDS: tuple[str, ...] = ("demote", "shock")
+SHIFT_BOUNDS: dict[str, tuple[float, float]] = {
+    "at_frac": (0.05, 0.95),
+    "until_frac": (0.07, 1.0),
+    "lift_pp": (0.005, 0.03),
+    "drop_pp": (0.005, 0.03),
+    "segment_mix": (0.05, 1.0),
+    "ctr_multiplier": (0.3, 2.0),
+}
+#: Fields each kind accepts besides ``kind`` / ``at_frac``, and the required ones
+#: (snake_case, as ``bandit.config._SHIFT_FIELDS`` / ``_SHIFT_REQUIRED``).
+SHIFT_KIND_FIELDS: dict[str, tuple[str, ...]] = {
+    "promote": ("segment", "creative_id", "lift_pp"),
+    "demote": ("segment", "creative_id", "drop_pp"),
+    "mix": ("segment_mix",),
+    "shock": ("segment", "creative_id", "until_frac", "ctr_multiplier"),
+}
+SHIFT_REQUIRED: dict[str, tuple[str, ...]] = {
+    "promote": ("creative_id", "lift_pp"),
+    "demote": ("creative_id", "drop_pp"),
+    "mix": ("segment_mix",),
+    "shock": ("creative_id", "until_frac", "ctr_multiplier"),
+}
+#: REST camelCase -> job snake_case shift fields (contracts §10), in the
+#: ``bandit.config.ShiftSpec`` field order (``shifts_to_dict`` output order).
+SHIFT_FIELDS: dict[str, str] = {
+    "kind": "kind",
+    "atFrac": "at_frac",
+    "segment": "segment",
+    "creativeId": "creative_id",
+    "liftPp": "lift_pp",
+    "dropPp": "drop_pp",
+    "segmentMix": "segment_mix",
+    "untilFrac": "until_frac",
+    "ctrMultiplier": "ctr_multiplier",
+}
+_SHIFT_CAMEL = {v: k for k, v in SHIFT_FIELDS.items()}
+_SHIFT_REL_TOL = 1e-9  # float slack on the ctr-mode-scaled bounds, as bandit
+
+
+class ShiftsError(ValueError):
+    """An invalid ``shifts`` body; ``field`` names it (``shifts[1].untilFrac``)."""
+
+    def __init__(self, field: str, message: str):
+        super().__init__(message)
+        self.field = field
+
+
+def ctr_scale(scenario: str, ctr_mode: str) -> float:
+    """``ScenarioConfig.ctr_scale``: demo-unit CTR gaps -> ``ctr_mode`` units."""
+    ctrs = SCENARIO_TARGET_CTR.get(scenario, {})
+    if "demo" not in ctrs or ctr_mode not in ctrs:
+        return 1.0
+    return ctrs[ctr_mode] / ctrs["demo"]
+
+
+def _shift_number(field: str, value: Any) -> float:
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        raise ShiftsError(field, f"{field} must be a number")
+    if not math.isfinite(value):
+        raise ShiftsError(field, f"{field} must be finite")
+    return float(value)
+
+
+def _shift_bound(field: str, name: str, value: float, scale: float = 1.0) -> None:
+    lo, hi = (b * scale for b in SHIFT_BOUNDS[name])
+    if not lo * (1 - _SHIFT_REL_TOL) <= value <= hi * (1 + _SHIFT_REL_TOL):
+        raise ShiftsError(field, f"{field} must be in [{lo:.6g}, {hi:.6g}]")
+
+
+def validate_shifts(
+    scenario: str, ctr_mode: str, arms: Sequence[Any], shifts: Any
+) -> list[dict]:
+    """Check a camelCase ``shifts`` body against contracts §10 and return the
+    snake_case job form (``bandit.config.shifts_to_dict`` shape: ``segment`` kept
+    as ``null`` on the kinds that take one, other unset fields omitted). ``null``
+    fields count as unset. Mirrors ``bandit.config.shifts_from_dict`` +
+    ``validate_shifts``: kinds, fields per kind, finite non-bool numbers, bounds
+    (``liftPp`` / ``dropPp`` scaled by ``ctr_scale``), segment names of the
+    scenario, creative ids among ``arms`` (``"leader"`` only for demote / shock)
+    and the shock window. Raises ``ShiftsError`` naming the field."""
+    if shifts is None:
+        return []
+    if not isinstance(shifts, list):
+        raise ShiftsError("shifts", "shifts must be a list")
+    if len(shifts) > MAX_SHIFTS:
+        raise ShiftsError("shifts", f"at most {MAX_SHIFTS} shifts, got {len(shifts)}")
+    names = SCENARIO_SEGMENT_NAMES.get(scenario)
+    if names is None:
+        raise ShiftsError("shifts", f"unknown scenario {scenario!r}")
+    ids = {
+        str(a.get("creativeId") if isinstance(a, Mapping) else a)
+        for a in arms
+        if (a.get("creativeId") if isinstance(a, Mapping) else a)
+    }
+    scale = ctr_scale(scenario, ctr_mode)
+    out = []
+    for i, doc in enumerate(shifts):
+
+        def f(camel: str, i: int = i) -> str:
+            return f"shifts[{i}].{camel}"
+
+        if not isinstance(doc, Mapping):
+            raise ShiftsError(f"shifts[{i}]", f"shifts[{i}] must be an object")
+        for key in doc:
+            if key not in SHIFT_FIELDS:
+                raise ShiftsError(f(str(key)), f"{f(str(key))} is not a shift field")
+        kind = doc.get("kind")
+        if not isinstance(kind, str) or kind not in SHIFT_KINDS:
+            raise ShiftsError(f("kind"), f"{f('kind')} must be one of {SHIFT_KINDS}")
+        allowed = SHIFT_KIND_FIELDS[kind]
+        values = {
+            SHIFT_FIELDS[k]: v
+            for k, v in doc.items()
+            if v is not None and k not in ("kind", "atFrac")
+        }
+        for name in values:
+            if name not in allowed:
+                camel = _SHIFT_CAMEL[name]
+                raise ShiftsError(f(camel), f"{f(camel)} is not valid for a {kind}")
+        if doc.get("atFrac") is None:
+            raise ShiftsError(f("atFrac"), f"{f('atFrac')} is required")
+        for name in SHIFT_REQUIRED[kind]:
+            if name not in values:
+                camel = _SHIFT_CAMEL[name]
+                raise ShiftsError(f(camel), f"{f(camel)} is required for a {kind}")
+        at_frac = _shift_number(f("atFrac"), doc["atFrac"])
+        _shift_bound(f("atFrac"), "at_frac", at_frac)
+        spec: dict[str, Any] = {"kind": kind, "at_frac": at_frac}
+        if "segment" in allowed:
+            segment = values.get("segment")
+            if segment is not None and (
+                not isinstance(segment, str) or segment not in names
+            ):
+                raise ShiftsError(
+                    f("segment"), f"{f('segment')} must be one of {list(names)} or null"
+                )
+            spec["segment"] = segment
+        if "creative_id" in values:
+            cid = values["creative_id"]
+            ok = isinstance(cid, str) and (
+                cid in ids or (cid == LEADER and kind in LEADER_KINDS)
+            )
+            if not ok:
+                raise ShiftsError(
+                    f("creativeId"),
+                    f"{f('creativeId')} must be an experiment arm"
+                    + (f' or "{LEADER}"' if kind in LEADER_KINDS else ""),
+                )
+            spec["creative_id"] = cid
+        for name in ("lift_pp", "drop_pp"):
+            if name in values:
+                camel = _SHIFT_CAMEL[name]
+                value = _shift_number(f(camel), values[name])
+                _shift_bound(f(camel), name, value, scale)
+                spec[name] = value
+        if "segment_mix" in values:
+            mix = values["segment_mix"]
+            if not isinstance(mix, list) or len(mix) != len(names):
+                raise ShiftsError(
+                    f("segmentMix"),
+                    f"{f('segmentMix')} needs {len(names)} weights for {scenario}",
+                )
+            weights = [_shift_number(f("segmentMix"), w) for w in mix]
+            for w in weights:
+                _shift_bound(f("segmentMix"), "segment_mix", w)
+            spec["segment_mix"] = weights
+        if "until_frac" in values:
+            until = _shift_number(f("untilFrac"), values["until_frac"])
+            _shift_bound(f("untilFrac"), "until_frac", until)
+            if until - at_frac < SHIFT_MIN_WINDOW - 1e-9:
+                raise ShiftsError(
+                    f("untilFrac"),
+                    f"{f('untilFrac')} must be at least {SHIFT_MIN_WINDOW} after atFrac",
+                )
+            spec["until_frac"] = until
+        if "ctr_multiplier" in values:
+            mult = _shift_number(f("ctrMultiplier"), values["ctr_multiplier"])
+            _shift_bound(f("ctrMultiplier"), "ctr_multiplier", mult)
+            spec["ctr_multiplier"] = mult
+        out.append(spec)
+    return out
+
+
+def shifts_to_camel(shifts: Any) -> list[dict]:
+    """A stored snake_case shift list -> the REST camelCase form."""
+    if not isinstance(shifts, list):
+        return []
+    return [
+        {_SHIFT_CAMEL.get(k, k): v for k, v in s.items()}
+        for s in shifts
+        if isinstance(s, Mapping)
+    ]
+
+
+def shift_round(frac: float, horizon: int) -> int:
+    """``bandit.environment.shift_round``: the 0-based round of a fraction."""
+    return int(round(frac * horizon))
+
+
+def shift_boundaries(shifts: Any, horizon: int | None) -> list[int]:
+    """The regime boundary rounds of a run: every shift's round plus each shock's
+    end round (``bandit.metrics.regime_stats`` boundaries), sorted, unique and
+    strictly inside ``(0, horizon)``. ``[]`` without shifts or a horizon."""
+    if not horizon or not isinstance(shifts, list):
+        return []
+    rounds: set[int] = set()
+    for s in shifts:
+        if not isinstance(s, Mapping) or s.get("at_frac") is None:
+            continue
+        rounds.add(shift_round(float(s["at_frac"]), horizon))
+        if s.get("kind") == "shock":
+            rounds.add(shift_round(float(s.get("until_frac") or 1.0), horizon))
+    return sorted(r for r in rounds if 0 < r < horizon)
+
+
+def traffic_runs_of(row: Mapping[str, Any]) -> list[dict]:
+    """The row's numbered traffic runs (snake_case ``traffic_runs`` entries). An
+    experiment that ran traffic before runs were numbered gets a synthesized
+    legacy run 1 (its metrics/events have a NULL ``traffic_run``)."""
+    raw = row.get("traffic_runs")
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw) if raw else None
+        except ValueError:
+            raw = None
+    runs = (
+        [dict(r) for r in raw if isinstance(r, Mapping)]
+        if isinstance(raw, list)
+        else []
+    )
+    if not runs and row.get("traffic_execution"):
+        progress = row.get("progress")
+        total = (
+            progress.get("episodes_total") if isinstance(progress, Mapping) else None
+        )
+        runs = [
+            {
+                "run": 1,
+                "started_at": None,
+                "episodes": int(total or 0),
+                "horizon": None,
+                "forget": False,
+                "shifts": [],
+                "execution": row.get("traffic_execution"),
+            }
+        ]
+    return runs
+
+
+def latest_run(row: Mapping[str, Any]) -> int:
+    """The newest run number (1 when traffic never ran)."""
+    return max(1, len(traffic_runs_of(row)))
+
+
+def _latest_run_status(row: Mapping[str, Any]) -> str:
+    """``running`` | ``failed`` | ``stopped`` | ``finished`` for the newest run,
+    from the row: a failed job sets ``error``; a stopped/expired experiment whose
+    progress stopped short was cut off."""
+    if row.get("status") == "running_traffic":
+        return "running"
+    if row.get("error"):
+        return "failed"
+    progress = row.get("progress")
+    if row.get("status") in ("stopping", *TERMINAL_STATUSES) and isinstance(
+        progress, Mapping
+    ):
+        total = int(progress.get("episodes_total") or 0)
+        if total and int(progress.get("episodes_done") or 0) < total:
+            return "stopped"
+    return "finished"
+
+
+def traffic_runs_summary(row: Mapping[str, Any]) -> list[dict]:
+    """§5 ``ExperimentSummary.trafficRuns``: oldest first; earlier runs keep the
+    status frozen when the next one started, the newest is derived from the row."""
+    runs = traffic_runs_of(row)
+    out = []
+    for i, r in enumerate(runs):
+        latest = i == len(runs) - 1
+        out.append(
+            {
+                "run": int(r.get("run") or i + 1),
+                "startedAt": r.get("started_at"),
+                "episodes": int(r.get("episodes") or 0),
+                "horizon": r.get("horizon"),
+                "shifts": shifts_to_camel(r.get("shifts")),
+                "forget": bool(r.get("forget")),
+                "status": (
+                    _latest_run_status(row)
+                    if latest
+                    else str(r.get("status") or "finished")
+                ),
+            }
+        )
+    return out
 
 
 def build_experiment_config(
@@ -1117,6 +1441,9 @@ class _CreateBody(BaseModel):
 class _TrafficBody(BaseModel):
     episodes: int
     horizon: int | None = None
+    # Contracts §10; checked by validate_shifts / the route (bad -> 400, not 422).
+    shifts: Any = None
+    forget: Any = None
 
 
 async def _get_session(app_name: str, user_id: str, session_id: str):
@@ -1256,49 +1583,82 @@ async def http_get_experiment(user_id: str, experiment_id: str) -> dict:
     return to_summary(await reconcile(row))
 
 
+def _resolve_run(row: Mapping[str, Any], run: str | None) -> int:
+    """``?run=N`` -> a run number in ``[1, latest]``; default the latest."""
+    latest = latest_run(row)
+    if run is None or run == "":
+        return latest
+    try:
+        n = int(run)
+    except ValueError:
+        n = 0
+    if not 1 <= n <= latest:
+        raise _error(400, "invalid_run", f"run must be in [1, {latest}]")
+    return n
+
+
+def _run_entry(row: Mapping[str, Any], run: int) -> dict:
+    runs = traffic_runs_of(row)
+    return runs[run - 1] if 0 < run <= len(runs) else {}
+
+
 @router.get("/experiments/{user_id}/{experiment_id}/metrics")
-async def http_get_metrics(user_id: str, experiment_id: str) -> dict:
+async def http_get_metrics(
+    user_id: str, experiment_id: str, run: str | None = None
+) -> dict:
     row = await _owned(user_id, experiment_id)
+    n = _resolve_run(row, run)
     _kick_finish_check(row)
-    rows = await _STORE.metrics_rows(experiment_id)
+    rows = await _STORE.metrics_rows(experiment_id, run=n)
     arm_order = [a.get("creativeId") for a in row.get("arms") or []]
-    return aggregate_episode_metrics(rows, experiment_id, arm_order=arm_order)
+    body = aggregate_episode_metrics(rows, experiment_id, arm_order=arm_order)
+    return {**body, "run": n}
 
 
-def _series_cache_get(experiment_id: str) -> dict | None:
-    hit = _SERIES_CACHE.get(experiment_id)
+def _series_cache_get(key: str) -> dict | None:
+    hit = _SERIES_CACHE.get(key)
     if hit is None:
         return None
     expires_at, body = hit
     if expires_at is not None and time.monotonic() >= expires_at:
-        _SERIES_CACHE.pop(experiment_id, None)
+        _SERIES_CACHE.pop(key, None)
         return None
-    _SERIES_CACHE.move_to_end(experiment_id)
+    _SERIES_CACHE.move_to_end(key)
     return body
 
 
-def _series_cache_put(experiment_id: str, status: str, body: dict) -> None:
-    if status in SERIES_FINAL_STATUSES:
+def _series_cache_put(key: str, status: str, body: dict, final: bool = False) -> None:
+    """Cache ``body`` forever when its data is final (a stopped/expired experiment,
+    or ``final``: an earlier run once a newer one exists), 30 s while traffic runs."""
+    if final or status in SERIES_FINAL_STATUSES:
         expires_at = None
     elif status == "running_traffic":
         expires_at = time.monotonic() + SERIES_LIVE_TTL_SECONDS
     else:
         return
-    _SERIES_CACHE[experiment_id] = (expires_at, body)
-    _SERIES_CACHE.move_to_end(experiment_id)
+    _SERIES_CACHE[key] = (expires_at, body)
+    _SERIES_CACHE.move_to_end(key)
     while len(_SERIES_CACHE) > SERIES_CACHE_MAX:
         _SERIES_CACHE.popitem(last=False)
 
 
 @router.get("/experiments/{user_id}/{experiment_id}/creatives")
-async def http_get_creative_series(user_id: str, experiment_id: str) -> dict:
-    """Per-creative windowed time series from ``bandit_events`` (contracts §8)."""
+async def http_get_creative_series(
+    user_id: str, experiment_id: str, run: str | None = None
+) -> dict:
+    """Per-creative windowed time series from ``bandit_events`` (contracts §8) for
+    traffic run ``run`` (default the latest), with ``regimes`` when it has shifts."""
     row = await _owned(user_id, experiment_id)
+    n = _resolve_run(row, run)
     _kick_finish_check(row)
-    cached = _series_cache_get(experiment_id)
+    key = f"{experiment_id}:r{n}"
+    cached = _series_cache_get(key)
     if cached is not None:
         return cached
-    raw = await _STORE.creative_series_rows(experiment_id)
+    entry = _run_entry(row, n)
+    horizon = entry.get("horizon")
+    boundaries = shift_boundaries(entry.get("shifts"), horizon)
+    raw = await _STORE.creative_series_rows(experiment_id, run=n, boundaries=boundaries)
     body = build_creative_series(
         raw.get("series", []),
         raw.get("segments", []),
@@ -1307,8 +1667,14 @@ async def http_get_creative_series(user_id: str, experiment_id: str) -> dict:
         experiment_id=experiment_id,
         creative_segment_rows=raw.get("creative_segments", []),
         reward_mode=str(row.get("reward_mode") or "click"),
+        regime_rows=raw.get("regimes", []),
+        boundaries=boundaries,
+        regime_horizon=int(horizon) if horizon else None,
     )
-    _series_cache_put(experiment_id, str(row.get("status") or ""), body)
+    body["run"] = n
+    _series_cache_put(
+        key, str(row.get("status") or ""), body, final=n < latest_run(row)
+    )
     return body
 
 
@@ -1323,7 +1689,19 @@ async def http_start_traffic(
         lo, hi = HORIZON_RANGE
         if not lo <= body.horizon <= hi:
             raise _error(400, "invalid_horizon", f"horizon must be in [{lo}, {hi}]")
+    if body.forget is not None and not isinstance(body.forget, bool):
+        raise _error(400, "invalid_forget", "forget must be true, false or null")
     row = await reconcile(await _owned(user_id, experiment_id))
+    try:
+        shifts = validate_shifts(
+            str(row.get("scenario") or ""),
+            str(row.get("ctr_mode") or "demo"),
+            row.get("arms") or [],
+            body.shifts,
+        )
+    except ShiftsError as exc:
+        raise _error(400, "invalid_shifts", str(exc), field=exc.field) from exc
+    forget = bool(shifts) if body.forget is None else body.forget
     if (
         row["status"] != "ready"
         or is_expired(row, _utcnow())
@@ -1337,6 +1715,38 @@ async def http_start_traffic(
         )
     _TRAFFIC_STARTING.add(experiment_id)
     try:
+        previous = traffic_runs_of(row)
+        if previous and not previous[-1].get("status"):
+            # Freeze the finished run's status: the row only describes the newest.
+            previous[-1]["status"] = _latest_run_status(row)
+        run = len(previous) + 1
+        started_at = _iso(_utcnow())
+        horizon = body.horizon or _SETTINGS.default_horizon
+        base = _artifact_uri(row) or f"{_SETTINGS.artifacts_prefix}/{experiment_id}"
+        record_uri = f"{base}/runs/{run}.json"
+        record = {
+            "experiment_id": experiment_id,
+            "run": run,
+            "started_at": started_at,
+            "episodes": body.episodes,
+            "horizon": horizon,
+            "forget": forget,
+            "shifts": shifts,
+            "request": {
+                "episodes": body.episodes,
+                "horizon": body.horizon,
+                "shifts": body.shifts,
+                "forget": body.forget,
+            },
+        }
+        writer = _SETTINGS.config_writer or MemoryConfigWriter()
+        try:
+            await writer(record_uri, record)
+        except Exception as exc:
+            log.exception("bandit run record %s failed", record_uri)
+            raise _error(
+                502, "config_write_failed", "could not write the traffic run record"
+            ) from exc
         try:
             execution = await _JOBS.run(
                 experiment_id=experiment_id,
@@ -1344,18 +1754,34 @@ async def http_start_traffic(
                 endpoint_id=row["endpoint_id"],
                 episodes=body.episodes,
                 horizon=body.horizon,
+                traffic_run=run,
+                forget=forget,
+                shifts=shifts or None,
             )
         except Exception as exc:
             log.exception("bandit traffic start %s failed", experiment_id)
             raise _error(
                 502, "traffic_start_failed", "could not start the traffic job"
             ) from exc
+        entry = {
+            "run": run,
+            "started_at": started_at,
+            "episodes": body.episodes,
+            "horizon": horizon,
+            "forget": forget,
+            "shifts": shifts,
+            "execution": execution,
+        }
         updated, applied = await _transition(
             experiment_id,
             "traffic_started",
+            # Another process started a run since our read: don't overwrite its
+            # traffic_runs entry (the job we started is then answered with a 409).
+            expect={"traffic_execution": row.get("traffic_execution")},
             traffic_execution=execution,
             progress={"episodes_done": 0, "episodes_total": body.episodes},
             error=None,
+            traffic_runs=[*previous, entry],
         )
         if applied:
             _TRAFFIC_WATCH.add(experiment_id)
@@ -1368,7 +1794,7 @@ async def http_start_traffic(
             "the experiment changed state while starting traffic",
             status=(updated or row)["status"],
         )
-    return {"status": "running_traffic", "execution": execution}
+    return {"status": "running_traffic", "execution": execution, "run": run}
 
 
 @router.post("/experiments/{user_id}/{experiment_id}/stop")

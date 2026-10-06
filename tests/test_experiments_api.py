@@ -445,8 +445,9 @@ def test_is_expired_and_to_summary():
         "experimentId", "userId", "sessionId", "appName", "createdAt", "updatedAt",
         "status", "scenario", "ctrMode", "rewardMode", "ttlExpiresAt", "arms",
         "endpointId", "trafficExecution", "progress", "error", "scenarioOverrides",
-        "policyDiscount",
+        "policyDiscount", "trafficRuns",
     }  # fmt: skip
+    assert s["trafficRuns"] == []
     assert s["scenarioOverrides"] is None
     assert s["policyDiscount"] == 1.0
     assert ex.to_summary({**row, "policy_discount": 0.98})["policyDiscount"] == 0.98
@@ -654,8 +655,12 @@ def test_traffic_refused_unless_ready_then_starts_job():
         "endpoint_id": h.store.rows[eid]["endpoint_id"],
         "episodes": 5,
         "horizon": 5000,
+        "traffic_run": 1,
+        "forget": False,
+        "shifts": None,
         "execution": ok.json()["execution"],
     }
+    assert ok.json()["run"] == 1
     assert again.status_code == 409
     assert running["status"] == "running_traffic"
     assert running["trafficExecution"] == ok.json()["execution"]

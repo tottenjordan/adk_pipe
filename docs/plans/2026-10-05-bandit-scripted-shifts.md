@@ -1,6 +1,6 @@
 # Scripted behaviour shifts: steer the simulated readers during a traffic run
 
-> **Status:** IN PROGRESS (2026-10-05). PR A (bandit core, `feat/bandit-shifts-core`) in progress; PR B (traffic job + predictor, `feat/bandit-shifts-traffic`) in progress; PRs C–D not started.
+> **Status:** COMPLETE (2026-10-06). #243 (bandit core), #244 (traffic job + predictor, incl. exact endpoint↔simulator LinTS parity), #248 (api), #249 (frontend) merged and rolled out: BigQuery columns added (events/metrics before the traffic image, `traffic_runs` after the api), CPR + traffic images `60b58c7`, api `00152-cuw`, web `00038-zlv`. Live end-to-end run with shifts done (experiment `ad8df4f0e8f14d14`: run 1 forgetting on, run 2 off). Docs done (README, frontend/README, CLAUDE.md, bandit guide + screenshots 18/19); the experiments journey GIF is not being extended (not needed, per the user).
 
 ## Context
 The deep research (2026-10-05) recommended a forward-only, scripted shift timeline as phase 1 of "orient and influence the simulation". Live "apply now" steering comes later.

@@ -240,6 +240,15 @@ From a finished creative run, the results page's Deploy panel turns 2–4 approv
   </tr>
 </table>
 
+**Behaviour shifts.** A traffic run can also script up to four changes in what the readers want: promote a challenger, demote the leader, shift the audience mix, or a temporary shock. They apply to the endpoint and every baseline alike. A dashed ghost line replays Linear TS on the same readers without the shifts, and each shift gets a result card showing how long the endpoint took to recover. Traffic runs are numbered, so you can rerun the same endpoint with a different script (for example with forgetting on, then off) and switch between runs. See [scripted behaviour shifts](docs/bandit/README.md#scripted-behaviour-shifts).
+
+<table>
+  <tr>
+    <td align="center"><a href="docs/screenshots/18-shift-timeline.png"><img src="docs/screenshots/18-shift-timeline.png" alt="Shift editor with two shifts on the run timeline and the period-by-period preview" width="420"></a><br><sub>Shift editor: timeline pins and the period-by-period preview</sub></td>
+    <td align="center"><a href="docs/screenshots/19-shift-results.png"><img src="docs/screenshots/19-shift-results.png" alt="Shift results with result cards, shift markers and the ghost line" width="420"></a><br><sub>Shift results: recovery cards, shift markers and the ghost line</sub></td>
+  </tr>
+</table>
+
 ## Evaluation
 
 `creative_eval` runs automatically at the end of every `creative_agent` and `interactive_creative` run. It is an LLM-as-judge: each creative gets its own concurrent judge call with structured output.

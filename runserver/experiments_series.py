@@ -7,7 +7,10 @@ Inputs are the raw rows of the four ``runserver.experiments_store`` series queri
 - ``true_rows``: ``(arm, true_ctr)`` (``build_true_ctr_sql``);
 - ``creative_segment_rows``: one per (arm, segment) with ``impressions``,
   ``clicks``, ``p_sum``, ``p_n``, ``regret_sum``, ``dwell_sum``
-  (``build_creative_segments_sql``).
+  (``build_creative_segments_sql``);
+- ``regime_rows`` (traffic runs with shifts, contracts §8/§10): one per
+  (regime, segment, optimal_arm, arm) with ``impressions``, ``clicks``,
+  ``p_sum``, ``p_n`` (``build_regimes_sql``).
 
 Per window: ``share`` is the mean across episodes of each episode's share of that
 window's impressions (normalized to sum to 1 across creatives); ``ctr`` is pooled
@@ -16,8 +19,9 @@ cumulative clicks per episode at the window end. Per creative, ``segments`` is t
 per-segment breakdown (the same sorted segment list for every creative, zero rows
 included), ``missedClicks`` the mean per-episode ``SUM(regret)`` and
 ``engagedSecondsPer1k`` the dwell seconds per 1000 impressions (``engaged`` reward
-mode only). Pure Python: the api image has no
-numpy/JAX.
+mode only). ``regimes`` splits the per-segment winners and the per-creative CTRs at
+the run's shift (and shock-end) rounds; ``[]`` for a run without shifts. Pure
+Python: the api image has no numpy/JAX.
 """
 
 from __future__ import annotations
@@ -142,6 +146,102 @@ def _segment_fields(
     return out
 
 
+def _zero_cell() -> dict[str, float]:
+    return {"impressions": 0, "clicks": 0, "p_sum": 0.0, "p_n": 0}
+
+
+def _add(cell: dict[str, float], row: Mapping[str, Any]) -> None:
+    cell["impressions"] += int(row.get("impressions") or 0)
+    cell["clicks"] += int(row.get("clicks") or 0)
+    cell["p_sum"] += float(row.get("p_sum") or 0.0)
+    cell["p_n"] += int(row.get("p_n") or 0)
+
+
+def build_regimes(
+    regime_rows: Iterable[Mapping[str, Any]],
+    boundaries: Sequence[int],
+    horizon: int,
+    order: Sequence[str],
+) -> list[dict]:
+    """Contracts §8 ``regimes``: one entry per ``[start, end)`` round range between
+    the sorted ``boundaries`` (regime ``k`` = ``RANGE_BUCKET`` index ``k``), each
+    with the per-segment optimal creative (most frequent ``optimal_arm``, ties to
+    the lowest id) and per-creative totals, pooled over episodes. Every regime
+    lists every creative in ``order`` and the same sorted segment list."""
+    bounds = sorted({int(b) for b in boundaries if 0 < int(b) < horizon})
+    edges = [0, *bounds, horizon]
+    totals: dict[tuple[int, str], dict[str, float]] = defaultdict(_zero_cell)
+    by_seg: dict[tuple[int, str, str], dict[str, float]] = defaultdict(_zero_cell)
+    votes: dict[int, list[dict]] = defaultdict(list)
+    segs: set[str] = set()
+    for row in regime_rows:
+        if row.get("arm") is None or row.get("regime") is None:
+            continue
+        k, cid, seg = int(row["regime"]), str(row["arm"]), row.get("segment")
+        _add(totals[(k, cid)], row)
+        if seg is None:
+            continue
+        segs.add(str(seg))
+        _add(by_seg[(k, cid, str(seg))], row)
+        votes[k].append(
+            {
+                "segment": seg,
+                "optimal_arm": row.get("optimal_arm"),
+                "n": row.get("impressions"),
+            }
+        )
+
+    def stats(cell: Mapping[str, float]) -> dict[str, Any]:
+        imps, clicks, p_n = (
+            int(cell.get("impressions", 0)),
+            int(cell.get("clicks", 0)),
+            int(cell.get("p_n", 0)),
+        )
+        return {
+            "impressions": imps,
+            "clicks": clicks,
+            "ctr": _r(clicks / imps) if imps else None,
+            "trueCtr": _r(cell.get("p_sum", 0.0) / p_n) if p_n else None,
+        }
+
+    out = []
+    for k, (start, end) in enumerate(zip(edges[:-1], edges[1:], strict=True)):
+        winners = segment_winners(votes.get(k, []))
+        total = sum(
+            int(totals.get((k, cid), {}).get("impressions", 0)) for cid in order
+        )
+        creatives = []
+        for cid in order:
+            tot = stats(totals.get((k, cid), {}))
+            creatives.append(
+                {
+                    "creativeId": cid,
+                    **tot,
+                    "share": _r(tot["impressions"] / total) if total else 0.0,
+                    "segmentsWon": sorted(s for s, a in winners.items() if a == cid),
+                    "segments": [
+                        {
+                            "segment": seg,
+                            **stats(by_seg.get((k, cid, seg), {})),
+                            "isBest": winners.get(seg) == cid,
+                        }
+                        for seg in sorted(segs)
+                    ],
+                }
+            )
+        out.append(
+            {
+                "index": k,
+                "start": start,
+                "end": end,
+                "impressions": total,
+                "segmentWinners": dict(sorted(winners.items())),
+                "creatives": creatives,
+            }
+        )
+    return out
+
+
 def build_creative_series(
     rows: Iterable[Mapping[str, Any]],
     segment_rows: Iterable[Mapping[str, Any]],
@@ -151,18 +251,30 @@ def build_creative_series(
     experiment_id: str = "",
     creative_segment_rows: Iterable[Mapping[str, Any]] = (),
     reward_mode: str = "click",
+    regime_rows: Iterable[Mapping[str, Any]] = (),
+    boundaries: Sequence[int] = (),
+    regime_horizon: int | None = None,
 ) -> dict:
     """The §8 ``CreativeSeries`` (camelCase), creatives ordered by ``finalShare``
     desc (ties keep the experiment's arm order). ``arms`` is the experiment row's
     §5 arm list (or bare creative ids); arms seen only in the events are appended.
     ``reward_mode`` is the experiment's (``engaged`` enables
-    ``engagedSecondsPer1k``)."""
+    ``engagedSecondsPer1k``). ``boundaries`` (the run's shift and shock-end
+    rounds) and ``regime_horizon`` (the run's horizon; default: the events')
+    split ``regime_rows`` into ``regimes`` (``[]`` without boundaries)."""
     rows = list(rows)
     seg_rows = list(creative_segment_rows)
+    reg_rows = list(regime_rows)
     order = _arm_ids(arms)
-    for row in [*rows, *seg_rows]:
+    for row in [*rows, *seg_rows, *reg_rows]:
         if row.get("arm") is not None and str(row["arm"]) not in order:
             order.append(str(row["arm"]))
+    reg_horizon = regime_horizon or (int(rows[0]["horizon"]) if rows else None)
+    regimes = (
+        build_regimes(reg_rows, boundaries, reg_horizon, order)
+        if boundaries and reg_horizon
+        else []
+    )
     if not rows:
         return {
             "experimentId": experiment_id,
@@ -170,6 +282,7 @@ def build_creative_series(
             "horizon": None,
             "windows": [],
             "creatives": [_empty_creative(cid) for cid in order],
+            "regimes": regimes,
         }
 
     horizon = int(rows[0]["horizon"])
@@ -248,4 +361,5 @@ def build_creative_series(
         "horizon": horizon,
         "windows": _windows(horizon, n),
         "creatives": creatives,
+        "regimes": regimes,
     }

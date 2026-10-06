@@ -21,7 +21,15 @@ The lease columns are only ever written by those statements, never by ``upsert``
 
 **Rolling-deploy safety:** a row fetched from a table migrated by a newer revision
 can carry columns this code doesn't know. A partial ``upsert`` drops (and logs once)
-unknown columns it isn't writing; only writing an unknown column raises.
+unknown columns it isn't writing; only writing an unknown column raises. The
+reverse (this code ahead of the migration) is tolerated for the §10 columns:
+an upsert naming ``traffic_runs`` on an unmigrated table is retried without it
+(logged), and a ``traffic_run`` filter on unmigrated ``bandit_events`` /
+``bandit_episode_metrics`` falls back to every row being run 1.
+
+**Traffic runs** (contracts §10): every metrics/events read takes an optional
+``run``; legacy rows with a NULL ``traffic_run`` count as run 1
+(``IFNULL(traffic_run, 1) = @traffic_run``). ``run=None`` reads every row.
 """
 
 from __future__ import annotations
@@ -32,6 +40,7 @@ import datetime as dt
 import json
 import logging
 import os
+from bisect import bisect_right
 from collections import Counter, defaultdict
 from collections.abc import Callable, Iterable
 from typing import Any, Protocol
@@ -75,8 +84,15 @@ EXPERIMENT_COLUMN_TYPES = {
     "deploy_lease_owner": "STRING",
     # The endpoint's LinTS discount γ (2026-10-05); written only when < 1 (drift).
     "policy_discount": "FLOAT",
+    # Numbered traffic runs (contracts §10, 2026-10-05): JSON list, one entry per run.
+    "traffic_runs": "STRING",
 }
-JSON_COLUMNS = ("arms", "progress", "scenario_overrides")
+JSON_COLUMNS = ("arms", "progress", "scenario_overrides", "traffic_runs")
+# Columns an upsert may drop (with an error log) when BigQuery says the table
+# doesn't have them yet: the api can deploy before the §10 migration runs.
+OPTIONAL_COLUMNS = ("traffic_runs",)
+# The bandit_events / bandit_episode_metrics run column (contracts §10).
+RUN_COLUMN = "traffic_run"
 # Never rewritten by an update: the key and the creation time.
 _IMMUTABLE = ("experiment_id", "created_at")
 LIST_LIMIT = 100
@@ -98,7 +114,11 @@ class ExperimentStore(Protocol):
         """Every experiment in an ``ACTIVE_STATUSES`` status (the reaper's scan)."""
         ...
 
-    async def metrics_rows(self, experiment_id: str) -> list[dict]: ...
+    async def metrics_rows(
+        self, experiment_id: str, run: int | None = None
+    ) -> list[dict]:
+        """``bandit_episode_metrics`` rows of traffic run ``run`` (None: all)."""
+        ...
 
     async def acquire_deploy_lease(
         self, experiment_id: str, owner: str, ttl_seconds: int
@@ -116,10 +136,16 @@ class ExperimentStore(Protocol):
         """Clear the lease if ``owner`` still holds it."""
         ...
 
-    async def creative_series_rows(self, experiment_id: str) -> dict[str, list[dict]]:
+    async def creative_series_rows(
+        self,
+        experiment_id: str,
+        run: int | None = None,
+        boundaries: Iterable[int] = (),
+    ) -> dict[str, list[dict]]:
         """Raw ``bandit_events`` aggregates for contracts §8: ``{"series": ...,
-        "segments": ..., "true_ctr": ..., "creative_segments": ...}`` (the four
-        builders' row shapes)."""
+        "segments": ..., "true_ctr": ..., "creative_segments": ..., "regimes":
+        ...}`` (the five builders' row shapes; ``regimes`` is ``[]`` without
+        ``boundaries``), restricted to traffic run ``run``."""
         ...
 
 
@@ -311,20 +337,38 @@ def build_list_active_sql(
     ]
 
 
+def _run_filter(run: int | None) -> str:
+    """The traffic-run predicate (legacy NULL rows are run 1), or nothing."""
+    return "" if run is None else f" AND IFNULL({RUN_COLUMN}, 1) = @traffic_run"
+
+
+def _run_params(run: int | None) -> list[bigquery.ScalarQueryParameter]:
+    if run is None:
+        return []
+    return [bigquery.ScalarQueryParameter("traffic_run", "INT64", int(run))]
+
+
+def row_run(row: dict) -> int:
+    """A metrics/events row's traffic run (NULL / missing -> 1)."""
+    value = row.get(RUN_COLUMN)
+    return 1 if value is None else int(value)
+
+
 def build_metrics_sql(
-    table: str, experiment_id: str
+    table: str, experiment_id: str, run: int | None = None
 ) -> tuple[str, list[bigquery.ScalarQueryParameter]]:
     sql = (
-        f"SELECT * FROM `{table}` WHERE experiment_id = @experiment_id "
-        "ORDER BY episode, policy"
+        f"SELECT * FROM `{table}` WHERE experiment_id = @experiment_id"
+        f"{_run_filter(run)} ORDER BY episode, policy"
     )
     return sql, [
-        bigquery.ScalarQueryParameter("experiment_id", "STRING", experiment_id)
+        bigquery.ScalarQueryParameter("experiment_id", "STRING", experiment_id),
+        *_run_params(run),
     ]
 
 
 def _series_params(
-    experiment_id: str, windows: int | None = None
+    experiment_id: str, windows: int | None = None, run: int | None = None
 ) -> list[bigquery.ScalarQueryParameter]:
     params = [
         bigquery.ScalarQueryParameter("experiment_id", "STRING", experiment_id),
@@ -332,11 +376,14 @@ def _series_params(
     ]
     if windows is not None:
         params.append(bigquery.ScalarQueryParameter("windows", "INT64", windows))
-    return params
+    return params + _run_params(run)
 
 
 def build_creative_series_sql(
-    table: str, experiment_id: str, windows: int = SERIES_WINDOWS
+    table: str,
+    experiment_id: str,
+    windows: int = SERIES_WINDOWS,
+    run: int | None = None,
 ) -> tuple[str, list[bigquery.ScalarQueryParameter]]:
     """Per (arm, episode, window) impressions / clicks over ``bandit_events`` (pure).
 
@@ -351,7 +398,7 @@ def build_creative_series_sql(
         WITH ev AS (
             SELECT arm, episode, round, clicked
             FROM `{table}`
-            WHERE experiment_id = @experiment_id AND policy = @policy
+            WHERE experiment_id = @experiment_id AND policy = @policy{_run_filter(run)}
         ),
         h AS (
             SELECT MAX(round) + 1 AS horizon,
@@ -370,37 +417,37 @@ def build_creative_series_sql(
         GROUP BY arm, episode, win
         ORDER BY arm, episode, win
         """
-    return sql, _series_params(experiment_id, windows)
+    return sql, _series_params(experiment_id, windows, run)
 
 
 def build_segment_winners_sql(
-    table: str, experiment_id: str
+    table: str, experiment_id: str, run: int | None = None
 ) -> tuple[str, list[bigquery.ScalarQueryParameter]]:
     """``optimal_arm`` frequency per segment (the argmax is picked in Python)."""
     sql = f"""
         SELECT segment, optimal_arm, COUNT(*) AS n
         FROM `{table}`
-        WHERE experiment_id = @experiment_id AND policy = @policy
+        WHERE experiment_id = @experiment_id AND policy = @policy{_run_filter(run)}
         GROUP BY segment, optimal_arm
         """
-    return sql, _series_params(experiment_id)
+    return sql, _series_params(experiment_id, run=run)
 
 
 def build_true_ctr_sql(
-    table: str, experiment_id: str
+    table: str, experiment_id: str, run: int | None = None
 ) -> tuple[str, list[bigquery.ScalarQueryParameter]]:
     """Simulator-truth CTR per arm: the mean ``p_chosen`` when it was chosen."""
     sql = f"""
         SELECT arm, AVG(p_chosen) AS true_ctr
         FROM `{table}`
-        WHERE experiment_id = @experiment_id AND policy = @policy
+        WHERE experiment_id = @experiment_id AND policy = @policy{_run_filter(run)}
         GROUP BY arm
         """
-    return sql, _series_params(experiment_id)
+    return sql, _series_params(experiment_id, run=run)
 
 
 def build_creative_segments_sql(
-    table: str, experiment_id: str
+    table: str, experiment_id: str, run: int | None = None
 ) -> tuple[str, list[bigquery.ScalarQueryParameter]]:
     """Per (arm, segment) totals over all episodes (pure).
 
@@ -419,21 +466,93 @@ def build_creative_segments_sql(
             SUM(IFNULL(regret, 0)) AS regret_sum,
             SUM(IFNULL(dwell_s, 0)) AS dwell_sum
         FROM `{table}`
-        WHERE experiment_id = @experiment_id AND policy = @policy
+        WHERE experiment_id = @experiment_id AND policy = @policy{_run_filter(run)}
         GROUP BY arm, segment
         ORDER BY arm, segment
         """
-    return sql, _series_params(experiment_id)
+    return sql, _series_params(experiment_id, run=run)
+
+
+def regime_boundaries(
+    boundaries: Iterable[int], horizon: int | None = None
+) -> list[int]:
+    """Sorted unique boundary rounds strictly inside ``(0, horizon)`` (``RANGE_BUCKET``
+    needs a sorted array; edge rounds would only add empty regimes)."""
+    return sorted(
+        {
+            int(b)
+            for b in boundaries
+            if int(b) > 0 and (horizon is None or int(b) < horizon)
+        }
+    )
+
+
+def build_regimes_sql(
+    table: str,
+    experiment_id: str,
+    boundaries: Iterable[int],
+    run: int | None = None,
+) -> tuple[str, list[bigquery.ScalarQueryParameter | bigquery.ArrayQueryParameter]]:
+    """Per (regime, segment, optimal_arm, arm) totals for contracts §8 ``regimes``
+    (pure). ``regime = RANGE_BUCKET(round, @boundaries)``: the number of boundary
+    rounds ``<= round``, so regime ``k`` is ``[b[k-1], b[k])`` (``b[-1] = 0``,
+    ``b[n] = horizon``). ``boundaries`` are the run's shift and shock-end rounds
+    (``regime_boundaries``), passed as an ``ARRAY<INT64>`` parameter."""
+    bounds = regime_boundaries(boundaries)
+    if not bounds:
+        raise ValueError("boundaries must hold at least one round > 0")
+    sql = f"""
+        SELECT
+            RANGE_BUCKET(round, @boundaries) AS regime,
+            segment,
+            optimal_arm,
+            arm,
+            COUNT(*) AS impressions,
+            SUM(IFNULL(clicked, 0)) AS clicks,
+            SUM(p_chosen) AS p_sum,
+            COUNT(p_chosen) AS p_n
+        FROM `{table}`
+        WHERE experiment_id = @experiment_id AND policy = @policy{_run_filter(run)}
+        GROUP BY regime, segment, optimal_arm, arm
+        ORDER BY regime, segment, optimal_arm, arm
+        """
+    params: list[bigquery.ScalarQueryParameter | bigquery.ArrayQueryParameter] = [
+        *_series_params(experiment_id, run=run),
+        bigquery.ArrayQueryParameter("boundaries", "INT64", bounds),
+    ]
+    return sql, params
+
+
+def _empty_series_rows() -> dict[str, list[dict]]:
+    return {
+        "series": [],
+        "segments": [],
+        "true_ctr": [],
+        "creative_segments": [],
+        "regimes": [],
+    }
 
 
 def series_rows_from_events(
-    events: Iterable[dict], windows: int = SERIES_WINDOWS
+    events: Iterable[dict],
+    windows: int = SERIES_WINDOWS,
+    run: int | None = None,
+    boundaries: Iterable[int] = (),
 ) -> dict[str, list[dict]]:
-    """The four §8 queries evaluated over in-memory ``bandit_events`` rows (same
-    semantics as the SQL builders; used by ``InMemoryExperimentStore``)."""
-    evs = [e for e in events if e.get("policy") == SERIES_POLICY]
+    """The five §8 queries evaluated over in-memory ``bandit_events`` rows (same
+    semantics as the SQL builders, including the ``run`` filter; used by
+    ``InMemoryExperimentStore``)."""
+    evs = [
+        e
+        for e in events
+        if e.get("policy") == SERIES_POLICY and (run is None or row_run(e) == run)
+    ]
     if not evs:
-        return {"series": [], "segments": [], "true_ctr": [], "creative_segments": []}
+        return _empty_series_rows()
+    bounds = regime_boundaries(boundaries)
+    regimes: dict[tuple, dict[str, Any]] = defaultdict(
+        lambda: {"impressions": 0, "clicks": 0, "p_sum": None, "p_n": 0}
+    )
     horizon = max(int(e["round"]) for e in evs) + 1
     nw = min(windows, horizon)
     cells: dict[tuple, list[int]] = defaultdict(lambda: [0, 0])
@@ -467,6 +586,19 @@ def series_rows_from_events(
             cs["p_n"] += 1
         cs["regret_sum"] += float(e.get("regret") or 0.0)
         cs["dwell_sum"] += float(e.get("dwell_s") or 0.0)
+        if bounds:
+            key = (
+                bisect_right(bounds, int(e["round"])),  # == RANGE_BUCKET
+                e.get("segment"),
+                e.get("optimal_arm"),
+                e["arm"],
+            )
+            rc = regimes[key]
+            rc["impressions"] += 1
+            rc["clicks"] += int(e.get("clicked") or 0)
+            if e.get("p_chosen") is not None:
+                rc["p_sum"] = (rc["p_sum"] or 0.0) + float(e["p_chosen"])
+                rc["p_n"] += 1
     return {
         "series": [
             {
@@ -490,6 +622,10 @@ def series_rows_from_events(
         "creative_segments": [
             {"arm": arm, "segment": segment, **cell}
             for (arm, segment), cell in by_seg.items()
+        ],
+        "regimes": [
+            {"regime": k, "segment": seg, "optimal_arm": opt, "arm": arm, **cell}
+            for (k, seg, opt, arm), cell in regimes.items()
         ],
     }
 
@@ -565,7 +701,46 @@ class BigQueryExperimentStore:
         await self._lease_dml(build_release_lease_sql(table, experiment_id, owner))
 
     async def upsert(self, row: dict, fields: Iterable[str] | None = None) -> None:
-        await self._run(build_upsert_sql(self.tables["experiments"], row, fields))
+        """MERGE ``row``; an ``OPTIONAL_COLUMNS`` column BigQuery doesn't know yet
+        (the api deployed before the §10 migration) is dropped with an error log
+        and the MERGE retried, so traffic still starts on an unmigrated table."""
+        from google.api_core import exceptions as gexc
+
+        table = self.tables["experiments"]
+        try:
+            await self._run(build_upsert_sql(table, row, fields))
+            return
+        except gexc.BadRequest as exc:
+            missing = [c for c in OPTIONAL_COLUMNS if c in str(exc) and c in row]
+            if not missing:
+                raise
+        log.error(
+            "bandit_experiments has no %s column: not recording it until the "
+            "migration runs (deployment/README.md)",
+            ", ".join(missing),
+        )
+        row = {k: v for k, v in row.items() if k not in missing}
+        if fields is not None:
+            fields = [f for f in fields if f not in missing]
+        await self._run(build_upsert_sql(table, row, fields))
+
+    async def _run_scoped(
+        self, build: Callable[[int | None], tuple[str, list]], run: int | None
+    ) -> list[dict]:
+        """Run a ``run``-filtered read; on a table without ``traffic_run`` (before
+        the §10 migration every row is run 1) retry unfiltered for run 1, else
+        there is nothing to read."""
+        from google.api_core import exceptions as gexc
+
+        try:
+            return await self._run(build(run))
+        except gexc.BadRequest as exc:
+            if run is None or RUN_COLUMN not in str(exc):
+                raise
+        log.warning(
+            "bandit tables have no %s column yet: every row is run 1", RUN_COLUMN
+        )
+        return await self._run(build(None)) if run == 1 else []
 
     async def get(self, experiment_id: str) -> dict | None:
         rows = await self._run(build_get_sql(self.tables["experiments"], experiment_id))
@@ -579,22 +754,51 @@ class BigQueryExperimentStore:
         rows = await self._run(build_list_active_sql(self.tables["experiments"]))
         return [decode_row(r) for r in rows]
 
-    async def metrics_rows(self, experiment_id: str) -> list[dict]:
-        return await self._run(build_metrics_sql(self.tables["metrics"], experiment_id))
+    async def metrics_rows(
+        self, experiment_id: str, run: int | None = None
+    ) -> list[dict]:
+        table = self.tables["metrics"]
+        return await self._run_scoped(
+            lambda r: build_metrics_sql(table, experiment_id, r), run
+        )
 
-    async def creative_series_rows(self, experiment_id: str) -> dict[str, list[dict]]:
+    async def creative_series_rows(
+        self,
+        experiment_id: str,
+        run: int | None = None,
+        boundaries: Iterable[int] = (),
+    ) -> dict[str, list[dict]]:
         table = self.tables["events"]
-        series, segments, true_ctr, creative_segments = await asyncio.gather(
-            self._run(build_creative_series_sql(table, experiment_id)),
-            self._run(build_segment_winners_sql(table, experiment_id)),
-            self._run(build_true_ctr_sql(table, experiment_id)),
-            self._run(build_creative_segments_sql(table, experiment_id)),
+        bounds = regime_boundaries(boundaries)
+
+        async def no_regimes() -> list[dict]:
+            return []
+
+        series, segments, true_ctr, creative_segments, regimes = await asyncio.gather(
+            self._run_scoped(
+                lambda r: build_creative_series_sql(table, experiment_id, run=r), run
+            ),
+            self._run_scoped(
+                lambda r: build_segment_winners_sql(table, experiment_id, r), run
+            ),
+            self._run_scoped(
+                lambda r: build_true_ctr_sql(table, experiment_id, r), run
+            ),
+            self._run_scoped(
+                lambda r: build_creative_segments_sql(table, experiment_id, r), run
+            ),
+            self._run_scoped(
+                lambda r: build_regimes_sql(table, experiment_id, bounds, r), run
+            )
+            if bounds
+            else no_regimes(),
         )
         return {
             "series": series,
             "segments": segments,
             "true_ctr": true_ctr,
             "creative_segments": creative_segments,
+            "regimes": regimes,
         }
 
 
@@ -639,8 +843,14 @@ class InMemoryExperimentStore:
             if r["status"] in ACTIVE_STATUSES
         ]
 
-    async def metrics_rows(self, experiment_id: str) -> list[dict]:
-        return copy.deepcopy(self.metrics.get(experiment_id, []))
+    async def metrics_rows(
+        self, experiment_id: str, run: int | None = None
+    ) -> list[dict]:
+        return [
+            copy.deepcopy(r)
+            for r in self.metrics.get(experiment_id, [])
+            if run is None or row_run(r) == run
+        ]
 
     # Lease: same semantics as the BigQuery UPDATEs; atomic because there is no
     # await between the check and the write.
@@ -675,5 +885,12 @@ class InMemoryExperimentStore:
             row["deploy_lease_until"] = None
             row["deploy_lease_owner"] = None
 
-    async def creative_series_rows(self, experiment_id: str) -> dict[str, list[dict]]:
-        return series_rows_from_events(self.events.get(experiment_id, []))
+    async def creative_series_rows(
+        self,
+        experiment_id: str,
+        run: int | None = None,
+        boundaries: Iterable[int] = (),
+    ) -> dict[str, list[dict]]:
+        return series_rows_from_events(
+            self.events.get(experiment_id, []), run=run, boundaries=boundaries
+        )

@@ -46,6 +46,18 @@ export const CHART_EXPLAIN = {
     "Compare the two click-rate columns: when the estimate sits close to the true rate, the endpoint has seen enough of that creative to judge it. Creatives with few impressions have looser estimates.",
 } as const;
 
+/** Runs with scripted shifts (contracts §10). */
+export const SHIFT_EXPLAIN = {
+  cards:
+    "Each card is one shift. The two numbers are how often the endpoint showed readers their best creative in the 2,000 rounds just before the shift and the 2,000 just after it. The round count is how long it took to regain most of its footing: until its best-creative rate over the trailing 1,000 rounds was back to 80% of the pre-shift level. That is most of the way back, not all of it. Read the interval, not just the mean: a wide one means episodes disagreed.",
+  markers:
+    "The vertical rules mark your shifts, so you can see each line react. A cumulative line bends rather than jumps, because it averages everything since the start. The dashed blue line is the endpoint on the same readers without your shifts: where it pulls away from the solid line, the shift cost reward.",
+  periods:
+    "With shifts, a creative can be best before a shift and lose that place after it. Switching periods shows each one on its own, so nothing here is a blend of the whole run.",
+  forgetting:
+    "Forgetting old evidence lets the endpoint recover from a shift faster, because readers from before the shift stop outvoting the new ones. The price is noisier estimates when nothing changes. Compare two runs, one with forgetting on and one off, in the run picker.",
+} as const;
+
 /** Background for the "why the endpoint trails" reading (experiment-insights.ts `why`). */
 export const TRAILING_EXPLAIN = {
   drift:

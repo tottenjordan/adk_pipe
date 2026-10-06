@@ -2,7 +2,8 @@
 
 ``CloudRunJobsRunner.run`` starts one execution of the traffic job with per-run
 container env overrides (``EXPERIMENT_ID``, ``CONFIG_URI``, ``ENDPOINT_ID``,
-``EPISODES``, ``HORIZON``) and returns the execution resource name without waiting
+``EPISODES``, ``HORIZON``, and per contracts §10 ``TRAFFIC_RUN``, ``FORGET`` and
+``SHIFTS_JSON``) and returns the execution resource name without waiting
 for it (the job can run for up to an hour). ``state`` maps an execution to
 ``running`` / ``succeeded`` / ``failed`` / ``unknown`` so the api can move a
 ``running_traffic`` experiment back to ``ready``. The google-cloud-run import is lazy.
@@ -12,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import itertools
+import json
 import os
 from collections.abc import Callable
 from typing import Any, Protocol
@@ -26,6 +28,9 @@ class JobsRunner(Protocol):
         endpoint_id: str,
         episodes: int,
         horizon: int | None = None,
+        traffic_run: int | None = None,
+        forget: bool | None = None,
+        shifts: list[dict] | None = None,
     ) -> str:
         """Start a traffic execution; returns its resource name."""
         ...
@@ -42,7 +47,14 @@ def build_env_overrides(
     endpoint_id: str,
     episodes: int,
     horizon: int | None,
+    traffic_run: int | None = None,
+    forget: bool | None = None,
+    shifts: list[dict] | None = None,
 ) -> list[dict[str, str]]:
+    """The job's per-execution env. ``shifts`` is the snake_case §10 job form
+    (``SHIFTS_JSON``, compact JSON, set only when non-empty); ``traffic_run`` is the
+    1-based run number (``TRAFFIC_RUN``) and ``forget`` the run's forgetting
+    switch (``FORGET=true|false``)."""
     env = {
         "EXPERIMENT_ID": experiment_id,
         "CONFIG_URI": config_uri,
@@ -51,6 +63,12 @@ def build_env_overrides(
     }
     if horizon is not None:
         env["HORIZON"] = str(horizon)
+    if traffic_run is not None:
+        env["TRAFFIC_RUN"] = str(int(traffic_run))
+    if forget is not None:
+        env["FORGET"] = "true" if forget else "false"
+    if shifts:
+        env["SHIFTS_JSON"] = json.dumps(shifts, separators=(",", ":"))
     return [{"name": k, "value": v} for k, v in env.items()]
 
 
@@ -117,6 +135,9 @@ class CloudRunJobsRunner:
         endpoint_id: str,
         episodes: int,
         horizon: int | None = None,
+        traffic_run: int | None = None,
+        forget: bool | None = None,
+        shifts: list[dict] | None = None,
     ) -> str:
         env = build_env_overrides(
             experiment_id=experiment_id,
@@ -124,6 +145,9 @@ class CloudRunJobsRunner:
             endpoint_id=endpoint_id,
             episodes=episodes,
             horizon=horizon,
+            traffic_run=traffic_run,
+            forget=forget,
+            shifts=shifts,
         )
         return await asyncio.to_thread(
             self._run_blocking, build_run_job_request(self.job_name, env)
@@ -159,6 +183,9 @@ class FakeJobsRunner:
         endpoint_id: str,
         episodes: int,
         horizon: int | None = None,
+        traffic_run: int | None = None,
+        forget: bool | None = None,
+        shifts: list[dict] | None = None,
     ) -> str:
         name = f"projects/fake/locations/us-central1/jobs/traffic/executions/x{next(self._seq)}"
         self.runs.append(
@@ -168,6 +195,9 @@ class FakeJobsRunner:
                 "endpoint_id": endpoint_id,
                 "episodes": episodes,
                 "horizon": horizon,
+                "traffic_run": traffic_run,
+                "forget": forget,
+                "shifts": shifts,
                 "execution": name,
             }
         )
