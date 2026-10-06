@@ -5,7 +5,9 @@ import path from "path";
 export default defineConfig({
   plugins: [react()],
   test: {
-    environment: "jsdom",
+    // Node by default: building a jsdom per file dominated the run. DOM tests
+    // opt in with a `// @vitest-environment jsdom` docblock (README → Testing).
+    environment: "node",
     globals: true,
     setupFiles: ["./src/__tests__/setup.ts"],
   },

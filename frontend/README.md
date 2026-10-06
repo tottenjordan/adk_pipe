@@ -113,6 +113,18 @@ npm test        # Vitest + React Testing Library (tests in src/__tests__/)
 npm run build   # next build, which also type-checks everything in tsconfig's include (tests too)
 ```
 
+Vitest runs in the `node` environment by default (creating a jsdom for every
+file used to dominate the run). A test that needs a DOM (`window`, `document`,
+`localStorage`, React Testing Library, jest-dom matchers) must opt in with a
+docblock on its first line:
+
+```ts
+// @vitest-environment jsdom
+```
+
+A DOM test that forgets the docblock fails loudly (`window is not defined`),
+so there is no exclude list to keep in sync.
+
 CI runs all three on PRs that touch `frontend/**`:
 [`.github/workflows/frontend-tests.yml`](../.github/workflows/frontend-tests.yml).
 
