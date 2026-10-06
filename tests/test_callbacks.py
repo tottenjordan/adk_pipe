@@ -308,6 +308,7 @@ class TestSkipReviserWithoutNotes:
                 "concept_summary": "sum",
                 "visual_style": "diecut sticker",
                 "aspect_ratio": "1:1",
+                "trend_motif": "a trend motif",
                 "image_generation_prompt": "A diecut sticker of a user-edited prompt",
             }
         ]
@@ -363,3 +364,83 @@ class TestSkipReviserWithoutNotes:
         assert (
             visual_concept_reviser.before_agent_callback is skip_reviser_without_notes
         )
+
+
+class TestEnsureTrendAndProductCallback:
+    """The finalizer/reviser after_agent_callback repairs `final_visual_concepts`
+    in place (same shape back: dict or JSON string) so the prompts that
+    generate_image reads always name the trend motif and the product."""
+
+    _CONCEPT = {
+        "concept_name": "Plain",
+        "trend_motif": "a ballot box",
+        "image_generation_prompt": "A watercolor of a quiet plaza.",
+    }
+
+    @staticmethod
+    def _ctx(state):
+        return pytypes.SimpleNamespace(state=state)
+
+    def _assert_repaired(self, prompt: str) -> None:
+        assert "a ballot box" in prompt
+        assert "Rocket Skates" in prompt
+
+    def test_repairs_dict_state(self):
+        from creative_agent.callbacks import ensure_trend_and_product_callback
+
+        state = {
+            "target_product": "Rocket Skates",
+            "final_visual_concepts": {"visual_concepts": [dict(self._CONCEPT)]},
+        }
+        assert ensure_trend_and_product_callback(self._ctx(state)) is None
+        value = state["final_visual_concepts"]
+        assert isinstance(value, dict)
+        self._assert_repaired(value["visual_concepts"][0]["image_generation_prompt"])
+
+    def test_repairs_json_string_state(self):
+        import json
+
+        from creative_agent.callbacks import ensure_trend_and_product_callback
+
+        state = {
+            "target_product": "Rocket Skates",
+            "final_visual_concepts": json.dumps({"visual_concepts": [self._CONCEPT]}),
+        }
+        assert ensure_trend_and_product_callback(self._ctx(state)) is None
+        value = state["final_visual_concepts"]
+        assert isinstance(value, str)
+        prompt = json.loads(value)["visual_concepts"][0]["image_generation_prompt"]
+        self._assert_repaired(prompt)
+
+    def test_noop_when_missing_or_unparseable(self):
+        from creative_agent.callbacks import ensure_trend_and_product_callback
+
+        for value in (None, "", "not json", {"visual_concepts": None}, {}):
+            state = {"target_product": "Rocket Skates"}
+            if value is not None:
+                state["final_visual_concepts"] = value
+            before = dict(state)
+            assert ensure_trend_and_product_callback(self._ctx(state)) is None
+            assert state == before
+
+    def test_noop_write_when_already_compliant(self):
+        from creative_agent.callbacks import ensure_trend_and_product_callback
+
+        concepts = {
+            "visual_concepts": [
+                {
+                    "concept_name": "Good",
+                    "trend_motif": "a ballot box",
+                    "image_generation_prompt": "Rocket Skates by a ballot box.",
+                }
+            ]
+        }
+
+        class _NoWriteState(dict):
+            def __setitem__(self, key, value):
+                raise AssertionError(f"unexpected write to {key}")
+
+        state = _NoWriteState(
+            target_product="Rocket Skates", final_visual_concepts=concepts
+        )
+        assert ensure_trend_and_product_callback(self._ctx(state)) is None

@@ -482,6 +482,10 @@ visual_concept_finalizer = Agent(
     retry_config=SCHEMA_RETRY,
     output_key="final_visual_concepts",
     after_model_callback=callbacks.log_empty_turn_finish_reason,
+    # Deterministic last-line guard: every final image prompt names the concept's
+    # trend_motif and the target product (repairs + warns; runs after the
+    # output_key write, so generate_image reads the repaired prompts).
+    after_agent_callback=callbacks.ensure_trend_and_product_callback,
 )
 
 

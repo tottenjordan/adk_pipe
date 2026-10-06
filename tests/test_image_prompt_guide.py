@@ -36,3 +36,25 @@ def test_tone_mapping_is_a_preference_and_shortlist_aware():
 
 def test_trend_motif_required():
     assert "trend motif" in G.lower()
+
+
+def test_trend_motif_field_on_concept_models():
+    from creative_agent.schemas import (
+        VisualConcept,
+        VisualConceptCritique,
+        VisualConceptFinal,
+    )
+
+    for model in (VisualConcept, VisualConceptCritique, VisualConceptFinal):
+        field = model.model_fields["trend_motif"]
+        assert field.default == ""  # old session states stay valid
+
+
+def test_prompts_require_trend_motif_not_a_subtle_reference():
+    assert "subtly reference" not in prompts.VISUAL_CONCEPT_DRAFTER_INSTR
+    for instr in (
+        prompts.VISUAL_CONCEPT_DRAFTER_INSTR,
+        prompts.VISUAL_CONCEPT_CRITIC_INSTR,
+        prompts.VISUAL_CONCEPT_FINALIZER_INSTR,
+    ):
+        assert "trend_motif" in instr

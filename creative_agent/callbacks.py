@@ -1,3 +1,4 @@
+import json
 import logging
 from typing import Any
 
@@ -11,6 +12,7 @@ from agent_common.rate_limit import build_rate_limit_callback
 from agent_common.state import seed_initial_state
 
 from .citations import render_citations
+from .concept_guard import ensure_trend_and_product
 from .config import config
 from .style_shortlist import format_shortlist, pick_style_shortlist
 
@@ -102,6 +104,50 @@ def load_session_state(callback_context: CallbackContext):
         "target_search_trends": "",
     }
     _set_initial_states(data["state"], callback_context.state)
+
+
+def ensure_trend_and_product_callback(callback_context: CallbackContext) -> None:
+    """`after_agent_callback` guaranteeing every final image prompt shows the
+    trend motif and the product (image diversity, Task 4b).
+
+    Wired on `visual_concept_finalizer` and interactive's `visual_concept_reviser`,
+    the two producers of `final_visual_concepts`. ADK runs after_agent_callback
+    once the agent's output event (carrying the `output_key` state delta) has been
+    yielded, so the LLM's concepts are readable here; the repaired value is written
+    back to the same key in the same shape (dict, or a JSON string of one) and
+    lands as a later state delta, so `generate_image` reads the repaired prompts.
+    Returns None: returned content would replace the agent's output. Writes only
+    when a prompt actually changed; logs each repair/miss as a warning.
+    """
+    state = callback_context.state
+    raw = state.get("final_visual_concepts")
+    if isinstance(raw, str):
+        try:
+            value = json.loads(raw)
+        except ValueError:
+            return None
+    else:
+        value = raw
+    if not isinstance(value, dict):
+        return None
+    concepts = value.get("visual_concepts")
+    if not isinstance(concepts, list) or not concepts:
+        return None
+    if not all(isinstance(c, dict) for c in concepts):
+        return None
+
+    repaired, warnings = ensure_trend_and_product(
+        concepts, str(state.get("target_product") or "")
+    )
+    for warning in warnings:
+        logging.warning(f"concept guard: {warning}")
+    if repaired == concepts:
+        return None
+    new_value = {**value, "visual_concepts": repaired}
+    state["final_visual_concepts"] = (
+        json.dumps(new_value) if isinstance(raw, str) else new_value
+    )
+    return None
 
 
 # Shared query rate limiter (agent_common). Built with creative_agent's config so

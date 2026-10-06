@@ -13,6 +13,9 @@ scripted stub model per LlmAgent, so it checks what the structure tests can't:
   graph clone AND fires on the node path (it sees the composer's output_key);
 * every exposed pipeline returns a function response, so the root is
   re-called (never stalled), even when a research fan-out branch raises.
+* the trend-motif/product guard (``ensure_trend_and_product_callback``) on the
+  finalizer and interactive's reviser rewrites ``final_visual_concepts`` so the
+  prompt ``generate_image`` reads is the repaired one.
 
 Stubs are patched onto the Workflow's own graph nodes: a Workflow holds
 per-graph copies of its agents, not the module-level objects.
@@ -339,3 +342,111 @@ def test_visual_production_graph_retries_render_until_images(monkeypatch):
     # The images_ready terminal's confirmation, not the bare True flag.
     assert "Image creatives rendered" in str(responses[-1])
     assert root_llm.calls == 2
+
+
+_DRIFTED_CONCEPTS = (
+    '{"visual_concepts": [{"ad_copy_id": 1, "concept_name": "Drifted",'
+    ' "trend": "roadrunner", "trend_reference": "r", "markets_product": "m",'
+    ' "audience_appeal": "a", "selection_rationale": "s", "headline": "h",'
+    ' "social_caption": "c", "call_to_action": "cta", "concept_summary": "sum",'
+    ' "visual_style": "Watercolor / gouache", "aspect_ratio": "9:16",'
+    ' "trend_motif": "a roadrunner dust cloud",'
+    ' "image_generation_prompt": "A soft watercolor of a quiet desert road."}]}'
+)
+
+
+def test_render_sees_guard_repaired_prompts(monkeypatch):
+    """The finalizer's after_agent_callback repairs `final_visual_concepts` on the
+    REAL node path (survives the graph clone, runs after the output_key write, and
+    is not overwritten by the node's own output delta), so the prompt that
+    generate_image reads from state names both the trend motif and the product."""
+    import creative_agent.agent as ca
+
+    llms = _stub_graph(monkeypatch, ca.visual_production_pipeline)
+    (generator,) = [
+        a
+        for a in _llm_agents(ca.visual_production_pipeline)
+        if a.name == "visual_generator"
+    ]
+    seen: list[str] = []
+
+    def _recording_generate_image(tool_context) -> dict:
+        # Same read as creative_agent.image_tools.generate_image.
+        concepts = tool_context.state.get("final_visual_concepts")["visual_concepts"]
+        seen.extend(c["image_generation_prompt"] for c in concepts)
+        tool_context.state["_images_generated"] = True
+        return {"status": "ok"}
+
+    _recording_generate_image.__name__ = "generate_image"
+    monkeypatch.setattr(generator, "tools", [_recording_generate_image])
+    llms["art_director"].push(text_response("DIRECTION"))
+    llms["visual_concept_drafter"].push(text_response(_CONCEPTS))
+    llms["visual_concept_critic"].push(text_response(_CONCEPTS))
+    llms["visual_concept_finalizer"].push(text_response(_DRIFTED_CONCEPTS))
+    llms["visual_generator"].push(
+        fc_response("generate_image", {}, "img1"), text_response("Rendered.")
+    )
+
+    _, _, state = _run_root(
+        monkeypatch,
+        "visual_production_pipeline",
+        {"combined_final_cited_report": "# Report", "ad_copy_critique": _ADS_FINAL},
+    )
+
+    (prompt,) = seen
+    assert prompt.startswith("A soft watercolor of a quiet desert road.")
+    assert "a roadrunner dust cloud" in prompt
+    assert "Rocket Skates" in prompt
+    final = state["final_visual_concepts"]["visual_concepts"][0]
+    assert final["image_generation_prompt"] == prompt
+
+
+def test_interactive_reviser_output_is_guarded(monkeypatch):
+    """interactive_creative's visual_concept_reviser (the other writer of
+    `final_visual_concepts`, run via AgentTool) gets the same guard: a revision
+    that drops the product/motif is repaired in the state the renderer reads."""
+    import interactive_creative.agent as ic
+
+    root_llm = RecordingLlm()
+    reviser_llm = RecordingLlm()
+    monkeypatch.setattr(ic.root_agent, "model", root_llm)
+    monkeypatch.setattr(ic.root_agent, "instruction", "orchestrate")
+    monkeypatch.setattr(ic.root_agent, "before_agent_callback", None)
+    monkeypatch.setattr(ic.root_agent, "before_model_callback", None)
+    monkeypatch.setattr(ic.visual_concept_reviser, "model", reviser_llm)
+    root_llm.push(
+        fc_response("visual_concept_reviser", {"request": "apply notes"}, "fc1"),
+        text_response("DONE"),
+    )
+    reviser_llm.push(text_response(_DRIFTED_CONCEPTS))
+    seeded = {
+        **_SEED,
+        "visual_revision_notes": "Concept 0: make it calmer",
+        "final_visual_concepts": {"visual_concepts": [{"concept_name": "Old"}]},
+    }
+
+    async def go() -> dict[str, Any]:
+        svc = InMemorySessionService()
+        runner = Runner(
+            agent=ic.root_agent, app_name="interactive_creative", session_service=svc
+        )
+        session = await svc.create_session(
+            app_name="interactive_creative", user_id="u", state=seeded
+        )
+        async for _ in runner.run_async(
+            user_id="u", session_id=session.id, new_message=user_message("hi")
+        ):
+            pass
+        final = await svc.get_session(
+            app_name="interactive_creative", user_id="u", session_id=session.id
+        )
+        assert final is not None
+        return dict(final.state)
+
+    state = asyncio.run(go())
+    assert reviser_llm.calls == 1  # notes present: the reviser model ran
+    (concept,) = state["final_visual_concepts"]["visual_concepts"]
+    prompt = concept["image_generation_prompt"]
+    assert prompt.startswith("A soft watercolor of a quiet desert road.")
+    assert "a roadrunner dust cloud" in prompt
+    assert "Rocket Skates" in prompt
