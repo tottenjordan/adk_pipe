@@ -161,6 +161,14 @@ const SHIFT_EXPERIMENT = JSON.parse(readFileSync(join(FIX, "shift-experiment.jso
 const SHIFT_METRICS = JSON.parse(readFileSync(join(FIX, "shift-experiment-metrics.json"), "utf8"));
 const SHIFT_CREATIVES = JSON.parse(readFileSync(join(FIX, "shift-experiment-creatives.json"), "utf8"));
 let shiftMock = { summary: SHIFT_EXPERIMENT };
+// Continuous learning (contracts §11): a REAL in-process traffic-job run with
+// --learning continuous (20 segments x 40,000 rounds = 800,000 in one stream) on
+// the same three creatives, shaped like the api's continuous /metrics (stitched
+// global-round curves without bands + continuousSummary) and /creatives (global
+// windows). Regenerate: uv run python frontend/scripts/build_continuous_fixture.py
+const CONT_EXPERIMENT = JSON.parse(readFileSync(join(FIX, "continuous-experiment.json"), "utf8"));
+const CONT_METRICS = JSON.parse(readFileSync(join(FIX, "continuous-experiment-metrics.json"), "utf8"));
+const CONT_CREATIVES = JSON.parse(readFileSync(join(FIX, "continuous-experiment-creatives.json"), "utf8"));
 // What the mocks serve for LIVE_EXPERIMENT's id (set per journey frame).
 let liveMock = { summary: LIVE_EXPERIMENT, metrics: LIVE_METRICS, creatives: LIVE_CREATIVES };
 
@@ -269,6 +277,11 @@ async function installMocks(page) {
         }
         if (method === "POST" && seg[3] === "stop") return json(route, { status: "stopping" });
         if (seg.length === 2) return json(route, { experiments: EXPERIMENTS });
+        if (seg[2] === CONT_EXPERIMENT.experimentId) {
+          if (seg[3] === "creatives") return json(route, CONT_CREATIVES);
+          if (seg[3] === "metrics") return json(route, CONT_METRICS);
+          return json(route, CONT_EXPERIMENT);
+        }
         if (seg[2] === SHIFT_EXPERIMENT.experimentId) {
           if (seg[3] === "creatives") return json(route, SHIFT_CREATIVES);
           if (seg[3] === "metrics") return json(route, SHIFT_METRICS);
@@ -576,6 +589,7 @@ async function main() {
   }
 
   await shiftShots(context);
+  await continuousShot(context);
 
   // ── 4. Interactive run paused at the Review Ad Copies checkpoint ─────────
   {
@@ -1562,6 +1576,55 @@ async function shiftShots(context) {
   }
 }
 
+// ── 20. Continuous learning: the Keep learning control, the batch-means headline, one-stream charts ──
+async function continuousShot(context) {
+  console.log("20-continuous-learning");
+  const page = await newPage(context);
+  await page.setViewportSize({ width: 1440, height: 2200 });
+  await page.goto(`${BASE}/experiments/${CONT_EXPERIMENT.experimentId}`, { waitUntil: "networkidle" });
+  await page.locator("#scoreboard-heading").waitFor();
+  await page.waitForFunction(
+    () => [...document.querySelectorAll("img")].filter((im) => im.naturalWidth > 0).length >= 3
+  );
+  // The next run's control: switch to Keep learning (relabels the fields, shows the stream total).
+  await page.getByRole("button", { name: "Keep learning" }).click();
+  await page.getByText("rounds in one stream").waitFor();
+  await settle(page);
+  const controls = await clipOf(page, page.locator("section[aria-label='Experiment controls']"), 0);
+  const heading = await clipOf(page, page.locator("#scoreboard-heading").locator(".."), 24);
+  const top = { x: 0, y: Math.max(0, controls.y - 16), width: 1440, height: heading.y + heading.height - controls.y + 24 };
+  const overview = await page.screenshot({ fullPage: true, clip: top });
+  await page.getByRole("tab", { name: "Analysis" }).click();
+  await page.getByRole("heading", { name: "Cumulative regret" }).waitFor();
+  await page.waitForTimeout(300);
+  const first = await clipOf(page, page.getByRole("heading", { name: "Cumulative average reward against the optimum" }).locator("../.."), 8);
+  const last = await clipOf(page, page.getByRole("heading", { name: "Where the endpoint sends traffic" }).locator("../.."), 8);
+  const chartsClip = { x: 0, y: first.y + 2, width: 1440, height: last.y + last.height - first.y - 2 };
+  const charts = await page.screenshot({ fullPage: true, clip: chartsClip });
+  await page.close();
+  const stack = await context.newPage();
+  await stack.setViewportSize({ width: 1440, height: 900 });
+  const b64 = (buf) => `data:image/png;base64,${buf.toString("base64")}`;
+  await stack.setContent(
+    `<body style="margin:0;background:#f7f8f9"><img src="${b64(overview)}" style="display:block;width:1440px">` +
+      `<div style="height:1px;background:#d5dbe0;margin:0 24px"></div>` +
+      `<img src="${b64(charts)}" style="display:block;width:1440px"></body>`
+  );
+  await stack.waitForFunction(() => [...document.images].every((im) => im.complete && im.naturalWidth > 0));
+  await stack.screenshot({ path: join(OUT, "20-continuous-learning.png"), fullPage: true });
+  console.log("  wrote 20-continuous-learning.png");
+  await stack.close();
+}
+
+async function continuousOnly() {
+  const browser = await chromium.launch({ headless: true });
+  const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 2 });
+  await continuousShot(context);
+  await context.close();
+  await browser.close();
+  console.log("done →", OUT);
+}
+
 async function shiftsOnly() {
   const browser = await chromium.launch({ headless: true });
   const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 2 });
@@ -1572,7 +1635,7 @@ async function shiftsOnly() {
 }
 
 const MODE = process.env.JOURNEY;
-(process.env.SHOTS === "shifts" ? shiftsOnly : MODE === "experiments" ? journeyExperiments : MODE ? journey : main)().catch((err) => {
+(process.env.SHOTS === "shifts" ? shiftsOnly : process.env.SHOTS === "continuous" ? continuousOnly : MODE === "experiments" ? journeyExperiments : MODE ? journey : main)().catch((err) => {
   console.error(err);
   process.exit(1);
 });
