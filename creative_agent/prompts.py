@@ -2,60 +2,66 @@
 
 # A prompting "grammar" for the
 # Nano Banana image model (config.image_gen_model). Deliberately STYLE-FIRST and
-# template-driven rather than a flat menu, and deliberately NOT photoreal-biased —
-# the goal is to accommodate many styles (cartoon, meme, sticker, 3D, anime,
-# minimalist, photoreal, …). It is spliced into the drafter/critic instructions at
-# author time, so it MUST NOT contain any `{...}` curly braces (ADK would treat
-# them as session-state tokens). Fill-in slots use [square brackets].
+# deliberately NOT photoreal-biased — the goal is to accommodate many styles
+# (cartoon, meme, sticker, 3D, anime, minimalist, photoreal, …). The palette
+# entries are DESCRIPTORS (when-to-use + cues), not fill-in sentence templates:
+# the prompt-writing model copied template openers verbatim, so every run looked
+# alike. Family names must match creative_agent/style_shortlist.py STYLE_GROUPS.
+# It is spliced into the drafter/critic instructions at author time, so it MUST
+# NOT contain any `{...}` curly braces (ADK would treat them as session-state
+# tokens). Any placeholder slots use [square brackets].
 IMAGE_PROMPT_GUIDE = """Here are best practices for writing prompts for a modern text-to-image model (Nano Banana). This is for a SINGLE STILL IMAGE used as a social-media ad creative (Instagram / TikTok feed & reels).
 
 <CORE_PRINCIPLES>
-- Be hyper-specific and concrete. Describe the scene as one coherent, vivid noun-phrase, not a keyword soup. "A [style] image of [subject] [doing action] in [setting], [lighting], [color/mood]" beats "product, nice, high quality".
-- NAME THE STYLE EXPLICITLY at the very start of the prompt (e.g. "A flat 2D vector cartoon of…", "A candid 35mm film photo of…", "A diecut sticker of…"). Do NOT default to photorealism — choose the style that fits the ad's tone and audience.
+- Be hyper-specific and concrete. Describe the scene as one coherent, vivid description — style, subject, action, setting, lighting, color and mood — not a keyword soup like "product, nice, high quality".
+- NAME THE STYLE EXPLICITLY at the start, in your own words tied to this scene. Do NOT copy the palette wording as an opener. Do NOT default to photorealism — choose the style that fits the ad's tone and audience.
 - Use POSITIVE, present-what-you-want framing. To exclude something, describe the desired alternative ("a clean empty background") rather than negatives ("no clutter"). If you must exclude, phrase it as a "semantic negative" ("the street is empty and quiet"), not "no cars".
 - State that it is a social-media advertisement and who it targets — the model composes framing/negative space differently for an ad than for a stock photo.
-- The model renders LEGIBLE IN-IMAGE TEXT. When it strengthens the ad, put the headline, a short caption, a call-to-action button, or the brand name directly in the image and specify the exact words in quotes, plus font vibe and placement (e.g. bold sans-serif caption top-and-bottom for a meme).
+- In-image text is OPTIONAL and the most common way an image fails. Use it in at most 2 of the 4 concepts in a set. When used: one headline OR call-to-action only, 6 words or fewer, exact words in quotes, a named font vibe and a placement that differs from the other text concept. Never put words across the top by default. No small print, labels, captions on both top and bottom, setlists, spec callouts, UI screens full of text, or style/technical terms (e.g. never print the style name). Concepts without text should leave clean negative space for the platform's own caption.
+- Every concept must show at least one concrete trend motif (an object, symbol, setting or gesture from the trend or the visual_direction motifs) so the image reads as on-trend without any text.
 - Length follows the style: a minimalist or sticker prompt should be short and clean; a cinematic photoreal scene should be long and layered. Detail where detail matters — do not pad to a word count.
 </CORE_PRINCIPLES>
 
 <STYLE_PALETTE>
-Pick ONE primary style family per concept. Each has a when-to-use and a fill-in template.
-- Photoreal / editorial: aspirational, premium, trust. "A photorealistic editorial photograph of [subject], [camera + lens e.g. 85mm], [studio or natural lighting], shallow depth of field, [color palette]."
-- Cinematic film still: dramatic, story-driven, emotive. "A cinematic film still of [subject], anamorphic widescreen feel, [dramatic lighting e.g. golden-hour rim light], moody [color grade], shot on 35mm."
-- 3D character render (Pixar/Blender-ish): playful, friendly, mascot-driven. "A charming 3D-rendered character of [subject], soft global illumination, rounded shapes, glossy [colors], Pixar-like."
-- 2D flat / vector cartoon: clean, modern, explainer, tech. "A flat 2D vector illustration of [subject], bold outlines, simple geometric shapes, limited [2-3 color] palette, generous negative space."
-- Anime / manga: youthful, energetic, fandom. "An anime-style illustration of [subject], cel shading, expressive eyes, dynamic pose, [vibrant palette]."
-- Comic panel: narrative, humorous, bold. "A comic-book panel of [subject], halftone shading, bold ink outlines, [speech bubble reading '…']."
-- Meme aesthetic: relatable, viral, humor-led. Choose a sub-form: bold Impact-caption meme ("[subject] with top caption '…' and bottom caption '…' in white Impact font with black outline"), faux-screenshot, or reaction-image. Keep it scrappy and authentic, not polished.
-- Diecut sticker: fun, collectible, playful branding. "A diecut sticker of [subject], thick white border, glossy finish, simple bold shading, plain background."
-- Watercolor / gouache: warm, artisanal, human. "A soft watercolor painting of [subject], visible paper texture, gentle washes, [muted palette]."
-- Collage / mixed-media: edgy, zine, culturally-savvy. "A cut-paper collage of [subject], mixed textures, torn edges, [bold accent color]."
-- Retro / vaporwave: nostalgic, music/lifestyle. "An [era e.g. 1980s vaporwave] poster of [subject], neon gradients, grid horizon, chrome type."
-- Isometric: product/system/how-it-works. "A clean isometric illustration of [subject], 2:1 iso grid, soft shadows, [tidy palette]."
-- Minimalist negative-space: premium, calm, single-message. "A minimalist image of [subject] against a large [solid color] field, lots of negative space, one focal element, room for text."
+Pick ONE primary style family per concept, from the run's style shortlist when one is given. These are descriptors, not templates: combine the cues with your own scene; never copy them as a sentence.
+- Photoreal / editorial — aspirational, premium, trust. Cues: real camera and lens, studio or natural light, shallow depth of field, a restrained palette.
+- Cinematic film still — dramatic, story-driven, emotive. Cues: anamorphic widescreen feel, dramatic light such as a golden-hour rim, a moody color grade, 35mm texture.
+- Candid 35mm film photo — emotional, authentic, human. Cues: natural light, film grain, imperfect framing, real moments.
+- 3D character render — playful, friendly, mascot-driven. Cues: soft global illumination, rounded shapes, glossy colors, a Pixar/Blender-like charm.
+- 2D flat / vector cartoon — clean, modern, explainer, tech. Cues: bold outlines, simple geometric shapes, a limited 2–3 color palette, generous negative space.
+- Anime / manga — youthful, energetic, fandom. Cues: cel shading, expressive eyes, dynamic poses, a vibrant palette.
+- Comic panel — narrative, humorous, bold. Cues: halftone shading, bold ink outlines, an optional speech bubble of at most 6 words.
+- Meme aesthetic — relatable, viral, humor-led. Choose a sub-form: a bold Impact-caption meme, a faux-screenshot, or a reaction image; one caption of at most 6 words (counts toward the text cap). Keep it scrappy and authentic, not polished.
+- Diecut sticker — fun, collectible, playful branding. Cues: thick white border, glossy finish, simple bold shading, a plain background.
+- Watercolor / gouache — warm, artisanal, human. Cues: visible paper texture, gentle washes, a muted palette.
+- Collage / mixed-media — edgy, zine, culturally-savvy. Cues: cut paper, mixed textures, torn edges, one bold accent color.
+- Retro / vaporwave — nostalgic, music/lifestyle. Cues: a named era, neon gradients, a grid horizon, chrome sheen.
+- Isometric miniature world — playful systems, "a tiny world". Cues: tilted bird's-eye miniature diorama, soft shadows, tidy palette. A whimsical scene, NOT a technical diagram.
+- Minimalist negative-space — premium, calm, single-message. Cues: one focal element against a large solid color field, lots of negative space.
 </STYLE_PALETTE>
 
 <TONE_TO_STYLE_MAPPING>
-Use the ad copy's tone + audience + trend to pick the style (this is the selection rule, not a suggestion):
+Prefer these mappings when choosing among the families on the run's style shortlist (a preference, not a rule; the shortlist wins):
 - Meme-based / irreverent tone -> meme aesthetic, diecut sticker, or flat cartoon.
 - Humorous tone -> 3D character or comic panel.
 - Aspirational / premium tone -> cinematic photoreal or minimalist negative-space.
 - Emotional / authentic tone -> candid 35mm film photo or watercolor.
-- Educational / how-it-works tone -> minimalist with legible text, or isometric.
+- Educational / how-it-works tone -> a product hero with one short labelled callout, or a minimalist frame with one line of text; never a full technical diagram, schematic, cutaway or exploded view.
 - Problem–solution / direct-response tone -> clean studio product shot (photoreal) with in-image CTA.
 Diversity rule: across a set of concepts, vary the style family — do not render every concept in the same look.
 </TONE_TO_STYLE_MAPPING>
 
 <BUILDING_BLOCKS>
 Assemble the prompt from these, in roughly this order:
-- Style declaration (family from the palette, named first).
+- Style declaration (family from the palette, named first, in your own words).
 - Subject: the hero — product, person, or character — described concretely.
-- Composition / framing: focal point, rule-of-thirds, close-up vs wide, where negative space sits for text.
-- Setting: where the scene happens (or "plain [color] studio background").
+- Trend motif: the concrete visual element that ties the image to the trend.
+- Composition / framing: focal point, rule-of-thirds, close-up vs wide, where negative space sits.
+- Setting: where the scene happens (or a plain colored studio background).
 - Lighting: e.g. soft window light, hard studio key, neon glow, golden hour.
 - Color & mood: palette + emotional register aligned to the brand and trend.
 - Rendering cues: texture/finish appropriate to the style (grain, cel shading, glossy, paper texture).
-- In-image text & branding: exact headline/CTA/brand words in quotes, font vibe, placement — only when it strengthens the ad.
+- In-image text & branding: only in at most 2 concepts per set (see the text rule); otherwise none.
 </BUILDING_BLOCKS>
 
 <ASPECT_RATIO>
