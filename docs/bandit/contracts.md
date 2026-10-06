@@ -221,7 +221,10 @@ type ExperimentMetrics = { experimentId: string; episodes: number; horizon: numb
   shiftResponse: Record<string, ShiftResponse[]>;                    // §10; {} without shifts
   regimes: MetricsRegime[];                                          // §10; [] without shifts
   shiftCost?: ShiftCost;                                             // §10; omitted without ghost rows
-  resolvedShifts?: ResolvedShift[] };                                // §10; omitted for older runs / no shifts
+  resolvedShifts?: ResolvedShift[];                                  // §10; omitted for older runs / no shifts
+  // §11, continuous runs only (a per-episode response has none of these keys):
+  learning?: "continuous"; segmentHorizon?: number | null; segmentStarts?: number[];
+  continuousSummary?: ContinuousSummary };                           // §11 shape and rules
 type ResolvedShift = { index: number;                                // position in the requested list; time order
   kind: "promote" | "demote" | "mix" | "shock"; round: number; endRound: number | null;
   segment: string | null; creativeId: string | null;                 // concrete ("leader" resolved); null for mix
@@ -540,3 +543,23 @@ continuousSummary?: {
                 status: "ok" | "too_few_segments" | "autocorrelated" | "still_trending" };
 }
 ```
+
+**Batch means** (`runserver/batch_means.py::batch_means_summary(diffs, warmup_frac=0.5, min_batches=5, max_lag1=0.2)`, pure Python): the warm-up is the first `floor(warmup_frac · n)` segments (`warmupSegments`); the `m` kept segments are the batches. `mean` is their mean (over all segments when none are kept). `lag1` is the lag-1 autocorrelation of the kept values **around their OLS line** (null for fewer than 3 kept or zero variance). `status`, checked in order:
+1. `too_few_segments`: `m < min_batches` (so 9 segments → 4 warm-up + 5 batches is the minimum);
+2. `autocorrelated`: `|lag1| > max(max_lag1, 1.96/√m)`, i.e. above 0.2 **and** significant at about 5% (with ~20 batches `max_lag1` alone would flag ~40% of iid runs);
+3. `still_trending`: the OLS slope of the kept values is significant (two-sided 5% t-test, df = m − 2);
+4. `ok`: `lo` / `hi` = `mean ± t(m − 1) · s/√m` (`experiments_metrics.t_critical`); null for every other status.
+
+Autocorrelation is checked before the trend because the naive slope test fires on most strongly autocorrelated series (an AR(1) with ρ = 0.8 wanders), while detrending keeps a genuine trend from reading as autocorrelation.
+
+**`/metrics` for a continuous run (PR B, implemented in `runserver/experiments_metrics.py::aggregate_continuous`; the route passes the run's `traffic_runs` `learning`):**
+- Only segments **every** policy has written are used (the contiguous run from segment 0), so a segment in flight never skews one curve.
+- `episodes` = those segments; `horizon` = the rounds they cover (Σ segment `horizon`, i.e. global; the planned total is `TrafficRun.episodes × TrafficRun.horizon`); `checkpoints` = the stitched global round counts (the endpoint's).
+- Additive keys, continuous only: `learning: "continuous"`, `segmentHorizon: number` (T), `segmentStarts: number[]` (each segment's `segment_start`, for boundary ticks), `continuousSummary` (omitted without an endpoint and a baseline sharing a segment). A per-episode response is byte-for-byte unchanged (no `learning` key).
+- `curves`: the concatenation rule above, `lo = hi = mean`.
+- `totals`, `perSegment`, `arms`: as per episode, over the segments (`totals` is the mean ± std **per segment**, not a CI; segments are equally long, so the means are whole-run means).
+- `armShare`: the endpoint's segment windows concatenated in order (aligned with `checkpoints`), not a mean.
+- `shiftResponse` / `regimes` / `resolvedShifts`: from the last segment's rows only (each `Stat` collapses to its single value, `episodes: 1`); `{}` / `[]` / omitted until the last segment is written.
+- `shiftCost`: the **whole-run** ghost − endpoint total (Σ over paired segments) in `clicksPerEpisode` / `rewardPerEpisode` with `lo = hi = mean` (no interval); `episodes` = paired segments.
+
+**`/creatives` for a continuous run:** the series query windows the **global** `round` (so `horizon` = `MAX(round) + 1` = the whole run) and groups by `(arm, window)` only, reporting `episode = 0`: one stream, so `episodes` is 1 and `cumClicks` / `missedClicks` are whole-run values. Regime boundaries use the run's total `episodes × horizon` (§10 continuous resolution).

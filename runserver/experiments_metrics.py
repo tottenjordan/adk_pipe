@@ -384,18 +384,7 @@ def aggregate_shift_cost(by_policy: Mapping[str, list[dict]]) -> dict | None:
     between-episode variance. ``episodes`` counts the reward pairs; clicks pair
     only where both rows have ``total_clicks`` (``clicksPerEpisode`` is ``None``
     when no pair has them). ``None`` without any pair."""
-    lin = {int(r.get("episode") or 0): r for r in by_policy.get(ENDPOINT_POLICY, [])}
-    ghost = {int(r.get("episode") or 0): r for r in by_policy.get(GHOST_POLICY, [])}
-    reward_diffs: list[float] = []
-    click_diffs: list[float] = []
-    for ep in sorted(lin.keys() & ghost.keys()):
-        g, e = ghost[ep], lin[ep]
-        rg, re_ = _finite(g.get("total_reward")), _finite(e.get("total_reward"))
-        if rg is not None and re_ is not None:
-            reward_diffs.append(rg - re_)
-        cg, ce = _finite(g.get("total_clicks")), _finite(e.get("total_clicks"))
-        if cg is not None and ce is not None:
-            click_diffs.append(cg - ce)
+    reward_diffs, click_diffs = _ghost_paired_diffs(by_policy)
     if not reward_diffs:
         return None
     return {
@@ -403,6 +392,35 @@ def aggregate_shift_cost(by_policy: Mapping[str, list[dict]]) -> dict | None:
         "clicksPerEpisode": stat(click_diffs) if click_diffs else None,
         "rewardPerEpisode": stat(reward_diffs),
     }
+
+
+def _paired_diffs(
+    a_rows: Iterable[Mapping[str, Any]],
+    b_rows: Iterable[Mapping[str, Any]],
+    column: str,
+) -> list[float]:
+    """``a − b`` of ``column`` per episode both have (finite values only), in
+    episode order."""
+    a = {int(r.get("episode") or 0): r for r in a_rows}
+    b = {int(r.get("episode") or 0): r for r in b_rows}
+    out = []
+    for ep in sorted(a.keys() & b.keys()):
+        va, vb = _finite(a[ep].get(column)), _finite(b[ep].get(column))
+        if va is not None and vb is not None:
+            out.append(va - vb)
+    return out
+
+
+def _ghost_paired_diffs(
+    by_policy: Mapping[str, list[dict]],
+) -> tuple[list[float], list[float]]:
+    """Per-episode ghost − endpoint ``total_reward`` and ``total_clicks``."""
+    ghost = by_policy.get(GHOST_POLICY, [])
+    lin = by_policy.get(ENDPOINT_POLICY, [])
+    return (
+        _paired_diffs(ghost, lin, "total_reward"),
+        _paired_diffs(ghost, lin, "total_clicks"),
+    )
 
 
 def aggregate_regimes(
@@ -481,11 +499,15 @@ def aggregate_episode_metrics(
     rows: Iterable[Mapping[str, Any]],
     experiment_id: str = "",
     arm_order: Sequence[str] | None = None,
+    learning: str | None = None,
 ) -> dict:
     """§3 ``bandit_episode_metrics`` rows -> §5 ``ExperimentMetrics``.
 
     ``arm_order`` (creative ids) orders the ``arms`` list; unknown ids follow in
-    first-seen order. Duplicate (episode, policy) rows keep the last one."""
+    first-seen order. Duplicate (episode, policy) rows keep the last one.
+    ``learning`` is the traffic run's §11 mode: ``"continuous"`` stitches the
+    segment rows into one timeline (``aggregate_continuous``); anything else is
+    the per-episode aggregation."""
     dedup: dict[tuple[int, str], dict] = {}
     for raw in rows:
         row = dict(raw)
@@ -500,6 +522,8 @@ def aggregate_episode_metrics(
     by_policy: dict[str, list[dict]] = {p: [] for p in policies}
     for row in ordered:
         by_policy[row["policy"]].append(row)
+    if learning == "continuous":
+        return aggregate_continuous(by_policy, policies, experiment_id, arm_order)
 
     curves_json = {id(r): _json(r.get("curve"), {}) for r in ordered}
     checkpoints: list[int] = []
@@ -556,4 +580,238 @@ def aggregate_episode_metrics(
     endpoint_first = [r for p in policies for r in by_policy[p]]
     if (resolved := extract_resolved_shifts(endpoint_first, experiment_id)) is not None:
         body["resolvedShifts"] = resolved
+    return body
+
+
+# --- continuous runs (contracts §11) ----------------------------------------------------
+
+
+def _common_segments(by_policy: Mapping[str, list[dict]]) -> list[int]:
+    """The segments every policy has written, as the contiguous run from the
+    first one (a segment still being written for some policies is left out, so
+    every stitched curve covers the same rounds)."""
+    sets = [{int(r.get("episode") or 0) for r in rows} for rows in by_policy.values()]
+    common = sorted(set.intersection(*sets)) if sets else []
+    out: list[int] = []
+    for seg in common:
+        if out and seg != out[-1] + 1:
+            break
+        out.append(seg)
+    return out
+
+
+def _segment_start(curve: Mapping[str, Any], default: int) -> int:
+    start = _finite(curve.get("segment_start"))
+    return int(start) if start is not None else default
+
+
+def _at(values: Any, i: int) -> float:
+    if isinstance(values, list) and i < len(values):
+        return _finite(values[i]) or 0.0
+    return 0.0
+
+
+def stitch_segment_curves(rows: Sequence[Mapping[str, Any]]) -> dict:
+    """One policy's segment rows (in segment order) -> one whole-run timeline.
+
+    A checkpoint ``c`` of a segment starting at global round ``segment_start``
+    is round count ``n = segment_start + c``; cumulative values carry across
+    segments (contracts §11): reward ``cum_avg_reward[c] · c + Σ earlier
+    total_reward``, regret ``cum_regret[c] + Σ earlier cumulative_regret``,
+    optimal count ``pct_optimal[c] · c + Σ earlier pct_optimal · horizon``;
+    the two rates divide by ``n``. A row without ``segment_start`` starts where
+    the previous one ended. Returns ``{checkpoints, starts, horizons,
+    cum_avg_reward, cum_regret, pct_optimal}`` (lists)."""
+    out: dict[str, list] = {
+        "checkpoints": [],
+        "starts": [],
+        "horizons": [],
+        "cum_avg_reward": [],
+        "cum_regret": [],
+        "pct_optimal": [],
+    }
+    reward = regret = optimal = 0.0
+    next_start = 0
+    for row in rows:
+        curve = _json(row.get("curve"), {})
+        curve = curve if isinstance(curve, Mapping) else {}
+        cps = [int(c) for c in curve.get("checkpoints") or []]
+        start = _segment_start(curve, next_start)
+        horizon = _opt_int(row.get("horizon")) or (cps[-1] if cps else 0)
+        car, reg, pct = (curve.get(k) for k in _CURVE_KEYS)
+        last = (0.0, 0.0, 0.0)
+        for i, c in enumerate(cps):
+            n = start + c
+            seg_reward, seg_regret, seg_opt = (
+                _at(car, i) * c,
+                _at(reg, i),
+                _at(pct, i) * c,
+            )
+            out["checkpoints"].append(n)
+            out["cum_avg_reward"].append((reward + seg_reward) / n if n else 0.0)
+            out["cum_regret"].append(regret + seg_regret)
+            out["pct_optimal"].append((optimal + seg_opt) / n if n else 0.0)
+            last = (seg_reward, seg_regret, seg_opt)
+        total_reward = _finite(row.get("total_reward"))
+        total_regret = _finite(row.get("cumulative_regret"))
+        total_pct = _finite(row.get("pct_optimal"))
+        reward += total_reward if total_reward is not None else last[0]
+        regret += total_regret if total_regret is not None else last[1]
+        optimal += total_pct * horizon if total_pct is not None else last[2]
+        out["starts"].append(start)
+        out["horizons"].append(horizon)
+        next_start = start + horizon
+    return out
+
+
+def _flat_band(values: Sequence[float]) -> dict:
+    """A curve without a band (``lo = hi = mean``)."""
+    return {"mean": list(values), "lo": list(values), "hi": list(values)}
+
+
+def _whole_run(values: Sequence[float]) -> dict:
+    total = math.fsum(values)
+    return {"mean": total, "lo": total, "hi": total}
+
+
+def continuous_summary(
+    by_policy: Mapping[str, list[dict]], policies: Sequence[str]
+) -> dict | None:
+    """§11 ``continuousSummary``: the per-segment ``total_clicks`` difference
+    endpoint − best baseline (the non-endpoint, non-ghost, non-oracle policy
+    with the most clicks over the segments it shares with the endpoint; ties go
+    to the earlier policy in contract order) and its batch-means summary.
+    ``None`` without an endpoint, a baseline or any paired segment."""
+    from runserver.batch_means import batch_means_summary  # avoids an import cycle
+
+    lin = by_policy.get(ENDPOINT_POLICY, [])
+    baselines = [p for p in policies if p not in (ENDPOINT_POLICY, GHOST_POLICY, _LAST)]
+    best: tuple[float, str, list[float]] | None = None
+    for policy in baselines:
+        rows = by_policy[policy]
+        diffs = _paired_diffs(lin, rows, "total_clicks")
+        if not diffs:
+            continue
+        total = math.fsum(
+            v for r in rows if (v := _finite(r.get("total_clicks"))) is not None
+        )
+        if best is None or total > best[0]:
+            best = (total, policy, diffs)
+    if best is None:
+        return None
+    _, policy, diffs = best
+    summary = batch_means_summary(diffs)
+    return {
+        "segments": summary["segments"],
+        "warmupSegments": summary["warmupSegments"],
+        "pairedDiff": {
+            "policy": policy,
+            "perSegment": [int(d) if float(d).is_integer() else d for d in diffs],
+            "mean": summary["mean"],
+            "lo": summary["lo"],
+            "hi": summary["hi"],
+            "lag1": summary["lag1"],
+            "status": summary["status"],
+        },
+    }
+
+
+def aggregate_continuous(
+    by_policy: Mapping[str, list[dict]],
+    policies: list[str],
+    experiment_id: str = "",
+    arm_order: Sequence[str] | None = None,
+) -> dict:
+    """§5 ``ExperimentMetrics`` for a continuous run (§11): one row per (segment,
+    policy) stitched into one timeline per policy over the segments every policy
+    has (``_common_segments``).
+
+    - ``checkpoints`` are global round counts; curves have no band.
+    - ``episodes`` is the segment count, ``horizon`` the rounds they cover,
+      plus ``segmentHorizon`` (T) and ``segmentStarts``.
+    - ``totals`` / ``perSegment`` / ``arms`` keep their per-row meaning (per
+      segment; segments are equally long, so means are whole-run means).
+    - ``armShare`` concatenates the endpoint's segment windows.
+    - ``shiftResponse`` / ``regimes`` / ``resolvedShifts`` come from the last
+      segment's rows (the only ones carrying them, computed over the whole run).
+    - ``shiftCost`` is the whole-run ghost − endpoint total, no interval.
+    - ``continuousSummary``: see ``continuous_summary``."""
+    segments = _common_segments(by_policy)
+    keep = set(segments)
+    rows_of = {
+        p: [r for r in by_policy[p] if int(r.get("episode") or 0) in keep]
+        for p in policies
+    }
+    if not segments:
+        return {**empty_metrics(experiment_id), "learning": "continuous"}
+
+    stitched = {p: stitch_segment_curves(rows_of[p]) for p in policies}
+    ref = stitched.get(ENDPOINT_POLICY) or stitched[policies[0]]
+    curves = {
+        p: {
+            camel: _flat_band(stitched[p][snake])
+            for snake, camel in _CURVE_KEYS.items()
+        }
+        for p in policies
+    }
+    totals = {}
+    for p in policies:
+        mean, std = mean_std([float(r.get("total_reward") or 0.0) for r in rows_of[p]])
+        totals[p] = {"mean": mean, "std": std}
+
+    lin_rows = rows_of.get(ENDPOINT_POLICY, [])
+    share: dict[str, list[float]] = {}
+    seen = 0  # windows emitted so far (every creative padded to the same length)
+    for row in lin_rows:
+        curve = _json(row.get("curve"), {})
+        width = len(curve.get("checkpoints") or []) if isinstance(curve, Mapping) else 0
+        shares = _json(row.get("arm_share"), {})
+        shares = shares if isinstance(shares, Mapping) else {}
+        for cid in shares:
+            share.setdefault(cid, [0.0] * seen)
+        for cid, acc in share.items():
+            vals = shares.get(cid)
+            vals = vals if isinstance(vals, list) else []
+            acc.extend(
+                [_finite(v) or 0.0 for v in vals[:width]]
+                + [0.0] * max(0, width - len(vals))
+            )
+        seen += width
+    share_order = [c for c in (arm_order or []) if c in share]
+    share_order += [c for c in share if c not in share_order]
+
+    last = segments[-1]
+    last_rows = {
+        p: [r for r in rows_of[p] if int(r.get("episode") or 0) == last]
+        for p in policies
+    }
+    body: dict[str, Any] = {
+        "experimentId": experiment_id,
+        "episodes": len(segments),
+        "horizon": int(sum(ref["horizons"])),
+        "checkpoints": list(ref["checkpoints"]),
+        "policies": policies,
+        "curves": curves,
+        "totals": totals,
+        "armShare": {cid: share[cid] for cid in share_order},
+        "perSegment": _per_segment(rows_of, policies),
+        "arms": _arm_stats(lin_rows, arm_order),
+        "shiftResponse": aggregate_shift_response(last_rows),
+        "regimes": aggregate_regimes(last_rows, policies, arm_order),
+        "learning": "continuous",
+        "segmentHorizon": ref["horizons"][0] if ref["horizons"] else None,
+        "segmentStarts": list(ref["starts"]),
+    }
+    reward_diffs, click_diffs = _ghost_paired_diffs(rows_of)
+    if reward_diffs:
+        body["shiftCost"] = {
+            "episodes": len(reward_diffs),
+            "clicksPerEpisode": _whole_run(click_diffs) if click_diffs else None,
+            "rewardPerEpisode": _whole_run(reward_diffs),
+        }
+    endpoint_first = [r for p in policies for r in last_rows[p]]
+    if (resolved := extract_resolved_shifts(endpoint_first, experiment_id)) is not None:
+        body["resolvedShifts"] = resolved
+    if (summary := continuous_summary(rows_of, policies)) is not None:
+        body["continuousSummary"] = summary
     return body

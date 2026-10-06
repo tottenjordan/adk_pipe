@@ -1668,7 +1668,12 @@ async def http_get_metrics(
     _kick_finish_check(row)
     rows = await _STORE.metrics_rows(experiment_id, run=n)
     arm_order = [a.get("creativeId") for a in row.get("arms") or []]
-    body = aggregate_episode_metrics(rows, experiment_id, arm_order=arm_order)
+    body = aggregate_episode_metrics(
+        rows,
+        experiment_id,
+        arm_order=arm_order,
+        learning=run_learning(_run_entry(row, n)),
+    )
     return {**body, "run": n}
 
 
@@ -1713,9 +1718,15 @@ async def http_get_creative_series(
     if cached is not None:
         return cached
     entry = _run_entry(row, n)
+    continuous = run_learning(entry) == "continuous"
     horizon = entry.get("horizon")
+    if continuous and horizon:
+        # §11: rounds (and the shift / shock-end rounds) span the whole run
+        horizon = int(horizon) * int(entry.get("episodes") or 1)
     boundaries = shift_boundaries(entry.get("shifts"), horizon)
-    raw = await _STORE.creative_series_rows(experiment_id, run=n, boundaries=boundaries)
+    raw = await _STORE.creative_series_rows(
+        experiment_id, run=n, boundaries=boundaries, continuous=continuous
+    )
     body = build_creative_series(
         raw.get("series", []),
         raw.get("segments", []),
