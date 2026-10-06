@@ -1,0 +1,117 @@
+{
+ "experimentId": "c0a7e1b25f3d4e98",
+ "userId": "demo_user",
+ "sessionId": "1638190721007616000",
+ "appName": "interactive_creative",
+ "createdAt": "2026-10-02T23:05:33.793623Z",
+ "updatedAt": "2026-10-02T23:52:31.530443Z",
+ "status": "ready",
+ "scenario": "segment_winners",
+ "ctrMode": "demo",
+ "rewardMode": "click",
+ "ttlExpiresAt": "2026-10-03T01:05:33.793623Z",
+ "arms": [
+  {
+   "creativeId": "aae3f6b4",
+   "index": 0,
+   "label": "The Only $500 Check With Real Sustain",
+   "conceptName": "The Tone Dividend Bailout",
+   "imageUri": "gs://trend-trawler-deploy-ae/2026_10_02_16_07_b133/creative_output/The_Tone_Dividend_Bailout.png",
+   "scores": {
+    "strategic_alignment": 0.9,
+    "trend_authenticity": 0.8,
+    "platform_viability": 0.9,
+    "copy_quality": 0.9,
+    "audience_fit": 0.7,
+    "call_to_action_strength": 0.8,
+    "ad_copy_overall": 0.833,
+    "trend_visual_connection": 0.9,
+    "brand_product_representation": 0.9,
+    "audience_appeal": 1.0,
+    "prompt_technical_quality": 0.9,
+    "stopping_power": 0.8,
+    "concept_coherence": 1.0,
+    "visual_overall": 0.917
+   },
+   "overallScore": 0.875
+  },
+  {
+   "creativeId": "8c0e9ee8",
+   "index": 1,
+   "label": "One $500 Check. Zero Back Pain.",
+   "conceptName": "Ergonomic Lumbar Relief",
+   "imageUri": "gs://trend-trawler-deploy-ae/2026_10_02_16_07_b133/creative_output/Ergonomic_Lumbar_Relief.png",
+   "scores": {
+    "strategic_alignment": 0.9,
+    "trend_authenticity": 0.7,
+    "platform_viability": 0.8,
+    "copy_quality": 0.9,
+    "audience_fit": 0.6,
+    "call_to_action_strength": 0.8,
+    "ad_copy_overall": 0.783,
+    "trend_visual_connection": 0.7,
+    "brand_product_representation": 0.9,
+    "audience_appeal": 0.5,
+    "prompt_technical_quality": 0.9,
+    "stopping_power": 0.8,
+    "concept_coherence": 0.8,
+    "visual_overall": 0.767
+   },
+   "overallScore": 0.775
+  },
+  {
+   "creativeId": "3fe4b3ec",
+   "index": 2,
+   "label": "Floor Tarpers vs. Tailgaters: Settled For $500",
+   "conceptName": "The Great Lot Treaty",
+   "imageUri": "gs://trend-trawler-deploy-ae/2026_10_02_16_07_b133/creative_output/The_Great_Lot_Treaty.png",
+   "scores": {
+    "strategic_alignment": 0.9,
+    "trend_authenticity": 0.7,
+    "platform_viability": 0.9,
+    "copy_quality": 0.8,
+    "audience_fit": 1.0,
+    "call_to_action_strength": 0.8,
+    "ad_copy_overall": 0.85,
+    "trend_visual_connection": 0.7,
+    "brand_product_representation": 0.9,
+    "audience_appeal": 1.0,
+    "prompt_technical_quality": 0.9,
+    "stopping_power": 0.8,
+    "concept_coherence": 0.9,
+    "visual_overall": 0.867
+   },
+   "overallScore": 0.8585
+  }
+ ],
+ "endpointId": "projects/934903580331/locations/us-central1/endpoints/6949323055625666560",
+ "trafficExecution": "projects/hybrid-vertex/locations/us-central1/jobs/trend-trawler-bandit-traffic/executions/trend-trawler-bandit-traffic-lfrbx",
+ "error": null,
+ "progress": {
+  "episodesDone": 20,
+  "episodesTotal": 20
+ },
+ "policyDiscount": 1.0,
+ "trafficRuns": [
+  {
+   "run": 1,
+   "startedAt": "2026-10-06T14:02:11Z",
+   "episodes": 20,
+   "horizon": 40000,
+   "shifts": [],
+   "forget": false,
+   "status": "finished",
+   "learning": "per_episode"
+  },
+  {
+   "run": 2,
+   "startedAt": "2026-10-06T14:40:05Z",
+   "episodes": 20,
+   "horizon": 40000,
+   "shifts": [],
+   "forget": false,
+   "status": "finished",
+   "learning": "continuous"
+  }
+ ]
+}

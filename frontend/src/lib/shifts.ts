@@ -9,7 +9,7 @@
  * no shift response, no regimes means the page renders exactly as before.
  */
 import { formatInt, formatPercent } from "./chart";
-import type { CtrMode, Scenario, Shift, ShiftKind, TrafficRun } from "./experiments";
+import type { CtrMode, LearningMode, Scenario, Shift, ShiftKind, TrafficRun } from "./experiments";
 import {
   applyShifts,
   displayPercents,
@@ -384,18 +384,28 @@ export interface TrafficBody {
   horizon?: number;
   shifts?: Shift[];
   forget?: boolean;
+  /** Sent only for "continuous" (contracts §11); absent = per episode, the api default. */
+  learning?: "continuous";
 }
 
 /**
  * The `POST …/traffic` body. Without shifts it is exactly what older APIs
- * accept (`{episodes, horizon?}`); with shifts it adds `shifts` and `forget`.
+ * accept (`{episodes, horizon?}`); with shifts it adds `shifts` and `forget`,
+ * and a continuous run adds `learning: "continuous"` (never sent for per episode).
  */
-export function trafficBody(episodes: number, horizon?: number, shifts: readonly Shift[] = [], forget?: boolean): TrafficBody {
+export function trafficBody(
+  episodes: number,
+  horizon?: number,
+  shifts: readonly Shift[] = [],
+  forget?: boolean,
+  learning?: LearningMode
+): TrafficBody {
   const body: TrafficBody = horizon ? { episodes, horizon } : { episodes };
   if (shifts.length) {
     body.shifts = shiftsToPayload(shifts);
     body.forget = forget ?? true;
   }
+  if (learning === "continuous") body.learning = "continuous";
   return body;
 }
 
@@ -572,6 +582,8 @@ export function runShifts(run: Pick<TrafficRun, "shifts" | "horizon"> | null | u
 export interface ChartMarker {
   x: number;
   label: string;
+  /** A quiet tick with no label on the plot (continuous runs' segment boundaries, §11). */
+  subtle?: boolean;
 }
 
 /**
@@ -771,12 +783,13 @@ export interface RunView {
  * or a run without a script): the page then renders exactly as before.
  */
 export function buildRunView(
-  run: Pick<TrafficRun, "shifts" | "horizon" | "forget"> | null | undefined,
+  run: (Pick<TrafficRun, "shifts" | "horizon" | "forget"> & Partial<Pick<TrafficRun, "episodes" | "learning">>) | null | undefined,
   metrics: { horizon?: number | null; regimes?: unknown; resolvedShifts?: unknown } | null | undefined,
   series: { regimes?: unknown } | null | undefined
 ): RunView | null {
-  const horizon = run?.horizon ?? metrics?.horizon ?? null;
-  const shifts = runShifts(run, horizon);
+  // A continuous run's shifts are fractions of the whole stream (contracts §11).
+  const horizon = runRounds(run ? { episodes: run.episodes ?? 0, horizon: run.horizon, learning: run.learning } : null, metrics?.horizon);
+  const shifts = runShifts(run ? { shifts: run.shifts, horizon } : null, horizon);
   if (!shifts.length) return null;
   const metricR = metricRegimes(metrics?.regimes);
   const seriesR = seriesRegimes(series?.regimes);
@@ -959,13 +972,56 @@ export function selectedRun(runs: readonly TrafficRun[], requested: number | nul
   return runs.find((r) => r.run === requested) ?? runs[runs.length - 1];
 }
 
-/** "Run 2 of 3 · 2 shifts · forgetting on" (shifts and forgetting omitted when there are none). */
-export function runLabel(run: Pick<TrafficRun, "run" | "shifts" | "forget">, total: number): string {
+/**
+ * "Run 2 of 3 · 2 shifts · forgetting on · keeps learning" (forgetting omitted
+ * without shifts or forgetting; "keeps learning" only for a continuous run, §11).
+ */
+export function runLabel(run: Pick<TrafficRun, "run" | "shifts" | "forget" | "learning">, total: number): string {
   const n = Array.isArray(run.shifts) ? run.shifts.length : 0;
   const parts = [`Run ${run.run} of ${total}`];
   parts.push(n ? `${n} ${n === 1 ? "shift" : "shifts"}` : "no shifts");
   if (n || run.forget) parts.push(`forgetting ${run.forget ? "on" : "off"}`);
+  if (run.learning === "continuous") parts.push("keeps learning");
   return parts.join(" · ");
+}
+
+/**
+ * The rounds a shown run's shift fractions and markers are measured against: the
+ * episode length per episode, or the whole stream (segments × rounds) for a
+ * continuous run (contracts §10/§11). Null when unknown.
+ */
+export function runRounds(
+  run: Pick<TrafficRun, "episodes" | "horizon" | "learning"> | null | undefined,
+  fallback?: number | null
+): number | null {
+  const t = run?.horizon ?? fallback ?? null;
+  if (!t) return null;
+  return run?.learning === "continuous" && run.episodes > 0 ? run.episodes * t : t;
+}
+
+/**
+ * Segment-boundary ticks for a continuous run's charts (contracts §11): a
+ * subtle marker at the global round where each segment starts ("Segment 1" at
+ * round 0 sits outside the plotted rounds, so it only names the first stretch
+ * in the hover readout). The api's `segmentStarts` win when present; otherwise
+ * they are derived from the run's segments × rounds. Empty for a per-episode
+ * run, or a single segment.
+ */
+export function segmentMarkers(
+  run: Pick<TrafficRun, "episodes" | "horizon" | "learning"> | null | undefined,
+  opts: { starts?: readonly number[] | null; segmentRounds?: number | null } = {}
+): ChartMarker[] {
+  if (run?.learning !== "continuous") return [];
+  const valid = (opts.starts ?? []).filter((v) => Number.isFinite(v) && v >= 0);
+  const starts = valid.length
+    ? [...new Set(valid)].sort((a, b) => a - b)
+    : (() => {
+        const t = run.horizon ?? opts.segmentRounds ?? null;
+        return t && run.episodes > 0 ? Array.from({ length: run.episodes }, (_, i) => i * t) : [];
+      })();
+  const total = Math.max(run.episodes || 0, starts.length);
+  if (total < 2) return [];
+  return starts.map((x, i) => ({ x, label: `Segment ${i + 1} of ${total}`, subtle: true }));
 }
 
 /** "50% of the run" for marker hover text. */

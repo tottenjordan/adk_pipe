@@ -53,9 +53,11 @@ export interface LineChartProps {
   minX?: number;
   /**
    * Vertical event markers (e.g. scripted shifts): a rule and a label inside the
-   * plot, named in the hover readout ("Since shift 1, round 20k").
+   * plot, named in the hover readout ("Since shift 1, round 20k"). A `subtle`
+   * marker (e.g. a continuous run's segment boundary) is a quiet tick on the x
+   * axis with no plot label; the hover readout names the stretch it opens.
    */
-  markers?: { x: number; label: string }[];
+  markers?: { x: number; label: string; subtle?: boolean }[];
   /** Shaded x ranges under the lines (e.g. recovery after a shift), each with an optional label. */
   spans?: { x0: number; x1: number; label?: string }[];
   className?: string;
@@ -148,12 +150,19 @@ export function LineChart({
 
   // Markers inside the x domain, with labels staggered onto a second row when they'd touch.
   const [xMin, xMax] = xs.length ? [xs[0], xs[xs.length - 1]] : [0, 0];
+  const inDomain = markers.filter((m) => m.x >= xMin && m.x <= xMax);
   const placed = placeMarkers(
-    markers.filter((m) => m.x >= xMin && m.x <= xMax).map((m) => ({ ...m, px: x(m.x) })),
+    inDomain.filter((m) => !m.subtle).map((m) => ({ ...m, px: x(m.x) })),
     M.left + plotW
   );
-  const hoverMarker =
-    hoverValue === null ? null : [...markers].filter((m) => m.x <= hoverValue).sort((a, b) => b.x - a.x)[0] ?? null;
+  const ticks = inDomain.filter((m) => m.subtle).map((m) => ({ ...m, px: x(m.x) }));
+  const latestBefore = (subtle: boolean) =>
+    hoverValue === null
+      ? null
+      : ([...markers].filter((m) => Boolean(m.subtle) === subtle && m.x <= hoverValue).sort((a, b) => b.x - a.x)[0] ??
+        null);
+  const hoverMarker = latestBefore(false);
+  const hoverTick = latestBefore(true);
 
   const onMove = (e: PointerEvent<SVGRectElement>) => {
     const svg = e.currentTarget.ownerSVGElement;
@@ -276,6 +285,30 @@ export function LineChart({
           >
             {yLabel}
           </text>
+
+          {/* Subtle boundary ticks (continuous segments): a faint hairline and a short axis tick */}
+          {ticks.map((t) => (
+            <g key={`tk-${t.x}`} pointerEvents="none" aria-hidden>
+              <line
+                x1={t.px}
+                x2={t.px}
+                y1={M.top}
+                y2={M.top + plotH}
+                className="stroke-foreground"
+                strokeOpacity={0.07}
+                strokeWidth={1}
+              />
+              <line
+                x1={t.px}
+                x2={t.px}
+                y1={M.top + plotH - 6}
+                y2={M.top + plotH}
+                className="stroke-foreground"
+                strokeOpacity={0.5}
+                strokeWidth={1}
+              />
+            </g>
+          ))}
 
           {/* Shaded spans (e.g. recovery) under everything else */}
           {spans.map((sp, i) => {
@@ -445,6 +478,7 @@ export function LineChart({
             <p className="mb-1 font-medium text-foreground">
               {xLabel}: {formatX(hoverValue)}
             </p>
+            {hoverTick && <p className="mb-1 text-muted-foreground">{hoverTick.label}</p>}
             {hoverMarker && (
               <p className="mb-1 text-muted-foreground">
                 Since {hoverMarker.label.charAt(0).toLowerCase() + hoverMarker.label.slice(1)}, round{" "}

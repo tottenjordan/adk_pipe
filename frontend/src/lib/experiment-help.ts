@@ -9,9 +9,15 @@ import type { CtrMode, ExperimentStatus, RewardMode, Scenario } from "@/lib/expe
 /** Experiment page controls. */
 export const CONTROL_HELP = {
   episodes:
-    "An episode is one independent run: the endpoint's model is reset and learns from scratch on fresh simulated readers. More episodes give tighter confidence bands.",
+    "With Reset each episode, an episode is one independent replay: the endpoint's model starts fresh on new simulated readers, so more episodes give tighter confidence bands. With Keep learning, the run is one long stream and each episode becomes a segment: a stretch of rounds for progress and comparison, with no reset in between.",
+  segments:
+    "A segment is a stretch of rounds in one continuous stream. The endpoint keeps everything it learned from one segment to the next; segments only split the run for progress, storage and the batch-means check. Runs are capped at 2,000,000 rounds in total.",
+  learning:
+    "Reset each episode replays learning from scratch every episode: repeatable, comparable runs with 95% confidence bands, but it never shows long-run learning. Keep learning resets once and lets the endpoint learn across the whole run, like a production endpoint: one continuous timeline with no bands, and a batch-means check over the later segments in place of the confidence interval.",
   rounds:
     "Each round is one simulated reader seeing one creative. The endpoint updates its model every 100 rounds.",
+  segmentRounds:
+    "Each round is one simulated reader seeing one creative. The endpoint updates its model every 100 rounds and carries it across segments, so the run is segments × rounds in one stream.",
   startTraffic:
     "Starts a Cloud Run job that sends synthetic readers to the live endpoint and replays baseline strategies on the same readers for comparison.",
   stop: "Stopping deletes the live endpoint and its model so it stops costing money. Results and charts are kept.",
@@ -22,9 +28,9 @@ export const CONTROL_HELP = {
 /** The shift editor and the per-run views (contracts §10). */
 export const SHIFT_HELP = {
   section:
-    "Script up to four changes in what the simulated readers want, at set points in each episode. Every strategy sees the same changes, so the comparison stays fair, and a dashed line shows the endpoint on the same readers without them.",
+    "Script up to four changes in what the simulated readers want, at set points in each episode (once, across the whole stream, when the run keeps learning). Every strategy sees the same changes, so the comparison stays fair, and a dashed line shows the endpoint on the same readers without them.",
   forget:
-    "On: for this run the endpoint weighs each batch of readers a little less than the next, remembering roughly the last eighth of an episode, so it can let go of a winner that stopped winning. Off: it keeps every reader at full weight.",
+    "On: for this run the endpoint weighs each batch of readers a little less than the next, remembering roughly the last eighth of an episode (of the whole run when it keeps learning), so it can let go of a winner that stopped winning. Off: it keeps every reader at full weight.",
   preview:
     "The click rate each creative should get with each segment in every period between shifts, before random variation. The outlined cell is the segment's best creative in that period.",
   runs: "Each Start traffic is a numbered run with its own shift script. Pick a run to see its results; the newest is shown by default.",
@@ -72,6 +78,21 @@ export const CHART_HELP = {
   armTable:
     "One row per creative. Impressions count how often the live endpoint showed it. Estimated click rate is what the endpoint learned; true click rate is the simulator's hidden rate. Demo mode inflates the rates so learning shows quickly.",
 } as const;
+
+/**
+ * Chart help for a continuous run (contracts §11): one stream, linear rounds,
+ * no bands. Keys mirror CHART_HELP; missing keys fall back to it.
+ */
+export const CONTINUOUS_CHART_HELP: Partial<Record<keyof typeof CHART_HELP, string>> = {
+  avgReward:
+    "Each line is a strategy for choosing a creative, not a creative: Linear TS is your live endpoint and the others are baselines replayed on the same readers. The dashed line is the oracle, the ceiling. This run kept learning, so the x axis is every round of the run in order; the small ticks on it mark where each segment starts.",
+  regret:
+    "Regret is the expected clicks (or engaged seconds) lost by not always showing each reader their best creative. Flatter is better. This run is one continuous stream, so there are no bands: a single stream has no independent repeats to build an interval from. The batch-means check in the headline does that job instead.",
+  optimalShare:
+    "The percentage of rounds so far where a strategy picked the best creative for that reader, over the whole stream. No bands: one stream has no independent repeats.",
+  totals:
+    "The expected reward each segment collected, by strategy. Bars are the mean across segments and whiskers one standard deviation; early segments include the learning, so the spread is not an error bar. The batch-means interval in the headline is the honest comparison.",
+};
 
 /** Creative cards on the experiment page. */
 export const CARD_HELP = {
