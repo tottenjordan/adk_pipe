@@ -12,18 +12,39 @@ Statistics, across episodes, per policy:
 - armShare: ``linear_ts`` only, the per-window mean share by creative id.
 - perSegment: per segment, the mean ``pct_optimal`` / ``avg_reward`` per policy.
 - arms: ``linear_ts`` arm stats summed across episodes (CTR = clicks / impressions).
+
+Traffic runs with scripted shifts (contracts §10) add:
+- shiftResponse: per policy (the ghost ``linear_ts_unshifted`` included), per
+  shift in time order, each ``shift_response`` number as mean ± 95% CI across
+  episodes; ``recoveryRounds`` over the episodes that recovered.
+- regimes: ``perSegment`` and the per-arm true CTR split at the shift (and
+  shock-end) rounds, from the rows' ``regimes`` JSON (no extra query). The
+  whole-run fields keep their meaning.
+
+The ghost's segment winners come from the unshifted world, so it never votes on
+an ``optimalArm`` (whole run or per regime).
 """
 
 from __future__ import annotations
 
 import json
 import math
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from typing import Any
 
 ENDPOINT_POLICY = "linear_ts"
-# Contracts order: the endpoint policy first, the oracle last, the baselines between.
-_POLICY_ORDER = ("linear_ts", "ucb1", "epsilon_greedy", "beta_bernoulli_ts", "uniform")
+# Linear TS replayed on the same draws without the run's shifts (contracts §10).
+GHOST_POLICY = "linear_ts_unshifted"
+# Contracts order: the endpoint policy (then its ghost) first, the oracle last, the
+# baselines between.
+_POLICY_ORDER = (
+    "linear_ts",
+    GHOST_POLICY,
+    "ucb1",
+    "epsilon_greedy",
+    "beta_bernoulli_ts",
+    "uniform",
+)
 _LAST = "oracle"
 _CURVE_KEYS = {
     "cum_avg_reward": "cumAvgReward",
@@ -50,6 +71,8 @@ def empty_metrics(experiment_id: str) -> dict:
         "armShare": {},
         "perSegment": {},
         "arms": [],
+        "shiftResponse": {},
+        "regimes": [],
     }
 
 
@@ -138,15 +161,28 @@ def _mean_lists(lists: Sequence[Sequence[float]]) -> list[float]:
     return [math.fsum(float(v[i]) for v in lists) / len(lists) for i in range(length)]
 
 
-def _per_segment(by_policy: Mapping[str, list[dict]], policies: list[str]) -> dict:
+def _per_segment(
+    by_policy: Mapping[str, list[dict]],
+    policies: list[str],
+    per_segment_of: Callable[[dict], Any] | None = None,
+) -> dict:
+    """``perSegment`` from each row's ``per_segment`` (or ``per_segment_of(row)``,
+    e.g. one regime's). The ghost policy's rows never vote on ``optimalArm``."""
     optimal_votes: dict[str, dict[str, int]] = {}
     acc: dict[str, dict[str, dict[str, list[float]]]] = {}
     for policy in policies:
         for row in by_policy[policy]:
-            for seg, stats in _json(row.get("per_segment"), {}).items():
+            raw = (
+                per_segment_of(row)
+                if per_segment_of is not None
+                else _json(row.get("per_segment"), {})
+            )
+            if not isinstance(raw, Mapping):
+                continue
+            for seg, stats in raw.items():
                 if not isinstance(stats, Mapping):
                     continue
-                if arm := stats.get("optimal_arm"):
+                if policy != GHOST_POLICY and (arm := stats.get("optimal_arm")):
                     votes = optimal_votes.setdefault(seg, {})
                     votes[arm] = votes.get(arm, 0) + 1
                 slot = acc.setdefault(seg, {}).setdefault(
@@ -203,6 +239,170 @@ def _arm_stats(rows: list[dict], arm_order: Sequence[str] | None) -> list[dict]:
         }
         for cid in order
     ]
+
+
+# Natural bounds of the shift_response numbers (CI clamped like CURVE_BOUNDS).
+_SHIFT_KEYS: dict[str, tuple[str, tuple[float | None, float | None]]] = {
+    "pct_optimal_before": ("pctOptimalBefore", (0.0, 1.0)),
+    "pct_optimal_after": ("pctOptimalAfter", (0.0, 1.0)),
+    "regret_rate_before": ("regretRateBefore", (0.0, None)),
+    "regret_rate_after": ("regretRateAfter", (0.0, None)),
+}
+
+
+def stat(
+    values: Sequence[float], bounds: tuple[float | None, float | None] = (None, None)
+) -> dict:
+    """``{mean, lo, hi}``: mean ± 95% CI across ``values`` (clamped to ``bounds``)."""
+    b = band([[float(v)] for v in values], bounds)
+    if not b["mean"]:
+        return {"mean": 0.0, "lo": 0.0, "hi": 0.0}
+    return {"mean": b["mean"][0], "lo": b["lo"][0], "hi": b["hi"][0]}
+
+
+def _finite(value: Any) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return None
+    return float(value) if math.isfinite(value) else None
+
+
+def aggregate_shift_response(by_policy: Mapping[str, list[dict]]) -> dict:
+    """Per policy, per shift (the rows' ``shift_response`` order: time order): each
+    number as ``stat`` across episodes. ``recoveryRounds`` is the ``stat`` over the
+    episodes that recovered (``None`` when none did; ``recoveredEpisodes`` counts
+    them). Rows without ``shift_response`` are skipped; a policy whose episodes
+    disagree on the shift count is cut to the shortest list."""
+    out: dict[str, list[dict]] = {}
+    for policy, rows in by_policy.items():
+        episodes = [
+            [e for e in sr if isinstance(e, Mapping)]
+            for sr in (_json(r.get("shift_response"), None) for r in rows)
+            if isinstance(sr, list) and sr
+        ]
+        if not episodes:
+            continue
+        entries = []
+        for j in range(min(len(ep) for ep in episodes)):
+            per_ep = [ep[j] for ep in episodes]
+            entry: dict[str, Any] = {
+                "round": int(per_ep[0].get("round") or 0),
+                "episodes": len(per_ep),
+            }
+            for snake, (camel, bounds) in _SHIFT_KEYS.items():
+                vals = [v for e in per_ep if (v := _finite(e.get(snake))) is not None]
+                entry[camel] = stat(vals, bounds)
+            rec = [
+                v
+                for e in per_ep
+                if (v := _finite(e.get("recovery_rounds"))) is not None
+            ]
+            entry["recoveryRounds"] = stat(rec, (0.0, None)) if rec else None
+            entry["recoveredEpisodes"] = len(rec)
+            entries.append(entry)
+        out[policy] = entries
+    return out
+
+
+def aggregate_shift_cost(by_policy: Mapping[str, list[dict]]) -> dict | None:
+    """What the run's shifts cost the endpoint: the **paired** per-episode
+    difference ghost (``linear_ts_unshifted``) − endpoint (``linear_ts``) of
+    ``total_clicks`` and ``total_reward``, matched by episode, as ``stat`` (mean ±
+    95% t-interval, unclamped: a negative cost means the shift helped). Pairing is
+    valid because both replay the same episode keys, and it removes the
+    between-episode variance. ``episodes`` counts the reward pairs; clicks pair
+    only where both rows have ``total_clicks`` (``clicksPerEpisode`` is ``None``
+    when no pair has them). ``None`` without any pair."""
+    lin = {int(r.get("episode") or 0): r for r in by_policy.get(ENDPOINT_POLICY, [])}
+    ghost = {int(r.get("episode") or 0): r for r in by_policy.get(GHOST_POLICY, [])}
+    reward_diffs: list[float] = []
+    click_diffs: list[float] = []
+    for ep in sorted(lin.keys() & ghost.keys()):
+        g, e = ghost[ep], lin[ep]
+        rg, re_ = _finite(g.get("total_reward")), _finite(e.get("total_reward"))
+        if rg is not None and re_ is not None:
+            reward_diffs.append(rg - re_)
+        cg, ce = _finite(g.get("total_clicks")), _finite(e.get("total_clicks"))
+        if cg is not None and ce is not None:
+            click_diffs.append(cg - ce)
+    if not reward_diffs:
+        return None
+    return {
+        "episodes": len(reward_diffs),
+        "clicksPerEpisode": stat(click_diffs) if click_diffs else None,
+        "rewardPerEpisode": stat(reward_diffs),
+    }
+
+
+def aggregate_regimes(
+    by_policy: Mapping[str, list[dict]],
+    policies: list[str],
+    arm_order: Sequence[str] | None = None,
+) -> list[dict]:
+    """Per regime (the rows' ``regimes`` order, i.e. by round): ``start`` /
+    ``end`` (from the first row carrying regimes, the endpoint's when present),
+    ``perSegment`` (same shape and rules as the whole-run field) and ``arms``
+    ``[{creativeId, trueCtr}]``: the mean regime ``true_ctr`` over the endpoint's
+    episodes (any non-ghost policy's when the endpoint has none)."""
+    regimes_of = {
+        id(r): [g for g in reg if isinstance(g, Mapping)]
+        for rows in by_policy.values()
+        for r in rows
+        if isinstance(reg := _json(r.get("regimes"), None), list)
+    }
+    ordered = [p for p in policies if p != GHOST_POLICY] + (
+        [GHOST_POLICY] if GHOST_POLICY in policies else []
+    )
+    template: list = []
+    for policy in ordered:
+        for r in by_policy[policy]:
+            if regimes_of.get(id(r)):
+                template = regimes_of[id(r)]
+                break
+        if template:
+            break
+    if not template:
+        return []
+    truth_rows = [
+        r for r in by_policy.get(ENDPOINT_POLICY, []) if regimes_of.get(id(r))
+    ]
+    if not truth_rows:
+        truth_rows = [
+            r
+            for p in policies
+            if p != GHOST_POLICY
+            for r in by_policy[p]
+            if regimes_of.get(id(r))
+        ]
+    out = []
+    for k, head in enumerate(template):
+
+        def regime_k(row: dict, k: int = k) -> Any:
+            reg = regimes_of.get(id(row)) or []
+            return reg[k].get("per_segment") if k < len(reg) else None
+
+        ctr: dict[str, list[float]] = {}
+        for row in truth_rows:
+            reg = regimes_of[id(row)]
+            truth = reg[k].get("true_ctr") if k < len(reg) else None
+            if not isinstance(truth, Mapping):
+                continue
+            for cid, v in truth.items():
+                if (f := _finite(v)) is not None:
+                    ctr.setdefault(str(cid), []).append(f)
+        order = [c for c in (arm_order or []) if c in ctr]
+        order += [c for c in ctr if c not in order]
+        out.append(
+            {
+                "start": int(head.get("start") or 0),
+                "end": int(head.get("end") or 0),
+                "perSegment": _per_segment(by_policy, policies, regime_k),
+                "arms": [
+                    {"creativeId": cid, "trueCtr": mean_std(ctr[cid])[0]}
+                    for cid in order
+                ],
+            }
+        )
+    return out
 
 
 def aggregate_episode_metrics(
@@ -263,7 +463,7 @@ def aggregate_episode_metrics(
     share_order += [c for c in share_lists if c not in share_order]
 
     horizons = [int(r["horizon"]) for r in ordered if r.get("horizon") is not None]
-    return {
+    body: dict[str, Any] = {
         "experimentId": experiment_id,
         "episodes": len({ep for ep, _ in dedup}),
         "horizon": max(horizons) if horizons else None,
@@ -274,4 +474,10 @@ def aggregate_episode_metrics(
         "armShare": {cid: _mean_lists(share_lists[cid]) for cid in share_order},
         "perSegment": _per_segment(by_policy, policies),
         "arms": _arm_stats(by_policy.get(ENDPOINT_POLICY, []), arm_order),
+        "shiftResponse": aggregate_shift_response(by_policy),
+        "regimes": aggregate_regimes(by_policy, policies, arm_order),
     }
+    # Only for a run with a ghost replay (i.e. with shifts); omitted otherwise.
+    if (cost := aggregate_shift_cost(by_policy)) is not None:
+        body["shiftCost"] = cost
+    return body

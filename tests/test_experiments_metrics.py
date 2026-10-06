@@ -81,6 +81,8 @@ def test_empty_rows_give_zero_episodes():
         "armShare": {},
         "perSegment": {},
         "arms": [],
+        "shiftResponse": {},
+        "regimes": [],
     }
 
 
