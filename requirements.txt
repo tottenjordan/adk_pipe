@@ -73,7 +73,7 @@ cryptography==50.0.1
     #   joserfc
 cycler==0.12.1
     # via matplotlib
-db-dtypes==1.7.1
+db-dtypes==1.7.2
     # via adk-pipe
 defusedxml==0.7.1
     # via nltk
@@ -124,7 +124,7 @@ google-api-core==2.34.0
     #   google-cloud-run
     #   google-cloud-storage
     #   google-cloud-texttospeech
-google-auth==2.59.0
+google-auth==2.59.1
     # via
     #   adk-pipe
     #   google-adk
@@ -149,7 +149,7 @@ google-cloud-appengine-logging==1.10.0
     # via google-cloud-logging
 google-cloud-audit-log==0.6.2
     # via google-cloud-logging
-google-cloud-bigquery==3.45.2
+google-cloud-bigquery==3.46.1
     # via
     #   adk-pipe
     #   google-cloud-aiplatform
@@ -162,15 +162,15 @@ google-cloud-logging==3.16.3
     # via
     #   google-cloud-aiplatform
     #   opentelemetry-exporter-gcp-logging
-google-cloud-modelarmor==0.7.1
+google-cloud-modelarmor==0.7.2
     # via adk-pipe
-google-cloud-pubsub==2.41.0
+google-cloud-pubsub==2.42.0
     # via adk-pipe
 google-cloud-resource-manager==1.18.0
     # via google-cloud-aiplatform
 google-cloud-run==0.16.2
     # via adk-pipe
-google-cloud-storage==3.15.0
+google-cloud-storage==3.16.0
     # via
     #   adk-pipe
     #   google-cloud-aiplatform
@@ -180,7 +180,7 @@ google-crc32c==1.9.0
     # via
     #   google-cloud-storage
     #   google-resumable-media
-google-genai==2.25.0
+google-genai==2.28.0
     # via
     #   adk-pipe
     #   google-adk
