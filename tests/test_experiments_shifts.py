@@ -335,7 +335,8 @@ def test_traffic_runs_allocate_write_records_and_pass_env():
     assert running[1]["shifts"] == ex.shifts_to_camel(j2["shifts"])
     assert running[1]["forget"] is True and running[1]["episodes"] == 2
     assert set(running[1]) == {
-        "run", "startedAt", "episodes", "horizon", "shifts", "forget", "status",
+        "run", "startedAt", "episodes", "horizon", "shifts", "forget", "learning",
+        "status",
     }  # fmt: skip
     assert [r["run"] for r in done["trafficRuns"]] == [1, 2, 3]
     stored = h.store.rows[eid]["traffic_runs"]
@@ -397,6 +398,7 @@ def test_legacy_experiment_gets_a_synthesized_run_one():
             "horizon": None,
             "shifts": [],
             "forget": False,
+            "learning": "per_episode",
             "status": "finished",
         }
     ]

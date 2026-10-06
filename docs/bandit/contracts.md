@@ -123,8 +123,9 @@ added 2026-10-04 by `ALTER TABLE … ADD COLUMN IF NOT EXISTS`, see deployment/R
 deploy_lease_until TIMESTAMP, deploy_lease_owner STRING (the §6 single-deployer lease; written
 only by the api's conditional lease UPDATEs, never by the MERGE; added 2026-10-05 the same way),
 traffic_runs STRING (§10 JSON list, one snake_case entry per numbered traffic run:
-`{run, started_at, episodes, horizon, forget, shifts, execution, status?}`, where `shifts` is the
-job form and `status` is frozen on an entry when the next run starts; added 2026-10-05; an
+`{run, started_at, episodes, horizon, forget, shifts, learning, execution, status?}`, where `shifts` is the
+job form, `learning` the §11 mode (entries written before 2026-10-06 lack it and read as
+`"per_episode"`) and `status` is frozen on an entry when the next run starts; added 2026-10-05; an
 api ahead of the migration drops the column from its MERGE with an error log)
 
 **`bandit_events`**, one row per round for the endpoint policy, written by the traffic job (`insertId = request_id`).
@@ -181,7 +182,7 @@ All routes are user-scoped. The proxy rewrites `userId` / the `{user_id}` segmen
   - Body: `{episodes: 1..100, horizon?: 1000..400000, shifts?: Shift[] (≤ 4, §10), forget?: boolean | null, learning?: "per_episode" | "continuous"}`.
   - `learning` (§11, default `"per_episode"`): `"continuous"` keeps the endpoint's posterior across the run's episodes (then called segments). A continuous run is limited to `episodes × horizon ≤ 2,000,000` rounds (`bandit.config.MAX_CONTINUOUS_ROUNDS`) and needs `horizon` to be a multiple of the experiment's `batch_size`.
   - Success: `{status: "running_traffic", execution, run}` (`run` = the allocated 1-based run number).
-  - Errors: 400 `invalid_shifts` (with `detail.field`, e.g. `shifts[1].untilFrac`) or `invalid_forget`; 409 unless status is `ready`.
+  - Errors: 400 `invalid_shifts` (with `detail.field`, e.g. `shifts[1].untilFrac`) or `invalid_forget`; 400 `invalid_learning` with `detail.field`: `learning` (not one of the two modes), `episodes` (a continuous run over 2,000,000 rounds; a missing `horizon` counts as the experiment default) or `horizon` (not a multiple of `batch_size`); 409 unless status is `ready`.
 - `POST /experiments/{user_id}/{experiment_id}/stop` returns `{status: "stopping" | "stopped"}`.
 
 **Status enum:** `deploying → ready → running_traffic → ready → stopping → stopped`; also `failed` and `expired` (the TTL reaper).
@@ -201,9 +202,10 @@ type TrafficRun = { run: number; startedAt: string | null; episodes: number;
   horizon: number | null;          // the run's horizon (the body's, else the experiment default)
   shifts: Shift[];                 // §10 REST form as validated (camelCase; [] = no shifts)
   forget: boolean;
+  learning: "per_episode" | "continuous";                            // §11; older runs "per_episode"
   status: "running" | "finished" | "failed" | "stopped" };
   // An experiment that ran traffic before runs were numbered shows a legacy run 1
-  // (startedAt/horizon null, shifts [], forget false).
+  // (startedAt/horizon null, shifts [], forget false, learning "per_episode").
 type ScenarioOverrides = { segmentMix?: number[]; gapScale?: number; judgeWrong?: number;
   noiseScale?: number; driftAtFrac?: number };                       // only the fields that were set
 type Band = { mean: number[]; lo: number[]; hi: number[] };          // mean ± 95% CI across episodes
@@ -473,7 +475,7 @@ PR B/C store it per run: the `traffic_runs` JSON on the experiment row, and `{id
 
 **REST (PR C, implemented 2026-10-05 in `runserver/experiments.py`):**
 - **Validation** (`validate_shifts(scenario, ctr_mode, arms, shifts)`): the rules above on the camelCase form, `null` fields counting as unset. runserver duplicates `SHIFT_KINDS`, `SHIFT_BOUNDS`, `MAX_SHIFTS`, `SHIFT_MIN_WINDOW`, `LEADER`, `LEADER_KINDS`, the per-kind field tables, the per-scenario segment names (`SCENARIO_SEGMENT_NAMES`) and `ctr_scale` (from `SCENARIO_TARGET_CTR`), under parity tests (`tests/test_experiments_shifts.py`, which also checks that `bandit` rejects every case the api rejects, naming the same field). Creative ids must be the experiment's arms. A failure is **400** `{reason: "invalid_shifts", field}` with the camelCase field (`shifts[1].untilFrac`, `shifts[0].creativeId`; `shifts` for a non-list or more than 4). A non-boolean `forget` is **400** `invalid_forget`.
-- **Run allocation:** `run = len(traffic_runs) + 1` (an experiment that ran traffic before runs were numbered counts as having a legacy run 1, so its next run is 2). Before starting the job the api writes `{artifacts}/{id}/runs/{n}.json`: `{experiment_id, run, started_at, episodes, horizon, forget, shifts (job form), request (the body as submitted)}`; `horizon` is the body's or the experiment default. It then starts the job with `TRAFFIC_RUN`, `FORGET` and (only when there are shifts) `SHIFTS_JSON`, and appends `{run, started_at, episodes, horizon, forget, shifts, execution}` to `traffic_runs` in the same guarded `traffic_started` transition (skipped, 409, if another process started a run since the read). The previous entry's `status` is frozen at that point. The response adds `run`.
+- **Run allocation:** `run = len(traffic_runs) + 1` (an experiment that ran traffic before runs were numbered counts as having a legacy run 1, so its next run is 2). Before starting the job the api writes `{artifacts}/{id}/runs/{n}.json`: `{experiment_id, run, started_at, episodes, horizon, forget, shifts (job form), learning (§11), request (the body as submitted)}`; `horizon` is the body's or the experiment default. It then starts the job with `TRAFFIC_RUN`, `FORGET` and (only when there are shifts) `SHIFTS_JSON`, and appends `{run, started_at, episodes, horizon, forget, shifts, learning, execution}` to `traffic_runs` in the same guarded `traffic_started` transition (skipped, 409, if another process started a run since the read). The previous entry's `status` is frozen at that point. The response adds `run`.
 - **Reads:** `/metrics` and `/creatives` take `?run=N` (default the latest; `[1, latest]` else 400 `invalid_run`). Rows with a NULL `traffic_run` count as run 1. Both responses carry `run`; `/metrics` adds `shiftResponse`, `regimes` and (when ghost rows exist) `shiftCost`, the paired per-episode ghost − endpoint clicks / reward with a 95% t-interval (§5); `/creatives` adds `regimes` (§8).
 - **Frontend proxy:** the `/api/adk` proxy forwards only the `since` / `version` query params today; PR D must add `run` to that allowlist (`frontend/src/lib/user-scoping.ts`).
 
@@ -514,6 +516,8 @@ A traffic run's **learning mode** is `"per_episode"` (the default, every behavio
 **Limits** (`bandit.config.validate_continuous_run`): `E × T ≤ MAX_CONTINUOUS_ROUNDS = 2_000_000` (job runtime and memory; e.g. 50 × 40k demo or 5 × 400k realistic) and `T` a multiple of `batch_size` (so no policy batch straddles a segment boundary). This replaces the per-episode `horizon ≤ 1_000_000` cap for the world's total only; T itself keeps its bounds. Errors are `ValueError`s naming `episodes` / `horizon`; the job exits 2.
 
 **Job env:** `LEARNING_MODE=per_episode|continuous` (flag `--learning`; default `per_episode`; anything else exits 2). The api (PR B) sets it only for continuous runs.
+
+**api record (PR B, implemented in `runserver/experiments.py`):** `validate_learning` checks the body (runserver duplicates `LEARNING_MODES` and `MAX_CONTINUOUS_ROUNDS` under a parity test, `tests/test_experiments_continuous.py`; the `batch_size` is the api's `ExperimentSettings.batch_size`, the one written into `experiment.json`). The validated mode is recorded as `learning` in `runs/{n}.json` (plus `request.learning` as submitted) and in the `traffic_runs` entry, and surfaced as `TrafficRun.learning` (§5). The `forget` default is unchanged (`true` iff there are shifts).
 
 **Semantics** (`bandit_traffic.traffic.TrafficRunner`):
 - **World:** `simulate.build_environment(continuous_world_config(cfg))`, i.e. the ground truth built with horizon H, so the environment's `t` is the global round and drift points / shifts resolve over the whole run (§10). The model key is unchanged.
