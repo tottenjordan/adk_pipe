@@ -48,6 +48,8 @@ Deployment runbook (tables, env, IAM, traffic job): [deployment/README.md → Ba
 
 ## Architecture
 
+![Bandit experiments architecture](../diagrams/bandit_experiments_architecture.png)
+
 ```
  /results/[sessionId]  ── Deploy panel (pick 2–4 creatives, scenario, CTR mode, reward mode, TTL)
         │  POST /experiments            (same-origin /api/adk proxy; user-scoped, P3 authz)
