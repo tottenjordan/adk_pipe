@@ -252,6 +252,23 @@ def main() -> None:
             "clicksPerEpisode": stat(g["clicked"].sum(1) - lin["clicked"].sum(1)),
             "rewardPerEpisode": stat(g["reward"].sum(1) - lin["reward"].sum(1)),
         },
+        # The traffic job's resolution, read back from the shift_response entries.
+        "resolvedShifts": [
+            {
+                "index": rec["index"],
+                "kind": rec["kind"],
+                "round": rec["round"],
+                "endRound": rec["end_round"],
+                "segment": rec.get("segment"),
+                "creativeId": rec.get("creative_id"),
+                "requestedCreativeId": rec.get("requested_creative_id"),
+                "targets": [
+                    {"segment": t["segment"], "ctrBefore": r4(t["ctr_before"]), "ctrAfter": r4(t["ctr_after"])}
+                    for t in rec.get("targets") or []
+                ],
+            }
+            for rec in resolved
+        ],
     }
 
     # ── /creatives (contracts §8) ──

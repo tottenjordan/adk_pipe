@@ -13,6 +13,7 @@ import {
   moveShift,
   newShift,
   normalizeShift,
+  parseResolvedShifts,
   parseRunParam,
   parseShiftResponse,
   presetShift,
@@ -301,6 +302,63 @@ describe("run records, markers and regimes", () => {
       ],
     }, null)!;
     expect(v.shifts[1].resolvedCreativeId).toBe("b");
+  });
+
+  // metrics.resolvedShifts (contracts §5/§10): the traffic job's own resolution, time order.
+  const resolvedShifts = [
+    { index: 1, kind: "demote", round: 20000, endRound: null, segment: "late_night_casual", creativeId: "aae3f6b4", requestedCreativeId: "aae3f6b4", targets: [] },
+    {
+      index: 0,
+      kind: "shock",
+      round: 24000,
+      endRound: 30000,
+      segment: null,
+      creativeId: "c",
+      requestedCreativeId: "leader",
+      targets: [{ segment: "mobile", ctrBefore: 0.04, ctrAfter: 0.024 }],
+    },
+  ];
+  const heuristicRegimes = [
+    { start: 0, end: 20000, perSegment: {}, arms: [{ creativeId: "a", trueCtr: 0.04 }] },
+    { start: 20000, end: 24000, perSegment: {}, arms: [{ creativeId: "b", trueCtr: 0.035 }] },
+  ];
+
+  it("parses resolvedShifts, dropping malformed entries", () => {
+    expect(parseResolvedShifts(undefined)).toEqual([]);
+    expect(parseResolvedShifts("nope")).toEqual([]);
+    const parsed = parseResolvedShifts([...resolvedShifts, { kind: "nope" }, null]);
+    expect(parsed).toHaveLength(2);
+    expect(parsed[1]).toEqual({
+      index: 0,
+      kind: "shock",
+      round: 24000,
+      endRound: 30000,
+      segment: null,
+      creativeId: "c",
+      requestedCreativeId: "leader",
+      targets: [{ segment: "mobile", ctrBefore: 0.04, ctrAfter: 0.024 }],
+    });
+  });
+
+  it("prefers the traffic job's resolved leader over the click-rate heuristic", () => {
+    const v = buildRunView({ shifts: recorded, horizon: 40_000, forget: true }, {
+      horizon: 40_000,
+      regimes: heuristicRegimes,
+      resolvedShifts,
+    }, null)!;
+    expect(v.shifts[1].resolvedCreativeId).toBe("c");
+    expect(v.shifts[0].resolvedCreativeId).toBeUndefined();
+  });
+
+  it("falls back to the heuristic when resolvedShifts are absent or don't line up", () => {
+    const old = buildRunView({ shifts: recorded, horizon: 40_000, forget: true }, { horizon: 40_000, regimes: heuristicRegimes }, null)!;
+    expect(old.shifts[1].resolvedCreativeId).toBe("b");
+    const misaligned = buildRunView({ shifts: recorded, horizon: 40_000, forget: true }, {
+      horizon: 40_000,
+      regimes: heuristicRegimes,
+      resolvedShifts: [resolvedShifts[1]],
+    }, null)!;
+    expect(misaligned.shifts[1].resolvedCreativeId).toBe("b");
   });
 
   it("places a marker at each shift round and at a shock's end", () => {

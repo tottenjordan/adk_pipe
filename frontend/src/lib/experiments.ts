@@ -163,6 +163,8 @@ export type ExperimentMetrics = {
   regimes?: unknown;
   /** Paired cost of the shifts, ghost − endpoint per episode (§5). Read with `parseShiftCost`. */
   shiftCost?: unknown;
+  /** The run's shifts as the traffic job resolved them ("leader" made concrete; §5/§10). Read with `parseResolvedShifts`. */
+  resolvedShifts?: unknown;
 };
 
 /** One creative's per-window performance under the live endpoint (contracts §8). */
