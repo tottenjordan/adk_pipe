@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { buttonVariants } from "@/components/ui/button";
+import { JudgeAgreement } from "@/components/judge-agreement";
 import { RunList, RunListHeader, useRunHistory } from "@/components/run-list";
 import { stashDuplicateBrief, type RunRow } from "@/lib/run-history";
 
@@ -25,6 +26,7 @@ export default function RunsPage() {
               {rows.length} {rows.length === 1 ? "run" : "runs"}, newest first
             </p>
           )}
+          <JudgeAgreement />
         </div>
         <Link href="/" className={buttonVariants()}>
           New run

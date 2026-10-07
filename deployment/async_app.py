@@ -29,7 +29,7 @@ from google.adk.cli.utils.service_factory import (
 )
 from google.adk.runners import Runner
 
-from runserver import experiments
+from runserver import experiments, ratings
 from runserver.async_runs import configure, get_root_agent, router
 from runserver.authz import (
     AuthzMode,
@@ -39,6 +39,7 @@ from runserver.authz import (
     verify_proxy_caller,
 )
 from runserver.otel import otel_to_cloud_enabled
+from runserver.ratings_store import build_store_from_env as build_ratings_store
 
 _AGENTS_DIR = "agents"
 _SESSION_URI = os.getenv("SESSION_SERVICE_URI") or None
@@ -143,6 +144,13 @@ experiments.configure(
     settings=_BANDIT["settings"],
 )
 app.include_router(experiments.router)
+
+# Human creative ratings (/ratings, judge calibration): RATINGS_STORE=bigquery
+# (creative_ratings table) or memory (also the fallback without the BigQuery env).
+_RATINGS_MODE, _RATINGS_STORE = build_ratings_store()
+logging.getLogger(__name__).info("creative ratings store: %s", _RATINGS_MODE)
+ratings.configure(session_service=session_service, store=_RATINGS_STORE)
+app.include_router(ratings.router)
 
 # Start the experiments TTL reaper (full pass every 5 min: expiry, resumes
 # deploys/teardowns a previous revision left mid-flight, finishes traffic runs; plus a
