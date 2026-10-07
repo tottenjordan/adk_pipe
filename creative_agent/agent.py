@@ -170,6 +170,74 @@ combined_report_composer = Agent(
 )
 
 
+# --- STRUCTURED CREATIVE BRIEF --- #
+# After the cited report, a worker-bucket agent distils it (plus the campaign
+# inputs) into a structured, fit-tested CreativeBrief — the contract the ad copy
+# and visual agents deliver against. Writer and reviser come from one factory so
+# their model/schema/retry/callbacks cannot drift; they share one instruction,
+# whose revision block only applies when `{brief_issues?}` is non-empty (the
+# deterministic brief_gate fills it before routing to the reviser). Only the
+# writer resets the per-run brief state (see callbacks.reset_brief_state).
+#
+# When the composer produced no report, the writer still runs: the instruction
+# tells it to build the brief from the campaign inputs alone (RTBs cite
+# "brief", conservative fit score), which keeps the creative stages on a
+# structured contract instead of skipping it.
+def _build_brief_agent(
+    name: str, description: str, *, reset_state: bool = False
+) -> Agent:
+    return Agent(
+        model=build_gemini(config.worker_model),
+        name=name,
+        mode="single_turn",
+        include_contents="none",
+        description=description,
+        planner=BuiltInPlanner(
+            thinking_config=types.ThinkingConfig(include_thoughts=False)
+        ),
+        instruction=prompts.CREATIVE_BRIEF_WRITER_INSTR,
+        generate_content_config=types.GenerateContentConfig(
+            temperature=0.7,
+            labels={
+                "agentic_wf": "trend_scout",
+                "agent": "creative_agent",
+                "subagent": name,
+            },
+        ),
+        output_schema=CreativeBrief,
+        retry_config=SCHEMA_RETRY,
+        output_key="creative_brief",
+        before_agent_callback=callbacks.reset_brief_state if reset_state else None,
+        before_model_callback=callbacks.rate_limit_callback,
+        after_model_callback=[
+            callbacks.scrub_surrogates_in_response,
+            callbacks.log_empty_turn_finish_reason,
+        ],
+    )
+
+
+brief_writer = _build_brief_agent(
+    "brief_writer",
+    "Distils the research report into a structured, fit-tested creative brief.",
+    reset_state=True,
+)
+brief_reviser = _build_brief_agent(
+    "brief_reviser",
+    "Revises the creative brief to fix the issues found by the brief check.",
+)
+
+# Retry-on-empty: a structured turn that comes back empty leaves creative_brief
+# unset; one fresh attempt usually recovers it. On exhaustion the marker
+# creative_brief__retry_exhausted is surfaced by collect_degradation_warnings and
+# the creative agents fall back to the research report (`{creative_brief?}`).
+brief_writer_resilient = RetryUntilKeyNode(
+    name="brief_writer_resilient",
+    node=brief_writer,
+    output_key="creative_brief",
+    max_attempts=2,
+)
+
+
 # --- CONDITIONAL RESEARCH REFINEMENT GATE (Lever A) --- #
 # The evaluator (gemini-3.1-pro-preview) + follow-up searcher form a SECOND,
 # additive research round: the base brief in `combined_web_search_insights`
@@ -293,6 +361,7 @@ combined_research_pipeline = Workflow(
             combined_web_evaluator,
             enhanced_combined_searcher_resilient,
             combined_report_composer,
+            brief_writer_resilient,
             research_report_ready,
         ),
     ],

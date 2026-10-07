@@ -22,6 +22,7 @@ per-graph copies of its agents, not the module-level objects.
 """
 
 import asyncio
+import json
 from typing import Any
 
 import pytest
@@ -135,7 +136,45 @@ def _responses(events: list[Event]) -> list[dict[str, Any]]:
     ]
 
 
-def _script_research(llms: dict[str, RecordingLlm], campaign_synth: list[str]):
+# A schema-valid CreativeBrief that also passes creative_agent.brief_check.
+_BRIEF: dict[str, Any] = {
+    "objective": "Make Rocket Skates the coyote's go-to chase gear this week.",
+    "audience": "Coyotes who chase roadrunners for sport.",
+    "insight": "Coyotes want to win the chase, but every gadget backfires.",
+    "single_minded_proposition": "Rocket Skates finally make you faster.",
+    "reasons_to_believe": [
+        {"claim": "Fast, per the brief", "source_id": "brief"},
+        {"claim": "Roadrunners are trending", "source_id": "src-1"},
+    ],
+    "brand": {
+        "tone_of_voice": "Deadpan slapstick confidence",
+        "distinctive_assets": ["the ACME crate"],
+        "do_not": ["mock the customer"],
+    },
+    "trend_bridge": {
+        "fit_score": 4,
+        "fit_mode": "direct",
+        "bridge": "Skate speed meets the roadrunner's signature sprint.",
+        "motifs": ["a roadrunner dust cloud", "desert mesa road"],
+        "risks": ["cartoon violence"],
+    },
+    "mandatories": ["show the ACME logo"],
+    "avoid": ["cliff falls"],
+    "desired_response": "Think fast, feel hopeful, order skates.",
+    "angles": [
+        {"angle_id": "A1", "name": "Finally fast", "tension": "t1", "route": "r1"},
+        {"angle_id": "A2", "name": "Gear that works", "tension": "t2", "route": "r2"},
+        {"angle_id": "A3", "name": "Chase as sport", "tension": "t3", "route": "r3"},
+    ],
+}
+
+
+def _script_research(
+    llms: dict[str, RecordingLlm],
+    campaign_synth: list[str],
+    briefs: list[str] | None = None,
+    report: str = '# Report\nRoadrunners are trending<cite source="src-1" />.',
+):
     llms["gs_web_planner"].push(text_response(_QUERIES))
     llms["gs_web_searcher"].push(_grounded("gs raw"))
     llms["gs_web_synthesizer"].push(text_response("GS INSIGHTS"))
@@ -144,9 +183,9 @@ def _script_research(llms: dict[str, RecordingLlm], campaign_synth: list[str]):
         llms["campaign_web_searcher"].push(text_response("ca raw"))
         llms["campaign_web_synthesizer"].push(text_response(text))
     llms["merge_planners"].push(text_response("MERGED BRIEF"))
-    llms["combined_report_composer"].push(
-        text_response('# Report\nRoadrunners are trending<cite source="src-1" />.')
-    )
+    llms["combined_report_composer"].push(text_response(report))
+    for brief in [json.dumps(_BRIEF)] if briefs is None else briefs:
+        llms["brief_writer"].push(text_response(brief))
 
 
 def test_research_graph_healthy_path_skips_refinement(monkeypatch):
@@ -180,6 +219,12 @@ def test_research_graph_healthy_path_skips_refinement(monkeypatch):
     assert state["final_report_with_citations"] == (
         f"# Report\nRoadrunners are trending [Trend Source]({_URL})."
     )
+    # The structured brief was written from the report and stored as a dict.
+    assert state["creative_brief"] == _BRIEF
+    assert llms["brief_writer"].calls == 1
+    brief_prompt = str(llms["brief_writer"].requests[-1].config.system_instruction)
+    assert "Roadrunners are trending" in brief_prompt
+    assert "creative_brief__retry_exhausted" not in state
     # The root got the terminal node's truthy result and was re-called.
     (response,) = _responses(events)
     assert "Research report complete" in str(response)
@@ -210,6 +255,47 @@ def test_research_graph_degraded_path_runs_refinement(monkeypatch):
     assert "REFINED INSIGHTS" in composer_prompt
     assert "final_report_with_citations" in state
     assert len(_responses(events)) == 1
+    assert root_llm.calls == 2
+
+
+def test_brief_writer_runs_without_a_report(monkeypatch):
+    """Missing report: the writer still runs from the campaign inputs (the
+    documented choice), so the creative stages keep a structured contract."""
+    import creative_agent.agent as ca
+
+    llms = _stub_graph(monkeypatch, ca.combined_research_pipeline)
+    _script_research(llms, ["CA INSIGHTS"], report="   ")
+
+    root_llm, events, state = _run_root(monkeypatch, "combined_research_pipeline")
+
+    assert (
+        "combined_final_cited_report" not in state
+        or not str(state["combined_final_cited_report"]).strip()
+    )
+    assert llms["brief_writer"].calls == 1
+    prompt = str(llms["brief_writer"].requests[-1].config.system_instruction)
+    assert "Rocket Skates" in prompt and "roadrunner" in prompt
+    assert state["creative_brief"] == _BRIEF
+    (response,) = _responses(events)
+    assert "combined_final_cited_report" in str(response)  # the missing notice
+    assert root_llm.calls == 2
+
+
+def test_brief_writer_exhaustion_still_ends_truthy(monkeypatch):
+    """Both writer attempts come back empty: the brief stays unset, the marker
+    is recorded, and the pipeline still answers the root."""
+    import creative_agent.agent as ca
+
+    llms = _stub_graph(monkeypatch, ca.combined_research_pipeline)
+    _script_research(llms, ["CA INSIGHTS"], briefs=["", ""])
+
+    root_llm, events, state = _run_root(monkeypatch, "combined_research_pipeline")
+
+    assert llms["brief_writer"].calls == 2
+    assert not state.get("creative_brief")
+    assert state["creative_brief__retry_exhausted"] is True
+    (response,) = _responses(events)
+    assert "Research report complete" in str(response)
     assert root_llm.calls == 2
 
 
