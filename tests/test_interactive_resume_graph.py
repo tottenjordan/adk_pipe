@@ -30,6 +30,7 @@ from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 
 from agent_common import stable_row_id
+from creative_agent.schemas import FinalAdCopyList
 from runserver.async_runs import RUN_STATUS_KEY, start_resume, start_run
 from tests._fake_bq import FakeBigQueryClient
 from tests._fakes import RecordingLlm as _RecordingLlm
@@ -51,7 +52,7 @@ _FINAL_AD = {
     "original_id": 1,
     "tone_style": "Humorous",
     "headline": "Beep beep",
-    "body_text": "Outrun anything.",
+    "body_text": "Outrun anything on Rocket Skates.",
     "trend_connection": "Roadrunner.",
     "audience_appeal_rationale": "Coyotes want speed.",
     "social_caption": "Zoom.",
@@ -59,6 +60,8 @@ _FINAL_AD = {
     "detailed_performance_rationale": "Speed sells.",
 }
 _FINAL_ADS = {"ad_copies": [_FINAL_AD]}
+# What ADK stores for it: the validated model, dumped with schema defaults.
+_STORED_ADS = FinalAdCopyList.model_validate(_FINAL_ADS).model_dump(exclude_none=True)
 
 
 class _FailOnceLlm(_RecordingLlm):
@@ -282,7 +285,7 @@ def test_real_app_pauses_at_checkpoint_1_then_resumes_into_next_pipeline(
     assert "fc-cp1" in _answered_ids(events)
     assert _long_running_ids(events) - _answered_ids(events) == set()
     assert _final_texts(events)[-1] == "ROOT DONE"
-    assert state["ad_copy_critique"] == _FINAL_ADS
+    assert state["ad_copy_critique"] == _STORED_ADS
     assert state[RUN_STATUS_KEY] == "done"
     assert "__run_error" not in state
 
@@ -300,7 +303,7 @@ def test_failed_pipeline_node_reruns_after_resume(
     responses = _responses(events)
 
     assert "Error running node" in str(responses["fc-ads1"])
-    assert responses["fc-ads2"] == _FINAL_ADS
+    assert responses["fc-ads2"] == _STORED_ADS
     # The failed node re-ran: one raising call + one successful call.
     assert len(r["critic_llm"].requests) == 2
     assert r["critic_llm"].calls == 1  # StubLlm counter: successful pops only

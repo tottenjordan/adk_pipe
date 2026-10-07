@@ -44,6 +44,10 @@ class AdCopy(BaseModel):
         "Educational/Informative",
         "Relatable/Meme-based",
     ] = Field(description="Specify one of the required tones.")
+    angle_id: str = Field(
+        default="",
+        description="The id of the creative brief angle this copy executes (e.g. 'A2'); '' when there is no brief.",
+    )
     headline: str = Field(description="A short, attention-grabbing Headline.")
     body_text: str = Field(
         description="2-3 sentences of concise and compelling ad copy."
@@ -56,6 +60,12 @@ class AdCopy(BaseModel):
     )
     social_caption: str = Field(
         description="A candidate, short social media caption (e.g., for Instagram or TikTok video description)."
+    )
+    typicality: float | None = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description="Honest self-rating 0-1 of how expected this idea is for its angle: 1 = the most obvious, expected execution; 0 = a highly unexpected one.",
     )
 
 
@@ -81,6 +91,10 @@ class FinalAdCopy(BaseModel):
         "Educational/Informative",
         "Relatable/Meme-based",
     ] = Field(description="The tone/style from the original idea (e.g., Humorous).")
+    angle_id: str = Field(
+        default="",
+        description="The creative brief angle id carried over from the original idea (e.g. 'A2'); '' when there is no brief.",
+    )
     headline: str = Field(description="The finalized, attention-grabbing Headline.")
     body_text: str = Field(description="The finalized, concise and compelling ad copy.")
     trend_connection: str = Field(
@@ -91,6 +105,12 @@ class FinalAdCopy(BaseModel):
     )
     social_caption: str = Field(
         description="The finalized candidate social media caption."
+    )
+    typicality: float | None = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description="The original idea's typicality self-rating (0-1; 1 = the most expected idea for its angle, 0 = highly unexpected), re-rated if the copy changed.",
     )
     call_to_action: str = Field(
         description="A NEW, catchy, action-oriented phrase (e.g., 'Shop the drop now!')."

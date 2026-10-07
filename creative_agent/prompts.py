@@ -359,17 +359,18 @@ AD_COPY_DRAFTER_INSTR = (
     <INSTRUCTIONS>
     0.  **Brief:** """
     + CREATIVE_BRIEF_CONTRACT_RULE
-    + """ Spread the 10 ideas across the brief's angles.
-    1.  **Analyze and Apply:** Analyze the research report to understand the audience, product, and trend intersection. If the report is empty, work from the campaign inputs.
-    2.  **Generate 10 Diverse Ideas:** Generate exactly 10 ad copy ideas. Each idea must:
+    + """
+    1.  **Angles (diversity):** Spread the 10 ideas across the brief's creative angles (listed in the brief by id, e.g. "A1"): when the brief has 5 or fewer angles, write at least 2 ideas per angle. Set each idea's `angle_id` to the angle it executes. Within each angle, range from the expected execution to genuinely unexpected ones, and self-rate each idea's `typicality` honestly from 0 to 1 (1 = the most obvious idea for that angle, 0 = a highly unexpected one); do not cluster every idea near the same value. If the brief is empty, set `angle_id` to "" and still vary how expected the ideas are.
+    2.  **Analyze and Apply:** Analyze the research report to understand the audience, product, and trend intersection. If the report is empty, work from the campaign inputs.
+    3.  **Generate 10 Diverse Ideas:** Generate exactly 10 ad copy ideas. Each idea must:
         *   Creatively market the target product: {target_product}
         *   Sound like the brand: {brand} (use its voice and distinctive assets from the research report).
         *   Speak directly to the target audience: {target_audience}
         *   Incorporate the key selling point(s): {key_selling_points}
         *   Be suitable for Instagram/TikTok platforms (short, punchy, visual-friendly).
         *   Directly reference or subtly leverage the trending topic: {target_search_trends}.
-    3.  **Enforce Creative Diversity:** To ensure variety, the 10 ideas must collectively cover at least 4 of the following creative tones/styles: **Humorous, Aspirational, Problem/Solution, Emotional/Authentic, Educational/Informative, Relatable/Meme-based.**
-    4.  **Strict Output Format:** Ensure the entire output is a single JSON object containing all 10 ideas, formatted exactly as specified in the <OUTPUT_FORMAT> block.
+    4.  **Enforce Tone Diversity:** To ensure variety, the 10 ideas must collectively cover at least 4 of the following creative tones/styles: **Humorous, Aspirational, Problem/Solution, Emotional/Authentic, Educational/Informative, Relatable/Meme-based.**
+    5.  **Strict Output Format:** Ensure the entire output is a single JSON object containing all 10 ideas, formatted exactly as specified in the <OUTPUT_FORMAT> block.
     </INSTRUCTIONS>
 
     <CONTEXT>
@@ -402,7 +403,7 @@ AD_COPY_CRITIC_INSTR = (
     <INSTRUCTIONS>
     0.  **Brief:** """
     + CREATIVE_BRIEF_CONTRACT_RULE
-    + """ Judge every idea against the brief first, and prefer a final set that covers different angles.
+    + """ Judge every idea against the brief first.
     1.  **Parse Input:** Retrieve and parse the JSON list of 10 ad copies from the `ad_copy_draft` input in the <CONTEXT> block. If it is empty, output an object whose `ad_copies` list is empty.
     2.  **Critical Evaluation:** Evaluate the 10 ideas based on the following criteria:
         *   **Strategic Alignment:** How well does the idea synthesize the product, key selling points, and target audience insights from the research report?
@@ -411,6 +412,9 @@ AD_COPY_CRITIC_INSTR = (
         *   **Platform Viability:** Is the tone and length highly suitable for Instagram/TikTok?
         *   **Creative Excellence:** Is the idea compelling, clear, and likely to drive a high click-through rate?
     3.  **Final Selection:** Select a subset of **exactly 4** ad copy ideas that demonstrate the highest potential.
+        *   **Angle coverage:** when the brief has 3 or more angles, the final 4 must cover at least 3 distinct `angle_id`s.
+        *   **Surprise:** include at least one idea with `typicality` below 0.5, unless every such idea clearly weakens the fit with the brief.
+        *   Carry each selected idea's `angle_id` and `typicality` through unchanged (re-rate `typicality` only if you substantially rewrite the idea).
     4.  **Enrich and Critique:** For each selected idea, you must add a high-converting **Call-to-Action (CTA)** and a **Detailed Rationale** explaining the strategic choice.
     5.  **Strict Output:** Output the final selection as a single JSON object, strictly following the schema in the `<OUTPUT_FORMAT>` block.
     </INSTRUCTIONS>
