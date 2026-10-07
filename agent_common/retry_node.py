@@ -127,7 +127,18 @@ class RetryUntilKeyNode(BaseNode):
                         attempt,
                         self.max_attempts,
                     )
-                yield value
+                marker = f"{self.output_key}__retry_exhausted"
+                if ctx.state.get(marker):
+                    # A marker left by an earlier run in this session is now
+                    # stale: clear it so it raises no degradation warning and
+                    # routes no refinement. Only written when set, keeping the
+                    # healthy path's state free of `None` markers.
+                    yield Event(
+                        output=value,
+                        actions=EventActions(state_delta={marker: None}),
+                    )
+                else:
+                    yield value
                 return
 
             logger.warning(

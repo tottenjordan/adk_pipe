@@ -364,6 +364,14 @@ def test_research_refinement_gate_predicate():
             )
             is True
         )
+        # Cleared (None) by a later successful RetryUntilKeyNode run → healthy.
+        for cleared in (None, False):
+            assert (
+                _base_research_is_degraded(
+                    {"combined_web_search_insights": "A full brief.", marker: cleared}
+                )
+                is False
+            )
 
 
 def test_refined_searcher_has_tool_synthesizer_is_tool_free():
