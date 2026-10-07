@@ -464,3 +464,238 @@ def test_finalize_pipeline_runs_after_checkpoint_3_resume(monkeypatch):
     assert not [k for k in state if k.endswith(("__issues", "__retry_exhausted"))]
     assert state[RUN_STATUS_KEY] == "done"
     assert len(bq.sqls) == 2  # trend_creatives + creative_evals rows
+
+
+def _runner_factory(svc: InMemorySessionService):
+    import interactive_creative.agent as ic
+
+    def factory(app_name: str) -> Runner:
+        assert app_name == APP
+        return Runner(app=ic.app, session_service=svc)
+
+    return factory
+
+
+def test_checkpoint_1_brief_edit_feeds_the_ad_prompts_and_resaves_the_pdf(
+    monkeypatch,
+):
+    """Checkpoint 1 reviews the structured brief: a resume carrying a brief edit
+    (validated + merged by runserver) replaces creative_brief / creative_brief_md
+    before the resumed segment, the root re-saves the PDF (which renders the
+    edited brief) without re-running research, and the ad drafter's prompt
+    carries the edited proposition."""
+    import interactive_creative.agent as ic
+    from tests.test_creative_agent_graph import _BRIEF
+
+    root_llm = _patch_root(monkeypatch)
+    research = _stub_graph(monkeypatch, ic.combined_research_pipeline)
+    _script_research(research, ["CA INSIGHTS"])
+    ads = _stub_graph(monkeypatch, ic.ad_creative_pipeline)
+    ads["ad_copy_drafter"].push(text_response('{"ad_copies": []}'))
+    ads["ad_copy_critic"].push(text_response(json.dumps(_FINAL_ADS)))
+
+    saved_briefs: list[Any] = []
+
+    async def save_draft_report_artifact(tool_context) -> dict:
+        saved_briefs.append(tool_context.state.get("creative_brief"))
+        return {"status": "success"}
+
+    monkeypatch.setattr(
+        ic.root_agent,
+        "tools",
+        [
+            t
+            for t in ic.root_agent.tools
+            if getattr(t, "__name__", "") != "save_draft_report_artifact"
+        ]
+        + [save_draft_report_artifact],
+    )
+    root_llm.push(
+        fc_response("combined_research_pipeline", {"request": "go"}, "fc-research"),
+        fc_response("review_research", {}, "fc-cp1"),
+    )
+    root_llm.push(
+        fc_response("save_draft_report_artifact", {}, "fc-pdf"),
+        fc_response("ad_creative_pipeline", {"request": "go"}, "fc-ads"),
+        text_response("ROOT DONE"),
+    )
+    edited = {
+        **_BRIEF,
+        "single_minded_proposition": "Rocket Skates turn every chase into a win.",
+    }
+    svc = InMemorySessionService()
+
+    async def go():
+        await svc.create_session(
+            app_name=APP, user_id=USER, session_id=SID, state=_seed_state()
+        )
+        common = {
+            "app_name": APP,
+            "user_id": USER,
+            "session_id": SID,
+            "session_service": svc,
+            "runner_factory": _runner_factory(svc),
+        }
+        _, task = await start_run(message="go", **common)
+        await task
+        mid_state = dict((await _session(svc)).state)
+        _, task = await start_resume(
+            function_call_id="fc-cp1",
+            function_name="review_research",
+            response={
+                "status": "approved",
+                "brief_edited": True,
+                "instruction": "continue",
+            },
+            edits=[{"field": "creative_brief", "value": edited}],
+            **common,
+        )
+        await task
+        final = await _session(svc)
+        return mid_state, list(final.events), dict(final.state)
+
+    mid_state, events, state = asyncio.run(go())
+
+    assert "Rocket Skates finally make you faster." in mid_state["creative_brief_md"]
+    assert state["creative_brief_edited"] is True
+    assert (
+        state["creative_brief"]["single_minded_proposition"]
+        == (edited["single_minded_proposition"])
+    )
+    assert "turn every chase into a win" in state["creative_brief_md"]
+    # The PDF re-save saw the edited brief; research ran exactly once.
+    assert [b["single_minded_proposition"] for b in saved_briefs] == [
+        edited["single_minded_proposition"]
+    ]
+    assert research["combined_report_composer"].calls == 1
+    drafter_prompt = str(ads["ad_copy_drafter"].requests[-1].config.system_instruction)
+    assert "turn every chase into a win" in drafter_prompt
+    assert "finally make you faster" not in drafter_prompt
+    assert _final_texts(events)[-1] == "ROOT DONE"
+    assert state[RUN_STATUS_KEY] == "done"
+
+
+_REVISED_AD = {**_FINAL_AD, "headline": "Beep beep, but funnier"}
+
+
+def _run_checkpoint_2_revision(monkeypatch, reviser_fails: bool = False):
+    """Checkpoint 2 → revision request → prepare + reviser once → re-presented
+    review → approved → root finishes."""
+    from creative_agent import ad_copy_reviser
+    from runserver import async_runs
+
+    # Auto-continue is orthogonal here: the scripted root ends on text with
+    # finalize_done unset, and a third segment's trailing end_of_agent event
+    # reads as an empty root turn, which would re-prompt the stub root.
+    monkeypatch.setattr(async_runs, "MAX_AUTO_CONTINUES", 0)
+    root_llm = _patch_root(monkeypatch)
+    reviser_llm = _FailOnceLlm() if reviser_fails else _RecordingLlm()
+    if not reviser_fails:
+        reviser_llm.push(text_response(json.dumps({"ad_copies": [_REVISED_AD]})))
+    monkeypatch.setattr(ad_copy_reviser, "model", reviser_llm)
+    monkeypatch.setattr(ad_copy_reviser, "retry_config", None)
+    monkeypatch.setattr(ad_copy_reviser, "before_model_callback", None)
+
+    root_llm.push(fc_response("review_ad_copies", {}, "fc-cp2"))
+    root_llm.push(
+        fc_response(
+            "prepare_copy_revision", {"feedback": "Make them funnier"}, "fc-prep"
+        ),
+        fc_response("ad_copy_user_reviser", {"request": "revise"}, "fc-rev"),
+        fc_response("review_ad_copies", {}, "fc-cp2b"),
+    )
+    root_llm.push(text_response("ROOT DONE"))
+    svc = InMemorySessionService()
+
+    async def go():
+        await svc.create_session(
+            app_name=APP,
+            user_id=USER,
+            session_id=SID,
+            state={**_seed_state(), "ad_copy_critique": _STORED_ADS},
+        )
+        common = {
+            "app_name": APP,
+            "user_id": USER,
+            "session_id": SID,
+            "session_service": svc,
+            "runner_factory": _runner_factory(svc),
+        }
+        _, task = await start_run(message="go", **common)
+        await task
+        _, task = await start_resume(
+            function_call_id="fc-cp2",
+            function_name="review_ad_copies",
+            response={
+                "status": "revision_requested",
+                "feedback": "Make them funnier",
+                "instruction": "revise",
+            },
+            **common,
+        )
+        await task
+        second = await _session(svc)
+        seg2_events, seg2_state = list(second.events), dict(second.state)
+        _, task = await start_resume(
+            function_call_id="fc-cp2b",
+            function_name="review_ad_copies",
+            response={"status": "approved", "instruction": "continue"},
+            **common,
+        )
+        await task
+        final = await _session(svc)
+        return seg2_events, seg2_state, list(final.events), dict(final.state)
+
+    seg2_events, seg2_state, events, state = asyncio.run(go())
+    return {
+        "seg2_events": seg2_events,
+        "seg2_state": seg2_state,
+        "events": events,
+        "state": state,
+        "reviser_llm": reviser_llm,
+    }
+
+
+def test_checkpoint_2_revision_runs_the_reviser_once_and_re_presents(monkeypatch):
+    r = _run_checkpoint_2_revision(monkeypatch)
+    seg2_events, seg2_state = r["seg2_events"], r["seg2_state"]
+
+    # The reviser ran once, with the feedback flagged on every copy.
+    assert len(r["reviser_llm"].requests) == 1
+    prompt = str(r["reviser_llm"].requests[0].config.system_instruction)
+    assert "Make them funnier" in prompt
+    assert "Beep beep" in prompt  # the flagged copy's label
+    # Paused again on the SECOND review, showing the revised copies.
+    assert _long_running_ids(seg2_events) - _answered_ids(seg2_events) == {"fc-cp2b"}
+    assert seg2_state["ad_copy_critique"]["ad_copies"][0]["headline"] == (
+        "Beep beep, but funnier"
+    )
+    # Inputs cleared after the reviser; feedback kept for the visual steps.
+    assert seg2_state["ad_copy_flagged_ids"] is None
+    assert seg2_state["ad_copy_issues"] == ""
+    assert seg2_state["ad_copy_critique__before_revision"] is None
+    assert seg2_state["ad_copy_feedback"] == "Make them funnier"
+    assert seg2_state["ad_copy_user_revisions_used"] == 1
+    assert _responses(seg2_events)["fc-prep"]["status"] == "ready"
+    assert "revision complete" in str(_responses(seg2_events)["fc-rev"])
+    assert "Beep beep, but funnier" not in str(_responses(seg2_events)["fc-rev"])
+
+    events, state = r["events"], r["state"]
+    assert _long_running_ids(events) - _answered_ids(events) == set()
+    assert _final_texts(events)[-1] == "ROOT DONE"
+    assert len(r["reviser_llm"].requests) == 1  # no second revision
+    assert state[RUN_STATUS_KEY] == "done"
+
+
+def test_checkpoint_2_failing_reviser_is_fail_soft(monkeypatch):
+    """A raising reviser is fail-soft: the original copies are kept and the
+    root still re-presents them (the run does not fail)."""
+    r = _run_checkpoint_2_revision(monkeypatch, reviser_fails=True)
+    seg2_events, seg2_state = r["seg2_events"], r["seg2_state"]
+
+    assert "revision failed" in str(_responses(seg2_events)["fc-rev"])
+    assert seg2_state["ad_copy_critique"] == _STORED_ADS
+    assert seg2_state["ad_copy_flagged_ids"] is None
+    assert _long_running_ids(seg2_events) - _answered_ids(seg2_events) == {"fc-cp2b"}
+    assert "__run_error" not in r["state"]
+    assert _final_texts(r["events"])[-1] == "ROOT DONE"

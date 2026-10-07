@@ -216,6 +216,7 @@ _RESULT_NODES = {
     "visual_concepts_ready",
     "images_ready",
     "finalize_ready",
+    "ad_copies_revised",  # interactive checkpoint-2 user revision
 }
 
 
@@ -989,8 +990,9 @@ def test_interactive_creative_uses_resilient_visual_generator():
 
 def test_interactive_creative_exposes_pipelines_as_node_tools():
     """G3 minimal change: the reused creative_agent pipelines are bare nodes
-    (auto-wrapped NodeTools, now including finalize_pipeline); only the reviser
-    stays an AgentTool."""
+    (auto-wrapped NodeTools, now including finalize_pipeline and the
+    checkpoint-2 user reviser node); only the visual reviser stays an
+    AgentTool."""
     from google.adk.tools.agent_tool import AgentTool
 
     from interactive_creative import agent as ic
@@ -1002,6 +1004,7 @@ def test_interactive_creative_exposes_pipelines_as_node_tools():
         "visual_generation_pipeline",
         "visual_generator_resilient",
         "finalize_pipeline",
+        "ad_copy_user_reviser",
     }
     agent_tools = {
         t.agent.name for t in ic.root_agent.tools if isinstance(t, AgentTool)
@@ -1019,6 +1022,44 @@ def test_interactive_creative_exposes_pipelines_as_node_tools():
         "review_ad_copies",
         "review_visual_concepts",
     }
+
+
+def test_interactive_reuses_the_shared_ad_copy_reviser_at_checkpoint_2():
+    """Checkpoint 2's one user revision reuses creative_agent's ad_copy_reviser
+    (the facade export, NOT a copy) behind the deterministic state-prep tool: a
+    small Workflow (the reviser is single_turn, which AgentTool cannot run): a
+    FailSoftNode whose on_error keeps the pre-revision copies, then a truthy
+    short-confirmation terminal; plus the root's input-clearing
+    after_tool_callback."""
+    import asyncio
+
+    from google.adk.workflow import Workflow
+
+    from agent_common import FailSoftNode, PipelineRequest
+    from creative_agent import ad_copy_reviser
+    from interactive_creative import agent as ic
+    from interactive_creative.callbacks import (
+        clear_copy_revision_inputs,
+        user_copy_revision_failed,
+    )
+
+    node = ic.ad_copy_user_reviser
+    assert isinstance(node, Workflow)
+    assert node.input_schema is PipelineRequest
+    (failsoft,) = [
+        n for n in _graph_nodes(node).values() if isinstance(n, FailSoftNode)
+    ]
+    assert failsoft.node is ad_copy_reviser
+    assert failsoft.on_error is user_copy_revision_failed
+    assert _terminal_names(node) == {"ad_copies_revised"}
+    assert any(getattr(t, "node", None) is node for t in ic.root_agent.tools)
+    names = {t.name for t in asyncio.run(ic.root_agent.canonical_tools())}
+    assert {
+        "prepare_copy_revision",
+        "ad_copy_user_reviser",
+        "review_ad_copies",
+    } <= names
+    assert ic.root_agent.after_tool_callback is clear_copy_revision_inputs
 
 
 def test_trend_scout_root_has_expected_tools():

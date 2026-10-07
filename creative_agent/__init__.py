@@ -34,6 +34,7 @@ from .agent import (
     visual_generation_pipeline,
     visual_generator_resilient,
 )
+from .copy_gate import user_revision_inputs as user_copy_revision_inputs
 from .schemas import CreativeBrief, VisualConceptFinalList
 
 __all__ = [
@@ -49,8 +50,9 @@ __all__ = [
     "visual_generation_pipeline",
     "visual_generator_resilient",
     "finalize_pipeline",
-    # bare ad-copy reviser (interactive checkpoint-2 reuse)
+    # bare ad-copy reviser + its user-revision inputs (interactive checkpoint 2)
     "ad_copy_reviser",
+    "user_copy_revision_inputs",
     # shared visual schema + the structured creative brief (downstream contract)
     "VisualConceptFinalList",
     "CreativeBrief",

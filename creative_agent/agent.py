@@ -634,9 +634,10 @@ ad_copy_critic = Agent(
 # Its prompt also reads `{ad_copy_feedback?}` (user feedback). The copy_gate
 # loop neither sets nor relies on it: in creative_agent it is always unset, and
 # reset_copy_state deliberately leaves it alone (it is user input, not gate
-# state). PR 10 (reusing the reviser at interactive checkpoint 2) MUST set it
-# to the checkpoint feedback before the revision and clear it afterwards, or a
-# later gate-driven revision in the same session would replay stale feedback.
+# state). interactive_creative's checkpoint-2 revision sets it (with every copy
+# flagged) via prepare_copy_revision and keeps it afterwards for the visual
+# steps: ad_creative_pipeline (whose gate would replay it) does not run again
+# after checkpoint 2.
 ad_copy_reviser = Agent(
     model=build_gemini(config.worker_model),
     name="ad_copy_reviser",

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 from typing import TYPE_CHECKING
@@ -11,7 +12,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from google.adk.errors.session_not_found_error import SessionNotFoundError
 from google.adk.events import Event, EventActions
 from google.genai import types
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from runserver.authz import (
     AuthzMode,
@@ -768,6 +769,117 @@ def merge_research_edit(state: dict | None, edits: list | None) -> dict:
     return {}
 
 
+BRIEF_EDIT_FIELD = "creative_brief"
+BRIEF_EDIT_MAX_CHARS = 50_000
+
+
+class BriefEditError(ValueError):
+    """A checkpoint-1 structured-brief edit that fails validation (→ HTTP 400).
+
+    ``errors`` is a list of ``{"loc": "dotted.field.path", "msg": str}`` the
+    frontend can show next to the offending fields."""
+
+    def __init__(self, errors: list[dict[str, str]]):
+        self.errors = errors
+        super().__init__(
+            "; ".join(f"{e['loc'] or 'brief'}: {e['msg']}" for e in errors)
+        )
+
+
+def _brief_edit_value(edits: list | None) -> tuple[bool, object]:
+    """``(found, value)`` of the first ``creative_brief`` edit in ``edits``."""
+    for edit in edits or []:
+        if isinstance(edit, dict) and edit.get("field") == BRIEF_EDIT_FIELD:
+            return True, edit.get("value")
+    return False, None
+
+
+def validate_brief_edit(value: object) -> dict:
+    """Validate an edited brief against ``CreativeBrief``; return it as stored.
+
+    ``value`` is the full brief object (or its JSON string). Raises
+    ``BriefEditError`` with per-field errors for malformed JSON, an oversized
+    value, any schema violation (e.g. fewer than 3 angles, fit_score outside
+    1-5, a missing field) or a blank single-minded proposition (the schema
+    allows an empty string; an edited brief may not)."""
+    # Lazy import: see merge_research_edit (the facade builds the agent graph).
+    from creative_agent import CreativeBrief
+
+    if isinstance(value, str):
+        if len(value) > BRIEF_EDIT_MAX_CHARS:
+            raise BriefEditError([{"loc": "", "msg": "The brief is too long."}])
+        try:
+            value = json.loads(value)
+        except ValueError as exc:
+            raise BriefEditError(
+                [{"loc": "", "msg": "The brief is not valid JSON."}]
+            ) from exc
+    if not isinstance(value, dict):
+        raise BriefEditError([{"loc": "", "msg": "The brief must be an object."}])
+    if len(json.dumps(value, default=str)) > BRIEF_EDIT_MAX_CHARS:
+        raise BriefEditError([{"loc": "", "msg": "The brief is too long."}])
+    try:
+        brief = CreativeBrief.model_validate(value)
+    except ValidationError as exc:
+        raise BriefEditError(
+            [
+                {"loc": ".".join(str(part) for part in err["loc"]), "msg": err["msg"]}
+                for err in exc.errors()
+            ]
+        ) from exc
+    if not brief.single_minded_proposition.strip():
+        raise BriefEditError(
+            [
+                {
+                    "loc": "single_minded_proposition",
+                    "msg": "The proposition is required.",
+                }
+            ]
+        )
+    return brief.model_dump()
+
+
+def merge_brief_edit(state: dict | None, edits: list | None) -> dict:
+    """Pure: turn a checkpoint-1 structured-brief edit into a state delta.
+
+    Validates the edited ``creative_brief`` (``validate_brief_edit``; raises
+    ``BriefEditError`` when invalid), then writes the brief, its compact
+    Markdown ``creative_brief_md`` (what the creative prompts read, re-rendered
+    exactly as the brief gate does) and ``creative_brief_edited: True``, and
+    clears ``creative_brief__issues`` (the gate's verdict was on the old brief;
+    the user's edit is authoritative). No brief edit, or a brief equal to the
+    current one, is a no-op ({})."""
+    from creative_agent.brief_check import parse_brief
+    from creative_agent.brief_render import render_brief_markdown
+
+    found, value = _brief_edit_value(edits)
+    if not found:
+        return {}
+    brief = validate_brief_edit(value)
+    state = state if isinstance(state, dict) else {}
+    current = parse_brief(state.get(BRIEF_EDIT_FIELD))
+    if current is not None and dict(current) == brief:
+        return {}
+    return {
+        BRIEF_EDIT_FIELD: brief,
+        "creative_brief_md": render_brief_markdown(brief, heading=False),
+        "creative_brief_edited": True,
+        "creative_brief__issues": None,
+    }
+
+
+def validate_resume_edits(function_name: str, edits: list | None) -> None:
+    """Reject invalid resume edits BEFORE anything is claimed or written.
+
+    Only checkpoint 1's structured brief is validated strictly (raises
+    ``BriefEditError``); every other edit stays best-effort (ignored if bad)."""
+    if function_name != "review_research":
+        return
+    found, value = _brief_edit_value(edits)
+    if found:
+        validate_brief_edit(value)
+
+
 async def _apply_visual_concept_edits(
     session_service, app_name, user_id, session_id, edits
 ) -> None:
@@ -804,17 +916,23 @@ async def _apply_visual_concept_edits(
 async def _apply_research_edit(
     session_service, app_name, user_id, session_id, edits
 ) -> None:
-    """Write a checkpoint-1 research-report edit into session state BEFORE the
-    resumed run.
+    """Write checkpoint-1 edits (research report and/or structured brief) into
+    session state BEFORE the resumed run.
 
-    The creative prompts read ``{combined_final_cited_report?}`` and the PDF tool
-    reads ``final_report_with_citations`` from STATE, so the edit is appended as a
-    ``state_delta`` event (see merge_research_edit). Best-effort: a missing
-    session or a no-op edit appends nothing."""
+    The creative prompts read ``{combined_final_cited_report?}`` /
+    ``{creative_brief_md?}`` and the PDF tool reads
+    ``final_report_with_citations`` + ``creative_brief`` from STATE, so the edits
+    are appended as ONE ``state_delta`` event (see merge_research_edit /
+    merge_brief_edit). A missing session or no-op edits append nothing; an
+    invalid brief raises ``BriefEditError`` (already caught up front by
+    ``validate_resume_edits``)."""
     session = await _get_session_or_none(session_service, app_name, user_id, session_id)
     if session is None:
         return
-    delta = merge_research_edit(session.state, edits)
+    delta = {
+        **merge_research_edit(session.state, edits),
+        **merge_brief_edit(session.state, edits),
+    }
     if not delta:
         return
     event = Event(
@@ -881,8 +999,9 @@ async def start_resume(
 
     ``edits`` are routed by checkpoint (``_EDIT_APPLIERS``) and merged
     deterministically into session state before relaunch, since downstream
-    agents read state, not the functionResponse: checkpoint-1 report edits
-    (_apply_research_edit) and checkpoint-3 visual-concept edits
+    agents read state, not the functionResponse: checkpoint-1 report and
+    structured-brief edits (_apply_research_edit; an invalid brief raises
+    ``BriefEditError`` → HTTP 400 before anything is claimed or written) and checkpoint-3 visual-concept edits
     (_apply_visual_concept_edits). Edits for any other checkpoint are ignored.
 
     Duplicate guard: if the previous (paused) segment's task is still finishing
@@ -893,6 +1012,7 @@ async def start_resume(
     for the SAME ``function_call_id`` while that resume is active is rejected at
     once with reason ``resume_in_progress`` (the first one is serving it)."""
     key = (app_name, user_id, session_id)
+    validate_resume_edits(function_name, edits)  # 400 before any claim/write
     if _is_live(key) and _ACTIVE_RESUME_CALL_IDS.get(key) == function_call_id:
         raise RunAlreadyActive(key, REASON_RESUME_IN_PROGRESS)
     await _await_prior_segment(key)
@@ -966,9 +1086,11 @@ class _ResumeBody(BaseModel):
     functionName: str  # noqa: N815
     response: dict
     functionCallEventId: str | None = None  # noqa: N815
-    # Optional checkpoint-3 per-concept edits: [{index, image_generation_prompt?,
-    # aspect_ratio?, visual_style?, revision_note?}]. Merged into session state
-    # before the resumed run (see start_resume / _apply_visual_concept_edits).
+    # Optional checkpoint edits, merged into session state before the resumed
+    # run (see start_resume / _EDIT_APPLIERS): checkpoint 1 [{field:
+    # "combined_final_cited_report" | "creative_brief", value}]; checkpoint 3
+    # per-concept [{index, image_generation_prompt?, aspect_ratio?,
+    # visual_style?, revision_note?}].
     edits: list[dict] | None = None
 
 
@@ -1050,6 +1172,15 @@ async def http_start_resume(
             function_call_event_id=body.functionCallEventId,
             edits=body.edits,
         )
+    except BriefEditError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "reason": "invalid_brief",
+                "message": f"The edited brief is invalid: {exc}",
+                "errors": exc.errors,
+            },
+        ) from exc
     except RunAlreadyActive as exc:
         raise HTTPException(
             status_code=409, detail=_already_active_detail(exc)
