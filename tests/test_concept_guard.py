@@ -150,3 +150,28 @@ def test_tangible_product_not_skipped_by_brand_alone():
         brand="Patagonia",
     )
     assert "clearly visible" in tail
+
+
+def test_product_mention_must_carry_the_brand_when_the_product_names_it():
+    tail, warns = _prompt_after(
+        "An iced coffee sweating on a cafe table under festival bunting.",
+        "Starbucks iced coffee",
+        "festival bunting",
+        brand="Starbucks",
+    )
+    assert tail == " The Starbucks iced coffee is clearly visible and recognizable."
+    assert any("product missing" in w for w in warns)
+    tail, warns = _prompt_after(
+        "A Starbucks iced latte on a cafe table under festival bunting.",
+        "Starbucks iced coffee",
+        "festival bunting",
+        brand="Starbucks",
+    )
+    assert tail == "" and warns == []
+
+
+def test_two_word_packaging_product_needs_its_head_noun():
+    tail, _ = _prompt_after(
+        "An iPhone on a desk beside a ballot box.", "iPhone case", "a ballot box"
+    )
+    assert tail == " The iPhone case is clearly visible and recognizable."

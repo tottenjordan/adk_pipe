@@ -13,7 +13,11 @@ guitar", "friendship-bracelet stack under Eras Tour lights" for "Eras Tour
 friendship bracelets", "cookie" for "cookies"), and a redundant appended sentence
 both clutters the prompt and raises a false warning. A phrase counts as present
 in full or when at least 60% of its content tokens appear (a bare "jacket" for
-"Patagonia Nano Puff Jacket" is 1 of 4: still appended).
+"Patagonia Nano Puff Jacket" is 1 of 4: still appended). The product match is
+brand-anchored: when the product phrase contains the brand, a partial match
+must include a brand token ("an iced coffee" is not "Starbucks iced coffee") —
+unlike the copy gate, where naming the brand alone counts as naming the
+product (copy usually names the brand; an image prompt must show the product).
 
 Intangible products (`is_intangible`: subscriptions, apps, services, plans,
 insurance, internet…) cannot be "clearly visible and recognizable"; for them
@@ -89,7 +93,7 @@ def ensure_trend_and_product(
         elif not mentions(original, motif):
             prompt += MOTIF_LINE.format(motif=motif)
             warns.append(f"{name}: trend_motif missing from prompt, appended")
-        if product and not mentions(original, product):
+        if product and not mentions(original, product, brand=brand):
             if not intangible:
                 prompt += TANGIBLE_PRODUCT_LINE.format(product=product)
                 warns.append(f"{name}: product missing from prompt, appended")
