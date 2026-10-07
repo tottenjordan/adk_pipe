@@ -308,7 +308,6 @@ class TestEvalConfig:
         config = EvalConfig()
         assert config.eval_model == "gemini-3.1-pro-preview"
         assert config.passing_threshold == 0.7
-        assert config.max_retries == 3
         assert len(config.ad_copy_dimensions) == 6
         assert len(config.visual_dimensions) == 6
 
@@ -857,7 +856,7 @@ def test_visual_eval_prompt_formats_concepts_with_brand_cue_and_angle_id():
     }
     assert not set(campaign) & set(concept)
     text = eval_prompts.VISUAL_CONCEPT_EVAL_USER.format(
-        **campaign, **concept, brief_block="", trend_motif="m"
+        **campaign, **concept, brief_block="", trend_motif="m", image_section=""
     )
     assert "Concept Name: Dust" in text
     from unittest.mock import MagicMock

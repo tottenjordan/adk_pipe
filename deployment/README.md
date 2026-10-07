@@ -89,12 +89,12 @@ bq mk \
 bq mk \
  -t \
  $BQ_PROJECT_ID:$BQ_DATASET_ID.$BQ_TABLE_EVALS \
- uuid:STRING,creative_uuid:STRING,datetime:DATETIME,target_trend:STRING,brand:STRING,target_product:STRING,overall_pass_rate:FLOAT,total_ad_copies:INTEGER,ad_copies_passed:INTEGER,avg_ad_copy_score:FLOAT,total_visual_concepts:INTEGER,visual_concepts_passed:INTEGER,avg_visual_score:FLOAT,weakest_dimensions:STRING,eval_report_gcs_uri:STRING,research_gaps:STRING,weakest_dimension_labels:STRING
+ uuid:STRING,creative_uuid:STRING,datetime:DATETIME,target_trend:STRING,brand:STRING,target_product:STRING,overall_pass_rate:FLOAT,total_ad_copies:INTEGER,ad_copies_passed:INTEGER,avg_ad_copy_score:FLOAT,total_visual_concepts:INTEGER,visual_concepts_passed:INTEGER,avg_visual_score:FLOAT,weakest_dimensions:STRING,eval_report_gcs_uri:STRING,research_gaps:STRING,weakest_dimension_labels:STRING,gates_pass_rate:FLOAT
 ```
 
 These schemas already include every later column. Tables created before those columns
 existed need the additive migrations instead: `processing_started_at` /
-`processing_attempts` and `weakest_dimension_labels`, both under
+`processing_attempts`, `weakest_dimension_labels` and `gates_pass_rate`, all under
 [3. Create event-driven functions and eventarc triggers](#3-create-event-driven-functions-and-eventarc-triggers).
 The nightly eval CI uses an isolated dataset cloned from these schemas (see
 [Eval CI (WIF)](#eval-ci-wif)). The script also creates the three `bandit_*` tables used by
@@ -344,6 +344,21 @@ uv run python deployment/backfill_eval_dimension_labels.py \
   --table=<BQ_PROJECT_ID>.trend_trawler.creative_evals
 uv run python deployment/backfill_eval_dimension_labels.py \
   --table=<BQ_PROJECT_ID>.trend_trawler.creative_evals --execute
+```
+
+**gates_pass_rate migration (2026-10-07)** — `creative_evals` gains
+`gates_pass_rate FLOAT64`: the share of a run's creatives whose binary
+compliance gates all passed (`creative_eval` judge gates; NULL for rows written
+before the gates existed — no backfill, the old reports have no gates). Same
+ordering rule: run the ALTER on **both** datasets **BEFORE deploying** the code
+that writes it (the `creative_agent` / `interactive_creative` engines and the
+`trend-trawler-api` backend), since the eval-row MERGE names every column:
+
+```sql
+ALTER TABLE `<BQ_PROJECT_ID>.trend_trawler.creative_evals`
+  ADD COLUMN IF NOT EXISTS gates_pass_rate FLOAT64;
+ALTER TABLE `<BQ_PROJECT_ID>.trend_trawler_eval.creative_evals`
+  ADD COLUMN IF NOT EXISTS gates_pass_rate FLOAT64;
 ```
 
 **3.1 Creative Agent Orchestrator:** cloud run function

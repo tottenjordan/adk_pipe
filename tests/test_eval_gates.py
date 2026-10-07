@@ -316,7 +316,8 @@ class TestPromptsListGates:
 
 
 class TestNormalizeGates:
-    def test_orders_drops_unknown_and_fails_missing(self):
+    def test_orders_drops_unknown_and_passes_missing(self):
+        """Conservative: an omitted gate is 'not checked', never a failure."""
         from creative_eval.evaluate import normalize_gates
 
         raw = [
@@ -330,8 +331,23 @@ class TestNormalizeGates:
         by = {g.gate: g for g in gates}
         assert by["product_named"].passed and by["product_named"].note == "named"
         assert by["avoid_respected"].note == "clean"
-        assert not by["mandatories_met"].passed
-        assert by["mandatories_met"].note == "not reported by the judge"
+        assert by["mandatories_met"].passed
+        assert by["mandatories_met"].note.startswith("not checked")
+
+    def test_judge_returning_no_gates_does_not_fail_the_creative(self):
+        from creative_eval.evaluate import gates_passed, normalize_gates
+
+        assert gates_passed(normalize_gates([], VISUAL_GATES, brief_used=True))
+
+    @pytest.mark.parametrize(
+        "spelling", ["Product Named", "product-named", "PRODUCT_NAMED"]
+    )
+    def test_lenient_name_matching(self, spelling):
+        from creative_eval.evaluate import normalize_gates
+
+        raw = [GateResult(gate=spelling, passed=False, note="missing")]
+        by = {g.gate: g for g in normalize_gates(raw, AD_COPY_GATES, brief_used=True)}
+        assert by["product_named"].passed is False
 
     def test_no_brief_passes_brief_gates_with_note(self):
         from creative_eval.evaluate import normalize_gates
@@ -534,3 +550,301 @@ def test_finalize_summary_names_failed_checks(advisory):
     out = finalize_summary({"creative_evaluation_report": report})
     assert "Did not pass: 'Zoom' (ad copy, 0.90" in out
     assert ("failed checks: Product named" in out) is not advisory
+
+
+# --- Task 7.3: judge the pixels -------------------------------------------------
+
+QA_FAILED = {
+    "passed": False,
+    "failures": ["product not visible", "gibberish text on the sign"],
+}
+
+
+def _contents(client: MagicMock):
+    return client.models.generate_content.call_args.kwargs["contents"]
+
+
+class TestJudgeThePixels:
+    def test_rendered_image_is_attached_as_a_gcs_part(self):
+        from creative_eval.evaluate import evaluate_visual_concept
+
+        client = _client(_judge_json("visual", dict.fromkeys(VISUAL_GATES, True)))
+        image = {"gcs_uri": "gs://bkt/run/dust.png", "attempts": 1, "qa": None}
+        result = evaluate_visual_concept(
+            CONCEPT, CAMPAIGN, EvalConfig(), client=client, brief=BRIEF, image=image
+        )
+        contents = _contents(client)
+        assert isinstance(contents, list)
+        file_parts = [p for p in contents if p.file_data is not None]
+        assert len(file_parts) == 1
+        assert file_parts[0].file_data.file_uri == "gs://bkt/run/dust.png"
+        assert file_parts[0].file_data.mime_type == "image/png"
+        text = _prompt_text(client)
+        assert "judge the rendered image" in text.lower()
+        assert "only to understand intent" in text
+        assert result.image_judged is True
+
+    @pytest.mark.parametrize(
+        ("uri", "mime"),
+        [
+            ("gs://b/a.jpg", "image/jpeg"),
+            ("gs://b/a.JPEG", "image/jpeg"),
+            ("gs://b/a.webp", "image/webp"),
+            ("gs://b/a", "image/png"),
+        ],
+    )
+    def test_image_mime_from_extension(self, uri, mime):
+        from creative_eval.evaluate import image_mime_type
+
+        assert image_mime_type(uri) == mime
+
+    def test_no_image_judges_the_prompt_and_says_so(self):
+        from creative_eval.evaluate import evaluate_visual_concept
+
+        for image in (None, {}, {"gcs_uri": ""}, {"gcs_uri": "https://x/y.png"}):
+            client = _client(_judge_json("visual", dict.fromkeys(VISUAL_GATES, True)))
+            result = evaluate_visual_concept(
+                CONCEPT, CAMPAIGN, EvalConfig(), client=client, image=image
+            )
+            contents = _contents(client)
+            parts = contents if isinstance(contents, list) else []
+            assert not [p for p in parts if p.file_data is not None]
+            assert "No rendered image is available" in _prompt_text(client)
+            assert result.image_judged is False
+
+    def test_image_qa_is_a_hint_line(self):
+        from creative_eval.evaluate import evaluate_visual_concept
+
+        client = _client(_judge_json("visual", dict.fromkeys(VISUAL_GATES, True)))
+        image = {"gcs_uri": "gs://b/d.png", "qa": QA_FAILED}
+        evaluate_visual_concept(
+            CONCEPT, CAMPAIGN, EvalConfig(), client=client, image=image
+        )
+        text = _prompt_text(client)
+        assert (
+            "Automated image check: failed — product not visible; "
+            "gibberish text on the sign" in text
+        )
+        assert "not ground truth" in text
+
+    def test_qa_hint_text(self):
+        from creative_eval.evaluate import image_qa_hint
+
+        assert image_qa_hint({"passed": True, "failures": []}) == (
+            "Automated image check: passed"
+        )
+        assert image_qa_hint({"passed": False}) == "Automated image check: failed"
+        assert image_qa_hint(None) == "Automated image check: not run"
+
+    def test_failed_judge_keeps_image_judged_false(self):
+        from creative_eval.evaluate import evaluate_visual_concept
+
+        client = MagicMock()
+        client.models.generate_content.side_effect = RuntimeError("offline")
+        result = evaluate_visual_concept(
+            CONCEPT,
+            CAMPAIGN,
+            EvalConfig(),
+            client=client,
+            image={"gcs_uri": "gs://b/d.png"},
+        )
+        assert result.image_judged is False
+
+    def test_concurrent_eval_routes_each_concepts_image(self):
+        import creative_eval.evaluate as ev
+
+        seen = {}
+
+        def fake_vis(vc, ctx, config, client=None, brief=None, image=None):
+            seen[vc["concept_name"]] = image
+            return MagicMock()
+
+        other = {**CONCEPT, "concept_name": "Other"}
+        images = {"Dust": {"gcs_uri": "gs://b/d.png"}}
+        orig = ev.evaluate_visual_concept
+        ev.evaluate_visual_concept = fake_vis
+        try:
+            ev.evaluate_all_concurrently(
+                [],
+                [CONCEPT, other],
+                CAMPAIGN,
+                EvalConfig(),
+                MagicMock(),
+                generated_images=images,
+            )
+        finally:
+            ev.evaluate_visual_concept = orig
+        assert seen == {"Dust": {"gcs_uri": "gs://b/d.png"}, "Other": None}
+
+    def test_agent_tool_passes_generated_images(self, monkeypatch):
+        import creative_eval.agent as ev_agent
+
+        seen = {}
+
+        def fake_concurrent(ads, vis, ctx, config, client=None, **kw):
+            seen.update(kw)
+            return [], []
+
+        monkeypatch.setattr(ev_agent, "evaluate_all_concurrently", fake_concurrent)
+        images = {"Dust": {"gcs_uri": "gs://b/d.png"}}
+        ctx = FakeToolContext(
+            {
+                **CAMPAIGN,
+                "final_visual_concepts": {"visual_concepts": [CONCEPT]},
+                "generated_images": images,
+            }
+        )
+        ev_agent.evaluate_all_creatives(ctx)
+        assert seen["generated_images"] == images
+
+    def test_eval_config_has_no_unused_max_retries(self):
+        assert not hasattr(EvalConfig(), "max_retries")
+
+
+# --- conservative gate wording (false positives wrongly fail creatives) ------
+
+
+class TestConservativeGateWording:
+    def test_ad_copy_leniency_clauses(self):
+        text = eval_prompts.AD_COPY_EVAL_USER
+        assert "short form" in text  # 'SE CE24' for 'PRS SE CE24' counts
+        assert "only an image can carry" in text  # visual mandatories ignored
+        assert "paraphrase counts" in text
+        assert "clear, literal violation" in text
+        assert "Fail a gate only on clear evidence" in text
+
+    def test_visual_leniency_clauses(self):
+        text = eval_prompts.VISUAL_CONCEPT_EVAL_USER
+        assert "Stylised renderings count" in text
+        assert "no physical form" in text
+        assert "quotes that only describe the scene are not in-image text" in text
+        assert "Case, line breaks and minor punctuation differences are fine" in text
+        assert "clear, literal violation" in text
+
+    def test_templates_have_no_stray_placeholders(self):
+        import string
+
+        fields = {
+            f
+            for t in (
+                eval_prompts.AD_COPY_EVAL_USER,
+                eval_prompts.VISUAL_CONCEPT_EVAL_USER,
+            )
+            for _, f, _, _ in string.Formatter().parse(t)
+            if f
+        }
+        expected_extra = {
+            "brief_block",
+            "angle",
+            "image_section",
+            "trend_motif",
+            "brand_cue",
+        }
+        assert expected_extra <= fields
+        assert {f for f in fields if not f.isidentifier()} == set()
+        assert [
+            f
+            for _, f, _, _ in string.Formatter().parse(
+                eval_prompts.VISUAL_IMAGE_ATTACHED
+            )
+            if f
+        ] == ["qa_hint"]
+        assert not [
+            f
+            for _, f, _, _ in string.Formatter().parse(
+                eval_prompts.VISUAL_IMAGE_MISSING
+            )
+            if f
+        ]
+
+    def test_qa_failure_text_with_braces_survives(self):
+        from creative_eval.evaluate import evaluate_visual_concept
+
+        client = _client(_judge_json("visual", dict.fromkeys(VISUAL_GATES, True)))
+        qa = {"passed": False, "failures": ["sign reads {oops}"]}
+        evaluate_visual_concept(
+            CONCEPT,
+            CAMPAIGN,
+            EvalConfig(),
+            client=client,
+            image={"gcs_uri": "gs://b/d.png", "qa": qa},
+        )
+        assert "sign reads {oops}" in _prompt_text(client)
+
+
+# --- fail-soft: an unreadable image never zeroes a creative ---------------------
+
+
+def _client_error(code: int):
+    from google.genai import errors
+
+    return errors.ClientError(code, {"error": {"message": "nope", "status": "X"}})
+
+
+class TestImageFailSoft:
+    def test_unreadable_image_falls_back_to_prompt(self):
+        from creative_eval.evaluate import evaluate_visual_concept
+
+        client = MagicMock()
+        ok = MagicMock(text=_judge_json("visual", dict.fromkeys(VISUAL_GATES, True)))
+        client.models.generate_content.side_effect = [_client_error(403), ok]
+        result = evaluate_visual_concept(
+            CONCEPT,
+            CAMPAIGN,
+            EvalConfig(),
+            client=client,
+            image={"gcs_uri": "gs://b/d.png"},
+        )
+        assert client.models.generate_content.call_count == 2
+        assert isinstance(
+            client.models.generate_content.call_args.kwargs["contents"], str
+        )
+        assert result.image_judged is False
+        assert result.score.passed is True
+
+    def test_quota_error_is_not_retried_without_image(self):
+        from creative_eval.evaluate import evaluate_visual_concept
+
+        client = MagicMock()
+        client.models.generate_content.side_effect = _client_error(429)
+        result = evaluate_visual_concept(
+            CONCEPT,
+            CAMPAIGN,
+            EvalConfig(),
+            client=client,
+            image={"gcs_uri": "gs://b/d.png"},
+        )
+        assert client.models.generate_content.call_count == 1
+        assert result.score.improvements == ["evaluation_failed"]
+
+    def test_fallback_is_a_report_warning(self):
+        from creative_eval.evaluate import (
+            image_fallback_concepts,
+            image_fallback_warning,
+        )
+
+        def ev(name, judged, failed=False):
+            return VisualConceptEvaluation(
+                ad_copy_id=1,
+                concept_name=name,
+                image_judged=judged,
+                score=CreativeScore(
+                    overall_score=0.8,
+                    passed=True,
+                    verdicts=[],
+                    strengths=[],
+                    improvements=["evaluation_failed"] if failed else [],
+                ),
+            )
+
+        images = {n: {"gcs_uri": f"gs://b/{n}.png"} for n in ("A", "B", "C")}
+        evals = [
+            ev("A", True),
+            ev("B", False),
+            ev("C", False, failed=True),
+            ev("D", False),
+        ]
+        assert image_fallback_concepts(evals, images) == ["B"]
+        (note,) = image_fallback_warning(["B"])
+        assert "judged the prompt" in note and "B" in note
+        assert image_fallback_warning([]) == []

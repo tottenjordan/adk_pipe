@@ -412,8 +412,25 @@ class TestBuildEvalBqRow:
             "weakest_dimension_labels",
             "eval_report_gcs_uri",
             "research_gaps",
+            "gates_pass_rate",
         }
         assert set(self._row().keys()) == expected
+
+    def test_gates_pass_rate_from_summary(self):
+        report = {
+            **SAMPLE_REPORT,
+            "summary": {**SAMPLE_REPORT["summary"], "gates_pass_rate": "0.75"},
+        }
+        assert self._row(report=report)["gates_pass_rate"] == 0.75
+
+    def test_gates_pass_rate_null_for_pre_gate_reports(self):
+        # SAMPLE_REPORT predates the gates: NULL, not a misleading 0.0.
+        assert self._row()["gates_pass_rate"] is None
+        report = {
+            **SAMPLE_REPORT,
+            "summary": {**SAMPLE_REPORT["summary"], "gates_pass_rate": None},
+        }
+        assert self._row(report=report)["gates_pass_rate"] is None
 
 
 class TestBuildEvalMergeSql:
@@ -491,6 +508,7 @@ class TestBuildEvalMergeSql:
         assert types["visual_concepts_passed"] == "INT64"
         assert types["uuid"] == "STRING"
         assert types["research_gaps"] == "STRING"
+        assert types["gates_pass_rate"] == "FLOAT64"
 
     def test_none_becomes_typed_null(self):
         row = {**self._row(), "avg_visual_score": None}

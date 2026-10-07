@@ -18,6 +18,7 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from google import genai
+from google.genai import errors as genai_errors
 
 from agent_common import genai_retry
 from agent_common.genai_retry import build_genai_http_retry
@@ -63,7 +64,7 @@ def _get_client(config: EvalConfig) -> genai.Client:
 
 
 NO_BRIEF_NOTE = "no brief"
-NOT_REPORTED_NOTE = "not reported by the judge"
+NOT_REPORTED_NOTE = "not checked (the judge did not report it)"
 
 
 def normalize_gates(
@@ -71,14 +72,18 @@ def normalize_gates(
 ) -> list[GateResult]:
     """The judge's gates, reduced to exactly ``expected`` in order (pure).
 
-    Unknown names are dropped and duplicates keep the first; a gate the judge
-    left out fails (note "not reported by the judge") — a compliance check is
-    never assumed. Without a brief the brief-dependent gates pass with note
-    "no brief". ``advisory`` is set from ``ADVISORY_GATES``, never the judge.
+    Names are matched leniently (case, spaces and hyphens ignored); unknown
+    names are dropped and duplicates keep the first. Conservative by design —
+    a gate only fails on the judge's explicit ``passed=false``: one it left
+    out passes with a "not checked" note (a judge omission must not wrongly
+    fail a creative). Without a brief the brief-dependent gates pass with
+    note "no brief". ``advisory`` is set from ``ADVISORY_GATES``, never the
+    judge.
     """
     reported: dict[str, GateResult] = {}
     for gate in raw:
-        reported.setdefault(gate.gate.strip().lower(), gate)
+        key = "_".join(gate.gate.strip().lower().replace("-", " ").split())
+        reported.setdefault(key, gate)
     out = []
     for name in expected:
         advisory = name in ADVISORY_GATES
@@ -98,7 +103,7 @@ def normalize_gates(
             logger.warning("judge did not report gate %r", name)
             out.append(
                 GateResult(
-                    gate=name, passed=False, note=NOT_REPORTED_NOTE, advisory=advisory
+                    gate=name, passed=True, note=NOT_REPORTED_NOTE, advisory=advisory
                 )
             )
     return out
@@ -135,6 +140,43 @@ def _failed_score() -> CreativeScore:
         gates=[],
         gates_passed=False,
     )
+
+
+_IMAGE_MIME_BY_EXT = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".webp": "image/webp",
+}
+
+
+def image_mime_type(gcs_uri: str) -> str:
+    """The image MIME type from the URI's extension (default ``image/png``)."""
+    path = gcs_uri.lower()
+    for ext, mime in _IMAGE_MIME_BY_EXT.items():
+        if path.endswith(ext):
+            return mime
+    return "image/png"
+
+
+def image_qa_hint(qa: Any) -> str:
+    """One line summarising the image-QA verdict (``generated_images[…].qa``).
+
+    A hint for the judge, never ground truth. ``None`` (QA disabled or
+    unavailable) → "not run".
+    """
+    if not isinstance(qa, Mapping):
+        return "Automated image check: not run"
+    if qa.get("passed"):
+        return "Automated image check: passed"
+    failures = "; ".join(" ".join(str(f).split()) for f in qa.get("failures") or [])
+    return "Automated image check: failed" + (f" — {failures}" if failures else "")
+
+
+def _rendered_image_uri(image: Any) -> str:
+    """The record's ``gs://`` URI, or "" when there is no usable rendered image."""
+    uri = image.get("gcs_uri") if isinstance(image, Mapping) else None
+    return uri if isinstance(uri, str) and uri.startswith("gs://") else ""
 
 
 def gates_passed(gates: list[GateResult]) -> bool:
@@ -266,8 +308,16 @@ def evaluate_visual_concept(
     config: EvalConfig,
     client: genai.Client | None = None,
     brief: Mapping[str, Any] | None = None,
+    image: Mapping[str, Any] | None = None,
 ) -> VisualConceptEvaluation:
     """Evaluate a single visual concept using Gemini-as-judge.
+
+    With a rendered image (``image["gcs_uri"]``, a ``generated_images``
+    record) the judge sees the pixels as a ``gs://`` Part (Vertex reads it with
+    the caller's credentials) and judges the image, using the prompt only for
+    intent; the record's image-QA verdict is passed as a hint line. Without
+    one it judges the image generation prompt and the result records
+    ``image_judged=False``.
 
     Args:
         visual_concept: Dict with VisualConceptFinal fields.
@@ -276,6 +326,7 @@ def evaluate_visual_concept(
         config: Evaluation configuration.
         client: Optional pre-created Gemini client.
         brief: The parsed creative brief (``brief.parse_brief``), or None.
+        image: The concept's ``generated_images`` record, or None.
 
     Returns:
         VisualConceptEvaluation with per-dimension scores and binary gates.
@@ -283,21 +334,38 @@ def evaluate_visual_concept(
     if client is None:
         client = _get_client(config)
 
-    user_prompt = prompts.VISUAL_CONCEPT_EVAL_USER.format(
-        **campaign_context,
-        **{
-            **visual_concept,
-            "aspect_ratio": visual_concept.get("aspect_ratio") or "unspecified",
-            "trend_motif": visual_concept.get("trend_motif") or "(none)",
-            "brand_cue": visual_concept.get("brand_cue") or "(none)",
-        },
-        brief_block=format_brief_for_judge(brief),
-    )
+    name = visual_concept.get("concept_name", "?")
+    image_uri = _rendered_image_uri(image)
 
-    try:
+    def judge(uri: str) -> VisualConceptEvaluation:
+        """One judge call: with the rendered image at ``uri``, or prompt-only."""
+        image_section = (
+            prompts.VISUAL_IMAGE_ATTACHED.format(
+                qa_hint=image_qa_hint((image or {}).get("qa"))
+            )
+            if uri
+            else prompts.VISUAL_IMAGE_MISSING
+        )
+        user_prompt = prompts.VISUAL_CONCEPT_EVAL_USER.format(
+            **campaign_context,
+            **{
+                **visual_concept,
+                "aspect_ratio": visual_concept.get("aspect_ratio") or "unspecified",
+                "trend_motif": visual_concept.get("trend_motif") or "(none)",
+                "brand_cue": visual_concept.get("brand_cue") or "(none)",
+            },
+            brief_block=format_brief_for_judge(brief),
+            image_section=image_section,
+        )
+        contents: genai.types.ContentListUnionDict = user_prompt
+        if uri:
+            contents = [
+                genai.types.Part.from_uri(file_uri=uri, mime_type=image_mime_type(uri)),
+                genai.types.Part.from_text(text=user_prompt),
+            ]
         response = client.models.generate_content(
             model=config.eval_model,
-            contents=user_prompt,
+            contents=contents,
             config=genai.types.GenerateContentConfig(
                 system_instruction=prompts.VISUAL_CONCEPT_EVAL_SYSTEM,
                 response_mime_type="application/json",
@@ -305,26 +373,71 @@ def evaluate_visual_concept(
                 temperature=0.3,
             ),
         )
-
         result = VisualConceptEvaluation.model_validate_json(response.text or "")
-
         _apply_recomputed_score(
             result.score,
             VISUAL_GATES,
             config.passing_threshold,
             brief_used=brief is not None,
         )
+        result.image_judged = bool(uri)
         return result
 
+    if not image_uri:
+        logger.info("No rendered image for visual concept %r; judging its prompt", name)
+    try:
+        try:
+            return judge(image_uri)
+        except genai_errors.ClientError as e:
+            # A permanent 4xx with the image attached (unreadable / missing
+            # object, unsupported file) must not zero the creative: fail soft
+            # to a prompt-only verdict (image_judged=False). 429 is quota,
+            # not the image — retrying would only add load.
+            if not image_uri or e.code == 429:
+                raise
+            logger.warning(
+                "Judge could not use the rendered image %s for %r (%s); "
+                "judging the prompt instead",
+                image_uri,
+                name,
+                e,
+            )
+            return judge("")
     except Exception as e:
-        logger.error(
-            f"Failed to evaluate visual concept {visual_concept.get('concept_name', '?')}: {e}"
-        )
+        logger.error(f"Failed to evaluate visual concept {name}: {e}")
         return VisualConceptEvaluation(
             ad_copy_id=visual_concept.get("ad_copy_id", 0),
             concept_name=visual_concept.get("concept_name", ""),
             score=_failed_score(),
         )
+
+
+def image_fallback_concepts(
+    visual_evals: list[VisualConceptEvaluation],
+    generated_images: Mapping[str, Any] | None,
+) -> list[str]:
+    """Concepts that had a rendered image but were judged from the prompt (pure).
+
+    Excludes failed judge calls (they carry their own ``evaluation_failed``).
+    """
+    images = generated_images if isinstance(generated_images, Mapping) else {}
+    return [
+        e.concept_name
+        for e in visual_evals
+        if not e.image_judged
+        and _rendered_image_uri(images.get(e.concept_name))
+        and "evaluation_failed" not in e.score.improvements
+    ]
+
+
+def image_fallback_warning(concepts: list[str]) -> list[str]:
+    """The report ``warnings`` entry for :func:`image_fallback_concepts` ([] if none)."""
+    if not concepts:
+        return []
+    return [
+        "Visual judge could not read the rendered image and judged the prompt "
+        f"instead for: {', '.join(concepts)}"
+    ]
 
 
 def evaluate_all_concurrently(
@@ -335,6 +448,7 @@ def evaluate_all_concurrently(
     client: genai.Client | None = None,
     *,
     brief: Mapping[str, Any] | None = None,
+    generated_images: Mapping[str, Any] | None = None,
 ) -> tuple[list[AdCopyEvaluation], list[VisualConceptEvaluation]]:
     """Evaluate all ad copies and visual concepts concurrently, preserving order.
 
@@ -343,7 +457,8 @@ def evaluate_all_concurrently(
     single call's latency. Results are returned in the same order as the inputs.
     Individual failures are already handled inside evaluate_ad_copy /
     evaluate_visual_concept (they return a zero-score evaluation), so a single
-    bad creative can't sink the whole batch.
+    bad creative can't sink the whole batch. Each visual concept gets its own
+    ``generated_images[concept_name]`` record (None when it has no image).
     """
     if client is None:
         client = _get_client(config)
@@ -352,6 +467,7 @@ def evaluate_all_concurrently(
     if total == 0:
         return [], []
 
+    images = generated_images if isinstance(generated_images, Mapping) else {}
     max_workers = max(1, min(config.max_eval_workers, total))
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         ad_futures = [
@@ -368,6 +484,7 @@ def evaluate_all_concurrently(
                 config,
                 client,
                 brief=brief,
+                image=images.get(vc.get("concept_name", "")),
             )
             for vc in visual_concepts
         ]
@@ -426,6 +543,7 @@ def evaluate_creatives(
     config: EvalConfig | None = None,
     *,
     brief: Mapping[str, Any] | None = None,
+    generated_images: Mapping[str, Any] | None = None,
 ) -> CreativeEvaluationReport:
     """Evaluate all creatives from a single agent run.
 
@@ -437,6 +555,8 @@ def evaluate_creatives(
         config: Optional EvalConfig (uses defaults if None).
         brief: The parsed creative brief (``brief.parse_brief``), or None —
                then the brief-dependent gates pass with note "no brief".
+        generated_images: ``{concept_name: {gcs_uri, qa, ...}}`` — the rendered
+               images the visual judge sees (prompt-only without one).
 
     Returns:
         CreativeEvaluationReport with per-creative and aggregate scores.
@@ -452,7 +572,13 @@ def evaluate_creatives(
     )
 
     ad_evals, visual_evals = evaluate_all_concurrently(
-        ad_copies, visual_concepts, campaign_context, config, client, brief=brief
+        ad_copies,
+        visual_concepts,
+        campaign_context,
+        config,
+        client,
+        brief=brief,
+        generated_images=generated_images,
     )
 
     summary = _build_summary(ad_evals, visual_evals)
@@ -464,6 +590,9 @@ def evaluate_creatives(
         ad_copy_evaluations=ad_evals,
         visual_concept_evaluations=visual_evals,
         summary=summary,
+        warnings=image_fallback_warning(
+            image_fallback_concepts(visual_evals, generated_images)
+        ),
         judge_model=config.eval_model,
         passing_threshold=config.passing_threshold,
         brief_used=brief is not None,

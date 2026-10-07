@@ -20,7 +20,6 @@ class EvalConfig:
 
     # Score thresholds
     passing_threshold: float = 0.7
-    max_retries: int = 3
 
     # Max concurrent judge calls. Each creative is scored by an independent judge
     # call. On the DEFAULT judge (gemini-3.1-pro-preview @ `global`) the base

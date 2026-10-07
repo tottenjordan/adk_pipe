@@ -23,7 +23,12 @@ from agent_common import (
 
 from .brief import parse_brief
 from .config import EvalConfig
-from .evaluate import _build_summary, evaluate_all_concurrently
+from .evaluate import (
+    _build_summary,
+    evaluate_all_concurrently,
+    image_fallback_concepts,
+    image_fallback_warning,
+)
 from .schemas import CreativeEvaluationReport, CreativeScore
 
 logger = logging.getLogger(__name__)
@@ -44,6 +49,8 @@ def evaluate_all_creatives(tool_context) -> dict:
       - final_visual_concepts (VisualConceptFinalList JSON)
       - brand, target_product, target_audience, key_selling_points, target_search_trends
       - creative_brief (CreativeBrief dict/JSON; optional — the judge's gate contract)
+      - generated_images ({concept_name: {gcs_uri, qa, ...}}; optional — the
+        rendered images the visual judge sees)
 
     Writes to state key:
       - creative_evaluation_report (CreativeEvaluationReport JSON)
@@ -99,18 +106,26 @@ def evaluate_all_creatives(tool_context) -> dict:
     ]
 
     brief = parse_brief(state.get("creative_brief"))
+    generated_images = state.get("generated_images") or {}
 
     # Score every creative in parallel — each is an independent judge call, so
     # this collapses eval wall-clock from ~N*28s to roughly one call's latency.
     ad_evals, visual_evals = evaluate_all_concurrently(
-        ad_copies, visual_concepts, campaign_context, _config, brief=brief
+        ad_copies,
+        visual_concepts,
+        campaign_context,
+        _config,
+        brief=brief,
+        generated_images=generated_images,
     )
 
     summary = _build_summary(ad_evals, visual_evals)
 
     # Surface any research producers that exhausted their retries (RetryUntilKeyNode
     # markers) as structured, consumable degradation notes on the report.
-    warnings = collect_degradation_warnings(state)
+    warnings = collect_degradation_warnings(state) + image_fallback_warning(
+        image_fallback_concepts(visual_evals, generated_images)
+    )
 
     report = CreativeEvaluationReport(
         brand=campaign_context["brand"],
