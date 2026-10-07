@@ -28,3 +28,22 @@ def test_review_research_docstring_mentions_report_edited():
 def test_root_instruction_has_no_unexpected_state_tokens():
     # ADK treats {name} / {name?} as state tokens; the edit clause must not add any.
     assert "{" not in _checkpoint1_step()
+
+
+CAMPAIGN_KEYS = {
+    "brand",
+    "target_audience",
+    "target_product",
+    "key_selling_points",
+    "target_search_trends",
+}
+
+
+def test_campaign_fields_already_in_state_are_not_rememorized():
+    """Same contract as creative_agent's root: seeded campaign fields are shown
+    via optional tokens and only the missing ones are memorized."""
+    block = ROOT_AGENT_INSTR.split("<CURRENT_STATE>", 1)[1].split("</CURRENT_STATE>")[0]
+    assert set(re.findall(r"\{(\w+)\?\}", block)) == CAMPAIGN_KEYS
+    instructions = ROOT_AGENT_INSTR.split("<INSTRUCTIONS>", 1)[1]
+    assert "Do NOT re-memorize" in instructions
+    assert "missing from BOTH" in instructions

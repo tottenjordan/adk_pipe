@@ -673,6 +673,45 @@ class TestPrettyPrintEvent:
         td.pretty_print_event({"author": "a", "content": {"parts": None}})
 
 
+class TestBuildTestState:
+    """test_deployment seeds the campaign fields as session state for the
+    creative agents (their state init setdefaults them), not trend_scout."""
+
+    ENV = {
+        "BRAND": "PRS",
+        "TARGET_PRODUCT": "SE CE24",
+        "KEY_SELLING_POINT": "tone",
+        "TARGET_AUDIENCE": "guitarists",
+        "TARGET_SEARCH_TREND": "powerball",
+    }
+
+    @pytest.mark.parametrize("agent", ["creative_agent", "interactive_creative"])
+    def test_creative_agents_get_campaign_state(self, monkeypatch, agent):
+        for k, v in self.ENV.items():
+            monkeypatch.setenv(k, v)
+        td = _load_script("test_deployment")
+        assert td.build_test_state(agent) == {
+            "brand": "PRS",
+            "target_product": "SE CE24",
+            "key_selling_points": "tone",
+            "target_audience": "guitarists",
+            "target_search_trends": "powerball",
+        }
+
+    def test_trend_scout_gets_no_state(self, monkeypatch):
+        for k, v in self.ENV.items():
+            monkeypatch.setenv(k, v)
+        td = _load_script("test_deployment")
+        assert td.build_test_state("trend_scout") is None
+
+    def test_unset_env_vars_are_omitted(self, monkeypatch):
+        for k in self.ENV:
+            monkeypatch.delenv(k, raising=False)
+        monkeypatch.setenv("BRAND", "PRS")
+        td = _load_script("test_deployment")
+        assert td.build_test_state("creative_agent") == {"brand": "PRS"}
+
+
 # --- opt-in Agent Engine Cloud Trace (P4b §3) ---
 class TestTelemetryEnv:
     FLAG = "GOOGLE_CLOUD_AGENT_ENGINE_ENABLE_TELEMETRY"

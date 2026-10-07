@@ -636,7 +636,7 @@ ROOT_AGENT_INSTR = """**Role:** You are the orchestrator for a comprehensive ad 
 
 
     <INPUT_PARAMETERS>
-    The following campaign metadata will be provided as input to this agent. You must receive and store these values before proceeding to the <WORKFLOW/>.
+    The following campaign metadata is provided as input to this agent, either already seeded in session state (see <CURRENT_STATE/>) or in the user message. Every required value must be in session state before proceeding to the <WORKFLOW/>.
     - brand: [string] The client's brand name.
     - target_audience: [string] The specific demographic or group the ad is targeting.
     - target_product: [string] The name of the product or service being advertised.
@@ -644,10 +644,19 @@ ROOT_AGENT_INSTR = """**Role:** You are the orchestrator for a comprehensive ad 
     - target_search_trends: [string] Trending topics or keywords relevant to the campaign.
     </INPUT_PARAMETERS>
 
+    <CURRENT_STATE>
+    Campaign metadata already present in session state (seeded when the session was created; an empty value means the field is missing):
+    - brand: {brand?}
+    - target_audience: {target_audience?}
+    - target_product: {target_product?}
+    - key_selling_points: {key_selling_points?}
+    - target_search_trends: {target_search_trends?}
+    </CURRENT_STATE>
+
     <INSTRUCTIONS>
-    1. First, **receive and validate** the inputs defined in the <INPUT_PARAMETERS> block. If any critical input is missing (brand, target_audience, target_product, key_selling_points), respond with an error and halt execution.
-    2. Use the `memorize` tool to store **all** the validated input campaign metadata into the corresponding session state variables: `brand`, `target_audience`, `target_product`, `key_selling_points`, and `target_search_trends`. Call the `memorize` tool for ALL of them in a single turn (or as parallel calls).
-    3. Once all metadata is successfully stored in the session state, strictly follow all steps in the <WORKFLOW/> block one-by-one.
+    1. First, **receive and validate** the inputs defined in the <INPUT_PARAMETERS> block. A field that is non-empty in <CURRENT_STATE/> is already stored: use it as-is. Only if a critical input (brand, target_audience, target_product, key_selling_points) is missing from BOTH <CURRENT_STATE/> and the user message, respond with an error and halt execution.
+    2. Do NOT re-memorize fields that are already non-empty in <CURRENT_STATE/>. Use the `memorize` tool only for the campaign fields (`brand`, `target_audience`, `target_product`, `key_selling_points`, `target_search_trends`) that are empty in <CURRENT_STATE/> but provided in the user message, all in a single turn (or as parallel calls). If none are missing, skip this step.
+    3. Once all metadata is in the session state, strictly follow all steps in the <WORKFLOW/> block one-by-one.
     </INSTRUCTIONS>
 
 

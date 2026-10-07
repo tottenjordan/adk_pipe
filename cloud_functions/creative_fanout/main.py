@@ -335,10 +335,21 @@ async def create_agent_run(
     Target Search Trend: {msg_dict["target_search_trend"]}
     """
 
+    # Seed the campaign fields as session state so the inputs are deterministic
+    # (creative_agent's state init setdefaults them; the root only memorizes
+    # fields missing from state). The message above stays as a readable echo.
+    campaign_state = {
+        "brand": msg_dict["brand"],
+        "target_product": msg_dict["target_product"],
+        "key_selling_points": msg_dict["key_selling_point"],
+        "target_audience": msg_dict["target_audience"],
+        "target_search_trends": msg_dict["target_search_trend"],
+    }
+
     # create → stream → delete, all under one user_id. The delete runs even if
     # the stream raises (agent_session's finally), so a failed run never leaks a
     # session, and it can't drift onto a different user_id.
-    async with agent_session(remote_agent, user_id) as session:
+    async with agent_session(remote_agent, user_id, state=campaign_state) as session:
         # long running op
         await async_send_message(
             remote_agent=remote_agent,

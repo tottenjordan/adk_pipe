@@ -37,6 +37,33 @@ Target Search Trend: {os.getenv("TARGET_SEARCH_TREND")}
 """
 
 
+# Campaign state key -> .env var, seeded via createSession state for the agents
+# whose state init preserves caller-seeded values (trend_scout's overwrites them).
+_CAMPAIGN_STATE_ENV = {
+    "brand": "BRAND",
+    "target_product": "TARGET_PRODUCT",
+    "key_selling_points": "KEY_SELLING_POINT",
+    "target_audience": "TARGET_AUDIENCE",
+    "target_search_trends": "TARGET_SEARCH_TREND",
+}
+_STATE_SEEDED_AGENTS = ("creative_agent", "interactive_creative")
+
+
+def build_test_state(agent: str) -> dict[str, str] | None:
+    """The initial session state for a test run (None = create without state).
+
+    The creative agents read the seeded campaign fields deterministically; the
+    query message above is kept as a readable echo. Unset env vars are omitted.
+    """
+    if agent not in _STATE_SEEDED_AGENTS:
+        return None
+    return {
+        key: value
+        for key, env in _CAMPAIGN_STATE_ENV.items()
+        if (value := os.getenv(env))
+    }
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="An asyncio application with command-line arguments."
@@ -119,15 +146,19 @@ async def async_send_message(remote_agent, user_id, session) -> None:
 
 
 @asynccontextmanager
-async def agent_session(remote_agent, user_id):
+async def agent_session(remote_agent, user_id, state=None):
     """Create → yield → delete an Agent Engine session with ONE user_id.
 
     Local mirror of cloud_functions/creative_fanout/session.agent_session
     (deployment/ isn't bundled with the worker, so it can't import it). Deleting
     with the SAME user_id the session was created under avoids Agent Engine's
     `FAILED_PRECONDITION: Session <id> does not belong to user <...>`.
+    ``state`` (optional) is the initial session state.
     """
-    session = await remote_agent.async_create_session(user_id=user_id)
+    if state is None:
+        session = await remote_agent.async_create_session(user_id=user_id)
+    else:
+        session = await remote_agent.async_create_session(user_id=user_id, state=state)
     logging.info(f"Created session {session['id']} for user ID: {user_id}")
     try:
         yield session
@@ -164,7 +195,9 @@ async def main() -> None:  # pylint: disable=unused-argument
 
     # get session — create → stream → delete under one user_id (delete-on-error).
     logging.info(f"\n\nCreating session for user ID: {args.user_id}...\n\n")
-    async with agent_session(remote_agent, args.user_id) as session:
+    async with agent_session(
+        remote_agent, args.user_id, state=build_test_state(args.agent)
+    ) as session:
         logging.info(session)
         # long running op
         await async_send_message(

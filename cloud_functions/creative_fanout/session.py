@@ -17,18 +17,23 @@ from contextlib import asynccontextmanager
 
 
 @asynccontextmanager
-async def agent_session(remote_agent, user_id):
+async def agent_session(remote_agent, user_id, state=None):
     """Create → yield → delete an Agent Engine session with ONE ``user_id``.
 
     Args:
         remote_agent: the Agent Engine handle (from ``client.runtimes.get``).
         user_id: the user id to create AND delete the session under. Passing it
             once here is what prevents the create/delete drift.
+        state: optional initial session state (e.g. the campaign fields), passed
+            through to ``async_create_session(state=...)``.
 
     Yields:
         The created session dict (has an ``"id"`` key).
     """
-    session = await remote_agent.async_create_session(user_id=user_id)
+    if state is None:
+        session = await remote_agent.async_create_session(user_id=user_id)
+    else:
+        session = await remote_agent.async_create_session(user_id=user_id, state=state)
     logging.info(f"Created session {session['id']} for user ID: {user_id}")
     try:
         yield session

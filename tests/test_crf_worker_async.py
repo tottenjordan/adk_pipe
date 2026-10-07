@@ -98,8 +98,9 @@ def test_session_created_and_deleted_with_same_user_id(monkeypatch):
     created = {}
     deleted = {}
 
-    async def _create_session(*, user_id):
+    async def _create_session(*, user_id, state=None):
         created["user_id"] = user_id
+        created["state"] = state
         return {"id": "sess-42"}
 
     async def _stream(**kwargs):
@@ -136,6 +137,15 @@ def test_session_created_and_deleted_with_same_user_id(monkeypatch):
     assert created["user_id"] == user_id
     assert deleted["user_id"] == user_id
     assert deleted["session_id"] == "sess-42"
+    # Campaign fields are seeded as session state (deterministic inputs; the
+    # creative agent's state init setdefaults rather than blanks them).
+    assert created["state"] == {
+        "brand": "BrandX",
+        "target_product": "prod",
+        "key_selling_points": "ksp",
+        "target_audience": "aud",
+        "target_search_trends": "trend",
+    }
 
 
 def test_agent_session_deletes_on_success():
@@ -198,7 +208,7 @@ def test_create_agent_run_deletes_session_on_stream_error(monkeypatch):
 
     deleted = {}
 
-    async def _create_session(*, user_id):
+    async def _create_session(*, user_id, state=None):
         return {"id": "sess-stream"}
 
     async def _raising_stream(**kwargs):
@@ -347,7 +357,7 @@ def test_worker_uses_runtimes_api_not_agent_engines(monkeypatch):
     """The worker resolves the engine via ``client.runtimes.get`` — the
     agentplatform 2.x surface — never the deprecated ``agent_engines``."""
 
-    async def _create_session(*, user_id):
+    async def _create_session(*, user_id, state=None):
         return {"id": "sess-1"}
 
     async def _stream(**kwargs):

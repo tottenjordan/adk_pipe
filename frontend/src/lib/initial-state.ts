@@ -9,9 +9,13 @@ import type { CampaignInput } from "@/lib/types";
  *   through untouched and run history can identify the agent (all apps share
  *   one session store, so the session's `appName` can't).
  * - trend_scout: seeds `interactive_trend_pick` when the user opts in.
- * - creative_agent / interactive_creative: maps each set visual-intent field to
- *   its snake_case state key (matching creative_agent/callbacks.py). Empty
- *   values are omitted (the backend setdefaults them to "").
+ * - creative_agent / interactive_creative: maps the core campaign fields
+ *   (brand, audience, product, selling points, trend) and each set
+ *   visual-intent field to its snake_case state key (matching
+ *   creative_agent/callbacks.py). Empty values are omitted (the backend
+ *   setdefaults them to ""). Seeding the campaign fields makes the inputs
+ *   deterministic; the kickoff message only echoes them. trend_scout's state
+ *   init overwrites these keys, so they are not seeded for it.
  */
 export function buildInitialState(form: CampaignInput): Record<string, unknown> {
   const state: Record<string, unknown> = { ui_app: form.agent };
@@ -27,6 +31,11 @@ export function buildInitialState(form: CampaignInput): Record<string, unknown> 
 
   // camelCase form field → snake_case session-state key.
   const mapping: Array<[keyof CampaignInput, string]> = [
+    ["brand", "brand"],
+    ["targetAudience", "target_audience"],
+    ["targetProduct", "target_product"],
+    ["keySellingPoints", "key_selling_points"],
+    ["targetSearchTrend", "target_search_trends"],
     ["visualIntent", "visual_intent"],
     ["brandColors", "brand_colors"],
     ["visualStylePreference", "visual_style_preference"],
