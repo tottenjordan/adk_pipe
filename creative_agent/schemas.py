@@ -44,6 +44,10 @@ class AdCopy(BaseModel):
         "Educational/Informative",
         "Relatable/Meme-based",
     ] = Field(description="Specify one of the required tones.")
+    angle_id: str = Field(
+        default="",
+        description="The id of the creative brief angle this copy executes (e.g. 'A2'); '' when there is no brief.",
+    )
     headline: str = Field(description="A short, attention-grabbing Headline.")
     body_text: str = Field(
         description="2-3 sentences of concise and compelling ad copy."
@@ -57,6 +61,12 @@ class AdCopy(BaseModel):
     social_caption: str = Field(
         description="A candidate, short social media caption (e.g., for Instagram or TikTok video description)."
     )
+    typicality: float | None = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description="Honest self-rating 0-1 of how expected this idea is for its angle: 1 = the most obvious, expected execution; 0 = a highly unexpected one.",
+    )
 
 
 class AdCopyList(BaseModel):
@@ -69,6 +79,32 @@ class AdCopyList(BaseModel):
 
 
 # --- AD COPY SCHEMA FINAL ---
+BriefCheckItem = Literal[
+    "proposition",
+    "product",
+    "reason_to_believe",
+    "trend_bridge",
+    "tone",
+    "mandatories",
+    "avoid",
+    "cta",
+]
+
+
+class BriefCheck(BaseModel):
+    """One item of the critic's brief checklist for a final ad copy."""
+
+    item: BriefCheckItem = Field(
+        description="The checklist item: 'proposition' (delivers the single-minded proposition), 'product' (names the target product), 'reason_to_believe' (uses at least one reason to believe), 'trend_bridge' (connects to the trend through the bridge in the stated fit_mode), 'tone' (matches the brand tone of voice), 'mandatories' (honours every mandatory), 'avoid' (contains nothing from the avoid list), 'cta' (specific call to action with an action verb that matches the desired response)."
+    )
+    passed: bool = Field(
+        description="False only when the final copy (headline, body, caption and CTA) clearly fails this item; be accurate, not harsh."
+    )
+    note: str = Field(
+        description="A short reason: what meets the item, or exactly what is missing or wrong."
+    )
+
+
 class FinalAdCopy(BaseModel):
     """Model representing a single Ad Copy idea"""
 
@@ -81,6 +117,10 @@ class FinalAdCopy(BaseModel):
         "Educational/Informative",
         "Relatable/Meme-based",
     ] = Field(description="The tone/style from the original idea (e.g., Humorous).")
+    angle_id: str = Field(
+        default="",
+        description="The creative brief angle id carried over from the original idea (e.g. 'A2'); '' when there is no brief.",
+    )
     headline: str = Field(description="The finalized, attention-grabbing Headline.")
     body_text: str = Field(description="The finalized, concise and compelling ad copy.")
     trend_connection: str = Field(
@@ -92,8 +132,18 @@ class FinalAdCopy(BaseModel):
     social_caption: str = Field(
         description="The finalized candidate social media caption."
     )
+    typicality: float | None = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description="The original idea's typicality self-rating (0-1; 1 = the most expected idea for its angle, 0 = highly unexpected), re-rated if the copy changed.",
+    )
     call_to_action: str = Field(
-        description="A NEW, catchy, action-oriented phrase (e.g., 'Shop the drop now!')."
+        description="A NEW, specific, action-oriented phrase that starts with an action verb, matches the brief's desired response and has at most 8 words (e.g., 'Shop the drop now!')."
+    )
+    brief_checks: list[BriefCheck] = Field(
+        default_factory=list,
+        description="The brief checklist for this final copy: exactly one entry per item (proposition, product, reason_to_believe, trend_bridge, tone, mandatories, avoid, cta), judged accurately.",
     )
     detailed_performance_rationale: str = Field(
         description="A 2-3 sentence strategic critique explaining *why* this ad copy will perform well against the selection criteria."

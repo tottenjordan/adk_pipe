@@ -759,3 +759,163 @@ def test_interactive_reviser_output_is_guarded(monkeypatch):
     assert prompt.startswith("A soft watercolor of a quiet desert road.")
     assert "a roadrunner dust cloud" in prompt
     assert "Rocket Skates" in prompt
+
+
+# --------------------------------------------------------------------------
+# Ad copy gate: bounded, targeted revision of flagged copies
+# --------------------------------------------------------------------------
+
+
+def _final_ad(original_id: int, **overrides: Any) -> dict[str, Any]:
+    """A schema-valid FinalAdCopy that passes creative_agent.copy_gate."""
+    ad = {
+        "original_id": original_id,
+        "tone_style": "Humorous",
+        "angle_id": f"A{min(original_id, 3)}",
+        "headline": f"Beep beep {original_id}",
+        "body_text": "Rocket Skates finally make you faster.",
+        "trend_connection": "Roadrunner sprint.",
+        "audience_appeal_rationale": "Coyotes want speed.",
+        "social_caption": "Zoom.",
+        "typicality": 0.4,
+        "call_to_action": "Order yours today",
+        "brief_checks": [{"item": "cta", "passed": True, "note": "specific"}],
+        "detailed_performance_rationale": "Speed sells.",
+    }
+    ad.update(overrides)
+    return ad
+
+
+def _final_ads(*ads: dict[str, Any]) -> str:
+    return json.dumps({"ad_copies": list(ads)})
+
+
+_ADS_STATE = {
+    "combined_final_cited_report": "# Report",
+    "creative_brief": _BRIEF,
+    "creative_brief_md": render_brief_markdown(_BRIEF, heading=False),
+}
+
+
+def _run_ads(monkeypatch, critic: str, reviser: list[str] | None = None, model=None):
+    import creative_agent.agent as ca
+
+    llms = _stub_graph(monkeypatch, ca.ad_creative_pipeline)
+    llms["ad_copy_drafter"].push(text_response(_ADS))
+    llms["ad_copy_critic"].push(text_response(critic))
+    for text in reviser or []:
+        llms["ad_copy_reviser"].push(text_response(text))
+    if model is not None:
+        _patch_agent_model(
+            monkeypatch, ca.ad_creative_pipeline, "ad_copy_reviser", model
+        )
+    root_llm, events, state = _run_root(monkeypatch, "ad_creative_pipeline", _ADS_STATE)
+    return llms, root_llm, events, state
+
+
+def _ids_and_bodies(state: dict[str, Any]) -> list[tuple[int, str]]:
+    return [
+        (c["original_id"], c["body_text"])
+        for c in state["ad_copy_critique"]["ad_copies"]
+    ]
+
+
+def test_ad_copies_passing_the_gate_skip_the_reviser(monkeypatch):
+    ads = [_final_ad(i) for i in range(1, 5)]
+    llms, root_llm, events, state = _run_ads(monkeypatch, _final_ads(*ads))
+
+    assert llms["ad_copy_reviser"].calls == 0
+    assert state["ad_copy_critique"]["ad_copies"] == ads
+    assert state["ad_copy_revision_rounds_used"] == 0
+    assert state["ad_copy_issues"] == ""
+    assert state.get("ad_copy_critique__issues") is None
+    (response,) = _responses(events)
+    assert response == {"ad_copies": ads}
+    assert root_llm.calls == 2
+
+
+def test_flagged_copy_is_revised_and_unflagged_edits_are_reverted(monkeypatch):
+    """Copy 2 omits the product and fails the proposition check: the reviser gets
+    exactly those issues, rewrites copy 2, and its edit to (unflagged) copy 3
+    is reverted by the safety net."""
+    bad = _final_ad(
+        2,
+        body_text="Finally, you are faster.",
+        brief_checks=[
+            {"item": "proposition", "passed": False, "note": "two ideas"},
+            {"item": "tone", "passed": False, "note": "too sarcastic"},
+        ],
+    )
+    ads = [_final_ad(1), bad, _final_ad(3), _final_ad(4)]
+    fixed = _final_ad(2, body_text="Rocket Skates: finally faster, deadpan.")
+    sneaky = _final_ad(3, body_text="Rocket Skates, rewritten without being asked.")
+    revision = _final_ads(_final_ad(1), fixed, sneaky, _final_ad(4))
+
+    llms, root_llm, events, state = _run_ads(monkeypatch, _final_ads(*ads), [revision])
+
+    assert llms["ad_copy_reviser"].calls == 1
+    prompt = str(llms["ad_copy_reviser"].requests[-1].config.system_instruction)
+    assert '- **Copy 2 ("Beep beep 2"):**' in prompt
+    assert "  - product not named: mention 'Rocket Skates'" in prompt
+    assert "  - brief check failed: proposition — two ideas" in prompt
+    issues_block = prompt.split("<ad_copy_issues>")[-1].split("</ad_copy_issues>")[0]
+    assert "brief check failed: proposition" in issues_block
+    assert "too sarcastic" not in issues_block  # tone is advisory
+    assert "Copy 1" not in prompt and "Copy 3" not in prompt
+    assert "Finally, you are faster." in prompt  # the current copies are shown
+    assert _BRIEF["single_minded_proposition"] in prompt
+    assert _ids_and_bodies(state) == [
+        (1, ads[0]["body_text"]),
+        (2, fixed["body_text"]),
+        (3, ads[2]["body_text"]),  # reverted: copy 3 was not flagged
+        (4, ads[3]["body_text"]),
+    ]
+    assert state["ad_copy_revision_rounds_used"] == 1
+    assert state["ad_copy_issues"] == ""
+    assert state["ad_copy_critique__before_revision"] is None
+    assert state.get("ad_copy_critique__issues") is None
+    (response,) = _responses(events)
+    assert [c["body_text"] for c in response["ad_copies"]] == [
+        b for _, b in _ids_and_bodies(state)
+    ]
+    assert root_llm.calls == 2
+
+
+def test_raising_ad_copy_reviser_keeps_the_pre_revision_copies(monkeypatch):
+    from agent_common import collect_degradation_warnings
+
+    bad = _final_ad(2, body_text="Finally, you are faster.")
+    ads = [_final_ad(1), bad, _final_ad(3), _final_ad(4)]
+    boom = _BoomLlm()
+
+    _, root_llm, events, state = _run_ads(monkeypatch, _final_ads(*ads), model=boom)
+
+    assert boom.requests  # the reviser really ran and raised
+    assert state["ad_copy_critique"]["ad_copies"] == ads
+    (issue,) = state["ad_copy_critique__issues"]
+    assert issue.startswith('Copy 2 ("Beep beep 2"): product not named')
+    (note,) = collect_degradation_warnings(state)
+    assert note.startswith("Ad copy critique has unresolved issues: 1 (e.g. ")
+    (response,) = _responses(events)
+    assert response == {"ad_copies": ads}
+    assert root_llm.calls == 2
+
+
+def test_ad_copy_issues_left_after_the_budget_are_recorded(monkeypatch):
+    from agent_common import collect_degradation_warnings
+
+    bad = _final_ad(2, headline="x" * 70)
+    ads = [_final_ad(1), bad]
+    llms, root_llm, events, state = _run_ads(
+        monkeypatch, _final_ads(*ads), [_final_ads(*ads)]
+    )
+
+    assert llms["ad_copy_reviser"].calls == 1
+    assert state["ad_copy_revision_rounds_used"] == 1
+    (issue,) = state["ad_copy_critique__issues"]
+    assert "headline is 70 characters" in issue
+    (note,) = collect_degradation_warnings(state)
+    assert note.startswith("Ad copy critique has unresolved issues: 1 (e.g. ")
+    (response,) = _responses(events)
+    assert response == {"ad_copies": ads}
+    assert root_llm.calls == 2

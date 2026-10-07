@@ -53,6 +53,8 @@ ENV_VAR_DICT = {
     # creative_agent brief_gate revision budget (0..2, default 1; see
     # creative_agent/config.py). Defaulted so the engine never gets a None.
     "BRIEF_REVISION_ROUNDS": os.getenv("BRIEF_REVISION_ROUNDS", "1"),
+    # creative_agent copy_gate revision budget (0..2, default 1; same contract).
+    "COPY_REVISION_ROUNDS": os.getenv("COPY_REVISION_ROUNDS", "1"),
 }
 
 

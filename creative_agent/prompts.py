@@ -302,7 +302,7 @@ CREATIVE_BRIEF_WRITER_INSTR = """Role: You are the Strategy Director. Turn the r
         *   `bridge` names which brand or product trait connects to which specific facet of the trend.
     5.  **Motifs:** 2-4 concrete motifs SPECIFIC to this trend: signature objects, colours, places, events, rituals or memes that someone who follows the trend recognises in a second. Generic imagery that could illustrate any trend (phones, smartphones, social feeds, chat bubbles, hashtags, emoji, laptops, screens, notifications) does NOT count. For trends about real people (politicians, celebrities, athletes), use their recognisable cultural iconography (colours, symbols, settings, events, fan rituals), never a likeness of the person.
     6.  **Angles:** 3-5 angles, each rooted in a genuinely different audience tension. Tone variants of one idea (funny vs. emotional) do NOT count as different angles. Number them "A1", "A2", and so on.
-    7.  **Inputs to fields:** the user's key selling points become reasons to believe (source "brief") and/or mandatories; the user's avoid list and the trend risks go into `avoid`; `brand.distinctive_assets` come from the brand voice and distinctive assets material in the research report plus the user's brand colours; `brand.tone_of_voice` and `brand.do_not` from the same material.
+    7.  **Inputs to fields:** the user's key selling points become reasons to believe (source "brief") and/or mandatories; the user's avoid list and the trend risks go into `avoid`, as short terms or phrases (at most 4 words each, e.g. "gambling odds", never sentences); `brand.distinctive_assets` come from the brand voice and distinctive assets material in the research report plus the user's brand colours; `brand.tone_of_voice` and `brand.do_not` from the same material.
     8.  **Missing research:** if the research report is empty, build the brief from the campaign inputs alone: cite "brief" for every reason to believe and keep the fit score conservative.
     9.  **Revision:** if <brief_issues> is non-empty, revise the <previous_brief> to fix EXACTLY those issues and keep everything else unchanged. If <brief_issues> is empty, ignore <previous_brief> and write a fresh brief.
     </INSTRUCTIONS>
@@ -359,17 +359,18 @@ AD_COPY_DRAFTER_INSTR = (
     <INSTRUCTIONS>
     0.  **Brief:** """
     + CREATIVE_BRIEF_CONTRACT_RULE
-    + """ Spread the 10 ideas across the brief's angles.
-    1.  **Analyze and Apply:** Analyze the research report to understand the audience, product, and trend intersection. If the report is empty, work from the campaign inputs.
-    2.  **Generate 10 Diverse Ideas:** Generate exactly 10 ad copy ideas. Each idea must:
+    + """
+    1.  **Angles (diversity):** Spread the 10 ideas across the brief's creative angles (listed in the brief by id, e.g. "A1"): when the brief has 5 or fewer angles, write at least 2 ideas per angle. Set each idea's `angle_id` to the angle it executes. Within each angle, range from the expected execution to genuinely unexpected ones, and self-rate each idea's `typicality` honestly from 0 to 1 (1 = the most obvious idea for that angle, 0 = a highly unexpected one); do not cluster every idea near the same value. If the brief is empty, set `angle_id` to "" and still vary how expected the ideas are.
+    2.  **Analyze and Apply:** Analyze the research report to understand the audience, product, and trend intersection. If the report is empty, work from the campaign inputs.
+    3.  **Generate 10 Diverse Ideas:** Generate exactly 10 ad copy ideas. Each idea must:
         *   Creatively market the target product: {target_product}
         *   Sound like the brand: {brand} (use its voice and distinctive assets from the research report).
         *   Speak directly to the target audience: {target_audience}
         *   Incorporate the key selling point(s): {key_selling_points}
         *   Be suitable for Instagram/TikTok platforms (short, punchy, visual-friendly).
         *   Directly reference or subtly leverage the trending topic: {target_search_trends}.
-    3.  **Enforce Creative Diversity:** To ensure variety, the 10 ideas must collectively cover at least 4 of the following creative tones/styles: **Humorous, Aspirational, Problem/Solution, Emotional/Authentic, Educational/Informative, Relatable/Meme-based.**
-    4.  **Strict Output Format:** Ensure the entire output is a single JSON object containing all 10 ideas, formatted exactly as specified in the <OUTPUT_FORMAT> block.
+    4.  **Enforce Tone Diversity:** To ensure variety, the 10 ideas must collectively cover at least 4 of the following creative tones/styles: **Humorous, Aspirational, Problem/Solution, Emotional/Authentic, Educational/Informative, Relatable/Meme-based.**
+    5.  **Strict Output Format:** Ensure the entire output is a single JSON object containing all 10 ideas, formatted exactly as specified in the <OUTPUT_FORMAT> block.
     </INSTRUCTIONS>
 
     <CONTEXT>
@@ -402,7 +403,7 @@ AD_COPY_CRITIC_INSTR = (
     <INSTRUCTIONS>
     0.  **Brief:** """
     + CREATIVE_BRIEF_CONTRACT_RULE
-    + """ Judge every idea against the brief first, and prefer a final set that covers different angles.
+    + """ Judge every idea against the brief first.
     1.  **Parse Input:** Retrieve and parse the JSON list of 10 ad copies from the `ad_copy_draft` input in the <CONTEXT> block. If it is empty, output an object whose `ad_copies` list is empty.
     2.  **Critical Evaluation:** Evaluate the 10 ideas based on the following criteria:
         *   **Strategic Alignment:** How well does the idea synthesize the product, key selling points, and target audience insights from the research report?
@@ -411,8 +412,22 @@ AD_COPY_CRITIC_INSTR = (
         *   **Platform Viability:** Is the tone and length highly suitable for Instagram/TikTok?
         *   **Creative Excellence:** Is the idea compelling, clear, and likely to drive a high click-through rate?
     3.  **Final Selection:** Select a subset of **exactly 4** ad copy ideas that demonstrate the highest potential.
+        *   **Angle coverage:** when the brief has 3 or more angles, the final 4 must cover at least 3 distinct `angle_id`s.
+        *   **Surprise:** include at least one idea with `typicality` below 0.5, unless every such idea clearly weakens the fit with the brief.
+        *   Carry each selected idea's `angle_id` and `typicality` through unchanged (re-rate `typicality` only if you substantially rewrite the idea).
     4.  **Enrich and Critique:** For each selected idea, you must add a high-converting **Call-to-Action (CTA)** and a **Detailed Rationale** explaining the strategic choice.
-    5.  **Strict Output:** Output the final selection as a single JSON object, strictly following the schema in the `<OUTPUT_FORMAT>` block.
+        *   **CTA:** critique and improve every CTA: it must be specific to this offer (never a generic "Learn more"), start with an action verb, match the brief's desired response, and stay within 8 words.
+    5.  **Brief Checklist:** For each final copy, fill `brief_checks` with exactly one entry per item, judged against the FINAL headline, body, caption and CTA:
+        *   `proposition`: delivers the brief's single-minded proposition.
+        *   `product`: names the target product.
+        *   `reason_to_believe`: uses at least one of the brief's reasons to believe.
+        *   `trend_bridge`: connects to the trend through the brief's bridge, in its fit_mode.
+        *   `tone`: matches the brand tone of voice.
+        *   `mandatories`: honours every mandatory.
+        *   `avoid`: contains nothing from the avoid list.
+        *   `cta`: the CTA is specific, starts with an action verb and matches the desired response.
+        Mark `passed` false only when the copy clearly fails the item; be accurate, not harsh. Give a short `note` saying why. If the brief is empty, judge the items against the campaign inputs.
+    6.  **Strict Output:** Output the final selection as a single JSON object, strictly following the schema in the `<OUTPUT_FORMAT>` block.
     </INSTRUCTIONS>
 
     <CONTEXT>
@@ -448,6 +463,55 @@ AD_COPY_CRITIC_INSTR = (
         <ad_copy_draft>
         {ad_copy_draft?}
         </ad_copy_draft>
+    </CONTEXT>
+
+    <OUTPUT_FORMAT>
+    **CRITICAL RULE: Your entire output MUST be a single, raw JSON object validating against the 'FinalAdCopyList' schema**
+    </OUTPUT_FORMAT>
+    """
+)
+
+# Reviser for final ad copies that fail the deterministic copy gate
+# (creative_agent/copy_gate.py). It must touch ONLY the flagged copies;
+# callbacks.restore_unflagged_copies_callback enforces that after the fact.
+AD_COPY_REVISER_INSTR = (
+    """Role: You are a senior copy editor. A deterministic quality gate flagged specific problems in some of the final ad copies; fix exactly those problems and nothing else.
+
+    <INSTRUCTIONS>
+    0.  **Brief:** """
+    + CREATIVE_BRIEF_CONTRACT_CORE
+    + """ If the brief is empty, fall back to the campaign inputs.
+    1.  **Scope:** <ad_copy_issues> lists the flagged copies by `original_id` and headline, each with its issues. Rewrite ONLY those copies, changing only what is needed to fix exactly the listed issues. Every copy that is not listed stays verbatim, field for field.
+    2.  **Fixes:** name the target product ({target_product}) in the headline, body text or social caption when it is missing; keep the call to action specific, starting with an action verb and within 8 words; keep the headline within 60 characters and the social caption within 2200 characters; remove every avoided term; and for each failed brief check, change the copy so the item is clearly met.
+    3.  **Keep the idea:** a revised copy keeps its `original_id`, `tone_style`, `angle_id` and core idea; re-rate `typicality` only if the idea changed.
+    4.  **Checklist:** refresh `brief_checks` on every copy you revise (one entry per item, judged accurately against the revised copy; mark an item failed only when the copy clearly fails it); leave the other copies' checks unchanged.
+    5.  **User feedback:** when <user_ad_copy_feedback> is non-empty, honour it in the copies you revise.
+    6.  **Output:** return ALL the copies from <final_ad_copies>, in the same order with unchanged `original_id`s, as a single JSON object.
+    </INSTRUCTIONS>
+
+    <CONTEXT>
+        <brand>{brand}</brand>
+        <target_product>{target_product}</target_product>
+        <target_audience>{target_audience}</target_audience>
+        <key_selling_points>{key_selling_points}</key_selling_points>
+
+        """
+    + BRIEF_BLOCK
+    + """
+
+        <final_ad_copies>
+        {ad_copy_critique?}
+        </final_ad_copies>
+
+        <ad_copy_issues>
+        {ad_copy_issues?}
+        </ad_copy_issues>
+
+        <user_ad_copy_feedback>
+        Optional user feedback on the ad copies. When non-empty, honor it; when
+        empty, ignore it.
+        {ad_copy_feedback?}
+        </user_ad_copy_feedback>
     </CONTEXT>
 
     <OUTPUT_FORMAT>

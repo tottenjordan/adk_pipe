@@ -14,6 +14,7 @@ from agent_common.state import seed_initial_state
 from .citations import render_citations
 from .concept_guard import ensure_trend_and_product
 from .config import config
+from .copy_gate import parse_copies, restore_unflagged
 from .style_shortlist import format_shortlist, pick_style_shortlist
 
 # --- config ---
@@ -132,6 +133,56 @@ def reset_brief_state(callback_context: CallbackContext) -> None:
     state["brief_revision_rounds_used"] = 0
     state["creative_brief__issues"] = None
     state["creative_brief__retry_exhausted"] = None
+    return None
+
+
+# State the copy gate's bounded revision loop owns (see agent.copy_gate).
+COPY_REVISION_STATE_DEFAULTS: dict[str, Any] = {
+    "ad_copy_issues": "",
+    "ad_copy_flagged_ids": None,
+    "ad_copy_critique__before_revision": None,
+    "ad_copy_revision_rounds_used": 0,
+    "ad_copy_critique__issues": None,
+}
+
+
+def reset_copy_state(callback_context: CallbackContext) -> None:
+    """`before_agent_callback` on `ad_copy_drafter`: a fresh copy-revision loop.
+
+    Clears a previous ad-copy run's gate feedback (`ad_copy_issues`, flagged
+    ids, pre-revision snapshot), revision counter and residual-issue marker, so
+    a re-run ad_creative_pipeline in the same session gets a fresh revision
+    budget and no stale warning. Returns None so the agent runs normally.
+
+    Deliberately does NOT touch `ad_copy_feedback`: it is user input (interactive
+    checkpoint 2), not gate state; its owner sets/clears it (see the
+    ad_copy_reviser note in agent.py).
+    """
+    for key, value in COPY_REVISION_STATE_DEFAULTS.items():
+        callback_context.state[key] = value
+    return None
+
+
+def restore_unflagged_copies_callback(callback_context: CallbackContext) -> None:
+    """`after_agent_callback` on `ad_copy_reviser`: only flagged copies change.
+
+    copy_gate snapshots the pre-revision critique
+    (`ad_copy_critique__before_revision`) and the flagged copy ids
+    (`ad_copy_flagged_ids`) before routing to the reviser. Any copy the reviser
+    changed without being flagged, dropped, duplicated or invented is put back
+    (pure logic in `copy_gate.restore_unflagged`), with a warning per
+    intervention. Runs after the reviser's output_key write, so the repaired
+    value lands as a later state delta.
+    """
+    state = callback_context.state
+    before = state.get("ad_copy_critique__before_revision")
+    if not parse_copies(before):
+        return None
+    flagged = state.get("ad_copy_flagged_ids") or []
+    restored, notes = restore_unflagged(before, state.get("ad_copy_critique"), flagged)
+    if notes:
+        logging.warning("ad_copy_reviser output repaired: %s", "; ".join(notes))
+        state["ad_copy_critique"] = restored
     return None
 
 

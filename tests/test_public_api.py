@@ -29,6 +29,8 @@ def test_facade_exposes_reusable_pipelines_and_schema():
         is creative_agent.agent.visual_generator_resilient
     )
     assert creative_agent.root_agent is creative_agent.agent.root_agent
+    # Bare ad-copy reviser (interactive checkpoint-2 reuse)
+    assert creative_agent.ad_copy_reviser is creative_agent.agent.ad_copy_reviser
     # `app` must be on the facade so ADK's canned loader serves the App (plugins).
     assert creative_agent.app is creative_agent.agent.app
 
@@ -75,6 +77,7 @@ def test_facade_all_is_complete_and_importable():
         "ad_creative_pipeline",
         "visual_generation_pipeline",
         "visual_generator_resilient",
+        "ad_copy_reviser",
         "VisualConceptFinalList",
         "CreativeBrief",
     }
