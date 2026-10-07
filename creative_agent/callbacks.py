@@ -119,16 +119,19 @@ def reset_brief_state(callback_context: CallbackContext) -> None:
 
     Clears a previous run's `creative_brief` (else `brief_writer_resilient` would
     count the stale value as populated — the RetryUntilKeyNode "earlier turn"
-    limitation), the gate's revision counter and feedback, and the residual-issue
-    marker, so a re-run research pipeline in the same session gets a fresh brief
+    limitation), its compact Markdown rendering (`creative_brief_md`), the
+    gate's revision counter and feedback, and the residual-issue and exhaustion
+    markers, so a re-run research pipeline in the same session gets a fresh brief
     and a fresh revision budget. Idempotent (runs once per retry attempt).
     Returns None so the agent runs normally.
     """
     state = callback_context.state
     state["creative_brief"] = None
+    state["creative_brief_md"] = ""
     state["brief_issues"] = ""
     state["brief_revision_rounds_used"] = 0
     state["creative_brief__issues"] = None
+    state["creative_brief__retry_exhausted"] = None
     return None
 
 

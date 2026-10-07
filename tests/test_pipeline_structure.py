@@ -72,7 +72,9 @@ def test_combined_research_pipeline_graph():
         "combined_web_evaluator",
         "enhanced_combined_searcher_resilient",
         "combined_report_composer",
-        "brief_writer_resilient",
+        "brief_writer_failsoft",
+        "brief_gate",
+        "brief_reviser_failsoft",
         "research_report_ready",
     } <= names
     edges = _graph_edges(wf)
@@ -98,8 +100,8 @@ def test_combined_research_pipeline_graph():
     ) in edges
     # The structured brief is written after the report, then the terminal: a
     # function node that always returns a truthy tool result.
-    assert ("combined_report_composer", "brief_writer_resilient", None) in edges
-    assert ("brief_writer_resilient", "brief_gate", None) in edges
+    assert ("combined_report_composer", "brief_writer_failsoft", None) in edges
+    assert ("brief_writer_failsoft", "brief_gate", None) in edges
     assert ("brief_gate", "research_report_ready", "ok") in edges
     assert not any(src == "research_report_ready" for src, _, _ in edges)
 
@@ -1292,13 +1294,16 @@ def test_pro_producers_fall_back_to_worker(path):
 def test_brief_writer_is_retry_wrapped_after_the_composer():
     """The brief writer runs after the composer, wrapped in a RetryUntilKeyNode
     keyed on creative_brief (2 attempts: a fresh structured turn usually
-    recovers an empty one; more would only delay the creative stages)."""
-    from agent_common import RetryUntilKeyNode
+    recovers an empty one; more would only delay the creative stages), itself
+    wrapped fail-soft so a raising writer cannot fail the research step."""
+    from agent_common import FailSoftNode, RetryUntilKeyNode
     from creative_agent.agent import combined_research_pipeline as wf
 
     edges = _graph_edges(wf)
-    assert ("combined_report_composer", "brief_writer_resilient", None) in edges
-    w = _graph_nodes(wf)["brief_writer_resilient"]
+    assert ("combined_report_composer", "brief_writer_failsoft", None) in edges
+    soft = _graph_nodes(wf)["brief_writer_failsoft"]
+    assert isinstance(soft, FailSoftNode)
+    w = soft.node
     assert isinstance(w, RetryUntilKeyNode)
     assert w.output_key == "creative_brief"
     assert w.max_attempts == 2
@@ -1343,16 +1348,20 @@ def test_reset_brief_state_clears_previous_run_values():
 
     state = {
         "creative_brief": {"old": True},
+        "creative_brief_md": "**Single-minded proposition:** old",
         "brief_issues": "- old",
         "brief_revision_rounds_used": 1,
         "creative_brief__issues": ["old"],
+        "creative_brief__retry_exhausted": True,
     }
     assert reset_brief_state(SimpleNamespace(state=state)) is None
     assert state == {
         "creative_brief": None,
+        "creative_brief_md": "",
         "brief_issues": "",
         "brief_revision_rounds_used": 0,
         "creative_brief__issues": None,
+        "creative_brief__retry_exhausted": None,
     }
 
 
@@ -1380,22 +1389,28 @@ def test_brief_writer_instruction_tokens():
     assert "never a likeness" in instr
 
 
-def test_brief_gate_routes_to_one_bounded_revision():
-    """composer → writer → gate → ok: ready | revise: reviser → recheck → ready.
-    The reviser never loops back to the gate (one bounded round)."""
+def test_brief_gate_routes_through_a_bounded_revision_cycle():
+    """composer → writer → gate → ok: ready | revise: reviser → gate. The
+    reviser loops back to the gate (a routed cycle), whose revision counter
+    bounds the passes; both brief agents are fail-soft wrapped."""
+    from agent_common import FailSoftNode
     from creative_agent.agent import combined_research_pipeline as wf
 
     edges = _graph_edges(wf)
-    assert ("brief_writer_resilient", "brief_gate", None) in edges
+    assert ("brief_writer_failsoft", "brief_gate", None) in edges
     assert ("brief_gate", "research_report_ready", "ok") in edges
-    assert ("brief_gate", "brief_reviser", "revise") in edges
-    assert ("brief_reviser", "brief_recheck", None) in edges
-    assert ("brief_recheck", "research_report_ready", None) in edges
+    assert ("brief_gate", "brief_reviser_failsoft", "revise") in edges
+    assert ("brief_reviser_failsoft", "brief_gate", None) in edges
+    assert "brief_recheck" not in _graph_nodes(wf)
+    reviser = _graph_nodes(wf)["brief_reviser_failsoft"]
+    assert isinstance(reviser, FailSoftNode)
+    assert reviser.node.name == "brief_reviser"
+    assert {src for src, dst, _ in edges if dst == "brief_gate"} == {
+        "brief_writer_failsoft",
+        "brief_reviser_failsoft",
+    }
     assert not any(
-        dst == "brief_gate" and src != "brief_writer_resilient" for src, dst, _ in edges
-    )
-    assert not any(
-        src == "brief_writer_resilient" and dst == "research_report_ready"
+        src == "brief_writer_failsoft" and dst == "research_report_ready"
         for src, dst, _ in edges
     )
 
@@ -1408,10 +1423,15 @@ def _clean_brief():
 
 def test_brief_gate_decision_clean_brief():
     from creative_agent.agent import brief_gate_decision
+    from creative_agent.brief_render import render_brief_markdown
 
     route, delta = brief_gate_decision({"creative_brief": _clean_brief()}, 1)
     assert route == "ok"
-    assert delta == {"brief_issues": "", "creative_brief__issues": None}
+    assert delta == {
+        "brief_issues": "",
+        "creative_brief__issues": None,
+        "creative_brief_md": render_brief_markdown(_clean_brief(), heading=False),
+    }
 
 
 def test_brief_gate_decision_revises_within_budget():
@@ -1422,6 +1442,7 @@ def test_brief_gate_decision_revises_within_budget():
     assert route == "revise"
     assert delta["brief_revision_rounds_used"] == 1
     assert delta["brief_issues"].startswith("- insight has no tension")
+    assert "Coyotes like skates." in delta["creative_brief_md"]
 
 
 def test_brief_gate_decision_records_residual_issues_when_budget_spent():
@@ -1437,6 +1458,31 @@ def test_brief_gate_decision_records_residual_issues_when_budget_spent():
     # Revision disabled (0 rounds): straight to ok with the issues recorded.
     route, delta = brief_gate_decision({"creative_brief": brief}, 0)
     assert route == "ok" and delta["creative_brief__issues"]
+    assert delta["creative_brief_md"].startswith("**Single-minded proposition:**")
+
+
+def test_brief_gate_decision_second_round_within_a_budget_of_two():
+    from creative_agent.agent import brief_gate_decision
+
+    brief = {**_clean_brief(), "insight": "Coyotes like skates."}
+    state = {"creative_brief": brief, "brief_revision_rounds_used": 1}
+    route, delta = brief_gate_decision(state, 2)
+    assert route == "revise" and delta["brief_revision_rounds_used"] == 2
+    state["brief_revision_rounds_used"] = 2
+    assert brief_gate_decision(state, 2)[0] == "ok"
+
+
+def test_brief_gate_passes_brand_product_and_sources_to_the_check():
+    from creative_agent.agent import brief_gate_decision
+
+    brief = {**_clean_brief(), "single_minded_proposition": "Mac and Cheese wins."}
+    assert brief_gate_decision({"creative_brief": brief}, 1)[0] == "revise"
+    state = {"creative_brief": brief, "target_product": "Mac and Cheese"}
+    assert brief_gate_decision(state, 1)[0] == "ok"
+    # _BRIEF cites src-1: unknown when the run's sources lack it.
+    state = {"creative_brief": _clean_brief(), "sources": {"src-9": {}}}
+    route, delta = brief_gate_decision(state, 1)
+    assert route == "revise" and "unknown sources" in delta["brief_issues"]
 
 
 def test_brief_gate_decision_skips_revision_for_a_missing_brief():
@@ -1445,7 +1491,10 @@ def test_brief_gate_decision_skips_revision_for_a_missing_brief():
     from creative_agent.agent import brief_gate_decision
 
     for state in ({}, {"creative_brief": None}, {"creative_brief": ""}):
-        assert brief_gate_decision(state, 2) == ("ok", {"brief_issues": ""})
+        assert brief_gate_decision(state, 2) == (
+            "ok",
+            {"brief_issues": "", "creative_brief_md": ""},
+        )
 
 
 def test_brief_gate_honours_brand_colors():
@@ -1458,17 +1507,25 @@ def test_brief_gate_honours_brand_colors():
     assert brief_gate_decision(state, 1)[0] == "revise"
 
 
-def test_brief_recheck_delta():
-    from creative_agent.agent import brief_recheck_delta
+def test_brief_failsoft_error_deltas():
+    """Writer failure → no brief + exhaustion marker; reviser failure → keep the
+    pre-revision brief, record its issues, spend the revision budget."""
+    from creative_agent import agent as ca
 
-    assert brief_recheck_delta({"creative_brief": _clean_brief()}) == {
-        "brief_issues": "",
-        "creative_brief__issues": None,
-    }
+    delta = ca._brief_writer_failed({"creative_brief": {"stale": 1}}, ValueError())
+    assert delta["creative_brief"] is None
+    assert delta["creative_brief_md"] == ""
+    assert delta["creative_brief__retry_exhausted"] is True
+
     brief = {**_clean_brief(), "insight": "Coyotes like skates."}
-    delta = brief_recheck_delta({"creative_brief": brief})
+    state = {"creative_brief": brief, "brief_revision_rounds_used": 1}
+    delta = ca._brief_reviser_failed(state, ValueError())
+    assert delta["creative_brief"] == brief
+    assert "Coyotes like skates." in delta["creative_brief_md"]
     assert delta["brief_issues"] == ""
-    assert len(delta["creative_brief__issues"]) == 1
+    (issue,) = delta["creative_brief__issues"]
+    assert issue.startswith("insight has no tension")
+    assert delta["brief_revision_rounds_used"] >= ca.config.brief_revision_rounds
 
 
 @pytest.mark.parametrize(

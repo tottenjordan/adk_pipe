@@ -40,17 +40,21 @@ def _fit(bridge: Mapping[str, Any]) -> str:
     return f"{score}/5 ({mode})" if mode else f"{score}/5"
 
 
-def render_brief_markdown(brief: Mapping[str, Any] | str | None) -> str:
+def render_brief_markdown(
+    brief: Mapping[str, Any] | str | None, *, heading: bool = True
+) -> str:
     """The brief as a "## Creative Brief" Markdown section ("" when missing).
 
     Sub-sections are level 3 so the section nests under the report's H1 title
     (markdown_pdf's table of contents rejects skipped heading levels).
+    ``heading=False`` drops the "## Creative Brief" line — the compact form
+    injected into the creative agents' prompts as ``creative_brief_md``.
     """
     data = parse_brief(brief)
     if data is None:
         return ""
 
-    lines = ["## Creative Brief", ""]
+    lines = ["## Creative Brief", ""] if heading else []
     for label, key in (
         ("Single-minded proposition", "single_minded_proposition"),
         ("Insight", "insight"),

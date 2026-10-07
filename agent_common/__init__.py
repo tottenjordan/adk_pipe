@@ -2,6 +2,7 @@
 
 from agent_common.clients import get_bigquery_client, get_gcs_client
 from agent_common.config import BaseAgentConfiguration
+from agent_common.fail_soft_node import FailSoftNode
 from agent_common.idempotency import stable_row_id
 from agent_common.locations import MODEL_LOCATION
 from agent_common.models import (
@@ -28,6 +29,7 @@ from agent_common.state import memorize, seed_initial_state
 
 __all__ = [
     "BaseAgentConfiguration",
+    "FailSoftNode",
     "MODEL_LOCATION",
     "PipelineRequest",
     "ROOT_EMPTY_TURN_RETRIES",

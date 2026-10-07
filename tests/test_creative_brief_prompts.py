@@ -1,8 +1,10 @@
 """Prompt wiring for the structured creative brief (the downstream contract).
 
-The ad copy and visual agents read `{creative_brief?}` in a <CREATIVE_BRIEF>
-block placed BEFORE the research report (the report stays as supporting
-context), with one shared contract rule. Also guards that every `{...}` in
+The ad copy and visual agents read `{creative_brief_md?}` (the compact Markdown
+rendering of the brief) in a <CREATIVE_BRIEF> block placed BEFORE the research
+report (the report stays as supporting context), with one shared contract rule
+(core + a fallback suffix; the visual critic falls back to the campaign inputs
+and draft concepts). Also guards that every `{...}` in
 these instructions is a well-formed ADK state token (no stray literal braces).
 """
 
@@ -12,7 +14,7 @@ import pytest
 
 from creative_agent import prompts
 
-BRIEF_BLOCK = "<CREATIVE_BRIEF>{creative_brief?}</CREATIVE_BRIEF>"
+BRIEF_BLOCK = "<CREATIVE_BRIEF>{creative_brief_md?}</CREATIVE_BRIEF>"
 CONSUMERS = {
     "AD_COPY_DRAFTER_INSTR": prompts.AD_COPY_DRAFTER_INSTR,
     "AD_COPY_CRITIC_INSTR": prompts.AD_COPY_CRITIC_INSTR,
@@ -37,7 +39,34 @@ def test_brief_block_precedes_the_research_report(name):
 
 @pytest.mark.parametrize("name", sorted(CONSUMERS))
 def test_contract_rule_present(name):
-    assert prompts.CREATIVE_BRIEF_CONTRACT_RULE in CONSUMERS[name], name
+    expected = (
+        prompts.VISUAL_CRITIC_BRIEF_RULE
+        if name == "VISUAL_CONCEPT_CRITIC_INSTR"
+        else prompts.CREATIVE_BRIEF_CONTRACT_RULE
+    )
+    assert expected in CONSUMERS[name], name
+    assert prompts.CREATIVE_BRIEF_CONTRACT_CORE in CONSUMERS[name], name
+
+
+def test_visual_critic_falls_back_to_campaign_inputs_and_drafts():
+    instr = prompts.VISUAL_CONCEPT_CRITIC_INSTR
+    assert prompts.CREATIVE_BRIEF_CONTRACT_RULE not in instr
+    assert prompts.VISUAL_CRITIC_BRIEF_RULE.endswith(
+        "fall back to the campaign inputs and the draft concepts."
+    )
+
+
+def test_user_feedback_and_art_direction_override_the_brief():
+    assert (
+        "Explicit user feedback (research feedback, ad copy feedback) and user art "
+        "direction (visual intent, brand colours, avoid) override the brief where "
+        "they conflict." in prompts.CREATIVE_BRIEF_CONTRACT_CORE
+    )
+
+
+def test_consumers_read_the_markdown_not_the_dict():
+    for name, instr in CONSUMERS.items():
+        assert "{creative_brief?}" not in instr, name
 
 
 def test_contract_rule_wording():
@@ -52,7 +81,8 @@ def test_contract_rule_wording():
         "If the brief is empty, fall back to the research report.",
     ):
         assert phrase in rule, phrase
-    assert "{" not in rule and "}" not in rule
+    for constant in (rule, prompts.VISUAL_CRITIC_BRIEF_RULE):
+        assert "{" not in constant and "}" not in constant
 
 
 def test_research_report_kept_as_supporting_context():

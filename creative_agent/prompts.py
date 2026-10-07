@@ -274,11 +274,19 @@ COMBINED_REPORT_COMPOSER_INSTR = """Role: You are the Lead Campaign Strategist.
     """
 
 # The shared contract rule for every creative agent that reads the structured
-# brief (`{creative_brief?}`, written by brief_writer / brief_reviser). Spliced
-# into the instructions by concatenation, so it must contain no braces.
-CREATIVE_BRIEF_CONTRACT_RULE = "The creative brief is the contract: deliver its single-minded proposition, use its reasons to believe, honour mandatories and avoid, follow brand tone, and connect to the trend through its bridge in the stated fit_mode (light_touch = borrow the trend's tone/format; never force the product into the trend). If the brief is empty, fall back to the research report."
+# brief (`{creative_brief_md?}`: the compact Markdown rendering brief_gate
+# writes from `creative_brief`). Core + a fallback suffix, so the visual critic
+# (which never reads the report) gets its own fallback. Spliced into the
+# instructions by concatenation, so they must contain no braces.
+CREATIVE_BRIEF_CONTRACT_CORE = "The creative brief is the contract: deliver its single-minded proposition, use its reasons to believe, honour mandatories and avoid, follow brand tone, and connect to the trend through its bridge in the stated fit_mode (light_touch = borrow the trend's tone/format; never force the product into the trend). Explicit user feedback (research feedback, ad copy feedback) and user art direction (visual intent, brand colours, avoid) override the brief where they conflict."
+BRIEF_FALLBACK_REPORT = " If the brief is empty, fall back to the research report."
+BRIEF_FALLBACK_CAMPAIGN = (
+    " If the brief is empty, fall back to the campaign inputs and the draft concepts."
+)
+CREATIVE_BRIEF_CONTRACT_RULE = CREATIVE_BRIEF_CONTRACT_CORE + BRIEF_FALLBACK_REPORT
+VISUAL_CRITIC_BRIEF_RULE = CREATIVE_BRIEF_CONTRACT_CORE + BRIEF_FALLBACK_CAMPAIGN
 
-BRIEF_BLOCK = "<CREATIVE_BRIEF>{creative_brief?}</CREATIVE_BRIEF>"
+BRIEF_BLOCK = "<CREATIVE_BRIEF>{creative_brief_md?}</CREATIVE_BRIEF>"
 
 CREATIVE_BRIEF_WRITER_INSTR = """Role: You are the Strategy Director. Turn the research report and campaign inputs into ONE structured creative brief: the contract the ad copy and visual teams must deliver against.
 
@@ -640,7 +648,7 @@ VISUAL_CONCEPT_CRITIC_INSTR = (
 
     <INSTRUCTIONS>
     0.  **Brief:** """
-    + CREATIVE_BRIEF_CONTRACT_RULE
+    + VISUAL_CRITIC_BRIEF_RULE
     + """ Check every concept against the brief.
     1.  **Parse and Map:** Retrieve and parse the JSON list of visual concepts from the **`<CONTEXT>` block's `visual_draft`** input. If it is empty, output an object whose `visual_concepts` list is empty.
     2.  **Critical Review and Revision:** For each concept, critique and **REWRITE** the `image_generation_prompt` based on the following criteria:

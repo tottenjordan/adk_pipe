@@ -43,10 +43,10 @@ MAX_BRIEF_REVISION_ROUNDS = 2
 def parse_brief_revision_rounds(raw: str | None) -> int:
     """``BRIEF_REVISION_ROUNDS`` → int clamped to 0..2; unset/blank/invalid → 1.
 
-    The graph runs at most ONE reviser pass (the reviser does not loop back to
-    the gate), so any value >= 1 currently means "revise once"; the 0..2 range
-    keeps room for a second pass without another env-contract change. 0
-    disables revision (issues are only recorded).
+    The value is the maximum number of reviser passes: brief_gate routes a
+    failing brief to brief_reviser, which loops back to the gate, while fewer
+    than this many passes were used. 0 disables revision (issues are only
+    recorded).
     """
     try:
         value = int(raw) if raw is not None and raw.strip() else None

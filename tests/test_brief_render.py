@@ -160,3 +160,23 @@ def test_gallery_includes_the_brief_summary(monkeypatch, tmp_path):
     (html,) = written
     assert "Rocket Skates finally make you faster." in html
     assert ".brief-summary" in html  # styled in the gallery template
+
+
+def test_brief_summary_html_escapes_script_in_model_text():
+    brief = {
+        **_BRIEF,
+        "single_minded_proposition": "<script>alert(1)</script> skates win.",
+        "trend_bridge": {**_BRIEF["trend_bridge"], "fit_mode": "<b>direct</b>"},
+    }
+    html = render_brief_summary_html(brief)
+    assert "<script>" not in html and "<b>" not in html
+    assert "&lt;script&gt;" in html
+
+
+def test_render_brief_markdown_compact_variant_has_no_heading():
+    full = render_brief_markdown(_BRIEF)
+    compact = render_brief_markdown(_BRIEF, heading=False)
+    assert full.startswith("## Creative Brief")
+    assert "## Creative Brief" not in compact
+    assert compact.startswith("**Single-minded proposition:**")
+    assert render_brief_markdown(None, heading=False) == ""
