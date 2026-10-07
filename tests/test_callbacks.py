@@ -365,6 +365,8 @@ class TestSkipReviserWithoutNotes:
                 "visual_style": "diecut sticker",
                 "aspect_ratio": "1:1",
                 "trend_motif": "a trend motif",
+                "brand_cue": "the brand's red logo",
+                "angle_id": "A1",
                 "image_generation_prompt": "A diecut sticker of a user-edited prompt",
             }
         ]

@@ -187,6 +187,14 @@ class VisualConcept(BaseModel):
         default="",
         description="A short concrete VISUAL element SPECIFIC to the trend (noun phrase, ≤8 words): its signature imagery, recognisable at a glance; never generic social-media imagery (phones, feeds, chat bubbles). MUST appear verbatim in image_generation_prompt.",
     )
+    brand_cue: str = Field(
+        default="",
+        description="The brand distinctive asset this image shows (e.g. 'PRS bird inlays', 'the red ACME crate'), taken from the creative brief's brand distinctive assets or the user's brand colours, and named visibly in image_generation_prompt; '' only when no distinctive asset is known.",
+    )
+    angle_id: str = Field(
+        default="",
+        description="The creative brief angle id carried over from the paired ad copy (its `angle_id`, e.g. 'A2'); '' when the copy has none.",
+    )
     image_generation_prompt: str = Field(
         description="A draft prompt for image generation."
     )
@@ -224,6 +232,14 @@ class VisualConceptCritique(BaseModel):
     trend_motif: str = Field(
         default="",
         description="A short concrete VISUAL element SPECIFIC to the trend (noun phrase, ≤8 words): its signature imagery, recognisable at a glance; never generic social-media imagery (phones, feeds, chat bubbles). MUST appear verbatim in image_generation_prompt.",
+    )
+    brand_cue: str = Field(
+        default="",
+        description="The brand distinctive asset this image shows (e.g. 'PRS bird inlays', 'the red ACME crate'), taken from the creative brief's brand distinctive assets or the user's brand colours, and named visibly in image_generation_prompt; '' only when no distinctive asset is known.",
+    )
+    angle_id: str = Field(
+        default="",
+        description="The creative brief angle id carried over from the paired ad copy (its `angle_id`, e.g. 'A2'); '' when the copy has none.",
     )
     image_generation_prompt: str = Field(
         description="The FINAL, refined image-generation prompt, written in the concept's chosen visual_style and at a length appropriate to that style."
@@ -286,6 +302,14 @@ class VisualConceptFinal(BaseModel):
     trend_motif: str = Field(
         default="",
         description="A short concrete VISUAL element SPECIFIC to the trend (noun phrase, ≤8 words): its signature imagery, recognisable at a glance; never generic social-media imagery (phones, feeds, chat bubbles). MUST appear verbatim in image_generation_prompt.",
+    )
+    brand_cue: str = Field(
+        default="",
+        description="The brand distinctive asset this image shows (e.g. 'PRS bird inlays', 'the red ACME crate'), taken from the creative brief's brand distinctive assets or the user's brand colours, and named visibly in image_generation_prompt; '' only when no distinctive asset is known.",
+    )
+    angle_id: str = Field(
+        default="",
+        description="The creative brief angle id carried over from the paired ad copy (its `angle_id`, e.g. 'A2'); '' when the copy has none.",
     )
     image_generation_prompt: str = Field(
         description="The final, revised image-generation prompt, written in the concept's chosen visual_style."

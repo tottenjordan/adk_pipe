@@ -425,3 +425,28 @@ def test_brief_check_items_reach_the_model_schema():
     assert defs["BriefCheck"]["properties"]["item"]["enum"] == BRIEF_CHECK_ITEMS
     assert "brief_checks" in defs["FinalAdCopy"]["properties"]
     assert "brief_checks" not in defs["FinalAdCopy"].get("required", [])
+
+
+@pytest.mark.parametrize(
+    "name", ["VisualConcept", "VisualConceptCritique", "VisualConceptFinal"]
+)
+def test_visual_concepts_carry_brand_cue_and_angle_id(name):
+    """brand_cue / angle_id are additive and defaulted on every visual stage, so
+    old payloads (and the interactive reviser's echoes) still validate."""
+    import creative_agent.schemas as schemas
+
+    model = getattr(schemas, name)
+    for field in ("brand_cue", "angle_id"):
+        info = model.model_fields[field]
+        assert info.default == "", (name, field)
+        assert info.description, (name, field)
+    required = {
+        f: "x" if info.annotation is str else 1
+        for f, info in model.model_fields.items()
+        if info.is_required()
+    }
+    concept = model(**required)
+    assert concept.brand_cue == "" and concept.angle_id == ""
+    concept = model(**required, brand_cue="PRS bird inlays", angle_id="A2")
+    assert concept.model_dump()["brand_cue"] == "PRS bird inlays"
+    assert concept.model_dump()["angle_id"] == "A2"
