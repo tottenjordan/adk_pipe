@@ -276,6 +276,10 @@ def write_eval_report_to_bq(tool_context: ToolContext) -> dict:
             f"DML MERGE job {job.job_id} for eval row {row['uuid']} into {table_id}"
             f" completed; added {job.num_dml_affected_rows} rows."
         )
+        # The workflow's final step: runserver's auto-continue treats the run as
+        # finished only once this is set (not at eval_report_gcs_uri, which is
+        # written earlier), so an empty root turn before this write is re-prompted.
+        tool_context.state["eval_bq_row_uuid"] = row["uuid"]
         return {"status": "success", "eval_uuid": row["uuid"]}
     except Exception as e:
         # Propagate so ADK 2.0 RetryConfig can retry transient infra failures.

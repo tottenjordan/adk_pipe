@@ -844,8 +844,10 @@ the root agent's last event is empty. The re-prompt runs inside the same detache
 the run stays claimed and `running`. It also counts against the same `RUN_MAX_SECONDS`
 budget. Each re-prompt logs `auto-continue after empty root turn: app=… session=… attempt=n`
 and records the cumulative count as the `__auto_continues` state key. The number of
-re-prompts per kick-off/resume segment is capped by `RUN_MAX_AUTO_CONTINUES` (default `1`,
-clamped `0`–`3`; `0` disables it).
+re-prompts per kick-off/resume segment is capped by `RUN_MAX_AUTO_CONTINUES` (default `2`,
+clamped `0`–`3`; `0` disables it). The creative apps count as finished only once the final
+step (`write_eval_report_to_bq`) records `eval_bq_row_uuid`, so an empty turn anywhere in the
+persistence steps is still re-prompted.
 
 **Requirements / caveats:**
 - **`--no-cpu-throttling` + `--min-instances 1`** (see Step 2) — the detached task needs CPU

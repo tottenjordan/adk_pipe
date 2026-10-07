@@ -303,7 +303,8 @@ def test_failed_pipeline_node_reruns_after_resume(
     responses = _responses(events)
 
     assert "Error running node" in str(responses["fc-ads1"])
-    assert responses["fc-ads2"] == _STORED_ADS
+    # The pipeline returns a short confirmation; the copies themselves are in state.
+    assert "Ad copies complete" in responses["fc-ads2"]["result"]
     # The failed node re-ran: one raising call + one successful call.
     assert len(r["critic_llm"].requests) == 2
     assert r["critic_llm"].calls == 1  # StubLlm counter: successful pops only

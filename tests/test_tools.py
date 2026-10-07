@@ -539,6 +539,20 @@ class TestWriteEvalReportIdempotent:
         assert params["uuid"] == first["eval_uuid"]
         assert params["creative_uuid"] == "abcd1234"
 
+    def test_success_records_completion_key(self, monkeypatch):
+        """The final step marks the workflow complete for runserver auto-continue."""
+        t, _ = self._patch(monkeypatch)
+        ctx = self._ctx()
+        result = t.write_eval_report_to_bq(ctx)
+        assert ctx.state["eval_bq_row_uuid"] == result["eval_uuid"]
+
+    def test_failure_leaves_completion_key_unset(self, monkeypatch):
+        t, _ = self._patch(monkeypatch, errors=[{"reason": "invalid"}])
+        ctx = self._ctx()
+        with pytest.raises(RuntimeError):
+            t.write_eval_report_to_bq(ctx)
+        assert "eval_bq_row_uuid" not in ctx.state
+
     def test_different_sessions_different_eval_uuid(self, monkeypatch):
         t, _ = self._patch(monkeypatch)
         a = t.write_eval_report_to_bq(self._ctx("sess-1"))

@@ -275,22 +275,33 @@ def _result_node_cases():
     ]
 
 
-def test_populated_result_nodes_return_the_pipeline_output():
-    """ad/visual terminals hand the root the same payload the pre-graph
-    AgentTool returned (the final agent's structured output)."""
+def test_populated_result_nodes_return_a_short_confirmation():
+    """ad/visual terminals hand the root a short confirmation (with the item
+    count), never the copies/concepts JSON itself: later steps read state, and a
+    ~10k-char payload in the root's context made the Pro root prone to empty
+    turns (session 8242212012491276288)."""
+    import json
     from types import SimpleNamespace
 
     from creative_agent import agent as ca
 
-    ads = {"ad_copies": [{"id": 1}]}
-    assert ca.ad_copies_ready(SimpleNamespace(state={"ad_copy_critique": ads})) == ads
-    concepts = {"visual_concepts": [{"name": "x"}]}
+    ads = {"ad_copies": [{"id": i, "headline": "x" * 500} for i in range(4)]}
+    msg = ca.ad_copies_ready(SimpleNamespace(state={"ad_copy_critique": ads}))
     assert (
-        ca.visual_concepts_ready(
-            SimpleNamespace(state={"final_visual_concepts": concepts})
-        )
-        == concepts
+        isinstance(msg, str) and "4 final copies" in msg and "ad_copy_critique" in msg
     )
+    assert len(msg) < 200
+    as_json = ca.ad_copies_ready(
+        SimpleNamespace(state={"ad_copy_critique": json.dumps(ads)})
+    )
+    assert "4 final copies" in as_json
+
+    concepts = {"visual_concepts": [{"name": "x"}, {"name": "y"}]}
+    msg = ca.visual_concepts_ready(
+        SimpleNamespace(state={"final_visual_concepts": concepts})
+    )
+    assert "2 concepts" in msg and "final_visual_concepts" in msg
+    assert len(msg) < 200
 
 
 def test_exposed_node_tools_have_real_descriptions():
