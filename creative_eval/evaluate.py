@@ -28,6 +28,7 @@ from .schemas import (
     CreativeScore,
     EvaluationSummary,
     EvalVerdict,
+    GateResult,
     VisualConceptEvaluation,
 )
 
@@ -57,10 +58,25 @@ def _get_client(config: EvalConfig) -> genai.Client:
     )
 
 
+def gates_passed(gates: list[GateResult]) -> bool:
+    """True when every non-advisory gate passed (vacuously True with none).
+
+    Computed in code — the judge's own aggregate is never trusted.
+    """
+    return all(g.passed for g in gates if not g.advisory)
+
+
 def _score_from_verdicts(
-    verdicts: list[EvalVerdict], threshold: float
+    verdicts: list[EvalVerdict],
+    threshold: float,
+    gates: list[GateResult] | None = None,
 ) -> CreativeScore:
-    """Compute an aggregate CreativeScore from individual verdicts."""
+    """Compute an aggregate CreativeScore from individual verdicts and gates.
+
+    ``passed`` = mean score (0-1) >= ``threshold`` AND ``gates_passed``.
+    """
+    gates = list(gates or [])
+    gates_ok = gates_passed(gates)
     if not verdicts:
         return CreativeScore(
             overall_score=0.0,
@@ -68,10 +84,12 @@ def _score_from_verdicts(
             verdicts=[],
             strengths=[],
             improvements=[],
+            gates=gates,
+            gates_passed=gates_ok,
         )
 
     avg_score = sum(v.score for v in verdicts) / (len(verdicts) * 10)
-    passed = avg_score >= threshold
+    passed = avg_score >= threshold and gates_ok
 
     strengths = [
         v.dimension
@@ -91,6 +109,8 @@ def _score_from_verdicts(
         verdicts=verdicts,
         strengths=strengths,
         improvements=improvements,
+        gates=gates,
+        gates_passed=gates_ok,
     )
 
 
@@ -295,6 +315,8 @@ def _build_summary(
     dim_avgs = {dim: sum(s) / len(s) for dim, s in dim_scores.items()}
     weakest = sorted(dim_avgs, key=lambda d: dim_avgs[d])[:3]
 
+    gates_ok = sum(1 for e in [*ad_evals, *visual_evals] if e.score.gates_passed)
+
     return EvaluationSummary(
         total_ad_copies=len(ad_evals),
         ad_copies_passed=sum(1 for e in ad_evals if e.score.passed),
@@ -308,6 +330,7 @@ def _build_summary(
         else 0.0,
         overall_pass_rate=round(passed / total, 3) if total > 0 else 0.0,
         weakest_dimensions=weakest,
+        gates_pass_rate=round(gates_ok / total, 3) if total > 0 else None,
     )
 
 
