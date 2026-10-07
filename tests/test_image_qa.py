@@ -529,3 +529,89 @@ def test_unresolved_qa_issues_surface_as_degradation_warning(monkeypatch):
     flow.run()
     notes = collect_degradation_warnings(dict(flow.ctx.state))
     assert any(n.startswith("Image qa has unresolved issues: 1") for n in notes)
+
+
+# --- HTML gallery "Image check" line ---
+def _qa(passed=True, failures=()):
+    return {"passed": passed, "failures": list(failures)}
+
+
+def test_gallery_image_check_absent_without_qa():
+    from creative_agent.tools import _build_image_check_line
+
+    assert _build_image_check_line(None) == ""
+    assert _build_image_check_line({"attempts": 1, "qa": None}) == ""
+
+
+def test_gallery_image_check_passed():
+    from creative_agent.tools import _build_image_check_line
+
+    line = _build_image_check_line({"attempts": 1, "qa": _qa()})
+    assert "Image check: passed" in line
+    assert "re-rendered" not in line
+
+
+def test_gallery_image_check_issues_escaped_with_rerender_note():
+    from creative_agent.tools import _build_image_check_line
+
+    line = _build_image_check_line(
+        {"attempts": 2, "qa": _qa(False, ["<b>logo</b> on shirt", "gibberish text"])}
+    )
+    assert "Image check: issues" in line
+    assert "&lt;b&gt;logo&lt;/b&gt; on shirt; gibberish text" in line
+    assert "<b>" not in line
+    assert "re-rendered once" in line
+
+
+def test_gallery_image_check_rerendered_twice():
+    from creative_agent.tools import _build_image_check_line
+
+    line = _build_image_check_line({"attempts": 3, "qa": _qa()})
+    assert "re-rendered 2 times" in line
+
+
+def test_gallery_html_includes_image_check(monkeypatch, tmp_path):
+    from creative_agent import tools
+
+    monkeypatch.chdir(tmp_path)
+    captured = {}
+
+    def fake_upload(source_file_name, destination_blob_name):
+        with open(source_file_name) as f:
+            captured["html"] = f.read()
+        return "ok"
+
+    monkeypatch.setattr(tools, "_upload_blob_to_gcs", fake_upload)
+    monkeypatch.setattr(tools, "_get_high_res_img", lambda **k: "https://hi")
+    concept = {
+        **_CONCEPT,
+        "concept_summary": "s",
+        "trend_reference": "t",
+        "markets_product": "m",
+        "audience_appeal": "a",
+        "social_caption": "c",
+        "trend": "t",
+        "selection_rationale": "r",
+    }
+    ctx = FakeToolContext(
+        {
+            "gcs_folder": "f",
+            "agent_output_dir": "d",
+            "final_visual_concepts": {"visual_concepts": [concept]},
+            "ad_copy_critique": {"ad_copies": []},
+            "brand": "b",
+            "target_audience": "a",
+            "target_product": "p",
+            "key_selling_points": "k",
+            "target_search_trends": {"target_search_trends": ["t1"]},
+            "generated_images": {
+                "Jackpot": {"attempts": 2, "qa": _qa(False, ["swoosh logo"])}
+            },
+        }
+    )
+
+    result = asyncio.run(tools.save_creative_gallery_html(ctx))
+
+    assert result["status"] == "success"
+    assert "Image check: issues" in captured["html"]
+    assert "swoosh logo" in captured["html"]

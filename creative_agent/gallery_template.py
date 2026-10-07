@@ -183,6 +183,14 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                     border-top: 1px solid #eee;
                 }
 
+                /* Post-render image QA verdict under the caption */
+                .image-check {
+                    margin: 0;
+                    padding: 0 15px 12px;
+                    font-size: 0.85em;
+                    color: #666;
+                }
+
                 /* 4. Styling for the hover text */
                 .hover-text {
                     position: absolute;
