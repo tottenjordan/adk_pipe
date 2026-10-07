@@ -43,6 +43,29 @@ _AND = re.compile(r"\band\b", re.IGNORECASE)
 # A sentence break: terminal punctuation followed by whitespace and more text
 # (so "2.5x" or a single trailing period is one sentence).
 _SENTENCE_BREAK = re.compile(r"[.!?]+\s+\S")
+# Common abbreviations whose period is not a sentence break ("Dr. Pepper").
+_ABBREVIATIONS = (
+    "St.",
+    "Dr.",
+    "Mr.",
+    "Mrs.",
+    "Ms.",
+    "U.S.",
+    "U.K.",
+    "vs.",
+    "e.g.",
+    "i.e.",
+    "Inc.",
+    "Co.",
+)
+_ABBREVIATION = re.compile(
+    r"(?<!\w)(?:"
+    + "|".join(re.escape(a) for a in sorted(_ABBREVIATIONS, key=len, reverse=True))
+    + ")",
+    re.IGNORECASE,
+)
+# A reason to believe cites a research source ("src-N") or the user's brief.
+_SOURCE_ID = re.compile(r"^(src-\d+|brief)$")
 
 
 def _expected_fit_mode(score: int) -> str:
@@ -82,15 +105,40 @@ def _is_generic_motif(motif: str) -> bool:
     return not words or all(w in _GENERIC_TOKENS for w in words)
 
 
+def _without_abbreviations(text: str) -> str:
+    return _ABBREVIATION.sub(lambda m: m.group(0).replace(".", ""), text)
+
+
+def _without_names(text: str, names: tuple[str, ...]) -> str:
+    """``text`` with each non-blank name removed (case-insensitive)."""
+    for name in names:
+        if name.strip():
+            text = re.sub(re.escape(name.strip()), " ", text, flags=re.IGNORECASE)
+    return text
+
+
+def _normalised(text: str) -> str:
+    return " ".join(re.findall(r"[a-z0-9]+", text.lower()))
+
+
 def check_brief(
-    brief: Mapping[str, Any] | str | None, *, brand_colors: str = ""
+    brief: Mapping[str, Any] | str | None,
+    *,
+    brand_colors: str = "",
+    brand: str = "",
+    target_product: str = "",
+    sources: Mapping[str, Any] | None = None,
 ) -> list[str]:
     """Return the brief's rule violations as actionable issue strings ([] = clean).
 
     ``brief`` is the ``creative_brief`` state value: a dict (ADK stores parsed
     ``output_schema`` output) or its JSON string. ``brand_colors`` is the user's
     optional palette; when given, the brief must name distinctive assets.
-    Never raises: malformed fields are reported as issues.
+    ``brand`` / ``target_product`` are removed from the proposition before the
+    "and" check (so "Mac and Cheese" is not two ideas). ``sources`` is the
+    ``sources`` state mapping (keyed by "src-N"); when given (even empty), every
+    "src-N" source_id must exist in it. Never raises: malformed fields are
+    reported as issues.
     """
     data = parse_brief(brief)
     if data is None:
@@ -104,12 +152,12 @@ def check_brief(
             "single_minded_proposition is empty: write ONE sentence carrying the "
             "single idea the audience should take away."
         )
-    elif _SENTENCE_BREAK.search(proposition):
+    elif _SENTENCE_BREAK.search(_without_abbreviations(proposition)):
         issues.append(
             f"single_minded_proposition must be one sentence; rewrite "
             f"'{proposition}' as a single sentence with a single idea."
         )
-    elif _AND.search(proposition):
+    elif _AND.search(_without_names(proposition, (brand, target_product))):
         issues.append(
             f"single_minded_proposition joins ideas with 'and' ('{proposition}'); "
             "keep only the strongest single idea."
@@ -141,6 +189,31 @@ def check_brief(
             "from the research sources or 'brief' for the user's selling points, "
             "or drop the claim."
         )
+    cited = [
+        (_text(r.get("claim")) or "(empty claim)", _text(r.get("source_id")))
+        for r in rtbs
+        if _text(r.get("source_id"))
+    ]
+    malformed = [(c, sid) for c, sid in cited if not _SOURCE_ID.match(sid)]
+    if malformed:
+        listed = ", ".join(f"'{c}' ('{sid}')" for c, sid in malformed)
+        issues.append(
+            f"reasons_to_believe with an invalid source_id: {listed}; use exactly "
+            "'src-N' (a research source id) or 'brief'."
+        )
+    if sources is not None:
+        unknown = [
+            (c, sid)
+            for c, sid in cited
+            if sid.startswith("src-") and _SOURCE_ID.match(sid) and sid not in sources
+        ]
+        if unknown:
+            listed = ", ".join(f"'{c}' ('{sid}')" for c, sid in unknown)
+            issues.append(
+                f"reasons_to_believe cite unknown sources: {listed}; cite only "
+                "source ids listed in the research sources, 'brief' for the "
+                "user's selling points, or drop the claim."
+            )
 
     bridge = _as_mapping(data.get("trend_bridge"))
     score = bridge.get("fit_score")
@@ -178,6 +251,13 @@ def check_brief(
         issues.append(
             f"angles has {len(distinct)} distinct angle name(s); provide 3-5 angles, "
             "each rooted in a different audience tension (not tone variants)."
+        )
+    tensions = [_normalised(_text(a.get("tension"))) for a in angles]
+    tensions = [t for t in tensions if t]
+    if len(set(tensions)) < len(tensions):
+        issues.append(
+            "angles repeat the same tension; root each angle in a genuinely "
+            "different audience tension."
         )
 
     assets = [

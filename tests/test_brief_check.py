@@ -111,9 +111,9 @@ def test_fit_mode_consistent(score, mode):
 
 def test_duplicate_angle_names():
     angles = [
-        {"angle_id": "A1", "name": "Fast", "tension": "t", "route": "r"},
-        {"angle_id": "A2", "name": " fast ", "tension": "t", "route": "r"},
-        {"angle_id": "A3", "name": "Other", "tension": "t", "route": "r"},
+        {"angle_id": "A1", "name": "Fast", "tension": "t1", "route": "r"},
+        {"angle_id": "A2", "name": " fast ", "tension": "t2", "route": "r"},
+        {"angle_id": "A3", "name": "Other", "tension": "t3", "route": "r"},
     ]
     (issue,) = check_brief(_brief(angles=angles))
     assert "2 distinct" in issue and "3" in issue
@@ -161,3 +161,62 @@ def test_tolerates_malformed_fields():
     issues = check_brief({"single_minded_proposition": "One idea."})
     assert issues  # flags what's missing, without raising
     assert check_brief({"angles": "x", "trend_bridge": "y", "brand": 3})
+
+
+def test_identical_angle_tensions_are_flagged():
+    angles = [
+        {
+            "angle_id": "A1",
+            "name": "One",
+            "tension": "Wants speed, but...",
+            "route": "r",
+        },
+        {"angle_id": "A2", "name": "Two", "tension": " wants SPEED but ", "route": "r"},
+        {"angle_id": "A3", "name": "Three", "tension": "Other tension", "route": "r"},
+    ]
+    (issue,) = check_brief(_brief(angles=angles))
+    assert "same tension" in issue
+
+
+@pytest.mark.parametrize(
+    "proposition",
+    [
+        "Dr. Pepper fans finally get faster skates.",
+        "The fastest skates in the U.S. are here.",
+        "Built for speed, e.g. desert chases.",
+        "Roadrunner vs. coyote ends with ACME Inc. on top.",
+    ],
+)
+def test_abbreviations_are_not_sentence_breaks(proposition):
+    assert check_brief(_brief(single_minded_proposition=proposition)) == []
+
+
+def test_brand_and_product_names_do_not_count_as_and():
+    brief = _brief(single_minded_proposition="Mac and Cheese makes chases fun.")
+    (issue,) = check_brief(brief)
+    assert "'and'" in issue
+    assert check_brief(brief, target_product="Mac and Cheese") == []
+    assert (
+        check_brief(
+            _brief(single_minded_proposition="Johnson and Johnson soothes every fall."),
+            brand="johnson and johnson",
+        )
+        == []
+    )
+
+
+def test_rtb_source_id_must_be_src_n_or_brief():
+    rtbs = [
+        {"claim": "Fast", "source_id": "brief"},
+        {"claim": "Trending", "source_id": "source 1"},
+    ]
+    (issue,) = check_brief(_brief(reasons_to_believe=rtbs))
+    assert "invalid source_id" in issue and "'source 1'" in issue
+
+
+def test_rtb_src_id_must_exist_in_sources_when_given():
+    # _BRIEF cites src-1; without sources the id is not cross-checked.
+    assert check_brief(_BRIEF) == []
+    assert check_brief(_BRIEF, sources={"src-1": {"short_id": "src-1"}}) == []
+    (issue,) = check_brief(_BRIEF, sources={"src-2": {}})
+    assert "unknown sources" in issue and "'src-1'" in issue
