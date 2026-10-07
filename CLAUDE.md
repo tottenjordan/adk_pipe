@@ -283,6 +283,8 @@ Image-generation prompt guidance lives in `creative_agent/prompts.py` as `IMAGE_
 - **Cloud Storage**: Research PDFs, HTML galleries, session state JSONs
 - **PubSub**: Event-driven dispatch between orchestrator and workers
 
+**Brand history (`creative_agent/brand_history.py`, research F12):** `load_brand_history` (function node, no LLM) runs in `combined_research_pipeline`'s START fan-out next to the two planners and feeds `research_join`. It reads the brand's latest `BRAND_HISTORY_RUNS` (default 5, clamped 0–20) `creative_evals` rows (parameterised SELECT, case-insensitive brand match) plus their eval-report JSON (configured bucket only, 5 MB cap), and writes `brand_history` — a brace-free ≤120-word note (recent styles, strongest styles/copy tones, recurring weak dimensions, often-failed gates) read via `{brand_history?}` by the brief writer and art director. Unless `visual_style_preference` is set, it re-draws `style_shortlist` without the recently used styles (`pick_style_shortlist(exclude=...)`, 2/3/1 strata kept). Fail-soft: 10 s timeout in a worker thread, any error → `""`; `BRAND_HISTORY_ENABLED=false` skips it (no query). Eval report entries now carry `visual_style` / `angle_id` (code-set, `""` in old reports); angle ids are per-brief so only styles and copy tones are aggregated. The `creative_ratings` table is not joined (no clean run key).
+
 ## Key Files
 
 - `*/agent.py` — Agent definitions (root and sub-agents)
