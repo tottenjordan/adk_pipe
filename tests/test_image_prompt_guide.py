@@ -78,3 +78,58 @@ def test_motif_specificity_enforced_downstream():
     assert "SPECIFIC and recognisable" in prompts.VISUAL_CONCEPT_CRITIC_INSTR
     assert "Trend Connection (MUST)" in prompts.VISUAL_CONCEPT_FINALIZER_INSTR
     assert "SPECIFIC to the trend" in prompts.ART_DIRECTOR_INSTR
+
+
+def _section(tag: str) -> str:
+    start = G.index(f"<{tag}>")
+    end = G.index(f"</{tag}>")
+    return G[start:end]
+
+
+def test_reference_images_section_follows_google_formula():
+    sec = _section("REFERENCE_IMAGES")
+    assert "numbered reference" in sec
+    assert "relationship instruction" in sec.lower()
+    assert "new scenario" in sec.lower()
+
+
+def test_reference_images_roles_are_spelled_out():
+    sec = _section("REFERENCE_IMAGES").lower()
+    assert "reproduce the product exactly" in sec
+    assert "shape, colour, label" in sec
+    assert "small, legible and undistorted" in sec
+    assert "palette, texture and lighting only" in sec
+
+
+def test_reference_images_ignore_their_text():
+    sec = _section("REFERENCE_IMAGES")
+    assert (
+        "ignore any text, captions or watermarks that appear in the reference images"
+        in sec
+    )
+
+
+def test_building_blocks_follow_subject_action_location_composition_style():
+    sec = _section("BUILDING_BLOCKS")
+    assert "Subject + Action + Location/context + Composition + Style" in sec
+    # Style is still CHOSEN first (style-first principle), even when the
+    # sentence order follows Google's formula.
+    assert "choose the style first" in sec.lower()
+    order = [
+        sec.index(f"- {name}")
+        for name in ("Subject", "Action", "Location/context", "Composition", "Style")
+    ]
+    assert order == sorted(order)
+
+
+def test_in_image_text_describes_typography():
+    assert "describe the typography (weight, case, placement)" in G
+
+
+def test_no_unrequested_logos():
+    lower = G.lower()
+    assert (
+        "never show logos, wordmarks or trademarks of any brand other than the campaign brand"
+        in lower
+    )
+    assert "generic products stay unbranded" in lower

@@ -85,7 +85,7 @@ tests/
 ├── test_experiments_shifts.py       # §10 in the api: shift validation + bandit parity, numbered traffic runs (runs/{n}.json, env overrides, trafficRuns), ?run= reads incl. legacy NULL rows, shift_response + regime aggregation, regime SQL, unmigrated-table fallbacks
 ├── test_experiments_store.py        # bandit_experiments MERGE/SELECT builders, typed params, §8 series SQL builders, both stores, deploy-lease UPDATEs, unknown-column tolerance
 ├── test_export_concurrency.py       # creative_agent export tools: per-run scratch isolation (issue #104)
-├── test_image_prompt_guide.py       # IMAGE_PROMPT_GUIDE rules: text cap, descriptors not templates, Educational mapping, trend motif, trend_motif schema field
+├── test_image_prompt_guide.py       # IMAGE_PROMPT_GUIDE rules: text cap, descriptors not templates, Educational mapping, trend motif, trend_motif schema field, REFERENCE_IMAGES section (roles + ignore-text), Subject+Action+Location+Composition+Style blocks, typography, no unrequested logos
 ├── test_image_reference.py          # generate_image multimodal contents + valid ImageConfig
 ├── test_interactive_resume_graph.py # real interactive_creative App via start_run/start_resume: checkpoint pause → NodeTool resume, fail-once retry counts, one BQ key (write_trends_to_bq added to the root's tools for the test), the resumed root's history keeps the checkpoint response but no sub-agent turns
 ├── test_no_legacy_agent_engines_api.py # guard: no legacy vertexai agent_engines API in repo call sites
