@@ -43,13 +43,15 @@ APP = "retry_node_test"
 USER = "u"
 
 
-def _run_node(node: BaseNode) -> tuple[list[Event], dict[str, Any]]:
+def _run_node(
+    node: BaseNode, state: dict[str, Any] | None = None
+) -> tuple[list[Event], dict[str, Any]]:
     """Drive ``node`` once as the Runner's root node; return (events, state)."""
 
     async def go() -> tuple[list[Event], dict[str, Any]]:
         svc = InMemorySessionService()
         runner = Runner(node=node, app_name=APP, session_service=svc)
-        session = await svc.create_session(app_name=APP, user_id=USER)
+        session = await svc.create_session(app_name=APP, user_id=USER, state=state)
         events = [
             e
             async for e in runner.run_async(
@@ -125,6 +127,22 @@ def test_recovers_after_empty_attempts():
     assert producer.runs == 3
     assert state.get("report") == "REAL_REPORT"
     assert "report__retry_exhausted" not in state
+    assert _outputs(events, "retry_wrapper") == ["REAL_REPORT"]
+
+
+def test_success_clears_a_stale_exhaustion_marker():
+    """A marker left by an earlier run in the same session is cleared (set to
+    None) once the producer succeeds, so it can't raise a stale degradation
+    warning or route a needless refinement round."""
+    producer = FlakyProducer(name="producer", output_key="report", fail_first=1)
+
+    events, state = _run_node(
+        _wrap(_single(producer), "report"), state={"report__retry_exhausted": True}
+    )
+
+    assert state.get("report") == "REAL_REPORT"
+    assert "report__retry_exhausted" in state
+    assert state["report__retry_exhausted"] is None
     assert _outputs(events, "retry_wrapper") == ["REAL_REPORT"]
 
 
