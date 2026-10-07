@@ -27,7 +27,7 @@ from agent_common import (
 )
 from creative_eval.agent import creative_eval_agent
 
-from . import callbacks, prompts, tools
+from . import callbacks, gcs_tools, prompts, tools
 from .brief_check import check_brief
 from .brief_render import render_brief_markdown
 from .config import INFRA_RETRY, SCHEMA_RETRY, config
@@ -39,7 +39,12 @@ from .copy_gate import (
     gate_copies,
     residual_issues,
 )
-from .finalize import evaluate_creatives_node, finalize_ready, persist_node
+from .finalize import (
+    evaluate_creatives_node,
+    finalize_ready,
+    issue_message,
+    persist_node,
+)
 from .schemas import (  # noqa: F401
     AdCopy,
     AdCopyList,
@@ -457,24 +462,49 @@ def _item_count(value: Any, list_key: str) -> int:
     return len(items) if isinstance(items, list) else 0
 
 
+async def save_research_pdf_node(ctx: Context) -> None:
+    """Save the cited research report (with the brief) as a PDF artifact + to GCS.
+
+    Runs on brief_gate's "ok" exit, so the PDF carries the final brief; it was a
+    separate root tool call (save_draft_report_artifact) before. Skipped when
+    the composer produced no report (research_report_ready already says so). A
+    failure is logged and recorded as ``research_report_gcs_uri__issues``, never
+    raised: the PDF is a deliverable, not an input to the creative stages.
+    """
+    if not is_populated(ctx.state.get("final_report_with_citations")):
+        logging.warning("research PDF skipped: no final_report_with_citations")
+        return None
+    try:
+        await gcs_tools.save_draft_report_artifact(ctx)
+    except Exception as exc:
+        logging.exception("research PDF save failed")
+        ctx.state["research_report_gcs_uri__issues"] = issue_message(
+            "research PDF", exc
+        )
+    return None
+
+
 def research_report_ready(ctx: Context) -> str:
     """Terminal node of combined_research_pipeline (the root's tool result).
 
     A short confirmation, not the report itself, mirroring the pre-graph
     AgentTool result (the composer's citation-callback text): the report lives
-    in state for save_draft_report_artifact and the creative stages, and
-    repeating it in the root's context would only add tokens.
+    in state for the creative stages (and was saved as a PDF by
+    save_research_pdf_node), and repeating it in the root's context would only
+    add tokens.
     """
     brief_note = (
         " Structured creative brief saved as 'creative_brief'."
         if is_populated(ctx.state.get("creative_brief"))
         else " No structured creative brief is available for this run."
     )
+    pdf_uri = ctx.state.get("research_report_gcs_uri")
+    pdf_note = f" Research PDF saved to {pdf_uri}." if is_populated(pdf_uri) else ""
     if is_populated(ctx.state.get("combined_final_cited_report")):
         return (
             "Research report complete: saved to session state as "
             "'combined_final_cited_report' (with resolved citations in "
-            "'final_report_with_citations')." + brief_note
+            "'final_report_with_citations')." + brief_note + pdf_note
         )
     return (
         _missing_notice("combined_report_composer", "combined_final_cited_report")
@@ -488,7 +518,8 @@ def research_report_ready(ctx: Context) -> str:
 # synthesizes the base brief, and the gate routes either through the refinement
 # round (degraded research) or straight to the composer (healthy path). The
 # composer's report is then distilled into the structured creative brief, which
-# brief_gate either accepts or sends through a bounded revision loop.
+# brief_gate either accepts or sends through a bounded revision loop; on accept
+# the report (with the brief) is saved as the research PDF.
 combined_research_pipeline = Workflow(
     name="combined_research_pipeline",
     description="Runs parallel campaign + trend research, a refinement round only when that research is degraded, then a cited report and a structured creative brief.",
@@ -513,7 +544,8 @@ combined_research_pipeline = Workflow(
             brief_writer_failsoft,
             brief_gate,
         ),
-        (brief_gate, {"ok": research_report_ready, "revise": brief_reviser_failsoft}),
+        (brief_gate, {"ok": save_research_pdf_node, "revise": brief_reviser_failsoft}),
+        (save_research_pdf_node, research_report_ready),
         # The routed cycle: the gate's counter bounds the reviser passes.
         (brief_reviser_failsoft, brief_gate),
     ],

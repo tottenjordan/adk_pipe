@@ -29,6 +29,7 @@ from typing import Any
 import pytest
 from google.adk.agents import LlmAgent
 from google.adk.agents.llm_agent import _wrap_base_node_as_tool
+from google.adk.artifacts import InMemoryArtifactService
 from google.adk.events.event import Event
 from google.adk.models.llm_response import LlmResponse
 from google.adk.runners import Runner
@@ -133,7 +134,10 @@ def _run_root(
     async def go() -> tuple[list[Event], dict[str, Any]]:
         svc = InMemorySessionService()
         runner = Runner(
-            agent=ca.root_agent, app_name="creative_agent", session_service=svc
+            agent=ca.root_agent,
+            app_name="creative_agent",
+            session_service=svc,
+            artifact_service=InMemoryArtifactService(),
         )
         session = await svc.create_session(
             app_name="creative_agent",
@@ -154,6 +158,32 @@ def _run_root(
 
     events, state = asyncio.run(go())
     return root_llm, events, state
+
+
+_PDF_CALLS: list[str] = []
+
+
+@pytest.fixture(autouse=True)
+def _fake_research_pdf(monkeypatch):
+    """Keep the research pipeline's PDF save offline: a recording stand-in for
+    gcs_tools.save_draft_report_artifact (tests needing the real one restore
+    ``_REAL_SAVE_PDF``)."""
+    from creative_agent import gcs_tools
+
+    _PDF_CALLS.clear()
+
+    async def fake_save_pdf(ctx) -> dict:
+        _PDF_CALLS.append(ctx.state["final_report_with_citations"])
+        ctx.state["research_report_gcs_uri"] = "gs://bucket/report.pdf"
+        return {"status": "success"}
+
+    monkeypatch.setattr(gcs_tools, "save_draft_report_artifact", fake_save_pdf)
+
+
+def _real_save_pdf():
+    import creative_agent.tools as t
+
+    return t.save_draft_report_artifact  # the tools re-export keeps the original
 
 
 def _responses(events: list[Event]) -> list[dict[str, Any]]:
@@ -259,9 +289,13 @@ def test_research_graph_healthy_path_skips_refinement(monkeypatch):
     assert state["brief_issues"] == ""
     assert state.get("creative_brief__issues") is None
     assert state["brief_revision_rounds_used"] == 0
+    # The research PDF was saved once, on the gate's "ok" exit.
+    assert _PDF_CALLS == [state["final_report_with_citations"]]
+    assert state["research_report_gcs_uri"] == "gs://bucket/report.pdf"
     # The root got the terminal node's truthy result and was re-called.
     (response,) = _responses(events)
     assert "Research report complete" in str(response)
+    assert "gs://bucket/report.pdf" in str(response)
     assert root_llm.calls == 2
 
 
@@ -1099,4 +1133,83 @@ def test_finalize_graph_gallery_failure_does_not_block_bq(monkeypatch):
     assert len(bq.sqls) == 2
     (response,) = _responses(events)
     assert "Failed steps: HTML gallery." in str(response)
+    assert root_llm.calls == 2
+
+
+# --- research PDF (save_research_pdf_node) --- #
+
+
+class _FakeSection:
+    def __init__(self, *a, **k):
+        pass
+
+
+class _FakeMarkdownPdf:
+    def __init__(self, *a, **k):
+        self.meta: dict = {}
+
+    def add_section(self, *a, **k):
+        return None
+
+    def save(self, path):
+        with open(path, "wb") as f:
+            f.write(b"%PDF-1.4 fake")
+
+
+def test_research_pdf_is_saved_as_an_artifact_and_to_gcs(monkeypatch):
+    import creative_agent.agent as ca
+    from creative_agent import gcs_tools
+
+    monkeypatch.setattr(gcs_tools, "save_draft_report_artifact", _real_save_pdf())
+    monkeypatch.setattr(gcs_tools, "MarkdownPdf", _FakeMarkdownPdf)
+    monkeypatch.setattr(gcs_tools, "Section", _FakeSection)
+    storage = FakeStorageClient([])
+    monkeypatch.setattr(gcs_tools, "_get_gcs_client", lambda: storage)
+    llms = _stub_graph(monkeypatch, ca.combined_research_pipeline)
+    _script_research(llms, ["CA INSIGHTS"])
+
+    _, events, state = _run_root(
+        monkeypatch,
+        "combined_research_pipeline",
+        {"gcs_folder": "folder", "agent_output_dir": "out"},
+    )
+
+    blob = "folder/out/research_report_with_citations.pdf"
+    assert state["research_report_gcs_uri"].endswith(blob)
+    assert [name for name, _ in storage.uploads] == [blob]
+    deltas = [e.actions.artifact_delta for e in events if e.actions.artifact_delta]
+    assert deltas == [{"research_report_with_citations.pdf": 0}]
+    assert "research_report_gcs_uri__issues" not in state
+
+
+def test_research_pdf_is_skipped_without_a_report(monkeypatch):
+    import creative_agent.agent as ca
+
+    llms = _stub_graph(monkeypatch, ca.combined_research_pipeline)
+    _script_research(llms, ["CA INSIGHTS"], report="   ")
+
+    root_llm, events, state = _run_root(monkeypatch, "combined_research_pipeline")
+
+    assert _PDF_CALLS == []
+    assert "research_report_gcs_uri" not in state
+    assert "research_report_gcs_uri__issues" not in state
+    assert len(_responses(events)) == 1 and root_llm.calls == 2
+
+
+def test_research_pdf_failure_is_recorded_not_raised(monkeypatch):
+    import creative_agent.agent as ca
+    from creative_agent import gcs_tools
+
+    async def broken(ctx):
+        raise RuntimeError("pdf render failed")
+
+    monkeypatch.setattr(gcs_tools, "save_draft_report_artifact", broken)
+    llms = _stub_graph(monkeypatch, ca.combined_research_pipeline)
+    _script_research(llms, ["CA INSIGHTS"])
+
+    root_llm, events, state = _run_root(monkeypatch, "combined_research_pipeline")
+
+    assert "pdf render failed" in state["research_report_gcs_uri__issues"]
+    (response,) = _responses(events)
+    assert "Research report complete" in str(response)
     assert root_llm.calls == 2
