@@ -34,6 +34,14 @@ describe("CreativeBrief", () => {
     expect(screen.getByText("From the brief")).toBeInTheDocument();
   });
 
+  it("renders just the id for a src-N with no matching source", () => {
+    render(<CreativeBrief brief={brief} sources={{}} />);
+    const id = screen.getByText("src-2");
+    expect(id).toHaveClass("font-mono");
+    expect(id.parentElement).toHaveTextContent(/^src-2$/);
+    expect(screen.queryByText("usatoday.com")).not.toBeInTheDocument();
+  });
+
   it("lists brand cues, must-include, keep-out and each angle", () => {
     render(<CreativeBrief brief={brief} />);
     expect(screen.getByText("Tone: warm, witty, never smug")).toBeInTheDocument();
@@ -61,9 +69,12 @@ describe("CreativeBriefOutput", () => {
     expect(screen.queryByText("Trend fit")).not.toBeInTheDocument();
     const toggle = screen.getByRole("button", { name: /show the full brief/i });
     expect(toggle).toHaveAttribute("aria-expanded", "false");
+    const panel = document.getElementById(toggle.getAttribute("aria-controls")!);
+    expect(panel).not.toBeNull();
+    expect(panel).not.toBeVisible();
     fireEvent.click(toggle);
     expect(toggle).toHaveAttribute("aria-expanded", "true");
     expect(screen.getByText("Trend fit")).toBeInTheDocument();
-    expect(document.getElementById(toggle.getAttribute("aria-controls")!)).not.toBeNull();
+    expect(panel).toBeVisible();
   });
 });

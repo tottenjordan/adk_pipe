@@ -204,7 +204,7 @@ export function CreativeBrief({
 
       {brief.angles.length > 0 && (
         <section className="border-t border-border pt-4">
-          <FieldLabel as="h3">Creative angles</FieldLabel>
+          <FieldLabel as="p">Creative angles</FieldLabel>
           <ul className="mt-2 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {brief.angles.map((a, i) => (
               <li key={`${i}-${a.angleId}`} className="rounded-lg border border-border bg-card px-3.5 py-3">
@@ -256,11 +256,9 @@ export function CreativeBriefOutput({
         {open ? "Hide the full brief" : "Show the full brief"}
         <ChevronDownIcon aria-hidden="true" className={cn("size-4 transition-transform", open && "rotate-180")} />
       </button>
-      {open && (
-        <div id={panelId} className="mt-3 border-t border-border pt-4">
-          <CreativeBrief brief={brief} sources={sources} />
-        </div>
-      )}
+      <div id={panelId} hidden={!open} className="mt-3 border-t border-border pt-4">
+        {open && <CreativeBrief brief={brief} sources={sources} />}
+      </div>
     </div>
   );
 }
