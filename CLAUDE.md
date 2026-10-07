@@ -98,7 +98,7 @@ PYTHONPATH="$PWD" uv run adk eval creative_agent tests/eval/evalsets/creative_ag
 # Integration tests (requires deployed agents + GCP credentials)
 python deployment/integration_test.py --check health                          # verify agents reachable
 python deployment/integration_test.py --check session --agent trend_scout   # session lifecycle
-python deployment/integration_test.py --check smoke --agent creative_agent    # full end-to-end
+python deployment/integration_test.py --check smoke --agent creative_agent    # full end-to-end (asserts finalize_done + eval report / research PDF URIs)
 python deployment/integration_test.py --check all                             # everything
 ```
 

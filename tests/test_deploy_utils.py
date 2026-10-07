@@ -742,3 +742,61 @@ class TestTelemetryEnv:
         env["MUTATED"] = "x"
         assert "MUTATED" not in da.ENV_VAR_DICT
         assert self.FLAG not in da.ENV_VAR_DICT
+
+
+# --- integration_test smoke: creative_agent must produce its real outputs ---
+class TestSmokeCreativeOutputs:
+    """A creative_agent run that ends early (e.g. the root's empty turns before
+    finalize) still has the campaign keys + some text, so the smoke check also
+    asserts the deliverables: finalize ran, the eval report and research PDF
+    were saved."""
+
+    DONE = {
+        "finalize_done": True,
+        "eval_report_gcs_uri": "gs://b/f/out/creative_eval_report.json",
+        "research_report_gcs_uri": "gs://b/f/out/research_report.pdf",
+    }
+
+    def test_complete_run_passes(self):
+        it = _import_integration_test()
+        result = it.check_creative_outputs("creative_agent", dict(self.DONE))
+        assert result is not None and result.passed
+        assert result.name == "smoke:creative_agent:outputs"
+
+    @pytest.mark.parametrize(
+        ("key", "value"),
+        [
+            ("finalize_done", None),
+            ("finalize_done", False),
+            ("eval_report_gcs_uri", None),
+            ("eval_report_gcs_uri", ""),
+            ("research_report_gcs_uri", None),
+            ("research_report_gcs_uri", "  "),
+        ],
+    )
+    def test_missing_output_fails_and_names_it(self, key, value):
+        it = _import_integration_test()
+        state = {**self.DONE, key: value}
+        if value is None:
+            del state[key]
+        result = it.check_creative_outputs("creative_agent", state)
+        assert result is not None and result.failed
+        assert key in result.message
+
+    def test_failure_message_carries_the_recorded_issue(self):
+        it = _import_integration_test()
+        state = {
+            "finalize_done": True,
+            "research_report_gcs_uri": "gs://b/r.pdf",
+            "eval_report_gcs_uri__issues": "eval report: 403 Forbidden",
+        }
+        result = it.check_creative_outputs("creative_agent", state)
+        assert result is not None and result.failed
+        assert "403 Forbidden" in result.message
+
+    @pytest.mark.parametrize("agent", ["trend_scout", "interactive_creative"])
+    def test_other_agents_are_not_checked(self, agent):
+        # interactive_creative's smoke run pauses at checkpoint 1, long before
+        # finalize; trend_scout has no creative outputs.
+        it = _import_integration_test()
+        assert it.check_creative_outputs(agent, {}) is None

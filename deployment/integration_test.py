@@ -12,7 +12,8 @@ Usage:
   # Session lifecycle — create, verify, delete sessions
   python deployment/integration_test.py --check session --agent trend_scout
 
-  # Smoke test — run agent end-to-end, assert session state keys
+  # Smoke test — run agent end-to-end, assert session state keys (creative_agent:
+  # also finalize_done + the saved eval report / research PDF URIs)
   python deployment/integration_test.py --check smoke --agent creative_agent
 
   # Run all checks for all agents
@@ -78,6 +79,16 @@ EXPECTED_STATE_KEYS = {
     ],
 }
 
+# Deliverables a COMPLETE creative_agent run leaves in session state: the
+# campaign keys above survive a run that ends early (e.g. the root's empty turns
+# before finalize, 2026-10-07), so the smoke check also requires that finalize
+# ran (`finalize_done`) and that the eval report + research PDF were saved.
+CREATIVE_OUTPUT_KEYS = (
+    "finalize_done",
+    "eval_report_gcs_uri",
+    "research_report_gcs_uri",
+)
+
 TEST_USER_ID = "integration_test_user"
 
 # interactive_creative's LongRunningFunctionTool checkpoints: a smoke run pauses at
@@ -141,6 +152,46 @@ def _check_text_output(agent_name: str, events: list) -> "TestResult":
                 name=name, passed=True, message=f"Paused at checkpoint: {paused[0]}"
             )
     return TestResult(name=name, passed=False, message="No text output from agent")
+
+
+def _is_set(value) -> bool:
+    return bool(value.strip()) if isinstance(value, str) else bool(value)
+
+
+def check_creative_outputs(agent_name: str, state: dict) -> "TestResult | None":
+    """Assert a creative_agent run's real outputs (None for other agents).
+
+    interactive_creative's smoke run pauses at checkpoint 1, long before
+    finalize, and trend_scout has no creative outputs, so only creative_agent is
+    checked. A failure names each missing key and any `<key>__issues` the
+    fail-soft step recorded.
+    """
+    if agent_name != "creative_agent":
+        return None
+    name = f"smoke:{agent_name}:outputs"
+    missing = [k for k in CREATIVE_OUTPUT_KEYS if not _is_set(state.get(k))]
+    if not missing:
+        return TestResult(
+            name=name,
+            passed=True,
+            message=(
+                f"finalize done; eval report {state['eval_report_gcs_uri']}; "
+                f"research PDF {state['research_report_gcs_uri']}"
+            ),
+        )
+    details = [
+        f"{k} (issue: {issue})" if (issue := state.get(f"{k}__issues")) else k
+        for k in missing
+    ]
+    return TestResult(
+        name=name,
+        passed=False,
+        message=(
+            "Run did not produce its outputs — missing/empty: "
+            + ", ".join(details)
+            + " (did the run end before finalize_pipeline?)"
+        ),
+    )
 
 
 # ==============================
@@ -525,6 +576,9 @@ async def check_smoke(client, agent_name: str) -> list[TestResult]:
 
         expected_keys = EXPECTED_STATE_KEYS.get(agent_name, [])
         missing_keys = [k for k in expected_keys if k not in state]
+
+        if (outputs := check_creative_outputs(agent_name, state)) is not None:
+            results.append(outputs)
 
         if missing_keys:
             results.append(
