@@ -55,7 +55,11 @@ def test_critic_fills_one_brief_check_per_item():
     assert "fill `brief_checks` with exactly one entry per item" in instr
     for item in get_args(BriefCheckItem):
         assert f"*   `{item}`:" in instr, item
-    assert "Be honest: set `passed` to false" in instr
+    # Accurate, not harsh: a failed proposition/mandatories item triggers a
+    # paid revision, so the critic must not fail items it is merely unsure of.
+    assert "Mark `passed` false only when the copy clearly fails the item" in instr
+    assert "be accurate, not harsh" in instr
+    assert "revised later" not in instr
 
 
 def test_critic_critiques_and_improves_every_cta():

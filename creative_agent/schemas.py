@@ -98,7 +98,7 @@ class BriefCheck(BaseModel):
         description="The checklist item: 'proposition' (delivers the single-minded proposition), 'product' (names the target product), 'reason_to_believe' (uses at least one reason to believe), 'trend_bridge' (connects to the trend through the bridge in the stated fit_mode), 'tone' (matches the brand tone of voice), 'mandatories' (honours every mandatory), 'avoid' (contains nothing from the avoid list), 'cta' (specific call to action with an action verb that matches the desired response)."
     )
     passed: bool = Field(
-        description="True only if the final copy (headline, body, caption and CTA) clearly meets this item."
+        description="False only when the final copy (headline, body, caption and CTA) clearly fails this item; be accurate, not harsh."
     )
     note: str = Field(
         description="A short reason: what meets the item, or exactly what is missing or wrong."
@@ -143,7 +143,7 @@ class FinalAdCopy(BaseModel):
     )
     brief_checks: list[BriefCheck] = Field(
         default_factory=list,
-        description="The brief checklist for this final copy: exactly one entry per item (proposition, product, reason_to_believe, trend_bridge, tone, mandatories, avoid, cta), judged honestly.",
+        description="The brief checklist for this final copy: exactly one entry per item (proposition, product, reason_to_believe, trend_bridge, tone, mandatories, avoid, cta), judged accurately.",
     )
     detailed_performance_rationale: str = Field(
         description="A 2-3 sentence strategic critique explaining *why* this ad copy will perform well against the selection criteria."

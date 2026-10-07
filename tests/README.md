@@ -65,7 +65,7 @@ tests/
 ├── test_callbacks.py                # citation replacement, state init (incl. style_shortlist seeding), rate limiting, trend/product guard callback
 ├── test_concept_guard.py            # final image prompts always name the trend_motif + product (pure guard)
 ├── test_config.py                   # per-agent config resolution (incl. campaign-placement resolver)
-├── test_copy_gate.py                # deterministic ad-copy gate (product named, CTA words, headline/caption length, brief avoid terms, failed brief checks; tolerant parsing) + restore_unflagged safety net
+├── test_copy_gate.py                # deterministic ad-copy gate (product named, CTA words, headline/caption length, brief avoid terms; only proposition/mandatories self-reports gate, only deterministic residuals recorded; lenient product matching; duplicate-id keys; tolerant parsing) + restore_unflagged safety net
 ├── test_create_session_engine.py    # create_session_engine.py (reuse-or-create sessions-only engine)
 ├── test_creative_brief_prompts.py   # {creative_brief_md?} block before the report + shared contract rule (core + fallback; user feedback/art direction override) in the 5 creative prompts; brace-safety
 ├── test_creative_agent_graph.py     # creative_agent graph pipelines end-to-end (stub models): routing, citations, no-stall, guard-repaired render prompts, creative-brief gate (pass / revise once / revise twice with 2 rounds / residual issues / writer exhausted / raising writer or reviser fail-soft), ad-copy gate (all pass / flagged copy revised + unflagged edit reverted / raising reviser fail-soft / residual issues)

@@ -426,7 +426,7 @@ AD_COPY_CRITIC_INSTR = (
         *   `mandatories`: honours every mandatory.
         *   `avoid`: contains nothing from the avoid list.
         *   `cta`: the CTA is specific, starts with an action verb and matches the desired response.
-        Be honest: set `passed` to false whenever an item is not clearly met (a failed item is revised later, a false pass ships a weak ad), and give a short `note` saying why. If the brief is empty, judge the items against the campaign inputs.
+        Mark `passed` false only when the copy clearly fails the item; be accurate, not harsh. Give a short `note` saying why. If the brief is empty, judge the items against the campaign inputs.
     6.  **Strict Output:** Output the final selection as a single JSON object, strictly following the schema in the `<OUTPUT_FORMAT>` block.
     </INSTRUCTIONS>
 
@@ -484,7 +484,7 @@ AD_COPY_REVISER_INSTR = (
     1.  **Scope:** <ad_copy_issues> lists the flagged copies by `original_id` and headline, each with its issues. Rewrite ONLY those copies, changing only what is needed to fix exactly the listed issues. Every copy that is not listed stays verbatim, field for field.
     2.  **Fixes:** name the target product ({target_product}) in the headline, body text or social caption when it is missing; keep the call to action specific, starting with an action verb and within 8 words; keep the headline within 60 characters and the social caption within 2200 characters; remove every avoided term; and for each failed brief check, change the copy so the item is clearly met.
     3.  **Keep the idea:** a revised copy keeps its `original_id`, `tone_style`, `angle_id` and core idea; re-rate `typicality` only if the idea changed.
-    4.  **Checklist:** refresh `brief_checks` on every copy you revise (one entry per item, judged honestly against the revised copy); leave the other copies' checks unchanged.
+    4.  **Checklist:** refresh `brief_checks` on every copy you revise (one entry per item, judged accurately against the revised copy; mark an item failed only when the copy clearly fails it); leave the other copies' checks unchanged.
     5.  **User feedback:** when <user_ad_copy_feedback> is non-empty, honour it in the copies you revise.
     6.  **Output:** return ALL the copies from <final_ad_copies>, in the same order with unchanged `original_id`s, as a single JSON object.
     </INSTRUCTIONS>

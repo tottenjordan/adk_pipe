@@ -835,13 +835,16 @@ def test_ad_copies_passing_the_gate_skip_the_reviser(monkeypatch):
 
 
 def test_flagged_copy_is_revised_and_unflagged_edits_are_reverted(monkeypatch):
-    """Copy 2 omits the product and fails a brief check: the reviser gets
+    """Copy 2 omits the product and fails the proposition check: the reviser gets
     exactly those issues, rewrites copy 2, and its edit to (unflagged) copy 3
     is reverted by the safety net."""
     bad = _final_ad(
         2,
         body_text="Finally, you are faster.",
-        brief_checks=[{"item": "tone", "passed": False, "note": "too sarcastic"}],
+        brief_checks=[
+            {"item": "proposition", "passed": False, "note": "two ideas"},
+            {"item": "tone", "passed": False, "note": "too sarcastic"},
+        ],
     )
     ads = [_final_ad(1), bad, _final_ad(3), _final_ad(4)]
     fixed = _final_ad(2, body_text="Rocket Skates: finally faster, deadpan.")
@@ -854,7 +857,10 @@ def test_flagged_copy_is_revised_and_unflagged_edits_are_reverted(monkeypatch):
     prompt = str(llms["ad_copy_reviser"].requests[-1].config.system_instruction)
     assert '- **Copy 2 ("Beep beep 2"):**' in prompt
     assert "  - product not named: mention 'Rocket Skates'" in prompt
-    assert "  - brief check failed: tone — too sarcastic" in prompt
+    assert "  - brief check failed: proposition — two ideas" in prompt
+    issues_block = prompt.split("<ad_copy_issues>")[-1].split("</ad_copy_issues>")[0]
+    assert "brief check failed: proposition" in issues_block
+    assert "too sarcastic" not in issues_block  # tone is advisory
     assert "Copy 1" not in prompt and "Copy 3" not in prompt
     assert "Finally, you are faster." in prompt  # the current copies are shown
     assert _BRIEF["single_minded_proposition"] in prompt

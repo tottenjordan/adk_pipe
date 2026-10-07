@@ -1,11 +1,21 @@
 """Deterministic checks on the ad copy critic's final copies.
 
-Pure logic (no ADK imports) behind ``creative_agent.agent.copy_gate``: the rules
-the ``FinalAdCopyList`` output schema cannot express, plus the critic's own
-failed brief-checklist items. Each issue string is specific and actionable
-because the gate feeds them verbatim to ``ad_copy_reviser`` (as
-``ad_copy_issues``) and records any that survive the bounded revision as
-``ad_copy_critique__issues`` (surfaced by
+Pure logic (no ADK imports) behind ``creative_agent.agent.copy_gate``. Gating
+policy (each needless revision costs a worker LLM call, latency and possibly a
+user-visible warning, so false positives are kept low):
+
+* **deterministic** issues — the rules the ``FinalAdCopyList`` output schema
+  cannot express (product named, CTA, lengths, the brief's avoid terms) — gate
+  a revision AND, if they survive it, are recorded as residual issues;
+* **self_reported** issues — the critic's own failed ``brief_checks`` — gate a
+  revision only for ``proposition`` and ``mandatories`` (the brief's hard
+  contract, with no deterministic check), and are NEVER recorded as residual
+  issues. Every other failed item is advisory: it stays in ``brief_checks``
+  (UI/eval) and never gates.
+
+Each issue text is specific and actionable because the gate feeds them
+verbatim to ``ad_copy_reviser`` (as ``ad_copy_issues``); ``residual_issues``
+picks the ones recorded as ``ad_copy_critique__issues`` (surfaced by
 ``agent_common.observability.collect_degradation_warnings``).
 
 ``restore_unflagged`` is the reviser's safety net: the reviser may only rewrite
@@ -15,8 +25,9 @@ duplicated) is put back to its pre-revision value.
 
 import json
 import re
-from collections.abc import Iterable, Mapping
-from typing import Any
+from collections.abc import Iterable, Mapping, Sequence
+from dataclasses import dataclass
+from typing import Any, Literal
 
 from .brief_check import parse_brief
 
@@ -49,6 +60,27 @@ _STOPWORDS = frozenset(
     }
 )
 _MIN_TOKEN_CHARS = 3
+# Self-reported brief_checks items that gate a revision: the brief's hard
+# contract, which no deterministic check covers. The rest are advisory.
+GATING_BRIEF_CHECKS = frozenset({"proposition", "mandatories"})
+# Items a deterministic check already covers; a self-reported failure of one is
+# never listed (no double listing), even if it were made gating.
+DETERMINISTIC_BRIEF_CHECKS = frozenset({"product", "avoid", "cta"})
+
+IssueKind = Literal["deterministic", "self_reported"]
+
+
+@dataclass(frozen=True)
+class CopyIssue:
+    """One gate issue: its reviser-facing ``text`` and where it came from."""
+
+    kind: IssueKind
+    text: str
+
+    def __str__(self) -> str:
+        return self.text
+
+
 # Every copy field the product may be named in (the CTA counts too).
 _COPY_FIELDS = ("headline", "body_text", "social_caption", "call_to_action")
 _POSSESSIVE = re.compile(r"['\u2019]s\b", re.IGNORECASE)
@@ -170,11 +202,8 @@ def _avoid_terms(avoid: Iterable[str] | str) -> list[str]:
     return [t.strip() for t in avoid if isinstance(t, str) and t.strip()]
 
 
-def _check_copy(
-    copy: Mapping[str, Any],
-    *,
-    target_product: str,
-    avoid: list[str],
+def _deterministic_issues(
+    copy: Mapping[str, Any], *, target_product: str, avoid: list[str]
 ) -> list[str]:
     issues: list[str] = []
     copy_text = " ".join(_text(copy.get(f)) for f in _COPY_FIELDS)
@@ -217,19 +246,37 @@ def _check_copy(
                 f"contains the avoided term '{term}': remove it or rephrase "
                 "without it (the brief's avoid list)."
             )
+    return issues
 
+
+def _self_reported_issues(copy: Mapping[str, Any]) -> list[str]:
+    """The critic's failed brief_checks items that gate (GATING_BRIEF_CHECKS)."""
+    issues: list[str] = []
     checks = copy.get("brief_checks")
     for check in checks if isinstance(checks, list) else []:
         if not isinstance(check, Mapping) or check.get("passed") is not False:
             continue
-        item = _text(check.get("item")) or "(unnamed item)"
+        item = _text(check.get("item"))
+        if item not in GATING_BRIEF_CHECKS or item in DETERMINISTIC_BRIEF_CHECKS:
+            continue
         note = _text(check.get("note"))
         issues.append(
             f"brief check failed: {item} — {note}"
             if note
-            else (f"brief check failed: {item}")
+            else f"brief check failed: {item}"
         )
     return issues
+
+
+def _check_copy(
+    copy: Mapping[str, Any], *, target_product: str, avoid: list[str]
+) -> list[CopyIssue]:
+    deterministic = _deterministic_issues(
+        copy, target_product=target_product, avoid=avoid
+    )
+    return [CopyIssue("deterministic", text) for text in deterministic] + [
+        CopyIssue("self_reported", text) for text in _self_reported_issues(copy)
+    ]
 
 
 def gate_copies(
@@ -237,27 +284,37 @@ def gate_copies(
     *,
     target_product: str,
     avoid: Iterable[str] | str = (),
-) -> dict[str, list[str]]:
-    """The copies' rule violations, keyed by ``copy_keys``.
+) -> dict[str, list[CopyIssue]]:
+    """The copies' gating issues, keyed by ``copy_keys``.
 
     ``copies`` is the ``ad_copy_critique`` state value (see ``parse_copies``).
-    Checks, per copy: the product is named (``target_product`` or ANY of its
-    significant words, plural-insensitive, see ``product_words``) in the
-    headline/body/caption/CTA; the
-    CTA is non-empty and at most 8 words; the headline is at most 60 characters;
-    the social caption at most 2200; no term from ``avoid`` (the creative
-    brief's avoid list; a string is split on newlines/commas/semicolons) appears
-    as a whole word/phrase; and every ``brief_checks`` item the critic marked
-    ``passed: false`` becomes an issue. Only copies with issues are returned
-    ({} = clean). Never raises.
+    Deterministic checks, per copy: the product is named (``target_product`` or
+    ANY of its significant words, plural-insensitive, see ``product_words``) in
+    the headline/body/caption/CTA; the CTA is non-empty and at most 8 words;
+    the headline is at most 60 characters; the social caption at most 2200; no
+    term from ``avoid`` (the creative brief's avoid list; a string is split on
+    newlines/commas/semicolons) appears as a whole word/phrase. Self-reported:
+    each failed ``brief_checks`` item in ``GATING_BRIEF_CHECKS``. Only copies
+    with issues are returned ({} = clean). Never raises.
     """
     terms = _avoid_terms(avoid)
     parsed = parse_copies(copies)
-    issues: dict[str, list[str]] = {}
+    issues: dict[str, list[CopyIssue]] = {}
     for key, copy in zip(copy_keys(parsed), parsed, strict=True):
         if found := _check_copy(copy, target_product=target_product, avoid=terms):
             issues[key] = found
     return issues
+
+
+def residual_issues(
+    issues: Mapping[str, Sequence[CopyIssue]],
+) -> dict[str, list[CopyIssue]]:
+    """Only the deterministic issues (the ones recorded if they survive)."""
+    residual = {
+        key: [i for i in items if i.kind == "deterministic"]
+        for key, items in issues.items()
+    }
+    return {key: items for key, items in residual.items() if items}
 
 
 def _copy_label(copies: list[Mapping[str, Any]], key: str) -> str:
@@ -268,7 +325,7 @@ def _copy_label(copies: list[Mapping[str, Any]], key: str) -> str:
     return f"Copy {key}"
 
 
-def format_copy_issues(copies: Any, issues: Mapping[str, list[str]]) -> str:
+def format_copy_issues(copies: Any, issues: Mapping[str, Sequence[object]]) -> str:
     """The issues as a Markdown list grouped per copy (the reviser's input)."""
     parsed = parse_copies(copies)
     lines: list[str] = []
@@ -278,7 +335,9 @@ def format_copy_issues(copies: Any, issues: Mapping[str, list[str]]) -> str:
     return "\n".join(lines)
 
 
-def flatten_copy_issues(copies: Any, issues: Mapping[str, list[str]]) -> list[str]:
+def flatten_copy_issues(
+    copies: Any, issues: Mapping[str, Sequence[object]]
+) -> list[str]:
     """One string per issue, prefixed with its copy (the residual-issue record)."""
     parsed = parse_copies(copies)
     return [

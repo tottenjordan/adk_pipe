@@ -1709,6 +1709,35 @@ def test_copy_gate_decision_records_residual_issues_when_budget_spent():
     assert route == "ok" and delta["ad_copy_critique__issues"]
 
 
+def test_copy_gate_decision_self_reported_gating_policy():
+    """Advisory self-reports never revise; proposition/mandatories revise but
+    are never recorded as residual issues (only deterministic ones are)."""
+    from creative_agent.agent import copy_gate_decision
+
+    def checks(*items):
+        return [{"item": i, "passed": False, "note": "n"} for i in items]
+
+    advisory = _final_copy(1, brief_checks=checks("tone", "trend_bridge", "cta"))
+    assert copy_gate_decision(_copy_state(advisory), 1)[0] == "ok"
+
+    gating = _final_copy(1, brief_checks=checks("mandatories"))
+    route, delta = copy_gate_decision(_copy_state(gating), 1)
+    assert route == "revise"
+    assert "brief check failed: mandatories" in delta["ad_copy_issues"]
+    route, delta = copy_gate_decision(
+        _copy_state(gating, ad_copy_revision_rounds_used=1), 1
+    )
+    assert route == "ok"
+    assert delta["ad_copy_critique__issues"] is None
+
+    both = _final_copy(2, body_text="Go fast.", brief_checks=checks("proposition"))
+    route, delta = copy_gate_decision(
+        _copy_state(both, ad_copy_revision_rounds_used=1), 1
+    )
+    (issue,) = delta["ad_copy_critique__issues"]
+    assert issue.startswith('Copy 2 ("Headline 2"): product not named')
+
+
 def test_copy_gate_decision_reads_the_brief_avoid_list():
     from creative_agent.agent import copy_gate_decision
 

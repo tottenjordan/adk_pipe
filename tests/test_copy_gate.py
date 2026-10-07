@@ -12,6 +12,7 @@ from creative_agent.copy_gate import (
     gate_copies,
     parse_copies,
     product_words,
+    residual_issues,
     restore_unflagged,
 )
 
@@ -35,6 +36,10 @@ def _copy(original_id=1, **overrides):
 def _gate(*copies, **kwargs):
     kwargs.setdefault("target_product", "Rocket Skates")
     return gate_copies(list(copies), **kwargs)
+
+
+def _gate_texts(*copies, **kwargs):
+    return {k: [str(i) for i in v] for k, v in _gate(*copies, **kwargs).items()}
 
 
 # --- parsing ------------------------------------------------------------------
@@ -82,7 +87,7 @@ def test_product_named_by_full_name_or_any_significant_word():
 
 
 def test_product_not_named_is_flagged():
-    (issues,) = _gate(
+    (issues,) = _gate_texts(
         _copy(7, body_text="Go fast.", call_to_action="Order today")
     ).values()
     assert issues == [
@@ -93,7 +98,9 @@ def test_product_not_named_is_flagged():
 
 def test_product_word_must_be_a_whole_word():
     # "rocketry" is not "rocket".
-    issues = _gate(_copy(body_text="Pure rocketry.", call_to_action="Order today"))
+    issues = _gate_texts(
+        _copy(body_text="Pure rocketry.", call_to_action="Order today")
+    )
     assert "product not named" in issues["1"][0]
 
 
@@ -164,13 +171,16 @@ def test_blank_target_product_skips_the_product_check():
 
 
 def test_empty_cta_is_flagged():
-    (issue,) = _gate(_copy(call_to_action="  "))["1"]
+    (issue,) = _gate_texts(_copy(call_to_action="  "))["1"]
     assert issue.startswith("call_to_action is empty")
 
 
 def test_cta_word_limit():
-    assert _gate(_copy(call_to_action="one two three four five six seven eight")) == {}
-    (issue,) = _gate(
+    assert (
+        _gate_texts(_copy(call_to_action="one two three four five six seven eight"))
+        == {}
+    )
+    (issue,) = _gate_texts(
         _copy(call_to_action="one two three four five six seven eight nine")
     )["1"]
     assert issue.startswith("call_to_action has 9 words (")
@@ -178,15 +188,15 @@ def test_cta_word_limit():
 
 
 def test_headline_char_limit():
-    assert _gate(_copy(headline="x" * 60)) == {}
-    (issue,) = _gate(_copy(headline="x" * 61))["1"]
+    assert _gate_texts(_copy(headline="x" * 60)) == {}
+    (issue,) = _gate_texts(_copy(headline="x" * 61))["1"]
     assert issue.startswith("headline is 61 characters")
     assert "at most 60 characters" in issue
 
 
 def test_social_caption_char_limit():
-    assert _gate(_copy(social_caption="x" * 2200)) == {}
-    (issue,) = _gate(_copy(social_caption="x" * 2201))["1"]
+    assert _gate_texts(_copy(social_caption="x" * 2200)) == {}
+    (issue,) = _gate_texts(_copy(social_caption="x" * 2201))["1"]
     assert issue.startswith("social_caption is 2201 characters")
 
 
@@ -195,21 +205,21 @@ def test_social_caption_char_limit():
 
 def test_avoid_term_matched_as_word_or_phrase_case_insensitively():
     copy = _copy(body_text="Rocket Skates: no more Cliff  Falls.")
-    (issue,) = _gate(copy, avoid=["cliff falls"])["1"]
+    (issue,) = _gate_texts(copy, avoid=["cliff falls"])["1"]
     assert issue.startswith("contains the avoided term 'cliff falls'")
     # Whole words only: "anvils" does not hit "anvil", nor a different phrase.
-    assert _gate(_copy(body_text="Rocket Skates, anvils."), avoid=["anvil"]) == {}
-    assert _gate(copy, avoid=["cliff diving"]) == {}
+    assert _gate_texts(_copy(body_text="Rocket Skates, anvils."), avoid=["anvil"]) == {}
+    assert _gate_texts(copy, avoid=["cliff diving"]) == {}
 
 
 def test_avoid_term_in_the_cta_is_flagged():
     copy = _copy(call_to_action="Buy cheap skates")
-    assert "avoided term 'cheap'" in _gate(copy, avoid=["cheap"])["1"][0]
+    assert "avoided term 'cheap'" in _gate_texts(copy, avoid=["cheap"])["1"][0]
 
 
 def test_avoid_as_string_is_split():
     copy = _copy(body_text="Rocket Skates beat anvils and cliffs.")
-    issues = _gate(copy, avoid="anvils, cliffs\nfalls")["1"]
+    issues = _gate_texts(copy, avoid="anvils, cliffs\nfalls")["1"]
     assert len(issues) == 2
 
 
@@ -224,18 +234,71 @@ def test_brief_avoid_reads_dict_or_json_brief():
 # --- brief checks ---------------------------------------------------------------
 
 
-def test_failed_brief_checks_become_issues():
+def _texts(issues):
+    return {key: [str(i) for i in items] for key, items in issues.items()}
+
+
+def test_only_proposition_and_mandatories_self_reports_gate():
     checks = [
-        {"item": "proposition", "passed": True, "note": "on message"},
+        {"item": "proposition", "passed": False, "note": "two ideas"},
+        {"item": "mandatories", "passed": False, "note": ""},
+        {"item": "reason_to_believe", "passed": False, "note": "no RTB"},
+        {"item": "trend_bridge", "passed": False, "note": "forced"},
+        {"item": "tone", "passed": False, "note": "too sarcastic"},
         {"item": "cta", "passed": False, "note": "generic 'Learn more'"},
-        {"item": "tone", "passed": False, "note": ""},
+        {"item": "product", "passed": False, "note": "no product"},
+        {"item": "avoid", "passed": False, "note": "says cheap"},
+        {"item": "proposition", "passed": True, "note": "on message"},
         "junk",
     ]
-    issues = _gate(_copy(brief_checks=checks))["1"]
-    assert issues == [
-        "brief check failed: cta — generic 'Learn more'",
-        "brief check failed: tone",
+    (issues,) = _gate(_copy(brief_checks=checks)).values()
+    assert [str(i) for i in issues] == [
+        "brief check failed: proposition — two ideas",
+        "brief check failed: mandatories",
     ]
+    assert {i.kind for i in issues} == {"self_reported"}
+
+
+def test_advisory_self_reports_alone_do_not_flag_a_copy():
+    checks = [
+        {"item": item, "passed": False, "note": "meh"}
+        for item in ("reason_to_believe", "trend_bridge", "tone", "cta", "product")
+    ]
+    assert _gate(_copy(brief_checks=checks)) == {}
+
+
+def test_deterministic_issues_are_marked_deterministic():
+    (issues,) = _gate(_copy(body_text="Go fast.", headline="x" * 61)).values()
+    assert [i.kind for i in issues] == ["deterministic", "deterministic"]
+
+
+def test_failed_product_or_avoid_check_is_listed_once():
+    """The deterministic check and the critic's own item never double-list."""
+    checks = [
+        {"item": "product", "passed": False, "note": "no product"},
+        {"item": "avoid", "passed": False, "note": "says cliff"},
+    ]
+    copy = _copy(body_text="No more cliff falls.", brief_checks=checks)
+    (issues,) = _gate_texts(copy, avoid=["cliff falls"]).values()
+    assert len(issues) == 2
+    assert issues[0].startswith("product not named")
+    assert issues[1].startswith("contains the avoided term 'cliff falls'")
+
+
+def test_residual_issues_keep_only_deterministic_failures():
+    checks = [{"item": "proposition", "passed": False, "note": "two ideas"}]
+    issues = _gate(
+        _copy(1, brief_checks=checks),
+        _copy(2, body_text="Go fast.", brief_checks=checks),
+    )
+    assert set(issues) == {"1", "2"}
+    assert _texts(residual_issues(issues)) == {
+        "2": [
+            "product not named: mention 'Rocket Skates' in the headline, body "
+            "text, social caption or call to action."
+        ]
+    }
+    assert residual_issues({}) == {}
 
 
 def test_issues_keyed_by_original_id_and_only_for_flagged_copies():

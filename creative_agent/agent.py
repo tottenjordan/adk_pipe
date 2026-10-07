@@ -31,10 +31,12 @@ from .brief_check import check_brief
 from .brief_render import render_brief_markdown
 from .config import INFRA_RETRY, SCHEMA_RETRY, config
 from .copy_gate import (
+    CopyIssue,
     brief_avoid,
     flatten_copy_issues,
     format_copy_issues,
     gate_copies,
+    residual_issues,
 )
 from .schemas import (  # noqa: F401
     AdCopy,
@@ -604,17 +606,20 @@ ad_copy_reviser = Agent(
 
 
 # --- DETERMINISTIC COPY GATE (bounded revision loop) --- #
-# copy_gate runs creative_agent.copy_gate on the critic's final copies (product
-# named, CTA <= 8 words, headline/caption length, the brief's avoid terms, and
-# every brief_checks item the critic marked failed). Same contract as
-# brief_gate: with issues and revision budget left (config.copy_revision_rounds,
-# env COPY_REVISION_ROUNDS, 0-2) it writes them as a Markdown list grouped per
-# copy (`ad_copy_issues`, the reviser's input), the flagged ids and a
-# pre-revision snapshot (the reviser's safety net), bumps the counter and routes
-# "revise"; the reviser routes back to the gate, which re-checks. When the
-# budget is spent with issues left, it records them as
-# `ad_copy_critique__issues` (surfaced by collect_degradation_warnings) and
-# routes "ok". Every "ok" exit clears the revision inputs.
+# copy_gate runs creative_agent.copy_gate on the critic's final copies:
+# deterministic checks (product named, CTA <= 8 words, headline/caption length,
+# the brief's avoid terms) plus the critic's self-reported failed
+# `proposition`/`mandatories` brief checks (its other failed items are advisory
+# and never gate). Same contract as brief_gate: with issues and revision budget
+# left (config.copy_revision_rounds, env COPY_REVISION_ROUNDS, 0-2) it writes
+# them as a Markdown list grouped per copy (`ad_copy_issues`, the reviser's
+# input), the flagged ids and a pre-revision snapshot (the reviser's safety
+# net), bumps the counter and routes "revise"; the reviser routes back to the
+# gate, which re-checks. When the budget is spent, only the DETERMINISTIC
+# issues left are recorded as `ad_copy_critique__issues` (surfaced by
+# collect_degradation_warnings) — a critic's self-assessment never becomes a
+# user-visible warning — and it routes "ok". Every "ok" exit clears the
+# revision inputs.
 _COPY_REVISION_CLEARED: dict[str, Any] = {
     "ad_copy_issues": "",
     "ad_copy_flagged_ids": None,
@@ -622,12 +627,17 @@ _COPY_REVISION_CLEARED: dict[str, Any] = {
 }
 
 
-def _copy_issues(state: Mapping[str, Any]) -> dict[str, list[str]]:
+def _copy_issues(state: Mapping[str, Any]) -> dict[str, list[CopyIssue]]:
     return gate_copies(
         state.get("ad_copy_critique"),
         target_product=str(state.get("target_product") or ""),
         avoid=brief_avoid(state.get("creative_brief")),
     )
+
+
+def _residual(critique: Any, issues: dict[str, list[CopyIssue]]) -> list[str] | None:
+    """The deterministic issues as residual-issue strings (None when none)."""
+    return flatten_copy_issues(critique, residual_issues(issues)) or None
 
 
 def copy_gate_decision(
@@ -648,7 +658,7 @@ def copy_gate_decision(
         }
     return "ok", {
         **_COPY_REVISION_CLEARED,
-        "ad_copy_critique__issues": flatten_copy_issues(critique, issues),
+        "ad_copy_critique__issues": _residual(critique, issues),
     }
 
 
@@ -672,7 +682,7 @@ def _ad_copy_reviser_failed(state: Mapping[str, Any], exc: Exception) -> dict[st
     return {
         **_COPY_REVISION_CLEARED,
         "ad_copy_critique": critique,
-        "ad_copy_critique__issues": flatten_copy_issues(critique, issues) or None,
+        "ad_copy_critique__issues": _residual(critique, issues),
         "ad_copy_revision_rounds_used": max(used, config.copy_revision_rounds),
     }
 

@@ -143,9 +143,10 @@ creative_agent (root Agent `root_agent`; non-resumable App (carries plugins); pi
 ├── ad_creative_pipeline (Workflow: drafter (10 copies spread across the brief's angles, self-rated
 │   typicality) → critic (final 4 cover ≥3 angles; per-copy brief_checks checklist) → copy_gate
 │   (deterministic copy_gate.py: product named, CTA ≤8 words, headline/caption length, brief avoid
-│   terms, failed brief checks; "revise" → ad_copy_reviser_failsoft (rewrites ONLY flagged copies;
+│   terms, plus the critic's failed proposition/mandatories checks (other self-reports advisory);
+│   "revise" → ad_copy_reviser_failsoft (rewrites ONLY flagged copies;
 │   unflagged edits reverted by restore_unflagged) → back to copy_gate, at most COPY_REVISION_ROUNDS
-│   passes; residuals → ad_copy_critique__issues; "ok") → ad_copies_ready)
+│   passes; deterministic residuals only → ad_copy_critique__issues; "ok") → ad_copies_ready)
 ├── visual_production_pipeline (Workflow)
 │   visual_generation_pipeline (Workflow: art_director → concept drafter/critic/finalizer
 │   → visual_concepts_ready) → render_barrier → visual_generator_resilient
