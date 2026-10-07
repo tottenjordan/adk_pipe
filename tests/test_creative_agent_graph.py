@@ -1510,9 +1510,10 @@ _HISTORY = {
     "runs": 2,
     "recent_styles": ["Comic panel", "Meme aesthetic"],
     "strongest_styles": ["Comic panel"],
-    "strongest_tones": ["Deadpan"],
-    "weaknesses": [("Visual clarity", 2)],
+    "strongest_tones": ["Humorous"],
+    "weaknesses": [("Trend connection", 2)],
     "failed_checks": [("product_visible", 1)],
+    "reports": 2,
 }
 
 
@@ -1543,7 +1544,7 @@ def test_brand_history_reaches_the_brief_writer(monkeypatch):
     assert seen == [("Acme", 4)]
     assert state["brand_history"].startswith("Recent runs for Acme (2):")
     prompt = str(llms["brief_writer"].requests[-1].config.system_instruction)
-    assert "recurring weaknesses: Visual clarity (2 of 2 runs)" in prompt
+    assert "recurring weaknesses: Trend connection (2 of 2 runs)" in prompt
     shortlist = state["style_shortlist"].split("; ")
     assert len(shortlist) == 6
     assert not {"Comic panel", "Meme aesthetic"} & set(shortlist)
