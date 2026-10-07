@@ -754,7 +754,10 @@ def test_resume_with_edits_appends_state_delta_before_relaunch():
             app_name="interactive_creative",
             user_id="u",
             session_id="s",
-            state={"final_visual_concepts": _envelope()},
+            state={
+                "final_visual_concepts": _envelope(),
+                "final_visual_concepts__issues": ["Concept 1: stale"],
+            },
         )
         fake = _FakeRunner(
             svc, "interactive_creative", "u", "s", [_agent_event("resumed")]
@@ -785,6 +788,9 @@ def test_resume_with_edits_appends_state_delta_before_relaunch():
         == "EDITED"
     )
     assert "Concept 1 (c1): more neon" in state["visual_revision_notes"]
+    # The pre-checkpoint gate verdict is stale once the user edits: cleared
+    # (the reviser's recheck re-evaluates when it runs).
+    assert state["final_visual_concepts__issues"] is None
 
 
 def _resume_with_edits(function_name, state, edits):

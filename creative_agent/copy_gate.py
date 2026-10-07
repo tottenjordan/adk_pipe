@@ -128,25 +128,30 @@ def parse_copies(copies: Any) -> list[Mapping[str, Any]]:
     return [c for c in copies if isinstance(c, Mapping)]
 
 
-def copy_keys(copies: list[Mapping[str, Any]]) -> list[str]:
-    """Each copy's issue key, unique within ``copies``.
+def item_keys(items: Sequence[Mapping[str, Any]], id_field: str) -> list[str]:
+    """Each item's issue key, unique within ``items``.
 
-    ``str(original_id)``; ``#<index>`` for a copy without one; and
-    ``<original_id>#<n>`` for the n-th (n >= 2) copy repeating an id, so a
-    model that duplicated an id never gets two copies collapsed into one by
-    the gate or by ``restore_unflagged``.
+    ``str(item[id_field])``; ``#<index>`` for an item without one; and
+    ``<id>#<n>`` for the n-th (n >= 2) item repeating an id, so a model that
+    duplicated an id never gets two items collapsed into one by a gate or by
+    ``restore_unflagged_items``.
     """
     keys: list[str] = []
     seen: dict[str, int] = {}
-    for index, copy in enumerate(copies):
-        original_id = copy.get("original_id")
-        if original_id is None or isinstance(original_id, bool):
+    for index, item in enumerate(items):
+        item_id = item.get(id_field)
+        if item_id is None or isinstance(item_id, bool):
             keys.append(f"#{index}")
             continue
-        base = str(original_id)
+        base = str(item_id)
         seen[base] = seen.get(base, 0) + 1
         keys.append(base if seen[base] == 1 else f"{base}#{seen[base]}")
     return keys
+
+
+def copy_keys(copies: Sequence[Mapping[str, Any]]) -> list[str]:
+    """Each copy's issue key (``item_keys`` on ``original_id``)."""
+    return item_keys(copies, "original_id")
 
 
 def _brief_list(brief: Mapping[str, Any] | str | None, field: str) -> list[str]:
@@ -548,50 +553,71 @@ def flatten_copy_issues(
     ]
 
 
+def restore_unflagged_items(
+    old: Sequence[Mapping[str, Any]],
+    new: Sequence[Mapping[str, Any]],
+    flagged_ids: Iterable[str],
+    *,
+    id_field: str,
+    noun: str,
+    plural: str,
+) -> tuple[list[dict[str, Any]], list[str]]:
+    """A reviser's output with only the flagged items taken from it.
+
+    Returns ``(items, notes)``: the pre-revision items ``old``, in their
+    original order, with each item whose key (``item_keys`` on ``id_field``) is
+    in ``flagged_ids`` replaced by the reviser's item with the same key (so the
+    second item sharing an id is matched to the reviser's second item with
+    that id, never collapsed into the first). Unflagged items the reviser
+    changed, flagged items it dropped, and extra or duplicated ids are
+    reverted/dropped; ``notes`` describes each intervention, naming items with
+    ``noun`` / ``plural`` ([] = the reviser followed the rules).
+    """
+    flagged = {str(f) for f in flagged_ids}
+    old_keys = item_keys(old, id_field)
+    new_keys = item_keys(new, id_field)
+
+    revised: dict[str, Mapping[str, Any]] = {}
+    notes: list[str] = []
+    for key, item in zip(new_keys, new, strict=True):
+        if key in old_keys:
+            revised[key] = item
+        elif "#" in key[1:] and (base := key.split("#")[0]) in new_keys:
+            notes.append(f"dropped a duplicate of {noun} {base}")
+        else:
+            notes.append(f"dropped {noun} {key}: not in the pre-revision {plural}")
+
+    result: list[dict[str, Any]] = []
+    for key, item in zip(old_keys, old, strict=True):
+        if key in flagged and key in revised:
+            result.append(dict(revised[key]))
+            continue
+        if key in flagged:
+            notes.append(f"restored flagged {noun} {key}: missing from the revision")
+        elif key not in revised:
+            notes.append(f"restored {noun} {key}: missing from the revision")
+        elif dict(revised[key]) != dict(item):
+            notes.append(f"restored {noun} {key}: it was not flagged for revision")
+        result.append(dict(item))
+    if not notes and new_keys != old_keys:
+        notes.append(f"restored the original {noun} order")
+    return result, notes
+
+
 def restore_unflagged(
     before: Any, after: Any, flagged_ids: Iterable[str]
 ) -> tuple[dict[str, Any], list[str]]:
-    """The reviser's output with only the flagged copies taken from it.
+    """The ad copy reviser's output with only the flagged copies taken from it.
 
-    Returns ``({"ad_copies": [...]}, notes)``: the pre-revision copies, in their
-    original order, with each copy whose key (``copy_keys``) is in
-    ``flagged_ids`` replaced by the reviser's copy with the same key (so the
-    second copy sharing an id is matched to the reviser's second copy with that
-    id, never collapsed into the first). Unflagged copies the reviser changed, flagged copies it
-    dropped, and extra or duplicated ids are reverted/dropped; ``notes``
-    describes each intervention ([] = the reviser followed the rules). With no
-    usable pre-revision copies, ``after`` is returned as is.
+    Returns ``({"ad_copies": [...]}, notes)`` (see ``restore_unflagged_items``,
+    keyed by ``copy_keys``). With no usable pre-revision copies, ``after`` is
+    returned as is.
     """
     old = parse_copies(before)
     new = parse_copies(after)
     if not old:
         return {"ad_copies": [dict(c) for c in new]}, []
-    flagged = {str(f) for f in flagged_ids}
-    old_keys = copy_keys(old)
-    new_keys = copy_keys(new)
-
-    revised: dict[str, Mapping[str, Any]] = {}
-    notes: list[str] = []
-    for key, copy in zip(new_keys, new, strict=True):
-        if key in old_keys:
-            revised[key] = copy
-        elif "#" in key[1:] and (base := key.split("#")[0]) in new_keys:
-            notes.append(f"dropped a duplicate of copy {base}")
-        else:
-            notes.append(f"dropped copy {key}: not in the pre-revision copies")
-
-    result: list[dict[str, Any]] = []
-    for key, copy in zip(old_keys, old, strict=True):
-        if key in flagged and key in revised:
-            result.append(dict(revised[key]))
-            continue
-        if key in flagged:
-            notes.append(f"restored flagged copy {key}: missing from the revision")
-        elif key not in revised:
-            notes.append(f"restored copy {key}: missing from the revision")
-        elif dict(revised[key]) != dict(copy):
-            notes.append(f"restored copy {key}: it was not flagged for revision")
-        result.append(dict(copy))
-    if not notes and new_keys != old_keys:
-        notes.append("restored the original copy order")
+    result, notes = restore_unflagged_items(
+        old, new, flagged_ids, id_field="original_id", noun="copy", plural="copies"
+    )
     return {"ad_copies": result}, notes

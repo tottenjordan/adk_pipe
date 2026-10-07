@@ -365,6 +365,8 @@ class TestSkipReviserWithoutNotes:
                 "visual_style": "diecut sticker",
                 "aspect_ratio": "1:1",
                 "trend_motif": "a trend motif",
+                "brand_cue": "the brand's red logo",
+                "angle_id": "A1",
                 "image_generation_prompt": "A diecut sticker of a user-edited prompt",
             }
         ]
@@ -500,6 +502,46 @@ class TestEnsureTrendAndProductCallback:
             target_product="Rocket Skates", final_visual_concepts=concepts
         )
         assert ensure_trend_and_product_callback(self._ctx(state)) is None
+
+
+def test_recheck_concept_issues_callback():
+    """Interactive's post-checkpoint recheck: the residual marker reflects the
+    CURRENT concepts (no stale pre-checkpoint warning), brand quotes allowed."""
+    from types import SimpleNamespace
+
+    from creative_agent.callbacks import recheck_concept_issues_callback
+
+    copies = {"ad_copies": [{"original_id": 1, "headline": "Outrun Monday"}]}
+
+    def _state(prompt, motif="a roadrunner"):
+        concept = {
+            "ad_copy_id": 1,
+            "concept_name": "Dash",
+            "trend_motif": motif,
+            "image_generation_prompt": prompt,
+        }
+        return {
+            "brand": "PRS",
+            "target_product": "SE CE24",
+            "ad_copy_critique": copies,
+            "final_visual_concepts": {"visual_concepts": [concept]},
+            "final_visual_concepts__issues": ["Concept 1: stale warning"],
+        }
+
+    clean = _state('The headstock bears the "PRS" logo; text reads "PRS".')
+    assert recheck_concept_issues_callback(SimpleNamespace(state=clean)) is None
+    assert clean["final_visual_concepts__issues"] is None
+
+    bad = _state('A sign reading "Speed is life".', motif="")
+    assert recheck_concept_issues_callback(SimpleNamespace(state=bad)) is None
+    issues = bad["final_visual_concepts__issues"]
+    assert len(issues) == 2
+    assert issues[0].startswith('Concept 1 ("Dash"): in-image text "Speed is life"')
+    assert "trend_motif is empty" in issues[1]
+
+    missing = {"final_visual_concepts__issues": ["stale"]}
+    assert recheck_concept_issues_callback(SimpleNamespace(state=missing)) is None
+    assert missing["final_visual_concepts__issues"] is None
 
 
 def test_restore_unflagged_copies_callback(caplog):

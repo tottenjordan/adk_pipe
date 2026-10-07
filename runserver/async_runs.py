@@ -784,7 +784,12 @@ async def _apply_visual_concept_edits(
     merged, notes = merge_visual_concept_edits(
         session.state.get("final_visual_concepts"), edits
     )
-    delta: dict = {"final_visual_concepts": merged}
+    # The pre-checkpoint concept_gate verdict is stale once the user edits:
+    # clear it (interactive's visual_concept_reviser re-checks when it runs).
+    delta: dict = {
+        "final_visual_concepts": merged,
+        "final_visual_concepts__issues": None,
+    }
     if notes:
         delta["visual_revision_notes"] = notes
     event = Event(

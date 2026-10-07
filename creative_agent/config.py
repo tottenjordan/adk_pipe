@@ -43,6 +43,10 @@ MAX_BRIEF_REVISION_ROUNDS = 2
 DEFAULT_COPY_REVISION_ROUNDS = 1
 MAX_COPY_REVISION_ROUNDS = 2
 
+# Visual-concept fix budget (concept_gate → visual_concept_fixer rounds).
+DEFAULT_CONCEPT_REVISION_ROUNDS = 1
+MAX_CONCEPT_REVISION_ROUNDS = 2
+
 
 def _parse_rounds(raw: str | None, default: int, maximum: int) -> int:
     try:
@@ -74,6 +78,19 @@ def parse_copy_revision_rounds(raw: str | None) -> int:
     (issues are only recorded).
     """
     return _parse_rounds(raw, DEFAULT_COPY_REVISION_ROUNDS, MAX_COPY_REVISION_ROUNDS)
+
+
+def parse_concept_revision_rounds(raw: str | None) -> int:
+    """``CONCEPT_REVISION_ROUNDS`` → int clamped to 0..2; unset/blank/invalid → 1.
+
+    The maximum number of visual_concept_fixer passes: concept_gate routes final
+    visual concepts that fail creative_agent.concept_guard.concept_issues to the
+    fixer, which loops back to the gate, while fewer than this many passes were
+    used. 0 disables fixing (issues are only recorded).
+    """
+    return _parse_rounds(
+        raw, DEFAULT_CONCEPT_REVISION_ROUNDS, MAX_CONCEPT_REVISION_ROUNDS
+    )
 
 
 @dataclass
@@ -121,6 +138,15 @@ class ResearchConfiguration(BaseAgentConfiguration):
     copy_revision_rounds: int = field(
         default_factory=lambda: parse_copy_revision_rounds(
             os.getenv("COPY_REVISION_ROUNDS")
+        )
+    )
+
+    # concept_gate routes final visual concepts that fail
+    # creative_agent.concept_guard.concept_issues to visual_concept_fixer while
+    # fewer than this many fix rounds were used.
+    concept_revision_rounds: int = field(
+        default_factory=lambda: parse_concept_revision_rounds(
+            os.getenv("CONCEPT_REVISION_ROUNDS")
         )
     )
 
