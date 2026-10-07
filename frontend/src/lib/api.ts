@@ -213,6 +213,30 @@ export class ResumeNotAppliedError extends Error {
   }
 }
 
+/**
+ * Thrown by `resumeRun` when the server rejected the review's edits as invalid
+ * (400, e.g. `invalid_brief` at checkpoint 1) WITHOUT applying anything. Like
+ * `ResumeNotAppliedError` the run is still paused, so the caller re-offers the
+ * review; the message names the offending fields.
+ */
+export class ResumeRejectedError extends ResumeNotAppliedError {
+  constructor(message: string) {
+    super(message);
+    this.name = "ResumeRejectedError";
+  }
+}
+
+/** The 400 body's `detail.message` (or a generic message). */
+async function rejectionMessage(res: Response): Promise<string> {
+  try {
+    const message = (await res.json())?.detail?.message;
+    if (typeof message === "string" && message) return `${message} Fix it and submit again.`;
+  } catch {
+    // fall through
+  }
+  return "The review's edits were invalid and weren't applied. Fix them and submit again.";
+}
+
 /** Machine-readable `detail.reason` from a 409 body, or null if absent. */
 async function conflictReason(res: Response): Promise<string | null> {
   try {
@@ -249,8 +273,9 @@ export async function resumeRun(
         functionName,
         response,
         functionCallEventId,
-        // Checkpoint-3 direct edits: merged into session state server-side before
-        // the resumed run (see runserver.async_runs). Omitted when absent/empty.
+        // Checkpoint edits (1: report / structured brief; 3: concepts): merged
+        // into session state server-side before the resumed run (see
+        // runserver.async_runs). Omitted when absent/empty.
         ...(edits && edits.length ? { edits } : {}),
       }),
     }
@@ -267,6 +292,7 @@ export async function resumeRun(
     }
     throw new ResumeNotAppliedError();
   }
+  if (res.status === 400) throw new ResumeRejectedError(await rejectionMessage(res));
   if (!res.ok) {
     throw new Error(`Failed to resume run (${res.status}): ${await res.text()}`);
   }

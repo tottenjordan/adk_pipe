@@ -6,15 +6,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { FieldLabel } from "@/components/field-label";
-import { ResearchReport } from "@/components/research-report";
-import {
-  fromEditableReport,
-  toEditableReport,
-  type ReportSources,
-} from "@/lib/research-report";
+import { parseCreativeBrief } from "@/lib/creative-brief";
+import { ResearchReportEditor, useReportEdit } from "./report-editor";
+import { ReviewBrief } from "./review-brief";
+import { ACTIONS_ROW, ShortcutHint, useApproveShortcut } from "./review-shared";
 import {
   buildConceptEdits,
-  buildEditableResearchEdit,
   extractItems,
   parseRawGtrends,
   type ConceptDraft,
@@ -24,41 +21,6 @@ const ASPECT_RATIO_OPTIONS = ["9:16", "1:1", "4:5", "3:4", "16:9"];
 
 /* ── Review panel components for interactive mode ── */
 
-/**
- * Cmd/Ctrl+Enter runs the panel's primary (approve) action from anywhere on
- * the page while the panel is shown. Skipped when `enabled` is false (e.g. no
- * trends selected yet), on key repeat, and when another handler already took it.
- */
-function useApproveShortcut(onApprove: () => void, enabled = true) {
-  const latest = useRef(onApprove);
-  useEffect(() => {
-    latest.current = onApprove;
-  });
-  useEffect(() => {
-    if (!enabled) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Enter" || !(e.metaKey || e.ctrlKey)) return;
-      if (e.repeat || e.defaultPrevented) return;
-      e.preventDefault();
-      latest.current();
-    };
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [enabled]);
-}
-
-/** Inline hint for the approve shortcut, shown next to the action buttons. */
-function ShortcutHint({ action = "approve" }: { action?: string }) {
-  const key = "rounded-sm border border-border bg-muted px-1 font-sans text-xs text-foreground";
-  return (
-    <span className="text-xs text-muted-foreground">
-      <kbd className={key}>Ctrl</kbd> <kbd className={key}>Enter</kbd> or{" "}
-      <kbd className={key}>⌘</kbd> <kbd className={key}>Enter</kbd> to {action}
-    </span>
-  );
-}
-
-const ACTIONS_ROW = "flex flex-wrap items-center gap-3";
 
 function ReviewResearch({
   state,
@@ -68,14 +30,8 @@ function ReviewResearch({
   onResume: (response: Record<string, unknown>) => void;
 }) {
   const [feedback, setFeedback] = useState("");
-  const [editMode, setEditMode] = useState(false);
-  const report = state.combined_final_cited_report as string | undefined;
-  const sources = state.sources as ReportSources | undefined;
-  // The textarea shows `[src-N]` markers instead of raw cite tags; they go
-  // back to canonical `<cite source="src-N"/>` tags for preview and resume.
-  const [editedReport, setEditedReport] = useState(() => toEditableReport(report ?? ""));
-  const edits = buildEditableResearchEdit(report ?? "", editedReport);
-  const previewSource = edits ? fromEditableReport(editedReport) : (report ?? "");
+  const reportEdit = useReportEdit(state);
+  const edits = reportEdit.edits;
   const resume = (status: string, instruction: string) =>
     onResume({
       status,
@@ -89,46 +45,15 @@ function ReviewResearch({
 
   return (
     <div className="rounded-lg border border-border bg-card p-6 space-y-4">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <span className="inline-block h-2.5 w-2.5 rounded-full bg-mark-pending" />
-          <h2 className="text-lg font-semibold">Review research report</h2>
-        </div>
-        {report && (
-          <div className="flex items-center gap-3">
-            {edits && (
-              <span className="text-xs text-muted-foreground">Edited</span>
-            )}
-            <button
-              onClick={() => setEditMode((v) => !v)}
-              className="rounded-sm text-xs font-medium text-primary hover:underline"
-            >
-              {editMode ? "Preview" : "Edit"}
-            </button>
-          </div>
-        )}
+      <div className="flex items-center gap-2">
+        <span className="inline-block h-2.5 w-2.5 rounded-full bg-mark-pending" />
+        <h2 className="text-lg font-semibold">Review research report</h2>
       </div>
       <p className="text-sm text-muted-foreground">
         Edit the report to change what ad copy and visuals are based on; the
         PDF is regenerated. Feedback is passed on as guidance.
       </p>
-      {report && !editMode && (
-        <ResearchReport markdown={previewSource} sources={sources} scroll />
-      )}
-      {report && editMode && (
-        <div className="space-y-1.5">
-          <Textarea
-            value={editedReport}
-            onChange={(e) => setEditedReport(e.target.value)}
-            rows={16}
-            aria-describedby="review-research-markers-hint"
-            className="font-mono text-xs leading-relaxed max-h-[28rem]"
-          />
-          <p id="review-research-markers-hint" className="text-xs text-muted-foreground">
-            Source markers like [src-12] keep their citations. Leave them in place or delete them.
-          </p>
-        </div>
-      )}
+      <ResearchReportEditor edit={reportEdit} idPrefix="review-research" />
       <FieldLabel as="label" htmlFor="review-research-feedback">
         Feedback (optional)
       </FieldLabel>
@@ -177,6 +102,9 @@ function ReviewAdCopies({
 }) {
   const [feedback, setFeedback] = useState("");
   const adCopies = extractItems(state.ad_copy_critique);
+  // After the one user revision the root re-presents the revised copies; this
+  // second review always proceeds (feedback then only guides the visuals).
+  const revised = Number(state.ad_copy_user_revisions_used ?? 0) >= 1;
   const approve = () =>
     onResume({ status: "approved", feedback, instruction: "User approved the ad copies. Continue to the next step in the WORKFLOW — generate visual concepts." });
   useApproveShortcut(approve);
@@ -185,12 +113,14 @@ function ReviewAdCopies({
     <div className="rounded-lg border border-border bg-card p-6 space-y-4">
       <div className="flex items-center gap-2">
         <span className="inline-block h-2.5 w-2.5 rounded-full bg-mark-pending" />
-        <h2 className="text-lg font-semibold">Review ad copies</h2>
+        <h2 className="text-lg font-semibold">
+          {revised ? "Review revised ad copies" : "Review ad copies"}
+        </h2>
       </div>
       <p className="text-sm text-muted-foreground">
-        Approve to continue to visual concepts. To steer them, add feedback and
-        choose Request changes — the feedback is passed on; the ad copy itself
-        isn&apos;t rewritten.
+        {revised
+          ? "These copies were revised with your feedback. Approve to continue to visual concepts; any further feedback is passed on to the visuals."
+          : "Approve to continue to visual concepts. To change the copies, add feedback and choose Request changes: they are revised once and shown to you again."}
       </p>
       {adCopies && (
         <div className="space-y-3 max-h-[28rem] overflow-y-auto">
@@ -259,10 +189,18 @@ function ReviewAdCopies({
         </Button>
         <Button
           variant="outline"
-          onClick={() => onResume({ status: "revision_requested", feedback, instruction: "User requested changes to the ad copies. Carry their feedback forward, then continue the WORKFLOW — generate visual concepts." })}
+          onClick={() =>
+            onResume({
+              status: "revision_requested",
+              feedback,
+              instruction: revised
+                ? "User reviewed the revised ad copies. Carry their feedback forward, then continue the WORKFLOW — generate visual concepts."
+                : "User requested changes to the ad copies. Revise them once with their feedback, then show them again (WORKFLOW step 4a).",
+            })
+          }
           disabled={!feedback}
         >
-          Request changes
+          {revised ? "Continue with feedback" : "Request changes"}
         </Button>
         <ShortcutHint />
       </div>
@@ -534,7 +472,14 @@ export function ReviewPanel({
 
   let panel: React.ReactNode = null;
   if (functionName === "review_research") {
-    panel = <ReviewResearch state={sessionState} onResume={onResume} />;
+    // Checkpoint 1 reviews the structured brief; sessions from before the
+    // brief existed (or whose brief writer failed) fall back to the report.
+    const brief = parseCreativeBrief(sessionState.creative_brief);
+    panel = brief ? (
+      <ReviewBrief brief={brief} state={sessionState} onResume={onResume} />
+    ) : (
+      <ReviewResearch state={sessionState} onResume={onResume} />
+    );
   } else if (functionName === "review_ad_copies") {
     panel = <ReviewAdCopies state={sessionState} onResume={onResume} />;
   } else if (functionName === "review_visual_concepts") {

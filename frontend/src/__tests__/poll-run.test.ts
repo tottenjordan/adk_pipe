@@ -5,6 +5,7 @@ import {
   getRunStatus,
   resumeRun,
   ResumeNotAppliedError,
+  ResumeRejectedError,
 } from "@/lib/api";
 import type { AgentEvent } from "@/lib/types";
 import { jsonResponse } from "./helpers";
@@ -275,6 +276,29 @@ describe("resumeRun", () => {
   it("treats an unrecognised 409 as not applied (safe: the user can re-submit)", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => conflict(null)));
     await expect(call()).rejects.toBeInstanceOf(ResumeNotAppliedError);
+  });
+
+  it("throws ResumeRejectedError (a not-applied error) on 400 invalid edits", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              detail: {
+                reason: "invalid_brief",
+                message: "The edited brief is invalid: angles: too short",
+                errors: [{ loc: "angles", msg: "too short" }],
+              },
+            }),
+            { status: 400 }
+          )
+      )
+    );
+    const err = await call().catch((e) => e);
+    expect(err).toBeInstanceOf(ResumeRejectedError);
+    expect(err).toBeInstanceOf(ResumeNotAppliedError); // the page re-offers the review
+    expect((err as Error).message).toMatch(/angles: too short/);
   });
 
   it("still throws a generic error on other failures", async () => {

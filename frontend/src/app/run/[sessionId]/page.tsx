@@ -564,6 +564,9 @@ export default function RunPage({
           <div className="min-w-0 space-y-4">
             {status === "paused" && pauseContext ? (
               <ReviewPanel
+                // A fresh panel per checkpoint call: checkpoint 2 can pause
+                // twice on review_ad_copies (before and after the revision).
+                key={pauseContext.functionCallId}
                 functionName={pauseContext.functionName}
                 sessionState={sessionState}
                 onResume={handleResume}
