@@ -53,7 +53,8 @@ def _expected_fit_mode(score: int) -> str:
     return "light_touch"
 
 
-def _parse(brief: Mapping[str, Any] | str | None) -> Mapping[str, Any] | None:
+def parse_brief(brief: Mapping[str, Any] | str | None) -> Mapping[str, Any] | None:
+    """The brief as a non-empty mapping (a dict or its JSON string), else None."""
     if isinstance(brief, str):
         try:
             brief = json.loads(brief)
@@ -91,7 +92,7 @@ def check_brief(
     optional palette; when given, the brief must name distinctive assets.
     Never raises: malformed fields are reported as issues.
     """
-    data = _parse(brief)
+    data = parse_brief(brief)
     if data is None:
         return [MISSING_BRIEF_ISSUE]
 

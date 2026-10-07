@@ -15,6 +15,7 @@ from .bq_tools import (  # noqa: F401
     write_eval_report_to_bq,
     write_trends_to_bq,
 )
+from .brief_render import render_brief_summary_html
 from .config import config
 from .gcs_tools import (  # noqa: F401
     _download_blob,
@@ -96,6 +97,8 @@ async def save_creative_gallery_html(tool_context: ToolContext) -> dict:
     research_warning_banner = _build_research_warning_banner(
         collect_degradation_warnings(tool_context.state)
     )
+    # Small proposition + trend-fit card from the structured brief ("" if none).
+    brief_summary = render_brief_summary_html(tool_context.state.get("creative_brief"))
 
     try:
         # =========================== #
@@ -106,6 +109,7 @@ async def save_creative_gallery_html(tool_context: ToolContext) -> dict:
 
             <h1>{brand} {target_product}</h1>
             {research_warning_banner}
+            {brief_summary}
             <!-- Sub-headers -->
             <div class="sub-header-container">
                 <h3><strong>key selling point(s):</strong>  {key_selling_points}</h3>

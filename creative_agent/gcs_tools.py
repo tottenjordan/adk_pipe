@@ -15,6 +15,7 @@ from PIL import Image
 
 from agent_common.clients import get_gcs_client
 
+from .brief_render import insert_brief_into_report
 from .config import config
 
 # Create a translation table to map punctuation characters to None (removal).
@@ -174,7 +175,11 @@ async def save_draft_report_artifact(tool_context: ToolContext) -> dict:
         dict: Status and the location of the generated PDF artifact.
     """
     # get vars
-    processed_report = tool_context.state["final_report_with_citations"]
+    # The structured creative brief (when one was written) leads the report body.
+    processed_report = insert_brief_into_report(
+        tool_context.state["final_report_with_citations"],
+        tool_context.state.get("creative_brief"),
+    )
     gcs_bucket = config.GCS_BUCKET_NAME
     gcs_folder = tool_context.state["gcs_folder"]
     gcs_subdir = tool_context.state["agent_output_dir"]

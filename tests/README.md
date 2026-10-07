@@ -60,6 +60,7 @@ tests/
 ├── test_create_bq_tables.py         # create_bq_tables.sh with a stub bq: bandit_* schemas, partitioning, idempotency
 ├── test_bandit_*.py                 # JAX bandit core (bandit/): features, config, linear TS, baselines, environment, simulate+metrics+aggregate, notebook-parity smoke, scripted shifts
 ├── test_brief_check.py              # deterministic creative-brief check (proposition, X-but-Y insight, cited RTBs, fit_mode, angles, motifs, assets)
+├── test_brief_render.py             # creative brief → "## Creative Brief" markdown in the research PDF (real markdown_pdf TOC check) + gallery summary card
 ├── test_callbacks.py                # citation replacement, state init (incl. style_shortlist seeding), rate limiting, trend/product guard callback
 ├── test_concept_guard.py            # final image prompts always name the trend_motif + product (pure guard)
 ├── test_config.py                   # per-agent config resolution (incl. campaign-placement resolver)
