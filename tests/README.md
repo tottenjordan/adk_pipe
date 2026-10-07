@@ -62,7 +62,7 @@ tests/
 ├── test_bandit_*.py                 # JAX bandit core (bandit/): features, config, linear TS, baselines, environment, simulate+metrics+aggregate, notebook-parity smoke, scripted shifts
 ├── test_brief_check.py              # deterministic creative-brief check (proposition incl. abbreviations/capital-led sentence breaks/brand-product-trend names/and-compounds, X-but-Y insight + ;/dash/contrast markers, cited RTBs + normalised src-N/brief ids vs sources, fit_mode, angle names/tensions, motifs, assets)
 ├── test_brief_render.py             # creative brief → "## Creative Brief" markdown in the research PDF (real markdown_pdf TOC check) + compact (headless) prompt variant + gallery summary card (HTML-escaped)
-├── test_callbacks.py                # citation replacement, state init (incl. style_shortlist seeding), rate limiting, trend/product guard callback
+├── test_callbacks.py                # citation replacement, state init (incl. style_shortlist seeding, reference_images/reference_roles), rate limiting, trend/product guard callback
 ├── test_concept_guard.py            # final image prompts always name the trend_motif + product + brand_cue (pure guard; token-overlap matching incl. brand_cue, intangible-product cue); concept_issues (quoted text vs paired headline/CTA incl. curly quotes / punctuation / substring, meme+comic exemption, empty motif, set-level text cap + centred-hero selection, conservative heuristics) + restore_unflagged_concepts
 ├── test_config.py                   # per-agent config resolution (incl. campaign-placement resolver)
 ├── test_text_match.py               # shared conservative matching (Unicode folding, plurals, sizes/packaging head nouns, single-token full phrase, brand anchor, 60% token-overlap mentions)
@@ -86,7 +86,7 @@ tests/
 ├── test_experiments_store.py        # bandit_experiments MERGE/SELECT builders, typed params, §8 series SQL builders, both stores, deploy-lease UPDATEs, unknown-column tolerance
 ├── test_export_concurrency.py       # creative_agent export tools: per-run scratch isolation (issue #104)
 ├── test_image_prompt_guide.py       # IMAGE_PROMPT_GUIDE rules: text cap, descriptors not templates, Educational mapping, trend motif, trend_motif schema field, REFERENCE_IMAGES section (roles + ignore-text), Subject+Action+Location+Composition+Style blocks, typography, no unrequested logos
-├── test_image_reference.py          # generate_image multimodal contents + valid ImageConfig
+├── test_image_reference.py          # generate_image multimodal contents + valid ImageConfig; multiple reference images (resolve_references legacy fold-in/dedupe/cap/invalid roles, ordered parts, one failed fetch skips only that ref, numbered role block + ignore-text line)
 ├── test_interactive_resume_graph.py # real interactive_creative App via start_run/start_resume: checkpoint pause → NodeTool resume, fail-once retry counts, one BQ key (write_trends_to_bq added to the root's tools for the test), the resumed root's history keeps the checkpoint response but no sub-agent turns
 ├── test_no_legacy_agent_engines_api.py # guard: no legacy vertexai agent_engines API in repo call sites
 ├── test_observability.py            # shared agent_common observability callbacks
