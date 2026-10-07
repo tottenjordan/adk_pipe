@@ -64,6 +64,7 @@ tests/
 ├── test_concept_guard.py            # final image prompts always name the trend_motif + product (pure guard)
 ├── test_config.py                   # per-agent config resolution (incl. campaign-placement resolver)
 ├── test_create_session_engine.py    # create_session_engine.py (reuse-or-create sessions-only engine)
+├── test_creative_brief_prompts.py   # {creative_brief?} block before the report + shared contract rule in the 5 creative prompts; brace-safety
 ├── test_creative_agent_graph.py     # creative_agent graph pipelines end-to-end (stub models): routing, citations, no-stall, guard-repaired render prompts, creative-brief gate (pass / revise once / residual issues / writer exhausted)
 ├── test_eval_efficiency_gate.py     # efficiency gate: metric extraction, tolerances, warn-only latency, CLI exit codes, --update-baseline
 ├── test_creative_eval.py            # creative_eval schemas, scoring logic, config

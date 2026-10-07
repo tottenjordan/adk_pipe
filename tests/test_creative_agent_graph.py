@@ -445,6 +445,28 @@ def test_ad_creative_graph_returns_final_copies(monkeypatch):
     assert root_llm.calls == 2  # not stalled
 
 
+def test_ad_agents_receive_the_brief_before_the_report(monkeypatch):
+    """The brief in state is rendered into the drafter's and critic's prompts,
+    ahead of the research report (the brief is the contract)."""
+    import creative_agent.agent as ca
+
+    llms = _stub_graph(monkeypatch, ca.ad_creative_pipeline)
+    llms["ad_copy_drafter"].push(text_response(_ADS))
+    llms["ad_copy_critic"].push(text_response(_ADS))
+
+    _run_root(
+        monkeypatch,
+        "ad_creative_pipeline",
+        {"combined_final_cited_report": "# Report", "creative_brief": _BRIEF},
+    )
+
+    for name in ("ad_copy_drafter", "ad_copy_critic"):
+        prompt = str(llms[name].requests[-1].config.system_instruction)
+        proposition = _BRIEF["single_minded_proposition"]
+        assert proposition in prompt, name
+        assert prompt.index(proposition) < prompt.index("# Report"), name
+
+
 def _fake_generate_image(tool_context) -> dict:
     """Stands in for creative_agent.tools.generate_image (same name + flag)."""
     tool_context.state["_images_generated"] = True
