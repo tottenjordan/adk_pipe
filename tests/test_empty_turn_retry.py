@@ -31,7 +31,7 @@ def _resp(*parts: types.Part, finish=types.FinishReason.STOP, **kw) -> LlmRespon
 
 
 EMPTY = _resp()
-CALL = _resp(types.Part(function_call=types.FunctionCall(name="creative_eval_agent")))
+CALL = _resp(types.Part(function_call=types.FunctionCall(name="finalize_pipeline")))
 TEXT = _resp(types.Part(text="done: gs://bucket/folder"))
 
 

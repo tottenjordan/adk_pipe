@@ -14,20 +14,15 @@ def test_creative_agent_root_has_expected_tools():
     tool_names = [
         getattr(t, "name", getattr(t, "__name__", str(t))) for t in root_agent.tools
     ]
-    expected = [
+    # The research PDF and the eval + persistence steps run inside the
+    # pipelines: the root makes four workflow calls (plus memorize).
+    assert tool_names == [
         "combined_research_pipeline",
         "ad_creative_pipeline",
         "visual_production_pipeline",
-        "creative_eval_agent",
-        "save_eval_report_to_gcs",
-        "save_draft_report_artifact",
-        "save_creative_gallery_html",
-        "write_trends_to_bq",
-        "write_eval_report_to_bq",
+        "finalize_pipeline",
         "memorize",
     ]
-    for name in expected:
-        assert name in tool_names, f"Missing tool: {name}"
 
 
 def test_creative_agent_root_output_key_not_set():
@@ -946,7 +941,8 @@ def test_interactive_creative_uses_resilient_visual_generator():
 
 def test_interactive_creative_exposes_pipelines_as_node_tools():
     """G3 minimal change: the reused creative_agent pipelines are bare nodes
-    (auto-wrapped NodeTools); the reviser + eval judge stay AgentTools."""
+    (auto-wrapped NodeTools, now including finalize_pipeline); only the reviser
+    stays an AgentTool."""
     from google.adk.tools.agent_tool import AgentTool
 
     from interactive_creative import agent as ic
@@ -957,11 +953,12 @@ def test_interactive_creative_exposes_pipelines_as_node_tools():
         "ad_creative_pipeline",
         "visual_generation_pipeline",
         "visual_generator_resilient",
+        "finalize_pipeline",
     }
     agent_tools = {
         t.agent.name for t in ic.root_agent.tools if isinstance(t, AgentTool)
     }
-    assert agent_tools == {"visual_concept_reviser", "creative_eval_agent"}
+    assert agent_tools == {"visual_concept_reviser"}
     # The human-review checkpoints stay LongRunningFunctionTools (they pause the
     # resumable App until the resume's function response arrives).
     from google.adk.tools.long_running_tool import LongRunningFunctionTool
@@ -1287,7 +1284,7 @@ def test_pick_trends_agent_excludes_brand_unsafe_trends():
 
 def test_creative_agent_root_exposes_pipelines_as_node_tools():
     """The pipelines are bare graph nodes on the root (auto-wrapped NodeTools);
-    creative_eval_agent stays an AgentTool."""
+    the eval judge runs inside finalize_pipeline, so there are no AgentTools."""
     from google.adk.tools.agent_tool import AgentTool
 
     from creative_agent.agent import root_agent
@@ -1297,9 +1294,9 @@ def test_creative_agent_root_exposes_pipelines_as_node_tools():
         "combined_research_pipeline",
         "ad_creative_pipeline",
         "visual_production_pipeline",
+        "finalize_pipeline",
     }
-    agent_tools = {t.agent.name for t in root_agent.tools if isinstance(t, AgentTool)}
-    assert agent_tools == {"creative_eval_agent"}
+    assert not [t for t in root_agent.tools if isinstance(t, AgentTool)]
 
 
 # The six Pro (critic_model) producers fail over to worker_model on 429/5xx via

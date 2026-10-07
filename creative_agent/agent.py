@@ -11,7 +11,6 @@ from google.adk.events.event import Event
 from google.adk.events.event_actions import EventActions
 from google.adk.planners import BuiltInPlanner
 from google.adk.tools import google_search
-from google.adk.tools.agent_tool import AgentTool
 from google.adk.workflow import JoinNode, Workflow
 from google.genai import types
 
@@ -25,7 +24,6 @@ from agent_common import (
     build_safety_plugins,
     is_populated,
 )
-from creative_eval.agent import creative_eval_agent
 
 from . import callbacks, gcs_tools, prompts, tools
 from .brief_check import check_brief
@@ -1088,12 +1086,7 @@ root_agent = Agent(
         combined_research_pipeline,
         ad_creative_pipeline,
         visual_production_pipeline,
-        AgentTool(agent=creative_eval_agent),
-        tools.save_eval_report_to_gcs,
-        tools.save_draft_report_artifact,
-        tools.save_creative_gallery_html,
-        tools.write_trends_to_bq,
-        tools.write_eval_report_to_bq,
+        finalize_pipeline,
         tools.memorize,
     ],
     generate_content_config=types.GenerateContentConfig(

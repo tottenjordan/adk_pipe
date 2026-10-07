@@ -17,6 +17,8 @@ checking what structure tests can't:
   the upstream node's re-execution count is CHARACTERIZED, not assumed);
 * ``write_trends_to_bq`` invoked once before and once after the resume binds the
   same ``stable_row_id(session.id, trend)`` key both times (one logical row).
+  It runs inside ``finalize_pipeline`` in production; the test adds it to the
+  root's tools so the binding is checked without scripting the eval judge.
 """
 
 import asyncio
@@ -79,6 +81,19 @@ def _merge_params(sql: str, job_config: Any) -> list[Any]:
     """Every BQ write here is a MERGE; nothing to return (DML)."""
     assert "MERGE" in sql
     return []
+
+
+@pytest.fixture(autouse=True)
+def _offline_research_pdf(monkeypatch):
+    """The research pipeline saves its PDF itself (save_research_pdf_node); keep
+    that offline here (no PDF render, no GCS)."""
+    from creative_agent import gcs_tools
+
+    async def fake_save_pdf(ctx) -> dict:
+        ctx.state["research_report_gcs_uri"] = "gs://bucket/report.pdf"
+        return {"status": "success"}
+
+    monkeypatch.setattr(gcs_tools, "save_draft_report_artifact", fake_save_pdf)
 
 
 def _patch_root(monkeypatch: pytest.MonkeyPatch) -> _RecordingLlm:
@@ -161,6 +176,12 @@ def _run_paused_then_resumed(
 
     bq = FakeBigQueryClient(_merge_params)
     monkeypatch.setattr(bq_tools, "_get_bigquery_client", lambda: bq)
+    # write_trends_to_bq now runs inside finalize_pipeline, not as a root tool;
+    # expose it directly here so the at-least-once key binding across a resume
+    # is still characterized on the real resumable App without the judge.
+    monkeypatch.setattr(
+        ic.root_agent, "tools", [*ic.root_agent.tools, bq_tools.write_trends_to_bq]
+    )
 
     # Segment 1: research NodeTool → BQ write → checkpoint 1 (pause).
     root_llm.push(
