@@ -2,8 +2,9 @@
 
 import { useState, type Ref } from "react";
 import { cn } from "@/lib/utils";
-import type { Proof, ProofSort } from "@/lib/eval-matching";
+import { proofFailedChecks, type Proof, type ProofSort } from "@/lib/eval-matching";
 import { SegmentedControl } from "@/components/segmented-control";
+import { CheckFailedChip } from "./eval-checks";
 import { CONDENSED, ScoreMark } from "./score-mark";
 
 const SORT_OPTIONS: { value: ProofSort; label: string }[] = [
@@ -126,6 +127,7 @@ export function ProofGrid({
                     <ScoreMark label="Ad copy" score={p.adCopyEval?.score} />
                     <ScoreMark label="Visual" score={p.visualEval?.score} />
                   </div>
+                  <CheckFailedChip count={proofFailedChecks(p).length} className="mt-2" />
                 </div>
               </div>
             </button>
