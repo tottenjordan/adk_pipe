@@ -1,4 +1,5 @@
 import copy
+import json
 import logging
 from collections.abc import Mapping
 from typing import Any
@@ -444,6 +445,17 @@ def _missing_notice(producer: str, key: str) -> str:
     )
 
 
+def _item_count(value: Any, list_key: str) -> int:
+    """Length of ``value[list_key]`` for a dict or JSON-string payload; 0 if absent."""
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except ValueError:
+            return 0
+    items = value.get(list_key) if isinstance(value, dict) else None
+    return len(items) if isinstance(items, list) else 0
+
+
 def research_report_ready(ctx: Context) -> str:
     """Terminal node of combined_research_pipeline (the root's tool result).
 
@@ -707,13 +719,17 @@ ad_copy_reviser_failsoft = FailSoftNode(
 def ad_copies_ready(ctx: Context) -> Any:
     """Terminal node of ad_creative_pipeline (the root's tool result).
 
-    Returns the final ad copies (the critic's, after any gate-driven revision;
-    the payload the pre-graph AgentTool returned), or a non-empty notice when
-    the critic produced none.
+    A short confirmation, not the copies themselves (like research_report_ready):
+    every later step reads `ad_copy_critique` from state, and echoing ~10k chars
+    of copy JSON into the root's context made the Pro root prone to empty turns.
+    A non-empty notice when the critic produced none.
     """
     value = ctx.state.get("ad_copy_critique")
     if is_populated(value):
-        return value
+        return (
+            f"Ad copies complete: {_item_count(value, 'ad_copies')} final copies "
+            "saved to session state as 'ad_copy_critique'."
+        )
     return _missing_notice("ad_copy_critic", "ad_copy_critique")
 
 
@@ -925,12 +941,16 @@ visual_generator_resilient = RetryUntilKeyNode(
 def visual_concepts_ready(ctx: Context) -> Any:
     """Terminal node of visual_generation_pipeline (the root's tool result).
 
-    Returns the finalized visual concepts (the payload the pre-graph AgentTool
-    returned), or a non-empty notice when the finalizer produced none.
+    A short confirmation, not the concepts themselves (see ad_copies_ready):
+    the renderer, reviser and eval read `final_visual_concepts` from state. A
+    non-empty notice when the finalizer produced none.
     """
     value = ctx.state.get("final_visual_concepts")
     if is_populated(value):
-        return value
+        return (
+            f"Visual concepts complete: {_item_count(value, 'visual_concepts')} "
+            "concepts saved to session state as 'final_visual_concepts'."
+        )
     return _missing_notice("visual_concept_finalizer", "final_visual_concepts")
 
 

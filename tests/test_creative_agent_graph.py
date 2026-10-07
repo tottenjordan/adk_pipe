@@ -534,6 +534,11 @@ def test_research_graph_branch_failure_does_not_stall_root(monkeypatch):
 # Ad / visual pipelines
 # --------------------------------------------------------------------------
 
+# ad_creative_pipeline hands the root a short confirmation, not the copies.
+_ADS_CONFIRMATION = (
+    "Ad copies complete: 4 final copies saved to session state as 'ad_copy_critique'."
+)
+
 _ADS = '{"ad_copies": []}'
 _ADS_FINAL = '{"ad_copies": [{"id": 1, "tone_style": "Humorous"}]}'
 _CONCEPTS = '{"visual_concepts": []}'
@@ -830,7 +835,7 @@ def test_ad_copies_passing_the_gate_skip_the_reviser(monkeypatch):
     assert state["ad_copy_issues"] == ""
     assert state.get("ad_copy_critique__issues") is None
     (response,) = _responses(events)
-    assert response == {"ad_copies": ads}
+    assert response == {"result": _ADS_CONFIRMATION}
     assert root_llm.calls == 2
 
 
@@ -875,9 +880,7 @@ def test_flagged_copy_is_revised_and_unflagged_edits_are_reverted(monkeypatch):
     assert state["ad_copy_critique__before_revision"] is None
     assert state.get("ad_copy_critique__issues") is None
     (response,) = _responses(events)
-    assert [c["body_text"] for c in response["ad_copies"]] == [
-        b for _, b in _ids_and_bodies(state)
-    ]
+    assert response == {"result": _ADS_CONFIRMATION}
     assert root_llm.calls == 2
 
 
@@ -897,7 +900,7 @@ def test_raising_ad_copy_reviser_keeps_the_pre_revision_copies(monkeypatch):
     (note,) = collect_degradation_warnings(state)
     assert note.startswith("Ad copy critique has unresolved issues: 1 (e.g. ")
     (response,) = _responses(events)
-    assert response == {"ad_copies": ads}
+    assert response == {"result": _ADS_CONFIRMATION}
     assert root_llm.calls == 2
 
 
@@ -917,5 +920,7 @@ def test_ad_copy_issues_left_after_the_budget_are_recorded(monkeypatch):
     (note,) = collect_degradation_warnings(state)
     assert note.startswith("Ad copy critique has unresolved issues: 1 (e.g. ")
     (response,) = _responses(events)
-    assert response == {"ad_copies": ads}
+    assert response == {
+        "result": _ADS_CONFIRMATION.replace("4 final", f"{len(ads)} final")
+    }
     assert root_llm.calls == 2
