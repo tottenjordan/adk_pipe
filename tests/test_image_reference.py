@@ -6,6 +6,9 @@ contents, with a text-only fallback) and the Phase-1 aspect-ratio config
 """
 
 import asyncio
+import urllib.request
+
+import pytest
 
 from creative_agent import image_tools
 from tests._fakes import FakeToolContext, noop_async
@@ -289,6 +292,22 @@ class TestReferencePrompt:
         assert "ignore any text, captions or watermarks" in line.lower()
         assert out.count(line) == 1
 
+    def test_unavailable_role_line(self):
+        out = image_tools._reference_prompt("s", ["style"], ["product"])
+        assert "Reference image 1 (style):" in out
+        assert (
+            "The product reference image is unavailable; do not imitate any "
+            "other reference as the product." in out
+        )
+        assert out.count(image_tools.REFERENCE_IGNORE_TEXT_LINE) == 1
+
+    def test_unavailable_line_skipped_when_role_still_attached(self):
+        out = image_tools._reference_prompt("s", ["product"], ["product"])
+        assert "unavailable" not in out
+
+    def test_no_attached_roles_stays_text_only(self):
+        assert image_tools._reference_prompt("s", [], ["product"]) == "s"
+
 
 def test_reference_role_adds_instruction_to_prompt(monkeypatch):
     """With a reference present + a role set, the prompt text gains the role
@@ -430,9 +449,21 @@ class TestResolveReferences:
         }
         assert image_tools.resolve_references(state) == [("gs://b/ok.png", "style")]
 
-    def test_missing_role_defaults_to_product(self):
-        state = {"reference_images": [{"uri": "gs://b/a.png"}]}
-        assert image_tools.resolve_references(state) == [("gs://b/a.png", "product")]
+    def test_list_entry_without_valid_role_skipped_with_warning(self, caplog):
+        """Only the legacy single pair defaults to product; a list entry must
+        name its role."""
+        state = {
+            "reference_images": [
+                {"uri": "gs://b/a.png"},
+                {"uri": "gs://b/b.png", "role": ""},
+                {"uri": "gs://b/c.png", "role": None},
+                {"uri": "gs://b/d.png", "role": "logo"},
+            ]
+        }
+        with caplog.at_level("WARNING"):
+            refs = image_tools.resolve_references(state)
+        assert refs == [("gs://b/d.png", "logo")]
+        assert "gs://b/a.png" in caplog.text
 
     def test_legacy_folded_in_first(self):
         state = {
@@ -603,3 +634,210 @@ def test_all_fetches_failed_is_text_only(monkeypatch):
 
     asyncio.run(image_tools.generate_image(ctx))
     assert models.calls[0]["contents"] == "a scene"
+
+
+def test_failed_product_fetch_renumbers_and_flags_it_unavailable(monkeypatch):
+    models = _patch_client(monkeypatch)
+
+    def fake_download(bucket, obj):
+        if obj == "product.png":
+            raise RuntimeError("gcs down")
+        return obj.encode()
+
+    monkeypatch.setattr(image_tools, "_download_blob", fake_download)
+    ctx = _multi_ctx(
+        [
+            {"uri": "gs://b/product.png", "role": "product"},
+            {"uri": "gs://b/style.png", "role": "style"},
+        ]
+    )
+
+    asyncio.run(image_tools.generate_image(ctx))
+    contents = models.calls[0]["contents"]
+    assert [c.inline_data.data for c in contents[1:]] == [b"style.png"]
+    text = contents[0]
+    assert "Reference image 1 (style):" in text
+    assert "Reference image 2" not in text
+    assert (
+        "The product reference image is unavailable; do not imitate any other "
+        "reference as the product." in text
+    )
+
+
+# --- _fetch_reference_image hardening (no network) ---
+class _FakeHeaders:
+    def __init__(self, content_type):
+        self._ct = content_type
+
+    def get_content_type(self):
+        return self._ct
+
+
+class _FakeResp:
+    def __init__(self, data=b"img", content_type="image/png"):
+        self._data = data
+        self.headers = _FakeHeaders(content_type)
+        self.read_sizes = []
+
+    def read(self, n=-1):
+        self.read_sizes.append(n)
+        return self._data if n is None or n < 0 else self._data[:n]
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+
+def _addrinfo(*ips):
+    def fake(host, port, *a, **k):
+        return [(2, 1, 6, "", (ip, port)) for ip in ips]
+
+    return fake
+
+
+class _FakeOpener:
+    def __init__(self, resp):
+        self.resp = resp
+        self.opened = []
+
+    def open(self, url, timeout=None):
+        self.opened.append(url)
+        return self.resp
+
+
+def _patch_http(monkeypatch, resp, *ips):
+    opener = _FakeOpener(resp)
+    monkeypatch.setattr(image_tools.socket, "getaddrinfo", _addrinfo(*ips))
+    monkeypatch.setattr(image_tools, "_reference_opener", lambda: opener)
+    return opener
+
+
+class TestFetchReferenceHardening:
+    def test_public_https_image_ok(self, monkeypatch):
+        resp = _FakeResp(b"jpegbytes", "image/jpeg")
+        opener = _patch_http(monkeypatch, resp, "93.184.216.34")
+        part = image_tools._fetch_reference_image("https://example.com/a")
+        assert part is not None
+        assert part.inline_data.data == b"jpegbytes"
+        assert part.inline_data.mime_type == "image/jpeg"
+        assert opener.opened == ["https://example.com/a"]
+
+    def test_plain_http_allowed(self, monkeypatch):
+        _patch_http(monkeypatch, _FakeResp(), "93.184.216.34")
+        assert image_tools._fetch_reference_image("http://example.com/a.png")
+
+    def test_read_is_capped_at_max_plus_one(self, monkeypatch):
+        resp = _FakeResp()
+        _patch_http(monkeypatch, resp, "93.184.216.34")
+        image_tools._fetch_reference_image("https://example.com/a.png")
+        assert resp.read_sizes == [image_tools._REFERENCE_MAX_BYTES + 1]
+
+    def test_oversized_body_rejected(self, monkeypatch):
+        monkeypatch.setattr(image_tools, "_REFERENCE_MAX_BYTES", 4)
+        _patch_http(monkeypatch, _FakeResp(b"12345"), "93.184.216.34")
+        assert image_tools._fetch_reference_image("https://example.com/a.png") is None
+
+    def test_non_image_content_type_rejected(self, monkeypatch):
+        _patch_http(monkeypatch, _FakeResp(b"<html>", "text/html"), "93.184.216.34")
+        assert image_tools._fetch_reference_image("https://example.com/a.png") is None
+
+    @pytest.mark.parametrize(
+        "ip",
+        [
+            "127.0.0.1",
+            "10.1.2.3",
+            "192.168.0.5",
+            "172.16.0.1",
+            "169.254.169.254",  # metadata server (link-local)
+            "0.0.0.0",
+            "224.0.0.1",
+            "240.0.0.1",
+            "::1",
+            "fe80::1",
+            "fc00::1",
+            "::ffff:127.0.0.1",
+        ],
+    )
+    def test_non_public_address_rejected(self, monkeypatch, ip):
+        opener = _patch_http(monkeypatch, _FakeResp(), ip)
+        assert image_tools._fetch_reference_image("https://evil.example/a.png") is None
+        assert opener.opened == []
+
+    def test_any_private_resolved_address_rejects(self, monkeypatch):
+        opener = _patch_http(monkeypatch, _FakeResp(), "93.184.216.34", "10.0.0.1")
+        assert image_tools._fetch_reference_image("https://mixed.example/a") is None
+        assert opener.opened == []
+
+    def test_dns_failure_is_fail_soft(self, monkeypatch):
+        def boom(*a, **k):
+            raise OSError("no such host")
+
+        monkeypatch.setattr(image_tools.socket, "getaddrinfo", boom)
+        assert image_tools._fetch_reference_image("https://nope.example/a") is None
+
+    def test_redirect_to_private_host_rejected(self, monkeypatch):
+        monkeypatch.setattr(
+            image_tools.socket,
+            "getaddrinfo",
+            lambda host, port, *a, **k: [
+                (
+                    2,
+                    1,
+                    6,
+                    "",
+                    ("10.0.0.9" if host == "internal" else "93.184.216.34", port),
+                )
+            ],
+        )
+        handler = image_tools._RevalidatingRedirectHandler()
+        req = urllib.request.Request("https://example.com/a")
+        with pytest.raises(image_tools.UnsafeReferenceURL):
+            handler.redirect_request(
+                req, None, 302, "Found", {}, "http://internal/latest"
+            )
+
+    def test_redirect_to_public_host_revalidated_and_followed(self, monkeypatch):
+        monkeypatch.setattr(
+            image_tools.socket, "getaddrinfo", _addrinfo("93.184.216.34")
+        )
+        handler = image_tools._RevalidatingRedirectHandler()
+        req = urllib.request.Request("https://example.com/a")
+        new = handler.redirect_request(
+            req, None, 302, "Found", {}, "https://cdn.example.com/a.png"
+        )
+        assert new.full_url == "https://cdn.example.com/a.png"
+
+    def test_redirect_to_other_scheme_rejected(self, monkeypatch):
+        monkeypatch.setattr(
+            image_tools.socket, "getaddrinfo", _addrinfo("93.184.216.34")
+        )
+        handler = image_tools._RevalidatingRedirectHandler()
+        req = urllib.request.Request("https://example.com/a")
+        with pytest.raises(image_tools.UnsafeReferenceURL):
+            handler.redirect_request(req, None, 302, "Found", {}, "file:///etc/passwd")
+
+    def test_at_most_three_redirects(self):
+        assert image_tools._RevalidatingRedirectHandler.max_redirections == 3
+
+    def test_real_opener_uses_revalidating_handler(self):
+        opener = image_tools._reference_opener()
+        assert any(
+            isinstance(h, image_tools._RevalidatingRedirectHandler)
+            for h in opener.handlers
+        )
+        assert not any(
+            type(h) is urllib.request.HTTPRedirectHandler for h in opener.handlers
+        )
+
+    def test_gs_object_over_cap_rejected(self, monkeypatch):
+        monkeypatch.setattr(image_tools, "_REFERENCE_MAX_BYTES", 4)
+        monkeypatch.setattr(image_tools, "_download_blob", lambda b, o: b"12345")
+        assert image_tools._fetch_reference_image("gs://b/big.png") is None
+
+    def test_gs_object_within_cap_ok(self, monkeypatch):
+        monkeypatch.setattr(image_tools, "_download_blob", lambda b, o: b"1234")
+        part = image_tools._fetch_reference_image("gs://b/ok.jpg")
+        assert part is not None
+        assert part.inline_data.mime_type == "image/jpeg"

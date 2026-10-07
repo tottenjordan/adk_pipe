@@ -6,8 +6,10 @@ this module has no side effects.
 
 import asyncio
 import functools
+import ipaddress
 import logging
 import random
+import socket
 import urllib.request
 from urllib.parse import urlparse
 
@@ -33,6 +35,7 @@ __all__ = [
     "MAX_REFERENCE_IMAGES",
     "REFERENCE_IGNORE_TEXT_LINE",
     "REFERENCE_ROLES",
+    "UnsafeReferenceURL",
     "generate_image",
     "reference_roles_summary",
     "resolve_references",
@@ -40,6 +43,9 @@ __all__ = [
 
 # Fetch timeout for an http(s) reference image (stdlib urllib, no new dep).
 _REFERENCE_FETCH_TIMEOUT_SECS = 20
+
+# Largest reference image accepted (http(s) body or gs:// object).
+_REFERENCE_MAX_BYTES = 10 * 1024 * 1024
 
 # Map a reference-image extension to a mime type (default image/png).
 _REFERENCE_MIME_BY_EXT = {
@@ -60,12 +66,85 @@ def _reference_mime_for(path: str) -> str:
     return "image/png"
 
 
+class UnsafeReferenceURL(ValueError):
+    """An http(s) reference URL that must not be fetched (SSRF guard)."""
+
+
+def _is_public_ip(raw: str) -> bool:
+    """False for loopback/private/link-local/reserved/multicast/unspecified."""
+    ip = ipaddress.ip_address(raw.split("%", 1)[0])  # drop an IPv6 zone id
+    mapped = getattr(ip, "ipv4_mapped", None)
+    if mapped is not None:
+        ip = mapped
+    return not (
+        ip.is_loopback
+        or ip.is_private
+        or ip.is_link_local
+        or ip.is_reserved
+        or ip.is_multicast
+        or ip.is_unspecified
+    )
+
+
+def _validate_reference_url(url: str) -> None:
+    """Raise UnsafeReferenceURL unless ``url`` is http(s) to a public host.
+
+    Every address the hostname resolves to must be public (a mixed answer is
+    refused). Note: urllib re-resolves on connect, so this does not pin the
+    address (DNS-rebinding window); it blocks the plain metadata/private-host
+    cases a user-supplied URL could otherwise reach.
+    """
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https") or not parsed.hostname:
+        raise UnsafeReferenceURL(f"not an http(s) URL with a host: '{url}'")
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    infos = socket.getaddrinfo(parsed.hostname, port, type=socket.SOCK_STREAM)
+    if not infos:
+        raise UnsafeReferenceURL(f"'{parsed.hostname}' did not resolve")
+    for info in infos:
+        address = str(info[4][0])
+        if not _is_public_ip(address):
+            raise UnsafeReferenceURL(
+                f"'{parsed.hostname}' resolves to non-public address {address}"
+            )
+
+
+class _RevalidatingRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Follow at most 3 redirects, re-validating every hop's URL."""
+
+    max_redirections = 3
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        _validate_reference_url(newurl)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+def _reference_opener() -> urllib.request.OpenerDirector:
+    """A urllib opener whose redirect handler re-validates each hop."""
+    return urllib.request.build_opener(_RevalidatingRedirectHandler)
+
+
+def _fetch_http_reference(uri: str) -> tuple[bytes, str]:
+    """(bytes, mime) of a public http(s) image ≤ the size cap, else raise."""
+    _validate_reference_url(uri)
+    with _reference_opener().open(uri, timeout=_REFERENCE_FETCH_TIMEOUT_SECS) as resp:
+        mime = resp.headers.get_content_type()
+        if not mime.startswith("image/"):
+            raise ValueError(f"Content-Type {mime!r} is not an image")
+        data = resp.read(_REFERENCE_MAX_BYTES + 1)
+    if len(data) > _REFERENCE_MAX_BYTES:
+        raise ValueError(f"larger than {_REFERENCE_MAX_BYTES} bytes")
+    return data, mime
+
+
 def _fetch_reference_image(uri: str) -> types.Part | None:
     """Fetch a product/brand reference image as a genai Part, or None on failure.
 
     Supports ``gs://bucket/object`` (via the GCS client) and ``http(s)://`` URLs
-    (via stdlib urllib). Any failure is logged and swallowed so image generation
-    always falls back to the text-only path rather than aborting the run.
+    (via stdlib urllib, hardened: public hosts only, ≤ 3 re-validated
+    redirects, an ``image/*`` Content-Type). Both are capped at
+    ``_REFERENCE_MAX_BYTES``. Any failure is logged and swallowed so image
+    generation always falls back to the text-only path rather than aborting.
     """
     uri = (uri or "").strip()
     if not uri:
@@ -78,13 +157,11 @@ def _fetch_reference_image(uri: str) -> types.Part | None:
                 logging.warning(f"Malformed gs:// reference image URI: '{uri}'")
                 return None
             data = _download_blob(bucket, obj)
+            if len(data) > _REFERENCE_MAX_BYTES:
+                raise ValueError(f"larger than {_REFERENCE_MAX_BYTES} bytes")
             mime = _reference_mime_for(obj)
         elif uri.startswith("http://") or uri.startswith("https://"):
-            with urllib.request.urlopen(
-                uri, timeout=_REFERENCE_FETCH_TIMEOUT_SECS
-            ) as resp:
-                data = resp.read()
-            mime = _reference_mime_for(urlparse(uri).path)
+            data, mime = _fetch_http_reference(uri)
         else:
             logging.warning(
                 f"Unsupported reference image URI scheme (want gs:// or http(s)://): '{uri}'"
@@ -215,12 +292,16 @@ REFERENCE_IGNORE_TEXT_LINE = (
 )
 
 
-def _reference_prompt(prompt_text: str, roles: list[str]) -> str:
+def _reference_prompt(
+    prompt_text: str, roles: list[str], missing_roles: list[str] | tuple = ()
+) -> str:
     """The concept prompt plus a numbered reference block — pure.
 
     ``roles`` are the roles of the reference Parts attached after the prompt,
-    in order ("Reference image 1 (product): ..."). No roles → ``prompt_text``
-    unchanged (the text-only path).
+    in order ("Reference image 1 (product): ..."). ``missing_roles`` are roles
+    whose reference failed to fetch; each one not still covered by an attached
+    reference gets an "unavailable" line so the model doesn't take another
+    reference as that role. No roles → ``prompt_text`` unchanged (text-only).
     """
     if not roles:
         return prompt_text
@@ -228,29 +309,39 @@ def _reference_prompt(prompt_text: str, roles: list[str]) -> str:
         f"Reference image {i} ({role}): {_REFERENCE_ROLE_INSTRUCTIONS[role]}"
         for i, role in enumerate(roles, start=1)
     ]
+    for role in dict.fromkeys(missing_roles):
+        if role not in roles:
+            lines.append(
+                f"The {role} reference image is unavailable; do not imitate any "
+                f"other reference as the {role}."
+            )
     lines.append(REFERENCE_IGNORE_TEXT_LINE)
     return prompt_text + "\n\n" + "\n".join(lines)
 
 
 async def _fetch_references(
     refs: list[tuple[str, str]],
-) -> list[tuple[str, types.Part]]:
-    """Fetch every reference concurrently (off the event loop) → (role, Part).
+) -> tuple[list[tuple[str, types.Part]], list[str]]:
+    """Fetch every reference concurrently (off the event loop).
 
-    A failed fetch (``_fetch_reference_image`` returns None and logs a warning)
-    drops only that reference; the rest keep their order.
+    Returns ``(fetched, missing_roles)``: the ``(role, Part)`` pairs that
+    fetched, in order, and the roles whose fetch failed
+    (``_fetch_reference_image`` returned None and logged a warning). A failed
+    fetch drops only that reference.
     """
     parts = await asyncio.gather(
         *(asyncio.to_thread(_fetch_reference_image, uri) for uri, _ in refs)
     )
     fetched = []
+    missing = []
     for (uri, role), part in zip(refs, parts, strict=True):
         if part is None:
             logging.warning(f"Skipping {role} reference image '{uri}' (fetch failed)")
+            missing.append(role)
             continue
         logging.info(f"Using {role} reference image: {uri}")
         fetched.append((role, part))
-    return fetched
+    return fetched, missing
 
 
 def _final_image_part(parts):
@@ -293,7 +384,9 @@ async def generate_image(
     # Optional reference images (product / logo / style; `reference_images` plus
     # the legacy single `reference_image_uri`), applied to every concept. All
     # fetched ONCE, concurrently, before the loop; none fetched → text-only.
-    references = await _fetch_references(resolve_references(tool_context.state))
+    references, missing_roles = await _fetch_references(
+        resolve_references(tool_context.state)
+    )
     reference_roles = [role for role, _ in references]
     reference_parts = [part for _, part in references]
 
@@ -330,7 +423,7 @@ async def generate_image(
             prompt_text = entry["image_generation_prompt"]
             if reference_parts:
                 contents = [
-                    _reference_prompt(prompt_text, reference_roles),
+                    _reference_prompt(prompt_text, reference_roles, missing_roles),
                     *reference_parts,
                 ]
             else:

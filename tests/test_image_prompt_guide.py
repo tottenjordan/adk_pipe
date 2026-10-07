@@ -86,11 +86,14 @@ def _section(tag: str) -> str:
     return G[start:end]
 
 
-def test_reference_images_section_follows_google_formula():
+def test_reference_images_section_refers_by_role_not_number():
+    """Only the image tool numbers references (and it renumbers over the ones
+    that actually fetched), so the guide must refer to them by ROLE only."""
     sec = _section("REFERENCE_IMAGES")
-    assert "numbered reference" in sec
-    assert "relationship instruction" in sec.lower()
-    assert "new scenario" in sec.lower()
+    assert "Reference image 1" not in sec
+    assert "numbered" not in sec.replace("numbered reference block", "")
+    assert "product reference" in sec
+    assert "style reference" in sec
 
 
 def test_reference_images_roles_are_spelled_out():
@@ -101,12 +104,21 @@ def test_reference_images_roles_are_spelled_out():
     assert "palette, texture and lighting only" in sec
 
 
-def test_reference_images_ignore_their_text():
+def test_reference_images_ignore_text_is_left_to_the_render_step():
+    """The tool appends REFERENCE_IGNORE_TEXT_LINE; the guide must not ask the
+    drafter to write it again."""
     sec = _section("REFERENCE_IMAGES")
+    assert "Always say" not in sec
     assert (
-        "ignore any text, captions or watermarks that appear in the reference images"
-        in sec
+        "the render step attaches the numbered reference block and the "
+        "ignore-text instruction automatically" in sec
     )
+
+
+def test_style_reference_does_not_override_family_diversity():
+    sec = _section("REFERENCE_IMAGES").lower()
+    assert "does not override" in sec
+    assert "4 distinct" in sec or "four distinct" in sec
 
 
 def test_building_blocks_follow_subject_action_location_composition_style():

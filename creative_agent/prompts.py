@@ -66,11 +66,11 @@ Choose the style first: it shapes every other choice, so open the prompt with a 
 </BUILDING_BLOCKS>
 
 <REFERENCE_IMAGES>
-When the run supplies reference images (they are attached after the prompt as numbered references: Reference image 1, 2, 3), write the prompt as [what each numbered reference is for] + [relationship instruction] + [new scenario]. For example: "Reference image 1 is the product. Show this exact product held by a runner at dawn on a city bridge, ..." Per role:
+When the run supplies reference images, refer to each by its ROLE, never by a number (e.g. "show this exact product from the product reference held by a runner at dawn", "in the style reference's palette"); the render step attaches the numbered reference block and the ignore-text instruction automatically. Per role:
 - product: reproduce the product exactly as shown (shape, colour, label, proportions); describe the new scene around it, never redesign it.
 - logo: place the logo small, legible and undistorted (on the product, a sign or a corner), never stretched, recoloured or rewritten.
-- style: match its palette, texture and lighting only, not its content, subject or layout.
-Always say: "ignore any text, captions or watermarks that appear in the reference images" (image models otherwise copy a reference's baked-in headline). In-image text still comes only from the text rule above.
+- style: match its palette, texture and lighting only, not its content, subject or layout. It guides palette, texture and lighting for ALL concepts but does NOT override the 4 distinct style families rule: keep the families different and carry the reference's palette and lighting across them.
+In-image text still comes only from the text rule above.
 </REFERENCE_IMAGES>
 
 <ASPECT_RATIO>
@@ -693,21 +693,17 @@ VISUAL_CONCEPT_DRAFTER_INSTR = (
         </user_aspect_ratio>
 
         <reference_images>
-        Optional roles of the user's reference images, in order (e.g. "product,
-        style"); the image model receives the images themselves, numbered in this
-        order. For a `style` reference: pick the `visual_style` that matches it
-        rather than a contrasting one (it guides palette, texture and lighting
-        only). For a `product` or `logo` reference: describe the product/logo
-        generically and leave clear space for it — the reference supplies its
-        exact look. When empty, ignore it.
+        Optional roles of the user's reference images (e.g. "product, style");
+        the image model receives the images themselves. Refer to them by role
+        only ("the product from the product reference", "the style reference's
+        palette"), never by number. For a `style` reference: it guides palette,
+        texture and lighting for ALL concepts but does NOT override the 4
+        distinct families rule — keep the families different and carry its
+        palette and lighting across them. For a `product` or `logo` reference:
+        describe the product/logo generically and leave clear space for it —
+        the reference supplies its exact look. When empty, ignore it.
         {reference_roles?}
         </reference_images>
-
-        <reference_image_role>
-        Legacy single-reference role (already included in <reference_images>
-        when set); ignore it when empty.
-        {reference_image_role?}
-        </reference_image_role>
 
         <brand>{brand}</brand>
         <target_audience>{target_audience}</target_audience>
@@ -809,6 +805,12 @@ VISUAL_CONCEPT_CRITIC_INSTR = (
         {visual_avoid?}
         </user_avoid>
 
+        <reference_images>
+        Roles of the user's reference images (e.g. "product, style"), attached at
+        render time; refer to them by role only. When empty, ignore it.
+        {reference_roles?}
+        </reference_images>
+
         <user_aspect_ratio>
         Optional campaign-wide aspect-ratio override. When empty, ignore it.
         {visual_aspect_ratio?}
@@ -892,6 +894,12 @@ VISUAL_CONCEPT_FINALIZER_INSTR = (
         ignore it.
         {visual_avoid?}
         </user_avoid>
+
+        <reference_images>
+        Roles of the user's reference images (e.g. "product, style"), attached at
+        render time; refer to them by role only. When empty, ignore it.
+        {reference_roles?}
+        </reference_images>
     </CONTEXT>
 
     <GUIDANCE>

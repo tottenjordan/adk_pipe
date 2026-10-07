@@ -51,12 +51,29 @@ class TestTier2IntentTokens:
         assert "{visual_aspect_ratio?}" in prompts.VISUAL_CONCEPT_DRAFTER_INSTR
         assert "{visual_aspect_ratio?}" in prompts.VISUAL_CONCEPT_CRITIC_INSTR
 
-    def test_reference_role_token_in_drafter(self):
-        assert "{reference_image_role?}" in prompts.VISUAL_CONCEPT_DRAFTER_INSTR
+    def test_legacy_reference_role_block_dropped_from_drafter(self):
+        # Already folded into {reference_roles?}; the state key stays for the
+        # image tool only.
+        assert "{reference_image_role?}" not in prompts.VISUAL_CONCEPT_DRAFTER_INSTR
+        assert "<reference_image_role>" not in prompts.VISUAL_CONCEPT_DRAFTER_INSTR
 
     def test_reference_roles_token_in_drafter(self):
         # Multiple references: the ordered role list derived at state init.
         assert "{reference_roles?}" in prompts.VISUAL_CONCEPT_DRAFTER_INSTR
+
+    def test_reference_roles_token_in_critic_and_finalizer(self):
+        for instr in (
+            prompts.VISUAL_CONCEPT_CRITIC_INSTR,
+            prompts.VISUAL_CONCEPT_FINALIZER_INSTR,
+        ):
+            assert "{reference_roles?}" in instr
+
+    def test_drafter_reference_block_is_role_only(self):
+        instr = prompts.VISUAL_CONCEPT_DRAFTER_INSTR
+        start = instr.index("<reference_images>")
+        block = instr[start : instr.index("</reference_images>")]
+        assert "numbered" not in block
+        assert "does not override" in block.lower()
 
     def test_checkpoint_feedback_tokens(self):
         # Interactive checkpoint feedback (memorized by the interactive root);
