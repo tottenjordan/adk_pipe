@@ -273,7 +273,9 @@ def ensure_trend_and_product_callback(callback_context: CallbackContext) -> None
         return None
 
     repaired, warnings = ensure_trend_and_product(
-        concepts, str(state.get("target_product") or "")
+        concepts,
+        str(state.get("target_product") or ""),
+        brand=str(state.get("brand") or ""),
     )
     for warning in warnings:
         logging.warning(f"concept guard: {warning}")

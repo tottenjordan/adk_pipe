@@ -276,22 +276,33 @@ def _result_node_cases():
     ]
 
 
-def test_populated_result_nodes_return_the_pipeline_output():
-    """ad/visual terminals hand the root the same payload the pre-graph
-    AgentTool returned (the final agent's structured output)."""
+def test_populated_result_nodes_return_a_short_confirmation():
+    """ad/visual terminals hand the root a short confirmation (with the item
+    count), never the copies/concepts JSON itself: later steps read state, and a
+    ~10k-char payload in the root's context made the Pro root prone to empty
+    turns (session 8242212012491276288)."""
+    import json
     from types import SimpleNamespace
 
     from creative_agent import agent as ca
 
-    ads = {"ad_copies": [{"id": 1}]}
-    assert ca.ad_copies_ready(SimpleNamespace(state={"ad_copy_critique": ads})) == ads
-    concepts = {"visual_concepts": [{"name": "x"}]}
+    ads = {"ad_copies": [{"id": i, "headline": "x" * 500} for i in range(4)]}
+    msg = ca.ad_copies_ready(SimpleNamespace(state={"ad_copy_critique": ads}))
     assert (
-        ca.visual_concepts_ready(
-            SimpleNamespace(state={"final_visual_concepts": concepts})
-        )
-        == concepts
+        isinstance(msg, str) and "4 final copies" in msg and "ad_copy_critique" in msg
     )
+    assert len(msg) < 200
+    as_json = ca.ad_copies_ready(
+        SimpleNamespace(state={"ad_copy_critique": json.dumps(ads)})
+    )
+    assert "4 final copies" in as_json
+
+    concepts = {"visual_concepts": [{"name": "x"}, {"name": "y"}]}
+    msg = ca.visual_concepts_ready(
+        SimpleNamespace(state={"final_visual_concepts": concepts})
+    )
+    assert "2 concepts" in msg and "final_visual_concepts" in msg
+    assert len(msg) < 200
 
 
 def test_exposed_node_tools_have_real_descriptions():
@@ -365,6 +376,14 @@ def test_research_refinement_gate_predicate():
             )
             is True
         )
+        # Cleared (None) by a later successful RetryUntilKeyNode run → healthy.
+        for cleared in (None, False):
+            assert (
+                _base_research_is_degraded(
+                    {"combined_web_search_insights": "A full brief.", marker: cleared}
+                )
+                is False
+            )
 
 
 def test_refined_searcher_has_tool_synthesizer_is_tool_free():
@@ -1471,6 +1490,18 @@ def test_brief_gate_decision_clean_brief():
     }
 
 
+def test_brief_gate_decision_passes_the_trend_to_the_and_check():
+    from creative_agent.agent import brief_gate_decision
+
+    brief = {
+        **_clean_brief(),
+        "single_minded_proposition": "Every Dungeons and Dragons night needs skates.",
+    }
+    assert brief_gate_decision({"creative_brief": brief}, 1)[0] == "revise"
+    state = {"creative_brief": brief, "target_search_trends": "Dungeons and Dragons"}
+    assert brief_gate_decision(state, 1)[0] == "ok"
+
+
 def test_brief_gate_decision_revises_within_budget():
     from creative_agent.agent import brief_gate_decision
 
@@ -1683,15 +1714,25 @@ def _final_copy(original_id=1, **overrides):
         "audience_appeal_rationale": "a",
         "social_caption": "Zoom.",
         "call_to_action": "Order yours today",
+        "brief_checks": [
+            {"item": "proposition", "passed": True, "note": ""},
+            {"item": "mandatories", "passed": True, "note": ""},
+        ],
         "detailed_performance_rationale": "r",
     }
     copy.update(overrides)
     return copy
 
 
+def _four(*copies):
+    """Pad ``copies`` with clean copies (ids 11+) to the expected 4."""
+    pad = [_final_copy(11 + i) for i in range(4 - len(copies))]
+    return (*copies, *pad)
+
+
 def _copy_state(*copies, **extra):
     return {
-        "ad_copy_critique": {"ad_copies": list(copies)},
+        "ad_copy_critique": {"ad_copies": list(_four(*copies))},
         "target_product": "Rocket Skates",
         "brand": "Acme",
         **extra,
@@ -1750,7 +1791,13 @@ def test_copy_gate_decision_self_reported_gating_policy():
     from creative_agent.agent import copy_gate_decision
 
     def checks(*items):
-        return [{"item": i, "passed": False, "note": "n"} for i in items]
+        failed = [{"item": i, "passed": False, "note": "n"} for i in items]
+        complete = [
+            {"item": i, "passed": True, "note": ""}
+            for i in ("proposition", "mandatories")
+            if i not in items
+        ]
+        return failed + complete
 
     advisory = _final_copy(1, brief_checks=checks("tone", "trend_bridge", "cta"))
     assert copy_gate_decision(_copy_state(advisory), 1)[0] == "ok"
@@ -1788,6 +1835,58 @@ def test_copy_gate_decision_reads_the_brief_avoid_list():
     assert copy_gate_decision(state, 1)[0] == "ok"
 
 
+def test_copy_gate_decision_records_structural_issues_without_revising():
+    """Too few copies / an incomplete gating checklist are recorded on the ok
+    exit but never route a revision (the per-copy reviser cannot fix them)."""
+    from creative_agent.agent import copy_gate_decision
+
+    state = {
+        "ad_copy_critique": {
+            "ad_copies": [_final_copy(1), _final_copy(2, brief_checks=[])]
+        },
+        "target_product": "Rocket Skates",
+    }
+    route, delta = copy_gate_decision(state, 2)
+    assert route == "ok"
+    # No brief: no checklist to apply, so only the missing copies are noted.
+    assert delta["ad_copy_critique__issues"] == ["only 2 of 4 ad copies were produced."]
+    route, delta = copy_gate_decision({**state, "creative_brief": _clean_brief()}, 2)
+    assert route == "ok"
+    assert delta["ad_copy_critique__issues"] == [
+        "only 2 of 4 ad copies were produced.",
+        "1 of 2 ad copies lack the proposition/mandatories brief check.",
+    ]
+
+
+def test_copy_gate_decision_passes_brand_to_the_product_check():
+    from creative_agent.agent import copy_gate_decision
+
+    copy = _final_copy(1, headline="Go", body_text="Only on Apple.")
+    copy["social_caption"] = "Go."
+    copy["call_to_action"] = "Shop now"
+    copies = {"ad_copies": [copy]}
+    state = {"ad_copy_critique": copies, "target_product": "iPhone 16 Pro"}
+    assert copy_gate_decision(state, 2)[0] == "revise"
+    assert copy_gate_decision({**state, "brand": "Apple"}, 2)[0] == "ok"
+
+
+def test_copy_gate_decision_passes_trend_and_mandatories_to_the_avoid_filter():
+    from creative_agent.agent import copy_gate_decision
+
+    copy = _final_copy(
+        1, body_text="Rocket Skates for Taylor Swift fans. Gambling help: call."
+    )
+    brief = {
+        **_clean_brief(),
+        "avoid": ["Taylor Swift", "gambling"],
+        "mandatories": ["Include the problem gambling helpline"],
+    }
+    state = _copy_state(
+        copy, creative_brief=brief, target_search_trends="Taylor Swift Eras Tour"
+    )
+    assert copy_gate_decision(state, 1)[0] == "ok"
+
+
 def test_copy_gate_decision_skips_missing_copies():
     from creative_agent.agent import copy_gate_decision
 
@@ -1803,7 +1902,7 @@ def test_ad_copy_reviser_failsoft_error_delta():
     spends the revision budget."""
     from creative_agent import agent as ca
 
-    before = {"ad_copies": [_final_copy(2, body_text="Go fast.")]}
+    before = {"ad_copies": list(_four(_final_copy(2, body_text="Go fast.")))}
     state = _copy_state(
         _final_copy(2, body_text="half-written"),
         ad_copy_critique__before_revision=before,

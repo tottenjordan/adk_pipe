@@ -9,6 +9,26 @@
    applies it to ``final_visual_concepts`` after the finalizer, the fixer (and
    interactive's reviser) write it. It cannot prove the rendered pixels show them.
 
+   "Missing" uses ``text_match.mentions`` (token overlap), not a literal
+   substring, for all three: the finalizer routinely paraphrases ("a PRS SE
+   guitar" for "PRS SE CE24 electric guitar", "friendship-bracelet stack under
+   Eras Tour lights" for "Eras Tour friendship bracelets", "cookie" for
+   "cookies", "PRS … bird-shaped fretboard inlays" for the brand cue "PRS bird
+   inlays"), and a redundant appended sentence both clutters the prompt and
+   raises a false warning. A phrase counts as present in full or when at least
+   60% of its content tokens appear (a bare "jacket" for "Patagonia Nano Puff
+   Jacket" is 1 of 4: still appended). The product and brand-cue matches are
+   brand-anchored: when the phrase contains the brand, a partial match must
+   include a brand token ("an iced coffee" is not "Starbucks iced coffee") —
+   unlike the copy gate, where naming the brand alone counts as naming the
+   product (copy usually names the brand; an image prompt must show the
+   product).
+
+   Intangible products (`is_intangible`: subscriptions, apps, services, plans,
+   insurance, internet…) cannot be "clearly visible and recognizable"; for them
+   the guard skips the append when the brand is already mentioned, and otherwise
+   appends a depictable cue (`INTANGIBLE_PRODUCT_LINE`) instead.
+
 2. ``concept_issues`` — the checks behind ``creative_agent.agent.concept_gate``
    (one bounded fix round by ``visual_concept_fixer``). Only rules a string
    check can decide are gated, and each heuristic is deliberately CONSERVATIVE
@@ -76,6 +96,7 @@ from collections.abc import Iterable, Mapping, Sequence
 from typing import Any
 
 from .copy_gate import CopyIssue, item_keys, parse_copies, restore_unflagged_items
+from .text_match import content_tokens, mentions, same_word
 
 DEFAULT_MAX_TEXT_CONCEPTS = 2
 
@@ -173,35 +194,86 @@ _NEGATED_CENTRE = re.compile(
 _SMALL_IN_WIDE = re.compile(r"\bsmall\b[^.!?;]*\bin an?\b[^.!?;]*\bwide\b", re.I)
 _SENTENCE = re.compile(r"[^.!?;]+")
 
+TANGIBLE_PRODUCT_LINE = " The {product} is clearly visible and recognizable."
+INTANGIBLE_PRODUCT_LINE = (
+    " The {product} is suggested through a branded app screen or logo in the scene."
+)
+MOTIF_LINE = " The scene visibly includes {motif}."
+BRAND_CUE_LINE = " The scene features {cue}."
+
+# Content tokens marking a product the camera cannot show as an object. Kept
+# deliberately to unambiguous service words: "card" (a credit card can be
+# shown), "premium" or "pass" (also physical product names) are not here.
+INTANGIBLE_WORDS = frozenset(
+    {
+        "account",
+        "app",
+        "application",
+        "banking",
+        "broadband",
+        "insurance",
+        "internet",
+        "loan",
+        "membership",
+        "mortgage",
+        "plan",
+        "platform",
+        "service",
+        "software",
+        "streaming",
+        "subscription",
+        "wifi",
+    }
+)
+
+
+def is_intangible(target_product: str) -> bool:
+    """The product names a service/subscription, not a depictable object."""
+    return any(
+        same_word(token, word)
+        for token in content_tokens(target_product)
+        for word in INTANGIBLE_WORDS
+    )
+
 
 def ensure_trend_and_product(
-    concepts: list[dict[str, Any]], target_product: str
+    concepts: list[dict[str, Any]], target_product: str, *, brand: str = ""
 ) -> tuple[list[dict[str, Any]], list[str]]:
     """Return repaired copies of `concepts` plus one warning per repair/miss.
 
     Appends the trend motif, the product and the concept's ``brand_cue`` when
-    the prompt does not contain them (case-insensitive containment; lenient).
+    the prompt does not mention them (``text_match.mentions``; the product and
+    the brand cue brand-anchored on ``brand``; intangible products per the
+    module doc).
     """
     out: list[dict[str, Any]] = []
     warns: list[str] = []
     product = (target_product or "").strip()
+    brand = (brand or "").strip()
+    intangible = bool(product) and is_intangible(product)
     for concept in concepts:
         c = copy.deepcopy(concept)
         prompt = str(c.get("image_generation_prompt") or "").rstrip()
-        low = prompt.lower()
+        original = prompt
         motif = str(c.get("trend_motif") or "").strip()
         cue = str(c.get("brand_cue") or "").strip()
         name = c.get("concept_name", "?")
         if not motif:
             warns.append(f"{name}: empty trend_motif")
-        elif motif.lower() not in low:
-            prompt += f" The scene visibly includes {motif}."
+        elif not mentions(original, motif):
+            prompt += MOTIF_LINE.format(motif=motif)
             warns.append(f"{name}: trend_motif missing from prompt, appended")
-        if product and product.lower() not in low:
-            prompt += f" The {product} is clearly visible and recognizable."
-            warns.append(f"{name}: product missing from prompt, appended")
-        if cue and cue.lower() not in low:
-            prompt += f" The scene features {cue}."
+        if product and not mentions(original, product, brand=brand):
+            if not intangible:
+                prompt += TANGIBLE_PRODUCT_LINE.format(product=product)
+                warns.append(f"{name}: product missing from prompt, appended")
+            elif not (brand and mentions(original, brand)):
+                prompt += INTANGIBLE_PRODUCT_LINE.format(product=product)
+                warns.append(f"{name}: product missing from prompt, appended")
+        # Checked against the repaired prompt: a cue the product line just
+        # appended (cue == product) is not appended twice.
+        if cue and not mentions(prompt, cue, brand=brand):
+            prompt += BRAND_CUE_LINE.format(cue=cue)
             warns.append(f"{name}: brand_cue missing from prompt, appended")
         c["image_generation_prompt"] = prompt
         out.append(c)

@@ -54,7 +54,7 @@ UNDERSTAND_TRENDS_SYNTHESIZER_INSTR = """
           "term": "Search Term",
           "category": "Broad Category (e.g., Sports, Pop Culture, Politics)",
           "context": "Brief explanation of what happened.",
-          "cultural_angle": "Why this matters to culture/society right now (e.g., 'Sparking debate on AI', 'Nostalgia for 90s')."
+          "cultural_angle": "Why this matters to culture/society right now, as one short phrase about THIS trend (e.g., '[the debate, nostalgia or ritual it taps]')."
         }
       ]
     }

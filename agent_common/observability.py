@@ -101,7 +101,9 @@ def make_final_state_summary(agent_label: str, keys: tuple[str, ...]):
     def log_final_state_summary(callback_context: CallbackContext) -> None:
         snapshot = _snapshot(callback_context.state)
         summary = {k: _describe_state_value(snapshot.get(k)) for k in keys}
-        exhausted = sorted(k for k in snapshot if k.endswith(_EXHAUSTED_SUFFIX))
+        exhausted = sorted(
+            k for k, v in snapshot.items() if k.endswith(_EXHAUSTED_SUFFIX) and v
+        )
         logging.info(
             "%s final state [invocation=%s]: %s%s",
             agent_label,
@@ -125,7 +127,7 @@ def _truncate(text: str, limit: int) -> str:
 
 def _issues_note(key: str, value: Any) -> str | None:
     items = value if isinstance(value, list) else [value]
-    items = [str(i).strip() for i in items if str(i).strip()]
+    items = [str(i).strip() for i in items if i is not None and str(i).strip()]
     if not items:
         return None
     note = (
@@ -141,7 +143,9 @@ def collect_degradation_warnings(state: State | dict[str, Any]) -> list[str]:
     Two generic conventions:
     - `<key>__retry_exhausted` (truthy) — the step producing `<key>` gave up
       (`RetryUntilKeyNode`, or a `FailSoftNode` that converted an exception).
-    - `<key>__issues` (non-empty list of strings, or a string) — the step's
+      A falsy value (`None`: cleared by a later successful run) is ignored.
+    - `<key>__issues` (non-empty list of strings, or a string; `None`/blank
+      items are dropped) — the step's
       output exists but has unresolved quality issues; the note gives the count
       and the first issue, truncated (total note length capped).
 

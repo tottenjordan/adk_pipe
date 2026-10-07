@@ -1,4 +1,5 @@
 import copy
+import json
 import logging
 from collections.abc import Mapping
 from typing import Any
@@ -27,7 +28,7 @@ from agent_common import (
 from creative_eval.agent import creative_eval_agent
 
 from . import callbacks, prompts, tools
-from .brief_check import check_brief
+from .brief_check import check_brief, parse_brief
 from .brief_render import render_brief_markdown
 from .concept_guard import (
     concept_issues,
@@ -38,10 +39,12 @@ from .config import INFRA_RETRY, SCHEMA_RETRY, config
 from .copy_gate import (
     CopyIssue,
     brief_avoid,
+    brief_mandatories,
     flatten_copy_issues,
     format_copy_issues,
     gate_copies,
     residual_issues,
+    structural_issues,
 )
 from .schemas import (  # noqa: F401
     AdCopy,
@@ -324,6 +327,7 @@ def _brief_issues(state: Mapping[str, Any]) -> list[str]:
         brand_colors=str(state.get("brand_colors") or ""),
         brand=str(state.get("brand") or ""),
         target_product=str(state.get("target_product") or ""),
+        trend=str(state.get("target_search_trends") or ""),
         sources=sources if isinstance(sources, Mapping) else None,
     )
 
@@ -447,6 +451,17 @@ def _missing_notice(producer: str, key: str) -> str:
         f"{producer} did not produce '{key}'; it is unavailable for this run. "
         "Continue with the next workflow step."
     )
+
+
+def _item_count(value: Any, list_key: str) -> int:
+    """Length of ``value[list_key]`` for a dict or JSON-string payload; 0 if absent."""
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except ValueError:
+            return 0
+    items = value.get(list_key) if isinstance(value, dict) else None
+    return len(items) if isinstance(items, list) else 0
 
 
 def research_report_ready(ctx: Context) -> str:
@@ -634,7 +649,12 @@ ad_copy_reviser = Agent(
 # issues left are recorded as `ad_copy_critique__issues` (surfaced by
 # collect_degradation_warnings) — a critic's self-assessment never becomes a
 # user-visible warning — and it routes "ok". Every "ok" exit clears the
-# revision inputs.
+# revision inputs and also records copy_gate.structural_issues (fewer than 4
+# copies; with a brief, copies missing a gating brief_checks item, as one
+# line): warning-only, never a revision, because the per-copy reviser cannot
+# add a missing copy. Naming the brand counts as naming the product. Avoid
+# terms contained in the product name, a non-negative brief mandatory or a
+# Title-Case name in the trend (target_search_trends) are exempt.
 _COPY_REVISION_CLEARED: dict[str, Any] = {
     "ad_copy_issues": "",
     "ad_copy_flagged_ids": None,
@@ -643,16 +663,27 @@ _COPY_REVISION_CLEARED: dict[str, Any] = {
 
 
 def _copy_issues(state: Mapping[str, Any]) -> dict[str, list[CopyIssue]]:
+    brief = state.get("creative_brief")
     return gate_copies(
         state.get("ad_copy_critique"),
         target_product=str(state.get("target_product") or ""),
-        avoid=brief_avoid(state.get("creative_brief")),
+        avoid=brief_avoid(brief),
+        mandatories=brief_mandatories(brief),
+        trend=str(state.get("target_search_trends") or ""),
+        brand=str(state.get("brand") or ""),
     )
 
 
-def _residual(critique: Any, issues: dict[str, list[CopyIssue]]) -> list[str] | None:
-    """The deterministic issues as residual-issue strings (None when none)."""
-    return flatten_copy_issues(critique, residual_issues(issues)) or None
+def _residual(
+    state: Mapping[str, Any], critique: Any, issues: dict[str, list[CopyIssue]]
+) -> list[str] | None:
+    """The deterministic issues as residual-issue strings, plus the list-level
+    ``structural_issues`` (warning-only: they never route a revision, since the
+    per-copy reviser cannot add a missing copy; the checklist-gap note only
+    when a brief exists). None when there are none."""
+    residual = flatten_copy_issues(critique, residual_issues(issues))
+    has_brief = parse_brief(state.get("creative_brief")) is not None
+    return residual + structural_issues(critique, has_brief=has_brief) or None
 
 
 def copy_gate_decision(
@@ -662,7 +693,10 @@ def copy_gate_decision(
     critique = state.get("ad_copy_critique")
     issues = _copy_issues(state) if is_populated(critique) else {}
     if not issues:
-        return "ok", {**_COPY_REVISION_CLEARED, "ad_copy_critique__issues": None}
+        return "ok", {
+            **_COPY_REVISION_CLEARED,
+            "ad_copy_critique__issues": _residual(state, critique, issues),
+        }
     used = int(state.get("ad_copy_revision_rounds_used") or 0)
     if used < max_rounds:
         return "revise", {
@@ -673,7 +707,7 @@ def copy_gate_decision(
         }
     return "ok", {
         **_COPY_REVISION_CLEARED,
-        "ad_copy_critique__issues": _residual(critique, issues),
+        "ad_copy_critique__issues": _residual(state, critique, issues),
     }
 
 
@@ -697,7 +731,7 @@ def _ad_copy_reviser_failed(state: Mapping[str, Any], exc: Exception) -> dict[st
     return {
         **_COPY_REVISION_CLEARED,
         "ad_copy_critique": critique,
-        "ad_copy_critique__issues": _residual(critique, issues),
+        "ad_copy_critique__issues": _residual(state, critique, issues),
         "ad_copy_revision_rounds_used": max(used, config.copy_revision_rounds),
     }
 
@@ -712,13 +746,17 @@ ad_copy_reviser_failsoft = FailSoftNode(
 def ad_copies_ready(ctx: Context) -> Any:
     """Terminal node of ad_creative_pipeline (the root's tool result).
 
-    Returns the final ad copies (the critic's, after any gate-driven revision;
-    the payload the pre-graph AgentTool returned), or a non-empty notice when
-    the critic produced none.
+    A short confirmation, not the copies themselves (like research_report_ready):
+    every later step reads `ad_copy_critique` from state, and echoing ~10k chars
+    of copy JSON into the root's context made the Pro root prone to empty turns.
+    A non-empty notice when the critic produced none.
     """
     value = ctx.state.get("ad_copy_critique")
     if is_populated(value):
-        return value
+        return (
+            f"Ad copies complete: {_item_count(value, 'ad_copies')} final copies "
+            "saved to session state as 'ad_copy_critique'."
+        )
     return _missing_notice("ad_copy_critic", "ad_copy_critique")
 
 
@@ -1082,12 +1120,16 @@ visual_generator_resilient = RetryUntilKeyNode(
 def visual_concepts_ready(ctx: Context) -> Any:
     """Terminal node of visual_generation_pipeline (the root's tool result).
 
-    Returns the finalized visual concepts (the payload the pre-graph AgentTool
-    returned), or a non-empty notice when the finalizer produced none.
+    A short confirmation, not the concepts themselves (see ad_copies_ready):
+    the renderer, reviser and eval read `final_visual_concepts` from state. A
+    non-empty notice when the finalizer produced none.
     """
     value = ctx.state.get("final_visual_concepts")
     if is_populated(value):
-        return value
+        return (
+            f"Visual concepts complete: {_item_count(value, 'visual_concepts')} "
+            "concepts saved to session state as 'final_visual_concepts'."
+        )
     return _missing_notice("visual_concept_finalizer", "final_visual_concepts")
 
 

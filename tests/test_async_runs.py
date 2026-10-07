@@ -1585,10 +1585,20 @@ def test_should_auto_continue_respects_attempt_cap(monkeypatch):
 
 
 def test_should_auto_continue_false_when_workflow_complete():
-    assert _sac(state={"eval_report_gcs_uri": "gs://b/r.json"}) is False
+    assert _sac(state={"eval_bq_row_uuid": "abc123"}) is False
     # Empty/blank completion values still count as unfinished.
-    assert _sac(state={"eval_report_gcs_uri": ""}) is True
-    assert _sac(state={"eval_report_gcs_uri": "  "}) is True
+    assert _sac(state={"eval_bq_row_uuid": ""}) is True
+    assert _sac(state={"eval_bq_row_uuid": "  "}) is True
+
+
+def test_should_auto_continue_after_eval_saved_but_before_bq_write():
+    """The eval report in GCS is NOT the end: an empty root turn before the final
+    write_eval_report_to_bq (session 8242212012491276288) must be re-prompted."""
+    assert _sac(state={"eval_report_gcs_uri": "gs://b/r.json"}) is True
+    assert (
+        _sac(app="creative_agent", state={"eval_report_gcs_uri": "gs://b/r.json"})
+        is True
+    )
 
 
 def test_should_auto_continue_uses_trend_scout_completion_key():
@@ -1655,9 +1665,9 @@ def test_should_auto_continue_accepts_serialized_dict_events():
 
 def test_max_auto_continues_env_parsing():
     parse = async_runs._parse_max_auto_continues
-    assert parse(None) == 1
-    assert parse("") == 1
-    assert parse("junk") == 1
+    assert parse(None) == 2
+    assert parse("") == 2
+    assert parse("junk") == 2
     assert parse("0") == 0
     assert parse("2") == 2
     assert parse("9") == 3
@@ -1767,7 +1777,7 @@ def test_drive_run_no_continue_at_legitimate_pause():
 def test_drive_run_no_continue_when_workflow_complete():
     svc = InMemorySessionService()
     runner = _ScriptedRunner(svc, "interactive_creative", [list(_EMPTY_SEGMENT)])
-    session = _run_scripted(runner, state={"eval_report_gcs_uri": "gs://b/r.json"})
+    session = _run_scripted(runner, state={"eval_bq_row_uuid": "abc123"})
     assert len(runner.messages) == 1
     assert async_runs.AUTO_CONTINUES_KEY not in session.state
     assert _status_markers(session) == ["done"]

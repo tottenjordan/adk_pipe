@@ -246,7 +246,9 @@ def summarize_run(events: list[dict], state: dict) -> RunSummary:
         )
 
     started_at = timed[0][1] if timed else None
-    exhaustion = sorted(k for k in state if k.endswith("__retry_exhausted"))
+    exhaustion = sorted(
+        k for k, v in state.items() if k.endswith("__retry_exhausted") and v
+    )
 
     return RunSummary(
         total_wall_s=total_wall_s,

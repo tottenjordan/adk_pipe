@@ -228,3 +228,34 @@ def test_collect_degradation_warnings_ignores_empty_brief_issues():
             )
             == []
         )
+
+
+def test_collect_degradation_warnings_ignores_cleared_markers():
+    """A RetryUntilKeyNode that later succeeded clears its marker to None."""
+    for cleared in (None, False, "", 0):
+        assert (
+            observability.collect_degradation_warnings(
+                {"gs_web_search_insights__retry_exhausted": cleared}
+            )
+            == []
+        )
+
+
+def test_collect_degradation_warnings_drops_none_issue_items():
+    for empty in ([None], [None, ""], ["  ", None]):
+        assert observability.collect_degradation_warnings({"x__issues": empty}) == []
+    (note,) = observability.collect_degradation_warnings(
+        {"x__issues": [None, "real issue"]}
+    )
+    assert note == "X has unresolved issues: 1 (e.g. real issue)"
+
+
+def test_final_state_summary_skips_cleared_markers(caplog):
+    summary_cb = observability.make_final_state_summary("x", ("a",))
+    ctx = SimpleNamespace(
+        invocation_id="inv-4",
+        state=State(value={"a": "x", "a__retry_exhausted": None}, delta={}),
+    )
+    with caplog.at_level(logging.INFO):
+        summary_cb(ctx)
+    assert "retry_exhausted" not in caplog.records[-1].getMessage()
