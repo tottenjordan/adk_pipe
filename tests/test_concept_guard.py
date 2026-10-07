@@ -468,7 +468,8 @@ def test_cap_still_counts_copy_matching_text_concepts():
     [
         ('Impact-font top text reading "WHEN THE SOLO HITS"', "Lo-fi internet humour"),
         ('Text reads "nope"', "Lo-fi MEME energy"),
-        ('Bottom text reads "me at 3am"', "Editorial photography"),
+        ('Meme format, bottom text reads "me at 3am"', "Editorial photography"),
+        ('Bold Impact letters, top text "same"', "Editorial photography"),
         ('Impact font caption reads "same"', "Editorial photography"),
         ('A speech balloon says "Again?"', "Graphic novel"),
         ('A thought bubble reads "one more song"', "Graphic novel"),
@@ -504,6 +505,7 @@ def test_impact_font_meme_concept_is_exempt_from_mismatch_and_cap():
         "Subject centred in the lower third.",
         "The bracelet is centered between two hands.",
         "Camera centered on the crowd, the guitarist small at the left.",
+        "The camera is centred on the stadium, the singer a speck.",
         "The lamp light is centred.",
     ],
 )
@@ -520,7 +522,85 @@ def test_centring_phrases_that_are_not_a_centred_hero(prompt):
         "A centred, symmetrical Wes Anderson framing of the shop.",
         "Center-framed portrait.",
         "The skates sit dead center against teal.",
+        "The camera is centred on the sneaker in a symmetrical frame.",
+        "product centred, horizon on the lower third.",
     ],
 )
 def test_centred_hero_still_detected(prompt):
     assert is_centred_hero(prompt)
+
+
+# --- review follow-ups (cue window, cap-aware wording, centring, meme) -------
+
+
+def test_mismatch_says_remove_when_the_text_budget_is_already_spent():
+    concepts = [
+        _audit(1, 'Neon sign reading "Play Your Era"'),
+        _audit(2, 'A neon sign reading "Speed is life"'),  # mismatch
+        _audit(3, 'Headline text "Every Fret, Your Story" in the sky.'),
+    ]
+    concepts[2]["ad_copy_id"] = "2"
+    concepts[1]["ad_copy_id"] = "3"
+    issues = concept_issues(
+        concepts, AUDIT_COPIES, brand=AUDIT_BRAND, target_product=AUDIT_PRODUCT
+    )
+    assert list(issues) == ["3"]
+    (text,) = _issue_texts(issues, "3")
+    assert text.startswith('in-image text "Speed is life"')
+    assert "remove the quoted text" in text
+    assert "the set already has 2 concepts with in-image text" in text
+    assert "exactly" not in text
+
+
+def test_mismatch_still_offers_the_copy_when_budget_remains():
+    concepts = [
+        _audit(1, 'Neon sign reading "Play Your Era"'),
+        _audit(2, 'A neon sign reading "Speed is life"'),
+    ]
+    issues = concept_issues(
+        concepts, AUDIT_COPIES, brand=AUDIT_BRAND, target_product=AUDIT_PRODUCT
+    )
+    (text,) = _issue_texts(issues, "2")
+    assert '"Every Fret, Your Story" or "Find yours" exactly' in text
+
+
+@pytest.mark.parametrize(
+    ("prompt", "expected"),
+    [
+        (
+            'Bold headline typography at the top: "Skate Into Summer"',
+            ["Skate Into Summer"],
+        ),
+        ('Text overlay in bold condensed font: "Go Big"', ["Go Big"]),
+        ('A neon sign above the door spells "Open Late"', ["Open Late"]),
+        ('A jacket emblazoned with "Go"', ["Go"]),
+        ('Crates stencilled "Fresh"', ["Fresh"]),
+        ('Headline reads "Go" in bold, then "Now"', ["Go", "Now"]),
+        ('Sign reads "Go" and then "Now"', ["Go", "Now"]),
+    ],
+)
+def test_wider_cue_window_and_new_cue_words(prompt, expected):
+    from creative_agent.concept_guard import in_image_quotes
+
+    assert in_image_quotes(prompt) == expected
+
+
+@pytest.mark.parametrize(
+    ("prompt", "expected"),
+    [
+        ('words of encouragement, "you got this" energy', []),
+        ('words cannot capture the "wow" moment', []),
+        ('A sign reading "Open" over the door and a "golden hour" glow', ["Open"]),
+        ('Sign reading "Open" by the stage in a hazy "golden hour" glow', ["Open"]),
+    ],
+)
+def test_wider_window_keeps_idioms_and_unjoined_quotes_out(prompt, expected):
+    from creative_agent.concept_guard import in_image_quotes
+
+    assert in_image_quotes(prompt) == expected
+
+
+def test_top_or_bottom_text_alone_does_not_exempt():
+    assert not is_meme_or_comic('Headline as bottom text: "Go"', "Editorial")
+    assert not is_meme_or_comic('Bottom text reads "me at 3am"', "Editorial")
+    assert is_meme_or_comic('Bottom text reads "me at 3am"', "Lo-fi meme")
