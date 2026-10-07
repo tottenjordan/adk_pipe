@@ -226,6 +226,7 @@ _RESULT_NODES = {
     "ad_copies_ready",
     "visual_concepts_ready",
     "images_ready",
+    "finalize_ready",
 }
 
 
@@ -418,6 +419,25 @@ def test_ad_creative_pipeline_graph_edges():
         ("copy_gate", "ad_copy_reviser_failsoft", "revise"),
         ("ad_copy_reviser_failsoft", "copy_gate", None),
     }
+
+
+def test_finalize_pipeline_graph():
+    """The post-render steps run as one deterministic NodeTool: evaluate, then
+    persist (GCS + BigQuery), then a truthy summary terminal."""
+    from google.adk.workflow import Workflow
+
+    from agent_common import PipelineRequest
+    from creative_agent.agent import finalize_pipeline as wf
+
+    assert isinstance(wf, Workflow)
+    assert _graph_edges(wf) == {
+        ("__START__", "evaluate_creatives_node", None),
+        ("evaluate_creatives_node", "persist_node", None),
+        ("persist_node", "finalize_ready", None),
+    }
+    assert wf.input_schema is PipelineRequest
+    assert wf.description.strip() and "Executes the node" not in wf.description
+    _assert_truthy_terminal(wf, "finalize_pipeline")
 
 
 def test_visual_generation_pipeline_graph_edges():

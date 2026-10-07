@@ -39,6 +39,7 @@ from .copy_gate import (
     gate_copies,
     residual_issues,
 )
+from .finalize import evaluate_creatives_node, finalize_ready, persist_node
 from .schemas import (  # noqa: F401
     AdCopy,
     AdCopyList,
@@ -1021,6 +1022,22 @@ visual_production_pipeline = Workflow(
             images_ready,
         )
     ],
+)
+
+
+# --- FINALIZE (evaluate -> persist -> summary) --- #
+# The post-render steps as one deterministic unit (logic in creative_agent/
+# finalize.py): the LLM judge scores every creative, then the eval report +
+# HTML gallery are saved to GCS and the trend_creatives + creative_evals rows
+# written to BigQuery. Each step is fail-soft (degradation markers, never
+# raises), and finalize_ready returns the root a compact, always-truthy summary.
+# This replaces five separate root tool decisions (the creative_eval_agent
+# AgentTool + four persistence tools) the Pro root could end early between.
+finalize_pipeline = Workflow(
+    name="finalize_pipeline",
+    description="Evaluates all creatives and saves the evaluation report, HTML gallery and BigQuery rows.",
+    input_schema=PipelineRequest,
+    edges=[("START", evaluate_creatives_node, persist_node, finalize_ready)],
 )
 
 

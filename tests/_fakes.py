@@ -277,6 +277,12 @@ class _FakeBlob:
         with open(path, "rb") as f:
             self._client.contents[self.name] = f.read()
 
+    def upload_from_string(self, data: str | bytes, content_type: str = "") -> None:
+        self._client.uploads.append((self.name, ""))
+        self._client.contents[self.name] = (
+            data.encode() if isinstance(data, str) else data
+        )
+
 
 class _FakeBucket:
     def __init__(self, client: "FakeStorageClient"):
