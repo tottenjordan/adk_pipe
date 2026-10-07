@@ -728,7 +728,8 @@ def test_instruction_logo_allowlist():
 def test_schema_issues_are_problem_statements():
     desc = ImageQAResult.model_fields["issues"].description or ""
     assert "problem statements" in desc
-    assert "third-party logo on the amplifier" in desc
+    # A neutral template, not a concrete example the model would echo verbatim.
+    assert "[what is wrong]" in desc
 
 
 @pytest.mark.parametrize(

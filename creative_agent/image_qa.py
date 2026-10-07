@@ -112,7 +112,7 @@ class ImageQAResult(BaseModel):
     issues: list[str] = Field(
         default_factory=list,
         description=(
-            "Short problem statements, e.g. 'third-party logo on the amplifier', "
+            "Short problem statements in the form '[what is wrong] on/in [where]', "
             "one per problem found; empty when the image passes."
         ),
     )
@@ -350,8 +350,8 @@ def _instruction(
         "equipment (e.g. on an amplifier) counts even if partly illegible; "
         "plain unbranded labels and tiny incidental text do not.",
         "Also flag severe anatomy or object deformities and brand-unsafe content.",
-        "issues: short problem statements, one per problem found (e.g. "
-        "'third-party logo on the amplifier'); empty if none.",
+        "issues: short problem statements in the form '[what is wrong] on/in "
+        "[where]', one per problem found; empty if none.",
     ]
     return "\n".join(lines)
 
