@@ -1,4 +1,4 @@
-import { referenceImagesFromForm } from "@/lib/reference-images";
+import { isReferenceUri, referenceImagesFromForm } from "@/lib/reference-images";
 import type { CampaignInput } from "@/lib/types";
 
 /**
@@ -46,8 +46,6 @@ export function buildInitialState(form: CampaignInput): Record<string, unknown> 
     ["visualStylePreference", "visual_style_preference"],
     ["visualAvoid", "visual_avoid"],
     ["visualAspectRatio", "visual_aspect_ratio"],
-    ["referenceImageUri", "reference_image_uri"],
-    ["referenceImageRole", "reference_image_role"],
   ];
 
   for (const [field, key] of mapping) {
@@ -55,6 +53,15 @@ export function buildInitialState(form: CampaignInput): Record<string, unknown> 
     if (value) {
       state[key] = value;
     }
+  }
+
+  // Row 1 as the legacy pair, only when its URI is valid (never emit an
+  // invalid reference; the form blocks submit on one anyway).
+  const legacyUri = form.referenceImageUri?.trim() ?? "";
+  if (isReferenceUri(legacyUri)) {
+    state.reference_image_uri = legacyUri;
+    const legacyRole = form.referenceImageRole?.trim();
+    if (legacyRole) state.reference_image_role = legacyRole;
   }
 
   const references = referenceImagesFromForm(form);

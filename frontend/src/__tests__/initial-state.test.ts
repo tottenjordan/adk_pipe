@@ -90,6 +90,18 @@ describe("buildInitialState", () => {
     ]);
   });
 
+  it("never seeds an invalid reference URI", () => {
+    const state = buildInitialState({
+      ...base,
+      referenceImageUri: "bucket/p.png",
+      referenceImageRole: "product",
+      extraReferenceImages: [{ uri: "https://x/s.jpg", role: "style" }],
+    });
+    expect(state.reference_image_uri).toBeUndefined();
+    expect(state.reference_image_role).toBeUndefined();
+    expect(state.reference_images).toEqual([{ uri: "https://x/s.jpg", role: "style" }]);
+  });
+
   it("does not seed reference images for trend_scout", () => {
     const state = buildInitialState({
       ...base,

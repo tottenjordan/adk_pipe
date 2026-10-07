@@ -19,9 +19,9 @@ import { createSession, SELF_USER_ID } from "@/lib/api";
 import { AGENTS, isAgentId, isCreativeAgent, submitLabel } from "@/lib/agents";
 import { isFormValid } from "@/lib/form-validation";
 import { buildInitialState } from "@/lib/initial-state";
-import { MAX_REFERENCE_IMAGES } from "@/lib/reference-images";
+import { MAX_REFERENCE_IMAGES, invalidReferenceUris, isReferenceUri } from "@/lib/reference-images";
 import { takeDuplicateBrief, type Brief, type RunRow } from "@/lib/run-history";
-import type { CampaignInput, ReferenceImageInput } from "@/lib/types";
+import type { CampaignInput, ReferenceImageInput, ReferenceRowInput } from "@/lib/types";
 import {
   BRAND_PRESETS,
   AUDIENCE_PRESETS,
@@ -96,6 +96,14 @@ function ExampleButtons({
   );
 }
 
+// Client-only React keys for the extra reference rows (stable across
+// edits/removals, unlike the array index).
+let referenceRowSeq = 0;
+function newReferenceRow(row: ReferenceImageInput = { uri: "", role: "" }): ReferenceRowInput {
+  referenceRowSeq += 1;
+  return { ...row, id: `ref-row-${referenceRowSeq}` };
+}
+
 /** One reference-image row: URI input + (once a URI is set) a role select. */
 function ReferenceRow({
   id,
@@ -110,12 +118,16 @@ function ReferenceRow({
   onChange: (value: ReferenceImageInput) => void;
   onRemove?: () => void;
 }) {
+  const invalid = Boolean(value.uri.trim()) && !isReferenceUri(value.uri);
+  const hintId = `${id}-hint`;
   return (
     <div className="space-y-1.5">
       <div className="flex items-center gap-2">
         <Input
           id={id}
           aria-label={index > 1 ? `Reference image ${index} URL` : undefined}
+          aria-invalid={invalid || undefined}
+          aria-describedby={invalid ? hintId : undefined}
           placeholder="gs://bucket/product.png or https://…"
           value={value.uri}
           onChange={(e) => onChange({ ...value, uri: e.target.value })}
@@ -132,6 +144,11 @@ function ReferenceRow({
           </Button>
         )}
       </div>
+      {invalid && (
+        <p id={hintId} className="text-xs text-mark-fail">
+          Use a gs://bucket/object or http(s):// URL.
+        </p>
+      )}
       {value.uri.trim() && (
         <Select
           value={value.role || ""}
@@ -166,7 +183,11 @@ function HomeContent() {
   const history = useRunHistory();
 
   const applyBrief = (brief: Brief) => {
-    setForm({ ...EMPTY_FORM, ...brief });
+    setForm({
+      ...EMPTY_FORM,
+      ...brief,
+      extraReferenceImages: (brief.extraReferenceImages ?? []).map((r) => newReferenceRow(r)),
+    });
     setVisualOpen(hasVisualDirection(brief));
     setDuplicated(true);
   };
@@ -476,7 +497,7 @@ function HomeContent() {
                 />
                 {extraReferences.map((ref, i) => (
                   <ReferenceRow
-                    key={i}
+                    key={ref.id ?? i}
                     id={`referenceImage${i + 2}`}
                     index={i + 2}
                     value={ref}
@@ -502,7 +523,7 @@ function HomeContent() {
                     onClick={() =>
                       setForm({
                         ...form,
-                        extraReferenceImages: [...extraReferences, { uri: "", role: "" }],
+                        extraReferenceImages: [...extraReferences, newReferenceRow()],
                       })
                     }
                     className="text-xs text-primary underline-offset-4 hover:underline"
@@ -653,6 +674,8 @@ function HomeContent() {
                   or press <kbd className="font-mono">Ctrl</kbd>/<kbd className="font-mono">⌘</kbd>{" "}
                   + <kbd className="font-mono">Enter</kbd>
                 </>
+              ) : isCreative && invalidReferenceUris(form).length ? (
+                "Fix the reference image URL to start."
               ) : isCreative ? (
                 "Fill in the campaign fields and a trend to start."
               ) : (

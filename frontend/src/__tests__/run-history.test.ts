@@ -225,6 +225,23 @@ describe("briefFromState", () => {
     expect(brief.extraReferenceImages).toEqual([{ uri: "gs://b/s.png", role: "style" }]);
   });
 
+  it("moves the first reference into row 1 when only reference_images was seeded", () => {
+    const brief = briefFromState({
+      ui_app: "creative_agent",
+      reference_images: [
+        { uri: "gs://b/1.png", role: "logo" },
+        { uri: "gs://b/2.png", role: "style" },
+        { uri: "https://x/3.jpg", role: "product" },
+      ],
+    });
+    expect(brief.referenceImageUri).toBe("gs://b/1.png");
+    expect(brief.referenceImageRole).toBe("logo");
+    expect(brief.extraReferenceImages).toEqual([
+      { uri: "gs://b/2.png", role: "style" },
+      { uri: "https://x/3.jpg", role: "product" },
+    ]);
+  });
+
   it("carries the trend-pick opt-in and omits an unknown agent", () => {
     expect(briefFromState({ ui_app: "trend_scout", interactive_trend_pick: true, brand: "X" })).toEqual({
       agent: "trend_scout",
