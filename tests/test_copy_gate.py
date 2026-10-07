@@ -546,16 +546,85 @@ def _checks(*items, passed=True):
 def test_structural_issues_fewer_copies_and_missing_gating_checks():
     full = _checks("proposition", "mandatories")
     copies = [_copy(i, brief_checks=full) for i in (1, 2, 3, 4)]
-    assert structural_issues(copies) == []
-    assert structural_issues({"ad_copies": copies[:3]}) == [
+    assert structural_issues(copies, has_brief=True) == []
+    assert structural_issues({"ad_copies": copies[:3]}, has_brief=True) == [
         "only 3 of 4 ad copies were produced."
     ]
     copies[1] = _copy(2, brief_checks=_checks("proposition", "tone"))
     copies[3] = _copy(4)
-    assert structural_issues(copies) == [
-        'brief checklist incomplete: Copy 2 ("Beep beep, finally") is missing '
-        'mandatories; Copy 4 ("Beep beep, finally") is missing proposition, '
-        "mandatories."
+    assert structural_issues(copies, has_brief=True) == [
+        "2 of 4 ad copies lack the proposition/mandatories brief check."
     ]
+    assert structural_issues(copies, has_brief=False) == []
     # Nothing to check: no copies at all is not a structural issue here.
     assert structural_issues(None) == []
+
+
+# --- teeth restored (review of the false-positive fixes) ---------------------
+
+
+@pytest.mark.parametrize(
+    ("avoid", "text", "kwargs"),
+    [
+        # Lowercase trend words never exempt an avoid term.
+        (
+            "shooting",
+            "Rocket Skates after the shooting.",
+            {"trend": "Charlie Kirk shooting"},
+        ),
+        ("death", "Rocket Skates: cheat death.", {"trend": "Ozzy Osbourne death"}),
+        # A sentence-case first word is not a name chunk on its own.
+        ("death", "Rocket Skates: cheat death.", {"trend": "Death of a legend"}),
+        # A negative mandatory exempts nothing.
+        (
+            "children",
+            "Rocket Skates for children.",
+            {"mandatories": ["Never show children drinking"]},
+        ),
+    ],
+)
+def test_avoid_terms_not_exempted_by_trend_words_or_negative_mandatories(
+    avoid, text, kwargs
+):
+    issues = _gate_texts(_copy(body_text=text), avoid=[avoid], **kwargs)
+    assert f"avoided term '{avoid}'" in issues["1"][0]
+
+
+@pytest.mark.parametrize(
+    ("avoid", "kwargs"),
+    [
+        ("Taylor Swift", {"trend": "Taylor Swift wedding"}),
+        ("Swift", {"trend": "Taylor Swift wedding"}),
+        ("Lord of the Rings", {"trend": "Lord of the Rings remake"}),
+    ],
+)
+def test_avoid_terms_in_a_trend_name_chunk_are_exempt(avoid, kwargs):
+    text = f"Rocket Skates, as seen with {avoid}."
+    assert _gate(_copy(body_text=text), avoid=[avoid], **kwargs) == {}
+
+
+def test_product_named_by_a_separately_given_brand():
+    # Copy usually names the brand: brand-only counts as naming the product.
+    copy = _copy(body_text="Think different. Only on Apple.", headline="Go")
+    assert _gate(copy, target_product="iPhone 16 Pro") != {}
+    assert _gate(copy, target_product="iPhone 16 Pro", brand="Apple") == {}
+
+
+def test_packaging_word_alone_does_not_name_the_product():
+    copy = _copy(body_text="You can do it. Pack your bags.", headline="Go")
+    issues = _gate_texts(copy, target_product="Fanny pack")
+    assert "product not named" in issues["1"][0]
+    issues = _gate_texts(copy, target_product="Liquid Death Mountain Water 16oz can")
+    assert "product not named" in issues["1"][0]
+
+
+def test_structural_note_skipped_without_a_brief_and_collapsed_with_one():
+    copies = [_copy(i, brief_checks=[]) for i in (1, 2, 3, 4)]
+    assert structural_issues(copies, has_brief=False) == []
+    assert structural_issues(copies, has_brief=True) == [
+        "4 of 4 ad copies lack the proposition/mandatories brief check."
+    ]
+    # Fewer than 4 copies is reported with or without a brief.
+    assert structural_issues(copies[:3], has_brief=False) == [
+        "only 3 of 4 ad copies were produced."
+    ]

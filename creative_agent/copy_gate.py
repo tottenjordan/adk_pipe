@@ -13,7 +13,8 @@ user-visible warning, so false positives are kept low):
   issues. Every other failed item is advisory: it stays in ``brief_checks``
   (UI/eval) and never gates.
 * **structural** issues (``structural_issues``: fewer than ``EXPECTED_COPIES``
-  copies, a copy whose ``brief_checks`` lacks a gating item) are list-level
+  copies; with a brief, copies whose ``brief_checks`` lack a gating item) are
+  list-level
   problems the per-copy reviser cannot fix (``restore_unflagged`` drops any
   copy it adds), so they never gate; the gate records them with the residual
   issues on its "ok" exit.
@@ -22,8 +23,11 @@ Matching (product named, avoid terms) uses ``text_match``: accent-folded,
 Unicode-aware, plural-insensitive (s / es / ies↔y), and brands written with
 punctuation or digits ("AT&T", "M&M's", "7UP") also match their
 punctuation-stripped forms. A product with nothing matchable ("GE") is never
-flagged; avoid terms contained in the product, a mandatory or the trend are
-exempt.
+flagged; naming the brand counts as naming the product (copy usually names
+the brand — stricter than the image-prompt guard, which needs a brand anchor
+in the product match). Avoid terms contained in the product, a non-negative
+mandatory, or a Title-Case name in the trend are exempt; lowercase trend words
+("shooting", "death") never are.
 
 Each issue text is specific and actionable because the gate feeds them
 verbatim to ``ad_copy_reviser`` (as ``ad_copy_issues``); ``residual_issues``
@@ -42,7 +46,7 @@ from dataclasses import dataclass
 from typing import Any, Literal
 
 from .brief_check import parse_brief
-from .text_match import contains_phrase, same_word, words
+from .text_match import PACKAGING_WORDS, contains_phrase, fold, same_word, words
 
 MAX_HEADLINE_CHARS = 60
 MAX_CAPTION_CHARS = 2200
@@ -173,8 +177,10 @@ def product_words(target_product: str) -> list[str]:
     """The product's significant words (``text_match.words``: folded, possessives
     stripped).
 
-    Skips stopwords, pure numbers (model numbers, years) and words under 3
-    characters: "PRS SE Custom 24" yields ["prs", "custom"]. Brand words are
+    Skips stopwords, generic packaging words ("can", "pack": "you can" or
+    "pack your bags" never names a product), pure numbers (model numbers,
+    years) and words under 3 characters: "PRS SE Custom 24" yields ["prs",
+    "custom"]. Brand words are
     kept: when the product phrase contains the brand ("Powerball tickets"),
     naming the brand names the product.
     """
@@ -183,6 +189,7 @@ def product_words(target_product: str) -> list[str]:
         for word in words(target_product)
         if len(word) >= _MIN_TOKEN_CHARS
         and word not in _STOPWORDS
+        and word not in PACKAGING_WORDS
         and not word.isdigit()
     ]
 
@@ -213,15 +220,21 @@ def _copy_forms(copy_text: str) -> set[str]:
     return forms
 
 
-def _names_product(copy_text: str, target_product: str) -> bool:
-    """The copy names the product: its full phrase, ANY significant word, or a
-    punctuation-stripped brand form (see ``_brand_forms``).
+def _names_product(copy_text: str, target_product: str, brand: str = "") -> bool:
+    """The copy names the product: its full phrase, the ``brand`` (when given),
+    ANY significant word, or a punctuation-stripped brand form (see
+    ``_brand_forms``).
 
     Deliberately lenient (each false positive costs a revision call and a
-    user-visible warning): "Lace up your skates" names "Rocket Skates".
+    user-visible warning): "Lace up your skates" names "Rocket Skates", and
+    "Only on Apple" names "iPhone 16 Pro" for the brand Apple — ad copy
+    usually names the brand. (The image-prompt guard is stricter: there a
+    partial product match must carry a brand token, see ``concept_guard``.)
     Accent-, case- and plural-insensitive (s / es / ies↔y).
     """
     if contains_phrase(copy_text, target_product):
+        return True
+    if brand.strip() and contains_phrase(copy_text, brand):
         return True
     copy_words = set(words(copy_text))
     if any(
@@ -243,19 +256,87 @@ def _has_matchable_tokens(target_product: str) -> bool:
     return bool(product_words(target_product) or _brand_forms(target_product))
 
 
-def _avoid_terms(avoid: Iterable[str] | str, exempt: Iterable[str] = ()) -> list[str]:
+# A mandatory phrased as a prohibition ("Never show children drinking") does
+# not license its words.
+_NEGATIVE = re.compile(r"\b(?:never|no|not|avoid|without)\b|n't\b")
+# Lowercase words allowed inside a Title-Case name ("Lord of the Rings").
+_NAME_CONNECTORS = frozenset({"of", "the", "and", "&", "de", "la", "le", "von", "van"})
+
+
+def is_negative(text: str) -> bool:
+    """``text`` is phrased as a prohibition (never / no / not / don't / avoid /
+    without)."""
+    return _NEGATIVE.search(fold(text)) is not None
+
+
+def _is_title(token: str) -> bool:
+    letters = [c for c in token if c.isalpha()]
+    return bool(letters) and letters[0].isupper()
+
+
+def name_chunks(trend: str) -> list[str]:
+    """The proper-name chunks of ``trend``: runs of consecutive Title-Case words
+    (lowercase connectors like "of the" allowed inside a run), from the
+    ORIGINAL casing. "Charlie Kirk shooting" → ["Charlie Kirk"]; "Lord of the
+    Rings remake" → ["Lord of the Rings"]. A lone capitalised first word
+    ("Death of a legend") is sentence case, not a name, unless it is the whole
+    trend; an all-lowercase trend has no names.
+    """
+    tokens = trend.split()
+    chunks: list[list[str]] = []
+    run: list[str] = []
+    pending: list[str] = []
+    starts: list[int] = []
+    for index, token in enumerate(tokens):
+        if _is_title(token):
+            if run:
+                run.extend(pending)
+            else:
+                starts.append(index)
+            run.append(token)
+            pending = []
+        elif run and token.lower() in _NAME_CONNECTORS:
+            pending.append(token)
+        else:
+            if run:
+                chunks.append(run)
+            run, pending = [], []
+    if run:
+        chunks.append(run)
+    return [
+        " ".join(chunk)
+        for chunk, start in zip(chunks, starts, strict=True)
+        if not (start == 0 and len(chunk) == 1 and len(tokens) > 1)
+    ]
+
+
+def _avoid_terms(
+    avoid: Iterable[str] | str,
+    *,
+    product: str = "",
+    mandatories: Iterable[str] = (),
+    trend: str = "",
+) -> list[str]:
     """The avoid entries to match literally.
 
-    Skips entries over MAX_AVOID_TERM_WORDS words, and entries contained in an
-    ``exempt`` text (the product name, a brief mandatory, the trend): "sugar" is
-    not avoidable in "Coca-Cola Zero Sugar", nor "gambling" when a mandatory
-    requires the problem-gambling helpline, nor "Taylor Swift" when she is the
-    trend — the copy must be allowed to say them.
+    Skips entries over MAX_AVOID_TERM_WORDS words, and entries the copy must be
+    allowed to say: contained in the product name ("sugar" in "Coca-Cola Zero
+    Sugar"), in a non-negative brief mandatory ("gambling" when a mandatory
+    requires the problem-gambling helpline; never via "Never show children
+    drinking"), or in a proper-name chunk of the trend (``name_chunks``:
+    "Taylor Swift" in "Taylor Swift wedding"). Lowercase trend words
+    ("shooting" in "Charlie Kirk shooting", "death") never exempt a term.
     """
     if isinstance(avoid, str):
         avoid = re.split(r"[\n;,]", avoid)
     terms = [t.strip() for t in avoid if isinstance(t, str) and t.strip()]
-    sources = [e for e in exempt if isinstance(e, str) and e.strip()]
+    sources = [product] if isinstance(product, str) and product.strip() else []
+    sources += [
+        m
+        for m in mandatories
+        if isinstance(m, str) and m.strip() and not is_negative(m)
+    ]
+    sources += name_chunks(trend) if isinstance(trend, str) else []
     return [
         t
         for t in terms
@@ -265,13 +346,13 @@ def _avoid_terms(avoid: Iterable[str] | str, exempt: Iterable[str] = ()) -> list
 
 
 def _deterministic_issues(
-    copy: Mapping[str, Any], *, target_product: str, avoid: list[str]
+    copy: Mapping[str, Any], *, target_product: str, avoid: list[str], brand: str
 ) -> list[str]:
     issues: list[str] = []
     copy_text = " ".join(_text(copy.get(f)) for f in _COPY_FIELDS)
 
     if _has_matchable_tokens(target_product) and not _names_product(
-        copy_text, target_product
+        copy_text, target_product, brand
     ):
         issues.append(
             f"product not named: mention '{target_product.strip()}' in the "
@@ -333,10 +414,10 @@ def _self_reported_issues(copy: Mapping[str, Any]) -> list[str]:
 
 
 def _check_copy(
-    copy: Mapping[str, Any], *, target_product: str, avoid: list[str]
+    copy: Mapping[str, Any], *, target_product: str, avoid: list[str], brand: str
 ) -> list[CopyIssue]:
     deterministic = _deterministic_issues(
-        copy, target_product=target_product, avoid=avoid
+        copy, target_product=target_product, avoid=avoid, brand=brand
     )
     return [CopyIssue("deterministic", text) for text in deterministic] + [
         CopyIssue("self_reported", text) for text in _self_reported_issues(copy)
@@ -350,12 +431,14 @@ def gate_copies(
     avoid: Iterable[str] | str = (),
     mandatories: Iterable[str] = (),
     trend: str = "",
+    brand: str = "",
 ) -> dict[str, list[CopyIssue]]:
     """The copies' gating issues, keyed by ``copy_keys``.
 
     ``copies`` is the ``ad_copy_critique`` state value (see ``parse_copies``).
     Deterministic checks, per copy: the product is named (``target_product``,
-    ANY of its significant words, or a punctuation-stripped brand form;
+    the ``brand``, ANY of its significant words, or a punctuation-stripped
+    brand form;
     accent/case/plural-insensitive, see ``_names_product``) in the
     headline/body/caption/CTA — skipped when the product yields nothing to
     match; the CTA is non-empty and at most 8 words; the headline is at most 60
@@ -363,28 +446,37 @@ def gate_copies(
     creative brief's avoid list; a string is split on newlines/commas/
     semicolons) appears as a whole word/phrase (entries over
     ``MAX_AVOID_TERM_WORDS`` words, and entries contained in the product name,
-    a brief mandatory or ``trend``, are skipped). Self-reported: each failed
+    a non-negative brief mandatory or a proper-name chunk of ``trend``, are
+    skipped; see ``_avoid_terms``). Self-reported: each failed
     ``brief_checks`` item in ``GATING_BRIEF_CHECKS``. Only copies with issues
     are returned ({} = clean). Never raises.
     """
-    terms = _avoid_terms(avoid, exempt=[target_product, trend, *mandatories])
+    terms = _avoid_terms(
+        avoid, product=target_product, mandatories=mandatories, trend=trend
+    )
     parsed = parse_copies(copies)
     issues: dict[str, list[CopyIssue]] = {}
     for key, copy in zip(copy_keys(parsed), parsed, strict=True):
-        if found := _check_copy(copy, target_product=target_product, avoid=terms):
+        if found := _check_copy(
+            copy, target_product=target_product, avoid=terms, brand=brand
+        ):
             issues[key] = found
     return issues
 
 
-def structural_issues(copies: Any, expected: int = EXPECTED_COPIES) -> list[str]:
+def structural_issues(
+    copies: Any, expected: int = EXPECTED_COPIES, *, has_brief: bool = True
+) -> list[str]:
     """List-level problems the per-copy reviser cannot fix (warning-only).
 
     * fewer than ``expected`` copies (the reviser may only rewrite flagged
       copies and ``restore_unflagged`` drops any copy it adds, so a revision
       round could never restore a missing one);
-    * a copy whose ``brief_checks`` lacks a ``GATING_BRIEF_CHECKS`` item (the
-      hard contract was never self-checked, so the gate cannot route on it).
-      Advisory items are not required here.
+    * with a brief (``has_brief``), copies whose ``brief_checks`` lack a
+      ``GATING_BRIEF_CHECKS`` item (the hard contract was never self-checked,
+      so the gate cannot route on it), collapsed into one line. Without a
+      brief there is no checklist to apply, so no note. Advisory items are not
+      required here.
 
     The gate records these with the residual issues on its "ok" exit; they
     never route a revision. ``[]`` when there are no copies at all (nothing
@@ -396,19 +488,22 @@ def structural_issues(copies: Any, expected: int = EXPECTED_COPIES) -> list[str]
     notes: list[str] = []
     if len(parsed) < expected:
         notes.append(f"only {len(parsed)} of {expected} ad copies were produced.")
-    gaps: list[str] = []
-    for key, copy in zip(copy_keys(parsed), parsed, strict=True):
+    if not has_brief:
+        return notes
+    gaps = 0
+    for copy in parsed:
         checks = copy.get("brief_checks")
         present = {
             _text(c.get("item"))
             for c in (checks if isinstance(checks, list) else [])
             if isinstance(c, Mapping)
         }
-        missing = [i for i in _GATING_ORDER if i not in present]
-        if missing:
-            gaps.append(f"{_copy_label(parsed, key)} is missing {', '.join(missing)}")
+        gaps += any(i not in present for i in _GATING_ORDER)
     if gaps:
-        notes.append(f"brief checklist incomplete: {'; '.join(gaps)}.")
+        notes.append(
+            f"{gaps} of {len(parsed)} ad copies lack the "
+            f"{'/'.join(_GATING_ORDER)} brief check."
+        )
     return notes
 
 

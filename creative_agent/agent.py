@@ -27,7 +27,7 @@ from agent_common import (
 from creative_eval.agent import creative_eval_agent
 
 from . import callbacks, prompts, tools
-from .brief_check import check_brief
+from .brief_check import check_brief, parse_brief
 from .brief_render import render_brief_markdown
 from .config import INFRA_RETRY, SCHEMA_RETRY, config
 from .copy_gate import (
@@ -633,10 +633,11 @@ ad_copy_reviser = Agent(
 # collect_degradation_warnings) — a critic's self-assessment never becomes a
 # user-visible warning — and it routes "ok". Every "ok" exit clears the
 # revision inputs and also records copy_gate.structural_issues (fewer than 4
-# copies, a copy missing a gating brief_checks item): warning-only, never a
-# revision, because the per-copy reviser cannot add a missing copy. Avoid
-# terms contained in the product name, a brief mandatory or the trend
-# (target_search_trends) are exempt.
+# copies; with a brief, copies missing a gating brief_checks item, as one
+# line): warning-only, never a revision, because the per-copy reviser cannot
+# add a missing copy. Naming the brand counts as naming the product. Avoid
+# terms contained in the product name, a non-negative brief mandatory or a
+# Title-Case name in the trend (target_search_trends) are exempt.
 _COPY_REVISION_CLEARED: dict[str, Any] = {
     "ad_copy_issues": "",
     "ad_copy_flagged_ids": None,
@@ -652,15 +653,20 @@ def _copy_issues(state: Mapping[str, Any]) -> dict[str, list[CopyIssue]]:
         avoid=brief_avoid(brief),
         mandatories=brief_mandatories(brief),
         trend=str(state.get("target_search_trends") or ""),
+        brand=str(state.get("brand") or ""),
     )
 
 
-def _residual(critique: Any, issues: dict[str, list[CopyIssue]]) -> list[str] | None:
+def _residual(
+    state: Mapping[str, Any], critique: Any, issues: dict[str, list[CopyIssue]]
+) -> list[str] | None:
     """The deterministic issues as residual-issue strings, plus the list-level
     ``structural_issues`` (warning-only: they never route a revision, since the
-    per-copy reviser cannot add a missing copy). None when there are none."""
+    per-copy reviser cannot add a missing copy; the checklist-gap note only
+    when a brief exists). None when there are none."""
     residual = flatten_copy_issues(critique, residual_issues(issues))
-    return residual + structural_issues(critique) or None
+    has_brief = parse_brief(state.get("creative_brief")) is not None
+    return residual + structural_issues(critique, has_brief=has_brief) or None
 
 
 def copy_gate_decision(
@@ -672,7 +678,7 @@ def copy_gate_decision(
     if not issues:
         return "ok", {
             **_COPY_REVISION_CLEARED,
-            "ad_copy_critique__issues": _residual(critique, issues),
+            "ad_copy_critique__issues": _residual(state, critique, issues),
         }
     used = int(state.get("ad_copy_revision_rounds_used") or 0)
     if used < max_rounds:
@@ -684,7 +690,7 @@ def copy_gate_decision(
         }
     return "ok", {
         **_COPY_REVISION_CLEARED,
-        "ad_copy_critique__issues": _residual(critique, issues),
+        "ad_copy_critique__issues": _residual(state, critique, issues),
     }
 
 
@@ -708,7 +714,7 @@ def _ad_copy_reviser_failed(state: Mapping[str, Any], exc: Exception) -> dict[st
     return {
         **_COPY_REVISION_CLEARED,
         "ad_copy_critique": critique,
-        "ad_copy_critique__issues": _residual(critique, issues),
+        "ad_copy_critique__issues": _residual(state, critique, issues),
         "ad_copy_revision_rounds_used": max(used, config.copy_revision_rounds),
     }
 

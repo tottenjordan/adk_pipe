@@ -1818,11 +1818,26 @@ def test_copy_gate_decision_records_structural_issues_without_revising():
     }
     route, delta = copy_gate_decision(state, 2)
     assert route == "ok"
+    # No brief: no checklist to apply, so only the missing copies are noted.
+    assert delta["ad_copy_critique__issues"] == ["only 2 of 4 ad copies were produced."]
+    route, delta = copy_gate_decision({**state, "creative_brief": _clean_brief()}, 2)
+    assert route == "ok"
     assert delta["ad_copy_critique__issues"] == [
         "only 2 of 4 ad copies were produced.",
-        'brief checklist incomplete: Copy 2 ("Headline 2") is missing '
-        "proposition, mandatories.",
+        "1 of 2 ad copies lack the proposition/mandatories brief check.",
     ]
+
+
+def test_copy_gate_decision_passes_brand_to_the_product_check():
+    from creative_agent.agent import copy_gate_decision
+
+    copy = _final_copy(1, headline="Go", body_text="Only on Apple.")
+    copy["social_caption"] = "Go."
+    copy["call_to_action"] = "Shop now"
+    copies = {"ad_copies": [copy]}
+    state = {"ad_copy_critique": copies, "target_product": "iPhone 16 Pro"}
+    assert copy_gate_decision(state, 2)[0] == "revise"
+    assert copy_gate_decision({**state, "brand": "Apple"}, 2)[0] == "ok"
 
 
 def test_copy_gate_decision_passes_trend_and_mandatories_to_the_avoid_filter():
