@@ -316,3 +316,67 @@ def test_reference_role_ignored_without_reference(monkeypatch):
     result = asyncio.run(image_tools.generate_image(ctx))
     assert result["status"] == "success"
     assert models.calls[0]["contents"] == "a scene"
+
+
+class _ImgPart:
+    """A content part carrying inline image bytes; ``thought`` marks a draft."""
+
+    def __init__(self, data: bytes, *, thought: bool = False):
+        self.thought = thought
+
+        class _Inline:
+            mime_type = "image/png"
+
+        _Inline.data = data
+        self.inline_data = _Inline
+
+
+class _TextPart:
+    inline_data = None
+    thought = False
+    text = "here is your image"
+
+
+def test_final_image_part_skips_thought_draft():
+    """nano-banana-2.1 returns a thought image before the final one: keep the final."""
+    parts = [_ImgPart(b"draft", thought=True), _TextPart(), _ImgPart(b"final")]
+    assert image_tools._final_image_part(parts).inline_data.data == b"final"
+
+
+def test_final_image_part_falls_back_to_last_image():
+    parts = [_ImgPart(b"a", thought=True), _ImgPart(b"b", thought=True)]
+    assert image_tools._final_image_part(parts).inline_data.data == b"b"
+    assert image_tools._final_image_part([_TextPart()]) is None
+
+
+def test_generate_image_saves_final_not_thought_image(monkeypatch):
+    """The bytes uploaded to GCS are the final image, not the thought draft."""
+
+    class _Resp:
+        class _C:
+            class content:
+                parts = [_ImgPart(b"draft", thought=True), _ImgPart(b"final")]
+
+        candidates = [_C()]
+
+    class _Models:
+        def generate_content(self, *a, **k):
+            return _Resp()
+
+    class _Client:
+        models = _Models()
+
+    saved = []
+    monkeypatch.setattr(image_tools, "_get_genai_client", lambda: _Client())
+    monkeypatch.setattr(image_tools.asyncio, "sleep", noop_async)
+    monkeypatch.setattr(
+        image_tools,
+        "_save_to_gcs",
+        lambda **k: saved.append(k["image_bytes"]) or "gs://b/c.png",
+    )
+    ctx = _ctx()
+    ctx.state["final_visual_concepts"] = {
+        "visual_concepts": [{"image_generation_prompt": "p", "concept_name": "c"}]
+    }
+    asyncio.run(image_tools.generate_image(ctx))
+    assert saved and saved[0] == b"final"
