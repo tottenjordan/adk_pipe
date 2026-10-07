@@ -12,7 +12,7 @@ import pytest
 
 from creative_agent import prompts
 
-AD_PROMPTS = ["AD_COPY_DRAFTER_INSTR", "AD_COPY_CRITIC_INSTR"]
+AD_PROMPTS = ["AD_COPY_DRAFTER_INSTR", "AD_COPY_CRITIC_INSTR", "AD_COPY_REVISER_INSTR"]
 
 
 def test_drafter_spreads_ideas_across_brief_angles():
@@ -63,3 +63,34 @@ def test_critic_critiques_and_improves_every_cta():
     assert "critique and improve every CTA" in instr
     for phrase in ("action verb", "desired response", "within 8 words"):
         assert phrase in instr, phrase
+
+
+def test_reviser_instruction_tokens():
+    instr = prompts.AD_COPY_REVISER_INSTR
+    for token in (
+        "{ad_copy_critique?}",
+        "{ad_copy_issues?}",
+        "{creative_brief_md?}",
+        "{brand}",
+        "{target_product}",
+        "{target_audience}",
+        "{key_selling_points}",
+        "{ad_copy_feedback?}",
+    ):
+        assert token in instr, token
+    assert instr.count(prompts.BRIEF_BLOCK) == 1
+    # The reviser never reads the report, so it falls back to the campaign inputs.
+    assert prompts.CREATIVE_BRIEF_CONTRACT_CORE in instr
+    assert prompts.BRIEF_FALLBACK_REPORT not in instr
+    assert "{combined_final_cited_report?}" not in instr
+
+
+def test_reviser_rewrites_only_flagged_copies():
+    instr = prompts.AD_COPY_REVISER_INSTR
+    assert "Rewrite ONLY those copies" in instr
+    assert "fix exactly the listed issues" in instr
+    assert "stays verbatim" in instr
+    assert "return ALL the copies" in instr
+    assert "same order with unchanged `original_id`s" in instr
+    assert "refresh `brief_checks` on every copy you revise" in instr
+    assert "'FinalAdCopyList' schema" in instr

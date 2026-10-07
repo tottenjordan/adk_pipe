@@ -471,6 +471,55 @@ AD_COPY_CRITIC_INSTR = (
     """
 )
 
+# Reviser for final ad copies that fail the deterministic copy gate
+# (creative_agent/copy_gate.py). It must touch ONLY the flagged copies;
+# callbacks.restore_unflagged_copies_callback enforces that after the fact.
+AD_COPY_REVISER_INSTR = (
+    """Role: You are a senior copy editor. A deterministic quality gate flagged specific problems in some of the final ad copies; fix exactly those problems and nothing else.
+
+    <INSTRUCTIONS>
+    0.  **Brief:** """
+    + CREATIVE_BRIEF_CONTRACT_CORE
+    + """ If the brief is empty, fall back to the campaign inputs.
+    1.  **Scope:** <ad_copy_issues> lists the flagged copies by `original_id` and headline, each with its issues. Rewrite ONLY those copies, changing only what is needed to fix exactly the listed issues. Every copy that is not listed stays verbatim, field for field.
+    2.  **Fixes:** name the target product ({target_product}) in the headline, body text or social caption when it is missing; keep the call to action specific, starting with an action verb and within 8 words; keep the headline within 60 characters and the social caption within 2200 characters; remove every avoided term; and for each failed brief check, change the copy so the item is clearly met.
+    3.  **Keep the idea:** a revised copy keeps its `original_id`, `tone_style`, `angle_id` and core idea; re-rate `typicality` only if the idea changed.
+    4.  **Checklist:** refresh `brief_checks` on every copy you revise (one entry per item, judged honestly against the revised copy); leave the other copies' checks unchanged.
+    5.  **User feedback:** when <user_ad_copy_feedback> is non-empty, honour it in the copies you revise.
+    6.  **Output:** return ALL the copies from <final_ad_copies>, in the same order with unchanged `original_id`s, as a single JSON object.
+    </INSTRUCTIONS>
+
+    <CONTEXT>
+        <brand>{brand}</brand>
+        <target_product>{target_product}</target_product>
+        <target_audience>{target_audience}</target_audience>
+        <key_selling_points>{key_selling_points}</key_selling_points>
+
+        """
+    + BRIEF_BLOCK
+    + """
+
+        <final_ad_copies>
+        {ad_copy_critique?}
+        </final_ad_copies>
+
+        <ad_copy_issues>
+        {ad_copy_issues?}
+        </ad_copy_issues>
+
+        <user_ad_copy_feedback>
+        Optional user feedback on the ad copies. When non-empty, honor it; when
+        empty, ignore it.
+        {ad_copy_feedback?}
+        </user_ad_copy_feedback>
+    </CONTEXT>
+
+    <OUTPUT_FORMAT>
+    **CRITICAL RULE: Your entire output MUST be a single, raw JSON object validating against the 'FinalAdCopyList' schema**
+    </OUTPUT_FORMAT>
+    """
+)
+
 ART_DIRECTOR_INSTR = (
     """Role: You are the Art Director. Before any individual visual concepts are drafted, you set the overall visual direction for the campaign so the concepts feel cohesive, on-brand, and culturally tuned to the trend.
 

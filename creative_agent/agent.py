@@ -1,3 +1,4 @@
+import copy
 import logging
 from collections.abc import Mapping
 from typing import Any
@@ -29,6 +30,12 @@ from . import callbacks, prompts, tools
 from .brief_check import check_brief
 from .brief_render import render_brief_markdown
 from .config import INFRA_RETRY, SCHEMA_RETRY, config
+from .copy_gate import (
+    brief_avoid,
+    flatten_copy_issues,
+    format_copy_issues,
+    gate_copies,
+)
 from .schemas import (  # noqa: F401
     AdCopy,
     AdCopyList,
@@ -520,6 +527,7 @@ ad_copy_drafter = Agent(
     output_schema=AdCopyList,
     retry_config=SCHEMA_RETRY,
     output_key="ad_copy_draft",
+    before_agent_callback=callbacks.reset_copy_state,
     after_model_callback=[
         callbacks.scrub_surrogates_in_response,
         callbacks.log_empty_turn_finish_reason,
@@ -559,11 +567,130 @@ ad_copy_critic = Agent(
 )
 
 
+# --- AD COPY REVISER (bounded, targeted revision) --- #
+# Rewrites ONLY the final copies copy_gate flagged, fixing exactly their listed
+# issues (`{ad_copy_issues?}`), and returns all copies under the same
+# output_key. Same model/schema/retry/callbacks as ad_copy_critic, plus the
+# safety net: restore_unflagged_copies_callback reverts any copy the gate did
+# not flag (and restores dropped/duplicated ids) from the gate's pre-revision
+# snapshot. Exported bare via the facade for interactive checkpoint-2 reuse.
+ad_copy_reviser = Agent(
+    model=build_gemini(config.worker_model),
+    name="ad_copy_reviser",
+    mode="single_turn",
+    include_contents="none",
+    description="Revises only the flagged final ad copies to fix the issues found by the copy gate",
+    planner=BuiltInPlanner(
+        thinking_config=types.ThinkingConfig(include_thoughts=False)
+    ),
+    instruction=prompts.AD_COPY_REVISER_INSTR,
+    generate_content_config=types.GenerateContentConfig(
+        temperature=0.7,
+        labels={
+            "agentic_wf": "trend_scout",
+            "agent": "creative_agent",
+            "subagent": "ad_copy_reviser",
+        },
+    ),
+    output_schema=FinalAdCopyList,
+    retry_config=SCHEMA_RETRY,
+    output_key="ad_copy_critique",
+    after_agent_callback=callbacks.restore_unflagged_copies_callback,
+    after_model_callback=[
+        callbacks.scrub_surrogates_in_response,
+        callbacks.log_empty_turn_finish_reason,
+    ],
+)
+
+
+# --- DETERMINISTIC COPY GATE (bounded revision loop) --- #
+# copy_gate runs creative_agent.copy_gate on the critic's final copies (product
+# named, CTA <= 8 words, headline/caption length, the brief's avoid terms, and
+# every brief_checks item the critic marked failed). Same contract as
+# brief_gate: with issues and revision budget left (config.copy_revision_rounds,
+# env COPY_REVISION_ROUNDS, 0-2) it writes them as a Markdown list grouped per
+# copy (`ad_copy_issues`, the reviser's input), the flagged ids and a
+# pre-revision snapshot (the reviser's safety net), bumps the counter and routes
+# "revise"; the reviser routes back to the gate, which re-checks. When the
+# budget is spent with issues left, it records them as
+# `ad_copy_critique__issues` (surfaced by collect_degradation_warnings) and
+# routes "ok". Every "ok" exit clears the revision inputs.
+_COPY_REVISION_CLEARED: dict[str, Any] = {
+    "ad_copy_issues": "",
+    "ad_copy_flagged_ids": None,
+    "ad_copy_critique__before_revision": None,
+}
+
+
+def _copy_issues(state: Mapping[str, Any]) -> dict[str, list[str]]:
+    return gate_copies(
+        state.get("ad_copy_critique"),
+        target_product=str(state.get("target_product") or ""),
+        avoid=brief_avoid(state.get("creative_brief")),
+        brand=str(state.get("brand") or ""),
+    )
+
+
+def copy_gate_decision(
+    state: Mapping[str, Any], max_rounds: int
+) -> tuple[str, dict[str, Any]]:
+    """The copy gate's (route, state_delta) for a state snapshot (pure)."""
+    critique = state.get("ad_copy_critique")
+    issues = _copy_issues(state) if is_populated(critique) else {}
+    if not issues:
+        return "ok", {**_COPY_REVISION_CLEARED, "ad_copy_critique__issues": None}
+    used = int(state.get("ad_copy_revision_rounds_used") or 0)
+    if used < max_rounds:
+        return "revise", {
+            "ad_copy_issues": format_copy_issues(critique, issues),
+            "ad_copy_flagged_ids": list(issues),
+            "ad_copy_critique__before_revision": copy.deepcopy(critique),
+            "ad_copy_revision_rounds_used": used + 1,
+        }
+    return "ok", {
+        **_COPY_REVISION_CLEARED,
+        "ad_copy_critique__issues": flatten_copy_issues(critique, issues),
+    }
+
+
+def copy_gate(ctx: Context) -> Event:
+    """Route flagged copies to the reviser while budget remains."""
+    route, delta = copy_gate_decision(ctx.state.to_dict(), config.copy_revision_rounds)
+    if delta.get("ad_copy_critique__issues"):
+        logging.warning("ad copy issues remain: %s", delta["ad_copy_critique__issues"])
+    return Event(actions=EventActions(route=route, state_delta=delta))
+
+
+# A raising reviser (e.g. SCHEMA_RETRY exhausted) must not fail the ad copy
+# step: the critic's copies are already in state. Keep the pre-revision copies,
+# record the gate's issues as ad_copy_critique__issues and spend the budget so
+# the gate (which the failsoft node routes back to) does not re-run it.
+def _ad_copy_reviser_failed(state: Mapping[str, Any], exc: Exception) -> dict[str, Any]:
+    before = state.get("ad_copy_critique__before_revision")
+    critique = before if is_populated(before) else state.get("ad_copy_critique")
+    used = int(state.get("ad_copy_revision_rounds_used") or 0)
+    issues = _copy_issues({**state, "ad_copy_critique": critique})
+    return {
+        **_COPY_REVISION_CLEARED,
+        "ad_copy_critique": critique,
+        "ad_copy_critique__issues": flatten_copy_issues(critique, issues) or None,
+        "ad_copy_revision_rounds_used": max(used, config.copy_revision_rounds),
+    }
+
+
+ad_copy_reviser_failsoft = FailSoftNode(
+    name="ad_copy_reviser_failsoft",
+    node=ad_copy_reviser,
+    on_error=_ad_copy_reviser_failed,
+)
+
+
 def ad_copies_ready(ctx: Context) -> Any:
     """Terminal node of ad_creative_pipeline (the root's tool result).
 
-    Returns the critic's final ad copies (the payload the pre-graph AgentTool
-    returned), or a non-empty notice when the critic produced none.
+    Returns the final ad copies (the critic's, after any gate-driven revision;
+    the payload the pre-graph AgentTool returned), or a non-empty notice when
+    the critic produced none.
     """
     value = ctx.state.get("ad_copy_critique")
     if is_populated(value):
@@ -571,12 +698,17 @@ def ad_copies_ready(ctx: Context) -> Any:
     return _missing_notice("ad_copy_critic", "ad_copy_critique")
 
 
-# Ad creative generation graph (draft → critique), ending in a truthy result node.
+# Ad creative generation graph (draft → critique → deterministic copy gate with
+# a bounded, targeted revision loop), ending in a truthy result node.
 ad_creative_pipeline = Workflow(
     name="ad_creative_pipeline",
-    description="Generates ad copy drafts with an actor-critic workflow.",
+    description="Generates ad copy drafts with an actor-critic workflow, then revises copies that fail the brief checks.",
     input_schema=PipelineRequest,
-    edges=[("START", ad_copy_drafter, ad_copy_critic, ad_copies_ready)],
+    edges=[
+        ("START", ad_copy_drafter, ad_copy_critic, copy_gate),
+        (copy_gate, {"ok": ad_copies_ready, "revise": ad_copy_reviser_failsoft}),
+        (ad_copy_reviser_failsoft, copy_gate),
+    ],
 )
 
 

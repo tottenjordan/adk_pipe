@@ -39,6 +39,20 @@ DEFAULT_CAMPAIGN_ARM = "global_altbucket"
 DEFAULT_BRIEF_REVISION_ROUNDS = 1
 MAX_BRIEF_REVISION_ROUNDS = 2
 
+# Ad-copy revision budget (copy_gate → ad_copy_reviser rounds).
+DEFAULT_COPY_REVISION_ROUNDS = 1
+MAX_COPY_REVISION_ROUNDS = 2
+
+
+def _parse_rounds(raw: str | None, default: int, maximum: int) -> int:
+    try:
+        value = int(raw) if raw is not None and raw.strip() else None
+    except ValueError:
+        value = None
+    if value is None:
+        return default
+    return max(0, min(maximum, value))
+
 
 def parse_brief_revision_rounds(raw: str | None) -> int:
     """``BRIEF_REVISION_ROUNDS`` → int clamped to 0..2; unset/blank/invalid → 1.
@@ -48,13 +62,18 @@ def parse_brief_revision_rounds(raw: str | None) -> int:
     than this many passes were used. 0 disables revision (issues are only
     recorded).
     """
-    try:
-        value = int(raw) if raw is not None and raw.strip() else None
-    except ValueError:
-        value = None
-    if value is None:
-        return DEFAULT_BRIEF_REVISION_ROUNDS
-    return max(0, min(MAX_BRIEF_REVISION_ROUNDS, value))
+    return _parse_rounds(raw, DEFAULT_BRIEF_REVISION_ROUNDS, MAX_BRIEF_REVISION_ROUNDS)
+
+
+def parse_copy_revision_rounds(raw: str | None) -> int:
+    """``COPY_REVISION_ROUNDS`` → int clamped to 0..2; unset/blank/invalid → 1.
+
+    The maximum number of ad_copy_reviser passes: copy_gate routes final ad
+    copies that fail creative_agent.copy_gate to the reviser, which loops back to
+    the gate, while fewer than this many passes were used. 0 disables revision
+    (issues are only recorded).
+    """
+    return _parse_rounds(raw, DEFAULT_COPY_REVISION_ROUNDS, MAX_COPY_REVISION_ROUNDS)
 
 
 @dataclass
@@ -94,6 +113,14 @@ class ResearchConfiguration(BaseAgentConfiguration):
     brief_revision_rounds: int = field(
         default_factory=lambda: parse_brief_revision_rounds(
             os.getenv("BRIEF_REVISION_ROUNDS")
+        )
+    )
+
+    # copy_gate routes final ad copies that fail creative_agent.copy_gate to
+    # ad_copy_reviser while fewer than this many revision rounds were used.
+    copy_revision_rounds: int = field(
+        default_factory=lambda: parse_copy_revision_rounds(
+            os.getenv("COPY_REVISION_ROUNDS")
         )
     )
 

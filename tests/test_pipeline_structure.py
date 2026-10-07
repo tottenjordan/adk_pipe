@@ -1,5 +1,7 @@
 """Tests for agent pipeline structure and configuration."""
 
+import json
+
 import pytest
 from google.adk.tools._node_tool import NodeTool
 
@@ -198,6 +200,7 @@ def test_graph_llm_agents_are_single_turn():
         "brief_reviser",
         "ad_copy_drafter",
         "ad_copy_critic",
+        "ad_copy_reviser",
         "art_director",
         "visual_concept_drafter",
         "visual_concept_critic",
@@ -399,7 +402,10 @@ def test_ad_creative_pipeline_graph_edges():
     assert _graph_edges(ad_creative_pipeline) == {
         ("__START__", "ad_copy_drafter", None),
         ("ad_copy_drafter", "ad_copy_critic", None),
-        ("ad_copy_critic", "ad_copies_ready", None),
+        ("ad_copy_critic", "copy_gate", None),
+        ("copy_gate", "ad_copies_ready", "ok"),
+        ("copy_gate", "ad_copy_reviser_failsoft", "revise"),
+        ("ad_copy_reviser_failsoft", "copy_gate", None),
     }
 
 
@@ -446,6 +452,7 @@ def test_structured_output_producers_carry_schema_retry():
         "brief_reviser",
         "ad_copy_drafter",
         "ad_copy_critic",
+        "ad_copy_reviser",
         "visual_concept_drafter",
         "visual_concept_critic",
         "visual_concept_finalizer",
@@ -777,6 +784,7 @@ def test_creative_model_agents_have_finish_reason_callback():
         ca.combined_report_composer,
         ca.ad_copy_drafter,
         ca.ad_copy_critic,
+        ca.ad_copy_reviser,
         ca.art_director,
         ca.visual_concept_drafter,
         ca.visual_concept_critic,
@@ -798,7 +806,7 @@ def test_ad_copy_agents_scrub_lone_surrogates():
     from creative_agent import agent as ca
     from creative_agent import callbacks
 
-    for a in (ca.ad_copy_drafter, ca.ad_copy_critic):
+    for a in (ca.ad_copy_drafter, ca.ad_copy_critic, ca.ad_copy_reviser):
         cbs = a.canonical_after_model_callbacks
         assert callbacks.scrub_surrogates_in_response in cbs, (
             f"{a.name} missing scrub_surrogates_in_response after_model_callback"
@@ -1559,3 +1567,209 @@ def test_creative_final_state_summary_includes_brief(caplog):
     with caplog.at_level(logging.INFO):
         callbacks.log_final_state_summary(ctx)
     assert "'creative_brief': 'present(dict, n=1)'" in caplog.text
+
+
+# --- Ad copy gate (copy_gate / ad_copy_reviser) ------------------------------
+
+
+def test_ad_copy_reviser_mirrors_the_critic_config():
+    """Same worker bucket, schema, output key, retry and callbacks as the
+    critic (it rewrites the critic's output in place), plus the safety net."""
+    from creative_agent import agent as ca
+    from creative_agent import callbacks, prompts
+    from creative_agent.config import SCHEMA_RETRY, config
+    from creative_agent.schemas import FinalAdCopyList
+
+    r = ca.ad_copy_reviser
+    assert r.model.model == config.worker_model == ca.ad_copy_critic.model.model
+    assert r.output_schema is FinalAdCopyList
+    assert r.output_key == "ad_copy_critique" == ca.ad_copy_critic.output_key
+    assert r.retry_config is SCHEMA_RETRY
+    assert r.instruction == prompts.AD_COPY_REVISER_INSTR
+    assert r.mode == "single_turn"
+    assert r.include_contents == "none"
+    assert (
+        r.canonical_after_model_callbacks
+        == ca.ad_copy_critic.canonical_after_model_callbacks
+    )
+    assert r.after_agent_callback is callbacks.restore_unflagged_copies_callback
+    assert r.generate_content_config.temperature == 0.7
+
+
+def test_ad_copy_reviser_is_fail_soft_wrapped_in_the_graph():
+    from agent_common import FailSoftNode
+    from creative_agent import agent as ca
+
+    nodes = _graph_nodes(ca.ad_creative_pipeline)
+    soft = nodes["ad_copy_reviser_failsoft"]
+    assert isinstance(soft, FailSoftNode)
+    assert soft.node.name == "ad_copy_reviser"
+    assert soft.on_error is ca._ad_copy_reviser_failed
+    edges = _graph_edges(ca.ad_creative_pipeline)
+    assert {src for src, dst, _ in edges if dst == "copy_gate"} == {
+        "ad_copy_critic",
+        "ad_copy_reviser_failsoft",
+    }
+
+
+def test_ad_copy_drafter_resets_the_copy_revision_state():
+    from types import SimpleNamespace
+
+    from creative_agent import agent as ca
+    from creative_agent import callbacks
+
+    assert ca.ad_copy_drafter.before_agent_callback is callbacks.reset_copy_state
+    state = {
+        "ad_copy_issues": "- old",
+        "ad_copy_flagged_ids": ["1"],
+        "ad_copy_critique__before_revision": {"ad_copies": []},
+        "ad_copy_revision_rounds_used": 1,
+        "ad_copy_critique__issues": ["old"],
+        "ad_copy_critique": {"kept": True},
+    }
+    assert callbacks.reset_copy_state(SimpleNamespace(state=state)) is None
+    assert state == {
+        "ad_copy_issues": "",
+        "ad_copy_flagged_ids": None,
+        "ad_copy_critique__before_revision": None,
+        "ad_copy_revision_rounds_used": 0,
+        "ad_copy_critique__issues": None,
+        "ad_copy_critique": {"kept": True},
+    }
+
+
+def _final_copy(original_id=1, **overrides):
+    copy = {
+        "original_id": original_id,
+        "tone_style": "Humorous",
+        "headline": f"Headline {original_id}",
+        "body_text": "Rocket Skates make you fast.",
+        "trend_connection": "t",
+        "audience_appeal_rationale": "a",
+        "social_caption": "Zoom.",
+        "call_to_action": "Order your skates today",
+        "detailed_performance_rationale": "r",
+    }
+    copy.update(overrides)
+    return copy
+
+
+def _copy_state(*copies, **extra):
+    return {
+        "ad_copy_critique": {"ad_copies": list(copies)},
+        "target_product": "Rocket Skates",
+        "brand": "Acme",
+        **extra,
+    }
+
+
+def test_copy_gate_decision_clean_copies():
+    from creative_agent.agent import copy_gate_decision
+
+    route, delta = copy_gate_decision(_copy_state(_final_copy(1), _final_copy(2)), 1)
+    assert route == "ok"
+    assert delta == {
+        "ad_copy_issues": "",
+        "ad_copy_flagged_ids": None,
+        "ad_copy_critique__before_revision": None,
+        "ad_copy_critique__issues": None,
+    }
+
+
+def test_copy_gate_decision_revises_flagged_copies_within_budget():
+    from creative_agent.agent import copy_gate_decision
+
+    bad = _final_copy(2, body_text="Go fast.")
+    state = _copy_state(_final_copy(1), bad)
+    route, delta = copy_gate_decision(state, 1)
+    assert route == "revise"
+    assert delta["ad_copy_flagged_ids"] == ["2"]
+    assert delta["ad_copy_revision_rounds_used"] == 1
+    assert delta["ad_copy_critique__before_revision"] == state["ad_copy_critique"]
+    assert delta["ad_copy_critique__before_revision"] is not state["ad_copy_critique"]
+    assert delta["ad_copy_issues"].startswith('- **Copy 2 ("Headline 2"):**')
+    assert "  - product not named" in delta["ad_copy_issues"]
+    assert "Copy 1" not in delta["ad_copy_issues"]
+
+
+def test_copy_gate_decision_records_residual_issues_when_budget_spent():
+    from creative_agent.agent import copy_gate_decision
+
+    state = _copy_state(
+        _final_copy(3, body_text="Go fast."), ad_copy_revision_rounds_used=1
+    )
+    route, delta = copy_gate_decision(state, 1)
+    assert route == "ok"
+    assert delta["ad_copy_issues"] == ""
+    assert delta["ad_copy_flagged_ids"] is None
+    (issue,) = delta["ad_copy_critique__issues"]
+    assert issue.startswith('Copy 3 ("Headline 3"): product not named')
+    # Revision disabled (0 rounds): straight to ok with the issues recorded.
+    route, delta = copy_gate_decision(_copy_state(_final_copy(3, body_text="x")), 0)
+    assert route == "ok" and delta["ad_copy_critique__issues"]
+
+
+def test_copy_gate_decision_reads_the_brief_avoid_list():
+    from creative_agent.agent import copy_gate_decision
+
+    copy = _final_copy(1, body_text="Rocket Skates: no more cliff falls.")
+    assert copy_gate_decision(_copy_state(copy), 1)[0] == "ok"
+    brief = {**_clean_brief(), "avoid": ["cliff falls"]}
+    for value in (brief, json.dumps(brief)):
+        route, delta = copy_gate_decision(_copy_state(copy, creative_brief=value), 1)
+        assert route == "revise"
+        assert "avoided term 'cliff falls'" in delta["ad_copy_issues"]
+    # visual_avoid is the visual stage's input, not a copy rule.
+    state = _copy_state(copy, visual_avoid="cliff falls")
+    assert copy_gate_decision(state, 1)[0] == "ok"
+
+
+def test_copy_gate_decision_skips_missing_copies():
+    from creative_agent.agent import copy_gate_decision
+
+    for critique in (None, "", {"ad_copies": []}, "not json"):
+        state = {"ad_copy_critique": critique, "target_product": "Rocket Skates"}
+        route, delta = copy_gate_decision(state, 2)
+        assert route == "ok", critique
+        assert delta["ad_copy_critique__issues"] is None
+
+
+def test_ad_copy_reviser_failsoft_error_delta():
+    """A raising reviser keeps the pre-revision copies, records their issues and
+    spends the revision budget."""
+    from creative_agent import agent as ca
+
+    before = {"ad_copies": [_final_copy(2, body_text="Go fast.")]}
+    state = _copy_state(
+        _final_copy(2, body_text="half-written"),
+        ad_copy_critique__before_revision=before,
+        ad_copy_revision_rounds_used=1,
+        ad_copy_issues="- x",
+    )
+    delta = ca._ad_copy_reviser_failed(state, ValueError())
+    assert delta["ad_copy_critique"] == before
+    assert delta["ad_copy_issues"] == ""
+    assert delta["ad_copy_critique__before_revision"] is None
+    (issue,) = delta["ad_copy_critique__issues"]
+    assert "product not named" in issue
+    assert delta["ad_copy_revision_rounds_used"] >= ca.config.copy_revision_rounds
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [(None, 1), ("", 1), ("0", 0), ("2", 2), ("5", 2), ("-1", 0), ("x", 1)],
+)
+def test_copy_revision_rounds_env(monkeypatch, raw, expected):
+    from creative_agent.config import ResearchConfiguration
+
+    if raw is None:
+        monkeypatch.delenv("COPY_REVISION_ROUNDS", raising=False)
+    else:
+        monkeypatch.setenv("COPY_REVISION_ROUNDS", raw)
+    assert ResearchConfiguration().copy_revision_rounds == expected
+
+
+def test_copy_revision_rounds_ships_to_agent_engine():
+    import deployment.deploy_agent as da
+
+    assert da.ENV_VAR_DICT["COPY_REVISION_ROUNDS"] is not None

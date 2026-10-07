@@ -500,3 +500,38 @@ class TestEnsureTrendAndProductCallback:
             target_product="Rocket Skates", final_visual_concepts=concepts
         )
         assert ensure_trend_and_product_callback(self._ctx(state)) is None
+
+
+def test_restore_unflagged_copies_callback(caplog):
+    """The reviser's safety net reverts unflagged copies (with a warning) and
+    is a no-op without a pre-revision snapshot or when the reviser complied."""
+    import logging
+    from types import SimpleNamespace
+
+    from creative_agent.callbacks import restore_unflagged_copies_callback
+
+    before = {"ad_copies": [{"original_id": 1, "h": "a"}, {"original_id": 2, "h": "b"}]}
+    after = {"ad_copies": [{"original_id": 1, "h": "A"}, {"original_id": 2, "h": "B"}]}
+
+    state = {"ad_copy_critique": after}
+    restore_unflagged_copies_callback(SimpleNamespace(state=state))
+    assert state["ad_copy_critique"] is after  # no snapshot: untouched
+
+    state = {
+        "ad_copy_critique": after,
+        "ad_copy_critique__before_revision": before,
+        "ad_copy_flagged_ids": ["2"],
+    }
+    with caplog.at_level(logging.WARNING):
+        restore_unflagged_copies_callback(SimpleNamespace(state=state))
+    assert state["ad_copy_critique"] == {
+        "ad_copies": [{"original_id": 1, "h": "a"}, {"original_id": 2, "h": "B"}]
+    }
+    assert "restored copy 1: it was not flagged for revision" in caplog.text
+
+    complied = {
+        "ad_copies": [{"original_id": 1, "h": "a"}, {"original_id": 2, "h": "B"}]
+    }
+    state["ad_copy_critique"] = complied
+    restore_unflagged_copies_callback(SimpleNamespace(state=state))
+    assert state["ad_copy_critique"] is complied

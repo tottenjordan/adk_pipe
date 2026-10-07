@@ -52,6 +52,7 @@ tests/
 ├── test_agent_common_idempotency.py # stable_row_id deterministic BigQuery row keys
 ├── test_agent_common_models.py      # shared model location + build_gemini() factory
 ├── test_agent_common_state.py       # shared memorize tool + seed_initial_state()
+├── test_ad_copy_prompts.py          # ad copy prompts: angle spread + typicality (drafter), angle coverage/surprise/brief checklist/CTA (critic), flagged-only reviser tokens; brace-safety
 ├── test_agents_dir.py               # agents/ serving-view symlinks used by the Cloud Run api_server
 ├── test_async_runs.py               # async-job run model: kick-off/poll/resume, terminal markers
 ├── test_authz.py                    # P3 per-user authz: modes, userId normalization, proxy ID-token check, middleware 401/403/404, ownership → 404
@@ -64,9 +65,10 @@ tests/
 ├── test_callbacks.py                # citation replacement, state init (incl. style_shortlist seeding), rate limiting, trend/product guard callback
 ├── test_concept_guard.py            # final image prompts always name the trend_motif + product (pure guard)
 ├── test_config.py                   # per-agent config resolution (incl. campaign-placement resolver)
+├── test_copy_gate.py                # deterministic ad-copy gate (product named, CTA words, headline/caption length, brief avoid terms, failed brief checks; tolerant parsing) + restore_unflagged safety net
 ├── test_create_session_engine.py    # create_session_engine.py (reuse-or-create sessions-only engine)
 ├── test_creative_brief_prompts.py   # {creative_brief_md?} block before the report + shared contract rule (core + fallback; user feedback/art direction override) in the 5 creative prompts; brace-safety
-├── test_creative_agent_graph.py     # creative_agent graph pipelines end-to-end (stub models): routing, citations, no-stall, guard-repaired render prompts, creative-brief gate (pass / revise once / revise twice with 2 rounds / residual issues / writer exhausted / raising writer or reviser fail-soft)
+├── test_creative_agent_graph.py     # creative_agent graph pipelines end-to-end (stub models): routing, citations, no-stall, guard-repaired render prompts, creative-brief gate (pass / revise once / revise twice with 2 rounds / residual issues / writer exhausted / raising writer or reviser fail-soft), ad-copy gate (all pass / flagged copy revised + unflagged edit reverted / raising reviser fail-soft / residual issues)
 ├── test_eval_efficiency_gate.py     # efficiency gate: metric extraction, tolerances, warn-only latency, CLI exit codes, --update-baseline
 ├── test_creative_eval.py            # creative_eval schemas, scoring logic, config
 ├── test_crf_config.py               # env-driven CRF config (required project, no hardcoding)

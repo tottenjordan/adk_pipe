@@ -25,6 +25,7 @@ change import cost or the lazy-import pattern used by `runserver.get_root_agent`
 
 from . import agent, callbacks, tools  # noqa: F401  (submodule access + graph build)
 from .agent import (
+    ad_copy_reviser,
     ad_creative_pipeline,
     app,
     combined_research_pipeline,
@@ -46,6 +47,8 @@ __all__ = [
     "ad_creative_pipeline",
     "visual_generation_pipeline",
     "visual_generator_resilient",
+    # bare ad-copy reviser (interactive checkpoint-2 reuse)
+    "ad_copy_reviser",
     # shared visual schema + the structured creative brief (downstream contract)
     "VisualConceptFinalList",
     "CreativeBrief",
