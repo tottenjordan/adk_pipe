@@ -321,6 +321,7 @@ def _brief_issues(state: Mapping[str, Any]) -> list[str]:
         brand_colors=str(state.get("brand_colors") or ""),
         brand=str(state.get("brand") or ""),
         target_product=str(state.get("target_product") or ""),
+        trend=str(state.get("target_search_trends") or ""),
         sources=sources if isinstance(sources, Mapping) else None,
     )
 

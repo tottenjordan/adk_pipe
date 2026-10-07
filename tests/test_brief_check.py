@@ -220,3 +220,169 @@ def test_rtb_src_id_must_exist_in_sources_when_given():
     assert check_brief(_BRIEF, sources={"src-1": {"short_id": "src-1"}}) == []
     (issue,) = check_brief(_BRIEF, sources={"src-2": {}})
     assert "unknown sources" in issue and "'src-1'" in issue
+
+
+# --- false-positive audit regressions (edge.py / Lay's case) -----------------
+
+
+def _prop_issues(proposition, **kwargs):
+    return check_brief(_brief(single_minded_proposition=proposition), **kwargs)
+
+
+@pytest.mark.parametrize(
+    "proposition",
+    [
+        "Ranked No. 1 in the U.S. for comfort.",
+        "Made in the U.S.A. for your commute.",
+        "Approx. 20 minutes to a better morning.",
+        "Our Jr. size fits small hands.",
+        "Plan your trip at 9 a.m. without stress.",
+        "Wake up at 6 a.m. ready.",
+        "Feel the Eras Tour energy... at home.",
+        "Feel the Eras Tour energy… At home.",
+    ],
+)
+def test_no_sentence_break_without_a_following_capital(proposition):
+    assert _prop_issues(proposition) == []
+
+
+@pytest.mark.parametrize(
+    "proposition",
+    ["Hey! Your coffee is ready.", "Ready? Set. Go.", 'Skates rule. "Buy them."'],
+)
+def test_real_second_sentences_still_flagged(proposition):
+    (issue,) = _prop_issues(proposition)
+    assert "one sentence" in issue
+
+
+@pytest.mark.parametrize(
+    ("proposition", "kwargs"),
+    [
+        ("Rock-and-roll energy in every can.", {}),
+        ("Black-and-white photos never looked this good.", {}),
+        ("The bread-and-butter cleaner for busy parents.", {}),
+        ("R&B nights deserve better sound.", {}),
+        # "&" names, written with "and" or "&".
+        ("Barnes and Noble makes every chapter epic.", {"brand": "Barnes & Noble"}),
+        (
+            "Ben and Jerry's makes every scoop a celebration.",
+            {"brand": "Ben & Jerry's"},
+        ),
+        ("Johnson & Johnson keeps babies calm.", {"brand": "Johnson and Johnson"}),
+        # An "X and Y" chunk of a longer product / brand / trend name.
+        (
+            "Lay's Salt and Vinegar delivers an intense kick that matches your adrenaline rush.",
+            {"brand": "Lay's", "target_product": "Lay's Salt and Vinegar chips"},
+        ),
+        (
+            "Kraft Mac and Cheese turns any game into a feast.",
+            {"brand": "Kraft Heinz", "target_product": "Kraft Mac & Cheese"},
+        ),
+        (
+            "Every Dungeons and Dragons night needs a snack.",
+            {"trend": "Dungeons and Dragons movie"},
+        ),
+        (
+            "Pens for the Fast and Furious crowd.",
+            {"trend": "Fast and Furious 11 trailer"},
+        ),
+    ],
+)
+def test_and_inside_names_and_compounds_is_not_two_ideas(proposition, kwargs):
+    assert _prop_issues(proposition, **kwargs) == []
+
+
+def test_and_still_flagged_outside_names():
+    (issue,) = _prop_issues("Fast, light and durable shoes for every run.")
+    assert "'and'" in issue
+    (issue,) = _prop_issues("Skates & helmets for every chase.")
+    assert "'and'" in issue
+    (issue,) = _prop_issues(
+        "Lay's Salt and Vinegar chips are crunchy and tangy.",
+        target_product="Lay's Salt and Vinegar chips",
+    )
+    assert "'and'" in issue
+
+
+def test_all_proposition_issues_reported_together():
+    issues = _prop_issues("Skates are fast and safe. Buy them.")
+    assert len(issues) == 2
+    assert "one sentence" in issues[0] and "'and'" in issues[1]
+
+
+@pytest.mark.parametrize(
+    "insight",
+    [
+        "Fans want to be there; tickets cost a fortune.",
+        "Fans want to be there, still they can't afford it.",
+        "Despite loving the show, fans can't get tickets.",
+        "Fans crave the stadium experience — tickets are gone in seconds.",
+        "Fans want in, only to find tickets gone.",
+        "Fans want in, though tickets are gone.",
+        "Fans want in; however, tickets are gone.",
+        "Fans buy merch instead of tickets they can't afford.",
+        "Gen Z wants to look effortless, except effortless takes effort.",
+        "Gamers say they hate ads; they watch every trailer anyway.",
+        "Fans want front-row seats, whereas budgets want the nosebleeds.",
+    ],
+)
+def test_more_tension_markers_accepted(insight):
+    assert check_brief(_brief(insight=insight)) == []
+
+
+def test_insight_hyphen_is_not_a_clause_join():
+    issues = check_brief(_brief(insight="Coyotes love high-speed gadgets."))
+    assert any("no tension" in i for i in issues)
+
+
+_SOURCES = {f"src-{i}": {"short_id": f"src-{i}"} for i in range(1, 7)}
+
+
+@pytest.mark.parametrize(
+    "source_id",
+    [
+        "src-3",
+        "[src-3]",
+        "src_3",
+        "SRC-3",
+        "src 3",
+        "src-03",
+        " src-3 ",
+        "src-3, src-5",
+        "src-3,src-5",
+        "Brief",
+        "brief ",
+        "user brief",
+        "[brief]",
+    ],
+)
+def test_source_id_variants_are_normalised(source_id):
+    rtbs = [{"claim": "Fast", "source_id": source_id}]
+    assert check_brief(_brief(reasons_to_believe=rtbs), sources=_SOURCES) == []
+
+
+@pytest.mark.parametrize(
+    ("source_id", "kind"),
+    [
+        ("research", "invalid source_id"),
+        ("source 3", "invalid source_id"),
+        ("src-3, research", "invalid source_id"),
+        ("src-9", "unknown sources"),
+        ("src-3, src-9", "unknown sources"),
+    ],
+)
+def test_source_id_still_flagged(source_id, kind):
+    rtbs = [{"claim": "Fast", "source_id": source_id}]
+    (issue,) = check_brief(_brief(reasons_to_believe=rtbs), sources=_SOURCES)
+    assert kind in issue
+
+
+def test_angle_names_compared_normalised():
+    angles = [
+        {"angle_id": f"A{i}", "name": n, "tension": t, "route": "r"}
+        for i, (n, t) in enumerate(
+            [("Front Row", "a"), ("Front-Row", "b"), ("front row!", "c")], 1
+        )
+    ]
+    (issue,) = check_brief(_brief(angles=angles))
+    assert "1 distinct angle name" in issue

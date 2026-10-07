@@ -38,18 +38,39 @@ _GENERIC_TOKENS = frozenset(w for term in GENERIC_MOTIFS for w in term.split()) 
 }
 _FILLER = frozenset({"a", "an", "the", "of", "on", "with", "and"})
 
-_TENSION = re.compile(r"\b(but|yet|although|even though|while)\b", re.IGNORECASE)
+# Insight tension: a contrast word, or two clauses joined by ";" or a spaced
+# dash ("Fans want in; tickets are gone", "Fans want in — tickets are gone").
+_TENSION = re.compile(
+    r"\b(but|yet|although|though|while|however|despite|still|instead|except"
+    r"|only to|whereas)\b|;|\s[\u2014\u2013]\s?|\u2014|\s--\s",
+    re.IGNORECASE,
+)
 _AND = re.compile(r"\band\b", re.IGNORECASE)
-# A sentence break: terminal punctuation followed by whitespace and more text
-# (so "2.5x" or a single trailing period is one sentence).
-_SENTENCE_BREAK = re.compile(r"[.!?]+\s+\S")
-# Common abbreviations whose period is not a sentence break ("Dr. Pepper").
+# A spaced ampersand is a conjunction ("skates & helmets"); a glued one is part
+# of a name ("R&B", "M&M's", "AT&T").
+_SPACED_AMPERSAND = re.compile(r"\s+&\s+")
+# Hyphenated "and" compounds are one idea ("rock-and-roll", "black-and-white").
+_AND_COMPOUND = re.compile(r"\w+(?:-\w+)*-and-\w+(?:-\w+)*", re.IGNORECASE)
+# An "X and Y" chunk inside a name ("Salt and Vinegar" in "Lay's Salt and
+# Vinegar chips").
+_NAME_AND_CHUNK = re.compile(r"[\w']+\s+and\s+[\w']+", re.IGNORECASE)
+# A sentence break: terminal punctuation, whitespace, then a capital letter or
+# an opening quote. So "No. 1", "U.S.A. for", "9 a.m. without" and "2.5x" are
+# one sentence; an ellipsis ("..." / "…") never breaks.
+_SENTENCE_END = re.compile(r"([.!?\u2026]+)\s+(\S)")
+_OPENING_QUOTES = frozenset("\"'\u201c\u2018\u00ab")
+# Common abbreviations whose period is not a sentence break even before a
+# capital ("Dr. Pepper", "St. Louis").
 _ABBREVIATIONS = (
     "St.",
     "Dr.",
     "Mr.",
     "Mrs.",
     "Ms.",
+    "Jr.",
+    "Sr.",
+    "Mt.",
+    "No.",
     "U.S.",
     "U.K.",
     "vs.",
@@ -64,8 +85,11 @@ _ABBREVIATION = re.compile(
     + ")",
     re.IGNORECASE,
 )
-# A reason to believe cites a research source ("src-N") or the user's brief.
+# A reason to believe cites a research source ("src-N") or the user's brief;
+# see _normalise_source_ids for the tolerated spellings.
 _SOURCE_ID = re.compile(r"^(src-\d+|brief)$")
+_SRC_VARIANT = re.compile(r"src[\s_-]*0*(\d+)")
+_BRIEF_VARIANT = re.compile(r"(?:user\s+)?brief")
 
 
 def _expected_fit_mode(score: int) -> str:
@@ -109,12 +133,60 @@ def _without_abbreviations(text: str) -> str:
     return _ABBREVIATION.sub(lambda m: m.group(0).replace(".", ""), text)
 
 
+def _has_sentence_break(text: str) -> bool:
+    for match in _SENTENCE_END.finditer(_without_abbreviations(text)):
+        punct, following = match.groups()
+        if "\u2026" in punct or ".." in punct:
+            continue  # an ellipsis is a pause, not a sentence end
+        if following.isupper() or following in _OPENING_QUOTES:
+            return True
+    return False
+
+
+def _with_and(text: str) -> str:
+    return _SPACED_AMPERSAND.sub(" and ", text)
+
+
 def _without_names(text: str, names: tuple[str, ...]) -> str:
-    """``text`` with each non-blank name removed (case-insensitive)."""
-    for name in names:
-        if name.strip():
-            text = re.sub(re.escape(name.strip()), " ", text, flags=re.IGNORECASE)
+    """``text`` with each name, and each "X and Y" chunk of a name, removed.
+
+    Case-insensitive; a spaced "&" counts as "and" on both sides, so "Barnes
+    and Noble" is removed for the brand "Barnes & Noble" and "Salt and Vinegar"
+    for the product "Lay's Salt and Vinegar chips".
+    """
+    text = _with_and(text)
+    for raw in names:
+        name = _with_and(raw.strip())
+        if not name:
+            continue
+        for part in (name, *_NAME_AND_CHUNK.findall(name)):
+            text = re.sub(re.escape(part), " ", text, flags=re.IGNORECASE)
     return text
+
+
+def _joins_with_and(proposition: str, names: tuple[str, ...]) -> bool:
+    text = _AND_COMPOUND.sub(" ", _without_names(proposition, names))
+    return _AND.search(text) is not None
+
+
+def _normalise_source_ids(source_id: str) -> list[str]:
+    """The cited ids in canonical form; unrecognised parts are kept as written.
+
+    Tolerates case, surrounding brackets, comma-separated lists, "src_3" /
+    "src 3" / "src-03" (→ "src-3") and "Brief" / "user brief" (→ "brief").
+    """
+    ids: list[str] = []
+    for raw in source_id.split(","):
+        part = re.sub(r"[\[\]()<>{}]", "", raw).strip().lower()
+        if not part:
+            continue
+        if match := _SRC_VARIANT.fullmatch(part):
+            ids.append(f"src-{match.group(1)}")
+        elif _BRIEF_VARIANT.fullmatch(part):
+            ids.append("brief")
+        else:
+            ids.append(raw.strip())
+    return ids or [source_id]
 
 
 def _normalised(text: str) -> str:
@@ -127,6 +199,7 @@ def check_brief(
     brand_colors: str = "",
     brand: str = "",
     target_product: str = "",
+    trend: str = "",
     sources: Mapping[str, Any] | None = None,
 ) -> list[str]:
     """Return the brief's rule violations as actionable issue strings ([] = clean).
@@ -134,11 +207,15 @@ def check_brief(
     ``brief`` is the ``creative_brief`` state value: a dict (ADK stores parsed
     ``output_schema`` output) or its JSON string. ``brand_colors`` is the user's
     optional palette; when given, the brief must name distinctive assets.
-    ``brand`` / ``target_product`` are removed from the proposition before the
-    "and" check (so "Mac and Cheese" is not two ideas). ``sources`` is the
-    ``sources`` state mapping (keyed by "src-N"); when given (even empty), every
-    "src-N" source_id must exist in it. Never raises: malformed fields are
-    reported as issues.
+    ``brand`` / ``target_product`` / ``trend`` (``target_search_trends``), and
+    any "X and Y" chunk of them, are removed from the proposition before the
+    "and" check (so "Mac and Cheese" is not two ideas); hyphenated compounds
+    ("rock-and-roll") never count and a spaced "&" counts as "and". Every
+    proposition issue (one sentence, "and") is reported, not just the first.
+    ``sources`` is the ``sources`` state mapping (keyed by "src-N"); when given
+    (even empty), every cited "src-N" must exist in it. Source ids are
+    normalised first (see ``_normalise_source_ids``). Never raises: malformed
+    fields are reported as issues.
     """
     data = parse_brief(brief)
     if data is None:
@@ -152,12 +229,12 @@ def check_brief(
             "single_minded_proposition is empty: write ONE sentence carrying the "
             "single idea the audience should take away."
         )
-    elif _SENTENCE_BREAK.search(_without_abbreviations(proposition)):
+    if proposition and _has_sentence_break(proposition):
         issues.append(
             f"single_minded_proposition must be one sentence; rewrite "
             f"'{proposition}' as a single sentence with a single idea."
         )
-    elif _AND.search(_without_names(proposition, (brand, target_product))):
+    if proposition and _joins_with_and(proposition, (brand, target_product, trend)):
         issues.append(
             f"single_minded_proposition joins ideas with 'and' ('{proposition}'); "
             "keep only the strongest single idea."
@@ -190,9 +267,10 @@ def check_brief(
             "or drop the claim."
         )
     cited = [
-        (_text(r.get("claim")) or "(empty claim)", _text(r.get("source_id")))
+        (_text(r.get("claim")) or "(empty claim)", sid)
         for r in rtbs
         if _text(r.get("source_id"))
+        for sid in _normalise_source_ids(_text(r.get("source_id")))
     ]
     malformed = [(c, sid) for c, sid in cited if not _SOURCE_ID.match(sid)]
     if malformed:
@@ -246,7 +324,7 @@ def check_brief(
         )
 
     angles = [_as_mapping(a) for a in _as_list(data.get("angles"))]
-    distinct = {_text(a.get("name")).lower() for a in angles} - {""}
+    distinct = {_normalised(_text(a.get("name"))) for a in angles} - {""}
     if len(distinct) < 3:
         issues.append(
             f"angles has {len(distinct)} distinct angle name(s); provide 3-5 angles, "

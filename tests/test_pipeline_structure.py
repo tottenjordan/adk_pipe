@@ -1460,6 +1460,18 @@ def test_brief_gate_decision_clean_brief():
     }
 
 
+def test_brief_gate_decision_passes_the_trend_to_the_and_check():
+    from creative_agent.agent import brief_gate_decision
+
+    brief = {
+        **_clean_brief(),
+        "single_minded_proposition": "Every Dungeons and Dragons night needs skates.",
+    }
+    assert brief_gate_decision({"creative_brief": brief}, 1)[0] == "revise"
+    state = {"creative_brief": brief, "target_search_trends": "Dungeons and Dragons"}
+    assert brief_gate_decision(state, 1)[0] == "ok"
+
+
 def test_brief_gate_decision_revises_within_budget():
     from creative_agent.agent import brief_gate_decision
 
