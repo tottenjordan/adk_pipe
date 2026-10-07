@@ -799,6 +799,16 @@ def test_creative_model_agents_have_finish_reason_callback():
         )
 
 
+def test_ad_copy_agents_are_rate_limited():
+    from creative_agent import agent as ca
+    from creative_agent import callbacks
+
+    for a in (ca.ad_copy_drafter, ca.ad_copy_critic, ca.ad_copy_reviser):
+        assert callbacks.rate_limit_callback in a.canonical_before_model_callbacks, (
+            a.name
+        )
+
+
 def test_ad_copy_agents_scrub_lone_surrogates():
     """The two ad-copy agents parse model text against an output_schema, so they
     must carry the surrogate scrubber as an after_model_callback (before the
@@ -1592,6 +1602,10 @@ def test_ad_copy_reviser_mirrors_the_critic_config():
         r.canonical_after_model_callbacks
         == ca.ad_copy_critic.canonical_after_model_callbacks
     )
+    assert (
+        r.canonical_before_model_callbacks
+        == ca.ad_copy_critic.canonical_before_model_callbacks
+    )
     assert r.after_agent_callback is callbacks.restore_unflagged_copies_callback
     assert r.generate_content_config.temperature == 0.7
 
@@ -1626,6 +1640,7 @@ def test_ad_copy_drafter_resets_the_copy_revision_state():
         "ad_copy_revision_rounds_used": 1,
         "ad_copy_critique__issues": ["old"],
         "ad_copy_critique": {"kept": True},
+        "ad_copy_feedback": "punchier",  # user input: never reset here
     }
     assert callbacks.reset_copy_state(SimpleNamespace(state=state)) is None
     assert state == {
@@ -1635,6 +1650,7 @@ def test_ad_copy_drafter_resets_the_copy_revision_state():
         "ad_copy_revision_rounds_used": 0,
         "ad_copy_critique__issues": None,
         "ad_copy_critique": {"kept": True},
+        "ad_copy_feedback": "punchier",
     }
 
 

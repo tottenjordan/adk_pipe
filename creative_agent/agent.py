@@ -530,6 +530,7 @@ ad_copy_drafter = Agent(
     retry_config=SCHEMA_RETRY,
     output_key="ad_copy_draft",
     before_agent_callback=callbacks.reset_copy_state,
+    before_model_callback=callbacks.rate_limit_callback,
     after_model_callback=[
         callbacks.scrub_surrogates_in_response,
         callbacks.log_empty_turn_finish_reason,
@@ -562,6 +563,7 @@ ad_copy_critic = Agent(
     output_schema=FinalAdCopyList,
     retry_config=SCHEMA_RETRY,
     output_key="ad_copy_critique",
+    before_model_callback=callbacks.rate_limit_callback,
     after_model_callback=[
         callbacks.scrub_surrogates_in_response,
         callbacks.log_empty_turn_finish_reason,
@@ -576,6 +578,13 @@ ad_copy_critic = Agent(
 # safety net: restore_unflagged_copies_callback reverts any copy the gate did
 # not flag (and restores dropped/duplicated ids) from the gate's pre-revision
 # snapshot. Exported bare via the facade for interactive checkpoint-2 reuse.
+#
+# Its prompt also reads `{ad_copy_feedback?}` (user feedback). The copy_gate
+# loop neither sets nor relies on it: in creative_agent it is always unset, and
+# reset_copy_state deliberately leaves it alone (it is user input, not gate
+# state). PR 10 (reusing the reviser at interactive checkpoint 2) MUST set it
+# to the checkpoint feedback before the revision and clear it afterwards, or a
+# later gate-driven revision in the same session would replay stale feedback.
 ad_copy_reviser = Agent(
     model=build_gemini(config.worker_model),
     name="ad_copy_reviser",
@@ -598,6 +607,7 @@ ad_copy_reviser = Agent(
     retry_config=SCHEMA_RETRY,
     output_key="ad_copy_critique",
     after_agent_callback=callbacks.restore_unflagged_copies_callback,
+    before_model_callback=callbacks.rate_limit_callback,
     after_model_callback=[
         callbacks.scrub_surrogates_in_response,
         callbacks.log_empty_turn_finish_reason,

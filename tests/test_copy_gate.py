@@ -223,6 +223,15 @@ def test_avoid_as_string_is_split():
     assert len(issues) == 2
 
 
+def test_avoid_entries_over_four_words_are_not_matched_literally():
+    sentence = "do not mention falling off cliffs"
+    copy = _copy(body_text=f"Rocket Skates: {sentence}.")
+    assert _gate(copy, avoid=[sentence]) == {}
+    four = "falling off the cliffs"
+    copy = _copy(body_text=f"Rocket Skates: no {four}.")
+    assert "avoided term" in _gate_texts(copy, avoid=[four])["1"][0]
+
+
 def test_brief_avoid_reads_dict_or_json_brief():
     brief = {"avoid": ["cliff falls", " ", 3, "anvils"]}
     assert brief_avoid(brief) == ["cliff falls", "anvils"]

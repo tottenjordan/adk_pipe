@@ -113,3 +113,10 @@ def test_every_brace_is_a_state_token(name):
     # No unmatched braces left once the tokens are removed.
     stripped = _TOKEN.sub("", instr)
     assert "{" not in stripped and "}" not in stripped, name
+
+
+def test_brief_writer_keeps_avoid_entries_short():
+    """copy_gate matches avoid entries literally and skips ones over 4 words."""
+    instr = prompts.CREATIVE_BRIEF_WRITER_INSTR
+    assert "short terms or phrases (at most 4 words" in instr
+    assert '"gambling odds"' in instr

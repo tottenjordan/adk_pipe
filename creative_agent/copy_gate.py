@@ -34,6 +34,10 @@ from .brief_check import parse_brief
 MAX_HEADLINE_CHARS = 60
 MAX_CAPTION_CHARS = 2200
 MAX_CTA_WORDS = 8
+# Avoid entries longer than this are sentences ("never mention falling off
+# cliffs"), not terms: a literal match would never fire, so they are skipped
+# (the critic/reviser still read the full avoid list in the brief).
+MAX_AVOID_TERM_WORDS = 4
 
 # Words that never identify a product on their own ("The New Rocket Skates").
 _STOPWORDS = frozenset(
@@ -197,9 +201,11 @@ def _names_product(copy_text: str, target_product: str) -> bool:
 
 
 def _avoid_terms(avoid: Iterable[str] | str) -> list[str]:
+    """The avoid entries short enough to match literally (see MAX_AVOID_TERM_WORDS)."""
     if isinstance(avoid, str):
         avoid = re.split(r"[\n;,]", avoid)
-    return [t.strip() for t in avoid if isinstance(t, str) and t.strip()]
+    terms = [t.strip() for t in avoid if isinstance(t, str) and t.strip()]
+    return [t for t in terms if len(_words(t)) <= MAX_AVOID_TERM_WORDS]
 
 
 def _deterministic_issues(
@@ -293,7 +299,8 @@ def gate_copies(
     the headline/body/caption/CTA; the CTA is non-empty and at most 8 words;
     the headline is at most 60 characters; the social caption at most 2200; no
     term from ``avoid`` (the creative brief's avoid list; a string is split on
-    newlines/commas/semicolons) appears as a whole word/phrase. Self-reported:
+    newlines/commas/semicolons) appears as a whole word/phrase (entries over
+    ``MAX_AVOID_TERM_WORDS`` words are skipped, not matched). Self-reported:
     each failed ``brief_checks`` item in ``GATING_BRIEF_CHECKS``. Only copies
     with issues are returned ({} = clean). Never raises.
     """

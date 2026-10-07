@@ -153,6 +153,10 @@ def reset_copy_state(callback_context: CallbackContext) -> None:
     ids, pre-revision snapshot), revision counter and residual-issue marker, so
     a re-run ad_creative_pipeline in the same session gets a fresh revision
     budget and no stale warning. Returns None so the agent runs normally.
+
+    Deliberately does NOT touch `ad_copy_feedback`: it is user input (interactive
+    checkpoint 2), not gate state; its owner sets/clears it (see the
+    ad_copy_reviser note in agent.py).
     """
     for key, value in COPY_REVISION_STATE_DEFAULTS.items():
         callback_context.state[key] = value
