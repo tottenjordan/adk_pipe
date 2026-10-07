@@ -692,12 +692,20 @@ VISUAL_CONCEPT_DRAFTER_INSTR = (
         {visual_aspect_ratio?}
         </user_aspect_ratio>
 
+        <reference_images>
+        Optional roles of the user's reference images, in order (e.g. "product,
+        style"); the image model receives the images themselves, numbered in this
+        order. For a `style` reference: pick the `visual_style` that matches it
+        rather than a contrasting one (it guides palette, texture and lighting
+        only). For a `product` or `logo` reference: describe the product/logo
+        generically and leave clear space for it — the reference supplies its
+        exact look. When empty, ignore it.
+        {reference_roles?}
+        </reference_images>
+
         <reference_image_role>
-        Optional role of the user's reference image. When `style`: pick the
-        `visual_style` that matches the reference image rather than a contrasting
-        one. When `product` or `logo`: describe the product/logo generically and
-        leave clear space for it — the reference image supplies its exact look.
-        When empty, ignore it.
+        Legacy single-reference role (already included in <reference_images>
+        when set); ignore it when empty.
         {reference_image_role?}
         </reference_image_role>
 

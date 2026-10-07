@@ -54,6 +54,10 @@ class TestTier2IntentTokens:
     def test_reference_role_token_in_drafter(self):
         assert "{reference_image_role?}" in prompts.VISUAL_CONCEPT_DRAFTER_INSTR
 
+    def test_reference_roles_token_in_drafter(self):
+        # Multiple references: the ordered role list derived at state init.
+        assert "{reference_roles?}" in prompts.VISUAL_CONCEPT_DRAFTER_INSTR
+
     def test_checkpoint_feedback_tokens(self):
         # Interactive checkpoint feedback (memorized by the interactive root);
         # harmlessly empty in creative_agent.

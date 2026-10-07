@@ -1,3 +1,4 @@
+import { referenceImagesFromForm } from "@/lib/reference-images";
 import type { CampaignInput } from "@/lib/types";
 
 /**
@@ -16,6 +17,10 @@ import type { CampaignInput } from "@/lib/types";
  *   setdefaults them to ""). Seeding the campaign fields makes the inputs
  *   deterministic; the kickoff message only echoes them. trend_scout's state
  *   init overwrites these keys, so they are not seeded for it.
+ * - Reference images: every set reference row goes to `reference_images`
+ *   (`[{uri, role}]`, max 3); row 1 is also sent as the legacy
+ *   `reference_image_uri`/`reference_image_role` pair for one release (the
+ *   backend dedupes the two).
  */
 export function buildInitialState(form: CampaignInput): Record<string, unknown> {
   const state: Record<string, unknown> = { ui_app: form.agent };
@@ -51,6 +56,9 @@ export function buildInitialState(form: CampaignInput): Record<string, unknown> 
       state[key] = value;
     }
   }
+
+  const references = referenceImagesFromForm(form);
+  if (references.length) state.reference_images = references;
 
   return state;
 }

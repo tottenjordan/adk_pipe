@@ -1,6 +1,7 @@
 import { SELF_USER_ID } from "@/lib/api";
 import { agentInfo, agentLabel, isAgentId, isCreativeAgent, type AgentId } from "@/lib/agents";
 import type { CampaignInput, Session } from "@/lib/types";
+import { extraReferencesFromState } from "@/lib/reference-images";
 import { formatStateValue } from "@/lib/utils";
 
 /**
@@ -225,6 +226,8 @@ export function briefFromState(state: Record<string, unknown>): Brief {
   const trend = formatTrend(state.target_search_trends ?? state.target_search_trend);
   if (trend) brief.targetSearchTrend = trend;
   if (state.interactive_trend_pick === true) brief.interactiveTrendPick = true;
+  const extraReferences = extraReferencesFromState(state);
+  if (extraReferences.length) brief.extraReferenceImages = extraReferences;
   return brief;
 }
 

@@ -19,8 +19,9 @@ import { createSession, SELF_USER_ID } from "@/lib/api";
 import { AGENTS, isAgentId, isCreativeAgent, submitLabel } from "@/lib/agents";
 import { isFormValid } from "@/lib/form-validation";
 import { buildInitialState } from "@/lib/initial-state";
+import { MAX_REFERENCE_IMAGES } from "@/lib/reference-images";
 import { takeDuplicateBrief, type Brief, type RunRow } from "@/lib/run-history";
-import type { CampaignInput } from "@/lib/types";
+import type { CampaignInput, ReferenceImageInput } from "@/lib/types";
 import {
   BRAND_PRESETS,
   AUDIENCE_PRESETS,
@@ -40,6 +41,7 @@ const EMPTY_FORM: CampaignInput = {
   interactiveTrendPick: false,
   referenceImageUri: "",
   referenceImageRole: "",
+  extraReferenceImages: [],
   visualIntent: "",
   brandColors: "",
   visualStylePreference: "",
@@ -94,6 +96,64 @@ function ExampleButtons({
   );
 }
 
+/** One reference-image row: URI input + (once a URI is set) a role select. */
+function ReferenceRow({
+  id,
+  index,
+  value,
+  onChange,
+  onRemove,
+}: {
+  id: string;
+  index: number;
+  value: ReferenceImageInput;
+  onChange: (value: ReferenceImageInput) => void;
+  onRemove?: () => void;
+}) {
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center gap-2">
+        <Input
+          id={id}
+          aria-label={index > 1 ? `Reference image ${index} URL` : undefined}
+          placeholder="gs://bucket/product.png or https://…"
+          value={value.uri}
+          onChange={(e) => onChange({ ...value, uri: e.target.value })}
+        />
+        {onRemove && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={onRemove}
+            aria-label={`Remove reference image ${index}`}
+          >
+            Remove
+          </Button>
+        )}
+      </div>
+      {value.uri.trim() && (
+        <Select
+          value={value.role || ""}
+          onValueChange={(v) => v && onChange({ ...value, role: v })}
+        >
+          <SelectTrigger
+            aria-label={`How to use reference image ${index}`}
+            className="w-full hover:border-foreground/30 transition-colors"
+          >
+            <SelectValue placeholder="How to use the reference image (default: product)..." />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="product">Product — reproduce this exact product</SelectItem>
+            <SelectItem value="logo">Logo — place this brand logo, small and legible</SelectItem>
+            <SelectItem value="style">Style — match its palette, texture and lighting</SelectItem>
+          </SelectContent>
+        </Select>
+      )}
+    </div>
+  );
+}
+
 function HomeContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -142,6 +202,11 @@ function HomeContent() {
 
   const isCreative = isCreativeAgent(form.agent);
   const isValid = isFormValid(form);
+  const extraReferences = form.extraReferenceImages ?? [];
+  const canAddReference =
+    Boolean(form.referenceImageUri?.trim()) &&
+    1 + extraReferences.length < MAX_REFERENCE_IMAGES &&
+    extraReferences.every((r) => r.uri.trim());
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -392,35 +457,63 @@ function HomeContent() {
 
               <div className="space-y-1.5">
                 <FieldLabel as="label" htmlFor="referenceImage">
-                  Reference image URL (optional)
+                  Reference images (optional, up to {MAX_REFERENCE_IMAGES})
                 </FieldLabel>
-                <Input
+                <ReferenceRow
                   id="referenceImage"
-                  placeholder="gs://bucket/product.png or https://…"
-                  value={form.referenceImageUri}
-                  onChange={(e) =>
-                    setForm({ ...form, referenceImageUri: e.target.value })
+                  index={1}
+                  value={{
+                    uri: form.referenceImageUri ?? "",
+                    role: form.referenceImageRole ?? "",
+                  }}
+                  onChange={(ref) =>
+                    setForm({
+                      ...form,
+                      referenceImageUri: ref.uri,
+                      referenceImageRole: ref.role,
+                    })
                   }
                 />
-                {form.referenceImageUri?.trim() && (
-                  <Select
-                    value={form.referenceImageRole || ""}
-                    onValueChange={(v) =>
-                      v && setForm({ ...form, referenceImageRole: v })
+                {extraReferences.map((ref, i) => (
+                  <ReferenceRow
+                    key={i}
+                    id={`referenceImage${i + 2}`}
+                    index={i + 2}
+                    value={ref}
+                    onChange={(next) =>
+                      setForm({
+                        ...form,
+                        extraReferenceImages: extraReferences.map((r, j) =>
+                          j === i ? next : r,
+                        ),
+                      })
                     }
+                    onRemove={() =>
+                      setForm({
+                        ...form,
+                        extraReferenceImages: extraReferences.filter((_, j) => j !== i),
+                      })
+                    }
+                  />
+                ))}
+                {canAddReference && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setForm({
+                        ...form,
+                        extraReferenceImages: [...extraReferences, { uri: "", role: "" }],
+                      })
+                    }
+                    className="text-xs text-primary underline-offset-4 hover:underline"
                   >
-                    <SelectTrigger
-                      aria-label="How to use the reference image"
-                      className="w-full hover:border-foreground/30 transition-colors"
-                    >
-                      <SelectValue placeholder="How to use the reference image..." />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="product">Product — put this product in the image</SelectItem>
-                      <SelectItem value="logo">Logo — include this brand logo</SelectItem>
-                      <SelectItem value="style">Style — match this look/aesthetic</SelectItem>
-                    </SelectContent>
-                  </Select>
+                    Add another reference image
+                  </button>
+                )}
+                {form.referenceImageUri?.trim() && (
+                  <p className="text-xs text-muted-foreground">
+                    Any text in a reference image is ignored.
+                  </p>
                 )}
               </div>
             </div>

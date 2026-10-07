@@ -170,6 +170,40 @@ class TestSetInitialStates:
         assert target["visual_aspect_ratio"] == "1:1"
         assert target["reference_image_role"] == "product"
 
+    # --- Multiple reference images (reference_images → reference_roles) ---
+    def test_reference_keys_default_when_unseeded(self):
+        from creative_agent.callbacks import _set_initial_states
+
+        target = {}
+        _set_initial_states({"brand": "TestBrand"}, target)
+
+        assert target["reference_images"] == []
+        assert target["reference_roles"] == ""
+
+    def test_reference_roles_derived_from_seeded_references(self):
+        from creative_agent.callbacks import _set_initial_states
+
+        refs = [
+            {"uri": "gs://b/p.png", "role": "product"},
+            {"uri": "gs://b/s.png", "role": "style"},
+        ]
+        target = {"reference_images": refs}
+        _set_initial_states({"brand": "TestBrand"}, target)
+
+        assert target["reference_images"] == refs  # not clobbered
+        assert target["reference_roles"] == "product, style"
+
+    def test_reference_roles_include_legacy_reference(self):
+        from creative_agent.callbacks import _set_initial_states
+
+        target = {
+            "reference_image_uri": "gs://b/logo.png",
+            "reference_image_role": "logo",
+        }
+        _set_initial_states({"brand": "TestBrand"}, target)
+
+        assert target["reference_roles"] == "logo"
+
     # --- Core campaign fields (deterministic inputs via createSession state) ---
     _CAMPAIGN_KEYS = (
         "brand",

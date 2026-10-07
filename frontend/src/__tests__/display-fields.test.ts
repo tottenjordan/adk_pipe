@@ -37,6 +37,15 @@ describe("buildDisplayFields", () => {
     ]);
   });
 
+  it("uses a def's value() resolver over the key lookup", () => {
+    const defs: DisplayFieldDef[] = [
+      { label: "Both", key: "both", value: (st) => `${st.a}+${st.b}` },
+    ];
+    expect(buildDisplayFields({ a: "x", b: "y" }, defs)).toEqual([
+      { label: "Both", key: "both", value: "x+y" },
+    ]);
+  });
+
   it("returns [] when no field has a value", () => {
     const defs: DisplayFieldDef[] = [{ label: "Brand", key: "brand" }];
     expect(buildDisplayFields({}, defs)).toEqual([]);
@@ -44,15 +53,14 @@ describe("buildDisplayFields", () => {
 });
 
 describe("VISUAL_DIRECTION_FIELDS", () => {
-  it("maps the seven visual-intent keys", () => {
+  it("maps the visual-intent keys (references merged into one row)", () => {
     expect(VISUAL_DIRECTION_FIELDS.map((f) => f.key)).toEqual([
       "visual_intent",
       "brand_colors",
       "visual_style_preference",
       "visual_avoid",
       "visual_aspect_ratio",
-      "reference_image_uri",
-      "reference_image_role",
+      "reference_images",
     ]);
   });
 
@@ -70,6 +78,27 @@ describe("VISUAL_DIRECTION_FIELDS", () => {
     expect(fields).toEqual([
       { label: "Art direction", key: "visual_intent", value: "moody film noir" },
       { label: "Aspect ratio", key: "visual_aspect_ratio", value: "1:1" },
+    ]);
+  });
+
+  it("shows every reference image (legacy + list) as one row", () => {
+    const fields = buildDisplayFields(
+      {
+        reference_image_uri: "gs://b/p.png",
+        reference_image_role: "product",
+        reference_images: [
+          { uri: "gs://b/p.png", role: "product" },
+          { uri: "gs://b/s.png", role: "style" },
+        ],
+      },
+      VISUAL_DIRECTION_FIELDS,
+    );
+    expect(fields).toEqual([
+      {
+        label: "Reference images",
+        key: "reference_images",
+        value: "product: gs://b/p.png; style: gs://b/s.png",
+      },
     ]);
   });
 });

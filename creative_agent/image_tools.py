@@ -22,6 +22,21 @@ from agent_common.locations import MODEL_LOCATION
 
 from .config import config
 from .gcs_tools import _download_blob, _save_to_gcs, artifact_key_for
+from .references import (
+    MAX_REFERENCE_IMAGES,
+    REFERENCE_ROLES,
+    reference_roles_summary,
+    resolve_references,
+)
+
+__all__ = [
+    "MAX_REFERENCE_IMAGES",
+    "REFERENCE_IGNORE_TEXT_LINE",
+    "REFERENCE_ROLES",
+    "generate_image",
+    "reference_roles_summary",
+    "resolve_references",
+]
 
 # Fetch timeout for an http(s) reference image (stdlib urllib, no new dep).
 _REFERENCE_FETCH_TIMEOUT_SECS = 20
@@ -60,7 +75,7 @@ def _fetch_reference_image(uri: str) -> types.Part | None:
             without_scheme = uri[len("gs://") :]
             bucket, _, obj = without_scheme.partition("/")
             if not bucket or not obj:
-                logging.warning(f"Malformed gs:// reference_image_uri: '{uri}'")
+                logging.warning(f"Malformed gs:// reference image URI: '{uri}'")
                 return None
             data = _download_blob(bucket, obj)
             mime = _reference_mime_for(obj)
@@ -72,7 +87,7 @@ def _fetch_reference_image(uri: str) -> types.Part | None:
             mime = _reference_mime_for(urlparse(uri).path)
         else:
             logging.warning(
-                f"Unsupported reference_image_uri scheme (want gs:// or http(s)://): '{uri}'"
+                f"Unsupported reference image URI scheme (want gs:// or http(s)://): '{uri}'"
             )
             return None
         return types.Part.from_bytes(data=data, mime_type=mime)
@@ -175,26 +190,67 @@ def _resolve_aspect_ratio(
     return candidate
 
 
-# How a user-labeled reference image should be used, phrased for the image model.
-# flash-image supports object/character reference (product, logo) but NOT true
-# style-by-example, so the `style` role is text-described guidance, not transfer.
+# How each reference image should be used, phrased for the image model (live
+# probe on gemini-nano-banana-2.1: multiple references work — the product was
+# reproduced faithfully while a style reference guided the palette).
 _REFERENCE_ROLE_INSTRUCTIONS = {
-    "product": "Incorporate the product shown in the reference image.",
-    "logo": "Include the brand logo shown in the reference image.",
-    "style": "Match the visual style/aesthetic of the reference image.",
+    "product": (
+        "Reproduce this exact product: keep its shape, colour, label and "
+        "proportions, and place it naturally in the new scene."
+    ),
+    "logo": (
+        "This is the brand logo: place it small, legible and undistorted; never "
+        "redraw, recolour or stretch it."
+    ),
+    "style": (
+        "Match only its palette, texture and lighting, not its content, subject "
+        "or layout."
+    ),
 }
 
+# The live probe showed the model copying a reference image's baked-in headline
+# into the output, so every reference block ends with this line (once).
+REFERENCE_IGNORE_TEXT_LINE = (
+    "Ignore any text, captions or watermarks that appear in the reference images."
+)
 
-def _role_prefixed_prompt(prompt_text: str, role: str) -> str:
-    """Append a role instruction for the reference image to the prompt — pure.
 
-    Returns ``prompt_text`` unchanged for an empty/unknown role (the caller only
-    invokes this when a reference image is actually present).
+def _reference_prompt(prompt_text: str, roles: list[str]) -> str:
+    """The concept prompt plus a numbered reference block — pure.
+
+    ``roles`` are the roles of the reference Parts attached after the prompt,
+    in order ("Reference image 1 (product): ..."). No roles → ``prompt_text``
+    unchanged (the text-only path).
     """
-    instruction = _REFERENCE_ROLE_INSTRUCTIONS.get((role or "").strip())
-    if not instruction:
+    if not roles:
         return prompt_text
-    return f"{prompt_text}\n\n{instruction}"
+    lines = [
+        f"Reference image {i} ({role}): {_REFERENCE_ROLE_INSTRUCTIONS[role]}"
+        for i, role in enumerate(roles, start=1)
+    ]
+    lines.append(REFERENCE_IGNORE_TEXT_LINE)
+    return prompt_text + "\n\n" + "\n".join(lines)
+
+
+async def _fetch_references(
+    refs: list[tuple[str, str]],
+) -> list[tuple[str, types.Part]]:
+    """Fetch every reference concurrently (off the event loop) → (role, Part).
+
+    A failed fetch (``_fetch_reference_image`` returns None and logs a warning)
+    drops only that reference; the rest keep their order.
+    """
+    parts = await asyncio.gather(
+        *(asyncio.to_thread(_fetch_reference_image, uri) for uri, _ in refs)
+    )
+    fetched = []
+    for (uri, role), part in zip(refs, parts, strict=True):
+        if part is None:
+            logging.warning(f"Skipping {role} reference image '{uri}' (fetch failed)")
+            continue
+        logging.info(f"Using {role} reference image: {uri}")
+        fetched.append((role, part))
+    return fetched
 
 
 def _final_image_part(parts):
@@ -234,20 +290,12 @@ async def generate_image(
     final_visual_concepts_dict = tool_context.state.get("final_visual_concepts")
     final_visual_concepts_list = final_visual_concepts_dict["visual_concepts"]
 
-    # Optional product/brand reference image, applied to every concept for
-    # likeness/consistency. Fetched ONCE (off the event loop) before the loop; a
-    # None result (unset or fetch failure) means the text-only path is used.
-    reference_uri = tool_context.state.get("reference_image_uri")
-    reference_part = None
-    if reference_uri:
-        reference_part = await asyncio.to_thread(_fetch_reference_image, reference_uri)
-        if reference_part is not None:
-            logging.info(f"Using product reference image: {reference_uri}")
-
-    # Optional user-supplied role for the reference image (product | logo |
-    # style). Only meaningful when a reference part was actually fetched; it adds
-    # a text instruction telling the model how to use the reference.
-    reference_role = (tool_context.state.get("reference_image_role") or "").strip()
+    # Optional reference images (product / logo / style; `reference_images` plus
+    # the legacy single `reference_image_uri`), applied to every concept. All
+    # fetched ONCE, concurrently, before the loop; none fetched → text-only.
+    references = await _fetch_references(resolve_references(tool_context.state))
+    reference_roles = [role for role, _ in references]
+    reference_parts = [part for _, part in references]
 
     # Optional user-supplied deterministic aspect-ratio override. When set to a
     # valid value it pins EVERY concept to that ratio; when empty/invalid, each
@@ -280,9 +328,11 @@ async def generate_image(
             )
 
             prompt_text = entry["image_generation_prompt"]
-            if reference_part is not None:
-                prompt_text = _role_prefixed_prompt(prompt_text, reference_role)
-                contents = [prompt_text, reference_part]
+            if reference_parts:
+                contents = [
+                    _reference_prompt(prompt_text, reference_roles),
+                    *reference_parts,
+                ]
             else:
                 contents = prompt_text
             response = await _generate_image_with_backoff(

@@ -21,6 +21,7 @@ from .concept_guard import (
 )
 from .config import config
 from .copy_gate import parse_copies, restore_unflagged
+from .references import reference_roles_summary
 from .style_shortlist import format_shortlist, pick_style_shortlist
 
 # --- config ---
@@ -100,6 +101,13 @@ def _set_initial_states(source: dict[str, Any], target: State | dict[str, Any]):
         "reference_image_role",  # product | logo | style role label
     ):
         target.setdefault(_intent_key, "")
+
+    # Optional multiple reference images (`[{"uri", "role"}]`, max 3), same
+    # channel + setdefault rule. `reference_roles` ("product, style") is the
+    # ordered role list of the resolved references (legacy single reference
+    # folded in first) for the drafter's {reference_roles?} token.
+    target.setdefault("reference_images", [])
+    target.setdefault("reference_roles", reference_roles_summary(target))
 
     # Per-session random style shortlist (image diversity): the visual agents
     # pick their 4 styles from it, so runs don't converge on the same looks.

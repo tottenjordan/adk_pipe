@@ -101,7 +101,10 @@ def test_gs_reference_appends_part_to_contents(monkeypatch):
     assert dl == {"bucket": "my-bucket", "obj": "products/guitar.png"}
     contents = models.calls[0]["contents"]
     assert isinstance(contents, list) and len(contents) == 2
-    assert contents[0] == "a studio shot"
+    # Legacy reference with no role defaults to `product`; the prompt gains the
+    # numbered reference block after the concept prompt.
+    assert contents[0].startswith("a studio shot\n\n")
+    assert "Reference image 1 (product)" in contents[0]
     # The second element is a genai Part built from the reference bytes.
     assert getattr(contents[1], "inline_data", None) is not None
 
@@ -259,28 +262,32 @@ def test_empty_state_aspect_ratio_preserves_per_concept(monkeypatch):
     assert models.calls[1]["config"].image_config.aspect_ratio == "4:5"
 
 
-# --- Reference-image role labeling (reference_image_role) ---
-class TestRolePrefixedPrompt:
-    """Pure: role → an appended instruction about the reference image."""
+# --- Reference-image prompt block (numbered roles + ignore-text) ---
+class TestReferencePrompt:
+    """Pure: (prompt, roles) → the prompt plus a numbered reference block."""
 
-    def test_product_role(self):
-        out = image_tools._role_prefixed_prompt("a studio shot", "product")
-        assert "a studio shot" in out
-        assert "product shown in the reference image" in out
+    def test_no_roles_unchanged(self):
+        assert image_tools._reference_prompt("a scene", []) == "a scene"
 
-    def test_logo_role(self):
-        out = image_tools._role_prefixed_prompt("a scene", "logo")
-        assert "brand logo shown in the reference image" in out
+    def test_numbered_roles_in_order(self):
+        out = image_tools._reference_prompt("a scene", ["product", "style"])
+        assert out.startswith("a scene\n\n")
+        i1 = out.index("Reference image 1 (product):")
+        i2 = out.index("Reference image 2 (style):")
+        assert i1 < i2
 
-    def test_style_role(self):
-        out = image_tools._role_prefixed_prompt("a scene", "style")
-        assert "visual style" in out and "reference image" in out
+    def test_role_wording(self):
+        out = image_tools._reference_prompt("s", ["product", "logo", "style"])
+        assert "shape, colour, label and proportions" in out
+        assert "small, legible and undistorted" in out
+        assert "palette, texture and lighting" in out
+        assert "not its content" in out
 
-    def test_no_role_unchanged(self):
-        assert image_tools._role_prefixed_prompt("a scene", "") == "a scene"
-
-    def test_unknown_role_unchanged(self):
-        assert image_tools._role_prefixed_prompt("a scene", "banana") == "a scene"
+    def test_ignore_text_line_once(self):
+        out = image_tools._reference_prompt("s", ["product", "style", "logo"])
+        line = image_tools.REFERENCE_IGNORE_TEXT_LINE
+        assert "ignore any text, captions or watermarks" in line.lower()
+        assert out.count(line) == 1
 
 
 def test_reference_role_adds_instruction_to_prompt(monkeypatch):
@@ -301,7 +308,8 @@ def test_reference_role_adds_instruction_to_prompt(monkeypatch):
     contents = models.calls[0]["contents"]
     assert isinstance(contents, list) and len(contents) == 2
     assert "a scene" in contents[0]
-    assert "brand logo shown in the reference image" in contents[0]
+    assert "Reference image 1 (logo)" in contents[0]
+    assert image_tools.REFERENCE_IGNORE_TEXT_LINE in contents[0]
 
 
 def test_reference_role_ignored_without_reference(monkeypatch):
@@ -380,3 +388,218 @@ def test_generate_image_saves_final_not_thought_image(monkeypatch):
     }
     asyncio.run(image_tools.generate_image(ctx))
     assert saved and saved[0] == b"final"
+
+
+# --- Multiple reference images (reference_images) ---
+class TestResolveReferences:
+    """Pure: state → ordered, deduped, capped (uri, role) pairs."""
+
+    def test_empty_state(self):
+        assert image_tools.resolve_references({}) == []
+
+    def test_list_in_order(self):
+        state = {
+            "reference_images": [
+                {"uri": "gs://b/p.png", "role": "product"},
+                {"uri": "https://x/s.jpg", "role": "style"},
+            ]
+        }
+        assert image_tools.resolve_references(state) == [
+            ("gs://b/p.png", "product"),
+            ("https://x/s.jpg", "style"),
+        ]
+
+    def test_json_string(self):
+        state = {"reference_images": '[{"uri": "gs://b/l.png", "role": "logo"}]'}
+        assert image_tools.resolve_references(state) == [("gs://b/l.png", "logo")]
+
+    def test_bad_json_string_ignored(self):
+        assert image_tools.resolve_references({"reference_images": "[oops"}) == []
+
+    def test_invalid_entries_and_roles_skipped(self):
+        state = {
+            "reference_images": [
+                {"uri": "gs://b/a.png", "role": "banana"},
+                {"role": "product"},
+                {"uri": "   ", "role": "product"},
+                "gs://b/bare.png",
+                None,
+                {"uri": 5, "role": "logo"},
+                {"uri": "gs://b/ok.png", "role": " Style "},
+            ]
+        }
+        assert image_tools.resolve_references(state) == [("gs://b/ok.png", "style")]
+
+    def test_missing_role_defaults_to_product(self):
+        state = {"reference_images": [{"uri": "gs://b/a.png"}]}
+        assert image_tools.resolve_references(state) == [("gs://b/a.png", "product")]
+
+    def test_legacy_folded_in_first(self):
+        state = {
+            "reference_image_uri": "gs://b/legacy.png",
+            "reference_image_role": "logo",
+            "reference_images": [{"uri": "gs://b/s.png", "role": "style"}],
+        }
+        assert image_tools.resolve_references(state) == [
+            ("gs://b/legacy.png", "logo"),
+            ("gs://b/s.png", "style"),
+        ]
+
+    def test_legacy_without_role_is_product(self):
+        state = {"reference_image_uri": "gs://b/legacy.png", "reference_image_role": ""}
+        assert image_tools.resolve_references(state) == [
+            ("gs://b/legacy.png", "product")
+        ]
+
+    def test_legacy_duplicate_not_repeated(self):
+        """The frontend sends row 1 both ways for one release: one entry."""
+        state = {
+            "reference_image_uri": "gs://b/p.png",
+            "reference_image_role": "product",
+            "reference_images": [
+                {"uri": "gs://b/p.png", "role": "product"},
+                {"uri": "gs://b/s.png", "role": "style"},
+            ],
+        }
+        assert image_tools.resolve_references(state) == [
+            ("gs://b/p.png", "product"),
+            ("gs://b/s.png", "style"),
+        ]
+
+    def test_dedupe_by_uri(self):
+        state = {
+            "reference_images": [
+                {"uri": "gs://b/p.png", "role": "product"},
+                {"uri": " gs://b/p.png ", "role": "style"},
+            ]
+        }
+        assert image_tools.resolve_references(state) == [("gs://b/p.png", "product")]
+
+    def test_capped(self):
+        state = {
+            "reference_image_uri": "gs://b/0.png",
+            "reference_images": [
+                {"uri": f"gs://b/{i}.png", "role": "style"} for i in range(1, 6)
+            ],
+        }
+        refs = image_tools.resolve_references(state)
+        assert len(refs) == image_tools.MAX_REFERENCE_IMAGES == 3
+        assert refs[0] == ("gs://b/0.png", "product")
+
+
+def test_reference_roles_summary():
+    state = {
+        "reference_images": [
+            {"uri": "gs://b/p.png", "role": "product"},
+            {"uri": "gs://b/s.png", "role": "style"},
+        ]
+    }
+    assert image_tools.reference_roles_summary(state) == "product, style"
+    assert image_tools.reference_roles_summary({}) == ""
+
+
+def _multi_ctx(refs):
+    ctx = _ctx()
+    ctx.state["reference_images"] = refs
+    ctx.state["final_visual_concepts"] = {
+        "visual_concepts": [{"image_generation_prompt": "a scene", "concept_name": "c"}]
+    }
+    return ctx
+
+
+def test_multiple_references_appended_in_order(monkeypatch):
+    models = _patch_client(monkeypatch)
+    monkeypatch.setattr(image_tools, "_download_blob", lambda bucket, obj: obj.encode())
+    ctx = _multi_ctx(
+        [
+            {"uri": "gs://b/product.png", "role": "product"},
+            {"uri": "gs://b/logo.png", "role": "logo"},
+            {"uri": "gs://b/style.png", "role": "style"},
+        ]
+    )
+
+    result = asyncio.run(image_tools.generate_image(ctx))
+    assert result["status"] == "success"
+    contents = models.calls[0]["contents"]
+    assert len(contents) == 4
+    assert [c.inline_data.data for c in contents[1:]] == [
+        b"product.png",
+        b"logo.png",
+        b"style.png",
+    ]
+    text = contents[0]
+    assert text.startswith("a scene\n\n")
+    assert (
+        text.index("Reference image 1 (product)")
+        < text.index("Reference image 2 (logo)")
+        < text.index("Reference image 3 (style)")
+    )
+    assert text.count(image_tools.REFERENCE_IGNORE_TEXT_LINE) == 1
+
+
+def test_references_fetched_once_for_all_concepts(monkeypatch):
+    models = _patch_client(monkeypatch)
+    fetched = []
+
+    def fake_download(bucket, obj):
+        fetched.append(obj)
+        return b"x"
+
+    monkeypatch.setattr(image_tools, "_download_blob", fake_download)
+    ctx = _multi_ctx(
+        [
+            {"uri": "gs://b/p.png", "role": "product"},
+            {"uri": "gs://b/s.png", "role": "style"},
+        ]
+    )
+    ctx.state["final_visual_concepts"]["visual_concepts"].append(
+        {"image_generation_prompt": "another", "concept_name": "d"}
+    )
+
+    asyncio.run(image_tools.generate_image(ctx))
+    assert sorted(fetched) == ["p.png", "s.png"]
+    assert len(models.calls) == 2
+    assert all(len(call["contents"]) == 3 for call in models.calls)
+
+
+def test_one_failed_fetch_skips_only_that_reference(monkeypatch):
+    models = _patch_client(monkeypatch)
+
+    def fake_download(bucket, obj):
+        if obj == "logo.png":
+            raise RuntimeError("gcs down")
+        return obj.encode()
+
+    monkeypatch.setattr(image_tools, "_download_blob", fake_download)
+    ctx = _multi_ctx(
+        [
+            {"uri": "gs://b/product.png", "role": "product"},
+            {"uri": "gs://b/logo.png", "role": "logo"},
+            {"uri": "gs://b/style.png", "role": "style"},
+        ]
+    )
+
+    result = asyncio.run(image_tools.generate_image(ctx))
+    assert result["status"] == "success"
+    contents = models.calls[0]["contents"]
+    assert [c.inline_data.data for c in contents[1:]] == [
+        b"product.png",
+        b"style.png",
+    ]
+    # Renumbered over the references actually attached.
+    assert "Reference image 1 (product)" in contents[0]
+    assert "Reference image 2 (style)" in contents[0]
+    assert "(logo)" not in contents[0]
+
+
+def test_all_fetches_failed_is_text_only(monkeypatch):
+    models = _patch_client(monkeypatch)
+
+    def boom(*a, **k):
+        raise RuntimeError("gcs down")
+
+    monkeypatch.setattr(image_tools, "_download_blob", boom)
+    ctx = _multi_ctx([{"uri": "gs://b/p.png", "role": "product"}])
+
+    asyncio.run(image_tools.generate_image(ctx))
+    assert models.calls[0]["contents"] == "a scene"
