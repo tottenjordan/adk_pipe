@@ -17,8 +17,8 @@ IMAGE_PROMPT_GUIDE = """Here are best practices for writing prompts for a modern
 - NAME THE STYLE EXPLICITLY at the start, in your own words tied to this scene. Do NOT copy the palette wording as an opener. Do NOT default to photorealism — choose the style that fits the ad's tone and audience.
 - Use POSITIVE, present-what-you-want framing. To exclude something, describe the desired alternative ("a clean empty background") rather than negatives ("no clutter"). If you must exclude, phrase it as a "semantic negative" ("the street is empty and quiet"), not "no cars".
 - State that it is a social-media advertisement and who it targets — the model composes framing/negative space differently for an ad than for a stock photo.
-- In-image text is OPTIONAL and the most common way an image fails. Use it in at most 2 of the 4 concepts in a set (meme and comic captions are the exception, see below). When used: one short, punchy headline OR call-to-action, exact words in quotes, a named font vibe and a placement that differs from the other text concept. Never put words across the top by default. No small print, labels, setlists, spec callouts, UI screens full of text, or style/technical terms (e.g. never print the style name). Concepts without text should leave clean negative space for the platform's own caption.
-- Meme and comic exception: a Meme aesthetic concept may use its native caption format (e.g. classic top-and-bottom Impact captions, a faux-screenshot post) and a Comic panel may use speech bubbles. These captions are part of the joke, do NOT count toward the 2-concept text cap, and may be as long as the meme needs — but keep each caption to one or two punchy lines, in quotes, in big legible type; still no small print or style terms.
+- In-image text is OPTIONAL and the most common way an image fails. Use it in at most 2 of the 4 concepts in a set (meme and comic captions are the exception, see below). When used: the paired ad copy's headline OR call-to-action, copied exactly in quotes (never a new slogan or paraphrase), a named font vibe and a placement that differs from the other text concept. Never put words across the top by default. No small print, labels, setlists, spec callouts, UI screens full of text, or style/technical terms (e.g. never print the style name). Concepts without text should leave clean negative space for the platform's own caption.
+- Meme and comic exception: a Meme aesthetic concept may use its native caption format (e.g. classic top-and-bottom Impact captions, a faux-screenshot post) and a Comic panel may use speech bubbles. These captions are part of the joke, may be new short text (say "meme caption" or "speech bubble" in the prompt), do NOT count toward the 2-concept text cap, and may be as long as the meme needs — but keep each caption to one or two punchy lines, in quotes, in big legible type; still no small print or style terms.
 - Every concept must show at least one concrete trend motif (an object, symbol, setting or gesture from the trend or the visual_direction motifs) so the image reads as on-trend without any text.
 - The trend motif must be SPECIFIC to this trend: something a person who follows the trend would recognise in a second (its signature objects, colours, places, events, rituals or memes). Generic motifs that could illustrate any trend (phone screens, chat bubbles, social feeds, notifications, news headlines, glowing screens) do NOT count. For trends about real people (politicians, celebrities, athletes), use their recognisable cultural iconography (colours, symbols, settings, events, fan rituals), never a likeness of the person.
 - Background texture text (newspaper scraps, labels, signage, posters, book covers, phone or UI screens) must be blank, abstract marks or soft blur: never readable words and never gibberish lettering. On the product itself, show only the real brand and product name.
@@ -302,7 +302,7 @@ CREATIVE_BRIEF_WRITER_INSTR = """Role: You are the Strategy Director. Turn the r
         *   `bridge` names which brand or product trait connects to which specific facet of the trend.
     5.  **Motifs:** 2-4 concrete motifs SPECIFIC to this trend: signature objects, colours, places, events, rituals or memes that someone who follows the trend recognises in a second. Generic imagery that could illustrate any trend (phones, smartphones, social feeds, chat bubbles, hashtags, emoji, laptops, screens, notifications) does NOT count. For trends about real people (politicians, celebrities, athletes), use their recognisable cultural iconography (colours, symbols, settings, events, fan rituals), never a likeness of the person.
     6.  **Angles:** 3-5 angles, each rooted in a genuinely different audience tension. Tone variants of one idea (funny vs. emotional) do NOT count as different angles. Number them "A1", "A2", and so on.
-    7.  **Inputs to fields:** the user's key selling points become reasons to believe (source "brief") and/or mandatories; the user's avoid list and the trend risks go into `avoid`, as short terms or phrases (at most 4 words each, e.g. "gambling odds", never sentences); `brand.distinctive_assets` come from the brand voice and distinctive assets material in the research report plus the user's brand colours; `brand.tone_of_voice` and `brand.do_not` from the same material.
+    7.  **Inputs to fields:** the user's key selling points become reasons to believe (source "brief") and/or mandatories; the user's avoid list and the trend risks go into `avoid`, as short terms or phrases (at most 4 words each, in the form "[short term]", never sentences; only terms from the user's avoid list and THIS trend's risks, never generic examples); `brand.distinctive_assets` come from the brand voice and distinctive assets material in the research report plus the user's brand colours; `brand.tone_of_voice` and `brand.do_not` from the same material.
     8.  **Missing research:** if the research report is empty, build the brief from the campaign inputs alone: cite "brief" for every reason to believe and keep the fit score conservative.
     9.  **Revision:** if <brief_issues> is non-empty, revise the <previous_brief> to fix EXACTLY those issues and keep everything else unchanged. If <brief_issues> is empty, ignore <previous_brief> and write a fresh brief.
     </INSTRUCTIONS>
@@ -595,6 +595,26 @@ ART_DIRECTOR_INSTR = (
     """
 )
 
+# Shared visual-concept rules (brand cue, copy-quoted in-image text, the
+# brief's avoid list and fit_mode), spliced into the drafter / critic /
+# finalizer / fixer. Brace-free: each consumer provides the referenced
+# <CREATIVE_BRIEF>, <user_brand_colors>, <user_avoid> and <ad_copy_critique>
+# blocks. creative_agent/concept_guard.py checks the deterministic parts (the
+# brand cue named in the prompt, quoted text matching the paired copy).
+VISUAL_BRAND_CUE_RULE = "**Brand cue (every concept):** set `brand_cue` to ONE brand distinctive asset (a logo, signature colours, character, packaging or product detail), taken from the brief's brand distinctive assets in <CREATIVE_BRIEF> or, when the brief lists none, from <user_brand_colors>; write the `brand_cue` words verbatim into `image_generation_prompt` and place the asset visibly in the scene (where and how it appears). Use only real assets; never invent a logo or mascot. Leave `brand_cue` empty only when neither source names an asset."
+VISUAL_TEXT_FROM_COPY_RULE = '**In-image text is quoted from the copy (text-first):** any words rendered in the image must be the paired final ad copy\'s `headline` or `call_to_action` (the <ad_copy_critique> entry whose `original_id` equals the concept\'s `ad_copy_id`), copied exactly inside double quotes: never a new slogan, a paraphrase or extra words. Only a Meme aesthetic caption or a Comic panel speech bubble may be new short text (name it a "meme caption" or "speech bubble" in the prompt). Never put any other text inside double quotes in the prompt.'
+VISUAL_BRIEF_LIMITS_RULE = "**Brief limits:** keep everything on the brief's avoid list and in <user_avoid> out of the image, describing the positive alternative instead. Follow the brief's trend_bridge fit_mode: direct = the product plays inside the trend scene; cultural = connect through the shared value or mood; light_touch = the trend shows only as mood, motif or format (palette, composition, a meme format) while the product stays in its own world, never forced into the trend scene."
+# Spliced right after a line break + 4 spaces (`"""` closing an indented
+# line), so the first bullet adds only 4 more to reach the 8-space bullet level.
+VISUAL_CONCEPT_RULES = (
+    "    *   "
+    + VISUAL_BRAND_CUE_RULE
+    + "\n        *   "
+    + VISUAL_TEXT_FROM_COPY_RULE
+    + "\n        *   "
+    + VISUAL_BRIEF_LIMITS_RULE
+)
+
 VISUAL_CONCEPT_DRAFTER_INSTR = (
     """Role: You are a visionary visual creative director and prompt engineer specializing in high-impact social media advertising (Instagram/TikTok).
     Your task is to translate approved ad copy into executable visual concepts, each in a deliberately chosen visual style.
@@ -609,10 +629,14 @@ VISUAL_CONCEPT_DRAFTER_INSTR = (
         *   Visibly reference the trend {target_search_trends}: pick a concrete, trend-SPECIFIC `trend_motif` (recognisable signature imagery of this trend; generic phones/feeds/chat bubbles do not count) (from the visual_direction motifs when present) and write it verbatim into the prompt.
         *   Be optimized for quick consumption on a social media feed (e.g., strong composition, clear focus).
         *   Cleverly market the target product: {target_product}.
+        *   Set `angle_id` to the paired ad copy's `angle_id` ("" when it has none).
+    """
+    + VISUAL_CONCEPT_RULES
+    + """
     3.  **Choose the Style (do NOT default to photorealism):** Choose 4 DIFFERENT `visual_style` families from <style_shortlist> (when non-empty), matching each ad copy's tone via the guide's mapping preference. When <user_style_preference> is non-empty it overrides the shortlist. Use the <IMAGE_PROMPT_GUIDE> below and the <visual_direction> brief. Record the chosen family in the `visual_style` field.
     4.  **Composition variety (across the set):** Give each concept a different hero placement and camera distance: choose from centred hero, off-centre rule-of-thirds, small subject in a wide environment, extreme close-up detail, top-down flat lay, over-the-shoulder POV, environmental portrait. Use at most ONE centred product hero per set. In-image text in at most 2 concepts (see the guide; meme captions and comic speech bubbles are exempt), never both placed at the top. Every concept shows a trend motif.
     5.  **Prompt Engineering:** For each concept, write the `image_generation_prompt` following the <IMAGE_PROMPT_GUIDE> and honouring the <visual_direction> brief's mood, palette, motifs, and brand cues. Name the chosen style first, then build the scene. Also choose and record the `aspect_ratio` per concept (unless the campaign-wide override in <user_aspect_ratio> is set).
-    6.  **Strict Output Format:** Ensure the entire output is a single JSON object containing all generated concepts, strictly following the schema in the <OUTPUT_FORMAT> block (including `visual_style`, `aspect_ratio` and `trend_motif` for each).
+    6.  **Strict Output Format:** Ensure the entire output is a single JSON object containing all generated concepts, strictly following the schema in the <OUTPUT_FORMAT> block (including `visual_style`, `aspect_ratio`, `trend_motif`, `brand_cue` and `angle_id` for each).
     </INSTRUCTIONS>
 
     <CONTEXT>
@@ -722,9 +746,12 @@ VISUAL_CONCEPT_CRITIC_INSTR = (
         *   **Brand & audience fit:** The image must feel unmistakably like **{brand}** and speak to **{target_audience}**.
         *   **Copy pairing:** Check each concept against its paired final ad copy in <ad_copy_critique> (matched by `ad_copy_id`): the image must support that copy's headline and message, not contradict or ignore it.
         *   **User intent:** Honour the <user_visual_direction>, <user_style_preference> and <user_avoid> blocks when non-empty. When the style preference is non-empty it overrides the style-diversity rule — keep concepts in that family and vary lighting/composition instead. Steer away from anything in <user_avoid> — phrase prompts positively, never as negations.
-        *   **Carry-through:** Keep `trend_motif` and its verbatim presence in the prompt. Keep the `aspect_ratio` field (adjust only if the composition demands it). When <user_aspect_ratio> is non-empty, set every concept's `aspect_ratio` to this value and compose for it.
+    """
+    + VISUAL_CONCEPT_RULES
+    + """
+        *   **Carry-through:** Keep `trend_motif`, `brand_cue` and their verbatim presence in the prompt, and carry `angle_id` unchanged. Keep the `aspect_ratio` field (adjust only if the composition demands it). When <user_aspect_ratio> is non-empty, set every concept's `aspect_ratio` to this value and compose for it.
         *   **Set-level checks:** families come from <style_shortlist> and are all different; at most ONE centred hero; in-image text in at most 2 concepts (meme/comic captions excepted), short and punchy, no small print or style terms; every concept has a trend motif, and each `trend_motif` is SPECIFIC and recognisable: replace generic ones (phones, feeds, chat bubbles, notifications, screens) with signature imagery of the trend; no readable or gibberish background text. Fix violations by rewriting the weakest concept.
-    3.  **Strict Output Format:** The output must be a single, structured JSON object containing the **revised** concepts (including `visual_style`, `aspect_ratio` and `trend_motif`). Do not include any external commentary or separate critique text.
+    3.  **Strict Output Format:** The output must be a single, structured JSON object containing the **revised** concepts (including `visual_style`, `aspect_ratio`, `trend_motif`, `brand_cue` and `angle_id`). Do not include any external commentary or separate critique text.
     </INSTRUCTIONS>
 
     <CONTEXT>
@@ -751,6 +778,11 @@ VISUAL_CONCEPT_CRITIC_INSTR = (
         treat it as a primary constraint; when empty, ignore it.
         {visual_intent?}
         </user_visual_direction>
+
+        <user_brand_colors>
+        Optional brand colour palette from the user. When empty, ignore it.
+        {brand_colors?}
+        </user_brand_colors>
 
         <user_style_preference>
         Optional preferred style family from the user. When empty, ignore it.
@@ -781,19 +813,34 @@ VISUAL_CONCEPT_CRITIC_INSTR = (
     """
 )
 
-VISUAL_CONCEPT_FINALIZER_INSTR = """Role: You are the Lead Creative Director and Final Gatekeeper. 
+VISUAL_CONCEPT_FINALIZER_INSTR = (
+    """Role: You are the Lead Creative Director and Final Gatekeeper.
     Your task is to apply ultimate strategic judgment to the final set of visual concepts, preparing them for production (image generation).
 
     <INSTRUCTIONS>
+    0.  **Brief:** """
+    + VISUAL_CRITIC_BRIEF_RULE
+    + """
     1.  **Parse and Map:** Retrieve and parse the JSON list of revised visual concepts from the **`<CONTEXT>` block's `visual_concept_critique` input. If it is empty, fall back to the draft concepts in `visual_draft`.
     2.  **Keep Every Concept:** Keep ALL concepts — one per ad copy, in the same order. Do NOT drop, add, or reorder concepts.
     3.  **Style & Composition Diversity (MUST):** The final set MUST have 4 different `visual_style` families (from <style_shortlist> when non-empty), at most ONE centred hero, varied camera distance, and in-image text in at most 2 concepts (Meme aesthetic captions and Comic panel speech bubbles are exempt). If a rule is violated, re-style or re-compose the weakest concept (judged by its `critique_summary`) and update its prompt. Exception: when <user_style_preference> is non-empty, keep that family and vary lighting and composition instead. Otherwise carry `visual_style` and `aspect_ratio` through unchanged. Always keep `trend_motif` and its verbatim presence in the prompt.
     3b. **Trend Connection (MUST):** Every concept's `trend_motif` MUST be specific signature imagery of the trend (not generic phones, feeds, chat bubbles or screens) and MUST appear verbatim in its prompt; replace any generic motif before finalizing.
-    4.  **Finalize and Enrich:** For each concept, combine the original ad copy details with the revised visual details to create a final, unified creative brief, honouring <user_visual_direction> when non-empty.
-    5.  **Strict Output Format:** Output the final concepts as a single JSON object, strictly following the schema in the `<OUTPUT_FORMAT>` block (including `visual_style`, `aspect_ratio` and `trend_motif` per concept).
+    3c. **Brand, text and brief (MUST):** Check and fix every concept against these rules before finalizing:
+    """
+    + VISUAL_CONCEPT_RULES
+    + """
+    4.  **Finalize and Enrich:** For each concept, combine the original ad copy details with the revised visual details to create a final, unified creative brief, honouring <user_visual_direction> when non-empty. Set `angle_id` to the matching ad copy's `angle_id` ("" when it has none).
+    5.  **Strict Output Format:** Output the final concepts as a single JSON object, strictly following the schema in the `<OUTPUT_FORMAT>` block (including `visual_style`, `aspect_ratio`, `trend_motif`, `brand_cue` and `angle_id` per concept).
     </INSTRUCTIONS>
 
     <CONTEXT>
+        <brand>{brand}</brand>
+        <target_product>{target_product}</target_product>
+
+        """
+    + BRIEF_BLOCK
+    + """
+
         <visual_concept_critique>
         {visual_concept_critique?}
         </visual_concept_critique>
@@ -816,21 +863,109 @@ VISUAL_CONCEPT_FINALIZER_INSTR = """Role: You are the Lead Creative Director and
         {visual_intent?}
         </user_visual_direction>
 
+        <user_brand_colors>
+        Optional brand colour palette from the user. When empty, ignore it.
+        {brand_colors?}
+        </user_brand_colors>
+
         <user_style_preference>
         Optional preferred style family from the user. When empty, ignore it.
         {visual_style_preference?}
         </user_style_preference>
+
+        <user_avoid>
+        Optional elements the user wants kept OUT of the imagery. When empty,
+        ignore it.
+        {visual_avoid?}
+        </user_avoid>
     </CONTEXT>
 
     <GUIDANCE>
     Each visual concept has an `ad_copy_id` that maps to an entry in `ad_copy_critique`.
-    You MUST look up the matching ad copy by `original_id` and use its exact `headline`, `social_caption`, and `call_to_action` values — do NOT generate new ones.
+    You MUST look up the matching ad copy by `original_id` and use its exact `headline`, `social_caption`, `call_to_action` and `angle_id` values — do NOT generate new ones.
     </GUIDANCE>
 
     <OUTPUT_FORMAT>
     **CRITICAL RULE: Your entire output MUST be a single, raw JSON object validating against the 'VisualConceptFinalList' schema**
     </OUTPUT_FORMAT>
     """
+)
+
+# Fixer for final visual concepts that fail the deterministic concept gate
+# (creative_agent/concept_guard.py). It must touch ONLY the flagged concepts;
+# callbacks.restore_unflagged_concepts_callback enforces that after the fact.
+VISUAL_CONCEPT_FIXER_INSTR = (
+    """Role: You are a senior visual prompt editor. A deterministic quality gate flagged specific problems in some of the final visual concepts; fix exactly those problems and nothing else, just before the images are rendered.
+
+    <INSTRUCTIONS>
+    0.  **Brief:** """
+    + VISUAL_CRITIC_BRIEF_RULE
+    + """
+    1.  **Scope:** <visual_concept_issues> lists the flagged concepts by `ad_copy_id` and `concept_name`, each with its issues. Rewrite ONLY those concepts, changing only what is needed to fix exactly the listed issues (usually just `image_generation_prompt`, plus `trend_motif` when it is empty). Every concept that is not listed stays verbatim, field for field.
+    2.  **Fixes:** quote in-image text exactly from the paired ad copy's `headline` or `call_to_action` (the <ad_copy_critique> entry whose `original_id` equals the concept's `ad_copy_id`), or remove the quoted text and leave clean negative space; give an empty `trend_motif` a concrete, trend-specific visual element of {target_search_trends} and write it verbatim into the prompt; re-compose an extra centred hero off-centre (rule-of-thirds, a small subject in a wide environment, or an extreme close-up detail). Keep each fixed prompt a coherent, vivid single-image prompt in the concept's `visual_style`, still showing {target_product} and the concept's `brand_cue` words.
+    3.  **Rules for the concepts you rewrite:**
+    """
+    + VISUAL_CONCEPT_RULES
+    + """
+    4.  **Keep the idea:** a fixed concept keeps its `ad_copy_id`, `concept_name`, `visual_style`, `aspect_ratio`, `brand_cue`, `angle_id`, `headline`, `social_caption` and `call_to_action`.
+    5.  **Output:** return ALL the concepts from <final_visual_concepts>, in the same order with unchanged `ad_copy_id`s, as a single JSON object.
+    </INSTRUCTIONS>
+
+    <CONTEXT>
+        <brand>{brand}</brand>
+        <target_product>{target_product}</target_product>
+        <target_search_trends>{target_search_trends}</target_search_trends>
+
+        """
+    + BRIEF_BLOCK
+    + """
+
+        <final_visual_concepts>
+        {final_visual_concepts?}
+        </final_visual_concepts>
+
+        <visual_concept_issues>
+        {visual_concept_issues?}
+        </visual_concept_issues>
+
+        <ad_copy_critique>
+        The final ad copies each concept is paired with (by `ad_copy_id`).
+        {ad_copy_critique?}
+        </ad_copy_critique>
+
+        <style_shortlist>
+        This run's style shortlist. When empty, use the guide's palette.
+        {style_shortlist?}
+        </style_shortlist>
+
+        <user_visual_direction>
+        Optional art direction supplied directly by the user. When empty, ignore it.
+        {visual_intent?}
+        </user_visual_direction>
+
+        <user_brand_colors>
+        Optional brand colour palette from the user. When empty, ignore it.
+        {brand_colors?}
+        </user_brand_colors>
+
+        <user_avoid>
+        Optional elements the user wants kept OUT of the imagery. When empty,
+        ignore it.
+        {visual_avoid?}
+        </user_avoid>
+    </CONTEXT>
+
+    <IMAGE_PROMPT_GUIDE>
+    """
+    + IMAGE_PROMPT_GUIDE
+    + """
+    </IMAGE_PROMPT_GUIDE>
+
+    <OUTPUT_FORMAT>
+    **CRITICAL RULE: Your entire output MUST be a single, raw JSON object validating against the 'VisualConceptFinalList' schema**
+    </OUTPUT_FORMAT>
+    """
+)
 
 VISUAL_GENERATOR_INSTR = """You are a visual content producer generating image creatives.
     Call the `generate_image` tool EXACTLY ONCE — a single function call, never in

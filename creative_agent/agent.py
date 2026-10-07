@@ -26,16 +26,23 @@ from agent_common import (
 )
 
 from . import callbacks, gcs_tools, prompts, tools
-from .brief_check import check_brief
+from .brief_check import check_brief, parse_brief
 from .brief_render import render_brief_markdown
+from .concept_guard import (
+    concept_issues,
+    flatten_concept_issues,
+    format_concept_issues,
+)
 from .config import INFRA_RETRY, SCHEMA_RETRY, config
 from .copy_gate import (
     CopyIssue,
     brief_avoid,
+    brief_mandatories,
     flatten_copy_issues,
     format_copy_issues,
     gate_copies,
     residual_issues,
+    structural_issues,
 )
 from .finalize import (
     evaluate_creatives_node,
@@ -324,6 +331,7 @@ def _brief_issues(state: Mapping[str, Any]) -> list[str]:
         brand_colors=str(state.get("brand_colors") or ""),
         brand=str(state.get("brand") or ""),
         target_product=str(state.get("target_product") or ""),
+        trend=str(state.get("target_search_trends") or ""),
         sources=sources if isinstance(sources, Mapping) else None,
     )
 
@@ -672,7 +680,12 @@ ad_copy_reviser = Agent(
 # issues left are recorded as `ad_copy_critique__issues` (surfaced by
 # collect_degradation_warnings) — a critic's self-assessment never becomes a
 # user-visible warning — and it routes "ok". Every "ok" exit clears the
-# revision inputs.
+# revision inputs and also records copy_gate.structural_issues (fewer than 4
+# copies; with a brief, copies missing a gating brief_checks item, as one
+# line): warning-only, never a revision, because the per-copy reviser cannot
+# add a missing copy. Naming the brand counts as naming the product. Avoid
+# terms contained in the product name, a non-negative brief mandatory or a
+# Title-Case name in the trend (target_search_trends) are exempt.
 _COPY_REVISION_CLEARED: dict[str, Any] = {
     "ad_copy_issues": "",
     "ad_copy_flagged_ids": None,
@@ -681,16 +694,27 @@ _COPY_REVISION_CLEARED: dict[str, Any] = {
 
 
 def _copy_issues(state: Mapping[str, Any]) -> dict[str, list[CopyIssue]]:
+    brief = state.get("creative_brief")
     return gate_copies(
         state.get("ad_copy_critique"),
         target_product=str(state.get("target_product") or ""),
-        avoid=brief_avoid(state.get("creative_brief")),
+        avoid=brief_avoid(brief),
+        mandatories=brief_mandatories(brief),
+        trend=str(state.get("target_search_trends") or ""),
+        brand=str(state.get("brand") or ""),
     )
 
 
-def _residual(critique: Any, issues: dict[str, list[CopyIssue]]) -> list[str] | None:
-    """The deterministic issues as residual-issue strings (None when none)."""
-    return flatten_copy_issues(critique, residual_issues(issues)) or None
+def _residual(
+    state: Mapping[str, Any], critique: Any, issues: dict[str, list[CopyIssue]]
+) -> list[str] | None:
+    """The deterministic issues as residual-issue strings, plus the list-level
+    ``structural_issues`` (warning-only: they never route a revision, since the
+    per-copy reviser cannot add a missing copy; the checklist-gap note only
+    when a brief exists). None when there are none."""
+    residual = flatten_copy_issues(critique, residual_issues(issues))
+    has_brief = parse_brief(state.get("creative_brief")) is not None
+    return residual + structural_issues(critique, has_brief=has_brief) or None
 
 
 def copy_gate_decision(
@@ -700,7 +724,10 @@ def copy_gate_decision(
     critique = state.get("ad_copy_critique")
     issues = _copy_issues(state) if is_populated(critique) else {}
     if not issues:
-        return "ok", {**_COPY_REVISION_CLEARED, "ad_copy_critique__issues": None}
+        return "ok", {
+            **_COPY_REVISION_CLEARED,
+            "ad_copy_critique__issues": _residual(state, critique, issues),
+        }
     used = int(state.get("ad_copy_revision_rounds_used") or 0)
     if used < max_rounds:
         return "revise", {
@@ -711,7 +738,7 @@ def copy_gate_decision(
         }
     return "ok", {
         **_COPY_REVISION_CLEARED,
-        "ad_copy_critique__issues": _residual(critique, issues),
+        "ad_copy_critique__issues": _residual(state, critique, issues),
     }
 
 
@@ -735,7 +762,7 @@ def _ad_copy_reviser_failed(state: Mapping[str, Any], exc: Exception) -> dict[st
     return {
         **_COPY_REVISION_CLEARED,
         "ad_copy_critique": critique,
-        "ad_copy_critique__issues": _residual(critique, issues),
+        "ad_copy_critique__issues": _residual(state, critique, issues),
         "ad_copy_revision_rounds_used": max(used, config.copy_revision_rounds),
     }
 
@@ -802,6 +829,9 @@ art_director = Agent(
         },
     ),
     output_key="visual_direction",
+    # A fresh concept_gate fix budget / no stale issues per visual run.
+    before_agent_callback=callbacks.reset_concept_state,
+    before_model_callback=callbacks.rate_limit_callback,
     after_model_callback=callbacks.log_empty_turn_finish_reason,
 )
 
@@ -828,6 +858,7 @@ visual_concept_drafter = Agent(
     output_schema=VisualConceptList,
     retry_config=SCHEMA_RETRY,
     output_key="visual_draft",
+    before_model_callback=callbacks.rate_limit_callback,
     after_model_callback=callbacks.log_empty_turn_finish_reason,
 )
 
@@ -856,6 +887,7 @@ visual_concept_critic = Agent(
     output_schema=VisualConceptCritiqueList,
     retry_config=SCHEMA_RETRY,
     output_key="visual_concept_critique",
+    before_model_callback=callbacks.rate_limit_callback,
     after_model_callback=callbacks.log_empty_turn_finish_reason,
 )
 
@@ -879,11 +911,158 @@ visual_concept_finalizer = Agent(
     output_schema=VisualConceptFinalList,
     retry_config=SCHEMA_RETRY,
     output_key="final_visual_concepts",
+    before_model_callback=callbacks.rate_limit_callback,
     after_model_callback=callbacks.log_empty_turn_finish_reason,
     # Deterministic last-line guard: every final image prompt names the concept's
-    # trend_motif and the target product (repairs + warns; runs after the
-    # output_key write, so generate_image reads the repaired prompts).
+    # trend_motif, the target product and its brand_cue (repairs + warns; runs
+    # after the output_key write, so concept_gate and generate_image read the
+    # repaired prompts).
     after_agent_callback=callbacks.ensure_trend_and_product_callback,
+)
+
+
+# --- VISUAL CONCEPT FIXER (bounded, targeted fix) --- #
+# Rewrites ONLY the final visual concepts concept_gate flagged, fixing exactly
+# their listed issues (`{visual_concept_issues?}`), and returns all concepts
+# under the same output_key. Same worker bucket / schema / retry as the
+# finalizer, plus the safety nets, in order: restore_unflagged_concepts_callback
+# reverts any concept the gate did not flag (and restores dropped/duplicated
+# ids) from the gate's pre-revision snapshot, THEN the trend/product/brand-cue
+# guard repairs the fixed prompts.
+visual_concept_fixer = Agent(
+    model=build_gemini(config.worker_model),
+    name="visual_concept_fixer",
+    mode="single_turn",
+    include_contents="none",
+    description="Fixes only the flagged final visual concepts to clear the issues found by the concept gate",
+    planner=BuiltInPlanner(
+        thinking_config=types.ThinkingConfig(include_thoughts=False)
+    ),
+    instruction=prompts.VISUAL_CONCEPT_FIXER_INSTR,
+    generate_content_config=types.GenerateContentConfig(
+        temperature=0.7,
+        labels={
+            "agentic_wf": "trend_scout",
+            "agent": "creative_agent",
+            "subagent": "visual_concept_fixer",
+        },
+    ),
+    output_schema=VisualConceptFinalList,
+    retry_config=SCHEMA_RETRY,
+    output_key="final_visual_concepts",
+    before_model_callback=callbacks.rate_limit_callback,
+    after_model_callback=[
+        callbacks.scrub_surrogates_in_response,
+        callbacks.log_empty_turn_finish_reason,
+    ],
+    after_agent_callback=[
+        callbacks.restore_unflagged_concepts_callback,
+        callbacks.ensure_trend_and_product_callback,
+    ],
+)
+
+
+# --- DETERMINISTIC CONCEPT GATE (bounded fix loop) --- #
+# concept_gate runs creative_agent.concept_guard.concept_issues on the final
+# visual concepts (after the trend/product/brand-cue guard): quoted in-image
+# text matches the paired copy's headline/CTA (brand/product/brand-cue quotes
+# allowed; meme/comic exempt), non-empty trend_motif, at most 2 concepts with
+# quoted headline/CTA text, at most one centred hero —
+# conservative string heuristics, all deterministic. Same contract as
+# copy_gate: with issues and fix budget left (config.concept_revision_rounds,
+# env CONCEPT_REVISION_ROUNDS, 0-2) it writes them as a Markdown list grouped
+# per concept (`visual_concept_issues`, the fixer's input), the flagged keys
+# and a pre-revision snapshot (the fixer's safety net), bumps the counter and
+# routes "revise"; the fixer routes back to the gate, which re-checks. When the
+# budget is spent, the issues left are recorded as
+# `final_visual_concepts__issues` (surfaced by collect_degradation_warnings)
+# and it routes "ok". Every "ok" exit clears the fix inputs.
+#
+# interactive_creative reuses visual_generation_pipeline (so it gets the gate
+# before checkpoint 3). Its post-checkpoint path has no fix loop: a direct-edit
+# resume clears final_visual_concepts__issues (runserver.async_runs), and the
+# visual_concept_reviser, after ensure_trend_and_product_callback, re-records
+# it on the revised concepts (callbacks.recheck_concept_issues_callback).
+_CONCEPT_REVISION_CLEARED: dict[str, Any] = {
+    "visual_concept_issues": "",
+    "visual_concept_flagged_ids": None,
+    "final_visual_concepts__before_revision": None,
+}
+
+
+def _concept_issues(state: Mapping[str, Any]) -> dict[str, list[CopyIssue]]:
+    return concept_issues(
+        state.get("final_visual_concepts"),
+        state.get("ad_copy_critique"),
+        brand=str(state.get("brand") or ""),
+        target_product=str(state.get("target_product") or ""),
+    )
+
+
+def concept_gate_decision(
+    state: Mapping[str, Any], max_rounds: int
+) -> tuple[str, dict[str, Any]]:
+    """The concept gate's (route, state_delta) for a state snapshot (pure)."""
+    concepts = state.get("final_visual_concepts")
+    issues = _concept_issues(state) if is_populated(concepts) else {}
+    if not issues:
+        return "ok", {
+            **_CONCEPT_REVISION_CLEARED,
+            "final_visual_concepts__issues": None,
+        }
+    used = int(state.get("visual_concept_revision_rounds_used") or 0)
+    if used < max_rounds:
+        return "revise", {
+            "visual_concept_issues": format_concept_issues(concepts, issues),
+            "visual_concept_flagged_ids": list(issues),
+            "final_visual_concepts__before_revision": copy.deepcopy(concepts),
+            "visual_concept_revision_rounds_used": used + 1,
+        }
+    return "ok", {
+        **_CONCEPT_REVISION_CLEARED,
+        "final_visual_concepts__issues": flatten_concept_issues(concepts, issues),
+    }
+
+
+def concept_gate(ctx: Context) -> Event:
+    """Route flagged visual concepts to the fixer while budget remains."""
+    route, delta = concept_gate_decision(
+        ctx.state.to_dict(), config.concept_revision_rounds
+    )
+    if delta.get("final_visual_concepts__issues"):
+        logging.warning(
+            "visual concept issues remain: %s", delta["final_visual_concepts__issues"]
+        )
+    return Event(actions=EventActions(route=route, state_delta=delta))
+
+
+# A raising fixer (e.g. SCHEMA_RETRY exhausted) must not fail the visual step:
+# the finalizer's concepts are already in state. Keep the pre-revision
+# concepts, record the gate's issues as final_visual_concepts__issues and spend
+# the budget so the gate (which the failsoft node routes back to) does not
+# re-run it.
+def _visual_concept_fixer_failed(
+    state: Mapping[str, Any], exc: Exception
+) -> dict[str, Any]:
+    before = state.get("final_visual_concepts__before_revision")
+    concepts = before if is_populated(before) else state.get("final_visual_concepts")
+    used = int(state.get("visual_concept_revision_rounds_used") or 0)
+    issues = _concept_issues({**state, "final_visual_concepts": concepts})
+    return {
+        **_CONCEPT_REVISION_CLEARED,
+        "final_visual_concepts": concepts,
+        "final_visual_concepts__issues": flatten_concept_issues(concepts, issues)
+        or None,
+        "visual_concept_revision_rounds_used": max(
+            used, config.concept_revision_rounds
+        ),
+    }
+
+
+visual_concept_fixer_failsoft = FailSoftNode(
+    name="visual_concept_fixer_failsoft",
+    node=visual_concept_fixer,
+    on_error=_visual_concept_fixer_failed,
 )
 
 
@@ -1013,11 +1192,12 @@ def images_ready(ctx: Context) -> str:
     return _missing_notice("visual_generator", "_images_generated")
 
 
-# Graph for visual concepts (draft -> critique -> finalize). Shared with
+# Graph for visual concepts (direction -> draft -> critique -> finalize ->
+# deterministic concept gate with a bounded, targeted fix loop). Shared with
 # interactive_creative, which pauses for human review after this stage before rendering.
 visual_generation_pipeline = Workflow(
     name="visual_generation_pipeline",
-    description="Generates visual concepts with an actor-critic workflow.",
+    description="Generates visual concepts with an actor-critic workflow, then fixes concepts that fail the deterministic checks.",
     input_schema=PipelineRequest,
     edges=[
         (
@@ -1026,8 +1206,14 @@ visual_generation_pipeline = Workflow(
             visual_concept_drafter,
             visual_concept_critic,
             visual_concept_finalizer,
-            visual_concepts_ready,
-        )
+            concept_gate,
+        ),
+        (
+            concept_gate,
+            {"ok": visual_concepts_ready, "revise": visual_concept_fixer_failsoft},
+        ),
+        # The routed cycle: the gate's counter bounds the fixer passes.
+        (visual_concept_fixer_failsoft, concept_gate),
     ],
 )
 

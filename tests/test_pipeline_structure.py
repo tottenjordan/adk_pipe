@@ -197,6 +197,7 @@ def test_graph_llm_agents_are_single_turn():
         "visual_concept_drafter",
         "visual_concept_critic",
         "visual_concept_finalizer",
+        "visual_concept_fixer",
         "visual_generator",
     }
     for a in agents:
@@ -368,6 +369,14 @@ def test_research_refinement_gate_predicate():
             )
             is True
         )
+        # Cleared (None) by a later successful RetryUntilKeyNode run → healthy.
+        for cleared in (None, False):
+            assert (
+                _base_research_is_degraded(
+                    {"combined_web_search_insights": "A full brief.", marker: cleared}
+                )
+                is False
+            )
 
 
 def test_refined_searcher_has_tool_synthesizer_is_tool_free():
@@ -443,7 +452,10 @@ def test_visual_generation_pipeline_graph_edges():
         ("art_director", "visual_concept_drafter", None),
         ("visual_concept_drafter", "visual_concept_critic", None),
         ("visual_concept_critic", "visual_concept_finalizer", None),
-        ("visual_concept_finalizer", "visual_concepts_ready", None),
+        ("visual_concept_finalizer", "concept_gate", None),
+        ("concept_gate", "visual_concepts_ready", "ok"),
+        ("concept_gate", "visual_concept_fixer_failsoft", "revise"),
+        ("visual_concept_fixer_failsoft", "concept_gate", None),
     }
 
 
@@ -479,6 +491,7 @@ def test_structured_output_producers_carry_schema_retry():
         "visual_concept_drafter",
         "visual_concept_critic",
         "visual_concept_finalizer",
+        "visual_concept_fixer",
     ):
         assert by_name[name].retry_config is SCHEMA_RETRY, name
 
@@ -812,6 +825,7 @@ def test_creative_model_agents_have_finish_reason_callback():
         ca.visual_concept_drafter,
         ca.visual_concept_critic,
         ca.visual_concept_finalizer,
+        ca.visual_concept_fixer,
         ca.visual_generator,
         ca.root_agent,
     ]
@@ -1240,6 +1254,19 @@ def test_interactive_registers_visual_concept_reviser():
     assert "{visual_revision_notes?}" in instr
 
 
+def test_interactive_reviser_rechecks_concepts_after_the_guard():
+    """The reviser's after_agent chain: the motif/product guard, THEN the
+    deterministic recheck (so the residual marker reflects the guarded,
+    post-checkpoint concepts, not the pre-checkpoint gate's verdict)."""
+    from creative_agent import callbacks
+    from interactive_creative.agent import visual_concept_reviser
+
+    assert visual_concept_reviser.after_agent_callback == [
+        callbacks.ensure_trend_and_product_callback,
+        callbacks.recheck_concept_issues_callback,
+    ]
+
+
 def test_interactive_workflow_revises_before_render():
     """The checkpoint-3 → render step must apply revision notes (reviser) BEFORE
     rendering images, so a run's user edits/notes actually change the output."""
@@ -1477,6 +1504,18 @@ def test_brief_gate_decision_clean_brief():
     }
 
 
+def test_brief_gate_decision_passes_the_trend_to_the_and_check():
+    from creative_agent.agent import brief_gate_decision
+
+    brief = {
+        **_clean_brief(),
+        "single_minded_proposition": "Every Dungeons and Dragons night needs skates.",
+    }
+    assert brief_gate_decision({"creative_brief": brief}, 1)[0] == "revise"
+    state = {"creative_brief": brief, "target_search_trends": "Dungeons and Dragons"}
+    assert brief_gate_decision(state, 1)[0] == "ok"
+
+
 def test_brief_gate_decision_revises_within_budget():
     from creative_agent.agent import brief_gate_decision
 
@@ -1689,15 +1728,25 @@ def _final_copy(original_id=1, **overrides):
         "audience_appeal_rationale": "a",
         "social_caption": "Zoom.",
         "call_to_action": "Order yours today",
+        "brief_checks": [
+            {"item": "proposition", "passed": True, "note": ""},
+            {"item": "mandatories", "passed": True, "note": ""},
+        ],
         "detailed_performance_rationale": "r",
     }
     copy.update(overrides)
     return copy
 
 
+def _four(*copies):
+    """Pad ``copies`` with clean copies (ids 11+) to the expected 4."""
+    pad = [_final_copy(11 + i) for i in range(4 - len(copies))]
+    return (*copies, *pad)
+
+
 def _copy_state(*copies, **extra):
     return {
-        "ad_copy_critique": {"ad_copies": list(copies)},
+        "ad_copy_critique": {"ad_copies": list(_four(*copies))},
         "target_product": "Rocket Skates",
         "brand": "Acme",
         **extra,
@@ -1756,7 +1805,13 @@ def test_copy_gate_decision_self_reported_gating_policy():
     from creative_agent.agent import copy_gate_decision
 
     def checks(*items):
-        return [{"item": i, "passed": False, "note": "n"} for i in items]
+        failed = [{"item": i, "passed": False, "note": "n"} for i in items]
+        complete = [
+            {"item": i, "passed": True, "note": ""}
+            for i in ("proposition", "mandatories")
+            if i not in items
+        ]
+        return failed + complete
 
     advisory = _final_copy(1, brief_checks=checks("tone", "trend_bridge", "cta"))
     assert copy_gate_decision(_copy_state(advisory), 1)[0] == "ok"
@@ -1794,6 +1849,58 @@ def test_copy_gate_decision_reads_the_brief_avoid_list():
     assert copy_gate_decision(state, 1)[0] == "ok"
 
 
+def test_copy_gate_decision_records_structural_issues_without_revising():
+    """Too few copies / an incomplete gating checklist are recorded on the ok
+    exit but never route a revision (the per-copy reviser cannot fix them)."""
+    from creative_agent.agent import copy_gate_decision
+
+    state = {
+        "ad_copy_critique": {
+            "ad_copies": [_final_copy(1), _final_copy(2, brief_checks=[])]
+        },
+        "target_product": "Rocket Skates",
+    }
+    route, delta = copy_gate_decision(state, 2)
+    assert route == "ok"
+    # No brief: no checklist to apply, so only the missing copies are noted.
+    assert delta["ad_copy_critique__issues"] == ["only 2 of 4 ad copies were produced."]
+    route, delta = copy_gate_decision({**state, "creative_brief": _clean_brief()}, 2)
+    assert route == "ok"
+    assert delta["ad_copy_critique__issues"] == [
+        "only 2 of 4 ad copies were produced.",
+        "1 of 2 ad copies lack the proposition/mandatories brief check.",
+    ]
+
+
+def test_copy_gate_decision_passes_brand_to_the_product_check():
+    from creative_agent.agent import copy_gate_decision
+
+    copy = _final_copy(1, headline="Go", body_text="Only on Apple.")
+    copy["social_caption"] = "Go."
+    copy["call_to_action"] = "Shop now"
+    copies = {"ad_copies": [copy]}
+    state = {"ad_copy_critique": copies, "target_product": "iPhone 16 Pro"}
+    assert copy_gate_decision(state, 2)[0] == "revise"
+    assert copy_gate_decision({**state, "brand": "Apple"}, 2)[0] == "ok"
+
+
+def test_copy_gate_decision_passes_trend_and_mandatories_to_the_avoid_filter():
+    from creative_agent.agent import copy_gate_decision
+
+    copy = _final_copy(
+        1, body_text="Rocket Skates for Taylor Swift fans. Gambling help: call."
+    )
+    brief = {
+        **_clean_brief(),
+        "avoid": ["Taylor Swift", "gambling"],
+        "mandatories": ["Include the problem gambling helpline"],
+    }
+    state = _copy_state(
+        copy, creative_brief=brief, target_search_trends="Taylor Swift Eras Tour"
+    )
+    assert copy_gate_decision(state, 1)[0] == "ok"
+
+
 def test_copy_gate_decision_skips_missing_copies():
     from creative_agent.agent import copy_gate_decision
 
@@ -1809,7 +1916,7 @@ def test_ad_copy_reviser_failsoft_error_delta():
     spends the revision budget."""
     from creative_agent import agent as ca
 
-    before = {"ad_copies": [_final_copy(2, body_text="Go fast.")]}
+    before = {"ad_copies": list(_four(_final_copy(2, body_text="Go fast.")))}
     state = _copy_state(
         _final_copy(2, body_text="half-written"),
         ad_copy_critique__before_revision=before,
@@ -1843,3 +1950,266 @@ def test_copy_revision_rounds_ships_to_agent_engine():
     import deployment.deploy_agent as da
 
     assert da.ENV_VAR_DICT["COPY_REVISION_ROUNDS"] is not None
+
+
+# --- Visual concept gate (concept_gate / visual_concept_fixer) --------------
+
+
+def test_visual_concept_agents_are_rate_limited():
+    from creative_agent import agent as ca
+    from creative_agent import callbacks
+
+    for a in (
+        ca.art_director,
+        ca.visual_concept_drafter,
+        ca.visual_concept_critic,
+        ca.visual_concept_finalizer,
+        ca.visual_concept_fixer,
+    ):
+        assert callbacks.rate_limit_callback in a.canonical_before_model_callbacks, (
+            a.name
+        )
+
+
+def test_visual_concept_fixer_config():
+    """Same worker bucket, schema, output key and retry as the finalizer (it
+    rewrites the finalizer's output in place); restore THEN guard."""
+    from creative_agent import agent as ca
+    from creative_agent import callbacks, prompts
+    from creative_agent.config import SCHEMA_RETRY, config
+    from creative_agent.schemas import VisualConceptFinalList
+
+    f = ca.visual_concept_fixer
+    assert f.model.model == config.worker_model
+    assert f.model.model == ca.visual_concept_finalizer.model.model
+    assert f.output_schema is VisualConceptFinalList
+    assert f.output_key == "final_visual_concepts"
+    assert f.output_key == ca.visual_concept_finalizer.output_key
+    assert f.retry_config is SCHEMA_RETRY
+    assert f.instruction == prompts.VISUAL_CONCEPT_FIXER_INSTR
+    assert f.mode == "single_turn"
+    assert f.include_contents == "none"
+    assert f.canonical_before_model_callbacks == [callbacks.rate_limit_callback]
+    assert f.canonical_after_model_callbacks == [
+        callbacks.scrub_surrogates_in_response,
+        callbacks.log_empty_turn_finish_reason,
+    ]
+    assert f.canonical_after_agent_callbacks == [
+        callbacks.restore_unflagged_concepts_callback,
+        callbacks.ensure_trend_and_product_callback,
+    ]
+
+
+def test_visual_concept_fixer_is_fail_soft_wrapped_in_the_graph():
+    from agent_common import FailSoftNode
+    from creative_agent import agent as ca
+
+    nodes = _graph_nodes(ca.visual_generation_pipeline)
+    soft = nodes["visual_concept_fixer_failsoft"]
+    assert isinstance(soft, FailSoftNode)
+    assert soft.node.name == "visual_concept_fixer"
+    assert soft.on_error is ca._visual_concept_fixer_failed
+    fixer = soft.node
+    assert fixer.canonical_after_agent_callbacks == (
+        ca.visual_concept_fixer.canonical_after_agent_callbacks
+    )
+
+
+def test_visual_concept_fixer_instruction_tokens():
+    import re
+
+    from creative_agent import prompts
+
+    instr = prompts.VISUAL_CONCEPT_FIXER_INSTR
+    for token in (
+        "{final_visual_concepts?}",
+        "{visual_concept_issues?}",
+        "{ad_copy_critique?}",
+        "{creative_brief_md?}",
+        "{brand}",
+        "{target_product}",
+        "{target_search_trends}",
+        "{style_shortlist?}",
+        "{visual_intent?}",
+        "{visual_avoid?}",
+        "{brand_colors?}",
+    ):
+        assert token in instr, token
+    assert prompts.IMAGE_PROMPT_GUIDE in instr
+    assert prompts.VISUAL_CONCEPT_RULES in instr
+    assert "Rewrite ONLY those concepts" in instr
+    assert "stays verbatim, field for field" in instr
+    assert "keeps its `ad_copy_id`, `concept_name`" in instr
+    tokens = re.findall(r"\{([^{}]*)\}", instr)
+    for token in tokens:
+        assert re.fullmatch(r"[A-Za-z_]\w*\??", token), token
+    stripped = re.sub(r"\{[^{}]*\}", "", instr)
+    assert "{" not in stripped and "}" not in stripped
+
+
+def test_art_director_resets_the_concept_revision_state():
+    from types import SimpleNamespace
+
+    from creative_agent import agent as ca
+    from creative_agent import callbacks
+
+    assert ca.art_director.before_agent_callback is callbacks.reset_concept_state
+    state = {
+        "visual_concept_issues": "- old",
+        "visual_concept_flagged_ids": ["1"],
+        "final_visual_concepts__before_revision": {"visual_concepts": []},
+        "visual_concept_revision_rounds_used": 1,
+        "final_visual_concepts__issues": ["old"],
+        "final_visual_concepts": {"kept": True},
+    }
+    assert callbacks.reset_concept_state(SimpleNamespace(state=state)) is None
+    assert state == {
+        "visual_concept_issues": "",
+        "visual_concept_flagged_ids": None,
+        "final_visual_concepts__before_revision": None,
+        "visual_concept_revision_rounds_used": 0,
+        "final_visual_concepts__issues": None,
+        "final_visual_concepts": {"kept": True},
+    }
+
+
+def _concept(ad_copy_id=1, **overrides):
+    concept = {
+        "ad_copy_id": ad_copy_id,
+        "concept_name": f"Concept {ad_copy_id}",
+        "trend_motif": "a roadrunner dust cloud",
+        "image_generation_prompt": "A watercolor of Rocket Skates in a dust cloud.",
+    }
+    concept.update(overrides)
+    return concept
+
+
+def _concept_state(*concepts, **extra):
+    return {
+        "final_visual_concepts": {"visual_concepts": list(concepts)},
+        "ad_copy_critique": {
+            "ad_copies": [
+                _final_copy(i, headline=f"Beep beep {i}") for i in range(1, 5)
+            ]
+        },
+        "target_product": "Rocket Skates",
+        **extra,
+    }
+
+
+def test_concept_gate_decision_clean_concepts():
+    from creative_agent.agent import concept_gate_decision
+
+    quoted = _concept(2, image_generation_prompt='Bold type reads "Beep beep 2".')
+    route, delta = concept_gate_decision(_concept_state(_concept(1), quoted), 1)
+    assert route == "ok"
+    assert delta == {
+        "visual_concept_issues": "",
+        "visual_concept_flagged_ids": None,
+        "final_visual_concepts__before_revision": None,
+        "final_visual_concepts__issues": None,
+    }
+
+
+def test_concept_gate_decision_revises_flagged_concepts_within_budget():
+    from creative_agent.agent import concept_gate_decision
+
+    bad = _concept(2, image_generation_prompt='Neon sign reads "Speed is life".')
+    state = _concept_state(_concept(1), bad)
+    route, delta = concept_gate_decision(state, 1)
+    assert route == "revise"
+    assert delta["visual_concept_flagged_ids"] == ["2"]
+    assert delta["visual_concept_revision_rounds_used"] == 1
+    before = delta["final_visual_concepts__before_revision"]
+    assert before == state["final_visual_concepts"]
+    assert before is not state["final_visual_concepts"]
+    issues = delta["visual_concept_issues"]
+    assert issues.startswith('- **Concept 2 ("Concept 2"):**')
+    assert '  - in-image text "Speed is life" is not the paired' in issues
+    assert '"Beep beep 2"' in issues
+    assert "Concept 1" not in issues
+
+
+def test_concept_gate_decision_records_residual_issues_when_budget_spent():
+    from creative_agent.agent import concept_gate_decision
+
+    state = _concept_state(
+        _concept(3, trend_motif=""), visual_concept_revision_rounds_used=1
+    )
+    route, delta = concept_gate_decision(state, 1)
+    assert route == "ok"
+    assert delta["visual_concept_issues"] == ""
+    assert delta["visual_concept_flagged_ids"] is None
+    (issue,) = delta["final_visual_concepts__issues"]
+    assert issue.startswith('Concept 3 ("Concept 3"): trend_motif is empty')
+    route, delta = concept_gate_decision(_concept_state(_concept(3, trend_motif="")), 0)
+    assert route == "ok" and delta["final_visual_concepts__issues"]
+
+
+def test_concept_gate_decision_allows_quoted_brand_and_product():
+    """The gate reads brand/target_product from state: a quoted logo or product
+    name is neither a mismatch nor counted toward the text cap."""
+    from creative_agent.agent import concept_gate_decision
+
+    concepts = [
+        _concept(1, image_generation_prompt='Type reads "Beep beep 1".'),
+        _concept(2, image_generation_prompt='Type reads "Beep beep 2".'),
+        _concept(3, image_generation_prompt='A decal with lettering "ACME".'),
+        _concept(4, image_generation_prompt='Box label reads "Rocket Skates".'),
+    ]
+    route, delta = concept_gate_decision(_concept_state(*concepts, brand="Acme"), 1)
+    assert route == "ok", delta
+
+
+def test_concept_gate_decision_skips_missing_concepts():
+    from creative_agent.agent import concept_gate_decision
+
+    for concepts in (None, "", {"visual_concepts": []}, "not json"):
+        state = {"final_visual_concepts": concepts, "ad_copy_critique": None}
+        route, delta = concept_gate_decision(state, 2)
+        assert route == "ok", concepts
+        assert delta["final_visual_concepts__issues"] is None
+
+
+def test_visual_concept_fixer_failsoft_error_delta():
+    """A raising fixer keeps the pre-revision concepts, records their issues and
+    spends the fix budget."""
+    from creative_agent import agent as ca
+
+    before = {"visual_concepts": [_concept(2, trend_motif="")]}
+    state = _concept_state(
+        _concept(2, trend_motif="", concept_name="half-written"),
+        final_visual_concepts__before_revision=before,
+        visual_concept_revision_rounds_used=1,
+        visual_concept_issues="- x",
+    )
+    delta = ca._visual_concept_fixer_failed(state, ValueError())
+    assert delta["final_visual_concepts"] == before
+    assert delta["visual_concept_issues"] == ""
+    assert delta["final_visual_concepts__before_revision"] is None
+    (issue,) = delta["final_visual_concepts__issues"]
+    assert "trend_motif is empty" in issue
+    assert (
+        delta["visual_concept_revision_rounds_used"]
+        >= ca.config.concept_revision_rounds
+    )
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [(None, 1), ("", 1), ("0", 0), ("2", 2), ("5", 2), ("-1", 0), ("x", 1)],
+)
+def test_concept_revision_rounds_env(monkeypatch, raw, expected):
+    from creative_agent.config import ResearchConfiguration
+
+    if raw is None:
+        monkeypatch.delenv("CONCEPT_REVISION_ROUNDS", raising=False)
+    else:
+        monkeypatch.setenv("CONCEPT_REVISION_ROUNDS", raw)
+    assert ResearchConfiguration().concept_revision_rounds == expected
+
+
+def test_concept_revision_rounds_ships_to_agent_engine():
+    import deployment.deploy_agent as da
+
+    assert da.ENV_VAR_DICT["CONCEPT_REVISION_ROUNDS"] is not None

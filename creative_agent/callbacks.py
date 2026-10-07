@@ -12,7 +12,13 @@ from agent_common.rate_limit import build_rate_limit_callback
 from agent_common.state import seed_initial_state
 
 from .citations import render_citations
-from .concept_guard import ensure_trend_and_product
+from .concept_guard import (
+    concept_issues,
+    ensure_trend_and_product,
+    flatten_concept_issues,
+    parse_concepts,
+    restore_unflagged_concepts,
+)
 from .config import config
 from .copy_gate import parse_copies, restore_unflagged
 from .style_shortlist import format_shortlist, pick_style_shortlist
@@ -186,12 +192,62 @@ def restore_unflagged_copies_callback(callback_context: CallbackContext) -> None
     return None
 
 
+# State the concept gate's bounded fix loop owns (see agent.concept_gate).
+CONCEPT_REVISION_STATE_DEFAULTS: dict[str, Any] = {
+    "visual_concept_issues": "",
+    "visual_concept_flagged_ids": None,
+    "final_visual_concepts__before_revision": None,
+    "visual_concept_revision_rounds_used": 0,
+    "final_visual_concepts__issues": None,
+}
+
+
+def reset_concept_state(callback_context: CallbackContext) -> None:
+    """`before_agent_callback` on `art_director`: a fresh concept-fix loop.
+
+    Clears a previous visual run's gate feedback (`visual_concept_issues`,
+    flagged ids, pre-revision snapshot), fix counter and residual-issue marker,
+    so a re-run visual_generation_pipeline in the same session gets a fresh fix
+    budget and no stale warning. Returns None so the agent runs normally.
+    """
+    for key, value in CONCEPT_REVISION_STATE_DEFAULTS.items():
+        callback_context.state[key] = value
+    return None
+
+
+def restore_unflagged_concepts_callback(callback_context: CallbackContext) -> None:
+    """`after_agent_callback` on `visual_concept_fixer`: only flagged concepts change.
+
+    concept_gate snapshots the pre-revision concepts
+    (`final_visual_concepts__before_revision`) and the flagged concept keys
+    (`visual_concept_flagged_ids`) before routing to the fixer. Any concept the
+    fixer changed without being flagged, dropped, duplicated or invented is put
+    back (pure logic in `concept_guard.restore_unflagged_concepts`), with a
+    warning per intervention. Runs after the fixer's output_key write and
+    BEFORE `ensure_trend_and_product_callback` (so a fixed concept is guarded).
+    """
+    state = callback_context.state
+    before = state.get("final_visual_concepts__before_revision")
+    if not parse_concepts(before):
+        return None
+    flagged = state.get("visual_concept_flagged_ids") or []
+    restored, notes = restore_unflagged_concepts(
+        before, state.get("final_visual_concepts"), flagged
+    )
+    if notes:
+        logging.warning("visual_concept_fixer output repaired: %s", "; ".join(notes))
+        state["final_visual_concepts"] = restored
+    return None
+
+
 def ensure_trend_and_product_callback(callback_context: CallbackContext) -> None:
     """`after_agent_callback` guaranteeing every final image prompt shows the
-    trend motif and the product (image diversity, Task 4b).
+    trend motif, the product and the concept's brand cue (image diversity,
+    Task 4b).
 
-    Wired on `visual_concept_finalizer` and interactive's `visual_concept_reviser`,
-    the two producers of `final_visual_concepts`. ADK runs after_agent_callback
+    Wired on `visual_concept_finalizer`, `visual_concept_fixer` (after its
+    restore callback) and interactive's `visual_concept_reviser`, the producers
+    of `final_visual_concepts`. ADK runs after_agent_callback
     once the agent's output event (carrying the `output_key` state delta) has been
     yielded, so the LLM's concepts are readable here; the repaired value is written
     back to the same key in the same shape (dict, or a JSON string of one) and
@@ -217,7 +273,9 @@ def ensure_trend_and_product_callback(callback_context: CallbackContext) -> None
         return None
 
     repaired, warnings = ensure_trend_and_product(
-        concepts, str(state.get("target_product") or "")
+        concepts,
+        str(state.get("target_product") or ""),
+        brand=str(state.get("brand") or ""),
     )
     for warning in warnings:
         logging.warning(f"concept guard: {warning}")
@@ -227,6 +285,32 @@ def ensure_trend_and_product_callback(callback_context: CallbackContext) -> None
     state["final_visual_concepts"] = (
         json.dumps(new_value) if isinstance(raw, str) else new_value
     )
+    return None
+
+
+def recheck_concept_issues_callback(callback_context: CallbackContext) -> None:
+    """`after_agent_callback` on interactive's `visual_concept_reviser` (after
+    `ensure_trend_and_product_callback`): re-run the deterministic concept checks.
+
+    concept_gate ran BEFORE checkpoint 3; the user's edits and the reviser can
+    fix or introduce issues afterwards, so its `final_visual_concepts__issues`
+    verdict may be stale. This recomputes it on the current concepts (with
+    `ad_copy_critique`, `brand`, `target_product`) — flattened issues, or None
+    when clean or absent. Record only: there is no fix loop after the human
+    checkpoint. Returns None so the agent's output is kept.
+    """
+    state = callback_context.state
+    concepts = state.get("final_visual_concepts")
+    issues = concept_issues(
+        concepts,
+        state.get("ad_copy_critique"),
+        brand=str(state.get("brand") or ""),
+        target_product=str(state.get("target_product") or ""),
+    )
+    residual = flatten_concept_issues(concepts, issues) or None
+    if residual:
+        logging.warning("visual concept issues after revision: %s", residual)
+    state["final_visual_concepts__issues"] = residual
     return None
 
 

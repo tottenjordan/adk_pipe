@@ -173,6 +173,8 @@ SYNTHETIC_EVENTS = [
 SYNTHETIC_STATE = {
     "brand": "PRS Guitars",
     "info_gtrends__retry_exhausted": True,
+    # Cleared by a later successful RetryUntilKeyNode run: not an exhaustion.
+    "gs_web_search_insights__retry_exhausted": None,
 }
 
 

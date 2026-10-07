@@ -55,6 +55,8 @@ ENV_VAR_DICT = {
     "BRIEF_REVISION_ROUNDS": os.getenv("BRIEF_REVISION_ROUNDS", "1"),
     # creative_agent copy_gate revision budget (0..2, default 1; same contract).
     "COPY_REVISION_ROUNDS": os.getenv("COPY_REVISION_ROUNDS", "1"),
+    # creative_agent concept_gate fix budget (0..2, default 1; same contract).
+    "CONCEPT_REVISION_ROUNDS": os.getenv("CONCEPT_REVISION_ROUNDS", "1"),
 }
 
 
