@@ -3,18 +3,27 @@
 ``generate_image`` (``image_tools``) renders each concept, then
 ``inspect_image`` asks a vision model (``config.image_qa_model``, default the
 worker flash model) whether the pixels deliver what the concept promised: the
-product and trend motif visible, requested in-image text exact and legible, no
-gibberish text, no unrequested third-party logos (a live probe saw the image
-model add a sports-brand swoosh), no severe artifacts, nothing unsafe. The pure
-rule ``qa_failures`` turns the verdict into the issue list that drives at most
-``config.image_qa_max_rerenders`` targeted re-renders. A missing brand cue is
-advisory only (``brand_cue_visible`` never fails an image).
+product and trend motif recognisable, requested in-image text exact and
+legible, no prominent gibberish text, no unrequested third-party logos (a live
+probe saw the image model add a sports-brand swoosh), no severe artifacts,
+nothing unsafe. The pure rule ``qa_failures`` turns the verdict into the
+displayed issue list; ``correction_text`` builds the (quote-free) re-render
+instruction. A missing brand cue is advisory only (``brand_cue_visible`` never
+fails an image).
+
+Conservative by design: QA is on by default and every false failure costs a
+re-render against a ~2 RPM image quota, so the instruction gives the model the
+concept's own image prompt, accepts a recognisable partial view of the
+product, ignores tiny/incidental background lettering and stylised renderings
+of the campaign brand's own logo, and only flags clearly recognisable marks of
+brands nobody asked for (calibrated on live renders, 2026-10-07).
 
 Fail-open by design: the caller treats any exception here as "QA unavailable"
 and keeps the rendered image.
 """
 
 import functools
+import re
 from typing import Any
 
 from google import genai
@@ -24,26 +33,44 @@ from pydantic import BaseModel, Field
 from agent_common import genai_retry
 from agent_common.locations import MODEL_LOCATION
 
-from .concept_guard import in_image_quotes
+from .concept_guard import in_image_quotes, is_meme_or_comic
 from .config import config
 
 __all__ = [
+    "CRITICAL_RULES",
+    "ISSUE_CHAR_CAP",
+    "PROMPT_CHAR_CAP",
     "ImageQAResult",
+    "correction_text",
     "expected_text",
     "inspect_image",
     "qa_failed_rules",
     "qa_failures",
 ]
 
+# The concept's image prompt shown to the QA model is capped (chars).
+PROMPT_CHAR_CAP = 1500
+# Each model issue fed back into a re-render prompt is capped (chars).
+ISSUE_CHAR_CAP = 120
+NO_NEW_TEXT = "Do not add any new text to the image."
+
 
 class ImageQAResult(BaseModel):
     """The vision model's verdict on one rendered image."""
 
     product_visible: bool = Field(
-        description="The campaign's product is clearly visible and recognisable."
+        description=(
+            "The campaign's product is recognisable: a partial or close-up view "
+            "that clearly shows its identifying features counts. For an "
+            "intangible product, true if the depiction the prompt describes is "
+            "present."
+        )
     )
     motif_visible: bool = Field(
-        description="The trend motif named in the brief is clearly visible."
+        description=(
+            "The trend motif is visible (for an abstract motif, true if the "
+            "depiction the prompt describes is present)."
+        )
     )
     brand_cue_visible: bool | None = Field(
         default=None,
@@ -64,10 +91,17 @@ class ImageQAResult(BaseModel):
         description="The requested in-image text is legible; null when none was requested.",
     )
     gibberish_text: bool = Field(
-        description="Any garbled, misspelled or nonsense lettering appears anywhere."
+        description=(
+            "Prominent, readable-size lettering is garbled, misspelled or "
+            "nonsense. Tiny or blurred incidental background text and stylised "
+            "renderings of the campaign brand's own logo or signature do not count."
+        )
     )
     unrequested_logos: bool = Field(
-        description="A logo or trademark of any company other than the campaign brand appears."
+        description=(
+            "A clearly recognisable logo or trademark of a brand that is not "
+            "allowed (see the instruction's allowed-brands list) appears."
+        )
     )
     artifacts: bool = Field(
         description="Severe anatomy or object deformities (extra fingers, melted or broken objects)."
@@ -78,8 +112,8 @@ class ImageQAResult(BaseModel):
     issues: list[str] = Field(
         default_factory=list,
         description=(
-            "Short, actionable fixes for each problem found (e.g. 'remove the "
-            "swoosh logo from the shirt'); empty when the image passes."
+            "Short problem statements, e.g. 'third-party logo on the amplifier', "
+            "one per problem found; empty when the image passes."
         ),
     )
 
@@ -94,36 +128,89 @@ def expected_text(concept: dict[str, Any]) -> list[str] | None:
     return quotes or None
 
 
-# Rule name per failing check, in report order (the re-render prompt and the
-# fallback issue list use these names when the model gave no issues).
-_RULES: tuple[tuple[str, str], ...] = (
-    ("product_visible", "product not visible"),
-    ("motif_visible", "trend motif not visible"),
-    ("gibberish_text", "gibberish text"),
-    ("unrequested_logos", "unrequested third-party logo"),
-    ("artifacts", "severe visual artifacts"),
-    ("unsafe", "unsafe content"),
+_ANY_QUOTE = re.compile(r'"[^"\n]+"|“[^”\n]+”')
+
+
+def _is_meme_or_comic(concept: dict[str, Any]) -> bool:
+    return is_meme_or_comic(
+        concept.get("image_generation_prompt") or "",
+        concept.get("visual_style") or "",
+    )
+
+
+def _text_required(result: ImageQAResult, concept: dict[str, Any]) -> bool:
+    """Whether the exact/legible text checks apply — pure.
+
+    ``expected_text`` is authoritative; the model's ``text_expected`` only
+    counts for a meme/comic concept whose prompt quotes text (a caption or
+    speech bubble ``in_image_quotes`` may not catch).
+    """
+    if expected_text(concept) is not None:
+        return True
+    prompt = concept.get("image_generation_prompt") or ""
+    return bool(
+        result.text_expected
+        and _is_meme_or_comic(concept)
+        and _ANY_QUOTE.search(prompt)
+    )
+
+
+# (attribute, rule name, correction phrase) per check, in report order.
+_RULES: tuple[tuple[str, str, str], ...] = (
+    ("product_visible", "product not visible", "show the product recognisably"),
+    ("motif_visible", "trend motif not visible", "show the trend motif clearly"),
+    (
+        "gibberish_text",
+        "gibberish text",
+        "remove garbled or misspelled lettering",
+    ),
+    (
+        "unrequested_logos",
+        "unrequested third-party logo",
+        "remove third-party logos",
+    ),
+    ("artifacts", "severe visual artifacts", "fix severe visual artifacts"),
+    ("unsafe", "unsafe content", "remove brand-unsafe content"),
 )
+_TEXT_RULES: dict[str, str] = {
+    "gibberish text": "remove garbled or misspelled lettering",
+    "in-image text not exact": (
+        "render only the in-image text the prompt quotes, spelled exactly"
+    ),
+    "in-image text not legible": "make the requested in-image text legible",
+}
+# Failures weighed first when choosing between attempts (image_tools).
+CRITICAL_RULES = frozenset({"unsafe content", "unrequested third-party logo"})
 
 
-def qa_failed_rules(result: ImageQAResult, concept: dict[str, Any]) -> list[str]:
+def qa_failed_rules(
+    result: ImageQAResult, concept: dict[str, Any], *, target_product: str
+) -> list[str]:
     """The names of the failed checks — pure; ``[]`` means the image passes.
 
-    Fails on: product or motif not visible, gibberish text, an unrequested
-    logo, severe artifacts, unsafe content, or — when text is expected (the
-    model says so OR the prompt quotes in-image text) — text not exact or not
-    legible (``None`` = unknown, not a failure). ``brand_cue_visible`` is
-    advisory and never fails.
+    Fails on: product or motif not visible (skipped when ``target_product`` /
+    the concept's ``trend_motif`` is empty — nothing was promised), gibberish
+    text, an unrequested logo, severe artifacts, unsafe content, or — when
+    text is required (``_text_required``) — text not exact or not legible
+    (``None`` = unknown, not a failure). ``brand_cue_visible`` is advisory and
+    never fails.
     """
+    skip = set()
+    if not (concept.get("trend_motif") or "").strip():
+        skip.add("motif_visible")
+    if not (target_product or "").strip():
+        skip.add("product_visible")
     failed = []
-    for attr, name in _RULES:
+    for attr, name, _ in _RULES:
+        if attr in skip:
+            continue
         value = getattr(result, attr)
         # *_visible must be True; the rest must be False.
         if (attr.endswith("_visible") and not value) or (
             not attr.endswith("_visible") and value
         ):
             failed.append(name)
-    if result.text_expected or expected_text(concept) is not None:
+    if _text_required(result, concept):
         if result.text_exact is False:
             failed.append("in-image text not exact")
         if result.text_legible is False:
@@ -131,29 +218,94 @@ def qa_failed_rules(result: ImageQAResult, concept: dict[str, Any]) -> list[str]
     return failed
 
 
-def qa_failures(result: ImageQAResult, concept: dict[str, Any]) -> list[str]:
-    """Issue strings for a failed image (``[]`` when it passes) — pure.
+def qa_failures(
+    result: ImageQAResult, concept: dict[str, Any], *, target_product: str
+) -> list[str]:
+    """Displayed issue strings for a failed image (``[]`` when it passes) — pure.
 
-    Prefers the model's own short issues (more actionable for the re-render
-    prompt); falls back to the rule names when it gave none. Model issues
-    alone (with no failed rule, e.g. a missing brand cue) never fail an image.
+    Prefers the model's own short problem statements; falls back to the rule
+    names when it gave none. Model issues alone (with no failed rule, e.g. a
+    missing brand cue) never fail an image. Not fed back verbatim into the
+    re-render prompt — see ``correction_text``.
     """
-    failed = qa_failed_rules(result, concept)
+    failed = qa_failed_rules(result, concept, target_product=target_product)
     if not failed:
         return []
     issues = [i.strip() for i in result.issues if i and i.strip()]
     return issues or failed
 
 
-def _instruction(concept: dict[str, Any], *, brand: str, target_product: str) -> str:
+_QUOTE_CHARS = re.compile("[\"'`“”‘’«»]")
+
+
+def _clean_issue(issue: str) -> str:
+    """A model issue made safe for a render prompt: quotes stripped, capped."""
+    cleaned = " ".join(_QUOTE_CHARS.sub("", issue).split())
+    return cleaned[:ISSUE_CHAR_CAP].rstrip()
+
+
+def correction_text(
+    result: ImageQAResult, concept: dict[str, Any], *, target_product: str
+) -> str:
+    """The instruction appended to the prompt for a re-render — pure.
+
+    Never injects strings into the render: when a text rule failed, the
+    corrections are fixed rule phrases (the model's issue may quote the
+    garbled lettering); otherwise the model's problem statements with quote
+    characters stripped, each capped at ``ISSUE_CHAR_CAP`` (rule phrases when
+    it gave none). Always ends with "Do not add any new text to the image."
+    """
+    failed = qa_failed_rules(result, concept, target_product=target_product)
+    phrases = {name: phrase for _, name, phrase in _RULES} | _TEXT_RULES
+    if any(name in _TEXT_RULES for name in failed):
+        items = [phrases[name] for name in failed]
+    else:
+        items = [c for c in (_clean_issue(i) for i in result.issues if i) if c]
+        items = items or [phrases[name] for name in failed]
+    return (
+        "Correct these issues from the previous attempt: "
+        + "; ".join(items)
+        + ". "
+        + NO_NEW_TEXT
+    )
+
+
+def _instruction(
+    concept: dict[str, Any],
+    *,
+    brand: str,
+    target_product: str,
+    has_logo_reference: bool = False,
+) -> str:
     """The QA instruction for one concept (what to check, what was promised)."""
+    prompt = " ".join((concept.get("image_generation_prompt") or "").split())
+    motif = (concept.get("trend_motif") or "").strip()
     lines = [
-        "You are a strict ad-image QA reviewer. Inspect the attached rendered "
-        "ad image and fill in the JSON verdict.",
+        "You are an ad-image QA reviewer. Inspect the attached rendered ad "
+        "image and fill in the JSON verdict. Flag only clear, material "
+        "problems: every failure triggers a costly re-render.",
         f"Campaign brand: {brand or 'unknown'}.",
-        f"Product that must be clearly visible: {target_product or 'unknown'}.",
-        f"Trend motif that must be clearly visible: {concept.get('trend_motif') or 'none given'}.",
+        f"What the image was asked to show: {prompt[:PROMPT_CHAR_CAP] or 'not given'}",
     ]
+    if target_product:
+        lines.append(
+            f"Product: {target_product}. product_visible is true when the "
+            "product is recognisable — a partial or close-up view that clearly "
+            "shows its identifying features (e.g. a distinctive headstock, "
+            "logo or shape) counts; it need not be shown in full. For an "
+            "intangible product (an app, service or subscription), true if the "
+            "depiction described above is present."
+        )
+    else:
+        lines.append("No specific product: set product_visible true.")
+    if motif:
+        lines.append(
+            f"Trend motif: {motif}. motif_visible is true when it is visible; "
+            "for an abstract motif, true if the depiction described above is "
+            "present."
+        )
+    else:
+        lines.append("No trend motif: set motif_visible true.")
     brand_cue = (concept.get("brand_cue") or "").strip()
     if brand_cue:
         lines.append(f"Brand cue that should be visible: {brand_cue}.")
@@ -168,16 +320,38 @@ def _instruction(concept: dict[str, Any], *, brand: str, target_product: str) ->
     else:
         lines.append(
             "No in-image text was requested: set text_expected false and "
-            "text_exact/text_legible null; any lettering that appears must "
-            "still be real words (else gibberish_text)."
+            "text_exact/text_legible null."
         )
+    lines.append(
+        "gibberish_text: true only for prominent, readable-size lettering that "
+        "is garbled, misspelled or nonsense. Ignore tiny or blurred incidental "
+        "text in the background (e.g. labels on equipment, distant signs) and "
+        "stylised renderings of the campaign brand's own logo or signature."
+    )
+    if _is_meme_or_comic(concept):
+        lines.append(
+            "This is a meme/comic concept: deliberate slang or meme spelling in "
+            "captions or speech bubbles is not gibberish."
+        )
+    allowed = [f"the campaign brand ({brand or 'unknown'})"]
+    if target_product:
+        allowed.append(f"the maker of the product ({target_product})")
+    allowed.append("any brand named in the prompt above or in its quoted text")
+    if brand_cue:
+        allowed.append(f"the brand cue ({brand_cue})")
+    if has_logo_reference:
+        allowed.append("the logo reference image supplied with the prompt")
     lines += [
-        f"Only the campaign brand's logo ({brand or 'the brand'}) may appear; any "
-        "other company's logo, wordmark or trademark (e.g. a sports-brand "
-        "swoosh) is an unrequested logo.",
-        "Flag gibberish or misspelled lettering anywhere, severe anatomy or "
-        "object deformities, and brand-unsafe content.",
-        "issues: short, actionable fixes for every problem (empty if none).",
+        "unrequested_logos: true only for a clearly recognisable logo, "
+        "wordmark or trademark of another company (e.g. a sports-brand "
+        "swoosh or a third-party badge on equipment). Allowed: "
+        + "; ".join(allowed)
+        + ". A maker's badge, nameplate or script logo on third-party "
+        "equipment (e.g. on an amplifier) counts even if partly illegible; "
+        "plain unbranded labels and tiny incidental text do not.",
+        "Also flag severe anatomy or object deformities and brand-unsafe content.",
+        "issues: short problem statements, one per problem found (e.g. "
+        "'third-party logo on the amplifier'); empty if none.",
     ]
     return "\n".join(lines)
 
@@ -209,6 +383,7 @@ def inspect_image(
     target_product: str,
     client: Any,
     model: str,
+    has_logo_reference: bool = False,
 ) -> ImageQAResult:
     """One structured vision call → the image's ``ImageQAResult``.
 
@@ -220,7 +395,12 @@ def inspect_image(
         contents=[
             types.Part.from_bytes(data=image_bytes, mime_type=mime),
             types.Part.from_text(
-                text=_instruction(concept, brand=brand, target_product=target_product)
+                text=_instruction(
+                    concept,
+                    brand=brand,
+                    target_product=target_product,
+                    has_logo_reference=has_logo_reference,
+                )
             ),
         ],
         config=types.GenerateContentConfig(

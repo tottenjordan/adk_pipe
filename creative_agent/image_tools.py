@@ -5,10 +5,14 @@ this module has no side effects.
 
 Post-render image QA (``image_qa``, on unless ``IMAGE_QA_ENABLED=false``): each
 render gets one vision check; a failing image is re-rendered at most
-``IMAGE_QA_MAX_RERENDERS`` times with the issues appended to the prompt, the
-attempt with fewer failures is kept, and only that one is uploaded. Per-concept
-results land in ``state["generated_images"]``; unresolved failures (and "QA
-unavailable" — the check fails open) in ``state["image_qa__issues"]``.
+``IMAGE_QA_MAX_RERENDERS`` times (and at most ``IMAGE_QA_MAX_RERENDERS_PER_RUN``
+across the whole call) with a quote-free correction appended to the prompt,
+the better attempt is kept (critical failures — unsafe, third-party logo —
+weigh first), and only that one is uploaded. Per-concept results land in
+``state["generated_images"]``; unresolved failures in
+``state["image_qa__issues"]``; concepts whose check errored (fail-open) in
+``state["image_qa__unavailable"]`` (not a quality issue, so not surfaced as a
+degradation warning).
 """
 
 import asyncio
@@ -18,6 +22,7 @@ import logging
 import random
 import socket
 import urllib.request
+from dataclasses import dataclass
 from urllib.parse import urlparse
 
 import httpx
@@ -235,7 +240,11 @@ async def _generate_image_with_backoff(**kwargs):
     """
     for attempt in range(_IMAGE_GEN_MAX_ATTEMPTS):
         try:
-            return _get_genai_client().models.generate_content(**kwargs)
+            # The sync genai call blocks for the whole render; run it off the
+            # event loop so concurrent sessions keep progressing.
+            return await asyncio.to_thread(
+                _get_genai_client().models.generate_content, **kwargs
+            )
         except Exception as exc:
             if (
                 not _is_retryable_genai_error(exc)
@@ -425,7 +434,11 @@ async def _store_image(
 
 
 async def _inspect(
-    rendered: tuple[bytes, str], entry: dict, brand: str, product: str
+    rendered: tuple[bytes, str],
+    entry: dict,
+    brand: str,
+    product: str,
+    has_logo_reference: bool = False,
 ) -> image_qa.ImageQAResult | None:
     """One QA call off the event loop → the verdict, or None (fail-open)."""
     image_bytes, mime = rendered
@@ -439,6 +452,7 @@ async def _inspect(
             target_product=product,
             client=image_qa._get_qa_client(),
             model=config.image_qa_model,
+            has_logo_reference=has_logo_reference,
         )
     except Exception as exc:
         logging.warning(
@@ -447,10 +461,37 @@ async def _inspect(
         return None
 
 
-def _qa_record(result: image_qa.ImageQAResult, entry: dict) -> dict:
+def _qa_record(result: image_qa.ImageQAResult, entry: dict, product: str) -> dict:
     """The stored verdict: the model's fields + the rule's passed/failures."""
-    failures = image_qa.qa_failures(result, entry)
+    failures = image_qa.qa_failures(result, entry, target_product=product)
     return {**result.model_dump(), "passed": not failures, "failures": failures}
+
+
+def _severity(rules: list[str]) -> tuple[int, int]:
+    """(critical failures, total failures) — compared lexicographically."""
+    return sum(r in image_qa.CRITICAL_RULES for r in rules), len(rules)
+
+
+def _keep_retry(kept_rules: list[str], retry_rules: list[str]) -> bool:
+    """Whether the re-render replaces the kept attempt — pure.
+
+    Never keeps a retry that introduces unsafe content; otherwise the lower
+    (critical, total) failure count wins and ties go to the latest attempt.
+    """
+    unsafe = "unsafe content"
+    if unsafe in retry_rules and unsafe not in kept_rules:
+        return False
+    return _severity(retry_rules) <= _severity(kept_rules)
+
+
+@dataclass
+class _RerenderBudget:
+    """QA re-renders left for the whole generate_image call (shared)."""
+
+    remaining: int
+
+
+BUDGET_REACHED = "re-render budget reached"
 
 
 async def _inspect_and_rerender(
@@ -461,53 +502,66 @@ async def _inspect_and_rerender(
     contents_for,
     brand: str,
     product: str,
+    budget: _RerenderBudget,
+    has_logo_reference: bool = False,
 ) -> tuple[tuple[bytes, str], int, dict | None, str | None]:
     """Inspect a render; re-render (bounded) while it fails; keep the best.
 
     Returns ``(kept_image, attempts, qa_record, issue)``. Each re-render
-    appends the previous failures to the prompt (same references / aspect
-    ratio) and is inspected again; the attempt with fewer failed rules is kept
-    (ties → the latest). ``issue`` is the ``image_qa__issues`` entry: "QA
-    unavailable for <concept>" when the first check failed (the render is kept,
-    qa None), "<concept>: <failures>" when the kept image still fails, else
-    None. A re-render or re-check that errors stops the loop and keeps the
-    best inspected image so far.
+    appends ``image_qa.correction_text`` (quote-free, "no new text") to the
+    prompt (same references / aspect ratio) and is inspected again;
+    ``_keep_retry`` decides which attempt is kept. Re-renders are bounded per
+    image (``config.image_qa_max_rerenders``) and per run (``budget``, spent
+    here). ``issue`` is the ``image_qa__issues`` entry: "<concept>:
+    <failures>" when the kept image still fails (suffixed "(re-render budget
+    reached)" when the run cap stopped a re-render), else None. ``qa_record``
+    is None when the first check errored (fail-open; the render is kept and
+    the caller records the concept as unavailable). A re-render or re-check
+    that errors stops the loop and keeps the best inspected image so far.
     """
     name = entry.get("concept_name", "")
-    result = await _inspect(rendered, entry, brand, product)
+    result = await _inspect(rendered, entry, brand, product, has_logo_reference)
     if result is None:
-        return rendered, 1, None, f"QA unavailable for {name}"
+        return rendered, 1, None, None
     attempts = 1
     kept, kept_result = rendered, result
-    kept_rules = image_qa.qa_failed_rules(result, entry)
+    kept_rules = image_qa.qa_failed_rules(result, entry, target_product=product)
+    budget_reached = False
     for _ in range(config.image_qa_max_rerenders):
         if not kept_rules:
             break
-        failures = image_qa.qa_failures(kept_result, entry)
-        logging.warning(f"Image QA failed for '{name}' ({failures}); re-rendering")
+        if budget.remaining <= 0:
+            budget_reached = True
+            break
+        budget.remaining -= 1
+        logging.warning(f"Image QA failed for '{name}' ({kept_rules}); re-rendering")
         attempts += 1
+        correction = image_qa.correction_text(
+            kept_result, entry, target_product=product
+        )
         try:
             retry = await _render_image(
-                contents_for(
-                    prompt_text
-                    + "\n\nCorrect these issues from the previous attempt: "
-                    + "; ".join(failures)
-                ),
-                aspect_ratio,
+                contents_for(prompt_text + "\n\n" + correction), aspect_ratio
             )
         except Exception as exc:
             logging.warning(f"Re-render failed for '{name}'; keeping previous: {exc}")
             break
         if retry is None:
             break
-        retry_result = await _inspect(retry, entry, brand, product)
+        retry_result = await _inspect(retry, entry, brand, product, has_logo_reference)
         if retry_result is None:
             break
-        retry_rules = image_qa.qa_failed_rules(retry_result, entry)
-        if len(retry_rules) <= len(kept_rules):
+        retry_rules = image_qa.qa_failed_rules(
+            retry_result, entry, target_product=product
+        )
+        if _keep_retry(kept_rules, retry_rules):
             kept, kept_result, kept_rules = retry, retry_result, retry_rules
-    record = _qa_record(kept_result, entry)
-    issue = f"{name}: {'; '.join(record['failures'])}" if record["failures"] else None
+    record = _qa_record(kept_result, entry, product)
+    issue = None
+    if record["failures"]:
+        issue = f"{name}: {'; '.join(record['failures'])}"
+        if budget_reached:
+            issue += f" ({BUDGET_REACHED})"
     return kept, attempts, record, issue
 
 
@@ -573,6 +627,9 @@ async def generate_image(
     artifact_keys_list = []
     generated_images: dict[str, dict] = {}
     qa_issues: list[str] = []
+    qa_unavailable: list[str] = []
+    budget = _RerenderBudget(config.image_qa_max_rerenders_per_run)
+    has_logo_reference = "logo" in reference_roles
     for entry in final_visual_concepts_list:
         try:
             # Per-concept aspect ratio, unless a valid state override pins all
@@ -598,7 +655,11 @@ async def generate_image(
                     contents_for,
                     brand,
                     product,
+                    budget,
+                    has_logo_reference,
                 )
+                if qa_record is None:
+                    qa_unavailable.append(entry["concept_name"])
                 if qa_issue:
                     qa_issues.append(qa_issue)
 
@@ -630,6 +691,10 @@ async def generate_image(
     if qa_issues:
         # Generic `<key>__issues` marker → collect_degradation_warnings.
         tool_context.state["image_qa__issues"] = qa_issues
+    if qa_unavailable:
+        # Deliberately NOT a `__issues` key: a failed check is not a quality
+        # issue, so collect_degradation_warnings does not surface it.
+        tool_context.state["image_qa__unavailable"] = qa_unavailable
 
     return {
         "status": "success",

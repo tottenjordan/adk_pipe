@@ -28,6 +28,8 @@ load_dotenv(dotenv_path=ENV_FILE_PATH)
 
 DEFAULT_IMAGE_QA_MAX_RERENDERS = 1
 MAX_IMAGE_QA_MAX_RERENDERS = 2
+DEFAULT_IMAGE_QA_MAX_RERENDERS_PER_RUN = 2
+MAX_IMAGE_QA_MAX_RERENDERS_PER_RUN = 8
 
 _FALSE_FLAGS = frozenset({"0", "false", "no", "off"})
 
@@ -46,6 +48,15 @@ def parse_image_qa_max_rerenders(raw: str | None) -> int:
     return max(0, min(MAX_IMAGE_QA_MAX_RERENDERS, value))
 
 
+def parse_image_qa_max_rerenders_per_run(raw: str | None) -> int:
+    """``IMAGE_QA_MAX_RERENDERS_PER_RUN`` → int clamped to 0..8; unset/blank/invalid → 2."""
+    try:
+        value = int((raw or "").strip())
+    except ValueError:
+        return DEFAULT_IMAGE_QA_MAX_RERENDERS_PER_RUN
+    return max(0, min(MAX_IMAGE_QA_MAX_RERENDERS_PER_RUN, value))
+
+
 @dataclass
 class BaseAgentConfiguration:
     """Shared model + GCP configuration for the agents.
@@ -62,6 +73,9 @@ class BaseAgentConfiguration:
             default on; 0/false/no/off disables).
         image_qa_max_rerenders (int): targeted re-renders per image after a
             failed check (IMAGE_QA_MAX_RERENDERS, default 1, clamped 0..2).
+        image_qa_max_rerenders_per_run (int): QA re-renders across ALL images
+            of one generate_image call (IMAGE_QA_MAX_RERENDERS_PER_RUN, default
+            2, clamped 0..8) — each re-render spends the ~2 RPM image quota.
         image_qa_model (str): vision model for the image check (IMAGE_QA_MODEL,
             default the worker model).
         rate_limit_seconds (int): window for the LLM API rate limiter.
@@ -105,6 +119,11 @@ class BaseAgentConfiguration:
     image_qa_max_rerenders: int = field(
         default_factory=lambda: parse_image_qa_max_rerenders(
             os.getenv("IMAGE_QA_MAX_RERENDERS")
+        )
+    )
+    image_qa_max_rerenders_per_run: int = field(
+        default_factory=lambda: parse_image_qa_max_rerenders_per_run(
+            os.getenv("IMAGE_QA_MAX_RERENDERS_PER_RUN")
         )
     )
     image_qa_model: str = field(
