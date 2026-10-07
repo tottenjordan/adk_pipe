@@ -15,12 +15,28 @@ export interface EvalVerdict {
   rationale: string;
 }
 
+/**
+ * One binary compliance check ("gate") from the judge. `advisory` gates are
+ * recorded but never fail a creative. Absent on reports written before gates.
+ */
+export interface GateResult {
+  gate: string;
+  passed: boolean;
+  note?: string;
+  advisory?: boolean;
+}
+
 export interface CreativeScore {
   overall_score: number;
+  /** Score ≥ threshold AND (on gated reports) every non-advisory gate passed. */
   passed: boolean;
   verdicts: EvalVerdict[];
   strengths: string[];
   improvements: string[];
+  /** Binary compliance checks (absent on older reports). */
+  gates?: GateResult[];
+  /** Every non-advisory gate passed (absent on older reports). */
+  gates_passed?: boolean;
 }
 
 export interface AdCopyEvaluation {
@@ -34,6 +50,8 @@ export interface VisualConceptEvaluation {
   ad_copy_id: number;
   concept_name: string;
   score: CreativeScore;
+  /** True when the judge saw the rendered image; false = the prompt only. */
+  image_judged?: boolean;
 }
 
 export interface EvalReport {
@@ -44,8 +62,10 @@ export interface EvalReport {
   visual_concept_evaluations: VisualConceptEvaluation[];
   /** Degradation notes from retry-exhausted pipeline steps (may be absent on older reports). */
   warnings?: string[];
-  /** Pass threshold (0–1) when the report carries it; current reports don't. */
+  /** Pass threshold (0–1); absent on reports written before it was recorded. */
   passing_threshold?: number;
+  /** True when the judge saw the structured creative brief. */
+  brief_used?: boolean;
   summary: {
     total_ad_copies: number;
     ad_copies_passed: number;
@@ -55,6 +75,8 @@ export interface EvalReport {
     avg_visual_score: number;
     overall_pass_rate: number;
     weakest_dimensions: string[];
+    /** Share of creatives whose gates all passed (null/absent on older reports). */
+    gates_pass_rate?: number | null;
   };
 }
 
@@ -67,6 +89,21 @@ export function passThreshold(
 ): number {
   const t = report?.passing_threshold;
   return typeof t === "number" && t > 0 && t <= 1 ? t : DEFAULT_PASS_THRESHOLD;
+}
+
+/** The gates of a score, dropping malformed entries ([] on older reports). */
+export function scoreGates(score: CreativeScore | null | undefined): GateResult[] {
+  const gates = score?.gates;
+  if (!Array.isArray(gates)) return [];
+  return gates.filter(
+    (g): g is GateResult =>
+      !!g && typeof g === "object" && typeof g.gate === "string" && typeof g.passed === "boolean"
+  );
+}
+
+/** The failed gates that block a pass (non-advisory). */
+export function failedGates(score: CreativeScore | null | undefined): GateResult[] {
+  return scoreGates(score).filter((g) => !g.passed && !g.advisory);
 }
 
 /** Visual concept data from session state (`final_visual_concepts`). */
@@ -222,6 +259,11 @@ export function proofScore(p: Proof): number | null {
   ].filter((s): s is number => typeof s === "number");
   if (scores.length === 0) return null;
   return scores.reduce((a, b) => a + b, 0) / scores.length;
+}
+
+/** Blocking failed checks across a proof's ad copy and visual evals. */
+export function proofFailedChecks(p: Proof): GateResult[] {
+  return [...failedGates(p.adCopyEval?.score), ...failedGates(p.visualEval?.score)];
 }
 
 export type ProofSort = "pipeline" | "highest" | "lowest";

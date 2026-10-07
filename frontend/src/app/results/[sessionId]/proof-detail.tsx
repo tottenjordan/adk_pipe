@@ -12,7 +12,8 @@ import {
 import { FieldLabel } from "@/components/field-label";
 import { cn } from "@/lib/utils";
 import { dimensionLabel } from "@/lib/eval-dimensions";
-import type { CreativeScore, ImageCheck, Proof } from "@/lib/eval-matching";
+import { scoreGates, type CreativeScore, type ImageCheck, type Proof } from "@/lib/eval-matching";
+import { ChecksList } from "./eval-checks";
 import { ProofImage } from "./proof-grid";
 import { CONDENSED, ScoreMark } from "./score-mark";
 
@@ -41,20 +42,25 @@ function ShortList({ title, items }: { title: string; items: string[] }) {
 }
 
 /**
- * One eval section: overall mark, a row per dimension (human label, bar,
- * score/10 in pass/fail colour), rationale behind "Show reasoning", then
- * strengths and improvements.
+ * One eval section: overall mark, the binary checks (gated reports only),
+ * a row per dimension (human label, bar, score/10 in pass/fail colour) —
+ * headed "Quality (advisory)" when checks are shown — rationale behind
+ * "Show reasoning", then strengths and improvements.
  */
 function ScoreSection({
   title,
   score,
   notes,
+  checksNote,
 }: {
   title: string;
   score: CreativeScore;
   /** Extra context shown with the reasoning (e.g. the visual concept notes). */
   notes?: { label: string; value: string }[];
+  /** Context line under the checks. */
+  checksNote?: string;
 }) {
+  const gated = scoreGates(score).length > 0;
   const [showReasoning, setShowReasoning] = useState(false);
   return (
     <section className="border-t border-border pt-4">
@@ -70,6 +76,13 @@ function ScoreSection({
           {showReasoning ? "Hide reasoning" : "Show reasoning"}
         </Button>
       </div>
+
+      <ChecksList score={score} note={checksNote} />
+      {gated && score.verdicts.length > 0 && (
+        <FieldLabel as="h4" className="mb-1.5">
+          Quality (advisory)
+        </FieldLabel>
+      )}
 
       <ul className="space-y-1.5">
         {score.verdicts.map((v) => {
@@ -298,6 +311,11 @@ export function ProofDetail({
                 <ScoreSection
                   title="Visual"
                   score={proof.visualEval.score}
+                  checksNote={
+                    proof.visualEval.image_judged === false
+                      ? "Judged from the image prompt (the rendered image was not judged)."
+                      : undefined
+                  }
                   notes={[
                     { label: "Concept", value: vc.concept_summary },
                     { label: "Trend reference", value: vc.trend_reference },

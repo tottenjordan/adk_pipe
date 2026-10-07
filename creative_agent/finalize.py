@@ -36,7 +36,7 @@ from google.adk.agents.context import Context
 
 from agent_common import is_populated
 from creative_eval import agent as eval_agent
-from creative_eval.dimensions import dimension_labels_csv
+from creative_eval.dimensions import dimension_labels_csv, gate_label
 
 from . import bq_tools, gcs_tools, tools
 
@@ -270,8 +270,46 @@ def _score(value: Any) -> str:
         return "n/a"
 
 
+def _failed_gate_labels(score: Mapping[str, Any]) -> list[str]:
+    """Labels of the failed non-advisory gates of one creative's score."""
+    return [
+        gate_label(str(g.get("gate") or ""))
+        for g in score.get("gates") or []
+        if isinstance(g, Mapping)
+        and not g.get("passed", True)
+        and not g.get("advisory")
+    ]
+
+
+def _judge_failed(score: Mapping[str, Any]) -> bool:
+    """True for the zero-score placeholder of a failed judge call."""
+    return "evaluation_failed" in (score.get("improvements") or [])
+
+
+def _gates_line(report: Mapping[str, Any], rate: Any) -> str:
+    """``N/M passed all checks (gates pass rate X%).`` over judged creatives.
+
+    "" when the report has no numeric ``gates_pass_rate`` (pre-gate reports,
+    or no creative judged). M excludes failed judge calls, matching the rate.
+    """
+    if isinstance(rate, bool) or not isinstance(rate, int | float):
+        return ""
+    scores = [
+        item.get("score") or {}
+        for key in ("ad_copy_evaluations", "visual_concept_evaluations")
+        for item in report.get(key) or []
+        if isinstance(item, Mapping)
+    ]
+    judged = [s for s in scores if isinstance(s, Mapping) and not _judge_failed(s)]
+    ok = sum(1 for s in judged if s.get("gates_passed", True))
+    return f"{ok}/{len(judged)} passed all checks (gates pass rate {_percent(rate)})."
+
+
 def _failed_creatives(report: Mapping[str, Any]) -> list[str]:
-    """``'name' (kind, score)`` for each creative below the passing threshold."""
+    """``'name' (kind, score[, failed checks: …])`` per creative that did not pass.
+
+    A creative fails on a below-threshold score or a failed gate.
+    """
     failed: list[str] = []
     for kind, list_key, name_key in (
         ("ad copy", "ad_copy_evaluations", "headline"),
@@ -283,8 +321,15 @@ def _failed_creatives(report: Mapping[str, Any]) -> list[str]:
             score = item.get("score") or {}
             if not score.get("passed", True):
                 name = " ".join(str(item.get(name_key) or "untitled").split())[:60]
+                gates = _failed_gate_labels(score)
+                if _judge_failed(score):
+                    checks = ", evaluation failed"
+                elif gates:
+                    checks = f", failed checks: {', '.join(gates)}"
+                else:
+                    checks = ""
                 failed.append(
-                    f"'{name}' ({kind}, {_score(score.get('overall_score'))})"
+                    f"'{name}' ({kind}, {_score(score.get('overall_score'))}{checks})"
                 )
     return failed
 
@@ -321,6 +366,9 @@ def finalize_summary(state: Mapping[str, Any]) -> str:
             f"{_score(summary.get('avg_ad_copy_score'))}), {vis_total} visual "
             f"concepts (avg score {_score(summary.get('avg_visual_score'))})."
         )
+        gates_line = _gates_line(report, summary.get("gates_pass_rate"))
+        if gates_line:
+            parts.append(gates_line)
         weakest = summary.get("weakest_dimensions") or []
         if weakest:
             parts.append(f"Weakest dimensions: {dimension_labels_csv(weakest)}.")
@@ -329,7 +377,7 @@ def finalize_summary(state: Mapping[str, Any]) -> str:
             shown = ", ".join(failed[:_MAX_FAILED_CREATIVES])
             more = len(failed) - _MAX_FAILED_CREATIVES
             parts.append(
-                f"Below threshold: {shown}" + (f" (+{more} more)." if more > 0 else ".")
+                f"Did not pass: {shown}" + (f" (+{more} more)." if more > 0 else ".")
             )
     else:
         parts.append(

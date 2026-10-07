@@ -5,8 +5,18 @@ Your task is to rigorously score a finalized ad copy against specific evaluation
 
 You will receive:
 - Campaign context (brand, product, audience, trend)
+- The structured creative brief (the contract the copy was written against)
 - The ad copy to evaluate (headline, body, caption, CTA, etc.)
+- A list of binary compliance gates to check
 - A list of evaluation dimensions to score
+
+For EACH gate, return the gate name, passed (true/false) and a one-sentence note
+citing the evidence. Judge gates literally from the text in front of you, never
+from intent:
+- Presence checks (the copy must contain something) pass only when it is clearly
+  present.
+- Violation checks (the copy must not break a rule) fail only on a clear violation.
+- A gate that does not apply passes, with the reason in the note.
 
 For EACH dimension, provide:
 - A score from 1-10
@@ -25,7 +35,12 @@ Key Selling Points: {key_selling_points}
 Target Search Trend: {target_search_trend}
 </CAMPAIGN_CONTEXT>
 
+<CREATIVE_BRIEF>
+{brief_block}
+</CREATIVE_BRIEF>
+
 <AD_COPY>
+Creative Angle: {angle}
 Headline: {headline}
 Body Text: {body_text}
 Tone/Style: {tone_style}
@@ -35,6 +50,21 @@ Social Caption: {social_caption}
 Call to Action: {call_to_action}
 Performance Rationale: {detailed_performance_rationale}
 </AD_COPY>
+
+<GATES>
+Check each gate against the ad copy text (headline, body, caption and CTA together):
+
+1. **delivers_proposition**: The copy lands the brief's single-minded proposition (the idea, not necessarily the exact words).
+2. **product_named**: The target product ("{target_product}") is named in the headline, body, caption or CTA. A recognisable short form or the product name with or without the brand counts; the brand name alone does not.
+3. **uses_reason_to_believe**: At least one of the brief's reasons to believe is used or clearly paraphrased.
+4. **mandatories_met**: Every brief mandatory that ad copy can carry is present (paraphrase counts). Mandatories only an image can carry (a logo, colours, packaging, a visual element) do not apply to the copy: ignore them.
+5. **avoid_respected**: Nothing from the brief's avoid list or brand don'ts actually appears in the copy. Fail only on a clear, literal violation, never on a loose association.
+
+Presence checks (delivers_proposition, product_named, uses_reason_to_believe) pass only when the element is clearly present in the text.
+Violation checks (mandatories_met for the mandatories ad copy can carry, avoid_respected) fail only on a clear violation: a carryable mandatory clearly missing, or an avoid item clearly present.
+When a rule does not apply (for example the brief lists no mandatories, or every mandatory needs an image), pass it and give the reason in the note.
+Return all 5 gates, using exactly these names.
+</GATES>
 
 <EVALUATION_DIMENSIONS>
 Score each dimension from 1-10:
@@ -60,8 +90,19 @@ Your task is to rigorously score a finalized visual concept against specific eva
 
 You will receive:
 - Campaign context (brand, product, audience, trend)
+- The structured creative brief (the contract the concept was made against)
 - The visual concept to evaluate (concept name, summary, image prompt, etc.)
+- Usually the rendered ad image itself: when it is attached, judge the rendered
+  image, and use the concept text and image prompt only to understand intent
+- A list of binary compliance gates to check
 - A list of evaluation dimensions to score
+
+For EACH gate, return the gate name, passed (true/false) and a one-sentence note
+citing the evidence. Judge gates literally from what is shown, never from intent:
+- Presence checks (the image must show something) pass only when it is clearly
+  present.
+- Violation checks (the image must not break a rule) fail only on a clear violation.
+- A gate that does not apply passes, with the reason in the note.
 
 For EACH dimension, provide:
 - A score from 1-10
@@ -80,12 +121,22 @@ Key Selling Points: {key_selling_points}
 Target Search Trend: {target_search_trend}
 </CAMPAIGN_CONTEXT>
 
+<CREATIVE_BRIEF>
+{brief_block}
+</CREATIVE_BRIEF>
+
+<RENDERED_IMAGE>
+{image_section}
+</RENDERED_IMAGE>
+
 <VISUAL_CONCEPT>
 Concept Name: {concept_name}
 Visual Style: {visual_style}
 Aspect Ratio: {aspect_ratio}
 Trend: {trend}
 Trend Reference: {trend_reference}
+Trend Motif: {trend_motif}
+Brand Cue: {brand_cue}
 Markets Product: {markets_product}
 Audience Appeal: {audience_appeal}
 Selection Rationale: {selection_rationale}
@@ -96,6 +147,21 @@ Concept Summary: {concept_summary}
 Image Generation Prompt: {image_generation_prompt}
 </VISUAL_CONCEPT>
 
+<GATES>
+Check each gate against the rendered image when one is attached, otherwise against the image generation prompt:
+
+1. **product_visible**: The target product ("{target_product}") is clearly visible and recognisable. Stylised renderings count when the product is still recognisable; for a product with no physical form (an app, a service) its screen, logo, packaging or name counts.
+2. **trend_motif_visible**: The trend motif (or, when none is given, a recognisable element of the trend) is clearly visible.
+3. **text_correct**: Copy text the prompt explicitly asks to appear IN the image (a quoted headline, CTA, caption or sign) appears exactly as quoted and is legible, with no garbled lettering. Case, line breaks and minor punctuation differences are fine; quotes that only describe the scene are not in-image text. If the concept asks for no in-image text and none appears, pass with the note "no in-image text".
+4. **brand_cue_present**: The brand cue is visible (pass with the note "no brand cue" when none is given).
+5. **avoid_respected**: Nothing from the brief's avoid list or brand don'ts actually appears. Fail only on a clear, literal violation, never on a loose association.
+
+Presence checks (product_visible, trend_motif_visible, text_correct, brand_cue_present) pass only when the element is clearly present (for text_correct: the requested text clearly appears exactly as quoted).
+Violation checks (avoid_respected) fail only on a clear violation: an avoid item clearly present.
+When a rule does not apply (for example no in-image text is requested, no brand cue is given, or the brief lists nothing to avoid), pass it and give the reason in the note.
+Return all 5 gates, using exactly these names.
+</GATES>
+
 <EVALUATION_DIMENSIONS>
 Score each dimension from 1-10:
 
@@ -105,7 +171,7 @@ Score each dimension from 1-10:
 
 3. **audience_appeal**: Would the target audience find this visually compelling? Does the style, tone, and aesthetic match their preferences?
 
-4. **prompt_technical_quality**: Is the image generation prompt technically strong? Does it name its style family first and give concrete subject, composition, lighting and colour cues at a length appropriate to that style (short for minimalist/sticker/meme, layered for cinematic/photoreal)? Is the scene composed for its stated aspect ratio?
+4. **prompt_technical_quality**: (Judges the prompt text, even when the image is attached.) Is the image generation prompt technically strong? Does it name its style family first and give concrete subject, composition, lighting and colour cues at a length appropriate to that style (short for minimalist/sticker/meme, layered for cinematic/photoreal)? Is the scene composed for its stated aspect ratio?
 
 5. **stopping_power**: Would this image stop someone scrolling through a social media feed? Does it have visual impact, strong composition, and emotional resonance?
 
@@ -113,3 +179,9 @@ Score each dimension from 1-10:
 </EVALUATION_DIMENSIONS>
 
 **Output a single JSON object matching the VisualConceptEvaluation schema.**"""
+
+
+VISUAL_IMAGE_ATTACHED = """The rendered ad image is attached. Judge the rendered image: the gates and every dimension except prompt_technical_quality are about what the image actually shows. Use the concept text and the image generation prompt only to understand intent.
+{qa_hint} (a hint from an automated check, not ground truth: verify against the image yourself)"""
+
+VISUAL_IMAGE_MISSING = """No rendered image is available. Judge the image generation prompt as a description of the planned image."""

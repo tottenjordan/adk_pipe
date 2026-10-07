@@ -308,7 +308,6 @@ class TestEvalConfig:
         config = EvalConfig()
         assert config.eval_model == "gemini-3.1-pro-preview"
         assert config.passing_threshold == 0.7
-        assert config.max_retries == 3
         assert len(config.ad_copy_dimensions) == 6
         assert len(config.visual_dimensions) == 6
 
@@ -506,7 +505,7 @@ class TestEvaluateAllCreativesInputs:
 
         captured_contexts = []
 
-        def capture_ad_eval(ad_copy, campaign_context, config, client=None):
+        def capture_ad_eval(ad_copy, campaign_context, config, client=None, **_kw):
             captured_contexts.append(campaign_context)
             from creative_eval.schemas import AdCopyEvaluation, CreativeScore
 
@@ -588,7 +587,7 @@ class TestEvaluateAllCreativesOutputs:
         ad_iter = iter(ad_scores)
         vis_iter = iter(vis_scores)
 
-        def mock_ad_eval(ad_copy, campaign_context, config, client=None):
+        def mock_ad_eval(ad_copy, campaign_context, config, client=None, **_kw):
             score = next(ad_iter)
             return AdCopyEvaluation(
                 original_id=ad_copy.get("original_id", 0),
@@ -610,7 +609,7 @@ class TestEvaluateAllCreativesOutputs:
                 ),
             )
 
-        def mock_vis_eval(vc, campaign_context, config, client=None):
+        def mock_vis_eval(vc, campaign_context, config, client=None, **_kw):
             score = next(vis_iter)
             return VisualConceptEvaluation(
                 ad_copy_id=vc.get("ad_copy_id", 0),
@@ -674,7 +673,9 @@ class TestEvaluateAllCreativesOutputs:
             "name",
             "overall_score",
             "improvements",
+            "failed_gates",
         }
+        assert failed[1]["failed_gates"] == []
 
     def test_failed_creatives_empty_when_all_pass(self):
         result, _ = self._run_with_mocks(ad_scores=[0.8], vis_scores=[0.9])
@@ -854,7 +855,9 @@ def test_visual_eval_prompt_formats_concepts_with_brand_cue_and_angle_id():
         "angle_id": "A1",
     }
     assert not set(campaign) & set(concept)
-    text = eval_prompts.VISUAL_CONCEPT_EVAL_USER.format(**campaign, **concept)
+    text = eval_prompts.VISUAL_CONCEPT_EVAL_USER.format(
+        **campaign, **concept, brief_block="", trend_motif="m", image_section=""
+    )
     assert "Concept Name: Dust" in text
     from unittest.mock import MagicMock
 

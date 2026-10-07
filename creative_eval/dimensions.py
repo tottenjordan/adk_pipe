@@ -1,7 +1,8 @@
-"""Human-readable labels for the 12 creative_eval scoring dimensions.
+"""Names + human-readable labels for creative_eval's dimensions and gates.
 
-Mirrors ``frontend/src/lib/eval-dimensions.ts`` (a drift test keeps the two maps
-identical) so BigQuery rows and the UI show the same short labels.
+The 12 scoring dimensions (advisory quality scores) and the binary compliance
+gates. Both label maps mirror ``frontend/src/lib/eval-dimensions.ts`` (a drift
+test keeps them identical) so BigQuery rows and the UI show the same labels.
 """
 
 import re
@@ -24,6 +25,55 @@ DIMENSION_LABELS: dict[str, str] = {
     "concept_coherence": "Coherence",
 }
 
+# Binary compliance gates, in prompt/report order.
+AD_COPY_GATES: tuple[str, ...] = (
+    "delivers_proposition",
+    "product_named",
+    "uses_reason_to_believe",
+    "mandatories_met",
+    "avoid_respected",
+)
+VISUAL_GATES: tuple[str, ...] = (
+    "product_visible",
+    "trend_motif_visible",
+    "text_correct",
+    "brand_cue_present",
+    "avoid_respected",
+)
+# Recorded but never part of gates_passed (mirrors image QA, where a missing
+# brand cue never fails an image).
+ADVISORY_GATES: frozenset[str] = frozenset({"brand_cue_present"})
+# Judged against the creative brief: passed with note "no brief" without one.
+BRIEF_GATES: frozenset[str] = frozenset(
+    {
+        "delivers_proposition",
+        "uses_reason_to_believe",
+        "mandatories_met",
+        "avoid_respected",
+    }
+)
+
+# The single failed gate recorded when the judge reported none of the
+# expected gates (the checks were skipped, so the creative is unverified).
+NO_GATES_GATE = "gates_reported"
+
+GATE_LABELS: dict[str, str] = {
+    # Ad copy
+    "delivers_proposition": "Delivers the proposition",
+    "product_named": "Product named",
+    "uses_reason_to_believe": "Uses a reason to believe",
+    "mandatories_met": "Mandatories met",
+    # Shared
+    "avoid_respected": "Avoid list respected",
+    # Visual concept
+    "product_visible": "Product visible",
+    "trend_motif_visible": "Trend motif visible",
+    "text_correct": "In-image text correct",
+    "brand_cue_present": "Brand cue present",
+    # Judge skipped every check
+    NO_GATES_GATE: "Checks reported",
+}
+
 
 def dimension_label(dimension: str) -> str:
     """Label for a dimension; unknown snake_case names become sentence case."""
@@ -31,6 +81,11 @@ def dimension_label(dimension: str) -> str:
         return DIMENSION_LABELS[dimension]
     words = re.sub(r"\s+", " ", re.sub(r"_+", " ", dimension).strip()).lower()
     return words[:1].upper() + words[1:]
+
+
+def gate_label(gate: str) -> str:
+    """Label for a gate; unknown names fall back like :func:`dimension_label`."""
+    return GATE_LABELS.get(gate) or dimension_label(gate)
 
 
 def dimension_labels_csv(dimensions: Iterable[str]) -> str:

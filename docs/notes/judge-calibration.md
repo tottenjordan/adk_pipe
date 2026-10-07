@@ -15,7 +15,7 @@ and an optional note. Each save upserts one row in BigQuery `creative_ratings`
 (`runserver/ratings.py`; schema in deployment/README.md → Creative ratings), keyed
 per (run, creative, user), so re-rating overwrites. The row also snapshots the judge's
 verdict for the same creative: `judge_overall`, `judge_passed`, `judge_gates_passed`
-(the deterministic eval gates, when the report has them) and `judge_model`.
+(the judge's binary eval gates, when the report has them) and `judge_model`.
 
 ## Protocol
 
@@ -49,9 +49,10 @@ verdict for the same creative: `judge_overall`, `judge_passed`, `judge_gates_pas
   Rate some weak creatives too, otherwise it can't be computed.
 - **Spearman's rho** (judge overall score vs human score) shows whether the judge at
   least ranks creatives the way people do, even if its threshold is off.
-- `judge_gates_passed` (from the eval gates) is reported separately. If the gates agree
-  with humans better than the overall verdict, the deterministic checks are carrying
-  the signal.
+- Since the eval gates (#275), `judge_passed` means score ≥ 0.7 **and** every blocking
+  gate passed. `judge_gates_passed` (gates only; recorded only for reports that carry
+  gates) is reported separately. If the gates agree with humans better than the
+  overall verdict, the binary checks are carrying the signal.
 
 If kappa stays low after ~50 ratings, look at the disagreements (notes plus the judge's
 reasoning) before changing the threshold. A shifted threshold fixes a bias, but not a

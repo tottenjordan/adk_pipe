@@ -133,10 +133,30 @@ def test_judge_fields_visual_and_copy():
 def test_judge_fields_optional_gates_and_model():
     report = _report()
     report["judge_model"] = "gemini-3.1-pro-preview"
-    report["visual_concept_evaluations"][0]["gates_passed"] = False
+    score = report["visual_concept_evaluations"][0]["score"]
+    score["gates"] = [{"gate": "product_visible", "passed": False, "note": "no guitar"}]
+    score["gates_passed"] = False
     out = rt.judge_fields(report, rt.creative_index(_state())[VISUAL])
     assert out["judge_gates_passed"] is False
     assert out["judge_model"] == "gemini-3.1-pro-preview"
+
+
+def test_judge_gates_passed_ignored_without_recorded_gates():
+    """gates_passed defaults to True in CreativeScore: a gate-less report must not
+    read as "every gate passed" (false agreement in the calibration)."""
+    report = _report()
+    score = report["visual_concept_evaluations"][0]["score"]
+    score["gates"], score["gates_passed"] = [], True
+    out = rt.judge_fields(report, rt.creative_index(_state())[VISUAL])
+    assert out["judge_gates_passed"] is None
+    score["gates_passed"] = "yes"  # malformed
+    score["gates"] = [{"gate": "g", "passed": True}]
+    assert (
+        rt.judge_fields(report, rt.creative_index(_state())[VISUAL])[
+            "judge_gates_passed"
+        ]
+        is None
+    )
 
 
 def test_judge_fields_ambiguous_or_missing_is_none():
@@ -409,3 +429,34 @@ def test_store_read_failure_is_502():
         assert (await h.client.get(f"/ratings/{A}/s1")).status_code == 502
 
     run(go)
+
+
+def test_judge_fields_read_a_real_gated_report_model():
+    """Field locations pinned against creative_eval's own report models."""
+    from creative_eval.schemas import (
+        CreativeScore,
+        GateResult,
+        VisualConceptEvaluation,
+    )
+
+    ev = VisualConceptEvaluation(
+        ad_copy_id=1,
+        concept_name="The Golden Golf Cart Gig",
+        score=CreativeScore(
+            overall_score=0.8,
+            passed=False,
+            verdicts=[],
+            strengths=[],
+            improvements=[],
+            gates=[GateResult(gate="product_visible", passed=False, note="no guitar")],
+            gates_passed=False,
+        ),
+    )
+    report = {"visual_concept_evaluations": [ev.model_dump()], "judge_model": "j"}
+    out = rt.judge_fields(report, rt.creative_index(_state())[VISUAL])
+    assert out == {
+        "judge_overall": 0.8,
+        "judge_passed": False,
+        "judge_gates_passed": False,
+        "judge_model": "j",
+    }

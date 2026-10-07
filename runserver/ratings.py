@@ -142,15 +142,23 @@ def judge_fields(report: Any, info: Mapping[str, Any]) -> dict[str, Any]:
     if ev is None:
         return out
     score = ev.get("score")
-    if isinstance(score, Mapping):
-        overall = score.get("overall_score")
-        if isinstance(overall, (int, float)) and not isinstance(overall, bool):
-            out["judge_overall"] = float(overall)
-        if isinstance(score.get("passed"), bool):
-            out["judge_passed"] = score["passed"]
-    # Optional (creative_eval gates, absent from older reports).
-    if isinstance(ev.get("gates_passed"), bool):
-        out["judge_gates_passed"] = ev["gates_passed"]
+    if not isinstance(score, Mapping):
+        return out
+    overall = score.get("overall_score")
+    if isinstance(overall, (int, float)) and not isinstance(overall, bool):
+        out["judge_overall"] = float(overall)
+    if isinstance(score.get("passed"), bool):
+        out["judge_passed"] = score["passed"]
+    # creative_eval gates (CreativeScore.gates / gates_passed). Only trusted when
+    # gates were actually recorded: gates_passed defaults to True, so a gate-less
+    # (pre-gates) report would otherwise read as "every gate passed".
+    gates = score.get("gates")
+    if (
+        isinstance(gates, list)
+        and gates
+        and isinstance(score.get("gates_passed"), bool)
+    ):
+        out["judge_gates_passed"] = score["gates_passed"]
     return out
 
 
