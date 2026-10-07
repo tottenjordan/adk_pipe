@@ -13,7 +13,9 @@ from agent_common.state import seed_initial_state
 
 from .citations import render_citations
 from .concept_guard import (
+    concept_issues,
     ensure_trend_and_product,
+    flatten_concept_issues,
     parse_concepts,
     restore_unflagged_concepts,
 )
@@ -281,6 +283,32 @@ def ensure_trend_and_product_callback(callback_context: CallbackContext) -> None
     state["final_visual_concepts"] = (
         json.dumps(new_value) if isinstance(raw, str) else new_value
     )
+    return None
+
+
+def recheck_concept_issues_callback(callback_context: CallbackContext) -> None:
+    """`after_agent_callback` on interactive's `visual_concept_reviser` (after
+    `ensure_trend_and_product_callback`): re-run the deterministic concept checks.
+
+    concept_gate ran BEFORE checkpoint 3; the user's edits and the reviser can
+    fix or introduce issues afterwards, so its `final_visual_concepts__issues`
+    verdict may be stale. This recomputes it on the current concepts (with
+    `ad_copy_critique`, `brand`, `target_product`) — flattened issues, or None
+    when clean or absent. Record only: there is no fix loop after the human
+    checkpoint. Returns None so the agent's output is kept.
+    """
+    state = callback_context.state
+    concepts = state.get("final_visual_concepts")
+    issues = concept_issues(
+        concepts,
+        state.get("ad_copy_critique"),
+        brand=str(state.get("brand") or ""),
+        target_product=str(state.get("target_product") or ""),
+    )
+    residual = flatten_concept_issues(concepts, issues) or None
+    if residual:
+        logging.warning("visual concept issues after revision: %s", residual)
+    state["final_visual_concepts__issues"] = residual
     return None
 
 

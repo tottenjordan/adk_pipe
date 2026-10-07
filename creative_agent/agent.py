@@ -910,8 +910,10 @@ visual_concept_fixer = Agent(
 # and it routes "ok". Every "ok" exit clears the fix inputs.
 #
 # interactive_creative reuses visual_generation_pipeline (so it gets the gate
-# before checkpoint 3), but its post-checkpoint visual_concept_reviser path is
-# not gated (only guarded by ensure_trend_and_product_callback).
+# before checkpoint 3). Its post-checkpoint path has no fix loop: a direct-edit
+# resume clears final_visual_concepts__issues (runserver.async_runs), and the
+# visual_concept_reviser, after ensure_trend_and_product_callback, re-records
+# it on the revised concepts (callbacks.recheck_concept_issues_callback).
 _CONCEPT_REVISION_CLEARED: dict[str, Any] = {
     "visual_concept_issues": "",
     "visual_concept_flagged_ids": None,

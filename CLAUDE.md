@@ -164,7 +164,7 @@ creative_agent (root Agent `root_agent`; non-resumable App (carries plugins); pi
 interactive_creative (root Agent `root_agent`; App + ResumabilityConfig(is_resumable=True); reviser + eval via AgentTool)
 ├── combined_research_pipeline / ad_creative_pipeline / visual_generation_pipeline (reused from creative_agent, incl. their gates; bare nodes → NodeTool)
 ├── review_research / review_ad_copies / review_visual_concepts (LongRunningFunctionTool checkpoints 1–3)
-├── visual_concept_reviser (applies checkpoint-3 revision notes → final_visual_concepts; guarded by ensure_trend_and_product_callback, NOT re-run through concept_gate)
+├── visual_concept_reviser (applies checkpoint-3 revision notes → final_visual_concepts; guarded by ensure_trend_and_product_callback, then recheck_concept_issues_callback re-records final_visual_concepts__issues — no fix loop; a direct-edit resume clears the stale marker)
 ├── visual_generator_resilient + creative_eval_agent (reused; render after the reviser)
 └── Persistence tools (same as creative_agent)
 ```

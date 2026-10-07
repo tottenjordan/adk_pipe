@@ -1221,6 +1221,19 @@ def test_interactive_registers_visual_concept_reviser():
     assert "{visual_revision_notes?}" in instr
 
 
+def test_interactive_reviser_rechecks_concepts_after_the_guard():
+    """The reviser's after_agent chain: the motif/product guard, THEN the
+    deterministic recheck (so the residual marker reflects the guarded,
+    post-checkpoint concepts, not the pre-checkpoint gate's verdict)."""
+    from creative_agent import callbacks
+    from interactive_creative.agent import visual_concept_reviser
+
+    assert visual_concept_reviser.after_agent_callback == [
+        callbacks.ensure_trend_and_product_callback,
+        callbacks.recheck_concept_issues_callback,
+    ]
+
+
 def test_interactive_workflow_revises_before_render():
     """The checkpoint-3 → render step must apply revision notes (reviser) BEFORE
     rendering images, so a run's user edits/notes actually change the output."""
