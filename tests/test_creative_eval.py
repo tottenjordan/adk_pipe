@@ -820,3 +820,50 @@ def test_agent_tool_report_records_judge_model(monkeypatch):
     )
     ev_agent.evaluate_all_creatives(ctx)
     assert ctx.state["creative_evaluation_report"]["judge_model"] == "gemini-x"
+
+
+def test_visual_eval_prompt_formats_concepts_with_brand_cue_and_angle_id():
+    """evaluate_visual_concept formats with **campaign_context, **concept: the
+    new VisualConceptFinal keys must not clash with the campaign keys."""
+    from creative_eval import prompts as eval_prompts
+    from creative_eval.evaluate import evaluate_visual_concept
+
+    campaign = {
+        "brand": "Acme",
+        "target_product": "Rocket Skates",
+        "target_audience": "Coyotes",
+        "key_selling_points": "fast",
+        "target_search_trend": "roadrunner",
+    }
+    concept = {
+        "ad_copy_id": 1,
+        "concept_name": "Dust",
+        "visual_style": "Watercolor",
+        "aspect_ratio": "9:16",
+        "trend": "roadrunner",
+        "trend_reference": "r",
+        "markets_product": "m",
+        "audience_appeal": "a",
+        "selection_rationale": "s",
+        "headline": "Beep beep",
+        "social_caption": "Zoom.",
+        "call_to_action": "Order now",
+        "concept_summary": "sum",
+        "image_generation_prompt": "A watercolor of skates.",
+        "brand_cue": "the ACME crate",
+        "angle_id": "A1",
+    }
+    assert not set(campaign) & set(concept)
+    text = eval_prompts.VISUAL_CONCEPT_EVAL_USER.format(**campaign, **concept)
+    assert "Concept Name: Dust" in text
+    from unittest.mock import MagicMock
+
+    from creative_eval.config import EvalConfig
+
+    client = MagicMock()
+    client.models.generate_content.side_effect = RuntimeError("offline")
+    # The prompt is formatted before the (failing, caught) judge call.
+    result = evaluate_visual_concept(concept, campaign, EvalConfig(), client=client)
+    assert result.concept_name == "Dust"
+    (call,) = client.models.generate_content.call_args_list
+    assert "Concept Name: Dust" in call.kwargs["contents"]

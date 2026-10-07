@@ -148,16 +148,23 @@ creative_agent (root Agent `root_agent`; non-resumable App (carries plugins); pi
 │   unflagged edits reverted by restore_unflagged) → back to copy_gate, at most COPY_REVISION_ROUNDS
 │   passes; deterministic residuals only → ad_copy_critique__issues; "ok") → ad_copies_ready)
 ├── visual_production_pipeline (Workflow)
-│   visual_generation_pipeline (Workflow: art_director → concept drafter/critic/finalizer
-│   → visual_concepts_ready) → render_barrier → visual_generator_resilient
+│   visual_generation_pipeline (Workflow: art_director (resets the concept-fix state) → concept
+│   drafter/critic/finalizer (each concept: brand_cue from the brief's distinctive assets / brand
+│   colours, in-image text quoted from the paired copy's headline/CTA, brief avoid + fit_mode;
+│   finalizer carries angle_id) → concept_gate (deterministic concept_guard.concept_issues:
+│   quoted text ≠ paired headline/CTA (meme/comic exempt), empty trend_motif, >2 text concepts,
+│   >1 centred hero; "revise" → visual_concept_fixer_failsoft (rewrites ONLY flagged concepts;
+│   unflagged edits reverted by restore_unflagged_concepts, then the motif/product/brand_cue
+│   guard) → back to concept_gate, at most CONCEPT_REVISION_ROUNDS passes; residuals →
+│   final_visual_concepts__issues; "ok") → visual_concepts_ready) → render_barrier → visual_generator_resilient
 │   (RetryUntilKeyNode → visual_generator, generate_image) → images_ready (truthy terminal)
 ├── creative_eval_agent (LLM-as-judge scoring, from creative_eval)
 └── Persistence tools (GCS, BigQuery, HTML gallery, memorize)
 
 interactive_creative (root Agent `root_agent`; App + ResumabilityConfig(is_resumable=True); reviser + eval via AgentTool)
-├── combined_research_pipeline / ad_creative_pipeline / visual_generation_pipeline (reused from creative_agent; bare nodes → NodeTool)
+├── combined_research_pipeline / ad_creative_pipeline / visual_generation_pipeline (reused from creative_agent, incl. their gates; bare nodes → NodeTool)
 ├── review_research / review_ad_copies / review_visual_concepts (LongRunningFunctionTool checkpoints 1–3)
-├── visual_concept_reviser (applies checkpoint-3 revision notes → final_visual_concepts)
+├── visual_concept_reviser (applies checkpoint-3 revision notes → final_visual_concepts; guarded by ensure_trend_and_product_callback, NOT re-run through concept_gate)
 ├── visual_generator_resilient + creative_eval_agent (reused; render after the reviser)
 └── Persistence tools (same as creative_agent)
 ```
@@ -252,7 +259,7 @@ Agent `instruction=` strings live in the package's `prompts.py` (as `<AGENT_VAR>
 
 Agent `output_schema=` Pydantic models live in the package's `schemas.py` (re-imported into `agent.py`, which keeps them importable from the agent module), not inline in `agent.py`.
 
-Image-generation prompt guidance lives in `creative_agent/prompts.py` as `IMAGE_PROMPT_GUIDE` (a style-first prompting grammar for still ad images); visual agents must select a `visual_style` per concept rather than defaulting to photorealism. It is spliced into the drafter/critic instructions by string concatenation and must contain no `{...}` braces (ADK would treat them as state tokens — fill-in slots use `[square brackets]`). Image diversity (`docs/plans/2026-10-06-image-diversity.md`): each session gets a random stratified `style_shortlist` of 6 style families (`creative_agent/style_shortlist.py`, seeded once in `callbacks._set_initial_states`, read via `{style_shortlist?}` by the drafter/critic/finalizer, which pick 4 distinct families from it); the guide's palette entries are descriptors (when-to-use + cues), not fill-in templates to copy; in-image text is capped at 2 of 4 concepts (short headline/CTA; meme captions and comic speech bubbles are exempt); and an across-set composition rule allows at most one centred hero with varied camera distance. Each concept also carries a `trend_motif`, and `callbacks.ensure_trend_and_product_callback` (`after_agent_callback` on `visual_concept_finalizer` and interactive's `visual_concept_reviser`, pure logic in `creative_agent/concept_guard.py`) appends the motif and/or `{target_product}` to any final `image_generation_prompt` missing them, logging a warning.
+Image-generation prompt guidance lives in `creative_agent/prompts.py` as `IMAGE_PROMPT_GUIDE` (a style-first prompting grammar for still ad images); visual agents must select a `visual_style` per concept rather than defaulting to photorealism. It is spliced into the drafter/critic instructions by string concatenation and must contain no `{...}` braces (ADK would treat them as state tokens — fill-in slots use `[square brackets]`). Image diversity (`docs/plans/2026-10-06-image-diversity.md`): each session gets a random stratified `style_shortlist` of 6 style families (`creative_agent/style_shortlist.py`, seeded once in `callbacks._set_initial_states`, read via `{style_shortlist?}` by the drafter/critic/finalizer, which pick 4 distinct families from it); the guide's palette entries are descriptors (when-to-use + cues), not fill-in templates to copy; in-image text is capped at 2 of 4 concepts (short headline/CTA; meme captions and comic speech bubbles are exempt); and an across-set composition rule allows at most one centred hero with varied camera distance. Each concept also carries a `trend_motif` and a `brand_cue` (a brand distinctive asset from the brief or `{brand_colors?}`; shared brace-free rules `VISUAL_CONCEPT_RULES` also require in-image text to be quoted exactly from the paired copy's headline/CTA and the brief's avoid list / fit_mode to be respected), and `callbacks.ensure_trend_and_product_callback` (`after_agent_callback` on `visual_concept_finalizer`, `visual_concept_fixer` and interactive's `visual_concept_reviser`, pure logic in `creative_agent/concept_guard.py`) appends the motif, `{target_product}` and/or the `brand_cue` to any final `image_generation_prompt` missing them, logging a warning. `concept_gate` then runs `concept_guard.concept_issues` (deliberately conservative string heuristics — only double-quoted text counts as in-image text; meme/caption/comic/speech-bubble prompts are exempt; the centred-hero keywords skip "off-centre" and sentences about text/logos) and routes flagged concepts to one bounded `visual_concept_fixer` round (`CONCEPT_REVISION_ROUNDS`, default 1, clamped 0–2).
 
 ### Data Flow
 

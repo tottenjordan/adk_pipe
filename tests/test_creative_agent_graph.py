@@ -659,7 +659,7 @@ _DRIFTED_CONCEPTS = (
     ' "audience_appeal": "a", "selection_rationale": "s", "headline": "h",'
     ' "social_caption": "c", "call_to_action": "cta", "concept_summary": "sum",'
     ' "visual_style": "Watercolor / gouache", "aspect_ratio": "9:16",'
-    ' "trend_motif": "a roadrunner dust cloud",'
+    ' "trend_motif": "a roadrunner dust cloud", "brand_cue": "the ACME crate",'
     ' "image_generation_prompt": "A soft watercolor of a quiet desert road."}]}'
 )
 
@@ -706,6 +706,7 @@ def test_render_sees_guard_repaired_prompts(monkeypatch):
     assert prompt.startswith("A soft watercolor of a quiet desert road.")
     assert "a roadrunner dust cloud" in prompt
     assert "Rocket Skates" in prompt
+    assert "The scene features the ACME crate." in prompt
     final = state["final_visual_concepts"]["visual_concepts"][0]
     assert final["image_generation_prompt"] == prompt
 
@@ -759,6 +760,7 @@ def test_interactive_reviser_output_is_guarded(monkeypatch):
     assert prompt.startswith("A soft watercolor of a quiet desert road.")
     assert "a roadrunner dust cloud" in prompt
     assert "Rocket Skates" in prompt
+    assert "The scene features the ACME crate." in prompt
 
 
 # --------------------------------------------------------------------------
@@ -918,4 +920,184 @@ def test_ad_copy_issues_left_after_the_budget_are_recorded(monkeypatch):
     assert note.startswith("Ad copy critique has unresolved issues: 1 (e.g. ")
     (response,) = _responses(events)
     assert response == {"ad_copies": ads}
+    assert root_llm.calls == 2
+
+
+# --------------------------------------------------------------------------
+# Visual concept gate: bounded, targeted fix of flagged concepts
+# --------------------------------------------------------------------------
+
+
+def _final_concept(ad_copy_id: int, prompt: str = "", **overrides: Any) -> dict:
+    """A schema-valid VisualConceptFinal that passes concept_guard (no quotes)."""
+    concept = {
+        "ad_copy_id": ad_copy_id,
+        "concept_name": f"Dust {ad_copy_id}",
+        "trend": "roadrunner",
+        "trend_reference": "r",
+        "markets_product": "m",
+        "audience_appeal": "a",
+        "selection_rationale": "s",
+        "headline": f"Beep beep {ad_copy_id}",
+        "social_caption": "Zoom.",
+        "call_to_action": "Order yours today",
+        "concept_summary": "sum",
+        "visual_style": "Watercolor / gouache",
+        "aspect_ratio": "9:16",
+        "trend_motif": "a roadrunner dust cloud",
+        "brand_cue": "the ACME crate",
+        "angle_id": "A1",
+        "image_generation_prompt": prompt
+        or (
+            f"Scene {ad_copy_id}: a watercolor of Rocket Skates on the ACME crate "
+            "in a roadrunner dust cloud."
+        ),
+    }
+    concept.update(overrides)
+    return concept
+
+
+def _concepts_json(*concepts: dict[str, Any]) -> str:
+    return json.dumps({"visual_concepts": list(concepts)})
+
+
+_VISUAL_STATE = {
+    **_ADS_STATE,
+    "ad_copy_critique": {"ad_copies": [_final_ad(i) for i in range(1, 5)]},
+}
+
+
+def _run_visuals(
+    monkeypatch, finalizer: str, fixer: list[str] | None = None, model=None
+):
+    import creative_agent.agent as ca
+
+    wf = ca.visual_production_pipeline
+    llms = _stub_graph(monkeypatch, wf)
+    (generator,) = [a for a in _llm_agents(wf) if a.name == "visual_generator"]
+    monkeypatch.setattr(generator, "tools", [_fake_generate_image])
+    llms["art_director"].push(text_response("DIRECTION"))
+    llms["visual_concept_drafter"].push(text_response(_CONCEPTS))
+    llms["visual_concept_critic"].push(text_response(_CONCEPTS))
+    llms["visual_concept_finalizer"].push(text_response(finalizer))
+    for text in fixer or []:
+        llms["visual_concept_fixer"].push(text_response(text))
+    if model is not None:
+        _patch_agent_model(monkeypatch, wf, "visual_concept_fixer", model)
+    llms["visual_generator"].push(
+        fc_response("generate_image", {}, "img1"), text_response("Rendered.")
+    )
+    root_llm, events, state = _run_root(
+        monkeypatch, "visual_production_pipeline", _VISUAL_STATE
+    )
+    return llms, root_llm, events, state
+
+
+def _prompts(state: dict[str, Any]) -> list[str]:
+    return [
+        c["image_generation_prompt"]
+        for c in state["final_visual_concepts"]["visual_concepts"]
+    ]
+
+
+def test_concepts_passing_the_gate_skip_the_fixer(monkeypatch):
+    concepts = [_final_concept(i) for i in range(1, 5)]
+    concepts[0] = _final_concept(
+        1, 'Rocket Skates on the ACME crate, a roadrunner dust cloud, "Beep beep 1".'
+    )
+    llms, root_llm, events, state = _run_visuals(monkeypatch, _concepts_json(*concepts))
+
+    assert llms["visual_concept_fixer"].calls == 0
+    assert state["final_visual_concepts"]["visual_concepts"] == concepts
+    assert state["visual_concept_revision_rounds_used"] == 0
+    assert state["visual_concept_issues"] == ""
+    assert state.get("final_visual_concepts__issues") is None
+    assert state["_images_generated"] is True
+    assert "Image creatives rendered" in str(_responses(events)[-1])
+    assert root_llm.calls == 2
+
+
+def test_flagged_concept_is_fixed_and_unflagged_edits_are_reverted(monkeypatch):
+    """Concept 2 quotes text that is not from its copy: the fixer gets exactly
+    that issue, rewrites concept 2, its edit to (unflagged) concept 3 is
+    reverted, and the guard then re-adds the brand cue the fix dropped."""
+    bad = _final_concept(
+        2, 'Rocket Skates on the ACME crate in a roadrunner dust cloud, "Speed!".'
+    )
+    concepts = [_final_concept(1), bad, _final_concept(3), _final_concept(4)]
+    fixed = _final_concept(
+        2, 'Rocket Skates in a roadrunner dust cloud, type reads "Beep beep 2".'
+    )
+    sneaky = _final_concept(3, "Rocket Skates, rewritten without being asked.")
+    revision = _concepts_json(_final_concept(1), fixed, sneaky, _final_concept(4))
+
+    llms, root_llm, events, state = _run_visuals(
+        monkeypatch, _concepts_json(*concepts), [revision]
+    )
+
+    assert llms["visual_concept_fixer"].calls == 1
+    prompt = str(llms["visual_concept_fixer"].requests[-1].config.system_instruction)
+    issues_block = prompt.split("<visual_concept_issues>")[-1].split(
+        "</visual_concept_issues>"
+    )[0]
+    assert '- **Concept 2 ("Dust 2"):**' in issues_block
+    assert '  - in-image text "Speed!" is not the paired ad copy' in issues_block
+    assert "Concept 1" not in issues_block and "Concept 3" not in issues_block
+    assert '"Speed!"' in prompt.split("<final_visual_concepts>")[-1]
+    assert _BRIEF["single_minded_proposition"] in prompt
+    assert _prompts(state) == [
+        concepts[0]["image_generation_prompt"],
+        fixed["image_generation_prompt"] + " The scene features the ACME crate.",
+        concepts[2]["image_generation_prompt"],  # reverted: not flagged
+        concepts[3]["image_generation_prompt"],
+    ]
+    assert state["visual_concept_revision_rounds_used"] == 1
+    assert state["visual_concept_issues"] == ""
+    assert state["final_visual_concepts__before_revision"] is None
+    assert state.get("final_visual_concepts__issues") is None
+    assert state["_images_generated"] is True
+    assert root_llm.calls == 2
+
+
+def test_raising_concept_fixer_keeps_the_pre_revision_concepts(monkeypatch):
+    from agent_common import collect_degradation_warnings
+
+    bad = _final_concept(2, trend_motif="")
+    concepts = [_final_concept(1), bad, _final_concept(3), _final_concept(4)]
+    boom = _BoomLlm()
+
+    _, root_llm, events, state = _run_visuals(
+        monkeypatch, _concepts_json(*concepts), model=boom
+    )
+
+    assert boom.requests  # the fixer really ran and raised
+    assert state["final_visual_concepts"]["visual_concepts"] == concepts
+    (issue,) = state["final_visual_concepts__issues"]
+    assert issue.startswith('Concept 2 ("Dust 2"): trend_motif is empty')
+    (note,) = collect_degradation_warnings(state)
+    assert note.startswith("Final visual concepts has unresolved issues: 1 (e.g. ")
+    # The pipeline still ends truthy and renders.
+    assert state["_images_generated"] is True
+    assert "Image creatives rendered" in str(_responses(events)[-1])
+    assert root_llm.calls == 2
+
+
+def test_concept_issues_left_after_the_budget_are_recorded(monkeypatch):
+    from agent_common import collect_degradation_warnings
+
+    concepts = [
+        _final_concept(i, f"Scene {i}: a centred hero of Rocket Skates.")
+        for i in (1, 2)
+    ]
+    llms, root_llm, events, state = _run_visuals(
+        monkeypatch, _concepts_json(*concepts), [_concepts_json(*concepts)]
+    )
+
+    assert llms["visual_concept_fixer"].calls == 1
+    assert state["visual_concept_revision_rounds_used"] == 1
+    (issue,) = state["final_visual_concepts__issues"]
+    assert issue.startswith('Concept 2 ("Dust 2"): more than one centred hero')
+    (note,) = collect_degradation_warnings(state)
+    assert note.startswith("Final visual concepts has unresolved issues: 1 (e.g. ")
+    assert state["_images_generated"] is True
     assert root_llm.calls == 2

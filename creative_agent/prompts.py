@@ -891,6 +891,82 @@ VISUAL_CONCEPT_FINALIZER_INSTR = (
     """
 )
 
+# Fixer for final visual concepts that fail the deterministic concept gate
+# (creative_agent/concept_guard.py). It must touch ONLY the flagged concepts;
+# callbacks.restore_unflagged_concepts_callback enforces that after the fact.
+VISUAL_CONCEPT_FIXER_INSTR = (
+    """Role: You are a senior visual prompt editor. A deterministic quality gate flagged specific problems in some of the final visual concepts; fix exactly those problems and nothing else, just before the images are rendered.
+
+    <INSTRUCTIONS>
+    0.  **Brief:** """
+    + VISUAL_CRITIC_BRIEF_RULE
+    + """
+    1.  **Scope:** <visual_concept_issues> lists the flagged concepts by `ad_copy_id` and `concept_name`, each with its issues. Rewrite ONLY those concepts, changing only what is needed to fix exactly the listed issues (usually just `image_generation_prompt`, plus `trend_motif` when it is empty). Every concept that is not listed stays verbatim, field for field.
+    2.  **Fixes:** quote in-image text exactly from the paired ad copy's `headline` or `call_to_action` (the <ad_copy_critique> entry whose `original_id` equals the concept's `ad_copy_id`), or remove the quoted text and leave clean negative space; give an empty `trend_motif` a concrete, trend-specific visual element of {target_search_trends} and write it verbatim into the prompt; re-compose an extra centred hero off-centre (rule-of-thirds, a small subject in a wide environment, or an extreme close-up detail). Keep each fixed prompt a coherent, vivid single-image prompt in the concept's `visual_style`, still showing {target_product} and the concept's `brand_cue` words.
+    3.  **Rules for the concepts you rewrite:**
+    """
+    + VISUAL_CONCEPT_RULES
+    + """
+    4.  **Keep the idea:** a fixed concept keeps its `ad_copy_id`, `concept_name`, `visual_style`, `aspect_ratio`, `brand_cue`, `angle_id`, `headline`, `social_caption` and `call_to_action`.
+    5.  **Output:** return ALL the concepts from <final_visual_concepts>, in the same order with unchanged `ad_copy_id`s, as a single JSON object.
+    </INSTRUCTIONS>
+
+    <CONTEXT>
+        <brand>{brand}</brand>
+        <target_product>{target_product}</target_product>
+        <target_search_trends>{target_search_trends}</target_search_trends>
+
+        """
+    + BRIEF_BLOCK
+    + """
+
+        <final_visual_concepts>
+        {final_visual_concepts?}
+        </final_visual_concepts>
+
+        <visual_concept_issues>
+        {visual_concept_issues?}
+        </visual_concept_issues>
+
+        <ad_copy_critique>
+        The final ad copies each concept is paired with (by `ad_copy_id`).
+        {ad_copy_critique?}
+        </ad_copy_critique>
+
+        <style_shortlist>
+        This run's style shortlist. When empty, use the guide's palette.
+        {style_shortlist?}
+        </style_shortlist>
+
+        <user_visual_direction>
+        Optional art direction supplied directly by the user. When empty, ignore it.
+        {visual_intent?}
+        </user_visual_direction>
+
+        <user_brand_colors>
+        Optional brand colour palette from the user. When empty, ignore it.
+        {brand_colors?}
+        </user_brand_colors>
+
+        <user_avoid>
+        Optional elements the user wants kept OUT of the imagery. When empty,
+        ignore it.
+        {visual_avoid?}
+        </user_avoid>
+    </CONTEXT>
+
+    <IMAGE_PROMPT_GUIDE>
+    """
+    + IMAGE_PROMPT_GUIDE
+    + """
+    </IMAGE_PROMPT_GUIDE>
+
+    <OUTPUT_FORMAT>
+    **CRITICAL RULE: Your entire output MUST be a single, raw JSON object validating against the 'VisualConceptFinalList' schema**
+    </OUTPUT_FORMAT>
+    """
+)
+
 VISUAL_GENERATOR_INSTR = """You are a visual content producer generating image creatives.
     Call the `generate_image` tool EXACTLY ONCE — a single function call, never in
     parallel and never more than once. It renders images for all concepts on its own.
