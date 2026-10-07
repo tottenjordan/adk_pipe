@@ -106,6 +106,14 @@ describe("deriveStages — creative_agent", () => {
     expect(stages[1]).toMatchObject({ id: "brief", state: "active" });
   });
 
+  it("keeps the stopped stage active on error with only a sub-step marker", () => {
+    // The error (not the searcher's give-up) stopped Research: it stays the
+    // active/stopped stage rather than reading as finished-but-degraded.
+    const state = { gs_web_search_insights__retry_exhausted: true };
+    const stages = deriveStages("creative_agent", state, null, "error");
+    expect(view(stages).slice(0, 2)).toEqual(["Research:active", "Brief:pending"]);
+  });
+
   it("keeps the active stage while stalled", () => {
     expect(deriveStages("creative_agent", {}, null, "stalled")[0].state).toBe("active");
   });

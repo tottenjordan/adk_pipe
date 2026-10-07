@@ -13,6 +13,8 @@ import re
 from collections.abc import Mapping
 from typing import Any
 
+from .text_match import words
+
 MISSING_BRIEF_ISSUE = "brief missing or unparseable"
 
 # Imagery that could illustrate any trend: a motif made only of these words
@@ -38,11 +40,12 @@ _GENERIC_TOKENS = frozenset(w for term in GENERIC_MOTIFS for w in term.split()) 
 }
 _FILLER = frozenset({"a", "an", "the", "of", "on", "with", "and"})
 
-# Insight tension: a contrast word, or two clauses joined by ";" or a spaced
-# dash ("Fans want in; tickets are gone", "Fans want in — tickets are gone").
+# Insight tension: a contrast word, or a ";" followed by one ("Fans want in;
+# still, tickets are gone"). A bare ";", a dash or a bare "still" ("fans still
+# love it") joins or qualifies clauses without contrasting them.
 _TENSION = re.compile(
-    r"\b(but|yet|although|though|while|however|despite|still|instead|except"
-    r"|only to|whereas)\b|;|\s[\u2014\u2013]\s?|\u2014|\s--\s",
+    r"\b(but|yet|although|though|while|however|despite|instead|except"
+    r"|only to|whereas)\b|;\s*(?:yet|but|however|though|still)\b",
     re.IGNORECASE,
 )
 _AND = re.compile(r"\band\b", re.IGNORECASE)
@@ -54,9 +57,10 @@ _AND_COMPOUND = re.compile(r"\w+(?:-\w+)*-and-\w+(?:-\w+)*", re.IGNORECASE)
 # An "X and Y" chunk inside a name ("Salt and Vinegar" in "Lay's Salt and
 # Vinegar chips").
 _NAME_AND_CHUNK = re.compile(r"[\w']+\s+and\s+[\w']+", re.IGNORECASE)
-# A sentence break: terminal punctuation, whitespace, then a capital letter or
-# an opening quote. So "No. 1", "U.S.A. for", "9 a.m. without" and "2.5x" are
-# one sentence; an ellipsis ("..." / "…") never breaks.
+# A sentence break: terminal punctuation, whitespace, then a capital letter, a
+# digit, an opening quote, or a word starting with a brand/product word (often
+# lowercase-led: "...instrument. iPhone users"). So "No. 1", "U.S.A. for",
+# "9 a.m. without" and "2.5x" are one sentence; an ellipsis never breaks.
 _SENTENCE_END = re.compile(r"([.!?\u2026]+)\s+(\S)")
 _OPENING_QUOTES = frozenset("\"'\u201c\u2018\u00ab")
 # Common abbreviations whose period is not a sentence break even before a
@@ -70,7 +74,7 @@ _ABBREVIATIONS = (
     "Jr.",
     "Sr.",
     "Mt.",
-    "No.",
+    "Approx.",
     "U.S.",
     "U.K.",
     "vs.",
@@ -82,7 +86,9 @@ _ABBREVIATIONS = (
 _ABBREVIATION = re.compile(
     r"(?<!\w)(?:"
     + "|".join(re.escape(a) for a in sorted(_ABBREVIATIONS, key=len, reverse=True))
-    + ")",
+    # "No." abbreviates "number" only before a digit ("No. 1"); "said no. Then"
+    # is a real break.
+    + r"|No\.(?=\s*\d))",
     re.IGNORECASE,
 )
 # A reason to believe cites a research source ("src-N") or the user's brief;
@@ -123,22 +129,30 @@ def _text(value: Any) -> str:
 
 
 def _is_generic_motif(motif: str) -> bool:
-    words = re.findall(r"[a-z]+", motif.lower())
-    words = [w[:-1] if w.endswith("s") and len(w) > 3 else w for w in words]
-    words = [w for w in words if w not in _FILLER]
-    return not words or all(w in _GENERIC_TOKENS for w in words)
+    tokens = re.findall(r"[a-z]+", motif.lower())
+    tokens = [w[:-1] if w.endswith("s") and len(w) > 3 else w for w in tokens]
+    tokens = [w for w in tokens if w not in _FILLER]
+    return not tokens or all(w in _GENERIC_TOKENS for w in tokens)
 
 
 def _without_abbreviations(text: str) -> str:
     return _ABBREVIATION.sub(lambda m: m.group(0).replace(".", ""), text)
 
 
-def _has_sentence_break(text: str) -> bool:
-    for match in _SENTENCE_END.finditer(_without_abbreviations(text)):
+def _has_sentence_break(text: str, names: tuple[str, ...] = ()) -> bool:
+    """A second sentence starts after terminal punctuation (see _SENTENCE_END);
+    ``names`` (brand / product) supply the words that start one even in
+    lowercase."""
+    name_words = {w for n in names for w in words(n) if len(w) >= 2}
+    cleaned = _without_abbreviations(text)
+    for match in _SENTENCE_END.finditer(cleaned):
         punct, following = match.groups()
         if "\u2026" in punct or ".." in punct:
             continue  # an ellipsis is a pause, not a sentence end
-        if following.isupper() or following in _OPENING_QUOTES:
+        if following.isupper() or following.isdigit() or following in _OPENING_QUOTES:
+            return True
+        next_words = words(cleaned[match.start(2) :])
+        if next_words and any(next_words[0].startswith(w) for w in name_words):
             return True
     return False
 
@@ -190,7 +204,7 @@ def _normalise_source_ids(source_id: str) -> list[str]:
 
 
 def _normalised(text: str) -> str:
-    return " ".join(re.findall(r"[a-z0-9]+", text.lower()))
+    return " ".join(words(text))
 
 
 def check_brief(
@@ -229,7 +243,7 @@ def check_brief(
             "single_minded_proposition is empty: write ONE sentence carrying the "
             "single idea the audience should take away."
         )
-    if proposition and _has_sentence_break(proposition):
+    if proposition and _has_sentence_break(proposition, (brand, target_product)):
         issues.append(
             f"single_minded_proposition must be one sentence; rewrite "
             f"'{proposition}' as a single sentence with a single idea."
@@ -324,7 +338,9 @@ def check_brief(
         )
 
     angles = [_as_mapping(a) for a in _as_list(data.get("angles"))]
-    distinct = {_normalised(_text(a.get("name"))) for a in angles} - {""}
+    # Names compared as their joined text_match words: punctuation/case-blind
+    # and Unicode-aware, so CJK names are not emptied.
+    distinct = {"".join(words(_text(a.get("name")))) for a in angles} - {""}
     if len(distinct) < 3:
         issues.append(
             f"angles has {len(distinct)} distinct angle name(s); provide 3-5 angles, "

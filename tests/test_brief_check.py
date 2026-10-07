@@ -313,16 +313,17 @@ def test_all_proposition_issues_reported_together():
 @pytest.mark.parametrize(
     "insight",
     [
-        "Fans want to be there; tickets cost a fortune.",
-        "Fans want to be there, still they can't afford it.",
         "Despite loving the show, fans can't get tickets.",
-        "Fans crave the stadium experience — tickets are gone in seconds.",
         "Fans want in, only to find tickets gone.",
         "Fans want in, though tickets are gone.",
         "Fans want in; however, tickets are gone.",
+        "Fans want in; still, tickets are gone.",
+        "Fans want in; yet tickets are gone.",
+        "Gen Z wants to look effortless, but effortless takes effort.",
+        "Parents want screen-free weekends, yet they hand over the tablet.",
+        "Runners track every mile, but they never track their sleep.",
         "Fans buy merch instead of tickets they can't afford.",
         "Gen Z wants to look effortless, except effortless takes effort.",
-        "Gamers say they hate ads; they watch every trailer anyway.",
         "Fans want front-row seats, whereas budgets want the nosebleeds.",
     ],
 )
@@ -386,3 +387,55 @@ def test_angle_names_compared_normalised():
     ]
     (issue,) = check_brief(_brief(angles=angles))
     assert "1 distinct angle name" in issue
+
+
+@pytest.mark.parametrize(
+    "insight",
+    [
+        "Fans want to be there; tickets cost a fortune.",
+        "Fans crave the stadium experience — tickets are gone in seconds.",
+        "Fans crave the stadium experience -- tickets are gone in seconds.",
+        "Fans crave the stadium—tickets are gone.",
+        "Fans still love the show.",
+        "Gamers say they hate ads; they watch every trailer anyway.",
+    ],
+)
+def test_bare_dash_semicolon_or_still_is_not_tension(insight):
+    issues = check_brief(_brief(insight=insight))
+    assert any("no tension" in i for i in issues)
+
+
+def test_cjk_angle_names_are_not_emptied():
+    angles = [
+        {"angle_id": f"A{i}", "name": n, "tension": t, "route": "r"}
+        for i, (n, t) in enumerate(
+            [("最前列", "a"), ("家で観る", "b"), ("推し活", "c")], 1
+        )
+    ]
+    assert check_brief(_brief(angles=angles)) == []
+
+
+@pytest.mark.parametrize(
+    ("proposition", "kwargs"),
+    [
+        # A digit after terminal punctuation starts a new sentence.
+        ("Skates are fast. 10 minutes is all it takes.", {}),
+        # A lowercase-led brand/product word starts a new sentence.
+        (
+            "Your phone is your instrument. iPhone users play louder.",
+            {"brand": "Apple", "target_product": "iPhone 16"},
+        ),
+        ("They said no. Then they tried it.", {}),
+    ],
+)
+def test_more_sentence_breaks_flagged(proposition, kwargs):
+    issues = _prop_issues(proposition, **kwargs)
+    assert any("one sentence" in i for i in issues)
+
+
+@pytest.mark.parametrize(
+    "proposition",
+    ["The No. 1 skate for coyotes.", "Rated no. 1 by coyotes everywhere."],
+)
+def test_no_followed_by_a_digit_is_an_abbreviation(proposition):
+    assert _prop_issues(proposition) == []
