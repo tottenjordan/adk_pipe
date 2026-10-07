@@ -68,6 +68,7 @@ export function ProofGrid({
   imageUrlFor,
   onOpen,
   itemRef,
+  isRated,
 }: {
   /** Already sorted. */
   proofs: Proof[];
@@ -76,6 +77,8 @@ export function ProofGrid({
   imageUrlFor: (conceptName: string) => string | null;
   onOpen: (proofIndex: number) => void;
   itemRef: (proofIndex: number) => Ref<HTMLButtonElement>;
+  /** Whether the user has rated this proof (shows a muted "Rated" mark). */
+  isRated?: (proof: Proof) => boolean;
 }) {
   return (
     <section aria-labelledby="proofs-heading" className="mb-6">
@@ -95,42 +98,46 @@ export function ProofGrid({
       </div>
 
       <ul className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-        {proofs.map((p) => (
-          <li key={p.index}>
-            <button
-              type="button"
-              ref={itemRef(p.index)}
-              onClick={() => onOpen(p.index)}
-              aria-label={`Open creative ${p.index + 1}: ${p.concept.headline}`}
-              className="group flex h-full w-full flex-col rounded-lg border border-border bg-card p-2 text-left transition-colors hover:border-foreground/40"
-            >
-              <ProofImage
-                src={imageUrlFor(p.concept.concept_name)}
-                alt={p.concept.concept_summary}
-                className="aspect-square w-full"
-              />
-              <div className="flex flex-1 flex-col px-1 pt-3 pb-1">
-                <h3
-                  className={cn(
-                    CONDENSED,
-                    "line-clamp-3 text-xl leading-[1.1] text-foreground group-hover:underline group-hover:decoration-2 group-hover:underline-offset-2"
-                  )}
-                >
-                  {p.concept.headline}
-                </h3>
-                <p className="mt-1 truncate text-xs text-muted-foreground">
-                  {p.concept.concept_name}
-                </p>
-                <div className="mt-auto pt-3">
-                  <div className="grid grid-cols-2 gap-3 border-t border-border pt-3">
-                    <ScoreMark label="Ad copy" score={p.adCopyEval?.score} />
-                    <ScoreMark label="Visual" score={p.visualEval?.score} />
+        {proofs.map((p) => {
+          const rated = isRated?.(p) ?? false;
+          return (
+            <li key={p.index}>
+              <button
+                type="button"
+                ref={itemRef(p.index)}
+                onClick={() => onOpen(p.index)}
+                aria-label={`Open creative ${p.index + 1}: ${p.concept.headline}${rated ? " (rated)" : ""}`}
+                className="group flex h-full w-full flex-col rounded-lg border border-border bg-card p-2 text-left transition-colors hover:border-foreground/40"
+              >
+                <ProofImage
+                  src={imageUrlFor(p.concept.concept_name)}
+                  alt={p.concept.concept_summary}
+                  className="aspect-square w-full"
+                />
+                <div className="flex flex-1 flex-col px-1 pt-3 pb-1">
+                  <h3
+                    className={cn(
+                      CONDENSED,
+                      "line-clamp-3 text-xl leading-[1.1] text-foreground group-hover:underline group-hover:decoration-2 group-hover:underline-offset-2"
+                    )}
+                  >
+                    {p.concept.headline}
+                  </h3>
+                  <p className="mt-1 flex gap-2 text-xs text-muted-foreground">
+                    <span className="truncate">{p.concept.concept_name}</span>
+                    {rated && <span className="ml-auto shrink-0">Rated</span>}
+                  </p>
+                  <div className="mt-auto pt-3">
+                    <div className="grid grid-cols-2 gap-3 border-t border-border pt-3">
+                      <ScoreMark label="Ad copy" score={p.adCopyEval?.score} />
+                      <ScoreMark label="Visual" score={p.visualEval?.score} />
+                    </div>
                   </div>
                 </div>
-              </div>
-            </button>
-          </li>
-        ))}
+              </button>
+            </li>
+          );
+        })}
       </ul>
     </section>
   );
