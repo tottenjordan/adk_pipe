@@ -32,7 +32,7 @@ from .agent import (
     visual_generation_pipeline,
     visual_generator_resilient,
 )
-from .schemas import VisualConceptFinalList
+from .schemas import CreativeBrief, VisualConceptFinalList
 
 __all__ = [
     # submodules
@@ -46,6 +46,7 @@ __all__ = [
     "ad_creative_pipeline",
     "visual_generation_pipeline",
     "visual_generator_resilient",
-    # shared visual schema
+    # shared visual schema + the structured creative brief (downstream contract)
     "VisualConceptFinalList",
+    "CreativeBrief",
 ]

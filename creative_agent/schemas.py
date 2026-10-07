@@ -249,3 +249,110 @@ class VisualConceptFinalList(BaseModel):
         default=None,
         description="A list of finalized visual concept.",
     )
+
+
+# --- CREATIVE BRIEF SCHEMA ---
+# The structured, fit-tested brief every downstream creative agent treats as the
+# contract (written by brief_writer after the research report). The numeric /
+# list-length bounds are deliberate model-facing constraints: google-genai maps
+# ge/le to Vertex Schema minimum/maximum and min_length/max_length to
+# min_items/max_items (asserted in tests/test_schemas.py), and ADK's
+# output_schema validation turns a violating sample into a pydantic
+# ValidationError, which SCHEMA_RETRY re-draws. Rules the schema cannot express
+# (one-sentence proposition, tension-based insight, cited RTBs, fit_mode
+# consistency, specific motifs) live in creative_agent/brief_check.py and are
+# fed back to brief_reviser.
+class TrendBridge(BaseModel):
+    """How (and how hard) the brand should connect to the trend."""
+
+    fit_score: int = Field(
+        ge=1,
+        le=5,
+        description="Brand-trend fit, 1-5: 5 = the product is naturally part of the trend; 4 = a clear product/benefit link; 3 = a shared cultural value or mood but no product link; 2 = only the trend's tone or format is borrowable; 1 = no credible link (or brand-safety risk).",
+    )
+    fit_mode: Literal["direct", "cultural", "light_touch"] = Field(
+        description="Derived from fit_score: 'direct' (score 4-5, the product plays in the trend), 'cultural' (score 3, connect through the shared value or mood), 'light_touch' (score 1-2, borrow the trend's tone, mood or format only; never force the product into the trend)."
+    )
+    bridge: str = Field(
+        description="One sentence naming which brand/product trait connects to which specific facet of the trend."
+    )
+    motifs: list[str] = Field(
+        description="2-4 concrete visual or verbal motifs SPECIFIC to this trend (signature objects, colours, places, events, rituals or memes), recognisable at a glance; never generic social-media imagery (phones, feeds, chat bubbles, hashtags). Real people only via their iconography, never a likeness."
+    )
+    risks: list[str] = Field(
+        description="Brand-safety and cultural risks of joining this trend (controversies, real-person sensitivities, negative associations)."
+    )
+
+
+class ReasonToBelieve(BaseModel):
+    """A single proof point supporting the proposition."""
+
+    claim: str = Field(description="A concrete, checkable proof point.")
+    source_id: str | None = Field(
+        description="The supporting source: a 'src-N' id from the research sources, or 'brief' when the claim comes from the user's key selling points."
+    )
+
+
+class BrandCues(BaseModel):
+    """How the work must look and sound like the brand."""
+
+    tone_of_voice: str = Field(
+        description="The brand's tone of voice in a short phrase (e.g. 'warm, witty, never sarcastic')."
+    )
+    distinctive_assets: list[str] = Field(
+        description="Brand distinctive assets to show (logo, colours, characters, packaging, sonic or verbal signatures) from the research report and the user's brand colours."
+    )
+    do_not: list[str] = Field(
+        description="Brand voice and visual don'ts (things the brand never says or shows)."
+    )
+
+
+class CreativeAngle(BaseModel):
+    """One distinct creative route, rooted in a different audience tension."""
+
+    angle_id: str = Field(description="Angle identifier: 'A1' to 'A5'.")
+    name: str = Field(description="A short, memorable name for the angle.")
+    tension: str = Field(
+        description="The audience tension this angle resolves (distinct from every other angle's tension, not a tone variant)."
+    )
+    route: str = Field(
+        description="1-2 sentences on how the creative executes the angle and delivers the proposition."
+    )
+
+
+class CreativeBrief(BaseModel):
+    """The structured creative brief: the contract for the ad copy and visual agents."""
+
+    objective: str = Field(
+        description="The single business/communication objective of this campaign moment."
+    )
+    audience: str = Field(
+        description="Who we are talking to, sharpened from the target audience with research insight."
+    )
+    insight: str = Field(
+        description="A human tension specific to THIS brand's audience, written as 'X, but Y'."
+    )
+    single_minded_proposition: str = Field(
+        description="ONE sentence, one idea (no 'and'): the single thing we want the audience to take away."
+    )
+    reasons_to_believe: list[ReasonToBelieve] = Field(
+        description="2-4 proof points for the proposition, each citing a source id."
+    )
+    brand: BrandCues = Field(description="Brand tone and distinctive assets.")
+    trend_bridge: TrendBridge = Field(
+        description="The brand-trend fit test and how to connect to the trend."
+    )
+    mandatories: list[str] = Field(
+        description="Must-include elements (selling points, product name, legal or brand requirements)."
+    )
+    avoid: list[str] = Field(
+        description="Things to keep out of the work (user avoid list, trend risks, brand don'ts)."
+    )
+    desired_response: str = Field(
+        description="What the audience should think, feel and do after seeing the ad."
+    )
+    angles: list[CreativeAngle] = Field(
+        min_length=3,
+        max_length=5,
+        description="3-5 genuinely different creative angles, each rooted in a different audience tension.",
+    )

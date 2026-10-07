@@ -37,6 +37,11 @@ def test_facade_exposes_reusable_pipelines_and_schema():
 
     assert creative_agent.VisualConceptFinalList is VisualConceptFinalList
 
+    # Structured creative brief (the downstream creative contract)
+    from creative_agent.schemas import CreativeBrief
+
+    assert creative_agent.CreativeBrief is CreativeBrief
+
     # Submodules remain accessible as attributes
     assert creative_agent.tools is not None
     assert creative_agent.callbacks is not None
@@ -71,6 +76,7 @@ def test_facade_all_is_complete_and_importable():
         "visual_generation_pipeline",
         "visual_generator_resilient",
         "VisualConceptFinalList",
+        "CreativeBrief",
     }
     assert expected.issubset(set(creative_agent.__all__))
     for name in creative_agent.__all__:
