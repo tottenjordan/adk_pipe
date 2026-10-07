@@ -77,6 +77,7 @@ def test_facade_all_is_complete_and_importable():
         "ad_creative_pipeline",
         "visual_generation_pipeline",
         "visual_generator_resilient",
+        "finalize_pipeline",
         "ad_copy_reviser",
         "VisualConceptFinalList",
         "CreativeBrief",

@@ -11,7 +11,6 @@ from google.adk.events.event import Event
 from google.adk.events.event_actions import EventActions
 from google.adk.planners import BuiltInPlanner
 from google.adk.tools import google_search
-from google.adk.tools.agent_tool import AgentTool
 from google.adk.workflow import JoinNode, Workflow
 from google.genai import types
 
@@ -25,9 +24,8 @@ from agent_common import (
     build_safety_plugins,
     is_populated,
 )
-from creative_eval.agent import creative_eval_agent
 
-from . import callbacks, prompts, tools
+from . import callbacks, gcs_tools, prompts, tools
 from .brief_check import check_brief, parse_brief
 from .brief_render import render_brief_markdown
 from .concept_guard import (
@@ -45,6 +43,12 @@ from .copy_gate import (
     gate_copies,
     residual_issues,
     structural_issues,
+)
+from .finalize import (
+    evaluate_creatives_node,
+    finalize_ready,
+    issue_message,
+    persist_node,
 )
 from .schemas import (  # noqa: F401
     AdCopy,
@@ -464,24 +468,49 @@ def _item_count(value: Any, list_key: str) -> int:
     return len(items) if isinstance(items, list) else 0
 
 
+async def save_research_pdf_node(ctx: Context) -> None:
+    """Save the cited research report (with the brief) as a PDF artifact + to GCS.
+
+    Runs on brief_gate's "ok" exit, so the PDF carries the final brief; it was a
+    separate root tool call (save_draft_report_artifact) before. Skipped when
+    the composer produced no report (research_report_ready already says so). A
+    failure is logged and recorded as ``research_report_gcs_uri__issues``, never
+    raised: the PDF is a deliverable, not an input to the creative stages.
+    """
+    if not is_populated(ctx.state.get("final_report_with_citations")):
+        logging.warning("research PDF skipped: no final_report_with_citations")
+        return None
+    try:
+        await gcs_tools.save_draft_report_artifact(ctx)
+    except Exception as exc:
+        logging.exception("research PDF save failed")
+        ctx.state["research_report_gcs_uri__issues"] = issue_message(
+            "research PDF", exc
+        )
+    return None
+
+
 def research_report_ready(ctx: Context) -> str:
     """Terminal node of combined_research_pipeline (the root's tool result).
 
     A short confirmation, not the report itself, mirroring the pre-graph
     AgentTool result (the composer's citation-callback text): the report lives
-    in state for save_draft_report_artifact and the creative stages, and
-    repeating it in the root's context would only add tokens.
+    in state for the creative stages (and was saved as a PDF by
+    save_research_pdf_node), and repeating it in the root's context would only
+    add tokens.
     """
     brief_note = (
         " Structured creative brief saved as 'creative_brief'."
         if is_populated(ctx.state.get("creative_brief"))
         else " No structured creative brief is available for this run."
     )
+    pdf_uri = ctx.state.get("research_report_gcs_uri")
+    pdf_note = f" Research PDF saved to {pdf_uri}." if is_populated(pdf_uri) else ""
     if is_populated(ctx.state.get("combined_final_cited_report")):
         return (
             "Research report complete: saved to session state as "
             "'combined_final_cited_report' (with resolved citations in "
-            "'final_report_with_citations')." + brief_note
+            "'final_report_with_citations')." + brief_note + pdf_note
         )
     return (
         _missing_notice("combined_report_composer", "combined_final_cited_report")
@@ -495,7 +524,8 @@ def research_report_ready(ctx: Context) -> str:
 # synthesizes the base brief, and the gate routes either through the refinement
 # round (degraded research) or straight to the composer (healthy path). The
 # composer's report is then distilled into the structured creative brief, which
-# brief_gate either accepts or sends through a bounded revision loop.
+# brief_gate either accepts or sends through a bounded revision loop; on accept
+# the report (with the brief) is saved as the research PDF.
 combined_research_pipeline = Workflow(
     name="combined_research_pipeline",
     description="Runs parallel campaign + trend research, a refinement round only when that research is degraded, then a cited report and a structured creative brief.",
@@ -520,7 +550,8 @@ combined_research_pipeline = Workflow(
             brief_writer_failsoft,
             brief_gate,
         ),
-        (brief_gate, {"ok": research_report_ready, "revise": brief_reviser_failsoft}),
+        (brief_gate, {"ok": save_research_pdf_node, "revise": brief_reviser_failsoft}),
+        (save_research_pdf_node, research_report_ready),
         # The routed cycle: the gate's counter bounds the reviser passes.
         (brief_reviser_failsoft, brief_gate),
     ],
@@ -1189,8 +1220,8 @@ visual_generation_pipeline = Workflow(
 
 # creative_agent (non-interactive) renders images immediately after finalizing
 # concepts, as one deterministic unit. This removes the orchestrator's opportunity to
-# skip image generation — which it did when creative_eval_agent looked like the next
-# step, jumping straight from visual concepts to evaluation. interactive_creative does
+# skip image generation — which it once did, jumping straight from visual concepts to
+# evaluation (now finalize_pipeline, the root's next call). interactive_creative does
 # NOT use this: it keeps concepts and images split around a review checkpoint.
 # Ends in images_ready, a short confirmation for the root (the retry node's own
 # output would be the bare `_images_generated` flag, or its exhaustion notice).
@@ -1210,6 +1241,22 @@ visual_production_pipeline = Workflow(
 )
 
 
+# --- FINALIZE (evaluate -> persist -> summary) --- #
+# The post-render steps as one deterministic unit (logic in creative_agent/
+# finalize.py): the LLM judge scores every creative, then the eval report +
+# HTML gallery are saved to GCS and the trend_creatives + creative_evals rows
+# written to BigQuery. Each step is fail-soft (degradation markers, never
+# raises), and finalize_ready returns the root a compact, always-truthy summary.
+# This replaces five separate root tool decisions (the creative_eval_agent
+# AgentTool + four persistence tools) the Pro root could end early between.
+finalize_pipeline = Workflow(
+    name="finalize_pipeline",
+    description="Evaluates all creatives and saves the evaluation report, HTML gallery and BigQuery rows.",
+    input_schema=PipelineRequest,
+    edges=[("START", evaluate_creatives_node, persist_node, finalize_ready)],
+)
+
+
 # --- MAIN ORCHESTRATOR AGENT ---
 root_agent = Agent(
     model=build_gemini_with_fallback(
@@ -1225,12 +1272,7 @@ root_agent = Agent(
         combined_research_pipeline,
         ad_creative_pipeline,
         visual_production_pipeline,
-        AgentTool(agent=creative_eval_agent),
-        tools.save_eval_report_to_gcs,
-        tools.save_draft_report_artifact,
-        tools.save_creative_gallery_html,
-        tools.write_trends_to_bq,
-        tools.write_eval_report_to_bq,
+        finalize_pipeline,
         tools.memorize,
     ],
     generate_content_config=types.GenerateContentConfig(

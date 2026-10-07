@@ -57,7 +57,15 @@ class TestPhaseOf:
         assert phase_of("images_ready") == "image_gen"
 
     def test_eval(self):
-        assert phase_of("creative_eval_agent") == "eval"
+        assert phase_of("creative_eval_agent") == "eval"  # pre-finalize runs
+        assert phase_of("finalize_pipeline") == "eval"
+        assert phase_of("evaluate_creatives_node") == "eval"
+        assert phase_of("finalize_ready") == "eval"
+
+    def test_persistence_nodes(self):
+        # Same phase the retired root persistence tools mapped to.
+        assert phase_of("persist_node") == "persistence"
+        assert phase_of("save_research_pdf_node") == "persistence"
 
     def test_runserver_and_user(self):
         assert phase_of("__runserver__") == "runserver"
@@ -73,6 +81,9 @@ class TestPhaseOfTool:
         assert phase_of_tool("ad_creative_pipeline") == "ad_copy"
         assert phase_of_tool("visual_production_pipeline") == "visual"
         assert phase_of_tool("creative_eval_agent") == "eval"
+        # finalize_pipeline = eval + persistence; its span is dominated by the
+        # judge (~70 s vs a few seconds of GCS/BigQuery writes).
+        assert phase_of_tool("finalize_pipeline") == "eval"
 
     def test_persistence_tools(self):
         for name in (

@@ -838,16 +838,19 @@ response; ADK ends the invocation there, so the segment would finish `done` with
 unfinished. For example, `interactive_creative` never calls `review_visual_concepts`. Before
 writing `done`, `_drive_run` checks `should_auto_continue`. It re-prompts the same session
 with "Continue the WORKFLOW from where it stopped…" only when all of these hold: the app's
-completion key is unset (`eval_report_gcs_uri`, or `select_trends_markdown_gcs_uri` for
-`trend_scout`); the segment did not pause at an unanswered long-running checkpoint call; and
+completion key is unset (`finalize_done` for the creative apps, or
+`select_trends_markdown_gcs_uri` for `trend_scout`); the segment did not pause at an unanswered long-running checkpoint call; and
 the root agent's last event is empty. The re-prompt runs inside the same detached task, so
 the run stays claimed and `running`. It also counts against the same `RUN_MAX_SECONDS`
 budget. Each re-prompt logs `auto-continue after empty root turn: app=… session=… attempt=n`
 and records the cumulative count as the `__auto_continues` state key. The number of
 re-prompts per kick-off/resume segment is capped by `RUN_MAX_AUTO_CONTINUES` (default `2`,
-clamped `0`–`3`; `0` disables it). The creative apps count as finished only once the final
-step (`write_eval_report_to_bq`) records `eval_bq_row_uuid`, so an empty turn anywhere in the
-persistence steps is still re-prompted.
+clamped `0`–`3`; `0` disables it). The creative apps count as finished only once
+`finalize_pipeline` (the deterministic evaluate + persist step) reaches its terminal node,
+which sets `finalize_done` on every path (also with no evaluation report or a failed eval
+BigQuery write, so a finished finalize — incl. its ~70 s judge — is never re-run), so an
+empty turn anywhere before it is still re-prompted. The research PDF is saved inside `combined_research_pipeline`, so the
+creative_agent root makes only four workflow calls after `memorize`.
 
 **Requirements / caveats:**
 - **`--no-cpu-throttling` + `--min-instances 1`** (see Step 2) — the detached task needs CPU

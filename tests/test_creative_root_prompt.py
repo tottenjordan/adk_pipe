@@ -1,11 +1,12 @@
-"""creative_agent root workflow contract (nightly-eval findings, 2026-10-03..05).
+"""creative_agent root workflow contract.
 
-- Persistence batching: when the root issued save_eval_report_to_gcs,
-  save_creative_gallery_html and write_trends_to_bq one per turn, the run took
-  two extra root turns (~37k prompt tokens each, ~+25% total tokens) vs the
-  batched runs; the efficiency gate tripped on that variance. The three are
-  independent, so the prompt asks for them as parallel calls in one turn, with
-  write_eval_report_to_bq (which reads their state) strictly after.
+- Deterministic tail (2026-10-07): the Pro root ended runs early by returning
+  empty turns after long tool results, and it made five separate decisions
+  after rendering (creative_eval_agent + four persistence tools) plus a
+  save_draft_report_artifact call after research. The research PDF is now saved
+  inside combined_research_pipeline and the eval + persistence run as one
+  finalize_pipeline graph, so the root makes exactly four workflow calls:
+  research → ad copies → visuals → finalize, then the final text.
 - Final message: the rubric requires the answer to reference the produced
   creatives and the exported artifacts, not just the gs:// URI.
 """
@@ -14,10 +15,20 @@ import re
 
 from creative_agent.prompts import ROOT_AGENT_INSTR
 
-PARALLEL_PERSISTENCE = (
+WORKFLOW_TOOLS = (
+    "combined_research_pipeline",
+    "ad_creative_pipeline",
+    "visual_production_pipeline",
+    "finalize_pipeline",
+)
+
+RETIRED_TOOLS = (
+    "save_draft_report_artifact",
+    "creative_eval_agent",
     "save_eval_report_to_gcs",
     "save_creative_gallery_html",
     "write_trends_to_bq",
+    "write_eval_report_to_bq",
 )
 
 
@@ -36,34 +47,43 @@ def _workflow_steps() -> dict[int, str]:
 
 
 def _step_calling(tool: str) -> int:
+    """The step that calls ``tool``: the first one naming it (a later step may
+    refer back to its result)."""
     hits = [n for n, text in _workflow_steps().items() if f"`{tool}`" in text]
-    assert len(hits) == 1, (tool, hits)
+    assert hits, tool
     return hits[0]
 
 
-def test_independent_persistence_tools_are_one_parallel_step():
-    steps = {_step_calling(t) for t in PARALLEL_PERSISTENCE}
-    assert len(steps) == 1
-    assert "parallel" in _workflow_steps()[steps.pop()]
+def test_workflow_is_four_pipeline_calls_in_order():
+    steps = [_step_calling(t) for t in WORKFLOW_TOOLS]
+    assert steps == sorted(steps) == [1, 2, 3, 4]
 
 
-def test_write_eval_report_to_bq_runs_after_the_parallel_step():
-    """It reads creative_row_uuid (write_trends_to_bq) and eval_report_gcs_uri
-    (save_eval_report_to_gcs), so it must not share their turn."""
-    parallel = _step_calling("save_eval_report_to_gcs")
-    assert _step_calling("write_eval_report_to_bq") == parallel + 1
-    assert _step_calling("creative_eval_agent") < parallel
+def test_retired_tools_are_not_mentioned():
+    for tool in RETIRED_TOOLS:
+        assert tool not in ROOT_AGENT_INSTR, tool
+
+
+def test_research_step_says_the_pdf_is_saved_inside_it():
+    assert "PDF" in _workflow_steps()[_step_calling("combined_research_pipeline")]
 
 
 def test_final_message_summarizes_outputs_and_uri():
     final = _workflow_steps()[max(_workflow_steps())]
-    for phrase in ("ad copies", "visual concepts", "research report", "HTML gallery"):
+    for phrase in (
+        "ad copies",
+        "visual concepts",
+        "research report",
+        "HTML gallery",
+        "`finalize_pipeline` result",
+    ):
         assert phrase in final
     assert "{gcs_bucket}/{gcs_folder}/{agent_output_dir}" in final
 
 
 def test_root_is_told_not_to_stop_between_steps():
     assert "never an empty or text-only response" in ROOT_AGENT_INSTR
+    assert "until `finalize_pipeline` has returned" in ROOT_AGENT_INSTR
 
 
 CAMPAIGN_KEYS = {

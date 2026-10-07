@@ -16,12 +16,12 @@ from creative_agent import (
     ad_creative_pipeline,
     callbacks,
     combined_research_pipeline,
+    finalize_pipeline,
     tools,
     visual_generation_pipeline,
     visual_generator_resilient,
 )
 from creative_agent.config import INFRA_RETRY, SCHEMA_RETRY, config
-from creative_eval.agent import creative_eval_agent
 from interactive_creative import prompts as ic_prompts
 from interactive_creative.callbacks import skip_reviser_without_notes
 from interactive_creative.review_tools import (
@@ -90,15 +90,13 @@ root_agent = Agent(
         visual_generation_pipeline,
         AgentTool(agent=visual_concept_reviser),
         visual_generator_resilient,
-        AgentTool(agent=creative_eval_agent),
+        finalize_pipeline,
         review_research_tool,
         review_ad_copies_tool,
         review_visual_concepts_tool,
-        tools.save_eval_report_to_gcs,
+        # The research pipeline saves the PDF itself; the root re-saves it only
+        # when the user edited the report at checkpoint 1 (report_edited).
         tools.save_draft_report_artifact,
-        tools.save_creative_gallery_html,
-        tools.write_trends_to_bq,
-        tools.write_eval_report_to_bq,
         tools.memorize,
     ],
     generate_content_config=types.GenerateContentConfig(

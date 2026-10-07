@@ -450,6 +450,17 @@ class TestBuildEvalMergeSql:
         assert "ON T.uuid = S.uuid" in sql
         assert "WHEN NOT MATCHED THEN" in sql
 
+    def test_rerun_updates_the_matched_row(self):
+        """A re-run overwrites the GCS report JSON, so the matched BQ row must be
+        updated too (same idempotent uuid key, never a second row)."""
+        row = self._row()
+        sql = _squash(self._build(row)[0])
+        assert "WHEN MATCHED THEN UPDATE SET" in sql
+        update = sql.split("WHEN MATCHED THEN UPDATE SET", 1)[1].split("WHEN NOT")[0]
+        assert " uuid = S.uuid" not in f" {update}"  # the key is never updated
+        for col in set(row) - {"uuid"}:
+            assert f"{col} = S.{col}" in update
+
     def test_every_row_column_inserted_and_bound(self):
         row = self._row()
         sql, params = self._build(row)
@@ -539,14 +550,14 @@ class TestWriteEvalReportIdempotent:
         assert params["uuid"] == first["eval_uuid"]
         assert params["creative_uuid"] == "abcd1234"
 
-    def test_success_records_completion_key(self, monkeypatch):
-        """The final step marks the workflow complete for runserver auto-continue."""
+    def test_success_records_eval_row_uuid(self, monkeypatch):
+        """The eval row uuid is recorded for the finalize summary."""
         t, _ = self._patch(monkeypatch)
         ctx = self._ctx()
         result = t.write_eval_report_to_bq(ctx)
         assert ctx.state["eval_bq_row_uuid"] == result["eval_uuid"]
 
-    def test_failure_leaves_completion_key_unset(self, monkeypatch):
+    def test_failure_leaves_eval_row_uuid_unset(self, monkeypatch):
         t, _ = self._patch(monkeypatch, errors=[{"reason": "invalid"}])
         ctx = self._ctx()
         with pytest.raises(RuntimeError):

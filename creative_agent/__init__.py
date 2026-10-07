@@ -29,6 +29,7 @@ from .agent import (
     ad_creative_pipeline,
     app,
     combined_research_pipeline,
+    finalize_pipeline,
     root_agent,
     visual_generation_pipeline,
     visual_generator_resilient,
@@ -47,6 +48,7 @@ __all__ = [
     "ad_creative_pipeline",
     "visual_generation_pipeline",
     "visual_generator_resilient",
+    "finalize_pipeline",
     # bare ad-copy reviser (interactive checkpoint-2 reuse)
     "ad_copy_reviser",
     # shared visual schema + the structured creative brief (downstream contract)

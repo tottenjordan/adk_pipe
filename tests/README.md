@@ -69,7 +69,7 @@ tests/
 ├── test_copy_gate.py                # deterministic ad-copy gate (product named, CTA words, headline/caption length, brief avoid terms minus product/mandatory/trend overlaps; Unicode/&-brand/plural matching audit cases; warning-only structural issues; only proposition/mandatories self-reports gate, only deterministic residuals recorded; lenient product matching; duplicate-id keys; tolerant parsing) + restore_unflagged safety net
 ├── test_create_session_engine.py    # create_session_engine.py (reuse-or-create sessions-only engine)
 ├── test_creative_brief_prompts.py   # {creative_brief_md?} block before the report + shared contract rule (core + fallback; user feedback/art direction override) in the 5 creative prompts; brace-safety
-├── test_creative_agent_graph.py     # creative_agent graph pipelines end-to-end (stub models): routing, citations, no-stall, guard-repaired render prompts, creative-brief gate (pass / revise once / revise twice with 2 rounds / residual issues / writer exhausted / raising writer or reviser fail-soft), ad-copy gate (all pass / flagged copy revised + unflagged edit reverted / raising reviser fail-soft / residual issues), concept gate (all pass / flagged concept fixed + unflagged edit reverted + brand cue re-guarded / raising fixer fail-soft / residual issues)
+├── test_creative_agent_graph.py     # creative_agent graph pipelines end-to-end (stub models): routing, citations, no-stall, guard-repaired render prompts, creative-brief gate (pass / revise once / revise twice with 2 rounds / residual issues / writer exhausted / raising writer or reviser fail-soft), ad-copy gate (all pass / flagged copy revised + unflagged edit reverted / raising reviser fail-soft / residual issues), concept gate (all pass / flagged concept fixed + unflagged edit reverted + brand cue re-guarded / raising fixer fail-soft / residual issues), research PDF node (artifact + GCS / skipped without report / failure recorded), finalize_pipeline (evaluate + persist happy path with fake judge/GCS/BQ, no creatives → notice, failing gallery doesn't block BQ, eval row written last)
 ├── test_eval_efficiency_gate.py     # efficiency gate: metric extraction, tolerances, warn-only latency, CLI exit codes, --update-baseline
 ├── test_creative_eval.py            # creative_eval schemas, scoring logic, config
 ├── test_crf_config.py               # env-driven CRF config (required project, no hardcoding)
@@ -87,13 +87,14 @@ tests/
 ├── test_export_concurrency.py       # creative_agent export tools: per-run scratch isolation (issue #104)
 ├── test_image_prompt_guide.py       # IMAGE_PROMPT_GUIDE rules: text cap, descriptors not templates, Educational mapping, trend motif, trend_motif schema field
 ├── test_image_reference.py          # generate_image multimodal contents + valid ImageConfig
-├── test_interactive_resume_graph.py # real interactive_creative App via start_run/start_resume: checkpoint pause → NodeTool resume, fail-once retry counts, one BQ key
+├── test_interactive_resume_graph.py # real interactive_creative App via start_run/start_resume: checkpoint pause → NodeTool resume, fail-once retry counts, one BQ key (write_trends_to_bq added to the root's tools for the test)
 ├── test_no_legacy_agent_engines_api.py # guard: no legacy vertexai agent_engines API in repo call sites
 ├── test_observability.py            # shared agent_common observability callbacks
 ├── test_otel_flag.py                # ADK_OTEL_TO_CLOUD parsing + async_app wiring (opt-in Cloud Trace on the api)
 ├── test_pipeline_structure.py       # pipeline composition (graph nodes/edges by name, truthy terminals) + placement-env wiring
 ├── test_public_api.py               # creative_agent public facade (curated __all__ reuse surface) + guards: no legacy SequentialAgent/ParallelAgent/LoopAgent
 ├── test_retry_node.py               # RetryUntilKeyNode (retry-on-empty graph wrapper; is_populated; NodeTool no-stall)
+├── test_finalize.py                 # creative_agent/finalize.py nodes: summary formatting, judge off-loop on a snapshot, per-step isolation + ordering in persist_node, skipped eval writes
 ├── test_fail_soft_node.py           # FailSoftNode (optional-step exception → on_error state delta; successors still run; DynamicNodeFailError unwrap)
 ├── test_retry_config.py             # scoped RetryConfig constants on infra agents
 ├── test_safety_plugins.py           # opt-in Model Armor (agent_common.safety): env parsing, root-only scoping, every agent's App + canned-loader wiring

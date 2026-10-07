@@ -157,7 +157,7 @@ trend_scout (root Agent `trend_scout`; App + ResumabilityConfig(is_resumable=Tru
 ├── review_trends (LongRunningFunctionTool — opt-in interactive trend pick)
 └── Persistence tools (BigQuery, GCS, record_research_gaps, memorize)
 
-creative_agent (root Agent `root_agent`; non-resumable App (carries plugins); pipelines = graph Workflows exposed as bare nodes → NodeTool; creative_eval_agent via AgentTool)
+creative_agent (root Agent `root_agent`; non-resumable App (carries plugins); tools = 4 graph Workflows exposed as bare nodes → NodeTool + memorize; the root calls research → ad copies → visuals → finalize, then writes the final text)
 ├── combined_research_pipeline (Workflow, input_schema=PipelineRequest)
 │   START → (gs_/ca_sequential_planner: each a Workflow planner → RetryUntilKeyNode-wrapped
 │   searcher+synthesizer Workflow) → research_join (JoinNode) → research_barrier (no output)
@@ -179,15 +179,18 @@ creative_agent (root Agent `root_agent`; non-resumable App (carries plugins); pi
 │   visual_generation_pipeline (Workflow: art_director → concept drafter/critic/finalizer
 │   → visual_concepts_ready) → render_barrier → visual_generator_resilient
 │   (RetryUntilKeyNode → visual_generator, generate_image) → images_ready (truthy terminal)
-├── creative_eval_agent (LLM-as-judge scoring, from creative_eval)
-└── Persistence tools (GCS, BigQuery, HTML gallery, memorize)
+├── finalize_pipeline (Workflow, creative_agent/finalize.py: evaluate_creatives_node (creative_eval
+│   judge → creative_evaluation_report) → persist_node (eval report JSON → HTML gallery →
+│   trend_creatives row → creative_evals row; transient errors retried, then fail-soft →
+│   <key>__issues) → finalize_ready (sets finalize_done; truthy summary))
+└── memorize
 
-interactive_creative (root Agent `root_agent`; App + ResumabilityConfig(is_resumable=True); reviser + eval via AgentTool)
-├── combined_research_pipeline / ad_creative_pipeline / visual_generation_pipeline (reused from creative_agent; bare nodes → NodeTool)
+interactive_creative (root Agent `root_agent`; App + ResumabilityConfig(is_resumable=True); reviser via AgentTool)
+├── combined_research_pipeline / ad_creative_pipeline / visual_generation_pipeline / finalize_pipeline (reused from creative_agent; bare nodes → NodeTool)
 ├── review_research / review_ad_copies / review_visual_concepts (LongRunningFunctionTool checkpoints 1–3)
 ├── visual_concept_reviser (applies checkpoint-3 revision notes → final_visual_concepts)
-├── visual_generator_resilient + creative_eval_agent (reused; render after the reviser)
-└── Persistence tools (same as creative_agent)
+├── visual_generator_resilient (reused; render after the reviser) → finalize_pipeline
+└── save_draft_report_artifact (only to re-save the PDF after a checkpoint-1 report edit) + memorize
 ```
 
 ### Shared Building Blocks (`agent_common/`)
@@ -228,7 +231,7 @@ interactive_creative (root Agent `root_agent`; App + ResumabilityConfig(is_resum
 ### Frontend (`frontend/`) & Async-Job Backend (`runserver/`, `deployment/async_app.py`)
 
 - **Cloud Run Architecture:** Deployed as two services: `trend-trawler-web` (Next.js standalone, IAP-gated to `jordantotten.altostrat.com`) and private `trend-trawler-api` (runs `deployment/async_app.py` via `deployment/backend_entrypoint.sh` with `--no-cpu-throttling --min-instances 1` and persistent `VertexAiSessionService` via `SESSION_SERVICE_URI`).
-- **Async-Job Run Model (`runserver/async_runs.py`):** Kicks off a detached `asyncio` task driving `Runner.run_async` decoupled from the HTTP request, appends a terminal `__run_status` marker event, and serves `GET /runs/.../{session}?since=N` polling + resume endpoints so runs survive disconnects/reloads. Includes bounded `should_auto_continue` recovery (capped by `RUN_MAX_AUTO_CONTINUES`, default 2, clamped 0–3) if a root turn finishes empty before setting the app's completion key (`eval_bq_row_uuid` for creative apps, written by `write_eval_report_to_bq`).
+- **Async-Job Run Model (`runserver/async_runs.py`):** Kicks off a detached `asyncio` task driving `Runner.run_async` decoupled from the HTTP request, appends a terminal `__run_status` marker event, and serves `GET /runs/.../{session}?since=N` polling + resume endpoints so runs survive disconnects/reloads. Includes bounded `should_auto_continue` recovery (capped by `RUN_MAX_AUTO_CONTINUES`, default 2, clamped 0–3) if a root turn finishes empty before setting the app's completion key (`finalize_done` for creative apps, set by `finalize_pipeline`'s terminal node on every path).
 - **P3 Per-User Authz (`frontend/src/lib/iap-identity.ts`, `user-scoping.ts`, `runserver/authz.py`):**
   - Proxy verifies `x-goog-iap-jwt-assertion` (ES256, audience, `hd == IAP_ALLOWED_HD`; never reads spoofable `x-goog-authenticated-user-*` headers), allowlists UI routes, rewrites path/body `userId` (`me` → normalized caller email), and sets `X-TT-User`.
   - Backend `UserAuthzMiddleware` trusts `X-TT-User` only when accompanied by a verified Google ID token for `TRUSTED_PROXY_SA` (`tt-web-sa`) with `aud ∈ TRUSTED_PROXY_AUDIENCES`. Blocks canned `/run`, `/run_sse`, `/run_live`, memory, and agent-identity routes with 404.

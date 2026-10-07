@@ -113,7 +113,7 @@ as its import path (`tarfile.add(path)` → arcname), so nesting would break eve
 
 **Phase 1 — `trend_scout/`**: Gathers top 25 Google Search trends, researches cultural context via web search, filters to 3 most campaign-relevant trends, saves to BigQuery.
 
-**Phase 2 — `creative_agent/`**: Takes a single trend + campaign metadata, runs parallel web research (campaign researcher + trend researcher as sub-agents), synthesizes a strategic brief, generates ad copy and visual concepts, evaluates all creatives, and exports research PDF, HTML gallery, and evaluation report to GCS.
+**Phase 2 — `creative_agent/`**: Takes a single trend + campaign metadata, runs parallel web research (campaign researcher + trend researcher as sub-agents), synthesizes a strategic brief, generates ad copy and visual concepts, evaluates all creatives, and exports research PDF, HTML gallery, and evaluation report to GCS. The research PDF and the eval + persistence tail run as deterministic graph steps (inside `combined_research_pipeline` and `finalize_pipeline`), so the root makes only four workflow calls after `memorize`.
 
 **Phase 2 (interactive) — `interactive_creative/`**: Same pipeline as `creative_agent`, but pauses at 3 checkpoints for human review via ADK's `LongRunningFunctionTool`: (1) after research report, (2) after ad copies, (3) after visual concepts. Uses `ResumabilityConfig(is_resumable=True)`. It is a thin wrapper that reuses `creative_agent`'s reusable pipelines + visual schema by importing them from `creative_agent`'s **public facade** (`creative_agent/__init__.py`, a curated `__all__` re-export surface) rather than reaching into the volatile `creative_agent.agent`/`.schemas` internals. (The `config` singleton stays on its stable `creative_agent.config` submodule — re-exporting a name `config` from the package would shadow that submodule.)
 
@@ -129,7 +129,7 @@ trend_scout (root Agent `trend_scout`; App + ResumabilityConfig(is_resumable=Tru
 ├── review_trends (LongRunningFunctionTool — opt-in interactive trend pick)
 └── Persistence tools (BigQuery, GCS, record_research_gaps, memorize)
 
-creative_agent (root Agent `root_agent`; non-resumable App (carries plugins); pipelines = graph Workflows exposed as bare nodes → NodeTool; creative_eval_agent via AgentTool)
+creative_agent (root Agent `root_agent`; non-resumable App (carries plugins); tools = 4 graph Workflows exposed as bare nodes → NodeTool + memorize; the root calls research → ad copies → visuals → finalize, then writes the final text)
 ├── combined_research_pipeline (Workflow, input_schema=PipelineRequest)
 │   START → (gs_/ca_sequential_planner: each a Workflow planner → RetryUntilKeyNode-wrapped
 │   searcher+synthesizer Workflow) → research_join (JoinNode) → research_barrier (no output)
@@ -139,7 +139,9 @@ creative_agent (root Agent `root_agent`; non-resumable App (carries plugins); pi
 │   brief_writer, CreativeBrief → creative_brief) → brief_gate (deterministic brief_check.py;
 │   "revise" → brief_reviser_failsoft → back to brief_gate, at most BRIEF_REVISION_ROUNDS
 │   passes; residuals → creative_brief__issues; every exit writes creative_brief_md, the
-│   compact Markdown the creative prompts read; "ok") → research_report_ready (truthy terminal)
+│   compact Markdown the creative prompts read; "ok") → save_research_pdf_node (research PDF
+│   artifact + GCS → research_report_gcs_uri; skipped without a report; failure →
+│   research_report_gcs_uri__issues) → research_report_ready (truthy terminal)
 ├── ad_creative_pipeline (Workflow: drafter (10 copies spread across the brief's angles, self-rated
 │   typicality) → critic (final 4 cover ≥3 angles; per-copy brief_checks checklist) → copy_gate
 │   (deterministic copy_gate.py: product named, CTA ≤8 words, headline/caption length, brief avoid
@@ -158,15 +160,19 @@ creative_agent (root Agent `root_agent`; non-resumable App (carries plugins); pi
 │   guard) → back to concept_gate, at most CONCEPT_REVISION_ROUNDS passes; residuals →
 │   final_visual_concepts__issues; "ok") → visual_concepts_ready) → render_barrier → visual_generator_resilient
 │   (RetryUntilKeyNode → visual_generator, generate_image) → images_ready (truthy terminal)
-├── creative_eval_agent (LLM-as-judge scoring, from creative_eval)
-└── Persistence tools (GCS, BigQuery, HTML gallery, memorize)
+├── finalize_pipeline (Workflow, creative_agent/finalize.py: evaluate_creatives_node (creative_eval
+│   judge off the event loop → creative_evaluation_report; none → __retry_exhausted, stale report
+│   cleared) → persist_node (fixed order: eval report JSON → HTML gallery → trend_creatives row →
+│   creative_evals row (upsert); transient 5xx/429/timeouts retried ×3, then fail-soft →
+│   <key>__issues) → finalize_ready (sets finalize_done; truthy summary: scores, URIs, failed steps))
+└── memorize
 
-interactive_creative (root Agent `root_agent`; App + ResumabilityConfig(is_resumable=True); reviser + eval via AgentTool)
-├── combined_research_pipeline / ad_creative_pipeline / visual_generation_pipeline (reused from creative_agent, incl. their gates; bare nodes → NodeTool)
+interactive_creative (root Agent `root_agent`; App + ResumabilityConfig(is_resumable=True); reviser via AgentTool)
+├── combined_research_pipeline / ad_creative_pipeline / visual_generation_pipeline / finalize_pipeline (reused from creative_agent, incl. their gates; bare nodes → NodeTool)
 ├── review_research / review_ad_copies / review_visual_concepts (LongRunningFunctionTool checkpoints 1–3)
 ├── visual_concept_reviser (applies checkpoint-3 revision notes → final_visual_concepts; guarded by ensure_trend_and_product_callback, then recheck_concept_issues_callback re-records final_visual_concepts__issues — no fix loop; a direct-edit resume clears the stale marker)
-├── visual_generator_resilient + creative_eval_agent (reused; render after the reviser)
-└── Persistence tools (same as creative_agent)
+├── visual_generator_resilient (reused; render after the reviser) → finalize_pipeline
+└── save_draft_report_artifact (only to re-save the PDF after a checkpoint-1 report edit) + memorize
 ```
 
 Key ADK patterns used: `Agent`, graph `Workflow`s (`google.adk.workflow`: fan-out + `JoinNode`, routed function nodes, truthy terminal nodes; exposed to roots as bare nodes → `NodeTool`), `RetryUntilKeyNode` (graph retry wrapper in `agent_common/`), `AgentTool` (wraps agents as tools), `LongRunningFunctionTool` (pause/resume for human-in-the-loop), and `App` + `ResumabilityConfig` (resumable sessions). The ADK Workflow migration (proposal P2, complete 2026-09-29; `docs/plans/2026-09-29-p2-adk-workflow-migration.md`) retired the deprecated `SequentialAgent`/`ParallelAgent`/`LoopAgent` containers and the `RunIfAgent`/`RetryUntilKeyAgent` wrappers; `tests/test_public_api.py` guards against their return (no references in the agent packages, and importing every agent emits no legacy-container `DeprecationWarning`).
@@ -235,7 +241,7 @@ Shared building blocks live in **`agent_common/`** (a lightweight package bundle
 - `agent_common/sanitize.py` — `scrub_lone_surrogates` / `scrub_surrogates_in_response` (`after_model_callback`), which strip lone Unicode surrogates from model JSON before `output_schema` validation.
 - `agent_common/state.py` — the shared `memorize` ADK tool (re-exported from each agent's `tools.py`; the tool name must stay `memorize`) and `seed_initial_state(...)`, the one-time session-state seeding behind each agent's `callbacks._set_initial_states` (per-agent output dir / extra keys / `setdefault` defaults stay local).
 - `agent_common/clients.py` — `get_gcs_client()` / `get_bigquery_client()`, the shared lazy client getters (SDK imports inside the functions). Agent modules bind them to their `_get_gcs_client` / `_get_bigquery_client` names (the test monkeypatch points); `creative_agent.gcs_tools` wraps its GCS getter in `functools.cache`.
-- `agent_common/idempotency.py` — `stable_row_id(*parts, length=8)`, a deterministic (`json.dumps`-framed sha256) row key. The BigQuery write tools derive their row keys from `tool_context.session.id` with it (never uuid4) and write via `MERGE … WHEN NOT MATCHED THEN INSERT`, so at-least-once tool execution (resumed apps, CRF retries) leaves exactly one logical row.
+- `agent_common/idempotency.py` — `stable_row_id(*parts, length=8)`, a deterministic (`json.dumps`-framed sha256) row key. The BigQuery write tools derive their row keys from `tool_context.session.id` with it (never uuid4) and write via `MERGE … WHEN NOT MATCHED THEN INSERT`, so at-least-once tool execution (resumed apps, CRF retries) leaves exactly one logical row (the `creative_evals` row also `WHEN MATCHED THEN UPDATE`s, so a re-run's row matches its re-written GCS report JSON).
 - `agent_common/safety.py` — `build_safety_plugins(root_agent_names)`, the opt-in Model Armor plugin list every agent's `App(plugins=...)` is wired with (`[]` unless `MODEL_ARMOR_TEMPLATE` is set; `MODEL_ARMOR_RESPONSE_TEMPLATE` override; fail-closed unless `MODEL_ARMOR_FAIL_CLOSED=false`). `ScopedModelArmorPlugin` screens only the root orchestrator's turns — `AgentTool`/`NodeTool` propagate App plugins into every sub-agent run. Read at agent-module import, so for Agent Engine it's the *deployer's* env that is baked into the pickled App. `creative_agent/__init__.py` re-exports `app` so ADK's canned loader serves the App, not the bare `root_agent`.
 - `agent_common/locations.py` + `agent_common/models.py` — `MODEL_LOCATION` (default `global`) and `build_gemini(name)`, which pin every gemini-3.x call's serving location in code (Agent Engine *reserves* `GOOGLE_CLOUD_LOCATION`, so it can't be forced via deploy env vars). `build_gemini` returns a `TimeoutRetryingGemini` (a `Gemini` subclass): it sets the timeout per request on `llm_request.config.http_options.timeout` (not via `client_kwargs`, which would clobber ADK's headers/`retry_options`) and retries a timed-out request up to `TIMEOUT_RETRY_ATTEMPTS` (3 total) before any output is yielded — needed because ADK's async genai client uses aiohttp, whose timeout surfaces as builtin `TimeoutError`, which genai's `HttpRetryOptions` does not retry. An exhausted `TimeoutError` carries no HTTP status, so `FallbackModel` does **not** fail over on it (429/5xx only); it propagates (node `RetryConfig` lists `TimeoutError` where set). The three root orchestrators also pass `empty_turn_retries=ROOT_EMPTY_TURN_RETRIES` (2): a clean empty turn (`STOP`, no text/function call — a Pro root sometimes answers a long NodeTool result that way, and ADK then ends the invocation) is re-asked inside the model call, so it is covered under `adk eval` and Agent Engine too, not only by the runserver auto-continue (which stays the backstop). Non-streaming only; sub-agents don't opt in.
 - `agent_common/observability.py` — the shared debugging callbacks used by every agent: `log_run_start` (run→session correlation line), `log_empty_turn_finish_reason` (`after_model_callback` that warns only on empty/abnormal producer turns), `make_final_state_summary(label, keys)` (factory → `after_agent_callback` logging load-bearing state keys + `*__retry_exhausted` markers), and `collect_degradation_warnings(state)` — the single source of truth that turns the generic `<key>__retry_exhausted` and `<key>__issues` (list/str of residual quality issues → "<Label> has unresolved issues: n (e.g. …)", capped) markers into the notes surfaced on the eval report (`warnings`), the `creative_evals.research_gaps` BQ column, and the HTML gallery "Run notes" banner (HTML-escaped). Snapshots `state.to_dict()` before scanning (an ADK `State` isn't directly iterable).
@@ -278,13 +284,14 @@ Image-generation prompt guidance lives in `creative_agent/prompts.py` as `IMAGE_
 - `agent_common/retry.py` — `build_infra_retry()` shared ADK `RetryConfig` factory
 - `agent_common/models.py` / `agent_common/locations.py` — `build_gemini()` + `MODEL_LOCATION` (pins gemini-3.x to `global`)
 - `interactive_creative/review_tools.py` — `LongRunningFunctionTool` pause tools for human-in-the-loop checkpoints
+- `creative_agent/finalize.py` — `finalize_pipeline` nodes: `evaluate_creatives_node` (judge in a thread on a state snapshot), `persist_node` (eval JSON + gallery to GCS, both BigQuery rows; bounded transient retry, then fail-soft `<key>__issues`), `finalize_ready` (summary + `finalize_done` completion marker)
 - `creative_eval/evaluate.py` — Core LLM-as-judge evaluation logic
 - `creative_eval/schemas.py` — Pydantic models for evaluation reports
 - `tests/eval/eval_config.json` — ADK eval criteria config (rubric-based scoring)
 - `tests/eval/evalsets/` — ADK eval cases per agent
 - `deployment/deploy_agent.py` — Agent Engine deploy/list/delete CLI; `AGENT_EXTRA_PACKAGES`/`AGENT_DEPLOY_SPECS` maps are the single source of truth for what each agent bundles
 - `deployment/test_deployment.py` — Invoke deployed agents for testing
-- `runserver/async_runs.py` — async-job run model: `/runs` FastAPI router + pure helpers. Kicks off a **detached `asyncio` task** driving `Runner.run_async` to completion decoupled from the HTTP request, appends a terminal `__run_status` marker event on done/error, and serves poll (`GET ?since=N`) + resume endpoints. Replaces browser-held SSE so runs survive client disconnect. **Auto-continue:** if a segment ends cleanly on an empty root turn (no text/function call) with the app's completion key unset and no unanswered long-running checkpoint call (`should_auto_continue`), it re-prompts the same session with `AUTO_CONTINUE_MESSAGE` before writing `done`. This happens inside the same task and `RUN_MAX_SECONDS` budget, records `__auto_continues` in state, and is capped per segment by `RUN_MAX_AUTO_CONTINUES` (default 2, clamped 0–3). Creative apps count as finished only at `eval_bq_row_uuid` (written by the final step, `write_eval_report_to_bq`), not at `eval_report_gcs_uri`.
+- `runserver/async_runs.py` — async-job run model: `/runs` FastAPI router + pure helpers. Kicks off a **detached `asyncio` task** driving `Runner.run_async` to completion decoupled from the HTTP request, appends a terminal `__run_status` marker event on done/error, and serves poll (`GET ?since=N`) + resume endpoints. Replaces browser-held SSE so runs survive client disconnect. **Auto-continue:** if a segment ends cleanly on an empty root turn (no text/function call) with the app's completion key unset and no unanswered long-running checkpoint call (`should_auto_continue`), it re-prompts the same session with `AUTO_CONTINUE_MESSAGE` before writing `done`. This happens inside the same task and `RUN_MAX_SECONDS` budget, records `__auto_continues` in state, and is capped per segment by `RUN_MAX_AUTO_CONTINUES` (default 2, clamped 0–3). Creative apps count as finished only at `finalize_done` (set by `finalize_pipeline`'s terminal node on every path, even with no eval report or a failed eval BQ write), not at `eval_report_gcs_uri` / `eval_bq_row_uuid`.
 - `runserver/authz.py` — P3 per-user authz: `resolve_mode` (`TRUST_CLIENT_USER_ID` / `USER_AUTHZ_MODE`), `normalize_user_id`, `verify_proxy_caller` (proxy-SA ID-token check), `UserAuthzMiddleware` (401/403/404 per `decide`), `authorize_body_user` (kick-off body), and the ownership-`ValueError` → 404 handler
 - `deployment/async_app.py` — launcher that mounts the `/runs` router on ADK's canned FastAPI app, sharing one `VertexAiSessionService`; run under uvicorn by `deployment/backend_entrypoint.sh`
 - `cloud_functions/creative_fanout/main.py` — Orchestrator and worker entry points

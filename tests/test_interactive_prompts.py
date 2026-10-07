@@ -9,7 +9,7 @@ from interactive_creative.review_tools import review_research
 
 
 def _checkpoint1_step() -> str:
-    match = re.search(r"^\s*3\. \*\*CHECKPOINT 1:\*\*.*$", ROOT_AGENT_INSTR, re.M)
+    match = re.search(r"^\s*2\. \*\*CHECKPOINT 1:\*\*.*$", ROOT_AGENT_INSTR, re.M)
     assert match, "CHECKPOINT 1 workflow step not found"
     return match.group(0)
 
@@ -19,6 +19,57 @@ def test_checkpoint1_step_resaves_pdf_when_report_edited():
     assert "report_edited" in step
     assert "save_draft_report_artifact" in step
     assert "Do NOT re-run the research pipeline" in step
+
+
+def _workflow() -> str:
+    return ROOT_AGENT_INSTR.split("<WORKFLOW>", 1)[1].split("</WORKFLOW>", 1)[0]
+
+
+def test_research_pdf_is_saved_by_the_pipeline_not_the_root():
+    """The research pipeline saves the PDF itself; the root re-saves it only on
+    report_edited (checkpoint 1), never as a separate step after research."""
+    first = re.search(r"^\s*1\. .*$", _workflow(), re.M)
+    assert first and "combined_research_pipeline" in first.group(0)
+    assert "do NOT call `save_draft_report_artifact`" in first.group(0)
+    calls = [
+        line
+        for line in _workflow().splitlines()
+        if "`save_draft_report_artifact`" in line
+    ]
+    assert len(calls) == 2  # step 1's "do NOT call" + the report_edited re-save
+
+
+def test_save_draft_report_artifact_is_forbidden_unless_report_edited():
+    """Regression: the PDF re-save is conditional on report_edited and is the only
+    allowed call (an unconditional re-save would overwrite the pipeline's PDF)."""
+    step = _checkpoint1_step()
+    condition = step.index("If the response has `report_edited: true`")
+    call = step.index("call `save_draft_report_artifact`")
+    assert condition < call
+    assert "this is the only time to call it" in step[call:]
+    tool_line = next(
+        line
+        for line in ROOT_AGENT_INSTR.splitlines()
+        if line.lstrip().startswith("3. `save_draft_report_artifact`")
+    )
+    assert "Only after the user edited the report at checkpoint 1" in tool_line
+
+
+def test_finalize_pipeline_replaces_eval_and_persistence_steps():
+    workflow = _workflow()
+    for gone in (
+        "creative_eval_agent",
+        "save_eval_report_to_gcs",
+        "save_creative_gallery_html",
+        "write_trends_to_bq",
+        "write_eval_report_to_bq",
+    ):
+        assert gone not in ROOT_AGENT_INSTR, gone
+    render = workflow.index("`visual_generator_resilient` to generate")
+    assert workflow.index("`finalize_pipeline`") > render
+    assert "ALL 9 steps" in ROOT_AGENT_INSTR and "until step 9" in ROOT_AGENT_INSTR
+    last = re.search(r"^\s*9\. .*$", workflow, re.M)
+    assert last and "{gcs_bucket}/{gcs_folder}/{agent_output_dir}" in last.group(0)
 
 
 def test_review_research_docstring_mentions_report_edited():

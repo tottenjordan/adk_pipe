@@ -1585,20 +1585,28 @@ def test_should_auto_continue_respects_attempt_cap(monkeypatch):
 
 
 def test_should_auto_continue_false_when_workflow_complete():
-    assert _sac(state={"eval_bq_row_uuid": "abc123"}) is False
-    # Empty/blank completion values still count as unfinished.
-    assert _sac(state={"eval_bq_row_uuid": ""}) is True
-    assert _sac(state={"eval_bq_row_uuid": "  "}) is True
+    assert _sac(state={"finalize_done": True}) is False
+    assert _sac(app="interactive_creative", state={"finalize_done": True}) is False
+    # Unset/falsy completion values still count as unfinished.
+    assert _sac(state={"finalize_done": False}) is True
+    assert _sac(state={"finalize_done": ""}) is True
+    assert _sac(state={"finalize_done": "  "}) is True
 
 
-def test_should_auto_continue_after_eval_saved_but_before_bq_write():
-    """The eval report in GCS is NOT the end: an empty root turn before the final
-    write_eval_report_to_bq (session 8242212012491276288) must be re-prompted."""
-    assert _sac(state={"eval_report_gcs_uri": "gs://b/r.json"}) is True
-    assert (
-        _sac(app="creative_agent", state={"eval_report_gcs_uri": "gs://b/r.json"})
-        is True
-    )
+def test_should_auto_continue_until_finalize_done_even_with_eval_outputs():
+    """Incomplete iff finalize_done is unset: the eval report URI (written mid
+    persist_node) and the eval BQ row uuid (never written when there is no report
+    or the eval BQ write failed) do not prove finalize_pipeline finished, and
+    keying on them would re-run finalize (incl. the ~70 s judge) after it did."""
+    for state in (
+        {"eval_report_gcs_uri": "gs://b/r.json"},
+        {"eval_bq_row_uuid": "abc123"},
+        {"eval_report_gcs_uri": "gs://b/r.json", "eval_bq_row_uuid": "abc123"},
+    ):
+        assert _sac(state=state) is True
+        assert _sac(app="creative_agent", state=state) is True
+    done = {"finalize_done": True}  # finalize ran, but no eval row was written
+    assert _sac(app="creative_agent", state=done) is False
 
 
 def test_should_auto_continue_uses_trend_scout_completion_key():
@@ -1777,7 +1785,7 @@ def test_drive_run_no_continue_at_legitimate_pause():
 def test_drive_run_no_continue_when_workflow_complete():
     svc = InMemorySessionService()
     runner = _ScriptedRunner(svc, "interactive_creative", [list(_EMPTY_SEGMENT)])
-    session = _run_scripted(runner, state={"eval_bq_row_uuid": "abc123"})
+    session = _run_scripted(runner, state={"finalize_done": True})
     assert len(runner.messages) == 1
     assert async_runs.AUTO_CONTINUES_KEY not in session.state
     assert _status_markers(session) == ["done"]

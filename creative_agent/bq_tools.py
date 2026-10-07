@@ -88,11 +88,13 @@ EVAL_COLUMN_TYPES = {
 def _build_eval_merge_sql(
     table: str, row: dict
 ) -> tuple[str, list[bigquery.ScalarQueryParameter]]:
-    """Build the INSERT-only MERGE for one eval row (pure, unit-testable).
+    """Build the upsert MERGE for one eval row (pure, unit-testable).
 
     Columns come from the row dict's keys; every value is bound as a typed
     `@named` parameter (None -> typed NULL), never interpolated. Keyed on
-    ``uuid``, so a repeat write of the same session-derived id is a no-op.
+    ``uuid``, so a repeat write of the same session-derived id never adds a
+    second row; it UPDATEs the matched row's other columns instead, so a re-run
+    (which overwrites the report JSON in GCS) leaves the BQ row agreeing with it.
     Raises KeyError for a column missing from EVAL_COLUMN_TYPES.
     """
     cols = list(row)
@@ -105,6 +107,9 @@ def _build_eval_merge_sql(
             value = datetime.datetime.fromisoformat(value)
         params.append(bigquery.ScalarQueryParameter(col, bq_type, value))
     select_list = ",\n                ".join(f"@{c} AS {c}" for c in cols)
+    update_list = ",\n                ".join(
+        f"{c} = S.{c}" for c in cols if c != "uuid"
+    )
     sql = f"""
         MERGE `{table}` T
         USING (
@@ -112,6 +117,8 @@ def _build_eval_merge_sql(
                 {select_list}
         ) S
         ON T.uuid = S.uuid
+        WHEN MATCHED THEN
+            UPDATE SET {update_list}
         WHEN NOT MATCHED THEN
             INSERT ({", ".join(cols)})
             VALUES ({", ".join(f"S.{c}" for c in cols)});
@@ -274,11 +281,10 @@ def write_eval_report_to_bq(tool_context: ToolContext) -> dict:
             raise RuntimeError(f"BigQuery insert returned errors: {job.errors}")
         logging.info(
             f"DML MERGE job {job.job_id} for eval row {row['uuid']} into {table_id}"
-            f" completed; added {job.num_dml_affected_rows} rows."
+            f" completed; {job.num_dml_affected_rows} rows affected."
         )
-        # The workflow's final step: runserver's auto-continue treats the run as
-        # finished only once this is set (not at eval_report_gcs_uri, which is
-        # written earlier), so an empty root turn before this write is re-prompted.
+        # Recorded for the finalize summary/tests. Not the completion key:
+        # runserver's auto-continue keys on finalize_pipeline's `finalize_done`.
         tool_context.state["eval_bq_row_uuid"] = row["uuid"]
         return {"status": "success", "eval_uuid": row["uuid"]}
     except Exception as e:

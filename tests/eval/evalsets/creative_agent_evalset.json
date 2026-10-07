@@ -1,7 +1,7 @@
 {
   "eval_set_id": "creative_agent_eval",
   "name": "Creative Agent Pipeline Evaluation",
-  "description": "End-to-end eval for the creative_agent. Given a single trend + campaign metadata, verifies the tool trajectory (memorize -> research -> save research -> ad copy -> visuals -> evaluate -> export report/gallery -> BigQuery) and that the final response returns the Cloud Storage location of the generated creatives.",
+  "description": "End-to-end eval for the creative_agent. Given a single trend + campaign metadata, verifies the tool trajectory (memorize -> research (saves the research PDF) -> ad copy -> visuals -> finalize (evaluate + export report/gallery + BigQuery)) and that the final response returns the Cloud Storage location of the generated creatives.",
   "eval_cases": [
     {
       "eval_id": "prs_guitars_creative",
@@ -23,13 +23,9 @@
               { "name": "memorize", "args": {} },
               { "name": "memorize", "args": {} },
               { "name": "combined_research_pipeline", "args": {} },
-              { "name": "save_draft_report_artifact", "args": {} },
               { "name": "ad_creative_pipeline", "args": {} },
               { "name": "visual_production_pipeline", "args": {} },
-              { "name": "creative_eval_agent", "args": {} },
-              { "name": "save_eval_report_to_gcs", "args": {} },
-              { "name": "save_creative_gallery_html", "args": {} },
-              { "name": "write_trends_to_bq", "args": {} }
+              { "name": "finalize_pipeline", "args": {} }
             ]
           }
         }
@@ -60,13 +56,9 @@
               { "name": "memorize", "args": {} },
               { "name": "memorize", "args": {} },
               { "name": "combined_research_pipeline", "args": {} },
-              { "name": "save_draft_report_artifact", "args": {} },
               { "name": "ad_creative_pipeline", "args": {} },
               { "name": "visual_production_pipeline", "args": {} },
-              { "name": "creative_eval_agent", "args": {} },
-              { "name": "save_eval_report_to_gcs", "args": {} },
-              { "name": "save_creative_gallery_html", "args": {} },
-              { "name": "write_trends_to_bq", "args": {} }
+              { "name": "finalize_pipeline", "args": {} }
             ]
           }
         }

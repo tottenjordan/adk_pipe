@@ -22,26 +22,38 @@ per-graph copies of its agents, not the module-level objects.
 """
 
 import asyncio
+import inspect
 import json
 from typing import Any
 
 import pytest
 from google.adk.agents import LlmAgent
+from google.adk.agents.llm_agent import _wrap_base_node_as_tool
+from google.adk.artifacts import InMemoryArtifactService
 from google.adk.events.event import Event
 from google.adk.models.llm_response import LlmResponse
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
+from google.adk.workflow._base_node import BaseNode
 from google.genai import types
 from pydantic import ValidationError
 
 from creative_agent.brief_render import render_brief_markdown
+from creative_eval.schemas import (
+    AdCopyEvaluation,
+    CreativeScore,
+    VisualConceptEvaluation,
+)
+from tests._fake_bq import FakeBigQueryClient
 from tests._fakes import (
+    FakeStorageClient,
     RecordingLlm,
     fc_response,
     text_response,
     user_message,
     walk_nodes,
 )
+from tests.test_creative_eval import SAMPLE_AD_COPIES, SAMPLE_VISUAL_CONCEPTS
 
 _URL = "https://example.com/trend"
 _QUERIES = '{"queries": [{"search_query": "q"}]}'
@@ -94,11 +106,25 @@ def _run_root(
     monkeypatch: pytest.MonkeyPatch,
     tool: str,
     extra_state: dict[str, Any] | None = None,
+    root_tools: list[Any] | None = None,
 ) -> tuple[RecordingLlm, list[Event], dict[str, Any]]:
-    """Run the real root once: it calls ``tool`` then finishes with text."""
+    """Run the real root once: it calls ``tool`` then finishes with text.
+
+    ``root_tools`` (graph nodes are wrapped as NodeTools) replaces the root's
+    tool list for this run.
+    """
     import creative_agent.agent as ca
 
     root_llm = RecordingLlm()
+    if root_tools is not None:
+        monkeypatch.setattr(
+            ca.root_agent,
+            "tools",
+            [
+                _wrap_base_node_as_tool(t) if isinstance(t, BaseNode) else t
+                for t in root_tools
+            ],
+        )
     monkeypatch.setattr(ca.root_agent, "model", root_llm)
     monkeypatch.setattr(ca.root_agent, "instruction", "orchestrate")
     monkeypatch.setattr(ca.root_agent, "before_agent_callback", None)
@@ -108,7 +134,10 @@ def _run_root(
     async def go() -> tuple[list[Event], dict[str, Any]]:
         svc = InMemorySessionService()
         runner = Runner(
-            agent=ca.root_agent, app_name="creative_agent", session_service=svc
+            agent=ca.root_agent,
+            app_name="creative_agent",
+            session_service=svc,
+            artifact_service=InMemoryArtifactService(),
         )
         session = await svc.create_session(
             app_name="creative_agent",
@@ -129,6 +158,32 @@ def _run_root(
 
     events, state = asyncio.run(go())
     return root_llm, events, state
+
+
+_PDF_CALLS: list[str] = []
+
+
+@pytest.fixture(autouse=True)
+def _fake_research_pdf(monkeypatch):
+    """Keep the research pipeline's PDF save offline: a recording stand-in for
+    gcs_tools.save_draft_report_artifact (tests needing the real one restore
+    ``_REAL_SAVE_PDF``)."""
+    from creative_agent import gcs_tools
+
+    _PDF_CALLS.clear()
+
+    async def fake_save_pdf(ctx) -> dict:
+        _PDF_CALLS.append(ctx.state["final_report_with_citations"])
+        ctx.state["research_report_gcs_uri"] = "gs://bucket/report.pdf"
+        return {"status": "success"}
+
+    monkeypatch.setattr(gcs_tools, "save_draft_report_artifact", fake_save_pdf)
+
+
+def _real_save_pdf():
+    import creative_agent.tools as t
+
+    return t.save_draft_report_artifact  # the tools re-export keeps the original
 
 
 def _responses(events: list[Event]) -> list[dict[str, Any]]:
@@ -234,9 +289,13 @@ def test_research_graph_healthy_path_skips_refinement(monkeypatch):
     assert state["brief_issues"] == ""
     assert state.get("creative_brief__issues") is None
     assert state["brief_revision_rounds_used"] == 0
+    # The research PDF was saved once, on the gate's "ok" exit.
+    assert _PDF_CALLS == [state["final_report_with_citations"]]
+    assert state["research_report_gcs_uri"] == "gs://bucket/report.pdf"
     # The root got the terminal node's truthy result and was re-called.
     (response,) = _responses(events)
     assert "Research report complete" in str(response)
+    assert "gs://bucket/report.pdf" in str(response)
     assert root_llm.calls == 2
 
 
@@ -939,6 +998,238 @@ def test_ad_copy_issues_left_after_the_budget_are_recorded(monkeypatch):
     assert response == {
         "result": _ADS_CONFIRMATION.replace("4 final", f"{len(ads)} final")
     }
+    assert root_llm.calls == 2
+
+
+# --- finalize_pipeline (evaluate -> persist -> summary) --- #
+def _judge_score(passed: bool, overall: float) -> CreativeScore:
+    return CreativeScore(
+        overall_score=overall,
+        passed=passed,
+        verdicts=[],
+        strengths=[],
+        improvements=[],
+    )
+
+
+def _fake_judge(ad_copies, visual_concepts, campaign_context, config):
+    """Stands in for creative_eval.evaluate_all_concurrently (no judge calls)."""
+    ads = [
+        AdCopyEvaluation(
+            original_id=a["original_id"],
+            headline=a["headline"],
+            tone_style=a.get("tone_style", ""),
+            score=_judge_score(True, 0.8),
+        )
+        for a in ad_copies
+    ]
+    visuals = [
+        VisualConceptEvaluation(
+            ad_copy_id=v["ad_copy_id"],
+            concept_name=v["concept_name"],
+            score=_judge_score(False, 0.6),
+        )
+        for v in visual_concepts
+    ]
+    return ads, visuals
+
+
+_FINALIZE_STATE = {
+    "gcs_folder": "folder",
+    "agent_output_dir": "out",
+    "ad_copy_critique": SAMPLE_AD_COPIES,
+    "final_visual_concepts": SAMPLE_VISUAL_CONCEPTS,
+}
+
+
+def _run_finalize(monkeypatch, state: dict[str, Any], gallery=None):
+    """Run the root once through finalize_pipeline with fake judge, GCS and BQ.
+
+    Returns (root_llm, events, state, step order, storage, bq). ``gallery``
+    replaces save_creative_gallery_html.
+    """
+    import creative_agent.agent as ca
+    import creative_eval.agent as eval_agent
+    from creative_agent import bq_tools, gcs_tools, tools
+
+    monkeypatch.setattr(eval_agent, "evaluate_all_concurrently", _fake_judge)
+    storage = FakeStorageClient([])
+    monkeypatch.setattr(gcs_tools, "_get_gcs_client", lambda: storage)
+    bq = FakeBigQueryClient()
+    monkeypatch.setattr(bq_tools, "_get_bigquery_client", lambda: bq)
+
+    order: list[str] = []
+    steps = [
+        (gcs_tools, "save_eval_report_to_gcs", None),
+        (tools, "save_creative_gallery_html", gallery),
+        (bq_tools, "write_trends_to_bq", None),
+        (bq_tools, "write_eval_report_to_bq", None),
+    ]
+    for module, name, replacement in steps:
+        target = replacement or getattr(module, name)
+        if inspect.iscoroutinefunction(target):
+
+            async def recorded(ctx, _t=target, _n=name):
+                order.append(_n)
+                return await _t(ctx)
+
+        else:
+
+            def recorded(ctx, _t=target, _n=name):
+                order.append(_n)
+                return _t(ctx)
+
+        monkeypatch.setattr(module, name, recorded)
+
+    root_llm, events, final = _run_root(
+        monkeypatch, "finalize_pipeline", state, root_tools=[ca.finalize_pipeline]
+    )
+    return root_llm, events, final, order, storage, bq
+
+
+def test_finalize_graph_evaluates_and_persists_everything(monkeypatch):
+    root_llm, events, state, order, storage, bq = _run_finalize(
+        monkeypatch, dict(_FINALIZE_STATE)
+    )
+
+    report = state["creative_evaluation_report"]
+    assert report["summary"]["total_ad_copies"] == 2
+    assert report["summary"]["visual_concepts_passed"] == 0
+    assert state["eval_report_gcs_uri"].endswith("folder/out/creative_eval_report.json")
+    assert state["creative_gallery_gcs_uri"].endswith(
+        "folder/out/creative_portfolio_gallery.html"
+    )
+    assert state["creative_row_uuid"]
+    assert state["eval_bq_row_uuid"]
+    assert state["finalize_done"] is True
+    assert not [k for k in state if k.endswith(("__issues", "__retry_exhausted"))]
+    # The eval row links to both the creative row and the saved report: last.
+    assert order == [
+        "save_eval_report_to_gcs",
+        "save_creative_gallery_html",
+        "write_trends_to_bq",
+        "write_eval_report_to_bq",
+    ]
+    assert len(bq.sqls) == 2 and "creative_eval" not in bq.sqls[0]
+    assert "folder/out/creative_eval_report.json" in storage.contents
+    assert "folder/out/creative_portfolio_gallery.html" in storage.contents
+    # One function response (the NodeTool's) and the root was re-called.
+    (response,) = _responses(events)
+    assert "Evaluation complete: 2/3 creatives passed" in str(response)
+    assert "'The Proposal Riff' (visual, 0.60)" in str(response)
+    assert root_llm.calls == 2
+
+
+def test_finalize_graph_without_creatives_still_ends_truthy(monkeypatch):
+    root_llm, events, state, order, _, bq = _run_finalize(
+        monkeypatch, {"gcs_folder": "folder", "agent_output_dir": "out"}
+    )
+
+    assert state["creative_evaluation_report__retry_exhausted"] is True
+    assert "creative_evaluation_report" not in state
+    # No report: both eval writes are skipped, the creative row still lands.
+    assert order == ["write_trends_to_bq"]
+    assert state["creative_row_uuid"] and len(bq.sqls) == 1
+    (response,) = _responses(events)
+    assert "creative_evaluation_report" in str(response)
+    assert root_llm.calls == 2
+
+
+def test_finalize_graph_gallery_failure_does_not_block_bq(monkeypatch):
+    async def broken_gallery(ctx):
+        raise RuntimeError("gallery upload failed")
+
+    root_llm, events, state, order, _, bq = _run_finalize(
+        monkeypatch, dict(_FINALIZE_STATE), gallery=broken_gallery
+    )
+
+    assert "gallery upload failed" in state["creative_gallery_gcs_uri__issues"]
+    assert "creative_gallery_gcs_uri" not in state
+    assert order[-2:] == ["write_trends_to_bq", "write_eval_report_to_bq"]
+    assert state["creative_row_uuid"] and state["eval_bq_row_uuid"]
+    assert state["finalize_done"] is True
+    assert len(bq.sqls) == 2
+    (response,) = _responses(events)
+    assert "Failed steps: HTML gallery." in str(response)
+    assert root_llm.calls == 2
+
+
+# --- research PDF (save_research_pdf_node) --- #
+
+
+class _FakeSection:
+    def __init__(self, *a, **k):
+        pass
+
+
+class _FakeMarkdownPdf:
+    def __init__(self, *a, **k):
+        self.meta: dict = {}
+
+    def add_section(self, *a, **k):
+        return None
+
+    def save(self, path):
+        with open(path, "wb") as f:
+            f.write(b"%PDF-1.4 fake")
+
+
+def test_research_pdf_is_saved_as_an_artifact_and_to_gcs(monkeypatch):
+    import creative_agent.agent as ca
+    from creative_agent import gcs_tools
+
+    monkeypatch.setattr(gcs_tools, "save_draft_report_artifact", _real_save_pdf())
+    monkeypatch.setattr(gcs_tools, "MarkdownPdf", _FakeMarkdownPdf)
+    monkeypatch.setattr(gcs_tools, "Section", _FakeSection)
+    storage = FakeStorageClient([])
+    monkeypatch.setattr(gcs_tools, "_get_gcs_client", lambda: storage)
+    llms = _stub_graph(monkeypatch, ca.combined_research_pipeline)
+    _script_research(llms, ["CA INSIGHTS"])
+
+    _, events, state = _run_root(
+        monkeypatch,
+        "combined_research_pipeline",
+        {"gcs_folder": "folder", "agent_output_dir": "out"},
+    )
+
+    blob = "folder/out/research_report_with_citations.pdf"
+    assert state["research_report_gcs_uri"].endswith(blob)
+    assert [name for name, _ in storage.uploads] == [blob]
+    deltas = [e.actions.artifact_delta for e in events if e.actions.artifact_delta]
+    assert deltas == [{"research_report_with_citations.pdf": 0}]
+    assert "research_report_gcs_uri__issues" not in state
+
+
+def test_research_pdf_is_skipped_without_a_report(monkeypatch):
+    import creative_agent.agent as ca
+
+    llms = _stub_graph(monkeypatch, ca.combined_research_pipeline)
+    _script_research(llms, ["CA INSIGHTS"], report="   ")
+
+    root_llm, events, state = _run_root(monkeypatch, "combined_research_pipeline")
+
+    assert _PDF_CALLS == []
+    assert "research_report_gcs_uri" not in state
+    assert "research_report_gcs_uri__issues" not in state
+    assert len(_responses(events)) == 1 and root_llm.calls == 2
+
+
+def test_research_pdf_failure_is_recorded_not_raised(monkeypatch):
+    import creative_agent.agent as ca
+    from creative_agent import gcs_tools
+
+    async def broken(ctx):
+        raise RuntimeError("pdf render failed")
+
+    monkeypatch.setattr(gcs_tools, "save_draft_report_artifact", broken)
+    llms = _stub_graph(monkeypatch, ca.combined_research_pipeline)
+    _script_research(llms, ["CA INSIGHTS"])
+
+    root_llm, events, state = _run_root(monkeypatch, "combined_research_pipeline")
+
+    assert "pdf render failed" in state["research_report_gcs_uri__issues"]
+    (response,) = _responses(events)
+    assert "Research report complete" in str(response)
     assert root_llm.calls == 2
 
 

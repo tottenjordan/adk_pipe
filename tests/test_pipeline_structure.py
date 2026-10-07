@@ -14,20 +14,15 @@ def test_creative_agent_root_has_expected_tools():
     tool_names = [
         getattr(t, "name", getattr(t, "__name__", str(t))) for t in root_agent.tools
     ]
-    expected = [
+    # The research PDF and the eval + persistence steps run inside the
+    # pipelines: the root makes four workflow calls (plus memorize).
+    assert tool_names == [
         "combined_research_pipeline",
         "ad_creative_pipeline",
         "visual_production_pipeline",
-        "creative_eval_agent",
-        "save_eval_report_to_gcs",
-        "save_draft_report_artifact",
-        "save_creative_gallery_html",
-        "write_trends_to_bq",
-        "write_eval_report_to_bq",
+        "finalize_pipeline",
         "memorize",
     ]
-    for name in expected:
-        assert name in tool_names, f"Missing tool: {name}"
 
 
 def test_creative_agent_root_output_key_not_set():
@@ -77,35 +72,32 @@ def test_combined_research_pipeline_graph():
         "brief_writer_failsoft",
         "brief_gate",
         "brief_reviser_failsoft",
+        "save_research_pdf_node",
         "research_report_ready",
     } <= names
-    edges = _graph_edges(wf)
-    assert ("__START__", "gs_sequential_planner", None) in edges
-    assert ("__START__", "ca_sequential_planner", None) in edges  # parallel fan-out
     assert isinstance(_graph_nodes(wf)["research_join"], JoinNode)
-    assert ("gs_sequential_planner", "research_join", None) in edges
-    assert ("ca_sequential_planner", "research_join", None) in edges
-    assert ("research_join", "research_barrier", None) in edges
-    assert ("research_barrier", "merge_planners", None) in edges
-    assert ("merge_planners", "refinement_gate", None) in edges
-    assert ("refinement_gate", "combined_web_evaluator", "refine") in edges
-    assert ("refinement_gate", "combined_report_composer", "skip") in edges
-    assert (
-        "combined_web_evaluator",
-        "enhanced_combined_searcher_resilient",
-        None,
-    ) in edges
-    assert (
-        "enhanced_combined_searcher_resilient",
-        "combined_report_composer",
-        None,
-    ) in edges
-    # The structured brief is written after the report, then the terminal: a
-    # function node that always returns a truthy tool result.
-    assert ("combined_report_composer", "brief_writer_failsoft", None) in edges
-    assert ("brief_writer_failsoft", "brief_gate", None) in edges
-    assert ("brief_gate", "research_report_ready", "ok") in edges
-    assert not any(src == "research_report_ready" for src, _, _ in edges)
+    # Exact edges: parallel fan-out from START, the refinement route, the brief
+    # writer + bounded revision cycle, then (on the gate's "ok" exit) the
+    # research PDF save before the truthy terminal.
+    assert _graph_edges(wf) == {
+        ("__START__", "gs_sequential_planner", None),
+        ("__START__", "ca_sequential_planner", None),
+        ("gs_sequential_planner", "research_join", None),
+        ("ca_sequential_planner", "research_join", None),
+        ("research_join", "research_barrier", None),
+        ("research_barrier", "merge_planners", None),
+        ("merge_planners", "refinement_gate", None),
+        ("refinement_gate", "combined_web_evaluator", "refine"),
+        ("refinement_gate", "combined_report_composer", "skip"),
+        ("combined_web_evaluator", "enhanced_combined_searcher_resilient", None),
+        ("enhanced_combined_searcher_resilient", "combined_report_composer", None),
+        ("combined_report_composer", "brief_writer_failsoft", None),
+        ("brief_writer_failsoft", "brief_gate", None),
+        ("brief_gate", "save_research_pdf_node", "ok"),
+        ("brief_gate", "brief_reviser_failsoft", "revise"),
+        ("brief_reviser_failsoft", "brief_gate", None),
+        ("save_research_pdf_node", "research_report_ready", None),
+    }
 
 
 def test_refinement_pair_is_retry_wrapped_workflow():
@@ -227,6 +219,7 @@ _RESULT_NODES = {
     "ad_copies_ready",
     "visual_concepts_ready",
     "images_ready",
+    "finalize_ready",
 }
 
 
@@ -427,6 +420,25 @@ def test_ad_creative_pipeline_graph_edges():
         ("copy_gate", "ad_copy_reviser_failsoft", "revise"),
         ("ad_copy_reviser_failsoft", "copy_gate", None),
     }
+
+
+def test_finalize_pipeline_graph():
+    """The post-render steps run as one deterministic NodeTool: evaluate, then
+    persist (GCS + BigQuery), then a truthy summary terminal."""
+    from google.adk.workflow import Workflow
+
+    from agent_common import PipelineRequest
+    from creative_agent.agent import finalize_pipeline as wf
+
+    assert isinstance(wf, Workflow)
+    assert _graph_edges(wf) == {
+        ("__START__", "evaluate_creatives_node", None),
+        ("evaluate_creatives_node", "persist_node", None),
+        ("persist_node", "finalize_ready", None),
+    }
+    assert wf.input_schema is PipelineRequest
+    assert wf.description.strip() and "Executes the node" not in wf.description
+    _assert_truthy_terminal(wf, "finalize_pipeline")
 
 
 def test_visual_generation_pipeline_graph_edges():
@@ -943,7 +955,8 @@ def test_interactive_creative_uses_resilient_visual_generator():
 
 def test_interactive_creative_exposes_pipelines_as_node_tools():
     """G3 minimal change: the reused creative_agent pipelines are bare nodes
-    (auto-wrapped NodeTools); the reviser + eval judge stay AgentTools."""
+    (auto-wrapped NodeTools, now including finalize_pipeline); only the reviser
+    stays an AgentTool."""
     from google.adk.tools.agent_tool import AgentTool
 
     from interactive_creative import agent as ic
@@ -954,11 +967,12 @@ def test_interactive_creative_exposes_pipelines_as_node_tools():
         "ad_creative_pipeline",
         "visual_generation_pipeline",
         "visual_generator_resilient",
+        "finalize_pipeline",
     }
     agent_tools = {
         t.agent.name for t in ic.root_agent.tools if isinstance(t, AgentTool)
     }
-    assert agent_tools == {"visual_concept_reviser", "creative_eval_agent"}
+    assert agent_tools == {"visual_concept_reviser"}
     # The human-review checkpoints stay LongRunningFunctionTools (they pause the
     # resumable App until the resume's function response arrives).
     from google.adk.tools.long_running_tool import LongRunningFunctionTool
@@ -1297,7 +1311,7 @@ def test_pick_trends_agent_excludes_brand_unsafe_trends():
 
 def test_creative_agent_root_exposes_pipelines_as_node_tools():
     """The pipelines are bare graph nodes on the root (auto-wrapped NodeTools);
-    creative_eval_agent stays an AgentTool."""
+    the eval judge runs inside finalize_pipeline, so there are no AgentTools."""
     from google.adk.tools.agent_tool import AgentTool
 
     from creative_agent.agent import root_agent
@@ -1307,9 +1321,9 @@ def test_creative_agent_root_exposes_pipelines_as_node_tools():
         "combined_research_pipeline",
         "ad_creative_pipeline",
         "visual_production_pipeline",
+        "finalize_pipeline",
     }
-    agent_tools = {t.agent.name for t in root_agent.tools if isinstance(t, AgentTool)}
-    assert agent_tools == {"creative_eval_agent"}
+    assert not [t for t in root_agent.tools if isinstance(t, AgentTool)]
 
 
 # The six Pro (critic_model) producers fail over to worker_model on 429/5xx via
@@ -1446,7 +1460,7 @@ def test_brief_writer_instruction_tokens():
 
 
 def test_brief_gate_routes_through_a_bounded_revision_cycle():
-    """composer → writer → gate → ok: ready | revise: reviser → gate. The
+    """composer → writer → gate → ok: PDF → ready | revise: reviser → gate. The
     reviser loops back to the gate (a routed cycle), whose revision counter
     bounds the passes; both brief agents are fail-soft wrapped."""
     from agent_common import FailSoftNode
@@ -1454,7 +1468,7 @@ def test_brief_gate_routes_through_a_bounded_revision_cycle():
 
     edges = _graph_edges(wf)
     assert ("brief_writer_failsoft", "brief_gate", None) in edges
-    assert ("brief_gate", "research_report_ready", "ok") in edges
+    assert ("brief_gate", "save_research_pdf_node", "ok") in edges
     assert ("brief_gate", "brief_reviser_failsoft", "revise") in edges
     assert ("brief_reviser_failsoft", "brief_gate", None) in edges
     assert "brief_recheck" not in _graph_nodes(wf)
