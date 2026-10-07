@@ -4,6 +4,8 @@ These assert that the optional `{key?}` state tokens are present in the right
 agent instructions so ADK will interpolate the user's seeded intent, and guard
 the IMAGE_PROMPT_GUIDE no-braces invariant (it is string-concatenated into the
 drafter/critic instructions, so a stray `{` would be read as a state token).
+Also pins the campaign-context tokens (brand/audience/product) each creative
+agent needs.
 """
 
 from __future__ import annotations
@@ -90,3 +92,46 @@ class TestImageDiversityRules:
             prompts.VISUAL_CONCEPT_FINALIZER_INSTR,
         ):
             assert "at most 2" in instr
+
+
+class TestCampaignContextTokens:
+    """Brand/audience/product context reaches every agent that needs it
+    (required `{key}` tokens: the state init always setdefaults them)."""
+
+    def test_ad_copy_drafter_sees_brand_and_audience(self):
+        assert "{brand}" in prompts.AD_COPY_DRAFTER_INSTR
+        assert "{target_audience}" in prompts.AD_COPY_DRAFTER_INSTR
+
+    def test_ad_copy_critic_sees_brand(self):
+        assert "{brand}" in prompts.AD_COPY_CRITIC_INSTR
+
+    def test_report_composer_sees_campaign_fields(self):
+        for token in ("{brand}", "{target_product}", "{target_audience}"):
+            assert token in prompts.COMBINED_REPORT_COMPOSER_INSTR
+
+    def test_visual_critic_sees_brand_audience_and_paired_copy(self):
+        instr = prompts.VISUAL_CONCEPT_CRITIC_INSTR
+        assert "{brand}" in instr
+        assert "{target_audience}" in instr
+        assert "{ad_copy_critique?}" in instr
+        assert "paired" in instr.lower()
+
+    def test_campaign_planner_researches_the_brand(self):
+        from creative_agent.sub_agents.campaign_researcher.agent import (
+            campaign_web_planner,
+        )
+
+        instr = str(campaign_web_planner.instruction)
+        assert "{brand}" in instr
+        assert "1–2" in instr
+        for phrase in ("voice", "recent campaigns", "distinctive brand assets"):
+            assert phrase in instr.lower()
+
+    def test_campaign_synthesizer_has_brand_section(self):
+        from creative_agent.sub_agents.campaign_researcher.agent import (
+            campaign_web_synthesizer,
+        )
+
+        assert "Brand Voice & Distinctive Assets" in str(
+            campaign_web_synthesizer.instruction
+        )

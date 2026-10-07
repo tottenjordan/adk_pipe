@@ -53,7 +53,7 @@ campaign_web_planner = Agent(
     include_contents="none",
     description="Generates initial queries to guide web research about concepts described in the campaign metadata.",
     instruction="""Role: You are an expert market research strategist and query optimization specialist.
-    Your job is to create a focused list of **exactly 5** high-level, effective web search queries that will provide critical insights for marketers regarding the target audience, product, and key selling points for a new campaign.
+    Your job is to create a focused list of **exactly 5** high-level, effective web search queries that will provide critical insights for marketers regarding the brand, target audience, product, and key selling points for a new campaign.
 
     <INSTRUCTIONS>
     To complete the task, you must follow these steps precisely:
@@ -63,6 +63,10 @@ campaign_web_planner = Agent(
     </INSTRUCTIONS>
 
     <CONTEXT>
+        <brand>
+        {brand}
+        </brand>
+
         <target_audience>
         {target_audience}
         </target_audience>
@@ -82,10 +86,12 @@ campaign_web_planner = Agent(
     The queries must be high-signal, meaning they are formulated to yield actionable web research results.
     *   **Count:** Generate **exactly 5** distinct search queries.
     *   **Balance:** Ensure your list includes **at least one** query focused on the **`target_audience`**, **at least one** on the **`target_product`**, and **at least one** connecting the **`target_audience`** and the **`key_selling_points`**.
+    *   **Brand:** **1–2** of the 5 queries must research the **`brand`** itself: its voice and positioning, its recent campaigns, and its distinctive brand assets (colours, logo, characters/mascots, shapes, slogans).
     *   **Relevance:** The queries should help answer questions like:
         *   What are the current cultural trends, pain points, or aspirational goals of the **`target_audience`** related to the **`target_product`**?
         *   What are the main competitive alternatives or common misconceptions about the **`target_product`**?
         *   How could the **`key_selling_points`** resonate with the **`target_audience`**?
+        *   How does the **`brand`** sound and present itself, and which distinctive assets make its ads instantly recognizable?
     *   **Format:** Queries should be optimized for a modern web search engine (i.e., not long, conversational sentences). Use quotation marks around specific phrases or product names where appropriate.
     </KEY_GUIDANCE>
 
@@ -135,6 +141,7 @@ campaign_web_searcher = Agent(
     -   **Product/Market Landscape:** Competitive alternatives, common use cases, and general market sentiment around the product category.
     -   **Key Selling Point Validation:** Evidence, data, or public opinion that supports or contradicts the effectiveness of the intended key selling points.
     -   **Cultural Relevance:** Current trends or cultural shifts that could impact campaign messaging.
+    -   **Brand Voice & Assets:** The brand's tone of voice, positioning, recent campaigns, and distinctive assets (colours, logo, characters, shapes, slogans).
     </CONTEXT_GUIDANCE>
 
     ---
@@ -166,6 +173,10 @@ campaign_web_synthesizer = Agent(
     </INSTRUCTIONS>
 
     <CONTEXT>
+        <brand>
+        {brand}
+        </brand>
+
         <campaign_web_search_raw>
         {campaign_web_search_raw?}
         </campaign_web_search_raw>
@@ -177,6 +188,7 @@ campaign_web_synthesizer = Agent(
     -   **Product/Market Landscape:** Competitive alternatives, common use cases, and general market sentiment around the product category.
     -   **Key Selling Point Validation:** Evidence, data, or public opinion that supports or contradicts the effectiveness of the intended key selling points.
     -   **Cultural Relevance:** Current trends or cultural shifts that could impact campaign messaging.
+    -   **Brand Voice & Assets:** How the brand sounds and presents itself, and the distinctive assets that make its ads recognizable.
     </CONTEXT_GUIDANCE>
 
     <REPORT_STRUCTURE>
@@ -185,7 +197,8 @@ campaign_web_synthesizer = Agent(
     1.  **Target Audience and Behavioral Insights:** (Summarize findings about the audience's needs, language, and online behavior.)
     2.  **Product Landscape and Competitive Context:** (Detail the market position, identify 2-3 main alternatives, and note any common misconceptions.)
     3.  **Strategic Opportunities & Key Message Validation:** (Highlight 2-3 most compelling, research-backed insights that validate or refine the campaign's key selling points.)
-    4.  **Key Research Gaps/Next Steps:** (Briefly note any critical information that could not be found or requires further investigation.)
+    4.  **Brand Voice & Distinctive Assets:** (Describe the brand's tone of voice and positioning, note 1-2 recent campaigns, and list its distinctive brand assets — colours, logo, characters/mascots, shapes, slogans — that creatives should reuse.)
+    5.  **Key Research Gaps/Next Steps:** (Briefly note any critical information that could not be found or requires further investigation.)
     </REPORT_STRUCTURE>
 
     ---

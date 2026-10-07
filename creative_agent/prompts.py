@@ -200,6 +200,18 @@ COMBINED_REPORT_COMPOSER_INSTR = """Role: You are the Lead Campaign Strategist.
 
 
     <CONTEXT>
+        <brand>
+        {brand}
+        </brand>
+
+        <target_product>
+        {target_product}
+        </target_product>
+
+        <target_audience>
+        {target_audience}
+        </target_audience>
+
         <combined_web_search_insights>
         {combined_web_search_insights?}
         </combined_web_search_insights>
@@ -265,6 +277,8 @@ AD_COPY_DRAFTER_INSTR = """Role: You are an innovative, fast-paced ad copy gener
     1.  **Analyze and Apply:** Analyze the research report to understand the audience, product, and trend intersection. If the report is empty, work from the campaign inputs.
     2.  **Generate 10 Diverse Ideas:** Generate exactly 10 ad copy ideas. Each idea must:
         *   Creatively market the target product: {target_product}
+        *   Sound like the brand: {brand} (use its voice and distinctive assets from the research report).
+        *   Speak directly to the target audience: {target_audience}
         *   Incorporate the key selling point(s): {key_selling_points}
         *   Be suitable for Instagram/TikTok platforms (short, punchy, visual-friendly).
         *   Directly reference or subtly leverage the trending topic: {target_search_trends}.
@@ -296,6 +310,7 @@ AD_COPY_CRITIC_INSTR = """Role: You are a strategic marketing critic and convers
     1.  **Parse Input:** Retrieve and parse the JSON list of 10 ad copies from the `ad_copy_draft` input in the <CONTEXT> block. If it is empty, output an object whose `ad_copies` list is empty.
     2.  **Critical Evaluation:** Evaluate the 10 ideas based on the following criteria:
         *   **Strategic Alignment:** How well does the idea synthesize the product, key selling points, and target audience insights from the research report?
+        *   **Brand Fit:** Does it sound like the brand (its voice, positioning and distinctive assets from the research report)?
         *   **Trend Authenticity:** Does the use of the trending topic feel natural, relevant, and not forced?
         *   **Platform Viability:** Is the tone and length highly suitable for Instagram/TikTok?
         *   **Creative Excellence:** Is the idea compelling, clear, and likely to drive a high click-through rate?
@@ -305,6 +320,10 @@ AD_COPY_CRITIC_INSTR = """Role: You are a strategic marketing critic and convers
     </INSTRUCTIONS>
 
     <CONTEXT>
+        <brand>
+        {brand}
+        </brand>
+
         <target_search_trends>
         {target_search_trends}
         </target_search_trends>
@@ -508,6 +527,8 @@ VISUAL_CONCEPT_CRITIC_INSTR = (
         *   **Style fidelity:** Refine the prompt WITHIN its chosen `visual_style`, applying the <IMAGE_PROMPT_GUIDE>. Do NOT force it toward photorealism or a fixed word count — a minimalist or sticker concept should stay short and clean; a cinematic photoreal concept can be long and layered. Length appropriate to the style. PRESERVE the `visual_style` unless it is clearly wrong for the ad's tone (only then change it, and update the field).
         *   **Creative Fidelity:** Ensure the revised prompt vividly represents the **{target_product}** and makes a clear visual link to the **{target_search_trends}** trend in a way that aligns with the intended tone.
         *   **Stopping Power:** The resulting image must have high visual appeal and "stopping power" for a social media feed.
+        *   **Brand & audience fit:** The image must feel unmistakably like **{brand}** and speak to **{target_audience}**.
+        *   **Copy pairing:** Check each concept against its paired final ad copy in <ad_copy_critique> (matched by `ad_copy_id`): the image must support that copy's headline and message, not contradict or ignore it.
         *   **User intent:** Honour the <user_visual_direction>, <user_style_preference> and <user_avoid> blocks when non-empty. When the style preference is non-empty it overrides the style-diversity rule — keep concepts in that family and vary lighting/composition instead. Steer away from anything in <user_avoid> — phrase prompts positively, never as negations.
         *   **Carry-through:** Keep `trend_motif` and its verbatim presence in the prompt. Keep the `aspect_ratio` field (adjust only if the composition demands it). When <user_aspect_ratio> is non-empty, set every concept's `aspect_ratio` to this value and compose for it.
         *   **Set-level checks:** families come from <style_shortlist> and are all different; at most ONE centred hero; in-image text in at most 2 concepts (meme/comic captions excepted), short and punchy, no small print or style terms; every concept has a trend motif, and each `trend_motif` is SPECIFIC and recognisable: replace generic ones (phones, feeds, chat bubbles, notifications, screens) with signature imagery of the trend; no readable or gibberish background text. Fix violations by rewriting the weakest concept.
@@ -518,6 +539,11 @@ VISUAL_CONCEPT_CRITIC_INSTR = (
         <visual_draft>
         {visual_draft?}
         </visual_draft>
+
+        <ad_copy_critique>
+        The final ad copies each concept is paired with (by `ad_copy_id`).
+        {ad_copy_critique?}
+        </ad_copy_critique>
 
         <style_shortlist>
         This run's style shortlist (choose 4 distinct families from it). When empty, use the guide's palette.
