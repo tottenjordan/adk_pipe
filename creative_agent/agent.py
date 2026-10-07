@@ -627,7 +627,6 @@ def _copy_issues(state: Mapping[str, Any]) -> dict[str, list[str]]:
         state.get("ad_copy_critique"),
         target_product=str(state.get("target_product") or ""),
         avoid=brief_avoid(state.get("creative_brief")),
-        brand=str(state.get("brand") or ""),
     )
 
 

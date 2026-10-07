@@ -52,7 +52,7 @@ _FINAL_AD = {
     "original_id": 1,
     "tone_style": "Humorous",
     "headline": "Beep beep",
-    "body_text": "Outrun anything on Rocket Skates.",
+    "body_text": "Outrun anything.",
     "trend_connection": "Roadrunner.",
     "audience_appeal_rationale": "Coyotes want speed.",
     "social_caption": "Zoom.",

@@ -6,11 +6,12 @@ import pytest
 
 from creative_agent.copy_gate import (
     brief_avoid,
+    copy_keys,
     flatten_copy_issues,
     format_copy_issues,
     gate_copies,
     parse_copies,
-    product_token,
+    product_words,
     restore_unflagged,
 )
 
@@ -24,7 +25,7 @@ def _copy(original_id=1, **overrides):
         "trend_connection": "t",
         "audience_appeal_rationale": "a",
         "social_caption": "Zoom zoom.",
-        "call_to_action": "Order your skates today",
+        "call_to_action": "Order yours today",
         "detailed_performance_rationale": "r",
     }
     copy.update(overrides)
@@ -33,7 +34,6 @@ def _copy(original_id=1, **overrides):
 
 def _gate(*copies, **kwargs):
     kwargs.setdefault("target_product", "Rocket Skates")
-    kwargs.setdefault("brand", "Acme")
     return gate_copies(list(copies), **kwargs)
 
 
@@ -73,41 +73,87 @@ def test_clean_copies_have_no_issues():
 # --- product named --------------------------------------------------------------
 
 
-def test_product_named_by_full_name_or_first_significant_token():
+def test_product_named_by_full_name_or_any_significant_word():
     assert _gate(_copy(body_text="Strap on Rocket Skates.")) == {}
-    # First significant token ("rocket") is enough, case-insensitively.
+    # Any significant word is enough, case-insensitively.
     assert _gate(_copy(body_text="Go ROCKET-powered.")) == {}
-    # Also counted in the headline or the social caption.
     assert _gate(_copy(body_text="Go fast.", headline="Rocket time")) == {}
     assert _gate(_copy(body_text="Go fast.", social_caption="#rocket")) == {}
 
 
 def test_product_not_named_is_flagged():
-    (issues,) = _gate(_copy(7, body_text="Go fast.")).values()
+    (issues,) = _gate(
+        _copy(7, body_text="Go fast.", call_to_action="Order today")
+    ).values()
     assert issues == [
-        "product not named: mention 'Rocket Skates' in the headline, body text "
-        "or social caption."
+        "product not named: mention 'Rocket Skates' in the headline, body text, "
+        "social caption or call to action."
     ]
 
 
-def test_product_token_must_be_a_whole_word():
+def test_product_word_must_be_a_whole_word():
     # "rocketry" is not "rocket".
-    issues = _gate(_copy(body_text="Pure rocketry."))
+    issues = _gate(_copy(body_text="Pure rocketry.", call_to_action="Order today"))
     assert "product not named" in issues["1"][0]
 
 
-def test_product_not_named_ignores_the_cta():
-    issues = _gate(_copy(body_text="Go fast.", call_to_action="Buy Rocket Skates"))
-    assert "product not named" in issues["1"][0]
+def test_product_named_in_the_cta_counts():
+    copy = _copy(body_text="Go fast.", call_to_action="Buy Rocket Skates")
+    assert _gate(copy) == {}
 
 
-def test_product_token_skips_stopwords_brand_and_short_words():
-    assert product_token("The New Acme Rocket Skates", "Acme") == "rocket"
-    assert product_token("PRS SE Custom 24", "PRS") == "custom"
-    assert product_token("Acme", "Acme") == ""
-    # Only the brand: the full product name must appear.
-    assert "1" in gate_copies([_copy()], target_product="Acme", brand="Acme")
-    assert gate_copies([_copy(body_text="Acme!")], target_product="Acme") == {}
+def _names(product, text):
+    copy = _copy(body_text=text, call_to_action="Order today")
+    return gate_copies([copy], target_product=product) == {}
+
+
+@pytest.mark.parametrize(
+    ("product", "text"),
+    [
+        # Brand "Powerball": a brand word inside the product phrase counts.
+        ("Powerball tickets", "Play Powerball tonight"),
+        # Plural/singular forms match both ways.
+        ("Powerball ticket", "Grab Powerball tickets"),
+        ("Rocket Skates", "Lace up your skates"),
+        ("Running shoe", "New running shoes drop"),
+        ("Boxes", "Pack the lunch box"),
+        # Pure numbers/years are not significant; another word is enough.
+        ("2026 eco running shoes", "New running shoes drop"),
+        ("PRS SE Custom 24", "Meet the new PRS SE"),  # brand "PRS"
+        # Possessives are stripped.
+        ("Rocket Skates", "The rocket's red glare"),
+        ("Rocket Skates", "The rocket’s red glare"),
+    ],
+)
+def test_product_named_after_light_normalisation(product, text):
+    assert _names(product, text)
+
+
+@pytest.mark.parametrize(
+    ("product", "text"),
+    [
+        ("PRS SE Custom 24", "Play loud all night"),
+        # Stopwords, numbers and words under 3 characters never count.
+        ("The New SE 24", "The new year, 24 hours, se habla"),
+        # A brand outside the product phrase (brand "Acme") does not count.
+        ("Rocket Skates", "Acme makes you fast"),
+    ],
+)
+def test_product_not_named_after_light_normalisation(product, text):
+    assert not _names(product, text)
+
+
+def test_product_words_skip_stopwords_numbers_and_short_words():
+    assert product_words("The New Acme Rocket Skates") == ["acme", "rocket", "skates"]
+    assert product_words("PRS SE Custom 24") == ["prs", "custom"]
+    assert product_words("2026 eco running shoes") == ["eco", "running", "shoes"]
+    assert product_words("Bob's Burgers") == ["bob", "burgers"]
+    assert product_words("SE 24") == []
+    # No significant word: only the full product phrase can match.
+    assert "1" in gate_copies(
+        [_copy(call_to_action="Order today")], target_product="SE 24"
+    )
+    assert gate_copies([_copy(body_text="SE 24!")], target_product="SE 24") == {}
 
 
 def test_blank_target_product_skips_the_product_check():
@@ -284,3 +330,40 @@ def test_restore_without_a_snapshot_passes_the_revision_through():
         _before(),
         [],
     )
+
+
+# --- duplicate original_ids -----------------------------------------------------
+
+
+def test_copy_keys_disambiguate_duplicate_ids():
+    copies = [_copy(1), _copy(2), _copy(1), _copy(1)]
+    del copies[1]["original_id"]
+    assert copy_keys(copies) == ["1", "#1", "1#2", "1#3"]
+
+
+def test_gate_keys_a_duplicate_id_separately():
+    result = _gate(_copy(1), _copy(1, headline="y" * 80))
+    assert list(result) == ["1#2"]
+    text = format_copy_issues([_copy(1), _copy(1, headline="y" * 80)], result)
+    assert text.startswith(f'- **Copy 1#2 ("{"y" * 80}"):**')
+
+
+def test_restore_keeps_duplicate_id_copies_distinct():
+    before = {"ad_copies": [_copy(1, headline="First"), _copy(1, headline="Second")]}
+    fixed = _copy(1, headline="Second, fixed")
+    after = {"ad_copies": [_copy(1, headline="First"), fixed]}
+    restored, notes = restore_unflagged(before, after, ["1#2"])
+    assert restored == {"ad_copies": [_copy(1, headline="First"), fixed]}
+    assert notes == []
+
+
+def test_restore_never_collapses_duplicate_ids_into_one_copy():
+    before = {"ad_copies": [_copy(1, headline="First"), _copy(1, headline="Second")]}
+    # The reviser returned only one copy with id 1 (a rewrite of the second).
+    after = {"ad_copies": [_copy(1, headline="Second, fixed")]}
+    restored, notes = restore_unflagged(before, after, ["1#2"])
+    assert [c["headline"] for c in restored["ad_copies"]] == ["First", "Second"]
+    assert sorted(notes) == [
+        "restored copy 1: it was not flagged for revision",
+        "restored flagged copy 1#2: missing from the revision",
+    ]

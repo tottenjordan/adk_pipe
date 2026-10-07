@@ -28,23 +28,30 @@ MAX_CTA_WORDS = 8
 _STOPWORDS = frozenset(
     {
         "a",
+        "all",
         "an",
         "and",
+        "at",
         "by",
         "for",
         "from",
         "in",
+        "its",
         "new",
         "of",
         "on",
         "or",
+        "our",
         "the",
         "to",
         "with",
+        "your",
     }
 )
 _MIN_TOKEN_CHARS = 3
-_COPY_FIELDS = ("headline", "body_text", "social_caption")
+# Every copy field the product may be named in (the CTA counts too).
+_COPY_FIELDS = ("headline", "body_text", "social_caption", "call_to_action")
+_POSSESSIVE = re.compile(r"['\u2019]s\b", re.IGNORECASE)
 
 
 def parse_copies(copies: Any) -> list[Mapping[str, Any]]:
@@ -66,12 +73,25 @@ def parse_copies(copies: Any) -> list[Mapping[str, Any]]:
     return [c for c in copies if isinstance(c, Mapping)]
 
 
-def copy_key(copy: Mapping[str, Any], index: int) -> str:
-    """The copy's issue key: ``str(original_id)``, or ``#<index>`` without one."""
-    original_id = copy.get("original_id")
-    if original_id is None or isinstance(original_id, bool):
-        return f"#{index}"
-    return str(original_id)
+def copy_keys(copies: list[Mapping[str, Any]]) -> list[str]:
+    """Each copy's issue key, unique within ``copies``.
+
+    ``str(original_id)``; ``#<index>`` for a copy without one; and
+    ``<original_id>#<n>`` for the n-th (n >= 2) copy repeating an id, so a
+    model that duplicated an id never gets two copies collapsed into one by
+    the gate or by ``restore_unflagged``.
+    """
+    keys: list[str] = []
+    seen: dict[str, int] = {}
+    for index, copy in enumerate(copies):
+        original_id = copy.get("original_id")
+        if original_id is None or isinstance(original_id, bool):
+            keys.append(f"#{index}")
+            continue
+        base = str(original_id)
+        seen[base] = seen.get(base, 0) + 1
+        keys.append(base if seen[base] == 1 else f"{base}#{seen[base]}")
+    return keys
 
 
 def brief_avoid(brief: Mapping[str, Any] | str | None) -> list[str]:
@@ -90,7 +110,8 @@ def _text(value: Any) -> str:
 
 
 def _words(text: str) -> list[str]:
-    return re.findall(r"[a-z0-9]+", text.lower())
+    """Lower-cased words of ``text``, with possessive 's / ’s stripped."""
+    return re.findall(r"[a-z0-9]+", _POSSESSIVE.sub("", text).lower())
 
 
 def _contains_phrase(haystack: str, phrase: str) -> bool:
@@ -102,28 +123,45 @@ def _contains_phrase(haystack: str, phrase: str) -> bool:
     return re.search(pattern + r"(?![a-z0-9])", haystack.lower()) is not None
 
 
-def product_token(target_product: str, brand: str = "") -> str:
-    """The product's first significant word ("" when it has none).
+def product_words(target_product: str) -> list[str]:
+    """The product's significant words (lower-cased, possessives stripped).
 
-    Skips stopwords, the brand's words and very short words, so "Acme Rocket
-    Skates" (brand "Acme") yields "rocket".
+    Skips stopwords, pure numbers (model numbers, years) and words under 3
+    characters: "PRS SE Custom 24" yields ["prs", "custom"]. Brand words are
+    kept: when the product phrase contains the brand ("Powerball tickets"),
+    naming the brand names the product.
     """
-    brand_words = set(_words(brand))
-    for word in _words(target_product):
-        if (
-            len(word) >= _MIN_TOKEN_CHARS
-            and word not in _STOPWORDS
-            and word not in brand_words
-        ):
-            return word
-    return ""
+    return [
+        word
+        for word in _words(target_product)
+        if len(word) >= _MIN_TOKEN_CHARS
+        and word not in _STOPWORDS
+        and not word.isdigit()
+    ]
 
 
-def _names_product(copy_text: str, target_product: str, brand: str) -> bool:
+def _same_word(a: str, b: str) -> bool:
+    """Equal, or singular/plural of each other (a trailing "s" or "es")."""
+    if a == b:
+        return True
+    short, long_ = sorted((a, b), key=len)
+    return long_ in (f"{short}s", f"{short}es")
+
+
+def _names_product(copy_text: str, target_product: str) -> bool:
+    """The copy names the product: its full phrase, or ANY significant word.
+
+    Deliberately lenient (each false positive costs a revision call and a
+    user-visible warning): "Lace up your skates" names "Rocket Skates".
+    """
     if _contains_phrase(copy_text, target_product):
         return True
-    token = product_token(target_product, brand)
-    return bool(token) and _contains_phrase(copy_text, token)
+    copy_words = set(_words(copy_text))
+    return any(
+        _same_word(word, other)
+        for word in product_words(target_product)
+        for other in copy_words
+    )
 
 
 def _avoid_terms(avoid: Iterable[str] | str) -> list[str]:
@@ -137,15 +175,14 @@ def _check_copy(
     *,
     target_product: str,
     avoid: list[str],
-    brand: str,
 ) -> list[str]:
     issues: list[str] = []
     copy_text = " ".join(_text(copy.get(f)) for f in _COPY_FIELDS)
 
-    if target_product.strip() and not _names_product(copy_text, target_product, brand):
+    if target_product.strip() and not _names_product(copy_text, target_product):
         issues.append(
             f"product not named: mention '{target_product.strip()}' in the "
-            "headline, body text or social caption."
+            "headline, body text, social caption or call to action."
         )
 
     cta = _text(copy.get("call_to_action"))
@@ -174,9 +211,8 @@ def _check_copy(
             f"{MAX_CAPTION_CHARS} characters."
         )
 
-    full_text = f"{copy_text} {cta}"
     for term in avoid:
-        if _contains_phrase(full_text, term):
+        if _contains_phrase(copy_text, term):
             issues.append(
                 f"contains the avoided term '{term}': remove it or rephrase "
                 "without it (the brief's avoid list)."
@@ -201,13 +237,13 @@ def gate_copies(
     *,
     target_product: str,
     avoid: Iterable[str] | str = (),
-    brand: str = "",
 ) -> dict[str, list[str]]:
-    """The copies' rule violations, keyed by ``str(original_id)``.
+    """The copies' rule violations, keyed by ``copy_keys``.
 
     ``copies`` is the ``ad_copy_critique`` state value (see ``parse_copies``).
-    Checks, per copy: the product is named (``target_product`` or its first
-    significant word, see ``product_token``) in the headline/body/caption; the
+    Checks, per copy: the product is named (``target_product`` or ANY of its
+    significant words, plural-insensitive, see ``product_words``) in the
+    headline/body/caption/CTA; the
     CTA is non-empty and at most 8 words; the headline is at most 60 characters;
     the social caption at most 2200; no term from ``avoid`` (the creative
     brief's avoid list; a string is split on newlines/commas/semicolons) appears
@@ -216,19 +252,17 @@ def gate_copies(
     ({} = clean). Never raises.
     """
     terms = _avoid_terms(avoid)
+    parsed = parse_copies(copies)
     issues: dict[str, list[str]] = {}
-    for index, copy in enumerate(parse_copies(copies)):
-        found = _check_copy(
-            copy, target_product=target_product, avoid=terms, brand=brand
-        )
-        if found:
-            issues.setdefault(copy_key(copy, index), []).extend(found)
+    for key, copy in zip(copy_keys(parsed), parsed, strict=True):
+        if found := _check_copy(copy, target_product=target_product, avoid=terms):
+            issues[key] = found
     return issues
 
 
 def _copy_label(copies: list[Mapping[str, Any]], key: str) -> str:
-    for index, copy in enumerate(copies):
-        if copy_key(copy, index) == key:
+    for copy_id, copy in zip(copy_keys(copies), copies, strict=True):
+        if copy_id == key:
             headline = _text(copy.get("headline"))
             return f'Copy {key} ("{headline}")' if headline else f"Copy {key}"
     return f"Copy {key}"
@@ -260,9 +294,10 @@ def restore_unflagged(
     """The reviser's output with only the flagged copies taken from it.
 
     Returns ``({"ad_copies": [...]}, notes)``: the pre-revision copies, in their
-    original order, with each copy whose key is in ``flagged_ids`` replaced by
-    the reviser's copy with the same ``original_id`` (the first one, when it
-    duplicated an id). Unflagged copies the reviser changed, flagged copies it
+    original order, with each copy whose key (``copy_keys``) is in
+    ``flagged_ids`` replaced by the reviser's copy with the same key (so the
+    second copy sharing an id is matched to the reviser's second copy with that
+    id, never collapsed into the first). Unflagged copies the reviser changed, flagged copies it
     dropped, and extra or duplicated ids are reverted/dropped; ``notes``
     describes each intervention ([] = the reviser followed the rules). With no
     usable pre-revision copies, ``after`` is returned as is.
@@ -272,18 +307,18 @@ def restore_unflagged(
     if not old:
         return {"ad_copies": [dict(c) for c in new]}, []
     flagged = {str(f) for f in flagged_ids}
-    old_keys = [copy_key(c, i) for i, c in enumerate(old)]
+    old_keys = copy_keys(old)
+    new_keys = copy_keys(new)
 
     revised: dict[str, Mapping[str, Any]] = {}
     notes: list[str] = []
-    for index, copy in enumerate(new):
-        key = copy_key(copy, index)
-        if key not in old_keys:
-            notes.append(f"dropped copy {key}: not in the pre-revision copies")
-        elif key in revised:
-            notes.append(f"dropped a duplicate of copy {key}")
-        else:
+    for key, copy in zip(new_keys, new, strict=True):
+        if key in old_keys:
             revised[key] = copy
+        elif "#" in key[1:] and (base := key.split("#")[0]) in new_keys:
+            notes.append(f"dropped a duplicate of copy {base}")
+        else:
+            notes.append(f"dropped copy {key}: not in the pre-revision copies")
 
     result: list[dict[str, Any]] = []
     for key, copy in zip(old_keys, old, strict=True):
@@ -297,6 +332,6 @@ def restore_unflagged(
         elif dict(revised[key]) != dict(copy):
             notes.append(f"restored copy {key}: it was not flagged for revision")
         result.append(dict(copy))
-    if not notes and [copy_key(c, i) for i, c in enumerate(new)] != old_keys:
+    if not notes and new_keys != old_keys:
         notes.append("restored the original copy order")
     return {"ad_copies": result}, notes

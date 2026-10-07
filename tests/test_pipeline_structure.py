@@ -1647,7 +1647,7 @@ def _final_copy(original_id=1, **overrides):
         "trend_connection": "t",
         "audience_appeal_rationale": "a",
         "social_caption": "Zoom.",
-        "call_to_action": "Order your skates today",
+        "call_to_action": "Order yours today",
         "detailed_performance_rationale": "r",
     }
     copy.update(overrides)

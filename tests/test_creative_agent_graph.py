@@ -778,7 +778,7 @@ def _final_ad(original_id: int, **overrides: Any) -> dict[str, Any]:
         "audience_appeal_rationale": "Coyotes want speed.",
         "social_caption": "Zoom.",
         "typicality": 0.4,
-        "call_to_action": "Order your skates today",
+        "call_to_action": "Order yours today",
         "brief_checks": [{"item": "cta", "passed": True, "note": "specific"}],
         "detailed_performance_rationale": "Speed sells.",
     }
