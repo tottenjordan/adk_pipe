@@ -36,7 +36,7 @@ from google.adk.agents.context import Context
 
 from agent_common import is_populated
 from creative_eval import agent as eval_agent
-from creative_eval.dimensions import dimension_labels_csv
+from creative_eval.dimensions import dimension_labels_csv, gate_label
 
 from . import bq_tools, gcs_tools, tools
 
@@ -270,8 +270,22 @@ def _score(value: Any) -> str:
         return "n/a"
 
 
+def _failed_gate_labels(score: Mapping[str, Any]) -> list[str]:
+    """Labels of the failed non-advisory gates of one creative's score."""
+    return [
+        gate_label(str(g.get("gate") or ""))
+        for g in score.get("gates") or []
+        if isinstance(g, Mapping)
+        and not g.get("passed", True)
+        and not g.get("advisory")
+    ]
+
+
 def _failed_creatives(report: Mapping[str, Any]) -> list[str]:
-    """``'name' (kind, score)`` for each creative below the passing threshold."""
+    """``'name' (kind, score[, failed checks: …])`` per creative that did not pass.
+
+    A creative fails on a below-threshold score or a failed gate.
+    """
     failed: list[str] = []
     for kind, list_key, name_key in (
         ("ad copy", "ad_copy_evaluations", "headline"),
@@ -283,8 +297,10 @@ def _failed_creatives(report: Mapping[str, Any]) -> list[str]:
             score = item.get("score") or {}
             if not score.get("passed", True):
                 name = " ".join(str(item.get(name_key) or "untitled").split())[:60]
+                gates = _failed_gate_labels(score)
+                checks = f", failed checks: {', '.join(gates)}" if gates else ""
                 failed.append(
-                    f"'{name}' ({kind}, {_score(score.get('overall_score'))})"
+                    f"'{name}' ({kind}, {_score(score.get('overall_score'))}{checks})"
                 )
     return failed
 
@@ -329,7 +345,7 @@ def finalize_summary(state: Mapping[str, Any]) -> str:
             shown = ", ".join(failed[:_MAX_FAILED_CREATIVES])
             more = len(failed) - _MAX_FAILED_CREATIVES
             parts.append(
-                f"Below threshold: {shown}" + (f" (+{more} more)." if more > 0 else ".")
+                f"Did not pass: {shown}" + (f" (+{more} more)." if more > 0 else ".")
             )
     else:
         parts.append(

@@ -22,3 +22,25 @@ export function dimensionLabel(dimension: string): string {
   const words = dimension.replace(/_+/g, " ").trim().replace(/\s+/g, " ").toLowerCase();
   return words.charAt(0).toUpperCase() + words.slice(1);
 }
+
+/** Short human labels for the creative_eval binary compliance gates. */
+export const GATE_LABELS: Readonly<Record<string, string>> = {
+  // Ad copy
+  delivers_proposition: "Delivers the proposition",
+  product_named: "Product named",
+  uses_reason_to_believe: "Uses a reason to believe",
+  mandatories_met: "Mandatories met",
+  // Shared
+  avoid_respected: "Avoid list respected",
+  // Visual concept
+  product_visible: "Product visible",
+  trend_motif_visible: "Trend motif visible",
+  text_correct: "In-image text correct",
+  brand_cue_present: "Brand cue present",
+};
+
+/** Label for a gate; unknown names fall back like `dimensionLabel`. */
+export function gateLabel(gate: string): string {
+  if (Object.hasOwn(GATE_LABELS, gate)) return GATE_LABELS[gate];
+  return dimensionLabel(gate);
+}

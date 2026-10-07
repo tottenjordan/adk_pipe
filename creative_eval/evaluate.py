@@ -13,7 +13,9 @@ Usage:
 """
 
 import logging
+from collections.abc import Mapping
 from concurrent.futures import ThreadPoolExecutor
+from typing import Any
 
 from google import genai
 
@@ -21,7 +23,9 @@ from agent_common import genai_retry
 from agent_common.genai_retry import build_genai_http_retry
 
 from . import prompts
+from .brief import angle_line, format_brief_for_judge
 from .config import EvalConfig
+from .dimensions import AD_COPY_GATES, ADVISORY_GATES, BRIEF_GATES, VISUAL_GATES
 from .schemas import (
     AdCopyEvaluation,
     CreativeEvaluationReport,
@@ -55,6 +59,81 @@ def _get_client(config: EvalConfig) -> genai.Client:
             retry_options=build_genai_http_retry(),
             timeout=genai_retry.model_request_timeout_ms(),
         ),
+    )
+
+
+NO_BRIEF_NOTE = "no brief"
+NOT_REPORTED_NOTE = "not reported by the judge"
+
+
+def normalize_gates(
+    raw: list[GateResult], expected: tuple[str, ...], *, brief_used: bool
+) -> list[GateResult]:
+    """The judge's gates, reduced to exactly ``expected`` in order (pure).
+
+    Unknown names are dropped and duplicates keep the first; a gate the judge
+    left out fails (note "not reported by the judge") — a compliance check is
+    never assumed. Without a brief the brief-dependent gates pass with note
+    "no brief". ``advisory`` is set from ``ADVISORY_GATES``, never the judge.
+    """
+    reported: dict[str, GateResult] = {}
+    for gate in raw:
+        reported.setdefault(gate.gate.strip().lower(), gate)
+    out = []
+    for name in expected:
+        advisory = name in ADVISORY_GATES
+        if name in BRIEF_GATES and not brief_used:
+            out.append(GateResult(gate=name, passed=True, note=NO_BRIEF_NOTE))
+        elif name in reported:
+            gate = reported[name]
+            out.append(
+                GateResult(
+                    gate=name,
+                    passed=gate.passed,
+                    note=" ".join(gate.note.split()),
+                    advisory=advisory,
+                )
+            )
+        else:
+            logger.warning("judge did not report gate %r", name)
+            out.append(
+                GateResult(
+                    gate=name, passed=False, note=NOT_REPORTED_NOTE, advisory=advisory
+                )
+            )
+    return out
+
+
+def _apply_recomputed_score(
+    score: CreativeScore,
+    expected_gates: tuple[str, ...],
+    threshold: float,
+    *,
+    brief_used: bool,
+) -> None:
+    """Overwrite the judge's aggregates with code-computed ones (in place).
+
+    The model's strengths/improvements text is kept; overall_score, gates,
+    gates_passed and passed are recomputed from its verdicts and gates.
+    """
+    gates = normalize_gates(score.gates, expected_gates, brief_used=brief_used)
+    recomputed = _score_from_verdicts(score.verdicts, threshold, gates)
+    score.overall_score = recomputed.overall_score
+    score.passed = recomputed.passed
+    score.gates = recomputed.gates
+    score.gates_passed = recomputed.gates_passed
+
+
+def _failed_score() -> CreativeScore:
+    """The zero score of a failed judge call — nothing was verified."""
+    return CreativeScore(
+        overall_score=0.0,
+        passed=False,
+        verdicts=[],
+        strengths=[],
+        improvements=["evaluation_failed"],
+        gates=[],
+        gates_passed=False,
     )
 
 
@@ -119,6 +198,7 @@ def evaluate_ad_copy(
     campaign_context: dict,
     config: EvalConfig,
     client: genai.Client | None = None,
+    brief: Mapping[str, Any] | None = None,
 ) -> AdCopyEvaluation:
     """Evaluate a single ad copy using Gemini-as-judge.
 
@@ -128,9 +208,10 @@ def evaluate_ad_copy(
                           key_selling_points, target_search_trend.
         config: Evaluation configuration.
         client: Optional pre-created Gemini client.
+        brief: The parsed creative brief (``brief.parse_brief``), or None.
 
     Returns:
-        AdCopyEvaluation with per-dimension scores.
+        AdCopyEvaluation with per-dimension scores and binary gates.
     """
     if client is None:
         client = _get_client(config)
@@ -139,6 +220,8 @@ def evaluate_ad_copy(
     user_prompt = prompts.AD_COPY_EVAL_USER.format(
         **campaign_context,
         **ad_copy,
+        angle=angle_line(brief, ad_copy.get("angle_id") or ""),
+        brief_block=format_brief_for_judge(brief),
     )
 
     try:
@@ -155,13 +238,13 @@ def evaluate_ad_copy(
 
         result = AdCopyEvaluation.model_validate_json(response.text or "")
 
-        # Recompute overall_score from verdicts for consistency
-        recomputed = _score_from_verdicts(
-            result.score.verdicts, config.passing_threshold
+        # Recompute overall_score / gates_passed / passed in code for consistency
+        _apply_recomputed_score(
+            result.score,
+            AD_COPY_GATES,
+            config.passing_threshold,
+            brief_used=brief is not None,
         )
-        result.score.overall_score = recomputed.overall_score
-        result.score.passed = recomputed.passed
-
         return result
 
     except Exception as e:
@@ -173,13 +256,7 @@ def evaluate_ad_copy(
             original_id=ad_copy.get("original_id", 0),
             headline=ad_copy.get("headline", ""),
             tone_style=ad_copy.get("tone_style", ""),
-            score=CreativeScore(
-                overall_score=0.0,
-                passed=False,
-                verdicts=[],
-                strengths=[],
-                improvements=["evaluation_failed"],
-            ),
+            score=_failed_score(),
         )
 
 
@@ -188,6 +265,7 @@ def evaluate_visual_concept(
     campaign_context: dict,
     config: EvalConfig,
     client: genai.Client | None = None,
+    brief: Mapping[str, Any] | None = None,
 ) -> VisualConceptEvaluation:
     """Evaluate a single visual concept using Gemini-as-judge.
 
@@ -197,9 +275,10 @@ def evaluate_visual_concept(
                           key_selling_points, target_search_trend.
         config: Evaluation configuration.
         client: Optional pre-created Gemini client.
+        brief: The parsed creative brief (``brief.parse_brief``), or None.
 
     Returns:
-        VisualConceptEvaluation with per-dimension scores.
+        VisualConceptEvaluation with per-dimension scores and binary gates.
     """
     if client is None:
         client = _get_client(config)
@@ -209,7 +288,10 @@ def evaluate_visual_concept(
         **{
             **visual_concept,
             "aspect_ratio": visual_concept.get("aspect_ratio") or "unspecified",
+            "trend_motif": visual_concept.get("trend_motif") or "(none)",
+            "brand_cue": visual_concept.get("brand_cue") or "(none)",
         },
+        brief_block=format_brief_for_judge(brief),
     )
 
     try:
@@ -226,12 +308,12 @@ def evaluate_visual_concept(
 
         result = VisualConceptEvaluation.model_validate_json(response.text or "")
 
-        recomputed = _score_from_verdicts(
-            result.score.verdicts, config.passing_threshold
+        _apply_recomputed_score(
+            result.score,
+            VISUAL_GATES,
+            config.passing_threshold,
+            brief_used=brief is not None,
         )
-        result.score.overall_score = recomputed.overall_score
-        result.score.passed = recomputed.passed
-
         return result
 
     except Exception as e:
@@ -241,13 +323,7 @@ def evaluate_visual_concept(
         return VisualConceptEvaluation(
             ad_copy_id=visual_concept.get("ad_copy_id", 0),
             concept_name=visual_concept.get("concept_name", ""),
-            score=CreativeScore(
-                overall_score=0.0,
-                passed=False,
-                verdicts=[],
-                strengths=[],
-                improvements=["evaluation_failed"],
-            ),
+            score=_failed_score(),
         )
 
 
@@ -257,6 +333,8 @@ def evaluate_all_concurrently(
     campaign_context: dict,
     config: EvalConfig,
     client: genai.Client | None = None,
+    *,
+    brief: Mapping[str, Any] | None = None,
 ) -> tuple[list[AdCopyEvaluation], list[VisualConceptEvaluation]]:
     """Evaluate all ad copies and visual concepts concurrently, preserving order.
 
@@ -277,12 +355,19 @@ def evaluate_all_concurrently(
     max_workers = max(1, min(config.max_eval_workers, total))
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         ad_futures = [
-            executor.submit(evaluate_ad_copy, ac, campaign_context, config, client)
+            executor.submit(
+                evaluate_ad_copy, ac, campaign_context, config, client, brief=brief
+            )
             for ac in ad_copies
         ]
         vis_futures = [
             executor.submit(
-                evaluate_visual_concept, vc, campaign_context, config, client
+                evaluate_visual_concept,
+                vc,
+                campaign_context,
+                config,
+                client,
+                brief=brief,
             )
             for vc in visual_concepts
         ]
@@ -339,6 +424,8 @@ def evaluate_creatives(
     ad_copies: list[dict],
     visual_concepts: list[dict],
     config: EvalConfig | None = None,
+    *,
+    brief: Mapping[str, Any] | None = None,
 ) -> CreativeEvaluationReport:
     """Evaluate all creatives from a single agent run.
 
@@ -348,6 +435,8 @@ def evaluate_creatives(
         ad_copies: List of FinalAdCopy dicts.
         visual_concepts: List of VisualConceptFinal dicts.
         config: Optional EvalConfig (uses defaults if None).
+        brief: The parsed creative brief (``brief.parse_brief``), or None —
+               then the brief-dependent gates pass with note "no brief".
 
     Returns:
         CreativeEvaluationReport with per-creative and aggregate scores.
@@ -363,7 +452,7 @@ def evaluate_creatives(
     )
 
     ad_evals, visual_evals = evaluate_all_concurrently(
-        ad_copies, visual_concepts, campaign_context, config, client
+        ad_copies, visual_concepts, campaign_context, config, client, brief=brief
     )
 
     summary = _build_summary(ad_evals, visual_evals)
@@ -376,6 +465,8 @@ def evaluate_creatives(
         visual_concept_evaluations=visual_evals,
         summary=summary,
         judge_model=config.eval_model,
+        passing_threshold=config.passing_threshold,
+        brief_used=brief is not None,
     )
 
     logger.info(

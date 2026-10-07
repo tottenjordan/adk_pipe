@@ -21,13 +21,19 @@ from agent_common import (
     log_empty_turn_finish_reason,
 )
 
+from .brief import parse_brief
 from .config import EvalConfig
 from .evaluate import _build_summary, evaluate_all_concurrently
-from .schemas import CreativeEvaluationReport
+from .schemas import CreativeEvaluationReport, CreativeScore
 
 logger = logging.getLogger(__name__)
 
 _config = EvalConfig()
+
+
+def _failed_gates(score: CreativeScore) -> list[str]:
+    """Names of the failed non-advisory gates (the ones that block ``passed``)."""
+    return [g.gate for g in score.gates if not g.passed and not g.advisory]
 
 
 def evaluate_all_creatives(tool_context) -> dict:
@@ -37,6 +43,7 @@ def evaluate_all_creatives(tool_context) -> dict:
       - ad_copy_critique (FinalAdCopyList JSON)
       - final_visual_concepts (VisualConceptFinalList JSON)
       - brand, target_product, target_audience, key_selling_points, target_search_trends
+      - creative_brief (CreativeBrief dict/JSON; optional — the judge's gate contract)
 
     Writes to state key:
       - creative_evaluation_report (CreativeEvaluationReport JSON)
@@ -44,7 +51,8 @@ def evaluate_all_creatives(tool_context) -> dict:
     Returns:
         Summary dict with pass rates, weakest dimensions, and a compact
         ``failed_creatives`` list (type, id, name, overall_score, top-2
-        improvement dimensions) for each creative below the passing threshold.
+        improvement dimensions, failed gate names) for each creative that did
+        not pass (score below the threshold or a failed gate).
     """
     state = tool_context.state
 
@@ -90,10 +98,12 @@ def evaluate_all_creatives(tool_context) -> dict:
         json.loads(vc) if isinstance(vc, str) else vc for vc in visual_concepts
     ]
 
+    brief = parse_brief(state.get("creative_brief"))
+
     # Score every creative in parallel — each is an independent judge call, so
     # this collapses eval wall-clock from ~N*28s to roughly one call's latency.
     ad_evals, visual_evals = evaluate_all_concurrently(
-        ad_copies, visual_concepts, campaign_context, _config
+        ad_copies, visual_concepts, campaign_context, _config, brief=brief
     )
 
     summary = _build_summary(ad_evals, visual_evals)
@@ -111,6 +121,8 @@ def evaluate_all_creatives(tool_context) -> dict:
         summary=summary,
         warnings=warnings,
         judge_model=_config.eval_model,
+        passing_threshold=_config.passing_threshold,
+        brief_used=brief is not None,
     )
 
     # Store in session state
@@ -125,6 +137,7 @@ def evaluate_all_creatives(tool_context) -> dict:
             "name": e.headline,
             "overall_score": e.score.overall_score,
             "improvements": e.score.improvements[:2],
+            "failed_gates": _failed_gates(e.score),
         }
         for e in ad_evals
         if not e.score.passed
@@ -135,6 +148,7 @@ def evaluate_all_creatives(tool_context) -> dict:
             "name": e.concept_name,
             "overall_score": e.score.overall_score,
             "improvements": e.score.improvements[:2],
+            "failed_gates": _failed_gates(e.score),
         }
         for e in visual_evals
         if not e.score.passed
@@ -167,7 +181,7 @@ creative_eval_agent = Agent(
     <INSTRUCTIONS>
     1. Call the `evaluate_all_creatives` tool to score all creatives in the session.
     2. Report the results: overall pass rate, average scores, and weakest dimensions.
-    3. Highlight any creatives listed in `failed_creatives` (score < 0.7) and explain why, using their `improvements` (the weakest failed dimensions).
+    3. Highlight any creatives listed in `failed_creatives` (score < 0.7 or a failed compliance check) and explain why, using their `failed_gates` (failed checks) and `improvements` (the weakest failed dimensions).
     </INSTRUCTIONS>
 
     Call the tool now and report the results.

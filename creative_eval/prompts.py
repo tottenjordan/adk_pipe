@@ -5,8 +5,14 @@ Your task is to rigorously score a finalized ad copy against specific evaluation
 
 You will receive:
 - Campaign context (brand, product, audience, trend)
+- The structured creative brief (the contract the copy was written against)
 - The ad copy to evaluate (headline, body, caption, CTA, etc.)
+- A list of binary compliance gates to check
 - A list of evaluation dimensions to score
+
+For EACH gate, return the gate name, passed (true/false) and a one-sentence note
+citing the evidence. Gates are strict and literal: pass only when the rule is
+clearly met by the text in front of you, never on intent.
 
 For EACH dimension, provide:
 - A score from 1-10
@@ -25,7 +31,12 @@ Key Selling Points: {key_selling_points}
 Target Search Trend: {target_search_trend}
 </CAMPAIGN_CONTEXT>
 
+<CREATIVE_BRIEF>
+{brief_block}
+</CREATIVE_BRIEF>
+
 <AD_COPY>
+Creative Angle: {angle}
 Headline: {headline}
 Body Text: {body_text}
 Tone/Style: {tone_style}
@@ -35,6 +46,18 @@ Social Caption: {social_caption}
 Call to Action: {call_to_action}
 Performance Rationale: {detailed_performance_rationale}
 </AD_COPY>
+
+<GATES>
+Check each gate against the ad copy text (headline, body, caption and CTA together):
+
+1. **delivers_proposition**: The copy lands the brief's single-minded proposition (the idea, not necessarily the exact words).
+2. **product_named**: The target product ("{target_product}") is named in the headline, body, caption or CTA.
+3. **uses_reason_to_believe**: At least one of the brief's reasons to believe is used or clearly paraphrased.
+4. **mandatories_met**: Every brief mandatory is present.
+5. **avoid_respected**: Nothing from the brief's avoid list or brand don'ts appears.
+
+Return all 5 gates, using exactly these names.
+</GATES>
 
 <EVALUATION_DIMENSIONS>
 Score each dimension from 1-10:
@@ -60,8 +83,14 @@ Your task is to rigorously score a finalized visual concept against specific eva
 
 You will receive:
 - Campaign context (brand, product, audience, trend)
+- The structured creative brief (the contract the concept was made against)
 - The visual concept to evaluate (concept name, summary, image prompt, etc.)
+- A list of binary compliance gates to check
 - A list of evaluation dimensions to score
+
+For EACH gate, return the gate name, passed (true/false) and a one-sentence note
+citing the evidence. Gates are strict and literal: pass only when the rule is
+clearly met, never on intent.
 
 For EACH dimension, provide:
 - A score from 1-10
@@ -80,12 +109,18 @@ Key Selling Points: {key_selling_points}
 Target Search Trend: {target_search_trend}
 </CAMPAIGN_CONTEXT>
 
+<CREATIVE_BRIEF>
+{brief_block}
+</CREATIVE_BRIEF>
+
 <VISUAL_CONCEPT>
 Concept Name: {concept_name}
 Visual Style: {visual_style}
 Aspect Ratio: {aspect_ratio}
 Trend: {trend}
 Trend Reference: {trend_reference}
+Trend Motif: {trend_motif}
+Brand Cue: {brand_cue}
 Markets Product: {markets_product}
 Audience Appeal: {audience_appeal}
 Selection Rationale: {selection_rationale}
@@ -95,6 +130,16 @@ Call to Action: {call_to_action}
 Concept Summary: {concept_summary}
 Image Generation Prompt: {image_generation_prompt}
 </VISUAL_CONCEPT>
+
+<GATES>
+1. **product_visible**: The target product ("{target_product}") is clearly visible and recognisable.
+2. **trend_motif_visible**: The trend motif (or, when none is given, a recognisable element of the trend) is clearly visible.
+3. **text_correct**: Any copy text the prompt quotes for the image appears exactly as quoted and is legible, with no garbled lettering. If the concept asks for no in-image text, pass with the note "no in-image text".
+4. **brand_cue_present**: The brand cue is visible (pass with the note "no brand cue" when none is given).
+5. **avoid_respected**: Nothing from the brief's avoid list or brand don'ts appears.
+
+Return all 5 gates, using exactly these names.
+</GATES>
 
 <EVALUATION_DIMENSIONS>
 Score each dimension from 1-10:
