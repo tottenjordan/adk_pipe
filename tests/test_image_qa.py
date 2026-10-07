@@ -6,12 +6,14 @@ extraction and ``inspect_image``'s request are tested with a fake genai client;
 the generate_image flow fakes both the image client and the QA call.
 """
 
+import asyncio
 import json
 
 import pytest
 
-from creative_agent import image_qa
+from creative_agent import image_qa, image_tools
 from creative_agent.image_qa import ImageQAResult
+from tests._fakes import FakeToolContext, noop_async
 
 _CONCEPT = {
     "concept_name": "Jackpot",
@@ -261,3 +263,269 @@ def test_image_qa_knobs_ship_to_agent_engine():
 
     for key in ("IMAGE_QA_ENABLED", "IMAGE_QA_MAX_RERENDERS", "IMAGE_QA_MODEL"):
         assert da.ENV_VAR_DICT[key] is not None
+
+
+# --- generate_image: inspect → targeted re-render ---
+
+
+class _ImgPart:
+    thought = False
+
+    def __init__(self, data):
+        self.inline_data = type("D", (), {"data": data, "mime_type": "image/png"})()
+
+
+class _ImgResponse:
+    def __init__(self, data):
+        content = type("C", (), {"parts": [_ImgPart(data)]})()
+        self.candidates = [type("Cand", (), {"content": content})()]
+
+
+class _SeqImageModels:
+    """Each render returns the next numbered image bytes (b'img1', b'img2' …)."""
+
+    def __init__(self):
+        self.calls = []
+
+    def generate_content(self, **kwargs):
+        self.calls.append(kwargs)
+        return _ImgResponse(f"img{len(self.calls)}".encode())
+
+
+class _Flow:
+    """Patched generate_image environment: fake renders, scripted QA verdicts,
+    recorded uploads/artifacts."""
+
+    def __init__(self, monkeypatch, verdicts, *, enabled=True, max_rerenders=1):
+        self.models = _SeqImageModels()
+        client = type("Client", (), {})()
+        client.models = self.models
+        monkeypatch.setattr(image_tools, "_get_genai_client", lambda: client)
+        monkeypatch.setattr(image_tools.asyncio, "sleep", noop_async)
+        self.uploads = []
+
+        def fake_save(*, tool_context, image_bytes, filename):
+            self.uploads.append((filename, image_bytes))
+            return f"gs://b/{filename}"
+
+        monkeypatch.setattr(image_tools, "_save_to_gcs", fake_save)
+        monkeypatch.setattr(image_tools.config, "image_qa_enabled", enabled)
+        monkeypatch.setattr(image_tools.config, "image_qa_max_rerenders", max_rerenders)
+        monkeypatch.setattr(image_tools.config, "image_qa_model", "qa-model")
+        monkeypatch.setattr(image_qa, "_get_qa_client", lambda: "qa-client")
+        self.inspected = []
+        verdicts = list(verdicts)
+
+        def fake_inspect(
+            image_bytes, mime, concept, *, brand, target_product, client, model
+        ):
+            self.inspected.append(
+                (
+                    image_bytes,
+                    concept["concept_name"],
+                    brand,
+                    target_product,
+                    client,
+                    model,
+                )
+            )
+            verdict = verdicts.pop(0)
+            if isinstance(verdict, Exception):
+                raise verdict
+            return verdict
+
+        monkeypatch.setattr(image_qa, "inspect_image", fake_inspect)
+        self.artifacts = []
+
+        class _Ctx(FakeToolContext):
+            async def save_artifact(inner, filename, artifact):  # noqa: N805
+                self.artifacts.append((filename, artifact.inline_data.data))
+
+        self.ctx = _Ctx(
+            {
+                "gcs_folder": "f",
+                "agent_output_dir": "d",
+                "brand": "PRS",
+                "target_product": "PRS SE guitar",
+                "final_visual_concepts": {"visual_concepts": [dict(_CONCEPT)]},
+            }
+        )
+
+    def run(self):
+        return asyncio.run(image_tools.generate_image(self.ctx))
+
+    @property
+    def record(self):
+        return self.ctx.state["generated_images"]["Jackpot"]
+
+
+_KEY = image_tools.artifact_key_for("Jackpot")
+
+
+def test_pass_first_time_one_render_one_check(monkeypatch):
+    flow = _Flow(monkeypatch, [_result()])
+    flow.run()
+    assert len(flow.models.calls) == 1
+    assert flow.inspected == [
+        (b"img1", "Jackpot", "PRS", "PRS SE guitar", "qa-client", "qa-model")
+    ]
+    assert flow.record["attempts"] == 1
+    assert flow.record["qa"]["passed"] is True
+    assert flow.record["qa"]["failures"] == []
+    assert flow.record["qa"]["product_visible"] is True
+    assert "image_qa__issues" not in flow.ctx.state
+
+
+def test_fail_then_pass_keeps_rerender(monkeypatch):
+    flow = _Flow(
+        monkeypatch,
+        [_result(unrequested_logos=True, issues=["remove the swoosh"]), _result()],
+    )
+    flow.run()
+    assert len(flow.models.calls) == 2
+    second_prompt = flow.models.calls[1]["contents"]
+    assert second_prompt == (
+        _CONCEPT["image_generation_prompt"]
+        + "\n\nCorrect these issues from the previous attempt: remove the swoosh"
+    )
+    # Same aspect ratio / image config on the re-render.
+    first_cfg = flow.models.calls[0]["config"].image_config
+    second_cfg = flow.models.calls[1]["config"].image_config
+    assert first_cfg.aspect_ratio == second_cfg.aspect_ratio
+    # Only the kept (second) image is uploaded and saved, once.
+    assert flow.uploads == [(_KEY, b"img2")]
+    assert flow.artifacts == [(_KEY, b"img2")]
+    assert flow.record["attempts"] == 2
+    assert flow.record["qa"]["passed"] is True
+    assert "image_qa__issues" not in flow.ctx.state
+
+
+def test_both_fail_keeps_fewer_failures_and_warns(monkeypatch):
+    flow = _Flow(
+        monkeypatch,
+        [
+            _result(unrequested_logos=True),
+            _result(unrequested_logos=True, artifacts=True, product_visible=False),
+        ],
+    )
+    flow.run()
+    assert flow.uploads == [(_KEY, b"img1")]
+    assert flow.record["attempts"] == 2
+    assert flow.record["qa"]["passed"] is False
+    assert flow.record["qa"]["failures"] == ["unrequested third-party logo"]
+    assert flow.ctx.state["image_qa__issues"] == [
+        "Jackpot: unrequested third-party logo"
+    ]
+
+
+def test_tie_keeps_latest_attempt(monkeypatch):
+    flow = _Flow(
+        monkeypatch, [_result(motif_visible=False), _result(gibberish_text=True)]
+    )
+    flow.run()
+    assert flow.uploads == [(_KEY, b"img2")]
+    assert flow.ctx.state["image_qa__issues"] == ["Jackpot: gibberish text"]
+
+
+def test_rerender_budget_respected(monkeypatch):
+    flow = _Flow(
+        monkeypatch,
+        [_result(artifacts=True)] * 3,
+        max_rerenders=2,
+    )
+    flow.run()
+    assert len(flow.models.calls) == 3
+    assert flow.record["attempts"] == 3
+    assert flow.uploads == [(_KEY, b"img3")]
+
+
+def test_zero_rerenders_checks_but_never_rerenders(monkeypatch):
+    flow = _Flow(monkeypatch, [_result(artifacts=True)], max_rerenders=0)
+    flow.run()
+    assert len(flow.models.calls) == 1
+    assert flow.record["qa"]["passed"] is False
+    assert flow.ctx.state["image_qa__issues"] == ["Jackpot: severe visual artifacts"]
+
+
+def test_qa_exception_fails_open(monkeypatch):
+    flow = _Flow(monkeypatch, [RuntimeError("vision down")])
+    result = flow.run()
+    assert result["status"] == "success"
+    assert len(flow.models.calls) == 1
+    assert flow.uploads == [(_KEY, b"img1")]
+    assert flow.record["qa"] is None
+    assert flow.ctx.state["image_qa__issues"] == ["QA unavailable for Jackpot"]
+
+
+def test_qa_client_construction_failure_fails_open(monkeypatch):
+    flow = _Flow(monkeypatch, [])
+
+    def boom():
+        raise RuntimeError("no creds")
+
+    monkeypatch.setattr(image_qa, "_get_qa_client", boom)
+    flow.run()
+    assert flow.record["qa"] is None
+    assert flow.ctx.state["image_qa__issues"] == ["QA unavailable for Jackpot"]
+
+
+def test_rerender_qa_exception_keeps_inspected_first_attempt(monkeypatch):
+    flow = _Flow(monkeypatch, [_result(artifacts=True), RuntimeError("down")])
+    flow.run()
+    assert flow.uploads == [(_KEY, b"img1")]
+    assert flow.record["attempts"] == 2
+    assert flow.record["qa"]["failures"] == ["severe visual artifacts"]
+
+
+def test_rerender_exception_keeps_first_attempt(monkeypatch):
+    flow = _Flow(monkeypatch, [_result(artifacts=True)])
+    real = flow.models.generate_content
+
+    def flaky(**kwargs):
+        if flow.models.calls:
+            flow.models.calls.append(kwargs)
+            raise ValueError("bad request")
+        return real(**kwargs)
+
+    monkeypatch.setattr(flow.models, "generate_content", flaky)
+    flow.run()
+    assert flow.uploads == [(_KEY, b"img1")]
+    assert flow.record["attempts"] == 2
+
+
+def test_disabled_single_render_no_qa(monkeypatch):
+    flow = _Flow(monkeypatch, [], enabled=False)
+    flow.run()
+    assert len(flow.models.calls) == 1
+    assert flow.inspected == []
+    assert flow.record == {
+        "gcs_uri": f"gs://b/{_KEY}",
+        "artifact_key": _KEY,
+        "attempts": 1,
+        "qa": None,
+    }
+    assert "image_qa__issues" not in flow.ctx.state
+
+
+def test_brand_cue_missing_does_not_trigger_rerender(monkeypatch):
+    flow = _Flow(monkeypatch, [_result(brand_cue_visible=False, issues=["no inlays"])])
+    flow.run()
+    assert len(flow.models.calls) == 1
+    assert flow.record["qa"]["passed"] is True
+    assert flow.record["qa"]["brand_cue_visible"] is False
+
+
+def test_unrequested_logo_triggers_rerender(monkeypatch):
+    flow = _Flow(monkeypatch, [_result(unrequested_logos=True), _result()])
+    flow.run()
+    assert len(flow.models.calls) == 2
+    assert "unrequested third-party logo" in flow.models.calls[1]["contents"]
+
+
+def test_unresolved_qa_issues_surface_as_degradation_warning(monkeypatch):
+    from agent_common.observability import collect_degradation_warnings
+
+    flow = _Flow(monkeypatch, [_result(unsafe=True), _result(unsafe=True)])
+    flow.run()
+    notes = collect_degradation_warnings(dict(flow.ctx.state))
+    assert any(n.startswith("Image qa has unresolved issues: 1") for n in notes)

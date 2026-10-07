@@ -2,6 +2,13 @@
 
 Split out of ``tools.py``; the genai client is now created lazily so importing
 this module has no side effects.
+
+Post-render image QA (``image_qa``, on unless ``IMAGE_QA_ENABLED=false``): each
+render gets one vision check; a failing image is re-rendered at most
+``IMAGE_QA_MAX_RERENDERS`` times with the issues appended to the prompt, the
+attempt with fewer failures is kept, and only that one is uploaded. Per-concept
+results land in ``state["generated_images"]``; unresolved failures (and "QA
+unavailable" — the check fails open) in ``state["image_qa__issues"]``.
 """
 
 import asyncio
@@ -22,6 +29,7 @@ from google.genai import types
 from agent_common import genai_retry
 from agent_common.locations import MODEL_LOCATION
 
+from . import image_qa
 from .config import config
 from .gcs_tools import _download_blob, _save_to_gcs, artifact_key_for
 from .references import (
@@ -416,6 +424,93 @@ async def _store_image(
     return img_gcs_uri
 
 
+async def _inspect(
+    rendered: tuple[bytes, str], entry: dict, brand: str, product: str
+) -> image_qa.ImageQAResult | None:
+    """One QA call off the event loop → the verdict, or None (fail-open)."""
+    image_bytes, mime = rendered
+    try:
+        return await asyncio.to_thread(
+            image_qa.inspect_image,
+            image_bytes,
+            mime,
+            entry,
+            brand=brand,
+            target_product=product,
+            client=image_qa._get_qa_client(),
+            model=config.image_qa_model,
+        )
+    except Exception as exc:
+        logging.warning(
+            f"Image QA unavailable for '{entry.get('concept_name')}': {exc}"
+        )
+        return None
+
+
+def _qa_record(result: image_qa.ImageQAResult, entry: dict) -> dict:
+    """The stored verdict: the model's fields + the rule's passed/failures."""
+    failures = image_qa.qa_failures(result, entry)
+    return {**result.model_dump(), "passed": not failures, "failures": failures}
+
+
+async def _inspect_and_rerender(
+    entry: dict,
+    rendered: tuple[bytes, str],
+    prompt_text: str,
+    aspect_ratio: str,
+    contents_for,
+    brand: str,
+    product: str,
+) -> tuple[tuple[bytes, str], int, dict | None, str | None]:
+    """Inspect a render; re-render (bounded) while it fails; keep the best.
+
+    Returns ``(kept_image, attempts, qa_record, issue)``. Each re-render
+    appends the previous failures to the prompt (same references / aspect
+    ratio) and is inspected again; the attempt with fewer failed rules is kept
+    (ties → the latest). ``issue`` is the ``image_qa__issues`` entry: "QA
+    unavailable for <concept>" when the first check failed (the render is kept,
+    qa None), "<concept>: <failures>" when the kept image still fails, else
+    None. A re-render or re-check that errors stops the loop and keeps the
+    best inspected image so far.
+    """
+    name = entry.get("concept_name", "")
+    result = await _inspect(rendered, entry, brand, product)
+    if result is None:
+        return rendered, 1, None, f"QA unavailable for {name}"
+    attempts = 1
+    kept, kept_result = rendered, result
+    kept_rules = image_qa.qa_failed_rules(result, entry)
+    for _ in range(config.image_qa_max_rerenders):
+        if not kept_rules:
+            break
+        failures = image_qa.qa_failures(kept_result, entry)
+        logging.warning(f"Image QA failed for '{name}' ({failures}); re-rendering")
+        attempts += 1
+        try:
+            retry = await _render_image(
+                contents_for(
+                    prompt_text
+                    + "\n\nCorrect these issues from the previous attempt: "
+                    + "; ".join(failures)
+                ),
+                aspect_ratio,
+            )
+        except Exception as exc:
+            logging.warning(f"Re-render failed for '{name}'; keeping previous: {exc}")
+            break
+        if retry is None:
+            break
+        retry_result = await _inspect(retry, entry, brand, product)
+        if retry_result is None:
+            break
+        retry_rules = image_qa.qa_failed_rules(retry_result, entry)
+        if len(retry_rules) <= len(kept_rules):
+            kept, kept_result, kept_rules = retry, retry_result, retry_rules
+    record = _qa_record(kept_result, entry)
+    issue = f"{name}: {'; '.join(record['failures'])}" if record["failures"] else None
+    return kept, attempts, record, issue
+
+
 async def generate_image(
     tool_context: ToolContext,
 ):
@@ -473,8 +568,11 @@ async def generate_image(
             ]
         return prompt_text
 
+    brand = tool_context.state.get("brand") or ""
+    product = tool_context.state.get("target_product") or ""
     artifact_keys_list = []
     generated_images: dict[str, dict] = {}
+    qa_issues: list[str] = []
     for entry in final_visual_concepts_list:
         try:
             # Per-concept aspect ratio, unless a valid state override pins all
@@ -487,10 +585,22 @@ async def generate_image(
                 config.image_aspect_ratio_default,
             )
 
-            rendered = await _render_image(
-                contents_for(entry["image_generation_prompt"]), aspect_ratio
-            )
+            prompt_text = entry["image_generation_prompt"]
+            rendered = await _render_image(contents_for(prompt_text), aspect_ratio)
             attempts = 1
+            qa_record = None
+            if rendered is not None and config.image_qa_enabled:
+                rendered, attempts, qa_record, qa_issue = await _inspect_and_rerender(
+                    entry,
+                    rendered,
+                    prompt_text,
+                    aspect_ratio,
+                    contents_for,
+                    brand,
+                    product,
+                )
+                if qa_issue:
+                    qa_issues.append(qa_issue)
 
             if rendered is not None:
                 image_bytes, image_mime_type = rendered
@@ -505,7 +615,7 @@ async def generate_image(
                     "gcs_uri": img_gcs_uri,
                     "artifact_key": artifact_key,
                     "attempts": attempts,
-                    "qa": None,
+                    "qa": qa_record,
                 }
 
         except Exception as e:
@@ -517,6 +627,9 @@ async def generate_image(
     tool_context.state["_images_generated"] = True
     tool_context.state["_generated_artifact_keys"] = artifact_keys_list
     tool_context.state["generated_images"] = generated_images
+    if qa_issues:
+        # Generic `<key>__issues` marker → collect_degradation_warnings.
+        tool_context.state["image_qa__issues"] = qa_issues
 
     return {
         "status": "success",

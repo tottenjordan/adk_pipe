@@ -13,6 +13,9 @@ import pytest
 from creative_agent import image_tools
 from tests._fakes import FakeToolContext, noop_async
 
+# Image QA is covered in test_image_qa.py; these count image-model calls.
+pytestmark = pytest.mark.usefixtures("image_qa_off")
+
 _STATE = {"gcs_folder": "f", "agent_output_dir": "d"}
 
 
