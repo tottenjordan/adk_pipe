@@ -1,4 +1,5 @@
 import type { Session, AgentEvent } from "./types";
+import type { Calibration, Rating, RatingPayload } from "./ratings";
 
 // Route through the same-origin Next.js proxy (src/app/api/adk/[...path]/route.ts) so
 // the browser never makes a cross-origin call — this avoids CORS and the Cloud
@@ -270,5 +271,41 @@ export async function resumeRun(
   if (!res.ok) {
     throw new Error(`Failed to resume run (${res.status}): ${await res.text()}`);
   }
+  return res.json();
+}
+
+// ---------------------------------------------------------------------------
+// Human creative ratings (runserver/ratings.py; judge calibration)
+// ---------------------------------------------------------------------------
+
+const ratingsUrl = (tail: string) =>
+  `${API_BASE}/ratings/${SELF_USER_ID}/${encodeURIComponent(tail)}`;
+
+/** `PUT /ratings/{user}/{session}`: upsert the caller's rating of one creative. */
+export async function putRating(
+  sessionId: string,
+  payload: RatingPayload
+): Promise<Rating> {
+  const res = await fetch(ratingsUrl(sessionId), {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error(`Failed to save rating (${res.status})`);
+  return res.json();
+}
+
+/** `GET /ratings/{user}/{session}`: the caller's ratings for one run. */
+export async function getRatings(sessionId: string): Promise<Rating[]> {
+  const res = await fetch(ratingsUrl(sessionId));
+  if (!res.ok) throw new Error(`Failed to load ratings (${res.status})`);
+  const data = await res.json();
+  return Array.isArray(data?.ratings) ? data.ratings : [];
+}
+
+/** `GET /ratings/{user}/calibration`: judge-human agreement over the caller's ratings. */
+export async function getCalibration(): Promise<Calibration> {
+  const res = await fetch(ratingsUrl("calibration"));
+  if (!res.ok) throw new Error(`Failed to load calibration (${res.status})`);
   return res.json();
 }

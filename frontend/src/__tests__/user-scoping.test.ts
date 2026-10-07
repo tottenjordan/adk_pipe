@@ -126,3 +126,31 @@ describe("scopeRequestToUser: experiments", () => {
     expect(scopeRequestToUser("GET", ["experiments", "me", ID, "metrics", "x"], undefined, U)).toBeNull();
   });
 });
+
+describe("scopeRequestToUser: ratings", () => {
+  const SID = "3f2a9c1e-7b4d-4e1a-9f00-1234567890ab";
+  const body = '{"app_name":"creative_agent","creative_key":"visual:A","kind":"visual","verdict":"pass"}';
+  it("rewrites the user segment on the session list, the upsert and calibration", () => {
+    expect(scopeRequestToUser("GET", ["ratings", "me", SID], undefined, U)?.path)
+      .toBe(`ratings/alice%40x.com/${SID}`);
+    expect(scopeRequestToUser("PUT", ["ratings", "bob@x.com", SID], body, U))
+      .toEqual({ path: `ratings/alice%40x.com/${SID}`, body });
+    expect(scopeRequestToUser("GET", ["ratings", "bob@x.com", "calibration"], undefined, U)?.path)
+      .toBe("ratings/alice%40x.com/calibration");
+  });
+  it("refuses other methods, shapes and malformed session ids", () => {
+    expect(scopeRequestToUser("PUT", ["ratings", "me", "calibration"], body, U)).toBeNull();
+    expect(scopeRequestToUser("POST", ["ratings", "me", SID], body, U)).toBeNull();
+    expect(scopeRequestToUser("DELETE", ["ratings", "me", SID], undefined, U)).toBeNull();
+    expect(scopeRequestToUser("GET", ["ratings", "me"], undefined, U)).toBeNull();
+    expect(scopeRequestToUser("GET", ["ratings"], undefined, U)).toBeNull();
+    expect(scopeRequestToUser("GET", ["ratings", "me", SID, "x"], undefined, U)).toBeNull();
+    for (const bad of ["a b", "a.b", "..", "a/b", "x".repeat(129), "a%2Fb"]) {
+      expect(scopeRequestToUser("GET", ["ratings", "me", bad], undefined, U)).toBeNull();
+      expect(scopeRequestToUser("PUT", ["ratings", "me", bad], body, U)).toBeNull();
+    }
+  });
+  it("drops every query param on ratings routes", () => {
+    expect(scopeQuery(new URLSearchParams("run=2&x=1"), ["ratings", "me", SID])).toBe("");
+  });
+});
