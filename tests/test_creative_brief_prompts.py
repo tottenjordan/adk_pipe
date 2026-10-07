@@ -119,4 +119,7 @@ def test_brief_writer_keeps_avoid_entries_short():
     """copy_gate matches avoid entries literally and skips ones over 4 words."""
     instr = prompts.CREATIVE_BRIEF_WRITER_INSTR
     assert "short terms or phrases (at most 4 words" in instr
-    assert '"gambling odds"' in instr
+    # The format example is a neutral placeholder: a concrete term (the old
+    # "gambling odds") leaked verbatim into unrelated briefs' avoid lists.
+    assert '"[short term]"' in instr
+    assert "gambling" not in instr
