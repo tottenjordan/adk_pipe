@@ -56,6 +56,21 @@ def _set_initial_states(source: dict[str, Any], target: State | dict[str, Any]):
     if not seeded:
         return
 
+    # Core campaign fields. Callers (frontend, CRF worker) seed them via
+    # createSession initialState so the inputs are deterministic rather than
+    # parsed from the kickoff message; the root's `memorize` step only fills
+    # the ones still missing. setdefault so the keys always exist for the
+    # {brand} etc. prompt tokens WITHOUT clobbering a seeded value.
+    # Deliberately NOT in `source` (which would blank a seeded value).
+    for _campaign_key in (
+        "brand",
+        "target_product",
+        "target_audience",
+        "key_selling_points",
+        "target_search_trends",
+    ):
+        target.setdefault(_campaign_key, "")
+
     # Optional product/brand reference image for image generation, supplied
     # by the caller via createSession initialState (same mechanism as
     # interactive_trend_pick). Use setdefault so the key always exists for
@@ -95,15 +110,7 @@ def load_session_state(callback_context: CallbackContext):
     """
     observability.log_run_start(callback_context)
 
-    data = {}
-    data["state"] = {
-        "brand": "",
-        "target_product": "",
-        "target_audience": "",
-        "key_selling_points": "",
-        "target_search_trends": "",
-    }
-    _set_initial_states(data["state"], callback_context.state)
+    _set_initial_states({}, callback_context.state)
 
 
 def ensure_trend_and_product_callback(callback_context: CallbackContext) -> None:

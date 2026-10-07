@@ -1209,8 +1209,9 @@ def test_interactive_creative_memorizes_target_search_trends():
 
     instr = root_agent.instruction
     # The memorize step must name every state key it has to persist, mirroring
-    # creative_agent, not just say "all campaign metadata".
-    assert "`key_selling_points`, and `target_search_trends`" in instr
+    # creative_agent, not just say "all campaign metadata". (It memorizes only
+    # the fields still missing from state; seeded ones are shown via tokens.)
+    assert "`key_selling_points`, `target_search_trends`" in instr
 
 
 def test_pick_trends_agent_excludes_brand_unsafe_trends():

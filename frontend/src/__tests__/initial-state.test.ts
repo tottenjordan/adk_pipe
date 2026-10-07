@@ -11,9 +11,34 @@ const base: CampaignInput = {
   targetSearchTrend: "tswift engaged",
 };
 
+// The core campaign fields seeded for the creative agents (snake_case keys
+// matching creative_agent/callbacks.py, which setdefaults rather than blanks them).
+const campaign = {
+  brand: "PRS Guitars",
+  target_audience: "Musicians",
+  target_product: "PRS SE CE24",
+  key_selling_points: "Great tone",
+  target_search_trends: "tswift engaged",
+};
+
 describe("buildInitialState", () => {
-  it("records only the agent for a plain creative run with no intent", () => {
-    expect(buildInitialState(base)).toEqual({ ui_app: "creative_agent" });
+  it("seeds the agent and core campaign fields for a plain creative run", () => {
+    expect(buildInitialState(base)).toEqual({ ui_app: "creative_agent", ...campaign });
+  });
+
+  it("trims campaign fields and omits empty ones", () => {
+    const state = buildInitialState({
+      ...base,
+      brand: "  PRS Guitars  ",
+      keySellingPoints: "   ",
+      targetSearchTrend: undefined,
+    });
+    expect(state).toEqual({
+      ui_app: "creative_agent",
+      brand: "PRS Guitars",
+      target_audience: "Musicians",
+      target_product: "PRS SE CE24",
+    });
   });
 
   it("records ui_app for every agent", () => {
@@ -35,6 +60,7 @@ describe("buildInitialState", () => {
     });
     expect(state).toEqual({
       ui_app: "creative_agent",
+      ...campaign,
       visual_intent: "moody film noir",
       brand_colors: "#1a1a1a and gold",
       visual_style_preference: "cinematic",
@@ -52,7 +78,7 @@ describe("buildInitialState", () => {
       brandColors: "   ",
       visualAspectRatio: "",
     });
-    expect(state).toEqual({ ui_app: "creative_agent", visual_intent: "bold retro" });
+    expect(state).toEqual({ ui_app: "creative_agent", ...campaign, visual_intent: "bold retro" });
   });
 
   it("works for interactive_creative too", () => {
@@ -61,10 +87,15 @@ describe("buildInitialState", () => {
       agent: "interactive_creative",
       visualAspectRatio: "16:9",
     });
-    expect(state).toEqual({ ui_app: "interactive_creative", visual_aspect_ratio: "16:9" });
+    expect(state).toEqual({
+      ui_app: "interactive_creative",
+      ...campaign,
+      visual_aspect_ratio: "16:9",
+    });
   });
 
-  it("ignores visual-intent fields for trend_scout", () => {
+  // trend_scout's own state init overwrites these keys, so they are not seeded.
+  it("ignores campaign and visual-intent fields for trend_scout", () => {
     const state = buildInitialState({
       ...base,
       agent: "trend_scout",

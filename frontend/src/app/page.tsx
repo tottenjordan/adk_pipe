@@ -152,15 +152,16 @@ function HomeContent() {
     try {
       const userId = SELF_USER_ID;
       // Seed the session's initial state: the agent (for run history), the
-      // trend_scout trend-pick opt-in, or the creative agents' optional
-      // visual-intent fields. See buildInitialState.
+      // trend_scout trend-pick opt-in, or the creative agents' campaign fields
+      // and optional visual-intent fields. See buildInitialState.
       const initialState = buildInitialState(form);
       const session = await createSession(form.agent, userId, initialState);
 
-      // Build the user message with campaign metadata
+      // Build the user message with campaign metadata (a human-readable echo:
+      // the creative agents read the seeded state, see buildInitialState)
       let message = `Brand Name: "${form.brand}"\nTarget Audience: "${form.targetAudience}"\nTarget Product: "${form.targetProduct}"\nKey Selling Points: "${form.keySellingPoints}"`;
       if (isCreative && form.targetSearchTrend) {
-        message += `\ntarget_search_trend: "${form.targetSearchTrend}"`;
+        message += `\ntarget_search_trends: "${form.targetSearchTrend}"`;
       }
 
       // Store message in sessionStorage to avoid URL length limits

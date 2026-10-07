@@ -97,9 +97,10 @@ MERGE_PLANNERS_INSTR = """Role: You are an expert Strategic Synthesis Analyst.
     Your output must be a single, detailed, easy-to-read Strategic Brief sectioned with bold headings. The brief must synthesize the information to provide a clear path forward for creative development.
 
     1.  **Executive Summary (The Big Idea):** (A short, 2-3 sentence overview of the combined research. What is the single most important takeaway for the creative team?)
-    2.  **Core Campaign Fundamentals:** (A synthesized summary of the Target Audience, Product Landscape, and Key Selling Points, drawing primarily from the Campaign Insights.)
+    2.  **Core Campaign Fundamentals:** (A synthesized summary of the Target Audience, Product Landscape, Key Selling Points, and the brand's voice and distinctive assets, drawing primarily from the Campaign Insights.)
     3.  **Cultural Opportunity & Relevance:** (An integrated analysis that connects the trending topic to the core campaign. How can the trend be used to make the campaign relevant? What specific tone, language, or narrative from the trend should be adopted?)
     4.  **Strategic Recommendations for Creative:** (Provide 3 specific, actionable directives for the ad copy and visual generation agents, based on the integrated findings. *Example: "Use 'X' phrase from the trend to frame 'Y' selling point."*
+    5.  **Risks & Constraints:** (Carry forward the risks from the Trend Analysis's Risk Assessment — controversies, real-person sensitivities, negative associations — that the creative team must avoid.)
 
     ---
     ### Final Instruction
@@ -200,6 +201,18 @@ COMBINED_REPORT_COMPOSER_INSTR = """Role: You are the Lead Campaign Strategist.
 
 
     <CONTEXT>
+        <brand>
+        {brand}
+        </brand>
+
+        <target_product>
+        {target_product}
+        </target_product>
+
+        <target_audience>
+        {target_audience}
+        </target_audience>
+
         <combined_web_search_insights>
         {combined_web_search_insights?}
         </combined_web_search_insights>
@@ -244,6 +257,9 @@ COMBINED_REPORT_COMPOSER_INSTR = """Role: You are the Lead Campaign Strategist.
     4.  **## Actionable Creative Briefing Points**
         *   (Introductory Paragraph: Summary of the specific, high-priority creative directives.)
         *   (5 highly specific, validated recommendations for the Ad Copy and Visual teams, covering messaging, tone, and visual direction, presented as a numbered list or bullet points.)
+    5.  **## Risks & Constraints**
+        *   (Introductory Paragraph: Summary of the critical risks and constraints the creative team must avoid — trend controversies, real-person sensitivities, negative associations, and brand-safety limits.)
+        *   (No more than 3 supporting bullets detailing the specific risks/constraints.)
         </FINAL_REPORT_STRUCTURE>
 
     ---
@@ -265,6 +281,8 @@ AD_COPY_DRAFTER_INSTR = """Role: You are an innovative, fast-paced ad copy gener
     1.  **Analyze and Apply:** Analyze the research report to understand the audience, product, and trend intersection. If the report is empty, work from the campaign inputs.
     2.  **Generate 10 Diverse Ideas:** Generate exactly 10 ad copy ideas. Each idea must:
         *   Creatively market the target product: {target_product}
+        *   Sound like the brand: {brand} (use its voice and distinctive assets from the research report).
+        *   Speak directly to the target audience: {target_audience}
         *   Incorporate the key selling point(s): {key_selling_points}
         *   Be suitable for Instagram/TikTok platforms (short, punchy, visual-friendly).
         *   Directly reference or subtly leverage the trending topic: {target_search_trends}.
@@ -296,6 +314,7 @@ AD_COPY_CRITIC_INSTR = """Role: You are a strategic marketing critic and convers
     1.  **Parse Input:** Retrieve and parse the JSON list of 10 ad copies from the `ad_copy_draft` input in the <CONTEXT> block. If it is empty, output an object whose `ad_copies` list is empty.
     2.  **Critical Evaluation:** Evaluate the 10 ideas based on the following criteria:
         *   **Strategic Alignment:** How well does the idea synthesize the product, key selling points, and target audience insights from the research report?
+        *   **Brand Fit:** Does it sound like the brand (its voice, positioning and distinctive assets from the research report)?
         *   **Trend Authenticity:** Does the use of the trending topic feel natural, relevant, and not forced?
         *   **Platform Viability:** Is the tone and length highly suitable for Instagram/TikTok?
         *   **Creative Excellence:** Is the idea compelling, clear, and likely to drive a high click-through rate?
@@ -305,6 +324,10 @@ AD_COPY_CRITIC_INSTR = """Role: You are a strategic marketing critic and convers
     </INSTRUCTIONS>
 
     <CONTEXT>
+        <brand>
+        {brand}
+        </brand>
+
         <target_search_trends>
         {target_search_trends}
         </target_search_trends>
@@ -508,6 +531,8 @@ VISUAL_CONCEPT_CRITIC_INSTR = (
         *   **Style fidelity:** Refine the prompt WITHIN its chosen `visual_style`, applying the <IMAGE_PROMPT_GUIDE>. Do NOT force it toward photorealism or a fixed word count — a minimalist or sticker concept should stay short and clean; a cinematic photoreal concept can be long and layered. Length appropriate to the style. PRESERVE the `visual_style` unless it is clearly wrong for the ad's tone (only then change it, and update the field).
         *   **Creative Fidelity:** Ensure the revised prompt vividly represents the **{target_product}** and makes a clear visual link to the **{target_search_trends}** trend in a way that aligns with the intended tone.
         *   **Stopping Power:** The resulting image must have high visual appeal and "stopping power" for a social media feed.
+        *   **Brand & audience fit:** The image must feel unmistakably like **{brand}** and speak to **{target_audience}**.
+        *   **Copy pairing:** Check each concept against its paired final ad copy in <ad_copy_critique> (matched by `ad_copy_id`): the image must support that copy's headline and message, not contradict or ignore it.
         *   **User intent:** Honour the <user_visual_direction>, <user_style_preference> and <user_avoid> blocks when non-empty. When the style preference is non-empty it overrides the style-diversity rule — keep concepts in that family and vary lighting/composition instead. Steer away from anything in <user_avoid> — phrase prompts positively, never as negations.
         *   **Carry-through:** Keep `trend_motif` and its verbatim presence in the prompt. Keep the `aspect_ratio` field (adjust only if the composition demands it). When <user_aspect_ratio> is non-empty, set every concept's `aspect_ratio` to this value and compose for it.
         *   **Set-level checks:** families come from <style_shortlist> and are all different; at most ONE centred hero; in-image text in at most 2 concepts (meme/comic captions excepted), short and punchy, no small print or style terms; every concept has a trend motif, and each `trend_motif` is SPECIFIC and recognisable: replace generic ones (phones, feeds, chat bubbles, notifications, screens) with signature imagery of the trend; no readable or gibberish background text. Fix violations by rewriting the weakest concept.
@@ -518,6 +543,11 @@ VISUAL_CONCEPT_CRITIC_INSTR = (
         <visual_draft>
         {visual_draft?}
         </visual_draft>
+
+        <ad_copy_critique>
+        The final ad copies each concept is paired with (by `ad_copy_id`).
+        {ad_copy_critique?}
+        </ad_copy_critique>
 
         <style_shortlist>
         This run's style shortlist (choose 4 distinct families from it). When empty, use the guide's palette.
@@ -636,7 +666,7 @@ ROOT_AGENT_INSTR = """**Role:** You are the orchestrator for a comprehensive ad 
 
 
     <INPUT_PARAMETERS>
-    The following campaign metadata will be provided as input to this agent. You must receive and store these values before proceeding to the <WORKFLOW/>.
+    The following campaign metadata is provided as input to this agent, either already seeded in session state (see <CURRENT_STATE/>) or in the user message. Every required value must be in session state before proceeding to the <WORKFLOW/>.
     - brand: [string] The client's brand name.
     - target_audience: [string] The specific demographic or group the ad is targeting.
     - target_product: [string] The name of the product or service being advertised.
@@ -644,10 +674,19 @@ ROOT_AGENT_INSTR = """**Role:** You are the orchestrator for a comprehensive ad 
     - target_search_trends: [string] Trending topics or keywords relevant to the campaign.
     </INPUT_PARAMETERS>
 
+    <CURRENT_STATE>
+    Campaign metadata already present in session state (seeded when the session was created; an empty value means the field is missing):
+    - brand: {brand?}
+    - target_audience: {target_audience?}
+    - target_product: {target_product?}
+    - key_selling_points: {key_selling_points?}
+    - target_search_trends: {target_search_trends?}
+    </CURRENT_STATE>
+
     <INSTRUCTIONS>
-    1. First, **receive and validate** the inputs defined in the <INPUT_PARAMETERS> block. If any critical input is missing (brand, target_audience, target_product, key_selling_points), respond with an error and halt execution.
-    2. Use the `memorize` tool to store **all** the validated input campaign metadata into the corresponding session state variables: `brand`, `target_audience`, `target_product`, `key_selling_points`, and `target_search_trends`. Call the `memorize` tool for ALL of them in a single turn (or as parallel calls).
-    3. Once all metadata is successfully stored in the session state, strictly follow all steps in the <WORKFLOW/> block one-by-one.
+    1. First, **receive and validate** the inputs defined in the <INPUT_PARAMETERS> block. A field that is non-empty in <CURRENT_STATE/> is already stored: use it as-is. Only if a critical input (brand, target_audience, target_product, key_selling_points) is missing from BOTH <CURRENT_STATE/> and the user message, respond with an error and halt execution.
+    2. Do NOT re-memorize fields that are already non-empty in <CURRENT_STATE/>. Use the `memorize` tool only for the campaign fields (`brand`, `target_audience`, `target_product`, `key_selling_points`, `target_search_trends`) that are empty in <CURRENT_STATE/> but provided in the user message, all in a single turn (or as parallel calls). If none are missing, skip this step.
+    3. Once all metadata is in the session state, strictly follow all steps in the <WORKFLOW/> block one-by-one.
     </INSTRUCTIONS>
 
 

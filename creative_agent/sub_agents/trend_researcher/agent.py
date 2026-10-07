@@ -164,6 +164,7 @@ gs_web_synthesizer = Agent(
     1.  **Trend Overview & Trajectory:** (Briefly define the trend, its current status, and an estimate of its immediate lifespan or staying power.)
     2.  **Key Entities and Cultural Narrative:** (Identify the core people/brands/events driving the trend and summarize the public sentiment or underlying cultural story.)
     3.  **Marketing Opportunity Analysis:** (**CRITICAL:** Identify 2-3 specific, actionable ways the trend could be leveraged to create culturally relevant messaging for the campaign, specifically considering the target audience.)
+    4.  **Risk Assessment:** (Identify the pitfalls marketers must avoid: controversies or divisive debates around the trend, sensitivities involving real people (e.g. tragedies, legal matters, likeness or endorsement issues), and any negative associations that could attach to a brand that joins the conversation. If none were found, say so briefly.)
     </REPORT_STRUCTURE>
 
     ---
@@ -174,8 +175,6 @@ gs_web_synthesizer = Agent(
     output_key="gs_web_search_insights",
     after_model_callback=callbacks.log_empty_turn_finish_reason,
 )
-
-# 4.  **Risk Assessment:** (Identify any potential pitfalls, controversies, or negative associations linked to the trend that marketers must be aware of.)
 
 # NOTE: a Workflow graph holds its own copies of its nodes, so mutating the
 # module-level agents after this point does not affect the pipeline.

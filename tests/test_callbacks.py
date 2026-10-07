@@ -170,6 +170,62 @@ class TestSetInitialStates:
         assert target["visual_aspect_ratio"] == "1:1"
         assert target["reference_image_role"] == "product"
 
+    # --- Core campaign fields (deterministic inputs via createSession state) ---
+    _CAMPAIGN_KEYS = (
+        "brand",
+        "target_product",
+        "target_audience",
+        "key_selling_points",
+        "target_search_trends",
+    )
+
+    @staticmethod
+    def _run_load_session_state(state: dict) -> dict:
+        from types import SimpleNamespace
+
+        from creative_agent.callbacks import load_session_state
+
+        ctx = SimpleNamespace(
+            state=state,
+            agent_name="root_agent",
+            invocation_id="inv-1",
+            session=SimpleNamespace(id="sess-1"),
+            user_id="u-1",
+        )
+        load_session_state(ctx)  # ty: ignore[invalid-argument-type]
+        return state
+
+    def test_campaign_keys_default_to_empty_when_unseeded(self):
+        state = self._run_load_session_state({})
+        for key in self._CAMPAIGN_KEYS:
+            assert state[key] == "", f"{key} should default to empty string"
+
+    def test_campaign_keys_survive_caller_seeding(self):
+        """createSession-seeded campaign fields must NOT be blanked by init."""
+        seeded = {
+            "brand": "PRS Guitars",
+            "target_product": "SE CE24",
+            "target_audience": "gigging guitarists",
+            "key_selling_points": "versatile, affordable",
+            "target_search_trends": "powerball",
+        }
+        state = self._run_load_session_state(dict(seeded))
+        for key, value in seeded.items():
+            assert state[key] == value
+
+    def test_campaign_seeding_runs_once(self):
+        from creative_agent.config import config
+
+        state = self._run_load_session_state({"brand": "PRS"})
+        folder = state["gcs_folder"]
+        assert state[config.state_init] is True
+        # A later turn (state already initialised; memorize changed a value)
+        # must neither re-seed nor reset campaign fields.
+        state["brand"] = "Memorized"
+        self._run_load_session_state(state)
+        assert state["gcs_folder"] == folder
+        assert state["brand"] == "Memorized"
+
     def test_style_shortlist_seeded_once(self):
         from creative_agent.callbacks import _set_initial_states
         from creative_agent.style_shortlist import STYLE_GROUPS

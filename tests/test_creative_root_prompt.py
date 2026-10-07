@@ -66,7 +66,28 @@ def test_root_is_told_not_to_stop_between_steps():
     assert "never an empty or text-only response" in ROOT_AGENT_INSTR
 
 
+CAMPAIGN_KEYS = {
+    "brand",
+    "target_audience",
+    "target_product",
+    "key_selling_points",
+    "target_search_trends",
+}
+
+
 def test_no_new_state_tokens():
-    # ADK treats {name} as a state token; only the URI keys may appear.
-    tokens = set(re.findall(r"\{(\w+)\??\}", ROOT_AGENT_INSTR))
-    assert tokens == {"gcs_bucket", "gcs_folder", "agent_output_dir"}
+    # ADK treats {name} as a state token; only the URI keys (required) and the
+    # optional campaign fields shown in <CURRENT_STATE> may appear.
+    required = set(re.findall(r"\{(\w+)\}", ROOT_AGENT_INSTR))
+    optional = set(re.findall(r"\{(\w+)\?\}", ROOT_AGENT_INSTR))
+    assert required == {"gcs_bucket", "gcs_folder", "agent_output_dir"}
+    assert optional == CAMPAIGN_KEYS
+
+
+def test_campaign_fields_already_in_state_are_not_rememorized():
+    block = ROOT_AGENT_INSTR.split("<CURRENT_STATE>", 1)[1].split("</CURRENT_STATE>")[0]
+    for key in CAMPAIGN_KEYS:
+        assert f"{{{key}?}}" in block
+    instructions = ROOT_AGENT_INSTR.split("<INSTRUCTIONS>", 1)[1]
+    assert "Do NOT re-memorize" in instructions
+    assert "missing from BOTH" in instructions
