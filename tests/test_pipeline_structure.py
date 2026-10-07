@@ -2020,6 +2020,21 @@ def test_concept_gate_decision_records_residual_issues_when_budget_spent():
     assert route == "ok" and delta["final_visual_concepts__issues"]
 
 
+def test_concept_gate_decision_allows_quoted_brand_and_product():
+    """The gate reads brand/target_product from state: a quoted logo or product
+    name is neither a mismatch nor counted toward the text cap."""
+    from creative_agent.agent import concept_gate_decision
+
+    concepts = [
+        _concept(1, image_generation_prompt='Type reads "Beep beep 1".'),
+        _concept(2, image_generation_prompt='Type reads "Beep beep 2".'),
+        _concept(3, image_generation_prompt='A decal with lettering "ACME".'),
+        _concept(4, image_generation_prompt='Box label reads "Rocket Skates".'),
+    ]
+    route, delta = concept_gate_decision(_concept_state(*concepts, brand="Acme"), 1)
+    assert route == "ok", delta
+
+
 def test_concept_gate_decision_skips_missing_concepts():
     from creative_agent.agent import concept_gate_decision
 

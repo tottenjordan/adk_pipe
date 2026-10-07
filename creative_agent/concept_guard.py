@@ -15,19 +15,33 @@
    (every flagged concept costs a worker LLM call, latency and possibly a
    user-visible warning, so a missed violation is cheaper than a false alarm):
 
-   * quoted in-image text must match the paired copy's headline or CTA;
+   * quoted in-image text must match the paired copy's headline or CTA
+     (quotes of the brand, the product or the concept's ``brand_cue`` — a
+     logo, a product name — are always allowed);
    * ``trend_motif`` must not be empty;
-   * at most ``max_text_concepts`` concepts carry quoted in-image text;
+   * at most ``max_text_concepts`` concepts carry quoted headline/CTA (or
+     unknown) in-image text — brand/product quotes never count;
    * at most one centred hero composition per set.
 
-   Known limits: in-image text is recognised ONLY inside double quotes
-   (straight or curly) — the prompts require quoting it, and single quotes are
-   ambiguous with apostrophes — so unquoted text instructions are missed;
-   meme/comic prompts are detected by keyword and fully exempted; the centred
-   hero check is keyword based, ignores "off-centre" and sentences about text,
-   type or logos, and cannot judge an unlabelled composition. Visual quality,
-   brand-cue fit, avoid/fit_mode adherence are left to the LLM critic and the
-   eval judge.
+   In-image text heuristic (``in_image_quotes``): a double-quoted span
+   (straight or curly; it must contain a letter) is in-image text ONLY when a
+   text cue word (reading/reads/says/text/headline/tagline/sign/caption/
+   lettering/written/words/title/label/slogan/banner/poster …, see
+   ``_TEXT_CUE``) appears within the ``_CUE_WINDOW_WORDS`` (6) words before it.
+   Any other quoted span — ``bathed in "golden hour" light``, a quoted style
+   name — is descriptive and ignored entirely (neither a mismatch nor counted
+   toward the cap). Known limits: unquoted text instructions, single-quoted
+   text (ambiguous with apostrophes) and quoted text whose cue comes only
+   after it are missed. Meme/comic concepts are fully exempt: by
+   ``visual_style`` containing a meme/comic palette family
+   (``EXEMPT_STYLE_FAMILIES``), else by the narrow prompt phrases "meme
+   caption" / "speech bubble" / "comic panel" (never bare "caption"/"meme",
+   which the guide's negative-space wording uses). The centred hero check is
+   keyword based and ignores "off-centre", negations ("not centred", "avoid
+   centring/a centred …"), "small … in a wide" framing and sentences about
+   text, type or logos; it cannot judge an unlabelled composition. Visual
+   quality, brand-cue fit, avoid/fit_mode adherence are left to the LLM critic
+   and the eval judge.
 
 ``restore_unflagged_concepts`` is the fixer's safety net (only flagged concepts
 may change), mirroring ``copy_gate.restore_unflagged``.
@@ -47,10 +61,21 @@ DEFAULT_MAX_TEXT_CONCEPTS = 2
 
 # Straight "…" or curly “…” double quotes; the content must contain a letter.
 _QUOTED = re.compile(r'"([^"\n]+)"|“([^”\n]+)”')
+# A word that marks the following quoted span as text rendered in the image.
+_TEXT_CUE = re.compile(
+    r"^(?:reading|reads|read|says|saying|text|headline|tagline|sign|signage|"
+    r"caption|lettering|letters|written|words|title|label|slogan|banner|poster)$",
+    re.IGNORECASE,
+)
+_CUE_WINDOW_WORDS = 6
 # A meme caption / comic speech bubble may be new short text (the guide's
 # exception): such concepts are exempt from the quote match AND the text cap.
+# Primary signal: the concept's visual_style names one of these palette
+# families (creative_agent.style_shortlist.STYLE_GROUPS); fallback: the narrow
+# prompt phrases below (never bare "caption"/"meme").
+EXEMPT_STYLE_FAMILIES: tuple[str, ...] = ("Meme aesthetic", "Comic panel")
 _MEME_OR_COMIC = re.compile(
-    r"\b(?:memes?|captions?|speech[- ]bubbles?|comics?)\b", re.IGNORECASE
+    r"\b(?:meme[- ]captions?|speech[- ]bubbles?|comic[- ]panels?)\b", re.IGNORECASE
 )
 # A centred hero composition ("off-centre" excluded).
 _CENTRED = re.compile(
@@ -65,6 +90,13 @@ _TEXT_WORDS = re.compile(
     r"caption|cta|call[- ]to[- ]action|logo|wordmark)\b",
     re.IGNORECASE,
 )
+# "not centred", "never centered", "avoid centring", "avoid a centred hero".
+_NEGATED_CENTRE = re.compile(
+    r"\b(?:not|never|avoid(?:s|ing)?)\s+(?:\w+\s+){0,2}?cent(?:er|r)",
+    re.IGNORECASE,
+)
+# "a small subject in a wide environment" — the guide's off-hero framing.
+_SMALL_IN_WIDE = re.compile(r"\bsmall\b[^.!?;]*\bin an?\b[^.!?;]*\bwide\b", re.I)
 _SENTENCE = re.compile(r"[^.!?;]+")
 
 
@@ -135,14 +167,33 @@ def _normalise(text: str) -> str:
     return " ".join(re.findall(r"[a-z0-9]+", text.replace("’", "'").lower()))
 
 
-def quoted_texts(prompt: str) -> list[str]:
-    """The double-quoted segments of ``prompt`` that contain a letter."""
-    found = (m.group(1) or m.group(2) for m in _QUOTED.finditer(prompt))
-    return [q.strip() for q in found if re.search(r"[A-Za-z]", q)]
+def in_image_quotes(prompt: str) -> list[str]:
+    """The quoted spans of ``prompt`` that are in-image text (see module doc).
+
+    A span counts only when a ``_TEXT_CUE`` word is among the
+    ``_CUE_WINDOW_WORDS`` words before it (quote marks stripped, so a cue can
+    carry over an earlier quote: ``reads "A" and "B"``).
+    """
+    found: list[str] = []
+    for match in _QUOTED.finditer(prompt):
+        quote = (match.group(1) or match.group(2)).strip()
+        if not re.search(r"[A-Za-z]", quote):
+            continue
+        before = re.findall(r"[A-Za-z]+", prompt[: match.start()])
+        if any(_TEXT_CUE.match(w) for w in before[-_CUE_WINDOW_WORDS:]):
+            found.append(quote)
+    return found
 
 
-def is_meme_or_comic(prompt: str) -> bool:
-    """The prompt describes a meme caption / comic speech bubble (exempt)."""
+def is_meme_or_comic(prompt: str, visual_style: str = "") -> bool:
+    """The concept is a meme caption / comic speech bubble (exempt).
+
+    True when ``visual_style`` contains a meme/comic palette family name
+    (case-insensitive), else when the prompt uses a narrow meme/comic phrase.
+    """
+    style = visual_style.lower()
+    if any(family.lower() in style for family in EXEMPT_STYLE_FAMILIES):
+        return True
     return _MEME_OR_COMIC.search(prompt) is not None
 
 
@@ -150,7 +201,10 @@ def is_centred_hero(prompt: str) -> bool:
     """A sentence of ``prompt`` (outside quotes) describes a centred hero."""
     unquoted = _QUOTED.sub(" ", prompt)
     return any(
-        _CENTRED.search(sentence) and not _TEXT_WORDS.search(sentence)
+        _CENTRED.search(sentence)
+        and not _TEXT_WORDS.search(sentence)
+        and not _NEGATED_CENTRE.search(sentence)
+        and not _SMALL_IN_WIDE.search(sentence)
         for sentence in _SENTENCE.findall(unquoted)
     )
 
@@ -163,6 +217,19 @@ def _matches(quote: str, allowed: Iterable[str]) -> bool:
     for text in allowed:
         t = _normalise(text)
         if t and (q in t or t in q):
+            return True
+    return False
+
+
+def _names_brand(quote: str, names: Iterable[str]) -> bool:
+    """``quote`` and a brand/product/brand-cue name contain one another as whole
+    words (normalised), so a short brand never whitelists unrelated words."""
+    q = f" {_normalise(quote)} "
+    if not q.strip():
+        return False
+    for name in names:
+        n = f" {_normalise(name)} "
+        if n.strip() and (q in n or n in q):
             return True
     return False
 
@@ -183,19 +250,23 @@ def concept_issues(
     concepts: Any,
     ad_copies: Any,
     *,
+    brand: str = "",
+    target_product: str = "",
     max_text_concepts: int = DEFAULT_MAX_TEXT_CONCEPTS,
 ) -> dict[str, list[CopyIssue]]:
     """The concepts' deterministic issues, keyed by ``concept_keys``.
 
     ``concepts`` is the ``final_visual_concepts`` state value and ``ad_copies``
     the ``ad_copy_critique`` value (see ``parse_concepts`` / ``parse_copies``).
-    Per concept (meme/comic prompts exempt from the first): every quoted text
-    in ``image_generation_prompt`` matches the paired copy's (``original_id`` ==
-    ``ad_copy_id``) headline or call to action — case, punctuation and
-    whitespace insensitive, substring either way; an unpaired concept is
-    checked against its own headline/CTA fields, and skipped when it has
-    neither; ``trend_motif`` is non-empty. Per set: the concepts with quoted
-    in-image text (meme/comic exempt) beyond the first ``max_text_concepts``,
+    Per concept (meme/comic concepts exempt from the first): every in-image
+    quote in ``image_generation_prompt`` (``in_image_quotes``) that does not
+    name ``brand``, ``target_product`` or the concept's ``brand_cue`` matches
+    the paired copy's (``original_id`` == ``ad_copy_id``) headline or call to
+    action — case, punctuation and whitespace insensitive, substring either
+    way; an unpaired concept is checked against its own headline/CTA fields,
+    and skipped when it has neither; ``trend_motif`` is non-empty. Per set: the
+    concepts with headline/CTA/unknown in-image text (meme/comic exempt;
+    brand/product quotes never count) beyond the first ``max_text_concepts``,
     and every centred hero after the first, are flagged. Only concepts with
     issues are returned ({} = clean). Never raises.
     """
@@ -211,8 +282,13 @@ def concept_issues(
     for key, concept in zip(concept_keys(parsed), parsed, strict=True):
         found: list[str] = []
         prompt = _text(concept.get("image_generation_prompt"))
-        exempt = is_meme_or_comic(prompt)
-        quotes = [] if exempt else quoted_texts(prompt)
+        exempt = is_meme_or_comic(prompt, _text(concept.get("visual_style")))
+        names = (brand, target_product, _text(concept.get("brand_cue")))
+        quotes = (
+            []
+            if exempt
+            else [q for q in in_image_quotes(prompt) if not _names_brand(q, names)]
+        )
 
         allowed = _paired_copy_texts(concept, copies_by_id)
         if allowed:

@@ -1022,7 +1022,8 @@ def test_flagged_concept_is_fixed_and_unflagged_edits_are_reverted(monkeypatch):
     that issue, rewrites concept 2, its edit to (unflagged) concept 3 is
     reverted, and the guard then re-adds the brand cue the fix dropped."""
     bad = _final_concept(
-        2, 'Rocket Skates on the ACME crate in a roadrunner dust cloud, "Speed!".'
+        2,
+        'Rocket Skates on the ACME crate in a roadrunner dust cloud, a sign reads "Speed!".',
     )
     concepts = [_final_concept(1), bad, _final_concept(3), _final_concept(4)]
     fixed = _final_concept(

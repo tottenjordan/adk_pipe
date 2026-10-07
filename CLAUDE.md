@@ -152,8 +152,8 @@ creative_agent (root Agent `root_agent`; non-resumable App (carries plugins); pi
 │   drafter/critic/finalizer (each concept: brand_cue from the brief's distinctive assets / brand
 │   colours, in-image text quoted from the paired copy's headline/CTA, brief avoid + fit_mode;
 │   finalizer carries angle_id) → concept_gate (deterministic concept_guard.concept_issues:
-│   quoted text ≠ paired headline/CTA (meme/comic exempt), empty trend_motif, >2 text concepts,
-│   >1 centred hero; "revise" → visual_concept_fixer_failsoft (rewrites ONLY flagged concepts;
+│   cue-preceded quoted text ≠ paired headline/CTA/brand/product (meme/comic style exempt),
+│   empty trend_motif, >2 headline/CTA text concepts, >1 centred hero; "revise" → visual_concept_fixer_failsoft (rewrites ONLY flagged concepts;
 │   unflagged edits reverted by restore_unflagged_concepts, then the motif/product/brand_cue
 │   guard) → back to concept_gate, at most CONCEPT_REVISION_ROUNDS passes; residuals →
 │   final_visual_concepts__issues; "ok") → visual_concepts_ready) → render_barrier → visual_generator_resilient

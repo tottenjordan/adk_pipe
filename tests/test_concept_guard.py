@@ -7,7 +7,6 @@ from creative_agent.concept_guard import (
     ensure_trend_and_product,
     format_concept_issues,
     is_centred_hero,
-    quoted_texts,
     restore_unflagged_concepts,
 )
 
@@ -148,12 +147,107 @@ def test_quoted_text_not_from_the_copy_is_flagged():
 
 def test_meme_and_comic_prompts_are_exempt():
     concepts = [
-        _concept(1, 'A meme with an Impact caption: "When the skates finally work".'),
+        _concept(1, 'Impact meme caption reads "When the skates finally work".'),
         _concept(2, 'A comic panel; the speech bubble says "Meep meep?".'),
-        _concept(3, 'A reaction image, top caption "me vs the roadrunner".'),
+        _concept(
+            3,
+            'A reaction image, top caption "me vs the roadrunner".',
+            visual_style="Meme aesthetic",
+        ),
     ]
     # Exempt from the quote match AND from the text cap.
     assert concept_issues(concepts, COPIES) == {}
+
+
+def test_exemption_by_visual_style_family_without_keywords():
+    concept = _concept(
+        1, 'Bold text reads "Nope, not today".', visual_style="meme AESTHETIC (wojak)"
+    )
+    assert concept_issues([concept], COPIES) == {}
+    comic = _concept(2, 'Text reads "Kapow".', visual_style="Comic panel")
+    assert concept_issues([comic], COPIES) == {}
+
+
+def test_exempt_style_families_exist_in_the_style_palette():
+    from creative_agent.concept_guard import EXEMPT_STYLE_FAMILIES
+    from creative_agent.style_shortlist import STYLE_GROUPS
+
+    families = {name for names in STYLE_GROUPS.values() for name in names}
+    assert set(EXEMPT_STYLE_FAMILIES) <= families
+
+
+def test_bare_caption_or_meme_words_do_not_exempt():
+    # The guide's own negative-space phrase must not switch the checks off.
+    concept = _concept(
+        3,
+        "Leave clean negative space for the platform's own caption. "
+        'A neon sign reading "Speed is life".',
+        visual_style="Photoreal / editorial",
+    )
+    issues = concept_issues([concept], COPIES)
+    assert _issue_texts(issues, "3")[0].startswith('in-image text "Speed is life"')
+
+
+# --- brand / product quotes (item 1) ----------------------------------------
+
+
+def test_quoted_brand_logo_is_allowed_and_not_counted():
+    concepts = [
+        _concept(1, 'Type reads "Beep Beep, Coyote 1!".'),
+        _concept(2, 'Type reads "Order yours today".'),
+        _concept(3, 'The headstock bears the "PRS" logo, text reads "PRS".'),
+    ]
+    assert concept_issues(concepts, COPIES, brand="PRS") == {}
+
+
+def test_quoted_product_and_brand_cue_are_allowed():
+    concepts = [
+        _concept(1, 'Lettering reads "SE CE24".'),
+        _concept(2, 'A sign reading "bird inlays".', brand_cue="PRS bird inlays"),
+        _concept(3, 'Type reads "Beep Beep, Coyote 3!".'),
+        _concept(4, 'Type reads "Order yours today".'),
+    ]
+    assert concept_issues(concepts, COPIES, target_product=PRODUCT) == {}
+
+
+def test_short_brand_does_not_whitelist_unrelated_words():
+    concept = _concept(3, 'A sign reading "Great gear".')
+    issues = concept_issues([concept], COPIES, brand="GE")
+    assert _issue_texts(issues, "3")[0].startswith('in-image text "Great gear"')
+
+
+# --- descriptive quotes (item 4) --------------------------------------------
+
+
+def test_descriptive_quotes_without_a_text_cue_are_ignored():
+    concepts = [
+        _concept(1, 'Bathed in "golden hour" light, a "Cinematic film still".'),
+        _concept(2, 'A "Retro / vaporwave" palette.'),
+        _concept(3, 'Rendered as "Diecut sticker" art.'),
+    ]
+    # Neither mismatch nor cap.
+    assert concept_issues(concepts, COPIES) == {}
+
+
+def test_background_sign_text_is_flagged():
+    issues = concept_issues([_concept(1, 'A neon sign reading "Open".')], COPIES)
+    assert _issue_texts(issues, "1")[0].startswith('in-image text "Open"')
+
+
+def test_headline_quote_with_trailing_punctuation_matches():
+    copies = {"ad_copies": [{"original_id": 1, "headline": "Outrun Monday"}]}
+    concept = _concept(1, 'The headline text reads "Outrun Monday." in bold.')
+    assert concept_issues([concept], copies) == {}
+
+
+def test_in_image_quotes_need_a_cue_within_six_words():
+    from creative_agent.concept_guard import in_image_quotes
+
+    assert in_image_quotes('A sign reading "Open"') == ["Open"]
+    assert in_image_quotes('A SLOGAN: "Go"') == ["Go"]
+    assert in_image_quotes('Bathed in "golden hour" light') == []
+    far = 'The text sits low and the light is warm and soft "Hi"'
+    assert in_image_quotes(far) == []
 
 
 def test_unpaired_concept_falls_back_to_its_own_fields_or_is_skipped():
@@ -213,8 +307,20 @@ def test_centred_hero_heuristic_is_conservative():
     assert not is_centred_hero("A wide desert road at dusk.")
 
 
-def test_quoted_texts_ignores_letterless_quotes():
-    assert quoted_texts('Type "42" and "Go fast" and “Zoom”') == ["Go fast", "Zoom"]
+def test_centred_hero_ignores_negations_and_small_in_wide_framing():
+    assert not is_centred_hero("The skates are not centred; rule of thirds.")
+    assert not is_centred_hero("Not centered, the coyote sits left.")
+    assert not is_centred_hero("Avoid centring: an off-center subject.")
+    assert not is_centred_hero("Avoid a centred hero shot.")
+    assert not is_centred_hero("A skater small in a wide, centred desert frame.")
+    assert is_centred_hero("A centred hero shot of the skates.")
+
+
+def test_in_image_quotes_ignores_letterless_quotes():
+    from creative_agent.concept_guard import in_image_quotes
+
+    text = 'Text reads "42" and "Go fast" and “Zoom”'
+    assert in_image_quotes(text) == ["Go fast", "Zoom"]
 
 
 def test_concept_issues_tolerates_bad_input():

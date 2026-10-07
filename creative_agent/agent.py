@@ -896,8 +896,9 @@ visual_concept_fixer = Agent(
 # --- DETERMINISTIC CONCEPT GATE (bounded fix loop) --- #
 # concept_gate runs creative_agent.concept_guard.concept_issues on the final
 # visual concepts (after the trend/product/brand-cue guard): quoted in-image
-# text matches the paired copy's headline/CTA (meme/comic exempt), non-empty
-# trend_motif, at most 2 concepts with quoted text, at most one centred hero —
+# text matches the paired copy's headline/CTA (brand/product/brand-cue quotes
+# allowed; meme/comic exempt), non-empty trend_motif, at most 2 concepts with
+# quoted headline/CTA text, at most one centred hero —
 # conservative string heuristics, all deterministic. Same contract as
 # copy_gate: with issues and fix budget left (config.concept_revision_rounds,
 # env CONCEPT_REVISION_ROUNDS, 0-2) it writes them as a Markdown list grouped
@@ -920,7 +921,10 @@ _CONCEPT_REVISION_CLEARED: dict[str, Any] = {
 
 def _concept_issues(state: Mapping[str, Any]) -> dict[str, list[CopyIssue]]:
     return concept_issues(
-        state.get("final_visual_concepts"), state.get("ad_copy_critique")
+        state.get("final_visual_concepts"),
+        state.get("ad_copy_critique"),
+        brand=str(state.get("brand") or ""),
+        target_product=str(state.get("target_product") or ""),
     )
 
 
