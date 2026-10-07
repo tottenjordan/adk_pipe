@@ -9,12 +9,15 @@ graph function nodes run the same work as one deterministic unit:
   ``creative_eval`` judge (``evaluate_all_creatives``) off the event loop;
 * :func:`persist_node` — saves the eval report JSON + HTML gallery to GCS and
   writes the ``trend_creatives`` + ``creative_evals`` BigQuery rows;
-* :func:`finalize_ready` — the truthy terminal: a compact summary for the root.
+* :func:`finalize_ready` — the truthy terminal: a compact summary for the root;
+  it also sets ``finalize_done`` (runserver's auto-continue completion key).
 
 Every step is isolated: a failure is logged and recorded as a generic
 degradation marker (``<key>__retry_exhausted`` / ``<key>__issues``, surfaced by
 ``agent_common.collect_degradation_warnings``), never raised, so one failing
 save cannot cost the run its other outputs or stall the root's tool call.
+Transient infra errors (5xx/429/timeouts) are retried a bounded number of times
+first (:func:`_run_step`).
 
 The node functions take the ADK ``Context`` a graph function node receives. In
 ADK 2.x ``ToolContext`` is an alias of ``Context``, so the existing tool
@@ -49,6 +52,15 @@ GALLERY_KEY = "creative_gallery_gcs_uri"
 TRENDS_ROW_KEY = "creative_row_uuid"
 EVAL_ROW_KEY = "eval_bq_row_uuid"
 RESEARCH_PDF_KEY = "research_report_gcs_uri"
+# Set by finalize_ready on every path: the creative apps' auto-continue
+# completion key (runserver.async_runs._COMPLETION_KEYS). Not eval_bq_row_uuid,
+# which is never written when there is no report or the eval BQ write failed.
+DONE_KEY = "finalize_done"
+
+# Backoff (seconds) before each retry of a transient persistence error: len + 1
+# attempts in total. `_sleep` is the awaitable used (tests monkeypatch both).
+_RETRY_DELAYS: tuple[float, ...] = (2.0, 5.0)
+_sleep = asyncio.sleep
 
 # The steps the summary reports as failed when their `__issues` marker is set,
 # with a readable name. Research PDF is saved inside combined_research_pipeline
@@ -91,7 +103,7 @@ async def evaluate_creatives_node(ctx: Context) -> None:
         result = await asyncio.to_thread(eval_agent.evaluate_all_creatives, holder)
     except Exception:
         logger.exception("finalize: creative evaluation failed")
-        ctx.state[REPORT_EXHAUSTED_KEY] = True
+        _mark_evaluation_failed(ctx)
         return None
     report = holder.state.get(REPORT_KEY)
     if (isinstance(result, dict) and result.get("status") == "error") or not (
@@ -99,13 +111,52 @@ async def evaluate_creatives_node(ctx: Context) -> None:
     ):
         message = result.get("message") if isinstance(result, dict) else None
         logger.warning("finalize: no evaluation report: %s", message or result)
-        ctx.state[REPORT_EXHAUSTED_KEY] = True
+        _mark_evaluation_failed(ctx)
         return None
     ctx.state[REPORT_KEY] = report
+    if ctx.state.get(REPORT_EXHAUSTED_KEY):
+        ctx.state[REPORT_EXHAUSTED_KEY] = False  # a re-run succeeded
     return None
 
 
+def _mark_evaluation_failed(ctx: Context) -> None:
+    """Record the exhausted marker and drop any stale (earlier-run) report.
+
+    The snapshot handed to the judge carries the previous report, if any, so a
+    failed re-run would otherwise leave it for persist_node and the summary.
+    """
+    ctx.state[REPORT_EXHAUSTED_KEY] = True
+    if is_populated(ctx.state.get(REPORT_KEY)):
+        ctx.state[REPORT_KEY] = None
+
+
+def _has_report(state: Mapping[str, Any]) -> bool:
+    """A usable evaluation report: populated and not from a failed evaluation."""
+    return is_populated(state.get(REPORT_KEY)) and not state.get(REPORT_EXHAUSTED_KEY)
+
+
 # --- persistence --- #
+
+
+def _transient_exceptions() -> tuple[type[BaseException], ...]:
+    """Exception types worth retrying: 5xx/429/deadline + connection/timeouts.
+
+    ``google.api_core`` (a dependency of the GCS/BigQuery clients) is imported
+    lazily and guarded, so the builtins still apply without it.
+    """
+    excs: list[type[BaseException]] = [ConnectionError, TimeoutError]
+    try:
+        from google.api_core import exceptions as gexc
+    except ImportError:  # pragma: no cover - present wherever the tools run
+        return tuple(excs)
+    excs += [
+        gexc.ServiceUnavailable,
+        gexc.InternalServerError,
+        gexc.TooManyRequests,
+        gexc.GatewayTimeout,
+        gexc.DeadlineExceeded,
+    ]
+    return tuple(excs)
 
 
 async def _run_step(
@@ -113,17 +164,39 @@ async def _run_step(
 ) -> dict[str, Any] | None:
     """Run one persistence tool; on exception or error dict record ``<key>__issues``.
 
+    A transient error (:func:`_transient_exceptions`) is retried after each
+    ``_RETRY_DELAYS`` backoff (3 attempts in total); the tools are idempotent
+    (session-derived BigQuery keys + MERGE, overwriting GCS uploads). Other
+    exceptions and ``{"status": "error"}`` results are not retried.
+
     Returns the tool's result dict on success, else ``None``. Never raises.
     """
     label = _STEP_LABELS[key]
-    try:
-        result = step(ctx)
-        if inspect.isawaitable(result):
-            result = await result
-    except Exception as exc:
-        logger.exception("finalize: %s failed", label)
-        ctx.state[f"{key}__issues"] = issue_message(label, exc)
-        return None
+    transient = _transient_exceptions()
+    attempts = len(_RETRY_DELAYS) + 1
+    for attempt in range(attempts):
+        try:
+            result = step(ctx)
+            if inspect.isawaitable(result):
+                result = await result
+            break
+        except Exception as exc:
+            if isinstance(exc, transient) and attempt < attempts - 1:
+                delay = _RETRY_DELAYS[attempt]
+                logger.warning(
+                    "finalize: %s transient error (attempt %d/%d), retrying in "
+                    "%.0fs: %s",
+                    label,
+                    attempt + 1,
+                    attempts,
+                    delay,
+                    exc,
+                )
+                await _sleep(delay)
+                continue
+            logger.exception("finalize: %s failed", label)
+            ctx.state[f"{key}__issues"] = issue_message(label, exc)
+            return None
     if isinstance(result, dict) and result.get("status") == "error":
         message = str(result.get("message") or "returned an error")
         logger.warning("finalize: %s: %s", label, message)
@@ -153,7 +226,7 @@ async def persist_node(ctx: Context) -> None:
     Without an evaluation report both eval writes are skipped (the GCS tool
     would only return an error) and only the gallery + creative row are saved.
     """
-    has_report = is_populated(ctx.state.get(REPORT_KEY))
+    has_report = _has_report(ctx.state.to_dict())
     if has_report:
         await _run_step(ctx, EVAL_GCS_KEY, gcs_tools.save_eval_report_to_gcs)
 
@@ -166,11 +239,16 @@ async def persist_node(ctx: Context) -> None:
     else:
         _skip(ctx, GALLERY_KEY, "no final ad copies or visual concepts")
 
-    await _run_step(ctx, TRENDS_ROW_KEY, bq_tools.write_trends_to_bq)
+    trends = await _run_step(ctx, TRENDS_ROW_KEY, bq_tools.write_trends_to_bq)
+    if trends is None and ctx.state.get(TRENDS_ROW_KEY):
+        # write_trends_to_bq sets creative_row_uuid BEFORE its MERGE: clear it so
+        # the eval row does not link to a creative row that was never written.
+        ctx.state[TRENDS_ROW_KEY] = ""
 
     if has_report:
         # Written even when an earlier save failed: the eval row keeps the
-        # scores, with an empty link column for the missing creative row / URI.
+        # scores, with an empty link column for the missing creative row
+        # (cleared above) / eval report URI (never set when that save failed).
         await _run_step(ctx, EVAL_ROW_KEY, bq_tools.write_eval_report_to_bq)
     return None
 
@@ -229,7 +307,7 @@ def finalize_summary(state: Mapping[str, Any]) -> str:
     """
     parts: list[str] = []
     report = state.get(REPORT_KEY)
-    if is_populated(report) and isinstance(report, Mapping):
+    if _has_report(state) and isinstance(report, Mapping):
         summary = report.get("summary") or {}
         ad_total = int(summary.get("total_ad_copies") or 0)
         vis_total = int(summary.get("total_visual_concepts") or 0)
@@ -278,5 +356,10 @@ def finalize_summary(state: Mapping[str, Any]) -> str:
 
 
 def finalize_ready(ctx: Context) -> str:
-    """Terminal node of finalize_pipeline (the root's tool result; always truthy)."""
+    """Terminal node of finalize_pipeline (the root's tool result; always truthy).
+
+    Sets ``finalize_done`` on every path, so runserver's auto-continue never
+    re-runs finalize (and its ~70 s judge) once it has finished.
+    """
+    ctx.state[DONE_KEY] = True
     return finalize_summary(ctx.state.to_dict())

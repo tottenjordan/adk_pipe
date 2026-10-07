@@ -18,7 +18,9 @@ checking what structure tests can't:
 * ``write_trends_to_bq`` invoked once before and once after the resume binds the
   same ``stable_row_id(session.id, trend)`` key both times (one logical row).
   It runs inside ``finalize_pipeline`` in production; the test adds it to the
-  root's tools so the binding is checked without scripting the eval judge.
+  root's tools so the binding is checked without scripting the eval judge;
+* after a checkpoint-3 resume the root's ``finalize_pipeline`` NodeTool runs
+  (fake judge / GCS / BQ) and sets the ``finalize_done`` completion marker.
 """
 
 import asyncio
@@ -357,3 +359,73 @@ def test_bq_write_across_resume_binds_one_logical_key(monkeypatch):
     expected = stable_row_id(r["session_id"], TREND)
     assert [p["unique_id"] for p in params] == [expected, expected]
     assert r["state"]["creative_row_uuid"] == expected
+
+
+def test_finalize_pipeline_runs_after_checkpoint_3_resume(monkeypatch):
+    """The real resumable App: pause at checkpoint 3, resume, then the root's
+    finalize_pipeline NodeTool evaluates + persists inside the resumed
+    invocation and sets the auto-continue completion marker."""
+    import creative_eval.agent as eval_agent
+    import interactive_creative.agent as ic
+    from creative_agent import bq_tools, gcs_tools
+    from tests._fakes import FakeStorageClient
+    from tests.test_creative_agent_graph import _FINALIZE_STATE, _fake_judge
+
+    root_llm = _patch_root(monkeypatch)
+    monkeypatch.setattr(eval_agent, "evaluate_all_concurrently", _fake_judge)
+    storage = FakeStorageClient([])
+    monkeypatch.setattr(gcs_tools, "_get_gcs_client", lambda: storage)
+    bq = FakeBigQueryClient()
+    monkeypatch.setattr(bq_tools, "_get_bigquery_client", lambda: bq)
+
+    root_llm.push(fc_response("review_visual_concepts", {}, "fc-cp3"))
+    root_llm.push(
+        fc_response("finalize_pipeline", {"request": "go"}, "fc-fin"),
+        text_response("ROOT DONE"),
+    )
+    svc = InMemorySessionService()
+
+    def runner_factory(app_name: str) -> Runner:
+        return Runner(app=ic.app, session_service=svc)
+
+    async def go():
+        await svc.create_session(
+            app_name=APP,
+            user_id=USER,
+            session_id=SID,
+            state={**_seed_state(), **_FINALIZE_STATE},
+        )
+        common = {
+            "app_name": APP,
+            "user_id": USER,
+            "session_id": SID,
+            "session_service": svc,
+            "runner_factory": runner_factory,
+        }
+        _, task = await start_run(message="go", **common)
+        await task
+        paused = await _session(svc)
+        mid_state = dict(paused.state)
+        _, task = await start_resume(
+            function_call_id="fc-cp3",
+            function_name="review_visual_concepts",
+            response={"status": "approved", "instruction": "continue"},
+            **common,
+        )
+        await task
+        final = await _session(svc)
+        return mid_state, list(final.events), dict(final.state)
+
+    mid_state, events, state = asyncio.run(go())
+
+    assert "finalize_done" not in mid_state  # paused before finalize
+    assert "fc-cp3" in _answered_ids(events)
+    assert _long_running_ids(events) - _answered_ids(events) == set()
+    assert "Evaluation complete" in str(_responses(events)["fc-fin"])
+    assert _final_texts(events)[-1] == "ROOT DONE"
+    assert state["finalize_done"] is True
+    assert state["creative_evaluation_report"]
+    assert state["eval_report_gcs_uri"] and state["eval_bq_row_uuid"]
+    assert not [k for k in state if k.endswith(("__issues", "__retry_exhausted"))]
+    assert state[RUN_STATUS_KEY] == "done"
+    assert len(bq.sqls) == 2  # trend_creatives + creative_evals rows

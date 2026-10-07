@@ -159,6 +159,7 @@ async def main():
     print(f"  gallery built: {_saved('creative_gallery_gcs_uri')}")
     print(f"  bq row written: {_saved('creative_row_uuid')}")
     print(f"  eval bq row written: {_saved('eval_bq_row_uuid')}")
+    print(f"  finalize done: {bool(state.get('finalize_done'))}")
     print(f"\nsession id for reference: {session.id}")
     print(f"gcs folder: {state.get('gcs_folder')}")
 

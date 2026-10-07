@@ -39,6 +39,22 @@ def test_research_pdf_is_saved_by_the_pipeline_not_the_root():
     assert len(calls) == 2  # step 1's "do NOT call" + the report_edited re-save
 
 
+def test_save_draft_report_artifact_is_forbidden_unless_report_edited():
+    """Regression: the PDF re-save is conditional on report_edited and is the only
+    allowed call (an unconditional re-save would overwrite the pipeline's PDF)."""
+    step = _checkpoint1_step()
+    condition = step.index("If the response has `report_edited: true`")
+    call = step.index("call `save_draft_report_artifact`")
+    assert condition < call
+    assert "this is the only time to call it" in step[call:]
+    tool_line = next(
+        line
+        for line in ROOT_AGENT_INSTR.splitlines()
+        if line.lstrip().startswith("3. `save_draft_report_artifact`")
+    )
+    assert "Only after the user edited the report at checkpoint 1" in tool_line
+
+
 def test_finalize_pipeline_replaces_eval_and_persistence_steps():
     workflow = _workflow()
     for gone in (

@@ -5,9 +5,14 @@ import threading
 from typing import Any
 
 import pytest
+from google.api_core import exceptions as gexc
 
 from creative_agent import finalize as fin
+from tests._fake_bq import FakeBigQueryClient
 from tests._fakes import FakeToolContext
+
+# The real tool, captured before any test monkeypatches it.
+_REAL_WRITE_EVAL = fin.bq_tools.write_eval_report_to_bq
 
 _REPORT = {
     "summary": {
@@ -226,3 +231,185 @@ def test_persist_without_creatives_skips_the_gallery(monkeypatch):
     ctx = _persist({})
     assert calls == ["trends"]
     assert "skipped" in ctx.state["creative_gallery_gcs_uri__issues"]
+
+
+# --- review follow-ups --- #
+
+
+def test_finalize_ready_writes_the_completion_marker():
+    """runserver's auto-continue keys creative apps on finalize_done, so the
+    terminal must set it on every path (incl. no report / failed eval write)."""
+    for state in ({}, {"creative_evaluation_report": _REPORT}):
+        ctx = FakeToolContext(state)
+        out = fin.finalize_ready(ctx)  # ty: ignore[invalid-argument-type]
+        assert out.strip()
+        assert ctx.state["finalize_done"] is True
+
+
+def test_evaluate_error_with_a_stale_report_clears_it(monkeypatch):
+    """A judge error must not leave a previous run's report for persist_node."""
+    ctx = FakeToolContext({"creative_evaluation_report": _REPORT})
+    monkeypatch.setattr(
+        fin.eval_agent,
+        "evaluate_all_creatives",
+        lambda holder: {"status": "error", "message": "No ad copies"},
+    )
+    asyncio.run(fin.evaluate_creatives_node(ctx))  # ty: ignore[invalid-argument-type]
+    assert ctx.state["creative_evaluation_report__retry_exhausted"] is True
+    assert not ctx.state.get("creative_evaluation_report")
+
+
+def test_evaluate_success_clears_a_stale_exhausted_marker(monkeypatch):
+    ctx = FakeToolContext({"creative_evaluation_report__retry_exhausted": True})
+
+    def fake_eval(holder):
+        holder.state["creative_evaluation_report"] = _REPORT
+        return {"status": "success"}
+
+    monkeypatch.setattr(fin.eval_agent, "evaluate_all_creatives", fake_eval)
+    asyncio.run(fin.evaluate_creatives_node(ctx))  # ty: ignore[invalid-argument-type]
+    assert ctx.state["creative_evaluation_report"] == _REPORT
+    assert not ctx.state["creative_evaluation_report__retry_exhausted"]
+
+
+def test_persist_skips_eval_writes_when_evaluation_exhausted(monkeypatch):
+    """Even if a stale report survives, an exhausted evaluation skips eval writes."""
+    calls: list[str] = []
+    _patch_steps(monkeypatch, calls)
+    _persist(
+        {
+            "creative_evaluation_report": _REPORT,
+            "creative_evaluation_report__retry_exhausted": True,
+            **_CREATIVES,
+        }
+    )
+    assert calls == ["gallery", "trends"]
+
+
+def test_judge_error_with_stale_report_end_to_end(monkeypatch):
+    calls: list[str] = []
+    _patch_steps(monkeypatch, calls)
+    monkeypatch.setattr(
+        fin.eval_agent,
+        "evaluate_all_creatives",
+        lambda holder: {"status": "error", "message": "No ad copies"},
+    )
+    ctx = FakeToolContext({"creative_evaluation_report": _REPORT, **_CREATIVES})
+    asyncio.run(fin.evaluate_creatives_node(ctx))  # ty: ignore[invalid-argument-type]
+    asyncio.run(fin.persist_node(ctx))  # ty: ignore[invalid-argument-type]
+    assert calls == ["gallery", "trends"]
+    assert "creative evaluation did not produce" in fin.finalize_summary(ctx.state)
+
+
+def test_failed_trends_step_clears_the_creative_row_link(monkeypatch):
+    """write_trends_to_bq sets creative_row_uuid before its MERGE; when the MERGE
+    fails the eval row must not link to a row that was never written."""
+    calls: list[str] = []
+    seen: dict[str, Any] = {}
+
+    def trends(ctx):
+        calls.append("trends")
+        ctx.state["creative_row_uuid"] = "row1"
+        raise RuntimeError("bq down")
+
+    def eval_bq(ctx):
+        calls.append("eval_bq")
+        seen["link"] = ctx.state.get("creative_row_uuid", "")
+        return {"status": "success"}
+
+    _patch_steps(monkeypatch, calls, trends=trends, eval_bq=eval_bq)
+    monkeypatch.setattr(fin, "_RETRY_DELAYS", ())
+    ctx = _persist({"creative_evaluation_report": _REPORT, **_CREATIVES})
+    assert "bq down" in ctx.state["creative_row_uuid__issues"]
+    assert calls[-1] == "eval_bq"
+    assert not seen["link"]
+
+
+def test_eval_row_written_with_empty_uri_when_gcs_save_fails(monkeypatch):
+    """The real write_eval_report_to_bq still writes the scores, with an empty
+    eval_report_gcs_uri link, when save_eval_report_to_gcs raised."""
+    calls: list[str] = []
+
+    def eval_gcs(ctx):
+        calls.append("eval_gcs")
+        raise ValueError("bad bucket")
+
+    bq = FakeBigQueryClient()
+    monkeypatch.setattr(fin.bq_tools, "_get_bigquery_client", lambda: bq)
+    _patch_steps(monkeypatch, calls, eval_gcs=eval_gcs, eval_bq=_REAL_WRITE_EVAL)
+    ctx = _persist({"creative_evaluation_report": _REPORT, **_CREATIVES})
+    assert "bad bucket" in ctx.state["eval_report_gcs_uri__issues"]
+    assert ctx.state["eval_bq_row_uuid"]
+    (_, job_config), *_ = bq.queries
+    params = {p.name: p.value for p in job_config.query_parameters}
+    assert params["eval_report_gcs_uri"] == ""
+    assert params["total_ad_copies"] == 4
+
+
+# --- _run_step transient retry --- #
+
+
+def _run_step(monkeypatch, step) -> tuple[FakeToolContext, list[float]]:
+    slept: list[float] = []
+
+    async def fake_sleep(delay):
+        slept.append(delay)
+
+    monkeypatch.setattr(fin, "_sleep", fake_sleep)
+    ctx = FakeToolContext({})
+    asyncio.run(fin._run_step(ctx, fin.GALLERY_KEY, step))  # ty: ignore[invalid-argument-type]
+    return ctx, slept
+
+
+def _flaky(exc_factory, fail_times: int):
+    attempts: list[int] = []
+
+    def step(ctx):
+        attempts.append(1)
+        if len(attempts) <= fail_times:
+            raise exc_factory()
+        return {"status": "success"}
+
+    return step, attempts
+
+
+def test_run_step_retries_a_transient_error_then_succeeds(monkeypatch):
+    step, attempts = _flaky(lambda: gexc.ServiceUnavailable("503"), 1)
+    ctx, slept = _run_step(monkeypatch, step)
+    assert len(attempts) == 2
+    assert slept == [fin._RETRY_DELAYS[0]]
+    assert "creative_gallery_gcs_uri__issues" not in ctx.state
+
+
+@pytest.mark.parametrize(
+    "exc_factory",
+    [
+        lambda: gexc.TooManyRequests("429"),
+        lambda: ConnectionError("reset"),
+        lambda: TimeoutError("slow"),
+    ],
+    ids=["429", "connection", "timeout"],
+)
+def test_run_step_gives_up_after_three_transient_failures(monkeypatch, exc_factory):
+    step, attempts = _flaky(exc_factory, 99)
+    ctx, slept = _run_step(monkeypatch, step)
+    assert len(attempts) == 3
+    assert slept == list(fin._RETRY_DELAYS)
+    assert "creative_gallery_gcs_uri__issues" in ctx.state
+
+
+def test_run_step_does_not_retry_non_transient_errors_or_error_dicts(monkeypatch):
+    step, attempts = _flaky(lambda: ValueError("bad"), 99)
+    ctx, slept = _run_step(monkeypatch, step)
+    assert len(attempts) == 1 and slept == []
+    assert "bad" in ctx.state["creative_gallery_gcs_uri__issues"]
+
+    calls: list[int] = []
+
+    def error_dict(ctx):
+        calls.append(1)
+        return {"status": "error", "message": "nope"}
+
+    ctx, slept = _run_step(monkeypatch, error_dict)
+    assert len(calls) == 1 and slept == []
+    assert "nope" in ctx.state["creative_gallery_gcs_uri__issues"]

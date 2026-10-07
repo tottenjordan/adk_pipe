@@ -1101,6 +1101,7 @@ def test_finalize_graph_evaluates_and_persists_everything(monkeypatch):
     )
     assert state["creative_row_uuid"]
     assert state["eval_bq_row_uuid"]
+    assert state["finalize_done"] is True
     assert not [k for k in state if k.endswith(("__issues", "__retry_exhausted"))]
     # The eval row links to both the creative row and the saved report: last.
     assert order == [
@@ -1146,6 +1147,7 @@ def test_finalize_graph_gallery_failure_does_not_block_bq(monkeypatch):
     assert "creative_gallery_gcs_uri" not in state
     assert order[-2:] == ["write_trends_to_bq", "write_eval_report_to_bq"]
     assert state["creative_row_uuid"] and state["eval_bq_row_uuid"]
+    assert state["finalize_done"] is True
     assert len(bq.sqls) == 2
     (response,) = _responses(events)
     assert "Failed steps: HTML gallery." in str(response)
