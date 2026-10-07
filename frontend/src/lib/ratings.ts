@@ -118,3 +118,57 @@ export function isProofRated(proof: Proof, byKey: Record<string, Rating>): boole
   const keys = creativeKeysFor(proof);
   return Boolean(byKey[keys.visual] || (keys.adCopy && byKey[keys.adCopy]));
 }
+
+// ── Judge calibration (GET /ratings/{user}/calibration; runserver/calibration.py) ──
+
+export interface KappaStats {
+  n: number;
+  agreement: number | null;
+  kappa: number | null;
+  reason: string | null;
+}
+
+export interface CalibrationBlock {
+  n: number;
+  judge_passed: KappaStats;
+  judge_gates_passed: KappaStats;
+  score_spearman: { n: number; rho: number | null; reason: string | null };
+}
+
+export interface Calibration {
+  n: number;
+  sessions: number;
+  ready_min_ratings: number;
+  overall: CalibrationBlock;
+  by_kind: Record<RatingKind, CalibrationBlock>;
+}
+
+/** Default when an older API omits `ready_min_ratings`. */
+export const READY_MIN_RATINGS = 20;
+
+const KAPPA_REASONS: Record<string, string> = {
+  single_class: "every verdict so far is the same",
+  judge_single_class: "the judge gave every creative the same verdict",
+  human_single_class: "you gave every creative the same verdict",
+};
+
+/**
+ * The one-line "Judge agreement" summary: kappa + raw agreement once there are
+ * enough ratings paired with a judge verdict, else how many more to rate.
+ * Null when the report is malformed.
+ */
+export function judgeAgreementText(calibration: Calibration | null | undefined): string | null {
+  const stats = calibration?.overall?.judge_passed;
+  if (!stats || typeof stats.n !== "number") return null;
+  const min = calibration?.ready_min_ratings || READY_MIN_RATINGS;
+  if (stats.n < min) {
+    const more = min - stats.n;
+    return `Rate ${more} more ${more === 1 ? "creative" : "creatives"} to calibrate the judge`;
+  }
+  const pct = stats.agreement === null ? "n/a" : `${Math.round(stats.agreement * 100)}%`;
+  const kappa =
+    stats.kappa === null
+      ? `kappa not defined: ${KAPPA_REASONS[stats.reason ?? ""] ?? "too little variation"}`
+      : `kappa ${stats.kappa.toFixed(2)}`;
+  return `Judge agreement: ${pct} over ${stats.n} ratings, ${kappa}`;
+}

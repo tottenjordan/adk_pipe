@@ -125,3 +125,11 @@ def test_table_name_and_env_selection(caplog):
     assert "falling back" in caplog.text
     with pytest.raises(RuntimeError):
         rs.build_store_from_env({"RATINGS_STORE": "sqlite"})
+
+
+def test_calibration_sql_scoped_or_global():
+    sql, params = rs.build_calibration_sql("p.d.r", "a@x.com")
+    assert "WHERE user_id = @user_id" in sql and params[0].value == "a@x.com"
+    assert "a@x.com" not in sql
+    sql, params = rs.build_calibration_sql("p.d.r")
+    assert "WHERE" not in sql and params == []

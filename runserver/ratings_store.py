@@ -134,6 +134,19 @@ def build_list_user_sql(table: str, user_id: str) -> tuple[str, list]:
     return sql, [_param("user_id", user_id)]
 
 
+def build_calibration_sql(table: str, user_id: str | None = None) -> tuple[str, list]:
+    """The columns ``runserver/calibration.py`` reads, for one user or everyone
+    (``scripts/eval_calibration.py``)."""
+    where = "WHERE user_id = @user_id" if user_id else ""
+    sql = f"""
+        SELECT session_id, kind, verdict, score, judge_overall, judge_passed,
+               judge_gates_passed
+        FROM `{table}`
+        {where}
+        """
+    return sql, [_param("user_id", user_id)] if user_id else []
+
+
 def _newest_first(rows: list[dict]) -> list[dict]:
     return sorted(rows, key=lambda r: r["updated_at"], reverse=True)
 

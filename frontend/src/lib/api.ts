@@ -1,5 +1,5 @@
 import type { Session, AgentEvent } from "./types";
-import type { Rating, RatingPayload } from "./ratings";
+import type { Calibration, Rating, RatingPayload } from "./ratings";
 
 // Route through the same-origin Next.js proxy (src/app/api/adk/[...path]/route.ts) so
 // the browser never makes a cross-origin call — this avoids CORS and the Cloud
@@ -301,4 +301,11 @@ export async function getRatings(sessionId: string): Promise<Rating[]> {
   if (!res.ok) throw new Error(`Failed to load ratings (${res.status})`);
   const data = await res.json();
   return Array.isArray(data?.ratings) ? data.ratings : [];
+}
+
+/** `GET /ratings/{user}/calibration`: judge-human agreement over the caller's ratings. */
+export async function getCalibration(): Promise<Calibration> {
+  const res = await fetch(ratingsUrl("calibration"));
+  if (!res.ok) throw new Error(`Failed to load calibration (${res.status})`);
+  return res.json();
 }

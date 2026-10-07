@@ -58,7 +58,7 @@ tests/
 ├── test_authz.py                    # P3 per-user authz: modes, userId normalization, proxy ID-token check, middleware 401/403/404, ownership → 404
 ├── test_backend_entrypoint.py       # backend container entrypoint (uvicorn serves async_app.py)
 ├── test_bandit_endpoint_lib.py      # deployment/bandit/endpoint.py vs a fake aiplatform (single-worker env, 1 replica, labels, find_* by label oldest-first)
-├── test_create_bq_tables.py         # create_bq_tables.sh with a stub bq: bandit_* schemas, partitioning, idempotency
+├── test_create_bq_tables.py         # create_bq_tables.sh with a stub bq: bandit_* + creative_ratings schemas (ratings vs RATING_COLUMN_TYPES), partitioning/clustering, idempotency
 ├── test_bandit_*.py                 # JAX bandit core (bandit/): features, config, linear TS, baselines, environment, simulate+metrics+aggregate, notebook-parity smoke, scripted shifts
 ├── test_brief_check.py              # deterministic creative-brief check (proposition incl. abbreviations/capital-led sentence breaks/brand-product-trend names/and-compounds, X-but-Y insight + ;/dash/contrast markers, cited RTBs + normalised src-N/brief ids vs sources, fit_mode, angle names/tensions, motifs, assets)
 ├── test_brief_render.py             # creative brief → "## Creative Brief" markdown in the research PDF (real markdown_pdf TOC check) + compact (headless) prompt variant + gallery summary card (HTML-escaped)
@@ -84,6 +84,9 @@ tests/
 ├── test_experiments_series.py       # pure §8 /creatives aggregation (windows, share, segments, missedClicks, engagedSecondsPer1k)
 ├── test_experiments_shifts.py       # §10 in the api: shift validation + bandit parity, numbered traffic runs (runs/{n}.json, env overrides, trafficRuns), ?run= reads incl. legacy NULL rows, shift_response + regime aggregation, regime SQL, unmigrated-table fallbacks
 ├── test_experiments_store.py        # bandit_experiments MERGE/SELECT builders, typed params, §8 series SQL builders, both stores, deploy-lease UPDATEs, unknown-column tolerance
+├── test_ratings_api.py              # /ratings routes: PUT validation (400 reasons, unknown creative_key), upsert idempotency (created_at kept), GET listing, foreign/unknown session 404 (incl. ownership ValueError), judge fields from state or the GCS report (cached, fail soft; conservative headline/id matching), store 502s, calibration endpoint, enforce-mode 401/403
+├── test_ratings_store.py            # creative_ratings MERGE/SELECT builders (fully parameterised), BigQuery store over the fake client, in-memory store, RATINGS_STORE selection + fallback
+├── test_calibration.py              # judge-human calibration maths: Cohen's kappa (textbook value, degenerate single-class reasons), tie-averaged Spearman, per-kind slices, CSV string coercion, scripts/eval_calibration.py over a CSV
 ├── test_export_concurrency.py       # creative_agent export tools: per-run scratch isolation (issue #104)
 ├── test_image_prompt_guide.py       # IMAGE_PROMPT_GUIDE rules: text cap, descriptors not templates, Educational mapping, trend motif, trend_motif schema field, REFERENCE_IMAGES section (role-only references, ignore-text left to the tool, style ref vs family diversity), Subject+Action+Location+Composition+Style blocks, typography, no unrequested logos
 ├── test_image_reference.py          # generate_image multimodal contents + valid ImageConfig; multiple reference images (resolve_references legacy fold-in/dedupe/cap/invalid roles, ordered parts, one failed fetch skips only that ref + unavailable-role line, numbered role block + ignore-text line, SSRF/size/content-type fetch hardening) (image QA off via the `image_qa_off` conftest fixture)

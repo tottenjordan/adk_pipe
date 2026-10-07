@@ -10,7 +10,7 @@ import {
   ratingsByKey,
   type Rating,
 } from "@/lib/ratings";
-import { getRatings, putRating } from "@/lib/api";
+import { getCalibration, getRatings, putRating } from "@/lib/api";
 
 const proof = (adCopy?: Partial<AdCopy>): Proof => ({
   index: 0,
@@ -132,5 +132,15 @@ describe("ratings REST client", () => {
     ).rejects.toThrow("502");
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("{}", { status: 200 })));
     expect(await getRatings("s")).toEqual([]);
+  });
+});
+
+describe("getCalibration", () => {
+  afterEach(() => vi.unstubAllGlobals());
+  it("GETs the placeholder user's calibration", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response("{}", { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    await getCalibration();
+    expect(fetchMock.mock.calls[0][0]).toBe("/api/adk/ratings/me/calibration");
   });
 });

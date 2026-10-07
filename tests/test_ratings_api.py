@@ -355,3 +355,57 @@ def test_enforce_mode_authz():
         assert r.json() == {"ratings": []}
 
     run(go)
+
+
+def test_calibration_endpoint_aggregates_the_users_ratings():
+    async def go():
+        h = Harness()
+        await h.session()
+        empty = (await h.client.get(f"/ratings/{A}/calibration")).json()
+        assert empty["n"] == 0
+        assert empty["overall"]["judge_passed"]["reason"] == "no_pairs"
+        # fixture judge: Golden Golf Cart passes; copy:3 is matched by headline
+        await h.put(verdict="pass", score=5)
+        await h.put(creative_key="visual:The Jackpot Reveal", verdict="fail", score=2)
+        await h.put(creative_key="copy:3", kind="ad_copy", verdict="pass")
+        await h.session(user=B, sid="s2")
+        await h.put(user=B, sid="s2", verdict="fail")  # Bob's: not counted
+        rep = (await h.client.get(f"/ratings/{A}/calibration")).json()
+        assert rep["n"] == 3 and rep["sessions"] == 1
+        assert rep["by_kind"]["visual"]["n"] == 2
+        assert rep["by_kind"]["ad_copy"]["judge_passed"]["n"] == 1
+        assert rep["overall"]["judge_passed"]["agreement"] is not None
+        # "calibration" is not mistaken for a session id
+        assert "ratings" not in rep
+
+    run(go)
+
+
+def test_calibration_requires_matching_user_in_enforce_mode():
+    async def go():
+        h = Harness(mode=AuthzMode.ENFORCE)
+        ok = {**PROXY, "X-TT-User": A}
+        assert (await h.client.get(f"/ratings/{A}/calibration")).status_code == 401
+        r = await h.client.get(f"/ratings/{B}/calibration", headers=ok)
+        assert r.status_code == 403
+        r = await h.client.get(f"/ratings/{A}/calibration", headers=ok)
+        assert r.status_code == 200
+
+    run(go)
+
+
+def test_store_read_failure_is_502():
+    class Broken(InMemoryRatingsStore):
+        async def list_for_user(self, user_id):
+            raise RuntimeError("bq down")
+
+        async def list_for_session(self, user_id, session_id):
+            raise RuntimeError("bq down")
+
+    async def go():
+        h = Harness()
+        rt.configure(session_service=h.svc, store=Broken())
+        assert (await h.client.get(f"/ratings/{A}/calibration")).status_code == 502
+        assert (await h.client.get(f"/ratings/{A}/s1")).status_code == 502
+
+    run(go)

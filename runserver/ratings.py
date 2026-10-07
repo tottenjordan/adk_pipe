@@ -12,6 +12,8 @@ Routes (all user-scoped by path, gated by ``UserAuthzMiddleware`` like
 - ``PUT /ratings/{user}/{session}``: upsert one rating (body ``app_name``,
   ``creative_key``, ``kind``, ``verdict``, ``score?``, ``note?``).
 - ``GET /ratings/{user}/{session}``: the user's ratings for that session.
+- ``GET /ratings/{user}/calibration``: judge-human agreement over all the user's
+  ratings (``runserver/calibration.py``).
 
 ``creative_key`` is ``visual:<concept_name>`` (kind ``visual``) or
 ``copy:<original_id>`` (kind ``ad_copy``) and must name a creative in the session's
@@ -32,6 +34,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+from runserver.calibration import calibration_report
 from runserver.ratings_store import InMemoryRatingsStore, rating_id, utcnow
 
 log = logging.getLogger(__name__)
@@ -360,7 +363,22 @@ async def http_put_rating(user_id: str, session_id: str, body: _RatingBody) -> d
     return out
 
 
+async def _read(coro) -> list[dict]:
+    try:
+        return await coro
+    except Exception as exc:
+        log.exception("ratings: store read failed")
+        raise _error(502, "store_failed", "could not read ratings") from exc
+
+
+# Declared before the session route so "calibration" is never read as a session id.
+@router.get("/ratings/{user_id}/calibration")
+async def http_calibration(user_id: str) -> dict:
+    """Judge-human agreement over every rating by the user (runserver/calibration.py)."""
+    return calibration_report(await _read(_STORE.list_for_user(user_id)))
+
+
 @router.get("/ratings/{user_id}/{session_id}")
 async def http_list_ratings(user_id: str, session_id: str) -> dict:
-    rows = await _STORE.list_for_session(user_id, session_id)
+    rows = await _read(_STORE.list_for_session(user_id, session_id))
     return {"ratings": [to_public(r) for r in rows]}
