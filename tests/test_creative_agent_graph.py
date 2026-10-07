@@ -1016,7 +1016,7 @@ def _judge_score(passed: bool, overall: float) -> CreativeScore:
     )
 
 
-def _fake_judge(ad_copies, visual_concepts, campaign_context, config):
+def _fake_judge(ad_copies, visual_concepts, campaign_context, config, **_kw):
     """Stands in for creative_eval.evaluate_all_concurrently (no judge calls)."""
     ads = [
         AdCopyEvaluation(

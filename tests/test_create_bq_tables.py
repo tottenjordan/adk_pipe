@@ -79,3 +79,15 @@ def test_creates_bandit_tables_per_contract(tmp_path):
 def test_idempotent_when_tables_exist(tmp_path):
     calls = _run(tmp_path, exists=True)
     assert not [c for c in calls if " mk " in f" {c} "]
+
+
+@pytest.mark.subprocess
+def test_creative_evals_schema_matches_eval_row_columns(tmp_path):
+    """The `bq mk` creative_evals schema names exactly the MERGE's columns."""
+    from creative_agent.bq_tools import EVAL_COLUMN_TYPES
+
+    calls = [c for c in _run(tmp_path, exists=False) if c.startswith("mk -t")]
+    (evals,) = [c for c in calls if c.split()[-2] == "p:d.e"]
+    bq_mk_types = {"FLOAT64": "FLOAT", "INT64": "INTEGER"}
+    expected = {f"{c}:{bq_mk_types.get(t, t)}" for c, t in EVAL_COLUMN_TYPES.items()}
+    assert set(evals.split()[-1].split(",")) == expected

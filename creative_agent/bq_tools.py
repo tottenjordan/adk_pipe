@@ -36,6 +36,7 @@ def build_eval_bq_row(
     """
     summary = report.get("summary", {})
     weakest = summary.get("weakest_dimensions") or []
+    gates_rate = summary.get("gates_pass_rate")
     warnings = report.get("warnings") or []
     return {
         "uuid": eval_uuid,
@@ -58,6 +59,9 @@ def build_eval_bq_row(
         # Degradation notes (research retries exhausted, etc.) surfaced from the
         # eval report's structured `warnings`. Empty string when research was clean.
         "research_gaps": " | ".join(warnings),
+        # Share of creatives whose binary compliance gates all passed; NULL for
+        # reports written before the judge returned gates.
+        "gates_pass_rate": None if gates_rate is None else float(gates_rate),
     }
 
 
@@ -82,6 +86,7 @@ EVAL_COLUMN_TYPES = {
     "weakest_dimension_labels": "STRING",
     "eval_report_gcs_uri": "STRING",
     "research_gaps": "STRING",
+    "gates_pass_rate": "FLOAT64",
 }
 
 

@@ -89,12 +89,12 @@ bq mk \
 bq mk \
  -t \
  $BQ_PROJECT_ID:$BQ_DATASET_ID.$BQ_TABLE_EVALS \
- uuid:STRING,creative_uuid:STRING,datetime:DATETIME,target_trend:STRING,brand:STRING,target_product:STRING,overall_pass_rate:FLOAT,total_ad_copies:INTEGER,ad_copies_passed:INTEGER,avg_ad_copy_score:FLOAT,total_visual_concepts:INTEGER,visual_concepts_passed:INTEGER,avg_visual_score:FLOAT,weakest_dimensions:STRING,eval_report_gcs_uri:STRING,research_gaps:STRING,weakest_dimension_labels:STRING
+ uuid:STRING,creative_uuid:STRING,datetime:DATETIME,target_trend:STRING,brand:STRING,target_product:STRING,overall_pass_rate:FLOAT,total_ad_copies:INTEGER,ad_copies_passed:INTEGER,avg_ad_copy_score:FLOAT,total_visual_concepts:INTEGER,visual_concepts_passed:INTEGER,avg_visual_score:FLOAT,weakest_dimensions:STRING,eval_report_gcs_uri:STRING,research_gaps:STRING,weakest_dimension_labels:STRING,gates_pass_rate:FLOAT
 ```
 
 These schemas already include every later column. Tables created before those columns
 existed need the additive migrations instead: `processing_started_at` /
-`processing_attempts` and `weakest_dimension_labels`, both under
+`processing_attempts`, `weakest_dimension_labels` and `gates_pass_rate`, all under
 [3. Create event-driven functions and eventarc triggers](#3-create-event-driven-functions-and-eventarc-triggers).
 The nightly eval CI uses an isolated dataset cloned from these schemas (see
 [Eval CI (WIF)](#eval-ci-wif)). The script also creates the three `bandit_*` tables used by
@@ -345,6 +345,35 @@ uv run python deployment/backfill_eval_dimension_labels.py \
 uv run python deployment/backfill_eval_dimension_labels.py \
   --table=<BQ_PROJECT_ID>.trend_trawler.creative_evals --execute
 ```
+
+**gates_pass_rate migration (2026-10-07)** — `creative_evals` gains
+`gates_pass_rate FLOAT64`: the share of a run's **judged** creatives whose
+binary compliance gates all passed (`creative_eval` judge gates). Creatives whose
+judge call failed (`evaluation_failed`) are excluded from both numerator and
+denominator; NULL when no creative was judged, and for rows written before the
+gates existed — no backfill, the old reports have no gates. A judge that reports
+none of the expected gates counts as a gate failure. Runs **without a creative
+brief** auto-pass the brief-dependent gates (note "no brief"), so their rate reads
+higher — compare like with like (`brief_used` on the report). Same
+ordering rule: run the ALTER on **both** datasets **BEFORE deploying** the code
+that writes it (the `creative_agent` / `interactive_creative` engines and the
+`trend-trawler-api` backend), since the eval-row MERGE names every column:
+
+```sql
+ALTER TABLE `<BQ_PROJECT_ID>.trend_trawler.creative_evals`
+  ADD COLUMN IF NOT EXISTS gates_pass_rate FLOAT64;
+ALTER TABLE `<BQ_PROJECT_ID>.trend_trawler_eval.creative_evals`
+  ADD COLUMN IF NOT EXISTS gates_pass_rate FLOAT64;
+```
+
+**Judge image access (IAM).** The visual judge passes each rendered image to
+Gemini as a `gs://` URI, which Vertex AI fetches server-side as the project's
+**Vertex AI service agent** (`service-<PROJECT_NUMBER>@gcp-sa-aiplatform.iam.gserviceaccount.com`),
+not with the caller's credentials. A bucket in the same project needs nothing
+extra; a bucket in **another project** needs that service agent granted
+`roles/storage.objectViewer` on the bucket. If the read fails (HTTP 403/404, or
+a 400 about the image/URI/file), the concept is judged from its prompt instead
+(`image_judged=False`, plus a report warning).
 
 **3.1 Creative Agent Orchestrator:** cloud run function
 
