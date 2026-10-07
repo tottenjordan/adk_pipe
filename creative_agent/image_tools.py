@@ -197,6 +197,21 @@ def _role_prefixed_prompt(prompt_text: str, role: str) -> str:
     return f"{prompt_text}\n\n{instruction}"
 
 
+def _final_image_part(parts):
+    """The part carrying the FINAL rendered image, or None.
+
+    Thinking image models (gemini-nano-banana-2.1) return an intermediate
+    "thought" image part (``part.thought=True``) before the final one, so the
+    first inline image is a draft. Prefer the last non-thought image part; fall
+    back to the last image part if every one is flagged as a thought.
+    """
+    images = [p for p in parts if p.inline_data is not None and p.inline_data.data]
+    finals = [p for p in images if not getattr(p, "thought", False)]
+    if finals:
+        return finals[-1]
+    return images[-1] if images else None
+
+
 async def generate_image(
     tool_context: ToolContext,
 ):
@@ -288,11 +303,10 @@ async def generate_image(
             image_mime_type = "image/png"
             candidates = response.candidates or []
             if candidates and candidates[0].content and candidates[0].content.parts:
-                for part in candidates[0].content.parts:
-                    if part.inline_data is not None and part.inline_data.data:
-                        image_bytes = part.inline_data.data
-                        image_mime_type = part.inline_data.mime_type or image_mime_type
-                        break
+                part = _final_image_part(candidates[0].content.parts)
+                if part is not None:
+                    image_bytes = part.inline_data.data
+                    image_mime_type = part.inline_data.mime_type or image_mime_type
 
             if image_bytes is not None:
                 # define artifact key
