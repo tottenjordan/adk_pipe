@@ -8,6 +8,7 @@ from agent_common import (
     build_gemini,
     build_gemini_with_fallback,
     build_safety_plugins,
+    drop_other_agent_context,
 )
 
 # Reuse existing building blocks from the creative_agent public facade.
@@ -108,7 +109,9 @@ root_agent = Agent(
         },
     ),
     before_agent_callback=callbacks.load_session_state,
-    before_model_callback=callbacks.rate_limit_callback,
+    # Drop the pipelines' replayed sub-agent turns + node inputs first (they
+    # bloated the root's prompt; see agent_common/history.py), then rate-limit.
+    before_model_callback=[drop_other_agent_context, callbacks.rate_limit_callback],
     after_model_callback=callbacks.log_empty_turn_finish_reason,
     after_agent_callback=callbacks.log_final_state_summary,
     retry_config=INFRA_RETRY,

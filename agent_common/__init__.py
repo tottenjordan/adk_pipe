@@ -3,6 +3,7 @@
 from agent_common.clients import get_bigquery_client, get_gcs_client
 from agent_common.config import BaseAgentConfiguration
 from agent_common.fail_soft_node import FailSoftNode
+from agent_common.history import drop_other_agent_context
 from agent_common.idempotency import stable_row_id
 from agent_common.locations import MODEL_LOCATION
 from agent_common.models import (
@@ -41,6 +42,7 @@ __all__ = [
     "RetryUntilKeyNode",
     "ScopedModelArmorPlugin",
     "collect_degradation_warnings",
+    "drop_other_agent_context",
     "get_bigquery_client",
     "get_gcs_client",
     "is_populated",
