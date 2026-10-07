@@ -261,3 +261,24 @@ def test_both_roots_trim_before_rate_limiting():
             drop_other_agent_context,
             callbacks.rate_limit_callback,
         ], root.name
+
+
+def test_fallback_preamble_matches_adk():
+    """The copied fallback literal equals ADK's constant (kept in sync on upgrade)."""
+    import inspect
+
+    from agent_common import history
+
+    src = inspect.getsource(history)
+    from google.adk.flows.llm_flows.context._fencing import (
+        OTHER_AGENT_CONTEXT_PREAMBLE as adk_preamble,
+    )
+
+    fallback = src.split("except ImportError")[1]
+    joined = "".join(
+        part
+        for part in __import__("re").findall(
+            r'"([^"]*)"', fallback.split("logging.")[0]
+        )
+    )
+    assert joined == adk_preamble
