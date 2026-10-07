@@ -315,3 +315,40 @@ def test_critic_fallback_never_uses_campaign_bucket():
     from creative_agent.config import ALT_GLOBAL_MODEL, config
 
     assert config.critic_fallback_model != ALT_GLOBAL_MODEL
+
+
+class TestBrandHistoryKnobs:
+    def test_parsers(self):
+        from creative_agent.config import (
+            parse_brand_history_enabled,
+            parse_brand_history_runs,
+        )
+
+        assert parse_brand_history_enabled(None) is True
+        assert parse_brand_history_enabled("") is True
+        assert parse_brand_history_enabled(" FALSE ") is False
+        assert parse_brand_history_enabled("0") is False
+        assert parse_brand_history_runs(None) == 5
+        assert parse_brand_history_runs("junk") == 5
+        assert parse_brand_history_runs("-3") == 0
+        assert parse_brand_history_runs("50") == 20
+        assert parse_brand_history_runs("7") == 7
+
+    def test_config_reads_env_per_instance(self, monkeypatch):
+        from creative_agent.config import ResearchConfiguration
+
+        monkeypatch.setenv("BRAND_HISTORY_ENABLED", "off")
+        monkeypatch.setenv("BRAND_HISTORY_RUNS", "3")
+        cfg = ResearchConfiguration()
+        assert cfg.brand_history_enabled is False
+        assert cfg.brand_history_runs == 3
+
+    def test_shipped_to_agent_engine_and_documented(self):
+        from pathlib import Path
+
+        import deployment.deploy_agent as da
+
+        env_example = (Path(__file__).parent.parent / ".env.example").read_text()
+        for key in ("BRAND_HISTORY_ENABLED", "BRAND_HISTORY_RUNS"):
+            assert da.ENV_VAR_DICT[key] is not None, key
+            assert key in env_example, key

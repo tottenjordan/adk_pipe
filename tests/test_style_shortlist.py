@@ -48,3 +48,39 @@ def test_format_has_no_braces_and_lists_each_family():
     assert "{" not in text and "}" not in text
     for p in picks:
         assert p in text
+
+
+def test_exclusion_avoids_recent_styles_and_keeps_stratification():
+    recent = frozenset({"Photoreal / editorial", "Comic panel", "Meme aesthetic"})
+    for seed in range(20):
+        picks = pick_style_shortlist(random.Random(seed), exclude=recent)
+        assert not set(picks) & recent
+        assert len(set(picks)) == 6
+        for group, n in SHORTLIST_QUOTA.items():
+            assert sum(p in STYLE_GROUPS[group] for p in picks) == n
+
+
+def test_exclusion_is_case_insensitive():
+    picks = pick_style_shortlist(
+        random.Random(0), exclude=frozenset({"photoreal / EDITORIAL "})
+    )
+    assert "Photoreal / editorial" not in picks
+
+
+def test_exclusion_tops_up_from_the_group_when_too_few_remain():
+    # Excluding every graphic family (and all but one photographic) still
+    # yields the 2/3/1 quota: the shortfall is filled from the excluded ones.
+    recent = frozenset(STYLE_GROUPS["graphic"]) | frozenset(
+        STYLE_GROUPS["photographic"][:2]
+    )
+    picks = pick_style_shortlist(random.Random(5), exclude=recent)
+    assert len(set(picks)) == 6
+    for group, n in SHORTLIST_QUOTA.items():
+        assert sum(p in STYLE_GROUPS[group] for p in picks) == n
+    assert STYLE_GROUPS["photographic"][2] in picks
+
+
+def test_unknown_exclusions_are_ignored():
+    assert pick_style_shortlist(
+        random.Random(9), exclude=frozenset({"Bauhaus poster"})
+    ) == pick_style_shortlist(random.Random(9))

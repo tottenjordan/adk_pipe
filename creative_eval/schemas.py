@@ -128,6 +128,11 @@ class AdCopyEvaluation(BaseModel):
     headline: str = Field(description="The headline that was evaluated.")
     tone_style: str = Field(description="The tone/style of this ad copy.")
     score: CreativeScore = Field(description="Scoring details.")
+    # Copied from the creative by code (not the judge) so brand history can tell
+    # which angles scored well; "" for old reports and copies without one.
+    angle_id: str = Field(
+        default="", description="Creative brief angle id (set by code)."
+    )
 
 
 class VisualConceptEvaluation(BaseModel):
@@ -139,6 +144,14 @@ class VisualConceptEvaluation(BaseModel):
     image_judged: bool = Field(
         default=False,
         description="True when the rendered image was judged; False = the prompt text only (set by code).",
+    )
+    # Copied from the concept by code (not the judge) for brand history; ""
+    # for old reports.
+    visual_style: str = Field(
+        default="", description="Style family used (set by code)."
+    )
+    angle_id: str = Field(
+        default="", description="Creative brief angle id (set by code)."
     )
 
 

@@ -60,6 +60,7 @@ def test_combined_research_pipeline_graph():
         "ca_sequential_planner",
         "research_join",
         "research_barrier",
+        "load_brand_history",
         "merge_planners",
         "refinement_gate",
         "combined_web_evaluator",
@@ -78,8 +79,10 @@ def test_combined_research_pipeline_graph():
     assert _graph_edges(wf) == {
         ("__START__", "gs_sequential_planner", None),
         ("__START__", "ca_sequential_planner", None),
+        ("__START__", "load_brand_history", None),
         ("gs_sequential_planner", "research_join", None),
         ("ca_sequential_planner", "research_join", None),
+        ("load_brand_history", "research_join", None),
         ("research_join", "research_barrier", None),
         ("research_barrier", "merge_planners", None),
         ("merge_planners", "refinement_gate", None),
@@ -2242,3 +2245,21 @@ def test_concept_revision_rounds_ships_to_agent_engine():
     import deployment.deploy_agent as da
 
     assert da.ENV_VAR_DICT["CONCEPT_REVISION_ROUNDS"] is not None
+
+
+def test_brand_history_loads_alongside_research_and_reaches_the_prompts():
+    """load_brand_history (no LLM) runs in the START fan-out, parallel with the
+    two planners, and feeds the JoinNode, so the brief writer (after the join)
+    and the art director can read `{brand_history?}`."""
+    from google.adk.workflow import FunctionNode
+
+    from creative_agent import prompts
+    from creative_agent.agent import combined_research_pipeline as wf
+
+    node = _graph_nodes(wf)["load_brand_history"]
+    assert isinstance(node, FunctionNode)
+    assert "{brand_history?}" in prompts.CREATIVE_BRIEF_WRITER_INSTR
+    assert "{brand_history?}" in prompts.ART_DIRECTOR_INSTR
+    writer = prompts.CREATIVE_BRIEF_WRITER_INSTR
+    assert "recurring weaknesses" in writer and "build on" in writer.lower()
+    assert "recently used" in prompts.ART_DIRECTOR_INSTR

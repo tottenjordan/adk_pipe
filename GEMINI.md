@@ -243,6 +243,11 @@ interactive_creative (root Agent `root_agent`; App + ResumabilityConfig(is_resum
   - Backend `UserAuthzMiddleware` trusts `X-TT-User` only when accompanied by a verified Google ID token for `TRUSTED_PROXY_SA` (`tt-web-sa`) with `aud ∈ TRUSTED_PROXY_AUDIENCES`. Blocks canned `/run`, `/run_sse`, `/run_live`, memory, and agent-identity routes with 404.
 - **"Proof Room" Design System:** Defined in `frontend/src/app/globals.css`. Light theme, `Archivo` + `JetBrains Mono` fonts, `#0077A8` primary action color, `mark-pass`/`mark-fail`/`mark-pending` status marks, sentence-case `FieldLabel`s. No uppercase eyebrows, glass cards, or entrance animations.
 
+### Brand History (`creative_agent/brand_history.py`)
+
+- **What:** `load_brand_history` (function node, no LLM) runs in `combined_research_pipeline`'s START fan-out beside the two planners (feeds `research_join`). It reads the brand's latest `BRAND_HISTORY_RUNS` (default 5, 0–20) BigQuery `creative_evals` rows (parameterised SELECT) plus their eval-report JSON (configured bucket only, 5 MB cap) and writes `brand_history`, a brace-free ≤120-word note read via `{brand_history?}` by the brief writer and art director (build on what worked, fix recurring weaknesses, avoid recently used styles). Unless `visual_style_preference` is set it re-draws `style_shortlist` without the recent styles.
+- **Safety:** fail-soft (10 s timeout in a worker thread; any error → `""`); `BRAND_HISTORY_ENABLED=false` skips the query. Eval report entries carry code-set `visual_style` / `angle_id` (`""` in old reports).
+
 ### Contextual Bandit Experiments (`bandit/`, `bandit_serving/`, `bandit_traffic/`, `runserver/experiments*.py`)
 
 - **Overview:** Post-run Deploy panel turns 2–4 creatives into arms of a JAX linear Thompson sampling (`LinTS`) bandit (`ctx-v1` features `d=19`, synthetic scenarios `clear_winner`/`segment_winners`/`drift`).

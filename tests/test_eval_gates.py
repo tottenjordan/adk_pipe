@@ -1193,3 +1193,39 @@ class TestFinalizeSummaryGates:
         out = finalize_summary({"creative_evaluation_report": self._report()})
         assert "'Zoom' (ad copy, 0.00, evaluation failed)" in out
         assert "'Gone' (visual, 0.90, failed checks: Product visible)" in out
+
+
+class TestReportCarriesStyleAndAngle:
+    """visual_style / angle_id are copied from the creative (code, not judge) so
+    brand history can learn which styles and angles scored well."""
+
+    def test_old_report_defaults_empty(self):
+        report = CreativeEvaluationReport.model_validate(OLD_REPORT)
+        assert report.ad_copy_evaluations[0].angle_id == ""
+
+    def test_ad_copy_eval_records_angle(self):
+        from creative_eval.evaluate import evaluate_ad_copy
+
+        client = _client(_judge_json("ad", dict.fromkeys(AD_COPY_GATES, True)))
+        result = evaluate_ad_copy(AD_COPY, CAMPAIGN, EvalConfig(), client=client)
+        assert result.angle_id == "A1"
+
+    def test_visual_eval_records_style_and_angle(self):
+        from creative_eval.evaluate import evaluate_visual_concept
+
+        client = _client(_judge_json("visual", dict.fromkeys(VISUAL_GATES, True)))
+        concept = CONCEPT | {"angle_id": "A2"}
+        result = evaluate_visual_concept(concept, CAMPAIGN, EvalConfig(), client=client)
+        assert (result.visual_style, result.angle_id) == ("Watercolor", "A2")
+
+    def test_failed_judge_still_records_style_and_angle(self):
+        from creative_eval.evaluate import evaluate_ad_copy, evaluate_visual_concept
+
+        client = MagicMock()
+        client.models.generate_content.side_effect = RuntimeError("offline")
+        ad = evaluate_ad_copy(AD_COPY, CAMPAIGN, EvalConfig(), client=client)
+        vis = evaluate_visual_concept(
+            CONCEPT | {"angle_id": "A2"}, CAMPAIGN, EvalConfig(), client=client
+        )
+        assert ad.angle_id == "A1"
+        assert (vis.visual_style, vis.angle_id) == ("Watercolor", "A2")

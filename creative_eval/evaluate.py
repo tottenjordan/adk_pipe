@@ -282,6 +282,7 @@ def evaluate_ad_copy(
     if client is None:
         client = _get_client(config)
 
+    angle_id = str(ad_copy.get("angle_id") or "")
     # Build the prompt
     user_prompt = prompts.AD_COPY_EVAL_USER.format(
         **campaign_context,
@@ -307,6 +308,7 @@ def evaluate_ad_copy(
             original_id=judged.original_id,
             headline=judged.headline,
             tone_style=judged.tone_style,
+            angle_id=angle_id,
             score=score_from_judge(
                 judged.score,
                 AD_COPY_GATES,
@@ -325,6 +327,7 @@ def evaluate_ad_copy(
             headline=ad_copy.get("headline", ""),
             tone_style=ad_copy.get("tone_style", ""),
             score=_failed_score(),
+            angle_id=angle_id,
         )
 
 
@@ -363,6 +366,11 @@ def evaluate_visual_concept(
 
     name = visual_concept.get("concept_name", "?")
     image_uri = _rendered_image_uri(image)
+    # Recorded on the evaluation by code (brand history reads them).
+    tags = {
+        "visual_style": str(visual_concept.get("visual_style") or ""),
+        "angle_id": str(visual_concept.get("angle_id") or ""),
+    }
 
     def judge(uri: str) -> VisualConceptEvaluation:
         """One judge call: with the rendered image at ``uri``, or prompt-only."""
@@ -411,6 +419,7 @@ def evaluate_visual_concept(
                 brief_used=brief is not None,
             ),
             image_judged=bool(uri),
+            **tags,
         )
 
     if not image_uri:
@@ -440,6 +449,7 @@ def evaluate_visual_concept(
             ad_copy_id=visual_concept.get("ad_copy_id", 0),
             concept_name=visual_concept.get("concept_name", ""),
             score=_failed_score(),
+            **tags,
         )
 
 
