@@ -38,6 +38,7 @@ FIGURES_DIR = Path(__file__).parent / "figures"
 # Agent Engine surfaces as one AgentTool); ``visual_concepts``/``image_gen`` are
 # kept for any run that DOES separate them.
 PHASE_ORDER = [
+    "pipeline",
     "research",
     "visual",
     "eval",
@@ -50,6 +51,7 @@ PHASE_ORDER = [
     "other",
 ]
 PHASE_COLORS = {
+    "pipeline": "#269A99",
     "research": "#61DDAA",
     "visual": "#7262FD",
     "eval": "#F6903D",

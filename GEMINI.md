@@ -157,32 +157,37 @@ trend_scout (root Agent `trend_scout`; App + ResumabilityConfig(is_resumable=Tru
 ├── review_trends (LongRunningFunctionTool — opt-in interactive trend pick)
 └── Persistence tools (BigQuery, GCS, record_research_gaps, memorize)
 
-creative_agent (root Agent `root_agent`; non-resumable App (carries plugins); tools = 4 graph Workflows exposed as bare nodes → NodeTool + memorize; the root calls research → ad copies → visuals → finalize, then writes the final text)
-├── combined_research_pipeline (Workflow, input_schema=PipelineRequest)
-│   START → (gs_/ca_sequential_planner: each a Workflow planner → RetryUntilKeyNode-wrapped
-│   searcher+synthesizer Workflow) → research_join (JoinNode) → research_barrier (no output)
-│   → merge_planners → refinement_gate ("refine" only when base research is degraded:
-│   evaluator → RetryUntilKeyNode-wrapped refined search; else "skip")
-│   → combined_report_composer → brief_writer_failsoft (FailSoftNode → RetryUntilKeyNode →
-│   brief_writer, CreativeBrief → creative_brief) → brief_gate (deterministic brief_check.py;
-│   "revise" → brief_reviser_failsoft → back to brief_gate, at most BRIEF_REVISION_ROUNDS
-│   passes; residuals → creative_brief__issues; every exit writes creative_brief_md, the
-│   compact Markdown the creative prompts read; "ok") → research_report_ready (truthy terminal)
-├── ad_creative_pipeline (Workflow: drafter (10 copies spread across the brief's angles, self-rated
-│   typicality) → critic (final 4 cover ≥3 angles; per-copy brief_checks checklist) → copy_gate
-│   (deterministic copy_gate.py: product named, CTA ≤8 words, headline/caption length, brief avoid
-│   terms, plus the critic's failed proposition/mandatories checks (other self-reports advisory);
-│   "revise" → ad_copy_reviser_failsoft (rewrites ONLY flagged copies;
-│   unflagged edits reverted by restore_unflagged) → back to copy_gate, at most COPY_REVISION_ROUNDS
-│   passes; deterministic residuals only → ad_copy_critique__issues; "ok") → ad_copies_ready)
-├── visual_production_pipeline (Workflow)
-│   visual_generation_pipeline (Workflow: art_director → concept drafter/critic/finalizer
-│   → visual_concepts_ready) → render_barrier → visual_generator_resilient
-│   (RetryUntilKeyNode → visual_generator, generate_image) → images_ready (truthy terminal)
-├── finalize_pipeline (Workflow, creative_agent/finalize.py: evaluate_creatives_node (creative_eval
-│   judge → creative_evaluation_report) → persist_node (eval report JSON → HTML gallery →
-│   trend_creatives row → creative_evals row; transient errors retried, then fail-soft →
-│   <key>__issues) → finalize_ready (sets finalize_done; truthy summary))
+creative_agent (root Agent `root_agent`; non-resumable App (carries plugins); tools = creative_pipeline (bare node → NodeTool) + memorize; the root memorizes missing campaign fields, calls creative_pipeline exactly once, then writes the final text)
+├── creative_pipeline (Workflow, input_schema=PipelineRequest; the root's ONE workflow call — four separate root calls let the Pro root end Agent Engine runs with empty turns before finalize)
+│   START → combined_research_pipeline → ad_creative_barrier → ad_creative_pipeline → visual_production_barrier
+│   → visual_production_pipeline → finalize_barrier → finalize_pipeline (terminal: finalize_ready's summary); each
+│   *_barrier is a no-output node keeping the previous stage's confirmation out of the next stage's PipelineRequest input.
+│   The stages (nested Workflows; also reused separately by interactive_creative):
+│   ├── combined_research_pipeline (Workflow, input_schema=PipelineRequest)
+│   │   START → (gs_/ca_sequential_planner: each a Workflow planner → RetryUntilKeyNode-wrapped
+│   │   searcher+synthesizer Workflow) → research_join (JoinNode) → research_barrier (no output)
+│   │   → merge_planners → refinement_gate ("refine" only when base research is degraded:
+│   │   evaluator → RetryUntilKeyNode-wrapped refined search; else "skip")
+│   │   → combined_report_composer → brief_writer_failsoft (FailSoftNode → RetryUntilKeyNode →
+│   │   brief_writer, CreativeBrief → creative_brief) → brief_gate (deterministic brief_check.py;
+│   │   "revise" → brief_reviser_failsoft → back to brief_gate, at most BRIEF_REVISION_ROUNDS
+│   │   passes; residuals → creative_brief__issues; every exit writes creative_brief_md, the
+│   │   compact Markdown the creative prompts read; "ok") → research_report_ready (truthy terminal)
+│   ├── ad_creative_pipeline (Workflow: drafter (10 copies spread across the brief's angles, self-rated
+│   │   typicality) → critic (final 4 cover ≥3 angles; per-copy brief_checks checklist) → copy_gate
+│   │   (deterministic copy_gate.py: product named, CTA ≤8 words, headline/caption length, brief avoid
+│   │   terms, plus the critic's failed proposition/mandatories checks (other self-reports advisory);
+│   │   "revise" → ad_copy_reviser_failsoft (rewrites ONLY flagged copies;
+│   │   unflagged edits reverted by restore_unflagged) → back to copy_gate, at most COPY_REVISION_ROUNDS
+│   │   passes; deterministic residuals only → ad_copy_critique__issues; "ok") → ad_copies_ready)
+│   ├── visual_production_pipeline (Workflow)
+│   │   visual_generation_pipeline (Workflow: art_director → concept drafter/critic/finalizer
+│   │   → visual_concepts_ready) → render_barrier → visual_generator_resilient
+│   │   (RetryUntilKeyNode → visual_generator, generate_image) → images_ready (truthy terminal)
+│   └── finalize_pipeline (Workflow, creative_agent/finalize.py: evaluate_creatives_node (creative_eval
+│       judge → creative_evaluation_report) → persist_node (eval report JSON → HTML gallery →
+│       trend_creatives row → creative_evals row; transient errors retried, then fail-soft →
+│       <key>__issues) → finalize_ready (sets finalize_done; truthy summary))
 └── memorize
 
 interactive_creative (root Agent `root_agent`; App + ResumabilityConfig(is_resumable=True); reviser via AgentTool)

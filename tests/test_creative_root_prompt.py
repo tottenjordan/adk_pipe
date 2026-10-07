@@ -5,8 +5,12 @@
   after rendering (creative_eval_agent + four persistence tools) plus a
   save_draft_report_artifact call after research. The research PDF is now saved
   inside combined_research_pipeline and the eval + persistence run as one
-  finalize_pipeline graph, so the root makes exactly four workflow calls:
-  research → ad copies → visuals → finalize, then the final text.
+  finalize_pipeline graph.
+- Single call (2026-10-07): the Pro root still ended Agent Engine runs with
+  empty turns between its four pipeline calls (finalize never ran, so no eval
+  report / gallery / eval BQ row). The stages now chain inside one
+  creative_pipeline graph, so the root memorizes any missing campaign fields,
+  calls creative_pipeline exactly once, then writes the final text.
 - Final message: the rubric requires the answer to reference the produced
   creatives and the exported artifacts, not just the gs:// URI.
 """
@@ -15,7 +19,9 @@ import re
 
 from creative_agent.prompts import ROOT_AGENT_INSTR
 
-WORKFLOW_TOOLS = (
+# The stages now run inside creative_pipeline; the root must not be told to
+# call them itself.
+STAGE_TOOLS = (
     "combined_research_pipeline",
     "ad_creative_pipeline",
     "visual_production_pipeline",
@@ -54,18 +60,20 @@ def _step_calling(tool: str) -> int:
     return hits[0]
 
 
-def test_workflow_is_four_pipeline_calls_in_order():
-    steps = [_step_calling(t) for t in WORKFLOW_TOOLS]
-    assert steps == sorted(steps) == [1, 2, 3, 4]
+def test_workflow_is_one_creative_pipeline_call():
+    assert _step_calling("creative_pipeline") == 1
+    assert "exactly once" in _workflow_steps()[1]
 
 
-def test_retired_tools_are_not_mentioned():
-    for tool in RETIRED_TOOLS:
-        assert tool not in ROOT_AGENT_INSTR, tool
+def test_retired_and_stage_tools_are_not_mentioned():
+    for tool in RETIRED_TOOLS + STAGE_TOOLS:
+        assert f"`{tool}`" not in ROOT_AGENT_INSTR, tool
 
 
-def test_research_step_says_the_pdf_is_saved_inside_it():
-    assert "PDF" in _workflow_steps()[_step_calling("combined_research_pipeline")]
+def test_pipeline_step_says_what_runs_inside_it():
+    step = _workflow_steps()[_step_calling("creative_pipeline")]
+    for phrase in ("research", "PDF", "ad cop", "image", "evaluat", "BigQuery"):
+        assert phrase in step, phrase
 
 
 def test_final_message_summarizes_outputs_and_uri():
@@ -75,7 +83,7 @@ def test_final_message_summarizes_outputs_and_uri():
         "visual concepts",
         "research report",
         "HTML gallery",
-        "`finalize_pipeline` result",
+        "`creative_pipeline` result",
     ):
         assert phrase in final
     assert "{gcs_bucket}/{gcs_folder}/{agent_output_dir}" in final
@@ -83,7 +91,7 @@ def test_final_message_summarizes_outputs_and_uri():
 
 def test_root_is_told_not_to_stop_between_steps():
     assert "never an empty or text-only response" in ROOT_AGENT_INSTR
-    assert "until `finalize_pipeline` has returned" in ROOT_AGENT_INSTR
+    assert "until `creative_pipeline` has returned" in ROOT_AGENT_INSTR
 
 
 CAMPAIGN_KEYS = {

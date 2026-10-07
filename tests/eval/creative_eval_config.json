@@ -27,13 +27,13 @@
         {
           "rubric_id": "pipeline_execution",
           "rubric_content": {
-            "text_property": "The agent MUST execute the creative pipeline in the correct logical order: first memorize the campaign metadata and trend, then run combined_research_pipeline (which also saves the research PDF), then ad_creative_pipeline, then visual_production_pipeline, then finalize_pipeline (which evaluates the creatives and persists the results)."
+            "text_property": "The agent MUST execute the creative workflow in the correct logical order: first memorize any campaign metadata and trend not already in session state, then call creative_pipeline exactly once (it runs research and saves the research PDF, generates the ad copies, visual concepts and images, then evaluates the creatives and persists the results), then write the final summary."
           }
         },
         {
           "rubric_id": "all_tools_used",
           "rubric_content": {
-            "text_property": "The agent MUST call all of these tools at least once: memorize, combined_research_pipeline, ad_creative_pipeline, visual_production_pipeline, finalize_pipeline."
+            "text_property": "The agent MUST call the creative_pipeline tool (exactly once), plus memorize for any campaign field missing from session state."
           }
         }
       ],

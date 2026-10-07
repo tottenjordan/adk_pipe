@@ -849,8 +849,10 @@ clamped `0`–`3`; `0` disables it). The creative apps count as finished only on
 `finalize_pipeline` (the deterministic evaluate + persist step) reaches its terminal node,
 which sets `finalize_done` on every path (also with no evaluation report or a failed eval
 BigQuery write, so a finished finalize — incl. its ~70 s judge — is never re-run), so an
-empty turn anywhere before it is still re-prompted. The research PDF is saved inside `combined_research_pipeline`, so the
-creative_agent root makes only four workflow calls after `memorize`.
+empty turn anywhere before it is still re-prompted. Every creative_agent stage (research incl.
+the PDF, ad copies, visuals + render, finalize) runs inside one `creative_pipeline` graph, so
+the root makes a single workflow call after `memorize` — which also covers Agent Engine, where
+there is no auto-continue (interactive_creative still calls the stages separately).
 
 **Requirements / caveats:**
 - **`--no-cpu-throttling` + `--min-instances 1`** (see Step 2) — the detached task needs CPU
