@@ -1,8 +1,9 @@
 """Harvest creative_eval quality from a run's final session state — for free.
 
-Every creative_agent run already executes ``creative_eval_agent``, whose tool
+Every creative_agent run already evaluates its creatives (``finalize_pipeline``'s
+``evaluate_creatives_node``; earlier runs: the ``creative_eval_agent`` tool), which
 writes the full report (``CreativeEvaluationReport.model_dump()``) to
-``state["creative_evaluation_report"]`` (see ``creative_eval/agent.py:112``). So
+``state["creative_evaluation_report"]`` (see ``creative_eval/agent.py``). So
 the DoE's H3 non-inferiority guardrail (pass-rate + mean score, judge fixed on
 gemini-3.1-pro-preview @ global across all arms) costs zero extra quota: just
 read the state each poll already returns.

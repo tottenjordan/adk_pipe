@@ -113,7 +113,7 @@ as its import path (`tarfile.add(path)` → arcname), so nesting would break eve
 
 **Phase 1 — `trend_scout/`**: Gathers top 25 Google Search trends, researches cultural context via web search, filters to 3 most campaign-relevant trends, saves to BigQuery.
 
-**Phase 2 — `creative_agent/`**: Takes a single trend + campaign metadata, runs parallel web research (campaign researcher + trend researcher as sub-agents), synthesizes a strategic brief, generates ad copy and visual concepts, evaluates all creatives, and exports research PDF, HTML gallery, and evaluation report to GCS.
+**Phase 2 — `creative_agent/`**: Takes a single trend + campaign metadata, runs parallel web research (campaign researcher + trend researcher as sub-agents), synthesizes a strategic brief, generates ad copy and visual concepts, evaluates all creatives, and exports research PDF, HTML gallery, and evaluation report to GCS. The research PDF and the eval + persistence tail run as deterministic graph steps (inside `combined_research_pipeline` and `finalize_pipeline`), so the root makes only four workflow calls after `memorize`.
 
 **Phase 2 (interactive) — `interactive_creative/`**: Same pipeline as `creative_agent`, but pauses at 3 checkpoints for human review via ADK's `LongRunningFunctionTool`: (1) after research report, (2) after ad copies, (3) after visual concepts. Uses `ResumabilityConfig(is_resumable=True)`. It is a thin wrapper that reuses `creative_agent`'s reusable pipelines + visual schema by importing them from `creative_agent`'s **public facade** (`creative_agent/__init__.py`, a curated `__all__` re-export surface) rather than reaching into the volatile `creative_agent.agent`/`.schemas` internals. (The `config` singleton stays on its stable `creative_agent.config` submodule — re-exporting a name `config` from the package would shadow that submodule.)
 
@@ -129,7 +129,7 @@ trend_scout (root Agent `trend_scout`; App + ResumabilityConfig(is_resumable=Tru
 ├── review_trends (LongRunningFunctionTool — opt-in interactive trend pick)
 └── Persistence tools (BigQuery, GCS, record_research_gaps, memorize)
 
-creative_agent (root Agent `root_agent`; non-resumable App (carries plugins); pipelines = graph Workflows exposed as bare nodes → NodeTool; creative_eval_agent via AgentTool)
+creative_agent (root Agent `root_agent`; non-resumable App (carries plugins); tools = 4 graph Workflows exposed as bare nodes → NodeTool + memorize; the root calls research → ad copies → visuals → finalize, then writes the final text)
 ├── combined_research_pipeline (Workflow, input_schema=PipelineRequest)
 │   START → (gs_/ca_sequential_planner: each a Workflow planner → RetryUntilKeyNode-wrapped
 │   searcher+synthesizer Workflow) → research_join (JoinNode) → research_barrier (no output)
@@ -139,7 +139,9 @@ creative_agent (root Agent `root_agent`; non-resumable App (carries plugins); pi
 │   brief_writer, CreativeBrief → creative_brief) → brief_gate (deterministic brief_check.py;
 │   "revise" → brief_reviser_failsoft → back to brief_gate, at most BRIEF_REVISION_ROUNDS
 │   passes; residuals → creative_brief__issues; every exit writes creative_brief_md, the
-│   compact Markdown the creative prompts read; "ok") → research_report_ready (truthy terminal)
+│   compact Markdown the creative prompts read; "ok") → save_research_pdf_node (research PDF
+│   artifact + GCS → research_report_gcs_uri; skipped without a report; failure →
+│   research_report_gcs_uri__issues) → research_report_ready (truthy terminal)
 ├── ad_creative_pipeline (Workflow: drafter (10 copies spread across the brief's angles, self-rated
 │   typicality) → critic (final 4 cover ≥3 angles; per-copy brief_checks checklist) → copy_gate
 │   (deterministic copy_gate.py: product named, CTA ≤8 words, headline/caption length, brief avoid
@@ -151,15 +153,18 @@ creative_agent (root Agent `root_agent`; non-resumable App (carries plugins); pi
 │   visual_generation_pipeline (Workflow: art_director → concept drafter/critic/finalizer
 │   → visual_concepts_ready) → render_barrier → visual_generator_resilient
 │   (RetryUntilKeyNode → visual_generator, generate_image) → images_ready (truthy terminal)
-├── creative_eval_agent (LLM-as-judge scoring, from creative_eval)
-└── Persistence tools (GCS, BigQuery, HTML gallery, memorize)
+├── finalize_pipeline (Workflow, creative_agent/finalize.py: evaluate_creatives_node (creative_eval
+│   judge off the event loop → creative_evaluation_report; none → __retry_exhausted) → persist_node
+│   (fixed order: eval report JSON → HTML gallery → trend_creatives row → creative_evals row; each
+│   fail-soft → <key>__issues) → finalize_ready (truthy summary: scores, URIs, failed steps))
+└── memorize
 
-interactive_creative (root Agent `root_agent`; App + ResumabilityConfig(is_resumable=True); reviser + eval via AgentTool)
-├── combined_research_pipeline / ad_creative_pipeline / visual_generation_pipeline (reused from creative_agent; bare nodes → NodeTool)
+interactive_creative (root Agent `root_agent`; App + ResumabilityConfig(is_resumable=True); reviser via AgentTool)
+├── combined_research_pipeline / ad_creative_pipeline / visual_generation_pipeline / finalize_pipeline (reused from creative_agent; bare nodes → NodeTool)
 ├── review_research / review_ad_copies / review_visual_concepts (LongRunningFunctionTool checkpoints 1–3)
 ├── visual_concept_reviser (applies checkpoint-3 revision notes → final_visual_concepts)
-├── visual_generator_resilient + creative_eval_agent (reused; render after the reviser)
-└── Persistence tools (same as creative_agent)
+├── visual_generator_resilient (reused; render after the reviser) → finalize_pipeline
+└── save_draft_report_artifact (only to re-save the PDF after a checkpoint-1 report edit) + memorize
 ```
 
 Key ADK patterns used: `Agent`, graph `Workflow`s (`google.adk.workflow`: fan-out + `JoinNode`, routed function nodes, truthy terminal nodes; exposed to roots as bare nodes → `NodeTool`), `RetryUntilKeyNode` (graph retry wrapper in `agent_common/`), `AgentTool` (wraps agents as tools), `LongRunningFunctionTool` (pause/resume for human-in-the-loop), and `App` + `ResumabilityConfig` (resumable sessions). The ADK Workflow migration (proposal P2, complete 2026-09-29; `docs/plans/2026-09-29-p2-adk-workflow-migration.md`) retired the deprecated `SequentialAgent`/`ParallelAgent`/`LoopAgent` containers and the `RunIfAgent`/`RetryUntilKeyAgent` wrappers; `tests/test_public_api.py` guards against their return (no references in the agent packages, and importing every agent emits no legacy-container `DeprecationWarning`).
@@ -271,6 +276,7 @@ Image-generation prompt guidance lives in `creative_agent/prompts.py` as `IMAGE_
 - `agent_common/retry.py` — `build_infra_retry()` shared ADK `RetryConfig` factory
 - `agent_common/models.py` / `agent_common/locations.py` — `build_gemini()` + `MODEL_LOCATION` (pins gemini-3.x to `global`)
 - `interactive_creative/review_tools.py` — `LongRunningFunctionTool` pause tools for human-in-the-loop checkpoints
+- `creative_agent/finalize.py` — `finalize_pipeline` nodes: `evaluate_creatives_node` (judge in a thread on a state snapshot), `persist_node` (eval JSON + gallery to GCS, both BigQuery rows; fail-soft `<key>__issues`), `finalize_ready` (summary)
 - `creative_eval/evaluate.py` — Core LLM-as-judge evaluation logic
 - `creative_eval/schemas.py` — Pydantic models for evaluation reports
 - `tests/eval/eval_config.json` — ADK eval criteria config (rubric-based scoring)

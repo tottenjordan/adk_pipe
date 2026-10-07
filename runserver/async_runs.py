@@ -57,9 +57,9 @@ _DEFAULT_MAX_AUTO_CONTINUES = 2
 _MAX_AUTO_CONTINUES_CEILING = 3
 
 # Per-app state key whose (non-empty) presence means the workflow has finished.
-# Creative apps key on the LAST step (write_eval_report_to_bq's row uuid), not
-# eval_report_gcs_uri: that is written mid-way through persistence, so an empty
-# root turn before the final BigQuery write would otherwise end the run unrepaired.
+# Creative apps key on the LAST write (the eval BigQuery row uuid, written at the
+# end of finalize_pipeline's persist_node), not eval_report_gcs_uri: that is
+# written earlier in the same step, so it does not prove the run finished.
 _COMPLETION_KEYS = {
     "creative_agent": "eval_bq_row_uuid",
     "interactive_creative": "eval_bq_row_uuid",

@@ -54,8 +54,6 @@ Target Search Trend: {os.getenv("TARGET_SEARCH_TREND")}
 
 # tool-call tallies keyed by tool name
 tool_calls: Counter = Counter()
-# last response payload per tool name (for the terminal persistence tools)
-tool_responses: dict = {}
 
 
 def _log_event(event):
@@ -72,7 +70,6 @@ def _log_event(event):
             logging.info(f"[{author}] -> call: {fc.name}")
         elif fr:
             resp = fr.response
-            tool_responses[fr.name] = resp
             status = resp.get("status") if isinstance(resp, dict) else None
             logging.info(f"[{author}] <- resp: {fr.name} (status={status})")
         elif txt and txt.strip():
@@ -146,23 +143,22 @@ async def main():
     if isinstance(artifact_keys, dict):
         artifact_keys = list(artifact_keys.values())
 
-    def _ok(name):
-        r = tool_responses.get(name)
-        return isinstance(r, dict) and r.get("status") in ("success", "ok")
+    # The eval + persistence steps run inside finalize_pipeline (graph nodes, not
+    # root tools), so their outcomes are read from the state keys they write; a
+    # failed step leaves `<key>__issues` instead.
+    def _saved(key):
+        value = state.get(key)
+        issue = state.get(f"{key}__issues")
+        return f"{bool(value)} value={value}" + (f" issue={issue}" if issue else "")
 
-    gallery = tool_responses.get("save_creative_gallery_html") or {}
-    bq = tool_responses.get("write_trends_to_bq") or {}
     print(f"  generate_image tool calls: {gen_calls} (expected exactly 1)")
     print(f"  generated artifact keys: {len(artifact_keys)}")
-    print(
-        f"  eval report saved: {_ok('save_eval_report_to_gcs')} "
-        f"uri={state.get('eval_report_gcs_uri')}"
-    )
-    print(
-        f"  gallery built: {_ok('save_creative_gallery_html')} "
-        f"uri={gallery.get('gcs_uri')}"
-    )
-    print(f"  bq row written: {_ok('write_trends_to_bq')} resp={json.dumps(bq)[:160]}")
+    print(f"  finalize_pipeline calls: {tool_calls.get('finalize_pipeline', 0)}")
+    print(f"  research PDF saved: {_saved('research_report_gcs_uri')}")
+    print(f"  eval report saved: {_saved('eval_report_gcs_uri')}")
+    print(f"  gallery built: {_saved('creative_gallery_gcs_uri')}")
+    print(f"  bq row written: {_saved('creative_row_uuid')}")
+    print(f"  eval bq row written: {_saved('eval_bq_row_uuid')}")
     print(f"\nsession id for reference: {session.id}")
     print(f"gcs folder: {state.get('gcs_folder')}")
 

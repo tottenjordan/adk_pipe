@@ -29,7 +29,14 @@ _EXACT_PHASES: dict[str, str] = {
     "user": "user",
     RUNSERVER_AUTHOR: "runserver",
     "root_agent": "orchestrator",
-    "creative_eval_agent": "eval",
+    "creative_eval_agent": "eval",  # pre-finalize runs (root AgentTool)
+    # finalize_pipeline (2026-10-07): eval + persistence graph nodes. The
+    # research PDF node keeps the phase of the retired save_draft_report_artifact.
+    "finalize_pipeline": "eval",
+    "evaluate_creatives_node": "eval",
+    "finalize_ready": "eval",
+    "persist_node": "persistence",
+    "save_research_pdf_node": "persistence",
     "visual_generation_pipeline": "visual_concepts",
     "visual_production_pipeline": "image_gen",
     # P2 graph function nodes whose names don't carry a phase prefix.
@@ -74,6 +81,11 @@ _SPAN_TOOLS: dict[str, str] = {
     "combined_research_pipeline": "research",
     "ad_creative_pipeline": "ad_copy",
     "visual_production_pipeline": "visual",
+    # finalize_pipeline = judge + GCS/BigQuery writes; the span is dominated by
+    # the judge (~70 s vs a few seconds of writes), so it rolls up to eval. The
+    # research PDF is saved inside combined_research_pipeline's span.
+    "finalize_pipeline": "eval",
+    # Pre-finalize runs: the root called eval + persistence tools directly.
     "creative_eval_agent": "eval",
     "save_draft_report_artifact": "persistence",
     "save_eval_report_to_gcs": "persistence",
