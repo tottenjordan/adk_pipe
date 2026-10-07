@@ -25,6 +25,7 @@ from agent_common import (
 from creative_eval.agent import creative_eval_agent
 
 from . import callbacks, prompts, tools
+from .brief_check import check_brief
 from .config import INFRA_RETRY, SCHEMA_RETRY, config
 from .schemas import (  # noqa: F401
     AdCopy,
@@ -238,6 +239,72 @@ brief_writer_resilient = RetryUntilKeyNode(
 )
 
 
+# --- DETERMINISTIC BRIEF GATE (one bounded revision round) --- #
+# brief_gate runs creative_agent.brief_check on the writer's brief. With issues
+# and revision budget left (config.brief_revision_rounds, env
+# BRIEF_REVISION_ROUNDS) it writes them as a bulleted `brief_issues` string —
+# the reviser's `{brief_issues?}` revision input — bumps the counter and routes
+# "revise"; otherwise it routes "ok". The reviser does NOT loop back to the
+# gate: brief_recheck re-checks the revised brief once and records anything
+# left as `creative_brief__issues` (surfaced by collect_degradation_warnings),
+# so the round is strictly bounded. `brief_issues` is cleared on every exit
+# path so it is only non-empty while the reviser runs.
+#
+# A missing brief (writer exhausted its retries) routes "ok" without a
+# revision: there is nothing to revise, and creative_brief__retry_exhausted
+# already reports it; the creative agents then fall back to the report.
+def _brief_issues(state: Mapping[str, Any]) -> list[str]:
+    return check_brief(
+        state.get("creative_brief"), brand_colors=str(state.get("brand_colors") or "")
+    )
+
+
+def brief_gate_decision(
+    state: Mapping[str, Any], max_rounds: int
+) -> tuple[str, dict[str, Any]]:
+    """The brief gate's (route, state_delta) for a state snapshot (pure)."""
+    if not is_populated(state.get("creative_brief")):
+        return "ok", {"brief_issues": ""}
+    issues = _brief_issues(state)
+    if not issues:
+        return "ok", {"brief_issues": "", "creative_brief__issues": None}
+    used = int(state.get("brief_revision_rounds_used") or 0)
+    if used < max_rounds:
+        return "revise", {
+            "brief_issues": "\n".join(f"- {issue}" for issue in issues),
+            "brief_revision_rounds_used": used + 1,
+        }
+    return "ok", {"brief_issues": "", "creative_brief__issues": issues}
+
+
+def brief_gate(ctx: Context) -> Event:
+    """Route the brief to one revision when the deterministic check fails."""
+    route, delta = brief_gate_decision(
+        ctx.state.to_dict(), config.brief_revision_rounds
+    )
+    if delta.get("creative_brief__issues"):
+        logging.warning(
+            "creative brief issues remain: %s", delta["creative_brief__issues"]
+        )
+    return Event(actions=EventActions(route=route, state_delta=delta))
+
+
+def brief_recheck_delta(state: Mapping[str, Any]) -> dict[str, Any]:
+    """Residual issues after the revision round (pure; never routes back)."""
+    return {"brief_issues": "", "creative_brief__issues": _brief_issues(state) or None}
+
+
+def brief_recheck(ctx: Context) -> Event:
+    """Record (not re-route) any issues the reviser left; no output."""
+    delta = brief_recheck_delta(ctx.state.to_dict())
+    if delta["creative_brief__issues"]:
+        logging.warning(
+            "creative brief issues remain after revision: %s",
+            delta["creative_brief__issues"],
+        )
+    return Event(actions=EventActions(state_delta=delta))
+
+
 # --- CONDITIONAL RESEARCH REFINEMENT GATE (Lever A) --- #
 # The evaluator (gemini-3.1-pro-preview) + follow-up searcher form a SECOND,
 # additive research round: the base brief in `combined_web_search_insights`
@@ -326,23 +393,33 @@ def research_report_ready(ctx: Context) -> str:
     in state for save_draft_report_artifact and the creative stages, and
     repeating it in the root's context would only add tokens.
     """
+    brief_note = (
+        " Structured creative brief saved as 'creative_brief'."
+        if is_populated(ctx.state.get("creative_brief"))
+        else " No structured creative brief is available for this run."
+    )
     if is_populated(ctx.state.get("combined_final_cited_report")):
         return (
             "Research report complete: saved to session state as "
             "'combined_final_cited_report' (with resolved citations in "
-            "'final_report_with_citations')."
+            "'final_report_with_citations')." + brief_note
         )
-    return _missing_notice("combined_report_composer", "combined_final_cited_report")
+    return (
+        _missing_notice("combined_report_composer", "combined_final_cited_report")
+        + brief_note
+    )
 
 
 # --- COMPLETE RESEARCH PIPELINE --- #
 # Graph: both research chains fan out from START and run concurrently, a
 # JoinNode waits for both, the barrier drops the join dict, merge_planners
 # synthesizes the base brief, and the gate routes either through the refinement
-# round (degraded research) or straight to the composer (healthy path).
+# round (degraded research) or straight to the composer (healthy path). The
+# composer's report is then distilled into the structured creative brief, which
+# brief_gate either accepts or sends through one bounded revision.
 combined_research_pipeline = Workflow(
     name="combined_research_pipeline",
-    description="Runs parallel campaign + trend research, a refinement round only when that research is degraded, then a cited report.",
+    description="Runs parallel campaign + trend research, a refinement round only when that research is degraded, then a cited report and a structured creative brief.",
     input_schema=PipelineRequest,
     edges=[
         (
@@ -362,8 +439,10 @@ combined_research_pipeline = Workflow(
             enhanced_combined_searcher_resilient,
             combined_report_composer,
             brief_writer_resilient,
-            research_report_ready,
+            brief_gate,
         ),
+        (brief_gate, {"ok": research_report_ready, "revise": brief_reviser}),
+        (brief_reviser, brief_recheck, research_report_ready),
     ],
 )
 

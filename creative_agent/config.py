@@ -1,6 +1,6 @@
 import logging
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from google.genai import errors as genai_errors
 from pydantic import ValidationError
@@ -35,6 +35,27 @@ ALT_GLOBAL_MODEL = "gemini-3.5-flash"
 
 DEFAULT_CAMPAIGN_ARM = "global_altbucket"
 
+# Creative-brief revision budget (brief_gate → brief_reviser rounds).
+DEFAULT_BRIEF_REVISION_ROUNDS = 1
+MAX_BRIEF_REVISION_ROUNDS = 2
+
+
+def parse_brief_revision_rounds(raw: str | None) -> int:
+    """``BRIEF_REVISION_ROUNDS`` → int clamped to 0..2; unset/blank/invalid → 1.
+
+    The graph runs at most ONE reviser pass (the reviser does not loop back to
+    the gate), so any value >= 1 currently means "revise once"; the 0..2 range
+    keeps room for a second pass without another env-contract change. 0
+    disables revision (issues are only recorded).
+    """
+    try:
+        value = int(raw) if raw is not None and raw.strip() else None
+    except ValueError:
+        value = None
+    if value is None:
+        return DEFAULT_BRIEF_REVISION_ROUNDS
+    return max(0, min(MAX_BRIEF_REVISION_ROUNDS, value))
+
 
 @dataclass
 class ResearchConfiguration(BaseAgentConfiguration):
@@ -65,6 +86,15 @@ class ResearchConfiguration(BaseAgentConfiguration):
     # now just selects the campaign half's bucket. Default `global_altbucket`.
     campaign_research_placement: str = os.environ.get(
         "CAMPAIGN_RESEARCH_PLACEMENT", DEFAULT_CAMPAIGN_ARM
+    )
+
+    # brief_gate routes a brief that fails creative_agent.brief_check to
+    # brief_reviser while fewer than this many revision rounds were used.
+    # default_factory: read per instance, so tests can monkeypatch the env.
+    brief_revision_rounds: int = field(
+        default_factory=lambda: parse_brief_revision_rounds(
+            os.getenv("BRIEF_REVISION_ROUNDS")
+        )
     )
 
     def campaign_models(self) -> tuple[str, str, str]:

@@ -135,7 +135,10 @@ creative_agent (root Agent `root_agent`; non-resumable App (carries plugins); pi
 │   searcher+synthesizer Workflow) → research_join (JoinNode) → research_barrier (no output)
 │   → merge_planners → refinement_gate ("refine" only when base research is degraded:
 │   evaluator → RetryUntilKeyNode-wrapped refined search; else "skip")
-│   → combined_report_composer → research_report_ready (truthy terminal)
+│   → combined_report_composer → brief_writer_resilient (RetryUntilKeyNode → brief_writer,
+│   CreativeBrief → creative_brief) → brief_gate (deterministic brief_check.py; "revise" once
+│   → brief_reviser → brief_recheck, residuals → creative_brief__issues; else "ok")
+│   → research_report_ready (truthy terminal)
 ├── ad_creative_pipeline (Workflow: drafter → critic → ad_copies_ready)
 ├── visual_production_pipeline (Workflow)
 │   visual_generation_pipeline (Workflow: art_director → concept drafter/critic/finalizer

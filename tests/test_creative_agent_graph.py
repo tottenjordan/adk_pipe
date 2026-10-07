@@ -225,6 +225,11 @@ def test_research_graph_healthy_path_skips_refinement(monkeypatch):
     brief_prompt = str(llms["brief_writer"].requests[-1].config.system_instruction)
     assert "Roadrunners are trending" in brief_prompt
     assert "creative_brief__retry_exhausted" not in state
+    # The brief passed the deterministic check: no revision round.
+    assert llms["brief_reviser"].calls == 0
+    assert state["brief_issues"] == ""
+    assert state.get("creative_brief__issues") is None
+    assert state["brief_revision_rounds_used"] == 0
     # The root got the terminal node's truthy result and was re-called.
     (response,) = _responses(events)
     assert "Research report complete" in str(response)
@@ -294,9 +299,83 @@ def test_brief_writer_exhaustion_still_ends_truthy(monkeypatch):
     assert llms["brief_writer"].calls == 2
     assert not state.get("creative_brief")
     assert state["creative_brief__retry_exhausted"] is True
+    # Nothing to revise: the gate skips the reviser; the exhaustion is a
+    # human-readable degradation note.
+    assert llms["brief_reviser"].calls == 0
+    from agent_common import collect_degradation_warnings
+
+    (note,) = collect_degradation_warnings(state)
+    assert "creative brief could not be generated" in note
     (response,) = _responses(events)
     assert "Research report complete" in str(response)
     assert root_llm.calls == 2
+
+
+def _brief_with(**changes: Any) -> str:
+    return json.dumps({**_BRIEF, **changes})
+
+
+def test_brief_failing_the_check_is_revised_once(monkeypatch):
+    """A brief whose insight has no tension is sent to the reviser once, with
+    the issue in its prompt; the revised (clean) brief replaces it."""
+    import creative_agent.agent as ca
+
+    llms = _stub_graph(monkeypatch, ca.combined_research_pipeline)
+    _script_research(
+        llms, ["CA INSIGHTS"], briefs=[_brief_with(insight="Coyotes like gear.")]
+    )
+    llms["brief_reviser"].push(text_response(json.dumps(_BRIEF)))
+
+    root_llm, events, state = _run_root(monkeypatch, "combined_research_pipeline")
+
+    assert llms["brief_writer"].calls == 1
+    assert llms["brief_reviser"].calls == 1
+    prompt = str(llms["brief_reviser"].requests[-1].config.system_instruction)
+    assert "- insight has no tension ('Coyotes like gear.')" in prompt
+    assert "Coyotes like gear." in prompt  # the previous brief is shown too
+    assert state["creative_brief"] == _BRIEF
+    assert state["brief_revision_rounds_used"] == 1
+    assert state["brief_issues"] == ""  # cleared once the round is over
+    assert state.get("creative_brief__issues") is None
+    (response,) = _responses(events)
+    assert "Research report complete" in str(response)
+    assert root_llm.calls == 2
+
+
+def test_brief_issues_left_after_revision_are_recorded(monkeypatch):
+    """The reviser does not loop back: issues it leaves are recorded as
+    creative_brief__issues and surfaced as a degradation note."""
+    import creative_agent.agent as ca
+    from agent_common import collect_degradation_warnings
+
+    llms = _stub_graph(monkeypatch, ca.combined_research_pipeline)
+    still_bad = _brief_with(single_minded_proposition="Fast and fun skates.")
+    _script_research(llms, ["CA INSIGHTS"], briefs=[still_bad])
+    llms["brief_reviser"].push(text_response(still_bad))
+
+    root_llm, _, state = _run_root(monkeypatch, "combined_research_pipeline")
+
+    assert llms["brief_reviser"].calls == 1
+    (issue,) = state["creative_brief__issues"]
+    assert "'and'" in issue
+    (note,) = collect_degradation_warnings(state)
+    assert note.startswith("Creative brief has unresolved issues")
+    assert root_llm.calls == 2
+
+
+def test_brief_revision_disabled_records_issues(monkeypatch):
+    import creative_agent.agent as ca
+
+    monkeypatch.setattr(ca.config, "brief_revision_rounds", 0)
+    llms = _stub_graph(monkeypatch, ca.combined_research_pipeline)
+    _script_research(
+        llms, ["CA INSIGHTS"], briefs=[_brief_with(insight="Coyotes like gear.")]
+    )
+
+    _, _, state = _run_root(monkeypatch, "combined_research_pipeline")
+
+    assert llms["brief_reviser"].calls == 0
+    assert len(state["creative_brief__issues"]) == 1
 
 
 class _BoomLlm(RecordingLlm):

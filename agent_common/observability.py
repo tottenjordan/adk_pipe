@@ -17,8 +17,8 @@ diagnosable:
   run stalled.
 
 Plus `collect_degradation_warnings(state)`, the single source of truth for
-turning `*__retry_exhausted` markers (left by `RetryUntilKeyNode`) into
-human-readable degradation notes consumed by the eval report, BigQuery row, and
+turning `*__retry_exhausted` markers (left by `RetryUntilKeyNode`) and residual
+`creative_brief__issues` into human-readable degradation notes consumed by the eval report, BigQuery row, and
 HTML gallery.
 
 This module imports `google.adk`/`google.genai` but builds no genai client, so
@@ -40,6 +40,19 @@ logging.basicConfig(
 
 
 _EXHAUSTED_SUFFIX = "__retry_exhausted"
+
+# Clearer notes for steps whose generic "exhausted retries" wording would hide
+# the consequence (keyed by the RetryUntilKeyNode output_key).
+_EXHAUSTED_NOTES = {
+    "creative_brief": (
+        "The structured creative brief could not be generated; the creatives "
+        "were briefed from the research report only."
+    ),
+}
+
+# Residual creative-brief check issues (creative_agent.brief_check) left after
+# the bounded revision round: a list of issue strings (or one string).
+_BRIEF_ISSUES_KEY = "creative_brief__issues"
 
 
 def log_run_start(callback_context: CallbackContext) -> None:
@@ -109,6 +122,9 @@ def make_final_state_summary(agent_label: str, keys: tuple[str, ...]):
 def collect_degradation_warnings(state: State | dict[str, Any]) -> list[str]:
     """Turn `*__retry_exhausted` markers in state into human-readable notes.
 
+    Also reports `creative_brief__issues` (brief-check issues that survived the
+    bounded revision round in creative_agent's research pipeline).
+
     Single source of truth for degradation surfacing: the eval report, the
     `creative_evals` BigQuery row, and the HTML gallery all derive their notes
     from this. Returns a sorted list (one note per truthy marker), or `[]` when
@@ -119,7 +135,18 @@ def collect_degradation_warnings(state: State | dict[str, Any]) -> list[str]:
     for key, value in snapshot.items():
         if key.endswith(_EXHAUSTED_SUFFIX) and value:
             step = key[: -len(_EXHAUSTED_SUFFIX)]
-            notes.append(f"Step '{step}' exhausted retries and produced no output.")
+            notes.append(
+                _EXHAUSTED_NOTES.get(
+                    step, f"Step '{step}' exhausted retries and produced no output."
+                )
+            )
+    issues = snapshot.get(_BRIEF_ISSUES_KEY)
+    if issues:
+        items = issues if isinstance(issues, list) else [issues]
+        notes.append(
+            "Creative brief has unresolved issues after revision: "
+            + "; ".join(str(i) for i in items)
+        )
     return sorted(notes)
 
 

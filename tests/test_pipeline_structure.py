@@ -99,7 +99,8 @@ def test_combined_research_pipeline_graph():
     # The structured brief is written after the report, then the terminal: a
     # function node that always returns a truthy tool result.
     assert ("combined_report_composer", "brief_writer_resilient", None) in edges
-    assert ("brief_writer_resilient", "research_report_ready", None) in edges
+    assert ("brief_writer_resilient", "brief_gate", None) in edges
+    assert ("brief_gate", "research_report_ready", "ok") in edges
     assert not any(src == "research_report_ready" for src, _, _ in edges)
 
 
@@ -192,6 +193,7 @@ def test_graph_llm_agents_are_single_turn():
         "refined_web_synthesizer",
         "combined_report_composer",
         "brief_writer",
+        "brief_reviser",
         "ad_copy_drafter",
         "ad_copy_critic",
         "art_director",
@@ -439,6 +441,7 @@ def test_structured_output_producers_carry_schema_retry():
     for name in (
         "combined_web_evaluator",
         "brief_writer",
+        "brief_reviser",
         "ad_copy_drafter",
         "ad_copy_critic",
         "visual_concept_drafter",
@@ -1375,3 +1378,127 @@ def test_brief_writer_instruction_tokens():
     assert '"X, but Y"' in instr
     assert "light_touch" in instr
     assert "never a likeness" in instr
+
+
+def test_brief_gate_routes_to_one_bounded_revision():
+    """composer → writer → gate → ok: ready | revise: reviser → recheck → ready.
+    The reviser never loops back to the gate (one bounded round)."""
+    from creative_agent.agent import combined_research_pipeline as wf
+
+    edges = _graph_edges(wf)
+    assert ("brief_writer_resilient", "brief_gate", None) in edges
+    assert ("brief_gate", "research_report_ready", "ok") in edges
+    assert ("brief_gate", "brief_reviser", "revise") in edges
+    assert ("brief_reviser", "brief_recheck", None) in edges
+    assert ("brief_recheck", "research_report_ready", None) in edges
+    assert not any(
+        dst == "brief_gate" and src != "brief_writer_resilient" for src, dst, _ in edges
+    )
+    assert not any(
+        src == "brief_writer_resilient" and dst == "research_report_ready"
+        for src, dst, _ in edges
+    )
+
+
+def _clean_brief():
+    from tests.test_creative_agent_graph import _BRIEF
+
+    return dict(_BRIEF)
+
+
+def test_brief_gate_decision_clean_brief():
+    from creative_agent.agent import brief_gate_decision
+
+    route, delta = brief_gate_decision({"creative_brief": _clean_brief()}, 1)
+    assert route == "ok"
+    assert delta == {"brief_issues": "", "creative_brief__issues": None}
+
+
+def test_brief_gate_decision_revises_within_budget():
+    from creative_agent.agent import brief_gate_decision
+
+    brief = {**_clean_brief(), "insight": "Coyotes like skates."}
+    route, delta = brief_gate_decision({"creative_brief": brief}, 1)
+    assert route == "revise"
+    assert delta["brief_revision_rounds_used"] == 1
+    assert delta["brief_issues"].startswith("- insight has no tension")
+
+
+def test_brief_gate_decision_records_residual_issues_when_budget_spent():
+    from creative_agent.agent import brief_gate_decision
+
+    brief = {**_clean_brief(), "insight": "Coyotes like skates."}
+    state = {"creative_brief": brief, "brief_revision_rounds_used": 1}
+    route, delta = brief_gate_decision(state, 1)
+    assert route == "ok"
+    assert delta["brief_issues"] == ""
+    (issue,) = delta["creative_brief__issues"]
+    assert issue.startswith("insight has no tension")
+    # Revision disabled (0 rounds): straight to ok with the issues recorded.
+    route, delta = brief_gate_decision({"creative_brief": brief}, 0)
+    assert route == "ok" and delta["creative_brief__issues"]
+
+
+def test_brief_gate_decision_skips_revision_for_a_missing_brief():
+    """A missing brief (writer exhausted) is not revised: there is nothing to
+    revise, and creative_brief__retry_exhausted already reports it."""
+    from creative_agent.agent import brief_gate_decision
+
+    for state in ({}, {"creative_brief": None}, {"creative_brief": ""}):
+        assert brief_gate_decision(state, 2) == ("ok", {"brief_issues": ""})
+
+
+def test_brief_gate_honours_brand_colors():
+    from creative_agent.agent import brief_gate_decision
+
+    brief = {**_clean_brief(), "brand": {**_clean_brief()["brand"]}}
+    brief["brand"]["distinctive_assets"] = []
+    assert brief_gate_decision({"creative_brief": brief}, 1)[0] == "ok"
+    state = {"creative_brief": brief, "brand_colors": "ACME red"}
+    assert brief_gate_decision(state, 1)[0] == "revise"
+
+
+def test_brief_recheck_delta():
+    from creative_agent.agent import brief_recheck_delta
+
+    assert brief_recheck_delta({"creative_brief": _clean_brief()}) == {
+        "brief_issues": "",
+        "creative_brief__issues": None,
+    }
+    brief = {**_clean_brief(), "insight": "Coyotes like skates."}
+    delta = brief_recheck_delta({"creative_brief": brief})
+    assert delta["brief_issues"] == ""
+    assert len(delta["creative_brief__issues"]) == 1
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [(None, 1), ("", 1), ("0", 0), ("2", 2), ("5", 2), ("-1", 0), ("x", 1)],
+)
+def test_brief_revision_rounds_env(monkeypatch, raw, expected):
+    from creative_agent.config import ResearchConfiguration
+
+    if raw is None:
+        monkeypatch.delenv("BRIEF_REVISION_ROUNDS", raising=False)
+    else:
+        monkeypatch.setenv("BRIEF_REVISION_ROUNDS", raw)
+    assert ResearchConfiguration().brief_revision_rounds == expected
+
+
+def test_brief_revision_rounds_ships_to_agent_engine():
+    import deployment.deploy_agent as da
+
+    assert "BRIEF_REVISION_ROUNDS" in da.ENV_VAR_DICT
+    assert da.ENV_VAR_DICT["BRIEF_REVISION_ROUNDS"] is not None
+
+
+def test_creative_final_state_summary_includes_brief(caplog):
+    import logging
+    from types import SimpleNamespace
+
+    from creative_agent import callbacks
+
+    ctx = SimpleNamespace(state={"creative_brief": {"a": 1}}, invocation_id="i")
+    with caplog.at_level(logging.INFO):
+        callbacks.log_final_state_summary(ctx)
+    assert "'creative_brief': 'present(dict, n=1)'" in caplog.text

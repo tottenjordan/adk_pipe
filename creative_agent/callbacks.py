@@ -30,6 +30,7 @@ log_final_state_summary = observability.make_final_state_summary(
     "creative_agent",
     (
         "combined_final_cited_report",
+        "creative_brief",
         "ad_copy_critique",
         "final_visual_concepts",
         "creative_evaluation_report",

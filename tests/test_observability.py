@@ -181,3 +181,34 @@ def test_collect_degradation_warnings_accepts_plain_dict():
     )
     assert len(warnings) == 1
     assert warnings[0].startswith("Step 'refined_web_search_insights'")
+
+
+def test_collect_degradation_warnings_brief_exhausted_note():
+    (note,) = observability.collect_degradation_warnings(
+        {"creative_brief__retry_exhausted": True}
+    )
+    assert "creative brief" in note.lower()
+    assert "research report" in note
+    assert "__retry_exhausted" not in note
+
+
+def test_collect_degradation_warnings_brief_issues_list_and_str():
+    (note,) = observability.collect_degradation_warnings(
+        {"creative_brief__issues": ["insight has no tension", "angles has 2"]}
+    )
+    assert note.startswith("Creative brief has unresolved issues")
+    assert "insight has no tension" in note and "angles has 2" in note
+    (note,) = observability.collect_degradation_warnings(
+        {"creative_brief__issues": "proposition too long"}
+    )
+    assert "proposition too long" in note
+
+
+def test_collect_degradation_warnings_ignores_empty_brief_issues():
+    for empty in (None, [], ""):
+        assert (
+            observability.collect_degradation_warnings(
+                {"creative_brief__issues": empty}
+            )
+            == []
+        )
