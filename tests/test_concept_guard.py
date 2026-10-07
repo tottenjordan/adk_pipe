@@ -1,5 +1,7 @@
 """Deterministic trend-motif + product guard on the final image prompts (Task 4b)."""
 
+import pytest
+
 from creative_agent.concept_guard import ensure_trend_and_product
 
 PRODUCT = "SE CE24 Electric Guitar"
@@ -52,3 +54,99 @@ def test_input_not_mutated():
     c = _c("A studio photo.")
     ensure_trend_and_product([c], PRODUCT)
     assert c["image_generation_prompt"] == "A studio photo."
+
+
+# --- Token-overlap matching (false-positive audit, 80 realistic prompts) -----
+
+
+def _prompt_after(prompt, product, motif, brand=""):
+    out, warns = ensure_trend_and_product([_c(prompt, motif)], product, brand=brand)
+    return out[0]["image_generation_prompt"][len(prompt) :], warns
+
+
+def test_motif_paraphrase_with_hyphen_and_plural_not_appended():
+    tail, warns = _prompt_after(
+        "A guitarist's wrist with a friendship-bracelet stack under Eras Tour "
+        "lights, PRS SE CE24 electric guitar on lap.",
+        "PRS SE CE24 electric guitar",
+        "Eras Tour friendship bracelets",
+    )
+    assert tail == "" and warns == []
+
+
+def test_motif_without_its_trend_context_is_appended():
+    # Documented decision: "friendship-bracelet stack" alone covers 2 of the
+    # motif's 4 content tokens (< 60%), so the Eras Tour context is appended.
+    tail, _ = _prompt_after(
+        "A wrist with a friendship-bracelet stack and a PRS SE CE24 electric guitar.",
+        "PRS SE CE24 electric guitar",
+        "Eras Tour friendship bracelets",
+    )
+    assert tail == " The scene visibly includes Eras Tour friendship bracelets."
+
+
+@pytest.mark.parametrize(
+    ("product", "prompt"),
+    [
+        (
+            "PRS SE CE24 electric guitar",
+            "Wrist stacked with friendship bracelets beside a PRS SE guitar on a stand.",
+        ),
+        (
+            "Liquid Death Mountain Water 16oz can",
+            "An ice-cold Liquid Death Mountain Water tallboy can beside friendship bracelets.",
+        ),
+        (
+            "Oreo Double Stuf cookies",
+            "A twisted-open Oreo Double Stuf cookie next to friendship bracelets.",
+        ),
+    ],
+)
+def test_product_paraphrase_not_appended(product, prompt):
+    tail, warns = _prompt_after(prompt, product, "friendship bracelets")
+    assert tail == "" and warns == []
+
+
+@pytest.mark.parametrize("product", ["Patagonia Nano Puff Jacket", "Nano Puff jacket"])
+def test_generic_noun_alone_still_appends_product(product):
+    tail, warns = _prompt_after(
+        "A lone hiker in a sleek insulated jacket under green aurora ribbons.",
+        product,
+        "green aurora ribbons",
+    )
+    assert tail == f" The {product} is clearly visible and recognizable."
+    assert any("product missing" in w for w in warns)
+
+
+def test_intangible_product_gets_depictable_line():
+    tail, warns = _prompt_after(
+        "Fans raise knit scarves, forming stadium scarf walls.",
+        "Max subscription",
+        "stadium scarf walls",
+    )
+    assert "clearly visible" not in tail
+    assert (
+        tail
+        == " The Max subscription is suggested through a branded app screen or logo in the scene."
+    )
+    assert any("product missing" in w for w in warns)
+
+
+def test_intangible_product_skipped_when_brand_mentioned():
+    tail, warns = _prompt_after(
+        "Duo the green Duolingo owl raises vuvuzela-style horns.",
+        "Duolingo Max subscription",
+        "vuvuzela-style horns",
+        brand="Duolingo",
+    )
+    assert tail == "" and warns == []
+
+
+def test_tangible_product_not_skipped_by_brand_alone():
+    tail, _ = _prompt_after(
+        "A Patagonia flag over green aurora ribbons.",
+        "Patagonia Nano Puff Jacket",
+        "green aurora ribbons",
+        brand="Patagonia",
+    )
+    assert "clearly visible" in tail
