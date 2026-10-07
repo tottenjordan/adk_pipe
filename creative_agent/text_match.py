@@ -147,7 +147,7 @@ def _stems(word: str) -> set[str]:
         stems.add(word[:-3] + "y")
     if word.endswith("es") and len(word) > 4:
         stems.add(word[:-2])
-    if word.endswith("s") and not word.endswith("ss") and len(word) > 3:
+    if word.endswith("s") and not word.endswith("ss") and len(word) > 2:
         stems.add(word[:-1])
     return stems
 

@@ -33,10 +33,12 @@ from .config import INFRA_RETRY, SCHEMA_RETRY, config
 from .copy_gate import (
     CopyIssue,
     brief_avoid,
+    brief_mandatories,
     flatten_copy_issues,
     format_copy_issues,
     gate_copies,
     residual_issues,
+    structural_issues,
 )
 from .schemas import (  # noqa: F401
     AdCopy,
@@ -629,7 +631,11 @@ ad_copy_reviser = Agent(
 # issues left are recorded as `ad_copy_critique__issues` (surfaced by
 # collect_degradation_warnings) — a critic's self-assessment never becomes a
 # user-visible warning — and it routes "ok". Every "ok" exit clears the
-# revision inputs.
+# revision inputs and also records copy_gate.structural_issues (fewer than 4
+# copies, a copy missing a gating brief_checks item): warning-only, never a
+# revision, because the per-copy reviser cannot add a missing copy. Avoid
+# terms contained in the product name, a brief mandatory or the trend
+# (target_search_trends) are exempt.
 _COPY_REVISION_CLEARED: dict[str, Any] = {
     "ad_copy_issues": "",
     "ad_copy_flagged_ids": None,
@@ -638,16 +644,22 @@ _COPY_REVISION_CLEARED: dict[str, Any] = {
 
 
 def _copy_issues(state: Mapping[str, Any]) -> dict[str, list[CopyIssue]]:
+    brief = state.get("creative_brief")
     return gate_copies(
         state.get("ad_copy_critique"),
         target_product=str(state.get("target_product") or ""),
-        avoid=brief_avoid(state.get("creative_brief")),
+        avoid=brief_avoid(brief),
+        mandatories=brief_mandatories(brief),
+        trend=str(state.get("target_search_trends") or ""),
     )
 
 
 def _residual(critique: Any, issues: dict[str, list[CopyIssue]]) -> list[str] | None:
-    """The deterministic issues as residual-issue strings (None when none)."""
-    return flatten_copy_issues(critique, residual_issues(issues)) or None
+    """The deterministic issues as residual-issue strings, plus the list-level
+    ``structural_issues`` (warning-only: they never route a revision, since the
+    per-copy reviser cannot add a missing copy). None when there are none."""
+    residual = flatten_copy_issues(critique, residual_issues(issues))
+    return residual + structural_issues(critique) or None
 
 
 def copy_gate_decision(
@@ -657,7 +669,10 @@ def copy_gate_decision(
     critique = state.get("ad_copy_critique")
     issues = _copy_issues(state) if is_populated(critique) else {}
     if not issues:
-        return "ok", {**_COPY_REVISION_CLEARED, "ad_copy_critique__issues": None}
+        return "ok", {
+            **_COPY_REVISION_CLEARED,
+            "ad_copy_critique__issues": _residual(critique, issues),
+        }
     used = int(state.get("ad_copy_revision_rounds_used") or 0)
     if used < max_rounds:
         return "revise", {

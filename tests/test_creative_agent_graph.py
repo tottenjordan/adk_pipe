@@ -779,7 +779,11 @@ def _final_ad(original_id: int, **overrides: Any) -> dict[str, Any]:
         "social_caption": "Zoom.",
         "typicality": 0.4,
         "call_to_action": "Order yours today",
-        "brief_checks": [{"item": "cta", "passed": True, "note": "specific"}],
+        "brief_checks": [
+            {"item": "proposition", "passed": True, "note": "on message"},
+            {"item": "mandatories", "passed": True, "note": "none"},
+            {"item": "cta", "passed": True, "note": "specific"},
+        ],
         "detailed_performance_rationale": "Speed sells.",
     }
     ad.update(overrides)
@@ -901,11 +905,21 @@ def test_raising_ad_copy_reviser_keeps_the_pre_revision_copies(monkeypatch):
     assert root_llm.calls == 2
 
 
+def test_missing_copies_are_recorded_without_a_revision(monkeypatch):
+    """Fewer than 4 copies is a structural issue the per-copy reviser cannot
+    fix: recorded on the ok exit, never routed to the reviser."""
+    ads = [_final_ad(1), _final_ad(2), _final_ad(3)]
+    llms, _, _, state = _run_ads(monkeypatch, _final_ads(*ads))
+
+    assert llms["ad_copy_reviser"].calls == 0
+    assert state["ad_copy_critique__issues"] == ["only 3 of 4 ad copies were produced."]
+
+
 def test_ad_copy_issues_left_after_the_budget_are_recorded(monkeypatch):
     from agent_common import collect_degradation_warnings
 
     bad = _final_ad(2, headline="x" * 70)
-    ads = [_final_ad(1), bad]
+    ads = [_final_ad(1), bad, _final_ad(3), _final_ad(4)]
     llms, root_llm, events, state = _run_ads(
         monkeypatch, _final_ads(*ads), [_final_ads(*ads)]
     )

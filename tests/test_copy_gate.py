@@ -6,6 +6,7 @@ import pytest
 
 from creative_agent.copy_gate import (
     brief_avoid,
+    brief_mandatories,
     copy_keys,
     flatten_copy_issues,
     format_copy_issues,
@@ -14,6 +15,7 @@ from creative_agent.copy_gate import (
     product_words,
     residual_issues,
     restore_unflagged,
+    structural_issues,
 )
 
 
@@ -141,7 +143,7 @@ def test_product_named_after_light_normalisation(product, text):
     [
         ("PRS SE Custom 24", "Play loud all night"),
         # Stopwords, numbers and words under 3 characters never count.
-        ("The New SE 24", "The new year, 24 hours, se habla"),
+        ("The New SE Rocket 24", "The new year, 24 hours, se habla"),
         # A brand outside the product phrase (brand "Acme") does not count.
         ("Rocket Skates", "Acme makes you fast"),
     ],
@@ -156,9 +158,10 @@ def test_product_words_skip_stopwords_numbers_and_short_words():
     assert product_words("2026 eco running shoes") == ["eco", "running", "shoes"]
     assert product_words("Bob's Burgers") == ["bob", "burgers"]
     assert product_words("SE 24") == []
-    # No significant word: only the full product phrase can match.
-    assert "1" in gate_copies(
-        [_copy(call_to_action="Order today")], target_product="SE 24"
+    # Nothing matchable (no significant word, no brand form): never flagged,
+    # since any copy would fail a check it cannot pass deterministically.
+    assert (
+        gate_copies([_copy(call_to_action="Order today")], target_product="SE 24") == {}
     )
     assert gate_copies([_copy(body_text="SE 24!")], target_product="SE 24") == {}
 
@@ -439,3 +442,120 @@ def test_restore_never_collapses_duplicate_ids_into_one_copy():
         "restored copy 1: it was not flagged for revision",
         "restored flagged copy 1#2: missing from the revision",
     ]
+
+
+# --- false-positive audit regressions -----------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("product", "text"),
+    [
+        # Accents / diacritics folded both ways.
+        ("Nestlé", "Made by Nestle."),
+        ("Pokémon", "Catch Pokemon."),
+        ("L'Oréal", "Glow with L'Oreal."),
+        ("L'Oréal Paris Revitalift", "Glow with L'Oreal."),
+        ("Café Bustelo", "Cafe Bustelo mornings."),
+        ("Häagen-Dazs", "Haagen-Dazs night."),
+        # Non-Latin scripts.
+        ("ポカリスエット", "ポカリスエットを飲もう"),
+        ("Байкал", "Пейте Байкал!"),
+        # Brands written with & / digits: compare punctuation-stripped forms.
+        ("AT&T Fiber internet", "Stream on AT&T."),
+        ("M&M's", "Grab some M&Ms today."),
+        ("M&M's", "Grab some M&M's today."),
+        ("7UP", "Crack open a 7 Up."),
+        ("7UP", "Crack open a 7UP."),
+        ("Ben & Jerry's ice cream", "Grab a pint of Ben & Jerry's."),
+        ("3M", "Stick it with 3M."),
+        # Plural y / ies.
+        ("Powerball lottery tickets", "Play the lotteries."),
+        ("Skittles candy", "Share the candies."),
+    ],
+)
+def test_product_named_audit_cases(product, text):
+    assert _names(product, text)
+
+
+def test_product_without_matchable_tokens_is_never_flagged():
+    # "GE": no word of 3+ chars, no punctuated/alphanumeric brand form.
+    assert gate_copies([_copy(body_text="Light up.")], target_product="GE") == {}
+    assert gate_copies([_copy(body_text="Light up.")], target_product="The 24") == {}
+
+
+def test_compact_brand_match_is_still_whole_word():
+    # "att" inside "attention" is not AT&T.
+    assert not _names("AT&T", "Pay attention.")
+    assert not _names("M&M's", "Mmm, chocolate.")
+
+
+@pytest.mark.parametrize(
+    ("avoid", "text", "kwargs"),
+    [
+        # The avoid term is part of the product name.
+        (
+            "sugar",
+            "Coca-Cola Zero Sugar, ice cold.",
+            {"target_product": "Coca-Cola Zero Sugar"},
+        ),
+        # The avoid term is required by a brief mandatory.
+        (
+            "gambling",
+            "Play Powerball. Call 1-800-GAMBLER. Problem gambling help.",
+            {
+                "target_product": "Powerball",
+                "mandatories": ["Include the problem gambling helpline 1-800-GAMBLER"],
+            },
+        ),
+        # The avoid term is the trend itself.
+        (
+            "Taylor Swift",
+            "Rocket Skates for Swifties, like Taylor Swift said.",
+            {"trend": "Taylor Swift Eras Tour"},
+        ),
+    ],
+)
+def test_avoid_terms_overlapping_product_mandatories_or_trend_are_dropped(
+    avoid, text, kwargs
+):
+    kwargs.setdefault("target_product", "Rocket Skates")
+    assert gate_copies([_copy(body_text=text)], avoid=[avoid], **kwargs) == {}
+
+
+def test_unrelated_avoid_terms_still_flag_with_mandatories_and_trend():
+    issues = _gate_texts(
+        _copy(body_text="Rocket Skates: guaranteed wins."),
+        avoid=["guaranteed wins"],
+        mandatories=["18+ only"],
+        trend="Taylor Swift Eras Tour",
+    )
+    assert "avoided term 'guaranteed wins'" in issues["1"][0]
+
+
+def test_brief_mandatories_reads_dict_or_json_brief():
+    brief = {"mandatories": ["18+ only", " ", 3]}
+    assert brief_mandatories(brief) == ["18+ only"]
+    assert brief_mandatories(json.dumps(brief)) == ["18+ only"]
+    assert brief_mandatories(None) == []
+
+
+def _checks(*items, passed=True):
+    return [{"item": i, "passed": passed, "note": ""} for i in items]
+
+
+def test_structural_issues_fewer_copies_and_missing_gating_checks():
+    full = _checks("proposition", "mandatories")
+    copies = [_copy(i, brief_checks=full) for i in (1, 2, 3, 4)]
+    assert structural_issues(copies) == []
+    assert structural_issues({"ad_copies": copies[:3]}) == [
+        "only 3 of 4 ad copies were produced."
+    ]
+    copies[1] = _copy(2, brief_checks=_checks("proposition", "tone"))
+    copies[3] = _copy(4)
+    assert structural_issues(copies) == [
+        'brief checklist incomplete: Copy 2 ("Beep beep, finally") is missing '
+        'mandatories; Copy 4 ("Beep beep, finally") is missing proposition, '
+        "mandatories."
+    ]
+    # Nothing to check: no copies at all is not a structural issue here.
+    assert structural_issues(None) == []
