@@ -9,7 +9,8 @@ A full `creative_agent` run takes ~10–12 min. When driven through the browser
 UI (`adk api_server` + Next.js frontend on Cloud Workstations), the run gets
 **cancelled ~12 min in, during the eval phase**. Root cause is the Cloud
 Workstations / proxy HTTP request timeout (~12 min) on the single long-lived
-`POST /run_sse` request. The eval phase (`creative_eval_agent`, 12 creatives ×
+`POST /run_sse` request. The eval phase (then the `creative_eval_agent` tool, now
+inside `finalize_pipeline`; 12 creatives ×
 ~28s on the `gemini-3.1-pro-preview` judge) streams nothing for minutes, so it
 pushes the request past the timeout. Result: eval report / gallery / BigQuery
 steps never run via the UI, even though the agent logic is correct.
@@ -63,17 +64,22 @@ every top-level tool called exactly once.
 
 ## Where results actually land (state vs return value)
 
-Not all tools persist their output to session state — some only return it in the
-tool response. When validating, check the right place:
+The eval + persistence tail is no longer a set of root tools: the root calls one
+`finalize_pipeline` (`creative_agent/finalize.py`), whose nodes record every
+outcome in session state (a failed step leaves `<key>__issues` instead), so
+validate by reading state:
 
-- `save_eval_report_to_gcs` → sets `state["eval_report_gcs_uri"]`.
+- `research_report_gcs_uri` — research PDF (saved inside `combined_research_pipeline`).
+- `creative_evaluation_report` — the judge's report
+  (`creative_evaluation_report__retry_exhausted` when there is none).
+- `eval_report_gcs_uri` / `creative_gallery_gcs_uri` — the eval JSON and HTML gallery in GCS.
+- `creative_row_uuid` / `eval_bq_row_uuid` — the `trend_creatives` / `creative_evals` rows.
+- `finalize_done` — set by the terminal node on every path (runserver's auto-continue
+  completion key).
 - `generate_image` → sets `state["_images_generated"]` (bool guard) and
   `state["_generated_artifact_keys"]` (list).
-- `save_creative_gallery_html` → **no state key**; returns `{status, gcs_uri}`.
-- `write_trends_to_bq` → **no state key**; returns `{status, ...}`.
 
-So the headless script captures function-response payloads for the terminal
-tools rather than reading state for them.
+`deployment/headless_run.py` prints these keys.
 
 ## GCS / BigQuery layout for a run
 

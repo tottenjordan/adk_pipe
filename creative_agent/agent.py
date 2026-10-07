@@ -1220,8 +1220,8 @@ visual_generation_pipeline = Workflow(
 
 # creative_agent (non-interactive) renders images immediately after finalizing
 # concepts, as one deterministic unit. This removes the orchestrator's opportunity to
-# skip image generation — which it did when creative_eval_agent looked like the next
-# step, jumping straight from visual concepts to evaluation. interactive_creative does
+# skip image generation — which it once did, jumping straight from visual concepts to
+# evaluation (now finalize_pipeline, the root's next call). interactive_creative does
 # NOT use this: it keeps concepts and images split around a review checkpoint.
 # Ends in images_ready, a short confirmation for the root (the retry node's own
 # output would be the bare `_images_generated` flag, or its exhaustion notice).
