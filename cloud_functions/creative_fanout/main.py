@@ -338,12 +338,18 @@ async def create_agent_run(
     # Seed the campaign fields as session state so the inputs are deterministic
     # (creative_agent's state init setdefaults them; the root only memorizes
     # fields missing from state). The message above stays as a readable echo.
+    # Blank/NULL columns are left out so the root memorizes them from the
+    # message instead of treating a seeded "None" as present.
     campaign_state = {
-        "brand": msg_dict["brand"],
-        "target_product": msg_dict["target_product"],
-        "key_selling_points": msg_dict["key_selling_point"],
-        "target_audience": msg_dict["target_audience"],
-        "target_search_trends": msg_dict["target_search_trend"],
+        state_key: str(msg_dict[msg_key]).strip()
+        for state_key, msg_key in (
+            ("brand", "brand"),
+            ("target_product", "target_product"),
+            ("key_selling_points", "key_selling_point"),
+            ("target_audience", "target_audience"),
+            ("target_search_trends", "target_search_trend"),
+        )
+        if msg_dict.get(msg_key) is not None and str(msg_dict[msg_key]).strip()
     }
 
     # create → stream → delete, all under one user_id. The delete runs even if

@@ -467,3 +467,45 @@ def test_pretty_print_event_null_text_with_function_call_logs_call(caplog):
 
 def test_pretty_print_event_null_parts_does_not_raise():
     main.pretty_print_event({"author": "a", "content": {"parts": None}})
+
+
+def test_blank_campaign_fields_are_not_seeded(monkeypatch):
+    """NULL/blank BigQuery columns are left out of the seeded state, so the root
+    memorizes them from the message instead of seeing a literal "None"."""
+
+    created = {}
+
+    async def _create_session(*, user_id, state=None):
+        created["state"] = state
+        return {"id": "sess-1"}
+
+    async def _stream(**kwargs):
+        return
+        yield  # pragma: no cover - makes this an async generator
+
+    async def _delete_session(*, user_id, session_id):
+        return None
+
+    remote_agent = MagicMock()
+    remote_agent.async_create_session = _create_session
+    remote_agent.async_stream_query = _stream
+    remote_agent.async_delete_session = _delete_session
+    fake_vertex = MagicMock()
+    fake_vertex.runtimes.get.return_value = remote_agent
+    monkeypatch.setattr(main, "_get_vertex_client", lambda: fake_vertex)
+
+    msg = {
+        "index": 0,
+        "brand": " BrandX ",
+        "target_product": None,
+        "key_selling_point": "  ",
+        "target_audience": "aud",
+        "target_search_trend": "trend",
+    }
+    asyncio.run(main.create_agent_run(agent_id="a", msg_dict=msg, user_id="u"))
+
+    assert created["state"] == {
+        "brand": "BrandX",
+        "target_audience": "aud",
+        "target_search_trends": "trend",
+    }
