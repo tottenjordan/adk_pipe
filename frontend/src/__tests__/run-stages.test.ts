@@ -256,7 +256,7 @@ describe("deriveStages — interactive_creative", () => {
       "Research",
       "Brief",
       "Research report",
-      "Review research",
+      "Review brief",
       "Ad copy",
       "Review ad copy",
       "Visual concepts",
@@ -272,7 +272,7 @@ describe("deriveStages — interactive_creative", () => {
       "Research:done",
       "Brief:done",
       "Research report:done",
-      "Review research:needs_review",
+      "Review brief:needs_review",
       "Ad copy:pending",
     ]);
     expect(stages.some((s) => s.state === "active")).toBe(false);

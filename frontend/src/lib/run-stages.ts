@@ -54,7 +54,7 @@ const CREATIVE_STAGES: StageDef[] = [...CREATIVE_HEAD, AD_COPY, VISUALS, ...CREA
 
 const INTERACTIVE_STAGES: StageDef[] = [
   ...CREATIVE_HEAD,
-  { id: "review_research", label: "Review research", review: "review_research" },
+  { id: "review_research", label: "Review brief", review: "review_research" },
   AD_COPY,
   { id: "review_ad_copy", label: "Review ad copy", review: "review_ad_copies" },
   VISUALS,
@@ -87,7 +87,7 @@ export const STAGE_DESCRIPTIONS: Record<string, string> = {
   save: "Saving the trend picks.",
   brief: "Writing the creative brief: one proposition, the trend fit and the angles.",
   research_report: "Writing the cited research report.",
-  review_research: "Review the research before ad copy is written.",
+  review_research: "Review the creative brief and research before ad copy is written.",
   ad_copy: "Drafting and critiquing ad copy.",
   review_ad_copy: "Review the ad copy before visual concepts are drafted.",
   visual_concepts: "Drafting and critiquing visual concepts.",
