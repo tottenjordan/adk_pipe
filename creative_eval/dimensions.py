@@ -53,6 +53,10 @@ BRIEF_GATES: frozenset[str] = frozenset(
     }
 )
 
+# The single failed gate recorded when the judge reported none of the
+# expected gates (the checks were skipped, so the creative is unverified).
+NO_GATES_GATE = "gates_reported"
+
 GATE_LABELS: dict[str, str] = {
     # Ad copy
     "delivers_proposition": "Delivers the proposition",
@@ -66,6 +70,8 @@ GATE_LABELS: dict[str, str] = {
     "trend_motif_visible": "Trend motif visible",
     "text_correct": "In-image text correct",
     "brand_cue_present": "Brand cue present",
+    # Judge skipped every check
+    NO_GATES_GATE: "Checks reported",
 }
 
 

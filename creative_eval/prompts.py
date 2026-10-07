@@ -11,8 +11,12 @@ You will receive:
 - A list of evaluation dimensions to score
 
 For EACH gate, return the gate name, passed (true/false) and a one-sentence note
-citing the evidence. Gates are strict and literal: pass only when the rule is
-clearly met by the text in front of you, never on intent.
+citing the evidence. Judge gates literally from the text in front of you, never
+from intent:
+- Presence checks (the copy must contain something) pass only when it is clearly
+  present.
+- Violation checks (the copy must not break a rule) fail only on a clear violation.
+- A gate that does not apply passes, with the reason in the note.
 
 For EACH dimension, provide:
 - A score from 1-10
@@ -56,7 +60,9 @@ Check each gate against the ad copy text (headline, body, caption and CTA togeth
 4. **mandatories_met**: Every brief mandatory that ad copy can carry is present (paraphrase counts). Mandatories only an image can carry (a logo, colours, packaging, a visual element) do not apply to the copy: ignore them.
 5. **avoid_respected**: Nothing from the brief's avoid list or brand don'ts actually appears in the copy. Fail only on a clear, literal violation, never on a loose association.
 
-Fail a gate only on clear evidence in the text; when a rule does not apply (for example the brief lists no mandatories), pass it and say why in the note.
+Presence checks (delivers_proposition, product_named, uses_reason_to_believe) pass only when the element is clearly present in the text.
+Violation checks (mandatories_met for the mandatories ad copy can carry, avoid_respected) fail only on a clear violation: a carryable mandatory clearly missing, or an avoid item clearly present.
+When a rule does not apply (for example the brief lists no mandatories, or every mandatory needs an image), pass it and give the reason in the note.
 Return all 5 gates, using exactly these names.
 </GATES>
 
@@ -92,8 +98,11 @@ You will receive:
 - A list of evaluation dimensions to score
 
 For EACH gate, return the gate name, passed (true/false) and a one-sentence note
-citing the evidence. Gates are strict and literal: pass only when the rule is
-clearly met, never on intent.
+citing the evidence. Judge gates literally from what is shown, never from intent:
+- Presence checks (the image must show something) pass only when it is clearly
+  present.
+- Violation checks (the image must not break a rule) fail only on a clear violation.
+- A gate that does not apply passes, with the reason in the note.
 
 For EACH dimension, provide:
 - A score from 1-10
@@ -147,7 +156,9 @@ Check each gate against the rendered image when one is attached, otherwise again
 4. **brand_cue_present**: The brand cue is visible (pass with the note "no brand cue" when none is given).
 5. **avoid_respected**: Nothing from the brief's avoid list or brand don'ts actually appears. Fail only on a clear, literal violation, never on a loose association.
 
-Fail a gate only on clear evidence; when a rule does not apply, pass it and say why in the note.
+Presence checks (product_visible, trend_motif_visible, text_correct, brand_cue_present) pass only when the element is clearly present (for text_correct: the requested text clearly appears exactly as quoted).
+Violation checks (avoid_respected) fail only on a clear violation: an avoid item clearly present.
+When a rule does not apply (for example no in-image text is requested, no brand cue is given, or the brief lists nothing to avoid), pass it and give the reason in the note.
 Return all 5 gates, using exactly these names.
 </GATES>
 

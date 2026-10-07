@@ -281,6 +281,30 @@ def _failed_gate_labels(score: Mapping[str, Any]) -> list[str]:
     ]
 
 
+def _judge_failed(score: Mapping[str, Any]) -> bool:
+    """True for the zero-score placeholder of a failed judge call."""
+    return "evaluation_failed" in (score.get("improvements") or [])
+
+
+def _gates_line(report: Mapping[str, Any], rate: Any) -> str:
+    """``N/M passed all checks (gates pass rate X%).`` over judged creatives.
+
+    "" when the report has no numeric ``gates_pass_rate`` (pre-gate reports,
+    or no creative judged). M excludes failed judge calls, matching the rate.
+    """
+    if isinstance(rate, bool) or not isinstance(rate, int | float):
+        return ""
+    scores = [
+        item.get("score") or {}
+        for key in ("ad_copy_evaluations", "visual_concept_evaluations")
+        for item in report.get(key) or []
+        if isinstance(item, Mapping)
+    ]
+    judged = [s for s in scores if isinstance(s, Mapping) and not _judge_failed(s)]
+    ok = sum(1 for s in judged if s.get("gates_passed", True))
+    return f"{ok}/{len(judged)} passed all checks (gates pass rate {_percent(rate)})."
+
+
 def _failed_creatives(report: Mapping[str, Any]) -> list[str]:
     """``'name' (kind, score[, failed checks: …])`` per creative that did not pass.
 
@@ -298,7 +322,12 @@ def _failed_creatives(report: Mapping[str, Any]) -> list[str]:
             if not score.get("passed", True):
                 name = " ".join(str(item.get(name_key) or "untitled").split())[:60]
                 gates = _failed_gate_labels(score)
-                checks = f", failed checks: {', '.join(gates)}" if gates else ""
+                if _judge_failed(score):
+                    checks = ", evaluation failed"
+                elif gates:
+                    checks = f", failed checks: {', '.join(gates)}"
+                else:
+                    checks = ""
                 failed.append(
                     f"'{name}' ({kind}, {_score(score.get('overall_score'))}{checks})"
                 )
@@ -337,6 +366,9 @@ def finalize_summary(state: Mapping[str, Any]) -> str:
             f"{_score(summary.get('avg_ad_copy_score'))}), {vis_total} visual "
             f"concepts (avg score {_score(summary.get('avg_visual_score'))})."
         )
+        gates_line = _gates_line(report, summary.get("gates_pass_rate"))
+        if gates_line:
+            parts.append(gates_line)
         weakest = summary.get("weakest_dimensions") or []
         if weakest:
             parts.append(f"Weakest dimensions: {dimension_labels_csv(weakest)}.")

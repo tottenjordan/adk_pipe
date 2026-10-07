@@ -347,9 +347,14 @@ uv run python deployment/backfill_eval_dimension_labels.py \
 ```
 
 **gates_pass_rate migration (2026-10-07)** — `creative_evals` gains
-`gates_pass_rate FLOAT64`: the share of a run's creatives whose binary
-compliance gates all passed (`creative_eval` judge gates; NULL for rows written
-before the gates existed — no backfill, the old reports have no gates). Same
+`gates_pass_rate FLOAT64`: the share of a run's **judged** creatives whose
+binary compliance gates all passed (`creative_eval` judge gates). Creatives whose
+judge call failed (`evaluation_failed`) are excluded from both numerator and
+denominator; NULL when no creative was judged, and for rows written before the
+gates existed — no backfill, the old reports have no gates. A judge that reports
+none of the expected gates counts as a gate failure. Runs **without a creative
+brief** auto-pass the brief-dependent gates (note "no brief"), so their rate reads
+higher — compare like with like (`brief_used` on the report). Same
 ordering rule: run the ALTER on **both** datasets **BEFORE deploying** the code
 that writes it (the `creative_agent` / `interactive_creative` engines and the
 `trend-trawler-api` backend), since the eval-row MERGE names every column:
@@ -360,6 +365,15 @@ ALTER TABLE `<BQ_PROJECT_ID>.trend_trawler.creative_evals`
 ALTER TABLE `<BQ_PROJECT_ID>.trend_trawler_eval.creative_evals`
   ADD COLUMN IF NOT EXISTS gates_pass_rate FLOAT64;
 ```
+
+**Judge image access (IAM).** The visual judge passes each rendered image to
+Gemini as a `gs://` URI, which Vertex AI fetches server-side as the project's
+**Vertex AI service agent** (`service-<PROJECT_NUMBER>@gcp-sa-aiplatform.iam.gserviceaccount.com`),
+not with the caller's credentials. A bucket in the same project needs nothing
+extra; a bucket in **another project** needs that service agent granted
+`roles/storage.objectViewer` on the bucket. If the read fails (HTTP 403/404, or
+a 400 about the image/URI/file), the concept is judged from its prompt instead
+(`image_judged=False`, plus a report warning).
 
 **3.1 Creative Agent Orchestrator:** cloud run function
 

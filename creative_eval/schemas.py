@@ -47,6 +47,52 @@ class GateResult(BaseModel):
     )
 
 
+class GateResultIn(BaseModel):
+    """A gate as the judge reports it (no code-set ``advisory`` field)."""
+
+    gate: str = Field(
+        description="The gate name, exactly as listed in the prompt (e.g. 'product_named')."
+    )
+    passed: bool = Field(description="True when the creative meets the rule.")
+    note: str = Field(
+        description="One short sentence of evidence, or why the gate does not apply."
+    )
+
+
+class JudgeScore(BaseModel):
+    """The judge's raw scoring — only what the judge itself decides.
+
+    ``gates`` is required and non-empty, so the judge cannot skip the checks;
+    overall_score / passed / gates_passed / advisory are computed by code and
+    are deliberately absent (the judge never grades itself).
+    """
+
+    verdicts: list[EvalVerdict] = Field(description="Per-dimension verdicts.")
+    strengths: list[str] = Field(description="Top 2-3 strengths identified.")
+    improvements: list[str] = Field(description="Top 2-3 suggested improvements.")
+    gates: list[GateResultIn] = Field(
+        min_length=1,
+        description="One result per binary compliance gate listed in the prompt (all of them).",
+    )
+
+
+class AdCopyJudgeOutput(BaseModel):
+    """The ad-copy judge's response schema (mapped to AdCopyEvaluation in code)."""
+
+    original_id: int = Field(description="Maps to FinalAdCopy.original_id.")
+    headline: str = Field(description="The headline that was evaluated.")
+    tone_style: str = Field(description="The tone/style of this ad copy.")
+    score: JudgeScore = Field(description="Scoring details.")
+
+
+class VisualJudgeOutput(BaseModel):
+    """The visual judge's response schema (mapped to VisualConceptEvaluation in code)."""
+
+    ad_copy_id: int = Field(description="Maps to VisualConceptFinal.ad_copy_id.")
+    concept_name: str = Field(description="The concept that was evaluated.")
+    score: JudgeScore = Field(description="Scoring details.")
+
+
 class CreativeScore(BaseModel):
     """Aggregate score for a single creative (ad copy or visual concept).
 
@@ -117,7 +163,13 @@ class EvaluationSummary(BaseModel):
     )
     gates_pass_rate: float | None = Field(
         default=None,
-        description="Share of creatives whose non-advisory gates all passed (0.0-1.0); None for pre-gate reports or no creatives.",
+        description=(
+            "Share of judged creatives whose non-advisory gates all passed (0.0-1.0). "
+            "Creatives whose judge call failed (improvements == ['evaluation_failed']) "
+            "are excluded from numerator and denominator; None when no creative was "
+            "judged (or for pre-gate reports). Without a brief the brief-dependent "
+            "gates auto-pass (note 'no brief'), so no-brief runs read higher."
+        ),
     )
 
 

@@ -26,8 +26,7 @@ from .config import EvalConfig
 from .evaluate import (
     _build_summary,
     evaluate_all_concurrently,
-    image_fallback_concepts,
-    image_fallback_warning,
+    judge_warnings,
 )
 from .schemas import CreativeEvaluationReport, CreativeScore
 
@@ -123,8 +122,8 @@ def evaluate_all_creatives(tool_context) -> dict:
 
     # Surface any research producers that exhausted their retries (RetryUntilKeyNode
     # markers) as structured, consumable degradation notes on the report.
-    warnings = collect_degradation_warnings(state) + image_fallback_warning(
-        image_fallback_concepts(visual_evals, generated_images)
+    warnings = collect_degradation_warnings(state) + judge_warnings(
+        ad_evals, visual_evals, generated_images
     )
 
     report = CreativeEvaluationReport(

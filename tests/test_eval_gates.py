@@ -188,6 +188,21 @@ class TestSummaryGatesPassRate:
 
         assert _build_summary([], []).gates_pass_rate is None
 
+    def test_gates_pass_rate_excludes_failed_judge_calls(self):
+        from creative_eval.evaluate import _build_summary, _failed_score
+
+        failed = _ad_eval(False, False)
+        failed.score = _failed_score()
+        summary = _build_summary([_ad_eval(True, True), failed, failed], [])
+        assert summary.gates_pass_rate == 1.0
+        assert _build_summary([failed], []).gates_pass_rate is None
+
+    def test_gates_pass_rate_definition_is_documented(self):
+        from creative_eval.schemas import EvaluationSummary
+
+        desc = EvaluationSummary.model_fields["gates_pass_rate"].description or ""
+        assert "judged" in desc and "evaluation_failed" in desc
+
 
 # --- Task 7.2: brief block, gates, prompts -------------------------------------
 
@@ -334,10 +349,21 @@ class TestNormalizeGates:
         assert by["mandatories_met"].passed
         assert by["mandatories_met"].note.startswith("not checked")
 
-    def test_judge_returning_no_gates_does_not_fail_the_creative(self):
-        from creative_eval.evaluate import gates_passed, normalize_gates
+    @pytest.mark.parametrize("brief_used", [True, False])
+    def test_judge_returning_no_gates_fails_the_creative(self, brief_used):
+        """Zero expected gates reported = the judge skipped the checks: unverified."""
+        from creative_eval.evaluate import (
+            NO_GATES_NOTE,
+            gates_passed,
+            normalize_gates,
+        )
 
-        assert gates_passed(normalize_gates([], VISUAL_GATES, brief_used=True))
+        for raw in ([], [GateResult(gate="made_up", passed=True)]):
+            gates = normalize_gates(raw, VISUAL_GATES, brief_used=brief_used)
+            assert len(gates) == 1
+            assert gates[0].passed is False and not gates[0].advisory
+            assert gates[0].note == NO_GATES_NOTE == "judge returned no gates"
+            assert not gates_passed(gates)
 
     @pytest.mark.parametrize(
         "spelling", ["Product Named", "product-named", "PRODUCT_NAMED"]
@@ -711,7 +737,6 @@ class TestConservativeGateWording:
         assert "only an image can carry" in text  # visual mandatories ignored
         assert "paraphrase counts" in text
         assert "clear, literal violation" in text
-        assert "Fail a gate only on clear evidence" in text
 
     def test_visual_leniency_clauses(self):
         text = eval_prompts.VISUAL_CONCEPT_EVAL_USER
@@ -848,3 +873,323 @@ class TestImageFailSoft:
         (note,) = image_fallback_warning(["B"])
         assert "judged the prompt" in note and "B" in note
         assert image_fallback_warning([]) == []
+
+
+# --- judge-facing response schemas (the judge cannot skip or self-grade) -------
+
+
+class TestJudgeSchemas:
+    def test_gates_are_required_and_non_empty(self):
+        from pydantic import ValidationError
+
+        from creative_eval.schemas import AdCopyJudgeOutput, VisualJudgeOutput
+
+        score = {"verdicts": [], "strengths": [], "improvements": []}
+        for model, ids in (
+            (AdCopyJudgeOutput, {"original_id": 1, "headline": "h", "tone_style": "t"}),
+            (VisualJudgeOutput, {"ad_copy_id": 1, "concept_name": "c"}),
+        ):
+            for bad in (score, {**score, "gates": []}):
+                with pytest.raises(ValidationError):
+                    model.model_validate({**ids, "score": bad})
+            ok = {**score, "gates": [{"gate": "g", "passed": True, "note": ""}]}
+            model.model_validate({**ids, "score": ok})
+            schema = json.dumps(model.model_json_schema())
+            assert '"minItems": 1' in schema
+
+    def test_code_set_fields_are_not_in_the_judge_schema(self):
+        from creative_eval.schemas import (
+            AdCopyJudgeOutput,
+            GateResultIn,
+            JudgeScore,
+            VisualJudgeOutput,
+        )
+
+        assert "advisory" not in GateResultIn.model_fields
+        assert not {"overall_score", "passed", "gates_passed"} & set(
+            JudgeScore.model_fields
+        )
+        assert "image_judged" not in VisualJudgeOutput.model_fields
+        assert set(JudgeScore.model_fields) >= {"gates", "verdicts"}
+        assert AdCopyJudgeOutput.model_fields["score"].annotation is JudgeScore
+
+    def test_calls_use_the_judge_schemas(self):
+        from creative_eval.evaluate import evaluate_ad_copy, evaluate_visual_concept
+        from creative_eval.schemas import AdCopyJudgeOutput, VisualJudgeOutput
+
+        client = _client(_judge_json("ad", dict.fromkeys(AD_COPY_GATES, True)))
+        evaluate_ad_copy(AD_COPY, CAMPAIGN, EvalConfig(), client=client, brief=BRIEF)
+        cfg = client.models.generate_content.call_args.kwargs["config"]
+        assert cfg.response_schema is AdCopyJudgeOutput
+        client = _client(_judge_json("visual", dict.fromkeys(VISUAL_GATES, True)))
+        evaluate_visual_concept(CONCEPT, CAMPAIGN, EvalConfig(), client=client)
+        cfg = client.models.generate_content.call_args.kwargs["config"]
+        assert cfg.response_schema is VisualJudgeOutput
+
+    def test_judge_returning_zero_gates_does_not_pass(self):
+        from creative_eval.evaluate import evaluate_ad_copy
+
+        client = _client(_judge_json("ad", {}))
+        result = evaluate_ad_copy(
+            AD_COPY, CAMPAIGN, EvalConfig(), client=client, brief=BRIEF
+        )
+        assert result.score.passed is False and result.score.gates_passed is False
+
+    def test_judge_reporting_only_unknown_gates_does_not_pass(self):
+        from creative_eval.evaluate import NO_GATES_NOTE, evaluate_visual_concept
+
+        client = _client(_judge_json("visual", {"looks_great": True}))
+        result = evaluate_visual_concept(
+            CONCEPT, CAMPAIGN, EvalConfig(), client=client, brief=BRIEF
+        )
+        assert result.score.overall_score == 0.9
+        assert result.score.passed is False and result.score.gates_passed is False
+        assert [g.note for g in result.score.gates] == [NO_GATES_NOTE]
+
+    def test_code_maps_judge_output_to_report_models(self):
+        from creative_eval.evaluate import evaluate_visual_concept
+
+        client = _client(_judge_json("visual", dict.fromkeys(VISUAL_GATES, True)))
+        result = evaluate_visual_concept(
+            CONCEPT, CAMPAIGN, EvalConfig(), client=client, brief=BRIEF
+        )
+        assert isinstance(result, VisualConceptEvaluation)
+        assert result.concept_name == "Dust" and result.ad_copy_id == 3
+        assert result.score.strengths == ["s"]  # model text kept
+        assert result.score.overall_score == 0.9  # judge's 0.1 ignored
+
+
+# --- partially omitted gates: pass, but surface a report warning --------------
+
+
+def _eval_with_gates(notes: list[str]) -> AdCopyEvaluation:
+    ev = _ad_eval(True, True)
+    ev.score.gates = [
+        GateResult(gate=f"g{i}", passed=True, note=n) for i, n in enumerate(notes)
+    ]
+    return ev
+
+
+class TestUnreportedGatesWarning:
+    def test_partial_omission_passes_with_not_checked_note(self):
+        from creative_eval.evaluate import NOT_REPORTED_NOTE, normalize_gates
+
+        raw = [GateResult(gate="product_visible", passed=True)]
+        gates = normalize_gates(raw, VISUAL_GATES, brief_used=True)
+        assert all(g.passed for g in gates)
+        assert sum(g.note == NOT_REPORTED_NOTE for g in gates) == 4
+
+    def test_warning_counts_not_checked_gates(self):
+        from creative_eval.evaluate import NOT_REPORTED_NOTE, unreported_gates_warning
+
+        evals = [
+            _eval_with_gates([NOT_REPORTED_NOTE, "ok"]),
+            _eval_with_gates([NOT_REPORTED_NOTE]),
+        ]
+        assert unreported_gates_warning(evals, []) == [
+            "2 checks not reported by the judge (passed as not checked)"
+        ]
+        assert unreported_gates_warning(evals[1:], []) == [
+            "1 check not reported by the judge (passed as not checked)"
+        ]
+        assert unreported_gates_warning([_eval_with_gates(["ok"])], []) == []
+
+    def test_report_carries_the_warning(self, monkeypatch):
+        import creative_eval.evaluate as ev
+
+        monkeypatch.setattr(ev, "_get_client", lambda cfg: MagicMock())
+        evals = [_eval_with_gates([ev.NOT_REPORTED_NOTE])]
+        monkeypatch.setattr(
+            ev, "evaluate_all_concurrently", lambda *a, **k: (evals, [])
+        )
+        report = ev.evaluate_creatives(CAMPAIGN, [], [], EvalConfig(), brief=BRIEF)
+        assert any("not reported by the judge" in w for w in report.warnings)
+
+    def test_agent_tool_report_carries_the_warning(self, monkeypatch):
+        import creative_eval.agent as ev_agent
+        from creative_eval.evaluate import NOT_REPORTED_NOTE
+
+        evals = [_eval_with_gates([NOT_REPORTED_NOTE])]
+        monkeypatch.setattr(
+            ev_agent, "evaluate_all_concurrently", lambda *a, **k: (evals, [])
+        )
+        ctx = FakeToolContext(
+            {**CAMPAIGN, "ad_copy_critique": {"ad_copies": [AD_COPY]}}
+        )
+        ev_agent.evaluate_all_creatives(ctx)
+        warnings = ctx.state["creative_evaluation_report"]["warnings"]
+        assert any("not reported by the judge" in w for w in warnings)
+
+
+# --- gate-default wording: presence vs violation checks agree ----------------
+
+
+class TestGateDefaults:
+    @pytest.mark.parametrize(
+        ("system", "user", "presence", "violation"),
+        [
+            (
+                eval_prompts.AD_COPY_EVAL_SYSTEM,
+                eval_prompts.AD_COPY_EVAL_USER,
+                ("delivers_proposition", "product_named", "uses_reason_to_believe"),
+                ("mandatories_met", "avoid_respected"),
+            ),
+            (
+                eval_prompts.VISUAL_CONCEPT_EVAL_SYSTEM,
+                eval_prompts.VISUAL_CONCEPT_EVAL_USER,
+                ("product_visible", "trend_motif_visible", "text_correct"),
+                ("avoid_respected",),
+            ),
+        ],
+    )
+    def test_presence_and_violation_defaults(self, system, user, presence, violation):
+        for text in (system, user):
+            assert "Fail a gate only on clear evidence" not in text
+            assert "pass only when the rule is" not in text
+            assert "Presence checks" in text and "Violation checks" in text
+            assert "pass only when" in text and "fail only on a clear violation" in text
+        rule = next(
+            line for line in user.splitlines() if line.startswith("Presence checks")
+        )
+        assert all(g in rule for g in presence)
+        rule = next(
+            line for line in user.splitlines() if line.startswith("Violation checks")
+        )
+        assert all(g in rule for g in violation)
+        assert "does not apply" in user and "reason in the note" in user
+
+
+# --- image fallback limited to image-related client errors -------------------
+
+
+def _client_error_msg(code: int, message: str):
+    from google.genai import errors
+
+    return errors.ClientError(code, {"error": {"message": message, "status": "X"}})
+
+
+class TestImageFallbackLimited:
+    def _run(self, err):
+        from creative_eval.evaluate import evaluate_visual_concept
+
+        client = MagicMock()
+        ok = MagicMock(text=_judge_json("visual", dict.fromkeys(VISUAL_GATES, True)))
+        client.models.generate_content.side_effect = [err, ok]
+        result = evaluate_visual_concept(
+            CONCEPT,
+            CAMPAIGN,
+            EvalConfig(),
+            client=client,
+            image={"gcs_uri": "gs://b/d.png"},
+        )
+        return client.models.generate_content.call_count, result
+
+    @pytest.mark.parametrize(
+        ("code", "message"),
+        [
+            (403, "nope"),
+            (404, "nope"),
+            (400, "Unable to process input image."),
+            (400, "Invalid file_uri gs://b/d.png"),
+            (400, "The caller does not have Permission"),
+            (400, "Cannot fetch content from the provided URI."),
+        ],
+    )
+    def test_image_errors_fall_back_to_the_prompt(self, code, message):
+        calls, result = self._run(_client_error_msg(code, message))
+        assert calls == 2 and result.image_judged is False and result.score.passed
+
+    @pytest.mark.parametrize(
+        ("code", "message"),
+        [
+            (400, "Request contains an invalid argument: temperature"),
+            (400, "Schema is too complex"),
+            (401, "Unauthenticated: image access"),
+            (429, "Resource exhausted"),
+        ],
+    )
+    def test_other_client_errors_are_judge_failures(self, code, message):
+        calls, result = self._run(_client_error_msg(code, message))
+        assert calls == 1
+        assert result.score.improvements == ["evaluation_failed"]
+        assert result.score.passed is False
+
+    def test_is_image_fallback_error_pure(self):
+        from creative_eval.evaluate import is_image_fallback_error
+
+        assert is_image_fallback_error(_client_error_msg(404, ""))
+        assert is_image_fallback_error(_client_error_msg(400, "bad IMAGE"))
+        assert not is_image_fallback_error(_client_error_msg(400, ""))
+        assert not is_image_fallback_error(_client_error_msg(429, "image"))
+
+
+# --- finalize_summary: gate pass rate + failed judge entries ------------------
+
+
+class TestFinalizeSummaryGates:
+    def _report(self, **summary):
+        return {
+            "summary": {
+                "total_ad_copies": 2,
+                "total_visual_concepts": 2,
+                "ad_copies_passed": 1,
+                "visual_concepts_passed": 1,
+                "overall_pass_rate": 0.5,
+                **summary,
+            },
+            "ad_copy_evaluations": [
+                {
+                    "headline": "Zoom",
+                    "score": {
+                        "overall_score": 0.0,
+                        "passed": False,
+                        "improvements": ["evaluation_failed"],
+                        "gates": [],
+                    },
+                },
+                {"headline": "Ok", "score": {"overall_score": 0.9, "passed": True}},
+            ],
+            "visual_concept_evaluations": [
+                {
+                    "concept_name": "Dust",
+                    "score": {
+                        "overall_score": 0.9,
+                        "passed": True,
+                        "gates_passed": True,
+                    },
+                },
+                {
+                    "concept_name": "Gone",
+                    "score": {
+                        "overall_score": 0.9,
+                        "passed": False,
+                        "gates_passed": False,
+                        "gates": [{"gate": "product_visible", "passed": False}],
+                    },
+                },
+            ],
+        }
+
+    def test_gates_pass_rate_line(self):
+        from creative_agent.finalize import finalize_summary
+
+        out = finalize_summary(
+            {"creative_evaluation_report": self._report(gates_pass_rate=2 / 3)}
+        )
+        assert "2/3 passed all checks (gates pass rate 67%)" in out
+
+    def test_no_gate_line_without_rate(self):
+        from creative_agent.finalize import finalize_summary
+
+        for rate in (None, "garbage"):
+            out = finalize_summary(
+                {"creative_evaluation_report": self._report(gates_pass_rate=rate)}
+            )
+            assert "passed all checks" not in out
+
+    def test_failed_judge_entry_says_evaluation_failed(self):
+        from creative_agent.finalize import finalize_summary
+
+        out = finalize_summary({"creative_evaluation_report": self._report()})
+        assert "'Zoom' (ad copy, 0.00, evaluation failed)" in out
+        assert "'Gone' (visual, 0.90, failed checks: Product visible)" in out

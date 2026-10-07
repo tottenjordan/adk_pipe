@@ -38,14 +38,19 @@ def test_matches_frontend_map():
 
 
 def test_gate_labels_match_frontend_map():
-    from creative_eval.dimensions import AD_COPY_GATES, GATE_LABELS, VISUAL_GATES
+    from creative_eval.dimensions import (
+        AD_COPY_GATES,
+        GATE_LABELS,
+        NO_GATES_GATE,
+        VISUAL_GATES,
+    )
 
     ts = TS_MAP.read_text()
     block = re.search(r"GATE_LABELS[^=]*=\s*\{(.*?)\n\};", ts, re.S)
     assert block is not None
     pairs = dict(re.findall(r'^\s*(\w+):\s*"([^"]+)",?\s*$', block.group(1), re.M))
     assert pairs == GATE_LABELS
-    assert set(GATE_LABELS) == set(AD_COPY_GATES) | set(VISUAL_GATES)
+    assert set(GATE_LABELS) == set(AD_COPY_GATES) | set(VISUAL_GATES) | {NO_GATES_GATE}
 
 
 def test_gate_label_fallback():

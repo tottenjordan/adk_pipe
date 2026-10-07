@@ -13,7 +13,7 @@ Usage:
 """
 
 import logging
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
@@ -26,15 +26,25 @@ from agent_common.genai_retry import build_genai_http_retry
 from . import prompts
 from .brief import angle_line, format_brief_for_judge
 from .config import EvalConfig
-from .dimensions import AD_COPY_GATES, ADVISORY_GATES, BRIEF_GATES, VISUAL_GATES
+from .dimensions import (
+    AD_COPY_GATES,
+    ADVISORY_GATES,
+    BRIEF_GATES,
+    NO_GATES_GATE,
+    VISUAL_GATES,
+)
 from .schemas import (
     AdCopyEvaluation,
+    AdCopyJudgeOutput,
     CreativeEvaluationReport,
     CreativeScore,
     EvaluationSummary,
     EvalVerdict,
     GateResult,
+    GateResultIn,
+    JudgeScore,
     VisualConceptEvaluation,
+    VisualJudgeOutput,
 )
 
 logger = logging.getLogger(__name__)
@@ -65,25 +75,34 @@ def _get_client(config: EvalConfig) -> genai.Client:
 
 NO_BRIEF_NOTE = "no brief"
 NOT_REPORTED_NOTE = "not checked (the judge did not report it)"
+NO_GATES_NOTE = "judge returned no gates"
 
 
 def normalize_gates(
-    raw: list[GateResult], expected: tuple[str, ...], *, brief_used: bool
+    raw: Sequence[GateResultIn | GateResult],
+    expected: tuple[str, ...],
+    *,
+    brief_used: bool,
 ) -> list[GateResult]:
     """The judge's gates, reduced to exactly ``expected`` in order (pure).
 
     Names are matched leniently (case, spaces and hyphens ignored); unknown
-    names are dropped and duplicates keep the first. Conservative by design —
-    a gate only fails on the judge's explicit ``passed=false``: one it left
-    out passes with a "not checked" note (a judge omission must not wrongly
-    fail a creative). Without a brief the brief-dependent gates pass with
-    note "no brief". ``advisory`` is set from ``ADVISORY_GATES``, never the
-    judge.
+    names are dropped and duplicates keep the first. When NONE of the
+    expected gates was reported the judge skipped the checks: the result is a
+    single failed ``NO_GATES_GATE`` gate (note "judge returned no gates"), so
+    the creative cannot pass unverified. A partial omission stays
+    conservative — the missing gate passes with a "not checked" note (counted
+    into a report warning by :func:`unreported_gates_warning`). Without a
+    brief the brief-dependent gates pass with note "no brief". ``advisory``
+    is set from ``ADVISORY_GATES``, never the judge.
     """
-    reported: dict[str, GateResult] = {}
+    reported: dict[str, GateResultIn | GateResult] = {}
     for gate in raw:
         key = "_".join(gate.gate.strip().lower().replace("-", " ").split())
         reported.setdefault(key, gate)
+    if not any(name in reported for name in expected):
+        logger.warning("judge reported none of the expected gates %s", expected)
+        return [GateResult(gate=NO_GATES_GATE, passed=False, note=NO_GATES_NOTE)]
     out = []
     for name in expected:
         advisory = name in ADVISORY_GATES
@@ -109,24 +128,29 @@ def normalize_gates(
     return out
 
 
-def _apply_recomputed_score(
-    score: CreativeScore,
+def score_from_judge(
+    judged: JudgeScore,
     expected_gates: tuple[str, ...],
     threshold: float,
     *,
     brief_used: bool,
-) -> None:
-    """Overwrite the judge's aggregates with code-computed ones (in place).
+) -> CreativeScore:
+    """Map the judge's raw score to the report's ``CreativeScore`` (pure).
 
     The model's strengths/improvements text is kept; overall_score, gates,
-    gates_passed and passed are recomputed from its verdicts and gates.
+    gates_passed and passed are computed here from its verdicts and gates
+    (the judge schema does not even carry them).
     """
-    gates = normalize_gates(score.gates, expected_gates, brief_used=brief_used)
-    recomputed = _score_from_verdicts(score.verdicts, threshold, gates)
-    score.overall_score = recomputed.overall_score
-    score.passed = recomputed.passed
-    score.gates = recomputed.gates
-    score.gates_passed = recomputed.gates_passed
+    gates = normalize_gates(judged.gates, expected_gates, brief_used=brief_used)
+    score = _score_from_verdicts(judged.verdicts, threshold, gates)
+    score.strengths = list(judged.strengths)
+    score.improvements = list(judged.improvements)
+    return score
+
+
+def _is_failed(evaluation: AdCopyEvaluation | VisualConceptEvaluation) -> bool:
+    """True for the zero-score placeholder of a failed judge call."""
+    return "evaluation_failed" in evaluation.score.improvements
 
 
 def _failed_score() -> CreativeScore:
@@ -273,21 +297,23 @@ def evaluate_ad_copy(
             config=genai.types.GenerateContentConfig(
                 system_instruction=prompts.AD_COPY_EVAL_SYSTEM,
                 response_mime_type="application/json",
-                response_schema=AdCopyEvaluation,
+                response_schema=AdCopyJudgeOutput,
                 temperature=0.3,
             ),
         )
 
-        result = AdCopyEvaluation.model_validate_json(response.text or "")
-
-        # Recompute overall_score / gates_passed / passed in code for consistency
-        _apply_recomputed_score(
-            result.score,
-            AD_COPY_GATES,
-            config.passing_threshold,
-            brief_used=brief is not None,
+        judged = AdCopyJudgeOutput.model_validate_json(response.text or "")
+        return AdCopyEvaluation(
+            original_id=judged.original_id,
+            headline=judged.headline,
+            tone_style=judged.tone_style,
+            score=score_from_judge(
+                judged.score,
+                AD_COPY_GATES,
+                config.passing_threshold,
+                brief_used=brief is not None,
+            ),
         )
-        return result
 
     except Exception as e:
         logger.error(
@@ -313,8 +339,9 @@ def evaluate_visual_concept(
     """Evaluate a single visual concept using Gemini-as-judge.
 
     With a rendered image (``image["gcs_uri"]``, a ``generated_images``
-    record) the judge sees the pixels as a ``gs://`` Part (Vertex reads it with
-    the caller's credentials) and judges the image, using the prompt only for
+    record) the judge sees the pixels as a ``gs://`` Part — Vertex fetches it
+    server-side as the project's Vertex AI service agent (project
+    permissions), not with the caller's credentials — and judges the image, using the prompt only for
     intent; the record's image-QA verdict is passed as a hint line. Without
     one it judges the image generation prompt and the result records
     ``image_judged=False``.
@@ -369,19 +396,22 @@ def evaluate_visual_concept(
             config=genai.types.GenerateContentConfig(
                 system_instruction=prompts.VISUAL_CONCEPT_EVAL_SYSTEM,
                 response_mime_type="application/json",
-                response_schema=VisualConceptEvaluation,
+                response_schema=VisualJudgeOutput,
                 temperature=0.3,
             ),
         )
-        result = VisualConceptEvaluation.model_validate_json(response.text or "")
-        _apply_recomputed_score(
-            result.score,
-            VISUAL_GATES,
-            config.passing_threshold,
-            brief_used=brief is not None,
+        judged = VisualJudgeOutput.model_validate_json(response.text or "")
+        return VisualConceptEvaluation(
+            ad_copy_id=judged.ad_copy_id,
+            concept_name=judged.concept_name,
+            score=score_from_judge(
+                judged.score,
+                VISUAL_GATES,
+                config.passing_threshold,
+                brief_used=brief is not None,
+            ),
+            image_judged=bool(uri),
         )
-        result.image_judged = bool(uri)
-        return result
 
     if not image_uri:
         logger.info("No rendered image for visual concept %r; judging its prompt", name)
@@ -389,11 +419,12 @@ def evaluate_visual_concept(
         try:
             return judge(image_uri)
         except genai_errors.ClientError as e:
-            # A permanent 4xx with the image attached (unreadable / missing
-            # object, unsupported file) must not zero the creative: fail soft
-            # to a prompt-only verdict (image_judged=False). 429 is quota,
-            # not the image — retrying would only add load.
-            if not image_uri or e.code == 429:
+            # An image-related 4xx (unreadable / missing object, unsupported
+            # file — see is_image_fallback_error) must not zero the creative:
+            # fail soft to a prompt-only verdict (image_judged=False). Any
+            # other client error (quota, a bad request unrelated to the
+            # image) propagates to the normal judge-failure path.
+            if not image_uri or not is_image_fallback_error(e):
                 raise
             logger.warning(
                 "Judge could not use the rendered image %s for %r (%s); "
@@ -412,6 +443,24 @@ def evaluate_visual_concept(
         )
 
 
+_IMAGE_ERROR_HINTS = ("image", "uri", "file", "permission")
+
+
+def is_image_fallback_error(error: genai_errors.ClientError) -> bool:
+    """True when a judge 4xx is about the attached image (pure).
+
+    403/404 always (the object is unreadable or missing); a 400 only when its
+    message mentions the image / URI / file / permission. Everything else
+    (429 quota, 401, an unrelated 400) is a normal judge failure.
+    """
+    if error.code in (403, 404):
+        return True
+    if error.code != 400:
+        return False
+    message = f"{error.message or ''} {error.status or ''}".lower()
+    return any(hint in message for hint in _IMAGE_ERROR_HINTS)
+
+
 def image_fallback_concepts(
     visual_evals: list[VisualConceptEvaluation],
     generated_images: Mapping[str, Any] | None,
@@ -426,7 +475,7 @@ def image_fallback_concepts(
         for e in visual_evals
         if not e.image_judged
         and _rendered_image_uri(images.get(e.concept_name))
-        and "evaluation_failed" not in e.score.improvements
+        and not _is_failed(e)
     ]
 
 
@@ -438,6 +487,37 @@ def image_fallback_warning(concepts: list[str]) -> list[str]:
         "Visual judge could not read the rendered image and judged the prompt "
         f"instead for: {', '.join(concepts)}"
     ]
+
+
+def unreported_gates_warning(
+    ad_evals: list[AdCopyEvaluation],
+    visual_evals: list[VisualConceptEvaluation],
+) -> list[str]:
+    """The report ``warnings`` entry counting gates the judge left out ([] if none).
+
+    Such gates pass as "not checked" (see :func:`normalize_gates`); the
+    warning keeps that leniency visible.
+    """
+    count = sum(
+        g.note == NOT_REPORTED_NOTE
+        for e in [*ad_evals, *visual_evals]
+        for g in e.score.gates
+    )
+    if not count:
+        return []
+    noun = "check" if count == 1 else "checks"
+    return [f"{count} {noun} not reported by the judge (passed as not checked)"]
+
+
+def judge_warnings(
+    ad_evals: list[AdCopyEvaluation],
+    visual_evals: list[VisualConceptEvaluation],
+    generated_images: Mapping[str, Any] | None,
+) -> list[str]:
+    """Every judge-side report warning (image fallback + unreported gates)."""
+    return image_fallback_warning(
+        image_fallback_concepts(visual_evals, generated_images)
+    ) + unreported_gates_warning(ad_evals, visual_evals)
 
 
 def evaluate_all_concurrently(
@@ -517,7 +597,10 @@ def _build_summary(
     dim_avgs = {dim: sum(s) / len(s) for dim, s in dim_scores.items()}
     weakest = sorted(dim_avgs, key=lambda d: dim_avgs[d])[:3]
 
-    gates_ok = sum(1 for e in [*ad_evals, *visual_evals] if e.score.gates_passed)
+    # Over judged creatives only: a failed judge call verified nothing, so it
+    # is neither a gate pass nor a gate failure (see the schema description).
+    judged = [e for e in [*ad_evals, *visual_evals] if not _is_failed(e)]
+    gates_ok = sum(1 for e in judged if e.score.gates_passed)
 
     return EvaluationSummary(
         total_ad_copies=len(ad_evals),
@@ -532,7 +615,7 @@ def _build_summary(
         else 0.0,
         overall_pass_rate=round(passed / total, 3) if total > 0 else 0.0,
         weakest_dimensions=weakest,
-        gates_pass_rate=round(gates_ok / total, 3) if total > 0 else None,
+        gates_pass_rate=round(gates_ok / len(judged), 3) if judged else None,
     )
 
 
@@ -590,9 +673,7 @@ def evaluate_creatives(
         ad_copy_evaluations=ad_evals,
         visual_concept_evaluations=visual_evals,
         summary=summary,
-        warnings=image_fallback_warning(
-            image_fallback_concepts(visual_evals, generated_images)
-        ),
+        warnings=judge_warnings(ad_evals, visual_evals, generated_images),
         judge_model=config.eval_model,
         passing_threshold=config.passing_threshold,
         brief_used=brief is not None,
