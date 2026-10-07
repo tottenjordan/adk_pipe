@@ -69,6 +69,16 @@ def _build_research_warning_banner(warnings: list[str]) -> str:
     """
 
 
+def _esc(value: object) -> str:
+    """HTML-escape model/user text for a text node (quotes left as-is)."""
+    return html.escape(str(value), quote=False)
+
+
+def _esc_attr(value: object) -> str:
+    """HTML-escape model/user text for a double-quoted attribute value."""
+    return html.escape(str(value), quote=True)
+
+
 async def save_creative_gallery_html(tool_context: ToolContext) -> dict:
     """
     Saves generated HTML report to Cloud Storage.
@@ -111,14 +121,14 @@ async def save_creative_gallery_html(tool_context: ToolContext) -> dict:
 
         HTML_BODY = f"""
 
-            <h1>{brand} {target_product}</h1>
+            <h1>{_esc(brand)} {_esc(target_product)}</h1>
             {research_warning_banner}
             {brief_summary}
             <!-- Sub-headers -->
             <div class="sub-header-container">
-                <h3><strong>key selling point(s):</strong>  {key_selling_points}</h3>
-                <h3><strong>search trend:</strong> <span class="enlarged-text">'{target_search_trends}'</span></h3>
-                <h3><strong>target audience:</strong>  {target_audience}</h3>
+                <h3><strong>key selling point(s):</strong>  {_esc(key_selling_points)}</h3>
+                <h3><strong>search trend:</strong> <span class="enlarged-text">'{_esc(target_search_trends)}'</span></h3>
+                <h3><strong>target audience:</strong>  {_esc(target_audience)}</h3>
             </div>
 
             <h1>Ad Creatives</h1>
@@ -155,20 +165,20 @@ async def save_creative_gallery_html(tool_context: ToolContext) -> dict:
             GALLERY_IMAGE_BLOCK = f"""
                 <!-- Image {index + 1} -->
                 <div class="gallery-item">
-                    <h4 class="image-title">{entry["headline"]}</h4>
+                    <h4 class="image-title">{_esc(entry["headline"])}</h4>
                     <div class="image-container">
-                        <img src="{AUTH_GCS_URL}" 
-                                data-high-res-src="{HIGH_RES_AUTH_GCS_URL}"
-                                alt="{entry["concept_summary"].replace('"', "'")}" 
-                                title="{entry["headline"]}">
+                        <img src="{_esc_attr(AUTH_GCS_URL)}" 
+                                data-high-res-src="{_esc_attr(HIGH_RES_AUTH_GCS_URL)}"
+                                alt="{_esc_attr(entry["concept_summary"])}" 
+                                title="{_esc_attr(entry["headline"])}">
                         <div class="hover-text">
-                            <div class="hover-snippet snippet-top-left"><strong>Trend Reference:</strong>{entry["trend_reference"].replace('"', "'")}</div>
-                            <div class="hover-snippet snippet-top-right"><strong>Visual Concept Name:</strong>{entry["concept_name"]}</div>
-                            <div class="hover-snippet snippet-bottom-left"><strong>How it markets Target Product:</strong>{entry["markets_product"].replace('"', "'")}</div>
-                            <div class="hover-snippet snippet-bottom-right"><strong>Target audience appeal:</strong>{entry["audience_appeal"].replace('"', "'")}</div>
+                            <div class="hover-snippet snippet-top-left"><strong>Trend Reference:</strong>{_esc(entry["trend_reference"])}</div>
+                            <div class="hover-snippet snippet-top-right"><strong>Visual Concept Name:</strong>{_esc(entry["concept_name"])}</div>
+                            <div class="hover-snippet snippet-bottom-left"><strong>How it markets Target Product:</strong>{_esc(entry["markets_product"])}</div>
+                            <div class="hover-snippet snippet-bottom-right"><strong>Target audience appeal:</strong>{_esc(entry["audience_appeal"])}</div>
                         </div>
                     </div>
-                    <p class="caption">{entry["social_caption"]}</p>
+                    <p class="caption">{_esc(entry["social_caption"])}</p>
                 </div>
             """
             CONNECTED_GALLERY_STRING += GALLERY_IMAGE_BLOCK
@@ -184,12 +194,12 @@ async def save_creative_gallery_html(tool_context: ToolContext) -> dict:
                     <!-- Visual Concept {index + 1} -->
                     <div class="content-card">
                         <dl>
-                            <dt>Name:</dt> <dd>{entry["concept_name"]}</dd>
-                            <dt>Style:</dt> <dd>{entry.get("visual_style", "")}</dd>
-                            <dt>Trend:</dt> <dd>{entry["trend"]}</dd>
-                            <dt>Creative Concept Explained:</dt> <dd>{entry["concept_summary"]}</dd>
-                            <dt>Why this will perform well:</dt> <dd>{entry["selection_rationale"]}</dd>
-                            <dt>prompt</dt> <dd>{entry["image_generation_prompt"]}</dd>
+                            <dt>Name:</dt> <dd>{_esc(entry["concept_name"])}</dd>
+                            <dt>Style:</dt> <dd>{_esc(entry.get("visual_style", ""))}</dd>
+                            <dt>Trend:</dt> <dd>{_esc(entry["trend"])}</dd>
+                            <dt>Creative Concept Explained:</dt> <dd>{_esc(entry["concept_summary"])}</dd>
+                            <dt>Why this will perform well:</dt> <dd>{_esc(entry["selection_rationale"])}</dd>
+                            <dt>prompt</dt> <dd>{_esc(entry["image_generation_prompt"])}</dd>
                         </dl>
                     </div>
             """
@@ -206,13 +216,13 @@ async def save_creative_gallery_html(tool_context: ToolContext) -> dict:
                     <!-- Ad Copy {index + 1} -->
                     <div class="content-card">
                         <dl>
-                            <dt>Headline:</dt> <dd>{entry["headline"]}</dd>
-                            <dt>Body Text:</dt> <dd>{entry["body_text"]}</dd>
-                            <dt>Social Media Caption:</dt> <dd>{entry["social_caption"]}</dd>
-                            <dt>Call-to-Action:</dt> <dd>{entry["call_to_action"]}</dd>
-                            <dt>Trend-Reference:</dt> <dd>{entry["trend_connection"]}</dd>
-                            <dt>Audience Appeal:</dt> <dd>{entry["audience_appeal_rationale"]}</dd>
-                            <dt>Performance Rationale:</dt> <dd>{entry["detailed_performance_rationale"]}</dd>
+                            <dt>Headline:</dt> <dd>{_esc(entry["headline"])}</dd>
+                            <dt>Body Text:</dt> <dd>{_esc(entry["body_text"])}</dd>
+                            <dt>Social Media Caption:</dt> <dd>{_esc(entry["social_caption"])}</dd>
+                            <dt>Call-to-Action:</dt> <dd>{_esc(entry["call_to_action"])}</dd>
+                            <dt>Trend-Reference:</dt> <dd>{_esc(entry["trend_connection"])}</dd>
+                            <dt>Audience Appeal:</dt> <dd>{_esc(entry["audience_appeal_rationale"])}</dd>
+                            <dt>Performance Rationale:</dt> <dd>{_esc(entry["detailed_performance_rationale"])}</dd>
                         </dl>
                     </div>
             """

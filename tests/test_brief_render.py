@@ -180,3 +180,67 @@ def test_render_brief_markdown_compact_variant_has_no_heading():
     assert "## Creative Brief" not in compact
     assert compact.startswith("**Single-minded proposition:**")
     assert render_brief_markdown(None, heading=False) == ""
+
+
+def test_gallery_escapes_model_and_user_text(monkeypatch, tmp_path):
+    """Model/user text (headline, brand, ...) must not inject markup into the gallery."""
+    monkeypatch.chdir(tmp_path)
+    written: list[str] = []
+
+    def _fake_upload(source_file_name, destination_blob_name):
+        with open(source_file_name) as f:
+            written.append(f.read())
+        return "ok"
+
+    monkeypatch.setattr(tools, "_upload_blob_to_gcs", _fake_upload)
+    monkeypatch.setattr(
+        tools, "_get_high_res_img", lambda **_: "https://example/hi.png"
+    )
+    payload = "<script>alert(1)</script>"
+    concept = {
+        "concept_name": "Concept A",
+        "visual_style": "flat",
+        "trend": "t",
+        "trend_reference": 'say "hi"',
+        "concept_summary": 'A "quoted" <b>summary</b>',
+        "markets_product": "m",
+        "audience_appeal": "a",
+        "selection_rationale": "r",
+        "image_generation_prompt": "p",
+        "headline": f"Win {payload}",
+        "social_caption": "c",
+    }
+    ad_copy = {
+        "headline": f"Win {payload}",
+        "body_text": "b",
+        "social_caption": "c",
+        "call_to_action": "Go",
+        "trend_connection": "t",
+        "audience_appeal_rationale": "a",
+        "detailed_performance_rationale": "d",
+    }
+    ctx = FakeToolContext(
+        {
+            "gcs_folder": "f",
+            "agent_output_dir": "creative_output",
+            "final_visual_concepts": {"visual_concepts": [concept]},
+            "ad_copy_critique": {"ad_copies": [ad_copy]},
+            "brand": f"Acme {payload}",
+            "target_audience": "a",
+            "target_product": "p",
+            "key_selling_points": "k",
+            "target_search_trends": "t",
+        }
+    )
+    result = asyncio.run(tools.save_creative_gallery_html(ctx))
+    assert result["status"] == "success"
+    (html,) = written
+    assert payload not in html
+    assert "<b>summary</b>" not in html
+    assert "<h1>Acme &lt;script&gt;alert(1)&lt;/script&gt; p</h1>" in html
+    assert (
+        '<h4 class="image-title">Win &lt;script&gt;alert(1)&lt;/script&gt;</h4>' in html
+    )
+    assert 'title="Win &lt;script&gt;alert(1)&lt;/script&gt;"' in html
+    assert 'alt="A &quot;quoted&quot; &lt;b&gt;summary&lt;/b&gt;"' in html
+    assert "<dd>Win &lt;script&gt;alert(1)&lt;/script&gt;</dd>" in html
