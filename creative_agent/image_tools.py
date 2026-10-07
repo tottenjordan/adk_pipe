@@ -359,6 +359,63 @@ def _final_image_part(parts):
     return images[-1] if images else None
 
 
+async def _render_image(contents, aspect_ratio: str) -> tuple[bytes, str] | None:
+    """Render one image → ``(bytes, mime)`` of the final image part, or None.
+
+    Goes through ``_generate_image_with_backoff`` (quota-paced). A response
+    with no image part is logged and yields None (that concept is skipped).
+    """
+    response = await _generate_image_with_backoff(
+        model=config.image_gen_model,
+        contents=contents,
+        config=types.GenerateContentConfig(
+            response_modalities=["IMAGE"],
+            image_config=types.ImageConfig(
+                aspect_ratio=aspect_ratio,
+                image_size=config.image_size,
+            ),
+        ),
+    )
+    # Gemini image models return the image as inline data on a content part,
+    # unlike Imagen's generate_images (which returns response.generated_images).
+    candidates = response.candidates or []
+    if candidates and candidates[0].content and candidates[0].content.parts:
+        part = _final_image_part(candidates[0].content.parts)
+        if part is not None:
+            return part.inline_data.data, part.inline_data.mime_type or "image/png"
+    logging.error(f"Error with image generation response: {str(response)}")
+    return None
+
+
+async def _store_image(
+    tool_context: ToolContext, image_bytes: bytes, mime_type: str, artifact_key: str
+) -> str | None:
+    """Upload to GCS + save the ADK artifact → the gs:// URI, or None.
+
+    A per-image GCS failure is logged and returns None so one bad upload
+    doesn't abort the whole batch (_save_to_gcs raises on failure — it never
+    returns an error dict). The blocking upload runs off the event loop.
+    """
+    try:
+        img_gcs_uri = await asyncio.to_thread(
+            _save_to_gcs,
+            tool_context=tool_context,
+            image_bytes=image_bytes,
+            filename=artifact_key,
+        )
+    except Exception as gcs_exc:
+        logging.error(
+            f"GCS upload failed for '{artifact_key}', skipping image: {gcs_exc}"
+        )
+        return None
+    await tool_context.save_artifact(
+        filename=artifact_key,
+        artifact=types.Part.from_bytes(data=image_bytes, mime_type=mime_type),
+    )
+    logging.info(f"Saved image artifact, '{artifact_key}', to '{img_gcs_uri}'")
+    return img_gcs_uri
+
+
 async def generate_image(
     tool_context: ToolContext,
 ):
@@ -407,7 +464,17 @@ async def generate_image(
     elif aspect_ratio_override:
         logging.info(f"Applying user aspect-ratio override: {aspect_ratio_override}")
 
+    def contents_for(prompt_text: str):
+        """The render contents: the prompt (+ reference block and Parts)."""
+        if reference_parts:
+            return [
+                _reference_prompt(prompt_text, reference_roles, missing_roles),
+                *reference_parts,
+            ]
+        return prompt_text
+
     artifact_keys_list = []
+    generated_images: dict[str, dict] = {}
     for entry in final_visual_concepts_list:
         try:
             # Per-concept aspect ratio, unless a valid state override pins all
@@ -420,72 +487,26 @@ async def generate_image(
                 config.image_aspect_ratio_default,
             )
 
-            prompt_text = entry["image_generation_prompt"]
-            if reference_parts:
-                contents = [
-                    _reference_prompt(prompt_text, reference_roles, missing_roles),
-                    *reference_parts,
-                ]
-            else:
-                contents = prompt_text
-            response = await _generate_image_with_backoff(
-                model=config.image_gen_model,
-                contents=contents,
-                config=types.GenerateContentConfig(
-                    response_modalities=["IMAGE"],
-                    image_config=types.ImageConfig(
-                        aspect_ratio=aspect_ratio,
-                        image_size=config.image_size,
-                    ),
-                ),
+            rendered = await _render_image(
+                contents_for(entry["image_generation_prompt"]), aspect_ratio
             )
+            attempts = 1
 
-            # Gemini image models return the image as inline data on a content part,
-            # unlike Imagen's generate_images (which returns response.generated_images).
-            image_bytes = None
-            image_mime_type = "image/png"
-            candidates = response.candidates or []
-            if candidates and candidates[0].content and candidates[0].content.parts:
-                part = _final_image_part(candidates[0].content.parts)
-                if part is not None:
-                    image_bytes = part.inline_data.data
-                    image_mime_type = part.inline_data.mime_type or image_mime_type
-
-            if image_bytes is not None:
-                # define artifact key
+            if rendered is not None:
+                image_bytes, image_mime_type = rendered
                 artifact_key = artifact_key_for(entry["concept_name"])
-
-                # save img to Cloud Storage (blocking upload — off the event loop).
-                # A per-image save failure is logged and skipped so one bad upload
-                # doesn't abort the whole batch (_save_to_gcs raises on failure —
-                # it never returns an error dict).
-                try:
-                    img_gcs_uri = await asyncio.to_thread(
-                        _save_to_gcs,
-                        tool_context=tool_context,
-                        image_bytes=image_bytes,
-                        filename=artifact_key,
-                    )
-                except Exception as gcs_exc:
-                    logging.error(
-                        f"GCS upload failed for '{artifact_key}', skipping image: {gcs_exc}"
-                    )
+                img_gcs_uri = await _store_image(
+                    tool_context, image_bytes, image_mime_type, artifact_key
+                )
+                if img_gcs_uri is None:
                     continue
-
-                # save ADK artifact
-                img_artifact = types.Part.from_bytes(
-                    data=image_bytes, mime_type=image_mime_type
-                )
-                await tool_context.save_artifact(
-                    filename=artifact_key, artifact=img_artifact
-                )
-                logging.info(
-                    f"Saved image artifact, '{artifact_key}', to '{img_gcs_uri}'"
-                )
                 artifact_keys_list.append(artifact_key)
-
-            else:
-                logging.error(f"Error with image generation response: {str(response)}")
+                generated_images[entry["concept_name"]] = {
+                    "gcs_uri": img_gcs_uri,
+                    "artifact_key": artifact_key,
+                    "attempts": attempts,
+                    "qa": None,
+                }
 
         except Exception as e:
             # Propagate so ADK 2.0 RetryConfig can retry transient infra failures.
@@ -495,6 +516,7 @@ async def generate_image(
     # Mark as done so subsequent calls are idempotent
     tool_context.state["_images_generated"] = True
     tool_context.state["_generated_artifact_keys"] = artifact_keys_list
+    tool_context.state["generated_images"] = generated_images
 
     return {
         "status": "success",
