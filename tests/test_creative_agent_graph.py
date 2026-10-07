@@ -305,7 +305,7 @@ def test_brief_writer_exhaustion_still_ends_truthy(monkeypatch):
     from agent_common import collect_degradation_warnings
 
     (note,) = collect_degradation_warnings(state)
-    assert "creative brief could not be generated" in note
+    assert note == "Step 'creative_brief' exhausted retries and produced no output."
     (response,) = _responses(events)
     assert "Research report complete" in str(response)
     assert root_llm.calls == 2

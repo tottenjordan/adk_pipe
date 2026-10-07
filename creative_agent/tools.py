@@ -1,4 +1,5 @@
 import asyncio
+import html
 import logging
 import os
 import tempfile
@@ -52,14 +53,17 @@ def _build_research_warning_banner(warnings: list[str]) -> str:
 
     Pure (no client/state) so it is unit-testable. `warnings` come from
     `collect_degradation_warnings(state)` — the single source of truth shared with
-    the eval report and the `research_gaps` BigQuery column.
+    the eval report and the `research_gaps` BigQuery column. Notes can quote
+    model text (e.g. `<key>__issues` examples), so each is HTML-escaped. The
+    heading says "Run notes": the notes cover every degraded step, not only
+    research.
     """
     if not warnings:
         return ""
-    items = "".join(f"<li>{note}</li>" for note in warnings)
+    items = "".join(f"<li>{html.escape(note, quote=False)}</li>" for note in warnings)
     return f"""
             <div class="research-warning">
-                <strong>⚠️ Research notes:</strong>
+                <strong>⚠️ Run notes:</strong>
                 <ul>{items}</ul>
             </div>
     """

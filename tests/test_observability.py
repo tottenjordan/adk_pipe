@@ -183,25 +183,41 @@ def test_collect_degradation_warnings_accepts_plain_dict():
     assert warnings[0].startswith("Step 'refined_web_search_insights'")
 
 
-def test_collect_degradation_warnings_brief_exhausted_note():
+def test_collect_degradation_warnings_exhausted_is_generic():
     (note,) = observability.collect_degradation_warnings(
         {"creative_brief__retry_exhausted": True}
     )
-    assert "creative brief" in note.lower()
-    assert "research report" in note
-    assert "__retry_exhausted" not in note
+    assert note == "Step 'creative_brief' exhausted retries and produced no output."
 
 
-def test_collect_degradation_warnings_brief_issues_list_and_str():
+def test_collect_degradation_warnings_issues_list_and_str():
     (note,) = observability.collect_degradation_warnings(
         {"creative_brief__issues": ["insight has no tension", "angles has 2"]}
     )
-    assert note.startswith("Creative brief has unresolved issues")
-    assert "insight has no tension" in note and "angles has 2" in note
-    (note,) = observability.collect_degradation_warnings(
-        {"creative_brief__issues": "proposition too long"}
+    assert note == (
+        "Creative brief has unresolved issues: 2 (e.g. insight has no tension)"
     )
-    assert "proposition too long" in note
+    (note,) = observability.collect_degradation_warnings(
+        {"some_other_step__issues": "proposition too long"}
+    )
+    assert (
+        note == "Some other step has unresolved issues: 1 (e.g. proposition too long)"
+    )
+
+
+def test_collect_degradation_warnings_issues_are_truncated_and_capped():
+    long_issue = "x" * 500
+    (note,) = observability.collect_degradation_warnings(
+        {"a_very_long_step_name__issues": [long_issue] * 3}
+    )
+    assert note.startswith("A very long step name has unresolved issues: 3 (e.g. ")
+    assert len(note) <= 200
+    assert "x" * 80 not in note  # the example issue is cut to ~80 chars
+
+
+def test_collect_degradation_warnings_ignores_non_text_issues():
+    # Only list/str values follow the convention (no crash on other shapes).
+    assert observability.collect_degradation_warnings({"step__issues": 3}) == []
 
 
 def test_collect_degradation_warnings_ignores_empty_brief_issues():

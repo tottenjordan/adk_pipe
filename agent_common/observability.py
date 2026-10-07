@@ -17,9 +17,10 @@ diagnosable:
   run stalled.
 
 Plus `collect_degradation_warnings(state)`, the single source of truth for
-turning `*__retry_exhausted` markers (left by `RetryUntilKeyNode`) and residual
-`creative_brief__issues` into human-readable degradation notes consumed by the eval report, BigQuery row, and
-HTML gallery.
+turning `<key>__retry_exhausted` markers (left by `RetryUntilKeyNode`) and
+`<key>__issues` markers (residual quality issues a step recorded) into
+human-readable degradation notes consumed by the eval report, BigQuery row, and
+HTML gallery. Both conventions are generic: no agent-specific keys here.
 
 This module imports `google.adk`/`google.genai` but builds no genai client, so
 it stays non-creds-gated and unit-testable offline.
@@ -41,18 +42,11 @@ logging.basicConfig(
 
 _EXHAUSTED_SUFFIX = "__retry_exhausted"
 
-# Clearer notes for steps whose generic "exhausted retries" wording would hide
-# the consequence (keyed by the RetryUntilKeyNode output_key).
-_EXHAUSTED_NOTES = {
-    "creative_brief": (
-        "The structured creative brief could not be generated; the creatives "
-        "were briefed from the research report only."
-    ),
-}
-
-# Residual creative-brief check issues (creative_agent.brief_check) left after
-# the bounded revision round: a list of issue strings (or one string).
-_BRIEF_ISSUES_KEY = "creative_brief__issues"
+# `<key>__issues`: a step's unresolved quality issues (a list of strings or one
+# string), e.g. creative_agent's brief check after its bounded revision loop.
+_ISSUES_SUFFIX = "__issues"
+_ISSUE_EXAMPLE_CHARS = 80
+_ISSUES_NOTE_MAX_CHARS = 200
 
 
 def log_run_start(callback_context: CallbackContext) -> None:
@@ -119,34 +113,55 @@ def make_final_state_summary(agent_label: str, keys: tuple[str, ...]):
     return log_final_state_summary
 
 
-def collect_degradation_warnings(state: State | dict[str, Any]) -> list[str]:
-    """Turn `*__retry_exhausted` markers in state into human-readable notes.
+def _label(key: str) -> str:
+    """A state key as a sentence-case label ("creative_brief" -> "Creative brief")."""
+    return key.replace("_", " ").strip().capitalize() or key
 
-    Also reports `creative_brief__issues` (brief-check issues that survived the
-    bounded revision round in creative_agent's research pipeline).
+
+def _truncate(text: str, limit: int) -> str:
+    text = " ".join(text.split())
+    return text if len(text) <= limit else text[: limit - 1].rstrip() + "…"
+
+
+def _issues_note(key: str, value: Any) -> str | None:
+    items = value if isinstance(value, list) else [value]
+    items = [str(i).strip() for i in items if str(i).strip()]
+    if not items:
+        return None
+    note = (
+        f"{_label(key)} has unresolved issues: {len(items)} "
+        f"(e.g. {_truncate(items[0], _ISSUE_EXAMPLE_CHARS)})"
+    )
+    return _truncate(note, _ISSUES_NOTE_MAX_CHARS)
+
+
+def collect_degradation_warnings(state: State | dict[str, Any]) -> list[str]:
+    """Turn degradation markers in state into human-readable notes.
+
+    Two generic conventions:
+    - `<key>__retry_exhausted` (truthy) — the step producing `<key>` gave up
+      (`RetryUntilKeyNode`, or a `FailSoftNode` that converted an exception).
+    - `<key>__issues` (non-empty list of strings, or a string) — the step's
+      output exists but has unresolved quality issues; the note gives the count
+      and the first issue, truncated (total note length capped).
 
     Single source of truth for degradation surfacing: the eval report, the
     `creative_evals` BigQuery row, and the HTML gallery all derive their notes
     from this. Returns a sorted list (one note per truthy marker), or `[]` when
-    research completed cleanly.
+    the run completed cleanly.
     """
     snapshot = _snapshot(state)
     notes = []
     for key, value in snapshot.items():
-        if key.endswith(_EXHAUSTED_SUFFIX) and value:
+        if not value:
+            continue
+        if key.endswith(_EXHAUSTED_SUFFIX):
             step = key[: -len(_EXHAUSTED_SUFFIX)]
-            notes.append(
-                _EXHAUSTED_NOTES.get(
-                    step, f"Step '{step}' exhausted retries and produced no output."
-                )
-            )
-    issues = snapshot.get(_BRIEF_ISSUES_KEY)
-    if issues:
-        items = issues if isinstance(issues, list) else [issues]
-        notes.append(
-            "Creative brief has unresolved issues after revision: "
-            + "; ".join(str(i) for i in items)
-        )
+            notes.append(f"Step '{step}' exhausted retries and produced no output.")
+        elif key.endswith(_ISSUES_SUFFIX) and isinstance(value, list | str):
+            note = _issues_note(key[: -len(_ISSUES_SUFFIX)], value)
+            if note:
+                notes.append(note)
     return sorted(notes)
 
 

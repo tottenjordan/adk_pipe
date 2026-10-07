@@ -576,6 +576,23 @@ class TestResearchWarningBanner:
         assert "Research step 'ca' exhausted." in html
         # one list item per note
         assert html.count("<li>") == 2
+        assert "Run notes:" in html
+
+    def test_notes_are_html_escaped(self):
+        """A model-written claim quoted in a brief issue must not inject markup."""
+        from agent_common import collect_degradation_warnings
+        from creative_agent.brief_check import check_brief
+        from creative_agent.tools import _build_research_warning_banner
+        from tests.test_creative_agent_graph import _BRIEF
+
+        claim = "<script>alert(1)</script>"
+        brief = {**_BRIEF, "reasons_to_believe": [{"claim": claim, "source_id": ""}]}
+        notes = collect_degradation_warnings(
+            {"creative_brief__issues": check_brief(brief)}
+        )
+        html = _build_research_warning_banner(notes)
+        assert "<script>" not in html
+        assert "&lt;script&gt;" in html
 
 
 class TestWriteTrendsUuidStash:
