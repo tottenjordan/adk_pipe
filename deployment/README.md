@@ -11,6 +11,7 @@ see the [main README](../README.md).
 - [Cloud Run Functions Fan-out Pattern](#cloud-run-functions-fan-out-pattern)
 - [Frontend + api_server on Cloud Run](#frontend--api_server-on-cloud-run)
 - [Bandit experiments](#bandit-experiments)
+- [Creative ratings (judge calibration)](#creative-ratings-judge-calibration)
 - [Eval CI (WIF)](#eval-ci-wif)
 - [Alternative Deployment: deploy to Cloud Run instances](#alternative-deployment-deploy-to-cloud-run-instances)
 
@@ -98,7 +99,9 @@ existed need the additive migrations instead: `processing_started_at` /
 [3. Create event-driven functions and eventarc triggers](#3-create-event-driven-functions-and-eventarc-triggers).
 The nightly eval CI uses an isolated dataset cloned from these schemas (see
 [Eval CI (WIF)](#eval-ci-wif)). The script also creates the three `bandit_*` tables used by
-deployed-creative experiments; see [Bandit experiments](#bandit-experiments).
+deployed-creative experiments (see [Bandit experiments](#bandit-experiments)) and the
+`creative_ratings` table behind the results-page human ratings (see
+[Creative ratings (judge calibration)](#creative-ratings-judge-calibration)).
 
 ---
 
@@ -1352,6 +1355,59 @@ uv run python -m bandit_traffic.main --in-process --config /tmp/experiment.json 
 
 The image installs `bandit_traffic/requirements.txt` (JAX included). The root
 `requirements.txt` stays JAX-free.
+
+---
+
+## Creative ratings (judge calibration)
+
+The results page lets a user rate each creative (pass/fail, optional 1–5 score and note)
+from the proof-detail dialog. The api (`runserver/ratings.py`, mounted by
+`deployment/async_app.py`) stores one row per (session, creative, user) and snapshots the
+LLM judge's verdict for the same creative, so `GET /ratings/{user}/calibration` and
+`scripts/eval_calibration.py` can report judge-human agreement (Cohen's kappa). Protocol:
+[docs/notes/judge-calibration.md](../docs/notes/judge-calibration.md).
+
+### Table
+
+`creative_ratings` (`BQ_TABLE_RATINGS`) in `BQ_DATASET_ID`, created by
+`deployment/create_bq_tables.sh`; the api MERGE-upserts on `rating_id`
+(`stable_row_id(session_id, creative_key, user_id)`), so re-rating updates the row and
+keeps `created_at`. Equivalent DDL:
+
+```sql
+CREATE TABLE IF NOT EXISTS `$BQ_PROJECT_ID.$BQ_DATASET_ID.creative_ratings` (
+  rating_id STRING,           -- stable_row_id(session_id, creative_key, user_id)
+  session_id STRING,
+  app_name STRING,            -- creative_agent | interactive_creative
+  creative_key STRING,        -- 'visual:<concept_name>' | 'copy:<original_id>'
+  kind STRING,                -- 'visual' | 'ad_copy'
+  user_id STRING,             -- normalized IAP email
+  verdict STRING,             -- 'pass' | 'fail'
+  score INT64,                -- 1-5, nullable
+  note STRING,
+  judge_overall FLOAT64,      -- judge overall_score (0-1), nullable
+  judge_passed BOOL,          -- judge pass verdict, nullable
+  judge_gates_passed BOOL,    -- deterministic eval gates, nullable (older reports have none)
+  judge_model STRING,
+  created_at TIMESTAMP,
+  updated_at TIMESTAMP
+)
+CLUSTER BY user_id, session_id;
+```
+
+The api SA (`tt-api-sa`) already has `roles/bigquery.dataEditor` + `roles/bigquery.jobUser`
+(Step 1 of the Cloud Run runbook); nothing else is needed. Create the table **before**
+deploying the api that writes it (until then a rating save answers 502 `store_failed`).
+
+### Environment (api service)
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `RATINGS_STORE` | `bigquery` | `bigquery` = the `creative_ratings` table. `memory` = in-process store (local dev; lost on restart). `bigquery` falls back to `memory` with a warning when `BQ_PROJECT_ID`/`BQ_DATASET_ID` are unset |
+| `BQ_TABLE_RATINGS` | `creative_ratings` | Table name in `BQ_DATASET_ID` |
+
+Ratings are api-only: the agents never read them, so neither variable is in
+`deploy_agent.py`'s `ENV_VAR_DICT`.
 
 ---
 

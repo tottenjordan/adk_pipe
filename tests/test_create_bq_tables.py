@@ -35,6 +35,13 @@ BANDIT_METRICS = (
     "shift_response:STRING,regimes:STRING"
 )
 
+CREATIVE_RATINGS = (
+    "rating_id:STRING,session_id:STRING,app_name:STRING,creative_key:STRING,"
+    "kind:STRING,user_id:STRING,verdict:STRING,score:INTEGER,note:STRING,"
+    "judge_overall:FLOAT,judge_passed:BOOLEAN,judge_gates_passed:BOOLEAN,"
+    "judge_model:STRING,created_at:TIMESTAMP,updated_at:TIMESTAMP"
+)
+
 
 def _run(tmp_path: Path, exists: bool) -> list[str]:
     stub = tmp_path / "bq"
@@ -53,7 +60,11 @@ def _run(tmp_path: Path, exists: bool) -> list[str]:
         "BQ_TABLE_CREATIVES": "c",
         "BQ_TABLE_EVALS": "e",
     }
-    for k in ("BQ_TABLE_BANDIT_EXPERIMENTS", "BQ_TABLE_BANDIT_EVENTS"):
+    for k in (
+        "BQ_TABLE_BANDIT_EXPERIMENTS",
+        "BQ_TABLE_BANDIT_EVENTS",
+        "BQ_TABLE_RATINGS",
+    ):
         env.pop(k, None)
     env["BQ_TABLE_BANDIT_METRICS"] = "my_metrics"
     subprocess.run(["bash", str(SCRIPT)], env=env, check=True, capture_output=True)
@@ -72,7 +83,24 @@ def test_creates_bandit_tables_per_contract(tmp_path):
         "--clustering_fields experiment_id" in events
     )
     assert by_table["p:d.my_metrics"].endswith(BANDIT_METRICS)
-    assert len(calls) == 6
+    assert len(calls) == 7
+
+
+@pytest.mark.subprocess
+def test_creates_creative_ratings_table(tmp_path):
+    calls = [c for c in _run(tmp_path, exists=False) if c.startswith("mk -t")]
+    by_table = {c.split()[-2]: c for c in calls}
+    ratings = by_table["p:d.creative_ratings"]
+    assert ratings.endswith(CREATIVE_RATINGS)
+    assert "--clustering_fields user_id,session_id" in ratings
+
+
+def test_ratings_schema_matches_store_columns():
+    from runserver.ratings_store import RATING_COLUMN_TYPES
+
+    bq = {"INTEGER": "INT64", "FLOAT": "FLOAT64", "BOOLEAN": "BOOL"}
+    cols = dict(c.split(":") for c in CREATIVE_RATINGS.split(","))
+    assert {k: bq.get(v, v) for k, v in cols.items()} == RATING_COLUMN_TYPES
 
 
 @pytest.mark.subprocess
