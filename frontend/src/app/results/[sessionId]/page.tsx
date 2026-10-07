@@ -26,10 +26,13 @@ import {
 } from "@/lib/eval-matching";
 import { campaignSummary } from "@/lib/results-copy";
 import { imagesNotRendered, sessionStoppedEarly } from "@/lib/run-completion";
+import { CreativeBrief } from "@/components/creative-brief";
 import { ResearchReport } from "@/components/research-report";
+import { parseCreativeBrief } from "@/lib/creative-brief";
 import type { ReportSources } from "@/lib/research-report";
 import { DeployPanel } from "./deploy-panel";
-import { ArtifactsPanel, QuietDisclosure, type ArtifactData } from "./artifacts-panel";
+import { QuietDisclosure } from "@/components/quiet-disclosure";
+import { ArtifactsPanel, type ArtifactData } from "./artifacts-panel";
 import { ProofDetail } from "./proof-detail";
 import { ProofGrid } from "./proof-grid";
 import { ResultsHeader } from "./results-header";
@@ -211,6 +214,8 @@ export default function ResultsPage({
       ? state.combined_final_cited_report
       : "";
 
+  const creativeBrief = parseCreativeBrief(state.creative_brief);
+
   // Does this run have the creative asset + eval view?
   const hasCreativeView =
     (appName === "creative_agent" || appName === "interactive_creative") && proofs.length > 0;
@@ -271,6 +276,16 @@ export default function ResultsPage({
             stoppedEarly={Boolean(stopped)}
           />
         </>
+      )}
+
+      {creativeBrief && (
+        <QuietDisclosure title="Creative brief" className="mb-4">
+          <CreativeBrief
+            brief={creativeBrief}
+            sources={state.sources as ReportSources | undefined}
+            className="p-1"
+          />
+        </QuietDisclosure>
       )}
 
       {researchReport && (

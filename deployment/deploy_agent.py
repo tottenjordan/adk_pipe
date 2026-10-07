@@ -50,6 +50,9 @@ ENV_VAR_DICT = {
     "BQ_TABLE_TARGETS": os.getenv("BQ_TABLE_TARGETS"),
     "BQ_TABLE_CREATIVES": os.getenv("BQ_TABLE_CREATIVES"),
     "BQ_TABLE_EVALS": os.getenv("BQ_TABLE_EVALS"),
+    # creative_agent brief_gate revision budget (0..2, default 1; see
+    # creative_agent/config.py). Defaulted so the engine never gets a None.
+    "BRIEF_REVISION_ROUNDS": os.getenv("BRIEF_REVISION_ROUNDS", "1"),
 }
 
 

@@ -19,6 +19,7 @@ const view = (stages: Stage[]) => stages.map((s) => `${s.label}:${s.state}`);
 
 const CREATIVE_DONE = {
   combined_final_cited_report: "report",
+  creative_brief: { single_minded_proposition: "One idea." },
   research_report_gcs_uri: "gs://b/r.pdf",
   ad_copy_critique: { ad_copies: [{ headline: "h" }] },
   final_visual_concepts: { visual_concepts: [{ concept_name: "c" }] },
@@ -49,6 +50,7 @@ describe("deriveStages — creative_agent", () => {
   it("starts with research active and the rest pending", () => {
     expect(view(deriveStages("creative_agent", {}, null, "running"))).toEqual([
       "Research:active",
+      "Brief:pending",
       "Research report:pending",
       "Ad copy:pending",
       "Visual concepts:pending",
@@ -65,6 +67,7 @@ describe("deriveStages — creative_agent", () => {
     };
     expect(view(deriveStages("creative_agent", state, null, "running"))).toEqual([
       "Research:done",
+      "Brief:done",
       "Research report:done",
       "Ad copy:done",
       "Visual concepts:active",
@@ -88,6 +91,7 @@ describe("deriveStages — creative_agent", () => {
     const state = { combined_final_cited_report: "r" };
     expect(view(deriveStages("creative_agent", state, null, "completed"))).toEqual([
       "Research:done",
+      "Brief:pending",
       "Research report:pending",
       "Ad copy:pending",
       "Visual concepts:pending",
@@ -99,7 +103,7 @@ describe("deriveStages — creative_agent", () => {
   it("keeps the stopped stage active on error", () => {
     const state = { combined_final_cited_report: "r" };
     const stages = deriveStages("creative_agent", state, null, "error");
-    expect(stages[1]).toMatchObject({ id: "research_report", state: "active" });
+    expect(stages[1]).toMatchObject({ id: "brief", state: "active" });
   });
 
   it("keeps the active stage while stalled", () => {
@@ -139,6 +143,47 @@ describe("deriveStages — creative_agent", () => {
     expect(stages[1].state).toBe("active");
   });
 
+  it("marks the brief done once written, with the report PDF next", () => {
+    const state = {
+      combined_final_cited_report: "r",
+      creative_brief: '{"single_minded_proposition": "One idea."}',
+    };
+    const stages = deriveStages("creative_agent", state, null, "running");
+    expect(view(stages).slice(0, 3)).toEqual([
+      "Research:done",
+      "Brief:done",
+      "Research report:active",
+    ]);
+  });
+
+  it("does not count the seeded null brief as written", () => {
+    const state = { combined_final_cited_report: "r", creative_brief: null };
+    const stages = deriveStages("creative_agent", state, null, "running");
+    expect(stages[1]).toMatchObject({ id: "brief", state: "active" });
+  });
+
+  it("shows a pre-brief session's later stages (and the brief) as done", () => {
+    const { creative_brief: _omit, ...oldSession } = CREATIVE_DONE;
+    void _omit;
+    const stages = deriveStages("creative_agent", oldSession, null, "completed");
+    expect(stages.every((s) => s.state === "done")).toBe(true);
+  });
+
+  it("marks the brief, not research, degraded when the brief writer exhausted its retries", () => {
+    const state = {
+      combined_final_cited_report: "r",
+      creative_brief__retry_exhausted: true,
+      research_report_gcs_uri: "gs://b/r.pdf",
+    };
+    const stages = deriveStages("creative_agent", state, null, "running");
+    expect(view(stages).slice(0, 4)).toEqual([
+      "Research:done",
+      "Brief:degraded",
+      "Research report:done",
+      "Ad copy:active",
+    ]);
+  });
+
   it("ignores falsy markers", () => {
     const state = { campaign_web_search_insights__retry_exhausted: false };
     expect(deriveStages("creative_agent", state, null, "running")[0].state).toBe("active");
@@ -155,6 +200,7 @@ describe("deriveStages — interactive_creative", () => {
     const labels = deriveStages("interactive_creative", {}, null, "running").map((s) => s.label);
     expect(labels).toEqual([
       "Research",
+      "Brief",
       "Research report",
       "Review research",
       "Ad copy",
@@ -168,8 +214,9 @@ describe("deriveStages — interactive_creative", () => {
 
   it("marks the paused review stage as needs review", () => {
     const stages = deriveStages("interactive_creative", base, pause("review_research"), "paused");
-    expect(view(stages).slice(0, 4)).toEqual([
+    expect(view(stages).slice(0, 5)).toEqual([
       "Research:done",
+      "Brief:done",
       "Research report:done",
       "Review research:needs_review",
       "Ad copy:pending",

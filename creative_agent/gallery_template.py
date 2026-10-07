@@ -1,5 +1,5 @@
-"""Static HTML fragments for the creative gallery report (byte-identical to the
-originals previously inlined in ``save_creative_gallery_html``)."""
+"""Static HTML fragments for the creative gallery report (originally inlined in
+``save_creative_gallery_html``; since extended with the brief-summary style)."""
 
 HTML_TEMPLATE = """<!DOCTYPE html>
         <html lang="en">
@@ -40,6 +40,18 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                 .research-warning ul {
                     margin: 8px 0 0;
                     padding-left: 20px;
+                }
+
+                /* Creative-brief summary card (proposition + trend fit;
+                   rendered only when a structured brief exists). */
+                .brief-summary {
+                    max-width: 1000px;
+                    margin: 0 auto 30px;
+                    padding: 12px 24px;
+                    background-color: #ffffff;
+                    border-left: 6px solid #0077a8;
+                    border-radius: 8px;
+                    color: #333;
                 }
 
                 /* Sub-header styles */

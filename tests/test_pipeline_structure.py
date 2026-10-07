@@ -72,6 +72,9 @@ def test_combined_research_pipeline_graph():
         "combined_web_evaluator",
         "enhanced_combined_searcher_resilient",
         "combined_report_composer",
+        "brief_writer_failsoft",
+        "brief_gate",
+        "brief_reviser_failsoft",
         "research_report_ready",
     } <= names
     edges = _graph_edges(wf)
@@ -95,8 +98,11 @@ def test_combined_research_pipeline_graph():
         "combined_report_composer",
         None,
     ) in edges
-    # Terminal: a function node that always returns a truthy tool result.
-    assert ("combined_report_composer", "research_report_ready", None) in edges
+    # The structured brief is written after the report, then the terminal: a
+    # function node that always returns a truthy tool result.
+    assert ("combined_report_composer", "brief_writer_failsoft", None) in edges
+    assert ("brief_writer_failsoft", "brief_gate", None) in edges
+    assert ("brief_gate", "research_report_ready", "ok") in edges
     assert not any(src == "research_report_ready" for src, _, _ in edges)
 
 
@@ -188,6 +194,8 @@ def test_graph_llm_agents_are_single_turn():
         "enhanced_combined_searcher",
         "refined_web_synthesizer",
         "combined_report_composer",
+        "brief_writer",
+        "brief_reviser",
         "ad_copy_drafter",
         "ad_copy_critic",
         "art_director",
@@ -434,6 +442,8 @@ def test_structured_output_producers_carry_schema_retry():
     }
     for name in (
         "combined_web_evaluator",
+        "brief_writer",
+        "brief_reviser",
         "ad_copy_drafter",
         "ad_copy_critic",
         "visual_concept_drafter",
@@ -1276,3 +1286,276 @@ def test_pro_producers_fall_back_to_worker(path):
     # Both delegates must carry the global pin (bare strings would lose it).
     for m in agent.model.models:
         assert m.client_kwargs == {"location": "global"}
+
+
+# --- Structured creative brief (brief_writer / brief_reviser) ---------------
+
+
+def test_brief_writer_is_retry_wrapped_after_the_composer():
+    """The brief writer runs after the composer, wrapped in a RetryUntilKeyNode
+    keyed on creative_brief (2 attempts: a fresh structured turn usually
+    recovers an empty one; more would only delay the creative stages), itself
+    wrapped fail-soft so a raising writer cannot fail the research step."""
+    from agent_common import FailSoftNode, RetryUntilKeyNode
+    from creative_agent.agent import combined_research_pipeline as wf
+
+    edges = _graph_edges(wf)
+    assert ("combined_report_composer", "brief_writer_failsoft", None) in edges
+    soft = _graph_nodes(wf)["brief_writer_failsoft"]
+    assert isinstance(soft, FailSoftNode)
+    w = soft.node
+    assert isinstance(w, RetryUntilKeyNode)
+    assert w.output_key == "creative_brief"
+    assert w.max_attempts == 2
+    assert w.node.name == "brief_writer"
+
+
+def test_brief_writer_and_reviser_share_one_factory_config():
+    """Writer and reviser are built by one factory: same worker-bucket model,
+    schema, retry and callbacks; only the name (and the writer's per-run reset)
+    differ."""
+    from creative_agent import agent as ca
+    from creative_agent import callbacks, prompts
+    from creative_agent.config import SCHEMA_RETRY, config
+    from creative_agent.schemas import CreativeBrief
+
+    assert ca.brief_writer.name == "brief_writer"
+    assert ca.brief_reviser.name == "brief_reviser"
+    for a in (ca.brief_writer, ca.brief_reviser):
+        assert a.model.model == config.worker_model
+        assert a.output_schema is CreativeBrief
+        assert a.output_key == "creative_brief"
+        assert a.retry_config is SCHEMA_RETRY
+        assert a.instruction == prompts.CREATIVE_BRIEF_WRITER_INSTR
+        assert a.mode == "single_turn"
+        assert a.include_contents == "none"
+        assert callbacks.rate_limit_callback in a.canonical_before_model_callbacks
+        cbs = a.canonical_after_model_callbacks
+        assert cbs.index(callbacks.scrub_surrogates_in_response) < cbs.index(
+            callbacks.log_empty_turn_finish_reason
+        )
+    assert ca.brief_writer.before_agent_callback is callbacks.reset_brief_state
+    assert ca.brief_reviser.before_agent_callback is None
+
+
+def test_reset_brief_state_clears_previous_run_values():
+    """The writer starts each research run clean: a stale brief from an earlier
+    run would otherwise count as populated (RetryUntilKeyNode limitation) and
+    stale issues/counters would leak into the gate."""
+    from types import SimpleNamespace
+
+    from creative_agent.callbacks import reset_brief_state
+
+    state = {
+        "creative_brief": {"old": True},
+        "creative_brief_md": "**Single-minded proposition:** old",
+        "brief_issues": "- old",
+        "brief_revision_rounds_used": 1,
+        "creative_brief__issues": ["old"],
+        "creative_brief__retry_exhausted": True,
+    }
+    assert reset_brief_state(SimpleNamespace(state=state)) is None
+    assert state == {
+        "creative_brief": None,
+        "creative_brief_md": "",
+        "brief_issues": "",
+        "brief_revision_rounds_used": 0,
+        "creative_brief__issues": None,
+        "creative_brief__retry_exhausted": None,
+    }
+
+
+def test_brief_writer_instruction_tokens():
+    """Required campaign tokens + optional research/revision tokens."""
+    from creative_agent.prompts import CREATIVE_BRIEF_WRITER_INSTR as instr
+
+    for token in (
+        "{brand}",
+        "{target_product}",
+        "{target_audience}",
+        "{key_selling_points}",
+        "{target_search_trends}",
+        "{combined_final_cited_report?}",
+        "{sources?}",
+        "{visual_avoid?}",
+        "{brand_colors?}",
+        "{brief_issues?}",
+        "{brand_history?}",
+        "{creative_brief?}",
+    ):
+        assert token in instr, token
+    assert '"X, but Y"' in instr
+    assert "light_touch" in instr
+    assert "never a likeness" in instr
+
+
+def test_brief_gate_routes_through_a_bounded_revision_cycle():
+    """composer → writer → gate → ok: ready | revise: reviser → gate. The
+    reviser loops back to the gate (a routed cycle), whose revision counter
+    bounds the passes; both brief agents are fail-soft wrapped."""
+    from agent_common import FailSoftNode
+    from creative_agent.agent import combined_research_pipeline as wf
+
+    edges = _graph_edges(wf)
+    assert ("brief_writer_failsoft", "brief_gate", None) in edges
+    assert ("brief_gate", "research_report_ready", "ok") in edges
+    assert ("brief_gate", "brief_reviser_failsoft", "revise") in edges
+    assert ("brief_reviser_failsoft", "brief_gate", None) in edges
+    assert "brief_recheck" not in _graph_nodes(wf)
+    reviser = _graph_nodes(wf)["brief_reviser_failsoft"]
+    assert isinstance(reviser, FailSoftNode)
+    assert reviser.node.name == "brief_reviser"
+    assert {src for src, dst, _ in edges if dst == "brief_gate"} == {
+        "brief_writer_failsoft",
+        "brief_reviser_failsoft",
+    }
+    assert not any(
+        src == "brief_writer_failsoft" and dst == "research_report_ready"
+        for src, dst, _ in edges
+    )
+
+
+def _clean_brief():
+    from tests.test_creative_agent_graph import _BRIEF
+
+    return dict(_BRIEF)
+
+
+def test_brief_gate_decision_clean_brief():
+    from creative_agent.agent import brief_gate_decision
+    from creative_agent.brief_render import render_brief_markdown
+
+    route, delta = brief_gate_decision({"creative_brief": _clean_brief()}, 1)
+    assert route == "ok"
+    assert delta == {
+        "brief_issues": "",
+        "creative_brief__issues": None,
+        "creative_brief_md": render_brief_markdown(_clean_brief(), heading=False),
+    }
+
+
+def test_brief_gate_decision_revises_within_budget():
+    from creative_agent.agent import brief_gate_decision
+
+    brief = {**_clean_brief(), "insight": "Coyotes like skates."}
+    route, delta = brief_gate_decision({"creative_brief": brief}, 1)
+    assert route == "revise"
+    assert delta["brief_revision_rounds_used"] == 1
+    assert delta["brief_issues"].startswith("- insight has no tension")
+    assert "Coyotes like skates." in delta["creative_brief_md"]
+
+
+def test_brief_gate_decision_records_residual_issues_when_budget_spent():
+    from creative_agent.agent import brief_gate_decision
+
+    brief = {**_clean_brief(), "insight": "Coyotes like skates."}
+    state = {"creative_brief": brief, "brief_revision_rounds_used": 1}
+    route, delta = brief_gate_decision(state, 1)
+    assert route == "ok"
+    assert delta["brief_issues"] == ""
+    (issue,) = delta["creative_brief__issues"]
+    assert issue.startswith("insight has no tension")
+    # Revision disabled (0 rounds): straight to ok with the issues recorded.
+    route, delta = brief_gate_decision({"creative_brief": brief}, 0)
+    assert route == "ok" and delta["creative_brief__issues"]
+    assert delta["creative_brief_md"].startswith("**Single-minded proposition:**")
+
+
+def test_brief_gate_decision_second_round_within_a_budget_of_two():
+    from creative_agent.agent import brief_gate_decision
+
+    brief = {**_clean_brief(), "insight": "Coyotes like skates."}
+    state = {"creative_brief": brief, "brief_revision_rounds_used": 1}
+    route, delta = brief_gate_decision(state, 2)
+    assert route == "revise" and delta["brief_revision_rounds_used"] == 2
+    state["brief_revision_rounds_used"] = 2
+    assert brief_gate_decision(state, 2)[0] == "ok"
+
+
+def test_brief_gate_passes_brand_product_and_sources_to_the_check():
+    from creative_agent.agent import brief_gate_decision
+
+    brief = {**_clean_brief(), "single_minded_proposition": "Mac and Cheese wins."}
+    assert brief_gate_decision({"creative_brief": brief}, 1)[0] == "revise"
+    state = {"creative_brief": brief, "target_product": "Mac and Cheese"}
+    assert brief_gate_decision(state, 1)[0] == "ok"
+    # _BRIEF cites src-1: unknown when the run's sources lack it.
+    state = {"creative_brief": _clean_brief(), "sources": {"src-9": {}}}
+    route, delta = brief_gate_decision(state, 1)
+    assert route == "revise" and "unknown sources" in delta["brief_issues"]
+
+
+def test_brief_gate_decision_skips_revision_for_a_missing_brief():
+    """A missing brief (writer exhausted) is not revised: there is nothing to
+    revise, and creative_brief__retry_exhausted already reports it."""
+    from creative_agent.agent import brief_gate_decision
+
+    for state in ({}, {"creative_brief": None}, {"creative_brief": ""}):
+        assert brief_gate_decision(state, 2) == (
+            "ok",
+            {"brief_issues": "", "creative_brief_md": ""},
+        )
+
+
+def test_brief_gate_honours_brand_colors():
+    from creative_agent.agent import brief_gate_decision
+
+    brief = {**_clean_brief(), "brand": {**_clean_brief()["brand"]}}
+    brief["brand"]["distinctive_assets"] = []
+    assert brief_gate_decision({"creative_brief": brief}, 1)[0] == "ok"
+    state = {"creative_brief": brief, "brand_colors": "ACME red"}
+    assert brief_gate_decision(state, 1)[0] == "revise"
+
+
+def test_brief_failsoft_error_deltas():
+    """Writer failure → no brief + exhaustion marker; reviser failure → keep the
+    pre-revision brief, record its issues, spend the revision budget."""
+    from creative_agent import agent as ca
+
+    delta = ca._brief_writer_failed({"creative_brief": {"stale": 1}}, ValueError())
+    assert delta["creative_brief"] is None
+    assert delta["creative_brief_md"] == ""
+    assert delta["creative_brief__retry_exhausted"] is True
+
+    brief = {**_clean_brief(), "insight": "Coyotes like skates."}
+    state = {"creative_brief": brief, "brief_revision_rounds_used": 1}
+    delta = ca._brief_reviser_failed(state, ValueError())
+    assert delta["creative_brief"] == brief
+    assert "Coyotes like skates." in delta["creative_brief_md"]
+    assert delta["brief_issues"] == ""
+    (issue,) = delta["creative_brief__issues"]
+    assert issue.startswith("insight has no tension")
+    assert delta["brief_revision_rounds_used"] >= ca.config.brief_revision_rounds
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [(None, 1), ("", 1), ("0", 0), ("2", 2), ("5", 2), ("-1", 0), ("x", 1)],
+)
+def test_brief_revision_rounds_env(monkeypatch, raw, expected):
+    from creative_agent.config import ResearchConfiguration
+
+    if raw is None:
+        monkeypatch.delenv("BRIEF_REVISION_ROUNDS", raising=False)
+    else:
+        monkeypatch.setenv("BRIEF_REVISION_ROUNDS", raw)
+    assert ResearchConfiguration().brief_revision_rounds == expected
+
+
+def test_brief_revision_rounds_ships_to_agent_engine():
+    import deployment.deploy_agent as da
+
+    assert "BRIEF_REVISION_ROUNDS" in da.ENV_VAR_DICT
+    assert da.ENV_VAR_DICT["BRIEF_REVISION_ROUNDS"] is not None
+
+
+def test_creative_final_state_summary_includes_brief(caplog):
+    import logging
+    from types import SimpleNamespace
+
+    from creative_agent import callbacks
+
+    ctx = SimpleNamespace(state={"creative_brief": {"a": 1}}, invocation_id="i")
+    with caplog.at_level(logging.INFO):
+        callbacks.log_final_state_summary(ctx)
+    assert "'creative_brief': 'present(dict, n=1)'" in caplog.text

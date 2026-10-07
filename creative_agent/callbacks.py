@@ -30,6 +30,7 @@ log_final_state_summary = observability.make_final_state_summary(
     "creative_agent",
     (
         "combined_final_cited_report",
+        "creative_brief",
         "ad_copy_critique",
         "final_visual_concepts",
         "creative_evaluation_report",
@@ -111,6 +112,27 @@ def load_session_state(callback_context: CallbackContext):
     observability.log_run_start(callback_context)
 
     _set_initial_states({}, callback_context.state)
+
+
+def reset_brief_state(callback_context: CallbackContext) -> None:
+    """`before_agent_callback` on `brief_writer`: start each research run clean.
+
+    Clears a previous run's `creative_brief` (else `brief_writer_resilient` would
+    count the stale value as populated — the RetryUntilKeyNode "earlier turn"
+    limitation), its compact Markdown rendering (`creative_brief_md`), the
+    gate's revision counter and feedback, and the residual-issue and exhaustion
+    markers, so a re-run research pipeline in the same session gets a fresh brief
+    and a fresh revision budget. Idempotent (runs once per retry attempt).
+    Returns None so the agent runs normally.
+    """
+    state = callback_context.state
+    state["creative_brief"] = None
+    state["creative_brief_md"] = ""
+    state["brief_issues"] = ""
+    state["brief_revision_rounds_used"] = 0
+    state["creative_brief__issues"] = None
+    state["creative_brief__retry_exhausted"] = None
+    return None
 
 
 def ensure_trend_and_product_callback(callback_context: CallbackContext) -> None:

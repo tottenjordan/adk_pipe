@@ -196,7 +196,7 @@ def walk_nodes(node: Any) -> Iterator[Any]:
     """
     from google.adk.workflow import Workflow
 
-    from agent_common import RetryUntilKeyNode
+    from agent_common import FailSoftNode, RetryUntilKeyNode
 
     yield node
     if isinstance(node, Workflow):
@@ -204,7 +204,7 @@ def walk_nodes(node: Any) -> Iterator[Any]:
         for child in node.graph.nodes:
             if child.name != "__START__":
                 yield from walk_nodes(child)
-    elif isinstance(node, RetryUntilKeyNode):
+    elif isinstance(node, (RetryUntilKeyNode, FailSoftNode)):
         yield from walk_nodes(node.node)
 
 

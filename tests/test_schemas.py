@@ -211,3 +211,106 @@ def test_tone_style_enum_values():
             social_caption="Test",
         )
         assert copy.tone_style == tone
+
+
+# --- CREATIVE BRIEF SCHEMA -------------------------------------------------
+
+
+def _brief_payload(**overrides):
+    data = {
+        "objective": "Drive trial of Rocket Skates among coyotes this week.",
+        "audience": "Coyotes who chase roadrunners for sport.",
+        "insight": "Coyotes want to win the chase, but every gadget backfires.",
+        "single_minded_proposition": "Rocket Skates finally make you faster.",
+        "reasons_to_believe": [
+            {"claim": "Top speed 90 mph", "source_id": "brief"},
+            {"claim": "Roadrunner sightings up 40%", "source_id": "src-1"},
+        ],
+        "brand": {
+            "tone_of_voice": "Deadpan, slapstick confidence",
+            "distinctive_assets": ["the ACME crate"],
+            "do_not": ["mock the customer"],
+        },
+        "trend_bridge": {
+            "fit_score": 4,
+            "fit_mode": "direct",
+            "bridge": "Skate speed connects to the roadrunner's signature sprint.",
+            "motifs": ["a roadrunner dust cloud"],
+            "risks": ["anvil jokes feel dated"],
+        },
+        "mandatories": ["show the ACME logo"],
+        "avoid": ["cliff falls"],
+        "desired_response": "Think: speed is possible. Feel: hopeful. Do: order.",
+        "angles": [
+            {"angle_id": f"A{i}", "name": f"Angle {i}", "tension": "t", "route": "r"}
+            for i in range(1, 4)
+        ],
+    }
+    data.update(overrides)
+    return data
+
+
+def test_creative_brief_valid_and_reexported():
+    from creative_agent.agent import CreativeBrief
+
+    brief = CreativeBrief(**_brief_payload())
+    assert brief.trend_bridge.fit_mode == "direct"
+    assert brief.reasons_to_believe[1].source_id == "src-1"
+    assert len(brief.angles) == 3
+
+
+@pytest.mark.parametrize("score", [0, 6])
+def test_trend_bridge_fit_score_bounds(score):
+    from creative_agent.schemas import TrendBridge
+
+    with pytest.raises(ValidationError):
+        TrendBridge(
+            fit_score=score, fit_mode="direct", bridge="b", motifs=["m"], risks=[]
+        )
+
+
+def test_trend_bridge_fit_mode_literal():
+    from creative_agent.schemas import TrendBridge
+
+    with pytest.raises(ValidationError):
+        TrendBridge(fit_score=3, fit_mode="forced", bridge="b", motifs=[], risks=[])
+    assert (
+        TrendBridge(
+            fit_score=2, fit_mode="light_touch", bridge="b", motifs=[], risks=[]
+        ).fit_mode
+        == "light_touch"
+    )
+
+
+@pytest.mark.parametrize("count", [2, 6])
+def test_creative_brief_angle_count_bounds(count):
+    from creative_agent.schemas import CreativeBrief
+
+    angles = [
+        {"angle_id": f"A{i}", "name": f"n{i}", "tension": "t", "route": "r"}
+        for i in range(count)
+    ]
+    with pytest.raises(ValidationError):
+        CreativeBrief(**_brief_payload(angles=angles))
+
+
+def test_reason_to_believe_source_id_optional():
+    from creative_agent.schemas import ReasonToBelieve
+
+    assert ReasonToBelieve(claim="c", source_id=None).source_id is None
+
+
+def test_creative_brief_constraints_reach_the_model_schema():
+    """The bounds are real model-facing constraints: google-genai maps them to
+    Vertex Schema minimum/maximum and min_items/max_items, so the model is
+    steered by them (and ADK's output_schema validation re-draws violations
+    via SCHEMA_RETRY)."""
+    from creative_agent.schemas import CreativeBrief
+
+    schema = CreativeBrief.model_json_schema()
+    assert schema["properties"]["angles"]["minItems"] == 3
+    assert schema["properties"]["angles"]["maxItems"] == 5
+    bridge = schema["$defs"]["TrendBridge"]["properties"]
+    assert bridge["fit_score"]["minimum"] == 1
+    assert bridge["fit_score"]["maximum"] == 5
+    assert bridge["fit_mode"]["enum"] == ["direct", "cultural", "light_touch"]

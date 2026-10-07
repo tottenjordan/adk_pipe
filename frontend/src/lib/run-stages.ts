@@ -33,6 +33,10 @@ interface StageDef {
 
 const CREATIVE_HEAD: StageDef[] = [
   { id: "research", label: "Research", key: "combined_final_cited_report" },
+  // Written inside the research pipeline, before the report PDF (which renders
+  // it). Sessions from before the brief never write it; the stage still shows
+  // done once any later stage is done (backward propagation in deriveStages).
+  { id: "brief", label: "Brief", key: "creative_brief" },
   { id: "research_report", label: "Research report", key: "research_report_gcs_uri" },
 ];
 const AD_COPY: StageDef = { id: "ad_copy", label: "Ad copy", key: "ad_copy_critique" };
@@ -81,6 +85,7 @@ export const STAGE_DESCRIPTIONS: Record<string, string> = {
   research: "Searching the web for context on the trend and the campaign.",
   write_strategy: "Picking the most relevant trends and writing the strategy.",
   save: "Saving the trend picks.",
+  brief: "Writing the creative brief: one proposition, the trend fit and the angles.",
   research_report: "Writing the cited research report.",
   review_research: "Review the research before ad copy is written.",
   ad_copy: "Drafting and critiquing ad copy.",
@@ -106,14 +111,14 @@ export function isPopulated(value: unknown): boolean {
   return true;
 }
 
-/** Which stage a retry-exhaustion marker degrades: images, or research otherwise. */
+/** Which stage a retry-exhaustion marker degrades: images, the brief, or research otherwise. */
 function degradedStageIds(state: Record<string, unknown>): Set<string> {
   const ids = new Set<string>();
   if (imagesRetryExhausted(state)) ids.add("images");
   for (const [key, value] of Object.entries(state)) {
     if (!key.endsWith("__retry_exhausted") || !value) continue;
     if (key.startsWith("_images_generated")) continue;
-    ids.add("research");
+    ids.add(key.startsWith("creative_brief") ? "brief" : "research");
   }
   return ids;
 }

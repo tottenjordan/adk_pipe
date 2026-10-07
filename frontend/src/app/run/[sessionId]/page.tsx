@@ -7,6 +7,9 @@ import { Button } from "@/components/ui/button";
 import { formatEventTime } from "@/components/event-log";
 import { TrendCards, parseTrendsMarkdown } from "@/components/trend-cards";
 import { GcsWidget } from "@/components/gcs-widget";
+import { CreativeBriefOutput } from "@/components/creative-brief";
+import { parseCreativeBrief } from "@/lib/creative-brief";
+import type { ReportSources } from "@/lib/research-report";
 import { FileDown } from "lucide-react";
 import { agentLabel, isCreativeAgent } from "@/lib/agents";
 import { answeredReviewNames, currentStage, deriveStages } from "@/lib/run-stages";
@@ -407,6 +410,12 @@ export default function RunPage({
     [sessionState],
   );
 
+  // Structured creative brief (creative agents), once the brief writer has run
+  const creativeBrief = useMemo(
+    () => parseCreativeBrief(sessionState.creative_brief),
+    [sessionState.creative_brief]
+  );
+
   // Pipeline outputs, in pipeline order
   const pipelineWidgets = useMemo(() => {
     return PIPELINE_STATE_KEYS.filter((p) => sessionState[p.key] != null);
@@ -480,7 +489,8 @@ export default function RunPage({
     ? { text: `Stopped before ${stopped.stage}`, dot: "bg-mark-pending", tone: "text-mark-pending" }
     : statusLine[status];
 
-  const hasOutputs = pipelineWidgets.length > 0 || gcsUri || researchReportUrl;
+  const hasOutputs =
+    pipelineWidgets.length > 0 || gcsUri || researchReportUrl || creativeBrief;
 
   return (
     <div className="mx-auto max-w-[1400px] px-4 py-6 sm:px-6 sm:py-8">
@@ -588,6 +598,15 @@ export default function RunPage({
                   {status === "completed" && !stopped ? "Outputs" : "Outputs so far"}
                 </h2>
                 <div className="grid gap-3 sm:grid-cols-2">
+                  {/* Full width first: the brief is the strategy every later output follows */}
+                  {creativeBrief && (
+                    <CreativeBriefOutput
+                      brief={creativeBrief}
+                      sources={sessionState.sources as ReportSources | undefined}
+                      className="sm:col-span-2"
+                    />
+                  )}
+
                   {researchReportUrl && (
                     <a
                       href={researchReportUrl}

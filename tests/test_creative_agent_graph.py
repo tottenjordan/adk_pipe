@@ -22,6 +22,7 @@ per-graph copies of its agents, not the module-level objects.
 """
 
 import asyncio
+import json
 from typing import Any
 
 import pytest
@@ -33,6 +34,7 @@ from google.adk.sessions import InMemorySessionService
 from google.genai import types
 from pydantic import ValidationError
 
+from creative_agent.brief_render import render_brief_markdown
 from tests._fakes import (
     RecordingLlm,
     fc_response,
@@ -135,7 +137,45 @@ def _responses(events: list[Event]) -> list[dict[str, Any]]:
     ]
 
 
-def _script_research(llms: dict[str, RecordingLlm], campaign_synth: list[str]):
+# A schema-valid CreativeBrief that also passes creative_agent.brief_check.
+_BRIEF: dict[str, Any] = {
+    "objective": "Make Rocket Skates the coyote's go-to chase gear this week.",
+    "audience": "Coyotes who chase roadrunners for sport.",
+    "insight": "Coyotes want to win the chase, but every gadget backfires.",
+    "single_minded_proposition": "Rocket Skates finally make you faster.",
+    "reasons_to_believe": [
+        {"claim": "Fast, per the brief", "source_id": "brief"},
+        {"claim": "Roadrunners are trending", "source_id": "src-1"},
+    ],
+    "brand": {
+        "tone_of_voice": "Deadpan slapstick confidence",
+        "distinctive_assets": ["the ACME crate"],
+        "do_not": ["mock the customer"],
+    },
+    "trend_bridge": {
+        "fit_score": 4,
+        "fit_mode": "direct",
+        "bridge": "Skate speed meets the roadrunner's signature sprint.",
+        "motifs": ["a roadrunner dust cloud", "desert mesa road"],
+        "risks": ["cartoon violence"],
+    },
+    "mandatories": ["show the ACME logo"],
+    "avoid": ["cliff falls"],
+    "desired_response": "Think fast, feel hopeful, order skates.",
+    "angles": [
+        {"angle_id": "A1", "name": "Finally fast", "tension": "t1", "route": "r1"},
+        {"angle_id": "A2", "name": "Gear that works", "tension": "t2", "route": "r2"},
+        {"angle_id": "A3", "name": "Chase as sport", "tension": "t3", "route": "r3"},
+    ],
+}
+
+
+def _script_research(
+    llms: dict[str, RecordingLlm],
+    campaign_synth: list[str],
+    briefs: list[str] | None = None,
+    report: str = '# Report\nRoadrunners are trending<cite source="src-1" />.',
+):
     llms["gs_web_planner"].push(text_response(_QUERIES))
     llms["gs_web_searcher"].push(_grounded("gs raw"))
     llms["gs_web_synthesizer"].push(text_response("GS INSIGHTS"))
@@ -144,9 +184,9 @@ def _script_research(llms: dict[str, RecordingLlm], campaign_synth: list[str]):
         llms["campaign_web_searcher"].push(text_response("ca raw"))
         llms["campaign_web_synthesizer"].push(text_response(text))
     llms["merge_planners"].push(text_response("MERGED BRIEF"))
-    llms["combined_report_composer"].push(
-        text_response('# Report\nRoadrunners are trending<cite source="src-1" />.')
-    )
+    llms["combined_report_composer"].push(text_response(report))
+    for brief in [json.dumps(_BRIEF)] if briefs is None else briefs:
+        llms["brief_writer"].push(text_response(brief))
 
 
 def test_research_graph_healthy_path_skips_refinement(monkeypatch):
@@ -180,6 +220,20 @@ def test_research_graph_healthy_path_skips_refinement(monkeypatch):
     assert state["final_report_with_citations"] == (
         f"# Report\nRoadrunners are trending [Trend Source]({_URL})."
     )
+    # The structured brief was written from the report and stored as a dict.
+    assert state["creative_brief"] == _BRIEF
+    assert llms["brief_writer"].calls == 1
+    brief_prompt = str(llms["brief_writer"].requests[-1].config.system_instruction)
+    assert "Roadrunners are trending" in brief_prompt
+    assert not state.get("creative_brief__retry_exhausted")
+    # The gate wrote the compact Markdown the creative agents read.
+    assert state["creative_brief_md"].startswith("**Single-minded proposition:**")
+    assert _BRIEF["single_minded_proposition"] in state["creative_brief_md"]
+    # The brief passed the deterministic check: no revision round.
+    assert llms["brief_reviser"].calls == 0
+    assert state["brief_issues"] == ""
+    assert state.get("creative_brief__issues") is None
+    assert state["brief_revision_rounds_used"] == 0
     # The root got the terminal node's truthy result and was re-called.
     (response,) = _responses(events)
     assert "Research report complete" in str(response)
@@ -211,6 +265,232 @@ def test_research_graph_degraded_path_runs_refinement(monkeypatch):
     assert "final_report_with_citations" in state
     assert len(_responses(events)) == 1
     assert root_llm.calls == 2
+
+
+def test_brief_writer_runs_without_a_report(monkeypatch):
+    """Missing report: the writer still runs from the campaign inputs (the
+    documented choice), so the creative stages keep a structured contract."""
+    import creative_agent.agent as ca
+
+    llms = _stub_graph(monkeypatch, ca.combined_research_pipeline)
+    _script_research(llms, ["CA INSIGHTS"], report="   ")
+
+    root_llm, events, state = _run_root(monkeypatch, "combined_research_pipeline")
+
+    assert (
+        "combined_final_cited_report" not in state
+        or not str(state["combined_final_cited_report"]).strip()
+    )
+    assert llms["brief_writer"].calls == 1
+    prompt = str(llms["brief_writer"].requests[-1].config.system_instruction)
+    assert "Rocket Skates" in prompt and "roadrunner" in prompt
+    assert state["creative_brief"] == _BRIEF
+    (response,) = _responses(events)
+    assert "combined_final_cited_report" in str(response)  # the missing notice
+    assert root_llm.calls == 2
+
+
+def test_brief_writer_exhaustion_still_ends_truthy(monkeypatch):
+    """Both writer attempts come back empty: the brief stays unset, the marker
+    is recorded, and the pipeline still answers the root."""
+    import creative_agent.agent as ca
+
+    llms = _stub_graph(monkeypatch, ca.combined_research_pipeline)
+    _script_research(llms, ["CA INSIGHTS"], briefs=["", ""])
+
+    root_llm, events, state = _run_root(monkeypatch, "combined_research_pipeline")
+
+    assert llms["brief_writer"].calls == 2
+    assert not state.get("creative_brief")
+    assert state["creative_brief__retry_exhausted"] is True
+    # Nothing to revise: the gate skips the reviser; the exhaustion is a
+    # human-readable degradation note.
+    assert llms["brief_reviser"].calls == 0
+    from agent_common import collect_degradation_warnings
+
+    assert state["creative_brief_md"] == ""
+    (note,) = collect_degradation_warnings(state)
+    assert note == "Step 'creative_brief' exhausted retries and produced no output."
+    (response,) = _responses(events)
+    assert "Research report complete" in str(response)
+    assert root_llm.calls == 2
+
+
+def _brief_with(**changes: Any) -> str:
+    return json.dumps({**_BRIEF, **changes})
+
+
+def test_brief_failing_the_check_is_revised_once(monkeypatch):
+    """A brief whose insight has no tension is sent to the reviser once, with
+    the gate's exact issue text in its prompt; the revised (clean) brief
+    replaces it after the gate re-checks it."""
+    import creative_agent.agent as ca
+
+    llms = _stub_graph(monkeypatch, ca.combined_research_pipeline)
+    _script_research(
+        llms, ["CA INSIGHTS"], briefs=[_brief_with(insight="Coyotes like gear.")]
+    )
+    llms["brief_reviser"].push(text_response(json.dumps(_BRIEF)))
+
+    root_llm, events, state = _run_root(monkeypatch, "combined_research_pipeline")
+
+    assert llms["brief_writer"].calls == 1
+    assert llms["brief_reviser"].calls == 1
+    prompt = str(llms["brief_reviser"].requests[-1].config.system_instruction)
+    assert "- insight has no tension ('Coyotes like gear.')" in prompt
+    assert "Coyotes like gear." in prompt  # the previous brief is shown too
+    assert state["creative_brief"] == _BRIEF
+    assert state["brief_revision_rounds_used"] == 1
+    assert state["brief_issues"] == ""  # cleared once the round is over
+    assert state.get("creative_brief__issues") is None
+    # The re-checked (clean) brief is what the creative agents will read.
+    assert "Coyotes like gear." not in state["creative_brief_md"]
+    (response,) = _responses(events)
+    assert "Research report complete" in str(response)
+    assert root_llm.calls == 2
+
+
+def test_brief_issues_left_after_revision_are_recorded(monkeypatch):
+    """With the default budget (1 pass) the gate re-checks the revised brief
+    and records what is left as creative_brief__issues (a degradation note)."""
+    import creative_agent.agent as ca
+    from agent_common import collect_degradation_warnings
+
+    llms = _stub_graph(monkeypatch, ca.combined_research_pipeline)
+    still_bad = _brief_with(single_minded_proposition="Fast and fun skates.")
+    _script_research(llms, ["CA INSIGHTS"], briefs=[still_bad])
+    llms["brief_reviser"].push(text_response(still_bad))
+
+    root_llm, _, state = _run_root(monkeypatch, "combined_research_pipeline")
+
+    assert llms["brief_reviser"].calls == 1
+    (issue,) = state["creative_brief__issues"]
+    assert "'and'" in issue
+    (note,) = collect_degradation_warnings(state)
+    assert note.startswith("Creative brief has unresolved issues: 1 (e.g. ")
+    assert root_llm.calls == 2
+
+
+def test_brief_revised_twice_with_two_rounds(monkeypatch):
+    """BRIEF_REVISION_ROUNDS=2 really means two reviser passes: the reviser
+    loops back to the gate, which sends the still-failing brief round again
+    (with the remaining issue in the prompt) and accepts the fixed one."""
+    import creative_agent.agent as ca
+
+    monkeypatch.setattr(ca.config, "brief_revision_rounds", 2)
+    llms = _stub_graph(monkeypatch, ca.combined_research_pipeline)
+    no_tension = _brief_with(insight="Coyotes like gear.")
+    two_ideas = _brief_with(single_minded_proposition="Fast and fun skates.")
+    _script_research(llms, ["CA INSIGHTS"], briefs=[no_tension])
+    llms["brief_reviser"].push(
+        text_response(two_ideas), text_response(json.dumps(_BRIEF))
+    )
+
+    root_llm, events, state = _run_root(monkeypatch, "combined_research_pipeline")
+
+    assert llms["brief_reviser"].calls == 2
+    first, second = (
+        str(r.config.system_instruction) for r in llms["brief_reviser"].requests
+    )
+    assert "- insight has no tension ('Coyotes like gear.')" in first
+    assert (
+        "- single_minded_proposition joins ideas with 'and' ('Fast and fun skates.')"
+        in second
+    )
+    assert state["creative_brief"] == _BRIEF
+    assert state["brief_revision_rounds_used"] == 2
+    assert state.get("creative_brief__issues") is None
+    (response,) = _responses(events)
+    assert "Research report complete" in str(response)
+    assert root_llm.calls == 2
+
+
+def test_brief_revision_stops_at_the_budget_of_two(monkeypatch):
+    import creative_agent.agent as ca
+
+    monkeypatch.setattr(ca.config, "brief_revision_rounds", 2)
+    llms = _stub_graph(monkeypatch, ca.combined_research_pipeline)
+    bad = _brief_with(insight="Coyotes like gear.")
+    _script_research(llms, ["CA INSIGHTS"], briefs=[bad])
+    llms["brief_reviser"].push(text_response(bad), text_response(bad))
+
+    root_llm, _, state = _run_root(monkeypatch, "combined_research_pipeline")
+
+    assert llms["brief_reviser"].calls == 2
+    assert state["brief_revision_rounds_used"] == 2
+    (issue,) = state["creative_brief__issues"]
+    assert issue.startswith("insight has no tension")
+    assert root_llm.calls == 2
+
+
+def _patch_agent_model(monkeypatch, workflow, name: str, model) -> None:
+    (agent,) = [a for a in _llm_agents(workflow) if a.name == name]
+    monkeypatch.setattr(agent, "model", model)
+
+
+def test_raising_brief_writer_does_not_fail_the_research_step(monkeypatch):
+    """An exception in the writer (e.g. SCHEMA_RETRY exhausted) is fail-soft:
+    no brief, the exhaustion marker, and the report still reaches the root."""
+    import creative_agent.agent as ca
+
+    llms = _stub_graph(monkeypatch, ca.combined_research_pipeline)
+    boom = _BoomLlm()
+    _patch_agent_model(monkeypatch, ca.combined_research_pipeline, "brief_writer", boom)
+    _script_research(llms, ["CA INSIGHTS"])
+
+    root_llm, events, state = _run_root(monkeypatch, "combined_research_pipeline")
+
+    assert boom.requests  # the writer really ran and raised
+    assert state["combined_final_cited_report"].startswith("# Report")
+    assert not state.get("creative_brief")
+    assert state["creative_brief_md"] == ""
+    assert state["creative_brief__retry_exhausted"] is True
+    assert llms["brief_reviser"].calls == 0
+    (response,) = _responses(events)
+    assert "Research report complete" in str(response)
+    assert "No structured creative brief" in str(response)
+    assert root_llm.calls == 2
+
+
+def test_raising_brief_reviser_keeps_the_pre_revision_brief(monkeypatch):
+    """An exception in the reviser keeps the writer's brief, records the gate's
+    issues, and the pipeline still ends with the report."""
+    import creative_agent.agent as ca
+
+    llms = _stub_graph(monkeypatch, ca.combined_research_pipeline)
+    boom = _BoomLlm()
+    _patch_agent_model(
+        monkeypatch, ca.combined_research_pipeline, "brief_reviser", boom
+    )
+    bad = _brief_with(insight="Coyotes like gear.")
+    _script_research(llms, ["CA INSIGHTS"], briefs=[bad])
+
+    root_llm, events, state = _run_root(monkeypatch, "combined_research_pipeline")
+
+    assert boom.requests  # the reviser really ran and raised
+    assert state["creative_brief"] == json.loads(bad)
+    assert "Coyotes like gear." in state["creative_brief_md"]
+    (issue,) = state["creative_brief__issues"]
+    assert issue.startswith("insight has no tension")
+    assert state["brief_issues"] == ""
+    (response,) = _responses(events)
+    assert "Research report complete" in str(response)
+    assert root_llm.calls == 2
+
+
+def test_brief_revision_disabled_records_issues(monkeypatch):
+    import creative_agent.agent as ca
+
+    monkeypatch.setattr(ca.config, "brief_revision_rounds", 0)
+    llms = _stub_graph(monkeypatch, ca.combined_research_pipeline)
+    _script_research(
+        llms, ["CA INSIGHTS"], briefs=[_brief_with(insight="Coyotes like gear.")]
+    )
+
+    _, _, state = _run_root(monkeypatch, "combined_research_pipeline")
+
+    assert llms["brief_reviser"].calls == 0
+    assert len(state["creative_brief__issues"]) == 1
 
 
 class _BoomLlm(RecordingLlm):
@@ -278,6 +558,35 @@ def test_ad_creative_graph_returns_final_copies(monkeypatch):
     (response,) = _responses(events)
     assert "ad_copy_critique" in str(response)  # the non-empty notice
     assert root_llm.calls == 2  # not stalled
+
+
+def test_ad_agents_receive_the_brief_before_the_report(monkeypatch):
+    """The brief in state is rendered into the drafter's and critic's prompts,
+    ahead of the research report (the brief is the contract)."""
+    import creative_agent.agent as ca
+
+    llms = _stub_graph(monkeypatch, ca.ad_creative_pipeline)
+    llms["ad_copy_drafter"].push(text_response(_ADS))
+    llms["ad_copy_critic"].push(text_response(_ADS))
+
+    _run_root(
+        monkeypatch,
+        "ad_creative_pipeline",
+        {
+            "combined_final_cited_report": "# Report",
+            "creative_brief": _BRIEF,
+            "creative_brief_md": render_brief_markdown(_BRIEF, heading=False),
+        },
+    )
+
+    for name in ("ad_copy_drafter", "ad_copy_critic"):
+        prompt = str(llms[name].requests[-1].config.system_instruction)
+        proposition = _BRIEF["single_minded_proposition"]
+        assert proposition in prompt, name
+        assert prompt.index(proposition) < prompt.index("# Report"), name
+        # The compact Markdown, not the dict repr.
+        assert "**Single-minded proposition:**" in prompt, name
+        assert "'single_minded_proposition':" not in prompt, name
 
 
 def _fake_generate_image(tool_context) -> dict:
