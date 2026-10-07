@@ -135,3 +135,33 @@ class TestCampaignContextTokens:
         assert "Brand Voice & Distinctive Assets" in str(
             campaign_web_synthesizer.instruction
         )
+
+
+class TestRiskSections:
+    """Risk guidance flows from the trend research into the final report."""
+
+    def test_trend_synthesizer_has_live_risk_section(self):
+        from creative_agent.sub_agents.trend_researcher.agent import (
+            gs_web_synthesizer,
+        )
+
+        instr = str(gs_web_synthesizer.instruction)
+        structure = instr.split("<REPORT_STRUCTURE>", 1)[1].split(
+            "</REPORT_STRUCTURE>"
+        )[0]
+        assert "4.  **Risk Assessment:**" in structure
+        for phrase in ("controvers", "real people", "negative associations"):
+            assert phrase in structure
+
+    def test_report_composer_has_risks_and_constraints_section(self):
+        structure = prompts.COMBINED_REPORT_COMPOSER_INSTR.split(
+            "<FINAL_REPORT_STRUCTURE>", 1
+        )[1].split("</FINAL_REPORT_STRUCTURE>")[0]
+        assert "5.  **## Risks & Constraints**" in structure
+        assert "No more than 3" in structure
+
+    def test_merge_planners_carries_risks_and_brand_assets_forward(self):
+        # The composer only sees the merged brief, so the merge step must not
+        # drop the trend risks or the brand's distinctive assets.
+        assert "Risks & Constraints" in prompts.MERGE_PLANNERS_INSTR
+        assert "distinctive assets" in prompts.MERGE_PLANNERS_INSTR

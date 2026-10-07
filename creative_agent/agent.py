@@ -164,10 +164,6 @@ combined_report_composer = Agent(
     after_model_callback=callbacks.log_empty_turn_finish_reason,
 )
 
-# 5.  **## Final Risk Assessment & Constraints**
-#     *   (Introductory Paragraph: Summary of any critical constraints or risks the creative team must avoid.)
-#     *   (No more than 3 supporting bullets detailing the specific risks/constraints.)
-
 
 # --- CONDITIONAL RESEARCH REFINEMENT GATE (Lever A) --- #
 # The evaluator (gemini-3.1-pro-preview) + follow-up searcher form a SECOND,

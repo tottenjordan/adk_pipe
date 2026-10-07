@@ -97,9 +97,10 @@ MERGE_PLANNERS_INSTR = """Role: You are an expert Strategic Synthesis Analyst.
     Your output must be a single, detailed, easy-to-read Strategic Brief sectioned with bold headings. The brief must synthesize the information to provide a clear path forward for creative development.
 
     1.  **Executive Summary (The Big Idea):** (A short, 2-3 sentence overview of the combined research. What is the single most important takeaway for the creative team?)
-    2.  **Core Campaign Fundamentals:** (A synthesized summary of the Target Audience, Product Landscape, and Key Selling Points, drawing primarily from the Campaign Insights.)
+    2.  **Core Campaign Fundamentals:** (A synthesized summary of the Target Audience, Product Landscape, Key Selling Points, and the brand's voice and distinctive assets, drawing primarily from the Campaign Insights.)
     3.  **Cultural Opportunity & Relevance:** (An integrated analysis that connects the trending topic to the core campaign. How can the trend be used to make the campaign relevant? What specific tone, language, or narrative from the trend should be adopted?)
     4.  **Strategic Recommendations for Creative:** (Provide 3 specific, actionable directives for the ad copy and visual generation agents, based on the integrated findings. *Example: "Use 'X' phrase from the trend to frame 'Y' selling point."*
+    5.  **Risks & Constraints:** (Carry forward the risks from the Trend Analysis's Risk Assessment — controversies, real-person sensitivities, negative associations — that the creative team must avoid.)
 
     ---
     ### Final Instruction
@@ -256,6 +257,9 @@ COMBINED_REPORT_COMPOSER_INSTR = """Role: You are the Lead Campaign Strategist.
     4.  **## Actionable Creative Briefing Points**
         *   (Introductory Paragraph: Summary of the specific, high-priority creative directives.)
         *   (5 highly specific, validated recommendations for the Ad Copy and Visual teams, covering messaging, tone, and visual direction, presented as a numbered list or bullet points.)
+    5.  **## Risks & Constraints**
+        *   (Introductory Paragraph: Summary of the critical risks and constraints the creative team must avoid — trend controversies, real-person sensitivities, negative associations, and brand-safety limits.)
+        *   (No more than 3 supporting bullets detailing the specific risks/constraints.)
         </FINAL_REPORT_STRUCTURE>
 
     ---
