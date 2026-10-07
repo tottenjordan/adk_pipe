@@ -111,16 +111,38 @@ export function isPopulated(value: unknown): boolean {
   return true;
 }
 
-/** Which stage a retry-exhaustion marker degrades: images, the brief, or research otherwise. */
-function degradedStageIds(state: Record<string, unknown>): Set<string> {
-  const ids = new Set<string>();
-  if (imagesRetryExhausted(state)) ids.add("images");
+const EXHAUSTED_SUFFIX = "__retry_exhausted";
+
+/**
+ * The truthy retry-exhaustion markers, split per stage.
+ *
+ * - `own`: the stage's own producer gave up (`<stage key>__retry_exhausted`,
+ *   e.g. `_images_generated`, `creative_brief`, trend_scout's `info_gtrends`),
+ *   so the stage has ended — with no output.
+ * - `sub`: a sub-step inside the stage gave up (e.g. the gs/campaign searchers
+ *   inside Research). The stage keeps running (refinement, the composer) and
+ *   may still produce its output, so such a marker never ends the stage.
+ *   Unknown markers map to the brief (`creative_brief*`) or else to research.
+ *
+ * Falsy markers (`null`: cleared by a later successful retry) are ignored.
+ */
+function exhaustionMarkers(
+  defs: StageDef[],
+  state: Record<string, unknown>
+): { own: Set<string>; sub: Set<string> } {
+  const own = new Set<string>();
+  const sub = new Set<string>();
+  const byKey = new Map(defs.filter((d) => d.key).map((d) => [d.key as string, d.id]));
+  if (imagesRetryExhausted(state)) own.add("images");
   for (const [key, value] of Object.entries(state)) {
-    if (!key.endsWith("__retry_exhausted") || !value) continue;
-    if (key.startsWith("_images_generated")) continue;
-    ids.add(key.startsWith("creative_brief") ? "brief" : "research");
+    if (!key.endsWith(EXHAUSTED_SUFFIX) || !value) continue;
+    const stageKey = key.slice(0, -EXHAUSTED_SUFFIX.length);
+    const ownId = byKey.get(stageKey);
+    if (ownId) own.add(ownId);
+    else if (stageKey.startsWith("_images_generated")) own.add("images");
+    else sub.add(stageKey.startsWith("creative_brief") ? "brief" : "research");
   }
-  return ids;
+  return { own, sub };
 }
 
 /**
@@ -128,8 +150,11 @@ function degradedStageIds(state: Record<string, unknown>): Set<string> {
  *
  * - A stage is done when its key is populated, its review was answered, or any
  *   later stage is done (agents can skip writing an optional key).
- * - A retry-exhaustion marker makes the related stage "degraded" (it finished,
- *   but with missing output); it counts as finished for the rules below.
+ * - "degraded" = the stage finished WITHOUT its own output, with a retry
+ *   marker to explain it: its own producer's marker (which also ends the stage,
+ *   so the next one becomes active), or a sub-step marker once a later stage is
+ *   done or the run completed. A sub-step marker alone never ends a stage, and
+ *   a stage whose output exists is never degraded (the retry recovered).
  * - running / stalled: the first unfinished stage is "active".
  * - paused: the paused review stage is "needs_review" (always — the live pause
  *   wins over later data); nothing else is active.
@@ -153,7 +178,7 @@ export function deriveStages(
           ? INTERACTIVE_STAGES
           : UNKNOWN_STAGES;
 
-  const degraded = degradedStageIds(state);
+  const markers = exhaustionMarkers(defs, state);
   const ownDone = defs.map(
     (d) =>
       (d.key !== undefined && isPopulated(state[d.key])) ||
@@ -163,10 +188,14 @@ export function deriveStages(
 
   // Done-ness propagates backwards: anything before a finished stage finished.
   const finished = new Array<boolean>(defs.length).fill(false);
+  const degraded = new Array<boolean>(defs.length).fill(false);
   let laterDone = false;
   for (let i = defs.length - 1; i >= 0; i--) {
-    const isFinished = ownDone[i] || laterDone || degraded.has(defs[i].id);
-    finished[i] = isFinished;
+    const gaveUp = !ownDone[i] && markers.own.has(defs[i].id);
+    degraded[i] =
+      !ownDone[i] &&
+      (gaveUp || (markers.sub.has(defs[i].id) && (laterDone || status === "completed")));
+    finished[i] = ownDone[i] || laterDone || gaveUp;
     if (ownDone[i] || laterDone) laterDone = true;
   }
 
@@ -178,7 +207,7 @@ export function deriveStages(
     let s: StageState = "pending";
     // The live pause is authoritative, even if stale later data says otherwise.
     if (i === pausedIndex) s = "needs_review";
-    else if (degraded.has(d.id)) s = "degraded";
+    else if (degraded[i]) s = "degraded";
     else if (finished[i]) s = "done";
     else if (
       i === firstOpen &&

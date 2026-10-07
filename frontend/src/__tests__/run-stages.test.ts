@@ -133,14 +133,60 @@ describe("deriveStages — creative_agent", () => {
     expect(stages.find((s) => s.id === "eval_save")?.state).toBe("active");
   });
 
-  it("marks research degraded for research-producer markers", () => {
+  it("does not degrade research whose report was written despite a sub-step marker", () => {
+    // A searcher gave up, but refinement/the composer still produced the report.
     const state = {
       combined_final_cited_report: "r",
       gs_web_search_insights__retry_exhausted: true,
     };
     const stages = deriveStages("creative_agent", state, null, "running");
+    expect(view(stages).slice(0, 2)).toEqual(["Research:done", "Brief:active"]);
+  });
+
+  it("keeps research active while refinement/the composer still runs after a sub-step marker", () => {
+    const state = { gs_web_search_insights__retry_exhausted: true };
+    const stages = deriveStages("creative_agent", state, null, "running");
+    expect(view(stages).slice(0, 2)).toEqual(["Research:active", "Brief:pending"]);
+  });
+
+  it("marks research degraded once a later stage finished without the report", () => {
+    const state = {
+      campaign_web_search_insights__retry_exhausted: true,
+      creative_brief: { single_minded_proposition: "One idea." },
+    };
+    const stages = deriveStages("creative_agent", state, null, "running");
+    expect(view(stages).slice(0, 3)).toEqual([
+      "Research:degraded",
+      "Brief:done",
+      "Research report:active",
+    ]);
+  });
+
+  it("marks research degraded on a completed run that never wrote the report", () => {
+    const state = { gs_web_search_insights__retry_exhausted: true };
+    const stages = deriveStages("creative_agent", state, null, "completed");
     expect(stages[0].state).toBe("degraded");
-    expect(stages[1].state).toBe("active");
+  });
+
+  it("does not degrade a stage whose own output exists despite its marker", () => {
+    const state = { ...CREATIVE_DONE, creative_brief__retry_exhausted: true };
+    const stages = deriveStages("creative_agent", state, null, "completed");
+    expect(stages.every((s) => s.state === "done")).toBe(true);
+  });
+
+  it("ignores markers cleared to null by a later successful retry", () => {
+    const state = {
+      combined_final_cited_report: "r",
+      creative_brief: { single_minded_proposition: "One idea." },
+      gs_web_search_insights__retry_exhausted: null,
+      creative_brief__retry_exhausted: null,
+    };
+    const stages = deriveStages("creative_agent", state, null, "running");
+    expect(view(stages).slice(0, 3)).toEqual([
+      "Research:done",
+      "Brief:done",
+      "Research report:active",
+    ]);
   });
 
   it("marks the brief done once written, with the report PDF next", () => {
