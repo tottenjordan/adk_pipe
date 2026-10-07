@@ -153,6 +153,7 @@ class TestCreativeAgentToolsPropagate:
             asyncio.run(image_tools.generate_image(ctx))
         assert calls["n"] == 1
 
+    @pytest.mark.usefixtures("image_qa_off")  # counts image-model calls only
     def test_generate_image_retries_then_succeeds(self, monkeypatch):
         """Two transient 503s then a good response → the image is saved (no failure)."""
         import asyncio

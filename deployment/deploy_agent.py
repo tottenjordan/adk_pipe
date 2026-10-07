@@ -57,6 +57,13 @@ ENV_VAR_DICT = {
     "COPY_REVISION_ROUNDS": os.getenv("COPY_REVISION_ROUNDS", "1"),
     # creative_agent concept_gate fix budget (0..2, default 1; same contract).
     "CONCEPT_REVISION_ROUNDS": os.getenv("CONCEPT_REVISION_ROUNDS", "1"),
+    # creative_agent post-render image QA (agent_common/config.py): kill switch
+    # (default on), per-image re-render budget (0..2, default 1), per-run
+    # re-render cap (0..8, default 2) and the vision model.
+    "IMAGE_QA_ENABLED": os.getenv("IMAGE_QA_ENABLED", "true"),
+    "IMAGE_QA_MAX_RERENDERS": os.getenv("IMAGE_QA_MAX_RERENDERS", "1"),
+    "IMAGE_QA_MAX_RERENDERS_PER_RUN": os.getenv("IMAGE_QA_MAX_RERENDERS_PER_RUN", "2"),
+    "IMAGE_QA_MODEL": os.getenv("IMAGE_QA_MODEL") or "gemini-3.8-flash",
 }
 
 

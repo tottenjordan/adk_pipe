@@ -69,6 +69,31 @@ def _build_research_warning_banner(warnings: list[str]) -> str:
     """
 
 
+def _build_image_check_line(record: dict | None) -> str:
+    """The gallery's per-image "Image check" line, or "" with no QA verdict.
+
+    Pure. ``record`` is ``generated_images[concept]`` (written by
+    ``generate_image``); ``qa`` is None when image QA was disabled or
+    unavailable, which renders nothing. Issues are model text → escaped.
+    """
+    qa = (record or {}).get("qa")
+    if not isinstance(qa, dict):
+        return ""
+    if qa.get("passed"):
+        text = "Image check: passed"
+    else:
+        failures = "; ".join(str(f) for f in qa.get("failures") or [])
+        text = (
+            f"Image check: issues — {failures}" if failures else "Image check: issues"
+        )
+    rerenders = int((record or {}).get("attempts") or 1) - 1
+    if rerenders == 1:
+        text += " (re-rendered once)"
+    elif rerenders > 1:
+        text += f" (re-rendered {rerenders} times)"
+    return f'<p class="image-check">{html.escape(text, quote=False)}</p>'
+
+
 def _esc(value: object) -> str:
     """HTML-escape model/user text for a text node (quotes left as-is)."""
     return html.escape(str(value), quote=False)
@@ -113,6 +138,7 @@ async def save_creative_gallery_html(tool_context: ToolContext) -> dict:
     )
     # Small proposition + trend-fit card from the structured brief ("" if none).
     brief_summary = render_brief_summary_html(tool_context.state.get("creative_brief"))
+    generated_images = tool_context.state.get("generated_images") or {}
 
     try:
         # =========================== #
@@ -179,6 +205,7 @@ async def save_creative_gallery_html(tool_context: ToolContext) -> dict:
                         </div>
                     </div>
                     <p class="caption">{_esc(entry["social_caption"])}</p>
+                    {_build_image_check_line(generated_images.get(entry["concept_name"]))}
                 </div>
             """
             CONNECTED_GALLERY_STRING += GALLERY_IMAGE_BLOCK

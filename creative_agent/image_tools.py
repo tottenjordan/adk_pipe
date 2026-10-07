@@ -2,6 +2,17 @@
 
 Split out of ``tools.py``; the genai client is now created lazily so importing
 this module has no side effects.
+
+Post-render image QA (``image_qa``, on unless ``IMAGE_QA_ENABLED=false``): each
+render gets one vision check; a failing image is re-rendered at most
+``IMAGE_QA_MAX_RERENDERS`` times (and at most ``IMAGE_QA_MAX_RERENDERS_PER_RUN``
+across the whole call) with a quote-free correction appended to the prompt,
+the better attempt is kept (critical failures — unsafe, third-party logo —
+weigh first), and only that one is uploaded. Per-concept results land in
+``state["generated_images"]``; unresolved failures in
+``state["image_qa__issues"]``; concepts whose check errored (fail-open) in
+``state["image_qa__unavailable"]`` (not a quality issue, so not surfaced as a
+degradation warning).
 """
 
 import asyncio
@@ -11,6 +22,7 @@ import logging
 import random
 import socket
 import urllib.request
+from dataclasses import dataclass
 from urllib.parse import urlparse
 
 import httpx
@@ -22,6 +34,7 @@ from google.genai import types
 from agent_common import genai_retry
 from agent_common.locations import MODEL_LOCATION
 
+from . import image_qa
 from .config import config
 from .gcs_tools import _download_blob, _save_to_gcs, artifact_key_for
 from .references import (
@@ -227,7 +240,11 @@ async def _generate_image_with_backoff(**kwargs):
     """
     for attempt in range(_IMAGE_GEN_MAX_ATTEMPTS):
         try:
-            return _get_genai_client().models.generate_content(**kwargs)
+            # The sync genai call blocks for the whole render; run it off the
+            # event loop so concurrent sessions keep progressing.
+            return await asyncio.to_thread(
+                _get_genai_client().models.generate_content, **kwargs
+            )
         except Exception as exc:
             if (
                 not _is_retryable_genai_error(exc)
@@ -359,6 +376,195 @@ def _final_image_part(parts):
     return images[-1] if images else None
 
 
+async def _render_image(contents, aspect_ratio: str) -> tuple[bytes, str] | None:
+    """Render one image → ``(bytes, mime)`` of the final image part, or None.
+
+    Goes through ``_generate_image_with_backoff`` (quota-paced). A response
+    with no image part is logged and yields None (that concept is skipped).
+    """
+    response = await _generate_image_with_backoff(
+        model=config.image_gen_model,
+        contents=contents,
+        config=types.GenerateContentConfig(
+            response_modalities=["IMAGE"],
+            image_config=types.ImageConfig(
+                aspect_ratio=aspect_ratio,
+                image_size=config.image_size,
+            ),
+        ),
+    )
+    # Gemini image models return the image as inline data on a content part,
+    # unlike Imagen's generate_images (which returns response.generated_images).
+    candidates = response.candidates or []
+    if candidates and candidates[0].content and candidates[0].content.parts:
+        part = _final_image_part(candidates[0].content.parts)
+        if part is not None:
+            return part.inline_data.data, part.inline_data.mime_type or "image/png"
+    logging.error(f"Error with image generation response: {str(response)}")
+    return None
+
+
+async def _store_image(
+    tool_context: ToolContext, image_bytes: bytes, mime_type: str, artifact_key: str
+) -> str | None:
+    """Upload to GCS + save the ADK artifact → the gs:// URI, or None.
+
+    A per-image GCS failure is logged and returns None so one bad upload
+    doesn't abort the whole batch (_save_to_gcs raises on failure — it never
+    returns an error dict). The blocking upload runs off the event loop.
+    """
+    try:
+        img_gcs_uri = await asyncio.to_thread(
+            _save_to_gcs,
+            tool_context=tool_context,
+            image_bytes=image_bytes,
+            filename=artifact_key,
+        )
+    except Exception as gcs_exc:
+        logging.error(
+            f"GCS upload failed for '{artifact_key}', skipping image: {gcs_exc}"
+        )
+        return None
+    await tool_context.save_artifact(
+        filename=artifact_key,
+        artifact=types.Part.from_bytes(data=image_bytes, mime_type=mime_type),
+    )
+    logging.info(f"Saved image artifact, '{artifact_key}', to '{img_gcs_uri}'")
+    return img_gcs_uri
+
+
+async def _inspect(
+    rendered: tuple[bytes, str],
+    entry: dict,
+    brand: str,
+    product: str,
+    has_logo_reference: bool = False,
+) -> image_qa.ImageQAResult | None:
+    """One QA call off the event loop → the verdict, or None (fail-open)."""
+    image_bytes, mime = rendered
+    try:
+        return await asyncio.to_thread(
+            image_qa.inspect_image,
+            image_bytes,
+            mime,
+            entry,
+            brand=brand,
+            target_product=product,
+            client=image_qa._get_qa_client(),
+            model=config.image_qa_model,
+            has_logo_reference=has_logo_reference,
+        )
+    except Exception as exc:
+        logging.warning(
+            f"Image QA unavailable for '{entry.get('concept_name')}': {exc}"
+        )
+        return None
+
+
+def _qa_record(result: image_qa.ImageQAResult, entry: dict, product: str) -> dict:
+    """The stored verdict: the model's fields + the rule's passed/failures."""
+    failures = image_qa.qa_failures(result, entry, target_product=product)
+    return {**result.model_dump(), "passed": not failures, "failures": failures}
+
+
+def _severity(rules: list[str]) -> tuple[int, int]:
+    """(critical failures, total failures) — compared lexicographically."""
+    return sum(r in image_qa.CRITICAL_RULES for r in rules), len(rules)
+
+
+def _keep_retry(kept_rules: list[str], retry_rules: list[str]) -> bool:
+    """Whether the re-render replaces the kept attempt — pure.
+
+    Never keeps a retry that introduces unsafe content; otherwise the lower
+    (critical, total) failure count wins and ties go to the latest attempt.
+    """
+    unsafe = "unsafe content"
+    if unsafe in retry_rules and unsafe not in kept_rules:
+        return False
+    return _severity(retry_rules) <= _severity(kept_rules)
+
+
+@dataclass
+class _RerenderBudget:
+    """QA re-renders left for the whole generate_image call (shared)."""
+
+    remaining: int
+
+
+BUDGET_REACHED = "re-render budget reached"
+
+
+async def _inspect_and_rerender(
+    entry: dict,
+    rendered: tuple[bytes, str],
+    prompt_text: str,
+    aspect_ratio: str,
+    contents_for,
+    brand: str,
+    product: str,
+    budget: _RerenderBudget,
+    has_logo_reference: bool = False,
+) -> tuple[tuple[bytes, str], int, dict | None, str | None]:
+    """Inspect a render; re-render (bounded) while it fails; keep the best.
+
+    Returns ``(kept_image, attempts, qa_record, issue)``. Each re-render
+    appends ``image_qa.correction_text`` (quote-free, "no new text") to the
+    prompt (same references / aspect ratio) and is inspected again;
+    ``_keep_retry`` decides which attempt is kept. Re-renders are bounded per
+    image (``config.image_qa_max_rerenders``) and per run (``budget``, spent
+    here). ``issue`` is the ``image_qa__issues`` entry: "<concept>:
+    <failures>" when the kept image still fails (suffixed "(re-render budget
+    reached)" when the run cap stopped a re-render), else None. ``qa_record``
+    is None when the first check errored (fail-open; the render is kept and
+    the caller records the concept as unavailable). A re-render or re-check
+    that errors stops the loop and keeps the best inspected image so far.
+    """
+    name = entry.get("concept_name", "")
+    result = await _inspect(rendered, entry, brand, product, has_logo_reference)
+    if result is None:
+        return rendered, 1, None, None
+    attempts = 1
+    kept, kept_result = rendered, result
+    kept_rules = image_qa.qa_failed_rules(result, entry, target_product=product)
+    budget_reached = False
+    for _ in range(config.image_qa_max_rerenders):
+        if not kept_rules:
+            break
+        if budget.remaining <= 0:
+            budget_reached = True
+            break
+        budget.remaining -= 1
+        logging.warning(f"Image QA failed for '{name}' ({kept_rules}); re-rendering")
+        attempts += 1
+        correction = image_qa.correction_text(
+            kept_result, entry, target_product=product
+        )
+        try:
+            retry = await _render_image(
+                contents_for(prompt_text + "\n\n" + correction), aspect_ratio
+            )
+        except Exception as exc:
+            logging.warning(f"Re-render failed for '{name}'; keeping previous: {exc}")
+            break
+        if retry is None:
+            break
+        retry_result = await _inspect(retry, entry, brand, product, has_logo_reference)
+        if retry_result is None:
+            break
+        retry_rules = image_qa.qa_failed_rules(
+            retry_result, entry, target_product=product
+        )
+        if _keep_retry(kept_rules, retry_rules):
+            kept, kept_result, kept_rules = retry, retry_result, retry_rules
+    record = _qa_record(kept_result, entry, product)
+    issue = None
+    if record["failures"]:
+        issue = f"{name}: {'; '.join(record['failures'])}"
+        if budget_reached:
+            issue += f" ({BUDGET_REACHED})"
+    return kept, attempts, record, issue
+
+
 async def generate_image(
     tool_context: ToolContext,
 ):
@@ -407,7 +613,23 @@ async def generate_image(
     elif aspect_ratio_override:
         logging.info(f"Applying user aspect-ratio override: {aspect_ratio_override}")
 
+    def contents_for(prompt_text: str):
+        """The render contents: the prompt (+ reference block and Parts)."""
+        if reference_parts:
+            return [
+                _reference_prompt(prompt_text, reference_roles, missing_roles),
+                *reference_parts,
+            ]
+        return prompt_text
+
+    brand = tool_context.state.get("brand") or ""
+    product = tool_context.state.get("target_product") or ""
     artifact_keys_list = []
+    generated_images: dict[str, dict] = {}
+    qa_issues: list[str] = []
+    qa_unavailable: list[str] = []
+    budget = _RerenderBudget(config.image_qa_max_rerenders_per_run)
+    has_logo_reference = "logo" in reference_roles
     for entry in final_visual_concepts_list:
         try:
             # Per-concept aspect ratio, unless a valid state override pins all
@@ -421,71 +643,41 @@ async def generate_image(
             )
 
             prompt_text = entry["image_generation_prompt"]
-            if reference_parts:
-                contents = [
-                    _reference_prompt(prompt_text, reference_roles, missing_roles),
-                    *reference_parts,
-                ]
-            else:
-                contents = prompt_text
-            response = await _generate_image_with_backoff(
-                model=config.image_gen_model,
-                contents=contents,
-                config=types.GenerateContentConfig(
-                    response_modalities=["IMAGE"],
-                    image_config=types.ImageConfig(
-                        aspect_ratio=aspect_ratio,
-                        image_size=config.image_size,
-                    ),
-                ),
-            )
+            rendered = await _render_image(contents_for(prompt_text), aspect_ratio)
+            attempts = 1
+            qa_record = None
+            if rendered is not None and config.image_qa_enabled:
+                rendered, attempts, qa_record, qa_issue = await _inspect_and_rerender(
+                    entry,
+                    rendered,
+                    prompt_text,
+                    aspect_ratio,
+                    contents_for,
+                    brand,
+                    product,
+                    budget,
+                    has_logo_reference,
+                )
+                if qa_record is None:
+                    qa_unavailable.append(entry["concept_name"])
+                if qa_issue:
+                    qa_issues.append(qa_issue)
 
-            # Gemini image models return the image as inline data on a content part,
-            # unlike Imagen's generate_images (which returns response.generated_images).
-            image_bytes = None
-            image_mime_type = "image/png"
-            candidates = response.candidates or []
-            if candidates and candidates[0].content and candidates[0].content.parts:
-                part = _final_image_part(candidates[0].content.parts)
-                if part is not None:
-                    image_bytes = part.inline_data.data
-                    image_mime_type = part.inline_data.mime_type or image_mime_type
-
-            if image_bytes is not None:
-                # define artifact key
+            if rendered is not None:
+                image_bytes, image_mime_type = rendered
                 artifact_key = artifact_key_for(entry["concept_name"])
-
-                # save img to Cloud Storage (blocking upload — off the event loop).
-                # A per-image save failure is logged and skipped so one bad upload
-                # doesn't abort the whole batch (_save_to_gcs raises on failure —
-                # it never returns an error dict).
-                try:
-                    img_gcs_uri = await asyncio.to_thread(
-                        _save_to_gcs,
-                        tool_context=tool_context,
-                        image_bytes=image_bytes,
-                        filename=artifact_key,
-                    )
-                except Exception as gcs_exc:
-                    logging.error(
-                        f"GCS upload failed for '{artifact_key}', skipping image: {gcs_exc}"
-                    )
+                img_gcs_uri = await _store_image(
+                    tool_context, image_bytes, image_mime_type, artifact_key
+                )
+                if img_gcs_uri is None:
                     continue
-
-                # save ADK artifact
-                img_artifact = types.Part.from_bytes(
-                    data=image_bytes, mime_type=image_mime_type
-                )
-                await tool_context.save_artifact(
-                    filename=artifact_key, artifact=img_artifact
-                )
-                logging.info(
-                    f"Saved image artifact, '{artifact_key}', to '{img_gcs_uri}'"
-                )
                 artifact_keys_list.append(artifact_key)
-
-            else:
-                logging.error(f"Error with image generation response: {str(response)}")
+                generated_images[entry["concept_name"]] = {
+                    "gcs_uri": img_gcs_uri,
+                    "artifact_key": artifact_key,
+                    "attempts": attempts,
+                    "qa": qa_record,
+                }
 
         except Exception as e:
             # Propagate so ADK 2.0 RetryConfig can retry transient infra failures.
@@ -495,6 +687,14 @@ async def generate_image(
     # Mark as done so subsequent calls are idempotent
     tool_context.state["_images_generated"] = True
     tool_context.state["_generated_artifact_keys"] = artifact_keys_list
+    tool_context.state["generated_images"] = generated_images
+    if qa_issues:
+        # Generic `<key>__issues` marker → collect_degradation_warnings.
+        tool_context.state["image_qa__issues"] = qa_issues
+    if qa_unavailable:
+        # Deliberately NOT a `__issues` key: a failed check is not a quality
+        # issue, so collect_degradation_warnings does not surface it.
+        tool_context.state["image_qa__unavailable"] = qa_unavailable
 
     return {
         "status": "success",

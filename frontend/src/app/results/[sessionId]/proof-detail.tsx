@@ -12,7 +12,7 @@ import {
 import { FieldLabel } from "@/components/field-label";
 import { cn } from "@/lib/utils";
 import { dimensionLabel } from "@/lib/eval-dimensions";
-import type { CreativeScore, Proof } from "@/lib/eval-matching";
+import type { CreativeScore, ImageCheck, Proof } from "@/lib/eval-matching";
 import { ProofImage } from "./proof-grid";
 import { CONDENSED, ScoreMark } from "./score-mark";
 
@@ -123,6 +123,46 @@ function ScoreSection({
           <ShortList title="Strengths" items={score.strengths} />
           <ShortList title="Improvements" items={score.improvements} />
         </div>
+      )}
+    </section>
+  );
+}
+
+/**
+ * The post-render image check: a pass/fail mark (word spelled out, not colour
+ * alone), the issues still open on the kept image, and a re-render note.
+ * Absent check (QA off or unavailable) → nothing.
+ */
+export function ImageCheckSection({ check }: { check?: ImageCheck }) {
+  if (!check) return null;
+  const rerendered =
+    check.rerenders === 1
+      ? "Re-rendered once."
+      : check.rerenders > 1
+        ? `Re-rendered ${check.rerenders} times.`
+        : null;
+  return (
+    <section className="border-t border-border pt-4">
+      <div className="flex items-baseline gap-2">
+        <FieldLabel as="h4">Image check</FieldLabel>
+        <span
+          className={cn(
+            "text-xs font-medium",
+            check.passed ? "text-mark-pass" : "text-mark-fail"
+          )}
+        >
+          {check.passed ? "passed" : "issues"}
+        </span>
+      </div>
+      {!check.passed && check.issues.length > 0 && (
+        <ul className="mt-1.5 list-disc space-y-0.5 pl-4 text-xs leading-snug text-foreground/85">
+          {check.issues.map((issue, i) => (
+            <li key={i}>{issue}</li>
+          ))}
+        </ul>
+      )}
+      {rerendered && (
+        <p className="mt-1.5 text-xs text-muted-foreground">{rerendered}</p>
       )}
     </section>
   );
@@ -263,6 +303,7 @@ export function ProofDetail({
                   ]}
                 />
               )}
+              <ImageCheckSection check={proof.imageCheck} />
               {!proof.adCopyEval && !proof.visualEval && (
                 <p className="border-t border-border pt-4 text-xs text-muted-foreground">
                   No evaluation data for this creative.

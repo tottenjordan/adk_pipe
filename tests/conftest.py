@@ -36,6 +36,16 @@ def gcp_project_env(monkeypatch):
     monkeypatch.delenv("GOOGLE_CLOUD_PROJECT_NUMBER", raising=False)
 
 
+@pytest.fixture
+def image_qa_off(monkeypatch):
+    """Disable post-render image QA (on by default) for tests that drive
+    ``generate_image`` with a fake image client and count its calls; the QA
+    flow itself is covered in ``tests/test_image_qa.py``."""
+    from creative_agent.config import config
+
+    monkeypatch.setattr(config, "image_qa_enabled", False)
+
+
 # Importing `<pkg>.config` also runs `<pkg>/__init__.py`, which imports the agent
 # module (binding its own INFRA_RETRY). So a fresh config import has side effects
 # across the whole package; we snapshot and fully restore this module subset to

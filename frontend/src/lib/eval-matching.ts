@@ -152,6 +152,40 @@ export function findAdCopyForVisual(
   return matchByIdHeadlineIndex(adCopies, vc, vcIndex);
 }
 
+/**
+ * The post-render image check for one concept, from session state
+ * `generated_images[concept_name]` (written by `generate_image`): `qa` is the
+ * vision model's verdict plus the backend rule's `passed`/`failures`;
+ * `attempts` counts renders (2 = re-rendered once). `qa` is null when image QA
+ * was disabled or unavailable — no check to show.
+ */
+export interface ImageCheck {
+  passed: boolean;
+  /** Short issues for a failed check (empty when passed). */
+  issues: string[];
+  /** Re-renders after the first attempt (0 when the first render was kept). */
+  rerenders: number;
+}
+
+/** Parse `generated_images[conceptName]` into an ImageCheck, or undefined. */
+export function imageCheckFor(
+  generatedImages: unknown,
+  conceptName: string
+): ImageCheck | undefined {
+  if (!generatedImages || typeof generatedImages !== "object") return undefined;
+  const record = (generatedImages as Record<string, unknown>)[conceptName];
+  if (!record || typeof record !== "object") return undefined;
+  const { qa, attempts } = record as { qa?: unknown; attempts?: unknown };
+  if (!qa || typeof qa !== "object") return undefined;
+  const { passed, failures } = qa as { passed?: unknown; failures?: unknown };
+  if (typeof passed !== "boolean") return undefined;
+  const issues = Array.isArray(failures)
+    ? failures.filter((f): f is string => typeof f === "string" && f.trim() !== "")
+    : [];
+  const renders = typeof attempts === "number" && Number.isFinite(attempts) ? attempts : 1;
+  return { passed, issues: passed ? [] : issues, rerenders: Math.max(0, Math.floor(renders) - 1) };
+}
+
 /** One creative on the contact sheet: concept + its ad copy + both evals. */
 export interface Proof {
   /** Pipeline position (index into final_visual_concepts). */
@@ -160,12 +194,15 @@ export interface Proof {
   adCopy?: AdCopy;
   adCopyEval?: AdCopyEvaluation;
   visualEval?: VisualConceptEvaluation;
+  /** Post-render image check (absent when QA was off/unavailable). */
+  imageCheck?: ImageCheck;
 }
 
 export function buildProofs(
   concepts: VisualConcept[],
   adCopies: AdCopy[],
-  report: EvalReport | null | undefined
+  report: EvalReport | null | undefined,
+  generatedImages?: unknown
 ): Proof[] {
   return concepts.map((concept, index) => ({
     index,
@@ -173,6 +210,7 @@ export function buildProofs(
     adCopy: findAdCopyForVisual(adCopies, concept, index),
     adCopyEval: findAdCopyEvalForVisual(report, concept, index),
     visualEval: findVisualEval(report, concept.concept_name),
+    imageCheck: imageCheckFor(generatedImages, concept.concept_name),
   }));
 }
 

@@ -26,6 +26,37 @@ ENV_FILE_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".
 load_dotenv(dotenv_path=ENV_FILE_PATH)
 
 
+DEFAULT_IMAGE_QA_MAX_RERENDERS = 1
+MAX_IMAGE_QA_MAX_RERENDERS = 2
+DEFAULT_IMAGE_QA_MAX_RERENDERS_PER_RUN = 2
+MAX_IMAGE_QA_MAX_RERENDERS_PER_RUN = 8
+
+_FALSE_FLAGS = frozenset({"0", "false", "no", "off"})
+
+
+def parse_image_qa_enabled(raw: str | None) -> bool:
+    """``IMAGE_QA_ENABLED`` → bool; ON unless explicitly 0/false/no/off."""
+    return (raw or "").strip().lower() not in _FALSE_FLAGS
+
+
+def parse_image_qa_max_rerenders(raw: str | None) -> int:
+    """``IMAGE_QA_MAX_RERENDERS`` → int clamped to 0..2; unset/blank/invalid → 1."""
+    try:
+        value = int((raw or "").strip())
+    except ValueError:
+        return DEFAULT_IMAGE_QA_MAX_RERENDERS
+    return max(0, min(MAX_IMAGE_QA_MAX_RERENDERS, value))
+
+
+def parse_image_qa_max_rerenders_per_run(raw: str | None) -> int:
+    """``IMAGE_QA_MAX_RERENDERS_PER_RUN`` → int clamped to 0..8; unset/blank/invalid → 2."""
+    try:
+        value = int((raw or "").strip())
+    except ValueError:
+        return DEFAULT_IMAGE_QA_MAX_RERENDERS_PER_RUN
+    return max(0, min(MAX_IMAGE_QA_MAX_RERENDERS_PER_RUN, value))
+
+
 @dataclass
 class BaseAgentConfiguration:
     """Shared model + GCP configuration for the agents.
@@ -38,6 +69,15 @@ class BaseAgentConfiguration:
             producers on 429/5xx, from CRITIC_FALLBACK_MODEL; empty disables.
         lite_planner_model (str): Lightweight planner model.
         image_gen_model (str): Model for generating images.
+        image_qa_enabled (bool): inspect each rendered image (IMAGE_QA_ENABLED,
+            default on; 0/false/no/off disables).
+        image_qa_max_rerenders (int): targeted re-renders per image after a
+            failed check (IMAGE_QA_MAX_RERENDERS, default 1, clamped 0..2).
+        image_qa_max_rerenders_per_run (int): QA re-renders across ALL images
+            of one generate_image call (IMAGE_QA_MAX_RERENDERS_PER_RUN, default
+            2, clamped 0..8) — each re-render spends the ~2 RPM image quota.
+        image_qa_model (str): vision model for the image check (IMAGE_QA_MODEL,
+            default the worker model).
         rate_limit_seconds (int): window for the LLM API rate limiter.
         rpm_quota (int): requests-per-minute threshold for the rate limiter.
         GCS_BUCKET (str | None): `gs://` bucket URI used to save artifacts,
@@ -67,6 +107,27 @@ class BaseAgentConfiguration:
     # test_critic_fallback_defaults_to_worker_bucket).
     critic_fallback_model: str = field(
         default_factory=lambda: os.getenv("CRITIC_FALLBACK_MODEL", "gemini-3.8-flash")
+    )
+
+    # Post-render image QA (creative_agent/image_qa.py): one vision call per
+    # rendered image and at most image_qa_max_rerenders targeted re-renders.
+    # default_factory: read per instance, so tests can monkeypatch the env.
+    # The model literal mirrors worker_model.
+    image_qa_enabled: bool = field(
+        default_factory=lambda: parse_image_qa_enabled(os.getenv("IMAGE_QA_ENABLED"))
+    )
+    image_qa_max_rerenders: int = field(
+        default_factory=lambda: parse_image_qa_max_rerenders(
+            os.getenv("IMAGE_QA_MAX_RERENDERS")
+        )
+    )
+    image_qa_max_rerenders_per_run: int = field(
+        default_factory=lambda: parse_image_qa_max_rerenders_per_run(
+            os.getenv("IMAGE_QA_MAX_RERENDERS_PER_RUN")
+        )
+    )
+    image_qa_model: str = field(
+        default_factory=lambda: os.getenv("IMAGE_QA_MODEL") or "gemini-3.8-flash"
     )
 
     # Image generation ImageConfig knobs (env-overridable). The default 9:16 is

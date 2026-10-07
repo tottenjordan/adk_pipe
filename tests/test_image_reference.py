@@ -13,6 +13,9 @@ import pytest
 from creative_agent import image_tools
 from tests._fakes import FakeToolContext, noop_async
 
+# Image QA is covered in test_image_qa.py; these count image-model calls.
+pytestmark = pytest.mark.usefixtures("image_qa_off")
+
 _STATE = {"gcs_folder": "f", "agent_output_dir": "d"}
 
 
@@ -841,3 +844,58 @@ class TestFetchReferenceHardening:
         part = image_tools._fetch_reference_image("gs://b/ok.jpg")
         assert part is not None
         assert part.inline_data.mime_type == "image/jpeg"
+
+
+# --- Per-concept output record (state["generated_images"]) ---
+def test_generated_images_records_each_concept(monkeypatch):
+    """generate_image writes one record per rendered concept (gcs_uri,
+    artifact_key, attempts, qa) and keeps _generated_artifact_keys."""
+    _patch_client(monkeypatch)
+    uris = iter(["gs://b/f/d/c1.png", "gs://b/f/d/c2.png"])
+    monkeypatch.setattr(image_tools, "_save_to_gcs", lambda *a, **k: next(uris))
+    ctx = _ctx()
+    ctx.state["final_visual_concepts"] = {
+        "visual_concepts": [
+            {"image_generation_prompt": "p1", "concept_name": "c1"},
+            {"image_generation_prompt": "p2", "concept_name": "c2"},
+        ]
+    }
+
+    asyncio.run(image_tools.generate_image(ctx))
+
+    key1 = image_tools.artifact_key_for("c1")
+    key2 = image_tools.artifact_key_for("c2")
+    assert ctx.state["_generated_artifact_keys"] == [key1, key2]
+    assert ctx.state["generated_images"] == {
+        "c1": {
+            "gcs_uri": "gs://b/f/d/c1.png",
+            "artifact_key": key1,
+            "attempts": 1,
+            "qa": None,
+        },
+        "c2": {
+            "gcs_uri": "gs://b/f/d/c2.png",
+            "artifact_key": key2,
+            "attempts": 1,
+            "qa": None,
+        },
+    }
+
+
+def test_generated_images_skips_failed_upload(monkeypatch):
+    """A concept whose GCS upload fails gets no record (and no artifact key)."""
+    _patch_client(monkeypatch)
+
+    def boom(*a, **k):
+        raise RuntimeError("gcs down")
+
+    monkeypatch.setattr(image_tools, "_save_to_gcs", boom)
+    ctx = _ctx()
+    ctx.state["final_visual_concepts"] = {
+        "visual_concepts": [{"image_generation_prompt": "p1", "concept_name": "c1"}]
+    }
+
+    asyncio.run(image_tools.generate_image(ctx))
+
+    assert ctx.state["generated_images"] == {}
+    assert ctx.state["_generated_artifact_keys"] == []

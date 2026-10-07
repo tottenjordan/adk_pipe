@@ -136,7 +136,12 @@ export default function ResultsPage({
   const proofs = useMemo(() => {
     const vcRaw = state.final_visual_concepts as { visual_concepts?: VisualConcept[] } | undefined;
     const acRaw = state.ad_copy_critique as { ad_copies?: AdCopy[] } | undefined;
-    return buildProofs(vcRaw?.visual_concepts || [], acRaw?.ad_copies || [], evalReport);
+    return buildProofs(
+      vcRaw?.visual_concepts || [],
+      acRaw?.ad_copies || [],
+      evalReport,
+      state.generated_images
+    );
   }, [state, evalReport]);
   const sortedProofs = useMemo(() => sortProofs(proofs, sort), [proofs, sort]);
   const stopped = useMemo(
