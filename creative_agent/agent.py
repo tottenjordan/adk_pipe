@@ -11,7 +11,7 @@ from google.adk.events.event import Event
 from google.adk.events.event_actions import EventActions
 from google.adk.planners import BuiltInPlanner
 from google.adk.tools import google_search
-from google.adk.workflow import JoinNode, Workflow
+from google.adk.workflow import FunctionNode, JoinNode, Workflow
 from google.genai import types
 
 from agent_common import (
@@ -22,6 +22,7 @@ from agent_common import (
     build_gemini,
     build_gemini_with_fallback,
     build_safety_plugins,
+    drop_other_agent_context,
     is_populated,
 )
 
@@ -1257,6 +1258,53 @@ finalize_pipeline = Workflow(
 )
 
 
+# --- SINGLE-CALL CREATIVE PIPELINE --- #
+# The root's only workflow call: every stage chained as a nested Workflow, so
+# the run no longer depends on the Pro root making four consecutive tool
+# decisions. It ended Agent Engine runs with empty turns between them (seen
+# 2026-10-07 after visual_production_pipeline: finalize never ran, so no eval
+# report, gallery or eval BQ row), and Agent Engine has no runserver
+# auto-continue to recover. interactive_creative still calls the stages
+# separately, around its review checkpoints.
+
+
+def _no_output() -> None:
+    """Drop the previous stage's confirmation string (see _stage_barrier)."""
+    return None
+
+
+def _stage_barrier(stage: Workflow) -> FunctionNode:
+    """A no-output pass-through in front of a nested stage (render_barrier pattern).
+
+    Every stage validates its input against PipelineRequest (each is also a
+    root tool), so the previous stage's truthy confirmation string must not
+    reach it; the stages read their inputs from state anyway.
+    """
+    return FunctionNode(
+        func=_no_output, name=f"{stage.name.removesuffix('_pipeline')}_barrier"
+    )
+
+
+creative_pipeline = Workflow(
+    name="creative_pipeline",
+    description="Runs the complete creative workflow: research and a creative brief (research PDF saved), ad copies, visual concepts with rendered images, then evaluation and export of the report, HTML gallery and BigQuery rows. Returns the evaluation summary.",
+    input_schema=PipelineRequest,
+    edges=[
+        (
+            "START",
+            combined_research_pipeline,
+            _stage_barrier(ad_creative_pipeline),
+            ad_creative_pipeline,
+            _stage_barrier(visual_production_pipeline),
+            visual_production_pipeline,
+            _stage_barrier(finalize_pipeline),
+            # Terminal: finalize_ready's always-truthy summary.
+            finalize_pipeline,
+        )
+    ],
+)
+
+
 # --- MAIN ORCHESTRATOR AGENT ---
 root_agent = Agent(
     model=build_gemini_with_fallback(
@@ -1268,13 +1316,7 @@ root_agent = Agent(
     retry_config=INFRA_RETRY,
     description="Help with ad generation; brainstorm and refine ad copy and visual concept ideas with actor-critic workflows; generate final ad creatives.",
     instruction=prompts.ROOT_AGENT_INSTR,
-    tools=[
-        combined_research_pipeline,
-        ad_creative_pipeline,
-        visual_production_pipeline,
-        finalize_pipeline,
-        tools.memorize,
-    ],
+    tools=[creative_pipeline, tools.memorize],
     generate_content_config=types.GenerateContentConfig(
         temperature=1.0,
         labels={
@@ -1284,7 +1326,9 @@ root_agent = Agent(
         },
     ),
     before_agent_callback=callbacks.load_session_state,
-    before_model_callback=callbacks.rate_limit_callback,
+    # Drop the pipelines' replayed sub-agent turns + node inputs first (they
+    # bloated the root's prompt; see agent_common/history.py), then rate-limit.
+    before_model_callback=[drop_other_agent_context, callbacks.rate_limit_callback],
     after_model_callback=callbacks.log_empty_turn_finish_reason,
     after_agent_callback=callbacks.log_final_state_summary,
 )

@@ -33,7 +33,8 @@ from google.adk.models.llm_request import LlmRequest
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 
-from agent_common import stable_row_id
+from agent_common import drop_other_agent_context, stable_row_id
+from agent_common.history import is_other_agent_context
 from creative_agent.schemas import FinalAdCopyList
 from runserver.async_runs import RUN_STATUS_KEY, start_resume, start_run
 from tests._fake_bq import FakeBigQueryClient
@@ -106,7 +107,10 @@ def _patch_root(monkeypatch: pytest.MonkeyPatch) -> _RecordingLlm:
     # The GCS/config-templated instruction + state loader are out of scope.
     monkeypatch.setattr(ic.root_agent, "instruction", "orchestrate")
     monkeypatch.setattr(ic.root_agent, "before_agent_callback", None)
-    monkeypatch.setattr(ic.root_agent, "before_model_callback", None)
+    # Keep the history trim (agent_common.history), drop only the rate limiter.
+    monkeypatch.setattr(
+        ic.root_agent, "before_model_callback", [drop_other_agent_context]
+    )
     return root_llm
 
 
@@ -271,6 +275,37 @@ def _run_paused_then_resumed(
             for _, job_config in bq.queries
         ],
     }
+
+
+def test_resumed_root_sees_the_checkpoint_response_but_no_sub_agent_turns(
+    monkeypatch,
+):
+    """The history trim keeps the checkpoint's (user-authored) function
+    response and the root's own call/response pairs, and drops the research
+    pipeline's replayed sub-agent turns and node inputs."""
+    r = _run_paused_then_resumed(monkeypatch)
+    resumed = r["root_llm"].requests[r["mid"]["root_calls"]]
+
+    responses = [
+        p.function_response.name
+        for c in resumed.contents
+        for p in c.parts or []
+        if p.function_response
+    ]
+    assert responses == [
+        "combined_research_pipeline",
+        "write_trends_to_bq",
+        "review_research",
+    ]
+    assert not [c for c in resumed.contents if is_other_agent_context(c)]
+    user_texts = [
+        p.text
+        for c in resumed.contents
+        if c.role == "user"
+        for p in c.parts or []
+        if p.text
+    ]
+    assert user_texts == ["go"]
 
 
 def test_real_app_pauses_at_checkpoint_1_then_resumes_into_next_pipeline(

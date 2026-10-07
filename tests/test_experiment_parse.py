@@ -67,6 +67,12 @@ class TestPhaseOf:
         assert phase_of("persist_node") == "persistence"
         assert phase_of("save_research_pdf_node") == "persistence"
 
+    def test_creative_pipeline_nodes(self):
+        assert phase_of("creative_pipeline") == "pipeline"
+        assert phase_of("ad_creative_barrier") == "ad_copy"
+        assert phase_of("visual_production_barrier") == "visual_concepts"
+        assert phase_of("finalize_barrier") == "eval"
+
     def test_runserver_and_user(self):
         assert phase_of("__runserver__") == "runserver"
         assert phase_of("user") == "user"
@@ -84,6 +90,10 @@ class TestPhaseOfTool:
         # finalize_pipeline = eval + persistence; its span is dominated by the
         # judge (~70 s vs a few seconds of GCS/BigQuery writes).
         assert phase_of_tool("finalize_pipeline") == "eval"
+
+    def test_single_call_pipeline_is_one_span(self):
+        # The root's one creative_pipeline call spans every stage.
+        assert phase_of_tool("creative_pipeline") == "pipeline"
 
     def test_persistence_tools(self):
         for name in (

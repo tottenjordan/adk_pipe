@@ -39,6 +39,13 @@ _EXACT_PHASES: dict[str, str] = {
     "save_research_pdf_node": "persistence",
     "visual_generation_pipeline": "visual_concepts",
     "visual_production_pipeline": "image_gen",
+    # creative_pipeline (2026-10-07): the root's single call chaining the stage
+    # Workflows (inner node names unchanged); each no-output barrier sits in
+    # front of the stage it feeds.
+    "creative_pipeline": "pipeline",
+    "ad_creative_barrier": "ad_copy",
+    "visual_production_barrier": "visual_concepts",
+    "finalize_barrier": "eval",
     # P2 graph function nodes whose names don't carry a phase prefix.
     "refinement_gate": "research",
     "ad_copies_ready": "ad_copy",
@@ -78,6 +85,11 @@ _NON_MODEL_AUTHORS = frozenset({"user", RUNSERVER_AUTHOR})
 # first-response pairing gives an exact span. Anything not listed (e.g. the
 # parallel ``memorize`` batch) stays in the ``orchestrator`` remainder.
 _SPAN_TOOLS: dict[str, str] = {
+    # creative_pipeline (2026-10-07) runs every stage inside ONE root call, so
+    # a deployed run's tool span covers research → finalize as a single
+    # ``pipeline`` phase; per-stage numbers come from the stage tools below
+    # (pre-creative_pipeline runs, interactive_creative) or leaf authors.
+    "creative_pipeline": "pipeline",
     "combined_research_pipeline": "research",
     "ad_creative_pipeline": "ad_copy",
     "visual_production_pipeline": "visual",

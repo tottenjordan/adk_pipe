@@ -111,12 +111,16 @@ def _run_root(
     """Run the real root once: it calls ``tool`` then finishes with text.
 
     ``root_tools`` (graph nodes are wrapped as NodeTools) replaces the root's
-    tool list for this run.
+    tool list for this run; by default it is just the ``creative_agent.agent``
+    pipeline named ``tool`` (the production root only carries creative_pipeline,
+    so a single stage is exposed directly to test it in isolation).
     """
     import creative_agent.agent as ca
 
     root_llm = RecordingLlm()
-    if root_tools is not None:
+    if root_tools is None:
+        root_tools = [getattr(ca, tool)]
+    if root_tools:
         monkeypatch.setattr(
             ca.root_agent,
             "tools",
@@ -1042,13 +1046,12 @@ _FINALIZE_STATE = {
 }
 
 
-def _run_finalize(monkeypatch, state: dict[str, Any], gallery=None):
-    """Run the root once through finalize_pipeline with fake judge, GCS and BQ.
+def _fake_finalize_io(monkeypatch, gallery=None):
+    """Fake judge, GCS and BQ for finalize_pipeline; records the step order.
 
-    Returns (root_llm, events, state, step order, storage, bq). ``gallery``
-    replaces save_creative_gallery_html.
+    Returns (step order, storage, bq). ``gallery`` replaces
+    save_creative_gallery_html.
     """
-    import creative_agent.agent as ca
     import creative_eval.agent as eval_agent
     from creative_agent import bq_tools, gcs_tools, tools
 
@@ -1080,7 +1083,18 @@ def _run_finalize(monkeypatch, state: dict[str, Any], gallery=None):
                 return _t(ctx)
 
         monkeypatch.setattr(module, name, recorded)
+    return order, storage, bq
 
+
+def _run_finalize(monkeypatch, state: dict[str, Any], gallery=None):
+    """Run the root once through finalize_pipeline with fake judge, GCS and BQ.
+
+    Returns (root_llm, events, state, step order, storage, bq). ``gallery``
+    replaces save_creative_gallery_html.
+    """
+    import creative_agent.agent as ca
+
+    order, storage, bq = _fake_finalize_io(monkeypatch, gallery)
     root_llm, events, final = _run_root(
         monkeypatch, "finalize_pipeline", state, root_tools=[ca.finalize_pipeline]
     )
@@ -1412,3 +1426,80 @@ def test_concept_issues_left_after_the_budget_are_recorded(monkeypatch):
     assert note.startswith("Final visual concepts has unresolved issues: 1 (e.g. ")
     assert state["_images_generated"] is True
     assert root_llm.calls == 2
+
+
+# --- creative_pipeline (the root's single call: every stage end to end) --- #
+
+
+def test_creative_pipeline_runs_every_stage_and_the_root_finishes(monkeypatch):
+    """One creative_pipeline call runs research → ad copies → visuals + render
+    → finalize, so evaluation + saves no longer depend on the root making four
+    consecutive tool calls. The barriers keep each stage's confirmation out of
+    the next stage's PipelineRequest-validated input (a rejected input would
+    stop the chain before finalize)."""
+    import creative_agent.agent as ca
+
+    wf = ca.creative_pipeline
+    llms = _stub_graph(monkeypatch, wf)
+    _script_research(llms, ["CA INSIGHTS"])
+    llms["ad_copy_drafter"].push(text_response(_ADS))
+    ads = [_final_ad(i) for i in range(1, 5)]
+    llms["ad_copy_critic"].push(text_response(_final_ads(*ads)))
+    (generator,) = [a for a in _llm_agents(wf) if a.name == "visual_generator"]
+    monkeypatch.setattr(generator, "tools", [_fake_generate_image])
+    concepts = [_final_concept(i) for i in range(1, 5)]
+    llms["art_director"].push(text_response("DIRECTION"))
+    llms["visual_concept_drafter"].push(text_response(_CONCEPTS))
+    llms["visual_concept_critic"].push(text_response(_CONCEPTS))
+    llms["visual_concept_finalizer"].push(text_response(_concepts_json(*concepts)))
+    llms["visual_generator"].push(
+        fc_response("generate_image", {}, "img1"), text_response("Rendered.")
+    )
+    order, storage, bq = _fake_finalize_io(monkeypatch)
+
+    root_llm, events, state = _run_root(
+        monkeypatch,
+        "creative_pipeline",
+        {"gcs_folder": "folder", "agent_output_dir": "out"},
+    )
+
+    # Every stage ran, in order, off the previous stage's state.
+    assert state["creative_brief"] == _BRIEF
+    assert state["research_report_gcs_uri"] == "gs://bucket/report.pdf"
+    assert state["ad_copy_critique"]["ad_copies"] == ads
+    assert state["final_visual_concepts"]["visual_concepts"] == concepts
+    assert state["_images_generated"] is True
+    report = state["creative_evaluation_report"]
+    assert report["summary"]["total_ad_copies"] == 4
+    assert report["summary"]["total_visual_concepts"] == 4
+    assert state["eval_report_gcs_uri"].endswith("folder/out/creative_eval_report.json")
+    assert state["eval_bq_row_uuid"]
+    assert state["finalize_done"] is True
+    assert order == [
+        "save_eval_report_to_gcs",
+        "save_creative_gallery_html",
+        "write_trends_to_bq",
+        "write_eval_report_to_bq",
+    ]
+    # No revision loops on gate-passing output, and nothing degraded.
+    for name in ("brief_reviser", "ad_copy_reviser", "visual_concept_fixer"):
+        assert llms[name].calls == 0, name
+    degraded = {
+        k: v
+        for k, v in state.items()
+        if k.endswith(("__issues", "__retry_exhausted")) and v
+    }
+    assert not degraded
+    # The root got ONE pipeline result (finalize's summary) and answered with
+    # text: two model calls in total.
+    (result,) = [
+        fr.response
+        for e in events
+        for fr in e.get_function_responses() or []
+        if fr.name == "creative_pipeline"
+    ]
+    assert "Evaluation complete: 4/8 creatives passed" in str(result)
+    assert "gs://bucket/report.pdf" in str(result)
+    assert root_llm.calls == 2
+    assert events[-1].author == "root_agent"
+    assert events[-1].content.parts[0].text == "DONE"

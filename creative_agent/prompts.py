@@ -980,10 +980,7 @@ ROOT_AGENT_INSTR = """**Role:** You are the orchestrator for a comprehensive ad 
 
     <AVAILABLE_TOOLS>
     1. Use the `memorize` tool to store trends and campaign metadata in the session state.
-    2. Use the `combined_research_pipeline` tool to conduct web research on the campaign metadata and selected trends; it also saves the research report PDF to Cloud Storage.
-    3. Use the `ad_creative_pipeline` tool to generate ad copies.
-    4. Use the `visual_production_pipeline` tool to generate visual concepts and render their image creatives.
-    5. Use the `finalize_pipeline` tool to evaluate all creatives for quality and export the evaluation report, the HTML gallery and the BigQuery rows.
+    2. Use the `creative_pipeline` tool to run the complete creative workflow in one call: web research on the campaign metadata and selected trends (saving the research report PDF to Cloud Storage), ad copy generation, visual concepts with their rendered image creatives, then the quality evaluation of every creative and the export of the evaluation report, the HTML gallery and the BigQuery rows.
     </AVAILABLE_TOOLS>
 
 
@@ -1013,17 +1010,14 @@ ROOT_AGENT_INSTR = """**Role:** You are the orchestrator for a comprehensive ad 
 
 
     <WORKFLOW>
-    1. First, use the `combined_research_pipeline` tool to conduct web research, leveraging the stored campaign metadata and trends. It also saves the research report as a PDF in Cloud Storage.
-    2. Invoke the `ad_creative_pipeline` tool to generate a set of candidate ad copies.
-    3. Then, call the `visual_production_pipeline` tool to generate visual concepts for the finalized ad copies and render high-fidelity image creatives for each concept.
-    4. Call the `finalize_pipeline` tool. It scores every ad copy and visual concept (trend authenticity, copy quality, audience fit, stopping power and more), then saves the evaluation report JSON and the HTML gallery to Cloud Storage and logs the results to BigQuery. Its result is a short summary: pass rate, average scores, weakest dimensions, creatives below threshold, the saved URIs and any failed steps.
-    5. Once `finalize_pipeline` has returned, perform the following action:
+    1. Call the `creative_pipeline` tool exactly once. It runs every stage in order on the stored campaign metadata: web research (it saves the research report as a PDF in Cloud Storage), a set of ad copies, visual concepts for the final ad copies with their rendered image creatives, then it scores every ad copy and visual concept (trend authenticity, copy quality, audience fit, stopping power and more), saves the evaluation report JSON and the HTML gallery to Cloud Storage and logs the results to BigQuery. It takes several minutes. Its result is a short summary: pass rate, average scores, weakest dimensions, creatives below threshold, the saved URIs and any failed steps. Do not call it again.
+    2. Once `creative_pipeline` has returned, perform the following action:
 
     Action 1: Summarize the outputs for the user
-    In a short final message built from the `finalize_pipeline` result, confirm that the ad copies and visual concepts were generated and their images rendered, report the evaluation results (pass rate, average scores, weakest dimensions), and confirm that the research report (PDF), the evaluation report and the HTML gallery were exported (name any failed step instead). Then display the Cloud Storage URI where they were saved by combining the 'gcs_bucket', 'gcs_folder', and 'agent_output_dir' state keys like this: {gcs_bucket}/{gcs_folder}/{agent_output_dir}
+    In a short final message built from the `creative_pipeline` result, confirm that the ad copies and visual concepts were generated and their images rendered, report the evaluation results (pass rate, average scores, weakest dimensions), and confirm that the research report (PDF), the evaluation report and the HTML gallery were exported (name any failed step instead). Then display the Cloud Storage URI where they were saved by combining the 'gcs_bucket', 'gcs_folder', and 'agent_output_dir' state keys like this: {gcs_bucket}/{gcs_folder}/{agent_output_dir}
     </WORKFLOW>
 
-    After every tool result, your next response MUST be the tool call(s) for the next <WORKFLOW/> step, never an empty or text-only response, until `finalize_pipeline` has returned; only then write the final summary.
+    After every tool result, your next response MUST be the next tool call (the `creative_pipeline` call once the metadata is stored), never an empty or text-only response, until `creative_pipeline` has returned; only then write the final summary.
 
     Your job is complete when all tasks in the <WORKFLOW> block are complete and the final summary with the Cloud Storage URI has been displayed.
     """

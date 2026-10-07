@@ -143,8 +143,9 @@ async def main():
     if isinstance(artifact_keys, dict):
         artifact_keys = list(artifact_keys.values())
 
-    # The eval + persistence steps run inside finalize_pipeline (graph nodes, not
-    # root tools), so their outcomes are read from the state keys they write; a
+    # Every stage runs inside the root's single creative_pipeline call (the
+    # eval + persistence steps are finalize_pipeline graph nodes, not root
+    # tools), so their outcomes are read from the state keys they write; a
     # failed step leaves `<key>__issues` instead.
     def _saved(key):
         value = state.get(key)
@@ -153,7 +154,10 @@ async def main():
 
     print(f"  generate_image tool calls: {gen_calls} (expected exactly 1)")
     print(f"  generated artifact keys: {len(artifact_keys)}")
-    print(f"  finalize_pipeline calls: {tool_calls.get('finalize_pipeline', 0)}")
+    print(
+        f"  creative_pipeline calls: {tool_calls.get('creative_pipeline', 0)} "
+        "(expected exactly 1)"
+    )
     print(f"  research PDF saved: {_saved('research_report_gcs_uri')}")
     print(f"  eval report saved: {_saved('eval_report_gcs_uri')}")
     print(f"  gallery built: {_saved('creative_gallery_gcs_uri')}")

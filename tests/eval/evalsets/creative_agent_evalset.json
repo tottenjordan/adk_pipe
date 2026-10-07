@@ -22,10 +22,7 @@
               { "name": "memorize", "args": {} },
               { "name": "memorize", "args": {} },
               { "name": "memorize", "args": {} },
-              { "name": "combined_research_pipeline", "args": {} },
-              { "name": "ad_creative_pipeline", "args": {} },
-              { "name": "visual_production_pipeline", "args": {} },
-              { "name": "finalize_pipeline", "args": {} }
+              { "name": "creative_pipeline", "args": {} }
             ]
           }
         }
@@ -55,10 +52,7 @@
               { "name": "memorize", "args": {} },
               { "name": "memorize", "args": {} },
               { "name": "memorize", "args": {} },
-              { "name": "combined_research_pipeline", "args": {} },
-              { "name": "ad_creative_pipeline", "args": {} },
-              { "name": "visual_production_pipeline", "args": {} },
-              { "name": "finalize_pipeline", "args": {} }
+              { "name": "creative_pipeline", "args": {} }
             ]
           }
         }

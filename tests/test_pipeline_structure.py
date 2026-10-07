@@ -4,6 +4,7 @@ import json
 
 import pytest
 from google.adk.tools._node_tool import NodeTool
+from pydantic import ValidationError
 
 from tests._fakes import walk_nodes
 
@@ -14,15 +15,10 @@ def test_creative_agent_root_has_expected_tools():
     tool_names = [
         getattr(t, "name", getattr(t, "__name__", str(t))) for t in root_agent.tools
     ]
-    # The research PDF and the eval + persistence steps run inside the
-    # pipelines: the root makes four workflow calls (plus memorize).
-    assert tool_names == [
-        "combined_research_pipeline",
-        "ad_creative_pipeline",
-        "visual_production_pipeline",
-        "finalize_pipeline",
-        "memorize",
-    ]
+    # The whole run is one deterministic creative_pipeline call (plus
+    # memorize): the Pro root used to end the run with empty turns between
+    # its four separate pipeline calls, losing evaluation + saves.
+    assert tool_names == ["creative_pipeline", "memorize"]
 
 
 def test_creative_agent_root_output_key_not_set():
@@ -439,6 +435,44 @@ def test_finalize_pipeline_graph():
     assert wf.input_schema is PipelineRequest
     assert wf.description.strip() and "Executes the node" not in wf.description
     _assert_truthy_terminal(wf, "finalize_pipeline")
+
+
+def test_creative_pipeline_chains_the_stages_through_barriers():
+    """creative_pipeline is the root's single call: research → ad copies →
+    visuals + render → finalize, as nested Workflows. A no-output barrier sits
+    before each nested PipelineRequest-validated stage, so the previous
+    stage's confirmation string never reaches its input (render_barrier
+    pattern); finalize_pipeline's summary is the (truthy) result."""
+    from google.adk.workflow import Workflow
+
+    from agent_common import PipelineRequest
+    from creative_agent import agent as ca
+
+    wf = ca.creative_pipeline
+    assert isinstance(wf, Workflow)
+    assert _graph_edges(wf) == {
+        ("__START__", "combined_research_pipeline", None),
+        ("combined_research_pipeline", "ad_creative_barrier", None),
+        ("ad_creative_barrier", "ad_creative_pipeline", None),
+        ("ad_creative_pipeline", "visual_production_barrier", None),
+        ("visual_production_barrier", "visual_production_pipeline", None),
+        ("visual_production_pipeline", "finalize_barrier", None),
+        ("finalize_barrier", "finalize_pipeline", None),
+    }
+    assert wf.input_schema is PipelineRequest
+    assert wf.description.strip() and "Executes the node" not in wf.description
+    assert _terminal_names(wf) == {"finalize_pipeline"}
+    _assert_truthy_terminal(wf, "creative_pipeline")
+    # Each nested stage rejects a bare confirmation string as its input, so the
+    # barriers are load-bearing.
+    nodes = _graph_nodes(wf)
+    for name in (
+        "ad_creative_pipeline",
+        "visual_production_pipeline",
+        "finalize_pipeline",
+    ):
+        with pytest.raises(ValidationError):
+            nodes[name]._validate_input_data("Research report complete.")
 
 
 def test_visual_generation_pipeline_graph_edges():
@@ -1317,12 +1351,7 @@ def test_creative_agent_root_exposes_pipelines_as_node_tools():
     from creative_agent.agent import root_agent
 
     node_tools = {t.name for t in root_agent.tools if isinstance(t, NodeTool)}
-    assert node_tools == {
-        "combined_research_pipeline",
-        "ad_creative_pipeline",
-        "visual_production_pipeline",
-        "finalize_pipeline",
-    }
+    assert node_tools == {"creative_pipeline"}
     assert not [t for t in root_agent.tools if isinstance(t, AgentTool)]
 
 
