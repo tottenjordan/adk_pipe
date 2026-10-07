@@ -105,6 +105,7 @@ tests/
 ├── test_trend_scout_graph.py        # trend_scout understand_trends graph run end-to-end (stub models)
 ├── test_trend_scout_concurrency.py  # trend_scout GCS-export tools: per-run scratch isolation
 ├── test_trend_scout_logging.py      # trend_scout wiring of the shared observability callbacks
+├── test_visual_concept_prompts.py   # visual concept prompts: shared brand_cue / copy-quoted in-image text / brief avoid + fit_mode rules (drafter, critic, finalizer), finalizer angle_id, interactive reviser keeps brand_cue; brace-safety
 ├── test_visual_intent_prompts.py    # optional visual-intent {key?} tokens + IMAGE_PROMPT_GUIDE no-braces + {style_shortlist?}/composition/text-cap rules
 ├── test_workflow_api_contract.py    # offline pins on the upstream ADK graph-Workflow behaviours the P2 migration relies on
 │                                    #
@@ -180,8 +181,9 @@ tests/
   uses the deprecated `agent_engines` API.
 - **Concurrency** — `test_export_concurrency.py`, `test_trend_scout_concurrency.py`:
   in-process concurrent runs get isolated scratch dirs (issue #104).
-- **Prompts & facade** — `test_visual_intent_prompts.py`, `test_public_api.py`: optional
-  visual-intent state tokens, and `creative_agent`'s curated public reuse surface.
+- **Prompts & facade** — `test_visual_intent_prompts.py`, `test_visual_concept_prompts.py`,
+  `test_public_api.py`: optional visual-intent state tokens, the visual concept brand-cue /
+  copy-quoted-text / brief rules, and `creative_agent`'s curated public reuse surface.
 - **Image diversity** — `test_image_prompt_guide.py`, `test_style_shortlist.py`,
   `test_concept_guard.py`: the guide's text cap / descriptor palette / Educational mapping,
   the per-session style shortlist, and the trend-motif + product prompt guard.
