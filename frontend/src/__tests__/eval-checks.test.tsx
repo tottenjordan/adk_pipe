@@ -78,6 +78,7 @@ describe("gate helpers", () => {
   it("labels gates", () => {
     expect(gateLabel("text_correct")).toBe("In-image text correct");
     expect(gateLabel("some_new_gate")).toBe("Some new gate");
+    expect(gateLabel("gates_reported")).toBe("Checks reported");
   });
 });
 
@@ -181,7 +182,9 @@ describe("proof detail", () => {
     const checks = screen.getByText("Checks");
     const quality = screen.getByText("Quality (advisory)");
     expect(checks.compareDocumentPosition(quality) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(screen.getByText(/Judged from the image prompt/)).toBeInTheDocument();
+    expect(
+      screen.getByText("Judged from the image prompt (the rendered image was not judged).")
+    ).toBeInTheDocument();
   });
 
   it("renders old reports without checks as before", () => {

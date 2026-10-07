@@ -310,7 +310,7 @@ export function ProofDetail({
                   score={proof.visualEval.score}
                   checksNote={
                     proof.visualEval.image_judged === false
-                      ? "Judged from the image prompt (no rendered image was available)."
+                      ? "Judged from the image prompt (the rendered image was not judged)."
                       : undefined
                   }
                   notes={[
