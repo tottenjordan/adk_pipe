@@ -266,3 +266,88 @@ class TestFormat:
             {"brand": "A", "runs": 5, "recent_styles": many, "strongest_styles": many}
         )
         assert len(text.split()) <= 120
+
+
+def _delta(state: dict, **kw: Any) -> dict:
+    import asyncio
+
+    kw.setdefault("enabled", True)
+    kw.setdefault("runs", 5)
+    return asyncio.run(bh.brand_history_state_delta(state, **kw))
+
+
+_HISTORY = {
+    "brand": "ACME",
+    "runs": 2,
+    "recent_styles": ["Photoreal / editorial", "Comic panel"],
+    "strongest_styles": ["Comic panel"],
+    "strongest_tones": [],
+    "weaknesses": [("Visual clarity", 2)],
+    "failed_checks": [],
+}
+
+
+class TestStateDelta:
+    def test_disabled_makes_no_query(self, monkeypatch):
+        calls = []
+        monkeypatch.setattr(bh, "fetch_brand_history", lambda *a, **k: calls.append(1))
+        assert _delta({"brand": "ACME"}, enabled=False) == {}
+        assert _delta({"brand": "ACME"}, runs=0) == {}
+        assert calls == []
+
+    def test_writes_note_and_repicks_shortlist_without_recent_styles(self, monkeypatch):
+        seen = {}
+
+        def fake(brand, *, limit):
+            seen.update(brand=brand, limit=limit)
+            return _HISTORY
+
+        monkeypatch.setattr(bh, "fetch_brand_history", fake)
+        delta = _delta({"brand": "ACME", "visual_style_preference": ""}, runs=3)
+        assert seen == {"brand": "ACME", "limit": 3}
+        assert delta["brand_history"].startswith("Recent runs for ACME (2):")
+        shortlist = delta["style_shortlist"].split("; ")
+        assert len(shortlist) == 6
+        assert not set(shortlist) & set(_HISTORY["recent_styles"])
+
+    def test_user_style_preference_keeps_the_shortlist(self, monkeypatch):
+        monkeypatch.setattr(bh, "fetch_brand_history", lambda *a, **k: _HISTORY)
+        delta = _delta({"brand": "ACME", "visual_style_preference": "Comic panel"})
+        assert "style_shortlist" not in delta and delta["brand_history"]
+
+    def test_no_history_writes_empty_note_only(self, monkeypatch):
+        monkeypatch.setattr(bh, "fetch_brand_history", lambda *a, **k: {})
+        assert _delta({"brand": "ACME"}) == {"brand_history": ""}
+
+    def test_error_fails_open(self, monkeypatch, caplog):
+        def boom(*a, **k):
+            raise RuntimeError("kaput")
+
+        monkeypatch.setattr(bh, "fetch_brand_history", boom)
+        assert _delta({"brand": "ACME"}) == {"brand_history": ""}
+        assert "brand history skipped" in caplog.text
+
+    def test_timeout_fails_open(self, monkeypatch, caplog):
+        import time
+
+        def slow(*a, **k):
+            time.sleep(0.5)
+            return _HISTORY
+
+        monkeypatch.setattr(bh, "fetch_brand_history", slow)
+
+        async def timed() -> tuple[dict, float]:
+            started = time.monotonic()
+            delta = await bh.brand_history_state_delta(
+                {"brand": "ACME"}, enabled=True, runs=5, timeout=0.05
+            )
+            return delta, time.monotonic() - started
+
+        import asyncio
+
+        # Measured inside the loop: asyncio.run itself waits for the worker
+        # thread at shutdown, a long-running server loop does not.
+        delta, elapsed = asyncio.run(timed())
+        assert delta == {"brand_history": ""}
+        assert elapsed < 0.4
+        assert "brand history skipped" in caplog.text

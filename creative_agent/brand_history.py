@@ -17,6 +17,7 @@ across runs; the copy's ``tone_style`` stands in for "what kind of copy worked".
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from collections import Counter
@@ -28,6 +29,7 @@ from google.cloud import bigquery
 from agent_common.clients import get_bigquery_client, get_gcs_client
 
 from .config import config
+from .style_shortlist import format_shortlist, pick_style_shortlist
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +43,8 @@ BQ_TIMEOUT_SECONDS = 8.0
 RECENT_STYLE_RUNS = 2
 TOP_N = 3
 MAX_WORDS = 120
+# Upper bound on how long the history read may hold up the research fan-out.
+BRAND_HISTORY_TIMEOUT_SECONDS = 10.0
 
 
 def _table_id() -> str | None:
@@ -280,3 +284,40 @@ def format_brand_history(history: Mapping[str, Any]) -> str:
     if len(words) > budget:
         body = " ".join(words[: budget - 1]).rstrip(",;.") + " …"
     return head + body + tail
+
+
+async def brand_history_state_delta(
+    state: Mapping[str, Any],
+    *,
+    enabled: bool,
+    runs: int,
+    timeout: float = BRAND_HISTORY_TIMEOUT_SECONDS,
+) -> dict[str, Any]:
+    """The state delta of the ``load_brand_history`` graph node.
+
+    Disabled (or ``runs <= 0``) → ``{}``: no query, state untouched. Otherwise
+    ``brand_history`` is the formatted note (``""`` without history, on any
+    error, or after ``timeout`` seconds — the read runs in a worker thread so it
+    never blocks the event loop). When recent styles are known and the user set
+    no ``visual_style_preference``, ``style_shortlist`` is re-drawn without them.
+    """
+    if not enabled or runs <= 0:
+        return {}
+    brand = str(state.get("brand") or "")
+    try:
+        history = await asyncio.wait_for(
+            asyncio.to_thread(fetch_brand_history, brand, limit=runs), timeout
+        )
+    except Exception as exc:  # incl. TimeoutError
+        logger.warning(
+            "brand history skipped for %r: %s", brand, exc or type(exc).__name__
+        )
+        history = {}
+    history = history if isinstance(history, Mapping) else {}
+    delta: dict[str, Any] = {"brand_history": format_brand_history(history)}
+    recent = [str(s) for s in history.get("recent_styles") or []]
+    if recent and not str(state.get("visual_style_preference") or "").strip():
+        delta["style_shortlist"] = format_shortlist(
+            pick_style_shortlist(exclude=frozenset(recent))
+        )
+    return delta

@@ -26,7 +26,7 @@ from agent_common import (
     is_populated,
 )
 
-from . import callbacks, gcs_tools, prompts, tools
+from . import brand_history, callbacks, gcs_tools, prompts, tools
 from .brief_check import check_brief, parse_brief
 from .brief_render import render_brief_markdown
 from .concept_guard import (
@@ -431,6 +431,32 @@ def research_barrier() -> None:
     return None
 
 
+async def load_brand_history(ctx: Context) -> None:
+    """Read the brand's past runs into `brand_history` (no LLM, fail-soft).
+
+    Runs in the START fan-out next to the two research planners and feeds the
+    JoinNode, so its BigQuery/GCS read (bounded to ~10 s, in a worker thread)
+    overlaps the research instead of delaying it. Writes the note the brief
+    writer and art director read via `{brand_history?}` ("" without history)
+    and, unless the user set a style preference, re-draws `style_shortlist`
+    without the brand's recently used styles. Disabled by
+    BRAND_HISTORY_ENABLED=false / BRAND_HISTORY_RUNS=0 (state untouched).
+    Yields no output (the barrier drops the join dict anyway).
+    """
+    try:
+        delta = await brand_history.brand_history_state_delta(
+            ctx.state.to_dict(),
+            enabled=config.brand_history_enabled,
+            runs=config.brand_history_runs,
+        )
+    except Exception:
+        logging.exception("brand history step failed; continuing without it")
+        return None
+    for key, value in delta.items():
+        ctx.state[key] = value
+    return None
+
+
 def refinement_gate(ctx: Context) -> Event:
     """Route to the refinement round only when the base research is degraded."""
     # EventActions(route=...) is the typed spelling of Event(route=...). An ADK
@@ -534,7 +560,7 @@ combined_research_pipeline = Workflow(
     edges=[
         (
             "START",
-            (gs_sequential_planner, ca_sequential_planner),
+            (gs_sequential_planner, ca_sequential_planner, load_brand_history),
             research_join,
             research_barrier,
             merge_planners,

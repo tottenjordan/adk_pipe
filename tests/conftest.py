@@ -36,6 +36,23 @@ def gcp_project_env(monkeypatch):
     monkeypatch.delenv("GOOGLE_CLOUD_PROJECT_NUMBER", raising=False)
 
 
+def _no_live_bigquery():
+    raise RuntimeError("tests must not query the live brand history")
+
+
+@pytest.fixture(autouse=True)
+def _offline_brand_history(monkeypatch):
+    """The repo .env names a real creative_evals table, so a graph test running
+    combined_research_pipeline would query live BigQuery via load_brand_history.
+    Point the module's BigQuery getter at a raiser (fetch fails open to no
+    history). Only when the module is already imported, so tests that never
+    touch creative_agent don't pay its import; tests that exercise the getter
+    re-patch it."""
+    module = sys.modules.get("creative_agent.brand_history")
+    if module is not None:
+        monkeypatch.setattr(module, "_get_bigquery_client", _no_live_bigquery)
+
+
 @pytest.fixture
 def image_qa_off(monkeypatch):
     """Disable post-render image QA (on by default) for tests that drive

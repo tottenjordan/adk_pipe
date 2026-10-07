@@ -48,6 +48,12 @@ DEFAULT_CONCEPT_REVISION_ROUNDS = 1
 MAX_CONCEPT_REVISION_ROUNDS = 2
 
 
+# Brand history (creative_agent/brand_history.py): runs of the same brand read
+# at the start of the research pipeline.
+DEFAULT_BRAND_HISTORY_RUNS = 5
+MAX_BRAND_HISTORY_RUNS = 20
+
+
 def _parse_rounds(raw: str | None, default: int, maximum: int) -> int:
     try:
         value = int(raw) if raw is not None and raw.strip() else None
@@ -91,6 +97,20 @@ def parse_concept_revision_rounds(raw: str | None) -> int:
     return _parse_rounds(
         raw, DEFAULT_CONCEPT_REVISION_ROUNDS, MAX_CONCEPT_REVISION_ROUNDS
     )
+
+
+def parse_brand_history_enabled(raw: str | None) -> bool:
+    """``BRAND_HISTORY_ENABLED`` → bool; ON unless explicitly 0/false/no/off."""
+    return (raw or "").strip().lower() not in {"0", "false", "no", "off"}
+
+
+def parse_brand_history_runs(raw: str | None) -> int:
+    """``BRAND_HISTORY_RUNS`` → int clamped to 0..20; unset/blank/invalid → 5.
+
+    How many of the brand's latest runs (``creative_evals`` rows) feed the
+    brand-history note; 0 disables it like ``BRAND_HISTORY_ENABLED=false``.
+    """
+    return _parse_rounds(raw, DEFAULT_BRAND_HISTORY_RUNS, MAX_BRAND_HISTORY_RUNS)
 
 
 @dataclass
@@ -147,6 +167,19 @@ class ResearchConfiguration(BaseAgentConfiguration):
     concept_revision_rounds: int = field(
         default_factory=lambda: parse_concept_revision_rounds(
             os.getenv("CONCEPT_REVISION_ROUNDS")
+        )
+    )
+
+    # Brand history: the brand's latest runs (creative_evals + eval reports)
+    # condensed into `brand_history` for the brief writer / art director.
+    brand_history_enabled: bool = field(
+        default_factory=lambda: parse_brand_history_enabled(
+            os.getenv("BRAND_HISTORY_ENABLED")
+        )
+    )
+    brand_history_runs: int = field(
+        default_factory=lambda: parse_brand_history_runs(
+            os.getenv("BRAND_HISTORY_RUNS")
         )
     )
 

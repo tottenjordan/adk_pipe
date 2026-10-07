@@ -1503,3 +1503,86 @@ def test_creative_pipeline_runs_every_stage_and_the_root_finishes(monkeypatch):
     assert root_llm.calls == 2
     assert events[-1].author == "root_agent"
     assert events[-1].content.parts[0].text == "DONE"
+
+
+_HISTORY = {
+    "brand": "Acme",
+    "runs": 2,
+    "recent_styles": ["Comic panel", "Meme aesthetic"],
+    "strongest_styles": ["Comic panel"],
+    "strongest_tones": ["Deadpan"],
+    "weaknesses": [("Visual clarity", 2)],
+    "failed_checks": [("product_visible", 1)],
+}
+
+
+def test_brand_history_reaches_the_brief_writer(monkeypatch):
+    """load_brand_history runs in the research fan-out; its note lands in the
+    brief writer's prompt and the shortlist is re-drawn without recent styles."""
+    import creative_agent.agent as ca
+    from creative_agent import brand_history
+
+    seen: list[tuple[str, int]] = []
+
+    def fake_fetch(brand: str, *, limit: int) -> dict:
+        seen.append((brand, limit))
+        return _HISTORY
+
+    monkeypatch.setattr(brand_history, "fetch_brand_history", fake_fetch)
+    monkeypatch.setattr(ca.config, "brand_history_enabled", True)
+    monkeypatch.setattr(ca.config, "brand_history_runs", 4)
+    llms = _stub_graph(monkeypatch, ca.combined_research_pipeline)
+    _script_research(llms, ["CA INSIGHTS"])
+
+    _, events, state = _run_root(
+        monkeypatch,
+        "combined_research_pipeline",
+        extra_state={"style_shortlist": "Comic panel; Meme aesthetic"},
+    )
+
+    assert seen == [("Acme", 4)]
+    assert state["brand_history"].startswith("Recent runs for Acme (2):")
+    prompt = str(llms["brief_writer"].requests[-1].config.system_instruction)
+    assert "recurring weaknesses: Visual clarity (2 of 2 runs)" in prompt
+    shortlist = state["style_shortlist"].split("; ")
+    assert len(shortlist) == 6
+    assert not {"Comic panel", "Meme aesthetic"} & set(shortlist)
+    assert state["creative_brief"] == _BRIEF
+    assert len(_responses(events)) == 1
+
+
+def test_brand_history_disabled_makes_no_query(monkeypatch):
+    import creative_agent.agent as ca
+    from creative_agent import brand_history
+
+    calls: list[str] = []
+    monkeypatch.setattr(
+        brand_history, "fetch_brand_history", lambda brand, **_: calls.append(brand)
+    )
+    monkeypatch.setattr(ca.config, "brand_history_enabled", False)
+    llms = _stub_graph(monkeypatch, ca.combined_research_pipeline)
+    _script_research(llms, ["CA INSIGHTS"])
+
+    _, _, state = _run_root(monkeypatch, "combined_research_pipeline")
+
+    assert calls == []
+    assert "brand_history" not in state
+    assert state["creative_brief"] == _BRIEF
+
+
+def test_failing_brand_history_does_not_stop_research(monkeypatch):
+    import creative_agent.agent as ca
+    from creative_agent import brand_history
+
+    async def boom(*a, **k):
+        raise RuntimeError("unexpected")
+
+    monkeypatch.setattr(brand_history, "brand_history_state_delta", boom)
+    monkeypatch.setattr(ca.config, "brand_history_enabled", True)
+    llms = _stub_graph(monkeypatch, ca.combined_research_pipeline)
+    _script_research(llms, ["CA INSIGHTS"])
+
+    _, events, state = _run_root(monkeypatch, "combined_research_pipeline")
+
+    assert state["creative_brief"] == _BRIEF
+    assert "Research report complete" in str(_responses(events)[0])
