@@ -27,7 +27,7 @@
         {
           "rubric_id": "pipeline_execution",
           "rubric_content": {
-            "text_property": "The agent MUST execute the creative workflow in the correct logical order: first memorize any campaign metadata and trend not already in session state, then call creative_pipeline exactly once (it runs research and saves the research PDF, generates the ad copies, visual concepts and images, then evaluates the creatives and persists the results), then answer with the final summary as its final response (the summary is text, not a tool call). Tool calls made INSIDE creative_pipeline by its sub-agents (for example generate_image by the visual generator) are part of that single pipeline call and must NOT be counted as separate root-agent steps or as deviations."
+            "text_property": "The agent MUST execute the creative workflow in the correct logical order: first memorize any campaign metadata and trend not already in session state, then call creative_pipeline exactly once (it runs research and saves the research PDF, generates the ad copies, visual concepts and images, then evaluates the creatives and persists the results). creative_pipeline must be the last root-agent tool call. Tool calls made INSIDE creative_pipeline by its sub-agents (for example generate_image by the visual generator) are part of that single pipeline call and must NOT be counted as separate root-agent steps or as deviations. (The final text summary is not a tool call and is judged by the final-response rubric, not here.)"
           }
         },
         {
