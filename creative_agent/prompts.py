@@ -17,11 +17,12 @@ IMAGE_PROMPT_GUIDE = """Here are best practices for writing prompts for a modern
 - NAME THE STYLE EXPLICITLY at the start, in your own words tied to this scene. Do NOT copy the palette wording as an opener. Do NOT default to photorealism — choose the style that fits the ad's tone and audience.
 - Use POSITIVE, present-what-you-want framing. To exclude something, describe the desired alternative ("a clean empty background") rather than negatives ("no clutter"). If you must exclude, phrase it as a "semantic negative" ("the street is empty and quiet"), not "no cars".
 - State that it is a social-media advertisement and who it targets — the model composes framing/negative space differently for an ad than for a stock photo.
-- In-image text is OPTIONAL and the most common way an image fails. Use it in at most 2 of the 4 concepts in a set (meme and comic captions are the exception, see below). When used: the paired ad copy's headline OR call-to-action, copied exactly in quotes (never a new slogan or paraphrase), a named font vibe and a placement that differs from the other text concept. Never put words across the top by default. No small print, labels, setlists, spec callouts, UI screens full of text, or style/technical terms (e.g. never print the style name). Concepts without text should leave clean negative space for the platform's own caption.
+- In-image text is OPTIONAL and the most common way an image fails. Use it in at most 2 of the 4 concepts in a set (meme and comic captions are the exception, see below). When used: the paired ad copy's headline OR call-to-action, copied exactly in double quotes (never a new slogan or paraphrase), with a named font vibe; describe the typography (weight, case, placement), using a placement that differs from the other text concept. Never put words across the top by default. No small print, labels, setlists, spec callouts, UI screens full of text, or style/technical terms (e.g. never print the style name). Concepts without text should leave clean negative space for the platform's own caption.
 - Meme and comic exception: a Meme aesthetic concept may use its native caption format (e.g. classic top-and-bottom Impact captions, a faux-screenshot post) and a Comic panel may use speech bubbles. These captions are part of the joke, may be new short text (say "meme caption" or "speech bubble" in the prompt), do NOT count toward the 2-concept text cap, and may be as long as the meme needs — but keep each caption to one or two punchy lines, in quotes, in big legible type; still no small print or style terms.
 - Every concept must show at least one concrete trend motif (an object, symbol, setting or gesture from the trend or the visual_direction motifs) so the image reads as on-trend without any text.
 - The trend motif must be SPECIFIC to this trend: something a person who follows the trend would recognise in a second (its signature objects, colours, places, events, rituals or memes). Generic motifs that could illustrate any trend (phone screens, chat bubbles, social feeds, notifications, news headlines, glowing screens) do NOT count. For trends about real people (politicians, celebrities, athletes), use their recognisable cultural iconography (colours, symbols, settings, events, fan rituals), never a likeness of the person.
 - Background texture text (newspaper scraps, labels, signage, posters, book covers, phone or UI screens) must be blank, abstract marks or soft blur: never readable words and never gibberish lettering. On the product itself, show only the real brand and product name.
+- No unrequested logos: never show logos, wordmarks or trademarks of any brand other than the campaign brand (image models otherwise add famous marks, e.g. a sportswear swoosh on a plain shoe). Generic products stay unbranded: describe them as plain or unbranded, with only the campaign brand where the concept places it.
 - Length follows the style: a minimalist or sticker prompt should be short and clean; a cinematic photoreal scene should be long and layered. Detail where detail matters — do not pad to a word count.
 </CORE_PRINCIPLES>
 
@@ -55,17 +56,22 @@ Diversity rule: across a set of concepts, vary the style family — do not rende
 </TONE_TO_STYLE_MAPPING>
 
 <BUILDING_BLOCKS>
-Assemble the prompt from these, in roughly this order:
-- Style declaration (family from the palette, named first, in your own words).
-- Subject: the hero — product, person, or character — described concretely.
-- Trend motif: the concrete visual element that ties the image to the trend.
-- Composition / framing: focal point, rule-of-thirds, close-up vs wide, where negative space sits.
-- Setting: where the scene happens (or a plain colored studio background).
-- Lighting: e.g. soft window light, hard studio key, neon glow, golden hour.
-- Color & mood: palette + emotional register aligned to the brand and trend.
-- Rendering cues: texture/finish appropriate to the style (grain, cel shading, glossy, paper texture).
+Choose the style first: it shapes every other choice, so open the prompt with a short style declaration (family from the palette, in your own words). Then write the scene as one flowing description in the order Subject + Action + Location/context + Composition + Style:
+- Subject: the hero — product, person, or character — described concretely, plus the concrete trend motif that ties the image to the trend.
+- Action: what the subject is doing, the moment captured.
+- Location/context: where the scene happens (or a plain colored studio background), and that it is a social-media ad for the brand and its audience.
+- Composition: framing and camera distance, focal point, rule-of-thirds, close-up vs wide, where negative space sits; compose for the chosen aspect ratio.
+- Style: the rendering details that realise the declared style: lighting (soft window light, hard studio key, neon glow, golden hour), color and mood aligned to the brand and trend, and texture/finish (grain, cel shading, glossy, paper texture).
 - In-image text & branding: only in at most 2 concepts per set (see the text rule); otherwise none.
 </BUILDING_BLOCKS>
+
+<REFERENCE_IMAGES>
+When the run supplies reference images, refer to each by its ROLE, never by a number (e.g. "show this exact product from the product reference held by a runner at dawn", "in the style reference's palette"); the render step attaches the numbered reference block and the ignore-text instruction automatically. Per role:
+- product: reproduce the product exactly as shown (shape, colour, label, proportions); describe the new scene around it, never redesign it.
+- logo: place the logo small, legible and undistorted (on the product, a sign or a corner), never stretched, recoloured or rewritten.
+- style: match its palette, texture and lighting only, not its content, subject or layout. It guides palette, texture and lighting for ALL concepts but does NOT override the 4 distinct style families rule: keep the families different and carry the reference's palette and lighting across them.
+In-image text still comes only from the text rule above.
+</REFERENCE_IMAGES>
 
 <ASPECT_RATIO>
 Choose the aspect ratio per concept and output it in the `aspect_ratio` field:
@@ -686,14 +692,18 @@ VISUAL_CONCEPT_DRAFTER_INSTR = (
         {visual_aspect_ratio?}
         </user_aspect_ratio>
 
-        <reference_image_role>
-        Optional role of the user's reference image. When `style`: pick the
-        `visual_style` that matches the reference image rather than a contrasting
-        one. When `product` or `logo`: describe the product/logo generically and
-        leave clear space for it — the reference image supplies its exact look.
-        When empty, ignore it.
-        {reference_image_role?}
-        </reference_image_role>
+        <reference_images>
+        Optional roles of the user's reference images (e.g. "product, style");
+        the image model receives the images themselves. Refer to them by role
+        only ("the product from the product reference", "the style reference's
+        palette"), never by number. For a `style` reference: it guides palette,
+        texture and lighting for ALL concepts but does NOT override the 4
+        distinct families rule — keep the families different and carry its
+        palette and lighting across them. For a `product` or `logo` reference:
+        describe the product/logo generically and leave clear space for it —
+        the reference supplies its exact look. When empty, ignore it.
+        {reference_roles?}
+        </reference_images>
 
         <brand>{brand}</brand>
         <target_audience>{target_audience}</target_audience>
@@ -795,6 +805,12 @@ VISUAL_CONCEPT_CRITIC_INSTR = (
         {visual_avoid?}
         </user_avoid>
 
+        <reference_images>
+        Roles of the user's reference images (e.g. "product, style"), attached at
+        render time; refer to them by role only. When empty, ignore it.
+        {reference_roles?}
+        </reference_images>
+
         <user_aspect_ratio>
         Optional campaign-wide aspect-ratio override. When empty, ignore it.
         {visual_aspect_ratio?}
@@ -878,6 +894,12 @@ VISUAL_CONCEPT_FINALIZER_INSTR = (
         ignore it.
         {visual_avoid?}
         </user_avoid>
+
+        <reference_images>
+        Roles of the user's reference images (e.g. "product, style"), attached at
+        render time; refer to them by role only. When empty, ignore it.
+        {reference_roles?}
+        </reference_images>
     </CONTEXT>
 
     <GUIDANCE>

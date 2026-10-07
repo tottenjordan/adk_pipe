@@ -1,3 +1,4 @@
+import { isReferenceUri, referenceImagesFromForm } from "@/lib/reference-images";
 import type { CampaignInput } from "@/lib/types";
 
 /**
@@ -16,6 +17,10 @@ import type { CampaignInput } from "@/lib/types";
  *   setdefaults them to ""). Seeding the campaign fields makes the inputs
  *   deterministic; the kickoff message only echoes them. trend_scout's state
  *   init overwrites these keys, so they are not seeded for it.
+ * - Reference images: every set reference row goes to `reference_images`
+ *   (`[{uri, role}]`, max 3); row 1 is also sent as the legacy
+ *   `reference_image_uri`/`reference_image_role` pair for one release (the
+ *   backend dedupes the two).
  */
 export function buildInitialState(form: CampaignInput): Record<string, unknown> {
   const state: Record<string, unknown> = { ui_app: form.agent };
@@ -41,8 +46,6 @@ export function buildInitialState(form: CampaignInput): Record<string, unknown> 
     ["visualStylePreference", "visual_style_preference"],
     ["visualAvoid", "visual_avoid"],
     ["visualAspectRatio", "visual_aspect_ratio"],
-    ["referenceImageUri", "reference_image_uri"],
-    ["referenceImageRole", "reference_image_role"],
   ];
 
   for (const [field, key] of mapping) {
@@ -51,6 +54,18 @@ export function buildInitialState(form: CampaignInput): Record<string, unknown> 
       state[key] = value;
     }
   }
+
+  // Row 1 as the legacy pair, only when its URI is valid (never emit an
+  // invalid reference; the form blocks submit on one anyway).
+  const legacyUri = form.referenceImageUri?.trim() ?? "";
+  if (isReferenceUri(legacyUri)) {
+    state.reference_image_uri = legacyUri;
+    const legacyRole = form.referenceImageRole?.trim();
+    if (legacyRole) state.reference_image_role = legacyRole;
+  }
+
+  const references = referenceImagesFromForm(form);
+  if (references.length) state.reference_images = references;
 
   return state;
 }

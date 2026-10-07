@@ -68,7 +68,47 @@ describe("buildInitialState", () => {
       visual_aspect_ratio: "1:1",
       reference_image_uri: "gs://b/logo.png",
       reference_image_role: "logo",
+      reference_images: [{ uri: "gs://b/logo.png", role: "logo" }],
     });
+  });
+
+  it("emits every reference row as reference_images (legacy keys from row 1)", () => {
+    const state = buildInitialState({
+      ...base,
+      referenceImageUri: "gs://b/p.png",
+      referenceImageRole: "product",
+      extraReferenceImages: [
+        { uri: "https://x/style.jpg", role: "style" },
+        { uri: "  ", role: "logo" },
+      ],
+    });
+    expect(state.reference_image_uri).toBe("gs://b/p.png");
+    expect(state.reference_image_role).toBe("product");
+    expect(state.reference_images).toEqual([
+      { uri: "gs://b/p.png", role: "product" },
+      { uri: "https://x/style.jpg", role: "style" },
+    ]);
+  });
+
+  it("never seeds an invalid reference URI", () => {
+    const state = buildInitialState({
+      ...base,
+      referenceImageUri: "bucket/p.png",
+      referenceImageRole: "product",
+      extraReferenceImages: [{ uri: "https://x/s.jpg", role: "style" }],
+    });
+    expect(state.reference_image_uri).toBeUndefined();
+    expect(state.reference_image_role).toBeUndefined();
+    expect(state.reference_images).toEqual([{ uri: "https://x/s.jpg", role: "style" }]);
+  });
+
+  it("does not seed reference images for trend_scout", () => {
+    const state = buildInitialState({
+      ...base,
+      agent: "trend_scout",
+      extraReferenceImages: [{ uri: "gs://b/s.png", role: "style" }],
+    });
+    expect(state.reference_images).toBeUndefined();
   });
 
   it("omits empty / whitespace-only fields and trims values", () => {

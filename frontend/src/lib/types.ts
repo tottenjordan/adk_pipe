@@ -89,4 +89,21 @@ export interface CampaignInput {
   visualAspectRatio?: string;
   /** How to use the reference image → `reference_image_role` (product|logo|style). */
   referenceImageRole?: string;
+  /**
+   * Reference rows 2–3 (row 1 is `referenceImageUri`/`referenceImageRole`).
+   * All rows are seeded together as `reference_images` (see buildInitialState).
+   */
+  extraReferenceImages?: ReferenceRowInput[];
+}
+
+/** One reference image for image generation: a gs:// or http(s) URI + role. */
+export interface ReferenceImageInput {
+  uri: string;
+  /** product | logo | style ("" in the form = product). */
+  role: string;
+}
+
+/** A form reference row: `id` is a client-only React key (never sent). */
+export interface ReferenceRowInput extends ReferenceImageInput {
+  id?: string;
 }

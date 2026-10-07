@@ -1,6 +1,7 @@
 import { SELF_USER_ID } from "@/lib/api";
 import { agentInfo, agentLabel, isAgentId, isCreativeAgent, type AgentId } from "@/lib/agents";
 import type { CampaignInput, Session } from "@/lib/types";
+import { referenceRowsFromState } from "@/lib/reference-images";
 import { formatStateValue } from "@/lib/utils";
 
 /**
@@ -204,8 +205,6 @@ const BRIEF_STATE_FIELDS: Array<[string, keyof CampaignInput]> = [
   ["target_audience", "targetAudience"],
   ["target_product", "targetProduct"],
   ["key_selling_points", "keySellingPoints"],
-  ["reference_image_uri", "referenceImageUri"],
-  ["reference_image_role", "referenceImageRole"],
   ["visual_intent", "visualIntent"],
   ["brand_colors", "brandColors"],
   ["visual_style_preference", "visualStylePreference"],
@@ -225,6 +224,14 @@ export function briefFromState(state: Record<string, unknown>): Brief {
   const trend = formatTrend(state.target_search_trends ?? state.target_search_trend);
   if (trend) brief.targetSearchTrend = trend;
   if (state.interactive_trend_pick === true) brief.interactiveTrendPick = true;
+  // Reference rows: the legacy pair (or, when empty, the first listed
+  // reference) is row 1; the rest are the extra rows.
+  const references = referenceRowsFromState(state);
+  if (references.first) {
+    brief.referenceImageUri = references.first.uri;
+    brief.referenceImageRole = references.first.role;
+  }
+  if (references.extras.length) brief.extraReferenceImages = references.extras;
   return brief;
 }
 

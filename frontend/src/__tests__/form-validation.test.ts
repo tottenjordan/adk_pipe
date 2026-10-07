@@ -45,4 +45,22 @@ describe("isFormValid", () => {
       );
     });
   }
+
+  describe("reference image URIs", () => {
+    it.each(CREATIVE)("blocks an invalid reference URI for %s", (agent) => {
+      const valid = { ...base, agent, ...WITH_TREND };
+      expect(isFormValid({ ...valid, referenceImageUri: "gs://b/p.png" })).toBe(true);
+      expect(isFormValid({ ...valid, referenceImageUri: "bucket/p.png" })).toBe(false);
+      expect(
+        isFormValid({ ...valid, extraReferenceImages: [{ uri: "nope", role: "style" }] }),
+      ).toBe(false);
+      expect(
+        isFormValid({ ...valid, extraReferenceImages: [{ uri: "  ", role: "" }] }),
+      ).toBe(true);
+    });
+
+    it("ignores hidden reference rows for trend_scout", () => {
+      expect(isFormValid({ ...base, referenceImageUri: "bucket/p.png" })).toBe(true);
+    });
+  });
 });

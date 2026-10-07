@@ -232,7 +232,7 @@ interactive_creative (root Agent `root_agent`; App + ResumabilityConfig(is_resum
 - **Storage Env Var:** Use `GOOGLE_CLOUD_STORAGE_BUCKET` (bare bucket name without `gs://`) — never `GCS_BUCKET_NAME` or `BUCKET`.
 - **Session State Keys:**
   - Core brief keys: `brand`, `target_product`, `target_audience`, `key_selling_points`, `target_search_trends` (seeded via `createSession` `initialState`, `setdefault`ed in `callbacks.py`).
-  - Optional visual-intent keys (`creative_agent` / `interactive_creative`, default `""`, seeded via `initialState` only): `visual_intent`, `brand_colors`, `visual_style_preference`, `visual_avoid`, `visual_aspect_ratio`, `reference_image_role` (`product`|`logo`|`style`), plus `visual_revision_notes` on checkpoint-3 resume.
+  - Optional visual-intent keys (`creative_agent` / `interactive_creative`, default `""`, seeded via `initialState` only): `visual_intent`, `brand_colors`, `visual_style_preference`, `visual_avoid`, `visual_aspect_ratio`, `reference_image_role` (`product`|`logo`|`style`), `reference_images` (default `[]`; up to 3 `{uri, role}` references, legacy `reference_image_uri` folded in first; style references guide palette/texture only), the derived `reference_roles`, plus `visual_revision_notes` on checkpoint-3 resume.
 
 ### Frontend (`frontend/`) & Async-Job Backend (`runserver/`, `deployment/async_app.py`)
 

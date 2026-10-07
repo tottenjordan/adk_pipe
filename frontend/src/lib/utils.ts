@@ -1,5 +1,6 @@
 import { clsx, type ClassValue } from "clsx"
 import { twMerge } from "tailwind-merge"
+import { formatReferenceImages } from "@/lib/reference-images"
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
@@ -56,6 +57,8 @@ export interface DisplayFieldDef {
   key: string
   /** Fallback state key when `key` is absent (e.g. singular/plural variants). */
   altKey?: string
+  /** Derive the value from the whole state instead of `key`/`altKey`. */
+  value?: (state: Record<string, unknown>) => unknown
 }
 
 /** A resolved display field ready to render. */
@@ -80,7 +83,9 @@ export function buildDisplayFields(
       label: def.label,
       key: def.key,
       value: formatStateValue(
-        state[def.key] ?? (def.altKey ? state[def.altKey] : undefined),
+        def.value
+          ? def.value(state)
+          : (state[def.key] ?? (def.altKey ? state[def.altKey] : undefined)),
       ),
     }))
     .filter((f) => f.value !== "")
@@ -97,6 +102,6 @@ export const VISUAL_DIRECTION_FIELDS: DisplayFieldDef[] = [
   { label: "Preferred style", key: "visual_style_preference" },
   { label: "Avoid", key: "visual_avoid" },
   { label: "Aspect ratio", key: "visual_aspect_ratio" },
-  { label: "Reference image", key: "reference_image_uri" },
-  { label: "Reference role", key: "reference_image_role" },
+  // Legacy single reference + `reference_images`, merged and deduped.
+  { label: "Reference images", key: "reference_images", value: formatReferenceImages },
 ]

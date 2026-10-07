@@ -211,6 +211,37 @@ describe("briefFromState", () => {
     });
   });
 
+  it("recovers the extra reference rows after row 1", () => {
+    const brief = briefFromState({
+      ui_app: "creative_agent",
+      reference_image_uri: "gs://b/p.png",
+      reference_image_role: "product",
+      reference_images: [
+        { uri: "gs://b/p.png", role: "product" },
+        { uri: "gs://b/s.png", role: "style" },
+      ],
+    });
+    expect(brief.referenceImageUri).toBe("gs://b/p.png");
+    expect(brief.extraReferenceImages).toEqual([{ uri: "gs://b/s.png", role: "style" }]);
+  });
+
+  it("moves the first reference into row 1 when only reference_images was seeded", () => {
+    const brief = briefFromState({
+      ui_app: "creative_agent",
+      reference_images: [
+        { uri: "gs://b/1.png", role: "logo" },
+        { uri: "gs://b/2.png", role: "style" },
+        { uri: "https://x/3.jpg", role: "product" },
+      ],
+    });
+    expect(brief.referenceImageUri).toBe("gs://b/1.png");
+    expect(brief.referenceImageRole).toBe("logo");
+    expect(brief.extraReferenceImages).toEqual([
+      { uri: "gs://b/2.png", role: "style" },
+      { uri: "https://x/3.jpg", role: "product" },
+    ]);
+  });
+
   it("carries the trend-pick opt-in and omits an unknown agent", () => {
     expect(briefFromState({ ui_app: "trend_scout", interactive_trend_pick: true, brand: "X" })).toEqual({
       agent: "trend_scout",

@@ -78,3 +78,70 @@ def test_motif_specificity_enforced_downstream():
     assert "SPECIFIC and recognisable" in prompts.VISUAL_CONCEPT_CRITIC_INSTR
     assert "Trend Connection (MUST)" in prompts.VISUAL_CONCEPT_FINALIZER_INSTR
     assert "SPECIFIC to the trend" in prompts.ART_DIRECTOR_INSTR
+
+
+def _section(tag: str) -> str:
+    start = G.index(f"<{tag}>")
+    end = G.index(f"</{tag}>")
+    return G[start:end]
+
+
+def test_reference_images_section_refers_by_role_not_number():
+    """Only the image tool numbers references (and it renumbers over the ones
+    that actually fetched), so the guide must refer to them by ROLE only."""
+    sec = _section("REFERENCE_IMAGES")
+    assert "Reference image 1" not in sec
+    assert "numbered" not in sec.replace("numbered reference block", "")
+    assert "product reference" in sec
+    assert "style reference" in sec
+
+
+def test_reference_images_roles_are_spelled_out():
+    sec = _section("REFERENCE_IMAGES").lower()
+    assert "reproduce the product exactly" in sec
+    assert "shape, colour, label" in sec
+    assert "small, legible and undistorted" in sec
+    assert "palette, texture and lighting only" in sec
+
+
+def test_reference_images_ignore_text_is_left_to_the_render_step():
+    """The tool appends REFERENCE_IGNORE_TEXT_LINE; the guide must not ask the
+    drafter to write it again."""
+    sec = _section("REFERENCE_IMAGES")
+    assert "Always say" not in sec
+    assert (
+        "the render step attaches the numbered reference block and the "
+        "ignore-text instruction automatically" in sec
+    )
+
+
+def test_style_reference_does_not_override_family_diversity():
+    sec = _section("REFERENCE_IMAGES").lower()
+    assert "does not override" in sec
+    assert "4 distinct" in sec or "four distinct" in sec
+
+
+def test_building_blocks_follow_subject_action_location_composition_style():
+    sec = _section("BUILDING_BLOCKS")
+    assert "Subject + Action + Location/context + Composition + Style" in sec
+    # Style is still CHOSEN first (style-first principle), even when the
+    # sentence order follows Google's formula.
+    assert "choose the style first" in sec.lower()
+    order = [
+        sec.index(f"- {name}")
+        for name in ("Subject", "Action", "Location/context", "Composition", "Style")
+    ]
+    assert order == sorted(order)
+
+
+def test_in_image_text_describes_typography():
+    assert "describe the typography (weight, case, placement)" in G
+
+
+def test_no_unrequested_logos():
+    lower = G.lower()
+    assert (
+        "never show logos, wordmarks or trademarks of any brand other than the campaign brand"
+        in lower
+    )
+    assert "generic products stay unbranded" in lower
