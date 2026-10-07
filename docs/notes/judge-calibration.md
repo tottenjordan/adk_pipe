@@ -15,7 +15,7 @@ and an optional note. Each save upserts one row in BigQuery `creative_ratings`
 (`runserver/ratings.py`; schema in deployment/README.md → Creative ratings), keyed
 per (run, creative, user), so re-rating overwrites. The row also snapshots the judge's
 verdict for the same creative: `judge_overall`, `judge_passed`, `judge_gates_passed`
-(the judge's binary eval gates, when the report has them) and `judge_model`.
+(the judge's binary eval gates, when the report has them) and `judge_model` (plus `judge_source`, see the limitation below).
 
 ## Protocol
 
@@ -38,6 +38,22 @@ verdict for the same creative: `judge_overall`, `judge_passed`, `judge_gates_pas
    uv run python scripts/eval_calibration.py --user you@example.com
    uv run python scripts/eval_calibration.py --csv export.csv --json
    ```
+
+## Known limitation: seedable judge fields
+
+Session state is client-seedable (createSession `initialState` passes through the
+proxy), so a user could plant a fake `creative_evaluation_report` and skew the judge
+side of their own ratings. Mitigations:
+
+- The api reads the judge verdict from the run's own GCS report first, and only from
+  `gs://$GOOGLE_CLOUD_STORAGE_BUCKET/.../creative_eval_report.json` (≤ 5 MB); any other
+  `eval_report_gcs_uri` is ignored. Each row records where its judge fields came from in
+  `judge_source` (`gcs` | `state` | `none`).
+- `scripts/eval_calibration.py` counts only `judge_source = 'gcs'` rows by default
+  (`--include-all` adds the rest), so an all-users report can't be skewed through state.
+- Still possible: pointing `eval_report_gcs_uri` at another run's real report in the
+  same bucket, or rating dishonestly. The per-user `/runs` line covers only your own
+  ratings, so it can only mislead yourself.
 
 ## Reading the numbers
 

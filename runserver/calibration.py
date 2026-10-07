@@ -4,9 +4,10 @@ For each slice (all ratings, then per ``kind``):
 
 - ``judge_passed`` / ``judge_gates_passed``: raw agreement and Cohen's kappa
   between the judge's boolean and the human verdict (``pass`` = True), over the
-  rows where the judge value is known. Kappa is ``None`` with a ``reason`` when it
-  is undefined or uninformative: no pairs, or either rater used a single class
-  (kappa is then 0 or undefined whatever the agreement).
+  rows where the judge value is known. Kappa is reported as n/a (``None`` with a
+  ``reason``) when there are no pairs or when either rater used a single class:
+  kappa is then undefined (both) or pinned at 0 / below (one), whatever the
+  agreement, so a number would mislead.
 - ``score_spearman``: Spearman's rho between ``judge_overall`` (0-1) and the
   human 1-5 ``score`` once at least ``MIN_SPEARMAN_PAIRS`` rows have both.
 

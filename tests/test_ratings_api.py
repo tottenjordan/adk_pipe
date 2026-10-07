@@ -25,6 +25,7 @@ APP = "creative_agent"
 FIXTURES = Path(__file__).resolve().parents[1] / "frontend/scripts/screenshot-fixtures"
 PROXY = {"Authorization": "Bearer proxy"}
 VISUAL = "visual:The Golden Golf Cart Gig"
+BUCKET = "trend-trawler-deploy-ae"  # the fixture's eval_report_gcs_uri bucket
 
 
 def _report() -> dict:
@@ -52,6 +53,7 @@ class Harness:
             session_service=self.svc,
             store=self.store,
             report_loader=report_loader or default_loader,
+            report_bucket=BUCKET,
         )
         app = FastAPI()
         app.include_router(rt.router)
@@ -460,3 +462,130 @@ def test_judge_fields_read_a_real_gated_report_model():
         "judge_gates_passed": False,
         "judge_model": "j",
     }
+
+
+# --- report source hardening -------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "uri",
+    [
+        "gs://other-bucket/2026/creative_output/creative_eval_report.json",
+        "https://storage.googleapis.com/trend-trawler-deploy-ae/x/creative_eval_report.json",
+        "gs://trend-trawler-deploy-ae/x/creative_output/secrets.json",
+        "gs://trend-trawler-deploy-ae/creative_eval_report.json.bak",
+        "gs://trend-trawler-deploy-ae/a/../creative_eval_report.json",
+        "gs://trend-trawler-deploy-ae-evil/x/creative_eval_report.json",
+    ],
+)
+def test_untrusted_report_uri_is_never_read(uri):
+    async def go():
+        h = Harness()
+        state = _state(with_report=False)
+        state["eval_report_gcs_uri"] = uri
+        await h.session(state=state)
+        r = await h.put()
+        assert r.status_code == 200  # rating still saved
+        body = r.json()
+        assert body["judge_overall"] is None and body["judge_passed"] is None
+        assert body["judge_source"] == "none"
+        assert h.loads == []
+
+    run(go)
+
+
+def test_allowed_report_uri():
+    ok = "gs://b/run/creative_output/creative_eval_report.json"
+    assert rt.allowed_report_uri(ok, "b")
+    assert not rt.allowed_report_uri(ok, None)  # no configured bucket: never read
+    assert not rt.allowed_report_uri(ok, "c")
+    assert not rt.allowed_report_uri(None, "b")
+
+
+def test_configured_report_bucket_env():
+    assert (
+        rt.configured_report_bucket({"GOOGLE_CLOUD_STORAGE_BUCKET": "gs://a/"}) == "a"
+    )
+    assert rt.configured_report_bucket({"GCS_BUCKET_NAME": "b"}) == "b"
+    both = {"GOOGLE_CLOUD_STORAGE_BUCKET": "a", "GCS_BUCKET_NAME": "b"}
+    assert rt.configured_report_bucket(both) == "a"
+    assert rt.configured_report_bucket({}) is None
+
+
+class _Blob:
+    def __init__(self, size, text="{}"):
+        self.size, self.text, self.reloaded, self.downloaded = size, text, False, False
+
+    def reload(self):
+        self.reloaded = True
+
+    def download_as_text(self):
+        self.downloaded = True
+        return self.text
+
+
+def _patch_gcs(monkeypatch, blob):
+    class Bucket:
+        def blob(self, path):
+            return blob
+
+    class Client:
+        def bucket(self, name):
+            return Bucket()
+
+    monkeypatch.setattr("agent_common.clients.get_gcs_client", lambda: Client())
+
+
+def test_gcs_loader_rejects_oversize_before_download(monkeypatch):
+    blob = _Blob(rt.REPORT_MAX_BYTES + 1)
+    _patch_gcs(monkeypatch, blob)
+    with pytest.raises(ValueError, match="bytes"):
+        rt.gcs_report_loader("gs://b/x/creative_eval_report.json")
+    assert blob.reloaded and not blob.downloaded
+    small = _Blob(10, '{"judge_model": "m"}')
+    _patch_gcs(monkeypatch, small)
+    assert rt.gcs_report_loader("gs://b/x/creative_eval_report.json") == {
+        "judge_model": "m"
+    }
+
+
+def test_oversize_report_fails_soft_through_the_route(monkeypatch):
+    _patch_gcs(monkeypatch, _Blob(rt.REPORT_MAX_BYTES + 1))
+
+    async def go():
+        h = Harness()
+        rt.configure(session_service=h.svc, store=h.store, report_bucket=BUCKET)
+        await h.session(state=_state(with_report=False))
+        r = await h.put()
+        assert r.status_code == 200
+        assert r.json()["judge_overall"] is None
+        assert r.json()["judge_source"] == "none"
+
+    run(go)
+
+
+def test_judge_source_prefers_the_gcs_report_over_state():
+    async def go():
+        h = Harness()
+        await h.session()  # state has both the report and a trusted uri
+        assert (await h.put()).json()["judge_source"] == "gcs"
+        state = _state()
+        del state["eval_report_gcs_uri"]
+        await h.session(sid="s2", state=state)
+        assert (await h.put(sid="s2")).json()["judge_source"] == "state"
+        state["eval_report_gcs_uri"] = "gs://other/x/creative_eval_report.json"
+        await h.session(sid="s3", state=state)
+        assert (await h.put(sid="s3")).json()["judge_source"] == "state"
+
+    run(go)
+
+
+def test_note_is_bounded_by_the_body_schema():
+    async def go():
+        h = Harness()
+        await h.session()
+        assert (await h.put(note="x" * 4001)).status_code == 422
+        r = await h.put(note="x" * 2001)
+        assert r.json()["detail"]["reason"] == "invalid_note"
+
+    run(go)

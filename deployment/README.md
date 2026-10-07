@@ -1418,11 +1418,24 @@ CREATE TABLE IF NOT EXISTS `$BQ_PROJECT_ID.$BQ_DATASET_ID.creative_ratings` (
   judge_passed BOOL,          -- judge pass verdict, nullable
   judge_gates_passed BOOL,    -- judge's blocking eval gates, nullable (older reports have none)
   judge_model STRING,
+  judge_source STRING,        -- 'gcs' (run's report in the configured bucket) | 'state' | 'none'
   created_at TIMESTAMP,
   updated_at TIMESTAMP
 )
 CLUSTER BY user_id, session_id;
 ```
+
+**Migration: `judge_source` (2026-10-07).** Tables created before this column need it
+added **before** deploying the api that writes it (every rating MERGE names it):
+
+```sql
+ALTER TABLE `$BQ_PROJECT_ID.$BQ_DATASET_ID.creative_ratings`
+  ADD COLUMN IF NOT EXISTS judge_source STRING;
+```
+
+Judge fields are read from the run's GCS report only when `eval_report_gcs_uri` is
+`gs://$GOOGLE_CLOUD_STORAGE_BUCKET/.../creative_eval_report.json` (≤ 5 MB); any other URI
+is ignored and the state copy (client-seedable, `judge_source='state'`) is used instead.
 
 The api SA (`tt-api-sa`) already has `roles/bigquery.dataEditor` + `roles/bigquery.jobUser`
 (Step 1 of the Cloud Run runbook); nothing else is needed. Create the table **before**
@@ -1432,8 +1445,9 @@ deploying the api that writes it (until then a rating save answers 502 `store_fa
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `RATINGS_STORE` | `bigquery` | `bigquery` = the `creative_ratings` table. `memory` = in-process store (local dev; lost on restart). `bigquery` falls back to `memory` with a warning when `BQ_PROJECT_ID`/`BQ_DATASET_ID` are unset |
+| `RATINGS_STORE` | `bigquery` | `bigquery` = the `creative_ratings` table. `memory` = in-process store (local dev; lost on restart). `bigquery` falls back to `memory` with a warning when `BQ_PROJECT_ID`/`BQ_DATASET_ID` are unset locally; on Cloud Run (`K_SERVICE` set) that is a startup error |
 | `BQ_TABLE_RATINGS` | `creative_ratings` | Table name in `BQ_DATASET_ID` |
+| `GOOGLE_CLOUD_STORAGE_BUCKET` | (already set) | The only bucket eval reports are read from (local fallback `GCS_BUCKET_NAME`); unset = judge fields only from session state |
 
 Ratings are api-only: the agents never read them, so neither variable is in
 `deploy_agent.py`'s `ENV_VAR_DICT`.

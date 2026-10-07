@@ -26,13 +26,14 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import re
 from collections import OrderedDict
 from collections.abc import Callable, Mapping
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from runserver.calibration import calibration_report
 from runserver.ratings_store import InMemoryRatingsStore, rating_id, utcnow
@@ -47,6 +48,8 @@ NOTE_MAX_CHARS = 2000
 CREATIVE_KEY_MAX_CHARS = 512
 REPORT_KEY = "creative_evaluation_report"
 REPORT_URI_KEY = "eval_report_gcs_uri"
+REPORT_SUFFIX = "/creative_eval_report.json"
+REPORT_MAX_BYTES = 5 * 1024 * 1024
 _REPORT_CACHE_MAX = 64
 _GS_RE = re.compile(r"^gs://(?P<bucket>[^/]+)/(?P<path>.+)$")
 
@@ -238,6 +241,7 @@ def to_public(row: Mapping[str, Any]) -> dict:
             "judge_passed",
             "judge_gates_passed",
             "judge_model",
+            "judge_source",
             "created_at",
             "updated_at",
         )
@@ -245,14 +249,42 @@ def to_public(row: Mapping[str, Any]) -> dict:
     }
 
 
+def configured_report_bucket(env: Mapping[str, str] = os.environ) -> str | None:
+    """The run-output bucket eval reports live in (``GOOGLE_CLOUD_STORAGE_BUCKET``,
+    the var deploy ships; local fallback ``GCS_BUCKET_NAME``)."""
+    raw = env.get("GOOGLE_CLOUD_STORAGE_BUCKET") or env.get("GCS_BUCKET_NAME") or ""
+    return raw.strip().removeprefix("gs://").strip("/") or None
+
+
+def allowed_report_uri(uri: Any, bucket: str | None) -> bool:
+    """Only ``gs://<configured bucket>/.../creative_eval_report.json``.
+
+    ``eval_report_gcs_uri`` is session state, which a client can seed via
+    createSession, so it must never be able to point the api at an arbitrary
+    object (or at a bucket the api SA happens to read)."""
+    if not (isinstance(uri, str) and bucket):
+        return False
+    m = _GS_RE.match(uri)
+    if not m or m["bucket"] != bucket:
+        return False
+    path = m["path"]
+    return path.endswith(REPORT_SUFFIX) and ".." not in path.split("/")
+
+
 def gcs_report_loader(uri: str) -> Any:
-    """Download + parse an eval report JSON from ``gs://`` (blocking)."""
+    """Download + parse an eval report JSON from ``gs://`` (blocking); refuses
+    objects over ``REPORT_MAX_BYTES``."""
     from agent_common.clients import get_gcs_client
 
     m = _GS_RE.match(uri)
     if not m:
         raise ValueError(f"not a gs:// uri: {uri!r}")
     blob = get_gcs_client().bucket(m["bucket"]).blob(m["path"])
+    blob.reload()
+    if blob.size is None or blob.size > REPORT_MAX_BYTES:
+        raise ValueError(
+            f"eval report {uri} is {blob.size} bytes (max {REPORT_MAX_BYTES})"
+        )
     return json.loads(blob.download_as_text())
 
 
@@ -261,6 +293,7 @@ def gcs_report_loader(uri: str) -> Any:
 _SESSION_SERVICE: Any = None
 _STORE: Any = InMemoryRatingsStore()
 _REPORT_LOADER: ReportLoader = gcs_report_loader
+_REPORT_BUCKET: str | None = configured_report_bucket()
 # Eval reports are written once at the end of a run: cache the parsed JSON by URI.
 _REPORT_CACHE: OrderedDict[str, Any] = OrderedDict()
 
@@ -270,23 +303,17 @@ def configure(
     session_service,
     store,
     report_loader: ReportLoader | None = None,
+    report_bucket: str | None = None,
 ) -> None:
-    global _SESSION_SERVICE, _STORE, _REPORT_LOADER
+    """``report_bucket`` defaults to ``configured_report_bucket()``."""
+    global _SESSION_SERVICE, _STORE, _REPORT_LOADER, _REPORT_BUCKET
     _SESSION_SERVICE, _STORE = session_service, store
     _REPORT_LOADER = report_loader or gcs_report_loader
+    _REPORT_BUCKET = report_bucket or configured_report_bucket()
     _REPORT_CACHE.clear()
 
 
-async def load_report(state: Mapping[str, Any]) -> Any:
-    """The session's eval report: state first, else its GCS JSON. Fail soft: a
-    missing/unreadable report gives None (the rating is stored without judge
-    fields rather than refused)."""
-    report = _as_obj(state.get(REPORT_KEY))
-    if isinstance(report, Mapping):
-        return report
-    uri = state.get(REPORT_URI_KEY)
-    if not isinstance(uri, str) or not uri.startswith("gs://"):
-        return None
+async def _load_gcs_report(uri: str) -> Mapping | None:
     if uri in _REPORT_CACHE:
         _REPORT_CACHE.move_to_end(uri)
         return _REPORT_CACHE[uri]
@@ -301,6 +328,27 @@ async def load_report(state: Mapping[str, Any]) -> Any:
     while len(_REPORT_CACHE) > _REPORT_CACHE_MAX:
         _REPORT_CACHE.popitem(last=False)
     return report
+
+
+async def load_report(state: Mapping[str, Any]) -> tuple[Mapping | None, str]:
+    """``(report, judge_source)`` for the session.
+
+    The GCS report the run wrote (``eval_report_gcs_uri``, only under the
+    configured bucket with the report filename) wins: ``judge_source="gcs"``.
+    Otherwise the state copy (``"state"``; client-seedable, so the calibration
+    script leaves these out by default), else ``(None, "none")``. Fail soft: an
+    unreadable report gives no judge fields rather than a refused rating."""
+    uri = state.get(REPORT_URI_KEY)
+    if allowed_report_uri(uri, _REPORT_BUCKET):
+        report = await _load_gcs_report(str(uri))
+        if report is not None:
+            return report, "gcs"
+    elif uri:
+        log.warning("ratings: ignoring eval_report_gcs_uri outside the report bucket")
+    report = _as_obj(state.get(REPORT_KEY))
+    if isinstance(report, Mapping):
+        return report, "state"
+    return None, "none"
 
 
 # --- Routes -----------------------------------------------------------------------
@@ -322,7 +370,8 @@ class _RatingBody(BaseModel):
     kind: Any = None
     verdict: Any = None
     score: Any = None
-    note: Any = None
+    # Typed (bounds the body); the 2000-char business cap is in validate_rating.
+    note: str | None = Field(default=None, max_length=4000)
 
 
 async def _get_session(app_name: str, user_id: str, session_id: str):
@@ -351,13 +400,15 @@ async def http_put_rating(user_id: str, session_id: str, body: _RatingBody) -> d
     info = creative_index(state).get(fields["creative_key"])
     if info is None:
         raise _error(400, "unknown_creative_key", "creative_key is not in this run")
+    report, judge_source = await load_report(state)
     now = utcnow()
     row = {
         "rating_id": rating_id(session_id, fields["creative_key"], user_id),
         "session_id": session_id,
         "user_id": user_id,
         **fields,
-        **judge_fields(await load_report(state), info),
+        **judge_fields(report, info),
+        "judge_source": judge_source if report is not None else "none",
         "created_at": now,
         "updated_at": now,
     }

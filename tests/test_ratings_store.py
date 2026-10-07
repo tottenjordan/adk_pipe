@@ -29,6 +29,7 @@ def _row(**over) -> dict:
         "judge_passed": True,
         "judge_gates_passed": None,
         "judge_model": "m",
+        "judge_source": "gcs",
         "created_at": T0,
         "updated_at": T0,
     }
@@ -133,3 +134,17 @@ def test_calibration_sql_scoped_or_global():
     assert "a@x.com" not in sql
     sql, params = rs.build_calibration_sql("p.d.r")
     assert "WHERE" not in sql and params == []
+
+
+def test_missing_bq_env_fails_loudly_on_cloud_run():
+    with pytest.raises(RuntimeError, match="BQ_PROJECT_ID"):
+        rs.build_store_from_env({"K_SERVICE": "trend-trawler-api"})
+    with pytest.raises(RuntimeError, match="BQ_DATASET_ID"):
+        rs.build_store_from_env({"K_SERVICE": "api", "BQ_PROJECT_ID": "p"})
+    # an explicit memory store is still allowed on Cloud Run
+    mode, _ = rs.build_store_from_env({"K_SERVICE": "api", "RATINGS_STORE": "memory"})
+    assert mode == "memory"
+    mode, _ = rs.build_store_from_env(
+        {"K_SERVICE": "api", "BQ_PROJECT_ID": "p", "BQ_DATASET_ID": "d"}
+    )
+    assert mode == "bigquery"

@@ -124,7 +124,6 @@ describe("CreativeRatings", () => {
         appName="creative_agent"
         sessionId="s1"
         byKey={{ "copy:3": { creative_key: "copy:3", kind: "ad_copy", verdict: "pass", score: 5, note: null } }}
-        loaded
         onChange={vi.fn()}
       />
     );
@@ -136,7 +135,7 @@ describe("CreativeRatings", () => {
 
   it("omits the ad copy control without a paired copy", async () => {
     render(
-      <CreativeRatings proof={proof()} appName="creative_agent" sessionId="s1" byKey={{}} loaded onChange={vi.fn()} />
+      <CreativeRatings proof={proof()} appName="creative_agent" sessionId="s1" byKey={{}} onChange={vi.fn()} />
     );
     await waitFor(() => expect(screen.queryByRole("button", { name: "Save ad copy rating" })).toBeNull());
     expect(screen.getByRole("button", { name: "Save visual rating" })).toBeInTheDocument();
@@ -173,5 +172,35 @@ describe("ProofGrid rated mark", () => {
       <ProofGrid proofs={proofs} sort="pipeline" onSortChange={vi.fn()} imageUrlFor={() => null} onOpen={vi.fn()} itemRef={() => null} />
     );
     expect(screen.queryByText("Rated")).toBeNull();
+  });
+});
+
+describe("RatingControl draft sync", () => {
+  const saved = (verdict: "pass" | "fail", note = ""): Rating => ({
+    creative_key: KEY,
+    kind: "visual",
+    verdict,
+    score: null,
+    note: note || null,
+  });
+  const el = (s?: Rating) => (
+    <RatingControl appName="creative_agent" sessionId="s1" creativeKey={KEY} kind="visual" title="Visual" saved={s} onChange={vi.fn()} />
+  );
+
+  it("follows a saved rating that arrives after mount while untouched", () => {
+    const { rerender } = render(el(undefined));
+    expect(screen.getByRole("button", { name: "Pass" })).toHaveAttribute("aria-pressed", "false");
+    rerender(el(saved("pass", "loaded later")));
+    expect(screen.getByRole("button", { name: "Pass" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByLabelText("Note (optional)")).toHaveValue("loaded later");
+  });
+
+  it("keeps the user's edits when the saved rating changes afterwards", () => {
+    const { rerender } = render(el(undefined));
+    fireEvent.click(screen.getByRole("button", { name: "Fail" }));
+    fireEvent.change(screen.getByLabelText("Note (optional)"), { target: { value: "mine" } });
+    rerender(el(saved("pass", "server")));
+    expect(screen.getByRole("button", { name: "Fail" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByLabelText("Note (optional)")).toHaveValue("mine");
   });
 });

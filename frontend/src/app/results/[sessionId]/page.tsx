@@ -284,7 +284,6 @@ export default function ResultsPage({
                 appName={appName}
                 sessionId={sessionId}
                 byKey={ratings.byKey}
-                loaded={ratings.loaded}
                 onChange={ratings.setRating}
               />
             )}

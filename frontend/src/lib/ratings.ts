@@ -22,6 +22,8 @@ export interface Rating {
   judge_passed?: boolean | null;
   judge_gates_passed?: boolean | null;
   judge_model?: string | null;
+  /** Where the judge fields came from: the run's GCS report, session state, or none. */
+  judge_source?: "gcs" | "state" | "none" | null;
   created_at?: string;
   updated_at?: string;
 }

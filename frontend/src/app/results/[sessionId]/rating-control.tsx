@@ -39,7 +39,6 @@ export type SetRating = (creativeKey: string, rating: Rating | undefined) => voi
  */
 export function useSessionRatings(sessionId: string, enabled: boolean) {
   const [byKey, setByKey] = useState<Record<string, Rating>>({});
-  const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
     if (!enabled) return;
@@ -50,9 +49,6 @@ export function useSessionRatings(sessionId: string, enabled: boolean) {
       })
       .catch(() => {
         /* fail soft: rating still works, only the existing ones aren't shown */
-      })
-      .finally(() => {
-        if (!cancelled) setLoaded(true);
       });
     return () => {
       cancelled = true;
@@ -68,7 +64,7 @@ export function useSessionRatings(sessionId: string, enabled: boolean) {
     });
   }, []);
 
-  return { byKey, loaded, setRating };
+  return { byKey, setRating };
 }
 
 function SavedSummary({ rating }: { rating?: Rating }) {
@@ -110,12 +106,22 @@ export function RatingControl({
 }) {
   const id = useId();
   const [draft, setDraft] = useState<RatingDraft>(() => draftFrom(saved));
+  // Follow `saved` (the ratings list arriving after the dialog opened, the server's
+  // answer) only until the user edits; after that the draft is theirs, so a failed
+  // save's revert never wipes what they typed.
+  const [touched, setTouched] = useState(false);
+  const [syncedFrom, setSyncedFrom] = useState(saved);
+  if (!touched && saved !== syncedFrom) {
+    setSyncedFrom(saved);
+    setDraft(draftFrom(saved));
+  }
   const [status, setStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const subject = title.toLowerCase();
   const payload = buildRatingPayload(appName, creativeKey, kind, draft);
   const canSave = payload !== null && status !== "saving" && isDirty(draft, saved);
 
   const edit = (patch: Partial<RatingDraft>) => {
+    setTouched(true);
     setDraft((d) => ({ ...d, ...patch }));
     if (status !== "saving") setStatus("idle");
   };
@@ -192,21 +198,19 @@ export function RatingControl({
 /**
  * The "Your rating" section of the proof-detail dialog: one control for the
  * paired ad copy (when there is one) and one for the visual. Keyed per creative
- * (and on the first ratings load) so each starts from its saved rating.
+ * only, so each control keeps its draft while the ratings list loads or saves.
  */
 export function CreativeRatings({
   proof,
   appName,
   sessionId,
   byKey,
-  loaded,
   onChange,
 }: {
   proof: Proof;
   appName: string;
   sessionId: string;
   byKey: Record<string, Rating>;
-  loaded: boolean;
   onChange: SetRating;
 }) {
   const keys = creativeKeysFor(proof);
@@ -220,7 +224,7 @@ export function CreativeRatings({
       </div>
       {keys.adCopy && (
         <RatingControl
-          key={`${keys.adCopy}:${loaded}`}
+          key={keys.adCopy}
           appName={appName}
           sessionId={sessionId}
           creativeKey={keys.adCopy}
@@ -231,7 +235,7 @@ export function CreativeRatings({
         />
       )}
       <RatingControl
-        key={`${keys.visual}:${loaded}`}
+        key={keys.visual}
         appName={appName}
         sessionId={sessionId}
         creativeKey={keys.visual}

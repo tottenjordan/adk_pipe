@@ -40,6 +40,9 @@ RATING_COLUMN_TYPES = {
     "judge_passed": "BOOL",
     "judge_gates_passed": "BOOL",
     "judge_model": "STRING",
+    # Where the judge fields came from: 'gcs' (the run's report under the configured
+    # bucket), 'state' (session state, client-seedable) or 'none' (2026-10-07).
+    "judge_source": "STRING",
     "created_at": "TIMESTAMP",
     "updated_at": "TIMESTAMP",
 }
@@ -53,6 +56,7 @@ UPDATABLE = (
     "judge_passed",
     "judge_gates_passed",
     "judge_model",
+    "judge_source",
     "updated_at",
 )
 
@@ -140,7 +144,7 @@ def build_calibration_sql(table: str, user_id: str | None = None) -> tuple[str, 
     where = "WHERE user_id = @user_id" if user_id else ""
     sql = f"""
         SELECT session_id, kind, verdict, score, judge_overall, judge_passed,
-               judge_gates_passed
+               judge_gates_passed, judge_source
         FROM `{table}`
         {where}
         """
@@ -214,13 +218,19 @@ class BigQueryRatingsStore:
 def build_store_from_env(env: Mapping[str, str] = os.environ) -> tuple[str, Any]:
     """``(mode, store)`` for ``RATINGS_STORE`` (``bigquery`` default | ``memory``).
 
-    ``bigquery`` without ``BQ_PROJECT_ID``/``BQ_DATASET_ID`` (local dev) falls back
-    to ``memory`` with a warning, like ``BANDIT_DEPLOY_MODE``."""
+    ``bigquery`` without ``BQ_PROJECT_ID``/``BQ_DATASET_ID`` falls back to ``memory``
+    with a warning locally, but raises on Cloud Run (``K_SERVICE`` set)."""
     mode = (env.get("RATINGS_STORE") or "bigquery").strip().lower()
     if mode not in ("bigquery", "memory"):
         raise RuntimeError(f"RATINGS_STORE must be bigquery|memory, got {mode!r}")
     if mode == "bigquery":
         missing = [n for n in ("BQ_PROJECT_ID", "BQ_DATASET_ID") if not env.get(n)]
+        if missing and env.get("K_SERVICE"):
+            # On Cloud Run a silent in-memory fallback would lose every rating.
+            raise RuntimeError(
+                f"RATINGS_STORE=bigquery needs {', '.join(missing)} on Cloud Run "
+                "(set RATINGS_STORE=memory to opt out explicitly)"
+            )
         if missing:
             log.warning(
                 "creative ratings: %s unset; falling back to RATINGS_STORE=memory",

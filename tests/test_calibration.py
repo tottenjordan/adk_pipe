@@ -137,14 +137,20 @@ def test_calibration_script_reads_a_csv_export(tmp_path, capsys):
 
     path = tmp_path / "ratings.csv"
     path.write_text(
-        "session_id,user_id,kind,verdict,score,judge_overall,judge_passed,judge_gates_passed\n"
-        "s1,a@x.com,visual,pass,5,0.9,true,\n"
-        "s1,a@x.com,visual,fail,1,0.3,false,\n"
-        "s2,B@x.com,ad_copy,pass,,0.8,true,true\n"
+        "session_id,user_id,kind,verdict,score,judge_overall,judge_passed,judge_gates_passed,judge_source\n"
+        "s1,a@x.com,visual,pass,5,0.9,true,,gcs\n"
+        "s1,a@x.com,visual,fail,1,0.3,false,,gcs\n"
+        "s2,B@x.com,ad_copy,pass,,0.8,true,true,gcs\n"
+        "s3,a@x.com,visual,fail,1,0.99,true,,state\n"
+        "s4,a@x.com,visual,pass,,,,,none\n"
     )
     assert mod.main(["--csv", str(path)]) == 0
     out = capsys.readouterr().out
-    assert "Ratings: 3 across 2 runs" in out
+    assert "Ratings: 3 across 2 runs" in out  # state/none-sourced left out
+    assert "excluded 2 ratings" in out
+    assert mod.main(["--csv", str(path), "--include-all"]) == 0
+    assert "Ratings: 5 across 4 runs" in capsys.readouterr().out
     assert mod.main(["--csv", str(path), "--user", "b@x.com", "--json"]) == 0
     report = __import__("json").loads(capsys.readouterr().out)
     assert report["n"] == 1 and report["by_kind"]["ad_copy"]["n"] == 1
+    assert report["excluded_untrusted"] == 0

@@ -74,5 +74,5 @@ make_table "${BQ_TABLE_BANDIT_METRICS}" \
 # Human creative ratings, one row per (session, creative, user) (the api MERGE-upserts
 # on rating_id); judge_* snapshot the LLM judge's verdict for calibration.
 make_table "${BQ_TABLE_RATINGS}" \
-  rating_id:STRING,session_id:STRING,app_name:STRING,creative_key:STRING,kind:STRING,user_id:STRING,verdict:STRING,score:INTEGER,note:STRING,judge_overall:FLOAT,judge_passed:BOOLEAN,judge_gates_passed:BOOLEAN,judge_model:STRING,created_at:TIMESTAMP,updated_at:TIMESTAMP \
+  rating_id:STRING,session_id:STRING,app_name:STRING,creative_key:STRING,kind:STRING,user_id:STRING,verdict:STRING,score:INTEGER,note:STRING,judge_overall:FLOAT,judge_passed:BOOLEAN,judge_gates_passed:BOOLEAN,judge_model:STRING,judge_source:STRING,created_at:TIMESTAMP,updated_at:TIMESTAMP \
   --clustering_fields user_id,session_id
