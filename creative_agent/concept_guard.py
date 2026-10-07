@@ -19,27 +19,36 @@
      (quotes of the brand, the product or the concept's ``brand_cue`` — a
      logo, a product name — are always allowed);
    * ``trend_motif`` must not be empty;
-   * at most ``max_text_concepts`` concepts carry quoted headline/CTA (or
-     unknown) in-image text — brand/product quotes never count;
+   * at most ``max_text_concepts`` concepts carry quoted headline/CTA in-image
+     text (or unchecked text on an unpaired concept) — brand/product quotes
+     and concepts already flagged for a mismatch never count;
    * at most one centred hero composition per set.
 
    In-image text heuristic (``in_image_quotes``): a double-quoted span
    (straight or curly; it must contain a letter) is in-image text ONLY when a
    text cue word (reading/reads/says/text/headline/tagline/sign/caption/
    lettering/written/words/title/label/slogan/banner/poster …, see
-   ``_TEXT_CUE``) appears within the ``_CUE_WINDOW_WORDS`` (6) words before it.
+   ``_TEXT_CUE``) appears within the ``_CUE_WINDOW_WORDS`` (3) words before it
+   (after any earlier quote; a quote joined to an in-image one by "and"/"or"
+   inherits it). Idioms are not cues: a cue followed by "of"/"style" ("sign of
+   the times", "title of the song", "poster style"), a hyphenated compound
+   ("label-free", "title-card") and "vibe/mood/feel … reads/says".
    Any other quoted span — ``bathed in "golden hour" light``, a quoted style
    name — is descriptive and ignored entirely (neither a mismatch nor counted
    toward the cap). Known limits: unquoted text instructions, single-quoted
    text (ambiguous with apostrophes) and quoted text whose cue comes only
    after it are missed. Meme/comic concepts are fully exempt: by
-   ``visual_style`` containing a meme/comic palette family
+   ``visual_style`` containing "meme" or a meme/comic palette family
    (``EXEMPT_STYLE_FAMILIES``), else by the narrow prompt phrases "meme
-   caption" / "speech bubble" / "comic panel" (never bare "caption"/"meme",
-   which the guide's negative-space wording uses). The centred hero check is
-   keyword based and ignores "off-centre", negations ("not centred", "avoid
-   centring/a centred …"), "small … in a wide" framing and sentences about
-   text, type or logos; it cannot judge an unlabelled composition. Visual
+   caption" / "speech bubble|balloon" / "thought bubble" / "comic panel" /
+   "top|bottom text" / "Impact font" (never bare "caption"/"meme", which the
+   guide's negative-space wording uses). The centred hero check is keyword
+   based: "dead centre" / "centre-framed" / "symmetrical hero" always count; a
+   bare "centred" needs a subject/composition word in the sentence. It ignores
+   "off-centre", "centred between", "camera centred on", "lower/upper/left/
+   right third" placements, negations ("not centred", "avoid centring/a
+   centred …"), "small … in a wide" framing and sentences about text, type or
+   logos; it cannot judge an unlabelled composition. Visual
    quality, brand-cue fit, avoid/fit_mode adherence are left to the LLM critic
    and the eval judge.
 
@@ -67,22 +76,54 @@ _TEXT_CUE = re.compile(
     r"caption|lettering|letters|written|words|title|label|slogan|banner|poster)$",
     re.IGNORECASE,
 )
-_CUE_WINDOW_WORDS = 6
+_CUE_WINDOW_WORDS = 3
+# Words (a hyphenated compound is ONE word, so "label-free" / "title-card" are
+# not cues) used for the cue window.
+_WORD = re.compile(r"[A-Za-z]+(?:-[A-Za-z]+)*")
+# A cue followed by one of these is an idiom, not text: "sign of the times",
+# "title of the song", "banner of light", "poster style".
+_NOT_CUE_BEFORE = frozenset({"of", "style", "styled"})
+# "the vibe reads …" / "the mood says …" describe a feeling, not text.
+_SPEECH_CUES = frozenset({"reading", "reads", "read", "says", "saying"})
+_MOOD_WORDS = frozenset(
+    {"vibe", "vibes", "mood", "feel", "feeling", "tone", "energy", "atmosphere"}
+)
+# Only punctuation / "and" / "or" between two quotes: the second inherits the
+# first's in-image status (``reads "A" and "B"``).
+_QUOTE_JOINER = re.compile(
+    r"^[\s,;:&/+\-–—]*(?:(?:and|or|then|plus)\b[\s,;:&/+\-–—]*)*$", re.IGNORECASE
+)
 # A meme caption / comic speech bubble may be new short text (the guide's
 # exception): such concepts are exempt from the quote match AND the text cap.
-# Primary signal: the concept's visual_style names one of these palette
-# families (creative_agent.style_shortlist.STYLE_GROUPS); fallback: the narrow
-# prompt phrases below (never bare "caption"/"meme").
+# Primary signal: the concept's visual_style contains "meme" or names one of
+# these palette families (creative_agent.style_shortlist.STYLE_GROUPS);
+# fallback: the narrow prompt phrases below (never bare "caption"/"meme").
 EXEMPT_STYLE_FAMILIES: tuple[str, ...] = ("Meme aesthetic", "Comic panel")
 _MEME_OR_COMIC = re.compile(
-    r"\b(?:meme[- ]captions?|speech[- ]bubbles?|comic[- ]panels?)\b", re.IGNORECASE
-)
-# A centred hero composition ("off-centre" excluded).
-_CENTRED = re.compile(
-    r"(?<!off-)(?<!off )\b(?:cent(?:er|r)ed|cent(?:er|re)[- ]framed|"
-    r"symmetrical hero|dead[- ]cent(?:er|re))\b",
+    r"\b(?:meme[- ]captions?|speech[- ](?:bubbles?|balloons?)|thought[- ]bubbles?|"
+    r"comic[- ]panels?|top[- ]text|bottom[- ]text|impact[- ]font)\b",
     re.IGNORECASE,
 )
+# Unambiguous centred-hero phrases.
+_STRONG_CENTRED = re.compile(
+    r"(?<!off-)(?<!off )\b(?:cent(?:er|re)[- ]framed|symmetrical hero|"
+    r"dead[- ]cent(?:er|re))\b",
+    re.IGNORECASE,
+)
+# A bare "centred"/"centered" ("off-centre", "centred between …" and "camera
+# centred on …" excluded) — counts only next to a subject/composition word.
+_BARE_CENTRED = re.compile(
+    r"(?<!off-)(?<!off )(?<!camera )(?<!camera is )\bcent(?:er|r)ed\b"
+    r"(?!\s+between\b)",
+    re.IGNORECASE,
+)
+_HERO_CONTEXT = re.compile(
+    r"\b(?:subject|product|hero|figure|person|character|object|composition|"
+    r"framing|framed|frame|shot|portrait|symmetr\w*)\b",
+    re.IGNORECASE,
+)
+# "centred in the lower third" places the subject on a third line.
+_THIRD = re.compile(r"\b(?:lower|upper|left|right|top|bottom)\s+third\b", re.I)
 # A sentence about text placement ("the headline is centred at the bottom") is
 # not a hero composition.
 _TEXT_WORDS = re.compile(
@@ -171,37 +212,71 @@ def in_image_quotes(prompt: str) -> list[str]:
     """The quoted spans of ``prompt`` that are in-image text (see module doc).
 
     A span counts only when a ``_TEXT_CUE`` word is among the
-    ``_CUE_WINDOW_WORDS`` words before it (quote marks stripped, so a cue can
-    carry over an earlier quote: ``reads "A" and "B"``).
+    ``_CUE_WINDOW_WORDS`` words between the previous quote (or the start) and
+    it — not followed by "of"/"style" and not a "vibe/mood … reads" idiom — or
+    when only punctuation/"and"/"or" separates it from a preceding in-image
+    quote (``reads "A" and "B"``).
     """
     found: list[str] = []
+    prev_end = 0
+    prev_in_image = False
     for match in _QUOTED.finditer(prompt):
+        segment = prompt[prev_end : match.start()]
+        in_image = _has_text_cue(segment) or (
+            prev_in_image and prev_end > 0 and _QUOTE_JOINER.match(segment) is not None
+        )
         quote = (match.group(1) or match.group(2)).strip()
-        if not re.search(r"[A-Za-z]", quote):
-            continue
-        before = re.findall(r"[A-Za-z]+", prompt[: match.start()])
-        if any(_TEXT_CUE.match(w) for w in before[-_CUE_WINDOW_WORDS:]):
+        if in_image and re.search(r"[A-Za-z]", quote):
             found.append(quote)
+        prev_end, prev_in_image = match.end(), in_image
     return found
+
+
+def _has_text_cue(segment: str) -> bool:
+    """A real text cue is among the last ``_CUE_WINDOW_WORDS`` words of ``segment``."""
+    words = [w.lower() for w in _WORD.findall(segment)]
+    for i in range(max(0, len(words) - _CUE_WINDOW_WORDS), len(words)):
+        word = words[i]
+        if not _TEXT_CUE.match(word):
+            continue
+        if i + 1 < len(words) and words[i + 1] in _NOT_CUE_BEFORE:
+            continue
+        if word in _SPEECH_CUES and i > 0 and words[i - 1] in _MOOD_WORDS:
+            continue
+        return True
+    return False
 
 
 def is_meme_or_comic(prompt: str, visual_style: str = "") -> bool:
     """The concept is a meme caption / comic speech bubble (exempt).
 
-    True when ``visual_style`` contains a meme/comic palette family name
-    (case-insensitive), else when the prompt uses a narrow meme/comic phrase.
+    True when ``visual_style`` contains "meme" or a meme/comic palette family
+    name (case-insensitive), else when the prompt uses a narrow meme/comic
+    phrase (``_MEME_OR_COMIC``).
     """
     style = visual_style.lower()
-    if any(family.lower() in style for family in EXEMPT_STYLE_FAMILIES):
+    if "meme" in style or any(
+        family.lower() in style for family in EXEMPT_STYLE_FAMILIES
+    ):
         return True
     return _MEME_OR_COMIC.search(prompt) is not None
 
 
 def is_centred_hero(prompt: str) -> bool:
-    """A sentence of ``prompt`` (outside quotes) describes a centred hero."""
+    """A sentence of ``prompt`` (outside quotes) describes a centred hero.
+
+    A strong phrase ("dead centre", "centre-framed", "symmetrical hero") is
+    enough; a bare "centred" needs a subject/composition word in the sentence
+    and never counts as "centred between …", "camera centred on …" or with a
+    "lower/upper/left/right third" placement.
+    """
     unquoted = _QUOTED.sub(" ", prompt)
     return any(
-        _CENTRED.search(sentence)
+        (
+            _STRONG_CENTRED.search(sentence)
+            or (_BARE_CENTRED.search(sentence) and _HERO_CONTEXT.search(sentence))
+        )
+        and not _THIRD.search(sentence)
         and not _TEXT_WORDS.search(sentence)
         and not _NEGATED_CENTRE.search(sentence)
         and not _SMALL_IN_WIDE.search(sentence)
@@ -265,8 +340,9 @@ def concept_issues(
     action — case, punctuation and whitespace insensitive, substring either
     way; an unpaired concept is checked against its own headline/CTA fields,
     and skipped when it has neither; ``trend_motif`` is non-empty. Per set: the
-    concepts with headline/CTA/unknown in-image text (meme/comic exempt;
-    brand/product quotes never count) beyond the first ``max_text_concepts``,
+    concepts with copy-matching (or, when unpaired, unchecked) in-image text
+    (meme/comic exempt; brand/product quotes and concepts already flagged for
+    a mismatch never count) beyond the first ``max_text_concepts``,
     and every centred hero after the first, are flagged. Only concepts with
     issues are returned ({} = clean). Never raises.
     """
@@ -291,9 +367,11 @@ def concept_issues(
         )
 
         allowed = _paired_copy_texts(concept, copies_by_id)
+        mismatched = False
         if allowed:
             for quote in quotes:
                 if not _matches(quote, allowed):
+                    mismatched = True
                     choices = " or ".join(f'"{t}"' for t in allowed)
                     found.append(
                         f'in-image text "{quote}" is not the paired ad copy\'s '
@@ -307,7 +385,9 @@ def concept_issues(
                 "element and write it verbatim into image_generation_prompt."
             )
 
-        if quotes:
+        # A mismatched concept is handled by its mismatch issue (the fix keeps
+        # or drops its text), so it never pushes a legitimate one over the cap.
+        if quotes and not mismatched:
             text_concepts += 1
             if text_concepts > max_text_concepts:
                 found.append(

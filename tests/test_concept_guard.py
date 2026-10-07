@@ -1,12 +1,15 @@
 """Deterministic guards on the final visual concepts: the trend-motif / product /
 brand-cue prompt repair (Task 4b) and the concept_gate checks (concept_issues)."""
 
+import pytest
+
 from creative_agent.concept_guard import (
     concept_issues,
     concept_keys,
     ensure_trend_and_product,
     format_concept_issues,
     is_centred_hero,
+    is_meme_or_comic,
     restore_unflagged_concepts,
 )
 
@@ -240,7 +243,7 @@ def test_headline_quote_with_trailing_punctuation_matches():
     assert concept_issues([concept], copies) == {}
 
 
-def test_in_image_quotes_need_a_cue_within_six_words():
+def test_in_image_quotes_need_a_cue_within_three_words():
     from creative_agent.concept_guard import in_image_quotes
 
     assert in_image_quotes('A sign reading "Open"') == ["Open"]
@@ -356,3 +359,168 @@ def test_restore_unflagged_concepts_only_takes_flagged_ones():
     # Nothing usable before: the fixer's output is returned as is.
     restored, notes = restore_unflagged_concepts(None, after, ["2"])
     assert len(restored["visual_concepts"]) == 3 and notes == []
+
+
+# --- false-positive regressions (concept_gate audit) ------------------------
+
+AUDIT_COPIES = [
+    {"original_id": str(i), "headline": h, "call_to_action": c}
+    for i, (h, c) in enumerate(
+        [
+            ("Play Your Era.", "Shop the SE CE24"),
+            ("Every Fret, Your Story", "Find yours"),
+            ("Built to be heard", "Learn more"),
+            ("Own the stage!", "Shop now"),
+        ],
+        1,
+    )
+]
+AUDIT_BRAND = "PRS Guitars"
+AUDIT_PRODUCT = "PRS SE CE24 electric guitar"
+
+
+def _audit(i, prompt, style="Editorial photography"):
+    return _concept(str(i), prompt, motif="friendship bracelets", visual_style=style)
+
+
+@pytest.mark.parametrize(
+    "prompt",
+    [
+        'The vibe reads "effortless" and loose.',
+        'The mood says "calm" all over.',
+        'A sign of the times: "Y2K revival" fashion everywhere.',
+        'The title of the song "Cruel Summer" inspires the colour palette.',
+        'Poster style, "Wes Anderson" symmetry.',
+        'banner of light, "aurora" streaks',
+        'a label-free bottle, "matte black" finish',
+        'A title-card mood, "golden hour" haze.',
+        'words cannot capture the "wow" moment',
+    ],
+)
+def test_idioms_and_loose_cues_are_not_in_image_text(prompt):
+    from creative_agent.concept_guard import in_image_quotes
+
+    assert in_image_quotes(prompt) == []
+
+
+@pytest.mark.parametrize(
+    ("prompt", "expected"),
+    [
+        ('A neon sign reading "Open"', ["Open"]),
+        ('The headline text reads "Outrun Monday." in bold.', ["Outrun Monday."]),
+        ('small caption "Find yours"', ["Find yours"]),
+        ('Bold lettering: "Shop the SE CE24"', ["Shop the SE CE24"]),
+        ('Sign reading "Play Your Era" and "Shop now"', ["Play Your Era", "Shop now"]),
+        ('A sign reading "Open" beside a "golden hour" glow', ["Open"]),
+    ],
+)
+def test_real_in_image_text_is_still_found(prompt, expected):
+    from creative_agent.concept_guard import in_image_quotes
+
+    assert in_image_quotes(prompt) == expected
+
+
+def test_idiom_quotes_are_neither_mismatch_nor_capped():
+    concepts = [
+        _audit(1, 'Neon sign reading "PLAY YOUR ERA"'),
+        _audit(2, 'Chalkboard sign reading "Find yours"'),
+        _audit(3, 'The vibe reads "effortless".'),
+        _audit(4, 'Poster style, "Wes Anderson" palette'),
+    ]
+    assert (
+        concept_issues(
+            concepts, AUDIT_COPIES, brand=AUDIT_BRAND, target_product=AUDIT_PRODUCT
+        )
+        == {}
+    )
+
+
+def test_mismatch_concept_does_not_push_a_later_one_over_the_cap():
+    concepts = [
+        _audit(1, 'Sign reading "Play Your Era"'),
+        _audit(2, 'A neon sign reading "Speed is life"'),  # mismatch
+        _audit(3, 'Poster says "Learn more"'),
+    ]
+    issues = concept_issues(
+        concepts, AUDIT_COPIES, brand=AUDIT_BRAND, target_product=AUDIT_PRODUCT
+    )
+    assert list(issues) == ["2"]
+    (text,) = _issue_texts(issues, "2")
+    assert text.startswith('in-image text "Speed is life"')
+
+
+def test_cap_still_counts_copy_matching_text_concepts():
+    concepts = [
+        _audit(1, 'Neon sign reading "Play Your Era." over a stage.'),
+        _audit(2, 'Headline text "Every Fret, Your Story" in the sky.'),
+        _audit(3, 'Poster says "Built to be heard!"'),
+        _audit(4, "clean shot"),
+    ]
+    issues = concept_issues(
+        concepts, AUDIT_COPIES, brand=AUDIT_BRAND, target_product=AUDIT_PRODUCT
+    )
+    assert list(issues) == ["3"]
+    assert _issue_texts(issues, "3")[0].startswith("in-image text appears in more")
+
+
+@pytest.mark.parametrize(
+    ("prompt", "style"),
+    [
+        ('Impact-font top text reading "WHEN THE SOLO HITS"', "Lo-fi internet humour"),
+        ('Text reads "nope"', "Lo-fi MEME energy"),
+        ('Bottom text reads "me at 3am"', "Editorial photography"),
+        ('Impact font caption reads "same"', "Editorial photography"),
+        ('A speech balloon says "Again?"', "Graphic novel"),
+        ('A thought bubble reads "one more song"', "Graphic novel"),
+    ],
+)
+def test_wider_meme_and_comic_exemption(prompt, style):
+    assert is_meme_or_comic(prompt, style)
+
+
+def test_impact_font_meme_concept_is_exempt_from_mismatch_and_cap():
+    concepts = [
+        _audit(1, 'Sign reading "Play Your Era"'),
+        _audit(2, 'Text "Find yours"'),
+        _audit(
+            3,
+            'Impact-font top text reading "WHEN THE SOLO HITS"',
+            style="Lo-fi internet humour",
+        ),
+        _audit(4, ""),
+    ]
+    assert (
+        concept_issues(
+            concepts, AUDIT_COPIES, brand=AUDIT_BRAND, target_product=AUDIT_PRODUCT
+        )
+        == {}
+    )
+
+
+@pytest.mark.parametrize(
+    "prompt",
+    [
+        "Subject centred in the lower third of the frame.",
+        "Subject centred in the lower third.",
+        "The bracelet is centered between two hands.",
+        "Camera centered on the crowd, the guitarist small at the left.",
+        "The lamp light is centred.",
+    ],
+)
+def test_centring_phrases_that_are_not_a_centred_hero(prompt):
+    assert not is_centred_hero(prompt)
+
+
+@pytest.mark.parametrize(
+    "prompt",
+    [
+        "Centered hero composition of the guitar.",
+        "Centered composition, guitar hero shot.",
+        "Symmetrical hero framing, centered.",
+        "A centred, symmetrical Wes Anderson framing of the shop.",
+        "Center-framed portrait.",
+        "The skates sit dead center against teal.",
+    ],
+)
+def test_centred_hero_still_detected(prompt):
+    assert is_centred_hero(prompt)
