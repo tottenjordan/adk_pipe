@@ -12,7 +12,7 @@
         {
           "rubric_id": "creatives_generated",
           "rubric_content": {
-            "text_property": "The final response MUST indicate that the ad creatives were generated and exported — i.e. it references the produced ad copy and/or visual concepts and the location of the exported artifacts (research report, evaluation report, or HTML gallery)."
+            "text_property": "The final response MUST indicate that the ad creatives were generated and exported \u2014 i.e. it references the produced ad copy and/or visual concepts and the location of the exported artifacts (research report, evaluation report, or HTML gallery)."
           }
         }
       ],
@@ -27,13 +27,13 @@
         {
           "rubric_id": "pipeline_execution",
           "rubric_content": {
-            "text_property": "The agent MUST execute the creative workflow in the correct logical order: first memorize any campaign metadata and trend not already in session state, then call creative_pipeline exactly once (it runs research and saves the research PDF, generates the ad copies, visual concepts and images, then evaluates the creatives and persists the results), then write the final summary."
+            "text_property": "The agent MUST execute the creative workflow in the correct logical order: first memorize any campaign metadata and trend not already in session state, then call creative_pipeline exactly once (it runs research and saves the research PDF, generates the ad copies, visual concepts and images, then evaluates the creatives and persists the results), then answer with the final summary as its final response (the summary is text, not a tool call). Tool calls made INSIDE creative_pipeline by its sub-agents (for example generate_image by the visual generator) are part of that single pipeline call and must NOT be counted as separate root-agent steps or as deviations."
           }
         },
         {
           "rubric_id": "all_tools_used",
           "rubric_content": {
-            "text_property": "The agent MUST call the creative_pipeline tool (exactly once), plus memorize for any campaign field missing from session state."
+            "text_property": "The agent MUST call the creative_pipeline tool (exactly once), plus memorize for any campaign field missing from session state. Tools invoked inside creative_pipeline by its sub-agents (e.g. generate_image) are expected and are not extra root-agent calls."
           }
         }
       ],
