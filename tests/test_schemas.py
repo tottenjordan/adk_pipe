@@ -380,3 +380,48 @@ def test_ad_copy_typicality_bounds_reach_the_model_schema():
     number = next(s for s in prop["anyOf"] if s.get("type") == "number")
     assert (number["minimum"], number["maximum"]) == (0.0, 1.0)
     assert "unexpected" in prop["description"]
+
+
+# --- Brief checklist on final ad copies (research F6) -----------------------
+
+BRIEF_CHECK_ITEMS = [
+    "proposition",
+    "product",
+    "reason_to_believe",
+    "trend_bridge",
+    "tone",
+    "mandatories",
+    "avoid",
+    "cta",
+]
+
+
+def test_brief_check_item_literal():
+    from typing import get_args
+
+    from creative_agent.schemas import BriefCheck, BriefCheckItem
+
+    assert list(get_args(BriefCheckItem)) == BRIEF_CHECK_ITEMS
+    check = BriefCheck(item="cta", passed=False, note="generic 'Learn more'")
+    assert (check.item, check.passed) == ("cta", False)
+    with pytest.raises(ValidationError):
+        BriefCheck(item="headline", passed=True, note="n")
+
+
+def test_final_ad_copy_brief_checks_default_and_round_trip():
+    from creative_agent.agent import BriefCheck, FinalAdCopy
+
+    assert FinalAdCopy(**_final_ad_copy_payload()).brief_checks == []
+    checks = [{"item": i, "passed": True, "note": "ok"} for i in BRIEF_CHECK_ITEMS]
+    final = FinalAdCopy(**_final_ad_copy_payload(brief_checks=checks))
+    assert [c.item for c in final.brief_checks] == BRIEF_CHECK_ITEMS
+    assert all(isinstance(c, BriefCheck) for c in final.brief_checks)
+
+
+def test_brief_check_items_reach_the_model_schema():
+    from creative_agent.schemas import FinalAdCopyList
+
+    defs = FinalAdCopyList.model_json_schema()["$defs"]
+    assert defs["BriefCheck"]["properties"]["item"]["enum"] == BRIEF_CHECK_ITEMS
+    assert "brief_checks" in defs["FinalAdCopy"]["properties"]
+    assert "brief_checks" not in defs["FinalAdCopy"].get("required", [])

@@ -416,7 +416,18 @@ AD_COPY_CRITIC_INSTR = (
         *   **Surprise:** include at least one idea with `typicality` below 0.5, unless every such idea clearly weakens the fit with the brief.
         *   Carry each selected idea's `angle_id` and `typicality` through unchanged (re-rate `typicality` only if you substantially rewrite the idea).
     4.  **Enrich and Critique:** For each selected idea, you must add a high-converting **Call-to-Action (CTA)** and a **Detailed Rationale** explaining the strategic choice.
-    5.  **Strict Output:** Output the final selection as a single JSON object, strictly following the schema in the `<OUTPUT_FORMAT>` block.
+        *   **CTA:** critique and improve every CTA: it must be specific to this offer (never a generic "Learn more"), start with an action verb, match the brief's desired response, and stay within 8 words.
+    5.  **Brief Checklist:** For each final copy, fill `brief_checks` with exactly one entry per item, judged against the FINAL headline, body, caption and CTA:
+        *   `proposition`: delivers the brief's single-minded proposition.
+        *   `product`: names the target product.
+        *   `reason_to_believe`: uses at least one of the brief's reasons to believe.
+        *   `trend_bridge`: connects to the trend through the brief's bridge, in its fit_mode.
+        *   `tone`: matches the brand tone of voice.
+        *   `mandatories`: honours every mandatory.
+        *   `avoid`: contains nothing from the avoid list.
+        *   `cta`: the CTA is specific, starts with an action verb and matches the desired response.
+        Be honest: set `passed` to false whenever an item is not clearly met (a failed item is revised later, a false pass ships a weak ad), and give a short `note` saying why. If the brief is empty, judge the items against the campaign inputs.
+    6.  **Strict Output:** Output the final selection as a single JSON object, strictly following the schema in the `<OUTPUT_FORMAT>` block.
     </INSTRUCTIONS>
 
     <CONTEXT>

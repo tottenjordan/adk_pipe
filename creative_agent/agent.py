@@ -33,6 +33,7 @@ from .schemas import (  # noqa: F401
     AdCopy,
     AdCopyList,
     BrandCues,
+    BriefCheck,
     CreativeAngle,
     CreativeBrief,
     FinalAdCopy,

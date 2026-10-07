@@ -44,3 +44,22 @@ def test_every_brace_is_a_state_token(name):
         assert re.fullmatch(r"[A-Za-z_]\w*\??", token), (name, token)
     stripped = _TOKEN.sub("", instr)
     assert "{" not in stripped and "}" not in stripped, name
+
+
+def test_critic_fills_one_brief_check_per_item():
+    from typing import get_args
+
+    from creative_agent.schemas import BriefCheckItem
+
+    instr = prompts.AD_COPY_CRITIC_INSTR
+    assert "fill `brief_checks` with exactly one entry per item" in instr
+    for item in get_args(BriefCheckItem):
+        assert f"*   `{item}`:" in instr, item
+    assert "Be honest: set `passed` to false" in instr
+
+
+def test_critic_critiques_and_improves_every_cta():
+    instr = prompts.AD_COPY_CRITIC_INSTR
+    assert "critique and improve every CTA" in instr
+    for phrase in ("action verb", "desired response", "within 8 words"):
+        assert phrase in instr, phrase
