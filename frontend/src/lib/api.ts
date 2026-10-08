@@ -214,6 +214,41 @@ export class ResumeNotAppliedError extends Error {
   }
 }
 
+/**
+ * Thrown by `resumeRun` when the server rejected the review's edits as invalid
+ * (400, e.g. `invalid_brief` at checkpoint 1) WITHOUT applying anything. Like
+ * `ResumeNotAppliedError` the run is still paused, so the caller re-offers the
+ * review; the message names the offending fields.
+ */
+export class ResumeRejectedError extends ResumeNotAppliedError {
+  /** Per-field errors keyed by the edited object's path (e.g. `angles.0.name`). */
+  readonly fieldErrors: Record<string, string>;
+
+  constructor(message: string, fieldErrors: Record<string, string> = {}) {
+    super(message);
+    this.name = "ResumeRejectedError";
+    this.fieldErrors = fieldErrors;
+  }
+}
+
+/** A 400 body as a `ResumeRejectedError` (message + `detail.errors` by field). */
+async function rejection(res: Response): Promise<ResumeRejectedError> {
+  const fallback = "The review's edits were invalid and weren't applied. Fix them and submit again.";
+  try {
+    const detail = (await res.json())?.detail;
+    const fieldErrors: Record<string, string> = {};
+    if (Array.isArray(detail?.errors)) {
+      for (const e of detail.errors) {
+        if (typeof e?.loc === "string" && typeof e?.msg === "string") fieldErrors[e.loc] ??= e.msg;
+      }
+    }
+    const message = typeof detail?.message === "string" && detail.message ? `${detail.message} Fix it and submit again.` : fallback;
+    return new ResumeRejectedError(message, fieldErrors);
+  } catch {
+    return new ResumeRejectedError(fallback);
+  }
+}
+
 /** Machine-readable `detail.reason` from a 409 body, or null if absent. */
 async function conflictReason(res: Response): Promise<string | null> {
   try {
@@ -250,8 +285,9 @@ export async function resumeRun(
         functionName,
         response,
         functionCallEventId,
-        // Checkpoint-3 direct edits: merged into session state server-side before
-        // the resumed run (see runserver.async_runs). Omitted when absent/empty.
+        // Checkpoint edits (1: report / structured brief; 3: concepts): merged
+        // into session state server-side before the resumed run (see
+        // runserver.async_runs). Omitted when absent/empty.
         ...(edits && edits.length ? { edits } : {}),
       }),
     }
@@ -268,6 +304,7 @@ export async function resumeRun(
     }
     throw new ResumeNotAppliedError();
   }
+  if (res.status === 400) throw await rejection(res);
   if (!res.ok) {
     throw new Error(`Failed to resume run (${res.status}): ${await res.text()}`);
   }

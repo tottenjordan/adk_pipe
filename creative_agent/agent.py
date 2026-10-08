@@ -660,9 +660,10 @@ ad_copy_critic = Agent(
 # Its prompt also reads `{ad_copy_feedback?}` (user feedback). The copy_gate
 # loop neither sets nor relies on it: in creative_agent it is always unset, and
 # reset_copy_state deliberately leaves it alone (it is user input, not gate
-# state). PR 10 (reusing the reviser at interactive checkpoint 2) MUST set it
-# to the checkpoint feedback before the revision and clear it afterwards, or a
-# later gate-driven revision in the same session would replay stale feedback.
+# state). interactive_creative's checkpoint-2 revision sets it (with every copy
+# flagged) via prepare_copy_revision and keeps it afterwards for the visual
+# steps: ad_creative_pipeline (whose gate would replay it) does not run again
+# after checkpoint 2.
 ad_copy_reviser = Agent(
     model=build_gemini(config.worker_model),
     name="ad_copy_reviser",
@@ -742,6 +743,19 @@ def _residual(
     residual = flatten_copy_issues(critique, residual_issues(issues))
     has_brief = parse_brief(state.get("creative_brief")) is not None
     return residual + structural_issues(critique, has_brief=has_brief) or None
+
+
+def residual_copy_issues(state: Mapping[str, Any]) -> list[str] | None:
+    """The copy gate's warning-only residual for the current copies (pure).
+
+    The deterministic issues plus the list-level structural issues, exactly
+    what the gate records as ``ad_copy_critique__issues`` on an "ok" exit;
+    None when clean. Exported via the facade so interactive_creative can
+    re-record it after the checkpoint-2 user revision (no revision loop).
+    """
+    critique = state.get("ad_copy_critique")
+    issues = _copy_issues(state) if is_populated(critique) else {}
+    return _residual(state, critique, issues)
 
 
 def copy_gate_decision(

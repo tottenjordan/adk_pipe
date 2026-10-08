@@ -42,6 +42,7 @@ duplicated) is put back to its pre-revision value.
 import json
 import re
 from collections.abc import Iterable, Mapping, Sequence
+from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any, Literal
 
@@ -539,6 +540,30 @@ def format_copy_issues(copies: Any, issues: Mapping[str, Sequence[object]]) -> s
         lines.append(f"- **{_copy_label(parsed, key)}:**")
         lines.extend(f"  - {item}" for item in items)
     return "\n".join(lines)
+
+
+def user_revision_inputs(copies: Any, feedback: str) -> dict[str, Any] | None:
+    """The ad copy reviser's inputs for a user revision of EVERY copy.
+
+    Interactive checkpoint 2 reuses ``ad_copy_reviser`` with free-text user
+    feedback that applies to all copies, so every copy is flagged with it: the
+    returned state delta holds ``ad_copy_feedback``, the per-copy
+    ``ad_copy_issues`` list, all copy keys as ``ad_copy_flagged_ids`` (so the
+    reviser's ``restore_unflagged`` safety net keeps every revised copy) and the
+    pre-revision snapshot ``ad_copy_critique__before_revision``. None when
+    there are no copies.
+    """
+    parsed = parse_copies(copies)
+    if not parsed:
+        return None
+    keys = copy_keys(parsed)
+    note = f"Apply the user's feedback: {feedback}"
+    return {
+        "ad_copy_feedback": feedback,
+        "ad_copy_issues": format_copy_issues(parsed, {key: [note] for key in keys}),
+        "ad_copy_flagged_ids": keys,
+        "ad_copy_critique__before_revision": {"ad_copies": deepcopy(parsed)},
+    }
 
 
 def flatten_copy_issues(

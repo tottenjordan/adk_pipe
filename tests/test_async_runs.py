@@ -9,6 +9,8 @@ package import it inside the test body, mirroring the lazy-import convention in
 from __future__ import annotations
 
 import asyncio
+import copy
+import json
 
 import pytest
 from google.adk.errors.session_not_found_error import SessionNotFoundError
@@ -18,16 +20,20 @@ from google.genai import types
 
 from runserver import async_runs
 from runserver.async_runs import (
+    BRIEF_EDIT_FIELD,
+    BRIEF_EDIT_MAX_CHARS,
     RESEARCH_EDIT_MAX_CHARS,
     RUN_ERROR_KEY,
     RUN_STATUS_KEY,
     RUNSERVER_AUTHOR,
+    BriefEditError,
     build_resume_message,
     build_terminal_event,
     build_user_message,
     events_since,
     get_root_agent,
     get_run_status,
+    merge_brief_edit,
     merge_research_edit,
     merge_visual_concept_edits,
     router,
@@ -741,6 +747,188 @@ def test_research_edit_rejects_oversized_value():
         }
     ]
     assert merge_research_edit(st, edits) == {}
+
+
+# --- merge_brief_edit (pure, checkpoint-1 structured brief edit) ------------
+
+
+def _valid_brief(**changes):
+    from tests.test_creative_agent_graph import _BRIEF
+
+    return {**copy.deepcopy(_BRIEF), **changes}
+
+
+def test_brief_edit_writes_brief_markdown_and_flag_and_clears_issues():
+    edited = _valid_brief(single_minded_proposition="Rocket Skates win the chase.")
+    delta = merge_brief_edit(
+        {"creative_brief": _valid_brief(), "creative_brief__issues": ["stale"]},
+        [{"field": BRIEF_EDIT_FIELD, "value": edited}],
+    )
+    from creative_agent import CreativeBrief
+    from creative_agent.brief_render import render_brief_markdown
+
+    stored = CreativeBrief.model_validate(edited).model_dump()
+    assert delta == {
+        "creative_brief": stored,
+        "creative_brief_md": render_brief_markdown(stored, heading=False),
+        "creative_brief_edited": True,
+        "creative_brief__issues": None,
+    }
+    assert "Rocket Skates win the chase." in delta["creative_brief_md"]
+
+
+def test_brief_edit_accepts_a_json_string_value():
+    edited = _valid_brief(insight="Coyotes want speed, but gadgets fail.")
+    delta = merge_brief_edit(
+        {}, [{"field": BRIEF_EDIT_FIELD, "value": json.dumps(edited)}]
+    )
+    assert delta["creative_brief"]["insight"] == edited["insight"]
+
+
+def test_brief_edit_unchanged_or_other_field_is_a_noop():
+    brief = _valid_brief()
+    assert (
+        merge_brief_edit(
+            {"creative_brief": brief}, [{"field": BRIEF_EDIT_FIELD, "value": brief}]
+        )
+        == {}
+    )
+    assert merge_brief_edit({}, [{"field": "other", "value": brief}]) == {}
+    assert merge_brief_edit({}, None) == {}
+
+
+def test_brief_edit_rejects_too_few_angles_with_field_errors():
+    bad = _valid_brief()
+    bad["angles"] = bad["angles"][:2]
+    with pytest.raises(BriefEditError) as exc:
+        merge_brief_edit({}, [{"field": BRIEF_EDIT_FIELD, "value": bad}])
+    assert [e["loc"] for e in exc.value.errors] == ["angles"]
+    assert exc.value.errors[0]["msg"]
+
+
+def test_brief_edit_rejects_blank_proposition_bad_fit_score_and_bad_json():
+    with pytest.raises(BriefEditError) as exc:
+        merge_brief_edit(
+            {},
+            [
+                {
+                    "field": BRIEF_EDIT_FIELD,
+                    "value": _valid_brief(single_minded_proposition="  "),
+                }
+            ],
+        )
+    assert exc.value.errors[0]["loc"] == "single_minded_proposition"
+
+    bad = _valid_brief()
+    bad["trend_bridge"] = {**bad["trend_bridge"], "fit_score": 9}
+    with pytest.raises(BriefEditError) as exc:
+        merge_brief_edit({}, [{"field": BRIEF_EDIT_FIELD, "value": bad}])
+    assert exc.value.errors[0]["loc"] == "trend_bridge.fit_score"
+
+    for value in ("{not json", 5, ["a"]):
+        with pytest.raises(BriefEditError):
+            merge_brief_edit({}, [{"field": BRIEF_EDIT_FIELD, "value": value}])
+
+
+def test_brief_edit_rejects_empty_or_duplicate_angle_ids():
+    bad = _valid_brief()
+    bad["angles"] = [dict(a) for a in bad["angles"]]
+    bad["angles"][1]["angle_id"] = "A1"
+    bad["angles"][2]["angle_id"] = "  "
+    with pytest.raises(BriefEditError) as exc:
+        merge_brief_edit({}, [{"field": BRIEF_EDIT_FIELD, "value": bad}])
+    assert [e["loc"] for e in exc.value.errors] == [
+        "angles.1.angle_id",
+        "angles.2.angle_id",
+    ]
+
+
+def test_brief_edit_rejects_an_oversized_brief_string_or_object():
+    huge = _valid_brief(insight="x" * (BRIEF_EDIT_MAX_CHARS + 1))
+    for value in (huge, json.dumps(huge)):
+        with pytest.raises(BriefEditError) as exc:
+            merge_brief_edit({}, [{"field": BRIEF_EDIT_FIELD, "value": value}])
+        assert exc.value.errors == [{"loc": "", "msg": "The brief is too long."}]
+
+
+def test_resume_brief_edit_appends_state_delta_with_report_edit():
+    """A checkpoint-1 brief edit (alongside a report edit) lands in ONE runserver
+    state_delta event before the resumed segment."""
+    edited = _valid_brief(desired_response="Feel unstoppable, order skates.")
+    session = _resume_with_edits(
+        "review_research",
+        {
+            "combined_final_cited_report": "old",
+            "sources": {},
+            "creative_brief": _valid_brief(),
+        },
+        [
+            {"field": "combined_final_cited_report", "value": "NEW REPORT"},
+            {"field": BRIEF_EDIT_FIELD, "value": edited},
+        ],
+    )
+    ((_, ev),) = _runserver_state_events(session)
+    delta = ev.actions.state_delta
+    assert delta["combined_final_cited_report"] == "NEW REPORT"
+    assert delta["creative_brief_edited"] is True
+    assert (
+        session.state["creative_brief"]["desired_response"]
+        == edited["desired_response"]
+    )
+    assert "Feel unstoppable" in session.state["creative_brief_md"]
+
+
+def test_router_rejects_an_invalid_brief_edit_with_400_and_runs_nothing():
+    import httpx
+    from fastapi import FastAPI
+
+    bad = _valid_brief()
+    bad["angles"] = []
+
+    async def _go():
+        svc = InMemorySessionService()
+        await svc.create_session(
+            app_name="interactive_creative",
+            user_id="u",
+            session_id="s",
+            state={"creative_brief": _valid_brief()},
+        )
+        calls = []
+
+        def factory(app_name):
+            calls.append(app_name)
+            return _FakeRunner(svc, app_name, "u", "s", [_agent_event("resumed")])
+
+        async_runs.configure(session_service=svc, runner_factory=factory)
+        app = FastAPI()
+        app.include_router(router)
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://t") as c:
+            resp = await c.post(
+                "/runs/interactive_creative/u/s/resume",
+                json={
+                    "functionCallId": "call-1",
+                    "functionName": "review_research",
+                    "response": {"status": "approved", "brief_edited": True},
+                    "edits": [{"field": BRIEF_EDIT_FIELD, "value": bad}],
+                },
+            )
+        session = await svc.get_session(
+            app_name="interactive_creative", user_id="u", session_id="s"
+        )
+        return resp, calls, session
+
+    try:
+        resp, calls, session = asyncio.run(_go())
+    finally:
+        async_runs.configure(session_service=None, runner_factory=None)
+    assert resp.status_code == 400
+    detail = resp.json()["detail"]
+    assert detail["reason"] == "invalid_brief"
+    assert detail["errors"][0]["loc"] == "angles"
+    assert calls == []  # nothing relaunched
+    assert session.state["creative_brief"] == _valid_brief()
+    assert ("interactive_creative", "u", "s") not in async_runs._ACTIVE_RUNS
 
 
 def test_resume_with_edits_appends_state_delta_before_relaunch():
@@ -1575,6 +1763,32 @@ def _sac(*, app="interactive_creative", state=None, events=None, attempts=0):
 def test_should_auto_continue_true_on_empty_root_turn_unfinished_workflow():
     assert _sac() is True
     assert _sac(app="creative_agent") is True
+
+
+def _end_of_agent_event() -> Event:
+    # A resumable App appends this lifecycle marker after the root's last turn.
+    return Event(author=ROOT, actions=EventActions(end_of_agent=True))
+
+
+def test_should_auto_continue_ignores_a_trailing_end_of_agent_marker():
+    """text then end_of_agent → the turn had text (no re-prompt); an empty
+    turn then end_of_agent → still an empty turn."""
+    text_then_end = [_root_call_event(), _root_response_event(), _root_text_event()]
+    assert _sac(events=[*text_then_end, _end_of_agent_event()]) is False
+    assert _sac(events=[*_EMPTY_SEGMENT, _end_of_agent_event()]) is True
+
+
+def test_should_auto_continue_ignores_serialized_lifecycle_markers():
+    text = {"author": ROOT, "content": {"parts": [{"text": "done"}]}}
+    for marker in (
+        {"author": ROOT, "actions": {"endOfAgent": True}},
+        {"author": ROOT, "actions": {"agentState": {"step": 1}}},
+        {"author": ROOT, "content": {"parts": []}, "actions": {"end_of_agent": True}},
+    ):
+        assert _sac(events=[text, marker]) is False, marker
+    # A real empty STOP turn (no lifecycle flags) still counts as empty.
+    empty = {"author": ROOT, "content": {"parts": []}, "actions": {"stateDelta": {}}}
+    assert _sac(events=[text, empty]) is True
 
 
 def test_should_auto_continue_respects_attempt_cap(monkeypatch):
