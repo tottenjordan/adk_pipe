@@ -186,3 +186,29 @@ def test_mentions_brand_anchor_plural_documented():
     # van" carries the brand token and 2 of 3 tokens of "Vans Old Skool".
     assert mentions("an old van by the beach", "Vans Old Skool", brand="Vans")
     assert not mentions("an old skool vibe", "Vans Old Skool", brand="Vans")
+
+
+def test_mentions_brand_plus_model_tokens():
+    """Distinctive model tokens (a digit, or all caps) + the brand name the
+    product even when its generic words ("Electric Guitar") are left out."""
+    phrase = "SE CE24 Electric Guitar"
+    assert mentions("A PRS SE CE24 on a stage", phrase, brand="PRS")
+    # Brand-anchored only: without a brand the ratio decides (2 of 4), so a
+    # brand-less motif check never accepts an acronym alone.
+    assert not mentions("An SE CE24 on stage", phrase)
+    assert not mentions("an NFL stadium at night", "NFL Draft stage")
+    # A missing distinctive token falls back to the ratio (1 of 4).
+    assert not mentions("A CE24 on a stage", phrase, brand="PRS")
+    # A given brand must be named too; else the ratio decides (2 of 4).
+    assert not mentions("An SE CE24 on stage", phrase, brand="PRS")
+    # Distinctive = in the ORIGINAL phrase: lowercase "se ce" has none.
+    assert not mentions("a PRS se ce on stage", "se ce electric guitar", brand="PRS")
+
+
+def test_distinctive_rule_keeps_packaging_and_size_teeth():
+    # A packaging head noun must still be named ("Gibson SG case" is the case).
+    assert not mentions("a Gibson SG on stage", "Gibson SG case", brand="Gibson")
+    assert mentions("a Gibson SG case on stage", "Gibson SG case", brand="Gibson")
+    # Sizes and bare numbers are never distinctive ("12" in "Coke 12-pack").
+    assert not mentions("12 apples on a table", "Coke 12-pack")
+    assert not mentions("a 3D model of a car", "Model 3")

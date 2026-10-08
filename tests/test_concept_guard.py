@@ -673,6 +673,18 @@ def test_motif_paraphrase_with_hyphen_and_plural_not_appended():
     assert tail == "" and warns == []
 
 
+def test_brand_plus_model_number_names_the_product():
+    # "PRS SE CE24" names "SE CE24 Electric Guitar" for the brand PRS (only 2
+    # of its 4 content tokens, but both distinctive): no redundant append.
+    tail, warns = _prompt_after(
+        "A PRS SE CE24 on a stage under glowing storm-tracker screens.",
+        "SE CE24 Electric Guitar",
+        "storm-tracker screens",
+        brand="PRS",
+    )
+    assert tail == "" and warns == []
+
+
 def test_motif_without_its_trend_context_is_appended():
     # Documented decision: "friendship-bracelet stack" alone covers 2 of the
     # motif's 4 content tokens (< 60%), so the Eras Tour context is appended.
