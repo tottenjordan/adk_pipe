@@ -11,6 +11,7 @@ import { classifyWarnings } from "@/lib/run-warnings";
 import {
   buildDisplayFields,
   imagesRetryExhausted,
+  RATING_LEARNING_FIELD,
   VISUAL_DIRECTION_FIELDS,
   type DisplayFieldDef,
 } from "@/lib/utils";
@@ -46,6 +47,7 @@ const CAMPAIGN_FIELD_DEFS: DisplayFieldDef[] = [
   { label: "Product", key: "target_product" },
   { label: "Selling points", key: "key_selling_points" },
   { label: "Trend", key: "target_search_trends" },
+  RATING_LEARNING_FIELD,
 ];
 
 const EMPTY_STATE: Record<string, unknown> = {};

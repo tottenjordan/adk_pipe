@@ -92,3 +92,27 @@ export const VISUAL_DIRECTION_FIELDS: DisplayFieldDef[] = [
   // Legacy single reference + `reference_images`, merged and deduped.
   { label: "Reference images", key: "reference_images", value: formatReferenceImages },
 ]
+
+/**
+ * The run's rating-learning status for the metadata display: `""` (hidden)
+ * unless the run opted in (`learn_from_ratings`), else "On" plus what the
+ * learning step recorded in `rating_signals_applied`.
+ */
+export function formatRatingLearning(state: Record<string, unknown>): string {
+  if (state.learn_from_ratings !== true) return ""
+  const applied = state.rating_signals_applied
+  if (!applied || typeof applied !== "object") return "On"
+  const { ratings, applied: used, reason } = applied as Record<string, unknown>
+  const n = typeof ratings === "number" ? ratings : 0
+  if (used === true) return `On: learned from ${n} ratings`
+  if (reason === "not_enough_ratings") return `On: not enough ratings yet (${n})`
+  if (reason === "unavailable") return "On: ratings unavailable"
+  return "On"
+}
+
+/** Campaign-metadata row for the per-run "learn from past ratings" opt-in. */
+export const RATING_LEARNING_FIELD: DisplayFieldDef = {
+  label: "Learn from ratings",
+  key: "learn_from_ratings",
+  value: formatRatingLearning,
+}

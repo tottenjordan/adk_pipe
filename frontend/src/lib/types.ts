@@ -66,6 +66,12 @@ export interface CampaignInput {
    */
   interactiveTrendPick?: boolean;
   /**
+   * creative_agent / interactive_creative only: opt this run in to learning
+   * from the brand's past human ratings (guidance, style steering, stricter
+   * checks). Seeded as `learn_from_ratings: true` only when checked.
+   */
+  learnFromRatings?: boolean;
+  /**
    * creative_agent / interactive_creative only: an optional gs:// or http(s)
    * URL to a product/brand reference image. Threaded into the session's initial
    * state as `reference_image_uri` so image generation can apply it to every

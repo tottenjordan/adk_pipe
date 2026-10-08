@@ -14,6 +14,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { LearnFromRatingsToggle } from "@/components/learn-from-ratings-toggle";
 import { RunList, useRunHistory } from "@/components/run-list";
 import { createSession, SELF_USER_ID } from "@/lib/api";
 import { AGENTS, isAgentId, isCreativeAgent, submitLabel } from "@/lib/agents";
@@ -39,6 +40,7 @@ const EMPTY_FORM: CampaignInput = {
   keySellingPoints: "",
   targetSearchTrend: "",
   interactiveTrendPick: false,
+  learnFromRatings: false,
   referenceImageUri: "",
   referenceImageRole: "",
   extraReferenceImages: [],
@@ -538,6 +540,14 @@ function HomeContent() {
                 )}
               </div>
             </div>
+          )}
+
+          {isCreative && (
+            <LearnFromRatingsToggle
+              brand={form.brand}
+              checked={form.learnFromRatings ?? false}
+              onChange={(checked) => setForm({ ...form, learnFromRatings: checked })}
+            />
           )}
 
           {isCreative && (

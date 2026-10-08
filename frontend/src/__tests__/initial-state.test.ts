@@ -152,4 +152,17 @@ describe("buildInitialState", () => {
     });
     expect(state).toEqual({ ui_app: "trend_scout", interactive_trend_pick: true });
   });
+
+  it("seeds learn_from_ratings only when a creative run opts in", () => {
+    for (const agent of ["creative_agent", "interactive_creative"] as const) {
+      expect(buildInitialState({ ...base, agent, learnFromRatings: true }).learn_from_ratings).toBe(true);
+      expect(buildInitialState({ ...base, agent, learnFromRatings: false })).not.toHaveProperty(
+        "learn_from_ratings",
+      );
+      expect(buildInitialState({ ...base, agent })).not.toHaveProperty("learn_from_ratings");
+    }
+    expect(
+      buildInitialState({ ...base, agent: "trend_scout", learnFromRatings: true }),
+    ).not.toHaveProperty("learn_from_ratings");
+  });
 });
