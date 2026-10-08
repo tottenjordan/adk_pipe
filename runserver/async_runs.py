@@ -133,6 +133,21 @@ def _is_empty_turn(event) -> bool:
     return True
 
 
+def _is_lifecycle_event(event) -> bool:
+    """An agent-lifecycle marker, not a model turn: no content parts, with
+    ``actions.end_of_agent`` or ``actions.agent_state`` set (a resumable App
+    appends one after the root's last turn). A real empty STOP turn has
+    neither flag, so it still counts as empty."""
+    if _event_parts(event):
+        return False
+    actions = _field(event, "actions")
+    if actions is None:
+        return False
+    return bool(_field(actions, "end_of_agent", "endOfAgent")) or (
+        _field(actions, "agent_state", "agentState") is not None
+    )
+
+
 def should_auto_continue(
     app_name: str, state: dict, segment_events: list, root_author: str, attempts: int
 ) -> bool:
@@ -153,7 +168,11 @@ def should_auto_continue(
         return False
     if _has_unanswered_long_running_call(segment_events):
         return False
-    root_events = [ev for ev in segment_events if _field(ev, "author") == root_author]
+    root_events = [
+        ev
+        for ev in segment_events
+        if _field(ev, "author") == root_author and not _is_lifecycle_event(ev)
+    ]
     return bool(root_events) and _is_empty_turn(root_events[-1])
 
 
@@ -801,7 +820,8 @@ def validate_brief_edit(value: object) -> dict:
     ``BriefEditError`` with per-field errors for malformed JSON, an oversized
     value, any schema violation (e.g. fewer than 3 angles, fit_score outside
     1-5, a missing field) or a blank single-minded proposition (the schema
-    allows an empty string; an edited brief may not)."""
+    allows an empty string; an edited brief may not) and empty or duplicate
+    angle ids (downstream copies and concepts reference angles by id)."""
     # Lazy import: see merge_research_edit (the facade builds the agent graph).
     from creative_agent import CreativeBrief
 
@@ -827,15 +847,28 @@ def validate_brief_edit(value: object) -> dict:
                 for err in exc.errors()
             ]
         ) from exc
+    errors: list[dict[str, str]] = []
     if not brief.single_minded_proposition.strip():
-        raise BriefEditError(
-            [
-                {
-                    "loc": "single_minded_proposition",
-                    "msg": "The proposition is required.",
-                }
-            ]
+        errors.append(
+            {"loc": "single_minded_proposition", "msg": "The proposition is required."}
         )
+    seen: set[str] = set()
+    for i, angle in enumerate(brief.angles):
+        angle_id = angle.angle_id.strip()
+        if not angle_id:
+            errors.append(
+                {"loc": f"angles.{i}.angle_id", "msg": "The angle id is required."}
+            )
+        elif angle_id in seen:
+            errors.append(
+                {
+                    "loc": f"angles.{i}.angle_id",
+                    "msg": f"Duplicate angle id {angle_id!r}.",
+                }
+            )
+        seen.add(angle_id)
+    if errors:
+        raise BriefEditError(errors)
     return brief.model_dump()
 
 

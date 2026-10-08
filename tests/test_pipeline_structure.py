@@ -217,6 +217,7 @@ _RESULT_NODES = {
     "images_ready",
     "finalize_ready",
     "ad_copies_revised",  # interactive checkpoint-2 user revision
+    "ad_copy_revision_skipped",
 }
 
 
@@ -1051,7 +1052,7 @@ def test_interactive_reuses_the_shared_ad_copy_reviser_at_checkpoint_2():
     ]
     assert failsoft.node is ad_copy_reviser
     assert failsoft.on_error is user_copy_revision_failed
-    assert _terminal_names(node) == {"ad_copies_revised"}
+    assert _terminal_names(node) == {"ad_copies_revised", "ad_copy_revision_skipped"}
     assert any(getattr(t, "node", None) is node for t in ic.root_agent.tools)
     names = {t.name for t in asyncio.run(ic.root_agent.canonical_tools())}
     assert {

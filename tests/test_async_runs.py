@@ -21,6 +21,7 @@ from google.genai import types
 from runserver import async_runs
 from runserver.async_runs import (
     BRIEF_EDIT_FIELD,
+    BRIEF_EDIT_MAX_CHARS,
     RESEARCH_EDIT_MAX_CHARS,
     RUN_ERROR_KEY,
     RUN_STATUS_KEY,
@@ -827,6 +828,27 @@ def test_brief_edit_rejects_blank_proposition_bad_fit_score_and_bad_json():
     for value in ("{not json", 5, ["a"]):
         with pytest.raises(BriefEditError):
             merge_brief_edit({}, [{"field": BRIEF_EDIT_FIELD, "value": value}])
+
+
+def test_brief_edit_rejects_empty_or_duplicate_angle_ids():
+    bad = _valid_brief()
+    bad["angles"] = [dict(a) for a in bad["angles"]]
+    bad["angles"][1]["angle_id"] = "A1"
+    bad["angles"][2]["angle_id"] = "  "
+    with pytest.raises(BriefEditError) as exc:
+        merge_brief_edit({}, [{"field": BRIEF_EDIT_FIELD, "value": bad}])
+    assert [e["loc"] for e in exc.value.errors] == [
+        "angles.1.angle_id",
+        "angles.2.angle_id",
+    ]
+
+
+def test_brief_edit_rejects_an_oversized_brief_string_or_object():
+    huge = _valid_brief(insight="x" * (BRIEF_EDIT_MAX_CHARS + 1))
+    for value in (huge, json.dumps(huge)):
+        with pytest.raises(BriefEditError) as exc:
+            merge_brief_edit({}, [{"field": BRIEF_EDIT_FIELD, "value": value}])
+        assert exc.value.errors == [{"loc": "", "msg": "The brief is too long."}]
 
 
 def test_resume_brief_edit_appends_state_delta_with_report_edit():
@@ -1741,6 +1763,32 @@ def _sac(*, app="interactive_creative", state=None, events=None, attempts=0):
 def test_should_auto_continue_true_on_empty_root_turn_unfinished_workflow():
     assert _sac() is True
     assert _sac(app="creative_agent") is True
+
+
+def _end_of_agent_event() -> Event:
+    # A resumable App appends this lifecycle marker after the root's last turn.
+    return Event(author=ROOT, actions=EventActions(end_of_agent=True))
+
+
+def test_should_auto_continue_ignores_a_trailing_end_of_agent_marker():
+    """text then end_of_agent → the turn had text (no re-prompt); an empty
+    turn then end_of_agent → still an empty turn."""
+    text_then_end = [_root_call_event(), _root_response_event(), _root_text_event()]
+    assert _sac(events=[*text_then_end, _end_of_agent_event()]) is False
+    assert _sac(events=[*_EMPTY_SEGMENT, _end_of_agent_event()]) is True
+
+
+def test_should_auto_continue_ignores_serialized_lifecycle_markers():
+    text = {"author": ROOT, "content": {"parts": [{"text": "done"}]}}
+    for marker in (
+        {"author": ROOT, "actions": {"endOfAgent": True}},
+        {"author": ROOT, "actions": {"agentState": {"step": 1}}},
+        {"author": ROOT, "content": {"parts": []}, "actions": {"end_of_agent": True}},
+    ):
+        assert _sac(events=[text, marker]) is False, marker
+    # A real empty STOP turn (no lifecycle flags) still counts as empty.
+    empty = {"author": ROOT, "content": {"parts": []}, "actions": {"stateDelta": {}}}
+    assert _sac(events=[text, empty]) is True
 
 
 def test_should_auto_continue_respects_attempt_cap(monkeypatch):

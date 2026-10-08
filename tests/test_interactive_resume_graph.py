@@ -578,16 +578,20 @@ def test_checkpoint_1_brief_edit_feeds_the_ad_prompts_and_resaves_the_pdf(
 _REVISED_AD = {**_FINAL_AD, "headline": "Beep beep, but funnier"}
 
 
-def _run_checkpoint_2_revision(monkeypatch, reviser_fails: bool = False):
-    """Checkpoint 2 → revision request → prepare + reviser once → re-presented
-    review → approved → root finishes."""
-    from creative_agent import ad_copy_reviser
-    from runserver import async_runs
+_PREP = ("prepare_copy_revision", {"feedback": "Make them funnier"}, "fc-prep")
+_REV = ("ad_copy_user_reviser", {"request": "revise"}, "fc-rev")
+_REV2 = ("ad_copy_user_reviser", {"request": "again"}, "fc-rev2")
 
-    # Auto-continue is orthogonal here: the scripted root ends on text with
-    # finalize_done unset, and a third segment's trailing end_of_agent event
-    # reads as an empty root turn, which would re-prompt the stub root.
-    monkeypatch.setattr(async_runs, "MAX_AUTO_CONTINUES", 0)
+
+def _run_checkpoint_2_revision(
+    monkeypatch,
+    reviser_fails: bool = False,
+    calls: tuple[tuple[str, dict[str, Any], str], ...] = (_PREP, _REV),
+):
+    """Checkpoint 2 → revision request → ``calls`` (default: prepare + reviser
+    once) → re-presented review → approved → root finishes."""
+    from creative_agent import ad_copy_reviser
+
     root_llm = _patch_root(monkeypatch)
     reviser_llm = _FailOnceLlm() if reviser_fails else _RecordingLlm()
     if not reviser_fails:
@@ -598,10 +602,7 @@ def _run_checkpoint_2_revision(monkeypatch, reviser_fails: bool = False):
 
     root_llm.push(fc_response("review_ad_copies", {}, "fc-cp2"))
     root_llm.push(
-        fc_response(
-            "prepare_copy_revision", {"feedback": "Make them funnier"}, "fc-prep"
-        ),
-        fc_response("ad_copy_user_reviser", {"request": "revise"}, "fc-rev"),
+        *(fc_response(*call) for call in calls),
         fc_response("review_ad_copies", {}, "fc-cp2b"),
     )
     root_llm.push(text_response("ROOT DONE"))
@@ -677,6 +678,13 @@ def test_checkpoint_2_revision_runs_the_reviser_once_and_re_presents(monkeypatch
     assert seg2_state["ad_copy_feedback"] == "Make them funnier"
     assert seg2_state["ad_copy_user_revisions_used"] == 1
     assert _responses(seg2_events)["fc-prep"]["status"] == "ready"
+    assert seg2_state["ad_copy_user_revised"] is True
+    # The copy gate's deterministic checks re-run on the revised copies
+    # (warning-only): the revised headline still does not name the product.
+    from creative_agent import residual_copy_issues
+
+    assert seg2_state["ad_copy_critique__issues"] == residual_copy_issues(seg2_state)
+    assert seg2_state["ad_copy_critique__issues"]
     assert "revision complete" in str(_responses(seg2_events)["fc-rev"])
     assert "Beep beep, but funnier" not in str(_responses(seg2_events)["fc-rev"])
 
@@ -694,8 +702,58 @@ def test_checkpoint_2_failing_reviser_is_fail_soft(monkeypatch):
     seg2_events, seg2_state = r["seg2_events"], r["seg2_state"]
 
     assert "revision failed" in str(_responses(seg2_events)["fc-rev"])
+    assert seg2_state["ad_copy_user_revised"] is False
     assert seg2_state["ad_copy_critique"] == _STORED_ADS
     assert seg2_state["ad_copy_flagged_ids"] is None
     assert _long_running_ids(seg2_events) - _answered_ids(seg2_events) == {"fc-cp2b"}
     assert "__run_error" not in r["state"]
     assert _final_texts(r["events"])[-1] == "ROOT DONE"
+
+
+def test_checkpoint_2_reviser_without_prepare_is_skipped(monkeypatch):
+    """Guard: the reviser never runs without prepare_copy_revision's inputs
+    (no flagged ids / snapshot), so the copies stay as they are."""
+    r = _run_checkpoint_2_revision(monkeypatch, calls=(_REV,))
+    seg2_events, seg2_state = r["seg2_events"], r["seg2_state"]
+
+    assert r["reviser_llm"].requests == []
+    assert "skipped" in str(_responses(seg2_events)["fc-rev"])
+    assert "prepare_copy_revision" in str(_responses(seg2_events)["fc-rev"])
+    assert seg2_state["ad_copy_critique"] == _STORED_ADS
+    assert not seg2_state.get("ad_copy_user_revised")
+    assert _final_texts(r["events"])[-1] == "ROOT DONE"
+
+
+def test_checkpoint_2_second_reviser_call_does_not_revise_again(monkeypatch):
+    """A repeated reviser call in the same invocation is replayed by ADK (its
+    nodes do not re-execute), and in any later invocation the guard skips it
+    (the inputs were cleared): either way the copies are revised once."""
+    r = _run_checkpoint_2_revision(monkeypatch, calls=(_PREP, _REV, _REV2))
+    seg2_state = r["seg2_state"]
+
+    assert len(r["reviser_llm"].requests) == 1
+    assert seg2_state["ad_copy_flagged_ids"] is None
+    assert seg2_state["ad_copy_critique__before_revision"] is None
+    assert seg2_state["ad_copy_critique"]["ad_copies"][0]["headline"] == (
+        "Beep beep, but funnier"
+    )
+    assert seg2_state["ad_copy_user_revised"] is True
+
+
+def test_copy_revision_guard_routes_only_a_prepared_revision():
+    from types import SimpleNamespace
+
+    from interactive_creative.agent import copy_revision_guard
+
+    def route(state):
+        return copy_revision_guard(SimpleNamespace(state=state)).actions.route
+
+    prepared = {
+        "ad_copy_critique__before_revision": _STORED_ADS,
+        "ad_copy_flagged_ids": ["1"],
+    }
+    assert route(prepared) == "run"
+    assert route({}) == "skip"
+    # Cleared by the root's after_tool_callback after the first revision.
+    assert route({**prepared, "ad_copy_flagged_ids": None}) == "skip"
+    assert route({**prepared, "ad_copy_critique__before_revision": None}) == "skip"

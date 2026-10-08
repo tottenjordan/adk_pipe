@@ -53,6 +53,9 @@ def skip_reviser_without_notes(
 USER_REVISER_TOOL = "ad_copy_user_reviser"
 # Set by user_copy_revision_failed so the graph's terminal reports the failure.
 USER_REVISION_FAILED_KEY = "ad_copy_user_revision_failed"
+# Set by the revision graph's terminal: True only when the reviser succeeded
+# (drives the frontend's "revised copies" second-review label).
+USER_REVISED_KEY = "ad_copy_user_revised"
 
 # The copy-revision inputs prepare_copy_revision writes for the reviser (same
 # keys and cleared values as creative_agent's copy gate).

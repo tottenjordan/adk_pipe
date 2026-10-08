@@ -1,6 +1,8 @@
 from google.adk.agents import Agent
 from google.adk.agents.context import Context
 from google.adk.apps import App, ResumabilityConfig
+from google.adk.events.event import Event
+from google.adk.events.event_actions import EventActions
 from google.adk.tools.agent_tool import AgentTool
 from google.adk.workflow import Workflow
 from google.genai import types
@@ -23,6 +25,8 @@ from creative_agent import (
     callbacks,
     combined_research_pipeline,
     finalize_pipeline,
+    parse_ad_copies,
+    residual_copy_issues,
     tools,
     visual_generation_pipeline,
     visual_generator_resilient,
@@ -30,6 +34,7 @@ from creative_agent import (
 from creative_agent.config import INFRA_RETRY, SCHEMA_RETRY, config
 from interactive_creative import prompts as ic_prompts
 from interactive_creative.callbacks import (
+    USER_REVISED_KEY,
     USER_REVISER_TOOL,
     USER_REVISION_FAILED_KEY,
     clear_copy_revision_inputs,
@@ -99,34 +104,76 @@ visual_concept_reviser = Agent(
 # (bare Workflow → NodeTool, like the pipelines). FailSoftNode keeps a raising
 # reviser from failing the run (the pre-revision copies stay in state), and the
 # truthy terminal hands the root a short confirmation instead of the copies
-# JSON. The root's after_tool_callback clears the revision inputs afterwards.
-def ad_copies_revised(ctx: Context) -> str:
-    """Terminal node of ad_copy_user_reviser (the root's tool result)."""
-    if ctx.state.get(USER_REVISION_FAILED_KEY):
-        return (
+# JSON. A guard skips the reviser unless prepare_copy_revision prepared it, and
+# the terminal re-records the copy gate's residual issues (warning-only). The
+# root's after_tool_callback clears the revision inputs afterwards.
+def copy_revision_guard(ctx: Context) -> Event:
+    """Route to the reviser only when prepare_copy_revision set its inputs.
+
+    Without the pre-revision snapshot and flagged ids the reviser would see no
+    issues and its restore_unflagged safety net could not scope it, so a call
+    without (or after) the prepared revision is skipped. The root's
+    after_tool_callback clears the inputs after a revision, so a repeated
+    call is skipped too."""
+    state = ctx.state
+    prepared = bool(
+        parse_ad_copies(state.get("ad_copy_critique__before_revision"))
+    ) and bool(state.get("ad_copy_flagged_ids"))
+    return Event(actions=EventActions(route="run" if prepared else "skip"))
+
+
+def ad_copy_revision_skipped(ctx: Context) -> str:
+    """Terminal of the skip route (the root's tool result)."""
+    return (
+        "Ad copy revision skipped: there is no prepared revision. Call "
+        "prepare_copy_revision first (only after the first review_ad_copies "
+        "asked for changes); the copies are unchanged."
+    )
+
+
+def ad_copies_revised(ctx: Context) -> Event:
+    """Terminal of the revision route (the root's tool result).
+
+    Re-records the copy gate's deterministic residual on the (revised or kept)
+    copies as ``ad_copy_critique__issues`` (warning-only: no revision loop),
+    and sets ``ad_copy_user_revised`` (False when the reviser failed), which
+    drives the frontend's second-review label."""
+    state = ctx.state.to_dict()
+    failed = bool(state.get(USER_REVISION_FAILED_KEY))
+    delta = {
+        "ad_copy_critique__issues": residual_copy_issues(state),
+        USER_REVISED_KEY: not failed,
+    }
+    if failed:
+        message = (
             "Ad copy revision failed; the original copies are kept in "
             "'ad_copy_critique'. Call review_ad_copies once more."
         )
-    return (
-        "Ad copy revision complete: the revised copies are saved to session "
-        "state as 'ad_copy_critique'. Call review_ad_copies once more."
-    )
+    else:
+        message = (
+            "Ad copy revision complete: the revised copies are saved to session "
+            "state as 'ad_copy_critique'. Call review_ad_copies once more."
+        )
+    return Event(output=message, actions=EventActions(state_delta=delta))
 
+
+ad_copy_user_reviser_failsoft = FailSoftNode(
+    name="ad_copy_user_reviser_failsoft",
+    node=ad_copy_reviser,
+    on_error=user_copy_revision_failed,
+)
 
 ad_copy_user_reviser = Workflow(
     name=USER_REVISER_TOOL,
     description="Revise the ad copies with the user's checkpoint-2 feedback (call only after prepare_copy_revision returns status 'ready').",
     input_schema=PipelineRequest,
     edges=[
+        ("START", copy_revision_guard),
         (
-            "START",
-            FailSoftNode(
-                name="ad_copy_user_reviser_failsoft",
-                node=ad_copy_reviser,
-                on_error=user_copy_revision_failed,
-            ),
-            ad_copies_revised,
+            copy_revision_guard,
+            {"run": ad_copy_user_reviser_failsoft, "skip": ad_copy_revision_skipped},
         ),
+        (ad_copy_user_reviser_failsoft, ad_copies_revised),
     ],
 )
 

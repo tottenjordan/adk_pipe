@@ -719,6 +719,19 @@ def _residual(
     return residual + structural_issues(critique, has_brief=has_brief) or None
 
 
+def residual_copy_issues(state: Mapping[str, Any]) -> list[str] | None:
+    """The copy gate's warning-only residual for the current copies (pure).
+
+    The deterministic issues plus the list-level structural issues, exactly
+    what the gate records as ``ad_copy_critique__issues`` on an "ok" exit;
+    None when clean. Exported via the facade so interactive_creative can
+    re-record it after the checkpoint-2 user revision (no revision loop).
+    """
+    critique = state.get("ad_copy_critique")
+    issues = _copy_issues(state) if is_populated(critique) else {}
+    return _residual(state, critique, issues)
+
+
 def copy_gate_decision(
     state: Mapping[str, Any], max_rounds: int
 ) -> tuple[str, dict[str, Any]]:
