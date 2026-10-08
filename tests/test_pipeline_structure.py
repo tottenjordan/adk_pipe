@@ -1637,7 +1637,11 @@ def test_brief_gate_decision_second_round_within_a_budget_of_two():
 def test_brief_gate_passes_brand_product_and_sources_to_the_check():
     from creative_agent.agent import brief_gate_decision
 
-    brief = {**_clean_brief(), "single_minded_proposition": "Mac and Cheese wins."}
+    brief = {
+        **_clean_brief(),
+        "single_minded_proposition": "Mac and Cheese wins.",
+        "mandatories": ["name Mac and Cheese"],
+    }
     assert brief_gate_decision({"creative_brief": brief}, 1)[0] == "revise"
     state = {"creative_brief": brief, "target_product": "Mac and Cheese"}
     assert brief_gate_decision(state, 1)[0] == "ok"
@@ -1645,6 +1649,20 @@ def test_brief_gate_passes_brand_product_and_sources_to_the_check():
     state = {"creative_brief": _clean_brief(), "sources": {"src-9": {}}}
     route, delta = brief_gate_decision(state, 1)
     assert route == "revise" and "unknown sources" in delta["brief_issues"]
+
+
+def test_brief_gate_revises_a_narrowed_product_name():
+    from creative_agent.agent import brief_gate_decision
+
+    brief = {**_clean_brief(), "mandatories": ["Feature the SE CE 24 Standard Satin"]}
+    state = {
+        "creative_brief": brief,
+        "brand": "PRS",
+        "target_product": "SE CE24 Electric Guitar",
+    }
+    route, delta = brief_gate_decision(state, 1)
+    assert route == "revise"
+    assert 'exactly as "SE CE24 Electric Guitar"' in delta["brief_issues"]
 
 
 def test_brief_gate_decision_skips_revision_for_a_missing_brief():

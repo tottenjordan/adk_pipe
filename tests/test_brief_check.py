@@ -192,7 +192,10 @@ def test_abbreviations_are_not_sentence_breaks(proposition):
 
 
 def test_brand_and_product_names_do_not_count_as_and():
-    brief = _brief(single_minded_proposition="Mac and Cheese makes chases fun.")
+    brief = _brief(
+        single_minded_proposition="Mac and Cheese makes chases fun.",
+        mandatories=["name Mac and Cheese"],
+    )
     (issue,) = check_brief(brief)
     assert "'and'" in issue
     assert check_brief(brief, target_product="Mac and Cheese") == []
@@ -226,7 +229,12 @@ def test_rtb_src_id_must_exist_in_sources_when_given():
 
 
 def _prop_issues(proposition, **kwargs):
-    return check_brief(_brief(single_minded_proposition=proposition), **kwargs)
+    # Mandatories name the product, so only the proposition rules can fire.
+    brief = _brief(
+        single_minded_proposition=proposition,
+        mandatories=[f"name {kwargs.get('target_product', '')}"],
+    )
+    return check_brief(brief, **kwargs)
 
 
 @pytest.mark.parametrize(
@@ -472,3 +480,36 @@ def test_normalize_brief_terms_cleans_every_term_list():
     assert out["trend_bridge"]["motifs"] == ["folding chair"]
     assert brief["avoid"][0] == "[wrestler likenesses]"  # input not mutated
     assert normalize_brief_terms(None) is None
+
+
+# --- exact product name in mandatories ---------------------------------------
+
+_PRS = {"brand": "PRS", "target_product": "SE CE24 Electric Guitar"}
+
+
+def _product_issues(mandatories, **kwargs):
+    issues = check_brief(_brief(mandatories=mandatories), **(_PRS | kwargs))
+    return [i for i in issues if "exactly as" in i]
+
+
+def test_brief_must_name_product_exactly_in_mandatories():
+    (issue,) = _product_issues(["Feature the SE CE 24 Standard Satin"])
+    assert '"SE CE24 Electric Guitar"' in issue
+    assert "variant, finish or model" in issue
+
+
+def test_exact_product_in_mandatories_passes():
+    assert _product_issues(["Name the SE CE24 Electric Guitar"]) == []
+    assert _product_issues(["show the logo", "name the se ce24 electric guitar"]) == []
+
+
+def test_brand_and_model_mention_in_mandatories_passes():
+    assert _product_issues(["Feature the PRS SE CE24 by name"]) == []
+
+
+def test_no_mandatories_is_flagged_for_the_product():
+    assert len(_product_issues([])) == 1
+
+
+def test_product_rule_skipped_without_target_product():
+    assert _product_issues(["show the logo"], target_product="  ") == []

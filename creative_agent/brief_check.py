@@ -14,7 +14,7 @@ import re
 from collections.abc import Mapping
 from typing import Any
 
-from .text_match import words
+from .text_match import contains_phrase, mentions, words
 
 MISSING_BRIEF_ISSUE = "brief missing or unparseable"
 
@@ -229,7 +229,10 @@ def check_brief(
     proposition issue (one sentence, "and") is reported, not just the first.
     ``sources`` is the ``sources`` state mapping (keyed by "src-N"); when given
     (even empty), every cited "src-N" must exist in it. Source ids are
-    normalised first (see ``_normalise_source_ids``). Never raises: malformed
+    normalised first (see ``_normalise_source_ids``). With a ``target_product``,
+    some mandatory must name it exactly (whole words) or mention it per
+    ``text_match.mentions`` (brand + model tokens count), so the writer cannot
+    narrow it to a variant the user never gave. Never raises: malformed
     fields are reported as issues.
     """
     data = parse_brief(brief)
@@ -365,6 +368,17 @@ def check_brief(
             f"brand.distinctive_assets is empty although brand colours were given "
             f"('{brand_colors.strip()}'); list the brand's distinctive assets, "
             "including those colours."
+        )
+
+    product = target_product.strip()
+    mandatories = [_text(m) for m in _as_list(data.get("mandatories")) if _text(m)]
+    if product and not any(
+        contains_phrase(m, product) or mentions(m, product, brand=brand)
+        for m in mandatories
+    ):
+        issues.append(
+            f'Name the product exactly as "{product}" in mandatories; do not add '
+            "a variant, finish or model the user did not give."
         )
 
     return issues
