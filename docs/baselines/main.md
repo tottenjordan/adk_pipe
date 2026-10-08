@@ -132,11 +132,16 @@ checked unchanged).
 |---|---|---:|---:|---:|---:|
 | trend_scout | anr_skincare_campaign | 60,774 | 10 | 14 | 118.6 |
 | trend_scout | prs_guitars_campaign | 65,655 | 10 | 14 | 128.2 |
-| creative_agent | anr_skincare_creative | 315,591 | 25 | 15 | 609.1 |
-| creative_agent | prs_guitars_creative | 381,463 | 27 | 15 | 682.9 |
+| creative_agent | anr_skincare_creative | 215,498 | 21 | 7 | 727.2 |
+| creative_agent | prs_guitars_creative | 207,640 | 21 | 7 | 749.5 |
 
 Runs: trend_scout [36721615767](https://github.com/tottenjordan/adk_pipe/actions/runs/36721615767),
-creative_agent [36722206668](https://github.com/tottenjordan/adk_pipe/actions/runs/36722206668).
+creative_agent refreshed 2026-10-08 from [37705133963](https://github.com/tottenjordan/adk_pipe/actions/runs/37705133963)
+(main `4c34ffd`, after the creative-quality PRs #263–#279: single `creative_pipeline` root
+call + root history trim cut tokens 32–46%, LLM calls 25/27 → 21 and tool calls 15 → 7;
+duration is up ~15–20% from image QA re-renders and image-based judging). The earlier
+creative_agent seed was [36722206668](https://github.com/tottenjordan/adk_pipe/actions/runs/36722206668)
+(315,591 / 381,463 tokens, 25 / 27 calls, 15 tool calls, 609 / 683 s).
 The gate fails on tokens >25% or call counts >30% over these numbers, and on any
 non-PASSED case. Duration only warns, since it tracks quota contention more than code.
 Refresh with `tests/eval/efficiency_gate.py --update-baseline` in a reviewed PR. Policy is in

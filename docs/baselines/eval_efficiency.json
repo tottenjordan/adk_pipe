@@ -1,16 +1,16 @@
 {
   "creative_agent": {
     "anr_skincare_creative": {
-      "inference_call_count_v1": 25.0,
-      "invocation_duration_v1": 609.116,
-      "token_usage_v1": 315591.0,
-      "tool_call_count_v1": 15.0
+      "inference_call_count_v1": 21.0,
+      "invocation_duration_v1": 727.181,
+      "token_usage_v1": 215498.0,
+      "tool_call_count_v1": 7.0
     },
     "prs_guitars_creative": {
-      "inference_call_count_v1": 27.0,
-      "invocation_duration_v1": 682.878,
-      "token_usage_v1": 381463.0,
-      "tool_call_count_v1": 15.0
+      "inference_call_count_v1": 21.0,
+      "invocation_duration_v1": 749.469,
+      "token_usage_v1": 207640.0,
+      "tool_call_count_v1": 7.0
     }
   },
   "trend_scout": {
