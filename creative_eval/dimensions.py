@@ -32,6 +32,7 @@ AD_COPY_GATES: tuple[str, ...] = (
     "uses_reason_to_believe",
     "mandatories_met",
     "avoid_respected",
+    "trend_risks_respected",
 )
 VISUAL_GATES: tuple[str, ...] = (
     "product_visible",
@@ -39,6 +40,8 @@ VISUAL_GATES: tuple[str, ...] = (
     "text_correct",
     "brand_cue_present",
     "avoid_respected",
+    "no_visual_defects",
+    "trend_risks_respected",
 )
 # Recorded but never part of gates_passed (mirrors image QA, where a missing
 # brand cue never fails an image).
@@ -50,6 +53,7 @@ BRIEF_GATES: frozenset[str] = frozenset(
         "uses_reason_to_believe",
         "mandatories_met",
         "avoid_respected",
+        "trend_risks_respected",
     }
 )
 
@@ -65,11 +69,13 @@ GATE_LABELS: dict[str, str] = {
     "mandatories_met": "Mandatories met",
     # Shared
     "avoid_respected": "Avoid list respected",
+    "trend_risks_respected": "Respects trend risks",
     # Visual concept
     "product_visible": "Product visible",
     "trend_motif_visible": "Trend motif visible",
     "text_correct": "In-image text correct",
     "brand_cue_present": "Brand cue present",
+    "no_visual_defects": "No visual defects",
     # Judge skipped every check
     NO_GATES_GATE: "Checks reported",
 }

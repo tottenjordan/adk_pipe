@@ -104,8 +104,15 @@ class ImageQAResult(BaseModel):
             "allowed (see the instruction's allowed-brands list) appears."
         )
     )
+    product_malformed: bool = Field(
+        default=False,
+        description=(
+            "The product's shape is wrong: mirrored or reversed, parts missing, "
+            "duplicated or in the wrong place, warped or melted."
+        ),
+    )
     artifacts: bool = Field(
-        description="Severe anatomy or object deformities (extra fingers, melted or broken objects)."
+        description="Noticeable anatomy or object deformities (extra fingers, melted or broken objects)."
     )
     unsafe: bool = Field(
         description="Sexual, violent, hateful or otherwise brand-unsafe content."
@@ -161,6 +168,11 @@ _RULES: tuple[tuple[str, str, str], ...] = (
     ("product_visible", "product not visible", "show the product recognisably"),
     ("motif_visible", "trend motif not visible", "show the trend motif clearly"),
     (
+        "product_malformed",
+        "malformed product",
+        "render the product with its correct real-world shape and orientation",
+    ),
+    (
         "gibberish_text",
         "gibberish text",
         "remove garbled or misspelled lettering",
@@ -190,7 +202,8 @@ def qa_failed_rules(
     """The names of the failed checks — pure; ``[]`` means the image passes.
 
     Fails on: product or motif not visible (skipped when ``target_product`` /
-    the concept's ``trend_motif`` is empty — nothing was promised), gibberish
+    the concept's ``trend_motif`` is empty — nothing was promised), a
+    malformed product (also skipped without ``target_product``), gibberish
     text, an unrequested logo, severe artifacts, unsafe content, or — when
     text is required (``_text_required``) — text not exact or not legible
     (``None`` = unknown, not a failure). ``brand_cue_visible`` is advisory and
@@ -200,7 +213,7 @@ def qa_failed_rules(
     if not (concept.get("trend_motif") or "").strip():
         skip.add("motif_visible")
     if not (target_product or "").strip():
-        skip.add("product_visible")
+        skip.update({"product_visible", "product_malformed"})
     failed = []
     for attr, name, _ in _RULES:
         if attr in skip:
@@ -375,7 +388,13 @@ def _instruction(
         + ". A maker's badge, nameplate or script logo on third-party "
         "equipment (e.g. on an amplifier) counts even if partly illegible; "
         "plain unbranded labels and tiny incidental text do not.",
-        "Also flag severe anatomy or object deformities and brand-unsafe content.",
+        "product_malformed: true when the product's own shape is wrong — "
+        "mirrored or reversed (e.g. a guitar whose headstock, neck or controls "
+        "are flipped, or reversed lettering on it), parts missing, duplicated or "
+        "in the wrong place, warped or melted. Deliberate stylisation (cartoon, "
+        "comic, collage) is not a defect.",
+        "Also flag noticeable anatomy or object deformities (artifacts) and "
+        "brand-unsafe content.",
         "issues: short problem statements in the form '[what is wrong] on/in "
         "[where]', one per problem found; empty if none.",
     ]

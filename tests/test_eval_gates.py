@@ -977,7 +977,7 @@ class TestUnreportedGatesWarning:
         raw = [GateResult(gate="product_visible", passed=True)]
         gates = normalize_gates(raw, VISUAL_GATES, brief_used=True)
         assert all(g.passed for g in gates)
-        assert sum(g.note == NOT_REPORTED_NOTE for g in gates) == 4
+        assert sum(g.note == NOT_REPORTED_NOTE for g in gates) == len(VISUAL_GATES) - 1
 
     def test_warning_counts_not_checked_gates(self):
         from creative_eval.evaluate import NOT_REPORTED_NOTE, unreported_gates_warning
@@ -1271,3 +1271,157 @@ def test_judge_brief_unwraps_bracketed_terms():
     )
     assert "- wrestler likenesses" in block
     assert "[wrestler likenesses]" not in block
+
+
+# --- rater-failure gates (2026-10-08 audit: judge passed 16/16, rater failed 8) ---
+
+
+class TestNoVisualDefectsGate:
+    def test_is_a_blocking_visual_gate(self):
+        from creative_eval.dimensions import GATE_LABELS
+
+        assert "no_visual_defects" in VISUAL_GATES
+        assert "no_visual_defects" not in ADVISORY_GATES
+        assert "no_visual_defects" not in BRIEF_GATES
+        assert GATE_LABELS["no_visual_defects"] == "No visual defects"
+
+    def test_prompt_describes_it_as_a_violation_check(self):
+        text = eval_prompts.VISUAL_CONCEPT_EVAL_USER
+        assert "**no_visual_defects**" in text
+        assert "not mirrored, duplicated, melted or merged" in text
+        assert "ignore deliberate stylisation" in text
+        rule = next(
+            line for line in text.splitlines() if line.startswith("Violation checks")
+        )
+        assert "no_visual_defects" in rule
+
+    def test_failed_defect_gate_blocks(self):
+        from creative_eval.evaluate import evaluate_visual_concept
+
+        gates = dict.fromkeys(VISUAL_GATES, True) | {"no_visual_defects": False}
+        client = _client(_judge_json("visual", gates))
+        result = evaluate_visual_concept(
+            CONCEPT, CAMPAIGN, EvalConfig(), client=client, brief=BRIEF
+        )
+        assert not result.score.gates_passed and not result.score.passed
+
+
+class TestGateCounts:
+    def test_prompt_counts_match_gate_tuples(self):
+        assert (
+            f"Return all {len(AD_COPY_GATES)} gates" in eval_prompts.AD_COPY_EVAL_USER
+        )
+        assert (
+            f"Return all {len(VISUAL_GATES)} gates"
+            in eval_prompts.VISUAL_CONCEPT_EVAL_USER
+        )
+
+
+class TestStricterTrendMotif:
+    def test_motif_must_be_prominent_and_recognisable(self):
+        line = next(
+            line
+            for line in eval_prompts.VISUAL_CONCEPT_EVAL_USER.splitlines()
+            if "**trend_motif_visible**" in line
+        )
+        assert "prominent and recognisable at a glance" in line
+        assert "without reading any caption or copy" in line
+        assert "generic (e.g. any storm or any phone screen)" in line
+        assert "only implied fails" in line
+        assert "{target_search_trend}" in line
+
+    def test_formatted_prompt_names_the_trend(self):
+        from creative_eval.evaluate import evaluate_visual_concept
+
+        client = _client(_judge_json("visual", dict.fromkeys(VISUAL_GATES, True)))
+        evaluate_visual_concept(CONCEPT, CAMPAIGN, EvalConfig(), client=client)
+        assert 'as a reference to "roadrunner" by someone' in _prompt_text(client)
+
+
+RISKY_BRIEF = BRIEF | {
+    "trend_bridge": BRIEF["trend_bridge"]
+    | {"risks": ["  real hurricane victims ", "[mocking {official} warnings]", ""]}
+}
+
+
+class TestTrendRisksGate:
+    def test_brief_block_lists_trend_risks(self):
+        block = format_brief_for_judge(RISKY_BRIEF)
+        assert (
+            "Trend risks: real hurricane victims; mocking {official} warnings" in block
+        )
+
+    def test_no_risks_line_without_risks(self):
+        assert "Trend risks" not in format_brief_for_judge(BRIEF)
+        assert "Trend risks" not in format_brief_for_judge({"trend_bridge": "x"})
+
+    def test_is_a_blocking_brief_gate_on_both_kinds(self):
+        from creative_eval.dimensions import GATE_LABELS
+
+        assert "trend_risks_respected" in AD_COPY_GATES
+        assert "trend_risks_respected" in VISUAL_GATES
+        assert "trend_risks_respected" in BRIEF_GATES
+        assert "trend_risks_respected" not in ADVISORY_GATES
+        assert GATE_LABELS["trend_risks_respected"] == "Respects trend risks"
+
+    @pytest.mark.parametrize(
+        "text",
+        [eval_prompts.AD_COPY_EVAL_USER, eval_prompts.VISUAL_CONCEPT_EVAL_USER],
+        ids=["ad_copy", "visual"],
+    )
+    def test_prompts_describe_it_as_a_violation_check(self, text):
+        assert "**trend_risks_respected**" in text
+        assert "no jokes about its severity, victims, damage" in text
+        assert "No trend risks listed → pass." in text
+        rule = next(
+            line for line in text.splitlines() if line.startswith("Violation checks")
+        )
+        assert "trend_risks_respected" in rule
+
+    def test_brief_risks_reach_the_judge_prompt(self):
+        from creative_eval.evaluate import evaluate_ad_copy
+
+        client = _client(_judge_json("ad", dict.fromkeys(AD_COPY_GATES, True)))
+        evaluate_ad_copy(
+            AD_COPY, CAMPAIGN, EvalConfig(), client=client, brief=RISKY_BRIEF
+        )
+        assert "Trend risks: real hurricane victims" in _prompt_text(client)
+
+    def test_no_brief_passes_with_note(self):
+        from creative_eval.evaluate import normalize_gates
+
+        raw = [GateResult(gate="trend_risks_respected", passed=False)]
+        for expected in (AD_COPY_GATES, VISUAL_GATES):
+            by = {g.gate: g for g in normalize_gates(raw, expected, brief_used=False)}
+            gate = by["trend_risks_respected"]
+            assert gate.passed and gate.note == "no brief"
+
+    def test_unreported_is_not_checked(self):
+        from creative_eval.evaluate import NOT_REPORTED_NOTE, normalize_gates
+
+        raw = [GateResult(gate="product_named", passed=True)]
+        by = {g.gate: g for g in normalize_gates(raw, AD_COPY_GATES, brief_used=True)}
+        gate = by["trend_risks_respected"]
+        assert gate.passed and gate.note == NOT_REPORTED_NOTE
+
+    def test_failed_risk_gate_blocks_both_kinds(self):
+        from creative_eval.evaluate import evaluate_ad_copy, evaluate_visual_concept
+
+        gates = dict.fromkeys(AD_COPY_GATES, True) | {"trend_risks_respected": False}
+        ad = evaluate_ad_copy(
+            AD_COPY,
+            CAMPAIGN,
+            EvalConfig(),
+            client=_client(_judge_json("ad", gates)),
+            brief=RISKY_BRIEF,
+        )
+        assert not ad.score.gates_passed and not ad.score.passed
+        gates = dict.fromkeys(VISUAL_GATES, True) | {"trend_risks_respected": False}
+        visual = evaluate_visual_concept(
+            CONCEPT,
+            CAMPAIGN,
+            EvalConfig(),
+            client=_client(_judge_json("visual", gates)),
+            brief=RISKY_BRIEF,
+        )
+        assert not visual.score.gates_passed and not visual.score.passed

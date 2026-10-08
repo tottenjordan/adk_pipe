@@ -77,9 +77,9 @@ def format_brief_for_judge(brief: Mapping[str, Any] | None) -> str:
     """The judge's ``<CREATIVE_BRIEF>`` block for a parsed brief (pure).
 
     Covers what the gates check against: proposition, reasons to believe,
-    mandatories, avoid (+ brand don'ts), the trend bridge and the brand cues.
-    Missing or malformed fields render as "(none)"; ``None`` →
-    :data:`NO_BRIEF_BLOCK`.
+    mandatories, avoid (+ brand don'ts), the trend bridge (+ its risks, only
+    when the brief names any) and the brand cues. Missing or malformed fields
+    render as "(none)"; ``None`` → :data:`NO_BRIEF_BLOCK`.
     """
     if brief is None:
         return NO_BRIEF_BLOCK
@@ -93,6 +93,8 @@ def format_brief_for_judge(brief: Mapping[str, Any] | None) -> str:
     fit_score = bridge.get("fit_score")
     fit = f"{fit_score}/5" if isinstance(fit_score, int) else "unknown"
     fit_mode = _text(bridge.get("fit_mode")) or "unknown"
+    risks = _texts(bridge.get("risks"))
+    risk_lines = [f"Trend risks: {'; '.join(risks)}"] if risks else []
     return "\n".join(
         [
             f"Single-minded proposition: "
@@ -107,6 +109,7 @@ def format_brief_for_judge(brief: Mapping[str, Any] | None) -> str:
             _bullets(_content_rules(_texts(brand.get("do_not")))),
             f"Trend bridge: fit {fit} ({fit_mode}) — "
             f"{_text(bridge.get('bridge')) or _NONE}",
+            *risk_lines,
             f"Brand tone of voice: {_text(brand.get('tone_of_voice')) or _NONE}",
             "Brand distinctive assets: "
             + ("; ".join(_texts(brand.get("distinctive_assets"))) or _NONE),

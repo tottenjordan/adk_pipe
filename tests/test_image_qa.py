@@ -965,3 +965,43 @@ def test_generate_image_passes_rating_strictness_to_image_qa(monkeypatch):
     flow.ctx.state["rating_strictness"] = ["trend_unclear", "bogus", "weak_cta"]
     flow.run()
     assert flow.strictness == [("weak_cta", "trend_unclear")]
+
+
+# --- malformed product (2026-10-08 rater audit: a mirrored guitar passed) ---
+def test_malformed_product_fails_but_is_not_critical():
+    result = _result(product_malformed=True)
+    assert image_qa.qa_failed_rules(result, _CONCEPT, target_product=_PRODUCT) == [
+        "malformed product"
+    ]
+    assert "malformed product" not in image_qa.CRITICAL_RULES
+
+
+def test_malformed_product_skipped_without_a_product():
+    result = _result(product_malformed=True)
+    assert image_qa.qa_failed_rules(result, _CONCEPT, target_product="") == []
+
+
+def test_payload_without_malformed_field_parses_false():
+    payload = _result().model_dump(exclude={"product_malformed"})
+    assert "product_malformed" not in payload
+    assert ImageQAResult.model_validate(payload).product_malformed is False
+
+
+def test_malformed_product_correction_phrase():
+    text = image_qa.correction_text(
+        _result(product_malformed=True), _CONCEPT, target_product=_PRODUCT
+    )
+    assert "render the product with its correct real-world shape and orientation" in (
+        text.lower()
+    )
+
+
+def test_malformed_product_schema_and_instruction():
+    desc = (ImageQAResult.model_fields["product_malformed"].description or "").lower()
+    assert "mirrored or reversed" in desc
+    artifacts = ImageQAResult.model_fields["artifacts"].description or ""
+    assert artifacts.startswith("Noticeable")
+    text = _instruction_text(_CONCEPT)
+    assert "Flag only clear, material problems" in text
+    assert "product_malformed" in text
+    assert "mirrored or reversed" in text.lower()
