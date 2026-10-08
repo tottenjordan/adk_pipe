@@ -123,6 +123,7 @@ tests/
 ├── test_tools.py                    # backend tool functions (pure logic, no I/O)
 ├── test_tools_retry.py              # infra tools propagate (don't swallow) exceptions
 ├── test_trend_scout_graph.py        # trend_scout understand_trends graph run end-to-end (stub models)
+├── test_trend_scout_history.py      # trend_scout root history trim (measured on the real App, stub models): gather/pick AgentTool runs are isolated, the understand_trends NodeTool leaks 2 sub-agent turns + 2 node inputs into the root's final request without drop_other_agent_context, 0 with it; resumed review_trends checkpoint response kept; trim wired before the rate limiter
 ├── test_trend_scout_concurrency.py  # trend_scout GCS-export tools: per-run scratch isolation
 ├── test_trend_scout_logging.py      # trend_scout wiring of the shared observability callbacks
 ├── test_visual_concept_prompts.py   # visual concept prompts: shared brand_cue / copy-quoted in-image text / brief avoid + fit_mode rules (drafter, critic, finalizer), finalizer angle_id, interactive reviser keeps brand_cue; brace-safety
