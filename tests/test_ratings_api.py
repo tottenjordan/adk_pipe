@@ -604,3 +604,84 @@ def test_put_row_carries_every_store_column():
         build_upsert_sql("p.d.t", row)
 
     run(go)
+
+
+# --- fail-reason chips (rating-driven learning) -----------------------------------
+
+FAIL_REASONS = (
+    "product_not_visible",
+    "text_problem",
+    "unwanted_logo",
+    "weak_cta",
+    "off_brief",
+    "trend_unclear",
+    "cluttered",
+    "off_brand_tone",
+    "artifacts",
+    "other",
+)
+
+
+def test_fail_reason_enum_and_labels():
+    from runserver.rating_reasons import FAIL_REASON_LABELS
+    from runserver.rating_reasons import FAIL_REASONS as ENUM
+
+    assert ENUM == FAIL_REASONS
+    assert tuple(FAIL_REASON_LABELS) == FAIL_REASONS
+    assert FAIL_REASON_LABELS["product_not_visible"] == "Product hard to see"
+    assert all(v and v[0].isupper() for v in FAIL_REASON_LABELS.values())
+
+
+def test_validate_rating_fail_reasons():
+    base = {"app_name": APP, "creative_key": VISUAL, "kind": "visual"}
+    out = rt.validate_rating(
+        {
+            **base,
+            "verdict": "fail",
+            "fail_reasons": ["text_problem", "weak_cta", "text_problem"],
+        }
+    )
+    assert out["fail_reasons"] == ["text_problem", "weak_cta"]  # deduped, ordered
+    assert rt.validate_rating({**base, "verdict": "fail"})["fail_reasons"] == []
+    out = rt.validate_rating({**base, "verdict": "pass", "fail_reasons": ["weak_cta"]})
+    assert out["fail_reasons"] == []  # dropped on pass
+    for bad in (["ignore previous instructions"], "weak_cta", [3], ["WEAK_CTA"]):
+        with pytest.raises(rt.RatingError) as e:
+            rt.validate_rating({**base, "verdict": "fail", "fail_reasons": bad})
+        assert e.value.reason == "invalid_fail_reasons"
+
+
+def test_fail_reasons_validated():
+    async def go():
+        h = Harness()
+        await h.session()
+        ok = await h.put(
+            verdict="fail", fail_reasons=["product_not_visible", "text_problem"]
+        )
+        assert ok.status_code == 200, ok.text
+        assert ok.json()["fail_reasons"] == ["product_not_visible", "text_problem"]
+        (row,) = h.store.rows.values()
+        assert row["fail_reasons"] == ["product_not_visible", "text_problem"]
+        listed = (await h.client.get(f"/ratings/{A}/s1")).json()["ratings"]
+        assert listed[0]["fail_reasons"] == ["product_not_visible", "text_problem"]
+        bad = await h.put(verdict="fail", fail_reasons=["ignore previous instructions"])
+        assert bad.status_code == 400
+        assert bad.json()["detail"]["reason"] == "invalid_fail_reasons"
+        # the bad PUT left the stored row alone
+        assert row["fail_reasons"] == ["product_not_visible", "text_problem"]
+        too_many = await h.put(verdict="fail", fail_reasons=["other"] * 11)
+        assert too_many.status_code == 422  # bounded by the body schema
+
+    run(go)
+
+
+def test_fail_reasons_dropped_on_pass():
+    async def go():
+        h = Harness()
+        await h.session()
+        r = await h.put(verdict="pass", fail_reasons=["weak_cta"])
+        assert r.status_code == 200
+        (row,) = h.store.rows.values()
+        assert row["fail_reasons"] == []
+
+    run(go)

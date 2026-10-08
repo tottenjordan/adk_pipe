@@ -10,7 +10,9 @@ Routes (all user-scoped by path, gated by ``UserAuthzMiddleware`` like
 ``/experiments/{user}/...``; a foreign or unknown session is a 404):
 
 - ``PUT /ratings/{user}/{session}``: upsert one rating (body ``app_name``,
-  ``creative_key``, ``kind``, ``verdict``, ``score?``, ``note?``).
+  ``creative_key``, ``kind``, ``verdict``, ``score?``, ``note?``,
+  ``fail_reasons?``: allowlisted chips from ``runserver/rating_reasons.py``,
+  emptied on a pass).
 - ``GET /ratings/{user}/{session}``: the user's ratings for that session.
 - ``GET /ratings/{user}/calibration``: judge-human agreement over all the user's
   ratings (``runserver/calibration.py``).
@@ -36,6 +38,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from runserver.calibration import calibration_report
+from runserver.rating_reasons import FAIL_REASONS
 from runserver.ratings_store import InMemoryRatingsStore, rating_id, utcnow
 
 log = logging.getLogger(__name__)
@@ -171,9 +174,23 @@ class RatingError(ValueError):
         self.reason = reason
 
 
+def validate_fail_reasons(value: Any, verdict: str) -> list[str]:
+    """Allowlisted fail-reason chips, deduped in order; ``[]`` on a pass (pure)."""
+    if value is None:
+        value = []
+    if not isinstance(value, list) or not all(
+        isinstance(r, str) and r in FAIL_REASONS for r in value
+    ):
+        raise RatingError(
+            "invalid_fail_reasons", f"fail_reasons must be a list of {FAIL_REASONS}"
+        )
+    return [] if verdict == "pass" else list(dict.fromkeys(value))
+
+
 def validate_rating(body: Mapping[str, Any]) -> dict[str, Any]:
-    """Checked ``{app_name, creative_key, kind, verdict, score, note}`` (pure);
-    raises ``RatingError`` for a bad field. Does not check the session."""
+    """Checked ``{app_name, creative_key, kind, verdict, score, note,
+    fail_reasons}`` (pure); raises ``RatingError`` for a bad field. Does not check
+    the session."""
     app_name = body.get("app_name")
     if app_name not in RATING_APPS:
         raise RatingError("invalid_app_name", f"app_name must be one of {RATING_APPS}")
@@ -210,6 +227,7 @@ def validate_rating(body: Mapping[str, Any]) -> dict[str, Any]:
     note = (note or "").strip() or None
     if note is not None and len(note) > NOTE_MAX_CHARS:
         raise RatingError("invalid_note", f"note must be ≤ {NOTE_MAX_CHARS} characters")
+    fail_reasons = validate_fail_reasons(body.get("fail_reasons"), verdict)
     return {
         "app_name": app_name,
         "creative_key": key,
@@ -217,6 +235,7 @@ def validate_rating(body: Mapping[str, Any]) -> dict[str, Any]:
         "verdict": verdict,
         "score": score,
         "note": note,
+        "fail_reasons": fail_reasons,
     }
 
 
@@ -242,6 +261,7 @@ def to_public(row: Mapping[str, Any]) -> dict:
             "judge_gates_passed",
             "judge_model",
             "judge_source",
+            "fail_reasons",
             "created_at",
             "updated_at",
         )
@@ -372,6 +392,8 @@ class _RatingBody(BaseModel):
     score: Any = None
     # Typed (bounds the body); the 2000-char business cap is in validate_rating.
     note: str | None = Field(default=None, max_length=4000)
+    # Bounded here; items are checked against FAIL_REASONS in validate_rating.
+    fail_reasons: list[Any] | None = Field(default=None, max_length=len(FAIL_REASONS))
 
 
 async def _get_session(app_name: str, user_id: str, session_id: str):
@@ -414,7 +436,6 @@ async def http_put_rating(user_id: str, session_id: str, body: _RatingBody) -> d
         "visual_style": None,
         "tone_style": None,
         "angle_id": None,
-        "fail_reasons": [],
         "created_at": now,
         "updated_at": now,
     }
