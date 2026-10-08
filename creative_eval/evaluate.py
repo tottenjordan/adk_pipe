@@ -558,7 +558,7 @@ def evaluate_all_concurrently(
         return [], []
 
     images = generated_images if isinstance(generated_images, Mapping) else {}
-    max_workers = max(1, min(config.max_eval_workers, total))
+    max_workers = config.workers_for(len(ad_copies), len(visual_concepts))
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         ad_futures = [
             executor.submit(
@@ -661,7 +661,7 @@ def evaluate_creatives(
 
     logger.info(
         f"Evaluating {len(ad_copies)} ad copies and {len(visual_concepts)} visual "
-        f"concepts concurrently (max {config.max_eval_workers} workers)..."
+        f"concepts concurrently (max {config.workers_for(len(ad_copies), len(visual_concepts))} workers)..."
     )
 
     ad_evals, visual_evals = evaluate_all_concurrently(
