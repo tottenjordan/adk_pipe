@@ -409,6 +409,12 @@ async def http_put_rating(user_id: str, session_id: str, body: _RatingBody) -> d
         **fields,
         **judge_fields(report, info),
         "judge_source": judge_source if report is not None else "none",
+        # Learning context (filled from state in a later step).
+        "brand": None,
+        "visual_style": None,
+        "tone_style": None,
+        "angle_id": None,
+        "fail_reasons": [],
         "created_at": now,
         "updated_at": now,
     }

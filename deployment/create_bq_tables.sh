@@ -11,7 +11,8 @@
 # (creatives + EVAL_COLUMN_TYPES for evals) and the CRF lock/reaper columns in
 # cloud_functions/creative_fanout/main.py. The bandit_* tables follow
 # docs/bandit/contracts.md §3 (JSON payloads are STRING columns); creative_ratings
-# mirrors RATING_COLUMN_TYPES in runserver/ratings_store.py.
+# (deployment/bq_schemas/creative_ratings.json) mirrors RATING_COLUMN_TYPES in
+# runserver/ratings_store.py.
 set -euo pipefail
 
 : "${BQ_PROJECT_ID:?set BQ_PROJECT_ID}"
@@ -28,6 +29,7 @@ BQ_TABLE_BANDIT_METRICS="${BQ_TABLE_BANDIT_METRICS:-bandit_episode_metrics}"
 BQ_TABLE_RATINGS="${BQ_TABLE_RATINGS:-creative_ratings}"
 
 DATASET="${BQ_PROJECT_ID}:${BQ_DATASET_ID}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 if bq show --dataset "${DATASET}" >/dev/null 2>&1; then
   echo "dataset ${DATASET} exists"
@@ -72,7 +74,9 @@ make_table "${BQ_TABLE_BANDIT_METRICS}" \
   experiment_id:STRING,episode:INTEGER,policy:STRING,horizon:INTEGER,total_reward:FLOAT,total_clicks:INTEGER,cumulative_regret:FLOAT,pct_optimal:FLOAT,steps_to_converge:INTEGER,curve:STRING,arm_share:STRING,per_segment:STRING,arm_stats:STRING,created_at:TIMESTAMP,traffic_run:INTEGER,shift_response:STRING,regimes:STRING
 
 # Human creative ratings, one row per (session, creative, user) (the api MERGE-upserts
-# on rating_id); judge_* snapshot the LLM judge's verdict for calibration.
+# on rating_id); judge_* snapshot the LLM judge's verdict for calibration, and
+# brand/visual_style/tone_style/angle_id/fail_reasons are the learning context.
+# A JSON schema file because fail_reasons is REPEATED (the inline form can't say so).
 make_table "${BQ_TABLE_RATINGS}" \
-  rating_id:STRING,session_id:STRING,app_name:STRING,creative_key:STRING,kind:STRING,user_id:STRING,verdict:STRING,score:INTEGER,note:STRING,judge_overall:FLOAT,judge_passed:BOOLEAN,judge_gates_passed:BOOLEAN,judge_model:STRING,judge_source:STRING,created_at:TIMESTAMP,updated_at:TIMESTAMP \
+  "${SCRIPT_DIR}/bq_schemas/creative_ratings.json" \
   --clustering_fields user_id,session_id

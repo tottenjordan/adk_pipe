@@ -589,3 +589,18 @@ def test_note_is_bounded_by_the_body_schema():
         assert r.json()["detail"]["reason"] == "invalid_note"
 
     run(go)
+
+
+def test_put_row_carries_every_store_column():
+    """The route's row names every MERGE column (build_upsert_sql would KeyError)."""
+    from runserver.ratings_store import RATING_COLUMN_TYPES, build_upsert_sql
+
+    async def go():
+        h = Harness()
+        await h.session()
+        assert (await h.put()).status_code == 200
+        (row,) = h.store.rows.values()
+        assert set(RATING_COLUMN_TYPES) <= set(row)
+        build_upsert_sql("p.d.t", row)
+
+    run(go)

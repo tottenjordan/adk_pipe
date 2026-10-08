@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 from pathlib import Path
@@ -35,12 +36,21 @@ BANDIT_METRICS = (
     "shift_response:STRING,regimes:STRING"
 )
 
+# creative_ratings needs a REPEATED column (fail_reasons), which the inline
+# `bq mk` schema can't express, so it is created from a JSON schema file.
+RATINGS_SCHEMA = SCRIPT.parent / "bq_schemas" / "creative_ratings.json"
 CREATIVE_RATINGS = (
     "rating_id:STRING,session_id:STRING,app_name:STRING,creative_key:STRING,"
     "kind:STRING,user_id:STRING,verdict:STRING,score:INTEGER,note:STRING,"
     "judge_overall:FLOAT,judge_passed:BOOLEAN,judge_gates_passed:BOOLEAN,"
-    "judge_model:STRING,judge_source:STRING,created_at:TIMESTAMP,updated_at:TIMESTAMP"
+    "judge_model:STRING,judge_source:STRING,brand:STRING,visual_style:STRING,"
+    "tone_style:STRING,angle_id:STRING,fail_reasons:STRING:REPEATED,"
+    "created_at:TIMESTAMP,updated_at:TIMESTAMP"
 )
+
+
+def _ratings_schema() -> list[dict]:
+    return json.loads(RATINGS_SCHEMA.read_text())
 
 
 def _run(tmp_path: Path, exists: bool) -> list[str]:
@@ -91,16 +101,30 @@ def test_creates_creative_ratings_table(tmp_path):
     calls = [c for c in _run(tmp_path, exists=False) if c.startswith("mk -t")]
     by_table = {c.split()[-2]: c for c in calls}
     ratings = by_table["p:d.creative_ratings"]
-    assert ratings.endswith(CREATIVE_RATINGS)
+    assert ratings.split()[-1] == str(RATINGS_SCHEMA)
     assert "--clustering_fields user_id,session_id" in ratings
+
+
+def test_ratings_schema_file_lists_the_columns_in_order():
+    got = [
+        ":".join(
+            [f["name"], f["type"]]
+            + ([f["mode"]] if f.get("mode", "NULLABLE") != "NULLABLE" else [])
+        )
+        for f in _ratings_schema()
+    ]
+    assert got == CREATIVE_RATINGS.split(",")
 
 
 def test_ratings_schema_matches_store_columns():
     from runserver.ratings_store import RATING_COLUMN_TYPES
 
     bq = {"INTEGER": "INT64", "FLOAT": "FLOAT64", "BOOLEAN": "BOOL"}
-    cols = dict(c.split(":") for c in CREATIVE_RATINGS.split(","))
-    assert {k: bq.get(v, v) for k, v in cols.items()} == RATING_COLUMN_TYPES
+    got = {}
+    for f in _ratings_schema():
+        typ = bq.get(f["type"], f["type"])
+        got[f["name"]] = f"ARRAY<{typ}>" if f.get("mode") == "REPEATED" else typ
+    assert got == RATING_COLUMN_TYPES
 
 
 @pytest.mark.subprocess
