@@ -22,6 +22,7 @@ was, and it crashed live on 2026-07-14 (commit 9ec1c92).
 import logging
 from types import SimpleNamespace
 
+import pytest
 from google.adk.models.llm_response import LlmResponse
 from google.adk.sessions.state import State
 from google.genai import types
@@ -248,6 +249,45 @@ def test_collect_degradation_warnings_drops_none_issue_items():
         {"x__issues": [None, "real issue"]}
     )
     assert note == "X has unresolved issues: 1 (e.g. real issue)"
+
+
+@pytest.mark.parametrize(
+    ("key", "label"),
+    [
+        ("image_qa", "Image check"),
+        ("ad_copy_critique", "Ad copy check"),
+        ("final_visual_concepts", "Visual concept check"),
+        ("creative_brief", "Creative brief"),
+        ("research_report_gcs_uri", "Research PDF save"),
+        ("eval_report_gcs_uri", "Eval report save"),
+        ("creative_gallery_gcs_uri", "Gallery save"),
+        ("creative_row_uuid", "Trend row save"),
+        ("eval_bq_row_uuid", "Eval row save"),
+    ],
+)
+def test_collect_degradation_warnings_uses_human_labels(key, label):
+    (note,) = observability.collect_degradation_warnings(
+        {f"{key}__issues": ["something went wrong"]}
+    )
+    assert note == f"{label} has unresolved issues: 1 (e.g. something went wrong)"
+
+
+def test_collect_degradation_warnings_image_qa_production_example():
+    """The 2026-10 false alarm: an image-QA residual is a quality note, not research."""
+    (note,) = observability.collect_degradation_warnings(
+        {"image_qa__issues": ["The Lonely Tech Apron: WWE logo on road case sticker"]}
+    )
+    assert note == (
+        "Image check has unresolved issues: 1 "
+        "(e.g. The Lonely Tech Apron: WWE logo on road case sticker)"
+    )
+
+
+def test_collect_degradation_warnings_unknown_key_keeps_generic_label():
+    (note,) = observability.collect_degradation_warnings(
+        {"brand_new_step__issues": "odd"}
+    )
+    assert note == "Brand new step has unresolved issues: 1 (e.g. odd)"
 
 
 def test_final_state_summary_skips_cleared_markers(caplog):

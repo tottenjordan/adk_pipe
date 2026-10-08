@@ -7,10 +7,10 @@ import { buttonVariants } from "@/components/ui/button";
 import { getSession, listArtifacts, getArtifact, SELF_USER_ID } from "@/lib/api";
 import { fetchEvalReport } from "@/lib/eval-report";
 import { gcsProxyUrl } from "@/lib/gcs";
+import { classifyWarnings } from "@/lib/run-warnings";
 import {
   buildDisplayFields,
   imagesRetryExhausted,
-  nonImageWarnings,
   VISUAL_DIRECTION_FIELDS,
   type DisplayFieldDef,
 } from "@/lib/utils";
@@ -187,10 +187,10 @@ export default function ResultsPage({
   }
 
   const noImages = imagesRetryExhausted(state);
-  // Degradation warnings from the eval report, minus the image-exhaustion note
-  // (already surfaced by the dedicated zero-image banner) — what remains is
-  // the research-producer exhaustions worth flagging on their own.
-  const degradationWarnings = nonImageWarnings(evalReport?.warnings);
+  // The eval report's run notes grouped into research gaps / failed saves /
+  // quality flags (the image-exhaustion note is dropped: the zero-image banner
+  // already covers it).
+  const runWarnings = classifyWarnings(evalReport?.warnings);
   const gcsUri = [state.gcs_bucket, state.gcs_folder, state.agent_output_dir]
     .filter(Boolean)
     .join("/");
@@ -248,7 +248,7 @@ export default function ResultsPage({
         onRefresh={() => session && loadEval(session)}
         refreshDisabled={!session}
         noImages={noImages}
-        degradationWarnings={degradationWarnings}
+        runWarnings={runWarnings}
         stoppedBefore={stopped?.stage ?? null}
         runUrl={runUrl}
       />
