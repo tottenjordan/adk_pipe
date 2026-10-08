@@ -324,6 +324,30 @@ class TestEvalConfig:
         # sustained rate (~2 calls per worker per minute) stays under the quota
         assert EvalConfig().max_eval_workers * 2 <= _PRO_RPM_QUOTA
 
+    def test_visual_only_wave_runs_fully_parallel(self):
+        """After early ad-copy judging, finalize judges only ~4 visuals: one wave
+        of 4 calls (< 5 RPM, no sustained rate), so they run all at once."""
+        from creative_eval.config import EvalConfig
+
+        cfg = EvalConfig()
+        assert cfg.max_visual_wave_workers == 4
+        assert cfg.workers_for(0, 4) == 4
+        assert cfg.workers_for(0, 3) == 3
+        assert cfg.workers_for(0, 1) == 1
+        # one wave never exceeds the Pro quota
+        assert cfg.max_visual_wave_workers < 5
+
+    def test_mixed_or_large_batches_keep_the_sustained_cap(self):
+        """interactive_creative judges copies + visuals together (8 calls): that is
+        a sustained rate, so it keeps max_eval_workers (2)."""
+        from creative_eval.config import EvalConfig
+
+        cfg = EvalConfig()
+        assert cfg.workers_for(4, 4) == 2
+        assert cfg.workers_for(1, 0) == 1
+        assert cfg.workers_for(0, 6) == 2  # more visuals than one safe wave
+        assert cfg.workers_for(0, 0) == 1
+
     def test_custom_threshold(self):
         from creative_eval.config import EvalConfig
 

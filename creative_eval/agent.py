@@ -177,7 +177,7 @@ def evaluate_all_creatives(tool_context) -> dict:
     logger.info(
         f"Evaluating {len(to_judge)} ad copies ({len(ad_copies) - len(to_judge)} "
         f"reused from the early evaluation) and {len(visual_concepts)} visual "
-        f"concepts concurrently (max {_config.max_eval_workers} workers)..."
+        f"concepts concurrently (max {_config.workers_for(len(to_judge), len(visual_concepts))} workers)..."
     )
 
     brief = parse_brief(state.get("creative_brief"))

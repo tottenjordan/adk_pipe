@@ -34,6 +34,25 @@ class EvalConfig:
     max_eval_workers: int = field(
         default_factory=lambda: int(os.getenv("EVAL_MAX_WORKERS", "2"))
     )
+    # A visuals-only batch (creative_agent judges the ad copies early, while the
+    # visuals render, so finalize only judges the ~4 visual concepts) is ONE wave
+    # of at most this many calls — no sustained rate — and the early ad-copy calls
+    # finish minutes earlier, outside the 60 s quota window. So that wave runs
+    # fully in parallel (4 calls < 5 RPM) instead of 2 at a time. Mixed batches
+    # (interactive_creative's all-at-once eval) keep max_eval_workers.
+    max_visual_wave_workers: int = field(
+        default_factory=lambda: int(os.getenv("EVAL_MAX_VISUAL_WAVE_WORKERS", "4"))
+    )
+
+    def workers_for(self, n_ad_copies: int, n_visuals: int) -> int:
+        """Thread-pool size for a judge batch (at least 1, never above its size)."""
+        total = n_ad_copies + n_visuals
+        cap = (
+            self.max_visual_wave_workers
+            if n_ad_copies == 0 and n_visuals <= self.max_visual_wave_workers
+            else self.max_eval_workers
+        )
+        return max(1, min(cap, total))
 
     # Scoring dimensions and weights for ad copy
     ad_copy_dimensions: list[str] = field(
