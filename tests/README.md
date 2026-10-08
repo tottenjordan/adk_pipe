@@ -111,6 +111,7 @@ tests/
 ├── test_public_api.py               # creative_agent public facade (curated __all__ reuse surface) + guards: no legacy SequentialAgent/ParallelAgent/LoopAgent
 ├── test_retry_node.py               # RetryUntilKeyNode (retry-on-empty graph wrapper; is_populated; NodeTool no-stall)
 ├── test_root_history.py            # agent_common.history: ADK replays earlier pipelines' sub-agent turns + node inputs into a root's request (measured on the real creative root), the trim keeps only user/root turns + call/response pairs, precise matching, both roots wired
+├── test_early_ad_copy_eval.py       # early ad-copy judging (evaluate_ad_copies_only / evaluate_ad_copies_node): partial stored, reused by finalize only when the fingerprint matches, failed copies re-judged, fail-soft
 ├── test_finalize.py                 # creative_agent/finalize.py nodes: summary formatting, judge off-loop on a snapshot, per-step isolation + ordering in persist_node, skipped eval writes
 ├── test_fail_soft_node.py           # FailSoftNode (optional-step exception → on_error state delta; successors still run; DynamicNodeFailError unwrap)
 ├── test_retry_config.py             # scoped RetryConfig constants on infra agents

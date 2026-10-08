@@ -47,6 +47,7 @@ from creative_eval.schemas import (
 from tests._fake_bq import FakeBigQueryClient
 from tests._fakes import (
     FakeStorageClient,
+    FakeToolContext,
     RecordingLlm,
     fc_response,
     text_response,
@@ -1503,6 +1504,126 @@ def test_creative_pipeline_runs_every_stage_and_the_root_finishes(monkeypatch):
     assert root_llm.calls == 2
     assert events[-1].author == "root_agent"
     assert events[-1].content.parts[0].text == "DONE"
+
+
+def test_creative_pipeline_judges_ad_copies_while_visuals_render(monkeypatch):
+    """The ad-copy judge calls start right after ad_creative_pipeline, before
+    rendering finishes (fan-out next to visual_production_pipeline); finalize
+    then judges only the visuals and the merged report is the one the old
+    all-at-once evaluation produced."""
+    import threading
+
+    import creative_agent.agent as ca
+    import creative_eval.agent as eval_agent
+
+    wf = ca.creative_pipeline
+    llms = _stub_graph(monkeypatch, wf)
+    _script_research(llms, ["CA INSIGHTS"])
+    llms["ad_copy_drafter"].push(text_response(_ADS))
+    ads = [_final_ad(i) for i in range(1, 5)]
+    llms["ad_copy_critic"].push(text_response(_final_ads(*ads)))
+    concepts = [_final_concept(i) for i in range(1, 5)]
+    llms["art_director"].push(text_response("DIRECTION"))
+    llms["visual_concept_drafter"].push(text_response(_CONCEPTS))
+    llms["visual_concept_critic"].push(text_response(_CONCEPTS))
+    llms["visual_concept_finalizer"].push(text_response(_concepts_json(*concepts)))
+    llms["visual_generator"].push(
+        fc_response("generate_image", {}, "img1"), text_response("Rendered.")
+    )
+    _fake_finalize_io(monkeypatch)
+
+    events: list[str] = []
+    ad_eval_started = threading.Event()
+    judge_calls: list[tuple[int, int]] = []
+
+    def judge(ad_copies, visual_concepts, campaign_context, config, **kw):
+        judge_calls.append((len(ad_copies), len(visual_concepts)))
+        if ad_copies and not visual_concepts:
+            events.append("ad_eval_start")
+            ad_eval_started.set()
+        else:
+            events.append("visual_eval")
+        return _fake_judge(ad_copies, visual_concepts, campaign_context, config)
+
+    monkeypatch.setattr(eval_agent, "evaluate_all_concurrently", judge)
+
+    async def slow_render(tool_context) -> dict:
+        # A render that takes a while: the early ad-copy judge must start
+        # during it (bounded wait, so a sequential graph fails, not hangs).
+        for _ in range(500):
+            if ad_eval_started.is_set():
+                break
+            await asyncio.sleep(0.01)
+        events.append("render_done")
+        tool_context.state["_images_generated"] = True
+        return {"status": "ok"}
+
+    slow_render.__name__ = "generate_image"
+    (generator,) = [a for a in _llm_agents(wf) if a.name == "visual_generator"]
+    monkeypatch.setattr(generator, "tools", [slow_render])
+
+    _, _, state = _run_root(
+        monkeypatch,
+        "creative_pipeline",
+        {"gcs_folder": "folder", "agent_output_dir": "out"},
+    )
+
+    assert events == ["ad_eval_start", "render_done", "visual_eval"]
+    # Early: the 4 ad copies only; finalize: the 4 visuals only.
+    assert judge_calls == [(4, 0), (0, 4)]
+    report = state["creative_evaluation_report"]
+    # Same report as the old path (everything judged in finalize).
+    monkeypatch.setattr(eval_agent, "evaluate_all_concurrently", _fake_judge)
+    baseline_state = {
+        k: v for k, v in state.items() if k != eval_agent.AD_COPY_PARTIAL_KEY
+    }
+    ctx = FakeToolContext(baseline_state)
+    eval_agent.evaluate_all_creatives(ctx)
+    assert report == ctx.state["creative_evaluation_report"]
+    assert report["summary"]["total_ad_copies"] == 4
+    assert report["summary"]["total_visual_concepts"] == 4
+    assert state["finalize_done"] is True
+
+
+def test_creative_pipeline_early_ad_copy_eval_failure_falls_back(monkeypatch):
+    """A failing early judge never fails the run: finalize judges everything."""
+    import creative_agent.agent as ca
+    import creative_eval.agent as eval_agent
+
+    wf = ca.creative_pipeline
+    llms = _stub_graph(monkeypatch, wf)
+    _script_research(llms, ["CA INSIGHTS"])
+    llms["ad_copy_drafter"].push(text_response(_ADS))
+    ads = [_final_ad(i) for i in range(1, 5)]
+    llms["ad_copy_critic"].push(text_response(_final_ads(*ads)))
+    (generator,) = [a for a in _llm_agents(wf) if a.name == "visual_generator"]
+    monkeypatch.setattr(generator, "tools", [_fake_generate_image])
+    concepts = [_final_concept(i) for i in range(1, 5)]
+    llms["art_director"].push(text_response("DIRECTION"))
+    llms["visual_concept_drafter"].push(text_response(_CONCEPTS))
+    llms["visual_concept_critic"].push(text_response(_CONCEPTS))
+    llms["visual_concept_finalizer"].push(text_response(_concepts_json(*concepts)))
+    llms["visual_generator"].push(
+        fc_response("generate_image", {}, "img1"), text_response("Rendered.")
+    )
+    _fake_finalize_io(monkeypatch)
+
+    def broken_early(tool_context):
+        raise RuntimeError("judge down")
+
+    monkeypatch.setattr(eval_agent, "evaluate_ad_copies_only", broken_early)
+
+    _, _, state = _run_root(
+        monkeypatch,
+        "creative_pipeline",
+        {"gcs_folder": "folder", "agent_output_dir": "out"},
+    )
+
+    assert eval_agent.AD_COPY_PARTIAL_KEY not in state
+    report = state["creative_evaluation_report"]
+    assert report["summary"]["total_ad_copies"] == 4
+    assert report["summary"]["total_visual_concepts"] == 4
+    assert state["finalize_done"] is True
 
 
 _HISTORY = {

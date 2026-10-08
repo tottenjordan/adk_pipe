@@ -5,8 +5,12 @@ The Pro root used to make five separate tool decisions after rendering (the
 sometimes ended the run with an empty turn after one of the long results. These
 graph function nodes run the same work as one deterministic unit:
 
+* :func:`evaluate_ad_copies_node` — NOT part of finalize_pipeline: in
+  ``creative_pipeline`` it judges the ad copies concurrently with the visual
+  stage and stores them (``ad_copy_evaluations_partial``) for the next step;
 * :func:`evaluate_creatives_node` — scores every creative with the
-  ``creative_eval`` judge (``evaluate_all_creatives``) off the event loop;
+  ``creative_eval`` judge (``evaluate_all_creatives``) off the event loop,
+  reusing the early ad-copy judgements when they are still current;
 * :func:`persist_node` — saves the eval report JSON + HTML gallery to GCS and
   writes the ``trend_creatives`` + ``creative_evals`` BigQuery rows;
 * :func:`finalize_ready` — the truthy terminal: a compact summary for the root;
@@ -84,6 +88,35 @@ def issue_message(label: str, exc: BaseException) -> str:
 
 
 # --- evaluation --- #
+
+
+async def evaluate_ad_copies_node(ctx: Context) -> None:
+    """Judge the final ad copies early, while the visual stage renders.
+
+    Runs in creative_pipeline's fan-out after ad_creative_pipeline, next to
+    visual_production_pipeline (a JoinNode waits for both before finalize). The
+    4 Pro judge calls thereby overlap the visual stage's flash/image calls
+    instead of queueing with the visual judge calls after rendering; finalize's
+    :func:`evaluate_creatives_node` then judges only the visuals and merges the
+    stored results into the same report.
+
+    Fail-soft and marker-free: on any failure (or no ad copies) nothing is
+    stored and finalize evaluates the ad copies itself, as before. Same
+    snapshot/worker-thread pattern as :func:`evaluate_creatives_node`; only the
+    ``ad_copy_evaluations_partial`` key is copied back, on the loop.
+    """
+    holder = SimpleNamespace(state=ctx.state.to_dict())
+    try:
+        result = await asyncio.to_thread(eval_agent.evaluate_ad_copies_only, holder)
+    except Exception:
+        logger.exception("early ad-copy evaluation failed; finalize will retry it")
+        return None
+    partial = holder.state.get(eval_agent.AD_COPY_PARTIAL_KEY)
+    if isinstance(result, dict) and result.get("status") == "success" and partial:
+        ctx.state[eval_agent.AD_COPY_PARTIAL_KEY] = partial
+    else:
+        logger.info("early ad-copy evaluation skipped: %s", result)
+    return None
 
 
 async def evaluate_creatives_node(ctx: Context) -> None:

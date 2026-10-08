@@ -46,6 +46,7 @@ from .copy_gate import (
     structural_issues,
 )
 from .finalize import (
+    evaluate_ad_copies_node,
     evaluate_creatives_node,
     finalize_ready,
     issue_message,
@@ -1336,6 +1337,15 @@ def _stage_barrier(stage: Workflow) -> FunctionNode:
     )
 
 
+# After the ad copies, the graph fans out: the visual stage (concepts + renders,
+# ~4 min) runs next to evaluate_ad_copies_node, which judges the ad copies in the
+# meantime (Pro judge calls overlapping flash/image work, not the visual judge).
+# The JoinNode waits for both; finalize's evaluate step then judges only the
+# visuals and merges the stored ad-copy results (or judges everything itself if
+# the early evaluation failed or is stale).
+ad_copy_eval_join = JoinNode(name="ad_copy_eval_join")
+_visual_production_barrier = _stage_barrier(visual_production_pipeline)
+
 creative_pipeline = Workflow(
     name="creative_pipeline",
     description="Runs the complete creative workflow: research and a creative brief (research PDF saved), ad copies, visual concepts with rendered images, then evaluation and export of the report, HTML gallery and BigQuery rows. Returns the evaluation summary.",
@@ -1346,12 +1356,17 @@ creative_pipeline = Workflow(
             combined_research_pipeline,
             _stage_barrier(ad_creative_pipeline),
             ad_creative_pipeline,
-            _stage_barrier(visual_production_pipeline),
-            visual_production_pipeline,
+            (_visual_production_barrier, evaluate_ad_copies_node),
+        ),
+        (_visual_production_barrier, visual_production_pipeline, ad_copy_eval_join),
+        (evaluate_ad_copies_node, ad_copy_eval_join),
+        (
+            ad_copy_eval_join,
+            # Drops the join dict (finalize_pipeline validates PipelineRequest).
             _stage_barrier(finalize_pipeline),
             # Terminal: finalize_ready's always-truthy summary.
             finalize_pipeline,
-        )
+        ),
     ],
 )
 

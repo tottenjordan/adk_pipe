@@ -61,6 +61,8 @@ class TestPhaseOf:
         assert phase_of("finalize_pipeline") == "eval"
         assert phase_of("evaluate_creatives_node") == "eval"
         assert phase_of("finalize_ready") == "eval"
+        assert phase_of("evaluate_ad_copies_node") == "eval"  # overlaps visuals
+        assert phase_of("ad_copy_eval_join") == "eval"
 
     def test_persistence_nodes(self):
         # Same phase the retired root persistence tools mapped to.
