@@ -54,6 +54,18 @@ DEFAULT_BRAND_HISTORY_RUNS = 5
 MAX_BRAND_HISTORY_RUNS = 20
 
 
+# Rating learning (creative_agent/rating_signals.py): opted-in runs read the
+# brand's human ratings (creative_ratings) at the start of the research pipeline.
+RATING_LEARNING_EFFECTS: frozenset[str] = frozenset({"guidance", "styles", "checks"})
+DEFAULT_RATING_LEARNING_MIN_RATINGS = 8
+MAX_RATING_LEARNING_MIN_RATINGS = 200
+DEFAULT_RATING_STYLE_MIN = 3
+DEFAULT_RATING_REASON_MIN = 3
+MAX_RATING_SAMPLE_MIN = 50
+DEFAULT_RATING_LEARNING_WINDOW_DAYS = 90
+MAX_RATING_LEARNING_WINDOW_DAYS = 365
+
+
 def _parse_rounds(raw: str | None, default: int, maximum: int) -> int:
     try:
         value = int(raw) if raw is not None and raw.strip() else None
@@ -111,6 +123,56 @@ def parse_brand_history_runs(raw: str | None) -> int:
     brand-history note; 0 disables it like ``BRAND_HISTORY_ENABLED=false``.
     """
     return _parse_rounds(raw, DEFAULT_BRAND_HISTORY_RUNS, MAX_BRAND_HISTORY_RUNS)
+
+
+def _parse_bounded(raw: str | None, default: int, maximum: int) -> int:
+    """Like ``_parse_rounds`` but clamped to 1..maximum (a sample size/window)."""
+    return max(1, _parse_rounds(raw, default, maximum))
+
+
+def parse_rating_learning_enabled(raw: str | None) -> bool:
+    """``RATING_LEARNING_ENABLED`` → bool; ON (opt-in allowed) unless 0/false/no/off.
+
+    The global kill switch: when off, no run reads ratings, even with the
+    per-run ``learn_from_ratings`` toggle on.
+    """
+    return parse_brand_history_enabled(raw)
+
+
+def parse_rating_learning_effects(raw: str | None) -> frozenset[str]:
+    """``RATING_LEARNING_EFFECTS`` → the enabled effects.
+
+    Comma-separated subset of guidance/styles/checks (case-insensitive; unknown
+    items ignored). Unset → all three; an explicitly empty value → none.
+    """
+    if raw is None:
+        return RATING_LEARNING_EFFECTS
+    items = {item.strip().lower() for item in raw.split(",")}
+    return frozenset(items & RATING_LEARNING_EFFECTS)
+
+
+def parse_rating_learning_min_ratings(raw: str | None) -> int:
+    """``RATING_LEARNING_MIN_RATINGS`` → int clamped to 1..200; default 8."""
+    return _parse_bounded(
+        raw, DEFAULT_RATING_LEARNING_MIN_RATINGS, MAX_RATING_LEARNING_MIN_RATINGS
+    )
+
+
+def parse_rating_style_min(raw: str | None) -> int:
+    """``RATING_STYLE_MIN`` → int clamped to 1..50; default 3."""
+    return _parse_bounded(raw, DEFAULT_RATING_STYLE_MIN, MAX_RATING_SAMPLE_MIN)
+
+
+def parse_rating_reason_min(raw: str | None) -> int:
+    """``RATING_REASON_MIN`` → int clamped to 1..50; default 3."""
+    return _parse_bounded(raw, DEFAULT_RATING_REASON_MIN, MAX_RATING_SAMPLE_MIN)
+
+
+def parse_rating_learning_window_days(raw: str | None) -> int:
+    """``RATING_LEARNING_WINDOW_DAYS`` → int clamped to 1..365; default 90."""
+    return _parse_bounded(
+        raw, DEFAULT_RATING_LEARNING_WINDOW_DAYS, MAX_RATING_LEARNING_WINDOW_DAYS
+    )
 
 
 @dataclass
@@ -180,6 +242,35 @@ class ResearchConfiguration(BaseAgentConfiguration):
     brand_history_runs: int = field(
         default_factory=lambda: parse_brand_history_runs(
             os.getenv("BRAND_HISTORY_RUNS")
+        )
+    )
+
+    # Rating learning (opt-in per run via state `learn_from_ratings`): global
+    # kill switch, enabled effects, and the sample-size / window thresholds.
+    rating_learning_enabled: bool = field(
+        default_factory=lambda: parse_rating_learning_enabled(
+            os.getenv("RATING_LEARNING_ENABLED")
+        )
+    )
+    rating_learning_effects: frozenset[str] = field(
+        default_factory=lambda: parse_rating_learning_effects(
+            os.getenv("RATING_LEARNING_EFFECTS")
+        )
+    )
+    rating_learning_min_ratings: int = field(
+        default_factory=lambda: parse_rating_learning_min_ratings(
+            os.getenv("RATING_LEARNING_MIN_RATINGS")
+        )
+    )
+    rating_style_min: int = field(
+        default_factory=lambda: parse_rating_style_min(os.getenv("RATING_STYLE_MIN"))
+    )
+    rating_reason_min: int = field(
+        default_factory=lambda: parse_rating_reason_min(os.getenv("RATING_REASON_MIN"))
+    )
+    rating_learning_window_days: int = field(
+        default_factory=lambda: parse_rating_learning_window_days(
+            os.getenv("RATING_LEARNING_WINDOW_DAYS")
         )
     )
 

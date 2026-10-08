@@ -68,6 +68,18 @@ ENV_VAR_DICT = {
     # switch (default on) and how many past runs to read (0..20, default 5).
     "BRAND_HISTORY_ENABLED": os.getenv("BRAND_HISTORY_ENABLED", "true"),
     "BRAND_HISTORY_RUNS": os.getenv("BRAND_HISTORY_RUNS", "5"),
+    # creative_agent rating learning (creative_agent/rating_signals.py; opt-in
+    # per run): global kill switch (default on = opt-in allowed), enabled
+    # effects, minimum sample sizes, look-back window, and the ratings table.
+    "RATING_LEARNING_ENABLED": os.getenv("RATING_LEARNING_ENABLED", "true"),
+    "RATING_LEARNING_EFFECTS": os.getenv(
+        "RATING_LEARNING_EFFECTS", "guidance,styles,checks"
+    ),
+    "RATING_LEARNING_MIN_RATINGS": os.getenv("RATING_LEARNING_MIN_RATINGS", "8"),
+    "RATING_STYLE_MIN": os.getenv("RATING_STYLE_MIN", "3"),
+    "RATING_REASON_MIN": os.getenv("RATING_REASON_MIN", "3"),
+    "RATING_LEARNING_WINDOW_DAYS": os.getenv("RATING_LEARNING_WINDOW_DAYS", "90"),
+    "BQ_TABLE_RATINGS": os.getenv("BQ_TABLE_RATINGS") or "creative_ratings",
     # Per-request timeout for flash / lite model calls (agent_common/genai_retry.py;
     # default 90, clamped 30..900, 0 = use MODEL_REQUEST_TIMEOUT_SECONDS). The ADK
     # agent models bake it in at deploy (pickled); the lazily built image-QA
