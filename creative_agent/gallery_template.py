@@ -459,9 +459,9 @@ HTML_END_JAVASCRIPT = """
 
                     galleryImages.forEach(image => {
                         image.addEventListener('click', () => {
-                            // lightboxImg.src = image.src;
-                            // Use the 'data-high-res-src' for the lightbox image
-                            lightboxImg.src = image.dataset.highResSrc;
+                            // The lightbox shows 'data-high-res-src' (today the
+                            // original 2K render, same as src), else the src.
+                            lightboxImg.src = image.dataset.highResSrc || image.src;
                             lightbox.classList.add('visible');
                         });
                     });

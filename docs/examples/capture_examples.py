@@ -35,7 +35,8 @@ def prep(run_dir: Path) -> None:
         img = Image.open(png).convert("RGB")
         img.thumbnail((1200, 1200 * 4))
         img.save(local / f"{png.stem}.jpg", quality=85)
-        # The lightbox loads the XL_local_ copy; point it at an equivalent local file.
+        # Galleries from runs before 2026-10-08 point the lightbox at a
+        # resized/XL_local_ copy; give those an equivalent local file too.
         img.save(local / f"XL_local_{png.stem}.jpg", quality=85)
     html = (run_dir / "creative_portfolio_gallery.html").read_text(encoding="utf-8")
     html = GCS_SRC.sub(lambda m: Path(m.group(1)).stem + ".jpg", html)

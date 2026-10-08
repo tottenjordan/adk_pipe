@@ -20,7 +20,10 @@ form while staying whole-word:
 * ``mentions`` — the phrase appears in full, OR (two or more content tokens)
   at least ``ceil(MENTION_RATIO * n)`` of its ``n`` content tokens appear,
   including every kept packaging head noun and, when ``brand`` is given and
-  named in the phrase, at least one brand token. With a single content token
+  named in the phrase, at least one brand token; OR (``brand`` given) every
+  distinctive (digit / all-caps) token appears, plus a brand token and every
+  kept packaging head noun ("PRS SE CE24" names "SE CE24 Electric
+  Guitar"). With a single content token
   the phrase's core (its words minus sizes / dropped packaging) must appear in
   full ("Pixel 9" is not "pixel art"). A phrase made only of packaging words
   ("can") identifies nothing and is never mentioned.
@@ -231,6 +234,43 @@ def _has_word(word: str, text_words: Iterable[str]) -> bool:
     return any(same_word(word, other) for other in text_words)
 
 
+def distinctive_tokens(phrase: str) -> list[str]:
+    """``phrase``'s content tokens that look like a model name or code.
+
+    Distinctive = in the ORIGINAL (unfolded) phrase the word contains a digit
+    or is all caps with 2+ letters ("CE24", "SE", "XPS"). Sizes and bare
+    numbers are not content tokens, so never distinctive ("12-pack", "Model 3").
+    """
+    raw = _WORD.findall(_POSSESSIVE.sub("", phrase.replace("\u2019", "'")))
+    marked = {
+        fold(w)
+        for w in raw
+        if any(ch.isdigit() for ch in w) or (len(w) >= 2 and w.isupper())
+    }
+    return [t for t in content_tokens(phrase) if t in marked]
+
+
+def _names_model(
+    tokens: list[str],
+    hit: list[str],
+    distinctive: list[str],
+    brand: str,
+    text_words: set[str],
+) -> bool:
+    """Every distinctive token hit, plus a brand token and every kept packaging
+    head noun: "PRS SE CE24" names "SE CE24 Electric Guitar" for PRS.
+
+    Brand-anchored only: the brand-less motif check would otherwise let an
+    acronym alone ("an NFL stadium") stand in for a motif ("NFL Draft stage").
+    """
+    brand_tokens = content_tokens(brand)
+    if not brand_tokens or not any(_has_word(b, text_words) for b in brand_tokens):
+        return False
+    if not distinctive or any(t not in hit for t in distinctive):
+        return False
+    return not any(t in PACKAGING_WORDS and t not in hit for t in tokens)
+
+
 def mentions(
     text: str, phrase: str, *, brand: str = "", ratio: float = MENTION_RATIO
 ) -> bool:
@@ -243,6 +283,11 @@ def mentions(
     "Gibson guitar" "Gibson guitar case" (head noun missing). When ``brand``'s
     tokens appear in the phrase, the hits must include one of them: "an iced
     coffee" does not mention "Starbucks iced coffee" for the brand Starbucks.
+    Model rule: with a ``brand``, when every distinctive token (a digit or all
+    caps in the original phrase, see ``distinctive_tokens``) is hit, plus a
+    brand token and every packaging head noun, the phrase is mentioned
+    whatever the ratio: "A PRS SE CE24" mentions "SE CE24 Electric
+    Guitar" for the brand PRS (2 of 4); otherwise the ratio decides.
     With ONE content token, the phrase's core (sizes and size containers
     dropped) must appear in full: "Coke" mentions "Coke 12-pack", but "pixel
     art" does not mention "Pixel 9". A phrase with no content tokens, or only
@@ -263,6 +308,8 @@ def mentions(
             return _has_word(core[0], text_words)
         return contains_phrase(text, " ".join(core))
     hit = [t for t in tokens if _has_word(t, text_words)]
+    if _names_model(tokens, hit, distinctive_tokens(phrase), brand, text_words):
+        return True
     if len(hit) < math.ceil(ratio * len(tokens) - 1e-9):
         return False
     if any(t in PACKAGING_WORDS and t not in hit for t in tokens):

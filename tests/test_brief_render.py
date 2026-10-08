@@ -193,9 +193,6 @@ def test_gallery_escapes_model_and_user_text(monkeypatch, tmp_path):
         return "ok"
 
     monkeypatch.setattr(tools, "_upload_blob_to_gcs", _fake_upload)
-    monkeypatch.setattr(
-        tools, "_get_high_res_img", lambda **_: "https://example/hi.png"
-    )
     payload = "<script>alert(1)</script>"
     concept = {
         "concept_name": "Concept A",

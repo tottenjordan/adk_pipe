@@ -29,7 +29,7 @@ gcloud storage cp -r \
 
 # 2. Prep. The gallery's <img> tags point at authenticated
 #    storage.mtls.cloud.google.com URLs, so rewrite them to local, downscaled JPEG
-#    copies (also used for the lightbox's XL_local_ images). This writes
+#    copies (also used by the lightbox; older galleries' XL_local_ copies too). This writes
 #    /tmp/ex/creative_output/local/gallery.html and renders PDF pages 1-2 to
 #    /tmp/ex/raw/research-page-{1,2}.png at 2x scale.
 uv run --no-project --with pypdfium2 --with pillow python \

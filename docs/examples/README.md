@@ -41,7 +41,6 @@ the bucket named by `GOOGLE_CLOUD_STORAGE_BUCKET`:
 ```text
 gs://<bucket>/<YYYY_MM_DD_HH_MM_xxxx>/creative_output/
 ├── <Concept_Name>.png                     # one rendered image per visual concept
-├── resized/XL_local_<Concept_Name>.png    # upscaled copy shown in the gallery lightbox
 ├── creative_portfolio_gallery.html        # HTML gallery (below)
 ├── research_report_with_citations.pdf     # cited research report (below)
 └── creative_eval_report.json              # LLM-as-judge report (below)
@@ -95,7 +94,7 @@ Hovering over a creative shows four facts about it:
 - **How it markets the target product**
 - **Target audience appeal**: why the audience will care
 
-Clicking an image opens a lightbox with the high-resolution copy:
+Clicking an image opens a lightbox with the full-size 2K render:
 
 <p align="center">
   <img src="gallery-lightbox.jpg" alt="Gallery lightbox open over the dimmed page, showing the full 9:16 image of a PRS SE CE24 in an open guitar case next to a parody $500 check with VHS-style captions" width="800">

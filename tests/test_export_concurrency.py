@@ -12,7 +12,6 @@ These tests reproduce the race deterministically in-process (two invocations und
 
 import asyncio
 import os
-from concurrent.futures import ThreadPoolExecutor
 
 from creative_agent import gcs_tools, tools
 from tests._fakes import FakeStorageClient, FakeToolContext
@@ -122,63 +121,59 @@ def test_save_creative_gallery_html_isolates_concurrent_runs(monkeypatch, tmp_pa
     assert not os.path.exists("creative_portfolio_gallery.html")
 
 
-class _FakeResized:
-    def save(self, path):
-        with open(path, "wb") as f:
-            f.write(b"resized")
-
-
-class _FakeImg:
-    size = (10, 10)
-
-    def resize(self, size, resample):
-        return _FakeResized()
-
-    def close(self):
-        pass
-
-
-class _FakeImage:
-    class Resampling:
-        LANCZOS = 1
-
-    @staticmethod
-    def open(path):
-        assert os.path.exists(path), path
-        return _FakeImg()
-
-
-def test_get_high_res_img_isolates_concurrent_runs(monkeypatch, tmp_path):
-    """Two concurrent resizes of the SAME artifact_key (as two runs producing a
-    like-named concept would) must not collide on a shared CWD scratch file, and
-    must leave no bare local_*/XL_* files behind. Also guards the gotcha: the GCS
-    object name must be the file basename, not the temp-dir path."""
+def test_gallery_links_original_images_without_upscale(monkeypatch, tmp_path):
+    """The gallery lightbox links the original rendered PNG: no download, no
+    1.5x upscale and no ``resized/XL_local_*`` re-upload (each cost ~7 s per
+    image in finalize): the GCS client is never even built."""
     monkeypatch.chdir(tmp_path)
-    uploads: list[tuple[str, str]] = []
-    monkeypatch.setattr(
-        gcs_tools,
-        "_get_gcs_client",
-        lambda: FakeStorageClient(uploads, download_bytes=b"origbytes"),
-    )
-    monkeypatch.setattr(gcs_tools, "Image", _FakeImage)
+    gcs_clients: list[FakeStorageClient] = []
 
-    artifact_key = "concept.png"  # identical key => same bare filename on old code
+    def _client():
+        gcs_clients.append(FakeStorageClient([]))
+        return gcs_clients[-1]
 
-    def _call(folder):
-        return gcs_tools._get_high_res_img(
-            gcs_folder=folder, gcs_subdir="creative_output", artifact_key=artifact_key
+    monkeypatch.setattr(gcs_tools, "_get_gcs_client", _client)
+    written: list[str] = []
+    destinations: list[str] = []
+
+    def _fake_upload(source_file_name, destination_blob_name):
+        with open(source_file_name) as f:
+            written.append(f.read())
+        destinations.append(destination_blob_name)
+        return "ok"
+
+    monkeypatch.setattr(tools, "_upload_blob_to_gcs", _fake_upload)
+    concepts = [
+        {
+            "concept_name": f"Concept {n}",
+            "visual_style": "flat",
+            "trend": "t",
+            "trend_reference": "r",
+            "concept_summary": "s",
+            "markets_product": "m",
+            "audience_appeal": "a",
+            "selection_rationale": "r",
+            "image_generation_prompt": "p",
+            "headline": f"H{n}",
+            "social_caption": "c",
+        }
+        for n in ("A", "B")
+    ]
+    ctx = _ctx("run_a")
+    ctx.state["final_visual_concepts"] = {"visual_concepts": concepts}
+
+    result = asyncio.run(tools.save_creative_gallery_html(ctx))
+
+    assert result["status"] == "success"
+    assert gcs_clients == []  # no download / resize / re-upload
+    assert len(destinations) == 1  # only the gallery HTML itself
+    (html,) = written
+    assert "resized/" not in html and "XL_local_" not in html
+    for concept in concepts:
+        url = (
+            "https://storage.mtls.cloud.google.com/"
+            f"{gcs_tools.config.GCS_BUCKET_NAME}/run_a/creative_output/"
+            f"{gcs_tools.artifact_key_for(concept['concept_name'])}?authuser=3"
         )
-
-    with ThreadPoolExecutor(max_workers=2) as ex:
-        uris = list(ex.map(_call, ["run_a", "run_b"]))
-
-    assert all(u for u in uris)  # both returned a URI
-    assert len(uploads) == 2
-    xl_paths = [p for _, p in uploads]
-    assert xl_paths[0] != xl_paths[1]  # per-run isolation
-    # no bare scratch files leaked into CWD
-    assert not os.path.exists("local_concept.png")
-    assert not os.path.exists("XL_local_concept.png")
-    # gotcha: blob name uses the basename, not the temp-dir path
-    for name, _ in uploads:
-        assert name.endswith("resized/XL_local_concept.png"), name
+        assert f'data-high-res-src="{url}"' in html
+        assert f'src="{url}"' in html

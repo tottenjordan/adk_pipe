@@ -630,7 +630,6 @@ def test_gallery_html_includes_image_check(monkeypatch, tmp_path):
         return "ok"
 
     monkeypatch.setattr(tools, "_upload_blob_to_gcs", fake_upload)
-    monkeypatch.setattr(tools, "_get_high_res_img", lambda **k: "https://hi")
     concept = {
         **_CONCEPT,
         "concept_summary": "s",

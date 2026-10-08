@@ -98,7 +98,7 @@ tests/
 ├── test_ratings_store.py            # creative_ratings MERGE/SELECT builders (fully parameterised; fail_reasons as an ARRAY<STRING> param), learning-context columns, BigQuery store over the fake client, in-memory store, RATINGS_STORE selection + fallback
 ├── test_rating_reasons_drift.py     # runserver.rating_reasons fail-reason enum + labels + per-kind lists (FAIL_REASONS_BY_KIND vs failReasonsFor) mirror frontend/src/lib/rating-reasons.ts (drift test)
 ├── test_calibration.py              # judge-human calibration maths: Cohen's kappa (textbook value, degenerate single-class reasons), tie-averaged Spearman, per-kind slices, CSV string coercion, scripts/eval_calibration.py over a CSV
-├── test_export_concurrency.py       # creative_agent export tools: per-run scratch isolation (issue #104)
+├── test_export_concurrency.py       # creative_agent export tools: per-run scratch isolation (issue #104), no gallery upscale
 ├── test_image_prompt_guide.py       # IMAGE_PROMPT_GUIDE rules: text cap, descriptors not templates, Educational mapping, trend motif, trend_motif schema field, REFERENCE_IMAGES section (role-only references, ignore-text left to the tool, style ref vs family diversity), Subject+Action+Location+Composition+Style blocks, typography, no unrequested logos
 ├── test_image_reference.py          # generate_image multimodal contents + valid ImageConfig; multiple reference images (resolve_references legacy fold-in/dedupe/cap/invalid roles, ordered parts, one failed fetch skips only that ref + unavailable-role line, numbered role block + ignore-text line, SSRF/size/content-type fetch hardening) (image QA off via the `image_qa_off` conftest fixture)
 ├── test_image_qa_pipelining.py      # generate_image pipelining: QA of image N overlaps render N+1 (renders never overlap), re-render queued right after the render in flight, budget claimed in concept order whatever the QA finish order, mixed pass/fail/re-render/QA-error outcomes unchanged, render failure raises + cancels pending QA, inert with QA disabled
@@ -205,7 +205,8 @@ tests/
   aiplatform 2.x `agentplatform` + `vertexai` surfaces are present, and no repo call site
   uses the deprecated `agent_engines` API.
 - **Concurrency** — `test_export_concurrency.py`, `test_trend_scout_concurrency.py`:
-  in-process concurrent runs get isolated scratch dirs (issue #104).
+  in-process concurrent runs get isolated scratch dirs (issue #104); the gallery links the
+  original renders without an upscale re-upload.
 - **Prompts & facade** — `test_visual_intent_prompts.py`, `test_visual_concept_prompts.py`,
   `test_public_api.py`: optional visual-intent state tokens, the visual concept brand-cue /
   copy-quoted-text / brief rules, and `creative_agent`'s curated public reuse surface.

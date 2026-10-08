@@ -259,10 +259,13 @@ class TestFormat:
         assert "strongest: " in text and "Humorous" in text
         assert "recurring weaknesses: Trend connection (2 of 3 runs)" in text
         assert "checks often failed: Product named (2 of 3 runs)" in text
+        # The shortlist may top up from recent styles to keep its quotas, so
+        # the note favours fresh styles rather than forbidding recent ones.
         assert text.endswith(
-            "Build on what worked, fix the weaknesses, and avoid repeating the "
-            "recent styles."
+            "Build on what worked, fix the weaknesses, and favour styles not "
+            "used recently."
         )
+        assert "avoid repeating" not in text
         assert len(text.split()) <= 120
         # Spliced into ADK instructions as state: never carries braces.
         assert "{" not in text and "}" not in text
@@ -531,6 +534,7 @@ class TestRatingLearning:
         assert applied["styles_excluded"] == ["Isometric miniature world"]
         assert applied["styles_preferred"] == ["Candid 35mm film photo"]
         assert applied["signals"] == delta["rating_signals"]
+        assert applied["effects"] == ["checks", "guidance", "styles"]
         assert delta["rating_signals"].endswith(
             "Stricter limits for this run: "
             "Show the product large and in the foreground."
@@ -611,6 +615,21 @@ class TestRatingLearning:
         assert "Stricter limits" not in d["rating_signals"]
         assert "rating_strictness" not in d
 
+    def test_applied_effects_list_only_what_changed_the_run(self, monkeypatch):
+        """Configured effects that produced nothing are left out of ``effects``:
+        no style family reached ``rating_style_min`` and no fail reason
+        ``rating_reason_min``, so only the guidance note changed the run."""
+        self._ratings(monkeypatch, self.rows * 2)
+        monkeypatch.setattr(bh.config, "rating_style_min", 50)
+        monkeypatch.setattr(bh.config, "rating_reason_min", 50)
+        d = _delta({"brand": "PRS", "learn_from_ratings": True})
+        applied = d["rating_signals_applied"]
+        assert applied["applied"] is True
+        assert applied["effects"] == ["guidance"]
+        assert applied["styles_excluded"] == [] and applied["styles_preferred"] == []
+        assert applied["strictness"] == [] and d["rating_strictness"] == []
+        assert d["rating_signals"] and applied["signals"] == d["rating_signals"]
+
     def test_one_shortlist_draw_merges_recent_and_rated_styles(self, monkeypatch):
         self._ratings(monkeypatch, self.rows * 2)
         monkeypatch.setattr(bh, "fetch_brand_history", lambda *a, **k: _HISTORY)
@@ -636,6 +655,8 @@ class TestRatingLearning:
         assert "style_shortlist" not in d
         applied = d["rating_signals_applied"]
         assert applied["styles_excluded"] == [] and applied["styles_preferred"] == []
+        # Configured but steered nothing: "styles" is not recorded as applied.
+        assert applied["effects"] == ["checks", "guidance"]
         # The user's style preference wins: the note names no styles either.
         note = d["rating_signals"]
         assert "Candid 35mm film photo" not in note
