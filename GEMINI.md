@@ -150,7 +150,7 @@ First-party Python packages sit **flat at the repository root** (`trend_scout/`,
 ### Agent Composition
 
 ```text
-trend_scout (root Agent `trend_scout`; App + ResumabilityConfig(is_resumable=True); sub-agents via AgentTool)
+trend_scout (root Agent `trend_scout`; App + ResumabilityConfig(is_resumable=True); sub-agents via AgentTool; root history trimmed by drop_other_agent_context)
 ├── gather_trends_agent (get_daily_gtrends tool)
 ├── understand_trends_agent_resilient (RetryUntilKeyNode over a searcher → synthesizer Workflow → info_gtrends; bare node → NodeTool)
 ├── pick_trends_agent (strategic filtering → selected_gtrends)
@@ -217,7 +217,7 @@ interactive_creative (root Agent `root_agent`; App + ResumabilityConfig(is_resum
 - `agent_common/schemas.py` — `PipelineRequest` (`request: str`), the `input_schema` for `Workflow` nodes exposed as `NodeTool`.
 - `agent_common/rate_limit.py` — `build_rate_limit_callback(config)` enforcing `rpm_quota` (1000 RPM).
 - `agent_common/sanitize.py` — `scrub_lone_surrogates` / `scrub_surrogates_in_response` (`after_model_callback` stripping lone Unicode surrogates before Pydantic validation).
-- `agent_common/history.py` — `drop_other_agent_context` (`before_model_callback` on the `creative_agent` + `interactive_creative` roots): drops the NodeTool pipelines' replayed sub-agent turns and node inputs, which ADK 2.10 otherwise feeds into a root's prompt (branch `None` matches every branch), keeping user messages, the root's own turns and all function call/response pairs.
+- `agent_common/history.py` — `drop_other_agent_context` (`before_model_callback`, ahead of the rate limiter, on the `creative_agent`, `interactive_creative` and `trend_scout` roots): drops the NodeTool pipelines' replayed sub-agent turns and node inputs, which ADK 2.10 otherwise feeds into a root's prompt (branch `None` matches every branch), keeping user messages, the root's own turns and all function call/response pairs. On `trend_scout` only the NodeTool-run understand_trends Workflow leaks (`AgentTool` runs gather/pick in an isolated in-memory session).
 - `agent_common/state.py` — shared `memorize` tool (name must remain `memorize`) and `seed_initial_state(...)`.
 - `agent_common/clients.py` — lazy `get_gcs_client()` and `get_bigquery_client()` getters (bound as `_get_gcs_client` / `_get_bigquery_client` in agent modules for test monkeypatching).
 - `agent_common/idempotency.py` — `stable_row_id(*parts, length=8)` deterministic SHA-256 key derived from `tool_context.session.id` for idempotent BigQuery `MERGE ... WHEN NOT MATCHED THEN INSERT` writes.

@@ -15,6 +15,7 @@ from agent_common import (
     build_gemini,
     build_gemini_with_fallback,
     build_safety_plugins,
+    drop_other_agent_context,
 )
 
 from . import callbacks, prompts
@@ -235,7 +236,11 @@ trend_scout = Agent(
     before_agent_callback=[
         callbacks.load_session_state,
     ],
-    before_model_callback=callbacks.rate_limit_callback,
+    # Trim first: ADK replays the NodeTool-run understand_trends Workflow's
+    # sub-agent turns and node inputs into the root's request (AgentTool runs
+    # isolate theirs); the root reads results only from function responses
+    # (incl. the review_trends checkpoint) and state — see agent_common/history.py.
+    before_model_callback=[drop_other_agent_context, callbacks.rate_limit_callback],
     after_model_callback=callbacks.log_empty_turn_finish_reason,
     after_agent_callback=callbacks.log_final_state_summary,
 )
