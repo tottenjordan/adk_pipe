@@ -1315,3 +1315,24 @@ class TestGateCounts:
             f"Return all {len(VISUAL_GATES)} gates"
             in eval_prompts.VISUAL_CONCEPT_EVAL_USER
         )
+
+
+class TestStricterTrendMotif:
+    def test_motif_must_be_prominent_and_recognisable(self):
+        line = next(
+            line
+            for line in eval_prompts.VISUAL_CONCEPT_EVAL_USER.splitlines()
+            if "**trend_motif_visible**" in line
+        )
+        assert "prominent and recognisable at a glance" in line
+        assert "without reading any caption or copy" in line
+        assert "generic (e.g. any storm or any phone screen)" in line
+        assert "only implied fails" in line
+        assert "{target_search_trend}" in line
+
+    def test_formatted_prompt_names_the_trend(self):
+        from creative_eval.evaluate import evaluate_visual_concept
+
+        client = _client(_judge_json("visual", dict.fromkeys(VISUAL_GATES, True)))
+        evaluate_visual_concept(CONCEPT, CAMPAIGN, EvalConfig(), client=client)
+        assert 'as a reference to "roadrunner" by someone' in _prompt_text(client)
