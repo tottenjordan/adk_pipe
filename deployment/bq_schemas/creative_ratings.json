@@ -1,0 +1,107 @@
+[
+  {
+    "name": "rating_id",
+    "type": "STRING",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "session_id",
+    "type": "STRING",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "app_name",
+    "type": "STRING",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "creative_key",
+    "type": "STRING",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "kind",
+    "type": "STRING",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "user_id",
+    "type": "STRING",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "verdict",
+    "type": "STRING",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "score",
+    "type": "INTEGER",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "note",
+    "type": "STRING",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "judge_overall",
+    "type": "FLOAT",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "judge_passed",
+    "type": "BOOLEAN",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "judge_gates_passed",
+    "type": "BOOLEAN",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "judge_model",
+    "type": "STRING",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "judge_source",
+    "type": "STRING",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "brand",
+    "type": "STRING",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "visual_style",
+    "type": "STRING",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "tone_style",
+    "type": "STRING",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "angle_id",
+    "type": "STRING",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "fail_reasons",
+    "type": "STRING",
+    "mode": "REPEATED"
+  },
+  {
+    "name": "created_at",
+    "type": "TIMESTAMP",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "updated_at",
+    "type": "TIMESTAMP",
+    "mode": "NULLABLE"
+  }
+]

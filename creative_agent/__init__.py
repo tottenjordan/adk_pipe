@@ -35,9 +35,12 @@ from .agent import (
     visual_generation_pipeline,
     visual_generator_resilient,
 )
+from .brand_history import ALLOWED_TONES as AD_COPY_TONES
+from .brand_history import normalize_brand
 from .copy_gate import parse_copies as parse_ad_copies
 from .copy_gate import user_revision_inputs as user_copy_revision_inputs
 from .schemas import CreativeBrief, VisualConceptFinalList
+from .style_shortlist import canonical_style
 
 __all__ = [
     # submodules
@@ -60,4 +63,8 @@ __all__ = [
     # shared visual schema + the structured creative brief (downstream contract)
     "VisualConceptFinalList",
     "CreativeBrief",
+    # allowlists for the api's rating learning context (runserver/ratings.py)
+    "canonical_style",
+    "AD_COPY_TONES",
+    "normalize_brand",
 ]

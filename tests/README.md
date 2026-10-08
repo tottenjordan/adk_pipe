@@ -59,7 +59,7 @@ tests/
 ├── test_backend_entrypoint.py       # backend container entrypoint (uvicorn serves async_app.py)
 ├── test_backfill_eval_labels.py    # deployment/backfill_eval_dimension_labels.py: pure SQL builder (no BigQuery)
 ├── test_bandit_endpoint_lib.py      # deployment/bandit/endpoint.py vs a fake aiplatform (single-worker env, 1 replica, labels, find_* by label oldest-first)
-├── test_create_bq_tables.py         # create_bq_tables.sh with a stub bq: bandit_* + creative_ratings schemas (ratings vs RATING_COLUMN_TYPES), partitioning/clustering, idempotency
+├── test_create_bq_tables.py         # create_bq_tables.sh with a stub bq: bandit_* + creative_ratings schemas (ratings from deployment/bq_schemas/creative_ratings.json, REPEATED fail_reasons, vs RATING_COLUMN_TYPES), partitioning/clustering, idempotency
 ├── test_bandit_*.py                 # JAX bandit core (bandit/): features, config, linear TS, baselines, environment, simulate+metrics+aggregate, notebook-parity smoke, scripted shifts
 │                                    #   (also test_bandit_continuous.py: §11 continuous segments; test_bandit_endpoint_client.py: traffic endpoint clients/retries; test_bandit_traffic_bq.py: traffic row builders vs contracts §3)
 ├── test_brand_history.py            # creative_agent/brand_history.py: parameterised creative_evals SELECT (no string-built brand), report reads limited to the configured bucket + size cap, aggregation (recent/strongest styles, recurring weak dimensions, runs with failed non-advisory gates), brace-free ≤120-word note, BQ/GCS/timeout fail-open, disabled knob → no query, shortlist re-draw unless a style preference is set, canonical style mapping (schema example phrasings), allowlisted tones/dimensions/gates only (injection strings never reach the note), GCS per-call timeouts + report-read deadline, failed-check denominator = readable reports
@@ -93,8 +93,9 @@ tests/
 ├── test_experiments_series.py       # pure §8 /creatives aggregation (windows, share, segments, missedClicks, engagedSecondsPer1k)
 ├── test_experiments_shifts.py       # §10 in the api: shift validation + bandit parity, numbered traffic runs (runs/{n}.json, env overrides, trafficRuns), ?run= reads incl. legacy NULL rows, shift_response + regime aggregation, regime SQL, unmigrated-table fallbacks
 ├── test_experiments_store.py        # bandit_experiments MERGE/SELECT builders, typed params, §8 series SQL builders, both stores, deploy-lease UPDATEs, unknown-column tolerance
-├── test_ratings_api.py              # /ratings routes: PUT validation (400 reasons, unknown creative_key), upsert idempotency (created_at kept), GET listing, foreign/unknown session 404 (incl. ownership ValueError), judge fields from state or the GCS report (cached, fail soft; conservative headline/id matching), store 502s, calibration endpoint, enforce-mode 401/403
-├── test_ratings_store.py            # creative_ratings MERGE/SELECT builders (fully parameterised), BigQuery store over the fake client, in-memory store, RATINGS_STORE selection + fallback
+├── test_ratings_api.py              # /ratings routes: PUT validation (400 reasons, unknown creative_key), upsert idempotency (created_at kept), GET listing, foreign/unknown session 404 (incl. ownership ValueError), judge fields from state or the GCS report (cached, fail soft; conservative headline/id matching), store 502s, calibration endpoint, enforce-mode 401/403, allowlisted fail_reasons (400 invalid_fail_reasons, body-shape 422s, deduped, other-kind reasons dropped, emptied on pass), older rows without the learning columns, learning context stamped at PUT (normalize_brand brand, canonical visual_style, tone Literal, angle id; anything else "")
+├── test_ratings_store.py            # creative_ratings MERGE/SELECT builders (fully parameterised; fail_reasons as an ARRAY<STRING> param), learning-context columns, BigQuery store over the fake client, in-memory store, RATINGS_STORE selection + fallback
+├── test_rating_reasons_drift.py     # runserver.rating_reasons fail-reason enum + labels + per-kind lists (FAIL_REASONS_BY_KIND vs failReasonsFor) mirror frontend/src/lib/rating-reasons.ts (drift test)
 ├── test_calibration.py              # judge-human calibration maths: Cohen's kappa (textbook value, degenerate single-class reasons), tie-averaged Spearman, per-kind slices, CSV string coercion, scripts/eval_calibration.py over a CSV
 ├── test_export_concurrency.py       # creative_agent export tools: per-run scratch isolation (issue #104)
 ├── test_image_prompt_guide.py       # IMAGE_PROMPT_GUIDE rules: text cap, descriptors not templates, Educational mapping, trend motif, trend_motif schema field, REFERENCE_IMAGES section (role-only references, ignore-text left to the tool, style ref vs family diversity), Subject+Action+Location+Composition+Style blocks, typography, no unrequested logos
@@ -217,7 +218,8 @@ tests/
   (`concept_gate`), `test_image_reference.py`, `test_image_qa.py` (multi-reference renders,
   post-render QA + re-render), `test_finalize.py` (`finalize_pipeline`), `test_eval_gates.py`,
   `test_eval_dimensions.py` (binary gates vs advisory scores), `test_ratings_api.py`,
-  `test_ratings_store.py`, `test_calibration.py` (human ratings + Cohen's kappa),
+  `test_ratings_store.py`, `test_rating_reasons_drift.py`, `test_calibration.py` (human
+  ratings + fail-reason chips + Cohen's kappa),
   `test_interactive_prompts.py`, `test_interactive_copy_revision.py` (checkpoint-1 brief
   edit, checkpoint-2 revision), `test_creative_root_prompt.py` (single `creative_pipeline`
   call); the revise / no-revise / exhausted graph paths live in `test_creative_agent_graph.py`.

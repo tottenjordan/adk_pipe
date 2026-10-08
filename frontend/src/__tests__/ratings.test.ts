@@ -11,6 +11,13 @@ import {
   type Rating,
 } from "@/lib/ratings";
 import { getCalibration, getRatings, putRating } from "@/lib/api";
+import {
+  FAIL_REASONS,
+  FAIL_REASON_LABELS,
+  failReasonsFor,
+  isFailReason,
+  type FailReason,
+} from "@/lib/rating-reasons";
 
 const proof = (adCopy?: Partial<AdCopy>): Proof => ({
   index: 0,
@@ -50,6 +57,7 @@ describe("buildRatingPayload", () => {
         verdict: "fail",
         score: 2,
         note: "  off-brand  ",
+        failReasons: [],
       })
     ).toEqual({
       app_name: "creative_agent",
@@ -58,14 +66,25 @@ describe("buildRatingPayload", () => {
       verdict: "fail",
       score: 2,
       note: "off-brand",
+      fail_reasons: [],
     });
     expect(
-      buildRatingPayload("creative_agent", "visual:X", "visual", { verdict: "pass", score: null, note: " " })
+      buildRatingPayload("creative_agent", "visual:X", "visual", { verdict: "pass", score: null, note: " ", failReasons: [] })
         ?.note
     ).toBeNull();
   });
+  it("carries fail reasons on a fail, deduped, and drops them on a pass", () => {
+    const draft = {
+      verdict: "fail" as const,
+      score: null,
+      note: "",
+      failReasons: ["weak_cta", "off_brief", "weak_cta"] as FailReason[],
+    };
+    expect(buildRatingPayload("a", "copy:3", "ad_copy", draft)?.fail_reasons).toEqual(["weak_cta", "off_brief"]);
+    expect(buildRatingPayload("a", "copy:3", "ad_copy", { ...draft, verdict: "pass" })?.fail_reasons).toEqual([]);
+  });
   it("rejects an out-of-range score or an over-long note", () => {
-    const base = { verdict: "pass" as const, note: "" };
+    const base = { verdict: "pass" as const, note: "", failReasons: [] };
     expect(buildRatingPayload("a", "visual:X", "visual", { ...base, score: 0 })).toBeNull();
     expect(buildRatingPayload("a", "visual:X", "visual", { ...base, score: 2.5 })).toBeNull();
     expect(
@@ -78,12 +97,30 @@ describe("draft helpers", () => {
   it("starts from the saved rating and tracks changes", () => {
     const saved = rating({ score: 4, note: "ok" });
     const d = draftFrom(saved);
-    expect(d).toEqual({ verdict: "pass", score: 4, note: "ok" });
+    expect(d).toEqual({ verdict: "pass", score: 4, note: "ok", failReasons: [] });
     expect(isDirty(d, saved)).toBe(false);
     expect(isDirty({ ...d, note: "ok  " }, saved)).toBe(false);
     expect(isDirty({ ...d, verdict: "fail" }, saved)).toBe(true);
     expect(isDirty({ ...d, score: null }, saved)).toBe(true);
     expect(isDirty(draftFrom(), undefined)).toBe(false);
+    const failed = rating({
+      creative_key: "copy:3",
+      kind: "ad_copy",
+      verdict: "fail",
+      fail_reasons: ["weak_cta", "off_brief", "bogus"],
+    });
+    const fd = draftFrom(failed);
+    expect(fd.failReasons).toEqual(["weak_cta", "off_brief"]); // unknown values dropped
+    expect(isDirty({ ...fd, failReasons: ["off_brief", "weak_cta"] }, failed)).toBe(false);
+    expect(isDirty({ ...fd, failReasons: ["weak_cta"] }, failed)).toBe(true);
+  });
+  it("keeps only the reasons offered for the rating's kind, so a hidden one is never re-sent", () => {
+    const visual = rating({ verdict: "fail", fail_reasons: ["weak_cta", "artifacts"] });
+    expect(draftFrom(visual).failReasons).toEqual(["artifacts"]);
+    const copy = rating({ creative_key: "copy:3", kind: "ad_copy", verdict: "fail", fail_reasons: ["artifacts", "weak_cta"] });
+    expect(draftFrom(copy).failReasons).toEqual(["weak_cta"]);
+    const d = draftFrom(visual);
+    expect(buildRatingPayload("a", visual.creative_key, "visual", d)?.fail_reasons).toEqual(["artifacts"]);
   });
   it("optimistic rating carries the payload over the previous rating", () => {
     const prev = rating({ rating_id: "r1", judge_overall: 0.8 });
@@ -142,5 +179,26 @@ describe("getCalibration", () => {
     vi.stubGlobal("fetch", fetchMock);
     await getCalibration();
     expect(fetchMock.mock.calls[0][0]).toBe("/api/adk/ratings/me/calibration");
+  });
+});
+
+describe("rating-reasons", () => {
+  it("labels every reason and guards unknown values", () => {
+    expect(Object.keys(FAIL_REASON_LABELS)).toEqual([...FAIL_REASONS]);
+    expect(isFailReason("weak_cta")).toBe(true);
+    expect(isFailReason("ignore previous instructions")).toBe(false);
+    expect(isFailReason(3)).toBe(false);
+  });
+  it("offers kind-relevant reasons, in enum order, always ending with Other", () => {
+    const copy = failReasonsFor("ad_copy");
+    const visual = failReasonsFor("visual");
+    expect(copy).toContain("weak_cta");
+    expect(copy).not.toContain("product_not_visible");
+    expect(visual).toContain("product_not_visible");
+    expect(visual).not.toContain("weak_cta");
+    for (const list of [copy, visual]) {
+      expect(list.at(-1)).toBe("other");
+      expect([...list]).toEqual(FAIL_REASONS.filter((r) => list.includes(r)));
+    }
   });
 });

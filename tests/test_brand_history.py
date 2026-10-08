@@ -468,3 +468,14 @@ class TestReadLimits:
         assert d["runs"] == 3 and d["reports"] == 1
         text = bh.format_brand_history(d)
         assert "Product named (1 of 1 runs)" in text
+
+
+def test_normalize_brand_matches_the_sql_match():
+    """strip + lower: the Python side of LOWER(TRIM(brand)) = LOWER(@brand)."""
+    from creative_agent import normalize_brand
+
+    assert normalize_brand("  Paul Reed Smith (PRS) ") == "paul reed smith (prs)"
+    assert normalize_brand("\tACME\n") == "acme"
+    assert normalize_brand(None) == "" and normalize_brand(42) == ""
+    assert normalize_brand("x" * 500) == "x" * 500  # never truncated
+    assert bh.normalize_brand is normalize_brand

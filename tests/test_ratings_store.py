@@ -30,6 +30,11 @@ def _row(**over) -> dict:
         "judge_gates_passed": None,
         "judge_model": "m",
         "judge_source": "gcs",
+        "brand": "prs",
+        "visual_style": "Candid 35mm film photo",
+        "tone_style": "Humorous",
+        "angle_id": "A2",
+        "fail_reasons": [],
         "created_at": T0,
         "updated_at": T0,
     }
@@ -60,6 +65,49 @@ def test_upsert_sql_is_fully_parameterised():
     assert by_name["judge_passed"].type_ == "BOOL"
     with pytest.raises(KeyError):
         rs.build_upsert_sql("t", {"rating_id": "x"})
+
+
+def test_rating_columns_include_learning_context():
+    for col, typ in {
+        "brand": "STRING",
+        "visual_style": "STRING",
+        "tone_style": "STRING",
+        "angle_id": "STRING",
+        "fail_reasons": "ARRAY<STRING>",
+    }.items():
+        assert rs.RATING_COLUMN_TYPES[col] == typ
+        assert col in rs.UPDATABLE
+
+
+def test_fail_reasons_bound_as_string_array_param():
+    from google.cloud import bigquery
+
+    sql, params = rs.build_upsert_sql(
+        "t", _row(fail_reasons=["weak_cta", "text_problem"])
+    )
+    by_name = {p.name: p for p in params}
+    fr = by_name["fail_reasons"]
+    assert isinstance(fr, bigquery.ArrayQueryParameter)
+    assert fr.array_type == "STRING"
+    assert fr.values == ["weak_cta", "text_problem"]
+    assert "@fail_reasons AS fail_reasons" in sql
+    assert "weak_cta" not in sql
+    # an absent (None) list binds as an empty array, never NULL
+    _, params = rs.build_upsert_sql("t", _row(fail_reasons=None))
+    assert {p.name: p for p in params}["fail_reasons"].values == []
+    assert isinstance(by_name["brand"], bigquery.ScalarQueryParameter)
+
+
+def test_in_memory_store_updates_learning_context():
+    store = rs.InMemoryRatingsStore()
+
+    async def go():
+        await store.upsert(_row())
+        await store.upsert(_row(verdict="fail", fail_reasons=["weak_cta"]))
+        (row,) = await store.list_for_user("a@x.com")
+        assert row["fail_reasons"] == ["weak_cta"] and row["brand"] == "prs"
+
+    asyncio.run(go())
 
 
 def test_list_sql_parameterised():

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useId, useState } from "react";
+import { Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { FieldLabel } from "@/components/field-label";
@@ -8,6 +9,7 @@ import { SegmentedControl } from "@/components/segmented-control";
 import { getRatings, putRating } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import type { Proof } from "@/lib/eval-matching";
+import { FAIL_REASON_LABELS, failReasonsFor, type FailReason } from "@/lib/rating-reasons";
 import {
   NOTE_MAX_CHARS,
   buildRatingPayload,
@@ -67,6 +69,52 @@ export function useSessionRatings(sessionId: string, enabled: boolean) {
   return { byKey, setRating };
 }
 
+/**
+ * "Why did it fail?": a multi-select group of muted toggle chips (aria-pressed;
+ * a selected chip also shows a check mark, so state isn't carried by colour alone).
+ */
+function FailReasonChips({
+  kind,
+  selected,
+  onToggle,
+  disabled,
+}: {
+  kind: RatingKind;
+  selected: readonly FailReason[];
+  onToggle: (reason: FailReason) => void;
+  disabled: boolean;
+}) {
+  const id = useId();
+  return (
+    <div role="group" aria-labelledby={`${id}-label`}>
+      <FieldLabel id={`${id}-label`}>Why did it fail? (optional)</FieldLabel>
+      <div className="mt-1 flex flex-wrap gap-1.5">
+        {failReasonsFor(kind).map((reason) => {
+          const on = selected.includes(reason);
+          return (
+            <button
+              key={reason}
+              type="button"
+              aria-pressed={on}
+              disabled={disabled}
+              onClick={() => onToggle(reason)}
+              className={cn(
+                "inline-flex h-7 items-center gap-1 rounded-sm border px-2 text-xs transition-colors disabled:opacity-50",
+                on
+                  ? "border-foreground bg-muted font-medium text-foreground"
+                  : "border-border bg-card text-muted-foreground hover:bg-muted hover:text-foreground"
+              )}
+            >
+              {on && <Check className="size-3" aria-hidden="true" />}
+              {FAIL_REASON_LABELS[reason]}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function SavedSummary({ rating }: { rating?: Rating }) {
   if (!rating) return <span className="text-xs text-muted-foreground">Not rated yet</span>;
   const pass = rating.verdict === "pass";
@@ -82,7 +130,8 @@ function SavedSummary({ rating }: { rating?: Rating }) {
 }
 
 /**
- * One creative's human rating: pass/fail, optional 1–5 score and note, Save.
+ * One creative's human rating: pass/fail, optional fail-reason chips (on a fail),
+ * optional 1–5 score and note, Save.
  * Save is optimistic (the sheet's "Rated" mark appears at once) and reverts to
  * the previous rating if the request fails; the draft is kept so the user can retry.
  */
@@ -122,9 +171,17 @@ export function RatingControl({
 
   const edit = (patch: Partial<RatingDraft>) => {
     setTouched(true);
-    setDraft((d) => ({ ...d, ...patch }));
+    // Reasons only belong to a fail: switching to Pass clears them.
+    setDraft((d) => ({ ...d, ...patch, ...(patch.verdict === "pass" ? { failReasons: [] } : {}) }));
     if (status !== "saving") setStatus("idle");
   };
+
+  const toggleReason = (reason: FailReason) =>
+    edit({
+      failReasons: draft.failReasons.includes(reason)
+        ? draft.failReasons.filter((r) => r !== reason)
+        : [...draft.failReasons, reason],
+    });
 
   const save = async () => {
     if (!payload) return;
@@ -166,6 +223,14 @@ export function RatingControl({
           disabled={status === "saving"}
         />
       </div>
+      {draft.verdict === "fail" && (
+        <FailReasonChips
+          kind={kind}
+          selected={draft.failReasons}
+          onToggle={toggleReason}
+          disabled={status === "saving"}
+        />
+      )}
       <div>
         <FieldLabel as="label" htmlFor={`${id}-note`}>
           Note (optional)

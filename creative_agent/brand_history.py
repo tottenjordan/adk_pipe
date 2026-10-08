@@ -70,6 +70,13 @@ ALLOWED_WEAKNESSES: frozenset[str] = frozenset(DIMENSION_LABELS.values())
 ALLOWED_GATES: frozenset[str] = frozenset(AD_COPY_GATES + VISUAL_GATES)
 
 
+def normalize_brand(value: Any) -> str:
+    """The brand match key: strip + lower (the Python side of the SQL
+    ``LOWER(TRIM(brand)) = LOWER(@brand)``); ``""`` for a non-string. Never
+    truncates. Shared by the api's rating rows (runserver/ratings.py)."""
+    return value.strip().lower() if isinstance(value, str) else ""
+
+
 def _canonical_styles(values: Iterable[Any]) -> list[str]:
     out: list[str] = []
     for value in values:

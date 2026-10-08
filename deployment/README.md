@@ -1420,6 +1420,11 @@ CREATE TABLE IF NOT EXISTS `$BQ_PROJECT_ID.$BQ_DATASET_ID.creative_ratings` (
   judge_gates_passed BOOL,    -- judge's blocking eval gates, nullable (older reports have none)
   judge_model STRING,
   judge_source STRING,        -- 'gcs' (run's report in the configured bucket) | 'state' | 'none'
+  brand STRING,               -- session brand, trimmed + lower-cased (learning context)
+  visual_style STRING,        -- canonical style family (visual ratings), nullable
+  tone_style STRING,          -- copy tone from the FinalAdCopy Literal (ad-copy ratings), nullable
+  angle_id STRING,            -- the creative's brief angle id, nullable
+  fail_reasons ARRAY<STRING>, -- allowlisted fail-reason chips (runserver/rating_reasons.py); [] on pass
   created_at TIMESTAMP,
   updated_at TIMESTAMP
 )
@@ -1432,6 +1437,20 @@ added **before** deploying the api that writes it (every rating MERGE names it):
 ```sql
 ALTER TABLE `$BQ_PROJECT_ID.$BQ_DATASET_ID.creative_ratings`
   ADD COLUMN IF NOT EXISTS judge_source STRING;
+```
+
+**Migration: learning context (2026-10-08).** Tables created before the rating-driven
+learning work need these columns added **before** deploying the api that writes them
+(every rating MERGE names them; `create_bq_tables.sh` creates them on a fresh project via
+`deployment/bq_schemas/creative_ratings.json`, since `fail_reasons` is `REPEATED`):
+
+```sql
+ALTER TABLE `$BQ_PROJECT_ID.$BQ_DATASET_ID.creative_ratings`
+  ADD COLUMN IF NOT EXISTS brand STRING,
+  ADD COLUMN IF NOT EXISTS visual_style STRING,
+  ADD COLUMN IF NOT EXISTS tone_style STRING,
+  ADD COLUMN IF NOT EXISTS angle_id STRING,
+  ADD COLUMN IF NOT EXISTS fail_reasons ARRAY<STRING>;
 ```
 
 Judge fields are read from the run's GCS report only when `eval_report_gcs_uri` is
@@ -1457,7 +1476,8 @@ Ratings are api-only: the agents never read them, so neither variable is in
 
 The 2026-10-07 creative-quality work (PRs #263–#280; plan
 [docs/plans/2026-10-07-creative-quality.md](../docs/plans/2026-10-07-creative-quality.md))
-needs these one-time BigQuery changes. **All were applied in prod on 2026-10-07**; for a
+needs these one-time BigQuery changes. **All ticked items were applied in prod on
+2026-10-07** (unticked ones are pending); for a
 fresh project, `deployment/create_bq_tables.sh` already creates the final schemas.
 Always run a migration **before** deploying the code that writes the column (both
 writers name every column in their MERGE):
@@ -1469,6 +1489,18 @@ writers name every column in their MERGE):
   ([Table](#table)).
 - [x] `creative_ratings.judge_source STRING` — before the api
   ([Migration: judge_source](#table)).
+- [ ] `creative_ratings.brand/visual_style/tone_style/angle_id STRING` +
+  `fail_reasons ARRAY<STRING>` (rating-driven learning, 2026-10-08) — before the api
+  ([Migration: learning context](#table)):
+
+  ```sql
+  ALTER TABLE `$BQ_PROJECT_ID.$BQ_DATASET_ID.creative_ratings`
+    ADD COLUMN IF NOT EXISTS brand STRING,
+    ADD COLUMN IF NOT EXISTS visual_style STRING,
+    ADD COLUMN IF NOT EXISTS tone_style STRING,
+    ADD COLUMN IF NOT EXISTS angle_id STRING,
+    ADD COLUMN IF NOT EXISTS fail_reasons ARRAY<STRING>;
+  ```
 - [x] Judge image access: the Vertex AI service agent can read the bucket (same project:
   nothing to do; cross-project: grant `roles/storage.objectViewer`; see **Judge image
   access (IAM)** next to the gates_pass_rate migration).

@@ -79,6 +79,7 @@ describe("RatingControl", () => {
       verdict: "pass",
       score: 4,
       note: "Strong hook",
+      fail_reasons: [],
     });
     await waitFor(() => expect(onChange).toHaveBeenCalledTimes(2));
     expect(screen.getByText("Saved")).toHaveClass("text-muted-foreground");
@@ -202,5 +203,76 @@ describe("RatingControl draft sync", () => {
     rerender(el(saved("pass", "server")));
     expect(screen.getByRole("button", { name: "Fail" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByLabelText("Note (optional)")).toHaveValue("mine");
+  });
+});
+
+describe("RatingControl fail-reason chips", () => {
+  const el = (kind: "visual" | "ad_copy" = "visual", saved?: Rating) => (
+    <RatingControl
+      appName="creative_agent"
+      sessionId="s1"
+      creativeKey={kind === "visual" ? KEY : "copy:3"}
+      kind={kind}
+      title={kind === "visual" ? "Visual" : "Ad copy"}
+      saved={saved}
+      onChange={vi.fn()}
+    />
+  );
+
+  it("reveals the chips only once Fail is chosen", () => {
+    render(el());
+    expect(screen.queryByRole("group", { name: "Why did it fail? (optional)" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Fail" }));
+    const group = screen.getByRole("group", { name: "Why did it fail? (optional)" });
+    expect(group).toBeInTheDocument();
+    const chip = screen.getByRole("button", { name: "Product hard to see" });
+    expect(chip).toHaveAttribute("aria-pressed", "false");
+    // muted chips: the action colour is for Save only
+    expect(chip.className).not.toMatch(/\bbg-primary\b/);
+  });
+
+  it("sends the selected reasons and toggles them off again", async () => {
+    putRating.mockResolvedValue({});
+    render(el());
+    fireEvent.click(screen.getByRole("button", { name: "Fail" }));
+    fireEvent.click(screen.getByRole("button", { name: "Product hard to see" }));
+    fireEvent.click(screen.getByRole("button", { name: "In-image text problems" }));
+    fireEvent.click(screen.getByRole("button", { name: "Trend unclear" }));
+    fireEvent.click(screen.getByRole("button", { name: "Trend unclear" }));
+    expect(screen.getByRole("button", { name: "Product hard to see" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "Trend unclear" })).toHaveAttribute("aria-pressed", "false");
+    fireEvent.click(screen.getByRole("button", { name: "Save visual rating" }));
+    expect(putRating).toHaveBeenCalledWith(
+      "s1",
+      expect.objectContaining({ verdict: "fail", fail_reasons: ["product_not_visible", "text_problem"] })
+    );
+    await waitFor(() => expect(screen.getByText("Saved")).toBeInTheDocument());
+  });
+
+  it("clears the reasons when switching to Pass", () => {
+    render(el());
+    fireEvent.click(screen.getByRole("button", { name: "Fail" }));
+    fireEvent.click(screen.getByRole("button", { name: "Unwanted logo / trademark" }));
+    fireEvent.click(screen.getByRole("button", { name: "Pass" }));
+    expect(screen.queryByRole("group", { name: "Why did it fail? (optional)" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Fail" }));
+    expect(screen.getByRole("button", { name: "Unwanted logo / trademark" })).toHaveAttribute("aria-pressed", "false");
+  });
+
+  it("offers copy-relevant reasons for ad copy and restores saved ones", () => {
+    render(
+      el("ad_copy", {
+        creative_key: "copy:3",
+        kind: "ad_copy",
+        verdict: "fail",
+        score: null,
+        note: null,
+        fail_reasons: ["weak_cta", "not_a_reason"],
+      })
+    );
+    expect(screen.getByRole("button", { name: "Weak call to action" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.queryByRole("button", { name: "Product hard to see" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Visual artifacts / quality" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Save ad copy rating" })).toBeDisabled();
   });
 });

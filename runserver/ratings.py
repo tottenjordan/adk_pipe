@@ -10,7 +10,9 @@ Routes (all user-scoped by path, gated by ``UserAuthzMiddleware`` like
 ``/experiments/{user}/...``; a foreign or unknown session is a 404):
 
 - ``PUT /ratings/{user}/{session}``: upsert one rating (body ``app_name``,
-  ``creative_key``, ``kind``, ``verdict``, ``score?``, ``note?``).
+  ``creative_key``, ``kind``, ``verdict``, ``score?``, ``note?``,
+  ``fail_reasons?``: allowlisted chips from ``runserver/rating_reasons.py``,
+  emptied on a pass).
 - ``GET /ratings/{user}/{session}``: the user's ratings for that session.
 - ``GET /ratings/{user}/calibration``: judge-human agreement over all the user's
   ratings (``runserver/calibration.py``).
@@ -36,6 +38,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from runserver.calibration import calibration_report
+from runserver.rating_reasons import FAIL_REASONS, FAIL_REASONS_BY_KIND
 from runserver.ratings_store import InMemoryRatingsStore, rating_id, utcnow
 
 log = logging.getLogger(__name__)
@@ -52,6 +55,8 @@ REPORT_SUFFIX = "/creative_eval_report.json"
 REPORT_MAX_BYTES = 5 * 1024 * 1024
 _REPORT_CACHE_MAX = 64
 _GS_RE = re.compile(r"^gs://(?P<bucket>[^/]+)/(?P<path>.+)$")
+# Brief angle ids are 'A1'..'A5' (CreativeBrief); anything else is not stamped.
+_ANGLE_RE = re.compile(r"^A\d{1,2}$")
 
 ReportLoader = Callable[[str], Any]
 
@@ -101,6 +106,51 @@ def creative_index(state: Mapping[str, Any]) -> dict[str, dict]:
                 "original_id": oid,
                 "headline": ac.get("headline"),
             }
+    return out
+
+
+def _creative_item(
+    state: Mapping[str, Any], kind: str, creative_key: str
+) -> Mapping[str, Any] | None:
+    """The state item a ``creative_key`` names (first match), or None."""
+    ident = creative_key.split(":", 1)[1] if ":" in creative_key else ""
+    if kind == "visual":
+        items = _items(state.get("final_visual_concepts"), "visual_concepts")
+        return next((v for v in items if v.get("concept_name") == ident), None)
+    items = _items(state.get("ad_copy_critique"), "ad_copies")
+    return next((a for a in items if _id_text(a.get("original_id")) == ident), None)
+
+
+def learning_context(
+    state: Mapping[str, Any], kind: str, creative_key: str
+) -> dict[str, str]:
+    """The rating row's learning-context columns, from the session state (pure).
+
+    Allowlisted values only, so a later learning step can never carry model or
+    user free text into a prompt: ``visual_style`` is a canonical style family
+    (``canonical_style``), ``tone_style`` one of the ``FinalAdCopy`` tones,
+    ``angle_id`` a brief angle id (``A1``..). Anything else is ``""``. ``brand``
+    is trimmed + lower-cased like brand_history's match, and is only ever used as
+    a parameterised lookup key (``normalize_brand``, shared with brand_history)."""
+    # Lazy: importing creative_agent builds its agent graph (like async_runs).
+    from creative_agent import AD_COPY_TONES, canonical_style, normalize_brand
+
+    out = {
+        "brand": normalize_brand(state.get("brand")),
+        "visual_style": "",
+        "tone_style": "",
+        "angle_id": "",
+    }
+    item = _creative_item(state, kind, creative_key)
+    if item is None:
+        return out
+    angle = item.get("angle_id")
+    if isinstance(angle, str) and _ANGLE_RE.match(angle.strip()):
+        out["angle_id"] = angle.strip()
+    if kind == "visual":
+        out["visual_style"] = canonical_style(item.get("visual_style")) or ""
+    elif (tone := item.get("tone_style")) in AD_COPY_TONES:
+        out["tone_style"] = str(tone)
     return out
 
 
@@ -171,9 +221,29 @@ class RatingError(ValueError):
         self.reason = reason
 
 
+def validate_fail_reasons(value: Any, verdict: str, kind: str) -> list[str]:
+    """Allowlisted fail-reason chips, deduped in order; ``[]`` on a pass (pure).
+
+    An unknown value is a 400; a known reason that doesn't apply to ``kind``
+    (``FAIL_REASONS_BY_KIND``, the chips the UI offers) is dropped silently."""
+    if value is None:
+        value = []
+    if not isinstance(value, list) or not all(
+        isinstance(r, str) and r in FAIL_REASONS for r in value
+    ):
+        raise RatingError(
+            "invalid_fail_reasons", f"fail_reasons must be a list of {FAIL_REASONS}"
+        )
+    if verdict == "pass":
+        return []
+    applicable = FAIL_REASONS_BY_KIND[kind]
+    return [r for r in dict.fromkeys(value) if r in applicable]
+
+
 def validate_rating(body: Mapping[str, Any]) -> dict[str, Any]:
-    """Checked ``{app_name, creative_key, kind, verdict, score, note}`` (pure);
-    raises ``RatingError`` for a bad field. Does not check the session."""
+    """Checked ``{app_name, creative_key, kind, verdict, score, note,
+    fail_reasons}`` (pure); raises ``RatingError`` for a bad field. Does not check
+    the session."""
     app_name = body.get("app_name")
     if app_name not in RATING_APPS:
         raise RatingError("invalid_app_name", f"app_name must be one of {RATING_APPS}")
@@ -210,6 +280,7 @@ def validate_rating(body: Mapping[str, Any]) -> dict[str, Any]:
     note = (note or "").strip() or None
     if note is not None and len(note) > NOTE_MAX_CHARS:
         raise RatingError("invalid_note", f"note must be ≤ {NOTE_MAX_CHARS} characters")
+    fail_reasons = validate_fail_reasons(body.get("fail_reasons"), verdict, kind)
     return {
         "app_name": app_name,
         "creative_key": key,
@@ -217,6 +288,7 @@ def validate_rating(body: Mapping[str, Any]) -> dict[str, Any]:
         "verdict": verdict,
         "score": score,
         "note": note,
+        "fail_reasons": fail_reasons,
     }
 
 
@@ -242,6 +314,7 @@ def to_public(row: Mapping[str, Any]) -> dict:
             "judge_gates_passed",
             "judge_model",
             "judge_source",
+            "fail_reasons",
             "created_at",
             "updated_at",
         )
@@ -372,6 +445,8 @@ class _RatingBody(BaseModel):
     score: Any = None
     # Typed (bounds the body); the 2000-char business cap is in validate_rating.
     note: str | None = Field(default=None, max_length=4000)
+    # Bounded here; items are checked against FAIL_REASONS in validate_rating.
+    fail_reasons: list[Any] | None = Field(default=None, max_length=len(FAIL_REASONS))
 
 
 async def _get_session(app_name: str, user_id: str, session_id: str):
@@ -409,6 +484,7 @@ async def http_put_rating(user_id: str, session_id: str, body: _RatingBody) -> d
         **fields,
         **judge_fields(report, info),
         "judge_source": judge_source if report is not None else "none",
+        **learning_context(state, fields["kind"], fields["creative_key"]),
         "created_at": now,
         "updated_at": now,
     }

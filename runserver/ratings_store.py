@@ -43,6 +43,14 @@ RATING_COLUMN_TYPES = {
     # Where the judge fields came from: 'gcs' (the run's report under the configured
     # bucket), 'state' (session state, client-seedable) or 'none' (2026-10-07).
     "judge_source": "STRING",
+    # Learning context, stamped from session state at PUT time (2026-10-08):
+    # normalised brand, canonical visual style, copy tone, brief angle and the
+    # rater's allowlisted fail-reason chips (runserver/rating_reasons.py).
+    "brand": "STRING",
+    "visual_style": "STRING",
+    "tone_style": "STRING",
+    "angle_id": "STRING",
+    "fail_reasons": "ARRAY<STRING>",
     "created_at": "TIMESTAMP",
     "updated_at": "TIMESTAMP",
 }
@@ -57,6 +65,11 @@ UPDATABLE = (
     "judge_gates_passed",
     "judge_model",
     "judge_source",
+    "brand",
+    "visual_style",
+    "tone_style",
+    "angle_id",
+    "fail_reasons",
     "updated_at",
 )
 
@@ -89,7 +102,11 @@ def table_name(env: Mapping[str, str] = os.environ) -> str:
 def _param(col: str, value: Any):
     from google.cloud import bigquery
 
-    return bigquery.ScalarQueryParameter(col, RATING_COLUMN_TYPES[col], value)
+    typ = RATING_COLUMN_TYPES[col]
+    if typ.startswith("ARRAY<"):
+        # BigQuery arrays can't be NULL: an absent list binds as [].
+        return bigquery.ArrayQueryParameter(col, typ[6:-1], list(value or []))
+    return bigquery.ScalarQueryParameter(col, typ, value)
 
 
 def build_upsert_sql(table: str, row: Mapping[str, Any]) -> tuple[str, list]:
@@ -160,9 +177,11 @@ class InMemoryRatingsStore:
         self.rows: dict[str, dict] = {}
 
     async def upsert(self, row: dict) -> None:
+        # Like the BigQuery ARRAY column: always a (copied) list, never None.
+        row = {**row, "fail_reasons": list(row.get("fail_reasons") or [])}
         existing = self.rows.get(row["rating_id"])
         if existing is None:
-            self.rows[row["rating_id"]] = dict(row)
+            self.rows[row["rating_id"]] = row
         else:
             existing.update({c: row[c] for c in UPDATABLE})
 
