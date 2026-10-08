@@ -96,25 +96,33 @@ Branch `feat/creative-brief`. Depends on PR 1.
 class TrendBridge(BaseModel):
     fit_score: int = Field(ge=1, le=5)
     fit_mode: Literal["direct", "cultural", "light_touch"]
-    bridge: str            # which brand/product trait connects to which trend facet
-    motifs: list[str]      # trend-specific, concrete (no generic phones/feeds)
+    bridge: str  # which brand/product trait connects to which trend facet
+    motifs: list[str]  # trend-specific, concrete (no generic phones/feeds)
     risks: list[str]
+
+
 class ReasonToBelieve(BaseModel):
     claim: str
     source_id: str | None  # "src-N" from {sources?}, or "brief" for user selling points
+
+
 class BrandCues(BaseModel):
     tone_of_voice: str
     distinctive_assets: list[str]
     do_not: list[str]
+
+
 class CreativeAngle(BaseModel):
-    angle_id: str          # "A1".."A5"
+    angle_id: str  # "A1".."A5"
     name: str
-    tension: str           # the audience tension this route dramatises
-    route: str             # one-line creative route tied to the proposition
+    tension: str  # the audience tension this route dramatises
+    route: str  # one-line creative route tied to the proposition
+
+
 class CreativeBrief(BaseModel):
     objective: str
     audience: str
-    insight: str           # "X, but Y" human tension
+    insight: str  # "X, but Y" human tension
     single_minded_proposition: str
     reasons_to_believe: list[ReasonToBelieve]
     brand: BrandCues
