@@ -1261,3 +1261,13 @@ def test_avoid_gate_prompts_ignore_production_medium():
 
     assert "production medium" in prompts.VISUAL_CONCEPT_EVAL_USER
     assert "production medium" in prompts.AD_COPY_EVAL_USER
+
+
+def test_judge_brief_unwraps_bracketed_terms():
+    from creative_eval.brief import format_brief_for_judge
+
+    block = format_brief_for_judge(
+        {"single_minded_proposition": "x", "avoid": ["[wrestler likenesses]"]}
+    )
+    assert "- wrestler likenesses" in block
+    assert "[wrestler likenesses]" not in block

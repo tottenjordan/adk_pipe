@@ -39,9 +39,19 @@ def _mapping(value: Any) -> Mapping[str, Any]:
     return value if isinstance(value, Mapping) else {}
 
 
+_WRAPPERS = "[]\"'`“”‘’()"
+
+
+def _unwrap(text: str) -> str:
+    """Drop surrounding brackets/quotes a brief writer copied from a placeholder."""
+    while text and text[0] in _WRAPPERS and text[-1] in _WRAPPERS:
+        text = text[1:-1].strip()
+    return text
+
+
 def _texts(value: Any) -> list[str]:
     items = value if isinstance(value, list) else []
-    return [t for t in (_text(v) for v in items) if t]
+    return [t for t in (_unwrap(_text(v)) for v in items) if t]
 
 
 def _bullets(items: list[str]) -> str:

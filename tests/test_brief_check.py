@@ -439,3 +439,36 @@ def test_more_sentence_breaks_flagged(proposition, kwargs):
 )
 def test_no_followed_by_a_digit_is_an_abbreviation(proposition):
     assert _prop_issues(proposition) == []
+
+
+def test_clean_term_strips_wrapping_brackets_and_quotes():
+    from creative_agent.brief_check import clean_term
+
+    assert clean_term("[wrestler likenesses]") == "wrestler likenesses"
+    assert clean_term(' "coil tap terminology" ') == "coil tap terminology"
+    assert clean_term("[[nested]]") == "nested"
+    assert clean_term("PRS bird inlays") == "PRS bird inlays"
+    assert clean_term("(c) 2026 brand") == "(c) 2026 brand"  # not fully wrapped
+    assert clean_term("[]") == ""
+
+
+def test_normalize_brief_terms_cleans_every_term_list():
+    from creative_agent.brief_check import normalize_brief_terms
+
+    brief = {
+        "avoid": ["[wrestler likenesses]", "[trademarked belt designs]", "[]"],
+        "mandatories": ["[Show the guitar]"],
+        "brand": {
+            "do_not": ["[Never say coil tap]"],
+            "distinctive_assets": ["'bird inlays'"],
+        },
+        "trend_bridge": {"motifs": ["[folding chair]"], "fit_score": 3},
+    }
+    out = normalize_brief_terms(brief)
+    assert out["avoid"] == ["wrestler likenesses", "trademarked belt designs"]
+    assert out["mandatories"] == ["Show the guitar"]
+    assert out["brand"]["do_not"] == ["Never say coil tap"]
+    assert out["brand"]["distinctive_assets"] == ["bird inlays"]
+    assert out["trend_bridge"]["motifs"] == ["folding chair"]
+    assert brief["avoid"][0] == "[wrestler likenesses]"  # input not mutated
+    assert normalize_brief_terms(None) is None

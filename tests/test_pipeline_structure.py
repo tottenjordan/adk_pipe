@@ -2305,3 +2305,14 @@ def test_brand_history_loads_alongside_research_and_reaches_the_prompts():
     writer = prompts.CREATIVE_BRIEF_WRITER_INSTR
     assert "recurring weaknesses" in writer and "build on" in writer.lower()
     assert "recently used" in prompts.ART_DIRECTOR_INSTR
+
+
+def test_brief_gate_writes_back_a_bracket_free_brief():
+    """The gate cleans the brief's term lists at the source on every exit."""
+    from creative_agent.agent import brief_gate_decision
+
+    brief = _clean_brief()
+    brief["avoid"] = ["[wrestler likenesses]"]
+    route, delta = brief_gate_decision({"creative_brief": brief}, 1)
+    assert delta["creative_brief"]["avoid"] == ["wrestler likenesses"]
+    assert "[wrestler likenesses]" not in delta["creative_brief_md"]
