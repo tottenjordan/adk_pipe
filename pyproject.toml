@@ -81,7 +81,16 @@ target-version = "py313"
 line-length = 88
 # `agents/` holds symlinks back to the root agent packages (ADK web discovery),
 # so linting it would double-report every file. Notebooks are exploratory.
-extend-exclude = ["agents/", "frontend/", "outputs/", "a_stash/", "*.ipynb"]
+# `.agents/skills/` are vendored third-party skills pinned by skills-lock.json
+# hashes, so they are never reformatted.
+extend-exclude = [
+    "agents/",
+    ".agents/",
+    "frontend/",
+    "outputs/",
+    "a_stash/",
+    "*.ipynb",
+]
 
 [tool.ruff.lint]
 # Pin the rule set explicitly (ruff's default set grows between releases).

@@ -27,3 +27,6 @@ docs/architecture/run_*/.crf-venv/
 
 # Internal reference notebooks (bandit simulations) — never commit
 notebook-examples/
+
+# Local Claude Code settings/state (per-user, not shared)
+.claude/
