@@ -32,6 +32,7 @@ export const GATE_LABELS: Readonly<Record<string, string>> = {
   mandatories_met: "Mandatories met",
   // Shared
   avoid_respected: "Avoid list respected",
+  trend_risks_respected: "Respects trend risks",
   // Visual concept
   product_visible: "Product visible",
   trend_motif_visible: "Trend motif visible",
