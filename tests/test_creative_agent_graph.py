@@ -1708,3 +1708,74 @@ def test_failing_brand_history_does_not_stop_research(monkeypatch):
 
     assert state["creative_brief"] == _BRIEF
     assert "Research report complete" in str(_responses(events)[0])
+
+
+def _rating_rows() -> list[dict]:
+    from tests.test_rating_signals import ROWS
+
+    return ROWS * 2
+
+
+def _rating_learning_on(monkeypatch, ca) -> list[str]:
+    from creative_agent import brand_history, rating_signals
+
+    calls: list[str] = []
+
+    def fake_fetch(brand: str, *, days: int) -> list[dict]:
+        calls.append(brand)
+        return _rating_rows()
+
+    monkeypatch.setattr(rating_signals, "fetch_ratings", fake_fetch)
+    monkeypatch.setattr(brand_history, "fetch_brand_history", lambda *a, **k: {})
+    monkeypatch.setattr(ca.config, "brand_history_enabled", True)
+    monkeypatch.setattr(ca.config, "rating_learning_enabled", True)
+    monkeypatch.setattr(
+        ca.config,
+        "rating_learning_effects",
+        frozenset({"guidance", "styles", "checks"}),
+    )
+    monkeypatch.setattr(ca.config, "rating_learning_min_ratings", 8)
+    return calls
+
+
+def test_rating_signals_reach_the_brief_writer_when_opted_in(monkeypatch):
+    """Toggle on + enough ratings: the note lands in the brief writer's prompt,
+    strictness and the applied record are written, and the shortlist is
+    steered (poorly rated family out, well-rated family in)."""
+    import creative_agent.agent as ca
+
+    calls = _rating_learning_on(monkeypatch, ca)
+    llms = _stub_graph(monkeypatch, ca.combined_research_pipeline)
+    _script_research(llms, ["CA INSIGHTS"])
+
+    _, _, state = _run_root(
+        monkeypatch,
+        "combined_research_pipeline",
+        extra_state={"learn_from_ratings": True},
+    )
+
+    assert calls == ["Acme"]
+    assert state["rating_signals"].startswith("Your team's ratings for Acme (20)")
+    assert state["rating_strictness"] == ["product_not_visible"]
+    assert state["rating_signals_applied"]["applied"] is True
+    shortlist = state["style_shortlist"].split("; ")
+    assert "Isometric miniature world" not in shortlist
+    assert "Candid 35mm film photo" in shortlist
+    assert state["creative_brief"] == _BRIEF
+
+
+def test_rating_learning_off_makes_no_query(monkeypatch):
+    import creative_agent.agent as ca
+
+    calls = _rating_learning_on(monkeypatch, ca)
+    llms = _stub_graph(monkeypatch, ca.combined_research_pipeline)
+    _script_research(llms, ["CA INSIGHTS"])
+
+    _, _, state = _run_root(monkeypatch, "combined_research_pipeline")
+
+    assert calls == []
+    assert state.get("learn_from_ratings") is not True
+    assert not {k for k in state if k.startswith("rating_")}
+    prompt = str(llms["brief_writer"].requests[-1].config.system_instruction)
+    assert "Your team's ratings" not in prompt
+    assert state["creative_brief"] == _BRIEF

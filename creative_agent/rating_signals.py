@@ -158,15 +158,19 @@ def _row_dict(row: Any) -> dict[str, Any]:
     return {c: getattr(row, c, None) for c in _COLUMNS}
 
 
-def fetch_ratings(brand: str, *, days: int, bq_client: Any = None) -> list[dict]:
+def fetch_ratings(brand: str, *, days: int, bq_client: Any = None) -> list[dict] | None:
     """The brand's ratings of the last ``days`` days (≤ 500, newest first).
 
-    Fail-open: a blank brand or unconfigured table skips the query; any error
-    is logged as a warning and returns ``[]``.
+    Fail-open: never raises. ``None`` means unavailable (unconfigured table or
+    any BigQuery error, logged as a warning) so the caller can record why
+    nothing was learned; a blank brand reads nothing (``[]``).
     """
-    table = _table_id()
-    if not normalize_brand(brand) or table is None:
+    if not normalize_brand(brand):
         return []
+    table = _table_id()
+    if table is None:
+        logger.info("ratings unavailable: BQ ratings table not configured")
+        return None
     try:
         bq = bq_client or _get_bigquery_client()
         sql, params = build_ratings_query(table, brand, days)
@@ -177,7 +181,7 @@ def fetch_ratings(brand: str, *, days: int, bq_client: Any = None) -> list[dict]
         return [_row_dict(r) for r in bq.query(sql, job_config=job_config).result()]
     except Exception as exc:
         logger.warning("ratings unavailable for %r: %s", brand, exc)
-        return []
+        return None
 
 
 def _rated(

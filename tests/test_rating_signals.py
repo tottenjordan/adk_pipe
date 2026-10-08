@@ -239,20 +239,19 @@ class TestQuery:
             "days": 30,
         }
 
-    def test_fetch_fails_open(self, caplog):
+    def test_fetch_fails_open_as_unavailable(self, caplog):
         def boom(sql, cfg):
             raise RuntimeError("bq down")
 
-        assert (
-            rs.fetch_ratings("PRS", days=30, bq_client=FakeBigQueryClient(boom)) == []
-        )
+        bq = FakeBigQueryClient(boom)
+        assert rs.fetch_ratings("PRS", days=30, bq_client=bq) is None
         assert "ratings unavailable" in caplog.text
 
-    def test_blank_brand_or_unconfigured_table_skips_query(self, monkeypatch):
+    def test_blank_brand_is_no_ratings_unconfigured_is_unavailable(self, monkeypatch):
         bq = FakeBigQueryClient(ROWS)
         assert rs.fetch_ratings("  ", days=30, bq_client=bq) == []
         monkeypatch.setattr(rs.config, "BQ_DATASET_ID", None)
-        assert rs.fetch_ratings("PRS", days=30, bq_client=bq) == []
+        assert rs.fetch_ratings("PRS", days=30, bq_client=bq) is None
         assert bq.queries == []
 
     def test_uses_module_getter_by_default(self, monkeypatch):

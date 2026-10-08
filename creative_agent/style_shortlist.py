@@ -84,22 +84,41 @@ def canonical_style(raw: object) -> str | None:
 
 
 def pick_style_shortlist(
-    rng: random.Random | None = None, exclude: Iterable[str] = frozenset()
+    rng: random.Random | None = None,
+    exclude: Iterable[str] = frozenset(),
+    prefer: Sequence[str] = (),
 ) -> list[str]:
     """Return 6 distinct style families: 2 photographic, 3 illustrated, 1 graphic.
 
     ``exclude`` (matched case-insensitively; e.g. the styles a brand used in
-    its last runs) is avoided while the 2/3/1 stratification is kept: when a
-    group has fewer non-excluded families than its quota, the shortfall is
-    filled from that group's excluded families (with every family excluded it
-    is the plain full-group draw).
+    its last runs, or rated poorly) is avoided while the 2/3/1 stratification
+    is kept: when a group has fewer non-excluded families than its quota, the
+    shortfall is filled from that group's excluded families (with every family
+    excluded it is the plain full-group draw).
+
+    ``prefer`` (case-insensitive; e.g. families rated well) are drawn first
+    within their group — randomly among themselves when they exceed the quota
+    — before the rest is filled randomly. Exclusion beats preference. Without
+    preferences the draw is exactly the unweighted one.
     """
     rng = rng or random.Random()
     banned = {e.strip().lower() for e in exclude}
+    liked = {p.strip().lower() for p in prefer}
     picks: list[str] = []
     for group, n in SHORTLIST_QUOTA.items():
         families = STYLE_GROUPS[group]
         allowed = [f for f in families if f.lower() not in banned]
+        preferred = [f for f in allowed if f.lower() in liked]
+        if preferred:
+            first = rng.sample(preferred, min(n, len(preferred)))
+            rest = [f for f in allowed if f not in first]
+            allowed_fill = rng.sample(rest, min(n - len(first), len(rest)))
+            chosen = first + allowed_fill
+            if len(chosen) < n:
+                excluded = [f for f in families if f.lower() in banned]
+                chosen += rng.sample(excluded, n - len(chosen))
+            picks.extend(chosen)
+            continue
         if len(allowed) >= n:
             picks.extend(rng.sample(allowed, n))
             continue

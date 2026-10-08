@@ -107,6 +107,10 @@ def _set_initial_states(source: dict[str, Any], target: State | dict[str, Any]):
     # ordered role list of the resolved references (legacy single reference
     # folded in first) for the drafter's {reference_roles?} token.
     target.setdefault("reference_images", [])
+    # Opt-in rating learning (per run, default off): the campaign form's "Learn
+    # from past ratings for this brand" seeds True via initialState; only
+    # exactly True turns it on (creative_agent/rating_signals.py).
+    target.setdefault("learn_from_ratings", False)
     target.setdefault("reference_roles", reference_roles_summary(target))
 
     # Per-session random style shortlist (image diversity): the visual agents
