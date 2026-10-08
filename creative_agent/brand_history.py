@@ -23,7 +23,7 @@ import logging
 import time
 from collections import Counter
 from collections.abc import Iterable, Mapping
-from typing import Any, get_args
+from typing import Any
 
 from google.cloud import bigquery
 
@@ -36,7 +36,9 @@ from creative_eval.dimensions import (
 )
 
 from .config import config
-from .schemas import FinalAdCopy
+from .prompt_safe import ALLOWED_TONES
+from .prompt_safe import brace_free as _clean
+from .prompt_safe import normalize_brand as normalize_brand  # re-export (facade)
 from .style_shortlist import canonical_style, format_shortlist, pick_style_shortlist
 
 logger = logging.getLogger(__name__)
@@ -63,18 +65,8 @@ BRAND_HISTORY_TIMEOUT_SECONDS = 10.0
 # (canonical_style), the ad-copy tone Literal, known dimension labels and known
 # gate names (rendered as their labels). Report/BQ strings are otherwise free
 # text, so anything else is dropped.
-ALLOWED_TONES: frozenset[str] = frozenset(
-    get_args(FinalAdCopy.model_fields["tone_style"].annotation)
-)
 ALLOWED_WEAKNESSES: frozenset[str] = frozenset(DIMENSION_LABELS.values())
 ALLOWED_GATES: frozenset[str] = frozenset(AD_COPY_GATES + VISUAL_GATES)
-
-
-def normalize_brand(value: Any) -> str:
-    """The brand match key: strip + lower (the Python side of the SQL
-    ``LOWER(TRIM(brand)) = LOWER(@brand)``); ``""`` for a non-string. Never
-    truncates. Shared by the api's rating rows (runserver/ratings.py)."""
-    return value.strip().lower() if isinstance(value, str) else ""
 
 
 def _canonical_styles(values: Iterable[Any]) -> list[str]:
@@ -298,11 +290,6 @@ def fetch_brand_history(
     except Exception as exc:
         logger.warning("brand history unavailable for %r: %s", brand, exc)
         return {}
-
-
-def _clean(value: Any) -> str:
-    """Brace-free text (the note is spliced into ADK instructions as state)."""
-    return str(value).replace("{", "").replace("}", "").strip()
 
 
 def _join(items: Iterable[Any]) -> str:
