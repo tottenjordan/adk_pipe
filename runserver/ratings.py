@@ -55,6 +55,9 @@ REPORT_SUFFIX = "/creative_eval_report.json"
 REPORT_MAX_BYTES = 5 * 1024 * 1024
 _REPORT_CACHE_MAX = 64
 _GS_RE = re.compile(r"^gs://(?P<bucket>[^/]+)/(?P<path>.+)$")
+# Brief angle ids are 'A1'..'A5' (CreativeBrief); anything else is not stamped.
+_ANGLE_RE = re.compile(r"^A\d{1,2}$")
+BRAND_MAX_CHARS = 200
 
 ReportLoader = Callable[[str], Any]
 
@@ -104,6 +107,48 @@ def creative_index(state: Mapping[str, Any]) -> dict[str, dict]:
                 "original_id": oid,
                 "headline": ac.get("headline"),
             }
+    return out
+
+
+def _creative_item(
+    state: Mapping[str, Any], kind: str, creative_key: str
+) -> Mapping[str, Any] | None:
+    """The state item a ``creative_key`` names (first match), or None."""
+    ident = creative_key.split(":", 1)[1] if ":" in creative_key else ""
+    if kind == "visual":
+        items = _items(state.get("final_visual_concepts"), "visual_concepts")
+        return next((v for v in items if v.get("concept_name") == ident), None)
+    items = _items(state.get("ad_copy_critique"), "ad_copies")
+    return next((a for a in items if _id_text(a.get("original_id")) == ident), None)
+
+
+def learning_context(
+    state: Mapping[str, Any], kind: str, creative_key: str
+) -> dict[str, str]:
+    """The rating row's learning-context columns, from the session state (pure).
+
+    Allowlisted values only, so a later learning step can never carry model or
+    user free text into a prompt: ``visual_style`` is a canonical style family
+    (``canonical_style``), ``tone_style`` one of the ``FinalAdCopy`` tones,
+    ``angle_id`` a brief angle id (``A1``..). Anything else is ``""``. ``brand``
+    is trimmed + lower-cased like brand_history's match, and is only ever used as
+    a parameterised lookup key."""
+    # Lazy: importing creative_agent builds its agent graph (like async_runs).
+    from creative_agent import AD_COPY_TONES, canonical_style
+
+    brand = state.get("brand")
+    brand = brand.strip().lower()[:BRAND_MAX_CHARS] if isinstance(brand, str) else ""
+    out = {"brand": brand, "visual_style": "", "tone_style": "", "angle_id": ""}
+    item = _creative_item(state, kind, creative_key)
+    if item is None:
+        return out
+    angle = item.get("angle_id")
+    if isinstance(angle, str) and _ANGLE_RE.match(angle.strip()):
+        out["angle_id"] = angle.strip()
+    if kind == "visual":
+        out["visual_style"] = canonical_style(item.get("visual_style")) or ""
+    elif (tone := item.get("tone_style")) in AD_COPY_TONES:
+        out["tone_style"] = str(tone)
     return out
 
 
@@ -431,11 +476,7 @@ async def http_put_rating(user_id: str, session_id: str, body: _RatingBody) -> d
         **fields,
         **judge_fields(report, info),
         "judge_source": judge_source if report is not None else "none",
-        # Learning context (filled from state in a later step).
-        "brand": None,
-        "visual_style": None,
-        "tone_style": None,
-        "angle_id": None,
+        **learning_context(state, fields["kind"], fields["creative_key"]),
         "created_at": now,
         "updated_at": now,
     }

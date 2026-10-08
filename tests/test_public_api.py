@@ -44,6 +44,13 @@ def test_facade_exposes_reusable_pipelines_and_schema():
 
     assert creative_agent.CreativeBrief is CreativeBrief
 
+    # Allowlists the api stamps onto ratings (runserver/ratings.learning_context)
+    from creative_agent.brand_history import ALLOWED_TONES
+    from creative_agent.style_shortlist import canonical_style
+
+    assert creative_agent.canonical_style is canonical_style
+    assert creative_agent.AD_COPY_TONES is ALLOWED_TONES
+
     # Submodules remain accessible as attributes
     assert creative_agent.tools is not None
     assert creative_agent.callbacks is not None
@@ -81,6 +88,8 @@ def test_facade_all_is_complete_and_importable():
         "ad_copy_reviser",
         "VisualConceptFinalList",
         "CreativeBrief",
+        "canonical_style",
+        "AD_COPY_TONES",
     }
     assert expected.issubset(set(creative_agent.__all__))
     for name in creative_agent.__all__:
