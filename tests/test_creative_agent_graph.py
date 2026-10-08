@@ -853,6 +853,7 @@ def _final_ad(original_id: int, **overrides: Any) -> dict[str, Any]:
         "brief_checks": [
             {"item": "proposition", "passed": True, "note": "on message"},
             {"item": "mandatories", "passed": True, "note": "none"},
+            {"item": "risks", "passed": True, "note": "respectful"},
             {"item": "cta", "passed": True, "note": "specific"},
         ],
         "detailed_performance_rationale": "Speed sells.",

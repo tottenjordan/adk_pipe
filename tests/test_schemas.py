@@ -393,6 +393,7 @@ BRIEF_CHECK_ITEMS = [
     "mandatories",
     "avoid",
     "cta",
+    "risks",
 ]
 
 

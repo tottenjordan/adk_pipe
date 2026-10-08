@@ -1829,6 +1829,7 @@ def _final_copy(original_id=1, **overrides):
         "brief_checks": [
             {"item": "proposition", "passed": True, "note": ""},
             {"item": "mandatories", "passed": True, "note": ""},
+            {"item": "risks", "passed": True, "note": ""},
         ],
         "detailed_performance_rationale": "r",
     }
@@ -1906,7 +1907,7 @@ def test_copy_gate_decision_self_reported_gating_policy():
         failed = [{"item": i, "passed": False, "note": "n"} for i in items]
         complete = [
             {"item": i, "passed": True, "note": ""}
-            for i in ("proposition", "mandatories")
+            for i in ("proposition", "mandatories", "risks")
             if i not in items
         ]
         return failed + complete
@@ -1993,7 +1994,7 @@ def test_copy_gate_decision_records_structural_issues_without_revising():
     assert route == "ok"
     assert delta["ad_copy_critique__issues"] == [
         "only 2 of 4 ad copies were produced.",
-        "1 of 2 ad copies lack the proposition/mandatories brief check.",
+        "1 of 2 ad copies lack the proposition/mandatories/risks brief check.",
     ]
 
 

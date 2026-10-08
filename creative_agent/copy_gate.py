@@ -9,8 +9,8 @@ user-visible warning, so false positives are kept low):
   unsupported absolute claims such as "guaranteed" / "indestructible") — gate
   a revision AND, if they survive it, are recorded as residual issues;
 * **self_reported** issues — the critic's own failed ``brief_checks`` — gate a
-  revision only for ``proposition`` and ``mandatories`` (the brief's hard
-  contract, with no deterministic check), and are NEVER recorded as residual
+  revision only for ``proposition``, ``mandatories`` and ``risks`` (the
+  brief's hard contract and trend risks, with no deterministic check), and are NEVER recorded as residual
   issues. Every other failed item is advisory: it stays in ``brief_checks``
   (UI/eval) and never gates.
 * **structural** issues (``structural_issues``: fewer than ``EXPECTED_COPIES``
@@ -96,8 +96,9 @@ _STOPWORDS = frozenset(
 )
 _MIN_TOKEN_CHARS = 3
 # Self-reported brief_checks items that gate a revision: the brief's hard
-# contract, which no deterministic check covers. The rest are advisory.
-_GATING_ORDER = ("proposition", "mandatories")
+# contract (and its trend risks: never joking about a real disaster), which no
+# deterministic check covers. The rest are advisory.
+_GATING_ORDER = ("proposition", "mandatories", "risks")
 GATING_BRIEF_CHECKS = frozenset(_GATING_ORDER)
 # Items a deterministic check already covers; a self-reported failure of one is
 # never listed (no double listing), even if it were made gating.
