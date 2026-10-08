@@ -1229,3 +1229,35 @@ class TestReportCarriesStyleAndAngle:
         )
         assert ad.angle_id == "A1"
         assert (vis.visual_style, vis.angle_id) == ("Watercolor", "A2")
+
+
+def test_judge_brief_drops_production_medium_rules():
+    """A brand rule against AI-generated imagery can never be met by this pipeline
+    (every creative is AI-generated) and caused false avoid_respected failures."""
+    from creative_eval.brief import format_brief_for_judge
+
+    brief = {
+        "single_minded_proposition": "Pro tone without the stadium price.",
+        "avoid": ["celebrity likeness", "AI-generated imagery"],
+        "brand": {
+            "tone_of_voice": "grounded",
+            "do_not": [
+                "Never use synthetic or AI-generated product visuals",
+                "No stock photography",
+                "Never mock other guitarists",
+            ],
+        },
+    }
+    block = format_brief_for_judge(brief)
+    assert "celebrity likeness" in block
+    assert "Never mock other guitarists" in block
+    assert "AI-generated" not in block
+    assert "synthetic" not in block
+    assert "stock photography" not in block
+
+
+def test_avoid_gate_prompts_ignore_production_medium():
+    from creative_eval import prompts
+
+    assert "production medium" in prompts.VISUAL_CONCEPT_EVAL_USER
+    assert "production medium" in prompts.AD_COPY_EVAL_USER
