@@ -14,6 +14,7 @@
 ![Agent Runtime](https://img.shields.io/badge/Agent%20Platform-Agent%20Runtime-4285F4?logo=googlecloud&logoColor=white)
 ![Gemini](https://img.shields.io/badge/Gemini-3.x-886FBF?logo=googlegemini&logoColor=white)
 ![Next.js](https://img.shields.io/badge/Next.js-16-000000?logo=nextdotjs&logoColor=white)
+![JAX](https://img.shields.io/badge/JAX-0.11-5E97F6?logo=google&logoColor=white)
 
 </div>
 
