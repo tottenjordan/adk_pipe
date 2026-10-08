@@ -352,3 +352,82 @@ class TestBrandHistoryKnobs:
         for key in ("BRAND_HISTORY_ENABLED", "BRAND_HISTORY_RUNS"):
             assert da.ENV_VAR_DICT[key] is not None, key
             assert key in env_example, key
+
+
+class TestRatingLearningKnobs:
+    KEYS = (
+        "RATING_LEARNING_ENABLED",
+        "RATING_LEARNING_EFFECTS",
+        "RATING_LEARNING_MIN_RATINGS",
+        "RATING_STYLE_MIN",
+        "RATING_REASON_MIN",
+        "RATING_LEARNING_WINDOW_DAYS",
+    )
+
+    def test_defaults(self, monkeypatch):
+        for key in self.KEYS:
+            monkeypatch.delenv(key, raising=False)
+        from creative_agent.config import ResearchConfiguration
+
+        c = ResearchConfiguration()
+        assert c.rating_learning_enabled is True
+        assert c.rating_learning_effects == frozenset({"guidance", "styles", "checks"})
+        assert c.rating_learning_min_ratings == 8
+        assert c.rating_style_min == 3 and c.rating_reason_min == 3
+        assert c.rating_learning_window_days == 90
+
+    def test_effects_parser(self):
+        from creative_agent.config import parse_rating_learning_effects
+
+        assert parse_rating_learning_effects("guidance") == frozenset({"guidance"})
+        assert parse_rating_learning_effects(" Styles , bogus,checks") == frozenset(
+            {"styles", "checks"}
+        )
+        assert parse_rating_learning_effects(None) == frozenset(
+            {"guidance", "styles", "checks"}
+        )
+
+    def test_blank_or_unknown_effects_fall_back_to_default(self, caplog):
+        from creative_agent.config import parse_rating_learning_effects
+
+        everything = frozenset({"guidance", "styles", "checks"})
+        # Turning learning off is RATING_LEARNING_ENABLED's job, not this knob's.
+        for raw in ("", "  ", "bogus, nope", ","):
+            caplog.clear()
+            assert parse_rating_learning_effects(raw) == everything, raw
+            assert "RATING_LEARNING_EFFECTS" in caplog.text, raw
+
+    def test_clamping(self, monkeypatch):
+        from creative_agent.config import ResearchConfiguration
+
+        monkeypatch.setenv("RATING_LEARNING_ENABLED", "false")
+        monkeypatch.setenv("RATING_LEARNING_MIN_RATINGS", "0")
+        monkeypatch.setenv("RATING_STYLE_MIN", "junk")
+        monkeypatch.setenv("RATING_REASON_MIN", "999")
+        monkeypatch.setenv("RATING_LEARNING_WINDOW_DAYS", "5000")
+        c = ResearchConfiguration()
+        assert c.rating_learning_enabled is False
+        assert c.rating_learning_min_ratings == 1
+        assert c.rating_style_min == 3
+        assert c.rating_reason_min == 50
+        assert c.rating_learning_window_days == 365
+        monkeypatch.setenv("RATING_LEARNING_MIN_RATINGS", "500")
+        assert ResearchConfiguration().rating_learning_min_ratings == 200
+
+    def test_ratings_table_default(self, monkeypatch):
+        from agent_common.config import BaseAgentConfiguration
+
+        monkeypatch.delenv("BQ_TABLE_RATINGS", raising=False)
+        assert BaseAgentConfiguration().BQ_TABLE_RATINGS == "creative_ratings"
+        monkeypatch.setenv("BQ_TABLE_RATINGS", "r2")
+        assert BaseAgentConfiguration().BQ_TABLE_RATINGS == "r2"
+
+    def test_shipped_to_agent_engine_and_documented(self):
+        from pathlib import Path
+
+        import deployment.deploy_agent as da
+
+        env_example = (Path(__file__).parent.parent / ".env.example").read_text()
+        for key in (*self.KEYS, "BQ_TABLE_RATINGS"):
+            assert da.ENV_VAR_DICT[key] is not None, key
+            assert key in env_example, key

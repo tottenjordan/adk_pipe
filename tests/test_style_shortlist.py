@@ -84,3 +84,47 @@ def test_unknown_exclusions_are_ignored():
     assert pick_style_shortlist(
         random.Random(9), exclude=frozenset({"Bauhaus poster"})
     ) == pick_style_shortlist(random.Random(9))
+
+
+def _stratum_counts(picks):
+    return tuple(
+        sum(p in STYLE_GROUPS[group] for p in picks) for group in SHORTLIST_QUOTA
+    )
+
+
+def test_prefer_and_exclude_keep_stratification():
+    for seed in range(20):
+        picks = pick_style_shortlist(
+            exclude={"Isometric miniature world"},
+            prefer=["Candid 35mm film photo"],
+            rng=random.Random(seed),
+        )
+        assert "Candid 35mm film photo" in picks
+        assert "Isometric miniature world" not in picks
+        assert len(set(picks)) == 6
+        assert _stratum_counts(picks) == (2, 3, 1)
+
+
+def test_preferred_beyond_the_quota_are_drawn_randomly_among_themselves():
+    prefer = list(STYLE_GROUPS["illustrated"][:4])
+    seen = set()
+    for seed in range(30):
+        picks = pick_style_shortlist(random.Random(seed), prefer=prefer)
+        illustrated = [p for p in picks if p in STYLE_GROUPS["illustrated"]]
+        assert set(illustrated) <= set(prefer)
+        seen.update(illustrated)
+    assert seen == set(prefer)
+
+
+def test_exclusion_beats_preference():
+    picks = pick_style_shortlist(
+        random.Random(2), exclude={"Comic panel"}, prefer=["comic PANEL"]
+    )
+    assert "Comic panel" not in picks
+
+
+def test_no_preference_draw_is_unchanged():
+    for seed in range(10):
+        assert pick_style_shortlist(
+            random.Random(seed), exclude={"Comic panel"}, prefer=()
+        ) == pick_style_shortlist(random.Random(seed), exclude={"Comic panel"})

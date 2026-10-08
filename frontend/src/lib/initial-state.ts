@@ -17,6 +17,8 @@ import type { CampaignInput } from "@/lib/types";
  *   setdefaults them to ""). Seeding the campaign fields makes the inputs
  *   deterministic; the kickoff message only echoes them. trend_scout's state
  *   init overwrites these keys, so they are not seeded for it.
+ * - Rating learning: `learn_from_ratings: true` only when a creative run opts
+ *   in (the backend setdefaults it to false).
  * - Reference images: every set reference row goes to `reference_images`
  *   (`[{uri, role}]`, max 3); row 1 is also sent as the legacy
  *   `reference_image_uri`/`reference_image_role` pair for one release (the
@@ -63,6 +65,8 @@ export function buildInitialState(form: CampaignInput): Record<string, unknown> 
     const legacyRole = form.referenceImageRole?.trim();
     if (legacyRole) state.reference_image_role = legacyRole;
   }
+
+  if (form.learnFromRatings === true) state.learn_from_ratings = true;
 
   const references = referenceImagesFromForm(form);
   if (references.length) state.reference_images = references;

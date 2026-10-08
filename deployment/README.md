@@ -1523,9 +1523,16 @@ Agent Engine through `deploy_agent.py` `ENV_VAR_DICT`, read at import, so for an
 | `IMAGE_QA_MODEL` | `gemini-3.8-flash` | QA vision model (worker model) |
 | `BRAND_HISTORY_ENABLED` | `true` | `load_brand_history` reads past `creative_evals` rows for the brand |
 | `BRAND_HISTORY_RUNS` | `5` (0–20) | How many past runs of the brand to read |
+| `RATING_LEARNING_ENABLED` | `true` | Global kill switch for rating learning (`true` = runs may opt in via the form checkbox; `false` = never, even when checked) |
+| `RATING_LEARNING_EFFECTS` | `guidance,styles,checks` | Enabled effects; drop an item to disable it (unknown items ignored; blank or only-unknown → all three, with a warning) |
+| `RATING_LEARNING_MIN_RATINGS` | `8` (1–200) | Below this many brand ratings nothing is applied ("not enough ratings yet") |
+| `RATING_STYLE_MIN` | `3` (1–50) | Ratings a style family needs before it is preferred/excluded |
+| `RATING_REASON_MIN` | `3` (1–50) | Fails a reason needs before it is named / becomes a strictness flag |
+| `RATING_LEARNING_WINDOW_DAYS` | `90` (1–365) | Look-back window for the ratings read (≤500 rows) |
+| `BQ_TABLE_RATINGS` | `creative_ratings` | Ratings table (written by the api, read by rating learning) |
 
 **api-only knobs** (Cloud Run `trend-trawler-api`, not in `ENV_VAR_DICT`):
-`RATINGS_STORE` (`bigquery` | `memory`), `BQ_TABLE_RATINGS` (`creative_ratings`) — see
+`RATINGS_STORE` (`bigquery` | `memory`) and `BQ_TABLE_RATINGS` (`creative_ratings`, also an agent knob above) — see
 [Creative ratings](#environment-api-service-1) — and `RUN_MAX_AUTO_CONTINUES` (default `2`,
 clamped 0–3; see [Async-job run model](#async-job-run-model)).
 

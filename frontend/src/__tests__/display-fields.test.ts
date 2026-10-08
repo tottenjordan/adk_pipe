@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
 import {
   buildDisplayFields,
+  formatRatingLearning,
+  RATING_LEARNING_FIELD,
   VISUAL_DIRECTION_FIELDS,
   type DisplayFieldDef,
 } from "@/lib/utils";
@@ -100,5 +102,37 @@ describe("VISUAL_DIRECTION_FIELDS", () => {
         value: "product: gs://b/p.png; style: gs://b/s.png",
       },
     ]);
+  });
+});
+
+describe("rating learning field", () => {
+  it("is hidden unless the run opted in", () => {
+    expect(buildDisplayFields({}, [RATING_LEARNING_FIELD])).toEqual([]);
+    expect(buildDisplayFields({ learn_from_ratings: false }, [RATING_LEARNING_FIELD])).toEqual([]);
+  });
+
+  it("summarises what was learned", () => {
+    expect(formatRatingLearning({ learn_from_ratings: true })).toBe("On");
+    expect(
+      formatRatingLearning({
+        learn_from_ratings: true,
+        rating_signals_applied: { ratings: 23, applied: true },
+      }),
+    ).toBe("On: learned from 23 ratings");
+    expect(
+      formatRatingLearning({
+        learn_from_ratings: true,
+        rating_signals_applied: { ratings: 3, applied: false, reason: "not_enough_ratings" },
+      }),
+    ).toBe("On: not enough ratings yet (3)");
+    expect(
+      formatRatingLearning({
+        learn_from_ratings: true,
+        rating_signals_applied: { applied: false, reason: "unavailable" },
+      }),
+    ).toBe("On: ratings unavailable");
+    expect(
+      buildDisplayFields({ learn_from_ratings: true }, [RATING_LEARNING_FIELD]),
+    ).toEqual([{ label: "Learn from ratings", key: "learn_from_ratings", value: "On" }]);
   });
 });

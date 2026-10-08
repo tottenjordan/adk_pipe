@@ -294,7 +294,30 @@ VISUAL_CRITIC_BRIEF_RULE = CREATIVE_BRIEF_CONTRACT_CORE + BRIEF_FALLBACK_CAMPAIG
 
 BRIEF_BLOCK = "<CREATIVE_BRIEF>{creative_brief_md?}</CREATIVE_BRIEF>"
 
-CREATIVE_BRIEF_WRITER_INSTR = """Role: You are the Strategy Director. Turn the research report and campaign inputs into ONE structured creative brief: the contract the ad copy and visual teams must deliver against.
+# Opt-in rating learning (creative_agent/rating_signals.py): the ≤80-word,
+# allowlisted note from the brand's human ratings. Read by the brief writer, the
+# ad copy drafter and the art director only; absent/empty unless the run opted in.
+_RATING_SIGNALS_LEAD = (
+    "**Team ratings:** when <rating_signals> is non-empty, use it as evidence from "
+    "your team's ratings of earlier creatives for this brand. "
+)
+_RATING_SIGNALS_TAIL = " If it is empty, ignore it."
+RATING_SIGNALS_RULE = (
+    _RATING_SIGNALS_LEAD
+    + "Treat rated-well styles and tones as strong options and avoid the listed "
+    "failure causes; never mention ratings in the creative." + _RATING_SIGNALS_TAIL
+)
+# The ad copy drafter's variant: visual styles are not its concern.
+COPY_RATING_SIGNALS_RULE = (
+    _RATING_SIGNALS_LEAD
+    + "Treat rated-well copy tones as strong options and avoid the listed failure "
+    "causes; ignore the visual styles it lists; never mention ratings in the "
+    "creative." + _RATING_SIGNALS_TAIL
+)
+RATING_SIGNALS_BLOCK = """<rating_signals>{rating_signals?}</rating_signals>"""
+
+CREATIVE_BRIEF_WRITER_INSTR = (
+    """Role: You are the Strategy Director. Turn the research report and campaign inputs into ONE structured creative brief: the contract the ad copy and visual teams must deliver against.
 
     <INSTRUCTIONS>
     1.  **Proposition:** `single_minded_proposition` is ONE sentence carrying ONE idea. Never join two ideas with "and".
@@ -312,6 +335,9 @@ CREATIVE_BRIEF_WRITER_INSTR = """Role: You are the Strategy Director. Turn the r
     8.  **Missing research:** if the research report is empty, build the brief from the campaign inputs alone: cite "brief" for every reason to believe and keep the fit score conservative.
     9.  **Revision:** if <brief_issues> is non-empty, revise the <previous_brief> to fix EXACTLY those issues and keep everything else unchanged. If <brief_issues> is empty, ignore <previous_brief> and write a fresh brief.
     10. **Brand history:** if <brand_history> is non-empty, build on the angles, copy tones and styles that worked for this brand before, fix its recurring weaknesses and often-failed checks (e.g. make the product unmistakable when product checks failed), and do not repeat past work: write new angles rather than recycling earlier ones. If it is empty, ignore it.
+    11. """
+    + RATING_SIGNALS_RULE
+    + """
     </INSTRUCTIONS>
 
     <CONTEXT>
@@ -336,6 +362,10 @@ CREATIVE_BRIEF_WRITER_INSTR = """Role: You are the Strategy Director. Turn the r
         {brand_history?}
         </brand_history>
 
+        """
+    + RATING_SIGNALS_BLOCK
+    + """
+
         <research_report>
         {combined_final_cited_report?}
         </research_report>
@@ -357,6 +387,7 @@ CREATIVE_BRIEF_WRITER_INSTR = """Role: You are the Strategy Director. Turn the r
     **CRITICAL RULE: Your entire output MUST be a single, raw JSON object validating against the 'CreativeBrief' schema.**
     </OUTPUT_FORMAT>
     """
+)
 
 AD_COPY_DRAFTER_INSTR = (
     """Role: You are an innovative, fast-paced ad copy generator specializing in high-velocity social media content (Instagram/TikTok).
@@ -378,6 +409,9 @@ AD_COPY_DRAFTER_INSTR = (
         *   Directly reference or subtly leverage the trending topic: {target_search_trends}.
     4.  **Enforce Tone Diversity:** To ensure variety, the 10 ideas must collectively cover at least 4 of the following creative tones/styles: **Humorous, Aspirational, Problem/Solution, Emotional/Authentic, Educational/Informative, Relatable/Meme-based.**
     5.  **Strict Output Format:** Ensure the entire output is a single JSON object containing all 10 ideas, formatted exactly as specified in the <OUTPUT_FORMAT> block.
+    6.  """
+    + COPY_RATING_SIGNALS_RULE
+    + """
     </INSTRUCTIONS>
 
     <CONTEXT>
@@ -395,6 +429,10 @@ AD_COPY_DRAFTER_INSTR = (
         it; when empty, ignore it.
         {research_feedback?}
         </user_research_feedback>
+
+        """
+    + RATING_SIGNALS_BLOCK
+    + """
     </CONTEXT>
 
     <OUTPUT_FORMAT>
@@ -541,6 +579,9 @@ ART_DIRECTOR_INSTR = (
     4.  **Brand visual cues:** how the product/brand should consistently appear (framing, treatment, any in-image branding). When the brief lists brand distinctive assets, place at least one brand distinctive asset per concept.
     5.  **Recommended style families:** for the mix of ad-copy tones present, recommend a DIVERSE set of style families (e.g. photoreal, flat cartoon, 3D character, meme/sticker, minimalist) — explicitly avoid making everything photorealistic. When <style_shortlist> is non-empty, recommend the shortlist families most compatible with the brand's tone (do not add families from outside the shortlist).
     6.  **Brand history:** when <brand_history> is non-empty, do not recommend the recently used styles it lists ("styles used recently"), lean on what scored well, and steer away from its recurring weaknesses.
+    7.  """
+    + RATING_SIGNALS_RULE
+    + """
     This brief is guidance for the drafter; it does not select final concepts.
     </INSTRUCTIONS>
 
@@ -558,6 +599,10 @@ ART_DIRECTOR_INSTR = (
         Optional notes from this brand's previous campaigns. When empty, ignore it.
         {brand_history?}
         </brand_history>
+
+        """
+    + RATING_SIGNALS_BLOCK
+    + """
 
         <user_visual_direction>
         Optional art direction supplied directly by the user. When non-empty,

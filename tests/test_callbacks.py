@@ -170,6 +170,21 @@ class TestSetInitialStates:
         assert target["visual_aspect_ratio"] == "1:1"
         assert target["reference_image_role"] == "product"
 
+    # --- Opt-in rating learning (learn_from_ratings) ---
+    def test_learn_from_ratings_defaults_off(self):
+        from creative_agent.callbacks import _set_initial_states
+
+        target = {}
+        _set_initial_states({"brand": "TestBrand"}, target)
+        assert target["learn_from_ratings"] is False
+
+    def test_learn_from_ratings_seed_is_not_clobbered(self):
+        from creative_agent.callbacks import _set_initial_states
+
+        target = {"learn_from_ratings": True}
+        _set_initial_states({"brand": "TestBrand"}, target)
+        assert target["learn_from_ratings"] is True
+
     # --- Multiple reference images (reference_images → reference_roles) ---
     def test_reference_keys_default_when_unseeded(self):
         from creative_agent.callbacks import _set_initial_states

@@ -167,3 +167,9 @@ class BaseAgentConfiguration:
     BQ_TABLE_TARGETS = os.environ.get("BQ_TABLE_TARGETS")
     BQ_TABLE_CREATIVES = os.environ.get("BQ_TABLE_CREATIVES")
     BQ_TABLE_EVALS = os.environ.get("BQ_TABLE_EVALS")
+    # Human creative ratings (written by the api, runserver/ratings_store.py);
+    # read by creative_agent's opt-in rating learning (rating_signals.py).
+    # default_factory: read per instance (the api's default table name).
+    BQ_TABLE_RATINGS: str = field(
+        default_factory=lambda: os.getenv("BQ_TABLE_RATINGS") or "creative_ratings"
+    )

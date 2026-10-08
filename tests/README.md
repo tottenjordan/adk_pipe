@@ -63,12 +63,13 @@ tests/
 ├── test_bandit_*.py                 # JAX bandit core (bandit/): features, config, linear TS, baselines, environment, simulate+metrics+aggregate, notebook-parity smoke, scripted shifts
 │                                    #   (also test_bandit_continuous.py: §11 continuous segments; test_bandit_endpoint_client.py: traffic endpoint clients/retries; test_bandit_traffic_bq.py: traffic row builders vs contracts §3)
 ├── test_brand_history.py            # creative_agent/brand_history.py: parameterised creative_evals SELECT (no string-built brand), report reads limited to the configured bucket + size cap, aggregation (recent/strongest styles, recurring weak dimensions, runs with failed non-advisory gates), brace-free ≤120-word note, BQ/GCS/timeout fail-open, disabled knob → no query, shortlist re-draw unless a style preference is set, canonical style mapping (schema example phrasings), allowlisted tones/dimensions/gates only (injection strings never reach the note), GCS per-call timeouts + report-read deadline, failed-check denominator = readable reports
+├── test_rating_signals.py          # creative_agent/rating_signals.py: fail-reason enum == runserver copy, check-backed strictness subset, allowlisted aggregation (canonical styles, tone Literal, enum; injection strings dropped), style/reason minimums + 30% dominance, brace-free ≤80-word note, SELECT reads only allowlisted columns (never note), normalised @brand/@days params, 8 s job timeout, fail-open (None = unavailable)
 ├── test_brief_check.py              # deterministic creative-brief check (proposition incl. abbreviations/capital-led sentence breaks/brand-product-trend names/and-compounds, X-but-Y insight + ;/dash/contrast markers, cited RTBs + normalised src-N/brief ids vs sources, fit_mode, angle names/tensions, motifs, assets)
 ├── test_brief_render.py             # creative brief → "## Creative Brief" markdown in the research PDF (real markdown_pdf TOC check) + compact (headless) prompt variant + gallery summary card (HTML-escaped)
 ├── test_callbacks.py                # citation replacement, state init (incl. style_shortlist seeding, reference_images/reference_roles), rate limiting, trend/product guard callback
 ├── test_citations.py                # shared citation renderer (creative_agent.citations)
 ├── test_concept_guard.py            # final image prompts always name the trend_motif + product + brand_cue (pure guard; token-overlap matching incl. brand_cue, intangible-product cue); concept_issues (quoted text vs paired headline/CTA incl. curly quotes / punctuation / substring, meme+comic exemption, empty motif, set-level text cap + centred-hero selection, conservative heuristics) + restore_unflagged_concepts
-├── test_config.py                   # per-agent config resolution (incl. campaign-placement resolver)
+├── test_config.py                   # per-agent config resolution (incl. campaign-placement resolver, brand-history + rating-learning knobs)
 ├── test_text_match.py               # shared conservative matching (Unicode folding, plurals, sizes/packaging head nouns, single-token full phrase, brand anchor, 60% token-overlap mentions)
 ├── test_copy_gate.py                # deterministic ad-copy gate (product named, CTA words, headline/caption length, brief avoid terms minus product/mandatory/trend overlaps; Unicode/&-brand/plural matching audit cases; warning-only structural issues; only proposition/mandatories self-reports gate, only deterministic residuals recorded; lenient product matching; duplicate-id keys; tolerant parsing) + restore_unflagged safety net
 ├── test_create_session_engine.py    # create_session_engine.py (reuse-or-create sessions-only engine)
@@ -122,7 +123,7 @@ tests/
 ├── test_sanitize.py                 # lone-surrogate scrubber (agent_common.sanitize)
 ├── test_schemas.py                  # Pydantic schemas in the creative_agent pipeline
 ├── test_sdk_versions.py             # guard: aiplatform 2.x ships both agentplatform + vertexai surfaces
-├── test_style_shortlist.py          # per-session stratified style shortlist (families match the guide palette; exclusion of recently used styles keeps the 2/3/1 strata)
+├── test_style_shortlist.py          # per-session stratified style shortlist (families match the guide palette; exclusion of recently used styles and preference of well-rated ones keep the 2/3/1 strata)
 ├── test_tools.py                    # backend tool functions (pure logic, no I/O)
 ├── test_tools_retry.py              # infra tools propagate (don't swallow) exceptions
 ├── test_trend_scout_graph.py        # trend_scout understand_trends graph run end-to-end (stub models)
@@ -223,6 +224,11 @@ tests/
   `test_interactive_prompts.py`, `test_interactive_copy_revision.py` (checkpoint-1 brief
   edit, checkpoint-2 revision), `test_creative_root_prompt.py` (single `creative_pipeline`
   call); the revise / no-revise / exhausted graph paths live in `test_creative_agent_graph.py`.
+- **Rating learning** — `test_rating_signals.py` (query + aggregation + note),
+  `test_brand_history.py::TestRatingLearning` (opt-in/kill switch/effects, not-enough/unavailable records,
+  concurrent fetch, one merged shortlist draw), `test_style_shortlist.py` (`prefer` keeps 2/3/1),
+  `test_creative_agent_graph.py` (toggle on → `rating_signals` reaches the brief writer prompt; off → no query),
+  `test_creative_brief_prompts.py` (`{rating_signals?}` block + rule in exactly three prompts), `test_config.py`.
 - **Brand history** — `test_brand_history.py` (helper + node delta),
   `test_creative_agent_graph.py` (the note reaches the brief writer; disabled → no query;
   a raising step doesn't stop research), `test_pipeline_structure.py` (node in the START

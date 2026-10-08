@@ -27,6 +27,7 @@ import {
 } from "@/lib/api";
 import {
   buildDisplayFields,
+  RATING_LEARNING_FIELD,
   VISUAL_DIRECTION_FIELDS,
   type DisplayFieldDef,
 } from "@/lib/utils";
@@ -55,6 +56,7 @@ const CAMPAIGN_FIELD_DEFS: DisplayFieldDef[] = [
   { label: "Target product", key: "target_product" },
   { label: "Key selling points", key: "key_selling_points" },
   { label: "Search trend", key: "target_search_trends", altKey: "target_search_trend" },
+  RATING_LEARNING_FIELD,
 ];
 
 type Status = "running" | "completed" | "error" | "paused" | "stalled";

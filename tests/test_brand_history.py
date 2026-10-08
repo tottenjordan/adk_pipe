@@ -479,3 +479,175 @@ def test_normalize_brand_matches_the_sql_match():
     assert normalize_brand(None) == "" and normalize_brand(42) == ""
     assert normalize_brand("x" * 500) == "x" * 500  # never truncated
     assert bh.normalize_brand is normalize_brand
+
+
+class TestRatingLearning:
+    """Opt-in rating learning folded into the learning step (rating_signals.py)."""
+
+    @pytest.fixture(autouse=True)
+    def _knobs(self, monkeypatch):
+        from tests.test_rating_signals import ROWS
+
+        self.rows = ROWS
+        self.calls: list[tuple[str, int]] = []
+        monkeypatch.setattr(bh.config, "rating_learning_enabled", True)
+        monkeypatch.setattr(
+            bh.config,
+            "rating_learning_effects",
+            frozenset({"guidance", "styles", "checks"}),
+        )
+        monkeypatch.setattr(bh.config, "rating_learning_min_ratings", 8)
+        monkeypatch.setattr(bh.config, "rating_style_min", 3)
+        monkeypatch.setattr(bh.config, "rating_reason_min", 3)
+        monkeypatch.setattr(bh.config, "rating_learning_window_days", 90)
+        monkeypatch.setattr(bh, "fetch_brand_history", lambda *a, **k: {})
+
+    def _ratings(self, monkeypatch, rows):
+        def fake(brand, *, days):
+            self.calls.append((brand, days))
+            return rows
+
+        monkeypatch.setattr(bh.rating_signals, "fetch_ratings", fake)
+
+    def test_toggle_off_makes_no_query_and_writes_no_rating_keys(self, monkeypatch):
+        self._ratings(monkeypatch, self.rows * 2)
+        for flag in (False, None, "true"):
+            delta = _delta({"brand": "PRS", "learn_from_ratings": flag})
+            assert not {k for k in delta if k.startswith("rating_")}
+        assert self.calls == []
+
+    def test_applied_when_opted_in_and_enough_ratings(self, monkeypatch):
+        self._ratings(monkeypatch, self.rows * 2)
+        delta = _delta({"brand": "PRS", "learn_from_ratings": True})
+        assert self.calls == [("PRS", 90)]
+        assert delta["rating_signals"].startswith("Your team's ratings for PRS (20)")
+        assert delta["rating_strictness"] == ["product_not_visible"]
+        shortlist = delta["style_shortlist"].split("; ")
+        assert "Isometric miniature world" not in shortlist
+        assert "Candid 35mm film photo" in shortlist
+        applied = delta["rating_signals_applied"]
+        assert applied["ratings"] == 20 and applied["applied"] is True
+        assert applied["strictness"] == ["product_not_visible"]
+        assert applied["styles_excluded"] == ["Isometric miniature world"]
+        assert applied["styles_preferred"] == ["Candid 35mm film photo"]
+        assert applied["signals"] == delta["rating_signals"]
+        assert delta["brand_history"] == ""  # brand history still runs
+
+    def test_kill_switch_overrides_toggle(self, monkeypatch):
+        self._ratings(monkeypatch, self.rows * 2)
+        monkeypatch.setattr(bh.config, "rating_learning_enabled", False)
+        delta = _delta({"brand": "PRS", "learn_from_ratings": True})
+        assert not {k for k in delta if k.startswith("rating_")}
+        assert self.calls == []
+
+    def test_below_min_ratings_reports_not_enough(self, monkeypatch):
+        self._ratings(monkeypatch, self.rows[:3])
+        d = _delta({"brand": "PRS", "learn_from_ratings": True})
+        assert d["rating_signals_applied"] == {
+            "ratings": 3,
+            "applied": False,
+            "reason": "not_enough_ratings",
+        }
+        assert "rating_signals" not in d and "rating_strictness" not in d
+        assert "style_shortlist" not in d
+
+    def test_unavailable_ratings_are_recorded(self, monkeypatch):
+        self._ratings(monkeypatch, None)
+        d = _delta({"brand": "PRS", "learn_from_ratings": True})
+        assert d["rating_signals_applied"] == {
+            "applied": False,
+            "reason": "unavailable",
+        }
+        assert "rating_signals" not in d
+
+    def test_ratings_error_or_timeout_fail_open(self, monkeypatch):
+        import time
+
+        def boom(*a, **k):
+            raise RuntimeError("kaput")
+
+        monkeypatch.setattr(bh.rating_signals, "fetch_ratings", boom)
+        d = _delta({"brand": "PRS", "learn_from_ratings": True})
+        assert d["rating_signals_applied"]["reason"] == "unavailable"
+
+        def slow(*a, **k):
+            time.sleep(0.3)
+            return self.rows * 2
+
+        monkeypatch.setattr(bh.rating_signals, "fetch_ratings", slow)
+        d = _delta({"brand": "PRS", "learn_from_ratings": True}, timeout=0.05)
+        assert d == {
+            "brand_history": "",
+            "rating_signals_applied": {"applied": False, "reason": "unavailable"},
+        }
+
+    def test_effects_are_individually_switchable(self, monkeypatch):
+        self._ratings(monkeypatch, self.rows * 2)
+        monkeypatch.setattr(bh.config, "rating_learning_effects", frozenset())
+        d = _delta({"brand": "PRS", "learn_from_ratings": True})
+        assert "rating_signals" not in d and "rating_strictness" not in d
+        assert "style_shortlist" not in d
+        assert d["rating_signals_applied"] == {
+            "ratings": 20,
+            "applied": False,
+            "reason": "no_effects",
+        }
+
+        monkeypatch.setattr(bh.config, "rating_learning_effects", frozenset({"checks"}))
+        d = _delta({"brand": "PRS", "learn_from_ratings": True})
+        assert d["rating_strictness"] == ["product_not_visible"]
+        assert "rating_signals" not in d and "style_shortlist" not in d
+
+    def test_one_shortlist_draw_merges_recent_and_rated_styles(self, monkeypatch):
+        self._ratings(monkeypatch, self.rows * 2)
+        monkeypatch.setattr(bh, "fetch_brand_history", lambda *a, **k: _HISTORY)
+        for _ in range(10):
+            d = _delta({"brand": "PRS", "learn_from_ratings": True})
+            shortlist = set(d["style_shortlist"].split("; "))
+            assert len(shortlist) == 6
+            assert not shortlist & {
+                "Isometric miniature world",
+                *_HISTORY["recent_styles"],
+            }
+            assert "Candid 35mm film photo" in shortlist
+
+    def test_style_preference_keeps_the_shortlist(self, monkeypatch):
+        self._ratings(monkeypatch, self.rows * 2)
+        d = _delta(
+            {
+                "brand": "PRS",
+                "learn_from_ratings": True,
+                "visual_style_preference": "Comic panel",
+            }
+        )
+        assert "style_shortlist" not in d
+        applied = d["rating_signals_applied"]
+        assert applied["styles_excluded"] == [] and applied["styles_preferred"] == []
+        # The user's style preference wins: the note names no styles either.
+        note = d["rating_signals"]
+        assert "Candid 35mm film photo" not in note
+        assert "Isometric miniature world" not in note
+        assert "Humorous copy" in note and "product hard to see (6)" in note
+
+    def test_runs_with_brand_history_disabled(self, monkeypatch):
+        self._ratings(monkeypatch, self.rows * 2)
+        d = _delta({"brand": "PRS", "learn_from_ratings": True}, enabled=False)
+        assert "brand_history" not in d
+        assert d["rating_signals_applied"]["applied"] is True
+
+    def test_fetches_run_concurrently(self, monkeypatch):
+        import time
+
+        def slow_history(*a, **k):
+            time.sleep(0.2)
+            return {}
+
+        def slow_ratings(brand, *, days):
+            time.sleep(0.2)
+            return self.rows * 2
+
+        monkeypatch.setattr(bh, "fetch_brand_history", slow_history)
+        monkeypatch.setattr(bh.rating_signals, "fetch_ratings", slow_ratings)
+        started = time.monotonic()
+        _delta({"brand": "PRS", "learn_from_ratings": True})
+        assert time.monotonic() - started < 0.35

@@ -250,6 +250,16 @@ describe("briefFromState", () => {
     });
     expect(briefFromState({ brand: "X" })).toEqual({ brand: "X" });
   });
+
+  it("restores the learn-from-ratings opt-in only when it was exactly true", () => {
+    expect(
+      briefFromState({ ui_app: "creative_agent", learn_from_ratings: true, brand: "X" }),
+    ).toEqual({ agent: "creative_agent", learnFromRatings: true, brand: "X" });
+    expect(
+      briefFromState({ ui_app: "creative_agent", learn_from_ratings: false, brand: "X" }),
+    ).toEqual({ agent: "creative_agent", brand: "X" });
+    expect(briefFromState({ learn_from_ratings: "true", brand: "X" })).toEqual({ brand: "X" });
+  });
 });
 
 describe("sessionStorage helpers", () => {

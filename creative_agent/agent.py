@@ -453,6 +453,10 @@ async def load_brand_history(ctx: Context) -> None:
     and, unless the user set a style preference, re-draws `style_shortlist`
     without the brand's recently used styles. Disabled by
     BRAND_HISTORY_ENABLED=false / BRAND_HISTORY_RUNS=0 (state untouched).
+    When the run opted in (`learn_from_ratings`) and RATING_LEARNING_ENABLED is
+    on, it also reads the brand's human ratings concurrently (same bound) into
+    `rating_signals` / `rating_strictness` / `rating_signals_applied` and
+    steers the same single shortlist draw (creative_agent/rating_signals.py).
     Yields no output (the barrier drops the join dict anyway).
     """
     try:

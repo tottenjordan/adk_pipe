@@ -23,7 +23,7 @@ import logging
 import time
 from collections import Counter
 from collections.abc import Iterable, Mapping
-from typing import Any, get_args
+from typing import Any
 
 from google.cloud import bigquery
 
@@ -35,8 +35,11 @@ from creative_eval.dimensions import (
     gate_label,
 )
 
-from .config import config
-from .schemas import FinalAdCopy
+from . import rating_signals
+from .config import RATING_LEARNING_EFFECTS, config
+from .prompt_safe import ALLOWED_TONES
+from .prompt_safe import brace_free as _clean
+from .prompt_safe import normalize_brand as normalize_brand  # re-export (facade)
 from .style_shortlist import canonical_style, format_shortlist, pick_style_shortlist
 
 logger = logging.getLogger(__name__)
@@ -63,18 +66,8 @@ BRAND_HISTORY_TIMEOUT_SECONDS = 10.0
 # (canonical_style), the ad-copy tone Literal, known dimension labels and known
 # gate names (rendered as their labels). Report/BQ strings are otherwise free
 # text, so anything else is dropped.
-ALLOWED_TONES: frozenset[str] = frozenset(
-    get_args(FinalAdCopy.model_fields["tone_style"].annotation)
-)
 ALLOWED_WEAKNESSES: frozenset[str] = frozenset(DIMENSION_LABELS.values())
 ALLOWED_GATES: frozenset[str] = frozenset(AD_COPY_GATES + VISUAL_GATES)
-
-
-def normalize_brand(value: Any) -> str:
-    """The brand match key: strip + lower (the Python side of the SQL
-    ``LOWER(TRIM(brand)) = LOWER(@brand)``); ``""`` for a non-string. Never
-    truncates. Shared by the api's rating rows (runserver/ratings.py)."""
-    return value.strip().lower() if isinstance(value, str) else ""
 
 
 def _canonical_styles(values: Iterable[Any]) -> list[str]:
@@ -300,11 +293,6 @@ def fetch_brand_history(
         return {}
 
 
-def _clean(value: Any) -> str:
-    """Brace-free text (the note is spliced into ADK instructions as state)."""
-    return str(value).replace("{", "").replace("}", "").strip()
-
-
 def _join(items: Iterable[Any]) -> str:
     return ", ".join(c for c in (_clean(i) for i in items) if c)
 
@@ -358,6 +346,81 @@ def format_brand_history(history: Mapping[str, Any]) -> str:
     return head + body + tail
 
 
+def _rating_learning_on(state: Mapping[str, Any]) -> bool:
+    """Opted in for this run (exactly ``True``) and not globally switched off."""
+    return state.get("learn_from_ratings") is True and config.rating_learning_enabled
+
+
+# A fetch that raised or timed out (distinct from a legitimate None/{} result).
+_FAILED = object()
+
+
+async def _in_thread(fn: Any, timeout: float, label: str, brand: str, **kw: Any):
+    """``fn(brand, **kw)`` in a worker thread, bounded; ``_FAILED`` on error."""
+    try:
+        return await asyncio.wait_for(asyncio.to_thread(fn, brand, **kw), timeout)
+    except Exception as exc:  # incl. TimeoutError
+        logger.warning("%s skipped for %r: %s", label, brand, exc or type(exc).__name__)
+        return _FAILED
+
+
+def _rating_delta(
+    rows: Any, brand: str, *, keep_shortlist: bool
+) -> tuple[dict[str, Any], list[str], list[str]]:
+    """(state delta, styles to exclude, styles to prefer) from rating rows.
+
+    ``rows`` is ``_FAILED``/None when the ratings were unavailable. Below
+    ``rating_learning_min_ratings`` nothing is applied; otherwise each enabled
+    effect writes its key and ``rating_signals_applied`` records what was used.
+    """
+    if rows is _FAILED or rows is None:
+        return (
+            {"rating_signals_applied": {"applied": False, "reason": "unavailable"}},
+            [],
+            [],
+        )
+    signals = rating_signals.aggregate_ratings(
+        rows if isinstance(rows, list) else [],
+        style_min=config.rating_style_min,
+        reason_min=config.rating_reason_min,
+    )
+    n = signals["ratings"]
+    if n < config.rating_learning_min_ratings:
+        applied = {"ratings": n, "applied": False, "reason": "not_enough_ratings"}
+        return {"rating_signals_applied": applied}, [], []
+    effects = config.rating_learning_effects & RATING_LEARNING_EFFECTS
+    if not effects:  # never "applied" with nothing applied
+        applied = {"ratings": n, "applied": False, "reason": "no_effects"}
+        return {"rating_signals_applied": applied}, [], []
+    # A user style preference wins: the note names no style families then.
+    note = (
+        rating_signals.format_rating_signals(
+            signals, brand, include_styles=not keep_shortlist
+        )
+        if "guidance" in effects
+        else ""
+    )
+    strictness = list(signals["strictness"]) if "checks" in effects else []
+    steer = "styles" in effects and not keep_shortlist
+    excluded = list(signals["styles_excluded"]) if steer else []
+    preferred = list(signals["styles_preferred"]) if steer else []
+    delta: dict[str, Any] = {}
+    if "guidance" in effects:
+        delta["rating_signals"] = note
+    if "checks" in effects:
+        delta["rating_strictness"] = strictness
+    delta["rating_signals_applied"] = {
+        "ratings": n,
+        "applied": True,
+        "effects": sorted(effects),
+        "signals": note,
+        "strictness": strictness,
+        "styles_excluded": excluded,
+        "styles_preferred": preferred,
+    }
+    return delta, excluded, preferred
+
+
 async def brand_history_state_delta(
     state: Mapping[str, Any],
     *,
@@ -365,31 +428,65 @@ async def brand_history_state_delta(
     runs: int,
     timeout: float = BRAND_HISTORY_TIMEOUT_SECONDS,
 ) -> dict[str, Any]:
-    """The state delta of the ``load_brand_history`` graph node.
+    """The state delta of the ``load_brand_history`` (learning context) node.
 
-    Disabled (or ``runs <= 0``) → ``{}``: no query, state untouched. Otherwise
-    ``brand_history`` is the formatted note (``""`` without history, on any
-    error, or after ``timeout`` seconds — the read runs in a worker thread so it
-    never blocks the event loop). When recent styles are known and the user set
-    no ``visual_style_preference``, ``style_shortlist`` is re-drawn without them.
+    Brand history: disabled (or ``runs <= 0``) → no query and no
+    ``brand_history`` key. Otherwise ``brand_history`` is the formatted note
+    (``""`` without history, on any error, or after ``timeout`` seconds).
+
+    Rating learning (rating_signals.py): only when the run opted in
+    (``learn_from_ratings is True``) and ``RATING_LEARNING_ENABLED`` is on, the
+    brand's ratings are read *concurrently* with the history, under the same
+    ``timeout`` (both in worker threads, so the event loop never blocks).
+    Writes ``rating_signals`` (guidance), ``rating_strictness`` (checks) and
+    ``rating_signals_applied``; see ``_rating_delta``. Off → no query and no
+    rating keys.
+
+    ``style_shortlist`` is drawn once, excluding the recent and the poorly
+    rated styles and preferring the well-rated ones, unless the user set a
+    ``visual_style_preference``.
     """
-    if not enabled or runs <= 0:
+    history_on = enabled and runs > 0
+    ratings_on = _rating_learning_on(state)
+    if not history_on and not ratings_on:
         return {}
     brand = str(state.get("brand") or "")
-    try:
-        history = await asyncio.wait_for(
-            asyncio.to_thread(fetch_brand_history, brand, limit=runs), timeout
+
+    async def _skip() -> Any:
+        return None
+
+    history, rows = await asyncio.gather(
+        _in_thread(fetch_brand_history, timeout, "brand history", brand, limit=runs)
+        if history_on
+        else _skip(),
+        _in_thread(
+            rating_signals.fetch_ratings,
+            timeout,
+            "rating learning",
+            brand,
+            days=config.rating_learning_window_days,
         )
-    except Exception as exc:  # incl. TimeoutError
-        logger.warning(
-            "brand history skipped for %r: %s", brand, exc or type(exc).__name__
+        if ratings_on
+        else _skip(),
+    )
+    keep_shortlist = bool(str(state.get("visual_style_preference") or "").strip())
+    delta: dict[str, Any] = {}
+    recent: list[str] = []
+    if history_on:
+        history = history if isinstance(history, Mapping) else {}
+        delta["brand_history"] = format_brand_history(history)
+        recent = [str(s) for s in history.get("recent_styles") or []]
+    excluded: list[str] = []
+    preferred: list[str] = []
+    if ratings_on:
+        rating_delta, excluded, preferred = _rating_delta(
+            rows, brand, keep_shortlist=keep_shortlist
         )
-        history = {}
-    history = history if isinstance(history, Mapping) else {}
-    delta: dict[str, Any] = {"brand_history": format_brand_history(history)}
-    recent = [str(s) for s in history.get("recent_styles") or []]
-    if recent and not str(state.get("visual_style_preference") or "").strip():
+        delta.update(rating_delta)
+    if (recent or excluded or preferred) and not keep_shortlist:
         delta["style_shortlist"] = format_shortlist(
-            pick_style_shortlist(exclude=frozenset(recent))
+            pick_style_shortlist(
+                exclude=frozenset(recent) | frozenset(excluded), prefer=preferred
+            )
         )
     return delta

@@ -224,6 +224,7 @@ export function briefFromState(state: Record<string, unknown>): Brief {
   const trend = formatTrend(state.target_search_trends ?? state.target_search_trend);
   if (trend) brief.targetSearchTrend = trend;
   if (state.interactive_trend_pick === true) brief.interactiveTrendPick = true;
+  if (state.learn_from_ratings === true) brief.learnFromRatings = true;
   // Reference rows: the legacy pair (or, when empty, the first listed
   // reference) is row 1; the rest are the extra rows.
   const references = referenceRowsFromState(state);
