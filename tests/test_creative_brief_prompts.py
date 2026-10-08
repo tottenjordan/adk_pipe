@@ -159,3 +159,41 @@ def test_only_the_three_readers_see_rating_signals():
         value = getattr(prompts, name)
         if name.endswith("_INSTR") and isinstance(value, str):
             assert ("{rating_signals?}" in value) == (name in RATING_READERS), name
+
+
+# --- truthful product names, claims and trend risks (rater-gap PR 3) ---------
+
+
+def test_brief_writer_names_the_product_exactly():
+    instr = prompts.CREATIVE_BRIEF_WRITER_INSTR
+    assert "exactly as given" in instr and "{target_product}" in instr
+    assert "never add a variant, finish, colour or model" in instr
+    assert "mandatory that names the product exactly" in instr
+
+
+def test_brief_writer_avoids_unsupported_absolute_claims():
+    instr = prompts.CREATIVE_BRIEF_WRITER_INSTR
+    assert "No guarantees or absolute claims" in instr
+    assert "cited source or the user's selling points state them" in instr
+
+
+def test_brief_writer_handles_disaster_trends_lightly():
+    instr = prompts.CREATIVE_BRIEF_WRITER_INSTR
+    assert "real disaster, tragedy or crisis" in instr
+    assert 'choose fit_mode "light_touch"' in instr
+    assert "trend_bridge.risks" in instr
+    assert "never build the idea on the harm itself" in instr
+
+
+@pytest.mark.parametrize(
+    "name", ["AD_COPY_DRAFTER_INSTR", "AD_COPY_CRITIC_INSTR", "ART_DIRECTOR_INSTR"]
+)
+def test_creative_agents_respect_trend_risks(name):
+    instr = getattr(prompts, name)
+    assert prompts.TREND_RISKS_RULE in instr, name
+    assert "storm categories, evacuation orders" in prompts.TREND_RISKS_RULE
+
+
+@pytest.mark.parametrize("name", ["AD_COPY_DRAFTER_INSTR", "AD_COPY_CRITIC_INSTR"])
+def test_copy_agents_avoid_unsupported_absolute_claims(name):
+    assert prompts.COPY_CLAIMS_RULE in getattr(prompts, name), name

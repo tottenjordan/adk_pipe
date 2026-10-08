@@ -529,7 +529,7 @@ def test_unrelated_avoid_terms_still_flag_with_mandatories_and_trend():
         mandatories=["18+ only"],
         trend="Taylor Swift Eras Tour",
     )
-    assert "avoided term 'guaranteed wins'" in issues["1"][0]
+    assert any("avoided term 'guaranteed wins'" in i for i in issues["1"])
 
 
 def test_brief_mandatories_reads_dict_or_json_brief():
@@ -544,7 +544,7 @@ def _checks(*items, passed=True):
 
 
 def test_structural_issues_fewer_copies_and_missing_gating_checks():
-    full = _checks("proposition", "mandatories")
+    full = _checks("proposition", "mandatories", "risks")
     copies = [_copy(i, brief_checks=full) for i in (1, 2, 3, 4)]
     assert structural_issues(copies, has_brief=True) == []
     assert structural_issues({"ad_copies": copies[:3]}, has_brief=True) == [
@@ -553,7 +553,7 @@ def test_structural_issues_fewer_copies_and_missing_gating_checks():
     copies[1] = _copy(2, brief_checks=_checks("proposition", "tone"))
     copies[3] = _copy(4)
     assert structural_issues(copies, has_brief=True) == [
-        "2 of 4 ad copies lack the proposition/mandatories brief check."
+        "2 of 4 ad copies lack the proposition/mandatories/risks brief check."
     ]
     assert structural_issues(copies, has_brief=False) == []
     # Nothing to check: no copies at all is not a structural issue here.
@@ -622,7 +622,7 @@ def test_structural_note_skipped_without_a_brief_and_collapsed_with_one():
     copies = [_copy(i, brief_checks=[]) for i in (1, 2, 3, 4)]
     assert structural_issues(copies, has_brief=False) == []
     assert structural_issues(copies, has_brief=True) == [
-        "4 of 4 ad copies lack the proposition/mandatories brief check."
+        "4 of 4 ad copies lack the proposition/mandatories/risks brief check."
     ]
     # Fewer than 4 copies is reported with or without a brief.
     assert structural_issues(copies[:3], has_brief=False) == [
@@ -705,3 +705,47 @@ def test_off_brief_flag_keeps_proposition_gating():
 def test_unknown_strictness_flags_change_nothing():
     copy = _copy(call_to_action=_SEVEN_WORD_CTA, brief_checks=_MESSAGE_CHECKS)
     assert _gate(copy, strictness=["text_problem", "cluttered", "bogus"]) == {}
+
+
+# --- unsupported absolute claims ----------------------------------------------
+
+
+def test_absolute_claim_in_copy_is_deterministic():
+    copy = _copy(body_text="Rocket Skates: truly indestructible.")
+    (issues,) = _gate(copy).values()
+    (issue,) = issues
+    assert issue.kind == "deterministic"
+    assert "indestructible" in str(issue)
+    assert residual_issues({"1": issues}) == {"1": issues}
+
+
+@pytest.mark.parametrize(
+    "field", ["headline", "body_text", "social_caption", "call_to_action"]
+)
+def test_absolute_claim_checked_in_every_copy_field(field):
+    copy = _copy(**{field: "Guaranteed Rocket Skates"})
+    texts = _gate_texts(copy)
+    assert any("guaranteed" in t for t in texts["1"])
+
+
+def test_absolute_claim_allowed_by_the_claims_text():
+    copy = _copy(body_text="Rocket Skates with a lifetime warranty.")
+    assert _gate(copy) != {}
+    assert _gate(copy, allowed_claims_text="Lifetime warranty") == {}
+
+
+def test_ordinary_never_phrasing_is_not_a_claim():
+    assert _gate(_copy(body_text="Rocket Skates: never miss a moment.")) == {}
+
+
+# --- trend risks self-check ----------------------------------------------------
+
+
+def test_failed_risks_self_check_gates_but_is_never_residual():
+    checks = [{"item": "risks", "passed": False, "note": "jokes about Category 4"}]
+    issues = _gate(_copy(brief_checks=checks))["1"]
+    assert [str(i) for i in issues] == [
+        "brief check failed: risks — jokes about Category 4"
+    ]
+    assert issues[0].kind == "self_reported"
+    assert residual_issues({"1": issues}) == {}

@@ -1637,7 +1637,11 @@ def test_brief_gate_decision_second_round_within_a_budget_of_two():
 def test_brief_gate_passes_brand_product_and_sources_to_the_check():
     from creative_agent.agent import brief_gate_decision
 
-    brief = {**_clean_brief(), "single_minded_proposition": "Mac and Cheese wins."}
+    brief = {
+        **_clean_brief(),
+        "single_minded_proposition": "Mac and Cheese wins.",
+        "mandatories": ["name Mac and Cheese"],
+    }
     assert brief_gate_decision({"creative_brief": brief}, 1)[0] == "revise"
     state = {"creative_brief": brief, "target_product": "Mac and Cheese"}
     assert brief_gate_decision(state, 1)[0] == "ok"
@@ -1645,6 +1649,20 @@ def test_brief_gate_passes_brand_product_and_sources_to_the_check():
     state = {"creative_brief": _clean_brief(), "sources": {"src-9": {}}}
     route, delta = brief_gate_decision(state, 1)
     assert route == "revise" and "unknown sources" in delta["brief_issues"]
+
+
+def test_brief_gate_revises_a_narrowed_product_name():
+    from creative_agent.agent import brief_gate_decision
+
+    brief = {**_clean_brief(), "mandatories": ["Feature the SE CE 24 Standard Satin"]}
+    state = {
+        "creative_brief": brief,
+        "brand": "PRS",
+        "target_product": "SE CE24 Electric Guitar",
+    }
+    route, delta = brief_gate_decision(state, 1)
+    assert route == "revise"
+    assert 'exactly as "SE CE24 Electric Guitar"' in delta["brief_issues"]
 
 
 def test_brief_gate_decision_skips_revision_for_a_missing_brief():
@@ -1811,6 +1829,7 @@ def _final_copy(original_id=1, **overrides):
         "brief_checks": [
             {"item": "proposition", "passed": True, "note": ""},
             {"item": "mandatories", "passed": True, "note": ""},
+            {"item": "risks", "passed": True, "note": ""},
         ],
         "detailed_performance_rationale": "r",
     }
@@ -1888,7 +1907,7 @@ def test_copy_gate_decision_self_reported_gating_policy():
         failed = [{"item": i, "passed": False, "note": "n"} for i in items]
         complete = [
             {"item": i, "passed": True, "note": ""}
-            for i in ("proposition", "mandatories")
+            for i in ("proposition", "mandatories", "risks")
             if i not in items
         ]
         return failed + complete
@@ -1929,6 +1948,33 @@ def test_copy_gate_decision_reads_the_brief_avoid_list():
     assert copy_gate_decision(state, 1)[0] == "ok"
 
 
+def test_copy_gate_decision_allows_claims_from_selling_points_and_mandatories():
+    from creative_agent.agent import copy_gate_decision
+
+    copy = _final_copy(1, body_text="Rocket Skates with a lifetime warranty.")
+    route, delta = copy_gate_decision(_copy_state(copy), 1)
+    assert route == "revise"
+    assert "unsupported absolute claim (lifetime)" in delta["ad_copy_issues"]
+    for points in ("Lifetime warranty", ["Fast", "Lifetime warranty"]):
+        state = _copy_state(copy, key_selling_points=points)
+        assert copy_gate_decision(state, 1)[0] == "ok"
+    brief = {**_clean_brief(), "mandatories": ["mention the lifetime warranty"]}
+    assert copy_gate_decision(_copy_state(copy, creative_brief=brief), 1)[0] == "ok"
+
+
+def test_brief_gate_allows_claims_from_selling_points():
+    from creative_agent.agent import brief_gate_decision
+
+    brief = {
+        **_clean_brief(),
+        "single_minded_proposition": "Rocket Skates come with a lifetime warranty.",
+    }
+    route, delta = brief_gate_decision({"creative_brief": brief}, 1)
+    assert route == "revise" and "absolute claims (lifetime)" in delta["brief_issues"]
+    state = {"creative_brief": brief, "key_selling_points": "Lifetime warranty"}
+    assert brief_gate_decision(state, 1)[0] == "ok"
+
+
 def test_copy_gate_decision_records_structural_issues_without_revising():
     """Too few copies / an incomplete gating checklist are recorded on the ok
     exit but never route a revision (the per-copy reviser cannot fix them)."""
@@ -1948,7 +1994,7 @@ def test_copy_gate_decision_records_structural_issues_without_revising():
     assert route == "ok"
     assert delta["ad_copy_critique__issues"] == [
         "only 2 of 4 ad copies were produced.",
-        "1 of 2 ad copies lack the proposition/mandatories brief check.",
+        "1 of 2 ad copies lack the proposition/mandatories/risks brief check.",
     ]
 
 

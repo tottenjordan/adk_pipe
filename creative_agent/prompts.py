@@ -317,6 +317,13 @@ COPY_RATING_SIGNALS_RULE = (
 )
 RATING_SIGNALS_BLOCK = """<rating_signals>{rating_signals?}</rating_signals>"""
 
+# Trend risks + unsupported claims (rater-gap PR 3): shared, brace-free rules.
+# The critic's `risks` brief check gates a revision (copy_gate
+# GATING_BRIEF_CHECKS); unsupported absolute claims are a deterministic check
+# (creative_agent/claims.py) in the brief and copy gates.
+TREND_RISKS_RULE = "**Trend risks:** respect the trend risks listed in the brief (trend_bridge risks). When the trend is a real disaster, tragedy or crisis, never joke about or play on its severity, victims, damage or official warnings (e.g. storm categories, evacuation orders), and never build the idea on the harm itself; keep the trend to a light touch."
+COPY_CLAIMS_RULE = "**Claims:** make no unsupported absolute claims (guaranteed, indestructible, unbreakable, risk-free, 100%, lifetime, never fails) unless the user's key selling points or the brief's mandatories state them; prefer a concrete, verifiable benefit."
+
 CREATIVE_BRIEF_WRITER_INSTR = (
     """Role: You are the Strategy Director. Turn the research report and campaign inputs into ONE structured creative brief: the contract the ad copy and visual teams must deliver against.
 
@@ -339,6 +346,8 @@ CREATIVE_BRIEF_WRITER_INSTR = (
     11. """
     + RATING_SIGNALS_RULE
     + """
+    12. **Truthful product and claims:** use the product name exactly as given ({target_product}); never add a variant, finish, colour or model the user did not give. Include one mandatory that names the product exactly as given. No guarantees or absolute claims (guaranteed, indestructible, 100%, lifetime, never fails) unless a cited source or the user's selling points state them.
+    13. **Sensitive trends:** if the trend is a real disaster, tragedy or crisis (a storm, wildfire, shooting, war, death), choose fit_mode "light_touch" (score 1-2), list its harms in trend_bridge.risks (and short terms for them in `avoid`), and never build the idea on the harm itself.
     </INSTRUCTIONS>
 
     <CONTEXT>
@@ -413,6 +422,12 @@ AD_COPY_DRAFTER_INSTR = (
     6.  """
     + COPY_RATING_SIGNALS_RULE
     + """
+    7.  """
+    + TREND_RISKS_RULE
+    + """
+    8.  """
+    + COPY_CLAIMS_RULE
+    + """
     </INSTRUCTIONS>
 
     <CONTEXT>
@@ -472,8 +487,17 @@ AD_COPY_CRITIC_INSTR = (
         *   `mandatories`: honours every mandatory.
         *   `avoid`: contains nothing from the avoid list.
         *   `cta`: the CTA is specific, starts with an action verb and matches the desired response.
+        *   `risks`: respects the brief's trend risks (never jokes about a real disaster's severity, victims, damage or official warnings).
         Mark `passed` false only when the copy clearly fails the item; be accurate, not harsh. Give a short `note` saying why. If the brief is empty, judge the items against the campaign inputs.
-    6.  **Strict Output:** Output the final selection as a single JSON object, strictly following the schema in the `<OUTPUT_FORMAT>` block.
+    6.  """
+    + TREND_RISKS_RULE
+    + " Rewrite or drop any idea that breaks this rule."
+    + """
+    7.  """
+    + COPY_CLAIMS_RULE
+    + " Remove any such claim from the copies you select."
+    + """
+    8.  **Strict Output:** Output the final selection as a single JSON object, strictly following the schema in the `<OUTPUT_FORMAT>` block.
     </INSTRUCTIONS>
 
     <CONTEXT>
@@ -582,6 +606,10 @@ ART_DIRECTOR_INSTR = (
     6.  **Brand history:** when <brand_history> is non-empty, do not recommend the recently used styles it lists ("styles used recently"), lean on what scored well, and steer away from its recurring weaknesses.
     7.  """
     + RATING_SIGNALS_RULE
+    + """
+    8.  """
+    + TREND_RISKS_RULE
+    + " For visuals: no disaster damage, victims, warning maps or storm graphics played for fun."
     + """
     This brief is guidance for the drafter; it does not select final concepts.
     </INSTRUCTIONS>

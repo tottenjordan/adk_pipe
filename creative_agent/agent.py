@@ -29,6 +29,7 @@ from agent_common import (
 from . import brand_history, callbacks, gcs_tools, prompts, tools
 from .brief_check import check_brief, normalize_brief_terms, parse_brief
 from .brief_render import render_brief_markdown
+from .claims import claims_allowed_text
 from .concept_guard import (
     concept_issues,
     flatten_concept_issues,
@@ -327,6 +328,14 @@ brief_reviser_failsoft = FailSoftNode(
 # A missing brief (writer exhausted its retries or failed) routes "ok" without a
 # revision: there is nothing to revise, and creative_brief__retry_exhausted
 # already reports it; the creative agents then fall back to the report.
+def _selling_points(state: Mapping[str, Any]) -> str | list[str]:
+    """The user's ``key_selling_points`` (a string or a list of strings)."""
+    points = state.get("key_selling_points")
+    if isinstance(points, list):
+        return [p for p in points if isinstance(p, str)]
+    return str(points or "")
+
+
 def _brief_issues(state: Mapping[str, Any]) -> list[str]:
     sources = state.get("sources")
     return check_brief(
@@ -336,6 +345,7 @@ def _brief_issues(state: Mapping[str, Any]) -> list[str]:
         target_product=str(state.get("target_product") or ""),
         trend=str(state.get("target_search_trends") or ""),
         sources=sources if isinstance(sources, Mapping) else None,
+        key_selling_points=_selling_points(state),
     )
 
 
@@ -748,6 +758,9 @@ def _copy_issues(state: Mapping[str, Any]) -> dict[str, list[CopyIssue]]:
         trend=str(state.get("target_search_trends") or ""),
         brand=str(state.get("brand") or ""),
         strictness=strictness_flags(state.get("rating_strictness")),
+        allowed_claims_text=claims_allowed_text(
+            _selling_points(state), brief_mandatories(brief)
+        ),
     )
 
 
