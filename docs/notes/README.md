@@ -16,6 +16,9 @@ it was written on, since some describe uncommitted working-tree state.
 - [judge-calibration.md](judge-calibration.md) — the human-rating protocol for
   calibrating the `creative_eval` judge (~50 ratings across ≥5 runs; reading
   agreement, Cohen's kappa and Spearman's rho; `scripts/eval_calibration.py`).
+- [creative-quality-gates.md](creative-quality-gates.md) — the calibrated rules
+  behind the concept guard/gate, post-render image QA, eval gates and brand history
+  (2026-10-07 creative-quality work; CLAUDE.md keeps the summary).
 - [frontend.md](frontend.md) — React crash from nested session-state values and
   its confusing backend cascade; the same-origin proxy.
 - [ambient-agents-vs-cloud-functions.md](ambient-agents-vs-cloud-functions.md) —
