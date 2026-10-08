@@ -46,6 +46,10 @@ _EXACT_PHASES: dict[str, str] = {
     "ad_creative_barrier": "ad_copy",
     "visual_production_barrier": "visual_concepts",
     "finalize_barrier": "eval",
+    # Early ad-copy judging (2026-10-08): runs concurrently with the visual
+    # stage; its join gates finalize.
+    "evaluate_ad_copies_node": "eval",
+    "ad_copy_eval_join": "eval",
     # P2 graph function nodes whose names don't carry a phase prefix.
     "refinement_gate": "research",
     "ad_copies_ready": "ad_copy",

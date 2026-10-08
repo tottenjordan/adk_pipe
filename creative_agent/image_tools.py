@@ -4,7 +4,8 @@ Split out of ``tools.py``; the genai client is now created lazily so importing
 this module has no side effects.
 
 Post-render image QA (``image_qa``, on unless ``IMAGE_QA_ENABLED=false``): each
-render gets one vision check; a failing image is re-rendered at most
+render gets one vision check (pipelined: image N is inspected while image N+1
+renders; renders themselves stay sequential); a failing image is re-rendered at most
 ``IMAGE_QA_MAX_RERENDERS`` times (and at most ``IMAGE_QA_MAX_RERENDERS_PER_RUN``
 across the whole call) with a quote-free correction appended to the prompt,
 the better attempt is kept (critical failures — unsafe, third-party logo —
@@ -504,6 +505,10 @@ async def _inspect_and_rerender(
     product: str,
     budget: _RerenderBudget,
     has_logo_reference: bool = False,
+    *,
+    render=None,
+    claim_after: asyncio.Event | None = None,
+    claims_done: asyncio.Event | None = None,
 ) -> tuple[tuple[bytes, str], int, dict | None, str | None]:
     """Inspect a render; re-render (bounded) while it fails; keep the best.
 
@@ -518,51 +523,81 @@ async def _inspect_and_rerender(
     is None when the first check errored (fail-open; the render is kept and
     the caller records the concept as unavailable). A re-render or re-check
     that errors stops the loop and keeps the best inspected image so far.
+
+    Pipelining (``generate_image``): ``render`` is the serialized render
+    callable (default :func:`_render_image`); the budget is claimed in concept
+    order — this concept decides only after the previous one set
+    ``claim_after`` — and ``claims_done`` is set once this concept will claim
+    no more (always set on exit, so a failure never blocks later concepts).
     """
-    name = entry.get("concept_name", "")
-    result = await _inspect(rendered, entry, brand, product, has_logo_reference)
-    if result is None:
-        return rendered, 1, None, None
-    attempts = 1
-    kept, kept_result = rendered, result
-    kept_rules = image_qa.qa_failed_rules(result, entry, target_product=product)
-    budget_reached = False
-    for _ in range(config.image_qa_max_rerenders):
-        if not kept_rules:
-            break
-        if budget.remaining <= 0:
-            budget_reached = True
-            break
-        budget.remaining -= 1
-        logging.warning(f"Image QA failed for '{name}' ({kept_rules}); re-rendering")
-        attempts += 1
-        correction = image_qa.correction_text(
-            kept_result, entry, target_product=product
-        )
-        try:
-            retry = await _render_image(
-                contents_for(prompt_text + "\n\n" + correction), aspect_ratio
+    render = render or _render_image
+
+    async def my_turn() -> None:
+        # Wait until every earlier concept has made its budget claims, so the
+        # per-run cap goes to concepts in concept order (as when sequential).
+        if claim_after is not None:
+            await claim_after.wait()
+
+    try:
+        name = entry.get("concept_name", "")
+        result = await _inspect(rendered, entry, brand, product, has_logo_reference)
+        if result is None:
+            await my_turn()
+            return rendered, 1, None, None
+        attempts = 1
+        kept, kept_result = rendered, result
+        kept_rules = image_qa.qa_failed_rules(result, entry, target_product=product)
+        budget_reached = False
+        max_rerenders = config.image_qa_max_rerenders
+        for round_ in range(max_rerenders):
+            if not kept_rules:
+                break
+            await my_turn()
+            if budget.remaining <= 0:
+                budget_reached = True
+                break
+            budget.remaining -= 1
+            if round_ == max_rerenders - 1 and claims_done is not None:
+                claims_done.set()  # last possible claim made: let the next decide
+            logging.warning(
+                f"Image QA failed for '{name}' ({kept_rules}); re-rendering"
             )
-        except Exception as exc:
-            logging.warning(f"Re-render failed for '{name}'; keeping previous: {exc}")
-            break
-        if retry is None:
-            break
-        retry_result = await _inspect(retry, entry, brand, product, has_logo_reference)
-        if retry_result is None:
-            break
-        retry_rules = image_qa.qa_failed_rules(
-            retry_result, entry, target_product=product
-        )
-        if _keep_retry(kept_rules, retry_rules):
-            kept, kept_result, kept_rules = retry, retry_result, retry_rules
-    record = _qa_record(kept_result, entry, product)
-    issue = None
-    if record["failures"]:
-        issue = f"{name}: {'; '.join(record['failures'])}"
-        if budget_reached:
-            issue += f" ({BUDGET_REACHED})"
-    return kept, attempts, record, issue
+            attempts += 1
+            correction = image_qa.correction_text(
+                kept_result, entry, target_product=product
+            )
+            try:
+                retry = await render(
+                    contents_for(prompt_text + "\n\n" + correction), aspect_ratio
+                )
+            except Exception as exc:
+                logging.warning(
+                    f"Re-render failed for '{name}'; keeping previous: {exc}"
+                )
+                break
+            if retry is None:
+                break
+            retry_result = await _inspect(
+                retry, entry, brand, product, has_logo_reference
+            )
+            if retry_result is None:
+                break
+            retry_rules = image_qa.qa_failed_rules(
+                retry_result, entry, target_product=product
+            )
+            if _keep_retry(kept_rules, retry_rules):
+                kept, kept_result, kept_rules = retry, retry_result, retry_rules
+        await my_turn()
+        record = _qa_record(kept_result, entry, product)
+        issue = None
+        if record["failures"]:
+            issue = f"{name}: {'; '.join(record['failures'])}"
+            if budget_reached:
+                issue += f" ({BUDGET_REACHED})"
+        return kept, attempts, record, issue
+    finally:
+        if claims_done is not None:
+            claims_done.set()
 
 
 async def generate_image(
@@ -630,8 +665,45 @@ async def generate_image(
     qa_unavailable: list[str] = []
     budget = _RerenderBudget(config.image_qa_max_rerenders_per_run)
     has_logo_reference = "logo" in reference_roles
-    for entry in final_visual_concepts_list:
-        try:
+
+    # Pipelined: renders stay strictly sequential (the image quota) behind one
+    # lock, but each image's QA (+ any re-render) runs as a task while the next
+    # concept renders. asyncio.Lock is FIFO and a re-render queues on it while
+    # the next render is in flight, so it runs right after that render, ahead
+    # of the following first render. Uploads happen afterwards, in concept
+    # order, for the kept image only.
+    render_lock = asyncio.Lock()
+
+    async def render(contents, aspect_ratio: str) -> tuple[bytes, str] | None:
+        async with render_lock:
+            return await _render_image(contents, aspect_ratio)
+
+    async def check(entry, rendered, prompt_text, aspect_ratio, claim_after, done):
+        """QA (+ bounded re-render) of one render → (kept, attempts, record, issue)."""
+        if rendered is None or not config.image_qa_enabled:
+            if claim_after is not None:
+                await claim_after.wait()  # keep the concept-order claim chain
+            done.set()
+            return rendered, 1, None, None
+        return await _inspect_and_rerender(
+            entry,
+            rendered,
+            prompt_text,
+            aspect_ratio,
+            contents_for,
+            brand,
+            product,
+            budget,
+            has_logo_reference,
+            render=render,
+            claim_after=claim_after,
+            claims_done=done,
+        )
+
+    checks: list[tuple[dict, asyncio.Task]] = []
+    previous_done: asyncio.Event | None = None
+    try:
+        for entry in final_visual_concepts_list:
             # Per-concept aspect ratio, unless a valid state override pins all
             # concepts. .get() keeps concepts that only carry
             # image_generation_prompt working (see test_tools_retry).
@@ -641,48 +713,49 @@ async def generate_image(
                 config.image_aspect_ratios_allowed,
                 config.image_aspect_ratio_default,
             )
-
             prompt_text = entry["image_generation_prompt"]
-            rendered = await _render_image(contents_for(prompt_text), aspect_ratio)
-            attempts = 1
-            qa_record = None
+            rendered = await render(contents_for(prompt_text), aspect_ratio)
+            done = asyncio.Event()
+            task = asyncio.create_task(
+                check(entry, rendered, prompt_text, aspect_ratio, previous_done, done)
+            )
+            checks.append((entry, task))
+            previous_done = done
+
+        for entry, task in checks:
+            rendered, attempts, qa_record, qa_issue = await task
             if rendered is not None and config.image_qa_enabled:
-                rendered, attempts, qa_record, qa_issue = await _inspect_and_rerender(
-                    entry,
-                    rendered,
-                    prompt_text,
-                    aspect_ratio,
-                    contents_for,
-                    brand,
-                    product,
-                    budget,
-                    has_logo_reference,
-                )
                 if qa_record is None:
                     qa_unavailable.append(entry["concept_name"])
                 if qa_issue:
                     qa_issues.append(qa_issue)
-
-            if rendered is not None:
-                image_bytes, image_mime_type = rendered
-                artifact_key = artifact_key_for(entry["concept_name"])
-                img_gcs_uri = await _store_image(
-                    tool_context, image_bytes, image_mime_type, artifact_key
-                )
-                if img_gcs_uri is None:
-                    continue
-                artifact_keys_list.append(artifact_key)
-                generated_images[entry["concept_name"]] = {
-                    "gcs_uri": img_gcs_uri,
-                    "artifact_key": artifact_key,
-                    "attempts": attempts,
-                    "qa": qa_record,
-                }
-
-        except Exception as e:
-            # Propagate so ADK 2.0 RetryConfig can retry transient infra failures.
-            logging.exception(f"No images generated. {e}")
-            raise
+            if rendered is None:
+                continue
+            image_bytes, image_mime_type = rendered
+            artifact_key = artifact_key_for(entry["concept_name"])
+            img_gcs_uri = await _store_image(
+                tool_context, image_bytes, image_mime_type, artifact_key
+            )
+            if img_gcs_uri is None:
+                continue
+            artifact_keys_list.append(artifact_key)
+            generated_images[entry["concept_name"]] = {
+                "gcs_uri": img_gcs_uri,
+                "artifact_key": artifact_key,
+                "attempts": attempts,
+                "qa": qa_record,
+            }
+    except Exception as e:
+        # Propagate so ADK 2.0 RetryConfig can retry transient infra failures.
+        logging.exception(f"No images generated. {e}")
+        raise
+    finally:
+        # On failure/cancellation stop the in-flight QA / re-render tasks (and
+        # retrieve every task's outcome); on success they are all done already.
+        for _, task in checks:
+            if not task.done():
+                task.cancel()
+        await asyncio.gather(*(task for _, task in checks), return_exceptions=True)
 
     # Mark as done so subsequent calls are idempotent
     tool_context.state["_images_generated"] = True

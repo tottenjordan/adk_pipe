@@ -68,6 +68,13 @@ ENV_VAR_DICT = {
     # switch (default on) and how many past runs to read (0..20, default 5).
     "BRAND_HISTORY_ENABLED": os.getenv("BRAND_HISTORY_ENABLED", "true"),
     "BRAND_HISTORY_RUNS": os.getenv("BRAND_HISTORY_RUNS", "5"),
+    # Per-request timeout for flash / lite model calls (agent_common/genai_retry.py;
+    # default 90, clamped 30..900, 0 = use MODEL_REQUEST_TIMEOUT_SECONDS). The ADK
+    # agent models bake it in at deploy (pickled); the lazily built image-QA
+    # client reads it in the engine runtime, hence shipped here.
+    "FLASH_MODEL_REQUEST_TIMEOUT_SECONDS": os.getenv(
+        "FLASH_MODEL_REQUEST_TIMEOUT_SECONDS", "90"
+    ),
 }
 
 

@@ -16,7 +16,8 @@ quota) with backoff instead of aborting the run.
 instead of aborting the run.
 
 Every model is a :class:`TimeoutRetryingGemini`: each request carries the shared
-per-request timeout (``MODEL_REQUEST_TIMEOUT_SECONDS``, see
+per-request timeout (``MODEL_REQUEST_TIMEOUT_SECONDS``, or the shorter
+``FLASH_MODEL_REQUEST_TIMEOUT_SECONDS`` for flash / lite models, see
 :mod:`agent_common.genai_retry`) and a timed-out request is retried a bounded
 number of times, so one hung Vertex call can't stall a run until
 ``RUN_MAX_SECONDS``.
@@ -46,7 +47,8 @@ logger = logging.getLogger("google_adk." + __name__)
 PRIMARY_FAILOVER_ATTEMPTS = 2
 
 # Total attempts (incl. the first) for a request that hits the client timeout.
-# Worst case 3 x 240s = 12 min, inside the 30-min RUN_MAX_SECONDS budget.
+# Worst case 3 x 240s = 12 min (3 x 90s for flash), inside the 30-min
+# RUN_MAX_SECONDS budget.
 TIMEOUT_RETRY_ATTEMPTS = 3
 TIMEOUT_RETRY_DELAY_SECONDS = 2.0
 
@@ -181,9 +183,12 @@ def build_gemini(
     ``retry_attempts`` overrides the HTTP retry's attempt count (default: the
     full quota-paced retry of :func:`agent_common.genai_retry.build_genai_http_retry`).
 
-    The model carries the shared per-request timeout
-    (:func:`agent_common.genai_retry.model_request_timeout_ms`, MILLISECONDS) and
-    retries a timed-out request — see :class:`TimeoutRetryingGemini`.
+    The model carries the model-aware per-request timeout
+    (:func:`agent_common.genai_retry.model_request_timeout_ms`, MILLISECONDS:
+    flash / lite models get the shorter flash timeout) and retries a timed-out
+    request — see :class:`TimeoutRetryingGemini`. A Vertex-side ``504
+    DEADLINE_EXCEEDED`` (the timeout is also forwarded as ``X-Server-Timeout``)
+    is retried by the genai HTTP retry.
 
     ``empty_turn_retries`` re-asks an empty turn (root orchestrators pass
     :data:`ROOT_EMPTY_TURN_RETRIES`); the default ``0`` disables it.
@@ -201,7 +206,7 @@ def build_gemini(
         model=model_name,
         retry_options=retry,
         client_kwargs={"location": location or locations.MODEL_LOCATION},
-        request_timeout_ms=genai_retry.model_request_timeout_ms(),
+        request_timeout_ms=genai_retry.model_request_timeout_ms(model_name),
         empty_turn_retries=empty_turn_retries,
     )
 

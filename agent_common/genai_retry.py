@@ -20,6 +20,11 @@ the single source of truth applied to every agent model call (via
 client and the image-gen client. genai's ``HttpOptions.timeout`` is in
 MILLISECONDS — use :func:`model_request_timeout_ms`.
 
+The timeout is model-aware: flash / lite models (:func:`is_flash_model`) get the
+much shorter ``FLASH_MODEL_REQUEST_TIMEOUT_SECONDS`` (default 90) — their turns
+are short, so a hung flash call is cut and retried within ~1.5 min instead of
+4 min. Pass the model name to :func:`model_request_timeout_ms` to get it.
+
 Deliberately free of any ``google.adk`` import so the ADK-free ``creative_eval``
 pipeline can share it (mirrors :mod:`agent_common.locations`).
 """
@@ -62,11 +67,61 @@ MODEL_REQUEST_TIMEOUT_SECONDS = resolve_model_request_timeout(
 )
 
 
-def model_request_timeout_ms() -> int | None:
-    """The per-request timeout in MILLISECONDS (genai ``HttpOptions.timeout``)."""
-    if MODEL_REQUEST_TIMEOUT_SECONDS is None:
+# Flash / lite per-request timeout. Incident 2026-10-08: a flash call (the art
+# director) hung ~4.6 min until Vertex answered 504 DEADLINE_EXCEEDED and the
+# retry then succeeded in seconds. Healthy flash turns finish well inside 90s.
+DEFAULT_FLASH_MODEL_REQUEST_TIMEOUT_SECONDS = 90
+
+
+def resolve_flash_model_request_timeout(raw: str | None) -> int | None:
+    """Parse ``FLASH_MODEL_REQUEST_TIMEOUT_SECONDS``: default 90, clamp 30..900.
+
+    ``<=0`` returns ``None``, meaning "no flash-specific timeout" — flash models
+    then use the general ``MODEL_REQUEST_TIMEOUT_SECONDS``. Blank / unparseable
+    values fall back to the default.
+    """
+    if raw is None or not raw.strip():
+        return DEFAULT_FLASH_MODEL_REQUEST_TIMEOUT_SECONDS
+    try:
+        value = int(float(raw))
+    except ValueError:
+        return DEFAULT_FLASH_MODEL_REQUEST_TIMEOUT_SECONDS
+    if value <= 0:
         return None
-    return MODEL_REQUEST_TIMEOUT_SECONDS * 1000
+    return max(
+        MIN_MODEL_REQUEST_TIMEOUT_SECONDS, min(MAX_MODEL_REQUEST_TIMEOUT_SECONDS, value)
+    )
+
+
+FLASH_MODEL_REQUEST_TIMEOUT_SECONDS = resolve_flash_model_request_timeout(
+    os.environ.get("FLASH_MODEL_REQUEST_TIMEOUT_SECONDS")
+)
+
+
+def is_flash_model(model_name: str | None) -> bool:
+    """True for flash / lite models (name contains ``flash`` or ``lite``)."""
+    name = (model_name or "").lower()
+    return "flash" in name or "lite" in name
+
+
+def model_request_timeout_ms(model_name: str | None = None) -> int | None:
+    """The per-request timeout in MILLISECONDS (genai ``HttpOptions.timeout``).
+
+    A flash / lite ``model_name`` gets ``FLASH_MODEL_REQUEST_TIMEOUT_SECONDS``
+    (never longer than the general timeout when that is set); Pro, other models
+    and ``None`` (e.g. image generation, whose renders can be slow) get
+    ``MODEL_REQUEST_TIMEOUT_SECONDS``. ``None`` result = no timeout.
+    """
+    seconds = MODEL_REQUEST_TIMEOUT_SECONDS
+    if is_flash_model(model_name) and FLASH_MODEL_REQUEST_TIMEOUT_SECONDS is not None:
+        seconds = (
+            FLASH_MODEL_REQUEST_TIMEOUT_SECONDS
+            if seconds is None
+            else min(seconds, FLASH_MODEL_REQUEST_TIMEOUT_SECONDS)
+        )
+    if seconds is None:
+        return None
+    return seconds * 1000
 
 
 # Transient HTTP statuses worth retrying. 429 is the load-bearing one: the

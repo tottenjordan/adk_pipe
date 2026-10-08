@@ -448,7 +448,7 @@ def test_creative_pipeline_chains_the_stages_through_barriers():
     before each nested PipelineRequest-validated stage, so the previous
     stage's confirmation string never reaches its input (render_barrier
     pattern); finalize_pipeline's summary is the (truthy) result."""
-    from google.adk.workflow import Workflow
+    from google.adk.workflow import JoinNode, Workflow
 
     from agent_common import PipelineRequest
     from creative_agent import agent as ca
@@ -459,14 +459,20 @@ def test_creative_pipeline_chains_the_stages_through_barriers():
         ("__START__", "combined_research_pipeline", None),
         ("combined_research_pipeline", "ad_creative_barrier", None),
         ("ad_creative_barrier", "ad_creative_pipeline", None),
+        # Fan-out: the ad copies are judged while the visual stage renders;
+        # a JoinNode waits for both before finalize.
         ("ad_creative_pipeline", "visual_production_barrier", None),
+        ("ad_creative_pipeline", "evaluate_ad_copies_node", None),
         ("visual_production_barrier", "visual_production_pipeline", None),
-        ("visual_production_pipeline", "finalize_barrier", None),
+        ("visual_production_pipeline", "ad_copy_eval_join", None),
+        ("evaluate_ad_copies_node", "ad_copy_eval_join", None),
+        ("ad_copy_eval_join", "finalize_barrier", None),
         ("finalize_barrier", "finalize_pipeline", None),
     }
     assert wf.input_schema is PipelineRequest
     assert wf.description.strip() and "Executes the node" not in wf.description
     assert _terminal_names(wf) == {"finalize_pipeline"}
+    assert isinstance(_graph_nodes(wf)["ad_copy_eval_join"], JoinNode)
     _assert_truthy_terminal(wf, "creative_pipeline")
     # Each nested stage rejects a bare confirmation string as its input, so the
     # barriers are load-bearing.
