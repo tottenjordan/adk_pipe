@@ -4,7 +4,7 @@
  * (`putRating` / `getRatings`); the backend is `runserver/ratings.py`.
  */
 import type { Proof } from "./eval-matching";
-import { isFailReason, type FailReason } from "./rating-reasons";
+import { failReasonsFor, type FailReason } from "./rating-reasons";
 
 export type RatingKind = "visual" | "ad_copy";
 export type RatingVerdict = "pass" | "fail";
@@ -65,12 +65,23 @@ export function creativeKeysFor(proof: Proof): { visual: string; adCopy?: string
   return out;
 }
 
+/**
+ * The saved reasons the control offers for this rating's kind (enum values the
+ * chips don't show are dropped, so a hidden reason is never re-sent).
+ */
+function offeredReasons(rating?: Rating): FailReason[] {
+  if (!rating || (rating.kind !== "visual" && rating.kind !== "ad_copy")) return [];
+  const offered: readonly string[] = failReasonsFor(rating.kind);
+  const saved = (rating.fail_reasons ?? []).filter((r): r is FailReason => offered.includes(r));
+  return [...new Set(saved)];
+}
+
 export function draftFrom(rating?: Rating): RatingDraft {
   return {
     verdict: rating?.verdict ?? "",
     score: rating?.score ?? null,
     note: rating?.note ?? "",
-    failReasons: [...new Set((rating?.fail_reasons ?? []).filter(isFailReason))],
+    failReasons: offeredReasons(rating),
   };
 }
 

@@ -32,3 +32,15 @@ FAIL_REASON_LABELS: dict[str, str] = {
     "artifacts": "Visual artifacts / quality",
     "other": "Other",
 }
+
+# Reasons that only make sense for one kind of creative. The chips the UI offers
+# per kind (frontend failReasonsFor, drift-tested) and the reasons the API keeps:
+# an inapplicable one is dropped, not refused.
+_VISUAL_ONLY = frozenset(
+    {"product_not_visible", "text_problem", "unwanted_logo", "cluttered", "artifacts"}
+)
+_COPY_ONLY = frozenset({"weak_cta"})
+FAIL_REASONS_BY_KIND: dict[str, tuple[str, ...]] = {
+    "visual": tuple(r for r in FAIL_REASONS if r not in _COPY_ONLY),
+    "ad_copy": tuple(r for r in FAIL_REASONS if r not in _VISUAL_ONLY),
+}

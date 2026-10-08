@@ -38,7 +38,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from runserver.calibration import calibration_report
-from runserver.rating_reasons import FAIL_REASONS
+from runserver.rating_reasons import FAIL_REASONS, FAIL_REASONS_BY_KIND
 from runserver.ratings_store import InMemoryRatingsStore, rating_id, utcnow
 
 log = logging.getLogger(__name__)
@@ -57,7 +57,6 @@ _REPORT_CACHE_MAX = 64
 _GS_RE = re.compile(r"^gs://(?P<bucket>[^/]+)/(?P<path>.+)$")
 # Brief angle ids are 'A1'..'A5' (CreativeBrief); anything else is not stamped.
 _ANGLE_RE = re.compile(r"^A\d{1,2}$")
-BRAND_MAX_CHARS = 200
 
 ReportLoader = Callable[[str], Any]
 
@@ -132,13 +131,16 @@ def learning_context(
     (``canonical_style``), ``tone_style`` one of the ``FinalAdCopy`` tones,
     ``angle_id`` a brief angle id (``A1``..). Anything else is ``""``. ``brand``
     is trimmed + lower-cased like brand_history's match, and is only ever used as
-    a parameterised lookup key."""
+    a parameterised lookup key (``normalize_brand``, shared with brand_history)."""
     # Lazy: importing creative_agent builds its agent graph (like async_runs).
-    from creative_agent import AD_COPY_TONES, canonical_style
+    from creative_agent import AD_COPY_TONES, canonical_style, normalize_brand
 
-    brand = state.get("brand")
-    brand = brand.strip().lower()[:BRAND_MAX_CHARS] if isinstance(brand, str) else ""
-    out = {"brand": brand, "visual_style": "", "tone_style": "", "angle_id": ""}
+    out = {
+        "brand": normalize_brand(state.get("brand")),
+        "visual_style": "",
+        "tone_style": "",
+        "angle_id": "",
+    }
     item = _creative_item(state, kind, creative_key)
     if item is None:
         return out
@@ -219,8 +221,11 @@ class RatingError(ValueError):
         self.reason = reason
 
 
-def validate_fail_reasons(value: Any, verdict: str) -> list[str]:
-    """Allowlisted fail-reason chips, deduped in order; ``[]`` on a pass (pure)."""
+def validate_fail_reasons(value: Any, verdict: str, kind: str) -> list[str]:
+    """Allowlisted fail-reason chips, deduped in order; ``[]`` on a pass (pure).
+
+    An unknown value is a 400; a known reason that doesn't apply to ``kind``
+    (``FAIL_REASONS_BY_KIND``, the chips the UI offers) is dropped silently."""
     if value is None:
         value = []
     if not isinstance(value, list) or not all(
@@ -229,7 +234,10 @@ def validate_fail_reasons(value: Any, verdict: str) -> list[str]:
         raise RatingError(
             "invalid_fail_reasons", f"fail_reasons must be a list of {FAIL_REASONS}"
         )
-    return [] if verdict == "pass" else list(dict.fromkeys(value))
+    if verdict == "pass":
+        return []
+    applicable = FAIL_REASONS_BY_KIND[kind]
+    return [r for r in dict.fromkeys(value) if r in applicable]
 
 
 def validate_rating(body: Mapping[str, Any]) -> dict[str, Any]:
@@ -272,7 +280,7 @@ def validate_rating(body: Mapping[str, Any]) -> dict[str, Any]:
     note = (note or "").strip() or None
     if note is not None and len(note) > NOTE_MAX_CHARS:
         raise RatingError("invalid_note", f"note must be ≤ {NOTE_MAX_CHARS} characters")
-    fail_reasons = validate_fail_reasons(body.get("fail_reasons"), verdict)
+    fail_reasons = validate_fail_reasons(body.get("fail_reasons"), verdict, kind)
     return {
         "app_name": app_name,
         "creative_key": key,

@@ -638,10 +638,10 @@ def test_validate_rating_fail_reasons():
         {
             **base,
             "verdict": "fail",
-            "fail_reasons": ["text_problem", "weak_cta", "text_problem"],
+            "fail_reasons": ["text_problem", "artifacts", "text_problem"],
         }
     )
-    assert out["fail_reasons"] == ["text_problem", "weak_cta"]  # deduped, ordered
+    assert out["fail_reasons"] == ["text_problem", "artifacts"]  # deduped, ordered
     assert rt.validate_rating({**base, "verdict": "fail"})["fail_reasons"] == []
     out = rt.validate_rating({**base, "verdict": "pass", "fail_reasons": ["weak_cta"]})
     assert out["fail_reasons"] == []  # dropped on pass
@@ -755,3 +755,101 @@ def test_put_stamps_learning_context():
         assert row["visual_style"] == "" and row["brand"] == "paul reed smith (prs)"
 
     run(go)
+
+
+def test_fail_reasons_by_kind_partition():
+    from runserver.rating_reasons import FAIL_REASONS_BY_KIND
+
+    assert set(FAIL_REASONS_BY_KIND) == {"visual", "ad_copy"}
+    for reasons in FAIL_REASONS_BY_KIND.values():
+        assert reasons == tuple(r for r in FAIL_REASONS if r in reasons)  # enum order
+        assert reasons[-1] == "other"
+    assert "weak_cta" not in FAIL_REASONS_BY_KIND["visual"]
+    assert "product_not_visible" not in FAIL_REASONS_BY_KIND["ad_copy"]
+    # every reason is offered for at least one kind
+    assert set(FAIL_REASONS) == set().union(*FAIL_REASONS_BY_KIND.values())
+
+
+def test_fail_reasons_not_for_the_kind_are_dropped_not_refused():
+    vis = rt.validate_rating(
+        {
+            "app_name": APP,
+            "creative_key": VISUAL,
+            "kind": "visual",
+            "verdict": "fail",
+            "fail_reasons": ["weak_cta", "product_not_visible"],
+        }
+    )
+    assert vis["fail_reasons"] == ["product_not_visible"]
+    copy = rt.validate_rating(
+        {
+            "app_name": APP,
+            "creative_key": "copy:3",
+            "kind": "ad_copy",
+            "verdict": "fail",
+            "fail_reasons": ["artifacts", "weak_cta", "unwanted_logo"],
+        }
+    )
+    assert copy["fail_reasons"] == ["weak_cta"]
+
+
+def test_fail_reasons_body_shape_errors_are_422():
+    async def go():
+        h = Harness()
+        await h.session()
+        for bad in ("weak_cta", {"a": 1}, 7, ["other"] * 11):
+            r = await h.put(verdict="fail", fail_reasons=bad)
+            assert r.status_code == 422, (bad, r.text)
+        r = await h.put(verdict="fail", fail_reasons=None)  # null = none picked
+        assert r.status_code == 200 and r.json()["fail_reasons"] == []
+        assert len(h.store.rows) == 1
+
+    run(go)
+
+
+def test_get_older_row_without_learning_columns():
+    """Rows written before the learning-context migration have no such keys."""
+
+    async def go():
+        h = Harness()
+        await h.session()
+        rid = rating_id("s1", VISUAL, A)
+        h.store.rows[rid] = {
+            "rating_id": rid,
+            "session_id": "s1",
+            "app_name": APP,
+            "creative_key": VISUAL,
+            "kind": "visual",
+            "user_id": A,
+            "verdict": "fail",
+            "score": 2,
+            "note": None,
+            "judge_overall": None,
+            "judge_passed": None,
+            "judge_gates_passed": None,
+            "judge_model": None,
+            "judge_source": "none",
+            "created_at": rt.utcnow(),
+            "updated_at": rt.utcnow(),
+        }
+        r = await h.client.get(f"/ratings/{A}/s1")
+        assert r.status_code == 200, r.text
+        (got,) = r.json()["ratings"]
+        assert got["verdict"] == "fail" and "fail_reasons" not in got
+        # re-rating the old row fills the new columns in
+        assert (
+            await h.put(verdict="fail", fail_reasons=["artifacts"])
+        ).status_code == 200
+        assert h.store.rows[rid]["fail_reasons"] == ["artifacts"]
+        assert h.store.rows[rid]["visual_style"] is not None
+
+    run(go)
+
+
+def test_learning_context_brand_uses_the_shared_normaliser():
+    from creative_agent import normalize_brand
+
+    long_brand = "  " + "Acme " * 100 + " "
+    state = {**_state(), "brand": long_brand}
+    ctx = rt.learning_context(state, "visual", VISUAL)
+    assert ctx["brand"] == normalize_brand(long_brand) == long_brand.strip().lower()

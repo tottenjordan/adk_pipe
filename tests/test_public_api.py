@@ -90,6 +90,7 @@ def test_facade_all_is_complete_and_importable():
         "CreativeBrief",
         "canonical_style",
         "AD_COPY_TONES",
+        "normalize_brand",
     }
     assert expected.issubset(set(creative_agent.__all__))
     for name in creative_agent.__all__:

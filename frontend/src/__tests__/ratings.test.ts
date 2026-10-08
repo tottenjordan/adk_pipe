@@ -103,11 +103,24 @@ describe("draft helpers", () => {
     expect(isDirty({ ...d, verdict: "fail" }, saved)).toBe(true);
     expect(isDirty({ ...d, score: null }, saved)).toBe(true);
     expect(isDirty(draftFrom(), undefined)).toBe(false);
-    const failed = rating({ verdict: "fail", fail_reasons: ["weak_cta", "off_brief", "bogus"] });
+    const failed = rating({
+      creative_key: "copy:3",
+      kind: "ad_copy",
+      verdict: "fail",
+      fail_reasons: ["weak_cta", "off_brief", "bogus"],
+    });
     const fd = draftFrom(failed);
     expect(fd.failReasons).toEqual(["weak_cta", "off_brief"]); // unknown values dropped
     expect(isDirty({ ...fd, failReasons: ["off_brief", "weak_cta"] }, failed)).toBe(false);
     expect(isDirty({ ...fd, failReasons: ["weak_cta"] }, failed)).toBe(true);
+  });
+  it("keeps only the reasons offered for the rating's kind, so a hidden one is never re-sent", () => {
+    const visual = rating({ verdict: "fail", fail_reasons: ["weak_cta", "artifacts"] });
+    expect(draftFrom(visual).failReasons).toEqual(["artifacts"]);
+    const copy = rating({ creative_key: "copy:3", kind: "ad_copy", verdict: "fail", fail_reasons: ["artifacts", "weak_cta"] });
+    expect(draftFrom(copy).failReasons).toEqual(["weak_cta"]);
+    const d = draftFrom(visual);
+    expect(buildRatingPayload("a", visual.creative_key, "visual", d)?.fail_reasons).toEqual(["artifacts"]);
   });
   it("optimistic rating carries the payload over the previous rating", () => {
     const prev = rating({ rating_id: "r1", judge_overall: 0.8 });
