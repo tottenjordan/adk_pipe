@@ -21,7 +21,6 @@ from .config import config
 from .gcs_tools import (  # noqa: F401
     _download_blob,
     _get_gcs_client,
-    _get_high_res_img,
     _save_to_gcs,
     _upload_blob_to_gcs,
     artifact_key_for,
@@ -31,7 +30,7 @@ from .gcs_tools import (  # noqa: F401
 
 # Backward-compatible re-exports: keep the public ``creative_agent.tools`` import
 # surface unchanged after the implementation moved into sibling modules. Some of
-# these (``_get_high_res_img``, ``_upload_blob_to_gcs``) are also used by
+# these (e.g. ``_upload_blob_to_gcs``) are also used by
 # ``save_creative_gallery_html`` below.
 from .image_tools import (  # noqa: F401
     _IMAGE_GEN_BASE_DELAY_SECS,
@@ -171,21 +170,8 @@ async def save_creative_gallery_html(tool_context: ToolContext) -> dict:
             ARTIFACT_KEY = artifact_key_for(entry["concept_name"])
             GCS_BLOB_PATH = f"{gcs_folder}/{gcs_subdir}/{ARTIFACT_KEY}"
             AUTH_GCS_URL = f"https://storage.mtls.cloud.google.com/{config.GCS_BUCKET_NAME}/{GCS_BLOB_PATH}?authuser=3"
-
-            # get high-res image (fall back to standard-res if missing).
-            # _get_high_res_img does blocking download/resize/upload — off the loop.
-            try:
-                HIGH_RES_AUTH_GCS_URL = await asyncio.to_thread(
-                    _get_high_res_img,
-                    gcs_folder=tool_context.state["gcs_folder"],
-                    gcs_subdir=tool_context.state["agent_output_dir"],
-                    artifact_key=ARTIFACT_KEY,
-                )
-            except Exception as e:
-                logging.warning(
-                    f"Could not create high-res image for '{ARTIFACT_KEY}', falling back to standard-res: {e}"
-                )
-                HIGH_RES_AUTH_GCS_URL = AUTH_GCS_URL
+            # The lightbox links the original 2K render: the old 1.5x Lanczos
+            # upscale re-upload added no detail and cost seconds per image.
 
             # generate HTML block for gallery images
             GALLERY_IMAGE_BLOCK = f"""
@@ -194,7 +180,7 @@ async def save_creative_gallery_html(tool_context: ToolContext) -> dict:
                     <h4 class="image-title">{_esc(entry["headline"])}</h4>
                     <div class="image-container">
                         <img src="{_esc_attr(AUTH_GCS_URL)}" 
-                                data-high-res-src="{_esc_attr(HIGH_RES_AUTH_GCS_URL)}"
+                                data-high-res-src="{_esc_attr(AUTH_GCS_URL)}"
                                 alt="{_esc_attr(entry["concept_summary"])}" 
                                 title="{_esc_attr(entry["headline"])}">
                         <div class="hover-text">
