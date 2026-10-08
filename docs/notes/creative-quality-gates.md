@@ -44,3 +44,41 @@ hurricane). Three judge changes, all blocking:
   ("any storm", "any phone screen") or merely implied motifs fail.
 
 Judge pass rates and `gates_pass_rate` before and after this change are **not comparable**.
+
+### 2026-10-08 truthful briefs and copy (rater audit, PR 3)
+
+The same audit (PRS SE CE24 Electric Guitar × "hurricane tracker") showed the brief writer
+narrowing the product to a variant nobody gave ("SE CE 24 Standard Satin"), inventing claims
+("guaranteed to stay in tune through 100 percent humidity") that reached the copy ("truly
+indestructible"), and copy joking about "Category 4" humidity during a real storm. Fixed
+upstream, before the judge:
+
+- **Brief gate — exact product** (`brief_check.check_brief`): with a `target_product`, some
+  mandatory must contain it as whole words (`text_match.contains_phrase`) or mention it per
+  `text_match.mentions(m, product, brand=brand)` (so the brand + model-token rule, "PRS SE
+  CE24", counts). Otherwise: `Name the product exactly as "<product>" in mandatories; do not
+  add a variant, finish or model the user did not give.` (routed to the brief reviser).
+- **Unsupported absolute claims** (`creative_agent/claims.py`, `ABSOLUTE_CLAIM_TERMS`:
+  guarantee/guaranteed/guarantees, indestructible, unbreakable, bulletproof, risk-free, 100%,
+  100 percent, never fails, never goes out of tune, lifetime). Whole-word, case/accent-blind,
+  space/hyphen-insensitive ("risk free"), "100%" never matches a bare "100"; the idioms "of a
+  lifetime" / "once in a lifetime" are exempt, and "never miss a moment" is not a claim. A term
+  is allowed when the allowed text (the user's `key_selling_points` + the brief's mandatories)
+  contains it or a family member (guarantee ↔ guaranteed, 100% ↔ 100 percent). Brief gate:
+  proposition + reasons-to-believe claims → `Remove unsupported absolute claims (...) unless
+  the user's selling points state them.` Copy gate: a **deterministic** issue over the
+  headline, body, caption and CTA (so it gates and, if it survives, is a residual).
+  A cited research source does not exempt a brief claim (the deterministic check cannot read
+  the source); the prompts allow source-backed claims, so expect the reviser to soften them.
+- **Trend risks** — the ad copy critic has a new `brief_checks` item `risks` (respects the
+  brief's trend risks: never jokes about a real disaster's severity, victims, damage or
+  official warnings). It is in `GATING_BRIEF_CHECKS`, so a failed self-check routes a revision
+  like `proposition` / `mandatories`, and like them it is never a residual issue; the
+  structural note now asks for proposition/mandatories/risks.
+- **Prompts** (`creative_agent/prompts.py`): the brief writer uses the product name exactly as
+  given and includes a mandatory naming it, makes no guarantees/absolute claims unless a cited
+  source or the selling points state them, and for a real disaster/tragedy/crisis trend picks
+  `light_touch`, lists the harms in `trend_bridge.risks` and never builds the idea on the
+  harm. `TREND_RISKS_RULE` is shared by the drafter, critic and art director (visuals: no
+  damage, victims, warning maps or storm graphics played for fun); `COPY_CLAIMS_RULE` by the
+  drafter and critic.

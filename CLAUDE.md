@@ -143,7 +143,8 @@ creative_agent (root Agent `root_agent`; non-resumable App (carries plugins); to
 │   │   → merge_planners → refinement_gate ("refine" only when base research is degraded:
 │   │   evaluator → RetryUntilKeyNode-wrapped refined search; else "skip")
 │   │   → combined_report_composer → brief_writer_failsoft (FailSoftNode → RetryUntilKeyNode →
-│   │   brief_writer, CreativeBrief → creative_brief) → brief_gate (deterministic brief_check.py;
+│   │   brief_writer, CreativeBrief → creative_brief) → brief_gate (deterministic brief_check.py, incl.
+│   │   the product named exactly in mandatories + no unsupported absolute claims (claims.py);
 │   │   "revise" → brief_reviser_failsoft → back to brief_gate, at most BRIEF_REVISION_ROUNDS
 │   │   passes; residuals → creative_brief__issues; every exit writes creative_brief_md, the
 │   │   compact Markdown the creative prompts read; "ok") → save_research_pdf_node (research PDF
@@ -152,7 +153,9 @@ creative_agent (root Agent `root_agent`; non-resumable App (carries plugins); to
 │   ├── ad_creative_pipeline (Workflow: drafter (10 copies spread across the brief's angles, self-rated
 │   │   typicality) → critic (final 4 cover ≥3 angles; per-copy brief_checks checklist) → copy_gate
 │   │   (deterministic copy_gate.py: product named, CTA ≤8 words, headline/caption length, brief avoid
-│   │   terms, plus the critic's failed proposition/mandatories checks (other self-reports advisory);
+│   │   terms, unsupported absolute claims (claims.py; allowed when the user's selling points or the
+│   │   brief's mandatories state them), plus the critic's failed proposition/mandatories/risks (trend
+│   │   risks) checks (other self-reports advisory);
 │   │   "revise" → ad_copy_reviser_failsoft (rewrites ONLY flagged copies;
 │   │   unflagged edits reverted by restore_unflagged) → back to copy_gate, at most COPY_REVISION_ROUNDS
 │   │   passes; deterministic residuals only → ad_copy_critique__issues; "ok") → ad_copies_ready)
@@ -302,7 +305,7 @@ Image-generation prompt guidance lives in `creative_agent/prompts.py` as `IMAGE_
 - `agent_common/models.py` / `agent_common/locations.py` — `build_gemini()` + `MODEL_LOCATION` (pins gemini-3.x to `global`)
 - `interactive_creative/review_tools.py` — `LongRunningFunctionTool` pause tools for human-in-the-loop checkpoints
 - `creative_agent/finalize.py` — `finalize_pipeline` nodes: `evaluate_creatives_node` (judge in a thread on a state snapshot), `persist_node` (eval JSON + gallery to GCS, both BigQuery rows; bounded transient retry, then fail-soft `<key>__issues`), `finalize_ready` (summary + `finalize_done` completion marker)
-- `creative_agent/brief_check.py` / `brief_render.py` / `copy_gate.py` / `concept_guard.py` / `text_match.py` — the deterministic brief, copy and concept gates (+ brief Markdown rendering)
+- `creative_agent/brief_check.py` / `brief_render.py` / `copy_gate.py` / `concept_guard.py` / `text_match.py` / `claims.py` — the deterministic brief, copy and concept gates (+ brief Markdown rendering; `claims.py` = the unsupported absolute-claim lexicon shared by the brief and copy gates)
 - `creative_agent/image_qa.py` / `references.py` / `brand_history.py` / `rating_signals.py` — post-render image QA, multi-reference resolution, cross-run brand memory, opt-in rating learning
 - `creative_eval/evaluate.py` — Core LLM-as-judge evaluation logic
 - `creative_eval/schemas.py` — Pydantic models for evaluation reports

@@ -169,7 +169,8 @@ creative_agent (root Agent `root_agent`; non-resumable App (carries plugins); to
 │   │   → merge_planners → refinement_gate ("refine" only when base research is degraded:
 │   │   evaluator → RetryUntilKeyNode-wrapped refined search; else "skip")
 │   │   → combined_report_composer → brief_writer_failsoft (FailSoftNode → RetryUntilKeyNode →
-│   │   brief_writer, CreativeBrief → creative_brief) → brief_gate (deterministic brief_check.py;
+│   │   brief_writer, CreativeBrief → creative_brief) → brief_gate (deterministic brief_check.py, incl.
+│   │   the product named exactly in mandatories + no unsupported absolute claims (claims.py);
 │   │   "revise" → brief_reviser_failsoft → back to brief_gate, at most BRIEF_REVISION_ROUNDS
 │   │   passes; residuals → creative_brief__issues; every exit writes creative_brief_md, the
 │   │   compact Markdown the creative prompts read; "ok") → save_research_pdf_node (research PDF → research_report_gcs_uri;
@@ -177,7 +178,9 @@ creative_agent (root Agent `root_agent`; non-resumable App (carries plugins); to
 │   ├── ad_creative_pipeline (Workflow: drafter (10 copies spread across the brief's angles, self-rated
 │   │   typicality) → critic (final 4 cover ≥3 angles; per-copy brief_checks checklist) → copy_gate
 │   │   (deterministic copy_gate.py: product named, CTA ≤8 words, headline/caption length, brief avoid
-│   │   terms, plus the critic's failed proposition/mandatories checks (other self-reports advisory);
+│   │   terms, unsupported absolute claims (claims.py; allowed when the user's selling points or the
+│   │   brief's mandatories state them), plus the critic's failed proposition/mandatories/risks (trend
+│   │   risks) checks (other self-reports advisory);
 │   │   "revise" → ad_copy_reviser_failsoft (rewrites ONLY flagged copies;
 │   │   unflagged edits reverted by restore_unflagged) → back to copy_gate, at most COPY_REVISION_ROUNDS
 │   │   passes; deterministic residuals only → ad_copy_critique__issues; "ok") → ad_copies_ready)
@@ -287,7 +290,7 @@ interactive_creative (root Agent `root_agent`; App + ResumabilityConfig(is_resum
 | Area | Path | Purpose |
 |---|---|---|
 | **Phase 1 Agent** | `trend_scout/{agent,prompts,schemas,tools,callbacks,config,review_tools}.py` | Google Trends discovery, cultural context research, BigQuery persistence |
-| **Phase 2 Agent** | `creative_agent/{agent,prompts,schemas,tools,bq_tools,gcs_tools,image_tools,callbacks,config}.py` | Parallel web research, brief gate (`brief_check.py`, `brief_render.py`), copy gate (`copy_gate.py`), visual generation (`style_shortlist.py`, `concept_guard.py`), HTML gallery (`gallery_template.py`) |
+| **Phase 2 Agent** | `creative_agent/{agent,prompts,schemas,tools,bq_tools,gcs_tools,image_tools,callbacks,config}.py` | Parallel web research, brief gate (`brief_check.py`, `brief_render.py`), copy gate (`copy_gate.py`; `claims.py` absolute-claim lexicon shared by both), visual generation (`style_shortlist.py`, `concept_guard.py`), HTML gallery (`gallery_template.py`) |
 | **Interactive Agent** | `interactive_creative/{agent,prompts,callbacks,review_tools}.py` | Resumable 3-checkpoint wrapper over `creative_agent` |
 | **LLM Judge** | `creative_eval/{agent,evaluate,prompts,schemas,dimensions,config}.py` | 12-dimension concurrent Gemini Pro creative evaluation |
 | **Shared Agent Lib** | `agent_common/*.py` | Shared config, `build_gemini`, `RetryUntilKeyNode`, `FailSoftNode`, rate limiting, Model Armor safety, observability, idempotency |
