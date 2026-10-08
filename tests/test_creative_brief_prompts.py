@@ -130,12 +130,13 @@ def test_brief_writer_keeps_avoid_entries_short():
 RATING_BLOCK = "<rating_signals>{rating_signals?}</rating_signals>"
 RATING_RULE = (
     "Treat rated-well styles and tones as strong options and avoid the listed "
-    "failure causes; never mention ratings in the creative."
+    "failure causes; follow any stricter limits it lists; never mention ratings "
+    "in the creative."
 )
 COPY_RATING_RULE = (
     "Treat rated-well copy tones as strong options and avoid the listed failure "
-    "causes; ignore the visual styles it lists; never mention ratings in the "
-    "creative."
+    "causes; ignore the visual styles it lists; follow any stricter limits it "
+    "lists; never mention ratings in the creative."
 )
 RATING_RULES = {
     "CREATIVE_BRIEF_WRITER_INSTR": RATING_RULE,

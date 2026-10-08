@@ -108,7 +108,7 @@ export function formatRatingLearning(state: Record<string, unknown>): string {
     case "applied":
       return `On: learned from ${l.ratings} ratings`
     case "not_enough":
-      return `On: not enough ratings yet (${l.ratings})`
+      return `On: not enough ratings yet (${l.ratings}${l.min === null ? "" : ` of ${l.min}`})`
     case "unavailable":
       return "On: ratings unavailable"
     default:

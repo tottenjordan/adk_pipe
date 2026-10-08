@@ -294,8 +294,8 @@ VISUAL_CRITIC_BRIEF_RULE = CREATIVE_BRIEF_CONTRACT_CORE + BRIEF_FALLBACK_CAMPAIG
 
 BRIEF_BLOCK = "<CREATIVE_BRIEF>{creative_brief_md?}</CREATIVE_BRIEF>"
 
-# Opt-in rating learning (creative_agent/rating_signals.py): the ≤80-word,
-# allowlisted note from the brand's human ratings. Read by the brief writer, the
+# Opt-in rating learning (creative_agent/rating_signals.py): the ≤80-word
+# (≤110 with the "Stricter limits for this run:" tail), allowlisted note from the brand's human ratings. Read by the brief writer, the
 # ad copy drafter and the art director only; absent/empty unless the run opted in.
 _RATING_SIGNALS_LEAD = (
     "**Team ratings:** when <rating_signals> is non-empty, use it as evidence from "
@@ -305,14 +305,15 @@ _RATING_SIGNALS_TAIL = " If it is empty, ignore it."
 RATING_SIGNALS_RULE = (
     _RATING_SIGNALS_LEAD
     + "Treat rated-well styles and tones as strong options and avoid the listed "
-    "failure causes; never mention ratings in the creative." + _RATING_SIGNALS_TAIL
+    "failure causes; follow any stricter limits it lists; never mention ratings "
+    "in the creative." + _RATING_SIGNALS_TAIL
 )
 # The ad copy drafter's variant: visual styles are not its concern.
 COPY_RATING_SIGNALS_RULE = (
     _RATING_SIGNALS_LEAD
     + "Treat rated-well copy tones as strong options and avoid the listed failure "
-    "causes; ignore the visual styles it lists; never mention ratings in the "
-    "creative." + _RATING_SIGNALS_TAIL
+    "causes; ignore the visual styles it lists; follow any stricter limits it "
+    "lists; never mention ratings in the creative." + _RATING_SIGNALS_TAIL
 )
 RATING_SIGNALS_BLOCK = """<rating_signals>{rating_signals?}</rating_signals>"""
 

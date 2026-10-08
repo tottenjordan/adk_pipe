@@ -214,6 +214,66 @@ class TestFormat:
         assert text.endswith("avoid these failure causes.")
 
 
+class TestStrictnessLimits:
+    LINES = {
+        "weak_cta": "Calls to action: 6 words or fewer.",
+        "text_problem": "In-image text: at most 1 of the 4 concepts.",
+        "product_not_visible": "Show the product large and in the foreground.",
+        "trend_unclear": "Make the trend motif clearly visible.",
+        "unwanted_logo": "No logos or brand marks except the campaign brand's.",
+        "off_brief": (
+            "Every copy must clearly use a reason to believe and the trend bridge."
+        ),
+    }
+
+    @pytest.mark.parametrize("flag", list(LINES))
+    def test_each_flag_adds_its_limit_line(self, flag):
+        s = rs.aggregate_ratings(ROWS, style_min=3, reason_min=3)
+        text = rs.format_rating_signals(s, "PRS", strictness=[flag])
+        assert text.endswith(" Stricter limits for this run: " + self.LINES[flag])
+        for other, line in self.LINES.items():
+            if other != flag:
+                assert line not in text
+        assert "{" not in text and "}" not in text
+
+    def test_no_flags_no_limits(self):
+        s = rs.aggregate_ratings(ROWS, style_min=3, reason_min=3)
+        plain = rs.format_rating_signals(s, "PRS")
+        assert "Stricter limits" not in plain
+        assert rs.format_rating_signals(s, "PRS", strictness=[]) == plain
+        # Unknown / guidance-only reasons never add a limit.
+        assert (
+            rs.format_rating_signals(s, "PRS", strictness=["cluttered", "bogus"])
+            == plain
+        )
+
+    def test_limits_follow_the_fixed_order(self):
+        assert rs.strictness_limits(["off_brief", "weak_cta"]) == (
+            "Stricter limits for this run: "
+            + self.LINES["weak_cta"]
+            + " "
+            + self.LINES["off_brief"]
+        )
+        assert rs.strictness_limits([]) == ""
+
+    def test_word_cap_with_every_limit(self):
+        s = {
+            "ratings": 50,
+            "styles_preferred": list(rs.ALL_FAMILIES[:8]),
+            "styles_excluded": list(rs.ALL_FAMILIES[8:]),
+            "tones_preferred": sorted(rs.ALLOWED_TONES),
+            "fail_reasons": dict.fromkeys(rs.FAIL_REASONS, 5),
+        }
+        flags = list(rs.STRICTNESS_REASONS)
+        text = rs.format_rating_signals(
+            s, "A very long brand name indeed", strictness=flags
+        )
+        assert len(text.split()) <= rs.MAX_WORDS_WITH_LIMITS == 110
+        # The limits are never truncated; the ratings note gives way.
+        assert text.endswith(rs.strictness_limits(flags))
+        assert "avoid these failure causes." in text
+
+
 class TestQuery:
     def test_parameterised_and_never_reads_the_note(self):
         sql, params = rs.build_ratings_query("p.d.creative_ratings", "PRS", 90)
@@ -287,3 +347,9 @@ class TestQuery:
 )
 def test_strictness_flags_keep_only_known_flags(value, expected):
     assert rs.strictness_flags(value) == expected
+
+
+def test_every_strictness_reason_has_a_limit_line():
+    assert set(rs.STRICTNESS_LIMITS) == set(rs.STRICTNESS_REASONS)
+    for line in rs.STRICTNESS_LIMITS.values():
+        assert "{" not in line and "}" not in line

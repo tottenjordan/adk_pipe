@@ -45,7 +45,7 @@ export const STRICTNESS_LABELS: Readonly<Partial<Record<FailReason, string>>> = 
   text_problem: "in-image text on 1 concept",
   unwanted_logo: "no other brands' logos",
   weak_cta: "calls to action of 6 words or fewer",
-  off_brief: "every brief-message check must pass",
+  off_brief: "reason to believe and trend bridge must pass",
   trend_unclear: "clearly visible trend motif",
 };
 

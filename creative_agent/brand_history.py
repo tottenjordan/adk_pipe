@@ -386,21 +386,28 @@ def _rating_delta(
     )
     n = signals["ratings"]
     if n < config.rating_learning_min_ratings:
-        applied = {"ratings": n, "applied": False, "reason": "not_enough_ratings"}
+        applied = {
+            "ratings": n,
+            "applied": False,
+            "reason": "not_enough_ratings",
+            "min": config.rating_learning_min_ratings,
+        }
         return {"rating_signals_applied": applied}, [], []
     effects = config.rating_learning_effects & RATING_LEARNING_EFFECTS
     if not effects:  # never "applied" with nothing applied
         applied = {"ratings": n, "applied": False, "reason": "no_effects"}
         return {"rating_signals_applied": applied}, [], []
     # A user style preference wins: the note names no style families then.
+    strictness = list(signals["strictness"]) if "checks" in effects else []
+    # The note also lists the stricter limits (checks on) so the generators
+    # know them up front; without guidance there is no note to carry them.
     note = (
         rating_signals.format_rating_signals(
-            signals, brand, include_styles=not keep_shortlist
+            signals, brand, include_styles=not keep_shortlist, strictness=strictness
         )
         if "guidance" in effects
         else ""
     )
-    strictness = list(signals["strictness"]) if "checks" in effects else []
     steer = "styles" in effects and not keep_shortlist
     excluded = list(signals["styles_excluded"]) if steer else []
     preferred = list(signals["styles_preferred"]) if steer else []

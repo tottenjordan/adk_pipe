@@ -47,7 +47,11 @@ describe("describeRatingLearning", () => {
     expect(describeRatingLearning(state({ ratings: 3, applied: false, reason: "not_enough_ratings" }))).toEqual({
       status: "not_enough",
       ratings: 3,
+      min: null,
     });
+    expect(
+      describeRatingLearning(state({ ratings: 3, applied: false, reason: "not_enough_ratings", min: 8 })),
+    ).toEqual({ status: "not_enough", ratings: 3, min: 8 });
     expect(describeRatingLearning(state({ applied: false, reason: "unavailable" }))).toEqual({
       status: "unavailable",
     });
@@ -74,7 +78,16 @@ describe("learningSummaryText", () => {
     ).toBe("Learned from 1 team rating: guidance for the brief, copy and art direction.");
   });
 
-  it("says when there are not enough ratings yet", () => {
+  it("shows progress towards the minimum", () => {
+    expect(
+      learningSummaryText({
+        learn_from_ratings: true,
+        rating_signals_applied: { ratings: 3, applied: false, reason: "not_enough_ratings", min: 8 },
+      }),
+    ).toBe("Not enough ratings yet (3 of 8).");
+  });
+
+  it("says when there are not enough ratings yet (older sessions without a min)", () => {
     expect(
       learningSummaryText({
         learn_from_ratings: true,
@@ -109,15 +122,21 @@ describe("<LearningSummary>", () => {
       <LearningSummary
         state={{
           learn_from_ratings: true,
-          rating_signals_applied: { ratings: 3, applied: false, reason: "not_enough_ratings" },
+          rating_signals_applied: { ratings: 3, applied: false, reason: "not_enough_ratings", min: 8 },
         }}
       />,
     );
-    expect(screen.getByText("Not enough ratings yet (3).")).toBeTruthy();
+    expect(screen.getByText("Not enough ratings yet (3 of 8).")).toBeTruthy();
   });
 
   it("renders nothing when learning is off", () => {
     const { container } = render(<LearningSummary state={{ brand: "PRS" }} />);
     expect(container.innerHTML).toBe("");
+  });
+});
+
+describe("STRICTNESS_LABELS", () => {
+  it("names what off_brief tightens", () => {
+    expect(STRICTNESS_LABELS.off_brief).toBe("reason to believe and trend bridge must pass");
   });
 });

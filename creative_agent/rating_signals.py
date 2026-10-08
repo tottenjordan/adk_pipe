@@ -104,6 +104,20 @@ EXCLUDE_RATE = 0.34
 DOMINANT_SHARE = 0.30
 TOP_N = 3
 MAX_WORDS = 80
+# With strictness flags the note ends with the run's stricter limits in plain
+# words (generators learn the tighter checks up front). The limits are never
+# truncated; the ratings part gives way so the whole note stays ≤ this.
+MAX_WORDS_WITH_LIMITS = 110
+LIMITS_LEAD = "Stricter limits for this run:"
+# Brace-free, one plain sentence per check-backed flag (STRICTNESS_REASONS order).
+STRICTNESS_LIMITS: dict[str, str] = {
+    "product_not_visible": "Show the product large and in the foreground.",
+    "text_problem": "In-image text: at most 1 of the 4 concepts.",
+    "unwanted_logo": "No logos or brand marks except the campaign brand's.",
+    "weak_cta": "Calls to action: 6 words or fewer.",
+    "off_brief": "Every copy must clearly use a reason to believe and the trend bridge.",
+    "trend_unclear": "Make the trend motif clearly visible.",
+}
 
 __all__ = [
     "ALL_FAMILIES",
@@ -116,6 +130,7 @@ __all__ = [
     "fetch_ratings",
     "format_rating_signals",
     "strictness_flags",
+    "strictness_limits",
 ]
 
 
@@ -286,10 +301,31 @@ def _join(items: Iterable[str]) -> str:
     return ", ".join(items)
 
 
+def strictness_limits(strictness: Iterable[str]) -> str:
+    """The run's stricter limits as one brace-free sentence group (pure).
+
+    ``LIMITS_LEAD`` + one ``STRICTNESS_LIMITS`` line per known flag, in
+    ``STRICTNESS_REASONS`` order; ``""`` without a known flag.
+    """
+    flags = strictness_flags(list(strictness))
+    if not flags:
+        return ""
+    return " ".join([LIMITS_LEAD, *(STRICTNESS_LIMITS[f] for f in flags)])
+
+
 def format_rating_signals(
-    signals: Mapping[str, Any], brand: str, *, include_styles: bool = True
+    signals: Mapping[str, Any],
+    brand: str,
+    *,
+    include_styles: bool = True,
+    strictness: Iterable[str] = (),
 ) -> str:
     """The ratings as one short, brace-free note; ``""`` without ratings.
+
+    ``strictness`` (the run's applied ``rating_strictness`` flags, only when
+    the "checks" effect is on) appends ``strictness_limits``: the ratings part
+    is ≤ ``MAX_WORDS`` words and shrinks so the whole note stays ≤
+    ``MAX_WORDS_WITH_LIMITS``; the limits themselves are never cut.
 
     Only canonical style families, allowlisted tones and the fail-reason labels
     are rendered (a handcrafted dict is filtered the same way); ``other`` is
@@ -332,8 +368,10 @@ def format_rating_signals(
     head = f"Your team's ratings for {brace_free(brand) or 'this brand'} ({ratings}): "
     tail = " Favour what was rated well and avoid these failure causes."
     body = "; ".join(parts) + "."
-    budget = MAX_WORDS - len(head.split()) - len(tail.split())
+    limits = strictness_limits(strictness)
+    cap = min(MAX_WORDS, MAX_WORDS_WITH_LIMITS - len(limits.split()))
+    budget = cap - len(head.split()) - len(tail.split())
     words = body.split()
     if len(words) > budget:
         body = " ".join(words[: budget - 1]).rstrip(",;.") + " …"
-    return head + body + tail
+    return head + body + tail + (" " + limits if limits else "")

@@ -132,6 +132,12 @@ describe("rating learning field", () => {
       }),
     ).toBe("On: ratings unavailable");
     expect(
+      formatRatingLearning({
+        learn_from_ratings: true,
+        rating_signals_applied: { ratings: 3, applied: false, reason: "not_enough_ratings", min: 8 },
+      }),
+    ).toBe("On: not enough ratings yet (3 of 8)");
+    expect(
       buildDisplayFields({ learn_from_ratings: true }, [RATING_LEARNING_FIELD]),
     ).toEqual([{ label: "Learn from ratings", key: "learn_from_ratings", value: "On" }]);
   });
