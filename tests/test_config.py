@@ -386,8 +386,16 @@ class TestRatingLearningKnobs:
         assert parse_rating_learning_effects(None) == frozenset(
             {"guidance", "styles", "checks"}
         )
-        # Explicitly empty = every effect off (the per-effect kill switch).
-        assert parse_rating_learning_effects("") == frozenset()
+
+    def test_blank_or_unknown_effects_fall_back_to_default(self, caplog):
+        from creative_agent.config import parse_rating_learning_effects
+
+        everything = frozenset({"guidance", "styles", "checks"})
+        # Turning learning off is RATING_LEARNING_ENABLED's job, not this knob's.
+        for raw in ("", "  ", "bogus, nope", ","):
+            caplog.clear()
+            assert parse_rating_learning_effects(raw) == everything, raw
+            assert "RATING_LEARNING_EFFECTS" in caplog.text, raw
 
     def test_clamping(self, monkeypatch):
         from creative_agent.config import ResearchConfiguration

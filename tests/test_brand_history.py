@@ -587,8 +587,11 @@ class TestRatingLearning:
         d = _delta({"brand": "PRS", "learn_from_ratings": True})
         assert "rating_signals" not in d and "rating_strictness" not in d
         assert "style_shortlist" not in d
-        assert d["rating_signals_applied"]["applied"] is True
-        assert d["rating_signals_applied"]["effects"] == []
+        assert d["rating_signals_applied"] == {
+            "ratings": 20,
+            "applied": False,
+            "reason": "no_effects",
+        }
 
         monkeypatch.setattr(bh.config, "rating_learning_effects", frozenset({"checks"}))
         d = _delta({"brand": "PRS", "learn_from_ratings": True})
@@ -620,6 +623,11 @@ class TestRatingLearning:
         assert "style_shortlist" not in d
         applied = d["rating_signals_applied"]
         assert applied["styles_excluded"] == [] and applied["styles_preferred"] == []
+        # The user's style preference wins: the note names no styles either.
+        note = d["rating_signals"]
+        assert "Candid 35mm film photo" not in note
+        assert "Isometric miniature world" not in note
+        assert "Humorous copy" in note and "product hard to see (6)" in note
 
     def test_runs_with_brand_history_disabled(self, monkeypatch):
         self._ratings(monkeypatch, self.rows * 2)

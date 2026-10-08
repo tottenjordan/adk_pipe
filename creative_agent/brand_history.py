@@ -36,7 +36,7 @@ from creative_eval.dimensions import (
 )
 
 from . import rating_signals
-from .config import config
+from .config import RATING_LEARNING_EFFECTS, config
 from .prompt_safe import ALLOWED_TONES
 from .prompt_safe import brace_free as _clean
 from .prompt_safe import normalize_brand as normalize_brand  # re-export (facade)
@@ -388,9 +388,15 @@ def _rating_delta(
     if n < config.rating_learning_min_ratings:
         applied = {"ratings": n, "applied": False, "reason": "not_enough_ratings"}
         return {"rating_signals_applied": applied}, [], []
-    effects = config.rating_learning_effects
+    effects = config.rating_learning_effects & RATING_LEARNING_EFFECTS
+    if not effects:  # never "applied" with nothing applied
+        applied = {"ratings": n, "applied": False, "reason": "no_effects"}
+        return {"rating_signals_applied": applied}, [], []
+    # A user style preference wins: the note names no style families then.
     note = (
-        rating_signals.format_rating_signals(signals, brand)
+        rating_signals.format_rating_signals(
+            signals, brand, include_styles=not keep_shortlist
+        )
         if "guidance" in effects
         else ""
     )

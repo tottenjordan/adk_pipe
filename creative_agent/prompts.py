@@ -297,11 +297,22 @@ BRIEF_BLOCK = "<CREATIVE_BRIEF>{creative_brief_md?}</CREATIVE_BRIEF>"
 # Opt-in rating learning (creative_agent/rating_signals.py): the ≤80-word,
 # allowlisted note from the brand's human ratings. Read by the brief writer, the
 # ad copy drafter and the art director only; absent/empty unless the run opted in.
-RATING_SIGNALS_RULE = (
+_RATING_SIGNALS_LEAD = (
     "**Team ratings:** when <rating_signals> is non-empty, use it as evidence from "
-    "your team's ratings of earlier creatives for this brand. Treat rated-well "
-    "styles, tones and angles as strong options and avoid the listed failure "
-    "causes; never mention ratings in the creative. If it is empty, ignore it."
+    "your team's ratings of earlier creatives for this brand. "
+)
+_RATING_SIGNALS_TAIL = " If it is empty, ignore it."
+RATING_SIGNALS_RULE = (
+    _RATING_SIGNALS_LEAD
+    + "Treat rated-well styles and tones as strong options and avoid the listed "
+    "failure causes; never mention ratings in the creative." + _RATING_SIGNALS_TAIL
+)
+# The ad copy drafter's variant: visual styles are not its concern.
+COPY_RATING_SIGNALS_RULE = (
+    _RATING_SIGNALS_LEAD
+    + "Treat rated-well copy tones as strong options and avoid the listed failure "
+    "causes; ignore the visual styles it lists; never mention ratings in the "
+    "creative." + _RATING_SIGNALS_TAIL
 )
 RATING_SIGNALS_BLOCK = """<rating_signals>{rating_signals?}</rating_signals>"""
 
@@ -399,7 +410,7 @@ AD_COPY_DRAFTER_INSTR = (
     4.  **Enforce Tone Diversity:** To ensure variety, the 10 ideas must collectively cover at least 4 of the following creative tones/styles: **Humorous, Aspirational, Problem/Solution, Emotional/Authentic, Educational/Informative, Relatable/Meme-based.**
     5.  **Strict Output Format:** Ensure the entire output is a single JSON object containing all 10 ideas, formatted exactly as specified in the <OUTPUT_FORMAT> block.
     6.  """
-    + RATING_SIGNALS_RULE
+    + COPY_RATING_SIGNALS_RULE
     + """
     </INSTRUCTIONS>
 

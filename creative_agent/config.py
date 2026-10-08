@@ -143,12 +143,23 @@ def parse_rating_learning_effects(raw: str | None) -> frozenset[str]:
     """``RATING_LEARNING_EFFECTS`` → the enabled effects.
 
     Comma-separated subset of guidance/styles/checks (case-insensitive; unknown
-    items ignored). Unset → all three; an explicitly empty value → none.
+    items ignored). Unset, blank or only-unknown values → all three (with a
+    warning for the latter two): turning learning off is the job of the
+    ``RATING_LEARNING_ENABLED`` kill switch, not of this knob.
     """
     if raw is None:
         return RATING_LEARNING_EFFECTS
     items = {item.strip().lower() for item in raw.split(",")}
-    return frozenset(items & RATING_LEARNING_EFFECTS)
+    effects = frozenset(items & RATING_LEARNING_EFFECTS)
+    if not effects:
+        logger.warning(
+            "RATING_LEARNING_EFFECTS=%r names no known effect; using all of %s "
+            "(set RATING_LEARNING_ENABLED=false to turn rating learning off)",
+            raw,
+            ",".join(sorted(RATING_LEARNING_EFFECTS)),
+        )
+        return RATING_LEARNING_EFFECTS
+    return effects
 
 
 def parse_rating_learning_min_ratings(raw: str | None) -> int:

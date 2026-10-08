@@ -163,6 +163,13 @@ class TestFormat:
         assert "{" not in text and "}" not in text
         assert len(text.split()) <= 80
 
+    def test_style_lists_can_be_omitted(self):
+        s = rs.aggregate_ratings(ROWS, style_min=3, reason_min=3)
+        text = rs.format_rating_signals(s, "PRS", include_styles=False)
+        assert "visuals" not in text
+        assert "rated well: Humorous copy" in text
+        assert "common fail reasons: product hard to see (3)" in text
+
     def test_guidance_only_reasons_appear_in_the_note(self):
         rows = [
             {"kind": "visual", "verdict": "fail", "fail_reasons": ["cluttered"]}
@@ -222,7 +229,9 @@ class TestQuery:
         ]
         assert "note" not in columns.group(1).lower()
         assert "PRS" not in sql and "prs" not in sql
-        assert "@brand" in sql and "@days" in sql and "LIMIT 500" in sql
+        assert "@days" in sql and "LIMIT 500" in sql
+        # Robust to rows stamped before/without normalisation.
+        assert "WHERE LOWER(TRIM(brand)) = @brand" in sql
         by_name = {p.name: p.value for p in params}
         # Rows store the normalised brand (normalize_brand), so the param is too.
         assert by_name == {"brand": "prs", "days": 90}

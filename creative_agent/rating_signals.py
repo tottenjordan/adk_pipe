@@ -129,14 +129,14 @@ def build_ratings_query(
     """The parameterised SELECT for a brand's recent ratings (pure).
 
     Only allowlisted columns are read — never ``note`` or the judge/user
-    fields. Rows store the normalised brand (``normalize_brand``, stamped by
-    the api), so the bound ``@brand`` is normalised the same way; ``table``
-    comes from config, not user input.
+    fields. The bound ``@brand`` is ``normalize_brand``'d and compared with
+    ``LOWER(TRIM(brand))``, so rows match even if a stored brand was not
+    normalised; ``table`` comes from config, not user input.
     """
     sql = f"""
         SELECT kind, verdict, visual_style, tone_style, fail_reasons
         FROM `{table}`
-        WHERE brand = @brand
+        WHERE LOWER(TRIM(brand)) = @brand
           AND updated_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL @days DAY)
         ORDER BY updated_at DESC
         LIMIT {MAX_ROWS}
@@ -272,18 +272,24 @@ def _join(items: Iterable[str]) -> str:
     return ", ".join(items)
 
 
-def format_rating_signals(signals: Mapping[str, Any], brand: str) -> str:
+def format_rating_signals(
+    signals: Mapping[str, Any], brand: str, *, include_styles: bool = True
+) -> str:
     """The ratings as one short, brace-free note; ``""`` without ratings.
 
     Only canonical style families, allowlisted tones and the fail-reason labels
     are rendered (a handcrafted dict is filtered the same way); ``other`` is
     never named. Fail reasons need ``reason_min`` fails (default 1 when absent).
+    ``include_styles=False`` (the user set a style preference, which wins)
+    leaves the style families out.
     """
     ratings = int(signals.get("ratings") or 0) if signals else 0
     if ratings <= 0:
         return ""
     preferred = _styles(signals.get("styles_preferred") or [])[:TOP_N]
     excluded = _styles(signals.get("styles_excluded") or [])[:TOP_N]
+    if not include_styles:
+        preferred, excluded = [], []
     tones = [t for t in signals.get("tones_preferred") or [] if t in ALLOWED_TONES]
     reason_min = int(signals.get("reason_min") or 1)
     raw_reasons = signals.get("fail_reasons") or {}
