@@ -977,7 +977,7 @@ class TestUnreportedGatesWarning:
         raw = [GateResult(gate="product_visible", passed=True)]
         gates = normalize_gates(raw, VISUAL_GATES, brief_used=True)
         assert all(g.passed for g in gates)
-        assert sum(g.note == NOT_REPORTED_NOTE for g in gates) == 4
+        assert sum(g.note == NOT_REPORTED_NOTE for g in gates) == len(VISUAL_GATES) - 1
 
     def test_warning_counts_not_checked_gates(self):
         from creative_eval.evaluate import NOT_REPORTED_NOTE, unreported_gates_warning
@@ -1271,3 +1271,47 @@ def test_judge_brief_unwraps_bracketed_terms():
     )
     assert "- wrestler likenesses" in block
     assert "[wrestler likenesses]" not in block
+
+
+# --- rater-failure gates (2026-10-08 audit: judge passed 16/16, rater failed 8) ---
+
+
+class TestNoVisualDefectsGate:
+    def test_is_a_blocking_visual_gate(self):
+        from creative_eval.dimensions import GATE_LABELS
+
+        assert "no_visual_defects" in VISUAL_GATES
+        assert "no_visual_defects" not in ADVISORY_GATES
+        assert "no_visual_defects" not in BRIEF_GATES
+        assert GATE_LABELS["no_visual_defects"] == "No visual defects"
+
+    def test_prompt_describes_it_as_a_violation_check(self):
+        text = eval_prompts.VISUAL_CONCEPT_EVAL_USER
+        assert "**no_visual_defects**" in text
+        assert "not mirrored, duplicated, melted or merged" in text
+        assert "ignore deliberate stylisation" in text
+        rule = next(
+            line for line in text.splitlines() if line.startswith("Violation checks")
+        )
+        assert "no_visual_defects" in rule
+
+    def test_failed_defect_gate_blocks(self):
+        from creative_eval.evaluate import evaluate_visual_concept
+
+        gates = dict.fromkeys(VISUAL_GATES, True) | {"no_visual_defects": False}
+        client = _client(_judge_json("visual", gates))
+        result = evaluate_visual_concept(
+            CONCEPT, CAMPAIGN, EvalConfig(), client=client, brief=BRIEF
+        )
+        assert not result.score.gates_passed and not result.score.passed
+
+
+class TestGateCounts:
+    def test_prompt_counts_match_gate_tuples(self):
+        assert (
+            f"Return all {len(AD_COPY_GATES)} gates" in eval_prompts.AD_COPY_EVAL_USER
+        )
+        assert (
+            f"Return all {len(VISUAL_GATES)} gates"
+            in eval_prompts.VISUAL_CONCEPT_EVAL_USER
+        )

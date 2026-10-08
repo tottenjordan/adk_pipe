@@ -39,6 +39,7 @@ VISUAL_GATES: tuple[str, ...] = (
     "text_correct",
     "brand_cue_present",
     "avoid_respected",
+    "no_visual_defects",
 )
 # Recorded but never part of gates_passed (mirrors image QA, where a missing
 # brand cue never fails an image).
@@ -70,6 +71,7 @@ GATE_LABELS: dict[str, str] = {
     "trend_motif_visible": "Trend motif visible",
     "text_correct": "In-image text correct",
     "brand_cue_present": "Brand cue present",
+    "no_visual_defects": "No visual defects",
     # Judge skipped every check
     NO_GATES_GATE: "Checks reported",
 }

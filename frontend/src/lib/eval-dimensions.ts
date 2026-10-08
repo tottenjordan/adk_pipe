@@ -37,6 +37,7 @@ export const GATE_LABELS: Readonly<Record<string, string>> = {
   trend_motif_visible: "Trend motif visible",
   text_correct: "In-image text correct",
   brand_cue_present: "Brand cue present",
+  no_visual_defects: "No visual defects",
   // The judge skipped every check (one failed entry; mirrors creative_eval)
   gates_reported: "Checks reported",
 };
