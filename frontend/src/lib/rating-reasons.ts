@@ -34,6 +34,21 @@ export const FAIL_REASON_LABELS: Readonly<Record<FailReason, string>> = {
   other: "Other",
 };
 
+/**
+ * Fail reasons with a deterministic tightening behind them (rating strictness),
+ * labelled by the tightening a learned run applies. Keys mirror
+ * `creative_agent/rating_signals.py` `STRICTNESS_REASONS` (drift-tested by
+ * `tests/test_rating_reasons_drift.py`).
+ */
+export const STRICTNESS_LABELS: Readonly<Partial<Record<FailReason, string>>> = {
+  product_not_visible: "prominent product",
+  text_problem: "in-image text on 1 concept",
+  unwanted_logo: "no other brands' logos",
+  weak_cta: "calls to action of 6 words or fewer",
+  off_brief: "every brief-message check must pass",
+  trend_unclear: "clearly visible trend motif",
+};
+
 // Reasons that only make sense for the other kind (the API accepts any enum value).
 const VISUAL_ONLY: ReadonlySet<FailReason> = new Set([
   "product_not_visible",

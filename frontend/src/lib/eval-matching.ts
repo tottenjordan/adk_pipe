@@ -66,6 +66,10 @@ export interface EvalReport {
   passing_threshold?: number;
   /** True when the judge saw the structured creative brief. */
   brief_used?: boolean;
+  /** True when opt-in rating-driven learning steered this run (absent on older reports). */
+  learning_used?: boolean;
+  /** What learning changed: "guidance", "styles" and each rating strictness flag. */
+  learning_flags?: string[];
   summary: {
     total_ad_copies: number;
     ad_copies_passed: number;

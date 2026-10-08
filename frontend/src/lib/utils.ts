@@ -1,5 +1,6 @@
 import { clsx, type ClassValue } from "clsx"
 import { twMerge } from "tailwind-merge"
+import { describeRatingLearning } from "@/lib/rating-learning"
 import { formatReferenceImages } from "@/lib/reference-images"
 
 export function cn(...inputs: ClassValue[]) {
@@ -96,18 +97,23 @@ export const VISUAL_DIRECTION_FIELDS: DisplayFieldDef[] = [
 /**
  * The run's rating-learning status for the metadata display: `""` (hidden)
  * unless the run opted in (`learn_from_ratings`), else "On" plus what the
- * learning step recorded in `rating_signals_applied`.
+ * learning step recorded in `rating_signals_applied` (shared parsing with the
+ * outputs' `LearningSummary`, which shows what was learned in full).
  */
 export function formatRatingLearning(state: Record<string, unknown>): string {
-  if (state.learn_from_ratings !== true) return ""
-  const applied = state.rating_signals_applied
-  if (!applied || typeof applied !== "object") return "On"
-  const { ratings, applied: used, reason } = applied as Record<string, unknown>
-  const n = typeof ratings === "number" ? ratings : 0
-  if (used === true) return `On: learned from ${n} ratings`
-  if (reason === "not_enough_ratings") return `On: not enough ratings yet (${n})`
-  if (reason === "unavailable") return "On: ratings unavailable"
-  return "On"
+  const l = describeRatingLearning(state)
+  switch (l.status) {
+    case "off":
+      return ""
+    case "applied":
+      return `On: learned from ${l.ratings} ratings`
+    case "not_enough":
+      return `On: not enough ratings yet (${l.ratings})`
+    case "unavailable":
+      return "On: ratings unavailable"
+    default:
+      return "On"
+  }
 }
 
 /** Campaign-metadata row for the per-run "learn from past ratings" opt-in. */

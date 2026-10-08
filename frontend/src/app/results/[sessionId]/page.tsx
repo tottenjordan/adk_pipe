@@ -8,6 +8,7 @@ import { getSession, listArtifacts, getArtifact, SELF_USER_ID } from "@/lib/api"
 import { fetchEvalReport } from "@/lib/eval-report";
 import { gcsProxyUrl } from "@/lib/gcs";
 import { classifyWarnings } from "@/lib/run-warnings";
+import { LearningSummary } from "@/components/learning-summary";
 import {
   buildDisplayFields,
   imagesRetryExhausted,
@@ -254,6 +255,8 @@ export default function ResultsPage({
         stoppedBefore={stopped?.stage ?? null}
         runUrl={runUrl}
       />
+
+      <LearningSummary state={state} className="mb-4" />
 
       {hasCreativeView && (
         <>

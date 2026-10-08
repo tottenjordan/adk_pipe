@@ -47,3 +47,14 @@ def test_per_kind_lists_match_frontend():
         "ad_copy": tuple(r for r in FAIL_REASONS if r not in visual_only),
     }
     assert ts_by_kind == FAIL_REASONS_BY_KIND
+
+
+def test_strictness_labels_match_the_agent_strictness_reasons():
+    """frontend STRICTNESS_LABELS keys = creative_agent STRICTNESS_REASONS
+    (the check-backed reasons a learned run can tighten), in order."""
+    from creative_agent.rating_signals import STRICTNESS_REASONS
+
+    keys = re.findall(
+        r'^\s*(\w+):\s*"[^"]+",?\s*$', _block("STRICTNESS_LABELS", r"\};"), re.M
+    )
+    assert tuple(keys) == STRICTNESS_REASONS
