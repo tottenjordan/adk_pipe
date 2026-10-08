@@ -11,9 +11,10 @@ revision as ``creative_brief__issues`` (surfaced by
 import copy
 import json
 import re
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Any
 
+from .claims import claims_allowed_text, unsupported_claims
 from .text_match import contains_phrase, mentions, words
 
 MISSING_BRIEF_ISSUE = "brief missing or unparseable"
@@ -216,6 +217,7 @@ def check_brief(
     target_product: str = "",
     trend: str = "",
     sources: Mapping[str, Any] | None = None,
+    key_selling_points: str | Sequence[str] = "",
 ) -> list[str]:
     """Return the brief's rule violations as actionable issue strings ([] = clean).
 
@@ -232,7 +234,11 @@ def check_brief(
     normalised first (see ``_normalise_source_ids``). With a ``target_product``,
     some mandatory must name it exactly (whole words) or mention it per
     ``text_match.mentions`` (brand + model tokens count), so the writer cannot
-    narrow it to a variant the user never gave. Never raises: malformed
+    narrow it to a variant the user never gave. The proposition and the
+    reasons-to-believe claims may not carry an absolute claim
+    (``claims.ABSOLUTE_CLAIM_TERMS``: "guaranteed", "indestructible", ...)
+    unless ``key_selling_points`` (the user's, a string or list) or the
+    brief's mandatories state it. Never raises: malformed
     fields are reported as issues.
     """
     data = parse_brief(brief)
@@ -372,6 +378,15 @@ def check_brief(
 
     product = target_product.strip()
     mandatories = [_text(m) for m in _as_list(data.get("mandatories")) if _text(m)]
+    claim_text = "\n".join([proposition, *(_text(r.get("claim")) for r in rtbs)])
+    if claims := unsupported_claims(
+        claim_text,
+        allowed_text=claims_allowed_text(key_selling_points, mandatories),
+    ):
+        issues.append(
+            f"Remove unsupported absolute claims ({', '.join(claims)}) unless the "
+            "user's selling points state them."
+        )
     if product and not any(
         contains_phrase(m, product) or mentions(m, product, brand=brand)
         for m in mandatories

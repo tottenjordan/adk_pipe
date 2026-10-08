@@ -1947,6 +1947,33 @@ def test_copy_gate_decision_reads_the_brief_avoid_list():
     assert copy_gate_decision(state, 1)[0] == "ok"
 
 
+def test_copy_gate_decision_allows_claims_from_selling_points_and_mandatories():
+    from creative_agent.agent import copy_gate_decision
+
+    copy = _final_copy(1, body_text="Rocket Skates with a lifetime warranty.")
+    route, delta = copy_gate_decision(_copy_state(copy), 1)
+    assert route == "revise"
+    assert "unsupported absolute claim (lifetime)" in delta["ad_copy_issues"]
+    for points in ("Lifetime warranty", ["Fast", "Lifetime warranty"]):
+        state = _copy_state(copy, key_selling_points=points)
+        assert copy_gate_decision(state, 1)[0] == "ok"
+    brief = {**_clean_brief(), "mandatories": ["mention the lifetime warranty"]}
+    assert copy_gate_decision(_copy_state(copy, creative_brief=brief), 1)[0] == "ok"
+
+
+def test_brief_gate_allows_claims_from_selling_points():
+    from creative_agent.agent import brief_gate_decision
+
+    brief = {
+        **_clean_brief(),
+        "single_minded_proposition": "Rocket Skates come with a lifetime warranty.",
+    }
+    route, delta = brief_gate_decision({"creative_brief": brief}, 1)
+    assert route == "revise" and "absolute claims (lifetime)" in delta["brief_issues"]
+    state = {"creative_brief": brief, "key_selling_points": "Lifetime warranty"}
+    assert brief_gate_decision(state, 1)[0] == "ok"
+
+
 def test_copy_gate_decision_records_structural_issues_without_revising():
     """Too few copies / an incomplete gating checklist are recorded on the ok
     exit but never route a revision (the per-copy reviser cannot fix them)."""

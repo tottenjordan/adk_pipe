@@ -5,7 +5,8 @@ policy (each needless revision costs a worker LLM call, latency and possibly a
 user-visible warning, so false positives are kept low):
 
 * **deterministic** issues — the rules the ``FinalAdCopyList`` output schema
-  cannot express (product named, CTA, lengths, the brief's avoid terms) — gate
+  cannot express (product named, CTA, lengths, the brief's avoid terms,
+  unsupported absolute claims such as "guaranteed" / "indestructible") — gate
   a revision AND, if they survive it, are recorded as residual issues;
 * **self_reported** issues — the critic's own failed ``brief_checks`` — gate a
   revision only for ``proposition`` and ``mandatories`` (the brief's hard
@@ -53,6 +54,7 @@ from dataclasses import dataclass
 from typing import Any, Literal
 
 from .brief_check import clean_term, parse_brief
+from .claims import unsupported_claims
 from .text_match import PACKAGING_WORDS, contains_phrase, fold, same_word, words
 
 MAX_HEADLINE_CHARS = 60
@@ -387,6 +389,7 @@ def _deterministic_issues(
     avoid: list[str],
     brand: str,
     max_cta: int = MAX_CTA_WORDS,
+    allowed_claims_text: str = "",
 ) -> list[str]:
     issues: list[str] = []
     copy_text = " ".join(_text(copy.get(f)) for f in _COPY_FIELDS)
@@ -423,6 +426,13 @@ def _deterministic_issues(
         issues.append(
             f"social_caption is {len(caption)} characters: shorten it to at most "
             f"{MAX_CAPTION_CHARS} characters."
+        )
+
+    if claims := unsupported_claims(copy_text, allowed_text=allowed_claims_text):
+        issues.append(
+            f"unsupported absolute claim ({', '.join(claims)}): remove it or "
+            "state a verifiable benefit instead, unless the user's selling "
+            "points state it."
         )
 
     for term in avoid:
@@ -462,6 +472,7 @@ def _check_copy(
     avoid: list[str],
     brand: str,
     strictness: Sequence[str] = (),
+    allowed_claims_text: str = "",
 ) -> list[CopyIssue]:
     deterministic = _deterministic_issues(
         copy,
@@ -469,6 +480,7 @@ def _check_copy(
         avoid=avoid,
         brand=brand,
         max_cta=max_cta_words(strictness),
+        allowed_claims_text=allowed_claims_text,
     )
     self_reported = _self_reported_issues(copy, gating_brief_checks(strictness))
     return [CopyIssue("deterministic", text) for text in deterministic] + [
@@ -485,6 +497,7 @@ def gate_copies(
     trend: str = "",
     brand: str = "",
     strictness: Sequence[str] = (),
+    allowed_claims_text: str = "",
 ) -> dict[str, list[CopyIssue]]:
     """The copies' gating issues, keyed by ``copy_keys``.
 
@@ -500,7 +513,10 @@ def gate_copies(
     semicolons) appears as a whole word/phrase (entries over
     ``MAX_AVOID_TERM_WORDS`` words, and entries contained in the product name,
     a non-negative brief mandatory or a proper-name chunk of ``trend``, are
-    skipped; see ``_avoid_terms``). Self-reported: each failed
+    skipped; see ``_avoid_terms``); no unsupported absolute claim
+    (``claims.ABSOLUTE_CLAIM_TERMS``) that ``allowed_claims_text`` (the
+    user's key selling points + the brief's mandatories) does not state.
+    Self-reported: each failed
     ``brief_checks`` item in ``GATING_BRIEF_CHECKS``. ``strictness`` (the
     run's ``rating_strictness`` flags; default none = the rules above) only
     tightens: ``weak_cta`` caps the CTA at ``STRICT_CTA_WORDS`` words and
@@ -519,6 +535,7 @@ def gate_copies(
             avoid=terms,
             brand=brand,
             strictness=strictness,
+            allowed_claims_text=allowed_claims_text,
         ):
             issues[key] = found
     return issues

@@ -513,3 +513,41 @@ def test_no_mandatories_is_flagged_for_the_product():
 
 def test_product_rule_skipped_without_target_product():
     assert _product_issues(["show the logo"], target_product="  ") == []
+
+
+# --- unsupported absolute claims ----------------------------------------------
+
+
+def _claim_issues(brief, **kwargs):
+    return [i for i in check_brief(brief, **kwargs) if "absolute claims" in i]
+
+
+def test_brief_flags_an_invented_rtb_claim():
+    rtbs = [
+        {
+            "claim": "Guaranteed to stay in tune through 100 percent humidity",
+            "source_id": "src-1",
+        },
+        {"claim": "Fast, per the brief", "source_id": "brief"},
+    ]
+    (issue,) = _claim_issues(_brief(reasons_to_believe=rtbs))
+    assert "(guaranteed, 100 percent)" in issue
+    assert "selling points" in issue
+
+
+def test_brief_flags_an_absolute_proposition():
+    brief = _brief(single_minded_proposition="Rocket Skates are indestructible.")
+    (issue,) = _claim_issues(brief)
+    assert "indestructible" in issue
+
+
+def test_brief_claim_allowed_by_selling_points_or_mandatories():
+    brief = _brief(single_minded_proposition="Rocket Skates carry a lifetime warranty.")
+    assert _claim_issues(brief, key_selling_points="Lifetime warranty") == []
+    assert _claim_issues(brief, key_selling_points=["Lifetime warranty"]) == []
+    brief["mandatories"] = ["name Rocket Skates", "mention the lifetime warranty"]
+    assert _claim_issues(brief) == []
+
+
+def test_clean_brief_has_no_claim_issues():
+    assert _claim_issues(_BRIEF) == []
