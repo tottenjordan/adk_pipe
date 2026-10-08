@@ -899,3 +899,56 @@ def test_generated_images_skips_failed_upload(monkeypatch):
 
     assert ctx.state["generated_images"] == {}
     assert ctx.state["_generated_artifact_keys"] == []
+
+
+# --- rating strictness: unwanted_logo → explicit no-other-logos line ----------
+
+
+def _logo_ctx(strictness=None, brand="Acme"):
+    ctx = _ctx()
+    ctx.state["brand"] = brand
+    if strictness is not None:
+        ctx.state["rating_strictness"] = strictness
+    ctx.state["final_visual_concepts"] = {
+        "visual_concepts": [{"image_generation_prompt": "a scene", "concept_name": "c"}]
+    }
+    return ctx
+
+
+def test_render_prompt_has_no_logo_line_by_default(monkeypatch):
+    models = _patch_client(monkeypatch)
+    asyncio.run(image_tools.generate_image(_logo_ctx()))
+    assert models.calls[0]["contents"] == "a scene"
+    models.calls.clear()
+    asyncio.run(image_tools.generate_image(_logo_ctx(["weak_cta", "text_problem"])))
+    assert models.calls[0]["contents"] == "a scene"
+
+
+def test_unwanted_logo_flag_adds_a_no_other_logos_line(monkeypatch):
+    models = _patch_client(monkeypatch)
+    asyncio.run(image_tools.generate_image(_logo_ctx(["unwanted_logo"])))
+    assert models.calls[0]["contents"] == (
+        "a scene\n\nNo logos, brand marks or trademarks except those of Acme."
+    )
+
+
+def test_unwanted_logo_line_without_a_brand(monkeypatch):
+    models = _patch_client(monkeypatch)
+    asyncio.run(image_tools.generate_image(_logo_ctx(["unwanted_logo"], brand="")))
+    assert models.calls[0]["contents"] == (
+        "a scene\n\nNo logos, brand marks or trademarks."
+    )
+
+
+def test_unwanted_logo_line_precedes_the_reference_block(monkeypatch):
+    models = _patch_client(monkeypatch)
+    monkeypatch.setattr(image_tools, "_download_blob", lambda *a, **k: b"\x89PNGREF")
+    ctx = _logo_ctx(["unwanted_logo"])
+    ctx.state["reference_image_uri"] = "gs://b/logo.png"
+    ctx.state["reference_image_role"] = "logo"
+    asyncio.run(image_tools.generate_image(ctx))
+    prompt = models.calls[0]["contents"][0]
+    assert prompt.startswith(
+        "a scene\n\nNo logos, brand marks or trademarks except those of Acme.\n\n"
+    )
+    assert "Reference image 1 (logo)" in prompt

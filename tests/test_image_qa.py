@@ -347,6 +347,7 @@ class _Flow:
         verdicts = list(verdicts)
 
         self.logo_reference_flags = []
+        self.strictness = []
 
         def fake_inspect(
             image_bytes,
@@ -358,8 +359,10 @@ class _Flow:
             client,
             model,
             has_logo_reference=False,
+            strictness=(),
         ):
             self.logo_reference_flags.append(has_logo_reference)
+            self.strictness.append(tuple(strictness))
             self.inspected.append(
                 (
                     image_bytes,
@@ -663,8 +666,11 @@ def test_gallery_html_includes_image_check(monkeypatch, tmp_path):
 
 
 # --- review + live-calibration fixes ---
-def _instruction_text(concept, *, brand="PRS", product=_PRODUCT, logo_ref=False):
+def _instruction_text(
+    concept, *, brand="PRS", product=_PRODUCT, logo_ref=False, strictness=None
+):
     client = _QAClient(_result().model_dump())
+    kwargs = {} if strictness is None else {"strictness": strictness}
     image_qa.inspect_image(
         b"x",
         "image/png",
@@ -674,6 +680,7 @@ def _instruction_text(concept, *, brand="PRS", product=_PRODUCT, logo_ref=False)
         client=client,
         model="m",
         has_logo_reference=logo_ref,
+        **kwargs,
     )
     contents = client.models.calls[0]["contents"]
     return " ".join(p.text for p in contents if getattr(p, "text", None))
@@ -913,3 +920,48 @@ def test_per_run_cap_ships_to_agent_engine():
     import deployment.deploy_agent as da
 
     assert da.ENV_VAR_DICT["IMAGE_QA_MAX_RERENDERS_PER_RUN"] is not None
+
+
+# --- rating strictness (opt-in rating learning) ------------------------------
+
+_PROMINENT_PRODUCT = "The product must be prominent"
+_PROMINENT_MOTIF = "The trend motif must be prominent"
+
+
+def test_instruction_requires_a_prominent_product_only_when_flagged():
+    assert _PROMINENT_PRODUCT not in _instruction_text(_CONCEPT)
+    assert _PROMINENT_PRODUCT not in _instruction_text(_CONCEPT, strictness=[])
+    text = _instruction_text(_CONCEPT, strictness=["product_not_visible"])
+    assert _PROMINENT_PRODUCT in text
+    assert _PROMINENT_MOTIF not in text
+
+
+def test_instruction_requires_a_prominent_motif_only_when_flagged():
+    assert _PROMINENT_MOTIF not in _instruction_text(_CONCEPT)
+    text = _instruction_text(_CONCEPT, strictness=["trend_unclear"])
+    assert _PROMINENT_MOTIF in text
+    assert _PROMINENT_PRODUCT not in text
+
+
+def test_prominence_lines_need_something_to_check():
+    no_motif = {**_CONCEPT, "trend_motif": ""}
+    flags = ["product_not_visible", "trend_unclear"]
+    text = _instruction_text(no_motif, product="", strictness=flags)
+    assert _PROMINENT_PRODUCT not in text
+    assert _PROMINENT_MOTIF not in text
+
+
+def test_unrelated_flags_leave_the_instruction_unchanged():
+    flags = ["weak_cta", "off_brief", "text_problem", "unwanted_logo"]
+    assert _instruction_text(_CONCEPT, strictness=flags) == _instruction_text(_CONCEPT)
+
+
+def test_generate_image_passes_rating_strictness_to_image_qa(monkeypatch):
+    flow = _Flow(monkeypatch, [_result()])
+    flow.run()
+    assert flow.strictness == [()]
+
+    flow = _Flow(monkeypatch, [_result()])
+    flow.ctx.state["rating_strictness"] = ["trend_unclear", "bogus", "weak_cta"]
+    flow.run()
+    assert flow.strictness == [("weak_cta", "trend_unclear")]
