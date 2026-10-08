@@ -55,6 +55,14 @@ side of their own ratings. Mitigations:
   same bucket, or rating dishonestly. The per-user `/runs` line covers only your own
   ratings, so it can only mislead yourself.
 
+## Judge versions
+
+The judge's gates changed on **2026-10-08** (new blocking `no_visual_defects` and
+`trend_risks_respected` gates, a stricter `trend_motif_visible`; details in
+[creative-quality-gates.md](creative-quality-gates.md)). Ratings snapshot the judge
+verdict at rating time, so compare agreement only within one judge version: split
+ratings of runs judged before and after 2026-10-08 rather than pooling them.
+
 ## Learned runs (rating-driven learning)
 
 A run whose user ticked "Learn from past ratings for this brand" can be steered by
