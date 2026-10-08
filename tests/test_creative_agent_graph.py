@@ -967,7 +967,7 @@ def test_raising_ad_copy_reviser_keeps_the_pre_revision_copies(monkeypatch):
     (issue,) = state["ad_copy_critique__issues"]
     assert issue.startswith('Copy 2 ("Beep beep 2"): product not named')
     (note,) = collect_degradation_warnings(state)
-    assert note.startswith("Ad copy critique has unresolved issues: 1 (e.g. ")
+    assert note.startswith("Ad copy check has unresolved issues: 1 (e.g. ")
     (response,) = _responses(events)
     assert response == {"result": _ADS_CONFIRMATION}
     assert root_llm.calls == 2
@@ -997,7 +997,7 @@ def test_ad_copy_issues_left_after_the_budget_are_recorded(monkeypatch):
     (issue,) = state["ad_copy_critique__issues"]
     assert "headline is 70 characters" in issue
     (note,) = collect_degradation_warnings(state)
-    assert note.startswith("Ad copy critique has unresolved issues: 1 (e.g. ")
+    assert note.startswith("Ad copy check has unresolved issues: 1 (e.g. ")
     (response,) = _responses(events)
     assert response == {
         "result": _ADS_CONFIRMATION.replace("4 final", f"{len(ads)} final")
@@ -1400,7 +1400,7 @@ def test_raising_concept_fixer_keeps_the_pre_revision_concepts(monkeypatch):
     (issue,) = state["final_visual_concepts__issues"]
     assert issue.startswith('Concept 2 ("Dust 2"): trend_motif is empty')
     (note,) = collect_degradation_warnings(state)
-    assert note.startswith("Final visual concepts has unresolved issues: 1 (e.g. ")
+    assert note.startswith("Visual concept check has unresolved issues: 1 (e.g. ")
     # The pipeline still ends truthy and renders.
     assert state["_images_generated"] is True
     assert "Image creatives rendered" in str(_responses(events)[-1])
@@ -1423,7 +1423,7 @@ def test_concept_issues_left_after_the_budget_are_recorded(monkeypatch):
     (issue,) = state["final_visual_concepts__issues"]
     assert issue.startswith('Concept 2 ("Dust 2"): more than one centred hero')
     (note,) = collect_degradation_warnings(state)
-    assert note.startswith("Final visual concepts has unresolved issues: 1 (e.g. ")
+    assert note.startswith("Visual concept check has unresolved issues: 1 (e.g. ")
     assert state["_images_generated"] is True
     assert root_llm.calls == 2
 

@@ -20,7 +20,8 @@ Plus `collect_degradation_warnings(state)`, the single source of truth for
 turning `<key>__retry_exhausted` markers (left by `RetryUntilKeyNode`) and
 `<key>__issues` markers (residual quality issues a step recorded) into
 human-readable degradation notes consumed by the eval report, BigQuery row, and
-HTML gallery. Both conventions are generic: no agent-specific keys here.
+HTML gallery. Both conventions are generic; the only key names here are a small
+display-label map for the issue notes (`_ISSUE_LABELS`), which carries no logic.
 
 This module imports `google.adk`/`google.genai` but builds no genai client, so
 it stays non-creds-gated and unit-testable offline.
@@ -47,6 +48,28 @@ _EXHAUSTED_SUFFIX = "__retry_exhausted"
 _ISSUES_SUFFIX = "__issues"
 _ISSUE_EXAMPLE_CHARS = 80
 _ISSUES_NOTE_MAX_CHARS = 200
+
+# Display labels for the `<key>__issues` notes, keyed by state-key NAME only (no
+# behaviour hangs off them). The notes are read by people (results page, HTML
+# gallery "Run notes", BigQuery), and "Image qa" / "Eval bq row uuid" do not read
+# naturally. Kept here rather than passed in by callers because the notes are
+# built at three call sites in three packages (creative_agent's gallery,
+# creative_eval's report, trend_scout's BQ row) that must render the SAME note,
+# and creative_eval cannot import creative_agent (the dependency runs the other
+# way). Persistence failures end in " save" — the frontend groups notes on that
+# suffix (`frontend/src/lib/run-warnings.ts`). Unknown keys fall back to the
+# sentence-cased key.
+_ISSUE_LABELS: dict[str, str] = {
+    "image_qa": "Image check",
+    "ad_copy_critique": "Ad copy check",
+    "final_visual_concepts": "Visual concept check",
+    "creative_brief": "Creative brief",
+    "research_report_gcs_uri": "Research PDF save",
+    "eval_report_gcs_uri": "Eval report save",
+    "creative_gallery_gcs_uri": "Gallery save",
+    "creative_row_uuid": "Trend row save",
+    "eval_bq_row_uuid": "Eval row save",
+}
 
 
 def log_run_start(callback_context: CallbackContext) -> None:
@@ -116,7 +139,10 @@ def make_final_state_summary(agent_label: str, keys: tuple[str, ...]):
 
 
 def _label(key: str) -> str:
-    """A state key as a sentence-case label ("creative_brief" -> "Creative brief")."""
+    """A state key's display label: a known name, else sentence case
+    ("some_step" -> "Some step")."""
+    if key in _ISSUE_LABELS:
+        return _ISSUE_LABELS[key]
     return key.replace("_", " ").strip().capitalize() or key
 
 

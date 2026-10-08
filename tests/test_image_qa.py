@@ -573,7 +573,7 @@ def test_unresolved_qa_issues_surface_as_degradation_warning(monkeypatch):
     flow = _Flow(monkeypatch, [_result(unsafe=True), _result(unsafe=True)])
     flow.run()
     notes = collect_degradation_warnings(dict(flow.ctx.state))
-    assert any(n.startswith("Image qa has unresolved issues: 1") for n in notes)
+    assert any(n.startswith("Image check has unresolved issues: 1") for n in notes)
 
 
 # --- HTML gallery "Image check" line ---
