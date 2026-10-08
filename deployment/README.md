@@ -12,6 +12,7 @@ see the [main README](../README.md).
 - [Frontend + api_server on Cloud Run](#frontend--api_server-on-cloud-run)
 - [Bandit experiments](#bandit-experiments)
 - [Creative ratings (judge calibration)](#creative-ratings-judge-calibration)
+- [Creative quality: migrations + knobs](#creative-quality-migrations--knobs)
 - [Eval CI (WIF)](#eval-ci-wif)
 - [Alternative Deployment: deploy to Cloud Run instances](#alternative-deployment-deploy-to-cloud-run-instances)
 
@@ -1451,6 +1452,55 @@ deploying the api that writes it (until then a rating save answers 502 `store_fa
 
 Ratings are api-only: the agents never read them, so neither variable is in
 `deploy_agent.py`'s `ENV_VAR_DICT`.
+
+## Creative quality: migrations + knobs
+
+The 2026-10-07 creative-quality work (PRs #263–#280; plan
+[docs/plans/2026-10-07-creative-quality.md](../docs/plans/2026-10-07-creative-quality.md))
+needs these one-time BigQuery changes. **All were applied in prod on 2026-10-07**; for a
+fresh project, `deployment/create_bq_tables.sh` already creates the final schemas.
+Always run a migration **before** deploying the code that writes the column (both
+writers name every column in their MERGE):
+
+- [x] `creative_evals.gates_pass_rate FLOAT64` on **`trend_trawler`** and
+  **`trend_trawler_eval`** — before the `creative_agent` / `interactive_creative` engines
+  and the api ([gates_pass_rate migration](#3-create-event-driven-functions-and-eventarc-triggers)).
+- [x] `creative_ratings` table created in `trend_trawler` — before the api
+  ([Table](#table)).
+- [x] `creative_ratings.judge_source STRING` — before the api
+  ([Migration: judge_source](#table)).
+- [x] Judge image access: the Vertex AI service agent can read the bucket (same project:
+  nothing to do; cross-project: grant `roles/storage.objectViewer`; see **Judge image
+  access (IAM)** next to the gates_pass_rate migration).
+
+No migration was needed for brand history (it only reads `creative_evals` and the eval
+report JSON) or for the new session-state keys.
+
+**Agent knobs** (on `BaseAgentConfiguration` / `creative_agent/config.py`; shipped to
+Agent Engine through `deploy_agent.py` `ENV_VAR_DICT`, read at import, so for an engine the
+*deployer's* env is baked in — redeploy to change):
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `BRIEF_REVISION_ROUNDS` | `1` (0–2) | `brief_gate` → `brief_reviser` passes; 0 = record issues only |
+| `COPY_REVISION_ROUNDS` | `1` (0–2) | `copy_gate` → `ad_copy_reviser` passes (flagged copies only) |
+| `CONCEPT_REVISION_ROUNDS` | `1` (0–2) | `concept_gate` → `visual_concept_fixer` passes (flagged concepts only) |
+| `IMAGE_QA_ENABLED` | `true` | Post-render vision check; `false` = single render, no QA calls |
+| `IMAGE_QA_MAX_RERENDERS` | `1` (0–2) | Targeted re-renders per failing image |
+| `IMAGE_QA_MAX_RERENDERS_PER_RUN` | `2` (0–8) | Re-render cap across one `generate_image` call (image quota) |
+| `IMAGE_QA_MODEL` | `gemini-3.8-flash` | QA vision model (worker model) |
+| `BRAND_HISTORY_ENABLED` | `true` | `load_brand_history` reads past `creative_evals` rows for the brand |
+| `BRAND_HISTORY_RUNS` | `5` (0–20) | How many past runs of the brand to read |
+
+**api-only knobs** (Cloud Run `trend-trawler-api`, not in `ENV_VAR_DICT`):
+`RATINGS_STORE` (`bigquery` | `memory`), `BQ_TABLE_RATINGS` (`creative_ratings`) — see
+[Creative ratings](#environment-api-service-1) — and `RUN_MAX_AUTO_CONTINUES` (default `2`,
+clamped 0–3; see [Async-job run model](#async-job-run-model)).
+
+**Eval efficiency baseline:** the gates and loops add LLM calls per creative run, so the
+nightly `adk-eval` efficiency gate needs a refreshed `docs/baselines/eval_efficiency.json`
+after a passing run (`python tests/eval/efficiency_gate.py --agent creative_agent
+--update-baseline`).
 
 ---
 

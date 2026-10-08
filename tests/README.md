@@ -57,13 +57,16 @@ tests/
 ├── test_async_runs.py               # async-job run model: kick-off/poll/resume, terminal markers, checkpoint edits (report, structured brief: valid merge / 400 on invalid)
 ├── test_authz.py                    # P3 per-user authz: modes, userId normalization, proxy ID-token check, middleware 401/403/404, ownership → 404
 ├── test_backend_entrypoint.py       # backend container entrypoint (uvicorn serves async_app.py)
+├── test_backfill_eval_labels.py    # deployment/backfill_eval_dimension_labels.py: pure SQL builder (no BigQuery)
 ├── test_bandit_endpoint_lib.py      # deployment/bandit/endpoint.py vs a fake aiplatform (single-worker env, 1 replica, labels, find_* by label oldest-first)
 ├── test_create_bq_tables.py         # create_bq_tables.sh with a stub bq: bandit_* + creative_ratings schemas (ratings vs RATING_COLUMN_TYPES), partitioning/clustering, idempotency
 ├── test_bandit_*.py                 # JAX bandit core (bandit/): features, config, linear TS, baselines, environment, simulate+metrics+aggregate, notebook-parity smoke, scripted shifts
+│                                    #   (also test_bandit_continuous.py: §11 continuous segments; test_bandit_endpoint_client.py: traffic endpoint clients/retries; test_bandit_traffic_bq.py: traffic row builders vs contracts §3)
 ├── test_brand_history.py            # creative_agent/brand_history.py: parameterised creative_evals SELECT (no string-built brand), report reads limited to the configured bucket + size cap, aggregation (recent/strongest styles, recurring weak dimensions, runs with failed non-advisory gates), brace-free ≤120-word note, BQ/GCS/timeout fail-open, disabled knob → no query, shortlist re-draw unless a style preference is set, canonical style mapping (schema example phrasings), allowlisted tones/dimensions/gates only (injection strings never reach the note), GCS per-call timeouts + report-read deadline, failed-check denominator = readable reports
 ├── test_brief_check.py              # deterministic creative-brief check (proposition incl. abbreviations/capital-led sentence breaks/brand-product-trend names/and-compounds, X-but-Y insight + ;/dash/contrast markers, cited RTBs + normalised src-N/brief ids vs sources, fit_mode, angle names/tensions, motifs, assets)
 ├── test_brief_render.py             # creative brief → "## Creative Brief" markdown in the research PDF (real markdown_pdf TOC check) + compact (headless) prompt variant + gallery summary card (HTML-escaped)
 ├── test_callbacks.py                # citation replacement, state init (incl. style_shortlist seeding, reference_images/reference_roles), rate limiting, trend/product guard callback
+├── test_citations.py                # shared citation renderer (creative_agent.citations)
 ├── test_concept_guard.py            # final image prompts always name the trend_motif + product + brand_cue (pure guard; token-overlap matching incl. brand_cue, intangible-product cue); concept_issues (quoted text vs paired headline/CTA incl. curly quotes / punctuation / substring, meme+comic exemption, empty motif, set-level text cap + centred-hero selection, conservative heuristics) + restore_unflagged_concepts
 ├── test_config.py                   # per-agent config resolution (incl. campaign-placement resolver)
 ├── test_text_match.py               # shared conservative matching (Unicode folding, plurals, sizes/packaging head nouns, single-token full phrase, brand anchor, 60% token-overlap mentions)
@@ -71,17 +74,21 @@ tests/
 ├── test_create_session_engine.py    # create_session_engine.py (reuse-or-create sessions-only engine)
 ├── test_creative_brief_prompts.py   # {creative_brief_md?} block before the report + shared contract rule (core + fallback; user feedback/art direction override) in the 5 creative prompts; brace-safety
 ├── test_creative_agent_graph.py     # creative_agent graph pipelines end-to-end (stub models): routing, citations, no-stall, guard-repaired render prompts, creative-brief gate (pass / revise once / revise twice with 2 rounds / residual issues / writer exhausted / raising writer or reviser fail-soft), ad-copy gate (all pass / flagged copy revised + unflagged edit reverted / raising reviser fail-soft / residual issues), concept gate (all pass / flagged concept fixed + unflagged edit reverted + brand cue re-guarded / raising fixer fail-soft / residual issues), research PDF node (artifact + GCS / skipped without report / failure recorded), finalize_pipeline (evaluate + persist happy path with fake judge/GCS/BQ, no creatives → notice, failing gallery doesn't block BQ, eval row written last), creative_pipeline (the root's single call: research → ads → visuals + render → finalize end to end, then the root answers)
+├── test_creative_root_prompt.py     # creative_agent root contract: memorize missing fields → one creative_pipeline call → final summary; root state-token set
 ├── test_eval_efficiency_gate.py     # efficiency gate: metric extraction, tolerances, warn-only latency, CLI exit codes, --update-baseline
 ├── test_creative_eval.py            # creative_eval schemas, scoring logic, config
 ├── test_eval_gates.py               # creative_eval binary gates: schema defaults (old reports parse), passed = score AND gates, gates_pass_rate over judged creatives only, brief block (brace-safe), judge-only response schemas (gates required, no code-set fields), gate normalisation (zero gates reported → fails, partial omission passes as "not checked" + report warning, lenient names, no brief → "no brief"), presence/violation gate wording, advisory brand cue, rendered image as a gs:// Part + image-QA hint, unreadable-image fail-soft to prompt-only limited to image 4xx, finalize "failed checks" / "evaluation failed" / gates pass-rate line
+├── test_eval_dimensions.py          # creative_eval.dimensions labels mirror frontend/src/lib/eval-dimensions.ts (drift test)
 ├── test_crf_config.py               # env-driven CRF config (required project, no hardcoding)
 ├── test_crf_entrypoint.py           # crf_entrypoint orchestrator (issue #46)
 ├── test_crf_logic.py                # Cloud Run Function logic (orchestrator + worker)
 ├── test_crf_sql_params.py           # CRF SQL safety: allow-listed identifiers, parameterized values
 ├── test_crf_worker_async.py         # async worker path of the CRF (issue #45)
 ├── test_deploy_utils.py             # deploy_agent.py utils (env file, extra_packages, runtimes.create) + integration_test.py (skips, creative_agent smoke output assertion)
+├── test_empty_turn_retry.py         # root orchestrators re-ask a clean empty model turn (empty_turn_retries) instead of ending the run
 ├── test_experiments_api.py          # /experiments routes: create→ready, 400/404/409, traffic, stop, TTL reaper, reconcile, authz, snapshot_arms, §9 scenarioOverrides validation + bandit parity, deploy lease (one deployer, expiry, heartbeat, release)
 ├── test_experiments_backends.py     # VertexDeployer (stepwise/resume, labelled-resource reuse, teardown of extras) + CloudRunJobsRunner env overrides, fakes
+├── test_experiments_continuous.py   # §11 continuous learning in the api: traffic-body validation, job env, stitched /metrics + batch-means summary
 ├── test_experiments_metrics.py      # pure ExperimentMetrics aggregation (CI bands, totals, arm share, segments)
 ├── test_experiments_series.py       # pure §8 /creatives aggregation (windows, share, segments, missedClicks, engagedSecondsPer1k)
 ├── test_experiments_shifts.py       # §10 in the api: shift validation + bandit parity, numbered traffic runs (runs/{n}.json, env overrides, trafficRuns), ?run= reads incl. legacy NULL rows, shift_response + regime aggregation, regime SQL, unmigrated-table fallbacks
@@ -95,7 +102,9 @@ tests/
 ├── test_image_qa.py                 # post-render image QA: expected_text, the qa_failures matrix (brand cue advisory, unrequested logo fails, expected_text authoritative for text checks, empty motif/product never fail), the conservative instruction wording (image prompt capped, partial product view, gibberish/logo allowlist, meme slang), correction_text (quote-stripped, capped, "no new text"), inspect_image request (image Part, schema, temperature 0), IMAGE_QA_* config + ENV_VAR_DICT; generate_image flow (fail → re-render → pass keeps the second, both fail → fewer-failures attempt + image_qa__issues, ties → latest, critical weighting + never keep a new unsafe, per-image + per-run budget, fail-open → image_qa__unavailable (not surfaced), render off the event loop, disabled = one render) and the gallery "Image check" line
 ├── test_interactive_resume_graph.py # real interactive_creative App via start_run/start_resume: checkpoint pause → NodeTool resume, fail-once retry counts, one BQ key (write_trends_to_bq added to the root's tools for the test), the resumed root's history keeps the checkpoint response but no sub-agent turns; checkpoint-1 brief edit → creative_brief_md in the ad drafter's prompt + PDF re-save; checkpoint-2 revision runs the reviser once and re-presents (fail-soft on a raising reviser)
 ├── test_interactive_copy_revision.py # checkpoint-2 user revision: prepare_copy_revision flags every copy (one revision cap), input clearing after the reviser, fail-soft on_error
+├── test_interactive_prompts.py      # interactive checkpoint contracts: brief/report edit → PDF re-save (no research re-run), checkpoint-2 feedback → one revision; brace-safety
 ├── test_no_legacy_agent_engines_api.py # guard: no legacy vertexai agent_engines API in repo call sites
+├── test_model_request_timeout.py    # per-request model timeout (MODEL_REQUEST_TIMEOUT_SECONDS → HttpOptions.timeout) + TimeoutError retry
 ├── test_observability.py            # shared agent_common observability callbacks
 ├── test_otel_flag.py                # ADK_OTEL_TO_CLOUD parsing + async_app wiring (opt-in Cloud Trace on the api)
 ├── test_pipeline_structure.py       # pipeline composition (graph nodes/edges by name, truthy terminals) + placement-env wiring
@@ -106,6 +115,7 @@ tests/
 ├── test_fail_soft_node.py           # FailSoftNode (optional-step exception → on_error state delta; successors still run; DynamicNodeFailError unwrap)
 ├── test_retry_config.py             # scoped RetryConfig constants on infra agents
 ├── test_safety_plugins.py           # opt-in Model Armor (agent_common.safety): env parsing, root-only scoping, every agent's App + canned-loader wiring
+├── test_scenario_presets_sync.py    # frontend scenario-presets.generated.json matches bandit/ (no JAX)
 ├── test_sanitize.py                 # lone-surrogate scrubber (agent_common.sanitize)
 ├── test_schemas.py                  # Pydantic schemas in the creative_agent pipeline
 ├── test_sdk_versions.py             # guard: aiplatform 2.x ships both agentplatform + vertexai surfaces
@@ -197,6 +207,17 @@ tests/
 - **Image diversity** — `test_image_prompt_guide.py`, `test_style_shortlist.py`,
   `test_concept_guard.py`: the guide's text cap / descriptor palette / Educational mapping,
   the per-session style shortlist, and the trend-motif + product prompt guard.
+- **Creative quality (brief → gates → QA → eval → calibration)** — `test_brief_check.py`,
+  `test_brief_render.py`, `test_creative_brief_prompts.py` (structured brief + `brief_gate`),
+  `test_copy_gate.py`, `test_ad_copy_prompts.py` (`copy_gate` + flagged-only reviser),
+  `test_concept_guard.py`, `test_text_match.py`, `test_visual_concept_prompts.py`
+  (`concept_gate`), `test_image_reference.py`, `test_image_qa.py` (multi-reference renders,
+  post-render QA + re-render), `test_finalize.py` (`finalize_pipeline`), `test_eval_gates.py`,
+  `test_eval_dimensions.py` (binary gates vs advisory scores), `test_ratings_api.py`,
+  `test_ratings_store.py`, `test_calibration.py` (human ratings + Cohen's kappa),
+  `test_interactive_prompts.py`, `test_interactive_copy_revision.py` (checkpoint-1 brief
+  edit, checkpoint-2 revision), `test_creative_root_prompt.py` (single `creative_pipeline`
+  call); the revise / no-revise / exhausted graph paths live in `test_creative_agent_graph.py`.
 - **Brand history** — `test_brand_history.py` (helper + node delta),
   `test_creative_agent_graph.py` (the note reaches the brief writer; disabled → no query;
   a raising step doesn't stop research), `test_pipeline_structure.py` (node in the START
