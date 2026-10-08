@@ -29,6 +29,11 @@
    the guard skips the append when the brand is already mentioned, and otherwise
    appends a depictable cue (`INTANGIBLE_PRODUCT_LINE`) instead.
 
+   Rating strictness (opt-in rating learning, ``rating_strictness``; default
+   none) only adds sentences: ``trend_unclear`` appends the motif unless the
+   prompt holds it verbatim, ``product_not_visible`` appends
+   ``PROMINENT_PRODUCT_LINE`` (tangible products only); both idempotent.
+
 2. ``concept_issues`` — the checks behind ``creative_agent.agent.concept_gate``
    (one bounded fix round by ``visual_concept_fixer``). Only rules a string
    check can decide are gated, and each heuristic is deliberately CONSERVATIVE
@@ -46,6 +51,9 @@
      remove the quoted text rather than offering to quote the copy (which
      would only trade the mismatch for a cap overflow);
    * at most one centred hero composition per set.
+
+   ``text_problem`` rating strictness lowers the text cap to
+   ``STRICT_MAX_TEXT_CONCEPTS`` (1).
 
    In-image text heuristic (``in_image_quotes``): a double-quoted span
    (straight or curly; it must contain a letter) is in-image text ONLY when a
@@ -99,6 +107,9 @@ from .copy_gate import CopyIssue, item_keys, parse_copies, restore_unflagged_ite
 from .text_match import content_tokens, mentions, same_word
 
 DEFAULT_MAX_TEXT_CONCEPTS = 2
+# Rating strictness (``rating_strictness``, opt-in rating learning): a
+# recurring "in-image text problems" fail reason caps text concepts at 1.
+STRICT_MAX_TEXT_CONCEPTS = 1
 
 # Straight "…" or curly “…” double quotes; the content must contain a letter.
 _QUOTED = re.compile(r'"([^"\n]+)"|“([^”\n]+)”')
@@ -200,6 +211,8 @@ INTANGIBLE_PRODUCT_LINE = (
 )
 MOTIF_LINE = " The scene visibly includes {motif}."
 BRAND_CUE_LINE = " The scene features {cue}."
+# Rating strictness: a recurring "product hard to see" fail reason.
+PROMINENT_PRODUCT_LINE = " The product is large and in the foreground."
 
 # Content tokens marking a product the camera cannot show as an object. Kept
 # deliberately to unambiguous service words: "card" (a credit card can be
@@ -236,8 +249,16 @@ def is_intangible(target_product: str) -> bool:
     )
 
 
+def _verbatim(prompt: str, phrase: str) -> bool:
+    return " ".join(phrase.split()).casefold() in " ".join(prompt.split()).casefold()
+
+
 def ensure_trend_and_product(
-    concepts: list[dict[str, Any]], target_product: str, *, brand: str = ""
+    concepts: list[dict[str, Any]],
+    target_product: str,
+    *,
+    brand: str = "",
+    strictness: Sequence[str] = (),
 ) -> tuple[list[dict[str, Any]], list[str]]:
     """Return repaired copies of `concepts` plus one warning per repair/miss.
 
@@ -245,12 +266,20 @@ def ensure_trend_and_product(
     the prompt does not mention them (``text_match.mentions``; the product and
     the brand cue brand-anchored on ``brand``; intangible products per the
     module doc).
+
+    ``strictness`` (the run's ``rating_strictness`` flags; default none = the
+    rules above) only adds sentences: ``trend_unclear`` appends the motif
+    unless the prompt contains it verbatim (case/whitespace-insensitive), and
+    ``product_not_visible`` appends ``PROMINENT_PRODUCT_LINE`` for a tangible
+    product. Both are idempotent, so re-guarding a prompt never duplicates them.
     """
     out: list[dict[str, Any]] = []
     warns: list[str] = []
     product = (target_product or "").strip()
     brand = (brand or "").strip()
     intangible = bool(product) and is_intangible(product)
+    strict_motif = "trend_unclear" in strictness
+    prominent = "product_not_visible" in strictness and bool(product) and not intangible
     for concept in concepts:
         c = copy.deepcopy(concept)
         prompt = str(c.get("image_generation_prompt") or "").rstrip()
@@ -263,6 +292,12 @@ def ensure_trend_and_product(
         elif not mentions(original, motif):
             prompt += MOTIF_LINE.format(motif=motif)
             warns.append(f"{name}: trend_motif missing from prompt, appended")
+        elif strict_motif and not _verbatim(original, motif):
+            prompt += MOTIF_LINE.format(motif=motif)
+            warns.append(
+                f"{name}: trend_motif not verbatim in prompt, appended "
+                "(rating strictness)"
+            )
         if product and not mentions(original, product, brand=brand):
             if not intangible:
                 prompt += TANGIBLE_PRODUCT_LINE.format(product=product)
@@ -275,6 +310,11 @@ def ensure_trend_and_product(
         if cue and not mentions(prompt, cue, brand=brand):
             prompt += BRAND_CUE_LINE.format(cue=cue)
             warns.append(f"{name}: brand_cue missing from prompt, appended")
+        if prominent and not _verbatim(prompt, PROMINENT_PRODUCT_LINE):
+            prompt += PROMINENT_PRODUCT_LINE
+            warns.append(
+                f"{name}: product prominence line appended (rating strictness)"
+            )
         c["image_generation_prompt"] = prompt
         out.append(c)
     return out, warns
@@ -449,6 +489,7 @@ def concept_issues(
     brand: str = "",
     target_product: str = "",
     max_text_concepts: int = DEFAULT_MAX_TEXT_CONCEPTS,
+    strictness: Sequence[str] = (),
 ) -> dict[str, list[CopyIssue]]:
     """The concepts' deterministic issues, keyed by ``concept_keys``.
 
@@ -466,9 +507,13 @@ def concept_issues(
     a mismatch never count) beyond the first ``max_text_concepts``; a mismatch
     is worded "remove" (not "quote the copy") once the legitimate text
     concepts fill the cap,
-    and every centred hero after the first, are flagged. Only concepts with
-    issues are returned ({} = clean). Never raises.
+    and every centred hero after the first, are flagged. ``strictness`` (the
+    run's ``rating_strictness`` flags) only tightens: ``text_problem`` lowers
+    the cap to ``STRICT_MAX_TEXT_CONCEPTS`` (never raising a tighter one).
+    Only concepts with issues are returned ({} = clean). Never raises.
     """
+    if "text_problem" in strictness:
+        max_text_concepts = min(max_text_concepts, STRICT_MAX_TEXT_CONCEPTS)
     parsed = parse_concepts(concepts)
     copies = parse_copies(ad_copies)
     copies_by_id: dict[str, Mapping[str, Any]] = {}
@@ -532,7 +577,7 @@ def concept_issues(
             if text_concepts > max_text_concepts:
                 found.append(
                     f"in-image text appears in more than {max_text_concepts} "
-                    "concepts: remove the quoted text from this concept and leave "
+                    f"concept{'' if max_text_concepts == 1 else 's'}: remove the quoted text from this concept and leave "
                     "clean negative space instead."
                 )
 

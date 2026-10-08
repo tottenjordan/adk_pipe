@@ -759,3 +759,99 @@ def test_two_word_packaging_product_needs_its_head_noun():
         "An iPhone on a desk beside a ballot box.", "iPhone case", "a ballot box"
     )
     assert tail == " The iPhone case is clearly visible and recognizable."
+
+
+# --- rating strictness (opt-in rating learning) ------------------------------
+
+PROMINENT = "The product is large and in the foreground."
+
+
+def test_product_not_visible_flag_appends_the_prominence_line_once():
+    c = _c("A cut-paper collage of an SE CE24 Electric Guitar beside a ballot box.")
+    out, _ = ensure_trend_and_product([c], PRODUCT)
+    assert PROMINENT not in out[0]["image_generation_prompt"]  # default unchanged
+    out, warns = ensure_trend_and_product(
+        [c], PRODUCT, strictness=["product_not_visible"]
+    )
+    prompt = out[0]["image_generation_prompt"]
+    assert prompt == c["image_generation_prompt"] + " " + PROMINENT
+    assert any("prominence" in w for w in warns)
+    # Re-guarding (finalizer → fixer → reviser) never duplicates it.
+    again, warns = ensure_trend_and_product(
+        out, PRODUCT, strictness=["product_not_visible"]
+    )
+    assert again[0]["image_generation_prompt"] == prompt
+    assert not warns
+
+
+def test_product_not_visible_flag_follows_an_appended_product_line():
+    c = _c("A watercolor beside a ballot box.")
+    out, _ = ensure_trend_and_product([c], PRODUCT, strictness=["product_not_visible"])
+    prompt = out[0]["image_generation_prompt"]
+    assert prompt.endswith(
+        f"The {PRODUCT} is clearly visible and recognizable. {PROMINENT}"
+    )
+
+
+def test_product_not_visible_flag_skips_intangible_products():
+    c = _c("A phone showing the Acme app beside a ballot box.")
+    out, _ = ensure_trend_and_product(
+        [c],
+        "Acme streaming subscription",
+        brand="Acme",
+        strictness=["product_not_visible"],
+    )
+    assert PROMINENT not in out[0]["image_generation_prompt"]
+
+
+def test_trend_unclear_flag_appends_a_paraphrased_motif_verbatim():
+    # "ballot boxes" mentions "a ballot box" (plural-insensitive): no append by
+    # default, but trend_unclear wants the motif spelled out verbatim.
+    c = _c("An SE CE24 Electric Guitar leaning on ballot boxes.")
+    out, warns = ensure_trend_and_product([c], PRODUCT)
+    assert out[0]["image_generation_prompt"] == c["image_generation_prompt"]
+    out, warns = ensure_trend_and_product([c], PRODUCT, strictness=["trend_unclear"])
+    prompt = out[0]["image_generation_prompt"]
+    assert (
+        prompt
+        == c["image_generation_prompt"] + " The scene visibly includes a ballot box."
+    )
+    assert any("trend_motif" in w for w in warns)
+    again, _ = ensure_trend_and_product(out, PRODUCT, strictness=["trend_unclear"])
+    assert again[0]["image_generation_prompt"] == prompt
+
+
+def test_trend_unclear_flag_keeps_a_verbatim_motif():
+    c = _c("An SE CE24 Electric Guitar beside A Ballot Box.")
+    out, warns = ensure_trend_and_product([c], PRODUCT, strictness=["trend_unclear"])
+    assert out[0]["image_generation_prompt"] == c["image_generation_prompt"]
+    assert not warns
+
+
+def _text_concepts():
+    return [
+        _concept(1, 'Type reads "Beep Beep, Coyote 1!".'),
+        _concept(2, "No text, clean negative space."),
+        _concept(3, 'Type reads "Order yours today".'),
+    ]
+
+
+def test_text_problem_flag_caps_text_concepts_at_one():
+    assert concept_issues(_text_concepts(), COPIES) == {}
+    assert concept_issues(_text_concepts(), COPIES, strictness=[]) == {}
+    issues = concept_issues(_text_concepts(), COPIES, strictness=["text_problem"])
+    assert list(issues) == ["3"]
+    (text,) = _issue_texts(issues, "3")
+    assert text.startswith("in-image text appears in more than 1 concept:")
+
+
+def test_text_problem_flag_never_loosens_a_tighter_cap():
+    issues = concept_issues(
+        _text_concepts(), COPIES, max_text_concepts=0, strictness=["text_problem"]
+    )
+    assert sorted(issues) == ["1", "3"]
+
+
+def test_unrelated_strictness_flags_leave_the_concept_checks_alone():
+    flags = ["weak_cta", "off_brief", "unwanted_logo"]
+    assert concept_issues(_text_concepts(), COPIES, strictness=flags) == {}

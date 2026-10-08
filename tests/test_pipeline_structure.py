@@ -2322,3 +2322,38 @@ def test_brief_gate_writes_back_a_bracket_free_brief():
     route, delta = brief_gate_decision({"creative_brief": brief}, 1)
     assert delta["creative_brief"]["avoid"] == ["wrestler likenesses"]
     assert "[wrestler likenesses]" not in delta["creative_brief_md"]
+
+
+# --- rating strictness read from state by the gates --------------------------
+
+
+def test_copy_gate_decision_reads_rating_strictness():
+    from creative_agent.agent import copy_gate_decision, residual_copy_issues
+
+    long_cta = _final_copy(2, call_to_action="Grab your Rocket Skates at ACME today")
+    assert copy_gate_decision(_copy_state(long_cta), 1)[0] == "ok"
+    # A malformed value never tightens (or breaks) the gate.
+    bad_value = _copy_state(long_cta, rating_strictness="weak_cta")
+    assert copy_gate_decision(bad_value, 1)[0] == "ok"
+    state = _copy_state(long_cta, rating_strictness=["weak_cta"])
+    route, delta = copy_gate_decision(state, 1)
+    assert route == "revise"
+    assert delta["ad_copy_flagged_ids"] == ["2"]
+    assert "at most 6 words" in delta["ad_copy_issues"]
+    # interactive_creative's post-revision residual reads it too.
+    (issue,) = residual_copy_issues(state)
+    assert "call_to_action has 7 words" in issue
+
+
+def test_concept_gate_decision_reads_rating_strictness():
+    from creative_agent.agent import concept_gate_decision
+
+    concepts = (
+        _concept(1, image_generation_prompt='Bold type reads "Beep beep 1".'),
+        _concept(2, image_generation_prompt='Bold type reads "Beep beep 2".'),
+    )
+    assert concept_gate_decision(_concept_state(*concepts), 1)[0] == "ok"
+    state = _concept_state(*concepts, rating_strictness=["text_problem"])
+    route, delta = concept_gate_decision(state, 1)
+    assert route == "revise"
+    assert delta["visual_concept_flagged_ids"] == ["2"]

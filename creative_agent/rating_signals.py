@@ -77,7 +77,8 @@ FAIL_REASON_LABELS: dict[str, str] = {
 #   text_problem        → concept gate in-image text cap 2 → 1 concept
 #   unwanted_logo       → render prompt forbids other logos / trademarks
 #   weak_cta            → copy gate CTA ≤ 6 words (from 8)
-#   off_brief           → the critic's failed brief checks block for every copy
+#   off_brief           → the critic's failed reason_to_believe / trend_bridge
+#                         checks also gate (proposition / mandatories already do)
 #   trend_unclear       → image QA requires a clearly visible motif; the concept
 #                         guard always appends it
 # cluttered / off_brand_tone / artifacts are guidance only; "other" is ignored.
@@ -114,7 +115,20 @@ __all__ = [
     "build_ratings_query",
     "fetch_ratings",
     "format_rating_signals",
+    "strictness_flags",
 ]
+
+
+def strictness_flags(value: Any) -> tuple[str, ...]:
+    """The run's ``rating_strictness`` state value as known flags (pure).
+
+    Keeps only ``STRICTNESS_REASONS`` entries, deduplicated in order; anything
+    else (None, a string, a malformed list) yields ``()`` — no tightening, so a
+    bad value can never loosen or break a check. Never raises.
+    """
+    if not isinstance(value, (list, tuple)):
+        return ()
+    return tuple(r for r in STRICTNESS_REASONS if r in value)
 
 
 def _table_id() -> str | None:

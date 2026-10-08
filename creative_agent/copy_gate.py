@@ -19,6 +19,12 @@ user-visible warning, so false positives are kept low):
   copy it adds), so they never gate; the gate records them with the residual
   issues on its "ok" exit.
 
+Rating strictness (opt-in rating learning, ``rating_strictness`` in state;
+default none) only ever tightens: ``weak_cta`` caps the CTA at
+``STRICT_CTA_WORDS`` (6) words, and ``off_brief`` also gates the critic's
+failed ``reason_to_believe`` / ``trend_bridge`` self-reports
+(``OFF_BRIEF_BRIEF_CHECKS``; still never recorded as residual issues).
+
 Matching (product named, avoid terms) uses ``text_match``: accent-folded,
 Unicode-aware, plural-insensitive (s / es / ies↔y), and brands written with
 punctuation or digits ("AT&T", "M&M's", "7UP") also match their
@@ -52,6 +58,9 @@ from .text_match import PACKAGING_WORDS, contains_phrase, fold, same_word, words
 MAX_HEADLINE_CHARS = 60
 MAX_CAPTION_CHARS = 2200
 MAX_CTA_WORDS = 8
+# Rating strictness (``rating_strictness``, opt-in rating learning): a
+# recurring "weak call to action" fail reason tightens the CTA limit.
+STRICT_CTA_WORDS = 6
 # Avoid entries longer than this are sentences ("never mention falling off
 # cliffs"), not terms: a literal match would never fire, so they are skipped
 # (the critic/reviser still read the full avoid list in the brief).
@@ -91,6 +100,25 @@ GATING_BRIEF_CHECKS = frozenset(_GATING_ORDER)
 # Items a deterministic check already covers; a self-reported failure of one is
 # never listed (no double listing), even if it were made gating.
 DETERMINISTIC_BRIEF_CHECKS = frozenset({"product", "avoid", "cta"})
+# Rating strictness: a recurring "off-brief / wrong message" fail reason also
+# makes the critic's failed message items gate (proposition already does):
+# the reason to believe and the trend bridge. ``tone`` stays advisory (the
+# off_brand_tone reason is guidance only).
+OFF_BRIEF_BRIEF_CHECKS = frozenset({"reason_to_believe", "trend_bridge"})
+
+
+def max_cta_words(strictness: Sequence[str] = ()) -> int:
+    """The CTA word limit: ``STRICT_CTA_WORDS`` under ``weak_cta`` strictness."""
+    return STRICT_CTA_WORDS if "weak_cta" in strictness else MAX_CTA_WORDS
+
+
+def gating_brief_checks(strictness: Sequence[str] = ()) -> frozenset[str]:
+    """The self-reported brief_checks items that gate (plus the message items
+    under ``off_brief`` strictness)."""
+    if "off_brief" in strictness:
+        return GATING_BRIEF_CHECKS | OFF_BRIEF_BRIEF_CHECKS
+    return GATING_BRIEF_CHECKS
+
 
 IssueKind = Literal["deterministic", "self_reported"]
 
@@ -353,7 +381,12 @@ def _avoid_terms(
 
 
 def _deterministic_issues(
-    copy: Mapping[str, Any], *, target_product: str, avoid: list[str], brand: str
+    copy: Mapping[str, Any],
+    *,
+    target_product: str,
+    avoid: list[str],
+    brand: str,
+    max_cta: int = MAX_CTA_WORDS,
 ) -> list[str]:
     issues: list[str] = []
     copy_text = " ".join(_text(copy.get(f)) for f in _COPY_FIELDS)
@@ -370,12 +403,12 @@ def _deterministic_issues(
     if not cta:
         issues.append(
             "call_to_action is empty: add a specific CTA that starts with an "
-            f"action verb (at most {MAX_CTA_WORDS} words)."
+            f"action verb (at most {max_cta} words)."
         )
-    elif (n := len(cta.split())) > MAX_CTA_WORDS:
+    elif (n := len(cta.split())) > max_cta:
         issues.append(
             f"call_to_action has {n} words ('{cta}'): cut it to at most "
-            f"{MAX_CTA_WORDS} words, starting with an action verb."
+            f"{max_cta} words, starting with an action verb."
         )
 
     headline = _text(copy.get("headline"))
@@ -401,15 +434,17 @@ def _deterministic_issues(
     return issues
 
 
-def _self_reported_issues(copy: Mapping[str, Any]) -> list[str]:
-    """The critic's failed brief_checks items that gate (GATING_BRIEF_CHECKS)."""
+def _self_reported_issues(
+    copy: Mapping[str, Any], gating: frozenset[str] = GATING_BRIEF_CHECKS
+) -> list[str]:
+    """The critic's failed brief_checks items that gate (``gating``)."""
     issues: list[str] = []
     checks = copy.get("brief_checks")
     for check in checks if isinstance(checks, list) else []:
         if not isinstance(check, Mapping) or check.get("passed") is not False:
             continue
         item = _text(check.get("item"))
-        if item not in GATING_BRIEF_CHECKS or item in DETERMINISTIC_BRIEF_CHECKS:
+        if item not in gating or item in DETERMINISTIC_BRIEF_CHECKS:
             continue
         note = _text(check.get("note"))
         issues.append(
@@ -421,13 +456,23 @@ def _self_reported_issues(copy: Mapping[str, Any]) -> list[str]:
 
 
 def _check_copy(
-    copy: Mapping[str, Any], *, target_product: str, avoid: list[str], brand: str
+    copy: Mapping[str, Any],
+    *,
+    target_product: str,
+    avoid: list[str],
+    brand: str,
+    strictness: Sequence[str] = (),
 ) -> list[CopyIssue]:
     deterministic = _deterministic_issues(
-        copy, target_product=target_product, avoid=avoid, brand=brand
+        copy,
+        target_product=target_product,
+        avoid=avoid,
+        brand=brand,
+        max_cta=max_cta_words(strictness),
     )
+    self_reported = _self_reported_issues(copy, gating_brief_checks(strictness))
     return [CopyIssue("deterministic", text) for text in deterministic] + [
-        CopyIssue("self_reported", text) for text in _self_reported_issues(copy)
+        CopyIssue("self_reported", text) for text in self_reported
     ]
 
 
@@ -439,6 +484,7 @@ def gate_copies(
     mandatories: Iterable[str] = (),
     trend: str = "",
     brand: str = "",
+    strictness: Sequence[str] = (),
 ) -> dict[str, list[CopyIssue]]:
     """The copies' gating issues, keyed by ``copy_keys``.
 
@@ -455,8 +501,11 @@ def gate_copies(
     ``MAX_AVOID_TERM_WORDS`` words, and entries contained in the product name,
     a non-negative brief mandatory or a proper-name chunk of ``trend``, are
     skipped; see ``_avoid_terms``). Self-reported: each failed
-    ``brief_checks`` item in ``GATING_BRIEF_CHECKS``. Only copies with issues
-    are returned ({} = clean). Never raises.
+    ``brief_checks`` item in ``GATING_BRIEF_CHECKS``. ``strictness`` (the
+    run's ``rating_strictness`` flags; default none = the rules above) only
+    tightens: ``weak_cta`` caps the CTA at ``STRICT_CTA_WORDS`` words and
+    ``off_brief`` adds ``OFF_BRIEF_BRIEF_CHECKS`` to the gating items. Only
+    copies with issues are returned ({} = clean). Never raises.
     """
     terms = _avoid_terms(
         avoid, product=target_product, mandatories=mandatories, trend=trend
@@ -465,7 +514,11 @@ def gate_copies(
     issues: dict[str, list[CopyIssue]] = {}
     for key, copy in zip(copy_keys(parsed), parsed, strict=True):
         if found := _check_copy(
-            copy, target_product=target_product, avoid=terms, brand=brand
+            copy,
+            target_product=target_product,
+            avoid=terms,
+            brand=brand,
+            strictness=strictness,
         ):
             issues[key] = found
     return issues

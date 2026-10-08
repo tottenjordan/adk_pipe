@@ -268,3 +268,22 @@ class TestQuery:
         monkeypatch.setattr(rs, "_get_bigquery_client", lambda: bq)
         assert rs.fetch_ratings("PRS", days=30) == []
         assert len(bq.queries) == 1
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        (None, ()),
+        ("weak_cta", ()),
+        ({"weak_cta": True}, ()),
+        ([], ()),
+        (["weak_cta"], ("weak_cta",)),
+        (
+            ["trend_unclear", "cluttered", "weak_cta", "weak_cta", 3, None, {}],
+            ("weak_cta", "trend_unclear"),
+        ),
+        (("text_problem",), ("text_problem",)),
+    ],
+)
+def test_strictness_flags_keep_only_known_flags(value, expected):
+    assert rs.strictness_flags(value) == expected

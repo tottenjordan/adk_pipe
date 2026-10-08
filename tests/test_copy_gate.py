@@ -649,3 +649,59 @@ def test_bracketed_avoid_terms_still_match():
     ]
     issues = gate_copies(copies, target_product="SE CE24", avoid=brief_avoid(brief))
     assert any("coil tap terminology" in i.text for i in issues.get("1", []))
+
+
+# --- rating strictness (opt-in rating learning) ------------------------------
+
+_SEVEN_WORD_CTA = "Grab your Rocket Skates at ACME today"
+
+
+def test_weak_cta_flag_tightens_the_cta_limit():
+    copy = _copy(call_to_action=_SEVEN_WORD_CTA)
+    assert _gate(copy) == {}
+    assert _gate(copy, strictness=[]) == {}
+    (issue,) = _gate_texts(copy, strictness=["weak_cta"])["1"]
+    assert issue.startswith("call_to_action has 7 words")
+    assert "at most 6 words" in issue
+    assert _gate(copy, strictness=["weak_cta"])["1"][0].kind == "deterministic"
+
+
+def test_weak_cta_flag_keeps_short_ctas():
+    assert (
+        _gate(_copy(call_to_action="Order yours today"), strictness=["weak_cta"]) == {}
+    )
+
+
+def test_weak_cta_flag_rewords_the_empty_cta_issue():
+    (issue,) = _gate_texts(_copy(call_to_action=""), strictness=["weak_cta"])["1"]
+    assert "at most 6 words" in issue
+
+
+_MESSAGE_CHECKS = [
+    {"item": "reason_to_believe", "passed": False, "note": "no proof"},
+    {"item": "trend_bridge", "passed": False, "note": "trend tacked on"},
+    {"item": "tone", "passed": False, "note": "too sarcastic"},
+]
+
+
+def test_off_brief_flag_makes_message_checks_gate():
+    copy = _copy(brief_checks=_MESSAGE_CHECKS)
+    assert _gate(copy) == {}  # advisory by default
+    issues = _gate(copy, strictness=["off_brief"])["1"]
+    assert [str(i) for i in issues] == [
+        "brief check failed: reason_to_believe — no proof",
+        "brief check failed: trend_bridge — trend tacked on",
+    ]  # tone stays advisory
+    assert all(i.kind == "self_reported" for i in issues)
+    assert residual_issues({"1": issues}) == {}  # never recorded as residual
+
+
+def test_off_brief_flag_keeps_proposition_gating():
+    checks = [{"item": "proposition", "passed": False, "note": "two ideas"}]
+    texts = _gate_texts(_copy(brief_checks=checks), strictness=["off_brief"])
+    assert texts == {"1": ["brief check failed: proposition — two ideas"]}
+
+
+def test_unknown_strictness_flags_change_nothing():
+    copy = _copy(call_to_action=_SEVEN_WORD_CTA, brief_checks=_MESSAGE_CHECKS)
+    assert _gate(copy, strictness=["text_problem", "cluttered", "bogus"]) == {}

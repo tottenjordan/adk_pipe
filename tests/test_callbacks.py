@@ -553,6 +553,73 @@ class TestEnsureTrendAndProductCallback:
         assert ensure_trend_and_product_callback(self._ctx(state)) is None
 
 
+def test_ensure_trend_and_product_callback_reads_rating_strictness():
+    from types import SimpleNamespace
+
+    from creative_agent.callbacks import ensure_trend_and_product_callback
+
+    def _state(**extra):
+        concept = {
+            "concept_name": "Good",
+            "trend_motif": "a ballot box",
+            "image_generation_prompt": "Rocket Skates by ballot boxes.",
+        }
+        return {
+            "target_product": "Rocket Skates",
+            "final_visual_concepts": {"visual_concepts": [concept]},
+            **extra,
+        }
+
+    plain = _state()
+    ensure_trend_and_product_callback(SimpleNamespace(state=plain))
+    prompt = plain["final_visual_concepts"]["visual_concepts"][0][
+        "image_generation_prompt"
+    ]
+    assert prompt == "Rocket Skates by ballot boxes."
+
+    strict = _state(rating_strictness=["product_not_visible", "trend_unclear"])
+    ensure_trend_and_product_callback(SimpleNamespace(state=strict))
+    prompt = strict["final_visual_concepts"]["visual_concepts"][0][
+        "image_generation_prompt"
+    ]
+    assert prompt == (
+        "Rocket Skates by ballot boxes. The scene visibly includes a ballot box."
+        " The product is large and in the foreground."
+    )
+
+
+def test_recheck_concept_issues_callback_reads_rating_strictness():
+    from types import SimpleNamespace
+
+    from creative_agent.callbacks import recheck_concept_issues_callback
+
+    copies = {
+        "ad_copies": [
+            {"original_id": i, "headline": f"Outrun Monday {i}"} for i in (1, 2)
+        ]
+    }
+    concepts = [
+        {
+            "ad_copy_id": i,
+            "concept_name": f"Dash {i}",
+            "trend_motif": "a roadrunner",
+            "image_generation_prompt": f'A roadrunner; text reads "Outrun Monday {i}".',
+        }
+        for i in (1, 2)
+    ]
+    state = {
+        "target_product": "SE CE24",
+        "ad_copy_critique": copies,
+        "final_visual_concepts": {"visual_concepts": concepts},
+    }
+    recheck_concept_issues_callback(SimpleNamespace(state=state))
+    assert state["final_visual_concepts__issues"] is None
+    state["rating_strictness"] = ["text_problem"]
+    recheck_concept_issues_callback(SimpleNamespace(state=state))
+    (issue,) = state["final_visual_concepts__issues"]
+    assert "more than 1 concept:" in issue
+
+
 def test_recheck_concept_issues_callback():
     """Interactive's post-checkpoint recheck: the residual marker reflects the
     CURRENT concepts (no stale pre-checkpoint warning), brand quotes allowed."""

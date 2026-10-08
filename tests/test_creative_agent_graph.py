@@ -872,7 +872,13 @@ _ADS_STATE = {
 }
 
 
-def _run_ads(monkeypatch, critic: str, reviser: list[str] | None = None, model=None):
+def _run_ads(
+    monkeypatch,
+    critic: str,
+    reviser: list[str] | None = None,
+    model=None,
+    extra_state: dict[str, Any] | None = None,
+):
     import creative_agent.agent as ca
 
     llms = _stub_graph(monkeypatch, ca.ad_creative_pipeline)
@@ -884,7 +890,9 @@ def _run_ads(monkeypatch, critic: str, reviser: list[str] | None = None, model=N
         _patch_agent_model(
             monkeypatch, ca.ad_creative_pipeline, "ad_copy_reviser", model
         )
-    root_llm, events, state = _run_root(monkeypatch, "ad_creative_pipeline", _ADS_STATE)
+    root_llm, events, state = _run_root(
+        monkeypatch, "ad_creative_pipeline", {**_ADS_STATE, **(extra_state or {})}
+    )
     return llms, root_llm, events, state
 
 
@@ -1293,7 +1301,11 @@ _VISUAL_STATE = {
 
 
 def _run_visuals(
-    monkeypatch, finalizer: str, fixer: list[str] | None = None, model=None
+    monkeypatch,
+    finalizer: str,
+    fixer: list[str] | None = None,
+    model=None,
+    extra_state: dict[str, Any] | None = None,
 ):
     import creative_agent.agent as ca
 
@@ -1313,7 +1325,9 @@ def _run_visuals(
         fc_response("generate_image", {}, "img1"), text_response("Rendered.")
     )
     root_llm, events, state = _run_root(
-        monkeypatch, "visual_production_pipeline", _VISUAL_STATE
+        monkeypatch,
+        "visual_production_pipeline",
+        {**_VISUAL_STATE, **(extra_state or {})},
     )
     return llms, root_llm, events, state
 
@@ -1781,3 +1795,89 @@ def test_rating_learning_off_makes_no_query(monkeypatch):
     prompt = str(llms["brief_writer"].requests[-1].config.system_instruction)
     assert "Your team's ratings" not in prompt
     assert state["creative_brief"] == _BRIEF
+
+
+def test_rating_strictness_from_the_learning_step_tightens_the_gates(monkeypatch):
+    """Toggle on + ratings with recurring fail reasons: the learning step writes
+    rating_strictness, and with it the copy gate caps CTAs at 6 words, the
+    concept gate allows one text concept and the concept guard asks for a
+    large, foreground product. The same copies / concepts pass by default."""
+    import creative_agent.agent as ca
+    from creative_agent import rating_signals
+
+    _rating_learning_on(monkeypatch, ca)
+    fails = [
+        ("ad_copy", "weak_cta"),
+        ("visual", "text_problem"),
+        ("visual", "product_not_visible"),
+    ]
+    rows = [
+        {"kind": kind, "verdict": "fail", "fail_reasons": [reason]}
+        for kind, reason in fails
+        for _ in range(3)
+    ]
+    monkeypatch.setattr(rating_signals, "fetch_ratings", lambda *a, **k: rows)
+    llms = _stub_graph(monkeypatch, ca.combined_research_pipeline)
+    _script_research(llms, ["CA INSIGHTS"])
+    _, _, research = _run_root(
+        monkeypatch,
+        "combined_research_pipeline",
+        extra_state={"learn_from_ratings": True},
+    )
+    strictness = research["rating_strictness"]
+    assert set(strictness) == {"weak_cta", "text_problem", "product_not_visible"}
+    learned = {"rating_strictness": strictness}
+
+    # Copy gate: a 7-word CTA passes by default, is revised under weak_cta.
+    long_cta = _final_ad(2, call_to_action="Grab your Rocket Skates at ACME today")
+    ads = [_final_ad(1), long_cta, _final_ad(3), _final_ad(4)]
+    llms, _, _, _ = _run_ads(monkeypatch, _final_ads(*ads))
+    assert llms["ad_copy_reviser"].calls == 0
+    fixed = _final_ad(2, call_to_action="Grab Rocket Skates today")
+    llms, _, _, state = _run_ads(
+        monkeypatch,
+        _final_ads(*ads),
+        [_final_ads(_final_ad(1), fixed, _final_ad(3), _final_ad(4))],
+        extra_state=learned,
+    )
+    assert llms["ad_copy_reviser"].calls == 1
+    prompt = str(llms["ad_copy_reviser"].requests[-1].config.system_instruction)
+    assert "call_to_action has 7 words" in prompt
+    assert "at most 6 words" in prompt
+    assert state["ad_copy_critique"]["ad_copies"][1] == fixed
+    assert state.get("ad_copy_critique__issues") is None
+
+    # Concept gate + guard: two text concepts pass by default; under the
+    # strictness the second is fixed and every prompt asks for a prominent
+    # product.
+    texts = [
+        _final_concept(
+            i,
+            f'Rocket Skates on the ACME crate in a roadrunner dust cloud, type reads "Beep beep {i}".',
+        )
+        for i in (1, 2)
+    ]
+    concepts = [*texts, _final_concept(3), _final_concept(4)]
+    llms, _, _, state = _run_visuals(monkeypatch, _concepts_json(*concepts))
+    assert llms["visual_concept_fixer"].calls == 0
+    assert not any("foreground" in p for p in _prompts(state))
+
+    no_text = _final_concept(2)
+    llms, _, _, state = _run_visuals(
+        monkeypatch,
+        _concepts_json(*concepts),
+        [_concepts_json(concepts[0], no_text, *concepts[2:])],
+        extra_state=learned,
+    )
+    assert llms["visual_concept_fixer"].calls == 1
+    issues_block = str(
+        llms["visual_concept_fixer"].requests[-1].config.system_instruction
+    ).split("<visual_concept_issues>")[-1]
+    assert "in-image text appears in more than 1 concept:" in issues_block
+    prompts = _prompts(state)
+    assert prompts[1].startswith(no_text["image_generation_prompt"])
+    assert all(
+        p.count("The product is large and in the foreground.") == 1 for p in prompts
+    )
+    assert state.get("final_visual_concepts__issues") is None
+    assert state["_images_generated"] is True
