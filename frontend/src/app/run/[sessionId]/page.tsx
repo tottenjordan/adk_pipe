@@ -25,6 +25,8 @@ import {
   getEventError,
   SELF_USER_ID,
 } from "@/lib/api";
+import { LearningSummary } from "@/components/learning-summary";
+import { learningSummaryText } from "@/lib/rating-learning";
 import {
   buildDisplayFields,
   RATING_LEARNING_FIELD,
@@ -498,8 +500,9 @@ export default function RunPage({
     ? { text: `Stopped before ${stopped.stage}`, dot: "bg-mark-pending", tone: "text-mark-pending" }
     : statusLine[status];
 
+  const learningText = learningSummaryText(sessionState);
   const hasOutputs =
-    pipelineWidgets.length > 0 || gcsUri || researchReportUrl || creativeBrief;
+    pipelineWidgets.length > 0 || gcsUri || researchReportUrl || creativeBrief || learningText;
 
   return (
     <div className="mx-auto max-w-[1400px] px-4 py-6 sm:px-6 sm:py-8">
@@ -612,6 +615,9 @@ export default function RunPage({
                   {status === "completed" && !stopped ? "Outputs" : "Outputs so far"}
                 </h2>
                 <div className="grid gap-3 sm:grid-cols-2">
+                  {/* What rating-driven learning applied (opt-in runs only) */}
+                  <LearningSummary state={sessionState} className="sm:col-span-2" />
+
                   {/* Full width first: the brief is the strategy every later output follows */}
                   {creativeBrief && (
                     <CreativeBriefOutput

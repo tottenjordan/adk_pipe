@@ -21,6 +21,7 @@ from .concept_guard import (
 )
 from .config import config
 from .copy_gate import parse_copies, restore_unflagged
+from .rating_signals import strictness_flags
 from .references import reference_roles_summary
 from .style_shortlist import format_shortlist, pick_style_shortlist
 
@@ -288,6 +289,7 @@ def ensure_trend_and_product_callback(callback_context: CallbackContext) -> None
         concepts,
         str(state.get("target_product") or ""),
         brand=str(state.get("brand") or ""),
+        strictness=strictness_flags(state.get("rating_strictness")),
     )
     for warning in warnings:
         logging.warning(f"concept guard: {warning}")
@@ -318,6 +320,7 @@ def recheck_concept_issues_callback(callback_context: CallbackContext) -> None:
         state.get("ad_copy_critique"),
         brand=str(state.get("brand") or ""),
         target_product=str(state.get("target_product") or ""),
+        strictness=strictness_flags(state.get("rating_strictness")),
     )
     residual = flatten_concept_issues(concepts, issues) or None
     if residual:

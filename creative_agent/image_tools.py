@@ -14,6 +14,11 @@ weigh first), and only that one is uploaded. Per-concept results land in
 ``state["image_qa__issues"]``; concepts whose check errored (fail-open) in
 ``state["image_qa__unavailable"]`` (not a quality issue, so not surfaced as a
 degradation warning).
+
+Opt-in rating learning (``rating_strictness``): ``unwanted_logo`` adds
+``no_other_logos_line`` to every render prompt (re-renders too), and the flags
+are passed to ``image_qa.inspect_image`` (``product_not_visible`` /
+``trend_unclear`` ask for a prominent product / motif).
 """
 
 import asyncio
@@ -23,6 +28,7 @@ import logging
 import random
 import socket
 import urllib.request
+from collections.abc import Sequence
 from dataclasses import dataclass
 from urllib.parse import urlparse
 
@@ -38,6 +44,7 @@ from agent_common.locations import MODEL_LOCATION
 from . import image_qa
 from .config import config
 from .gcs_tools import _download_blob, _save_to_gcs, artifact_key_for
+from .rating_signals import strictness_flags
 from .references import (
     MAX_REFERENCE_IMAGES,
     REFERENCE_ROLES,
@@ -310,6 +317,14 @@ REFERENCE_IGNORE_TEXT_LINE = (
 )
 
 
+def no_other_logos_line(brand: str) -> str:
+    """The render-prompt line added under ``unwanted_logo`` rating strictness."""
+    brand = " ".join((brand or "").split())
+    if brand:
+        return f"No logos, brand marks or trademarks except those of {brand}."
+    return "No logos, brand marks or trademarks."
+
+
 def _reference_prompt(
     prompt_text: str, roles: list[str], missing_roles: list[str] | tuple = ()
 ) -> str:
@@ -440,6 +455,7 @@ async def _inspect(
     brand: str,
     product: str,
     has_logo_reference: bool = False,
+    strictness: Sequence[str] = (),
 ) -> image_qa.ImageQAResult | None:
     """One QA call off the event loop → the verdict, or None (fail-open)."""
     image_bytes, mime = rendered
@@ -454,6 +470,7 @@ async def _inspect(
             client=image_qa._get_qa_client(),
             model=config.image_qa_model,
             has_logo_reference=has_logo_reference,
+            strictness=strictness,
         )
     except Exception as exc:
         logging.warning(
@@ -509,6 +526,7 @@ async def _inspect_and_rerender(
     render=None,
     claim_after: asyncio.Event | None = None,
     claims_done: asyncio.Event | None = None,
+    strictness: Sequence[str] = (),
 ) -> tuple[tuple[bytes, str], int, dict | None, str | None]:
     """Inspect a render; re-render (bounded) while it fails; keep the best.
 
@@ -540,7 +558,9 @@ async def _inspect_and_rerender(
 
     try:
         name = entry.get("concept_name", "")
-        result = await _inspect(rendered, entry, brand, product, has_logo_reference)
+        result = await _inspect(
+            rendered, entry, brand, product, has_logo_reference, strictness
+        )
         if result is None:
             await my_turn()
             return rendered, 1, None, None
@@ -578,7 +598,7 @@ async def _inspect_and_rerender(
             if retry is None:
                 break
             retry_result = await _inspect(
-                retry, entry, brand, product, has_logo_reference
+                retry, entry, brand, product, has_logo_reference, strictness
             )
             if retry_result is None:
                 break
@@ -648,8 +668,15 @@ async def generate_image(
     elif aspect_ratio_override:
         logging.info(f"Applying user aspect-ratio override: {aspect_ratio_override}")
 
+    brand = tool_context.state.get("brand") or ""
+    # Opt-in rating learning: the run's check-backed fail-reason flags.
+    strictness = strictness_flags(tool_context.state.get("rating_strictness"))
+
     def contents_for(prompt_text: str):
-        """The render contents: the prompt (+ reference block and Parts)."""
+        """The render contents: the prompt (+ the rating-strictness logo line,
+        the reference block and Parts)."""
+        if "unwanted_logo" in strictness:
+            prompt_text = prompt_text + "\n\n" + no_other_logos_line(brand)
         if reference_parts:
             return [
                 _reference_prompt(prompt_text, reference_roles, missing_roles),
@@ -657,7 +684,6 @@ async def generate_image(
             ]
         return prompt_text
 
-    brand = tool_context.state.get("brand") or ""
     product = tool_context.state.get("target_product") or ""
     artifact_keys_list = []
     generated_images: dict[str, dict] = {}
@@ -698,6 +724,7 @@ async def generate_image(
             render=render,
             claim_after=claim_after,
             claims_done=done,
+            strictness=strictness,
         )
 
     checks: list[tuple[dict, asyncio.Task]] = []

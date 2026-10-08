@@ -531,6 +531,10 @@ class TestRatingLearning:
         assert applied["styles_excluded"] == ["Isometric miniature world"]
         assert applied["styles_preferred"] == ["Candid 35mm film photo"]
         assert applied["signals"] == delta["rating_signals"]
+        assert delta["rating_signals"].endswith(
+            "Stricter limits for this run: "
+            "Show the product large and in the foreground."
+        )
         assert delta["brand_history"] == ""  # brand history still runs
 
     def test_kill_switch_overrides_toggle(self, monkeypatch):
@@ -547,6 +551,7 @@ class TestRatingLearning:
             "ratings": 3,
             "applied": False,
             "reason": "not_enough_ratings",
+            "min": 8,
         }
         assert "rating_signals" not in d and "rating_strictness" not in d
         assert "style_shortlist" not in d
@@ -597,6 +602,14 @@ class TestRatingLearning:
         d = _delta({"brand": "PRS", "learn_from_ratings": True})
         assert d["rating_strictness"] == ["product_not_visible"]
         assert "rating_signals" not in d and "style_shortlist" not in d
+
+        # Guidance without checks: the note never lists the stricter limits.
+        monkeypatch.setattr(
+            bh.config, "rating_learning_effects", frozenset({"guidance"})
+        )
+        d = _delta({"brand": "PRS", "learn_from_ratings": True})
+        assert "Stricter limits" not in d["rating_signals"]
+        assert "rating_strictness" not in d
 
     def test_one_shortlist_draw_merges_recent_and_rated_styles(self, monkeypatch):
         self._ratings(monkeypatch, self.rows * 2)

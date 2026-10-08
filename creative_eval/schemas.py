@@ -218,3 +218,14 @@ class CreativeEvaluationReport(BaseModel):
         default=False,
         description="True when the judge saw the structured creative brief.",
     )
+    # Opt-in rating-driven learning (creative_agent rating_signals): tags runs
+    # whose generation was steered by human ratings, so judge calibration can
+    # separate them. Defaults keep old reports valid.
+    learning_used: bool = Field(
+        default=False,
+        description="True when rating-driven learning was applied to this run.",
+    )
+    learning_flags: list[str] = Field(
+        default_factory=list,
+        description="The learning effects that changed the run: 'guidance', 'styles' and each rating strictness flag (e.g. 'product_not_visible').",
+    )

@@ -894,3 +894,97 @@ def test_visual_eval_prompt_formats_concepts_with_brand_cue_and_angle_id():
     assert result.concept_name == "Dust"
     (call,) = client.models.generate_content.call_args_list
     assert "Concept Name: Dust" in call.kwargs["contents"]
+
+
+# =====================================================================
+# Rating-driven learning: learning_used / learning_flags on the report
+# =====================================================================
+
+
+class TestReportLearningFields:
+    def _report(self, monkeypatch, extra_state):
+        import creative_eval.agent as ev_agent
+
+        monkeypatch.setattr(
+            ev_agent, "evaluate_all_concurrently", lambda *a, **k: ([], [])
+        )
+        ctx = FakeToolContext(
+            {
+                **SAMPLE_CAMPAIGN_STATE,
+                "ad_copy_critique": SAMPLE_AD_COPIES,
+                "final_visual_concepts": {"visual_concepts": []},
+                **extra_state,
+            }
+        )
+        assert ev_agent.evaluate_all_creatives(ctx)["status"] == "success"
+        return ctx.state["creative_evaluation_report"]
+
+    def test_defaults_without_learning(self, monkeypatch):
+        report = self._report(monkeypatch, {})
+        assert report["learning_used"] is False
+        assert report["learning_flags"] == []
+
+    def test_old_report_parses_with_defaults(self, monkeypatch):
+        from creative_eval.schemas import CreativeEvaluationReport
+
+        old = self._report(monkeypatch, {})
+        del old["learning_used"], old["learning_flags"]
+        report = CreativeEvaluationReport.model_validate(old)
+        assert report.learning_used is False and report.learning_flags == []
+
+    def test_applied_learning_is_recorded(self, monkeypatch):
+        applied = {
+            "ratings": 23,
+            "applied": True,
+            "effects": ["checks", "guidance", "styles"],
+            "signals": "Your team's ratings for PRS (23): ...",
+            "strictness": ["product_not_visible", "text_problem"],
+            "styles_excluded": ["Isometric miniature world"],
+            "styles_preferred": [],
+        }
+        report = self._report(monkeypatch, {"rating_signals_applied": applied})
+        assert report["learning_used"] is True
+        assert report["learning_flags"] == [
+            "guidance",
+            "styles",
+            "product_not_visible",
+            "text_problem",
+        ]
+
+    def test_flags_list_only_effects_that_changed_the_run(self, monkeypatch):
+        applied = {
+            "ratings": 9,
+            "applied": True,
+            "effects": ["checks", "guidance", "styles"],
+            "signals": "",
+            "strictness": [],
+            "styles_excluded": [],
+            "styles_preferred": ["Candid 35mm film photo"],
+        }
+        report = self._report(monkeypatch, {"rating_signals_applied": applied})
+        assert report["learning_used"] is True
+        assert report["learning_flags"] == ["styles"]
+
+    @pytest.mark.parametrize(
+        "applied",
+        [
+            {"ratings": 3, "applied": False, "reason": "not_enough_ratings"},
+            {"ratings": 0, "applied": False, "reason": "unavailable"},
+            {"applied": "yes", "strictness": ["text_problem"]},
+            "applied",
+            None,
+        ],
+    )
+    def test_not_applied_or_malformed_is_not_learning(self, monkeypatch, applied):
+        report = self._report(monkeypatch, {"rating_signals_applied": applied})
+        assert report["learning_used"] is False
+        assert report["learning_flags"] == []
+
+    def test_malformed_strictness_entries_are_dropped(self, monkeypatch):
+        applied = {
+            "applied": True,
+            "strictness": ["weak_cta", 3, {"x": 1}, "", "weak_cta"],
+            "styles_excluded": "Isometric",
+        }
+        report = self._report(monkeypatch, {"rating_signals_applied": applied})
+        assert report["learning_flags"] == ["weak_cta"]

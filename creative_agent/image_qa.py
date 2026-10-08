@@ -24,6 +24,7 @@ and keeps the rendered image.
 
 import functools
 import re
+from collections.abc import Sequence
 from typing import Any
 
 from google import genai
@@ -270,14 +271,35 @@ def correction_text(
     )
 
 
+# Rating strictness (opt-in rating learning): recurring "product hard to see"
+# / "trend unclear" fail reasons raise the bar for the matching verdict.
+PROMINENT_PRODUCT_RULE = (
+    "The product must be prominent: this brand's reviewers often found it hard "
+    "to see, so product_visible is true only when the product is large and "
+    "clearly in the foreground, not small, distant or mostly hidden."
+)
+PROMINENT_MOTIF_RULE = (
+    "The trend motif must be prominent: this brand's reviewers often found the "
+    "trend unclear, so motif_visible is true only when the motif is clearly "
+    "visible and easy to spot, not small or incidental in the background."
+)
+
+
 def _instruction(
     concept: dict[str, Any],
     *,
     brand: str,
     target_product: str,
     has_logo_reference: bool = False,
+    strictness: Sequence[str] = (),
 ) -> str:
-    """The QA instruction for one concept (what to check, what was promised)."""
+    """The QA instruction for one concept (what to check, what was promised).
+
+    ``strictness`` (the run's ``rating_strictness`` flags; default none) only
+    raises the bar: ``product_not_visible`` / ``trend_unclear`` ask for a
+    *prominent* product / motif. ``qa_failed_rules`` is unchanged — the
+    stricter verdict simply arrives as ``product_visible`` / ``motif_visible``.
+    """
     prompt = " ".join((concept.get("image_generation_prompt") or "").split())
     motif = (concept.get("trend_motif") or "").strip()
     lines = [
@@ -296,6 +318,8 @@ def _instruction(
             "intangible product (an app, service or subscription), true if the "
             "depiction described above is present."
         )
+        if "product_not_visible" in strictness:
+            lines.append(PROMINENT_PRODUCT_RULE)
     else:
         lines.append("No specific product: set product_visible true.")
     if motif:
@@ -304,6 +328,8 @@ def _instruction(
             "for an abstract motif, true if the depiction described above is "
             "present."
         )
+        if "trend_unclear" in strictness:
+            lines.append(PROMINENT_MOTIF_RULE)
     else:
         lines.append("No trend motif: set motif_visible true.")
     brand_cue = (concept.get("brand_cue") or "").strip()
@@ -385,6 +411,7 @@ def inspect_image(
     client: Any,
     model: str,
     has_logo_reference: bool = False,
+    strictness: Sequence[str] = (),
 ) -> ImageQAResult:
     """One structured vision call → the image's ``ImageQAResult``.
 
@@ -401,6 +428,7 @@ def inspect_image(
                     brand=brand,
                     target_product=target_product,
                     has_logo_reference=has_logo_reference,
+                    strictness=strictness,
                 )
             ),
         ],

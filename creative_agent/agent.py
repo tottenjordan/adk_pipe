@@ -52,6 +52,7 @@ from .finalize import (
     issue_message,
     persist_node,
 )
+from .rating_signals import strictness_flags
 from .schemas import (  # noqa: F401
     AdCopy,
     AdCopyList,
@@ -746,6 +747,7 @@ def _copy_issues(state: Mapping[str, Any]) -> dict[str, list[CopyIssue]]:
         mandatories=brief_mandatories(brief),
         trend=str(state.get("target_search_trends") or ""),
         brand=str(state.get("brand") or ""),
+        strictness=strictness_flags(state.get("rating_strictness")),
     )
 
 
@@ -1053,6 +1055,7 @@ def _concept_issues(state: Mapping[str, Any]) -> dict[str, list[CopyIssue]]:
         state.get("ad_copy_critique"),
         brand=str(state.get("brand") or ""),
         target_product=str(state.get("target_product") or ""),
+        strictness=strictness_flags(state.get("rating_strictness")),
     )
 
 

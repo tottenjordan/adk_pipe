@@ -138,6 +138,33 @@ def _reusable_ad_evals(
     return [None if "evaluation_failed" in e.score.improvements else e for e in evals]
 
 
+def learning_record(applied: Any) -> tuple[bool, list[str]]:
+    """``(learning_used, learning_flags)`` from ``rating_signals_applied`` (pure).
+
+    Only an applied record (``applied is True``) counts. The flags name what
+    actually changed the run: ``guidance`` (a non-empty note), ``styles``
+    (families excluded or preferred) and each strictness flag, in order and
+    deduplicated. Malformed values degrade to ``(False, [])``; never raises.
+    """
+    if not isinstance(applied, Mapping) or applied.get("applied") is not True:
+        return False, []
+
+    def _strings(value: Any) -> list[str]:
+        if not isinstance(value, list | tuple):
+            return []
+        return [v for v in value if isinstance(v, str) and v.strip()]
+
+    flags: list[str] = []
+    if str(applied.get("signals") or "").strip():
+        flags.append("guidance")
+    if _strings(applied.get("styles_excluded")) or _strings(
+        applied.get("styles_preferred")
+    ):
+        flags.append("styles")
+    flags += _strings(applied.get("strictness"))
+    return True, list(dict.fromkeys(flags))
+
+
 def evaluate_all_creatives(tool_context) -> dict:
     """Evaluate all finalized ad copies and visual concepts in session state.
 
@@ -207,6 +234,7 @@ def evaluate_all_creatives(tool_context) -> dict:
         ad_evals, visual_evals, generated_images
     )
 
+    learning_used, learning_flags = learning_record(state.get("rating_signals_applied"))
     report = CreativeEvaluationReport(
         brand=campaign_context["brand"],
         target_product=campaign_context["target_product"],
@@ -218,6 +246,8 @@ def evaluate_all_creatives(tool_context) -> dict:
         judge_model=_config.eval_model,
         passing_threshold=_config.passing_threshold,
         brief_used=brief is not None,
+        learning_used=learning_used,
+        learning_flags=learning_flags,
     )
 
     # Store in session state
