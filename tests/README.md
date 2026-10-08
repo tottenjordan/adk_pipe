@@ -104,7 +104,7 @@ tests/
 ├── test_interactive_copy_revision.py # checkpoint-2 user revision: prepare_copy_revision flags every copy (one revision cap), input clearing after the reviser, fail-soft on_error
 ├── test_interactive_prompts.py      # interactive checkpoint contracts: brief/report edit → PDF re-save (no research re-run), checkpoint-2 feedback → one revision; brace-safety
 ├── test_no_legacy_agent_engines_api.py # guard: no legacy vertexai agent_engines API in repo call sites
-├── test_model_request_timeout.py    # per-request model timeout (MODEL_REQUEST_TIMEOUT_SECONDS → HttpOptions.timeout) + TimeoutError retry
+├── test_model_request_timeout.py    # per-request model timeout (MODEL_REQUEST_TIMEOUT_SECONDS / flash FLASH_MODEL_REQUEST_TIMEOUT_SECONDS → HttpOptions.timeout) + TimeoutError retry
 ├── test_observability.py            # shared agent_common observability callbacks
 ├── test_otel_flag.py                # ADK_OTEL_TO_CLOUD parsing + async_app wiring (opt-in Cloud Trace on the api)
 ├── test_pipeline_structure.py       # pipeline composition (graph nodes/edges by name, truthy terminals) + placement-env wiring

@@ -361,7 +361,8 @@ def _get_qa_client() -> genai.Client:
     """The genai client for the QA model (cached; global; retry + timeout).
 
     Same shape as the creative_eval judge client: status-code HTTP retry for
-    429/5xx and the shared per-request timeout (MILLISECONDS).
+    429/5xx and the per-request timeout (MILLISECONDS) — model-aware, so the
+    default flash QA model gets the shorter flash timeout.
     """
     return genai.Client(
         vertexai=True,
@@ -369,7 +370,7 @@ def _get_qa_client() -> genai.Client:
         location=MODEL_LOCATION,
         http_options=types.HttpOptions(
             retry_options=genai_retry.build_genai_http_retry(),
-            timeout=genai_retry.model_request_timeout_ms(),
+            timeout=genai_retry.model_request_timeout_ms(config.image_qa_model),
         ),
     )
 
