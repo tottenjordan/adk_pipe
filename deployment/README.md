@@ -1524,7 +1524,7 @@ Agent Engine through `deploy_agent.py` `ENV_VAR_DICT`, read at import, so for an
 | `BRAND_HISTORY_ENABLED` | `true` | `load_brand_history` reads past `creative_evals` rows for the brand |
 | `BRAND_HISTORY_RUNS` | `5` (0–20) | How many past runs of the brand to read |
 | `RATING_LEARNING_ENABLED` | `true` | Global kill switch for rating learning (`true` = runs may opt in via the form checkbox; `false` = never, even when checked) |
-| `RATING_LEARNING_EFFECTS` | `guidance,styles,checks` | Enabled effects; drop an item to disable it (unknown items ignored; blank or only-unknown → all three, with a warning) |
+| `RATING_LEARNING_EFFECTS` | `guidance,styles,checks` | Enabled effects; drop an item to disable it (unknown items ignored; blank or only-unknown → all three, with a warning). `checks` = `rating_strictness`: tighter copy/concept gates, image-QA prominence and the no-other-logos render line (no extra knobs) |
 | `RATING_LEARNING_MIN_RATINGS` | `8` (1–200) | Below this many brand ratings nothing is applied ("not enough ratings yet") |
 | `RATING_STYLE_MIN` | `3` (1–50) | Ratings a style family needs before it is preferred/excluded |
 | `RATING_REASON_MIN` | `3` (1–50) | Fails a reason needs before it is named / becomes a strictness flag |

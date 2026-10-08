@@ -68,16 +68,16 @@ tests/
 ├── test_brief_render.py             # creative brief → "## Creative Brief" markdown in the research PDF (real markdown_pdf TOC check) + compact (headless) prompt variant + gallery summary card (HTML-escaped)
 ├── test_callbacks.py                # citation replacement, state init (incl. style_shortlist seeding, reference_images/reference_roles), rate limiting, trend/product guard callback
 ├── test_citations.py                # shared citation renderer (creative_agent.citations)
-├── test_concept_guard.py            # final image prompts always name the trend_motif + product + brand_cue (pure guard; token-overlap matching incl. brand_cue, intangible-product cue); concept_issues (quoted text vs paired headline/CTA incl. curly quotes / punctuation / substring, meme+comic exemption, empty motif, set-level text cap + centred-hero selection, conservative heuristics) + restore_unflagged_concepts
+├── test_concept_guard.py            # final image prompts always name the trend_motif + product + brand_cue (pure guard; token-overlap matching incl. brand_cue, intangible-product cue); concept_issues (quoted text vs paired headline/CTA incl. curly quotes / punctuation / substring, meme+comic exemption, empty motif, set-level text cap + centred-hero selection, conservative heuristics; rating strictness: text cap 1, prominence line, verbatim motif) + restore_unflagged_concepts
 ├── test_config.py                   # per-agent config resolution (incl. campaign-placement resolver, brand-history + rating-learning knobs)
 ├── test_text_match.py               # shared conservative matching (Unicode folding, plurals, sizes/packaging head nouns, single-token full phrase, brand anchor, 60% token-overlap mentions)
-├── test_copy_gate.py                # deterministic ad-copy gate (product named, CTA words, headline/caption length, brief avoid terms minus product/mandatory/trend overlaps; Unicode/&-brand/plural matching audit cases; warning-only structural issues; only proposition/mandatories self-reports gate, only deterministic residuals recorded; lenient product matching; duplicate-id keys; tolerant parsing) + restore_unflagged safety net
+├── test_copy_gate.py                # deterministic ad-copy gate (product named, CTA words, headline/caption length, brief avoid terms minus product/mandatory/trend overlaps; Unicode/&-brand/plural matching audit cases; warning-only structural issues; only proposition/mandatories self-reports gate (+ reason_to_believe/trend_bridge under off_brief strictness; weak_cta → 6-word CTA), only deterministic residuals recorded; lenient product matching; duplicate-id keys; tolerant parsing) + restore_unflagged safety net
 ├── test_create_session_engine.py    # create_session_engine.py (reuse-or-create sessions-only engine)
 ├── test_creative_brief_prompts.py   # {creative_brief_md?} block before the report + shared contract rule (core + fallback; user feedback/art direction override) in the 5 creative prompts; brace-safety
 ├── test_creative_agent_graph.py     # creative_agent graph pipelines end-to-end (stub models): routing, citations, no-stall, guard-repaired render prompts, creative-brief gate (pass / revise once / revise twice with 2 rounds / residual issues / writer exhausted / raising writer or reviser fail-soft), ad-copy gate (all pass / flagged copy revised + unflagged edit reverted / raising reviser fail-soft / residual issues), concept gate (all pass / flagged concept fixed + unflagged edit reverted + brand cue re-guarded / raising fixer fail-soft / residual issues), research PDF node (artifact + GCS / skipped without report / failure recorded), finalize_pipeline (evaluate + persist happy path with fake judge/GCS/BQ, no creatives → notice, failing gallery doesn't block BQ, eval row written last), creative_pipeline (the root's single call: research → ads → visuals + render → finalize end to end, then the root answers)
 ├── test_creative_root_prompt.py     # creative_agent root contract: memorize missing fields → one creative_pipeline call → final summary; root state-token set
 ├── test_eval_efficiency_gate.py     # efficiency gate: metric extraction, tolerances, warn-only latency, CLI exit codes, --update-baseline
-├── test_creative_eval.py            # creative_eval schemas, scoring logic, config
+├── test_creative_eval.py            # creative_eval schemas, scoring logic, config, report learning_used/learning_flags
 ├── test_eval_gates.py               # creative_eval binary gates: schema defaults (old reports parse), passed = score AND gates, gates_pass_rate over judged creatives only, brief block (brace-safe), judge-only response schemas (gates required, no code-set fields), gate normalisation (zero gates reported → fails, partial omission passes as "not checked" + report warning, lenient names, no brief → "no brief"), presence/violation gate wording, advisory brand cue, rendered image as a gs:// Part + image-QA hint, unreadable-image fail-soft to prompt-only limited to image 4xx, finalize "failed checks" / "evaluation failed" / gates pass-rate line
 ├── test_eval_dimensions.py          # creative_eval.dimensions labels mirror frontend/src/lib/eval-dimensions.ts (drift test)
 ├── test_crf_config.py               # env-driven CRF config (required project, no hardcoding)
@@ -229,6 +229,14 @@ tests/
   concurrent fetch, one merged shortlist draw), `test_style_shortlist.py` (`prefer` keeps 2/3/1),
   `test_creative_agent_graph.py` (toggle on → `rating_signals` reaches the brief writer prompt; off → no query),
   `test_creative_brief_prompts.py` (`{rating_signals?}` block + rule in exactly three prompts), `test_config.py`.
+  Strictness (each flag positive + default unchanged): `test_copy_gate.py` (`weak_cta`, `off_brief`),
+  `test_concept_guard.py` (`text_problem`, `product_not_visible`, `trend_unclear`; idempotent re-guard),
+  `test_pipeline_structure.py` / `test_callbacks.py` (gates + guard/recheck callbacks read `rating_strictness`),
+  `test_image_qa.py` (prominent product / motif instruction, flags passed from state), `test_image_reference.py`
+  (`unwanted_logo` render-prompt line), `test_rating_signals.py` (`strictness_flags`), `test_creative_agent_graph.py`
+  (learning step with fake ratings → copy gate caps CTAs at 6 words, concept gate allows one text concept, guard adds
+  the prominence line), `test_creative_eval.py::TestReportLearningFields` (`learning_used` / `learning_flags`),
+  `test_rating_reasons_drift.py` (frontend `STRICTNESS_LABELS` keys); frontend `learning-summary.test.tsx`.
 - **Brand history** — `test_brand_history.py` (helper + node delta),
   `test_creative_agent_graph.py` (the note reaches the brief writer; disabled → no query;
   a raising step doesn't stop research), `test_pipeline_structure.py` (node in the START

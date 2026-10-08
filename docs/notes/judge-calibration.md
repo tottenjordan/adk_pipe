@@ -55,6 +55,28 @@ side of their own ratings. Mitigations:
   same bucket, or rating dishonestly. The per-user `/runs` line covers only your own
   ratings, so it can only mislead yourself.
 
+## Learned runs (rating-driven learning)
+
+A run whose user ticked "Learn from past ratings for this brand" can be steered by
+earlier ratings: a guidance note in the brief and creative prompts, style steering,
+and stricter deterministic checks (`rating_strictness`). Such runs are tagged in
+their eval report: `learning_used: true` plus `learning_flags` (`guidance`, `styles`
+and each strictness flag, e.g. `product_not_visible`). Runs without learning, or
+where it wasn't applied (not enough ratings, ratings unavailable), have
+`learning_used: false`.
+
+**Calibrate on non-learned runs first.** Learned runs are shaped by the same human
+verdicts you're comparing against, so agreement on them is partly circular: the
+pipeline was nudged towards what raters already liked, and the stricter checks
+remove the failure modes raters flagged. Establish the judge's agreement on
+`learning_used: false` runs, then compare learned runs separately.
+
+The calibration report doesn't split by `learning_used` yet (deferred): rating rows
+snapshot the judge verdict but not the learning tag, so the split needs a
+`creative_ratings` column (or a join to the run's GCS report) first. Until then,
+filter by session: the learning status is on the run's results page ("Learning from
+ratings") and in its `creative_eval_report.json`.
+
 ## Reading the numbers
 
 - **Agreement** is the share of creatives where the judge and the human gave the same
