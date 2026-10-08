@@ -611,6 +611,16 @@ def test_mismatch_still_offers_the_copy_when_budget_remains():
         ('Crates stencilled "Fresh"', ["Fresh"]),
         ('Headline reads "Go" in bold, then "Now"', ["Go", "Now"]),
         ('Sign reads "Go" and then "Now"', ["Go", "Now"]),
+        # 2026-10-08 rater audit: missed cue words.
+        (
+            'A neon sign above which sits the exact quote "No Setlist, No Problem".',
+            ["No Setlist, No Problem"],
+        ),
+        ('a mural bearing the phrase "Ride It Out"', ["Ride It Out"]),
+        ('a billboard displaying "Stay Dry"', ["Stay Dry"]),
+        ('a wall painted with the wording "Calm Seas"', ["Calm Seas"]),
+        ('a brass plaque inscribed "Est. 1985"', ["Est. 1985"]),
+        ('glowing neon "Open"', ["Open"]),
     ],
 )
 def test_wider_cue_window_and_new_cue_words(prompt, expected):
@@ -626,6 +636,11 @@ def test_wider_cue_window_and_new_cue_words(prompt, expected):
         ('words cannot capture the "wow" moment', []),
         ('A sign reading "Open" over the door and a "golden hour" glow', ["Open"]),
         ('Sign reading "Open" by the stage in a hazy "golden hour" glow', ["Open"]),
+        # Often-descriptive cue words count only directly before the quote.
+        ('painted in warm "golden hour" tones', []),
+        ('bathed in neon, a "cyberpunk" vibe', []),
+        ('a guitarist bearing a "rock star" swagger', []),
+        ('the scene displays a "lived-in" feel', []),
     ],
 )
 def test_wider_window_keeps_idioms_and_unjoined_quotes_out(prompt, expected):

@@ -59,9 +59,11 @@
    (straight or curly; it must contain a letter) is in-image text ONLY when a
    text cue word (reading/reads/says/text/headline/tagline/sign/caption/
    lettering/written/words/title/label/slogan/banner/poster/font/typography/
-   overlay/spells/printed/emblazoned/stencilled …, see ``_TEXT_CUE``) appears
-   within the ``_CUE_WINDOW_WORDS`` (6) words before it (after any earlier
-   quote). A quote joined to an in-image one inherits it: only punctuation /
+   overlay/spells/printed/emblazoned/stencilled/quote/phrase/wording/
+   inscribed …, see ``_TEXT_CUE``) appears within the ``_CUE_WINDOW_WORDS`` (6)
+   words before it (after any earlier quote); the often-descriptive cues
+   painted/neon/bearing/displays/displaying (``_ADJACENT_ONLY_CUES``) count
+   only as the word directly before the quote. A quote joined to an in-image one inherits it: only punctuation /
    "and"/"or"/"then"/"plus" between them, or up to 4 short words ending in one
    of those connectors (``reads "Go" in bold, then "Now"``). Idioms are not
    cues: a cue followed by "of" (the "X of" idiom — "sign of the times",
@@ -118,10 +120,18 @@ _TEXT_CUE = re.compile(
     r"^(?:reading|reads|read|says|saying|text|headline|tagline|sign|signage|"
     r"caption|lettering|letters|written|words|title|label|slogan|banner|poster|"
     r"font|typography|typeset|overlay|spells|spelling|spelled|printed|"
-    r"emblazoned|stencilled|stenciled)$",
+    r"emblazoned|stencilled|stenciled|quote|quoted|quotes|phrase|wording|"
+    r"inscription|inscribed|displays|displaying|bearing|painted|neon)$",
     re.IGNORECASE,
 )
 _CUE_WINDOW_WORDS = 6
+# Cue words that are just as often descriptive ("painted in warm "golden hour"
+# tones", "bathed in neon, a "cyberpunk" vibe", "bearing a "rock star"
+# swagger", "displays a "lived-in" feel"): they count only directly before the
+# quote ("glowing neon "Open"", "a billboard displaying "Stay Dry"").
+_ADJACENT_ONLY_CUES = frozenset(
+    {"painted", "neon", "bearing", "displays", "displaying"}
+)
 # Words (a hyphenated compound is ONE word, so "label-free" / "title-card" are
 # not cues) used for the cue window.
 _WORD = re.compile(r"[A-Za-z]+(?:-[A-Za-z]+)*")
@@ -399,6 +409,8 @@ def _has_text_cue(segment: str) -> bool:
         if i + 1 < len(words) and words[i + 1] in _NOT_CUE_BEFORE:
             continue
         if word in _SPEECH_CUES and i > 0 and words[i - 1] in _MOOD_WORDS:
+            continue
+        if word in _ADJACENT_ONLY_CUES and i != len(words) - 1:
             continue
         return True
     return False
