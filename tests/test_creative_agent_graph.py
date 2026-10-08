@@ -1756,6 +1756,8 @@ def test_rating_signals_reach_the_brief_writer_when_opted_in(monkeypatch):
 
     assert calls == ["Acme"]
     assert state["rating_signals"].startswith("Your team's ratings for Acme (20)")
+    prompt = str(llms["brief_writer"].requests[-1].config.system_instruction)
+    assert "<rating_signals>Your team's ratings for Acme (20)" in prompt
     assert state["rating_strictness"] == ["product_not_visible"]
     assert state["rating_signals_applied"]["applied"] is True
     shortlist = state["style_shortlist"].split("; ")

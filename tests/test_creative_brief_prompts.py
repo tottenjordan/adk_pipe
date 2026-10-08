@@ -125,3 +125,29 @@ def test_brief_writer_keeps_avoid_entries_short():
     assert "no brackets or quotes" in instr
     assert "[short term]" not in instr
     assert "gambling" not in instr
+
+
+RATING_BLOCK = "<rating_signals>{rating_signals?}</rating_signals>"
+RATING_RULE = (
+    "Treat rated-well styles, tones and angles as strong options and avoid the "
+    "listed failure causes; never mention ratings in the creative."
+)
+RATING_READERS = (
+    "CREATIVE_BRIEF_WRITER_INSTR",
+    "AD_COPY_DRAFTER_INSTR",
+    "ART_DIRECTOR_INSTR",
+)
+
+
+@pytest.mark.parametrize("name", RATING_READERS)
+def test_rating_signals_block_and_rule(name):
+    instr = getattr(prompts, name)
+    assert instr.count(RATING_BLOCK) == 1, name
+    assert instr.count(RATING_RULE) == 1, name
+
+
+def test_only_the_three_readers_see_rating_signals():
+    for name in dir(prompts):
+        value = getattr(prompts, name)
+        if name.endswith("_INSTR") and isinstance(value, str):
+            assert ("{rating_signals?}" in value) == (name in RATING_READERS), name
