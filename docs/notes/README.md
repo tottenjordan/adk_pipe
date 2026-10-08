@@ -13,6 +13,9 @@ it was written on, since some describe uncommitted working-tree state.
   `creative_agent` image-gen determinism fixes (skipped step + 2× duplicate
   render) on the `creative-eval` branch, and why `interactive_creative` is left
   separate.
+- [judge-calibration.md](judge-calibration.md) — the human-rating protocol for
+  calibrating the `creative_eval` judge (~50 ratings across ≥5 runs; reading
+  agreement, Cohen's kappa and Spearman's rho; `scripts/eval_calibration.py`).
 - [frontend.md](frontend.md) — React crash from nested session-state values and
   its confusing backend cascade; the same-origin proxy.
 - [ambient-agents-vs-cloud-functions.md](ambient-agents-vs-cloud-functions.md) —

@@ -58,8 +58,9 @@ tests/
 ├── test_authz.py                    # P3 per-user authz: modes, userId normalization, proxy ID-token check, middleware 401/403/404, ownership → 404
 ├── test_backend_entrypoint.py       # backend container entrypoint (uvicorn serves async_app.py)
 ├── test_bandit_endpoint_lib.py      # deployment/bandit/endpoint.py vs a fake aiplatform (single-worker env, 1 replica, labels, find_* by label oldest-first)
-├── test_create_bq_tables.py         # create_bq_tables.sh with a stub bq: bandit_* schemas, partitioning, idempotency
+├── test_create_bq_tables.py         # create_bq_tables.sh with a stub bq: bandit_* + creative_ratings schemas (ratings vs RATING_COLUMN_TYPES), partitioning/clustering, idempotency
 ├── test_bandit_*.py                 # JAX bandit core (bandit/): features, config, linear TS, baselines, environment, simulate+metrics+aggregate, notebook-parity smoke, scripted shifts
+├── test_brand_history.py            # creative_agent/brand_history.py: parameterised creative_evals SELECT (no string-built brand), report reads limited to the configured bucket + size cap, aggregation (recent/strongest styles, recurring weak dimensions, runs with failed non-advisory gates), brace-free ≤120-word note, BQ/GCS/timeout fail-open, disabled knob → no query, shortlist re-draw unless a style preference is set, canonical style mapping (schema example phrasings), allowlisted tones/dimensions/gates only (injection strings never reach the note), GCS per-call timeouts + report-read deadline, failed-check denominator = readable reports
 ├── test_brief_check.py              # deterministic creative-brief check (proposition incl. abbreviations/capital-led sentence breaks/brand-product-trend names/and-compounds, X-but-Y insight + ;/dash/contrast markers, cited RTBs + normalised src-N/brief ids vs sources, fit_mode, angle names/tensions, motifs, assets)
 ├── test_brief_render.py             # creative brief → "## Creative Brief" markdown in the research PDF (real markdown_pdf TOC check) + compact (headless) prompt variant + gallery summary card (HTML-escaped)
 ├── test_callbacks.py                # citation replacement, state init (incl. style_shortlist seeding, reference_images/reference_roles), rate limiting, trend/product guard callback
@@ -85,6 +86,9 @@ tests/
 ├── test_experiments_series.py       # pure §8 /creatives aggregation (windows, share, segments, missedClicks, engagedSecondsPer1k)
 ├── test_experiments_shifts.py       # §10 in the api: shift validation + bandit parity, numbered traffic runs (runs/{n}.json, env overrides, trafficRuns), ?run= reads incl. legacy NULL rows, shift_response + regime aggregation, regime SQL, unmigrated-table fallbacks
 ├── test_experiments_store.py        # bandit_experiments MERGE/SELECT builders, typed params, §8 series SQL builders, both stores, deploy-lease UPDATEs, unknown-column tolerance
+├── test_ratings_api.py              # /ratings routes: PUT validation (400 reasons, unknown creative_key), upsert idempotency (created_at kept), GET listing, foreign/unknown session 404 (incl. ownership ValueError), judge fields from state or the GCS report (cached, fail soft; conservative headline/id matching), store 502s, calibration endpoint, enforce-mode 401/403
+├── test_ratings_store.py            # creative_ratings MERGE/SELECT builders (fully parameterised), BigQuery store over the fake client, in-memory store, RATINGS_STORE selection + fallback
+├── test_calibration.py              # judge-human calibration maths: Cohen's kappa (textbook value, degenerate single-class reasons), tie-averaged Spearman, per-kind slices, CSV string coercion, scripts/eval_calibration.py over a CSV
 ├── test_export_concurrency.py       # creative_agent export tools: per-run scratch isolation (issue #104)
 ├── test_image_prompt_guide.py       # IMAGE_PROMPT_GUIDE rules: text cap, descriptors not templates, Educational mapping, trend motif, trend_motif schema field, REFERENCE_IMAGES section (role-only references, ignore-text left to the tool, style ref vs family diversity), Subject+Action+Location+Composition+Style blocks, typography, no unrequested logos
 ├── test_image_reference.py          # generate_image multimodal contents + valid ImageConfig; multiple reference images (resolve_references legacy fold-in/dedupe/cap/invalid roles, ordered parts, one failed fetch skips only that ref + unavailable-role line, numbered role block + ignore-text line, SSRF/size/content-type fetch hardening) (image QA off via the `image_qa_off` conftest fixture)
@@ -105,7 +109,7 @@ tests/
 ├── test_sanitize.py                 # lone-surrogate scrubber (agent_common.sanitize)
 ├── test_schemas.py                  # Pydantic schemas in the creative_agent pipeline
 ├── test_sdk_versions.py             # guard: aiplatform 2.x ships both agentplatform + vertexai surfaces
-├── test_style_shortlist.py          # per-session stratified style shortlist (families match the guide palette)
+├── test_style_shortlist.py          # per-session stratified style shortlist (families match the guide palette; exclusion of recently used styles keeps the 2/3/1 strata)
 ├── test_tools.py                    # backend tool functions (pure logic, no I/O)
 ├── test_tools_retry.py              # infra tools propagate (don't swallow) exceptions
 ├── test_trend_scout_graph.py        # trend_scout understand_trends graph run end-to-end (stub models)
@@ -193,6 +197,11 @@ tests/
 - **Image diversity** — `test_image_prompt_guide.py`, `test_style_shortlist.py`,
   `test_concept_guard.py`: the guide's text cap / descriptor palette / Educational mapping,
   the per-session style shortlist, and the trend-motif + product prompt guard.
+- **Brand history** — `test_brand_history.py` (helper + node delta),
+  `test_creative_agent_graph.py` (the note reaches the brief writer; disabled → no query;
+  a raising step doesn't stop research), `test_pipeline_structure.py` (node in the START
+  fan-out). `conftest.py` points the module's BigQuery and GCS getters at a raiser so no
+  test reads the live table/bucket the repo `.env` names.
 - **Async-job run model** — `test_async_runs.py`: detached kick-off returns immediately,
   `_drive_run` appends a `done`/`error` terminal marker, poll derives status + slices
   events by cursor, and resume re-runs with a `functionResponse` (resetting status to

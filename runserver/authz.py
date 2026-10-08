@@ -31,6 +31,8 @@ _PATH_USER_RES = (
     # Bandit experiments: GET list/detail/metrics, POST traffic/stop. The bare
     # POST /experiments is body-scoped (authorize_body_user in the handler).
     re.compile(r"^/experiments/(?P<user>[^/]+)(?:/.*)?$"),
+    # Human creative ratings (runserver/ratings.py): PUT/GET per session + calibration.
+    re.compile(r"^/ratings/(?P<user>[^/]+)(?:/.*)?$"),
     # Pre-rewrite form: ADK's _DefaultAppRewriteMiddleware (ADK_DEFAULT_APP_NAME)
     # maps /users/... -> /apps/<default>/users/... *after* this middleware runs.
     re.compile(r"^/users/(?P<user>[^/]+)(?:/|$)"),

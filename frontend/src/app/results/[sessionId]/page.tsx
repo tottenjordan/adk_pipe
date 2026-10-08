@@ -35,6 +35,8 @@ import { QuietDisclosure } from "@/components/quiet-disclosure";
 import { ArtifactsPanel, type ArtifactData } from "./artifacts-panel";
 import { ProofDetail } from "./proof-detail";
 import { ProofGrid } from "./proof-grid";
+import { CreativeRatings, useSessionRatings } from "./rating-control";
+import { isProofRated } from "@/lib/ratings";
 import { ResultsHeader } from "./results-header";
 import { ResultsSummary, type EvalStatus } from "./results-summary";
 
@@ -144,6 +146,9 @@ export default function ResultsPage({
     );
   }, [state, evalReport]);
   const sortedProofs = useMemo(() => sortProofs(proofs, sort), [proofs, sort]);
+  const ratingsEnabled =
+    !loading && (appName === "creative_agent" || appName === "interactive_creative");
+  const ratings = useSessionRatings(sessionId, ratingsEnabled);
   const stopped = useMemo(
     () => (session ? sessionStoppedEarly(appName, state, session.events ?? []) : null),
     [appName, state, session]
@@ -259,6 +264,7 @@ export default function ResultsPage({
               setDetailIndex(i);
               setDetailOpen(true);
             }}
+            isRated={(p) => isProofRated(p, ratings.byKey)}
             itemRef={(i) => (el) => {
               if (el) proofButtons.current.set(i, el);
               else proofButtons.current.delete(i);
@@ -272,6 +278,15 @@ export default function ResultsPage({
             onClose={() => setDetailOpen(false)}
             imageUrlFor={imageUrlFor}
             returnFocusTo={(i) => proofButtons.current.get(i) ?? null}
+            ratingSlot={(p) => (
+              <CreativeRatings
+                proof={p}
+                appName={appName}
+                sessionId={sessionId}
+                byKey={ratings.byKey}
+                onChange={ratings.setRating}
+              />
+            )}
           />
           <DeployPanel
             proofs={proofs}

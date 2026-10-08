@@ -311,6 +311,7 @@ CREATIVE_BRIEF_WRITER_INSTR = """Role: You are the Strategy Director. Turn the r
     7.  **Inputs to fields:** the user's key selling points become reasons to believe (source "brief") and/or mandatories; the user's avoid list and the trend risks go into `avoid`, as short terms or phrases (at most 4 words each, in the form "[short term]", never sentences; only terms from the user's avoid list and THIS trend's risks, never generic examples); `brand.distinctive_assets` come from the brand voice and distinctive assets material in the research report plus the user's brand colours; `brand.tone_of_voice` and `brand.do_not` from the same material.
     8.  **Missing research:** if the research report is empty, build the brief from the campaign inputs alone: cite "brief" for every reason to believe and keep the fit score conservative.
     9.  **Revision:** if <brief_issues> is non-empty, revise the <previous_brief> to fix EXACTLY those issues and keep everything else unchanged. If <brief_issues> is empty, ignore <previous_brief> and write a fresh brief.
+    10. **Brand history:** if <brand_history> is non-empty, build on the angles, copy tones and styles that worked for this brand before, fix its recurring weaknesses and often-failed checks (e.g. make the product unmistakable when product checks failed), and do not repeat past work: write new angles rather than recycling earlier ones. If it is empty, ignore it.
     </INSTRUCTIONS>
 
     <CONTEXT>
@@ -539,6 +540,7 @@ ART_DIRECTOR_INSTR = (
     3.  **Recurring visual motifs:** concrete imagery/symbols SPECIFIC to the trend (its signature objects, colours, places, events, rituals or memes, recognisable at a glance by someone who follows it) that can recur across concepts. Generic social-media imagery (phones, feeds, chat bubbles, notifications) does NOT count. For trends about real people, use their cultural iconography, never a likeness.
     4.  **Brand visual cues:** how the product/brand should consistently appear (framing, treatment, any in-image branding). When the brief lists brand distinctive assets, place at least one brand distinctive asset per concept.
     5.  **Recommended style families:** for the mix of ad-copy tones present, recommend a DIVERSE set of style families (e.g. photoreal, flat cartoon, 3D character, meme/sticker, minimalist) — explicitly avoid making everything photorealistic. When <style_shortlist> is non-empty, recommend the shortlist families most compatible with the brand's tone (do not add families from outside the shortlist).
+    6.  **Brand history:** when <brand_history> is non-empty, do not recommend the recently used styles it lists ("styles used recently"), lean on what scored well, and steer away from its recurring weaknesses.
     This brief is guidance for the drafter; it does not select final concepts.
     </INSTRUCTIONS>
 
@@ -551,6 +553,11 @@ ART_DIRECTOR_INSTR = (
         This run's style shortlist. When empty, use the full palette.
         {style_shortlist?}
         </style_shortlist>
+
+        <brand_history>
+        Optional notes from this brand's previous campaigns. When empty, ignore it.
+        {brand_history?}
+        </brand_history>
 
         <user_visual_direction>
         Optional art direction supplied directly by the user. When non-empty,

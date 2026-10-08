@@ -101,6 +101,28 @@ def test_path_user_id_experiments(path, user):
     assert path_user_id(path) == user
 
 
+@pytest.mark.parametrize(
+    ("path", "user"),
+    [
+        ("/ratings/u1", "u1"),
+        ("/ratings/u1/sess-1", "u1"),
+        ("/ratings/u1/calibration", "u1"),
+        ("/ratings", None),
+        ("/ratings/", None),
+        ("/ratingsX/u1/s", None),
+    ],
+)
+def test_path_user_id_ratings(path, user):
+    assert path_user_id(path) == user
+
+
+def test_decide_enforce_ratings():
+    E = AuthzMode.ENFORCE
+    assert decide(E, f"/ratings/{A}/s1", A) is None
+    assert decide(E, "/ratings/bob@example.com/s1", A)[0] == 403
+    assert decide(E, f"/ratings/{A}/calibration", None)[0] == 401
+
+
 def test_decide_enforce_experiments():
     E = AuthzMode.ENFORCE
     assert decide(E, f"/experiments/{A}", A) is None

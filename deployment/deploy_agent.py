@@ -64,6 +64,10 @@ ENV_VAR_DICT = {
     "IMAGE_QA_MAX_RERENDERS": os.getenv("IMAGE_QA_MAX_RERENDERS", "1"),
     "IMAGE_QA_MAX_RERENDERS_PER_RUN": os.getenv("IMAGE_QA_MAX_RERENDERS_PER_RUN", "2"),
     "IMAGE_QA_MODEL": os.getenv("IMAGE_QA_MODEL") or "gemini-3.8-flash",
+    # creative_agent brand history (creative_agent/brand_history.py): kill
+    # switch (default on) and how many past runs to read (0..20, default 5).
+    "BRAND_HISTORY_ENABLED": os.getenv("BRAND_HISTORY_ENABLED", "true"),
+    "BRAND_HISTORY_RUNS": os.getenv("BRAND_HISTORY_RUNS", "5"),
 }
 
 
