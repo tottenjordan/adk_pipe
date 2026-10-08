@@ -4,6 +4,7 @@
  * (`putRating` / `getRatings`); the backend is `runserver/ratings.py`.
  */
 import type { Proof } from "./eval-matching";
+import { isFailReason, type FailReason } from "./rating-reasons";
 
 export type RatingKind = "visual" | "ad_copy";
 export type RatingVerdict = "pass" | "fail";
@@ -24,6 +25,8 @@ export interface Rating {
   judge_model?: string | null;
   /** Where the judge fields came from: the run's GCS report, session state, or none. */
   judge_source?: "gcs" | "state" | "none" | null;
+  /** Allowlisted fail-reason chips (`lib/rating-reasons.ts`); empty on a pass. */
+  fail_reasons?: string[] | null;
   created_at?: string;
   updated_at?: string;
 }
@@ -36,6 +39,7 @@ export interface RatingPayload {
   verdict: RatingVerdict;
   score: number | null;
   note: string | null;
+  fail_reasons?: FailReason[];
 }
 
 /** What the control edits before saving (`verdict` empty until chosen). */
@@ -43,6 +47,8 @@ export interface RatingDraft {
   verdict: RatingVerdict | "";
   score: number | null;
   note: string;
+  /** Fail-reason chips; only sent with a fail verdict. */
+  failReasons: FailReason[];
 }
 
 export const NOTE_MAX_CHARS = 2000;
@@ -64,7 +70,13 @@ export function draftFrom(rating?: Rating): RatingDraft {
     verdict: rating?.verdict ?? "",
     score: rating?.score ?? null,
     note: rating?.note ?? "",
+    failReasons: [...new Set((rating?.fail_reasons ?? []).filter(isFailReason))],
   };
+}
+
+function sameReasons(a: readonly FailReason[], b: readonly FailReason[]): boolean {
+  const set = new Set(a);
+  return set.size === new Set(b).size && b.every((r) => set.has(r));
 }
 
 /** True when the draft would change the saved rating (or there is none yet). */
@@ -73,7 +85,8 @@ export function isDirty(draft: RatingDraft, saved?: Rating): boolean {
   return (
     draft.verdict !== base.verdict ||
     draft.score !== base.score ||
-    draft.note.trim() !== base.note.trim()
+    draft.note.trim() !== base.note.trim() ||
+    !sameReasons(draft.failReasons, base.failReasons)
   );
 }
 
@@ -96,6 +109,7 @@ export function buildRatingPayload(
     verdict: draft.verdict,
     score,
     note: note || null,
+    fail_reasons: draft.verdict === "fail" ? [...new Set(draft.failReasons)] : [],
   };
 }
 
