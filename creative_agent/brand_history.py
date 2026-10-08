@@ -371,7 +371,8 @@ def _rating_delta(
 
     ``rows`` is ``_FAILED``/None when the ratings were unavailable. Below
     ``rating_learning_min_ratings`` nothing is applied; otherwise each enabled
-    effect writes its key and ``rating_signals_applied`` records what was used.
+    effect writes its key and ``rating_signals_applied`` records what was used
+    (``effects``: only the enabled effects that produced output).
     """
     if rows is _FAILED or rows is None:
         return (
@@ -416,10 +417,16 @@ def _rating_delta(
         delta["rating_signals"] = note
     if "checks" in effects:
         delta["rating_strictness"] = strictness
+    # Record only the effects that changed the run, not every configured one.
+    produced = {
+        "guidance": bool(note),
+        "styles": bool(excluded or preferred),
+        "checks": bool(strictness),
+    }
     delta["rating_signals_applied"] = {
         "ratings": n,
         "applied": True,
-        "effects": sorted(effects),
+        "effects": sorted(e for e in effects if produced[e]),
         "signals": note,
         "strictness": strictness,
         "styles_excluded": excluded,
