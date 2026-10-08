@@ -259,10 +259,13 @@ class TestFormat:
         assert "strongest: " in text and "Humorous" in text
         assert "recurring weaknesses: Trend connection (2 of 3 runs)" in text
         assert "checks often failed: Product named (2 of 3 runs)" in text
+        # The shortlist may top up from recent styles to keep its quotas, so
+        # the note favours fresh styles rather than forbidding recent ones.
         assert text.endswith(
-            "Build on what worked, fix the weaknesses, and avoid repeating the "
-            "recent styles."
+            "Build on what worked, fix the weaknesses, and favour styles not "
+            "used recently."
         )
+        assert "avoid repeating" not in text
         assert len(text.split()) <= 120
         # Spliced into ADK instructions as state: never carries braces.
         assert "{" not in text and "}" not in text

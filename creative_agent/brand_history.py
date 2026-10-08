@@ -2,7 +2,7 @@
 
 Reads the brand's latest ``creative_evals`` rows (BigQuery) and their full eval
 report JSON (GCS) and condenses them into a short note for the brief writer and
-art director: styles used recently (to avoid repeating them), the strongest
+art director: styles used recently (to favour fresh ones), the strongest
 styles/copy tones (to build on), recurring weak dimensions and frequently failed
 compliance checks (to fix).
 
@@ -335,8 +335,8 @@ def format_brand_history(history: Mapping[str, Any]) -> str:
         parts.append(f"checks often failed: {checks}")
     head = f"Recent runs for {_clean(history.get('brand') or 'this brand')} ({runs}): "
     tail = (
-        " Build on what worked, fix the weaknesses, and avoid repeating the "
-        "recent styles."
+        " Build on what worked, fix the weaknesses, and favour styles not used "
+        "recently."
     )
     body = "; ".join(parts) + "."
     budget = MAX_WORDS - len(head.split()) - len(tail.split())
