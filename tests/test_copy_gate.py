@@ -628,3 +628,24 @@ def test_structural_note_skipped_without_a_brief_and_collapsed_with_one():
     assert structural_issues(copies[:3], has_brief=False) == [
         "only 3 of 4 ad copies were produced."
     ]
+
+
+def test_bracketed_avoid_terms_still_match():
+    """Regression (prod run 2026-10-08): the brief writer emitted avoid terms as
+    '[coil tap terminology]', which silently disabled literal avoid matching."""
+    from creative_agent.copy_gate import brief_avoid, gate_copies
+
+    brief = {"avoid": ["[coil tap terminology]", "[wrestler likenesses]"]}
+    assert brief_avoid(brief) == ["coil tap terminology", "wrestler likenesses"]
+    copies = [
+        {
+            "original_id": 1,
+            "headline": "Master coil tap terminology on the SE CE24",
+            "body_text": "The SE CE24 does it all.",
+            "social_caption": "",
+            "call_to_action": "Test-play the SE CE24",
+            "brief_checks": [],
+        }
+    ]
+    issues = gate_copies(copies, target_product="SE CE24", avoid=brief_avoid(brief))
+    assert any("coil tap terminology" in i.text for i in issues.get("1", []))

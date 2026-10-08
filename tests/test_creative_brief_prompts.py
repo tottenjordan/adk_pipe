@@ -121,5 +121,7 @@ def test_brief_writer_keeps_avoid_entries_short():
     assert "short terms or phrases (at most 4 words" in instr
     # The format example is a neutral placeholder: a concrete term (the old
     # "gambling odds") leaked verbatim into unrelated briefs' avoid lists.
-    assert '"[short term]"' in instr
+    # Plain words: a bracketed placeholder got copied literally into avoid lists.
+    assert "no brackets or quotes" in instr
+    assert "[short term]" not in instr
     assert "gambling" not in instr

@@ -46,7 +46,7 @@ from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from .brief_check import parse_brief
+from .brief_check import clean_term, parse_brief
 from .text_match import PACKAGING_WORDS, contains_phrase, fold, same_word, words
 
 MAX_HEADLINE_CHARS = 60
@@ -162,7 +162,8 @@ def _brief_list(brief: Mapping[str, Any] | str | None, field: str) -> list[str]:
     items = data.get(field)
     if not isinstance(items, list):
         return []
-    return [a.strip() for a in items if isinstance(a, str) and a.strip()]
+    terms = (clean_term(a) for a in items if isinstance(a, str))
+    return [t for t in terms if t]
 
 
 def brief_avoid(brief: Mapping[str, Any] | str | None) -> list[str]:

@@ -27,7 +27,7 @@ from agent_common import (
 )
 
 from . import brand_history, callbacks, gcs_tools, prompts, tools
-from .brief_check import check_brief, parse_brief
+from .brief_check import check_brief, normalize_brief_terms, parse_brief
 from .brief_render import render_brief_markdown
 from .concept_guard import (
     concept_issues,
@@ -344,25 +344,36 @@ def brief_gate_decision(
     brief = state.get("creative_brief")
     if not is_populated(brief):
         return "ok", {"brief_issues": "", "creative_brief_md": ""}
+    # Clean the term lists at the source (e.g. "[wrestler likenesses]" copied
+    # from a placeholder) so every consumer — copy gate, prompts, judge, UI —
+    # sees plain terms; the cleaned brief is written back on every exit.
+    snapshot: dict[str, Any] = dict(state)
+    base: dict[str, Any] = {}
+    cleaned = normalize_brief_terms(brief)
+    if cleaned is not None and cleaned != dict(parse_brief(brief) or {}):
+        brief = cleaned
+        snapshot["creative_brief"] = cleaned
+        base["creative_brief"] = cleaned
     brief_md = render_brief_markdown(brief, heading=False)
-    issues = _brief_issues(state)
+    base["creative_brief_md"] = brief_md
+    issues = _brief_issues(snapshot)
     if not issues:
         return "ok", {
+            **base,
             "brief_issues": "",
             "creative_brief__issues": None,
-            "creative_brief_md": brief_md,
         }
-    used = int(state.get("brief_revision_rounds_used") or 0)
+    used = int(snapshot.get("brief_revision_rounds_used") or 0)
     if used < max_rounds:
         return "revise", {
+            **base,
             "brief_issues": "\n".join(f"- {issue}" for issue in issues),
             "brief_revision_rounds_used": used + 1,
-            "creative_brief_md": brief_md,
         }
     return "ok", {
+        **base,
         "brief_issues": "",
         "creative_brief__issues": issues,
-        "creative_brief_md": brief_md,
     }
 
 

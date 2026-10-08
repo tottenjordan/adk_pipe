@@ -8,6 +8,7 @@ revision as ``creative_brief__issues`` (surfaced by
 ``agent_common.observability.collect_degradation_warnings``).
 """
 
+import copy
 import json
 import re
 from collections.abc import Mapping
@@ -367,3 +368,53 @@ def check_brief(
         )
 
     return issues
+
+
+# Wrapping punctuation the brief writer sometimes copies from placeholder
+# examples (e.g. "[wrestler likenesses]"). Left in place it silently disables
+# literal matching in the copy gate, so term lists are cleaned at the source.
+_WRAPPERS = "[]\"'`“”‘’()"
+_TERM_LIST_FIELDS = ("avoid", "mandatories")
+_BRAND_TERM_FIELDS = ("do_not", "distinctive_assets")
+_BRIDGE_TERM_FIELDS = ("motifs",)
+
+
+def clean_term(term: str) -> str:
+    """``term`` without surrounding brackets/quotes and whitespace."""
+    cleaned = term.strip()
+    while cleaned and cleaned[0] in _WRAPPERS and cleaned[-1] in _WRAPPERS:
+        cleaned = cleaned[1:-1].strip()
+    return cleaned
+
+
+def _clean_list(items: Any) -> Any:
+    if not isinstance(items, list):
+        return items
+    out = []
+    for item in items:
+        if isinstance(item, str):
+            item = clean_term(item)
+            if not item:
+                continue
+        out.append(item)
+    return out
+
+
+def normalize_brief_terms(brief: Any) -> dict[str, Any] | None:
+    """A copy of the brief with its term lists cleaned (``clean_term``), or None
+    when the brief is missing or unparseable."""
+    parsed = parse_brief(brief)
+    if parsed is None:
+        return None
+    data: dict[str, Any] = copy.deepcopy(dict(parsed))
+    for field in _TERM_LIST_FIELDS:
+        data[field] = _clean_list(data.get(field))
+    brand = data.get("brand")
+    if isinstance(brand, dict):
+        for field in _BRAND_TERM_FIELDS:
+            brand[field] = _clean_list(brand.get(field))
+    bridge = data.get("trend_bridge")
+    if isinstance(bridge, dict):
+        for field in _BRIDGE_TERM_FIELDS:
+            bridge[field] = _clean_list(bridge.get(field))
+    return data
