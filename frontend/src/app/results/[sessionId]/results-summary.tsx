@@ -4,9 +4,20 @@ import { cn } from "@/lib/utils";
 import { dimensionLabel } from "@/lib/eval-dimensions";
 import { passThreshold, type EvalReport } from "@/lib/eval-matching";
 import { summarySentence } from "@/lib/results-copy";
+import type { ClassifiedWarnings } from "@/lib/run-warnings";
 import { pct } from "./score-mark";
 
 export type EvalStatus = "idle" | "loading" | "pending" | "error";
+
+function NoteList({ notes }: { notes: string[] }) {
+  return (
+    <ul className="mt-1.5 list-disc space-y-0.5 pl-4">
+      {notes.map((w) => (
+        <li key={w}>{w}</li>
+      ))}
+    </ul>
+  );
+}
 
 function Notice({
   title,
@@ -33,7 +44,8 @@ function Notice({
 
 /**
  * Plain-sentence evaluation summary plus the run's warnings: zero images,
- * degraded research, and the eval-report-still-writing refresh state.
+ * degraded research, failed saves, quality-check flags, and the
+ * eval-report-still-writing refresh state.
  */
 export function ResultsSummary({
   report,
@@ -41,7 +53,7 @@ export function ResultsSummary({
   onRefresh,
   refreshDisabled,
   noImages,
-  degradationWarnings,
+  runWarnings,
   stoppedBefore = null,
   runUrl,
 }: {
@@ -50,7 +62,8 @@ export function ResultsSummary({
   onRefresh: () => void;
   refreshDisabled: boolean;
   noImages: boolean;
-  degradationWarnings: string[];
+  /** The eval report's run notes, grouped by {@link classifyWarnings}. */
+  runWarnings: ClassifiedWarnings;
   /** Label of the stage the run stopped before, when it stopped early. */
   stoppedBefore?: string | null;
   /** The run page, where a stopped run can be continued. */
@@ -105,16 +118,27 @@ export function ResultsSummary({
         </Notice>
       )}
 
-      {/* Degraded research: some producers exhausted retries (filtered against
-          the zero-image banner so the same note never shows twice). */}
-      {degradationWarnings.length > 0 && (
+      {/* Degraded research: a research/brief producer exhausted retries (the
+          image exhaustion is grouped out — it has the zero-image banner). */}
+      {runWarnings.research.length > 0 && (
         <Notice title="Some research steps produced no output">
           <p>The creative was built on incomplete research. Check claims against the brief before using it.</p>
-          <ul className="mt-1.5 list-disc space-y-0.5 pl-4">
-            {degradationWarnings.map((w) => (
-              <li key={w}>{w}</li>
-            ))}
-          </ul>
+          <NoteList notes={runWarnings.research} />
+        </Notice>
+      )}
+
+      {/* Persistence failures from the finalize step (PDF, gallery, BigQuery rows). */}
+      {runWarnings.saves.length > 0 && (
+        <Notice title="Some outputs could not be saved">
+          <NoteList notes={runWarnings.saves} />
+        </Notice>
+      )}
+
+      {/* Residual quality-check flags and judge notes: informational, not a failure. */}
+      {runWarnings.quality.length > 0 && (
+        <Notice title="Quality checks flagged issues">
+          <p>Automated checks flagged these items; review them before using the creatives.</p>
+          <NoteList notes={runWarnings.quality} />
         </Notice>
       )}
 
