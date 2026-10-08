@@ -18,6 +18,7 @@ import {
 import type { CreativeBrief, FitMode } from "@/lib/creative-brief";
 import { cn } from "@/lib/utils";
 import { ResearchReportEditor, useReportEdit } from "./report-editor";
+import { useReviewDraft } from "./review-drafts";
 import { ACTIONS_ROW, ShortcutHint, useApproveShortcut } from "./review-shared";
 
 const SECTION = "space-y-3 border-t border-border pt-4";
@@ -183,15 +184,16 @@ export function BriefEditForm({
         error={errors.single_minded_proposition}
         rows={2}
       />
-      <TextField id={id("insight")} label="Insight" value={draft.insight} onChange={(v) => set("insight", v)} rows={2} />
+      <TextField id={id("insight")} label="Insight" value={draft.insight} onChange={(v) => set("insight", v)} error={errors.insight} rows={2} />
       <div className="grid gap-3 sm:grid-cols-3">
-        <TextField id={id("objective")} label="Objective" value={draft.objective} onChange={(v) => set("objective", v)} rows={3} />
-        <TextField id={id("audience")} label="Audience" value={draft.audience} onChange={(v) => set("audience", v)} rows={3} />
+        <TextField id={id("objective")} label="Objective" value={draft.objective} onChange={(v) => set("objective", v)} error={errors.objective} rows={3} />
+        <TextField id={id("audience")} label="Audience" value={draft.audience} onChange={(v) => set("audience", v)} error={errors.audience} rows={3} />
         <TextField
           id={id("response")}
           label="Desired response"
           value={draft.desiredResponse}
           onChange={(v) => set("desiredResponse", v)}
+          error={errors.desired_response}
           rows={3}
         />
       </div>
@@ -236,13 +238,14 @@ export function BriefEditForm({
             </select>
             <FieldError id={`${id("fit-mode")}-error`} message={errors["trend_bridge.fit_mode"]} />
           </div>
-          <TextField id={id("bridge")} label="Trend bridge" value={tb.bridge} onChange={(v) => setBridge({ bridge: v })} />
+          <TextField id={id("bridge")} label="Trend bridge" value={tb.bridge} onChange={(v) => setBridge({ bridge: v })} error={errors["trend_bridge.bridge"]} />
         </div>
         <TextField
           id={id("tone")}
           label="Brand tone of voice"
           value={draft.brand.toneOfVoice}
           onChange={(v) => set("brand", { ...draft.brand, toneOfVoice: v })}
+          error={errors["brand.tone_of_voice"]}
         />
       </div>
 
@@ -287,6 +290,7 @@ export function BriefEditForm({
           <div key={a.angleId || i} className="space-y-2 rounded-md border border-border bg-background p-3">
             <div className="flex items-center justify-between gap-2">
               <span className="font-mono text-xs text-muted-foreground">{a.angleId}</span>
+              <FieldError id={id(`angle-${i}-id-error`)} message={errors[`angles.${i}.angle_id`]} />
               <RemoveButton
                 label={`Remove angle ${a.angleId || i + 1}`}
                 onClick={() =>
@@ -305,8 +309,8 @@ export function BriefEditForm({
               onChange={(v) => setAngle(i, { name: v })}
               error={errors[`angles.${i}.name`]}
             />
-            <TextField id={id(`angle-${i}-tension`)} label="Tension" value={a.tension} onChange={(v) => setAngle(i, { tension: v })} />
-            <TextField id={id(`angle-${i}-route`)} label="Route" value={a.route} onChange={(v) => setAngle(i, { route: v })} rows={2} />
+            <TextField id={id(`angle-${i}-tension`)} label="Tension" value={a.tension} onChange={(v) => setAngle(i, { tension: v })} error={errors[`angles.${i}.tension`]} />
+            <TextField id={id(`angle-${i}-route`)} label="Route" value={a.route} onChange={(v) => setAngle(i, { route: v })} error={errors[`angles.${i}.route`]} rows={2} />
           </div>
         ))}
         <FieldError id={`${id("angles")}-error`} message={errors.angles} />
@@ -338,18 +342,35 @@ export function ReviewBrief({
   brief,
   state,
   onResume,
+  draftKey,
+  serverErrors = {},
 }: {
   brief: CreativeBrief;
   state: Record<string, unknown>;
   onResume: (response: Record<string, unknown>) => void;
+  /** The checkpoint call id: keeps the drafts across a rejected resume. */
+  draftKey?: string;
+  /** Field errors from a rejected (400) resume, shown until the brief changes. */
+  serverErrors?: BriefErrors;
 }) {
-  const [feedback, setFeedback] = useState("");
-  const [draft, setDraft] = useState<CreativeBrief>(() => structuredClone(brief));
-  const reportEdit = useReportEdit(state);
-  const errors = validateBriefDraft(draft);
+  const key = (part: string) => (draftKey ? `${draftKey}:${part}` : undefined);
+  const [feedback, setFeedback] = useReviewDraft(key("feedback"), () => "");
+  const [draft, setDraftValue] = useReviewDraft<CreativeBrief>(key("brief"), () => structuredClone(brief));
+  // Server errors describe the brief as submitted; hide them once it changes
+  // (the panel remounts after each rejected resume, resetting this).
+  const [staleServerErrors, setStaleServerErrors] = useState(false);
+  const setDraft = (next: CreativeBrief) => {
+    setDraftValue(next);
+    setStaleServerErrors(true);
+  };
+  const reportEdit = useReportEdit(state, draftKey);
+  const briefEdit = buildBriefEdit(brief, draft);
+  // Only an edited brief is validated: an untouched one is sent as no edit,
+  // so even a brief the writer left imperfect can always be approved as is.
+  const errors = briefEdit ? validateBriefDraft(draft) : {};
   const errorCount = Object.keys(errors).length;
   const valid = errorCount === 0;
-  const briefEdit = buildBriefEdit(brief, draft);
+  const shownErrors = { ...(staleServerErrors ? {} : serverErrors), ...errors };
   const reportEdits = reportEdit.edits;
   const edits = [...(briefEdit ?? []), ...(reportEdits ?? [])];
 
@@ -383,7 +404,7 @@ export function ReviewBrief({
         guidance.
       </p>
 
-      <BriefEditForm draft={draft} onChange={setDraft} errors={errors} />
+      <BriefEditForm draft={draft} onChange={setDraft} errors={shownErrors} />
 
       <details className="group rounded-md border border-border bg-background">
         <summary className="cursor-pointer px-4 py-2.5 text-sm font-medium text-foreground">

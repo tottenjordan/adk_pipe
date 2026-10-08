@@ -20,6 +20,7 @@ import {
   getRunStatus,
   resumeRun,
   ResumeNotAppliedError,
+  ResumeRejectedError,
   getSession,
   getEventError,
   SELF_USER_ID,
@@ -71,6 +72,8 @@ export default function RunPage({
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   // Non-error, informational notice (e.g. a resume that must be re-submitted).
   const [notice, setNotice] = useState<string | null>(null);
+  // Field errors from a rejected (400) checkpoint resume, shown in the review.
+  const [reviewErrors, setReviewErrors] = useState<Record<string, string>>({});
   const [sessionState, setSessionState] = useState<Record<string, unknown>>({});
   const [pauseContext, setPauseContext] = useState<PauseContext | null>(null);
   // Viewing a session the server has no run for (and no kick-off message).
@@ -325,6 +328,7 @@ export default function RunPage({
   // Resume from a paused long-running tool
   async function handleResume(response: Record<string, unknown>) {
     if (!pauseContext) return;
+    setReviewErrors({});
     setStatus("running");
     setNotice(null);
     const ctx = pauseContext;
@@ -358,6 +362,9 @@ export default function RunPage({
       // (the pause event is already deduped) — so restore it and let the user
       // re-submit, with a calm notice rather than a failure.
       if (err instanceof ResumeNotAppliedError) {
+        // A 400 names the invalid fields; the panel shows them in place (its
+        // draft survives the remount, see review-drafts.ts).
+        setReviewErrors(err instanceof ResumeRejectedError ? err.fieldErrors : {});
         setPauseContext(ctx);
         setStatus("paused");
         setNotice(err.message);
@@ -567,6 +574,8 @@ export default function RunPage({
                 // A fresh panel per checkpoint call: checkpoint 2 can pause
                 // twice on review_ad_copies (before and after the revision).
                 key={pauseContext.functionCallId}
+                functionCallId={pauseContext.functionCallId}
+                serverErrors={reviewErrors}
                 functionName={pauseContext.functionName}
                 sessionState={sessionState}
                 onResume={handleResume}

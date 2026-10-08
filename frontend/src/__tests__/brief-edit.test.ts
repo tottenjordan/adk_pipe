@@ -59,6 +59,18 @@ describe("validateBriefDraft", () => {
   });
 });
 
+describe("angle id validation", () => {
+  it("flags empty and duplicate angle ids", () => {
+    const draft = brief();
+    draft.angles[1].angleId = "A1";
+    draft.angles[2].angleId = " ";
+    expect(validateBriefDraft(draft)).toEqual({
+      "angles.1.angle_id": "Duplicate angle id A1.",
+      "angles.2.angle_id": "This angle has no id.",
+    });
+  });
+});
+
 describe("angle ids", () => {
   it("fills the lowest free A1-A5 id", () => {
     const angles = brief().angles; // A1, A2, A3

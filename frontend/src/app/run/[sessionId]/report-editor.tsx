@@ -8,15 +8,18 @@ import {
   toEditableReport,
   type ReportSources,
 } from "@/lib/research-report";
+import { useReviewDraft } from "./review-drafts";
 import { buildEditableResearchEdit, type ResearchEdit } from "./run-helpers";
 
 /** Checkpoint-1 research-report edit state, shared by both review panels. */
-export function useReportEdit(state: Record<string, unknown>) {
+export function useReportEdit(state: Record<string, unknown>, draftKey?: string) {
   const report = state.combined_final_cited_report as string | undefined;
   const sources = state.sources as ReportSources | undefined;
   // The textarea shows `[src-N]` markers instead of raw cite tags; they go
   // back to canonical `<cite source="src-N"/>` tags for preview and resume.
-  const [editedReport, setEditedReport] = useState(() => toEditableReport(report ?? ""));
+  const [editedReport, setEditedReport] = useReviewDraft(draftKey && `${draftKey}:report`, () =>
+    toEditableReport(report ?? "")
+  );
   const edits: ResearchEdit[] | null = buildEditableResearchEdit(report ?? "", editedReport);
   const previewSource = edits ? fromEditableReport(editedReport) : (report ?? "");
   return { report, sources, editedReport, setEditedReport, edits, previewSource };

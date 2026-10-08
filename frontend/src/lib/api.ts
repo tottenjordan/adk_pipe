@@ -220,21 +220,32 @@ export class ResumeNotAppliedError extends Error {
  * review; the message names the offending fields.
  */
 export class ResumeRejectedError extends ResumeNotAppliedError {
-  constructor(message: string) {
+  /** Per-field errors keyed by the edited object's path (e.g. `angles.0.name`). */
+  readonly fieldErrors: Record<string, string>;
+
+  constructor(message: string, fieldErrors: Record<string, string> = {}) {
     super(message);
     this.name = "ResumeRejectedError";
+    this.fieldErrors = fieldErrors;
   }
 }
 
-/** The 400 body's `detail.message` (or a generic message). */
-async function rejectionMessage(res: Response): Promise<string> {
+/** A 400 body as a `ResumeRejectedError` (message + `detail.errors` by field). */
+async function rejection(res: Response): Promise<ResumeRejectedError> {
+  const fallback = "The review's edits were invalid and weren't applied. Fix them and submit again.";
   try {
-    const message = (await res.json())?.detail?.message;
-    if (typeof message === "string" && message) return `${message} Fix it and submit again.`;
+    const detail = (await res.json())?.detail;
+    const fieldErrors: Record<string, string> = {};
+    if (Array.isArray(detail?.errors)) {
+      for (const e of detail.errors) {
+        if (typeof e?.loc === "string" && typeof e?.msg === "string") fieldErrors[e.loc] ??= e.msg;
+      }
+    }
+    const message = typeof detail?.message === "string" && detail.message ? `${detail.message} Fix it and submit again.` : fallback;
+    return new ResumeRejectedError(message, fieldErrors);
   } catch {
-    // fall through
+    return new ResumeRejectedError(fallback);
   }
-  return "The review's edits were invalid and weren't applied. Fix them and submit again.";
 }
 
 /** Machine-readable `detail.reason` from a 409 body, or null if absent. */
@@ -292,7 +303,7 @@ export async function resumeRun(
     }
     throw new ResumeNotAppliedError();
   }
-  if (res.status === 400) throw new ResumeRejectedError(await rejectionMessage(res));
+  if (res.status === 400) throw await rejection(res);
   if (!res.ok) {
     throw new Error(`Failed to resume run (${res.status}): ${await res.text()}`);
   }

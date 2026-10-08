@@ -37,8 +37,13 @@ export function validateBriefDraft(draft: CreativeBrief): BriefErrors {
   } else if (draft.angles.length > MAX_ANGLES) {
     errors.angles = `Use at most ${MAX_ANGLES} angles.`;
   }
+  const seen = new Set<string>();
   draft.angles.forEach((angle, i) => {
     if (!angle.name.trim()) errors[`angles.${i}.name`] = "Give this angle a name.";
+    const angleId = angle.angleId.trim();
+    if (!angleId) errors[`angles.${i}.angle_id`] = "This angle has no id.";
+    else if (seen.has(angleId)) errors[`angles.${i}.angle_id`] = `Duplicate angle id ${angleId}.`;
+    seen.add(angleId);
   });
   const score = draft.trendBridge.fitScore;
   if (score === null || !Number.isInteger(score) || score < 1 || score > 5) {
@@ -92,8 +97,8 @@ export function toBriefPayload(draft: CreativeBrief): Record<string, unknown> {
     mandatories: clean(draft.mandatories),
     avoid: clean(draft.avoid),
     desired_response: draft.desiredResponse.trim(),
-    angles: draft.angles.map((a, i) => ({
-      angle_id: a.angleId.trim() || `A${i + 1}`,
+    angles: draft.angles.map((a) => ({
+      angle_id: a.angleId.trim(),
       name: a.name.trim(),
       tension: a.tension.trim(),
       route: a.route.trim(),

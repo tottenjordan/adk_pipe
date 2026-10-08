@@ -299,6 +299,7 @@ describe("resumeRun", () => {
     expect(err).toBeInstanceOf(ResumeRejectedError);
     expect(err).toBeInstanceOf(ResumeNotAppliedError); // the page re-offers the review
     expect((err as Error).message).toMatch(/angles: too short/);
+    expect((err as ResumeRejectedError).fieldErrors).toEqual({ angles: "too short" });
   });
 
   it("still throws a generic error on other failures", async () => {

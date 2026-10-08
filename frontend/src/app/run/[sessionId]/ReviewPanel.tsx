@@ -104,7 +104,9 @@ function ReviewAdCopies({
   const adCopies = extractItems(state.ad_copy_critique);
   // After the one user revision the root re-presents the revised copies; this
   // second review always proceeds (feedback then only guides the visuals).
-  const revised = Number(state.ad_copy_user_revisions_used ?? 0) >= 1;
+  // Set by the revision graph only when the reviser succeeded (not when it was
+  // skipped or failed), so the label never claims an unrevised set is revised.
+  const revised = state.ad_copy_user_revised === true;
   const approve = () =>
     onResume({ status: "approved", feedback, instruction: "User approved the ad copies. Continue to the next step in the WORKFLOW — generate visual concepts." });
   useApproveShortcut(approve);
@@ -456,10 +458,16 @@ function ReviewTrends({
 
 export function ReviewPanel({
   functionName,
+  functionCallId,
+  serverErrors,
   sessionState,
   onResume,
 }: {
   functionName: string;
+  /** The paused call's id: keys the panel drafts so a rejected resume keeps them. */
+  functionCallId?: string;
+  /** Field errors from a rejected (400) resume. */
+  serverErrors?: Record<string, string>;
   sessionState: Record<string, unknown>;
   onResume: (response: Record<string, unknown>) => void;
 }) {
@@ -476,7 +484,13 @@ export function ReviewPanel({
     // brief existed (or whose brief writer failed) fall back to the report.
     const brief = parseCreativeBrief(sessionState.creative_brief);
     panel = brief ? (
-      <ReviewBrief brief={brief} state={sessionState} onResume={onResume} />
+      <ReviewBrief
+        brief={brief}
+        state={sessionState}
+        onResume={onResume}
+        draftKey={functionCallId}
+        serverErrors={serverErrors}
+      />
     ) : (
       <ReviewResearch state={sessionState} onResume={onResume} />
     );

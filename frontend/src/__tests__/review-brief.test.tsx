@@ -1,10 +1,13 @@
 // @vitest-environment jsdom
 import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { ReviewPanel } from "@/app/run/[sessionId]/ReviewPanel";
+import { clearReviewDrafts } from "@/app/run/[sessionId]/review-drafts";
 import { SAMPLE_CREATIVE_BRIEF } from "./helpers";
 
 const REPORT = "# Report\n\nJackpot fever.";
+
+afterEach(() => clearReviewDrafts());
 
 function renderCheckpoint1(state: Record<string, unknown> = {}) {
   const onResume = vi.fn();
@@ -137,6 +140,56 @@ describe("checkpoint 1: ReviewBrief", () => {
   });
 });
 
+describe("checkpoint 1: unchanged briefs, rejected resumes", () => {
+  it("approves an unchanged brief even when it would fail validation", () => {
+    const imperfect = {
+      ...SAMPLE_CREATIVE_BRIEF,
+      trend_bridge: { ...SAMPLE_CREATIVE_BRIEF.trend_bridge, fit_mode: "unknown" },
+    };
+    const onResume = renderCheckpoint1({ creative_brief: imperfect });
+    expect(screen.queryByText("Choose a fit mode.")).not.toBeInTheDocument();
+    approve();
+    expect(lastResponse(onResume)).not.toHaveProperty("edits");
+    // Editing it turns validation on for the whole (now submitted) brief.
+    fireEvent.change(screen.getByLabelText("Insight"), { target: { value: "New insight" } });
+    expect(screen.getByText("Choose a fit mode.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /approve/i })).toBeDisabled();
+  });
+
+  it("keeps the draft across a remount for the same checkpoint call and shows server errors", () => {
+    const state = { combined_final_cited_report: REPORT, creative_brief: SAMPLE_CREATIVE_BRIEF };
+    const first = render(
+      <ReviewPanel functionName="review_research" functionCallId="fc-1" sessionState={state} onResume={vi.fn()} />
+    );
+    fireEvent.change(screen.getByLabelText("Insight"), { target: { value: "Kept insight" } });
+    first.unmount();
+    render(
+      <ReviewPanel
+        functionName="review_research"
+        functionCallId="fc-1"
+        sessionState={state}
+        serverErrors={{ insight: "Server says no." }}
+        onResume={vi.fn()}
+      />
+    );
+    expect(screen.getByLabelText("Insight")).toHaveValue("Kept insight");
+    expect(screen.getByText("Server says no.")).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Insight"), { target: { value: "Fixed" } });
+    expect(screen.queryByText("Server says no.")).not.toBeInTheDocument();
+  });
+
+  it("starts fresh for a different checkpoint call", () => {
+    const state = { combined_final_cited_report: REPORT, creative_brief: SAMPLE_CREATIVE_BRIEF };
+    const first = render(
+      <ReviewPanel functionName="review_research" functionCallId="fc-1" sessionState={state} onResume={vi.fn()} />
+    );
+    fireEvent.change(screen.getByLabelText("Insight"), { target: { value: "Draft" } });
+    first.unmount();
+    render(<ReviewPanel functionName="review_research" functionCallId="fc-2" sessionState={state} onResume={vi.fn()} />);
+    expect(screen.getByLabelText("Insight")).toHaveValue(SAMPLE_CREATIVE_BRIEF.insight);
+  });
+});
+
 describe("checkpoint 2: ad copy review", () => {
   const copies = { ad_copies: [{ headline: "Beep beep, but funnier", body_text: "b" }] };
 
@@ -155,12 +208,27 @@ describe("checkpoint 2: ad copy review", () => {
     render(
       <ReviewPanel
         functionName="review_ad_copies"
-        sessionState={{ ad_copy_critique: copies, ad_copy_user_revisions_used: 1 }}
+        sessionState={{
+          ad_copy_critique: copies,
+          ad_copy_user_revisions_used: 1,
+          ad_copy_user_revised: true,
+        }}
         onResume={vi.fn()}
       />
     );
     expect(screen.getByRole("heading", { name: "Review revised ad copies" })).toBeInTheDocument();
     expect(screen.getByText("Beep beep, but funnier")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Continue with feedback" })).toBeDisabled();
+  });
+
+  it("does not call a skipped or failed revision 'revised'", () => {
+    render(
+      <ReviewPanel
+        functionName="review_ad_copies"
+        sessionState={{ ad_copy_critique: copies, ad_copy_user_revisions_used: 1, ad_copy_user_revised: false }}
+        onResume={vi.fn()}
+      />
+    );
+    expect(screen.getByRole("heading", { name: "Review ad copies" })).toBeInTheDocument();
   });
 });
