@@ -73,6 +73,31 @@ describe("isSnapshotV1", () => {
     expect(isSnapshotV1(singleEvalSnapshot())).toBe(true);
   });
 
+  it("accepts the backend's eval shape: null verdict, check kinds, copy/visual halves", () => {
+    const s = singleEvalSnapshot();
+    const e = s.creatives[0].eval! as unknown as Record<string, unknown>;
+    e.passed = null;
+    e.checks = [
+      { kind: "copy", gate: "avoid_respected", label: "Avoid list respected", passed: true, advisory: false },
+      { kind: "visual", gate: "avoid_respected", label: "Avoid list respected", passed: false, advisory: false },
+    ];
+    e.copy = { passed: true, score: 0.8 };
+    e.visual = null;
+    expect(isSnapshotV1(s)).toBe(true);
+  });
+
+  it("accepts a null eval on a snapshot that opted in", () => {
+    const s = singleEvalSnapshot() as unknown as { creatives: Record<string, unknown>[] };
+    s.creatives[0].eval = null;
+    expect(isSnapshotV1(s)).toBe(true);
+  });
+
+  it("rejects an unknown check kind", () => {
+    const s = singleEvalSnapshot();
+    (s.creatives[0].eval!.checks[0] as unknown as Record<string, unknown>).kind = "audio";
+    expect(isSnapshotV1(s)).toBe(false);
+  });
+
   it("accepts a null score", () => {
     const s = singleEvalSnapshot();
     s.creatives[0].eval!.score = null;

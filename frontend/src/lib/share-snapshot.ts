@@ -22,16 +22,26 @@ const ASPECT_RE = /^[1-9][0-9]?:[1-9][0-9]?$/;
 const BUCKET_RE = /^[a-z0-9][a-z0-9._-]{1,220}[a-z0-9]$/;
 
 export interface ShareCheck {
+  /** Which half of the creative the check is about (the backend sends both halves). */
+  kind?: "copy" | "visual";
   gate: string;
   label: string;
   passed: boolean;
   advisory: boolean;
 }
 
+export interface ShareVerdict {
+  passed: boolean | null;
+  score: number | null;
+}
+
 export interface ShareEval {
-  passed: boolean;
+  /** null = the judge returned no verdict for this creative. */
+  passed: boolean | null;
   score: number | null;
   checks: ShareCheck[];
+  copy?: ShareVerdict | null;
+  visual?: ShareVerdict | null;
 }
 
 export interface ShareCreative {
@@ -67,9 +77,18 @@ const isObj = (v: unknown): v is Obj =>
 const isText = (v: unknown, max: number): v is string =>
   typeof v === "string" && v.length <= max;
 
+const isScore = (v: unknown): boolean =>
+  v === null || (typeof v === "number" && Number.isFinite(v) && v >= 0 && v <= 1);
+
+function isVerdict(v: unknown): boolean {
+  if (v === undefined || v === null) return true;
+  return isObj(v) && (v.passed === null || typeof v.passed === "boolean") && isScore(v.score);
+}
+
 function isCheck(v: unknown): v is ShareCheck {
   return (
     isObj(v) &&
+    (v.kind === undefined || v.kind === "copy" || v.kind === "visual") &&
     isText(v.gate, SHORT_MAX) &&
     isText(v.label, SHORT_MAX) &&
     typeof v.passed === "boolean" &&
@@ -78,11 +97,8 @@ function isCheck(v: unknown): v is ShareCheck {
 }
 
 function isEval(v: unknown): v is ShareEval {
-  if (!isObj(v) || typeof v.passed !== "boolean") return false;
-  const score = v.score;
-  if (score !== null && !(typeof score === "number" && Number.isFinite(score) && score >= 0 && score <= 1)) {
-    return false;
-  }
+  if (!isObj(v) || !(v.passed === null || typeof v.passed === "boolean")) return false;
+  if (!isScore(v.score) || !isVerdict(v.copy) || !isVerdict(v.visual)) return false;
   return Array.isArray(v.checks) && v.checks.length <= MAX_CHECKS && v.checks.every(isCheck);
 }
 

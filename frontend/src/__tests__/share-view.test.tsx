@@ -143,6 +143,22 @@ describe("ShareView", () => {
     }
   });
 
+  it("labels copy and visual checks and shows a null verdict as not judged", () => {
+    const snap = singleEvalSnapshot();
+    const e = snap.creatives[0].eval! as unknown as Record<string, unknown>;
+    e.passed = null;
+    e.checks = [
+      { kind: "copy", gate: "avoid_respected", label: "Avoid list respected", passed: true, advisory: false },
+      { kind: "visual", gate: "avoid_respected", label: "Avoid list respected", passed: false, advisory: false },
+    ];
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    render(<ShareView snapshot={snap} initialView="card" />);
+    expect(screen.getByText("Not judged")).toBeInTheDocument();
+    expect(screen.getByText("Copy: Avoid list respected")).toBeInTheDocument();
+    expect(screen.getByText("Visual: Avoid list respected")).toBeInTheDocument();
+    expect(err.mock.calls.some((c) => String(c[0]).includes("same key"))).toBe(false);
+  });
+
   it("hides the eval section unless the snapshot includes it", () => {
     render(<ShareView snapshot={slateSnapshot()} initialView="card" />);
     expect(screen.queryByText("Checks")).toBeNull();
