@@ -41,6 +41,9 @@ import { CreativeRatings, useSessionRatings } from "./rating-control";
 import { isProofRated } from "@/lib/ratings";
 import { ResultsHeader } from "./results-header";
 import { ResultsSummary, type EvalStatus } from "./results-summary";
+import { ShareDialog } from "@/components/share-dialog";
+import { SessionShares } from "@/components/shares-list";
+import { hasRenderedImage, type Share } from "@/lib/shares";
 
 const CAMPAIGN_FIELD_DEFS: DisplayFieldDef[] = [
   { label: "Brand", key: "brand" },
@@ -73,6 +76,9 @@ export default function ResultsPage({
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailIndex, setDetailIndex] = useState<number | null>(null);
   const proofButtons = useRef(new Map<number, HTMLButtonElement>());
+  // Links created on this page since load (newest first), shown in "Shared links".
+  const [newShares, setNewShares] = useState<Share[]>([]);
+  const onShareCreated = useCallback((s: Share) => setNewShares((prev) => [s, ...prev]), []);
 
   // The eval report is the LAST artifact the run writes to GCS, so it can 404 if the
   // results page opens before the run's final write lands. fetchEvalReport retries on
@@ -232,6 +238,8 @@ export default function ResultsPage({
   // Does this run have the creative asset + eval view?
   const hasCreativeView =
     (appName === "creative_agent" || appName === "interactive_creative") && proofs.length > 0;
+  // Sharing freezes the rendered images into a public snapshot, so it needs them.
+  const shareEnabled = hasCreativeView && !imagesMissing;
 
   return (
     <div className="mx-auto max-w-[1600px] px-6 py-6">
@@ -243,6 +251,16 @@ export default function ResultsPage({
         visualDirectionFields={visualDirectionFields}
         gcsUri={gcsUri}
         galleryUrl={galleryUrl}
+        actions={
+          shareEnabled && (
+            <ShareDialog
+              appName={appName}
+              sessionId={sessionId}
+              triggerLabel="Share slate"
+              onCreated={onShareCreated}
+            />
+          )
+        }
       />
 
       <ResultsSummary
@@ -292,7 +310,19 @@ export default function ResultsPage({
                 onChange={ratings.setRating}
               />
             )}
+            shareSlot={(p) =>
+              shareEnabled && hasRenderedImage(state.generated_images, p.concept.concept_name) ? (
+                <ShareDialog
+                  appName={appName}
+                  sessionId={sessionId}
+                  conceptNames={[p.concept.concept_name]}
+                  triggerLabel="Share this creative"
+                  onCreated={onShareCreated}
+                />
+              ) : null
+            }
           />
+          {shareEnabled && <SessionShares sessionId={sessionId} created={newShares} />}
           <DeployPanel
             proofs={proofs}
             appName={appName}

@@ -195,6 +195,7 @@ export function ProofDetail({
   imageUrlFor,
   returnFocusTo,
   ratingSlot,
+  shareSlot,
 }: {
   /** The grid's current (sorted) order. */
   proofs: Proof[];
@@ -207,6 +208,8 @@ export function ProofDetail({
   returnFocusTo: (index: number) => HTMLElement | null;
   /** Extra section rendered under the scores (the human rating control). */
   ratingSlot?: (proof: Proof) => ReactNode;
+  /** Share action rendered next to the rating slot ("Share this creative"). */
+  shareSlot?: (proof: Proof) => ReactNode;
 }) {
   const pos = index === null ? -1 : proofs.findIndex((p) => p.index === index);
   const proof = pos >= 0 ? proofs[pos] : undefined;
@@ -231,6 +234,7 @@ export function ProofDetail({
 
   const vc = proof?.concept;
   const ac = proof?.adCopy;
+  const shareAction = proof ? shareSlot?.(proof) : null;
 
   return (
     <Dialog
@@ -326,6 +330,9 @@ export function ProofDetail({
               )}
               <ImageCheckSection check={proof.imageCheck} />
               {ratingSlot?.(proof)}
+              {shareAction && (
+                <div className="flex justify-end border-t border-border pt-4">{shareAction}</div>
+              )}
               {!proof.adCopyEval && !proof.visualEval && (
                 <p className="border-t border-border pt-4 text-xs text-muted-foreground">
                   No evaluation data for this creative.

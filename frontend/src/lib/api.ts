@@ -1,5 +1,6 @@
 import type { Session, AgentEvent } from "./types";
 import type { Calibration, Rating, RatingPayload } from "./ratings";
+import { ShareError, type CreateSharePayload, type Share } from "./shares";
 
 // Route through the same-origin Next.js proxy (src/app/api/adk/[...path]/route.ts) so
 // the browser never makes a cross-origin call — this avoids CORS and the Cloud
@@ -345,4 +346,52 @@ export async function getCalibration(): Promise<Calibration> {
   const res = await fetch(ratingsUrl("calibration"));
   if (!res.ok) throw new Error(`Failed to load calibration (${res.status})`);
   return res.json();
+}
+
+// ---------------------------------------------------------------------------
+// Share links (runserver/shares.py): frozen, revocable public snapshots
+// ---------------------------------------------------------------------------
+
+const sharesUrl = (...tail: string[]) =>
+  [`${API_BASE}/shares/${SELF_USER_ID}`, ...tail.map(encodeURIComponent)].join("/");
+
+/** A failed shares response as a `ShareError` (reason from `detail.reason`, if any). */
+async function shareError(res: Response): Promise<ShareError> {
+  let reason: string | null = null;
+  try {
+    const r = (await res.json())?.detail?.reason;
+    if (typeof r === "string" && r) reason = r;
+  } catch {
+    // non-JSON body (e.g. the proxy's plain 404)
+  }
+  return new ShareError(reason, res.status);
+}
+
+/** `POST /shares/{user}/{app}/{session}`: freeze the slate (or `concept_names`) into a link. */
+export async function createShare(
+  appName: string,
+  sessionId: string,
+  payload: CreateSharePayload
+): Promise<Share> {
+  const res = await fetch(sharesUrl(appName, sessionId), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw await shareError(res);
+  return res.json();
+}
+
+/** `GET /shares/{user}`: the caller's active share links, newest first. */
+export async function listShares(): Promise<Share[]> {
+  const res = await fetch(sharesUrl());
+  if (!res.ok) throw await shareError(res);
+  const data = await res.json();
+  return Array.isArray(data?.shares) ? data.shares : [];
+}
+
+/** `DELETE /shares/{user}/{token}`: revoke a link (idempotent server-side). */
+export async function revokeShare(token: string): Promise<void> {
+  const res = await fetch(sharesUrl(token), { method: "DELETE" });
+  if (!res.ok) throw await shareError(res);
 }

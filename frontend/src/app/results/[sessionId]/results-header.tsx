@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import Link from "next/link";
 import { ChevronDownIcon } from "lucide-react";
 import { buttonVariants } from "@/components/ui/button";
@@ -47,6 +47,7 @@ export function ResultsHeader({
   visualDirectionFields,
   gcsUri,
   galleryUrl,
+  actions,
 }: {
   appName: string;
   sessionId: string;
@@ -55,6 +56,8 @@ export function ResultsHeader({
   visualDirectionFields: Field[];
   gcsUri: string;
   galleryUrl: string | null;
+  /** Extra header actions, before the gallery link (e.g. "Share slate"). */
+  actions?: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
   const hasDetails = campaignFields.length > 0 || visualDirectionFields.length > 0 || !!gcsUri;
@@ -78,6 +81,7 @@ export function ResultsHeader({
           </p>
         </div>
         <div className="flex items-center gap-2">
+          {actions}
           {galleryUrl && (
             <a
               href={galleryUrl}
