@@ -145,6 +145,7 @@ tests/
 ├── test_experiment_logs.py          # Cloud Logging 429/503 filter builder
 ├── test_experiment_plot.py          # Plotly report builder smoke (no Chrome)
 ├── test_experiment_render_static.py # matplotlib static-figure renderer
+├── test_person_calibration.py       # person-reference calibration spike: grid, block reasons, summary
 ├── test_quota_spread_batch.py       # quota-spread concurrent batch harness (pure core)
 ├── test_quota_spread_analyze.py     # quota-spread slope + tidy CSV + plots + quality harvest
 └── test_quota_spread_upload.py      # Agent Platform Experiments uploader record shaping
@@ -258,10 +259,11 @@ tests/
   screens only root-agent turns (sub-agent callbacks short-circuit), and all three
   agents expose an `App` whose `plugins` list the runner + ADK's canned loader use.
 - **Experiments harnesses** — `test_creative_latency_poll.py`, `test_experiment_*.py`,
-  `test_quota_spread_*.py`: the pure/offline core of the `experiments/` measurement
+  `test_quota_spread_*.py`, `test_person_calibration.py`: the pure/offline core of the `experiments/` measurement
   harnesses (event-log parsing, N-trial aggregation, 429/503 log-filter building, figure
   rendering, concurrent-batch record shaping, contention-slope analysis, quality harvest,
-  and the Agent Platform Experiments uploader). No creds, no network — the live network
+  the Agent Platform Experiments uploader, and the person-reference calibration grid,
+  block-reason reading and go/no-go summary). No creds, no network — the live network
   drivers are integration-only. See [../experiments/README.md](../experiments/README.md).
 - **Evals** (`eval/`) — end-to-end `adk eval` cases with rubric-based LLM-as-judge scoring
   (response quality + tool-use quality). One evalset + rubric config per agent. Runs
