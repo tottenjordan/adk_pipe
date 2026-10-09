@@ -116,6 +116,29 @@ def test_path_user_id_ratings(path, user):
     assert path_user_id(path) == user
 
 
+@pytest.mark.parametrize(
+    ("path", "user"),
+    [
+        ("/shares/u1", "u1"),
+        ("/shares/u1/creative_agent/sess-1", "u1"),
+        ("/shares/u1/tok_ABCDEFGHIJKLMNOP", "u1"),
+        ("/shares", None),
+        ("/shares/", None),
+        ("/sharesX/u1", None),
+    ],
+)
+def test_path_user_id_shares(path, user):
+    assert path_user_id(path) == user
+
+
+def test_decide_enforce_shares():
+    E = AuthzMode.ENFORCE
+    assert decide(E, f"/shares/{A}", A) is None
+    assert decide(E, f"/shares/{A}/creative_agent/s1", A) is None
+    assert decide(E, "/shares/bob@example.com/tok", A)[0] == 403
+    assert decide(E, f"/shares/{A}", None)[0] == 401
+
+
 def test_decide_enforce_ratings():
     E = AuthzMode.ENFORCE
     assert decide(E, f"/ratings/{A}/s1", A) is None

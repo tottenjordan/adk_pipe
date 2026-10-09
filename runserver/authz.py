@@ -33,6 +33,9 @@ _PATH_USER_RES = (
     re.compile(r"^/experiments/(?P<user>[^/]+)(?:/.*)?$"),
     # Human creative ratings (runserver/ratings.py): PUT/GET per session + calibration.
     re.compile(r"^/ratings/(?P<user>[^/]+)(?:/.*)?$"),
+    # Shareable creative links (runserver/shares.py): POST per session, GET list,
+    # DELETE per token.
+    re.compile(r"^/shares/(?P<user>[^/]+)(?:/.*)?$"),
     # Pre-rewrite form: ADK's _DefaultAppRewriteMiddleware (ADK_DEFAULT_APP_NAME)
     # maps /users/... -> /apps/<default>/users/... *after* this middleware runs.
     re.compile(r"^/users/(?P<user>[^/]+)(?:/|$)"),
