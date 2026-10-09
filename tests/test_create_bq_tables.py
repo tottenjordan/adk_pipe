@@ -75,6 +75,7 @@ def _run(tmp_path: Path, exists: bool) -> list[str]:
         "BQ_TABLE_BANDIT_EXPERIMENTS",
         "BQ_TABLE_BANDIT_EVENTS",
         "BQ_TABLE_RATINGS",
+        "BQ_TABLE_SHARES",
     ):
         env.pop(k, None)
     env["BQ_TABLE_BANDIT_METRICS"] = "my_metrics"
@@ -94,7 +95,7 @@ def test_creates_bandit_tables_per_contract(tmp_path):
         "--clustering_fields experiment_id" in events
     )
     assert by_table["p:d.my_metrics"].endswith(BANDIT_METRICS)
-    assert len(calls) == 7
+    assert len(calls) == 8
 
 
 @pytest.mark.subprocess
@@ -104,6 +105,17 @@ def test_creates_creative_ratings_table(tmp_path):
     ratings = by_table["p:d.creative_ratings"]
     assert ratings.split()[-1] == str(RATINGS_SCHEMA)
     assert "--clustering_fields user_id,session_id" in ratings
+
+
+@pytest.mark.subprocess
+def test_creates_creative_shares_table(tmp_path):
+    calls = [c for c in _run(tmp_path, exists=False) if c.startswith("mk -t")]
+    by_table = {c.split()[-2]: c for c in calls}
+    shares = by_table["p:d.creative_shares"]
+    assert shares.split()[-1] == str(
+        SCRIPT.parent / "bq_schemas" / "creative_shares.json"
+    )
+    assert "--clustering_fields owner_user" in shares
 
 
 def test_ratings_schema_file_lists_the_columns_in_order():

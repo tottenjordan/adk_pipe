@@ -29,7 +29,7 @@ from google.adk.cli.utils.service_factory import (
 )
 from google.adk.runners import Runner
 
-from runserver import experiments, ratings
+from runserver import experiments, ratings, shares
 from runserver.async_runs import configure, get_root_agent, router
 from runserver.authz import (
     AuthzMode,
@@ -40,6 +40,7 @@ from runserver.authz import (
 )
 from runserver.otel import otel_to_cloud_enabled
 from runserver.ratings_store import build_store_from_env as build_ratings_store
+from runserver.shares_store import build_store_from_env as build_shares_store
 
 _AGENTS_DIR = "agents"
 _SESSION_URI = os.getenv("SESSION_SERVICE_URI") or None
@@ -151,6 +152,15 @@ _RATINGS_MODE, _RATINGS_STORE = build_ratings_store()
 logging.getLogger(__name__).info("creative ratings store: %s", _RATINGS_MODE)
 ratings.configure(session_service=session_service, store=_RATINGS_STORE)
 app.include_router(ratings.router)
+
+# Shareable creative links (/shares, owner side): SHARES_STORE=bigquery
+# (creative_shares table) or memory (also the fallback without the BigQuery env).
+# Frozen copies go to gs://$GOOGLE_CLOUD_STORAGE_BUCKET/shares/<token>/; links are
+# $SHARE_BASE_URL/s/<token> (the public share viewer service).
+_SHARES_MODE, _SHARES_STORE = build_shares_store()
+logging.getLogger(__name__).info("creative shares store: %s", _SHARES_MODE)
+shares.configure(session_service=session_service, store=_SHARES_STORE)
+app.include_router(shares.router)
 
 # Start the experiments TTL reaper (full pass every 5 min: expiry, resumes
 # deploys/teardowns a previous revision left mid-flight, finishes traffic runs; plus a

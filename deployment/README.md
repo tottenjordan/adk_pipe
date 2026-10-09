@@ -12,6 +12,7 @@ see the [main README](../README.md).
 - [Frontend + api_server on Cloud Run](#frontend--api_server-on-cloud-run)
 - [Bandit experiments](#bandit-experiments)
 - [Creative ratings (judge calibration)](#creative-ratings-judge-calibration)
+- [Shareable links](#shareable-links)
 - [Creative quality: migrations + knobs](#creative-quality-migrations--knobs)
 - [Eval CI (WIF)](#eval-ci-wif)
 - [Alternative Deployment: deploy to Cloud Run instances](#alternative-deployment-deploy-to-cloud-run-instances)
@@ -102,7 +103,8 @@ The nightly eval CI uses an isolated dataset cloned from these schemas (see
 [Eval CI (WIF)](#eval-ci-wif)). The script also creates the three `bandit_*` tables used by
 deployed-creative experiments (see [Bandit experiments](#bandit-experiments)) and the
 `creative_ratings` table behind the results-page human ratings (see
-[Creative ratings (judge calibration)](#creative-ratings-judge-calibration)).
+[Creative ratings (judge calibration)](#creative-ratings-judge-calibration)) and the
+`creative_shares` table behind shareable links (see [Shareable links](#shareable-links)).
 
 ---
 
@@ -1483,6 +1485,70 @@ deploying the api that writes it (until then a rating save answers 502 `store_fa
 | `GOOGLE_CLOUD_STORAGE_BUCKET` | (already set) | The only bucket eval reports are read from (local fallback `GCS_BUCKET_NAME`); unset = judge fields only from session state |
 
 Ratings are api-only: the agents never read them, so neither variable is in
+`deploy_agent.py`'s `ENV_VAR_DICT`.
+
+## Shareable links
+
+An owner can share one creative or a slate (up to 4 visuals + paired ad copy) from a
+finished creative run as a link anyone can open without signing in
+(plan: [docs/plans/2026-10-09-shareable-links.md](../docs/plans/2026-10-09-shareable-links.md)).
+This section covers the owner-side api (`runserver/shares.py`, mounted by
+`deployment/async_app.py`); the public viewer service (`trend-trawler-share`, the same
+web image in `SHARE_MODE`) and its runbook arrive in PR 2. Until then a share can be
+created, listed and revoked, but its URL has nothing serving it.
+
+Creating a share **freezes** it: the api checks the caller owns the session, builds an
+allowlisted `snapshot.json` (v1; `runserver/share_snapshot.py`: brand, product, trend and
+per creative the image, aspect ratio, alt text, style and copy, plus judge checks/scores
+only when `include_eval`; never prompts, rationales, notes, emails or session/user ids),
+server-side copies each rendered image (`generated_images[concept].gcs_uri`, which must be
+under `gs://$GOOGLE_CLOUD_STORAGE_BUCKET/`) to `shares/<token>/<i>.png`
+(`Cache-Control: private, max-age=300`), writes `shares/<token>/snapshot.json`
+(`no-store`) and records the share in `creative_shares`. A failure part-way deletes
+`shares/<token>/` again and answers 502 `share_failed`. Revoking marks the row revoked and
+deletes every object under `shares/<token>/`. At most 200 active shares per user (429
+`too_many_shares`).
+
+### Table
+
+`creative_shares` (`BQ_TABLE_SHARES`) in `BQ_DATASET_ID`, one row per share token
+(`concept_names` is `REPEATED`, so it is created from a JSON schema file;
+`deployment/create_bq_tables.sh` also creates it). Create it **before** deploying the api
+that writes it (until then creating a share answers 502 `share_failed` and listing 502
+`store_failed`):
+
+```bash
+bq mk --table --clustering_fields owner_user \
+  "$BQ_PROJECT_ID:$BQ_DATASET_ID.creative_shares" \
+  deployment/bq_schemas/creative_shares.json
+```
+
+Columns: `token STRING, owner_user STRING, app_name STRING, session_id STRING,
+scope STRING ('slate' | 'creative'), concept_names ARRAY<STRING>, include_eval BOOL,
+title STRING, created_at TIMESTAMP, revoked_at TIMESTAMP` (the owner and session are
+recorded only here, never in the public snapshot).
+
+The api SA (`tt-api-sa`) already has `roles/storage.objectAdmin` on the bucket (copy,
+write and delete under `shares/`) and the BigQuery roles (Step 1 of the Cloud Run
+runbook); nothing else is needed.
+
+### Environment (api service)
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `SHARES_STORE` | `bigquery` | `bigquery` = the `creative_shares` table. `memory` = in-process store (local dev; lost on restart). `bigquery` falls back to `memory` with a warning when `BQ_PROJECT_ID`/`BQ_DATASET_ID` are unset locally; on Cloud Run (`K_SERVICE` set) that is a startup error |
+| `BQ_TABLE_SHARES` | `creative_shares` | Table name in `BQ_DATASET_ID` |
+| `SHARE_BASE_URL` | `""` | Public share service origin; links are `$SHARE_BASE_URL/s/<token>` (a relative `/s/<token>` when unset). Set it once the share service from PR 2 has a URL |
+| `GOOGLE_CLOUD_STORAGE_BUCKET` | (already set) | The bucket share copies are made in (local fallback `GCS_BUCKET_NAME`); unset = creating a share answers 503 `shares_unconfigured` |
+
+Deploy (after creating the table; pin traffic afterwards, see Step 8):
+
+```bash
+gcloud run services update trend-trawler-api --region us-central1 \
+  --update-env-vars SHARES_STORE=bigquery,SHARE_BASE_URL=
+```
+
+Shares are api-only: the agents never read them, so none of these variables is in
 `deploy_agent.py`'s `ENV_VAR_DICT`.
 
 ## Creative quality: migrations + knobs

@@ -12,7 +12,8 @@
 # cloud_functions/creative_fanout/main.py. The bandit_* tables follow
 # docs/bandit/contracts.md §3 (JSON payloads are STRING columns); creative_ratings
 # (deployment/bq_schemas/creative_ratings.json) mirrors RATING_COLUMN_TYPES in
-# runserver/ratings_store.py.
+# runserver/ratings_store.py; creative_shares (deployment/bq_schemas/creative_shares.json)
+# mirrors SHARE_COLUMN_TYPES in runserver/shares_store.py.
 set -euo pipefail
 
 : "${BQ_PROJECT_ID:?set BQ_PROJECT_ID}"
@@ -27,6 +28,8 @@ BQ_TABLE_BANDIT_EVENTS="${BQ_TABLE_BANDIT_EVENTS:-bandit_events}"
 BQ_TABLE_BANDIT_METRICS="${BQ_TABLE_BANDIT_METRICS:-bandit_episode_metrics}"
 # Human creative ratings for judge calibration (runserver/ratings_store.py).
 BQ_TABLE_RATINGS="${BQ_TABLE_RATINGS:-creative_ratings}"
+# Shareable creative links (runserver/shares_store.py).
+BQ_TABLE_SHARES="${BQ_TABLE_SHARES:-creative_shares}"
 
 DATASET="${BQ_PROJECT_ID}:${BQ_DATASET_ID}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -80,3 +83,9 @@ make_table "${BQ_TABLE_BANDIT_METRICS}" \
 make_table "${BQ_TABLE_RATINGS}" \
   "${SCRIPT_DIR}/bq_schemas/creative_ratings.json" \
   --clustering_fields user_id,session_id
+
+# Shareable creative links, one row per share token (the api MERGE-inserts on token
+# and sets revoked_at on revoke). JSON schema file: concept_names is REPEATED.
+make_table "${BQ_TABLE_SHARES}" \
+  "${SCRIPT_DIR}/bq_schemas/creative_shares.json" \
+  --clustering_fields owner_user
