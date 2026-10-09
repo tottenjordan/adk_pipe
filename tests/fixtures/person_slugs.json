@@ -1,0 +1,10 @@
+[
+  {"email": "admin@jordantotten.altostrat.com", "slug": "admin_jordantotten_altostrat_com-34ebdd08f6"},
+  {"email": "a.b@x.com", "slug": "a_b_x_com-464a0cfb77"},
+  {"email": "a_b@x.com", "slug": "a_b_x_com-b6ee04c797"},
+  {"email": "Alice.Smith@Example.com", "slug": "alice_smith_example_com-7dcd3a39ad"},
+  {"email": " Alice.Smith@Example.com ", "slug": "alice_smith_example_com-7dcd3a39ad"},
+  {"email": "alice.smith@example.com", "slug": "alice_smith_example_com-7dcd3a39ad"},
+  {"email": "bob+ads@example.co.uk", "slug": "bob+ads_example_co_uk-891bdc9529"},
+  {"email": "me", "slug": "me-2744ccd10c"}
+]

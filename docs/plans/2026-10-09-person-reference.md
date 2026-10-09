@@ -162,7 +162,7 @@ def test_summarise_likeness_rate_by_style():
 
 **Routes:**
 - **`POST /person-refs/{user}`**, body `{photo_uri, label, subject, adult_attested, allow_public_share, consent_text_version}`:
-  - `photo_uri` must match `gs://<GOOGLE_CLOUD_STORAGE_BUCKET>/person-refs/<slug(user)>/<file>.(jpg|jpeg|png|webp)`, where `slug` is the lower-case email with `@` and `.` replaced by `_`. Otherwise 400 `invalid_photo_uri`.
+  - `photo_uri` must match `gs://<GOOGLE_CLOUD_STORAGE_BUCKET>/person-refs/<slug(user)>/<file>.(jpg|jpeg|png|webp)`, where `slug` is `<readable>-<h>`: the lower-case email with `@` and `.` replaced by `_`, plus the first 10 hex chars of sha256(lower-case email) (the readable part alone collides, e.g. `a.b@x.com` / `a_b@x.com`). Otherwise 400 `invalid_photo_uri`.
   - The object must exist and be ≤ 10 MB with an `image/*` content type: HEAD via `agent_common.clients.get_gcs_client`. Otherwise 400 `photo_unreadable`.
   - `adult_attested` must be true (400 `adult_attestation_required`).
   - `consent_text_version` must equal the current `CONSENT_TEXT_VERSION` constant (400 `stale_consent_text`).

@@ -195,3 +195,34 @@ describe("scopeRequestToUser: shares", () => {
     expect(scopeRequestToUser("POST", ["shares", "me", "creative_agent", SID, "x"], body, U)).toBeNull();
   });
 });
+
+describe("scopeRequestToUser: person-refs", () => {
+  const CID = "AbCdEfGh_ijkl-MN";
+  const body = '{"photo_uri":"gs://b/person-refs/alice_x_com/me.jpg"}';
+  it("rewrites the user segment on register, list and revoke", () => {
+    expect(scopeRequestToUser("POST", ["person-refs", "me"], body, U))
+      .toEqual({ path: "person-refs/alice%40x.com", body });
+    expect(scopeRequestToUser("GET", ["person-refs", "bob@x.com"], undefined, U)?.path)
+      .toBe("person-refs/alice%40x.com");
+    expect(scopeRequestToUser("DELETE", ["person-refs", "bob@x.com", CID], undefined, U)?.path)
+      .toBe(`person-refs/alice%40x.com/${CID}`);
+  });
+  it("refuses a malformed consent id on revoke", () => {
+    for (const bad of ["short", "x".repeat(65), "abcdefgh.ijk", "abcdefgh/ijk", "abcd efgh", ".."]) {
+      expect(scopeRequestToUser("DELETE", ["person-refs", "me", bad], undefined, U)).toBeNull();
+    }
+    expect(scopeRequestToUser("DELETE", ["person-refs", "me", "x".repeat(8)], undefined, U)).not.toBeNull();
+    expect(scopeRequestToUser("DELETE", ["person-refs", "me", "x".repeat(64)], undefined, U)).not.toBeNull();
+  });
+  it("refuses other shapes", () => {
+    expect(scopeRequestToUser("DELETE", ["person-refs", "me"], undefined, U)).toBeNull();
+    expect(scopeRequestToUser("GET", ["person-refs", "me", CID], undefined, U)).toBeNull();
+    expect(scopeRequestToUser("GET", ["person-refs"], undefined, U)).toBeNull();
+    expect(scopeRequestToUser("POST", ["person-refs", "me", CID], body, U)).toBeNull();
+    expect(scopeRequestToUser("PUT", ["person-refs", "me"], body, U)).toBeNull();
+    expect(scopeRequestToUser("DELETE", ["person-refs", "me", CID, "x"], undefined, U)).toBeNull();
+  });
+  it("drops every query param", () => {
+    expect(scopeQuery(new URLSearchParams("run=2&x=1"), ["person-refs", "me"])).toBe("");
+  });
+});

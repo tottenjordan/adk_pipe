@@ -1,6 +1,12 @@
 import type { Session, AgentEvent } from "./types";
 import type { Calibration, Rating, RatingPayload } from "./ratings";
 import { ShareError, type CreateSharePayload, type Share } from "./shares";
+import {
+  PersonRefError,
+  type CreatePersonRefPayload,
+  type PersonRef,
+  type PersonRefList,
+} from "./person-refs";
 
 // Route through the same-origin Next.js proxy (src/app/api/adk/[...path]/route.ts) so
 // the browser never makes a cross-origin call — this avoids CORS and the Cloud
@@ -394,4 +400,51 @@ export async function listShares(): Promise<Share[]> {
 export async function revokeShare(token: string): Promise<void> {
   const res = await fetch(sharesUrl(token), { method: "DELETE" });
   if (!res.ok) throw await shareError(res);
+}
+
+// ---------------------------------------------------------------------------
+// Person references (runserver/person_refs.py): consented photos of people
+// ---------------------------------------------------------------------------
+
+const personRefsUrl = (...tail: string[]) =>
+  [`${API_BASE}/person-refs/${SELF_USER_ID}`, ...tail.map(encodeURIComponent)].join("/");
+
+/** A failed person-refs response as a `PersonRefError` (reason from `detail.reason`). */
+async function personRefError(res: Response): Promise<PersonRefError> {
+  let reason: string | null = null;
+  try {
+    const r = (await res.json())?.detail?.reason;
+    if (typeof r === "string" && r) reason = r;
+  } catch {
+    // non-JSON body (e.g. the proxy's plain 404)
+  }
+  return new PersonRefError(reason, res.status);
+}
+
+/** `GET /person-refs/{user}`: the caller's active consents (newest first) and upload prefix. */
+export async function listPersonRefs(): Promise<PersonRefList> {
+  const res = await fetch(personRefsUrl());
+  if (!res.ok) throw await personRefError(res);
+  const data = await res.json();
+  return {
+    personRefs: Array.isArray(data?.person_refs) ? data.person_refs : [],
+    prefix: typeof data?.prefix === "string" && data.prefix ? data.prefix : null,
+  };
+}
+
+/** `POST /person-refs/{user}`: register a consented photo. */
+export async function createPersonRef(payload: CreatePersonRefPayload): Promise<PersonRef> {
+  const res = await fetch(personRefsUrl(), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw await personRefError(res);
+  return res.json();
+}
+
+/** `DELETE /person-refs/{user}/{consent_id}`: revoke, deleting the photo (idempotent). */
+export async function revokePersonRef(consentId: string): Promise<void> {
+  const res = await fetch(personRefsUrl(consentId), { method: "DELETE" });
+  if (!res.ok) throw await personRefError(res);
 }

@@ -17,10 +17,15 @@ const ROUTES: { method: string; match: (p: string[]) => boolean; userAt?: number
   { method: "GET", match: (p) => p.length === 3 && p[0] === "ratings", userAt: 1 },
   { method: "PUT", match: (p) => p.length === 3 && p[0] === "ratings" && p[2] !== "calibration", userAt: 1 },
   // Share links (runserver/shares.py): POST shares/{u}/{app}/{session}, GET shares/{u},
-  // DELETE shares/{u}/{token} — the only DELETE the proxy forwards. Ids validated below.
+  // DELETE shares/{u}/{token} (one of the two DELETEs the proxy forwards). Ids validated below.
   { method: "POST", match: (p) => p.length === 4 && p[0] === "shares", userAt: 1 },
   { method: "GET", match: (p) => p.length === 2 && p[0] === "shares", userAt: 1 },
   { method: "DELETE", match: (p) => p.length === 3 && p[0] === "shares", userAt: 1 },
+  // Person-reference consents (runserver/person_refs.py): GET/POST person-refs/{u},
+  // DELETE person-refs/{u}/{consent_id}. Ids validated below.
+  { method: "GET", match: (p) => p.length === 2 && p[0] === "person-refs", userAt: 1 },
+  { method: "POST", match: (p) => p.length === 2 && p[0] === "person-refs", userAt: 1 },
+  { method: "DELETE", match: (p) => p.length === 3 && p[0] === "person-refs", userAt: 1 },
 ];
 
 // ADK app names are Python identifiers (the agent package name).
@@ -31,6 +36,8 @@ export const EXPERIMENT_ID_RE = /^[a-z0-9][a-z0-9-]{2,63}$/;
 export const SESSION_ID_RE = /^[A-Za-z0-9_-]{1,128}$/;
 /** Share tokens (runserver/shares.py mints url-safe tokens). */
 export const SHARE_TOKEN_RE = /^[A-Za-z0-9_-]{16,64}$/;
+/** Person-reference consent ids (runserver/person_refs.py mints url-safe ids). */
+export const PERSON_REF_ID_RE = /^[A-Za-z0-9_-]{8,64}$/;
 /** Query params the UI actually sends (poll `since`, artifact `version`); all else is dropped. */
 const ALLOWED_QUERY = ["since", "version"] as const;
 
@@ -49,6 +56,7 @@ export function scopeRequestToUser(
   if (path[0] === "shares" && path.length === 4
       && (!APP_RE.test(path[2]) || !SESSION_ID_RE.test(path[3]))) return null;
   if (path[0] === "shares" && path.length === 3 && !SHARE_TOKEN_RE.test(path[2])) return null;
+  if (path[0] === "person-refs" && path.length === 3 && !PERSON_REF_ID_RE.test(path[2])) return null;
   const route = ROUTES.find((r) => r.method === method && r.match(path));
   if (!route) return null;
   const segs = [...path];

@@ -1,0 +1,57 @@
+[
+  {
+    "name": "consent_id",
+    "type": "STRING",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "owner_user",
+    "type": "STRING",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "photo_uri",
+    "type": "STRING",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "label",
+    "type": "STRING",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "subject",
+    "type": "STRING",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "adult_attested",
+    "type": "BOOLEAN",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "allow_public_share",
+    "type": "BOOLEAN",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "consent_text_version",
+    "type": "STRING",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "created_at",
+    "type": "TIMESTAMP",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "revoked_at",
+    "type": "TIMESTAMP",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "person_renders",
+    "type": "STRING",
+    "mode": "REPEATED"
+  }
+]
