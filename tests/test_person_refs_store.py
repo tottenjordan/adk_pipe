@@ -15,8 +15,7 @@ from tests._fake_bq import FakeBigQueryClient
 
 T0 = dt.datetime(2026, 10, 9, 12, 0, tzinfo=dt.UTC)
 SCHEMA = (
-    Path(__file__).resolve().parents[1]
-    / "deployment/bq_schemas/person_references.json"
+    Path(__file__).resolve().parents[1] / "deployment/bq_schemas/person_references.json"
 )
 URI = "gs://b/person-refs/a_x_com/me.jpg"
 

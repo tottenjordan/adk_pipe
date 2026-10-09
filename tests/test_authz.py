@@ -131,6 +131,20 @@ def test_path_user_id_shares(path, user):
     assert path_user_id(path) == user
 
 
+@pytest.mark.parametrize(
+    ("path", "user"),
+    [
+        ("/person-refs/u1", "u1"),
+        ("/person-refs/u1/cid_ABCDEFGH", "u1"),
+        ("/person-refs", None),
+        ("/person-refs/", None),
+        ("/person-refsX/u1", None),
+    ],
+)
+def test_path_user_id_person_refs(path, user):
+    assert path_user_id(path) == user
+
+
 def test_decide_enforce_shares():
     E = AuthzMode.ENFORCE
     assert decide(E, f"/shares/{A}", A) is None
