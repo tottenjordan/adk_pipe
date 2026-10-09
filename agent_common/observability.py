@@ -61,6 +61,7 @@ _ISSUES_NOTE_MAX_CHARS = 200
 # sentence-cased key.
 _ISSUE_LABELS: dict[str, str] = {
     "image_qa": "Image check",
+    "person_reference": "Person reference",
     "ad_copy_critique": "Ad copy check",
     "final_visual_concepts": "Visual concept check",
     "creative_brief": "Creative brief",

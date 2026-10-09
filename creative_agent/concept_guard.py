@@ -354,6 +354,12 @@ _HUMAN_CUE = re.compile(
 )
 
 
+def neutralise_person_prompt(prompt: str) -> str:
+    """``prompt`` with the person-reference wording turned into "a person" (for
+    a concept rendered without the photo)."""
+    return _PERSON_HERO_RE.sub("a person", prompt or "")
+
+
 def enforce_person_casting(
     concepts: list[dict[str, Any]],
     *,
@@ -402,7 +408,7 @@ def enforce_person_casting(
             c["casts_person_reference"] = False
             reason = str(c.get("person_casting_reason") or "").strip()
             c["person_casting_reason"] = f"{reason} (Not cast: {why}.)".strip()
-            c["image_generation_prompt"] = _PERSON_HERO_RE.sub("a person", prompt)
+            c["image_generation_prompt"] = neutralise_person_prompt(prompt)
             warns.append(f"{name}: person cast cleared ({why})")
         else:
             kept += 1
