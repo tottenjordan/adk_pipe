@@ -14,6 +14,7 @@ see the [main README](../README.md).
 - [Bandit experiments](#bandit-experiments)
 - [Creative ratings (judge calibration)](#creative-ratings-judge-calibration)
 - [Shareable links](#shareable-links)
+- [Person references](#person-references)
 - [Creative quality: migrations + knobs](#creative-quality-migrations--knobs)
 - [Eval CI (WIF)](#eval-ci-wif)
 - [Alternative Deployment: deploy to Cloud Run instances](#alternative-deployment-deploy-to-cloud-run-instances)
@@ -105,7 +106,8 @@ The nightly eval CI uses an isolated dataset cloned from these schemas (see
 deployed-creative experiments (see [Bandit experiments](#bandit-experiments)) and the
 `creative_ratings` table behind the results-page human ratings (see
 [Creative ratings (judge calibration)](#creative-ratings-judge-calibration)) and the
-`creative_shares` table behind shareable links (see [Shareable links](#shareable-links)).
+`creative_shares` table behind shareable links (see [Shareable links](#shareable-links))
+and the `person_references` consent registry (see [Person references](#person-references)).
 
 ---
 
@@ -1636,6 +1638,120 @@ gcloud run services get-iam-policy trend-trawler-api --region $REGION | grep all
 
 **Rollback:** `gcloud run services delete trend-trawler-share --region $REGION`. Links stop
 resolving; snapshots stay in the bucket and work again after a redeploy.
+
+## Person references
+
+A user can register a consented photo of a person (an adult who agreed to appear in
+AI-generated ad previews) on the web app's **People** page (`/people`), so later runs can
+cast them (plan:
+[docs/plans/2026-10-09-person-reference.md](../docs/plans/2026-10-09-person-reference.md)).
+This PR adds only the consent registry, the owner-only photo access and the page; casting
+comes later.
+
+- **Photo upload (out of band, no upload UI):** the photo goes to
+  `gs://$GOOGLE_CLOUD_STORAGE_BUCKET/person-refs/<slug>/<file>.(jpg|jpeg|png|webp)`, at most
+  10 MB, where `<slug>` is the owner's email lower-cased with `@` and `.` replaced by `_`
+  (`admin@jordantotten.altostrat.com` → `admin_jordantotten_altostrat_com`). The page shows
+  the caller's exact prefix (from `GET /person-refs/{user}`). Example:
+  `gcloud storage cp photo.jpg gs://$GOOGLE_CLOUD_STORAGE_BUCKET/person-refs/<slug>/`.
+- **Registering** (`POST /person-refs/{user}`, `runserver/person_refs.py`) checks the URI is
+  directly under the caller's own prefix (else 400 `invalid_photo_uri`), the object exists,
+  is `image/*` and ≤ 10 MB (else 400 `photo_unreadable`), the adult attestation is ticked
+  (400 `adult_attestation_required`) and the client showed the current consent text
+  (`CONSENT_TEXT_VERSION`, else 400 `stale_consent_text`); the same photo can't be active
+  twice (409) and a user has at most 50 active people (429).
+- **Owner-only access:** `/api/gcs` (web) serves `person-refs/<slug>/…` and
+  `…/variants/<slug>/…` only to the owner whose email slug matches (another user → 404, no
+  IAP identity on Cloud Run → 401, local dev → allowed), with `Cache-Control: private,
+  no-store`. Every other object path is proxied as before.
+- **Revoking** (`DELETE /person-refs/{user}/{consent_id}`, the People page's Revoke) marks
+  the record revoked, runs the registered revoke hooks (none yet; PR 4 adds the cascade into
+  shares, personalised variants and cast renders) and deletes the photo object. A failed
+  cleanup answers 502 `revoke_incomplete`, and repeating the DELETE finishes it. **Revoke is
+  the primary deletion path**; the lifecycle rule below is a backstop.
+
+### Table
+
+`person_references` (`BQ_TABLE_PERSON_REFS`) in `BQ_DATASET_ID`, one row per `consent_id`
+(`person_renders` is `REPEATED`, so it is created from a JSON schema file;
+`deployment/create_bq_tables.sh` also creates it). Create it **before** deploying the api
+that reads it (until then the People page shows "People could not load" and registering
+answers 502 `store_failed`):
+
+```bash
+bq mk --table --clustering_fields owner_user \
+  "$BQ_PROJECT_ID:$BQ_DATASET_ID.person_references" \
+  deployment/bq_schemas/person_references.json
+```
+
+Columns: `consent_id STRING, owner_user STRING, photo_uri STRING, label STRING,
+subject STRING ('self' | 'third_party_with_consent'), adult_attested BOOL,
+allow_public_share BOOL, consent_text_version STRING, created_at TIMESTAMP,
+revoked_at TIMESTAMP, person_renders ARRAY<STRING>` (`person_renders` holds the `gs://`
+URIs of images rendered with the photo, so a revoke can delete them; always `[]` until the
+casting PRs write it).
+
+The api SA (`tt-api-sa`) already has `roles/storage.objectAdmin` on the bucket (read
+metadata, delete under `person-refs/`) and the BigQuery roles; nothing else is needed.
+
+### Environment (api service)
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `PERSON_REFS_STORE` | `bigquery` | `bigquery` = the `person_references` table. `memory` = in-process store (local dev; lost on restart). `bigquery` falls back to `memory` with a warning when `BQ_PROJECT_ID`/`BQ_DATASET_ID` are unset locally; on Cloud Run (`K_SERVICE` set) that is a startup error |
+| `BQ_TABLE_PERSON_REFS` | `person_references` | Table name in `BQ_DATASET_ID` |
+| `GOOGLE_CLOUD_STORAGE_BUCKET` | (already set) | The bucket photos live in (local fallback `GCS_BUCKET_NAME`); unset = registering answers 503 `person_refs_unconfigured` |
+
+The web service needs nothing new (`/api/gcs` reuses `IAP_ALLOWED_HD` and the IAP audience
+lookup of the `/api/adk` proxy). Deploy the api after creating the table, then the web
+(pin both, see Step 8):
+
+```bash
+gcloud run services update trend-trawler-api --region us-central1 \
+  --update-env-vars PERSON_REFS_STORE=bigquery
+```
+
+Person references are api-only for now, so none of these variables is in
+`deploy_agent.py`'s `ENV_VAR_DICT`.
+
+### Lifecycle (retention backstop)
+
+Delete `person-refs/` objects 365 days after upload. `--lifecycle-file` **replaces** the
+bucket's whole lifecycle configuration, so read the current one first and merge this rule
+into it:
+
+```bash
+gcloud storage buckets describe "gs://$GOOGLE_CLOUD_STORAGE_BUCKET" \
+  --format="json(lifecycle_config)"
+```
+
+`person-refs-lifecycle.json` (add any existing rules to `rule`):
+
+```json
+{
+  "rule": [
+    {
+      "action": {"type": "Delete"},
+      "condition": {"age": 365, "matchesPrefix": ["person-refs/"]}
+    }
+  ]
+}
+```
+
+```bash
+gcloud storage buckets update "gs://$GOOGLE_CLOUD_STORAGE_BUCKET" \
+  --lifecycle-file=person-refs-lifecycle.json
+```
+
+An expired photo leaves its consent record active but unusable (the photo is gone); the
+owner revokes it and registers a fresh upload.
+
+**No lifecycle rule for personalised variants.** Variants (PR 3) are written under
+`<run folder>/creative_output/variants/<slug>/…`, and a lifecycle condition can only match a
+fixed object-name *prefix* or *suffix*, not a `*/variants/` segment in the middle; a broad
+rule could also delete ordinary run outputs. Variant cleanup is therefore by revoke (the PR 4
+cascade deletes every variant made with the consent). If variants later move under a fixed
+top-level prefix, add a `matchesPrefix` rule for it.
 
 ## Creative quality: migrations + knobs
 
