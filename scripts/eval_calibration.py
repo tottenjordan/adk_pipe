@@ -12,11 +12,18 @@ By default only ratings whose judge fields came from the run's GCS report
 (``judge_source = 'gcs'``) count: the session-state copy can be seeded by a client
 and would skew an all-users report. ``--include-all`` counts every rating.
 
+Agreement is only compared within one judge version: by default only ratings
+snapshotted under creative_eval's current ``JUDGE_VERSION`` count;
+``--judge-version <version>`` picks another one, ``--judge-version all`` pools every
+version. The report also splits the agreement by whether opt-in rating learning
+steered the run (``[learned]`` / ``[not learned]``).
+
     set -a && source .env && set +a
     uv run python scripts/eval_calibration.py                      # BigQuery, all users
     uv run python scripts/eval_calibration.py --user me@example.com
     uv run python scripts/eval_calibration.py --csv ratings.csv --json
     uv run python scripts/eval_calibration.py --include-all        # incl. state-sourced
+    uv run python scripts/eval_calibration.py --judge-version all  # every judge version
 """
 
 from __future__ import annotations
@@ -32,7 +39,13 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:  # run as a script: make the flat packages importable
     sys.path.insert(0, str(ROOT))
 
-from runserver.calibration import calibration_report, format_report  # noqa: E402
+from runserver.calibration import (  # noqa: E402
+    JUDGE_VERSION,
+    calibration_report,
+    format_report,
+)
+
+ALL_VERSIONS = "all"
 
 
 def read_csv(path: Path, user: str | None = None) -> list[dict[str, Any]]:
@@ -75,11 +88,20 @@ def main(argv: list[str] | None = None) -> int:
         help="also count ratings whose judge fields came from session state "
         "(client-seedable) or are missing; default: judge_source='gcs' only",
     )
+    parser.add_argument(
+        "--judge-version",
+        default=JUDGE_VERSION,
+        help=f"only ratings judged by this judge version (default: the current "
+        f"{JUDGE_VERSION}); '{ALL_VERSIONS}' = every version",
+    )
     args = parser.parse_args(argv)
     user = args.user.strip().lower() if args.user else None
     rows = read_csv(args.csv, user) if args.csv else read_bigquery(user)
     kept = rows if args.include_all else trusted_only(rows)
-    report = calibration_report(kept)
+    version = args.judge_version.strip()
+    report = calibration_report(
+        kept, judge_version=None if version == ALL_VERSIONS else version
+    )
     report["excluded_untrusted"] = len(rows) - len(kept)
     if args.json:
         print(json.dumps(report, indent=2))

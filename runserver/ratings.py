@@ -3,7 +3,8 @@
 A user rates a creative from a finished creative run (pass/fail, optional 1-5 score
 and note) on the results page. Each rating snapshots the LLM judge's verdict for
 the same creative (``judge_overall`` / ``judge_passed`` / ``judge_gates_passed`` /
-``judge_model``, from the session's eval report) so ``runserver/calibration.py`` can
+``judge_model`` / ``judge_version``, plus the run's ``learning_used``, from the
+session's eval report) so ``runserver/calibration.py`` can
 measure judge-human agreement without re-reading old reports.
 
 Routes (all user-scoped by path, gated by ``UserAuthzMiddleware`` like
@@ -14,8 +15,9 @@ Routes (all user-scoped by path, gated by ``UserAuthzMiddleware`` like
   ``fail_reasons?``: allowlisted chips from ``runserver/rating_reasons.py``,
   emptied on a pass).
 - ``GET /ratings/{user}/{session}``: the user's ratings for that session.
-- ``GET /ratings/{user}/calibration``: judge-human agreement over all the user's
-  ratings (``runserver/calibration.py``).
+- ``GET /ratings/{user}/calibration``: judge-human agreement over the user's
+  ratings judged by the current judge version, split by kind and by rating
+  learning (``runserver/calibration.py``).
 
 ``creative_key`` is ``visual:<concept_name>`` (kind ``visual``) or
 ``copy:<original_id>`` (kind ``ad_copy``) and must name a creative in the session's
@@ -518,7 +520,8 @@ async def _read(coro) -> list[dict]:
 # Declared before the session route so "calibration" is never read as a session id.
 @router.get("/ratings/{user_id}/calibration")
 async def http_calibration(user_id: str) -> dict:
-    """Judge-human agreement over every rating by the user (runserver/calibration.py)."""
+    """Judge-human agreement over the user's ratings from the current judge
+    version (runserver/calibration.py; other versions are only counted)."""
     return calibration_report(await _read(_STORE.list_for_user(user_id)))
 
 

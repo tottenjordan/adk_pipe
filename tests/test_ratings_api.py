@@ -414,9 +414,15 @@ def test_enforce_mode_authz():
     run(go)
 
 
+def _current_report() -> dict:
+    from creative_eval import JUDGE_VERSION
+
+    return {**_report(), "judge_version": JUDGE_VERSION}
+
+
 def test_calibration_endpoint_aggregates_the_users_ratings():
     async def go():
-        h = Harness()
+        h = Harness(report_loader=lambda uri: _current_report())
         await h.session()
         empty = (await h.client.get(f"/ratings/{A}/calibration")).json()
         assert empty["n"] == 0
@@ -434,6 +440,36 @@ def test_calibration_endpoint_aggregates_the_users_ratings():
         assert rep["overall"]["judge_passed"]["agreement"] is not None
         # "calibration" is not mistaken for a session id
         assert "ratings" not in rep
+
+    run(go)
+
+
+def test_calibration_endpoint_counts_only_the_current_judge_version():
+    from creative_eval import JUDGE_VERSION
+
+    async def go():
+        reports = {"s1": _report(), "s2": _current_report()}  # s1: pre-versioning
+        reports["s3"] = {**_current_report(), "learning_used": True}
+
+        def loader(uri):
+            return next(r for sid, r in reports.items() if f"/{sid}/" in uri)
+
+        h = Harness(report_loader=loader)
+        for sid in reports:
+            state = _state()
+            state["eval_report_gcs_uri"] = (
+                f"gs://{BUCKET}/out/{sid}/creative_eval_report.json"
+            )
+            await h.session(sid=sid, state=state)
+            await h.put(sid=sid, verdict="pass")
+            await h.put(sid=sid, creative_key="copy:3", kind="ad_copy")
+        rep = (await h.client.get(f"/ratings/{A}/calibration")).json()
+        assert rep["judge_version"] == JUDGE_VERSION
+        assert rep["n"] == 4 and rep["sessions"] == 2
+        assert rep["excluded_other_versions"] == 2
+        assert rep["by_learning"]["learned"]["n"] == 2
+        assert rep["by_learning"]["not_learned"]["n"] == 2
+        assert rep["overall"]["judge_passed"]["n"] == 4
 
     run(go)
 
