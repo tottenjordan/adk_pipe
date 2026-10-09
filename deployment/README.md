@@ -1650,9 +1650,13 @@ comes later.
 
 - **Photo upload (out of band, no upload UI):** the photo goes to
   `gs://$GOOGLE_CLOUD_STORAGE_BUCKET/person-refs/<slug>/<file>.(jpg|jpeg|png|webp)`, at most
-  10 MB, where `<slug>` is the owner's email lower-cased with `@` and `.` replaced by `_`
-  (`admin@jordantotten.altostrat.com` → `admin_jordantotten_altostrat_com`). The page shows
-  the caller's exact prefix (from `GET /person-refs/{user}`). Example:
+  10 MB, where `<slug>` is `<readable>-<h>`: the owner's email lower-cased with `@` and `.`
+  replaced by `_`, plus the first 10 hex chars of the sha256 of the lower-cased email
+  (`admin@jordantotten.altostrat.com` → `admin_jordantotten_altostrat_com-34ebdd08f6`). The
+  hash keeps emails like `a.b@x.com` and `a_b@x.com` (both `a_b_x_com`) in separate folders.
+  `slug_for` (api) and `emailSlug` (web `/api/gcs`) are checked against one golden fixture,
+  `tests/fixtures/person_slugs.json`. The page shows the caller's exact prefix (from
+  `GET /person-refs/{user}`). Example:
   `gcloud storage cp photo.jpg gs://$GOOGLE_CLOUD_STORAGE_BUCKET/person-refs/<slug>/`.
 - **Registering** (`POST /person-refs/{user}`, `runserver/person_refs.py`) checks the URI is
   directly under the caller's own prefix (else 400 `invalid_photo_uri`), the object exists,

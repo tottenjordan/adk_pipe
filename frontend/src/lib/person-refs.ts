@@ -73,6 +73,7 @@ export function subjectLabel(subject: PersonSubject): string {
 }
 
 /** Shown when the api can't name the caller's folder (no bucket configured); the rule
- *  is `emailSlug` in lib/person-paths.ts / `slug_for` in runserver/person_refs.py. */
+ *  is `emailSlug` in lib/person-paths.ts / `slug_for` in runserver/person_refs.py (the
+ *  code is a hash of the email, so only the api's `prefix` names the exact folder). */
 export const PREFIX_RULE =
-  "gs://<bucket>/person-refs/<your email, lower-cased, with @ and . replaced by _>/";
+  "gs://<bucket>/person-refs/<your email, lower-cased, with @ and . replaced by _>-<10-character code>/";

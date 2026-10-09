@@ -7,6 +7,8 @@
 from __future__ import annotations
 
 import asyncio
+import json
+from pathlib import Path
 
 import httpx
 import pytest
@@ -19,7 +21,8 @@ from runserver.person_refs_store import InMemoryPersonRefsStore
 A = "alice.smith@example.com"
 B = "bob@example.com"
 BUCKET = "tt-bucket"
-SLUG_A = "alice_smith_example_com"
+SLUG_A = "alice_smith_example_com-7dcd3a39ad"
+SLUG_B = "bob_example_com-5ff860bf11"
 PROXY = {"Authorization": "Bearer proxy"}
 PHOTO_A = f"gs://{BUCKET}/person-refs/{SLUG_A}/me.jpg"
 
@@ -128,12 +131,26 @@ def run(coro_fn):
 # --- pure helpers -----------------------------------------------------------------
 
 
-def test_slug_for():
-    assert (
-        pr.slug_for("admin@jordantotten.altostrat.com")
-        == "admin_jordantotten_altostrat_com"
+SLUG_GOLDEN = json.loads(
+    (Path(__file__).resolve().parent / "fixtures/person_slugs.json").read_text()
+)
+
+
+@pytest.mark.parametrize("case", SLUG_GOLDEN, ids=lambda c: c["email"])
+def test_slug_for_matches_the_shared_golden(case):
+    # The same fixture drives frontend/src/__tests__/gcs-route-person.test.ts, so
+    # the api and the /api/gcs owner check can't drift apart.
+    assert pr.slug_for(case["email"]) == case["slug"]
+
+
+def test_slug_for_is_readable_and_collision_free():
+    assert pr.slug_for("admin@jordantotten.altostrat.com").startswith(
+        "admin_jordantotten_altostrat_com-"
     )
+    # the readable part alone collides; the hash suffix keeps them apart
+    assert pr.slug_for("a.b@x.com") != pr.slug_for("a_b@x.com")
     assert pr.slug_for(" Alice.Smith@Example.com ") == SLUG_A
+    assert pr.slug_for(B) == SLUG_B
 
 
 def test_photo_path_only_under_the_owner_prefix():
@@ -143,7 +160,7 @@ def test_photo_path_only_under_the_owner_prefix():
     for bad in (
         PHOTO_A.replace(".jpg", ".gif"),  # not an allowed image type
         f"gs://other/person-refs/{SLUG_A}/me.jpg",  # another bucket
-        f"gs://{BUCKET}/person-refs/bob_example_com/me.jpg",  # another owner
+        f"gs://{BUCKET}/person-refs/{SLUG_B}/me.jpg",  # another owner
         f"gs://{BUCKET}/person-refs/{SLUG_A}/sub/me.jpg",  # nested
         f"gs://{BUCKET}/person-refs/{SLUG_A}/../bob_example_com/me.jpg",
         f"gs://{BUCKET}/person-refs/{SLUG_A}/.jpg",
@@ -183,7 +200,7 @@ def test_create_records_consent_and_returns_it():
 @pytest.mark.parametrize(
     ("over", "reason"),
     [
-        ({"photo_uri": f"gs://{BUCKET}/person-refs/bob_example_com/me.jpg"}, None),
+        ({"photo_uri": f"gs://{BUCKET}/person-refs/{SLUG_B}/me.jpg"}, None),
         ({"photo_uri": f"gs://other/person-refs/{SLUG_A}/me.jpg"}, None),
         ({"photo_uri": f"gs://{BUCKET}/person-refs/{SLUG_A}/me.gif"}, None),
         ({"photo_uri": 3}, None),
@@ -295,7 +312,7 @@ def test_list_is_owner_only_and_carries_the_prefix():
         assert body["consent_text_version"] == pr.CONSENT_TEXT_VERSION
         other = (await h.client.get(f"/person-refs/{B}")).json()
         assert other["person_refs"] == []
-        assert other["prefix"] == f"gs://{BUCKET}/person-refs/bob_example_com/"
+        assert other["prefix"] == f"gs://{BUCKET}/person-refs/{SLUG_B}/"
 
     run(go)
 

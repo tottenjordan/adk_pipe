@@ -4,15 +4,29 @@
  * Run artifacts are shared across users by design, but a person's photo (and any
  * image made from it for one user) is visible only to the user who registered it.
  * Photos live at `person-refs/<slug>/<file>`; personalised variants (PR 3) at
- * `…/variants/<slug>/…`. `<slug>` is the owner's email, lower-cased, with `@` and
- * `.` replaced by `_` (mirrors `slug_for` in runserver/person_refs.py).
+ * `…/variants/<slug>/…`. `<slug>` is `<readable>-<h>`: the owner's email,
+ * lower-cased, with `@` and `.` replaced by `_`, plus 10 hex chars of its sha256
+ * (mirrors `slug_for` in runserver/person_refs.py).
+ *
+ * Server-only (node:crypto): imported by the /api/gcs route handler, never by a
+ * client component.
  */
+
+import { createHash } from "node:crypto";
 
 export const PERSON_REFS_PREFIX = "person-refs/";
 
-/** `admin@x.com` → `admin_x_com` (mirrors runserver `slug_for`). */
+const SLUG_HASH_CHARS = 10;
+
+/** The owner's folder name `<readable>-<h>` (mirrors runserver `slug_for`; shared
+ *  golden fixture tests/fixtures/person_slugs.json). `readable` is the normalized
+ *  (trimmed, lower-case) email with `@` and `.` replaced by `_`; `h` is the first 10
+ *  hex chars of its sha256, which keeps `a.b@x.com` and `a_b@x.com` apart. */
 export function emailSlug(email: string): string {
-  return email.trim().toLowerCase().replace(/[@.]/g, "_");
+  const normalized = email.trim().toLowerCase();
+  const readable = normalized.replace(/[@.]/g, "_");
+  const digest = createHash("sha256").update(normalized, "utf8").digest("hex");
+  return `${readable}-${digest.slice(0, SLUG_HASH_CHARS)}`;
 }
 
 function segments(path: string): string[] {

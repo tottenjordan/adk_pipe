@@ -3,7 +3,8 @@
 A user registers a consented photo of a person (an adult who agreed to appear in
 AI-generated ad previews) so later runs can cast them. The photo is uploaded out of
 band to ``gs://<bucket>/person-refs/<owner slug>/<file>.(jpg|jpeg|png|webp)``
-(``slug_for``: the lower-case email with ``@`` and ``.`` replaced by ``_``); this
+(``slug_for``: ``<readable>-<h>``, the lower-case email with ``@`` and ``.``
+replaced by ``_`` plus 10 hex chars of its sha256); this
 api only records the consent in ``person_references``
 (``runserver/person_refs_store.py``) after checking the photo sits under the
 caller's own prefix and is a readable image. Revoking marks the record revoked,
@@ -26,6 +27,7 @@ Person photo URIs are never logged.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import inspect
 import logging
 import re
@@ -76,10 +78,22 @@ class PersonRefError(ValueError):
         self.reason = reason
 
 
+SLUG_HASH_CHARS = 10
+
+
 def slug_for(user: str) -> str:
-    """The owner's ``person-refs/`` folder name: the lower-case email with ``@`` and
-    ``.`` replaced by ``_`` (``admin@x.com`` → ``admin_x_com``)."""
-    return user.strip().lower().replace("@", "_").replace(".", "_")
+    """The owner's ``person-refs/`` folder name: ``<readable>-<h>``.
+
+    ``readable`` is the normalized (stripped, lower-case) email with ``@`` and ``.``
+    replaced by ``_``; ``h`` is the first 10 hex chars of the sha256 of the
+    normalized email. The readable part alone isn't injective (``a.b@x.com`` and
+    ``a_b@x.com`` both give ``a_b_x_com``); the hash keeps owners apart. Mirrored by
+    ``emailSlug`` in frontend/src/lib/person-paths.ts (shared golden fixture
+    tests/fixtures/person_slugs.json)."""
+    email = user.strip().lower()
+    readable = email.replace("@", "_").replace(".", "_")
+    digest = hashlib.sha256(email.encode("utf-8")).hexdigest()[:SLUG_HASH_CHARS]
+    return f"{readable}-{digest}"
 
 
 def owner_prefix(user: str) -> str:

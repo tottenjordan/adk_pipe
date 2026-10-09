@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { NextRequest } from "next/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ResolvedUser } from "@/lib/iap-identity";
@@ -16,7 +18,12 @@ import {
 } from "@/lib/person-paths";
 
 const ALICE = "alice.smith@example.com";
-const ALICE_SLUG = "alice_smith_example_com";
+const ALICE_SLUG = "alice_smith_example_com-7dcd3a39ad";
+
+// Shared with tests/test_person_refs_api.py so the api and /api/gcs agree on slugs.
+const SLUG_GOLDEN: { email: string; slug: string }[] = JSON.parse(
+  readFileSync(resolve(__dirname, "../../../tests/fixtures/person_slugs.json"), "utf8")
+);
 
 const call = (path: string, bucket = "tt-bucket") =>
   GET(
@@ -26,9 +33,17 @@ const call = (path: string, bucket = "tt-bucket") =>
   );
 
 describe("person paths", () => {
-  it("slugs an email like runserver slug_for", () => {
-    expect(emailSlug("admin@jordantotten.altostrat.com")).toBe(
-      "admin_jordantotten_altostrat_com"
+  it.each(SLUG_GOLDEN.map((c) => [c.email, c.slug]))(
+    "slugs %j like runserver slug_for (shared golden)",
+    (email, slug) => {
+      expect(emailSlug(email)).toBe(slug);
+    }
+  );
+
+  it("keeps a.b@x.com and a_b@x.com apart and stays readable", () => {
+    expect(emailSlug("a.b@x.com")).not.toBe(emailSlug("a_b@x.com"));
+    expect(emailSlug("admin@jordantotten.altostrat.com")).toMatch(
+      /^admin_jordantotten_altostrat_com-[0-9a-f]{10}$/
     );
     expect(emailSlug(" Alice.Smith@Example.com ")).toBe(ALICE_SLUG);
     expect(personRefsPrefix("b", ALICE)).toBe(`gs://b/person-refs/${ALICE_SLUG}/`);
