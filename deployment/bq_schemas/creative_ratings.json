@@ -70,6 +70,16 @@
     "mode": "NULLABLE"
   },
   {
+    "name": "judge_version",
+    "type": "STRING",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "learning_used",
+    "type": "BOOLEAN",
+    "mode": "NULLABLE"
+  },
+  {
     "name": "brand",
     "type": "STRING",
     "mode": "NULLABLE"

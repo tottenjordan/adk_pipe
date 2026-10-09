@@ -143,6 +143,41 @@ def test_judge_fields_optional_gates_and_model():
     assert out["judge_model"] == "gemini-3.1-pro-preview"
 
 
+def test_judge_fields_snapshot_judge_version_and_learning_used():
+    info = rt.creative_index(_state())[VISUAL]
+    old = rt.judge_fields(_report(), info)  # pre-versioning fixture report
+    assert old["judge_version"] == "" and old["learning_used"] is False
+    report = {**_report(), "judge_version": "2026-10-08", "learning_used": True}
+    out = rt.judge_fields(report, info)
+    assert out["judge_version"] == "2026-10-08" and out["learning_used"] is True
+    # malformed values never pass through
+    report = {**_report(), "judge_version": 7, "learning_used": "yes"}
+    out = rt.judge_fields(report, info)
+    assert out["judge_version"] == "" and out["learning_used"] is False
+    # no report at all
+    none = rt.judge_fields(None, info)
+    assert none["judge_version"] == "" and none["learning_used"] is False
+    # an unmatched creative still carries the run-level fields
+    report = {"judge_version": "v", "learning_used": True}
+    out = rt.judge_fields(report, info)
+    assert out["judge_overall"] is None
+    assert out["judge_version"] == "v" and out["learning_used"] is True
+
+
+def test_put_snapshots_judge_version_and_learning_used():
+    async def go():
+        report = {**_report(), "judge_version": "2026-10-08", "learning_used": True}
+        h = Harness(report_loader=lambda uri: report)
+        await h.session()
+        body = (await h.put()).json()
+        assert body["judge_version"] == "2026-10-08"
+        assert body["learning_used"] is True
+        (row,) = h.store.rows.values()
+        assert row["judge_version"] == "2026-10-08" and row["learning_used"] is True
+
+    run(go)
+
+
 def test_judge_gates_passed_ignored_without_recorded_gates():
     """gates_passed defaults to True in CreativeScore: a gate-less report must not
     read as "every gate passed" (false agreement in the calibration)."""
@@ -435,7 +470,9 @@ def test_store_read_failure_is_502():
 
 def test_judge_fields_read_a_real_gated_report_model():
     """Field locations pinned against creative_eval's own report models."""
+    from creative_eval import JUDGE_VERSION
     from creative_eval.schemas import (
+        CreativeEvaluationReport,
         CreativeScore,
         GateResult,
         VisualConceptEvaluation,
@@ -454,13 +491,24 @@ def test_judge_fields_read_a_real_gated_report_model():
             gates_passed=False,
         ),
     )
-    report = {"visual_concept_evaluations": [ev.model_dump()], "judge_model": "j"}
+    report = {
+        "visual_concept_evaluations": [ev.model_dump()],
+        "judge_model": "j",
+        "judge_version": JUDGE_VERSION,
+        "learning_used": True,
+    }
+    # the run-level keys are real CreativeEvaluationReport fields
+    assert {"judge_model", "judge_version", "learning_used"} <= set(
+        CreativeEvaluationReport.model_fields
+    )
     out = rt.judge_fields(report, rt.creative_index(_state())[VISUAL])
     assert out == {
         "judge_overall": 0.8,
         "judge_passed": False,
         "judge_gates_passed": False,
         "judge_model": "j",
+        "judge_version": JUDGE_VERSION,
+        "learning_used": True,
     }
 
 

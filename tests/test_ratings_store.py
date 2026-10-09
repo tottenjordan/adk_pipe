@@ -30,6 +30,8 @@ def _row(**over) -> dict:
         "judge_gates_passed": None,
         "judge_model": "m",
         "judge_source": "gcs",
+        "judge_version": "2026-10-08",
+        "learning_used": False,
         "brand": "prs",
         "visual_style": "Candid 35mm film photo",
         "tone_style": "Humorous",
@@ -174,6 +176,26 @@ def test_table_name_and_env_selection(caplog):
     assert "falling back" in caplog.text
     with pytest.raises(RuntimeError):
         rs.build_store_from_env({"RATINGS_STORE": "sqlite"})
+
+
+def test_rating_columns_include_judge_version_and_learning_used():
+    assert rs.RATING_COLUMN_TYPES["judge_version"] == "STRING"
+    assert rs.RATING_COLUMN_TYPES["learning_used"] == "BOOL"
+    # re-snapshotted on a re-rate, like the other judge_* fields
+    assert {"judge_version", "learning_used"} <= set(rs.UPDATABLE)
+
+
+def test_calibration_sql_reads_judge_version_and_learning_used():
+    sql, _ = rs.build_calibration_sql("p.d.r", "a@x.com")
+    assert "judge_version" in sql and "learning_used" in sql
+
+
+def test_in_memory_rerate_updates_judge_version_and_learning_used():
+    store = rs.InMemoryRatingsStore()
+    asyncio.run(store.upsert(_row(judge_version="", learning_used=False)))
+    asyncio.run(store.upsert(_row(judge_version="2026-10-08", learning_used=True)))
+    (row,) = store.rows.values()
+    assert row["judge_version"] == "2026-10-08" and row["learning_used"] is True
 
 
 def test_calibration_sql_scoped_or_global():

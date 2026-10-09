@@ -1420,6 +1420,8 @@ CREATE TABLE IF NOT EXISTS `$BQ_PROJECT_ID.$BQ_DATASET_ID.creative_ratings` (
   judge_gates_passed BOOL,    -- judge's blocking eval gates, nullable (older reports have none)
   judge_model STRING,
   judge_source STRING,        -- 'gcs' (run's report in the configured bucket) | 'state' | 'none'
+  judge_version STRING,       -- report's creative_eval JUDGE_VERSION; '' = pre-versioning report / no report
+  learning_used BOOL,         -- report's learning_used (run steered by opt-in rating learning)
   brand STRING,               -- session brand, trimmed + lower-cased (learning context)
   visual_style STRING,        -- canonical style family (visual ratings), nullable
   tone_style STRING,          -- copy tone from the FinalAdCopy Literal (ad-copy ratings), nullable
@@ -1451,6 +1453,17 @@ ALTER TABLE `$BQ_PROJECT_ID.$BQ_DATASET_ID.creative_ratings`
   ADD COLUMN IF NOT EXISTS tone_style STRING,
   ADD COLUMN IF NOT EXISTS angle_id STRING,
   ADD COLUMN IF NOT EXISTS fail_reasons ARRAY<STRING>;
+```
+
+**Migration: judge version + learning split (2026-10-09).** Tables created before
+versioned judge calibration need these columns added **before** deploying the api that
+writes them (every rating MERGE names them). Older rows keep `NULL`, which calibration
+treats as "an earlier judge" (excluded from the current-judge agreement):
+
+```sql
+ALTER TABLE `$BQ_PROJECT_ID.$BQ_DATASET_ID.creative_ratings`
+  ADD COLUMN IF NOT EXISTS judge_version STRING,
+  ADD COLUMN IF NOT EXISTS learning_used BOOL;
 ```
 
 Judge fields are read from the run's GCS report only when `eval_report_gcs_uri` is
@@ -1500,6 +1513,15 @@ writers name every column in their MERGE):
     ADD COLUMN IF NOT EXISTS tone_style STRING,
     ADD COLUMN IF NOT EXISTS angle_id STRING,
     ADD COLUMN IF NOT EXISTS fail_reasons ARRAY<STRING>;
+  ```
+- [ ] `creative_ratings.judge_version STRING` + `learning_used BOOL` (versioned judge
+  calibration, 2026-10-09) — before the api
+  ([Migration: judge version + learning split](#table)):
+
+  ```sql
+  ALTER TABLE `$BQ_PROJECT_ID.$BQ_DATASET_ID.creative_ratings`
+    ADD COLUMN IF NOT EXISTS judge_version STRING,
+    ADD COLUMN IF NOT EXISTS learning_used BOOL;
   ```
 - [x] Judge image access: the Vertex AI service agent can read the bucket (same project:
   nothing to do; cross-project: grant `roles/storage.objectViewer`; see **Judge image

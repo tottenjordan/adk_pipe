@@ -179,18 +179,25 @@ def _find_eval(report: Mapping[str, Any], info: Mapping[str, Any]) -> Mapping | 
 
 
 def judge_fields(report: Any, info: Mapping[str, Any]) -> dict[str, Any]:
-    """The judge columns of a rating row (all None when unavailable)."""
+    """The judge columns of a rating row (None when unavailable; the run-level
+    ``judge_version`` is ``""`` and ``learning_used`` False without a report or a
+    valid value, so a pre-versioning report reads as "an earlier judge")."""
     out: dict[str, Any] = {
         "judge_overall": None,
         "judge_passed": None,
         "judge_gates_passed": None,
         "judge_model": None,
+        "judge_version": "",
+        "learning_used": False,
     }
     report = _as_obj(report)
     if not isinstance(report, Mapping):
         return out
     model = report.get("judge_model")
     out["judge_model"] = model if isinstance(model, str) and model else None
+    version = report.get("judge_version")
+    out["judge_version"] = version.strip() if isinstance(version, str) else ""
+    out["learning_used"] = report.get("learning_used") is True
     ev = _find_eval(report, info)
     if ev is None:
         return out
@@ -314,6 +321,8 @@ def to_public(row: Mapping[str, Any]) -> dict:
             "judge_gates_passed",
             "judge_model",
             "judge_source",
+            "judge_version",
+            "learning_used",
             "fail_reasons",
             "created_at",
             "updated_at",

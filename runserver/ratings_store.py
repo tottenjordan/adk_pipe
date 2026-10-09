@@ -43,6 +43,12 @@ RATING_COLUMN_TYPES = {
     # Where the judge fields came from: 'gcs' (the run's report under the configured
     # bucket), 'state' (session state, client-seedable) or 'none' (2026-10-07).
     "judge_source": "STRING",
+    # The report's creative_eval JUDGE_VERSION ("" = pre-versioning report or no
+    # report) and whether opt-in rating learning steered the run (report
+    # learning_used): calibration compares agreement within one judge version and
+    # splits it by learning (2026-10-09).
+    "judge_version": "STRING",
+    "learning_used": "BOOL",
     # Learning context, stamped from session state at PUT time (2026-10-08):
     # normalised brand, canonical visual style, copy tone, brief angle and the
     # rater's allowlisted fail-reason chips (runserver/rating_reasons.py).
@@ -65,6 +71,8 @@ UPDATABLE = (
     "judge_gates_passed",
     "judge_model",
     "judge_source",
+    "judge_version",
+    "learning_used",
     "brand",
     "visual_style",
     "tone_style",
@@ -161,7 +169,7 @@ def build_calibration_sql(table: str, user_id: str | None = None) -> tuple[str, 
     where = "WHERE user_id = @user_id" if user_id else ""
     sql = f"""
         SELECT session_id, kind, verdict, score, judge_overall, judge_passed,
-               judge_gates_passed, judge_source
+               judge_gates_passed, judge_source, judge_version, learning_used
         FROM `{table}`
         {where}
         """
