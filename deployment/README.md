@@ -10,6 +10,7 @@ see the [main README](../README.md).
 - [Deploying Agents to Agent Engine](#deploying-agents-to-agent-engine)
 - [Cloud Run Functions Fan-out Pattern](#cloud-run-functions-fan-out-pattern)
 - [Frontend + api_server on Cloud Run](#frontend--api_server-on-cloud-run)
+- [Shareable links](#shareable-links)
 - [Bandit experiments](#bandit-experiments)
 - [Creative ratings (judge calibration)](#creative-ratings-judge-calibration)
 - [Shareable links](#shareable-links)
@@ -1152,6 +1153,103 @@ credential; `runserver/authz.py` logs only the rejection reason, rate-limited.
 **Rollback:** `--update-env-vars USER_AUTHZ_MODE=observe` on the api (keeps the new code,
 stops enforcing). Always move the api to `observe` *before* rolling back web alone —
 an old proxy sends no `X-TT-User`, so an enforcing api would 401 every UI call.
+
+---
+
+## Shareable links
+
+Owners can share one creative or a whole slate as a public, unlisted link. The api
+freezes an allowlisted snapshot into `gs://$GCS_BUCKET/shares/<token>/` (`snapshot.json`
++ `<i>.png`); a **separate public Cloud Run service, `trend-trawler-share`**, serves it.
+Design: `docs/plans/2026-10-09-shareable-links.md`.
+
+### Public share service (`trend-trawler-share`)
+
+The share service is the **same frontend image** started with `SHARE_MODE=1`. In that mode
+the Next.js proxy (`frontend/src/proxy.ts`, pure rules in `frontend/src/lib/share-mode.ts`,
+env read per request) serves only:
+
+- `/s/<token>` and `/s/<token>/img/<n>` (token `[A-Za-z0-9_-]{16,64}`, n = 1–2 digits),
+- `/_next/static/*`, `/robots.txt` (`Disallow: /`) and `/favicon.ico`.
+
+Everything else, including **every `/api/*` route** (`/api/gcs` would proxy the whole
+bucket), every IAP page and `/_next/image`, answers a plain 404. Share routes send
+`X-Robots-Tag: noindex, nofollow`, `Referrer-Policy: no-referrer`,
+`Cache-Control: private, max-age=60`, `X-Content-Type-Options: nosniff` and a nonce CSP
+(`default-src 'self'; script-src 'self' 'nonce-…' 'strict-dynamic'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; frame-ancestors 'none'; …`).
+The pages read only `shares/<token>/snapshot.json` and `shares/<token>/<n>.png` from the
+bucket in `GOOGLE_CLOUD_STORAGE_BUCKET` (the same env name the api uses), with the
+service's own credentials (metadata server). A missing or revoked snapshot shows
+"This link is no longer available" (404).
+
+> **This is the ONLY public service.** Never add `allUsers`, `--allow-unauthenticated` or
+> any IAP change to `trend-trawler-web` or `trend-trawler-api`; they stay IAP-gated /
+> private exactly as in the steps above. The share service is safe to make public because
+> its code serves only share routes **and** its service account can read nothing but
+> `shares/`.
+
+**1. Service account, reading only `shares/`** (vars from
+[Step 0](#0-prerequisites--shared-vars)):
+
+```bash
+gcloud iam service-accounts create tt-share-sa --display-name="trend-trawler public share viewer"
+SHARE_SA=tt-share-sa@$PROJECT.iam.gserviceaccount.com
+
+# Object read, limited by an IAM condition to the shares/ prefix. No other roles.
+gcloud storage buckets add-iam-policy-binding gs://$GCS_BUCKET \
+  --member "serviceAccount:$SHARE_SA" \
+  --role roles/storage.objectViewer \
+  --condition="expression=resource.name.startsWith(\"projects/_/buckets/$GCS_BUCKET/objects/shares/\"),title=shares-only"
+```
+
+(Conditional bindings need uniform bucket-level access on the bucket.)
+
+**2. Deploy** (from the repo root; the same `frontend/Dockerfile` as `trend-trawler-web`):
+
+```bash
+gcloud run deploy trend-trawler-share \
+  --source ./frontend --region $REGION \
+  --service-account $SHARE_SA \
+  --allow-unauthenticated \
+  --min-instances 0 --max-instances 3 --memory 512Mi --cpu 1 \
+  --set-env-vars "SHARE_MODE=1,GOOGLE_CLOUD_STORAGE_BUCKET=$GCS_BUCKET"
+
+SHARE_URL=$(gcloud run services describe trend-trawler-share --region $REGION --format='value(status.url)')
+# Absolute og:image URLs for link previews need the public origin:
+gcloud run services update trend-trawler-share --region $REGION \
+  --update-env-vars "SHARE_BASE_URL=$SHARE_URL"
+# ...and the api builds share links from it (pin api traffic afterwards, Step 8):
+gcloud run services update trend-trawler-api --region $REGION \
+  --update-env-vars "SHARE_BASE_URL=$SHARE_URL"
+```
+
+Redeploys: always pass `SHARE_MODE=1` (or use `--update-env-vars` to keep it). Without it
+the service would run the full app — it has no IAP — so check after every deploy:
+
+**3. Probes** (all must hold; `TOKEN` from a test share created in the UI):
+
+```bash
+curl -s -o /dev/null -w '%{http_code}\n' "$SHARE_URL/"                                  # 404
+curl -s -o /dev/null -w '%{http_code}\n' "$SHARE_URL/runs"                              # 404
+curl -s -o /dev/null -w '%{http_code}\n' "$SHARE_URL/api/gcs?bucket=$GCS_BUCKET&path=x" # 404
+curl -s -o /dev/null -w '%{http_code}\n' "$SHARE_URL/api/adk/list-apps"                 # 404
+curl -s -o /dev/null -w '%{http_code}\n' "$SHARE_URL/_next/image?url=%2Ffavicon.ico&w=64&q=75" # 404
+curl -s "$SHARE_URL/robots.txt"                                                          # Disallow: /
+curl -sI "$SHARE_URL/s/$TOKEN" | grep -iE '^HTTP|x-robots-tag|content-security-policy' # 200 + noindex + CSP
+curl -s -o /dev/null -w '%{http_code} %{content_type}\n' "$SHARE_URL/s/$TOKEN/img/0"     # 200 image/png
+curl -s -o /dev/null -w '%{http_code}\n' "$SHARE_URL/s/$TOKEN/img/9"                    # 404
+curl -s -o /dev/null -w '%{http_code}\n' "$SHARE_URL/s/AAAAAAAAAAAAAAAAAAAAAA"          # 404 (unknown/revoked)
+# The SA really cannot read outside shares/ (expect 403; impersonation needs
+# roles/iam.serviceAccountTokenCreator on the SA for the caller):
+gcloud storage cat gs://$GCS_BUCKET/some/other/object.json \
+  --impersonate-service-account $SHARE_SA
+# web + api stay private (no allUsers in either policy):
+gcloud run services get-iam-policy trend-trawler-web --region $REGION | grep allUsers  # nothing
+gcloud run services get-iam-policy trend-trawler-api --region $REGION | grep allUsers  # nothing
+```
+
+**Rollback:** `gcloud run services delete trend-trawler-share --region $REGION`. Links stop
+resolving; snapshots stay in the bucket and work again after a redeploy.
 
 ---
 
