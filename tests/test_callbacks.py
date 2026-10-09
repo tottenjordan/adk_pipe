@@ -447,6 +447,8 @@ class TestSkipReviserWithoutNotes:
                 "trend_motif": "a trend motif",
                 "brand_cue": "the brand's red logo",
                 "angle_id": "A1",
+                "casts_person_reference": False,
+                "person_casting_reason": "",
                 "image_generation_prompt": "A diecut sticker of a user-edited prompt",
             }
         ]

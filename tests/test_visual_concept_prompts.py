@@ -100,6 +100,63 @@ def test_only_seeded_campaign_tokens_are_required(name):
     }, name
 
 
+def test_person_casting_rules_are_brace_free_and_shared():
+    rules = prompts.PERSON_CASTING_RULES
+    assert "{" not in rules and "}" not in rules
+    assert rules in prompts.VISUAL_CONCEPT_RULES
+
+
+def test_person_casting_rules_wording():
+    from creative_agent.config import config
+
+    rules = prompts.PERSON_CASTING_RULES
+    assert "person_reference_available is yes" in rules
+    assert f"at most {config.max_cast_concepts} of the 4 concepts" in rules
+    for style in config.person_safe_styles:
+        assert style in rules, style
+    assert "the person in the person reference image" in rules
+    assert "never describe their face, age, ethnicity or body" in rules
+    assert "real-person, tragedy or crisis trends" in rules
+    assert "meme, comic, isometric or product-only" in rules
+    assert "`casts_person_reference`" in rules and "`person_casting_reason`" in rules
+    assert "face is clearly visible" in rules
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "ART_DIRECTOR_INSTR",
+        *VISUAL_PROMPTS,
+        "VISUAL_CONCEPT_FIXER_INSTR",
+    ],
+)
+def test_visual_agents_read_the_person_reference_flag(name):
+    instr = getattr(prompts, name)
+    assert "{person_reference_available?}" in instr, name
+    assert "{person_reference?}" not in instr and "person_reference}" not in instr
+
+
+def test_fixer_keeps_the_casting_fields():
+    instr = prompts.VISUAL_CONCEPT_FIXER_INSTR
+    assert "`casts_person_reference`, `person_casting_reason`" in instr
+
+
+def test_guide_has_a_person_reference_bullet():
+    guide = prompts.IMAGE_PROMPT_GUIDE
+    section = guide[
+        guide.index("<REFERENCE_IMAGES>") : guide.index("</REFERENCE_IMAGES>")
+    ]
+    assert "- person:" in section
+    assert "the person in the person reference image" in section
+
+
+def test_interactive_reviser_keeps_the_casting_fields():
+    from interactive_creative import prompts as ic_prompts
+
+    instr = ic_prompts.VISUAL_CONCEPT_REVISER_INSTR
+    assert "`casts_person_reference` and `person_casting_reason`" in instr
+
+
 def test_interactive_reviser_keeps_brand_cue_and_angle_id():
     from interactive_creative import prompts as ic_prompts
 

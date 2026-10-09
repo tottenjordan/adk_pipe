@@ -80,6 +80,12 @@ ENV_VAR_DICT = {
     "RATING_REASON_MIN": os.getenv("RATING_REASON_MIN", "3"),
     "RATING_LEARNING_WINDOW_DAYS": os.getenv("RATING_LEARNING_WINDOW_DAYS", "90"),
     "BQ_TABLE_RATINGS": os.getenv("BQ_TABLE_RATINGS") or "creative_ratings",
+    # creative_agent person casting (creative_agent/config.py): the style families
+    # a cast concept may use and the cap on cast concepts per set (0..4, default
+    # 2; 0 = casting off). Defaults from the calibration spike.
+    "PERSON_SAFE_STYLES": os.getenv("PERSON_SAFE_STYLES")
+    or "Candid 35mm film photo,Photoreal / editorial,Cinematic film still",
+    "MAX_CAST_CONCEPTS": os.getenv("MAX_CAST_CONCEPTS", "2"),
     # Per-request timeout for flash / lite model calls (agent_common/genai_retry.py;
     # default 90, clamped 30..900, 0 = use MODEL_REQUEST_TIMEOUT_SECONDS). The ADK
     # agent models bake it in at deploy (pickled); the lazily built image-QA
