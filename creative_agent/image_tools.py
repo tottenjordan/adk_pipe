@@ -539,9 +539,12 @@ async def _inspect(
     product: str,
     has_logo_reference: bool = False,
     strictness: Sequence[str] = (),
+    person_image: tuple[bytes, str] | None = None,
 ) -> image_qa.ImageQAResult | None:
-    """One QA call off the event loop → the verdict, or None (fail-open)."""
+    """One QA call off the event loop → the verdict, or None (fail-open).
+    ``person_image`` (cast concepts only) adds the likeness comparison."""
     image_bytes, mime = rendered
+    extra = {"person_image": person_image} if person_image is not None else {}
     try:
         return await asyncio.to_thread(
             image_qa.inspect_image,
@@ -554,6 +557,7 @@ async def _inspect(
             model=config.image_qa_model,
             has_logo_reference=has_logo_reference,
             strictness=strictness,
+            **extra,
         )
     except Exception as exc:
         logging.warning(
@@ -610,6 +614,7 @@ async def _inspect_and_rerender(
     claim_after: asyncio.Event | None = None,
     claims_done: asyncio.Event | None = None,
     strictness: Sequence[str] = (),
+    person_image: tuple[bytes, str] | None = None,
 ) -> tuple[tuple[bytes, str], int, dict | None, str | None]:
     """Inspect a render; re-render (bounded) while it fails; keep the best.
 
@@ -642,7 +647,13 @@ async def _inspect_and_rerender(
     try:
         name = entry.get("concept_name", "")
         result = await _inspect(
-            rendered, entry, brand, product, has_logo_reference, strictness
+            rendered,
+            entry,
+            brand,
+            product,
+            has_logo_reference,
+            strictness,
+            person_image,
         )
         if result is None:
             await my_turn()
@@ -681,7 +692,13 @@ async def _inspect_and_rerender(
             if retry is None:
                 break
             retry_result = await _inspect(
-                retry, entry, brand, product, has_logo_reference, strictness
+                retry,
+                entry,
+                brand,
+                product,
+                has_logo_reference,
+                strictness,
+                person_image,
             )
             if retry_result is None:
                 break
@@ -779,8 +796,12 @@ async def generate_image(
         if c.get("casts_person_reference") is True
     }
     person_part = None
+    person_image: tuple[bytes, str] | None = None  # for the QA likeness check
     if cast_names:
         person_part = await asyncio.to_thread(_fetch_person_photo, person_uri)
+        inline = getattr(person_part, "inline_data", None)
+        if inline is not None and inline.data:
+            person_image = (inline.data, inline.mime_type or "image/jpeg")
     person_rejected: dict[str, str] = {}
 
     def contents_for(prompt_text: str, person: bool = False):
@@ -848,6 +869,7 @@ async def generate_image(
             claim_after=claim_after,
             claims_done=done,
             strictness=strictness,
+            person_image=person_image if cast else None,
         )
 
     checks: list[tuple[dict, asyncio.Task, bool]] = []
@@ -883,8 +905,14 @@ async def generate_image(
                     person_rejected[name] = reason or "no_image"
                     cast = False
             if not cast and name in cast_names:
-                # The typed fallback: a generic hero, no person part.
+                # The typed fallback: a generic hero, no person part (and QA
+                # judges it as an uncast concept).
                 prompt_text = neutralise_person_prompt(prompt_text)
+                entry = {
+                    **entry,
+                    "casts_person_reference": False,
+                    "image_generation_prompt": prompt_text,
+                }
             if rendered is None:
                 rendered = await render(contents_for(prompt_text), aspect_ratio)
             done = asyncio.Event()
