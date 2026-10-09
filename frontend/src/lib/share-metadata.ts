@@ -19,7 +19,10 @@ export function shareBaseUrl(env: Record<string, string | undefined> = process.e
 
 function clip(text: string, max: number): string {
   const t = text.replace(/\s+/g, " ").trim();
-  return t.length <= max ? t : `${t.slice(0, max - 1).trimEnd()}…`;
+  if (t.length <= max) return t;
+  const cut = t.slice(0, max - 1);
+  const space = cut.lastIndexOf(" ");
+  return `${(space > max * 0.6 ? cut.slice(0, space) : cut).trimEnd()}…`;
 }
 
 /** Link-preview metadata (Open Graph + Twitter) for a share; never indexed. */
