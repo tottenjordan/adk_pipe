@@ -1,11 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAccessToken } from "@/lib/gcp-auth";
+import { resolveUser } from "@/lib/iap-identity";
+import { isPersonPath, personPathAccess } from "@/lib/person-paths";
 
 /**
  * Proxies GCS object downloads so the browser can display them.
  * Usage: /api/gcs?bucket=my-bucket&path=folder/file.html
  *
  * Uses Application Default Credentials (ADC) to authenticate with GCS.
+ *
+ * Person photos (`person-refs/<slug>/…`) and personalised variants
+ * (`…/variants/<slug>/…`) are owner-only: the caller is resolved from the IAP
+ * assertion like the /api/adk proxy (missing/invalid on Cloud Run → 401, another
+ * user → 404, local dev → allowed) and they are never cached. Every other path is
+ * proxied as before.
  */
 export async function GET(request: NextRequest) {
   const bucket = request.nextUrl.searchParams.get("bucket");
@@ -17,6 +25,22 @@ export async function GET(request: NextRequest) {
       { status: 400 }
     );
   }
+
+  const personal = isPersonPath(objectPath);
+  if (personal) {
+    const who = await resolveUser(request.headers, {
+      onCloudRun: !!process.env.K_SERVICE,
+      allowedHd: process.env.IAP_ALLOWED_HD || undefined,
+    });
+    const access = personPathAccess(objectPath, who);
+    if (access === "unauthenticated") {
+      return NextResponse.json({ error: "Unauthenticated" }, { status: 401 });
+    }
+    if (access === "not_found") {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
+  }
+  const cacheControl = personal ? "private, no-store" : "private, max-age=300";
 
   try {
     // Get access token from ADC (gcloud auth application-default)
@@ -66,7 +90,7 @@ export async function GET(request: NextRequest) {
       status: 200,
       headers: {
         "Content-Type": contentType,
-        "Cache-Control": "private, max-age=300",
+        "Cache-Control": cacheControl,
       },
     });
   } catch (err) {
