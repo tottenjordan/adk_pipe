@@ -1,11 +1,19 @@
+import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { cache } from "react";
 import { ShareView } from "@/components/share/share-view";
+import { buildShareMetadata, MISSING_SHARE_METADATA, shareBaseUrl } from "@/lib/share-metadata";
 import { loadSnapshot } from "@/lib/share-snapshot";
 import { parseView } from "@/lib/share-views";
 
 /** One storage read per request, shared by generateMetadata and the page. */
 const getSnapshot = cache((token: string) => loadSnapshot(token));
+
+export async function generateMetadata({ params }: PageProps<"/s/[token]">): Promise<Metadata> {
+  const { token } = await params;
+  const snapshot = await getSnapshot(token).catch(() => null);
+  return snapshot ? buildShareMetadata(snapshot, shareBaseUrl()) : MISSING_SHARE_METADATA;
+}
 
 /** Public share page: a frozen snapshot of one creative or a slate. */
 export default async function SharePage({ params, searchParams }: PageProps<"/s/[token]">) {
