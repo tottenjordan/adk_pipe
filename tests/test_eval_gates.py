@@ -975,7 +975,7 @@ class TestUnreportedGatesWarning:
         from creative_eval.evaluate import NOT_REPORTED_NOTE, normalize_gates
 
         raw = [GateResult(gate="product_visible", passed=True)]
-        gates = normalize_gates(raw, VISUAL_GATES, brief_used=True)
+        gates = normalize_gates(raw, VISUAL_GATES, brief_used=True, person_cast=True)
         assert all(g.passed for g in gates)
         assert sum(g.note == NOT_REPORTED_NOTE for g in gates) == len(VISUAL_GATES) - 1
 

@@ -32,6 +32,7 @@ from .dimensions import (
     BRIEF_GATES,
     JUDGE_VERSION,
     NO_GATES_GATE,
+    PERSON_GATES,
     VISUAL_GATES,
 )
 from .schemas import (
@@ -77,6 +78,7 @@ def _get_client(config: EvalConfig) -> genai.Client:
 NO_BRIEF_NOTE = "no brief"
 NOT_REPORTED_NOTE = "not checked (the judge did not report it)"
 NO_GATES_NOTE = "judge returned no gates"
+NO_PERSON_CAST_NOTE = "no person cast"
 
 
 def normalize_gates(
@@ -84,6 +86,7 @@ def normalize_gates(
     expected: tuple[str, ...],
     *,
     brief_used: bool,
+    person_cast: bool = False,
 ) -> list[GateResult]:
     """The judge's gates, reduced to exactly ``expected`` in order (pure).
 
@@ -94,8 +97,10 @@ def normalize_gates(
     the creative cannot pass unverified. A partial omission stays
     conservative — the missing gate passes with a "not checked" note (counted
     into a report warning by :func:`unreported_gates_warning`). Without a
-    brief the brief-dependent gates pass with note "no brief". ``advisory``
-    is set from ``ADVISORY_GATES``, never the judge.
+    brief the brief-dependent gates pass with note "no brief", and unless
+    ``person_cast`` the ``PERSON_GATES`` pass with note "no person cast"
+    (decided in code, never the judge). ``advisory`` is set from
+    ``ADVISORY_GATES``, never the judge.
     """
     reported: dict[str, GateResultIn | GateResult] = {}
     for gate in raw:
@@ -109,6 +114,8 @@ def normalize_gates(
         advisory = name in ADVISORY_GATES
         if name in BRIEF_GATES and not brief_used:
             out.append(GateResult(gate=name, passed=True, note=NO_BRIEF_NOTE))
+        elif name in PERSON_GATES and not person_cast:
+            out.append(GateResult(gate=name, passed=True, note=NO_PERSON_CAST_NOTE))
         elif name in reported:
             gate = reported[name]
             out.append(
@@ -135,6 +142,7 @@ def score_from_judge(
     threshold: float,
     *,
     brief_used: bool,
+    person_cast: bool = False,
 ) -> CreativeScore:
     """Map the judge's raw score to the report's ``CreativeScore`` (pure).
 
@@ -142,7 +150,9 @@ def score_from_judge(
     gates_passed and passed are computed here from its verdicts and gates
     (the judge schema does not even carry them).
     """
-    gates = normalize_gates(judged.gates, expected_gates, brief_used=brief_used)
+    gates = normalize_gates(
+        judged.gates, expected_gates, brief_used=brief_used, person_cast=person_cast
+    )
     score = _score_from_verdicts(judged.verdicts, threshold, gates)
     score.strengths = list(judged.strengths)
     score.improvements = list(judged.improvements)
@@ -367,6 +377,9 @@ def evaluate_visual_concept(
 
     name = visual_concept.get("concept_name", "?")
     image_uri = _rendered_image_uri(image)
+    # The render record decides (a blocked person render falls back to an
+    # uncast image even when the concept asked to cast).
+    person_cast = isinstance(image, Mapping) and image.get("cast") is True
     # Recorded on the evaluation by code (brand history reads them).
     tags = {
         "visual_style": str(visual_concept.get("visual_style") or ""),
@@ -389,6 +402,7 @@ def evaluate_visual_concept(
                 "aspect_ratio": visual_concept.get("aspect_ratio") or "unspecified",
                 "trend_motif": visual_concept.get("trend_motif") or "(none)",
                 "brand_cue": visual_concept.get("brand_cue") or "(none)",
+                "person_cast": "yes" if person_cast else "no",
             },
             brief_block=format_brief_for_judge(brief),
             image_section=image_section,
@@ -418,6 +432,7 @@ def evaluate_visual_concept(
                 VISUAL_GATES,
                 config.passing_threshold,
                 brief_used=brief is not None,
+                person_cast=person_cast,
             ),
             image_judged=bool(uri),
             **tags,
