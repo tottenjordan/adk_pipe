@@ -14,6 +14,7 @@ from agent_common.state import seed_initial_state
 from .citations import render_citations
 from .concept_guard import (
     concept_issues,
+    enforce_person_casting,
     ensure_trend_and_product,
     flatten_concept_issues,
     parse_concepts,
@@ -294,8 +295,17 @@ def ensure_trend_and_product_callback(callback_context: CallbackContext) -> None
     if not all(isinstance(c, dict) for c in concepts):
         return None
 
-    repaired, warnings = ensure_trend_and_product(
+    # Person casting first, so a cleared cast's prompt is then guarded as usual.
+    cast_checked, cast_warnings = enforce_person_casting(
         concepts,
+        available=bool(person_reference_available(state.get("person_reference"))),
+        max_cast=config.max_cast_concepts,
+        safe_styles=config.person_safe_styles,
+    )
+    for warning in cast_warnings:
+        logging.warning(f"casting guard: {warning}")
+    repaired, warnings = ensure_trend_and_product(
+        cast_checked,
         str(state.get("target_product") or ""),
         brand=str(state.get("brand") or ""),
         strictness=strictness_flags(state.get("rating_strictness")),

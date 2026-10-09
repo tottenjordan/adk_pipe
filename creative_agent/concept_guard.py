@@ -34,6 +34,12 @@
    prompt holds it verbatim, ``product_not_visible`` appends
    ``PROMINENT_PRODUCT_LINE`` (tangible products only); both idempotent.
 
+1b. ``enforce_person_casting`` — runs first in the same callback: clears
+   ``casts_person_reference`` when no consented person reference is available,
+   the style is not person-safe (``config.person_safe_styles``), the prompt has
+   no human subject, or beyond ``config.max_cast_concepts`` casts (first N in
+   concept order kept). The render step re-applies it before attaching the photo.
+
 2. ``concept_issues`` — the checks behind ``creative_agent.agent.concept_gate``
    (one bounded fix round by ``visual_concept_fixer``). Only rules a string
    check can decide are gated, and each heuristic is deliberately CONSERVATIVE
@@ -326,6 +332,83 @@ def ensure_trend_and_product(
                 f"{name}: product prominence line appended (rating strictness)"
             )
         c["image_generation_prompt"] = prompt
+        out.append(c)
+    return out, warns
+
+
+# --- Person casting ---------------------------------------------------------------
+
+# How a cast concept's prompt names its hero (PERSON_CASTING_RULES); the render
+# step attaches the person photo as "Reference image N (person)".
+PERSON_HERO_PHRASE = "the person in the person reference image"
+PERSON_HERO_LINE = " The hero is the person in the person reference image."
+_PERSON_HERO_RE = re.compile(re.escape(PERSON_HERO_PHRASE), re.IGNORECASE)
+# A single human subject named in the prompt (conservative: any of these words).
+_HUMAN_CUE = re.compile(
+    r"\b(?:person|man|woman|men|women|guy|girl|boy|lady|hero|heroine|model|"
+    r"athlete|musician|player|guitarist|drummer|singer|dancer|runner|skater|"
+    r"cyclist|rider|surfer|climber|chef|cook|barista|driver|traveller|traveler|"
+    r"hiker|student|parent|mother|father|mum|mom|dad|customer|shopper|fan|"
+    r"gamer|worker|nurse|teacher|portrait|selfie)s?\b",
+    re.IGNORECASE,
+)
+
+
+def enforce_person_casting(
+    concepts: list[dict[str, Any]],
+    *,
+    available: bool,
+    max_cast: int,
+    safe_styles: Iterable[str],
+) -> tuple[list[dict[str, Any]], list[str]]:
+    """Return copies of ``concepts`` with ``casts_person_reference`` cleared where
+    casting breaks a deterministic rule, plus one warning per change.
+
+    A cast (``casts_person_reference is True``; any other value normalises to
+    False) is cleared when no person reference is ``available``, when
+    ``canonical_style(visual_style)`` is not in ``safe_styles``, when the prompt
+    has no human-subject cue (``_HUMAN_CUE``), or beyond the first ``max_cast``
+    valid casts in concept order. A cleared concept gets a "(Not cast: …)" suffix
+    on its ``person_casting_reason`` and its prompt's reference wording becomes
+    "a person" (no photo is attached to it). A kept cast whose prompt doesn't
+    point at the reference image gets ``PERSON_HERO_LINE`` appended (idempotent).
+    """
+    from .style_shortlist import canonical_style
+
+    safe = frozenset(safe_styles)
+    out: list[dict[str, Any]] = []
+    warns: list[str] = []
+    kept = 0
+    for concept in concepts:
+        c = copy.deepcopy(concept)
+        flag = c.get("casts_person_reference")
+        if flag is not True:
+            if flag not in (None, False):
+                c["casts_person_reference"] = False
+            out.append(c)
+            continue
+        name = c.get("concept_name", "?")
+        prompt = str(c.get("image_generation_prompt") or "")
+        why = ""
+        if not available:
+            why = "no person reference for this run"
+        elif canonical_style(c.get("visual_style")) not in safe:
+            why = "its style is not one of the person-safe styles"
+        elif not _HUMAN_CUE.search(prompt):
+            why = "its prompt has no human subject"
+        elif kept >= max_cast:
+            why = f"at most {max(max_cast, 0)} concepts may cast the person"
+        if why:
+            c["casts_person_reference"] = False
+            reason = str(c.get("person_casting_reason") or "").strip()
+            c["person_casting_reason"] = f"{reason} (Not cast: {why}.)".strip()
+            c["image_generation_prompt"] = _PERSON_HERO_RE.sub("a person", prompt)
+            warns.append(f"{name}: person cast cleared ({why})")
+        else:
+            kept += 1
+            if not _PERSON_HERO_RE.search(prompt):
+                c["image_generation_prompt"] = prompt.rstrip() + PERSON_HERO_LINE
+                warns.append(f"{name}: person reference wording appended")
         out.append(c)
     return out, warns
 
