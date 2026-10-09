@@ -219,6 +219,37 @@ class TestSetInitialStates:
 
         assert target["reference_roles"] == "logo"
 
+    # --- Person reference (person_reference → person_reference_available) ---
+    def test_person_reference_defaults_when_unseeded(self):
+        from creative_agent.callbacks import _set_initial_states
+
+        target = {}
+        _set_initial_states({"brand": "TestBrand"}, target)
+        assert target["person_reference"] == {}
+        assert target["person_reference_available"] == ""
+
+    def test_person_reference_available_derived_from_seed(self):
+        from creative_agent.callbacks import _set_initial_states
+
+        ref = {"uri": "gs://b/person-refs/a-1/me.jpg", "consent_id": "c1234567"}
+        target = {"person_reference": ref}
+        _set_initial_states({"brand": "TestBrand"}, target)
+        assert target["person_reference"] == ref  # not clobbered
+        assert target["person_reference_available"] == "yes"
+
+    def test_person_reference_outside_prefix_is_not_available(self):
+        from creative_agent.callbacks import _set_initial_states
+
+        for ref in (
+            {"uri": "gs://b/other/me.jpg", "consent_id": "c1234567"},
+            {"uri": "https://x.com/person-refs/me.jpg", "consent_id": "c1234567"},
+            {"uri": "", "consent_id": "c1234567"},
+            "gs://b/person-refs/a-1/me.jpg",
+        ):
+            target = {"person_reference": ref}
+            _set_initial_states({"brand": "TestBrand"}, target)
+            assert target["person_reference_available"] == ""
+
     # --- Core campaign fields (deterministic inputs via createSession state) ---
     _CAMPAIGN_KEYS = (
         "brand",

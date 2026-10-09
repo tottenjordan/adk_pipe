@@ -21,6 +21,7 @@ from .concept_guard import (
 )
 from .config import config
 from .copy_gate import parse_copies, restore_unflagged
+from .person_render import person_reference_available
 from .rating_signals import strictness_flags
 from .references import reference_roles_summary
 from .style_shortlist import format_shortlist, pick_style_shortlist
@@ -113,6 +114,14 @@ def _set_initial_states(source: dict[str, Any], target: State | dict[str, Any]):
     # exactly True turns it on (creative_agent/rating_signals.py).
     target.setdefault("learn_from_ratings", False)
     target.setdefault("reference_roles", reference_roles_summary(target))
+    # Optional consented person reference ({uri, consent_id}; consent-checked by
+    # the api at kick-off). Kept out of reference_images on purpose. The visual
+    # agents see only the derived yes/"" flag, never the URI.
+    target.setdefault("person_reference", {})
+    target.setdefault(
+        "person_reference_available",
+        person_reference_available(target.get("person_reference")),
+    )
 
     # Per-session random style shortlist (image diversity): the visual agents
     # pick their 4 styles from it, so runs don't converge on the same looks.
