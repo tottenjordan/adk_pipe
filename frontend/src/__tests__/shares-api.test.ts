@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createShare, listShares, revokeShare } from "@/lib/api";
-import { isAbsoluteUrl, ShareError, shareErrorMessage, sharesForSession, type Share } from "@/lib/shares";
+import { hasRenderedImage, isAbsoluteUrl, ShareError, shareErrorMessage, sharesForSession, type Share } from "@/lib/shares";
 
 const share = (over: Partial<Share> = {}): Share => ({
   token: "AbCdEfGhIjKlMnOp", url: "/s/AbCdEfGhIjKlMnOp", title: "Acme x Trend", scope: "slate",
@@ -85,6 +85,14 @@ describe("share helpers", () => {
   it("detects absolute urls", () => {
     expect(isAbsoluteUrl("https://share.example.com/s/x")).toBe(true);
     expect(isAbsoluteUrl("/s/x")).toBe(false);
+  });
+  it("detects a rendered image per concept", () => {
+    const gi = { A: { gcs_uri: "gs://b/a.png" }, B: { gcs_uri: "" }, C: {} };
+    expect(hasRenderedImage(gi, "A")).toBe(true);
+    expect(hasRenderedImage(gi, "B")).toBe(false);
+    expect(hasRenderedImage(gi, "C")).toBe(false);
+    expect(hasRenderedImage(gi, "D")).toBe(false);
+    expect(hasRenderedImage(undefined, "A")).toBe(false);
   });
   it("filters shares by session", () => {
     expect(sharesForSession([share(), share({ token: "b".repeat(16), session_id: "s2" })], "s2"))

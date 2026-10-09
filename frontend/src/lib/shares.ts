@@ -68,3 +68,13 @@ export function isAbsoluteUrl(url: string): boolean {
 export function sharesForSession(shares: Share[], sessionId: string): Share[] {
   return shares.filter((s) => s.session_id === sessionId);
 }
+
+/** True when `generated_images[conceptName]` has a rendered image (`gcs_uri`), i.e. the
+ *  creative can be shared (the backend copies exactly that image into the snapshot). */
+export function hasRenderedImage(generatedImages: unknown, conceptName: string): boolean {
+  if (!generatedImages || typeof generatedImages !== "object") return false;
+  const entry = (generatedImages as Record<string, unknown>)[conceptName];
+  if (!entry || typeof entry !== "object") return false;
+  const uri = (entry as { gcs_uri?: unknown }).gcs_uri;
+  return typeof uri === "string" && uri.length > 0;
+}
