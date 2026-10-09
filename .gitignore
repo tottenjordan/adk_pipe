@@ -30,3 +30,7 @@ notebook-examples/
 
 # Local Claude Code settings/state (per-user, not shared)
 .claude/
+
+# Person reference calibration: renders + per-render CSV show real people; only the summary is committable
+experiments/person_reference/results/*
+!experiments/person_reference/results/summary.md
