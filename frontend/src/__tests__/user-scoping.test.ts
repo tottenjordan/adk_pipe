@@ -154,3 +154,44 @@ describe("scopeRequestToUser: ratings", () => {
     expect(scopeQuery(new URLSearchParams("run=2&x=1"), ["ratings", "me", SID])).toBe("");
   });
 });
+
+describe("scopeRequestToUser: shares", () => {
+  const SID = "3f2a9c1e-7b4d-4e1a-9f00-1234567890ab";
+  const TOKEN = "AbCdEfGh_ijkl-MNOP";
+  const body = '{"concept_names":["A"],"include_eval":true}';
+  it("rewrites the user segment on create, list and revoke", () => {
+    expect(scopeRequestToUser("POST", ["shares", "me", "creative_agent", SID], body, U))
+      .toEqual({ path: `shares/alice%40x.com/creative_agent/${SID}`, body });
+    expect(scopeRequestToUser("GET", ["shares", "bob@x.com"], undefined, U)?.path)
+      .toBe("shares/alice%40x.com");
+    expect(scopeRequestToUser("DELETE", ["shares", "bob@x.com", TOKEN], undefined, U)?.path)
+      .toBe(`shares/alice%40x.com/${TOKEN}`);
+  });
+  it("refuses a bad app name or session id on create", () => {
+    for (const app of ["1abc", "a-b", "a.b", "a b", ""]) {
+      expect(scopeRequestToUser("POST", ["shares", "me", app, SID], body, U)).toBeNull();
+    }
+    for (const bad of ["a b", "a.b", "..", "a/b", "x".repeat(129), "a%2Fb"]) {
+      expect(scopeRequestToUser("POST", ["shares", "me", "creative_agent", bad], body, U)).toBeNull();
+    }
+  });
+  it("refuses a malformed token on revoke", () => {
+    for (const bad of ["short", "x".repeat(65), "a.b.c.d.e.f.g.h.i.j", "abcdefghijklmnop/q", "abcdefgh ijklmnop", ".."]) {
+      expect(scopeRequestToUser("DELETE", ["shares", "me", bad], undefined, U)).toBeNull();
+    }
+    expect(scopeRequestToUser("DELETE", ["shares", "me", "x".repeat(16)], undefined, U)).not.toBeNull();
+    expect(scopeRequestToUser("DELETE", ["shares", "me", "x".repeat(64)], undefined, U)).not.toBeNull();
+  });
+  it("allows DELETE only on the shares revoke path and refuses other shapes", () => {
+    expect(scopeRequestToUser("DELETE", ["ratings", "me", TOKEN], undefined, U)).toBeNull();
+    expect(scopeRequestToUser("DELETE", ["experiments", "me", "exp-123"], undefined, U)).toBeNull();
+    expect(scopeRequestToUser("DELETE", ["shares", "me"], undefined, U)).toBeNull();
+    expect(scopeRequestToUser("DELETE", ["shares", "me", "creative_agent", SID], undefined, U)).toBeNull();
+    expect(scopeRequestToUser("GET", ["shares", "me", TOKEN], undefined, U)).toBeNull();
+    expect(scopeRequestToUser("GET", ["shares"], undefined, U)).toBeNull();
+    expect(scopeRequestToUser("PUT", ["shares", "me", "creative_agent", SID], body, U)).toBeNull();
+    expect(scopeRequestToUser("POST", ["shares", "me", "creative_agent"], body, U)).toBeNull();
+    expect(scopeRequestToUser("POST", ["shares", "me"], body, U)).toBeNull();
+    expect(scopeRequestToUser("POST", ["shares", "me", "creative_agent", SID, "x"], body, U)).toBeNull();
+  });
+});
