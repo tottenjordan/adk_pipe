@@ -180,6 +180,24 @@ def _find_eval(report: Mapping[str, Any], info: Mapping[str, Any]) -> Mapping | 
     return hits[0] if len(hits) == 1 else None
 
 
+# Reports written between the 2026-10-08 gate change and JUDGE_VERSION stamping
+# carry no version, but their visual gates include the then-new no_visual_defects.
+_FIRST_VERSIONED_JUDGE = ("2026-10-08", "no_visual_defects")
+
+
+def _inferred_judge_version(report: Mapping[str, Any]) -> str:
+    """The judge version an unversioned report's gates imply ("" = an earlier judge)."""
+    version, marker_gate = _FIRST_VERSIONED_JUDGE
+    for ev in _items(report, "visual_concept_evaluations"):
+        score = ev.get("score")
+        gates = score.get("gates") if isinstance(score, Mapping) else None
+        if isinstance(gates, list) and any(
+            isinstance(g, Mapping) and g.get("gate") == marker_gate for g in gates
+        ):
+            return version
+    return ""
+
+
 def judge_fields(report: Any, info: Mapping[str, Any]) -> dict[str, Any]:
     """The judge columns of a rating row (None when unavailable; the run-level
     ``judge_version`` is ``""`` and ``learning_used`` False without a report or a
@@ -198,7 +216,9 @@ def judge_fields(report: Any, info: Mapping[str, Any]) -> dict[str, Any]:
     model = report.get("judge_model")
     out["judge_model"] = model if isinstance(model, str) and model else None
     version = report.get("judge_version")
-    out["judge_version"] = version.strip() if isinstance(version, str) else ""
+    out["judge_version"] = (
+        version.strip() if isinstance(version, str) else ""
+    ) or _inferred_judge_version(report)
     out["learning_used"] = report.get("learning_used") is True
     ev = _find_eval(report, info)
     if ev is None:

@@ -937,3 +937,17 @@ def test_learning_context_brand_uses_the_shared_normaliser():
     state = {**_state(), "brand": long_brand}
     ctx = rt.learning_context(state, "visual", VISUAL)
     assert ctx["brand"] == normalize_brand(long_brand) == long_brand.strip().lower()
+
+
+def test_unversioned_report_with_2026_10_08_gates_counts_as_that_judge():
+    # Runs judged between the 2026-10-08 gate change and JUDGE_VERSION stamping
+    # carry the new no_visual_defects gate but no judge_version.
+    info = rt.creative_index(_state())[VISUAL]
+    report = _report()
+    report["visual_concept_evaluations"][0]["score"]["gates"] = [
+        {"gate": "no_visual_defects", "passed": True, "note": ""}
+    ]
+    assert rt.judge_fields(report, info)["judge_version"] == "2026-10-08"
+    # an explicit version always wins
+    report["judge_version"] = "2027-01-01"
+    assert rt.judge_fields(report, info)["judge_version"] == "2027-01-01"
