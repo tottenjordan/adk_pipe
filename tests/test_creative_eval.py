@@ -988,3 +988,69 @@ class TestReportLearningFields:
         }
         report = self._report(monkeypatch, {"rating_signals_applied": applied})
         assert report["learning_flags"] == ["weak_cta"]
+
+
+# --- Judge version: calibration compares human<->judge agreement within one version ---
+
+
+def test_judge_version_is_exported_date_string():
+    import re
+
+    import creative_eval
+    from creative_eval.dimensions import JUDGE_VERSION
+
+    assert creative_eval.JUDGE_VERSION == JUDGE_VERSION
+    assert re.fullmatch(r"\d{4}-\d{2}-\d{2}", JUDGE_VERSION)
+
+
+def test_report_records_judge_version(monkeypatch):
+    from unittest.mock import MagicMock
+
+    import creative_eval.evaluate as ev
+    from creative_eval.config import EvalConfig
+    from creative_eval.dimensions import JUDGE_VERSION
+
+    monkeypatch.setattr(ev, "_get_client", lambda cfg: MagicMock())
+    monkeypatch.setattr(ev, "evaluate_all_concurrently", lambda *a, **k: ([], []))
+    ctx = {"brand": "B", "target_product": "P", "target_search_trend": "t"}
+    report = ev.evaluate_creatives(ctx, [], [], EvalConfig(eval_model="gemini-x"))
+    assert report.judge_version == JUDGE_VERSION
+
+
+def test_agent_tool_report_records_judge_version(monkeypatch):
+    import creative_eval.agent as ev_agent
+    from creative_eval.dimensions import JUDGE_VERSION
+
+    monkeypatch.setattr(ev_agent, "evaluate_all_concurrently", lambda *a, **k: ([], []))
+    ctx = FakeToolContext(
+        {
+            **SAMPLE_CAMPAIGN_STATE,
+            "ad_copy_critique": SAMPLE_AD_COPIES,
+            "final_visual_concepts": SAMPLE_VISUAL_CONCEPTS,
+        }
+    )
+    ev_agent.evaluate_all_creatives(ctx)
+    assert ctx.state["creative_evaluation_report"]["judge_version"] == JUDGE_VERSION
+
+
+def test_judge_version_defaults_empty_for_old_reports():
+    from creative_eval.schemas import CreativeEvaluationReport
+
+    payload = {
+        "brand": "B",
+        "target_product": "P",
+        "target_search_trend": "t",
+        "ad_copy_evaluations": [],
+        "visual_concept_evaluations": [],
+        "summary": {
+            "total_ad_copies": 0,
+            "ad_copies_passed": 0,
+            "avg_ad_copy_score": 0.0,
+            "total_visual_concepts": 0,
+            "visual_concepts_passed": 0,
+            "avg_visual_score": 0.0,
+            "overall_pass_rate": 0.0,
+            "weakest_dimensions": [],
+        },
+    }
+    assert CreativeEvaluationReport.model_validate(payload).judge_version == ""

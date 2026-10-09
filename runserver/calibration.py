@@ -11,6 +11,14 @@ For each slice (all ratings, then per ``kind``):
 - ``score_spearman``: Spearman's rho between ``judge_overall`` (0-1) and the
   human 1-5 ``score`` once at least ``MIN_SPEARMAN_PAIRS`` rows have both.
 
+Versioned: agreement is only meaningful within one judge version (gates, wording,
+scoring rules and model; docs/notes/judge-calibration.md), so the report keeps the
+ratings whose snapshotted ``judge_version`` equals creative_eval's current
+``JUDGE_VERSION`` by default (``""``/NULL = a pre-versioning report, i.e. an earlier
+judge) and counts the paired ratings it left out (``excluded_other_versions``).
+Within that version, ``by_learning`` splits the same blocks by whether opt-in rating
+learning steered the run (``learning_used``).
+
 Shared by ``GET /ratings/{user}/calibration`` and ``scripts/eval_calibration.py``.
 """
 
@@ -19,6 +27,11 @@ from __future__ import annotations
 import math
 from collections.abc import Iterable, Mapping, Sequence
 from typing import Any
+
+# creative_eval is a dependency-light sibling package shipped in the api image
+# (the Dockerfile copies every flat package; PYTHONPATH=/app): importing the one
+# constant keeps a single source of truth (no mirrored copy + drift test).
+from creative_eval.dimensions import JUDGE_VERSION
 
 KINDS = ("visual", "ad_copy")
 MIN_SPEARMAN_PAIRS = 5
@@ -135,17 +148,44 @@ def calibration_block(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     }
 
 
-def calibration_report(rows: Iterable[Mapping[str, Any]]) -> dict[str, Any]:
-    """The full report: overall + per-kind blocks, rating/session counts."""
+def _version(row: Mapping[str, Any]) -> str:
+    value = row.get("judge_version")
+    return value.strip() if isinstance(value, str) else ""
+
+
+def _paired(row: Mapping[str, Any]) -> bool:
+    """A human verdict with a known judge pass verdict (the UI's readiness count)."""
+    return _human(row) is not None and _bool(row.get("judge_passed")) is not None
+
+
+def calibration_report(
+    rows: Iterable[Mapping[str, Any]], judge_version: str | None = JUDGE_VERSION
+) -> dict[str, Any]:
+    """The full report over one judge version (``None`` = every version):
+    overall + per-kind + per-learning blocks, rating/session counts, and the
+    number of paired ratings from other (or unknown) versions left out."""
     rows = list(rows)
+    if judge_version is not None:
+        kept = [r for r in rows if _version(r) == judge_version]
+        excluded = sum(1 for r in rows if _version(r) != judge_version and _paired(r))
+    else:
+        kept, excluded = rows, 0
+    learned = [r for r in kept if _bool(r.get("learning_used")) is True]
+    not_learned = [r for r in kept if _bool(r.get("learning_used")) is not True]
     return {
-        "n": len(rows),
-        "sessions": len({r.get("session_id") for r in rows if r.get("session_id")}),
+        "n": len(kept),
+        "sessions": len({r.get("session_id") for r in kept if r.get("session_id")}),
         "ready_min_ratings": READY_MIN_RATINGS,
-        "overall": calibration_block(rows),
+        "overall": calibration_block(kept),
         "by_kind": {
-            kind: calibration_block([r for r in rows if r.get("kind") == kind])
+            kind: calibration_block([r for r in kept if r.get("kind") == kind])
             for kind in KINDS
+        },
+        "judge_version": judge_version,
+        "excluded_other_versions": excluded,
+        "by_learning": {
+            "learned": calibration_block(learned),
+            "not_learned": calibration_block(not_learned),
         },
     }
 
@@ -185,9 +225,20 @@ def format_report(report: Mapping[str, Any]) -> str:
     """Plain-text rendering (the calibration script's output)."""
     lines = [
         f"Ratings: {report['n']} across {report['sessions']} runs "
-        f"(report agreement from {report['ready_min_ratings']} paired ratings)"
+        f"(report agreement from {report['ready_min_ratings']} paired ratings)",
+        f"Judge version: {report.get('judge_version') or 'all'}",
     ]
+    if excluded := report.get("excluded_other_versions"):
+        lines.append(
+            f"  ({excluded} paired ratings from other judge versions not counted)"
+        )
     blocks = [("all", report["overall"])] + [(k, report["by_kind"][k]) for k in KINDS]
+    by_learning = report.get("by_learning") or {}
+    blocks += [
+        (name, by_learning[key])
+        for name, key in (("learned", "learned"), ("not learned", "not_learned"))
+        if key in by_learning
+    ]
     for name, block in blocks:
         lines += [
             f"[{name}] {block['n']} ratings",

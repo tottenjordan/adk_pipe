@@ -210,6 +210,11 @@ class CreativeEvaluationReport(BaseModel):
     # The judge has no model fallback (a silent swap would skew pass rates), so
     # record which model graded the report. Default "" keeps old reports valid.
     judge_model: str = Field(default="", description="Model that judged this report.")
+    # creative_eval.dimensions.JUDGE_VERSION at grading time; "" = a report from
+    # before versioning (judged by an earlier rule set).
+    judge_version: str = Field(
+        default="", description="Version of the judge's grading rules."
+    )
     # 0.7 = the threshold every pre-gate report was graded against.
     passing_threshold: float = Field(
         default=0.7, description="Minimum overall_score for a creative to pass."

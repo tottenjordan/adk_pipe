@@ -8,6 +8,14 @@ test keeps them identical) so BigQuery rows and the UI show the same labels.
 import re
 from collections.abc import Iterable
 
+# Version of the judge's grading rules, recorded on every eval report
+# (``CreativeEvaluationReport.judge_version``) and snapshotted onto each human
+# rating, so judge calibration only compares agreement within one version
+# (docs/notes/judge-calibration.md). Bump it (to the change's date) whenever the
+# gates, the gate or dimension wording, the scoring/pass rules (threshold,
+# normalisation) or the judge model change.
+JUDGE_VERSION = "2026-10-08"
+
 DIMENSION_LABELS: dict[str, str] = {
     # Ad copy
     "strategic_alignment": "Strategy fit",

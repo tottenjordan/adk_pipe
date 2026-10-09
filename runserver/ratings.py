@@ -3,7 +3,8 @@
 A user rates a creative from a finished creative run (pass/fail, optional 1-5 score
 and note) on the results page. Each rating snapshots the LLM judge's verdict for
 the same creative (``judge_overall`` / ``judge_passed`` / ``judge_gates_passed`` /
-``judge_model``, from the session's eval report) so ``runserver/calibration.py`` can
+``judge_model`` / ``judge_version``, plus the run's ``learning_used``, from the
+session's eval report) so ``runserver/calibration.py`` can
 measure judge-human agreement without re-reading old reports.
 
 Routes (all user-scoped by path, gated by ``UserAuthzMiddleware`` like
@@ -14,8 +15,9 @@ Routes (all user-scoped by path, gated by ``UserAuthzMiddleware`` like
   ``fail_reasons?``: allowlisted chips from ``runserver/rating_reasons.py``,
   emptied on a pass).
 - ``GET /ratings/{user}/{session}``: the user's ratings for that session.
-- ``GET /ratings/{user}/calibration``: judge-human agreement over all the user's
-  ratings (``runserver/calibration.py``).
+- ``GET /ratings/{user}/calibration``: judge-human agreement over the user's
+  ratings judged by the current judge version, split by kind and by rating
+  learning (``runserver/calibration.py``).
 
 ``creative_key`` is ``visual:<concept_name>`` (kind ``visual``) or
 ``copy:<original_id>`` (kind ``ad_copy``) and must name a creative in the session's
@@ -178,19 +180,46 @@ def _find_eval(report: Mapping[str, Any], info: Mapping[str, Any]) -> Mapping | 
     return hits[0] if len(hits) == 1 else None
 
 
+# Reports written between the 2026-10-08 gate change and JUDGE_VERSION stamping
+# carry no version, but their visual gates include the then-new no_visual_defects.
+_FIRST_VERSIONED_JUDGE = ("2026-10-08", "no_visual_defects")
+
+
+def _inferred_judge_version(report: Mapping[str, Any]) -> str:
+    """The judge version an unversioned report's gates imply ("" = an earlier judge)."""
+    version, marker_gate = _FIRST_VERSIONED_JUDGE
+    for ev in _items(report, "visual_concept_evaluations"):
+        score = ev.get("score")
+        gates = score.get("gates") if isinstance(score, Mapping) else None
+        if isinstance(gates, list) and any(
+            isinstance(g, Mapping) and g.get("gate") == marker_gate for g in gates
+        ):
+            return version
+    return ""
+
+
 def judge_fields(report: Any, info: Mapping[str, Any]) -> dict[str, Any]:
-    """The judge columns of a rating row (all None when unavailable)."""
+    """The judge columns of a rating row (None when unavailable; the run-level
+    ``judge_version`` is ``""`` and ``learning_used`` False without a report or a
+    valid value, so a pre-versioning report reads as "an earlier judge")."""
     out: dict[str, Any] = {
         "judge_overall": None,
         "judge_passed": None,
         "judge_gates_passed": None,
         "judge_model": None,
+        "judge_version": "",
+        "learning_used": False,
     }
     report = _as_obj(report)
     if not isinstance(report, Mapping):
         return out
     model = report.get("judge_model")
     out["judge_model"] = model if isinstance(model, str) and model else None
+    version = report.get("judge_version")
+    out["judge_version"] = (
+        version.strip() if isinstance(version, str) else ""
+    ) or _inferred_judge_version(report)
+    out["learning_used"] = report.get("learning_used") is True
     ev = _find_eval(report, info)
     if ev is None:
         return out
@@ -314,6 +343,8 @@ def to_public(row: Mapping[str, Any]) -> dict:
             "judge_gates_passed",
             "judge_model",
             "judge_source",
+            "judge_version",
+            "learning_used",
             "fail_reasons",
             "created_at",
             "updated_at",
@@ -509,7 +540,8 @@ async def _read(coro) -> list[dict]:
 # Declared before the session route so "calibration" is never read as a session id.
 @router.get("/ratings/{user_id}/calibration")
 async def http_calibration(user_id: str) -> dict:
-    """Judge-human agreement over every rating by the user (runserver/calibration.py)."""
+    """Judge-human agreement over the user's ratings from the current judge
+    version (runserver/calibration.py; other versions are only counted)."""
     return calibration_report(await _read(_STORE.list_for_user(user_id)))
 
 

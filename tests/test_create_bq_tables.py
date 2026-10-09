@@ -43,7 +43,8 @@ CREATIVE_RATINGS = (
     "rating_id:STRING,session_id:STRING,app_name:STRING,creative_key:STRING,"
     "kind:STRING,user_id:STRING,verdict:STRING,score:INTEGER,note:STRING,"
     "judge_overall:FLOAT,judge_passed:BOOLEAN,judge_gates_passed:BOOLEAN,"
-    "judge_model:STRING,judge_source:STRING,brand:STRING,visual_style:STRING,"
+    "judge_model:STRING,judge_source:STRING,judge_version:STRING,"
+    "learning_used:BOOLEAN,brand:STRING,visual_style:STRING,"
     "tone_style:STRING,angle_id:STRING,fail_reasons:STRING:REPEATED,"
     "created_at:TIMESTAMP,updated_at:TIMESTAMP"
 )

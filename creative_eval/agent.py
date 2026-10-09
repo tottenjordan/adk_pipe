@@ -26,6 +26,7 @@ from agent_common import (
 
 from .brief import parse_brief
 from .config import EvalConfig
+from .dimensions import JUDGE_VERSION
 from .evaluate import (
     _build_summary,
     evaluate_all_concurrently,
@@ -244,6 +245,7 @@ def evaluate_all_creatives(tool_context) -> dict:
         summary=summary,
         warnings=warnings,
         judge_model=_config.eval_model,
+        judge_version=JUDGE_VERSION,
         passing_threshold=_config.passing_threshold,
         brief_used=brief is not None,
         learning_used=learning_used,

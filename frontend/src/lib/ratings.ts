@@ -25,6 +25,10 @@ export interface Rating {
   judge_model?: string | null;
   /** Where the judge fields came from: the run's GCS report, session state, or none. */
   judge_source?: "gcs" | "state" | "none" | null;
+  /** creative_eval JUDGE_VERSION of the run's report ("" = an earlier, unversioned judge). */
+  judge_version?: string | null;
+  /** The run was steered by opt-in rating learning (report `learning_used`). */
+  learning_used?: boolean | null;
   /** Allowlisted fail-reason chips (`lib/rating-reasons.ts`); empty on a pass. */
   fail_reasons?: string[] | null;
   created_at?: string;
@@ -162,12 +166,22 @@ export interface CalibrationBlock {
   score_spearman: { n: number; rho: number | null; reason: string | null };
 }
 
+/**
+ * Counts and blocks cover only ratings judged by the current judge version
+ * (`judge_version`); older APIs omit the versioning fields.
+ */
 export interface Calibration {
   n: number;
   sessions: number;
   ready_min_ratings: number;
   overall: CalibrationBlock;
   by_kind: Record<RatingKind, CalibrationBlock>;
+  /** The current creative_eval JUDGE_VERSION the blocks were computed for. */
+  judge_version?: string | null;
+  /** Paired ratings from other (earlier or unversioned) judges, not counted. */
+  excluded_other_versions?: number;
+  /** The same blocks split by whether opt-in rating learning steered the run. */
+  by_learning?: { learned: CalibrationBlock; not_learned: CalibrationBlock };
 }
 
 /** Default when an older API omits `ready_min_ratings`. */
@@ -188,14 +202,34 @@ export function judgeAgreementText(calibration: Calibration | null | undefined):
   const stats = calibration?.overall?.judge_passed;
   if (!stats || typeof stats.n !== "number") return null;
   const min = calibration?.ready_min_ratings || READY_MIN_RATINGS;
+  const excluded = calibration?.excluded_other_versions ?? 0;
+  const note =
+    excluded > 0
+      ? ` (current judge only; ${excluded} earlier ${excluded === 1 ? "rating" : "ratings"} not counted)`
+      : "";
   if (stats.n < min) {
     const more = min - stats.n;
-    return `Rate ${more} more ${more === 1 ? "creative" : "creatives"} to calibrate the judge`;
+    return `Rate ${more} more ${more === 1 ? "creative" : "creatives"} to calibrate the judge${note}`;
   }
   const pct = stats.agreement === null ? "n/a" : `${Math.round(stats.agreement * 100)}%`;
   const kappa =
     stats.kappa === null
       ? `kappa not defined: ${KAPPA_REASONS[stats.reason ?? ""] ?? "too little variation"}`
       : `kappa ${stats.kappa.toFixed(2)}`;
-  return `Judge agreement: ${pct} over ${stats.n} ratings, ${kappa}`;
+  return `Judge agreement: ${pct} over ${stats.n} ratings, ${kappa}${note}`;
+}
+
+/**
+ * The second line: judge kappa on runs steered by rating learning vs the rest
+ * (current judge only), once both sides have the same minimum of paired
+ * ratings as the main line. Null otherwise, or for an older API.
+ */
+export function learningSplitText(calibration: Calibration | null | undefined): string | null {
+  const learned = calibration?.by_learning?.learned?.judge_passed;
+  const notLearned = calibration?.by_learning?.not_learned?.judge_passed;
+  if (!learned || !notLearned) return null;
+  const min = calibration?.ready_min_ratings || READY_MIN_RATINGS;
+  if (!(learned.n >= min && notLearned.n >= min)) return null;
+  const k = (stats: KappaStats) => (stats.kappa === null ? "n/a" : stats.kappa.toFixed(2));
+  return `Learned runs: kappa ${k(learned)} · not learned: kappa ${k(notLearned)}`;
 }

@@ -30,6 +30,7 @@ from .dimensions import (
     AD_COPY_GATES,
     ADVISORY_GATES,
     BRIEF_GATES,
+    JUDGE_VERSION,
     NO_GATES_GATE,
     VISUAL_GATES,
 )
@@ -685,6 +686,7 @@ def evaluate_creatives(
         summary=summary,
         warnings=judge_warnings(ad_evals, visual_evals, generated_images),
         judge_model=config.eval_model,
+        judge_version=JUDGE_VERSION,
         passing_threshold=config.passing_threshold,
         brief_used=brief is not None,
     )

@@ -143,6 +143,41 @@ def test_judge_fields_optional_gates_and_model():
     assert out["judge_model"] == "gemini-3.1-pro-preview"
 
 
+def test_judge_fields_snapshot_judge_version_and_learning_used():
+    info = rt.creative_index(_state())[VISUAL]
+    old = rt.judge_fields(_report(), info)  # pre-versioning fixture report
+    assert old["judge_version"] == "" and old["learning_used"] is False
+    report = {**_report(), "judge_version": "2026-10-08", "learning_used": True}
+    out = rt.judge_fields(report, info)
+    assert out["judge_version"] == "2026-10-08" and out["learning_used"] is True
+    # malformed values never pass through
+    report = {**_report(), "judge_version": 7, "learning_used": "yes"}
+    out = rt.judge_fields(report, info)
+    assert out["judge_version"] == "" and out["learning_used"] is False
+    # no report at all
+    none = rt.judge_fields(None, info)
+    assert none["judge_version"] == "" and none["learning_used"] is False
+    # an unmatched creative still carries the run-level fields
+    report = {"judge_version": "v", "learning_used": True}
+    out = rt.judge_fields(report, info)
+    assert out["judge_overall"] is None
+    assert out["judge_version"] == "v" and out["learning_used"] is True
+
+
+def test_put_snapshots_judge_version_and_learning_used():
+    async def go():
+        report = {**_report(), "judge_version": "2026-10-08", "learning_used": True}
+        h = Harness(report_loader=lambda uri: report)
+        await h.session()
+        body = (await h.put()).json()
+        assert body["judge_version"] == "2026-10-08"
+        assert body["learning_used"] is True
+        (row,) = h.store.rows.values()
+        assert row["judge_version"] == "2026-10-08" and row["learning_used"] is True
+
+    run(go)
+
+
 def test_judge_gates_passed_ignored_without_recorded_gates():
     """gates_passed defaults to True in CreativeScore: a gate-less report must not
     read as "every gate passed" (false agreement in the calibration)."""
@@ -379,9 +414,15 @@ def test_enforce_mode_authz():
     run(go)
 
 
+def _current_report() -> dict:
+    from creative_eval import JUDGE_VERSION
+
+    return {**_report(), "judge_version": JUDGE_VERSION}
+
+
 def test_calibration_endpoint_aggregates_the_users_ratings():
     async def go():
-        h = Harness()
+        h = Harness(report_loader=lambda uri: _current_report())
         await h.session()
         empty = (await h.client.get(f"/ratings/{A}/calibration")).json()
         assert empty["n"] == 0
@@ -399,6 +440,36 @@ def test_calibration_endpoint_aggregates_the_users_ratings():
         assert rep["overall"]["judge_passed"]["agreement"] is not None
         # "calibration" is not mistaken for a session id
         assert "ratings" not in rep
+
+    run(go)
+
+
+def test_calibration_endpoint_counts_only_the_current_judge_version():
+    from creative_eval import JUDGE_VERSION
+
+    async def go():
+        reports = {"s1": _report(), "s2": _current_report()}  # s1: pre-versioning
+        reports["s3"] = {**_current_report(), "learning_used": True}
+
+        def loader(uri):
+            return next(r for sid, r in reports.items() if f"/{sid}/" in uri)
+
+        h = Harness(report_loader=loader)
+        for sid in reports:
+            state = _state()
+            state["eval_report_gcs_uri"] = (
+                f"gs://{BUCKET}/out/{sid}/creative_eval_report.json"
+            )
+            await h.session(sid=sid, state=state)
+            await h.put(sid=sid, verdict="pass")
+            await h.put(sid=sid, creative_key="copy:3", kind="ad_copy")
+        rep = (await h.client.get(f"/ratings/{A}/calibration")).json()
+        assert rep["judge_version"] == JUDGE_VERSION
+        assert rep["n"] == 4 and rep["sessions"] == 2
+        assert rep["excluded_other_versions"] == 2
+        assert rep["by_learning"]["learned"]["n"] == 2
+        assert rep["by_learning"]["not_learned"]["n"] == 2
+        assert rep["overall"]["judge_passed"]["n"] == 4
 
     run(go)
 
@@ -435,7 +506,9 @@ def test_store_read_failure_is_502():
 
 def test_judge_fields_read_a_real_gated_report_model():
     """Field locations pinned against creative_eval's own report models."""
+    from creative_eval import JUDGE_VERSION
     from creative_eval.schemas import (
+        CreativeEvaluationReport,
         CreativeScore,
         GateResult,
         VisualConceptEvaluation,
@@ -454,13 +527,24 @@ def test_judge_fields_read_a_real_gated_report_model():
             gates_passed=False,
         ),
     )
-    report = {"visual_concept_evaluations": [ev.model_dump()], "judge_model": "j"}
+    report = {
+        "visual_concept_evaluations": [ev.model_dump()],
+        "judge_model": "j",
+        "judge_version": JUDGE_VERSION,
+        "learning_used": True,
+    }
+    # the run-level keys are real CreativeEvaluationReport fields
+    assert {"judge_model", "judge_version", "learning_used"} <= set(
+        CreativeEvaluationReport.model_fields
+    )
     out = rt.judge_fields(report, rt.creative_index(_state())[VISUAL])
     assert out == {
         "judge_overall": 0.8,
         "judge_passed": False,
         "judge_gates_passed": False,
         "judge_model": "j",
+        "judge_version": JUDGE_VERSION,
+        "learning_used": True,
     }
 
 
@@ -853,3 +937,17 @@ def test_learning_context_brand_uses_the_shared_normaliser():
     state = {**_state(), "brand": long_brand}
     ctx = rt.learning_context(state, "visual", VISUAL)
     assert ctx["brand"] == normalize_brand(long_brand) == long_brand.strip().lower()
+
+
+def test_unversioned_report_with_2026_10_08_gates_counts_as_that_judge():
+    # Runs judged between the 2026-10-08 gate change and JUDGE_VERSION stamping
+    # carry the new no_visual_defects gate but no judge_version.
+    info = rt.creative_index(_state())[VISUAL]
+    report = _report()
+    report["visual_concept_evaluations"][0]["score"]["gates"] = [
+        {"gate": "no_visual_defects", "passed": True, "note": ""}
+    ]
+    assert rt.judge_fields(report, info)["judge_version"] == "2026-10-08"
+    # an explicit version always wins
+    report["judge_version"] = "2027-01-01"
+    assert rt.judge_fields(report, info)["judge_version"] == "2027-01-01"
