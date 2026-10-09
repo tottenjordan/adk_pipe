@@ -15,7 +15,9 @@ and an optional note. Each save upserts one row in BigQuery `creative_ratings`
 (`runserver/ratings.py`; schema in deployment/README.md → Creative ratings), keyed
 per (run, creative, user), so re-rating overwrites. The row also snapshots the judge's
 verdict for the same creative: `judge_overall`, `judge_passed`, `judge_gates_passed`
-(the judge's binary eval gates, when the report has them) and `judge_model` (plus `judge_source`, see the limitation below).
+(the judge's binary eval gates, when the report has them) and `judge_model` (plus `judge_source`, see the limitation below),
+and two run-level fields from the same report: `judge_version` (see **Judge versions**)
+and `learning_used` (see **Learned runs**).
 
 ## Protocol
 
@@ -30,13 +32,18 @@ verdict for the same creative: `judge_overall`, `judge_passed`, `judge_gates_pas
 4. **Use notes for the reason**, especially when you disagree with the judge. They are
    the input for prompt or rubric fixes.
 5. **Read the result.** `/runs` shows "Judge agreement" once 20 ratings are paired with a
-   judge verdict (before that, how many more to rate). For the full report:
+   **current-judge** verdict (before that, how many more to rate); ratings of runs judged
+   by an earlier judge version are noted ("current judge only; N earlier ratings not
+   counted") but never counted. Once both learned and non-learned runs have 20 paired
+   ratings, a second line compares their kappa. For the full report:
 
    ```bash
    set -a && source .env && set +a
-   uv run python scripts/eval_calibration.py                    # everyone's ratings
+   uv run python scripts/eval_calibration.py                    # everyone's ratings, current judge
    uv run python scripts/eval_calibration.py --user you@example.com
    uv run python scripts/eval_calibration.py --csv export.csv --json
+   uv run python scripts/eval_calibration.py --judge-version 2026-10-08   # a specific judge
+   uv run python scripts/eval_calibration.py --judge-version all          # pool every version
    ```
 
 ## Known limitation: seedable judge fields
@@ -57,11 +64,33 @@ side of their own ratings. Mitigations:
 
 ## Judge versions
 
-The judge's gates changed on **2026-10-08** (new blocking `no_visual_defects` and
-`trend_risks_respected` gates, a stricter `trend_motif_visible`; details in
-[creative-quality-gates.md](creative-quality-gates.md)). Ratings snapshot the judge
-verdict at rating time, so compare agreement only within one judge version: split
-ratings of runs judged before and after 2026-10-08 rather than pooling them.
+Agreement is only meaningful within one judge: a rating snapshots the verdict of
+whichever judge graded that run, and a changed rubric changes what "pass" means. So
+calibration is **versioned**:
+
+- `creative_eval.JUDGE_VERSION` (in `creative_eval/dimensions.py`, next to the gate
+  definitions) names the current judge, currently **`2026-10-08`**: the gates changed
+  that day (new blocking `no_visual_defects` and `trend_risks_respected` gates, a
+  stricter `trend_motif_visible`; details in
+  [creative-quality-gates.md](creative-quality-gates.md)).
+- Every eval report records it (`CreativeEvaluationReport.judge_version`; reports from
+  before versioning parse as `""`), and every rating snapshots the report's value into
+  `creative_ratings.judge_version` (`""`/NULL = an earlier, unversioned judge). Reports written between the gate change and version stamping carry no version but already have the `no_visual_defects` gate, so a rating infers `2026-10-08` from that gate (`runserver.ratings._inferred_judge_version`).
+- `GET /ratings/{user}/calibration` and `scripts/eval_calibration.py` count only ratings
+  whose `judge_version` equals the current `JUDGE_VERSION`. The response adds
+  `judge_version` (the current one) and `excluded_other_versions` (paired ratings from
+  other or unknown versions, left out); the existing fields keep their shape. The
+  script's `--judge-version <v>` reads another version, `--judge-version all` pools them
+  (for a rough trend only).
+
+**How to bump.** Change `JUDGE_VERSION` to the date of the change, in the same PR,
+whenever the judge's gates, the gate or dimension wording (`creative_eval/prompts.py`,
+`dimensions.py`), the scoring or pass rules (threshold, normalisation, which gates block)
+or the judge model change. Pure refactors that can't change a verdict don't need a bump.
+After a bump the `/runs` line starts again from "Rate 20 more creatives" for the new judge:
+old ratings stay in the table under their version and can still be read with
+`--judge-version`. A rating keeps the version of the run it rates, so re-rating an old
+run does not move it to the new judge.
 
 ## Learned runs (rating-driven learning)
 
@@ -79,11 +108,12 @@ pipeline was nudged towards what raters already liked, and the stricter checks
 remove the failure modes raters flagged. Establish the judge's agreement on
 `learning_used: false` runs, then compare learned runs separately.
 
-The calibration report doesn't split by `learning_used` yet (deferred): rating rows
-snapshot the judge verdict but not the learning tag, so the split needs a
-`creative_ratings` column (or a join to the run's GCS report) first. Until then,
-filter by session: the learning status is on the run's results page ("Learning from
-ratings") and in its `creative_eval_report.json`.
+Each rating snapshots the run's `learning_used` (`creative_ratings.learning_used`), and
+the calibration report splits the current-judge ratings into `by_learning.learned` and
+`by_learning.not_learned` (the same metric blocks as `overall`; a rating without the tag
+counts as not learned). The script prints them as `[learned]` / `[not learned]`, and
+`/runs` adds "Learned runs: kappa X · not learned: kappa Y" once both sides have 20 paired
+ratings. Read the `not_learned` block as the judge's calibration.
 
 ## Reading the numbers
 
