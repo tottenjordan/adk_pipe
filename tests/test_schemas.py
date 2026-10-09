@@ -431,6 +431,36 @@ def test_brief_check_items_reach_the_model_schema():
 @pytest.mark.parametrize(
     "name", ["VisualConcept", "VisualConceptCritique", "VisualConceptFinal"]
 )
+def test_visual_concepts_carry_person_casting_fields(name):
+    """casts_person_reference / person_casting_reason are defaulted on every
+    visual stage, so old payloads still validate."""
+    import creative_agent.schemas as schemas
+
+    model = getattr(schemas, name)
+    assert model.model_fields["casts_person_reference"].default is False
+    assert model.model_fields["person_casting_reason"].default == ""
+    for field in ("casts_person_reference", "person_casting_reason"):
+        assert model.model_fields[field].description
+        assert field not in model.model_json_schema().get("required", [])
+    required = {
+        f: "x" if info.annotation is str else 1
+        for f, info in model.model_fields.items()
+        if info.is_required()
+    }
+    concept = model(**required)
+    assert concept.casts_person_reference is False
+    assert concept.person_casting_reason == ""
+    concept = model(
+        **required, casts_person_reference=True, person_casting_reason="Solo hero."
+    )
+    dumped = concept.model_dump()
+    assert dumped["casts_person_reference"] is True
+    assert dumped["person_casting_reason"] == "Solo hero."
+
+
+@pytest.mark.parametrize(
+    "name", ["VisualConcept", "VisualConceptCritique", "VisualConceptFinal"]
+)
 def test_visual_concepts_carry_brand_cue_and_angle_id(name):
     """brand_cue / angle_id are additive and defaulted on every visual stage, so
     old payloads (and the interactive reviser's echoes) still validate."""
