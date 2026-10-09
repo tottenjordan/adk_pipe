@@ -1,0 +1,52 @@
+[
+  {
+    "name": "token",
+    "type": "STRING",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "owner_user",
+    "type": "STRING",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "app_name",
+    "type": "STRING",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "session_id",
+    "type": "STRING",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "scope",
+    "type": "STRING",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "concept_names",
+    "type": "STRING",
+    "mode": "REPEATED"
+  },
+  {
+    "name": "include_eval",
+    "type": "BOOLEAN",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "title",
+    "type": "STRING",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "created_at",
+    "type": "TIMESTAMP",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "revoked_at",
+    "type": "TIMESTAMP",
+    "mode": "NULLABLE"
+  }
+]
