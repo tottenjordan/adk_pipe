@@ -8,6 +8,7 @@ const ITEMS = [
   { href: "/", label: "New run" },
   { href: "/runs", label: "Runs" },
   { href: "/experiments", label: "Experiments" },
+  { href: "/people", label: "People" },
 ] as const;
 
 /** `/` matches only itself; other sections also own their nested routes. */
