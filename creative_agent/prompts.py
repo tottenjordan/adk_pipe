@@ -1,6 +1,8 @@
 """Prompts for ad content generator new agent and subagents"""
 
-from .config import config
+from collections.abc import Sequence
+
+from .config import PHOTOGRAPHIC_PERSON_STYLES, config
 
 # A prompting "grammar" for the
 # Nano Banana image model (config.image_gen_model). Deliberately STYLE-FIRST and
@@ -712,32 +714,53 @@ VISUAL_CONCEPT_RULES = (
 # byte-identical instructions. The safe styles and the cap come from config
 # (PERSON_SAFE_STYLES / MAX_CAST_CONCEPTS, calibrated);
 # concept_guard.enforce_person_casting enforces the deterministic parts. It is a
-# state VALUE (not re-parsed), but stays brace-free anyway.
-PERSON_CASTING_RULES = (
-    "\n\n    **Person casting (this run has a consented person reference):**"
-    "\n    *   The user supplied a consented photo of a person. The image model "
-    "receives it for cast concepts only; you never see it. A concept may cast "
-    "this person as its hero; at most "
-    + str(config.max_cast_concepts)
-    + " of the 4 concepts may do so."
-    "\n    *   Cast only when the hero is one person, the face is clearly visible "
-    "(large enough to recognise, not a crowd or a far shot), the `visual_style` "
-    "is one of: "
-    + "; ".join(config.person_safe_styles)
-    + ", and it fits the brief and its trend risks. Never cast for real-person, "
-    "tragedy or crisis trends, and never in meme, comic, isometric or "
-    "product-only concepts."
-    "\n    *   In a cast concept's `image_generation_prompt`, name the hero's role "
-    'and call them "the person in the person reference image" (e.g. "a runner, '
-    'the person in the person reference image, …"); describe only pose, '
-    "clothing, expression, action and lighting, never their face, age, ethnicity "
-    "or body. Refer to the photo as the person reference, never by number."
-    "\n    *   Set `casts_person_reference` (true only for a cast concept) and give "
-    "a one-sentence `person_casting_reason` either way. When critiquing, fixing "
-    "or revising, keep both fields (and the person reference wording) unchanged "
-    "unless you fix a person-casting rule violation."
-    "\n    *   Art direction: note which ad copies suit a single human hero in one "
-    "of those styles."
+# state VALUE (not re-parsed), but stays brace-free anyway. Comic is no longer
+# hard-refused here: whether a comic panel may cast is PERSON_SAFE_STYLES' call.
+PERSON_ILLUSTRATED_LIKENESS_LINE = (
+    "\n    *   In an illustrated style, keep the person's distinctive features "
+    "recognisable (face shape, hairline, hair colour, skin tone, facial hair, "
+    "glasses) rather than a generic cartoon face."
+)
+
+
+def build_person_casting_rules(safe_styles: Sequence[str], max_cast: int) -> str:
+    """The person-casting rules for ``safe_styles`` / ``max_cast`` (brace-free).
+
+    The illustrated-likeness line is added only when a safe style is not one of
+    the photographic families."""
+    illustrated = any(s not in PHOTOGRAPHIC_PERSON_STYLES for s in safe_styles)
+    return (
+        "\n\n    **Person casting (this run has a consented person reference):**"
+        "\n    *   The user supplied a consented photo of a person. The image model "
+        "receives it for cast concepts only; you never see it. A concept may cast "
+        "this person as its hero; at most "
+        + str(max_cast)
+        + " of the 4 concepts may do so."
+        "\n    *   Cast only when the hero is one person, the face is clearly "
+        "visible (large enough to recognise, not a crowd or a far shot), the "
+        "`visual_style` is one of: "
+        + "; ".join(safe_styles)
+        + ", and it fits the brief and its trend risks. Never cast for real-person, "
+        "tragedy or crisis trends, and never in meme, isometric or product-only "
+        "concepts."
+        + (PERSON_ILLUSTRATED_LIKENESS_LINE if illustrated else "")
+        + "\n    *   In a cast concept's `image_generation_prompt`, name the hero's "
+        'role and call them "the person in the person reference image" (e.g. "a '
+        'runner, the person in the person reference image, …"); describe only '
+        "pose, clothing, expression, action and lighting, never their face, age, "
+        "ethnicity or body. Refer to the photo as the person reference, never by "
+        "number."
+        "\n    *   Set `casts_person_reference` (true only for a cast concept) and "
+        "give a one-sentence `person_casting_reason` either way. When critiquing, "
+        "fixing or revising, keep both fields (and the person reference wording) "
+        "unchanged unless you fix a person-casting rule violation."
+        "\n    *   Art direction: note which ad copies suit a single human hero in "
+        "one of those styles."
+    )
+
+
+PERSON_CASTING_RULES = build_person_casting_rules(
+    config.person_safe_styles, config.max_cast_concepts
 )
 
 VISUAL_CONCEPT_DRAFTER_INSTR = (

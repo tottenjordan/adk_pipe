@@ -54,6 +54,40 @@ def test_no_reference_available_clears_every_cast():
     assert "a person laughing" in out[0]["image_generation_prompt"]
 
 
+COMIC_PROMPT = (
+    "A comic panel of a guitarist, the person in the person reference image, "
+    "mid-solo on a neon stage, holding Rocket Skates."
+)
+
+
+def test_comic_panel_cast_is_kept_when_comic_is_person_safe():
+    concept = _concept(1, style="Comic panel", prompt=COMIC_PROMPT)
+    out, warnings = _run([concept], safe=SAFE | {"Comic panel"})
+    assert out == [concept] and warnings == []
+
+
+def test_comic_panel_cast_is_refused_when_comic_is_not_person_safe():
+    out, warnings = _run([_concept(1, style="Comic panel", prompt=COMIC_PROMPT)])
+    assert _casts(out) == [False]
+    assert "style" in out[0]["person_casting_reason"] and warnings
+
+
+def test_default_config_allows_illustrated_casts():
+    from creative_agent.config import DEFAULT_PERSON_SAFE_STYLES
+
+    for style in (
+        "Comic panel",
+        "3D character render",
+        "2D flat / vector cartoon",
+        "Collage / mixed-media",
+    ):
+        out, warnings = _run(
+            [_concept(1, style=style, prompt=COMIC_PROMPT)],
+            safe=DEFAULT_PERSON_SAFE_STYLES,
+        )
+        assert _casts(out) == [True] and warnings == [], style
+
+
 def test_unsafe_style_clears_the_cast():
     for style in ("Meme aesthetic", "Comic panel", "Isometric miniature world", ""):
         out, warnings = _run([_concept(1, style=style)])

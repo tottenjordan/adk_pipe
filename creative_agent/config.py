@@ -67,12 +67,20 @@ MAX_RATING_LEARNING_WINDOW_DAYS = 365
 
 
 # Person casting (docs/notes/person-reference-calibration.md): the style families
-# that held a likeness in the calibration spike (the photographic group), and how
-# many of the 4 concepts may cast the user's person reference.
-DEFAULT_PERSON_SAFE_STYLES: tuple[str, ...] = (
+# that held a likeness in the calibration spikes (the photographic group, then the
+# illustrated styles calibrated 2026-10-10 at >= 88% likeness), and how many of
+# the 4 concepts may cast the user's person reference.
+PHOTOGRAPHIC_PERSON_STYLES: tuple[str, ...] = (
     "Candid 35mm film photo",
     "Photoreal / editorial",
     "Cinematic film still",
+)
+DEFAULT_PERSON_SAFE_STYLES: tuple[str, ...] = (
+    *PHOTOGRAPHIC_PERSON_STYLES,
+    "3D character render",
+    "Comic panel",
+    "2D flat / vector cartoon",
+    "Collage / mixed-media",
 )
 DEFAULT_MAX_CAST_CONCEPTS = 2
 MAX_MAX_CAST_CONCEPTS = 4

@@ -82,9 +82,14 @@ ENV_VAR_DICT = {
     "BQ_TABLE_RATINGS": os.getenv("BQ_TABLE_RATINGS") or "creative_ratings",
     # creative_agent person casting (creative_agent/config.py): the style families
     # a cast concept may use and the cap on cast concepts per set (0..4, default
-    # 2; 0 = casting off). Defaults from the calibration spike.
+    # 2; 0 = casting off). Defaults from the calibration spikes: the photographic
+    # group plus the illustrated families calibrated 2026-10-10.
     "PERSON_SAFE_STYLES": os.getenv("PERSON_SAFE_STYLES")
-    or "Candid 35mm film photo,Photoreal / editorial,Cinematic film still",
+    or (
+        "Candid 35mm film photo,Photoreal / editorial,Cinematic film still,"
+        "3D character render,Comic panel,2D flat / vector cartoon,"
+        "Collage / mixed-media"
+    ),
     "MAX_CAST_CONCEPTS": os.getenv("MAX_CAST_CONCEPTS", "2"),
     # Per-request timeout for flash / lite model calls (agent_common/genai_retry.py;
     # default 90, clamped 30..900, 0 = use MODEL_REQUEST_TIMEOUT_SECONDS). The ADK
