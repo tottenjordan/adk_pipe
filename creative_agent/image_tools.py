@@ -42,7 +42,7 @@ from agent_common import genai_retry
 from agent_common.locations import MODEL_LOCATION
 
 from . import image_qa
-from .concept_guard import enforce_person_casting, neutralise_person_prompt
+from .concept_guard import enforce_person_casting
 from .config import config
 from .gcs_tools import _download_blob, _save_to_gcs, artifact_key_for
 from .person_render import (
@@ -277,6 +277,21 @@ async def _generate_image_with_backoff(**kwargs):
                 f"Retrying in {delay:.1f}s"
             )
             await asyncio.sleep(delay)
+
+
+def valid_aspect_ratio_override(raw: object) -> str:
+    """The user's ``visual_aspect_ratio`` when it is an allowed ratio, else ``""``
+    (an invalid value is logged and ignored, so each concept keeps its own)."""
+    override = (raw if isinstance(raw, str) else "").strip()
+    if override and override not in config.image_aspect_ratios_allowed:
+        logging.warning(
+            f"visual_aspect_ratio override '{override}' not in "
+            f"allowed set {config.image_aspect_ratios_allowed}; ignoring override."
+        )
+        return ""
+    if override:
+        logging.info(f"Applying user aspect-ratio override: {override}")
+    return override
 
 
 def _resolve_aspect_ratio(
@@ -742,31 +757,25 @@ async def generate_image(
     final_visual_concepts_dict = tool_context.state.get("final_visual_concepts")
     final_visual_concepts_list = final_visual_concepts_dict["visual_concepts"]
 
+    # Imported here: render_concept builds on this module's helpers.
+    from .render_concept import (
+        RenderPacing,
+        fetch_person_photo,
+        fetch_references,
+        render_concept,
+    )
+
     # Optional reference images (product / logo / style; `reference_images` plus
     # the legacy single `reference_image_uri`), applied to every concept. All
     # fetched ONCE, concurrently, before the loop; none fetched → text-only.
-    references, missing_roles = await _fetch_references(
-        resolve_references(tool_context.state)
-    )
-    reference_roles = [role for role, _ in references]
-    reference_parts = [part for _, part in references]
+    references = await fetch_references(resolve_references(tool_context.state))
 
     # Optional user-supplied deterministic aspect-ratio override. When set to a
     # valid value it pins EVERY concept to that ratio; when empty/invalid, each
     # concept keeps its own LLM-chosen ratio (preserving diversity). Read once.
-    aspect_ratio_override = (
-        tool_context.state.get("visual_aspect_ratio") or ""
-    ).strip()
-    if aspect_ratio_override and (
-        aspect_ratio_override not in config.image_aspect_ratios_allowed
-    ):
-        logging.warning(
-            f"visual_aspect_ratio override '{aspect_ratio_override}' not in "
-            f"allowed set {config.image_aspect_ratios_allowed}; ignoring override."
-        )
-        aspect_ratio_override = ""
-    elif aspect_ratio_override:
-        logging.info(f"Applying user aspect-ratio override: {aspect_ratio_override}")
+    aspect_ratio_override = valid_aspect_ratio_override(
+        tool_context.state.get("visual_aspect_ratio")
+    )
 
     brand = tool_context.state.get("brand") or ""
     # Opt-in rating learning: the run's check-backed fail-reason flags.
@@ -790,34 +799,11 @@ async def generate_image(
     )
     for warning in cast_warnings:
         logging.warning(f"casting guard (render): {warning}")
-    cast_names = {
-        c.get("concept_name")
-        for c in final_visual_concepts_list
-        if c.get("casts_person_reference") is True
-    }
-    person_part = None
-    person_image: tuple[bytes, str] | None = None  # for the QA likeness check
-    if cast_names:
-        person_part = await asyncio.to_thread(_fetch_person_photo, person_uri)
-        inline = getattr(person_part, "inline_data", None)
-        if inline is not None and inline.data:
-            person_image = (inline.data, inline.mime_type or "image/jpeg")
+    any_cast = any(
+        c.get("casts_person_reference") is True for c in final_visual_concepts_list
+    )
+    person_part = await fetch_person_photo(person_uri) if any_cast else None
     person_rejected: dict[str, str] = {}
-
-    def contents_for(prompt_text: str, person: bool = False):
-        """The render contents: the prompt (+ the rating-strictness logo line,
-        the reference block and Parts; the person photo last, for a cast
-        concept only)."""
-        if "unwanted_logo" in strictness:
-            prompt_text = prompt_text + "\n\n" + no_other_logos_line(brand)
-        roles = list(reference_roles)
-        parts = list(reference_parts)
-        if person and person_part is not None:
-            roles.append("person")
-            parts.append(person_part)
-        if parts:
-            return [_reference_prompt(prompt_text, roles, missing_roles), *parts]
-        return prompt_text
 
     product = tool_context.state.get("target_product") or ""
     artifact_keys_list = []
@@ -825,54 +811,18 @@ async def generate_image(
     qa_issues: list[str] = []
     qa_unavailable: list[str] = []
     budget = _RerenderBudget(config.image_qa_max_rerenders_per_run)
-    has_logo_reference = "logo" in reference_roles
 
-    # Pipelined: renders stay strictly sequential (the image quota) behind one
-    # lock, but each image's QA (+ any re-render) runs as a task while the next
-    # concept renders. asyncio.Lock is FIFO and a re-render queues on it while
-    # the next render is in flight, so it runs right after that render, ahead
-    # of the following first render. Uploads happen afterwards, in concept
-    # order, for the kept image only.
+    # Pipelined: one render_concept task per concept. Renders stay strictly
+    # sequential (the image quota) behind one lock and in concept order (each
+    # concept's first render waits for the previous one's), but each image's QA
+    # (+ any re-render) runs while the next concept renders. asyncio.Lock is
+    # FIFO and a re-render queues on it while the next render is in flight, so
+    # it runs right after that render, ahead of the following first render. The
+    # per-run budget is claimed in concept order. Uploads happen afterwards, in
+    # concept order, for the kept image only.
     render_lock = asyncio.Lock()
-
-    async def render(contents, aspect_ratio: str) -> tuple[bytes, str] | None:
-        async with render_lock:
-            return await _render_image(contents, aspect_ratio)
-
-    async def render_person(contents, aspect_ratio: str) -> tuple[bytes, str] | None:
-        """A cast concept's QA re-render: keeps the person part and config; a
-        blocked re-render yields None (the previous attempt is kept)."""
-        async with render_lock:
-            rendered, _reason = await _render_person_image(contents, aspect_ratio)
-        return rendered
-
-    async def check(
-        entry, rendered, prompt_text, aspect_ratio, claim_after, done, cast=False
-    ):
-        """QA (+ bounded re-render) of one render → (kept, attempts, record, issue)."""
-        if rendered is None or not config.image_qa_enabled:
-            if claim_after is not None:
-                await claim_after.wait()  # keep the concept-order claim chain
-            done.set()
-            return rendered, 1, None, None
-        return await _inspect_and_rerender(
-            entry,
-            rendered,
-            prompt_text,
-            aspect_ratio,
-            functools.partial(contents_for, person=cast),
-            brand,
-            product,
-            budget,
-            has_logo_reference,
-            render=render_person if cast else render,
-            claim_after=claim_after,
-            claims_done=done,
-            strictness=strictness,
-            person_image=person_image if cast else None,
-        )
-
-    checks: list[tuple[dict, asyncio.Task, bool]] = []
+    tasks: list[asyncio.Task] = []
+    previous_rendered: asyncio.Event | None = None
     previous_done: asyncio.Event | None = None
     try:
         for entry in final_visual_concepts_list:
@@ -885,64 +835,56 @@ async def generate_image(
                 config.image_aspect_ratios_allowed,
                 config.image_aspect_ratio_default,
             )
-            prompt_text = entry["image_generation_prompt"]
-            name = str(entry.get("concept_name") or "")
-            cast = name in cast_names
-            rendered = None
-            if cast and person_part is None:
-                person_rejected[name] = "photo_unavailable"
-                cast = False
-            elif cast:
-                async with render_lock:
-                    rendered, reason = await _render_person_image(
-                        contents_for(prompt_text, person=True), aspect_ratio
+            rendered_event, done = asyncio.Event(), asyncio.Event()
+            tasks.append(
+                asyncio.create_task(
+                    render_concept(
+                        entry,
+                        aspect_ratio=aspect_ratio,
+                        references=references,
+                        person=person_part,
+                        strictness=strictness,
+                        qa=config.image_qa_enabled,
+                        brand=brand,
+                        target_product=product,
+                        budget=budget,
+                        pacing=RenderPacing(
+                            lock=render_lock,
+                            start_after=previous_rendered,
+                            rendered=rendered_event,
+                            claim_after=previous_done,
+                            claims_done=done,
+                        ),
                     )
-                if rendered is None:
-                    logging.warning(
-                        f"Person render for '{name}' rejected ({reason}); "
-                        "rendering without the person"
-                    )
-                    person_rejected[name] = reason or "no_image"
-                    cast = False
-            if not cast and name in cast_names:
-                # The typed fallback: a generic hero, no person part (and QA
-                # judges it as an uncast concept).
-                prompt_text = neutralise_person_prompt(prompt_text)
-                entry = {
-                    **entry,
-                    "casts_person_reference": False,
-                    "image_generation_prompt": prompt_text,
-                }
-            if rendered is None:
-                rendered = await render(contents_for(prompt_text), aspect_ratio)
-            done = asyncio.Event()
-            task = asyncio.create_task(
-                check(
-                    entry,
-                    rendered,
-                    prompt_text,
-                    aspect_ratio,
-                    previous_done,
-                    done,
-                    cast,
                 )
             )
-            checks.append((entry, task, cast))
-            previous_done = done
+            previous_rendered, previous_done = rendered_event, done
 
-        for entry, task, cast in checks:
-            rendered, attempts, qa_record, qa_issue = await task
-            if rendered is not None and config.image_qa_enabled:
-                if qa_record is None:
-                    qa_unavailable.append(entry["concept_name"])
-                if qa_issue:
-                    qa_issues.append(qa_issue)
-            if rendered is None:
+        # A first-render failure aborts the batch at once (later concepts are
+        # still waiting for their turn); nothing is uploaded.
+        if tasks:
+            await asyncio.wait(tasks, return_when=asyncio.FIRST_EXCEPTION)
+        for task in tasks:
+            if task.done() and not task.cancelled():
+                failure = task.exception()
+                if failure is not None:
+                    raise failure
+        results = [await task for task in tasks]
+
+        for result in results:
+            entry = result.concept
+            name = str(entry.get("concept_name") or "")
+            if result.rejected_reason is not None:
+                person_rejected[name] = result.rejected_reason
+            if result.qa_unavailable:
+                qa_unavailable.append(entry["concept_name"])
+            if result.qa_issue:
+                qa_issues.append(result.qa_issue)
+            if result.image_bytes is None:
                 continue
-            image_bytes, image_mime_type = rendered
             artifact_key = artifact_key_for(entry["concept_name"])
             img_gcs_uri = await _store_image(
-                tool_context, image_bytes, image_mime_type, artifact_key
+                tool_context, result.image_bytes, result.mime, artifact_key
             )
             if img_gcs_uri is None:
                 continue
@@ -950,14 +892,14 @@ async def generate_image(
             record = {
                 "gcs_uri": img_gcs_uri,
                 "artifact_key": artifact_key,
-                "attempts": attempts,
-                "qa": qa_record,
+                "attempts": result.attempts,
+                "qa": result.qa,
             }
             if person_uri:
                 # Only runs with a person reference carry the cast flag; the
                 # judge's person gate and the UI read `cast is True`.
-                record["cast"] = cast
-                if cast:
+                record["cast"] = result.cast
+                if result.cast:
                     record["consent_id"] = person_consent_id(person_ref)
             generated_images[entry["concept_name"]] = record
     except Exception as e:
@@ -965,12 +907,12 @@ async def generate_image(
         logging.exception(f"No images generated. {e}")
         raise
     finally:
-        # On failure/cancellation stop the in-flight QA / re-render tasks (and
+        # On failure/cancellation stop the in-flight render / QA tasks (and
         # retrieve every task's outcome); on success they are all done already.
-        for _, task, _ in checks:
+        for task in tasks:
             if not task.done():
                 task.cancel()
-        await asyncio.gather(*(task for _, task, _ in checks), return_exceptions=True)
+        await asyncio.gather(*tasks, return_exceptions=True)
 
     # Mark as done so subsequent calls are idempotent
     tool_context.state["_images_generated"] = True

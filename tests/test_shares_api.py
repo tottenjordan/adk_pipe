@@ -551,6 +551,36 @@ def test_enforce_mode_requires_trusted_matching_user():
 # --- pure helpers -----------------------------------------------------------------
 
 
+def test_person_images_are_never_shared():
+    assert sh.source_path(f"gs://{BUCKET}/person-refs/me-1/me.jpg", BUCKET) is None
+    assert (
+        sh.source_path(f"gs://{BUCKET}/run/out/variants/me-1/c/k.png", BUCKET) is None
+    )
+    assert sh.source_path(f"gs://{BUCKET}/run/out/variants.png", BUCKET) == (
+        "run/out/variants.png"
+    )
+
+    async def go():
+        h = Harness()
+        state = creative_state()
+        state["generated_images"]["The Jackpot Reveal"]["gcs_uri"] = (
+            f"gs://{BUCKET}/run/creative_output/variants/me-1/c/abc123abc123.png"
+        )
+        await h.session(state=state)
+        r = await h.create()
+        assert r.status_code == 400
+        assert r.json()["detail"]["reason"] == "person_image"
+        state["generated_images"]["The Jackpot Reveal"]["gcs_uri"] = (
+            f"gs://{BUCKET}/person-refs/me-1/me.jpg"
+        )
+        await h.session(sid="s2", state=state)
+        r = await h.create(sid="s2")
+        assert r.json()["detail"]["reason"] == "person_image"
+        assert h.gcs.ops == [] and h.store.rows == {}
+
+    run(go)
+
+
 def test_source_path_only_inside_bucket():
     assert sh.source_path(f"gs://{BUCKET}/a/b.png", BUCKET) == "a/b.png"
     assert sh.source_path("gs://other/a/b.png", BUCKET) is None

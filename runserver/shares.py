@@ -32,6 +32,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Response
 from pydantic import BaseModel
 
+from runserver.person_refs import is_person_image
 from runserver.ratings import (
     RATING_APPS,
     REPORT_KEY,
@@ -112,6 +113,8 @@ def source_path(uri: Any, bucket: str | None) -> str | None:
     path = m["path"]
     if ".." in path.split("/") or path.startswith(SHARES_PREFIX):
         return None
+    if is_person_image(uri):
+        return None  # consented photos and personalised variants never go public
     return path
 
 
@@ -320,6 +323,12 @@ async def http_create_share(
         )
     except SnapshotError as exc:
         raise _error(400, exc.reason, str(exc)) from exc
+    if any(is_person_image(uri) for uri in built.image_uris):
+        raise _error(
+            400,
+            "person_image",
+            "a creative's image is a person photo or personalised preview",
+        )
     sources = [source_path(uri, bucket) for uri in built.image_uris]
     if any(p is None for p in sources):
         raise _error(

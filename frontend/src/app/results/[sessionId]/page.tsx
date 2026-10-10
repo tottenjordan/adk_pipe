@@ -44,6 +44,8 @@ import { ResultsSummary, type EvalStatus } from "./results-summary";
 import { ShareDialog } from "@/components/share-dialog";
 import { SessionShares } from "@/components/shares-list";
 import { hasRenderedImage, type Share } from "@/lib/shares";
+import { canPersonalise } from "@/lib/variants";
+import { PersonalisePanel } from "@/components/personalise-panel";
 
 const CAMPAIGN_FIELD_DEFS: DisplayFieldDef[] = [
   { label: "Brand", key: "brand" },
@@ -319,6 +321,19 @@ export default function ResultsPage({
                   conceptNames={[p.concept.concept_name]}
                   triggerLabel="Share this creative"
                   onCreated={onShareCreated}
+                />
+              ) : null
+            }
+            personaliseSlot={(p) =>
+              canPersonalise(p, state.generated_images, imagesMissing) ? (
+                <PersonalisePanel
+                  // Remount per creative so a preview never shows under another one.
+                  key={p.concept.concept_name}
+                  appName={appName}
+                  sessionId={sessionId}
+                  conceptName={p.concept.concept_name}
+                  baseImageUrl={imageUrlFor(p.concept.concept_name)}
+                  baseAlt={p.concept.concept_summary || p.concept.headline}
                 />
               ) : null
             }

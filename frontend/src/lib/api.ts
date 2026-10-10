@@ -7,6 +7,7 @@ import {
   type PersonRef,
   type PersonRefList,
 } from "./person-refs";
+import { parseVariants, VariantError, type VariantMap, type VariantResponse } from "./variants";
 
 // Route through the same-origin Next.js proxy (src/app/api/adk/[...path]/route.ts) so
 // the browser never makes a cross-origin call — this avoids CORS and the Cloud
@@ -447,4 +448,49 @@ export async function createPersonRef(payload: CreatePersonRefPayload): Promise<
 export async function revokePersonRef(consentId: string): Promise<void> {
   const res = await fetch(personRefsUrl(consentId), { method: "DELETE" });
   if (!res.ok) throw await personRefError(res);
+}
+
+// ---------------------------------------------------------------------------
+// Personalised variant previews (runserver/variants.py): UI only
+// ---------------------------------------------------------------------------
+
+const variantsUrl = (appName: string, sessionId: string) =>
+  `${API_BASE}/variants/${SELF_USER_ID}/${encodeURIComponent(appName)}/${encodeURIComponent(sessionId)}`;
+
+/** A failed variants response as a `VariantError` (reason + message from `detail`). */
+async function variantError(res: Response): Promise<VariantError> {
+  let reason: string | null = null;
+  let message: string | null = null;
+  try {
+    const detail = (await res.json())?.detail;
+    if (typeof detail?.reason === "string" && detail.reason) reason = detail.reason;
+    if (typeof detail?.message === "string" && detail.message) message = detail.message;
+  } catch {
+    // non-JSON body (e.g. the proxy's plain 404)
+  }
+  return new VariantError(reason, res.status, message);
+}
+
+/** `POST /variants/{user}/{app}/{session}`: render (or return the cached) preview of
+ *  `conceptName` with the person behind `consentId`. */
+export async function createVariant(
+  appName: string,
+  sessionId: string,
+  conceptName: string,
+  consentId: string
+): Promise<VariantResponse> {
+  const res = await fetch(variantsUrl(appName, sessionId), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ concept_name: conceptName, consent_id: consentId }),
+  });
+  if (!res.ok) throw await variantError(res);
+  return res.json();
+}
+
+/** `GET /variants/{user}/{app}/{session}`: every preview of the run, by concept and key. */
+export async function listVariants(appName: string, sessionId: string): Promise<VariantMap> {
+  const res = await fetch(variantsUrl(appName, sessionId));
+  if (!res.ok) throw await variantError(res);
+  return parseVariants(await res.json());
 }

@@ -277,6 +277,22 @@ def _image_uri(
     return f"gs://{bucket}/{folder}/{subdir}/{key}"
 
 
+def _is_person_image(uri: str | None) -> bool:
+    """True for a ``person-refs/…`` or ``…/variants/…`` object URI (never an arm)."""
+    from runserver.person_refs import is_person_image
+
+    return is_person_image(uri)
+
+
+def _is_cast(session_state: Mapping[str, Any], concept_name: str) -> bool:
+    """Whether the run's image for ``concept_name`` casts a consented person
+    (``generated_images[c].cast``); cast creatives are kept out of experiments
+    for likeness safety."""
+    images = _as_obj(session_state.get("generated_images"))
+    record = images.get(concept_name) if isinstance(images, Mapping) else None
+    return isinstance(record, Mapping) and record.get("cast") is True
+
+
 def validate_selection(indices: Sequence[int], available: int) -> list[int]:
     picked = list(indices)
     if len(picked) < MIN_ARMS:
@@ -310,7 +326,10 @@ def snapshot_arms(
     ``creativeId = stable_row_id(session_id, concept_name)``; ``scores`` holds every
     judge dimension normalised to 0-1 plus ``ad_copy_overall`` / ``visual_overall``;
     ``overallScore`` is the mean of the available overall scores (the results
-    page's proof score). Raises ``SelectionError`` for an invalid selection."""
+    page's proof score). Raises ``SelectionError`` for an invalid selection,
+    including a creative that casts a person (``cast_creative``) or whose image is
+    a person photo / personalised variant (``person_image``); ``person_variants``
+    is never read."""
     concepts = _items(session_state.get("final_visual_concepts"), "visual_concepts")
     if not concepts:
         raise SelectionError("no_creatives", "this run has no visual concepts")
@@ -322,6 +341,17 @@ def snapshot_arms(
     for idx in picked:
         concept = concepts[idx]
         name = str(concept.get("concept_name") or f"concept {idx}")
+        if _is_cast(session_state, name):
+            raise SelectionError(
+                "cast_creative",
+                f"'{name}' features a person, so it can't be used in experiments",
+            )
+        image_uri = _image_uri(session_state, name, default_bucket)
+        if _is_person_image(image_uri):
+            raise SelectionError(
+                "person_image",
+                f"'{name}' has a personalised image, which experiments never use",
+            )
         vis = next((v for v in visual_evals if v.get("concept_name") == name), None)
         ad = _match_ad_copy_eval(ad_evals, concept, idx)
         ad_scores, ad_overall = _eval_scores(ad, "ad_copy")
@@ -333,7 +363,7 @@ def snapshot_arms(
                 "index": idx,
                 "label": str(concept.get("headline") or name),
                 "conceptName": name,
-                "imageUri": _image_uri(session_state, name, default_bucket),
+                "imageUri": image_uri,
                 "scores": {**ad_scores, **vis_scores},
                 "overallScore": sum(overalls) / len(overalls) if overalls else None,
             }

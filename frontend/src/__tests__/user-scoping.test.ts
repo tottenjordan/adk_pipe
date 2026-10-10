@@ -226,3 +226,26 @@ describe("scopeRequestToUser: person-refs", () => {
     expect(scopeQuery(new URLSearchParams("run=2&x=1"), ["person-refs", "me"])).toBe("");
   });
 });
+
+describe("scopeRequestToUser: variants", () => {
+  const VSID = "a1b2c3d4-e5f6";
+  const body = '{"concept_name":"The Encore","consent_id":"consent-1234"}';
+  it("rewrites the user segment on render and list", () => {
+    expect(scopeRequestToUser("POST", ["variants", "me", "creative_agent", VSID], body, U)).toEqual({
+      path: `variants/alice%40x.com/creative_agent/${VSID}`,
+      body,
+    });
+    expect(
+      scopeRequestToUser("GET", ["variants", "bob@x.com", "interactive_creative", VSID], undefined, U)?.path,
+    ).toBe(`variants/alice%40x.com/interactive_creative/${VSID}`);
+  });
+  it("refuses bad app names, session ids and other shapes", () => {
+    expect(scopeRequestToUser("POST", ["variants", "me", "bad-app", VSID], body, U)).toBeNull();
+    expect(scopeRequestToUser("GET", ["variants", "me", "creative_agent", "a b"], undefined, U)).toBeNull();
+    expect(scopeRequestToUser("GET", ["variants", "me", "creative_agent"], undefined, U)).toBeNull();
+    expect(scopeRequestToUser("GET", ["variants", "me"], undefined, U)).toBeNull();
+    expect(scopeRequestToUser("DELETE", ["variants", "me", "creative_agent", VSID], undefined, U)).toBeNull();
+    expect(scopeRequestToUser("PUT", ["variants", "me", "creative_agent", VSID], body, U)).toBeNull();
+    expect(scopeRequestToUser("POST", ["variants", "me", "creative_agent", VSID, "x"], body, U)).toBeNull();
+  });
+});

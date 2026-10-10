@@ -39,6 +39,8 @@ _PATH_USER_RES = (
     # Person-reference consent registry (runserver/person_refs.py): GET list,
     # POST register, DELETE per consent_id.
     re.compile(r"^/person-refs/(?P<user>[^/]+)(?:/.*)?$"),
+    # Personalised variant previews (runserver/variants.py): POST render, GET list.
+    re.compile(r"^/variants/(?P<user>[^/]+)(?:/.*)?$"),
     # Pre-rewrite form: ADK's _DefaultAppRewriteMiddleware (ADK_DEFAULT_APP_NAME)
     # maps /users/... -> /apps/<default>/users/... *after* this middleware runs.
     re.compile(r"^/users/(?P<user>[^/]+)(?:/|$)"),

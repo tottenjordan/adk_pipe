@@ -101,6 +101,21 @@ def owner_prefix(user: str) -> str:
     return f"{PERSON_REFS_PREFIX}{slug_for(user)}/"
 
 
+# Folder segments of person-derived objects: consented photos (``person-refs/``)
+# and personalised variant previews (``…/variants/…``, runserver/variants.py).
+PERSON_IMAGE_SEGMENTS = ("person-refs", "variants")
+
+
+def is_person_image(uri: Any) -> bool:
+    """True for a ``gs://`` URI (or object path) with a ``person-refs`` or ``variants``
+    folder segment. Such images never enter experiments or public shares."""
+    if not isinstance(uri, str) or not uri:
+        return False
+    path = uri.removeprefix("gs://")
+    folders = path.split("/")[1:-1] if uri.startswith("gs://") else path.split("/")[:-1]
+    return any(seg in PERSON_IMAGE_SEGMENTS for seg in folders)
+
+
 def photo_path(uri: Any, user: str, bucket: str | None) -> str | None:
     """The object path of a person photo, only for
     ``gs://<bucket>/person-refs/<slug(user)>/<file>.(jpg|jpeg|png|webp)`` (one

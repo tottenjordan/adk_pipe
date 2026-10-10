@@ -11,6 +11,7 @@ import { proofScore, type Proof } from "@/lib/eval-matching";
 import {
   ActiveExperimentError,
   createExperiment,
+  creativeDeployBlockedReason,
   CTR_MODE_OPTIONS,
   deployBlockedReason,
   REWARD_MODE_OPTIONS,
@@ -146,7 +147,16 @@ export function DeployPanel({
             <Button
               variant="ghost"
               size="xs"
-              onClick={() => setSelected(new Set(ordered.slice(0, 4).map((p) => p.index)))}
+              onClick={() =>
+                setSelected(
+                  new Set(
+                    ordered
+                      .filter((p) => !creativeDeployBlockedReason(p))
+                      .slice(0, 4)
+                      .map((p) => p.index)
+                  )
+                )
+              }
             >
               Select all
             </Button>
@@ -160,19 +170,26 @@ export function DeployPanel({
             const checked = selected.has(p.index);
             const score = proofScore(p);
             const id = `deploy-creative-${p.index}`;
+            const excluded = creativeDeployBlockedReason(p);
             return (
               <li key={p.index}>
                 <label
                   htmlFor={id}
                   className={cn(
-                    "flex h-full cursor-pointer items-start gap-3 rounded-md border p-2 transition-colors has-[:focus-visible]:ring-3 has-[:focus-visible]:ring-ring/50",
-                    checked ? "border-primary bg-primary/5" : "border-border hover:border-foreground/40"
+                    "flex h-full items-start gap-3 rounded-md border p-2 transition-colors has-[:focus-visible]:ring-3 has-[:focus-visible]:ring-ring/50",
+                    excluded
+                      ? "cursor-not-allowed border-border opacity-60"
+                      : checked
+                        ? "cursor-pointer border-primary bg-primary/5"
+                        : "cursor-pointer border-border hover:border-foreground/40"
                   )}
                 >
                   <input
                     id={id}
                     type="checkbox"
-                    checked={checked}
+                    checked={checked && !excluded}
+                    disabled={Boolean(excluded)}
+                    aria-describedby={excluded ? `${id}-excluded` : undefined}
                     onChange={() => toggle(p.index)}
                     className="mt-1 size-4 shrink-0 accent-primary"
                   />
@@ -201,6 +218,11 @@ export function DeployPanel({
                     <span className="mt-1 block text-xs text-muted-foreground tabular-nums">
                       {score === null ? "Not scored" : `Score ${pct(score)}%`}
                     </span>
+                    {excluded && (
+                      <span id={`${id}-excluded`} className="mt-1 block text-xs text-muted-foreground">
+                        {excluded}
+                      </span>
+                    )}
                   </span>
                 </label>
               </li>

@@ -55,7 +55,7 @@ tests/
 ├── test_ad_copy_prompts.py          # ad copy prompts: angle spread + typicality (drafter), angle coverage/surprise/brief checklist/CTA (critic), flagged-only reviser tokens; brace-safety
 ├── test_agents_dir.py               # agents/ serving-view symlinks used by the Cloud Run api_server
 ├── test_async_runs.py               # async-job run model: kick-off/poll/resume, terminal markers, checkpoint edits (report, structured brief: valid merge / 400 on invalid)
-├── test_authz.py                    # P3 per-user authz (incl. /shares/{u} and /person-refs/{u} paths): modes, userId normalization, proxy ID-token check, middleware 401/403/404, ownership → 404
+├── test_authz.py                    # P3 per-user authz (incl. /shares/{u}, /person-refs/{u} and /variants/{u} paths): modes, userId normalization, proxy ID-token check, middleware 401/403/404, ownership → 404
 ├── test_backend_entrypoint.py       # backend container entrypoint (uvicorn serves async_app.py)
 ├── test_backfill_eval_labels.py    # deployment/backfill_eval_dimension_labels.py: pure SQL builder (no BigQuery)
 ├── test_bandit_endpoint_lib.py      # deployment/bandit/endpoint.py vs a fake aiplatform (single-worker env, 1 replica, labels, find_* by label oldest-first)
@@ -88,7 +88,7 @@ tests/
 ├── test_crf_worker_async.py         # async worker path of the CRF (issue #45)
 ├── test_deploy_utils.py             # deploy_agent.py utils (env file, extra_packages, runtimes.create) + integration_test.py (skips, creative_agent smoke output assertion)
 ├── test_empty_turn_retry.py         # root orchestrators re-ask a clean empty model turn (empty_turn_retries) instead of ending the run
-├── test_experiments_api.py          # /experiments routes: create→ready, 400/404/409, traffic, stop, TTL reaper, reconcile, authz, snapshot_arms, §9 scenarioOverrides validation + bandit parity, deploy lease (one deployer, expiry, heartbeat, release)
+├── test_experiments_api.py          # /experiments routes: create→ready, 400/404/409, traffic, stop, TTL reaper, reconcile, authz, snapshot_arms (person_variants never change the arms; cast creatives → cast_creative, person-refs/variants images → person_image), §9 scenarioOverrides validation + bandit parity, deploy lease (one deployer, expiry, heartbeat, release)
 ├── test_experiments_backends.py     # VertexDeployer (stepwise/resume, labelled-resource reuse, teardown of extras) + CloudRunJobsRunner env overrides, fakes
 ├── test_experiments_continuous.py   # §11 continuous learning in the api: traffic-body validation, job env, stitched /metrics + batch-means summary
 ├── test_experiments_metrics.py      # pure ExperimentMetrics aggregation (CI bands, totals, arm share, segments)
@@ -99,7 +99,7 @@ tests/
 ├── test_ratings_store.py            # creative_ratings MERGE/SELECT builders (fully parameterised; fail_reasons as an ARRAY<STRING> param), learning-context columns, judge_version/learning_used columns (updatable, in the calibration SELECT), BigQuery store over the fake client, in-memory store, RATINGS_STORE selection + fallback
 ├── test_share_snapshot.py           # runserver/share_snapshot.py: allowlisted v1 snapshot (exact creative keys; no prompts/rationales/judge notes/ids/gs:// URIs), eval-matching.ts pairing parity (id → headline → index), single creative + eval block (gate labels, advisory, copy/visual verdicts, mean score), concepts without images skipped / none → no_images, unknown concept → unknown_concept, aspect-ratio override + fallbacks, JSON-string state
 ├── test_shares_store.py             # creative_shares MERGE/SELECT/UPDATE builders (fully parameterised; concept_names as an ARRAY<STRING> param), schema JSON == SHARE_COLUMN_TYPES, idempotent owner-checked revoke, BigQuery store over the fake client, in-memory store, SHARES_STORE selection + Cloud Run fail-loud
-├── test_shares_api.py               # /shares routes with a fake GCS: image copies + snapshot.json only under shares/<token>/ (cache-control, content type), $SHARE_BASE_URL URLs, eval report from GCS/state, 400 reasons (body, unknown concept, no images, image_outside_bucket incl. traversal, non-creative app), foreign/unknown session 404, rollback + 502 on copy/upload/store failure, 200-share cap (429), 503 without a bucket, list newest first, revoke deletes objects (cross-owner 404), enforce-mode 401/403
+├── test_shares_api.py               # /shares routes with a fake GCS: person-refs/variants images refused (person_image), image copies + snapshot.json only under shares/<token>/ (cache-control, content type), $SHARE_BASE_URL URLs, eval report from GCS/state, 400 reasons (body, unknown concept, no images, image_outside_bucket incl. traversal, non-creative app), foreign/unknown session 404, rollback + 502 on copy/upload/store failure, 200-share cap (429), 503 without a bucket, list newest first, revoke deletes objects (cross-owner 404), enforce-mode 401/403
 ├── test_person_refs_store.py        # person_references MERGE/SELECT/UPDATE builders (fully parameterised; person_renders as an ARRAY<STRING> param), schema JSON == PERSON_REF_COLUMN_TYPES, active_for (owner + not revoked), idempotent owner-checked revoke, BigQuery store over the fake client, in-memory store, PERSON_REFS_STORE selection + Cloud Run fail-loud
 ├── test_person_refs_api.py          # /person-refs routes with a fake GCS: slug_for vs the shared golden tests/fixtures/person_slugs.json (also read by frontend gcs-route-person.test.ts; a.b@x.com vs a_b@x.com apart), photo URI only under the caller's own person-refs/<slug>/ (other prefix/bucket/type/nesting/traversal → 400 before any GCS read), photo HEAD (missing/too big/not image → photo_unreadable), adult attestation, stale consent text, duplicate photo 409, 50-person cap 429, 503 without a bucket, list + upload prefix, revoke runs hooks + deletes the photo (idempotent; cross-owner 404; cleanup failure 502 then retry), active_consent helper, enforce-mode 401/403
 ├── test_person_consent_drift.py     # runserver.person_refs CONSENT_TEXT + CONSENT_TEXT_VERSION mirror frontend/src/lib/person-consent.ts (drift test)
@@ -154,6 +154,9 @@ tests/
 ├── test_experiment_logs.py          # Cloud Logging 429/503 filter builder
 ├── test_experiment_plot.py          # Plotly report builder smoke (no Chrome)
 ├── test_experiment_render_static.py # matplotlib static-figure renderer
+├── test_render_concept.py          # creative_agent.render_concept without a ToolContext: contents order (refs then person), QA re-render, cast render + likeness photo, blocked person without fallback → rejected (no person-less render), missing photo, fallback neutralises the prompt, QA off / QA error; generate_image batch: a render error aborts before any upload (deliberate change), an empty render skips only that concept, a QA error → image_qa__unavailable
+├── test_render_parity.py           # generate_image after the render_concept refactor vs a golden recording of the pre-refactor code (tests/fixtures/render_parity.json): every image call (contents, config), QA call, upload and state key per scenario (refs + strictness + override + budget, person cast/block/likeness, QA off + photo missing); UPDATE_RENDER_PARITY=1 regenerates
+├── test_variants_api.py            # /variants routes: queued → rendering → done with upload under variants/<slug>/ (metadata consent_id, private no-store), deltas carry only person_variants, cache hit, joining a live render, semaphore queueing, daily cap (process + state), ownership/authz, consent checks, concept_not_found / already_cast / not_castable, unsafe output folder, run in progress, rejected/failed renders, orphaned pending → interrupted, consent revoked mid-render → consent_revoked (no upload), concurrent duplicate POSTs render/count once, concept_not_ready; render_variant with a fake image client (refs minus person-refs URIs, aspect override, strictness, ALLOW_ADULT, no fallback)
 ├── test_person_calibration.py       # person-reference calibration spike: grid, block reasons, summary
 ├── test_quota_spread_batch.py       # quota-spread concurrent batch harness (pure core)
 ├── test_quota_spread_analyze.py     # quota-spread slope + tidy CSV + plots + quality harvest
@@ -259,6 +262,10 @@ tests/
   `test_person_render.py`, `test_image_qa_person.py`, `test_eval_person_gate.py`; frontend `person-select.test.tsx`,
   `person-casting.test.tsx`, `initial-state.test.ts` / `run-history.test.ts` (seed + Duplicate brief),
   `eval-checks.test.tsx` (gate label).
+- **Personalised variants** — `test_render_concept.py`, `test_render_parity.py` (golden pre-refactor
+  recording of `generate_image`), `test_variants_api.py`, `test_experiments_api.py` (bandit exclusion),
+  `test_authz.py` (`/variants/{u}`); frontend `personalise-panel.test.tsx` (panel polling + `lib/variants.ts`),
+  `user-scoping.test.ts` (variants routes), `deploy-selection.test.ts` (cast proofs disabled).
 - **Brand history** — `test_brand_history.py` (helper + node delta),
   `test_creative_agent_graph.py` (the note reaches the brief writer; disabled → no query;
   a raising step doesn't stop research), `test_pipeline_structure.py` (node in the START

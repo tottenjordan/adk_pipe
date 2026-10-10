@@ -15,6 +15,7 @@ see the [main README](../README.md).
 - [Creative ratings (judge calibration)](#creative-ratings-judge-calibration)
 - [Shareable links](#shareable-links)
 - [Person references](#person-references)
+- [Personalised variants](#personalised-variants)
 - [Creative quality: migrations + knobs](#creative-quality-migrations--knobs)
 - [Eval CI (WIF)](#eval-ci-wif)
 - [Alternative Deployment: deploy to Cloud Run instances](#alternative-deployment-deploy-to-cloud-run-instances)
@@ -1756,6 +1757,55 @@ fixed object-name *prefix* or *suffix*, not a `*/variants/` segment in the middl
 rule could also delete ordinary run outputs. Variant cleanup is therefore by revoke (the PR 4
 cascade deletes every variant made with the consent). If variants later move under a fixed
 top-level prefix, add a `matchesPrefix` rule for it.
+
+## Personalised variants
+
+UI-only previews of a finished creative re-rendered with one of the caller's consented
+people as the hero (plan
+[docs/plans/2026-10-09-person-reference.md](../docs/plans/2026-10-09-person-reference.md)
+PR 3). The results proof dialog's **Personalise** panel calls
+`POST /variants/{user}/{app}/{session}` (`runserver/variants.py`), which renders in a
+detached task inside the **api** process through `creative_agent.render_concept` (the same
+render + image-QA path the engines use) and polls `GET /variants/{user}/{app}/{session}`.
+Results land in session state `person_variants` and at
+`gs://$GOOGLE_CLOUD_STORAGE_BUCKET/<run folder>/creative_output/variants/<owner slug>/<concept>/<key>.png`
+(blob metadata `consent_id`, `Cache-Control: private, no-store`; `/api/gcs` serves them to
+their owner only). Variants are never judged, rated, shared or deployed to an experiment,
+and the experiments api refuses cast creatives (`cast_creative`) for likeness safety.
+
+**Quota.** Variants share the image model's ~2 images/min (plus the image-QA vision calls)
+with live runs, project-wide. A process-wide semaphore keeps at most
+`VARIANT_RENDER_CONCURRENCY` variant renders in flight (default 1; a waiting variant shows
+"queued"), and each user gets `VARIANT_DAILY_CAP` renders a day (cache hits are free).
+Both are per api process: the cap counts renders this process started today (or today's
+variants in the session's state, if higher) and resets on restart, which is fine for the
+single `--min-instances 1` api instance (like the `/runs` duplicate guard).
+
+### Environment (api service)
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `VARIANT_RENDER_CONCURRENCY` | `1` | Variant renders in flight per api process (clamped 1–4). Keep 1 under the 2 images/min quota |
+| `VARIANT_DAILY_CAP` | `10` | Variant renders per user per UTC day (clamped 0–1000; `0` turns new renders off, cached ones still show) → 429 `variant_cap_reached` |
+| `IMAGE_QA_MODEL` / `IMAGE_SIZE` | (engine defaults) | Read by the shared render path in the api too; leave unset for the engines' defaults |
+
+The api SA (`tt-api-sa`) already has `roles/storage.objectAdmin` on the bucket (read the run's
+reference images and the person photo, write `…/variants/…`) and `roles/aiplatform.user`
+(image + image-QA model calls); nothing else is needed. No table or migration. Deploy the
+api, then the web (pin both, see Step 8); check for in-flight runs first, since a new api
+revision kills detached runs and variant renders (an interrupted variant reads `failed` /
+"interrupted" and can be retried):
+
+```bash
+gcloud run services update trend-trawler-api --region us-central1 \
+  --update-env-vars VARIANT_RENDER_CONCURRENCY=1,VARIANT_DAILY_CAP=10
+```
+
+The refactor that made renders callable outside a `ToolContext` also touches
+`creative_agent/image_tools.py` (behaviour-identical, golden-tested in
+`tests/test_render_parity.py`), so redeploy the creative engines with the same PR to keep
+them on the shared code. These variables are api-only (not in `deploy_agent.py`'s
+`ENV_VAR_DICT`).
 
 ## Creative quality: migrations + knobs
 

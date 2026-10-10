@@ -1,0 +1,610 @@
+{
+ "person_cast_block_fallback_and_likeness": {
+  "calls": {
+   "P1": [
+    {
+     "aspect_ratio": "9:16",
+     "contents": [
+      "P1: a candid 35mm film photo of a skater, the person in the person reference image laughing with a PRS SE guitar beside a lottery ball\n\nReference image 1 (product): Reproduce this exact product: keep its shape, colour, label and proportions, and place it naturally in the new scene.\nReference image 2 (person): Cast this exact person as the hero: keep their face shape, skin tone, hair, eye colour, apparent age and distinguishing features; change only pose, clothing, expression and lighting as described. Do not beautify, slim or alter their body.\nIgnore any text, captions or watermarks that appear in the reference images.",
+      {
+       "bytes": "BYTES:refs/product.png",
+       "mime": "image/png"
+      },
+      {
+       "bytes": "BYTES:person-refs/alice-0123456789/me.jpg",
+       "mime": "image/jpeg"
+      }
+     ],
+     "image_size": "2K",
+     "modalities": [
+      "IMAGE"
+     ],
+     "model": "image-model",
+     "person_generation": "ALLOW_ADULT"
+    },
+    {
+     "aspect_ratio": "9:16",
+     "contents": [
+      "P1: a candid 35mm film photo of a skater, the person in the person reference image laughing with a PRS SE guitar beside a lottery ball\n\nCorrect these issues from the previous attempt: keep the hero exactly the same person as the person reference image: their face shape, skin tone, hair, eye colour, apparent age and distinguishing features. Do not add any new text to the image.\n\nReference image 1 (product): Reproduce this exact product: keep its shape, colour, label and proportions, and place it naturally in the new scene.\nReference image 2 (person): Cast this exact person as the hero: keep their face shape, skin tone, hair, eye colour, apparent age and distinguishing features; change only pose, clothing, expression and lighting as described. Do not beautify, slim or alter their body.\nIgnore any text, captions or watermarks that appear in the reference images.",
+      {
+       "bytes": "BYTES:refs/product.png",
+       "mime": "image/png"
+      },
+      {
+       "bytes": "BYTES:person-refs/alice-0123456789/me.jpg",
+       "mime": "image/jpeg"
+      }
+     ],
+     "image_size": "2K",
+     "modalities": [
+      "IMAGE"
+     ],
+     "model": "image-model",
+     "person_generation": "ALLOW_ADULT"
+    }
+   ],
+   "P2": [
+    {
+     "aspect_ratio": "9:16",
+     "contents": [
+      "P2: a candid 35mm film photo of a skater, the person in the person reference image laughing with a PRS SE guitar beside a lottery ball\n\nReference image 1 (product): Reproduce this exact product: keep its shape, colour, label and proportions, and place it naturally in the new scene.\nReference image 2 (person): Cast this exact person as the hero: keep their face shape, skin tone, hair, eye colour, apparent age and distinguishing features; change only pose, clothing, expression and lighting as described. Do not beautify, slim or alter their body.\nIgnore any text, captions or watermarks that appear in the reference images.",
+      {
+       "bytes": "BYTES:refs/product.png",
+       "mime": "image/png"
+      },
+      {
+       "bytes": "BYTES:person-refs/alice-0123456789/me.jpg",
+       "mime": "image/jpeg"
+      }
+     ],
+     "image_size": "2K",
+     "modalities": [
+      "IMAGE"
+     ],
+     "model": "image-model",
+     "person_generation": "ALLOW_ADULT"
+    },
+    {
+     "aspect_ratio": "9:16",
+     "contents": [
+      "P2: a candid 35mm film photo of a skater, a person laughing with a PRS SE guitar beside a lottery ball\n\nReference image 1 (product): Reproduce this exact product: keep its shape, colour, label and proportions, and place it naturally in the new scene.\nIgnore any text, captions or watermarks that appear in the reference images.",
+      {
+       "bytes": "BYTES:refs/product.png",
+       "mime": "image/png"
+      }
+     ],
+     "image_size": "2K",
+     "modalities": [
+      "IMAGE"
+     ],
+     "model": "image-model",
+     "person_generation": null
+    }
+   ],
+   "P3": [
+    {
+     "aspect_ratio": "9:16",
+     "contents": [
+      "P3: a flat cartoon PRS SE guitar\n\nReference image 1 (product): Reproduce this exact product: keep its shape, colour, label and proportions, and place it naturally in the new scene.\nIgnore any text, captions or watermarks that appear in the reference images.",
+      {
+       "bytes": "BYTES:refs/product.png",
+       "mime": "image/png"
+      }
+     ],
+     "image_size": "2K",
+     "modalities": [
+      "IMAGE"
+     ],
+     "model": "image-model",
+     "person_generation": null
+    }
+   ]
+  },
+  "qa_calls": {
+   "P1": [
+    {
+     "brand": "PRS",
+     "casts": true,
+     "concept": "P1",
+     "image": "img-P1-1",
+     "logo": false,
+     "model": "qa-model",
+     "person_image": [
+      "BYTES:person-refs/alice-0123456789/me.jpg",
+      "image/jpeg"
+     ],
+     "product": "PRS SE guitar",
+     "prompt": "P1: a candid 35mm film photo of a skater, the person in the person reference image laughing with a PRS SE guitar beside a lottery ball",
+     "strictness": []
+    },
+    {
+     "brand": "PRS",
+     "casts": true,
+     "concept": "P1",
+     "image": "img-P1-2",
+     "logo": false,
+     "model": "qa-model",
+     "person_image": [
+      "BYTES:person-refs/alice-0123456789/me.jpg",
+      "image/jpeg"
+     ],
+     "product": "PRS SE guitar",
+     "prompt": "P1: a candid 35mm film photo of a skater, the person in the person reference image laughing with a PRS SE guitar beside a lottery ball",
+     "strictness": []
+    }
+   ],
+   "P2": [
+    {
+     "brand": "PRS",
+     "casts": false,
+     "concept": "P2",
+     "image": "img-P2-2",
+     "logo": false,
+     "model": "qa-model",
+     "person_image": null,
+     "product": "PRS SE guitar",
+     "prompt": "P2: a candid 35mm film photo of a skater, a person laughing with a PRS SE guitar beside a lottery ball",
+     "strictness": []
+    }
+   ],
+   "P3": [
+    {
+     "brand": "PRS",
+     "casts": null,
+     "concept": "P3",
+     "image": "img-P3-1",
+     "logo": false,
+     "model": "qa-model",
+     "person_image": null,
+     "product": "PRS SE guitar",
+     "prompt": "P3: a flat cartoon PRS SE guitar",
+     "strictness": []
+    }
+   ]
+  },
+  "result": {
+   "message": "Saved img artifacts: ['P1.png', 'P2.png', 'P3.png'] to `gs://b/f/d`",
+   "status": "success"
+  },
+  "state": {
+   "_generated_artifact_keys": [
+    "P1.png",
+    "P2.png",
+    "P3.png"
+   ],
+   "generated_images": {
+    "P1": {
+     "artifact_key": "P1.png",
+     "attempts": 2,
+     "cast": true,
+     "consent_id": "consent-1",
+     "gcs_uri": "gs://b/P1.png",
+     "qa": {
+      "artifacts": false,
+      "brand_cue_visible": true,
+      "failures": [],
+      "gibberish_text": false,
+      "issues": [],
+      "motif_visible": true,
+      "passed": true,
+      "person_cast": null,
+      "person_distorted": false,
+      "person_likeness": null,
+      "product_malformed": false,
+      "product_visible": true,
+      "text_exact": true,
+      "text_expected": false,
+      "text_legible": true,
+      "unrequested_logos": false,
+      "unsafe": false
+     }
+    },
+    "P2": {
+     "artifact_key": "P2.png",
+     "attempts": 1,
+     "cast": false,
+     "gcs_uri": "gs://b/P2.png",
+     "qa": {
+      "artifacts": false,
+      "brand_cue_visible": true,
+      "failures": [],
+      "gibberish_text": false,
+      "issues": [],
+      "motif_visible": true,
+      "passed": true,
+      "person_cast": null,
+      "person_distorted": false,
+      "person_likeness": null,
+      "product_malformed": false,
+      "product_visible": true,
+      "text_exact": true,
+      "text_expected": false,
+      "text_legible": true,
+      "unrequested_logos": false,
+      "unsafe": false
+     }
+    },
+    "P3": {
+     "artifact_key": "P3.png",
+     "attempts": 1,
+     "cast": false,
+     "gcs_uri": "gs://b/P3.png",
+     "qa": {
+      "artifacts": false,
+      "brand_cue_visible": true,
+      "failures": [],
+      "gibberish_text": false,
+      "issues": [],
+      "motif_visible": true,
+      "passed": true,
+      "person_cast": null,
+      "person_distorted": false,
+      "person_likeness": null,
+      "product_malformed": false,
+      "product_visible": true,
+      "text_exact": true,
+      "text_expected": false,
+      "text_legible": true,
+      "unrequested_logos": false,
+      "unsafe": false
+     }
+    }
+   },
+   "person_reference__issues": [
+    "P2: person photo rejected by the safety filter; rendered without the person"
+   ],
+   "person_reference_rejected": {
+    "P2": "image_safety"
+   }
+  },
+  "uploads": [
+   [
+    "P1.png",
+    "img-P1-2"
+   ],
+   [
+    "P2.png",
+    "img-P2-2"
+   ],
+   [
+    "P3.png",
+    "img-P3-1"
+   ]
+  ]
+ },
+ "qa_off_photo_unavailable": {
+  "calls": {
+   "U1": [
+    {
+     "aspect_ratio": "9:16",
+     "contents": "U1: a candid 35mm film photo of a skater, a person laughing with a PRS SE guitar beside a lottery ball",
+     "image_size": "2K",
+     "modalities": [
+      "IMAGE"
+     ],
+     "model": "image-model",
+     "person_generation": null
+    }
+   ],
+   "U2": [
+    {
+     "aspect_ratio": "9:16",
+     "contents": "U2: a PRS SE guitar beside a lottery ball",
+     "image_size": "2K",
+     "modalities": [
+      "IMAGE"
+     ],
+     "model": "image-model",
+     "person_generation": null
+    }
+   ]
+  },
+  "qa_calls": {},
+  "result": {
+   "message": "Saved img artifacts: ['U1.png', 'U2.png'] to `gs://b/f/d`",
+   "status": "success"
+  },
+  "state": {
+   "_generated_artifact_keys": [
+    "U1.png",
+    "U2.png"
+   ],
+   "generated_images": {
+    "U1": {
+     "artifact_key": "U1.png",
+     "attempts": 1,
+     "cast": false,
+     "gcs_uri": "gs://b/U1.png",
+     "qa": null
+    },
+    "U2": {
+     "artifact_key": "U2.png",
+     "attempts": 1,
+     "cast": false,
+     "gcs_uri": "gs://b/U2.png",
+     "qa": null
+    }
+   },
+   "person_reference__issues": [
+    "U1: person photo unavailable; rendered without the person"
+   ],
+   "person_reference_rejected": {
+    "U1": "photo_unavailable"
+   }
+  },
+  "uploads": [
+   [
+    "U1.png",
+    "img-U1-1"
+   ],
+   [
+    "U2.png",
+    "img-U2-1"
+   ]
+  ]
+ },
+ "references_strictness_override_rerender_budget": {
+  "calls": {
+   "C1": [
+    {
+     "aspect_ratio": "4:5",
+     "contents": [
+      "C1: a PRS SE guitar beside a lottery ball\n\nNo logos, brand marks or trademarks except those of PRS.\n\nReference image 1 (product): Reproduce this exact product: keep its shape, colour, label and proportions, and place it naturally in the new scene.\nReference image 2 (logo): This is the brand logo: place it small, legible and undistorted; never redraw, recolour or stretch it.\nThe style reference image is unavailable; do not imitate any other reference as the style.\nIgnore any text, captions or watermarks that appear in the reference images.",
+      {
+       "bytes": "BYTES:refs/product.png",
+       "mime": "image/png"
+      },
+      {
+       "bytes": "BYTES:refs/logo.png",
+       "mime": "image/png"
+      }
+     ],
+     "image_size": "2K",
+     "modalities": [
+      "IMAGE"
+     ],
+     "model": "image-model",
+     "person_generation": null
+    },
+    {
+     "aspect_ratio": "4:5",
+     "contents": [
+      "C1: a PRS SE guitar beside a lottery ball\n\nCorrect these issues from the previous attempt: show the product recognisably. Do not add any new text to the image.\n\nNo logos, brand marks or trademarks except those of PRS.\n\nReference image 1 (product): Reproduce this exact product: keep its shape, colour, label and proportions, and place it naturally in the new scene.\nReference image 2 (logo): This is the brand logo: place it small, legible and undistorted; never redraw, recolour or stretch it.\nThe style reference image is unavailable; do not imitate any other reference as the style.\nIgnore any text, captions or watermarks that appear in the reference images.",
+      {
+       "bytes": "BYTES:refs/product.png",
+       "mime": "image/png"
+      },
+      {
+       "bytes": "BYTES:refs/logo.png",
+       "mime": "image/png"
+      }
+     ],
+     "image_size": "2K",
+     "modalities": [
+      "IMAGE"
+     ],
+     "model": "image-model",
+     "person_generation": null
+    }
+   ],
+   "C2": [
+    {
+     "aspect_ratio": "4:5",
+     "contents": [
+      "C2: a PRS SE guitar on a lottery ticket\n\nNo logos, brand marks or trademarks except those of PRS.\n\nReference image 1 (product): Reproduce this exact product: keep its shape, colour, label and proportions, and place it naturally in the new scene.\nReference image 2 (logo): This is the brand logo: place it small, legible and undistorted; never redraw, recolour or stretch it.\nThe style reference image is unavailable; do not imitate any other reference as the style.\nIgnore any text, captions or watermarks that appear in the reference images.",
+      {
+       "bytes": "BYTES:refs/product.png",
+       "mime": "image/png"
+      },
+      {
+       "bytes": "BYTES:refs/logo.png",
+       "mime": "image/png"
+      }
+     ],
+     "image_size": "2K",
+     "modalities": [
+      "IMAGE"
+     ],
+     "model": "image-model",
+     "person_generation": null
+    }
+   ],
+   "C3": [
+    {
+     "aspect_ratio": "4:5",
+     "contents": [
+      "C3: a PRS SE guitar under lottery lights\n\nNo logos, brand marks or trademarks except those of PRS.\n\nReference image 1 (product): Reproduce this exact product: keep its shape, colour, label and proportions, and place it naturally in the new scene.\nReference image 2 (logo): This is the brand logo: place it small, legible and undistorted; never redraw, recolour or stretch it.\nThe style reference image is unavailable; do not imitate any other reference as the style.\nIgnore any text, captions or watermarks that appear in the reference images.",
+      {
+       "bytes": "BYTES:refs/product.png",
+       "mime": "image/png"
+      },
+      {
+       "bytes": "BYTES:refs/logo.png",
+       "mime": "image/png"
+      }
+     ],
+     "image_size": "2K",
+     "modalities": [
+      "IMAGE"
+     ],
+     "model": "image-model",
+     "person_generation": null
+    }
+   ]
+  },
+  "qa_calls": {
+   "C1": [
+    {
+     "brand": "PRS",
+     "casts": null,
+     "concept": "C1",
+     "image": "img-C1-1",
+     "logo": true,
+     "model": "qa-model",
+     "person_image": null,
+     "product": "PRS SE guitar",
+     "prompt": "C1: a PRS SE guitar beside a lottery ball",
+     "strictness": [
+      "product_not_visible",
+      "unwanted_logo"
+     ]
+    },
+    {
+     "brand": "PRS",
+     "casts": null,
+     "concept": "C1",
+     "image": "img-C1-2",
+     "logo": true,
+     "model": "qa-model",
+     "person_image": null,
+     "product": "PRS SE guitar",
+     "prompt": "C1: a PRS SE guitar beside a lottery ball",
+     "strictness": [
+      "product_not_visible",
+      "unwanted_logo"
+     ]
+    }
+   ],
+   "C2": [
+    {
+     "brand": "PRS",
+     "casts": null,
+     "concept": "C2",
+     "image": "img-C2-1",
+     "logo": true,
+     "model": "qa-model",
+     "person_image": null,
+     "product": "PRS SE guitar",
+     "prompt": "C2: a PRS SE guitar on a lottery ticket",
+     "strictness": [
+      "product_not_visible",
+      "unwanted_logo"
+     ]
+    }
+   ],
+   "C3": [
+    {
+     "brand": "PRS",
+     "casts": null,
+     "concept": "C3",
+     "image": "img-C3-1",
+     "logo": true,
+     "model": "qa-model",
+     "person_image": null,
+     "product": "PRS SE guitar",
+     "prompt": "C3: a PRS SE guitar under lottery lights",
+     "strictness": [
+      "product_not_visible",
+      "unwanted_logo"
+     ]
+    }
+   ]
+  },
+  "result": {
+   "message": "Saved img artifacts: ['C1.png', 'C2.png', 'C3.png'] to `gs://b/f/d`",
+   "status": "success"
+  },
+  "state": {
+   "_generated_artifact_keys": [
+    "C1.png",
+    "C2.png",
+    "C3.png"
+   ],
+   "generated_images": {
+    "C1": {
+     "artifact_key": "C1.png",
+     "attempts": 2,
+     "gcs_uri": "gs://b/C1.png",
+     "qa": {
+      "artifacts": false,
+      "brand_cue_visible": true,
+      "failures": [],
+      "gibberish_text": false,
+      "issues": [],
+      "motif_visible": true,
+      "passed": true,
+      "person_cast": null,
+      "person_distorted": false,
+      "person_likeness": null,
+      "product_malformed": false,
+      "product_visible": true,
+      "text_exact": true,
+      "text_expected": false,
+      "text_legible": true,
+      "unrequested_logos": false,
+      "unsafe": false
+     }
+    },
+    "C2": {
+     "artifact_key": "C2.png",
+     "attempts": 1,
+     "gcs_uri": "gs://b/C2.png",
+     "qa": {
+      "artifacts": true,
+      "brand_cue_visible": true,
+      "failures": [
+       "warped neck"
+      ],
+      "gibberish_text": false,
+      "issues": [
+       "warped neck"
+      ],
+      "motif_visible": true,
+      "passed": false,
+      "person_cast": null,
+      "person_distorted": false,
+      "person_likeness": null,
+      "product_malformed": false,
+      "product_visible": true,
+      "text_exact": true,
+      "text_expected": false,
+      "text_legible": true,
+      "unrequested_logos": false,
+      "unsafe": false
+     }
+    },
+    "C3": {
+     "artifact_key": "C3.png",
+     "attempts": 1,
+     "gcs_uri": "gs://b/C3.png",
+     "qa": {
+      "artifacts": false,
+      "brand_cue_visible": true,
+      "failures": [],
+      "gibberish_text": false,
+      "issues": [],
+      "motif_visible": true,
+      "passed": true,
+      "person_cast": null,
+      "person_distorted": false,
+      "person_likeness": null,
+      "product_malformed": false,
+      "product_visible": true,
+      "text_exact": true,
+      "text_expected": false,
+      "text_legible": true,
+      "unrequested_logos": false,
+      "unsafe": false
+     }
+    }
+   },
+   "image_qa__issues": [
+    "C2: warped neck (re-render budget reached)"
+   ]
+  },
+  "uploads": [
+   [
+    "C1.png",
+    "img-C1-2"
+   ],
+   [
+    "C2.png",
+    "img-C2-1"
+   ],
+   [
+    "C3.png",
+    "img-C3-1"
+   ]
+  ]
+ }
+}

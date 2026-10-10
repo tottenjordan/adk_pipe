@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   ARM_COLORS,
   armColor,
+  CAST_NOT_DEPLOYABLE,
+  creativeDeployBlockedReason,
   deployBlockedReason,
   selectionColors,
   selectionToPayload,
@@ -111,5 +113,17 @@ describe("deployBlockedReason", () => {
   });
   it("blocks stopped-early runs", () => {
     expect(deployBlockedReason(3, true)).toMatch(/stopped early/);
+  });
+});
+
+describe("creativeDeployBlockedReason", () => {
+  it("disables cast creatives with the reason, like the api's cast_creative refusal", () => {
+    expect(creativeDeployBlockedReason({ casting: { cast: true } })).toBe(CAST_NOT_DEPLOYABLE);
+    expect(CAST_NOT_DEPLOYABLE).toMatch(/person/);
+  });
+  it("allows uncast creatives, rejected casts and runs without a person", () => {
+    expect(creativeDeployBlockedReason({})).toBeNull();
+    expect(creativeDeployBlockedReason({ casting: undefined })).toBeNull();
+    expect(creativeDeployBlockedReason({ casting: { cast: false } })).toBeNull();
   });
 });
