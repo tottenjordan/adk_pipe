@@ -77,6 +77,8 @@ def _get_client(config: EvalConfig) -> genai.Client:
 
 NO_BRIEF_NOTE = "no brief"
 NOT_REPORTED_NOTE = "not checked (the judge did not report it)"
+# A PERSON_GATES gate the judge left out for a cast concept: failed, not passed.
+NOT_CHECKED_NOTE = "not checked"
 NO_GATES_NOTE = "judge returned no gates"
 NO_PERSON_CAST_NOTE = "no person cast"
 
@@ -126,6 +128,10 @@ def normalize_gates(
                     advisory=advisory,
                 )
             )
+        elif name in PERSON_GATES:
+            # A real cast person must be checked: an omission fails (unverified).
+            logger.warning("judge did not report gate %r for a cast person", name)
+            out.append(GateResult(gate=name, passed=False, note=NOT_CHECKED_NOTE))
         else:
             logger.warning("judge did not report gate %r", name)
             out.append(
@@ -522,17 +528,22 @@ def unreported_gates_warning(
     """The report ``warnings`` entry counting gates the judge left out ([] if none).
 
     Such gates pass as "not checked" (see :func:`normalize_gates`); the
-    warning keeps that leniency visible.
+    warning keeps that leniency visible. A person gate left out for a cast
+    concept fails instead and gets its own entry.
     """
-    count = sum(
-        g.note == NOT_REPORTED_NOTE
-        for e in [*ad_evals, *visual_evals]
-        for g in e.score.gates
-    )
-    if not count:
-        return []
-    noun = "check" if count == 1 else "checks"
-    return [f"{count} {noun} not reported by the judge (passed as not checked)"]
+    gates = [g for e in [*ad_evals, *visual_evals] for g in e.score.gates]
+    out = []
+    count = sum(g.note == NOT_REPORTED_NOTE for g in gates)
+    if count:
+        noun = "check" if count == 1 else "checks"
+        out.append(f"{count} {noun} not reported by the judge (passed as not checked)")
+    failed = sum(g.note == NOT_CHECKED_NOTE and g.gate in PERSON_GATES for g in gates)
+    if failed:
+        noun = "check" if failed == 1 else "checks"
+        out.append(
+            f"{failed} person {noun} not reported by the judge (failed as not checked)"
+        )
+    return out
 
 
 def judge_warnings(

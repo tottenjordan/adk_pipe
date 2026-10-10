@@ -83,6 +83,38 @@ def test_cast_concept_keeps_the_judges_verdict():
     assert gate.passed is False and gate.note == "mocked"
 
 
+def test_cast_concept_missing_the_gate_fails_not_checked():
+    from creative_eval.evaluate import NOT_CHECKED_NOTE
+
+    raw = [GateResult(gate=g, passed=True) for g in VISUAL_GATES if g != GATE]
+    gates = normalize_gates(raw, VISUAL_GATES, brief_used=True, person_cast=True)
+    gate = next(g for g in gates if g.gate == GATE)
+    assert gate.passed is False and gate.note == NOT_CHECKED_NOTE
+    from creative_eval.evaluate import unreported_gates_warning
+    from creative_eval.schemas import CreativeScore, VisualConceptEvaluation
+
+    ev = VisualConceptEvaluation(
+        ad_copy_id=1,
+        concept_name="Hero",
+        score=CreativeScore(
+            overall_score=0.9,
+            passed=False,
+            verdicts=[],
+            strengths=[],
+            improvements=[],
+            gates=gates,
+            gates_passed=False,
+        ),
+    )
+    assert unreported_gates_warning([], [ev]) == [
+        "1 person check not reported by the judge (failed as not checked)"
+    ]
+    # Uncast: still the forced pass.
+    gates = normalize_gates(raw, VISUAL_GATES, brief_used=True)
+    gate = next(g for g in gates if g.gate == GATE)
+    assert gate.passed is True and gate.note == NO_PERSON_CAST_NOTE
+
+
 def _judge(gate_passed: bool) -> MagicMock:
     body = {
         "ad_copy_id": 1,
