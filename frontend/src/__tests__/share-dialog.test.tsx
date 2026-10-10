@@ -122,7 +122,8 @@ describe("ShareDialog", () => {
     ["too_many_shares", 429, /too many active links/i],
     ["shares_unconfigured", 503, /isn't set up/i],
     ["session_not_found", 404, /could not be found/i],
-    ["image_outside_bucket", 400, /project bucket/i],
+    ["image_outside_bucket", 400, /output folder/i],
+    ["person_consent_changed", 409, /consent changed/i],
   ])("shows a friendly inline error for %s", async (reason, status, message) => {
     createShare.mockRejectedValue(new ShareError(reason, status));
     render(<ShareDialog appName="creative_agent" sessionId="s1" triggerLabel="Share slate" />);

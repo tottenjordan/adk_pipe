@@ -20,8 +20,13 @@ def creative_report() -> dict:
     return json.loads((FIXTURES / "creative-eval-report.json").read_text())
 
 
+# The fixture state's own output folder ({gcs_folder}/{agent_output_dir}/), where
+# the run's renders live (shares copy images only from there).
+OUTPUT_PREFIX = "2026_07_16_23_51_47c9/creative_output/"
+
+
 def image_uri(i: int, bucket: str = BUCKET) -> str:
-    return f"gs://{bucket}/creative_agent/run/images/{i}.png"
+    return f"gs://{bucket}/{OUTPUT_PREFIX}{i}.png"
 
 
 def creative_state(*, with_report: bool = True, with_images: bool = True) -> dict:

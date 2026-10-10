@@ -52,7 +52,9 @@ const MESSAGES: Record<string, string> = {
   person_not_shareable:
     "This creative shows a person whose consent doesn't cover public links, so it can't be shared.",
   consent_unavailable: "Couldn't check the consent of the people shown. Try again shortly.",
-  image_outside_bucket: "These images aren't stored in the project bucket, so they can't be shared.",
+  person_consent_changed:
+    "A person's consent changed while the link was being created, so it wasn't shared. Try again.",
+  image_outside_bucket: "These images aren't stored in this run's output folder, so they can't be shared.",
   session_not_found: "This run could not be found.",
   share_not_found: "This link no longer exists.",
   too_many_shares: "You have too many active links. Revoke one you no longer need, then try again.",

@@ -74,7 +74,7 @@ describe("share helpers", () => {
     for (const reason of [
       "invalid_app_name", "invalid_concept_names", "invalid_include_eval", "unknown_concept", "no_images",
       "image_outside_bucket", "session_not_found", "share_not_found", "too_many_shares", "share_failed",
-      "store_failed", "revoke_incomplete", "shares_unconfigured", "consent_unavailable",
+      "store_failed", "revoke_incomplete", "shares_unconfigured", "consent_unavailable", "person_consent_changed",
     ]) {
       const msg = shareErrorMessage(reason, 400);
       expect(msg).not.toMatch(/_/);
