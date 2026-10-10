@@ -25,7 +25,8 @@ Script: `experiments/person_reference/calibrate.py`; summary: `experiments/perso
 
 - **Go.** Likeness and block rate are well inside the go rule (likeness ≥ 60%, blocks ≤ 20%).
 - `PERSON_SAFE_STYLES` = Candid 35mm film photo, Photoreal / editorial, Cinematic film still
-  (the photographic group; illustrated and graphic families stay excluded until calibrated).
+  (the photographic group; illustrated and graphic families stay excluded until calibrated —
+  four illustrated families were added on 2026-10-10, see below).
 - `MAX_CAST_CONCEPTS` = 2 (unchanged: set diversity, not likeness, is the limit).
 - Close-up framing is **not** required (mid shots held likeness), but the face must stay clearly visible.
 - Send `person_generation="ALLOW_ADULT"` on person renders.
@@ -38,3 +39,37 @@ Script: `experiments/person_reference/calibrate.py`; summary: `experiments/perso
 - The likeness verdict comes from a Gemini model judging a Gemini render; the manual spot check
   agreed, but it is not an independent face-recognition measure (deliberately: no biometrics).
 - Celebrity/minor filter behaviour was not exercised (no such photos by design).
+
+## Illustrated styles (2026-10-10)
+
+Same script, model, likeness check and the same 2 consented adult photos, now 4 illustrated
+families (3D character render, Comic panel, 2D flat / vector cartoon, Collage / mixed-media)
+× 2 framings (close, mid) × with/without `ALLOW_ADULT`: 32 renders.
+
+| Measure | Result |
+|---|---|
+| Errors | 0 / 32 |
+| Safety-filter blocks | 0 / 32 |
+| Likeness (vision check), overall | 94% |
+| 3D character render | 88% |
+| Comic panel | 100% |
+| 2D flat / vector cartoon | 88% |
+| Collage / mixed-media | 100% |
+| By framing | close 94%, mid 94% |
+| Manual spot check | comic and collage: clear likeness; 3D and flat cartoon: recognisable but looser (stylised) |
+
+The 2 misses: a flat-cartoon mid shot with minimal facial detail, and a 3D close-up with
+generic cartoon features.
+
+**Decision:** all four families clear the 70% bar and are added to the default
+`PERSON_SAFE_STYLES` (now 7 families). The hard-coded "never in comic" casting rule is gone
+(meme, isometric and product-only stay refused; the safe-style list decides comic). When the
+safe styles include an illustrated family, the casting rules add one line asking for the
+person's distinctive features (face shape, hairline, hair colour, skin tone, facial hair,
+glasses) rather than a generic cartoon face.
+
+**Caveats:** likeness is looser in 3D and flat cartoon (the misses above); the image-QA
+likeness check and its bounded re-render remain the backstop. Same small, homogeneous sample
+as the photographic spike (2 adult men with light skin, one setting), with the same
+Gemini-judging-Gemini limitation. Narrow the list with `PERSON_SAFE_STYLES` if QA likeness
+failures rise for a style.

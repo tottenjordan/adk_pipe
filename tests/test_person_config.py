@@ -19,6 +19,11 @@ def test_calibrated_defaults():
         "Candid 35mm film photo",
         "Photoreal / editorial",
         "Cinematic film still",
+        # Illustrated styles calibrated 2026-10-10 (>= 88% likeness).
+        "3D character render",
+        "Comic panel",
+        "2D flat / vector cartoon",
+        "Collage / mixed-media",
     )
     assert DEFAULT_MAX_CAST_CONCEPTS == 2
     assert parse_person_safe_styles(None) == DEFAULT_PERSON_SAFE_STYLES
@@ -37,6 +42,28 @@ def test_safe_styles_parse_canonical_names_only():
     # Blank or only-unknown → the calibrated default.
     assert parse_person_safe_styles("") == DEFAULT_PERSON_SAFE_STYLES
     assert parse_person_safe_styles("nope, zilch") == DEFAULT_PERSON_SAFE_STYLES
+
+
+def test_default_safe_styles_are_canonical():
+    from creative_agent.style_shortlist import canonical_style
+
+    for style in DEFAULT_PERSON_SAFE_STYLES:
+        assert canonical_style(style) == style, style
+    assert parse_person_safe_styles(",".join(DEFAULT_PERSON_SAFE_STYLES)) == (
+        DEFAULT_PERSON_SAFE_STYLES
+    )
+
+
+def test_deploy_default_matches_config_default():
+    import os
+
+    import pytest
+
+    import deployment.deploy_agent as da
+
+    if os.getenv("PERSON_SAFE_STYLES"):
+        pytest.skip("PERSON_SAFE_STYLES is set in the environment")
+    assert da.ENV_VAR_DICT["PERSON_SAFE_STYLES"] == ",".join(DEFAULT_PERSON_SAFE_STYLES)
 
 
 def test_max_cast_is_clamped():

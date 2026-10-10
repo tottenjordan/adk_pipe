@@ -155,10 +155,45 @@ def test_person_casting_rules_wording():
     assert "name the hero's role" in rules
     assert "never their face, age, ethnicity or body" in rules
     assert "real-person, tragedy or crisis trends" in rules
-    assert "meme, comic, isometric or product-only" in rules
+    assert "never in meme, isometric or product-only concepts" in rules
     assert "`casts_person_reference`" in rules and "`person_casting_reason`" in rules
     assert "face is clearly visible" in rules
     assert "keep both fields" in rules
+
+
+ILLUSTRATED_LINE = (
+    "In an illustrated style, keep the person's distinctive features recognisable "
+    "(face shape, hairline, hair colour, skin tone, facial hair, glasses) rather "
+    "than a generic cartoon face."
+)
+PHOTOGRAPHIC = (
+    "Candid 35mm film photo",
+    "Photoreal / editorial",
+    "Cinematic film still",
+)
+
+
+def test_person_casting_rules_illustrated_line_only_with_illustrated_styles():
+    photographic = prompts.build_person_casting_rules(PHOTOGRAPHIC, 2)
+    assert ILLUSTRATED_LINE not in photographic
+    assert "comic" not in photographic.lower()
+    illustrated = prompts.build_person_casting_rules(
+        ("Photoreal / editorial", "Comic panel"), 1
+    )
+    assert ILLUSTRATED_LINE in illustrated
+    assert "{" not in illustrated and "}" not in illustrated
+    assert "at most 1 of the 4 concepts" in illustrated
+    assert "is one of: Photoreal / editorial; Comic panel, and" in illustrated
+    assert "never in meme, isometric or product-only concepts" in illustrated
+
+
+def test_default_person_casting_rules_include_the_illustrated_line():
+    from creative_agent.config import config
+
+    assert ILLUSTRATED_LINE in prompts.PERSON_CASTING_RULES
+    assert prompts.PERSON_CASTING_RULES == prompts.build_person_casting_rules(
+        config.person_safe_styles, config.max_cast_concepts
+    )
 
 
 def test_interactive_reviser_keeps_brand_cue_and_angle_id():
