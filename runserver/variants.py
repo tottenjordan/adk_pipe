@@ -23,7 +23,10 @@ Storage is deliberately separate from the run's creatives:
 identical request whose render is ``done`` returns the cached variant.
 Statuses: ``queued`` → ``rendering`` → ``done`` | ``failed`` | ``rejected``
 (a safety filter blocked the person photo; unlike a base run there is no
-person-less fallback, since the point of a variant is the person).
+person-less fallback, since the point of a variant is the person). The consent is
+re-checked right before upload (revoked mid-render → ``failed`` /
+``consent_revoked``, nothing stored). A variant needs a finished run
+(``finalize_done``) with a rendered base image (409 ``concept_not_ready``).
 
 Quota: variants share the image model's ~2 images/min with live runs, so renders
 run as detached tasks behind a process-wide ``asyncio.Semaphore``
