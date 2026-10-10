@@ -170,6 +170,59 @@ def test_snapshot_arms_rejects_bad_selection(indices, reason):
     assert e.value.reason == reason
 
 
+def test_person_variants_never_change_the_arms():
+    state = _fixture_state()
+    before = ex.snapshot_arms(state, "s", [0, 1, 2, 3])
+    state["person_variants"] = {
+        "The Golden Golf Cart Gig": {
+            "abc123abc123": {
+                "status": "done",
+                "gcs_uri": "gs://b/run/creative_output/variants/me-1/x/abc123abc123.png",
+                "consent_id": "consent-1",
+            }
+        }
+    }
+    assert ex.snapshot_arms(state, "s", [0, 1, 2, 3]) == before
+
+
+def test_cast_creatives_are_refused():
+    state = _fixture_state()
+    state["generated_images"] = {
+        "The Golden Golf Cart Gig": {"gcs_uri": "gs://b/x.png", "cast": False},
+        "Nihilistic Retirement Plan": {"gcs_uri": "gs://b/y.png", "cast": True},
+    }
+    assert len(ex.snapshot_arms(state, "s", [0, 2])) == 2  # cast False is fine
+    with pytest.raises(ex.SelectionError) as e:
+        ex.snapshot_arms(state, "s", [0, 1])
+    assert e.value.reason == "cast_creative"
+    assert "Nihilistic Retirement Plan" in str(e.value)
+
+
+def test_person_image_uris_are_refused():
+    assert ex._is_person_image("gs://b/run/out/variants/me-1/c/k.png")
+    assert ex._is_person_image("gs://b/person-refs/me-1/me.jpg")
+    assert not ex._is_person_image("gs://b/run/out/variants.png")
+    assert not ex._is_person_image(None)
+    state = _fixture_state()
+    state["agent_output_dir"] = "variants"
+    with pytest.raises(ex.SelectionError) as e:
+        ex.snapshot_arms(state, "s", [0, 1])
+    assert e.value.reason == "person_image"
+
+
+def test_deploy_refuses_a_cast_creative():
+    async def go():
+        h = Harness()
+        state = _fixture_state()
+        state["generated_images"] = {"The Golden Golf Cart Gig": {"cast": True}}
+        await h.session(state=state)
+        r = await h.create(indices=(0, 1))
+        assert r.status_code == 400
+        assert r.json()["detail"]["reason"] == "cast_creative"
+
+    run(go)
+
+
 def test_build_experiment_config_matches_section_1_shape():
     state = _fixture_state()
     arms = ex.snapshot_arms(state, "s", [0, 1])

@@ -940,6 +940,19 @@ export function hasOverrides(ov: ScenarioOverrides | null | undefined): ov is Sc
   return Boolean(ov && Object.values(ov).some((v) => v !== undefined && v !== null));
 }
 
+/** Why a creative can't be picked as an arm (shown beside its disabled checkbox). */
+export const CAST_NOT_DEPLOYABLE =
+  "Features a person, so it stays out of experiments (likeness safety).";
+
+/**
+ * Why one creative can't be deployed, or null when it can. A cast creative (rendered
+ * with the run's consented person) is excluded, matching the api's `cast_creative`
+ * refusal; personalised variant previews never appear here at all.
+ */
+export function creativeDeployBlockedReason(proof: { casting?: { cast: boolean } }): string | null {
+  return proof.casting?.cast ? CAST_NOT_DEPLOYABLE : null;
+}
+
 /** Why the Deploy button is disabled, or null when deploying is allowed. */
 export function deployBlockedReason(selectedCount: number, stoppedEarly: boolean): string | null {
   if (stoppedEarly) return "This run stopped early, so its creatives weren't all evaluated. Finish the run first.";
