@@ -184,6 +184,81 @@ def test_cast_concept_gets_person_part_and_allow_adult(monkeypatch):
 
 
 @pytest.mark.usefixtures("image_qa_off")
+def test_cast_upload_carries_the_consent_id_metadata(monkeypatch):
+    _patch(monkeypatch)
+    saves = []
+
+    def fake_save(**kw):
+        saves.append((kw["filename"], kw.get("metadata")))
+        return f"gs://b/{kw['filename']}"
+
+    monkeypatch.setattr(image_tools, "_save_to_gcs", fake_save)
+    ctx = _ctx(
+        [
+            _concept("cast", cast=True),
+            _concept("plain", cast=False, prompt="A flat cartoon skate."),
+        ],
+        person=_PERSON,
+    )
+    asyncio.run(image_tools.generate_image(ctx))
+    by_name = dict(saves)
+    cast_key = image_tools.artifact_key_for("cast")
+    plain_key = image_tools.artifact_key_for("plain")
+    # revoking the consent deletes only objects carrying its id (runserver)
+    assert by_name[cast_key] == {"consent_id": "consent-1234"}
+    assert by_name[plain_key] is None
+
+
+@pytest.mark.usefixtures("image_qa_off")
+def test_cast_render_is_not_saved_as_an_adk_artifact(monkeypatch):
+    # The revoke cascade can delete the GCS object, but not an artifact copy in the
+    # api's artifact service, so cast renders are never saved there (the results
+    # page reads the GCS image).
+    _patch(monkeypatch)
+    ctx = _ctx(
+        [
+            _concept("cast", cast=True),
+            _concept("plain", cast=False, prompt="A flat cartoon skate."),
+        ],
+        person=_PERSON,
+    )
+    saved = []
+
+    async def save_artifact(filename, artifact):
+        saved.append(filename)
+
+    ctx.save_artifact = save_artifact
+    asyncio.run(image_tools.generate_image(ctx))
+    assert saved == [image_tools.artifact_key_for("plain")]
+    # both still count as generated images (keys map to the GCS files)
+    assert ctx.state["_generated_artifact_keys"] == [
+        image_tools.artifact_key_for("cast"),
+        image_tools.artifact_key_for("plain"),
+    ]
+
+
+def test_save_to_gcs_sets_metadata_only_when_given(monkeypatch):
+    from creative_agent import gcs_tools
+
+    blobs = []
+
+    class _Blob:
+        def __init__(self):
+            self.metadata = None
+            blobs.append(self)
+
+        def upload_from_string(self, *a, **k):
+            pass
+
+    client = SimpleNamespace(bucket=lambda _n: SimpleNamespace(blob=lambda _p: _Blob()))
+    monkeypatch.setattr(gcs_tools, "_get_gcs_client", lambda: client)
+    ctx = FakeToolContext({"gcs_folder": "f", "agent_output_dir": "d"})
+    gcs_tools._save_to_gcs(ctx, b"x", "a.png", metadata={"consent_id": "c1"})
+    gcs_tools._save_to_gcs(ctx, b"x", "b.png")
+    assert [b.metadata for b in blobs] == [{"consent_id": "c1"}, None]
+
+
+@pytest.mark.usefixtures("image_qa_off")
 def test_person_part_follows_other_references(monkeypatch):
     models, _ = _patch(monkeypatch)
     ctx = _ctx([_concept("cast", cast=True)], person=_PERSON)

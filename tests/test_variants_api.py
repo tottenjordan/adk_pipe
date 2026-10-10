@@ -56,13 +56,27 @@ class FakeBlob:
             "cache_control": self.cache_control,
         }
 
+    def delete(self):
+        self.gcs.objects.pop((self.bucket, self.name), None)
+
 
 class FakeGCS:
     def __init__(self):
         self.objects: dict[tuple[str, str], dict] = {}
 
+    def _get_blob(self, name: str, path: str):
+        obj = self.objects.get((name, path))
+        if obj is None:
+            return None
+        blob = FakeBlob(self, name, path)
+        blob.metadata = obj["metadata"]
+        return blob
+
     def bucket(self, name: str):
-        return SimpleNamespace(blob=lambda path: FakeBlob(self, name, path))
+        return SimpleNamespace(
+            blob=lambda path: FakeBlob(self, name, path),
+            get_blob=lambda path: self._get_blob(name, path),
+        )
 
 
 class FakeRenderer:
@@ -93,7 +107,7 @@ class Harness:
         self.store = InMemoryPersonRefsStore()
         self.gcs = FakeGCS()
         self.renderer = renderer or FakeRenderer()
-        pr.configure(store=self.store, bucket=BUCKET)
+        pr.configure(store=self.store, bucket=BUCKET, gcs_client=self.gcs)
         vr.configure(
             session_service=self.svc,
             gcs_client=self.gcs,
@@ -232,6 +246,10 @@ def test_render_preview_happy_path_and_state_isolation(caplog):
         assert blob["data"] == b"variant" and blob["content_type"] == "image/png"
         assert blob["metadata"] == {"consent_id": "consent-aaaa"}
         assert blob["cache_control"] == "private, no-store"
+        # recorded on the consent so revoking it deletes the variant
+        assert (await h.store.get("consent-aaaa"))["person_renders"] == [
+            record["gcs_uri"]
+        ]
 
         # The renderer got the stored concept and the consent's photo.
         ((state_arg, concept_arg, photo),) = h.renderer.calls
@@ -480,6 +498,48 @@ def test_consent_revoked_during_the_render_uploads_nothing():
         record = (await h.get()).json()["variants"][CASTABLE][key]
         assert record["status"] == "failed" and record["reason"] == "consent_revoked"
         assert record["gcs_uri"] is None and h.gcs.objects == {}
+
+    run(go)
+
+
+def test_consent_revoked_during_the_upload_deletes_the_variant(monkeypatch):
+    async def go():
+        h = Harness()
+        await h.consent()
+        await h.session()
+        real_upload = vr._upload
+
+        def upload_then_revoke(*args):
+            real_upload(*args)
+            h.store.rows["consent-aaaa"]["revoked_at"] = utcnow()
+
+        monkeypatch.setattr(vr, "_upload", upload_then_revoke)
+        key = (await h.post()).json()["key"]
+        await h.settle()
+        record = (await h.get()).json()["variants"][CASTABLE][key]
+        assert record["status"] == "failed" and record["reason"] == "consent_revoked"
+        assert record["gcs_uri"] is None and h.gcs.objects == {}
+        # still recorded, so a retried consent revoke covers it too
+        assert len((await h.store.get("consent-aaaa"))["person_renders"]) == 1
+
+    run(go)
+
+
+def test_render_record_failure_uploads_nothing(monkeypatch):
+    async def go():
+        h = Harness()
+        await h.consent()
+        await h.session()
+
+        async def boom(*_a):
+            raise RuntimeError("bq down")
+
+        monkeypatch.setattr(h.store, "add_renders", boom)
+        key = (await h.post()).json()["key"]
+        await h.settle()
+        record = (await h.get()).json()["variants"][CASTABLE][key]
+        assert record["status"] == "failed" and record["reason"] == "render_error"
+        assert h.gcs.objects == {}
 
     run(go)
 

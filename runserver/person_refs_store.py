@@ -6,8 +6,9 @@ One row per ``consent_id`` (random, ``secrets.token_urlsafe``): who registered i
 (``self`` | ``third_party_with_consent``), the attestations (``adult_attested``,
 ``allow_public_share``), the ``consent_text_version`` the owner agreed to,
 ``created_at`` / ``revoked_at`` and ``person_renders`` (the ``gs://`` URIs of
-images rendered with the photo, appended by later PRs so a revoke can delete them;
-``[]`` until then). ``BigQueryPersonRefsStore`` writes with ``MERGE ... WHEN NOT
+images made with the photo: cast base renders, recorded by the api run path when a
+run segment ends, and personalised variants, recorded at upload; deduplicated,
+``add_renders``) so a revoke can delete them. ``BigQueryPersonRefsStore`` writes with ``MERGE ... WHEN NOT
 MATCHED THEN INSERT`` and revokes with a guarded ``UPDATE``, binding every value
 as a query parameter (only the table name, from env, is interpolated).
 ``InMemoryPersonRefsStore`` mirrors it for local dev and tests
@@ -67,6 +68,12 @@ class PersonRefsStore(Protocol):
 
     async def active_for(self, consent_id: str, owner: str) -> dict | None:
         """The consent when it exists, is owned by ``owner`` and isn't revoked."""
+        ...
+
+    async def add_renders(self, consent_id: str, owner: str, uris: list[str]) -> bool:
+        """Append ``uris`` to the owner's consent's ``person_renders`` (deduped;
+        revoked consents too, so a retried revoke can delete them). False when
+        the consent isn't the owner's."""
         ...
 
 
@@ -154,6 +161,26 @@ def build_revoke_sql(
     ]
 
 
+def build_add_renders_sql(
+    table: str, consent_id: str, owner: str, uris: list[str]
+) -> tuple[str, list]:
+    from google.cloud import bigquery
+
+    sql = f"""
+        UPDATE `{table}`
+        SET person_renders = ARRAY(
+            SELECT DISTINCT uri
+            FROM UNNEST(ARRAY_CONCAT(IFNULL(person_renders, []), @uris)) AS uri
+        )
+        WHERE consent_id = @consent_id AND owner_user = @owner_user
+        """
+    return sql, [
+        _param("consent_id", consent_id),
+        _param("owner_user", owner),
+        bigquery.ArrayQueryParameter("uris", "STRING", list(uris)),
+    ]
+
+
 def _copy(row: Mapping[str, Any]) -> dict:
     return {**row, "person_renders": list(row.get("person_renders") or [])}
 
@@ -190,6 +217,14 @@ class InMemoryPersonRefsStore:
         if row is None or row["owner_user"] != owner or row.get("revoked_at"):
             return None
         return _copy(row)
+
+    async def add_renders(self, consent_id: str, owner: str, uris: list[str]) -> bool:
+        row = self.rows.get(consent_id)
+        if row is None or row["owner_user"] != owner:
+            return False
+        renders = row.setdefault("person_renders", [])
+        renders.extend(u for u in dict.fromkeys(uris) if u not in renders)
+        return True
 
 
 class BigQueryPersonRefsStore:
@@ -236,6 +271,11 @@ class BigQueryPersonRefsStore:
     async def active_for(self, consent_id: str, owner: str) -> dict | None:
         rows = await self._rows(build_active_sql(self.table, consent_id, owner))
         return rows[0] if rows else None
+
+    async def add_renders(self, consent_id: str, owner: str, uris: list[str]) -> bool:
+        sql, params = build_add_renders_sql(self.table, consent_id, owner, uris)
+        job, _ = await asyncio.to_thread(self._job, sql, params)
+        return bool(job.num_dml_affected_rows)
 
 
 def build_store_from_env(env: Mapping[str, str] = os.environ) -> tuple[str, Any]:

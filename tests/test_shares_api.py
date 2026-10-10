@@ -15,8 +15,10 @@ import pytest
 from fastapi import FastAPI
 from google.adk.sessions import InMemorySessionService
 
+from runserver import person_refs as pr
 from runserver import shares as sh
 from runserver.authz import AuthzMode, UserAuthzMiddleware, install_ownership_handler
+from runserver.person_refs_store import InMemoryPersonRefsStore
 from runserver.shares_store import InMemorySharesStore
 from tests._creative_fixtures import (
     BUCKET,
@@ -41,6 +43,10 @@ class FakeBlob:
         self.bucket, self.name = bucket, name
         self.cache_control: str | None = None
         self.content_type: str | None = None
+        obj = bucket.objects.get(name) or {}
+        self.metadata: dict | None = (
+            dict(obj["metadata"]) if obj.get("metadata") else None
+        )
 
     def upload_from_string(self, data, content_type=None):
         self.bucket.gcs.ops.append(("upload", self.bucket.name, self.name))
@@ -55,7 +61,11 @@ class FakeBlob:
 
     def patch(self):
         self.bucket.gcs.ops.append(("patch", self.bucket.name, self.name))
-        self.bucket.objects[self.name]["cache_control"] = self.cache_control
+        obj = self.bucket.objects[self.name]
+        obj["cache_control"] = self.cache_control
+        # GCS semantics: a metadata key patched to None is removed.
+        merged = {**(obj.get("metadata") or {}), **(self.metadata or {})}
+        obj["metadata"] = {k: v for k, v in merged.items() if v is not None} or None
 
     def delete(self):
         self.bucket.gcs.ops.append(("delete", self.bucket.name, self.name))
@@ -69,6 +79,12 @@ class FakeBucket:
 
     def blob(self, name: str) -> FakeBlob:
         return FakeBlob(self, name)
+
+    def get_blob(self, name: str):
+        self.gcs.ops.append(("head", self.name, name))
+        if self.gcs.fail_on("head", name):
+            raise RuntimeError("head failed")
+        return FakeBlob(self, name) if name in self.objects else None
 
     def copy_blob(self, blob: FakeBlob, destination_bucket: FakeBucket, new_name: str):
         self.gcs.ops.append(("copy", blob.name, destination_bucket.name, new_name))
@@ -95,6 +111,10 @@ class FakeGCS:
                 "cache_control": None,
             }
 
+    def set_metadata(self, i: int, metadata: dict | None):
+        path = image_uri(i).removeprefix(f"gs://{BUCKET}/")
+        self.objects[BUCKET][path]["metadata"] = metadata
+
     def fail_on(self, op: str, name: str) -> bool:
         return self.fail is not None and self.fail[0] == op and self.fail[1] in name
 
@@ -118,6 +138,8 @@ class Harness:
         self.store = InMemorySharesStore()
         self.gcs = FakeGCS()
         self.loads: list[str] = []
+        self.consents = InMemoryPersonRefsStore()
+        pr.configure(store=self.consents, gcs_client=self.gcs, bucket=BUCKET)
 
         def loader(uri: str):
             self.loads.append(uri)
@@ -296,15 +318,264 @@ def test_create_without_images_is_400():
     run(go)
 
 
-def test_sharing_a_cast_creative_is_400_person_not_shareable():
+CONSENT = "consentAAAA1"
+
+
+async def _consent(h, cid=CONSENT, owner=A, allow=True, revoked=False):
+    await h.consents.put(
+        {
+            "consent_id": cid,
+            "owner_user": owner,
+            "photo_uri": f"gs://{BUCKET}/person-refs/x/{cid}.jpg",
+            "label": "Sam",
+            "subject": "self",
+            "adult_attested": True,
+            "allow_public_share": allow,
+            "consent_text_version": pr.CONSENT_TEXT_VERSION,
+            "created_at": sh.utcnow(),
+            "revoked_at": sh.utcnow() if revoked else None,
+            "person_renders": [],
+        }
+    )
+
+
+def _cast_state(*names, cid=CONSENT):
+    state = creative_state()
+    for name in names:
+        state["generated_images"][name]["cast"] = True
+        state["generated_images"][name]["consent_id"] = cid
+    return state
+
+
+@pytest.mark.parametrize(
+    "consent",
+    [
+        {"allow": False},  # no public-share consent
+        {"allow": True, "revoked": True},  # revoked
+        {"allow": True, "owner": B},  # someone else's consent
+        None,  # unknown consent
+    ],
+)
+def test_sharing_a_non_shareable_cast_creative_is_400(consent):
     async def go():
         h = Harness()
-        state = creative_state()
-        state["generated_images"]["The Jackpot Reveal"]["cast"] = True
-        await h.session(state=state)
+        if consent is not None:
+            await _consent(h, **consent)
+        await h.session(state=_cast_state("The Jackpot Reveal"))
         r = await h.create(concept_names=["The Jackpot Reveal"])
         assert r.status_code == 400
         assert r.json()["detail"]["reason"] == "person_not_shareable"
+        assert h.gcs.ops == [] and h.store.rows == {}
+
+    run(go)
+
+
+def test_slate_share_skips_cast_creatives_without_public_share_consent():
+    async def go():
+        h = Harness()
+        await _consent(h, allow=False)
+        await h.session(state=_cast_state("The Jackpot Reveal"))
+        r = await h.create()
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["skipped"] == [
+            {"concept_name": "The Jackpot Reveal", "reason": "person_not_shareable"}
+        ]
+        assert "The Jackpot Reveal" not in body["concept_names"]
+        row = await h.store.get(body["token"])
+        assert row["person_consent_ids"] == []
+        assert len(h.gcs.shared(body["token"])) == 4  # 3 images + snapshot
+
+    run(go)
+
+
+def test_slate_share_includes_cast_creatives_with_public_share_consent():
+    async def go():
+        h = Harness()
+        await _consent(h, allow=True)
+        await h.session(state=_cast_state("The Jackpot Reveal"))
+        r = await h.create(include_eval=True)
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["skipped"] == []
+        token = body["token"]
+        row = await h.store.get(token)
+        assert row["person_consent_ids"] == [CONSENT]
+        assert "person_consent_ids" not in body
+        shared = h.gcs.shared(token)
+        assert len(shared) == 5
+        snapshot = shared[f"shares/{token}/snapshot.json"]["data"]
+        assert CONSENT not in snapshot and "consent" not in snapshot
+        assert len(json.loads(snapshot)["creatives"]) == 4
+        # naming it works too
+        r = await h.create(concept_names=["The Jackpot Reveal"])
+        assert r.status_code == 200 and r.json()["scope"] == "creative"
+
+    run(go)
+
+
+def test_consent_lookup_failure_is_503_before_anything_is_written(monkeypatch):
+    async def go():
+        h = Harness()
+        await h.session(state=_cast_state("The Jackpot Reveal"))
+
+        async def boom(*_a):
+            raise RuntimeError("bq down")
+
+        monkeypatch.setattr(h.consents, "active_for", boom)
+        r = await h.create()
+        assert r.status_code == 503
+        assert r.json()["detail"]["reason"] == "consent_unavailable"
+        assert h.gcs.ops == [] and h.store.rows == {}
+        # a run without cast creatives never looks consents up
+        await h.session(sid="s2")
+        assert (await h.create(sid="s2")).status_code == 200
+
+    run(go)
+
+
+def test_revoking_a_consent_revokes_its_shares():
+    async def go():
+        h = Harness()
+        await _consent(h, allow=True)
+        await h.session(state=_cast_state("The Jackpot Reveal"))
+        cast_token = (await h.create()).json()["token"]
+        other = (await h.create(concept_names=["The Authentic Encore"])).json()
+        record = await h.consents.get(CONSENT)
+        await sh.revoke_shares_for_consent(record)
+        assert h.gcs.shared(cast_token) == {}
+        assert (await h.store.get(cast_token))["revoked_at"] is not None
+        assert len(h.gcs.shared(other["token"])) == 2  # untouched
+        assert (await h.store.get(other["token"]))["revoked_at"] is None
+        # idempotent repeat
+        await sh.revoke_shares_for_consent(record)
+        # another owner's record never touches A's shares
+        await sh.revoke_shares_for_consent({**record, "owner_user": B})
+
+    run(go)
+
+
+def test_consent_share_cascade_failure_propagates_and_retry_finishes():
+    async def go():
+        h = Harness()
+        await _consent(h, allow=True)
+        await h.session(state=_cast_state("The Jackpot Reveal"))
+        token = (await h.create()).json()["token"]
+        record = await h.consents.get(CONSENT)
+        real = h.gcs.bucket
+
+        class Failing:
+            def __init__(self, name):
+                self.inner = real(name)
+
+            def list_blobs(self, prefix=""):
+                raise RuntimeError("gcs down")
+
+        h.gcs.bucket = Failing
+        with pytest.raises(RuntimeError):
+            await sh.revoke_shares_for_consent(record)
+        assert (await h.store.get(token))["revoked_at"] is not None
+        h.gcs.bucket = real
+        await sh.revoke_shares_for_consent(record)
+        assert h.gcs.shared(token) == {}
+
+    run(go)
+
+
+JACKPOT = CONCEPTS.index("The Jackpot Reveal")
+
+
+def test_consent_revoked_while_the_share_is_created_rolls_it_back():
+    async def go():
+        h = Harness()
+        await _consent(h, allow=True)
+        await h.session(state=_cast_state("The Jackpot Reveal"))
+        real_put = h.store.put
+
+        async def put_then_revoke(row):
+            await real_put(row)
+            await h.consents.revoke(CONSENT, A)  # the owner revokes meanwhile
+
+        h.store.put = put_then_revoke
+        r = await h.create()
+        assert r.status_code == 409
+        assert r.json()["detail"]["reason"] == "person_consent_changed"
+        (token,) = h.store.rows
+        assert h.gcs.shared(token) == {}
+        assert (await h.store.get(token))["revoked_at"] is not None
+
+    run(go)
+
+
+def test_share_without_cast_creatives_skips_the_recheck(monkeypatch):
+    async def go():
+        h = Harness()
+        await h.session()
+        calls = []
+
+        async def spy(*a):
+            calls.append(a)
+            return None
+
+        monkeypatch.setattr(pr, "active_consent", spy)
+        assert (await h.create()).status_code == 200
+        assert calls == []
+
+    run(go)
+
+
+def test_cast_render_seeded_as_uncast_is_refused_by_its_metadata():
+    async def go():
+        h = Harness()
+        await _consent(h, allow=False)
+        # state claims the creative is uncast, but the object says otherwise
+        h.gcs.set_metadata(JACKPOT, {"consent_id": CONSENT})
+        await h.session()
+        r = await h.create()
+        assert r.status_code == 400
+        assert r.json()["detail"]["reason"] == "person_not_shareable"
+        assert not any(op[0] == "copy" for op in h.gcs.ops)
+        assert h.store.rows == {}
+
+    run(go)
+
+
+def test_share_copies_carry_no_consent_metadata():
+    async def go():
+        h = Harness()
+        await _consent(h, allow=True)
+        h.gcs.set_metadata(JACKPOT, {"consent_id": CONSENT, "other": "x"})
+        await h.session(state=_cast_state("The Jackpot Reveal"))
+        r = await h.create()
+        assert r.status_code == 200, r.text
+        shared = h.gcs.shared(r.json()["token"])
+        assert all(not o.get("metadata") for o in shared.values())
+        # the source render keeps its metadata (the revoke cascade needs it)
+        src = image_uri(JACKPOT).removeprefix(f"gs://{BUCKET}/")
+        assert h.gcs.objects[BUCKET][src]["metadata"]["consent_id"] == CONSENT
+
+    run(go)
+
+
+@pytest.mark.parametrize(
+    "folder",
+    [
+        {"gcs_folder": "other_run"},  # another run's renders
+        {"gcs_folder": ""},
+        {"gcs_folder": "shares"},
+        {"agent_output_dir": ".."},
+        {"agent_output_dir": "a/b"},
+    ],
+)
+def test_images_only_from_this_runs_output_folder(folder):
+    async def go():
+        h = Harness()
+        state = creative_state()
+        state.update(folder)
+        await h.session(state=state)
+        r = await h.create()
+        assert r.status_code == 400
+        assert r.json()["detail"]["reason"] == "image_outside_bucket"
         assert h.gcs.ops == [] and h.store.rows == {}
 
     run(go)
@@ -552,11 +823,13 @@ def test_enforce_mode_requires_trusted_matching_user():
 
 
 def test_person_images_are_never_shared():
-    assert sh.source_path(f"gs://{BUCKET}/person-refs/me-1/me.jpg", BUCKET) is None
+    p = "run/out/"
+    assert sh.source_path(f"gs://{BUCKET}/person-refs/me-1/me.jpg", BUCKET, p) is None
     assert (
-        sh.source_path(f"gs://{BUCKET}/run/out/variants/me-1/c/k.png", BUCKET) is None
+        sh.source_path(f"gs://{BUCKET}/run/out/variants/me-1/c/k.png", BUCKET, p)
+        is None
     )
-    assert sh.source_path(f"gs://{BUCKET}/run/out/variants.png", BUCKET) == (
+    assert sh.source_path(f"gs://{BUCKET}/run/out/variants.png", BUCKET, p) == (
         "run/out/variants.png"
     )
 
@@ -581,13 +854,33 @@ def test_person_images_are_never_shared():
     run(go)
 
 
-def test_source_path_only_inside_bucket():
-    assert sh.source_path(f"gs://{BUCKET}/a/b.png", BUCKET) == "a/b.png"
-    assert sh.source_path("gs://other/a/b.png", BUCKET) is None
-    assert sh.source_path(f"gs://{BUCKET}/a/../b.png", BUCKET) is None
-    assert sh.source_path(f"gs://{BUCKET}/shares/t/0.png", BUCKET) is None
-    assert sh.source_path("https://x/y.png", BUCKET) is None
-    assert sh.source_path(f"gs://{BUCKET}/a/b.png", None) is None
+def test_source_path_only_inside_the_runs_output_folder():
+    p = "a/out/"
+    assert sh.source_path(f"gs://{BUCKET}/a/out/b.png", BUCKET, p) == "a/out/b.png"
+    assert sh.source_path(f"gs://{BUCKET}/a/b.png", BUCKET, p) is None
+    assert sh.source_path(f"gs://{BUCKET}/a/out/x/b.png", BUCKET, p) is None
+    assert sh.source_path("gs://other/a/out/b.png", BUCKET, p) is None
+    assert sh.source_path(f"gs://{BUCKET}/a/out/../b.png", BUCKET, p) is None
+    assert sh.source_path(f"gs://{BUCKET}/shares/t/0.png", BUCKET, "shares/t/") is None
+    assert sh.source_path("https://x/y.png", BUCKET, p) is None
+    assert sh.source_path(f"gs://{BUCKET}/a/out/b.png", None, p) is None
+    assert sh.source_path(f"gs://{BUCKET}/a/out/b.png", BUCKET, None) is None
+
+
+def test_output_prefix_validates_segments():
+    ok = {"gcs_folder": "2026_run", "agent_output_dir": "creative_output"}
+    assert sh.output_prefix(ok) == "2026_run/creative_output/"
+    for bad in (
+        {"gcs_folder": "", "agent_output_dir": "o"},
+        {"gcs_folder": "f"},
+        {"gcs_folder": "f", "agent_output_dir": "a/b"},
+        {"gcs_folder": "f", "agent_output_dir": ".."},
+        {"gcs_folder": "person-refs", "agent_output_dir": "o"},
+        {"gcs_folder": "shares", "agent_output_dir": "o"},
+        {"gcs_folder": "f", "agent_output_dir": "variants"},
+        {"gcs_folder": 3, "agent_output_dir": "o"},
+    ):
+        assert sh.output_prefix(bad) is None, bad
 
 
 def test_share_url():

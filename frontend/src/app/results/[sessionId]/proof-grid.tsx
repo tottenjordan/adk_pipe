@@ -16,22 +16,28 @@ const SORT_OPTIONS: { value: ProofSort; label: string }[] = [
 /**
  * The proof image, or a quiet "Image not rendered" placeholder when there's no
  * URL or the image fails to load (e.g. a run that stopped before rendering, so
- * the file was never written and the GCS proxy 404s).
+ * the file was never written and the GCS proxy 404s). A creative that cast a
+ * consented person (`generated_images[c].cast`) whose image no longer loads was
+ * deleted by revoking that consent, so it says so instead.
  */
 export function ProofImage({
   src,
   alt,
   className,
   fit = "cover",
+  cast = false,
 }: {
   src: string | null;
   alt: string;
   className?: string;
   fit?: "cover" | "contain";
+  /** The render cast a consented person (`generated_images[c].cast`). */
+  cast?: boolean;
 }) {
   // Keyed on the src that failed, so a new src (detail navigation) retries.
   const [failedSrc, setFailedSrc] = useState<string | null>(null);
   if (!src || failedSrc === src) {
+    const removed = Boolean(src) && cast;
     return (
       <div
         className={cn(
@@ -39,7 +45,7 @@ export function ProofImage({
           className
         )}
       >
-        Image not rendered
+        {removed ? "Image removed (consent revoked)" : "Image not rendered"}
       </div>
     );
   }
@@ -113,6 +119,7 @@ export function ProofGrid({
                 <ProofImage
                   src={imageUrlFor(p.concept.concept_name)}
                   alt={p.concept.concept_summary}
+                  cast={p.casting?.cast === true}
                   className="aspect-square w-full"
                 />
                 <div className="flex flex-1 flex-col px-1 pt-3 pb-1">

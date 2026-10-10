@@ -8,11 +8,20 @@ link. Creating a share **freezes** it: the api builds the allowlisted snapshot
 ``creative_shares`` (``runserver/shares_store.py``). The separate public share
 viewer reads only ``shares/<token>/``; revoking deletes those objects.
 
+Creatives that cast a consented person (``generated_images[c].cast``) are shared
+only when their ``consent_id`` is an active consent of the share owner with
+``allow_public_share``; a slate leaves the others out (``skipped`` in the create
+response) and naming one is a 400 ``person_not_shareable``. The included
+consents are recorded on the row (``person_consent_ids``, never in the
+snapshot), and revoking a consent revokes those shares
+(``revoke_shares_for_consent``, a ``person_refs`` revoke hook).
+
 Routes (all user-scoped by path, gated by ``UserAuthzMiddleware`` like
 ``/ratings/{user}/...``; a foreign or unknown session is a 404):
 
 - ``POST /shares/{user}/{app}/{session}``: body ``{concept_names?: [str] (1-4),
-  include_eval?: bool}`` → the share (``token``, ``url``, ``scope``, ...).
+  include_eval?: bool}`` → the share (``token``, ``url``, ``scope``, ...,
+  ``skipped: [{concept_name, reason}]``).
 - ``GET /shares/{user}``: the owner's active shares, newest first.
 - ``DELETE /shares/{user}/{token}``: revoke (204; 404 when not the owner's).
 """
@@ -32,6 +41,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Response
 from pydantic import BaseModel
 
+from runserver import person_refs
 from runserver.person_refs import is_person_image
 from runserver.ratings import (
     RATING_APPS,
@@ -42,7 +52,12 @@ from runserver.ratings import (
     configured_report_bucket,
     gcs_report_loader,
 )
-from runserver.share_snapshot import BuiltSnapshot, SnapshotError, build_snapshot
+from runserver.share_snapshot import (
+    BuiltSnapshot,
+    SnapshotError,
+    build_snapshot,
+    cast_consent_ids,
+)
 from runserver.shares_store import InMemorySharesStore, utcnow
 
 log = logging.getLogger(__name__)
@@ -60,6 +75,8 @@ SNAPSHOT_CACHE_CONTROL = "no-store"
 SNAPSHOT_NAME = "snapshot.json"
 _APP_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _GS_RE = re.compile(r"^gs://(?P<bucket>[^/]+)/(?P<path>.+)$")
+_SEGMENT_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+_RESERVED_FIRST = ("person-refs", "shares")
 
 ReportLoader = Callable[[str], Any]
 
@@ -98,14 +115,33 @@ def validate_share_body(body: Mapping[str, Any]) -> tuple[list[str] | None, bool
     return names, include_eval
 
 
-def source_path(uri: Any, bucket: str | None) -> str | None:
-    """The object path of a source image, only under ``gs://<bucket>/`` (no
-    ``..`` segments, never another share); None otherwise.
+def output_prefix(state: Mapping[str, Any]) -> str | None:
+    """The run's own output folder ``{gcs_folder}/{agent_output_dir}/``, where its
+    renders are uploaded; None unless each part is one safe path segment (the
+    same rules as the variants path), never ``variants`` or a reserved prefix."""
+    folder, subdir = state.get("gcs_folder"), state.get("agent_output_dir")
+    for segment in (folder, subdir):
+        if (
+            not isinstance(segment, str)
+            or not _SEGMENT_RE.match(segment)
+            or segment == "variants"
+            or ".." in segment
+        ):
+            return None
+    if folder in _RESERVED_FIRST:
+        return None
+    return f"{folder}/{subdir}/"
+
+
+def source_path(uri: Any, bucket: str | None, prefix: str | None) -> str | None:
+    """The object path of a source image, only for a file directly in the run's
+    output folder ``gs://<bucket>/<prefix><file>`` (no ``..`` segments, never
+    another share, a person photo or a variant); None otherwise.
 
     ``generated_images`` is session state, which a client can seed via
-    createSession, so it must never make the api copy an arbitrary object into a
-    public share."""
-    if not (isinstance(uri, str) and bucket):
+    createSession, so it must never make the api copy an arbitrary object (or
+    another run's render) into a public share."""
+    if not (isinstance(uri, str) and bucket and prefix):
         return None
     m = _GS_RE.match(uri)
     if not m or m["bucket"] != bucket:
@@ -115,6 +151,9 @@ def source_path(uri: Any, bucket: str | None) -> str | None:
         return None
     if is_person_image(uri):
         return None  # consented photos and personalised variants never go public
+    name = path.removeprefix(prefix)
+    if not path.startswith(prefix) or not name or "/" in name:
+        return None
     return path
 
 
@@ -225,10 +264,35 @@ def _publish(bucket_name: str, token: str, sources: list[str], data: str) -> Non
     for i, path in enumerate(sources):
         copied = bucket.copy_blob(bucket.blob(path), bucket, f"{prefix}{i}.png")
         copied.cache_control = IMAGE_CACHE_CONTROL
+        if copied.metadata:
+            # Never carry consent ids (or any custom metadata) into shares/: a
+            # key patched to None is removed.
+            copied.metadata = dict.fromkeys(copied.metadata)
         copied.patch()
     blob = bucket.blob(f"{prefix}{SNAPSHOT_NAME}")
     blob.cache_control = SNAPSHOT_CACHE_CONTROL
     blob.upload_from_string(data, content_type="application/json")
+
+
+def _source_consents(bucket_name: str, paths: list[str]) -> list[str | None]:
+    """Each source object's blob metadata ``consent_id`` (None when unset or the
+    object is missing; blocking). Cast renders carry it from upload, so this
+    trusts the object, not the client-seedable ``generated_images[c].cast``."""
+    bucket = _gcs().bucket(bucket_name)
+    out: list[str | None] = []
+    for path in paths:
+        blob = bucket.get_blob(path)
+        cid = (blob.metadata or {}).get("consent_id") if blob is not None else None
+        out.append(cid if isinstance(cid, str) and cid else None)
+    return out
+
+
+async def _consents_still_shareable(owner: str, consent_ids: list[str]) -> bool:
+    for cid in consent_ids:
+        record = await person_refs.active_consent(owner, cid)
+        if record is None or record.get("allow_public_share") is not True:
+            return False
+    return True
 
 
 def _delete_share_objects(bucket_name: str, token: str) -> None:
@@ -236,6 +300,43 @@ def _delete_share_objects(bucket_name: str, token: str) -> None:
     bucket = _gcs().bucket(bucket_name)
     for blob in bucket.list_blobs(prefix=f"{SHARES_PREFIX}{token}/"):
         blob.delete()
+
+
+async def _resolve_consents(owner: str, state: Mapping[str, Any]) -> dict[str, dict]:
+    """The run's cast consents that are active and the owner's (``consent_id`` →
+    record). Raises the store error (the caller fails closed with a 503)."""
+    found: dict[str, dict] = {}
+    for cid in cast_consent_ids(state):
+        record = await person_refs.active_consent(owner, cid)
+        if record is not None:
+            found[cid] = record
+    return found
+
+
+async def _revoke(user_id: str, token: str) -> bool:
+    """Revoke the owner's share and delete ``shares/<token>/`` (idempotent).
+    False when the token isn't the owner's; raises on a store or GCS failure."""
+    if not await _STORE.revoke(token, user_id):
+        return False
+    bucket = _BUCKET
+    if bucket:
+        await asyncio.to_thread(_delete_share_objects, bucket, token)
+    return True
+
+
+async def revoke_shares_for_consent(record: Mapping[str, Any]) -> None:
+    """``person_refs`` revoke hook: revoke every share of the consent's owner whose
+    ``person_consent_ids`` contain it (revoked ones too, so a retry finishes
+    deleting objects). Raises on failure so the consent revoke reports
+    ``revoke_incomplete`` and can be repeated."""
+    owner, cid = record.get("owner_user"), record.get("consent_id")
+    if not (isinstance(owner, str) and isinstance(cid, str) and owner and cid):
+        return
+    rows = await _STORE.list_with_consent(owner, cid)
+    for row in rows:
+        await _revoke(owner, row["token"])
+    if rows:
+        log.info("shares: revoked %d share(s) for a revoked consent", len(rows))
 
 
 async def _rollback(bucket_name: str, token: str) -> None:
@@ -309,6 +410,13 @@ async def http_create_share(
             f"at most {MAX_ACTIVE_SHARES} active shares; revoke one first",
         )
     state = dict(session.state or {})
+    try:
+        consents = await _resolve_consents(user_id, state)
+    except Exception as exc:
+        log.exception("shares: consent lookup failed")
+        raise _error(
+            503, "consent_unavailable", "could not check consents; retry shortly"
+        ) from exc
     report = await _load_report(state) if include_eval else None
     token = secrets.token_urlsafe(TOKEN_BYTES)
     now = utcnow()
@@ -320,6 +428,7 @@ async def http_create_share(
             concept_names=concept_names,
             include_eval=include_eval,
             now=_snapshot_time(now),
+            consent_lookup=consents.get,
         )
     except SnapshotError as exc:
         raise _error(400, exc.reason, str(exc)) from exc
@@ -329,12 +438,29 @@ async def http_create_share(
             "person_image",
             "a creative's image is a person photo or personalised preview",
         )
-    sources = [source_path(uri, bucket) for uri in built.image_uris]
-    if any(p is None for p in sources):
+    prefix = output_prefix(state)
+    maybe = [source_path(uri, bucket, prefix) for uri in built.image_uris]
+    sources = [p for p in maybe if p is not None]
+    if len(sources) != len(maybe):
         raise _error(
             400,
             "image_outside_bucket",
-            "a creative's image is not in the configured bucket",
+            "a creative's image is not in this run's output folder",
+        )
+    try:
+        object_consents = await asyncio.to_thread(_source_consents, bucket, sources)
+    except Exception as exc:
+        log.exception("shares: reading source image metadata failed")
+        raise _error(502, "share_failed", "could not create the share") from exc
+    if any(
+        c is not None and c not in built.person_consent_ids for c in object_consents
+    ):
+        # A render made with a consented photo whose state says otherwise (or whose
+        # consent doesn't cover public links) never goes public.
+        raise _error(
+            400,
+            "person_not_shareable",
+            "a creative shows a person whose consent doesn't cover public links",
         )
     snapshot = built.snapshot
     row = {
@@ -348,18 +474,38 @@ async def http_create_share(
         "title": share_title(snapshot),
         "created_at": now,
         "revoked_at": None,
+        "person_consent_ids": built.person_consent_ids,
     }
     data = json.dumps(snapshot, ensure_ascii=False)
     try:
-        await asyncio.to_thread(
-            _publish, bucket, token, [p for p in sources if p is not None], data
-        )
+        await asyncio.to_thread(_publish, bucket, token, sources, data)
         await _STORE.put(row)
     except Exception as exc:
         log.exception("shares: creating share %s failed; rolling back", token)
         await _rollback(bucket, token)
         raise _error(502, "share_failed", "could not create the share") from exc
-    return to_public(row, _SHARE_BASE_URL)
+    if built.person_consent_ids:
+        # A consent revoked (or narrowed) while the share was being created: its
+        # revoke cascade may have run before the row existed, so undo it here.
+        try:
+            still_ok = await _consents_still_shareable(
+                user_id, built.person_consent_ids
+            )
+        except Exception:
+            log.exception("shares: consent re-check failed for share %s", token)
+            still_ok = False
+        if not still_ok:
+            try:
+                await _revoke(user_id, token)
+            except Exception:
+                log.exception("shares: revoking share %s failed", token)
+                await _rollback(bucket, token)
+            raise _error(
+                409,
+                "person_consent_changed",
+                "a person's consent changed while the link was created; try again",
+            )
+    return {**to_public(row, _SHARE_BASE_URL), "skipped": built.skipped}
 
 
 @router.get("/shares/{user_id}")

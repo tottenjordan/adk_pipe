@@ -6,7 +6,8 @@ import asyncio
 import json
 import logging
 import os
-from typing import TYPE_CHECKING
+from collections.abc import Mapping
+from typing import TYPE_CHECKING, Any
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from google.adk.errors.session_not_found_error import SessionNotFoundError
@@ -124,6 +125,32 @@ async def check_person_reference(
         ) from exc
     if record is None or record.get("photo_uri") != uri:
         raise invalid
+
+
+async def record_person_session(
+    app_name: str, user_id: str, session_id: str, state: dict | None
+) -> None:
+    """Mark the run on its person consent (``person_refs.record_session``) so
+    revoking the consent can find this run's cast renders even if it dies
+    mid-segment. Raises ``PersonReferenceError`` (503) on a store error, so the
+    run never starts without the marker."""
+    ref = (state or {}).get(PERSON_REFERENCE_KEY)
+    if app_name not in PERSON_REFERENCE_APPS or not isinstance(ref, dict):
+        return
+    consent_id = ref.get("consent_id")
+    if not isinstance(consent_id, str) or not consent_id:
+        return
+    from runserver import person_refs
+
+    try:
+        await person_refs.record_session(user_id, consent_id, app_name, session_id)
+    except Exception as exc:
+        logging.exception("person reference: recording the run failed")
+        raise PersonReferenceError(
+            "person_reference_unavailable",
+            "could not check the person's consent; retry shortly",
+            status=503,
+        ) from exc
 
 
 def _parse_max_auto_continues(raw: str | None) -> int:
@@ -532,6 +559,53 @@ async def _await_prior_segment(key: _RunKey) -> None:
         await asyncio.sleep(0)
 
 
+# Bound on recording a segment's cast renders, so a slow consent store never
+# holds back the terminal marker for long.
+RECORD_RENDERS_TIMEOUT_SECONDS = 30
+
+
+def cast_renders(state: Mapping[str, Any] | None) -> dict[str, list[str]]:
+    """``{consent_id: [gcs_uri, ...]}`` of the renders that cast a consented person
+    (``generated_images[c]`` with ``cast is True``, a ``consent_id`` and a
+    ``gcs_uri``)."""
+    images = (state or {}).get("generated_images")
+    out: dict[str, list[str]] = {}
+    if not isinstance(images, Mapping):
+        return out
+    for record in images.values():
+        if not (isinstance(record, Mapping) and record.get("cast") is True):
+            continue
+        cid, uri = record.get("consent_id"), record.get("gcs_uri")
+        if isinstance(cid, str) and cid and isinstance(uri, str) and uri:
+            out.setdefault(cid, []).append(uri)
+    return out
+
+
+async def _record_cast_renders(session_service, app_name, user_id, session_id) -> None:
+    """Append the session's cast renders to their consents' ``person_renders`` so
+    revoking the consent deletes them (``person_refs.record_renders``: owner-only,
+    deduplicated, bucket-checked). Runs when a segment ends, before its terminal
+    marker. Never raises: a failure is logged, the run still finishes."""
+    if app_name not in PERSON_REFERENCE_APPS:
+        return
+    try:
+        async with asyncio.timeout(RECORD_RENDERS_TIMEOUT_SECONDS):
+            session = await _get_session_or_none(
+                session_service, app_name, user_id, session_id
+            )
+            renders = cast_renders(session.state if session is not None else None)
+            if not renders:
+                return
+            from runserver import person_refs
+
+            for consent_id, uris in renders.items():
+                await person_refs.record_renders(user_id, consent_id, uris)
+    except Exception:  # noqa: BLE001 — best-effort bookkeeping; never fail the run
+        logging.exception(
+            "could not record cast renders app=%s session=%s", app_name, session_id
+        )
+
+
 async def _append_terminal_safe(
     session_service, app_name, user_id, session_id, event
 ) -> None:
@@ -682,6 +756,7 @@ async def _drive_run(
                     break
                 attempts += 1
                 message = build_user_message(AUTO_CONTINUE_MESSAGE)
+        await _record_cast_renders(session_service, app_name, user_id, session_id)
         await _append_terminal_safe(
             session_service,
             app_name,
@@ -696,6 +771,7 @@ async def _drive_run(
             app_name,
             session_id,
         )
+        await _record_cast_renders(session_service, app_name, user_id, session_id)
         await _append_terminal_safe(
             session_service,
             app_name,
@@ -709,6 +785,7 @@ async def _drive_run(
         )
     except Exception as exc:  # noqa: BLE001 — terminal marker is the contract; log+persist, never raise
         logging.exception("detached run failed app=%s session=%s", app_name, session_id)
+        await _record_cast_renders(session_service, app_name, user_id, session_id)
         await _append_terminal_safe(
             session_service,
             app_name,
@@ -741,6 +818,12 @@ async def start_run(
             user_id,
             existing.state if existing is not None else None,
             reason="person_reference_invalid",
+        )
+        await record_person_session(
+            app_name,
+            user_id,
+            session_id,
+            existing.state if existing is not None else None,
         )
     _claim_run(key)  # synchronous check+claim, before any further await
     try:

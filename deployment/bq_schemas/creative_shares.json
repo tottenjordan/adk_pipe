@@ -48,5 +48,10 @@
     "name": "revoked_at",
     "type": "TIMESTAMP",
     "mode": "NULLABLE"
+  },
+  {
+    "name": "person_consent_ids",
+    "type": "STRING",
+    "mode": "REPEATED"
   }
 ]

@@ -10,6 +10,7 @@ from runserver.share_snapshot import (
     CREATIVE_FIELDS,
     SnapshotError,
     build_snapshot,
+    cast_consent_ids,
     match_by_id_headline_index,
 )
 from tests._creative_fixtures import (
@@ -222,24 +223,89 @@ def test_no_images_raises():
     assert exc.value.reason == "no_images"
 
 
-def _cast(state, *names):
+def _cast(state, *names, consent_id="consentA1"):
     for name in names:
         state["generated_images"][name]["cast"] = True
+        state["generated_images"][name]["consent_id"] = consent_id
     return state
 
 
-def test_slate_skips_cast_concepts():
-    # Deny by default until share consent scopes land (plan PR 4).
+PUBLIC = {"consentA1": {"consent_id": "consentA1", "allow_public_share": True}}
+PRIVATE = {"consentA1": {"consent_id": "consentA1", "allow_public_share": False}}
+
+
+def test_slate_skips_cast_concepts_without_a_lookup():
+    # Deny by default: no consent lookup means no cast creative goes public.
     state = _cast(creative_state(), "The Jackpot Reveal", "Nihilistic Retirement Plan")
     state["generated_images"]["The Authentic Encore"]["cast"] = False
     built = _build(state)
     assert built.concept_names == ["The Golden Golf Cart Gig", "The Authentic Encore"]
+    assert built.skipped == [
+        {
+            "concept_name": "Nihilistic Retirement Plan",
+            "reason": "person_not_shareable",
+        },
+        {"concept_name": "The Jackpot Reveal", "reason": "person_not_shareable"},
+    ]  # pipeline order
+    assert built.person_consent_ids == []
+
+
+@pytest.mark.parametrize(
+    "records",
+    [
+        PRIVATE,  # consent doesn't cover public links
+        {},  # revoked / not the share owner's (the lookup returns None)
+        {"consentA1": {"allow_public_share": "yes"}},  # only exactly True counts
+    ],
+)
+def test_slate_skips_cast_concepts_without_public_share_consent(records):
+    state = _cast(creative_state(), "The Jackpot Reveal")
+    built = _build(state, consent_lookup=records.get)
+    assert "The Jackpot Reveal" not in built.concept_names
+    assert len(built.concept_names) == 3
+    assert built.skipped == [
+        {"concept_name": "The Jackpot Reveal", "reason": "person_not_shareable"}
+    ]
+    assert built.person_consent_ids == []
+
+
+def test_slate_includes_cast_concepts_with_public_share_consent():
+    state = _cast(creative_state(), "The Jackpot Reveal", "The Authentic Encore")
+    seen = []
+
+    def lookup(cid):
+        seen.append(cid)
+        return PUBLIC.get(cid)
+
+    built = _build(state, consent_lookup=lookup)
+    assert built.concept_names == list(CONCEPTS)
+    assert built.skipped == []
+    assert built.person_consent_ids == ["consentA1"]
+    assert set(seen) == {"consentA1"}
+    # the consent id never reaches the public snapshot
+    assert "consent" not in json.dumps(built.snapshot)
+
+
+def test_cast_concept_without_consent_id_is_never_shareable():
+    state = _cast(creative_state(), "The Jackpot Reveal")
+    del state["generated_images"]["The Jackpot Reveal"]["consent_id"]
+    built = _build(state, consent_lookup=lambda cid: PUBLIC["consentA1"])
+    assert "The Jackpot Reveal" not in built.concept_names
+    assert built.skipped[0]["concept_name"] == "The Jackpot Reveal"
+
+
+def test_cast_consent_ids_lists_distinct_cast_consents():
+    state = _cast(creative_state(), "The Jackpot Reveal", "The Authentic Encore")
+    state["generated_images"]["The Golden Golf Cart Gig"]["consent_id"] = "uncastX1"
+    assert cast_consent_ids(state) == ["consentA1"]
+    assert cast_consent_ids(creative_state()) == []
+    assert cast_consent_ids({}) == []
 
 
 def test_slate_of_only_cast_concepts_has_no_images():
     state = _cast(creative_state(), *CONCEPTS)
     with pytest.raises(SnapshotError) as exc:
-        _build(state)
+        _build(state, consent_lookup=PRIVATE.get)
     assert exc.value.reason == "no_images"
 
 
@@ -249,11 +315,23 @@ def test_naming_a_cast_concept_is_not_shareable():
         ["The Jackpot Reveal"],
         ["The Jackpot Reveal", "The Authentic Encore"],
     ):
-        with pytest.raises(SnapshotError) as exc:
-            _build(state, concept_names=names)
-        assert exc.value.reason == "person_not_shareable"
+        for lookup in (None, PRIVATE.get):
+            with pytest.raises(SnapshotError) as exc:
+                _build(state, concept_names=names, consent_lookup=lookup)
+            assert exc.value.reason == "person_not_shareable"
     built = _build(state, concept_names=["The Authentic Encore"])
     assert built.concept_names == ["The Authentic Encore"]
+
+
+def test_naming_a_cast_concept_with_public_share_consent():
+    state = _cast(creative_state(), "The Jackpot Reveal")
+    built = _build(
+        state, concept_names=["The Jackpot Reveal"], consent_lookup=PUBLIC.get
+    )
+    assert built.concept_names == ["The Jackpot Reveal"]
+    assert built.snapshot["scope"] == "creative"
+    assert built.person_consent_ids == ["consentA1"]
+    assert built.skipped == []
 
 
 def test_aspect_ratio_override_and_fallbacks():

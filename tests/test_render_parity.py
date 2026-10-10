@@ -120,7 +120,7 @@ def _record(monkeypatch, scenario: dict) -> dict:
     monkeypatch.setattr(image_tools, "_get_genai_client", lambda: client)
     monkeypatch.setattr(image_tools.asyncio, "sleep", noop_async)
 
-    def fake_save(*, tool_context, image_bytes, filename):
+    def fake_save(*, tool_context, image_bytes, filename, metadata=None):
         uploads.append([filename, image_bytes.decode("latin-1")])
         return f"gs://b/{filename}"
 

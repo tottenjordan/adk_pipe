@@ -15,6 +15,14 @@ export interface Share {
   app_name: string;
   session_id: string;
   created_at: string;
+  /** POST only: creatives a slate share left out, e.g. a person whose consent
+   *  doesn't cover public links (`reason: "person_not_shareable"`). */
+  skipped?: SkippedCreative[];
+}
+
+export interface SkippedCreative {
+  concept_name: string;
+  reason: string;
 }
 
 export interface CreateSharePayload {
@@ -41,8 +49,12 @@ const MESSAGES: Record<string, string> = {
   invalid_include_eval: "That selection can't be shared. Reload the page and try again.",
   unknown_concept: "That creative is no longer in this run. Reload the page and try again.",
   no_images: "There are no rendered images to share yet.",
-  person_not_shareable: "Creatives that show a person can't be shared yet.",
-  image_outside_bucket: "These images aren't stored in the project bucket, so they can't be shared.",
+  person_not_shareable:
+    "This creative shows a person whose consent doesn't cover public links, so it can't be shared.",
+  consent_unavailable: "Couldn't check the consent of the people shown. Try again shortly.",
+  person_consent_changed:
+    "A person's consent changed while the link was being created, so it wasn't shared. Try again.",
+  image_outside_bucket: "These images aren't stored in this run's output folder, so they can't be shared.",
   session_not_found: "This run could not be found.",
   share_not_found: "This link no longer exists.",
   too_many_shares: "You have too many active links. Revoke one you no longer need, then try again.",
@@ -58,6 +70,16 @@ export function shareErrorMessage(reason: string | null, status: number): string
   if (status === 401 || status === 403) return "You don't have access to this. Reload the page and try again.";
   if (status === 404) return "Sharing isn't available here.";
   return `Something went wrong (${status}). Try again.`;
+}
+
+/** "N creative(s) showing a person were left out …" for a slate share's `skipped`
+ *  list, or null when no creative with a person was left out. */
+export function skippedNotice(skipped: SkippedCreative[] | undefined): string | null {
+  const n = (skipped ?? []).filter((s) => s.reason === "person_not_shareable").length;
+  if (n === 0) return null;
+  return n === 1
+    ? "1 creative showing a person was left out (their consent doesn't cover public links)."
+    : `${n} creatives showing a person were left out (their consent doesn't cover public links).`;
 }
 
 /** True for an absolute http(s) URL; a relative `/s/<token>` means SHARE_BASE_URL is unset. */

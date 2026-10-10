@@ -12,7 +12,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { createShare } from "@/lib/api";
-import { isAbsoluteUrl, ShareError, shareErrorMessage, type Share } from "@/lib/shares";
+import { isAbsoluteUrl, ShareError, shareErrorMessage, skippedNotice, type Share } from "@/lib/shares";
 
 export const SHARE_NOTICE =
   "Anyone with the link can view these creatives and copy. Prompts, notes and ratings are never shared.";
@@ -57,6 +57,7 @@ export function ShareDialog({
   const [share, setShare] = useState<Share | null>(null);
   const [copied, setCopied] = useState("");
   const single = Boolean(conceptNames?.length);
+  const leftOut = share ? skippedNotice(share.skipped) : null;
   const id = useId();
   const checkboxId = `${id}-eval`;
   const urlId = `${id}-url`;
@@ -141,6 +142,7 @@ export function ShareDialog({
             {share.include_eval && (
               <p className="text-xs text-muted-foreground">Includes judge checks and scores.</p>
             )}
+            {leftOut && <p className="text-xs text-muted-foreground">{leftOut}</p>}
           </div>
         ) : (
           <label

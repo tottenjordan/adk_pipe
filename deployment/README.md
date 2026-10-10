@@ -1510,6 +1510,21 @@ under `gs://$GOOGLE_CLOUD_STORAGE_BUCKET/`) to `shares/<token>/<i>.png`
 deletes every object under `shares/<token>/`. At most 200 active shares per user (429
 `too_many_shares`).
 
+**Creatives showing a person** (`generated_images[concept].cast`) are shared only when
+their `consent_id` is an active consent of the share owner with `allow_public_share`: a
+slate share leaves the others out and lists them in the create response's
+`skipped: [{concept_name, reason: "person_not_shareable"}]` (the dialog says "N
+creative(s) showing a person were left out …"), and naming one is a 400
+`person_not_shareable` (a consent-store error is a 503 `consent_unavailable`). The
+included consents are recorded on the row (`person_consent_ids`, never in the public
+snapshot), and revoking a consent revokes those shares (see
+[Person references](#person-references)). Hardening against client-seeded state: images
+are copied only from the run's own `{gcs_folder}/{agent_output_dir}/` folder (else 400
+`image_outside_bucket`); a source object whose blob metadata `consent_id` is set but isn't
+one of the share's consents is refused (400 `person_not_shareable`); the copies under
+`shares/` carry no custom metadata; and a consent revoked or narrowed while the share was
+being created revokes the new share again (409 `person_consent_changed`).
+
 ### Table
 
 `creative_shares` (`BQ_TABLE_SHARES`) in `BQ_DATASET_ID`, one row per share token
@@ -1526,8 +1541,20 @@ bq mk --table --clustering_fields owner_user \
 
 Columns: `token STRING, owner_user STRING, app_name STRING, session_id STRING,
 scope STRING ('slate' | 'creative'), concept_names ARRAY<STRING>, include_eval BOOL,
-title STRING, created_at TIMESTAMP, revoked_at TIMESTAMP` (the owner and session are
-recorded only here, never in the public snapshot).
+title STRING, created_at TIMESTAMP, revoked_at TIMESTAMP, person_consent_ids
+ARRAY<STRING>` (the owner, session and consent ids are recorded only here, never in the
+public snapshot).
+
+**Migration (person-reference PR 4, run BEFORE deploying the api that writes it):** an
+existing `creative_shares` table needs the new column, else creating a share fails with
+502 `share_failed` (the MERGE names it). Idempotent:
+
+```sql
+ALTER TABLE `<BQ_PROJECT_ID>.<BQ_DATASET_ID>.creative_shares`
+  ADD COLUMN IF NOT EXISTS person_consent_ids ARRAY<STRING>;
+```
+
+Older rows read `person_consent_ids` as `[]` (they never contain a cast creative).
 
 The api SA (`tt-api-sa`) already has `roles/storage.objectAdmin` on the bucket (copy,
 write and delete under `shares/`) and the BigQuery roles (Step 1 of the Cloud Run
@@ -1669,11 +1696,37 @@ comes later.
   `…/variants/<slug>/…` only to the owner whose email slug matches (another user → 404, no
   IAP identity on Cloud Run → 401, local dev → allowed), with `Cache-Control: private,
   no-store`. Every other object path is proxied as before.
-- **Revoking** (`DELETE /person-refs/{user}/{consent_id}`, the People page's Revoke) marks
-  the record revoked, runs the registered revoke hooks (none yet; PR 4 adds the cascade into
-  shares, personalised variants and cast renders) and deletes the photo object. A failed
-  cleanup answers 502 `revoke_incomplete`, and repeating the DELETE finishes it. **Revoke is
-  the primary deletion path**; the lifecycle rule below is a backstop.
+- **Revoking** (`DELETE /person-refs/{user}/{consent_id}`, the People page's Revoke)
+  cascades, in order: marks the record revoked; revokes every share whose
+  `person_consent_ids` contain it (the revoke hook `shares.revoke_shares_for_consent`,
+  registered in `deployment/async_app.py`; deletes `shares/<token>/`, so the link 404s);
+  deletes every image listed in the record's `person_renders` (cast base renders and
+  personalised variants, see below), but only objects that still carry blob metadata
+  `consent_id` = this consent; then deletes the photo object. A failed step answers 502
+  `revoke_incomplete`, and repeating the DELETE finishes it (every step is idempotent).
+  The results page shows "Image removed (consent revoked)" for a cast creative whose
+  image is gone. **Revoke is the primary deletion path**; the lifecycle rule below is a
+  backstop.
+- **`person_renders`** (the images made with the photo): personalised variants are
+  appended right before upload (`runserver/variants.py`); cast base renders
+  (`generated_images[c].cast` + `consent_id`, uploaded by `creative_agent/image_tools.py`
+  with blob metadata `consent_id`) are appended by the api's `/runs` path when a run
+  segment ends (`async_runs._record_cast_renders`, owner-only, deduplicated, only
+  `gs://$GOOGLE_CLOUD_STORAGE_BUCKET/` objects outside `shares/` and `person-refs/`). A
+  render recorded after its consent was revoked is deleted at once. The metadata check
+  matters because session state is client-seedable: a recorded URI alone never deletes an
+  object. Cast renders made before this change carry no metadata and are not deleted by
+  a revoke (the share cascade still unpublishes them).
+- **Runs recorded at kick-off:** `POST /runs` with a person reference first appends a
+  `session:<app>/<session_id>` entry to the consent's `person_renders` (a store error is a
+  503 `person_reference_unavailable` and nothing starts). The revoke reads each recorded
+  session's state (the api's session service) and deletes the `generated_images` and
+  `person_variants` objects naming the consent (metadata-checked), so a run that died
+  mid-segment is covered; a deleted session is skipped. No new column: the markers live in
+  `person_renders`.
+- **No ADK artifact copy:** cast renders are uploaded to GCS only (no `save_artifact`), so
+  the revoke never has to reach the api's artifact service. The results page reads images
+  from GCS; a cast render simply doesn't appear in the Artifacts tab.
 
 ### Table
 
@@ -1693,8 +1746,9 @@ Columns: `consent_id STRING, owner_user STRING, photo_uri STRING, label STRING,
 subject STRING ('self' | 'third_party_with_consent'), adult_attested BOOL,
 allow_public_share BOOL, consent_text_version STRING, created_at TIMESTAMP,
 revoked_at TIMESTAMP, person_renders ARRAY<STRING>` (`person_renders` holds the `gs://`
-URIs of images rendered with the photo, so a revoke can delete them; always `[]` until the
-casting PRs write it).
+URIs of images made with the photo, so a revoke can delete them; written since
+person-reference PR 4 by an `UPDATE … SET person_renders = ARRAY(SELECT DISTINCT …)`, so
+no migration is needed: the column exists since PR 1).
 
 The api SA (`tt-api-sa`) already has `roles/storage.objectAdmin` on the bucket (read
 metadata, delete under `person-refs/`) and the BigQuery roles; nothing else is needed.
@@ -1754,8 +1808,8 @@ owner revokes it and registers a fresh upload.
 **No lifecycle rule for personalised variants.** Variants (PR 3) are written under
 `<run folder>/creative_output/variants/<slug>/…`, and a lifecycle condition can only match a
 fixed object-name *prefix* or *suffix*, not a `*/variants/` segment in the middle; a broad
-rule could also delete ordinary run outputs. Variant cleanup is therefore by revoke (the PR 4
-cascade deletes every variant made with the consent). If variants later move under a fixed
+rule could also delete ordinary run outputs. Variant cleanup is therefore by revoke (the
+cascade deletes every variant recorded in the consent's `person_renders`). If variants later move under a fixed
 top-level prefix, add a `matchesPrefix` rule for it.
 
 ## Personalised variants

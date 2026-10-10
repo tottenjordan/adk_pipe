@@ -31,6 +31,7 @@ def _row(**over) -> dict:
         "title": "PRS × Powerball",
         "created_at": T0,
         "revoked_at": None,
+        "person_consent_ids": [],
     }
     row.update(over)
     return row
@@ -58,6 +59,7 @@ def test_schema_file_matches_store_columns():
         "title",
         "created_at",
         "revoked_at",
+        "person_consent_ids",
     ]
 
 
@@ -132,6 +134,45 @@ def test_in_memory_store():
     run(go())
 
 
+def test_list_with_consent_sql_parameterised():
+    from google.cloud import bigquery
+
+    sql, params = ss.build_list_with_consent_sql("t", "a@x.com", "cid'; DROP")
+    assert "owner_user = @owner_user" in sql
+    assert "@consent_id IN UNNEST(person_consent_ids)" in sql
+    # revoked shares too: a retried consent revoke must finish deleting objects
+    assert "revoked_at" not in sql
+    assert "DROP" not in sql and "a@x.com" not in sql
+    by_name = {p.name: p for p in params}
+    assert isinstance(by_name["consent_id"], bigquery.ScalarQueryParameter)
+    assert by_name["consent_id"].value == "cid'; DROP"
+    assert by_name["owner_user"].value == "a@x.com"
+    _, params = ss.build_put_sql("t", _row(person_consent_ids=None))
+    assert {p.name: p for p in params}["person_consent_ids"].values == []
+
+
+def test_in_memory_list_with_consent():
+    store = ss.InMemorySharesStore()
+
+    async def go():
+        await store.put(_row(token="t1", person_consent_ids=["c1", "c2"]))
+        await store.put(_row(token="t2", person_consent_ids=["c2"]))
+        await store.put(_row(token="t3", person_consent_ids=[]))
+        await store.put(
+            _row(token="t4", owner_user="b@x.com", person_consent_ids=["c2"])
+        )
+        await store.put(_row(token="t5"))
+        await store.revoke("t2", "a@x.com")
+        got = await store.list_with_consent("a@x.com", "c2")
+        assert sorted(r["token"] for r in got) == ["t1", "t2"]
+        assert [r["token"] for r in await store.list_with_consent("a@x.com", "c1")] == [
+            "t1"
+        ]
+        assert await store.list_with_consent("a@x.com", "zz") == []
+
+    run(go())
+
+
 def test_in_memory_rows_are_copies():
     store = ss.InMemorySharesStore()
     row = _row()
@@ -156,8 +197,10 @@ def test_bigquery_store_over_fake_client():
         assert await store.revoke("tok", "b@x.com") is False
         fake.results = []
         assert await store.get("missing") is None
+        assert await store.list_with_consent("a@x.com", "c1") == []
 
     run(go())
+    assert "IN UNNEST(person_consent_ids)" in fake.sqls[-1]
     assert fake.sqls[0].lstrip().startswith("MERGE `p.d.s`")
     assert "owner_user = @owner_user" in fake.sqls[1]
     assert "token = @token" in fake.sqls[2]

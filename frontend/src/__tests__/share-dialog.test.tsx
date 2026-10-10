@@ -65,6 +65,29 @@ describe("ShareDialog", () => {
     );
   });
 
+  it("says how many creatives showing a person were left out of a slate", async () => {
+    createShare.mockResolvedValue(
+      share({ skipped: [{ concept_name: "The Reveal", reason: "person_not_shareable" }] })
+    );
+    render(<ShareDialog appName="creative_agent" sessionId="s1" triggerLabel="Share slate" />);
+    open();
+    fireEvent.click(await screen.findByRole("button", { name: "Create link" }));
+    expect(
+      await screen.findByText(
+        "1 creative showing a person was left out (their consent doesn't cover public links)."
+      )
+    ).toBeInTheDocument();
+  });
+
+  it("shows no left-out notice when nothing was skipped", async () => {
+    createShare.mockResolvedValue(share({ skipped: [] }));
+    render(<ShareDialog appName="creative_agent" sessionId="s1" triggerLabel="Share slate" />);
+    open();
+    fireEvent.click(await screen.findByRole("button", { name: "Create link" }));
+    await screen.findByDisplayValue("https://share.example.com/s/AbCdEfGhIjKlMnOp");
+    expect(screen.queryByText(/left out/)).not.toBeInTheDocument();
+  });
+
   it("copies the link and announces it in a polite live region", async () => {
     createShare.mockResolvedValue(share());
     render(<ShareDialog appName="creative_agent" sessionId="s1" triggerLabel="Share slate" />);
@@ -99,7 +122,8 @@ describe("ShareDialog", () => {
     ["too_many_shares", 429, /too many active links/i],
     ["shares_unconfigured", 503, /isn't set up/i],
     ["session_not_found", 404, /could not be found/i],
-    ["image_outside_bucket", 400, /project bucket/i],
+    ["image_outside_bucket", 400, /output folder/i],
+    ["person_consent_changed", 409, /consent changed/i],
   ])("shows a friendly inline error for %s", async (reason, status, message) => {
     createShare.mockRejectedValue(new ShareError(reason, status));
     render(<ShareDialog appName="creative_agent" sessionId="s1" triggerLabel="Share slate" />);
