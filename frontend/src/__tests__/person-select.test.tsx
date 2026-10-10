@@ -89,6 +89,22 @@ describe("PersonSelect", () => {
     );
   });
 
+  it("shows a carried-over person with Remove when the list fails", async () => {
+    listPersonRefs.mockImplementation(() => Promise.reject(new Error("nope")));
+    const onChange = vi.fn();
+    render(
+      <PersonSelect
+        value={{ uri: "gs://b/person-refs/a-1/me.jpg", consentId: "consent-1234" }}
+        onChange={onChange}
+      />,
+    );
+    expect(
+      await screen.findByText("Person: saved person (couldn't load your people)"),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Remove" }));
+    expect(onChange).toHaveBeenCalledWith(null);
+  });
+
   it("degrades quietly when the list fails", async () => {
     listPersonRefs.mockImplementation(() => Promise.reject(new Error("nope")));
     render(<PersonSelect value={null} onChange={() => {}} />);

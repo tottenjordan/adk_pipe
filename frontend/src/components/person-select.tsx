@@ -54,7 +54,20 @@ export function PersonSelect({
       <FieldLabel as="label" htmlFor="personReference">
         Person (optional)
       </FieldLabel>
-      {failed ? (
+      {failed && chosen ? (
+        // A person carried over (Duplicate brief) can't be checked against the
+        // list: keep it visible so it is never submitted silently.
+        <p className="flex items-center gap-2 text-xs text-foreground">
+          <span>Person: saved person (couldn&apos;t load your people)</span>
+          <button
+            type="button"
+            onClick={() => onChange(null)}
+            className="text-primary underline-offset-4 hover:underline"
+          >
+            Remove
+          </button>
+        </p>
+      ) : failed ? (
         <p className="text-xs text-muted-foreground">People couldn&apos;t be loaded.</p>
       ) : people !== null && people.length === 0 ? (
         <p className="text-xs text-muted-foreground">
