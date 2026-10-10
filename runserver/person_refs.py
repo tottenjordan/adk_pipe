@@ -15,9 +15,12 @@ Revoking cascades, in order: mark the record revoked; run the registered
 ``person_consent_ids`` contain it); delete every image made with the photo, listed
 in the record's ``person_renders`` (cast base renders, recorded by
 ``record_renders`` from the api run path, and personalised variants, recorded at
-upload), but only objects still carrying blob metadata ``consent_id`` = this
-consent (session state is client-seedable, so a recorded URI alone never deletes
-an object); then delete the photo. Every step is idempotent: a failure is a 502
+upload), plus the cast renders and variants found in the state of every run
+recorded on it as a ``session:<app>/<session_id>`` marker (``record_session``, at
+kick-off, so a run that died mid-segment is covered too), but only objects still
+carrying blob metadata ``consent_id`` = this consent (session state is
+client-seedable, so a recorded URI alone never deletes an object); then delete
+the photo. Every step is idempotent: a failure is a 502
 ``revoke_incomplete`` and repeating the DELETE finishes the cleanup.
 
 Routes (user-scoped by path, gated by ``UserAuthzMiddleware`` like ``/shares``):
@@ -80,6 +83,11 @@ RENDER_METADATA_KEY = "consent_id"
 # Never deleted as a "render": public share copies (revoked by their own cascade)
 # and the consented photos themselves.
 _NOT_RENDER_PREFIXES = ("shares/", PERSON_REFS_PREFIX)
+# ``person_renders`` entries that name a run (``session:<app>/<session_id>``)
+# rather than an object; written at kick-off by the /runs path.
+SESSION_MARKER_PREFIX = "session:"
+_APP_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,63}$")
+_SESSION_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
 
 RevokeHook = Callable[[dict], Awaitable[None] | None]
 
@@ -165,6 +173,54 @@ def render_path(uri: Any, bucket: str | None) -> str | None:
     return path
 
 
+def session_marker(app_name: Any, session_id: Any) -> str | None:
+    """``session:<app>/<session_id>`` (None for a malformed app or session id)."""
+    if not (
+        isinstance(app_name, str)
+        and isinstance(session_id, str)
+        and _APP_RE.match(app_name)
+        and _SESSION_ID_RE.match(session_id)
+    ):
+        return None
+    return f"{SESSION_MARKER_PREFIX}{app_name}/{session_id}"
+
+
+def parse_session_marker(entry: Any) -> tuple[str, str] | None:
+    """``(app, session_id)`` of a ``session:`` entry, None otherwise."""
+    if not isinstance(entry, str) or not entry.startswith(SESSION_MARKER_PREFIX):
+        return None
+    app_name, sep, session_id = entry[len(SESSION_MARKER_PREFIX) :].partition("/")
+    if not sep or session_marker(app_name, session_id) != entry:
+        return None
+    return app_name, session_id
+
+
+def session_render_uris(state: Mapping[str, Any] | None, consent_id: str) -> list[str]:
+    """The ``gcs_uri`` of every ``generated_images`` entry and ``person_variants``
+    record that names ``consent_id`` (pure; deletion still checks the object's
+    metadata)."""
+    state = state or {}
+    uris: list[str] = []
+
+    def take(record: Any) -> None:
+        if isinstance(record, Mapping) and record.get("consent_id") == consent_id:
+            uri = record.get("gcs_uri")
+            if isinstance(uri, str) and uri:
+                uris.append(uri)
+
+    images = state.get("generated_images")
+    if isinstance(images, Mapping):
+        for record in images.values():
+            take(record)
+    variants = state.get("person_variants")
+    if isinstance(variants, Mapping):
+        for by_key in variants.values():
+            if isinstance(by_key, Mapping):
+                for record in by_key.values():
+                    take(record)
+    return list(dict.fromkeys(uris))
+
+
 def validate_body(
     body: Mapping[str, Any], user: str, bucket: str
 ) -> tuple[str, str, str, bool]:
@@ -236,6 +292,8 @@ _BUCKET: str | None = configured_report_bucket()
 # repeating the DELETE.
 _REVOKE_HOOKS: list[RevokeHook] = []
 revoke_hooks = _REVOKE_HOOKS
+# Reads the state of runs recorded on a consent (``session:`` markers) at revoke.
+_SESSION_SERVICE: Any = None
 
 
 def configure(
@@ -244,11 +302,13 @@ def configure(
     gcs_client: Any = None,
     bucket: str | None = None,
     revoke_hooks: Iterable[RevokeHook] | None = None,
+    session_service: Any = None,
 ) -> None:
     """``gcs_client`` defaults to the shared lazy client, ``bucket`` to
-    ``configured_report_bucket()`` (``GOOGLE_CLOUD_STORAGE_BUCKET``)."""
-    global _STORE, _GCS_CLIENT, _BUCKET
-    _STORE, _GCS_CLIENT = store, gcs_client
+    ``configured_report_bucket()`` (``GOOGLE_CLOUD_STORAGE_BUCKET``);
+    ``session_service`` reads recorded runs at revoke (None = skip that step)."""
+    global _STORE, _GCS_CLIENT, _BUCKET, _SESSION_SERVICE
+    _STORE, _GCS_CLIENT, _SESSION_SERVICE = store, gcs_client, session_service
     _BUCKET = (bucket or "").strip().removeprefix("gs://").strip("/") or (
         configured_report_bucket()
     )
@@ -329,6 +389,54 @@ async def delete_renders(record: Mapping[str, Any]) -> None:
         log.info(
             "person refs: deleted %d image(s) made with a revoked consent", deleted
         )
+
+
+async def _session_state(owner: str, app_name: str, session_id: str) -> Any:
+    from google.adk.errors.session_not_found_error import SessionNotFoundError
+
+    try:
+        session = await _SESSION_SERVICE.get_session(
+            app_name=app_name, user_id=owner, session_id=session_id
+        )
+    except SessionNotFoundError:
+        return None
+    return session.state if session is not None else None
+
+
+async def delete_session_renders(record: Mapping[str, Any]) -> None:
+    """For every run recorded on the consent (``session:`` markers), delete the
+    cast renders and variants its state lists for this consent (metadata-checked,
+    see ``_delete_renders``). A deleted session is skipped; a read failure raises
+    (the revoke is retryable)."""
+    bucket, cid = _BUCKET, record.get("consent_id")
+    owner = record.get("owner_user")
+    if _SESSION_SERVICE is None or not (
+        bucket and isinstance(cid, str) and isinstance(owner, str)
+    ):
+        return
+    for entry in record.get("person_renders") or []:
+        parsed = parse_session_marker(entry)
+        if parsed is None:
+            continue
+        state = await _session_state(owner, *parsed)
+        uris = session_render_uris(state, cid)
+        if uris:
+            await asyncio.to_thread(_delete_renders, bucket, cid, uris)
+
+
+async def record_session(
+    owner: str, consent_id: str, app_name: str, session_id: str
+) -> bool:
+    """Mark a run that uses ``owner``'s consent (a ``session:<app>/<id>`` entry in
+    ``person_renders``, deduplicated) so a revoke can read its state even when
+    the run never finished. False for a malformed id or another owner's consent;
+    raises on a store error."""
+    marker = session_marker(app_name, session_id)
+    if marker is None or not (
+        isinstance(consent_id, str) and CONSENT_ID_RE.match(consent_id)
+    ):
+        return False
+    return bool(await _STORE.add_renders(consent_id, owner, [marker]))
 
 
 async def record_renders(owner: str, consent_id: str, uris: Iterable[Any]) -> bool:
@@ -482,6 +590,7 @@ async def http_revoke_person_ref(user_id: str, consent_id: str) -> Response:
             if inspect.isawaitable(result):
                 await result
         await delete_renders(row)
+        await delete_session_renders(row)
         bucket = _BUCKET
         path = photo_path(row.get("photo_uri"), user_id, bucket)
         if bucket and path:

@@ -531,7 +531,7 @@ async def _store_image(
     doesn't abort the whole batch (_save_to_gcs raises on failure — it never
     returns an error dict). The blocking upload runs off the event loop.
     A cast render carries blob metadata ``consent_id`` (the consent revoke
-    deletes only objects that carry it).
+    deletes only objects that carry it) and is not saved as an ADK artifact.
     """
     extra = {"metadata": {"consent_id": consent_id}} if consent_id else {}
     try:
@@ -547,6 +547,12 @@ async def _store_image(
             f"GCS upload failed for '{artifact_key}', skipping image: {gcs_exc}"
         )
         return None
+    if consent_id:
+        # A cast render lives only in GCS, which the consent revoke cascade can
+        # delete; an ADK artifact copy (the api's artifact service) it couldn't.
+        # Nothing reads these artifacts back; the results page uses the GCS image.
+        logging.info(f"Saved cast image '{artifact_key}' to GCS only (no artifact)")
+        return img_gcs_uri
     await tool_context.save_artifact(
         filename=artifact_key,
         artifact=types.Part.from_bytes(data=image_bytes, mime_type=mime_type),

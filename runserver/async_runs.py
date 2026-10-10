@@ -127,6 +127,32 @@ async def check_person_reference(
         raise invalid
 
 
+async def record_person_session(
+    app_name: str, user_id: str, session_id: str, state: dict | None
+) -> None:
+    """Mark the run on its person consent (``person_refs.record_session``) so
+    revoking the consent can find this run's cast renders even if it dies
+    mid-segment. Raises ``PersonReferenceError`` (503) on a store error, so the
+    run never starts without the marker."""
+    ref = (state or {}).get(PERSON_REFERENCE_KEY)
+    if app_name not in PERSON_REFERENCE_APPS or not isinstance(ref, dict):
+        return
+    consent_id = ref.get("consent_id")
+    if not isinstance(consent_id, str) or not consent_id:
+        return
+    from runserver import person_refs
+
+    try:
+        await person_refs.record_session(user_id, consent_id, app_name, session_id)
+    except Exception as exc:
+        logging.exception("person reference: recording the run failed")
+        raise PersonReferenceError(
+            "person_reference_unavailable",
+            "could not check the person's consent; retry shortly",
+            status=503,
+        ) from exc
+
+
 def _parse_max_auto_continues(raw: str | None) -> int:
     """``RUN_MAX_AUTO_CONTINUES`` → int clamped to 0..3; unset/invalid → 2."""
     try:
@@ -792,6 +818,12 @@ async def start_run(
             user_id,
             existing.state if existing is not None else None,
             reason="person_reference_invalid",
+        )
+        await record_person_session(
+            app_name,
+            user_id,
+            session_id,
+            existing.state if existing is not None else None,
         )
     _claim_run(key)  # synchronous check+claim, before any further await
     try:

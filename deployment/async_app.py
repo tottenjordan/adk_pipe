@@ -168,11 +168,15 @@ app.include_router(shares.router)
 # BigQuery env). Photos live at gs://$GOOGLE_CLOUD_STORAGE_BUCKET/person-refs/<slug>/.
 # Revoking a consent cascades: the shares whose person_consent_ids contain it (hook
 # below), then every render recorded in its person_renders (cast base renders from
-# the /runs path, variants from /variants), then the photo.
+# the /runs path, variants from /variants, plus the renders listed in the state
+# of every run recorded on the consent at kick-off), then the photo.
 _PERSON_REFS_MODE, _PERSON_REFS_STORE = build_person_refs_store()
 logging.getLogger(__name__).info("person references store: %s", _PERSON_REFS_MODE)
 person_refs.configure(
-    store=_PERSON_REFS_STORE, revoke_hooks=[shares.revoke_shares_for_consent]
+    store=_PERSON_REFS_STORE,
+    revoke_hooks=[shares.revoke_shares_for_consent],
+    # Reads the runs recorded on a consent (session: markers) at revoke.
+    session_service=session_service,
 )
 app.include_router(person_refs.router)
 

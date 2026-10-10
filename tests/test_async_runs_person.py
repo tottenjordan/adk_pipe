@@ -367,6 +367,28 @@ def _images():
     }
 
 
+def test_kickoff_records_the_session_on_the_consent():
+    store = _person_store()
+    err, _calls = _kick({"person_reference": _ref()})
+    assert err is None
+    assert asyncio.run(store.get("consent-1234"))["person_renders"] == [
+        "session:creative_agent/s"
+    ]
+
+
+def test_kickoff_session_record_failure_is_503_before_anything_starts(monkeypatch):
+    store = _person_store()
+
+    async def boom(*_a):
+        raise RuntimeError("bq down")
+
+    monkeypatch.setattr(store, "add_renders", boom)
+    err, calls = _kick({"person_reference": _ref()})
+    assert err is not None and err.status == 503
+    assert err.reason == "person_reference_unavailable"
+    assert calls == []
+
+
 def test_cast_renders_groups_by_consent():
     assert async_runs.cast_renders({"generated_images": _images()}) == {
         "consent-1234": [CAST],

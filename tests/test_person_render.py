@@ -209,6 +209,34 @@ def test_cast_upload_carries_the_consent_id_metadata(monkeypatch):
     assert by_name[plain_key] is None
 
 
+@pytest.mark.usefixtures("image_qa_off")
+def test_cast_render_is_not_saved_as_an_adk_artifact(monkeypatch):
+    # The revoke cascade can delete the GCS object, but not an artifact copy in the
+    # api's artifact service, so cast renders are never saved there (the results
+    # page reads the GCS image).
+    _patch(monkeypatch)
+    ctx = _ctx(
+        [
+            _concept("cast", cast=True),
+            _concept("plain", cast=False, prompt="A flat cartoon skate."),
+        ],
+        person=_PERSON,
+    )
+    saved = []
+
+    async def save_artifact(filename, artifact):
+        saved.append(filename)
+
+    ctx.save_artifact = save_artifact
+    asyncio.run(image_tools.generate_image(ctx))
+    assert saved == [image_tools.artifact_key_for("plain")]
+    # both still count as generated images (keys map to the GCS files)
+    assert ctx.state["_generated_artifact_keys"] == [
+        image_tools.artifact_key_for("cast"),
+        image_tools.artifact_key_for("plain"),
+    ]
+
+
 def test_save_to_gcs_sets_metadata_only_when_given(monkeypatch):
     from creative_agent import gcs_tools
 

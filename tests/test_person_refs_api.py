@@ -99,14 +99,18 @@ class FakeGCS:
 
 class Harness:
     def __init__(self, mode=AuthzMode.TRUST_CLIENT, hooks=None):
+        from google.adk.sessions import InMemorySessionService
+
         self.store = InMemoryPersonRefsStore()
         self.gcs = FakeGCS()
         self.gcs.add(PHOTO_A)
+        self.svc = InMemorySessionService()
         pr.configure(
             store=self.store,
             gcs_client=self.gcs,
             bucket=BUCKET,
             revoke_hooks=hooks,
+            session_service=self.svc,
         )
         app = FastAPI()
         app.include_router(pr.router)
@@ -517,10 +521,96 @@ def test_revoke_deletes_shares_then_renders_then_photo():
     run(go)
 
 
+def test_record_session_marks_the_run_on_the_consent():
+    async def go():
+        h = Harness()
+        cid = (await h.create()).json()["consent_id"]
+        assert await pr.record_session(A, cid, "creative_agent", "s-1") is True
+        assert await pr.record_session(A, cid, "creative_agent", "s-1") is True
+        assert (await h.store.get(cid))["person_renders"] == [
+            "session:creative_agent/s-1"
+        ]
+        # malformed app / session id, someone else's consent: refused
+        for args in (
+            (A, cid, "bad app", "s"),
+            (A, cid, "creative_agent", "a/b"),
+            (A, cid, "creative_agent", ""),
+            (B, cid, "creative_agent", "s-2"),
+            (A, "not valid!", "creative_agent", "s-2"),
+        ):
+            assert await pr.record_session(*args) is False, args
+        assert len((await h.store.get(cid))["person_renders"]) == 1
+        # a session marker is never mistaken for an object to delete
+        assert pr.render_path("session:creative_agent/s-1", BUCKET) is None
+
+    run(go)
+
+
+def test_revoke_deletes_cast_renders_and_variants_of_recorded_sessions():
+    async def go():
+        h = Harness()
+        cid = (await h.create()).json()["consent_id"]
+        cast, plain = _render(cid, "cast.png"), _render(cid, "plain.png")
+        variant = _variant(cid, "v.png")
+        h.gcs.add(cast, metadata={"consent_id": cid})
+        h.gcs.add(plain, metadata=None)
+        h.gcs.add(variant, metadata={"consent_id": cid})
+        # the run died mid-segment: nothing was recorded but the session marker
+        await h.svc.create_session(
+            app_name="creative_agent",
+            user_id=A,
+            session_id="s-1",
+            state={
+                "generated_images": {
+                    "c": {"gcs_uri": cast, "cast": True, "consent_id": cid},
+                    "p": {"gcs_uri": plain, "cast": False},
+                    "x": "junk",
+                },
+                "person_variants": {
+                    "p": {"k1": {"consent_id": cid, "gcs_uri": variant}},
+                    "q": {"k2": {"consent_id": "other-1234", "gcs_uri": plain}},
+                },
+            },
+        )
+        await pr.record_session(A, cid, "creative_agent", "s-1")
+        await pr.record_session(A, cid, "creative_agent", "gone-1")  # deleted run
+        r = await h.client.delete(f"/person-refs/{A}/{cid}")
+        assert r.status_code == 204, r.text
+        assert not h.gcs.has(cast) and not h.gcs.has(variant)
+        assert h.gcs.has(plain)
+        assert not h.gcs.has(PHOTO_A)
+        assert (await h.client.delete(f"/person-refs/{A}/{cid}")).status_code == 204
+
+    run(go)
+
+
+def test_session_read_failure_is_502_and_retryable(monkeypatch):
+    async def go():
+        h = Harness()
+        cid = (await h.create()).json()["consent_id"]
+        await pr.record_session(A, cid, "creative_agent", "s-1")
+        real = h.svc.get_session
+
+        async def boom(**kw):
+            raise RuntimeError("sessions down")
+
+        monkeypatch.setattr(h.svc, "get_session", boom)
+        r = await h.client.delete(f"/person-refs/{A}/{cid}")
+        assert r.status_code == 502
+        assert h.gcs.has(PHOTO_A)
+        monkeypatch.setattr(h.svc, "get_session", real)
+        assert (await h.client.delete(f"/person-refs/{A}/{cid}")).status_code == 204
+        assert not h.gcs.has(PHOTO_A)
+
+    run(go)
+
+
 def test_launcher_registers_the_share_cascade():
     # Importing async_app builds the whole ADK server, so check the wiring textually.
     src = (Path(__file__).resolve().parents[1] / "deployment/async_app.py").read_text()
     assert "revoke_hooks=[shares.revoke_shares_for_consent]" in src
+    call = src.split("person_refs.configure(")[1].split("\n)")[0]
+    assert "session_service=session_service" in call
 
 
 def test_render_delete_failure_is_502_and_the_retry_finishes():
