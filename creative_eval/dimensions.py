@@ -14,7 +14,7 @@ from collections.abc import Iterable
 # (docs/notes/judge-calibration.md). Bump it (to the change's date) whenever the
 # gates, the gate or dimension wording, the scoring/pass rules (threshold,
 # normalisation) or the judge model change.
-JUDGE_VERSION = "2026-10-08"
+JUDGE_VERSION = "2026-10-10"
 
 DIMENSION_LABELS: dict[str, str] = {
     # Ad copy
@@ -50,6 +50,7 @@ VISUAL_GATES: tuple[str, ...] = (
     "avoid_respected",
     "no_visual_defects",
     "trend_risks_respected",
+    "person_depicted_respectfully",
 )
 # Recorded but never part of gates_passed (mirrors image QA, where a missing
 # brand cue never fails an image).
@@ -64,6 +65,11 @@ BRIEF_GATES: frozenset[str] = frozenset(
         "trend_risks_respected",
     }
 )
+
+# Only judged for a concept that cast the user's person reference
+# (``generated_images[concept]["cast"] is True``); otherwise passed in code with
+# note "no person cast", whatever the judge said.
+PERSON_GATES: frozenset[str] = frozenset({"person_depicted_respectfully"})
 
 # The single failed gate recorded when the judge reported none of the
 # expected gates (the checks were skipped, so the creative is unverified).
@@ -84,6 +90,7 @@ GATE_LABELS: dict[str, str] = {
     "text_correct": "In-image text correct",
     "brand_cue_present": "Brand cue present",
     "no_visual_defects": "No visual defects",
+    "person_depicted_respectfully": "Person depicted respectfully",
     # Judge skipped every check
     NO_GATES_GATE: "Checks reported",
 }

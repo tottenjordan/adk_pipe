@@ -182,6 +182,8 @@ def _find_eval(report: Mapping[str, Any], info: Mapping[str, Any]) -> Mapping | 
 
 # Reports written between the 2026-10-08 gate change and JUDGE_VERSION stamping
 # carry no version, but their visual gates include the then-new no_visual_defects.
+# Later judges (2026-10-10: person_depicted_respectfully) always stamp their
+# version, so this inference never needs to change.
 _FIRST_VERSIONED_JUDGE = ("2026-10-08", "no_visual_defects")
 
 

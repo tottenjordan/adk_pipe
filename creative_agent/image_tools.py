@@ -42,8 +42,16 @@ from agent_common import genai_retry
 from agent_common.locations import MODEL_LOCATION
 
 from . import image_qa
+from .concept_guard import enforce_person_casting, neutralise_person_prompt
 from .config import config
 from .gcs_tools import _download_blob, _save_to_gcs, artifact_key_for
+from .person_render import (
+    PERSON_ROLE_INSTRUCTION,
+    person_block_reason,
+    person_consent_id,
+    person_image_config,
+    person_reference_uri,
+)
 from .rating_signals import strictness_flags
 from .references import (
     MAX_REFERENCE_IMAGES,
@@ -308,6 +316,8 @@ _REFERENCE_ROLE_INSTRUCTIONS = {
         "Match only its palette, texture and lighting, not its content, subject "
         "or layout."
     ),
+    # Only attached to concepts that cast the user's consented person.
+    "person": PERSON_ROLE_INSTRUCTION,
 }
 
 # The live probe showed the model copying a reference image's baked-in headline
@@ -392,23 +402,22 @@ def _final_image_part(parts):
     return images[-1] if images else None
 
 
-async def _render_image(contents, aspect_ratio: str) -> tuple[bytes, str] | None:
-    """Render one image → ``(bytes, mime)`` of the final image part, or None.
+def _base_image_config(aspect_ratio: str) -> types.ImageConfig:
+    return types.ImageConfig(aspect_ratio=aspect_ratio, image_size=config.image_size)
 
-    Goes through ``_generate_image_with_backoff`` (quota-paced). A response
-    with no image part is logged and yields None (that concept is skipped).
-    """
-    response = await _generate_image_with_backoff(
+
+async def _request_image(contents, image_config: types.ImageConfig):
+    """One quota-paced image-model call → the raw response."""
+    return await _generate_image_with_backoff(
         model=config.image_gen_model,
         contents=contents,
         config=types.GenerateContentConfig(
-            response_modalities=["IMAGE"],
-            image_config=types.ImageConfig(
-                aspect_ratio=aspect_ratio,
-                image_size=config.image_size,
-            ),
+            response_modalities=["IMAGE"], image_config=image_config
         ),
     )
+
+
+def _image_from_response(response) -> tuple[bytes, str] | None:
     # Gemini image models return the image as inline data on a content part,
     # unlike Imagen's generate_images (which returns response.generated_images).
     candidates = response.candidates or []
@@ -416,8 +425,82 @@ async def _render_image(contents, aspect_ratio: str) -> tuple[bytes, str] | None
         part = _final_image_part(candidates[0].content.parts)
         if part is not None:
             return part.inline_data.data, part.inline_data.mime_type or "image/png"
-    logging.error(f"Error with image generation response: {str(response)}")
     return None
+
+
+async def _render_image(
+    contents, aspect_ratio: str, image_config: types.ImageConfig | None = None
+) -> tuple[bytes, str] | None:
+    """Render one image → ``(bytes, mime)`` of the final image part, or None.
+
+    Goes through ``_generate_image_with_backoff`` (quota-paced). A response
+    with no image part is logged and yields None (that concept is skipped).
+    ``image_config`` overrides the default ``ImageConfig`` (aspect ratio +
+    ``config.image_size``).
+    """
+    response = await _request_image(
+        contents, image_config or _base_image_config(aspect_ratio)
+    )
+    rendered = _image_from_response(response)
+    if rendered is None:
+        logging.error(f"Error with image generation response: {str(response)}")
+    return rendered
+
+
+async def _render_person_image(
+    contents, aspect_ratio: str
+) -> tuple[tuple[bytes, str] | None, str | None]:
+    """Render a concept that casts the person reference, with
+    ``person_generation=ALLOW_ADULT`` → ``(image, None)``, or ``(None, reason)``
+    when a safety filter (or the request itself) rejected it
+    (``person_render.person_block_reason``; a non-retryable 4xx becomes
+    ``request_rejected:<code>``). The caller then renders without the person.
+    The response isn't logged (it would echo the request)."""
+    try:
+        response = await _request_image(
+            contents, person_image_config(_base_image_config(aspect_ratio))
+        )
+    except genai_errors.ClientError as exc:
+        if _is_retryable_genai_error(exc):
+            raise
+        return None, f"request_rejected:{getattr(exc, 'code', '') or 'error'}"
+    reason = person_block_reason(response)
+    if reason is not None:
+        return None, reason
+    rendered = _image_from_response(response)
+    return (rendered, None) if rendered is not None else (None, "no_image")
+
+
+def _fetch_person_photo(uri: str) -> types.Part | None:
+    """The person photo (a ``gs://…/person-refs/…`` object) as a Part, or None.
+
+    Unlike ``_fetch_reference_image`` it never logs the URI, and only ``gs://``
+    objects under ``person-refs/`` in the run's bucket (when configured) are
+    fetched."""
+    without_scheme = uri.removeprefix("gs://")
+    bucket, _, obj = without_scheme.partition("/")
+    configured = (config.GCS_BUCKET_NAME or "").strip()
+    if configured and bucket != configured:
+        logging.warning("Person reference is not in the run's bucket; not cast")
+        return None
+    try:
+        data = _download_blob(bucket, obj)
+        if not data or len(data) > _REFERENCE_MAX_BYTES:
+            raise ValueError("empty or too large")
+        return types.Part.from_bytes(data=data, mime_type=_reference_mime_for(obj))
+    except Exception as exc:
+        logging.warning(
+            "Person reference photo unavailable (%s); not cast", type(exc).__name__
+        )
+        return None
+
+
+PERSON_REJECTED_NOTE = (
+    "{name}: person photo rejected by the safety filter; rendered without the person"
+)
+PERSON_UNAVAILABLE_NOTE = (
+    "{name}: person photo unavailable; rendered without the person"
+)
 
 
 async def _store_image(
@@ -456,9 +539,12 @@ async def _inspect(
     product: str,
     has_logo_reference: bool = False,
     strictness: Sequence[str] = (),
+    person_image: tuple[bytes, str] | None = None,
 ) -> image_qa.ImageQAResult | None:
-    """One QA call off the event loop → the verdict, or None (fail-open)."""
+    """One QA call off the event loop → the verdict, or None (fail-open).
+    ``person_image`` (cast concepts only) adds the likeness comparison."""
     image_bytes, mime = rendered
+    extra = {"person_image": person_image} if person_image is not None else {}
     try:
         return await asyncio.to_thread(
             image_qa.inspect_image,
@@ -471,6 +557,7 @@ async def _inspect(
             model=config.image_qa_model,
             has_logo_reference=has_logo_reference,
             strictness=strictness,
+            **extra,
         )
     except Exception as exc:
         logging.warning(
@@ -527,6 +614,7 @@ async def _inspect_and_rerender(
     claim_after: asyncio.Event | None = None,
     claims_done: asyncio.Event | None = None,
     strictness: Sequence[str] = (),
+    person_image: tuple[bytes, str] | None = None,
 ) -> tuple[tuple[bytes, str], int, dict | None, str | None]:
     """Inspect a render; re-render (bounded) while it fails; keep the best.
 
@@ -559,7 +647,13 @@ async def _inspect_and_rerender(
     try:
         name = entry.get("concept_name", "")
         result = await _inspect(
-            rendered, entry, brand, product, has_logo_reference, strictness
+            rendered,
+            entry,
+            brand,
+            product,
+            has_logo_reference,
+            strictness,
+            person_image,
         )
         if result is None:
             await my_turn()
@@ -598,7 +692,13 @@ async def _inspect_and_rerender(
             if retry is None:
                 break
             retry_result = await _inspect(
-                retry, entry, brand, product, has_logo_reference, strictness
+                retry,
+                entry,
+                brand,
+                product,
+                has_logo_reference,
+                strictness,
+                person_image,
             )
             if retry_result is None:
                 break
@@ -672,16 +772,51 @@ async def generate_image(
     # Opt-in rating learning: the run's check-backed fail-reason flags.
     strictness = strictness_flags(tool_context.state.get("rating_strictness"))
 
-    def contents_for(prompt_text: str):
+    # Optional consented person reference (consent-checked by the api at
+    # kick-off). Only a gs:// URI under person-refs/ is used; the casting guard
+    # is re-applied here (a checkpoint-3 edit may have bypassed it), and the
+    # photo is fetched once, only when a concept casts it. Never log the URI.
+    person_ref = tool_context.state.get("person_reference")
+    person_uri = person_reference_uri(person_ref)
+    if person_ref and not person_uri:
+        logging.warning(
+            "Person reference ignored: not a gs:// photo under person-refs/"
+        )
+    final_visual_concepts_list, cast_warnings = enforce_person_casting(
+        [c for c in final_visual_concepts_list if isinstance(c, dict)],
+        available=bool(person_uri),
+        max_cast=config.max_cast_concepts,
+        safe_styles=config.person_safe_styles,
+    )
+    for warning in cast_warnings:
+        logging.warning(f"casting guard (render): {warning}")
+    cast_names = {
+        c.get("concept_name")
+        for c in final_visual_concepts_list
+        if c.get("casts_person_reference") is True
+    }
+    person_part = None
+    person_image: tuple[bytes, str] | None = None  # for the QA likeness check
+    if cast_names:
+        person_part = await asyncio.to_thread(_fetch_person_photo, person_uri)
+        inline = getattr(person_part, "inline_data", None)
+        if inline is not None and inline.data:
+            person_image = (inline.data, inline.mime_type or "image/jpeg")
+    person_rejected: dict[str, str] = {}
+
+    def contents_for(prompt_text: str, person: bool = False):
         """The render contents: the prompt (+ the rating-strictness logo line,
-        the reference block and Parts)."""
+        the reference block and Parts; the person photo last, for a cast
+        concept only)."""
         if "unwanted_logo" in strictness:
             prompt_text = prompt_text + "\n\n" + no_other_logos_line(brand)
-        if reference_parts:
-            return [
-                _reference_prompt(prompt_text, reference_roles, missing_roles),
-                *reference_parts,
-            ]
+        roles = list(reference_roles)
+        parts = list(reference_parts)
+        if person and person_part is not None:
+            roles.append("person")
+            parts.append(person_part)
+        if parts:
+            return [_reference_prompt(prompt_text, roles, missing_roles), *parts]
         return prompt_text
 
     product = tool_context.state.get("target_product") or ""
@@ -704,7 +839,16 @@ async def generate_image(
         async with render_lock:
             return await _render_image(contents, aspect_ratio)
 
-    async def check(entry, rendered, prompt_text, aspect_ratio, claim_after, done):
+    async def render_person(contents, aspect_ratio: str) -> tuple[bytes, str] | None:
+        """A cast concept's QA re-render: keeps the person part and config; a
+        blocked re-render yields None (the previous attempt is kept)."""
+        async with render_lock:
+            rendered, _reason = await _render_person_image(contents, aspect_ratio)
+        return rendered
+
+    async def check(
+        entry, rendered, prompt_text, aspect_ratio, claim_after, done, cast=False
+    ):
         """QA (+ bounded re-render) of one render → (kept, attempts, record, issue)."""
         if rendered is None or not config.image_qa_enabled:
             if claim_after is not None:
@@ -716,18 +860,19 @@ async def generate_image(
             rendered,
             prompt_text,
             aspect_ratio,
-            contents_for,
+            functools.partial(contents_for, person=cast),
             brand,
             product,
             budget,
             has_logo_reference,
-            render=render,
+            render=render_person if cast else render,
             claim_after=claim_after,
             claims_done=done,
             strictness=strictness,
+            person_image=person_image if cast else None,
         )
 
-    checks: list[tuple[dict, asyncio.Task]] = []
+    checks: list[tuple[dict, asyncio.Task, bool]] = []
     previous_done: asyncio.Event | None = None
     try:
         for entry in final_visual_concepts_list:
@@ -741,15 +886,51 @@ async def generate_image(
                 config.image_aspect_ratio_default,
             )
             prompt_text = entry["image_generation_prompt"]
-            rendered = await render(contents_for(prompt_text), aspect_ratio)
+            name = str(entry.get("concept_name") or "")
+            cast = name in cast_names
+            rendered = None
+            if cast and person_part is None:
+                person_rejected[name] = "photo_unavailable"
+                cast = False
+            elif cast:
+                async with render_lock:
+                    rendered, reason = await _render_person_image(
+                        contents_for(prompt_text, person=True), aspect_ratio
+                    )
+                if rendered is None:
+                    logging.warning(
+                        f"Person render for '{name}' rejected ({reason}); "
+                        "rendering without the person"
+                    )
+                    person_rejected[name] = reason or "no_image"
+                    cast = False
+            if not cast and name in cast_names:
+                # The typed fallback: a generic hero, no person part (and QA
+                # judges it as an uncast concept).
+                prompt_text = neutralise_person_prompt(prompt_text)
+                entry = {
+                    **entry,
+                    "casts_person_reference": False,
+                    "image_generation_prompt": prompt_text,
+                }
+            if rendered is None:
+                rendered = await render(contents_for(prompt_text), aspect_ratio)
             done = asyncio.Event()
             task = asyncio.create_task(
-                check(entry, rendered, prompt_text, aspect_ratio, previous_done, done)
+                check(
+                    entry,
+                    rendered,
+                    prompt_text,
+                    aspect_ratio,
+                    previous_done,
+                    done,
+                    cast,
+                )
             )
-            checks.append((entry, task))
+            checks.append((entry, task, cast))
             previous_done = done
 
-        for entry, task in checks:
+        for entry, task, cast in checks:
             rendered, attempts, qa_record, qa_issue = await task
             if rendered is not None and config.image_qa_enabled:
                 if qa_record is None:
@@ -766,12 +947,19 @@ async def generate_image(
             if img_gcs_uri is None:
                 continue
             artifact_keys_list.append(artifact_key)
-            generated_images[entry["concept_name"]] = {
+            record = {
                 "gcs_uri": img_gcs_uri,
                 "artifact_key": artifact_key,
                 "attempts": attempts,
                 "qa": qa_record,
             }
+            if person_uri:
+                # Only runs with a person reference carry the cast flag; the
+                # judge's person gate and the UI read `cast is True`.
+                record["cast"] = cast
+                if cast:
+                    record["consent_id"] = person_consent_id(person_ref)
+            generated_images[entry["concept_name"]] = record
     except Exception as e:
         # Propagate so ADK 2.0 RetryConfig can retry transient infra failures.
         logging.exception(f"No images generated. {e}")
@@ -779,10 +967,10 @@ async def generate_image(
     finally:
         # On failure/cancellation stop the in-flight QA / re-render tasks (and
         # retrieve every task's outcome); on success they are all done already.
-        for _, task in checks:
+        for _, task, _ in checks:
             if not task.done():
                 task.cancel()
-        await asyncio.gather(*(task for _, task in checks), return_exceptions=True)
+        await asyncio.gather(*(task for _, task, _ in checks), return_exceptions=True)
 
     # Mark as done so subsequent calls are idempotent
     tool_context.state["_images_generated"] = True
@@ -795,6 +983,18 @@ async def generate_image(
         # Deliberately NOT a `__issues` key: a failed check is not a quality
         # issue, so collect_degradation_warnings does not surface it.
         tool_context.state["image_qa__unavailable"] = qa_unavailable
+    if person_rejected:
+        # {concept: reason} for the results page, plus a run note (generic
+        # `<key>__issues` marker → collect_degradation_warnings).
+        tool_context.state["person_reference_rejected"] = person_rejected
+        tool_context.state["person_reference__issues"] = [
+            (
+                PERSON_UNAVAILABLE_NOTE
+                if reason == "photo_unavailable"
+                else PERSON_REJECTED_NOTE
+            ).format(name=name)
+            for name, reason in person_rejected.items()
+        ]
 
     return {
         "status": "success",

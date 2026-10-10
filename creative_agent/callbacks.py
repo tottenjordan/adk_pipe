@@ -14,6 +14,7 @@ from agent_common.state import seed_initial_state
 from .citations import render_citations
 from .concept_guard import (
     concept_issues,
+    enforce_person_casting,
     ensure_trend_and_product,
     flatten_concept_issues,
     parse_concepts,
@@ -21,6 +22,8 @@ from .concept_guard import (
 )
 from .config import config
 from .copy_gate import parse_copies, restore_unflagged
+from .person_render import person_reference_available
+from .prompts import PERSON_CASTING_RULES
 from .rating_signals import strictness_flags
 from .references import reference_roles_summary
 from .style_shortlist import format_shortlist, pick_style_shortlist
@@ -113,6 +116,20 @@ def _set_initial_states(source: dict[str, Any], target: State | dict[str, Any]):
     # exactly True turns it on (creative_agent/rating_signals.py).
     target.setdefault("learn_from_ratings", False)
     target.setdefault("reference_roles", reference_roles_summary(target))
+    # Optional consented person reference ({uri, consent_id}; consent-checked by
+    # the api at kick-off). Kept out of reference_images on purpose. The visual
+    # agents see only the derived yes/"" flag, never the URI.
+    target.setdefault("person_reference", {})
+    target.setdefault(
+        "person_reference_available",
+        person_reference_available(target.get("person_reference")),
+    )
+    # The casting rules reach the visual agents only on runs with a person
+    # ({person_casting_rules?}); without one their instructions are unchanged.
+    target.setdefault(
+        "person_casting_rules",
+        PERSON_CASTING_RULES if target.get("person_reference_available") else "",
+    )
 
     # Per-session random style shortlist (image diversity): the visual agents
     # pick their 4 styles from it, so runs don't converge on the same looks.
@@ -285,8 +302,17 @@ def ensure_trend_and_product_callback(callback_context: CallbackContext) -> None
     if not all(isinstance(c, dict) for c in concepts):
         return None
 
-    repaired, warnings = ensure_trend_and_product(
+    # Person casting first, so a cleared cast's prompt is then guarded as usual.
+    cast_checked, cast_warnings = enforce_person_casting(
         concepts,
+        available=bool(person_reference_available(state.get("person_reference"))),
+        max_cast=config.max_cast_concepts,
+        safe_styles=config.person_safe_styles,
+    )
+    for warning in cast_warnings:
+        logging.warning(f"casting guard: {warning}")
+    repaired, warnings = ensure_trend_and_product(
+        cast_checked,
         str(state.get("target_product") or ""),
         brand=str(state.get("brand") or ""),
         strictness=strictness_flags(state.get("rating_strictness")),

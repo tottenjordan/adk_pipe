@@ -880,7 +880,12 @@ def test_visual_eval_prompt_formats_concepts_with_brand_cue_and_angle_id():
     }
     assert not set(campaign) & set(concept)
     text = eval_prompts.VISUAL_CONCEPT_EVAL_USER.format(
-        **campaign, **concept, brief_block="", trend_motif="m", image_section=""
+        **campaign,
+        **concept,
+        brief_block="",
+        trend_motif="m",
+        image_section="",
+        person_cast="no",
     )
     assert "Concept Name: Dust" in text
     from unittest.mock import MagicMock

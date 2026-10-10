@@ -68,6 +68,63 @@ _COMPLETION_KEYS = {
     "trend_scout": "select_trends_markdown_gcs_uri",
 }
 
+# --- Person reference consent check ---------------------------------------------
+#
+# A creative run may cast the caller's consented person (session state
+# ``person_reference = {uri, consent_id}``, seeded by the browser via createSession
+# initialState). The api is the consent authority: at kick-off the consent must be
+# active, the caller's own, and for the same photo (else 400
+# ``person_reference_invalid``, raised before anything is claimed or written); a
+# resume re-checks it is still active: a revoke mid-run clears the person reference
+# (and its derived keys) and continues with a ``person_reference__issues`` run note.
+# A store error is a 503 either way. The engines only re-check the URI shape.
+# Photo URIs are never logged.
+PERSON_REFERENCE_APPS = frozenset({"creative_agent", "interactive_creative"})
+PERSON_REFERENCE_KEY = "person_reference"
+
+
+class PersonReferenceError(Exception):
+    """The session's person reference can't be used (→ HTTP ``status``)."""
+
+    def __init__(self, reason: str, message: str, status: int = 400):
+        super().__init__(message)
+        self.reason = reason
+        self.status = status
+
+
+async def check_person_reference(
+    app_name: str, user_id: str, state: dict | None, *, reason: str
+) -> None:
+    """Raise ``PersonReferenceError(reason)`` unless the state's person reference
+    is empty or names an active consent of ``user_id`` for the same photo. Only
+    creative apps are checked; batch (CRF) runs never seed the key."""
+    if app_name not in PERSON_REFERENCE_APPS or not state:
+        return
+    ref = state.get(PERSON_REFERENCE_KEY)
+    if not ref:
+        return
+    invalid = PersonReferenceError(
+        reason, "the selected person can't be used: their consent isn't active"
+    )
+    if not isinstance(ref, dict):
+        raise invalid
+    uri, consent_id = ref.get("uri"), ref.get("consent_id")
+    if not (isinstance(uri, str) and uri and isinstance(consent_id, str)):
+        raise invalid
+    from runserver import person_refs
+
+    try:
+        record = await person_refs.active_consent(user_id, consent_id)
+    except Exception as exc:
+        logging.exception("person reference: consent lookup failed")
+        raise PersonReferenceError(
+            "person_reference_unavailable",
+            "could not check the person's consent; retry shortly",
+            status=503,
+        ) from exc
+    if record is None or record.get("photo_uri") != uri:
+        raise invalid
+
 
 def _parse_max_auto_continues(raw: str | None) -> int:
     """``RUN_MAX_AUTO_CONTINUES`` → int clamped to 0..3; unset/invalid → 2."""
@@ -670,13 +727,28 @@ async def start_run(
     handler ignores the second element.
 
     Raises ``RunAlreadyActive`` (→ HTTP 409) if a run is already active for this
-    (app, user, session) in this process — see ``_ACTIVE_RUNS``."""
+    (app, user, session) in this process — see ``_ACTIVE_RUNS``, and
+    ``PersonReferenceError`` (→ HTTP 400/503) before claiming anything when the
+    seeded person reference fails the consent check."""
     key = (app_name, user_id, session_id)
-    _claim_run(key)  # synchronous check+claim, before any await
-    try:
+    existing = None
+    if app_name in PERSON_REFERENCE_APPS:
         existing = await _get_session_or_none(
             session_service, app_name, user_id, session_id
         )
+        await check_person_reference(
+            app_name,
+            user_id,
+            existing.state if existing is not None else None,
+            reason="person_reference_invalid",
+        )
+    _claim_run(key)  # synchronous check+claim, before any further await
+    try:
+        if existing is None:
+            # Re-read under the claim: the session may have appeared meanwhile.
+            existing = await _get_session_or_none(
+                session_service, app_name, user_id, session_id
+            )
         if existing is None:
             await session_service.create_session(
                 app_name=app_name, user_id=user_id, session_id=session_id, state={}
@@ -976,6 +1048,38 @@ async def _apply_research_edit(
     await session_service.append_event(session, event)
 
 
+PERSON_REVOKED_NOTE = (
+    "Person reference consent was revoked; continued without the person"
+)
+
+
+async def _drop_person_reference(
+    session_service, app_name, user_id, session_id
+) -> None:
+    """Clear the person reference (and its derived keys) before a resumed run
+    whose consent was revoked, adding a ``person_reference__issues`` run note."""
+    session = await _get_session_or_none(session_service, app_name, user_id, session_id)
+    if session is None:
+        return
+    prior = session.state.get("person_reference__issues")
+    notes = [str(n) for n in prior] if isinstance(prior, list) else []
+    if PERSON_REVOKED_NOTE not in notes:
+        notes.append(PERSON_REVOKED_NOTE)
+    event = Event(
+        author=RUNSERVER_AUTHOR,
+        invocation_id=RUNSERVER_AUTHOR,
+        actions=EventActions(
+            state_delta={
+                PERSON_REFERENCE_KEY: {},
+                "person_reference_available": "",
+                "person_casting_rules": "",
+                "person_reference__issues": notes,
+            }
+        ),
+    )
+    await session_service.append_event(session, event)
+
+
 # Resume ``edits`` appliers keyed by the paused checkpoint's function name.
 _EDIT_APPLIERS = {
     "review_visual_concepts": _apply_visual_concept_edits,
@@ -1048,11 +1152,31 @@ async def start_resume(
     validate_resume_edits(function_name, edits)  # 400 before any claim/write
     if _is_live(key) and _ACTIVE_RESUME_CALL_IDS.get(key) == function_call_id:
         raise RunAlreadyActive(key, REASON_RESUME_IN_PROGRESS)
+    drop_person = False
+    if app_name in PERSON_REFERENCE_APPS:
+        # The consent may have been revoked while the run was paused: the run
+        # then continues without the person (a store error stays a 503).
+        session = await _get_session_or_none(
+            session_service, app_name, user_id, session_id
+        )
+        try:
+            await check_person_reference(
+                app_name,
+                user_id,
+                session.state if session is not None else None,
+                reason="person_reference_revoked",
+            )
+        except PersonReferenceError as exc:
+            if exc.status != 400:
+                raise
+            drop_person = True
     await _await_prior_segment(key)
     _claim_run(key, function_call_id)  # sync check+claim, before any further await
     try:
         runner = runner_factory(app_name)
         new_message = build_resume_message(function_call_id, function_name, response)
+        if drop_person:
+            await _drop_person_reference(session_service, app_name, user_id, session_id)
         if edits and (applier := _EDIT_APPLIERS.get(function_name)):
             await applier(session_service, app_name, user_id, session_id, edits)
         elif edits:
@@ -1169,6 +1293,11 @@ async def http_start_run(app_name: str, body: _StartRunBody, request: Request) -
         raise HTTPException(
             status_code=409, detail=_already_active_detail(exc)
         ) from exc
+    except PersonReferenceError as exc:
+        raise HTTPException(
+            status_code=exc.status,
+            detail={"reason": exc.reason, "message": str(exc)},
+        ) from exc
     return result
 
 
@@ -1217,5 +1346,10 @@ async def http_start_resume(
     except RunAlreadyActive as exc:
         raise HTTPException(
             status_code=409, detail=_already_active_detail(exc)
+        ) from exc
+    except PersonReferenceError as exc:
+        raise HTTPException(
+            status_code=exc.status,
+            detail={"reason": exc.reason, "message": str(exc)},
         ) from exc
     return result

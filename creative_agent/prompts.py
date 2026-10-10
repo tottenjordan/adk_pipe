@@ -1,5 +1,7 @@
 """Prompts for ad content generator new agent and subagents"""
 
+from .config import config
+
 # A prompting "grammar" for the
 # Nano Banana image model (config.image_gen_model). Deliberately STYLE-FIRST and
 # deliberately NOT photoreal-biased — the goal is to accommodate many styles
@@ -611,7 +613,7 @@ ART_DIRECTOR_INSTR = (
     + TREND_RISKS_RULE
     + " For visuals: no disaster damage, victims, warning maps or storm graphics played for fun."
     + """
-    This brief is guidance for the drafter; it does not select final concepts.
+    This brief is guidance for the drafter; it does not select final concepts.{person_casting_rules?}
     </INSTRUCTIONS>
 
     <CONTEXT>
@@ -702,6 +704,42 @@ VISUAL_CONCEPT_RULES = (
     + VISUAL_BRIEF_LIMITS_RULE
 )
 
+# Person casting (docs/plans/2026-10-09-person-reference.md). Only runs with a
+# consented person reference see it: callbacks._set_initial_states writes it to
+# state `person_casting_rules` (else ""), read as `{person_casting_rules?}` at the
+# end of the last instruction line of the art director, drafter, critic,
+# finalizer, fixer and interactive's reviser, so runs without a person get
+# byte-identical instructions. The safe styles and the cap come from config
+# (PERSON_SAFE_STYLES / MAX_CAST_CONCEPTS, calibrated);
+# concept_guard.enforce_person_casting enforces the deterministic parts. It is a
+# state VALUE (not re-parsed), but stays brace-free anyway.
+PERSON_CASTING_RULES = (
+    "\n\n    **Person casting (this run has a consented person reference):**"
+    "\n    *   The user supplied a consented photo of a person. The image model "
+    "receives it for cast concepts only; you never see it. A concept may cast "
+    "this person as its hero; at most "
+    + str(config.max_cast_concepts)
+    + " of the 4 concepts may do so."
+    "\n    *   Cast only when the hero is one person, the face is clearly visible "
+    "(large enough to recognise, not a crowd or a far shot), the `visual_style` "
+    "is one of: "
+    + "; ".join(config.person_safe_styles)
+    + ", and it fits the brief and its trend risks. Never cast for real-person, "
+    "tragedy or crisis trends, and never in meme, comic, isometric or "
+    "product-only concepts."
+    "\n    *   In a cast concept's `image_generation_prompt`, name the hero's role "
+    'and call them "the person in the person reference image" (e.g. "a runner, '
+    'the person in the person reference image, …"); describe only pose, '
+    "clothing, expression, action and lighting, never their face, age, ethnicity "
+    "or body. Refer to the photo as the person reference, never by number."
+    "\n    *   Set `casts_person_reference` (true only for a cast concept) and give "
+    "a one-sentence `person_casting_reason` either way. When critiquing, fixing "
+    "or revising, keep both fields (and the person reference wording) unchanged "
+    "unless you fix a person-casting rule violation."
+    "\n    *   Art direction: note which ad copies suit a single human hero in one "
+    "of those styles."
+)
+
 VISUAL_CONCEPT_DRAFTER_INSTR = (
     """Role: You are a visionary visual creative director and prompt engineer specializing in high-impact social media advertising (Instagram/TikTok).
     Your task is to translate approved ad copy into executable visual concepts, each in a deliberately chosen visual style.
@@ -723,7 +761,7 @@ VISUAL_CONCEPT_DRAFTER_INSTR = (
     3.  **Choose the Style (do NOT default to photorealism):** Choose 4 DIFFERENT `visual_style` families from <style_shortlist> (when non-empty), matching each ad copy's tone via the guide's mapping preference. When <user_style_preference> is non-empty it overrides the shortlist. Use the <IMAGE_PROMPT_GUIDE> below and the <visual_direction> brief. Record the chosen family in the `visual_style` field.
     4.  **Composition variety (across the set):** Give each concept a different hero placement and camera distance: choose from centred hero, off-centre rule-of-thirds, small subject in a wide environment, extreme close-up detail, top-down flat lay, over-the-shoulder POV, environmental portrait. Use at most ONE centred product hero per set. In-image text in at most 2 concepts (see the guide; meme captions and comic speech bubbles are exempt), never both placed at the top. Every concept shows a trend motif.
     5.  **Prompt Engineering:** For each concept, write the `image_generation_prompt` following the <IMAGE_PROMPT_GUIDE> and honouring the <visual_direction> brief's mood, palette, motifs, and brand cues. Name the chosen style first, then build the scene. Also choose and record the `aspect_ratio` per concept (unless the campaign-wide override in <user_aspect_ratio> is set).
-    6.  **Strict Output Format:** Ensure the entire output is a single JSON object containing all generated concepts, strictly following the schema in the <OUTPUT_FORMAT> block (including `visual_style`, `aspect_ratio`, `trend_motif`, `brand_cue` and `angle_id` for each).
+    6.  **Strict Output Format:** Ensure the entire output is a single JSON object containing all generated concepts, strictly following the schema in the <OUTPUT_FORMAT> block (including `visual_style`, `aspect_ratio`, `trend_motif`, `brand_cue` and `angle_id` for each).{person_casting_rules?}
     </INSTRUCTIONS>
 
     <CONTEXT>
@@ -842,7 +880,7 @@ VISUAL_CONCEPT_CRITIC_INSTR = (
     + """
         *   **Carry-through:** Keep `trend_motif`, `brand_cue` and their verbatim presence in the prompt, and carry `angle_id` unchanged. Keep the `aspect_ratio` field (adjust only if the composition demands it). When <user_aspect_ratio> is non-empty, set every concept's `aspect_ratio` to this value and compose for it.
         *   **Set-level checks:** families come from <style_shortlist> and are all different; at most ONE centred hero; in-image text in at most 2 concepts (meme/comic captions excepted), short and punchy, no small print or style terms; every concept has a trend motif, and each `trend_motif` is SPECIFIC and recognisable: replace generic ones (phones, feeds, chat bubbles, notifications, screens) with signature imagery of the trend; no readable or gibberish background text. Fix violations by rewriting the weakest concept.
-    3.  **Strict Output Format:** The output must be a single, structured JSON object containing the **revised** concepts (including `visual_style`, `aspect_ratio`, `trend_motif`, `brand_cue` and `angle_id`). Do not include any external commentary or separate critique text.
+    3.  **Strict Output Format:** The output must be a single, structured JSON object containing the **revised** concepts (including `visual_style`, `aspect_ratio`, `trend_motif`, `brand_cue` and `angle_id`). Do not include any external commentary or separate critique text.{person_casting_rules?}
     </INSTRUCTIONS>
 
     <CONTEXT>
@@ -927,7 +965,7 @@ VISUAL_CONCEPT_FINALIZER_INSTR = (
     + VISUAL_CONCEPT_RULES
     + """
     4.  **Finalize and Enrich:** For each concept, combine the original ad copy details with the revised visual details to create a final, unified creative brief, honouring <user_visual_direction> when non-empty. Set `angle_id` to the matching ad copy's `angle_id` ("" when it has none).
-    5.  **Strict Output Format:** Output the final concepts as a single JSON object, strictly following the schema in the `<OUTPUT_FORMAT>` block (including `visual_style`, `aspect_ratio`, `trend_motif`, `brand_cue` and `angle_id` per concept).
+    5.  **Strict Output Format:** Output the final concepts as a single JSON object, strictly following the schema in the `<OUTPUT_FORMAT>` block (including `visual_style`, `aspect_ratio`, `trend_motif`, `brand_cue` and `angle_id` per concept).{person_casting_rules?}
     </INSTRUCTIONS>
 
     <CONTEXT>
@@ -1011,7 +1049,7 @@ VISUAL_CONCEPT_FIXER_INSTR = (
     + VISUAL_CONCEPT_RULES
     + """
     4.  **Keep the idea:** a fixed concept keeps its `ad_copy_id`, `concept_name`, `visual_style`, `aspect_ratio`, `brand_cue`, `angle_id`, `headline`, `social_caption` and `call_to_action`.
-    5.  **Output:** return ALL the concepts from <final_visual_concepts>, in the same order with unchanged `ad_copy_id`s, as a single JSON object.
+    5.  **Output:** return ALL the concepts from <final_visual_concepts>, in the same order with unchanged `ad_copy_id`s, as a single JSON object.{person_casting_rules?}
     </INSTRUCTIONS>
 
     <CONTEXT>

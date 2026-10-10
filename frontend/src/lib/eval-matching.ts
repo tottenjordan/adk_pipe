@@ -125,6 +125,44 @@ export interface VisualConcept {
   concept_summary: string;
   image_generation_prompt: string;
   visual_style?: string;
+  /** True when the concept asked to cast the run's consented person. */
+  casts_person_reference?: boolean;
+  /** One sentence on why the concept casts (or would not cast) the person. */
+  person_casting_reason?: string;
+}
+
+/** Person casting of one proof: a cast render, or a person photo rejected at render time. */
+export interface Casting {
+  cast: boolean;
+  reason: string;
+  /** `state.person_reference_rejected[concept]` (e.g. "image_safety", "photo_unavailable"). */
+  rejected?: string;
+}
+
+/**
+ * The proof's casting, from the render record (`generated_images[concept].cast`,
+ * set only on runs with a person reference) and `person_reference_rejected`.
+ * Undefined for uncast concepts and runs without a person.
+ */
+export function castingFor(
+  concept: VisualConcept,
+  generatedImages: unknown,
+  personRejected: unknown,
+): Casting | undefined {
+  const reason = typeof concept.person_casting_reason === "string" ? concept.person_casting_reason.trim() : "";
+  const rejected =
+    personRejected && typeof personRejected === "object"
+      ? (personRejected as Record<string, unknown>)[concept.concept_name]
+      : undefined;
+  if (typeof rejected === "string" && rejected) return { cast: false, reason, rejected };
+  const record =
+    generatedImages && typeof generatedImages === "object"
+      ? (generatedImages as Record<string, unknown>)[concept.concept_name]
+      : undefined;
+  if (record && typeof record === "object" && (record as { cast?: unknown }).cast === true) {
+    return { cast: true, reason };
+  }
+  return undefined;
 }
 
 /** Ad copy data from session state (`ad_copy_critique`). */
@@ -237,13 +275,16 @@ export interface Proof {
   visualEval?: VisualConceptEvaluation;
   /** Post-render image check (absent when QA was off/unavailable). */
   imageCheck?: ImageCheck;
+  /** Person casting (absent for uncast concepts and runs without a person). */
+  casting?: Casting;
 }
 
 export function buildProofs(
   concepts: VisualConcept[],
   adCopies: AdCopy[],
   report: EvalReport | null | undefined,
-  generatedImages?: unknown
+  generatedImages?: unknown,
+  personRejected?: unknown
 ): Proof[] {
   return concepts.map((concept, index) => ({
     index,
@@ -252,6 +293,7 @@ export function buildProofs(
     adCopyEval: findAdCopyEvalForVisual(report, concept, index),
     visualEval: findVisualEval(report, concept.concept_name),
     imageCheck: imageCheckFor(generatedImages, concept.concept_name),
+    casting: castingFor(concept, generatedImages, personRejected),
   }));
 }
 

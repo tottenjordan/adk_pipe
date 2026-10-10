@@ -116,6 +116,12 @@ def _image_uri(generated: Any, name: str) -> str:
     return uri.strip() if isinstance(uri, str) else ""
 
 
+def _is_cast(generated: Any, name: str) -> bool:
+    """The render shows the run's consented person (``generated_images[c].cast``)."""
+    record = generated.get(name) if isinstance(generated, Mapping) else None
+    return isinstance(record, Mapping) and record.get("cast") is True
+
+
 def _score_block(ev: Mapping[str, Any] | None) -> dict[str, Any] | None:
     score = ev.get("score") if isinstance(ev, Mapping) else None
     if not isinstance(score, Mapping):
@@ -188,8 +194,10 @@ def build_snapshot(
 ) -> BuiltSnapshot:
     """The v1 snapshot for the whole slate (``concept_names=None``) or the named
     concepts (kept in pipeline order). Concepts without a rendered image are
-    skipped; raises ``SnapshotError`` for an unknown concept name or when no
-    creative with an image remains."""
+    skipped, and so are concepts that cast a person (``generated_images[c].cast``;
+    deny by default until share consent scopes land); raises ``SnapshotError``
+    for an unknown concept name, a named cast concept (``person_not_shareable``)
+    or when no creative with an image remains."""
     report = _as_obj(report)
     if not isinstance(report, Mapping):
         report = None
@@ -208,6 +216,10 @@ def build_snapshot(
             raise SnapshotError(
                 "unknown_concept", f"not a creative in this run: {unknown[:4]}"
             )
+        if any(_is_cast(generated, n) for n in wanted):
+            raise SnapshotError(
+                "person_not_shareable", "creatives that show a person can't be shared"
+            )
 
     brand = _text(state.get("brand")) or _text((report or {}).get("brand"))
     creatives: list[dict[str, Any]] = []
@@ -218,6 +230,10 @@ def build_snapshot(
         if not isinstance(name, str) or (wanted is not None and name not in wanted):
             continue
         if name in names or not (uri := _image_uri(generated, name)):
+            continue
+        if _is_cast(generated, name):
+            # Deny by default: a cast person's consent scope isn't checked
+            # here yet (plan PR 4), so a slate share leaves them out.
             continue
         copy = match_by_id_headline_index(copies, vc, vc_index) or {}
         i = len(creatives)

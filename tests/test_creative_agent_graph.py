@@ -1281,6 +1281,8 @@ def _final_concept(ad_copy_id: int, prompt: str = "", **overrides: Any) -> dict:
         "trend_motif": "a roadrunner dust cloud",
         "brand_cue": "the ACME crate",
         "angle_id": "A1",
+        "casts_person_reference": False,
+        "person_casting_reason": "",
         "image_generation_prompt": prompt
         or (
             f"Scene {ad_copy_id}: a watercolor of Rocket Skates on the ACME crate "

@@ -12,7 +12,13 @@ import {
 import { FieldLabel } from "@/components/field-label";
 import { cn } from "@/lib/utils";
 import { dimensionLabel } from "@/lib/eval-dimensions";
-import { scoreGates, type CreativeScore, type ImageCheck, type Proof } from "@/lib/eval-matching";
+import {
+  scoreGates,
+  type Casting,
+  type CreativeScore,
+  type ImageCheck,
+  type Proof,
+} from "@/lib/eval-matching";
 import { ChecksList } from "./eval-checks";
 import { ProofImage } from "./proof-grid";
 import { CONDENSED, ScoreMark } from "./score-mark";
@@ -182,6 +188,36 @@ export function ImageCheckSection({ check }: { check?: ImageCheck }) {
 }
 
 /**
+ * Person casting: "Cast: Yes — <reason>" for a concept rendered with the run's
+ * consented person, or a note when the person photo was rejected at render time
+ * (the image was then made without the person). Nothing otherwise.
+ */
+export function CastingSection({ casting }: { casting?: Casting }) {
+  if (!casting) return null;
+  if (casting.rejected) {
+    const why =
+      casting.rejected === "photo_unavailable"
+        ? "Person photo unavailable"
+        : "Person photo rejected by the safety filter";
+    return (
+      <p className="border-t border-border pt-4 text-xs text-muted-foreground">
+        {`${why}; this image was made without the person.`}
+      </p>
+    );
+  }
+  return (
+    <section className="border-t border-border pt-4">
+      <dl>
+        <TextField
+          label="Cast"
+          value={casting.reason ? `Yes — ${casting.reason}` : "Yes"}
+        />
+      </dl>
+    </section>
+  );
+}
+
+/**
  * Full view of one proof in a dialog: large image left, copy and scores right.
  * Left/Right arrows and the prev/next buttons step through the sheet in its
  * current sort order; Escape closes and focus returns to the grid item.
@@ -329,6 +365,7 @@ export function ProofDetail({
                 />
               )}
               <ImageCheckSection check={proof.imageCheck} />
+              <CastingSection casting={proof.casting} />
               {ratingSlot?.(proof)}
               {shareAction && (
                 <div className="flex justify-end border-t border-border pt-4">{shareAction}</div>

@@ -69,13 +69,17 @@ whichever judge graded that run, and a changed rubric changes what "pass" means.
 calibration is **versioned**:
 
 - `creative_eval.JUDGE_VERSION` (in `creative_eval/dimensions.py`, next to the gate
-  definitions) names the current judge, currently **`2026-10-08`**: the gates changed
-  that day (new blocking `no_visual_defects` and `trend_risks_respected` gates, a
-  stricter `trend_motif_visible`; details in
-  [creative-quality-gates.md](creative-quality-gates.md)).
+  definitions) names the current judge, currently **`2026-10-10`**: the visual gates
+  gained the blocking `person_depicted_respectfully` gate (judged only for a concept
+  rendered with the run's consented person; every other concept passes it in code with
+  note "no person cast", so runs without a person grade as before, but the version
+  still moves because the gate list and the prompt changed). The previous judge,
+  **`2026-10-08`**, changed the gates that day (new blocking `no_visual_defects` and
+  `trend_risks_respected` gates, a stricter `trend_motif_visible`). Details in
+  [creative-quality-gates.md](creative-quality-gates.md).
 - Every eval report records it (`CreativeEvaluationReport.judge_version`; reports from
   before versioning parse as `""`), and every rating snapshots the report's value into
-  `creative_ratings.judge_version` (`""`/NULL = an earlier, unversioned judge). Reports written between the gate change and version stamping carry no version but already have the `no_visual_defects` gate, so a rating infers `2026-10-08` from that gate (`runserver.ratings._inferred_judge_version`).
+  `creative_ratings.judge_version` (`""`/NULL = an earlier, unversioned judge). Reports written between the gate change and version stamping carry no version but already have the `no_visual_defects` gate, so a rating infers `2026-10-08` from that gate (`runserver.ratings._inferred_judge_version`). That inference is unchanged by later bumps: every report since stamping carries its version explicitly.
 - `GET /ratings/{user}/calibration` and `scripts/eval_calibration.py` count only ratings
   whose `judge_version` equals the current `JUDGE_VERSION`. The response adds
   `judge_version` (the current one) and `excluded_other_versions` (paired ratings from

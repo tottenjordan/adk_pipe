@@ -255,6 +255,7 @@ def test_collect_degradation_warnings_drops_none_issue_items():
     ("key", "label"),
     [
         ("image_qa", "Image check"),
+        ("person_reference", "Person reference"),
         ("ad_copy_critique", "Ad copy check"),
         ("final_visual_concepts", "Visual concept check"),
         ("creative_brief", "Creative brief"),

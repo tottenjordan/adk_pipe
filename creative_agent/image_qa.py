@@ -117,6 +117,27 @@ class ImageQAResult(BaseModel):
     unsafe: bool = Field(
         description="Sexual, violent, hateful or otherwise brand-unsafe content."
     )
+    person_cast: bool | None = Field(
+        default=None,
+        description=(
+            "The image's hero is a person shown as the person reference image "
+            "intends; null when no person reference image was supplied."
+        ),
+    )
+    person_likeness: bool | None = Field(
+        default=None,
+        description=(
+            "The hero is clearly the same person as the person reference image; "
+            "null when no person reference image was supplied."
+        ),
+    )
+    person_distorted: bool = Field(
+        default=False,
+        description=(
+            "The cast person's face or body is distorted, malformed or altered "
+            "(slimmed, beautified, added attributes)."
+        ),
+    )
     issues: list[str] = Field(
         default_factory=list,
         description=(
@@ -192,8 +213,27 @@ _TEXT_RULES: dict[str, str] = {
     ),
     "in-image text not legible": "make the requested in-image text legible",
 }
+# Person casting (only for a concept with casts_person_reference): neither is
+# critical. The likeness phrase restates the render's person instruction.
+PERSON_LIKENESS_PHRASE = (
+    "keep the hero exactly the same person as the person reference image: their "
+    "face shape, skin tone, hair, eye colour, apparent age and distinguishing "
+    "features"
+)
+_PERSON_RULES: dict[str, str] = {
+    "person likeness lost": PERSON_LIKENESS_PHRASE,
+    "person distorted": (
+        "render the person's face and body naturally and undistorted, without "
+        "slimming, beautifying or adding attributes"
+    ),
+}
 # Failures weighed first when choosing between attempts (image_tools).
 CRITICAL_RULES = frozenset({"unsafe content", "unrequested third-party logo"})
+
+
+def is_cast(concept: dict[str, Any]) -> bool:
+    """Whether the concept casts the user's person reference."""
+    return concept.get("casts_person_reference") is True
 
 
 def qa_failed_rules(
@@ -229,6 +269,11 @@ def qa_failed_rules(
             failed.append("in-image text not exact")
         if result.text_legible is False:
             failed.append("in-image text not legible")
+    if is_cast(concept):
+        if result.person_likeness is False:
+            failed.append("person likeness lost")
+        if result.person_distorted:
+            failed.append("person distorted")
     return failed
 
 
@@ -270,12 +315,15 @@ def correction_text(
     it gave none). Always ends with "Do not add any new text to the image."
     """
     failed = qa_failed_rules(result, concept, target_product=target_product)
-    phrases = {name: phrase for _, name, phrase in _RULES} | _TEXT_RULES
+    phrases = {name: phrase for _, name, phrase in _RULES} | _TEXT_RULES | _PERSON_RULES
     if any(name in _TEXT_RULES for name in failed):
         items = [phrases[name] for name in failed]
     else:
         items = [c for c in (_clean_issue(i) for i in result.issues if i) if c]
         items = items or [phrases[name] for name in failed]
+    # A person rule always restates its fixed instruction (the likeness ask).
+    items += [phrases[name] for name in failed if name in _PERSON_RULES]
+    items = list(dict.fromkeys(items))
     return (
         "Correct these issues from the previous attempt: "
         + "; ".join(items)
@@ -298,6 +346,20 @@ PROMINENT_MOTIF_RULE = (
 )
 
 
+# Cast concepts: the person photo is attached after the rendered image (a
+# vision-LLM comparison, deliberately no face embeddings / biometrics).
+PERSON_COMPARISON_LINE = (
+    "The second attached image is the person reference: the render's hero was "
+    "asked to be this exact person. person_cast: true when the image's hero is "
+    "a single clearly visible person. person_likeness: Is the hero clearly the "
+    "same person as the reference image? true or false (judge face shape, skin "
+    "tone, hair, eye colour, apparent age and distinguishing features; ignore "
+    "pose, clothing, expression and lighting). person_distorted: true when the "
+    "person's face or body is distorted or malformed, or visibly altered "
+    "(slimmed, beautified, added attributes)."
+)
+
+
 def _instruction(
     concept: dict[str, Any],
     *,
@@ -305,6 +367,7 @@ def _instruction(
     target_product: str,
     has_logo_reference: bool = False,
     strictness: Sequence[str] = (),
+    has_person_image: bool = False,
 ) -> str:
     """The QA instruction for one concept (what to check, what was promised).
 
@@ -395,9 +458,15 @@ def _instruction(
         "comic, collage) is not a defect.",
         "Also flag noticeable anatomy or object deformities (artifacts) and "
         "brand-unsafe content.",
-        "issues: short problem statements in the form '[what is wrong] on/in "
-        "[where]', one per problem found; empty if none.",
     ]
+    if has_person_image:
+        # Only cast concepts: other renders keep the exact pre-casting wording
+        # (the person fields default to null / false).
+        lines.append(PERSON_COMPARISON_LINE)
+    lines.append(
+        "issues: short problem statements in the form '[what is wrong] on/in "
+        "[where]', one per problem found; empty if none."
+    )
     return "\n".join(lines)
 
 
@@ -431,26 +500,35 @@ def inspect_image(
     model: str,
     has_logo_reference: bool = False,
     strictness: Sequence[str] = (),
+    person_image: tuple[bytes, str] | None = None,
 ) -> ImageQAResult:
     """One structured vision call → the image's ``ImageQAResult``.
 
+    ``person_image`` (``(bytes, mime)`` of the consented person photo; only for
+    a cast concept) is attached after the render with the likeness question.
     Synchronous (the genai sync client); call it via ``asyncio.to_thread``.
     Raises on any API/parse error — the caller fails open.
     """
+    parts = [types.Part.from_bytes(data=image_bytes, mime_type=mime)]
+    if person_image is not None:
+        parts.append(
+            types.Part.from_bytes(data=person_image[0], mime_type=person_image[1])
+        )
+    parts.append(
+        types.Part.from_text(
+            text=_instruction(
+                concept,
+                brand=brand,
+                target_product=target_product,
+                has_logo_reference=has_logo_reference,
+                strictness=strictness,
+                has_person_image=person_image is not None,
+            )
+        )
+    )
     response = client.models.generate_content(
         model=model,
-        contents=[
-            types.Part.from_bytes(data=image_bytes, mime_type=mime),
-            types.Part.from_text(
-                text=_instruction(
-                    concept,
-                    brand=brand,
-                    target_product=target_product,
-                    has_logo_reference=has_logo_reference,
-                    strictness=strictness,
-                )
-            ),
-        ],
+        contents=parts,
         config=types.GenerateContentConfig(
             response_mime_type="application/json",
             response_schema=ImageQAResult,

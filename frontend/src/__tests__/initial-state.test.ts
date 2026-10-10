@@ -165,4 +165,24 @@ describe("buildInitialState", () => {
       buildInitialState({ ...base, agent: "trend_scout", learnFromRatings: true }),
     ).not.toHaveProperty("learn_from_ratings");
   });
+
+  it("seeds person_reference only when a creative run picks a person", () => {
+    const person = { uri: "gs://b/person-refs/a-1/me.jpg", consentId: "consent-1234" };
+    for (const agent of ["creative_agent", "interactive_creative"] as const) {
+      expect(buildInitialState({ ...base, agent, personReference: person }).person_reference).toEqual({
+        uri: "gs://b/person-refs/a-1/me.jpg",
+        consent_id: "consent-1234",
+      });
+      expect(buildInitialState({ ...base, agent })).not.toHaveProperty("person_reference");
+      expect(buildInitialState({ ...base, agent, personReference: null })).not.toHaveProperty(
+        "person_reference",
+      );
+      expect(
+        buildInitialState({ ...base, agent, personReference: { uri: "", consentId: "c" } }),
+      ).not.toHaveProperty("person_reference");
+    }
+    expect(
+      buildInitialState({ ...base, agent: "trend_scout", personReference: person }),
+    ).not.toHaveProperty("person_reference");
+  });
 });

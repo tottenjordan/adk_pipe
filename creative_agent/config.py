@@ -66,6 +66,18 @@ DEFAULT_RATING_LEARNING_WINDOW_DAYS = 90
 MAX_RATING_LEARNING_WINDOW_DAYS = 365
 
 
+# Person casting (docs/notes/person-reference-calibration.md): the style families
+# that held a likeness in the calibration spike (the photographic group), and how
+# many of the 4 concepts may cast the user's person reference.
+DEFAULT_PERSON_SAFE_STYLES: tuple[str, ...] = (
+    "Candid 35mm film photo",
+    "Photoreal / editorial",
+    "Cinematic film still",
+)
+DEFAULT_MAX_CAST_CONCEPTS = 2
+MAX_MAX_CAST_CONCEPTS = 4
+
+
 def _parse_rounds(raw: str | None, default: int, maximum: int) -> int:
     try:
         value = int(raw) if raw is not None and raw.strip() else None
@@ -128,6 +140,34 @@ def parse_brand_history_runs(raw: str | None) -> int:
 def _parse_bounded(raw: str | None, default: int, maximum: int) -> int:
     """Like ``_parse_rounds`` but clamped to 1..maximum (a sample size/window)."""
     return max(1, _parse_rounds(raw, default, maximum))
+
+
+def parse_person_safe_styles(raw: str | None) -> tuple[str, ...]:
+    """``PERSON_SAFE_STYLES`` → canonical style families (comma-separated, matched
+    with ``style_shortlist.canonical_style``; unknown names dropped, duplicates
+    collapsed). Unset, blank or only-unknown → the calibrated default."""
+    from .style_shortlist import canonical_style
+
+    if raw is None or not raw.strip():
+        return DEFAULT_PERSON_SAFE_STYLES
+    styles: list[str] = []
+    for item in raw.split(","):
+        family = canonical_style(item)
+        if family and family not in styles:
+            styles.append(family)
+    if not styles:
+        logger.warning(
+            "PERSON_SAFE_STYLES=%r names no known style family; using the default",
+            raw,
+        )
+        return DEFAULT_PERSON_SAFE_STYLES
+    return tuple(styles)
+
+
+def parse_max_cast_concepts(raw: str | None) -> int:
+    """``MAX_CAST_CONCEPTS`` → int clamped to 0..4; unset/blank/invalid → 2.
+    0 turns casting off (the guard clears every cast)."""
+    return _parse_rounds(raw, DEFAULT_MAX_CAST_CONCEPTS, MAX_MAX_CAST_CONCEPTS)
 
 
 def parse_rating_learning_enabled(raw: str | None) -> bool:
@@ -283,6 +323,17 @@ class ResearchConfiguration(BaseAgentConfiguration):
         default_factory=lambda: parse_rating_learning_window_days(
             os.getenv("RATING_LEARNING_WINDOW_DAYS")
         )
+    )
+
+    # Person casting: the style families a cast concept may use and the cap on
+    # cast concepts per set (enforced by concept_guard.enforce_person_casting).
+    person_safe_styles: tuple[str, ...] = field(
+        default_factory=lambda: parse_person_safe_styles(
+            os.getenv("PERSON_SAFE_STYLES")
+        )
+    )
+    max_cast_concepts: int = field(
+        default_factory=lambda: parse_max_cast_concepts(os.getenv("MAX_CAST_CONCEPTS"))
     )
 
     def campaign_models(self) -> tuple[str, str, str]:

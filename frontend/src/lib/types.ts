@@ -72,6 +72,13 @@ export interface CampaignInput {
    */
   learnFromRatings?: boolean;
   /**
+   * creative_agent / interactive_creative only: one of the caller's active
+   * person consents (/people) that the visual agents may cast as a concept's
+   * hero. Seeded as `person_reference: {uri, consent_id}` only when chosen; the
+   * api re-checks the consent at kick-off.
+   */
+  personReference?: PersonReferenceInput | null;
+  /**
    * creative_agent / interactive_creative only: an optional gs:// or http(s)
    * URL to a product/brand reference image. Threaded into the session's initial
    * state as `reference_image_uri` so image generation can apply it to every
@@ -103,6 +110,12 @@ export interface CampaignInput {
 }
 
 /** One reference image for image generation: a gs:// or http(s) URI + role. */
+/** A consented person reference chosen for a run (`person_reference` in state). */
+export interface PersonReferenceInput {
+  uri: string;
+  consentId: string;
+}
+
 export interface ReferenceImageInput {
   uri: string;
   /** product | logo | style ("" in the form = product). */

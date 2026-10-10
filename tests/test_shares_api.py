@@ -296,6 +296,20 @@ def test_create_without_images_is_400():
     run(go)
 
 
+def test_sharing_a_cast_creative_is_400_person_not_shareable():
+    async def go():
+        h = Harness()
+        state = creative_state()
+        state["generated_images"]["The Jackpot Reveal"]["cast"] = True
+        await h.session(state=state)
+        r = await h.create(concept_names=["The Jackpot Reveal"])
+        assert r.status_code == 400
+        assert r.json()["detail"]["reason"] == "person_not_shareable"
+        assert h.gcs.ops == [] and h.store.rows == {}
+
+    run(go)
+
+
 def test_image_outside_bucket_is_refused_before_any_copy():
     async def go():
         h = Harness()

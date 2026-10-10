@@ -100,6 +100,67 @@ def test_only_seeded_campaign_tokens_are_required(name):
     }, name
 
 
+# --- Person casting: only runs with a person reference see the rules ---------------
+
+
+def _person_prompts():
+    from interactive_creative import prompts as ic_prompts
+
+    return {
+        "ART_DIRECTOR_INSTR": prompts.ART_DIRECTOR_INSTR,
+        **{name: getattr(prompts, name) for name in VISUAL_PROMPTS},
+        "VISUAL_CONCEPT_FIXER_INSTR": prompts.VISUAL_CONCEPT_FIXER_INSTR,
+        "VISUAL_CONCEPT_REVISER_INSTR": ic_prompts.VISUAL_CONCEPT_REVISER_INSTR,
+    }
+
+
+_PERSON_WORDS = (
+    "person",
+    "casts_person_reference",
+    "person_casting_reason",
+    "cast",
+)
+
+
+@pytest.mark.parametrize("name", list(_person_prompts()))
+def test_casting_rules_come_only_from_state(name):
+    """Without a person the token resolves to "", leaving the instruction free of
+    any casting text (byte-identical to before the feature)."""
+    instr = _person_prompts()[name]
+    assert instr.count("{person_casting_rules?}") == 1, name
+    assert "{person_casting_rules?}\n    </INSTRUCTIONS>" in instr, name
+    without = instr.replace("{person_casting_rules?}", "").lower()
+    for word in _PERSON_WORDS:
+        assert f"`{word}`" not in without, (name, word)
+    assert "person reference" not in without, name
+    assert prompts.PERSON_CASTING_RULES not in instr
+
+
+def test_shared_rules_and_guide_have_no_casting_text():
+    for constant in (prompts.VISUAL_CONCEPT_RULES, prompts.IMAGE_PROMPT_GUIDE):
+        assert "person reference" not in constant.lower()
+        assert "casts_person_reference" not in constant
+
+
+def test_person_casting_rules_wording():
+    from creative_agent.config import config
+
+    rules = prompts.PERSON_CASTING_RULES
+    assert "{" not in rules and "}" not in rules
+    assert rules.startswith("\n\n    **Person casting")
+    assert f"at most {config.max_cast_concepts} of the 4 concepts" in rules
+    for style in config.person_safe_styles:
+        assert style in rules, style
+    assert "the person in the person reference image" in rules
+    assert "name the hero's role" in rules
+    assert "never their face, age, ethnicity or body" in rules
+    assert "real-person, tragedy or crisis trends" in rules
+    assert "meme, comic, isometric or product-only" in rules
+    assert "`casts_person_reference`" in rules and "`person_casting_reason`" in rules
+    assert "face is clearly visible" in rules
+    assert "keep both fields" in rules
+
+
 def test_interactive_reviser_keeps_brand_cue_and_angle_id():
     from interactive_creative import prompts as ic_prompts
 

@@ -41,6 +41,7 @@ const MESSAGES: Record<string, string> = {
   invalid_include_eval: "That selection can't be shared. Reload the page and try again.",
   unknown_concept: "That creative is no longer in this run. Reload the page and try again.",
   no_images: "There are no rendered images to share yet.",
+  person_not_shareable: "Creatives that show a person can't be shared yet.",
   image_outside_bucket: "These images aren't stored in the project bucket, so they can't be shared.",
   session_not_found: "This run could not be found.",
   share_not_found: "This link no longer exists.",

@@ -18,7 +18,7 @@ VISUAL_CONCEPT_REVISER_INSTR = """Role: You are a visual prompt editor applying 
     3.  For EACH note, apply the requested change to the MATCHING concept's `image_generation_prompt` (and, only if the note explicitly asks, its `visual_style` or `aspect_ratio` — a campaign-wide aspect-ratio override, if set, takes precedence at render time). Rewrite the prompt so it fully honours the note while staying a coherent, vivid single-image prompt in that concept's style. Keep the concept's `trend_motif` and `brand_cue` words in the rewritten prompt, and keep its `angle_id`.
     4.  Leave every concept the note does NOT mention completely UNCHANGED — same field values, verbatim.
     5.  If `visual_revision_notes` is empty or missing, return the concepts EXACTLY as given, unchanged. If `final_visual_concepts` is empty, output an object whose `visual_concepts` list is empty.
-    6.  Preserve the list order, the count, and every field of each concept. Do NOT drop, add, reorder, or rename concepts.
+    6.  Preserve the list order, the count, and every field of each concept. Do NOT drop, add, reorder, or rename concepts.{person_casting_rules?}
     </INSTRUCTIONS>
 
     <CONTEXT>

@@ -196,6 +196,14 @@ class VisualConcept(BaseModel):
         default="",
         description="The creative brief angle id carried over from the paired ad copy (its `angle_id`, e.g. 'A2'); '' when the copy has none.",
     )
+    casts_person_reference: bool = Field(
+        default=False,
+        description="True when this concept's single human hero is the user's person reference (the person in the person reference image); only when person_reference_available is yes and the casting rules hold.",
+    )
+    person_casting_reason: str = Field(
+        default="",
+        description="One sentence: why this concept casts (or would not cast) the person reference; '' when no person reference is available.",
+    )
     image_generation_prompt: str = Field(
         description="A draft prompt for image generation."
     )
@@ -241,6 +249,14 @@ class VisualConceptCritique(BaseModel):
     angle_id: str = Field(
         default="",
         description="The creative brief angle id carried over from the paired ad copy (its `angle_id`, e.g. 'A2'); '' when the copy has none.",
+    )
+    casts_person_reference: bool = Field(
+        default=False,
+        description="True when this concept's single human hero is the user's person reference (the person in the person reference image); only when person_reference_available is yes and the casting rules hold.",
+    )
+    person_casting_reason: str = Field(
+        default="",
+        description="One sentence: why this concept casts (or would not cast) the person reference; '' when no person reference is available.",
     )
     image_generation_prompt: str = Field(
         description="The FINAL, refined image-generation prompt, written in the concept's chosen visual_style and at a length appropriate to that style."
@@ -311,6 +327,14 @@ class VisualConceptFinal(BaseModel):
     angle_id: str = Field(
         default="",
         description="The creative brief angle id carried over from the paired ad copy (its `angle_id`, e.g. 'A2'); '' when the copy has none.",
+    )
+    casts_person_reference: bool = Field(
+        default=False,
+        description="True when this concept's single human hero is the user's person reference (the person in the person reference image); only when person_reference_available is yes and the casting rules hold.",
+    )
+    person_casting_reason: str = Field(
+        default="",
+        description="One sentence: why this concept casts (or would not cast) the person reference; '' when no person reference is available.",
     )
     image_generation_prompt: str = Field(
         description="The final, revised image-generation prompt, written in the concept's chosen visual_style."

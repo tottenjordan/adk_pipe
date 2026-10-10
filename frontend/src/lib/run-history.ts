@@ -225,6 +225,14 @@ export function briefFromState(state: Record<string, unknown>): Brief {
   if (trend) brief.targetSearchTrend = trend;
   if (state.interactive_trend_pick === true) brief.interactiveTrendPick = true;
   if (state.learn_from_ratings === true) brief.learnFromRatings = true;
+  // The chosen person (the form drops it if the consent was revoked since).
+  const person = state.person_reference;
+  if (person && typeof person === "object") {
+    const { uri, consent_id: consentId } = person as Record<string, unknown>;
+    if (typeof uri === "string" && uri && typeof consentId === "string" && consentId) {
+      brief.personReference = { uri, consentId };
+    }
+  }
   // Reference rows: the legacy pair (or, when empty, the first listed
   // reference) is row 1; the rest are the extra rows.
   const references = referenceRowsFromState(state);

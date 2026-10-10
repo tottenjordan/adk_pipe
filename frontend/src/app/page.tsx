@@ -15,6 +15,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { LearnFromRatingsToggle } from "@/components/learn-from-ratings-toggle";
+import { PersonSelect } from "@/components/person-select";
 import { RunList, useRunHistory } from "@/components/run-list";
 import { createSession, SELF_USER_ID } from "@/lib/api";
 import { AGENTS, isAgentId, isCreativeAgent, submitLabel } from "@/lib/agents";
@@ -41,6 +42,7 @@ const EMPTY_FORM: CampaignInput = {
   targetSearchTrend: "",
   interactiveTrendPick: false,
   learnFromRatings: false,
+  personReference: null,
   referenceImageUri: "",
   referenceImageRole: "",
   extraReferenceImages: [],
@@ -539,6 +541,13 @@ function HomeContent() {
                   </p>
                 )}
               </div>
+
+              <PersonSelect
+                value={form.personReference}
+                onChange={(personReference) =>
+                  setForm((prev) => ({ ...prev, personReference }))
+                }
+              />
             </div>
           )}
 
