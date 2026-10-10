@@ -2,8 +2,10 @@
 
 One row per share ``token`` (random, ``secrets.token_urlsafe``): who shared it
 (``owner_user``), from which run (``app_name``, ``session_id``), what (``scope``,
-``concept_names``, ``include_eval``), a display ``title`` and ``created_at`` /
-``revoked_at``. The owner and session live only here, never in the public
+``concept_names``, ``include_eval``), a display ``title``, ``created_at`` /
+``revoked_at`` and ``person_consent_ids`` (the person-reference consents of the
+cast creatives in the share, so revoking a consent revokes the share; never in the
+public snapshot). The owner and session live only here, never in the public
 snapshot. ``BigQuerySharesStore`` writes with ``MERGE ... WHEN NOT MATCHED THEN
 INSERT`` and revokes with a guarded ``UPDATE``, binding every value as a query
 parameter (only the table name, from env, is interpolated).
@@ -39,6 +41,7 @@ SHARE_COLUMN_TYPES = {
     "title": "STRING",
     "created_at": "TIMESTAMP",
     "revoked_at": "TIMESTAMP",
+    "person_consent_ids": "ARRAY<STRING>",
 }
 
 
@@ -58,6 +61,11 @@ class SharesStore(Protocol):
     async def revoke(self, token: str, owner: str) -> bool:
         """Mark the owner's share revoked (idempotent; the first ``revoked_at``
         is kept). False when the token isn't the owner's."""
+        ...
+
+    async def list_with_consent(self, owner: str, consent_id: str) -> list[dict]:
+        """The owner's shares (revoked too) whose ``person_consent_ids`` contain
+        ``consent_id``."""
         ...
 
 
@@ -134,8 +142,31 @@ def build_revoke_sql(
     ]
 
 
+def build_list_with_consent_sql(
+    table: str, owner: str, consent_id: str
+) -> tuple[str, list]:
+    """Revoked shares are included so a retried consent revoke can finish
+    deleting a share's objects."""
+    from google.cloud import bigquery
+
+    sql = f"""
+        SELECT * FROM `{table}`
+        WHERE owner_user = @owner_user
+            AND @consent_id IN UNNEST(person_consent_ids)
+        LIMIT {LIST_LIMIT}
+        """
+    return sql, [
+        _param("owner_user", owner),
+        bigquery.ScalarQueryParameter("consent_id", "STRING", consent_id),
+    ]
+
+
 def _copy(row: Mapping[str, Any]) -> dict:
-    return {**row, "concept_names": list(row.get("concept_names") or [])}
+    return {
+        **row,
+        "concept_names": list(row.get("concept_names") or []),
+        "person_consent_ids": list(row.get("person_consent_ids") or []),
+    }
 
 
 class InMemorySharesStore:
@@ -164,6 +195,14 @@ class InMemorySharesStore:
         if row.get("revoked_at") is None:
             row["revoked_at"] = utcnow()
         return True
+
+    async def list_with_consent(self, owner: str, consent_id: str) -> list[dict]:
+        return [
+            _copy(r)
+            for r in self.rows.values()
+            if r["owner_user"] == owner
+            and consent_id in (r.get("person_consent_ids") or [])
+        ][:LIST_LIMIT]
 
 
 class BigQuerySharesStore:
@@ -206,6 +245,11 @@ class BigQuerySharesStore:
         sql, params = build_revoke_sql(self.table, token, owner, utcnow())
         job, _ = await asyncio.to_thread(self._job, sql, params)
         return bool(job.num_dml_affected_rows)
+
+    async def list_with_consent(self, owner: str, consent_id: str) -> list[dict]:
+        return await self._rows(
+            build_list_with_consent_sql(self.table, owner, consent_id)
+        )
 
 
 def build_store_from_env(env: Mapping[str, str] = os.environ) -> tuple[str, Any]:

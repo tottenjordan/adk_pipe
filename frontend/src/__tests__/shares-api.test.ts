@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createShare, listShares, revokeShare } from "@/lib/api";
-import { hasRenderedImage, isAbsoluteUrl, ShareError, shareErrorMessage, sharesForSession, type Share } from "@/lib/shares";
+import { hasRenderedImage, isAbsoluteUrl, ShareError, shareErrorMessage, sharesForSession, skippedNotice, type Share } from "@/lib/shares";
 
 const share = (over: Partial<Share> = {}): Share => ({
   token: "AbCdEfGhIjKlMnOp", url: "/s/AbCdEfGhIjKlMnOp", title: "Acme x Trend", scope: "slate",
@@ -74,7 +74,7 @@ describe("share helpers", () => {
     for (const reason of [
       "invalid_app_name", "invalid_concept_names", "invalid_include_eval", "unknown_concept", "no_images",
       "image_outside_bucket", "session_not_found", "share_not_found", "too_many_shares", "share_failed",
-      "store_failed", "revoke_incomplete", "shares_unconfigured",
+      "store_failed", "revoke_incomplete", "shares_unconfigured", "consent_unavailable",
     ]) {
       const msg = shareErrorMessage(reason, 400);
       expect(msg).not.toMatch(/_/);
@@ -82,10 +82,23 @@ describe("share helpers", () => {
     }
     expect(shareErrorMessage("whatever", 500)).toMatch(/500/);
   });
-  it("explains that creatives showing a person can't be shared yet", () => {
+  it("explains that the person's consent doesn't cover public links", () => {
     expect(shareErrorMessage("person_not_shareable", 400)).toBe(
-      "Creatives that show a person can't be shared yet.",
+      "This creative shows a person whose consent doesn't cover public links, so it can't be shared.",
     );
+  });
+  it("words the skipped-creatives notice by count", () => {
+    expect(skippedNotice(undefined)).toBeNull();
+    expect(skippedNotice([])).toBeNull();
+    const one = [{ concept_name: "A", reason: "person_not_shareable" }];
+    expect(skippedNotice(one)).toBe(
+      "1 creative showing a person was left out (their consent doesn't cover public links).",
+    );
+    expect(skippedNotice([...one, { concept_name: "B", reason: "person_not_shareable" }])).toBe(
+      "2 creatives showing a person were left out (their consent doesn't cover public links).",
+    );
+    // only person skips are counted
+    expect(skippedNotice([{ concept_name: "C", reason: "other" }])).toBeNull();
   });
   it("detects absolute urls", () => {
     expect(isAbsoluteUrl("https://share.example.com/s/x")).toBe(true);

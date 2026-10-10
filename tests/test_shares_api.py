@@ -15,8 +15,10 @@ import pytest
 from fastapi import FastAPI
 from google.adk.sessions import InMemorySessionService
 
+from runserver import person_refs as pr
 from runserver import shares as sh
 from runserver.authz import AuthzMode, UserAuthzMiddleware, install_ownership_handler
+from runserver.person_refs_store import InMemoryPersonRefsStore
 from runserver.shares_store import InMemorySharesStore
 from tests._creative_fixtures import (
     BUCKET,
@@ -118,6 +120,8 @@ class Harness:
         self.store = InMemorySharesStore()
         self.gcs = FakeGCS()
         self.loads: list[str] = []
+        self.consents = InMemoryPersonRefsStore()
+        pr.configure(store=self.consents, gcs_client=self.gcs, bucket=BUCKET)
 
         def loader(uri: str):
             self.loads.append(uri)
@@ -296,16 +300,166 @@ def test_create_without_images_is_400():
     run(go)
 
 
-def test_sharing_a_cast_creative_is_400_person_not_shareable():
+CONSENT = "consentAAAA1"
+
+
+async def _consent(h, cid=CONSENT, owner=A, allow=True, revoked=False):
+    await h.consents.put(
+        {
+            "consent_id": cid,
+            "owner_user": owner,
+            "photo_uri": f"gs://{BUCKET}/person-refs/x/{cid}.jpg",
+            "label": "Sam",
+            "subject": "self",
+            "adult_attested": True,
+            "allow_public_share": allow,
+            "consent_text_version": pr.CONSENT_TEXT_VERSION,
+            "created_at": sh.utcnow(),
+            "revoked_at": sh.utcnow() if revoked else None,
+            "person_renders": [],
+        }
+    )
+
+
+def _cast_state(*names, cid=CONSENT):
+    state = creative_state()
+    for name in names:
+        state["generated_images"][name]["cast"] = True
+        state["generated_images"][name]["consent_id"] = cid
+    return state
+
+
+@pytest.mark.parametrize(
+    "consent",
+    [
+        {"allow": False},  # no public-share consent
+        {"allow": True, "revoked": True},  # revoked
+        {"allow": True, "owner": B},  # someone else's consent
+        None,  # unknown consent
+    ],
+)
+def test_sharing_a_non_shareable_cast_creative_is_400(consent):
     async def go():
         h = Harness()
-        state = creative_state()
-        state["generated_images"]["The Jackpot Reveal"]["cast"] = True
-        await h.session(state=state)
+        if consent is not None:
+            await _consent(h, **consent)
+        await h.session(state=_cast_state("The Jackpot Reveal"))
         r = await h.create(concept_names=["The Jackpot Reveal"])
         assert r.status_code == 400
         assert r.json()["detail"]["reason"] == "person_not_shareable"
         assert h.gcs.ops == [] and h.store.rows == {}
+
+    run(go)
+
+
+def test_slate_share_skips_cast_creatives_without_public_share_consent():
+    async def go():
+        h = Harness()
+        await _consent(h, allow=False)
+        await h.session(state=_cast_state("The Jackpot Reveal"))
+        r = await h.create()
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["skipped"] == [
+            {"concept_name": "The Jackpot Reveal", "reason": "person_not_shareable"}
+        ]
+        assert "The Jackpot Reveal" not in body["concept_names"]
+        row = await h.store.get(body["token"])
+        assert row["person_consent_ids"] == []
+        assert len(h.gcs.shared(body["token"])) == 4  # 3 images + snapshot
+
+    run(go)
+
+
+def test_slate_share_includes_cast_creatives_with_public_share_consent():
+    async def go():
+        h = Harness()
+        await _consent(h, allow=True)
+        await h.session(state=_cast_state("The Jackpot Reveal"))
+        r = await h.create(include_eval=True)
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["skipped"] == []
+        token = body["token"]
+        row = await h.store.get(token)
+        assert row["person_consent_ids"] == [CONSENT]
+        assert "person_consent_ids" not in body
+        shared = h.gcs.shared(token)
+        assert len(shared) == 5
+        snapshot = shared[f"shares/{token}/snapshot.json"]["data"]
+        assert CONSENT not in snapshot and "consent" not in snapshot
+        assert len(json.loads(snapshot)["creatives"]) == 4
+        # naming it works too
+        r = await h.create(concept_names=["The Jackpot Reveal"])
+        assert r.status_code == 200 and r.json()["scope"] == "creative"
+
+    run(go)
+
+
+def test_consent_lookup_failure_is_503_before_anything_is_written(monkeypatch):
+    async def go():
+        h = Harness()
+        await h.session(state=_cast_state("The Jackpot Reveal"))
+
+        async def boom(*_a):
+            raise RuntimeError("bq down")
+
+        monkeypatch.setattr(h.consents, "active_for", boom)
+        r = await h.create()
+        assert r.status_code == 503
+        assert r.json()["detail"]["reason"] == "consent_unavailable"
+        assert h.gcs.ops == [] and h.store.rows == {}
+        # a run without cast creatives never looks consents up
+        await h.session(sid="s2")
+        assert (await h.create(sid="s2")).status_code == 200
+
+    run(go)
+
+
+def test_revoking_a_consent_revokes_its_shares():
+    async def go():
+        h = Harness()
+        await _consent(h, allow=True)
+        await h.session(state=_cast_state("The Jackpot Reveal"))
+        cast_token = (await h.create()).json()["token"]
+        other = (await h.create(concept_names=["The Authentic Encore"])).json()
+        record = await h.consents.get(CONSENT)
+        await sh.revoke_shares_for_consent(record)
+        assert h.gcs.shared(cast_token) == {}
+        assert (await h.store.get(cast_token))["revoked_at"] is not None
+        assert len(h.gcs.shared(other["token"])) == 2  # untouched
+        assert (await h.store.get(other["token"]))["revoked_at"] is None
+        # idempotent repeat
+        await sh.revoke_shares_for_consent(record)
+        # another owner's record never touches A's shares
+        await sh.revoke_shares_for_consent({**record, "owner_user": B})
+
+    run(go)
+
+
+def test_consent_share_cascade_failure_propagates_and_retry_finishes():
+    async def go():
+        h = Harness()
+        await _consent(h, allow=True)
+        await h.session(state=_cast_state("The Jackpot Reveal"))
+        token = (await h.create()).json()["token"]
+        record = await h.consents.get(CONSENT)
+        real = h.gcs.bucket
+
+        class Failing:
+            def __init__(self, name):
+                self.inner = real(name)
+
+            def list_blobs(self, prefix=""):
+                raise RuntimeError("gcs down")
+
+        h.gcs.bucket = Failing
+        with pytest.raises(RuntimeError):
+            await sh.revoke_shares_for_consent(record)
+        assert (await h.store.get(token))["revoked_at"] is not None
+        h.gcs.bucket = real
+        await sh.revoke_shares_for_consent(record)
+        assert h.gcs.shared(token) == {}
 
     run(go)
 

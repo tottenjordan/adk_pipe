@@ -65,6 +65,29 @@ describe("ShareDialog", () => {
     );
   });
 
+  it("says how many creatives showing a person were left out of a slate", async () => {
+    createShare.mockResolvedValue(
+      share({ skipped: [{ concept_name: "The Reveal", reason: "person_not_shareable" }] })
+    );
+    render(<ShareDialog appName="creative_agent" sessionId="s1" triggerLabel="Share slate" />);
+    open();
+    fireEvent.click(await screen.findByRole("button", { name: "Create link" }));
+    expect(
+      await screen.findByText(
+        "1 creative showing a person was left out (their consent doesn't cover public links)."
+      )
+    ).toBeInTheDocument();
+  });
+
+  it("shows no left-out notice when nothing was skipped", async () => {
+    createShare.mockResolvedValue(share({ skipped: [] }));
+    render(<ShareDialog appName="creative_agent" sessionId="s1" triggerLabel="Share slate" />);
+    open();
+    fireEvent.click(await screen.findByRole("button", { name: "Create link" }));
+    await screen.findByDisplayValue("https://share.example.com/s/AbCdEfGhIjKlMnOp");
+    expect(screen.queryByText(/left out/)).not.toBeInTheDocument();
+  });
+
   it("copies the link and announces it in a polite live region", async () => {
     createShare.mockResolvedValue(share());
     render(<ShareDialog appName="creative_agent" sessionId="s1" triggerLabel="Share slate" />);

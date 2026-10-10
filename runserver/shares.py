@@ -8,11 +8,20 @@ link. Creating a share **freezes** it: the api builds the allowlisted snapshot
 ``creative_shares`` (``runserver/shares_store.py``). The separate public share
 viewer reads only ``shares/<token>/``; revoking deletes those objects.
 
+Creatives that cast a consented person (``generated_images[c].cast``) are shared
+only when their ``consent_id`` is an active consent of the share owner with
+``allow_public_share``; a slate leaves the others out (``skipped`` in the create
+response) and naming one is a 400 ``person_not_shareable``. The included
+consents are recorded on the row (``person_consent_ids``, never in the
+snapshot), and revoking a consent revokes those shares
+(``revoke_shares_for_consent``, a ``person_refs`` revoke hook).
+
 Routes (all user-scoped by path, gated by ``UserAuthzMiddleware`` like
 ``/ratings/{user}/...``; a foreign or unknown session is a 404):
 
 - ``POST /shares/{user}/{app}/{session}``: body ``{concept_names?: [str] (1-4),
-  include_eval?: bool}`` → the share (``token``, ``url``, ``scope``, ...).
+  include_eval?: bool}`` → the share (``token``, ``url``, ``scope``, ...,
+  ``skipped: [{concept_name, reason}]``).
 - ``GET /shares/{user}``: the owner's active shares, newest first.
 - ``DELETE /shares/{user}/{token}``: revoke (204; 404 when not the owner's).
 """
@@ -32,6 +41,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Response
 from pydantic import BaseModel
 
+from runserver import person_refs
 from runserver.person_refs import is_person_image
 from runserver.ratings import (
     RATING_APPS,
@@ -42,7 +52,12 @@ from runserver.ratings import (
     configured_report_bucket,
     gcs_report_loader,
 )
-from runserver.share_snapshot import BuiltSnapshot, SnapshotError, build_snapshot
+from runserver.share_snapshot import (
+    BuiltSnapshot,
+    SnapshotError,
+    build_snapshot,
+    cast_consent_ids,
+)
 from runserver.shares_store import InMemorySharesStore, utcnow
 
 log = logging.getLogger(__name__)
@@ -238,6 +253,43 @@ def _delete_share_objects(bucket_name: str, token: str) -> None:
         blob.delete()
 
 
+async def _resolve_consents(owner: str, state: Mapping[str, Any]) -> dict[str, dict]:
+    """The run's cast consents that are active and the owner's (``consent_id`` →
+    record). Raises the store error (the caller fails closed with a 503)."""
+    found: dict[str, dict] = {}
+    for cid in cast_consent_ids(state):
+        record = await person_refs.active_consent(owner, cid)
+        if record is not None:
+            found[cid] = record
+    return found
+
+
+async def _revoke(user_id: str, token: str) -> bool:
+    """Revoke the owner's share and delete ``shares/<token>/`` (idempotent).
+    False when the token isn't the owner's; raises on a store or GCS failure."""
+    if not await _STORE.revoke(token, user_id):
+        return False
+    bucket = _BUCKET
+    if bucket:
+        await asyncio.to_thread(_delete_share_objects, bucket, token)
+    return True
+
+
+async def revoke_shares_for_consent(record: Mapping[str, Any]) -> None:
+    """``person_refs`` revoke hook: revoke every share of the consent's owner whose
+    ``person_consent_ids`` contain it (revoked ones too, so a retry finishes
+    deleting objects). Raises on failure so the consent revoke reports
+    ``revoke_incomplete`` and can be repeated."""
+    owner, cid = record.get("owner_user"), record.get("consent_id")
+    if not (isinstance(owner, str) and isinstance(cid, str) and owner and cid):
+        return
+    rows = await _STORE.list_with_consent(owner, cid)
+    for row in rows:
+        await _revoke(owner, row["token"])
+    if rows:
+        log.info("shares: revoked %d share(s) for a revoked consent", len(rows))
+
+
 async def _rollback(bucket_name: str, token: str) -> None:
     try:
         await asyncio.to_thread(_delete_share_objects, bucket_name, token)
@@ -309,6 +361,13 @@ async def http_create_share(
             f"at most {MAX_ACTIVE_SHARES} active shares; revoke one first",
         )
     state = dict(session.state or {})
+    try:
+        consents = await _resolve_consents(user_id, state)
+    except Exception as exc:
+        log.exception("shares: consent lookup failed")
+        raise _error(
+            503, "consent_unavailable", "could not check consents; retry shortly"
+        ) from exc
     report = await _load_report(state) if include_eval else None
     token = secrets.token_urlsafe(TOKEN_BYTES)
     now = utcnow()
@@ -320,6 +379,7 @@ async def http_create_share(
             concept_names=concept_names,
             include_eval=include_eval,
             now=_snapshot_time(now),
+            consent_lookup=consents.get,
         )
     except SnapshotError as exc:
         raise _error(400, exc.reason, str(exc)) from exc
@@ -348,6 +408,7 @@ async def http_create_share(
         "title": share_title(snapshot),
         "created_at": now,
         "revoked_at": None,
+        "person_consent_ids": built.person_consent_ids,
     }
     data = json.dumps(snapshot, ensure_ascii=False)
     try:
@@ -359,7 +420,7 @@ async def http_create_share(
         log.exception("shares: creating share %s failed; rolling back", token)
         await _rollback(bucket, token)
         raise _error(502, "share_failed", "could not create the share") from exc
-    return to_public(row, _SHARE_BASE_URL)
+    return {**to_public(row, _SHARE_BASE_URL), "skipped": built.skipped}
 
 
 @router.get("/shares/{user_id}")

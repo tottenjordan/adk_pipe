@@ -23,8 +23,8 @@ visual eval matches by ``concept_name``.
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass, field
 from typing import Any
 
 from agent_common.config import BaseAgentConfiguration
@@ -59,12 +59,24 @@ class SnapshotError(ValueError):
         self.reason = reason
 
 
+# A consent id -> its record when it is active AND owned by the share owner (the
+# caller), else None. ``shares.py`` resolves the run's cast consent ids up front so
+# this module stays pure.
+ConsentLookup = Callable[[str], Mapping[str, Any] | None]
+PERSON_NOT_SHAREABLE = "person_not_shareable"
+
+
 @dataclass(frozen=True)
 class BuiltSnapshot:
     snapshot: dict[str, Any]
     # Parallel to snapshot["creatives"]: source gs:// image and concept name.
     image_uris: list[str]
     concept_names: list[str]
+    # Slate shares only: cast creatives left out, ``[{concept_name, reason}]``.
+    skipped: list[dict[str, str]] = field(default_factory=list)
+    # The consents of the cast creatives included (recorded on the share row only,
+    # never in the snapshot) so revoking a consent revokes the share.
+    person_consent_ids: list[str] = field(default_factory=list)
 
 
 def _text(value: Any) -> str:
@@ -120,6 +132,41 @@ def _is_cast(generated: Any, name: str) -> bool:
     """The render shows the run's consented person (``generated_images[c].cast``)."""
     record = generated.get(name) if isinstance(generated, Mapping) else None
     return isinstance(record, Mapping) and record.get("cast") is True
+
+
+def _consent_id(generated: Any, name: str) -> str | None:
+    record = generated.get(name) if isinstance(generated, Mapping) else None
+    cid = record.get("consent_id") if isinstance(record, Mapping) else None
+    return cid if isinstance(cid, str) and cid else None
+
+
+def cast_consent_ids(state: Mapping[str, Any]) -> list[str]:
+    """The distinct ``consent_id`` values of the run's cast renders (sorted)."""
+    generated = _as_obj(state.get("generated_images"))
+    if not isinstance(generated, Mapping):
+        return []
+    return sorted(
+        {
+            cid
+            for name in generated
+            if _is_cast(generated, name) and (cid := _consent_id(generated, name))
+        }
+    )
+
+
+def _shareable_consent(
+    generated: Any, name: str, consent_lookup: ConsentLookup | None
+) -> str | None:
+    """The consent id when a cast creative may go public: its consent is active,
+    owned by the share owner (``consent_lookup``) and has ``allow_public_share``;
+    None otherwise (deny by default)."""
+    cid = _consent_id(generated, name)
+    if cid is None or consent_lookup is None:
+        return None
+    record = consent_lookup(cid)
+    if not isinstance(record, Mapping) or record.get("allow_public_share") is not True:
+        return None
+    return cid
 
 
 def _score_block(ev: Mapping[str, Any] | None) -> dict[str, Any] | None:
@@ -191,13 +238,16 @@ def build_snapshot(
     concept_names: Sequence[str] | None,
     include_eval: bool,
     now: str,
+    consent_lookup: ConsentLookup | None = None,
 ) -> BuiltSnapshot:
     """The v1 snapshot for the whole slate (``concept_names=None``) or the named
     concepts (kept in pipeline order). Concepts without a rendered image are
-    skipped, and so are concepts that cast a person (``generated_images[c].cast``;
-    deny by default until share consent scopes land); raises ``SnapshotError``
-    for an unknown concept name, a named cast concept (``person_not_shareable``)
-    or when no creative with an image remains."""
+    skipped. A concept that casts a person (``generated_images[c].cast``) is
+    included only when its ``consent_id`` resolves via ``consent_lookup`` to a
+    record with ``allow_public_share`` (no lookup = never); a slate leaves the
+    others out and lists them in ``skipped``. Raises ``SnapshotError`` for an
+    unknown concept name, a named cast concept that isn't shareable
+    (``person_not_shareable``) or when no creative with an image remains."""
     report = _as_obj(report)
     if not isinstance(report, Mapping):
         report = None
@@ -216,15 +266,22 @@ def build_snapshot(
             raise SnapshotError(
                 "unknown_concept", f"not a creative in this run: {unknown[:4]}"
             )
-        if any(_is_cast(generated, n) for n in wanted):
+        if any(
+            _is_cast(generated, n)
+            and _shareable_consent(generated, n, consent_lookup) is None
+            for n in wanted
+        ):
             raise SnapshotError(
-                "person_not_shareable", "creatives that show a person can't be shared"
+                PERSON_NOT_SHAREABLE,
+                "a creative shows a person whose consent doesn't cover public links",
             )
 
     brand = _text(state.get("brand")) or _text((report or {}).get("brand"))
     creatives: list[dict[str, Any]] = []
     uris: list[str] = []
     names: list[str] = []
+    skipped: list[dict[str, str]] = []
+    consent_ids: list[str] = []
     for vc_index, vc in enumerate(concepts):
         name = vc.get("concept_name")
         if not isinstance(name, str) or (wanted is not None and name not in wanted):
@@ -232,9 +289,12 @@ def build_snapshot(
         if name in names or not (uri := _image_uri(generated, name)):
             continue
         if _is_cast(generated, name):
-            # Deny by default: a cast person's consent scope isn't checked
-            # here yet (plan PR 4), so a slate share leaves them out.
-            continue
+            cid = _shareable_consent(generated, name, consent_lookup)
+            if cid is None:
+                skipped.append({"concept_name": name, "reason": PERSON_NOT_SHAREABLE})
+                continue
+            if cid not in consent_ids:
+                consent_ids.append(cid)
         copy = match_by_id_headline_index(copies, vc, vc_index) or {}
         i = len(creatives)
         headline = _text(copy.get("headline")) or _text(vc.get("headline"))
@@ -278,4 +338,10 @@ def build_snapshot(
         "include_eval": bool(include_eval),
         "creatives": creatives,
     }
-    return BuiltSnapshot(snapshot=snapshot, image_uris=uris, concept_names=names)
+    return BuiltSnapshot(
+        snapshot=snapshot,
+        image_uris=uris,
+        concept_names=names,
+        skipped=skipped,
+        person_consent_ids=consent_ids,
+    )
