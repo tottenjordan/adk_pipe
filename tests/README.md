@@ -103,6 +103,12 @@ tests/
 ├── test_person_refs_store.py        # person_references MERGE/SELECT/UPDATE builders (fully parameterised; person_renders as an ARRAY<STRING> param), schema JSON == PERSON_REF_COLUMN_TYPES, active_for (owner + not revoked), idempotent owner-checked revoke, BigQuery store over the fake client, in-memory store, PERSON_REFS_STORE selection + Cloud Run fail-loud
 ├── test_person_refs_api.py          # /person-refs routes with a fake GCS: slug_for vs the shared golden tests/fixtures/person_slugs.json (also read by frontend gcs-route-person.test.ts; a.b@x.com vs a_b@x.com apart), photo URI only under the caller's own person-refs/<slug>/ (other prefix/bucket/type/nesting/traversal → 400 before any GCS read), photo HEAD (missing/too big/not image → photo_unreadable), adult attestation, stale consent text, duplicate photo 409, 50-person cap 429, 503 without a bucket, list + upload prefix, revoke runs hooks + deletes the photo (idempotent; cross-owner 404; cleanup failure 502 then retry), active_consent helper, enforce-mode 401/403
 ├── test_person_consent_drift.py     # runserver.person_refs CONSENT_TEXT + CONSENT_TEXT_VERSION mirror frontend/src/lib/person-consent.ts (drift test)
+├── test_async_runs_person.py        # person_reference consent check: kick-off 400 person_reference_invalid before any claim (revoked / foreign / other photo / bad shape), 503 on a store error, empty or non-creative unaffected; resume 400 person_reference_revoked; router mapping
+├── test_person_config.py            # PERSON_SAFE_STYLES (canonical names, default) / MAX_CAST_CONCEPTS (clamped 0..4) + ENV_VAR_DICT / .env.example
+├── test_person_casting_guard.py     # concept_guard.enforce_person_casting: one test per clearing rule + cap order, reference wording appended / neutralised, wiring into ensure_trend_and_product_callback
+├── test_person_render.py            # person_render helpers (URI shape, block reasons, ALLOW_ADULT config) + generate_image: person part + ALLOW_ADULT for cast concepts only, safety/4xx fallback without the person (person_reference_rejected + __issues), URI outside person-refs/ ignored and never logged, render-time guard, no cast key without a reference
+├── test_image_qa_person.py          # image QA likeness: person fields default on old payloads, rules only for cast concepts (not critical), correction restates likeness, photo attached + comparison text only with person_image; cast re-render keeps the person part
+├── test_eval_person_gate.py         # person_depicted_respectfully: in VISUAL_GATES / labels / prompt ("Return all 8"), passed in code with "no person cast" unless generated_images[c].cast, JUDGE_VERSION 2026-10-10, unversioned-report inference unchanged
 ├── test_rating_reasons_drift.py     # runserver.rating_reasons fail-reason enum + labels + per-kind lists (FAIL_REASONS_BY_KIND vs failReasonsFor) mirror frontend/src/lib/rating-reasons.ts (drift test)
 ├── test_calibration.py              # judge-human calibration maths: Cohen's kappa (textbook value, degenerate single-class reasons), tie-averaged Spearman, per-kind slices, CSV string coercion, current-JUDGE_VERSION filter + excluded_other_versions, learned/not-learned split, scripts/eval_calibration.py over a CSV (incl. --judge-version)
 ├── test_export_concurrency.py       # creative_agent export tools: per-run scratch isolation (issue #104), no gallery upscale
@@ -246,6 +252,13 @@ tests/
   (learning step with fake ratings → copy gate caps CTAs at 6 words, concept gate allows one text concept, guard adds
   the prominence line), `test_creative_eval.py::TestReportLearningFields` (`learning_used` / `learning_flags`),
   `test_rating_reasons_drift.py` (frontend `STRICTNESS_LABELS` keys); frontend `learning-summary.test.tsx`.
+- **Person casting** — `test_async_runs_person.py` (consent check), `test_callbacks.py` (`person_reference` /
+  `person_reference_available` seeding), `test_schemas.py` (casting fields on every visual stage),
+  `test_visual_concept_prompts.py` (`PERSON_CASTING_RULES`, `{person_reference_available?}` in the five visual
+  prompts, fixer/reviser keep the fields), `test_person_config.py`, `test_person_casting_guard.py`,
+  `test_person_render.py`, `test_image_qa_person.py`, `test_eval_person_gate.py`; frontend `person-select.test.tsx`,
+  `person-casting.test.tsx`, `initial-state.test.ts` / `run-history.test.ts` (seed + Duplicate brief),
+  `eval-checks.test.tsx` (gate label).
 - **Brand history** — `test_brand_history.py` (helper + node delta),
   `test_creative_agent_graph.py` (the note reaches the brief writer; disabled → no query;
   a raising step doesn't stop research), `test_pipeline_structure.py` (node in the START
