@@ -11,6 +11,8 @@ import {
   isPending,
   latestVariant,
   VARIANT_NOTE,
+  MAX_POLL_MISSES,
+  POLL_STOPPED_MESSAGE,
   VARIANT_POLL_MS,
   variantImageCheck,
   variantImageUrl,
@@ -85,35 +87,56 @@ export function PersonalisePanel({
     };
   }, [appName, sessionId, conceptName, consentId]);
 
-  // Poll while the preview is queued or rendering; stops on unmount or a new key.
+  // Poll while the preview is queued or rendering; stops on unmount, a new key, or
+  // after MAX_POLL_MISSES consecutive misses (an error or a missing record), when a
+  // Retry button takes over. `pollRun` restarts the loop (Retry checks at once).
   const pendingKey = variant && isPending(variant.record.status) ? variant.key : null;
+  const [pollStopped, setPollStopped] = useState(false);
+  const [pollRun, setPollRun] = useState(0);
+  const checkNow = useRef(false);
   useEffect(() => {
-    if (!pendingKey) return;
+    if (!pendingKey || pollStopped) return;
     let cancelled = false;
+    let misses = 0;
     let timer: ReturnType<typeof setTimeout>;
     const tick = async () => {
+      let record: VariantRecord | undefined;
       try {
         const all = await listVariants(appName, sessionId);
-        const record = all[conceptName]?.[pendingKey];
-        if (cancelled || !alive.current) return;
-        if (record) setVariant({ key: pendingKey, record });
-        if (record && !isPending(record.status)) return;
+        record = all[conceptName]?.[pendingKey];
       } catch {
-        // Transient: try again on the next tick.
+        record = undefined;
       }
-      if (!cancelled) timer = setTimeout(tick, VARIANT_POLL_MS);
+      if (cancelled || !alive.current) return;
+      if (record) {
+        misses = 0;
+        setVariant({ key: pendingKey, record });
+        if (!isPending(record.status)) return;
+      } else if (++misses >= MAX_POLL_MISSES) {
+        setPollStopped(true);
+        return;
+      }
+      timer = setTimeout(tick, VARIANT_POLL_MS);
     };
-    timer = setTimeout(tick, VARIANT_POLL_MS);
+    timer = setTimeout(tick, checkNow.current ? 0 : VARIANT_POLL_MS);
+    checkNow.current = false;
     return () => {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [appName, sessionId, conceptName, pendingKey]);
+  }, [appName, sessionId, conceptName, pendingKey, pollStopped, pollRun]);
+
+  const retryPolling = () => {
+    checkNow.current = true;
+    setPollStopped(false);
+    setPollRun((n) => n + 1);
+  };
 
   const render = useCallback(async () => {
     if (!consentId || submitting) return;
     setSubmitting(true);
     setError(null);
+    setPollStopped(false);
     try {
       const created = await createVariant(appName, sessionId, conceptName, consentId);
       if (alive.current) setVariant({ key: created.key, record: created });
@@ -162,6 +185,7 @@ export function PersonalisePanel({
                 setConsentId(e.target.value);
                 setVariant(null);
                 setError(null);
+                setPollStopped(false);
               }}
               className="h-8 w-full rounded-sm border border-input bg-card px-2 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
             >
@@ -183,6 +207,14 @@ export function PersonalisePanel({
       <p role="status" aria-live="polite" className="mt-2 text-xs text-foreground empty:hidden">
         {record ? variantStatusText(record) : ""}
       </p>
+      {pollStopped && pending && (
+        <div role="alert" className="mt-2 flex flex-wrap items-center gap-2 text-xs text-mark-fail">
+          <span>{POLL_STOPPED_MESSAGE}</span>
+          <Button size="xs" variant="outline" onClick={retryPolling}>
+            Retry
+          </Button>
+        </div>
+      )}
       {error && (
         <p role="alert" className="mt-2 text-xs text-mark-fail">
           {error}

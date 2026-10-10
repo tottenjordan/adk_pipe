@@ -33,6 +33,13 @@ export type VariantMap = Record<string, Record<string, VariantRecord>>;
 /** How often the panel re-reads a queued / rendering preview. */
 export const VARIANT_POLL_MS = 5000;
 
+/** Consecutive failed polls (an error or a missing record) before the panel stops. */
+export const MAX_POLL_MISSES = 6;
+
+/** Shown (with Retry) once polling gave up. */
+export const POLL_STOPPED_MESSAGE =
+  "We stopped checking on this preview because its status couldn't be read. Retry to check again.";
+
 /** The muted note under every preview. */
 export const VARIANT_NOTE = "Personalised preview — not used in experiments or share links";
 

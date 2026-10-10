@@ -15,6 +15,7 @@ import { PersonalisePanel } from "@/components/personalise-panel";
 import {
   canPersonalise,
   latestVariant,
+  MAX_POLL_MISSES,
   parseVariants,
   VARIANT_NOTE,
   VARIANT_POLL_MS,
@@ -136,6 +137,33 @@ describe("PersonalisePanel", () => {
     const calls = listVariants.mock.calls.length;
     await act(() => vi.advanceTimersByTimeAsync(VARIANT_POLL_MS * 3));
     expect(listVariants.mock.calls.length).toBe(calls);
+  });
+
+  it("stops polling after repeated failures and offers Retry", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    listVariants.mockResolvedValueOnce({ [CONCEPT]: { k1: { ...DONE, status: "rendering" } } });
+    renderPanel();
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent(/Rendering/));
+
+    // Half the polls fail, half lose the record: each counts as a miss.
+    listVariants.mockImplementation(async () => {
+      if (listVariants.mock.calls.length % 2) throw new Error("network");
+      return {};
+    });
+    for (let i = 0; i < MAX_POLL_MISSES; i++) {
+      await act(() => vi.advanceTimersByTimeAsync(VARIANT_POLL_MS));
+    }
+    expect(await screen.findByRole("alert")).toHaveTextContent(/stopped checking/);
+    const calls = listVariants.mock.calls.length;
+    await act(() => vi.advanceTimersByTimeAsync(VARIANT_POLL_MS * 3));
+    expect(listVariants.mock.calls.length).toBe(calls);
+
+    // Retry resumes polling and picks up the finished preview.
+    listVariants.mockReset();
+    listVariants.mockResolvedValue({ [CONCEPT]: { k1: DONE } });
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Preview ready."));
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
   it("shows an earlier preview for the chosen person and clears it on a switch", async () => {
