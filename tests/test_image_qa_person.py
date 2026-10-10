@@ -16,7 +16,7 @@ PERSON_URI = "gs://b/person-refs/alice-0123456789/me.jpg"
 _CAST = {
     "concept_name": "Hero",
     "image_generation_prompt": (
-        "A candid 35mm film photo of the person in the person reference image "
+        "A candid 35mm film photo of a skater, the person in the person reference image "
         "skating past a lottery ball."
     ),
     "trend_motif": "a lottery ball",

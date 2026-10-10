@@ -12,7 +12,7 @@ SAFE = frozenset(
     {"Candid 35mm film photo", "Photoreal / editorial", "Cinematic film still"}
 )
 CAST_PROMPT = (
-    "A candid 35mm film photo of the person in the person reference image laughing "
+    "A candid 35mm film photo of a skater, the person in the person reference image laughing "
     "on a rooftop at dusk, holding Rocket Skates."
 )
 
@@ -72,6 +72,24 @@ def test_prompt_without_a_human_subject_clears_the_cast():
     out, _ = _run([_concept(1, style="Cinematic film still", prompt=prompt)])
     assert _casts(out) == [False]
     assert "human subject" in out[0]["person_casting_reason"]
+
+
+def test_the_reference_phrase_alone_is_not_a_human_subject():
+    # "person" in the reference wording must not satisfy the cue by itself.
+    prompt = (
+        "A cinematic film still of the person in the person reference image "
+        "beside Rocket Skates on a desert road."
+    )
+    out, _ = _run([_concept(1, style="Cinematic film still", prompt=prompt)])
+    assert _casts(out) == [False]
+    assert "human subject" in out[0]["person_casting_reason"]
+    # With another human cue it stays cast.
+    prompt = (
+        "A cinematic film still of a skater, the person in the person reference "
+        "image, on a desert road."
+    )
+    out, _ = _run([_concept(1, style="Cinematic film still", prompt=prompt)])
+    assert _casts(out) == [True]
 
 
 def test_human_cue_words_count():

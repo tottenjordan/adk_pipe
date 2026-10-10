@@ -24,7 +24,7 @@ from tests._fakes import FakeToolContext, noop_async
 
 PERSON_URI = "gs://b/person-refs/alice-0123456789/me.jpg"
 CAST_PROMPT = (
-    "A candid 35mm film photo of the person in the person reference image "
+    "A candid 35mm film photo of a skater, the person in the person reference image "
     "laughing on a rooftop with Rocket Skates."
 )
 

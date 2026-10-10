@@ -400,7 +400,8 @@ def enforce_person_casting(
             why = "no person reference for this run"
         elif canonical_style(c.get("visual_style")) not in safe:
             why = "its style is not one of the person-safe styles"
-        elif not _HUMAN_CUE.search(prompt):
+        elif not _HUMAN_CUE.search(_PERSON_HERO_RE.sub(" ", prompt)):
+            # The reference wording itself ("the person in …") doesn't count.
             why = "its prompt has no human subject"
         elif kept >= max_cast:
             why = f"at most {max(max_cast, 0)} concepts may cast the person"
