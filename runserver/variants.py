@@ -749,7 +749,7 @@ async def _create_variant(
     concept = find_concept(state, concept_name)
     if concept is None:  # castability found it; never None here
         raise _error(400, "concept_not_found", "no such concept in this run")
-    key =variant_key(photo_uri, concept["image_generation_prompt"], _image_model())
+    key = variant_key(photo_uri, concept["image_generation_prompt"], _image_model())
     try:
         object_path = variant_object_path(state, user_id, concept_name, key)
     except VariantError as exc:
