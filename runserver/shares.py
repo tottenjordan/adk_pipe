@@ -2,8 +2,9 @@
 
 An owner shares one creative or a slate from a finished creative run as a public
 link. Creating a share **freezes** it: the api builds the allowlisted snapshot
-(``runserver/share_snapshot.py``), server-side copies the rendered images into
-``gs://<bucket>/shares/<token>/<i>.png`` and writes
+(``runserver/share_snapshot.py``), re-encodes the rendered images as web-sized
+JPEGs (long edge ≤ 1600 px, no metadata; ``runserver/share_images.py``) into
+``gs://<bucket>/shares/<token>/<i>.jpg`` and writes
 ``shares/<token>/snapshot.json`` there, then records the share in
 ``creative_shares`` (``runserver/shares_store.py``). The separate public share
 viewer reads only ``shares/<token>/``; revoking deletes those objects.
@@ -52,7 +53,9 @@ from runserver.ratings import (
     configured_report_bucket,
     gcs_report_loader,
 )
+from runserver.share_images import to_share_jpeg
 from runserver.share_snapshot import (
+    SHARE_IMAGE_EXT,
     BuiltSnapshot,
     SnapshotError,
     build_snapshot,
@@ -258,17 +261,20 @@ async def _load_report(state: Mapping[str, Any]) -> Mapping | None:
 
 
 def _publish(bucket_name: str, token: str, sources: list[str], data: str) -> None:
-    """Copy the images and write the snapshot under ``shares/<token>/`` (blocking)."""
+    """Re-encode the images and write the snapshot under ``shares/<token>/``
+    (blocking; CPU + network, so callers run it in a thread).
+
+    Each source render is downloaded and re-encoded (``to_share_jpeg``) to
+    ``<i>.jpg``, the name ``build_snapshot`` puts in ``creatives[i].image``. The
+    upload is a fresh object, so no consent id (or any custom metadata) of the
+    source is ever carried into ``shares/``."""
     bucket = _gcs().bucket(bucket_name)
     prefix = f"{SHARES_PREFIX}{token}/"
     for i, path in enumerate(sources):
-        copied = bucket.copy_blob(bucket.blob(path), bucket, f"{prefix}{i}.png")
-        copied.cache_control = IMAGE_CACHE_CONTROL
-        if copied.metadata:
-            # Never carry consent ids (or any custom metadata) into shares/: a
-            # key patched to None is removed.
-            copied.metadata = dict.fromkeys(copied.metadata)
-        copied.patch()
+        jpeg = to_share_jpeg(bucket.blob(path).download_as_bytes())
+        shared = bucket.blob(f"{prefix}{i}.{SHARE_IMAGE_EXT}")
+        shared.cache_control = IMAGE_CACHE_CONTROL
+        shared.upload_from_string(jpeg, content_type="image/jpeg")
     blob = bucket.blob(f"{prefix}{SNAPSHOT_NAME}")
     blob.cache_control = SNAPSHOT_CACHE_CONTROL
     blob.upload_from_string(data, content_type="application/json")

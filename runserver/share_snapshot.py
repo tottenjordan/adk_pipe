@@ -5,7 +5,7 @@ into ``snapshot.json`` v1, the only data the public share viewer ever reads::
 
     {"version": 1, "token", "created_at", "scope": "slate"|"creative",
      "brand", "product", "trend", "include_eval",
-     "creatives": [{"index", "image": "<i>.png", "aspect_ratio", "alt",
+     "creatives": [{"index", "image": "<i>.jpg", "aspect_ratio", "alt",
                     "visual_style", "headline", "body", "caption", "cta", "tone",
                     "eval"?: {...} | null}]}
 
@@ -13,7 +13,7 @@ Allowlist only: every value is copied field by field into plain strings, so
 prompts, rationales, judge notes, rating notes, emails and session/user ids can
 never leak (the owner and session live only in the ``creative_shares`` row). The
 source ``gs://`` image URIs are returned beside the snapshot for the server-side
-copy step and are never written into it.
+re-encode step and are never written into it.
 
 Visual concepts are paired with their ad copy and ad-copy eval exactly like the
 results page (``frontend/src/lib/eval-matching.ts`` ``buildProofs``): by
@@ -33,6 +33,9 @@ from creative_eval.dimensions import ADVISORY_GATES, gate_label
 from runserver.ratings import _as_obj, _id_text, _items
 
 SNAPSHOT_VERSION = 1
+# Share images are re-encoded JPEGs (runserver/share_images.py); snapshots made
+# before that name ``<i>.png``, which the viewer still serves.
+SHARE_IMAGE_EXT = "jpg"
 CREATIVE_FIELDS = (
     "index",
     "image",
@@ -300,7 +303,7 @@ def build_snapshot(
         headline = _text(copy.get("headline")) or _text(vc.get("headline"))
         creative: dict[str, Any] = {
             "index": i,
-            "image": f"{i}.png",
+            "image": f"{i}.{SHARE_IMAGE_EXT}",
             "aspect_ratio": _aspect_ratio(vc, override),
             "alt": _text(vc.get("concept_summary"))
             or f"{brand or 'Brand'} ad image: {headline or name}",

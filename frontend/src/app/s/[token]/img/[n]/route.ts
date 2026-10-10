@@ -1,7 +1,8 @@
 import type { NextRequest } from "next/server";
 import { loadShareImage } from "@/lib/share-snapshot";
 
-/** `/s/<token>/img/<n>`: streams `shares/<token>/<n>.png`; 404 for anything else. */
+/** `/s/<token>/img/<n>`: streams `shares/<token>/<n>.jpg` (or `.png` for older
+ * shares), the object the snapshot names; 404 for anything else. */
 export async function GET(_req: NextRequest, ctx: RouteContext<"/s/[token]/img/[n]">) {
   const { token, n } = await ctx.params;
   try {
