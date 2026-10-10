@@ -29,7 +29,7 @@ from google.adk.cli.utils.service_factory import (
 )
 from google.adk.runners import Runner
 
-from runserver import experiments, person_refs, ratings, shares
+from runserver import experiments, person_refs, ratings, shares, variants
 from runserver.async_runs import configure, get_root_agent, router
 from runserver.authz import (
     AuthzMode,
@@ -170,6 +170,13 @@ _PERSON_REFS_MODE, _PERSON_REFS_STORE = build_person_refs_store()
 logging.getLogger(__name__).info("person references store: %s", _PERSON_REFS_MODE)
 person_refs.configure(store=_PERSON_REFS_STORE)
 app.include_router(person_refs.router)
+
+# Personalised variant previews (/variants, owner side, UI only): re-render one
+# finished concept with a consented person (detached task, VARIANT_RENDER_CONCURRENCY
+# semaphore, VARIANT_DAILY_CAP per user). Results: state person_variants + gs://
+# $GOOGLE_CLOUD_STORAGE_BUCKET/<run>/variants/<slug>/; never in experiments/shares.
+variants.configure(session_service=session_service)
+app.include_router(variants.router)
 
 # Start the experiments TTL reaper (full pass every 5 min: expiry, resumes
 # deploys/teardowns a previous revision left mid-flight, finishes traffic runs; plus a

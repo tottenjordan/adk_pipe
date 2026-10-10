@@ -139,6 +139,9 @@ def test_path_user_id_shares(path, user):
         ("/person-refs", None),
         ("/person-refs/", None),
         ("/person-refsX/u1", None),
+        ("/variants/u1/creative_agent/s1", "u1"),
+        ("/variants", None),
+        ("/variantsX/u1", None),
     ],
 )
 def test_path_user_id_person_refs(path, user):
