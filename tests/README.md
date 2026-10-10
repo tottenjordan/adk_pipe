@@ -254,8 +254,8 @@ tests/
   `test_rating_reasons_drift.py` (frontend `STRICTNESS_LABELS` keys); frontend `learning-summary.test.tsx`.
 - **Person casting** — `test_async_runs_person.py` (consent check), `test_callbacks.py` (`person_reference` /
   `person_reference_available` seeding), `test_schemas.py` (casting fields on every visual stage),
-  `test_visual_concept_prompts.py` (`PERSON_CASTING_RULES`, `{person_reference_available?}` in the five visual
-  prompts, fixer/reviser keep the fields), `test_person_config.py`, `test_person_casting_guard.py`,
+  `test_visual_concept_prompts.py` (`PERSON_CASTING_RULES`, `{person_casting_rules?}` in the six visual
+  prompts, no casting text without a person), `test_person_config.py`, `test_person_casting_guard.py`,
   `test_person_render.py`, `test_image_qa_person.py`, `test_eval_person_gate.py`; frontend `person-select.test.tsx`,
   `person-casting.test.tsx`, `initial-state.test.ts` / `run-history.test.ts` (seed + Duplicate brief),
   `eval-checks.test.tsx` (gate label).

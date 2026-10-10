@@ -117,7 +117,7 @@ def test_instruction_compares_with_the_person_image_only_when_given():
     text, images = _inspect()
     assert images == [b"render"]
     assert "same person as the reference image" not in text
-    assert "person_cast and person_likeness null" in text
+    assert "person_cast" not in text and "person_likeness" not in text
 
 
 # --- generate_image wiring ----------------------------------------------------------

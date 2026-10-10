@@ -23,6 +23,7 @@ from .concept_guard import (
 from .config import config
 from .copy_gate import parse_copies, restore_unflagged
 from .person_render import person_reference_available
+from .prompts import PERSON_CASTING_RULES
 from .rating_signals import strictness_flags
 from .references import reference_roles_summary
 from .style_shortlist import format_shortlist, pick_style_shortlist
@@ -122,6 +123,12 @@ def _set_initial_states(source: dict[str, Any], target: State | dict[str, Any]):
     target.setdefault(
         "person_reference_available",
         person_reference_available(target.get("person_reference")),
+    )
+    # The casting rules reach the visual agents only on runs with a person
+    # ({person_casting_rules?}); without one their instructions are unchanged.
+    target.setdefault(
+        "person_casting_rules",
+        PERSON_CASTING_RULES if target.get("person_reference_available") else "",
     )
 
     # Per-session random style shortlist (image diversity): the visual agents

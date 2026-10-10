@@ -227,6 +227,7 @@ class TestSetInitialStates:
         _set_initial_states({"brand": "TestBrand"}, target)
         assert target["person_reference"] == {}
         assert target["person_reference_available"] == ""
+        assert target["person_casting_rules"] == ""
 
     def test_person_reference_available_derived_from_seed(self):
         from creative_agent.callbacks import _set_initial_states
@@ -236,6 +237,9 @@ class TestSetInitialStates:
         _set_initial_states({"brand": "TestBrand"}, target)
         assert target["person_reference"] == ref  # not clobbered
         assert target["person_reference_available"] == "yes"
+        from creative_agent.prompts import PERSON_CASTING_RULES
+
+        assert target["person_casting_rules"] == PERSON_CASTING_RULES
 
     def test_person_reference_outside_prefix_is_not_available(self):
         from creative_agent.callbacks import _set_initial_states
@@ -249,6 +253,7 @@ class TestSetInitialStates:
             target = {"person_reference": ref}
             _set_initial_states({"brand": "TestBrand"}, target)
             assert target["person_reference_available"] == ""
+            assert target["person_casting_rules"] == ""
 
     # --- Core campaign fields (deterministic inputs via createSession state) ---
     _CAMPAIGN_KEYS = (

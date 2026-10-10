@@ -358,10 +358,6 @@ PERSON_COMPARISON_LINE = (
     "person's face or body is distorted or malformed, or visibly altered "
     "(slimmed, beautified, added attributes)."
 )
-NO_PERSON_LINE = (
-    "No person reference image: set person_cast and person_likeness null and "
-    "person_distorted false."
-)
 
 
 def _instruction(
@@ -462,10 +458,15 @@ def _instruction(
         "comic, collage) is not a defect.",
         "Also flag noticeable anatomy or object deformities (artifacts) and "
         "brand-unsafe content.",
-        PERSON_COMPARISON_LINE if has_person_image else NO_PERSON_LINE,
-        "issues: short problem statements in the form '[what is wrong] on/in "
-        "[where]', one per problem found; empty if none.",
     ]
+    if has_person_image:
+        # Only cast concepts: other renders keep the exact pre-casting wording
+        # (the person fields default to null / false).
+        lines.append(PERSON_COMPARISON_LINE)
+    lines.append(
+        "issues: short problem statements in the form '[what is wrong] on/in "
+        "[where]', one per problem found; empty if none."
+    )
     return "\n".join(lines)
 
 
