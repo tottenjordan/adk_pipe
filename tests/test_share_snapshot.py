@@ -63,7 +63,7 @@ def test_slate_snapshot_allowlists_fields():
         }
     )
     assert [x["index"] for x in snap["creatives"]] == [0, 1, 2, 3]
-    assert [x["image"] for x in snap["creatives"]] == [f"{i}.png" for i in range(4)]
+    assert [x["image"] for x in snap["creatives"]] == [f"{i}.jpg" for i in range(4)]
     assert c["aspect_ratio"] == "9:16"
     assert c["alt"].startswith("This concept brings the headline to life")
     assert c["visual_style"] == "Surreal Meme-Collage"
@@ -156,7 +156,7 @@ def test_single_creative_and_eval():
     assert snap["scope"] == "creative" and snap["include_eval"] is True
     assert len(snap["creatives"]) == 1
     c = snap["creatives"][0]
-    assert c["index"] == 0 and c["image"] == "0.png"
+    assert c["index"] == 0 and c["image"] == "0.jpg"
     assert built.image_uris == [image_uri(2)]
     assert built.concept_names == ["The Jackpot Reveal"]
     ev = c["eval"]
@@ -214,7 +214,7 @@ def test_concepts_without_images_are_skipped():
     built = _build(state)
     assert built.concept_names == ["The Golden Golf Cart Gig", "The Authentic Encore"]
     assert [c["index"] for c in built.snapshot["creatives"]] == [0, 1]
-    assert [c["image"] for c in built.snapshot["creatives"]] == ["0.png", "1.png"]
+    assert [c["image"] for c in built.snapshot["creatives"]] == ["0.jpg", "1.jpg"]
 
 
 def test_no_images_raises():

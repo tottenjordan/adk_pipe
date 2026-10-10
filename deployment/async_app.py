@@ -156,7 +156,8 @@ app.include_router(ratings.router)
 
 # Shareable creative links (/shares, owner side): SHARES_STORE=bigquery
 # (creative_shares table) or memory (also the fallback without the BigQuery env).
-# Frozen copies go to gs://$GOOGLE_CLOUD_STORAGE_BUCKET/shares/<token>/; links are
+# Frozen snapshots + re-encoded JPEGs go to
+# gs://$GOOGLE_CLOUD_STORAGE_BUCKET/shares/<token>/; links are
 # $SHARE_BASE_URL/s/<token> (the public share viewer service).
 _SHARES_MODE, _SHARES_STORE = build_shares_store()
 logging.getLogger(__name__).info("creative shares store: %s", _SHARES_MODE)

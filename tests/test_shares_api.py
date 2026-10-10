@@ -7,6 +7,7 @@ over ``httpx.ASGITransport`` with the real ``UserAuthzMiddleware`` in front.
 from __future__ import annotations
 
 import asyncio
+import io
 import json
 import re
 
@@ -14,6 +15,7 @@ import httpx
 import pytest
 from fastapi import FastAPI
 from google.adk.sessions import InMemorySessionService
+from PIL import Image
 
 from runserver import person_refs as pr
 from runserver import shares as sh
@@ -33,6 +35,15 @@ B = "bob@example.com"
 APP = "creative_agent"
 PROXY = {"Authorization": "Bearer proxy"}
 TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]{16,64}$")
+
+
+def _render_png(size=(2000, 1000)) -> bytes:
+    buf = io.BytesIO()
+    Image.new("RGBA", size, (200, 30, 30, 255)).save(buf, format="PNG")
+    return buf.getvalue()
+
+
+RENDER_PNG = _render_png()
 
 
 # --- fake GCS ---------------------------------------------------------------------
@@ -57,7 +68,14 @@ class FakeBlob:
             "data": data,
             "content_type": content_type,
             "cache_control": self.cache_control,
+            "metadata": self.metadata,
         }
+
+    def download_as_bytes(self):
+        self.bucket.gcs.ops.append(("download", self.bucket.name, self.name))
+        if self.bucket.gcs.fail_on("download", self.name):
+            raise RuntimeError("download failed")
+        return self.bucket.objects[self.name]["data"]
 
     def patch(self):
         self.bucket.gcs.ops.append(("patch", self.bucket.name, self.name))
@@ -86,14 +104,6 @@ class FakeBucket:
             raise RuntimeError("head failed")
         return FakeBlob(self, name) if name in self.objects else None
 
-    def copy_blob(self, blob: FakeBlob, destination_bucket: FakeBucket, new_name: str):
-        self.gcs.ops.append(("copy", blob.name, destination_bucket.name, new_name))
-        if self.gcs.fail_on("copy", new_name):
-            raise RuntimeError("copy failed")
-        src = self.objects[blob.name]
-        destination_bucket.objects[new_name] = dict(src)
-        return FakeBlob(destination_bucket, new_name)
-
     def list_blobs(self, prefix: str = ""):
         return [FakeBlob(self, n) for n in list(self.objects) if n.startswith(prefix)]
 
@@ -106,7 +116,7 @@ class FakeGCS:
         for i in range(len(CONCEPTS)):
             path = image_uri(i).removeprefix(f"gs://{BUCKET}/")
             self.objects.setdefault(BUCKET, {})[path] = {
-                "data": b"png",
+                "data": RENDER_PNG,
                 "content_type": "image/png",
                 "cache_control": None,
             }
@@ -184,7 +194,7 @@ def run(coro_fn):
 # --- POST -------------------------------------------------------------------------
 
 
-def test_create_slate_share_copies_images_and_writes_snapshot():
+def test_create_slate_share_reencodes_images_and_writes_snapshot():
     async def go():
         h = Harness()
         await h.session()
@@ -201,29 +211,33 @@ def test_create_slate_share_copies_images_and_writes_snapshot():
         assert out["created_at"]
 
         objs = h.gcs.shared(token)
-        assert set(objs) == {f"shares/{token}/{i}.png" for i in range(4)} | {
+        assert set(objs) == {f"shares/{token}/{i}.jpg" for i in range(4)} | {
             f"shares/{token}/snapshot.json"
         }
         for i in range(4):
-            assert objs[f"shares/{token}/{i}.png"]["cache_control"] == (
-                "private, max-age=300"
-            )
+            img_obj = objs[f"shares/{token}/{i}.jpg"]
+            assert img_obj["cache_control"] == "private, max-age=300"
+            assert img_obj["content_type"] == "image/jpeg"
+            assert not img_obj["metadata"]
+            img = Image.open(io.BytesIO(img_obj["data"]))
+            assert img.format == "JPEG" and img.size == (1600, 800)
         snap_obj = objs[f"shares/{token}/snapshot.json"]
         assert snap_obj["content_type"] == "application/json"
         assert snap_obj["cache_control"] == "no-store"
         snap = json.loads(snap_obj["data"])
         assert snap["version"] == 1 and snap["token"] == token
         assert snap["scope"] == "slate" and len(snap["creatives"]) == 4
+        assert [c["image"] for c in snap["creatives"]] == [f"{i}.jpg" for i in range(4)]
         blob = snap_obj["data"]
         for secret in ("image_generation_prompt", "rationale", "s1", A, "gs://"):
             assert secret not in blob
         # every write stays under shares/<token>/
-        writes = [op for op in h.gcs.ops if op[0] in ("copy", "upload", "patch")]
+        writes = [op for op in h.gcs.ops if op[0] in ("upload", "patch")]
         for op in writes:
             assert op[-1].startswith(f"shares/{token}/")
-        # copied from the generated_images sources, in creative order
-        copies = [op for op in h.gcs.ops if op[0] == "copy"]
-        assert [c[1] for c in copies] == [
+        # read from the generated_images sources, in creative order
+        downloads = [op for op in h.gcs.ops if op[0] == "download"]
+        assert [d[2] for d in downloads] == [
             image_uri(i).removeprefix(f"gs://{BUCKET}/") for i in range(4)
         ]
         # recorded with the owner + session (never in the snapshot)
@@ -534,7 +548,7 @@ def test_cast_render_seeded_as_uncast_is_refused_by_its_metadata():
         r = await h.create()
         assert r.status_code == 400
         assert r.json()["detail"]["reason"] == "person_not_shareable"
-        assert not any(op[0] == "copy" for op in h.gcs.ops)
+        assert not any(op[0] == "download" for op in h.gcs.ops)
         assert h.store.rows == {}
 
     run(go)
@@ -646,7 +660,10 @@ def test_ownership_valueerror_maps_to_404():
     run(go)
 
 
-@pytest.mark.parametrize("fail", [("copy", "/2.png"), ("upload", "snapshot.json")])
+@pytest.mark.parametrize(
+    "fail",
+    [("download", "/2.png"), ("upload", "/2.jpg"), ("upload", "snapshot.json")],
+)
 def test_partial_failure_rolls_back_and_is_502(fail):
     async def go():
         h = Harness()
