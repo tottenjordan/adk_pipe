@@ -260,6 +260,18 @@ describe("briefFromState", () => {
     ).toEqual({ agent: "creative_agent", brand: "X" });
     expect(briefFromState({ learn_from_ratings: "true", brand: "X" })).toEqual({ brand: "X" });
   });
+
+  it("restores the chosen person reference", () => {
+    const person_reference = { uri: "gs://b/person-refs/a-1/me.jpg", consent_id: "consent-1234" };
+    expect(briefFromState({ ui_app: "creative_agent", brand: "X", person_reference })).toEqual({
+      agent: "creative_agent",
+      brand: "X",
+      personReference: { uri: "gs://b/person-refs/a-1/me.jpg", consentId: "consent-1234" },
+    });
+    for (const bad of [{}, { uri: "gs://x" }, "gs://x", null]) {
+      expect(briefFromState({ brand: "X", person_reference: bad })).toEqual({ brand: "X" });
+    }
+  });
 });
 
 describe("sessionStorage helpers", () => {

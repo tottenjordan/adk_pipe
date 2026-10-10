@@ -151,7 +151,8 @@ export default function ResultsPage({
       vcRaw?.visual_concepts || [],
       acRaw?.ad_copies || [],
       evalReport,
-      state.generated_images
+      state.generated_images,
+      state.person_reference_rejected
     );
   }, [state, evalReport]);
   const sortedProofs = useMemo(() => sortProofs(proofs, sort), [proofs, sort]);

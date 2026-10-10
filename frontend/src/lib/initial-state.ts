@@ -19,6 +19,8 @@ import type { CampaignInput } from "@/lib/types";
  *   init overwrites these keys, so they are not seeded for it.
  * - Rating learning: `learn_from_ratings: true` only when a creative run opts
  *   in (the backend setdefaults it to false).
+ * - Person: `person_reference: {uri, consent_id}` only when a creative run
+ *   picks one of the caller's consents (the backend setdefaults it to {}).
  * - Reference images: every set reference row goes to `reference_images`
  *   (`[{uri, role}]`, max 3); row 1 is also sent as the legacy
  *   `reference_image_uri`/`reference_image_role` pair for one release (the
@@ -67,6 +69,11 @@ export function buildInitialState(form: CampaignInput): Record<string, unknown> 
   }
 
   if (form.learnFromRatings === true) state.learn_from_ratings = true;
+
+  const person = form.personReference;
+  if (person?.uri?.trim() && person.consentId?.trim()) {
+    state.person_reference = { uri: person.uri.trim(), consent_id: person.consentId.trim() };
+  }
 
   const references = referenceImagesFromForm(form);
   if (references.length) state.reference_images = references;
