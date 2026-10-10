@@ -222,6 +222,40 @@ def test_no_images_raises():
     assert exc.value.reason == "no_images"
 
 
+def _cast(state, *names):
+    for name in names:
+        state["generated_images"][name]["cast"] = True
+    return state
+
+
+def test_slate_skips_cast_concepts():
+    # Deny by default until share consent scopes land (plan PR 4).
+    state = _cast(creative_state(), "The Jackpot Reveal", "Nihilistic Retirement Plan")
+    state["generated_images"]["The Authentic Encore"]["cast"] = False
+    built = _build(state)
+    assert built.concept_names == ["The Golden Golf Cart Gig", "The Authentic Encore"]
+
+
+def test_slate_of_only_cast_concepts_has_no_images():
+    state = _cast(creative_state(), *CONCEPTS)
+    with pytest.raises(SnapshotError) as exc:
+        _build(state)
+    assert exc.value.reason == "no_images"
+
+
+def test_naming_a_cast_concept_is_not_shareable():
+    state = _cast(creative_state(), "The Jackpot Reveal")
+    for names in (
+        ["The Jackpot Reveal"],
+        ["The Jackpot Reveal", "The Authentic Encore"],
+    ):
+        with pytest.raises(SnapshotError) as exc:
+            _build(state, concept_names=names)
+        assert exc.value.reason == "person_not_shareable"
+    built = _build(state, concept_names=["The Authentic Encore"])
+    assert built.concept_names == ["The Authentic Encore"]
+
+
 def test_aspect_ratio_override_and_fallbacks():
     state = creative_state()
     state["visual_aspect_ratio"] = "1:1"

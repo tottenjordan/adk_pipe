@@ -82,6 +82,11 @@ describe("share helpers", () => {
     }
     expect(shareErrorMessage("whatever", 500)).toMatch(/500/);
   });
+  it("explains that creatives showing a person can't be shared yet", () => {
+    expect(shareErrorMessage("person_not_shareable", 400)).toBe(
+      "Creatives that show a person can't be shared yet.",
+    );
+  });
   it("detects absolute urls", () => {
     expect(isAbsoluteUrl("https://share.example.com/s/x")).toBe(true);
     expect(isAbsoluteUrl("/s/x")).toBe(false);
