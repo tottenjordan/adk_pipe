@@ -204,19 +204,84 @@ def _resume(state):
     return asyncio.run(_go())
 
 
-def test_resume_with_revoked_person_reference_is_400():
+def _resume_state(state):
+    """Like ``_resume`` but also returns the final session state."""
+
+    async def _go():
+        svc = InMemorySessionService()
+        await svc.create_session(
+            app_name="interactive_creative", user_id="u", session_id="s", state=state
+        )
+        calls = []
+
+        def factory(a):
+            calls.append(a)
+            return _FakeRunner(svc, a, [_event("resumed")])
+
+        try:
+            _r, task = await start_resume(
+                app_name="interactive_creative",
+                user_id="u",
+                session_id="s",
+                function_call_id="call-1",
+                function_name="review_ad_copies",
+                response={"status": "approved"},
+                session_service=svc,
+                runner_factory=factory,
+            )
+        except async_runs.PersonReferenceError as exc:
+            return exc, calls, None
+        await task
+        session = await svc.get_session(
+            app_name="interactive_creative", user_id="u", session_id="s"
+        )
+        return None, calls, session.state
+
+    return asyncio.run(_go())
+
+
+def test_resume_with_revoked_consent_continues_without_the_person():
     _person_store(revoked=True)
-    err, calls = _resume({"person_reference": _ref()})
+    err, calls, state = _resume_state(
+        {
+            "person_reference": _ref(),
+            "person_reference_available": "yes",
+            "person_casting_rules": "rules",
+            "person_reference__issues": ["Hero: earlier note"],
+        }
+    )
+    assert err is None and calls == ["interactive_creative"]
+    assert state["person_reference"] == {}
+    assert state["person_reference_available"] == ""
+    assert state["person_casting_rules"] == ""
+    assert state["person_reference__issues"] == [
+        "Hero: earlier note",
+        async_runs.PERSON_REVOKED_NOTE,
+    ]
+    assert async_runs.PERSON_REVOKED_NOTE == (
+        "Person reference consent was revoked; continued without the person"
+    )
+
+
+def test_resume_store_error_is_503():
+    class _Broken:
+        async def active_for(self, consent_id, owner):
+            raise RuntimeError("bq down")
+
+    person_refs.configure(store=_Broken(), bucket="b")
+    err, calls, _ = _resume_state({"person_reference": _ref()})
     assert err is not None
-    assert (err.status, err.reason) == (400, "person_reference_revoked")
+    assert (err.status, err.reason) == (503, "person_reference_unavailable")
     assert calls == []
     assert ("interactive_creative", "u", "s") not in async_runs._ACTIVE_RUNS
 
 
 def test_resume_with_active_person_reference_continues():
     _person_store()
-    err, calls = _resume({"person_reference": _ref()})
+    err, calls, state = _resume_state({"person_reference": _ref()})
     assert err is None and calls == ["interactive_creative"]
+    assert state["person_reference"] == _ref()
+    assert "person_reference__issues" not in state
 
 
 def test_resume_without_person_reference_continues():
@@ -259,7 +324,7 @@ def test_router_maps_kickoff_error_to_400():
     assert resp.json()["detail"]["reason"] == "person_reference_invalid"
 
 
-def test_router_maps_resume_error_to_400():
+def test_router_resume_with_revoked_consent_proceeds():
     _person_store(revoked=True)
     resp = _post(
         "/runs/interactive_creative/u/s/resume",
@@ -270,5 +335,5 @@ def test_router_maps_resume_error_to_400():
         },
         {"person_reference": _ref()},
     )
-    assert resp.status_code == 400
-    assert resp.json()["detail"]["reason"] == "person_reference_revoked"
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "running"

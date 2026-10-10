@@ -74,9 +74,11 @@ _COMPLETION_KEYS = {
 # ``person_reference = {uri, consent_id}``, seeded by the browser via createSession
 # initialState). The api is the consent authority: at kick-off the consent must be
 # active, the caller's own, and for the same photo (else 400
-# ``person_reference_invalid``); a resume re-checks it is still active (a revoke
-# mid-run → 400 ``person_reference_revoked``). Both raise before anything is claimed
-# or written. The engines only re-check the URI shape. Photo URIs are never logged.
+# ``person_reference_invalid``, raised before anything is claimed or written); a
+# resume re-checks it is still active: a revoke mid-run clears the person reference
+# (and its derived keys) and continues with a ``person_reference__issues`` run note.
+# A store error is a 503 either way. The engines only re-check the URI shape.
+# Photo URIs are never logged.
 PERSON_REFERENCE_APPS = frozenset({"creative_agent", "interactive_creative"})
 PERSON_REFERENCE_KEY = "person_reference"
 
@@ -1046,6 +1048,38 @@ async def _apply_research_edit(
     await session_service.append_event(session, event)
 
 
+PERSON_REVOKED_NOTE = (
+    "Person reference consent was revoked; continued without the person"
+)
+
+
+async def _drop_person_reference(
+    session_service, app_name, user_id, session_id
+) -> None:
+    """Clear the person reference (and its derived keys) before a resumed run
+    whose consent was revoked, adding a ``person_reference__issues`` run note."""
+    session = await _get_session_or_none(session_service, app_name, user_id, session_id)
+    if session is None:
+        return
+    prior = session.state.get("person_reference__issues")
+    notes = [str(n) for n in prior] if isinstance(prior, list) else []
+    if PERSON_REVOKED_NOTE not in notes:
+        notes.append(PERSON_REVOKED_NOTE)
+    event = Event(
+        author=RUNSERVER_AUTHOR,
+        invocation_id=RUNSERVER_AUTHOR,
+        actions=EventActions(
+            state_delta={
+                PERSON_REFERENCE_KEY: {},
+                "person_reference_available": "",
+                "person_casting_rules": "",
+                "person_reference__issues": notes,
+            }
+        ),
+    )
+    await session_service.append_event(session, event)
+
+
 # Resume ``edits`` appliers keyed by the paused checkpoint's function name.
 _EDIT_APPLIERS = {
     "review_visual_concepts": _apply_visual_concept_edits,
@@ -1118,22 +1152,31 @@ async def start_resume(
     validate_resume_edits(function_name, edits)  # 400 before any claim/write
     if _is_live(key) and _ACTIVE_RESUME_CALL_IDS.get(key) == function_call_id:
         raise RunAlreadyActive(key, REASON_RESUME_IN_PROGRESS)
+    drop_person = False
     if app_name in PERSON_REFERENCE_APPS:
-        # The consent may have been revoked while the run was paused.
+        # The consent may have been revoked while the run was paused: the run
+        # then continues without the person (a store error stays a 503).
         session = await _get_session_or_none(
             session_service, app_name, user_id, session_id
         )
-        await check_person_reference(
-            app_name,
-            user_id,
-            session.state if session is not None else None,
-            reason="person_reference_revoked",
-        )
+        try:
+            await check_person_reference(
+                app_name,
+                user_id,
+                session.state if session is not None else None,
+                reason="person_reference_revoked",
+            )
+        except PersonReferenceError as exc:
+            if exc.status != 400:
+                raise
+            drop_person = True
     await _await_prior_segment(key)
     _claim_run(key, function_call_id)  # sync check+claim, before any further await
     try:
         runner = runner_factory(app_name)
         new_message = build_resume_message(function_call_id, function_name, response)
+        if drop_person:
+            await _drop_person_reference(session_service, app_name, user_id, session_id)
         if edits and (applier := _EDIT_APPLIERS.get(function_name)):
             await applier(session_service, app_name, user_id, session_id, edits)
         elif edits:
