@@ -208,7 +208,7 @@ def _batch(monkeypatch, respond, verdicts=()):
     calls, qa_calls = _patch(monkeypatch, respond, verdicts)
     uploads: list[str] = []
 
-    def fake_save(*, tool_context, image_bytes, filename):
+    def fake_save(*, tool_context, image_bytes, filename, metadata=None):
         uploads.append(filename)
         return f"gs://b/{filename}"
 

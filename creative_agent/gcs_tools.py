@@ -57,7 +57,13 @@ def _save_to_gcs(
     tool_context: ToolContext,
     image_bytes: bytes,
     filename: str,
+    metadata: dict[str, str] | None = None,
 ):
+    """Upload a rendered image under the run's folder → its gs:// URI.
+
+    ``metadata`` (blob custom metadata) marks renders made with a consented
+    person photo (``{"consent_id": ...}``): revoking that consent deletes only
+    objects carrying it (runserver/person_refs.py)."""
     # --- Save to GCS ---
     storage_client = _get_gcs_client()
     gcs_bucket = config.GCS_BUCKET_NAME
@@ -68,6 +74,8 @@ def _save_to_gcs(
     gcs_blob_name = f"{gcs_folder}/{gcs_subdir}/{filename}"
 
     blob = bucket.blob(gcs_blob_name)
+    if metadata:
+        blob.metadata = dict(metadata)
 
     try:
         blob.upload_from_string(image_bytes, content_type="image/png")

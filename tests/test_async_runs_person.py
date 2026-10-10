@@ -337,3 +337,128 @@ def test_router_resume_with_revoked_consent_proceeds():
     )
     assert resp.status_code == 200
     assert resp.json()["status"] == "running"
+
+
+# --- cast renders are recorded on the consent when a segment ends -------------------
+
+
+def _render_event(images: dict) -> Event:
+    from google.adk.events import EventActions
+
+    return Event(
+        author="root_agent",
+        actions=EventActions(state_delta={"generated_images": images}),
+    )
+
+
+CAST = "gs://b/f/d/cast.png"
+
+
+def _images():
+    return {
+        "cast": {"gcs_uri": CAST, "cast": True, "consent_id": "consent-1234"},
+        "plain": {"gcs_uri": "gs://b/f/d/plain.png", "cast": False},
+        "noid": {"gcs_uri": "gs://b/f/d/noid.png", "cast": True},
+        "notmine": {
+            "gcs_uri": "gs://b/f/d/x.png",
+            "cast": True,
+            "consent_id": "other-12345",
+        },
+    }
+
+
+def test_cast_renders_groups_by_consent():
+    assert async_runs.cast_renders({"generated_images": _images()}) == {
+        "consent-1234": [CAST],
+        "other-12345": ["gs://b/f/d/x.png"],
+    }
+    assert async_runs.cast_renders({}) == {}
+    assert async_runs.cast_renders({"generated_images": "nope"}) == {}
+
+
+def _drive(events, *, app_name="creative_agent"):
+    async def _go():
+        svc = InMemorySessionService()
+        await svc.create_session(
+            app_name=app_name, user_id="u", session_id="s", state={}
+        )
+        _r, task = await start_run(
+            app_name=app_name,
+            user_id="u",
+            session_id="s",
+            message="go",
+            session_service=svc,
+            runner_factory=lambda name: _FakeRunner(svc, name, events),
+        )
+        await task
+        session = await svc.get_session(app_name=app_name, user_id="u", session_id="s")
+        return session.state
+
+    return asyncio.run(_go())
+
+
+def test_finished_segment_records_cast_renders_on_the_consent():
+    store = _person_store()
+    state = _drive([_render_event(_images()), _event("done")])
+    assert state[async_runs.RUN_STATUS_KEY] == "done"
+    assert asyncio.run(store.get("consent-1234"))["person_renders"] == [CAST]
+    # a second segment (e.g. an interactive resume) never duplicates it
+    _drive([_render_event(_images()), _event("done")])
+    assert asyncio.run(store.get("consent-1234"))["person_renders"] == [CAST]
+
+
+def test_failed_run_still_records_cast_renders():
+    store = _person_store()
+
+    class _Boom(_FakeRunner):
+        async def run_async(self, **kw):
+            async for ev in super().run_async(**kw):
+                yield ev
+            raise RuntimeError("model down")
+
+    async def _go():
+        svc = InMemorySessionService()
+        await svc.create_session(
+            app_name="creative_agent", user_id="u", session_id="s", state={}
+        )
+        _r, task = await start_run(
+            app_name="creative_agent",
+            user_id="u",
+            session_id="s",
+            message="go",
+            session_service=svc,
+            runner_factory=lambda name: _Boom(svc, name, [_render_event(_images())]),
+        )
+        await task
+        session = await svc.get_session(
+            app_name="creative_agent", user_id="u", session_id="s"
+        )
+        return session.state
+
+    state = asyncio.run(_go())
+    assert state[async_runs.RUN_STATUS_KEY] == "error"
+    assert asyncio.run(store.get("consent-1234"))["person_renders"] == [CAST]
+
+
+def test_render_record_failure_never_blocks_the_done_marker(monkeypatch):
+    store = _person_store()
+
+    async def boom(*_a):
+        raise RuntimeError("bq down")
+
+    monkeypatch.setattr(store, "add_renders", boom)
+    state = _drive([_render_event(_images()), _event("done")])
+    assert state[async_runs.RUN_STATUS_KEY] == "done"
+
+
+def test_non_creative_apps_record_nothing(monkeypatch):
+    _person_store()
+    calls = []
+
+    async def spy(*a):
+        calls.append(a)
+        return True
+
+    monkeypatch.setattr(person_refs, "record_renders", spy)
+    _drive([_render_event(_images()), _event("done")], app_name="trend_scout")
+    assert calls == []

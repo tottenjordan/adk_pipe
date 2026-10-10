@@ -331,7 +331,7 @@ class _Flow:
         monkeypatch.setattr(image_tools.asyncio, "sleep", noop_async)
         self.uploads = []
 
-        def fake_save(*, tool_context, image_bytes, filename):
+        def fake_save(*, tool_context, image_bytes, filename, metadata=None):
             self.uploads.append((filename, image_bytes))
             return f"gs://b/{filename}"
 

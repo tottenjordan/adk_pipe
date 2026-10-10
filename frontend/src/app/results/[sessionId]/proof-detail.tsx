@@ -292,6 +292,7 @@ export function ProofDetail({
             <ProofImage
               src={imageUrlFor(vc.concept_name)}
               alt={vc.concept_summary}
+              cast={proof.casting?.cast === true}
               fit="contain"
               className="h-full w-full"
             />

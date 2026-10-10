@@ -147,6 +147,46 @@ def test_in_memory_store():
     run(go())
 
 
+def test_add_renders_sql_parameterised_and_deduped():
+    from google.cloud import bigquery
+
+    sql, params = ps.build_add_renders_sql(
+        "t", "cid", "a@x.com", ["gs://b/x.png", "gs://b/x'; DROP"]
+    )
+    assert sql.lstrip().startswith("UPDATE `t`")
+    assert "consent_id = @consent_id AND owner_user = @owner_user" in sql
+    assert "DISTINCT" in sql and "ARRAY_CONCAT" in sql
+    # revoked consents too: a render recorded mid-revoke must still be deletable
+    assert "revoked_at" not in sql
+    assert "DROP" not in sql and "a@x.com" not in sql
+    by_name = {p.name: p for p in params}
+    assert isinstance(by_name["uris"], bigquery.ArrayQueryParameter)
+    assert by_name["uris"].values == ["gs://b/x.png", "gs://b/x'; DROP"]
+
+
+def test_in_memory_add_renders():
+    store = ps.InMemoryPersonRefsStore()
+
+    async def go():
+        await store.put(_row())
+        assert await store.add_renders("cid_AAAAAAAAAAAA", "a@x.com", ["gs://b/1.png"])
+        assert await store.add_renders(
+            "cid_AAAAAAAAAAAA", "a@x.com", ["gs://b/1.png", "gs://b/2.png"]
+        )
+        got = await store.get("cid_AAAAAAAAAAAA")
+        assert got["person_renders"] == ["gs://b/1.png", "gs://b/2.png"]
+        # not the owner's / unknown: refused, nothing changes
+        assert not await store.add_renders("cid_AAAAAAAAAAAA", "b@x.com", ["gs://b/3"])
+        assert not await store.add_renders("nope", "a@x.com", ["gs://b/3.png"])
+        # a revoked consent still records (so a retried revoke deletes it)
+        await store.revoke("cid_AAAAAAAAAAAA", "a@x.com")
+        assert await store.add_renders("cid_AAAAAAAAAAAA", "a@x.com", ["gs://b/4.png"])
+        got = await store.get("cid_AAAAAAAAAAAA")
+        assert got["person_renders"][-1] == "gs://b/4.png"
+
+    run(go())
+
+
 def test_in_memory_rows_are_copies():
     store = ps.InMemoryPersonRefsStore()
     row = _row(person_renders=["gs://b/x.png"])
@@ -176,8 +216,13 @@ def test_bigquery_store_over_fake_client():
         fake.results = []
         assert await store.get("missing") is None
         assert await store.active_for("cid", "a@x.com") is None
+        fake.num_dml_affected_rows = 1
+        assert await store.add_renders("cid", "a@x.com", ["gs://b/1.png"]) is True
+        fake.num_dml_affected_rows = 0
+        assert await store.add_renders("cid", "b@x.com", ["gs://b/1.png"]) is False
 
     run(go())
+    assert "ARRAY_CONCAT" in fake.sqls[-1]
     assert fake.sqls[0].lstrip().startswith("MERGE `p.d.r`")
     assert "owner_user = @owner_user" in fake.sqls[1]
     assert "consent_id = @consent_id" in fake.sqls[2]

@@ -7,9 +7,18 @@ band to ``gs://<bucket>/person-refs/<owner slug>/<file>.(jpg|jpeg|png|webp)``
 replaced by ``_`` plus 10 hex chars of its sha256); this
 api only records the consent in ``person_references``
 (``runserver/person_refs_store.py``) after checking the photo sits under the
-caller's own prefix and is a readable image. Revoking marks the record revoked,
-runs the registered ``revoke_hooks`` (the cascade into shares, variants and cast
-renders, wired in later PRs) and deletes the photo object.
+caller's own prefix and is a readable image.
+
+Revoking cascades, in order: mark the record revoked; run the registered
+``revoke_hooks`` with the re-read record (``deployment/async_app.py`` registers
+``shares.revoke_shares_for_consent``, which revokes every share whose
+``person_consent_ids`` contain it); delete every image made with the photo, listed
+in the record's ``person_renders`` (cast base renders, recorded by
+``record_renders`` from the api run path, and personalised variants, recorded at
+upload), but only objects still carrying blob metadata ``consent_id`` = this
+consent (session state is client-seedable, so a recorded URI alone never deletes
+an object); then delete the photo. Every step is idempotent: a failure is a 502
+``revoke_incomplete`` and repeating the DELETE finishes the cleanup.
 
 Routes (user-scoped by path, gated by ``UserAuthzMiddleware`` like ``/shares``):
 
@@ -65,6 +74,12 @@ CONSENT_ID_BYTES = 12
 CONSENT_ID_RE = re.compile(r"^[A-Za-z0-9_-]{8,64}$")
 _FILE_RE = re.compile(r"^[A-Za-z0-9_-][A-Za-z0-9._-]{0,127}\.(?:jpg|jpeg|png|webp)$")
 _GS_RE = re.compile(r"^gs://(?P<bucket>[^/]+)/(?P<path>.+)$")
+# Blob metadata key carried by every image made with a consented photo (cast base
+# renders: creative_agent/image_tools.py; variants: runserver/variants.py).
+RENDER_METADATA_KEY = "consent_id"
+# Never deleted as a "render": public share copies (revoked by their own cascade)
+# and the consented photos themselves.
+_NOT_RENDER_PREFIXES = ("shares/", PERSON_REFS_PREFIX)
 
 RevokeHook = Callable[[dict], Awaitable[None] | None]
 
@@ -135,6 +150,21 @@ def photo_path(uri: Any, user: str, bucket: str | None) -> str | None:
     return path
 
 
+def render_path(uri: Any, bucket: str | None) -> str | None:
+    """The object path of an image made with a consented photo, only for
+    ``gs://<bucket>/<path>`` with no ``..`` segment, outside ``shares/`` and
+    ``person-refs/``; None otherwise."""
+    if not (isinstance(uri, str) and bucket):
+        return None
+    m = _GS_RE.match(uri)
+    if not m or m["bucket"] != bucket:
+        return None
+    path = m["path"]
+    if ".." in path.split("/") or path.startswith(_NOT_RENDER_PREFIXES):
+        return None
+    return path
+
+
 def validate_body(
     body: Mapping[str, Any], user: str, bucket: str
 ) -> tuple[str, str, str, bool]:
@@ -200,9 +230,10 @@ def to_public(row: Mapping[str, Any]) -> dict:
 _STORE: Any = InMemoryPersonRefsStore()
 _GCS_CLIENT: Any = None
 _BUCKET: str | None = configured_report_bucket()
-# Called with the revoked record after it's marked revoked and before the photo is
-# deleted (PR 4 registers the share / variant / cast-render cascade here). Each
-# hook must be idempotent: a failed revoke is retried by repeating the DELETE.
+# Called with the (re-read) revoked record after it's marked revoked, before the
+# recorded renders and the photo are deleted (async_app registers the share
+# cascade here). Each hook must be idempotent: a failed revoke is retried by
+# repeating the DELETE.
 _REVOKE_HOOKS: list[RevokeHook] = []
 revoke_hooks = _REVOKE_HOOKS
 
@@ -254,6 +285,70 @@ def _delete_photo(bucket_name: str, path: str) -> None:
         _gcs().bucket(bucket_name).blob(path).delete()
     except NotFound:
         pass
+
+
+def _delete_renders(bucket_name: str, consent_id: str, uris: Iterable[Any]) -> int:
+    """Delete each recorded render that still carries this consent's metadata
+    (blocking); returns the number deleted. Raises on a GCS failure."""
+    from google.api_core.exceptions import NotFound
+
+    bucket = _gcs().bucket(bucket_name)
+    deleted = skipped = 0
+    for uri in uris:
+        path = render_path(uri, bucket_name)
+        if path is None:
+            continue
+        blob = bucket.get_blob(path)
+        if blob is None:
+            continue
+        if (blob.metadata or {}).get(RENDER_METADATA_KEY) != consent_id:
+            skipped += 1  # overwritten since, or never made with this consent
+            continue
+        try:
+            blob.delete()
+            deleted += 1
+        except NotFound:
+            pass
+    if skipped:
+        log.warning(
+            "person refs: kept %d recorded render(s) without this consent's metadata",
+            skipped,
+        )
+    return deleted
+
+
+async def delete_renders(record: Mapping[str, Any]) -> None:
+    """Delete the images recorded in ``record["person_renders"]`` (see
+    ``_delete_renders``); raises on failure (the revoke is retryable)."""
+    bucket, cid = _BUCKET, record.get("consent_id")
+    uris = list(record.get("person_renders") or [])
+    if not (bucket and isinstance(cid, str) and uris):
+        return
+    deleted = await asyncio.to_thread(_delete_renders, bucket, cid, uris)
+    if deleted:
+        log.info(
+            "person refs: deleted %d image(s) made with a revoked consent", deleted
+        )
+
+
+async def record_renders(owner: str, consent_id: str, uris: Iterable[Any]) -> bool:
+    """Record images made with ``owner``'s consent on its ``person_renders`` so a
+    revoke deletes them (only run outputs in the bucket, see ``render_path``;
+    deduplicated). Returns True while the consent is active and the owner's. When
+    it was revoked meanwhile, the images are deleted at once and False is
+    returned. Raises on a store error."""
+    if not isinstance(consent_id, str) or not CONSENT_ID_RE.match(consent_id):
+        return False
+    bucket = _BUCKET
+    keep = [u for u in dict.fromkeys(uris) if render_path(u, bucket)]
+    if keep and not await _STORE.add_renders(consent_id, owner, keep):
+        return False  # not the owner's consent
+    if await _STORE.active_for(consent_id, owner) is not None:
+        return True
+    # Revoked while rendering: the revoke may already have run, so delete now.
+    if keep and bucket:
+        await asyncio.to_thread(_delete_renders, bucket, consent_id, keep)
+    return False
 
 
 async def active_consent(owner: str, consent_id: str) -> dict | None:
@@ -379,10 +474,14 @@ async def http_revoke_person_ref(user_id: str, consent_id: str) -> Response:
         log.exception("person refs: revoke %s failed", consent_id)
         raise _error(502, "store_failed", "could not revoke the consent") from exc
     try:
+        # Re-read after the revoke: a render recorded meanwhile is either listed
+        # here or deleted by record_renders itself (it re-checks after appending).
+        row = await _STORE.get(consent_id) or row
         for hook in list(_REVOKE_HOOKS):
             result = hook(dict(row))
             if inspect.isawaitable(result):
                 await result
+        await delete_renders(row)
         bucket = _BUCKET
         path = photo_path(row.get("photo_uri"), user_id, bucket)
         if bucket and path:

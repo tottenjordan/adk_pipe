@@ -519,20 +519,28 @@ PERSON_UNAVAILABLE_NOTE = (
 
 
 async def _store_image(
-    tool_context: ToolContext, image_bytes: bytes, mime_type: str, artifact_key: str
+    tool_context: ToolContext,
+    image_bytes: bytes,
+    mime_type: str,
+    artifact_key: str,
+    consent_id: str | None = None,
 ) -> str | None:
     """Upload to GCS + save the ADK artifact → the gs:// URI, or None.
 
     A per-image GCS failure is logged and returns None so one bad upload
     doesn't abort the whole batch (_save_to_gcs raises on failure — it never
     returns an error dict). The blocking upload runs off the event loop.
+    A cast render carries blob metadata ``consent_id`` (the consent revoke
+    deletes only objects that carry it).
     """
+    extra = {"metadata": {"consent_id": consent_id}} if consent_id else {}
     try:
         img_gcs_uri = await asyncio.to_thread(
             _save_to_gcs,
             tool_context=tool_context,
             image_bytes=image_bytes,
             filename=artifact_key,
+            **extra,
         )
     except Exception as gcs_exc:
         logging.error(
@@ -883,8 +891,15 @@ async def generate_image(
             if result.image_bytes is None:
                 continue
             artifact_key = artifact_key_for(entry["concept_name"])
+            consent_id = (
+                person_consent_id(person_ref) if person_uri and result.cast else None
+            )
             img_gcs_uri = await _store_image(
-                tool_context, result.image_bytes, result.mime, artifact_key
+                tool_context,
+                result.image_bytes,
+                result.mime,
+                artifact_key,
+                consent_id=consent_id,
             )
             if img_gcs_uri is None:
                 continue
@@ -900,7 +915,7 @@ async def generate_image(
                 # judge's person gate and the UI read `cast is True`.
                 record["cast"] = result.cast
                 if result.cast:
-                    record["consent_id"] = person_consent_id(person_ref)
+                    record["consent_id"] = consent_id
             generated_images[entry["concept_name"]] = record
     except Exception as e:
         # Propagate so ADK 2.0 RetryConfig can retry transient infra failures.

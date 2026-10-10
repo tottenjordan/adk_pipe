@@ -23,9 +23,11 @@ Storage is deliberately separate from the run's creatives:
 identical request whose render is ``done`` returns the cached variant.
 Statuses: ``queued`` → ``rendering`` → ``done`` | ``failed`` | ``rejected``
 (a safety filter blocked the person photo; unlike a base run there is no
-person-less fallback, since the point of a variant is the person). The consent is
-re-checked right before upload (revoked mid-render → ``failed`` /
-``consent_revoked``, nothing stored). A variant needs a finished run
+person-less fallback, since the point of a variant is the person). Right before
+upload the variant's URI is recorded on the consent's ``person_renders``
+(``person_refs.record_renders``, so revoking the consent deletes it), which also
+re-checks the consent (revoked mid-render → ``failed`` / ``consent_revoked``,
+nothing stored); a revoke that lands during the upload deletes the object again. A variant needs a finished run
 (``finalize_done``) with a rendered base image (409 ``concept_not_ready``).
 
 Quota: variants share the image model's ~2 images/min with live runs, so renders
@@ -415,6 +417,16 @@ def _upload(bucket_name: str, path: str, data: bytes, mime: str, consent_id: str
     blob.upload_from_string(data, content_type=mime or "image/png")
 
 
+def _delete(bucket_name: str, path: str) -> None:
+    """Delete an uploaded variant; an already-deleted object is fine (blocking)."""
+    from google.api_core.exceptions import NotFound
+
+    try:
+        _gcs().bucket(bucket_name).blob(path).delete()
+    except NotFound:
+        pass
+
+
 async def _get_session(app_name: str, user_id: str, session_id: str):
     from google.adk.errors.session_not_found_error import SessionNotFoundError
 
@@ -488,15 +500,16 @@ async def _run_job(job: _Job) -> None:
             await write(status="rendering")
             outcome = await _RENDERER(job.state, job.concept, job.photo_uri)
             if outcome.status == "done" and outcome.image_bytes:
-                # The consent may have been revoked while rendering: never store an
-                # image made with a revoked consent.
-                if (
-                    await person_refs.active_consent(job.user_id, job.consent_id)
-                    is None
+                bucket = _BUCKET or ""
+                gcs_uri: str | None = f"gs://{bucket}/{job.object_path}"
+                # Record the URI on the consent before uploading, so a revoke
+                # always knows the object. The consent may have been revoked while
+                # rendering: never store an image made with a revoked consent.
+                if not await person_refs.record_renders(
+                    job.user_id, job.consent_id, [gcs_uri]
                 ):
                     await write(status="failed", reason="consent_revoked")
                     return
-                bucket = _BUCKET or ""
                 await asyncio.to_thread(
                     _upload,
                     bucket,
@@ -505,7 +518,14 @@ async def _run_job(job: _Job) -> None:
                     outcome.mime,
                     job.consent_id,
                 )
-                gcs_uri: str | None = f"gs://{bucket}/{job.object_path}"
+                # A revoke that ran during the upload found no object yet.
+                if (
+                    await person_refs.active_consent(job.user_id, job.consent_id)
+                    is None
+                ):
+                    await asyncio.to_thread(_delete, bucket, job.object_path)
+                    await write(status="failed", reason="consent_revoked")
+                    return
             else:
                 gcs_uri = None
         status = outcome.status if outcome.status in STATUSES else "failed"

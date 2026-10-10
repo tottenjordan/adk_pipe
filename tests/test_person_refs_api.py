@@ -36,6 +36,7 @@ class FakeBlob:
         meta = meta or {}
         self.size = meta.get("size")
         self.content_type = meta.get("content_type")
+        self.metadata = meta.get("metadata")
 
     def delete(self):
         from google.api_core.exceptions import NotFound
@@ -71,11 +72,18 @@ class FakeGCS:
         self.fail_head = False
         self.fail_delete = False
 
-    def add(self, uri: str, size: int = 1000, content_type: str = "image/jpeg"):
+    def add(
+        self,
+        uri: str,
+        size: int = 1000,
+        content_type: str = "image/jpeg",
+        metadata: dict | None = None,
+    ):
         bucket, _, path = uri.removeprefix("gs://").partition("/")
         self.objects.setdefault(bucket, {})[path] = {
             "size": size,
             "content_type": content_type,
+            "metadata": metadata,
         }
 
     def has(self, uri: str) -> bool:
@@ -396,6 +404,140 @@ def test_photo_delete_failure_is_502():
         h.gcs.fail_delete = False
         assert (await h.client.delete(f"/person-refs/{A}/{cid}")).status_code == 204
         assert not h.gcs.has(PHOTO_A)
+
+    run(go)
+
+
+# --- revoke cascade: renders made with the photo ------------------------------------
+
+
+RUN = f"gs://{BUCKET}/run1/creative_output"
+
+
+def _render(cid: str, name: str = "c1.png") -> str:
+    return f"{RUN}/{name}"
+
+
+def _variant(cid: str, name: str = "k1.png") -> str:
+    return f"{RUN}/variants/{SLUG_A}/concept/{name}"
+
+
+def test_render_path_only_for_run_outputs_in_the_bucket():
+    assert pr.render_path(f"gs://{BUCKET}/run/out/c.png", BUCKET) == "run/out/c.png"
+    assert pr.render_path(f"gs://{BUCKET}/run/out/variants/s/c/k.png", BUCKET) == (
+        "run/out/variants/s/c/k.png"
+    )
+    for bad in (
+        "gs://other/run/out/c.png",
+        f"gs://{BUCKET}/shares/tok/0.png",
+        f"gs://{BUCKET}/person-refs/{SLUG_A}/me.jpg",
+        f"gs://{BUCKET}/run/../person-refs/x.jpg",
+        f"gs://{BUCKET}/",
+        "https://x/y.png",
+        None,
+        42,
+    ):
+        assert pr.render_path(bad, BUCKET) is None, bad
+    assert pr.render_path(f"gs://{BUCKET}/run/c.png", None) is None
+
+
+def test_record_renders_appends_deduped_owner_only():
+    async def go():
+        h = Harness()
+        cid = (await h.create()).json()["consent_id"]
+        ok = await pr.record_renders(
+            A,
+            cid,
+            [
+                _render(cid),
+                _render(cid),
+                f"gs://{BUCKET}/shares/t/0.png",  # never a share copy
+                "gs://other/x.png",  # never outside the bucket
+            ],
+        )
+        assert ok is True
+        assert (await h.store.get(cid))["person_renders"] == [_render(cid)]
+        assert await pr.record_renders(A, cid, [_variant(cid)]) is True
+        assert (await h.store.get(cid))["person_renders"] == [
+            _render(cid),
+            _variant(cid),
+        ]
+        # someone else's consent: refused, nothing recorded
+        assert await pr.record_renders(B, cid, [_render(cid, "b.png")]) is False
+        assert await pr.record_renders(A, "not valid!", [_render(cid)]) is False
+        assert len((await h.store.get(cid))["person_renders"]) == 2
+
+    run(go)
+
+
+def test_record_renders_after_revoke_deletes_them_at_once():
+    async def go():
+        h = Harness()
+        cid = (await h.create()).json()["consent_id"]
+        assert (await h.client.delete(f"/person-refs/{A}/{cid}")).status_code == 204
+        late = _variant(cid, "late.png")
+        h.gcs.add(late, metadata={"consent_id": cid})
+        assert await pr.record_renders(A, cid, [late]) is False
+        assert not h.gcs.has(late)
+        assert (await h.store.get(cid))["person_renders"] == [late]
+
+    run(go)
+
+
+def test_revoke_deletes_shares_then_renders_then_photo():
+    order: list[str] = []
+
+    def share_hook(row):
+        order.append("shares")
+        # the hook sees the record re-read after the revoke (renders included)
+        assert len(row["person_renders"]) == 4
+
+    async def go():
+        h = Harness(hooks=[share_hook])
+        cid = (await h.create()).json()["consent_id"]
+        base, variant = _render(cid), _variant(cid)
+        foreign = _render(cid, "uncast.png")  # overwritten by an uncast render
+        missing = _render(cid, "gone.png")
+        h.gcs.add(base, metadata={"consent_id": cid})
+        h.gcs.add(variant, metadata={"consent_id": cid})
+        h.gcs.add(foreign, metadata=None)
+        await pr.record_renders(A, cid, [base, variant, foreign, missing])
+        r = await h.client.delete(f"/person-refs/{A}/{cid}")
+        assert r.status_code == 204
+        assert order == ["shares"]
+        assert not h.gcs.has(base) and not h.gcs.has(variant)
+        # an object no longer carrying this consent's metadata is never deleted
+        assert h.gcs.has(foreign)
+        assert not h.gcs.has(PHOTO_A)
+        deletes = [op[2] for op in h.gcs.ops if op[0] == "delete"]
+        assert deletes[-1] == PHOTO_A.removeprefix(f"gs://{BUCKET}/")
+        # idempotent repeat
+        assert (await h.client.delete(f"/person-refs/{A}/{cid}")).status_code == 204
+
+    run(go)
+
+
+def test_launcher_registers_the_share_cascade():
+    # Importing async_app builds the whole ADK server, so check the wiring textually.
+    src = (Path(__file__).resolve().parents[1] / "deployment/async_app.py").read_text()
+    assert "revoke_hooks=[shares.revoke_shares_for_consent]" in src
+
+
+def test_render_delete_failure_is_502_and_the_retry_finishes():
+    async def go():
+        h = Harness()
+        cid = (await h.create()).json()["consent_id"]
+        base = _render(cid)
+        h.gcs.add(base, metadata={"consent_id": cid})
+        await pr.record_renders(A, cid, [base])
+        h.gcs.fail_delete = True
+        r = await h.client.delete(f"/person-refs/{A}/{cid}")
+        assert r.status_code == 502
+        assert r.json()["detail"]["reason"] == "revoke_incomplete"
+        assert h.gcs.has(base) and h.gcs.has(PHOTO_A)
+        h.gcs.fail_delete = False
+        assert (await h.client.delete(f"/person-refs/{A}/{cid}")).status_code == 204
+        assert not h.gcs.has(base) and not h.gcs.has(PHOTO_A)
 
     run(go)
 
