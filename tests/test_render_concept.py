@@ -197,3 +197,99 @@ def test_qa_off_and_qa_error(monkeypatch):
     errored = asyncio.run(render_concept(CONCEPT, aspect_ratio="1:1"))
     assert errored.rendered == (b"img", "image/png")
     assert errored.qa is None and errored.qa_unavailable is True
+
+
+# --- generate_image batch behaviour on failures ---------------------------------------
+
+
+def _batch(monkeypatch, respond, verdicts=()):
+    from tests._fakes import FakeToolContext
+
+    calls, qa_calls = _patch(monkeypatch, respond, verdicts)
+    uploads: list[str] = []
+
+    def fake_save(*, tool_context, image_bytes, filename):
+        uploads.append(filename)
+        return f"gs://b/{filename}"
+
+    monkeypatch.setattr(image_tools, "_save_to_gcs", fake_save)
+    monkeypatch.setattr(image_tools.config, "image_qa_enabled", True)
+    concepts = [
+        {
+            **CONCEPT,
+            "concept_name": f"C{i}",
+            "image_generation_prompt": f"C{i}: a skater",
+        }
+        for i in (1, 2, 3)
+    ]
+    ctx = FakeToolContext(
+        {
+            "gcs_folder": "f",
+            "agent_output_dir": "d",
+            "final_visual_concepts": {"visual_concepts": concepts},
+        }
+    )
+    return ctx, calls, qa_calls, uploads
+
+
+def _name(kwargs) -> str:
+    contents = kwargs["contents"]
+    return (contents if isinstance(contents, str) else contents[0]).split(":", 1)[0]
+
+
+def test_batch_render_error_aborts_before_any_upload(monkeypatch):
+    """Deliberate change from the pre-refactor loop: a first-render exception
+    aborts the whole batch before ANY upload (earlier, finished concepts are not
+    uploaded either) and later concepts never render; the error propagates so the
+    node's RetryConfig can retry."""
+
+    def respond(kwargs, n):
+        if _name(kwargs) == "C2":
+            raise ValueError("bad request")
+        return _response(f"img{n}".encode())
+
+    ctx, calls, _qa, uploads = _batch(monkeypatch, respond)
+    try:
+        asyncio.run(image_tools.generate_image(ctx))
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("expected the render error to propagate")
+    assert [_name(c) for c in calls] == ["C1", "C2"]  # C3 never rendered
+    assert uploads == []
+    assert "generated_images" not in ctx.state
+    assert not ctx.state.get("_images_generated")
+
+
+def test_batch_render_without_an_image_skips_only_that_concept(monkeypatch):
+    def respond(kwargs, n):
+        return _response(None if _name(kwargs) == "C2" else f"img{n}".encode())
+
+    ctx, _calls, qa_calls, uploads = _batch(monkeypatch, respond)
+    asyncio.run(image_tools.generate_image(ctx))
+    assert uploads == ["C1.png", "C3.png"]
+    assert list(ctx.state["generated_images"]) == ["C1", "C3"]
+    assert sorted(q["concept"]["concept_name"] for q in qa_calls) == ["C1", "C3"]
+    assert "image_qa__unavailable" not in ctx.state
+    assert "image_qa__issues" not in ctx.state
+
+
+def test_batch_qa_error_keeps_the_render_and_lists_it_unavailable(monkeypatch):
+    def respond(kwargs, n):
+        return _response(f"img{n}".encode())
+
+    ctx, _calls, _qa, uploads = _batch(monkeypatch, respond)
+
+    def flaky(image_bytes, mime, concept, **kwargs):
+        if concept["concept_name"] == "C2":
+            raise RuntimeError("qa down")
+        return _verdict()
+
+    monkeypatch.setattr(image_qa, "inspect_image", flaky)
+    asyncio.run(image_tools.generate_image(ctx))
+    assert uploads == ["C1.png", "C2.png", "C3.png"]
+    images = ctx.state["generated_images"]
+    assert images["C2"]["qa"] is None and images["C2"]["attempts"] == 1
+    assert images["C1"]["qa"]["passed"] is True
+    assert ctx.state["image_qa__unavailable"] == ["C2"]
+    assert "image_qa__issues" not in ctx.state
