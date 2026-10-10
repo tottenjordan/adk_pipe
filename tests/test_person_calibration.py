@@ -11,6 +11,11 @@ from experiments.person_reference.calibrate import (
     STYLES,
     block_reason,
     build_grid,
+    concept_prompt,
+    main,
+    palette_descriptor,
+    parse_framings,
+    parse_styles,
     photo_uri_errors,
     summarise,
     summary_markdown,
@@ -79,6 +84,84 @@ def test_grid_prompts_name_style_framing_and_person_reference():
 
 def test_build_grid_empty_photos():
     assert build_grid([]) == []
+
+
+NON_PHOTO = (
+    "3D character render",
+    "Comic panel",
+    "2D flat / vector cartoon",
+    "Collage / mixed-media",
+)
+
+
+def test_build_grid_custom_styles_and_framings():
+    grid = build_grid(PHOTOS, styles=NON_PHOTO, framings=("mid",))
+    assert len(grid) == 8
+    assert [g.style for g in grid[:4]] == list(NON_PHOTO)
+    assert {g.framing for g in grid} == {"mid"}
+    for item in grid:
+        assert f"in the style of {item.style}" in item.prompt
+        assert "the person in the person reference image" in item.prompt
+        assert "café" in item.prompt and "coffee" in item.prompt
+        assert "{" not in item.prompt
+    assert build_grid(PHOTOS[:1]) == build_grid(
+        PHOTOS[:1], styles=STYLES, framings=FRAMINGS
+    )
+
+
+def test_non_photographic_prompt_uses_the_palette_descriptor():
+    assert "halftone shading" in palette_descriptor("Comic panel")
+    assert palette_descriptor("Not a family") == ""
+    prompt = concept_prompt("Comic panel", "close")
+    assert "halftone shading" in prompt
+    assert "close-up" in prompt.lower()
+    # Photographic prompts are unchanged (their own cues, no "in the style of").
+    assert "in the style of" not in concept_prompt(STYLES[0], "close")
+    # Every family has a descriptor in IMAGE_PROMPT_GUIDE.
+    assert all(palette_descriptor(f) for f in ALL_FAMILIES)
+
+
+def test_parse_styles_and_framings():
+    assert parse_styles(None) == STYLES
+    assert parse_styles(list(NON_PHOTO)) == NON_PHOTO
+    assert parse_styles(["Comic panel", "Comic panel"]) == ("Comic panel",)
+    with pytest.raises(ValueError, match="Unknown style family 'Comic'"):
+        parse_styles(["Comic"])
+    assert parse_framings(None) == FRAMINGS
+    assert parse_framings(["mid"]) == ("mid",)
+    with pytest.raises(ValueError, match="Unknown framing 'wide'"):
+        parse_framings(["wide"])
+
+
+def test_main_rejects_unknown_style_with_exit_1(capsys, monkeypatch):
+    from creative_agent.config import config
+
+    monkeypatch.setattr(config, "GCS_BUCKET_NAME", "b")
+    with pytest.raises(SystemExit) as exc:
+        main(["--photos", PHOTOS[0], "--styles", "Comic", "--dry-run"])
+    assert exc.value.code == 1
+    err = capsys.readouterr().err
+    assert "Unknown style family 'Comic'" in err and "Comic panel" in err
+
+
+def test_main_dry_run_with_styles_and_framings(capsys, monkeypatch):
+    from creative_agent.config import config
+
+    monkeypatch.setattr(config, "GCS_BUCKET_NAME", "b")
+    main(
+        [
+            "--photos",
+            PHOTOS[0],
+            "--styles",
+            *NON_PHOTO,
+            "--framings",
+            "close",
+            "--dry-run",
+        ]
+    )
+    out = capsys.readouterr().out
+    assert "4 concepts x 2 renders = 8 renders" in out
+    assert "Comic panel | close" in out
 
 
 # --- block_reason -------------------------------------------------------------
@@ -223,6 +306,12 @@ def test_summary_markdown_has_no_photo_uris():
     md = summary_markdown(summarise(rows))
     assert "gs://" not in md
     assert "Decision" in md
+    assert "- Styles: A" in md
+
+
+def test_summarise_lists_the_styles_in_order():
+    rows = [_row("B", "close", False), _row("A", "mid", False), _row("B", "mid", False)]
+    assert summarise(rows)["styles"] == ["B", "A"]
 
 
 # --- photo URI validation -----------------------------------------------------

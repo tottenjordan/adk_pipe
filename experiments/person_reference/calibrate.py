@@ -1,7 +1,8 @@
 """Person-reference calibration spike (PR 0 of docs/plans/2026-10-09-person-reference.md).
 
-Renders a 3 style x 2 framing grid of generic product-ad concepts per consented
-test photo on the pipeline's image model, each concept twice (with
+Renders a style x framing grid (default: the 3 photographic families x 2
+framings; ``--styles`` / ``--framings`` pick others) of generic product-ad
+concepts per consented test photo on the pipeline's image model, each concept twice (with
 ``ImageConfig(person_generation="ALLOW_ADULT")`` and without), and records per
 render whether it was blocked (``prompt_feedback.block_reason``, a block-like
 ``finish_reason``, or no image part) plus a vision-model likeness verdict (same
@@ -14,7 +15,11 @@ render loop is the live path (never run in tests or CI).
 Usage:
     PYTHONPATH="$PWD" uv run python -m experiments.person_reference.calibrate \\
         --photos gs://$BUCKET/person-refs/<slug>/a.jpg gs://$BUCKET/person-refs/<slug>/b.jpg \\
+        [--styles "Comic panel" "3D character render" ...] [--framings close mid] \\
         [--out experiments/person_reference/results] [--pace 31] [--dry-run]
+
+``--styles`` takes canonical STYLE_PALETTE family names
+(``creative_agent.style_shortlist.ALL_FAMILIES``); an unknown name exits 1.
 """
 
 from __future__ import annotations
@@ -34,6 +39,8 @@ from typing import Any
 from pydantic import BaseModel
 
 from creative_agent.image_tools import REFERENCE_IGNORE_TEXT_LINE, _final_image_part
+from creative_agent.prompts import IMAGE_PROMPT_GUIDE
+from creative_agent.style_shortlist import ALL_FAMILIES
 
 # The three photographic STYLE_PALETTE families (exact canonical names), the
 # only ones where a real person's likeness is meaningful.
@@ -126,24 +133,79 @@ class GridItem:
     prompt: str
 
 
+def palette_descriptor(family: str) -> str:
+    """The family's IMAGE_PROMPT_GUIDE palette entry ("<mood>. Cues: …"), or ""."""
+    prefix = f"- {family} — "
+    for line in IMAGE_PROMPT_GUIDE.splitlines():
+        if line.startswith(prefix):
+            return line[len(prefix) :].strip()
+    return ""
+
+
 def concept_prompt(style: str, framing: str) -> str:
-    """The brace-free concept prompt for one (style, framing) cell — pure."""
+    """The brace-free concept prompt for one (style, framing) cell — pure.
+
+    Photographic families use their own camera cues; any other family renders
+    the same café scene "in the style of <family>" with its palette descriptor.
+    """
+    if style in _STYLE_CUES:
+        return (
+            f"{style}. An advertisement for a neighbourhood coffee brand: the "
+            "person in the person reference image is the hero, holding a ceramic "
+            "coffee cup in a cosy sunlit café, relaxed and smiling. "
+            f"{_FRAMING_CUES[framing]} {_STYLE_CUES[style]} "
+            "No text, no captions, no logos."
+        )
+    descriptor = palette_descriptor(style)
+    cues = f" Style notes: {descriptor}" if descriptor else ""
     return (
-        f"{style}. An advertisement for a neighbourhood coffee brand: the person "
-        "in the person reference image is the hero, holding a ceramic coffee cup "
-        "in a cosy sunlit café, relaxed and smiling. "
-        f"{_FRAMING_CUES[framing]} {_STYLE_CUES[style]} "
-        "No text, no captions, no logos."
+        "An advertisement for a neighbourhood coffee brand, rendered in the style "
+        f"of {style}: the person in the person reference image is the hero, "
+        "holding a ceramic coffee cup in a cosy sunlit café, relaxed and smiling, "
+        "drawn so they stay recognisably themselves. "
+        f"{_FRAMING_CUES[framing]}{cues} "
+        "No text, no captions, no speech bubbles, no logos."
     )
 
 
-def build_grid(photos: Sequence[str]) -> list[GridItem]:
-    """Every (photo, style, framing) cell → a ``GridItem`` (3 x 2 per photo)."""
+def parse_styles(names: Sequence[str] | None) -> tuple[str, ...]:
+    """``--styles`` → canonical family names (default ``STYLES``; duplicates
+    collapsed). Raises ``ValueError`` naming an unknown family."""
+    if not names:
+        return STYLES
+    for name in names:
+        if name not in ALL_FAMILIES:
+            raise ValueError(
+                f"Unknown style family {name!r}. Use the exact canonical names: "
+                + ", ".join(repr(f) for f in ALL_FAMILIES)
+            )
+    return tuple(dict.fromkeys(names))
+
+
+def parse_framings(names: Sequence[str] | None) -> tuple[str, ...]:
+    """``--framings`` → framings (default both). Raises ``ValueError``."""
+    if not names:
+        return FRAMINGS
+    for name in names:
+        if name not in FRAMINGS:
+            raise ValueError(
+                f"Unknown framing {name!r}. Choose from: {', '.join(FRAMINGS)}"
+            )
+    return tuple(dict.fromkeys(names))
+
+
+def build_grid(
+    photos: Sequence[str],
+    *,
+    styles: Sequence[str] = STYLES,
+    framings: Sequence[str] = FRAMINGS,
+) -> list[GridItem]:
+    """Every (photo, style, framing) cell → a ``GridItem``."""
     return [
         GridItem(style, framing, photo, concept_prompt(style, framing))
         for photo in photos
-        for style in STYLES
-        for framing in FRAMINGS
+        for style in styles
+        for framing in framings
     ]
 
 
@@ -220,6 +282,7 @@ def summarise(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     else:
         decision = "go"
     return {
+        "styles": list(dict.fromkeys(str(r.get("style", "")) for r in rows)),
         "n": len(rows),
         "errors": len(rows) - len(rendered),
         "allow_adult_unsupported": any(
@@ -251,6 +314,7 @@ def summary_markdown(summary: Mapping[str, Any]) -> str:
     lines = [
         "# Person reference calibration summary",
         "",
+        f"- Styles: {', '.join(summary.get('styles', [])) or 'none'}",
         f"- Renders: {summary['n']} (errors: {summary['errors']})",
         f"- ALLOW_ADULT unsupported: {summary['allow_adult_unsupported']}",
         f"- Likeness overall: {_pct(summary['likeness_overall'])}",
@@ -436,10 +500,28 @@ def write_results(rows: Sequence[Mapping[str, Any]], out: Path) -> dict[str, Any
 def main(argv: Sequence[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--photos", nargs="+", required=True)
+    parser.add_argument(
+        "--styles",
+        nargs="+",
+        metavar="FAMILY",
+        help="canonical style families (default: the 3 photographic ones)",
+    )
+    parser.add_argument(
+        "--framings",
+        nargs="+",
+        metavar="FRAMING",
+        help="close and/or mid (default both)",
+    )
     parser.add_argument("--out", type=Path, default=DEFAULT_OUT)
     parser.add_argument("--pace", type=float, default=DEFAULT_PACE_SECS)
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args(argv)
+    try:
+        styles = parse_styles(args.styles)
+        framings = parse_framings(args.framings)
+    except ValueError as exc:
+        print(exc, file=sys.stderr)
+        sys.exit(1)
 
     from creative_agent.config import config
 
@@ -450,7 +532,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             f"gs://<GOOGLE_CLOUD_STORAGE_BUCKET>/{PERSON_REFS_PREFIX}:\n  "
             + "\n  ".join(errors)
         )
-    grid = build_grid(args.photos)
+    grid = build_grid(args.photos, styles=styles, framings=framings)
     if args.dry_run:
         for item in grid:
             print(f"{item.style} | {item.framing} | {item.photo_uri}\n  {item.prompt}")
