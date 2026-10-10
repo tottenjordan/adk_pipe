@@ -1502,9 +1502,13 @@ Creating a share **freezes** it: the api checks the caller owns the session, bui
 allowlisted `snapshot.json` (v1; `runserver/share_snapshot.py`: brand, product, trend and
 per creative the image, aspect ratio, alt text, style and copy, plus judge checks/scores
 only when `include_eval`; never prompts, rationales, notes, emails or session/user ids),
-server-side copies each rendered image (`generated_images[concept].gcs_uri`, which must be
-under `gs://$GOOGLE_CLOUD_STORAGE_BUCKET/`) to `shares/<token>/<i>.png`
-(`Cache-Control: private, max-age=300`), writes `shares/<token>/snapshot.json`
+server-side re-encodes each rendered image (`generated_images[concept].gcs_uri`, which must be
+under `gs://$GOOGLE_CLOUD_STORAGE_BUCKET/`) to `shares/<token>/<i>.jpg`: the ~10 MB 2K PNG
+render becomes an RGB progressive JPEG (quality 85, long edge ≤ 1600 px, never upscaled, no
+EXIF/metadata; `runserver/share_images.py`), typically under 1 MB, so pages and link
+previews (og:image limits of ~5–8 MB) stay light (`image/jpeg`,
+`Cache-Control: private, max-age=300`). Shares created before this kept `<i>.png` copies;
+the viewer serves whichever name the snapshot's `creatives[i].image` holds. It then writes `shares/<token>/snapshot.json`
 (`no-store`) and records the share in `creative_shares`. A failure part-way deletes
 `shares/<token>/` again and answers 502 `share_failed`. Revoking marks the row revoked and
 deletes every object under `shares/<token>/`. At most 200 active shares per user (429
@@ -1593,7 +1597,8 @@ bucket), every IAP page and `/_next/image`, answers a plain 404. Share routes se
 `X-Robots-Tag: noindex, nofollow`, `Referrer-Policy: no-referrer`,
 `Cache-Control: private, max-age=60`, `X-Content-Type-Options: nosniff` and a nonce CSP
 (`default-src 'self'; script-src 'self' 'nonce-…' 'strict-dynamic'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; frame-ancestors 'none'; …`).
-The pages read only `shares/<token>/snapshot.json` and `shares/<token>/<n>.png` from the
+The pages read only `shares/<token>/snapshot.json` and the image it names,
+`shares/<token>/<n>.jpg` (or `<n>.png` for older shares; content type from the extension), from the
 bucket in `GOOGLE_CLOUD_STORAGE_BUCKET` (the same env name the api uses), with the
 service's own credentials (metadata server). A missing or revoked snapshot shows
 "This link is no longer available" (404).

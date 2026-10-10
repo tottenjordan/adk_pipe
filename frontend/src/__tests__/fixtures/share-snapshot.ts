@@ -2,9 +2,9 @@ import type { ShareSnapshotV1 } from "@/lib/share-snapshot";
 
 export const SHARE_TOKEN = "Zq3_kL9-pX2mN7vB4cR8tA";
 
-const creative = (i: number) => ({
+const creative = (i: number, ext: "jpg" | "png" = "jpg") => ({
   index: i,
-  image: `${i}.png`,
+  image: `${i}.${ext}`,
   aspect_ratio: i === 3 ? "9:16" : "4:5",
   alt: `A red electric guitar on a stage, concept ${i}`,
   visual_style: "risograph print",
@@ -26,9 +26,14 @@ export function slateSnapshot(overrides: Partial<ShareSnapshotV1> = {}): ShareSn
     product: "SE CE24 Electric Guitar",
     trend: "Powerball jackpot",
     include_eval: false,
-    creatives: [0, 1, 2, 3].map(creative),
+    creatives: [0, 1, 2, 3].map((i) => creative(i)),
     ...overrides,
   };
+}
+
+/** A slate made before share images were re-encoded: `<i>.png` objects. */
+export function legacyPngSnapshot(): ShareSnapshotV1 {
+  return slateSnapshot({ creatives: [0, 1, 2, 3].map((i) => creative(i, "png")) });
 }
 
 /** A single-creative snapshot with eval on. */

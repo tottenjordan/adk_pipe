@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { SHARE_TOKEN, slateSnapshot } from "./fixtures/share-snapshot";
+import { legacyPngSnapshot, SHARE_TOKEN, slateSnapshot } from "./fixtures/share-snapshot";
 
 vi.mock("@/lib/gcp-auth", () => ({ getAccessToken: vi.fn(async () => "ya29.token") }));
 
@@ -12,9 +12,10 @@ const call = (token: string, n: string) =>
   });
 
 describe("share image route", () => {
+  let snapshot = slateSnapshot();
   const fetchMock = vi.fn(async (url: string | URL | Request) =>
     String(url).includes("snapshot.json")
-      ? new Response(JSON.stringify(slateSnapshot()), { status: 200 })
+      ? new Response(JSON.stringify(snapshot), { status: 200 })
       : new Response(new Uint8Array([1, 2, 3]), { status: 200 })
   );
 
@@ -27,9 +28,20 @@ describe("share image route", () => {
     vi.unstubAllEnvs();
     vi.unstubAllGlobals();
     fetchMock.mockClear();
+    snapshot = slateSnapshot();
   });
 
-  it("streams a valid image as image/png from the env bucket", async () => {
+  it("streams a valid image as image/jpeg from the env bucket", async () => {
+    const res = await call(SHARE_TOKEN, "0");
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toBe("image/jpeg");
+    expect(String(fetchMock.mock.calls[1][0])).toBe(
+      `https://storage.googleapis.com/storage/v1/b/tt-bucket/o/shares%2F${SHARE_TOKEN}%2F0.jpg?alt=media`
+    );
+  });
+
+  it("still serves an older share's png image as image/png", async () => {
+    snapshot = legacyPngSnapshot();
     const res = await call(SHARE_TOKEN, "0");
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toBe("image/png");

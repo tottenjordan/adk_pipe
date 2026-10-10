@@ -7,7 +7,12 @@ import {
   shareObjectUrl,
   TOKEN_RE,
 } from "@/lib/share-snapshot";
-import { SHARE_TOKEN, singleEvalSnapshot, slateSnapshot } from "./fixtures/share-snapshot";
+import {
+  legacyPngSnapshot,
+  SHARE_TOKEN,
+  singleEvalSnapshot,
+  slateSnapshot,
+} from "./fixtures/share-snapshot";
 
 const BUCKET = "tt-bucket";
 
@@ -55,21 +60,30 @@ describe("shareObjectUrl", () => {
     expect(shareObjectUrl(BUCKET, SHARE_TOKEN, "snapshot.json")).toBe(
       `https://storage.googleapis.com/storage/v1/b/${BUCKET}/o/shares%2F${SHARE_TOKEN}%2Fsnapshot.json?alt=media`
     );
-    expect(shareObjectUrl(BUCKET, SHARE_TOKEN, 2)).toBe(
+    expect(shareObjectUrl(BUCKET, SHARE_TOKEN, "2.jpg")).toBe(
+      `https://storage.googleapis.com/storage/v1/b/${BUCKET}/o/shares%2F${SHARE_TOKEN}%2F2.jpg?alt=media`
+    );
+    expect(shareObjectUrl(BUCKET, SHARE_TOKEN, "2.png")).toBe(
       `https://storage.googleapis.com/storage/v1/b/${BUCKET}/o/shares%2F${SHARE_TOKEN}%2F2.png?alt=media`
     );
   });
 
-  it("refuses a bad token or file", () => {
+  it.each(["-1.jpg", "1.5.png", "123.jpg", "2.gif", "2.jpeg", "../2.jpg", "2.jpg/x", "2", "x.json"])(
+    "refuses the file %s",
+    (file) => {
+      expect(() => shareObjectUrl(BUCKET, SHARE_TOKEN, file)).toThrow();
+    }
+  );
+
+  it("refuses a bad token", () => {
     expect(() => shareObjectUrl(BUCKET, "../x", "snapshot.json")).toThrow();
-    expect(() => shareObjectUrl(BUCKET, SHARE_TOKEN, -1)).toThrow();
-    expect(() => shareObjectUrl(BUCKET, SHARE_TOKEN, 1.5)).toThrow();
   });
 });
 
 describe("isSnapshotV1", () => {
-  it("accepts the slate and single fixtures", () => {
+  it("accepts the slate and single fixtures (jpg images, and legacy png ones)", () => {
     expect(isSnapshotV1(slateSnapshot())).toBe(true);
+    expect(isSnapshotV1(legacyPngSnapshot())).toBe(true);
     expect(isSnapshotV1(singleEvalSnapshot())).toBe(true);
   });
 
@@ -132,6 +146,12 @@ describe("isSnapshotV1", () => {
     ["a malformed eval", (c) => ({ ...c, eval: { passed: "yes", score: 1, checks: [] } })],
     ["eval checks not an array", (c) => ({ ...c, eval: { passed: true, score: 1, checks: "x" } })],
     ["an out-of-range score", (c) => ({ ...c, eval: { passed: true, score: 7, checks: [] } })],
+    ["another creative's image", (c) => ({ ...c, image: "1.jpg" })],
+    ["an image with an unknown extension", (c) => ({ ...c, image: "0.gif" })],
+    ["a jpeg-spelled image", (c) => ({ ...c, image: "0.jpeg" })],
+    ["a path in the image", (c) => ({ ...c, image: "../0.jpg" })],
+    ["a zero-padded image", (c) => ({ ...c, image: "00.jpg" })],
+    ["a non-string image", (c) => ({ ...c, image: 0 })],
     ["a malformed check", (c) => ({ ...c, eval: { passed: true, score: 1, checks: [{ gate: "g", label: 3, passed: true, advisory: false }] } })],
   ];
   it.each(badCreative)("rejects a creative with %s", (_name, mutate) => {
@@ -200,17 +220,34 @@ describe("loadSnapshot", () => {
 
 describe("loadShareImage", () => {
   const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47]);
+  const jpg = new Uint8Array([0xff, 0xd8, 0xff, 0xe0]);
 
-  function imageDeps() {
+  function imageDeps(snapshot = slateSnapshot()) {
+    const body = snapshot.creatives[0].image.endsWith(".png") ? png : jpg;
     return deps((url) =>
       url.includes("snapshot.json")
-        ? json(slateSnapshot())
-        : new Response(png, { status: 200, headers: { "content-type": "text/html" } })
+        ? json(snapshot)
+        : new Response(body, { status: 200, headers: { "content-type": "text/html" } })
     );
   }
 
-  it("streams shares/<token>/<n>.png as image/png", async () => {
+  it("streams the snapshot's shares/<token>/<n>.jpg as image/jpeg", async () => {
     const { deps: d, fetchMock } = imageDeps();
+    const res = await loadShareImage(SHARE_TOKEN, "2", d);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toBe("image/jpeg");
+    expect(res.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(res.headers.get("cache-control")).toBe("private, max-age=60");
+    expect(new Uint8Array(await res.arrayBuffer())).toEqual(jpg);
+    const urls = fetchMock.mock.calls.map((c) => String(c[0]));
+    expect(urls).toEqual([
+      `https://storage.googleapis.com/storage/v1/b/${BUCKET}/o/shares%2F${SHARE_TOKEN}%2Fsnapshot.json?alt=media`,
+      `https://storage.googleapis.com/storage/v1/b/${BUCKET}/o/shares%2F${SHARE_TOKEN}%2F2.jpg?alt=media`,
+    ]);
+  });
+
+  it("streams an older snapshot's shares/<token>/<n>.png as image/png", async () => {
+    const { deps: d, fetchMock } = imageDeps(legacyPngSnapshot());
     const res = await loadShareImage(SHARE_TOKEN, "2", d);
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toBe("image/png");

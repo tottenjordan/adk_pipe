@@ -1,10 +1,13 @@
 /**
  * Public share snapshots (server only).
  *
- * The api freezes a share into `gs://<bucket>/shares/<token>/snapshot.json` plus
- * `<i>.png` (contract v1, docs/plans/2026-10-09-shareable-links.md). The public share
- * service reads exactly those objects: every GCS URL is built here from a validated
- * token and a fixed file name, never from request input. Its service account can only
+ * The api freezes a share into `gs://<bucket>/shares/<token>/snapshot.json` plus one
+ * image per creative, named by `creatives[i].image`: `<i>.jpg` (re-encoded, long edge
+ * <= 1600 px) or `<i>.png` for shares made before that (contract v1,
+ * docs/plans/2026-10-09-shareable-links.md). The public share service reads exactly
+ * those objects: every GCS URL is built here from a validated token and a file name
+ * that is `snapshot.json` or `<i>.(jpg|png)` (checked against the creative's index),
+ * never from request input. Its service account can only
  * read `shares/` anyway (IAM condition), so this is defence in depth.
  */
 
@@ -18,6 +21,8 @@ const LONG_MAX = 4000;
 const MAX_CHECKS = 24;
 const MAX_SNAPSHOT_BYTES = 512 * 1024;
 const IMAGE_INDEX_RE = /^(?:0|[1-9][0-9]?)$/;
+const IMAGE_NAME_RE = /^\d{1,2}\.(png|jpg)$/;
+const IMAGE_TYPES = { png: "image/png", jpg: "image/jpeg" } as const;
 const ASPECT_RE = /^[1-9][0-9]?:[1-9][0-9]?$/;
 const BUCKET_RE = /^[a-z0-9][a-z0-9._-]{1,220}[a-z0-9]$/;
 
@@ -102,10 +107,19 @@ function isEval(v: unknown): v is ShareEval {
   return Array.isArray(v.checks) && v.checks.length <= MAX_CHECKS && v.checks.every(isCheck);
 }
 
+/** `<position>.jpg` or `<position>.png` (older shares): the only image names served. */
+function isImageName(v: unknown, position: number): v is string {
+  return (
+    typeof v === "string" &&
+    IMAGE_NAME_RE.test(v) &&
+    (v === `${position}.jpg` || v === `${position}.png`)
+  );
+}
+
 function isCreative(v: unknown, position: number, includeEval: boolean): v is ShareCreative {
   if (!isObj(v)) return false;
   if (v.index !== position) return false; // integer, in order: the image route trusts it
-  if (!isText(v.image, SHORT_MAX)) return false;
+  if (!isImageName(v.image, position)) return false;
   if (!isText(v.aspect_ratio, 8) || (v.aspect_ratio !== "" && !ASPECT_RE.test(v.aspect_ratio))) {
     return false;
   }
@@ -144,18 +158,13 @@ export function shareBucket(env: Record<string, string | undefined> = process.en
   return raw;
 }
 
-/** JSON-API media URL for `shares/<token>/<file>` (file = snapshot.json or `<n>.png`). */
-export function shareObjectUrl(
-  bucket: string,
-  token: string,
-  file: "snapshot.json" | number
-): string {
+/** JSON-API media URL for `shares/<token>/<file>` (file = snapshot.json or `<n>.jpg|png`). */
+export function shareObjectUrl(bucket: string, token: string, file: string): string {
   if (!TOKEN_RE.test(token)) throw new Error("invalid share token");
-  if (typeof file === "number" && !(Number.isInteger(file) && file >= 0 && file < 100)) {
-    throw new Error("invalid image index");
+  if (file !== "snapshot.json" && !IMAGE_NAME_RE.test(file)) {
+    throw new Error("invalid share file");
   }
-  const name = typeof file === "number" ? `${file}.png` : file;
-  const object = encodeURIComponent(`shares/${token}/${name}`);
+  const object = encodeURIComponent(`shares/${token}/${file}`);
   return `https://storage.googleapis.com/storage/v1/b/${bucket}/o/${object}?alt=media`;
 }
 
@@ -165,7 +174,7 @@ export interface GcsDeps {
   bucket?: string;
 }
 
-async function gcsGet(token: string, file: "snapshot.json" | number, deps: GcsDeps) {
+async function gcsGet(token: string, file: string, deps: GcsDeps) {
   const bucket = deps.bucket ?? shareBucket();
   const url = shareObjectUrl(bucket, token, file);
   const accessToken = await (deps.getToken ?? getAccessToken)();
@@ -208,7 +217,9 @@ const notFound = () =>
 
 /**
  * The share image response for `/s/<token>/img/<n>`: 404 unless the token is valid, n is
- * a plain index below the snapshot's creative count and the object exists.
+ * a plain index below the snapshot's creative count and the object exists. Serves the
+ * object the snapshot names (`<n>.jpg`, or `<n>.png` for older shares) with the
+ * matching content type.
  */
 export async function loadShareImage(
   token: string,
@@ -219,7 +230,11 @@ export async function loadShareImage(
   const snapshot = await loadSnapshot(token, deps);
   const index = Number(n);
   if (!snapshot || index >= snapshot.creatives.length) return notFound();
-  const res = await gcsGet(token, index, deps);
+  const image = snapshot.creatives[index].image;
+  // isSnapshotV1 already pinned image to `${index}.(jpg|png)`; re-check before use.
+  const ext = IMAGE_NAME_RE.exec(image)?.[1] as keyof typeof IMAGE_TYPES | undefined;
+  if (!ext || !isImageName(image, index)) return notFound();
+  const res = await gcsGet(token, image, deps);
   if (res.status === 404) return notFound();
   if (!res.ok || !res.body) {
     return new Response("Unavailable", { status: 502, headers: { "Cache-Control": "no-store" } });
@@ -227,7 +242,7 @@ export async function loadShareImage(
   return new Response(res.body, {
     status: 200,
     headers: {
-      "Content-Type": "image/png",
+      "Content-Type": IMAGE_TYPES[ext],
       "Cache-Control": "private, max-age=60",
       "X-Content-Type-Options": "nosniff",
     },
