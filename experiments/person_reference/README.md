@@ -13,8 +13,8 @@ model (`config.image_gen_model`, `gemini-nano-banana-2.1` @ `global`):
 - **Filter false positives:** how often ordinary adult photos get blocked
   (`prompt_feedback.block_reason`, a safety `finish_reason`, or no image).
 
-The grid is 3 photographic style families (`Candid 35mm film photo`,
-`Photoreal / editorial`, `Cinematic film still`) × 2 framings (hero close-up, mid
+By default the grid is 3 photographic style families (`Candid 35mm film photo`,
+`Photoreal / editorial`, `Cinematic film still`; `--styles` picks others) × 2 framings (hero close-up, mid
 shot) × each photo. Every concept is rendered twice (with and without
 `ALLOW_ADULT`), so 2 photos give 24 renders, about 12–15 min at the image model's
 ~2 images/min quota.
@@ -51,7 +51,27 @@ PYTHONPATH="$PWD" uv run python -m experiments.person_reference.calibrate \
 ```
 
 Options: `--out DIR` (default `experiments/person_reference/results`), `--pace SECS`
-(sleep between renders, default 31 for the 2 images/min quota).
+(sleep between renders, default 31 for the 2 images/min quota), `--styles FAMILY ...`
+(canonical STYLE_PALETTE family names from `creative_agent/style_shortlist.py`
+`ALL_FAMILIES`, quoted; default the 3 photographic families; an unknown name exits 1
+and lists the valid ones), `--framings close|mid ...` (default both).
+
+Non-photographic families get their own concept template: the same café coffee
+scene with "the person in the person reference image" as the hero, rendered "in the
+style of <family>" with the family's `IMAGE_PROMPT_GUIDE` palette descriptor. The
+summary lists the styles that were run. To test whether more families could join
+`PERSON_SAFE_STYLES` (e.g. the illustrated ones):
+
+```bash
+PYTHONPATH="$PWD" uv run python -m experiments.person_reference.calibrate \
+  --photos gs://$BUCKET/person-refs/<slug-a>/a.jpg gs://$BUCKET/person-refs/<slug-b>/b.jpg \
+  --styles "3D character render" "Comic panel" "2D flat / vector cartoon" "Collage / mixed-media" \
+  --out experiments/person_reference/results-illustrated
+```
+
+(4 styles × 2 framings × 2 photos × 2 renders = 64 renders, about 33 min at the
+default pace; add `--framings close` to halve it.) A family belongs in
+`PERSON_SAFE_STYLES` only when its likeness clears the same 70% bar.
 
 If the API rejects `person_generation` (an exception on the first `ALLOW_ADULT`
 render), the row records `allow_adult_unsupported`, the remaining `ALLOW_ADULT`

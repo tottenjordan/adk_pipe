@@ -724,3 +724,67 @@ def test_render_variant_photo_unavailable(monkeypatch):
     )
     assert out.status == "failed" and out.reason == "photo_unavailable"
     assert calls == []
+
+
+# --- castability (GET explains up front what POST would refuse) ---------------------
+
+
+def test_castability_helper_matches_the_post_checks():
+    state = ready_state()
+    ok = vr.castability(state, CASTABLE)
+    assert ok.ok and ok.reason == "" and ok.code == ""
+    assert ok.style == "Candid 35mm film photo"
+    meme = vr.castability(state, MEME)
+    assert not meme.ok and meme.error == "concept_not_castable" and meme.status == 400
+    assert meme.code == "style_not_person_safe" and meme.style == "Meme aesthetic"
+    assert "person-safe" in meme.reason and meme.message.startswith("can't feature")
+    assert vr.castability(state, "Nope").error == "concept_not_found"
+
+    # The style list is the one the casting guard uses.
+    assert vr.castability(state, MEME, ("Meme aesthetic",)).ok
+
+    cast = ready_state()
+    cast["generated_images"][CASTABLE]["cast"] = True
+    c = vr.castability(cast, CASTABLE)
+    assert (c.ok, c.error, c.code) == (False, "concept_already_cast", "already_cast")
+    assert c.reason == "This creative already features a person."
+
+    u = vr.castability(creative_state(), CASTABLE)  # no finalize_done
+    assert (u.ok, u.error, u.status, u.code) == (
+        False,
+        "concept_not_ready",
+        409,
+        "not_ready",
+    )
+    assert u.reason.startswith("Not ready")
+
+
+def test_get_reports_castability_for_every_concept():
+    async def go():
+        h = Harness()
+        state = ready_state()
+        state["generated_images"][CONCEPTS[2]]["cast"] = True
+        await h.session(state=state)
+        body = (await h.get()).json()
+        assert body["person_safe_styles"] == list(vr._safe_styles())
+        castable = body["castable"]
+        assert set(castable) == set(CONCEPTS)
+        assert castable[CASTABLE] == {
+            "ok": True,
+            "reason": "",
+            "code": "",
+            "style": "Candid 35mm film photo",
+        }
+        assert castable[MEME]["ok"] is False
+        assert castable[MEME]["code"] == "style_not_person_safe"
+        assert castable[MEME]["style"] == "Meme aesthetic"
+        assert castable[CONCEPTS[2]]["code"] == "already_cast"
+        # A style with no canonical family is shown as written.
+        assert castable[CONCEPTS[2]]["style"] == "Warm, High-Contrast Stage Photography"
+
+        await h.session(sid="s-unfinished", state=creative_state())
+        unfinished = (await h.get(sid="s-unfinished")).json()["castable"]
+        assert {v["code"] for v in unfinished.values()} == {"not_ready"}
+        assert not any(v["ok"] for v in unfinished.values())
+
+    run(go)

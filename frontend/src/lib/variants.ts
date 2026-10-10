@@ -30,6 +30,25 @@ export interface VariantResponse extends VariantRecord {
 /** `GET /variants/{u}/{app}/{session}`: `{concept: {key: record}}`. */
 export type VariantMap = Record<string, Record<string, VariantRecord>>;
 
+/** `GET` `castable[concept]`: whether `POST` would accept this creative now (the
+ *  api's own checks), with a plain-language `reason` when it wouldn't. `code` is
+ *  `not_ready` | `already_cast` | `style_not_person_safe` | `no_human_subject` |
+ *  `not_castable` | `not_found` (`""` when ok); `style` is the creative's style family. */
+export interface Castability {
+  ok: boolean;
+  reason: string;
+  code: string;
+  style: string;
+}
+
+/** The parsed `GET` body. `castable` is null when the api doesn't report it (then
+ *  the panel keeps Render enabled and the api explains a refusal after the click). */
+export interface VariantsListing {
+  variants: VariantMap;
+  castable: Record<string, Castability> | null;
+  personSafeStyles: string[];
+}
+
 /** How often the panel re-reads a queued / rendering preview. */
 export const VARIANT_POLL_MS = 5000;
 
@@ -84,6 +103,49 @@ export function parseVariants(raw: unknown): VariantMap {
     if (Object.keys(records).length > 0) out[concept] = records;
   }
   return out;
+}
+
+function isCastability(value: unknown): value is Castability {
+  if (!value || typeof value !== "object") return false;
+  const v = value as Record<string, unknown>;
+  return (
+    typeof v.ok === "boolean" &&
+    typeof v.reason === "string" &&
+    typeof v.code === "string" &&
+    typeof v.style === "string"
+  );
+}
+
+/** The whole GET body: previews, per-concept castability and the person-safe styles. */
+export function parseVariantsListing(raw: unknown): VariantsListing {
+  const body = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
+  let castable: Record<string, Castability> | null = null;
+  if (body.castable && typeof body.castable === "object") {
+    castable = {};
+    for (const [concept, entry] of Object.entries(body.castable as Record<string, unknown>)) {
+      if (isCastability(entry)) castable[concept] = entry;
+    }
+  }
+  const styles = Array.isArray(body.person_safe_styles) ? body.person_safe_styles : [];
+  return {
+    variants: parseVariants(raw),
+    castable,
+    personSafeStyles: styles.filter((s): s is string => typeof s === "string"),
+  };
+}
+
+/**
+ * Why Render is disabled for this creative, or null when it can be rendered (or
+ * castability is unknown). A style refusal names the person-safe styles and the
+ * creative's style; any other refusal shows the api's reason as given.
+ */
+export function castabilityNote(entry: Castability | undefined, safeStyles: string[]): string | null {
+  if (!entry || entry.ok) return null;
+  if (entry.code === "style_not_person_safe" && safeStyles.length > 0) {
+    const tail = entry.style ? `This creative is ${entry.style}.` : "This creative's style isn't one of them.";
+    return `Personalised previews work on person-safe styles (${safeStyles.join(", ")}). ${tail}`;
+  }
+  return entry.reason || "This creative can't feature a person.";
 }
 
 /** The newest variant of `concept` made with `consentId` (by `created_at`), if any. */

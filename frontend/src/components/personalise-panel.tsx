@@ -8,6 +8,7 @@ import { createVariant, listPersonRefs, listVariants } from "@/lib/api";
 import type { PersonRef } from "@/lib/person-refs";
 import { cn } from "@/lib/utils";
 import {
+  castabilityNote,
   isPending,
   latestVariant,
   VARIANT_NOTE,
@@ -18,6 +19,7 @@ import {
   variantImageUrl,
   variantStatusText,
   type VariantRecord,
+  type VariantsListing,
 } from "@/lib/variants";
 import { ProofImage } from "@/app/results/[sessionId]/proof-grid";
 
@@ -47,6 +49,10 @@ export function PersonalisePanel({
   const [variant, setVariant] = useState<{ key: string; record: VariantRecord } | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // From GET: whether the api would accept this creative (null until loaded).
+  const [eligibility, setEligibility] = useState<Pick<VariantsListing, "castable" | "personSafeStyles"> | null>(
+    null,
+  );
   const alive = useRef(true);
 
   useEffect(() => {
@@ -75,8 +81,10 @@ export function PersonalisePanel({
     if (!consentId) return;
     let cancelled = false;
     listVariants(appName, sessionId).then(
-      (all) => {
-        if (!cancelled && alive.current) setVariant(latestVariant(all, conceptName, consentId));
+      (listing) => {
+        if (cancelled || !alive.current) return;
+        setVariant(latestVariant(listing.variants, conceptName, consentId));
+        setEligibility(listing);
       },
       () => {
         // No earlier preview to show; rendering still works.
@@ -102,8 +110,8 @@ export function PersonalisePanel({
     const tick = async () => {
       let record: VariantRecord | undefined;
       try {
-        const all = await listVariants(appName, sessionId);
-        record = all[conceptName]?.[pendingKey];
+        const listing = await listVariants(appName, sessionId);
+        record = listing.variants[conceptName]?.[pendingKey];
       } catch {
         record = undefined;
       }
@@ -132,8 +140,10 @@ export function PersonalisePanel({
     setPollRun((n) => n + 1);
   };
 
+  const ineligible = castabilityNote(eligibility?.castable?.[conceptName], eligibility?.personSafeStyles ?? []);
+
   const render = useCallback(async () => {
-    if (!consentId || submitting) return;
+    if (!consentId || submitting || ineligible) return;
     setSubmitting(true);
     setError(null);
     setPollStopped(false);
@@ -147,7 +157,7 @@ export function PersonalisePanel({
     } finally {
       if (alive.current) setSubmitting(false);
     }
-  }, [appName, sessionId, conceptName, consentId, submitting]);
+  }, [appName, sessionId, conceptName, consentId, submitting, ineligible]);
 
   const record = variant?.record ?? null;
   const pending = isPending(record?.status);
@@ -196,9 +206,19 @@ export function PersonalisePanel({
               ))}
             </select>
           </div>
-          <Button size="sm" onClick={render} disabled={!consentId || submitting || pending}>
+          <Button
+            size="sm"
+            onClick={render}
+            disabled={!consentId || submitting || pending || ineligible !== null}
+            aria-describedby={ineligible ? `${selectId}-ineligible` : undefined}
+          >
             {submitting ? "Starting…" : pending ? "Rendering…" : "Render preview"}
           </Button>
+          {ineligible && (
+            <p id={`${selectId}-ineligible`} className="w-full text-xs text-muted-foreground">
+              {ineligible}
+            </p>
+          )}
         </div>
       )}
 

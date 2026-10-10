@@ -13,10 +13,12 @@ vi.mock("@/lib/api", () => ({
 
 import { PersonalisePanel } from "@/components/personalise-panel";
 import {
+  castabilityNote,
   canPersonalise,
   latestVariant,
   MAX_POLL_MISSES,
   parseVariants,
+  parseVariantsListing,
   VARIANT_NOTE,
   VARIANT_POLL_MS,
   VariantError,
@@ -58,6 +60,16 @@ const DONE = {
   reason: null,
 };
 
+const SAFE = ["Candid 35mm film photo", "Photoreal / editorial", "Cinematic film still"];
+
+/** A `listVariants` result (castable null = an api without castability). */
+function listing(
+  variants: Record<string, unknown>,
+  castable: Record<string, { ok: boolean; reason: string; code: string; style: string }> | null = null,
+) {
+  return { variants, castable, personSafeStyles: castable ? SAFE : [] };
+}
+
 function renderPanel() {
   return render(
     <PersonalisePanel
@@ -75,7 +87,7 @@ beforeEach(() => {
   listVariants.mockReset();
   createVariant.mockReset();
   listPersonRefs.mockResolvedValue({ personRefs: REFS, prefix: null });
-  listVariants.mockResolvedValue({});
+  listVariants.mockResolvedValue(listing({}));
 });
 
 afterEach(() => {
@@ -105,11 +117,11 @@ describe("PersonalisePanel", () => {
     expect(await screen.findByRole("status")).toHaveTextContent(/Queued/);
     expect(screen.getByRole("button", { name: "Rendering…" })).toBeDisabled();
 
-    listVariants.mockResolvedValue({ [CONCEPT]: { abc123abc123: { ...DONE, status: "rendering" } } });
+    listVariants.mockResolvedValue(listing({ [CONCEPT]: { abc123abc123: { ...DONE, status: "rendering" } } }));
     await act(() => vi.advanceTimersByTimeAsync(VARIANT_POLL_MS));
     await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent(/Rendering the preview/));
 
-    listVariants.mockResolvedValue({ [CONCEPT]: { abc123abc123: DONE } });
+    listVariants.mockResolvedValue(listing({ [CONCEPT]: { abc123abc123: DONE } }));
     await act(() => vi.advanceTimersByTimeAsync(VARIANT_POLL_MS));
     await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Preview ready."));
 
@@ -130,7 +142,7 @@ describe("PersonalisePanel", () => {
 
   it("stops polling on unmount", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
-    listVariants.mockResolvedValue({ [CONCEPT]: { k1: { ...DONE, status: "rendering" } } });
+    listVariants.mockResolvedValue(listing({ [CONCEPT]: { k1: { ...DONE, status: "rendering" } } }));
     const { unmount } = renderPanel();
     await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent(/Rendering/));
     unmount();
@@ -141,14 +153,14 @@ describe("PersonalisePanel", () => {
 
   it("stops polling after repeated failures and offers Retry", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
-    listVariants.mockResolvedValueOnce({ [CONCEPT]: { k1: { ...DONE, status: "rendering" } } });
+    listVariants.mockResolvedValueOnce(listing({ [CONCEPT]: { k1: { ...DONE, status: "rendering" } } }));
     renderPanel();
     await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent(/Rendering/));
 
     // Half the polls fail, half lose the record: each counts as a miss.
     listVariants.mockImplementation(async () => {
       if (listVariants.mock.calls.length % 2) throw new Error("network");
-      return {};
+      return listing({});
     });
     for (let i = 0; i < MAX_POLL_MISSES; i++) {
       await act(() => vi.advanceTimersByTimeAsync(VARIANT_POLL_MS));
@@ -160,14 +172,14 @@ describe("PersonalisePanel", () => {
 
     // Retry resumes polling and picks up the finished preview.
     listVariants.mockReset();
-    listVariants.mockResolvedValue({ [CONCEPT]: { k1: DONE } });
+    listVariants.mockResolvedValue(listing({ [CONCEPT]: { k1: DONE } }));
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
     await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Preview ready."));
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
   it("shows an earlier preview for the chosen person and clears it on a switch", async () => {
-    listVariants.mockResolvedValue({ [CONCEPT]: { k1: DONE } });
+    listVariants.mockResolvedValue(listing({ [CONCEPT]: { k1: DONE } }));
     renderPanel();
     expect(await screen.findByAltText(/Personalised preview with Me/)).toBeInTheDocument();
     fireEvent.change(screen.getByRole("combobox", { name: "Person" }), {
@@ -182,6 +194,56 @@ describe("PersonalisePanel", () => {
     await waitFor(() => expect(screen.getByRole("combobox", { name: "Person" })).toHaveValue("consent-1234"));
     fireEvent.click(screen.getByRole("button", { name: "Render preview" }));
     expect(await screen.findByRole("alert")).toHaveTextContent(/today's limit/);
+  });
+
+  it("explains up front when the creative's style can't feature a person", async () => {
+    listVariants.mockResolvedValue(
+      listing(
+        {},
+        {
+          [CONCEPT]: {
+            ok: false,
+            code: "style_not_person_safe",
+            style: "Comic panel",
+            reason: "This creative can't feature a person: its style is not one of the person-safe styles.",
+          },
+        },
+      ),
+    );
+    renderPanel();
+    const note = await screen.findByText(
+      "Personalised previews work on person-safe styles (Candid 35mm film photo, Photoreal / editorial, Cinematic film still). This creative is Comic panel.",
+    );
+    const button = screen.getByRole("button", { name: "Render preview" });
+    expect(button).toBeDisabled();
+    expect(button).toHaveAttribute("aria-describedby", note.id);
+    expect(note.id).not.toBe("");
+    fireEvent.click(button);
+    expect(createVariant).not.toHaveBeenCalled();
+  });
+
+  it("shows other refusal reasons as given", async () => {
+    const reason = "Not ready yet: wait until the run has finished and this creative's image is rendered.";
+    listVariants.mockResolvedValue(
+      listing({}, { [CONCEPT]: { ok: false, code: "not_ready", style: "Comic panel", reason } }),
+    );
+    renderPanel();
+    expect(await screen.findByText(reason)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Render preview" })).toBeDisabled();
+  });
+
+  it("keeps Render enabled for a castable creative and before the GET has loaded", async () => {
+    let resolve: (v: unknown) => void = () => {};
+    listVariants.mockReturnValue(new Promise((r) => (resolve = r)));
+    renderPanel();
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "Person" })).toHaveValue("consent-1234"));
+    const button = screen.getByRole("button", { name: "Render preview" });
+    expect(button).toBeEnabled();
+    expect(button).not.toHaveAttribute("aria-describedby");
+    await act(async () =>
+      resolve(listing({}, { [CONCEPT]: { ok: true, code: "", style: "Candid 35mm film photo", reason: "" } })),
+    );
+    expect(screen.getByRole("button", { name: "Render preview" })).toBeEnabled();
   });
 
   it("links to /people when no one is registered", async () => {
@@ -199,6 +261,35 @@ describe("variants helpers", () => {
     });
     expect(parsed).toEqual({ [CONCEPT]: { k1: DONE } });
     expect(parseVariants(null)).toEqual({});
+  });
+
+  it("parses castability, tolerating an api without it", () => {
+    const entry = { ok: false, reason: "r", code: "already_cast", style: "Comic panel" };
+    const parsed = parseVariantsListing({
+      variants: { [CONCEPT]: { k1: DONE } },
+      castable: { [CONCEPT]: entry, junk: 3, bad: { ok: "yes" } },
+      person_safe_styles: [...SAFE, 7],
+    });
+    expect(parsed).toEqual({
+      variants: { [CONCEPT]: { k1: DONE } },
+      castable: { [CONCEPT]: entry },
+      personSafeStyles: SAFE,
+    });
+    expect(parseVariantsListing({ variants: {} })).toEqual({ variants: {}, castable: null, personSafeStyles: [] });
+  });
+
+  it("words the castability note", () => {
+    const style = { ok: false, reason: "x", code: "style_not_person_safe", style: "Comic panel" };
+    expect(castabilityNote(undefined, SAFE)).toBeNull();
+    expect(castabilityNote({ ...style, ok: true }, SAFE)).toBeNull();
+    expect(castabilityNote(style, SAFE)).toBe(
+      "Personalised previews work on person-safe styles (Candid 35mm film photo, Photoreal / editorial, Cinematic film still). This creative is Comic panel.",
+    );
+    expect(castabilityNote({ ...style, style: "" }, SAFE)).toMatch(/This creative's style isn't one of them\.$/);
+    expect(castabilityNote({ ...style, code: "already_cast", reason: "Already cast." }, SAFE)).toBe("Already cast.");
+    expect(castabilityNote({ ...style, code: "not_ready", reason: "" }, SAFE)).toBe(
+      "This creative can't feature a person.",
+    );
   });
 
   it("picks the newest variant for a person", () => {

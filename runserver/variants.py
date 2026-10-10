@@ -44,7 +44,10 @@ a foreign or unknown session is a 404):
 - ``POST /variants/{user}/{app}/{session}``: body ``{concept_name,
   consent_id}`` → ``{key, status, concept_name, consent_id, cached, ...}``.
 - ``GET /variants/{user}/{app}/{session}``: ``{variants: {concept: {key:
-  record}}}``.
+  record}}, castable: {concept: {ok, reason, code, style}}, person_safe_styles}``
+  (``castable`` covers every concept in ``final_visual_concepts`` and runs the
+  same ``castability`` checks as POST, so the panel can explain a refusal before
+  the click).
 
 Person photo URIs are never logged or returned.
 """
@@ -231,6 +234,98 @@ def castable_reason(concept: Mapping[str, Any], safe_styles: Any) -> str | None:
     text = warnings[0] if warnings else ""
     m = re.search(r"\(([^()]*)\)\s*$", text)
     return m.group(1) if m else "the casting guard refused it"
+
+
+@dataclass(frozen=True)
+class Castability:
+    """Whether a concept can get a variant now, and why not.
+
+    ``error`` / ``status`` / ``message`` are what ``POST`` answers (its
+    ``detail.reason``, HTTP status and message); ``code`` (``not_ready``,
+    ``already_cast``, ``style_not_person_safe``, ``no_human_subject``,
+    ``not_castable``) and the plain-language ``reason`` are what ``GET`` reports
+    per concept. ``style`` is the concept's canonical style family, or its
+    ``visual_style`` as written when it has none."""
+
+    ok: bool
+    style: str = ""
+    code: str = ""
+    reason: str = ""
+    error: str = ""
+    status: int = 400
+    message: str = ""
+
+    def public(self) -> dict:
+        """The ``GET`` entry (never the POST-only fields)."""
+        return {
+            "ok": self.ok,
+            "reason": self.reason,
+            "code": self.code,
+            "style": self.style,
+        }
+
+
+def castability(
+    state: Mapping[str, Any], name: str, safe_styles: Any = None
+) -> Castability:
+    """The variant checks on the run's concept ``name``, in ``POST``'s order:
+    it exists with a prompt, the run finished and rendered it, it isn't cast yet,
+    and the casting guard would cast a person in it (``safe_styles`` defaults to
+    ``config.person_safe_styles``)."""
+    from creative_agent.style_shortlist import canonical_style
+
+    concept = find_concept(state, name)
+    if concept is None or not isinstance(concept.get("image_generation_prompt"), str):
+        return Castability(
+            False,
+            code="not_found",
+            reason="This creative isn't in the run.",
+            error="concept_not_found",
+            message="no such concept in this run",
+        )
+    raw_style = concept.get("visual_style")
+    style = canonical_style(raw_style) or (
+        raw_style.strip() if isinstance(raw_style, str) else ""
+    )
+    if not state.get("finalize_done") or not has_base_image(state, name):
+        return Castability(
+            False,
+            style=style,
+            code="not_ready",
+            reason="Not ready yet: wait until the run has finished and this "
+            "creative's image is rendered.",
+            error="concept_not_ready",
+            status=409,
+            message="wait until the run has finished and this creative's image "
+            "is rendered",
+        )
+    if is_cast(state, name):
+        return Castability(
+            False,
+            style=style,
+            code="already_cast",
+            reason="This creative already features a person.",
+            error="concept_already_cast",
+            message="this creative already features a person; pick another one",
+        )
+    safe = _safe_styles() if safe_styles is None else safe_styles
+    why = castable_reason(concept, safe)
+    if why is not None:
+        if canonical_style(raw_style) not in frozenset(safe):
+            code = "style_not_person_safe"
+        elif "human subject" in why:
+            code = "no_human_subject"
+        else:
+            code = "not_castable"
+        return Castability(
+            False,
+            style=style,
+            code=code,
+            reason=f"This creative can't feature a person: {why}.",
+            error="concept_not_castable",
+            message=f"can't feature a person: {why}",
+        )
+    return Castability(True, style=style)
 
 
 def _personal_uri(uri: str) -> bool:
@@ -648,24 +743,12 @@ async def _create_variant(
     if _run_is_live(app_name, user_id, session_id):
         raise _error(409, "run_in_progress", "wait for the run to finish")
     state = dict(session.state or {})
+    check = castability(state, concept_name)
+    if not check.ok:
+        raise _error(check.status, check.error, check.message)
     concept = find_concept(state, concept_name)
-    if concept is None or not isinstance(concept.get("image_generation_prompt"), str):
+    if concept is None:  # castability found it; never None here
         raise _error(400, "concept_not_found", "no such concept in this run")
-    if not state.get("finalize_done") or not has_base_image(state, concept_name):
-        raise _error(
-            409,
-            "concept_not_ready",
-            "wait until the run has finished and this creative's image is rendered",
-        )
-    if is_cast(state, concept_name):
-        raise _error(
-            400,
-            "concept_already_cast",
-            "this creative already features a person; pick another one",
-        )
-    why = castable_reason(concept, _safe_styles())
-    if why is not None:
-        raise _error(400, "concept_not_castable", f"can't feature a person: {why}")
     key = variant_key(photo_uri, concept["image_generation_prompt"], _image_model())
     try:
         object_path = variant_object_path(state, user_id, concept_name, key)
@@ -736,7 +819,17 @@ async def http_list_variants(user_id: str, app_name: str, session_id: str) -> di
     session = await _get_session(app_name, user_id, session_id)
     if session is None:
         raise _error(404, "session_not_found", "session not found")
-    variants = variants_in(session.state or {})
+    state = dict(session.state or {})
+    variants = variants_in(state)
+    # The same checks POST runs, so the panel can explain a refusal up front.
+    from creative_agent.concept_guard import parse_concepts
+
+    safe = tuple(_safe_styles())
+    castable = {
+        name: castability(state, name, safe).public()
+        for c in parse_concepts(state.get("final_visual_concepts"))
+        if isinstance(name := c.get("concept_name"), str) and name
+    }
     # A pending record with no live task here was orphaned (an api restart):
     # report it failed so the panel stops polling and offers a retry.
     for concept, records in variants.items():
@@ -744,4 +837,8 @@ async def http_list_variants(user_id: str, app_name: str, session_id: str) -> di
             live = _TASKS.get((app_name, user_id, session_id, concept, key))
             if record.get("status") in PENDING and (live is None or live.done()):
                 record["status"], record["reason"] = "failed", "interrupted"
-    return {"variants": variants}
+    return {
+        "variants": variants,
+        "castable": castable,
+        "person_safe_styles": list(safe),
+    }
