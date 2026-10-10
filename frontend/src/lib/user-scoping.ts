@@ -26,6 +26,9 @@ const ROUTES: { method: string; match: (p: string[]) => boolean; userAt?: number
   { method: "GET", match: (p) => p.length === 2 && p[0] === "person-refs", userAt: 1 },
   { method: "POST", match: (p) => p.length === 2 && p[0] === "person-refs", userAt: 1 },
   { method: "DELETE", match: (p) => p.length === 3 && p[0] === "person-refs", userAt: 1 },
+  // Personalised variant previews (runserver/variants.py): POST/GET variants/{u}/{app}/{session}.
+  { method: "POST", match: (p) => p.length === 4 && p[0] === "variants", userAt: 1 },
+  { method: "GET", match: (p) => p.length === 4 && p[0] === "variants", userAt: 1 },
 ];
 
 // ADK app names are Python identifiers (the agent package name).
@@ -57,6 +60,8 @@ export function scopeRequestToUser(
       && (!APP_RE.test(path[2]) || !SESSION_ID_RE.test(path[3]))) return null;
   if (path[0] === "shares" && path.length === 3 && !SHARE_TOKEN_RE.test(path[2])) return null;
   if (path[0] === "person-refs" && path.length === 3 && !PERSON_REF_ID_RE.test(path[2])) return null;
+  if (path[0] === "variants" && path.length === 4
+      && (!APP_RE.test(path[2]) || !SESSION_ID_RE.test(path[3]))) return null;
   const route = ROUTES.find((r) => r.method === method && r.match(path));
   if (!route) return null;
   const segs = [...path];

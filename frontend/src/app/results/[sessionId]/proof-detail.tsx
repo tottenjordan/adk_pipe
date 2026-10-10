@@ -232,6 +232,7 @@ export function ProofDetail({
   returnFocusTo,
   ratingSlot,
   shareSlot,
+  personaliseSlot,
 }: {
   /** The grid's current (sorted) order. */
   proofs: Proof[];
@@ -246,6 +247,8 @@ export function ProofDetail({
   ratingSlot?: (proof: Proof) => ReactNode;
   /** Share action rendered next to the rating slot ("Share this creative"). */
   shareSlot?: (proof: Proof) => ReactNode;
+  /** Personalised preview panel, under the rating slot (uncast creatives only). */
+  personaliseSlot?: (proof: Proof) => ReactNode;
 }) {
   const pos = index === null ? -1 : proofs.findIndex((p) => p.index === index);
   const proof = pos >= 0 ? proofs[pos] : undefined;
@@ -367,6 +370,7 @@ export function ProofDetail({
               <ImageCheckSection check={proof.imageCheck} />
               <CastingSection casting={proof.casting} />
               {ratingSlot?.(proof)}
+              {personaliseSlot?.(proof)}
               {shareAction && (
                 <div className="flex justify-end border-t border-border pt-4">{shareAction}</div>
               )}
