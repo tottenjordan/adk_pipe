@@ -277,17 +277,11 @@ def _image_uri(
     return f"gs://{bucket}/{folder}/{subdir}/{key}"
 
 
-#: Path segments of person-derived images that must never become a bandit arm:
-#: consented photos and personalised variant previews (runserver/variants.py).
-_PERSON_SEGMENTS = ("person-refs", "variants")
-
-
 def _is_person_image(uri: str | None) -> bool:
-    """True for a ``person-refs/…`` or ``…/variants/…`` object URI."""
-    if not uri:
-        return False
-    folders = uri.removeprefix("gs://").split("/")[1:-1]
-    return any(seg in _PERSON_SEGMENTS for seg in folders)
+    """True for a ``person-refs/…`` or ``…/variants/…`` object URI (never an arm)."""
+    from runserver.person_refs import is_person_image
+
+    return is_person_image(uri)
 
 
 def _is_cast(session_state: Mapping[str, Any], concept_name: str) -> bool:

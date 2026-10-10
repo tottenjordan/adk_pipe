@@ -161,6 +161,14 @@ def is_cast(state: Mapping[str, Any], name: str) -> bool:
     return isinstance(record, Mapping) and record.get("cast") is True
 
 
+def has_base_image(state: Mapping[str, Any], name: str) -> bool:
+    """Whether the run rendered a base image for ``name`` (a ``gcs_uri``)."""
+    images = _as_obj(state.get("generated_images"))
+    record = images.get(name) if isinstance(images, Mapping) else None
+    uri = record.get("gcs_uri") if isinstance(record, Mapping) else None
+    return isinstance(uri, str) and bool(uri)
+
+
 def variants_in(state: Mapping[str, Any]) -> dict[str, dict[str, dict]]:
     """``person_variants`` as ``{concept: {key: record}}`` (malformed entries
     dropped; a deep copy)."""
@@ -334,6 +342,9 @@ _CONCURRENCY = _env_int(
 # Strong refs to detached render tasks (create_task keeps only a weak one), keyed
 # by (app, user, session, concept, key) so a repeat POST joins the live render.
 _TASKS: dict[tuple[str, str, str, str, str], asyncio.Task] = {}
+# In-flight POSTs per (app, user, session, concept, consent): concurrent duplicates
+# wait for the first one's response (claimed before any await).
+_CLAIMS: dict[tuple, asyncio.Future] = {}
 # Renders started per (user, UTC day) by this process (the daily cap).
 _STARTED: dict[tuple[str, str], int] = {}
 # One state writer per session at a time: each write re-reads person_variants.
@@ -371,6 +382,7 @@ def configure(
     )
     _SEMAPHORE = None
     _TASKS.clear()
+    _CLAIMS.clear()
     _STARTED.clear()
     _SESSION_LOCKS.clear()
 
@@ -473,6 +485,14 @@ async def _run_job(job: _Job) -> None:
             await write(status="rendering")
             outcome = await _RENDERER(job.state, job.concept, job.photo_uri)
             if outcome.status == "done" and outcome.image_bytes:
+                # The consent may have been revoked while rendering: never store an
+                # image made with a revoked consent.
+                if (
+                    await person_refs.active_consent(job.user_id, job.consent_id)
+                    is None
+                ):
+                    await write(status="failed", reason="consent_revoked")
+                    return
                 bucket = _BUCKET or ""
                 await asyncio.to_thread(
                     _upload,
@@ -541,6 +561,42 @@ def _public(concept: str, key: str, record: Mapping[str, Any], cached: bool) -> 
 async def http_create_variant(
     user_id: str, app_name: str, session_id: str, body: _VariantBody
 ) -> dict:
+    # Claimed synchronously, before the first await: a concurrent POST for the same
+    # (session, concept, person) waits for this one and returns its response, so the
+    # render starts (and counts against the cap) once.
+    claim = (app_name, user_id, session_id, body.concept_name, body.consent_id)
+    pending = _CLAIMS.get(claim) if _hashable(claim) else None
+    if pending is not None:
+        return await asyncio.shield(pending)
+    if not _hashable(claim):
+        return await _create_variant(user_id, app_name, session_id, body)
+    future: asyncio.Future = asyncio.get_running_loop().create_future()
+    _CLAIMS[claim] = future
+    try:
+        result = await _create_variant(user_id, app_name, session_id, body)
+    except BaseException as exc:
+        future.set_exception(exc)
+        future.exception()  # retrieved: no "never retrieved" warning without waiters
+        raise
+    else:
+        future.set_result(result)
+        return result
+    finally:
+        if _CLAIMS.get(claim) is future:
+            del _CLAIMS[claim]
+
+
+def _hashable(value: Any) -> bool:
+    try:
+        hash(value)
+    except TypeError:
+        return False
+    return True
+
+
+async def _create_variant(
+    user_id: str, app_name: str, session_id: str, body: _VariantBody
+) -> dict:
     _check_app(app_name)
     concept_name, consent_id = body.concept_name, body.consent_id
     if not (
@@ -572,6 +628,12 @@ async def http_create_variant(
     concept = find_concept(state, concept_name)
     if concept is None or not isinstance(concept.get("image_generation_prompt"), str):
         raise _error(400, "concept_not_found", "no such concept in this run")
+    if not state.get("finalize_done") or not has_base_image(state, concept_name):
+        raise _error(
+            409,
+            "concept_not_ready",
+            "wait until the run has finished and this creative's image is rendered",
+        )
     if is_cast(state, concept_name):
         raise _error(
             400,

@@ -35,6 +35,13 @@ PHOTO_A2 = f"gs://{BUCKET}/person-refs/{pr.slug_for(A)}/friend.png"
 KEY_RE = re.compile(r"^[0-9a-f]{12}$")
 
 
+def ready_state() -> dict:
+    """A finished creative run (``finalize_done``) with every image rendered."""
+    state = creative_state()
+    state["finalize_done"] = True
+    return state
+
+
 class FakeBlob:
     def __init__(self, gcs: FakeGCS, bucket: str, name: str):
         self.gcs, self.bucket, self.name = gcs, bucket, name
@@ -127,7 +134,7 @@ class Harness:
             app_name=APP,
             user_id=user,
             session_id=sid,
-            state=creative_state() if state is None else state,
+            state=ready_state() if state is None else state,
         )
 
     async def post(self, concept=CASTABLE, cid="consent-aaaa", user=A, sid="s1", **kw):
@@ -332,7 +339,7 @@ def test_daily_cap_counts_todays_variants_in_state():
     async def go():
         h = Harness(daily_cap=1)
         await h.consent()
-        state = creative_state()
+        state = ready_state()
         today = vr._iso(vr._now())
         state["person_variants"] = {
             MEME: {"abc": {"status": "failed", "created_at": today}}
@@ -388,7 +395,7 @@ def test_concept_checks():
     async def go():
         h = Harness()
         await h.consent()
-        state = creative_state()
+        state = ready_state()
         state["generated_images"][CONCEPTS[2]]["cast"] = True
         await h.session(state=state)
         r = await h.post(concept="Nope")
@@ -414,7 +421,7 @@ def test_unsafe_output_folder_is_refused():
     async def go():
         h = Harness()
         await h.consent()
-        state = creative_state()
+        state = ready_state()
         state["gcs_folder"] = "person-refs"
         await h.session(state=state)
         r = await h.post()
@@ -459,11 +466,74 @@ def test_rejected_and_failed_renders_upload_nothing():
     run(go)
 
 
+def test_consent_revoked_during_the_render_uploads_nothing():
+    async def go():
+        gate = asyncio.Event()
+        h = Harness(renderer=FakeRenderer(gate=gate))
+        await h.consent()
+        await h.session()
+        key = (await h.post()).json()["key"]
+        await h.renderer.started.wait()
+        await h.store.revoke("consent-aaaa", A)
+        gate.set()
+        await h.settle()
+        record = (await h.get()).json()["variants"][CASTABLE][key]
+        assert record["status"] == "failed" and record["reason"] == "consent_revoked"
+        assert record["gcs_uri"] is None and h.gcs.objects == {}
+
+    run(go)
+
+
+def test_concurrent_requests_for_one_key_render_and_count_once():
+    async def go():
+        gate = asyncio.Event()
+        h = Harness(renderer=FakeRenderer(gate=gate), daily_cap=1)
+        await h.consent()
+        await h.session()
+        real_get_session = h.svc.get_session
+
+        async def slow_get_session(**kw):
+            await asyncio.sleep(0.01)  # let the two requests interleave
+            return await real_get_session(**kw)
+
+        h.svc.get_session = slow_get_session  # type: ignore[method-assign]
+        one, two = await asyncio.gather(h.post(), h.post())
+        assert one.status_code == 200 and two.status_code == 200, (one.text, two.text)
+        assert one.json()["key"] == two.json()["key"]
+        gate.set()
+        await h.settle()
+        assert len(h.renderer.calls) == 1
+        assert vr._STARTED[(A, vr._now().date().isoformat())] == 1
+
+    run(go)
+
+
+def test_concept_must_be_finished_and_rendered():
+    async def go():
+        h = Harness()
+        await h.consent()
+        unfinished = creative_state()  # no finalize_done (run or checkpoint pending)
+        await h.session(sid="s-unfinished", state=unfinished)
+        r = await h.post(sid="s-unfinished")
+        assert r.status_code == 409
+        assert r.json()["detail"]["reason"] == "concept_not_ready"
+
+        no_image = ready_state()
+        del no_image["generated_images"][CASTABLE]
+        await h.session(sid="s-no-image", state=no_image)
+        r = await h.post(sid="s-no-image")
+        assert r.status_code == 409
+        assert r.json()["detail"]["reason"] == "concept_not_ready"
+        assert h.renderer.calls == []
+
+    run(go)
+
+
 def test_orphaned_pending_record_reads_as_interrupted_and_can_retry():
     async def go():
         h = Harness()
         await h.consent()
-        state = creative_state()
+        state = ready_state()
         key = vr.variant_key(
             PHOTO_A,
             vr.find_concept(state, CASTABLE)["image_generation_prompt"],
