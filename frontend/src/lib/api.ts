@@ -7,7 +7,7 @@ import {
   type PersonRef,
   type PersonRefList,
 } from "./person-refs";
-import { parseVariants, VariantError, type VariantMap, type VariantResponse } from "./variants";
+import { parseVariantsListing, VariantError, type VariantResponse, type VariantsListing } from "./variants";
 
 // Route through the same-origin Next.js proxy (src/app/api/adk/[...path]/route.ts) so
 // the browser never makes a cross-origin call — this avoids CORS and the Cloud
@@ -488,9 +488,10 @@ export async function createVariant(
   return res.json();
 }
 
-/** `GET /variants/{user}/{app}/{session}`: every preview of the run, by concept and key. */
-export async function listVariants(appName: string, sessionId: string): Promise<VariantMap> {
+/** `GET /variants/{user}/{app}/{session}`: every preview of the run (by concept and
+ *  key), plus whether each creative can be personalised and the person-safe styles. */
+export async function listVariants(appName: string, sessionId: string): Promise<VariantsListing> {
   const res = await fetch(variantsUrl(appName, sessionId));
   if (!res.ok) throw await variantError(res);
-  return parseVariants(await res.json());
+  return parseVariantsListing(await res.json());
 }
