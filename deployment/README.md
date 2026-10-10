@@ -1518,7 +1518,12 @@ creative(s) showing a person were left out …"), and naming one is a 400
 `person_not_shareable` (a consent-store error is a 503 `consent_unavailable`). The
 included consents are recorded on the row (`person_consent_ids`, never in the public
 snapshot), and revoking a consent revokes those shares (see
-[Person references](#person-references)).
+[Person references](#person-references)). Hardening against client-seeded state: images
+are copied only from the run's own `{gcs_folder}/{agent_output_dir}/` folder (else 400
+`image_outside_bucket`); a source object whose blob metadata `consent_id` is set but isn't
+one of the share's consents is refused (400 `person_not_shareable`); the copies under
+`shares/` carry no custom metadata; and a consent revoked or narrowed while the share was
+being created revokes the new share again (409 `person_consent_changed`).
 
 ### Table
 
@@ -1712,6 +1717,16 @@ comes later.
   matters because session state is client-seedable: a recorded URI alone never deletes an
   object. Cast renders made before this change carry no metadata and are not deleted by
   a revoke (the share cascade still unpublishes them).
+- **Runs recorded at kick-off:** `POST /runs` with a person reference first appends a
+  `session:<app>/<session_id>` entry to the consent's `person_renders` (a store error is a
+  503 `person_reference_unavailable` and nothing starts). The revoke reads each recorded
+  session's state (the api's session service) and deletes the `generated_images` and
+  `person_variants` objects naming the consent (metadata-checked), so a run that died
+  mid-segment is covered; a deleted session is skipped. No new column: the markers live in
+  `person_renders`.
+- **No ADK artifact copy:** cast renders are uploaded to GCS only (no `save_artifact`), so
+  the revoke never has to reach the api's artifact service. The results page reads images
+  from GCS; a cast render simply doesn't appear in the Artifacts tab.
 
 ### Table
 
