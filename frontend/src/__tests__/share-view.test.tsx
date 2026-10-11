@@ -119,6 +119,60 @@ describe("ShareView", () => {
     expect(screen.queryAllByRole("button", { name: "more" })).toHaveLength(0);
   });
 
+  it("puts the feed caption above the image and the headline, body and CTA below it", () => {
+    const snap = slateSnapshot();
+    const { container } = render(<ShareView snapshot={snap} initialView="feed" />);
+    const article = container.querySelectorAll("article")[0] as HTMLElement;
+    const c = snap.creatives[0];
+    const img = article.querySelector("img") as HTMLElement;
+    const caption = within(article).getByText(c.caption);
+    const heading = article.querySelector(`#${article.getAttribute("aria-labelledby")}`)!;
+    const body = within(article).getByText(c.body);
+    const cta = within(article).getByText(c.cta);
+    const before = (a: Node, b: Node) =>
+      Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(before(caption, img)).toBe(true);
+    expect(before(img, heading)).toBe(true);
+    expect(before(heading, body)).toBe(true);
+    expect(before(body, cta)).toBe(true);
+    expect(heading.tagName).toBe("H2");
+    expect(heading).toHaveTextContent(c.headline);
+    // No brand prefix in the primary text: the header already names the brand.
+    expect(caption.closest("p")?.textContent?.startsWith(snap.brand)).toBe(false);
+  });
+
+  it("lays out the feed link bar with the CTA in its own cell, apart from the body", () => {
+    const snap = slateSnapshot();
+    const { container } = render(<ShareView snapshot={snap} initialView="feed" />);
+    const article = container.querySelectorAll("article")[0] as HTMLElement;
+    const c = snap.creatives[0];
+    const bar = article.querySelector("[data-slot=feed-link-bar]") as HTMLElement;
+    expect(bar).not.toBeNull();
+    const ctaCell = bar.querySelector("[data-slot=feed-cta]") as HTMLElement;
+    expect(ctaCell).not.toBeNull();
+    expect(ctaCell).toHaveTextContent(c.cta);
+    expect(within(ctaCell).queryByText(c.body)).toBeNull();
+    expect(within(bar).getByText(c.body)).toBeInTheDocument();
+    expect(within(bar).getByText(c.headline)).toBeInTheDocument();
+    expect(within(bar).getByText(snap.brand)).toBeInTheDocument();
+    expect(within(bar).getByText(c.cta).tagName).toBe("SPAN");
+  });
+
+  it("caps the feed CTA at 40% of the link bar and lets a long CTA wrap", () => {
+    const { container } = render(<ShareView snapshot={slateSnapshot()} initialView="feed" />);
+    const bar = container.querySelector("[data-slot=feed-link-bar]") as HTMLElement;
+    // The CTA track sizes to its content but never past 40% minus the gap, so the text keeps >= 60%.
+    expect(bar.className).toContain("grid-cols-[minmax(0,1fr)_fit-content(calc(40%_-_0.75rem))]");
+    expect(bar.className).toContain("max-[360px]:grid-cols-1");
+    const ctaCell = bar.querySelector("[data-slot=feed-cta]") as HTMLElement;
+    const ctaClasses = [ctaCell, ...Array.from(ctaCell.querySelectorAll("*"))]
+      .map((el) => el.getAttribute("class") ?? "")
+      .join(" ");
+    expect(ctaClasses).not.toContain("whitespace-nowrap");
+    expect(ctaClasses).toContain("whitespace-normal");
+    expect(ctaClasses).toContain("break-words");
+  });
+
   it("does not offer 'more' for a short caption", () => {
     const snap = slateSnapshot();
     snap.creatives = [{ ...snap.creatives[0], caption: "Short." }];
