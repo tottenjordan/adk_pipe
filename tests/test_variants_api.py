@@ -66,6 +66,9 @@ class FakeBlob:
     def delete(self):
         self.gcs.objects.pop((self.bucket, self.name), None)
 
+    def download_as_bytes(self):
+        return self.gcs.objects[(self.bucket, self.name)]["data"]
+
 
 class FakeGCS:
     def __init__(self):
@@ -88,7 +91,7 @@ class FakeGCS:
 
 class FakeRenderer:
     def __init__(self, outcome=None, gate: asyncio.Event | None = None):
-        self.calls: list[tuple[dict, dict, str]] = []
+        self.calls: list[tuple[dict, dict, str, tuple[bytes, str]]] = []
         self.outcome = outcome or vr.VariantRender(
             "done",
             image_bytes=b"variant",
@@ -98,8 +101,8 @@ class FakeRenderer:
         self.gate = gate
         self.started = asyncio.Event()
 
-    async def __call__(self, state, concept, photo_uri):
-        self.calls.append((dict(state), dict(concept), photo_uri))
+    async def __call__(self, state, concept, photo_uri, base_image):
+        self.calls.append((dict(state), dict(concept), photo_uri, base_image))
         self.started.set()
         if self.gate is not None:
             await self.gate.wait()
@@ -150,13 +153,30 @@ class Harness:
         )
         return cid
 
-    async def session(self, user=A, sid="s1", state=None):
+    async def session(self, user=A, sid="s1", state=None, seed_bases=True):
+        state = ready_state() if state is None else state
+        if seed_bases:
+            self.seed_bases(state)
         await self.svc.create_session(
-            app_name=APP,
-            user_id=user,
-            session_id=sid,
-            state=ready_state() if state is None else state,
+            app_name=APP, user_id=user, session_id=sid, state=state
         )
+
+    def seed_bases(self, state, metadata=None):
+        """Upload the run's base renders (``generated_images``) to the fake GCS."""
+        for record in (state.get("generated_images") or {}).values():
+            uri = record.get("gcs_uri") or ""
+            prefix = f"gs://{BUCKET}/"
+            if uri.startswith(prefix):
+                path = uri.removeprefix(prefix)
+                self.gcs.objects[(BUCKET, path)] = {
+                    "data": b"base:" + path.encode(),
+                    "content_type": "image/png",
+                    "metadata": metadata,
+                    "cache_control": None,
+                }
+
+    def variant_objects(self):
+        return {k: v for k, v in self.gcs.objects.items() if "/variants/" in k[1]}
 
     async def post(self, concept=CASTABLE, cid="consent-aaaa", user=A, sid="s1", **kw):
         return await self.client.post(
@@ -241,8 +261,10 @@ def test_variant_key_is_versioned():
     import hashlib
 
     unsalted = hashlib.sha256(b"gs://b/p.jpg|prompt|m").hexdigest()[:12]
+    v2 = hashlib.sha256(b"v2|gs://b/p.jpg|prompt|m").hexdigest()[:12]
     key = vr.variant_key("gs://b/p.jpg", "prompt", "m")
-    assert key != unsalted
+    assert vr.VARIANT_KEY_VERSION == "v3"  # edit mode renders something new
+    assert key not in (unsalted, v2)
     salted = f"{vr.VARIANT_KEY_VERSION}|gs://b/p.jpg|prompt|m".encode()
     assert key == hashlib.sha256(salted).hexdigest()[:12]
 
@@ -302,10 +324,16 @@ def test_render_preview_happy_path_and_state_isolation(caplog):
             record["gcs_uri"]
         ]
 
-        # The renderer got the stored concept and the consent's photo.
-        ((state_arg, concept_arg, photo),) = h.renderer.calls
+        # The renderer got the stored concept, the consent's photo and the
+        # run's original render (the base the edit starts from).
+        ((state_arg, concept_arg, photo, base_image),) = h.renderer.calls
         assert photo == PHOTO_A and concept_arg["concept_name"] == CASTABLE
         assert state_arg["brand"] == before["brand"]
+        base_path = before["generated_images"][CASTABLE]["gcs_uri"].removeprefix(
+            f"gs://{BUCKET}/"
+        )
+        assert base_image == (b"base:" + base_path.encode(), "image/png")
+        assert record["source_consent_id"] is None
 
         # Every appended event carries ONLY person_variants; nothing else moved.
         session = await h.state()
@@ -512,13 +540,148 @@ def test_post_allows_a_different_person_on_a_cast_concept():
         assert r.status_code == 200, r.text
         assert r.json()["consent_id"] == "consent-bbbb"
         await h.settle()
-        ((_, concept_arg, photo),) = h.renderer.calls
+        ((_, concept_arg, photo, _base),) = h.renderer.calls
         assert photo == PHOTO_A2 and concept_arg["concept_name"] == CASTABLE
         session = await h.state()
         # The base image's cast record is untouched.
         assert session.state["generated_images"][CASTABLE]["consent_id"] == (
             "consent-aaaa"
         )
+
+    run(go)
+
+
+def test_swap_records_both_consents_and_tags_the_blob():
+    async def go():
+        h = Harness()
+        await h.consent()
+        await h.consent("consent-bbbb", photo=PHOTO_A2)
+        await h.session(state=with_cast(ready_state(), CASTABLE, "consent-aaaa"))
+        key = (await h.post(cid="consent-bbbb")).json()["key"]
+        await h.settle()
+        record = (await h.get()).json()["variants"][CASTABLE][key]
+        assert record["status"] == "done"
+        assert record["consent_id"] == "consent-bbbb"
+        assert record["source_consent_id"] == "consent-aaaa"
+        uri = record["gcs_uri"]
+        for cid in ("consent-aaaa", "consent-bbbb"):
+            assert uri in (await h.store.get(cid))["person_renders"]
+        ((_, path), blob) = next(iter(h.variant_objects().items()))
+        assert uri.endswith(path)
+        assert blob["metadata"] == {
+            "consent_id": "consent-bbbb",
+            "source_consent_id": "consent-aaaa",
+        }
+
+    run(go)
+
+
+def test_revoking_the_cast_person_deletes_the_swap():
+    async def go():
+        h = Harness()
+        await h.consent()
+        await h.consent("consent-bbbb", photo=PHOTO_A2)
+        await h.session(state=with_cast(ready_state(), CASTABLE, "consent-aaaa"))
+        await h.post(cid="consent-bbbb")
+        await h.settle()
+        assert len(h.variant_objects()) == 1
+        await pr.delete_renders(await h.store.get("consent-aaaa"))
+        assert h.variant_objects() == {}
+
+    run(go)
+
+
+def test_revoking_the_cast_person_deletes_the_swap_via_the_session():
+    async def go():
+        h = Harness()
+        await h.consent()
+        await h.consent("consent-bbbb", photo=PHOTO_A2)
+        await h.session(state=with_cast(ready_state(), CASTABLE, "consent-aaaa"))
+        await h.post(cid="consent-bbbb")
+        await h.settle()
+        # Only the run marker on the cast consent (as if the URI record was lost).
+        h.store.rows["consent-aaaa"]["person_renders"] = [pr.session_marker(APP, "s1")]
+        pr.configure(
+            store=h.store, bucket=BUCKET, gcs_client=h.gcs, session_service=h.svc
+        )
+        await pr.delete_session_renders(await h.store.get("consent-aaaa"))
+        assert h.variant_objects() == {}
+
+    run(go)
+
+
+def test_swap_needs_the_cast_consent_still_active():
+    async def go():
+        h = Harness()
+        await h.consent()
+        await h.consent("consent-bbbb", photo=PHOTO_A2)
+        await h.session(state=with_cast(ready_state(), CASTABLE, "consent-aaaa"))
+        await h.store.revoke("consent-aaaa", A)
+        r = await h.post(cid="consent-bbbb")
+        assert r.status_code == 409
+        assert r.json()["detail"] == {
+            "reason": "concept_not_ready",
+            "message": "Original image is no longer available",
+        }
+        assert h.renderer.calls == []
+
+    run(go)
+
+
+def test_cast_person_revoked_during_the_render_stores_nothing():
+    async def go():
+        gate = asyncio.Event()
+        h = Harness(renderer=FakeRenderer(gate=gate))
+        await h.consent()
+        await h.consent("consent-bbbb", photo=PHOTO_A2)
+        await h.session(state=with_cast(ready_state(), CASTABLE, "consent-aaaa"))
+        key = (await h.post(cid="consent-bbbb")).json()["key"]
+        await h.renderer.started.wait()
+        await h.store.revoke("consent-aaaa", A)
+        gate.set()
+        await h.settle()
+        record = (await h.get()).json()["variants"][CASTABLE][key]
+        assert record["status"] == "failed" and record["reason"] == "consent_revoked"
+        assert h.variant_objects() == {}
+
+    run(go)
+
+
+def test_missing_base_image_is_409():
+    async def go():
+        h = Harness()
+        await h.consent()
+        await h.session(seed_bases=False)
+        r = await h.post()
+        assert r.status_code == 409
+        assert r.json()["detail"] == {
+            "reason": "concept_not_ready",
+            "message": "Original image is no longer available",
+        }
+        assert h.renderer.calls == []
+        # Refused before the daily cap counts it.
+        assert vr._STARTED == {}
+
+    run(go)
+
+
+def test_base_image_outside_the_run_folder_is_refused():
+    async def go():
+        h = Harness()
+        await h.consent()
+        state = ready_state()
+        for uri in (
+            f"gs://{BUCKET}/other_run/creative_output/0.png",
+            f"gs://another-bucket/{state['gcs_folder']}/x.png",
+            f"gs://{BUCKET}/person-refs/{pr.slug_for(A)}/me.jpg",
+        ):
+            state["generated_images"][CASTABLE]["gcs_uri"] = uri
+            await h.session(sid="s-out", state=copy.deepcopy(state))
+            r = await h.post(sid="s-out")
+            assert r.status_code == 400, uri
+            assert r.json()["detail"]["reason"] == "image_outside_bucket"
+            await h.svc.delete_session(app_name=APP, user_id=A, session_id="s-out")
+        assert h.renderer.calls == []
 
     run(go)
 
@@ -559,7 +722,7 @@ def test_rejected_and_failed_renders_upload_nothing():
         await h.settle()
         record = (await h.get()).json()["variants"][CASTABLE][key]
         assert record["status"] == "rejected" and record["reason"] == "image_safety"
-        assert record["gcs_uri"] is None and h.gcs.objects == {}
+        assert record["gcs_uri"] is None and h.variant_objects() == {}
 
         boom = Harness(renderer=FakeRenderer(outcome=RuntimeError("quota")))
         await boom.consent()
@@ -585,7 +748,7 @@ def test_consent_revoked_during_the_render_uploads_nothing():
         await h.settle()
         record = (await h.get()).json()["variants"][CASTABLE][key]
         assert record["status"] == "failed" and record["reason"] == "consent_revoked"
-        assert record["gcs_uri"] is None and h.gcs.objects == {}
+        assert record["gcs_uri"] is None and h.variant_objects() == {}
 
     run(go)
 
@@ -606,7 +769,7 @@ def test_consent_revoked_during_the_upload_deletes_the_variant(monkeypatch):
         await h.settle()
         record = (await h.get()).json()["variants"][CASTABLE][key]
         assert record["status"] == "failed" and record["reason"] == "consent_revoked"
-        assert record["gcs_uri"] is None and h.gcs.objects == {}
+        assert record["gcs_uri"] is None and h.variant_objects() == {}
         # still recorded, so a retried consent revoke covers it too
         assert len((await h.store.get("consent-aaaa"))["person_renders"]) == 1
 
@@ -627,7 +790,7 @@ def test_render_record_failure_uploads_nothing(monkeypatch):
         await h.settle()
         record = (await h.get()).json()["variants"][CASTABLE][key]
         assert record["status"] == "failed" and record["reason"] == "render_error"
-        assert h.gcs.objects == {}
+        assert h.variant_objects() == {}
 
     run(go)
 
@@ -765,41 +928,82 @@ def _patch_image(monkeypatch, blocked=False):
     return calls, downloads
 
 
-def test_render_variant_uses_run_inputs_and_the_person(monkeypatch):
+def _png(width: int, height: int) -> bytes:
+    import io
+
+    from PIL import Image
+
+    out = io.BytesIO()
+    Image.new("RGB", (width, height), (10, 20, 30)).save(out, format="PNG")
+    return out.getvalue()
+
+
+def test_render_variant_edits_the_original(monkeypatch):
+    from creative_agent import image_qa
+    from creative_agent.person_edit import EDIT_INSTRUCTION
+
     calls, downloads = _patch_image(monkeypatch)
+    qa_kwargs: list[dict] = []
+    real_inspect = image_qa.inspect_image
+
+    def spy(*a, **k):
+        qa_kwargs.append(k)
+        return real_inspect(*a, **k)
+
+    monkeypatch.setattr(image_qa, "inspect_image", spy)
     state = creative_state()
-    state["visual_aspect_ratio"] = "4:5"
+    state["visual_aspect_ratio"] = "9:16"  # ignored: the original's size wins
     state["rating_strictness"] = ["unwanted_logo"]
-    state["reference_image_uri"] = ""
     state["reference_images"] = [
         {"uri": f"gs://{BUCKET}/refs/product.png", "role": "product"},
-        # A person photo smuggled in as a "style" reference is never used.
-        {"uri": PHOTO_A2, "role": "style"},
     ]
     concept = vr.find_concept(state, CASTABLE)
-    out = asyncio.run(vr.render_variant(state, concept, PHOTO_A))
+    base = (_png(800, 1000), "image/png")
+    out = asyncio.run(vr.render_variant(state, concept, PHOTO_A, base))
     assert out.status == "done" and out.image_bytes == b"img"
     assert out.qa is not None and out.qa["passed"] is True
-    assert downloads == ["refs/product.png", f"person-refs/{pr.slug_for(A)}/me.jpg"]
+    assert out.qa["composition_changed"] is False
+    # Only the person photo is fetched: the original already has the product.
+    assert downloads == [f"person-refs/{pr.slug_for(A)}/me.jpg"]
     (call,) = calls
     image_config = call["config"].image_config
-    assert image_config.aspect_ratio == "4:5"
+    assert image_config.aspect_ratio == "4:5"  # nearest to 800x1000
     assert image_config.person_generation == "ALLOW_ADULT"
-    text = call["contents"][0]
-    assert "Reference image 1 (product)" in text
-    assert "Reference image 2 (person)" in text
-    assert "No logos, brand marks or trademarks except those of" in text
-    assert "The hero is the person in the person reference image." in text
-    assert vr.VARIANT_APPEARANCE_LINE.strip() in text
+    text, base_label, base_part, person_label, person_part = call["contents"]
+    assert text.text.startswith(EDIT_INSTRUCTION)
+    assert "No logos, brand marks or trademarks except those of" in text.text
+    assert base_label.text == "Image 1 (original ad):"
+    assert base_part.inline_data.data == base[0]
+    assert person_label.text == "Image 2 (person):"
+    assert person_part.inline_data.data.startswith(b"bytes:person-refs/")
+    # The concept prompt is never sent to the image model.
+    assert concept["image_generation_prompt"] not in text.text
+    (qa,) = qa_kwargs
+    assert qa["original_image"] == base
+    assert qa["person_image"][0].startswith(b"bytes:person-refs/")
+
+
+def test_render_variant_unreadable_original_uses_the_concept_ratio(monkeypatch):
+    calls, _ = _patch_image(monkeypatch)
+    state = creative_state()
+    state["visual_aspect_ratio"] = "16:9"
+    concept = vr.find_concept(state, CASTABLE)
+    out = asyncio.run(
+        vr.render_variant(state, concept, PHOTO_A, (b"not an image", "image/png"))
+    )
+    assert out.status == "done"
+    assert calls[0]["config"].image_config.aspect_ratio == "16:9"
 
 
 def test_render_variant_blocked_is_rejected_without_fallback(monkeypatch):
     calls, _ = _patch_image(monkeypatch, blocked=True)
     state = creative_state()
     concept = vr.find_concept(state, CASTABLE)
-    out = asyncio.run(vr.render_variant(state, concept, PHOTO_A))
+    out = asyncio.run(
+        vr.render_variant(state, concept, PHOTO_A, (_png(64, 64), "image/png"))
+    )
     assert out.status == "rejected" and out.reason == "image_safety"
-    assert len(calls) == 1  # no person-less render
+    assert len(calls) == 1  # no fresh render
 
 
 def test_render_variant_photo_unavailable(monkeypatch):
@@ -809,7 +1013,12 @@ def test_render_variant_photo_unavailable(monkeypatch):
     monkeypatch.setattr(image_tools.config, "GCS_BUCKET_NAME", "another-bucket")
     state = creative_state()
     out = asyncio.run(
-        vr.render_variant(state, vr.find_concept(state, CASTABLE), PHOTO_A)
+        vr.render_variant(
+            state,
+            vr.find_concept(state, CASTABLE),
+            PHOTO_A,
+            (_png(64, 64), "image/png"),
+        )
     )
     assert out.status == "failed" and out.reason == "photo_unavailable"
     assert calls == []

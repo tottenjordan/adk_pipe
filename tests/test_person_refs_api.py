@@ -765,6 +765,56 @@ def test_revoke_deletes_cast_renders_and_variants_of_recorded_sessions():
     run(go)
 
 
+def test_revoke_deletes_swaps_derived_from_the_persons_render():
+    """A person swap edits a render cast with this consent: its blob carries
+    ``source_consent_id`` = this consent, and it goes on revoke (via the
+    recorded URI and via a recorded run's ``person_variants``)."""
+
+    async def go():
+        h = Harness()
+        cid = (await h.create()).json()["consent_id"]
+        recorded = _variant(cid, "recorded.png")
+        in_session = _variant(cid, "session.png")
+        unrelated = _variant(cid, "unrelated.png")
+        for uri in (recorded, in_session):
+            h.gcs.add(
+                uri, metadata={"consent_id": "new-12345", "source_consent_id": cid}
+            )
+        h.gcs.add(unrelated, metadata={"consent_id": "new-12345"})
+        await pr.record_renders(A, cid, [recorded, unrelated])
+        await h.svc.create_session(
+            app_name="creative_agent",
+            user_id=A,
+            session_id="s-1",
+            state={
+                "person_variants": {
+                    "c": {
+                        "k1": {
+                            "consent_id": "new-12345",
+                            "source_consent_id": cid,
+                            "gcs_uri": in_session,
+                        }
+                    }
+                }
+            },
+        )
+        await pr.record_session(A, cid, "creative_agent", "s-1")
+        assert pr.session_render_uris(
+            (
+                await h.svc.get_session(
+                    app_name="creative_agent", user_id=A, session_id="s-1"
+                )
+            ).state,
+            cid,
+        ) == [in_session]
+        r = await h.client.delete(f"/person-refs/{A}/{cid}")
+        assert r.status_code == 204, r.text
+        assert not h.gcs.has(recorded) and not h.gcs.has(in_session)
+        assert h.gcs.has(unrelated)  # neither metadata id names this consent
+
+    run(go)
+
+
 def test_session_read_failure_is_502_and_retryable(monkeypatch):
     async def go():
         h = Harness()
