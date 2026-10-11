@@ -61,6 +61,7 @@ def test_combined_research_pipeline_graph():
         "research_join",
         "research_barrier",
         "load_brand_history",
+        "trend_situation_pipeline",
         "merge_planners",
         "refinement_gate",
         "combined_web_evaluator",
@@ -80,9 +81,11 @@ def test_combined_research_pipeline_graph():
         ("__START__", "gs_sequential_planner", None),
         ("__START__", "ca_sequential_planner", None),
         ("__START__", "load_brand_history", None),
+        ("__START__", "trend_situation_pipeline", None),
         ("gs_sequential_planner", "research_join", None),
         ("ca_sequential_planner", "research_join", None),
         ("load_brand_history", "research_join", None),
+        ("trend_situation_pipeline", "research_join", None),
         ("research_join", "research_barrier", None),
         ("research_barrier", "merge_planners", None),
         ("merge_planners", "refinement_gate", None),
@@ -97,6 +100,58 @@ def test_combined_research_pipeline_graph():
         ("brief_reviser_failsoft", "brief_gate", None),
         ("save_research_pdf_node", "research_report_ready", None),
     }
+
+
+def test_trend_situation_branch_graph():
+    """The trend situation branch: a run/skip gate, both routes converging on
+    the no-LLM validator; the run route is a FailSoftNode around a
+    RetryUntilKeyNode-wrapped searcher -> synthesizer Workflow."""
+    from google.adk.tools import google_search
+    from google.adk.workflow import Workflow
+
+    from agent_common import FailSoftNode, RetryUntilKeyNode
+    from creative_agent import callbacks
+    from creative_agent.agent import combined_research_pipeline
+    from creative_agent.schemas import TrendSituationDraft
+
+    branch = _graph_nodes(combined_research_pipeline)["trend_situation_pipeline"]
+    assert isinstance(branch, Workflow)
+    assert _graph_edges(branch) == {
+        ("__START__", "trend_situation_gate", None),
+        ("trend_situation_gate", "trend_situation_failsoft", "run"),
+        ("trend_situation_gate", "validate_trend_situation", "skip"),
+        ("trend_situation_failsoft", "validate_trend_situation", None),
+    }
+    failsoft = _graph_nodes(branch)["trend_situation_failsoft"]
+    assert isinstance(failsoft, FailSoftNode)
+    retry = failsoft.node
+    assert isinstance(retry, RetryUntilKeyNode)
+    assert retry.output_key == "trend_situation_draft"
+    assert retry.max_attempts == 2
+    pair = retry.node
+    assert isinstance(pair, Workflow)
+    assert _graph_edges(pair) == {
+        ("__START__", "trend_situation_searcher", None),
+        ("trend_situation_searcher", "trend_situation_synthesizer", None),
+    }
+    by_name = _graph_nodes(pair)
+    searcher = by_name["trend_situation_searcher"]
+    synthesizer = by_name["trend_situation_synthesizer"]
+    assert google_search in searcher.tools
+    assert searcher.output_key == "trend_situation_raw"
+    assert searcher.after_agent_callback is callbacks.collect_research_sources_callback
+    assert not synthesizer.tools
+    assert synthesizer.output_schema is TrendSituationDraft
+    assert synthesizer.output_key == "trend_situation_draft"
+
+
+def test_trend_situation_gate_route():
+    from creative_agent.sub_agents.trend_situation.agent import (
+        trend_situation_gate_route,
+    )
+
+    assert trend_situation_gate_route(True) == "run"
+    assert trend_situation_gate_route(False) == "skip"
 
 
 def test_refinement_pair_is_retry_wrapped_workflow():
@@ -182,6 +237,8 @@ def test_graph_llm_agents_are_single_turn():
         "campaign_web_planner",
         "campaign_web_searcher",
         "campaign_web_synthesizer",
+        "trend_situation_searcher",
+        "trend_situation_synthesizer",
         "merge_planners",
         "combined_web_evaluator",
         "enhanced_combined_searcher",

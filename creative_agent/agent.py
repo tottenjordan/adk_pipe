@@ -76,6 +76,7 @@ from .schemas import (  # noqa: F401
 )
 from .sub_agents.campaign_researcher.agent import ca_sequential_planner
 from .sub_agents.trend_researcher.agent import gs_sequential_planner
+from .sub_agents.trend_situation.agent import trend_situation_pipeline
 
 # --- config ---
 logging.basicConfig(
@@ -579,7 +580,9 @@ def research_report_ready(ctx: Context) -> str:
 # round (degraded research) or straight to the composer (healthy path). The
 # composer's report is then distilled into the structured creative brief, which
 # brief_gate either accepts or sends through a bounded revision loop; on accept
-# the report (with the brief) is saved as the research PDF.
+# the report (with the brief) is saved as the research PDF. The fan-out also
+# runs load_brand_history and the trend situation branch (the trend's validated
+# current moment, sub_agents/trend_situation), so the join waits for all four.
 combined_research_pipeline = Workflow(
     name="combined_research_pipeline",
     description="Runs parallel campaign + trend research, a refinement round only when that research is degraded, then a cited report and a structured creative brief.",
@@ -587,7 +590,12 @@ combined_research_pipeline = Workflow(
     edges=[
         (
             "START",
-            (gs_sequential_planner, ca_sequential_planner, load_brand_history),
+            (
+                gs_sequential_planner,
+                ca_sequential_planner,
+                load_brand_history,
+                trend_situation_pipeline,
+            ),
             research_join,
             research_barrier,
             merge_planners,

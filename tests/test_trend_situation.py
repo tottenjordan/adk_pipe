@@ -287,6 +287,31 @@ def test_state_delta_reads_draft_sources_and_state_clock():
     assert delta["trend_situation_md"].startswith("Current moment (upcoming)")
 
 
+def test_situation_prompts_use_only_known_tokens():
+    """Every state token the situation prompts read; the date tokens and the
+    upstream outputs are optional so a run without them never KeyErrors."""
+    import re
+
+    from creative_agent.prompts import (
+        TREND_SITUATION_SEARCHER_INSTR,
+        TREND_SITUATION_SYNTHESIZER_INSTR,
+    )
+
+    date_tokens = {"current_date?", "current_weekday?", "current_timezone?"}
+    tokens = re.compile(r"\{([^{}]+)\}")
+    assert set(tokens.findall(TREND_SITUATION_SEARCHER_INSTR)) == date_tokens | {
+        "target_search_trends",
+        "target_audience",
+    }
+    assert set(tokens.findall(TREND_SITUATION_SYNTHESIZER_INSTR)) == date_tokens | {
+        "target_search_trends",
+        "trend_situation_raw?",
+        "sources?",
+    }
+    assert "unknown" in TREND_SITUATION_SYNTHESIZER_INSTR
+    assert "sensitive" in TREND_SITUATION_SYNTHESIZER_INSTR
+
+
 def test_state_delta_without_a_draft_abstains():
     from creative_agent.trend_situation import trend_situation_state_delta
 

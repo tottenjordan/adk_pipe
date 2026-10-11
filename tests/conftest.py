@@ -61,6 +61,18 @@ def _offline_brand_history(monkeypatch):
     monkeypatch.setattr(module, "_get_gcs_client", _no_live_client)
 
 
+@pytest.fixture(autouse=True)
+def _trend_state_off(monkeypatch):
+    """The trend situation branch (on by default in production) adds a grounded
+    searcher + synthesizer to combined_research_pipeline's fan-out. Graph tests
+    script their stub models per agent, so keep the branch on its "skip" route
+    unless a test turns it on (``config.trend_state_enabled = True``) and
+    scripts it (tests/test_creative_agent_graph.py)."""
+    from creative_agent.config import config
+
+    monkeypatch.setattr(config, "trend_state_enabled", False)
+
+
 @pytest.fixture
 def image_qa_off(monkeypatch):
     """Disable post-render image QA (on by default) for tests that drive

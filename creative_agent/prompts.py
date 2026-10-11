@@ -202,6 +202,72 @@ REFINED_WEB_SYNTHESIZER_INSTR = """Role: You are a focused Research Refinement S
 
     """
 
+# --- TREND SITUATION (the trend's current moment) --- #
+# The grounded searcher -> synthesizer pair in combined_research_pipeline's
+# START fan-out (sub_agents/trend_situation). The synthesizer's draft is
+# validated in code (creative_agent/trend_situation.py), which abstains to
+# "unknown" unless the dates and outcome are source-backed and inside the
+# window. The date tokens are optional: they are seeded per run by the
+# date-awareness step and resolve empty without it.
+TREND_SITUATION_DATE_LINE = 'Today is {current_date?} ({current_weekday?}, {current_timezone?}). Interpret "yesterday", "tonight", "tomorrow" and "this weekend" relative to this date, and never assume an event\'s timing or result without a dated source.'
+
+TREND_SITUATION_SEARCHER_INSTR = (
+    """Role: You are a news researcher establishing the CURRENT MOMENT of a trending topic.
+
+    """
+    + TREND_SITUATION_DATE_LINE
+    + """
+
+    <INSTRUCTIONS>
+    1.  **Find the dated events:** use the `google_search` tool to find the trend's most recent and next notable dated events relative to today.
+        *   For sports: the last game's result with its date and final score, and the next game's date (and kickoff time if stated).
+        *   For other trends: the dated event driving interest (a launch, an episode, a release, an announcement, a ceremony) and whether it has happened yet.
+    2.  **Prefer fresh sources:** prefer sources published in the last 7 days. Quote the dates exactly as the sources state them; never infer a date.
+    3.  **Flag sensitivity:** note any tragedy, injury, death, scandal or disaster connected to the trend.
+    4.  **Report RAW findings:** list the dated facts you found (event, date, result or status, who reported it), plus the public sentiment. Plain text; no polished report. If no source dates an event, say so plainly.
+    </INSTRUCTIONS>
+
+    <CONTEXT>
+        <target_search_trends>{target_search_trends}</target_search_trends>
+        <target_audience>{target_audience}</target_audience>
+    </CONTEXT>
+    """
+)
+
+TREND_SITUATION_SYNTHESIZER_INSTR = (
+    """Role: You are a careful fact checker. Turn the raw findings about a trend's current moment into ONE structured situation.
+
+    """
+    + TREND_SITUATION_DATE_LINE
+    + """
+
+    <INSTRUCTIONS>
+    1.  **Abstain when unsure:** choose phase "unknown" unless the findings state the event's date (and, for a finished event, its outcome). Never guess a date, a score or a result.
+    2.  **Phase:** "upcoming" = a dated event is still to come; "live" = it is happening right now; "just_happened" = a dated event ended recently with a known outcome; "ongoing" = a continuing story without one dated event; "evergreen" = nothing time-bound; "sensitive" = a tragedy, injury, death, scandal or disaster (choose it whenever one is involved, whatever else is true).
+    3.  **Dates:** `event_start` (and `event_end` when it differs) as an ISO date (YYYY-MM-DD) or datetime with its UTC offset, exactly as the sources state them.
+    4.  **Outcome:** for "just_happened" only, `outcome` from the trend subject's side (win, loss, draw; "other" for a non-sports outcome) and `outcome_summary` as ONE factual sentence. Otherwise leave both empty.
+    5.  **Sources:** `source_ids` lists the "src-N" ids from <sources> that state the date and outcome. Cite only ids present in <sources>; never invent one.
+    6.  **Confidence:** "high" only when sources agree on the date and outcome; "low" when they conflict or are old.
+    </INSTRUCTIONS>
+
+    <CONTEXT>
+        <target_search_trends>{target_search_trends}</target_search_trends>
+
+        <trend_situation_raw>
+        {trend_situation_raw?}
+        </trend_situation_raw>
+
+        <sources>
+        {sources?}
+        </sources>
+    </CONTEXT>
+
+    <OUTPUT_FORMAT>
+    **CRITICAL RULE: Your entire output MUST be a single, raw JSON object validating against the 'TrendSituationDraft' schema.**
+    </OUTPUT_FORMAT>
+    """
+)
+
 COMBINED_REPORT_COMPOSER_INSTR = """Role: You are the Lead Campaign Strategist. 
     Your final task is to generate the definitive and comprehensive research report by merging the initial Strategic Brief with any Refinement Findings. This report will directly inform the Ad Copy and Visual Generation teams.
 
