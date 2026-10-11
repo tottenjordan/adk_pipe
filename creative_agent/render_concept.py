@@ -13,6 +13,10 @@ needing an ADK ``ToolContext``, so it serves both callers:
   with ``fallback_without_person=False`` (a variant is the person; a blocked
   photo is a ``rejected`` result, never a person-less render).
 
+``render_edit`` is the variants' edit mode: instead of re-generating the scene it
+edits the run's original render so only the person changes (``person_edit``),
+and its image check also compares the edit with the original (composition).
+
 It never touches session state, uploads or logs the person photo's URI.
 """
 
@@ -30,6 +34,7 @@ from google.genai import types
 from . import image_tools
 from .concept_guard import neutralise_person_prompt
 from .config import config
+from .person_edit import EDIT_INSTRUCTION, edit_contents
 from .person_render import NO_IMAGE
 
 PHOTO_UNAVAILABLE = "photo_unavailable"
@@ -264,6 +269,78 @@ async def render_concept(
     finally:
         if pacing.claims_done is not None:
             pacing.claims_done.set()
+
+
+async def render_edit(
+    base_image: tuple[bytes, str],
+    person: types.Part,
+    concept: dict,
+    *,
+    aspect_ratio: str,
+    strictness: Sequence[str] = (),
+    qa: bool = True,
+    brand: str = "",
+    target_product: str = "",
+    budget: image_tools._RerenderBudget | None = None,
+) -> RenderResult:
+    """Edit the original render ``base_image`` (``(bytes, mime)``) so only its
+    main person becomes the person in ``person`` (personalised variants).
+
+    One edit from the original (``person_edit.edit_contents``: the instruction,
+    the labelled original, the labelled person photo) with
+    ``person_generation=ALLOW_ADULT``. A blocked edit returns no image and the
+    ``rejected_reason``; there is no fallback. With ``qa``, the image check
+    compares the edit with the person photo (likeness) and the original
+    (composition); a failure repeats the edit of the original with
+    ``image_qa.correction_text`` appended to the instruction (bounded like
+    ``render_concept``). ``concept`` is QA context only (motif, product, text);
+    its prompt is never sent to the image model.
+    """
+    budget = budget or image_tools._RerenderBudget(config.image_qa_max_rerenders)
+    entry = {**concept, "casts_person_reference": True}
+    base_part = types.Part.from_bytes(data=base_image[0], mime_type=base_image[1])
+
+    def contents_for(instruction: str) -> list[types.Part]:
+        return edit_contents(
+            base_part,
+            person,
+            brand=brand,
+            strictness=strictness,
+            instruction=instruction,
+        )
+
+    rendered, reason = await image_tools._render_person_image(
+        contents_for(EDIT_INSTRUCTION), aspect_ratio
+    )
+    if rendered is None:
+        logging.warning(
+            f"Person edit for '{entry.get('concept_name', '')}' rejected ({reason})"
+        )
+        return RenderResult(
+            None, "", 1, None, None, False, reason or NO_IMAGE, concept=entry
+        )
+    if not qa:
+        return _result(rendered, 1, None, None, True, None, entry, False)
+
+    async def rerender(contents, ratio: str) -> tuple[bytes, str] | None:
+        retry, _reason = await image_tools._render_person_image(contents, ratio)
+        return retry  # a blocked re-edit keeps the previous attempt
+
+    kept, attempts, record, issue = await image_tools._inspect_and_rerender(
+        entry,
+        rendered,
+        EDIT_INSTRUCTION,
+        aspect_ratio,
+        contents_for,
+        brand,
+        target_product,
+        budget,
+        render=rerender,
+        strictness=strictness,
+        person_image=person_image_of(person),
+        original_image=base_image,
+    )
+    return _result(kept, attempts, record, issue, True, None, entry, True)
 
 
 def _result(

@@ -11,12 +11,14 @@ from google.genai import types
 
 from creative_agent import image_qa, image_tools
 from creative_agent.image_qa import ImageQAResult
+from creative_agent.person_edit import EDIT_INSTRUCTION
 from creative_agent.person_render import PERSON_ROLE_INSTRUCTION
 from creative_agent.render_concept import (
     PHOTO_UNAVAILABLE,
     RenderReferences,
     render_concept,
     render_contents,
+    render_edit,
 )
 from tests._fakes import noop_async
 
@@ -197,6 +199,86 @@ def test_qa_off_and_qa_error(monkeypatch):
     errored = asyncio.run(render_concept(CONCEPT, aspect_ratio="1:1"))
     assert errored.rendered == (b"img", "image/png")
     assert errored.qa is None and errored.qa_unavailable is True
+
+
+# --- render_edit (personalised variants: edit the original) -------------------------
+
+BASE_IMAGE = (b"base", "image/png")
+
+
+def test_edit_sends_original_then_person_with_allow_adult(monkeypatch):
+    calls, qa_calls = _patch(monkeypatch, lambda _k, n: _response(b"edited"))
+    result = asyncio.run(
+        render_edit(
+            BASE_IMAGE,
+            PHOTO,
+            CONCEPT,
+            aspect_ratio="4:5",
+            brand="PRS",
+            target_product="guitar",
+        )
+    )
+    assert result.rendered == (b"edited", "image/png")
+    assert result.cast is True and result.rejected_reason is None
+    assert result.attempts == 1 and result.qa["passed"] is True
+    (call,) = calls
+    assert call["config"].image_config.person_generation == "ALLOW_ADULT"
+    assert call["config"].image_config.aspect_ratio == "4:5"
+    text, base_label, base, person_label, person = call["contents"]
+    assert text.text.startswith(EDIT_INSTRUCTION)
+    assert base_label.text == "Image 1 (original ad):"
+    assert base.inline_data.data == b"base"
+    assert person_label.text == "Image 2 (person):" and person is PHOTO
+    # QA compares with both the person photo and the original.
+    (qa,) = qa_calls
+    assert qa["person_image"] == (b"face", "image/jpeg")
+    assert qa["original_image"] == BASE_IMAGE
+    assert qa["concept"]["casts_person_reference"] is True
+
+
+def test_blocked_edit_is_rejected_without_fallback(monkeypatch):
+    calls, qa_calls = _patch(
+        monkeypatch,
+        lambda _k, _n: _response(None, finish=types.FinishReason.IMAGE_SAFETY),
+    )
+    result = asyncio.run(render_edit(BASE_IMAGE, PHOTO, CONCEPT, aspect_ratio="1:1"))
+    assert result.rendered is None and result.cast is False
+    assert result.rejected_reason == "image_safety"
+    assert len(calls) == 1 and qa_calls == []
+
+
+def test_edit_rerender_repeats_the_edit_with_the_correction(monkeypatch):
+    calls, qa_calls = _patch(
+        monkeypatch,
+        lambda _k, n: _response(f"edit{n}".encode()),
+        verdicts=[
+            _verdict(
+                composition_changed=True,
+                composition_differences=["6 flags instead of 2"],
+            ),
+            _verdict(),
+        ],
+    )
+    result = asyncio.run(
+        render_edit(BASE_IMAGE, PHOTO, CONCEPT, aspect_ratio="1:1", brand="PRS")
+    )
+    assert result.rendered == (b"edit2", "image/png") and result.attempts == 2
+    assert len(calls) == 2 and len(qa_calls) == 2
+    retry = calls[1]["contents"]
+    assert retry[0].text.startswith(EDIT_INSTRUCTION + "\n\nCorrect these issues")
+    assert "6 flags instead of 2" in retry[0].text
+    assert retry[2].inline_data.data == b"base"  # still edits the original
+    assert retry[4] is PHOTO
+    assert calls[1]["config"].image_config.person_generation == "ALLOW_ADULT"
+
+
+def test_edit_qa_off(monkeypatch):
+    calls, qa_calls = _patch(monkeypatch, lambda _k, n: _response(b"edited"))
+    result = asyncio.run(
+        render_edit(BASE_IMAGE, PHOTO, CONCEPT, aspect_ratio="1:1", qa=False)
+    )
+    assert result.rendered == (b"edited", "image/png") and result.qa is None
+    assert qa_calls == []
 
 
 # --- generate_image batch behaviour on failures ---------------------------------------

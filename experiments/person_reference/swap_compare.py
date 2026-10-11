@@ -51,7 +51,15 @@ from typing import Any
 from google.genai import types
 from pydantic import BaseModel
 
-from creative_agent.image_tools import REFERENCE_IGNORE_TEXT_LINE, no_other_logos_line
+# The edit request moved to creative_agent.person_edit (PR 1); re-exported
+# here for the spike's tests and live loop.
+from creative_agent.person_edit import (  # noqa: F401
+    BASE_LABEL,
+    EDIT_INSTRUCTION,
+    PERSON_LABEL,
+    edit_contents,
+    nearest_aspect_ratio,
+)
 
 MODES: tuple[str, ...] = ("regenerate", "edit")
 DEFAULT_OUT = Path(__file__).parent / "results" / "swap"
@@ -69,20 +77,6 @@ SAME_KEYS: tuple[str, ...] = (
     "same_product",
 )
 COMPARISON_KEYS: tuple[str, ...] = (*SAME_KEYS, "only_person_changed", "differences")
-
-# The prototype edit instruction (plan Task 1.1; PR 1 moves it to
-# creative_agent/person_edit.py). Brace-free.
-EDIT_INSTRUCTION = (
-    "Edit image 1. Replace only the main person with the person in image 2: keep "
-    "their face shape, skin tone, hair, eye colour, apparent age and "
-    "distinguishing features. Keep everything else in image 1 exactly as it is: "
-    "the composition and framing, camera angle, lighting, colours, background, "
-    "every prop and its count, all arrows and graphic elements and their "
-    "direction, every word of text, logos and the product. Match image 1's art "
-    "style. Do not add, remove or move anything else."
-)
-BASE_LABEL = "Image 1 (original ad):"
-PERSON_LABEL = "Image 2 (person):"
 
 COMPARISON_INSTRUCTION = (
     "Image 1 is an original advertising image. Image 2 is a variant that was "
@@ -240,44 +234,6 @@ def summary_markdown(summary: Mapping[str, Any]) -> str:
         "",
     ]
     return "\n".join(lines)
-
-
-def _ratio_value(ratio: str) -> float:
-    w, h = ratio.split(":")
-    return float(w) / float(h)
-
-
-def nearest_aspect_ratio(
-    width: int, height: int, allowed: Sequence[str], default: str = "9:16"
-) -> str:
-    """The allowed ``"w:h"`` ratio closest to ``width / height`` — pure."""
-    if width <= 0 or height <= 0 or not allowed:
-        return default
-    actual = width / height
-    return min(allowed, key=lambda r: abs(_ratio_value(r) - actual))
-
-
-def edit_contents(
-    base_part: types.Part,
-    person_part: types.Part,
-    *,
-    brand: str = "",
-    strictness: Sequence[str] = (),
-) -> list[types.Part]:
-    """The edit request — pure. Order matters: the instruction (+ the
-    ``unwanted_logo`` strictness line + the ignore-reference-text line), then
-    the labelled original, then the labelled person photo."""
-    lines = [EDIT_INSTRUCTION]
-    if "unwanted_logo" in strictness:
-        lines.append(no_other_logos_line(brand))
-    lines.append(REFERENCE_IGNORE_TEXT_LINE)
-    return [
-        types.Part.from_text(text="\n\n".join(lines)),
-        types.Part.from_text(text=BASE_LABEL),
-        base_part,
-        types.Part.from_text(text=PERSON_LABEL),
-        person_part,
-    ]
 
 
 # --- live path (never exercised by tests) -------------------------------------
