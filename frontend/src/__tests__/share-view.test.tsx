@@ -158,6 +158,21 @@ describe("ShareView", () => {
     expect(within(bar).getByText(c.cta).tagName).toBe("SPAN");
   });
 
+  it("caps the feed CTA at 40% of the link bar and lets a long CTA wrap", () => {
+    const { container } = render(<ShareView snapshot={slateSnapshot()} initialView="feed" />);
+    const bar = container.querySelector("[data-slot=feed-link-bar]") as HTMLElement;
+    // The CTA track sizes to its content but never past 40% minus the gap, so the text keeps >= 60%.
+    expect(bar.className).toContain("grid-cols-[minmax(0,1fr)_fit-content(calc(40%_-_0.75rem))]");
+    expect(bar.className).toContain("max-[360px]:grid-cols-1");
+    const ctaCell = bar.querySelector("[data-slot=feed-cta]") as HTMLElement;
+    const ctaClasses = [ctaCell, ...Array.from(ctaCell.querySelectorAll("*"))]
+      .map((el) => el.getAttribute("class") ?? "")
+      .join(" ");
+    expect(ctaClasses).not.toContain("whitespace-nowrap");
+    expect(ctaClasses).toContain("whitespace-normal");
+    expect(ctaClasses).toContain("break-words");
+  });
+
   it("does not offer 'more' for a short caption", () => {
     const snap = slateSnapshot();
     snap.creatives = [{ ...snap.creatives[0], caption: "Short." }];

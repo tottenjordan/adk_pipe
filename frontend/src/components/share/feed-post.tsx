@@ -49,7 +49,7 @@ export function FeedPost({ token, brand, creative, headingId }: ShareCreativePro
       <ShareImage token={token} creative={creative} className="w-full" />
       <div
         data-slot="feed-link-bar"
-        className="grid grid-cols-[1fr_auto] items-center gap-3 border-t border-border bg-muted px-3 py-3 max-[360px]:grid-cols-1"
+        className="grid grid-cols-[minmax(0,1fr)_fit-content(calc(40%_-_0.75rem))] items-center gap-3 border-t border-border bg-muted px-3 py-3 max-[360px]:grid-cols-1"
       >
         <div className="min-w-0">
           <p className="truncate text-xs text-muted-foreground">{brand}</p>
@@ -67,7 +67,7 @@ export function FeedPost({ token, brand, creative, headingId }: ShareCreativePro
         </div>
         {creative.cta && (
           <div data-slot="feed-cta" className="max-[360px]:w-full">
-            <span className="block whitespace-nowrap rounded-sm border border-border bg-card px-4 py-2 text-center text-sm font-semibold text-foreground">
+            <span className="block whitespace-normal break-words rounded-sm border border-border bg-card px-4 py-2 text-center text-sm font-semibold leading-snug text-foreground">
               {creative.cta}
             </span>
           </div>
