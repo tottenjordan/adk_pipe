@@ -14,6 +14,7 @@ from agent_common.idempotency import stable_row_id
 from agent_common.state import memorize  # noqa: F401  (ADK tool; re-exported)
 
 from .config import config
+from .trend_context import trend_context_for
 
 # --- config ---
 logging.basicConfig(
@@ -248,6 +249,7 @@ def _build_trend_insert_sql(
     target_product: str,
     key_selling_points: str,
     research_gaps: str,
+    trend_context: str = "",
 ) -> tuple[str, list[bigquery.ScalarQueryParameter]]:
     """Build the single-row MERGE for `target_trends_crf` (pure, unit-testable).
 
@@ -261,6 +263,12 @@ def _build_trend_insert_sql(
     clean run, or the `collect_degradation_warnings` note(s) when the resilient
     research wrapper exhausted its retries. The `research_gaps` column must already
     exist (additive `ALTER TABLE ... ADD COLUMN research_gaps STRING`).
+
+    `trend_context` is the term's compact research JSON
+    (`trend_scout.trend_context.trend_context_for`; "" when nothing parsed),
+    forwarded by the CRF worker to the creative run as `trend_scout_context`.
+    Its column must exist first too (additive
+    `ALTER TABLE ... ADD COLUMN IF NOT EXISTS trend_context STRING`).
 
     INSERT-only MERGE keyed on `(uuid, target_trend)`: `unique_id` is
     session-derived, so an at-least-once re-run of the tool leaves one row per
@@ -280,7 +288,8 @@ def _build_trend_insert_sql(
         @target_audience AS target_audience,
         @target_product AS target_product,
         @key_selling_points AS key_selling_point,
-        @research_gaps AS research_gaps
+        @research_gaps AS research_gaps,
+        @trend_context AS trend_context
     ) S
     ON T.uuid = S.uuid AND T.target_trend = S.target_trend
     WHEN NOT MATCHED THEN
@@ -295,7 +304,8 @@ def _build_trend_insert_sql(
         target_audience,
         target_product,
         key_selling_point,
-        research_gaps)
+        research_gaps,
+        trend_context)
       VALUES (S.uuid,
         S.target_trend,
         S.refresh_date,
@@ -306,7 +316,8 @@ def _build_trend_insert_sql(
         S.target_audience,
         S.target_product,
         S.key_selling_point,
-        S.research_gaps);
+        S.research_gaps,
+        S.trend_context);
     """
     params = [
         bigquery.ScalarQueryParameter("unique_id", "STRING", unique_id),
@@ -321,6 +332,7 @@ def _build_trend_insert_sql(
             "key_selling_points", "STRING", key_selling_points
         ),
         bigquery.ScalarQueryParameter("research_gaps", "STRING", research_gaps),
+        bigquery.ScalarQueryParameter("trend_context", "STRING", trend_context),
     ]
     return sql, params
 
@@ -362,6 +374,9 @@ def write_trends_to_bq(tool_context: ToolContext) -> dict:
     # exhausted its retries. Parity with creative_evals.research_gaps.
     research_gaps = tool_context.state.get("research_gaps", "")
     table = f"{config.BQ_PROJECT_ID}.{config.BQ_DATASET_ID}.{config.BQ_TABLE_TARGETS}"
+    # Per-trend research context for the creative run (best-effort, never raises).
+    info_gtrends = tool_context.state.get("info_gtrends")
+    selected_gtrends = tool_context.state.get("selected_gtrends")
 
     try:
         # insert a row for each selected target search trend
@@ -380,6 +395,7 @@ def write_trends_to_bq(tool_context: ToolContext) -> dict:
                 target_product=tool_context.state["target_product"],
                 key_selling_points=tool_context.state["key_selling_points"],
                 research_gaps=research_gaps,
+                trend_context=trend_context_for(trend, info_gtrends, selected_gtrends),
             )
             # make API request
             job = bq_client.query(
