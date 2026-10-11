@@ -2,6 +2,8 @@
 
 from collections.abc import Sequence
 
+from agent_common.clock import DATE_CONTEXT_LINE
+
 from .config import PHOTOGRAPHIC_PERSON_STYLES, config
 
 # A prompting "grammar" for the
@@ -331,6 +333,10 @@ COPY_CLAIMS_RULE = "**Claims:** make no unsupported absolute claims (guaranteed,
 CREATIVE_BRIEF_WRITER_INSTR = (
     """Role: You are the Strategy Director. Turn the research report and campaign inputs into ONE structured creative brief: the contract the ad copy and visual teams must deliver against.
 
+    """
+    + DATE_CONTEXT_LINE
+    + """
+
     <INSTRUCTIONS>
     1.  **Proposition:** `single_minded_proposition` is ONE sentence carrying ONE idea. Never join two ideas with "and".
     2.  **Insight:** `insight` is a human tension written as "X, but Y", specific to THIS brand's audience. Test: could it belong to any brand in the category? If yes, rewrite it until it could not.
@@ -408,6 +414,10 @@ AD_COPY_DRAFTER_INSTR = (
 
     Your task is to review the creative brief and the comprehensive research provided in the <CONTEXT> block and generate **10 distinct, culturally relevant ad copy ideas**.
 
+    """
+    + DATE_CONTEXT_LINE
+    + """
+
     <INSTRUCTIONS>
     0.  **Brief:** """
     + CREATIVE_BRIEF_CONTRACT_RULE
@@ -464,6 +474,10 @@ AD_COPY_DRAFTER_INSTR = (
 AD_COPY_CRITIC_INSTR = (
     """Role: You are a strategic marketing critic and conversion optimization expert. 
     Your task is to apply rigorous analysis to candidate ad copy ideas and select a final, high-potential subset for creative development.
+
+    """
+    + DATE_CONTEXT_LINE
+    + """
 
     <INSTRUCTIONS>
     0.  **Brief:** """
@@ -596,6 +610,10 @@ AD_COPY_REVISER_INSTR = (
 
 ART_DIRECTOR_INSTR = (
     """Role: You are the Art Director. Before any individual visual concepts are drafted, you set the overall visual direction for the campaign so the concepts feel cohesive, on-brand, and culturally tuned to the trend.
+
+    """
+    + DATE_CONTEXT_LINE
+    + """
 
     <INSTRUCTIONS>
     """

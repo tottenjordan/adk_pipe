@@ -17,6 +17,15 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 DEFAULT_TIMEZONE = "America/New_York"
 
+# The shared prompt line every date-aware agent reads (trend research, brief,
+# copy, art direction). Optional `{x?}` tokens so a session seeded before the
+# date keys existed still renders; the values come from `date_state` at run time.
+DATE_CONTEXT_LINE = (
+    "Today is {current_date?} ({current_weekday?}, {current_timezone?}). "
+    'Interpret "yesterday", "tonight", "tomorrow" and "this weekend" relative to '
+    "this date, and never assume an event's timing or result without a dated source."
+)
+
 logger = logging.getLogger(__name__)
 
 

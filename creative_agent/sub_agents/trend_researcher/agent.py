@@ -8,6 +8,7 @@ from google.genai import types
 from pydantic import BaseModel, Field
 
 from agent_common import RetryUntilKeyNode, build_gemini
+from agent_common.clock import DATE_CONTEXT_LINE
 
 from ... import callbacks
 from ...config import config
@@ -41,8 +42,13 @@ gs_web_planner = Agent(
     mode="single_turn",
     include_contents="none",
     description="Generates initial queries to understand why the 'target_search_trends' are trending.",
-    instruction="""Role: You are an expert cultural strategist and trend analyst. 
+    instruction=(
+        """Role: You are an expert cultural strategist and trend analyst. 
     Your job is to create a focused list of **exactly 5** high-signal web search queries that will help marketers understand the cultural significance and context of a trending Google Search topic.
+
+    """
+        + DATE_CONTEXT_LINE
+        + """
 
     <INSTRUCTIONS>
     To complete the task, you must follow these steps precisely:
@@ -66,7 +72,7 @@ gs_web_planner = Agent(
 
     *   **Count:** Generate **exactly 5** distinct search queries.
     *   **Balance:** Your queries must cover **three primary areas**:
-        1.  **Trend Context:** Why is the trend happening now? (e.g., recent event, new product, cultural shift)
+        1.  **Trend Context:** Why is the trend happening now, and when? (e.g., recent event, new product, cultural shift; the date of the latest or next notable event)
         2.  **Trend Entities & Narrative:** Who are the key players (people, brands, movements) involved, and what is the underlying narrative or conflict?
         3.  **Audience Connection:** How does the trend intersect with the interests, language, or values of the **`target_audience`**?
     *   **Format:** Queries should be optimized for a modern web search engine (i.e., not long, conversational sentences). Use specific keywords and quotation marks for precision.
@@ -75,7 +81,8 @@ gs_web_planner = Agent(
     ---
     ### Output Format
     **STRICT RULE: Your entire output MUST be a valid JSON object matching the 'TrendQueryList' schema. Do not include any introductory text, reasoning, or markdown outside the JSON block.**
-    """,
+    """
+    ),
     output_schema=TrendQueryList,
     output_key="initial_gs_queries",
     after_model_callback=callbacks.log_empty_turn_finish_reason,
@@ -96,7 +103,12 @@ gs_web_searcher = Agent(
     planner=BuiltInPlanner(
         thinking_config=types.ThinkingConfig(include_thoughts=False)
     ),
-    instruction="""Role: You are a web research operator gathering raw material about a trending topic.
+    instruction=(
+        """Role: You are a web research operator gathering raw material about a trending topic.
+
+    """
+        + DATE_CONTEXT_LINE
+        + """
 
     <INSTRUCTIONS>
     1.  **Access Queries:** Retrieve the list of web search queries from the `initial_gs_queries` input in the <CONTEXT> block.
@@ -115,12 +127,14 @@ gs_web_searcher = Agent(
     -   **Immediacy and Trajectory:** current status of the trend — peaking or gaining momentum?
     -   **Cultural Narrative:** the central story, sentiment (positive/negative), key quotes or memes.
     -   **Audience Resonance:** how the trend connects to the target audience's values, language, or social platforms.
+    -   **Timeline:** the dates of the most recent and the next notable events behind the trend (e.g. a game, release, announcement), with each source's publication date where shown.
     </CONTEXT_GUIDANCE>
 
     ---
     ### Final Instruction
     **Output the raw findings grouped by query. Preserve specifics (names, dates, numbers, direct quotes). Do not editorialize into a final report — that is the next agent's job.**
-    """,
+    """
+    ),
     tools=[google_search],
     output_key="gs_web_search_raw",
     after_agent_callback=callbacks.collect_research_sources_callback,
@@ -139,7 +153,12 @@ gs_web_synthesizer = Agent(
     mode="single_turn",
     include_contents="none",
     description="Synthesizes the raw trend findings into a structured cultural report.",
-    instruction="""Role: You are a cultural trend analyst and synthesis expert. Your goal is to transform the raw web-research findings about a trending topic into an urgent, actionable, and culturally relevant summary for marketers.
+    instruction=(
+        """Role: You are a cultural trend analyst and synthesis expert. Your goal is to transform the raw web-research findings about a trending topic into an urgent, actionable, and culturally relevant summary for marketers.
+
+    """
+        + DATE_CONTEXT_LINE
+        + """
 
     <INSTRUCTIONS>
     Synthesize **only** the data in <gs_web_search_raw> and present it as a detailed, structured, and objective trend report following the <REPORT_STRUCTURE> block.
@@ -165,13 +184,15 @@ gs_web_synthesizer = Agent(
     2.  **Key Entities and Cultural Narrative:** (Identify the core people/brands/events driving the trend and summarize the public sentiment or underlying cultural story.)
     3.  **Marketing Opportunity Analysis:** (**CRITICAL:** Identify 2-3 specific, actionable ways the trend could be leveraged to create culturally relevant messaging for the campaign, specifically considering the target audience.)
     4.  **Risk Assessment:** (Identify the pitfalls marketers must avoid: controversies or divisive debates around the trend, sensitivities involving real people (e.g. tragedies, legal matters, likeness or endorsement issues), and any negative associations that could attach to a brand that joins the conversation. If none were found, say so briefly.)
+    5.  **Current Moment & Timeline:** (The dated recent and upcoming events behind the trend, relative to today, each with its date and the source it came from; or "no notable dated event" when the findings give none. Never guess a date or result.)
     </REPORT_STRUCTURE>
 
     ---
     ### Final Instruction
     **CRITICAL RULE 1: Do not include any of the raw search query results, links, or tool output. The output must be the final, synthesized report.**
     **CRITICAL RULE 2: Output the synthesized report entirely in Markdown format, using Level 2 Headings (`##`) for the main sections listed in <REPORT_STRUCTURE>.**
-    """,
+    """
+    ),
     output_key="gs_web_search_insights",
     after_model_callback=callbacks.log_empty_turn_finish_reason,
 )
