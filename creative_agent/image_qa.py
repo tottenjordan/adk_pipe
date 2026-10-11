@@ -38,6 +38,7 @@ from .concept_guard import in_image_quotes, is_meme_or_comic
 from .config import config
 
 __all__ = [
+    "COMPOSITION_FIELDS",
     "CRITICAL_RULES",
     "ISSUE_CHAR_CAP",
     "PROMPT_CHAR_CAP",
@@ -54,6 +55,11 @@ PROMPT_CHAR_CAP = 1500
 # Each model issue fed back into a re-render prompt is capped (chars).
 ISSUE_CHAR_CAP = 120
 NO_NEW_TEXT = "Do not add any new text to the image."
+# At most this many composition differences go into a re-render prompt.
+MAX_COMPOSITION_DIFFERENCES = 5
+# The verdict fields of the composition check (personalised variant edits only;
+# base renders never store them).
+COMPOSITION_FIELDS = ("composition_changed", "composition_differences")
 
 
 class ImageQAResult(BaseModel):
@@ -136,6 +142,22 @@ class ImageQAResult(BaseModel):
         description=(
             "The cast person's face or body is distorted, malformed or altered "
             "(slimmed, beautified, added attributes)."
+        ),
+    )
+    composition_changed: bool = Field(
+        default=False,
+        description=(
+            "Apart from the person, the image differs from the original ad "
+            "(layout, text, graphic elements, props or product); false when no "
+            "original was supplied."
+        ),
+    )
+    composition_differences: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Concrete differences from the original ad other than the person, one "
+            "short statement each (e.g. '6 flags instead of 2'); empty if none or "
+            "when no original was supplied."
         ),
     )
     issues: list[str] = Field(
@@ -227,6 +249,10 @@ _PERSON_RULES: dict[str, str] = {
         "slimming, beautifying or adding attributes"
     ),
 }
+# Personalised variant edits only (``inspect_image`` with ``original_image``):
+# not critical. The phrase restates the edit's keep-everything instruction.
+COMPOSITION_RULE = "composition changed"
+COMPOSITION_PHRASE = "keep everything except the person exactly as in image 1"
 # Failures weighed first when choosing between attempts (image_tools).
 CRITICAL_RULES = frozenset({"unsafe content", "unrequested third-party logo"})
 
@@ -274,6 +300,10 @@ def qa_failed_rules(
             failed.append("person likeness lost")
         if result.person_distorted:
             failed.append("person distorted")
+    # Only ever true for a check against the original (inspect_image clears it
+    # otherwise), so base renders are unaffected.
+    if result.composition_changed:
+        failed.append(COMPOSITION_RULE)
     return failed
 
 
@@ -291,6 +321,10 @@ def qa_failures(
     if not failed:
         return []
     issues = [i.strip() for i in result.issues if i and i.strip()]
+    if COMPOSITION_RULE in failed:
+        # The composition differences are what the panel should show.
+        issues += [d.strip() for d in result.composition_differences if d.strip()]
+        issues = list(dict.fromkeys(issues))
     return issues or failed
 
 
@@ -301,6 +335,22 @@ def _clean_issue(issue: str) -> str:
     """A model issue made safe for a render prompt: quotes stripped, capped."""
     cleaned = " ".join(_QUOTE_CHARS.sub("", issue).split())
     return cleaned[:ISSUE_CHAR_CAP].rstrip()
+
+
+def _composition_items(result: ImageQAResult) -> list[str]:
+    """The composition correction: the keep-everything phrase plus up to
+    ``MAX_COMPOSITION_DIFFERENCES`` differences (quotes and braces stripped,
+    each capped)."""
+    differences = [
+        c
+        for c in (
+            _clean_issue(d.replace("{", "").replace("}", ""))
+            for d in result.composition_differences
+            if d
+        )
+        if c
+    ]
+    return [COMPOSITION_PHRASE, *differences[:MAX_COMPOSITION_DIFFERENCES]]
 
 
 def correction_text(
@@ -315,7 +365,12 @@ def correction_text(
     it gave none). Always ends with "Do not add any new text to the image."
     """
     failed = qa_failed_rules(result, concept, target_product=target_product)
-    phrases = {name: phrase for _, name, phrase in _RULES} | _TEXT_RULES | _PERSON_RULES
+    phrases = (
+        {name: phrase for _, name, phrase in _RULES}
+        | _TEXT_RULES
+        | _PERSON_RULES
+        | {COMPOSITION_RULE: COMPOSITION_PHRASE}
+    )
     if any(name in _TEXT_RULES for name in failed):
         items = [phrases[name] for name in failed]
     else:
@@ -323,6 +378,9 @@ def correction_text(
         items = items or [phrases[name] for name in failed]
     # A person rule always restates its fixed instruction (the likeness ask).
     items += [phrases[name] for name in failed if name in _PERSON_RULES]
+    # A composition change restates "keep everything" plus its differences.
+    if COMPOSITION_RULE in failed:
+        items += _composition_items(result)
     items = list(dict.fromkeys(items))
     return (
         "Correct these issues from the previous attempt: "
@@ -360,6 +418,20 @@ PERSON_COMPARISON_LINE = (
 )
 
 
+# Personalised variant edits: the original ad is attached last, after this
+# label, and compared with the edit.
+ORIGINAL_LABEL = "Original ad (before the person was replaced):"
+COMPOSITION_LINE = (
+    "The image labelled Original ad is the original ad that the rendered image "
+    "was edited from, asked to replace only the person. Apart from the person, "
+    "does the edited image keep the original's layout, text, graphic elements "
+    "(count and direction), props and product? Set composition_changed and list "
+    "concrete differences in composition_differences, one short statement each "
+    "(e.g. 'arrow points left instead of right', '6 flags instead of 2'); ignore "
+    "the person's identity, and leave it empty when there are none."
+)
+
+
 def _instruction(
     concept: dict[str, Any],
     *,
@@ -368,6 +440,7 @@ def _instruction(
     has_logo_reference: bool = False,
     strictness: Sequence[str] = (),
     has_person_image: bool = False,
+    has_original_image: bool = False,
 ) -> str:
     """The QA instruction for one concept (what to check, what was promised).
 
@@ -463,6 +536,9 @@ def _instruction(
         # Only cast concepts: other renders keep the exact pre-casting wording
         # (the person fields default to null / false).
         lines.append(PERSON_COMPARISON_LINE)
+    if has_original_image:
+        # Only personalised variant edits: other renders keep the exact wording.
+        lines.append(COMPOSITION_LINE)
     lines.append(
         "issues: short problem statements in the form '[what is wrong] on/in "
         "[where]', one per problem found; empty if none."
@@ -501,11 +577,15 @@ def inspect_image(
     has_logo_reference: bool = False,
     strictness: Sequence[str] = (),
     person_image: tuple[bytes, str] | None = None,
+    original_image: tuple[bytes, str] | None = None,
 ) -> ImageQAResult:
     """One structured vision call → the image's ``ImageQAResult``.
 
     ``person_image`` (``(bytes, mime)`` of the consented person photo; only for
     a cast concept) is attached after the render with the likeness question.
+    ``original_image`` (personalised variant edits only) is attached last,
+    labelled ``ORIGINAL_LABEL``, with the composition question; without it the
+    composition fields are always cleared (nothing was compared).
     Synchronous (the genai sync client); call it via ``asyncio.to_thread``.
     Raises on any API/parse error — the caller fails open.
     """
@@ -513,6 +593,11 @@ def inspect_image(
     if person_image is not None:
         parts.append(
             types.Part.from_bytes(data=person_image[0], mime_type=person_image[1])
+        )
+    if original_image is not None:
+        parts.append(types.Part.from_text(text=ORIGINAL_LABEL))
+        parts.append(
+            types.Part.from_bytes(data=original_image[0], mime_type=original_image[1])
         )
     parts.append(
         types.Part.from_text(
@@ -523,6 +608,7 @@ def inspect_image(
                 has_logo_reference=has_logo_reference,
                 strictness=strictness,
                 has_person_image=person_image is not None,
+                has_original_image=original_image is not None,
             )
         )
     )
@@ -536,6 +622,12 @@ def inspect_image(
         ),
     )
     parsed = getattr(response, "parsed", None)
-    if isinstance(parsed, ImageQAResult):
-        return parsed
-    return ImageQAResult.model_validate_json(response.text or "")
+    if not isinstance(parsed, ImageQAResult):
+        parsed = ImageQAResult.model_validate_json(response.text or "")
+    if original_image is None and (
+        parsed.composition_changed or parsed.composition_differences
+    ):
+        parsed = parsed.model_copy(
+            update={"composition_changed": False, "composition_differences": []}
+        )
+    return parsed

@@ -30,6 +30,7 @@ import socket
 import urllib.request
 from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import Any
 from urllib.parse import urlparse
 
 import httpx
@@ -569,11 +570,17 @@ async def _inspect(
     has_logo_reference: bool = False,
     strictness: Sequence[str] = (),
     person_image: tuple[bytes, str] | None = None,
+    original_image: tuple[bytes, str] | None = None,
 ) -> image_qa.ImageQAResult | None:
     """One QA call off the event loop → the verdict, or None (fail-open).
-    ``person_image`` (cast concepts only) adds the likeness comparison."""
+    ``person_image`` (cast concepts only) adds the likeness comparison;
+    ``original_image`` (personalised variant edits only) the composition check."""
     image_bytes, mime = rendered
-    extra = {"person_image": person_image} if person_image is not None else {}
+    extra: dict[str, Any] = {}
+    if person_image is not None:
+        extra["person_image"] = person_image
+    if original_image is not None:
+        extra["original_image"] = original_image
     try:
         return await asyncio.to_thread(
             image_qa.inspect_image,
@@ -595,10 +602,22 @@ async def _inspect(
         return None
 
 
-def _qa_record(result: image_qa.ImageQAResult, entry: dict, product: str) -> dict:
-    """The stored verdict: the model's fields + the rule's passed/failures."""
+def _qa_record(
+    result: image_qa.ImageQAResult,
+    entry: dict,
+    product: str,
+    compared_to_original: bool = False,
+) -> dict:
+    """The stored verdict: the model's fields + the rule's passed/failures. The
+    composition fields are stored only for a check against the original (a
+    personalised variant edit), so base renders keep their record shape."""
     failures = image_qa.qa_failures(result, entry, target_product=product)
-    return {**result.model_dump(), "passed": not failures, "failures": failures}
+    exclude = None if compared_to_original else set(image_qa.COMPOSITION_FIELDS)
+    return {
+        **result.model_dump(exclude=exclude),
+        "passed": not failures,
+        "failures": failures,
+    }
 
 
 def _severity(rules: list[str]) -> tuple[int, int]:
@@ -644,6 +663,7 @@ async def _inspect_and_rerender(
     claims_done: asyncio.Event | None = None,
     strictness: Sequence[str] = (),
     person_image: tuple[bytes, str] | None = None,
+    original_image: tuple[bytes, str] | None = None,
 ) -> tuple[tuple[bytes, str], int, dict | None, str | None]:
     """Inspect a render; re-render (bounded) while it fails; keep the best.
 
@@ -683,6 +703,7 @@ async def _inspect_and_rerender(
             has_logo_reference,
             strictness,
             person_image,
+            original_image,
         )
         if result is None:
             await my_turn()
@@ -728,6 +749,7 @@ async def _inspect_and_rerender(
                 has_logo_reference,
                 strictness,
                 person_image,
+                original_image,
             )
             if retry_result is None:
                 break
@@ -737,7 +759,9 @@ async def _inspect_and_rerender(
             if _keep_retry(kept_rules, retry_rules):
                 kept, kept_result, kept_rules = retry, retry_result, retry_rules
         await my_turn()
-        record = _qa_record(kept_result, entry, product)
+        record = _qa_record(
+            kept_result, entry, product, compared_to_original=original_image is not None
+        )
         issue = None
         if record["failures"]:
             issue = f"{name}: {'; '.join(record['failures'])}"

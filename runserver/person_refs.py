@@ -20,9 +20,10 @@ in the record's ``person_renders`` (cast base renders, recorded by
 upload), plus the cast renders and variants found in the state of every run
 recorded on it as a ``session:<app>/<session_id>`` marker (``record_session``, at
 kick-off, so a run that died mid-segment is covered too), but only objects still
-carrying blob metadata ``consent_id`` = this consent (session state is
-client-seedable, so a recorded URI alone never deletes an object); then delete
-the photo. Every step is idempotent: a failure is a 502
+carrying blob metadata ``consent_id`` or ``source_consent_id`` = this consent
+(session state is client-seedable, so a recorded URI alone never deletes an
+object; ``source_consent_id`` marks a person swap edited from a render cast
+with this consent, recorded on both consents); then delete the photo. Every step is idempotent: a failure is a 502
 ``revoke_incomplete`` and repeating the DELETE finishes the cleanup.
 
 Routes (user-scoped by path, gated by ``UserAuthzMiddleware`` like ``/shares``):
@@ -86,6 +87,9 @@ _GS_RE = re.compile(r"^gs://(?P<bucket>[^/]+)/(?P<path>.+)$")
 # Blob metadata key carried by every image made with a consented photo (cast base
 # renders: creative_agent/image_tools.py; variants: runserver/variants.py).
 RENDER_METADATA_KEY = "consent_id"
+# A person swap (runserver/variants.py) edits a render cast with another consent:
+# that one is named here, so revoking either person deletes the swap.
+RENDER_SOURCE_METADATA_KEY = "source_consent_id"
 # Never deleted as a "render": public share copies (revoked by their own cascade)
 # and the consented photos themselves.
 _NOT_RENDER_PREFIXES = ("shares/", PERSON_REFS_PREFIX)
@@ -226,13 +230,16 @@ def parse_session_marker(entry: Any) -> tuple[str, str] | None:
 
 def session_render_uris(state: Mapping[str, Any] | None, consent_id: str) -> list[str]:
     """The ``gcs_uri`` of every ``generated_images`` entry and ``person_variants``
-    record that names ``consent_id`` (pure; deletion still checks the object's
-    metadata)."""
+    record that names ``consent_id`` (as its ``consent_id``, or a swap's
+    ``source_consent_id``; pure; deletion still checks the object's metadata)."""
     state = state or {}
     uris: list[str] = []
 
     def take(record: Any) -> None:
-        if isinstance(record, Mapping) and record.get("consent_id") == consent_id:
+        if isinstance(record, Mapping) and consent_id in (
+            record.get("consent_id"),
+            record.get(RENDER_SOURCE_METADATA_KEY),
+        ):
             uri = record.get("gcs_uri")
             if isinstance(uri, str) and uri:
                 uris.append(uri)
@@ -409,7 +416,9 @@ def _delete_photo(bucket_name: str, path: str) -> None:
 
 def _delete_renders(bucket_name: str, consent_id: str, uris: Iterable[Any]) -> int:
     """Delete each recorded render that still carries this consent's metadata
-    (blocking); returns the number deleted. Raises on a GCS failure."""
+    (``consent_id``, or ``source_consent_id`` for a person swap edited from a
+    render cast with it) (blocking); returns the number deleted. Raises on a GCS
+    failure."""
     from google.api_core.exceptions import NotFound
 
     bucket = _gcs().bucket(bucket_name)
@@ -421,7 +430,11 @@ def _delete_renders(bucket_name: str, consent_id: str, uris: Iterable[Any]) -> i
         blob = bucket.get_blob(path)
         if blob is None:
             continue
-        if (blob.metadata or {}).get(RENDER_METADATA_KEY) != consent_id:
+        metadata = blob.metadata or {}
+        if consent_id not in (
+            metadata.get(RENDER_METADATA_KEY),
+            metadata.get(RENDER_SOURCE_METADATA_KEY),
+        ):
             skipped += 1  # overwritten since, or never made with this consent
             continue
         try:

@@ -4,23 +4,30 @@ The owner re-renders one finished concept with one of their consented
 people (``runserver/person_refs.py``) cast as the hero. A concept whose base
 image already casts a person is a **person swap** (``castable`` ``mode:
 "swap"`` + ``cast_consent_id``); swapping in that same consent is a 400
-``same_person_as_cast``. A variant is a **fresh render**
-(``creative_agent.render_concept``) of the concept's stored
-``image_generation_prompt`` (plus the hero line and ``VARIANT_APPEARANCE_LINE``:
-the photo wins over any described appearance) with the run's own product / logo
-/ style references (never a person photo or variant, so no likeness of a cast
-person carries over), aspect ratio and rating-strictness flags, plus the chosen
-person's photo (``ALLOW_ADULT``) and the post-render image check. It is a preview only: it is
-never judged, rated, shared or deployed to a bandit experiment.
+``same_person_as_cast``. A variant **edits the run's original render**
+(``creative_agent.render_concept.render_edit``, edit mode, for swaps and adds
+alike): the image model gets ``person_edit.EDIT_INSTRUCTION`` ("replace only the
+main person, keep everything else exactly"), the original image
+(``generated_images[c].gcs_uri``, read only from the run's own output folder,
+like ``/shares``) and the chosen person's photo (``ALLOW_ADULT``), at the
+allowed aspect ratio nearest the original's pixel size, plus the
+rating-strictness logo line. The post-render image check compares the edit with
+the person photo (likeness) and with the original (``composition changed``); a
+failure repeats the edit with the correction appended (bounded). The concept
+(with the hero line and ``VARIANT_APPEARANCE_LINE``) is QA context only. A
+missing original is a 409 ``concept_not_ready`` ("Original image is no longer
+available"). It is a preview only: it is never judged, rated, shared or deployed
+to a bandit experiment.
 
 Storage is deliberately separate from the run's creatives:
 
 - GCS: ``{gcs_folder}/{agent_output_dir}/variants/<owner slug>/<concept slug>/
-  <key>.png`` (blob metadata ``consent_id``, ``Cache-Control: private,
+  <key>.png`` (blob metadata ``consent_id`` and, for a swap,
+  ``source_consent_id`` = the cast person's consent; ``Cache-Control: private,
   no-store``; ``/api/gcs`` serves ``variants/<slug>/`` paths to their owner
   only);
 - state: ``person_variants[concept_name][key] = {status, gcs_uri, qa, attempts,
-  consent_id, created_at, reason}``, written by ``state_delta`` events that
+  consent_id, source_consent_id, created_at, reason}``, written by ``state_delta`` events that
   carry ONLY ``person_variants`` (never ``final_visual_concepts``,
   ``generated_images`` or ``_generated_artifact_keys``).
 
@@ -28,13 +35,15 @@ Storage is deliberately separate from the run's creatives:
 image model)[:12]``: an identical request whose render is ``done`` returns the
 cached variant (older records keep their unsalted keys and stay listed).
 Statuses: ``queued`` → ``rendering`` → ``done`` | ``failed`` | ``rejected``
-(a safety filter blocked the person photo; unlike a base run there is no
-person-less fallback, since the point of a variant is the person). Right before
-upload the variant's URI is recorded on the consent's ``person_renders``
-(``person_refs.record_renders``, so revoking the consent deletes it), which also
-re-checks the consent (revoked mid-render → ``failed`` / ``consent_revoked``,
-nothing stored); a revoke that lands during the upload deletes the object again. A variant needs a finished run
-(``finalize_done``) with a rendered base image (409 ``concept_not_ready``).
+(a safety filter blocked the edit; there is no fresh-render fallback). Right
+before upload the variant's URI is recorded on the consent's ``person_renders``
+(``person_refs.record_renders``, so revoking the consent deletes it) and, for a
+swap, on the cast person's consent too (the edit is derived from their image, so
+revoking either deletes it); each also re-checks its consent (revoked
+mid-render → ``failed`` / ``consent_revoked``, nothing stored); a revoke that
+lands during the upload deletes the object again. A variant needs a finished
+run (``finalize_done``) with a rendered base image (409 ``concept_not_ready``),
+and a swap needs the cast person's consent still active.
 
 Quota: variants share the image model's ~2 images/min with live runs, so renders
 run as detached tasks behind a process-wide ``asyncio.Semaphore``
@@ -77,6 +86,7 @@ from pydantic import BaseModel
 
 from runserver import person_refs
 from runserver.ratings import RATING_APPS, _as_obj, configured_report_bucket
+from runserver.shares import output_prefix, source_path
 
 log = logging.getLogger(__name__)
 
@@ -88,8 +98,12 @@ VARIANTS_SEGMENT = "variants"
 VARIANT_CACHE_CONTROL = "private, no-store"
 KEY_CHARS = 12
 # Salted into every cache key; bumped when what a variant renders changes
-# (v2 = the appearance-override line below).
-VARIANT_KEY_VERSION = "v2"
+# (v2 = the appearance-override line below; v3 = edit mode: the original render
+# is edited instead of re-generated).
+VARIANT_KEY_VERSION = "v3"
+# The original render is read into memory for the edit (2K PNGs are a few MB).
+BASE_MAX_BYTES = 20 * 1024 * 1024
+BASE_GONE_MESSAGE = "Original image is no longer available"
 # Appended to every variant prompt after the hero line, so the photo wins over
 # any appearance the prompt describes (a swap or a prompt written for someone
 # else). Variants only (engine renders never see it); brace-free.
@@ -204,6 +218,28 @@ def has_base_image(state: Mapping[str, Any], name: str) -> bool:
     record = images.get(name) if isinstance(images, Mapping) else None
     uri = record.get("gcs_uri") if isinstance(record, Mapping) else None
     return isinstance(uri, str) and bool(uri)
+
+
+def base_image_path(
+    state: Mapping[str, Any], name: str, bucket: str | None
+) -> str | None:
+    """The object path of the run's original render for ``name``, only when its
+    ``gcs_uri`` sits directly in the run's own output folder in ``bucket`` (the
+    ``/shares`` rule: never another run's render, a person photo, a variant or a
+    share copy; ``generated_images`` is client-seedable); None otherwise."""
+    images = _as_obj(state.get("generated_images"))
+    record = images.get(name) if isinstance(images, Mapping) else None
+    uri = record.get("gcs_uri") if isinstance(record, Mapping) else None
+    return source_path(uri, bucket, output_prefix(state))
+
+
+def image_mime(path: str) -> str:
+    lowered = path.lower()
+    if lowered.endswith((".jpg", ".jpeg")):
+        return "image/jpeg"
+    if lowered.endswith(".webp"):
+        return "image/webp"
+    return "image/png"
 
 
 def variants_in(state: Mapping[str, Any]) -> dict[str, dict[str, dict]]:
@@ -407,45 +443,72 @@ class VariantRender:
     reason: str | None = None
 
 
-Renderer = Callable[[Mapping[str, Any], dict, str], Awaitable[VariantRender]]
+# (state, concept, photo_uri, base_image) -> outcome; base_image = the run's
+# original render as (bytes, mime).
+Renderer = Callable[
+    [Mapping[str, Any], dict, str, tuple[bytes, str]], Awaitable[VariantRender]
+]
+
+
+def _image_size(data: bytes) -> tuple[int, int] | None:
+    """``(width, height)`` of an encoded image (header only), or None."""
+    import io
+
+    from PIL import Image
+
+    try:
+        with Image.open(io.BytesIO(data)) as image:
+            return image.size
+    except Exception:
+        return None
+
+
+def edit_aspect_ratio(
+    state: Mapping[str, Any], concept: Mapping[str, Any], base_bytes: bytes
+) -> str:
+    """The allowed aspect ratio nearest the original's pixel size (the edit keeps
+    its framing); the concept's own ratio when the image can't be read."""
+    from creative_agent import image_tools
+    from creative_agent.config import config
+    from creative_agent.person_edit import nearest_aspect_ratio
+
+    allowed = config.image_aspect_ratios_allowed
+    default = config.image_aspect_ratio_default
+    size = _image_size(base_bytes)
+    if size is not None and min(size) > 0:
+        return nearest_aspect_ratio(*size, allowed, default)
+    return image_tools._resolve_aspect_ratio(
+        dict(concept),
+        image_tools.valid_aspect_ratio_override(state.get("visual_aspect_ratio")),
+        allowed,
+        default,
+    )
 
 
 async def render_variant(
-    state: Mapping[str, Any], concept: dict, photo_uri: str
+    state: Mapping[str, Any],
+    concept: dict,
+    photo_uri: str,
+    base_image: tuple[bytes, str],
 ) -> VariantRender:
-    """Render ``concept`` with the person photo at ``photo_uri`` through
-    ``creative_agent.render_concept`` (QA on, no person-less fallback)."""
-    from creative_agent import image_tools
-    from creative_agent.config import config
+    """Edit the run's original render ``base_image`` so its person becomes the
+    person photo at ``photo_uri`` (``creative_agent.render_concept.render_edit``:
+    QA on, incl. the composition check; no fresh-render fallback)."""
     from creative_agent.rating_signals import strictness_flags
-    from creative_agent.references import resolve_references
-    from creative_agent.render_concept import (
-        fetch_person_photo,
-        fetch_references,
-        render_concept,
-    )
+    from creative_agent.render_concept import fetch_person_photo, render_edit
 
-    refs = [r for r in resolve_references(state) if not _personal_uri(r[0])]
-    references = await fetch_references(refs)
     person = await fetch_person_photo(photo_uri)
     if person is None:
         return VariantRender("failed", reason="photo_unavailable")
-    aspect_ratio = image_tools._resolve_aspect_ratio(
-        concept,
-        image_tools.valid_aspect_ratio_override(state.get("visual_aspect_ratio")),
-        config.image_aspect_ratios_allowed,
-        config.image_aspect_ratio_default,
-    )
-    result = await render_concept(
+    result = await render_edit(
+        base_image,
+        person,
         variant_concept(concept),
-        aspect_ratio=aspect_ratio,
-        references=references,
-        person=person,
+        aspect_ratio=edit_aspect_ratio(state, concept, base_image[0]),
         strictness=strictness_flags(state.get("rating_strictness")),
         qa=True,
         brand=str(state.get("brand") or ""),
         target_product=str(state.get("target_product") or ""),
-        fallback_without_person=False,
     )
     if result.rejected_reason is not None:
         return VariantRender("rejected", reason=result.rejected_reason)
@@ -553,12 +616,41 @@ def _gcs() -> Any:
     return get_gcs_client()
 
 
-def _upload(bucket_name: str, path: str, data: bytes, mime: str, consent_id: str):
-    """Upload the variant with its consent id and a no-store cache (blocking)."""
+def _upload(
+    bucket_name: str,
+    path: str,
+    data: bytes,
+    mime: str,
+    consent_id: str,
+    source_consent_id: str = "",
+):
+    """Upload the variant with its consent id(s) and a no-store cache (blocking).
+    A swap also names the cast person's consent (``source_consent_id``), so the
+    revoke of either person deletes it."""
     blob = _gcs().bucket(bucket_name).blob(path)
-    blob.metadata = {"consent_id": consent_id}
+    metadata = {person_refs.RENDER_METADATA_KEY: consent_id}
+    if source_consent_id:
+        metadata[person_refs.RENDER_SOURCE_METADATA_KEY] = source_consent_id
+    blob.metadata = metadata
     blob.cache_control = VARIANT_CACHE_CONTROL
     blob.upload_from_string(data, content_type=mime or "image/png")
+
+
+def _download_base(bucket_name: str, path: str) -> bytes | None:
+    """The original render's bytes, or None when it is gone, empty or larger
+    than ``BASE_MAX_BYTES`` (blocking; other GCS errors raise)."""
+    from google.api_core.exceptions import NotFound
+
+    try:
+        blob = _gcs().bucket(bucket_name).get_blob(path)
+        if blob is None:
+            return None
+        data = blob.download_as_bytes()
+    except NotFound:
+        return None
+    if not data or len(data) > BASE_MAX_BYTES:
+        return None
+    return data
 
 
 def _delete(bucket_name: str, path: str) -> None:
@@ -616,12 +708,15 @@ class _Job:
     concept: dict
     state: dict
     created_at: str
+    base_image: tuple[bytes, str]
+    source_consent_id: str = ""
 
 
 async def _run_job(job: _Job) -> None:
     """Render, upload and record one variant (never raises)."""
     base = {
         "consent_id": job.consent_id,
+        "source_consent_id": job.source_consent_id or None,
         "created_at": job.created_at,
         "gcs_uri": None,
         "qa": None,
@@ -642,18 +737,26 @@ async def _run_job(job: _Job) -> None:
     try:
         async with _semaphore():
             await write(status="rendering")
-            outcome = await _RENDERER(job.state, job.concept, job.photo_uri)
+            outcome = await _RENDERER(
+                job.state, job.concept, job.photo_uri, job.base_image
+            )
             if outcome.status == "done" and outcome.image_bytes:
                 bucket = _BUCKET or ""
                 gcs_uri: str | None = f"gs://{bucket}/{job.object_path}"
-                # Record the URI on the consent before uploading, so a revoke
-                # always knows the object. The consent may have been revoked while
+                # A swap is derived from the cast person's image: recorded on
+                # both consents, so revoking either deletes it.
+                consents = [job.consent_id]
+                if job.source_consent_id:
+                    consents.append(job.source_consent_id)
+                # Record the URI on the consents before uploading, so a revoke
+                # always knows the object. A consent may have been revoked while
                 # rendering: never store an image made with a revoked consent.
-                if not await person_refs.record_renders(
-                    job.user_id, job.consent_id, [gcs_uri]
-                ):
-                    await write(status="failed", reason="consent_revoked")
-                    return
+                for consent_id in consents:
+                    if not await person_refs.record_renders(
+                        job.user_id, consent_id, [gcs_uri]
+                    ):
+                        await write(status="failed", reason="consent_revoked")
+                        return
                 await asyncio.to_thread(
                     _upload,
                     bucket,
@@ -661,12 +764,17 @@ async def _run_job(job: _Job) -> None:
                     outcome.image_bytes,
                     outcome.mime,
                     job.consent_id,
+                    job.source_consent_id,
                 )
                 # A revoke that ran during the upload found no object yet.
-                if (
-                    await person_refs.active_consent(job.user_id, job.consent_id)
-                    is None
-                ):
+                revoked = False
+                for consent_id in consents:
+                    if (
+                        await person_refs.active_consent(job.user_id, consent_id)
+                        is None
+                    ):
+                        revoked = True
+                if revoked:
                     await asyncio.to_thread(_delete, bucket, job.object_path)
                     await write(status="failed", reason="consent_revoked")
                     return
@@ -805,11 +913,26 @@ async def _create_variant(
     concept = find_concept(state, concept_name)
     if concept is None:  # castability found it; never None here
         raise _error(400, "concept_not_found", "no such concept in this run")
+    source_consent_id = check.cast_consent_id if check.mode == "swap" else ""
+    if (
+        source_consent_id
+        and await person_refs.active_consent(user_id, source_consent_id) is None
+    ):
+        # The cast person's consent was revoked: their render (the edit's base)
+        # is deleted or going, and nothing may be derived from it.
+        raise _error(409, "concept_not_ready", BASE_GONE_MESSAGE)
     key = variant_key(photo_uri, concept["image_generation_prompt"], _image_model())
     try:
         object_path = variant_object_path(state, user_id, concept_name, key)
     except VariantError as exc:
         raise _error(exc.status, exc.reason, str(exc)) from exc
+    base_path = base_image_path(state, concept_name, bucket)
+    if base_path is None:
+        raise _error(
+            400,
+            "image_outside_bucket",
+            "the original image isn't in this run's output folder",
+        )
 
     existing = variants_in(state).get(concept_name, {}).get(key)
     if existing and existing.get("status") == "done" and existing.get("gcs_uri"):
@@ -822,17 +945,37 @@ async def _create_variant(
 
     now = _now()
     day = now.date().isoformat()
-    started = max(_STARTED.get((user_id, day), 0), count_created_on(state, day))
-    if started >= _DAILY_CAP:
+
+    def started_today() -> int:
+        started = max(_STARTED.get((user_id, day), 0), count_created_on(state, day))
+        if started >= _DAILY_CAP:
+            raise _error(
+                429,
+                "variant_cap_reached",
+                f"at most {_DAILY_CAP} personalised previews a day; try again tomorrow",
+            )
+        return started
+
+    started_today()  # over the cap: refuse before reading the original
+    # The edit starts from the original render: read it now, so a missing one is
+    # refused up front (before the cap counts the request).
+    try:
+        base_bytes = await asyncio.to_thread(_download_base, bucket, base_path)
+    except Exception as exc:
+        log.exception("variants: could not read the original for %s", key)
         raise _error(
-            429,
-            "variant_cap_reached",
-            f"at most {_DAILY_CAP} personalised previews a day; try again tomorrow",
-        )
+            502, "variant_failed", "could not read the original image"
+        ) from exc
+    if base_bytes is None:
+        raise _error(409, "concept_not_ready", BASE_GONE_MESSAGE)
+    # Re-checked after the read (other requests may have started meanwhile); no
+    # await between this check and the count.
+    started = started_today()
     _STARTED[(user_id, day)] = started + 1
     record = {
         "status": "queued",
         "consent_id": consent_id,
+        "source_consent_id": source_consent_id or None,
         "created_at": _iso(now),
         "gcs_uri": None,
         "qa": None,
@@ -851,6 +994,8 @@ async def _create_variant(
         concept=concept,
         state=state,
         created_at=record["created_at"],
+        base_image=(base_bytes, image_mime(base_path)),
+        source_consent_id=source_consent_id,
     )
     try:
         await _write_record(app_name, user_id, session_id, concept_name, key, record)
