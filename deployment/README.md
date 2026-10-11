@@ -1696,7 +1696,21 @@ comes later.
   is `image/*` and ≤ 10 MB (else 400 `photo_unreadable`), the adult attestation is ticked
   (400 `adult_attestation_required`) and the client showed the current consent text
   (`CONSENT_TEXT_VERSION`, else 400 `stale_consent_text`); the same photo can't be active
-  twice (409) and a user has at most 50 active people (429).
+  twice (409) and a user has at most 50 active people (429). It then downloads the photo
+  and reads its size with Pillow (in a thread): a photo that can't be decoded is 400
+  `photo_unreadable`, and one whose shorter side is below `PERSON_PHOTO_MIN_SIDE` (default
+  512 px) is 400 `photo_too_small` ("Use a photo at least 512 px on its shorter side (1024 px
+  or more recommended)."). The shorter side is stored as `photo_min_side`; the POST and GET
+  responses carry `photo_min_side` and `low_resolution` (`photo_min_side < 1024`), and the
+  People page shows "Low resolution: previews may look softer. Re-register with a 1024 px
+  photo." on such people, plus photo guidance above the form (one front-facing
+  head-and-shoulders photo, not a collage or character sheet; see
+  `docs/notes/person-reference-calibration.md` → Photo guidance).
+- **Size backfill:** records registered before the size check have no `photo_min_side`.
+  `GET /person-refs/{user}` reads it lazily for them (one download + size read each,
+  bounded at 10 s per request) and caches it with a guarded `UPDATE … SET photo_min_side
+  … WHERE photo_min_side IS NULL`. A failure is logged and non-fatal: the record reads
+  `photo_min_side: null`, `low_resolution: false`, and the next GET tries again.
 - **Owner-only access:** `/api/gcs` (web) serves `person-refs/<slug>/…` and
   `…/variants/<slug>/…` only to the owner whose email slug matches (another user → 404, no
   IAP identity on Cloud Run → 401, local dev → allowed), with `Cache-Control: private,
@@ -1753,7 +1767,20 @@ allow_public_share BOOL, consent_text_version STRING, created_at TIMESTAMP,
 revoked_at TIMESTAMP, person_renders ARRAY<STRING>` (`person_renders` holds the `gs://`
 URIs of images made with the photo, so a revoke can delete them; written since
 person-reference PR 4 by an `UPDATE … SET person_renders = ARRAY(SELECT DISTINCT …)`, so
-no migration is needed: the column exists since PR 1).
+no migration is needed: the column exists since PR 1). Plus `photo_min_side INT64` (nullable; the photo's shorter
+side in px, see the migration below).
+
+**Migration (headshot quality, run BEFORE deploying the api that writes it):** an existing
+`person_references` table needs the new column, else registering a person fails with 502
+`store_failed` (the MERGE names it) and the GET's size backfill logs a warning. Idempotent:
+
+```sql
+ALTER TABLE `<BQ_PROJECT_ID>.<BQ_DATASET_ID>.person_references`
+  ADD COLUMN IF NOT EXISTS photo_min_side INT64;
+```
+
+Older rows read `photo_min_side` as NULL until the next `GET /person-refs/{user}` backfills
+them.
 
 The api SA (`tt-api-sa`) already has `roles/storage.objectAdmin` on the bucket (read
 metadata, delete under `person-refs/`) and the BigQuery roles; nothing else is needed.
@@ -1764,6 +1791,7 @@ metadata, delete under `person-refs/`) and the BigQuery roles; nothing else is n
 |---|---|---|
 | `PERSON_REFS_STORE` | `bigquery` | `bigquery` = the `person_references` table. `memory` = in-process store (local dev; lost on restart). `bigquery` falls back to `memory` with a warning when `BQ_PROJECT_ID`/`BQ_DATASET_ID` are unset locally; on Cloud Run (`K_SERVICE` set) that is a startup error |
 | `BQ_TABLE_PERSON_REFS` | `person_references` | Table name in `BQ_DATASET_ID` |
+| `PERSON_PHOTO_MIN_SIDE` | `512` | Minimum shorter side (px) of a person photo at registration (clamped 256–4096; blank or non-numeric → 512); below it → 400 `photo_too_small`. The 1024 px low-resolution threshold is fixed. Read at api start |
 | `GOOGLE_CLOUD_STORAGE_BUCKET` | (already set) | The bucket photos live in (local fallback `GCS_BUCKET_NAME`); unset = registering answers 503 `person_refs_unconfigured` |
 
 The web service needs nothing new (`/api/gcs` reuses `IAP_ALLOWED_HD` and the IAP audience

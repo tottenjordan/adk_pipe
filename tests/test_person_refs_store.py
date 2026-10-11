@@ -33,6 +33,7 @@ def _row(**over) -> dict:
         "created_at": T0,
         "revoked_at": None,
         "person_renders": [],
+        "photo_min_side": 1200,
     }
     row.update(over)
     return row
@@ -61,7 +62,10 @@ def test_schema_file_matches_store_columns():
         "created_at",
         "revoked_at",
         "person_renders",
+        "photo_min_side",
     ]
+    nullable = {f["name"]: f["mode"] for f in json.loads(SCHEMA.read_text())}
+    assert nullable["photo_min_side"] == "NULLABLE"
 
 
 def test_put_sql_is_fully_parameterised():
@@ -78,6 +82,8 @@ def test_put_sql_is_fully_parameterised():
     assert set(by_name) == set(ps.PERSON_REF_COLUMN_TYPES)
     assert by_name["label"].value == "Me'; DROP TABLE x"
     assert by_name["adult_attested"].type_ == "BOOL"
+    assert by_name["photo_min_side"].type_ == "INT64"
+    assert by_name["photo_min_side"].value == 1200
     renders = by_name["person_renders"]
     assert isinstance(renders, bigquery.ArrayQueryParameter)
     assert renders.array_type == "STRING" and renders.values == []
@@ -187,6 +193,34 @@ def test_in_memory_add_renders():
     run(go())
 
 
+def test_set_photo_min_side_sql_parameterised_and_only_fills_nulls():
+    sql, params = ps.build_set_photo_min_side_sql("t", "cid", "a@x.com", 240)
+    assert sql.lstrip().startswith("UPDATE `t`")
+    assert "SET photo_min_side = @photo_min_side" in sql
+    assert "consent_id = @consent_id AND owner_user = @owner_user" in sql
+    assert "photo_min_side IS NULL" in sql
+    assert "a@x.com" not in sql and "240" not in sql
+    by_name = {p.name: p for p in params}
+    assert by_name["photo_min_side"].type_ == "INT64"
+    assert by_name["photo_min_side"].value == 240
+
+
+def test_in_memory_set_photo_min_side():
+    store = ps.InMemoryPersonRefsStore()
+
+    async def go():
+        await store.put(_row(photo_min_side=None))
+        assert not await store.set_photo_min_side("cid_AAAAAAAAAAAA", "b@x.com", 9)
+        assert not await store.set_photo_min_side("nope", "a@x.com", 9)
+        assert await store.set_photo_min_side("cid_AAAAAAAAAAAA", "a@x.com", 240)
+        assert (await store.get("cid_AAAAAAAAAAAA"))["photo_min_side"] == 240
+        # a known size is never overwritten
+        assert not await store.set_photo_min_side("cid_AAAAAAAAAAAA", "a@x.com", 900)
+        assert (await store.get("cid_AAAAAAAAAAAA"))["photo_min_side"] == 240
+
+    run(go())
+
+
 def test_in_memory_rows_are_copies():
     store = ps.InMemoryPersonRefsStore()
     row = _row(person_renders=["gs://b/x.png"])
@@ -220,9 +254,12 @@ def test_bigquery_store_over_fake_client():
         assert await store.add_renders("cid", "a@x.com", ["gs://b/1.png"]) is True
         fake.num_dml_affected_rows = 0
         assert await store.add_renders("cid", "b@x.com", ["gs://b/1.png"]) is False
+        fake.num_dml_affected_rows = 1
+        assert await store.set_photo_min_side("cid", "a@x.com", 240) is True
 
     run(go())
-    assert "ARRAY_CONCAT" in fake.sqls[-1]
+    assert "SET photo_min_side" in fake.sqls[-1]
+    assert "ARRAY_CONCAT" in fake.sqls[-2]
     assert fake.sqls[0].lstrip().startswith("MERGE `p.d.r`")
     assert "owner_user = @owner_user" in fake.sqls[1]
     assert "consent_id = @consent_id" in fake.sqls[2]

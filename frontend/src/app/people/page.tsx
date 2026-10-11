@@ -17,6 +17,8 @@ import { createPersonRef, listPersonRefs, revokePersonRef } from "@/lib/api";
 import { gcsProxyUrl, parseGsUri } from "@/lib/gcs";
 import { CONSENT_TEXT, CONSENT_TEXT_VERSION } from "@/lib/person-consent";
 import {
+  LOW_RESOLUTION_NOTICE,
+  PHOTO_GUIDANCE,
   PREFIX_RULE,
   PersonRefError,
   personRefErrorMessage,
@@ -162,6 +164,18 @@ export default function PeoplePage() {
         </h2>
 
         <div className="mt-3 space-y-1">
+          <FieldLabel as="p">What makes a good photo</FieldLabel>
+          <ul
+            aria-label="Photo guidance"
+            className="list-disc space-y-0.5 pl-5 text-xs text-muted-foreground"
+          >
+            {PHOTO_GUIDANCE.map((line) => (
+              <li key={line}>{line}</li>
+            ))}
+          </ul>
+        </div>
+
+        <div className="mt-3 space-y-1">
           <FieldLabel as="p">1. Upload the photo to your folder</FieldLabel>
           <div className="flex flex-wrap items-center gap-2">
             <code data-testid="person-prefix" className="min-w-0 break-all rounded-sm bg-muted px-2 py-1 font-mono text-xs text-foreground">
@@ -180,7 +194,7 @@ export default function PeoplePage() {
           </div>
           <p className="text-xs text-muted-foreground">
             For example <span className="font-mono">gcloud storage cp photo.jpg {prefix ?? "<your folder>"}</span>.
-            A .jpg, .jpeg, .png or .webp image of at most 10 MB.
+            A .jpg, .jpeg, .png or .webp image of at most 10 MB and at least 512 px on its shorter side.
           </p>
           <p data-testid="person-copy-status" aria-live="polite" className="sr-only">
             {copied}
@@ -296,6 +310,9 @@ export default function PeoplePage() {
                       Added <time dateTime={p.created_at}>{createdLabel(p.created_at)}</time>
                     </span>
                   </p>
+                  {p.low_resolution === true && (
+                    <p className="mt-0.5 text-xs text-muted-foreground">{LOW_RESOLUTION_NOTICE}</p>
+                  )}
                   {rowErrors[p.consent_id] && (
                     <p role="alert" className="mt-0.5 text-xs text-mark-fail">
                       {rowErrors[p.consent_id]}

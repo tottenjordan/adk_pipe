@@ -53,5 +53,10 @@
     "name": "person_renders",
     "type": "STRING",
     "mode": "REPEATED"
+  },
+  {
+    "name": "photo_min_side",
+    "type": "INTEGER",
+    "mode": "NULLABLE"
   }
 ]

@@ -7,7 +7,9 @@ band to ``gs://<bucket>/person-refs/<owner slug>/<file>.(jpg|jpeg|png|webp)``
 replaced by ``_`` plus 10 hex chars of its sha256); this
 api only records the consent in ``person_references``
 (``runserver/person_refs_store.py``) after checking the photo sits under the
-caller's own prefix and is a readable image.
+caller's own prefix and is a readable image whose shorter side is at least
+``PERSON_PHOTO_MIN_SIDE`` px (default 512; stored as ``photo_min_side``, and a
+record below 1024 px reads ``low_resolution: true``).
 
 Revoking cascades, in order: mark the record revoked; run the registered
 ``revoke_hooks`` with the re-read record (``deployment/async_app.py`` registers
@@ -29,7 +31,9 @@ Routes (user-scoped by path, gated by ``UserAuthzMiddleware`` like ``/shares``):
   adult_attested, allow_public_share, consent_text_version}`` → the record.
 - ``GET /person-refs/{user}``: ``{person_refs: [...], prefix,
   consent_text_version}`` (active records, newest first; ``prefix`` is the
-  caller's upload prefix ``gs://<bucket>/person-refs/<slug>/``).
+  caller's upload prefix ``gs://<bucket>/person-refs/<slug>/``). Records made
+  before the size check get their ``photo_min_side`` read and cached here
+  (best effort, bounded by ``BACKFILL_TIMEOUT_SECONDS``).
 - ``DELETE /person-refs/{user}/{consent_id}``: revoke (204; 404 when not the
   owner's).
 
@@ -41,7 +45,9 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import inspect
+import io
 import logging
+import os
 import re
 import secrets
 from collections.abc import Awaitable, Callable, Iterable, Mapping
@@ -88,6 +94,29 @@ _NOT_RENDER_PREFIXES = ("shares/", PERSON_REFS_PREFIX)
 SESSION_MARKER_PREFIX = "session:"
 _APP_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,63}$")
 _SESSION_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
+
+# Shortest side (px) a person photo must have (PERSON_PHOTO_MIN_SIDE, read at
+# import, clamped); below LOW_RESOLUTION_SIDE a record is flagged low resolution
+# (previews may look softer).
+DEFAULT_PHOTO_MIN_SIDE = 512
+PHOTO_MIN_SIDE_BOUNDS = (256, 4096)
+LOW_RESOLUTION_SIDE = 1024
+
+
+def min_side_from_env(env: Mapping[str, str] = os.environ) -> int:
+    """``PERSON_PHOTO_MIN_SIDE`` clamped to ``PHOTO_MIN_SIDE_BOUNDS`` (default 512;
+    blank or non-numeric → default)."""
+    raw = (env.get("PERSON_PHOTO_MIN_SIDE") or "").strip()
+    try:
+        value = int(raw) if raw else DEFAULT_PHOTO_MIN_SIDE
+    except ValueError:
+        log.warning("PERSON_PHOTO_MIN_SIDE=%r is not an integer; using default", raw)
+        value = DEFAULT_PHOTO_MIN_SIDE
+    lo, hi = PHOTO_MIN_SIDE_BOUNDS
+    return max(lo, min(hi, value))
+
+
+PHOTO_MIN_SIDE = min_side_from_env()
 
 RevokeHook = Callable[[dict], Awaitable[None] | None]
 
@@ -266,9 +295,16 @@ def _iso(value: Any) -> Any:
     return value.isoformat() if hasattr(value, "isoformat") else value
 
 
+def _min_side(row: Mapping[str, Any]) -> int | None:
+    value = row.get("photo_min_side")
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
 def to_public(row: Mapping[str, Any]) -> dict:
     """A record as the API returns it (no ``owner_user`` / ``revoked_at`` /
-    ``person_renders``)."""
+    ``person_renders``). ``low_resolution`` is True only for a known
+    ``photo_min_side`` below ``LOW_RESOLUTION_SIDE``."""
+    min_side = _min_side(row)
     return {
         "consent_id": row["consent_id"],
         "photo_uri": row.get("photo_uri"),
@@ -278,6 +314,8 @@ def to_public(row: Mapping[str, Any]) -> dict:
         "allow_public_share": bool(row.get("allow_public_share")),
         "consent_text_version": row.get("consent_text_version"),
         "created_at": _iso(row.get("created_at")),
+        "photo_min_side": min_side,
+        "low_resolution": min_side is not None and min_side < LOW_RESOLUTION_SIDE,
     }
 
 
@@ -335,6 +373,28 @@ def _photo_readable(bucket_name: str, path: str) -> bool:
         and 0 < size <= MAX_PHOTO_BYTES
         and (ctype.lower().startswith("image/"))
     )
+
+
+def image_min_side(data: bytes) -> int | None:
+    """The shorter side in px of an encoded image (pure; Pillow reads the header
+    only), or None when it can't be read as an image."""
+    from PIL import Image
+
+    try:
+        with Image.open(io.BytesIO(data)) as img:
+            width, height = img.size
+    except Exception:
+        return None
+    side = min(width, height)
+    return side if side > 0 else None
+
+
+def _photo_min_side(bucket_name: str, path: str) -> int | None:
+    """Download the photo (≤ ``MAX_PHOTO_BYTES``, checked by ``_photo_readable``)
+    and read its shorter side (blocking); None when it isn't a readable image.
+    Raises on a GCS failure."""
+    data = _gcs().bucket(bucket_name).blob(path).download_as_bytes()
+    return image_min_side(data)
 
 
 def _delete_photo(bucket_name: str, path: str) -> None:
@@ -526,12 +586,25 @@ async def http_create_person_ref(user_id: str, body: _PersonRefBody) -> dict:
     except Exception:
         log.warning("person refs: photo check failed", exc_info=True)
         readable = False
-    if not readable:
+    min_side: int | None = None
+    if readable:
+        try:
+            min_side = await asyncio.to_thread(_photo_min_side, bucket, path)
+        except Exception:
+            log.warning("person refs: photo download failed", exc_info=True)
+    if min_side is None:
         raise _error(
             400,
             "photo_unreadable",
             f"the photo must exist and be an image of at most "
             f"{MAX_PHOTO_BYTES // (1024 * 1024)} MB",
+        )
+    if min_side < PHOTO_MIN_SIDE:
+        raise _error(
+            400,
+            "photo_too_small",
+            f"Use a photo at least {PHOTO_MIN_SIDE} px on its shorter side "
+            f"({LOW_RESOLUTION_SIDE} px or more recommended).",
         )
     row = {
         "consent_id": secrets.token_urlsafe(CONSENT_ID_BYTES),
@@ -545,6 +618,7 @@ async def http_create_person_ref(user_id: str, body: _PersonRefBody) -> dict:
         "created_at": utcnow(),
         "revoked_at": None,
         "person_renders": [],
+        "photo_min_side": min_side,
     }
     try:
         await _STORE.put(row)
@@ -554,9 +628,55 @@ async def http_create_person_ref(user_id: str, body: _PersonRefBody) -> dict:
     return to_public(row)
 
 
+# Upper bound on the lazy size backfill of one GET (the list still returns, with
+# the sizes not read in time left as null and retried on the next GET).
+BACKFILL_TIMEOUT_SECONDS = 10.0
+
+
+async def _backfill_one(row: dict, user_id: str, bucket: str) -> None:
+    """Read and cache ``photo_min_side`` of a record registered before the size
+    check (best effort: any failure leaves it unset). Updates ``row`` in place."""
+    path = photo_path(row.get("photo_uri"), user_id, bucket)
+    if path is None:
+        return
+    cid = row.get("consent_id")
+    try:
+        side = await asyncio.to_thread(_photo_min_side, bucket, path)
+    except Exception:
+        log.warning("person refs: size backfill read failed for %s", cid, exc_info=True)
+        return
+    if side is None:
+        log.warning("person refs: size backfill found no readable image for %s", cid)
+        return
+    row["photo_min_side"] = side
+    try:
+        await _STORE.set_photo_min_side(cid, user_id, side)
+    except Exception:
+        log.warning(
+            "person refs: size backfill write failed for %s", cid, exc_info=True
+        )
+
+
+async def _backfill_sizes(rows: list[dict], user_id: str) -> None:
+    """Fill ``photo_min_side`` for the records that lack it (non-fatal, bounded)."""
+    bucket = _BUCKET
+    missing = [r for r in rows if _min_side(r) is None]
+    if not (bucket and missing):
+        return
+    tasks = [asyncio.ensure_future(_backfill_one(r, user_id, bucket)) for r in missing]
+    _, pending = await asyncio.wait(tasks, timeout=BACKFILL_TIMEOUT_SECONDS)
+    for task in pending:
+        task.cancel()
+    if pending:
+        log.warning(
+            "person refs: size backfill timed out for %d record(s)", len(pending)
+        )
+
+
 @router.get("/person-refs/{user_id}")
 async def http_list_person_refs(user_id: str) -> dict:
     rows = await _active_refs(user_id)
+    await _backfill_sizes(rows, user_id)
     bucket = _BUCKET
     return {
         "person_refs": [to_public(r) for r in rows],

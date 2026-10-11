@@ -8,7 +8,8 @@ One row per ``consent_id`` (random, ``secrets.token_urlsafe``): who registered i
 ``created_at`` / ``revoked_at`` and ``person_renders`` (the ``gs://`` URIs of
 images made with the photo: cast base renders, recorded by the api run path when a
 run segment ends, and personalised variants, recorded at upload; deduplicated,
-``add_renders``) so a revoke can delete them. ``BigQueryPersonRefsStore`` writes with ``MERGE ... WHEN NOT
+``add_renders``) so a revoke can delete them, plus ``photo_min_side`` (the
+photo's shorter side in px; NULL for older records). ``BigQueryPersonRefsStore`` writes with ``MERGE ... WHEN NOT
 MATCHED THEN INSERT`` and revokes with a guarded ``UPDATE``, binding every value
 as a query parameter (only the table name, from env, is interpolated).
 ``InMemoryPersonRefsStore`` mirrors it for local dev and tests
@@ -45,6 +46,9 @@ PERSON_REF_COLUMN_TYPES = {
     "created_at": "TIMESTAMP",
     "revoked_at": "TIMESTAMP",
     "person_renders": "ARRAY<STRING>",
+    # The photo's shorter side in px at registration (NULL for records made
+    # before the size check; GET /person-refs backfills it lazily).
+    "photo_min_side": "INT64",
 }
 
 
@@ -74,6 +78,11 @@ class PersonRefsStore(Protocol):
         """Append ``uris`` to the owner's consent's ``person_renders`` (deduped;
         revoked consents too, so a retried revoke can delete them). False when
         the consent isn't the owner's."""
+        ...
+
+    async def set_photo_min_side(self, consent_id: str, owner: str, value: int) -> bool:
+        """Record the photo's shorter side on the owner's consent, only when it has
+        none yet (the lazy backfill of older records). False when nothing changed."""
         ...
 
 
@@ -181,6 +190,22 @@ def build_add_renders_sql(
     ]
 
 
+def build_set_photo_min_side_sql(
+    table: str, consent_id: str, owner: str, value: int
+) -> tuple[str, list]:
+    sql = f"""
+        UPDATE `{table}`
+        SET photo_min_side = @photo_min_side
+        WHERE consent_id = @consent_id AND owner_user = @owner_user
+            AND photo_min_side IS NULL
+        """
+    return sql, [
+        _param("consent_id", consent_id),
+        _param("owner_user", owner),
+        _param("photo_min_side", value),
+    ]
+
+
 def _copy(row: Mapping[str, Any]) -> dict:
     return {**row, "person_renders": list(row.get("person_renders") or [])}
 
@@ -224,6 +249,15 @@ class InMemoryPersonRefsStore:
             return False
         renders = row.setdefault("person_renders", [])
         renders.extend(u for u in dict.fromkeys(uris) if u not in renders)
+        return True
+
+    async def set_photo_min_side(self, consent_id: str, owner: str, value: int) -> bool:
+        row = self.rows.get(consent_id)
+        if row is None or row["owner_user"] != owner:
+            return False
+        if row.get("photo_min_side") is not None:
+            return False
+        row["photo_min_side"] = value
         return True
 
 
@@ -274,6 +308,11 @@ class BigQueryPersonRefsStore:
 
     async def add_renders(self, consent_id: str, owner: str, uris: list[str]) -> bool:
         sql, params = build_add_renders_sql(self.table, consent_id, owner, uris)
+        job, _ = await asyncio.to_thread(self._job, sql, params)
+        return bool(job.num_dml_affected_rows)
+
+    async def set_photo_min_side(self, consent_id: str, owner: str, value: int) -> bool:
+        sql, params = build_set_photo_min_side_sql(self.table, consent_id, owner, value)
         job, _ = await asyncio.to_thread(self._job, sql, params)
         return bool(job.num_dml_affected_rows)
 
