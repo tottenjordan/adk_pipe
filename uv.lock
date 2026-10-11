@@ -50,6 +50,7 @@ dependencies = [
     { name = "plotly" },
     { name = "pyarrow" },
     { name = "tabulate" },
+    { name = "tzdata" },
     { name = "uvicorn" },
 ]
 
@@ -89,6 +90,7 @@ requires-dist = [
     { name = "plotly", specifier = ">=6.9.0,<8.0.0" },
     { name = "pyarrow", specifier = ">=25.0.1,<26.0.0" },
     { name = "tabulate", specifier = ">=0.10.0,<0.11.0" },
+    { name = "tzdata", specifier = ">=2026.4" },
     { name = "uvicorn", specifier = ">=0.54.0,<1.0.0" },
 ]
 
