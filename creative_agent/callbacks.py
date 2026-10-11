@@ -65,6 +65,7 @@ def _set_initial_states(source: dict[str, Any], target: State | dict[str, Any]):
         gcs_bucket=config.GCS_BUCKET,
         agent_output_dir="creative_output",
         extra={"gcs_bucket_name": config.GCS_BUCKET_NAME},
+        timezone=config.trend_timezone,
     )
     if not seeded:
         return

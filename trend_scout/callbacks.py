@@ -38,6 +38,7 @@ def _set_initial_states(source: dict[str, Any], target: State | dict[str, Any]):
         state_init_key=config.state_init,
         gcs_bucket=config.GCS_BUCKET,
         agent_output_dir="trawler_output",
+        timezone=config.trend_timezone,
     )
 
 

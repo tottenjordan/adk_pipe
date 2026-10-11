@@ -731,3 +731,36 @@ def test_restore_unflagged_copies_callback(caplog):
     state["ad_copy_critique"] = complied
     restore_unflagged_copies_callback(SimpleNamespace(state=state))
     assert state["ad_copy_critique"] is complied
+
+
+class TestDateStateSeeding:
+    """Every agent's state init seeds the run's date keys (configured timezone)."""
+
+    def test_creative_agent_seeds_date(self, monkeypatch):
+        from creative_agent import callbacks
+        from creative_agent.config import config
+
+        monkeypatch.setattr(config, "trend_timezone", "Asia/Tokyo")
+        target = {}
+        callbacks._set_initial_states({"brand": "TestBrand"}, target)
+        assert target["current_timezone"] == "Asia/Tokyo"
+        assert len(target["current_date"]) == 10
+        assert target["current_weekday"]
+
+    def test_trend_scout_seeds_date(self, monkeypatch):
+        from trend_scout import callbacks
+        from trend_scout.config import config
+
+        monkeypatch.setattr(config, "trend_timezone", "Europe/Paris")
+        target = {}
+        callbacks._set_initial_states({"brand": ""}, target)
+        assert target["current_timezone"] == "Europe/Paris"
+        assert target["current_datetime"]
+
+    def test_seeded_date_survives_creative_state_init(self):
+        from creative_agent.callbacks import _set_initial_states
+
+        target = {"current_date": "2026-10-01", "current_weekday": "Thursday"}
+        _set_initial_states({"brand": "TestBrand"}, target)
+        assert target["current_date"] == "2026-10-01"
+        assert target["current_weekday"] == "Thursday"
