@@ -94,6 +94,13 @@ ENV_VAR_DICT = {
     # Timezone of every run's date state (agent_common/clock.py; the date itself
     # is computed per run at state init, never baked in at deploy time).
     "TREND_TIMEZONE": os.getenv("TREND_TIMEZONE") or "America/New_York",
+    # creative_agent trend situation (creative_agent/trend_situation.py): kill
+    # switch for the grounded "current moment" branch (default on), the event
+    # window around today (1..30 days, default 7) and how long a just-happened
+    # moment stays valid (6..168 hours, default 48).
+    "TREND_STATE_ENABLED": os.getenv("TREND_STATE_ENABLED", "true"),
+    "TREND_EVENT_WINDOW_DAYS": os.getenv("TREND_EVENT_WINDOW_DAYS", "7"),
+    "TIMELY_VALID_HOURS_AFTER": os.getenv("TIMELY_VALID_HOURS_AFTER", "48"),
     # Per-request timeout for flash / lite model calls (agent_common/genai_retry.py;
     # default 90, clamped 30..900, 0 = use MODEL_REQUEST_TIMEOUT_SECONDS). The ADK
     # agent models bake it in at deploy (pickled); the lazily built image-QA

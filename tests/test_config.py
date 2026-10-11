@@ -431,3 +431,63 @@ class TestRatingLearningKnobs:
         for key in (*self.KEYS, "BQ_TABLE_RATINGS"):
             assert da.ENV_VAR_DICT[key] is not None, key
             assert key in env_example, key
+
+
+class TestTrendStateKnobs:
+    """Trend situation knobs (TREND_STATE_ENABLED / TREND_EVENT_WINDOW_DAYS /
+    TIMELY_VALID_HOURS_AFTER) and their deploy wiring."""
+
+    def test_defaults(self):
+        from creative_agent.config import (
+            parse_timely_valid_hours_after,
+            parse_trend_event_window_days,
+            parse_trend_state_enabled,
+        )
+
+        assert parse_trend_state_enabled(None) is True
+        assert parse_trend_event_window_days(None) == 7
+        assert parse_timely_valid_hours_after(None) == 48
+
+    def test_parsing_and_clamping(self):
+        from creative_agent.config import (
+            parse_timely_valid_hours_after,
+            parse_trend_event_window_days,
+            parse_trend_state_enabled,
+        )
+
+        assert parse_trend_state_enabled("off") is False
+        assert parse_trend_state_enabled("false") is False
+        assert parse_trend_state_enabled("yes") is True
+        assert parse_trend_event_window_days("0") == 1
+        assert parse_trend_event_window_days("99") == 30
+        assert parse_trend_event_window_days("junk") == 7
+        assert parse_trend_event_window_days("3") == 3
+        assert parse_timely_valid_hours_after("1") == 6
+        assert parse_timely_valid_hours_after("500") == 168
+        assert parse_timely_valid_hours_after(" ") == 48
+        assert parse_timely_valid_hours_after("24") == 24
+
+    def test_config_reads_env(self, monkeypatch):
+        from creative_agent.config import ResearchConfiguration
+
+        monkeypatch.setenv("TREND_STATE_ENABLED", "0")
+        monkeypatch.setenv("TREND_EVENT_WINDOW_DAYS", "5")
+        monkeypatch.setenv("TIMELY_VALID_HOURS_AFTER", "24")
+        cfg = ResearchConfiguration()
+        assert cfg.trend_state_enabled is False
+        assert cfg.trend_event_window_days == 5
+        assert cfg.timely_valid_hours_after == 24
+
+    def test_shipped_to_agent_engine_and_documented(self):
+        from pathlib import Path
+
+        import deployment.deploy_agent as da
+
+        env_example = (Path(__file__).parent.parent / ".env.example").read_text()
+        for key in (
+            "TREND_STATE_ENABLED",
+            "TREND_EVENT_WINDOW_DAYS",
+            "TIMELY_VALID_HOURS_AFTER",
+        ):
+            assert da.ENV_VAR_DICT[key], key
+            assert key in env_example, key

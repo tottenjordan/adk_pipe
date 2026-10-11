@@ -481,3 +481,40 @@ def test_visual_concepts_carry_brand_cue_and_angle_id(name):
     concept = model(**required, brand_cue="PRS bird inlays", angle_id="A2")
     assert concept.model_dump()["brand_cue"] == "PRS bird inlays"
     assert concept.model_dump()["angle_id"] == "A2"
+
+
+# --- Trend situation (trend-state awareness PR 2) --- #
+def test_trend_situation_draft_defaults_abstain():
+    from creative_agent.schemas import TrendSituationDraft
+
+    draft = TrendSituationDraft(phase="unknown")
+    assert draft.event_name == "" and draft.event_start == ""
+    assert draft.outcome == "" and draft.source_ids == []
+    assert draft.confidence == "low" and draft.audience_sentiment == "neutral"
+
+
+def test_trend_situation_draft_rejects_unknown_phase():
+    from creative_agent.schemas import TrendSituationDraft
+
+    with pytest.raises(ValidationError):
+        TrendSituationDraft(phase="soon")
+    with pytest.raises(ValidationError):
+        TrendSituationDraft(phase="just_happened", outcome="tie")
+
+
+def test_trend_situation_extends_the_draft():
+    from creative_agent.schemas import TrendSituation, TrendSituationDraft
+
+    situation = TrendSituation(
+        phase="upcoming",
+        event_name="Texas vs Oklahoma",
+        event_start="2026-10-12",
+        source_ids=["src-1"],
+        confidence="high",
+        as_of="2026-10-11T09:00:00-04:00",
+        timely_ok=True,
+        valid_until="2026-10-12T23:59:59-04:00",
+        tone_rule="anticipation",
+    )
+    assert situation.abstain_reason == ""
+    assert set(TrendSituationDraft.model_fields) < set(TrendSituation.model_fields)

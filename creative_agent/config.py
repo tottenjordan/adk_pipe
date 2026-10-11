@@ -86,6 +86,15 @@ DEFAULT_MAX_CAST_CONCEPTS = 2
 MAX_MAX_CAST_CONCEPTS = 4
 
 
+# Trend situation (creative_agent/trend_situation.py): the grounded "current
+# moment" branch's kill switch, the event window around today, and how long a
+# just-happened moment stays usable.
+DEFAULT_TREND_EVENT_WINDOW_DAYS = 7
+TREND_EVENT_WINDOW_DAYS_RANGE = (1, 30)
+DEFAULT_TIMELY_VALID_HOURS_AFTER = 48
+TIMELY_VALID_HOURS_AFTER_RANGE = (6, 168)
+
+
 def _parse_rounds(raw: str | None, default: int, maximum: int) -> int:
     try:
         value = int(raw) if raw is not None and raw.strip() else None
@@ -148,6 +157,36 @@ def parse_brand_history_runs(raw: str | None) -> int:
 def _parse_bounded(raw: str | None, default: int, maximum: int) -> int:
     """Like ``_parse_rounds`` but clamped to 1..maximum (a sample size/window)."""
     return max(1, _parse_rounds(raw, default, maximum))
+
+
+def _parse_range(raw: str | None, default: int, bounds: tuple[int, int]) -> int:
+    """An int clamped to ``bounds`` (inclusive); unset/blank/invalid → default."""
+    lo, hi = bounds
+    return max(lo, _parse_rounds(raw, default, hi))
+
+
+def parse_trend_state_enabled(raw: str | None) -> bool:
+    """``TREND_STATE_ENABLED`` → bool; ON unless explicitly 0/false/no/off."""
+    return parse_brand_history_enabled(raw)
+
+
+def parse_trend_event_window_days(raw: str | None) -> int:
+    """``TREND_EVENT_WINDOW_DAYS`` → int clamped to 1..30; unset/invalid → 7.
+
+    An upcoming or just-happened event must be dated within this many days of
+    today, else the validator abstains (phase "unknown")."""
+    return _parse_range(
+        raw, DEFAULT_TREND_EVENT_WINDOW_DAYS, TREND_EVENT_WINDOW_DAYS_RANGE
+    )
+
+
+def parse_timely_valid_hours_after(raw: str | None) -> int:
+    """``TIMELY_VALID_HOURS_AFTER`` → int clamped to 6..168; unset/invalid → 48.
+
+    How long after a just-happened event ends a timely reference stays valid."""
+    return _parse_range(
+        raw, DEFAULT_TIMELY_VALID_HOURS_AFTER, TIMELY_VALID_HOURS_AFTER_RANGE
+    )
 
 
 def parse_person_safe_styles(raw: str | None) -> tuple[str, ...]:
@@ -342,6 +381,23 @@ class ResearchConfiguration(BaseAgentConfiguration):
     )
     max_cast_concepts: int = field(
         default_factory=lambda: parse_max_cast_concepts(os.getenv("MAX_CAST_CONCEPTS"))
+    )
+
+    # Trend situation (the grounded "current moment" branch + its validator).
+    trend_state_enabled: bool = field(
+        default_factory=lambda: parse_trend_state_enabled(
+            os.getenv("TREND_STATE_ENABLED")
+        )
+    )
+    trend_event_window_days: int = field(
+        default_factory=lambda: parse_trend_event_window_days(
+            os.getenv("TREND_EVENT_WINDOW_DAYS")
+        )
+    )
+    timely_valid_hours_after: int = field(
+        default_factory=lambda: parse_timely_valid_hours_after(
+            os.getenv("TIMELY_VALID_HOURS_AFTER")
+        )
     )
 
     def campaign_models(self) -> tuple[str, str, str]:
