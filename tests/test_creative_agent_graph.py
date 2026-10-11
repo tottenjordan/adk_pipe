@@ -218,6 +218,7 @@ _BRIEF: dict[str, Any] = {
         "bridge": "Skate speed meets the roadrunner's signature sprint.",
         "motifs": ["a roadrunner dust cloud", "desert mesa road"],
         "risks": ["cartoon violence"],
+        "timely_angle": "",
     },
     "mandatories": ["show the ACME logo", "name Rocket Skates"],
     "avoid": ["cliff falls"],
@@ -849,6 +850,8 @@ def _final_ad(original_id: int, **overrides: Any) -> dict[str, Any]:
         "audience_appeal_rationale": "Coyotes want speed.",
         "social_caption": "Zoom.",
         "typicality": 0.4,
+        "uses_trend_state": False,
+        "timely_reason": "",
         "call_to_action": "Order yours today",
         "brief_checks": [
             {"item": "proposition", "passed": True, "note": "on message"},
@@ -1281,6 +1284,8 @@ def _final_concept(ad_copy_id: int, prompt: str = "", **overrides: Any) -> dict:
         "trend_motif": "a roadrunner dust cloud",
         "brand_cue": "the ACME crate",
         "angle_id": "A1",
+        "uses_trend_state": False,
+        "timely_reason": "",
         "casts_person_reference": False,
         "person_casting_reason": "",
         "image_generation_prompt": prompt
