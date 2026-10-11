@@ -145,6 +145,8 @@ tests/
 ├── test_tools.py                    # backend tool functions (pure logic, no I/O)
 ├── test_tools_retry.py              # infra tools propagate (don't swallow) exceptions
 ├── test_trend_context.py           # trend_scout/trend_context.py: per-trend context JSON from info_gtrends + selected_gtrends (fenced JSON, markdown fallback, malformed → "")
+├── test_trend_situation.py         # creative_agent/trend_situation.py: the validator table (upcoming/just-happened ok; no source / unknown src id / outside the window / wrong side of today / no outcome / URL date before the event → unknown; live/sensitive/ongoing/evergreen/low confidence never timely), valid_until, run-timezone dates, tone playbook, one-line moment, prompt tokens
+├── test_trend_situation_graph.py   # the trend situation branch inside combined_research_pipeline (stub models): grounded draft → validated moment in the brief writer's prompt + compact brief; synthesizer raises → unknown; empty turns exhaust → unknown; disabled → no model call, stale draft cleared
 ├── test_trend_scout_graph.py        # trend_scout understand_trends graph run end-to-end (stub models)
 ├── test_trend_scout_history.py      # trend_scout root history trim (measured on the real App, stub models): gather/pick AgentTool runs are isolated, the understand_trends NodeTool leaks 2 sub-agent turns + 2 node inputs into the root's final request without drop_other_agent_context, 0 with it; resumed review_trends checkpoint response kept; trim wired before the rate limiter
 ├── test_trend_scout_concurrency.py  # trend_scout GCS-export tools: per-run scratch isolation
@@ -284,6 +286,10 @@ tests/
   a raising step doesn't stop research), `test_pipeline_structure.py` (node in the START
   fan-out). `conftest.py` points the module's BigQuery and GCS getters at a raiser so no
   test reads the live table/bucket the repo `.env` names.
+- **Trend situation** — `test_trend_situation.py` (pure validator + tone + rendering),
+  `test_trend_situation_graph.py` (branch runs), `test_pipeline_structure.py` (branch graph in
+  the START fan-out), `test_config.py::TestTrendStateKnobs`. `conftest.py` keeps the branch
+  off (`_trend_state_off`) so other graph tests need not script its two stub models.
 - **Async-job run model** — `test_async_runs.py`: detached kick-off returns immediately,
   `_drive_run` appends a `done`/`error` terminal marker, poll derives status + slices
   events by cursor, and resume re-runs with a `functionResponse` (resetting status to

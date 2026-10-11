@@ -39,6 +39,27 @@ Only for runs whose `person_reference` names an active consent (checked by the a
 
 `load_brand_history` (function node, no LLM) runs in `combined_research_pipeline`'s START fan-out next to the two planners and feeds `research_join`. It reads the brand's latest `BRAND_HISTORY_RUNS` (default 5, clamped 0–20) `creative_evals` rows (parameterised SELECT, case-insensitive brand match) plus their eval-report JSON (configured bucket only, 5 MB cap), and writes `brand_history` — a brace-free ≤120-word note (recent styles, strongest styles/copy tones, recurring weak dimensions, often-failed gates) read via `{brand_history?}` by the brief writer and art director. Unless `visual_style_preference` is set, it re-draws `style_shortlist` without the recently used styles (`pick_style_shortlist(exclude=...)`, 2/3/1 strata kept). Fail-soft: 10 s timeout in a worker thread, any error → `""`; `BRAND_HISTORY_ENABLED=false` skips it (no query). Eval report entries now carry `visual_style` / `angle_id` (code-set, `""` in old reports); angle ids are per-brief so only styles and copy tones are aggregated. The `creative_ratings` table is not joined (no clean run key). Only allowlisted values reach the prompts: report styles are mapped to canonical `STYLE_GROUPS` families (`style_shortlist.canonical_style`, unmapped dropped), tones must be in the `tone_style` Literal, weaknesses known dimension labels, checks known gate names. History spans **all users** of a brand (`creative_evals` has no user column; shared artifacts are expected under P3), and the brand match is exact after trimming and case-folding ("Acme" = "acme", but not "Acme Inc").
 
+## Trend situation validator (`creative_agent/trend_situation.py`, 2026-10-11)
+
+The grounded `trend_situation_pipeline` branch (START fan-out of `combined_research_pipeline`) drafts the trend's current moment; `validate_situation` decides by rule, never by the model's judgement, and **abstains** (phase forced to `unknown`, `timely_ok=False`, `abstain_reason` set) whenever it cannot verify the moment — unknown is the pre-feature behaviour, so the check fails safe.
+
+| Draft | Result |
+|---|---|
+| no / invalid draft, or `TREND_STATE_ENABLED=false` | `unknown` ("no trend situation was drafted" / "disabled") |
+| model chose `unknown` | `unknown` |
+| upcoming / just happened with no parseable `event_start` | `unknown` |
+| event more than `TREND_EVENT_WINDOW_DAYS` (7) from today | `unknown` |
+| upcoming dated before today; just happened dated after today | `unknown` |
+| just happened with an empty `outcome` | `unknown` |
+| any cited id not in `state["sources"]`, or no cited source (upcoming / just happened) | `unknown` |
+| just happened, a cited source's URL date (`/YYYY/MM/DD/`) < event − 1 day | `unknown` |
+| `live` / `ongoing` / `evergreen` | phase kept, never timely (unknown ids → `unknown`) |
+| `sensitive` | phase kept (unknown ids dropped, never downgraded), never timely; rendered for the brief with "Never reference this moment" |
+| `confidence == "low"` | phase kept, not timely |
+| `valid_until` already past | phase kept, not timely ("the moment has expired") |
+
+"Today" is state `current_datetime` (seeded per run by the date-awareness step) or else the wall clock, in `current_timezone` / `TREND_TIMEZONE` (default America/New_York); a datetime with an offset is converted to that zone before taking its date (03:00 UTC on the 12th is the 11th in New York). `valid_until`: upcoming → 23:59:59 on the event day; just happened → `event_end` or `event_start` (a bare date = 23:59:59 that day) + `TIMELY_VALID_HOURS_AFTER` (48 h, 6–168). Grounded source URLs are usually `vertexaisearch` redirects without a date, so the URL-date rule rarely fires; it is a cheap guard for direct publisher URLs.
+
 ### 2026-10-08 gate changes (rater audit)
 
 A live audit found the judge passed 16/16 creatives that a human failed 8/16 (trend unclear,
