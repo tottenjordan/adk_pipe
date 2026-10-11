@@ -1050,7 +1050,11 @@ def merge_brief_edit(state: dict | None, edits: list | None) -> dict:
         return {}
     return {
         BRIEF_EDIT_FIELD: brief,
-        "creative_brief_md": render_brief_markdown(brief, heading=False),
+        "creative_brief_md": render_brief_markdown(
+            brief,
+            heading=False,
+            current_moment=str(state.get("trend_situation_md") or ""),
+        ),
         "creative_brief_edited": True,
         "creative_brief__issues": None,
     }

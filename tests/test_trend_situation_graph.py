@@ -59,9 +59,16 @@ def test_trend_situation_branch_validates_a_grounded_draft(monkeypatch):
     assert situation["timely_ok"] is True
     assert situation["valid_until"] == "2026-10-12T23:59:59-04:00"
     assert state["trend_situation_md"].startswith(
-        "Current moment (upcoming): Roadrunner Cup final"
+        "Upcoming: Roadrunner Cup final, 2026-10-12."
     )
     assert state["creative_brief"] == _BRIEF
+    # The brief writer read the moment, and the compact brief carries it.
+    brief_prompt = str(llms["brief_writer"].requests[-1].config.system_instruction)
+    assert f"Current moment: {state['trend_situation_md']}" in brief_prompt
+    assert (
+        f"- **Current moment:** {state['trend_situation_md']}"
+        in state["creative_brief_md"]
+    )
     assert len(_responses(events)) == 1
     assert root_llm.calls == 2
 

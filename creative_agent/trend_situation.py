@@ -12,7 +12,7 @@ Also here (pure, brace-free text):
 
 - ``tone_rule_for`` — the phase-conditioned tone playbook for a timely
   reference (upcoming = anticipation; win = celebration; loss = empathy);
-- ``current_moment_md`` — the one-line "Current moment: …" the brief writer
+- ``current_moment_md`` — the one-line moment ("Upcoming: …") the brief writer
   reads as ``{trend_situation_md?}`` ("" when the moment is not usable);
 - ``resolve_now`` — the run's "now" in its timezone.
 """
@@ -312,7 +312,7 @@ def _short_time(iso: str) -> str:
 def current_moment_md(situation: Any) -> str:
     """One brace-free line for ``{trend_situation_md?}`` ("" when not usable).
 
-    A timely moment: "Current moment (<phase>): <event>, <date>. <outcome>
+    A timely moment: "<Phase>: <event>, <date>. <outcome>
     (sources: …; valid until …)". A sensitive moment is rendered too, with an
     instruction never to reference it; every other (unknown, not timely) moment
     renders "" so the brief cannot lean on it.
@@ -323,7 +323,7 @@ def current_moment_md(situation: Any) -> str:
     if not (data.timely_ok or data.phase == "sensitive"):
         return ""
     label = _PHASE_LABELS.get(data.phase, data.phase)
-    head = f"Current moment ({label}): {_clean(data.event_name) or 'the trend'}"
+    head = f"{label.capitalize()}: {_clean(data.event_name) or 'the trend'}"
     if data.event_start:
         head += f", {_clean(data.event_start)}"
     parts = [head + "."]

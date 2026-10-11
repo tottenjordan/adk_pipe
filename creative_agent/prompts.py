@@ -403,6 +403,9 @@ TREND_SCOUT_HINT_BLOCK = """<trend_scout_hint>
 # GATING_BRIEF_CHECKS); unsupported absolute claims are a deterministic check
 # (creative_agent/claims.py) in the brief and copy gates.
 TREND_RISKS_RULE = "**Trend risks:** respect the trend risks listed in the brief (trend_bridge risks). When the trend is a real disaster, tragedy or crisis, never joke about or play on its severity, victims, damage or official warnings (e.g. storm categories, evacuation orders), and never build the idea on the harm itself; keep the trend to a light touch."
+# The validated current moment (creative_agent/trend_situation.py): a one-line
+# `trend_situation_md`, empty unless the moment is timely or sensitive.
+CURRENT_MOMENT_RULE = "**Current moment:** use the current moment only if it is present; never state an event date or result that is not in it. If it is empty, write the brief without any dated event or result."
 COPY_CLAIMS_RULE = "**Claims:** make no unsupported absolute claims (guaranteed, indestructible, unbreakable, risk-free, 100%, lifetime, never fails) unless the user's key selling points or the brief's mandatories state them; prefer a concrete, verifiable benefit."
 
 CREATIVE_BRIEF_WRITER_INSTR = (
@@ -434,6 +437,9 @@ CREATIVE_BRIEF_WRITER_INSTR = (
     12. **Truthful product and claims:** use the product name exactly as given ({target_product}); never add a variant, finish, colour or model the user did not give. Include one mandatory that names the product exactly as given. No guarantees or absolute claims (guaranteed, indestructible, 100%, lifetime, never fails) unless a cited source or the user's selling points state them.
     13. **Sensitive trends:** if the trend is a real disaster, tragedy or crisis (a storm, wildfire, shooting, war, death), choose fit_mode "light_touch" (score 1-2), list its harms in trend_bridge.risks (and short terms for them in `avoid`), and never build the idea on the harm itself.
     14. **Trend scout hint:** if <trend_scout_hint> is non-empty, use it only to understand why the trend was picked. Never state an event, date or result from it unless the research report confirms it as current.
+    15. """
+    + CURRENT_MOMENT_RULE
+    + """
     </INSTRUCTIONS>
 
     <CONTEXT>
@@ -442,6 +448,7 @@ CREATIVE_BRIEF_WRITER_INSTR = (
         <target_audience>{target_audience}</target_audience>
         <key_selling_points>{key_selling_points}</key_selling_points>
         <target_search_trends>{target_search_trends}</target_search_trends>
+        <current_moment>Current moment: {trend_situation_md?}</current_moment>
 
         """
     + TREND_SCOUT_HINT_BLOCK

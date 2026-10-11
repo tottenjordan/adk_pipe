@@ -210,7 +210,7 @@ def test_tone_rules_are_brace_free():
 # --- one-line rendering --- #
 def test_current_moment_md_for_timely_moment():
     md = current_moment_md(_validate(LOSS))
-    assert md.startswith("Current moment (just happened): Texas vs Oklahoma")
+    assert md.startswith("Just happened: Texas vs Oklahoma, 2026-10-10.")
     assert "Texas lost to Oklahoma 24-31." in md
     assert "sources: src-2" in md
     assert "valid until 2026-10-12 23:59" in md
@@ -228,7 +228,7 @@ def test_current_moment_md_for_sensitive_moment_says_never_reference():
             }
         )
     )
-    assert md.startswith("Current moment (sensitive): Stadium collapse")
+    assert md.startswith("Sensitive: Stadium collapse.")
     assert "never reference" in md.lower()
 
 
@@ -250,9 +250,7 @@ def test_current_moment_md_strips_braces():
 
 
 def test_current_moment_md_accepts_a_dict():
-    assert current_moment_md(_validate(UPCOMING).model_dump()).startswith(
-        "Current moment (upcoming)"
-    )
+    assert current_moment_md(_validate(UPCOMING).model_dump()).startswith("Upcoming:")
     assert current_moment_md(None) == ""
 
 
@@ -284,7 +282,7 @@ def test_state_delta_reads_draft_sources_and_state_clock():
     )
     assert delta["trend_situation"]["phase"] == "upcoming"
     assert delta["trend_situation"]["timely_ok"] is True
-    assert delta["trend_situation_md"].startswith("Current moment (upcoming)")
+    assert delta["trend_situation_md"].startswith("Upcoming:")
 
 
 def test_situation_prompts_use_only_known_tokens():

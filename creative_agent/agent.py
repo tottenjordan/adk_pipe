@@ -279,6 +279,12 @@ brief_writer_resilient = RetryUntilKeyNode(
 # - reviser: keep the pre-revision brief, record the gate's issues as
 #   creative_brief__issues, and spend the revision budget (a raising reviser is
 #   not re-run by the gate).
+def _current_moment(state: Mapping[str, Any]) -> str:
+    """The validated current moment line (``trend_situation_md``; "" if none)."""
+    value = state.get("trend_situation_md")
+    return value if isinstance(value, str) else ""
+
+
 def _brief_writer_failed(state: Mapping[str, Any], exc: Exception) -> dict[str, Any]:
     return {
         "creative_brief": None,
@@ -293,7 +299,9 @@ def _brief_reviser_failed(state: Mapping[str, Any], exc: Exception) -> dict[str,
     return {
         "creative_brief": state.get("creative_brief"),
         "creative_brief_md": render_brief_markdown(
-            state.get("creative_brief"), heading=False
+            state.get("creative_brief"),
+            heading=False,
+            current_moment=_current_moment(state),
         ),
         "brief_issues": "",
         "creative_brief__issues": _brief_issues(state) or None,
@@ -367,7 +375,9 @@ def brief_gate_decision(
         brief = cleaned
         snapshot["creative_brief"] = cleaned
         base["creative_brief"] = cleaned
-    brief_md = render_brief_markdown(brief, heading=False)
+    brief_md = render_brief_markdown(
+        brief, heading=False, current_moment=_current_moment(snapshot)
+    )
     base["creative_brief_md"] = brief_md
     issues = _brief_issues(snapshot)
     if not issues:
