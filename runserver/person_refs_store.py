@@ -8,7 +8,8 @@ One row per ``consent_id`` (random, ``secrets.token_urlsafe``): who registered i
 ``created_at`` / ``revoked_at`` and ``person_renders`` (the ``gs://`` URIs of
 images made with the photo: cast base renders, recorded by the api run path when a
 run segment ends, and personalised variants, recorded at upload; deduplicated,
-``add_renders``) so a revoke can delete them. ``BigQueryPersonRefsStore`` writes with ``MERGE ... WHEN NOT
+``add_renders``) so a revoke can delete them, plus ``photo_min_side`` (the
+photo's shorter side in px; NULL for older records). ``BigQueryPersonRefsStore`` writes with ``MERGE ... WHEN NOT
 MATCHED THEN INSERT`` and revokes with a guarded ``UPDATE``, binding every value
 as a query parameter (only the table name, from env, is interpolated).
 ``InMemoryPersonRefsStore`` mirrors it for local dev and tests
@@ -45,6 +46,9 @@ PERSON_REF_COLUMN_TYPES = {
     "created_at": "TIMESTAMP",
     "revoked_at": "TIMESTAMP",
     "person_renders": "ARRAY<STRING>",
+    # The photo's shorter side in px at registration (NULL for records made
+    # before the size check; GET /person-refs backfills it lazily).
+    "photo_min_side": "INT64",
 }
 
 

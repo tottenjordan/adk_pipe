@@ -7,7 +7,9 @@
 from __future__ import annotations
 
 import asyncio
+import io
 import json
+from functools import cache
 from pathlib import Path
 
 import httpx
@@ -30,6 +32,15 @@ PHOTO_A = f"gs://{BUCKET}/person-refs/{SLUG_A}/me.jpg"
 # --- fake GCS ---------------------------------------------------------------------
 
 
+@cache
+def image_bytes(width: int = 1200, height: int = 1200, fmt: str = "JPEG") -> bytes:
+    from PIL import Image
+
+    buf = io.BytesIO()
+    Image.new("RGB", (width, height), (120, 90, 60)).save(buf, format=fmt)
+    return buf.getvalue()
+
+
 class FakeBlob:
     def __init__(self, bucket: FakeBucket, name: str, meta: dict | None = None):
         self.bucket, self.name = bucket, name
@@ -37,6 +48,17 @@ class FakeBlob:
         self.size = meta.get("size")
         self.content_type = meta.get("content_type")
         self.metadata = meta.get("metadata")
+
+    def download_as_bytes(self) -> bytes:
+        self.bucket.gcs.ops.append(("download", self.bucket.name, self.name))
+        if self.bucket.gcs.fail_download:
+            raise RuntimeError("download failed")
+        meta = self.bucket.objects.get(self.name)
+        if meta is None:
+            from google.api_core.exceptions import NotFound
+
+            raise NotFound("gone")
+        return meta["data"]
 
     def delete(self):
         from google.api_core.exceptions import NotFound
@@ -71,6 +93,7 @@ class FakeGCS:
         self.ops: list[tuple] = []
         self.fail_head = False
         self.fail_delete = False
+        self.fail_download = False
 
     def add(
         self,
@@ -78,12 +101,14 @@ class FakeGCS:
         size: int = 1000,
         content_type: str = "image/jpeg",
         metadata: dict | None = None,
+        data: bytes | None = None,
     ):
         bucket, _, path = uri.removeprefix("gs://").partition("/")
         self.objects.setdefault(bucket, {})[path] = {
             "size": size,
             "content_type": content_type,
             "metadata": metadata,
+            "data": image_bytes() if data is None else data,
         }
 
     def has(self, uri: str) -> bool:
@@ -251,7 +276,7 @@ def test_another_users_prefix_is_rejected_before_any_gcs_read():
 
 @pytest.mark.parametrize(
     "setup",
-    ["missing", "too_big", "not_image", "head_error"],
+    ["missing", "too_big", "not_image", "head_error", "not_decodable", "dl_error"],
 )
 def test_unreadable_photo_is_400(setup):
     async def go():
@@ -262,12 +287,87 @@ def test_unreadable_photo_is_400(setup):
             h.gcs.add(PHOTO_A, size=pr.MAX_PHOTO_BYTES + 1)
         elif setup == "not_image":
             h.gcs.add(PHOTO_A, content_type="application/pdf")
+        elif setup == "not_decodable":
+            h.gcs.add(PHOTO_A, data=b"not really a jpeg")
+        elif setup == "dl_error":
+            h.gcs.fail_download = True
         else:
             h.gcs.fail_head = True
         r = await h.create()
         assert r.status_code == 400
         assert r.json()["detail"]["reason"] == "photo_unreadable"
         assert h.store.rows == {}
+
+    run(go)
+
+
+def test_photo_below_the_minimum_side_is_400():
+    async def go():
+        h = Harness()
+        h.gcs.add(PHOTO_A, data=image_bytes(300, 300))
+        r = await h.create()
+        assert r.status_code == 400
+        detail = r.json()["detail"]
+        assert detail["reason"] == "photo_too_small"
+        assert "512 px" in detail["message"] and "1024 px" in detail["message"]
+        assert h.store.rows == {}
+        # the shorter side decides: 2000 x 500 is too small too
+        h.gcs.add(PHOTO_A, data=image_bytes(2000, 500))
+        assert (await h.create()).json()["detail"]["reason"] == "photo_too_small"
+
+    run(go)
+
+
+@pytest.mark.parametrize(
+    ("size", "fmt", "low"),
+    [
+        ((800, 600), "JPEG", True),
+        ((1500, 1200), "PNG", False),
+        ((1024, 1024), "WEBP", False),
+    ],
+)
+def test_photo_size_is_stored_and_flagged(size, fmt, low):
+    async def go():
+        h = Harness()
+        h.gcs.add(PHOTO_A, data=image_bytes(*size, fmt=fmt))
+        r = await h.create()
+        assert r.status_code == 200, r.text
+        got = r.json()
+        assert got["photo_min_side"] == min(size)
+        assert got["low_resolution"] is low
+        row = await h.store.get(got["consent_id"])
+        assert row["photo_min_side"] == min(size)
+        listed = (await h.client.get(f"/person-refs/{A}")).json()["person_refs"][0]
+        assert listed["photo_min_side"] == min(size)
+        assert listed["low_resolution"] is low
+
+    run(go)
+
+
+def test_to_public_without_a_stored_size():
+    row = {"consent_id": "cid_AAAAAAAAAAAA", "photo_uri": PHOTO_A}
+    got = pr.to_public(row)
+    assert got["photo_min_side"] is None and got["low_resolution"] is False
+    assert pr.to_public({**row, "photo_min_side": 240})["low_resolution"] is True
+
+
+@pytest.mark.parametrize(
+    ("raw", "want"),
+    [(None, 512), ("", 512), ("800", 800), ("10", 256), ("99999", 4096), ("x", 512)],
+)
+def test_min_side_env_is_clamped(raw, want):
+    env = {} if raw is None else {"PERSON_PHOTO_MIN_SIDE": raw}
+    assert pr.min_side_from_env(env) == want
+
+
+def test_configured_min_side_is_used(monkeypatch):
+    async def go():
+        monkeypatch.setattr(pr, "PHOTO_MIN_SIDE", 1000)
+        h = Harness()
+        h.gcs.add(PHOTO_A, data=image_bytes(900, 900))
+        r = await h.create()
+        assert r.status_code == 400
+        assert "1000 px" in r.json()["detail"]["message"]
 
     run(go)
 

@@ -33,6 +33,7 @@ def _row(**over) -> dict:
         "created_at": T0,
         "revoked_at": None,
         "person_renders": [],
+        "photo_min_side": 1200,
     }
     row.update(over)
     return row
@@ -61,7 +62,10 @@ def test_schema_file_matches_store_columns():
         "created_at",
         "revoked_at",
         "person_renders",
+        "photo_min_side",
     ]
+    nullable = {f["name"]: f["mode"] for f in json.loads(SCHEMA.read_text())}
+    assert nullable["photo_min_side"] == "NULLABLE"
 
 
 def test_put_sql_is_fully_parameterised():
@@ -78,6 +82,8 @@ def test_put_sql_is_fully_parameterised():
     assert set(by_name) == set(ps.PERSON_REF_COLUMN_TYPES)
     assert by_name["label"].value == "Me'; DROP TABLE x"
     assert by_name["adult_attested"].type_ == "BOOL"
+    assert by_name["photo_min_side"].type_ == "INT64"
+    assert by_name["photo_min_side"].value == 1200
     renders = by_name["person_renders"]
     assert isinstance(renders, bigquery.ArrayQueryParameter)
     assert renders.array_type == "STRING" and renders.values == []
