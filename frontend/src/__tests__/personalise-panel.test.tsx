@@ -65,7 +65,10 @@ const SAFE = ["Candid 35mm film photo", "Photoreal / editorial", "Cinematic film
 /** A `listVariants` result (castable null = an api without castability). */
 function listing(
   variants: Record<string, unknown>,
-  castable: Record<string, { ok: boolean; reason: string; code: string; style: string }> | null = null,
+  castable: Record<
+    string,
+    { ok: boolean; reason: string; code: string; style: string; mode?: string; cast_consent_id?: string }
+  > | null = null,
 ) {
   return { variants, castable, personSafeStyles: castable ? SAFE : [] };
 }
@@ -246,6 +249,82 @@ describe("PersonalisePanel", () => {
     expect(screen.getByRole("button", { name: "Render preview" })).toBeEnabled();
   });
 
+  it("keeps the Personalise wording for an uncast creative (and an api without mode)", async () => {
+    listVariants.mockResolvedValue(
+      listing({}, { [CONCEPT]: { ok: true, code: "", style: "Candid 35mm film photo", reason: "", mode: "add" } }),
+    );
+    renderPanel();
+    expect(await screen.findByRole("heading", { name: "Personalise" })).toBeInTheDocument();
+    await waitFor(() => expect(listVariants).toHaveBeenCalled());
+    expect(screen.getAllByRole("option").map((o) => o.textContent)).toEqual(["Me", "Sam"]);
+  });
+
+  it("swaps the person in a cast creative, leaving the cast person out of the picker", async () => {
+    const castable = {
+      [CONCEPT]: {
+        ok: true,
+        code: "",
+        style: "Candid 35mm film photo",
+        reason: "",
+        mode: "swap",
+        cast_consent_id: "consent-1234",
+      },
+    };
+    listVariants.mockResolvedValue(
+      listing({ [CONCEPT]: { k2: { ...DONE, consent_id: "consent-5678", qa: null } } }, castable),
+    );
+    renderPanel();
+    expect(await screen.findByRole("heading", { name: "Swap person" })).toBeInTheDocument();
+    const select = screen.getByRole("combobox", { name: "Person" });
+    await waitFor(() => expect(select).toHaveValue("consent-5678"));
+    expect(screen.getAllByRole("option").map((o) => o.textContent)).toEqual(["Sam"]);
+    expect(screen.queryByRole("heading", { name: "Personalise" })).not.toBeInTheDocument();
+    // The earlier swap with Sam shows side by side with the original.
+    expect(await screen.findByText("With Sam")).toBeInTheDocument();
+    expect(screen.getByText("Original")).toBeInTheDocument();
+    expect(screen.getByText(VARIANT_NOTE)).toBeInTheDocument();
+
+    createVariant.mockResolvedValue({
+      key: "k3",
+      concept_name: CONCEPT,
+      cached: false,
+      status: "queued",
+      consent_id: "consent-5678",
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Render preview" }));
+    await waitFor(() =>
+      expect(createVariant).toHaveBeenCalledWith("creative_agent", "s1", CONCEPT, "consent-5678"),
+    );
+  });
+
+  it("asks for another person when the cast person is the only one registered", async () => {
+    listPersonRefs.mockResolvedValue({ personRefs: [REFS[0]], prefix: null });
+    listVariants.mockResolvedValue(
+      listing(
+        {},
+        {
+          [CONCEPT]: {
+            ok: true,
+            code: "",
+            style: "Candid 35mm film photo",
+            reason: "",
+            mode: "swap",
+            cast_consent_id: "consent-1234",
+          },
+        },
+      ),
+    );
+    renderPanel();
+    expect(await screen.findByRole("heading", { name: "Swap person" })).toBeInTheDocument();
+    const button = screen.getByRole("button", { name: "Render preview" });
+    await waitFor(() => expect(button).toBeDisabled());
+    const note = screen.getByText((_, el) => el?.id === button.getAttribute("aria-describedby"));
+    expect(note).toHaveTextContent("Register another person on the People page to swap.");
+    expect(screen.getByRole("link", { name: "People page" })).toHaveAttribute("href", "/people");
+    fireEvent.click(button);
+    expect(createVariant).not.toHaveBeenCalled();
+  });
+
   it("links to /people when no one is registered", async () => {
     listPersonRefs.mockResolvedValue({ personRefs: [], prefix: null });
     renderPanel();
@@ -264,7 +343,7 @@ describe("variants helpers", () => {
   });
 
   it("parses castability, tolerating an api without it", () => {
-    const entry = { ok: false, reason: "r", code: "already_cast", style: "Comic panel" };
+    const entry = { ok: false, reason: "r", code: "not_castable", style: "Comic panel" };
     const parsed = parseVariantsListing({
       variants: { [CONCEPT]: { k1: DONE } },
       castable: { [CONCEPT]: entry, junk: 3, bad: { ok: "yes" } },
@@ -276,6 +355,10 @@ describe("variants helpers", () => {
       personSafeStyles: SAFE,
     });
     expect(parseVariantsListing({ variants: {} })).toEqual({ variants: {}, castable: null, personSafeStyles: [] });
+    // mode / cast_consent_id are kept when present and well-typed
+    const swap = { ...entry, ok: true, mode: "swap", cast_consent_id: "consent-1234" };
+    const both = parseVariantsListing({ variants: {}, castable: { a: swap, b: { ...entry, mode: 3 } } });
+    expect(both.castable).toEqual({ a: swap, b: entry });
   });
 
   it("words the castability note", () => {
@@ -286,7 +369,7 @@ describe("variants helpers", () => {
       "Personalised previews work on person-safe styles (Candid 35mm film photo, Photoreal / editorial, Cinematic film still). This creative is Comic panel.",
     );
     expect(castabilityNote({ ...style, style: "" }, SAFE)).toMatch(/This creative's style isn't one of them\.$/);
-    expect(castabilityNote({ ...style, code: "already_cast", reason: "Already cast." }, SAFE)).toBe("Already cast.");
+    expect(castabilityNote({ ...style, code: "no_human_subject", reason: "No person." }, SAFE)).toBe("No person.");
     expect(castabilityNote({ ...style, code: "not_ready", reason: "" }, SAFE)).toBe(
       "This creative can't feature a person.",
     );
@@ -309,12 +392,12 @@ describe("variants helpers", () => {
     expect(variantImageCheck({ ...DONE, status: "failed" })).toBeUndefined();
   });
 
-  it("offers Personalise only for rendered, uncast creatives", () => {
+  it("offers Personalise for rendered creatives, cast or not", () => {
     const images = { [CONCEPT]: { gcs_uri: "gs://b/x.png" } };
     const proof = { concept: { concept_name: CONCEPT } };
     expect(canPersonalise(proof, images, false)).toBe(true);
     expect(canPersonalise({ ...proof, casting: { cast: false } }, images, false)).toBe(true);
-    expect(canPersonalise({ ...proof, casting: { cast: true } }, images, false)).toBe(false);
+    expect(canPersonalise({ ...proof, casting: { cast: true } }, images, false)).toBe(true);
     expect(canPersonalise(proof, images, true)).toBe(false);
     expect(canPersonalise(proof, {}, false)).toBe(false);
   });
@@ -323,7 +406,7 @@ describe("variants helpers", () => {
     expect(
       variantErrorMessage("concept_not_castable", 400, "can't feature a person: its style is not one of the person-safe styles"),
     ).toBe("This creative can't feature a person: its style is not one of the person-safe styles.");
-    expect(variantErrorMessage("concept_already_cast", 400)).toMatch(/already features a person/);
+    expect(variantErrorMessage("same_person_as_cast", 400)).toBe("This creative already features this person.");
     expect(variantErrorMessage(null, 500)).toBe("Something went wrong (500). Try again.");
   });
 });

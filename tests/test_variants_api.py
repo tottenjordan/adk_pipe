@@ -42,6 +42,13 @@ def ready_state() -> dict:
     return state
 
 
+def with_cast(state: dict, name: str, consent_id: str = "consent-aaaa") -> dict:
+    """``state`` with the base image for ``name`` cast with ``consent_id`` (as
+    ``image_tools`` records a cast render)."""
+    state["generated_images"][name].update(cast=True, consent_id=consent_id)
+    return state
+
+
 class FakeBlob:
     def __init__(self, gcs: FakeGCS, bucket: str, name: str):
         self.gcs, self.bucket, self.name = gcs, bucket, name
@@ -208,11 +215,55 @@ def test_variant_key_and_paths():
 def test_variant_concept_casts_and_points_at_the_photo():
     out = vr.variant_concept({"image_generation_prompt": "a photo of a guitarist"})
     assert out["casts_person_reference"] is True
-    assert out["image_generation_prompt"].endswith(
+    assert (
         "The hero is the person in the person reference image."
+        in out["image_generation_prompt"]
     )
     again = vr.variant_concept(out)
     assert again["image_generation_prompt"] == out["image_generation_prompt"]
+
+
+def test_variant_prompt_tells_the_model_the_photo_overrides_described_appearance():
+    line = vr.VARIANT_APPEARANCE_LINE.strip()
+    assert "{" not in line and "}" not in line  # never an ADK state token
+    v = vr.variant_concept({"image_generation_prompt": "A man in his 30s plays."})
+    prompt = v["image_generation_prompt"]
+    assert prompt.endswith(line)
+    # after the hero line, which points at the photo first
+    assert prompt.index("The hero is the person") < prompt.index(line)
+    # idempotent, case-insensitively
+    assert vr.variant_concept(v)["image_generation_prompt"].count(line) == 1
+    shouted = vr.variant_concept({"image_generation_prompt": prompt.upper()})
+    assert shouted["image_generation_prompt"] == prompt.upper()
+
+
+def test_variant_key_is_versioned():
+    import hashlib
+
+    unsalted = hashlib.sha256(b"gs://b/p.jpg|prompt|m").hexdigest()[:12]
+    key = vr.variant_key("gs://b/p.jpg", "prompt", "m")
+    assert key != unsalted
+    salted = f"{vr.VARIANT_KEY_VERSION}|gs://b/p.jpg|prompt|m".encode()
+    assert key == hashlib.sha256(salted).hexdigest()[:12]
+
+
+def test_castability_needs_a_human_subject_despite_the_variant_wording():
+    # The hero / appearance lines a variant appends mention "hero" and
+    # "person"; they must not count as the prompt's human subject.
+    still_life = {
+        "concept_name": "Fruit",
+        "visual_style": "Candid 35mm film photo",
+        "image_generation_prompt": "A bowl of fruit on a table.",
+    }
+    safe = ("Candid 35mm film photo",)
+    assert "human subject" in (vr.castable_reason(still_life, safe) or "")
+    pointed = dict(still_life)
+    pointed["image_generation_prompt"] = vr.variant_concept(still_life)[
+        "image_generation_prompt"
+    ]
+    assert "human subject" in (vr.castable_reason(pointed, safe) or "")
+    guitarist = dict(still_life, image_generation_prompt="A guitarist on stage.")
+    assert vr.castable_reason(guitarist, safe) is None
 
 
 # --- POST / GET ---------------------------------------------------------------------
@@ -413,14 +464,11 @@ def test_concept_checks():
     async def go():
         h = Harness()
         await h.consent()
-        state = ready_state()
-        state["generated_images"][CONCEPTS[2]]["cast"] = True
+        state = with_cast(ready_state(), MEME, "consent-other")
         await h.session(state=state)
         r = await h.post(concept="Nope")
         assert r.json()["detail"]["reason"] == "concept_not_found"
-        r = await h.post(concept=CONCEPTS[2])
-        assert r.status_code == 400
-        assert r.json()["detail"]["reason"] == "concept_already_cast"
+        # A cast concept still has to pass the casting guard to be swapped.
         r = await h.post(concept=MEME)
         assert r.status_code == 400
         assert r.json()["detail"]["reason"] == "concept_not_castable"
@@ -431,6 +479,46 @@ def test_concept_checks():
         )
         assert bad_app.json()["detail"]["reason"] == "invalid_app_name"
         assert h.renderer.calls == []
+
+    run(go)
+
+
+def test_post_refuses_the_person_already_cast():
+    async def go():
+        h = Harness(daily_cap=1)
+        await h.consent()
+        await h.session(state=with_cast(ready_state(), CASTABLE, "consent-aaaa"))
+        r = await h.post(cid="consent-aaaa")
+        assert r.status_code == 400
+        assert r.json()["detail"]["reason"] == "same_person_as_cast"
+        assert r.json()["detail"]["message"] == (
+            "This creative already features this person."
+        )
+        assert h.renderer.calls == []
+        # Refused before the daily cap counts it: a real swap still fits.
+        await h.consent("consent-bbbb", photo=PHOTO_A2)
+        assert (await h.post(cid="consent-bbbb")).status_code == 200
+
+    run(go)
+
+
+def test_post_allows_a_different_person_on_a_cast_concept():
+    async def go():
+        h = Harness()
+        await h.consent()
+        await h.consent("consent-bbbb", photo=PHOTO_A2)
+        await h.session(state=with_cast(ready_state(), CASTABLE, "consent-aaaa"))
+        r = await h.post(cid="consent-bbbb")
+        assert r.status_code == 200, r.text
+        assert r.json()["consent_id"] == "consent-bbbb"
+        await h.settle()
+        ((_, concept_arg, photo),) = h.renderer.calls
+        assert photo == PHOTO_A2 and concept_arg["concept_name"] == CASTABLE
+        session = await h.state()
+        # The base image's cast record is untouched.
+        assert session.state["generated_images"][CASTABLE]["consent_id"] == (
+            "consent-aaaa"
+        )
 
     run(go)
 
@@ -702,6 +790,7 @@ def test_render_variant_uses_run_inputs_and_the_person(monkeypatch):
     assert "Reference image 2 (person)" in text
     assert "No logos, brand marks or trademarks except those of" in text
     assert "The hero is the person in the person reference image." in text
+    assert vr.VARIANT_APPEARANCE_LINE.strip() in text
 
 
 def test_render_variant_blocked_is_rejected_without_fallback(monkeypatch):
@@ -733,6 +822,7 @@ def test_castability_helper_matches_the_post_checks():
     state = ready_state()
     ok = vr.castability(state, CASTABLE)
     assert ok.ok and ok.reason == "" and ok.code == ""
+    assert ok.mode == "add" and ok.cast_consent_id == ""
     assert ok.style == "Candid 35mm film photo"
     meme = vr.castability(state, MEME)
     assert not meme.ok and meme.error == "concept_not_castable" and meme.status == 400
@@ -743,11 +833,11 @@ def test_castability_helper_matches_the_post_checks():
     # The style list is the one the casting guard uses.
     assert vr.castability(state, MEME, ("Meme aesthetic",)).ok
 
-    cast = ready_state()
-    cast["generated_images"][CASTABLE]["cast"] = True
-    c = vr.castability(cast, CASTABLE)
-    assert (c.ok, c.error, c.code) == (False, "concept_already_cast", "already_cast")
-    assert c.reason == "This creative already features a person."
+    c = vr.castability(with_cast(ready_state(), CASTABLE, "consentA"), CASTABLE)
+    assert (c.ok, c.mode, c.cast_consent_id, c.code) == (True, "swap", "consentA", "")
+    # A cast concept that the guard wouldn't cast is refused like any other.
+    m = vr.castability(with_cast(ready_state(), MEME), MEME)
+    assert (m.ok, m.code) == (False, "style_not_person_safe")
 
     u = vr.castability(creative_state(), CASTABLE)  # no finalize_done
     assert (u.ok, u.error, u.status, u.code) == (
@@ -759,11 +849,30 @@ def test_castability_helper_matches_the_post_checks():
     assert u.reason.startswith("Not ready")
 
 
+def test_castability_allows_a_cast_concept_as_swap():
+    c = vr.castability(with_cast(ready_state(), CASTABLE, "consentA"), CASTABLE)
+    assert c.ok and c.mode == "swap" and c.cast_consent_id == "consentA"
+    assert c.public()["mode"] == "swap"
+    assert c.public()["cast_consent_id"] == "consentA"
+
+
+def test_castability_uncast_concept_is_add():
+    c = vr.castability(ready_state(), CASTABLE)
+    assert c.ok and c.mode == "add" and c.cast_consent_id == ""
+    assert c.public()["mode"] == "add" and c.public()["cast_consent_id"] == ""
+
+
+def test_castability_cast_without_a_recorded_consent_is_a_swap():
+    state = ready_state()
+    state["generated_images"][CASTABLE]["cast"] = True
+    c = vr.castability(state, CASTABLE)
+    assert (c.ok, c.mode, c.cast_consent_id) == (True, "swap", "")
+
+
 def test_get_reports_castability_for_every_concept():
     async def go():
         h = Harness()
-        state = ready_state()
-        state["generated_images"][CONCEPTS[2]]["cast"] = True
+        state = with_cast(ready_state(), CASTABLE, "consentA")
         await h.session(state=state)
         body = (await h.get()).json()
         assert body["person_safe_styles"] == list(vr._safe_styles())
@@ -774,11 +883,14 @@ def test_get_reports_castability_for_every_concept():
             "reason": "",
             "code": "",
             "style": "Candid 35mm film photo",
+            "mode": "swap",
+            "cast_consent_id": "consentA",
         }
         assert castable[MEME]["ok"] is False
         assert castable[MEME]["code"] == "style_not_person_safe"
         assert castable[MEME]["style"] == "Meme aesthetic"
-        assert castable[CONCEPTS[2]]["code"] == "already_cast"
+        assert castable[MEME]["mode"] == "add"
+        assert castable[MEME]["cast_consent_id"] == ""
         # A style with no canonical family is shown as written.
         assert castable[CONCEPTS[2]]["style"] == "Warm, High-Contrast Stage Photography"
 

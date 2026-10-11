@@ -247,7 +247,7 @@ export function ProofDetail({
   ratingSlot?: (proof: Proof) => ReactNode;
   /** Share action rendered next to the rating slot ("Share this creative"). */
   shareSlot?: (proof: Proof) => ReactNode;
-  /** Personalised preview panel, under the rating slot (uncast creatives only). */
+  /** Personalised preview panel, under the rating slot (rendered creatives; "Swap person" for cast ones). */
   personaliseSlot?: (proof: Proof) => ReactNode;
 }) {
   const pos = index === null ? -1 : proofs.findIndex((p) => p.index === index);

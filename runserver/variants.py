@@ -1,11 +1,16 @@
 """Personalised variant previews REST API (owner side, UI only).
 
-The owner re-renders one finished, uncast concept with one of their consented
-people (``runserver/person_refs.py``) cast as the hero. A variant is a **fresh
-render** (``creative_agent.render_concept``) of the concept's stored
-``image_generation_prompt`` with the run's own product / logo / style
-references, aspect ratio and rating-strictness flags, plus the person photo
-(``ALLOW_ADULT``) and the post-render image check. It is a preview only: it is
+The owner re-renders one finished concept with one of their consented
+people (``runserver/person_refs.py``) cast as the hero. A concept whose base
+image already casts a person is a **person swap** (``castable`` ``mode:
+"swap"`` + ``cast_consent_id``); swapping in that same consent is a 400
+``same_person_as_cast``. A variant is a **fresh render**
+(``creative_agent.render_concept``) of the concept's stored
+``image_generation_prompt`` (plus the hero line and ``VARIANT_APPEARANCE_LINE``:
+the photo wins over any described appearance) with the run's own product / logo
+/ style references (never a person photo or variant, so no likeness of a cast
+person carries over), aspect ratio and rating-strictness flags, plus the chosen
+person's photo (``ALLOW_ADULT``) and the post-render image check. It is a preview only: it is
 never judged, rated, shared or deployed to a bandit experiment.
 
 Storage is deliberately separate from the run's creatives:
@@ -19,8 +24,9 @@ Storage is deliberately separate from the run's creatives:
   carry ONLY ``person_variants`` (never ``final_visual_concepts``,
   ``generated_images`` or ``_generated_artifact_keys``).
 
-``key = sha256(photo_uri | image_generation_prompt | image model)[:12]``: an
-identical request whose render is ``done`` returns the cached variant.
+``key = sha256(VARIANT_KEY_VERSION | photo_uri | image_generation_prompt |
+image model)[:12]``: an identical request whose render is ``done`` returns the
+cached variant (older records keep their unsalted keys and stay listed).
 Statuses: ``queued`` → ``rendering`` → ``done`` | ``failed`` | ``rejected``
 (a safety filter blocked the person photo; unlike a base run there is no
 person-less fallback, since the point of a variant is the person). Right before
@@ -81,6 +87,16 @@ PENDING = ("queued", "rendering")
 VARIANTS_SEGMENT = "variants"
 VARIANT_CACHE_CONTROL = "private, no-store"
 KEY_CHARS = 12
+# Salted into every cache key; bumped when what a variant renders changes
+# (v2 = the appearance-override line below).
+VARIANT_KEY_VERSION = "v2"
+# Appended to every variant prompt after the hero line, so the photo wins over
+# any appearance the prompt describes (a swap or a prompt written for someone
+# else). Variants only (engine renders never see it); brace-free.
+VARIANT_APPEARANCE_LINE = (
+    " Where this prompt describes the hero's appearance (gender, age, hair, "
+    "build, skin tone), follow the person in the person reference image instead."
+)
 CONCEPT_NAME_MAX_CHARS = 512
 DEFAULT_DAILY_CAP = 10
 MAX_DAILY_CAP = 1000
@@ -113,8 +129,11 @@ class VariantError(ValueError):
 
 
 def variant_key(photo_uri: str, prompt: str, model: str) -> str:
-    """The cache key: ``sha256(photo_uri | prompt | model)[:12]``."""
-    raw = f"{photo_uri}|{prompt}|{model}".encode()
+    """The cache key: ``sha256(VARIANT_KEY_VERSION | photo_uri | prompt |
+    model)[:12]``, where ``prompt`` is the concept's stored prompt. Bump
+    ``VARIANT_KEY_VERSION`` whenever what a variant renders for the same inputs
+    changes, so a new request isn't answered with an older render."""
+    raw = f"{VARIANT_KEY_VERSION}|{photo_uri}|{prompt}|{model}".encode()
     return hashlib.sha256(raw).hexdigest()[:KEY_CHARS]
 
 
@@ -169,6 +188,16 @@ def is_cast(state: Mapping[str, Any], name: str) -> bool:
     return isinstance(record, Mapping) and record.get("cast") is True
 
 
+def cast_consent_id(state: Mapping[str, Any], name: str) -> str:
+    """The consent the run's base image for ``name`` was cast with (``""`` when
+    it isn't cast or names none)."""
+    if not is_cast(state, name):
+        return ""
+    record = _as_obj(state.get("generated_images"))[name]
+    consent = record.get("consent_id")
+    return consent if isinstance(consent, str) else ""
+
+
 def has_base_image(state: Mapping[str, Any], name: str) -> bool:
     """Whether the run rendered a base image for ``name`` (a ``gcs_uri``)."""
     images = _as_obj(state.get("generated_images"))
@@ -209,16 +238,29 @@ def count_created_on(state: Mapping[str, Any], day: str) -> int:
 
 def variant_concept(concept: Mapping[str, Any]) -> dict:
     """The concept as a variant renders it: casting the person, with the
-    reference wording appended when the prompt doesn't point at it yet."""
+    reference wording appended when the prompt doesn't point at it yet, then
+    ``VARIANT_APPEARANCE_LINE`` (both idempotent, matched case-insensitively)."""
     from creative_agent.concept_guard import PERSON_HERO_LINE, PERSON_HERO_PHRASE
 
     out = dict(concept)
     prompt = str(out.get("image_generation_prompt") or "")
     if PERSON_HERO_PHRASE.lower() not in prompt.lower():
         prompt = prompt.rstrip() + PERSON_HERO_LINE
+    if VARIANT_APPEARANCE_LINE.strip().lower() not in prompt.lower():
+        prompt = prompt.rstrip() + VARIANT_APPEARANCE_LINE
     out["image_generation_prompt"] = prompt
     out["casts_person_reference"] = True
     return out
+
+
+def _without_variant_wording(prompt: str) -> str:
+    """``prompt`` minus the hero / appearance lines a variant appends: they say
+    "hero" and "person", which would otherwise pass for a human subject."""
+    from creative_agent.concept_guard import PERSON_HERO_LINE
+
+    for line in (PERSON_HERO_LINE, VARIANT_APPEARANCE_LINE):
+        prompt = re.sub(re.escape(line.strip()), " ", prompt, flags=re.IGNORECASE)
+    return prompt
 
 
 def castable_reason(concept: Mapping[str, Any], safe_styles: Any) -> str | None:
@@ -226,8 +268,13 @@ def castable_reason(concept: Mapping[str, Any], safe_styles: Any) -> str | None:
     isn't person-safe or its prompt has no human subject), or None."""
     from creative_agent.concept_guard import enforce_person_casting
 
+    candidate = dict(concept)
+    candidate["image_generation_prompt"] = _without_variant_wording(
+        str(candidate.get("image_generation_prompt") or "")
+    )
+    candidate["casts_person_reference"] = True
     checked, warnings = enforce_person_casting(
-        [variant_concept(concept)], available=True, max_cast=1, safe_styles=safe_styles
+        [candidate], available=True, max_cast=1, safe_styles=safe_styles
     )
     if checked[0].get("casts_person_reference") is True:
         return None
@@ -242,10 +289,12 @@ class Castability:
 
     ``error`` / ``status`` / ``message`` are what ``POST`` answers (its
     ``detail.reason``, HTTP status and message); ``code`` (``not_ready``,
-    ``already_cast``, ``style_not_person_safe``, ``no_human_subject``,
-    ``not_castable``) and the plain-language ``reason`` are what ``GET`` reports
-    per concept. ``style`` is the concept's canonical style family, or its
-    ``visual_style`` as written when it has none."""
+    ``style_not_person_safe``, ``no_human_subject``, ``not_castable``) and the
+    plain-language ``reason`` are what ``GET`` reports per concept. ``style`` is
+    the concept's canonical style family, or its ``visual_style`` as written when
+    it has none. ``mode`` is ``"swap"`` when the base image already casts a
+    person (a variant replaces them; ``cast_consent_id`` names their consent, the
+    caller's own, which ``POST`` refuses) and ``"add"`` otherwise."""
 
     ok: bool
     style: str = ""
@@ -254,6 +303,8 @@ class Castability:
     error: str = ""
     status: int = 400
     message: str = ""
+    mode: str = "add"
+    cast_consent_id: str = ""
 
     def public(self) -> dict:
         """The ``GET`` entry (never the POST-only fields)."""
@@ -262,6 +313,8 @@ class Castability:
             "reason": self.reason,
             "code": self.code,
             "style": self.style,
+            "mode": self.mode,
+            "cast_consent_id": self.cast_consent_id,
         }
 
 
@@ -269,9 +322,10 @@ def castability(
     state: Mapping[str, Any], name: str, safe_styles: Any = None
 ) -> Castability:
     """The variant checks on the run's concept ``name``, in ``POST``'s order:
-    it exists with a prompt, the run finished and rendered it, it isn't cast yet,
-    and the casting guard would cast a person in it (``safe_styles`` defaults to
-    ``config.person_safe_styles``)."""
+    it exists with a prompt, the run finished and rendered it, and the casting
+    guard would cast a person in it (``safe_styles`` defaults to
+    ``config.person_safe_styles``). A concept whose base image already casts a
+    person is a ``"swap"``: the variant renders the chosen person instead."""
     from creative_agent.style_shortlist import canonical_style
 
     concept = find_concept(state, name)
@@ -299,15 +353,8 @@ def castability(
             message="wait until the run has finished and this creative's image "
             "is rendered",
         )
-    if is_cast(state, name):
-        return Castability(
-            False,
-            style=style,
-            code="already_cast",
-            reason="This creative already features a person.",
-            error="concept_already_cast",
-            message="this creative already features a person; pick another one",
-        )
+    mode = "swap" if is_cast(state, name) else "add"
+    cast_id = cast_consent_id(state, name)
     safe = _safe_styles() if safe_styles is None else safe_styles
     why = castable_reason(concept, safe)
     if why is not None:
@@ -324,8 +371,10 @@ def castability(
             reason=f"This creative can't feature a person: {why}.",
             error="concept_not_castable",
             message=f"can't feature a person: {why}",
+            mode=mode,
+            cast_consent_id=cast_id,
         )
-    return Castability(True, style=style)
+    return Castability(True, style=style, mode=mode, cast_consent_id=cast_id)
 
 
 def _personal_uri(uri: str) -> bool:
@@ -746,6 +795,13 @@ async def _create_variant(
     check = castability(state, concept_name)
     if not check.ok:
         raise _error(check.status, check.error, check.message)
+    if check.mode == "swap" and consent_id == check.cast_consent_id:
+        # Before the cache lookup and the daily cap: nothing to swap.
+        raise _error(
+            400,
+            "same_person_as_cast",
+            "This creative already features this person.",
+        )
     concept = find_concept(state, concept_name)
     if concept is None:  # castability found it; never None here
         raise _error(400, "concept_not_found", "no such concept in this run")

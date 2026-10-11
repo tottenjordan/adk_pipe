@@ -1,5 +1,6 @@
-/** Personalised variant previews (runserver/variants.py): one finished, uncast
- *  concept re-rendered with one of the caller's consented people. UI only: never
+/** Personalised variant previews (runserver/variants.py): one finished concept
+ *  re-rendered with one of the caller's consented people (for a creative that
+ *  already casts a person, a "person swap" with someone else). UI only: never
  *  judged, rated, shared or used in experiments. Types, error copy and pure helpers
  *  for the results page's Personalise panel. */
 
@@ -32,13 +33,18 @@ export type VariantMap = Record<string, Record<string, VariantRecord>>;
 
 /** `GET` `castable[concept]`: whether `POST` would accept this creative now (the
  *  api's own checks), with a plain-language `reason` when it wouldn't. `code` is
- *  `not_ready` | `already_cast` | `style_not_person_safe` | `no_human_subject` |
- *  `not_castable` | `not_found` (`""` when ok); `style` is the creative's style family. */
+ *  `not_ready` | `style_not_person_safe` | `no_human_subject` | `not_castable` |
+ *  `not_found` (`""` when ok); `style` is the creative's style family. `mode` is
+ *  `"swap"` when the creative already casts a person (`cast_consent_id`, the
+ *  caller's own consent, can't be swapped in again) and `"add"` otherwise; both
+ *  are absent from an older api (then treat it as `"add"`). */
 export interface Castability {
   ok: boolean;
   reason: string;
   code: string;
   style: string;
+  mode?: "add" | "swap";
+  cast_consent_id?: string;
 }
 
 /** The parsed `GET` body. `castable` is null when the api doesn't report it (then
@@ -68,18 +74,26 @@ export function isVariantStatus(value: unknown): value is VariantStatus {
   return typeof value === "string" && (STATUSES as readonly string[]).includes(value);
 }
 
+/** Shown (with a People link) when a swap has no one else to swap in. */
+export const NO_OTHER_PERSON_NOTE = "Register another person on the People page to swap.";
+
 /**
- * Whether the proof dialog offers "Personalise": the creative has a rendered base
- * image and doesn't already cast a person (the api refuses `concept_already_cast`;
- * a concept whose style or subject can't feature a person is refused with its reason).
+ * Whether the proof dialog offers "Personalise" (or "Swap person" for a creative
+ * that already casts someone): the creative has a rendered base image. A concept
+ * whose style or subject can't feature a person is refused with its reason.
  */
 export function canPersonalise(
   proof: { concept: { concept_name: string }; casting?: { cast: boolean } },
   generatedImages: unknown,
   imagesMissing: boolean,
 ): boolean {
-  if (imagesMissing || proof.casting?.cast) return false;
+  if (imagesMissing) return false;
   return hasRenderedImage(generatedImages, proof.concept.concept_name);
+}
+
+/** The consent a swap must leave out of the picker (`""` when not a swap). */
+export function castConsentToSkip(entry: Castability | undefined): string {
+  return entry?.mode === "swap" ? (entry.cast_consent_id ?? "") : "";
 }
 
 /** Still being made: keep polling. */
@@ -105,15 +119,23 @@ export function parseVariants(raw: unknown): VariantMap {
   return out;
 }
 
-function isCastability(value: unknown): value is Castability {
-  if (!value || typeof value !== "object") return false;
+/** A clean castability entry, or null when malformed (optional fields dropped
+ *  unless well-typed). */
+function toCastability(value: unknown): Castability | null {
+  if (!value || typeof value !== "object") return null;
   const v = value as Record<string, unknown>;
-  return (
-    typeof v.ok === "boolean" &&
-    typeof v.reason === "string" &&
-    typeof v.code === "string" &&
-    typeof v.style === "string"
-  );
+  if (
+    typeof v.ok !== "boolean" ||
+    typeof v.reason !== "string" ||
+    typeof v.code !== "string" ||
+    typeof v.style !== "string"
+  ) {
+    return null;
+  }
+  const out: Castability = { ok: v.ok, reason: v.reason, code: v.code, style: v.style };
+  if (v.mode === "add" || v.mode === "swap") out.mode = v.mode;
+  if (typeof v.cast_consent_id === "string") out.cast_consent_id = v.cast_consent_id;
+  return out;
 }
 
 /** The whole GET body: previews, per-concept castability and the person-safe styles. */
@@ -123,7 +145,8 @@ export function parseVariantsListing(raw: unknown): VariantsListing {
   if (body.castable && typeof body.castable === "object") {
     castable = {};
     for (const [concept, entry] of Object.entries(body.castable as Record<string, unknown>)) {
-      if (isCastability(entry)) castable[concept] = entry;
+      const parsed = toCastability(entry);
+      if (parsed) castable[concept] = parsed;
     }
   }
   const styles = Array.isArray(body.person_safe_styles) ? body.person_safe_styles : [];
@@ -210,7 +233,7 @@ export class VariantError extends Error {
 
 const MESSAGES: Record<string, string> = {
   consent_not_active: "That person isn't registered any more. Pick someone else.",
-  concept_already_cast: "This creative already features a person.",
+  same_person_as_cast: "This creative already features this person.",
   concept_not_found: "This creative isn't in the run any more.",
   variant_cap_reached: "You've reached today's limit of personalised previews. Try again tomorrow.",
   run_in_progress: "Wait for the run to finish, then try again.",

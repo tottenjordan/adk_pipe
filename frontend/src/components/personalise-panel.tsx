@@ -9,7 +9,9 @@ import type { PersonRef } from "@/lib/person-refs";
 import { cn } from "@/lib/utils";
 import {
   castabilityNote,
+  castConsentToSkip,
   isPending,
+  NO_OTHER_PERSON_NOTE,
   latestVariant,
   VARIANT_NOTE,
   MAX_POLL_MISSES,
@@ -24,8 +26,10 @@ import {
 import { ProofImage } from "@/app/results/[sessionId]/proof-grid";
 
 /**
- * "Personalise" in the results proof dialog: re-render this (uncast) creative with
- * one of the caller's consented people as the hero (`POST /variants`), poll every
+ * "Personalise" in the results proof dialog: re-render this creative with one of
+ * the caller's consented people as the hero (`POST /variants`). For a creative that
+ * already casts a person (`castable` `mode: "swap"`) it reads "Swap person" and
+ * leaves that person out of the picker. It polls every
  * few seconds while it is queued or rendering, then show the base image and the
  * preview side by side with the preview's image check. A preview is UI only: never
  * judged, rated, shared or deployed to an experiment.
@@ -45,7 +49,8 @@ export function PersonalisePanel({
 }) {
   const [people, setPeople] = useState<PersonRef[] | null>(null);
   const [peopleFailed, setPeopleFailed] = useState(false);
-  const [consentId, setConsentId] = useState("");
+  // The person the caller picked ("" = the first one offered).
+  const [picked, setPicked] = useState("");
   const [variant, setVariant] = useState<{ key: string; record: VariantRecord } | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -62,19 +67,25 @@ export function PersonalisePanel({
     };
   }, []);
 
-  // The caller's people; the first is preselected.
+  // The caller's people (the first one offered is preselected, see `consentId`).
   useEffect(() => {
     listPersonRefs().then(
       (list) => {
-        if (!alive.current) return;
-        setPeople(list.personRefs);
-        setConsentId((current) => current || list.personRefs[0]?.consent_id || "");
+        if (alive.current) setPeople(list.personRefs);
       },
       () => {
         if (alive.current) setPeopleFailed(true);
       },
     );
   }, []);
+
+  // A swap leaves the person already in the creative out of the picker.
+  const castEntry = eligibility?.castable?.[conceptName];
+  const swap = castEntry?.mode === "swap";
+  const skip = castConsentToSkip(castEntry);
+  const options = (people ?? []).filter((p) => !skip || p.consent_id !== skip);
+  const consentId = options.some((p) => p.consent_id === picked) ? picked : (options[0]?.consent_id ?? "");
+  const noOther = swap && people !== null && people.length > 0 && options.length === 0;
 
   // An earlier preview of this creative with the chosen person, if any.
   useEffect(() => {
@@ -140,7 +151,8 @@ export function PersonalisePanel({
     setPollRun((n) => n + 1);
   };
 
-  const ineligible = castabilityNote(eligibility?.castable?.[conceptName], eligibility?.personSafeStyles ?? []);
+  const ineligible =
+    castabilityNote(castEntry, eligibility?.personSafeStyles ?? []) ?? (noOther ? NO_OTHER_PERSON_NOTE : null);
 
   const render = useCallback(async () => {
     if (!consentId || submitting || ineligible) return;
@@ -169,7 +181,7 @@ export function PersonalisePanel({
   return (
     <section aria-labelledby={`${selectId}-heading`} className="border-t border-border pt-4">
       <FieldLabel as="h4" id={`${selectId}-heading`}>
-        Personalise
+        {swap ? "Swap person" : "Personalise"}
       </FieldLabel>
 
       {peopleFailed ? (
@@ -192,14 +204,14 @@ export function PersonalisePanel({
               value={consentId}
               disabled={people === null || submitting}
               onChange={(e) => {
-                setConsentId(e.target.value);
+                setPicked(e.target.value);
                 setVariant(null);
                 setError(null);
                 setPollStopped(false);
               }}
               className="h-8 w-full rounded-sm border border-input bg-card px-2 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
             >
-              {(people ?? []).map((p) => (
+              {options.map((p) => (
                 <option key={p.consent_id} value={p.consent_id}>
                   {p.label}
                 </option>
@@ -216,7 +228,17 @@ export function PersonalisePanel({
           </Button>
           {ineligible && (
             <p id={`${selectId}-ineligible`} className="w-full text-xs text-muted-foreground">
-              {ineligible}
+              {ineligible === NO_OTHER_PERSON_NOTE ? (
+                <>
+                  Register another person on the{" "}
+                  <Link href="/people" className="text-primary underline-offset-4 hover:underline">
+                    People page
+                  </Link>{" "}
+                  to swap.
+                </>
+              ) : (
+                ineligible
+              )}
             </p>
           )}
         </div>
