@@ -31,7 +31,9 @@ Routes (user-scoped by path, gated by ``UserAuthzMiddleware`` like ``/shares``):
   adult_attested, allow_public_share, consent_text_version}`` → the record.
 - ``GET /person-refs/{user}``: ``{person_refs: [...], prefix,
   consent_text_version}`` (active records, newest first; ``prefix`` is the
-  caller's upload prefix ``gs://<bucket>/person-refs/<slug>/``).
+  caller's upload prefix ``gs://<bucket>/person-refs/<slug>/``). Records made
+  before the size check get their ``photo_min_side`` read and cached here
+  (best effort, bounded by ``BACKFILL_TIMEOUT_SECONDS``).
 - ``DELETE /person-refs/{user}/{consent_id}``: revoke (204; 404 when not the
   owner's).
 
@@ -626,9 +628,55 @@ async def http_create_person_ref(user_id: str, body: _PersonRefBody) -> dict:
     return to_public(row)
 
 
+# Upper bound on the lazy size backfill of one GET (the list still returns, with
+# the sizes not read in time left as null and retried on the next GET).
+BACKFILL_TIMEOUT_SECONDS = 10.0
+
+
+async def _backfill_one(row: dict, user_id: str, bucket: str) -> None:
+    """Read and cache ``photo_min_side`` of a record registered before the size
+    check (best effort: any failure leaves it unset). Updates ``row`` in place."""
+    path = photo_path(row.get("photo_uri"), user_id, bucket)
+    if path is None:
+        return
+    cid = row.get("consent_id")
+    try:
+        side = await asyncio.to_thread(_photo_min_side, bucket, path)
+    except Exception:
+        log.warning("person refs: size backfill read failed for %s", cid, exc_info=True)
+        return
+    if side is None:
+        log.warning("person refs: size backfill found no readable image for %s", cid)
+        return
+    row["photo_min_side"] = side
+    try:
+        await _STORE.set_photo_min_side(cid, user_id, side)
+    except Exception:
+        log.warning(
+            "person refs: size backfill write failed for %s", cid, exc_info=True
+        )
+
+
+async def _backfill_sizes(rows: list[dict], user_id: str) -> None:
+    """Fill ``photo_min_side`` for the records that lack it (non-fatal, bounded)."""
+    bucket = _BUCKET
+    missing = [r for r in rows if _min_side(r) is None]
+    if not (bucket and missing):
+        return
+    tasks = [asyncio.ensure_future(_backfill_one(r, user_id, bucket)) for r in missing]
+    _, pending = await asyncio.wait(tasks, timeout=BACKFILL_TIMEOUT_SECONDS)
+    for task in pending:
+        task.cancel()
+    if pending:
+        log.warning(
+            "person refs: size backfill timed out for %d record(s)", len(pending)
+        )
+
+
 @router.get("/person-refs/{user_id}")
 async def http_list_person_refs(user_id: str) -> dict:
     rows = await _active_refs(user_id)
+    await _backfill_sizes(rows, user_id)
     bucket = _BUCKET
     return {
         "person_refs": [to_public(r) for r in rows],

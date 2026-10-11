@@ -429,6 +429,87 @@ def test_list_is_owner_only_and_carries_the_prefix():
     run(go)
 
 
+def _legacy(h: Harness, cid: str = "cid_LEGACY000001", uri: str = PHOTO_A, **over):
+    """A record registered before the size check (no ``photo_min_side``)."""
+    row = {
+        "consent_id": cid,
+        "owner_user": A,
+        "photo_uri": uri,
+        "label": "Jupiter",
+        "subject": "self",
+        "adult_attested": True,
+        "allow_public_share": False,
+        "consent_text_version": pr.CONSENT_TEXT_VERSION,
+        "created_at": pr.utcnow(),
+        "revoked_at": None,
+        "person_renders": [],
+    }
+    row.update(over)
+    h.store.rows[cid] = row
+    return row
+
+
+def test_list_backfills_the_size_of_older_records():
+    async def go():
+        h = Harness()
+        h.gcs.add(PHOTO_A, data=image_bytes(240, 240))
+        _legacy(h)
+        got = (await h.client.get(f"/person-refs/{A}")).json()["person_refs"][0]
+        assert got["photo_min_side"] == 240 and got["low_resolution"] is True
+        assert h.store.rows["cid_LEGACY000001"]["photo_min_side"] == 240
+        # cached on the row: the next GET downloads nothing
+        h.gcs.ops.clear()
+        again = (await h.client.get(f"/person-refs/{A}")).json()["person_refs"][0]
+        assert again["low_resolution"] is True
+        assert not [op for op in h.gcs.ops if op[0] == "download"]
+
+    run(go)
+
+
+@pytest.mark.parametrize("failure", ["download", "not_image", "missing", "store"])
+def test_list_backfill_failure_is_not_fatal(failure, monkeypatch):
+    async def go():
+        h = Harness()
+        _legacy(h)
+        if failure == "download":
+            h.gcs.fail_download = True
+        elif failure == "not_image":
+            h.gcs.add(PHOTO_A, data=b"nope")
+        elif failure == "missing":
+            h.gcs.objects[BUCKET].clear()
+        else:
+            h.gcs.add(PHOTO_A, data=image_bytes(240, 240))
+
+            async def broken(*_a, **_k):
+                raise RuntimeError("bq down")
+
+            monkeypatch.setattr(h.store, "set_photo_min_side", broken)
+        r = await h.client.get(f"/person-refs/{A}")
+        assert r.status_code == 200
+        got = r.json()["person_refs"][0]
+        if failure == "store":
+            # the size is still shown, just not cached
+            assert got["photo_min_side"] == 240 and got["low_resolution"] is True
+        else:
+            assert got["photo_min_side"] is None and got["low_resolution"] is False
+            assert h.store.rows["cid_LEGACY000001"].get("photo_min_side") is None
+
+    run(go)
+
+
+def test_list_backfill_skips_photos_outside_the_owner_prefix():
+    async def go():
+        h = Harness()
+        foreign = f"gs://{BUCKET}/person-refs/{SLUG_B}/x.jpg"
+        h.gcs.add(foreign, data=image_bytes(240, 240))
+        _legacy(h, uri=foreign)
+        got = (await h.client.get(f"/person-refs/{A}")).json()["person_refs"][0]
+        assert got["photo_min_side"] is None
+        assert not [op for op in h.gcs.ops if op[0] == "download"]
+
+    run(go)
+
+
 # --- DELETE -----------------------------------------------------------------------
 
 
