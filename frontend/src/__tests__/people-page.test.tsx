@@ -2,7 +2,14 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { CONSENT_TEXT, CONSENT_TEXT_VERSION } from "@/lib/person-consent";
-import { PersonRefError, PREFIX_RULE, type PersonRef } from "@/lib/person-refs";
+import {
+  LOW_RESOLUTION_NOTICE,
+  PHOTO_GUIDANCE,
+  PersonRefError,
+  PREFIX_RULE,
+  personRefErrorMessage,
+  type PersonRef,
+} from "@/lib/person-refs";
 
 const listPersonRefs = vi.fn();
 const createPersonRef = vi.fn();
@@ -153,6 +160,50 @@ describe("PeoplePage", () => {
     });
     const [still] = await rows();
     expect(within(still).getByRole("alert")).toHaveTextContent(/Revoke again to finish/);
+  });
+
+  it("shows the headshot guidance above the form", async () => {
+    listPersonRefs.mockResolvedValue({ personRefs: [], prefix: PREFIX });
+    render(<PeoplePage />);
+    const list = await screen.findByRole("list", { name: "Photo guidance" });
+    const items = within(list).getAllByRole("listitem");
+    expect(items.map((li) => li.textContent)).toEqual([...PHOTO_GUIDANCE]);
+    expect(list).toHaveTextContent(/head-and-shoulders/);
+    expect(list).toHaveTextContent(/1024 px/);
+    expect(list).toHaveTextContent(/Not a collage, character sheet or group photo/);
+  });
+
+  it("flags only low-resolution people", async () => {
+    listPersonRefs.mockResolvedValue({
+      personRefs: [
+        person({ label: "Low", photo_min_side: 600, low_resolution: true }),
+        person({ consent_id: "cid_BBBBBBBBBBBB", label: "Sharp", photo_min_side: 1500, low_resolution: false }),
+        person({ consent_id: "cid_CCCCCCCCCCCC", label: "Old" }),
+      ],
+      prefix: PREFIX,
+    });
+    render(<PeoplePage />);
+    const items = await rows();
+    expect(within(items[0]).getByText(LOW_RESOLUTION_NOTICE)).toBeInTheDocument();
+    expect(within(items[1]).queryByText(LOW_RESOLUTION_NOTICE)).not.toBeInTheDocument();
+    expect(within(items[2]).queryByText(LOW_RESOLUTION_NOTICE)).not.toBeInTheDocument();
+    expect(LOW_RESOLUTION_NOTICE).toBe(
+      "Low resolution: previews may look softer. Re-register with a 1024 px photo.");
+  });
+
+  it("explains a photo that is too small", async () => {
+    expect(personRefErrorMessage("photo_too_small", 400)).toBe(
+      "Use a photo at least 512 px on its shorter side (1024 px or more recommended).");
+    listPersonRefs.mockResolvedValue({ personRefs: [], prefix: PREFIX });
+    createPersonRef.mockRejectedValue(new PersonRefError("photo_too_small", 400));
+    render(<PeoplePage />);
+    await screen.findByText("No one yet. Add a person above.");
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "X" } });
+    fireEvent.click(screen.getByLabelText(/is an adult and agreed to appear/));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Register photo" }));
+    });
+    expect(await screen.findByRole("alert")).toHaveTextContent(/at least 512 px on its shorter side/);
   });
 
   it("reports a load failure", async () => {

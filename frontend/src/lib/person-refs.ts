@@ -13,6 +13,10 @@ export interface PersonRef {
   allow_public_share: boolean;
   consent_text_version: string;
   created_at: string;
+  /** The photo's shorter side in px (null/absent for records the api hasn't sized yet). */
+  photo_min_side?: number | null;
+  /** True when `photo_min_side` is below 1024 px (previews may look softer). */
+  low_resolution?: boolean;
 }
 
 /** GET /person-refs/{u}: active consents plus the caller's upload prefix
@@ -45,6 +49,7 @@ export class PersonRefError extends Error {
 
 const MESSAGES: Record<string, string> = {
   invalid_photo_uri: "The photo must be a .jpg, .jpeg, .png or .webp file directly inside your folder shown above.",
+  photo_too_small: "Use a photo at least 512 px on its shorter side (1024 px or more recommended).",
   photo_unreadable: "That photo couldn't be read. Check the path, and that it's an image of at most 10 MB.",
   adult_attestation_required: "Confirm the person is an adult who agreed to appear.",
   stale_consent_text: "The consent text has changed. Reload the page and read it again.",
@@ -77,3 +82,17 @@ export function subjectLabel(subject: PersonSubject): string {
  *  code is a hash of the email, so only the api's `prefix` names the exact folder). */
 export const PREFIX_RULE =
   "gs://<bucket>/person-refs/<your email, lower-cased, with @ and . replaced by _>-<10-character code>/";
+
+/** What makes a good person photo (shown above the registration form). One headshot
+ *  works best: a multi-view character sheet gets copied into the ad as a layout and
+ *  shrinks the face (docs/notes/person-reference-calibration.md, "Photo guidance"). */
+export const PHOTO_GUIDANCE = [
+  "One person, in a front-facing head-and-shoulders photo, with the face filling about a third of the frame.",
+  "Even light and a neutral background; no sunglasses, hats or heavy filters.",
+  "At least 1024 px on the shorter side.",
+  "Not a collage, character sheet or group photo, and no text on the image.",
+] as const;
+
+/** Shown on a registered person whose photo is below 1024 px on its shorter side. */
+export const LOW_RESOLUTION_NOTICE =
+  "Low resolution: previews may look softer. Re-register with a 1024 px photo.";
