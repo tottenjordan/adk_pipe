@@ -42,10 +42,11 @@ import json
 import logging
 import re
 import time
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 
 import agentplatform
 import functions_framework
+import pandas as pd
 from cloudevents.http import CloudEvent
 from google.cloud import bigquery, pubsub_v1
 
@@ -304,6 +305,75 @@ async def async_send_message(remote_agent, user_id, session, user_query) -> None
         raise
 
 
+# Session-state key ← message key. The campaign fields plus trend_scout's
+# detection date (`refresh_date` → `trend_detected_on`) and research context
+# (`trend_context` → `trend_scout_context`), which the creative agents read only
+# as hints to re-verify.
+CAMPAIGN_STATE_KEYS = (
+    ("brand", "brand"),
+    ("target_product", "target_product"),
+    ("key_selling_points", "key_selling_point"),
+    ("target_audience", "target_audience"),
+    ("target_search_trends", "target_search_trend"),
+    ("trend_detected_on", "refresh_date"),
+    ("trend_scout_context", "trend_context"),
+)
+
+
+def build_campaign_state(msg_dict: dict) -> dict[str, str]:
+    """The createSession initialState for one row (blank/NULL values left out).
+
+    Blank/NULL columns are skipped so the root memorizes the campaign fields
+    from the message instead of treating a seeded "None" as present (and so an
+    older row without trend_context/refresh_date seeds nothing for them).
+    """
+    return {
+        state_key: str(msg_dict[msg_key]).strip()
+        for state_key, msg_key in CAMPAIGN_STATE_KEYS
+        if msg_dict.get(msg_key) is not None and str(msg_dict[msg_key]).strip()
+    }
+
+
+def _optional_cell(value) -> str:
+    """A nullable BigQuery cell as a JSON-safe string ("" for NULL/NaN/NaT).
+
+    DATE/TIMESTAMP cells become an ISO date (``YYYY-MM-DD``).
+    """
+    if value is None:
+        return ""
+    try:
+        if pd.isna(value):
+            return ""
+    except (TypeError, ValueError):  # array-like cells are never NA scalars
+        pass
+    if isinstance(value, datetime):  # incl. pandas Timestamp
+        return value.date().isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
+    return str(value).strip()
+
+
+def build_row_dict(index, row) -> dict:
+    """The worker message's ``row_data`` for one BigQuery row (JSON-safe).
+
+    ``row`` is a pandas Series (or mapping). ``refresh_date`` / ``trend_context``
+    are read with ``.get`` so a table without the trend_context column (before
+    its ALTER) still dispatches.
+    """
+    return {
+        "index": index,
+        # ISO 8601 string for JSON serialization
+        "entry_timestamp": row["entry_timestamp"].isoformat(),
+        "target_search_trend": row["target_trend"],
+        "brand": row["brand"],
+        "target_audience": row["target_audience"],
+        "target_product": row["target_product"],
+        "key_selling_point": row["key_selling_point"],
+        "refresh_date": _optional_cell(row.get("refresh_date")),
+        "trend_context": _optional_cell(row.get("trend_context")),
+    }
+
+
 async def create_agent_run(
     agent_id: str,
     msg_dict: dict,
@@ -319,6 +389,8 @@ async def create_agent_run(
             target_product: product to promote in creatives
             key_selling_point: compelling features etc. to reference
             target_search_trend: trending search topic to overlap with creative themes
+            refresh_date (optional): ISO date trend_scout detected the trend
+            trend_context (optional): trend_scout's compact research JSON
         user_id (str): the user ID to use for the Agent Engine session
 
     """
@@ -340,17 +412,7 @@ async def create_agent_run(
     # fields missing from state). The message above stays as a readable echo.
     # Blank/NULL columns are left out so the root memorizes them from the
     # message instead of treating a seeded "None" as present.
-    campaign_state = {
-        state_key: str(msg_dict[msg_key]).strip()
-        for state_key, msg_key in (
-            ("brand", "brand"),
-            ("target_product", "target_product"),
-            ("key_selling_points", "key_selling_point"),
-            ("target_audience", "target_audience"),
-            ("target_search_trends", "target_search_trend"),
-        )
-        if msg_dict.get(msg_key) is not None and str(msg_dict[msg_key]).strip()
-    }
+    campaign_state = build_campaign_state(msg_dict)
 
     # create → stream → delete, all under one user_id. The delete runs even if
     # the stream raises (agent_session's finally), so a failed run never leaks a
@@ -674,20 +736,7 @@ def crf_entrypoint(cloud_event: CloudEvent) -> None:
         # 2. Extract data into a list of dictionaries
         row_list = []
         for index, row in df.iterrows():
-            # Ensure the timestamp is converted to a string format (ISO 8601)
-            timestamp_str = row["entry_timestamp"].isoformat()
-
-            row_dict = {
-                "index": index,
-                # Use the string version for JSON serialization
-                "entry_timestamp": timestamp_str,
-                "target_search_trend": row["target_trend"],
-                "brand": row["brand"],
-                "target_audience": row["target_audience"],
-                "target_product": row["target_product"],
-                "key_selling_point": row["key_selling_point"],
-            }
-            row_list.append(row_dict)
+            row_list.append(build_row_dict(index, row))
         logging.info(f"Loaded {len(row_list)} UNPROCESSED records for agent execution.")
 
         # 3. Get timestamps of rows to be processed

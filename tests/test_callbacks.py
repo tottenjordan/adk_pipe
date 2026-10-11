@@ -764,3 +764,26 @@ class TestDateStateSeeding:
         _set_initial_states({"brand": "TestBrand"}, target)
         assert target["current_date"] == "2026-10-01"
         assert target["current_weekday"] == "Thursday"
+
+
+class TestTrendScoutHintSeeding:
+    """trend_detected_on / trend_scout_context (CRF or frontend initialState)."""
+
+    def test_defaults_to_empty(self):
+        from creative_agent.callbacks import _set_initial_states
+
+        target = {}
+        _set_initial_states({"brand": "TestBrand"}, target)
+        assert target["trend_detected_on"] == ""
+        assert target["trend_scout_context"] == ""
+
+    def test_seeded_values_are_kept(self):
+        from creative_agent.callbacks import _set_initial_states
+
+        target = {
+            "trend_detected_on": "2026-10-10",
+            "trend_scout_context": '{"hook":"Game day"}',
+        }
+        _set_initial_states({"brand": "TestBrand"}, target)
+        assert target["trend_detected_on"] == "2026-10-10"
+        assert target["trend_scout_context"] == '{"hook":"Game day"}'

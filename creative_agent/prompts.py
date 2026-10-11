@@ -323,6 +323,15 @@ COPY_RATING_SIGNALS_RULE = (
 )
 RATING_SIGNALS_BLOCK = """<rating_signals>{rating_signals?}</rating_signals>"""
 
+# trend_scout's forwarded research for this trend (CRF worker / frontend trend
+# card → trend_scout_context + trend_detected_on). It was true when the scout
+# ran, possibly days ago, so the planner and brief writer treat it only as a
+# hint to re-verify. Both tokens optional: a run without it renders empty tags.
+TREND_SCOUT_HINT_BLOCK = """<trend_scout_hint>
+        Optional notes from the trend scout that flagged this trend (detected on: {trend_detected_on?}). They may be out of date: treat them only as a hint to re-verify against the research and today's date, never as fact. When empty, ignore them.
+        {trend_scout_context?}
+        </trend_scout_hint>"""
+
 # Trend risks + unsupported claims (rater-gap PR 3): shared, brace-free rules.
 # The critic's `risks` brief check gates a revision (copy_gate
 # GATING_BRIEF_CHECKS); unsupported absolute claims are a deterministic check
@@ -358,6 +367,7 @@ CREATIVE_BRIEF_WRITER_INSTR = (
     + """
     12. **Truthful product and claims:** use the product name exactly as given ({target_product}); never add a variant, finish, colour or model the user did not give. Include one mandatory that names the product exactly as given. No guarantees or absolute claims (guaranteed, indestructible, 100%, lifetime, never fails) unless a cited source or the user's selling points state them.
     13. **Sensitive trends:** if the trend is a real disaster, tragedy or crisis (a storm, wildfire, shooting, war, death), choose fit_mode "light_touch" (score 1-2), list its harms in trend_bridge.risks (and short terms for them in `avoid`), and never build the idea on the harm itself.
+    14. **Trend scout hint:** if <trend_scout_hint> is non-empty, use it only to understand why the trend was picked. Never state an event, date or result from it unless the research report confirms it as current.
     </INSTRUCTIONS>
 
     <CONTEXT>
@@ -366,6 +376,10 @@ CREATIVE_BRIEF_WRITER_INSTR = (
         <target_audience>{target_audience}</target_audience>
         <key_selling_points>{key_selling_points}</key_selling_points>
         <target_search_trends>{target_search_trends}</target_search_trends>
+
+        """
+    + TREND_SCOUT_HINT_BLOCK
+    + """
 
         <user_brand_colors>
         Optional brand colour palette from the user. When empty, ignore it.

@@ -12,6 +12,7 @@ from agent_common.clock import DATE_CONTEXT_LINE
 
 from ... import callbacks
 from ...config import config
+from ...prompts import TREND_SCOUT_HINT_BLOCK
 from ...schemas import SearchQuery
 
 # --- config ---
@@ -65,6 +66,10 @@ gs_web_planner = Agent(
         <target_audience>
         {target_audience}
         </target_audience>
+
+        """
+        + TREND_SCOUT_HINT_BLOCK
+        + """
     </CONTEXT>
 
     <KEY_GUIDANCE>
@@ -75,6 +80,7 @@ gs_web_planner = Agent(
         1.  **Trend Context:** Why is the trend happening now, and when? (e.g., recent event, new product, cultural shift; the date of the latest or next notable event)
         2.  **Trend Entities & Narrative:** Who are the key players (people, brands, movements) involved, and what is the underlying narrative or conflict?
         3.  **Audience Connection:** How does the trend intersect with the interests, language, or values of the **`target_audience`**?
+    *   **Re-check:** If <trend_scout_hint> is non-empty, make one of the 5 queries re-check its event or claim against today's date (it may be out of date).
     *   **Format:** Queries should be optimized for a modern web search engine (i.e., not long, conversational sentences). Use specific keywords and quotation marks for precision.
     </KEY_GUIDANCE>
 

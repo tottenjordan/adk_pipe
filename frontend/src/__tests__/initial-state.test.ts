@@ -185,4 +185,19 @@ describe("buildInitialState", () => {
       buildInitialState({ ...base, agent: "trend_scout", personReference: person }),
     ).not.toHaveProperty("person_reference");
   });
+
+  it("seeds trend_scout's context and detection date for creative runs", () => {
+    const trend = { trendContext: '{"context":"Rivalry","hook":"Game day"}', trendDetectedOn: "2026-10-10" };
+    for (const agent of ["creative_agent", "interactive_creative"] as const) {
+      const state = buildInitialState({ ...base, agent, ...trend });
+      expect(state.trend_scout_context).toBe('{"context":"Rivalry","hook":"Game day"}');
+      expect(state.trend_detected_on).toBe("2026-10-10");
+    }
+    const blank = buildInitialState({ ...base, trendContext: "  ", trendDetectedOn: "" });
+    expect(blank).not.toHaveProperty("trend_scout_context");
+    expect(blank).not.toHaveProperty("trend_detected_on");
+    expect(buildInitialState({ ...base, agent: "trend_scout", ...trend })).toEqual({
+      ui_app: "trend_scout",
+    });
+  });
 });

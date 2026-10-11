@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { parseTrendsMarkdown } from "@/components/trend-cards";
+import {
+  parseTrendsMarkdown,
+  trendContextJson,
+  trendRunParams,
+  type ParsedTrend,
+} from "@/components/trend-cards";
 
 describe("parseTrendsMarkdown", () => {
   it("parses a single trend with all fields", () => {
@@ -80,5 +85,57 @@ describe("parseTrendsMarkdown", () => {
     expect(result[0].context).toBe("");
     expect(result[0].whyItFits).toBe("");
     expect(result[0].strategicBridge).toBe("");
+  });
+});
+
+const TREND: ParsedTrend = {
+  term: "Texas Football",
+  hook: "Game day, your way",
+  context: "The Red River Rivalry is this weekend.",
+  whyItFits: "Fans gather.",
+  strategicBridge: "Tailgate tone.",
+};
+
+describe("trendContextJson", () => {
+  it("carries the hook and context as compact JSON (backend shape)", () => {
+    expect(JSON.parse(trendContextJson(TREND))).toEqual({
+      context: "The Red River Rivalry is this weekend.",
+      hook: "Game day, your way",
+    });
+  });
+
+  it("drops blank fields and is empty when nothing is left", () => {
+    expect(JSON.parse(trendContextJson({ ...TREND, hook: " " }))).toEqual({
+      context: "The Red River Rivalry is this weekend.",
+    });
+    expect(trendContextJson({ ...TREND, hook: "", context: "" })).toBe("");
+  });
+});
+
+describe("trendRunParams", () => {
+  const campaign = {
+    brand: "PRS",
+    target_audience: "fans",
+    target_product: "SE CE24",
+    key_selling_points: "tone",
+    current_date: "2026-10-10",
+  };
+
+  it("passes the trend context and the scout run's date to the creative form", () => {
+    const params = trendRunParams(TREND, campaign);
+    expect(params.get("agent")).toBe("creative_agent");
+    expect(params.get("targetSearchTrend")).toBe("Texas Football");
+    expect(JSON.parse(params.get("trendContext") ?? "")).toEqual({
+      context: "The Red River Rivalry is this weekend.",
+      hook: "Game day, your way",
+    });
+    expect(params.get("trendDetectedOn")).toBe("2026-10-10");
+  });
+
+  it("omits what the scout run doesn't have", () => {
+    const params = trendRunParams({ ...TREND, hook: "", context: "" }, { brand: "PRS" });
+    expect(params.has("trendContext")).toBe(false);
+    expect(params.has("trendDetectedOn")).toBe(false);
+    expect(trendRunParams(TREND, { current_date: 20261010 }).has("trendDetectedOn")).toBe(false);
   });
 });

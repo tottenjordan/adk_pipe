@@ -59,6 +59,15 @@ export interface CampaignInput {
   keySellingPoints: string;
   targetSearchTrend?: string;
   /**
+   * creative_agent / interactive_creative only: trend_scout's research for the
+   * trend (compact JSON `{context, hook}`) and the date the scout run found it
+   * (YYYY-MM-DD), carried over from a trend card. Seeded as
+   * `trend_scout_context` / `trend_detected_on`; the agents treat both only as
+   * hints to re-verify. Cleared when the user edits the trend.
+   */
+  trendContext?: string;
+  trendDetectedOn?: string;
+  /**
    * trend_scout only: when true, the run pauses after gathering the top ~25
    * trends so the user can pick which to keep (via the `review_trends`
    * LongRunningFunctionTool). Wired into the session's initial state as

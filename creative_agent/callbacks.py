@@ -85,6 +85,13 @@ def _set_initial_states(source: dict[str, Any], target: State | dict[str, Any]):
     ):
         target.setdefault(_campaign_key, "")
 
+    # trend_scout's detection date + compact research context for this trend
+    # (CRF worker: refresh_date / trend_context; frontend: the trend card).
+    # Read only as hints to re-verify ({trend_scout_context?} /
+    # {trend_detected_on?}); same seed + setdefault rule as the campaign fields.
+    for _trend_hint_key in ("trend_detected_on", "trend_scout_context"):
+        target.setdefault(_trend_hint_key, "")
+
     # Optional product/brand reference image for image generation, supplied
     # by the caller via createSession initialState (same mechanism as
     # interactive_trend_pick). Use setdefault so the key always exists for

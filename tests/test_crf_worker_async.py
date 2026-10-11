@@ -509,3 +509,41 @@ def test_blank_campaign_fields_are_not_seeded(monkeypatch):
         "target_audience": "aud",
         "target_search_trends": "trend",
     }
+
+
+def test_trend_detection_date_and_context_seeded_as_state(monkeypatch):
+    """refresh_date → trend_detected_on, trend_context → trend_scout_context."""
+    created = {}
+
+    async def _create_session(*, user_id, state=None):
+        created["state"] = state
+        return {"id": "sess-7"}
+
+    async def _stream(**kwargs):
+        return
+        yield  # pragma: no cover - makes this an async generator
+
+    async def _delete_session(*, user_id, session_id):
+        return None
+
+    remote_agent = MagicMock()
+    remote_agent.async_create_session = _create_session
+    remote_agent.async_stream_query = _stream
+    remote_agent.async_delete_session = _delete_session
+    fake_vertex = MagicMock()
+    fake_vertex.runtimes.get.return_value = remote_agent
+    monkeypatch.setattr(main, "_get_vertex_client", lambda: fake_vertex)
+
+    msg = {
+        "index": 0,
+        "brand": "BrandX",
+        "target_product": "prod",
+        "key_selling_point": "ksp",
+        "target_audience": "aud",
+        "target_search_trend": "trend",
+        "refresh_date": "2026-10-10",
+        "trend_context": '{"hook":"h"}',
+    }
+    asyncio.run(main.create_agent_run(agent_id="a", msg_dict=msg, user_id="u"))
+    assert created["state"]["trend_detected_on"] == "2026-10-10"
+    assert created["state"]["trend_scout_context"] == '{"hook":"h"}'

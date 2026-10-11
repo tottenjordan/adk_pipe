@@ -338,3 +338,81 @@ def test_orchestrator_timestamp_round_trips_through_builders(raw):
     assert uval == _REAL_INSTANT
     assert uval.microsecond == 123456
     assert uval.utcoffset().total_seconds() == 0
+
+
+# ============================================================
+# (d) row → worker message: trend_scout's detection date + context ride along
+# ============================================================
+def _df_rows(extra: dict | None = None, drop: tuple[str, ...] = ()):
+    from datetime import date
+
+    base = {
+        "entry_timestamp": [pd.Timestamp("2026-10-11T12:00:00+00:00")] * 2,
+        "target_trend": ["Texas Football", "Golden Dip"],
+        "brand": ["PRS", "PRS"],
+        "target_audience": ["fans", "fans"],
+        "target_product": ["SE CE24", "SE CE24"],
+        "key_selling_point": ["tone", "tone"],
+        "refresh_date": [date(2026, 10, 10), None],
+        "trend_context": ['{"hook":"Game day"}', None],
+    }
+    base.update(extra or {})
+    for key in drop:
+        base.pop(key)
+    return list(pd.DataFrame(base).iterrows())
+
+
+def test_row_dict_forwards_refresh_date_and_trend_context():
+    (i0, r0), (i1, r1) = _df_rows()
+    first = main.build_row_dict(i0, r0)
+    assert first["refresh_date"] == "2026-10-10"
+    assert first["trend_context"] == '{"hook":"Game day"}'
+    assert first["target_search_trend"] == "Texas Football"
+    second = main.build_row_dict(i1, r1)
+    assert second["refresh_date"] == ""  # NULL/NaT → blank
+    assert second["trend_context"] == ""  # NULL → blank, never "None"
+    # The worker payload must stay JSON-serializable.
+    json.dumps({"row_data": first})
+    json.dumps({"row_data": second})
+
+
+def test_row_dict_handles_timestamp_refresh_date():
+    rows = _df_rows({"refresh_date": [pd.Timestamp("2026-10-09"), pd.NaT]})
+    assert main.build_row_dict(*rows[0])["refresh_date"] == "2026-10-09"
+    assert main.build_row_dict(*rows[1])["refresh_date"] == ""
+
+
+def test_row_dict_without_trend_context_column():
+    """Before the ALTER runs, SELECT * has no trend_context column."""
+    (i0, r0), _ = _df_rows(drop=("trend_context",))
+    assert main.build_row_dict(i0, r0)["trend_context"] == ""
+
+
+def test_campaign_state_maps_trend_fields_and_skips_blanks():
+    msg = {
+        "index": 0,
+        "brand": "PRS",
+        "target_product": "SE CE24",
+        "key_selling_point": "tone",
+        "target_audience": "fans",
+        "target_search_trend": "Texas Football",
+        "refresh_date": "2026-10-10",
+        "trend_context": '{"hook":"Game day"}',
+    }
+    state = main.build_campaign_state(msg)
+    assert state["trend_detected_on"] == "2026-10-10"
+    assert state["trend_scout_context"] == '{"hook":"Game day"}'
+    assert "refresh_date" not in state and "trend_context" not in state
+
+    bare = main.build_campaign_state({**msg, "refresh_date": "", "trend_context": None})
+    assert "trend_detected_on" not in bare
+    assert "trend_scout_context" not in bare
+    # An old message without the new keys still works.
+    old = {k: v for k, v in msg.items() if k not in ("refresh_date", "trend_context")}
+    assert set(main.build_campaign_state(old)) == {
+        "brand",
+        "target_product",
+        "key_selling_points",
+        "target_audience",
+        "target_search_trends",
+    }

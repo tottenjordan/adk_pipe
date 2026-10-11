@@ -204,6 +204,8 @@ function HomeContent() {
     const targetProduct = searchParams.get("targetProduct");
     const keySellingPoints = searchParams.get("keySellingPoints");
     const targetSearchTrend = searchParams.get("targetSearchTrend");
+    const trendContext = searchParams.get("trendContext");
+    const trendDetectedOn = searchParams.get("trendDetectedOn");
 
     if (agent || brand || targetSearchTrend) {
       setForm((prev) => ({
@@ -214,6 +216,8 @@ function HomeContent() {
         ...(targetProduct && { targetProduct }),
         ...(keySellingPoints && { keySellingPoints }),
         ...(targetSearchTrend && { targetSearchTrend }),
+        ...(targetSearchTrend && trendContext && { trendContext }),
+        ...(targetSearchTrend && trendDetectedOn && { trendDetectedOn }),
       }));
     }
   }, [searchParams]);
@@ -475,7 +479,14 @@ function HomeContent() {
                   placeholder='e.g., "tswift engaged"'
                   value={form.targetSearchTrend}
                   onChange={(e) =>
-                    setForm({ ...form, targetSearchTrend: e.target.value })
+                    // A different trend: the carried-over trend_scout context
+                    // and detection date no longer describe it.
+                    setForm({
+                      ...form,
+                      targetSearchTrend: e.target.value,
+                      trendContext: undefined,
+                      trendDetectedOn: undefined,
+                    })
                   }
                 />
               </div>

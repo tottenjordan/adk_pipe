@@ -122,3 +122,38 @@ def test_scout_synthesizer_renders_the_run_date():
     assert '"as_of": "2026-10-11"' in rendered
     # The JSON template's own braces survive.
     assert '"analyzed_trends": [' in rendered
+
+
+# --- trend_scout's forwarded context: a hint to re-verify, never a fact ----------
+
+
+@pytest.mark.parametrize("name", ["gs_web_planner", "CREATIVE_BRIEF_WRITER_INSTR"])
+def test_trend_scout_hint_is_read_as_a_hint(name):
+    instr = _date_prompts()[name]
+    assert instr.count(creative_prompts.TREND_SCOUT_HINT_BLOCK) == 1, name
+    assert "{trend_scout_context?}" in instr and "{trend_detected_on?}" in instr
+    assert "re-verify" in creative_prompts.TREND_SCOUT_HINT_BLOCK
+    assert "never as fact" in creative_prompts.TREND_SCOUT_HINT_BLOCK
+
+
+def test_planner_rechecks_the_hint_against_today():
+    instr = _date_prompts()["gs_web_planner"]
+    assert "If <trend_scout_hint> is non-empty" in instr
+
+
+def test_brief_writer_never_states_the_hint_unverified():
+    instr = creative_prompts.CREATIVE_BRIEF_WRITER_INSTR
+    assert "**Trend scout hint:**" in instr
+
+
+def test_hint_renders_empty_without_trend_scout_state():
+    rendered = _render(
+        creative_prompts.TREND_SCOUT_HINT_BLOCK,
+        {"trend_detected_on": "", "trend_scout_context": ""},
+    )
+    assert "{" not in rendered
+    rendered = _render(
+        creative_prompts.TREND_SCOUT_HINT_BLOCK,
+        {"trend_detected_on": "2026-10-10", "trend_scout_context": '{"hook":"h"}'},
+    )
+    assert "2026-10-10" in rendered and '{"hook":"h"}' in rendered
