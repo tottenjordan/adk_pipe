@@ -126,7 +126,8 @@ def trend_situation_gate(ctx: Context) -> Event:
 
 
 def validate_trend_situation(ctx: Context) -> None:
-    """Validate the draft into ``trend_situation`` + ``trend_situation_md``.
+    """Validate the draft into ``trend_situation`` + ``trend_situation_md``, and
+    seed ``timely_rules`` (the timely slot's rules; "" unless timely).
 
     No LLM. Runs on both routes; yields no output (research_barrier drops the
     join dict anyway).
@@ -137,6 +138,7 @@ def validate_trend_situation(ctx: Context) -> None:
             enabled=config.trend_state_enabled,
             window_days=config.trend_event_window_days,
             valid_hours_after=config.timely_valid_hours_after,
+            max_timely=config.max_timely_concepts,
         )
     except Exception:
         logger.exception("trend situation validation failed; continuing without it")

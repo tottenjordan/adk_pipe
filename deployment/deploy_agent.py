@@ -101,6 +101,9 @@ ENV_VAR_DICT = {
     "TREND_STATE_ENABLED": os.getenv("TREND_STATE_ENABLED", "true"),
     "TREND_EVENT_WINDOW_DAYS": os.getenv("TREND_EVENT_WINDOW_DAYS", "7"),
     "TIMELY_VALID_HOURS_AFTER": os.getenv("TIMELY_VALID_HOURS_AFTER", "48"),
+    # The timely slot: how many of the 4 creatives may reference a validated
+    # current moment (0..2, default 1; 0 = off).
+    "MAX_TIMELY_CONCEPTS": os.getenv("MAX_TIMELY_CONCEPTS", "1"),
     # Per-request timeout for flash / lite model calls (agent_common/genai_retry.py;
     # default 90, clamped 30..900, 0 = use MODEL_REQUEST_TIMEOUT_SECONDS). The ADK
     # agent models bake it in at deploy (pickled); the lazily built image-QA

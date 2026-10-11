@@ -93,6 +93,9 @@ DEFAULT_TREND_EVENT_WINDOW_DAYS = 7
 TREND_EVENT_WINDOW_DAYS_RANGE = (1, 30)
 DEFAULT_TIMELY_VALID_HOURS_AFTER = 48
 TIMELY_VALID_HOURS_AFTER_RANGE = (6, 168)
+# The timely slot: how many of the 4 creatives may reference a validated moment.
+DEFAULT_MAX_TIMELY_CONCEPTS = 1
+MAX_MAX_TIMELY_CONCEPTS = 2
 
 
 def _parse_rounds(raw: str | None, default: int, maximum: int) -> int:
@@ -187,6 +190,12 @@ def parse_timely_valid_hours_after(raw: str | None) -> int:
     return _parse_range(
         raw, DEFAULT_TIMELY_VALID_HOURS_AFTER, TIMELY_VALID_HOURS_AFTER_RANGE
     )
+
+
+def parse_max_timely_concepts(raw: str | None) -> int:
+    """``MAX_TIMELY_CONCEPTS`` → int clamped to 0..2; unset/blank/invalid → 1.
+    0 turns the timely slot off (no timely rules; the guards clear every flag)."""
+    return _parse_rounds(raw, DEFAULT_MAX_TIMELY_CONCEPTS, MAX_MAX_TIMELY_CONCEPTS)
 
 
 def parse_person_safe_styles(raw: str | None) -> tuple[str, ...]:
@@ -397,6 +406,12 @@ class ResearchConfiguration(BaseAgentConfiguration):
     timely_valid_hours_after: int = field(
         default_factory=lambda: parse_timely_valid_hours_after(
             os.getenv("TIMELY_VALID_HOURS_AFTER")
+        )
+    )
+
+    max_timely_concepts: int = field(
+        default_factory=lambda: parse_max_timely_concepts(
+            os.getenv("MAX_TIMELY_CONCEPTS")
         )
     )
 

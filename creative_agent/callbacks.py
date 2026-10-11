@@ -139,6 +139,11 @@ def _set_initial_states(source: dict[str, Any], target: State | dict[str, Any]):
         PERSON_CASTING_RULES if target.get("person_reference_available") else "",
     )
 
+    # The timely slot's rules reach the creative agents only when the trend
+    # situation validator found a timely moment ({timely_rules?}, written by
+    # validate_trend_situation); otherwise their instructions are unchanged.
+    target.setdefault("timely_rules", "")
+
     # Per-session random style shortlist (image diversity): the visual agents
     # pick their 4 styles from it, so runs don't converge on the same looks.
     # setdefault: a caller/test-provided shortlist (or a resumed session) wins.
