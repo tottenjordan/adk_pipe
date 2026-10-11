@@ -183,6 +183,20 @@ Update:
 
 **Commit:** `docs: person swap for cast creatives`.
 
+### Implementation notes (Part A)
+
+- **Human-subject check fix:** `castable_reason` used to run the casting guard on
+  `variant_concept(concept)`, whose appended hero line ("The hero is …") itself
+  matched the guard's human-subject cue, so `no_human_subject` could never fire for a
+  variant. The new appearance line ("the hero's appearance") would have had the same
+  effect. `castable_reason` now strips both variant lines before the guard runs (a
+  still life in a person-safe style is refused again, as documented).
+- **Cast without a recorded consent:** a cast base image whose record has no
+  `consent_id` is still a `swap` with `cast_consent_id: ""`; nothing is filtered out
+  of the picker and no consent is refused as "the same person".
+- The `already_cast` code and the `concept_already_cast` message are removed (no
+  other users).
+
 ---
 
 ## Part B — Share page Feed layout (separate PR `fix/share-feed-layout`)
