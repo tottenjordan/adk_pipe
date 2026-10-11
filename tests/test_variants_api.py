@@ -215,11 +215,55 @@ def test_variant_key_and_paths():
 def test_variant_concept_casts_and_points_at_the_photo():
     out = vr.variant_concept({"image_generation_prompt": "a photo of a guitarist"})
     assert out["casts_person_reference"] is True
-    assert out["image_generation_prompt"].endswith(
+    assert (
         "The hero is the person in the person reference image."
+        in out["image_generation_prompt"]
     )
     again = vr.variant_concept(out)
     assert again["image_generation_prompt"] == out["image_generation_prompt"]
+
+
+def test_variant_prompt_tells_the_model_the_photo_overrides_described_appearance():
+    line = vr.VARIANT_APPEARANCE_LINE.strip()
+    assert "{" not in line and "}" not in line  # never an ADK state token
+    v = vr.variant_concept({"image_generation_prompt": "A man in his 30s plays."})
+    prompt = v["image_generation_prompt"]
+    assert prompt.endswith(line)
+    # after the hero line, which points at the photo first
+    assert prompt.index("The hero is the person") < prompt.index(line)
+    # idempotent, case-insensitively
+    assert vr.variant_concept(v)["image_generation_prompt"].count(line) == 1
+    shouted = vr.variant_concept({"image_generation_prompt": prompt.upper()})
+    assert shouted["image_generation_prompt"] == prompt.upper()
+
+
+def test_variant_key_is_versioned():
+    import hashlib
+
+    unsalted = hashlib.sha256(b"gs://b/p.jpg|prompt|m").hexdigest()[:12]
+    key = vr.variant_key("gs://b/p.jpg", "prompt", "m")
+    assert key != unsalted
+    salted = f"{vr.VARIANT_KEY_VERSION}|gs://b/p.jpg|prompt|m".encode()
+    assert key == hashlib.sha256(salted).hexdigest()[:12]
+
+
+def test_castability_needs_a_human_subject_despite_the_variant_wording():
+    # The hero / appearance lines a variant appends mention "hero" and
+    # "person"; they must not count as the prompt's human subject.
+    still_life = {
+        "concept_name": "Fruit",
+        "visual_style": "Candid 35mm film photo",
+        "image_generation_prompt": "A bowl of fruit on a table.",
+    }
+    safe = ("Candid 35mm film photo",)
+    assert "human subject" in (vr.castable_reason(still_life, safe) or "")
+    pointed = dict(still_life)
+    pointed["image_generation_prompt"] = vr.variant_concept(still_life)[
+        "image_generation_prompt"
+    ]
+    assert "human subject" in (vr.castable_reason(pointed, safe) or "")
+    guitarist = dict(still_life, image_generation_prompt="A guitarist on stage.")
+    assert vr.castable_reason(guitarist, safe) is None
 
 
 # --- POST / GET ---------------------------------------------------------------------
@@ -746,6 +790,7 @@ def test_render_variant_uses_run_inputs_and_the_person(monkeypatch):
     assert "Reference image 2 (person)" in text
     assert "No logos, brand marks or trademarks except those of" in text
     assert "The hero is the person in the person reference image." in text
+    assert vr.VARIANT_APPEARANCE_LINE.strip() in text
 
 
 def test_render_variant_blocked_is_rejected_without_fallback(monkeypatch):

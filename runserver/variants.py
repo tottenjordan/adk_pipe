@@ -1,11 +1,16 @@
 """Personalised variant previews REST API (owner side, UI only).
 
-The owner re-renders one finished, uncast concept with one of their consented
-people (``runserver/person_refs.py``) cast as the hero. A variant is a **fresh
-render** (``creative_agent.render_concept``) of the concept's stored
-``image_generation_prompt`` with the run's own product / logo / style
-references, aspect ratio and rating-strictness flags, plus the person photo
-(``ALLOW_ADULT``) and the post-render image check. It is a preview only: it is
+The owner re-renders one finished concept with one of their consented
+people (``runserver/person_refs.py``) cast as the hero. A concept whose base
+image already casts a person is a **person swap** (``castable`` ``mode:
+"swap"`` + ``cast_consent_id``); swapping in that same consent is a 400
+``same_person_as_cast``. A variant is a **fresh render**
+(``creative_agent.render_concept``) of the concept's stored
+``image_generation_prompt`` (plus the hero line and ``VARIANT_APPEARANCE_LINE``:
+the photo wins over any described appearance) with the run's own product / logo
+/ style references (never a person photo or variant, so no likeness of a cast
+person carries over), aspect ratio and rating-strictness flags, plus the chosen
+person's photo (``ALLOW_ADULT``) and the post-render image check. It is a preview only: it is
 never judged, rated, shared or deployed to a bandit experiment.
 
 Storage is deliberately separate from the run's creatives:
@@ -19,8 +24,9 @@ Storage is deliberately separate from the run's creatives:
   carry ONLY ``person_variants`` (never ``final_visual_concepts``,
   ``generated_images`` or ``_generated_artifact_keys``).
 
-``key = sha256(photo_uri | image_generation_prompt | image model)[:12]``: an
-identical request whose render is ``done`` returns the cached variant.
+``key = sha256(VARIANT_KEY_VERSION | photo_uri | image_generation_prompt |
+image model)[:12]``: an identical request whose render is ``done`` returns the
+cached variant (older records keep their unsalted keys and stay listed).
 Statuses: ``queued`` → ``rendering`` → ``done`` | ``failed`` | ``rejected``
 (a safety filter blocked the person photo; unlike a base run there is no
 person-less fallback, since the point of a variant is the person). Right before
@@ -81,6 +87,16 @@ PENDING = ("queued", "rendering")
 VARIANTS_SEGMENT = "variants"
 VARIANT_CACHE_CONTROL = "private, no-store"
 KEY_CHARS = 12
+# Salted into every cache key; bumped when what a variant renders changes
+# (v2 = the appearance-override line below).
+VARIANT_KEY_VERSION = "v2"
+# Appended to every variant prompt after the hero line, so the photo wins over
+# any appearance the prompt describes (a swap or a prompt written for someone
+# else). Variants only (engine renders never see it); brace-free.
+VARIANT_APPEARANCE_LINE = (
+    " Where this prompt describes the hero's appearance (gender, age, hair, "
+    "build, skin tone), follow the person in the person reference image instead."
+)
 CONCEPT_NAME_MAX_CHARS = 512
 DEFAULT_DAILY_CAP = 10
 MAX_DAILY_CAP = 1000
@@ -113,8 +129,11 @@ class VariantError(ValueError):
 
 
 def variant_key(photo_uri: str, prompt: str, model: str) -> str:
-    """The cache key: ``sha256(photo_uri | prompt | model)[:12]``."""
-    raw = f"{photo_uri}|{prompt}|{model}".encode()
+    """The cache key: ``sha256(VARIANT_KEY_VERSION | photo_uri | prompt |
+    model)[:12]``, where ``prompt`` is the concept's stored prompt. Bump
+    ``VARIANT_KEY_VERSION`` whenever what a variant renders for the same inputs
+    changes, so a new request isn't answered with an older render."""
+    raw = f"{VARIANT_KEY_VERSION}|{photo_uri}|{prompt}|{model}".encode()
     return hashlib.sha256(raw).hexdigest()[:KEY_CHARS]
 
 
@@ -219,16 +238,29 @@ def count_created_on(state: Mapping[str, Any], day: str) -> int:
 
 def variant_concept(concept: Mapping[str, Any]) -> dict:
     """The concept as a variant renders it: casting the person, with the
-    reference wording appended when the prompt doesn't point at it yet."""
+    reference wording appended when the prompt doesn't point at it yet, then
+    ``VARIANT_APPEARANCE_LINE`` (both idempotent, matched case-insensitively)."""
     from creative_agent.concept_guard import PERSON_HERO_LINE, PERSON_HERO_PHRASE
 
     out = dict(concept)
     prompt = str(out.get("image_generation_prompt") or "")
     if PERSON_HERO_PHRASE.lower() not in prompt.lower():
         prompt = prompt.rstrip() + PERSON_HERO_LINE
+    if VARIANT_APPEARANCE_LINE.strip().lower() not in prompt.lower():
+        prompt = prompt.rstrip() + VARIANT_APPEARANCE_LINE
     out["image_generation_prompt"] = prompt
     out["casts_person_reference"] = True
     return out
+
+
+def _without_variant_wording(prompt: str) -> str:
+    """``prompt`` minus the hero / appearance lines a variant appends: they say
+    "hero" and "person", which would otherwise pass for a human subject."""
+    from creative_agent.concept_guard import PERSON_HERO_LINE
+
+    for line in (PERSON_HERO_LINE, VARIANT_APPEARANCE_LINE):
+        prompt = re.sub(re.escape(line.strip()), " ", prompt, flags=re.IGNORECASE)
+    return prompt
 
 
 def castable_reason(concept: Mapping[str, Any], safe_styles: Any) -> str | None:
@@ -236,8 +268,13 @@ def castable_reason(concept: Mapping[str, Any], safe_styles: Any) -> str | None:
     isn't person-safe or its prompt has no human subject), or None."""
     from creative_agent.concept_guard import enforce_person_casting
 
+    candidate = dict(concept)
+    candidate["image_generation_prompt"] = _without_variant_wording(
+        str(candidate.get("image_generation_prompt") or "")
+    )
+    candidate["casts_person_reference"] = True
     checked, warnings = enforce_person_casting(
-        [variant_concept(concept)], available=True, max_cast=1, safe_styles=safe_styles
+        [candidate], available=True, max_cast=1, safe_styles=safe_styles
     )
     if checked[0].get("casts_person_reference") is True:
         return None
