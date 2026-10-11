@@ -439,6 +439,46 @@ def test_concept_checks():
     run(go)
 
 
+def test_post_refuses_the_person_already_cast():
+    async def go():
+        h = Harness(daily_cap=1)
+        await h.consent()
+        await h.session(state=with_cast(ready_state(), CASTABLE, "consent-aaaa"))
+        r = await h.post(cid="consent-aaaa")
+        assert r.status_code == 400
+        assert r.json()["detail"]["reason"] == "same_person_as_cast"
+        assert r.json()["detail"]["message"] == (
+            "This creative already features this person."
+        )
+        assert h.renderer.calls == []
+        # Refused before the daily cap counts it: a real swap still fits.
+        await h.consent("consent-bbbb", photo=PHOTO_A2)
+        assert (await h.post(cid="consent-bbbb")).status_code == 200
+
+    run(go)
+
+
+def test_post_allows_a_different_person_on_a_cast_concept():
+    async def go():
+        h = Harness()
+        await h.consent()
+        await h.consent("consent-bbbb", photo=PHOTO_A2)
+        await h.session(state=with_cast(ready_state(), CASTABLE, "consent-aaaa"))
+        r = await h.post(cid="consent-bbbb")
+        assert r.status_code == 200, r.text
+        assert r.json()["consent_id"] == "consent-bbbb"
+        await h.settle()
+        ((_, concept_arg, photo),) = h.renderer.calls
+        assert photo == PHOTO_A2 and concept_arg["concept_name"] == CASTABLE
+        session = await h.state()
+        # The base image's cast record is untouched.
+        assert session.state["generated_images"][CASTABLE]["consent_id"] == (
+            "consent-aaaa"
+        )
+
+    run(go)
+
+
 def test_unsafe_output_folder_is_refused():
     async def go():
         h = Harness()

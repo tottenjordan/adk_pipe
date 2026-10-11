@@ -758,6 +758,13 @@ async def _create_variant(
     check = castability(state, concept_name)
     if not check.ok:
         raise _error(check.status, check.error, check.message)
+    if check.mode == "swap" and consent_id == check.cast_consent_id:
+        # Before the cache lookup and the daily cap: nothing to swap.
+        raise _error(
+            400,
+            "same_person_as_cast",
+            "This creative already features this person.",
+        )
     concept = find_concept(state, concept_name)
     if concept is None:  # castability found it; never None here
         raise _error(400, "concept_not_found", "no such concept in this run")
