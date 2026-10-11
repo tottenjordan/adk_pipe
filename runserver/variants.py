@@ -169,6 +169,16 @@ def is_cast(state: Mapping[str, Any], name: str) -> bool:
     return isinstance(record, Mapping) and record.get("cast") is True
 
 
+def cast_consent_id(state: Mapping[str, Any], name: str) -> str:
+    """The consent the run's base image for ``name`` was cast with (``""`` when
+    it isn't cast or names none)."""
+    if not is_cast(state, name):
+        return ""
+    record = _as_obj(state.get("generated_images"))[name]
+    consent = record.get("consent_id")
+    return consent if isinstance(consent, str) else ""
+
+
 def has_base_image(state: Mapping[str, Any], name: str) -> bool:
     """Whether the run rendered a base image for ``name`` (a ``gcs_uri``)."""
     images = _as_obj(state.get("generated_images"))
@@ -242,10 +252,12 @@ class Castability:
 
     ``error`` / ``status`` / ``message`` are what ``POST`` answers (its
     ``detail.reason``, HTTP status and message); ``code`` (``not_ready``,
-    ``already_cast``, ``style_not_person_safe``, ``no_human_subject``,
-    ``not_castable``) and the plain-language ``reason`` are what ``GET`` reports
-    per concept. ``style`` is the concept's canonical style family, or its
-    ``visual_style`` as written when it has none."""
+    ``style_not_person_safe``, ``no_human_subject``, ``not_castable``) and the
+    plain-language ``reason`` are what ``GET`` reports per concept. ``style`` is
+    the concept's canonical style family, or its ``visual_style`` as written when
+    it has none. ``mode`` is ``"swap"`` when the base image already casts a
+    person (a variant replaces them; ``cast_consent_id`` names their consent, the
+    caller's own, which ``POST`` refuses) and ``"add"`` otherwise."""
 
     ok: bool
     style: str = ""
@@ -254,6 +266,8 @@ class Castability:
     error: str = ""
     status: int = 400
     message: str = ""
+    mode: str = "add"
+    cast_consent_id: str = ""
 
     def public(self) -> dict:
         """The ``GET`` entry (never the POST-only fields)."""
@@ -262,6 +276,8 @@ class Castability:
             "reason": self.reason,
             "code": self.code,
             "style": self.style,
+            "mode": self.mode,
+            "cast_consent_id": self.cast_consent_id,
         }
 
 
@@ -269,9 +285,10 @@ def castability(
     state: Mapping[str, Any], name: str, safe_styles: Any = None
 ) -> Castability:
     """The variant checks on the run's concept ``name``, in ``POST``'s order:
-    it exists with a prompt, the run finished and rendered it, it isn't cast yet,
-    and the casting guard would cast a person in it (``safe_styles`` defaults to
-    ``config.person_safe_styles``)."""
+    it exists with a prompt, the run finished and rendered it, and the casting
+    guard would cast a person in it (``safe_styles`` defaults to
+    ``config.person_safe_styles``). A concept whose base image already casts a
+    person is a ``"swap"``: the variant renders the chosen person instead."""
     from creative_agent.style_shortlist import canonical_style
 
     concept = find_concept(state, name)
@@ -299,15 +316,8 @@ def castability(
             message="wait until the run has finished and this creative's image "
             "is rendered",
         )
-    if is_cast(state, name):
-        return Castability(
-            False,
-            style=style,
-            code="already_cast",
-            reason="This creative already features a person.",
-            error="concept_already_cast",
-            message="this creative already features a person; pick another one",
-        )
+    mode = "swap" if is_cast(state, name) else "add"
+    cast_id = cast_consent_id(state, name)
     safe = _safe_styles() if safe_styles is None else safe_styles
     why = castable_reason(concept, safe)
     if why is not None:
@@ -324,8 +334,10 @@ def castability(
             reason=f"This creative can't feature a person: {why}.",
             error="concept_not_castable",
             message=f"can't feature a person: {why}",
+            mode=mode,
+            cast_consent_id=cast_id,
         )
-    return Castability(True, style=style)
+    return Castability(True, style=style, mode=mode, cast_consent_id=cast_id)
 
 
 def _personal_uri(uri: str) -> bool:

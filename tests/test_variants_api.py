@@ -42,6 +42,13 @@ def ready_state() -> dict:
     return state
 
 
+def with_cast(state: dict, name: str, consent_id: str = "consent-aaaa") -> dict:
+    """``state`` with the base image for ``name`` cast with ``consent_id`` (as
+    ``image_tools`` records a cast render)."""
+    state["generated_images"][name].update(cast=True, consent_id=consent_id)
+    return state
+
+
 class FakeBlob:
     def __init__(self, gcs: FakeGCS, bucket: str, name: str):
         self.gcs, self.bucket, self.name = gcs, bucket, name
@@ -413,14 +420,11 @@ def test_concept_checks():
     async def go():
         h = Harness()
         await h.consent()
-        state = ready_state()
-        state["generated_images"][CONCEPTS[2]]["cast"] = True
+        state = with_cast(ready_state(), MEME, "consent-other")
         await h.session(state=state)
         r = await h.post(concept="Nope")
         assert r.json()["detail"]["reason"] == "concept_not_found"
-        r = await h.post(concept=CONCEPTS[2])
-        assert r.status_code == 400
-        assert r.json()["detail"]["reason"] == "concept_already_cast"
+        # A cast concept still has to pass the casting guard to be swapped.
         r = await h.post(concept=MEME)
         assert r.status_code == 400
         assert r.json()["detail"]["reason"] == "concept_not_castable"
@@ -733,6 +737,7 @@ def test_castability_helper_matches_the_post_checks():
     state = ready_state()
     ok = vr.castability(state, CASTABLE)
     assert ok.ok and ok.reason == "" and ok.code == ""
+    assert ok.mode == "add" and ok.cast_consent_id == ""
     assert ok.style == "Candid 35mm film photo"
     meme = vr.castability(state, MEME)
     assert not meme.ok and meme.error == "concept_not_castable" and meme.status == 400
@@ -743,11 +748,11 @@ def test_castability_helper_matches_the_post_checks():
     # The style list is the one the casting guard uses.
     assert vr.castability(state, MEME, ("Meme aesthetic",)).ok
 
-    cast = ready_state()
-    cast["generated_images"][CASTABLE]["cast"] = True
-    c = vr.castability(cast, CASTABLE)
-    assert (c.ok, c.error, c.code) == (False, "concept_already_cast", "already_cast")
-    assert c.reason == "This creative already features a person."
+    c = vr.castability(with_cast(ready_state(), CASTABLE, "consentA"), CASTABLE)
+    assert (c.ok, c.mode, c.cast_consent_id, c.code) == (True, "swap", "consentA", "")
+    # A cast concept that the guard wouldn't cast is refused like any other.
+    m = vr.castability(with_cast(ready_state(), MEME), MEME)
+    assert (m.ok, m.code) == (False, "style_not_person_safe")
 
     u = vr.castability(creative_state(), CASTABLE)  # no finalize_done
     assert (u.ok, u.error, u.status, u.code) == (
@@ -759,11 +764,30 @@ def test_castability_helper_matches_the_post_checks():
     assert u.reason.startswith("Not ready")
 
 
+def test_castability_allows_a_cast_concept_as_swap():
+    c = vr.castability(with_cast(ready_state(), CASTABLE, "consentA"), CASTABLE)
+    assert c.ok and c.mode == "swap" and c.cast_consent_id == "consentA"
+    assert c.public()["mode"] == "swap"
+    assert c.public()["cast_consent_id"] == "consentA"
+
+
+def test_castability_uncast_concept_is_add():
+    c = vr.castability(ready_state(), CASTABLE)
+    assert c.ok and c.mode == "add" and c.cast_consent_id == ""
+    assert c.public()["mode"] == "add" and c.public()["cast_consent_id"] == ""
+
+
+def test_castability_cast_without_a_recorded_consent_is_a_swap():
+    state = ready_state()
+    state["generated_images"][CASTABLE]["cast"] = True
+    c = vr.castability(state, CASTABLE)
+    assert (c.ok, c.mode, c.cast_consent_id) == (True, "swap", "")
+
+
 def test_get_reports_castability_for_every_concept():
     async def go():
         h = Harness()
-        state = ready_state()
-        state["generated_images"][CONCEPTS[2]]["cast"] = True
+        state = with_cast(ready_state(), CASTABLE, "consentA")
         await h.session(state=state)
         body = (await h.get()).json()
         assert body["person_safe_styles"] == list(vr._safe_styles())
@@ -774,11 +798,14 @@ def test_get_reports_castability_for_every_concept():
             "reason": "",
             "code": "",
             "style": "Candid 35mm film photo",
+            "mode": "swap",
+            "cast_consent_id": "consentA",
         }
         assert castable[MEME]["ok"] is False
         assert castable[MEME]["code"] == "style_not_person_safe"
         assert castable[MEME]["style"] == "Meme aesthetic"
-        assert castable[CONCEPTS[2]]["code"] == "already_cast"
+        assert castable[MEME]["mode"] == "add"
+        assert castable[MEME]["cast_consent_id"] == ""
         # A style with no canonical family is shown as written.
         assert castable[CONCEPTS[2]]["style"] == "Warm, High-Contrast Stage Photography"
 
