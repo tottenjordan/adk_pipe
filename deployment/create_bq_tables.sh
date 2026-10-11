@@ -57,7 +57,7 @@ make_table() {
 
 # Selected search trends (trend_scout writes; the CRF orchestrator/worker read + lock).
 make_table "${BQ_TABLE_TARGETS}" \
-  uuid:STRING,processed_status:STRING,target_trend:STRING,refresh_date:DATE,trawler_date:DATE,entry_timestamp:TIMESTAMP,trawler_gcs:STRING,brand:STRING,target_audience:STRING,target_product:STRING,key_selling_point:STRING,research_gaps:STRING,processing_started_at:TIMESTAMP,processing_attempts:INTEGER
+  uuid:STRING,processed_status:STRING,target_trend:STRING,refresh_date:DATE,trawler_date:DATE,entry_timestamp:TIMESTAMP,trawler_gcs:STRING,brand:STRING,target_audience:STRING,target_product:STRING,key_selling_point:STRING,research_gaps:STRING,processing_started_at:TIMESTAMP,processing_attempts:INTEGER,trend_context:STRING
 
 # Creative results, one row per creative run.
 make_table "${BQ_TABLE_CREATIVES}" \

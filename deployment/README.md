@@ -376,6 +376,30 @@ ALTER TABLE `<BQ_PROJECT_ID>.trend_trawler_eval.creative_evals`
   ADD COLUMN IF NOT EXISTS gates_pass_rate FLOAT64;
 ```
 
+**trend_context migration (2026-10-11, trend state plan PR 1)** —
+`target_trends_crf` gains `trend_context STRING`: compact JSON
+(`{context, cultural_angle, event_hint, hook}`, blank fields dropped; `""` when
+nothing parsed) of trend_scout's research for that term
+(`trend_scout/trend_context.py`). The CRF worker forwards it to the creative run
+as `trend_scout_context`, and the row's `refresh_date` as `trend_detected_on`;
+the creative agents read both only as hints to re-verify. Same ordering rule: run
+the ALTER on **both** datasets **BEFORE deploying** the `trend_scout` engine (its
+MERGE names the column) and the CRF worker (its SELECT reads it):
+
+```sql
+ALTER TABLE `<BQ_PROJECT_ID>.trend_trawler.target_trends_crf`
+  ADD COLUMN IF NOT EXISTS trend_context STRING;
+ALTER TABLE `<BQ_PROJECT_ID>.trend_trawler_eval.target_trends_crf`
+  ADD COLUMN IF NOT EXISTS trend_context STRING;
+```
+
+Rows written before it read `NULL`, which the worker skips (no state key), so no
+backfill. **Redeploy order:** ALTER → `trend_scout`, `creative_agent` and
+`interactive_creative` engines (+ smoke) → CRF worker `$CREATIVE_WORKER_CRF_NAME`
+(3.3, from `cloud_functions/creative_fanout`, no env flags so its env is
+preserved) → api, then web (pin both). A fresh project gets the column from
+`deployment/create_bq_tables.sh`.
+
 **Judge image access (IAM).** The visual judge passes each rendered image to
 Gemini as a `gs://` URI, which Vertex AI fetches server-side as the project's
 **Vertex AI service agent** (`service-<PROJECT_NUMBER>@gcp-sa-aiplatform.iam.gserviceaccount.com`),

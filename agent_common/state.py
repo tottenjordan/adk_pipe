@@ -6,7 +6,7 @@
 - ``seed_initial_state`` -- the one-time session-state seeding shared by the
   ``before_agent_callback`` state loaders. Per-agent differences (output dir,
   extra seeded keys, post-seed ``setdefault`` defaults) are supplied by the
-  caller.
+  caller. It also seeds the run's date keys (``agent_common.clock``).
 """
 
 import datetime
@@ -17,6 +17,8 @@ from typing import Any
 
 from google.adk.sessions.state import State
 from google.adk.tools import ToolContext
+
+from agent_common.clock import date_state
 
 
 def memorize(key: str, value: str, tool_context: ToolContext):
@@ -44,6 +46,8 @@ def seed_initial_state(
     gcs_bucket: str | None,
     agent_output_dir: str,
     extra: dict[str, Any] | None = None,
+    timezone: str | None = None,
+    now: datetime.datetime | None = None,
 ) -> bool:
     """Seed session state once per session.
 
@@ -58,6 +62,13 @@ def seed_initial_state(
         gcs_bucket: The ``gs://`` bucket URI stored under ``gcs_bucket``.
         agent_output_dir: Value stored under ``agent_output_dir``.
         extra: Additional per-agent keys, set before ``source`` is applied.
+        timezone: IANA timezone of the run's date keys (``current_date``,
+            ``current_datetime``, ``current_timezone``, ``current_weekday``);
+            None/unknown → ``America/New_York``. The date is computed HERE, per
+            run — never at import (Agent Engine pickles agents at deploy time) —
+            and only ``setdefault``: a caller-seeded value wins, and a resumed
+            (already seeded) session keeps its original run date.
+        now: the instant to describe (tests); defaults to the current time.
 
     Returns:
         True if the state was seeded by this call, False if it already was.
@@ -76,4 +87,6 @@ def seed_initial_state(
         target.update(extra)
 
     target.update(source)
+    for key, value in date_state(timezone, now=now).items():
+        target.setdefault(key, value)
     return True

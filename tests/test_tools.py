@@ -183,7 +183,7 @@ class TestBuildTrendInsertSql:
 
     def test_empty_research_gaps_still_bound(self):
         sql, params = self._sql(research_gaps="")
-        assert "research_gaps)" in sql
+        assert "S.research_gaps," in sql
         assert self._param_value(params, "research_gaps") == ""
 
     def test_values_are_parameter_placeholders_not_literals(self):
@@ -252,6 +252,72 @@ class TestTrendScoutWriteTrendsIdempotent:
         a = self._run(monkeypatch, "sess-1")
         b = self._run(monkeypatch, "sess-2")
         assert a[0][0] != b[0][0]
+
+
+class TestTrendContextColumn:
+    """write_trends_to_bq binds each trend's compact context (trend_context)."""
+
+    def _sql(self, **overrides):
+        return TestBuildTrendInsertSql()._sql(**overrides)
+
+    def test_merge_inserts_and_binds_trend_context(self):
+        ctx = '{"hook": "It\'s game day"}'
+        sql, params = self._sql(trend_context=ctx)
+        squashed = _squash(sql)
+        assert "@trend_context AS trend_context" in squashed
+        assert "research_gaps, trend_context)" in squashed
+        assert "S.research_gaps, S.trend_context)" in squashed
+        assert ctx not in sql
+        assert TestBuildTrendInsertSql._param_value(params, "trend_context") == ctx
+
+    def test_trend_context_defaults_to_empty(self):
+        _, params = self._sql()
+        assert TestBuildTrendInsertSql._param_value(params, "trend_context") == ""
+
+    def test_write_trends_binds_per_trend_context(self, monkeypatch):
+        import json
+
+        import trend_scout.tools as t
+
+        bq = FakeBigQueryClient()
+        monkeypatch.setattr(t, "_get_bigquery_client", lambda: bq)
+        monkeypatch.setattr(t, "_get_gtrends_max_date", lambda: "10/10/2026")
+        ctx = FakeToolContext(session_id="sess-ctx")
+        ctx.state.update(
+            {
+                "gcs_folder": "2026_10_11_run",
+                "target_search_trends": {"target_search_trends": ["T1", "T2"]},
+                "brand": "PRS",
+                "target_audience": "musicians",
+                "target_product": "SE CE24",
+                "key_selling_points": "tone",
+                "info_gtrends": json.dumps(
+                    {
+                        "analyzed_trends": [
+                            {
+                                "term": "T1",
+                                "context": "ctx one",
+                                "cultural_angle": "angle",
+                                "event_hint": "final on 2026-10-12",
+                            }
+                        ]
+                    }
+                ),
+                "selected_gtrends": '### T1\n* **The "Hook":** Hook one\n',
+            }
+        )
+        t.write_trends_to_bq(ctx)
+        bound = {}
+        for _, job_config in bq.queries:
+            params = {p.name: p.value for p in job_config.query_parameters}
+            bound[params["trend"]] = params["trend_context"]
+        assert json.loads(bound["T1"]) == {
+            "context": "ctx one",
+            "cultural_angle": "angle",
+            "event_hint": "final on 2026-10-12",
+            "hook": "Hook one",
+        }
+        assert bound["T2"] == ""  # no research for it → empty, never an error
 
 
 # --- save_search_trends_to_session_state logic ---

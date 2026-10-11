@@ -272,6 +272,25 @@ describe("briefFromState", () => {
       expect(briefFromState({ brand: "X", person_reference: bad })).toEqual({ brand: "X" });
     }
   });
+
+  it("restores trend_scout's context and detection date", () => {
+    expect(
+      briefFromState({
+        ui_app: "creative_agent",
+        brand: "X",
+        trend_scout_context: '{"hook":"h"}',
+        trend_detected_on: "2026-10-10",
+      }),
+    ).toEqual({
+      agent: "creative_agent",
+      brand: "X",
+      trendContext: '{"hook":"h"}',
+      trendDetectedOn: "2026-10-10",
+    });
+    expect(briefFromState({ brand: "X", trend_scout_context: "", trend_detected_on: "" })).toEqual({
+      brand: "X",
+    });
+  });
 });
 
 describe("sessionStorage helpers", () => {

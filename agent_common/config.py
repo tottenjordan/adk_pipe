@@ -78,6 +78,8 @@ class BaseAgentConfiguration:
             2, clamped 0..8) — each re-render spends the ~2 RPM image quota.
         image_qa_model (str): vision model for the image check (IMAGE_QA_MODEL,
             default the worker model).
+        trend_timezone (str): IANA timezone for the per-run date state
+            (TREND_TIMEZONE, default America/New_York).
         rate_limit_seconds (int): window for the LLM API rate limiter.
         rpm_quota (int): requests-per-minute threshold for the rate limiter.
         GCS_BUCKET (str | None): `gs://` bucket URI used to save artifacts,
@@ -144,6 +146,15 @@ class BaseAgentConfiguration:
         "4:5",
         "16:9",
         "3:4",
+    )
+
+    # Timezone for the per-run date state (agent_common/clock.py; seeded once per
+    # run as current_date / current_datetime / current_timezone / current_weekday).
+    # Only the NAME is read here; the date itself is computed at state init.
+    trend_timezone: str = field(
+        default_factory=lambda: (
+            (os.getenv("TREND_TIMEZONE") or "").strip() or "America/New_York"
+        )
     )
 
     # Adjust these values to limit the rate at which the agent queries the LLM API.

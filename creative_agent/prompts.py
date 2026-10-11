@@ -2,6 +2,8 @@
 
 from collections.abc import Sequence
 
+from agent_common.clock import DATE_CONTEXT_LINE
+
 from .config import PHOTOGRAPHIC_PERSON_STYLES, config
 
 # A prompting "grammar" for the
@@ -321,6 +323,15 @@ COPY_RATING_SIGNALS_RULE = (
 )
 RATING_SIGNALS_BLOCK = """<rating_signals>{rating_signals?}</rating_signals>"""
 
+# trend_scout's forwarded research for this trend (CRF worker / frontend trend
+# card → trend_scout_context + trend_detected_on). It was true when the scout
+# ran, possibly days ago, so the planner and brief writer treat it only as a
+# hint to re-verify. Both tokens optional: a run without it renders empty tags.
+TREND_SCOUT_HINT_BLOCK = """<trend_scout_hint>
+        Optional notes from the trend scout that flagged this trend (detected on: {trend_detected_on?}). They may be out of date: treat them only as a hint to re-verify against the research and today's date, never as fact. When empty, ignore them.
+        {trend_scout_context?}
+        </trend_scout_hint>"""
+
 # Trend risks + unsupported claims (rater-gap PR 3): shared, brace-free rules.
 # The critic's `risks` brief check gates a revision (copy_gate
 # GATING_BRIEF_CHECKS); unsupported absolute claims are a deterministic check
@@ -330,6 +341,10 @@ COPY_CLAIMS_RULE = "**Claims:** make no unsupported absolute claims (guaranteed,
 
 CREATIVE_BRIEF_WRITER_INSTR = (
     """Role: You are the Strategy Director. Turn the research report and campaign inputs into ONE structured creative brief: the contract the ad copy and visual teams must deliver against.
+
+    """
+    + DATE_CONTEXT_LINE
+    + """
 
     <INSTRUCTIONS>
     1.  **Proposition:** `single_minded_proposition` is ONE sentence carrying ONE idea. Never join two ideas with "and".
@@ -352,6 +367,7 @@ CREATIVE_BRIEF_WRITER_INSTR = (
     + """
     12. **Truthful product and claims:** use the product name exactly as given ({target_product}); never add a variant, finish, colour or model the user did not give. Include one mandatory that names the product exactly as given. No guarantees or absolute claims (guaranteed, indestructible, 100%, lifetime, never fails) unless a cited source or the user's selling points state them.
     13. **Sensitive trends:** if the trend is a real disaster, tragedy or crisis (a storm, wildfire, shooting, war, death), choose fit_mode "light_touch" (score 1-2), list its harms in trend_bridge.risks (and short terms for them in `avoid`), and never build the idea on the harm itself.
+    14. **Trend scout hint:** if <trend_scout_hint> is non-empty, use it only to understand why the trend was picked. Never state an event, date or result from it unless the research report confirms it as current.
     </INSTRUCTIONS>
 
     <CONTEXT>
@@ -360,6 +376,10 @@ CREATIVE_BRIEF_WRITER_INSTR = (
         <target_audience>{target_audience}</target_audience>
         <key_selling_points>{key_selling_points}</key_selling_points>
         <target_search_trends>{target_search_trends}</target_search_trends>
+
+        """
+    + TREND_SCOUT_HINT_BLOCK
+    + """
 
         <user_brand_colors>
         Optional brand colour palette from the user. When empty, ignore it.
@@ -407,6 +427,10 @@ AD_COPY_DRAFTER_INSTR = (
     """Role: You are an innovative, fast-paced ad copy generator specializing in high-velocity social media content (Instagram/TikTok).
 
     Your task is to review the creative brief and the comprehensive research provided in the <CONTEXT> block and generate **10 distinct, culturally relevant ad copy ideas**.
+
+    """
+    + DATE_CONTEXT_LINE
+    + """
 
     <INSTRUCTIONS>
     0.  **Brief:** """
@@ -464,6 +488,10 @@ AD_COPY_DRAFTER_INSTR = (
 AD_COPY_CRITIC_INSTR = (
     """Role: You are a strategic marketing critic and conversion optimization expert. 
     Your task is to apply rigorous analysis to candidate ad copy ideas and select a final, high-potential subset for creative development.
+
+    """
+    + DATE_CONTEXT_LINE
+    + """
 
     <INSTRUCTIONS>
     0.  **Brief:** """
@@ -596,6 +624,10 @@ AD_COPY_REVISER_INSTR = (
 
 ART_DIRECTOR_INSTR = (
     """Role: You are the Art Director. Before any individual visual concepts are drafted, you set the overall visual direction for the campaign so the concepts feel cohesive, on-brand, and culturally tuned to the trend.
+
+    """
+    + DATE_CONTEXT_LINE
+    + """
 
     <INSTRUCTIONS>
     """

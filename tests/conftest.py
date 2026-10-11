@@ -46,8 +46,17 @@ def _offline_brand_history(monkeypatch):
     test running combined_research_pipeline would read live BigQuery/GCS via
     load_brand_history. Point both of the module's client getters at a raiser
     (fetch fails open to no history); tests that exercise the getters re-patch
-    them."""
-    module = importlib.import_module("creative_agent.brand_history")
+    them.
+
+    Skipped when the agents can't be imported at all: the CRF CI job runs
+    tests/test_crf_*.py in a venv with only the Cloud Function's own deps (no
+    google-adk), and those tests never touch brand history."""
+    try:
+        module = importlib.import_module("creative_agent.brand_history")
+    except ModuleNotFoundError as exc:
+        if exc.name and exc.name.startswith("google.adk"):
+            return
+        raise
     monkeypatch.setattr(module, "_get_bigquery_client", _no_live_client)
     monkeypatch.setattr(module, "_get_gcs_client", _no_live_client)
 

@@ -65,6 +65,7 @@ def _set_initial_states(source: dict[str, Any], target: State | dict[str, Any]):
         gcs_bucket=config.GCS_BUCKET,
         agent_output_dir="creative_output",
         extra={"gcs_bucket_name": config.GCS_BUCKET_NAME},
+        timezone=config.trend_timezone,
     )
     if not seeded:
         return
@@ -83,6 +84,13 @@ def _set_initial_states(source: dict[str, Any], target: State | dict[str, Any]):
         "target_search_trends",
     ):
         target.setdefault(_campaign_key, "")
+
+    # trend_scout's detection date + compact research context for this trend
+    # (CRF worker: refresh_date / trend_context; frontend: the trend card).
+    # Read only as hints to re-verify ({trend_scout_context?} /
+    # {trend_detected_on?}); same seed + setdefault rule as the campaign fields.
+    for _trend_hint_key in ("trend_detected_on", "trend_scout_context"):
+        target.setdefault(_trend_hint_key, "")
 
     # Optional product/brand reference image for image generation, supplied
     # by the caller via createSession initialState (same mechanism as

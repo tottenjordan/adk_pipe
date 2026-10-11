@@ -55,6 +55,47 @@ export function parseTrendsMarkdown(markdown: string): ParsedTrend[] {
   return trends;
 }
 
+/**
+ * trend_scout's research for one card as compact JSON (`{context, hook}`, blank
+ * fields dropped; "" when both are blank) — the same shape trend_scout persists
+ * to BigQuery `trend_context` for batch runs. Seeded as `trend_scout_context`,
+ * which the creative agents read only as a hint to re-verify.
+ */
+export function trendContextJson(trend: ParsedTrend): string {
+  const fields: Record<string, string> = {};
+  const context = trend.context.trim();
+  const hook = trend.hook.trim();
+  if (context) fields.context = context;
+  if (hook) fields.hook = hook;
+  return Object.keys(fields).length ? JSON.stringify(fields) : "";
+}
+
+/**
+ * The home-form URL params that start a creative run from a trend card: the
+ * scout run's campaign fields, the trend, its context and the date the scout run
+ * found it (`current_date`, seeded per run; omitted for older runs).
+ */
+export function trendRunParams(
+  trend: ParsedTrend,
+  campaignState: Record<string, unknown>,
+): URLSearchParams {
+  const params = new URLSearchParams({
+    agent: "creative_agent",
+    brand: (campaignState.brand as string) || "",
+    targetAudience: (campaignState.target_audience as string) || "",
+    targetProduct: (campaignState.target_product as string) || "",
+    keySellingPoints: (campaignState.key_selling_points as string) || "",
+    targetSearchTrend: trend.term,
+  });
+  const context = trendContextJson(trend);
+  if (context) params.set("trendContext", context);
+  const detectedOn = campaignState.current_date;
+  if (typeof detectedOn === "string" && detectedOn.trim()) {
+    params.set("trendDetectedOn", detectedOn.trim());
+  }
+  return params;
+}
+
 export function TrendCards({
   trends,
   campaignState,
@@ -65,15 +106,7 @@ export function TrendCards({
   const router = useRouter();
 
   const handleClick = (trend: ParsedTrend) => {
-    const params = new URLSearchParams({
-      agent: "creative_agent",
-      brand: (campaignState.brand as string) || "",
-      targetAudience: (campaignState.target_audience as string) || "",
-      targetProduct: (campaignState.target_product as string) || "",
-      keySellingPoints: (campaignState.key_selling_points as string) || "",
-      targetSearchTrend: trend.term,
-    });
-    router.push(`/?${params.toString()}`);
+    router.push(`/?${trendRunParams(trend, campaignState).toString()}`);
   };
 
   if (trends.length === 0) return null;

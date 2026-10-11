@@ -17,6 +17,8 @@ import type { CampaignInput } from "@/lib/types";
  *   setdefaults them to ""). Seeding the campaign fields makes the inputs
  *   deterministic; the kickoff message only echoes them. trend_scout's state
  *   init overwrites these keys, so they are not seeded for it.
+ * - Trend card hand-off: trend_scout's context + detection date for the trend
+ *   (`trend_scout_context` / `trend_detected_on`, hints the agents re-verify).
  * - Rating learning: `learn_from_ratings: true` only when a creative run opts
  *   in (the backend setdefaults it to false).
  * - Person: `person_reference: {uri, consent_id}` only when a creative run
@@ -45,6 +47,8 @@ export function buildInitialState(form: CampaignInput): Record<string, unknown> 
     ["targetProduct", "target_product"],
     ["keySellingPoints", "key_selling_points"],
     ["targetSearchTrend", "target_search_trends"],
+    ["trendContext", "trend_scout_context"],
+    ["trendDetectedOn", "trend_detected_on"],
     ["visualIntent", "visual_intent"],
     ["brandColors", "brand_colors"],
     ["visualStylePreference", "visual_style_preference"],

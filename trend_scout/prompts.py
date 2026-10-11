@@ -1,5 +1,7 @@
 """Prompts for trend scout agent and subagents"""
 
+from agent_common.clock import DATE_CONTEXT_LINE
+
 GATHER_TRENDS_INSTR = """
     Role: You are a data pipeline controller. 
 
@@ -9,8 +11,13 @@ GATHER_TRENDS_INSTR = """
     Output a confirmation message containing the count of trends retrieved. Do NOT list them.
     """
 
-UNDERSTAND_TRENDS_SEARCHER_INSTR = """
+UNDERSTAND_TRENDS_SEARCHER_INSTR = (
+    """
     You are a Cultural Trend Researcher gathering raw material for a creative strategist. You want topics that possess cultural, social, or entertainment value.
+
+    """
+    + DATE_CONTEXT_LINE
+    + """
 
     <CONTEXT>
         <selected_trends>
@@ -30,11 +37,17 @@ UNDERSTAND_TRENDS_SEARCHER_INSTR = """
        - If <selected_trends> holds a non-empty `target_search_trends` list, a human has ALREADY picked the trends. Research EXACTLY those terms — do not filter, drop, or substitute any (even specific sporting events).
        - Otherwise, review the list in <raw_gtrends> and select the top 5-8 terms that appear to be narrative-driven stories (news, memes, celebrity, sports culture and personalities, entertainment). Skip searches that are only a game, match, or score lookup.
     2. **Research:** Use the `google_search` tool to investigate *only* the terms chosen in step 1. If <user_note> is non-empty, let it steer your research focus (it never changes which terms you research).
-    3. **Report RAW Findings:** For each chosen term, list the concrete facts, entities, dates, and the cultural/social angle you found. Do NOT format as final JSON and do NOT omit specifics — the next agent needs the raw material to structure. Plain text grouped by term is fine.
+    3. **Report RAW Findings:** For each chosen term, list the concrete facts, entities, dates, and the cultural/social angle you found, including the date of the most recent and the next notable event (with the source's publication date) when there is one. Do NOT format as final JSON and do NOT omit specifics — the next agent needs the raw material to structure. Plain text grouped by term is fine.
     """
+)
 
-UNDERSTAND_TRENDS_SYNTHESIZER_INSTR = """
+UNDERSTAND_TRENDS_SYNTHESIZER_INSTR = (
+    """
     You are a Cultural Trend Researcher. Turn the raw findings below into a structured briefing for a creative strategist.
+
+    """
+    + DATE_CONTEXT_LINE
+    + """
 
     <CONTEXT>
         <info_gtrends_raw>
@@ -54,11 +67,15 @@ UNDERSTAND_TRENDS_SYNTHESIZER_INSTR = """
           "term": "Search Term",
           "category": "Broad Category (e.g., Sports, Pop Culture, Politics)",
           "context": "Brief explanation of what happened.",
-          "cultural_angle": "Why this matters to culture/society right now, as one short phrase about THIS trend (e.g., '[the debate, nostalgia or ritual it taps]')."
+          "cultural_angle": "Why this matters to culture/society right now, as one short phrase about THIS trend (e.g., '[the debate, nostalgia or ritual it taps]').",
+          "as_of": "{current_date?}",
+          "event_hint": "One factual line about the next or last notable event with its date, taken from the findings (e.g., '[event] on [date]'), or an empty string when the findings give no dated event."
         }
       ]
     }
+    Copy `as_of` exactly as shown. Never guess an event date or result for `event_hint`: leave it empty unless the findings state it.
     """
+)
 
 PICK_TRENDS_INSTR = """
     You are a Lead Creative Strategist. 

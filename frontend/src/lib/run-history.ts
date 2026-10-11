@@ -210,6 +210,8 @@ const BRIEF_STATE_FIELDS: Array<[string, keyof CampaignInput]> = [
   ["visual_style_preference", "visualStylePreference"],
   ["visual_avoid", "visualAvoid"],
   ["visual_aspect_ratio", "visualAspectRatio"],
+  ["trend_scout_context", "trendContext"],
+  ["trend_detected_on", "trendDetectedOn"],
 ];
 
 /** Home-form values recovered from a past session's state (empty keys omitted). */

@@ -68,6 +68,7 @@ tests/
 ├── test_brief_render.py             # creative brief → "## Creative Brief" markdown in the research PDF (real markdown_pdf TOC check) + compact (headless) prompt variant + gallery summary card (HTML-escaped)
 ├── test_callbacks.py                # citation replacement, state init (incl. style_shortlist seeding, reference_images/reference_roles), rate limiting, trend/product guard callback
 ├── test_citations.py                # shared citation renderer (creative_agent.citations)
+├── test_clock.py                    # agent_common/clock.py: per-run date state (timezone, fallback, naive = UTC), TREND_TIMEZONE config + deploy wiring
 ├── test_concept_guard.py            # final image prompts always name the trend_motif + product + brand_cue (pure guard; token-overlap matching incl. brand_cue, intangible-product cue); concept_issues (quoted text vs paired headline/CTA incl. curly quotes / punctuation / substring, meme+comic exemption, empty motif, set-level text cap + centred-hero selection, conservative heuristics; rating strictness: text cap 1, prominence line, verbatim motif) + restore_unflagged_concepts
 ├── test_config.py                   # per-agent config resolution (incl. campaign-placement resolver, brand-history + rating-learning knobs)
 ├── test_claims.py                  # creative_agent/claims.py: absolute-claim lexicon (whole-word, risk free/risk-free, 100% ≠ 100, lifetime idioms exempt, "never miss" not a claim), allowed text + term families, claims_allowed_text joins
@@ -86,6 +87,7 @@ tests/
 ├── test_crf_logic.py                # Cloud Run Function logic (orchestrator + worker)
 ├── test_crf_sql_params.py           # CRF SQL safety: allow-listed identifiers, parameterized values
 ├── test_crf_worker_async.py         # async worker path of the CRF (issue #45)
+├── test_date_prompts.py            # the shared DATE_CONTEXT_LINE in trend research / brief / copy / art-direction prompts (optional tokens, no literal dates), scout as_of/event_hint, Current Moment section, TREND_SCOUT_HINT_BLOCK
 ├── test_deploy_utils.py             # deploy_agent.py utils (env file, extra_packages, runtimes.create) + integration_test.py (skips, creative_agent smoke output assertion)
 ├── test_empty_turn_retry.py         # root orchestrators re-ask a clean empty model turn (empty_turn_retries) instead of ending the run
 ├── test_experiments_api.py          # /experiments routes: create→ready, 400/404/409, traffic, stop, TTL reaper, reconcile, authz, snapshot_arms (person_variants never change the arms; cast creatives → cast_creative, person-refs/variants images → person_image), §9 scenarioOverrides validation + bandit parity, deploy lease (one deployer, expiry, heartbeat, release)
@@ -142,6 +144,7 @@ tests/
 ├── test_style_shortlist.py          # per-session stratified style shortlist (families match the guide palette; exclusion of recently used styles and preference of well-rated ones keep the 2/3/1 strata)
 ├── test_tools.py                    # backend tool functions (pure logic, no I/O)
 ├── test_tools_retry.py              # infra tools propagate (don't swallow) exceptions
+├── test_trend_context.py           # trend_scout/trend_context.py: per-trend context JSON from info_gtrends + selected_gtrends (fenced JSON, markdown fallback, malformed → "")
 ├── test_trend_scout_graph.py        # trend_scout understand_trends graph run end-to-end (stub models)
 ├── test_trend_scout_history.py      # trend_scout root history trim (measured on the real App, stub models): gather/pick AgentTool runs are isolated, the understand_trends NodeTool leaks 2 sub-agent turns + 2 node inputs into the root's final request without drop_other_agent_context, 0 with it; resumed review_trends checkpoint response kept; trim wired before the rate limiter
 ├── test_trend_scout_concurrency.py  # trend_scout GCS-export tools: per-run scratch isolation

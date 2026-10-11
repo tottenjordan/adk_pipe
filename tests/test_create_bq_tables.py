@@ -168,3 +168,41 @@ def test_creative_evals_schema_matches_eval_row_columns(tmp_path):
     bq_mk_types = {"FLOAT64": "FLOAT", "INT64": "INTEGER"}
     expected = {f"{c}:{bq_mk_types.get(t, t)}" for c, t in EVAL_COLUMN_TYPES.items()}
     assert set(evals.split()[-1].split(",")) == expected
+
+
+@pytest.mark.subprocess
+def test_targets_schema_has_every_merge_column(tmp_path):
+    """target_trends_crf gets trend_context, and every column the trend_scout
+    MERGE inserts exists in the `bq mk` schema."""
+    import re
+
+    from trend_scout.tools import _build_trend_insert_sql
+
+    calls = [c for c in _run(tmp_path, exists=False) if c.startswith("mk -t")]
+    (targets,) = [c for c in calls if c.split()[-2] == "p:d.t"]
+    schema = dict(col.split(":") for col in targets.split()[-1].split(","))
+    assert schema["trend_context"] == "STRING"
+    sql, _ = _build_trend_insert_sql(
+        table="x",
+        unique_id="u",
+        trend="t",
+        max_date="01/01/2026",
+        current_date="01/01/2026",
+        trawler_gcs="g",
+        brand="b",
+        target_audience="a",
+        target_product="p",
+        key_selling_points="k",
+        research_gaps="",
+        trend_context="",
+    )
+    insert_cols = re.search(r"INSERT \((.*?)\)\s*VALUES", sql, re.S)
+    assert insert_cols
+    cols = [
+        line.strip().rstrip(",")
+        for line in insert_cols.group(1).splitlines()
+        if line.strip() and not line.strip().startswith("--")
+    ]
+    cols = [c for part in cols for c in part.split(",") if c.strip()]
+    for col in cols:
+        assert col.strip() in schema, col

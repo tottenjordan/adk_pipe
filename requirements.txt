@@ -584,8 +584,10 @@ typing-inspection==0.4.4
     #   fastapi
     #   pydantic
     #   pydantic-settings
-tzdata==2026.4 ; sys_platform == 'emscripten' or sys_platform == 'win32'
-    # via pandas
+tzdata==2026.4
+    # via
+    #   adk-pipe
+    #   pandas
 urllib3==2.8.0
     # via requests
 uvicorn==0.54.0
