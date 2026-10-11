@@ -945,13 +945,18 @@ async def _create_variant(
 
     now = _now()
     day = now.date().isoformat()
-    started = max(_STARTED.get((user_id, day), 0), count_created_on(state, day))
-    if started >= _DAILY_CAP:
-        raise _error(
-            429,
-            "variant_cap_reached",
-            f"at most {_DAILY_CAP} personalised previews a day; try again tomorrow",
-        )
+
+    def started_today() -> int:
+        started = max(_STARTED.get((user_id, day), 0), count_created_on(state, day))
+        if started >= _DAILY_CAP:
+            raise _error(
+                429,
+                "variant_cap_reached",
+                f"at most {_DAILY_CAP} personalised previews a day; try again tomorrow",
+            )
+        return started
+
+    started_today()  # over the cap: refuse before reading the original
     # The edit starts from the original render: read it now, so a missing one is
     # refused up front (before the cap counts the request).
     try:
@@ -963,6 +968,9 @@ async def _create_variant(
         ) from exc
     if base_bytes is None:
         raise _error(409, "concept_not_ready", BASE_GONE_MESSAGE)
+    # Re-checked after the read (other requests may have started meanwhile); no
+    # await between this check and the count.
+    started = started_today()
     _STARTED[(user_id, day)] = started + 1
     record = {
         "status": "queued",
