@@ -111,7 +111,8 @@ jobs:
             --config_file_path="$EVAL_CONFIG" \
             --print_detailed_results
 
-      # Fails on any non-PASSED case and on token/call-count regressions vs the
+      # Fails on a failed case (deterministic root tool-use check + non-tool-use
+      # rubrics; the LLM tool-use rubric is advisory) and on token/call-count regressions vs the
       # committed baseline; latency only warns. Writes a table to the job summary.
       - name: Efficiency gate
         run: |

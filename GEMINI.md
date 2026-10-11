@@ -108,7 +108,7 @@ uv run python deployment/integration_test.py --check all                        
     - `python-ci.yml`: PRs touching Python/deps/`agents/**` — runs `uv sync --locked`, `requirements.txt` drift check against `uv export`, `ruff check`, `ruff format --check`, `ty check`, and `pytest tests/ -n 4`.
     - `crf-deps.yml`: PRs touching `cloud_functions/**` or `tests/test_crf_*.py` — installs `cloud_functions/creative_fanout/requirements.txt` in a clean venv and runs `tests/test_crf_*.py`.
     - `frontend-tests.yml`: PRs touching `frontend/**` — runs `npm run lint`, `npm test`, `npm run build`.
-    - `adk-eval.yml`: Nightly schedule + manual `workflow_dispatch` — runs `adk eval` per agent against isolated `trend_trawler_eval` dataset/bucket, gated by `tests/eval/efficiency_gate.py` against `docs/baselines/eval_efficiency.json`.
+    - `adk-eval.yml`: Nightly schedule + manual `workflow_dispatch` — runs `adk eval` per agent against isolated `trend_trawler_eval` dataset/bucket, gated by `tests/eval/efficiency_gate.py` against `docs/baselines/eval_efficiency.json`. A case passes on a deterministic root-agent tool-use check over its trace (per-agent `TOOL_SPECS`; sub-agent calls ignored) plus every other non-informational metric; the LLM `rubric_based_tool_use_quality_v1` is advisory, since its judge intermittently miscounted sub-agent calls (e.g. `generate_image` inside `creative_pipeline`) as root calls.
 
 ### Agent Engine Deployment
 

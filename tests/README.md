@@ -77,7 +77,7 @@ tests/
 ├── test_creative_brief_prompts.py   # {creative_brief_md?} block before the report + shared contract rule (core + fallback; user feedback/art direction override) in the 5 creative prompts; brace-safety
 ├── test_creative_agent_graph.py     # creative_agent graph pipelines end-to-end (stub models): routing, citations, no-stall, guard-repaired render prompts, creative-brief gate (pass / revise once / revise twice with 2 rounds / residual issues / writer exhausted / raising writer or reviser fail-soft), ad-copy gate (all pass / flagged copy revised + unflagged edit reverted / raising reviser fail-soft / residual issues), concept gate (all pass / flagged concept fixed + unflagged edit reverted + brand cue re-guarded / raising fixer fail-soft / residual issues), research PDF node (artifact + GCS / skipped without report / failure recorded), finalize_pipeline (evaluate + persist happy path with fake judge/GCS/BQ, no creatives → notice, failing gallery doesn't block BQ, eval row written last), creative_pipeline (the root's single call: research → ads → visuals + render → finalize end to end, then the root answers)
 ├── test_creative_root_prompt.py     # creative_agent root contract: memorize missing fields → one creative_pipeline call → final summary; root state-token set
-├── test_eval_efficiency_gate.py     # efficiency gate: metric extraction, tolerances, warn-only latency, CLI exit codes, --update-baseline
+├── test_eval_efficiency_gate.py     # efficiency gate: metric extraction, tolerances, warn-only latency, CLI exit codes, --update-baseline, deterministic tool-use check (TOOL_SPECS pinned to the real root agents), advisory tool-use rubric
 ├── test_creative_eval.py            # creative_eval schemas, scoring logic, config, report learning_used/learning_flags, JUDGE_VERSION export + report judge_version (both report builders; old reports parse as "")
 ├── test_eval_gates.py               # creative_eval binary gates: schema defaults (old reports parse), passed = score AND gates, gates_pass_rate over judged creatives only, brief block (brace-safe), judge-only response schemas (gates required, no code-set fields), gate normalisation (zero gates reported → fails, partial omission passes as "not checked" + report warning, lenient names, no brief → "no brief"), presence/violation gate wording, advisory brand cue, rendered image as a gs:// Part + image-QA hint, unreadable-image fail-soft to prompt-only limited to image 4xx, finalize "failed checks" / "evaluation failed" / gates pass-rate line, the 2026-10-08 rater-audit gates (no_visual_defects, trend_risks_respected + brief "Trend risks" line, stricter trend motif, prompt gate counts)
 ├── test_eval_dimensions.py          # creative_eval.dimensions labels mirror frontend/src/lib/eval-dimensions.ts (drift test)
@@ -298,6 +298,8 @@ tests/
 - **Evals** (`eval/`) — end-to-end `adk eval` cases with rubric-based LLM-as-judge scoring
   (response quality + tool-use quality). One evalset + rubric config per agent. Runs
   against real APIs. `eval/efficiency_gate.py` gates the nightly `adk-eval.yml` CI run on
-  final status + token/call-count regressions vs `docs/baselines/eval_efficiency.json`
+  case status (a deterministic root-agent tool-use check over the trace + every non-tool-use
+  LLM metric; the LLM tool-use rubric is advisory) + token/call-count regressions vs
+  `docs/baselines/eval_efficiency.json`
   (unit-tested offline by `test_eval_efficiency_gate.py`; see
   [deployment/README.md → Eval CI (WIF)](../deployment/README.md#eval-ci-wif)).
