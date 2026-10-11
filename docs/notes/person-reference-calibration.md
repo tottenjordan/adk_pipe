@@ -73,3 +73,32 @@ likeness check and its bounded re-render remain the backstop. Same small, homoge
 as the photographic spike (2 adult men with light skin, one setting), with the same
 Gemini-judging-Gemini limitation. Narrow the list with `PERSON_SAFE_STYLES` if QA likeness
 failures rise for a style.
+
+## Photo guidance (2026-10-11)
+
+Two personalised swaps on 2026-10-11 looked soft and drifted from their originals; both
+used the 240×240 px photo. Registration now asks for one good headshot and enforces a size:
+
+- **Minimum size:** the photo's shorter side must be at least `PERSON_PHOTO_MIN_SIDE` px
+  (default 512; 400 `photo_too_small` below it). Below 1024 px the person is flagged
+  `low_resolution` and the People page says previews may look softer. Existing records get
+  their size read lazily on the next `GET /person-refs/{user}`, so the 240 px photo now
+  shows the notice.
+- **Guidance shown above the form** (`PHOTO_GUIDANCE` in `frontend/src/lib/person-refs.ts`):
+  - one person, a front-facing head-and-shoulders photo, face filling about a third of the frame;
+  - even light, neutral background, no sunglasses, hats or heavy filters;
+  - at least 1024 px on the shorter side;
+  - not a collage, character sheet or group photo, and no text on the image.
+
+**Why not a character turnaround sheet?** The image model takes the person reference as
+one picture, so a multi-view sheet (front / side / back of the same person) risks:
+
+- copying the sheet's multi-figure layout or its "FRONT" / "SIDE" labels into the ad;
+- diluting the face, since each view is small (a 1024 px sheet with four views gives each
+  face a fraction of the pixels a headshot would);
+- confusing which figure is "the person".
+
+A single clear front headshot gave the best likeness in the calibration above. The model's
+documented multi-image character consistency works best with *separate* reference images,
+which v1 deliberately doesn't support (one photo per consent). So the guidance asks for one
+headshot and explicitly says "not a collage or character sheet".
