@@ -2052,11 +2052,26 @@ per-invocation metrics against [`docs/baselines/eval_efficiency.json`](../docs/b
 
 | Check | Result |
 |---|---|
-| `final_eval_status` != PASSED (with or without a baseline) | **FAIL** |
+| deterministic `tool_use_check` fails (with or without a baseline) | **FAIL** |
+| any other non-informational metric (e.g. `rubric_based_final_response_quality_v1`) not PASSED | **FAIL** |
+| `rubric_based_tool_use_quality_v1` | advisory (reported; warns when it disagrees with `tool_use_check`) |
 | `token_usage_v1` > baseline +25% | **FAIL** |
 | `inference_call_count_v1` / `tool_call_count_v1` > baseline +30% | **FAIL** |
 | `invocation_duration_v1` > baseline +50% | warn only (latency is quota-noisy) |
 | no baseline for the case/metric, or a baseline of 0 | noted, not gated |
+
+**`tool_use_check`** reads the case's `invocation_events` and keeps only the function calls
+authored by the root agent (sub-agent calls, e.g. `visual_generator`'s `generate_image`
+inside `creative_pipeline`, are ignored). Per-agent table `TOOL_SPECS` in the gate:
+`creative_agent` (author `root_agent`) may call only `memorize` and `creative_pipeline`,
+`creative_pipeline` exactly once and as the last root call; `trend_scout` (author
+`trend_scout`) may call only its root tools and must call each tool the `all_tools_used`
+rubric lists (`test_eval_efficiency_gate.py` pins both to the real root agents and the
+rubric). It replaces the LLM tool-use rubric as the gating signal because that judge
+(`gemini-3.8-flash`, 3 samples) intermittently counted `generate_image` as an extra root
+call after `creative_pipeline` and scored correct traces 0.0 (nightly runs 2026-10-10 and
+2026-10-11). An agent without a spec skips the check and keeps the old rule
+(`final_eval_status` must be PASSED, tool-use rubric included).
 
 (These metrics can't be given thresholds in `tests/eval/*.json` — ADK raises — hence the
 separate gate.)
@@ -2068,7 +2083,7 @@ separate gate.)
 uv run python tests/eval/efficiency_gate.py --agent trend_scout --update-baseline
 ```
 
-It refuses to write if any case failed, preserves the other agents' entries, and the
+It refuses to write if any case failed (same pass rule as above), preserves the other agents' entries, and the
 resulting diff to `docs/baselines/eval_efficiency.json` lands via a reviewed PR.
 
 ---

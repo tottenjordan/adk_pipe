@@ -9,7 +9,15 @@
 It reads the newest ``<agent>/.adk/eval_history/*.evalset_result.json`` and,
 per eval case:
 
-* FAILS if the case's ``final_eval_status`` is not PASSED (baseline or not);
+* FAILS if the case did not pass (baseline or not). A case passes when the
+  deterministic tool-use check over its trace passes (``TOOL_SPECS``: the
+  root agent's function calls must be allowed tools, required ones called,
+  e.g. creative_agent's ``creative_pipeline`` exactly once and last; sub-agent
+  calls are ignored) AND every other non-informational metric PASSED. The LLM
+  ``rubric_based_tool_use_quality_v1`` is advisory for agents with a spec
+  (reported, with a warning when it disagrees): its judge intermittently
+  counts sub-agent calls as extra root calls. Agents without a spec skip the
+  deterministic check and keep the rubric gating;
 * FAILS if a gated metric exceeds its baseline by more than ``TOLERANCES``;
 * WARNS if ``invocation_duration_v1`` exceeds its baseline by more than
   ``WARN_ONLY`` (latency is too noisy under the shared quota to gate on);
@@ -29,11 +37,13 @@ import argparse
 import json
 import os
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from google.adk.evaluation.eval_case import InvocationEvents
 from google.adk.evaluation.eval_metrics import EvalStatus
-from google.adk.evaluation.eval_result import EvalSetResult
+from google.adk.evaluation.eval_result import EvalCaseResult, EvalSetResult
 
 TOLERANCES: dict[str, float] = {
     "token_usage_v1": 0.25,
@@ -45,10 +55,130 @@ METRICS: tuple[str, ...] = (*TOLERANCES, *WARN_ONLY)
 
 HISTORY_GLOB = "*.evalset_result.json"
 
+# The LLM tool-use rubric is advisory for agents with a ToolSpec: its judge
+# intermittently misreads sub-agent calls (generate_image inside
+# creative_pipeline) as extra root calls and scores a correct trace 0.0. The
+# deterministic check below gates instead.
+TOOL_USE_METRIC = "rubric_based_tool_use_quality_v1"
+TOOL_CHECK_ROW = "tool_use_check"
 
-def extract_metrics(raw: dict[str, Any]) -> dict[str, dict[str, Any]]:
-    """Return ``{eval_id: {metric: score, "_passed": bool}}`` from an EvalSetResult."""
+
+@dataclass(frozen=True)
+class ToolSpec:
+    """Expected root-agent tool calls for one agent (sub-agent calls ignored)."""
+
+    root_author: str
+    allowed: frozenset[str]
+    required: frozenset[str] = frozenset()
+    exactly_once: frozenset[str] = frozenset()
+    last: str | None = None
+
+
+TOOL_SPECS: dict[str, ToolSpec] = {
+    # tests/eval/creative_eval_config.json: memorize missing fields, then
+    # creative_pipeline exactly once, as the last root call.
+    "creative_agent": ToolSpec(
+        root_author="root_agent",
+        allowed=frozenset({"memorize", "creative_pipeline"}),
+        required=frozenset({"creative_pipeline"}),
+        exactly_once=frozenset({"creative_pipeline"}),
+        last="creative_pipeline",
+    ),
+    # trend_scout/agent.py root tools; required = the eval_config.json
+    # "all_tools_used" rubric (also the evalset's expected trajectory).
+    "trend_scout": ToolSpec(
+        root_author="trend_scout",
+        allowed=frozenset(
+            {
+                "gather_trends_agent",
+                "understand_trends_agent_resilient",
+                "pick_trends_agent",
+                "review_trends",
+                "save_search_trends_to_session_state",
+                "save_session_state_to_gcs",
+                "record_research_gaps",
+                "write_trends_to_bq",
+                "write_to_file",
+                "memorize",
+            }
+        ),
+        required=frozenset(
+            {
+                "memorize",
+                "gather_trends_agent",
+                "understand_trends_agent_resilient",
+                "pick_trends_agent",
+                "save_search_trends_to_session_state",
+                "write_trends_to_bq",
+                "write_to_file",
+                "save_session_state_to_gcs",
+            }
+        ),
+    ),
+}
+
+
+def root_tool_calls(case: EvalCaseResult, root_author: str) -> list[str] | None:
+    """Function-call names authored by the root agent, in order.
+
+    ``None`` when the case carries no invocation-event trace at all.
+    """
+    calls: list[str] = []
+    traced = False
+    for per_inv in case.eval_metric_result_per_invocation:
+        data = per_inv.actual_invocation.intermediate_data
+        if not isinstance(data, InvocationEvents):
+            continue
+        for event in data.invocation_events:
+            traced = True
+            if event.author != root_author or event.content is None:
+                continue
+            for part in event.content.parts or []:
+                if part.function_call is not None:
+                    calls.append(part.function_call.name or "")
+    return calls if traced else None
+
+
+def check_tool_use(calls: list[str] | None, spec: ToolSpec) -> list[str]:
+    """Problems with the root agent's tool calls (empty list = check passed)."""
+    if calls is None:
+        return ["no invocation-event trace to check root tool calls"]
+    problems: list[str] = []
+    extra = sorted({c for c in calls if c not in spec.allowed})
+    if extra:
+        problems.append(f"unexpected root tool call(s): {', '.join(extra)}")
+    missing = sorted(spec.required - set(calls))
+    if missing:
+        problems.append(f"required root tool(s) not called: {', '.join(missing)}")
+    for name in sorted(spec.exactly_once):
+        n = calls.count(name)
+        if n and n != 1:
+            problems.append(f"{name} called {n} times, expected exactly once")
+    if (
+        spec.last is not None
+        and calls
+        and spec.last in calls
+        and calls[-1] != spec.last
+    ):
+        problems.append(f"{spec.last} is not the last root tool call ({calls[-1]})")
+    return problems
+
+
+def extract_metrics(
+    raw: dict[str, Any], agent: str | None = None
+) -> dict[str, dict[str, Any]]:
+    """Return ``{eval_id: {metric: score, "_passed": bool, ...}}`` from an EvalSetResult.
+
+    A case passes when the deterministic tool-use check (``TOOL_SPECS[agent]``)
+    passes and every non-informational metric passed, except the LLM tool-use
+    rubric, which is advisory for agents with a spec. Unknown agents skip the
+    deterministic check and keep the old rule (rubric gating, and a non-PASSED
+    ``final_eval_status`` fails). Underscore keys carry the
+    verdict: ``_reasons`` (why it failed), ``_tool_check`` (pass/fail/skipped),
+    ``_tool_rubric`` ((score, status name) or None).
+    """
     result = EvalSetResult.model_validate(raw)
+    spec = TOOL_SPECS.get(agent or "")
     out: dict[str, dict[str, Any]] = {}
     for case in result.eval_case_results:
         metrics: dict[str, Any] = {
@@ -56,9 +186,35 @@ def extract_metrics(raw: dict[str, Any]) -> dict[str, dict[str, Any]]:
             for m in case.overall_eval_metric_results
             if m.metric_name in METRICS and m.score is not None
         }
-        metrics["_passed"] = case.final_eval_status == EvalStatus.PASSED
+        reasons: list[str] = []
+        tool_rubric = None
+        for m in case.overall_eval_metric_results:
+            if m.eval_status == EvalStatus.INFORMATIONAL or m.metric_name in METRICS:
+                continue
+            if m.metric_name == TOOL_USE_METRIC:
+                tool_rubric = (m.score, m.eval_status.name)
+                if spec is not None:
+                    continue
+            if m.eval_status != EvalStatus.PASSED:
+                reasons.append(f"{m.metric_name} is {m.eval_status.name}")
+        if spec is None:
+            metrics["_tool_check"] = "skipped"
+            if not reasons and case.final_eval_status != EvalStatus.PASSED:
+                status = EvalStatus(case.final_eval_status).name
+                reasons.append(f"final_eval_status is {status}")
+        else:
+            problems = check_tool_use(root_tool_calls(case, spec.root_author), spec)
+            metrics["_tool_check"] = "fail" if problems else "pass"
+            reasons += [f"{TOOL_CHECK_ROW}: {p}" for p in problems]
+        metrics["_tool_rubric"] = tool_rubric
+        metrics["_reasons"] = reasons
+        metrics["_passed"] = not reasons
         out[case.eval_id] = metrics
     return out
+
+
+def _private(key: str) -> bool:
+    return key.startswith("_")
 
 
 def _delta(current: float, base: float) -> float:
@@ -73,11 +229,38 @@ def _rows(
     rows: list[tuple[str, ...]] = []
     for eval_id in sorted(current):
         case = current[eval_id]
-        if not case.get("_passed", False):
-            failures.append(f"{eval_id}: final_eval_status is not PASSED")
+        tool_check = case.get("_tool_check")
+        if tool_check in ("pass", "fail"):
             rows.append(
-                (eval_id, "final_eval_status", "PASSED", "not PASSED", "", "FAIL")
+                (
+                    eval_id,
+                    TOOL_CHECK_ROW,
+                    "-",
+                    tool_check,
+                    "-",
+                    "ok" if tool_check == "pass" else "FAIL",
+                )
             )
+        rubric = case.get("_tool_rubric")
+        if rubric is not None:
+            score, status_name = rubric
+            score_txt = "-" if score is None else f"{score:g}"
+            if tool_check in ("pass", "fail"):
+                label = f"advisory: {status_name}"
+                if (status_name == "PASSED") != (tool_check == "pass"):
+                    label += " (disagrees with tool_use_check)"
+                    warnings.append(
+                        f"{eval_id}/{TOOL_USE_METRIC}: judge {status_name} "
+                        f"(score {score_txt}) disagrees with the deterministic "
+                        f"{TOOL_CHECK_ROW} ({tool_check}); advisory only"
+                    )
+            else:
+                label = status_name
+            rows.append((eval_id, TOOL_USE_METRIC, "-", score_txt, "-", label))
+        if not case.get("_passed", False):
+            reasons = case.get("_reasons") or ["final_eval_status is not PASSED"]
+            failures += [f"{eval_id}: case not passed: {r}" for r in reasons]
+            rows.append((eval_id, "case", "PASSED", "not PASSED", "", "FAIL"))
         case_base = baseline.get(eval_id)
         if case_base is None:
             warnings.append(f"{eval_id}: no baseline for this case (not gated)")
@@ -183,7 +366,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"error: no {HISTORY_GLOB} under {history}", file=sys.stderr)
         return 2
     newest = files[-1]
-    current = extract_metrics(_load_result(newest))
+    current = extract_metrics(_load_result(newest), agent=args.agent)
 
     baseline_path = Path(args.baseline)
     all_baselines: dict[str, Any] = (
@@ -194,13 +377,13 @@ def main(argv: list[str] | None = None) -> int:
         failed = sorted(e for e, m in current.items() if not m.get("_passed", False))
         if failed:
             print(
-                "error: refusing to update baseline; cases not PASSED: "
+                "error: refusing to update baseline; cases not passed: "
                 + ", ".join(failed),
                 file=sys.stderr,
             )
             return 1
         all_baselines[args.agent] = {
-            eval_id: {k: v for k, v in m.items() if k != "_passed"}
+            eval_id: {k: v for k, v in m.items() if not _private(k)}
             for eval_id, m in current.items()
         }
         baseline_path.parent.mkdir(parents=True, exist_ok=True)
