@@ -86,17 +86,17 @@ def _patch(monkeypatch, respond, verdicts=()):
 
 def test_render_contents_orders_references_then_person():
     refs = RenderReferences(parts=(("product", PRODUCT),), missing_roles=("logo",))
-    contents = render_contents(
-        "PROMPT", refs, brand="PRS", strictness=("unwanted_logo",), person_part=PHOTO
-    )
+    contents = render_contents("PROMPT", refs, brand="PRS", person_part=PHOTO)
     text, product, person = contents
     assert text.startswith("PROMPT\n\nNo logos, brand marks or trademarks except")
     assert "Reference image 1 (product)" in text
     assert f"Reference image 2 (person): {PERSON_ROLE_INSTRUCTION}" in text
     assert "The logo reference image is unavailable" in text
     assert (product, person) == (PRODUCT, PHOTO)
-    # No parts → the bare prompt (text-only render).
-    assert render_contents("PROMPT", RenderReferences()) == "PROMPT"
+    # No parts → the prompt text only (text-only render).
+    assert render_contents("PROMPT", RenderReferences()) == (
+        "PROMPT\n\nNo logos, brand marks or trademarks."
+    )
 
 
 def test_plain_render_with_qa_rerender(monkeypatch):

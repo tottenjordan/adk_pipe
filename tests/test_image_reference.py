@@ -17,6 +17,8 @@ from tests._fakes import FakeToolContext, noop_async
 pytestmark = pytest.mark.usefixtures("image_qa_off")
 
 _STATE = {"gcs_folder": "f", "agent_output_dir": "d"}
+# Every render prompt ends with the no-other-logos line (no brand in _STATE).
+NO_LOGOS = "No logos, brand marks or trademarks."
 
 
 def _ctx() -> FakeToolContext:
@@ -79,7 +81,7 @@ def test_no_reference_uses_bare_string_contents(monkeypatch):
     result = asyncio.run(image_tools.generate_image(ctx))
     assert result["status"] == "success"
     assert len(models.calls) == 1
-    assert models.calls[0]["contents"] == "a flat cartoon"
+    assert models.calls[0]["contents"] == "a flat cartoon\n\n" + NO_LOGOS
 
 
 def test_gs_reference_appends_part_to_contents(monkeypatch):
@@ -132,7 +134,7 @@ def test_reference_fetch_failure_falls_back_to_text_only(monkeypatch):
 
     result = asyncio.run(image_tools.generate_image(ctx))
     assert result["status"] == "success"
-    assert models.calls[0]["contents"] == "a scene"
+    assert models.calls[0]["contents"] == "a scene\n\n" + NO_LOGOS
 
 
 def test_bad_aspect_ratio_falls_back_to_default(monkeypatch):
@@ -345,7 +347,7 @@ def test_reference_role_ignored_without_reference(monkeypatch):
 
     result = asyncio.run(image_tools.generate_image(ctx))
     assert result["status"] == "success"
-    assert models.calls[0]["contents"] == "a scene"
+    assert models.calls[0]["contents"] == "a scene\n\n" + NO_LOGOS
 
 
 class _ImgPart:
@@ -636,7 +638,7 @@ def test_all_fetches_failed_is_text_only(monkeypatch):
     ctx = _multi_ctx([{"uri": "gs://b/p.png", "role": "product"}])
 
     asyncio.run(image_tools.generate_image(ctx))
-    assert models.calls[0]["contents"] == "a scene"
+    assert models.calls[0]["contents"] == "a scene\n\n" + NO_LOGOS
 
 
 def test_failed_product_fetch_renumbers_and_flags_it_unavailable(monkeypatch):
@@ -901,7 +903,7 @@ def test_generated_images_skips_failed_upload(monkeypatch):
     assert ctx.state["_generated_artifact_keys"] == []
 
 
-# --- rating strictness: unwanted_logo → explicit no-other-logos line ----------
+# --- every render prompt forbids other brands' logos (any strictness) --------
 
 
 def _logo_ctx(strictness=None, brand="Acme"):
@@ -915,35 +917,36 @@ def _logo_ctx(strictness=None, brand="Acme"):
     return ctx
 
 
-def test_render_prompt_has_no_logo_line_by_default(monkeypatch):
+LOGO_LINE = "No logos, brand marks or trademarks except those of Acme."
+
+
+def test_render_prompt_has_the_no_other_logos_line_by_default(monkeypatch):
     models = _patch_client(monkeypatch)
     asyncio.run(image_tools.generate_image(_logo_ctx()))
-    assert models.calls[0]["contents"] == "a scene"
+    assert models.calls[0]["contents"] == "a scene\n\n" + LOGO_LINE
     models.calls.clear()
     asyncio.run(image_tools.generate_image(_logo_ctx(["weak_cta", "text_problem"])))
-    assert models.calls[0]["contents"] == "a scene"
+    assert models.calls[0]["contents"] == "a scene\n\n" + LOGO_LINE
 
 
-def test_unwanted_logo_flag_adds_a_no_other_logos_line(monkeypatch):
+def test_unwanted_logo_flag_adds_no_second_logo_line(monkeypatch):
     models = _patch_client(monkeypatch)
     asyncio.run(image_tools.generate_image(_logo_ctx(["unwanted_logo"])))
-    assert models.calls[0]["contents"] == (
-        "a scene\n\nNo logos, brand marks or trademarks except those of Acme."
-    )
+    assert models.calls[0]["contents"] == "a scene\n\n" + LOGO_LINE
 
 
-def test_unwanted_logo_line_without_a_brand(monkeypatch):
+def test_no_other_logos_line_without_a_brand(monkeypatch):
     models = _patch_client(monkeypatch)
-    asyncio.run(image_tools.generate_image(_logo_ctx(["unwanted_logo"], brand="")))
+    asyncio.run(image_tools.generate_image(_logo_ctx(brand="")))
     assert models.calls[0]["contents"] == (
         "a scene\n\nNo logos, brand marks or trademarks."
     )
 
 
-def test_unwanted_logo_line_precedes_the_reference_block(monkeypatch):
+def test_no_other_logos_line_precedes_the_reference_block(monkeypatch):
     models = _patch_client(monkeypatch)
     monkeypatch.setattr(image_tools, "_download_blob", lambda *a, **k: b"\x89PNGREF")
-    ctx = _logo_ctx(["unwanted_logo"])
+    ctx = _logo_ctx()
     ctx.state["reference_image_uri"] = "gs://b/logo.png"
     ctx.state["reference_image_role"] = "logo"
     asyncio.run(image_tools.generate_image(ctx))

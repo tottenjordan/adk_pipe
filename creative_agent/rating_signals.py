@@ -75,7 +75,8 @@ FAIL_REASON_LABELS: dict[str, str] = {
 #   product_not_visible → concept guard asks for a large, foreground product;
 #                         image QA requires a prominent product
 #   text_problem        → concept gate in-image text cap 2 → 1 concept
-#   unwanted_logo       → render prompt forbids other logos / trademarks
+#   unwanted_logo       → person-swap edits forbid other logos (base renders
+#                         always do); the rating note names the limit
 #   weak_cta            → copy gate CTA ≤ 6 words (from 8)
 #   off_brief           → the critic's failed reason_to_believe / trend_bridge
 #                         checks also gate (proposition / mandatories already do)

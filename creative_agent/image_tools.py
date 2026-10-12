@@ -15,9 +15,10 @@ weigh first), and only that one is uploaded. Per-concept results land in
 ``state["image_qa__unavailable"]`` (not a quality issue, so not surfaced as a
 degradation warning).
 
-Opt-in rating learning (``rating_strictness``): ``unwanted_logo`` adds
-``no_other_logos_line`` to every render prompt (re-renders too), and the flags
-are passed to ``image_qa.inspect_image`` (``product_not_visible`` /
+Every render prompt (re-renders too) ends with ``no_other_logos_line`` — an
+unrequested third-party logo was the top re-render cause, so it is no longer
+gated on the ``unwanted_logo`` rating-strictness flag. Opt-in rating learning
+(``rating_strictness``) flags are passed to ``image_qa.inspect_image`` (``product_not_visible`` /
 ``trend_unclear`` ask for a prominent product / motif).
 """
 
@@ -344,7 +345,8 @@ REFERENCE_IGNORE_TEXT_LINE = (
 
 
 def no_other_logos_line(brand: str) -> str:
-    """The render-prompt line added under ``unwanted_logo`` rating strictness."""
+    """The line every render prompt ends with (and person-swap edits under
+    ``unwanted_logo`` rating strictness)."""
     brand = " ".join((brand or "").split())
     if brand:
         return f"No logos, brand marks or trademarks except those of {brand}."

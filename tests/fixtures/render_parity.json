@@ -5,7 +5,7 @@
     {
      "aspect_ratio": "9:16",
      "contents": [
-      "P1: a candid 35mm film photo of a skater, the person in the person reference image laughing with a PRS SE guitar beside a lottery ball\n\nReference image 1 (product): Reproduce this exact product: keep its shape, colour, label and proportions, and place it naturally in the new scene.\nReference image 2 (person): Cast this exact person as the hero: keep their face shape, skin tone, hair, eye colour, apparent age and distinguishing features; change only pose, clothing, expression and lighting as described. Do not beautify, slim or alter their body.\nIgnore any text, captions or watermarks that appear in the reference images.",
+      "P1: a candid 35mm film photo of a skater, the person in the person reference image laughing with a PRS SE guitar beside a lottery ball\n\nNo logos, brand marks or trademarks except those of PRS.\n\nReference image 1 (product): Reproduce this exact product: keep its shape, colour, label and proportions, and place it naturally in the new scene.\nReference image 2 (person): Cast this exact person as the hero: keep their face shape, skin tone, hair, eye colour, apparent age and distinguishing features; change only pose, clothing, expression and lighting as described. Do not beautify, slim or alter their body.\nIgnore any text, captions or watermarks that appear in the reference images.",
       {
        "bytes": "BYTES:refs/product.png",
        "mime": "image/png"
@@ -25,7 +25,7 @@
     {
      "aspect_ratio": "9:16",
      "contents": [
-      "P1: a candid 35mm film photo of a skater, the person in the person reference image laughing with a PRS SE guitar beside a lottery ball\n\nCorrect these issues from the previous attempt: keep the hero exactly the same person as the person reference image: their face shape, skin tone, hair, eye colour, apparent age and distinguishing features. Do not add any new text to the image.\n\nReference image 1 (product): Reproduce this exact product: keep its shape, colour, label and proportions, and place it naturally in the new scene.\nReference image 2 (person): Cast this exact person as the hero: keep their face shape, skin tone, hair, eye colour, apparent age and distinguishing features; change only pose, clothing, expression and lighting as described. Do not beautify, slim or alter their body.\nIgnore any text, captions or watermarks that appear in the reference images.",
+      "P1: a candid 35mm film photo of a skater, the person in the person reference image laughing with a PRS SE guitar beside a lottery ball\n\nCorrect these issues from the previous attempt: keep the hero exactly the same person as the person reference image: their face shape, skin tone, hair, eye colour, apparent age and distinguishing features. Do not add any new text to the image.\n\nNo logos, brand marks or trademarks except those of PRS.\n\nReference image 1 (product): Reproduce this exact product: keep its shape, colour, label and proportions, and place it naturally in the new scene.\nReference image 2 (person): Cast this exact person as the hero: keep their face shape, skin tone, hair, eye colour, apparent age and distinguishing features; change only pose, clothing, expression and lighting as described. Do not beautify, slim or alter their body.\nIgnore any text, captions or watermarks that appear in the reference images.",
       {
        "bytes": "BYTES:refs/product.png",
        "mime": "image/png"
@@ -47,7 +47,7 @@
     {
      "aspect_ratio": "9:16",
      "contents": [
-      "P2: a candid 35mm film photo of a skater, the person in the person reference image laughing with a PRS SE guitar beside a lottery ball\n\nReference image 1 (product): Reproduce this exact product: keep its shape, colour, label and proportions, and place it naturally in the new scene.\nReference image 2 (person): Cast this exact person as the hero: keep their face shape, skin tone, hair, eye colour, apparent age and distinguishing features; change only pose, clothing, expression and lighting as described. Do not beautify, slim or alter their body.\nIgnore any text, captions or watermarks that appear in the reference images.",
+      "P2: a candid 35mm film photo of a skater, the person in the person reference image laughing with a PRS SE guitar beside a lottery ball\n\nNo logos, brand marks or trademarks except those of PRS.\n\nReference image 1 (product): Reproduce this exact product: keep its shape, colour, label and proportions, and place it naturally in the new scene.\nReference image 2 (person): Cast this exact person as the hero: keep their face shape, skin tone, hair, eye colour, apparent age and distinguishing features; change only pose, clothing, expression and lighting as described. Do not beautify, slim or alter their body.\nIgnore any text, captions or watermarks that appear in the reference images.",
       {
        "bytes": "BYTES:refs/product.png",
        "mime": "image/png"
@@ -67,7 +67,7 @@
     {
      "aspect_ratio": "9:16",
      "contents": [
-      "P2: a candid 35mm film photo of a skater, a person laughing with a PRS SE guitar beside a lottery ball\n\nReference image 1 (product): Reproduce this exact product: keep its shape, colour, label and proportions, and place it naturally in the new scene.\nIgnore any text, captions or watermarks that appear in the reference images.",
+      "P2: a candid 35mm film photo of a skater, a person laughing with a PRS SE guitar beside a lottery ball\n\nNo logos, brand marks or trademarks except those of PRS.\n\nReference image 1 (product): Reproduce this exact product: keep its shape, colour, label and proportions, and place it naturally in the new scene.\nIgnore any text, captions or watermarks that appear in the reference images.",
       {
        "bytes": "BYTES:refs/product.png",
        "mime": "image/png"
@@ -85,7 +85,7 @@
     {
      "aspect_ratio": "9:16",
      "contents": [
-      "P3: a flat cartoon PRS SE guitar\n\nReference image 1 (product): Reproduce this exact product: keep its shape, colour, label and proportions, and place it naturally in the new scene.\nIgnore any text, captions or watermarks that appear in the reference images.",
+      "P3: a flat cartoon PRS SE guitar\n\nNo logos, brand marks or trademarks except those of PRS.\n\nReference image 1 (product): Reproduce this exact product: keep its shape, colour, label and proportions, and place it naturally in the new scene.\nIgnore any text, captions or watermarks that appear in the reference images.",
       {
        "bytes": "BYTES:refs/product.png",
        "mime": "image/png"
@@ -282,7 +282,7 @@
    "U1": [
     {
      "aspect_ratio": "9:16",
-     "contents": "U1: a candid 35mm film photo of a skater, a person laughing with a PRS SE guitar beside a lottery ball",
+     "contents": "U1: a candid 35mm film photo of a skater, a person laughing with a PRS SE guitar beside a lottery ball\n\nNo logos, brand marks or trademarks except those of PRS.",
      "image_size": "2K",
      "modalities": [
       "IMAGE"
@@ -294,7 +294,7 @@
    "U2": [
     {
      "aspect_ratio": "9:16",
-     "contents": "U2: a PRS SE guitar beside a lottery ball",
+     "contents": "U2: a PRS SE guitar beside a lottery ball\n\nNo logos, brand marks or trademarks except those of PRS.",
      "image_size": "2K",
      "modalities": [
       "IMAGE"

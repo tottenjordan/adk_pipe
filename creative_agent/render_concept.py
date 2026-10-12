@@ -80,15 +80,13 @@ def render_contents(
     references: RenderReferences,
     *,
     brand: str = "",
-    strictness: Sequence[str] = (),
     person_part: types.Part | None = None,
 ) -> Any:
-    """The render contents — pure: the prompt (+ the ``unwanted_logo``
-    rating-strictness line, the numbered reference block and the reference
-    Parts; the person photo last, when given), or the bare prompt text when no
-    Part is attached."""
-    if "unwanted_logo" in strictness:
-        prompt_text = prompt_text + "\n\n" + image_tools.no_other_logos_line(brand)
+    """The render contents — pure: the prompt + the no-other-logos line (always:
+    an unrequested third-party logo was the top image-QA re-render cause), then
+    the numbered reference block and the reference Parts (the person photo
+    last, when given), or the bare prompt text when no Part is attached."""
+    prompt_text = prompt_text + "\n\n" + image_tools.no_other_logos_line(brand)
     roles = references.roles
     parts = [part for _, part in references.parts]
     if person_part is not None:
@@ -188,7 +186,6 @@ async def render_concept(
             text,
             references,
             brand=brand,
-            strictness=strictness,
             person_part=person if with_person else None,
         )
 
