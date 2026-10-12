@@ -21,7 +21,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import re
 from collections.abc import Mapping
 from datetime import date, datetime, time, timedelta
@@ -59,22 +58,18 @@ def _zone(name: str | None) -> ZoneInfo:
 
 
 def _default_tz_name() -> str:
-    # TODO: switch to agent_common.clock / config.trend_timezone once the
-    # date-awareness PR lands (it seeds current_datetime / current_timezone).
+    """``TREND_TIMEZONE`` (``BaseAgentConfiguration.trend_timezone``)."""
     from .config import config
 
-    return str(
-        getattr(config, "trend_timezone", "")
-        or os.getenv("TREND_TIMEZONE")
-        or DEFAULT_TREND_TIMEZONE
-    )
+    return config.trend_timezone or DEFAULT_TREND_TIMEZONE
 
 
 def resolve_now(state: Mapping[str, Any], *, tz_name: str | None = None) -> datetime:
     """The run's "now", aware, in the run's timezone.
 
-    State ``current_datetime`` (ISO, seeded once per run) wins, so a resumed run
-    keeps its original date; else the wall clock. The timezone is state
+    State ``current_datetime`` (ISO, seeded once per run by
+    ``agent_common.state.seed_initial_state`` via ``agent_common.clock``) wins,
+    so a resumed run keeps its original date; else the wall clock. The timezone is state
     ``current_timezone``, else ``tz_name``, else ``TREND_TIMEZONE`` (default
     America/New_York); an invalid name falls back to the default.
     """

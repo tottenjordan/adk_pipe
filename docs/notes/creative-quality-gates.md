@@ -58,7 +58,7 @@ The grounded `trend_situation_pipeline` branch (START fan-out of `combined_resea
 | `confidence == "low"` | phase kept, not timely |
 | `valid_until` already past | phase kept, not timely ("the moment has expired") |
 
-"Today" is state `current_datetime` (seeded per run by the date-awareness step) or else the wall clock, in `current_timezone` / `TREND_TIMEZONE` (default America/New_York); a datetime with an offset is converted to that zone before taking its date (03:00 UTC on the 12th is the 11th in New York). `valid_until`: upcoming → 23:59:59 on the event day; just happened → `event_end` or `event_start` (a bare date = 23:59:59 that day) + `TIMELY_VALID_HOURS_AFTER` (48 h, 6–168). Grounded source URLs are usually `vertexaisearch` redirects without a date, so the URL-date rule rarely fires; it is a cheap guard for direct publisher URLs.
+"Today" is state `current_datetime` (seeded per run, `agent_common/clock.py`) or else the wall clock, in `current_timezone` / `TREND_TIMEZONE` (default America/New_York); a datetime with an offset is converted to that zone before taking its date (03:00 UTC on the 12th is the 11th in New York). `valid_until`: upcoming → 23:59:59 on the event day; just happened → `event_end` or `event_start` (a bare date = 23:59:59 that day) + `TIMELY_VALID_HOURS_AFTER` (48 h, 6–168). Grounded source URLs are usually `vertexaisearch` redirects without a date, so the URL-date rule rarely fires; it is a cheap guard for direct publisher URLs.
 
 ### 2026-10-08 gate changes (rater audit)
 

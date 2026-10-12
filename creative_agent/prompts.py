@@ -207,15 +207,14 @@ REFINED_WEB_SYNTHESIZER_INSTR = """Role: You are a focused Research Refinement S
 # START fan-out (sub_agents/trend_situation). The synthesizer's draft is
 # validated in code (creative_agent/trend_situation.py), which abstains to
 # "unknown" unless the dates and outcome are source-backed and inside the
-# window. The date tokens are optional: they are seeded per run by the
-# date-awareness step and resolve empty without it.
-TREND_SITUATION_DATE_LINE = 'Today is {current_date?} ({current_weekday?}, {current_timezone?}). Interpret "yesterday", "tonight", "tomorrow" and "this weekend" relative to this date, and never assume an event\'s timing or result without a dated source.'
+# window. Both read the shared date line (agent_common.clock.DATE_CONTEXT_LINE,
+# optional tokens seeded per run by seed_initial_state).
 
 TREND_SITUATION_SEARCHER_INSTR = (
     """Role: You are a news researcher establishing the CURRENT MOMENT of a trending topic.
 
     """
-    + TREND_SITUATION_DATE_LINE
+    + DATE_CONTEXT_LINE
     + """
 
     <INSTRUCTIONS>
@@ -238,7 +237,7 @@ TREND_SITUATION_SYNTHESIZER_INSTR = (
     """Role: You are a careful fact checker. Turn the raw findings about a trend's current moment into ONE structured situation.
 
     """
-    + TREND_SITUATION_DATE_LINE
+    + DATE_CONTEXT_LINE
     + """
 
     <INSTRUCTIONS>
