@@ -1,0 +1,12 @@
+# Upload filter for the bandit image build (cloudbuild.bandit.yaml):
+#   gcloud builds submit --config deployment/bandit/cloudbuild.bandit.yaml \
+#     --ignore-file deployment/bandit/bandit.gcloudignore ... .
+# bandit_serving/Dockerfile and bandit_traffic/Dockerfile only COPY from bandit/,
+# bandit_serving/ and bandit_traffic/, so upload just those.
+/*
+!/bandit/
+!/bandit_serving/
+!/bandit_traffic/
+__pycache__/
+*.pyc
+.pytest_cache/

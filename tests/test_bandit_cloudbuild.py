@@ -56,3 +56,67 @@ def test_traffic_entrypoint_unchanged():
     ins = _instructions(DOCKERFILES["traffic"])
     assert ins[-1] == ("ENTRYPOINT", '["python", "-m", "bandit_traffic.main"]')
     assert ("USER", "app") in ins
+
+
+CLOUDBUILD = REPO_ROOT / "deployment" / "bandit" / "cloudbuild.bandit.yaml"
+IGNORE = REPO_ROOT / "deployment" / "bandit" / "bandit.gcloudignore"
+BUILD_STEPS = {
+    "build-cpr": ("bandit_serving/Dockerfile", "_CPR_IMAGE", "CPR_IMAGE"),
+    "build-traffic": ("bandit_traffic/Dockerfile", "_TRAFFIC_IMAGE", "TRAFFIC_IMAGE"),
+}
+
+
+def _cloudbuild() -> dict:
+    import yaml
+
+    return yaml.safe_load(CLOUDBUILD.read_text())
+
+
+def _steps() -> dict:
+    return {s["id"]: s for s in _cloudbuild()["steps"]}
+
+
+def test_build_steps_run_in_parallel_after_buildx_setup():
+    steps = _steps()
+    assert "buildx-setup" in steps and "waitFor" not in steps["buildx-setup"]
+    for step_id in BUILD_STEPS:
+        assert steps[step_id]["waitFor"] == ["buildx-setup"], step_id
+
+
+@pytest.mark.parametrize("step_id", sorted(BUILD_STEPS))
+def test_build_step_uses_registry_cache_and_prints_digest(step_id):
+    dockerfile, image_var, digest_name = BUILD_STEPS[step_id]
+    script = _steps()[step_id]["args"][-1]
+    assert f"--file {dockerfile}" in script
+    assert f"--cache-from type=registry,ref=${{{image_var}}}:buildcache" in script
+    assert f"--cache-to type=registry,ref=${{{image_var}}}:buildcache,mode=max" in script
+    assert f"--tag ${{{image_var}}}:${{SHORT_SHA}}" in script
+    assert f"--tag ${{{image_var}}}:latest" in script
+    assert "--push" in script and "--metadata-file" in script
+    assert f'echo "{digest_name}=${{{image_var}}}@$$(cat' in script
+    assert script.rstrip().split("\n")[-2].strip().startswith("test -s")
+
+
+def test_substitution_defaults_and_options():
+    cfg = _cloudbuild()
+    subs = cfg["substitutions"]
+    repo = "us-central1-docker.pkg.dev/${PROJECT_ID}/cpr"
+    assert subs["_CPR_IMAGE"] == f"{repo}/trend-trawler-bandit"
+    assert subs["_TRAFFIC_IMAGE"] == f"{repo}/trend-trawler-bandit-traffic"
+    assert cfg["options"]["dynamicSubstitutions"] is True
+    assert cfg["options"]["logging"] == "CLOUD_LOGGING_ONLY"
+    # the traffic image path + tag scheme deploy_traffic_job.sh resolves
+    deploy = (REPO_ROOT / "deployment" / "bandit" / "deploy_traffic_job.sh").read_text()
+    assert "cpr/trend-trawler-bandit-traffic:${IMAGE_TAG}" in deploy
+
+
+def test_ignore_file_uploads_only_the_bandit_sources():
+    lines = [
+        ln.strip()
+        for ln in IGNORE.read_text().splitlines()
+        if ln.strip() and not ln.startswith("#")
+    ]
+    assert lines[0] == "/*"
+    allowed = {ln for ln in lines if ln.startswith("!")}
+    assert allowed == {"!/bandit/", "!/bandit_serving/", "!/bandit_traffic/"}
+    assert not any("frontend" in ln or ".env" in ln for ln in allowed)

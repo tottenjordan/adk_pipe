@@ -6,11 +6,11 @@
 # The api starts executions with per-run env overrides (EXPERIMENT_ID, CONFIG_URI,
 # ENDPOINT_ID, EPISODES, HORIZON; see runserver/experiments_jobs.py); this script
 # only sets the static BigQuery settings. Build the image first with
-# deployment/bandit/cloudbuild.traffic.yaml.
+# deployment/bandit/cloudbuild.bandit.yaml; IMAGE_TAG is the SHORT_SHA it was built with.
 set -euo pipefail
 
 : "${GOOGLE_CLOUD_PROJECT:?set GOOGLE_CLOUD_PROJECT}"
-: "${IMAGE_TAG:?set IMAGE_TAG (the image tag pushed by cloudbuild.traffic.yaml)}"
+: "${IMAGE_TAG:?set IMAGE_TAG (the SHORT_SHA tag pushed by cloudbuild.bandit.yaml)}"
 PROJECT="${GOOGLE_CLOUD_PROJECT}"
 REGION="${GCP_REGION:-us-central1}"
 JOB="${BANDIT_TRAFFIC_JOB:-trend-trawler-bandit-traffic}"
