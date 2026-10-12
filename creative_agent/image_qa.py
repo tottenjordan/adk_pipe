@@ -122,6 +122,15 @@ class ImageQAResult(BaseModel):
             "duplicated or in the wrong place, warped or melted."
         ),
     )
+    product_off_model: bool = Field(
+        default=False,
+        description=(
+            "The product is shown as a generic or unbranded object that no "
+            "longer resembles the real product: its recognisable silhouette, "
+            "shape or label is replaced (e.g. by a plain block or a generic "
+            "bottle). Stylisation that keeps it recognisable does not count."
+        ),
+    )
     artifacts: bool = Field(
         description="Noticeable anatomy or object deformities (extra fingers, melted or broken objects)."
     )
@@ -228,6 +237,12 @@ def _text_required(result: ImageQAResult, concept: dict[str, Any]) -> bool:
     )
 
 
+# Always restated in a re-render (the model's issue says what is wrong, not
+# what the product should look like).
+PRODUCT_OFF_MODEL_PHRASE = (
+    "render the product with its real silhouette, shape and label, even in a "
+    "stylised look"
+)
 # (attribute, rule name, correction phrase) per check, in report order.
 _RULES: tuple[tuple[str, str, str], ...] = (
     ("product_visible", "product not visible", "show the product recognisably"),
@@ -240,6 +255,11 @@ _RULES: tuple[tuple[str, str, str], ...] = (
         "product_malformed",
         "malformed product",
         "render the product with its correct real-world shape and orientation",
+    ),
+    (
+        "product_off_model",
+        "product off-model",
+        PRODUCT_OFF_MODEL_PHRASE,
     ),
     (
         "gibberish_text",
@@ -304,7 +324,8 @@ def qa_failed_rules(
 
     Fails on: product or motif not visible (skipped when ``target_product`` /
     the concept's ``trend_motif`` is empty — nothing was promised), a
-    malformed product (also skipped without ``target_product``), gibberish
+    malformed or off-model product (both also skipped without
+    ``target_product``), gibberish
     text, an unrequested logo, severe artifacts, unsafe content, or — when
     text is required (``_text_required``) — text not exact or not legible
     (``None`` = unknown, not a failure). ``brand_cue_visible`` is advisory and
@@ -314,7 +335,7 @@ def qa_failed_rules(
     if not (concept.get("trend_motif") or "").strip():
         skip.add("motif_visible")
     if not (target_product or "").strip():
-        skip.update({"product_visible", "product_malformed"})
+        skip.update({"product_visible", "product_malformed", "product_off_model"})
     failed = []
     for attr, name, _ in _RULES:
         if attr in skip:
@@ -415,6 +436,8 @@ def correction_text(
     else:
         items = [c for c in (_clean_issue(i) for i in result.issues if i) if c]
         items = items or [phrases[name] for name in failed]
+    if "product off-model" in failed:
+        items.append(PRODUCT_OFF_MODEL_PHRASE)
     # A person rule always restates its fixed instruction (the likeness ask).
     items += [phrases[name] for name in failed if name in _PERSON_RULES]
     # A composition change restates "keep everything" plus its differences.
@@ -580,6 +603,17 @@ def _instruction(
         "are flipped, or reversed lettering on it), parts missing, duplicated or "
         "in the wrong place, warped or melted. Deliberate stylisation (cartoon, "
         "comic, collage) is not a defect.",
+    ]
+    if target_product:
+        lines.append(
+            "product_off_model: true only when the product is drawn as a generic "
+            "or unbranded object that no longer resembles the real product — its "
+            "recognisable silhouette, shape or label is replaced (e.g. a plain "
+            "block, box or generic bottle instead of its real form). Normal "
+            "stylisation that keeps the product recognisable (flat colours, comic "
+            "inking, simplified detail) is not off-model."
+        )
+    lines += [
         "Also flag noticeable anatomy or object deformities (artifacts) and "
         "brand-unsafe content.",
     ]

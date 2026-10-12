@@ -1014,3 +1014,45 @@ def test_malformed_product_schema_and_instruction():
     assert "Flag only clear, material problems" in text
     assert "product_malformed" in text
     assert "mirrored or reversed" in text.lower()
+
+
+# --- off-model product (2026-10-12 live run: a Comic panel drew the amber
+# dropper bottle as a generic unbranded block; the judge failed avoid_respected) ---
+def test_off_model_product_fails_but_is_not_critical():
+    result = _result(product_off_model=True)
+    assert image_qa.qa_failed_rules(result, _CONCEPT, target_product=_PRODUCT) == [
+        "product off-model"
+    ]
+    assert "product off-model" not in image_qa.CRITICAL_RULES
+
+
+def test_off_model_product_skipped_without_a_product():
+    result = _result(product_off_model=True)
+    assert image_qa.qa_failed_rules(result, _CONCEPT, target_product="") == []
+
+
+def test_payload_without_off_model_field_parses_false():
+    payload = _result().model_dump(exclude={"product_off_model"})
+    assert "product_off_model" not in payload
+    assert ImageQAResult.model_validate(payload).product_off_model is False
+
+
+def test_off_model_correction_phrase_always_restated():
+    phrase = "render the product with its real silhouette, shape and label, even in a stylised look"
+    text = image_qa.correction_text(
+        _result(product_off_model=True, issues=["product drawn as a plain block"]),
+        _CONCEPT,
+        target_product=_PRODUCT,
+    )
+    assert "product drawn as a plain block" in text
+    assert phrase in text
+    assert text.endswith(image_qa.NO_NEW_TEXT)
+
+
+def test_off_model_schema_and_instruction_exempt_stylisation():
+    desc = (ImageQAResult.model_fields["product_off_model"].description or "").lower()
+    assert "generic" in desc and "silhouette" in desc
+    text = _instruction_text(_CONCEPT)
+    assert "product_off_model" in text
+    assert "flat colours, comic inking" in text
+    assert "product_off_model" not in _instruction_text(_CONCEPT, product="")
