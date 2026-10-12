@@ -1142,6 +1142,7 @@ def test_trend_scout_root_has_expected_tools():
     tool_names = [t.name for t in asyncio.run(root_agent.canonical_tools())]
     expected = [
         "gather_trends_agent",
+        "classify_trends_agent",
         "understand_trends_agent_resilient",
         "pick_trends_agent",
         "save_search_trends_to_session_state",

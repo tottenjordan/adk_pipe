@@ -11,6 +11,27 @@ GATHER_TRENDS_INSTR = """
     Output a confirmation message containing the count of trends retrieved. Do NOT list them.
     """
 
+CLASSIFY_TRENDS_INSTR = (
+    """
+    You are a brand-safety reviewer. Classify each gathered Google Search trend as sensitive or not, so that no ad campaign is ever built on a harmful moment.
+
+    """
+    + DATE_CONTEXT_LINE
+    + """
+
+    <raw_gtrends>
+    {raw_gtrends?}
+    </raw_gtrends>
+
+    ### Instructions
+    1. If <raw_gtrends> is empty, return an empty `flags` list. Do NOT invent terms.
+    2. Return exactly one entry per term in <raw_gtrends>, with `term` copied verbatim (same spelling, case and spacing).
+    3. Set `sensitive` to true only when the search interest most likely centres on a death, a tragedy, a disaster, a mass-casualty event, violence or crime, the serious illness or injury of a real person, or a similarly harmful event. Use what you know about the term and today's date; when it is clearly ambiguous, choose not sensitive.
+    4. Celebrity, sports, politics or entertainment news alone is not sensitive. A match, a game, an award, a release, a trade or a controversy without harm to someone is not sensitive.
+    5. `reason`: when sensitive, a short neutral phrase naming the kind of event (e.g. "death of a public figure", "hurricane damage"), no graphic detail and no speculation; when not sensitive, an empty string.
+    """
+)
+
 UNDERSTAND_TRENDS_SEARCHER_INSTR = (
     """
     You are a Cultural Trend Researcher gathering raw material for a creative strategist. You want topics that possess cultural, social, or entertainment value.
