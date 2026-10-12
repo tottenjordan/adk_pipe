@@ -7,6 +7,8 @@
 # ENDPOINT_ID, EPISODES, HORIZON; see runserver/experiments_jobs.py); this script
 # only sets the static BigQuery settings. Build the image first with
 # deployment/bandit/cloudbuild.bandit.yaml; IMAGE_TAG is the SHORT_SHA it was built with.
+# The job runs the one bandit image (trend-trawler-bandit, whose default entrypoint
+# is the CPR model server) with a command override: python -m bandit_traffic.main.
 set -euo pipefail
 
 : "${GOOGLE_CLOUD_PROJECT:?set GOOGLE_CLOUD_PROJECT}"
@@ -14,7 +16,7 @@ set -euo pipefail
 PROJECT="${GOOGLE_CLOUD_PROJECT}"
 REGION="${GCP_REGION:-us-central1}"
 JOB="${BANDIT_TRAFFIC_JOB:-trend-trawler-bandit-traffic}"
-IMAGE="${IMAGE:-us-central1-docker.pkg.dev/${PROJECT}/cpr/trend-trawler-bandit-traffic:${IMAGE_TAG}}"
+IMAGE="${IMAGE:-us-central1-docker.pkg.dev/${PROJECT}/cpr/trend-trawler-bandit:${IMAGE_TAG}}"
 SA="${BANDIT_TRAFFIC_SA:-tt-bandit-traffic-sa@${PROJECT}.iam.gserviceaccount.com}"
 BQ_PROJECT_ID="${BQ_PROJECT_ID:-${PROJECT}}"
 : "${BQ_DATASET_ID:?set BQ_DATASET_ID}"
@@ -28,6 +30,8 @@ ENV_VARS+=",GOOGLE_CLOUD_PROJECT=${PROJECT},GCP_REGION=${REGION}"
 gcloud run jobs deploy "${JOB}" \
   --project "${PROJECT}" \
   --image "${IMAGE}" \
+  --command python \
+  --args=-m,bandit_traffic.main \
   --region "${REGION}" \
   --service-account "${SA}" \
   --task-timeout 3600 \

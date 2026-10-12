@@ -151,9 +151,9 @@ list](../screenshots/11-experiments.png).
 - `runserver/authz.py`: user-scoping for `/experiments/{user}/…` (plus `authorize_body_user` on the create POST).
 
 **Deployment (`deployment/bandit/`):**
-- `bandit_serving/Dockerfile` / `bandit_traffic/Dockerfile`: the two images (uv builder stage, dependency layer cached apart from the code).
-- `deployment/bandit/cloudbuild.bandit.yaml` (+ `bandit.gcloudignore`): cached parallel Cloud Build of both images; prints their digests.
-- `deployment/bandit/build_image.py`: local build and docker round-trip test of the CPR image (`--image <digest>` tests a Cloud Build image).
+- `bandit_serving/Dockerfile` (+ `requirements.txt`): the one bandit image (uv builder stage, dependency layer cached apart from the code). Its default entrypoint is the CPR model server; the traffic job runs it with the command `python -m bandit_traffic.main`.
+- `deployment/bandit/cloudbuild.bandit.yaml` (+ `bandit.gcloudignore`): cached Cloud Build of the image; prints its digest (`BANDIT_IMAGE=…`).
+- `deployment/bandit/build_image.py`: local build and docker round-trip test of the endpoint (`--image <digest>` tests a Cloud Build image).
 - `deployment/bandit/endpoint.py`: model upload and endpoint deploy/undeploy/delete (library plus manual CLI).
 - `deployment/bandit/deploy_traffic_job.sh`: deploy the traffic job.
 - `deployment/create_bq_tables.sh`: also creates the three `bandit_*` tables.
@@ -510,9 +510,12 @@ in the [deployment guide](../../deployment/README.md#traffic-job-bandit_traffic)
 Two service accounts (`tt-bandit-endpoint-sa`, `tt-bandit-traffic-sa`) plus extra grants on
 `tt-api-sa`: see [deployment/README.md → IAM](../../deployment/README.md#iam-documentation-only-run-where-gcp-creds-exist).
 
-### CPR image and traffic job
+### Build and deploy
 
-Both images build together in Cloud Build (parallel BuildKit steps, registry layer cache):
+One image, `trend-trawler-bandit`, does both jobs: its default entrypoint serves the CPR endpoint
+(Vertex `Model.upload` uses the image's default entrypoint), and the traffic job runs it with the
+command `python -m bandit_traffic.main` (set by `deploy_traffic_job.sh`). It builds in Cloud
+Build (BuildKit, registry layer cache):
 
 ```bash
 SHORT_SHA=$(git rev-parse --short HEAD)
@@ -520,24 +523,29 @@ gcloud builds submit --region us-central1 \
   --config deployment/bandit/cloudbuild.bandit.yaml \
   --ignore-file deployment/bandit/bandit.gcloudignore \
   --substitutions=SHORT_SHA=$SHORT_SHA .
-# Regional builds don't stream logs; read the digests from the stored log:
-gcloud builds log <BUILD_ID> --region us-central1 | grep -aoE '(CPR|TRAFFIC)_IMAGE=[^ ]+'
-# CPR_IMAGE=us-central1-docker.pkg.dev/$PROJECT/cpr/trend-trawler-bandit@sha256:…
-# TRAFFIC_IMAGE=us-central1-docker.pkg.dev/$PROJECT/cpr/trend-trawler-bandit-traffic@sha256:…
+# Regional builds don't stream logs; read the digest from the stored log:
+gcloud builds log <BUILD_ID> --region us-central1 | grep -aoE 'BANDIT_IMAGE=[^ ]+'
+# BANDIT_IMAGE=us-central1-docker.pkg.dev/$PROJECT/cpr/trend-trawler-bandit@sha256:…
 
-# Optional: round-trip the built CPR image in docker before using it
-docker pull <CPR_IMAGE digest>
-uv run python deployment/bandit/build_image.py --image <CPR_IMAGE digest> --local-test
+# Optional: round-trip the built image in docker before using it
+docker pull <BANDIT_IMAGE digest>
+uv run python deployment/bandit/build_image.py --image <BANDIT_IMAGE digest> --local-test
 
-# Traffic job (uses the :$SHORT_SHA tag pushed by the build)
+# Traffic job (uses the :$SHORT_SHA tag pushed by the build, with the command override)
 IMAGE_TAG=$SHORT_SHA BQ_DATASET_ID=trend_trawler deployment/bandit/deploy_traffic_job.sh
 ```
 
-Set the CPR **digest** (`…/trend-trawler-bandit@sha256:…`, not a tag) as `BANDIT_SERVING_IMAGE`
-on the api service.
+Set the **digest** as the api's endpoint image: `BANDIT_SERVING_IMAGE=<BANDIT_IMAGE digest>`
+(`…/trend-trawler-bandit@sha256:…`, not a tag).
 
 Local development (no GCP): `uv run python deployment/bandit/build_image.py --local-test` builds
-the CPR image from `bandit_serving/Dockerfile` with local docker and runs the same round-trip.
+the image from `bandit_serving/Dockerfile` with local docker and runs the endpoint round-trip.
+To run the traffic job from the same image, override the entrypoint:
+
+```bash
+docker run --rm --entrypoint python -v /tmp/cfg:/cfg:ro <image> \
+  -m bandit_traffic.main --in-process --dry-run --config /cfg/experiment.json --out /tmp/out
+```
 
 ### Local development without GCP
 

@@ -1,5 +1,6 @@
-# Root build context: the api image (Dockerfile) AND the bandit traffic job
-# (bandit_traffic/Dockerfile COPYs bandit/ + bandit_traffic/) — keep both of those.
+# Root build context of the api image (Dockerfile). The bandit image
+# (bandit_serving/Dockerfile, endpoint + traffic job) uses its own
+# bandit_serving/Dockerfile.dockerignore instead.
 .git
 .venv
 **/__pycache__

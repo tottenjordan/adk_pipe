@@ -4,7 +4,7 @@
 bandit experiment endpoint. It holds one in-memory `bandit.linear_ts` posterior.
 
 - **Wire contract:** [`docs/bandit/contracts.md`](../docs/bandit/contracts.md) §2 covers the `decision` / `reward` / `reset` / `state` instances and `parameters`. §7 covers the PR 2 details: validation, reward acceptance, versions and checkpoints.
-- **Image:** [`Dockerfile`](Dockerfile) (uv builder stage, dependency layer cached apart from the code; the CPR model server `google-cloud-aiplatform[prediction]` is pinned in `requirements.txt`). Release builds: [`deployment/bandit/cloudbuild.bandit.yaml`](../deployment/bandit/cloudbuild.bandit.yaml); local builds and tests: [`deployment/bandit/build_image.py`](../deployment/bandit/build_image.py).
+- **Image:** [`Dockerfile`](Dockerfile), the one bandit image (uv builder stage, dependency layer cached apart from the code; the CPR model server `google-cloud-aiplatform[prediction]` is pinned in `requirements.txt`). Its default entrypoint is the CPR model server; the synthetic-traffic job (`bandit_traffic/`) runs the same image with the command `python -m bandit_traffic.main`, so the image and `requirements.txt` also carry the traffic job's code and deps. Release builds: [`deployment/bandit/cloudbuild.bandit.yaml`](../deployment/bandit/cloudbuild.bandit.yaml); local builds and tests: [`deployment/bandit/build_image.py`](../deployment/bandit/build_image.py).
 - **Model upload / endpoint:** [`deployment/bandit/endpoint.py`](../deployment/bandit/endpoint.py).
 
 ## Single worker (required)
@@ -22,16 +22,16 @@ gcloud builds submit --region us-central1 \
   --config deployment/bandit/cloudbuild.bandit.yaml \
   --ignore-file deployment/bandit/bandit.gcloudignore \
   --substitutions=SHORT_SHA=$(git rev-parse --short HEAD) .
-gcloud builds log <BUILD_ID> --region us-central1 | grep -aoE '(CPR|TRAFFIC)_IMAGE=[^ ]+'
+gcloud builds log <BUILD_ID> --region us-central1 | grep -aoE 'BANDIT_IMAGE=[^ ]+'
 ```
 
-This also builds the traffic job image. Set the api's `BANDIT_SERVING_IMAGE` to the printed `CPR_IMAGE` **digest** (`…/trend-trawler-bandit@sha256:…`). See [`docs/bandit/README.md`](../docs/bandit/README.md) for the traffic job deploy.
+Set the api's endpoint image to the printed **digest**: `BANDIT_SERVING_IMAGE=<BANDIT_IMAGE digest>` (`…/trend-trawler-bandit@sha256:…`). The traffic job runs the same image by tag (`IMAGE_TAG=<SHORT_SHA> BQ_DATASET_ID=trend_trawler deployment/bandit/deploy_traffic_job.sh`); see [`docs/bandit/README.md`](../docs/bandit/README.md#build-and-deploy).
 
 ## Local test (docker, no GCP)
 
 ```bash
 uv run python deployment/bandit/build_image.py --local-test
-# --image=<CPR_IMAGE digest>      test an existing image (docker pull it first) instead of building
+# --image=<BANDIT_IMAGE digest>   test an existing image (docker pull it first) instead of building
 # --base-image=python:3.13-slim-bookworm   another base; must ship /usr/local/bin/python3.13 (the venv links it)
 # --push                          docker push the tag (needs Artifact Registry auth)
 ```

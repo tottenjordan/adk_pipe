@@ -29,18 +29,38 @@ def test_staged_tree_contents(tmp_path):
         "Dockerfile.dockerignore",
         "bandit/__init__.py",
         "bandit/aggregate.py",
+        "bandit/baselines.py",
         "bandit/config.py",
+        "bandit/environment.py",
         "bandit/features.py",
         "bandit/linear_ts.py",
+        "bandit/metrics.py",
+        "bandit/policies.py",
         "bandit/scenarios/clear_winner.yaml",
         "bandit/scenarios/drift.yaml",
         "bandit/scenarios/segment_winners.yaml",
+        "bandit/simulate.py",
         "bandit_serving/__init__.py",
         "bandit_serving/predictor.py",
         "bandit_serving/requirements.txt",
+        "bandit_traffic/__init__.py",
+        "bandit_traffic/bq.py",
+        "bandit_traffic/endpoint_client.py",
+        "bandit_traffic/fake_endpoint.py",
+        "bandit_traffic/main.py",
+        "bandit_traffic/traffic.py",
     ]
     reqs = (src / "bandit_serving/requirements.txt").read_text()
     assert "jax[cpu]==0.11.2" in reqs and "google-cloud-storage" in reqs
+
+
+def test_staged_traffic_files_mirror_the_package():
+    """One image serves the endpoint AND runs the traffic job: every
+    ``bandit_traffic`` module ships, and every ``bandit/`` module except the CLI."""
+    pkg = sorted(p.name for p in (bi.REPO_ROOT / "bandit_traffic").glob("*.py"))
+    assert list(bi.TRAFFIC_FILES) == pkg
+    core = sorted(p.name for p in (bi.REPO_ROOT / "bandit").glob("*.py"))
+    assert sorted(bi.BANDIT_RUNTIME_FILES) == [n for n in core if n != "cli.py"]
 
 
 def _instructions(path):
@@ -110,6 +130,19 @@ def test_serving_requirements_pin_cpr_server():
     lines = {ln.strip() for ln in reqs.splitlines()}
     assert "google-cloud-aiplatform[prediction]==2.4.0" in lines
     assert "protobuf==6.33.6" in lines
+    # the traffic job's runtime deps (BigQuery writer, local-URL client)
+    assert "google-cloud-bigquery==3.46.1" in lines
+    assert "requests==2.34.2" in lines
+
+
+def test_single_bandit_dockerfile():
+    """The traffic job runs the serving image with a command override; there is
+    no second Dockerfile or requirements file to drift."""
+    assert not (bi.REPO_ROOT / "bandit_traffic" / "Dockerfile").exists()
+    assert not (bi.REPO_ROOT / "bandit_traffic" / "requirements.txt").exists()
+    final = _final_stage(_instructions(SERVING_DOCKERFILE))
+    copies = [a for k, a in final if k == "COPY" and "--from" not in a]
+    assert "bandit_traffic/*.py /usr/app/bandit_traffic/" in copies
 
 
 def test_dockerignore_allowlists_exactly_the_staged_sources(tmp_path):
@@ -164,6 +197,37 @@ def test_staged_tree_is_self_contained(tmp_path):
     assert res.returncode == 0, res.stderr[-2000:]
     state = json.loads(res.stdout.strip().splitlines()[-1])["predictions"][0]
     assert state["model_version"] == "localtest-e0-v0"
+
+
+def test_staged_tree_runs_the_traffic_job(tmp_path):
+    """The staged copy runs ``python -m bandit_traffic.main`` (the job's command
+    override) from its root, the image's WORKDIR, with only its own files."""
+    src = bi.stage_src_dir(tmp_path / "src")
+    cfg = tmp_path / "experiment.json"
+    cfg.write_text(json.dumps({**bi.sample_experiment(), "horizon": 200}))
+    out = tmp_path / "out"
+    root = str(bi.REPO_ROOT)
+    code = (
+        f"import sys, runpy; sys.path = [p for p in sys.path if p not in ('', {root!r})];"
+        "sys.path.insert(0, sys.argv[1]);"
+        "import bandit, bandit_traffic;"
+        "assert bandit_traffic.__file__.startswith(sys.argv[1]), bandit_traffic.__file__;"
+        "assert bandit.__file__.startswith(sys.argv[1]), bandit.__file__;"
+        "sys.argv = ['bandit_traffic.main', *sys.argv[2:]];"
+        "runpy.run_module('bandit_traffic.main', run_name='__main__')"
+    )
+    res = subprocess.run(
+        [
+            sys.executable, "-c", code, str(src), "--in-process", "--dry-run",
+            "--config", str(cfg), "--out", str(out),
+        ],
+        cwd=src,
+        capture_output=True,
+        text=True,
+        check=False,
+    )  # fmt: skip
+    assert res.returncode == 0, res.stderr[-2000:]
+    assert any(out.iterdir())
 
 
 def test_load_staged_predictor_resolves_cpr_module_path(tmp_path):

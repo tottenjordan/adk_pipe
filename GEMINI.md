@@ -25,7 +25,7 @@ You are an expert AI software engineering partner working on **Trend Trawler** (
   - `google-genai>=2.25.0,<3.0.0`
   - `google-cloud-aiplatform[agent-engines]>=2.2.0,<3.0.0` at runtime (`[evaluation]` only in the `eval` group).
 - **Frontend:** Next.js 16 (App Router), TypeScript, Tailwind CSS, shadcn/ui (Node.js `>=22.13`).
-- **Bandit Engine:** JAX (`jax[cpu]>=0.11.2`) lives **only** in the `dev` dependency group (`[dependency-groups]`) and in `bandit_serving/requirements.txt` / `bandit_traffic/requirements.txt`.
+- **Bandit Engine:** JAX (`jax[cpu]>=0.11.2`) lives **only** in the `dev` dependency group (`[dependency-groups]`) and in `bandit_serving/requirements.txt` (the one bandit image, endpoint + traffic job).
 
 ---
 
