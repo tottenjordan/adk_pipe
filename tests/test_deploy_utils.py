@@ -608,9 +608,7 @@ class TestDeployAgentCreate:
         )
 
     def test_failed_create_writes_no_output_json(self, monkeypatch, tmp_path):
-        da, _, _, client, _ = self._setup(
-            monkeypatch, "creative_agent", with_app=False
-        )
+        da, _, _, client, _ = self._setup(monkeypatch, "creative_agent", with_app=False)
         client.runtimes.create.side_effect = RuntimeError("quota")
         out = tmp_path / "creative_agent.json"
         with pytest.raises(RuntimeError):
