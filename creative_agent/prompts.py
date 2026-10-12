@@ -5,6 +5,7 @@ from typing import Any
 
 from agent_common.clock import DATE_CONTEXT_LINE
 
+from .claims import ABSOLUTE_CLAIM_TERMS
 from .config import PHOTOGRAPHIC_PERSON_STYLES, config
 from .trend_situation import as_situation, moment_phrase
 
@@ -438,9 +439,11 @@ CREATIVE_BRIEF_WRITER_INSTR = (
     11. """
     + RATING_SIGNALS_RULE
     + """
-    12. **Truthful product and claims:** use the product name exactly as given ({target_product}); never add a variant, finish, colour or model the user did not give. Include one mandatory that names the product exactly as given. No guarantees or absolute claims (guaranteed, indestructible, 100%, lifetime, never fails) unless a cited source or the user's selling points state them.
+    12. **Truthful product and claims:** use the product name exactly as given ({target_product}); never add a variant, finish, colour or model the user did not give. Include one mandatory that names the product exactly as given. No guarantees or absolute claims ("""
+    + ", ".join(ABSOLUTE_CLAIM_TERMS)
+    + """) unless the user's key selling points or the brief's mandatories state them; a research source alone is not enough.
     13. **Sensitive trends:** if the trend is a real disaster, tragedy or crisis (a storm, wildfire, shooting, war, death), choose fit_mode "light_touch" (score 1-2), list its harms in trend_bridge.risks (and short terms for them in `avoid`), and never build the idea on the harm itself. A current moment marked sensitive is never referenced.
-    14. **Trend scout hint:** if <trend_scout_hint> is non-empty, use it only to understand why the trend was picked. Never state an event, date or result from it unless the research report confirms it as current.
+    14. **Trend scout hint:** if <trend_scout_hint> is non-empty, use it only to understand why the trend was picked. Never state an event, date or result from it: dated events and results come only from the current moment (rule 15).
     15. """
     + CURRENT_MOMENT_RULE
     + """

@@ -172,9 +172,29 @@ def test_brief_writer_names_the_product_exactly():
 
 
 def test_brief_writer_avoids_unsupported_absolute_claims():
+    """Rule 12 matches the brief gate (brief_check -> claims.unsupported_claims):
+    only the user's selling points or the brief's mandatories allow an absolute
+    claim (a cited source does not), and every lexicon term is named."""
+    from creative_agent.claims import ABSOLUTE_CLAIM_TERMS
+
     instr = prompts.CREATIVE_BRIEF_WRITER_INSTR
     assert "No guarantees or absolute claims" in instr
-    assert "cited source or the user's selling points state them" in instr
+    assert "unless the user's key selling points or the brief's mandatories" in instr
+    rule12 = instr.split("12. ")[1].split("13. ")[0]
+    assert "cited source or" not in rule12
+    assert "a research source alone is not enough" in rule12
+    for term in ABSOLUTE_CLAIM_TERMS:
+        assert term in instr, term
+
+
+def test_brief_writer_scout_hint_defers_to_the_current_moment():
+    """Rule 14 (scout hint) must not license dates/results the current-moment
+    rule (CURRENT_MOMENT_RULE) forbids."""
+    instr = prompts.CREATIVE_BRIEF_WRITER_INSTR
+    rule14 = instr.split("14. ")[1].split("15. ")[0]
+    assert "Trend scout hint" in rule14
+    assert "research report confirms it as current" not in rule14
+    assert "current moment" in rule14
 
 
 def test_brief_writer_handles_disaster_trends_lightly():
