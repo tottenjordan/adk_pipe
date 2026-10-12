@@ -12,6 +12,7 @@
  */
 
 import { getAccessToken } from "@/lib/gcp-auth";
+import { BUCKET_RE } from "@/lib/gcs";
 
 export const TOKEN_RE = /^[A-Za-z0-9_-]{16,64}$/;
 
@@ -24,7 +25,6 @@ const IMAGE_INDEX_RE = /^(?:0|[1-9][0-9]?)$/;
 const IMAGE_NAME_RE = /^\d{1,2}\.(png|jpg)$/;
 const IMAGE_TYPES = { png: "image/png", jpg: "image/jpeg" } as const;
 const ASPECT_RE = /^[1-9][0-9]?:[1-9][0-9]?$/;
-const BUCKET_RE = /^[a-z0-9][a-z0-9._-]{1,220}[a-z0-9]$/;
 
 export interface ShareCheck {
   /** Which half of the creative the check is about (the backend sends both halves). */

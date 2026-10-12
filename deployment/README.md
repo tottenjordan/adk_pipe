@@ -1012,6 +1012,22 @@ gcloud run deploy trend-trawler-web \
 > redeployed with `--allow-unauthenticated` or `--set-env-vars` (which would drop
 > `IAP_ALLOWED_HD` and make every proxied call 401) — use `--update-env-vars`.
 
+**`GCS_ALLOWED_BUCKETS` (web).** Comma-separated bucket names (whitespace trimmed) the
+`/api/gcs` proxy may read. Every `bucket` must be a well-formed bucket name (lowercase
+letters, digits, `.`, `_`, `-`; else 400 `Invalid bucket`) and, when this is set, one of
+the listed buckets. On Cloud Run with it **unset**, owner-only person paths
+(`person-refs/…`, `…/variants/…`) are refused with 400 and a warning in the log (fail
+closed); other paths still accept any well-formed bucket. Set it to the artifacts bucket:
+
+```bash
+gcloud run services update trend-trawler-web --region $REGION \
+  --update-env-vars GCS_ALLOWED_BUCKETS=$GCS_BUCKET   # e.g. trend-trawler-deploy-ae
+```
+
+The proxy also serves each object with its stored content type (never one derived
+from the path) plus `X-Content-Type-Options: nosniff`, and HTML (the run gallery) under a
+`sandbox` CSP that allows only same-origin and inline images and inline styles.
+
 ### 5. End-to-end verification (live)
 
 ```bash
