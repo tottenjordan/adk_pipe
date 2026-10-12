@@ -10,6 +10,7 @@ from google.cloud import bigquery
 
 from agent_common import collect_degradation_warnings
 from agent_common.clients import get_bigquery_client, get_gcs_client
+from agent_common.clock import now_in_tz
 from agent_common.idempotency import stable_row_id
 from agent_common.state import memorize  # noqa: F401  (ADK tool; re-exported)
 
@@ -337,6 +338,22 @@ def _build_trend_insert_sql(
     return sql, params
 
 
+def _trawler_date(state_current_date: object) -> str:
+    """The run's date as MM/DD/YYYY for `trawler_date`.
+
+    Uses the per-run `current_date` (YYYY-MM-DD, seeded in TREND_TIMEZONE — the
+    date the prompts were given), else today in TREND_TIMEZONE; never the
+    server's UTC clock, which can be a day ahead of the run's date.
+    """
+    if isinstance(state_current_date, str):
+        try:
+            parsed = datetime.date.fromisoformat(state_current_date.strip())
+            return parsed.strftime("%m/%d/%Y")
+        except ValueError:
+            pass
+    return now_in_tz(config.trend_timezone).strftime("%m/%d/%Y")
+
+
 # refresh_date: str = max_date
 # refresh_date: Latest refresh date from the trends table in the format 'MM/DD/YYYY'. Use the default value provided.
 def write_trends_to_bq(tool_context: ToolContext) -> dict:
@@ -362,7 +379,7 @@ def write_trends_to_bq(tool_context: ToolContext) -> dict:
     # session-derived id (not uuid4), so an at-least-once re-run (resumed app)
     # MERGEs onto the same (uuid, target_trend) rows instead of duplicating them.
     unique_id = stable_row_id(tool_context.session.id)
-    current_date = datetime.datetime.now().strftime("%m/%d/%Y")
+    current_date = _trawler_date(tool_context.state.get("current_date"))
 
     gcs_url_prefix = "https://console.cloud.google.com/storage/browser"
     gcs_folder = tool_context.state["gcs_folder"]

@@ -320,6 +320,52 @@ class TestTrendContextColumn:
         assert bound["T2"] == ""  # no research for it → empty, never an error
 
 
+class TestTrawlerDate:
+    """trawler_date is the run's date (state current_date, TREND_TIMEZONE), not
+    the server's UTC clock, so it matches the date the prompts were given."""
+
+    def _bound_current_date(self, monkeypatch, state_extra):
+        import trend_scout.tools as t
+
+        bq = FakeBigQueryClient()
+        monkeypatch.setattr(t, "_get_bigquery_client", lambda: bq)
+        monkeypatch.setattr(t, "_get_gtrends_max_date", lambda: "10/10/2026")
+        ctx = FakeToolContext(session_id="sess-date")
+        ctx.state.update(
+            {
+                "gcs_folder": "2026_10_11_run",
+                "target_search_trends": {"target_search_trends": ["T1"]},
+                "brand": "PRS",
+                "target_audience": "musicians",
+                "target_product": "SE CE24",
+                "key_selling_points": "tone",
+                **state_extra,
+            }
+        )
+        t.write_trends_to_bq(ctx)
+        (_, job_config) = bq.queries[-1]
+        params = {p.name: p.value for p in job_config.query_parameters}
+        return params["current_date"]
+
+    def test_uses_state_current_date(self, monkeypatch):
+        bound = self._bound_current_date(monkeypatch, {"current_date": "2026-10-11"})
+        assert bound == "10/11/2026"
+
+    def test_falls_back_to_trend_timezone_clock(self, monkeypatch):
+        import trend_scout.tools as t
+
+        seen = []
+
+        def fake_now(tz):
+            seen.append(tz)
+            return datetime.datetime(2026, 10, 12, 23, 30)
+
+        monkeypatch.setattr(t, "now_in_tz", fake_now)
+        for extra in ({}, {"current_date": ""}, {"current_date": "not-a-date"}):
+            assert self._bound_current_date(monkeypatch, extra) == "10/12/2026"
+        assert seen == [t.config.trend_timezone] * 3
+
+
 # --- save_search_trends_to_session_state logic ---
 class TestSaveSearchTrends:
     def test_appends_trend_to_existing_list(self):
