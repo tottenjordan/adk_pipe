@@ -67,7 +67,12 @@ async function proxy(
 
   const audience = new URL(BACKEND).origin;
   if (backendNeedsAuth(BACKEND)) {
-    const token = await getIdentityToken(audience);
+    let token = "";
+    try {
+      token = await getIdentityToken(audience);
+    } catch (err) {
+      console.error("/api/adk: could not mint a backend identity token", err);
+    }
     // Never forward a request to a private backend without a real token — that surfaces as
     // an opaque backend 401. Fail fast with a clear signal instead.
     if (!token) {

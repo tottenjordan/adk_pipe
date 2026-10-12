@@ -80,12 +80,15 @@ describe("proxy handler headers", () => {
     vi.resetModules();
   });
 
-  async function loadRoute(base: string) {
+  async function loadRoute(
+    base: string,
+    getIdentityToken: () => Promise<string> = async () => "minted-id-token",
+  ) {
     vi.stubEnv("ADK_API_BASE", base);
     vi.stubEnv("K_SERVICE", "");
     vi.resetModules();
     vi.doMock("@/lib/gcp-auth", () => ({
-      getIdentityToken: vi.fn(async () => "minted-id-token"),
+      getIdentityToken: vi.fn(getIdentityToken),
     }));
     // The IAP assertion verified to Alice; the spoofed identity headers must not matter.
     vi.doMock("@/lib/iap-identity", () => ({
@@ -127,5 +130,16 @@ describe("proxy handler headers", () => {
     const sent = new Headers(fetchMock.mock.calls[0][1]?.headers);
     expect(sent.get("authorization")).toBeNull();
     expect(sent.get("cookie")).toBeNull();
+  });
+
+  it("answers 502 without calling the backend when no ID token can be minted", async () => {
+    const { route, fetchMock } = await loadRoute("https://api.example.run.app", async () => {
+      throw new Error("GCP credentials unavailable: the metadata server failed (timeout)");
+    });
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const res = await call(route);
+    expect(res.status).toBe(502);
+    expect(await res.text()).not.toContain("metadata");
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });
