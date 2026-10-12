@@ -1180,7 +1180,9 @@ root `.gcloudignore` (for the api's `--source .` deploy) drops `frontend/`:
 gcloud builds submit --region $REGION --config cloudbuild.yaml \
   --ignore-file deployment/cloudbuild.gcloudignore \
   --substitutions=SHORT_SHA=$(git rev-parse --short HEAD)
-# The log ends with API_IMAGE=…/trend-trawler-api@sha256:… and WEB_IMAGE=…@sha256:…
+# The build log ends with API_IMAGE=…@sha256:… and WEB_IMAGE=…@sha256:…, but a regional
+# build doesn't stream its log to the terminal, so read the digests from the stored log:
+gcloud builds log <BUILD_ID> --region $REGION | grep -aoE '(API|WEB)_IMAGE=[^ ]+'
 ```
 
 Measured 2026-10-12 (default machine, build time without upload): cold cache 215 s, no
