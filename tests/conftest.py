@@ -67,8 +67,16 @@ def _trend_state_off(monkeypatch):
     searcher + synthesizer to combined_research_pipeline's fan-out. Graph tests
     script their stub models per agent, so keep the branch on its "skip" route
     unless a test turns it on (``config.trend_state_enabled = True``) and
-    scripts it (tests/test_creative_agent_graph.py)."""
-    from creative_agent.config import config
+    scripts it (tests/test_creative_agent_graph.py).
+
+    Skipped, like ``_no_live_brand_history``, in the CRF CI venv (no
+    google-adk)."""
+    try:
+        from creative_agent.config import config
+    except ModuleNotFoundError as exc:
+        if exc.name and exc.name.startswith("google.adk"):
+            return
+        raise
 
     monkeypatch.setattr(config, "trend_state_enabled", False)
 
