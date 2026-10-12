@@ -157,6 +157,11 @@ uv run python deployment/deploy_agent.py --version=v1 --agent=creative_agent --c
 > `AGENT_EXTRA_PACKAGES` map in `deployment/deploy_agent.py` (from the real import
 > graph — e.g. `creative_agent` → `creative_eval` + `agent_common`), so a
 > cross-package dependency can't be silently left out of a deploy.
+> The SDK tars each package dir unfiltered, so `deploy_agent.py` stages a filtered copy
+> (no hidden entries such as a local `adk web` run's `.adk/` session.db + renders, no
+> `__pycache__` / `*.pyc`) in a temp dir, refuses to deploy if any local-only path got
+> staged, and runs `runtimes.create` from there. Requirements are passed as a list with
+> `uv export`'s comments and `# via` annotations stripped.
 
 * Once agent is deployed to Agent Engine, the agent's resource ID will be added to your `.env` file (`SCOUT_AGENT_ENGINE_ID`, `CREATIVE_AGENT_ENGINE_ID` or `INTERACTIVE_AGENT_ENGINE_ID`). And this will be used later by the `test_deployment.py` / `integration_test.py` scripts
 * The deploy/test scripts use the AgentPlatform SDK: `agentplatform.Client().runtimes` and `agentplatform.frameworks.AdkApp` (google-cloud-aiplatform 2.x, via the `[tool.uv]` override in `pyproject.toml`)
@@ -641,7 +646,7 @@ gcloud pubsub topics publish $CREATIVE_PUB_TOPIC --message "$(cat message.json |
 Serve the Next.js frontend and the backend (`deployment/async_app.py` under uvicorn) as
 independent Cloud Run services in `us-central1`: the IAP-gated `trend-trawler-web`, the
 private `trend-trawler-api`, and (see [Shareable links](#shareable-links)) the public
-`trend-trawler-share`, built from the same web image.
+`trend-trawler-share`, which deploys the web service's image (no separate build).
 
 <p align="center">
   <img src="../docs/diagrams/frontend_cloudrun_topology.png" alt="Cloud Run deployment topology: IAP-gated web, private api, public share service" width="720">
@@ -1425,7 +1430,9 @@ Build, push and deploy (documentation only; run where GCP creds exist):
 
 ```bash
 # Image -> us-central1-docker.pkg.dev/$PROJECT/cpr/trend-trawler-bandit-traffic:<sha>
+# --ignore-file uploads only bandit/ + bandit_traffic/ (~0.1 MB, not the whole repo)
 gcloud builds submit --config deployment/bandit/cloudbuild.traffic.yaml \
+  --ignore-file=deployment/bandit/traffic.gcloudignore \
   --substitutions=SHORT_SHA=$(git rev-parse --short HEAD) .
 # Job: tt-bandit-traffic-sa, 2 CPU / 2Gi, task timeout 3600 s, no retries
 IMAGE_TAG=$(git rev-parse --short HEAD) BQ_DATASET_ID=trend_trawler \
@@ -1683,11 +1690,17 @@ gcloud storage buckets add-iam-policy-binding gs://$GCS_BUCKET \
 
 (Conditional bindings need uniform bucket-level access on the bucket.)
 
-**2. Deploy** (from the repo root; the same `frontend/Dockerfile` as `trend-trawler-web`):
+**2. Deploy** web's image (no rebuild). The share service runs the exact image
+`trend-trawler-web` serves: `SHARE_MODE` is read per request and the image has no
+`NEXT_PUBLIC_*` build args, so there is nothing to build differently. Deploy `trend-trawler-web`
+first ([Step 4](#4-deploy-the-frontend), or a [Step 8](#8-redeploying-a-new-build--rollback-traffic-tags) redeploy), then point the share service at its image digest:
 
 ```bash
+WEB_IMAGE=$(gcloud run services describe trend-trawler-web --region $REGION \
+  --format='value(spec.template.spec.containers[0].image)')
+echo "$WEB_IMAGE"   # …/trend-trawler-web@sha256:… (a digest, not a moving tag)
 gcloud run deploy trend-trawler-share \
-  --source ./frontend --region $REGION \
+  --image "$WEB_IMAGE" --region $REGION \
   --service-account $SHARE_SA \
   --allow-unauthenticated \
   --min-instances 0 --max-instances 3 --memory 512Mi --cpu 1 \
@@ -1702,7 +1715,10 @@ gcloud run services update trend-trawler-api --region $REGION \
   --update-env-vars "SHARE_BASE_URL=$SHARE_URL"
 ```
 
-Redeploys: always pass `SHARE_MODE=1` (or use `--update-env-vars` to keep it). Without it
+Redeploys: a share deploy (the same command with the new `WEB_IMAGE`) should follow each web
+deploy that changes share-viewer code (`frontend/src/app/s/`, `components/share/`,
+`lib/share-*.ts`, `proxy.ts`); otherwise the share service keeps serving the previous image.
+Always pass `SHARE_MODE=1` (or use `--update-env-vars` to keep it). Without it
 the service would run the full app — it has no IAP — so check after every deploy:
 
 **3. Probes** (all must hold; `TOKEN` from a test share created in the UI):

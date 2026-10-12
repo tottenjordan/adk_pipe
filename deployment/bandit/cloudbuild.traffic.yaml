@@ -1,6 +1,8 @@
 # Build + push the bandit traffic job image (bandit_traffic/Dockerfile).
-# Run from the repo root (the build context must include bandit/ and bandit_traffic/):
+# Run from the repo root (the build context must include bandit/ and bandit_traffic/;
+# the ignore file uploads only those two dirs instead of the whole repo):
 #   gcloud builds submit --config deployment/bandit/cloudbuild.traffic.yaml \
+#     --ignore-file=deployment/bandit/traffic.gcloudignore \
 #     --substitutions=SHORT_SHA=$(git rev-parse --short HEAD) .
 # Deploy the job afterwards with deployment/bandit/deploy_traffic_job.sh.
 steps:

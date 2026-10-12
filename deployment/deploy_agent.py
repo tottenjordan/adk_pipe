@@ -1,8 +1,11 @@
 """Deployment script for Trend Trawler Agents."""
 
+import contextlib
 import logging
 import os
+import shutil
 import sys
+import tempfile
 from typing import TYPE_CHECKING, cast
 
 import dotenv
@@ -242,6 +245,84 @@ def validate_extra_packages(packages: list[str]) -> None:
         )
 
 
+# Packaging: the SDK tars each extra_packages entry with a bare ``tarfile.add(path)``
+# (no filter), so everything in a package dir would ship — a local ``adk web`` run's
+# ``.adk/`` (session.db, rendered PNGs/PDFs, eval history: 100+ MB of user data),
+# ``__pycache__`` and tool caches. deploy_agent stages a filtered copy instead.
+# Hidden entries (``.adk``, ``.env``, ``.pytest_cache`` …) are always dropped; no
+# agent package tracks a dotfile.
+EXCLUDED_DIR_NAMES = frozenset({"__pycache__", "node_modules"})
+EXCLUDED_FILE_SUFFIXES = (".pyc", ".pyo")
+
+REQUIREMENTS_PATH = os.path.join(project_root, "requirements.txt")
+
+
+def _is_local_only(name: str) -> bool:
+    return (
+        name.startswith(".")
+        or name in EXCLUDED_DIR_NAMES
+        or name.endswith(EXCLUDED_FILE_SUFFIXES)
+    )
+
+
+def _ignore_local_only(_dir: str, names: list[str]) -> set[str]:
+    return {n for n in names if _is_local_only(n)}
+
+
+def stage_extra_packages(
+    packages: list[str], dest_root: str, src_root: str = project_root
+) -> list[str]:
+    """Copy each package dir into ``dest_root`` minus local-only files.
+
+    Keeps each package's relative path (``./creative_agent`` →
+    ``<dest_root>/creative_agent``) — the SDK's tar arcname is the path as given,
+    and the flat layout needs it as the import path. Returns the same relative
+    names, to be passed to the SDK with ``dest_root`` as the working directory.
+    """
+    for pkg in packages:
+        rel = os.path.normpath(pkg)
+        shutil.copytree(
+            os.path.join(src_root, rel),
+            os.path.join(dest_root, rel),
+            ignore=_ignore_local_only,
+        )
+    return list(packages)
+
+
+def assert_no_local_data(root: str) -> None:
+    """Refuse to deploy if any staged path is local-only (belt and braces)."""
+    bad = []
+    for dirpath, dirnames, filenames in os.walk(root):
+        rel_dir = os.path.relpath(dirpath, root)
+        parts = [] if rel_dir == "." else rel_dir.split(os.sep)
+        bad += [os.path.join(rel_dir, d) for d in dirnames if _is_local_only(d)]
+        if any(_is_local_only(p) for p in parts):
+            continue
+        bad += [os.path.join(rel_dir, f) for f in filenames if _is_local_only(f)]
+    if bad:
+        raise RuntimeError(
+            f"refusing to deploy: local-only paths staged into the engine package: "
+            f"{sorted(bad)[:10]}"
+        )
+
+
+def load_requirements(path: str) -> list[str]:
+    """Read a ``uv export`` requirements file as bare requirement lines.
+
+    Drops the header, the ``# via`` annotations, inline comments and blank lines,
+    which the SDK would otherwise try (and fail, ~600 warnings) to parse as
+    constraints. requirements.txt itself stays the exact ``uv export`` output the
+    CI drift check compares.
+    """
+    reqs = []
+    with open(path) as f:
+        for line in f:
+            req = line.split(" #", 1)[0].strip()
+            if req and not req.startswith("#"):
+                reqs.append(req)
+    return reqs
+
+
 def resolve_deploy_target(module) -> tuple[str, object]:
     """Pick what to hand AdkApp for an agent module: its App if it has one.
 
@@ -319,24 +400,32 @@ def deploy_agent(name: str, version: str, enable_tracing: bool = False) -> None:
     else:
         adk_app = AdkApp(agent=cast("BaseAgent", target))
 
+    requirements = load_requirements(REQUIREMENTS_PATH)
+
     try:
         logging.info(f"Deploying `{name}` agent...")
-        remote_agent = _get_client().runtimes.create(
-            agent=adk_app,
-            config={
-                "requirements": "./requirements.txt",
-                "extra_packages": extra_packages,
-                "staging_bucket": f"gs://{os.getenv('GOOGLE_CLOUD_STORAGE_BUCKET')}",
-                "gcs_dir_name": f"adk-pipe/{spec['gcs_subdir']}/{version}/staging",
-                "display_name": f"{spec['display_name']}-{version}",
-                "description": root_agent.description,
-                "env_vars": build_env_vars(enable_tracing),
-                "min_instances": 1,
-                "max_instances": 100,
-                "resource_limits": {"cpu": "4", "memory": "8Gi"},
-                "container_concurrency": 9,  # recommended value is 2 * cpu + 1
-            },
-        )
+        with tempfile.TemporaryDirectory(prefix="engine-pkg-") as staging_root:
+            staged = stage_extra_packages(extra_packages, staging_root)
+            assert_no_local_data(staging_root)
+            # The SDK tars the relative extra_packages paths from the cwd: run it
+            # from the filtered staging copy, never the checkout.
+            with contextlib.chdir(staging_root):
+                remote_agent = _get_client().runtimes.create(
+                    agent=adk_app,
+                    config={
+                        "requirements": requirements,
+                        "extra_packages": staged,
+                        "staging_bucket": f"gs://{os.getenv('GOOGLE_CLOUD_STORAGE_BUCKET')}",
+                        "gcs_dir_name": f"adk-pipe/{spec['gcs_subdir']}/{version}/staging",
+                        "display_name": f"{spec['display_name']}-{version}",
+                        "description": root_agent.description,
+                        "env_vars": build_env_vars(enable_tracing),
+                        "min_instances": 1,
+                        "max_instances": 100,
+                        "resource_limits": {"cpu": "4", "memory": "8Gi"},
+                        "container_concurrency": 9,  # recommended value is 2 * cpu + 1
+                    },
+                )
         logging.info(
             f"\n\nSuccessfully created remote agent: {remote_agent.api_resource.name}\n\n"
         )

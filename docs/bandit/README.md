@@ -522,6 +522,7 @@ Set the pushed URI as `BANDIT_SERVING_IMAGE` on the api service.
 
 ```bash
 gcloud builds submit --config deployment/bandit/cloudbuild.traffic.yaml \
+  --ignore-file=deployment/bandit/traffic.gcloudignore \
   --substitutions=SHORT_SHA=$(git rev-parse --short HEAD) .
 IMAGE_TAG=$(git rev-parse --short HEAD) BQ_DATASET_ID=trend_trawler \
   deployment/bandit/deploy_traffic_job.sh
