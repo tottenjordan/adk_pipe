@@ -7,10 +7,10 @@ import os
 import shutil
 import sys
 import tempfile
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, cast
 
 import dotenv
-import pandas as pd
 from absl import app, flags
 
 # Add the project root to sys.path
@@ -547,12 +547,17 @@ def delete(
     logging.info(f"Delete requested for {resource_id} (operation {op.name})")
 
 
+def default_version() -> str:
+    """The version namespace used when --version is omitted (UTC, to the minute)."""
+    return datetime.now(UTC).strftime("%Y_%m_%d_%H_%M")
+
+
 def main(argv):
     """Main function that uses the defined flags."""
     del argv
 
     if FLAGS.version is None:
-        FLAGS.version = pd.Timestamp.now("UTC").strftime("%Y_%m_%d_%H_%M")
+        FLAGS.version = default_version()
     logging.info(f"version: {FLAGS.version}")
 
     if FLAGS.list:

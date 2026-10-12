@@ -905,3 +905,28 @@ class TestSmokeCreativeOutputs:
         # finalize; trend_scout has no creative outputs.
         it = _import_integration_test()
         assert it.check_creative_outputs(agent, {}) is None
+
+
+class TestDeployAgentRuntimeDeps:
+    def test_import_does_not_pull_in_pandas(self):
+        # Cloud Build deploys from `uv sync --no-dev`; pandas is dev-only.
+        import subprocess
+
+        code = (
+            "import sys; import deployment.deploy_agent; "
+            "sys.exit(1 if 'pandas' in sys.modules else 0)"
+        )
+        r = subprocess.run(
+            [sys.executable, "-c", code],
+            cwd=PROJECT_ROOT,
+            capture_output=True,
+            text=True,
+            env={**os.environ, "GOOGLE_CLOUD_PROJECT": "test-project"},
+        )
+        assert r.returncode == 0, r.stderr or "deploy_agent imported pandas"
+
+    def test_default_version_is_utc_minute_stamp(self):
+        import re
+
+        da = _import_deploy_agent()
+        assert re.fullmatch(r"\d{4}_\d{2}_\d{2}_\d{2}_\d{2}", da.default_version())
