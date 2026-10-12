@@ -239,6 +239,15 @@ gcloud builds submit --no-source --project=hybrid-vertex --region=us-central1 \
   --substitutions=_AGENTS=creative_agent,_CREATIVE_VERSION=v37,_SMOKE=true
 ```
 
+To deploy **two** engines in one build, use gcloud's alternate delimiter, because
+`--substitutions` is comma-separated and `_AGENTS` itself contains a comma:
+
+```bash
+gcloud builds submit --no-source --project=hybrid-vertex --region=us-central1 \
+  --config=deployment/cloudbuild.agents.yaml \
+  "--substitutions=^;^_REF=$(git rev-parse origin/main);_AGENTS=interactive_creative,trend_scout;_INTERACTIVE_VERSION=v36;_SCOUT_VERSION=v19"
+```
+
 `--no-source`: nothing is uploaded from your checkout; the build clones `_REF`, so **push
 first** (a local-only commit can't be deployed).
 
