@@ -139,3 +139,22 @@ def test_campaign_fields_already_in_state_are_not_rememorized():
     instructions = ROOT_AGENT_INSTR.split("<INSTRUCTIONS>", 1)[1]
     assert "Do NOT re-memorize" in instructions
     assert "missing from BOTH" in instructions
+
+
+def _tool_name(tool: object) -> str:
+    name = getattr(tool, "name", None) or getattr(tool, "__name__", None)
+    assert isinstance(name, str), tool
+    return name
+
+
+def test_available_tools_section_lists_exactly_the_root_tools():
+    """The root instruction's <AVAILABLE_TOOLS> list must name exactly the
+    tools the root agent is wired with (no stale or missing entries)."""
+    from interactive_creative.agent import root_agent
+
+    section = ROOT_AGENT_INSTR.split("<AVAILABLE_TOOLS>", 1)[1].split(
+        "</AVAILABLE_TOOLS>", 1
+    )[0]
+    listed = re.findall(r"^\s*\d+\.\s+`([^`]+)`", section, re.M)
+    assert len(listed) == len(set(listed)), listed
+    assert set(listed) == {_tool_name(t) for t in root_agent.tools}
