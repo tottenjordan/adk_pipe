@@ -1,10 +1,15 @@
 # syntax=docker/dockerfile:1
-# CPR serving image for the bandit endpoint (bandit_serving.predictor.BanditPredictor
-# behind the Vertex AI CPR model server). Replaces the Dockerfile that
-# LocalModel.build_cpr_model generated: same handler/predictor env, entrypoint,
-# port and /usr/app workdir, but dependencies are installed once, in a builder
-# stage that sees only requirements.txt, so a code change reuses the cached
-# dependency layer.
+# The one bandit image. Its default entrypoint serves the CPR bandit endpoint
+# (bandit_serving.predictor.BanditPredictor behind the Vertex AI CPR model server;
+# Vertex Model.upload uses the image's default entrypoint). The synthetic-traffic
+# Cloud Run Job runs the same image with a command override
+# (deployment/bandit/deploy_traffic_job.sh: --command python
+# --args=-m,bandit_traffic.main). Locally:
+#   docker run --rm --entrypoint python <image> -m bandit_traffic.main --help
+# Replaces the Dockerfile that LocalModel.build_cpr_model generated: same
+# handler/predictor env, entrypoint, port and /usr/app workdir, but dependencies
+# are installed once, in a builder stage that sees only requirements.txt, so a
+# code change reuses the cached dependency layer.
 #
 # Build context = the repo root (Cloud Build: deployment/bandit/cloudbuild.bandit.yaml)
 # or the tree deployment/bandit/build_image.py stages (same layout). The context is
@@ -44,6 +49,7 @@ COPY --from=builder /opt/venv /opt/venv
 WORKDIR /usr/app
 COPY bandit/ /usr/app/bandit/
 COPY bandit_serving/*.py /usr/app/bandit_serving/
+COPY bandit_traffic/*.py /usr/app/bandit_traffic/
 USER app
 EXPOSE 8080
 ENTRYPOINT ["python", "-m", "google.cloud.aiplatform.prediction.model_server"]

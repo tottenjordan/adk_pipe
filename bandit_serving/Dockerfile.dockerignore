@@ -2,14 +2,25 @@
 # <Dockerfile>.dockerignore instead of the root .dockerignore, which drops
 # bandit_serving/ for the api build). Deny everything, then allow exactly the
 # files deployment/bandit/build_image.py stages (tests/test_build_image.py
-# checks the two lists match).
+# checks the two lists match): the endpoint's and the traffic job's sources.
 **
 !bandit/__init__.py
 !bandit/aggregate.py
+!bandit/baselines.py
 !bandit/config.py
+!bandit/environment.py
 !bandit/features.py
 !bandit/linear_ts.py
+!bandit/metrics.py
+!bandit/policies.py
 !bandit/scenarios/*.yaml
+!bandit/simulate.py
 !bandit_serving/__init__.py
 !bandit_serving/predictor.py
 !bandit_serving/requirements.txt
+!bandit_traffic/__init__.py
+!bandit_traffic/bq.py
+!bandit_traffic/endpoint_client.py
+!bandit_traffic/fake_endpoint.py
+!bandit_traffic/main.py
+!bandit_traffic/traffic.py

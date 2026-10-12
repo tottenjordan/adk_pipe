@@ -1,12 +1,14 @@
-"""Build (and optionally local-test / push) the CPR bandit serving image.
+"""Build (and optionally local-test / push) the bandit image.
 
     uv run python deployment/bandit/build_image.py --local-test   # build + local endpoint
     uv run python deployment/bandit/build_image.py --image <uri> --local-test
     uv run python deployment/bandit/build_image.py --push         # build + docker push
 
+One image serves the CPR endpoint (its default entrypoint) and runs the
+synthetic-traffic job (command override ``python -m bandit_traffic.main``).
 Stages a temporary build context with the repo layout: ``bandit_serving/`` (the
-predictor + ``requirements.txt``), the runtime subset of ``bandit/`` (config,
-features, linear_ts, aggregate + ``scenarios/*.yaml``) and
+predictor + ``requirements.txt``), ``bandit_traffic/``, the runtime modules of
+``bandit/`` (everything but the CLI, + ``scenarios/*.yaml``) and
 ``bandit_serving/Dockerfile`` (+ its ``Dockerfile.dockerignore``) at the root, then
 runs ``docker build`` on it. The same Dockerfile builds from the repo root in
 Cloud Build (``deployment/bandit/cloudbuild.bandit.yaml``, the release path).
@@ -38,13 +40,29 @@ IMAGE_NAME = "trend-trawler-bandit"
 DEFAULT_BASE_IMAGE = "python:3.13-slim"
 SERVING_ENV = {"VERTEX_CPR_WEB_CONCURRENCY": "1"}  # == endpoint.SERVING_ENV
 SERVING_FILES = ("__init__.py", "predictor.py")
-#: ``bandit/`` modules the predictor needs at runtime (no simulator/baselines).
+#: ``bandit/`` modules the image needs at runtime: the predictor uses config,
+#: features, linear_ts and aggregate; the traffic job also needs the simulator,
+#: environment, policies, baselines and metrics. Only the CLI stays out.
 BANDIT_RUNTIME_FILES = (
     "__init__.py",
     "aggregate.py",
+    "baselines.py",
     "config.py",
+    "environment.py",
     "features.py",
     "linear_ts.py",
+    "metrics.py",
+    "policies.py",
+    "simulate.py",
+)
+#: ``bandit_traffic/`` modules (the traffic job, run via a command override).
+TRAFFIC_FILES = (
+    "__init__.py",
+    "bq.py",
+    "endpoint_client.py",
+    "fake_endpoint.py",
+    "main.py",
+    "traffic.py",
 )
 PREDICTOR_MODULE = "bandit_serving.predictor"
 #: ``LocalModel.build_cpr_model``'s container routes (``local_model.DEFAULT_*``).
@@ -92,12 +110,16 @@ def git_sha(repo: Path = REPO_ROOT) -> str:
 
 
 def stage_src_dir(dest: Path, repo: Path = REPO_ROOT) -> Path:
-    """Copy the serving sources + Dockerfile into ``dest`` (the build context),
-    mirroring the repo layout so the Dockerfile's COPY paths work in both."""
+    """Copy the serving + traffic sources and the Dockerfile into ``dest`` (the
+    build context), mirroring the repo layout so the Dockerfile's COPY paths work
+    in both."""
     dest.mkdir(parents=True, exist_ok=True)
     (dest / "bandit_serving").mkdir(exist_ok=True)
     for name in SERVING_FILES:
         shutil.copy2(repo / "bandit_serving" / name, dest / "bandit_serving" / name)
+    (dest / "bandit_traffic").mkdir(exist_ok=True)
+    for name in TRAFFIC_FILES:
+        shutil.copy2(repo / "bandit_traffic" / name, dest / "bandit_traffic" / name)
     (dest / "bandit" / "scenarios").mkdir(parents=True, exist_ok=True)
     for name in BANDIT_RUNTIME_FILES:
         shutil.copy2(repo / "bandit" / name, dest / "bandit" / name)
