@@ -1,0 +1,109 @@
+# Cached Cloud Build for trend-trawler-api (repo-root Dockerfile) and trend-trawler-web
+# (frontend/Dockerfile), built IN PARALLEL with BuildKit (docker buildx) and a registry
+# layer cache, replacing `gcloud run deploy --source` (which always builds with
+# --no-cache and re-pushes the ~1 GB api dependency layer every time).
+#
+#   gcloud builds submit --config cloudbuild.yaml \
+#     --ignore-file deployment/cloudbuild.gcloudignore \
+#     --substitutions=SHORT_SHA=$(git rev-parse --short HEAD)
+#
+# The ignore file matters: the root .gcloudignore is for the api's `--source .` deploy
+# and drops frontend/, which the web build needs.
+#
+# Pushes <image>:$SHORT_SHA + <image>:latest and prints each image digest (also in
+# /workspace/*.digest). Deploy steps are OFF by default (_DEPLOY=false); with
+# _DEPLOY=true they create --no-traffic revisions from the digests and never move
+# traffic — pinning stays the manual, idle-checked step (deployment/README.md Step 8,
+# "Build with Cloud Build (cached), then deploy the digest").
+# The share service reuses the web digest (deployment/README.md → Public share service).
+
+substitutions:
+  _REGION: us-central1
+  _REPO: us-central1-docker.pkg.dev/${PROJECT_ID}/cloud-run-source-deploy
+  _API_IMAGE: ${_REPO}/trend-trawler-api
+  _WEB_IMAGE: ${_REPO}/trend-trawler-web
+  _DEPLOY: "false"
+
+options:
+  dynamicSubstitutions: true
+  # Default machine on purpose: E2_HIGHCPU_8 halves a web rebuild (54 s vs 100 s) but
+  # waited ~55 s for a worker every time (measured 2026-10-12), so it only breaks even
+  # on web changes and loses on everything else.
+  logging: CLOUD_LOGGING_ONLY
+
+steps:
+  # One BuildKit builder (docker-container driver: needed for --cache-to type=registry),
+  # shared by both build steps. The buildkit image comes from Google's Docker Hub
+  # mirror to avoid Hub pull limits.
+  - id: buildx-setup
+    name: gcr.io/cloud-builders/docker
+    entrypoint: bash
+    args:
+      - -euc
+      - |
+        docker buildx create --name tt --driver docker-container \
+          --driver-opt image=mirror.gcr.io/moby/buildkit:buildx-stable-1 --use
+        docker buildx inspect --bootstrap
+
+  - id: build-api
+    name: gcr.io/cloud-builders/docker
+    waitFor: [buildx-setup]
+    entrypoint: bash
+    args:
+      - -euc
+      - |
+        docker buildx build --builder tt --file Dockerfile \
+          --tag ${_API_IMAGE}:${SHORT_SHA} --tag ${_API_IMAGE}:latest \
+          --cache-from type=registry,ref=${_API_IMAGE}:buildcache \
+          --cache-to type=registry,ref=${_API_IMAGE}:buildcache,mode=max,image-manifest=true,oci-mediatypes=true \
+          --provenance=false --push \
+          --metadata-file /workspace/api-meta.json .
+        sed -n 's/.*"containerimage.digest": *"\(sha256:[0-9a-f]*\)".*/\1/p' \
+          /workspace/api-meta.json > /workspace/api.digest
+        test -s /workspace/api.digest
+        echo "API_IMAGE=${_API_IMAGE}@$$(cat /workspace/api.digest)"
+
+  - id: build-web
+    name: gcr.io/cloud-builders/docker
+    waitFor: [buildx-setup]
+    entrypoint: bash
+    args:
+      - -euc
+      - |
+        docker buildx build --builder tt --file frontend/Dockerfile \
+          --tag ${_WEB_IMAGE}:${SHORT_SHA} --tag ${_WEB_IMAGE}:latest \
+          --cache-from type=registry,ref=${_WEB_IMAGE}:buildcache \
+          --cache-to type=registry,ref=${_WEB_IMAGE}:buildcache,mode=max,image-manifest=true,oci-mediatypes=true \
+          --provenance=false --push \
+          --metadata-file /workspace/web-meta.json frontend
+        sed -n 's/.*"containerimage.digest": *"\(sha256:[0-9a-f]*\)".*/\1/p' \
+          /workspace/web-meta.json > /workspace/web.digest
+        test -s /workspace/web.digest
+        echo "WEB_IMAGE=${_WEB_IMAGE}@$$(cat /workspace/web.digest)"
+
+  # Optional (_DEPLOY=true): new revisions at 0% traffic. No env/IAM/ingress flags, so
+  # the services keep their env vars (incl. SESSION_SERVICE_URI / IAP_ALLOWED_HD), IAM
+  # and IAP; the api's required runtime flags are re-asserted. Never pass
+  # --allow-unauthenticated here. Needs the IAM grants in deployment/README.md
+  # (Step 8, "Build with Cloud Build (cached), then deploy the digest").
+  - id: deploy
+    name: gcr.io/cloud-builders/gcloud
+    waitFor: [build-api, build-web]
+    entrypoint: bash
+    args:
+      - -euc
+      - |
+        if [ "${_DEPLOY}" != "true" ]; then
+          echo "_DEPLOY=${_DEPLOY}: skipping deploy."
+          echo "API_IMAGE=${_API_IMAGE}@$$(cat /workspace/api.digest)"
+          echo "WEB_IMAGE=${_WEB_IMAGE}@$$(cat /workspace/web.digest)"
+          exit 0
+        fi
+        gcloud run deploy trend-trawler-api --region ${_REGION} \
+          --image "${_API_IMAGE}@$$(cat /workspace/api.digest)" --no-traffic \
+          --service-account tt-api-sa@${PROJECT_ID}.iam.gserviceaccount.com \
+          --no-cpu-throttling --min-instances 1 --memory 8Gi --cpu 4 --timeout 900
+        gcloud run deploy trend-trawler-web --region ${_REGION} \
+          --image "${_WEB_IMAGE}@$$(cat /workspace/web.digest)" --no-traffic \
+          --service-account tt-web-sa@${PROJECT_ID}.iam.gserviceaccount.com
+        echo "Deployed at 0% traffic; pin each new revision manually (deployment/README.md Step 8)."

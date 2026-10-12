@@ -23,3 +23,6 @@ notebook-examples
 imgs
 bandit_serving
 cloud_functions
+# Build configs: editing them must not invalidate the api's source layer.
+cloudbuild.yaml
+deployment/cloudbuild.gcloudignore
