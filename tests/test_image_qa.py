@@ -925,8 +925,7 @@ def test_per_run_cap_ships_to_agent_engine():
 # --- rating strictness (opt-in rating learning) ------------------------------
 
 _PROMINENT_PRODUCT = "The product must be prominent"
-_PROMINENT_MOTIF = "this brand's reviewers often found the trend unclear"
-_MOTIF_PROMINENCE = "prominent and recognisable at a glance"
+_PROMINENT_MOTIF = "The trend motif must be prominent"
 
 
 def test_instruction_requires_a_prominent_product_only_when_flagged():
@@ -937,19 +936,34 @@ def test_instruction_requires_a_prominent_product_only_when_flagged():
     assert _PROMINENT_MOTIF not in text
 
 
-def test_instruction_always_requires_a_prominent_motif():
-    # Aligned with the judge's trend_motif_visible gate: the motif must be
-    # prominent and recognisable at a glance, not tiny or in the background.
+def test_default_instruction_asks_only_for_a_visible_recognisable_motif():
+    # Aligned with the judge's loosened trend_motif_visible gate (2026-10-12):
+    # visible and recognisable, stylised/symbolic references count; prominence
+    # is opt-in (trend_unclear strictness).
     text = _instruction_text(_CONCEPT)
-    assert _MOTIF_PROMINENCE in text
-    assert "only in the background" in text
-    assert _MOTIF_PROMINENCE not in _instruction_text({**_CONCEPT, "trend_motif": ""})
+    assert "prominent" not in text.split("Trend motif:")[1].split("\n")[0]
+    assert "at a glance" not in text
+    assert "recognisable as the trend" in text
+    assert "stylised, abstract or symbolic" in text
+    assert "not tiny or hidden in the background" in text
+    no_motif = _instruction_text({**_CONCEPT, "trend_motif": ""})
+    assert "recognisable as the trend" not in no_motif
 
 
-def test_instruction_is_stricter_about_the_motif_only_when_flagged():
+def test_result_schema_and_correction_do_not_demand_prominence():
+    from creative_agent.image_qa import _RULES, ImageQAResult
+
+    desc = ImageQAResult.model_fields["motif_visible"].description or ""
+    assert "prominent" not in desc and "at a glance" not in desc
+    correction = next(c for a, _, c in _RULES if a == "motif_visible")
+    assert "prominent" not in correction
+
+
+def test_instruction_requires_a_prominent_motif_only_when_flagged():
     assert _PROMINENT_MOTIF not in _instruction_text(_CONCEPT)
     text = _instruction_text(_CONCEPT, strictness=["trend_unclear"])
     assert _PROMINENT_MOTIF in text
+    assert "foreground or a large share of the frame" in text
     assert _PROMINENT_PRODUCT not in text
 
 
