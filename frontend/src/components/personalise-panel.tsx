@@ -23,7 +23,7 @@ import {
   type VariantRecord,
   type VariantsListing,
 } from "@/lib/variants";
-import { ProofImage } from "@/app/results/[sessionId]/proof-grid";
+import { VariantCompare } from "@/components/variant-compare";
 
 /**
  * "Personalise" in the results proof dialog: re-render this creative with one of
@@ -266,26 +266,14 @@ export function PersonalisePanel({
       )}
 
       {record?.status === "done" && (
-        <div className="mt-3 grid grid-cols-2 gap-2">
-          <figure className="min-w-0">
-            <ProofImage
-              src={baseImageUrl}
-              alt={`Original: ${baseAlt}`}
-              fit="contain"
-              className="aspect-square w-full rounded-sm bg-foreground/[0.04]"
-            />
-            <figcaption className="mt-1 text-xs text-muted-foreground">Original</figcaption>
-          </figure>
-          <figure className="min-w-0">
-            <ProofImage
-              src={imageUrl}
-              alt={`Personalised preview with ${personLabel}: ${baseAlt}`}
-              fit="contain"
-              className="aspect-square w-full rounded-sm bg-foreground/[0.04]"
-            />
-            <figcaption className="mt-1 text-xs text-muted-foreground">With {personLabel}</figcaption>
-          </figure>
-        </div>
+        <VariantCompare
+          original={{ src: baseImageUrl, alt: `Original: ${baseAlt}`, caption: "Original" }}
+          preview={{
+            src: imageUrl,
+            alt: `Personalised preview with ${personLabel}: ${baseAlt}`,
+            caption: `With ${personLabel}`,
+          }}
+        />
       )}
 
       {check && (
