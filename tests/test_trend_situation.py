@@ -217,6 +217,33 @@ def test_current_moment_md_for_timely_moment():
     assert "\n" not in md
 
 
+def test_current_moment_md_without_the_timely_slot_has_no_valid_until():
+    """MAX_TIMELY_CONCEPTS=0: the moment is still stated as context, but without
+    the "valid until" time that invites the brief writer to set a timely angle
+    (TIMELY_ANGLE_RULE) the brief gate would then reject."""
+    md = current_moment_md(_validate(LOSS), max_timely=0)
+    assert md.startswith("Just happened: Texas vs Oklahoma, 2026-10-10.")
+    assert "sources: src-2" in md
+    assert "valid until" not in md
+
+
+def test_state_delta_passes_max_timely_to_the_moment_line():
+    from creative_agent.trend_situation import trend_situation_state_delta
+
+    state = {
+        "trend_situation_draft": UPCOMING,
+        "sources": SOURCES,
+        "current_datetime": "2026-10-11T10:00:00-04:00",
+        "current_timezone": "America/New_York",
+    }
+    kwargs = {"enabled": True, "window_days": 7, "valid_hours_after": 48}
+    on = trend_situation_state_delta(state, max_timely=1, **kwargs)
+    off = trend_situation_state_delta(state, max_timely=0, **kwargs)
+    assert "valid until" in on["trend_situation_md"]
+    assert off["trend_situation_md"].startswith("Upcoming:")
+    assert "valid until" not in off["trend_situation_md"]
+
+
 def test_current_moment_md_for_sensitive_moment_says_never_reference():
     md = current_moment_md(
         _validate(
@@ -303,11 +330,34 @@ def test_situation_prompts_use_only_known_tokens():
     }
     assert set(tokens.findall(TREND_SITUATION_SYNTHESIZER_INSTR)) == date_tokens | {
         "target_search_trends",
+        "target_audience",
         "trend_situation_raw?",
         "sources?",
     }
     assert "unknown" in TREND_SITUATION_SYNTHESIZER_INSTR
     assert "sensitive" in TREND_SITUATION_SYNTHESIZER_INSTR
+
+
+def test_situation_outcome_is_from_the_audience_side():
+    """The tone playbook (tone_rule_for) speaks to the audience's side, so the
+    outcome must be scored from the side the target audience supports."""
+    from creative_agent.prompts import TREND_SITUATION_SYNTHESIZER_INSTR
+    from creative_agent.schemas import TrendSituationDraft
+
+    instr = TREND_SITUATION_SYNTHESIZER_INSTR
+    assert "the side the target audience supports" in instr
+    assert "first-named" in instr
+    assert "trend subject's side" not in instr
+    desc = TrendSituationDraft.model_fields["outcome"].description or ""
+    assert "target audience" in desc
+
+
+def test_situation_searcher_freshness_follows_the_event_window():
+    from creative_agent.config import config
+    from creative_agent.prompts import TREND_SITUATION_SEARCHER_INSTR
+
+    days = config.trend_event_window_days
+    assert f"published in the last {days} days" in TREND_SITUATION_SEARCHER_INSTR
 
 
 def test_state_delta_without_a_draft_abstains():

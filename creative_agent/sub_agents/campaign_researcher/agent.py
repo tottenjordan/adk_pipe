@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 from agent_common import RetryUntilKeyNode, build_gemini
 
 from ... import callbacks
-from ...config import config
+from ...config import SCHEMA_RETRY, config
 from ...schemas import SearchQuery
 
 # --- config ---
@@ -30,7 +30,7 @@ _CA_LITE, _CA_WORKER, _CA_LOC = config.campaign_models()
 # --- SCHEMA DEFINITIONS ---
 # SearchQuery is the shared single-query model from creative_agent.schemas.
 class CampaignQueryList(BaseModel):
-    """Model for providing evaluation feedback on research quality."""
+    """The initial web search queries for researching the campaign."""
 
     queries: list[SearchQuery] | None = Field(
         default=None,
@@ -100,6 +100,9 @@ campaign_web_planner = Agent(
     **STRICT RULE: Your entire output MUST be a valid JSON object matching the 'CampaignQueryList' schema. Do not include any introductory text, reasoning, or markdown outside the JSON block.**
     """,
     output_schema=CampaignQueryList,
+    # The planner sits outside the RetryUntilKeyNode, so a malformed JSON turn
+    # would otherwise fail the whole research branch.
+    retry_config=SCHEMA_RETRY,
     output_key="initial_campaign_queries",
     after_model_callback=callbacks.log_empty_turn_finish_reason,
 )
@@ -124,14 +127,14 @@ campaign_web_searcher = Agent(
     instruction="""Role: You are a web research operator gathering raw market-research material.
 
     <INSTRUCTIONS>
-    1.  **Access Queries:** Retrieve the list of web search queries from the `initial_campaign_queries` input in the <CONTEXT> block.
+    1.  **Access Queries:** Retrieve the list of web search queries from the `initial_campaign_queries` input in the <CONTEXT> block. If no queries are listed, search the intersection of the brand ({brand}), the product ({target_product}) and the target audience ({target_audience}) instead: the audience's needs, the product's market and the brand's voice.
     2.  **Execute Research:** Use the `google_search` tool to exhaustively execute **all** retrieved queries.
     3.  **Report RAW Findings:** For each query, list the concrete facts, quotes, entities, competitors, data points, and sentiment you found, grouped by query. Do NOT write a polished report and do NOT omit specifics — the next agent needs the raw material to synthesize from. Plain text with light markdown is fine.
     </INSTRUCTIONS>
 
     <CONTEXT>
         <initial_campaign_queries>
-        {initial_campaign_queries}
+        {initial_campaign_queries?}
         </initial_campaign_queries>
     </CONTEXT>
 
@@ -176,6 +179,18 @@ campaign_web_synthesizer = Agent(
         <brand>
         {brand}
         </brand>
+
+        <target_audience>
+        {target_audience}
+        </target_audience>
+
+        <target_product>
+        {target_product}
+        </target_product>
+
+        <key_selling_points>
+        {key_selling_points}
+        </key_selling_points>
 
         <campaign_web_search_raw>
         {campaign_web_search_raw?}

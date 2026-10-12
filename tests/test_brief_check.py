@@ -575,8 +575,11 @@ def test_timely_angle_needs_a_validated_moment():
         brief, trend_situation={**_TIMELY_LOSS, "timely_ok": False}
     )
     assert "without a validated current moment" in issue
-    # The slot switched off (MAX_TIMELY_CONCEPTS=0) counts as no moment.
-    assert _angle_issues(brief, trend_situation=_TIMELY_LOSS, max_timely=0)
+    # The slot switched off (MAX_TIMELY_CONCEPTS=0): flagged, and the message
+    # says why (the moment itself is valid).
+    (issue,) = _angle_issues(brief, trend_situation=_TIMELY_LOSS, max_timely=0)
+    assert "timely slot is off" in issue
+    assert "without a validated current moment" not in issue
     assert _angle_issues(brief, trend_situation=_TIMELY_LOSS) == []
 
 
@@ -596,8 +599,9 @@ def test_timely_angle_must_not_contradict_the_outcome():
         )
         == []
     )
-    upcoming = {"phase": "upcoming", "outcome": "", "timely_ok": True}
-    assert _angle_issues(_with_angle("We won already!"), trend_situation=upcoming)
+    upcoming = {"phase": "upcoming", "outcome": "none", "timely_ok": True}
+    (issue,) = _angle_issues(_with_angle("We won already!"), trend_situation=upcoming)
+    assert "no result yet" in issue and "outcome: none" not in issue
     assert (
         _angle_issues(
             _with_angle("Game-day rituals before kickoff."), trend_situation=upcoming

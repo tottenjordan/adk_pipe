@@ -305,13 +305,16 @@ def _short_time(iso: str) -> str:
     return moment.strftime("%Y-%m-%d %H:%M") + (f" {zone}" if zone else "")
 
 
-def current_moment_md(situation: Any) -> str:
+def current_moment_md(situation: Any, max_timely: int = 1) -> str:
     """One brace-free line for ``{trend_situation_md?}`` ("" when not usable).
 
     A timely moment: "<Phase>: <event>, <date>. <outcome>
     (sources: …; valid until …)". A sensitive moment is rendered too, with an
     instruction never to reference it; every other (unknown, not timely) moment
-    renders "" so the brief cannot lean on it.
+    renders "" so the brief cannot lean on it. With the timely slot off
+    (``max_timely`` <= 0) the "valid until" time is left out: it is what tells
+    the brief writer a timely angle may be set (TIMELY_ANGLE_RULE), and the
+    brief gate rejects one then.
     """
     data = as_situation(situation)
     if data is None:
@@ -330,7 +333,7 @@ def current_moment_md(situation: Any) -> str:
     tail = []
     if data.source_ids:
         tail.append("sources: " + ", ".join(_clean(s) for s in data.source_ids))
-    if data.timely_ok and data.valid_until:
+    if data.timely_ok and data.valid_until and max_timely > 0:
         tail.append(f"valid until {_short_time(data.valid_until)}")
     line = " ".join(parts)
     return f"{line} ({'; '.join(tail)})" if tail else line
@@ -420,6 +423,6 @@ def trend_situation_state_delta(
     )
     return {
         "trend_situation": situation.model_dump(),
-        "trend_situation_md": current_moment_md(situation),
+        "trend_situation_md": current_moment_md(situation, max_timely),
         "timely_rules": build_timely_rules(situation, max_timely),
     }

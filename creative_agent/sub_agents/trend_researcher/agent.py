@@ -11,7 +11,7 @@ from agent_common import RetryUntilKeyNode, build_gemini
 from agent_common.clock import DATE_CONTEXT_LINE
 
 from ... import callbacks
-from ...config import config
+from ...config import SCHEMA_RETRY, config
 from ...prompts import TREND_SCOUT_HINT_BLOCK
 from ...schemas import SearchQuery
 
@@ -24,7 +24,7 @@ logging.basicConfig(
 # --- SCHEMA DEFINITIONS ---
 # SearchQuery is the shared single-query model from creative_agent.schemas.
 class TrendQueryList(BaseModel):
-    """Model for providing evaluation feedback on research quality."""
+    """The initial web search queries for researching the trending topic."""
 
     queries: list[SearchQuery] | None = Field(
         default=None,
@@ -90,6 +90,9 @@ gs_web_planner = Agent(
     """
     ),
     output_schema=TrendQueryList,
+    # The planner sits outside the RetryUntilKeyNode, so a malformed JSON turn
+    # would otherwise fail the whole research branch.
+    retry_config=SCHEMA_RETRY,
     output_key="initial_gs_queries",
     after_model_callback=callbacks.log_empty_turn_finish_reason,
 )
@@ -117,14 +120,14 @@ gs_web_searcher = Agent(
         + """
 
     <INSTRUCTIONS>
-    1.  **Access Queries:** Retrieve the list of web search queries from the `initial_gs_queries` input in the <CONTEXT> block.
+    1.  **Access Queries:** Retrieve the list of web search queries from the `initial_gs_queries` input in the <CONTEXT> block. If no queries are listed, search the intersection of the trend ({target_search_trends}) and the target audience ({target_audience}) instead: why the trend is happening now, its key dates and how it connects to the audience.
     2.  **Execute Research:** Use the `google_search` tool to exhaustively execute **all** retrieved queries.
     3.  **Report RAW Findings:** For each query, list the concrete facts, quotes, entities, dates, numbers, and sentiment you found, grouped by query. Do NOT write a polished report and do NOT omit specifics — the next agent needs the raw material to synthesize from. Plain text with light markdown is fine.
     </INSTRUCTIONS>
 
     <CONTEXT>
         <initial_gs_queries>
-        {initial_gs_queries}
+        {initial_gs_queries?}
         </initial_gs_queries>
     </CONTEXT>
 
@@ -171,6 +174,22 @@ gs_web_synthesizer = Agent(
     </INSTRUCTIONS>
 
     <CONTEXT>
+        <target_search_trends>
+        {target_search_trends}
+        </target_search_trends>
+
+        <brand>
+        {brand}
+        </brand>
+
+        <target_product>
+        {target_product}
+        </target_product>
+
+        <target_audience>
+        {target_audience}
+        </target_audience>
+
         <gs_web_search_raw>
         {gs_web_search_raw?}
         </gs_web_search_raw>
@@ -190,7 +209,7 @@ gs_web_synthesizer = Agent(
     2.  **Key Entities and Cultural Narrative:** (Identify the core people/brands/events driving the trend and summarize the public sentiment or underlying cultural story.)
     3.  **Marketing Opportunity Analysis:** (**CRITICAL:** Identify 2-3 specific, actionable ways the trend could be leveraged to create culturally relevant messaging for the campaign, specifically considering the target audience.)
     4.  **Risk Assessment:** (Identify the pitfalls marketers must avoid: controversies or divisive debates around the trend, sensitivities involving real people (e.g. tragedies, legal matters, likeness or endorsement issues), and any negative associations that could attach to a brand that joins the conversation. If none were found, say so briefly.)
-    5.  **Current Moment & Timeline:** (The dated recent and upcoming events behind the trend, relative to today, each with its date and the source it came from; or "no notable dated event" when the findings give none. Never guess a date or result.)
+    5.  **Current Moment & Timeline:** (The dated recent and upcoming events behind the trend, relative to today, each with its date and the name of the publisher that reported it (publisher name only, no links); or "no notable dated event" when the findings give none. Never guess a date or result.)
     </REPORT_STRUCTURE>
 
     ---

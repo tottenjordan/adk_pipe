@@ -1445,7 +1445,7 @@ root_agent = Agent(
     ),
     name="root_agent",
     retry_config=INFRA_RETRY,
-    description="Help with ad generation; brainstorm and refine ad copy and visual concept ideas with actor-critic workflows; generate final ad creatives.",
+    description="Generates trend-based ad creatives: records the campaign inputs, then runs the creative_pipeline once (research and creative brief, gated ad copies, visual concepts with rendered images, evaluation and export).",
     instruction=prompts.ROOT_AGENT_INSTR,
     tools=[creative_pipeline, tools.memorize],
     generate_content_config=types.GenerateContentConfig(

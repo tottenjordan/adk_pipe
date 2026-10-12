@@ -5,6 +5,7 @@ from typing import Any
 
 from agent_common.clock import DATE_CONTEXT_LINE
 
+from .claims import ABSOLUTE_CLAIM_TERMS
 from .config import PHOTOGRAPHIC_PERSON_STYLES, config
 from .trend_situation import as_situation, moment_phrase
 
@@ -166,7 +167,7 @@ COMBINED_WEB_EVALUATOR_INSTR = """Role: You are a Lead Strategic Research Qualit
 ENHANCED_COMBINED_SEARCHER_INSTR = """Role: You are a web research operator executing a final set of follow-up queries.
 
     <INSTRUCTIONS>
-    1.  **Access Queries:** The follow-up queries are contained within the `combined_research_evaluation` JSON object in the `follow_up_queries` key. If it is empty, search the intersection of the target product, trend and audience instead.
+    1.  **Access Queries:** The follow-up queries are contained within the `combined_research_evaluation` JSON object in the `follow_up_queries` key. If it is empty, search the intersection of the target product ({target_product}), the trend ({target_search_trends}) and the target audience ({target_audience}) instead.
     2.  **Execute Search:** Use the `google_search` tool to execute the queries in `follow_up_queries` (if any).
     3.  **Report RAW Findings:** For each query, list the concrete new facts, quotes, entities, dates, and numbers you found, grouped by query. Do NOT write a polished summary and do NOT omit specifics — the next agent needs the raw material. Plain text with light markdown is fine.
     </INSTRUCTIONS>
@@ -185,10 +186,14 @@ ENHANCED_COMBINED_SEARCHER_INSTR = """Role: You are a web research operator exec
 REFINED_WEB_SYNTHESIZER_INSTR = """Role: You are a focused Research Refinement Specialist. Your sole task is to turn the raw follow-up findings into a concise summary of only the *new* insights discovered.
 
     <INSTRUCTIONS>
-    Synthesize **only** the data in <refined_web_search_raw> into a **brief, structured summary** focusing *only* on the information that addresses the identified research gap or opportunity.
+    Synthesize **only** the data in <refined_web_search_raw> into a **brief, structured summary** focusing *only* on the information that addresses the identified research gap or opportunity: the gaps and follow-up queries in <combined_research_evaluation>.
     </INSTRUCTIONS>
 
     <CONTEXT>
+        <combined_research_evaluation>
+        {combined_research_evaluation?}
+        </combined_research_evaluation>
+
         <refined_web_search_raw>
         {refined_web_search_raw?}
         </refined_web_search_raw>
@@ -223,7 +228,9 @@ TREND_SITUATION_SEARCHER_INSTR = (
     1.  **Find the dated events:** use the `google_search` tool to find the trend's most recent and next notable dated events relative to today.
         *   For sports: the last game's result with its date and final score, and the next game's date (and kickoff time if stated).
         *   For other trends: the dated event driving interest (a launch, an episode, a release, an announcement, a ceremony) and whether it has happened yet.
-    2.  **Prefer fresh sources:** prefer sources published in the last 7 days. Quote the dates exactly as the sources state them; never infer a date.
+    2.  **Prefer fresh sources:** prefer sources published in the last """
+    + str(config.trend_event_window_days)
+    + """ days. Quote the dates exactly as the sources state them; never infer a date.
     3.  **Flag sensitivity:** note any tragedy, injury, death, scandal or disaster connected to the trend.
     4.  **Report RAW findings:** list the dated facts you found (event, date, result or status, who reported it), plus the public sentiment. Plain text; no polished report. If no source dates an event, say so plainly.
     </INSTRUCTIONS>
@@ -246,13 +253,14 @@ TREND_SITUATION_SYNTHESIZER_INSTR = (
     1.  **Abstain when unsure:** choose phase "unknown" unless the findings state the event's date (and, for a finished event, its outcome). Never guess a date, a score or a result.
     2.  **Phase:** "upcoming" = a dated event is still to come; "live" = it is happening right now; "just_happened" = a dated event ended recently with a known outcome; "ongoing" = a continuing story without one dated event; "evergreen" = nothing time-bound; "sensitive" = a tragedy, injury, death, scandal or disaster (choose it whenever one is involved, whatever else is true).
     3.  **Dates:** `event_start` (and `event_end` when it differs) as an ISO date (YYYY-MM-DD) or datetime with its UTC offset, exactly as the sources state them.
-    4.  **Outcome:** for "just_happened" only, `outcome` from the trend subject's side (win, loss, draw; "other" for a non-sports outcome) and `outcome_summary` as ONE factual sentence. Otherwise set `outcome` to "none" and leave `outcome_summary` empty.
+    4.  **Outcome:** for "just_happened" only, `outcome` from the side the target audience supports (win, loss, draw; "other" for a non-sports outcome; when the audience is neutral or its side is unclear, from the first-named subject's side) and `outcome_summary` as ONE factual sentence. Otherwise set `outcome` to "none" and leave `outcome_summary` empty.
     5.  **Sources:** `source_ids` lists the "src-N" ids from <sources> that state the date and outcome. Cite only ids present in <sources>; never invent one.
     6.  **Confidence:** "high" only when sources agree on the date and outcome; "low" when they conflict or are old.
     </INSTRUCTIONS>
 
     <CONTEXT>
         <target_search_trends>{target_search_trends}</target_search_trends>
+        <target_audience>{target_audience}</target_audience>
 
         <trend_situation_raw>
         {trend_situation_raw?}
@@ -438,9 +446,11 @@ CREATIVE_BRIEF_WRITER_INSTR = (
     11. """
     + RATING_SIGNALS_RULE
     + """
-    12. **Truthful product and claims:** use the product name exactly as given ({target_product}); never add a variant, finish, colour or model the user did not give. Include one mandatory that names the product exactly as given. No guarantees or absolute claims (guaranteed, indestructible, 100%, lifetime, never fails) unless a cited source or the user's selling points state them.
+    12. **Truthful product and claims:** use the product name exactly as given ({target_product}); never add a variant, finish, colour or model the user did not give. Include one mandatory that names the product exactly as given. No guarantees or absolute claims ("""
+    + ", ".join(ABSOLUTE_CLAIM_TERMS)
+    + """) unless the user's key selling points or the brief's mandatories state them; a research source alone is not enough.
     13. **Sensitive trends:** if the trend is a real disaster, tragedy or crisis (a storm, wildfire, shooting, war, death), choose fit_mode "light_touch" (score 1-2), list its harms in trend_bridge.risks (and short terms for them in `avoid`), and never build the idea on the harm itself. A current moment marked sensitive is never referenced.
-    14. **Trend scout hint:** if <trend_scout_hint> is non-empty, use it only to understand why the trend was picked. Never state an event, date or result from it unless the research report confirms it as current.
+    14. **Trend scout hint:** if <trend_scout_hint> is non-empty, use it only to understand why the trend was picked. Never state an event, date or result from it: dated events and results come only from the current moment (rule 15).
     15. """
     + CURRENT_MOMENT_RULE
     + """

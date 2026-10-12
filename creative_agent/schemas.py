@@ -489,7 +489,7 @@ class CreativeBrief(BaseModel):
         description="Must-include elements (selling points, product name, legal or brand requirements)."
     )
     avoid: list[str] = Field(
-        description="Things to keep out of the work (user avoid list, trend risks, brand don'ts)."
+        description="Short terms to keep out of the work: the user's avoid list and the trend risks (brand don'ts go in brand.do_not)."
     )
     desired_response: str = Field(
         description="What the audience should think, feel and do after seeing the ad."
@@ -533,7 +533,7 @@ class TrendSituationDraft(BaseModel):
     # "none", not "": Vertex rejects an empty string in a response_schema enum.
     outcome: Literal["win", "loss", "draw", "other", "none"] = Field(
         default="none",
-        description="For 'just_happened' only: the result from the perspective of the trend's subject (win / loss / draw), 'other' for a non-sports outcome, else 'none'.",
+        description="For 'just_happened' only: the result from the side the target audience supports, or the first-named subject's side when the audience is neutral or unclear (win / loss / draw), 'other' for a non-sports outcome, else 'none'.",
     )
     outcome_summary: str = Field(
         default="",

@@ -134,14 +134,21 @@ def render_brief_markdown(
     return "\n".join(lines).rstrip() + "\n"
 
 
-def insert_brief_into_report(report: str, brief: Mapping[str, Any] | str | None) -> str:
+def insert_brief_into_report(
+    report: str,
+    brief: Mapping[str, Any] | str | None,
+    *,
+    current_moment: str = "",
+) -> str:
     """Place the brief section at the top of the report body (pure).
 
     After the report's H1 title block (before its first "## " section); a
     report without an H1 gets a title first, since the PDF table of contents
     must start at level 1. Returns ``report`` unchanged when there is no brief.
+    ``current_moment`` (state ``trend_situation_md``) leads the Trend fit block
+    like in the compact ``creative_brief_md``.
     """
-    section = render_brief_markdown(brief)
+    section = render_brief_markdown(brief, current_moment=current_moment)
     if not section:
         return report
     title = _H1.search(report)

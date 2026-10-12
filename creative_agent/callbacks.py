@@ -423,7 +423,8 @@ def collect_research_sources_callback(callback_context: CallbackContext) -> None
     This function processes the agent's `session.events` to extract web source details (URLs,
     titles, domains from `grounding_chunks`) and associated text segments with confidence scores
     (from `grounding_supports`). The aggregated source information and a mapping of URLs to short
-    IDs are cumulatively stored in `callback_context.state`.
+    IDs are cumulatively stored in `callback_context.state`. The whole session is re-scanned on
+    every call (ids stay stable); a claim already recorded for a source is not appended again.
 
     Args:
         callback_context (CallbackContext): The context object providing access to the agent's
@@ -469,12 +470,22 @@ def collect_research_sources_callback(callback_context: CallbackContext) -> None
                             confidence_scores[i] if i < len(confidence_scores) else 0.5
                         )
                         text_segment = support.segment.text if support.segment else ""
-                        sources[short_id]["supported_claims"].append(
-                            {
-                                "text_segment": text_segment,
-                                "confidence": confidence,
-                            }
+                        claims = sources[short_id]["supported_claims"]
+                        # Every searcher re-scans the whole session, so a claim
+                        # seen on an earlier pass is kept once (highest score).
+                        known = next(
+                            (c for c in claims if c["text_segment"] == text_segment),
+                            None,
                         )
+                        if known is None:
+                            claims.append(
+                                {
+                                    "text_segment": text_segment,
+                                    "confidence": confidence,
+                                }
+                            )
+                        elif confidence > known["confidence"]:
+                            known["confidence"] = confidence
     callback_context.state["url_to_short_id"] = url_to_short_id
     callback_context.state["sources"] = sources
 
