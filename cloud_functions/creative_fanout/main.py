@@ -46,7 +46,6 @@ from datetime import UTC, date, datetime
 
 import agentplatform
 import functions_framework
-import pandas as pd
 from cloudevents.http import CloudEvent
 from google.cloud import bigquery, pubsub_v1
 
@@ -343,18 +342,14 @@ def build_campaign_state(msg_dict: dict) -> dict[str, str]:
 
 
 def _optional_cell(value) -> str:
-    """A nullable BigQuery cell as a JSON-safe string ("" for NULL/NaN/NaT).
+    """A nullable BigQuery cell as a JSON-safe string ("" for NULL).
 
     DATE/TIMESTAMP cells become an ISO date (``YYYY-MM-DD``).
     """
     if value is None:
         return ""
-    try:
-        if pd.isna(value):
-            return ""
-    except (TypeError, ValueError):  # array-like cells are never NA scalars
-        pass
-    if isinstance(value, datetime):  # incl. pandas Timestamp
+    # datetime before date: a datetime IS a date, and its time part is dropped.
+    if isinstance(value, datetime):
         return value.date().isoformat()
     if isinstance(value, date):
         return value.isoformat()
@@ -364,7 +359,8 @@ def _optional_cell(value) -> str:
 def build_row_dict(index, row) -> dict:
     """The worker message's ``row_data`` for one BigQuery row (JSON-safe).
 
-    ``row`` is a pandas Series (or mapping). ``refresh_date`` / ``trend_context``
+    ``row`` is a BigQuery ``Row`` (or mapping); a NULL campaign string stays
+    ``None`` (JSON null). ``refresh_date`` / ``trend_context``
     are read with ``.get`` so a table without the trend_context column (before
     its ALTER) still dispatches.
     """
@@ -734,19 +730,20 @@ def crf_entrypoint(cloud_event: CloudEvent) -> None:
         "(trends flagged sensitive in trend_context are excluded)."
     )
     try:
-        df = _run_query(bq_client, select_sql, select_params).to_dataframe()
+        # Iterate the rows directly: the CRF image ships without pandas.
+        rows = list(_run_query(bq_client, select_sql, select_params).result())
     except Exception as e:
         logging.error(f"Error querying BQ: {e}")
         raise  # Re-raise to signal failure to Pub/Sub
 
-    if df.empty:
+    if not rows:
         logging.info(
             "No new rows found to process (all are marked PROCESSED or table is empty)."
         )
     else:
         # 2. Extract data into a list of dictionaries
         row_list = []
-        for index, row in df.iterrows():
+        for index, row in enumerate(rows):
             row_list.append(build_row_dict(index, row))
         logging.info(f"Loaded {len(row_list)} UNPROCESSED records for agent execution.")
 

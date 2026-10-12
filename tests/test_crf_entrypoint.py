@@ -11,10 +11,11 @@ import base64
 import json
 import logging
 import types
+from datetime import UTC, datetime
 from unittest.mock import MagicMock
 
-import pandas as pd
 import pytest
+from google.cloud.bigquery import Row
 
 from cloud_functions.creative_fanout import main
 from cloud_functions.creative_fanout.config import config
@@ -51,6 +52,43 @@ def mocked_clients(monkeypatch):
     return bq, publisher
 
 
+_ROW_FIELDS = (
+    "entry_timestamp",
+    "target_trend",
+    "brand",
+    "target_audience",
+    "target_product",
+    "key_selling_point",
+)
+
+
+def _row(ts, trend, brand="BrandX"):
+    """A real BigQuery ``Row`` (what ``QueryJob.result()`` yields)."""
+    values = (ts, trend, brand, "aud", "prod", "ksp")
+    return Row(values, {name: i for i, name in enumerate(_ROW_FIELDS)})
+
+
+def _set_rows(bq, rows):
+    """Make every query job's ``result()`` iterate ``rows``.
+
+    Only ``__iter__`` is configured: the reaper reads
+    ``result().num_dml_affected_rows`` on the same mock. ``to_dataframe`` raises
+    so a regression back to pandas fails loudly (the CRF image has no pandas).
+    """
+    job = bq.query.return_value
+    job.result.return_value.__iter__.side_effect = lambda: iter(rows)
+    job.to_dataframe.side_effect = AssertionError(
+        "to_dataframe needs pandas; iterate rows"
+    )
+
+
+def _two_rows():
+    return [
+        _row(datetime(2026, 7, 12, 0, 0, tzinfo=UTC), "trend A"),
+        _row(datetime(2026, 7, 12, 1, 0, tzinfo=UTC), "trend B"),
+    ]
+
+
 def test_no_message_returns_cleanly(mocked_clients):
     """A CloudEvent with no `message` must not raise and must not dispatch."""
     bq, publisher = mocked_clients
@@ -75,65 +113,47 @@ def test_json_without_bq_dataset_returns_cleanly(mocked_clients):
     bq.query.assert_not_called()
 
 
-def test_valid_payload_empty_dataframe_no_dispatch(mocked_clients):
+def test_valid_payload_no_rows_no_dispatch(mocked_clients, caplog):
     """Valid payload but no unprocessed rows → query runs, nothing dispatched."""
     bq, publisher = mocked_clients
-    bq.query.return_value.to_dataframe.return_value = pd.DataFrame()
+    _set_rows(bq, [])
     payload = {"bq_dataset": DS, "bq_table": TBL, "agent_resource_id": "123"}
-    main.crf_entrypoint(_pubsub_event(payload))
+    with caplog.at_level(logging.INFO):
+        main.crf_entrypoint(_pubsub_event(payload))
     publisher.publish.assert_not_called()
+    assert "No new rows found to process" in caplog.text
+    assert "Loaded 0" not in caplog.text
+    assert bq.query.call_count == 2  # reap UPDATE + SELECT only, no status UPDATE
 
 
 def test_valid_payload_with_rows_dispatches_one_message_per_row(mocked_clients):
     """Valid payload with N unprocessed rows → N worker messages published."""
     bq, publisher = mocked_clients
-    df = pd.DataFrame(
-        [
-            {
-                "entry_timestamp": pd.Timestamp("2026-07-12T00:00:00Z"),
-                "target_trend": "trend A",
-                "brand": "BrandX",
-                "target_audience": "aud",
-                "target_product": "prod",
-                "key_selling_point": "ksp",
-            },
-            {
-                "entry_timestamp": pd.Timestamp("2026-07-12T01:00:00Z"),
-                "target_trend": "trend B",
-                "brand": "BrandX",
-                "target_audience": "aud",
-                "target_product": "prod",
-                "key_selling_point": "ksp",
-            },
-        ]
-    )
-    bq.query.return_value.to_dataframe.return_value = df
+    _set_rows(bq, _two_rows())
     payload = {"bq_dataset": DS, "bq_table": TBL, "agent_resource_id": "123"}
     main.crf_entrypoint(_pubsub_event(payload))
     assert publisher.publish.call_count == 2
+    sent = [json.loads(c.args[1]) for c in publisher.publish.call_args_list]
+    assert [m["row_data"]["entry_timestamp"] for m in sent] == [
+        "2026-07-12T00:00:00+00:00",
+        "2026-07-12T01:00:00+00:00",
+    ]
+    assert [m["row_data"]["index"] for m in sent] == [0, 1]
+    bq.query.return_value.to_dataframe.assert_not_called()
 
 
-def _two_row_df():
-    return pd.DataFrame(
-        [
-            {
-                "entry_timestamp": pd.Timestamp("2026-07-12T00:00:00Z"),
-                "target_trend": "trend A",
-                "brand": "BrandX",
-                "target_audience": "aud",
-                "target_product": "prod",
-                "key_selling_point": "ksp",
-            },
-            {
-                "entry_timestamp": pd.Timestamp("2026-07-12T01:00:00Z"),
-                "target_trend": "trend B",
-                "brand": "BrandX",
-                "target_audience": "aud",
-                "target_product": "prod",
-                "key_selling_point": "ksp",
-            },
-        ]
-    )
+def test_null_brand_dispatches_json_null(mocked_clients):
+    """A NULL campaign string is sent as JSON null (pandas made it NaN, which
+    the worker then seeded as the string "nan")."""
+    bq, publisher = mocked_clients
+    _set_rows(bq, [_row(datetime(2026, 7, 12, tzinfo=UTC), "trend A", brand=None)])
+    payload = {"bq_dataset": DS, "bq_table": TBL, "agent_resource_id": "123"}
+    main.crf_entrypoint(_pubsub_event(payload))
+    (call,) = publisher.publish.call_args_list
+    raw = call.args[1].decode("utf-8")
+    assert '"brand": null' in raw
+    assert "NaN" not in raw
+    assert json.loads(raw)["row_data"]["brand"] is None
 
 
 def test_requery_recovers_stuck_queued_rows(mocked_clients):
@@ -141,7 +161,7 @@ def test_requery_recovers_stuck_queued_rows(mocked_clients):
     run set them QUEUED then crashed / partially published), not only IS NULL —
     otherwise those rows are never re-selected and never dispatched again."""
     bq, publisher = mocked_clients
-    bq.query.return_value.to_dataframe.return_value = pd.DataFrame()
+    _set_rows(bq, [])
     payload = {"bq_dataset": DS, "bq_table": TBL, "agent_resource_id": "123"}
     main.crf_entrypoint(_pubsub_event(payload))
     # empty df → the reap UPDATE runs first, then the SELECT (no dispatch); the
@@ -157,9 +177,7 @@ def test_crf_entrypoint_reaps_before_requery(mocked_clients):
     re-query, so any reaped (re-queued) rows are picked up and re-dispatched in
     the same invocation."""
     bq, publisher = mocked_clients
-    bq.query.return_value.to_dataframe.return_value = (
-        pd.DataFrame()
-    )  # nothing to dispatch
+    _set_rows(bq, [])  # nothing to dispatch
     payload = {"bq_dataset": DS, "bq_table": TBL, "agent_resource_id": "123"}
     main.crf_entrypoint(_pubsub_event(payload))
     first_sql = bq.query.call_args_list[0].args[0]
@@ -171,7 +189,7 @@ def test_publish_failure_is_counted_and_does_not_crash(mocked_clients, caplog):
     """A worker-message publish that fails must not crash the batch. The failure
     is logged/counted; the row stays QUEUED and is recovered on the next run."""
     bq, publisher = mocked_clients
-    bq.query.return_value.to_dataframe.return_value = _two_row_df()
+    _set_rows(bq, _two_rows())
 
     ok_future = MagicMock()
     bad_future = MagicMock()

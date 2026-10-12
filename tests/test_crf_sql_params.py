@@ -12,12 +12,12 @@ Every BigQuery statement the orchestrator/worker issues must:
 import base64
 import json
 import types
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from unittest.mock import MagicMock
 
-import pandas as pd
 import pytest
 from google.cloud import bigquery
+from google.cloud.bigquery import Row
 
 from cloud_functions.creative_fanout import main
 from cloud_functions.creative_fanout.config import config
@@ -168,7 +168,10 @@ class TestValuesAreParameterized:
 
     def test_orchestrator_select_uses_allow_listed_quoted_table(self, monkeypatch):
         bq = _bq()
-        bq.query.return_value.to_dataframe.return_value = pd.DataFrame()
+        # result() iterates empty (a bare MagicMock); a pandas regression fails.
+        bq.query.return_value.to_dataframe.side_effect = AssertionError(
+            "to_dataframe needs pandas; iterate rows"
+        )
         monkeypatch.setattr(main, "_get_bigquery_client", lambda: bq)
         monkeypatch.setattr(main, "_get_pubsub_client", MagicMock)
         payload = {"bq_dataset": DS, "bq_table": TBL, "agent_resource_id": "1"}
@@ -184,7 +187,10 @@ class TestValuesAreParameterized:
 class TestOrchestratorRowLimit:
     def _run(self, monkeypatch, payload):
         bq = _bq()
-        bq.query.return_value.to_dataframe.return_value = pd.DataFrame()
+        # result() iterates empty (a bare MagicMock); a pandas regression fails.
+        bq.query.return_value.to_dataframe.side_effect = AssertionError(
+            "to_dataframe needs pandas; iterate rows"
+        )
         monkeypatch.setattr(main, "_get_bigquery_client", lambda: bq)
         monkeypatch.setattr(main, "_get_pubsub_client", MagicMock)
         encoded = base64.b64encode(json.dumps(payload).encode()).decode()
@@ -329,7 +335,7 @@ _REAL_INSTANT = datetime(2026, 9, 1, 12, 34, 56, 123456, tzinfo=UTC)
 
 def _orchestrator_serialize(ts):
     """Mirror crf_entrypoint: `row["entry_timestamp"].isoformat()` on the
-    tz-aware pandas Timestamp BigQuery's to_dataframe returns, then JSON."""
+    tz-aware datetime a BigQuery Row holds for a TIMESTAMP, then JSON."""
     return json.loads(json.dumps({"entry_timestamp": ts.isoformat()}))[
         "entry_timestamp"
     ]
@@ -344,7 +350,7 @@ def _orchestrator_serialize(ts):
     ],
 )
 def test_orchestrator_timestamp_round_trips_through_builders(raw):
-    serialized = _orchestrator_serialize(pd.Timestamp(raw))
+    serialized = _orchestrator_serialize(datetime.fromisoformat(raw))
 
     _, lock_params = main._build_lock_sql("p", DS, TBL, serialized)
     (lock_param,) = lock_params
@@ -370,10 +376,9 @@ def test_orchestrator_timestamp_round_trips_through_builders(raw):
 # (d) row → worker message: trend_scout's detection date + context ride along
 # ============================================================
 def _df_rows(extra: dict | None = None, drop: tuple[str, ...] = ()):
-    from datetime import date
-
+    """Two (index, Row) pairs, as crf_entrypoint enumerates QueryJob.result()."""
     base = {
-        "entry_timestamp": [pd.Timestamp("2026-10-11T12:00:00+00:00")] * 2,
+        "entry_timestamp": [datetime(2026, 10, 11, 12, tzinfo=UTC)] * 2,
         "target_trend": ["Texas Football", "Golden Dip"],
         "brand": ["PRS", "PRS"],
         "target_audience": ["fans", "fans"],
@@ -385,7 +390,11 @@ def _df_rows(extra: dict | None = None, drop: tuple[str, ...] = ()):
     base.update(extra or {})
     for key in drop:
         base.pop(key)
-    return list(pd.DataFrame(base).iterrows())
+    field_to_index = {name: i for i, name in enumerate(base)}
+    columns = list(base.values())
+    return [
+        (i, Row(tuple(col[i] for col in columns), field_to_index)) for i in range(2)
+    ]
 
 
 def test_row_dict_forwards_refresh_date_and_trend_context():
@@ -395,7 +404,7 @@ def test_row_dict_forwards_refresh_date_and_trend_context():
     assert first["trend_context"] == '{"hook":"Game day"}'
     assert first["target_search_trend"] == "Texas Football"
     second = main.build_row_dict(i1, r1)
-    assert second["refresh_date"] == ""  # NULL/NaT → blank
+    assert second["refresh_date"] == ""  # NULL → blank
     assert second["trend_context"] == ""  # NULL → blank, never "None"
     # The worker payload must stay JSON-serializable.
     json.dumps({"row_data": first})
@@ -403,7 +412,9 @@ def test_row_dict_forwards_refresh_date_and_trend_context():
 
 
 def test_row_dict_handles_timestamp_refresh_date():
-    rows = _df_rows({"refresh_date": [pd.Timestamp("2026-10-09"), pd.NaT]})
+    # A TIMESTAMP-typed refresh_date: a datetime is also a date, so the
+    # datetime branch must come first to drop the time part.
+    rows = _df_rows({"refresh_date": [datetime(2026, 10, 9, 23, 30, tzinfo=UTC), None]})
     assert main.build_row_dict(*rows[0])["refresh_date"] == "2026-10-09"
     assert main.build_row_dict(*rows[1])["refresh_date"] == ""
 
