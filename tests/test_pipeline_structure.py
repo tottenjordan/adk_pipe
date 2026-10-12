@@ -1191,6 +1191,22 @@ def test_trend_scout_instruction_branches_on_interactive_flag():
     assert "Do NOT call `pick_trends_agent`" not in instr
 
 
+def test_trend_scout_instruction_research_exhausted_path():
+    """Research exhausted: skip the picker AND the save tool, still persist (the
+    interactive picks already saved are written), and Phase 4 says no strategy
+    is available instead of displaying a picker output that doesn't exist."""
+    from trend_scout.agent import root_agent
+
+    instr = " ".join(str(root_agent.instruction).split())
+    assert (
+        "do NOT call `pick_trends_agent` or `save_search_trends_to_session_state`"
+        in instr
+    )
+    assert "are still written by `write_trends_to_bq`" in instr
+    assert "If `pick_trends_agent` was not called" in instr
+    assert "No strategy is available" in instr
+
+
 def test_pick_trends_agent_enriches_human_selected_trends():
     """In interactive mode pick_trends_agent must narrate the human's already-chosen
     trends (from target_search_trends) into selected_gtrends instead of re-selecting,

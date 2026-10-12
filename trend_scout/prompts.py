@@ -156,8 +156,10 @@ TREND_SCOUT_INSTR = """You are the Lead Campaign Orchestrator.
     ### Phase 2: Execution Pipeline
     Execute the steps in strict sequence. Do not proceed to the next until the current tool reports success.
     Exception: if `understand_trends_agent_resilient` reports that its output is unavailable
-    (research exhausted its retries), do NOT call `pick_trends_agent` or save any trends — go
-    straight to Phase 3 (`record_research_gaps` records the gap).
+    (research exhausted its retries), do NOT call `pick_trends_agent` or
+    `save_search_trends_to_session_state` — go straight to Phase 3 (`record_research_gaps`
+    records the gap). In interactive mode the trends the human already picked (saved in
+    step 2b) are still written by `write_trends_to_bq`, with the gap recorded on each row.
 
     1. **Gather:** Call `gather_trends_agent`.
 
@@ -205,7 +207,7 @@ TREND_SCOUT_INSTR = """You are the Lead Campaign Orchestrator.
     [Construct the path: {gcs_bucket}/{gcs_folder}]
 
     **Selected Strategy:**
-    [Display the full `pick_trends_agent` output]
+    [Display the full `pick_trends_agent` output. If `pick_trends_agent` was not called, write: "No strategy is available (trend research was unavailable)."]
 
     **Research Notes:** {research_gaps?}
     [Only include this line if research_gaps is non-empty; otherwise omit it entirely.]
