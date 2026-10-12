@@ -93,6 +93,17 @@ def _build_image_check_line(record: dict | None) -> str:
     return f'<p class="image-check">{html.escape(text, quote=False)}</p>'
 
 
+def _build_timely_label(concept: dict) -> str:
+    """The gallery's small "Timely" label for the creative that references the
+    run's validated current moment (``uses_trend_state``), else "". Pure; the
+    reason is model text → escaped."""
+    if not isinstance(concept, dict) or concept.get("uses_trend_state") is not True:
+        return ""
+    reason = str(concept.get("timely_reason") or "").strip()
+    text = f"Timely: {reason}" if reason else "Timely"
+    return f'<p class="timely-label">{html.escape(text, quote=False)}</p>'
+
+
 def _esc(value: object) -> str:
     """HTML-escape model/user text for a text node (quotes left as-is)."""
     return html.escape(str(value), quote=False)
@@ -192,6 +203,7 @@ async def save_creative_gallery_html(tool_context: ToolContext) -> dict:
                     </div>
                     <p class="caption">{_esc(entry["social_caption"])}</p>
                     {_build_image_check_line(generated_images.get(entry["concept_name"]))}
+                    {_build_timely_label(entry)}
                 </div>
             """
             CONNECTED_GALLERY_STRING += GALLERY_IMAGE_BLOCK

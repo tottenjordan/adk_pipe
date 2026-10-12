@@ -267,3 +267,63 @@ def test_timely_angle_renders_in_the_trend_fit_block():
         "- **Timely angle:** Game-day rituals before tomorrow's kickoff." in md
     )
     assert "Timely angle" not in render_brief_markdown(_BRIEF)
+
+
+def test_gallery_labels_the_timely_creative(monkeypatch, tmp_path):
+    """The timely creative gets a small escaped "Timely" label; evergreen ones none."""
+    monkeypatch.chdir(tmp_path)
+    written: list[str] = []
+
+    def _fake_upload(source_file_name, destination_blob_name):
+        with open(source_file_name) as f:
+            written.append(f.read())
+        return "ok"
+
+    monkeypatch.setattr(tools, "_upload_blob_to_gcs", _fake_upload)
+    base = {
+        "visual_style": "flat",
+        "trend": "t",
+        "trend_reference": "r",
+        "concept_summary": "s",
+        "markets_product": "m",
+        "audience_appeal": "a",
+        "selection_rationale": "r",
+        "image_generation_prompt": "p",
+        "headline": "h",
+        "social_caption": "c",
+    }
+    timely = {
+        **base,
+        "concept_name": "Countdown",
+        "uses_trend_state": True,
+        "timely_reason": "Game <b>tomorrow</b>.",
+    }
+    evergreen = {**base, "concept_name": "Evergreen"}
+    ad_copy = {
+        "headline": "h",
+        "body_text": "b",
+        "social_caption": "c",
+        "call_to_action": "Go",
+        "trend_connection": "t",
+        "audience_appeal_rationale": "a",
+        "detailed_performance_rationale": "d",
+    }
+    ctx = FakeToolContext(
+        {
+            "gcs_folder": "f",
+            "agent_output_dir": "creative_output",
+            "final_visual_concepts": {"visual_concepts": [timely, evergreen]},
+            "ad_copy_critique": {"ad_copies": [ad_copy, ad_copy]},
+            "brand": "Acme",
+            "target_audience": "a",
+            "target_product": "p",
+            "key_selling_points": "k",
+            "target_search_trends": "t",
+        }
+    )
+    assert asyncio.run(tools.save_creative_gallery_html(ctx))["status"] == "success"
+    (html,) = written
+    assert html.count('class="timely-label"') == 1
+    assert (
+        '<p class="timely-label">Timely: Game &lt;b&gt;tomorrow&lt;/b&gt;.</p>' in html
+    )

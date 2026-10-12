@@ -155,7 +155,8 @@ export default function ResultsPage({
       acRaw?.ad_copies || [],
       evalReport,
       state.generated_images,
-      state.person_reference_rejected
+      state.person_reference_rejected,
+      state.trend_situation
     );
   }, [state, evalReport]);
   const sortedProofs = useMemo(() => sortProofs(proofs, sort), [proofs, sort]);

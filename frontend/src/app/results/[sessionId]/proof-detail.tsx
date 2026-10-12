@@ -18,6 +18,7 @@ import {
   type CreativeScore,
   type ImageCheck,
   type Proof,
+  type Timely,
 } from "@/lib/eval-matching";
 import { ChecksList } from "./eval-checks";
 import { ProofImage } from "./proof-grid";
@@ -218,6 +219,23 @@ export function CastingSection({ casting }: { casting?: Casting }) {
 }
 
 /**
+ * The timely slot: "Timely: <reason> · valid until …" for the creative that
+ * references the run's validated current moment. Nothing for evergreen ones.
+ */
+export function TimelySection({ timely }: { timely?: Timely }) {
+  if (!timely) return null;
+  const parts = [timely.reason || "References the current moment"];
+  if (timely.validUntil) parts.push(`valid until ${timely.validUntil}`);
+  return (
+    <section className="border-t border-border pt-4">
+      <dl>
+        <TextField label="Timely" value={parts.join(" · ")} />
+      </dl>
+    </section>
+  );
+}
+
+/**
  * Full view of one proof in a dialog: large image left, copy and scores right.
  * Left/Right arrows and the prev/next buttons step through the sheet in its
  * current sort order; Escape closes and focus returns to the grid item.
@@ -370,6 +388,7 @@ export function ProofDetail({
               )}
               <ImageCheckSection check={proof.imageCheck} />
               <CastingSection casting={proof.casting} />
+              <TimelySection timely={proof.timely} />
               {ratingSlot?.(proof)}
               {personaliseSlot?.(proof)}
               {shareAction && (
