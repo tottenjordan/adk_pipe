@@ -530,6 +530,7 @@ AD_COPY_DRAFTER_INSTR = (
     2.  **Analyze and Apply:** Analyze the research report to understand the audience, product, and trend intersection. If the report is empty, work from the campaign inputs.
     3.  **Generate 10 Diverse Ideas:** Generate exactly 10 ad copy ideas. Each idea must:
         *   Creatively market the target product: {target_product}
+        *   Name the target product ({target_product}) in the headline, body, caption or CTA (a recognisable short form counts; the brand name alone does not).
         *   Sound like the brand: {brand} (use its voice and distinctive assets from the research report).
         *   Speak directly to the target audience: {target_audience}
         *   Incorporate the key selling point(s): {key_selling_points}

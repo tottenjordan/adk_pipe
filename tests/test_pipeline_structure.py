@@ -2087,7 +2087,8 @@ def test_copy_gate_decision_records_structural_issues_without_revising():
     ]
 
 
-def test_copy_gate_decision_passes_brand_to_the_product_check():
+def test_copy_gate_decision_brand_alone_does_not_name_the_product():
+    # Aligned with the judge's product_named gate: the brand alone never counts.
     from creative_agent.agent import copy_gate_decision
 
     copy = _final_copy(1, headline="Go", body_text="Only on Apple.")
@@ -2096,7 +2097,7 @@ def test_copy_gate_decision_passes_brand_to_the_product_check():
     copies = {"ad_copies": [copy]}
     state = {"ad_copy_critique": copies, "target_product": "iPhone 16 Pro"}
     assert copy_gate_decision(state, 2)[0] == "revise"
-    assert copy_gate_decision({**state, "brand": "Apple"}, 2)[0] == "ok"
+    assert copy_gate_decision({**state, "brand": "Apple"}, 2)[0] == "revise"
 
 
 def test_copy_gate_decision_passes_trend_and_mandatories_to_the_avoid_filter():

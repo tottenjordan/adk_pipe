@@ -761,7 +761,8 @@ ad_copy_reviser = Agent(
 # revision inputs and also records copy_gate.structural_issues (fewer than 4
 # copies; with a brief, copies missing a gating brief_checks item, as one
 # line): warning-only, never a revision, because the per-copy reviser cannot
-# add a missing copy. Naming the brand counts as naming the product. Avoid
+# add a missing copy. The brand name alone does not name the product (as in the
+# judge's product_named gate). Avoid
 # terms contained in the product name, a non-negative brief mandatory or a
 # Title-Case name in the trend (target_search_trends) are exempt.
 _COPY_REVISION_CLEARED: dict[str, Any] = {
