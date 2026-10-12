@@ -254,3 +254,16 @@ def test_gallery_escapes_model_and_user_text(monkeypatch, tmp_path):
     assert 'title="Win &lt;script&gt;alert(1)&lt;/script&gt;"' in html
     assert 'alt="A &quot;quoted&quot; &lt;b&gt;summary&lt;/b&gt;"' in html
     assert "<dd>Win &lt;script&gt;alert(1)&lt;/script&gt;</dd>" in html
+
+
+def test_timely_angle_renders_in_the_trend_fit_block():
+    brief = copy.deepcopy(_BRIEF)
+    brief["trend_bridge"]["timely_angle"] = (
+        "Game-day rituals before tomorrow's kickoff."
+    )
+    md = render_brief_markdown(brief, heading=False)
+    assert (
+        "- **Risks:** cartoon violence\n"
+        "- **Timely angle:** Game-day rituals before tomorrow's kickoff." in md
+    )
+    assert "Timely angle" not in render_brief_markdown(_BRIEF)

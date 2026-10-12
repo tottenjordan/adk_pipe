@@ -551,3 +551,61 @@ def test_brief_claim_allowed_by_selling_points_or_mandatories():
 
 def test_clean_brief_has_no_claim_issues():
     assert _claim_issues(_BRIEF) == []
+
+
+# --- timely angle (trend-state awareness PR 3) --- #
+_TIMELY_LOSS = {"phase": "just_happened", "outcome": "loss", "timely_ok": True}
+
+
+def _with_angle(angle):
+    brief = copy.deepcopy(_BRIEF)
+    brief["trend_bridge"]["timely_angle"] = angle
+    return brief
+
+
+def _angle_issues(brief, **kwargs):
+    return [i for i in check_brief(brief, **kwargs) if "timely_angle" in i]
+
+
+def test_timely_angle_needs_a_validated_moment():
+    brief = _with_angle("Comfort fans after the loss.")
+    (issue,) = _angle_issues(brief)
+    assert "without a validated current moment" in issue
+    (issue,) = _angle_issues(
+        brief, trend_situation={**_TIMELY_LOSS, "timely_ok": False}
+    )
+    assert "without a validated current moment" in issue
+    # The slot switched off (MAX_TIMELY_CONCEPTS=0) counts as no moment.
+    assert _angle_issues(brief, trend_situation=_TIMELY_LOSS, max_timely=0)
+    assert _angle_issues(brief, trend_situation=_TIMELY_LOSS) == []
+
+
+def test_timely_angle_must_not_contradict_the_outcome():
+    (issue,) = _angle_issues(
+        _with_angle("Celebrate the big win with Rocket Skates."),
+        trend_situation=_TIMELY_LOSS,
+    )
+    assert "contradicts the current moment" in issue and "win" in issue
+    win = {**_TIMELY_LOSS, "outcome": "win"}
+    assert _angle_issues(
+        _with_angle("Still proud after the loss."), trend_situation=win
+    )
+    assert (
+        _angle_issues(
+            _with_angle("Bragging rights after the win."), trend_situation=win
+        )
+        == []
+    )
+    upcoming = {"phase": "upcoming", "outcome": "", "timely_ok": True}
+    assert _angle_issues(_with_angle("We won already!"), trend_situation=upcoming)
+    assert (
+        _angle_issues(
+            _with_angle("Game-day rituals before kickoff."), trend_situation=upcoming
+        )
+        == []
+    )
+
+
+def test_empty_timely_angle_is_fine_without_a_moment():
+    assert _angle_issues(_with_angle("")) == []
+    assert check_brief(_BRIEF) == []

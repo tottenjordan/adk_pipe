@@ -349,6 +349,7 @@ def _selling_points(state: Mapping[str, Any]) -> str | list[str]:
 
 def _brief_issues(state: Mapping[str, Any]) -> list[str]:
     sources = state.get("sources")
+    situation = state.get("trend_situation")
     return check_brief(
         state.get("creative_brief"),
         brand_colors=str(state.get("brand_colors") or ""),
@@ -357,6 +358,8 @@ def _brief_issues(state: Mapping[str, Any]) -> list[str]:
         trend=str(state.get("target_search_trends") or ""),
         sources=sources if isinstance(sources, Mapping) else None,
         key_selling_points=_selling_points(state),
+        trend_situation=situation if isinstance(situation, Mapping) else None,
+        max_timely=config.max_timely_concepts,
     )
 
 
