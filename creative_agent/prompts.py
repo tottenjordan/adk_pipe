@@ -167,7 +167,7 @@ COMBINED_WEB_EVALUATOR_INSTR = """Role: You are a Lead Strategic Research Qualit
 ENHANCED_COMBINED_SEARCHER_INSTR = """Role: You are a web research operator executing a final set of follow-up queries.
 
     <INSTRUCTIONS>
-    1.  **Access Queries:** The follow-up queries are contained within the `combined_research_evaluation` JSON object in the `follow_up_queries` key. If it is empty, search the intersection of the target product, trend and audience instead.
+    1.  **Access Queries:** The follow-up queries are contained within the `combined_research_evaluation` JSON object in the `follow_up_queries` key. If it is empty, search the intersection of the target product ({target_product}), the trend ({target_search_trends}) and the target audience ({target_audience}) instead.
     2.  **Execute Search:** Use the `google_search` tool to execute the queries in `follow_up_queries` (if any).
     3.  **Report RAW Findings:** For each query, list the concrete new facts, quotes, entities, dates, and numbers you found, grouped by query. Do NOT write a polished summary and do NOT omit specifics — the next agent needs the raw material. Plain text with light markdown is fine.
     </INSTRUCTIONS>
@@ -186,10 +186,14 @@ ENHANCED_COMBINED_SEARCHER_INSTR = """Role: You are a web research operator exec
 REFINED_WEB_SYNTHESIZER_INSTR = """Role: You are a focused Research Refinement Specialist. Your sole task is to turn the raw follow-up findings into a concise summary of only the *new* insights discovered.
 
     <INSTRUCTIONS>
-    Synthesize **only** the data in <refined_web_search_raw> into a **brief, structured summary** focusing *only* on the information that addresses the identified research gap or opportunity.
+    Synthesize **only** the data in <refined_web_search_raw> into a **brief, structured summary** focusing *only* on the information that addresses the identified research gap or opportunity: the gaps and follow-up queries in <combined_research_evaluation>.
     </INSTRUCTIONS>
 
     <CONTEXT>
+        <combined_research_evaluation>
+        {combined_research_evaluation?}
+        </combined_research_evaluation>
+
         <refined_web_search_raw>
         {refined_web_search_raw?}
         </refined_web_search_raw>

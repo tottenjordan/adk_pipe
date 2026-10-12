@@ -8,6 +8,7 @@ from types import SimpleNamespace
 import pytest
 from google.genai import types
 
+from creative_agent import prompts
 from creative_agent.sub_agents.campaign_researcher import agent as ca_agent
 from creative_agent.sub_agents.trend_researcher import agent as gs_agent
 
@@ -115,6 +116,19 @@ def test_campaign_synthesizer_receives_the_campaign_inputs():
 def test_trend_synthesizer_receives_the_campaign_inputs():
     tokens = _tokens(gs_agent.gs_web_synthesizer.instruction)
     assert {"brand", "target_product", "target_audience"} <= tokens
+
+
+# --- 8. refinement round names what it searches / addresses ------------------ #
+def test_enhanced_searcher_names_the_intersection_inputs():
+    tokens = _tokens(prompts.ENHANCED_COMBINED_SEARCHER_INSTR)
+    assert {"target_product", "target_search_trends", "target_audience"} <= tokens
+
+
+def test_refined_synthesizer_sees_the_evaluation_gap():
+    from creative_agent import agent as ca
+
+    assert ca.combined_web_evaluator.output_key == "combined_research_evaluation"
+    assert "{combined_research_evaluation?}" in prompts.REFINED_WEB_SYNTHESIZER_INSTR
 
 
 # --- 10. timeline section names publishers, never links ---------------------- #
