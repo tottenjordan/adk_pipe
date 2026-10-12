@@ -1,7 +1,9 @@
 # Source-upload filter for `gcloud builds submit --config cloudbuild.yaml` (api + web
-# images). Unlike the root .gcloudignore (the api's `gcloud run deploy --source .`),
-# this KEEPS frontend/ — the web build's context. Each Dockerfile's .dockerignore
-# (root, frontend/) still trims its own build context. Root-only dirs use a leading `/`.
+# + CRF images). Unlike the root .gcloudignore (the api's `gcloud run deploy --source .`),
+# this KEEPS frontend/ (the web build's context) and cloud_functions/creative_fanout/
+# (only the CRF build's files: no local message.json or __pycache__). Each Dockerfile's
+# .dockerignore (root, frontend/, the CRF's Dockerfile.dockerignore) still trims its
+# own build context. Root-only dirs use a leading `/`.
 .git
 .venv/
 __pycache__/
@@ -34,4 +36,10 @@ docs/
 /bandit/
 /bandit_serving/
 /bandit_traffic/
-/cloud_functions/
+/cloud_functions/*
+!/cloud_functions/creative_fanout/
+/cloud_functions/creative_fanout/*
+!/cloud_functions/creative_fanout/*.py
+!/cloud_functions/creative_fanout/requirements.txt
+!/cloud_functions/creative_fanout/Dockerfile
+!/cloud_functions/creative_fanout/Dockerfile.dockerignore

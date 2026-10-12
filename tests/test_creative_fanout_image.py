@@ -101,3 +101,64 @@ def test_dockerignore_allowlists_exactly_the_function_files():
         if p.suffix == ".py" or p.name == "requirements.txt"
     }
     assert allowed == shipped
+
+
+# --- root cloudbuild.yaml: build-crf + optional deploy -----------------------------
+
+
+def _root_build() -> dict:
+    import yaml
+
+    return yaml.safe_load((REPO_ROOT / "cloudbuild.yaml").read_text())
+
+
+def _step(build: dict, step_id: str) -> dict:
+    return next(s for s in build["steps"] if s["id"] == step_id)
+
+
+def test_build_crf_runs_in_parallel_with_registry_cache_and_prints_digest():
+    build = _root_build()
+    assert build["substitutions"]["_CRF_IMAGE"] == "${_REPO}/creative-fanout-crf"
+    step = _step(build, "build-crf")
+    assert step["waitFor"] == ["buildx-setup"]
+    script = step["args"][-1]
+    assert "--file cloud_functions/creative_fanout/Dockerfile" in script
+    assert "--tag ${_CRF_IMAGE}:${SHORT_SHA} --tag ${_CRF_IMAGE}:latest" in script
+    assert "--cache-from type=registry,ref=${_CRF_IMAGE}:buildcache" in script
+    assert "--cache-to type=registry,ref=${_CRF_IMAGE}:buildcache,mode=max" in script
+    assert "--metadata-file /workspace/crf-meta.json ." in script
+    assert "test -s /workspace/crf.digest" in script
+    assert 'echo "CRF_IMAGE=${_CRF_IMAGE}@$$(cat /workspace/crf.digest)"' in script
+
+
+def test_optional_deploy_rolls_both_crf_services_without_traffic():
+    build = _root_build()
+    step = _step(build, "deploy")
+    assert "build-crf" in step["waitFor"]
+    script = step["args"][-1]
+    skip, _, deploy = script.partition("exit 0")
+    assert "CRF_IMAGE=" in skip  # digests printed on the default (no-deploy) path
+    for service, target in (
+        ("creative-trawler-crf", "crf_entrypoint"),
+        ("creative-worker-crf", "agent_worker_entrypoint"),
+    ):
+        cmd = deploy.split(f"gcloud run deploy {service} ", 1)[1].split("gcloud", 1)[0]
+        assert '--image "${_CRF_IMAGE}@$$(cat /workspace/crf.digest)"' in cmd
+        assert "--no-traffic" in cmd
+        assert f"--update-env-vars FUNCTION_TARGET={target}" in cmd
+        assert "--clear-base-image" in cmd
+        # Never --source/--function (buildpacks) or --set-env-vars (would wipe env).
+        assert not re.search(r"--source|--function|--set-env-vars", cmd), cmd
+    assert "update-traffic" not in deploy
+
+
+def test_upload_filter_keeps_only_the_crf_function_dir():
+    lines = (REPO_ROOT / "deployment" / "cloudbuild.gcloudignore").read_text()
+    lines = [ln.strip() for ln in lines.splitlines()]
+    assert "/cloud_functions/*" in lines
+    assert "!/cloud_functions/creative_fanout/" in lines
+    # Re-excluded inside, then only the build's files (never a local message.json).
+    assert "/cloud_functions/creative_fanout/*" in lines
+    assert "!/cloud_functions/creative_fanout/*.py" in lines
+    assert "/cloud_functions/" not in lines
+    assert "__pycache__/" in lines

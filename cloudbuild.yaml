@@ -1,27 +1,30 @@
-# Cached Cloud Build for trend-trawler-api (repo-root Dockerfile) and trend-trawler-web
-# (frontend/Dockerfile), built IN PARALLEL with BuildKit (docker buildx) and a registry
-# layer cache, replacing `gcloud run deploy --source` (which always builds with
-# --no-cache and re-pushes the ~1 GB api dependency layer every time).
+# Cached Cloud Build for trend-trawler-api (repo-root Dockerfile), trend-trawler-web
+# (frontend/Dockerfile) and the CRF image (cloud_functions/creative_fanout/Dockerfile,
+# one image for both creative-trawler-crf and creative-worker-crf), built IN PARALLEL
+# with BuildKit (docker buildx) and a registry layer cache, replacing
+# `gcloud run deploy --source` (which always builds with --no-cache and re-pushes the
+# ~1 GB api dependency layer every time).
 #
 #   gcloud builds submit --config cloudbuild.yaml \
 #     --ignore-file deployment/cloudbuild.gcloudignore \
 #     --substitutions=SHORT_SHA=$(git rev-parse --short HEAD)
 #
 # The ignore file matters: the root .gcloudignore is for the api's `--source .` deploy
-# and drops frontend/, which the web build needs.
+# and drops frontend/ and cloud_functions/, which the web and CRF builds need.
 #
 # Pushes <image>:$SHORT_SHA + <image>:latest and prints each image digest (also in
 # /workspace/*.digest). Deploy steps are OFF by default (_DEPLOY=false); with
 # _DEPLOY=true they create --no-traffic revisions from the digests and never move
 # traffic — pinning stays the manual, idle-checked step (deployment/README.md Step 8,
-# "Build with Cloud Build (cached), then deploy the digest").
-# The share service reuses the web digest (deployment/README.md → Public share service).
+# "Build with Cloud Build (cached), then deploy the digest"; CRF: deployment/README.md
+# §3). The share service reuses the web digest (deployment/README.md → Public share service).
 
 substitutions:
   _REGION: us-central1
   _REPO: us-central1-docker.pkg.dev/${PROJECT_ID}/cloud-run-source-deploy
   _API_IMAGE: ${_REPO}/trend-trawler-api
   _WEB_IMAGE: ${_REPO}/trend-trawler-web
+  _CRF_IMAGE: ${_REPO}/creative-fanout-crf
   _DEPLOY: "false"
 
 options:
@@ -33,7 +36,7 @@ options:
 
 steps:
   # One BuildKit builder (docker-container driver: needed for --cache-to type=registry),
-  # shared by both build steps. The buildkit image comes from Google's Docker Hub
+  # shared by the build steps. The buildkit image comes from Google's Docker Hub
   # mirror to avoid Hub pull limits.
   - id: buildx-setup
     name: gcr.io/cloud-builders/docker
@@ -81,14 +84,37 @@ steps:
         test -s /workspace/web.digest
         echo "WEB_IMAGE=${_WEB_IMAGE}@$$(cat /workspace/web.digest)"
 
+  # Both CRF services run this image; each sets its own FUNCTION_TARGET. Build context
+  # = repo root, trimmed to the function's files by Dockerfile.dockerignore.
+  - id: build-crf
+    name: gcr.io/cloud-builders/docker
+    waitFor: [buildx-setup]
+    entrypoint: bash
+    args:
+      - -euc
+      - |
+        docker buildx build --builder tt --file cloud_functions/creative_fanout/Dockerfile \
+          --tag ${_CRF_IMAGE}:${SHORT_SHA} --tag ${_CRF_IMAGE}:latest \
+          --cache-from type=registry,ref=${_CRF_IMAGE}:buildcache \
+          --cache-to type=registry,ref=${_CRF_IMAGE}:buildcache,mode=max,image-manifest=true,oci-mediatypes=true \
+          --provenance=false --push \
+          --metadata-file /workspace/crf-meta.json .
+        sed -n 's/.*"containerimage.digest": *"\(sha256:[0-9a-f]*\)".*/\1/p' \
+          /workspace/crf-meta.json > /workspace/crf.digest
+        test -s /workspace/crf.digest
+        echo "CRF_IMAGE=${_CRF_IMAGE}@$$(cat /workspace/crf.digest)"
+
   # Optional (_DEPLOY=true): new revisions at 0% traffic. No env/IAM/ingress flags, so
   # the services keep their env vars (incl. SESSION_SERVICE_URI / IAP_ALLOWED_HD), IAM
   # and IAP; the api's required runtime flags are re-asserted. Never pass
   # --allow-unauthenticated here. Needs the IAM grants in deployment/README.md
-  # (Step 8, "Build with Cloud Build (cached), then deploy the digest").
+  # (Step 8, "Build with Cloud Build (cached), then deploy the digest"). The CRF
+  # services keep env, scaling, timeouts and their Eventarc triggers; only
+  # FUNCTION_TARGET is (re)set, and --clear-base-image drops the buildpack-era
+  # automatic base-image updates (a Dockerfile image can't use them).
   - id: deploy
     name: gcr.io/cloud-builders/gcloud
-    waitFor: [build-api, build-web]
+    waitFor: [build-api, build-web, build-crf]
     entrypoint: bash
     args:
       - -euc
@@ -97,6 +123,7 @@ steps:
           echo "_DEPLOY=${_DEPLOY}: skipping deploy."
           echo "API_IMAGE=${_API_IMAGE}@$$(cat /workspace/api.digest)"
           echo "WEB_IMAGE=${_WEB_IMAGE}@$$(cat /workspace/web.digest)"
+          echo "CRF_IMAGE=${_CRF_IMAGE}@$$(cat /workspace/crf.digest)"
           exit 0
         fi
         gcloud run deploy trend-trawler-api --region ${_REGION} \
@@ -106,4 +133,10 @@ steps:
         gcloud run deploy trend-trawler-web --region ${_REGION} \
           --image "${_WEB_IMAGE}@$$(cat /workspace/web.digest)" --no-traffic \
           --service-account tt-web-sa@${PROJECT_ID}.iam.gserviceaccount.com
+        gcloud run deploy creative-trawler-crf --region ${_REGION} \
+          --image "${_CRF_IMAGE}@$$(cat /workspace/crf.digest)" --no-traffic \
+          --update-env-vars FUNCTION_TARGET=crf_entrypoint --clear-base-image
+        gcloud run deploy creative-worker-crf --region ${_REGION} \
+          --image "${_CRF_IMAGE}@$$(cat /workspace/crf.digest)" --no-traffic \
+          --update-env-vars FUNCTION_TARGET=agent_worker_entrypoint --clear-base-image
         echo "Deployed at 0% traffic; pin each new revision manually (deployment/README.md Step 8)."

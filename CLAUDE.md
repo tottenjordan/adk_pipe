@@ -257,7 +257,7 @@ Optional post-run step (guide: [docs/bandit/README.md](docs/bandit/README.md)): 
 
 ### Event-Driven Orchestration — `cloud_functions/`
 
-Fan-out pattern using two Cloud Run Function deployments from the same source (`cloud_functions/creative_fanout/`):
+Fan-out pattern using two Cloud Run services that run one image (`cloud_functions/creative_fanout/Dockerfile`, built by the root `cloudbuild.yaml`; `FUNCTION_TARGET` picks the entry point, deployment/README.md §3):
 - **Orchestrator** (`crf_entrypoint`): Triggered by `CREATIVE_TOPIC_NAME` PubSub topic, queries BigQuery for unprocessed trends (oldest first, capped at `CRF_MAX_ROWS_PER_RUN`, default 3; a message's optional `max_rows` can only lower it), skips rows whose `trend_context` JSON has `"sensitive": true` (`COALESCE(JSON_VALUE(trend_context, '$.sensitive'), 'false') != 'true'`; plain `JSON_VALUE`, BigQuery rejects `SAFE.`), dispatches one message per trend to worker topic. Concurrency=100.
 - **Worker** (`agent_worker_entrypoint`): Triggered by `CREATIVE_WORKER_TOPIC_NAME`, processes a single trend row by invoking Agent Engine; it seeds the row's campaign fields plus `refresh_date` → `trend_detected_on` and `trend_context` → `trend_scout_context` as session state (`build_row_dict` / `build_campaign_state`; blank/NULL values skipped, and a table without `trend_context` still dispatches). Concurrency=1 (prevents duplicate processing), max-instances=1 (serializes runs under the project-wide pro/image quotas). Timeout=1800s.
 

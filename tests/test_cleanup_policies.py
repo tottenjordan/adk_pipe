@@ -25,8 +25,11 @@ TT_PACKAGES = {
     "trend-trawler-share",
     "creative-trawler-crf",
     "creative-worker-crf",
+    "creative-fanout-crf",
     "trend-trawler-bandit",
 }
+# Registry-only packages (built by Cloud Build, no Cloud Run source upload).
+IMAGE_ONLY_PACKAGES = {"trend-trawler-bandit", "creative-fanout-crf"}
 # Other projects' packages in the shared repos (not exhaustive; encodes the intent).
 UNRELATED_PACKAGES = [
     "omnimash",
@@ -128,6 +131,15 @@ def test_ar_keep_most_recent_covers_deleted_packages(name):
     assert deleted <= kept
 
 
+def test_cloud_run_repo_rules_cover_every_cloud_run_package():
+    """Both rules (delete untagged + keep newest) name every trend-trawler package
+    in cloud-run-source-deploy, incl. the shared CRF image ``creative-fanout-crf``."""
+    expected = TT_PACKAGES - {"trend-trawler-bandit"}
+    for rule in _load("ar-cloud-run-source-deploy.json"):
+        spec = rule.get("condition") or rule.get("mostRecentVersions")
+        assert set(spec["packageNamePrefixes"]) == expected, rule["name"]
+
+
 @pytest.mark.parametrize("name", GCS_FILES)
 def test_gcs_rules_are_prefix_scoped_and_skip_protected_data(name):
     rules = _load(name)["rule"]
@@ -159,9 +171,7 @@ def test_person_refs_backstop_is_365_days():
 def test_run_sources_rule_covers_only_trend_trawler_services():
     rules = _load("gcs-run-sources.json")["rule"]
     prefixes = {p for r in rules for p in r["condition"]["matchesPrefix"]}
-    assert prefixes == {
-        f"services/{p}/" for p in TT_PACKAGES - {"trend-trawler-bandit"}
-    }
+    assert prefixes == {f"services/{p}/" for p in TT_PACKAGES - IMAGE_ONLY_PACKAGES}
 
 
 # --- the read-only preview helpers behind apply.sh ---------------------------------
