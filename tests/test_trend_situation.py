@@ -330,11 +330,34 @@ def test_situation_prompts_use_only_known_tokens():
     }
     assert set(tokens.findall(TREND_SITUATION_SYNTHESIZER_INSTR)) == date_tokens | {
         "target_search_trends",
+        "target_audience",
         "trend_situation_raw?",
         "sources?",
     }
     assert "unknown" in TREND_SITUATION_SYNTHESIZER_INSTR
     assert "sensitive" in TREND_SITUATION_SYNTHESIZER_INSTR
+
+
+def test_situation_outcome_is_from_the_audience_side():
+    """The tone playbook (tone_rule_for) speaks to the audience's side, so the
+    outcome must be scored from the side the target audience supports."""
+    from creative_agent.prompts import TREND_SITUATION_SYNTHESIZER_INSTR
+    from creative_agent.schemas import TrendSituationDraft
+
+    instr = TREND_SITUATION_SYNTHESIZER_INSTR
+    assert "the side the target audience supports" in instr
+    assert "first-named" in instr
+    assert "trend subject's side" not in instr
+    desc = TrendSituationDraft.model_fields["outcome"].description or ""
+    assert "target audience" in desc
+
+
+def test_situation_searcher_freshness_follows_the_event_window():
+    from creative_agent.config import config
+    from creative_agent.prompts import TREND_SITUATION_SEARCHER_INSTR
+
+    days = config.trend_event_window_days
+    assert f"published in the last {days} days" in TREND_SITUATION_SEARCHER_INSTR
 
 
 def test_state_delta_without_a_draft_abstains():

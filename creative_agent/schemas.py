@@ -533,7 +533,7 @@ class TrendSituationDraft(BaseModel):
     # "none", not "": Vertex rejects an empty string in a response_schema enum.
     outcome: Literal["win", "loss", "draw", "other", "none"] = Field(
         default="none",
-        description="For 'just_happened' only: the result from the perspective of the trend's subject (win / loss / draw), 'other' for a non-sports outcome, else 'none'.",
+        description="For 'just_happened' only: the result from the side the target audience supports, or the first-named subject's side when the audience is neutral or unclear (win / loss / draw), 'other' for a non-sports outcome, else 'none'.",
     )
     outcome_summary: str = Field(
         default="",

@@ -224,7 +224,9 @@ TREND_SITUATION_SEARCHER_INSTR = (
     1.  **Find the dated events:** use the `google_search` tool to find the trend's most recent and next notable dated events relative to today.
         *   For sports: the last game's result with its date and final score, and the next game's date (and kickoff time if stated).
         *   For other trends: the dated event driving interest (a launch, an episode, a release, an announcement, a ceremony) and whether it has happened yet.
-    2.  **Prefer fresh sources:** prefer sources published in the last 7 days. Quote the dates exactly as the sources state them; never infer a date.
+    2.  **Prefer fresh sources:** prefer sources published in the last """
+    + str(config.trend_event_window_days)
+    + """ days. Quote the dates exactly as the sources state them; never infer a date.
     3.  **Flag sensitivity:** note any tragedy, injury, death, scandal or disaster connected to the trend.
     4.  **Report RAW findings:** list the dated facts you found (event, date, result or status, who reported it), plus the public sentiment. Plain text; no polished report. If no source dates an event, say so plainly.
     </INSTRUCTIONS>
@@ -247,13 +249,14 @@ TREND_SITUATION_SYNTHESIZER_INSTR = (
     1.  **Abstain when unsure:** choose phase "unknown" unless the findings state the event's date (and, for a finished event, its outcome). Never guess a date, a score or a result.
     2.  **Phase:** "upcoming" = a dated event is still to come; "live" = it is happening right now; "just_happened" = a dated event ended recently with a known outcome; "ongoing" = a continuing story without one dated event; "evergreen" = nothing time-bound; "sensitive" = a tragedy, injury, death, scandal or disaster (choose it whenever one is involved, whatever else is true).
     3.  **Dates:** `event_start` (and `event_end` when it differs) as an ISO date (YYYY-MM-DD) or datetime with its UTC offset, exactly as the sources state them.
-    4.  **Outcome:** for "just_happened" only, `outcome` from the trend subject's side (win, loss, draw; "other" for a non-sports outcome) and `outcome_summary` as ONE factual sentence. Otherwise set `outcome` to "none" and leave `outcome_summary` empty.
+    4.  **Outcome:** for "just_happened" only, `outcome` from the side the target audience supports (win, loss, draw; "other" for a non-sports outcome; when the audience is neutral or its side is unclear, from the first-named subject's side) and `outcome_summary` as ONE factual sentence. Otherwise set `outcome` to "none" and leave `outcome_summary` empty.
     5.  **Sources:** `source_ids` lists the "src-N" ids from <sources> that state the date and outcome. Cite only ids present in <sources>; never invent one.
     6.  **Confidence:** "high" only when sources agree on the date and outcome; "low" when they conflict or are old.
     </INSTRUCTIONS>
 
     <CONTEXT>
         <target_search_trends>{target_search_trends}</target_search_trends>
+        <target_audience>{target_audience}</target_audience>
 
         <trend_situation_raw>
         {trend_situation_raw?}
