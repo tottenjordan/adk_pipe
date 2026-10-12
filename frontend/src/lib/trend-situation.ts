@@ -133,7 +133,8 @@ export function phaseLabel(s: TrendSituation): string {
   return PHASE_LABELS[s.phase];
 }
 
-function shortTime(iso: string): string | null {
+/** "YYYY-MM-DD HH:MM" of an ISO datetime as written (the run's timezone), or null. */
+export function shortTime(iso: string): string | null {
   const m = /^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})/.exec(iso);
   return m ? `${m[1]} ${m[2]}` : null;
 }

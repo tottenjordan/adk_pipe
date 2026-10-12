@@ -280,7 +280,8 @@ def validate_situation(
 
 
 # --- rendering --- #
-def _as_situation(value: Any) -> TrendSituation | None:
+def as_situation(value: Any) -> TrendSituation | None:
+    """A ``TrendSituation`` from a model or its dict (None when invalid)."""
     if isinstance(value, TrendSituation):
         return value
     if isinstance(value, Mapping):
@@ -312,7 +313,7 @@ def current_moment_md(situation: Any) -> str:
     instruction never to reference it; every other (unknown, not timely) moment
     renders "" so the brief cannot lean on it.
     """
-    data = _as_situation(situation)
+    data = as_situation(situation)
     if data is None:
         return ""
     if not (data.timely_ok or data.phase == "sensitive"):
@@ -335,18 +336,79 @@ def current_moment_md(situation: Any) -> str:
     return f"{line} ({'; '.join(tail)})" if tail else line
 
 
+def timely_allowed(state: Any, max_timely: int) -> bool:
+    """True when the run's validated moment is timely and the slot is on.
+
+    ``state`` is a Mapping or an ADK ``State`` (anything with ``.get``).
+
+    The guards' switch: the timely cap and the evergreen temporal-term checks
+    apply only then, so runs without a timely moment are checked exactly as
+    before.
+    """
+    situation = state.get("trend_situation")
+    return (
+        max_timely > 0
+        and isinstance(situation, Mapping)
+        and situation.get("timely_ok") is True
+    )
+
+
+def _relative_day(days: int) -> str:
+    if days == 0:
+        return "today"
+    if days == 1:
+        return "tomorrow"
+    if days == -1:
+        return "yesterday"
+    return f"in {days} days" if days > 0 else f"{-days} days ago"
+
+
+def moment_phrase(situation: Any) -> str:
+    """The timely moment in plain words for the timely rules ("" if not timely).
+
+    "Texas vs Oklahoma is tomorrow (Oct 12)" / "Texas vs Oklahoma was yesterday
+    (Oct 10): Texas lost to Oklahoma 24-31." — relative to the validation
+    time (``as_of``), in its timezone. Brace-free.
+    """
+    data = as_situation(situation)
+    if data is None or not data.timely_ok:
+        return ""
+    event = _clean(data.event_name) or "the event"
+    try:
+        as_of = datetime.fromisoformat(data.as_of)
+    except ValueError:
+        as_of = None
+    zone = as_of.tzinfo if as_of is not None and as_of.tzinfo else _zone(None)
+    when = _parse_when(data.event_start, zone)
+    if when is None or as_of is None:
+        return event
+    day = when[0]
+    relative = _relative_day((day - as_of.astimezone(zone).date()).days)
+    dated = f"{relative} ({day:%b} {day.day})"
+    if data.phase == "upcoming":
+        return f"{event} is {dated}"
+    phrase = f"{event} was {dated}"
+    summary = _clean(data.outcome_summary)
+    return f"{phrase}: {summary}" if summary else phrase
+
+
 def trend_situation_state_delta(
     state: Mapping[str, Any],
     *,
     enabled: bool,
     window_days: int,
     valid_hours_after: int,
+    max_timely: int = 0,
 ) -> dict[str, Any]:
     """The validator node's state delta for a state snapshot (pure).
 
     Reads the branch's ``trend_situation_draft`` and ``sources`` and writes
-    ``trend_situation`` (the validated dict) + ``trend_situation_md``.
+    ``trend_situation`` (the validated dict) + ``trend_situation_md``, plus
+    ``timely_rules`` (the timely slot's rules for the creative agents, "" unless
+    the moment is timely and ``max_timely`` > 0).
     """
+    from .prompts import build_timely_rules
+
     sources = state.get("sources")
     situation = validate_situation(
         state.get("trend_situation_draft"),
@@ -359,4 +421,5 @@ def trend_situation_state_delta(
     return {
         "trend_situation": situation.model_dump(),
         "trend_situation_md": current_moment_md(situation),
+        "timely_rules": build_timely_rules(situation, max_timely),
     }

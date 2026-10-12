@@ -40,6 +40,7 @@ from .copy_gate import (
     CopyIssue,
     brief_avoid,
     brief_mandatories,
+    enforce_timely_copy_cap,
     flatten_copy_issues,
     format_copy_issues,
     gate_copies,
@@ -77,6 +78,7 @@ from .schemas import (  # noqa: F401
 from .sub_agents.campaign_researcher.agent import ca_sequential_planner
 from .sub_agents.trend_researcher.agent import gs_sequential_planner
 from .sub_agents.trend_situation.agent import trend_situation_pipeline
+from .trend_situation import timely_allowed
 
 # --- config ---
 logging.basicConfig(
@@ -347,6 +349,7 @@ def _selling_points(state: Mapping[str, Any]) -> str | list[str]:
 
 def _brief_issues(state: Mapping[str, Any]) -> list[str]:
     sources = state.get("sources")
+    situation = state.get("trend_situation")
     return check_brief(
         state.get("creative_brief"),
         brand_colors=str(state.get("brand_colors") or ""),
@@ -355,6 +358,8 @@ def _brief_issues(state: Mapping[str, Any]) -> list[str]:
         trend=str(state.get("target_search_trends") or ""),
         sources=sources if isinstance(sources, Mapping) else None,
         key_selling_points=_selling_points(state),
+        trend_situation=situation if isinstance(situation, Mapping) else None,
+        max_timely=config.max_timely_concepts,
     )
 
 
@@ -779,6 +784,7 @@ def _copy_issues(state: Mapping[str, Any]) -> dict[str, list[CopyIssue]]:
         allowed_claims_text=claims_allowed_text(
             _selling_points(state), brief_mandatories(brief)
         ),
+        timely_ok=timely_allowed(state, config.max_timely_concepts),
     )
 
 
@@ -810,23 +816,43 @@ def residual_copy_issues(state: Mapping[str, Any]) -> list[str] | None:
 def copy_gate_decision(
     state: Mapping[str, Any], max_rounds: int
 ) -> tuple[str, dict[str, Any]]:
-    """The copy gate's (route, state_delta) for a state snapshot (pure)."""
+    """The copy gate's (route, state_delta) for a state snapshot (pure).
+
+    The timely cap runs first (``enforce_timely_copy_cap``): flags beyond
+    MAX_TIMELY_CONCEPTS, or any flag without a timely moment, are cleared and
+    the capped copies are written back (``base``) before they are checked.
+    """
     critique = state.get("ad_copy_critique")
+    base: dict[str, Any] = {}
+    if is_populated(critique):
+        capped, warns = enforce_timely_copy_cap(
+            critique,
+            timely_ok=timely_allowed(state, config.max_timely_concepts),
+            max_timely=config.max_timely_concepts,
+        )
+        for warning in warns:
+            logging.warning(f"timely copy cap: {warning}")
+        if capped is not critique:
+            critique = base["ad_copy_critique"] = capped
+            state = {**state, "ad_copy_critique": capped}
     issues = _copy_issues(state) if is_populated(critique) else {}
     if not issues:
         return "ok", {
+            **base,
             **_COPY_REVISION_CLEARED,
             "ad_copy_critique__issues": _residual(state, critique, issues),
         }
     used = int(state.get("ad_copy_revision_rounds_used") or 0)
     if used < max_rounds:
         return "revise", {
+            **base,
             "ad_copy_issues": format_copy_issues(critique, issues),
             "ad_copy_flagged_ids": list(issues),
             "ad_copy_critique__before_revision": copy.deepcopy(critique),
             "ad_copy_revision_rounds_used": used + 1,
         }
     return "ok", {
+        **base,
         **_COPY_REVISION_CLEARED,
         "ad_copy_critique__issues": _residual(state, critique, issues),
     }
@@ -1087,6 +1113,7 @@ def _concept_issues(state: Mapping[str, Any]) -> dict[str, list[CopyIssue]]:
         brand=str(state.get("brand") or ""),
         target_product=str(state.get("target_product") or ""),
         strictness=strictness_flags(state.get("rating_strictness")),
+        timely_ok=timely_allowed(state, config.max_timely_concepts),
     )
 
 

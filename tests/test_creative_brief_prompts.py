@@ -219,3 +219,13 @@ def test_only_the_brief_writer_reads_the_current_moment():
             assert ("{trend_situation_md?}" in value) == (
                 name == "CREATIVE_BRIEF_WRITER_INSTR"
             ), name
+
+
+def test_brief_writer_sets_the_timely_angle_only_for_a_timely_moment():
+    instr = prompts.CREATIVE_BRIEF_WRITER_INSTR
+    assert prompts.TIMELY_ANGLE_RULE in instr
+    assert "trend_bridge.timely_angle" in prompts.TIMELY_ANGLE_RULE
+    assert "otherwise leave it empty" in prompts.TIMELY_ANGLE_RULE
+    assert "{" not in prompts.TIMELY_ANGLE_RULE
+    # Rule 13: a sensitive current moment is never referenced.
+    assert "current moment marked sensitive is never referenced" in instr

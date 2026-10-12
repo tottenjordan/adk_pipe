@@ -191,6 +191,15 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                     color: #666;
                 }
 
+                /* The timely creative (references the validated current moment) */
+                .timely-label {
+                    margin: 0;
+                    padding: 0 15px 12px;
+                    font-size: 0.85em;
+                    font-weight: 600;
+                    color: #0077A8;
+                }
+
                 /* 4. Styling for the hover text */
                 .hover-text {
                     position: absolute;

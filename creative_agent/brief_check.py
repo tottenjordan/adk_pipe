@@ -15,6 +15,7 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 from .claims import claims_allowed_text, unsupported_claims
+from .temporal_terms import temporal_terms
 from .text_match import contains_phrase, mentions, words
 
 MISSING_BRIEF_ISSUE = "brief missing or unparseable"
@@ -218,6 +219,8 @@ def check_brief(
     trend: str = "",
     sources: Mapping[str, Any] | None = None,
     key_selling_points: str | Sequence[str] = "",
+    trend_situation: Mapping[str, Any] | None = None,
+    max_timely: int = 1,
 ) -> list[str]:
     """Return the brief's rule violations as actionable issue strings ([] = clean).
 
@@ -238,8 +241,12 @@ def check_brief(
     reasons-to-believe claims may not carry an absolute claim
     (``claims.ABSOLUTE_CLAIM_TERMS``: "guaranteed", "indestructible", ...)
     unless ``key_selling_points`` (the user's, a string or list) or the
-    brief's mandatories state it. Never raises: malformed
-    fields are reported as issues.
+    brief's mandatories state it. A non-empty ``trend_bridge.timely_angle``
+    needs a timely ``trend_situation`` (the validated moment, ``timely_ok``)
+    with the timely slot on (``max_timely`` > 0), and must not name a result
+    the moment contradicts (a win word for a loss, a loss word for a win, any
+    result for a moment without one; see ``_contradicting_terms``). Never
+    raises: malformed fields are reported as issues.
     """
     data = parse_brief(brief)
     if data is None:
@@ -396,7 +403,50 @@ def check_brief(
             "a variant, finish or model the user did not give."
         )
 
+    issues.extend(
+        _timely_angle_issues(
+            _text(bridge.get("timely_angle")), trend_situation, max_timely
+        )
+    )
     return issues
+
+
+# Result words by outcome family (temporal_terms output): a timely angle may only
+# use its own moment's family.
+_WIN_TERMS = frozenset({"won", "win", "wins", "victory", "beat", "beaten"})
+_LOSS_TERMS = frozenset({"lost", "loss", "lose", "defeat"})
+
+
+def _contradicting_terms(angle: str, outcome: str) -> list[str]:
+    """Result words in ``angle`` that the moment's ``outcome`` contradicts."""
+    allowed = {"win": _WIN_TERMS, "loss": _LOSS_TERMS}.get(outcome, frozenset())
+    results = _WIN_TERMS | _LOSS_TERMS
+    return [t for t in temporal_terms(angle) if t in results and t not in allowed]
+
+
+def _timely_angle_issues(
+    angle: str, situation: Mapping[str, Any] | None, max_timely: int
+) -> list[str]:
+    if not angle:
+        return []
+    timely = (
+        max_timely > 0
+        and isinstance(situation, Mapping)
+        and situation.get("timely_ok") is True
+    )
+    if not timely:
+        return [
+            "trend_bridge.timely_angle is set without a validated current moment: "
+            "clear it (leave it empty)."
+        ]
+    outcome = _text(situation.get("outcome")) if situation is not None else ""
+    if bad := _contradicting_terms(angle, outcome):
+        return [
+            f"trend_bridge.timely_angle contradicts the current moment "
+            f"({', '.join(bad)}; outcome: {outcome or 'none yet'}): describe only "
+            "what the current moment states."
+        ]
+    return []
 
 
 # Wrapping punctuation the brief writer sometimes copies from placeholder

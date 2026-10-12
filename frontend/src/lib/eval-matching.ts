@@ -8,6 +8,8 @@
  *   then by index position
  */
 
+import { shortTime } from "@/lib/trend-situation";
+
 export interface EvalVerdict {
   dimension: string;
   score: number;
@@ -129,6 +131,32 @@ export interface VisualConcept {
   casts_person_reference?: boolean;
   /** One sentence on why the concept casts (or would not cast) the person. */
   person_casting_reason?: string;
+  /** True for the timely creative that references the validated current moment. */
+  uses_trend_state?: boolean;
+  /** One sentence on how the creative references the current moment. */
+  timely_reason?: string;
+}
+
+/** A timely proof: why it references the current moment, and until when. */
+export interface Timely {
+  reason: string;
+  /** "YYYY-MM-DD HH:MM" from `state.trend_situation.valid_until`, or null. */
+  validUntil: string | null;
+}
+
+/**
+ * The proof's timely slot, from the concept's `uses_trend_state` flag (set only
+ * when the run had a validated timely moment; the guards clear it otherwise) and
+ * the run's `trend_situation.valid_until`. Undefined for evergreen concepts.
+ */
+export function timelyFor(concept: VisualConcept, trendSituation: unknown): Timely | undefined {
+  if (concept.uses_trend_state !== true) return undefined;
+  const reason = typeof concept.timely_reason === "string" ? concept.timely_reason.trim() : "";
+  const raw =
+    trendSituation && typeof trendSituation === "object"
+      ? (trendSituation as Record<string, unknown>).valid_until
+      : undefined;
+  return { reason, validUntil: typeof raw === "string" ? shortTime(raw) : null };
 }
 
 /** Person casting of one proof: a cast render, or a person photo rejected at render time. */
@@ -277,6 +305,8 @@ export interface Proof {
   imageCheck?: ImageCheck;
   /** Person casting (absent for uncast concepts and runs without a person). */
   casting?: Casting;
+  /** The timely slot (absent for evergreen concepts). */
+  timely?: Timely;
 }
 
 export function buildProofs(
@@ -284,7 +314,8 @@ export function buildProofs(
   adCopies: AdCopy[],
   report: EvalReport | null | undefined,
   generatedImages?: unknown,
-  personRejected?: unknown
+  personRejected?: unknown,
+  trendSituation?: unknown
 ): Proof[] {
   return concepts.map((concept, index) => ({
     index,
@@ -294,6 +325,7 @@ export function buildProofs(
     visualEval: findVisualEval(report, concept.concept_name),
     imageCheck: imageCheckFor(generatedImages, concept.concept_name),
     casting: castingFor(concept, generatedImages, personRejected),
+    timely: timelyFor(concept, trendSituation),
   }));
 }
 

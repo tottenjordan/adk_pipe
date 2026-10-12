@@ -15,6 +15,7 @@ from .citations import render_citations
 from .concept_guard import (
     concept_issues,
     enforce_person_casting,
+    enforce_timely_cap,
     ensure_trend_and_product,
     flatten_concept_issues,
     parse_concepts,
@@ -27,6 +28,7 @@ from .prompts import PERSON_CASTING_RULES
 from .rating_signals import strictness_flags
 from .references import reference_roles_summary
 from .style_shortlist import format_shortlist, pick_style_shortlist
+from .trend_situation import timely_allowed
 
 # --- config ---
 logging.basicConfig(
@@ -138,6 +140,11 @@ def _set_initial_states(source: dict[str, Any], target: State | dict[str, Any]):
         "person_casting_rules",
         PERSON_CASTING_RULES if target.get("person_reference_available") else "",
     )
+
+    # The timely slot's rules reach the creative agents only when the trend
+    # situation validator found a timely moment ({timely_rules?}, written by
+    # validate_trend_situation); otherwise their instructions are unchanged.
+    target.setdefault("timely_rules", "")
 
     # Per-session random style shortlist (image diversity): the visual agents
     # pick their 4 styles from it, so runs don't converge on the same looks.
@@ -319,8 +326,17 @@ def ensure_trend_and_product_callback(callback_context: CallbackContext) -> None
     )
     for warning in cast_warnings:
         logging.warning(f"casting guard: {warning}")
-    repaired, warnings = ensure_trend_and_product(
+    # Then the timely cap (first MAX_TIMELY_CONCEPTS flags kept; none without
+    # a validated timely moment).
+    timely_checked, timely_warnings = enforce_timely_cap(
         cast_checked,
+        timely_ok=timely_allowed(state, config.max_timely_concepts),
+        max_timely=config.max_timely_concepts,
+    )
+    for warning in timely_warnings:
+        logging.warning(f"timely guard: {warning}")
+    repaired, warnings = ensure_trend_and_product(
+        timely_checked,
         str(state.get("target_product") or ""),
         brand=str(state.get("brand") or ""),
         strictness=strictness_flags(state.get("rating_strictness")),
@@ -355,6 +371,7 @@ def recheck_concept_issues_callback(callback_context: CallbackContext) -> None:
         brand=str(state.get("brand") or ""),
         target_product=str(state.get("target_product") or ""),
         strictness=strictness_flags(state.get("rating_strictness")),
+        timely_ok=timely_allowed(state, config.max_timely_concepts),
     )
     residual = flatten_concept_issues(concepts, issues) or None
     if residual:

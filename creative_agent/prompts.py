@@ -1,10 +1,12 @@
 """Prompts for ad content generator new agent and subagents"""
 
 from collections.abc import Sequence
+from typing import Any
 
 from agent_common.clock import DATE_CONTEXT_LINE
 
 from .config import PHOTOGRAPHIC_PERSON_STYLES, config
+from .trend_situation import as_situation, moment_phrase
 
 # A prompting "grammar" for the
 # Nano Banana image model (config.image_gen_model). Deliberately STYLE-FIRST and
@@ -405,6 +407,9 @@ TREND_RISKS_RULE = "**Trend risks:** respect the trend risks listed in the brief
 # The validated current moment (creative_agent/trend_situation.py): a one-line
 # `trend_situation_md`, empty unless the moment is timely or sensitive.
 CURRENT_MOMENT_RULE = "**Current moment:** use the current moment only if it is present; never state an event date or result that is not in it. If it is empty, write the brief without any dated event or result."
+# The brief's timely angle (the timely slot): set only for a timely moment;
+# brief_check flags one without a validated moment or contradicting it.
+TIMELY_ANGLE_RULE = "**Timely angle:** if the current moment is present and timely (it has a valid-until time), set trend_bridge.timely_angle to one line describing how ONE timely creative may reference it, in the tone that fits it (anticipation before an event; celebration after a win, without gloating; empathy and loyalty after a loss); otherwise leave it empty. Never put a date or result in it that the current moment does not state."
 COPY_CLAIMS_RULE = "**Claims:** make no unsupported absolute claims (guaranteed, indestructible, unbreakable, risk-free, 100%, lifetime, never fails) unless the user's key selling points or the brief's mandatories state them; prefer a concrete, verifiable benefit."
 
 CREATIVE_BRIEF_WRITER_INSTR = (
@@ -434,10 +439,13 @@ CREATIVE_BRIEF_WRITER_INSTR = (
     + RATING_SIGNALS_RULE
     + """
     12. **Truthful product and claims:** use the product name exactly as given ({target_product}); never add a variant, finish, colour or model the user did not give. Include one mandatory that names the product exactly as given. No guarantees or absolute claims (guaranteed, indestructible, 100%, lifetime, never fails) unless a cited source or the user's selling points state them.
-    13. **Sensitive trends:** if the trend is a real disaster, tragedy or crisis (a storm, wildfire, shooting, war, death), choose fit_mode "light_touch" (score 1-2), list its harms in trend_bridge.risks (and short terms for them in `avoid`), and never build the idea on the harm itself.
+    13. **Sensitive trends:** if the trend is a real disaster, tragedy or crisis (a storm, wildfire, shooting, war, death), choose fit_mode "light_touch" (score 1-2), list its harms in trend_bridge.risks (and short terms for them in `avoid`), and never build the idea on the harm itself. A current moment marked sensitive is never referenced.
     14. **Trend scout hint:** if <trend_scout_hint> is non-empty, use it only to understand why the trend was picked. Never state an event, date or result from it unless the research report confirms it as current.
     15. """
     + CURRENT_MOMENT_RULE
+    + """
+    16. """
+    + TIMELY_ANGLE_RULE
     + """
     </INSTRUCTIONS>
 
@@ -527,7 +535,7 @@ AD_COPY_DRAFTER_INSTR = (
     + """
     8.  """
     + COPY_CLAIMS_RULE
-    + """
+    + """{timely_rules?}
     </INSTRUCTIONS>
 
     <CONTEXT>
@@ -601,7 +609,7 @@ AD_COPY_CRITIC_INSTR = (
     + COPY_CLAIMS_RULE
     + " Remove any such claim from the copies you select."
     + """
-    8.  **Strict Output:** Output the final selection as a single JSON object, strictly following the schema in the `<OUTPUT_FORMAT>` block.
+    8.  **Strict Output:** Output the final selection as a single JSON object, strictly following the schema in the `<OUTPUT_FORMAT>` block.{timely_rules?}
     </INSTRUCTIONS>
 
     <CONTEXT>
@@ -660,7 +668,7 @@ AD_COPY_REVISER_INSTR = (
     3.  **Keep the idea:** a revised copy keeps its `original_id`, `tone_style`, `angle_id` and core idea; re-rate `typicality` only if the idea changed.
     4.  **Checklist:** refresh `brief_checks` on every copy you revise (one entry per item, judged accurately against the revised copy; mark an item failed only when the copy clearly fails it); leave the other copies' checks unchanged.
     5.  **User feedback:** when <user_ad_copy_feedback> is non-empty, honour it in the copies you revise.
-    6.  **Output:** return ALL the copies from <final_ad_copies>, in the same order with unchanged `original_id`s, as a single JSON object.
+    6.  **Output:** return ALL the copies from <final_ad_copies>, in the same order with unchanged `original_id`s, as a single JSON object.{timely_rules?}
     </INSTRUCTIONS>
 
     <CONTEXT>
@@ -719,7 +727,7 @@ ART_DIRECTOR_INSTR = (
     + TREND_RISKS_RULE
     + " For visuals: no disaster damage, victims, warning maps or storm graphics played for fun."
     + """
-    This brief is guidance for the drafter; it does not select final concepts.{person_casting_rules?}
+    This brief is guidance for the drafter; it does not select final concepts.{person_casting_rules?}{timely_rules?}
     </INSTRUCTIONS>
 
     <CONTEXT>
@@ -867,6 +875,45 @@ PERSON_CASTING_RULES = build_person_casting_rules(
     config.person_safe_styles, config.max_cast_concepts
 )
 
+
+# The timely slot (TREND_STATE_RESEARCH.md Ideas 3-4). Only runs whose trend
+# situation validator found a timely moment see it: validate_trend_situation
+# writes it to state `timely_rules` (else ""), read as `{timely_rules?}` at the
+# end of the last instruction line of the art director, visual drafter, critic,
+# finalizer, fixer, interactive's reviser and the ad copy drafter, critic and
+# reviser (right after `{person_casting_rules?}` where both exist), so runs
+# without a timely moment get byte-identical instructions. The tone comes from
+# the validated moment's code-derived tone_rule; concept_guard.enforce_timely_cap
+# and the copy gate enforce the cap and keep the other creatives evergreen
+# (creative_agent/temporal_terms.py). A state VALUE, but brace-free anyway.
+def build_timely_rules(situation: Any, max_timely: int) -> str:
+    """The timely-slot rules for a validated moment ("" unless timely and
+    ``max_timely`` > 0). Brace-free."""
+    data = as_situation(situation)
+    if data is None or not data.timely_ok or max_timely <= 0:
+        return ""
+    return (
+        "\n\n    **Timely moment (this run has a validated current moment):**"
+        "\n    *   At most "
+        + str(max_timely)
+        + " of the 4 creatives (a visual concept and its paired ad copy) may "
+        "reference the current moment: "
+        + moment_phrase(data)
+        + ". Mark each such visual concept and its paired ad copy "
+        "`uses_trend_state` and give a one-sentence `timely_reason`; set "
+        "`uses_trend_state` false on every other creative."
+        "\n    *   Tone for the timely creative: " + data.tone_rule + "."
+        "\n    *   Speak from the target audience's side; if the audience may "
+        'include both sides, use neutral "big game" framing. Never use team or '
+        "league logos, wordmarks, mascots, player names or likenesses, and never "
+        "imply sponsorship or endorsement."
+        "\n    *   Every other creative stays evergreen: no dates, scores, results "
+        "or words like tonight, tomorrow, yesterday, won or lost."
+        "\n    *   When critiquing, fixing or revising, keep `uses_trend_state` "
+        "and `timely_reason` unchanged unless you fix a timely-rule violation."
+    )
+
+
 VISUAL_CONCEPT_DRAFTER_INSTR = (
     """Role: You are a visionary visual creative director and prompt engineer specializing in high-impact social media advertising (Instagram/TikTok).
     Your task is to translate approved ad copy into executable visual concepts, each in a deliberately chosen visual style.
@@ -888,7 +935,7 @@ VISUAL_CONCEPT_DRAFTER_INSTR = (
     3.  **Choose the Style (do NOT default to photorealism):** Choose 4 DIFFERENT `visual_style` families from <style_shortlist> (when non-empty), matching each ad copy's tone via the guide's mapping preference. When <user_style_preference> is non-empty it overrides the shortlist. Use the <IMAGE_PROMPT_GUIDE> below and the <visual_direction> brief. Record the chosen family in the `visual_style` field.
     4.  **Composition variety (across the set):** Give each concept a different hero placement and camera distance: choose from centred hero, off-centre rule-of-thirds, small subject in a wide environment, extreme close-up detail, top-down flat lay, over-the-shoulder POV, environmental portrait. Use at most ONE centred product hero per set. In-image text in at most 2 concepts (see the guide; meme captions and comic speech bubbles are exempt), never both placed at the top. Every concept shows a trend motif.
     5.  **Prompt Engineering:** For each concept, write the `image_generation_prompt` following the <IMAGE_PROMPT_GUIDE> and honouring the <visual_direction> brief's mood, palette, motifs, and brand cues. Name the chosen style first, then build the scene. Also choose and record the `aspect_ratio` per concept (unless the campaign-wide override in <user_aspect_ratio> is set).
-    6.  **Strict Output Format:** Ensure the entire output is a single JSON object containing all generated concepts, strictly following the schema in the <OUTPUT_FORMAT> block (including `visual_style`, `aspect_ratio`, `trend_motif`, `brand_cue` and `angle_id` for each).{person_casting_rules?}
+    6.  **Strict Output Format:** Ensure the entire output is a single JSON object containing all generated concepts, strictly following the schema in the <OUTPUT_FORMAT> block (including `visual_style`, `aspect_ratio`, `trend_motif`, `brand_cue` and `angle_id` for each).{person_casting_rules?}{timely_rules?}
     </INSTRUCTIONS>
 
     <CONTEXT>
@@ -1007,7 +1054,7 @@ VISUAL_CONCEPT_CRITIC_INSTR = (
     + """
         *   **Carry-through:** Keep `trend_motif`, `brand_cue` and their verbatim presence in the prompt, and carry `angle_id` unchanged. Keep the `aspect_ratio` field (adjust only if the composition demands it). When <user_aspect_ratio> is non-empty, set every concept's `aspect_ratio` to this value and compose for it.
         *   **Set-level checks:** families come from <style_shortlist> and are all different; at most ONE centred hero; in-image text in at most 2 concepts (meme/comic captions excepted), short and punchy, no small print or style terms; every concept has a trend motif, and each `trend_motif` is SPECIFIC and recognisable: replace generic ones (phones, feeds, chat bubbles, notifications, screens) with signature imagery of the trend; no readable or gibberish background text. Fix violations by rewriting the weakest concept.
-    3.  **Strict Output Format:** The output must be a single, structured JSON object containing the **revised** concepts (including `visual_style`, `aspect_ratio`, `trend_motif`, `brand_cue` and `angle_id`). Do not include any external commentary or separate critique text.{person_casting_rules?}
+    3.  **Strict Output Format:** The output must be a single, structured JSON object containing the **revised** concepts (including `visual_style`, `aspect_ratio`, `trend_motif`, `brand_cue` and `angle_id`). Do not include any external commentary or separate critique text.{person_casting_rules?}{timely_rules?}
     </INSTRUCTIONS>
 
     <CONTEXT>
@@ -1092,7 +1139,7 @@ VISUAL_CONCEPT_FINALIZER_INSTR = (
     + VISUAL_CONCEPT_RULES
     + """
     4.  **Finalize and Enrich:** For each concept, combine the original ad copy details with the revised visual details to create a final, unified creative brief, honouring <user_visual_direction> when non-empty. Set `angle_id` to the matching ad copy's `angle_id` ("" when it has none).
-    5.  **Strict Output Format:** Output the final concepts as a single JSON object, strictly following the schema in the `<OUTPUT_FORMAT>` block (including `visual_style`, `aspect_ratio`, `trend_motif`, `brand_cue` and `angle_id` per concept).{person_casting_rules?}
+    5.  **Strict Output Format:** Output the final concepts as a single JSON object, strictly following the schema in the `<OUTPUT_FORMAT>` block (including `visual_style`, `aspect_ratio`, `trend_motif`, `brand_cue` and `angle_id` per concept).{person_casting_rules?}{timely_rules?}
     </INSTRUCTIONS>
 
     <CONTEXT>
@@ -1176,7 +1223,7 @@ VISUAL_CONCEPT_FIXER_INSTR = (
     + VISUAL_CONCEPT_RULES
     + """
     4.  **Keep the idea:** a fixed concept keeps its `ad_copy_id`, `concept_name`, `visual_style`, `aspect_ratio`, `brand_cue`, `angle_id`, `headline`, `social_caption` and `call_to_action`.
-    5.  **Output:** return ALL the concepts from <final_visual_concepts>, in the same order with unchanged `ad_copy_id`s, as a single JSON object.{person_casting_rules?}
+    5.  **Output:** return ALL the concepts from <final_visual_concepts>, in the same order with unchanged `ad_copy_id`s, as a single JSON object.{person_casting_rules?}{timely_rules?}
     </INSTRUCTIONS>
 
     <CONTEXT>

@@ -128,7 +128,8 @@ def test_casting_rules_come_only_from_state(name):
     any casting text (byte-identical to before the feature)."""
     instr = _person_prompts()[name]
     assert instr.count("{person_casting_rules?}") == 1, name
-    assert "{person_casting_rules?}\n    </INSTRUCTIONS>" in instr, name
+    # Last in the instructions, followed only by the timely slot's own token.
+    assert "{person_casting_rules?}{timely_rules?}\n    </INSTRUCTIONS>" in instr, name
     without = instr.replace("{person_casting_rules?}", "").lower()
     for word in _PERSON_WORDS:
         assert f"`{word}`" not in without, (name, word)

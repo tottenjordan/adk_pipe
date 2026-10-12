@@ -518,3 +518,57 @@ def test_trend_situation_extends_the_draft():
     )
     assert situation.abstain_reason == ""
     assert set(TrendSituationDraft.model_fields) < set(TrendSituation.model_fields)
+
+
+# --- Timely slot (trend-state awareness PR 3) --- #
+@pytest.mark.parametrize(
+    "name",
+    [
+        "AdCopy",
+        "FinalAdCopy",
+        "VisualConcept",
+        "VisualConceptCritique",
+        "VisualConceptFinal",
+    ],
+)
+def test_copies_and_concepts_carry_the_timely_flag(name):
+    """uses_trend_state / timely_reason are defaulted on every copy and visual
+    stage, so old payloads still validate."""
+    import creative_agent.schemas as schemas
+
+    model = getattr(schemas, name)
+    assert model.model_fields["uses_trend_state"].default is False
+    assert model.model_fields["timely_reason"].default == ""
+    for field in ("uses_trend_state", "timely_reason"):
+        assert model.model_fields[field].description
+        assert field not in model.model_json_schema().get("required", [])
+    required = {
+        f: "Humorous" if f == "tone_style" else ("x" if info.annotation is str else 1)
+        for f, info in model.model_fields.items()
+        if info.is_required()
+    }
+    item = model(**required)
+    assert item.uses_trend_state is False and item.timely_reason == ""
+    item = model(**required, uses_trend_state=True, timely_reason="Game tomorrow.")
+    assert item.model_dump()["uses_trend_state"] is True
+
+
+def test_trend_bridge_timely_angle_defaults_empty():
+    from creative_agent.schemas import TrendBridge
+
+    bridge = TrendBridge(
+        fit_score=3, fit_mode="cultural", bridge="b", motifs=["m"], risks=[]
+    )
+    assert bridge.timely_angle == ""
+    assert "timely_angle" not in TrendBridge.model_json_schema().get("required", [])
+    assert (
+        TrendBridge(
+            fit_score=3,
+            fit_mode="cultural",
+            bridge="b",
+            motifs=["m"],
+            risks=[],
+            timely_angle="Game-day rituals before tomorrow's kickoff.",
+        ).timely_angle
+        == "Game-day rituals before tomorrow's kickoff."
+    )

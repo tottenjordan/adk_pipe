@@ -67,6 +67,14 @@ class AdCopy(BaseModel):
         le=1.0,
         description="Honest self-rating 0-1 of how expected this idea is for its angle: 1 = the most obvious, expected execution; 0 = a highly unexpected one.",
     )
+    uses_trend_state: bool = Field(
+        default=False,
+        description="True only for the timely creative that references the validated current moment (when the timely rules allow one); false for every evergreen creative.",
+    )
+    timely_reason: str = Field(
+        default="",
+        description="One sentence: how this creative references the current moment; '' when it is evergreen.",
+    )
 
 
 class AdCopyList(BaseModel):
@@ -139,6 +147,14 @@ class FinalAdCopy(BaseModel):
         le=1.0,
         description="The original idea's typicality self-rating (0-1; 1 = the most expected idea for its angle, 0 = highly unexpected), re-rated if the copy changed.",
     )
+    uses_trend_state: bool = Field(
+        default=False,
+        description="True only for the timely creative that references the validated current moment (when the timely rules allow one); false for every evergreen creative.",
+    )
+    timely_reason: str = Field(
+        default="",
+        description="One sentence: how this creative references the current moment; '' when it is evergreen.",
+    )
     call_to_action: str = Field(
         description="A NEW, specific, action-oriented phrase that starts with an action verb, matches the brief's desired response and has at most 8 words (e.g., 'Shop the drop now!')."
     )
@@ -196,6 +212,14 @@ class VisualConcept(BaseModel):
         default="",
         description="The creative brief angle id carried over from the paired ad copy (its `angle_id`, e.g. 'A2'); '' when the copy has none.",
     )
+    uses_trend_state: bool = Field(
+        default=False,
+        description="True only for the timely creative that references the validated current moment (when the timely rules allow one); false for every evergreen creative.",
+    )
+    timely_reason: str = Field(
+        default="",
+        description="One sentence: how this creative references the current moment; '' when it is evergreen.",
+    )
     casts_person_reference: bool = Field(
         default=False,
         description="True when this concept's single human hero is the user's person reference (the person in the person reference image); only when person_reference_available is yes and the casting rules hold.",
@@ -249,6 +273,14 @@ class VisualConceptCritique(BaseModel):
     angle_id: str = Field(
         default="",
         description="The creative brief angle id carried over from the paired ad copy (its `angle_id`, e.g. 'A2'); '' when the copy has none.",
+    )
+    uses_trend_state: bool = Field(
+        default=False,
+        description="True only for the timely creative that references the validated current moment (when the timely rules allow one); false for every evergreen creative.",
+    )
+    timely_reason: str = Field(
+        default="",
+        description="One sentence: how this creative references the current moment; '' when it is evergreen.",
     )
     casts_person_reference: bool = Field(
         default=False,
@@ -328,6 +360,14 @@ class VisualConceptFinal(BaseModel):
         default="",
         description="The creative brief angle id carried over from the paired ad copy (its `angle_id`, e.g. 'A2'); '' when the copy has none.",
     )
+    uses_trend_state: bool = Field(
+        default=False,
+        description="True only for the timely creative that references the validated current moment (when the timely rules allow one); false for every evergreen creative.",
+    )
+    timely_reason: str = Field(
+        default="",
+        description="One sentence: how this creative references the current moment; '' when it is evergreen.",
+    )
     casts_person_reference: bool = Field(
         default=False,
         description="True when this concept's single human hero is the user's person reference (the person in the person reference image); only when person_reference_available is yes and the casting rules hold.",
@@ -380,6 +420,10 @@ class TrendBridge(BaseModel):
     )
     risks: list[str] = Field(
         description="Brand-safety and cultural risks of joining this trend (controversies, real-person sensitivities, negative associations)."
+    )
+    timely_angle: str = Field(
+        default="",
+        description="Only when the current moment is present and timely: one line on how a timely creative may reference it (tone per the timely playbook); otherwise ''.",
     )
 
 

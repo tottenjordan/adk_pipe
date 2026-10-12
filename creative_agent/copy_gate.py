@@ -55,6 +55,7 @@ from typing import Any, Literal
 
 from .brief_check import clean_term, parse_brief
 from .claims import unsupported_claims
+from .temporal_terms import temporal_terms
 from .text_match import PACKAGING_WORDS, contains_phrase, fold, same_word, words
 
 MAX_HEADLINE_CHARS = 60
@@ -383,6 +384,46 @@ def _avoid_terms(
     ]
 
 
+def _clear_timely(item: dict[str, Any], why: str) -> None:
+    item["uses_trend_state"] = False
+    reason = str(item.get("timely_reason") or "").strip()
+    item["timely_reason"] = f"{reason} (Not timely: {why}.)".strip()
+
+
+def cap_timely_flags(
+    items: Sequence[Mapping[str, Any]], *, timely_ok: bool, max_timely: int
+) -> tuple[list[dict[str, Any]], list[int]]:
+    """Copies of ``items`` with ``uses_trend_state`` cleared beyond the cap.
+
+    Keeps the first ``max_timely`` flagged items (``uses_trend_state is True``)
+    in order and clears the rest with a "(Not timely: cap reached.)" suffix on
+    ``timely_reason``; clears every flag ("no validated current moment") when
+    not ``timely_ok``. A non-bool flag normalises to False. Returns the items
+    and the indexes whose flag was cleared. Shared by the concept and copy caps.
+    """
+    out: list[dict[str, Any]] = []
+    cleared: list[int] = []
+    kept = 0
+    for index, item in enumerate(items):
+        c = deepcopy(dict(item))
+        flag = c.get("uses_trend_state")
+        if flag is not True:
+            if flag not in (None, False):
+                c["uses_trend_state"] = False
+            out.append(c)
+            continue
+        if not timely_ok:
+            _clear_timely(c, "no validated current moment")
+            cleared.append(index)
+        elif kept >= max_timely:
+            _clear_timely(c, "cap reached")
+            cleared.append(index)
+        else:
+            kept += 1
+        out.append(c)
+    return out, cleared
+
+
 def _deterministic_issues(
     copy: Mapping[str, Any],
     *,
@@ -391,6 +432,7 @@ def _deterministic_issues(
     brand: str,
     max_cta: int = MAX_CTA_WORDS,
     allowed_claims_text: str = "",
+    timely_ok: bool = False,
 ) -> list[str]:
     issues: list[str] = []
     copy_text = " ".join(_text(copy.get(f)) for f in _COPY_FIELDS)
@@ -436,6 +478,15 @@ def _deterministic_issues(
             "points state it."
         )
 
+    # The timely slot: with a timely moment, an evergreen copy must stay
+    # timeless (no dates, results or "tonight"); the timely copy may not.
+    if timely_ok and copy.get("uses_trend_state") is not True:
+        if terms := temporal_terms(copy_text):
+            issues.append(
+                f"evergreen copy mentions a dated or outcome term "
+                f"({', '.join(terms)}): remove it or make this the timely copy."
+            )
+
     for term in avoid:
         if contains_phrase(copy_text, term):
             issues.append(
@@ -474,6 +525,7 @@ def _check_copy(
     brand: str,
     strictness: Sequence[str] = (),
     allowed_claims_text: str = "",
+    timely_ok: bool = False,
 ) -> list[CopyIssue]:
     deterministic = _deterministic_issues(
         copy,
@@ -482,6 +534,7 @@ def _check_copy(
         brand=brand,
         max_cta=max_cta_words(strictness),
         allowed_claims_text=allowed_claims_text,
+        timely_ok=timely_ok,
     )
     self_reported = _self_reported_issues(copy, gating_brief_checks(strictness))
     return [CopyIssue("deterministic", text) for text in deterministic] + [
@@ -499,6 +552,7 @@ def gate_copies(
     brand: str = "",
     strictness: Sequence[str] = (),
     allowed_claims_text: str = "",
+    timely_ok: bool = False,
 ) -> dict[str, list[CopyIssue]]:
     """The copies' gating issues, keyed by ``copy_keys``.
 
@@ -522,7 +576,11 @@ def gate_copies(
     run's ``rating_strictness`` flags; default none = the rules above) only
     tightens: ``weak_cta`` caps the CTA at ``STRICT_CTA_WORDS`` words and
     ``off_brief`` adds ``OFF_BRIEF_BRIEF_CHECKS`` to the gating items. Only
-    copies with issues are returned ({} = clean). Never raises.
+    copies with issues are returned ({} = clean). ``timely_ok`` (the run has a
+    timely moment and the slot is on) adds one deterministic check: an
+    evergreen copy (``uses_trend_state`` not True) must contain no dated or
+    outcome term (``temporal_terms``); without it the checks are unchanged.
+    Never raises.
     """
     terms = _avoid_terms(
         avoid, product=target_product, mandatories=mandatories, trend=trend
@@ -537,9 +595,47 @@ def gate_copies(
             brand=brand,
             strictness=strictness,
             allowed_claims_text=allowed_claims_text,
+            timely_ok=timely_ok,
         ):
             issues[key] = found
     return issues
+
+
+def enforce_timely_copy_cap(
+    critique: Any, *, timely_ok: bool, max_timely: int
+) -> tuple[Any, list[str]]:
+    """The ``ad_copy_critique`` value with ``uses_trend_state`` cleared beyond
+    the timely cap (first ``max_timely`` kept, copy order) or everywhere when
+    the run has no timely moment, plus one warning per cleared copy.
+
+    Returns the SAME value (and no warnings) when nothing changes; otherwise a
+    new value in the same shape (a dict, or a JSON string of one). The copy
+    gate applies it before checking, so the reviser and the eval see the capped
+    flags.
+    """
+    value = critique
+    if isinstance(critique, str):
+        try:
+            value = json.loads(critique)
+        except ValueError:
+            return critique, []
+    if not isinstance(value, Mapping):
+        return critique, []
+    copies = value.get("ad_copies")
+    if not isinstance(copies, list) or not all(isinstance(c, Mapping) for c in copies):
+        return critique, []
+    capped, cleared = cap_timely_flags(
+        copies, timely_ok=timely_ok, max_timely=max_timely
+    )
+    if capped == [dict(c) for c in copies]:
+        return critique, []
+    why = "cap reached" if timely_ok else "no validated current moment"
+    warns = [
+        f"copy {capped[i].get('original_id', '?')}: timely flag cleared ({why})"
+        for i in cleared
+    ]
+    new_value = {**value, "ad_copies": capped}
+    return (json.dumps(new_value) if isinstance(critique, str) else new_value), warns
 
 
 def structural_issues(
