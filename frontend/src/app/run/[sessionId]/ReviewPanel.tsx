@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,6 +11,7 @@ import { parseCreativeBrief } from "@/lib/creative-brief";
 import { normalizeTerm, parseTrendFlags } from "@/lib/trend-flags";
 import { ResearchReportEditor, useReportEdit } from "./report-editor";
 import { ReviewBrief } from "./review-brief";
+import { useReviewDraft } from "./review-drafts";
 import { ACTIONS_ROW, ShortcutHint, useApproveShortcut } from "./review-shared";
 import {
   buildConceptEdits,
@@ -27,12 +28,18 @@ const ASPECT_RATIO_OPTIONS = ["9:16", "1:1", "4:5", "3:4", "16:9"];
 function ReviewResearch({
   state,
   onResume,
+  functionCallId,
 }: {
   state: Record<string, unknown>;
   onResume: (response: Record<string, unknown>) => void;
+  /** Keys the drafts so a rejected resume's remount keeps the edits. */
+  functionCallId?: string;
 }) {
-  const [feedback, setFeedback] = useState("");
-  const reportEdit = useReportEdit(state);
+  const [feedback, setFeedback] = useReviewDraft(
+    functionCallId && `${functionCallId}:research-feedback`,
+    () => ""
+  );
+  const reportEdit = useReportEdit(state, functionCallId);
   const edits = reportEdit.edits;
   const resume = (status: string, instruction: string) =>
     onResume({
@@ -98,11 +105,17 @@ function ReviewField({ label, value }: { label: string; value: string }) {
 function ReviewAdCopies({
   state,
   onResume,
+  functionCallId,
 }: {
   state: Record<string, unknown>;
   onResume: (response: Record<string, unknown>) => void;
+  /** Keys the drafts so a rejected resume's remount keeps the edits. */
+  functionCallId?: string;
 }) {
-  const [feedback, setFeedback] = useState("");
+  const [feedback, setFeedback] = useReviewDraft(
+    functionCallId && `${functionCallId}:copy-feedback`,
+    () => ""
+  );
   const adCopies = extractItems(state.ad_copy_critique);
   // After the one user revision the root re-presents the revised copies; this
   // second review always proceeds (feedback then only guides the visuals).
@@ -215,22 +228,27 @@ function ReviewAdCopies({
 function ReviewVisualConcepts({
   state,
   onResume,
+  functionCallId,
 }: {
   state: Record<string, unknown>;
   onResume: (response: Record<string, unknown>) => void;
+  /** Keys the drafts so a rejected resume's remount keeps the edits. */
+  functionCallId?: string;
 }) {
   const concepts = useMemo(
     () => extractItems(state.final_visual_concepts) ?? [],
     [state.final_visual_concepts]
   );
   // Editable per-concept drafts, seeded once from the finalized concepts.
-  const [drafts, setDrafts] = useState<ConceptDraft[]>(() =>
-    concepts.map((c) => ({
-      image_generation_prompt: String(c.image_generation_prompt ?? ""),
-      aspect_ratio: String(c.aspect_ratio ?? ""),
-      visual_style: String(c.visual_style ?? ""),
-      revision_note: "",
-    }))
+  const [drafts, setDrafts] = useReviewDraft<ConceptDraft[]>(
+    functionCallId && `${functionCallId}:concepts`,
+    () =>
+      concepts.map((c) => ({
+        image_generation_prompt: String(c.image_generation_prompt ?? ""),
+        aspect_ratio: String(c.aspect_ratio ?? ""),
+        visual_style: String(c.visual_style ?? ""),
+        revision_note: "",
+      }))
   );
 
   const update = (i: number, field: keyof ConceptDraft, value: string) =>
@@ -348,9 +366,12 @@ function ReviewVisualConcepts({
 function ReviewTrends({
   state,
   onResume,
+  functionCallId,
 }: {
   state: Record<string, unknown>;
   onResume: (response: Record<string, unknown>) => void;
+  /** Keys the drafts so a rejected resume's remount keeps the edits. */
+  functionCallId?: string;
 }) {
   const candidates = useMemo(
     () => parseRawGtrends(state.raw_gtrends),
@@ -359,8 +380,16 @@ function ReviewTrends({
   const flags = useMemo(() => parseTrendFlags(state.trend_flags), [state.trend_flags]);
   const sensitiveReason = (term: string) => flags.get(normalizeTerm(term));
   const idBase = React.useId();
-  const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [instruction, setInstruction] = useState("");
+  // Stored as a list (the draft store keeps plain values); read as a Set.
+  const [selectedList, setSelectedList] = useReviewDraft<string[]>(
+    functionCallId && `${functionCallId}:trend-selected`,
+    () => []
+  );
+  const selected = useMemo(() => new Set(selectedList), [selectedList]);
+  const [instruction, setInstruction] = useReviewDraft(
+    functionCallId && `${functionCallId}:trend-instruction`,
+    () => ""
+  );
 
   const confirm = () =>
     onResume({
@@ -371,12 +400,9 @@ function ReviewTrends({
   useApproveShortcut(confirm, selected.size > 0);
 
   const toggle = (term: string) => {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(term)) next.delete(term);
-      else next.add(term);
-      return next;
-    });
+    setSelectedList((prev) =>
+      prev.includes(term) ? prev.filter((t) => t !== term) : [...prev, term]
+    );
   };
 
   return (
@@ -524,14 +550,20 @@ export function ReviewPanel({
         serverErrors={serverErrors}
       />
     ) : (
-      <ReviewResearch state={sessionState} onResume={onResume} />
+      <ReviewResearch state={sessionState} onResume={onResume} functionCallId={functionCallId} />
     );
   } else if (functionName === "review_ad_copies") {
-    panel = <ReviewAdCopies state={sessionState} onResume={onResume} />;
+    panel = (
+      <ReviewAdCopies state={sessionState} onResume={onResume} functionCallId={functionCallId} />
+    );
   } else if (functionName === "review_visual_concepts") {
-    panel = <ReviewVisualConcepts state={sessionState} onResume={onResume} />;
+    panel = (
+      <ReviewVisualConcepts state={sessionState} onResume={onResume} functionCallId={functionCallId} />
+    );
   } else if (functionName === "review_trends") {
-    panel = <ReviewTrends state={sessionState} onResume={onResume} />;
+    panel = (
+      <ReviewTrends state={sessionState} onResume={onResume} functionCallId={functionCallId} />
+    );
   }
   if (!panel) return null;
   return (
