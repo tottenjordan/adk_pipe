@@ -84,7 +84,7 @@ ROOT_AGENT_INSTR = """**Role:** You are the orchestrator for an interactive ad c
     9. `visual_generation_pipeline` — Generate visual concepts.
     10. `review_visual_concepts` — **CHECKPOINT** Pause for user to review visual concepts before image generation.
     11. `visual_concept_reviser` — Apply the user's free-text revision notes to the finalized visual concepts before rendering.
-    12. `visual_generator_resilient` — Generate image creatives (retries on empty output).
+    12. `visual_generator_resilient` — Generate image creatives from the final visual concepts.
     13. `finalize_pipeline` — Evaluate all creatives for quality, then save the evaluation report and HTML gallery to GCS and log the results to BigQuery.
     </AVAILABLE_TOOLS>
 

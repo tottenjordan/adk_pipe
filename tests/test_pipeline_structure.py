@@ -254,7 +254,6 @@ def test_graph_llm_agents_are_single_turn():
         "visual_concept_critic",
         "visual_concept_finalizer",
         "visual_concept_fixer",
-        "visual_generator",
     }
     for a in agents:
         assert a.mode == "single_turn", a.name
@@ -275,6 +274,7 @@ _RESULT_NODES = {
     "ad_copies_ready",
     "visual_concepts_ready",
     "images_ready",
+    "visual_generator_resilient",  # the render node: generate_image's message
     "finalize_ready",
     "ad_copies_revised",  # interactive checkpoint-2 user revision
     "ad_copy_revision_skipped",
@@ -598,17 +598,18 @@ def test_structured_output_producers_carry_schema_retry():
         assert by_name[name].retry_config is SCHEMA_RETRY, name
 
 
-def test_visual_production_pipeline_wraps_generator_in_retry():
-    """The image step must be retry-wrapped: visual_generator intermittently
-    returns MALFORMED_FUNCTION_CALL and never emits generate_image, shipping an
-    empty gallery. RetryUntilKeyNode re-runs it until _images_generated is set
-    (generate_image's idempotency guard makes a re-run safe). A no-output
-    render_barrier sits between the concepts and the render step: it keeps the
-    concepts payload out of the retry node's PipelineRequest-validated input."""
-    from google.adk.workflow import Workflow
+def test_visual_production_pipeline_renders_in_a_function_node():
+    """The image step is a deterministic function node (no LLM wrapper turn:
+    the old Pro visual_generator only called generate_image() once) that calls
+    generate_image directly, retrying transient infra exceptions with
+    INFRA_RETRY. A no-output render_barrier sits between the concepts and the
+    render step: it keeps the concepts payload out of the node's
+    PipelineRequest-validated input (it is also interactive's root tool)."""
+    from google.adk.workflow import FunctionNode, Workflow
 
-    from agent_common import RetryUntilKeyNode
+    from agent_common import PipelineRequest
     from creative_agent import agent as ca
+    from creative_agent.config import INFRA_RETRY
 
     wf = ca.visual_production_pipeline
     assert isinstance(wf, Workflow)
@@ -621,12 +622,11 @@ def test_visual_production_pipeline_wraps_generator_in_retry():
     }
 
     w = _graph_nodes(wf)["visual_generator_resilient"]
-    assert isinstance(w, RetryUntilKeyNode)
-    assert w.output_key == "_images_generated"
-    assert w.node.name == "visual_generator"
-    # MALFORMED_FUNCTION_CALL is a transient producer flake (issue #116); each
-    # attempt is an independent turn, so a higher cap materially raises recovery.
-    assert w.max_attempts == 6
+    assert isinstance(w, FunctionNode)
+    assert w.retry_config is INFRA_RETRY
+    assert w.input_schema is PipelineRequest
+    assert w.description
+    assert not hasattr(ca, "visual_generator")
 
 
 def test_campaign_producer_is_retry_wrapped():
@@ -928,7 +928,6 @@ def test_creative_model_agents_have_finish_reason_callback():
         ca.visual_concept_critic,
         ca.visual_concept_finalizer,
         ca.visual_concept_fixer,
-        ca.visual_generator,
         ca.root_agent,
     ]
     for a in agents:
@@ -1021,23 +1020,29 @@ def test_interactive_root_has_observability_callbacks():
 
 def test_interactive_creative_uses_resilient_visual_generator():
     """interactive_creative renders images standalone (a bare node → NodeTool)
-    after a review checkpoint, so it has the same MALFORMED_FUNCTION_CALL flaw as
-    creative_agent. It must invoke the resilient retry node, never the raw
-    visual_generator (compared by name)."""
-    from agent_common import RetryUntilKeyNode
+    after a review checkpoint, through the same deterministic render node as
+    creative_agent (kept under its public name visual_generator_resilient)."""
+    from google.adk.workflow import FunctionNode
+
+    from agent_common import PipelineRequest
     from interactive_creative import agent as ic
 
     node_tools = {
         t.name: t.node for t in ic.root_agent.tools if isinstance(t, NodeTool)
     }
     assert "visual_generator_resilient" in node_tools, (
-        "interactive_creative must invoke the resilient image wrapper"
+        "interactive_creative must invoke the render node"
     )
     w = node_tools["visual_generator_resilient"]
     assert w.name == "visual_generator_resilient"
-    assert isinstance(w, RetryUntilKeyNode)
-    assert w.node.name == "visual_generator"
-    assert w.max_attempts == 6
+    assert isinstance(w, FunctionNode)
+    assert w.input_schema is PipelineRequest
+    tool = next(
+        t for t in ic.root_agent.tools if isinstance(t, NodeTool) and t.name == w.name
+    )
+    assert tool.description == (
+        "Generates the image creatives from the final visual concepts."
+    )
 
     # The checkpoint-3 reviser runs BEFORE the render as its own AgentTool step
     # (not a node in the render graph).
@@ -1048,11 +1053,9 @@ def test_interactive_creative_uses_resilient_visual_generator():
         for t in ic.root_agent.tools
     )
 
-    # The raw generator must NOT be exposed directly (would bypass the retry).
+    # No separate LLM render agent any more.
     names = {getattr(t, "name", None) for t in ic.root_agent.tools}
-    assert "visual_generator" not in names, (
-        "raw visual_generator must not be exposed; use the wrapper"
-    )
+    assert "visual_generator" not in names
 
 
 def test_interactive_creative_exposes_pipelines_as_node_tools():
@@ -1506,14 +1509,13 @@ def test_creative_agent_root_exposes_pipelines_as_node_tools():
     assert not [t for t in root_agent.tools if isinstance(t, AgentTool)]
 
 
-# The six Pro (critic_model) producers fail over to worker_model on 429/5xx via
+# The five Pro (critic_model) producers fail over to worker_model on 429/5xx via
 # ADK FallbackModel. Agents are built at import time, so the backup is compared to
 # the agent package's own config.critic_fallback_model (as resolved at import).
 @pytest.mark.parametrize(
     "path",
     [
         "creative_agent.agent:root_agent",
-        "creative_agent.agent:visual_generator",
         "creative_agent.agent:combined_report_composer",
         "creative_agent.agent:combined_web_evaluator",
         "interactive_creative.agent:root_agent",

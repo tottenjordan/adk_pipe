@@ -146,8 +146,8 @@ def test_root_orchestrators_reask_empty_turns():
 
 
 def test_sub_agents_do_not_reask_empty_turns():
-    from creative_agent.agent import ad_copy_critic, visual_generator
+    from creative_agent.agent import ad_copy_critic, combined_report_composer
 
-    for agent in (ad_copy_critic, visual_generator):
+    for agent in (ad_copy_critic, combined_report_composer):
         for m in _delegates(agent.model):
             assert m.empty_turn_retries == 0, agent.name

@@ -173,7 +173,9 @@ def test_cast_concept_gets_person_part_and_allow_adult(monkeypatch):
     assert f"Reference image 1 (person): {PERSON_ROLE_INSTRUCTION}" in contents[0]
     assert contents[1].inline_data.data == b"\xff\xd8person"
     assert cast_call["config"].image_config.person_generation == "ALLOW_ADULT"
-    assert plain_call["contents"] == "A flat cartoon skate."
+    assert plain_call["contents"] == (
+        "A flat cartoon skate.\n\nNo logos, brand marks or trademarks."
+    )
     assert plain_call["config"].image_config.person_generation is None
 
     images = ctx.state["generated_images"]

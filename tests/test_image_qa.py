@@ -434,6 +434,7 @@ def test_fail_then_pass_keeps_rerender(monkeypatch):
         _CONCEPT["image_generation_prompt"]
         + "\n\nCorrect these issues from the previous attempt: remove the swoosh. "
         + "Do not add any new text to the image."
+        + "\n\nNo logos, brand marks or trademarks except those of PRS."
     )
     # Same aspect ratio / image config on the re-render.
     first_cfg = flow.models.calls[0]["config"].image_config

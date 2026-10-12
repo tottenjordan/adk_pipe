@@ -2254,8 +2254,7 @@ per-invocation metrics against [`docs/baselines/eval_efficiency.json`](../docs/b
 | no baseline for the case/metric, or a baseline of 0 | noted, not gated |
 
 **`tool_use_check`** reads the case's `invocation_events` and keeps only the function calls
-authored by the root agent (sub-agent calls, e.g. `visual_generator`'s `generate_image`
-inside `creative_pipeline`, are ignored). Per-agent table `TOOL_SPECS` in the gate:
+authored by the root agent (sub-agent calls inside `creative_pipeline` are ignored). Per-agent table `TOOL_SPECS` in the gate:
 `creative_agent` (author `root_agent`) may call only `memorize` and `creative_pipeline`,
 `creative_pipeline` exactly once and as the last root call; `trend_scout` (author
 `trend_scout`) may call only its root tools and must call each tool the `all_tools_used`

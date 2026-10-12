@@ -282,7 +282,7 @@ tests/
   `test_concept_guard.py` (`text_problem`, `product_not_visible`, `trend_unclear`; idempotent re-guard),
   `test_pipeline_structure.py` / `test_callbacks.py` (gates + guard/recheck callbacks read `rating_strictness`),
   `test_image_qa.py` (prominent product / motif instruction, flags passed from state), `test_image_reference.py`
-  (`unwanted_logo` render-prompt line), `test_rating_signals.py` (`strictness_flags`), `test_creative_agent_graph.py`
+  (no-other-logos line on every render prompt, never doubled by `unwanted_logo`), `test_rating_signals.py` (`strictness_flags`), `test_creative_agent_graph.py`
   (learning step with fake ratings → copy gate caps CTAs at 6 words, concept gate allows one text concept, guard adds
   the prominence line), `test_creative_eval.py::TestReportLearningFields` (`learning_used` / `learning_flags`),
   `test_rating_reasons_drift.py` (frontend `STRICTNESS_LABELS` keys); frontend `learning-summary.test.tsx`.

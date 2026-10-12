@@ -3,7 +3,6 @@ import logging
 from typing import Any
 
 from google.adk.agents.callback_context import CallbackContext
-from google.adk.models.llm_request import LlmRequest
 from google.adk.sessions.state import State
 from google.genai import types
 
@@ -389,37 +388,6 @@ def recheck_concept_issues_callback(callback_context: CallbackContext) -> None:
 # `callbacks.rate_limit_callback` keeps the same name/signature for the
 # before_model_callback wiring in agent.py (and interactive_creative reuse).
 rate_limit_callback = build_rate_limit_callback(config)
-
-
-def force_image_tool_call(
-    callback_context: CallbackContext, llm_request: LlmRequest
-) -> None:
-    """Constrain the visual_generator turn to actually call `generate_image`.
-
-    Root-cause backstop for issue #116: visual_generator (gemini-3.1-pro-preview)
-    intermittently returns MALFORMED_FUNCTION_CALL and emits NO tool call, leaving
-    `_images_generated` unset and shipping an empty gallery. `RetryUntilKeyNode`
-    (visual_generator_resilient) retries that, but each retry is still a free-choice
-    turn that can flake again. Setting `tool_config` mode=ANY with
-    `allowed_function_names=["generate_image"]` forces the model to predict that one
-    function call every turn, making the common path deterministic rather than
-    probabilistic (the retry cap remains as defense-in-depth).
-
-    Gated on `_images_generated`: `generate_image` is idempotent (its guard sets that
-    flag on success), and the resilient wrapper may re-enter after success. Once the
-    images exist we must NOT re-force a tool call — leave the turn free so the agent
-    can simply finish. Wired as a `before_model_callback` on `visual_generator`
-    AFTER `rate_limit_callback` (both return None, so both run in order).
-    """
-    if callback_context.state.get("_images_generated"):
-        return None
-    llm_request.config.tool_config = types.ToolConfig(
-        function_calling_config=types.FunctionCallingConfig(
-            mode=types.FunctionCallingConfigMode.ANY,
-            allowed_function_names=["generate_image"],
-        )
-    )
-    return None
 
 
 def collect_research_sources_callback(callback_context: CallbackContext) -> None:
