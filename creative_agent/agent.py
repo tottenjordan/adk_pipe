@@ -40,6 +40,7 @@ from .copy_gate import (
     CopyIssue,
     brief_avoid,
     brief_mandatories,
+    brief_motifs,
     enforce_timely_copy_cap,
     flatten_copy_issues,
     format_copy_issues,
@@ -748,11 +749,13 @@ ad_copy_reviser = Agent(
 # copy_gate runs creative_agent.copy_gate on the critic's final copies:
 # deterministic checks (product named, CTA <= 8 words (6 under the weak_cta
 # rating strictness), headline/caption length, the brief's avoid terms,
-# unsupported absolute claims, and with a timely moment dated/outcome terms in
-# evergreen copies) plus the critic's self-reported failed
-# `proposition`/`mandatories`/`risks` brief checks (and `reason_to_believe`/
-# `trend_bridge` under the off_brief rating strictness; its other failed items
-# are advisory and never gate). Same contract as brief_gate: with issues and revision budget
+# unsupported absolute claims, with a timely moment dated/outcome terms in
+# evergreen copies, and a trend tie: each copy names the trend, one of its
+# distinctive words or a brief motif, unless the current moment is sensitive)
+# plus the critic's self-reported failed
+# `proposition`/`mandatories`/`risks`/`trend_bridge` brief checks (and
+# `reason_to_believe` under the off_brief rating strictness; its other failed
+# items are advisory and never gate). Same contract as brief_gate: with issues and revision budget
 # left (config.copy_revision_rounds, env COPY_REVISION_ROUNDS, 0-2) it writes
 # them as a Markdown list grouped per copy (`ad_copy_issues`, the reviser's
 # input), the flagged ids and a pre-revision snapshot (the reviser's safety
@@ -790,7 +793,16 @@ def _copy_issues(state: Mapping[str, Any]) -> dict[str, list[CopyIssue]]:
         ),
         timely_ok=timely_allowed(state, config.max_timely_concepts),
         max_timely=config.max_timely_concepts,
+        trend_terms=str(state.get("target_search_trends") or ""),
+        motifs=brief_motifs(brief),
+        trend_sensitive=_trend_sensitive(state),
     )
+
+
+def _trend_sensitive(state: Mapping[str, Any]) -> bool:
+    """The validated current moment is sensitive (never referenced)."""
+    situation = state.get("trend_situation")
+    return isinstance(situation, Mapping) and situation.get("phase") == "sensitive"
 
 
 def _residual(

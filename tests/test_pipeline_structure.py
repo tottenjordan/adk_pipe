@@ -2136,10 +2136,68 @@ def test_copy_gate_decision_passes_trend_and_mandatories_to_the_avoid_filter():
         "avoid": ["Taylor Swift", "gambling"],
         "mandatories": ["Include the problem gambling helpline"],
     }
+    # The other copies tie to the trend via its tour name (trend-tie check).
+    tied = [_final_copy(i, social_caption="Eras Tour ready.") for i in (2, 3, 4)]
     state = _copy_state(
-        copy, creative_brief=brief, target_search_trends="Taylor Swift Eras Tour"
+        copy,
+        *tied,
+        creative_brief=brief,
+        target_search_trends="Taylor Swift Eras Tour",
+    )
+    # The exempt avoid term (a Title-Case trend name) also counts as the tie.
+    assert copy_gate_decision(state, 1)[0] == "ok"
+
+
+def test_copy_gate_decision_flags_copies_without_a_trend_tie():
+    from creative_agent.agent import copy_gate_decision
+
+    brief = {**_clean_brief(), "trend_bridge": {"motifs": ["dust cloud"]}}
+    tied = _final_copy(1, social_caption="Leave a dust cloud.")  # via a motif
+    named = _final_copy(2, headline="Roadrunner, meet your match")
+    untied = _final_copy(3)
+    state = _copy_state(
+        tied,
+        named,
+        untied,
+        _final_copy(4, social_caption="Roadrunner speed."),
+        creative_brief=brief,
+        target_search_trends="roadrunner race",
+    )
+    route, delta = copy_gate_decision(state, 1)
+    assert route == "revise"
+    assert delta["ad_copy_flagged_ids"] == ["3"]
+    assert (
+        "not clearly tied to the trend: name it or one of its motifs "
+        "(e.g. Roadrunner, Race, dust cloud)" in delta["ad_copy_issues"]
+    )
+
+
+def test_copy_gate_decision_skips_the_trend_tie_for_a_sensitive_moment():
+    from creative_agent.agent import copy_gate_decision
+
+    state = _copy_state(
+        _final_copy(1),
+        creative_brief=_clean_brief(),
+        target_search_trends="roadrunner race",
+        trend_situation={"phase": "sensitive", "timely_ok": False},
     )
     assert copy_gate_decision(state, 1)[0] == "ok"
+
+
+def test_residual_copy_issues_include_the_trend_tie():
+    """interactive_creative's checkpoint-2 residual goes through _copy_issues."""
+    from creative_agent.agent import cap_and_residual_copies, residual_copy_issues
+
+    state = _copy_state(
+        _final_copy(1),
+        _final_copy(2, social_caption="Roadrunner speed."),
+        _final_copy(3, social_caption="Roadrunner speed."),
+        _final_copy(4, social_caption="Roadrunner speed."),
+        target_search_trends="roadrunner race",
+    )
+    (issue,) = residual_copy_issues(state)
+    assert issue.startswith('Copy 1 ("Headline 1"): not clearly tied to the trend')
+    assert cap_and_residual_copies(state)["ad_copy_critique__issues"] == [issue]
 
 
 def test_copy_gate_decision_skips_missing_copies():
