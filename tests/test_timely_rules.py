@@ -177,18 +177,18 @@ def _timely_prompts() -> dict[str, str]:
 
 
 # sha256[:16] of each instruction as it was before the timely slot (main at
-# 59e8afb). With `timely_rules` "" the token renders to nothing, so the
+# 4920d1e, incl. the date line). With `timely_rules` "" the token renders to nothing, so the
 # instruction the model sees is exactly this text. If one of these prompts is
 # changed for another reason, update its hash in the same PR (print
 # hashlib.sha256(instr.replace("{timely_rules?}", "").encode()).hexdigest()[:16]).
 _PRE_TIMELY_SHA256 = {
-    "ART_DIRECTOR_INSTR": "dc31de699c568755",
+    "ART_DIRECTOR_INSTR": "760ea3944a0b921e",
     "VISUAL_CONCEPT_DRAFTER_INSTR": "d58c05019e77294e",
     "VISUAL_CONCEPT_CRITIC_INSTR": "4177ff94fa466870",
     "VISUAL_CONCEPT_FINALIZER_INSTR": "e863eb33cdd1f6cd",
     "VISUAL_CONCEPT_FIXER_INSTR": "887a40f4cfb6d721",
-    "AD_COPY_DRAFTER_INSTR": "20a1c6eac74488cd",
-    "AD_COPY_CRITIC_INSTR": "a2ba165c46a618d7",
+    "AD_COPY_DRAFTER_INSTR": "b49c2d959f0a1a74",
+    "AD_COPY_CRITIC_INSTR": "d6cf06acf28cb50d",
     "AD_COPY_REVISER_INSTR": "decad18ae792fd27",
     "VISUAL_CONCEPT_REVISER_INSTR": "2e7d5871d84ee712",
 }
