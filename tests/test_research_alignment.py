@@ -3,8 +3,10 @@ receives and with the deterministic gates (planner fallbacks, the token each
 instruction names, source de-duplication, schema/doc wording)."""
 
 import re
+from types import SimpleNamespace
 
 import pytest
+from google.genai import types
 
 from creative_agent.sub_agents.campaign_researcher import agent as ca_agent
 from creative_agent.sub_agents.trend_researcher import agent as gs_agent
@@ -48,6 +50,60 @@ def test_planners_retry_schema_errors(planner):
     from creative_agent.config import SCHEMA_RETRY
 
     assert planner.retry_config is SCHEMA_RETRY
+
+
+# --- 2. source collection de-duplicates claims on rescan --------------------- #
+def _grounded_event(url: str, title: str, segment: str, confidence: float):
+    return SimpleNamespace(
+        grounding_metadata=types.GroundingMetadata(
+            grounding_chunks=[
+                types.GroundingChunk(
+                    web=types.GroundingChunkWeb(uri=url, title=title, domain="ex.com")
+                )
+            ],
+            grounding_supports=[
+                types.GroundingSupport(
+                    segment=types.Segment(text=segment),
+                    grounding_chunk_indices=[0],
+                    confidence_scores=[confidence],
+                )
+            ],
+        )
+    )
+
+
+def _ctx(events, state):
+    return SimpleNamespace(
+        _invocation_context=SimpleNamespace(session=SimpleNamespace(events=events)),
+        state=state,
+    )
+
+
+def test_rescanning_the_session_does_not_duplicate_claims():
+    from creative_agent.callbacks import collect_research_sources_callback
+
+    first = _grounded_event("https://ex.com/a", "A", "Claim A.", 0.9)
+    state: dict = {}
+    collect_research_sources_callback(_ctx([first], state))
+    # A later searcher re-scans the whole session (first event included) and
+    # adds a new source plus a new claim for the known one.
+    second = _grounded_event("https://ex.com/b", "B", "Claim B.", 0.8)
+    again = _grounded_event("https://ex.com/a", "A", "Claim A2.", 0.7)
+    collect_research_sources_callback(_ctx([first, second, again], state))
+    collect_research_sources_callback(_ctx([first, second, again], state))
+
+    sources = state["sources"]
+    assert state["url_to_short_id"] == {
+        "https://ex.com/a": "src-1",
+        "https://ex.com/b": "src-2",
+    }
+    assert [c["text_segment"] for c in sources["src-1"]["supported_claims"]] == [
+        "Claim A.",
+        "Claim A2.",
+    ]
+    assert [c["text_segment"] for c in sources["src-2"]["supported_claims"]] == [
+        "Claim B."
+    ]
 
 
 # --- 7. synthesizers receive the inputs they are told to use ----------------- #
