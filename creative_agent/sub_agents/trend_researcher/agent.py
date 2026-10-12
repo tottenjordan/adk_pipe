@@ -11,7 +11,7 @@ from agent_common import RetryUntilKeyNode, build_gemini
 from agent_common.clock import DATE_CONTEXT_LINE
 
 from ... import callbacks
-from ...config import config
+from ...config import SCHEMA_RETRY, config
 from ...prompts import TREND_SCOUT_HINT_BLOCK
 from ...schemas import SearchQuery
 
@@ -90,6 +90,9 @@ gs_web_planner = Agent(
     """
     ),
     output_schema=TrendQueryList,
+    # The planner sits outside the RetryUntilKeyNode, so a malformed JSON turn
+    # would otherwise fail the whole research branch.
+    retry_config=SCHEMA_RETRY,
     output_key="initial_gs_queries",
     after_model_callback=callbacks.log_empty_turn_finish_reason,
 )
@@ -117,14 +120,14 @@ gs_web_searcher = Agent(
         + """
 
     <INSTRUCTIONS>
-    1.  **Access Queries:** Retrieve the list of web search queries from the `initial_gs_queries` input in the <CONTEXT> block.
+    1.  **Access Queries:** Retrieve the list of web search queries from the `initial_gs_queries` input in the <CONTEXT> block. If no queries are listed, search the intersection of the trend ({target_search_trends}) and the target audience ({target_audience}) instead: why the trend is happening now, its key dates and how it connects to the audience.
     2.  **Execute Research:** Use the `google_search` tool to exhaustively execute **all** retrieved queries.
     3.  **Report RAW Findings:** For each query, list the concrete facts, quotes, entities, dates, numbers, and sentiment you found, grouped by query. Do NOT write a polished report and do NOT omit specifics — the next agent needs the raw material to synthesize from. Plain text with light markdown is fine.
     </INSTRUCTIONS>
 
     <CONTEXT>
         <initial_gs_queries>
-        {initial_gs_queries}
+        {initial_gs_queries?}
         </initial_gs_queries>
     </CONTEXT>
 
