@@ -4,9 +4,10 @@ trend_scout's research (`info_gtrends`, the synthesizer's JSON, and
 `selected_gtrends`, the picker's Markdown) used to be dropped at the BigQuery
 hand-off, so a batch creative run only ever saw the trend term. This module
 pulls the few load-bearing fields for ONE term out of both and returns compact
-JSON (`{context, cultural_angle, event_hint, hook}`, blank fields dropped) — or
-"" when nothing parses. Pure and best-effort: it never raises, so a malformed
-model output can never fail the BigQuery write.
+JSON (`{context, cultural_angle, event_hint, hook}`, blank fields dropped, plus
+`sensitive` / `sensitive_reason` only for a term the classifier flagged
+sensitive in `trend_flags`) — or "" when nothing parses. Pure and best-effort:
+it never raises, so a malformed model output can never fail the BigQuery write.
 
 The creative run treats the forwarded value as a hint to re-verify, never as a
 fact (creative_agent prompts read it as `{trend_scout_context?}`).
@@ -58,6 +59,39 @@ def _info_item(term_key: str, info_gtrends: Any) -> dict[str, Any]:
     return {}
 
 
+def _is_true(value: Any) -> bool:
+    return value is True or (
+        isinstance(value, str) and value.strip().casefold() == "true"
+    )
+
+
+def sensitive_flags(trend_flags: Any) -> dict[str, str]:
+    """``{normalized term: reason}`` for the terms flagged sensitive, or {}.
+
+    Reads state ``trend_flags`` (the classifier's ``{"flags": [{term, sensitive,
+    reason}]}``) as a dict, a JSON string or fenced JSON. Best-effort: malformed
+    input gives {} (nothing flagged), never an exception.
+    """
+    data = trend_flags
+    if isinstance(data, str):
+        try:
+            data = json.loads(_FENCE.sub("", data))
+        except ValueError:
+            return {}
+    if isinstance(data, dict):
+        data = data.get("flags")
+    if not isinstance(data, list):
+        return {}
+    flagged: dict[str, str] = {}
+    for item in data:
+        if not isinstance(item, dict) or not _is_true(item.get("sensitive")):
+            continue
+        key = _norm_term(item.get("term"))
+        if key and key not in flagged:
+            flagged[key] = _clean(item.get("reason"))
+    return flagged
+
+
 def _selected_section(term_key: str, selected_gtrends: Any) -> dict[str, str]:
     """Hook + Context from the term's `### term` section of the picker Markdown."""
     if not isinstance(selected_gtrends, str):
@@ -82,13 +116,19 @@ def _selected_section(term_key: str, selected_gtrends: Any) -> dict[str, str]:
     return found
 
 
-def trend_context_for(term: str, info_gtrends: Any, selected_gtrends: Any) -> str:
+def trend_context_for(
+    term: str, info_gtrends: Any, selected_gtrends: Any, flags: Any = None
+) -> str:
     """Compact JSON context for ``term`` (blank fields dropped), or "".
 
     Args:
         term: the trend term written to the row.
         info_gtrends: the synthesizer output (JSON string, fenced JSON, or dict).
         selected_gtrends: the picker's Markdown (`### term` sections).
+        flags: state ``trend_flags`` (dict, JSON string or fenced JSON). Only a
+            term flagged sensitive gains ``"sensitive": true`` and
+            ``"sensitive_reason"`` (after the other keys); an unflagged term's
+            JSON is unchanged.
     """
     term_key = _norm_term(term)
     if not term_key:
@@ -101,7 +141,11 @@ def trend_context_for(term: str, info_gtrends: Any, selected_gtrends: Any) -> st
         "event_hint": _clean(item.get("event_hint")),
         "hook": _clean(section.get("hook")),
     }
-    compact = {key: value for key, value in fields.items() if value}
+    compact: dict[str, Any] = {key: value for key, value in fields.items() if value}
+    flagged = sensitive_flags(flags)
+    if term_key in flagged:
+        compact["sensitive"] = True
+        compact["sensitive_reason"] = flagged[term_key]
     if not compact:
         return ""
     return json.dumps(compact, ensure_ascii=False, separators=(",", ":"))

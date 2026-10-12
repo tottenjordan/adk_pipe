@@ -107,3 +107,64 @@ def test_values_are_capped_and_whitespace_collapsed():
 def test_non_string_fields_are_ignored():
     info = {"analyzed_trends": [{"term": "T", "context": 7, "cultural_angle": "ok"}]}
     assert _decode(trend_context_for("T", info, "")) == {"cultural_angle": "ok"}
+
+
+# --- sensitive flag (state trend_flags) ---------------------------------------
+
+FLAGS = {
+    "flags": [
+        {"term": "golden dip", "sensitive": True, "reason": "  food recall   deaths "},
+        {"term": "Texas Football", "sensitive": False, "reason": ""},
+    ]
+}
+
+
+def test_flagged_term_adds_sensitive_keys_last():
+    raw = trend_context_for("Golden Dip", INFO, SELECTED, flags=FLAGS)
+    out = _decode(raw)
+    assert list(out) == [
+        "context",
+        "cultural_angle",
+        "hook",
+        "sensitive",
+        "sensitive_reason",
+    ]
+    assert out["sensitive"] is True
+    assert out["sensitive_reason"] == "food recall deaths"
+
+
+def test_unflagged_output_is_byte_identical():
+    import json as _json
+
+    for flags in (None, FLAGS, _json.dumps(FLAGS), "garbage"):
+        assert trend_context_for(
+            "Texas Football", INFO, SELECTED, flags=flags
+        ) == trend_context_for("Texas Football", INFO, SELECTED)
+
+
+def test_flag_accepts_json_string_and_caps_reason():
+    import json as _json
+
+    from trend_scout.trend_context import MAX_FIELD_CHARS
+
+    flags = {"flags": [{"term": "Golden Dip", "sensitive": True, "reason": "r" * 999}]}
+    fenced = "```json\n" + _json.dumps(flags) + "\n```"
+    out = _decode(trend_context_for("golden  dip", INFO, SELECTED, flags=fenced))
+    assert out["sensitive"] is True
+    assert len(out["sensitive_reason"]) == MAX_FIELD_CHARS
+
+
+def test_flagged_term_without_research_still_carries_the_flag():
+    out = _decode(
+        trend_context_for(
+            "Storm Ada",
+            None,
+            None,
+            flags={
+                "flags": [
+                    {"term": "Storm Ada", "sensitive": True, "reason": "deadly storm"}
+                ]
+            },
+        )
+    )
+    assert out == {"sensitive": True, "sensitive_reason": "deadly storm"}

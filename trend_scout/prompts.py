@@ -11,6 +11,27 @@ GATHER_TRENDS_INSTR = """
     Output a confirmation message containing the count of trends retrieved. Do NOT list them.
     """
 
+CLASSIFY_TRENDS_INSTR = (
+    """
+    You are a brand-safety reviewer. Classify each gathered Google Search trend as sensitive or not, so that no ad campaign is ever built on a harmful moment.
+
+    """
+    + DATE_CONTEXT_LINE
+    + """
+
+    <raw_gtrends>
+    {raw_gtrends?}
+    </raw_gtrends>
+
+    ### Instructions
+    1. If <raw_gtrends> is empty, return an empty `flags` list. Do NOT invent terms.
+    2. Return exactly one entry per term in <raw_gtrends>, with `term` copied verbatim (same spelling, case and spacing).
+    3. Set `sensitive` to true only when the search interest most likely centres on a death, a tragedy, a disaster, a mass-casualty event, violence or crime, the serious illness or injury of a real person, or a similarly harmful event. Use what you know about the term and today's date; when it is clearly ambiguous, choose not sensitive.
+    4. Celebrity, sports, politics or entertainment news alone is not sensitive. A match, a game, an award, a release, a trade or a controversy without harm to someone is not sensitive.
+    5. `reason`: when sensitive, a short neutral phrase naming the kind of event (e.g. "death of a public figure", "hurricane damage"), no graphic detail and no speculation; when not sensitive, an empty string.
+    """
+)
+
 UNDERSTAND_TRENDS_SEARCHER_INSTR = (
     """
     You are a Cultural Trend Researcher gathering raw material for a creative strategist. You want topics that possess cultural, social, or entertainment value.
@@ -93,6 +114,10 @@ PICK_TRENDS_INSTR = """
         {info_gtrends?}
         </trend_research>
 
+        <trend_flags>
+        {trend_flags?}
+        </trend_flags>
+
         <human_selected_trends>
         {target_search_trends?}
         </human_selected_trends>
@@ -121,10 +146,12 @@ PICK_TRENDS_INSTR = """
              heading (the downstream handoff matches on it); do not rephrase it.
            - **Brand safety (when you select; overrides relevance):** NEVER select a
              trend centered on violence or terrorism, crime or criminals, mass-casualty
-             events, deaths or tragedies, disasters, hate or extremism, sexual content,
-             self-harm, drugs, or divisive political/partisan controversy —
-             regardless of search volume. If fewer than 3 brand-safe trends remain,
-             return fewer rather than an unsafe one.
+             events, deaths or tragedies, disasters, the serious illness or injury
+             of a real person, hate or extremism, sexual content, self-harm, drugs,
+             or divisive political/partisan controversy —
+             regardless of search volume. Never select a term flagged sensitive in <trend_flags>
+             (`"sensitive": true`), whatever its relevance. If fewer than 3
+             brand-safe trends remain, return fewer rather than an unsafe one.
         2. For each trend in the chosen set, define the "Strategic Bridge"—the specific angle that connects the trend's cultural mood to the product's unique selling points. If <user_note> is non-empty, honor its requested focus or angle.
 
         Output your findings in the requested format.
@@ -161,7 +188,9 @@ TREND_SCOUT_INSTR = """You are the Lead Campaign Orchestrator.
     records the gap). In interactive mode the trends the human already picked (saved in
     step 2b) are still written by `write_trends_to_bq`, with the gap recorded on each row.
 
-    1. **Gather:** Call `gather_trends_agent`.
+    1. **Gather & Classify:** Call `gather_trends_agent`. Then call `classify_trends_agent`
+       (it flags the sensitive gathered trends in the 'trend_flags' state key) before
+       anything else in step 2, in both modes below.
 
     2. **Select & Research:** The interactive trend-picking flag is: `{interactive_trend_pick?}`.
 
@@ -189,7 +218,8 @@ TREND_SCOUT_INSTR = """You are the Lead Campaign Orchestrator.
        b. Call `pick_trends_agent`. *Note: This agent will determine the final trends.*
        c. For each `### ` heading in the `pick_trends_agent` response, call the
           `save_search_trends_to_session_state` tool with that heading's trend term,
-          verbatim (without the `### `).
+          verbatim (without the `### `). If the tool refuses a term (it was flagged
+          sensitive), do not retry it and do not substitute another term.
        Continue to Phase 3.
 
     ### Phase 3: Finalization & Persistence

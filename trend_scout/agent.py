@@ -16,11 +16,13 @@ from agent_common import (
     build_gemini_with_fallback,
     build_safety_plugins,
     drop_other_agent_context,
+    scrub_surrogates_in_response,
 )
 
 from . import callbacks, prompts
 from .config import INFRA_RETRY, config
 from .review_tools import review_trends_tool
+from .schemas import TrendFlags
 from .tools import (
     get_daily_gtrends,
     memorize,
@@ -58,6 +60,40 @@ gather_trends_agent = Agent(
     ),
     before_model_callback=callbacks.rate_limit_callback,
     after_model_callback=callbacks.log_empty_turn_finish_reason,
+)
+
+
+# Sensitive-trend classifier: runs right after gathering (before the interactive
+# pick panel and the research), one verdict per raw term → `trend_flags`. The
+# auto pick never selects a flagged term (PICK_TRENDS_INSTR + the save guard in
+# save_search_trends_to_session_state); flagged terms that a human picks carry
+# the flag into `trend_context`. Cheap structured classification on the gather
+# model's bucket (it runs once, right after the gather call there).
+classify_trends_agent = Agent(
+    model=build_gemini(config.gather_model),
+    name="classify_trends_agent",
+    include_contents="none",
+    description=(
+        "Flag the gathered trends that centre on a death, tragedy, disaster, "
+        "violence, crime or serious illness (stored in 'trend_flags')."
+    ),
+    instruction=prompts.CLASSIFY_TRENDS_INSTR,
+    output_schema=TrendFlags,
+    output_key="trend_flags",
+    retry_config=INFRA_RETRY,
+    generate_content_config=types.GenerateContentConfig(
+        temperature=0.0,
+        labels={
+            "agentic_wf": "trend_scout",
+            "agent": "trend_scout",
+            "subagent": "classify_trends_agent",
+        },
+    ),
+    before_model_callback=callbacks.rate_limit_callback,
+    after_model_callback=[
+        scrub_surrogates_in_response,
+        callbacks.log_empty_turn_finish_reason,
+    ],
 )
 
 
@@ -214,6 +250,7 @@ trend_scout = Agent(
     instruction=prompts.TREND_SCOUT_INSTR,
     tools=[
         AgentTool(agent=gather_trends_agent),
+        AgentTool(agent=classify_trends_agent),
         understand_trends_agent_resilient,
         AgentTool(agent=pick_trends_agent),
         review_trends_tool,

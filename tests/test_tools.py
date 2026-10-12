@@ -319,6 +319,43 @@ class TestTrendContextColumn:
         }
         assert bound["T2"] == ""  # no research for it → empty, never an error
 
+    def test_write_trends_passes_trend_flags(self, monkeypatch):
+        import json
+
+        import trend_scout.tools as t
+
+        bq = FakeBigQueryClient()
+        monkeypatch.setattr(t, "_get_bigquery_client", lambda: bq)
+        monkeypatch.setattr(t, "_get_gtrends_max_date", lambda: "10/10/2026")
+        ctx = FakeToolContext(session_id="sess-flags")
+        ctx.state.update(
+            {
+                "gcs_folder": "2026_10_12_run",
+                "target_search_trends": {"target_search_trends": ["T1", "T2"]},
+                "brand": "PRS",
+                "target_audience": "musicians",
+                "target_product": "SE CE24",
+                "key_selling_points": "tone",
+                "info_gtrends": json.dumps(
+                    {"analyzed_trends": [{"term": "T1", "context": "ctx one"}]}
+                ),
+                "trend_flags": json.dumps(
+                    {"flags": [{"term": "t1", "sensitive": True, "reason": "loss"}]}
+                ),
+            }
+        )
+        t.write_trends_to_bq(ctx)
+        bound = {}
+        for _, job_config in bq.queries:
+            params = {p.name: p.value for p in job_config.query_parameters}
+            bound[params["trend"]] = params["trend_context"]
+        assert json.loads(bound["T1"]) == {
+            "context": "ctx one",
+            "sensitive": True,
+            "sensitive_reason": "loss",
+        }
+        assert bound["T2"] == ""
+
 
 class TestTrawlerDate:
     """trawler_date is the run's date (state current_date, TREND_TIMEZONE), not
