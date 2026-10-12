@@ -21,6 +21,8 @@
 # SOURCE_DATE_EPOCH (default "0") clamp layer file mtimes and the image `created`
 # field, so the same source gives the same digest. Don't pass a per-commit epoch:
 # it is part of BuildKit's cache keys and would rebuild every layer on every commit.
+# Cost: the ~230 MB venv layer is re-written on every build (~30-50 s; a warm no-op
+# build takes ~50-70 s instead of ~17 s, measured 2026-10-12).
 
 substitutions:
   _BANDIT_IMAGE: us-central1-docker.pkg.dev/${PROJECT_ID}/cpr/trend-trawler-bandit

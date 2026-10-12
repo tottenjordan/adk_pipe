@@ -28,6 +28,9 @@
 # BuildKit folds SOURCE_DATE_EPOCH into its cache keys, so a per-commit value (e.g. the
 # commit time) rebuilds every layer, `uv sync` and `npm ci` included, on every commit
 # (measured 2026-10-12). Identity lives in the :$SHORT_SHA tag, not in `created`.
+# Cost: the exporter re-writes (pulls + recompresses) the build's own layers, base
+# layers excluded, on every build, cached or not: ~30-60 s per image, so a warm no-op
+# build takes ~80 s instead of ~30 s (measured 2026-10-12).
 
 substitutions:
   _REGION: us-central1
