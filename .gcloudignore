@@ -2,12 +2,21 @@
 # backend image). IMPORTANT: pyproject.toml + uv.lock MUST be uploaded — the root
 # Dockerfile COPYs them for `uv sync`. Everything the Python image does not need is
 # excluded to keep the upload lean (the .dockerignore further trims the build context).
-.git/
+# Root-only dirs use a leading `/` (gitignore semantics: `bandit/` would also drop
+# deployment/bandit/, which runserver/experiments_deploy.py imports).
+.git
 .venv/
 __pycache__/
 *.pyc
 .env*
 .vscode/
+.github/
+.claude/
+.agents/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.ipynb_checkpoints/
 a_stash/*
 output/*
 outputs/
@@ -17,3 +26,13 @@ frontend/
 node_modules/
 tests/
 docs/
+/experiments/
+/notebook-examples/
+/imgs/
+/*.md
+# Not imported by the api (runserver never imports bandit/; the traffic job and
+# CPR model have their own builds, the Cloud Functions their own deploys).
+/bandit/
+/bandit_serving/
+/bandit_traffic/
+/cloud_functions/

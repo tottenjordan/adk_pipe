@@ -1,10 +1,25 @@
+# Root build context: the api image (Dockerfile) AND the bandit traffic job
+# (bandit_traffic/Dockerfile COPYs bandit/ + bandit_traffic/) — keep both of those.
 .git
 .venv
-__pycache__
+**/__pycache__
+**/*.pyc
+**/.adk
+.env*
+.vscode
+.github
+.claude
+.agents
+.pytest_cache
+.ruff_cache
+.mypy_cache
 frontend
 node_modules
 outputs
 docs
 tests
-*.pyc
-.env*
+experiments
+notebook-examples
+imgs
+bandit_serving
+cloud_functions
