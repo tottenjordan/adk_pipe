@@ -6,3 +6,11 @@ coverage
 npm-debug.log*
 Dockerfile
 .dockerignore
+# Generated per checkout (gitignored, differ between the main checkout and
+# worktrees); uploading them invalidated the builder's `COPY . .` cache -> full
+# `next build`. `next build` regenerates next-env.d.ts in the container.
+tsconfig.tsbuildinfo
+next-env.d.ts
+# Playwright outputs (cloudbuild.gcloudignore drops them; local docker builds too).
+test-results
+playwright-report
