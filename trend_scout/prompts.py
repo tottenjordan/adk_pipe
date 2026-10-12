@@ -116,7 +116,9 @@ PICK_TRENDS_INSTR = """
            - **Otherwise**, select exactly 3 trends from <trend_research> that offer
              the strongest narrative alignment with <campaign_data>. You MUST return
              3. Only return fewer if <trend_research> contains fewer than 3 distinct
-             trends, or fewer than 3 pass the brand-safety rule below.
+             trends, or fewer than 3 pass the brand-safety rule below. Use each
+             chosen trend's `term` from <trend_research> VERBATIM as its `### `
+             heading (the downstream handoff matches on it); do not rephrase it.
            - **Brand safety (when you select; overrides relevance):** NEVER select a
              trend centered on violence or terrorism, crime or criminals, mass-casualty
              events, deaths or tragedies, disasters, hate or extremism, sexual content,
@@ -131,7 +133,7 @@ PICK_TRENDS_INSTR = """
     <OUTPUT_FORMAT>
         ## Selected Trends Strategy
 
-        ### [trending search term]
+        ### [trending search term, copied VERBATIM: the human-selected term, or the trend's `term` from <trend_research>]
         * **The "Hook":** [One distinct, punchy headline summarizing the marketing angle]
         * **Context:** [1 sentence on what the trend is, based on provided research]
         * **Why it fits:** [Explain why the `target_audience` cares about this]

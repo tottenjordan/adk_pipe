@@ -1202,6 +1202,20 @@ def test_pick_trends_agent_enriches_human_selected_trends():
     assert pick_trends_agent.output_key == "selected_gtrends"
 
 
+def test_pick_trends_agent_auto_mode_copies_research_term_verbatim():
+    """In auto mode the root saves each `### ` heading as a target_search_trends
+    term and trend_context_for matches it to `analyzed_trends[].term`, so the
+    picker must copy the chosen trend's research `term` VERBATIM as its heading
+    (a rephrased heading loses the persisted trend context)."""
+    from trend_scout.agent import pick_trends_agent
+
+    instr = pick_trends_agent.instruction
+    auto_branch = instr.split("**Otherwise**", 1)[1].split("Brand safety", 1)[0]
+    assert "`term`" in auto_branch and "VERBATIM" in auto_branch
+    output_format = instr.split("<OUTPUT_FORMAT>", 1)[1]
+    assert "VERBATIM" in output_format
+
+
 def test_trend_scout_sub_agent_output_keys():
     """WS2: understand_trends_agent is split into a searcher (writes
     `info_gtrends_raw`) + a synthesizer (writes JSON `info_gtrends`)."""
