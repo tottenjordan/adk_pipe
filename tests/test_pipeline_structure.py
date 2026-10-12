@@ -1143,6 +1143,8 @@ def test_trend_scout_root_has_expected_tools():
         "pick_trends_agent",
         "save_search_trends_to_session_state",
         "save_session_state_to_gcs",
+        "record_research_gaps",
+        "review_trends",
         "write_trends_to_bq",
         "write_to_file",
         "memorize",
@@ -1191,6 +1193,22 @@ def test_trend_scout_instruction_branches_on_interactive_flag():
     assert "Do NOT call `pick_trends_agent`" not in instr
 
 
+def test_trend_scout_instruction_research_exhausted_path():
+    """Research exhausted: skip the picker AND the save tool, still persist (the
+    interactive picks already saved are written), and Phase 4 says no strategy
+    is available instead of displaying a picker output that doesn't exist."""
+    from trend_scout.agent import root_agent
+
+    instr = " ".join(str(root_agent.instruction).split())
+    assert (
+        "do NOT call `pick_trends_agent` or `save_search_trends_to_session_state`"
+        in instr
+    )
+    assert "are still written by `write_trends_to_bq`" in instr
+    assert "If `pick_trends_agent` was not called" in instr
+    assert "No strategy is available" in instr
+
+
 def test_pick_trends_agent_enriches_human_selected_trends():
     """In interactive mode pick_trends_agent must narrate the human's already-chosen
     trends (from target_search_trends) into selected_gtrends instead of re-selecting,
@@ -1200,6 +1218,20 @@ def test_pick_trends_agent_enriches_human_selected_trends():
 
     assert "{target_search_trends?}" in pick_trends_agent.instruction
     assert pick_trends_agent.output_key == "selected_gtrends"
+
+
+def test_pick_trends_agent_auto_mode_copies_research_term_verbatim():
+    """In auto mode the root saves each `### ` heading as a target_search_trends
+    term and trend_context_for matches it to `analyzed_trends[].term`, so the
+    picker must copy the chosen trend's research `term` VERBATIM as its heading
+    (a rephrased heading loses the persisted trend context)."""
+    from trend_scout.agent import pick_trends_agent
+
+    instr = pick_trends_agent.instruction
+    auto_branch = instr.split("**Otherwise**", 1)[1].split("Brand safety", 1)[0]
+    assert "`term`" in auto_branch and "VERBATIM" in auto_branch
+    output_format = instr.split("<OUTPUT_FORMAT>", 1)[1]
+    assert "VERBATIM" in output_format
 
 
 def test_trend_scout_sub_agent_output_keys():

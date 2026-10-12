@@ -15,7 +15,8 @@ export interface ParsedTrend {
 
 /**
  * Parses the `selected_gtrends` markdown into structured trend objects.
- * Expected format:
+ * Expected format (anything before the first `### ` heading is ignored):
+ *   ## Selected Trends Strategy
  *   ### [trend term]
  *   * **The "Hook":** ...
  *   * **Context:** ...
@@ -24,8 +25,13 @@ export interface ParsedTrend {
  */
 export function parseTrendsMarkdown(markdown: string): ParsedTrend[] {
   const trends: ParsedTrend[] = [];
-  // Split on ### headings
-  const sections = markdown.split(/^###\s+/m).filter((s) => s.trim());
+  // Split on ### headings. Only text AFTER a `### ` heading is a trend: the
+  // preamble (the picker's `## Selected Trends Strategy` header, or its
+  // headerless "no trend research available" line) is dropped, never a card.
+  const sections = markdown
+    .split(/^###\s+/m)
+    .slice(1)
+    .filter((s) => s.trim());
 
   for (const section of sections) {
     const lines = section.trim().split("\n");
@@ -55,25 +61,79 @@ export function parseTrendsMarkdown(markdown: string): ParsedTrend[] {
   return trends;
 }
 
+// Mirrors trend_scout/trend_context.py (the BigQuery `trend_context` value).
+const MAX_FIELD_CHARS = 400;
+const FENCE = /^\s*```(?:json)?\s*|\s*```\s*$/gi;
+
+/** Case/space/quote-insensitive key for matching a term to its research. */
+function normTerm(term: unknown): string {
+  if (typeof term !== "string") return "";
+  return term
+    .trim()
+    .replace(/^["'`*[\]]+|["'`*[\]]+$/g, "")
+    .split(/\s+/)
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+}
+
+/** A single-line, capped string ("" for non-strings). */
+function clean(value: unknown): string {
+  if (typeof value !== "string") return "";
+  return value.split(/\s+/).filter(Boolean).join(" ").slice(0, MAX_FIELD_CHARS).trimEnd();
+}
+
+/** The `analyzed_trends` entry for `term` in `info_gtrends` (JSON string, fenced JSON or object), or {}. */
+function researchItem(term: string, infoGtrends: unknown): Record<string, unknown> {
+  const key = normTerm(term);
+  let data = infoGtrends;
+  if (typeof data === "string") {
+    try {
+      data = JSON.parse(data.replace(FENCE, ""));
+    } catch {
+      return {};
+    }
+  }
+  if (!data || typeof data !== "object" || Array.isArray(data)) return {};
+  const items = (data as { analyzed_trends?: unknown }).analyzed_trends;
+  if (!key || !Array.isArray(items)) return {};
+  for (const item of items) {
+    if (item && typeof item === "object" && normTerm((item as { term?: unknown }).term) === key) {
+      return item as Record<string, unknown>;
+    }
+  }
+  return {};
+}
+
 /**
- * trend_scout's research for one card as compact JSON (`{context, hook}`, blank
- * fields dropped; "" when both are blank) — the same shape trend_scout persists
- * to BigQuery `trend_context` for batch runs. Seeded as `trend_scout_context`,
- * which the creative agents read only as a hint to re-verify.
+ * trend_scout's research for one card as compact JSON — the same shape (and
+ * precedence) trend_scout persists to BigQuery `trend_context` for batch runs:
+ * `{context, cultural_angle, event_hint, hook}`, blank fields dropped, "" when
+ * all are blank. `cultural_angle` / `event_hint` (and the research `context`)
+ * come from the scout run's `info_gtrends` entry whose `term` matches the card;
+ * without one only the card's context + hook are sent. Seeded as
+ * `trend_scout_context`, which the creative agents read only as a hint to
+ * re-verify.
  */
-export function trendContextJson(trend: ParsedTrend): string {
-  const fields: Record<string, string> = {};
-  const context = trend.context.trim();
-  const hook = trend.hook.trim();
-  if (context) fields.context = context;
-  if (hook) fields.hook = hook;
-  return Object.keys(fields).length ? JSON.stringify(fields) : "";
+export function trendContextJson(trend: ParsedTrend, infoGtrends?: unknown): string {
+  const item = researchItem(trend.term, infoGtrends);
+  const fields: Record<string, string> = {
+    context: clean(item.context) || clean(trend.context),
+    cultural_angle: clean(item.cultural_angle),
+    event_hint: clean(item.event_hint),
+    hook: clean(trend.hook),
+  };
+  const compact = Object.fromEntries(Object.entries(fields).filter(([, v]) => v));
+  return Object.keys(compact).length ? JSON.stringify(compact) : "";
 }
 
 /**
  * The home-form URL params that start a creative run from a trend card: the
- * scout run's campaign fields, the trend, its context and the date the scout run
- * found it (`current_date`, seeded per run; omitted for older runs).
+ * scout run's campaign fields, the trend, its context (enriched from the scout
+ * run's `info_gtrends`) and the date the scout run found it (`current_date`,
+ * seeded per run; omitted for older runs). The batch (CRF) path seeds
+ * `trend_detected_on` from the row's `refresh_date` (the Google Trends refresh)
+ * instead.
  */
 export function trendRunParams(
   trend: ParsedTrend,
@@ -87,7 +147,7 @@ export function trendRunParams(
     keySellingPoints: (campaignState.key_selling_points as string) || "",
     targetSearchTrend: trend.term,
   });
-  const context = trendContextJson(trend);
+  const context = trendContextJson(trend, campaignState.info_gtrends);
   if (context) params.set("trendContext", context);
   const detectedOn = campaignState.current_date;
   if (typeof detectedOn === "string" && detectedOn.trim()) {

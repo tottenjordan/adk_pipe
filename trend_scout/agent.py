@@ -56,7 +56,6 @@ gather_trends_agent = Agent(
             "subagent": "gather_trends_agent",
         },
     ),
-    # output_key="start_gtrends",
     before_model_callback=callbacks.rate_limit_callback,
     after_model_callback=callbacks.log_empty_turn_finish_reason,
 )
@@ -68,8 +67,9 @@ gather_trends_agent = Agent(
 # the JSON briefing. trend_scout has no citation flow, so (unlike the creative
 # producers) there is NO source-collection callback here.
 understand_trends_searcher = Agent(
-    # google_search + retry-wrapped (call-heavy); on worker_model (gemini-3.8-flash)
-    # as the sole occupant of that global bucket, so its retries can't 429.
+    # google_search + retry-wrapped (call-heavy); on worker_model (gemini-3.8-flash),
+    # a global bucket no other trend_scout agent uses as its primary model (only the
+    # root's 429/5xx failover lands there), so its retries rarely contend.
     model=build_gemini(config.worker_model),
     name="understand_trends_searcher",
     # A graph node: single_turn is set explicitly because a node with a parent_agent
@@ -143,8 +143,7 @@ understand_trends_search_and_synthesize = Workflow(
 # calls under AgentTool.
 understand_trends_agent_resilient = RetryUntilKeyNode(
     name="understand_trends_agent_resilient",
-    # Preserve the original tool-facing description (the searcher carries it
-    # verbatim).
+    # The tool-facing description the root model sees for this NodeTool.
     description=(
         "Web-research the human-picked trends (or the 5-8 most narrative-driven "
         "gathered trends) and store a structured JSON briefing."
@@ -200,7 +199,8 @@ trend_scout = Agent(
     # reasoning. On gemini-3 models, unbounded default thinking (HIGH) burned the entire
     # output budget "thinking" and hit MAX_TOKENS before emitting a tool call — but the
     # opposite extreme (thinking off) made gemini-3.5-flash emit MALFORMED_FUNCTION_CALL
-    # when invoking an AgentTool with a structured argument (e.g. understand_trends_agent),
+    # when invoking an AgentTool with a structured argument (e.g. understand_trends_agent,
+    # then an AgentTool, now the understand_trends_agent_resilient NodeTool),
     # so the pipeline aborted right after gather_trends and never persisted anything. LOW
     # gives the model just enough room to format tool calls correctly while capping
     # thinking well short of MAX_TOKENS. NOTE: gemini-3.x deprecated the numeric

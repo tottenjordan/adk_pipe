@@ -57,13 +57,24 @@ describe("parseTrendsMarkdown", () => {
     expect(parseTrendsMarkdown("")).toEqual([]);
   });
 
-  it("treats plain text as a single term with empty fields", () => {
-    // The parser splits on sections after filtering empty strings,
-    // so plain text without ### becomes one section with the text as term.
-    const result = parseTrendsMarkdown("No trends here");
-    expect(result).toHaveLength(1);
-    expect(result[0].term).toBe("No trends here");
-    expect(result[0].hook).toBe("");
+  it("returns no cards for text without a ### trend heading", () => {
+    // pick_trends_agent's "no trend research available" one-liner (and any
+    // other headerless text) is not a trend: a card would launch a creative run
+    // for that literal sentence.
+    expect(parseTrendsMarkdown("No trend research was available.")).toEqual([]);
+  });
+
+  it("drops the preamble before the first ### heading", () => {
+    // PICK_TRENDS_INSTR's output format starts with `## Selected Trends Strategy`.
+    const md = `## Selected Trends Strategy
+
+### Trend A
+* **The "Hook":** Hook A
+* **Context:** Context A`;
+
+    const result = parseTrendsMarkdown(md);
+    expect(result.map((t) => t.term)).toEqual(["Trend A"]);
+    expect(result[0].hook).toBe("Hook A");
   });
 
   it("handles The Hook without quotes", () => {
@@ -112,6 +123,56 @@ describe("trendContextJson", () => {
   });
 });
 
+describe("trendContextJson with trend research (info_gtrends)", () => {
+  const research = {
+    analyzed_trends: [
+      { term: "Other", context: "nope", cultural_angle: "x", event_hint: "y" },
+      {
+        term: "  texas   FOOTBALL ",
+        context: "Texas plays Oklahoma on Saturday.",
+        cultural_angle: "Rivalry   pride",
+        event_hint: "Red River Rivalry on 2026-10-11",
+      },
+    ],
+  };
+
+  it("adds cultural_angle + event_hint from the matching analyzed trend (backend shape)", () => {
+    const json = trendContextJson(TREND, JSON.stringify(research));
+    // Same keys, order and precedence as trend_scout/trend_context.py.
+    expect(json).toBe(
+      JSON.stringify({
+        context: "Texas plays Oklahoma on Saturday.",
+        cultural_angle: "Rivalry pride",
+        event_hint: "Red River Rivalry on 2026-10-11",
+        hook: "Game day, your way",
+      }),
+    );
+  });
+
+  it("accepts fenced JSON and an already-parsed object", () => {
+    const fenced = "```json\n" + JSON.stringify(research) + "\n```";
+    expect(JSON.parse(trendContextJson(TREND, fenced)).event_hint).toBe(
+      "Red River Rivalry on 2026-10-11",
+    );
+    expect(JSON.parse(trendContextJson(TREND, research)).cultural_angle).toBe(
+      "Rivalry pride",
+    );
+  });
+
+  it("falls back to the card when research is missing, malformed or unmatched", () => {
+    const cardOnly = {
+      context: "The Red River Rivalry is this weekend.",
+      hook: "Game day, your way",
+    };
+    for (const info of [undefined, "", "not json", "[1,2]", { analyzed_trends: "x" }]) {
+      expect(JSON.parse(trendContextJson(TREND, info))).toEqual(cardOnly);
+    }
+    expect(
+      JSON.parse(trendContextJson({ ...TREND, term: "Unknown" }, research)),
+    ).toEqual(cardOnly);
+  });
+});
+
 describe("trendRunParams", () => {
   const campaign = {
     brand: "PRS",
@@ -130,6 +191,22 @@ describe("trendRunParams", () => {
       hook: "Game day, your way",
     });
     expect(params.get("trendDetectedOn")).toBe("2026-10-10");
+  });
+
+  it("enriches the trend context from the scout run's info_gtrends", () => {
+    const params = trendRunParams(TREND, {
+      ...campaign,
+      info_gtrends: JSON.stringify({
+        analyzed_trends: [
+          { term: "Texas Football", cultural_angle: "Rivalry pride", event_hint: "" },
+        ],
+      }),
+    });
+    expect(JSON.parse(params.get("trendContext") ?? "")).toEqual({
+      context: "The Red River Rivalry is this weekend.",
+      cultural_angle: "Rivalry pride",
+      hook: "Game day, your way",
+    });
   });
 
   it("omits what the scout run doesn't have", () => {

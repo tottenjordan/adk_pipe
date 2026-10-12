@@ -116,7 +116,9 @@ PICK_TRENDS_INSTR = """
            - **Otherwise**, select exactly 3 trends from <trend_research> that offer
              the strongest narrative alignment with <campaign_data>. You MUST return
              3. Only return fewer if <trend_research> contains fewer than 3 distinct
-             trends, or fewer than 3 pass the brand-safety rule below.
+             trends, or fewer than 3 pass the brand-safety rule below. Use each
+             chosen trend's `term` from <trend_research> VERBATIM as its `### `
+             heading (the downstream handoff matches on it); do not rephrase it.
            - **Brand safety (when you select; overrides relevance):** NEVER select a
              trend centered on violence or terrorism, crime or criminals, mass-casualty
              events, deaths or tragedies, disasters, hate or extremism, sexual content,
@@ -131,7 +133,7 @@ PICK_TRENDS_INSTR = """
     <OUTPUT_FORMAT>
         ## Selected Trends Strategy
 
-        ### [trending search term]
+        ### [trending search term, copied VERBATIM: the human-selected term, or the trend's `term` from <trend_research>]
         * **The "Hook":** [One distinct, punchy headline summarizing the marketing angle]
         * **Context:** [1 sentence on what the trend is, based on provided research]
         * **Why it fits:** [Explain why the `target_audience` cares about this]
@@ -154,8 +156,10 @@ TREND_SCOUT_INSTR = """You are the Lead Campaign Orchestrator.
     ### Phase 2: Execution Pipeline
     Execute the steps in strict sequence. Do not proceed to the next until the current tool reports success.
     Exception: if `understand_trends_agent_resilient` reports that its output is unavailable
-    (research exhausted its retries), do NOT call `pick_trends_agent` or save any trends — go
-    straight to Phase 3 (`record_research_gaps` records the gap).
+    (research exhausted its retries), do NOT call `pick_trends_agent` or
+    `save_search_trends_to_session_state` — go straight to Phase 3 (`record_research_gaps`
+    records the gap). In interactive mode the trends the human already picked (saved in
+    step 2b) are still written by `write_trends_to_bq`, with the gap recorded on each row.
 
     1. **Gather:** Call `gather_trends_agent`.
 
@@ -203,7 +207,7 @@ TREND_SCOUT_INSTR = """You are the Lead Campaign Orchestrator.
     [Construct the path: {gcs_bucket}/{gcs_folder}]
 
     **Selected Strategy:**
-    [Display the full `pick_trends_agent` output]
+    [Display the full `pick_trends_agent` output. If `pick_trends_agent` was not called, write: "No strategy is available (trend research was unavailable)."]
 
     **Research Notes:** {research_gaps?}
     [Only include this line if research_gaps is non-empty; otherwise omit it entirely.]
