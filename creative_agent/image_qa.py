@@ -125,10 +125,10 @@ class ImageQAResult(BaseModel):
     product_off_model: bool = Field(
         default=False,
         description=(
-            "The product is shown as a generic or unbranded object that no "
-            "longer resembles the real product: its recognisable silhouette, "
-            "shape or label is replaced (e.g. by a plain block or a generic "
-            "bottle). Stylisation that keeps it recognisable does not count."
+            "The product is shown as a generic object that no longer resembles "
+            "the real product: its recognisable silhouette or shape is replaced "
+            "(e.g. by a plain block or a generic bottle). Stylisation that keeps "
+            "it recognisable, and a missing or simplified label, do not count."
         ),
     )
     artifacts: bool = Field(
@@ -240,8 +240,8 @@ def _text_required(result: ImageQAResult, concept: dict[str, Any]) -> bool:
 # Always restated in a re-render (the model's issue says what is wrong, not
 # what the product should look like).
 PRODUCT_OFF_MODEL_PHRASE = (
-    "render the product with its real silhouette, shape and label, even in a "
-    "stylised look"
+    "render the product with its real silhouette and shape, even in a "
+    "stylised look (a simplified or unlabelled surface is fine)"
 )
 # (attribute, rule name, correction phrase) per check, in report order.
 _RULES: tuple[tuple[str, str, str], ...] = (
@@ -607,11 +607,11 @@ def _instruction(
     if target_product:
         lines.append(
             "product_off_model: true only when the product is drawn as a generic "
-            "or unbranded object that no longer resembles the real product — its "
-            "recognisable silhouette, shape or label is replaced (e.g. a plain "
-            "block, box or generic bottle instead of its real form). Normal "
-            "stylisation that keeps the product recognisable (flat colours, comic "
-            "inking, simplified detail) is not off-model."
+            "object that no longer resembles the real product — its recognisable "
+            "silhouette or shape is replaced (e.g. a plain block, box or generic "
+            "bottle instead of its real form). Normal stylisation that keeps the "
+            "product recognisable (flat colours, comic inking, simplified detail) "
+            "and a missing, simplified or unreadable label are not off-model."
         )
     lines += [
         "Also flag noticeable anatomy or object deformities (artifacts) and "

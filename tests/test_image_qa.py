@@ -1038,7 +1038,7 @@ def test_payload_without_off_model_field_parses_false():
 
 
 def test_off_model_correction_phrase_always_restated():
-    phrase = "render the product with its real silhouette, shape and label, even in a stylised look"
+    phrase = image_qa.PRODUCT_OFF_MODEL_PHRASE
     text = image_qa.correction_text(
         _result(product_off_model=True, issues=["product drawn as a plain block"]),
         _CONCEPT,
@@ -1056,3 +1056,12 @@ def test_off_model_schema_and_instruction_exempt_stylisation():
     assert "product_off_model" in text
     assert "flat colours, comic inking" in text
     assert "product_off_model" not in _instruction_text(_CONCEPT, product="")
+
+
+def test_off_model_ignores_a_missing_label():
+    """Prompts often keep readable text out of the image, so a missing or
+    simplified label alone must never make the product off-model."""
+    instruction = image_qa.PRODUCT_OFF_MODEL_PHRASE
+    assert "label" not in instruction.split("(")[0]
+    desc = ImageQAResult.model_fields["product_off_model"].description or ""
+    assert "missing or simplified label" in desc
