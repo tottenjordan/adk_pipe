@@ -928,21 +928,28 @@ class TestGetDailyGtrends:
     """The latest refresh's top terms; the date is bound as a query parameter."""
 
     def test_binds_max_date_parameter_and_saves_terms(self, monkeypatch):
-        import pandas as pd
-
         import trend_scout.tools as t
 
         queries = []
 
         class _Job:
-            def to_dataframe(self):
-                return pd.DataFrame(
+            def to_dataframe(self):  # pragma: no cover - must not be used
+                raise AssertionError("to_dataframe needs pandas; iterate rows")
+
+            def result(self):
+                # BigQuery Row objects support mapping access by column name.
+                return [
                     {
-                        "term": ["b", "a"],
-                        "refresh_date": [datetime.date(2026, 10, 11)] * 2,
-                        "x": [[{"rank": 1}], [{"rank": 2}]],
-                    }
-                )
+                        "term": "b",
+                        "refresh_date": datetime.date(2026, 10, 11),
+                        "x": [{"rank": 1}],
+                    },
+                    {
+                        "term": "a",
+                        "refresh_date": datetime.date(2026, 10, 11),
+                        "x": [{"rank": 2}],
+                    },
+                ]
 
         class _Client:
             def query(self, sql, job_config=None):
@@ -952,7 +959,7 @@ class TestGetDailyGtrends:
         monkeypatch.setattr(t, "_get_bigquery_client", lambda: _Client())
         monkeypatch.setattr(t, "_get_gtrends_max_date", lambda: "10/11/2026")
         ctx = FakeToolContext()
-        t.get_daily_gtrends(ctx)
+        out = t.get_daily_gtrends(ctx)
 
         (sql, job_config) = queries[-1]
         assert "10/11/2026" not in sql
@@ -960,3 +967,41 @@ class TestGetDailyGtrends:
         params = {p.name: p.value for p in job_config.query_parameters}
         assert params == {"max_date": "10/11/2026"}
         assert ctx.state["raw_gtrends"] == ["b", "a"]
+        # Markdown table: term / rank (1-based result order) / refresh_date.
+        lines = out.splitlines()
+        assert len(lines) == 4
+        assert [c.strip() for c in lines[0].strip("|").split("|")] == [
+            "",
+            "term",
+            "rank",
+            "refresh_date",
+        ]
+        assert [c.strip() for c in lines[2].strip("|").split("|")] == [
+            "1",
+            "b",
+            "1",
+            "2026-10-11",
+        ]
+        assert [c.strip() for c in lines[3].strip("|").split("|")] == [
+            "2",
+            "a",
+            "2",
+            "2026-10-11",
+        ]
+
+    def test_max_date_reads_first_row_without_pandas(self, monkeypatch):
+        import trend_scout.tools as t
+
+        class _Job:
+            def to_dataframe(self):  # pragma: no cover - must not be used
+                raise AssertionError("to_dataframe needs pandas; iterate rows")
+
+            def result(self):
+                return iter([{"max_date": datetime.date(2026, 10, 11)}])
+
+        class _Client:
+            def query(self, sql, job_config=None):
+                return _Job()
+
+        monkeypatch.setattr(t, "_get_bigquery_client", lambda: _Client())
+        assert t._get_gtrends_max_date() == "10/11/2026"
