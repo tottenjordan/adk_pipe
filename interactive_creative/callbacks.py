@@ -10,6 +10,7 @@ from google.adk.tools.tool_context import ToolContext
 from google.genai import types
 
 from agent_common import is_populated
+from creative_agent import callbacks as ca_callbacks
 
 _EMPTY_CONCEPTS_JSON = json.dumps({"visual_concepts": []})
 
@@ -27,8 +28,17 @@ def skip_reviser_without_notes(
     The skip reply must be JSON valid against the reviser's `output_schema`
     (`VisualConceptFinalList`): ADK validates a before-agent reply against it for
     both the `output_key` write and the `AgentTool` result, so plain prose would
-    raise. It therefore echoes the current concepts verbatim (re-saving the same
-    value) or, when there are none, an empty `visual_concepts` list.
+    raise. It therefore echoes the current concepts or, when there are none, an
+    empty `visual_concepts` list.
+
+    A before-agent reply ends the reviser's invocation, so its after_agent
+    guards never run on this path. Checkpoint-3 direct edits (merged into state
+    by runserver.async_runs before the resume) would then reach the renderer
+    unguarded, so before echoing, the same guards run here: the person-casting,
+    timely-cap and trend/product/brand_cue guard
+    (`ensure_trend_and_product_callback`), then the deterministic concept checks
+    re-recorded as `final_visual_concepts__issues`
+    (`recheck_concept_issues_callback`). The echo is the guarded value.
     """
     state = callback_context.state
     notes = state.get("visual_revision_notes")
@@ -40,8 +50,13 @@ def skip_reviser_without_notes(
     if has_notes and has_concepts:
         return None
     if not has_concepts:
-        text = _EMPTY_CONCEPTS_JSON
-    elif isinstance(concepts, str):
+        return types.Content(
+            role="model", parts=[types.Part(text=_EMPTY_CONCEPTS_JSON)]
+        )
+    ca_callbacks.ensure_trend_and_product_callback(callback_context)
+    ca_callbacks.recheck_concept_issues_callback(callback_context)
+    concepts = state.get("final_visual_concepts")
+    if isinstance(concepts, str):
         text = concepts
     else:
         text = json.dumps(concepts)

@@ -1138,7 +1138,8 @@ async def _apply_visual_concept_edits(
         session.state.get("final_visual_concepts"), edits
     )
     # The pre-checkpoint concept_gate verdict is stale once the user edits:
-    # clear it (interactive's visual_concept_reviser re-checks when it runs).
+    # clear it (interactive's visual_concept_reviser re-guards and re-checks,
+    # on its no-notes skip path too).
     delta: dict = {
         "final_visual_concepts": merged,
         "final_visual_concepts__issues": None,

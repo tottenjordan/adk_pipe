@@ -757,3 +757,92 @@ def test_copy_revision_guard_routes_only_a_prepared_revision():
     # Cleared by the root's after_tool_callback after the first revision.
     assert route({**prepared, "ad_copy_flagged_ids": None}) == "skip"
     assert route({**prepared, "ad_copy_critique__before_revision": None}) == "skip"
+
+
+def test_checkpoint_3_direct_edit_without_notes_is_guarded(monkeypatch):
+    """A checkpoint-3 resume with only a direct prompt edit (no revision note):
+    the reviser's model is skipped, yet the edited prompt the renderer reads is
+    still guarded (trend motif + product appended) and the concept checks are
+    re-recorded in ``final_visual_concepts__issues`` (the resume cleared the
+    pre-checkpoint verdict)."""
+    import interactive_creative.agent as ic
+
+    root_llm = _patch_root(monkeypatch)
+    reviser_llm = _RecordingLlm()
+    monkeypatch.setattr(ic.visual_concept_reviser, "model", reviser_llm)
+    concept = {
+        "concept_name": "Dust",
+        "ad_copy_id": 1,
+        "trend": TREND,
+        "trend_reference": "The roadrunner sprint.",
+        "markets_product": "Skates are fast.",
+        "audience_appeal": "Coyotes want speed.",
+        "selection_rationale": "Speed sells.",
+        "social_caption": "Zoom.",
+        "concept_summary": "A dusty sprint.",
+        "headline": "Beep beep",
+        "call_to_action": "Skate now!",
+        "visual_style": "Watercolor",
+        "aspect_ratio": "1:1",
+        "trend_motif": "a roadrunner dust cloud",
+        "image_generation_prompt": "A watercolor of Rocket Skates and a roadrunner dust cloud.",
+    }
+    root_llm.push(fc_response("review_visual_concepts", {}, "fc-cp3"))
+    root_llm.push(
+        fc_response("visual_concept_reviser", {"request": "apply"}, "fc-rev"),
+        text_response("ROOT DONE"),
+    )
+    svc = InMemorySessionService()
+
+    async def go():
+        await svc.create_session(
+            app_name=APP,
+            user_id=USER,
+            session_id=SID,
+            state={
+                **_seed_state(),
+                "ad_copy_critique": _STORED_ADS,
+                "final_visual_concepts": {"visual_concepts": [concept]},
+                "final_visual_concepts__issues": ["Concept 1: stale"],
+            },
+        )
+        common = {
+            "app_name": APP,
+            "user_id": USER,
+            "session_id": SID,
+            "session_service": svc,
+            "runner_factory": _runner_factory(svc),
+        }
+        _, task = await start_run(message="go", **common)
+        await task
+        _, task = await start_resume(
+            function_call_id="fc-cp3",
+            function_name="review_visual_concepts",
+            response={"status": "approved", "instruction": "continue"},
+            edits=[
+                {
+                    "index": 0,
+                    "image_generation_prompt": (
+                        'A watercolor desert poster with the text "Totally Wrong".'
+                    ),
+                }
+            ],
+            **common,
+        )
+        await task
+        return dict((await _session(svc)).state)
+
+    state = asyncio.run(go())
+
+    assert reviser_llm.calls == 0  # no notes: the model is skipped
+    assert not state.get("visual_revision_notes")
+    (final,) = state["final_visual_concepts"]["visual_concepts"]
+    prompt = final["image_generation_prompt"]
+    assert prompt.startswith(
+        'A watercolor desert poster with the text "Totally Wrong".'
+    )
+    assert "a roadrunner dust cloud" in prompt
+    assert "Rocket Skates" in prompt
+    issues = state["final_visual_concepts__issues"]
+    assert issues and "Totally Wrong" in " ".join(issues)
+    assert "stale" not in " ".join(issues)

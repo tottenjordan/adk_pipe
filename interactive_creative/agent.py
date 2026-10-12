@@ -84,9 +84,9 @@ visual_concept_reviser = Agent(
     # deterministic concept checks are re-run on the guarded concepts so
     # final_visual_concepts__issues reflects them, not the pre-checkpoint
     # concept_gate verdict (record only, no fix loop). (Neither is reached on
-    # the skip path: a before_agent reply ends the reviser's invocation; the
-    # echoed concepts were already guarded, and a direct-edit resume cleared
-    # the stale marker in runserver.async_runs._apply_visual_concept_edits.)
+    # the skip path — a before_agent reply ends the reviser's invocation — so
+    # skip_reviser_without_notes runs both itself before echoing, guarding
+    # direct edits made without notes.)
     after_agent_callback=[
         callbacks.ensure_trend_and_product_callback,
         callbacks.recheck_concept_issues_callback,
