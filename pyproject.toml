@@ -74,7 +74,7 @@ dev = [
     # deployment/deploy_agent.py (run from the dev env) + the CRF tests.
     "pandas>=3.0.6,<4.0.0",
     "db-dtypes>=1.7.1,<2.0.0",
-    "pyarrow>=25.0.1,<26.0.0",
+    "pyarrow>=25.0.1,<27.0.0",
     "docker>=7.1.0",
     "jax[cpu]>=0.11.2",
     "pytest>=9.1.1",
