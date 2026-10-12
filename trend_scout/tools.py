@@ -414,6 +414,7 @@ def write_trends_to_bq(tool_context: ToolContext) -> dict:
     # Per-trend research context for the creative run (best-effort, never raises).
     info_gtrends = tool_context.state.get("info_gtrends")
     selected_gtrends = tool_context.state.get("selected_gtrends")
+    trend_flags = tool_context.state.get("trend_flags")
 
     try:
         # insert a row for each selected target search trend
@@ -432,7 +433,9 @@ def write_trends_to_bq(tool_context: ToolContext) -> dict:
                 target_product=tool_context.state["target_product"],
                 key_selling_points=tool_context.state["key_selling_points"],
                 research_gaps=research_gaps,
-                trend_context=trend_context_for(trend, info_gtrends, selected_gtrends),
+                trend_context=trend_context_for(
+                    trend, info_gtrends, selected_gtrends, flags=trend_flags
+                ),
             )
             # make API request
             job = bq_client.query(
