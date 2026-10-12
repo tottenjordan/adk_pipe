@@ -363,11 +363,18 @@ def _serialize_event(ev: Event) -> dict:
 def _derive_status(events) -> tuple[str, str | None]:
     """Derive a run's ``(status, error_message)`` from its full event log.
 
-    A ``__run_status`` terminal marker wins (scan for the LAST one, so a late
-    ``done``/``error`` marker is authoritative); its ``__run_error`` supplies
-    the message. Absent a marker, an in-pipeline error event (``error_code`` or
-    ``error_message`` set — mirroring the frontend ``getEventError``) surfaces
-    as ``error`` so model 429s aren't masked. Otherwise ``running``."""
+    Only a ``__run_status`` terminal marker decides ``done``/``error`` (scan for
+    the LAST one, so a late marker is authoritative); its ``__run_error``
+    supplies the message. Without a marker the run is ``running``.
+
+    In-pipeline error events (``error_code``/``error_message`` set) do NOT flip
+    the status: a fail-soft step (``FailSoftNode``) contains its child's model
+    error and the pipeline carries on, but the child's error event stays in the
+    log. Every real failure ends with an ``error`` marker written by the
+    detached task (``_drive_run``: uncaught exceptions incl. model errors that
+    escape the root, the timeout, cancellation); a crashed instance leaves no
+    marker and the client's stall timeout covers it. Error events are surfaced
+    as non-fatal ``warnings`` instead (``_derive_warnings``)."""
     status = "running"
     error: str | None = None
     for ev in events:
@@ -376,14 +383,37 @@ def _derive_status(events) -> tuple[str, str | None]:
         if marker:
             status = marker
             error = delta.get(RUN_ERROR_KEY)
-    if status != "running":
-        return status, error
+    if status == "running":
+        return "running", None
+    return status, error
+
+
+# Non-fatal in-pipeline error events surfaced on the poll payload.
+RUN_WARNINGS_MAX = 5
+RUN_WARNING_MAX_CHARS = 300
+
+
+def _derive_warnings(events) -> list[dict[str, str]]:
+    """In-pipeline error events as ``[{"author", "message"}]`` — deduped, in
+    log order, at most ``RUN_WARNINGS_MAX``, messages truncated to
+    ``RUN_WARNING_MAX_CHARS``. Informational only (see ``_derive_status``)."""
+    warnings: list[dict[str, str]] = []
+    seen: set[tuple[str, str]] = set()
     for ev in events:
-        if getattr(ev, "error_code", None) or getattr(ev, "error_message", None):
-            return "error", getattr(ev, "error_message", None) or getattr(
-                ev, "error_code", None
-            )
-    return "running", None
+        raw = getattr(ev, "error_message", None) or getattr(ev, "error_code", None)
+        if not raw:
+            continue
+        message = str(raw)
+        if len(message) > RUN_WARNING_MAX_CHARS:
+            message = message[: RUN_WARNING_MAX_CHARS - 1] + "…"
+        author = str(getattr(ev, "author", None) or "")
+        if (author, message) in seen:
+            continue
+        seen.add((author, message))
+        warnings.append({"author": author, "message": message})
+        if len(warnings) >= RUN_WARNINGS_MAX:
+            break
+    return warnings
 
 
 async def get_run_status(
@@ -391,7 +421,8 @@ async def get_run_status(
 ) -> dict:
     """Poll a run: return its derived status, the events appended since the
     ``since`` cursor (serialized to the frontend ``AgentEvent`` shape), the next
-    cursor, the merged session state, and any error message.
+    cursor, the merged session state, any error message, and ``warnings``
+    (non-fatal in-pipeline error events, see ``_derive_warnings``).
 
     Returns ``{"status": "not_found", ...}`` (not a raise) when the session is
     absent, so the caller/router can map it to a 404 while staying testable.
@@ -423,6 +454,7 @@ async def get_run_status(
         "nextCursor": len(session.events),
         "state": dict(session.state),
         "error": error,
+        "warnings": _derive_warnings(session.events),
     }
 
 
@@ -715,7 +747,8 @@ async def _drive_run(
     runner, session_service, app_name, user_id, session_id, new_message
 ) -> None:
     """Drive a Runner to completion detached from any request, then append a
-    terminal status marker to the session. Never re-raises — the terminal
+    terminal status marker to the session. Never re-raises (except a
+    cancellation, after writing its ``error`` marker) — the terminal
     ``error`` marker IS the failure contract for pollers (even when the marker
     write itself fails; see ``_append_terminal_safe``). Bounded by
     ``RUN_MAX_SECONDS`` so a wedged run can't hang ``running`` forever.
@@ -793,6 +826,21 @@ async def _drive_run(
             session_id,
             build_terminal_event("error", str(exc), invocation_id=invocation_id),
         )
+    except asyncio.CancelledError:
+        # Cancelled mid-run (e.g. instance shutdown): still record the failure so
+        # pollers don't show it running until their stall timeout, then let the
+        # cancellation propagate.
+        logging.error("detached run cancelled app=%s session=%s", app_name, session_id)
+        await _append_terminal_safe(
+            session_service,
+            app_name,
+            user_id,
+            session_id,
+            build_terminal_event(
+                "error", "run was interrupted", invocation_id=invocation_id
+            ),
+        )
+        raise
 
 
 async def start_run(
