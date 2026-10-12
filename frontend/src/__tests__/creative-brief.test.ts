@@ -34,7 +34,7 @@ describe("parseCreativeBrief", () => {
       singleMindedProposition: "One idea.",
       reasonsToBelieve: [],
       brand: { toneOfVoice: "", distinctiveAssets: [], doNot: [] },
-      trendBridge: { fitScore: null, fitMode: null, bridge: "", motifs: [], risks: [] },
+      trendBridge: { fitScore: null, fitMode: null, bridge: "", motifs: [], risks: [], timelyAngle: "" },
       mandatories: [],
       avoid: [],
       desiredResponse: "",

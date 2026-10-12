@@ -31,6 +31,12 @@ export interface TrendBridge {
   bridge: string;
   motifs: string[];
   risks: string[];
+  /**
+   * How a timely creative may reference the validated current moment; "" when
+   * the run has no timely moment (brief rule 16). Read-only in the editor, but
+   * carried through so an edited brief keeps it.
+   */
+  timelyAngle: string;
 }
 
 export interface CreativeAngle {
@@ -129,6 +135,7 @@ export function parseCreativeBrief(value: unknown): CreativeBrief | null {
       bridge: str(bridge.bridge),
       motifs: strList(bridge.motifs),
       risks: strList(bridge.risks),
+      timelyAngle: str(bridge.timely_angle),
     },
     mandatories: strList(raw.mandatories),
     avoid: strList(raw.avoid),

@@ -29,6 +29,27 @@ describe("toBriefPayload", () => {
     expect(payload.mandatories).toEqual(["SE CE24"]);
     expect(payload.reasons_to_believe).toEqual([{ claim: "Real claim", source_id: null }]);
   });
+
+  it("keeps the trend bridge's timely angle, even when another field is edited", () => {
+    const timely = "Texas vs Oklahoma is tomorrow: anticipation, never predict the score.";
+    const raw = structuredClone(SAMPLE_CREATIVE_BRIEF);
+    raw.trend_bridge.timely_angle = timely;
+    const original = parseCreativeBrief(raw)!;
+    expect(original.trendBridge.timelyAngle).toBe(timely);
+    expect(toBriefPayload(original)).toEqual(raw);
+
+    const draft = structuredClone(original);
+    draft.insight = "A sharper insight.";
+    const edit = buildBriefEdit(original, draft)!;
+    expect(edit).not.toBeNull();
+    const tb = edit[0].value.trend_bridge as Record<string, unknown>;
+    expect(tb.timely_angle).toBe(timely);
+  });
+
+  it("sends an empty timely angle when the brief has none", () => {
+    const tb = toBriefPayload(brief()).trend_bridge as Record<string, unknown>;
+    expect(tb.timely_angle).toBe("");
+  });
 });
 
 describe("validateBriefDraft", () => {

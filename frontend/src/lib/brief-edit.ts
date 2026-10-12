@@ -93,6 +93,7 @@ export function toBriefPayload(draft: CreativeBrief): Record<string, unknown> {
       bridge: tb.bridge.trim(),
       motifs: clean(tb.motifs),
       risks: clean(tb.risks),
+      timely_angle: tb.timelyAngle.trim(),
     },
     mandatories: clean(draft.mandatories),
     avoid: clean(draft.avoid),
