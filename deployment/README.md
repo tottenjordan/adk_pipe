@@ -429,8 +429,21 @@ gcloud pubsub topics create $CREATIVE_WORKER_TOPIC_NAME
 ### 3. Create [event-driven functions](https://cloud.google.com/run/docs/tutorials/pubsub-eventdriven#deploy-function) and [eventarc triggers](https://cloud.google.com/run/docs/tutorials/pubsub-eventdriven#pubsub-trigger)
 
 
-* `CRF_ENTRYPOINT`: the entry point to the function in your source code. This is the code Cloud Run executes when your function runs. The value of **this flag must be a function name or fully-qualified class name** that exists in your source code.
-* `BASE_IMAGE`: base image environment for your function e.g., `python313`. For more details about base images and their packages, see [Supported language runtimes and base images](https://cloud.google.com/run/docs/configuring/services/runtime-base-images#how_to_obtain_runtime_base_images)
+* **One image, two services.** Both functions run the same container image,
+  built from [`cloud_functions/creative_fanout/Dockerfile`](../cloud_functions/creative_fanout/Dockerfile)
+  by the root [`cloudbuild.yaml`](../cloudbuild.yaml) (`build-crf` step, package
+  `creative-fanout-crf` in `cloud-run-source-deploy`, cached like the api/web builds).
+  Each service picks its entry point with the env var `FUNCTION_TARGET`; the image
+  has no default, so a service without it fails to start instead of running the
+  other function.
+* `CRF_ENTRYPOINT` / `CREATIVE_WORKER_ENTRYPOINT`: the `FUNCTION_TARGET` values,
+  `crf_entrypoint` (orchestrator) and `agent_worker_entrypoint` (worker).
+* `BASE_IMAGE`: no longer used. The functions used to deploy with
+  `--source . --function … --base-image python313` (a buildpack build per service,
+  with **automatic base-image updates**). The Dockerfile image does not get those
+  (accepted trade-off: rebuild + redeploy to pick up OS/Python patches), and the
+  first `--image` deploy of an existing service must pass `--clear-base-image` to
+  drop the setting.
 * [optional] if `--min-instances=1`, service **always on**
 * see [gcloud reference doc](https://cloud.google.com/sdk/gcloud/reference/run/deploy)
 
@@ -467,10 +480,11 @@ UPDATE `<BQ_PROJECT_ID>.<BQ_DATASET_ID>.target_trends_crf`
 ```
 
 **Redeploy order (the reaper spans both functions):** migration → **worker**
-`$CREATIVE_WORKER_CRF_NAME` (3.3 — ships the timestamp/attempt-stamping lock) →
-**orchestrator** `$CREATIVE_CRF_NAME` (3.1 — ships the reap call). CRF functions
-auto-route to LATEST and the Eventarc triggers bind by service name, so triggers
-survive a redeploy and are **not** re-created.
+`$CREATIVE_WORKER_CRF_NAME` (ships the timestamp/attempt-stamping lock) →
+**orchestrator** `$CREATIVE_CRF_NAME` (ships the reap call), each with the `--image`
+redeploy in §3 (one image serves both). CRF functions auto-route to LATEST and the
+Eventarc triggers bind by service name, so triggers survive a redeploy and are
+**not** re-created.
 
 **weakest_dimension_labels migration (2026-10-02)** — `creative_evals` gains a
 readable `weakest_dimension_labels` column ("Trend connection, Copy quality",
@@ -537,8 +551,7 @@ ALTER TABLE `<BQ_PROJECT_ID>.trend_trawler_eval.target_trends_crf`
 Rows written before it read `NULL`, which the worker skips (no state key), so no
 backfill. **Redeploy order:** ALTER → `trend_scout`, `creative_agent` and
 `interactive_creative` engines (+ smoke) → CRF worker `$CREATIVE_WORKER_CRF_NAME`
-(3.3, from `cloud_functions/creative_fanout`, no env flags so its env is
-preserved) → api, then web (pin both). A fresh project gets the column from
+(the `--image` redeploy in §3, which keeps its env) → api, then web (pin both). A fresh project gets the column from
 `deployment/create_bq_tables.sh`.
 
 **Judge image access (IAM).** The visual judge passes each rendered image to
@@ -550,15 +563,42 @@ extra; a bucket in **another project** needs that service agent granted
 a 400 about the image/URI/file), the concept is judged from its prompt instead
 (`image_judged=False`, plus a report warning).
 
+**Build the CRF image** (once for both services; from the repo root of a `main`
+checkout). This also builds the api and web images, which are unchanged cache
+hits when only CRF code changed; nothing is deployed:
+
+```bash
+gcloud builds submit --region us-central1 --config cloudbuild.yaml \
+  --ignore-file deployment/cloudbuild.gcloudignore \
+  --substitutions=SHORT_SHA=$(git rev-parse --short HEAD)
+# A regional build doesn't stream its log; read the digest from the stored log:
+CRF_IMAGE=$(gcloud builds log <BUILD_ID> --region us-central1 \
+  | grep -aoE 'CRF_IMAGE=[^ ]+' | tail -1 | cut -d= -f2)
+```
+
+**Redeploying an existing CRF service** (the usual case): only the image and
+`FUNCTION_TARGET` change. No other flags are needed: `--image` keeps the env vars,
+scaling, concurrency, timeout, CPU/memory, labels and service account, and the
+Eventarc triggers bind by service name, so they keep delivering. `--clear-base-image`
+turns off the buildpack-era automatic base-image updates (needed on the first
+`--image` deploy, harmless after it):
+
+```bash
+gcloud run deploy $CREATIVE_CRF_NAME --image $CRF_IMAGE \
+  --update-env-vars FUNCTION_TARGET=crf_entrypoint --clear-base-image --region us-central1
+gcloud run deploy $CREATIVE_WORKER_CRF_NAME --image $CRF_IMAGE \
+  --update-env-vars FUNCTION_TARGET=agent_worker_entrypoint --clear-base-image --region us-central1
+```
+
+(`cloudbuild.yaml` with `_DEPLOY=true` runs the same two deploys at `--no-traffic`,
+next to the api/web ones; pin each new revision afterwards.) First-time creation
+uses the full commands below.
+
 **3.1 Creative Agent Orchestrator:** cloud run function
 
 ```bash
-cd cloud_functions/creative_fanout
-
 gcloud run deploy $CREATIVE_CRF_NAME \
-  --source . \
-  --function $CRF_ENTRYPOINT \
-  --base-image $BASE_IMAGE \
+  --image $CRF_IMAGE \
   --region $GCP_REGION \
   --memory 8Gi \
   --cpu 4 \
@@ -566,11 +606,11 @@ gcloud run deploy $CREATIVE_CRF_NAME \
   --concurrency=100 \
   --timeout=600s \
   --no-allow-unauthenticated \
-  --set-env-vars "GOOGLE_CLOUD_PROJECT=$GOOGLE_CLOUD_PROJECT,GOOGLE_CLOUD_PROJECT_NUMBER=$GOOGLE_CLOUD_PROJECT_NUMBER,GCP_REGION=$GCP_REGION,CREATIVE_WORKER_TOPIC_NAME=$CREATIVE_WORKER_TOPIC_NAME" \
+  --set-env-vars "FUNCTION_TARGET=$CRF_ENTRYPOINT,GOOGLE_CLOUD_PROJECT=$GOOGLE_CLOUD_PROJECT,GOOGLE_CLOUD_PROJECT_NUMBER=$GOOGLE_CLOUD_PROJECT_NUMBER,GCP_REGION=$GCP_REGION,CREATIVE_WORKER_TOPIC_NAME=$CREATIVE_WORKER_TOPIC_NAME" \
   --labels agent-workflow=trend-trawler,function=creative-orchestrator
 
   # High concurrency since it's just dispatching
-  # --set-env-vars: GOOGLE_CLOUD_PROJECT is REQUIRED (the function reads no .env);
+  # --set-env-vars: FUNCTION_TARGET and GOOGLE_CLOUD_PROJECT are REQUIRED (the function reads no .env);
   #   see "Required environment" above. --set-env-vars REPLACES the env, so any
   #   other overrides (e.g. CRF_EXTRA_ALLOWED_TABLES) must be in the same list.
 ```
@@ -602,9 +642,7 @@ gcloud pubsub subscriptions update $ORCH_SUB --ack-deadline=60
 
 ```bash
 gcloud run deploy $CREATIVE_WORKER_CRF_NAME \
-  --source . \
-  --function $CREATIVE_WORKER_ENTRYPOINT \
-  --base-image $BASE_IMAGE \
+  --image $CRF_IMAGE \
   --region $GCP_REGION \
   --max-instances 1 \
   --timeout 1800s \
@@ -612,11 +650,11 @@ gcloud run deploy $CREATIVE_WORKER_CRF_NAME \
   --memory 8Gi \
   --cpu 4 \
   --no-allow-unauthenticated \
-  --set-env-vars "GOOGLE_CLOUD_PROJECT=$GOOGLE_CLOUD_PROJECT,GOOGLE_CLOUD_PROJECT_NUMBER=$GOOGLE_CLOUD_PROJECT_NUMBER,GCP_REGION=$GCP_REGION,AGENT_WORKER_USER_ID=${AGENT_WORKER_USER_ID:-crf_worker}" \
+  --set-env-vars "FUNCTION_TARGET=$CREATIVE_WORKER_ENTRYPOINT,GOOGLE_CLOUD_PROJECT=$GOOGLE_CLOUD_PROJECT,GOOGLE_CLOUD_PROJECT_NUMBER=$GOOGLE_CLOUD_PROJECT_NUMBER,GCP_REGION=$GCP_REGION,AGENT_WORKER_USER_ID=${AGENT_WORKER_USER_ID:-crf_worker}" \
   --labels agent-workflow=trend-trawler,function=creative-worker
   
   # Note:
-  # --set-env-vars: GOOGLE_CLOUD_PROJECT is REQUIRED (the function reads no .env);
+  # --set-env-vars: FUNCTION_TARGET and GOOGLE_CLOUD_PROJECT are REQUIRED (the function reads no .env);
   #   see "Required environment" above. --set-env-vars REPLACES the env, so any
   #   other overrides (e.g. CRF_EXTRA_ALLOWED_TABLES) must be in the same list.
   # region=$GCP_REGION (us-central1) — Cloud Run is regional; GOOGLE_CLOUD_LOCATION
@@ -748,8 +786,8 @@ Row limit: one trigger dispatches at most `CRF_MAX_ROWS_PER_RUN` rows (default
 trigger, so publishing a message can't accidentally fan out the whole backlog.
 Add an optional `"max_rows": N` to the message to dispatch fewer (e.g. `1` for a
 smoke test). Values above the cap are clamped, and invalid values fall back to it.
-To raise the cap, add `CRF_MAX_ROWS_PER_RUN=<n>` to the orchestrator's
-`--set-env-vars`.
+To raise the cap, redeploy the orchestrator with `--update-env-vars
+CRF_MAX_ROWS_PER_RUN=<n>` (or add it to the first-time `--set-env-vars`).
 
 Sensitive trends (2026-10-12): the orchestrator never selects a row whose
 `trend_context` JSON has `"sensitive": true` (set by trend_scout's
@@ -757,8 +795,8 @@ Sensitive trends (2026-10-12): the orchestrator never selects a row whose
 include one). NULL, empty, malformed or unflagged `trend_context` is still
 dispatched. No migration: the flag is a key inside the existing
 `trend_context` column (plain `JSON_VALUE`; BigQuery rejects `SAFE.JSON_VALUE`).
-Redeploy the orchestrator `$CREATIVE_CRF_NAME` from `cloud_functions/creative_fanout`
-to pick it up; flagged rows already in the table are skipped from then on.
+Redeploy the orchestrator `$CREATIVE_CRF_NAME` (the `--image` redeploy in §3) to
+pick it up; flagged rows already in the table are skipped from then on.
 
 Worker failure semantics: if the agent run fails, the worker marks the row
 `FAILED` and **ACKs** (no Pub/Sub retry — a redelivery can't re-lock a `FAILED`
@@ -2181,12 +2219,14 @@ parent index references):
 
 | File | Repo | Rule |
 |---|---|---|
-| `ar-cloud-run-source-deploy.json` | `cloud-run-source-deploy` | Delete **untagged** versions older than 14 days of `trend-trawler-api`, `trend-trawler-web`, `trend-trawler-share`, `creative-trawler-crf`, `creative-worker-crf`; Keep the newest 10 of each |
+| `ar-cloud-run-source-deploy.json` | `cloud-run-source-deploy` | Delete **untagged** versions older than 14 days of `trend-trawler-api`, `trend-trawler-web`, `trend-trawler-share`, `creative-trawler-crf`, `creative-worker-crf`, `creative-fanout-crf`; Keep the newest 10 of each |
 | `ar-cpr.json` | `cpr` | Same for `trend-trawler-bandit` (the prefix also covers `trend-trawler-bandit-traffic`); Keep the newest 5 |
 
 Tagged images are never deleted: `<sha>` / `latest` releases and the `buildcache` cache
-manifest stay. The CRF functions' live images are untagged buildpack builds, which is what
-the newest-N keep protects (each deploy is a build, so the live one is the newest).
+manifest stay. The CRF functions now run the tagged `creative-fanout-crf` image (one
+Cloud Build image for both); their older revisions' images are untagged buildpack builds
+in `creative-trawler-crf` / `creative-worker-crf`, which is what the newest-N keep
+protects there.
 `packageNamePrefixes` are prefixes, so `creative-trawler-crf` also matches the old
 `creative-trawler-crf-vx` package (also trend-trawler's). Rolling back to a revision whose
 untagged image has aged out needs a rebuild.

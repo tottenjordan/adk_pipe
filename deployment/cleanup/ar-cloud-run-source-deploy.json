@@ -10,7 +10,8 @@
         "trend-trawler-web",
         "trend-trawler-share",
         "creative-trawler-crf",
-        "creative-worker-crf"
+        "creative-worker-crf",
+        "creative-fanout-crf"
       ]
     }
   },
@@ -23,7 +24,8 @@
         "trend-trawler-web",
         "trend-trawler-share",
         "creative-trawler-crf",
-        "creative-worker-crf"
+        "creative-worker-crf",
+        "creative-fanout-crf"
       ],
       "keepCount": 10
     }

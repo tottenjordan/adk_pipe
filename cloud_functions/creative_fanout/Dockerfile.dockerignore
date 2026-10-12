@@ -1,0 +1,10 @@
+# Build-context filter for cloud_functions/creative_fanout/Dockerfile (BuildKit
+# reads <Dockerfile>.dockerignore instead of the root .dockerignore). Deny
+# everything, then allow exactly the function's files
+# (tests/test_creative_fanout_image.py checks the list).
+**
+!cloud_functions/creative_fanout/__init__.py
+!cloud_functions/creative_fanout/config.py
+!cloud_functions/creative_fanout/main.py
+!cloud_functions/creative_fanout/session.py
+!cloud_functions/creative_fanout/requirements.txt
