@@ -22,9 +22,9 @@ import {
   ResumeNotAppliedError,
   ResumeRejectedError,
   getSession,
-  getEventError,
   SELF_USER_ID,
 } from "@/lib/api";
+import { STEP_ERROR_PREFIX, addStepError, stepErrorMessage } from "@/lib/step-errors";
 import { LearningSummary } from "@/components/learning-summary";
 import { TrendSituationLine } from "@/components/trend-situation-line";
 import { learningSummaryText } from "@/lib/rating-learning";
@@ -78,6 +78,8 @@ export default function RunPage({
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   // Non-error, informational notice (e.g. a resume that must be re-submitted).
   const [notice, setNotice] = useState<string | null>(null);
+  // Non-fatal step errors (contained by a fail-soft step); see lib/step-errors.
+  const [stepErrors, setStepErrors] = useState<string[]>([]);
   // Field errors from a rejected (400) checkpoint resume, shown in the review.
   const [reviewErrors, setReviewErrors] = useState<Record<string, string>>({});
   const [sessionState, setSessionState] = useState<Record<string, unknown>>({});
@@ -127,7 +129,7 @@ export default function RunPage({
   // long-running call still unanswered. A long-running call alone is not a
   // pause — pipeline NodeTools are long-running too but are answered in the
   // same segment (see PendingLongRunningCalls).
-  // Returns true when a terminal UI state (paused or error) was already set, so
+  // Returns true when a terminal UI state (paused) was already set, so
   // the caller must not override it; false means the run completed normally.
   const consumePollEvents = useCallback(
     async (
@@ -144,15 +146,12 @@ export default function RunPage({
         if (event.id && seenEventIds.current.has(event.id)) continue;
         if (event.id) seenEventIds.current.add(event.id);
 
-        // Surface backend failure events (e.g. a model 429) — these arrive as
-        // data events with no content, so a content-only loop would drop them
-        // and the run would look like a silent stall.
-        const evErr = getEventError(event);
-        if (evErr) {
-          setStatus("error");
-          setErrorMsg(evErr);
-          return true;
-        }
+        // An error event (e.g. a model 400/429) is NOT a run failure: a
+        // fail-soft step may have contained it and the run carries on. Show it
+        // as a non-blocking notice; only the poll status (pollRun throws on
+        // "error") fails the run.
+        const stepErr = stepErrorMessage(event);
+        if (stepErr) setStepErrors((prev) => addStepError(prev, stepErr));
 
         setEvents((prev) => [...prev, event]);
 
@@ -541,6 +540,17 @@ export default function RunPage({
       {notice && (
         <div className="mb-4 rounded-lg border border-mark-pending/40 bg-mark-pending/10 px-5 py-4">
           <p className="text-sm text-mark-pending">{notice}</p>
+        </div>
+      )}
+
+      {stepErrors.length > 0 && (
+        <div className="mb-4 rounded-lg border border-border bg-muted/40 px-5 py-3">
+          {stepErrors.map((msg) => (
+            <p key={msg} className="text-sm text-muted-foreground">
+              {STEP_ERROR_PREFIX}
+              {msg}
+            </p>
+          ))}
         </div>
       )}
 
