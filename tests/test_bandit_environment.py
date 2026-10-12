@@ -1,6 +1,7 @@
 """Synthetic logistic ground truth + context/reward samplers (``bandit/environment.py``)."""
 
 import dataclasses
+import functools
 
 import jax
 import jax.numpy as jnp
@@ -24,10 +25,20 @@ def _env(scenario, ctr_mode="demo", reward_mode="click", **kw):
     return envm.build_true_model(cfg, jax.random.key(cfg.seed))
 
 
+@functools.cache
+def _shared_env(scenario, ctr_mode="demo", reward_mode="click", horizon=None):
+    """A read-only ``_env`` shared across tests (each build calibrates α over 50k
+    samples). ``Environment`` is a frozen dataclass around a ``TrueModel`` of JAX
+    arrays, so sharing it is safe as long as tests only read it; tests that compare
+    two builds or need distinct keys keep calling ``_env`` / ``build_true_model``."""
+    kw = {} if horizon is None else {"horizon": horizon}
+    return _env(scenario, ctr_mode, reward_mode, **kw)
+
+
 @pytest.mark.parametrize("ctr_mode", ["demo", "realistic"])
 @pytest.mark.parametrize("scenario", ["clear_winner", "segment_winners", "drift"])
 def test_calibration_hits_target_mean_ctr(scenario, ctr_mode):
-    env = _env(scenario, ctr_mode)
+    env = _shared_env(scenario, ctr_mode)
     target = load_scenario(scenario).target_ctr[ctr_mode]
     seg, _, X = envm.sample_contexts(jax.random.key(123), env.model, 40000)
     p = envm.click_probs(env.model, X, seg, jnp.zeros(seg.shape[0]))
@@ -37,7 +48,7 @@ def test_calibration_hits_target_mean_ctr(scenario, ctr_mode):
 
 
 def test_clear_winner_arm_ctrs_follow_preset():
-    env = _env("clear_winner")
+    env = _shared_env("clear_winner")
     ctrs = envm.marginal_ctrs(env, jax.random.key(1))["overall"]
     order = np.argsort(-ctrs)
     np.testing.assert_allclose(ctrs[order], [0.060, 0.045, 0.035], rtol=0.15)
@@ -54,7 +65,7 @@ def test_judge_wrong_reverses_score_ranking():
 
 
 def test_segment_winners_have_distinct_oracle_arms():
-    env = _env("segment_winners")
+    env = _shared_env("segment_winners")
     assert len(env.arm_ids) == 4
     by_seg = envm.marginal_ctrs(env, jax.random.key(2))["by_segment"]  # (S, K)
     winners = np.argmax(by_seg, axis=1)
@@ -66,7 +77,7 @@ def test_segment_winners_have_distinct_oracle_arms():
 
 
 def test_drift_flips_best_arm_at_change_point():
-    env = _env("drift", horizon=1000)
+    env = _shared_env("drift", horizon=1000)
     before = envm.marginal_ctrs(env, jax.random.key(3), t=0)["overall"]
     after = envm.marginal_ctrs(env, jax.random.key(3), t=999)["overall"]
     assert int(np.argmax(before)) == int(np.argmin(after))
@@ -106,7 +117,7 @@ def test_engaged_reward_zero_without_click():
 
 
 def test_contexts_and_rewards_reproducible_from_keys():
-    env = _env("segment_winners")
+    env = _shared_env("segment_winners")
     a = envm.sample_contexts(jax.random.key(9), env.model, 100)
     b = envm.sample_contexts(jax.random.key(9), env.model, 100)
     c = envm.sample_contexts(jax.random.key(10), env.model, 100)
@@ -125,7 +136,7 @@ def test_contexts_and_rewards_reproducible_from_keys():
 
 
 def test_context_matrix_matches_features_encoding_and_no_sensitive_fields():
-    env = _env("segment_winners")
+    env = _shared_env("segment_winners")
     _, levels, X = envm.sample_contexts(jax.random.key(11), env.model, 300)
     ctxs = envm.decode_contexts(levels)
     for ctx in ctxs:
@@ -136,7 +147,7 @@ def test_context_matrix_matches_features_encoding_and_no_sensitive_fields():
 
 
 def test_segment_marginals_are_respected():
-    env = _env("segment_winners")
+    env = _shared_env("segment_winners")
     seg, _, X = envm.sample_contexts(jax.random.key(12), env.model, 40000)
     seg, X = np.asarray(seg), np.asarray(X)
     names = features.feature_names()
@@ -154,11 +165,11 @@ def test_optimal_arms_respects_eligibility():
 
 
 def test_dwell_means_positive_and_engaged_mode():
-    env = _env("clear_winner", reward_mode="engaged")
+    env = _shared_env("clear_winner", reward_mode="engaged")
     dm = np.asarray(env.model.dwell_means)
     assert dm.shape == (3, 3) and np.all(dm > 0)
     assert env.reward_scale == pytest.approx(30.0)
-    assert _env("clear_winner").reward_scale == 1.0
+    assert _shared_env("clear_winner").reward_scale == 1.0
 
 
 # ------------------------------------------------- scenario overrides (contracts §9)
