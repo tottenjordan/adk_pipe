@@ -489,7 +489,7 @@ def test_trend_situation_draft_defaults_abstain():
 
     draft = TrendSituationDraft(phase="unknown")
     assert draft.event_name == "" and draft.event_start == ""
-    assert draft.outcome == "" and draft.source_ids == []
+    assert draft.outcome == "none" and draft.source_ids == []
     assert draft.confidence == "low" and draft.audience_sentiment == "neutral"
 
 
