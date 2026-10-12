@@ -244,3 +244,13 @@ def test_interactive_reviser_carries_the_shared_rules_and_inputs():
     assert instr.rstrip().endswith(
         "schema (a `visual_concepts` list).**\n    </OUTPUT_FORMAT>"
     )
+
+
+@pytest.mark.parametrize("name", VISUAL_PROMPTS)
+def test_style_preference_exception_reads_the_same_everywhere(name):
+    # The 4-distinct-families rule and a user style preference never conflict:
+    # every visual stage keeps the preferred family and varies the rest.
+    instr = getattr(prompts, name)
+    assert "overrides the shortlist" not in instr
+    if name != "VISUAL_CONCEPT_CRITIC_INSTR":
+        assert "<user_style_preference> is non-empty, keep that family" in instr
