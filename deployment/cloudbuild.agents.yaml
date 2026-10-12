@@ -1,0 +1,193 @@
+# Deploy Agent Engines from a fresh clone, in parallel, on pinned Python 3.13.
+#
+#   gcloud builds submit --no-source --project=hybrid-vertex --region=us-central1 \
+#     --config=deployment/cloudbuild.agents.yaml \
+#     --substitutions=_REF=main,_CREATIVE_VERSION=v37,_INTERACTIVE_VERSION=v33,_SCOUT_VERSION=v18
+#
+# Why Cloud Build instead of a laptop: the build clones `_REF` from GitHub (no local
+# edits, .env or .adk data), pickles the agents on the same Python minor as the
+# engine runtime (py313; worktrees default to 3.14), runs each deploy from `env -i`
+# + the committed profile `_DEPLOY_ENV` (no stale exported engine IDs / bucket vars
+# baked into the pickles) and never writes .env (no parallel-deploy clobbering).
+#
+# Outputs: /workspace/engine_ids.json (also uploaded to
+# gs://${_ARTIFACTS_BUCKET}/adk-pipe/cloudbuild/$BUILD_ID/engine_ids.json) and an
+# `agent: old -> new` table in the log. Updating .env, the CRF trigger and deleting
+# old engines stay manual: deployment/README.md -> "Deploying engines with Cloud Build".
+#
+# Substitutions:
+#   _AGENTS            comma-separated subset to deploy (default: all three)
+#   _*_VERSION         version namespace per selected agent (required when selected;
+#                      display name <agent display>-<version>, staging dir adk-pipe/<sub>/<version>)
+#   _REF               branch, tag or FULL 40-char commit SHA to deploy (default main)
+#   _ENABLE_TRACING    true (default) adds --enable_tracing
+#   _SMOKE             true runs the creative_agent smoke test against the new engine
+#   _DEPLOY_ENV        deploy profile path in the checkout (default deployment/deploy.env)
+steps:
+  # 1. Fresh clone of the requested ref (branch, tag or full SHA; short SHAs fail).
+  - id: clone
+    name: gcr.io/cloud-builders/git
+    entrypoint: bash
+    waitFor: ["-"]
+    args:
+      - -c
+      - |
+        set -euo pipefail
+        git init -q adk_pipe
+        cd adk_pipe
+        git fetch -q --depth 1 "https://github.com/${_REPO}.git" "${_REF}"
+        git checkout -q FETCH_HEAD
+        git rev-parse HEAD | tee /workspace/commit.txt
+        if [ -e .env ]; then echo "refusing: .env in the checkout" >&2; exit 1; fi
+
+  # 2. Runtime-only venv from the lockfile, on the image's system Python 3.13.
+  - id: sync
+    name: ${_UV_IMAGE}
+    dir: adk_pipe
+    entrypoint: bash
+    waitFor: [clone]
+    env:
+      - UV_PYTHON_DOWNLOADS=never
+      - UV_PYTHON_PREFERENCE=only-system
+      - UV_LINK_MODE=copy
+    args:
+      - -c
+      - |
+        set -euo pipefail
+        uv --version
+        uv sync --frozen --no-dev --python 3.13
+
+  # 3. The pickles must be made on 3.13 to match the engine's py313 runtime.
+  - id: python-313
+    name: ${_UV_IMAGE}
+    dir: adk_pipe
+    entrypoint: bash
+    waitFor: [sync]
+    args:
+      - -c
+      - |
+        set -euo pipefail
+        .venv/bin/python -c 'import sys; print(sys.version); sys.exit(0 if sys.version_info[:2] == (3, 13) else "deploys must pickle on Python 3.13")'
+        for a in $(echo "${_AGENTS}" | tr ',' ' '); do
+          case "$$a" in
+            creative_agent|interactive_creative|trend_scout) ;;
+            *) echo "unknown agent in _AGENTS: $$a" >&2; exit 1 ;;
+          esac
+        done
+        mkdir -p /workspace/engine_ids
+
+  # 4. One deploy step per agent, all waiting only on python-313 -> run in parallel.
+  #    allowFailure keeps `collect` running so the engines that did get created are
+  #    recorded; collect then fails the build when a selected agent is missing.
+  - id: deploy-creative_agent
+    name: ${_UV_IMAGE}
+    dir: adk_pipe
+    entrypoint: bash
+    waitFor: [python-313]
+    allowFailure: true
+    args:
+      - -c
+      - |
+        set -euo pipefail
+        case ",${_AGENTS}," in *,creative_agent,*) ;; *) echo "creative_agent not selected; skipping"; exit 0 ;; esac
+        if [ -z "${_CREATIVE_VERSION}" ]; then echo "_CREATIVE_VERSION is required" >&2; exit 1; fi
+        tracing=""; if [ "${_ENABLE_TRACING}" = "true" ]; then tracing="--enable_tracing"; fi
+        deployment/cloudbuild_env.sh "${_DEPLOY_ENV}" "$PROJECT_ID" -- \
+          .venv/bin/python deployment/deploy_agent.py --agent=creative_agent \
+          --version="${_CREATIVE_VERSION}" --create --nowrite_env $$tracing \
+          --output_json=/workspace/engine_ids/creative_agent.json
+
+  - id: deploy-interactive_creative
+    name: ${_UV_IMAGE}
+    dir: adk_pipe
+    entrypoint: bash
+    waitFor: [python-313]
+    allowFailure: true
+    args:
+      - -c
+      - |
+        set -euo pipefail
+        case ",${_AGENTS}," in *,interactive_creative,*) ;; *) echo "interactive_creative not selected; skipping"; exit 0 ;; esac
+        if [ -z "${_INTERACTIVE_VERSION}" ]; then echo "_INTERACTIVE_VERSION is required" >&2; exit 1; fi
+        tracing=""; if [ "${_ENABLE_TRACING}" = "true" ]; then tracing="--enable_tracing"; fi
+        deployment/cloudbuild_env.sh "${_DEPLOY_ENV}" "$PROJECT_ID" -- \
+          .venv/bin/python deployment/deploy_agent.py --agent=interactive_creative \
+          --version="${_INTERACTIVE_VERSION}" --create --nowrite_env $$tracing \
+          --output_json=/workspace/engine_ids/interactive_creative.json
+
+  - id: deploy-trend_scout
+    name: ${_UV_IMAGE}
+    dir: adk_pipe
+    entrypoint: bash
+    waitFor: [python-313]
+    allowFailure: true
+    args:
+      - -c
+      - |
+        set -euo pipefail
+        case ",${_AGENTS}," in *,trend_scout,*) ;; *) echo "trend_scout not selected; skipping"; exit 0 ;; esac
+        if [ -z "${_SCOUT_VERSION}" ]; then echo "_SCOUT_VERSION is required" >&2; exit 1; fi
+        tracing=""; if [ "${_ENABLE_TRACING}" = "true" ]; then tracing="--enable_tracing"; fi
+        deployment/cloudbuild_env.sh "${_DEPLOY_ENV}" "$PROJECT_ID" -- \
+          .venv/bin/python deployment/deploy_agent.py --agent=trend_scout \
+          --version="${_SCOUT_VERSION}" --create --nowrite_env $$tracing \
+          --output_json=/workspace/engine_ids/trend_scout.json
+
+  # 5. Merge the records -> /workspace/engine_ids.json, upload it, print old -> new.
+  #    Exits 1 (failing the build) if a selected agent has no record.
+  - id: collect
+    name: ${_UV_IMAGE}
+    dir: adk_pipe
+    entrypoint: bash
+    waitFor: [deploy-creative_agent, deploy-interactive_creative, deploy-trend_scout]
+    args:
+      - -c
+      - |
+        set -euo pipefail
+        deployment/cloudbuild_env.sh "${_DEPLOY_ENV}" "$PROJECT_ID" -- \
+          .venv/bin/python deployment/engine_handoff.py collect \
+          --dir /workspace/engine_ids --out /workspace/engine_ids.json \
+          --expect "${_AGENTS}" --commit "$$(cat /workspace/commit.txt)" --previous \
+          --upload "gs://${_ARTIFACTS_BUCKET}/adk-pipe/cloudbuild/$BUILD_ID/engine_ids.json"
+        cat /workspace/engine_ids.json
+
+  # 6. Optional end-to-end smoke run (~10 min) against the NEW creative engine.
+  - id: smoke
+    name: ${_UV_IMAGE}
+    dir: adk_pipe
+    entrypoint: bash
+    waitFor: [collect]
+    args:
+      - -c
+      - |
+        set -euo pipefail
+        if [ "${_SMOKE}" != "true" ]; then echo "_SMOKE != true; skipping smoke test"; exit 0; fi
+        case ",${_AGENTS}," in *,creative_agent,*) ;; *) echo "creative_agent not deployed; skipping smoke test"; exit 0 ;; esac
+        new_id="$$(.venv/bin/python deployment/engine_handoff.py get --ids /workspace/engine_ids.json --agent creative_agent)"
+        deployment/cloudbuild_env.sh "${_DEPLOY_ENV}" "$PROJECT_ID" -- \
+          env CREATIVE_AGENT_ENGINE_ID="$$new_id" \
+          .venv/bin/python deployment/integration_test.py --check smoke --agent creative_agent
+        .venv/bin/python deployment/engine_handoff.py show --ids /workspace/engine_ids.json
+
+substitutions:
+  _AGENTS: creative_agent,interactive_creative,trend_scout
+  _CREATIVE_VERSION: ""
+  _INTERACTIVE_VERSION: ""
+  _SCOUT_VERSION: ""
+  _REF: main
+  _REPO: tottenjordan/adk_pipe
+  _ENABLE_TRACING: "true"
+  _SMOKE: "false"
+  _DEPLOY_ENV: deployment/deploy.env
+  _ARTIFACTS_BUCKET: trend-trawler-deploy-ae
+  # uv 0.12.19 (= the api Dockerfile's uv) on Debian trixie + Python 3.13, tag + index
+  # digest. (Versioned *-python3.13-bookworm-slim tags stop at uv 0.9.30.)
+  _UV_IMAGE: ghcr.io/astral-sh/uv:0.12.19-python3.13-trixie-slim@sha256:aba5f865793af9275ceaa06d30935dfc6db8b81969c9fb099b0ebca6396b189e
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+  substitutionOption: ALLOW_LOOSE
+  machineType: E2_HIGHCPU_8
+
+# Engine creation takes ~5-15 min each (parallel); the smoke run adds ~10 min.
+timeout: 5400s
