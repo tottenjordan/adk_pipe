@@ -2115,32 +2115,11 @@ beyond `person_references` itself.
 
 ### Lifecycle (retention backstop)
 
-Delete `person-refs/` objects 365 days after upload. `--lifecycle-file` **replaces** the
-bucket's whole lifecycle configuration, so read the current one first and merge this rule
-into it:
-
-```bash
-gcloud storage buckets describe "gs://$GOOGLE_CLOUD_STORAGE_BUCKET" \
-  --format="json(lifecycle_config)"
-```
-
-`person-refs-lifecycle.json` (add any existing rules to `rule`):
-
-```json
-{
-  "rule": [
-    {
-      "action": {"type": "Delete"},
-      "condition": {"age": 365, "matchesPrefix": ["person-refs/"]}
-    }
-  ]
-}
-```
-
-```bash
-gcloud storage buckets update "gs://$GOOGLE_CLOUD_STORAGE_BUCKET" \
-  --lifecycle-file=person-refs-lifecycle.json
-```
+Delete `person-refs/` objects 365 days after upload. This rule was documented here long
+before it was applied (the bucket had **no** lifecycle until the retention policies below);
+it now lives in `deployment/cleanup/gcs-trend-trawler-deploy-ae.json` and is set with
+`deployment/cleanup/apply.sh` together with the rest of trend-trawler's retention (see
+[Retention: registry images and buckets](#retention-registry-images-and-buckets)).
 
 An expired photo leaves its consent record active but unusable (the photo is gone); the
 owner revokes it and registers a fresh upload.
@@ -2151,6 +2130,60 @@ fixed object-name *prefix* or *suffix*, not a `*/variants/` segment in the middl
 rule could also delete ordinary run outputs. Variant cleanup is therefore by revoke (the
 cascade deletes every variant recorded in the consent's `person_renders`). If variants later move under a fixed
 top-level prefix, add a `matchesPrefix` rule for it.
+
+### Retention: registry images and buckets
+
+Trend-trawler's retention policies live in `deployment/cleanup/` and are **scoped to
+trend-trawler only**: the Artifact Registry repo `cloud-run-source-deploy` and the
+Cloud Run source bucket are shared with other projects in `hybrid-vertex`, so every rule names
+trend-trawler packages or prefixes explicitly (`tests/test_cleanup_policies.py` enforces
+this). None of this was applied before 2026-10-12.
+
+```bash
+deployment/cleanup/apply.sh            # preview (default): read-only
+deployment/cleanup/apply.sh --apply    # set the policies below
+```
+
+The preview makes no mutating calls (it does not use `set-cleanup-policies --dry-run`,
+which still writes a policy): it prints each repo's cleanup policies and each bucket's
+lifecycle, simulates every rule against the current listings (candidate counts, sizes,
+sample digests), and lists the digests Cloud Run serves (every traffic-receiving and latest
+ready revision of `trend-trawler-api` / `-web` / `-share`, `creative-trawler-crf`,
+`creative-worker-crf`), the `trend-trawler-bandit-traffic` job's image and the api's
+`BANDIT_SERVING_IMAGE`, and **fails** (exit 3) if any of them is a deletion candidate.
+`--apply` runs the same preview first, then refuses (exit 4) when a repo already has
+cleanup policies, or a bucket a lifecycle, that differ from the file:
+`set-cleanup-policies` and `--lifecycle-file` both **replace** the whole configuration, so
+merge the existing rules into the file by hand and re-run. Each `gcloud` command is echoed
+before it runs.
+
+**Registry** (Artifact Registry; Keep wins over Delete, and AR never deletes a manifest a
+parent index references):
+
+| File | Repo | Rule |
+|---|---|---|
+| `ar-cloud-run-source-deploy.json` | `cloud-run-source-deploy` | Delete **untagged** versions older than 14 days of `trend-trawler-api`, `trend-trawler-web`, `trend-trawler-share`, `creative-trawler-crf`, `creative-worker-crf`; Keep the newest 10 of each |
+| `ar-cpr.json` | `cpr` | Same for `trend-trawler-bandit` (the prefix also covers `trend-trawler-bandit-traffic`); Keep the newest 5 |
+
+Tagged images are never deleted: `<sha>` / `latest` releases and the `buildcache` cache
+manifest stay. The CRF functions' live images are untagged buildpack builds, which is what
+the newest-N keep protects (each deploy is a build, so the live one is the newest).
+`packageNamePrefixes` are prefixes, so `creative-trawler-crf` also matches the old
+`creative-trawler-crf-vx` package (also trend-trawler's). Rolling back to a revision whose
+untagged image has aged out needs a rebuild.
+
+**Buckets** (`matchesPrefix` only; lifecycle age counts from object creation):
+
+| File | Bucket | Rule |
+|---|---|---|
+| `gcs-trend-trawler-deploy-ae.json` | `trend-trawler-deploy-ae` | Delete `person-refs/` after 365 days (the person-photo backstop above); delete `adk-pipe/cloudbuild/` (Cloud Build engine-ID handoff files) after 90 days |
+| `gcs-run-sources.json` | `run-sources-hybrid-vertex-us-central1` | Delete `services/{trend-trawler-api,trend-trawler-web,trend-trawler-share,creative-trawler-crf,creative-worker-crf}/` `--source` upload zips after 30 days (trailing slash: other services untouched) |
+
+Never expired, deliberately: the rest of `adk-pipe/` (live Agent Engines' `packageSpec`
+points at `adk-pipe/<agent>/<version>/staging/`), `bandit/` (bandit posterior checkpoints
+and experiment configs), the run folders `YYYY_MM_DD_HH_MM_xxxx/` (referenced by BigQuery
+rows, HTML galleries, eval reports, ratings and the person revoke cascade), `shares/`
+(frozen public share snapshots, deleted only by revoke) and `test_imgs/`.
 
 ## Personalised variants
 
