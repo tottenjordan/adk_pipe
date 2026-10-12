@@ -1,6 +1,7 @@
 """Synthetic logistic ground truth + context/reward samplers (``bandit/environment.py``)."""
 
 import dataclasses
+import functools
 
 import jax
 import jax.numpy as jnp
@@ -24,10 +25,20 @@ def _env(scenario, ctr_mode="demo", reward_mode="click", **kw):
     return envm.build_true_model(cfg, jax.random.key(cfg.seed))
 
 
+@functools.cache
+def _shared_env(scenario, ctr_mode="demo", reward_mode="click", horizon=None):
+    """A read-only ``_env`` shared across tests (each build calibrates α over 50k
+    samples). ``Environment`` is a frozen dataclass around a ``TrueModel`` of JAX
+    arrays, so sharing it is safe as long as tests only read it; tests that compare
+    two builds or need distinct keys keep calling ``_env`` / ``build_true_model``."""
+    kw = {} if horizon is None else {"horizon": horizon}
+    return _env(scenario, ctr_mode, reward_mode, **kw)
+
+
 @pytest.mark.parametrize("ctr_mode", ["demo", "realistic"])
 @pytest.mark.parametrize("scenario", ["clear_winner", "segment_winners", "drift"])
 def test_calibration_hits_target_mean_ctr(scenario, ctr_mode):
-    env = _env(scenario, ctr_mode)
+    env = _shared_env(scenario, ctr_mode)
     target = load_scenario(scenario).target_ctr[ctr_mode]
     seg, _, X = envm.sample_contexts(jax.random.key(123), env.model, 40000)
     p = envm.click_probs(env.model, X, seg, jnp.zeros(seg.shape[0]))
@@ -37,7 +48,7 @@ def test_calibration_hits_target_mean_ctr(scenario, ctr_mode):
 
 
 def test_clear_winner_arm_ctrs_follow_preset():
-    env = _env("clear_winner")
+    env = _shared_env("clear_winner")
     ctrs = envm.marginal_ctrs(env, jax.random.key(1))["overall"]
     order = np.argsort(-ctrs)
     np.testing.assert_allclose(ctrs[order], [0.060, 0.045, 0.035], rtol=0.15)
@@ -54,7 +65,7 @@ def test_judge_wrong_reverses_score_ranking():
 
 
 def test_segment_winners_have_distinct_oracle_arms():
-    env = _env("segment_winners")
+    env = _shared_env("segment_winners")
     assert len(env.arm_ids) == 4
     by_seg = envm.marginal_ctrs(env, jax.random.key(2))["by_segment"]  # (S, K)
     winners = np.argmax(by_seg, axis=1)
@@ -66,7 +77,7 @@ def test_segment_winners_have_distinct_oracle_arms():
 
 
 def test_drift_flips_best_arm_at_change_point():
-    env = _env("drift", horizon=1000)
+    env = _shared_env("drift", horizon=1000)
     before = envm.marginal_ctrs(env, jax.random.key(3), t=0)["overall"]
     after = envm.marginal_ctrs(env, jax.random.key(3), t=999)["overall"]
     assert int(np.argmax(before)) == int(np.argmin(after))
@@ -106,7 +117,7 @@ def test_engaged_reward_zero_without_click():
 
 
 def test_contexts_and_rewards_reproducible_from_keys():
-    env = _env("segment_winners")
+    env = _shared_env("segment_winners")
     a = envm.sample_contexts(jax.random.key(9), env.model, 100)
     b = envm.sample_contexts(jax.random.key(9), env.model, 100)
     c = envm.sample_contexts(jax.random.key(10), env.model, 100)
@@ -125,7 +136,7 @@ def test_contexts_and_rewards_reproducible_from_keys():
 
 
 def test_context_matrix_matches_features_encoding_and_no_sensitive_fields():
-    env = _env("segment_winners")
+    env = _shared_env("segment_winners")
     _, levels, X = envm.sample_contexts(jax.random.key(11), env.model, 300)
     ctxs = envm.decode_contexts(levels)
     for ctx in ctxs:
@@ -136,7 +147,7 @@ def test_context_matrix_matches_features_encoding_and_no_sensitive_fields():
 
 
 def test_segment_marginals_are_respected():
-    env = _env("segment_winners")
+    env = _shared_env("segment_winners")
     seg, _, X = envm.sample_contexts(jax.random.key(12), env.model, 40000)
     seg, X = np.asarray(seg), np.asarray(X)
     names = features.feature_names()
@@ -154,11 +165,11 @@ def test_optimal_arms_respects_eligibility():
 
 
 def test_dwell_means_positive_and_engaged_mode():
-    env = _env("clear_winner", reward_mode="engaged")
+    env = _shared_env("clear_winner", reward_mode="engaged")
     dm = np.asarray(env.model.dwell_means)
     assert dm.shape == (3, 3) and np.all(dm > 0)
     assert env.reward_scale == pytest.approx(30.0)
-    assert _env("clear_winner").reward_scale == 1.0
+    assert _shared_env("clear_winner").reward_scale == 1.0
 
 
 # ------------------------------------------------- scenario overrides (contracts §9)
@@ -294,3 +305,59 @@ def test_fast_calibrate_alpha_matches_reference_bisection(seed):
     fast = envm._calibrate_alpha(logits, target)
     ref = _calibrate_alpha_reference(logits, target)
     assert abs(fast - ref) < 1e-9, (fast, ref)
+
+
+def _reference_bisect(logits_wo_alpha, target):
+    """Verbatim copy of the pre-Newton ``_calibrate_alpha`` (bisection to a 1e-12
+    bracket), the oracle for the safeguarded Newton version."""
+    neg_exp = np.exp(-logits_wo_alpha)
+    lo, hi = -20.0, 10.0
+    for _ in range(80):
+        if hi - lo < 1e-12:
+            break
+        mid = 0.5 * (lo + hi)
+        if np.mean(1.0 / (1.0 + np.exp(-mid) * neg_exp)) < target:
+            lo = mid
+        else:
+            hi = mid
+    return 0.5 * (lo + hi)
+
+
+def _mean_sigmoid(alpha, logits):
+    return float(np.mean(1.0 / (1.0 + np.exp(-(alpha + logits)))))
+
+
+@pytest.mark.parametrize("seed", range(24))
+def test_newton_calibrate_alpha_matches_bisection(seed):
+    rng = np.random.default_rng(1000 + seed)
+    shapes = [(2000, 3), (40000,), (5000, 4), (300, 7), (100000, 2)]
+    shape = shapes[seed % len(shapes)]
+    scale = [0.1, 0.5, 1.0, 2.0, 4.0, 8.0][seed % 6]
+    logits = rng.normal(rng.uniform(-6.0, 2.0), scale, shape)
+    target = float(rng.uniform(0.005, 0.5))
+    alpha = envm._calibrate_alpha(logits, target)
+    ref = _reference_bisect(logits, target)
+    assert abs(_mean_sigmoid(alpha, logits) - target) < 1e-12, (alpha, target)
+    assert abs(alpha - ref) < 1e-9, (alpha, ref)
+
+
+@pytest.mark.parametrize(
+    ("offset", "target"),
+    [
+        (25.0, 0.005),  # root far below -20: both pin to the lower bracket end
+        (-25.0, 0.5),  # root far above 10: both pin to the upper bracket end
+        (14.7, 0.005),  # root just inside -20
+        (-9.9, 0.5),  # root just inside 10
+        (0.0, 0.005),
+        (0.0, 0.5),
+    ],
+)
+def test_newton_calibrate_alpha_edge_targets_match_bisection(offset, target):
+    rng = np.random.default_rng(7)
+    logits = rng.normal(offset, 0.3, (20000, 3))
+    alpha = envm._calibrate_alpha(logits, target)
+    ref = _reference_bisect(logits, target)
+    assert -20.0 <= alpha <= 10.0
+    assert abs(alpha - ref) < 1e-9, (alpha, ref)
+    if -20.0 < ref - 1e-9 and ref + 1e-9 < 10.0:
+        assert abs(_mean_sigmoid(alpha, logits) - target) < 1e-12
