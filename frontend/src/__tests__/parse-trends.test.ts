@@ -216,3 +216,44 @@ describe("trendRunParams", () => {
     expect(trendRunParams(TREND, { current_date: 20261010 }).has("trendDetectedOn")).toBe(false);
   });
 });
+
+describe("trendContextJson with sensitive-trend flags (trend_flags)", () => {
+  const flags = {
+    flags: [
+      { term: "texas  FOOTBALL", sensitive: true, reason: "stadium   collapse" },
+      { term: "Other", sensitive: true, reason: "x" },
+    ],
+  };
+
+  it("appends sensitive + sensitive_reason for a flagged term (backend shape)", () => {
+    expect(trendContextJson(TREND, undefined, JSON.stringify(flags))).toBe(
+      JSON.stringify({
+        context: "The Red River Rivalry is this weekend.",
+        hook: "Game day, your way",
+        sensitive: true,
+        sensitive_reason: "stadium collapse",
+      }),
+    );
+    expect(JSON.parse(trendContextJson(TREND, undefined, "```json\n" + JSON.stringify(flags) + "\n```")).sensitive).toBe(true);
+  });
+
+  it("stays byte-identical when the term is not flagged sensitive", () => {
+    const plain = trendContextJson(TREND);
+    for (const f of [
+      undefined,
+      "not json",
+      { flags: [{ term: "Texas Football", sensitive: false, reason: "" }] },
+      { flags: [{ term: "Other", sensitive: true, reason: "x" }] },
+    ]) {
+      expect(trendContextJson(TREND, undefined, f)).toBe(plain);
+    }
+  });
+
+  it("is carried into the run params from the scout run's trend_flags", () => {
+    const params = trendRunParams(TREND, { trend_flags: flags });
+    expect(JSON.parse(params.get("trendContext") ?? "")).toMatchObject({
+      sensitive: true,
+      sensitive_reason: "stadium collapse",
+    });
+  });
+});
