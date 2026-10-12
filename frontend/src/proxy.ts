@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import {
+  appSecurityHeaders,
   buildShareCsp,
   decideRoute,
   isShareModeEnabled,
@@ -31,6 +32,9 @@ export function proxy(request: NextRequest) {
 
   if (decision === "allow") {
     const res = NextResponse.next();
+    for (const [k, v] of Object.entries(appSecurityHeaders(request.nextUrl.pathname))) {
+      res.headers.set(k, v);
+    }
     if (shareMode) res.headers.set("X-Robots-Tag", "noindex, nofollow");
     return res;
   }
