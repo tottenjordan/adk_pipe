@@ -17,7 +17,13 @@
 // (kick-off + poll), 04 and 06 have none (view mode: the page asks the server
 // for the run and replays it).
 //
-// Env overrides: SCREENSHOT_BASE_URL (default http://localhost:3000).
+// Env overrides: SCREENSHOT_BASE_URL (default http://localhost:3000);
+// SHOTS=features|shifts|continuous captures only 21–26 / 18–19 / 20.
+//
+// Captures 23–24 (the public /s/<token> viewer) read the share snapshot SERVER side,
+// so start the server with the share-gcs-mock.mjs preload (docs/screenshots/README.md):
+//   GOOGLE_CLOUD_STORAGE_BUCKET=trend-trawler-deploy-ae \
+//   NODE_OPTIONS="--import ./scripts/share-gcs-mock.mjs" PORT=3600 node .next/standalone/server.js
 //
 // Production build (no Next dev badge) — what the committed images use:
 //   npm run build
@@ -27,8 +33,9 @@
 //
 // JOURNEY=1 switches to user-journey mode: instead of the full-page
 // docs/screenshots/*.png, it captures a sequence of 1440x900 VIEWPORT frames
-// walking the interactive flow (brief → research → three reviews → complete →
-// results → proof detail → research report → history) into JOURNEY_OUT
+// walking the interactive flow (brief → research → brief review + edit → ad copy and
+// visual reviews → complete → results → proof checks → your rating → share link →
+// research report → history) into JOURNEY_OUT
 // (default /tmp/tt-journey-frames) plus a journey-frames.json manifest:
 //   [{file, step, phase, title, caption, hold_ms, highlights: [{x, y, w, h, label}]}]
 // Each highlight is a key UI element's box in 1440x900 viewport CSS px (Playwright
@@ -172,6 +179,40 @@ const CONT_CREATIVES = JSON.parse(readFileSync(join(FIX, "continuous-experiment-
 // What the mocks serve for LIVE_EXPERIMENT's id (set per journey frame).
 let liveMock = { summary: LIVE_EXPERIMENT, metrics: LIVE_METRICS, creatives: LIVE_CREATIVES };
 
+// Ratings, judge calibration, share links and the People list for the PRS results
+// session (contract-shaped, synthetic; see feature-mocks.json's _comment).
+// `*MinutesAgo` become ISO timestamps at capture time.
+const minutesAgoIso = (m) => new Date(Date.now() - m * 60_000).toISOString();
+const FEATURES = JSON.parse(readFileSync(join(FIX, "feature-mocks.json"), "utf8"));
+const RATINGS = FEATURES.ratings.map(({ updatedMinutesAgo, ...r }) => ({
+  ...r,
+  app_name: "creative_agent",
+  session_id: "results-creative-demo",
+  updated_at: minutesAgoIso(updatedMinutesAgo),
+}));
+const CALIBRATION = FEATURES.calibration;
+const hydrateShare = ({ createdMinutesAgo, ...s }) => ({ ...s, created_at: minutesAgoIso(createdMinutesAgo) });
+const SHARES = FEATURES.shares.map(hydrateShare);
+const CREATED_SHARE = hydrateShare(FEATURES.created_share);
+const PERSON_REFS = {
+  ...FEATURES.person_refs,
+  person_refs: FEATURES.person_refs.person_refs.map(({ createdMinutesAgo, ...p }) => ({
+    ...p,
+    created_at: minutesAgoIso(createdMinutesAgo),
+  })),
+};
+// GET /variants (no previews yet) with the real castability of each PRS concept
+// (build_share_fixture.py runs runserver.variants.castability on the fixtures).
+const VARIANTS_LISTING = JSON.parse(readFileSync(join(FIX, "variants-listing.json"), "utf8"));
+// The public share snapshot (runserver.share_snapshot.build_snapshot on the
+// fixtures). The /s/<token> page reads it server side, so the Next server must
+// run with share-gcs-mock.mjs preloaded (see the README); captures 23–24 need it.
+const SHARE_TOKEN = JSON.parse(readFileSync(join(FIX, "share-fixture.json"), "utf8")).snapshot.token;
+// No real person's photo is ever used: person-ref thumbnails get this neutral silhouette.
+const PERSON_PLACEHOLDER_SVG =
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" fill="#e4e8ec"/>' +
+  '<circle cx="32" cy="25" r="11" fill="#a9b4be"/><path d="M12 60c2-12 10-19 20-19s18 7 20 19z" fill="#a9b4be"/></svg>';
+
 // The real .png artifact keys the run produced (from harvested state), so the
 // results page's Artifacts list + gallery grid render authentically.
 const ARTIFACT_NAMES = [
@@ -179,6 +220,21 @@ const ARTIFACT_NAMES = [
   "research_report_with_citations.pdf",
   "creative_portfolio_gallery.html",
 ];
+
+// Drop everything the render + finalize stages write (images, image check,
+// eval/persistence outputs, the completion marker).
+function withoutRenderAndFinalize(st) {
+  const {
+    generated_images: _gi,
+    image_qa__issues: _iq,
+    finalize_done: _fd,
+    eval_bq_row_uuid: _eb,
+    creative_row_uuid: _cr,
+    creative_gallery_gcs_uri: _cg,
+    ...rest
+  } = st;
+  return rest;
+}
 
 // An interactive run that stopped right after visual concepts: concepts exist,
 // but no rendered images and no eval report.
@@ -188,7 +244,7 @@ function stoppedEarlyState() {
     _generated_artifact_keys: _gak,
     eval_report_gcs_uri: _er,
     ...rest
-  } = state;
+  } = withoutRenderAndFinalize(state);
   return rest;
 }
 
@@ -240,6 +296,9 @@ async function installMocks(page) {
     if (path === "/api/gcs") {
       const p = url.searchParams.get("path") || "";
       if (p.endsWith("creative_eval_report.json")) return json(route, evalReport);
+      if (p.startsWith("person-refs/")) {
+        return route.fulfill({ status: 200, contentType: "image/svg+xml", body: PERSON_PLACEHOLDER_SVG });
+      }
       if (p.endsWith(".png")) {
         const base = p.split("/").pop().replace(/\.[^.]+$/, "");
         const buf = imageBytes.get(base);
@@ -320,6 +379,26 @@ async function installMocks(page) {
           return route.fulfill({ status: 404, contentType: "application/json", body: "{}" });
         }
       }
+
+      // Human ratings + judge calibration (runserver/ratings.py).
+      if (rest.startsWith("ratings/")) {
+        if (rest.endsWith("/calibration")) return json(route, CALIBRATION);
+        if (method === "PUT") return json(route, JSON.parse(req.postData() || "{}"));
+        return json(route, { ratings: RATINGS });
+      }
+      // Share links (runserver/shares.py): list, create, revoke.
+      if (rest.startsWith("shares/")) {
+        if (method === "POST") return json(route, CREATED_SHARE);
+        if (method === "DELETE") return route.fulfill({ status: 204, body: "" });
+        return json(route, { shares: SHARES });
+      }
+      // People (runserver/person_refs.py): label-only demo consents.
+      if (rest.startsWith("person-refs/")) {
+        if (method === "GET") return json(route, PERSON_REFS);
+        return route.fulfill({ status: 204, body: "" });
+      }
+      // Personalised variants (runserver/variants.py): castability only, no previews.
+      if (rest.startsWith("variants/")) return json(route, VARIANTS_LISTING);
 
       // Session CRUD.
       if (method === "POST" && /sessions$/.test(rest)) {
@@ -404,6 +483,10 @@ async function main() {
     await page.fill("#trend", CAMPAIGN.targetSearchTrend);
     await page.fill("#referenceImage", CAMPAIGN.referenceImageUri);
     await page.locator("#referenceImage").blur();
+    // Opt-in rating learning on; the person select lists the label-only demo people
+    // and stays on "No person" (no one is cast in the fixtures).
+    await page.locator("#learn-from-ratings").check();
+    await page.locator("#personReference:enabled").waitFor();
     await page.getByRole("heading", { name: "Recent runs" }).waitFor();
     await page.getByRole("link", { name: "Google" }).first().waitFor();
     await settle(page);
@@ -590,6 +673,7 @@ async function main() {
 
   await shiftShots(context);
   await continuousShot(context);
+  await featureShots(context);
 
   // ── 4. Interactive run paused at the Review Ad Copies checkpoint ─────────
   {
@@ -623,7 +707,7 @@ async function main() {
       _generated_artifact_keys: _gak,
       eval_report_gcs_uri: _er,
       ...interactiveState
-    } = state;
+    } = withoutRenderAndFinalize(state);
     // Checkpoint 1 was already answered (so "Review research" reads done).
     const answeredResearch = {
       id: "evt-review-research-answer",
@@ -663,14 +747,16 @@ async function main() {
     await page.close();
   }
 
-  // ── 7. Interactive run paused at checkpoint 1 (Review research report) ──
+  // ── 7. Interactive run paused at checkpoint 1 (Review creative brief) ──
   {
     console.log("07-run-research-review");
     const sid = "interactive-research-demo";
-    // Paused right after research: the report + its sources exist, nothing
-    // downstream yet. ReviewResearch renders the cited report with numbered
-    // superscript citations and a Sources list.
+    // Paused right after research: the structured brief, the report + its sources
+    // exist, nothing downstream yet. With a creative_brief the checkpoint is the
+    // editable brief form (the cited report collapsed underneath).
     const researchState = {
+      creative_brief: state.creative_brief,
+      trend_situation: state.trend_situation,
       brand: state.brand,
       target_product: state.target_product,
       target_audience: state.target_audience,
@@ -697,8 +783,8 @@ async function main() {
     await page.goto(`${BASE}/run/${sid}?app=interactive_creative&userId=${USER}`, {
       waitUntil: "networkidle",
     });
-    await page.getByRole("heading", { name: "Review research report" }).waitFor();
-    await page.getByRole("heading", { name: /Sources/ }).waitFor();
+    await page.getByRole("heading", { name: "Review creative brief" }).waitFor();
+    await page.getByRole("button", { name: /Approve/ }).first().waitFor();
     await settle(page);
     await shot(page, "07-run-research-review.png");
     await page.close();
@@ -1008,56 +1094,38 @@ async function journey() {
     await page.close();
   }
 
-  // c. Checkpoint 1: review the research report, edit it, approve.
+  // c. Checkpoint 1: review the structured creative brief, edit a field, approve.
   {
-    const page = await openRun("journey-review-research", {
+    const page = await openRun("journey-review-brief", {
       evts: [pauseAt("review_research", 180)],
-      st: stateWith(...RESEARCH_KEYS),
+      st: stateWith(...RESEARCH_KEYS, "creative_brief", "trend_situation"),
     });
-    await page.getByRole("heading", { name: "Review research report" }).waitFor();
-    await page.getByRole("heading", { name: /Sources/ }).waitFor();
+    await page.getByRole("heading", { name: "Review creative brief" }).waitFor();
     await settle(page, { pinHeader: false });
     await scrollToLocator(page, review(page));
-    const reportBox = reviewScroller(page);
+    const smp = page.getByLabel("Single-minded proposition");
     await frame(page, {
       phase: "Reviews",
-      title: "Review the research",
-      caption: "The run pauses so you can check the cited research before any creative is written.",
+      title: "Review the brief",
+      caption: "The run pauses on the creative brief written from the cited research, before any creative exists.",
       hold_ms: 3800,
       highlights: [
-        { target: reportBox, label: "Review the research", pad: 4 },
-        {
-          target: reportBox.locator("sup").first(),
-          label: "Cited sources",
-          clip: reportBox,
-          pad: 6,
-          place: "right",
-        },
+        { target: smp, label: "One message every creative must deliver", pad: 6, place: "below" },
+        { target: page.getByLabel("Insight"), label: "The audience insight", pad: 6, place: "below" },
       ],
     });
 
-    await page.getByRole("button", { name: "Edit", exact: true }).click();
-    const ta = review(page).locator("textarea").first();
-    const original = await ta.inputValue();
-    // Insert a visible sentence after the report's first paragraph.
-    const added =
-      "Editor's note: lean into the jackpot daydream. The SE CE24 is the win you can actually hold.";
-    const cut = original.indexOf("\n\n", original.indexOf("\n") + 1);
-    const at = cut > 0 ? cut : 0;
-    await ta.fill(`${original.slice(0, at)}\n\n${added}${original.slice(at)}`);
-    await ta.evaluate((el) => {
-      el.scrollTop = 0;
-    });
+    await smp.fill("The only jackpot worth chasing is your own tone, and it fits in a gig bag.");
     await page.waitForTimeout(200);
     await frame(page, {
       phase: "Reviews",
       title: "Steer it with an edit",
-      caption: "Anything you add or cut here shapes the ad copy and visuals that follow.",
+      caption: "Edit any field of the brief; the ad copy and visuals are written to your version.",
       hold_ms: 3600,
-      highlights: [{ target: ta, label: "Edit the report to steer the creative", pad: 4 }],
+      highlights: [{ target: smp, label: "Edit the brief to steer the creative", pad: 6, place: "below" }],
     });
 
-    // Approve: bring the button into view with the edited report above it.
+    // Approve: bring the button into view with the edited brief above it.
     const approve = page.getByRole("button", { name: /Approve/ }).first();
     await scrollToLocator(page, approve, 620);
     await frame(page, {
@@ -1166,11 +1234,16 @@ async function journey() {
       () => [...document.querySelectorAll("img")].filter((im) => im.naturalWidth > 0).length >= 4
     );
     await settle(page, { pinHeader: false });
-    const firstProof = page.locator('section[aria-labelledby="proofs-heading"] li').first();
+    // Scroll past the run-notes banner so the summary and the proof scores both fit.
+    await scrollToLocator(page, page.getByText(/ad copies and .* visuals pass/).first(), 110);
+    const failedProof = page
+      .locator('section[aria-labelledby="proofs-heading"] li')
+      .filter({ hasText: "Looks Like a Jackpot" })
+      .first();
     await frame(page, {
       phase: "Results",
       title: "Compare the creatives",
-      caption: "The contact sheet shows every image with its headline and a pass or fail per score.",
+      caption: "The contact sheet shows every image with its scores; a failed blocking check is flagged on the proof.",
       hold_ms: 4000,
       highlights: [
         {
@@ -1182,33 +1255,84 @@ async function journey() {
           pad: 3,
         },
         {
-          target: firstProof.locator("div.border-t").first(),
-          label: "Scores per creative",
+          target: failedProof.locator("div.border-t").first(),
+          label: "Scores, and a failed check",
+          pad: 6,
+          place: "left",
+        },
+      ],
+    });
+
+    await page
+      .locator('section[aria-labelledby="proofs-heading"] li button')
+      .filter({ hasText: "Looks Like a Jackpot" })
+      .first()
+      .click();
+    const dialog = page.getByRole("dialog");
+    await dialog.waitFor();
+    await page.waitForFunction(() =>
+      [...document.querySelectorAll('[role="dialog"] img')].some((im) => im.naturalWidth > 0)
+    );
+    await dialog.getByRole("button", { name: "Trend unclear" }).first().waitFor();
+    const failedCheck = dialog.getByText("Trend motif visible").first();
+    const visualChecks = failedCheck.locator("xpath=ancestor::section[1]");
+    await visualChecks.evaluate((el) => {
+      const scroller = el.closest(".overflow-y-auto");
+      scroller.scrollTop += el.getBoundingClientRect().top - scroller.getBoundingClientRect().top - 8;
+    });
+    await page.waitForTimeout(300);
+    await frame(page, {
+      phase: "Results",
+      title: "Open a proof",
+      caption: "Pass/fail checks come first (here the trend motif doesn't read), then advisory quality scores.",
+      hold_ms: 3800,
+      highlights: [
+        {
+          target: failedCheck.locator("xpath=ancestor::li[1]"),
+          label: "A blocking check failed",
           pad: 6,
           place: "below",
         },
       ],
     });
 
-    await page.locator('section[aria-labelledby="proofs-heading"] li button').first().click();
-    await page.getByRole("dialog").waitFor();
-    await page.waitForFunction(() =>
-      [...document.querySelectorAll('[role="dialog"] img')].some((im) => im.naturalWidth > 0)
-    );
+    await dialog.locator("div.overflow-y-auto").first().evaluate((el) => {
+      el.scrollTop = el.scrollHeight;
+    });
     await page.waitForTimeout(300);
     await frame(page, {
       phase: "Results",
-      title: "Open a proof",
-      caption: "Each creative breaks its score down by dimension, with strengths and fixes.",
-      hold_ms: 3600,
+      title: "Rate it yourself",
+      caption: "Your pass/fail and fail reasons calibrate the judge, and can steer future runs for the brand.",
+      hold_ms: 3800,
       highlights: [
         {
-          target: page.getByRole("dialog").locator("ul").filter({ hasText: "Strategy fit" }).first(),
-          label: "Why it scored that way",
+          target: dialog.getByText("Why did it fail? (optional)").locator("xpath=.."),
+          label: "Your verdict and why",
           pad: 6,
-          place: "below",
+          place: "left",
         },
+        { target: dialog.getByRole("button", { name: "Share this creative" }), label: "Share one creative", pad: 6, place: "left" },
       ],
+    });
+    await page.keyboard.press("Escape");
+    await page.getByRole("dialog").waitFor({ state: "detached" });
+
+    // Share the slate: a frozen, revocable public link.
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await page.getByRole("button", { name: "Share slate" }).click();
+    const share = page.getByRole("dialog");
+    await share.waitFor();
+    await share.getByRole("checkbox").check();
+    await share.getByRole("button", { name: "Create link" }).click();
+    await share.getByRole("button", { name: "Copy link" }).waitFor();
+    await page.waitForTimeout(300);
+    await frame(page, {
+      phase: "Results",
+      title: "Share a link",
+      caption: "A read-only public page of the slate; prompts, notes and ratings are never shared.",
+      hold_ms: 3400,
+      highlights: [{ target: share, label: "Copy the share link", pad: 4, place: "below" }],
     });
     await page.keyboard.press("Escape");
     await page.getByRole("dialog").waitFor({ state: "detached" });
@@ -1616,6 +1740,139 @@ async function continuousShot(context) {
   await stack.close();
 }
 
+// ── 21–25. People, share links, the public share viewer, the proof review ──
+// 23–24 need the Next server started with share-gcs-mock.mjs preloaded (README).
+async function featureShots(context) {
+  const resultsUrl = `${BASE}/results/results-creative-demo?app=creative_agent&userId=${USER}`;
+  const openResults = async () => {
+    currentSession = { id: "results-creative-demo", appName: "creative_agent", userId: USER, state, events: [] };
+    const page = await newPage(context);
+    await page.goto(resultsUrl, { waitUntil: "networkidle" });
+    await page.waitForFunction(
+      () => [...document.querySelectorAll("img")].filter((im) => im.naturalWidth > 0).length >= 4
+    );
+    return page;
+  };
+
+  // ── 21. People: upload prefix, consent text, register form, the caller's people ──
+  {
+    console.log("21-people");
+    const page = await newPage(context);
+    await page.goto(`${BASE}/people`, { waitUntil: "networkidle" });
+    await page.getByRole("list", { name: "Your people" }).waitFor();
+    await page.waitForFunction(() =>
+      [...document.querySelectorAll('ul[aria-label="Your people"] img')].every((im) => im.naturalWidth > 0)
+    );
+    await settle(page);
+    await shot(page, "21-people.png");
+    await page.close();
+  }
+
+  // ── 22. Share slate dialog: judge checks included, link created (viewport) ──
+  {
+    console.log("22-share-dialog");
+    const page = await openResults();
+    await page.getByRole("heading", { name: "Shared links" }).waitFor();
+    await settle(page);
+    await page.getByRole("button", { name: "Share slate" }).click();
+    const dialog = page.getByRole("dialog");
+    await dialog.waitFor();
+    await dialog.getByRole("checkbox").check();
+    await dialog.getByRole("button", { name: "Create link" }).click();
+    await dialog.getByRole("button", { name: "Copy link" }).waitFor();
+    await page.waitForTimeout(300);
+    await shot(page, "22-share-dialog.png", { fullPage: false });
+    await page.close();
+  }
+
+  // ── 23–24. The public share viewer: Card and Feed views of the slate (first two creatives) ──
+  for (const [file, view] of [
+    ["23-share-card.png", "card"],
+    ["24-share-feed.png", "feed"],
+  ]) {
+    console.log(file.replace(".png", ""));
+    const page = await context.newPage();
+    const res = await page.goto(`${BASE}/s/${SHARE_TOKEN}?view=${view}`, { waitUntil: "networkidle" });
+    if (!res || res.status() !== 200) {
+      throw new Error(
+        `/s/${SHARE_TOKEN} answered ${res?.status()}: start the server with share-gcs-mock.mjs preloaded (see docs/screenshots/README.md)`
+      );
+    }
+    // Every view's images (hidden tabs included) must have decoded.
+    await page.waitForFunction(() =>
+      [...document.querySelectorAll("img")].every((im) => im.complete && im.naturalWidth > 0)
+    );
+    // decoding="async" images below the fold may not be painted yet in a full-page
+    // capture: decode them all and scroll the page through once.
+    await page.evaluate(async () => {
+      await Promise.all([...document.images].map((im) => im.decode().catch(() => {})));
+      for (let y = 0; y < document.body.scrollHeight; y += 600) {
+        window.scrollTo(0, y);
+        await new Promise((r) => requestAnimationFrame(() => r()));
+      }
+      window.scrollTo(0, 0);
+    });
+    await settle(page);
+    // Top of the page through the first two creatives (the full slate of four at @2x
+    // runs to 6–10k px); for the feed that is its first row.
+    const items = page.locator('[role="tabpanel"]:not([hidden]) > ul > li');
+    const bottom = Math.max(
+      ...(await Promise.all([0, 1].map((i) => clipOf(page, items.nth(i), 0)))).map((c) => c.y + c.height)
+    );
+    await page.screenshot({ path: join(OUT, file), fullPage: true, clip: { x: 0, y: 0, width: 1440, height: bottom + 40 } });
+    console.log("  wrote", file);
+    await page.close();
+  }
+
+  // ── 25–26. Proof detail of the creative with a failed blocking check (viewport):
+  //    25 = its visual checks (Trend motif visible failed) + the image check;
+  //    26 = Your rating with fail-reason chips, the Personalise panel's
+  //    castability note and Share this creative.
+  {
+    console.log("25-proof-checks");
+    const page = await openResults();
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await page.locator("#proofs-heading").scrollIntoViewIfNeeded();
+    await page
+      .locator('section[aria-labelledby="proofs-heading"] li button')
+      .filter({ hasText: "Looks Like a Jackpot" })
+      .first()
+      .click();
+    const dialog = page.getByRole("dialog");
+    await dialog.waitFor();
+    await dialog.getByText("Personalised previews work on person-safe styles").waitFor();
+    await dialog.getByRole("button", { name: "Trend unclear" }).first().waitFor();
+    await page.waitForFunction(() =>
+      [...document.querySelectorAll('[role="dialog"] img')].some((im) => im.naturalWidth > 0)
+    );
+    const pane = dialog.locator("div.overflow-y-auto").first();
+    const visual = dialog.getByText("Trend motif visible").first().locator("xpath=ancestor::section[1]");
+    await visual.evaluate((el) => {
+      const scroller = el.closest(".overflow-y-auto");
+      scroller.scrollTop += el.getBoundingClientRect().top - scroller.getBoundingClientRect().top - 8;
+    });
+    await page.waitForTimeout(300);
+    await shot(page, "25-proof-checks.png", { fullPage: false });
+
+    console.log("26-proof-rating-personalise");
+    await pane.evaluate((el) => {
+      el.scrollTop = el.scrollHeight;
+    });
+    await page.waitForTimeout(300);
+    await shot(page, "26-proof-rating-personalise.png", { fullPage: false });
+    await page.close();
+  }
+}
+
+async function featuresOnly() {
+  const browser = await chromium.launch({ headless: true });
+  const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 2 });
+  await featureShots(context);
+  await context.close();
+  await browser.close();
+  console.log("done →", OUT);
+}
+
 async function continuousOnly() {
   const browser = await chromium.launch({ headless: true });
   const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 2 });
@@ -1635,7 +1892,7 @@ async function shiftsOnly() {
 }
 
 const MODE = process.env.JOURNEY;
-(process.env.SHOTS === "shifts" ? shiftsOnly : process.env.SHOTS === "continuous" ? continuousOnly : MODE === "experiments" ? journeyExperiments : MODE ? journey : main)().catch((err) => {
+(process.env.SHOTS === "features" ? featuresOnly : process.env.SHOTS === "shifts" ? shiftsOnly : process.env.SHOTS === "continuous" ? continuousOnly : MODE === "experiments" ? journeyExperiments : MODE ? journey : main)().catch((err) => {
   console.error(err);
   process.exit(1);
 });

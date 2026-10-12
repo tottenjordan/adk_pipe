@@ -1,7 +1,11 @@
-# `agents/` — api_server serving view (do not "tidy")
+# `agents/` — backend serving view (do not "tidy")
 
-This directory exists **only** so the Cloud Run backend can run
-`adk api_server agents` instead of `adk api_server .`.
+This directory exists **only** so the Cloud Run backend serves exactly the three
+runnable agents. The backend runs the custom launcher `deployment/async_app.py`
+under uvicorn (not bare `adk api_server`); it builds ADK's canned FastAPI app with
+`agents_dir=_AGENTS_DIR` (`"agents"`, i.e. this directory) and mounts the `/runs`,
+`/ratings`, `/shares`, `/person-refs`, `/variants` and `/experiments` routers on it.
+(Historically this was `adk api_server agents` instead of `adk api_server .`.)
 
 ADK's `AgentLoader.list_agents()` returns *every* non-hidden subdirectory of the
 agents dir — not just the ones with a runnable root agent. Pointed at the repo root

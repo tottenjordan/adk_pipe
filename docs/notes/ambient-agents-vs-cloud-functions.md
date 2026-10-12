@@ -4,6 +4,14 @@
 the duration instrumentation described below) · **Status:** decision recorded — keep the current
 architecture as the primary executor; run a parallel Ambient-Agent experiment before committing.
 
+> **Update 2026-10-12:** the decision (keep CRF) still stands, but some specifics below are
+> 2026-07 state. Current values: the eval judge pool is `EVAL_MAX_WORKERS=2` (mixed batches)
+> plus a visuals-only wave of `EVAL_MAX_VISUAL_WAVE_WORKERS=4` (`creative_eval/config.py`);
+> the image model is `gemini-nano-banana-2.1` (its 2 RPM figure was measured on
+> `gemini-3.1-flash-image`); the orchestrator dispatches at most `CRF_MAX_ROWS_PER_RUN`
+> (default 3) trends per message; the image tool lives in `creative_agent/image_tools.py`;
+> and the local backend is `deployment/async_app.py`, not `adk api_server`.
+
 This note captures a comparison between our current event-driven orchestration
 (`cloud_functions/creative_fanout/`) and ADK's newer **Ambient Agent** concept
 (<https://adk.dev/runtime/ambient-agents/>), plus the target event-native

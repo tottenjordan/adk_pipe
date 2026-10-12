@@ -174,7 +174,7 @@ All routes are user-scoped. The proxy rewrites `userId` / the `{user_id}` segmen
   - Body: `{userId, appName, sessionId, creativeIndices: number[], scenario, ctrMode, rewardMode, ttlMinutes?, scenarioOverrides?}`.
   - `scenarioOverrides` (§9, optional): `{segmentMix?, gapScale?, judgeWrong?, noiseScale?, driftAtFrac?}`. `null` fields count as unset; empty or omitted writes no `scenario_overrides`.
   - Success: **201** `{experimentId, status: "deploying"}`.
-  - Errors: 400 for an empty or invalid selection (fewer than 2 arms, or an index out of range) or invalid `scenarioOverrides` (`detail.field` names the camelCase field), 409 `{detail:{reason:"active_experiment"}}` if the user already has an active experiment.
+  - Errors: 400 for an empty or invalid selection (fewer than 2 arms, or an index out of range) or invalid `scenarioOverrides` (`detail.field` names the camelCase field); 400 `cast_creative` when a selected creative casts the run's consented person (`generated_images[concept].cast`, likeness safety) and 400 `person_image` when a selected creative's image is a person photo or personalised variant (`person-refs/` / `variants/` path; `person_variants` is never read) (person reference PR 3, 2026-10-10); 409 `{detail:{reason:"active_experiment", experimentId}}` if the user already has an active experiment.
 - `GET /experiments/{user_id}` returns `{experiments: ExperimentSummary[]}`, newest first.
 - `GET /experiments/{user_id}/{experiment_id}` returns `ExperimentSummary`, with status reconciled against the endpoint and the TTL.
 - `GET /experiments/{user_id}/{experiment_id}/metrics[?run=N]` returns `ExperimentMetrics` for traffic run `N` (default the latest; §10). It is empty (`episodes: 0`) until traffic runs. A `run` outside `[1, latest]` (or not an integer) is a 400 `invalid_run`.
@@ -258,7 +258,7 @@ type MetricsRegime = { start: number; end: number;                   // rounds [
   - Ad-copy evals are matched headline first, then id, then position.
   - `imageUri` is null when `_generated_artifact_keys` exists and doesn't include the concept's image.
 - **Error reasons** (`detail.reason`):
-  - 400: `too_few_arms`, `too_many_arms`, `duplicate_index`, `index_out_of_range`, `no_creatives`, `invalid_scenario`, `invalid_ctr_mode`, `invalid_reward_mode`, `invalid_scenario_overrides` (with `detail.field`, §9), `invalid_episodes`, `invalid_horizon`, `invalid_shifts` (with `detail.field`, §10), `invalid_forget`, `invalid_run`;
+  - 400: `too_few_arms`, `too_many_arms`, `duplicate_index`, `index_out_of_range`, `no_creatives`, `invalid_scenario`, `invalid_ctr_mode`, `invalid_reward_mode`, `invalid_scenario_overrides` (with `detail.field`, §9), `invalid_episodes`, `invalid_horizon`, `invalid_shifts` (with `detail.field`, §10), `invalid_forget`, `invalid_learning` (with `detail.field`, §11), `invalid_run`, `cast_creative`, `person_image`;
   - 409: `active_experiment`, `not_ready`;
   - 404: `session_not_found`, `not_found`;
   - 502: `config_write_failed` (also the §10 `runs/{n}.json` record), `traffic_start_failed`.

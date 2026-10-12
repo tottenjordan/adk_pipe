@@ -1,96 +1,119 @@
 # Local testing notes
 
 Practical, non-obvious things about running/validating the agents locally.
-Written 2026-07-12 on the `creative-eval` branch (ADK 2.1.0).
+First written 2026-07-12 on the `creative-eval` branch (ADK 2.1.0); refreshed
+2026-10-12 for the async-job `/runs` model, initialState seeding and the
+current eval concurrency (ADK 2.10).
 
-## The UI can't finish a full creative_agent run — HTTP request timeout
+## Local backend: the `async_app` launcher, not bare `adk api_server`
 
-A full `creative_agent` run takes ~10–12 min. When driven through the browser
-UI (`adk api_server` + Next.js frontend on Cloud Workstations), the run gets
-**cancelled ~12 min in, during the eval phase**. Root cause is the Cloud
-Workstations / proxy HTTP request timeout (~12 min) on the single long-lived
-`POST /run_sse` request. The eval phase (then the `creative_eval_agent` tool, now
-inside `finalize_pipeline`; 12 creatives ×
-~28s on the `gemini-3.1-pro-preview` judge) streams nothing for minutes, so it
-pushes the request past the timeout. Result: eval report / gallery / BigQuery
-steps never run via the UI, even though the agent logic is correct.
+The frontend's run page kicks off a run with `POST /runs/{app_name}` and then
+**polls** `GET /runs/{app_name}/{user_id}/{session_id}?since=N` (resume:
+`POST …/resume`). Only the custom launcher `deployment/async_app.py` mounts that
+router (on top of ADK's canned session/artifact CRUD), so run it under uvicorn:
 
-**Workaround: run headless.** `deployment/headless_run.py` drives the same
-`root_agent` through a local ADK `Runner` with no HTTP layer, so it completes.
+```bash
+TRUST_CLIENT_USER_ID=1 SESSION_SERVICE_URI=memory:// ALLOW_ORIGINS=http://localhost:3000 \
+  uv run uvicorn deployment.async_app:app --port 8000
+cd frontend && npm install && npm run dev   # http://localhost:3000
+```
 
-**Fix (2026-07-12): eval now runs concurrently.** The eval phase was the long
-silent stretch that blew the timeout. `evaluate_all_creatives`
-(`creative_eval/agent.py`) and `evaluate_creatives` (`creative_eval/evaluate.py`)
-now score all creatives in parallel via `evaluate_all_concurrently()` (a
-`ThreadPoolExecutor`, `EvalConfig.max_eval_workers=12`) instead of a sequential
-`for` loop. Measured: eval dropped from ~5.5 min (12 creatives sequential) to
-~26–30 s (bounded by the slowest single judge call, roughly constant regardless
-of creative count). This keeps the whole final leg well under the ~12-min
-timeout. Note the per-creative `evaluate_ad_copy`/`evaluate_visual_concept`
-signatures now take a shared `client` as a 4th positional arg (the pool creates
-one client and reuses it); test mocks must accept it.
+- `TRUST_CLIENT_USER_ID=1` is required locally (the default authz mode is
+  `enforce`, which returns 401 without a proxy-asserted `X-TT-User`); the app
+  refuses the flag on Cloud Run (`K_SERVICE` set).
+- `SESSION_SERVICE_URI=memory://` sidesteps ADK's per-agent local SQLite path
+  check, which rejects the `agents/` symlinks.
+- The canned `/run`, `/run_sse` and `/run_live` routes are blocked (404) by
+  `runserver/authz.py`; there is no browser-held SSE stream any more.
 
-## Headless runner details (`deployment/headless_run.py`)
+**The old ~12-min UI timeout is gone.** Before the async-job model (2026-07-15,
+`docs/plans/archive/2026-07-15-async-job-run-model.md`) a full run was a single
+long-lived `POST /run_sse`, and the Cloud Workstations / proxy HTTP timeout
+(~12 min) cancelled it during the silent eval phase. Now `/runs` starts a
+**detached `asyncio` task** decoupled from the HTTP request, bounded only by
+`RUN_MAX_SECONDS` (default 1800). A run survives disconnect, reload and IAP
+re-auth; the poll re-reads the persistent session log. Status comes only from
+the terminal `__run_status` marker event (done/error); contained step errors
+show up as non-fatal `warnings` in the poll payload (#322).
 
-- Uses `Runner(app_name="creative_agent", agent=root_agent,
+## Eval concurrency
+
+`creative_eval` scores each creative with an independent judge call on a
+`ThreadPoolExecutor` (`evaluate_all_concurrently`, `creative_eval/evaluate.py`).
+The pool size comes from `EvalConfig.workers_for` (`creative_eval/config.py`):
+
+- mixed ad-copy + visual batches use `EVAL_MAX_WORKERS` (default **2**, the
+  sustained-rate cap under the 5-RPM Pro quota);
+- the visuals-only batch left after early ad-copy judging (in `creative_agent`,
+  ad copies are judged next to `visual_production_pipeline`) runs as one wave of
+  up to `EVAL_MAX_VISUAL_WAVE_WORKERS` (default **4**).
+
+(The 2026-07 note's `max_eval_workers=12` is long gone: it tripped the Pro
+quota.) The per-creative `evaluate_ad_copy` / `evaluate_visual_concept` take a
+shared `client` (one per pool); test mocks must accept it.
+
+## Headless runner (`deployment/headless_run.py`)
+
+Still useful to drive `creative_agent` through a local ADK `Runner` with no HTTP
+layer (`uv run python deployment/headless_run.py`):
+
+- `Runner(app_name="creative_agent", agent=root_agent,
   session_service=InMemorySessionService(),
   artifact_service=FileArtifactService(root_dir=".adk/artifacts"))`.
-  `FileArtifactService` lives at
-  `google.adk.artifacts.file_artifact_service` and takes a single `root_dir`.
-  `.adk/artifacts` is the same dir `adk api_server` writes to
-  (`.adk/artifacts/users/<uid>/sessions/<sid>/...`).
-- **Do not pre-seed campaign state.** `load_session_state` only initializes
-  `gcs_bucket`/`gcs_folder`/`agent_output_dir` when `config.state_init` is
-  absent, and it overwrites `brand`/etc. with empty strings. The intended flow
-  is: start with empty state, let the callback set the `gcs_*` keys, and pass
-  campaign metadata in the **kickoff user message** — the root agent's
-  instructions call the `memorize` tool to store them. Seeding state with
-  `state_init` already set skips the `gcs_*` initialization and breaks the run.
-- Sessions are **in-memory per process**, so a headless run will NOT appear in
-  the running api_server's `/results/[sessionId]` UI (separate process, separate
-  memory). Verify via script stdout + GCS + BigQuery instead.
-- **Caveat: AgentTool sub-invocation events don't surface in the top-level
-  `runner.run_async` stream.** Tools invoked *inside* an `AgentTool` wrapper
-  (e.g. `generate_image` inside `visual_production_pipeline`) never appear as
-  function-call events at the top level, so counting them from the event stream
-  reads 0. To verify exactly-once image generation, count the tool's own
-  `"Saved image artifact"` log lines instead (one `generate_image` call saves
-  one line per concept — 6 concepts → 6 lines; the old duplicate bug gave 12).
-
-Verified 2026-07-12 (run `a23fb408`, gcs_folder `2026_07_12_05_55_1a27`): full
-end-to-end pass — 6 distinct PNGs, `creative_eval_report.json`,
-`creative_portfolio_gallery.html`, research PDF all in GCS; BQ row written;
-every top-level tool called exactly once.
+  `FileArtifactService` lives at `google.adk.artifacts.file_artifact_service`
+  and takes a single `root_dir`.
+- **Seed campaign state up front (since #263, 2026-10-07).** Callers (frontend
+  `createSession` initialState, the CRF worker, `test_deployment.py`) seed
+  `brand`, `target_product`, `target_audience`, `key_selling_points`,
+  `target_search_trends` (plus optional visual-intent keys, `reference_images`,
+  `person_reference`, `learn_from_ratings`, `trend_detected_on`,
+  `trend_scout_context`). `creative_agent/callbacks._set_initial_states` only
+  `setdefault`s them, so a seeded value wins; the root `memorize`s just the
+  missing ones and the kickoff message is a readable echo. **Don't** seed the
+  `config.state_init` marker key itself: its presence skips the one-time seeding
+  (`gcs_bucket`, `gcs_folder`, `agent_output_dir`, date keys, style shortlist).
+  `headless_run.py` itself still starts from `state={}` and passes the campaign
+  in the message, which also works.
+- Sessions are **in-memory per process**, so a headless run will NOT appear in a
+  separately running backend's `/results/[sessionId]` UI. Verify via stdout +
+  GCS + BigQuery instead.
+- Sub-agent / node tool calls (e.g. `generate_image` inside
+  `visual_production_pipeline`, which the root reaches through the single
+  `creative_pipeline` NodeTool call) don't appear as function-call events at the
+  top level of `runner.run_async`. To verify exactly-once rendering, read
+  `generated_images` in state or count the `generate_image` log lines.
 
 ## Where results actually land (state vs return value)
 
-The eval + persistence tail is no longer a set of root tools: the root calls one
-`finalize_pipeline` (`creative_agent/finalize.py`), whose nodes record every
-outcome in session state (a failed step leaves `<key>__issues` instead), so
-validate by reading state:
+The root calls one `creative_pipeline` workflow, ending in `finalize_pipeline`
+(`creative_agent/finalize.py`), whose nodes record every outcome in session
+state (a failed step leaves `<key>__issues` instead), so validate by reading
+state:
 
 - `research_report_gcs_uri` — research PDF (saved inside `combined_research_pipeline`).
 - `creative_evaluation_report` — the judge's report
   (`creative_evaluation_report__retry_exhausted` when there is none).
 - `eval_report_gcs_uri` / `creative_gallery_gcs_uri` — the eval JSON and HTML gallery in GCS.
 - `creative_row_uuid` / `eval_bq_row_uuid` — the `trend_creatives` / `creative_evals` rows.
-- `finalize_done` — set by the terminal node on every path (runserver's auto-continue
-  completion key).
-- `generate_image` → sets `state["_images_generated"]` (bool guard) and
-  `state["_generated_artifact_keys"]` (list).
+- `generated_images` — `{concept: {gcs_uri, artifact_key, attempts, qa, …}}`
+  (`image_qa__issues` for images still failing the post-render check).
+- `finalize_done` — set by the terminal node on every path (runserver's
+  auto-continue completion key).
 
 `deployment/headless_run.py` prints these keys.
 
 ## GCS / BigQuery layout for a run
 
-- GCS output: `gs://{GCS_BUCKET_NAME}/{gcs_folder}/{agent_output_dir}/` where
-  `agent_output_dir="creative_output"` and `gcs_folder` is
-  `YYYY_MM_DD_HH_MM_<4hex>` (set in `_set_initial_states`).
-- Bucket: `GCS_BUCKET_NAME=<YOUR_BUCKET>`.
+- GCS output: `gs://{GOOGLE_CLOUD_STORAGE_BUCKET}/{gcs_folder}/{agent_output_dir}/`
+  where `agent_output_dir="creative_output"` and `gcs_folder` is
+  `YYYY_MM_DD_HH_MM_<4hex>` (set at state init).
+- The bucket name comes from `GOOGLE_CLOUD_STORAGE_BUCKET` (what deploy ships;
+  `agent_common/config.py` derives `GCS_BUCKET_NAME` / `GCS_BUCKET` from it).
+  The old local-only `GCS_BUCKET_NAME` env var is no longer read.
 
 ## Gotcha: pkill/pgrep self-match
 
-Commands that contain the literal string `adk api_server` (or a script name)
-will be matched by `pkill -f` / `pgrep -f` against the very shell running them,
-killing your own command (seen as exit 143/144). Kill servers by explicit PID
-instead of pattern.
+Commands that contain the literal string `uvicorn deployment.async_app` (or a
+script name) will be matched by `pkill -f` / `pgrep -f` against the very shell
+running them, killing your own command (seen as exit 143/144). Kill servers by
+explicit PID instead of pattern.

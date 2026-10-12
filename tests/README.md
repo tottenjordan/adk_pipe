@@ -37,6 +37,7 @@ per-agent rubric configs, integration tests).
 tests/
 ├── __init__.py
 ├── _bandit_sizes.py                 # standard bandit episode sizes (HORIZON_S / HORIZON_M / BATCH) so tests reuse compiled XLA programs
+├── _creative_fixtures.py            # a real finished creative run (the screenshot-harness fixtures) as session state + eval report, shared by the shares tests
 ├── _fake_bq.py                      # FakeBigQueryClient: configurable, dependency-free fake bigquery.Client (records queries + streaming inserts; canned rows, insert/job errors)
 ├── _fakes.py                        # shared test doubles: fake producers + stub/recording LLMs (retry-node + graph-Workflow tests), FakeToolContext/FakeState, FakeStorageClient, noop_async
 ├── conftest.py                      # shared fixtures: gcp_project_env (dummy GOOGLE_CLOUD_PROJECT), fresh_config (fresh package import, restored after); persistent JAX compile cache at .pytest_cache/jax (override with JAX_COMPILATION_CACHE_DIR; delete the dir to reset)
@@ -54,7 +55,7 @@ tests/
 ├── test_agent_common_state.py       # shared memorize tool + seed_initial_state()
 ├── test_ad_copy_prompts.py          # ad copy prompts: angle spread + typicality (drafter), angle coverage/surprise/brief checklist/CTA (critic), flagged-only reviser tokens; brace-safety
 ├── test_agents_dir.py               # agents/ serving-view symlinks used by the Cloud Run api_server
-├── test_async_runs.py               # async-job run model: kick-off/poll/resume, terminal markers, checkpoint edits (report, structured brief: valid merge / 400 on invalid)
+├── test_async_runs.py               # async-job run model: kick-off/poll/resume, terminal markers, checkpoint edits (report, structured brief: valid merge / 400 on invalid); only the terminal marker decides done/error, so a contained in-pipeline error event keeps the run running and is listed as a deduped, capped, truncated non-fatal `warnings` entry (#322)
 ├── test_authz.py                    # P3 per-user authz (incl. /shares/{u}, /person-refs/{u} and /variants/{u} paths): modes, userId normalization, proxy ID-token check, middleware 401/403/404, ownership → 404
 ├── test_backend_entrypoint.py       # backend container entrypoint (uvicorn serves async_app.py)
 ├── test_backfill_eval_labels.py    # deployment/backfill_eval_dimension_labels.py: pure SQL builder (no BigQuery)
@@ -140,6 +141,7 @@ tests/
 ├── test_scenario_presets_sync.py    # frontend scenario-presets.generated.json matches bandit/ (no JAX)
 ├── test_sanitize.py                 # lone-surrogate scrubber (agent_common.sanitize)
 ├── test_schemas.py                  # Pydantic schemas in the creative_agent pipeline
+├── test_schema_enums.py             # no model-facing creative_agent / creative_eval schema offers "" as an enum value (Vertex rejects empty enum strings with 400 INVALID_ARGUMENT; #321)
 ├── test_sdk_versions.py             # guard: aiplatform 2.x ships both agentplatform + vertexai surfaces
 ├── test_style_shortlist.py          # per-session stratified style shortlist (families match the guide palette; exclusion of recently used styles and preference of well-rated ones keep the 2/3/1 strata)
 ├── test_tools.py                    # backend tool functions (pure logic, no I/O)
@@ -169,6 +171,7 @@ tests/
 ├── test_render_parity.py           # generate_image after the render_concept refactor vs a golden recording of the pre-refactor code (tests/fixtures/render_parity.json): every image call (contents, config), QA call, upload and state key per scenario (refs + strictness + override + budget, person cast/block/likeness, QA off + photo missing); UPDATE_RENDER_PARITY=1 regenerates
 ├── test_variants_api.py            # /variants routes: queued → rendering → done with upload under variants/<slug>/ (metadata consent_id, private no-store), deltas carry only person_variants, cache hit, joining a live render, semaphore queueing, daily cap (process + state), ownership/authz, consent checks, concept_not_found / not_castable, person swap (cast concept → castable mode swap + cast_consent_id; same_person_as_cast refused before the cap; another person allowed), appearance-override line + versioned cache key, human-subject check ignores the variant wording, unsafe output folder, run in progress, rejected/failed renders, orphaned pending → interrupted, consent revoked mid-render → consent_revoked (no upload), variant URI recorded on person_renders, revoke during upload → object deleted + consent_revoked, record failure → render_error (no upload), concurrent duplicate POSTs render/count once, concept_not_ready; edit mode: the renderer gets the original render's bytes, a swap is recorded on both consents with blob metadata consent_id + source_consent_id, revoking the cast person deletes the swap (recorded URI and session marker), the cast consent must be active, a missing original → 409 "Original image is no longer available" (before the cap), an original outside the run folder → image_outside_bucket, cast person revoked mid-render → consent_revoked, v3 cache key; render_variant with a fake image client (edits the original: contents order, nearest aspect ratio from the original's size (concept ratio if unreadable), strictness line, ALLOW_ADULT, QA gets the original, no fallback)
 ├── test_person_calibration.py       # person-reference calibration spike: grid, block reasons, summary
+├── test_swap_compare.py             # person-swap edit-vs-regenerate spike (experiments/person_reference/swap_compare.py): comparison parsing, edit contents, nearest aspect ratio, summary + decision (no API calls)
 ├── test_quota_spread_batch.py       # quota-spread concurrent batch harness (pure core)
 ├── test_quota_spread_analyze.py     # quota-spread slope + tidy CSV + plots + quality harvest
 └── test_quota_spread_upload.py      # Agent Platform Experiments uploader record shaping
@@ -176,7 +179,7 @@ tests/
 
 ## Categories
 
-- **Schemas & config** — `test_schemas.py`, `test_creative_eval.py`, `test_eval_gates.py`, `test_config.py`,
+- **Schemas & config** — `test_schemas.py`, `test_schema_enums.py`, `test_creative_eval.py`, `test_eval_gates.py`, `test_config.py`,
   `test_agent_common_models.py`: Pydantic validation, model-location pinning, per-agent
   config resolution.
 - **Pipeline & callbacks** — `test_pipeline_structure.py`, `test_callbacks.py`,
@@ -299,7 +302,10 @@ tests/
 - **Async-job run model** — `test_async_runs.py`: detached kick-off returns immediately,
   `_drive_run` appends a `done`/`error` terminal marker, poll derives status + slices
   events by cursor, and resume re-runs with a `functionResponse` (resetting status to
-  `running` first so multi-checkpoint interactive runs don't stop early).
+  `running` first so multi-checkpoint interactive runs don't stop early). Only the
+  terminal marker decides `done`/`error`: an in-pipeline error event that a fail-soft step
+  contained keeps the run `running` and shows up in the poll payload's `warnings` (#322;
+  frontend `step-errors.test.ts` / `run-page-step-errors.test.tsx`).
   `test_otel_flag.py`: the opt-in `ADK_OTEL_TO_CLOUD` flag parser and its (static)
   wiring into `async_app.py`'s `get_fast_api_app(otel_to_cloud=...)`.
 - **Safety** — `test_safety_plugins.py`: `build_safety_plugins` returns `[]` unless
@@ -307,11 +313,12 @@ tests/
   screens only root-agent turns (sub-agent callbacks short-circuit), and all three
   agents expose an `App` whose `plugins` list the runner + ADK's canned loader use.
 - **Experiments harnesses** — `test_creative_latency_poll.py`, `test_experiment_*.py`,
-  `test_quota_spread_*.py`, `test_person_calibration.py`: the pure/offline core of the `experiments/` measurement
+  `test_quota_spread_*.py`, `test_person_calibration.py`, `test_swap_compare.py`: the pure/offline core of the `experiments/` measurement
   harnesses (event-log parsing, N-trial aggregation, 429/503 log-filter building, figure
   rendering, concurrent-batch record shaping, contention-slope analysis, quality harvest,
   the Agent Platform Experiments uploader, and the person-reference calibration grid,
-  block-reason reading and go/no-go summary). No creds, no network — the live network
+  block-reason reading and go/no-go summary, and the person-swap edit-vs-regenerate
+  comparison). No creds, no network — the live network
   drivers are integration-only. See [../experiments/README.md](../experiments/README.md).
 - **Evals** (`eval/`) — end-to-end `adk eval` cases with rubric-based LLM-as-judge scoring
   (response quality + tool-use quality). One evalset + rubric config per agent. Runs

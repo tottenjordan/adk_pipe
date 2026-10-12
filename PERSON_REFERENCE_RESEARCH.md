@@ -1,6 +1,6 @@
 # Person reference images in creatives: research and recommendations
 
-**Status:** research only, nothing implemented. **Date:** 2026-10-09.
+**Status:** implemented in #303–#317 (consent registry, casting, personalised variants, share scope + revoke cascade, then illustrated safe styles, person swap and edit-mode variants). Some recommendations below were changed during implementation; dated notes mark them. **Date:** 2026-10-09 (status updated 2026-10-12).
 **Method:** a deep-research run (5 search angles, 23 sources fetched, 96 claims extracted, 25 checked by 3-vote adversarial verification: 19 confirmed, 6 refuted), then a map of our current reference-image code path.
 
 **Labels used below:**
@@ -93,7 +93,7 @@ How the code works today (from the code map):
 - **Prompt rules** (brace-free, in `VISUAL_CONCEPT_RULES` / the art director). Cast the person only when **all** of these hold:
   1. the concept's hero is a single human subject;
   2. the face is large and visible, roughly the top third of the frame or bigger, not a crowd or far shot (F3);
-  3. the style is one that keeps a likeness, such as photoreal, cinematic, editorial, or candid film. Never meme, comic, isometric, pictogram, or product-only stills;
+  3. the style is one that keeps a likeness, such as photoreal, cinematic, editorial, or candid film. Never meme, comic, isometric, pictogram, or product-only stills; *(2026-10-12: superseded by #311, which added calibrated illustrated families, incl. comic, to `PERSON_SAFE_STYLES`; meme, isometric and product-only concepts are still never cast.)*
   4. it fits the brief and its `trend_bridge.risks`. Never for real-person or tragedy trends, which keep the existing "never a likeness" rule;
   5. at most **2 of the 4** concepts, to keep set diversity and limit likeness risk.
 
@@ -134,7 +134,7 @@ How the code works today (from the code map):
 
 - **Endpoint:** `POST /variants/{app}/{user}/{session}` with body `{concept_name, consent_id}`. It runs as a detached task, like `/runs`; the status is polled with `GET`.
   - It reuses the concept's stored `image_generation_prompt`, `aspect_ratio`, the run's product/logo/style references and its strictness, then calls `render_concept` + QA.
-  - Every variant is a **fresh render** (F3), never an edit of the base image.
+  - Every variant is a **fresh render** (F3), never an edit of the base image. *(2026-10-12: reversed. #314 added person swaps for creatives that already cast a person, and #317 made every variant and swap an **edit of the original render** (only the person changes, plus a composition check), with no fresh-render fallback; see `docs/notes/person-swap-edit-mode.md`.)*
 - **Storage, deliberately separate:**
   - **GCS:** `{gcs_folder}/{agent_output_dir}/variants/{concept_slug}/{sha256(person_uri + prompt + model)[:12]}.png`. That is the cache key: an identical request returns the cached render.
   - **State:** `person_variants[concept_name][hash] = {gcs_uri, status, qa, consent_id, created_at}`.

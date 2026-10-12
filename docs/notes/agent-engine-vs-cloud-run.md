@@ -2,6 +2,16 @@
 
 **Status:** proposal · **Date:** 2026-07-14 · **Author:** (design note)
 
+> **Update 2026-10-12:** recommendation (1) shipped. Long runs use the async-job model
+> (`runserver/async_runs.py`, `/runs` kick-off/poll/resume, detached task per run), and
+> `trend-trawler-api` now runs the custom launcher `deployment/async_app.py` under uvicorn
+> (`deployment/backend_entrypoint.sh`), which mounts ADK's canned FastAPI app plus the
+> `/runs` router (and the `/ratings`, `/shares`, `/person-refs`, `/variants`, `/experiments`
+> routers). It is deployed with `--no-cpu-throttling --min-instances 1`, and the canned
+> `/run_sse` route is blocked. The agent still executes in-process (option A); the B
+> migration below has not been started. References to `adk api_server` below describe the
+> 2026-07 state.
+
 **Scope:** This note is *only* about where the **agent executes**. A Cloud Run tier
 (Next.js web + `/api/adk` proxy) fronts the browser in every option and is taken as a
 given — it is not part of the decision. The question is whether the agent runs **in-process
@@ -26,7 +36,8 @@ in the Cloud Run `adk api_server`** (today) or **remotely in Agent Engine**.
 
 ## 1. How the agent is served today
 
-- **Execution:** the `trend-trawler-api` Cloud Run service runs `adk api_server agents`;
+- **Execution:** the `trend-trawler-api` Cloud Run service ran `adk api_server agents`
+  (since replaced by `deployment/async_app.py` under uvicorn, same in-process model);
   the agent runs **in-process** inside that service. Tuned for long runs already:
   `timeoutSeconds=900`, concurrency 320, 4 vCPU / 8 GiB, `maxScale=100`.
 - **Sessions:** already externalised to Agent Engine
