@@ -1,13 +1,15 @@
-# Runtime deps of the CPR bandit serving image (bandit_serving + the bundled
-# bandit/{config,features,linear_ts,aggregate}.py). Pins follow uv.lock.
-# LocalModel.build_cpr_model adds google-cloud-aiplatform[prediction] (fastapi,
-# uvicorn, the CPR model server) on top of this file.
+# Runtime deps of the CPR bandit serving image (bandit_serving/Dockerfile):
+# bandit_serving + the bundled bandit/{config,features,linear_ts,aggregate}.py and
+# the CPR model server. Pins follow uv.lock where it has the package.
 # Deliberately NOT the root requirements.txt: that one is the Agent Engine
 # deploy file and must stay jax-free.
 jax[cpu]==0.11.2
 numpy==2.5.3
 pyyaml==6.0.3
 google-cloud-storage==3.17.0
-# CPR's google-cloud-aiplatform needs protobuf<7; pip --force-reinstall of this
-# file would otherwise upgrade it past that (uv.lock pin).
+# The CPR model server (fastapi, uvicorn, the PredictionHandler); pinned so a
+# rebuild never picks up a new SDK (the old SDK-generated Dockerfile installed it
+# unpinned). Same version as bandit_traffic/requirements.txt.
+google-cloud-aiplatform[prediction]==2.4.0
+# google-cloud-aiplatform needs protobuf<7 (uv.lock pin).
 protobuf==6.33.6

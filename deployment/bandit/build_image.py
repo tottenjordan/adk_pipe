@@ -1,18 +1,22 @@
 """Build (and optionally local-test / push) the CPR bandit serving image.
 
     uv run python deployment/bandit/build_image.py --local-test   # build + local endpoint
+    uv run python deployment/bandit/build_image.py --image <uri> --local-test
     uv run python deployment/bandit/build_image.py --push         # build + docker push
 
-Stages a temporary ``src_dir`` holding ``bandit_serving/`` (the predictor), the
-runtime subset of ``bandit/`` (config, features, linear_ts, aggregate +
-``scenarios/*.yaml``) and ``bandit_serving/requirements.txt``, then calls
-``LocalModel.build_cpr_model`` (the CPR SDK writes the Dockerfile: base image +
-requirements + ``google-cloud-aiplatform[prediction]`` + the CPR model server).
+Stages a temporary build context with the repo layout: ``bandit_serving/`` (the
+predictor + ``requirements.txt``), the runtime subset of ``bandit/`` (config,
+features, linear_ts, aggregate + ``scenarios/*.yaml``) and
+``bandit_serving/Dockerfile`` (+ its ``Dockerfile.dockerignore``) at the root, then
+runs ``docker build`` on it. The same Dockerfile builds from the repo root in
+Cloud Build (``deployment/bandit/cloudbuild.bandit.yaml``, the release path).
 
 The image is ``{region}-docker.pkg.dev/{project}/{repository}/trend-trawler-bandit:{git_sha}``.
-``--local-test`` serves it with ``deploy_to_local_endpoint`` (docker, no GCP)
-against a sample ``experiment.json`` and ``VERTEX_CPR_WEB_CONCURRENCY=1``, then
-checks reset / decision / reward / state round-trips and prints timings.
+``--image <uri>`` skips the build and tests an existing image instead (e.g. a
+Cloud Build digest after ``docker pull``). ``--local-test`` serves it with
+``deploy_to_local_endpoint`` (docker, no GCP) against a sample ``experiment.json``
+and ``VERTEX_CPR_WEB_CONCURRENCY=1``, then checks reset / decision / reward /
+state round-trips and prints timings.
 Nothing here touches GCP except ``--push`` (``docker push``).
 """
 
@@ -43,6 +47,9 @@ BANDIT_RUNTIME_FILES = (
     "linear_ts.py",
 )
 PREDICTOR_MODULE = "bandit_serving.predictor"
+#: ``LocalModel.build_cpr_model``'s container routes (``local_model.DEFAULT_*``).
+PREDICT_ROUTE = "/predict"
+HEALTH_ROUTE = "/health"
 FIXTURE_DETAIL = (
     REPO_ROOT / "frontend/scripts/screenshot-fixtures/experiment-detail.json"
 )
@@ -85,7 +92,8 @@ def git_sha(repo: Path = REPO_ROOT) -> str:
 
 
 def stage_src_dir(dest: Path, repo: Path = REPO_ROOT) -> Path:
-    """Copy the serving sources into ``dest`` (the CPR ``src_dir``)."""
+    """Copy the serving sources + Dockerfile into ``dest`` (the build context),
+    mirroring the repo layout so the Dockerfile's COPY paths work in both."""
     dest.mkdir(parents=True, exist_ok=True)
     (dest / "bandit_serving").mkdir(exist_ok=True)
     for name in SERVING_FILES:
@@ -96,9 +104,11 @@ def stage_src_dir(dest: Path, repo: Path = REPO_ROOT) -> Path:
     for yaml_file in sorted((repo / "bandit" / "scenarios").glob("*.yaml")):
         shutil.copy2(yaml_file, dest / "bandit" / "scenarios" / yaml_file.name)
     shutil.copy2(
-        repo / "bandit_serving" / "requirements.txt", dest / "requirements.txt"
+        repo / "bandit_serving" / "requirements.txt",
+        dest / "bandit_serving" / "requirements.txt",
     )
-    (dest / ".dockerignore").write_text("**/__pycache__\n**/*.pyc\n")
+    for name in ("Dockerfile", "Dockerfile.dockerignore"):
+        shutil.copy2(repo / "bandit_serving" / name, dest / name)
     return dest
 
 
@@ -109,9 +119,9 @@ def staged_files(src_dir: Path) -> list[str]:
 
 
 def load_staged_predictor(src_dir: Path) -> Any:
-    """Import ``BanditPredictor`` from the *staged* file: ``build_cpr_model``
-    requires the class's source to live under ``src_dir`` and derives
-    ``PREDICTOR_MODULE`` (``bandit_serving.predictor``) from that path."""
+    """Import ``BanditPredictor`` from the *staged* file (tests check that the
+    CPR SDK derives ``PREDICTOR_MODULE``, the module the Dockerfile's
+    ``PREDICTOR_MODULE`` env names, from its staged path)."""
     path = src_dir / "bandit_serving" / "predictor.py"
     name = f"_staged_bandit_predictor_{abs(hash(str(src_dir)))}"
     spec = importlib.util.spec_from_file_location(name, path)
@@ -165,18 +175,36 @@ def sample_experiment(experiment_id: str = "localtest") -> dict[str, Any]:
 # ------------------------------------------------------------------ docker ops
 
 
-def build(src_dir: Path, uri: str, base_image: str, no_cache: bool = False) -> Any:
+def build_command(
+    src_dir: Path, uri: str, base_image: str | None = None, no_cache: bool = False
+) -> list[str]:
+    cmd = ["docker", "build", "-f", str(src_dir / "Dockerfile"), "-t", uri]
+    if no_cache:
+        cmd.append("--no-cache")
+    if base_image:
+        cmd += ["--build-arg", f"BASE_IMAGE={base_image}"]
+    return [*cmd, str(src_dir)]
+
+
+def local_model_for(uri: str) -> Any:
+    """Wrap an image the way ``LocalModel.build_cpr_model`` returned it."""
+    from google.cloud import aiplatform
     from google.cloud.aiplatform.prediction import LocalModel
 
-    predictor_cls = load_staged_predictor(src_dir)
-    return LocalModel.build_cpr_model(
-        str(src_dir),
-        uri,
-        predictor=predictor_cls,
-        base_image=base_image,
-        requirements_path=str(src_dir / "requirements.txt"),
-        no_cache=no_cache,
+    return LocalModel(
+        serving_container_spec=aiplatform.gapic.ModelContainerSpec(
+            image_uri=uri, predict_route=PREDICT_ROUTE, health_route=HEALTH_ROUTE
+        )
     )
+
+
+def build(src_dir: Path, uri: str, base_image: str, no_cache: bool = False) -> Any:
+    subprocess.run(
+        build_command(src_dir, uri, base_image, no_cache),
+        check=True,
+        env={**os.environ, "DOCKER_BUILDKIT": "1"},
+    )
+    return local_model_for(uri)
 
 
 def image_size_mb(uri: str) -> float:
@@ -335,6 +363,9 @@ def _define_flags() -> None:  # pragma: no cover - manual CLI
     flags.DEFINE_string("repository", "cpr", "Artifact Registry repository")
     flags.DEFINE_string("tag", None, "image tag (default: git sha)")
     flags.DEFINE_string("base-image", DEFAULT_BASE_IMAGE, "CPR base image")
+    flags.DEFINE_string(
+        "image", None, "test this existing image instead of building (no --push)"
+    )
     flags.DEFINE_bool("no-cache", False, "docker build --no-cache")
     flags.DEFINE_bool("local-test", False, "serve locally and round-trip requests")
     flags.DEFINE_integer("ready-timeout", 600, "local container ready timeout (s)")
@@ -350,17 +381,24 @@ def _flag(name: str) -> Any:  # pragma: no cover - manual CLI
 def main(argv: list[str]) -> None:  # pragma: no cover - manual CLI
     del argv
     base_image = _flag("base-image")
-    uri = image_uri(
-        _flag("project"), _flag("tag") or git_sha(), _flag("region"),
-        _flag("repository"),
-    )  # fmt: skip
-    with tempfile.TemporaryDirectory(prefix="bandit-cpr-src-") as tmp:
-        src = stage_src_dir(Path(tmp))
-        print(f"staged {len(staged_files(src))} files; building {uri}")
-        t0 = time.perf_counter()
-        local_model = build(src, uri, base_image, _flag("no-cache"))
-        print(f"build: {time.perf_counter() - t0:.1f}s")
-    print(f"image: {uri} ({image_size_mb(uri):.0f} MB, base {base_image})")
+    if _flag("image"):
+        if _flag("push"):
+            raise SystemExit("--push builds and pushes; it cannot be used with --image")
+        uri = _flag("image")
+        local_model = local_model_for(uri)
+        print(f"image: {uri} ({image_size_mb(uri):.0f} MB, not rebuilt)")
+    else:
+        uri = image_uri(
+            _flag("project"), _flag("tag") or git_sha(), _flag("region"),
+            _flag("repository"),
+        )  # fmt: skip
+        with tempfile.TemporaryDirectory(prefix="bandit-cpr-src-") as tmp:
+            src = stage_src_dir(Path(tmp))
+            print(f"staged {len(staged_files(src))} files; building {uri}")
+            t0 = time.perf_counter()
+            local_model = build(src, uri, base_image, _flag("no-cache"))
+            print(f"build: {time.perf_counter() - t0:.1f}s")
+        print(f"image: {uri} ({image_size_mb(uri):.0f} MB, base {base_image})")
     if _flag("local-test"):
         timings = run_local_test(local_model, _flag("ready-timeout"))
         print("local test PASSED")

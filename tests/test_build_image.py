@@ -25,7 +25,8 @@ def test_image_uri():
 def test_staged_tree_contents(tmp_path):
     src = bi.stage_src_dir(tmp_path / "src")
     assert bi.staged_files(src) == [
-        ".dockerignore",
+        "Dockerfile",
+        "Dockerfile.dockerignore",
         "bandit/__init__.py",
         "bandit/aggregate.py",
         "bandit/config.py",
@@ -36,10 +37,99 @@ def test_staged_tree_contents(tmp_path):
         "bandit/scenarios/segment_winners.yaml",
         "bandit_serving/__init__.py",
         "bandit_serving/predictor.py",
-        "requirements.txt",
+        "bandit_serving/requirements.txt",
     ]
-    reqs = (src / "requirements.txt").read_text()
+    reqs = (src / "bandit_serving/requirements.txt").read_text()
     assert "jax[cpu]==0.11.2" in reqs and "google-cloud-storage" in reqs
+
+
+def _instructions(path):
+    """``(KEYWORD, args)`` per Dockerfile instruction (continuations joined)."""
+    out, buf = [], ""
+    for raw in path.read_text().splitlines():
+        line = raw.strip()
+        if not buf and (not line or line.startswith("#")):
+            continue
+        if line.endswith("\\"):
+            buf += line[:-1] + " "
+            continue
+        buf += line
+        keyword, _, args = buf.partition(" ")
+        out.append((keyword.upper(), args.strip()))
+        buf = ""
+    return out
+
+
+SERVING_DOCKERFILE = bi.REPO_ROOT / "bandit_serving" / "Dockerfile"
+
+
+def _final_stage(instructions):
+    last_from = max(i for i, (k, _) in enumerate(instructions) if k == "FROM")
+    return instructions[last_from:]
+
+
+def test_serving_dockerfile_installs_deps_once_before_code():
+    ins = _instructions(SERVING_DOCKERFILE)
+    installs = [i for i, (k, a) in enumerate(ins) if k == "RUN" and "pip install" in a]
+    assert len(installs) == 1, installs
+    code_copies = [
+        i
+        for i, (k, a) in enumerate(ins)
+        if k == "COPY" and "--from" not in a and "requirements.txt" not in a
+    ]
+    assert code_copies and all(i > installs[0] for i in code_copies)
+    assert any("bandit_serving/" in ins[i][1] for i in code_copies)
+    # the builder sees only requirements.txt, so a code change never re-installs
+    before = [a for k, a in ins[: installs[0]] if k == "COPY" and "--from" not in a]
+    assert before == ["bandit_serving/requirements.txt /build/requirements.txt"]
+
+
+def test_serving_dockerfile_matches_cpr_sdk_contract():
+    from google.cloud.aiplatform.prediction import local_model
+
+    final = _final_stage(_instructions(SERVING_DOCKERFILE))
+    env = " ".join(a for k, a in final if k == "ENV")
+    for key, value in {
+        "PREDICTOR_MODULE": bi.PREDICTOR_MODULE,
+        "PREDICTOR_CLASS": "BanditPredictor",
+        "HANDLER_MODULE": local_model._DEFAULT_HANDLER_MODULE,
+        "HANDLER_CLASS": local_model._DEFAULT_HANDLER_CLASS,
+    }.items():
+        assert f"{key}={value}" in env, key
+    assert ("ENTRYPOINT", json.dumps(
+        ["python", "-m", local_model._DEFAULT_PYTHON_MODULE]
+    )) in final  # fmt: skip
+    assert ("EXPOSE", str(local_model.DEFAULT_HTTP_PORT)) in final
+    assert ("WORKDIR", "/usr/app") in final
+    users = [a for k, a in final if k == "USER"]
+    assert users and users[-1] not in ("root", "0"), users
+
+
+def test_serving_requirements_pin_cpr_server():
+    reqs = (bi.REPO_ROOT / "bandit_serving" / "requirements.txt").read_text()
+    lines = {ln.strip() for ln in reqs.splitlines()}
+    assert "google-cloud-aiplatform[prediction]==2.4.0" in lines
+    assert "protobuf==6.33.6" in lines
+
+
+def test_dockerignore_allowlists_exactly_the_staged_sources(tmp_path):
+    """The per-Dockerfile ignore file is the only filter on the repo-root (Cloud
+    Build) context; it must let through exactly what stage_src_dir copies."""
+    src = bi.stage_src_dir(tmp_path / "src")
+    ignore = (bi.REPO_ROOT / "bandit_serving" / "Dockerfile.dockerignore").read_text()
+    allowed = sorted(
+        ln[1:] for ln in ignore.splitlines() if ln.startswith("!") and "*" not in ln
+    )
+    globbed = [ln[1:] for ln in ignore.splitlines() if ln.startswith("!") and "*" in ln]
+    assert globbed == ["bandit/scenarios/*.yaml"]
+    expected = [
+        f
+        for f in bi.staged_files(src)
+        if not f.startswith(("Dockerfile", "bandit/scenarios/"))
+    ]
+    assert allowed == expected
+    head = ignore.split("\n!", 1)[0].splitlines()
+    assert "**" in head  # deny everything before the allowlist
 
 
 def test_root_requirements_stay_jax_free():
@@ -98,3 +188,26 @@ def test_serving_env_matches_endpoint_lib():
     from deployment.bandit import endpoint
 
     assert bi.SERVING_ENV == endpoint.SERVING_ENV == {"VERTEX_CPR_WEB_CONCURRENCY": "1"}
+
+
+def test_build_command(tmp_path):
+    assert bi.build_command(tmp_path, "img:t") == [
+        "docker", "build", "-f", str(tmp_path / "Dockerfile"), "-t", "img:t",
+        str(tmp_path),
+    ]  # fmt: skip
+    cmd = bi.build_command(tmp_path, "img:t", "python:3.13", no_cache=True)
+    assert cmd[-4:] == [
+        "--no-cache",
+        "--build-arg",
+        "BASE_IMAGE=python:3.13",
+        str(tmp_path),
+    ]
+
+
+def test_local_model_for_matches_build_cpr_model_spec():
+    from google.cloud.aiplatform.prediction import local_model
+
+    spec = bi.local_model_for("img@sha256:abc").serving_container_spec
+    assert spec.image_uri == "img@sha256:abc"
+    assert spec.predict_route == local_model.DEFAULT_PREDICT_ROUTE
+    assert spec.health_route == local_model.DEFAULT_HEALTH_ROUTE
