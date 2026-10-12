@@ -45,6 +45,11 @@ python deployment/deploy_agent.py --version=v1 --agent=creative_agent --create
 python deployment/deploy_agent.py --version=v1 --agent=interactive_creative --create
 # add --enable_tracing to opt a new engine into Cloud Trace
 # (GOOGLE_CLOUD_AGENT_ENGINE_ENABLE_TELEMETRY=true + ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS=false)
+# Or deploy from Cloud Build (fresh clone of _REF, pinned Python 3.13, env only from the
+# committed deployment/deploy.env, engines in parallel, never writes .env; new IDs in
+# engine_ids.json -> `deployment/engine_handoff.py apply`): deployment/README.md → Deploying engines with Cloud Build
+gcloud builds submit --no-source --region=us-central1 --config=deployment/cloudbuild.agents.yaml \
+  --substitutions=_CREATIVE_VERSION=v37,_INTERACTIVE_VERSION=v33,_SCOUT_VERSION=v18
 
 # List/delete Agent Engine instances
 python deployment/deploy_agent.py --list
@@ -360,7 +365,7 @@ Image-generation prompt guidance lives in `creative_agent/prompts.py` as `IMAGE_
 
 - Python >=3.13
 - `google-adk[otel-gcp]>=2.10.0,<3.0.0` (`otel-gcp` adds the GenAI SDK instrumentor, so `generate_content` spans appear when tracing is on; content capture stays off by default)
-- google-cloud-aiplatform 2.x (`[agent-engines]` at runtime). `[project] dependencies` is the slim runtime set that ships to Agent Engine (requirements.txt) and the api image (`uv sync --no-dev`); dependency groups hold the rest: `eval` (google-adk's eval extra listed package by package, since `google-adk[eval]` caps aiplatform <2; incl. aiplatform `[evaluation]`; used by the nightly eval CI), `experiments` (plotly/kaleido/matplotlib), and `dev` (includes both, plus pandas/pyarrow/db-dtypes for deploy_agent.py + CRF tests, the CRF's functions-framework/cloudevents/pubsub, JAX, pytest, ruff, ty). Runtime code must not import group-only packages (`tests/test_dependency_groups.py`)
+- google-cloud-aiplatform 2.x (`[agent-engines]` at runtime). `[project] dependencies` is the slim runtime set that ships to Agent Engine (requirements.txt) and the api image (`uv sync --no-dev`); dependency groups hold the rest: `eval` (google-adk's eval extra listed package by package, since `google-adk[eval]` caps aiplatform <2; incl. aiplatform `[evaluation]`; used by the nightly eval CI), `experiments` (plotly/kaleido/matplotlib), and `dev` (includes both, plus pandas/pyarrow/db-dtypes for the CRF tests (deploy_agent.py needs only the runtime set, so the Cloud Build deploy uses `uv sync --no-dev`), the CRF's functions-framework/cloudevents/pubsub, JAX, pytest, ruff, ty). Runtime code must not import group-only packages (`tests/test_dependency_groups.py`)
 - Node.js >=22.13 (for frontend)
 - GCP project with BigQuery, Cloud Storage, PubSub, and Agent Engine enabled
 - `.env` file populated from `.env.example`

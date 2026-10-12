@@ -1,15 +1,16 @@
 """Deployment script for Trend Trawler Agents."""
 
 import contextlib
+import json
 import logging
 import os
 import shutil
 import sys
 import tempfile
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, cast
 
 import dotenv
-import pandas as pd
 from absl import app, flags
 
 # Add the project root to sys.path
@@ -208,6 +209,19 @@ flags.DEFINE_bool(
     "with --create: export Cloud Trace spans (sets "
     "GOOGLE_CLOUD_AGENT_ENGINE_ENABLE_TELEMETRY=true; no prompt/response content).",
 )
+flags.DEFINE_bool(
+    "write_env",
+    True,
+    "with --create: write the new engine ID into the repo .env. Use --nowrite_env "
+    "for CI / parallel deploys (Cloud Build), which hand IDs off via --output_json.",
+)
+flags.DEFINE_string(
+    "output_json",
+    None,
+    "with --create: write the new engine as JSON {agent, resource_name, env_key, "
+    "version, display_name, enable_tracing} to this path and print a "
+    "machine-readable `ENGINE_ID agent=<agent> id=<resource name>` line.",
+)
 flags.mark_bool_flags_as_mutual_exclusive(["create", "delete", "list"])
 
 
@@ -367,6 +381,35 @@ def update_env_file(name: str, agent_engine_id: str, env_file_path: str):
         logging.info(f"Error updating .env file: {e}")
 
 
+def write_engine_record(
+    path: str,
+    name: str,
+    version: str,
+    resource_name: str,
+    enable_tracing: bool,
+) -> dict:
+    """Write a deployed engine as JSON to ``path`` and print an ``ENGINE_ID`` line.
+
+    The non-interactive hand-off for CI (deployment/cloudbuild.agents.yaml): each
+    parallel deploy step writes its own file instead of racing on the shared .env,
+    and the stdout line stays greppable in the build log even if a later step fails.
+    """
+    record = {
+        "agent": name,
+        "resource_name": resource_name,
+        "env_key": engine_env_key(name),
+        "version": version,
+        "display_name": f"{AGENT_DEPLOY_SPECS[name]['display_name']}-{version}",
+        "enable_tracing": enable_tracing,
+    }
+    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+    with open(path, "w") as f:
+        json.dump(record, f, indent=2)
+        f.write("\n")
+    print(f"ENGINE_ID agent={name} id={resource_name}", flush=True)
+    return record
+
+
 # ==============================
 # CRUD ops
 # ==============================
@@ -374,13 +417,23 @@ def update_env_file(name: str, agent_engine_id: str, env_file_path: str):
 
 
 # create deployment (unified): any agent in AGENT_DEPLOY_SPECS
-def deploy_agent(name: str, version: str, enable_tracing: bool = False) -> None:
+def deploy_agent(
+    name: str,
+    version: str,
+    enable_tracing: bool = False,
+    *,
+    write_env: bool = True,
+    output_json: str | None = None,
+) -> str:
     """Creates and deploys an Agent to Vertex AI Agent Engine Runtime.
 
     Parameterized by AGENT_DEPLOY_SPECS (module/prefix/naming) and
     AGENT_EXTRA_PACKAGES (bundled dirs) so all agents share one deploy path and
     a new agent only needs an entry in those two maps. ``enable_tracing`` opts the
-    engine into Cloud Trace export (see ``build_env_vars``).
+    engine into Cloud Trace export (see ``build_env_vars``). ``write_env=False``
+    leaves .env untouched and ``output_json`` writes a machine-readable record
+    (``write_engine_record``) — the non-interactive mode Cloud Build uses. Returns
+    the new engine's full resource name.
     """
     import importlib
 
@@ -429,17 +482,24 @@ def deploy_agent(name: str, version: str, enable_tracing: bool = False) -> None:
         logging.info(
             f"\n\nSuccessfully created remote agent: {remote_agent.api_resource.name}\n\n"
         )
-        update_env_file(
-            name=name,
-            agent_engine_id=remote_agent.api_resource.name,
-            env_file_path=ENV_FILE_PATH,
-        )
+        resource_name = remote_agent.api_resource.name
+        if output_json:
+            write_engine_record(
+                output_json, name, version, resource_name, enable_tracing
+            )
+        if write_env:
+            update_env_file(
+                name=name,
+                agent_engine_id=resource_name,
+                env_file_path=ENV_FILE_PATH,
+            )
     except Exception as e:
         logging.exception(f"Error deploying agent to Agent Engine Runtime: {e}")
         # Re-raise so main() can turn a failed deploy into a non-zero process exit
         # (a silent return here made `--create` failures exit 0 and mask CI/deploy
         # breakage).
         raise
+    return resource_name
 
 
 # list agents
@@ -487,12 +547,17 @@ def delete(
     logging.info(f"Delete requested for {resource_id} (operation {op.name})")
 
 
+def default_version() -> str:
+    """The version namespace used when --version is omitted (UTC, to the minute)."""
+    return datetime.now(UTC).strftime("%Y_%m_%d_%H_%M")
+
+
 def main(argv):
     """Main function that uses the defined flags."""
     del argv
 
     if FLAGS.version is None:
-        FLAGS.version = pd.Timestamp.now("UTC").strftime("%Y_%m_%d_%H_%M")
+        FLAGS.version = default_version()
     logging.info(f"version: {FLAGS.version}")
 
     if FLAGS.list:
@@ -508,6 +573,8 @@ def main(argv):
                 name=FLAGS.agent,
                 version=FLAGS.version,
                 enable_tracing=FLAGS.enable_tracing,
+                write_env=FLAGS.write_env,
+                output_json=FLAGS.output_json,
             )
         except Exception:
             logging.error("Deploy failed; exiting non-zero.")
