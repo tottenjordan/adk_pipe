@@ -27,6 +27,7 @@ def test_shared_rules_are_brace_free():
         prompts.VISUAL_BRAND_CUE_RULE,
         prompts.VISUAL_TEXT_FROM_COPY_RULE,
         prompts.VISUAL_BRIEF_LIMITS_RULE,
+        prompts.VISUAL_MOTIF_PROMINENCE_RULE,
         prompts.VISUAL_CONCEPT_RULES,
         prompts.IMAGE_PROMPT_GUIDE,
     ):
@@ -46,6 +47,11 @@ def test_shared_rules_wording():
     assert "avoid list" in limits and "<user_avoid>" in limits
     assert "light_touch = the trend shows only as mood, motif or format" in limits
     assert "never forced into the trend scene" in limits
+    # Aligned with the judge's trend_motif_visible gate (prominent, at a glance).
+    motif = prompts.VISUAL_MOTIF_PROMINENCE_RULE
+    assert "prominent" in motif and "recognisable at a glance" in motif
+    assert "never tiny or only in the background" in motif
+    assert motif in prompts.VISUAL_CONCEPT_RULES
 
 
 @pytest.mark.parametrize("name", VISUAL_PROMPTS)

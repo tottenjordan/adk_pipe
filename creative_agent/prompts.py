@@ -818,6 +818,7 @@ ART_DIRECTOR_INSTR = (
 VISUAL_BRAND_CUE_RULE = "**Brand cue (every concept):** set `brand_cue` to ONE brand distinctive asset (a logo, signature colours, character, packaging or product detail), taken from the brief's brand distinctive assets in <CREATIVE_BRIEF> or, when the brief lists none, from <user_brand_colors>; write the `brand_cue` words verbatim into `image_generation_prompt` and place the asset visibly in the scene (where and how it appears). Use only real assets; never invent a logo or mascot. Leave `brand_cue` empty only when neither source names an asset."
 VISUAL_TEXT_FROM_COPY_RULE = '**In-image text is quoted from the copy (text-first):** any words rendered in the image must be the paired final ad copy\'s `headline` or `call_to_action` (the <ad_copy_critique> entry whose `original_id` equals the concept\'s `ad_copy_id`), copied exactly inside double quotes: never a new slogan, a paraphrase or extra words. Only a Meme aesthetic caption or a Comic panel speech bubble may be new short text (name it a "meme caption" or "speech bubble" in the prompt). Never put any other text inside double quotes in the prompt.'
 VISUAL_BRIEF_LIMITS_RULE = "**Brief limits:** keep everything on the brief's avoid list and in <user_avoid> out of the image, describing the positive alternative instead. Follow the brief's trend_bridge fit_mode: direct = the product plays inside the trend scene; cultural = connect through the shared value or mood; light_touch = the trend shows only as mood, motif or format (palette, composition, a meme format) while the product stays in its own world, never forced into the trend scene."
+VISUAL_MOTIF_PROMINENCE_RULE = "**Prominent trend motif:** make the trend motif prominent (in the foreground or a large share of the frame) and recognisable at a glance as the trend, never tiny or only in the background."
 # Spliced right after a line break + 4 spaces (`"""` closing an indented
 # line), so the first bullet adds only 4 more to reach the 8-space bullet level.
 VISUAL_CONCEPT_RULES = (
@@ -827,6 +828,8 @@ VISUAL_CONCEPT_RULES = (
     + VISUAL_TEXT_FROM_COPY_RULE
     + "\n        *   "
     + VISUAL_BRIEF_LIMITS_RULE
+    + "\n        *   "
+    + VISUAL_MOTIF_PROMINENCE_RULE
 )
 
 # Person casting (docs/plans/2026-10-09-person-reference.md). Only runs with a

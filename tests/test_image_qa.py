@@ -924,7 +924,8 @@ def test_per_run_cap_ships_to_agent_engine():
 # --- rating strictness (opt-in rating learning) ------------------------------
 
 _PROMINENT_PRODUCT = "The product must be prominent"
-_PROMINENT_MOTIF = "The trend motif must be prominent"
+_PROMINENT_MOTIF = "this brand's reviewers often found the trend unclear"
+_MOTIF_PROMINENCE = "prominent and recognisable at a glance"
 
 
 def test_instruction_requires_a_prominent_product_only_when_flagged():
@@ -935,7 +936,16 @@ def test_instruction_requires_a_prominent_product_only_when_flagged():
     assert _PROMINENT_MOTIF not in text
 
 
-def test_instruction_requires_a_prominent_motif_only_when_flagged():
+def test_instruction_always_requires_a_prominent_motif():
+    # Aligned with the judge's trend_motif_visible gate: the motif must be
+    # prominent and recognisable at a glance, not tiny or in the background.
+    text = _instruction_text(_CONCEPT)
+    assert _MOTIF_PROMINENCE in text
+    assert "only in the background" in text
+    assert _MOTIF_PROMINENCE not in _instruction_text({**_CONCEPT, "trend_motif": ""})
+
+
+def test_instruction_is_stricter_about_the_motif_only_when_flagged():
     assert _PROMINENT_MOTIF not in _instruction_text(_CONCEPT)
     text = _instruction_text(_CONCEPT, strictness=["trend_unclear"])
     assert _PROMINENT_MOTIF in text
