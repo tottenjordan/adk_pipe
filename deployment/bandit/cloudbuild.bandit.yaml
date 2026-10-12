@@ -1,0 +1,80 @@
+# Cached Cloud Build for the two bandit images, built IN PARALLEL with BuildKit
+# (docker buildx) and a registry layer cache (same pattern as the repo-root
+# cloudbuild.yaml):
+#   - the CPR serving image (bandit_serving/Dockerfile) -> ${_CPR_IMAGE}
+#   - the synthetic-traffic job image (bandit_traffic/Dockerfile) -> ${_TRAFFIC_IMAGE}
+#
+#   gcloud builds submit --region us-central1 \
+#     --config deployment/bandit/cloudbuild.bandit.yaml \
+#     --ignore-file deployment/bandit/bandit.gcloudignore \
+#     --substitutions=SHORT_SHA=$(git rev-parse --short HEAD) .
+#
+# The ignore file uploads only bandit/, bandit_serving/ and bandit_traffic/.
+# Pushes <image>:$SHORT_SHA + <image>:latest and prints each digest
+# (CPR_IMAGE=…@sha256:…, TRAFFIC_IMAGE=…@sha256:…; regional builds don't stream
+# logs, read them with `gcloud builds log <ID> --region us-central1`). Nothing is
+# deployed: set the api's BANDIT_SERVING_IMAGE to the CPR digest and deploy the job
+# with IMAGE_TAG=$SHORT_SHA deployment/bandit/deploy_traffic_job.sh
+# (docs/bandit/README.md → Build and deploy).
+
+substitutions:
+  _CPR_IMAGE: us-central1-docker.pkg.dev/${PROJECT_ID}/cpr/trend-trawler-bandit
+  _TRAFFIC_IMAGE: us-central1-docker.pkg.dev/${PROJECT_ID}/cpr/trend-trawler-bandit-traffic
+
+options:
+  dynamicSubstitutions: true
+  logging: CLOUD_LOGGING_ONLY
+
+timeout: 1800s
+
+steps:
+  # One BuildKit builder (docker-container driver: needed for --cache-to
+  # type=registry), shared by both build steps; buildkit from Google's Docker Hub
+  # mirror to avoid Hub pull limits.
+  - id: buildx-setup
+    name: gcr.io/cloud-builders/docker
+    entrypoint: bash
+    args:
+      - -euc
+      - |
+        docker buildx create --name tt --driver docker-container \
+          --driver-opt image=mirror.gcr.io/moby/buildkit:buildx-stable-1 --use
+        docker buildx inspect --bootstrap
+
+  # Context is the repo root; bandit_serving/Dockerfile.dockerignore narrows it to
+  # the serving sources.
+  - id: build-cpr
+    name: gcr.io/cloud-builders/docker
+    waitFor: [buildx-setup]
+    entrypoint: bash
+    args:
+      - -euc
+      - |
+        docker buildx build --builder tt --file bandit_serving/Dockerfile \
+          --tag ${_CPR_IMAGE}:${SHORT_SHA} --tag ${_CPR_IMAGE}:latest \
+          --cache-from type=registry,ref=${_CPR_IMAGE}:buildcache \
+          --cache-to type=registry,ref=${_CPR_IMAGE}:buildcache,mode=max,image-manifest=true,oci-mediatypes=true \
+          --provenance=false --push \
+          --metadata-file /workspace/cpr-meta.json .
+        sed -n 's/.*"containerimage.digest": *"\(sha256:[0-9a-f]*\)".*/\1/p' \
+          /workspace/cpr-meta.json > /workspace/cpr.digest
+        test -s /workspace/cpr.digest
+        echo "CPR_IMAGE=${_CPR_IMAGE}@$$(cat /workspace/cpr.digest)"
+
+  - id: build-traffic
+    name: gcr.io/cloud-builders/docker
+    waitFor: [buildx-setup]
+    entrypoint: bash
+    args:
+      - -euc
+      - |
+        docker buildx build --builder tt --file bandit_traffic/Dockerfile \
+          --tag ${_TRAFFIC_IMAGE}:${SHORT_SHA} --tag ${_TRAFFIC_IMAGE}:latest \
+          --cache-from type=registry,ref=${_TRAFFIC_IMAGE}:buildcache \
+          --cache-to type=registry,ref=${_TRAFFIC_IMAGE}:buildcache,mode=max,image-manifest=true,oci-mediatypes=true \
+          --provenance=false --push \
+          --metadata-file /workspace/traffic-meta.json .
+        sed -n 's/.*"containerimage.digest": *"\(sha256:[0-9a-f]*\)".*/\1/p' \
+          /workspace/traffic-meta.json > /workspace/traffic.digest
+        test -s /workspace/traffic.digest
+        echo "TRAFFIC_IMAGE=${_TRAFFIC_IMAGE}@$$(cat /workspace/traffic.digest)"

@@ -1628,15 +1628,27 @@ a configuration error.
 Build, push and deploy (documentation only; run where GCP creds exist):
 
 ```bash
-# Image -> us-central1-docker.pkg.dev/$PROJECT/cpr/trend-trawler-bandit-traffic:<sha>
-# --ignore-file uploads only bandit/ + bandit_traffic/ (~0.1 MB, not the whole repo)
-gcloud builds submit --config deployment/bandit/cloudbuild.traffic.yaml \
-  --ignore-file=deployment/bandit/traffic.gcloudignore \
-  --substitutions=SHORT_SHA=$(git rev-parse --short HEAD) .
+# One cached Cloud Build makes both bandit images in parallel (BuildKit + registry cache):
+#   us-central1-docker.pkg.dev/$PROJECT/cpr/trend-trawler-bandit:<SHORT_SHA>          (CPR)
+#   us-central1-docker.pkg.dev/$PROJECT/cpr/trend-trawler-bandit-traffic:<SHORT_SHA>  (traffic)
+# --ignore-file uploads only bandit/, bandit_serving/ + bandit_traffic/ (not the whole repo)
+SHORT_SHA=$(git rev-parse --short HEAD)
+gcloud builds submit --region us-central1 \
+  --config deployment/bandit/cloudbuild.bandit.yaml \
+  --ignore-file deployment/bandit/bandit.gcloudignore \
+  --substitutions=SHORT_SHA=$SHORT_SHA .
+# Regional builds don't stream logs; the digests are in the stored log:
+gcloud builds log <BUILD_ID> --region us-central1 | grep -aoE '(CPR|TRAFFIC)_IMAGE=[^ ]+'
+# Optional: round-trip the CPR image in docker before using it
+docker pull <CPR_IMAGE digest>
+uv run python deployment/bandit/build_image.py --image <CPR_IMAGE digest> --local-test
+# api: set BANDIT_SERVING_IMAGE to the CPR *digest* (…/trend-trawler-bandit@sha256:…)
 # Job: tt-bandit-traffic-sa, 2 CPU / 2Gi, task timeout 3600 s, no retries
-IMAGE_TAG=$(git rev-parse --short HEAD) BQ_DATASET_ID=trend_trawler \
-  deployment/bandit/deploy_traffic_job.sh
+IMAGE_TAG=$SHORT_SHA BQ_DATASET_ID=trend_trawler deployment/bandit/deploy_traffic_job.sh
 ```
+
+Local CPR build + docker round-trip with no GCP: `uv run python deployment/bandit/build_image.py
+--local-test` (builds `bandit_serving/Dockerfile` with local docker).
 
 Local run with no GCP: the `--in-process` fake endpoint (`bandit_traffic/fake_endpoint.py`, the
 contracts §2 semantics over `bandit.linear_ts`) and JSONL output instead of BigQuery:
