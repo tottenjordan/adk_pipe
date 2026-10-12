@@ -164,3 +164,8 @@ export function trendSituationText(state: Record<string, unknown> | null | undef
   if (view.validUntil) parts.push(`valid until ${view.validUntil}`);
   return parts.join(" · ");
 }
+
+/** True when the run's validated moment is a sensitive event (never referenced by the creatives). */
+export function isSensitiveSituation(state: Record<string, unknown> | null | undefined): boolean {
+  return parseTrendSituation(state)?.phase === "sensitive";
+}

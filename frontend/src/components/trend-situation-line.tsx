@@ -1,10 +1,12 @@
-import { trendSituationText } from "@/lib/trend-situation";
+import { SensitiveChip } from "@/components/sensitive-chip";
+import { isSensitiveSituation, trendSituationText } from "@/lib/trend-situation";
 import { cn } from "@/lib/utils";
 
 /**
  * The trend's validated current moment as a muted, read-only line (run-page
  * outputs, results summary). Renders nothing when the run has no situation or
- * the feature is switched off (TREND_STATE_ENABLED=false).
+ * the feature is switched off (TREND_STATE_ENABLED=false). A sensitive
+ * moment is prefixed with the amber "Sensitive" chip.
  */
 export function TrendSituationLine({
   state,
@@ -17,6 +19,7 @@ export function TrendSituationLine({
   if (!text) return null;
   return (
     <p className={cn("text-sm text-muted-foreground", className)}>
+      {isSensitiveSituation(state) && <SensitiveChip className="mr-1.5 align-middle" />}
       <span className="font-medium">Current moment:</span> {text}
     </p>
   );

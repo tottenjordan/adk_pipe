@@ -5,6 +5,7 @@ import { TrendSituationLine } from "@/components/trend-situation-line";
 import {
   daysFromAsOf,
   describeTrendSituation,
+  isSensitiveSituation,
   parseTrendSituation,
   trendSituationText,
 } from "@/lib/trend-situation";
@@ -96,6 +97,14 @@ describe("describeTrendSituation", () => {
   });
 });
 
+describe("isSensitiveSituation", () => {
+  it("is true only for the sensitive phase", () => {
+    expect(isSensitiveSituation(state({ phase: "sensitive", timely_ok: false }))).toBe(true);
+    expect(isSensitiveSituation(state())).toBe(false);
+    expect(isSensitiveSituation({})).toBe(false);
+  });
+});
+
 describe("trendSituationText", () => {
   it("joins label, sources count and validity", () => {
     expect(trendSituationText(state())).toBe("Texas vs Oklahoma tomorrow · 2 sources · valid until 2026-10-12 23:59");
@@ -111,6 +120,20 @@ describe("TrendSituationLine", () => {
     render(<TrendSituationLine state={state()} />);
     expect(screen.getByText("Current moment:")).toBeTruthy();
     expect(screen.getByText(/Texas vs Oklahoma tomorrow · 2 sources/)).toBeTruthy();
+  });
+
+  it("prefixes a sensitive moment with the Sensitive chip", () => {
+    const sensitive = state({ phase: "sensitive", timely_ok: false, abstain_reason: "a sensitive moment" });
+    render(<TrendSituationLine state={sensitive} />);
+    const line = screen.getByText("Current moment:").closest("p");
+    const chip = screen.getByText("Sensitive");
+    expect(line).toContainElement(chip);
+    expect(chip.className).toContain("text-mark-pending");
+  });
+
+  it("shows no chip for other phases", () => {
+    render(<TrendSituationLine state={state()} />);
+    expect(screen.queryByText("Sensitive")).toBeNull();
   });
 
   it("renders nothing without a situation", () => {
