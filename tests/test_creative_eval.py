@@ -1005,7 +1005,8 @@ def test_judge_version_is_exported_date_string():
     from creative_eval.dimensions import JUDGE_VERSION
 
     assert creative_eval.JUDGE_VERSION == JUDGE_VERSION
-    assert re.fullmatch(r"\d{4}-\d{2}-\d{2}", JUDGE_VERSION)
+    # A date, plus ".N" for a second change on the same day (compared by equality).
+    assert re.fullmatch(r"\d{4}-\d{2}-\d{2}(\.\d+)?", JUDGE_VERSION)
 
 
 def test_report_records_judge_version(monkeypatch):

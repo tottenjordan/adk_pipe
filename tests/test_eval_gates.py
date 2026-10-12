@@ -458,11 +458,19 @@ class TestEvaluateAdCopyGates:
     def test_no_brief_says_so_and_skips_brief_gates(self):
         from creative_eval.evaluate import evaluate_ad_copy
 
-        gates = dict.fromkeys(AD_COPY_GATES, False) | {"product_named": True}
+        # The non-brief gates (product_named, trend_connected) are still judged.
+        gates = dict.fromkeys(AD_COPY_GATES, False) | {
+            "product_named": True,
+            "trend_connected": True,
+        }
         client = _client(_judge_json("ad", gates))
         result = evaluate_ad_copy(AD_COPY, CAMPAIGN, EvalConfig(), client=client)
         assert NO_BRIEF_BLOCK in _prompt_text(client)
         assert result.score.gates_passed and result.score.passed
+        gates["trend_connected"] = False
+        client = _client(_judge_json("ad", gates))
+        result = evaluate_ad_copy(AD_COPY, CAMPAIGN, EvalConfig(), client=client)
+        assert not result.score.gates_passed
 
     def test_judge_failure_is_unverified(self):
         from creative_eval.evaluate import evaluate_ad_copy
@@ -1434,3 +1442,87 @@ class TestTrendRisksGate:
             brief=RISKY_BRIEF,
         )
         assert not visual.score.gates_passed and not visual.score.passed
+
+
+class TestTrendConnectedGate:
+    """2026-10-12.2: a blocking ad-copy gate requiring a clear, specific trend
+    tie (12 of the user's 13 fail ratings cited trend_unclear)."""
+
+    def test_is_a_blocking_ad_copy_gate_not_brief_dependent(self):
+        from creative_eval.dimensions import GATE_LABELS, TREND_GATES
+
+        assert "trend_connected" in AD_COPY_GATES
+        assert "trend_connected" not in VISUAL_GATES
+        assert "trend_connected" not in BRIEF_GATES
+        assert "trend_connected" not in ADVISORY_GATES
+        assert TREND_GATES == frozenset({"trend_connected"})
+        assert GATE_LABELS["trend_connected"] == "Connected to the trend"
+
+    def test_prompt_describes_a_specific_recognisable_tie(self):
+        text = eval_prompts.AD_COPY_EVAL_USER
+        line = next(line for line in text.splitlines() if "**trend_connected**" in line)
+        assert "{target_search_trend}" in line
+        assert "someone who follows the trend would recognise" in line
+        for phrase in (
+            "signature language",
+            "rituals",
+            "iconography",
+            "memes",
+            "could fit any trend",
+            "bolted on",
+            "general culture",
+        ):
+            assert phrase in line, phrase
+        presence = next(
+            line for line in text.splitlines() if line.startswith("Presence checks")
+        )
+        assert "trend_connected" in presence
+
+    def test_no_brief_still_judges_it(self):
+        from creative_eval.evaluate import normalize_gates
+
+        raw = [GateResult(gate="trend_connected", passed=False, note="generic")]
+        by = {g.gate: g for g in normalize_gates(raw, AD_COPY_GATES, brief_used=False)}
+        gate = by["trend_connected"]
+        assert gate.passed is False and gate.note == "generic"
+
+    def test_empty_trend_passes_with_note(self):
+        from creative_eval.evaluate import NO_TREND_NOTE, normalize_gates
+
+        raw = [GateResult(gate="trend_connected", passed=False)]
+        by = {
+            g.gate: g
+            for g in normalize_gates(
+                raw, AD_COPY_GATES, brief_used=True, trend_given=False
+            )
+        }
+        gate = by["trend_connected"]
+        assert gate.passed and gate.note == NO_TREND_NOTE == "no trend"
+
+    def test_failed_gate_blocks_the_copy(self):
+        from creative_eval.evaluate import evaluate_ad_copy
+
+        gates = dict.fromkeys(AD_COPY_GATES, True) | {"trend_connected": False}
+        ad = evaluate_ad_copy(
+            AD_COPY,
+            CAMPAIGN,
+            EvalConfig(),
+            client=_client(_judge_json("ad", gates)),
+            brief=BRIEF,
+        )
+        assert not ad.score.gates_passed and not ad.score.passed
+
+    def test_empty_campaign_trend_passes_in_evaluate(self):
+        from creative_eval.evaluate import evaluate_ad_copy
+
+        gates = dict.fromkeys(AD_COPY_GATES, True) | {"trend_connected": False}
+        ad = evaluate_ad_copy(
+            AD_COPY,
+            CAMPAIGN | {"target_search_trend": "  "},
+            EvalConfig(),
+            client=_client(_judge_json("ad", gates)),
+            brief=BRIEF,
+        )
+        by = {g.gate: g for g in ad.score.gates}
+        assert by["trend_connected"].passed and by["trend_connected"].note == "no trend"
+        assert ad.score.gates_passed

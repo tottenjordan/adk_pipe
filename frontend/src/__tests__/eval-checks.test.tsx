@@ -79,6 +79,7 @@ describe("gate helpers", () => {
     expect(gateLabel("text_correct")).toBe("In-image text correct");
     expect(gateLabel("no_visual_defects")).toBe("No visual defects");
     expect(gateLabel("trend_risks_respected")).toBe("Respects trend risks");
+    expect(gateLabel("trend_connected")).toBe("Connected to the trend");
     expect(gateLabel("person_depicted_respectfully")).toBe(
       "Person depicted respectfully",
     );
