@@ -43,7 +43,7 @@ from agent_common import genai_retry
 from agent_common.locations import MODEL_LOCATION
 
 from . import image_qa
-from .concept_guard import enforce_person_casting
+from .concept_guard import enforce_person_casting, parse_concepts
 from .config import config
 from .gcs_tools import _download_blob, _save_to_gcs, artifact_key_for
 from .person_render import (
@@ -792,8 +792,12 @@ async def generate_image(
     gcs_subdir = tool_context.state["agent_output_dir"]
 
     # get artifact details
-    final_visual_concepts_dict = tool_context.state.get("final_visual_concepts")
-    final_visual_concepts_list = final_visual_concepts_dict["visual_concepts"]
+    # parse_concepts never raises: a missing / null / malformed value (e.g. a
+    # failed concept stage) is an empty list, which renders nothing and takes
+    # the normal success path instead of crashing creative_pipeline.
+    final_visual_concepts_list = parse_concepts(
+        tool_context.state.get("final_visual_concepts")
+    )
 
     # Imported here: render_concept builds on this module's helpers.
     from .render_concept import (

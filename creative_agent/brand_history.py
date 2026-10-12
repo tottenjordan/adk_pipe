@@ -417,6 +417,7 @@ def _rating_delta(
         delta["rating_signals"] = note
     if "checks" in effects:
         delta["rating_strictness"] = strictness
+        delta["rating_limits"] = rating_signals.strictness_limits_rule(strictness)
     # Record only the effects that changed the run, not every configured one.
     produced = {
         "guidance": bool(note),

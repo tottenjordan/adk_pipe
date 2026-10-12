@@ -30,9 +30,10 @@ Matching (product named, avoid terms) uses ``text_match``: accent-folded,
 Unicode-aware, plural-insensitive (s / es / ies↔y), and brands written with
 punctuation or digits ("AT&T", "M&M's", "7UP") also match their
 punctuation-stripped forms. A product with nothing matchable ("GE") is never
-flagged; naming the brand counts as naming the product (copy usually names
-the brand — stricter than the image-prompt guard, which needs a brand anchor
-in the product match). Avoid terms contained in the product, a non-negative
+flagged; the brand name alone does not count as naming the product (the
+judge's ``product_named`` gate), but any significant product word does
+(lenient: looser than the image-prompt guard, which needs a brand anchor in
+the product match). Avoid terms contained in the product, a non-negative
 mandatory, or a Title-Case name in the trend are exempt; lowercase trend words
 ("shooting", "death") never are.
 
@@ -259,21 +260,20 @@ def _copy_forms(copy_text: str) -> set[str]:
     return forms
 
 
-def _names_product(copy_text: str, target_product: str, brand: str = "") -> bool:
-    """The copy names the product: its full phrase, the ``brand`` (when given),
-    ANY significant word, or a punctuation-stripped brand form (see
-    ``_brand_forms``).
+def _names_product(copy_text: str, target_product: str) -> bool:
+    """The copy names the product: its full phrase, ANY significant word, or a
+    punctuation-stripped brand form (see ``_brand_forms``).
 
     Deliberately lenient (each false positive costs a revision call and a
-    user-visible warning): "Lace up your skates" names "Rocket Skates", and
-    "Only on Apple" names "iPhone 16 Pro" for the brand Apple — ad copy
-    usually names the brand. (The image-prompt guard is stricter: there a
-    partial product match must carry a brand token, see ``concept_guard``.)
-    Accent-, case- and plural-insensitive (s / es / ies↔y).
+    user-visible warning): "Lace up your skates" names "Rocket Skates" and
+    "the PRS SE CE24" names "SE CE24 Electric Guitar". A brand outside the
+    product phrase never does: "Only on Apple" does not name "iPhone 16 Pro"
+    (the judge's ``product_named`` gate: the brand name alone does not
+    count). (The image-prompt guard is stricter: there a partial product
+    match must carry a brand token, see ``concept_guard``.) Accent-, case-
+    and plural-insensitive (s / es / ies↔y).
     """
     if contains_phrase(copy_text, target_product):
-        return True
-    if brand.strip() and contains_phrase(copy_text, brand):
         return True
     copy_words = set(words(copy_text))
     if any(
@@ -429,16 +429,16 @@ def _deterministic_issues(
     *,
     target_product: str,
     avoid: list[str],
-    brand: str,
     max_cta: int = MAX_CTA_WORDS,
     allowed_claims_text: str = "",
     timely_ok: bool = False,
+    timely_room: bool = False,
 ) -> list[str]:
     issues: list[str] = []
     copy_text = " ".join(_text(copy.get(f)) for f in _COPY_FIELDS)
 
     if _has_matchable_tokens(target_product) and not _names_product(
-        copy_text, target_product, brand
+        copy_text, target_product
     ):
         issues.append(
             f"product not named: mention '{target_product.strip()}' in the "
@@ -480,11 +480,17 @@ def _deterministic_issues(
 
     # The timely slot: with a timely moment, an evergreen copy must stay
     # timeless (no dates, results or "tonight"); the timely copy may not.
+    # Making it the timely copy is offered only while the cap has room.
     if timely_ok and copy.get("uses_trend_state") is not True:
         if terms := temporal_terms(copy_text):
+            fix = (
+                "remove it or make this the timely copy."
+                if timely_room
+                else ("remove it.")
+            )
             issues.append(
                 f"evergreen copy mentions a dated or outcome term "
-                f"({', '.join(terms)}): remove it or make this the timely copy."
+                f"({', '.join(terms)}): {fix}"
             )
 
     for term in avoid:
@@ -522,19 +528,19 @@ def _check_copy(
     *,
     target_product: str,
     avoid: list[str],
-    brand: str,
     strictness: Sequence[str] = (),
     allowed_claims_text: str = "",
     timely_ok: bool = False,
+    timely_room: bool = False,
 ) -> list[CopyIssue]:
     deterministic = _deterministic_issues(
         copy,
         target_product=target_product,
         avoid=avoid,
-        brand=brand,
         max_cta=max_cta_words(strictness),
         allowed_claims_text=allowed_claims_text,
         timely_ok=timely_ok,
+        timely_room=timely_room,
     )
     self_reported = _self_reported_issues(copy, gating_brief_checks(strictness))
     return [CopyIssue("deterministic", text) for text in deterministic] + [
@@ -553,13 +559,14 @@ def gate_copies(
     strictness: Sequence[str] = (),
     allowed_claims_text: str = "",
     timely_ok: bool = False,
+    max_timely: int = 1,
 ) -> dict[str, list[CopyIssue]]:
     """The copies' gating issues, keyed by ``copy_keys``.
 
     ``copies`` is the ``ad_copy_critique`` state value (see ``parse_copies``).
     Deterministic checks, per copy: the product is named (``target_product``,
-    the ``brand``, ANY of its significant words, or a punctuation-stripped
-    brand form;
+    ANY of its significant words, or a punctuation-stripped brand form; the
+    ``brand`` alone never counts, so it is accepted but unused;
     accent/case/plural-insensitive, see ``_names_product``) in the
     headline/body/caption/CTA — skipped when the product yields nothing to
     match; the CTA is non-empty and at most 8 words; the headline is at most 60
@@ -579,23 +586,27 @@ def gate_copies(
     copies with issues are returned ({} = clean). ``timely_ok`` (the run has a
     timely moment and the slot is on) adds one deterministic check: an
     evergreen copy (``uses_trend_state`` not True) must contain no dated or
-    outcome term (``temporal_terms``); without it the checks are unchanged.
+    outcome term (``temporal_terms``; the fix offers "make this the timely
+    copy" only while fewer than ``max_timely`` copies are timely; default 1,
+    the ``MAX_TIMELY_CONCEPTS`` default, so a larger knob not passed here only
+    makes the offer conservative); without it the checks are unchanged.
     Never raises.
     """
     terms = _avoid_terms(
         avoid, product=target_product, mandatories=mandatories, trend=trend
     )
     parsed = parse_copies(copies)
+    timely_room = sum(c.get("uses_trend_state") is True for c in parsed) < max_timely
     issues: dict[str, list[CopyIssue]] = {}
     for key, copy in zip(copy_keys(parsed), parsed, strict=True):
         if found := _check_copy(
             copy,
             target_product=target_product,
             avoid=terms,
-            brand=brand,
             strictness=strictness,
             allowed_claims_text=allowed_claims_text,
             timely_ok=timely_ok,
+            timely_room=timely_room,
         ):
             issues[key] = found
     return issues

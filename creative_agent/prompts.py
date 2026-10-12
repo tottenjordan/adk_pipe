@@ -7,6 +7,8 @@ from agent_common.clock import DATE_CONTEXT_LINE
 
 from .claims import ABSOLUTE_CLAIM_TERMS
 from .config import PHOTOGRAPHIC_PERSON_STYLES, config
+from .copy_gate import MAX_HEADLINE_CHARS
+from .temporal_terms import TEMPORAL_TERMS
 from .trend_situation import as_situation, moment_phrase
 
 # A prompting "grammar" for the
@@ -57,9 +59,9 @@ Pick ONE primary style family per concept, from the run's style shortlist when o
 Prefer these mappings when choosing among the families on the run's style shortlist (a preference, not a rule; the shortlist wins):
 - Meme-based / irreverent tone -> meme aesthetic, diecut sticker, or flat cartoon.
 - Humorous tone -> 3D character or comic panel.
-- Aspirational / premium tone -> cinematic photoreal or minimalist negative-space.
+- Aspirational / premium tone -> Cinematic film still or Photoreal / editorial, or minimalist negative-space.
 - Emotional / authentic tone -> candid 35mm film photo or watercolor.
-- Educational / how-it-works tone -> a product hero with one short labelled callout, or a minimalist frame with one line of text; never a full technical diagram, schematic, cutaway or exploded view.
+- Educational / how-it-works tone -> a product hero visibly demonstrating its benefit, with no labels or callouts, or a minimalist frame with the paired headline in quotes; never a full technical diagram, schematic, cutaway or exploded view.
 - Problem–solution / direct-response tone -> clean studio product shot (photoreal) with in-image CTA.
 Diversity rule: across a set of concepts, vary the style family — do not render every concept in the same look.
 </TONE_TO_STYLE_MAPPING>
@@ -530,10 +532,13 @@ AD_COPY_DRAFTER_INSTR = (
     2.  **Analyze and Apply:** Analyze the research report to understand the audience, product, and trend intersection. If the report is empty, work from the campaign inputs.
     3.  **Generate 10 Diverse Ideas:** Generate exactly 10 ad copy ideas. Each idea must:
         *   Creatively market the target product: {target_product}
+        *   Name the target product ({target_product}) in the headline, body, caption or CTA (a recognisable short form counts; the brand name alone does not).
         *   Sound like the brand: {brand} (use its voice and distinctive assets from the research report).
         *   Speak directly to the target audience: {target_audience}
         *   Incorporate the key selling point(s): {key_selling_points}
-        *   Be suitable for Instagram/TikTok platforms (short, punchy, visual-friendly).
+        *   Be suitable for Instagram/TikTok platforms (short, punchy, visual-friendly), with the headline within """
+    + str(MAX_HEADLINE_CHARS)
+    + """ characters.
         *   Directly reference or subtly leverage the trending topic: {target_search_trends}.
     4.  **Enforce Tone Diversity:** To ensure variety, the 10 ideas must collectively cover at least 4 of the following creative tones/styles: **Humorous, Aspirational, Problem/Solution, Emotional/Authentic, Educational/Informative, Relatable/Meme-based.**
     5.  **Strict Output Format:** Ensure the entire output is a single JSON object containing all 10 ideas, formatted exactly as specified in the <OUTPUT_FORMAT> block.
@@ -600,6 +605,9 @@ AD_COPY_CRITIC_INSTR = (
         *   Carry each selected idea's `angle_id` and `typicality` through unchanged (re-rate `typicality` only if you substantially rewrite the idea).
     4.  **Enrich and Critique:** For each selected idea, you must add a high-converting **Call-to-Action (CTA)** and a **Detailed Rationale** explaining the strategic choice.
         *   **CTA:** critique and improve every CTA: it must be specific to this offer (never a generic "Learn more"), start with an action verb, match the brief's desired response, and stay within 8 words.
+        *   **Headline:** keep every headline within """
+    + str(MAX_HEADLINE_CHARS)
+    + """ characters; shorten any longer one.
     5.  **Brief Checklist:** For each final copy, fill `brief_checks` with exactly one entry per item, judged against the FINAL headline, body, caption and CTA:
         *   `proposition`: delivers the brief's single-minded proposition.
         *   `product`: names the target product.
@@ -619,7 +627,7 @@ AD_COPY_CRITIC_INSTR = (
     + COPY_CLAIMS_RULE
     + " Remove any such claim from the copies you select."
     + """
-    8.  **Strict Output:** Output the final selection as a single JSON object, strictly following the schema in the `<OUTPUT_FORMAT>` block.{timely_rules?}
+    8.  **Strict Output:** Output the final selection as a single JSON object, strictly following the schema in the `<OUTPUT_FORMAT>` block.{timely_rules?}{rating_limits?}
     </INSTRUCTIONS>
 
     <CONTEXT>
@@ -655,6 +663,12 @@ AD_COPY_CRITIC_INSTR = (
         <ad_copy_draft>
         {ad_copy_draft?}
         </ad_copy_draft>
+
+        <user_research_feedback>
+        Optional user feedback on the research report. When non-empty, honor
+        it; when empty, ignore it.
+        {research_feedback?}
+        </user_research_feedback>
     </CONTEXT>
 
     <OUTPUT_FORMAT>
@@ -674,11 +688,11 @@ AD_COPY_REVISER_INSTR = (
     + CREATIVE_BRIEF_CONTRACT_CORE
     + """ If the brief is empty, fall back to the campaign inputs.
     1.  **Scope:** <ad_copy_issues> lists the flagged copies by `original_id` and headline, each with its issues. Rewrite ONLY those copies, changing only what is needed to fix exactly the listed issues. Every copy that is not listed stays verbatim, field for field.
-    2.  **Fixes:** name the target product ({target_product}) in the headline, body text or social caption when it is missing; keep the call to action specific, starting with an action verb and within 8 words; keep the headline within 60 characters and the social caption within 2200 characters; remove every avoided term; and for each failed brief check, change the copy so the item is clearly met.
+    2.  **Fixes:** name the target product ({target_product}) in the headline, body text or social caption when it is missing; keep the call to action specific, starting with an action verb and within the word limit in its issue (8 by default); keep the headline within 60 characters and the social caption within 2200 characters; remove every avoided term; and for each failed brief check, change the copy so the item is clearly met.
     3.  **Keep the idea:** a revised copy keeps its `original_id`, `tone_style`, `angle_id` and core idea; re-rate `typicality` only if the idea changed.
     4.  **Checklist:** refresh `brief_checks` on every copy you revise (one entry per item, judged accurately against the revised copy; mark an item failed only when the copy clearly fails it); leave the other copies' checks unchanged.
     5.  **User feedback:** when <user_ad_copy_feedback> is non-empty, honour it in the copies you revise.
-    6.  **Output:** return ALL the copies from <final_ad_copies>, in the same order with unchanged `original_id`s, as a single JSON object.{timely_rules?}
+    6.  **Output:** return ALL the copies from <final_ad_copies>, in the same order with unchanged `original_id`s, as a single JSON object.{timely_rules?}{rating_limits?}
     </INSTRUCTIONS>
 
     <CONTEXT>
@@ -817,6 +831,7 @@ ART_DIRECTOR_INSTR = (
 VISUAL_BRAND_CUE_RULE = "**Brand cue (every concept):** set `brand_cue` to ONE brand distinctive asset (a logo, signature colours, character, packaging or product detail), taken from the brief's brand distinctive assets in <CREATIVE_BRIEF> or, when the brief lists none, from <user_brand_colors>; write the `brand_cue` words verbatim into `image_generation_prompt` and place the asset visibly in the scene (where and how it appears). Use only real assets; never invent a logo or mascot. Leave `brand_cue` empty only when neither source names an asset."
 VISUAL_TEXT_FROM_COPY_RULE = '**In-image text is quoted from the copy (text-first):** any words rendered in the image must be the paired final ad copy\'s `headline` or `call_to_action` (the <ad_copy_critique> entry whose `original_id` equals the concept\'s `ad_copy_id`), copied exactly inside double quotes: never a new slogan, a paraphrase or extra words. Only a Meme aesthetic caption or a Comic panel speech bubble may be new short text (name it a "meme caption" or "speech bubble" in the prompt). Never put any other text inside double quotes in the prompt.'
 VISUAL_BRIEF_LIMITS_RULE = "**Brief limits:** keep everything on the brief's avoid list and in <user_avoid> out of the image, describing the positive alternative instead. Follow the brief's trend_bridge fit_mode: direct = the product plays inside the trend scene; cultural = connect through the shared value or mood; light_touch = the trend shows only as mood, motif or format (palette, composition, a meme format) while the product stays in its own world, never forced into the trend scene."
+VISUAL_MOTIF_PROMINENCE_RULE = "**Prominent trend motif:** make the trend motif prominent (in the foreground or a large share of the frame) and recognisable at a glance as the trend, never tiny or only in the background."
 # Spliced right after a line break + 4 spaces (`"""` closing an indented
 # line), so the first bullet adds only 4 more to reach the 8-space bullet level.
 VISUAL_CONCEPT_RULES = (
@@ -826,6 +841,8 @@ VISUAL_CONCEPT_RULES = (
     + VISUAL_TEXT_FROM_COPY_RULE
     + "\n        *   "
     + VISUAL_BRIEF_LIMITS_RULE
+    + "\n        *   "
+    + VISUAL_MOTIF_PROMINENCE_RULE
 )
 
 # Person casting (docs/plans/2026-10-09-person-reference.md). Only runs with a
@@ -917,8 +934,10 @@ def build_timely_rules(situation: Any, max_timely: int) -> str:
         'include both sides, use neutral "big game" framing. Never use team or '
         "league logos, wordmarks, mascots, player names or likenesses, and never "
         "imply sponsorship or endorsement."
-        "\n    *   Every other creative stays evergreen: no dates, scores, results "
-        "or words like tonight, tomorrow, yesterday, won or lost."
+        "\n    *   Every other creative stays evergreen: no dates (e.g. Oct 12 or "
+        "10/12), weekday names, scores or results, and none of these words: "
+        + ", ".join(TEMPORAL_TERMS)
+        + "."
         "\n    *   When critiquing, fixing or revising, keep `uses_trend_state` "
         "and `timely_reason` unchanged unless you fix a timely-rule violation."
     )
@@ -938,14 +957,14 @@ VISUAL_CONCEPT_DRAFTER_INSTR = (
         *   Visibly reference the trend {target_search_trends}: pick a concrete, trend-SPECIFIC `trend_motif` (recognisable signature imagery of this trend; generic phones/feeds/chat bubbles do not count) (from the visual_direction motifs when present) and write it verbatim into the prompt.
         *   Be optimized for quick consumption on a social media feed (e.g., strong composition, clear focus).
         *   Cleverly market the target product: {target_product}.
-        *   Set `angle_id` to the paired ad copy's `angle_id` ("" when it has none).
+        *   Set `ad_copy_id` to the paired ad copy's `original_id`, and `angle_id` to its `angle_id` ("" when it has none).
     """
     + VISUAL_CONCEPT_RULES
     + """
-    3.  **Choose the Style (do NOT default to photorealism):** Choose 4 DIFFERENT `visual_style` families from <style_shortlist> (when non-empty), matching each ad copy's tone via the guide's mapping preference. When <user_style_preference> is non-empty it overrides the shortlist. Use the <IMAGE_PROMPT_GUIDE> below and the <visual_direction> brief. Record the chosen family in the `visual_style` field.
-    4.  **Composition variety (across the set):** Give each concept a different hero placement and camera distance: choose from centred hero, off-centre rule-of-thirds, small subject in a wide environment, extreme close-up detail, top-down flat lay, over-the-shoulder POV, environmental portrait. Use at most ONE centred product hero per set. In-image text in at most 2 concepts (see the guide; meme captions and comic speech bubbles are exempt), never both placed at the top. Every concept shows a trend motif.
+    3.  **Choose the Style (do NOT default to photorealism):** Choose 4 DIFFERENT `visual_style` families from <style_shortlist> (when non-empty), matching each ad copy's tone via the guide's mapping preference. Exception: when <user_style_preference> is non-empty, keep that family for every concept and vary lighting and composition instead. Use the <IMAGE_PROMPT_GUIDE> below and the <visual_direction> brief. Record the chosen family's exact palette name in the `visual_style` field.
+    4.  **Composition variety (across the set):** Give each concept a different hero placement and camera distance: choose from centred hero, off-centre rule-of-thirds, small subject in a wide environment, extreme close-up detail, top-down flat lay, over-the-shoulder POV, environmental portrait. Use at most ONE centred hero per set. In-image text in at most 2 concepts (see the guide; meme captions and comic speech bubbles are exempt), never both placed at the top. Every concept shows a trend motif.
     5.  **Prompt Engineering:** For each concept, write the `image_generation_prompt` following the <IMAGE_PROMPT_GUIDE> and honouring the <visual_direction> brief's mood, palette, motifs, and brand cues. Name the chosen style first, then build the scene. Also choose and record the `aspect_ratio` per concept (unless the campaign-wide override in <user_aspect_ratio> is set).
-    6.  **Strict Output Format:** Ensure the entire output is a single JSON object containing all generated concepts, strictly following the schema in the <OUTPUT_FORMAT> block (including `visual_style`, `aspect_ratio`, `trend_motif`, `brand_cue` and `angle_id` for each).{person_casting_rules?}{timely_rules?}
+    6.  **Strict Output Format:** Ensure the entire output is a single JSON object containing all generated concepts, strictly following the schema in the <OUTPUT_FORMAT> block (including `visual_style`, `aspect_ratio`, `trend_motif`, `brand_cue` and `angle_id` for each).{person_casting_rules?}{timely_rules?}{rating_limits?}
     </INSTRUCTIONS>
 
     <CONTEXT>
@@ -1064,7 +1083,7 @@ VISUAL_CONCEPT_CRITIC_INSTR = (
     + """
         *   **Carry-through:** Keep `trend_motif`, `brand_cue` and their verbatim presence in the prompt, and carry `angle_id` unchanged. Keep the `aspect_ratio` field (adjust only if the composition demands it). When <user_aspect_ratio> is non-empty, set every concept's `aspect_ratio` to this value and compose for it.
         *   **Set-level checks:** families come from <style_shortlist> and are all different; at most ONE centred hero; in-image text in at most 2 concepts (meme/comic captions excepted), short and punchy, no small print or style terms; every concept has a trend motif, and each `trend_motif` is SPECIFIC and recognisable: replace generic ones (phones, feeds, chat bubbles, notifications, screens) with signature imagery of the trend; no readable or gibberish background text. Fix violations by rewriting the weakest concept.
-    3.  **Strict Output Format:** The output must be a single, structured JSON object containing the **revised** concepts (including `visual_style`, `aspect_ratio`, `trend_motif`, `brand_cue` and `angle_id`). Do not include any external commentary or separate critique text.{person_casting_rules?}{timely_rules?}
+    3.  **Strict Output Format:** The output must be a single, structured JSON object containing the **revised** concepts (including `visual_style`, `aspect_ratio`, `trend_motif`, `brand_cue` and `angle_id`). Do not include any external commentary or separate critique text.{person_casting_rules?}{timely_rules?}{rating_limits?}
     </INSTRUCTIONS>
 
     <CONTEXT>
@@ -1149,7 +1168,7 @@ VISUAL_CONCEPT_FINALIZER_INSTR = (
     + VISUAL_CONCEPT_RULES
     + """
     4.  **Finalize and Enrich:** For each concept, combine the original ad copy details with the revised visual details to create a final, unified creative brief, honouring <user_visual_direction> when non-empty. Set `angle_id` to the matching ad copy's `angle_id` ("" when it has none).
-    5.  **Strict Output Format:** Output the final concepts as a single JSON object, strictly following the schema in the `<OUTPUT_FORMAT>` block (including `visual_style`, `aspect_ratio`, `trend_motif`, `brand_cue` and `angle_id` per concept).{person_casting_rules?}{timely_rules?}
+    5.  **Strict Output Format:** Output the final concepts as a single JSON object, strictly following the schema in the `<OUTPUT_FORMAT>` block (including `visual_style`, `aspect_ratio`, `trend_motif`, `brand_cue` and `angle_id` per concept).{person_casting_rules?}{timely_rules?}{rating_limits?}
     </INSTRUCTIONS>
 
     <CONTEXT>
@@ -1233,7 +1252,7 @@ VISUAL_CONCEPT_FIXER_INSTR = (
     + VISUAL_CONCEPT_RULES
     + """
     4.  **Keep the idea:** a fixed concept keeps its `ad_copy_id`, `concept_name`, `visual_style`, `aspect_ratio`, `brand_cue`, `angle_id`, `headline`, `social_caption` and `call_to_action`.
-    5.  **Output:** return ALL the concepts from <final_visual_concepts>, in the same order with unchanged `ad_copy_id`s, as a single JSON object.{person_casting_rules?}{timely_rules?}
+    5.  **Output:** return ALL the concepts from <final_visual_concepts>, in the same order with unchanged `ad_copy_id`s, as a single JSON object.{person_casting_rules?}{timely_rules?}{rating_limits?}
     </INSTRUCTIONS>
 
     <CONTEXT>

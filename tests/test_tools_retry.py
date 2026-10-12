@@ -203,3 +203,27 @@ class TestCreativeAgentToolsPropagate:
         result = asyncio.run(image_tools.generate_image(ctx))
         assert calls["n"] == 3  # 2 failures + 1 success
         assert result["status"] == "success"
+
+
+@pytest.mark.parametrize(
+    "concepts",
+    [None, {"visual_concepts": None}, {}, "not json", {"visual_concepts": []}],
+)
+def test_generate_image_without_concepts_succeeds_without_rendering(
+    monkeypatch, concepts
+):
+    """A null / malformed final_visual_concepts renders nothing instead of
+    crashing creative_pipeline (the empty list takes the normal success path)."""
+    import asyncio
+
+    from creative_agent import image_tools
+
+    def _no_client():
+        raise AssertionError("no render expected")
+
+    monkeypatch.setattr(image_tools, "_get_genai_client", _no_client)
+    ctx = _ctx()
+    ctx.state["final_visual_concepts"] = concepts
+    result = asyncio.run(image_tools.generate_image(ctx))
+    assert result["status"] == "success"
+    assert ctx.state["generated_images"] == {}

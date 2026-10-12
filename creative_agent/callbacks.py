@@ -145,6 +145,11 @@ def _set_initial_states(source: dict[str, Any], target: State | dict[str, Any]):
     # situation validator found a timely moment ({timely_rules?}, written by
     # validate_trend_situation); otherwise their instructions are unchanged.
     target.setdefault("timely_rules", "")
+    # Opt-in rating learning's stricter limits reach the critics, revisers and
+    # visual producers only when the checks effect flagged something
+    # ({rating_limits?}, written by load_brand_history next to
+    # rating_strictness); otherwise their instructions are unchanged.
+    target.setdefault("rating_limits", "")
 
     # Per-session random style shortlist (image diversity): the visual agents
     # pick their 4 styles from it, so runs don't converge on the same looks.

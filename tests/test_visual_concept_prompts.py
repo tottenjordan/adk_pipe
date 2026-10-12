@@ -27,6 +27,7 @@ def test_shared_rules_are_brace_free():
         prompts.VISUAL_BRAND_CUE_RULE,
         prompts.VISUAL_TEXT_FROM_COPY_RULE,
         prompts.VISUAL_BRIEF_LIMITS_RULE,
+        prompts.VISUAL_MOTIF_PROMINENCE_RULE,
         prompts.VISUAL_CONCEPT_RULES,
         prompts.IMAGE_PROMPT_GUIDE,
     ):
@@ -46,6 +47,11 @@ def test_shared_rules_wording():
     assert "avoid list" in limits and "<user_avoid>" in limits
     assert "light_touch = the trend shows only as mood, motif or format" in limits
     assert "never forced into the trend scene" in limits
+    # Aligned with the judge's trend_motif_visible gate (prominent, at a glance).
+    motif = prompts.VISUAL_MOTIF_PROMINENCE_RULE
+    assert "prominent" in motif and "recognisable at a glance" in motif
+    assert "never tiny or only in the background" in motif
+    assert motif in prompts.VISUAL_CONCEPT_RULES
 
 
 @pytest.mark.parametrize("name", VISUAL_PROMPTS)
@@ -128,8 +134,13 @@ def test_casting_rules_come_only_from_state(name):
     any casting text (byte-identical to before the feature)."""
     instr = _person_prompts()[name]
     assert instr.count("{person_casting_rules?}") == 1, name
-    # Last in the instructions, followed only by the timely slot's own token.
-    assert "{person_casting_rules?}{timely_rules?}\n    </INSTRUCTIONS>" in instr, name
+    # Last in the instructions, followed only by the timely slot's (and the
+    # rating limits') own tokens.
+    assert re.search(
+        r"\{person_casting_rules\?\}\{timely_rules\?\}(\{rating_limits\?\})?"
+        r"\n    </INSTRUCTIONS>",
+        instr,
+    ), name
     without = instr.replace("{person_casting_rules?}", "").lower()
     for word in _PERSON_WORDS:
         assert f"`{word}`" not in without, (name, word)
@@ -203,3 +214,60 @@ def test_interactive_reviser_keeps_brand_cue_and_angle_id():
     instr = ic_prompts.VISUAL_CONCEPT_REVISER_INSTR
     assert "`trend_motif` and `brand_cue` words in the rewritten prompt" in instr
     assert "keep its `angle_id`" in instr
+
+
+def test_guide_tone_mapping_agrees_with_the_text_rules_and_style_names():
+    guide = prompts.IMAGE_PROMPT_GUIDE
+    # In-image text is only the paired headline / CTA: no labelled callouts.
+    assert "labelled callout" not in guide
+    assert "with no labels or callouts" in guide
+    # Mapped styles use the palette's family names.
+    assert "-> Cinematic film still or Photoreal / editorial" in guide
+    assert "-> cinematic photoreal" not in guide
+
+
+def test_interactive_reviser_carries_the_shared_rules_and_inputs():
+    from interactive_creative import prompts as ic_prompts
+
+    instr = ic_prompts.VISUAL_CONCEPT_REVISER_INSTR
+    assert prompts.VISUAL_CONCEPT_RULES in instr
+    for token in (
+        "{creative_brief_md?}",
+        "{ad_copy_critique?}",
+        "{brand_colors?}",
+        "{visual_avoid?}",
+        "{target_product}",
+    ):
+        assert token in instr, token
+    for token in _TOKEN.findall(instr):
+        assert re.fullmatch(r"[A-Za-z_]\w*\??", token), token
+    assert instr.rstrip().endswith(
+        "schema (a `visual_concepts` list).**\n    </OUTPUT_FORMAT>"
+    )
+
+
+@pytest.mark.parametrize("name", VISUAL_PROMPTS)
+def test_style_preference_exception_reads_the_same_everywhere(name):
+    # The 4-distinct-families rule and a user style preference never conflict:
+    # every visual stage keeps the preferred family and varies the rest.
+    instr = getattr(prompts, name)
+    assert "overrides the shortlist" not in instr
+    if name != "VISUAL_CONCEPT_CRITIC_INSTR":
+        assert "<user_style_preference> is non-empty, keep that family" in instr
+
+
+def test_drafter_pairs_by_original_id_and_counts_any_centred_hero():
+    instr = prompts.VISUAL_CONCEPT_DRAFTER_INSTR
+    assert "Set `ad_copy_id` to the paired ad copy's `original_id`" in instr
+    # concept_guard counts every centred hero, not only product heroes.
+    assert "at most ONE centred hero per set" in instr
+    assert "centred product hero" not in instr
+
+
+def test_visual_style_examples_are_palette_names():
+    from creative_agent.schemas import VisualConcept
+    from creative_agent.style_shortlist import ALL_FAMILIES
+
+    description = VisualConcept.model_fields["visual_style"].description or ""
+    examples = re.findall(r"'([^']+)'", description)
+    assert examples and all(e in ALL_FAMILIES for e in examples), examples

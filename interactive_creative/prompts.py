@@ -10,18 +10,34 @@ deterministically on resume (see runserver.async_runs.merge_visual_concept_edits
 this reviser handles only the natural-language notes.
 """
 
-VISUAL_CONCEPT_REVISER_INSTR = """Role: You are a visual prompt editor applying a user's revision notes to a finalized set of visual concepts, just before the images are rendered.
+# The shared visual concept rules + brief block (creative_agent's concept stage),
+# so a rewritten prompt keeps the brand cue, copy-quoted text and brief limits.
+from creative_agent.prompts import BRIEF_BLOCK, VISUAL_CONCEPT_RULES
+
+VISUAL_CONCEPT_REVISER_INSTR = (
+    """Role: You are a visual prompt editor applying a user's revision notes to a finalized set of visual concepts, just before the images are rendered.
 
     <INSTRUCTIONS>
     1.  Parse the finalized visual concepts from the `final_visual_concepts` input in the <CONTEXT> block. It is a JSON object with a `visual_concepts` list.
     2.  Read the user's revision notes from `visual_revision_notes` in the <CONTEXT> block. Each note refers to a specific concept (by its 0-based index and/or `concept_name`).
-    3.  For EACH note, apply the requested change to the MATCHING concept's `image_generation_prompt` (and, only if the note explicitly asks, its `visual_style` or `aspect_ratio` — a campaign-wide aspect-ratio override, if set, takes precedence at render time). Rewrite the prompt so it fully honours the note while staying a coherent, vivid single-image prompt in that concept's style. Keep the concept's `trend_motif` and `brand_cue` words in the rewritten prompt, and keep its `angle_id`.
+    3.  For EACH note, apply the requested change to the MATCHING concept's `image_generation_prompt` (and, only if the note explicitly asks, its `visual_style` or `aspect_ratio` — a campaign-wide aspect-ratio override, if set, takes precedence at render time). Rewrite the prompt so it fully honours the note while staying a coherent, vivid single-image prompt in that concept's style that still shows {target_product}. Keep the concept's `trend_motif` and `brand_cue` words in the rewritten prompt, and keep its `angle_id`.
+    3b. Every prompt you rewrite must still follow these rules (the user's notes override the brief where they conflict, never the in-image text rule):
+    """
+    + VISUAL_CONCEPT_RULES
+    + """
     4.  Leave every concept the note does NOT mention completely UNCHANGED — same field values, verbatim.
     5.  If `visual_revision_notes` is empty or missing, return the concepts EXACTLY as given, unchanged. If `final_visual_concepts` is empty, output an object whose `visual_concepts` list is empty.
-    6.  Preserve the list order, the count, and every field of each concept. Do NOT drop, add, reorder, or rename concepts.{person_casting_rules?}{timely_rules?}
+    6.  Preserve the list order, the count, and every field of each concept. Do NOT drop, add, reorder, or rename concepts.{person_casting_rules?}{timely_rules?}{rating_limits?}
     </INSTRUCTIONS>
 
     <CONTEXT>
+        <brand>{brand}</brand>
+        <target_product>{target_product}</target_product>
+
+        """
+    + BRIEF_BLOCK
+    + """
+
         <final_visual_concepts>
         {final_visual_concepts?}
         </final_visual_concepts>
@@ -29,12 +45,28 @@ VISUAL_CONCEPT_REVISER_INSTR = """Role: You are a visual prompt editor applying 
         <visual_revision_notes>
         {visual_revision_notes?}
         </visual_revision_notes>
+
+        <ad_copy_critique>
+        {ad_copy_critique?}
+        </ad_copy_critique>
+
+        <user_brand_colors>
+        Optional brand colour palette from the user. When empty, ignore it.
+        {brand_colors?}
+        </user_brand_colors>
+
+        <user_avoid>
+        Optional elements the user wants kept OUT of the imagery. When empty,
+        ignore it.
+        {visual_avoid?}
+        </user_avoid>
     </CONTEXT>
 
     <OUTPUT_FORMAT>
     **CRITICAL RULE: Your entire output MUST be a single, raw JSON object validating against the 'VisualConceptFinalList' schema (a `visual_concepts` list).**
     </OUTPUT_FORMAT>
     """
+)
 
 ROOT_AGENT_INSTR = """**Role:** You are the orchestrator for an interactive ad content generation workflow with human review checkpoints.
 

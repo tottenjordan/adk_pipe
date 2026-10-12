@@ -98,3 +98,25 @@ def test_reviser_rewrites_only_flagged_copies():
     assert "same order with unchanged `original_id`s" in instr
     assert "refresh `brief_checks` on every copy you revise" in instr
     assert "'FinalAdCopyList' schema" in instr
+
+
+def test_reviser_uses_the_cta_limit_from_the_issue():
+    # A weak_cta strictness flag lowers the gate's CTA limit to 6 words, so the
+    # reviser follows the limit stated in the issue instead of a fixed 8.
+    instr = prompts.AD_COPY_REVISER_INSTR
+    assert "within the word limit in its issue (8 by default)" in instr
+    assert "within 8 words" not in instr
+
+
+@pytest.mark.parametrize("name", ["AD_COPY_DRAFTER_INSTR", "AD_COPY_CRITIC_INSTR"])
+def test_drafter_and_critic_state_the_gate_headline_limit(name):
+    from creative_agent.copy_gate import MAX_HEADLINE_CHARS
+
+    assert f"headline within {MAX_HEADLINE_CHARS} characters" in getattr(prompts, name)
+
+
+def test_critic_honours_the_research_feedback_like_the_drafter():
+    block = "<user_research_feedback>"
+    for name in ("AD_COPY_DRAFTER_INSTR", "AD_COPY_CRITIC_INSTR"):
+        instr = getattr(prompts, name)
+        assert block in instr and "{research_feedback?}" in instr, name

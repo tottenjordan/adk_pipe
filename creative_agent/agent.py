@@ -746,10 +746,13 @@ ad_copy_reviser = Agent(
 
 # --- DETERMINISTIC COPY GATE (bounded revision loop) --- #
 # copy_gate runs creative_agent.copy_gate on the critic's final copies:
-# deterministic checks (product named, CTA <= 8 words, headline/caption length,
-# the brief's avoid terms) plus the critic's self-reported failed
-# `proposition`/`mandatories` brief checks (its other failed items are advisory
-# and never gate). Same contract as brief_gate: with issues and revision budget
+# deterministic checks (product named, CTA <= 8 words (6 under the weak_cta
+# rating strictness), headline/caption length, the brief's avoid terms,
+# unsupported absolute claims, and with a timely moment dated/outcome terms in
+# evergreen copies) plus the critic's self-reported failed
+# `proposition`/`mandatories`/`risks` brief checks (and `reason_to_believe`/
+# `trend_bridge` under the off_brief rating strictness; its other failed items
+# are advisory and never gate). Same contract as brief_gate: with issues and revision budget
 # left (config.copy_revision_rounds, env COPY_REVISION_ROUNDS, 0-2) it writes
 # them as a Markdown list grouped per copy (`ad_copy_issues`, the reviser's
 # input), the flagged ids and a pre-revision snapshot (the reviser's safety
@@ -761,7 +764,8 @@ ad_copy_reviser = Agent(
 # revision inputs and also records copy_gate.structural_issues (fewer than 4
 # copies; with a brief, copies missing a gating brief_checks item, as one
 # line): warning-only, never a revision, because the per-copy reviser cannot
-# add a missing copy. Naming the brand counts as naming the product. Avoid
+# add a missing copy. The brand name alone does not name the product (as in the
+# judge's product_named gate). Avoid
 # terms contained in the product name, a non-negative brief mandatory or a
 # Title-Case name in the trend (target_search_trends) are exempt.
 _COPY_REVISION_CLEARED: dict[str, Any] = {
@@ -785,6 +789,7 @@ def _copy_issues(state: Mapping[str, Any]) -> dict[str, list[CopyIssue]]:
             _selling_points(state), brief_mandatories(brief)
         ),
         timely_ok=timely_allowed(state, config.max_timely_concepts),
+        max_timely=config.max_timely_concepts,
     )
 
 

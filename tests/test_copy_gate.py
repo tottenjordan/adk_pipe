@@ -603,11 +603,18 @@ def test_avoid_terms_in_a_trend_name_chunk_are_exempt(avoid, kwargs):
     assert _gate(_copy(body_text=text), avoid=[avoid], **kwargs) == {}
 
 
-def test_product_named_by_a_separately_given_brand():
-    # Copy usually names the brand: brand-only counts as naming the product.
+def test_a_separately_given_brand_alone_does_not_name_the_product():
+    # Aligned with the judge's product_named gate: the brand name alone does
+    # not count as naming the product.
     copy = _copy(body_text="Think different. Only on Apple.", headline="Go")
     assert _gate(copy, target_product="iPhone 16 Pro") != {}
-    assert _gate(copy, target_product="iPhone 16 Pro", brand="Apple") == {}
+    issues = _gate_texts(copy, target_product="iPhone 16 Pro", brand="Apple")
+    assert "product not named" in issues["1"][0]
+
+
+def test_brand_anchored_model_tokens_still_name_the_product():
+    copy = _copy(body_text="Meet the PRS SE CE24.", headline="Go")
+    assert _gate(copy, target_product="SE CE24 Electric Guitar", brand="PRS") == {}
 
 
 def test_packaging_word_alone_does_not_name_the_product():

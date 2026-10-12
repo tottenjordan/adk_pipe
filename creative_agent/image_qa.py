@@ -75,8 +75,9 @@ class ImageQAResult(BaseModel):
     )
     motif_visible: bool = Field(
         description=(
-            "The trend motif is visible (for an abstract motif, true if the "
-            "depiction the prompt describes is present)."
+            "The trend motif is prominent and recognisable at a glance, not "
+            "tiny or only in the background (for an abstract motif, true if "
+            "the depiction the prompt describes is present and prominent)."
         )
     )
     brand_cue_visible: bool | None = Field(
@@ -209,7 +210,11 @@ def _text_required(result: ImageQAResult, concept: dict[str, Any]) -> bool:
 # (attribute, rule name, correction phrase) per check, in report order.
 _RULES: tuple[tuple[str, str, str], ...] = (
     ("product_visible", "product not visible", "show the product recognisably"),
-    ("motif_visible", "trend motif not visible", "show the trend motif clearly"),
+    (
+        "motif_visible",
+        "trend motif not visible",
+        "show the trend motif large and prominent",
+    ),
     (
         "product_malformed",
         "malformed product",
@@ -398,9 +403,9 @@ PROMINENT_PRODUCT_RULE = (
     "clearly in the foreground, not small, distant or mostly hidden."
 )
 PROMINENT_MOTIF_RULE = (
-    "The trend motif must be prominent: this brand's reviewers often found the "
-    "trend unclear, so motif_visible is true only when the motif is clearly "
-    "visible and easy to spot, not small or incidental in the background."
+    "Be strict about the trend motif: this brand's reviewers often found the "
+    "trend unclear, so when in doubt whether the motif is easy to spot, set "
+    "motif_visible false."
 )
 
 
@@ -445,9 +450,11 @@ def _instruction(
     """The QA instruction for one concept (what to check, what was promised).
 
     ``strictness`` (the run's ``rating_strictness`` flags; default none) only
-    raises the bar: ``product_not_visible`` / ``trend_unclear`` ask for a
-    *prominent* product / motif. ``qa_failed_rules`` is unchanged — the
-    stricter verdict simply arrives as ``product_visible`` / ``motif_visible``.
+    raises the bar: ``product_not_visible`` asks for a *prominent* product,
+    ``trend_unclear`` for a stricter motif verdict (the motif must always be
+    prominent, like the judge's ``trend_motif_visible`` gate).
+    ``qa_failed_rules`` is unchanged — the stricter verdict simply arrives as
+    ``product_visible`` / ``motif_visible``.
     """
     prompt = " ".join((concept.get("image_generation_prompt") or "").split())
     motif = (concept.get("trend_motif") or "").strip()
@@ -473,9 +480,11 @@ def _instruction(
         lines.append("No specific product: set product_visible true.")
     if motif:
         lines.append(
-            f"Trend motif: {motif}. motif_visible is true when it is visible; "
-            "for an abstract motif, true if the depiction described above is "
-            "present."
+            f"Trend motif: {motif}. motif_visible is true only when it is "
+            "prominent and recognisable at a glance as the trend (in the "
+            "foreground or a large share of the frame), not tiny, generic or "
+            "only in the background; for an abstract motif, true if the "
+            "depiction described above is present and prominent."
         )
         if "trend_unclear" in strictness:
             lines.append(PROMINENT_MOTIF_RULE)

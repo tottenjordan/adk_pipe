@@ -100,7 +100,19 @@ def test_evergreen_concept_with_temporal_terms_is_flagged():
     assert text.startswith(
         "evergreen concept mentions a dated or outcome term (won, tonight)"
     )
-    assert "make this the timely concept" in text
+    # Its paired copy is evergreen: making it timely would only trade this
+    # issue for the pairing one, so the fix offered is removing the term.
+    assert "make this the timely concept" not in text
+    assert text.endswith("remove it.")
+
+
+def test_evergreen_concept_offers_the_timely_option_only_with_a_timely_copy():
+    concepts = [_concept(1, "Rocket Skates after they won tonight in a dust cloud.")]
+    (text,) = _texts(concept_issues(concepts, _TIMELY_COPIES, timely_ok=True), "1")
+    assert text.endswith("remove it or make this the timely concept.")
+    # Unpaired (no copies to pair with): only removing the term is viable.
+    (text,) = _texts(concept_issues(concepts, None, timely_ok=True), "1")
+    assert text.endswith("remove it.")
 
 
 def test_evergreen_headline_is_checked_too():
@@ -148,6 +160,25 @@ def test_evergreen_copy_with_temporal_terms_is_flagged():
     assert issue.text.startswith(
         "evergreen copy mentions a dated or outcome term (tomorrow, kickoff)"
     )
+
+
+def test_copy_offers_the_timely_option_only_while_the_cap_has_room():
+    dated = _copy(2, body_text="Rocket Skates, ready for tomorrow's kickoff.")
+    timely = _copy(1, headline="Big game tomorrow", uses_trend_state=True)
+    # No timely copy yet: making this one timely is viable.
+    (issue,) = gate_copies([dated], target_product="Rocket Skates", timely_ok=True)["2"]
+    assert issue.text.endswith("remove it or make this the timely copy.")
+    # The cap (1 by default) is already full: only removing the term is.
+    issues = gate_copies(
+        [timely, dated], target_product="Rocket Skates", timely_ok=True
+    )
+    (issue,) = issues["2"]
+    assert issue.text.endswith("remove it.")
+    # A larger cap leaves room again.
+    issues = gate_copies(
+        [timely, dated], target_product="Rocket Skates", timely_ok=True, max_timely=2
+    )
+    assert issues["2"][0].text.endswith("make this the timely copy.")
 
 
 def test_copy_idioms_and_no_moment_pass():

@@ -131,6 +131,7 @@ __all__ = [
     "format_rating_signals",
     "strictness_flags",
     "strictness_limits",
+    "strictness_limits_rule",
 ]
 
 
@@ -311,6 +312,21 @@ def strictness_limits(strictness: Iterable[str]) -> str:
     if not flags:
         return ""
     return " ".join([LIMITS_LEAD, *(STRICTNESS_LIMITS[f] for f in flags)])
+
+
+def strictness_limits_rule(strictness: Iterable[str]) -> str:
+    """The run's stricter limits as a prompt rule for state ``rating_limits``.
+
+    Spliced at the end of the last instruction line of the ad copy critic /
+    reviser and the visual drafter / critic / finalizer / fixer (and
+    interactive's reviser) as ``{rating_limits?}``, like ``timely_rules``:
+    ``""`` without a known flag, so their instructions are then unchanged.
+    Brace-free.
+    """
+    flags = strictness_flags(list(strictness))
+    if not flags:
+        return ""
+    return f"\n\n    **{LIMITS_LEAD}** " + " ".join(STRICTNESS_LIMITS[f] for f in flags)
 
 
 def format_rating_signals(
