@@ -5,7 +5,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 export interface ArtifactData {
   name: string;
-  data: unknown;
 }
 
 function NameList({ items, kind }: { items: ArtifactData[]; kind?: string }) {

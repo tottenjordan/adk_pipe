@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback, useMemo, useRef, use } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { buttonVariants } from "@/components/ui/button";
-import { getSession, listArtifacts, getArtifact, SELF_USER_ID } from "@/lib/api";
+import { getSession, listArtifacts, SELF_USER_ID } from "@/lib/api";
 import { fetchEvalReport } from "@/lib/eval-report";
 import { gcsProxyUrl } from "@/lib/gcs";
 import { classifyWarnings } from "@/lib/run-warnings";
@@ -87,7 +87,9 @@ export default function ResultsPage({
   // results page opens before the run's final write lands. fetchEvalReport retries on
   // 404 and reports "pending" so the UI can offer a refresh instead of silently
   // showing nothing (see lib/eval-report.ts).
-  const loadEval = useCallback(async (sess: Session) => {
+  // `isCancelled` lets the load effect drop the result after unmount (the
+  // refresh button passes nothing: it always applies).
+  const loadEval = useCallback(async (sess: Session, isCancelled: () => boolean = () => false) => {
     const folder = sess.state?.gcs_folder as string;
     const subdir = sess.state?.agent_output_dir as string;
     const bucket =
@@ -99,6 +101,7 @@ export default function ResultsPage({
     setEvalStatus("loading");
     const evalUrl = gcsProxyUrl(bucket, `${folder}/${subdir}/creative_eval_report.json`);
     const result = await fetchEvalReport<EvalReport>(evalUrl);
+    if (isCancelled()) return;
     if (result.status === "found") {
       setEvalReport(result.report);
       setEvalStatus("idle");
@@ -108,33 +111,28 @@ export default function ResultsPage({
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
+    const isCancelled = () => cancelled;
     async function load() {
       try {
         const [sess, artifactNames] = await Promise.all([
           getSession(appName, userId, sessionId),
           listArtifacts(appName, userId, sessionId),
         ]);
+        if (cancelled) return;
         setSession(sess);
-
-        const loaded = await Promise.all(
-          artifactNames.map(async (name) => {
-            try {
-              const data = await getArtifact(appName, userId, sessionId, name);
-              return { name, data };
-            } catch {
-              return { name, data: null };
-            }
-          })
-        );
-        setArtifacts(loaded);
+        // Names only: the panel lists them and image previews load from GCS, so
+        // downloading every artifact's payload here would only delay the page.
+        setArtifacts(artifactNames.map((name) => ({ name })));
         setLoading(false);
 
         // A run that stopped early never writes its eval report, so don't poll
         // for it (that would show "still being written" for a report that won't
         // come). Otherwise fetch it, retrying on 404 for the last-written race.
         if (sessionStoppedEarly(appName, sess.state ?? {}, sess.events ?? [])) return;
-        await loadEval(sess);
+        await loadEval(sess, isCancelled);
       } catch (err) {
+        if (cancelled) return;
         setError(
           err instanceof Error ? err.message : "Failed to load results"
         );
@@ -142,6 +140,9 @@ export default function ResultsPage({
       }
     }
     load();
+    return () => {
+      cancelled = true;
+    };
   }, [appName, userId, sessionId, loadEval]);
 
   const state = session?.state || EMPTY_STATE;
