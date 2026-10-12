@@ -138,3 +138,14 @@ F and I edit different README sections. Nothing else is shared.
   - Optional: a real batch run (one `max_rows: 1` trigger, costs one creative run).
 - **H:** the second local build is fully `CACHED`; a cross-checkout Cloud Build hits the web cache.
 - **I:** two same-commit builds give byte-identical api, web, crf and bandit digests.
+
+---
+
+## Outcome (2026-10-12)
+
+| PR | Result |
+|---|---|
+| F #358 | Merged. Engine builds use the default machine; verify at the next engine deploy (queue ≈ 0 s instead of ~50 s). |
+| G #360 | Merged + deployed (worker `creative-worker-crf-00018-bip`, orchestrator `creative-trawler-crf-00015-ruk`; probes handled, only the image changed). CRF image 778 → 340 MB uncompressed, 176 → 76 MB compressed. A NULL campaign string is now sent as JSON `null` instead of `NaN`. |
+| H #359 | Merged. Locally, changing `tsconfig.tsbuildinfo` / `next-env.d.ts` leaves `COPY . .` and `npm run build` cached (before: a full ~40–80 s `next build`). |
+| I #361 | **Closed, not merged.** `rewrite-timestamp=true` + `SOURCE_DATE_EPOCH` did make same-source digests identical for all four images, but every warm build then re-pulls and recompresses our own layers: app no-op ~30 s → 71–83 s, bandit ~17 s → 47–72 s. A per-commit `SOURCE_DATE_EPOCH` also enters BuildKit's cache keys and turns every commit into a cold build. The digest drift it fixed is cosmetic (unchanged code is simply not redeployed), so the faster builds win. Don't retry without a cheaper mechanism. |
