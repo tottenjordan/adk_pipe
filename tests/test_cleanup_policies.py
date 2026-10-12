@@ -258,3 +258,55 @@ def test_policy_comparison_handles_api_shape():
     lifecycle = r.normalise_lifecycle(_load("gcs-run-sources.json"))
     assert r.compare(lifecycle, lifecycle) == "same"
     assert r.compare(lifecycle, r.normalise_lifecycle(None)) == "empty"
+
+
+def _described(policy: list[dict]) -> dict:
+    """A policy file -> the ``describe`` ``cleanupPolicies`` map shape."""
+    return {rule["name"]: {"id": rule["name"], **rule} for rule in policy}
+
+
+def test_ar_verdict_no_current_policies_applies():
+    r = _retention()
+    wanted = r.normalise_ar(_load("ar-cpr.json"))
+    assert r.ar_verdict(wanted, r.normalise_ar(None)) == "empty"
+    assert r.ar_verdict(wanted, r.normalise_ar({})) == "empty"
+
+
+def test_ar_verdict_identical_is_same():
+    r = _retention()
+    policy = _load("ar-cpr.json")
+    wanted = r.normalise_ar(policy)
+    assert r.ar_verdict(wanted, r.normalise_ar(_described(policy))) == "same"
+
+
+def test_ar_verdict_all_owned_but_different_is_ours_with_diff():
+    r = _retention()
+    policy = _load("ar-cloud-run-source-deploy.json")
+    wanted = r.normalise_ar(policy)
+    # Today's live state: our own rules before a package was added to the file.
+    old = json.loads(json.dumps(policy))
+    for rule in old:
+        cond = rule.get("condition") or rule["mostRecentVersions"]
+        cond["packageNamePrefixes"].remove("creative-fanout-crf")
+    current = r.normalise_ar(_described(old))
+    assert r.ar_verdict(wanted, current) == "ours"
+    diff = r.ar_diff(wanted, current)
+    assert any(line.startswith("- ") for line in diff)
+    assert any(line.startswith("+ ") and "creative-fanout-crf" in line for line in diff)
+    assert r.ar_diff(wanted, wanted) == []
+
+
+def test_ar_verdict_foreign_policy_refuses():
+    r = _retention()
+    policy = _load("ar-cpr.json")
+    wanted = r.normalise_ar(policy)
+    foreign = {
+        "id": "omnimash-keep-3",
+        "action": "KEEP",
+        "mostRecentVersions": {"packageNamePrefixes": ["omnimash"], "keepCount": 3},
+    }
+    # Alongside ours (identical) or alone: any non-tt- name refuses.
+    described = {**_described(policy), "omnimash-keep-3": foreign}
+    assert r.ar_verdict(wanted, r.normalise_ar(described)) == "differs"
+    alone = {"omnimash-keep-3": foreign}
+    assert r.ar_verdict(wanted, r.normalise_ar(alone)) == "differs"

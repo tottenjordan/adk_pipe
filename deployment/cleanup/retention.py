@@ -11,8 +11,11 @@ Subcommands (all print to stdout):
 - ``ar-preview POLICY PACKAGE VERSIONS_JSON LIVE_DIGESTS_FILE``: deletion candidates for one
   package; exits 3 when a live digest is a candidate.
 - ``gcs-preview AGE_DAYS LS_FILE``: count/bytes of listed objects older than AGE_DAYS.
-- ``ar-same POLICY DESCRIBE_JSON`` / ``gcs-same LIFECYCLE DESCRIBE_JSON``: prints
-  ``same`` / ``empty`` / ``differs``.
+- ``ar-same POLICY DESCRIBE_JSON``: prints ``same`` / ``empty`` / ``ours`` (every current
+  policy is ours, ``tt-``-prefixed, but they differ: safe to replace) / ``differs`` (some
+  current policy is not ours: refuse).
+- ``ar-diff POLICY DESCRIBE_JSON``: the rules only in the repo (``-``) / only in the file (``+``).
+- ``gcs-same LIFECYCLE DESCRIBE_JSON``: prints ``same`` / ``empty`` / ``differs``.
 """
 
 from __future__ import annotations
@@ -25,6 +28,9 @@ from pathlib import Path
 
 _UNIT_SECONDS = {"s": 1, "m": 60, "h": 3600, "d": 86400}
 LIVE_DIGEST_EXIT = 3
+# Every cleanup policy name in this folder starts with it; anything else in a shared repo
+# belongs to another team and must never be replaced.
+OWNED_POLICY_PREFIX = "tt-"
 
 
 def duration_seconds(value: str) -> int:
@@ -154,6 +160,24 @@ def compare(wanted, current) -> str:
     return "same" if wanted == current else "differs"
 
 
+def ar_verdict(wanted: list[tuple], current: list[tuple]) -> str:
+    """``compare`` for normalised AR policies, plus ``ours`` when they differ but every
+    current policy name is ``tt-``-prefixed (ours, so replacing them loses nothing)."""
+    verdict = compare(wanted, current)
+    if verdict == "differs" and all(
+        str(rule[0] or "").startswith(OWNED_POLICY_PREFIX) for rule in current
+    ):
+        return "ours"
+    return verdict
+
+
+def ar_diff(wanted: list[tuple], current: list[tuple]) -> list[str]:
+    """Normalised rules only in the repo (``- ``) or only in the file (``+ ``)."""
+    return [f"- {rule!r}" for rule in current if rule not in wanted] + [
+        f"+ {rule!r}" for rule in wanted if rule not in current
+    ]
+
+
 def _human(n: float) -> str:
     for unit in ("B", "KiB", "MiB", "GiB"):
         if n < 1024:
@@ -194,10 +218,14 @@ def main(argv: list[str]) -> int:
             Path(args[1]).read_text(), int(args[0]), now
         )
         print(f"    {total} objects; older than {args[0]}d: {count} ({_human(size)})")
-    elif cmd == "ar-same":
+    elif cmd in ("ar-same", "ar-diff"):
         wanted = normalise_ar(json.loads(Path(args[0]).read_text()))
-        current = json.loads(Path(args[1]).read_text() or "{}") or {}
-        print(compare(wanted, normalise_ar(current.get("cleanupPolicies"))))
+        described = json.loads(Path(args[1]).read_text() or "{}") or {}
+        current = normalise_ar(described.get("cleanupPolicies"))
+        if cmd == "ar-same":
+            print(ar_verdict(wanted, current))
+        else:
+            print("\n".join(ar_diff(wanted, current)))
     elif cmd == "gcs-same":
         wanted = normalise_lifecycle(json.loads(Path(args[0]).read_text()))
         current = json.loads(Path(args[1]).read_text() or "{}") or {}

@@ -2208,10 +2208,13 @@ sample digests), and lists the digests Cloud Run serves (every traffic-receiving
 ready revision of `trend-trawler-api` / `-web` / `-share`, `creative-trawler-crf`,
 `creative-worker-crf`), the `trend-trawler-bandit-traffic` job's image and the api's
 `BANDIT_SERVING_IMAGE`, and **fails** (exit 3) if any of them is a deletion candidate.
-`--apply` runs the same preview first, then refuses (exit 4) when a repo already has
-cleanup policies, or a bucket a lifecycle, that differ from the file:
-`set-cleanup-policies` and `--lifecycle-file` both **replace** the whole configuration, so
-merge the existing rules into the file by hand and re-run. Each `gcloud` command is echoed
+`--apply` runs the same preview first. `set-cleanup-policies` and `--lifecycle-file` both
+**replace** the whole configuration, so it refuses (exit 4) when a repo has a cleanup policy
+that is not ours (name not `tt-`-prefixed, i.e. another team's rule in the shared repo) and
+the policies differ from the file, or when a bucket has a lifecycle that differs from the
+file (lifecycle rules have no names): merge the existing rules into the file by hand and
+re-run. A repo whose current policies are all `tt-*` but differ (e.g. after adding a package
+to our file) is updated, with the rule diff printed first. Each `gcloud` command is echoed
 before it runs.
 
 **Registry** (Artifact Registry; Keep wins over Delete, and AR never deletes a manifest a
