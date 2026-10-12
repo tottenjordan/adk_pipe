@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/select";
 import { LearnFromRatingsToggle } from "@/components/learn-from-ratings-toggle";
 import { PersonSelect } from "@/components/person-select";
+import { SENSITIVE_TREND_ADVICE } from "@/components/sensitive-chip";
 import { RunList, useRunHistory } from "@/components/run-list";
 import { createSession, SELF_USER_ID } from "@/lib/api";
 import { AGENTS, isAgentId, isCreativeAgent, submitLabel } from "@/lib/agents";
@@ -23,6 +24,7 @@ import { isFormValid } from "@/lib/form-validation";
 import { buildInitialState } from "@/lib/initial-state";
 import { MAX_REFERENCE_IMAGES, invalidReferenceUris, isReferenceUri } from "@/lib/reference-images";
 import { takeDuplicateBrief, type Brief, type RunRow } from "@/lib/run-history";
+import { contextSensitivity } from "@/lib/trend-flags";
 import type { CampaignInput, ReferenceImageInput, ReferenceRowInput } from "@/lib/types";
 import {
   BRAND_PRESETS,
@@ -292,6 +294,9 @@ function HomeContent() {
   };
 
   const prefilledTrend = searchParams.get("targetSearchTrend");
+  // trend_scout flagged the carried-over trend as a sensitive event (cleared
+  // with the context when the trend is edited).
+  const sensitivity = contextSensitivity(form.trendContext);
   const recentRows = history.rows.slice(0, RECENT_RUNS);
 
   return (
@@ -320,6 +325,16 @@ function HomeContent() {
                 scout run.
               </>
             )}
+          </p>
+        )}
+        {isCreative && sensitivity.sensitive && (
+          <p
+            role="alert"
+            className="mb-5 rounded-md border border-mark-pending/40 bg-mark-pending/5 px-3 py-2 text-sm text-foreground"
+          >
+            <strong className="font-semibold">Sensitive trend</strong>
+            {sensitivity.reason ? `: ${sensitivity.reason}. ` : ". "}
+            {SENSITIVE_TREND_ADVICE}
           </p>
         )}
 

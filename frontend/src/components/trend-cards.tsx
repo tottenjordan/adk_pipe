@@ -1,9 +1,12 @@
 "use client";
 
+import { useId, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { FieldLabel } from "@/components/field-label";
+import { SensitiveChip } from "@/components/sensitive-chip";
+import { normalizeTerm, parseJsonObject, parseTrendFlags } from "@/lib/trend-flags";
 
 export interface ParsedTrend {
   term: string;
@@ -63,20 +66,6 @@ export function parseTrendsMarkdown(markdown: string): ParsedTrend[] {
 
 // Mirrors trend_scout/trend_context.py (the BigQuery `trend_context` value).
 const MAX_FIELD_CHARS = 400;
-const FENCE = /^\s*```(?:json)?\s*|\s*```\s*$/gi;
-
-/** Case/space/quote-insensitive key for matching a term to its research. */
-function normTerm(term: unknown): string {
-  if (typeof term !== "string") return "";
-  return term
-    .trim()
-    .replace(/^["'`*[\]]+|["'`*[\]]+$/g, "")
-    .split(/\s+/)
-    .filter(Boolean)
-    .join(" ")
-    .toLowerCase();
-}
-
 /** A single-line, capped string ("" for non-strings). */
 function clean(value: unknown): string {
   if (typeof value !== "string") return "";
@@ -85,20 +74,11 @@ function clean(value: unknown): string {
 
 /** The `analyzed_trends` entry for `term` in `info_gtrends` (JSON string, fenced JSON or object), or {}. */
 function researchItem(term: string, infoGtrends: unknown): Record<string, unknown> {
-  const key = normTerm(term);
-  let data = infoGtrends;
-  if (typeof data === "string") {
-    try {
-      data = JSON.parse(data.replace(FENCE, ""));
-    } catch {
-      return {};
-    }
-  }
-  if (!data || typeof data !== "object" || Array.isArray(data)) return {};
-  const items = (data as { analyzed_trends?: unknown }).analyzed_trends;
+  const key = normalizeTerm(term);
+  const items = parseJsonObject(infoGtrends)?.analyzed_trends;
   if (!key || !Array.isArray(items)) return {};
   for (const item of items) {
-    if (item && typeof item === "object" && normTerm((item as { term?: unknown }).term) === key) {
+    if (item && typeof item === "object" && normalizeTerm((item as { term?: unknown }).term) === key) {
       return item as Record<string, unknown>;
     }
   }
@@ -111,11 +91,17 @@ function researchItem(term: string, infoGtrends: unknown): Record<string, unknow
  * `{context, cultural_angle, event_hint, hook}`, blank fields dropped, "" when
  * all are blank. `cultural_angle` / `event_hint` (and the research `context`)
  * come from the scout run's `info_gtrends` entry whose `term` matches the card;
- * without one only the card's context + hook are sent. Seeded as
+ * without one only the card's context + hook are sent. A term the scout run's
+ * `trend_flags` marks sensitive also gets `sensitive: true` + `sensitive_reason`
+ * (appended, as in the backend; absent otherwise). Seeded as
  * `trend_scout_context`, which the creative agents read only as a hint to
  * re-verify.
  */
-export function trendContextJson(trend: ParsedTrend, infoGtrends?: unknown): string {
+export function trendContextJson(
+  trend: ParsedTrend,
+  infoGtrends?: unknown,
+  trendFlags?: unknown,
+): string {
   const item = researchItem(trend.term, infoGtrends);
   const fields: Record<string, string> = {
     context: clean(item.context) || clean(trend.context),
@@ -123,7 +109,14 @@ export function trendContextJson(trend: ParsedTrend, infoGtrends?: unknown): str
     event_hint: clean(item.event_hint),
     hook: clean(trend.hook),
   };
-  const compact = Object.fromEntries(Object.entries(fields).filter(([, v]) => v));
+  const compact: Record<string, unknown> = Object.fromEntries(
+    Object.entries(fields).filter(([, v]) => v),
+  );
+  const reason = parseTrendFlags(trendFlags).get(normalizeTerm(trend.term));
+  if (reason !== undefined) {
+    compact.sensitive = true;
+    compact.sensitive_reason = clean(reason);
+  }
   return Object.keys(compact).length ? JSON.stringify(compact) : "";
 }
 
@@ -147,7 +140,11 @@ export function trendRunParams(
     keySellingPoints: (campaignState.key_selling_points as string) || "",
     targetSearchTrend: trend.term,
   });
-  const context = trendContextJson(trend, campaignState.info_gtrends);
+  const context = trendContextJson(
+    trend,
+    campaignState.info_gtrends,
+    campaignState.trend_flags,
+  );
   if (context) params.set("trendContext", context);
   const detectedOn = campaignState.current_date;
   if (typeof detectedOn === "string" && detectedOn.trim()) {
@@ -164,6 +161,11 @@ export function TrendCards({
   campaignState: Record<string, unknown>;
 }) {
   const router = useRouter();
+  const idBase = useId();
+  const flags = useMemo(
+    () => parseTrendFlags(campaignState.trend_flags),
+    [campaignState.trend_flags],
+  );
 
   const handleClick = (trend: ParsedTrend) => {
     router.push(`/?${trendRunParams(trend, campaignState).toString()}`);
@@ -178,66 +180,81 @@ export function TrendCards({
         Click a trend to start a creative run with it.
       </p>
       <div className="grid gap-3">
-        {trends.map((trend) => (
-          <div
-            key={trend.term}
-            className="rounded-lg border border-border bg-card cursor-pointer transition-colors hover:border-primary/40"
-            onClick={() => handleClick(trend)}
-          >
-            <div className="p-4">
-              <div className="flex items-center justify-between mb-2">
-                <h4 className="text-sm font-semibold text-foreground">
-                  {trend.term}
-                </h4>
-                <Badge variant="secondary" className="text-xs">
-                  Click to run
-                </Badge>
+        {trends.map((trend, i) => {
+          const reason = flags.get(normalizeTerm(trend.term));
+          const reasonId = `${idBase}-sensitive-${i}`;
+          return (
+            <div
+              key={trend.term}
+              className="rounded-lg border border-border bg-card cursor-pointer transition-colors hover:border-primary/40"
+              onClick={() => handleClick(trend)}
+            >
+              <div className="p-4">
+                <div className="flex items-center justify-between mb-2">
+                  <h4 className="text-sm font-semibold text-foreground">
+                    {trend.term}
+                  </h4>
+                  <div className="flex shrink-0 items-center gap-1.5">
+                    {reason !== undefined && (
+                      <>
+                        <SensitiveChip reason={reason} />
+                        <span id={reasonId} className="sr-only">
+                          {reason ? `Sensitive: ${reason}` : "Sensitive trend"}
+                        </span>
+                      </>
+                    )}
+                    <Badge variant="secondary" className="text-xs">
+                      Click to run
+                    </Badge>
+                  </div>
+                </div>
+                {trend.hook && (
+                  <p className="text-xs font-medium text-foreground mb-2">
+                    {trend.hook}
+                  </p>
+                )}
+                <div className="space-y-1.5 text-xs text-foreground/85">
+                  {trend.context && (
+                    <div>
+                      <span className="font-medium text-muted-foreground">
+                        Context:{" "}
+                      </span>
+                      {trend.context}
+                    </div>
+                  )}
+                  {trend.whyItFits && (
+                    <div>
+                      <span className="font-medium text-muted-foreground">
+                        Why it fits:{" "}
+                      </span>
+                      {trend.whyItFits}
+                    </div>
+                  )}
+                  {trend.strategicBridge && (
+                    <div>
+                      <span className="font-medium text-muted-foreground">
+                        Strategic bridge:{" "}
+                      </span>
+                      {trend.strategicBridge}
+                    </div>
+                  )}
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="mt-3 text-xs"
+                  aria-describedby={reason !== undefined ? reasonId : undefined}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleClick(trend);
+                  }}
+                >
+                  Generate creatives &rarr;
+                </Button>
               </div>
-              {trend.hook && (
-                <p className="text-xs font-medium text-foreground mb-2">
-                  {trend.hook}
-                </p>
-              )}
-              <div className="space-y-1.5 text-xs text-foreground/85">
-                {trend.context && (
-                  <div>
-                    <span className="font-medium text-muted-foreground">
-                      Context:{" "}
-                    </span>
-                    {trend.context}
-                  </div>
-                )}
-                {trend.whyItFits && (
-                  <div>
-                    <span className="font-medium text-muted-foreground">
-                      Why it fits:{" "}
-                    </span>
-                    {trend.whyItFits}
-                  </div>
-                )}
-                {trend.strategicBridge && (
-                  <div>
-                    <span className="font-medium text-muted-foreground">
-                      Strategic bridge:{" "}
-                    </span>
-                    {trend.strategicBridge}
-                  </div>
-                )}
-              </div>
-              <Button
-                size="sm"
-                variant="outline"
-                className="mt-3 text-xs"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleClick(trend);
-                }}
-              >
-                Generate creatives &rarr;
-              </Button>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
