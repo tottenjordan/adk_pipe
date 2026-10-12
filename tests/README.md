@@ -147,6 +147,9 @@ tests/
 ├── test_trend_context.py           # trend_scout/trend_context.py: per-trend context JSON from info_gtrends + selected_gtrends (fenced JSON, markdown fallback, malformed → "")
 ├── test_trend_situation.py         # creative_agent/trend_situation.py: the validator table (upcoming/just-happened ok; no source / unknown src id / outside the window / wrong side of today / no outcome / URL date before the event → unknown; live/sensitive/ongoing/evergreen/low confidence never timely), valid_until, run-timezone dates, tone playbook, one-line moment, prompt tokens
 ├── test_trend_situation_graph.py   # the trend situation branch inside combined_research_pipeline (stub models): grounded draft → validated moment in the brief writer's prompt + compact brief; synthesizer raises → unknown; empty turns exhaust → unknown; disabled → no model call, stale draft cleared
+├── test_timely_rules.py            # MAX_TIMELY_CONCEPTS, build_timely_rules per phase (incl. the loss wording), timely_rules seeded only when timely, {timely_rules?} placement + sha256-pinned byte-identical instructions without it
+├── test_temporal_terms.py          # creative_agent/temporal_terms.py: outcome/date/weekday terms flagged, idioms (win-win, lose weight, 24/7, …) pass
+├── test_timely_guards.py           # enforce_timely_cap / enforce_timely_copy_cap, evergreen temporal-term + pairing issues (only with a timely moment), copy gate write-back, concept guard callback
 ├── test_trend_scout_graph.py        # trend_scout understand_trends graph run end-to-end (stub models)
 ├── test_trend_scout_history.py      # trend_scout root history trim (measured on the real App, stub models): gather/pick AgentTool runs are isolated, the understand_trends NodeTool leaks 2 sub-agent turns + 2 node inputs into the root's final request without drop_other_agent_context, 0 with it; resumed review_trends checkpoint response kept; trim wired before the rate limiter
 ├── test_trend_scout_concurrency.py  # trend_scout GCS-export tools: per-run scratch isolation
@@ -290,6 +293,9 @@ tests/
   `test_trend_situation_graph.py` (branch runs), `test_pipeline_structure.py` (branch graph in
   the START fan-out), `test_config.py::TestTrendStateKnobs`. `conftest.py` keeps the branch
   off (`_trend_state_off`) so other graph tests need not script its two stub models.
+- **Timely slot** — `test_timely_rules.py`, `test_temporal_terms.py`, `test_timely_guards.py`,
+  `test_brief_check.py` (timely angle), `test_brief_render.py` (timely angle + gallery label);
+  frontend `timely-proof.test.tsx`.
 - **Async-job run model** — `test_async_runs.py`: detached kick-off returns immediately,
   `_drive_run` appends a `done`/`error` terminal marker, poll derives status + slices
   events by cursor, and resume re-runs with a `functionResponse` (resetting status to
