@@ -986,6 +986,8 @@ def merge_research_edit(state: dict | None, edits: list | None) -> dict:
             "final_report_with_citations": render_citations(
                 value, state.get("sources") or {}
             ),
+            # Audit marker only (nothing reads it; the root re-saves the PDF
+            # from the resume response's report_edited).
             "research_report_edited": True,
         }
     return {}
@@ -1103,6 +1105,8 @@ def merge_brief_edit(state: dict | None, edits: list | None) -> dict:
             heading=False,
             current_moment=str(state.get("trend_situation_md") or ""),
         ),
+        # Audit marker only (nothing reads it; the root re-saves the PDF from
+        # the resume response's brief_edited).
         "creative_brief_edited": True,
         "creative_brief__issues": None,
     }
