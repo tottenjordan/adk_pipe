@@ -97,7 +97,7 @@ def test_build_step_uses_registry_cache_and_prints_digest():
     assert "--cache-to type=registry,ref=${_BANDIT_IMAGE}:buildcache,mode=max" in script
     assert "--tag ${_BANDIT_IMAGE}:${SHORT_SHA}" in script
     assert "--tag ${_BANDIT_IMAGE}:latest" in script
-    assert "--push" in script and "--metadata-file" in script
+    assert "--metadata-file" in script
     assert 'echo "BANDIT_IMAGE=${_BANDIT_IMAGE}@$$(cat' in script
     assert script.rstrip().split("\n")[-2].strip().startswith("test -s")
     text = CLOUDBUILD.read_text()
@@ -107,7 +107,10 @@ def test_build_step_uses_registry_cache_and_prints_digest():
 def test_substitution_defaults_and_options():
     cfg = _cloudbuild()
     repo = "us-central1-docker.pkg.dev/${PROJECT_ID}/cpr"
-    assert cfg["substitutions"] == {"_BANDIT_IMAGE": f"{repo}/trend-trawler-bandit"}
+    assert cfg["substitutions"] == {
+        "_BANDIT_IMAGE": f"{repo}/trend-trawler-bandit",
+        "_SOURCE_DATE_EPOCH": "0",
+    }
     assert cfg["options"]["dynamicSubstitutions"] is True
     assert cfg["options"]["logging"] == "CLOUD_LOGGING_ONLY"
 
@@ -133,3 +136,12 @@ def test_ignore_file_uploads_only_the_bandit_sources():
     allowed = {ln for ln in lines if ln.startswith("!")}
     assert allowed == {"!/bandit/", "!/bandit_serving/", "!/bandit_traffic/"}
     assert not any("frontend" in ln or ".env" in ln for ln in allowed)
+
+
+def test_build_is_reproducible():
+    """Same commit -> same digest: timestamps clamped to SOURCE_DATE_EPOCH."""
+    script = _steps()["build-bandit"]["args"][-1]
+    assert "--output type=image,push=true,rewrite-timestamp=true" in script
+    assert "--build-arg SOURCE_DATE_EPOCH=${_SOURCE_DATE_EPOCH}" in script
+    assert "--push " not in script and not script.rstrip().endswith("--push")
+    assert "--provenance=false" in script

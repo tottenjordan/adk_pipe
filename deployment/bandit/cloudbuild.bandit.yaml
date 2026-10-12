@@ -7,7 +7,7 @@
 #   gcloud builds submit --region us-central1 \
 #     --config deployment/bandit/cloudbuild.bandit.yaml \
 #     --ignore-file deployment/bandit/bandit.gcloudignore \
-#     --substitutions=SHORT_SHA=$(git rev-parse --short HEAD) .
+#     "--substitutions=^;^SHORT_SHA=$(git rev-parse --short HEAD);_SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)" .
 #
 # The ignore file uploads only bandit/, bandit_serving/ and bandit_traffic/.
 # Pushes <image>:$SHORT_SHA + <image>:latest and prints the digest
@@ -16,9 +16,15 @@
 # api's BANDIT_SERVING_IMAGE to the digest and deploy the job with
 # IMAGE_TAG=$SHORT_SHA deployment/bandit/deploy_traffic_job.sh
 # (docs/bandit/README.md → Build and deploy).
+#
+# Reproducible digests (as in cloudbuild.yaml): `rewrite-timestamp=true` +
+# SOURCE_DATE_EPOCH (the commit time; default "0" since an upload has no .git) clamp
+# layer file mtimes and the image `created` field, so the same commit gives the
+# same digest.
 
 substitutions:
   _BANDIT_IMAGE: us-central1-docker.pkg.dev/${PROJECT_ID}/cpr/trend-trawler-bandit
+  _SOURCE_DATE_EPOCH: "0"
 
 options:
   dynamicSubstitutions: true
@@ -53,7 +59,9 @@ steps:
           --tag ${_BANDIT_IMAGE}:${SHORT_SHA} --tag ${_BANDIT_IMAGE}:latest \
           --cache-from type=registry,ref=${_BANDIT_IMAGE}:buildcache \
           --cache-to type=registry,ref=${_BANDIT_IMAGE}:buildcache,mode=max,image-manifest=true,oci-mediatypes=true \
-          --provenance=false --push \
+          --provenance=false \
+          --output type=image,push=true,rewrite-timestamp=true \
+          --build-arg SOURCE_DATE_EPOCH=${_SOURCE_DATE_EPOCH} \
           --metadata-file /workspace/bandit-meta.json .
         sed -n 's/.*"containerimage.digest": *"\(sha256:[0-9a-f]*\)".*/\1/p' \
           /workspace/bandit-meta.json > /workspace/bandit.digest

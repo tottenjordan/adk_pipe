@@ -162,3 +162,20 @@ def test_upload_filter_keeps_only_the_crf_function_dir():
     assert "!/cloud_functions/creative_fanout/*.py" in lines
     assert "/cloud_functions/" not in lines
     assert "__pycache__/" in lines
+
+
+ROOT_BUILD_STEPS = ("build-api", "build-web", "build-crf")
+REPRODUCIBLE_OUTPUT = "--output type=image,push=true,rewrite-timestamp=true"
+
+
+def test_root_builds_are_reproducible():
+    """Same commit -> same digest: timestamps clamped to SOURCE_DATE_EPOCH."""
+    build = _root_build()
+    assert build["substitutions"]["_SOURCE_DATE_EPOCH"] == "0"
+    for step_id in ROOT_BUILD_STEPS:
+        script = _step(build, step_id)["args"][-1]
+        assert "docker buildx build" in script, step_id
+        assert REPRODUCIBLE_OUTPUT in script, step_id
+        assert "--build-arg SOURCE_DATE_EPOCH=${_SOURCE_DATE_EPOCH}" in script, step_id
+        assert not re.search(r"--push\b", script), step_id
+        assert "--provenance=false" in script, step_id
