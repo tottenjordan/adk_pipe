@@ -104,3 +104,58 @@ def test_failed_reviser_keeps_the_pre_revision_copies_and_clears_inputs():
         "ad_copy_critique": COPIES,
         "ad_copy_user_revision_failed": True,
     }
+
+
+class _State(dict):
+    def to_dict(self) -> dict[str, Any]:
+        return dict(self)
+
+
+def _timely_copy(original_id: int, headline: str) -> dict[str, Any]:
+    return {
+        **_copy(original_id, headline),
+        "uses_trend_state": True,
+        "timely_reason": "game is tomorrow",
+    }
+
+
+def _flags(critique: Any) -> list[bool]:
+    return [bool(c.get("uses_trend_state")) for c in critique["ad_copies"]]
+
+
+def test_revised_copies_get_the_timely_cap_before_residuals():
+    """The user revision can mark more copies timely than MAX_TIMELY_CONCEPTS
+    (default 1): the terminal caps them (first kept) and writes the capped
+    copies back, like creative_agent's copy gate, before re-recording the
+    residual issues."""
+    from interactive_creative.agent import USER_REVISED_KEY, ad_copies_revised
+
+    revised = {"ad_copies": [_timely_copy(1, "Big game"), _timely_copy(2, "Zoom")]}
+    state = _State(
+        ad_copy_critique=revised,
+        trend_situation={"phase": "upcoming", "timely_ok": True},
+    )
+    event = ad_copies_revised(SimpleNamespace(state=state))  # type: ignore[arg-type]
+    delta = event.actions.state_delta
+    assert _flags(delta["ad_copy_critique"]) == [True, False]
+    assert delta[USER_REVISED_KEY] is True
+    assert "ad_copy_critique__issues" in delta
+
+
+def test_revised_copies_lose_timely_flags_without_a_timely_moment():
+    from interactive_creative.agent import ad_copies_revised
+
+    revised = {"ad_copies": [_timely_copy(1, "Big game"), _copy(2, "Zoom")]}
+    event = ad_copies_revised(
+        SimpleNamespace(state=_State(ad_copy_critique=revised))  # type: ignore[arg-type]
+    )
+    assert _flags(event.actions.state_delta["ad_copy_critique"]) == [False, False]
+
+
+def test_revised_copies_within_the_cap_are_not_rewritten():
+    from interactive_creative.agent import ad_copies_revised
+
+    event = ad_copies_revised(
+        SimpleNamespace(state=_State(ad_copy_critique=COPIES))  # type: ignore[arg-type]
+    )
+    assert "ad_copy_critique" not in event.actions.state_delta

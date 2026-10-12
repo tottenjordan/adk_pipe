@@ -813,6 +813,33 @@ def residual_copy_issues(state: Mapping[str, Any]) -> list[str] | None:
     return _residual(state, critique, issues)
 
 
+def cap_and_residual_copies(state: Mapping[str, Any]) -> dict[str, Any]:
+    """The timely copy cap plus the residual, as a state delta (pure).
+
+    What the copy gate's "ok" exit records, without a revision loop: first
+    ``enforce_timely_copy_cap`` (flags beyond MAX_TIMELY_CONCEPTS, or any flag
+    without a timely moment, cleared; the capped ``ad_copy_critique`` is in
+    the delta only when it changed), then ``residual_copy_issues`` on the
+    capped copies as ``ad_copy_critique__issues``. Exported via the facade
+    for interactive_creative's checkpoint-2 user revision.
+    """
+    delta: dict[str, Any] = {}
+    critique = state.get("ad_copy_critique")
+    if is_populated(critique):
+        capped, warns = enforce_timely_copy_cap(
+            critique,
+            timely_ok=timely_allowed(state, config.max_timely_concepts),
+            max_timely=config.max_timely_concepts,
+        )
+        for warning in warns:
+            logging.warning(f"timely copy cap: {warning}")
+        if capped is not critique:
+            delta["ad_copy_critique"] = capped
+            state = {**state, "ad_copy_critique": capped}
+    delta["ad_copy_critique__issues"] = residual_copy_issues(state)
+    return delta
+
+
 def copy_gate_decision(
     state: Mapping[str, Any], max_rounds: int
 ) -> tuple[str, dict[str, Any]]:

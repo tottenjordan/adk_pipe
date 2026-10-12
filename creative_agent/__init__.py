@@ -28,6 +28,7 @@ from .agent import (
     ad_copy_reviser,
     ad_creative_pipeline,
     app,
+    cap_and_residual_copies,
     combined_research_pipeline,
     finalize_pipeline,
     residual_copy_issues,
@@ -60,6 +61,7 @@ __all__ = [
     "user_copy_revision_inputs",
     "parse_ad_copies",
     "residual_copy_issues",
+    "cap_and_residual_copies",
     # shared visual schema + the structured creative brief (downstream contract)
     "VisualConceptFinalList",
     "CreativeBrief",

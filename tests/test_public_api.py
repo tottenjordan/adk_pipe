@@ -87,6 +87,8 @@ def test_facade_all_is_complete_and_importable():
         "visual_generator_resilient",
         "finalize_pipeline",
         "ad_copy_reviser",
+        "residual_copy_issues",
+        "cap_and_residual_copies",
         "VisualConceptFinalList",
         "CreativeBrief",
         "canonical_style",
