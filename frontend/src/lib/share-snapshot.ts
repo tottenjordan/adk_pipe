@@ -11,6 +11,7 @@
  * read `shares/` anyway (IAM condition), so this is defence in depth.
  */
 
+import { GCS_FETCH_TIMEOUT_MS } from "@/lib/fetch-timeout";
 import { getAccessToken } from "@/lib/gcp-auth";
 import { BUCKET_RE } from "@/lib/gcs";
 
@@ -181,6 +182,7 @@ async function gcsGet(token: string, file: string, deps: GcsDeps) {
   return (deps.fetch ?? fetch)(url, {
     headers: { Authorization: `Bearer ${accessToken}` },
     cache: "no-store",
+    signal: AbortSignal.timeout(GCS_FETCH_TIMEOUT_MS),
   });
 }
 

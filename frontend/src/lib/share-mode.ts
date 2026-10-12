@@ -66,6 +66,33 @@ export function decideRoute(
   return "deny";
 }
 
+/**
+ * Security headers on every non-share response of the app (IAP pages, `/api/*`,
+ * static assets): no framing (clickjacking on Revoke / Share), no MIME sniffing, and
+ * no full URL in cross-origin referrers. Set by the Proxy rather than `next.config`
+ * `headers()` so the share routes keep their own stricter set (`no-referrer`, nonce CSP)
+ * instead of getting two conflicting values.
+ */
+export const APP_SECURITY_HEADERS: Readonly<Record<string, string>> = {
+  "X-Frame-Options": "DENY",
+  "X-Content-Type-Options": "nosniff",
+  "Referrer-Policy": "strict-origin-when-cross-origin",
+};
+
+/** CSP for app pages: framing only (a full policy would need a nonce on every page). */
+export const APP_FRAME_CSP = "frame-ancestors 'none'";
+
+/**
+ * The app security headers for `pathname`. `/api/*` gets no CSP: route handlers set
+ * their own (the `/api/gcs` gallery's sandbox CSP) and must not be overridden.
+ */
+export function appSecurityHeaders(pathname: string): Record<string, string> {
+  const isApi = pathname === "/api" || pathname.startsWith("/api/");
+  return isApi
+    ? { ...APP_SECURITY_HEADERS }
+    : { ...APP_SECURITY_HEADERS, "Content-Security-Policy": APP_FRAME_CSP };
+}
+
 /** Response headers on every share route. */
 export const SHARE_PAGE_HEADERS: Readonly<Record<string, string>> = {
   "X-Robots-Tag": "noindex, nofollow",

@@ -24,6 +24,7 @@ import { isFormValid } from "@/lib/form-validation";
 import { buildInitialState } from "@/lib/initial-state";
 import { MAX_REFERENCE_IMAGES, invalidReferenceUris, isReferenceUri } from "@/lib/reference-images";
 import { takeDuplicateBrief, type Brief, type RunRow } from "@/lib/run-history";
+import { sanitizeTrendContext } from "@/lib/trend-context";
 import { contextSensitivity } from "@/lib/trend-flags";
 import type { CampaignInput, ReferenceImageInput, ReferenceRowInput } from "@/lib/types";
 import {
@@ -210,7 +211,8 @@ function HomeContent() {
     const targetProduct = searchParams.get("targetProduct");
     const keySellingPoints = searchParams.get("keySellingPoints");
     const targetSearchTrend = searchParams.get("targetSearchTrend");
-    const trendContext = searchParams.get("trendContext");
+    // A link can carry anything: keep only the allowlisted, capped trend_context shape.
+    const trendContext = sanitizeTrendContext(searchParams.get("trendContext"));
     const trendDetectedOn = searchParams.get("trendDetectedOn");
 
     if (agent || brand || targetSearchTrend) {

@@ -3,6 +3,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { proxy } from "@/proxy";
 import robots from "@/app/robots";
 import {
+  APP_SECURITY_HEADERS,
+  appSecurityHeaders,
   buildShareCsp,
   decideRoute,
   isShareModeEnabled,
@@ -176,6 +178,21 @@ describe("share headers", () => {
   });
 });
 
+describe("appSecurityHeaders", () => {
+  it("frames nothing and sniffs nothing on app pages", () => {
+    expect(appSecurityHeaders("/")).toEqual({
+      ...APP_SECURITY_HEADERS,
+      "Content-Security-Policy": "frame-ancestors 'none'",
+    });
+  });
+
+  it("omits the CSP on /api/* so route handlers keep their own", () => {
+    expect(appSecurityHeaders("/api/adk/list-apps")).toEqual(APP_SECURITY_HEADERS);
+    expect(appSecurityHeaders("/api")).toEqual(APP_SECURITY_HEADERS);
+    expect(appSecurityHeaders("/apiary")["Content-Security-Policy"]).toBe("frame-ancestors 'none'");
+  });
+});
+
 describe("proxy", () => {
   const req = (path: string) => new NextRequest(new URL(path, "https://share.example"));
 
@@ -209,6 +226,35 @@ describe("proxy", () => {
     expect(csp).not.toBe(b.headers.get("Content-Security-Policy"));
     // Next reads the CSP (and so the nonce) from the forwarded request headers.
     expect(a.headers.get("x-middleware-request-content-security-policy")).toBe(csp);
+  });
+
+  it("adds the app security headers to app pages in normal mode", () => {
+    vi.stubEnv("SHARE_MODE", "");
+    for (const p of ["/", "/runs", "/results/abc", "/people"]) {
+      const res = proxy(req(p));
+      expect(res.headers.get("x-middleware-next")).toBe("1");
+      expect(res.headers.get("X-Frame-Options")).toBe("DENY");
+      expect(res.headers.get("Content-Security-Policy")).toBe("frame-ancestors 'none'");
+      expect(res.headers.get("X-Content-Type-Options")).toBe("nosniff");
+      expect(res.headers.get("Referrer-Policy")).toBe("strict-origin-when-cross-origin");
+    }
+  });
+
+  it("leaves a route handler's own CSP alone on /api/* (the gallery's sandbox CSP)", () => {
+    vi.stubEnv("SHARE_MODE", "");
+    const res = proxy(req("/api/gcs?bucket=b&path=x.html"));
+    expect(res.headers.get("Content-Security-Policy")).toBeNull();
+    expect(res.headers.get("X-Frame-Options")).toBe("DENY");
+    expect(res.headers.get("X-Content-Type-Options")).toBe("nosniff");
+  });
+
+  it("keeps the share headers (nonce CSP, no-referrer) on share routes in normal mode", () => {
+    vi.stubEnv("SHARE_MODE", "");
+    const res = proxy(req(`/s/${TOKEN}`));
+    const csp = res.headers.get("Content-Security-Policy") ?? "";
+    expect(csp).toMatch(/'nonce-[A-Za-z0-9+/=]+'/);
+    expect(csp).toContain("frame-ancestors 'none'");
+    expect(res.headers.get("Referrer-Policy")).toBe("no-referrer");
   });
 
   it("robots.txt disallows everything", () => {

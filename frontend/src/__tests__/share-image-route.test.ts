@@ -70,4 +70,17 @@ describe("share image route", () => {
     const res = await call(SHARE_TOKEN, "0");
     expect(res.status).toBe(502);
   });
+
+  it("reads GCS with a timeout signal", async () => {
+    await call(SHARE_TOKEN, "0");
+    for (const [, init] of fetchMock.mock.calls as unknown as [string, RequestInit][]) {
+      expect(init.signal).toBeInstanceOf(AbortSignal);
+    }
+  });
+
+  it("maps a GCS timeout to 504", async () => {
+    fetchMock.mockRejectedValueOnce(Object.assign(new Error("The operation was aborted due to timeout"), { name: "TimeoutError" }));
+    const res = await call(SHARE_TOKEN, "0");
+    expect(res.status).toBe(504);
+  });
 });

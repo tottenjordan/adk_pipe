@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { BACKEND_FETCH_TIMEOUT_MS, isTimeoutError } from "@/lib/fetch-timeout";
 import { getIdentityToken } from "@/lib/gcp-auth";
 import { resolveUser } from "@/lib/iap-identity";
 import { scopeQuery, scopeRequestToUser } from "@/lib/user-scoping";
@@ -19,33 +20,31 @@ export function backendNeedsAuth(base: string): boolean {
   return base.startsWith("https://");
 }
 
-/** Inbound credential headers that must NOT be forwarded to the private backend.
+/** The only inbound request headers forwarded to the private backend (allowlist).
  *
- *  When the frontend is behind IAP, IAP authenticates the user at the edge and injects its
- *  own credentials on the request that reaches this container: `Authorization` (the IAP
- *  JWT, audience = IAP OAuth client ID), the `X-Goog-*` identity headers, and — critically —
- *  `X-Serverless-Authorization`, which Cloud Run's ingress checks *in preference to*
- *  `Authorization`. If any of these reach the backend, Cloud Run verifies the IAP token
- *  (wrong audience) and returns `401 "The access token could not be verified"`, ignoring the
- *  service-account token we set. Stripping them all guarantees the backend sees only our
- *  minted token. The `cookie` (large IAP session cookie) is dropped too — the backend has no
- *  use for it. A client-supplied `x-tt-user` is dropped so only the proxy can assert the
- *  (IAP-verified) user to the backend. */
-export const INBOUND_CREDENTIAL_HEADERS = [
-  "authorization",
-  "x-serverless-authorization",
-  "cookie",
-  "x-goog-iap-jwt-assertion",
-  "x-goog-authenticated-user-email",
-  "x-goog-authenticated-user-id",
-  "x-tt-user",
+ *  Everything else is dropped: IAP's edge credentials (`Authorization` = the IAP JWT,
+ *  `X-Serverless-Authorization`, which Cloud Run ingress checks in preference to
+ *  `Authorization` and would 401 on the wrong audience, the `X-Goog-*` identity headers),
+ *  the IAP session cookie, a client-supplied `x-tt-user`, `Forwarded`/`X-Forwarded-*`, and
+ *  any header the backend or Cloud Run might start trusting later. `authorization` (our
+ *  minted ID token) and `x-tt-user` (the IAP-verified caller) are set explicitly by the
+ *  proxy. The W3C / Cloud trace headers keep request traces joined across the hop. */
+export const FORWARDED_REQUEST_HEADERS = [
+  "content-type",
+  "accept",
+  "traceparent",
+  "tracestate",
+  "x-cloud-trace-context",
 ] as const;
 
-/** Remove every inbound credential header so IAP's edge credentials never leak to the
- *  backend. Mutates and returns `headers`. */
-export function stripInboundCredentials(headers: Headers): Headers {
-  for (const name of INBOUND_CREDENTIAL_HEADERS) headers.delete(name);
-  return headers;
+/** Fresh upstream headers holding only the allowlisted inbound headers. */
+export function upstreamRequestHeaders(inbound: Headers): Headers {
+  const out = new Headers();
+  for (const name of FORWARDED_REQUEST_HEADERS) {
+    const value = inbound.get(name);
+    if (value !== null) out.set(name, value);
+  }
+  return out;
 }
 
 async function proxy(
@@ -54,7 +53,7 @@ async function proxy(
 ): Promise<Response> {
   const { path } = await ctx.params;
 
-  // Resolve the caller from the IAP assertion BEFORE stripInboundCredentials deletes it.
+  // Resolve the caller from the IAP assertion (never forwarded upstream).
   // On Cloud Run a missing/invalid assertion (or unset IAP_ALLOWED_HD) fails closed; locally
   // there is no assertion and the request passes through unscoped.
   const who = await resolveUser(request.headers, {
@@ -63,18 +62,18 @@ async function proxy(
   });
   if (who.kind === "reject") return new Response("Unauthenticated", { status: who.status });
 
-  const headers = new Headers(request.headers);
-  headers.delete("host");
-  headers.delete("connection");
-  headers.delete("content-length");
-
-  // Drop IAP's edge-injected credentials so only our minted token reaches the backend
-  // (see INBOUND_CREDENTIAL_HEADERS for why — X-Serverless-Authorization is the key one).
-  stripInboundCredentials(headers);
+  // Allowlist only: IAP's edge credentials and any client-spoofed header never reach the
+  // backend (see FORWARDED_REQUEST_HEADERS).
+  const headers = upstreamRequestHeaders(request.headers);
 
   const audience = new URL(BACKEND).origin;
   if (backendNeedsAuth(BACKEND)) {
-    const token = await getIdentityToken(audience);
+    let token = "";
+    try {
+      token = await getIdentityToken(audience);
+    } catch (err) {
+      console.error("/api/adk: could not mint a backend identity token", err);
+    }
     // Never forward a request to a private backend without a real token — that surfaces as
     // an opaque backend 401. Fail fast with a clear signal instead.
     if (!token) {
@@ -113,8 +112,15 @@ async function proxy(
     headers,
     body: upstreamBody,
     redirect: "manual",
+    signal: AbortSignal.timeout(BACKEND_FETCH_TIMEOUT_MS),
   };
-  const upstream = await fetch(target, init);
+  let upstream: Response;
+  try {
+    upstream = await fetch(target, init);
+  } catch (err) {
+    if (isTimeoutError(err)) return new Response("Backend timed out", { status: 504 });
+    throw err;
+  }
 
   // Strip hop-by-hop / length headers that would conflict with the proxied body.
   const respHeaders = new Headers(upstream.headers);

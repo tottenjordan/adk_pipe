@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { FieldLabel } from "@/components/field-label";
 import { SensitiveChip } from "@/components/sensitive-chip";
 import { normalizeTerm, parseJsonObject, parseTrendFlags } from "@/lib/trend-flags";
+import { cleanTrendField } from "@/lib/trend-context";
 
 export interface ParsedTrend {
   term: string;
@@ -64,14 +65,6 @@ export function parseTrendsMarkdown(markdown: string): ParsedTrend[] {
   return trends;
 }
 
-// Mirrors trend_scout/trend_context.py (the BigQuery `trend_context` value).
-const MAX_FIELD_CHARS = 400;
-/** A single-line, capped string ("" for non-strings). */
-function clean(value: unknown): string {
-  if (typeof value !== "string") return "";
-  return value.split(/\s+/).filter(Boolean).join(" ").slice(0, MAX_FIELD_CHARS).trimEnd();
-}
-
 /** The `analyzed_trends` entry for `term` in `info_gtrends` (JSON string, fenced JSON or object), or {}. */
 function researchItem(term: string, infoGtrends: unknown): Record<string, unknown> {
   const key = normalizeTerm(term);
@@ -104,10 +97,10 @@ export function trendContextJson(
 ): string {
   const item = researchItem(trend.term, infoGtrends);
   const fields: Record<string, string> = {
-    context: clean(item.context) || clean(trend.context),
-    cultural_angle: clean(item.cultural_angle),
-    event_hint: clean(item.event_hint),
-    hook: clean(trend.hook),
+    context: cleanTrendField(item.context) || cleanTrendField(trend.context),
+    cultural_angle: cleanTrendField(item.cultural_angle),
+    event_hint: cleanTrendField(item.event_hint),
+    hook: cleanTrendField(trend.hook),
   };
   const compact: Record<string, unknown> = Object.fromEntries(
     Object.entries(fields).filter(([, v]) => v),
@@ -115,7 +108,7 @@ export function trendContextJson(
   const reason = parseTrendFlags(trendFlags).get(normalizeTerm(trend.term));
   if (reason !== undefined) {
     compact.sensitive = true;
-    compact.sensitive_reason = clean(reason);
+    compact.sensitive_reason = cleanTrendField(reason);
   }
   return Object.keys(compact).length ? JSON.stringify(compact) : "";
 }
