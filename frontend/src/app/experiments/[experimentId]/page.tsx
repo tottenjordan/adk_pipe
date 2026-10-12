@@ -183,14 +183,18 @@ export default function ExperimentPage({
     },
     [experimentId, fetchRun]
   );
-  // A different run: drop the previous run's numbers rather than show them under the new label.
-  useEffect(() => {
+  // A different run: drop the previous run's numbers rather than show them under the new label
+  // (reset while rendering, React's "storing information from previous renders" pattern).
+  const [metricsRun, setMetricsRun] = useState(fetchRun);
+  if (metricsRun !== fetchRun) {
+    setMetricsRun(fetchRun);
     setMetrics(null);
     setSeries(null);
-  }, [fetchRun]);
+  }
   useEffect(() => {
     if (!status) return;
     const ctrl = new AbortController();
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- false positive: loadMetrics is an async fetch that only sets state after its await
     loadMetrics(ctrl.signal);
     const t =
       status === "running_traffic"

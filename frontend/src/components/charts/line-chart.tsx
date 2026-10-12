@@ -79,7 +79,7 @@ const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v
 export function LineChart({
   title,
   description,
-  series,
+  series: allSeries,
   xLabel,
   yLabel,
   logX = false,
@@ -97,13 +97,14 @@ export function LineChart({
   const uid = useId();
   // Points before `minX` (e.g. rounds before the first posterior update) are pure
   // noise on a cumulative average, so they are not drawn at all.
-  if (minX !== undefined) {
-    series = series.map((s) => ({
-      ...s,
-      points: s.points.filter((p) => p.x >= minX),
-      band: s.band?.filter((b) => b.x >= minX),
-    }));
-  }
+  const series =
+    minX === undefined
+      ? allSeries
+      : allSeries.map((s) => ({
+          ...s,
+          points: s.points.filter((p) => p.x >= minX),
+          band: s.band?.filter((b) => b.x >= minX),
+        }));
   const [hidden, setHidden] = useState<Set<string>>(new Set());
   const [hoverX, setHoverX] = useState<number | null>(null);
 

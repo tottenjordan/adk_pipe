@@ -199,7 +199,11 @@ function HomeContent() {
   };
 
   // Pre-fill from URL params (when clicking a trend card on a trend_scout run).
-  useEffect(() => {
+  // Applied while rendering whenever the params change (React's "storing
+  // information from previous renders" pattern), not in an effect.
+  const [prefilledFrom, setPrefilledFrom] = useState<typeof searchParams | null>(null);
+  if (prefilledFrom !== searchParams) {
+    setPrefilledFrom(searchParams);
     const agent = searchParams.get("agent");
     const brand = searchParams.get("brand");
     const targetAudience = searchParams.get("targetAudience");
@@ -222,12 +226,13 @@ function HomeContent() {
         ...(targetSearchTrend && trendDetectedOn && { trendDetectedOn }),
       }));
     }
-  }, [searchParams]);
+  }
 
   // Pre-fill from a "Duplicate brief" on the Runs page (one-shot sessionStorage
   // hand-off: the brief carries visual-direction fields too long for a URL).
   useEffect(() => {
     const brief = takeDuplicateBrief();
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- sessionStorage is client-only and read after hydration (a render-time read would mismatch the server HTML)
     if (brief) applyBrief(brief);
   }, []);
 
