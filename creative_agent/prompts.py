@@ -7,6 +7,7 @@ from agent_common.clock import DATE_CONTEXT_LINE
 
 from .claims import ABSOLUTE_CLAIM_TERMS
 from .config import PHOTOGRAPHIC_PERSON_STYLES, config
+from .temporal_terms import TEMPORAL_TERMS
 from .trend_situation import as_situation, moment_phrase
 
 # A prompting "grammar" for the
@@ -921,8 +922,10 @@ def build_timely_rules(situation: Any, max_timely: int) -> str:
         'include both sides, use neutral "big game" framing. Never use team or '
         "league logos, wordmarks, mascots, player names or likenesses, and never "
         "imply sponsorship or endorsement."
-        "\n    *   Every other creative stays evergreen: no dates, scores, results "
-        "or words like tonight, tomorrow, yesterday, won or lost."
+        "\n    *   Every other creative stays evergreen: no dates (e.g. Oct 12 or "
+        "10/12), weekday names, scores or results, and none of these words: "
+        + ", ".join(TEMPORAL_TERMS)
+        + "."
         "\n    *   When critiquing, fixing or revising, keep `uses_trend_state` "
         "and `timely_reason` unchanged unless you fix a timely-rule violation."
     )

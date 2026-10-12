@@ -102,6 +102,19 @@ def test_rules_for_an_upcoming_moment():
     assert "{" not in rules and "}" not in rules
 
 
+def test_evergreen_rule_lists_every_term_the_gates_check():
+    # The copy gate and concept guard flag an evergreen creative with any
+    # temporal_terms hit, so the rule names the whole lexicon (+ dates and
+    # weekday names), not a sample.
+    from creative_agent.temporal_terms import TEMPORAL_TERMS
+
+    rules = prompts.build_timely_rules(_situation(UPCOMING), 1)
+    evergreen = next(line for line in rules.split("\n") if "stays evergreen" in line)
+    for term in TEMPORAL_TERMS:
+        assert re.search(rf"(?<![\w-]){re.escape(term)}(?![\w-])", evergreen), term
+    assert "weekday names" in evergreen and "dates" in evergreen
+
+
 def test_rules_for_a_loss_use_the_empathy_playbook():
     rules = prompts.build_timely_rules(_situation(LOSS), 2)
     assert "At most 2 of the 4" in rules
