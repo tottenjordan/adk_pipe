@@ -659,39 +659,41 @@ def test_ad_agents_receive_the_brief_before_the_report(monkeypatch):
         assert "'single_minded_proposition':" not in prompt, name
 
 
-def _fake_generate_image(tool_context) -> dict:
-    """Stands in for creative_agent.tools.generate_image (same name + flag)."""
+async def _fake_generate_image(tool_context) -> dict:
+    """Stands in for creative_agent.image_tools.generate_image (same flag)."""
     tool_context.state["_images_generated"] = True
-    return {"status": "ok"}
+    return {"status": "success", "message": "Saved img artifacts: []"}
 
 
-_fake_generate_image.__name__ = "generate_image"
+def _stub_render(monkeypatch, fake) -> None:
+    """The render node calls image_tools.generate_image at call time."""
+    from creative_agent import image_tools
+
+    monkeypatch.setattr(image_tools, "generate_image", fake)
 
 
-def _script_visuals(llms: dict[str, RecordingLlm], generator_turns: int):
+def _script_visuals(llms: dict[str, RecordingLlm]):
     llms["art_director"].push(text_response("DIRECTION"))
     llms["visual_concept_drafter"].push(text_response(_CONCEPTS))
     llms["visual_concept_critic"].push(text_response(_CONCEPTS))
     llms["visual_concept_finalizer"].push(text_response(_CONCEPTS))
-    # MALFORMED_FUNCTION_CALL stand-in: turns that never call the tool.
-    for _ in range(generator_turns - 1):
-        llms["visual_generator"].push(text_response(""))
-    llms["visual_generator"].push(
-        fc_response("generate_image", {}, "img1"), text_response("Rendered.")
-    )
 
 
-def test_visual_production_graph_retries_render_until_images(monkeypatch):
+def test_visual_production_graph_renders_once_without_an_llm_turn(monkeypatch):
     import creative_agent.agent as ca
 
     llms = _stub_graph(monkeypatch, ca.visual_production_pipeline)
-    (generator,) = [
-        a
-        for a in _llm_agents(ca.visual_production_pipeline)
-        if a.name == "visual_generator"
-    ]
-    monkeypatch.setattr(generator, "tools", [_fake_generate_image])
-    _script_visuals(llms, generator_turns=2)
+    assert "visual_generator" not in llms  # no LLM wrapper turn any more
+    calls: list[str] = []
+
+    async def render(tool_context) -> dict:
+        calls.append("render")
+        tool_context.state["generated_images"] = {"c": {"gcs_uri": "gs://b/c.png"}}
+        tool_context.state["image_qa__issues"] = ["c: logo"]
+        return await _fake_generate_image(tool_context)
+
+    _stub_render(monkeypatch, render)
+    _script_visuals(llms)
 
     root_llm, events, state = _run_root(
         monkeypatch,
@@ -699,28 +701,113 @@ def test_visual_production_graph_retries_render_until_images(monkeypatch):
         {"combined_final_cited_report": "# Report", "ad_copy_critique": _ADS_FINAL},
     )
 
+    assert calls == ["render"]
     assert state["visual_direction"] == "DIRECTION"
     assert state["final_visual_concepts"] == {"visual_concepts": []}
+    # The node's state writes are persisted as its event's state delta.
     assert state["_images_generated"] is True
-    assert "_images_generated__retry_exhausted" not in state
-    # The retry node re-ran the bare LlmAgent: empty turn, then call + confirm.
-    assert llms["visual_generator"].calls == 3
-    # Reaching the generator at all proves render_barrier works: fed the
-    # concepts dict directly, the retry node's PipelineRequest input_schema
-    # would reject it (asserted below, independently of the run).
-    wrapper = [
+    assert state["generated_images"] == {"c": {"gcs_uri": "gs://b/c.png"}}
+    assert state["image_qa__issues"] == ["c: logo"]
+    # Reaching the render at all proves render_barrier works: fed the concepts
+    # dict directly, the node's PipelineRequest input_schema would reject it
+    # (asserted below, independently of the run).
+    node = [
         n
         for n in ca.visual_production_pipeline.graph.nodes
         if n.name == "visual_generator_resilient"
     ][0]
     with pytest.raises(ValidationError):
-        wrapper._validate_input_data({"visual_concepts": []})
+        node._validate_input_data({"visual_concepts": []})
     responses = _responses(events)
-    assert responses[0] == {"status": "ok"}  # the inner generate_image call
-    assert len(responses) == 2
+    assert len(responses) == 1
     # The images_ready terminal's confirmation, not the bare True flag.
     assert "Image creatives rendered" in str(responses[-1])
     assert root_llm.calls == 2
+
+
+def test_render_node_retries_a_transient_infra_error(monkeypatch):
+    """INFRA_RETRY on the node replaces the agent's retry_config: a transient
+    503 from the first attempt is retried and the images still land."""
+    from google.api_core import exceptions as api_exceptions
+
+    import creative_agent.agent as ca
+
+    llms = _stub_graph(monkeypatch, ca.visual_production_pipeline)
+    attempts: list[int] = []
+
+    async def flaky(tool_context) -> dict:
+        attempts.append(1)
+        if len(attempts) == 1:
+            raise api_exceptions.ServiceUnavailable("image model busy")
+        return await _fake_generate_image(tool_context)
+
+    _stub_render(monkeypatch, flaky)
+    _script_visuals(llms)
+
+    _, events, state = _run_root(
+        monkeypatch,
+        "visual_production_pipeline",
+        {"combined_final_cited_report": "# Report", "ad_copy_critique": _ADS_FINAL},
+    )
+
+    assert len(attempts) == 2
+    assert state["_images_generated"] is True
+    assert "Image creatives rendered" in str(_responses(events)[-1])
+
+
+@pytest.mark.usefixtures("image_qa_off")
+def test_render_node_as_a_root_tool_runs_the_real_generate_image(monkeypatch):
+    """interactive_creative calls visual_generator_resilient as a NodeTool: the
+    REAL generate_image runs on the node Context (state + save_artifact) and
+    every concept is rendered exactly once; its state writes persist."""
+    from creative_agent import image_tools
+    from tests.test_image_reference import _patch_client
+
+    models = _patch_client(monkeypatch)
+    concepts = {
+        "visual_concepts": [
+            {"concept_name": "One", "image_generation_prompt": "a red skate"},
+            {"concept_name": "Two", "image_generation_prompt": "a blue skate"},
+        ]
+    }
+    assert image_tools.generate_image.__module__ == "creative_agent.image_tools"
+
+    _, events, state = _run_root(
+        monkeypatch,
+        "visual_generator_resilient",
+        {"gcs_folder": "f", "agent_output_dir": "d", "final_visual_concepts": concepts},
+    )
+
+    assert len(models.calls) == 2
+    assert state["_images_generated"] is True
+    assert set(state["generated_images"]) == {"One", "Two"}
+    assert len(state["_generated_artifact_keys"]) == 2
+    (response,) = _responses(events)
+    assert "Saved img artifacts" in str(response)
+
+
+def test_render_node_returns_a_truthy_message():
+    """As interactive's root tool the node's output is the function response:
+    generate_image's message, or a fallback — never empty."""
+    from types import SimpleNamespace
+
+    import creative_agent.agent as ca
+    from creative_agent import image_tools
+
+    async def run(result):
+        original = image_tools.generate_image
+
+        async def fake(ctx):
+            return result
+
+        image_tools.generate_image = fake
+        try:
+            return await ca._render_images(SimpleNamespace(state={}))
+        finally:
+            image_tools.generate_image = original
+
+    assert asyncio.run(run({"status": "success", "message": "Saved x"})) == "Saved x"
+    assert asyncio.run(run({"status": "success"})) == "Image creatives rendered."
 
 
 _DRIFTED_CONCEPTS = (
@@ -742,29 +829,20 @@ def test_render_sees_guard_repaired_prompts(monkeypatch):
     import creative_agent.agent as ca
 
     llms = _stub_graph(monkeypatch, ca.visual_production_pipeline)
-    (generator,) = [
-        a
-        for a in _llm_agents(ca.visual_production_pipeline)
-        if a.name == "visual_generator"
-    ]
     seen: list[str] = []
 
-    def _recording_generate_image(tool_context) -> dict:
+    async def _recording_generate_image(tool_context) -> dict:
         # Same read as creative_agent.image_tools.generate_image.
         concepts = tool_context.state.get("final_visual_concepts")["visual_concepts"]
         seen.extend(c["image_generation_prompt"] for c in concepts)
         tool_context.state["_images_generated"] = True
         return {"status": "ok"}
 
-    _recording_generate_image.__name__ = "generate_image"
-    monkeypatch.setattr(generator, "tools", [_recording_generate_image])
+    _stub_render(monkeypatch, _recording_generate_image)
     llms["art_director"].push(text_response("DIRECTION"))
     llms["visual_concept_drafter"].push(text_response(_CONCEPTS))
     llms["visual_concept_critic"].push(text_response(_CONCEPTS))
     llms["visual_concept_finalizer"].push(text_response(_DRIFTED_CONCEPTS))
-    llms["visual_generator"].push(
-        fc_response("generate_image", {}, "img1"), text_response("Rendered.")
-    )
 
     _, _, state = _run_root(
         monkeypatch,
@@ -1319,8 +1397,7 @@ def _run_visuals(
 
     wf = ca.visual_production_pipeline
     llms = _stub_graph(monkeypatch, wf)
-    (generator,) = [a for a in _llm_agents(wf) if a.name == "visual_generator"]
-    monkeypatch.setattr(generator, "tools", [_fake_generate_image])
+    _stub_render(monkeypatch, _fake_generate_image)
     llms["art_director"].push(text_response("DIRECTION"))
     llms["visual_concept_drafter"].push(text_response(_CONCEPTS))
     llms["visual_concept_critic"].push(text_response(_CONCEPTS))
@@ -1329,9 +1406,6 @@ def _run_visuals(
         llms["visual_concept_fixer"].push(text_response(text))
     if model is not None:
         _patch_agent_model(monkeypatch, wf, "visual_concept_fixer", model)
-    llms["visual_generator"].push(
-        fc_response("generate_image", {}, "img1"), text_response("Rendered.")
-    )
     root_llm, events, state = _run_root(
         monkeypatch,
         "visual_production_pipeline",
@@ -1468,16 +1542,12 @@ def test_creative_pipeline_runs_every_stage_and_the_root_finishes(monkeypatch):
     llms["ad_copy_drafter"].push(text_response(_ADS))
     ads = [_final_ad(i) for i in range(1, 5)]
     llms["ad_copy_critic"].push(text_response(_final_ads(*ads)))
-    (generator,) = [a for a in _llm_agents(wf) if a.name == "visual_generator"]
-    monkeypatch.setattr(generator, "tools", [_fake_generate_image])
+    _stub_render(monkeypatch, _fake_generate_image)
     concepts = [_final_concept(i) for i in range(1, 5)]
     llms["art_director"].push(text_response("DIRECTION"))
     llms["visual_concept_drafter"].push(text_response(_CONCEPTS))
     llms["visual_concept_critic"].push(text_response(_CONCEPTS))
     llms["visual_concept_finalizer"].push(text_response(_concepts_json(*concepts)))
-    llms["visual_generator"].push(
-        fc_response("generate_image", {}, "img1"), text_response("Rendered.")
-    )
     order, storage, bq = _fake_finalize_io(monkeypatch)
 
     root_llm, events, state = _run_root(
@@ -1549,9 +1619,6 @@ def test_creative_pipeline_judges_ad_copies_while_visuals_render(monkeypatch):
     llms["visual_concept_drafter"].push(text_response(_CONCEPTS))
     llms["visual_concept_critic"].push(text_response(_CONCEPTS))
     llms["visual_concept_finalizer"].push(text_response(_concepts_json(*concepts)))
-    llms["visual_generator"].push(
-        fc_response("generate_image", {}, "img1"), text_response("Rendered.")
-    )
     _fake_finalize_io(monkeypatch)
 
     events: list[str] = []
@@ -1580,9 +1647,7 @@ def test_creative_pipeline_judges_ad_copies_while_visuals_render(monkeypatch):
         tool_context.state["_images_generated"] = True
         return {"status": "ok"}
 
-    slow_render.__name__ = "generate_image"
-    (generator,) = [a for a in _llm_agents(wf) if a.name == "visual_generator"]
-    monkeypatch.setattr(generator, "tools", [slow_render])
+    _stub_render(monkeypatch, slow_render)
 
     _, _, state = _run_root(
         monkeypatch,
@@ -1618,16 +1683,12 @@ def test_creative_pipeline_early_ad_copy_eval_failure_falls_back(monkeypatch):
     llms["ad_copy_drafter"].push(text_response(_ADS))
     ads = [_final_ad(i) for i in range(1, 5)]
     llms["ad_copy_critic"].push(text_response(_final_ads(*ads)))
-    (generator,) = [a for a in _llm_agents(wf) if a.name == "visual_generator"]
-    monkeypatch.setattr(generator, "tools", [_fake_generate_image])
+    _stub_render(monkeypatch, _fake_generate_image)
     concepts = [_final_concept(i) for i in range(1, 5)]
     llms["art_director"].push(text_response("DIRECTION"))
     llms["visual_concept_drafter"].push(text_response(_CONCEPTS))
     llms["visual_concept_critic"].push(text_response(_CONCEPTS))
     llms["visual_concept_finalizer"].push(text_response(_concepts_json(*concepts)))
-    llms["visual_generator"].push(
-        fc_response("generate_image", {}, "img1"), text_response("Rendered.")
-    )
     _fake_finalize_io(monkeypatch)
 
     def broken_early(tool_context):

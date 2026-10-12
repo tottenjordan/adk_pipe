@@ -383,49 +383,6 @@ class TestRateLimitLogic:
         assert state["request_count"] == 51
 
 
-# --- Force-image-tool-call callback (issue #116) ---
-class TestForceImageToolCall:
-    """`force_image_tool_call` deterministically constrains the visual_generator
-    turn to emit the `generate_image` function call (tool_config mode=ANY),
-    eliminating the intermittent MALFORMED_FUNCTION_CALL empty-gallery flake —
-    but ONLY while the image step has not yet succeeded (gated on
-    `_images_generated`), so a resilient re-run after success stays a no-op.
-    """
-
-    @staticmethod
-    def _fake_request():
-        from google.adk.models.llm_request import LlmRequest
-
-        return LlmRequest()
-
-    @staticmethod
-    def _ctx(state):
-        return pytypes.SimpleNamespace(state=state)
-
-    def test_forces_tool_call_when_images_not_generated(self):
-        from google.genai.types import FunctionCallingConfigMode
-
-        from creative_agent.callbacks import force_image_tool_call
-
-        req = self._fake_request()
-        result = force_image_tool_call(self._ctx({}), req)
-
-        assert result is None  # callbacks must not short-circuit the model call
-        cfg = req.config.tool_config.function_calling_config
-        assert cfg.mode == FunctionCallingConfigMode.ANY
-        assert cfg.allowed_function_names == ["generate_image"]
-
-    def test_noop_once_images_generated(self):
-        from creative_agent.callbacks import force_image_tool_call
-
-        req = self._fake_request()
-        result = force_image_tool_call(self._ctx({"_images_generated": True}), req)
-
-        assert result is None
-        # Already succeeded → must NOT re-force the tool (idempotent re-run).
-        assert req.config.tool_config is None
-
-
 class TestSkipReviserWithoutNotes:
     """interactive_creative's visual_concept_reviser before_agent_callback: skip the
     model unless there are both revision notes and finalized concepts, so merged

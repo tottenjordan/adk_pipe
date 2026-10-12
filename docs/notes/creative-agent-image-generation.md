@@ -51,16 +51,17 @@ visual_generation_pipeline (Workflow; shared with interactive_creative)
   validates its input against `PipelineRequest` (it is also a root tool in
   `interactive_creative`), so the concepts payload must not reach it.
   `generate_image` reads `final_visual_concepts` from state.
-- **`visual_generator`** (Pro, with `FallbackModel` failover to the worker
-  model) uses `ThinkingLevel.LOW` — gemini-3.x ignores the old
-  `thinking_budget=0`, and `MINIMAL` 400s on Pro — plus the "call EXACTLY ONCE"
-  instruction and the `force_image_tool_call` `before_model_callback` (forces
-  the tool call until `_images_generated` is set; issue #116).
-- **`visual_generator_resilient`** = `RetryUntilKeyNode` (`agent_common/`)
-  keyed on `_images_generated`, `max_attempts=6`: retries the intermittent
-  `MALFORMED_FUNCTION_CALL` empty turn; the idempotency guard prevents double
-  spend, and on exhaustion `_images_generated__retry_exhausted` surfaces as a
-  run warning.
+- **`visual_generator_resilient`** is a deterministic `FunctionNode` (no LLM;
+  since 2026-10-12) that awaits `image_tools.generate_image` on the node
+  `Context` (the same class as `ToolContext`: state + `save_artifact`), so its
+  state writes land in the node's state delta. `retry_config=INFRA_RETRY`
+  retries transient infra exceptions; the `_images_generated` idempotency guard
+  keeps a re-run a no-op. It replaced a Pro `visual_generator` `LlmAgent` whose
+  only job was to call `generate_image()` once (~7.6 s per run in Cloud
+  Trace), with a forced tool config and a `RetryUntilKeyNode` (6 attempts)
+  around its intermittent `MALFORMED_FUNCTION_CALL` empty turns (issue #116),
+  which a function node cannot have. Its output (the tool's message) is the
+  function response when `interactive_creative` calls it as a `NodeTool`.
 - **`images_ready`** is the truthy terminal (a short confirmation, or a
   missing-output notice).
 
@@ -97,7 +98,7 @@ tool is pinned by `tests/test_render_parity.py`. Rule details:
 CHECKPOINT 3 (`review_visual_concepts`, a `LongRunningFunctionTool`) →
 optional `visual_concept_reviser` → `visual_generator_resilient`. Image
 generation must stay a separate step after human review, so it does not use
-`visual_production_pipeline`. Fixes to `visual_generator` reach it via the
+`visual_production_pipeline`. Fixes to the render node reach it via the
 shared import.
 
 ## The image client is Gemini, not Imagen

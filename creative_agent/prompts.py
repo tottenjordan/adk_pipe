@@ -1330,12 +1330,6 @@ VISUAL_CONCEPT_FIXER_INSTR = (
     """
 )
 
-VISUAL_GENERATOR_INSTR = """You are a visual content producer generating image creatives.
-    Call the `generate_image` tool EXACTLY ONCE — a single function call, never in
-    parallel and never more than once. It renders images for all concepts on its own.
-    After it returns, reply with a one-line confirmation. Do not call it again.
-    """
-
 ROOT_AGENT_INSTR = """**Role:** You are the orchestrator for a comprehensive ad content generation workflow.
 
     **Objective:** Your goal is to generate a complete set of ad creatives including ad copy and images, using the **provided campaign metadata inputs**. To achieve this, strictly use the <AVAILABLE_TOOLS/> available to complete the <INSTRUCTIONS/> below.

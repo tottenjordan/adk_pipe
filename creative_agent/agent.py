@@ -26,7 +26,7 @@ from agent_common import (
     is_populated,
 )
 
-from . import brand_history, callbacks, gcs_tools, prompts, tools
+from . import brand_history, callbacks, gcs_tools, image_tools, prompts, tools
 from .brief_check import check_brief, normalize_brief_terms, parse_brief
 from .brief_render import render_brief_markdown
 from .claims import claims_allowed_text
@@ -1216,86 +1216,41 @@ visual_concept_fixer_failsoft = FailSoftNode(
 )
 
 
-# --- VISUAL GENERATOR AGENT ---
-# Runs generate_image over the finalized visual concepts. In creative_agent it is
-# chained into visual_production_pipeline (below) so image rendering is deterministic
-# and the orchestrator cannot skip it. interactive_creative deliberately invokes it as
-# a separate step AFTER a human review checkpoint (review concepts before spending on
-# image generation), so it must also remain usable as a standalone agent.
-visual_generator = Agent(
-    model=build_gemini_with_fallback(config.critic_model, config.critic_fallback_model),
-    name="visual_generator",
-    mode="single_turn",
-    retry_config=INFRA_RETRY,
-    include_contents="none",
-    description="Generate final visuals using image generation tools",
-    # thinking_level=LOW: this is a mechanical single-tool step, not a reasoning task,
-    # so we constrain thinking to keep the model from emitting MULTIPLE parallel
-    # `generate_image` calls in one turn — parallel calls all read state before any
-    # commits, so the tool's idempotency guard (_images_generated) can't dedupe them,
-    # causing every image to be rendered 2x (double the image-gen cost). One call is
-    # all that's needed: generate_image loops over every concept in
-    # final_visual_concepts. (The real dedup safeguard is _images_generated + the
-    # "call EXACTLY ONCE" instruction; the low thinking level is belt-and-suspenders.)
-    # NOTE: gemini-3.x deprecated the numeric thinking_budget; thinking_budget=0 also
-    # never disabled thinking on gemini-3 (that only worked on 2.5). LOW is the lowest
-    # level Pro supports — MINIMAL is Flash/Flash-Lite only and 400s on Pro.
-    planner=BuiltInPlanner(
-        thinking_config=types.ThinkingConfig(
-            thinking_level=types.ThinkingLevel.LOW, include_thoughts=False
-        )
-    ),
-    instruction=prompts.VISUAL_GENERATOR_INSTR,
-    tools=[tools.generate_image],
-    generate_content_config=types.GenerateContentConfig(
-        temperature=1.2,
-        labels={
-            "agentic_wf": "trend_scout",
-            "agent": "creative_agent",
-            "subagent": "visual_generator",
-        },
-    ),
-    # Chain: rate-limit first, then force the generate_image tool call (issue #116).
-    # Both return None, so ADK runs them in order every turn. force_image_tool_call
-    # is gated on _images_generated so it only constrains the turn until the image
-    # step succeeds — belt (deterministic tool_config) AND suspenders (the resilient
-    # retry wrapper below) against the MALFORMED_FUNCTION_CALL empty-gallery flake.
-    before_model_callback=[
-        callbacks.rate_limit_callback,
-        callbacks.force_image_tool_call,
-    ],
-    after_model_callback=callbacks.log_empty_turn_finish_reason,
-)
+# --- RENDER STEP (deterministic, no LLM) ---
+# Runs generate_image over the finalized visual concepts. It used to be a Pro
+# LlmAgent (visual_generator) whose only job was to call generate_image() with
+# no arguments exactly once (~7.6 s of model time per run, plus a forced tool
+# config and a retry-on-empty wrapper against MALFORMED_FUNCTION_CALL turns);
+# a function node calls it directly. In creative_agent it is chained into
+# visual_production_pipeline (below); interactive_creative invokes it as a
+# separate root tool AFTER its visual review checkpoint (a bare node →
+# NodeTool), hence the PipelineRequest input_schema, the explicit description
+# and the kept public name.
+async def _render_images(ctx: Context) -> str:
+    """Render every final visual concept (generate_image on the node context).
+
+    The node Context is the same class as ToolContext (state + save_artifact),
+    so generate_image's writes (``_images_generated``, ``generated_images``,
+    ``image_qa__issues``, ``person_reference_rejected``, …) land in the node's
+    state delta. Its ``_images_generated`` guard keeps a re-run a no-op;
+    transient infra exceptions are retried by the node's ``INFRA_RETRY`` and
+    then propagate, as the agent's did. Looked up on the module at call time
+    so tests can stub it.
+    """
+    result = await image_tools.generate_image(ctx)
+    message = result.get("message") if isinstance(result, dict) else None
+    return str(message or "Image creatives rendered.")
 
 
-# Retry-on-empty for the image step: visual_generator (gemini-3.1-pro-preview)
-# intermittently returns MALFORMED_FUNCTION_CALL and never emits the generate_image
-# tool call, leaving _images_generated unset and shipping an empty gallery (run
-# 2032568396381421568). retry_config=INFRA_RETRY only covers infra EXCEPTIONS, not a
-# malformed-call finish reason — so wrap in RetryUntilKeyNode (same pattern as the
-# research producers), keyed on the _images_generated flag generate_image already sets
-# on success. That flag also makes a re-run safe (idempotency guard → no double image
-# spend); on exhaustion the wrapper emits _images_generated__retry_exhausted, which
-# collect_degradation_warnings surfaces on the gallery/eval banner. Also exposed
-# directly to interactive_creative's root (a bare node → NodeTool), hence the
-# PipelineRequest input_schema.
-#
-# max_attempts=6 (issue #116): the MALFORMED flake is transient — a fresh producer
-# turn usually clears it, and each attempt IS an independent turn — but 3 attempts
-# occasionally weren't enough, dropping the WHOLE run to zero images. A higher cap
-# only costs extra *failed* producer turns (the idempotency guard prevents double
-# image spend, and the first successful turn returns immediately), so the common
-# path is unchanged while rare-failure recovery odds rise materially.
-visual_generator_resilient = RetryUntilKeyNode(
+visual_generator_resilient = FunctionNode(
+    func=_render_images,
     name="visual_generator_resilient",
-    # An explicit description: NodeTool otherwise falls back to "Executes the
-    # node: <name>" (AgentTool used to expose an empty one).
-    description="Generates the image creatives from the final visual concepts.",
-    node=visual_generator,
-    output_key="_images_generated",
-    max_attempts=6,
-    input_schema=PipelineRequest,
+    retry_config=INFRA_RETRY,
 )
+visual_generator_resilient.description = (
+    "Generates the image creatives from the final visual concepts."
+)
+visual_generator_resilient.input_schema = PipelineRequest
 
 
 def visual_concepts_ready(ctx: Context) -> Any:
@@ -1330,8 +1285,8 @@ def images_ready(ctx: Context) -> str:
 
     A short confirmation, mirroring research_report_ready: the rendered image
     artifact keys live in state for save_creative_gallery_html and the eval
-    step. When the render step exhausted its retries, a non-empty notice
-    (degradation is also surfaced via ``_images_generated__retry_exhausted``).
+    step. A non-empty notice if the render step left ``_images_generated``
+    unset (defensive: the deterministic node sets it or raises).
     """
     if is_populated(ctx.state.get("_images_generated")):
         keys = ctx.state.get("_generated_artifact_keys") or []
@@ -1339,7 +1294,7 @@ def images_ready(ctx: Context) -> str:
             f"Image creatives rendered: {len(keys)} image artifact(s) saved "
             "(keys in session state '_generated_artifact_keys')."
         )
-    return _missing_notice("visual_generator", "_images_generated")
+    return _missing_notice("visual_generator_resilient", "_images_generated")
 
 
 # Graph for visual concepts (direction -> draft -> critique -> finalize ->
@@ -1373,8 +1328,7 @@ visual_generation_pipeline = Workflow(
 # skip image generation — which it once did, jumping straight from visual concepts to
 # evaluation (now finalize_pipeline, the root's next call). interactive_creative does
 # NOT use this: it keeps concepts and images split around a review checkpoint.
-# Ends in images_ready, a short confirmation for the root (the retry node's own
-# output would be the bare `_images_generated` flag, or its exhaustion notice).
+# Ends in images_ready, a short confirmation for the root (counted from state).
 visual_production_pipeline = Workflow(
     name="visual_production_pipeline",
     description="Generate visual concepts, then render their image creatives.",
