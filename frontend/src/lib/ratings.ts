@@ -57,11 +57,22 @@ export interface RatingDraft {
 
 export const NOTE_MAX_CHARS = 2000;
 
-/** The visual concept's key, and its paired ad copy's key when it has one. */
+/** True when the proof's ad copy was paired reliably enough to rate (id or headline match). */
+export function canRateAdCopy(proof: Proof): boolean {
+  return proof.adCopyMatch === "id" || proof.adCopyMatch === "headline";
+}
+
+/**
+ * The visual concept's key, and its paired ad copy's key when it has one that
+ * was matched by id or headline. A positional (index) match gets no copy key:
+ * a verdict stored against a guessed copy would pollute judge calibration and
+ * brand rating learning.
+ */
 export function creativeKeysFor(proof: Proof): { visual: string; adCopy?: string } {
   const out: { visual: string; adCopy?: string } = {
     visual: `visual:${proof.concept.concept_name}`,
   };
+  if (!canRateAdCopy(proof)) return out;
   const id = proof.adCopy?.original_id;
   if (id !== undefined && id !== null && String(id).trim() !== "") {
     out.adCopy = `copy:${id}`;

@@ -19,10 +19,11 @@ import {
   type FailReason,
 } from "@/lib/rating-reasons";
 
-const proof = (adCopy?: Partial<AdCopy>): Proof => ({
+const proof = (adCopy?: Partial<AdCopy>, adCopyMatch: Proof["adCopyMatch"] = adCopy ? "id" : null): Proof => ({
   index: 0,
   concept: { concept_name: "The Jackpot Reveal", headline: "H", ad_copy_id: 3 } as VisualConcept,
   adCopy: adCopy as AdCopy | undefined,
+  adCopyMatch,
 });
 
 const rating = (over: Partial<Rating> = {}): Rating => ({
@@ -44,6 +45,15 @@ describe("creativeKeysFor", () => {
   });
   it("has no copy key without a paired ad copy", () => {
     expect(creativeKeysFor(proof())).toEqual({ visual: "visual:The Jackpot Reveal" });
+  });
+  it("keys a headline-matched copy too", () => {
+    expect(creativeKeysFor(proof({ original_id: 7 }, "headline")).adCopy).toBe("copy:7");
+  });
+  it("has no copy key when the copy was only paired by position (or unknown)", () => {
+    expect(creativeKeysFor(proof({ original_id: 7 }, "index"))).toEqual({
+      visual: "visual:The Jackpot Reveal",
+    });
+    expect(creativeKeysFor(proof({ original_id: 7 }, null)).adCopy).toBeUndefined();
   });
 });
 
@@ -145,6 +155,10 @@ describe("ratingsByKey / isProofRated", () => {
     expect(isProofRated(p, { "copy:3": rating({ creative_key: "copy:3", kind: "ad_copy" }) })).toBe(true);
     expect(isProofRated(p, ratingsByKey([rating()]))).toBe(true);
     expect(isProofRated(proof(), { "copy:3": rating({ creative_key: "copy:3" }) })).toBe(false);
+  });
+  it("ignores a copy rating when the copy was only paired by position", () => {
+    const copyRating = { "copy:3": rating({ creative_key: "copy:3", kind: "ad_copy" }) };
+    expect(isProofRated(proof({ original_id: 3 }, "index"), copyRating)).toBe(false);
   });
 });
 

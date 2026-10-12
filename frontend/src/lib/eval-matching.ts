@@ -4,8 +4,12 @@
  *
  * Matching rules (unchanged from the original results page):
  * - visual eval: by exact `concept_name`
- * - ad copy eval / ad copy: by `ad_copy_id` → `original_id`, then by headline,
- *   then by index position
+ * - ad copy: by `ad_copy_id` → `original_id`, then by headline, then by index
+ *   position; how it was found is kept on the proof (`adCopyMatch`), and only an
+ *   id or headline match is reliable enough to rate (`lib/ratings.ts`)
+ * - ad copy eval: from the copy actually found (its `original_id`; the headline
+ *   only for an eval without an id), so a copy and its verdict always belong
+ *   together; without session copies, by the concept's id/headline (never index)
  */
 
 import { shortTime } from "@/lib/trend-situation";
@@ -222,41 +226,63 @@ export function findVisualEval(
 }
 
 type ConceptKey = Pick<VisualConcept, "ad_copy_id" | "headline">;
+type CopyKey = Pick<AdCopy, "original_id" | "headline">;
 
-/** id → headline → index fallback shared by ad copy and ad copy eval lookup. */
-function matchByIdHeadlineIndex<T extends { original_id: number; headline: string }>(
+/**
+ * How a concept's ad copy was found. `"index"` is a blind positional guess
+ * (neither id nor headline matched): fine to display, never to rate.
+ */
+export type AdCopyMatchVia = "id" | "headline" | "index";
+
+export interface AdCopyMatch<T> {
+  item: T;
+  via: AdCopyMatchVia;
+}
+
+/** A concept's ad copy: by id, then headline, then index position, with how it matched. */
+export function matchAdCopy<T extends CopyKey>(
   items: T[],
   vc: ConceptKey,
   vcIndex: number
-): T | undefined {
-  // 1. Match by ID
+): AdCopyMatch<T> | null {
   const byId = items.find((it) => it.original_id === vc.ad_copy_id);
-  if (byId) return byId;
-  // 2. Match by headline (visual concept carries the ad copy headline)
+  if (byId) return { item: byId, via: "id" };
+  // The visual concept carries its ad copy's headline.
   const byHeadline = items.find((it) => it.headline === vc.headline);
-  if (byHeadline) return byHeadline;
-  // 3. Fall back to index position
-  if (vcIndex < items.length) return items[vcIndex];
-  return undefined;
+  if (byHeadline) return { item: byHeadline, via: "headline" };
+  if (vcIndex < items.length) return { item: items[vcIndex], via: "index" };
+  return null;
 }
 
-/** Find the ad copy eval for a visual concept: by id, then headline, then index. */
-export function findAdCopyEvalForVisual(
-  report: EvalReport | null | undefined,
-  vc: ConceptKey,
-  vcIndex: number
-): AdCopyEvaluation | undefined {
-  if (!report) return undefined;
-  return matchByIdHeadlineIndex(report.ad_copy_evaluations, vc, vcIndex);
-}
-
-/** Find the session-state ad copy for a visual concept: by id, then headline, then index. */
+/** The session-state ad copy for a visual concept (id → headline → index), without provenance. */
 export function findAdCopyForVisual(
   adCopies: AdCopy[],
   vc: ConceptKey,
   vcIndex: number
 ): AdCopy | undefined {
-  return matchByIdHeadlineIndex(adCopies, vc, vcIndex);
+  return matchAdCopy(adCopies, vc, vcIndex)?.item;
+}
+
+function hasId(id: unknown): boolean {
+  return (typeof id === "number" && Number.isFinite(id)) || (typeof id === "string" && id.trim() !== "");
+}
+
+/**
+ * The eval of one specific ad copy: by its `original_id`, falling back to the
+ * headline only when the eval (or the copy) has no id. Never positional, so the
+ * verdict shown always belongs to the copy shown.
+ */
+export function findAdCopyEval(
+  report: EvalReport | null | undefined,
+  copy: CopyKey
+): AdCopyEvaluation | undefined {
+  const evals = report?.ad_copy_evaluations;
+  if (!Array.isArray(evals)) return undefined;
+  return evals.find((ev) =>
+    hasId(ev.original_id) && hasId(copy.original_id)
+      ? ev.original_id === copy.original_id
+      : ev.headline === copy.headline
+  );
 }
 
 /**
@@ -299,6 +325,9 @@ export interface Proof {
   index: number;
   concept: VisualConcept;
   adCopy?: AdCopy;
+  /** How `adCopy` was found (null = no copy). Only "id"/"headline" may be rated. */
+  adCopyMatch: AdCopyMatchVia | null;
+  /** The eval of `adCopy` itself (never borrowed from another position). */
   adCopyEval?: AdCopyEvaluation;
   visualEval?: VisualConceptEvaluation;
   /** Post-render image check (absent when QA was off/unavailable). */
@@ -317,16 +346,25 @@ export function buildProofs(
   personRejected?: unknown,
   trendSituation?: unknown
 ): Proof[] {
-  return concepts.map((concept, index) => ({
-    index,
-    concept,
-    adCopy: findAdCopyForVisual(adCopies, concept, index),
-    adCopyEval: findAdCopyEvalForVisual(report, concept, index),
-    visualEval: findVisualEval(report, concept.concept_name),
+  return concepts.map((concept, index) => {
+    const match = matchAdCopy(adCopies, concept, index);
+    return {
+      index,
+      concept,
+      adCopy: match?.item,
+      adCopyMatch: match?.via ?? null,
+      // Pair the verdict from the copy actually shown; with no session copy at
+      // all, the concept's own id/headline still names its copy reliably.
+      adCopyEval: findAdCopyEval(
+        report,
+        match?.item ?? { original_id: concept.ad_copy_id, headline: concept.headline }
+      ),
+      visualEval: findVisualEval(report, concept.concept_name),
     imageCheck: imageCheckFor(generatedImages, concept.concept_name),
     casting: castingFor(concept, generatedImages, personRejected),
     timely: timelyFor(concept, trendSituation),
-  }));
+    };
+  });
 }
 
 /** Mean of the available overall scores (0–1), or null when unevaluated. */
