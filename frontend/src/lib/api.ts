@@ -1,4 +1,5 @@
 import type { Session, AgentEvent } from "./types";
+import { isPauseAnswered } from "./pause-detection";
 import type { Calibration, Rating, RatingPayload } from "./ratings";
 import { ShareError, type CreateSharePayload, type Share } from "./shares";
 import {
@@ -180,6 +181,52 @@ export async function getRunStatus(
   return res.json();
 }
 
+/** Retries of one poll after a transient failure before the connection counts as lost. */
+export const POLL_MAX_RETRIES = 5;
+const POLL_BACKOFF_CAP_MS = 15_000;
+
+/** Wait before retry `n` (1-based): 1, 2, 4, 8 s …, capped at 15 s. */
+function pollBackoffMs(n: number): number {
+  return Math.min(1000 * 2 ** (n - 1), POLL_BACKOFF_CAP_MS);
+}
+
+/** 5xx and 429 are worth retrying; any other non-2xx is a real answer. */
+function isTransientStatus(status: number): boolean {
+  return status >= 500 || status === 429;
+}
+
+function isAbortError(err: unknown): boolean {
+  return err instanceof Error && err.name === "AbortError";
+}
+
+/** Resolve true after `ms`, or false as soon as `signal` aborts. */
+function sleep(ms: number, signal?: AbortSignal): Promise<boolean> {
+  if (signal?.aborted) return Promise.resolve(false);
+  return new Promise((resolve) => {
+    const onAbort = () => {
+      clearTimeout(timer);
+      resolve(false);
+    };
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve(true);
+    }, ms);
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+/**
+ * Thrown by `pollRun` once its retries are exhausted, and by `resumeRun` when a
+ * resume's response was lost and the run doesn't show it applied. The run may
+ * well still be going on the server: the page offers a reload, not a duplicate.
+ */
+export class RunConnectionLostError extends Error {
+  constructor(message = "Lost connection to the run.") {
+    super(message);
+    this.name = "RunConnectionLostError";
+  }
+}
+
 /**
  * Poll a detached run to completion, yielding each new event exactly once.
  * Loops on the `since` cursor until a terminal status ("done"), throwing on
@@ -194,12 +241,30 @@ export async function* pollRun(
 ): AsyncGenerator<AgentEvent> {
   const intervalMs = opts.intervalMs ?? 1500;
   let since = 0;
+  // Consecutive transient failures (network error, 5xx, 429). A 10–20 min run
+  // outlives the odd 502/503, network blip or IAP re-auth redirect, so these are
+  // retried with backoff (same `since`) instead of failing a run that is still
+  // going server-side; any successful poll resets the budget.
+  let failures = 0;
   for (;;) {
-    const res = await fetch(
-      `${API_BASE}/runs/${appName}/${userId}/${sessionId}?since=${since}`,
-      { signal: opts.signal }
-    );
+    let res: Response | null = null;
+    try {
+      res = await fetch(
+        `${API_BASE}/runs/${appName}/${userId}/${sessionId}?since=${since}`,
+        { signal: opts.signal }
+      );
+    } catch (err) {
+      if (opts.signal?.aborted || isAbortError(err)) throw err;
+    }
+    if (!res || isTransientStatus(res.status)) {
+      if (failures >= POLL_MAX_RETRIES) throw new RunConnectionLostError();
+      failures += 1;
+      const completed = await sleep(pollBackoffMs(failures), opts.signal);
+      if (!completed) return; // aborted (unmount): stop quietly
+      continue;
+    }
     if (!res.ok) throw new Error(`Failed to poll run (${res.status})`);
+    failures = 0;
     const data: PollResult = await res.json();
     for (const ev of data.events ?? []) yield ev;
     since = data.nextCursor ?? since + (data.events?.length ?? 0);
@@ -274,6 +339,28 @@ async function conflictReason(res: Response): Promise<string | null> {
 }
 
 /**
+ * A resume whose response was lost (network error / 5xx): check the run once.
+ * Running again, or the checkpoint's call answered, means it was applied;
+ * anything else (incl. a failed check) is a lost connection, never a re-POST.
+ */
+async function resumeOutcome(
+  appName: string,
+  userId: string,
+  sessionId: string,
+  functionCallId: string
+): Promise<{ runId: string; status: string }> {
+  try {
+    const run = await getRunStatus(appName, userId, sessionId, 0);
+    if (run.status === "running" || isPauseAnswered(run.events ?? [], functionCallId)) {
+      return { runId: sessionId, status: "running" };
+    }
+  } catch {
+    // Fall through: the status check failed as well.
+  }
+  throw new RunConnectionLostError();
+}
+
+/**
  * Resume a paused interactive run by submitting a human-review function
  * response. The server builds the `functionResponse` message and re-launches
  * the detached job; the caller re-enters `pollRun` to consume new events.
@@ -288,9 +375,9 @@ export async function resumeRun(
   functionCallEventId?: string,
   edits?: Record<string, unknown>[]
 ): Promise<{ runId: string; status: string }> {
-  const res = await fetch(
-    `${API_BASE}/runs/${appName}/${userId}/${sessionId}/resume`,
-    {
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}/runs/${appName}/${userId}/${sessionId}/resume`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -303,8 +390,12 @@ export async function resumeRun(
         // runserver.async_runs). Omitted when absent/empty.
         ...(edits && edits.length ? { edits } : {}),
       }),
-    }
-  );
+    });
+  } catch {
+    // Network error: the POST may have landed with only its response lost.
+    return resumeOutcome(appName, userId, sessionId, functionCallId);
+  }
+  if (res.status >= 500) return resumeOutcome(appName, userId, sessionId, functionCallId);
   // 409 = the server's duplicate-run guard. `resume_in_progress`: a resume for
   // this same checkpoint (double-submit / retried POST) is already running, so
   // the user's intent is being served — treat as running and let the caller
