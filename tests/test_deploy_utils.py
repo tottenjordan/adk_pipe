@@ -479,6 +479,17 @@ class TestDeployAgentCreate:
         monkeypatch.setattr(agentplatform.frameworks, "AdkApp", adk_app_cls)
         client = MagicMock(spec=["runtimes"])
         client.runtimes.create.return_value.api_resource.name = self.RESOURCE
+        # Record what the SDK would tar: create() runs from the staging root.
+        self.create_cwd_files = None
+
+        def _snapshot_cwd(**_kwargs):
+            files = set()
+            for dirpath, _, names in os.walk("."):
+                files.update(os.path.join(dirpath, n) for n in names)
+            self.create_cwd_files = files
+            return client.runtimes.create.return_value
+
+        client.runtimes.create.side_effect = _snapshot_cwd
         monkeypatch.setattr(da, "_get_client", lambda: client)
         update_env = MagicMock()  # never touch the real .env
         monkeypatch.setattr(da, "update_env_file", update_env)
@@ -499,7 +510,9 @@ class TestDeployAgentCreate:
         da, module, adk_app_cls, client, update_env = self._setup(
             monkeypatch, name, with_app=with_app
         )
+        cwd_before = os.getcwd()
         da.deploy_agent(name, "v9")
+        assert os.getcwd() == cwd_before  # the staging chdir is undone
 
         # Resumable agents deploy their App (keeps ResumabilityConfig); others
         # deploy the bare root_agent.
@@ -513,8 +526,14 @@ class TestDeployAgentCreate:
         assert kwargs["agent"] is adk_app_cls.return_value
         spec = da.AGENT_DEPLOY_SPECS[name]
         config = kwargs["config"]
-        assert config["requirements"] == "./requirements.txt"
+        assert config["requirements"] == da.load_requirements(da.REQUIREMENTS_PATH)
         assert config["extra_packages"] == da.AGENT_EXTRA_PACKAGES[name]
+        # The SDK tars from a filtered staging copy, never the repo checkout.
+        files = self.create_cwd_files
+        assert files, "create() saw an empty staging dir"
+        pkg = da.AGENT_EXTRA_PACKAGES[name][0]
+        assert f"{pkg}/agent.py" in files
+        assert not [f for f in files if "/.adk/" in f or "__pycache__" in f]
         assert config["staging_bucket"] == "gs://my-bucket"
         assert config["gcs_dir_name"] == f"adk-pipe/{spec['gcs_subdir']}/v9/staging"
         assert config["display_name"] == f"{spec['display_name']}-v9"
