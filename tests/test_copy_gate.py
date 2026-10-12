@@ -766,3 +766,75 @@ def test_failed_risks_self_check_gates_but_is_never_residual():
     ]
     assert issues[0].kind == "self_reported"
     assert residual_issues({"1": issues}) == {}
+
+
+# --- trend tie (pre-judge counterpart of the judge's trend_connected gate) --- #
+
+
+def test_copy_without_a_trend_tie_gets_the_issue_last():
+    issues = _gate(
+        _copy(call_to_action=""),
+        trend_terms="roadrunner race",
+        motifs=["dust cloud", "desert highway"],
+    )
+    found = issues["1"]
+    assert found[-1].kind == "deterministic"
+    assert found[-1].text == (
+        "not clearly tied to the trend: name it or one of its motifs "
+        "(e.g. Roadrunner, Race, dust cloud, desert highway)"
+    )
+    assert found[0].text.startswith("call_to_action is empty")
+
+
+def test_copy_naming_the_trend_or_a_motif_has_no_tie_issue():
+    assert _gate(_copy(headline="Roadrunner who?"), trend_terms="roadrunner race") == {}
+    assert (
+        _gate(
+            _copy(social_caption="Leave a dust cloud."),
+            trend_terms="roadrunner race",
+            motifs=["dust cloud"],
+        )
+        == {}
+    )
+
+
+def test_sensitive_moment_skips_the_trend_tie_check():
+    assert _gate(_copy(), trend_terms="roadrunner race", trend_sensitive=True) == {}
+
+
+def test_empty_trend_skips_the_trend_tie_check():
+    assert _gate(_copy(), trend_terms="", motifs=["dust cloud"]) == {}
+
+
+def test_trend_tie_through_an_avoid_term_does_not_count():
+    issues = _gate_texts(
+        _copy(headline="Shooting past the bird"),
+        trend_terms="shooting",
+        avoid=["shooting"],
+    )
+    assert issues["1"][0].startswith("contains the avoided term 'shooting'")
+    assert issues["1"][-1].startswith("not clearly tied to the trend")
+
+
+def test_trend_tie_issue_is_residual():
+    issues = _gate(_copy(), trend_terms="roadrunner race")
+    assert {k: [str(i) for i in v] for k, v in residual_issues(issues).items()} == {
+        "1": [
+            "not clearly tied to the trend: name it or one of its motifs "
+            "(e.g. Roadrunner, Race)"
+        ]
+    }
+
+
+def test_brief_motifs_reads_dict_json_model_or_none():
+    from creative_agent.copy_gate import brief_motifs
+    from creative_agent.schemas import TrendBridge
+
+    brief = {"trend_bridge": {"motifs": ["dust cloud", " ", 3, "desert highway"]}}
+    assert brief_motifs(brief) == ["dust cloud", "desert highway"]
+    assert brief_motifs(json.dumps(brief)) == ["dust cloud", "desert highway"]
+    assert brief_motifs(None) == []
+    assert brief_motifs({"trend_bridge": None}) == []
+    assert brief_motifs("not json") == []
+    bridge = TrendBridge.model_construct(motifs=["dust cloud"])
+    assert brief_motifs({"trend_bridge": bridge}) == ["dust cloud"]

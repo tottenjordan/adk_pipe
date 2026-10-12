@@ -6,8 +6,10 @@ user-visible warning, so false positives are kept low):
 
 * **deterministic** issues — the rules the ``FinalAdCopyList`` output schema
   cannot express (product named, CTA, lengths, the brief's avoid terms,
-  unsupported absolute claims such as "guaranteed" / "indestructible") — gate
-  a revision AND, if they survive it, are recorded as residual issues;
+  unsupported absolute claims such as "guaranteed" / "indestructible", and
+  with the run's trend a trend tie via ``trend_tie.has_trend_tie``, skipped
+  for a sensitive moment) — gate a revision AND, if they survive it, are
+  recorded as residual issues;
 * **self_reported** issues — the critic's own failed ``brief_checks`` — gate a
   revision only for ``proposition``, ``mandatories``, ``risks`` and
   ``trend_bridge`` (the brief's hard contract, its trend risks and a clear,
@@ -60,6 +62,7 @@ from .brief_check import clean_term, parse_brief
 from .claims import unsupported_claims
 from .temporal_terms import temporal_terms
 from .text_match import PACKAGING_WORDS, contains_phrase, fold, same_word, words
+from .trend_tie import has_trend_tie, tie_terms
 
 MAX_HEADLINE_CHARS = 60
 MAX_CAPTION_CHARS = 2200
@@ -211,6 +214,19 @@ def brief_avoid(brief: Mapping[str, Any] | str | None) -> list[str]:
 def brief_mandatories(brief: Mapping[str, Any] | str | None) -> list[str]:
     """The structured brief's ``mandatories`` list (brief dict or its JSON string)."""
     return _brief_list(brief, "mandatories")
+
+
+def brief_motifs(brief: Any) -> list[str]:
+    """The structured brief's ``trend_bridge.motifs`` (brief dict, its JSON
+    string, or a dict holding a ``TrendBridge`` model); [] when missing."""
+    data = parse_brief(brief)
+    bridge = data.get("trend_bridge") if data is not None else None
+    if hasattr(bridge, "model_dump"):
+        bridge = bridge.model_dump()
+    motifs = bridge.get("motifs") if isinstance(bridge, Mapping) else None
+    if not isinstance(motifs, list):
+        return []
+    return [m.strip() for m in motifs if isinstance(m, str) and m.strip()]
 
 
 def _text(value: Any) -> str:
@@ -437,6 +453,9 @@ def _deterministic_issues(
     allowed_claims_text: str = "",
     timely_ok: bool = False,
     timely_room: bool = False,
+    trend_terms: str = "",
+    motifs: Sequence[str] = (),
+    trend_sensitive: bool = False,
 ) -> list[str]:
     issues: list[str] = []
     copy_text = " ".join(_text(copy.get(f)) for f in _COPY_FIELDS)
@@ -503,6 +522,20 @@ def _deterministic_issues(
                 f"contains the avoided term '{term}': remove it or rephrase "
                 "without it (the brief's avoid list)."
             )
+
+    # The trend tie (pre-judge counterpart of the judge's blocking
+    # trend_connected gate): never for a sensitive moment, whose event the
+    # creative work must not reference; an avoid term never counts as a tie.
+    if (
+        trend_terms.strip()
+        and not trend_sensitive
+        and not has_trend_tie(copy_text, trend=trend_terms, motifs=motifs, avoid=avoid)
+    ):
+        examples = ", ".join(tie_terms(trend_terms, motifs, avoid=avoid))
+        issues.append(
+            "not clearly tied to the trend: name it or one of its motifs"
+            + (f" (e.g. {examples})" if examples else "")
+        )
     return issues
 
 
@@ -536,6 +569,9 @@ def _check_copy(
     allowed_claims_text: str = "",
     timely_ok: bool = False,
     timely_room: bool = False,
+    trend_terms: str = "",
+    motifs: Sequence[str] = (),
+    trend_sensitive: bool = False,
 ) -> list[CopyIssue]:
     deterministic = _deterministic_issues(
         copy,
@@ -545,6 +581,9 @@ def _check_copy(
         allowed_claims_text=allowed_claims_text,
         timely_ok=timely_ok,
         timely_room=timely_room,
+        trend_terms=trend_terms,
+        motifs=motifs,
+        trend_sensitive=trend_sensitive,
     )
     self_reported = _self_reported_issues(copy, gating_brief_checks(strictness))
     return [CopyIssue("deterministic", text) for text in deterministic] + [
@@ -564,6 +603,9 @@ def gate_copies(
     allowed_claims_text: str = "",
     timely_ok: bool = False,
     max_timely: int = 1,
+    trend_terms: str = "",
+    motifs: Sequence[str] = (),
+    trend_sensitive: bool = False,
 ) -> dict[str, list[CopyIssue]]:
     """The copies' gating issues, keyed by ``copy_keys``.
 
@@ -594,7 +636,13 @@ def gate_copies(
     copy" only while fewer than ``max_timely`` copies are timely; default 1,
     the ``MAX_TIMELY_CONCEPTS`` default, so a larger knob not passed here only
     makes the offer conservative); without it the checks are unchanged.
-    Never raises.
+    ``trend_terms`` (the run's trend, ``target_search_trends``; default ""
+    = off) adds the trend-tie check, appended last: a copy that names none of
+    the trend's distinctive words, the trend phrase or one of ``motifs`` (the
+    brief's ``trend_bridge.motifs``) is flagged (``trend_tie.has_trend_tie``;
+    an avoid term never counts as a tie); skipped when ``trend_sensitive``
+    (the current moment is sensitive and must not be referenced). It is
+    separate from ``trend``, which only exempts avoid terms. Never raises.
     """
     terms = _avoid_terms(
         avoid, product=target_product, mandatories=mandatories, trend=trend
@@ -611,6 +659,9 @@ def gate_copies(
             allowed_claims_text=allowed_claims_text,
             timely_ok=timely_ok,
             timely_room=timely_room,
+            trend_terms=trend_terms,
+            motifs=motifs,
+            trend_sensitive=trend_sensitive,
         ):
             issues[key] = found
     return issues

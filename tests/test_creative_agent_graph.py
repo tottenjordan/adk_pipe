@@ -926,7 +926,7 @@ def _final_ad(original_id: int, **overrides: Any) -> dict[str, Any]:
         "body_text": "Rocket Skates finally make you faster.",
         "trend_connection": "Roadrunner sprint.",
         "audience_appeal_rationale": "Coyotes want speed.",
-        "social_caption": "Zoom.",
+        "social_caption": "Zoom past the Roadrunner.",
         "typicality": 0.4,
         "uses_trend_state": False,
         "timely_reason": "",
