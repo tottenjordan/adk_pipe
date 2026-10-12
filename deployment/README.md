@@ -1156,6 +1156,67 @@ gcloud run deploy trend-trawler-api  --source .        --region $REGION ...   # 
 gcloud run deploy trend-trawler-web  --source ./frontend --region $REGION ...  # (Step 4 flags)
 ```
 
+#### Build with Cloud Build (cached), then deploy the digest
+
+Faster than `--source` (which always builds with `--no-cache` and re-pushes the api's ~1 GB
+dependency layer): [`cloudbuild.yaml`](../cloudbuild.yaml) builds **both** images in parallel
+with BuildKit (`docker buildx`) and a registry layer cache (`<image>:buildcache`, next to the
+images in `cloud-run-source-deploy`), pushes `<image>:<SHORT_SHA>` + `:latest` and prints
+each digest. The dependency layers (`uv sync`, `npm ci`) are rebuilt only when
+`pyproject.toml`/`uv.lock` or `package*.json` change. Use the dedicated ignore file — the
+root `.gcloudignore` (for the api's `--source .` deploy) drops `frontend/`:
+
+```bash
+# From a main checkout. Builds + pushes only (nothing is deployed):
+gcloud builds submit --region $REGION --config cloudbuild.yaml \
+  --ignore-file deployment/cloudbuild.gcloudignore \
+  --substitutions=SHORT_SHA=$(git rev-parse --short HEAD)
+# The log ends with API_IMAGE=…/trend-trawler-api@sha256:… and WEB_IMAGE=…@sha256:…
+```
+
+Measured 2026-10-12 (default machine, build time without upload): cold cache 215 s, no
+change 29 s, an api-only source change 19 s, a frontend source change 115 s (next build
+incl. its TypeScript check); vs `--source` medians of 106 s (api) + 161 s (web).
+`machineType: E2_HIGHCPU_8` cut a web rebuild to 54 s but queued ~55 s for a worker every
+build, so the config keeps the default.
+
+Then deploy each digest **at 0% traffic**, verify, and pin as above (the api is pinned; an
+api revision change shuts in-flight runs down, so check none is running first). No env,
+IAM or ingress flags: `--image` keeps the services' env vars (incl. `SESSION_SERVICE_URI`,
+`IAP_ALLOWED_HD`), IAM and IAP; never pass `--allow-unauthenticated` to web or api.
+
+```bash
+API_IMAGE=us-central1-docker.pkg.dev/$PROJECT/cloud-run-source-deploy/trend-trawler-api@sha256:…
+WEB_IMAGE=us-central1-docker.pkg.dev/$PROJECT/cloud-run-source-deploy/trend-trawler-web@sha256:…
+gcloud run deploy trend-trawler-api --image "$API_IMAGE" --region $REGION --no-traffic \
+  --service-account tt-api-sa@$PROJECT.iam.gserviceaccount.com \
+  --no-cpu-throttling --min-instances 1 --memory 8Gi --cpu 4 --timeout 900
+gcloud run deploy trend-trawler-web --image "$WEB_IMAGE" --region $REGION --no-traffic \
+  --service-account tt-web-sa@$PROJECT.iam.gserviceaccount.com
+# verify, then pin each new revision (update-traffic --to-revisions <rev>=100, see above);
+# the share service deploys the same $WEB_IMAGE (Shareable links → Public share service).
+```
+
+`--substitutions=SHORT_SHA=…,_DEPLOY=true` runs those two deploys inside the build (still
+`--no-traffic`, never pinning; pinning stays the manual, idle-checked step). The Cloud Build
+service account (`$PROJECT_NUMBER@cloudbuild.gserviceaccount.com` here) then needs to deploy
+Cloud Run and act as both runtime service accounts. In `hybrid-vertex` it already has
+`roles/run.admin` + project-wide `roles/iam.serviceAccountUser`; elsewhere, the minimum is:
+
+```bash
+CB_SA=$PROJECT_NUMBER@cloudbuild.gserviceaccount.com
+gcloud projects add-iam-policy-binding $PROJECT \
+  --member="serviceAccount:$CB_SA" --role=roles/run.developer --condition=None
+for SA in tt-api-sa tt-web-sa; do
+  gcloud iam service-accounts add-iam-policy-binding $SA@$PROJECT.iam.gserviceaccount.com \
+    --member="serviceAccount:$CB_SA" --role=roles/iam.serviceAccountUser
+done
+```
+
+(Pushing needs `roles/artifactregistry.writer`, included in the default
+`roles/cloudbuild.builds.builder`.) The api image no longer carries the uv download cache
+(a BuildKit cache mount): 319 MB compressed vs 370 MB.
+
 **Confirm what's actually live** (a green check in the console = the revision is *healthy*,
 NOT that it serves traffic — read the traffic %, not the checkmark):
 
