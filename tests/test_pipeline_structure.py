@@ -1428,6 +1428,17 @@ def test_interactive_registers_visual_concept_reviser():
     assert "{visual_revision_notes?}" in instr
 
 
+def test_interactive_reviser_model_callbacks_match_the_schema_producers():
+    from creative_agent import callbacks
+    from interactive_creative.agent import visual_concept_reviser
+
+    assert visual_concept_reviser.before_model_callback is callbacks.rate_limit_callback
+    assert visual_concept_reviser.after_model_callback == [
+        callbacks.scrub_surrogates_in_response,
+        callbacks.log_empty_turn_finish_reason,
+    ]
+
+
 def test_interactive_reviser_rechecks_concepts_after_the_guard():
     """The reviser's after_agent chain: the motif/product guard, THEN the
     deterministic recheck (so the residual marker reflects the guarded,

@@ -186,7 +186,7 @@ interactive_creative (root Agent `root_agent`; App + ResumabilityConfig(is_resum
 ├── combined_research_pipeline / ad_creative_pipeline / visual_generation_pipeline / finalize_pipeline (reused from creative_agent, incl. their gates; bare nodes → NodeTool)
 ├── review_research / review_ad_copies / review_visual_concepts (LongRunningFunctionTool checkpoints 1–3)
 ├── checkpoint 1 = editable structured brief (merge_brief_edit); checkpoint 2 feedback → prepare_copy_revision → ad_copy_user_reviser (bare Workflow → NodeTool, one user revision) → review_ad_copies once more (details above)
-├── visual_concept_reviser (applies checkpoint-3 revision notes → final_visual_concepts; guarded by ensure_trend_and_product_callback, then recheck_concept_issues_callback re-records final_visual_concepts__issues — no fix loop; a direct-edit resume clears the stale marker, and without notes the model is skipped but `skip_reviser_without_notes` runs the same guard + recheck on the direct edits)
+├── visual_concept_reviser (applies checkpoint-3 revision notes → final_visual_concepts under the shared VISUAL_CONCEPT_RULES + brief / paired copy / user avoid + brand colours; guarded by ensure_trend_and_product_callback, then recheck_concept_issues_callback re-records final_visual_concepts__issues — no fix loop; a direct-edit resume clears the stale marker, and without notes the model is skipped but `skip_reviser_without_notes` runs the same guard + recheck on the direct edits)
 ├── visual_generator_resilient (reused; render after the reviser) → finalize_pipeline
 └── save_draft_report_artifact (only to re-save the PDF after a checkpoint-1 brief/report edit) + memorize
 ```

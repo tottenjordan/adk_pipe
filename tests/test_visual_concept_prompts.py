@@ -224,3 +224,23 @@ def test_guide_tone_mapping_agrees_with_the_text_rules_and_style_names():
     # Mapped styles use the palette's family names.
     assert "-> Cinematic film still or Photoreal / editorial" in guide
     assert "-> cinematic photoreal" not in guide
+
+
+def test_interactive_reviser_carries_the_shared_rules_and_inputs():
+    from interactive_creative import prompts as ic_prompts
+
+    instr = ic_prompts.VISUAL_CONCEPT_REVISER_INSTR
+    assert prompts.VISUAL_CONCEPT_RULES in instr
+    for token in (
+        "{creative_brief_md?}",
+        "{ad_copy_critique?}",
+        "{brand_colors?}",
+        "{visual_avoid?}",
+        "{target_product}",
+    ):
+        assert token in instr, token
+    for token in _TOKEN.findall(instr):
+        assert re.fullmatch(r"[A-Za-z_]\w*\??", token), token
+    assert instr.rstrip().endswith(
+        "schema (a `visual_concepts` list).**\n    </OUTPUT_FORMAT>"
+    )

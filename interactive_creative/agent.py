@@ -78,7 +78,13 @@ visual_concept_reviser = Agent(
     # Skip the model when there are no notes (or no concepts): with nothing to
     # apply, an LLM re-emit could only paraphrase away the merged direct edits.
     before_agent_callback=skip_reviser_without_notes,
-    after_model_callback=callbacks.log_empty_turn_finish_reason,
+    # Same model callbacks as the other schema producers: the shared rate
+    # limiter, and lone-surrogate scrubbing ahead of output_schema validation.
+    before_model_callback=callbacks.rate_limit_callback,
+    after_model_callback=[
+        callbacks.scrub_surrogates_in_response,
+        callbacks.log_empty_turn_finish_reason,
+    ],
     # Same trend-motif + product guard as visual_concept_finalizer: a revision
     # note must not drop either from the prompt that is rendered. Then the
     # deterministic concept checks are re-run on the guarded concepts so
