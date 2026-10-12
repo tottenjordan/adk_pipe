@@ -305,3 +305,59 @@ def test_fast_calibrate_alpha_matches_reference_bisection(seed):
     fast = envm._calibrate_alpha(logits, target)
     ref = _calibrate_alpha_reference(logits, target)
     assert abs(fast - ref) < 1e-9, (fast, ref)
+
+
+def _reference_bisect(logits_wo_alpha, target):
+    """Verbatim copy of the pre-Newton ``_calibrate_alpha`` (bisection to a 1e-12
+    bracket), the oracle for the safeguarded Newton version."""
+    neg_exp = np.exp(-logits_wo_alpha)
+    lo, hi = -20.0, 10.0
+    for _ in range(80):
+        if hi - lo < 1e-12:
+            break
+        mid = 0.5 * (lo + hi)
+        if np.mean(1.0 / (1.0 + np.exp(-mid) * neg_exp)) < target:
+            lo = mid
+        else:
+            hi = mid
+    return 0.5 * (lo + hi)
+
+
+def _mean_sigmoid(alpha, logits):
+    return float(np.mean(1.0 / (1.0 + np.exp(-(alpha + logits)))))
+
+
+@pytest.mark.parametrize("seed", range(24))
+def test_newton_calibrate_alpha_matches_bisection(seed):
+    rng = np.random.default_rng(1000 + seed)
+    shapes = [(2000, 3), (40000,), (5000, 4), (300, 7), (100000, 2)]
+    shape = shapes[seed % len(shapes)]
+    scale = [0.1, 0.5, 1.0, 2.0, 4.0, 8.0][seed % 6]
+    logits = rng.normal(rng.uniform(-6.0, 2.0), scale, shape)
+    target = float(rng.uniform(0.005, 0.5))
+    alpha = envm._calibrate_alpha(logits, target)
+    ref = _reference_bisect(logits, target)
+    assert abs(_mean_sigmoid(alpha, logits) - target) < 1e-12, (alpha, target)
+    assert abs(alpha - ref) < 1e-9, (alpha, ref)
+
+
+@pytest.mark.parametrize(
+    ("offset", "target"),
+    [
+        (25.0, 0.005),  # root far below -20: both pin to the lower bracket end
+        (-25.0, 0.5),  # root far above 10: both pin to the upper bracket end
+        (14.7, 0.005),  # root just inside -20
+        (-9.9, 0.5),  # root just inside 10
+        (0.0, 0.005),
+        (0.0, 0.5),
+    ],
+)
+def test_newton_calibrate_alpha_edge_targets_match_bisection(offset, target):
+    rng = np.random.default_rng(7)
+    logits = rng.normal(offset, 0.3, (20000, 3))
+    alpha = envm._calibrate_alpha(logits, target)
+    ref = _reference_bisect(logits, target)
+    assert -20.0 <= alpha <= 10.0
+    assert abs(alpha - ref) < 1e-9, (alpha, ref)
+    if -20.0 < ref - 1e-9 and ref + 1e-9 < 10.0:
+        assert abs(_mean_sigmoid(alpha, logits) - target) < 1e-12

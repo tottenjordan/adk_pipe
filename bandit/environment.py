@@ -24,7 +24,7 @@ segment ``s`` and arm ``a`` is logistic:
   ``topic_matches_trend``, ``η·ŝ_audience_fit`` on ``interest_matches_product``,
   ``-η·ŝ_stopping_power`` on desktop/tablet (i.e. mobile × stopping power), plus
   ``N(0, theta_sd²)`` seeded noise on every non-bias feature.
-- **α**: calibrated by bisection so the mean CTR under the scenario's context
+- **α**: calibrated (safeguarded Newton) so the mean CTR under the scenario's context
   distribution and uniformly random arms equals ``target_ctr[ctr_mode]``
   (pre-drift).
 - **Drift**: after the change point the best and worst arms (by pre-drift
@@ -174,23 +174,39 @@ def _greedy_winners(sc: ScenarioConfig, adj: dict[str, np.ndarray]) -> list[int]
 
 
 def _calibrate_alpha(logits_wo_alpha: np.ndarray, target: float) -> float:
-    """Bisect for the intercept α with mean(sigmoid(α + logits)) == target.
+    """Solve for the intercept α with mean(sigmoid(α + logits)) == target.
 
-    ``exp(-(α + L)) == exp(-α) * exp(-L)``, so ``exp(-L)`` is computed once and
-    each step costs one scalar ``exp`` plus a multiply. Stops once the bracket
-    is below 1e-12 (~45 steps), capped at 80 steps.
+    Safeguarded Newton on ``f(α) = mean(s) - target`` with
+    ``f'(α) = mean(s·(1-s))``, ``s = sigmoid(α + L)``. ``exp(-(α + L)) ==
+    exp(-α) * exp(-L)``, so ``exp(-L)`` is computed once and each step costs one
+    scalar ``exp`` plus a few passes over the array. Starts at
+    ``logit(target) - mean(L)`` clipped into the bracket [-20, 10]; the bracket
+    is narrowed from the sign of ``f`` at every iterate and a Newton step that
+    leaves it (or a vanishing derivative) falls back to the bisection midpoint,
+    so a root outside the bracket pins to its end like plain bisection did.
+    Stops when ``|f| < 1e-13``, the bracket is below 1e-12, or after 50 steps
+    (typically ~4-6 steps instead of ~45 bisection steps).
     """
     neg_exp = np.exp(-logits_wo_alpha)
     lo, hi = -20.0, 10.0
-    for _ in range(80):
+    t = min(max(float(target), 1e-12), 1.0 - 1e-12)
+    a = float(np.log(t / (1.0 - t)) - np.mean(logits_wo_alpha))
+    a = min(max(a, lo), hi)
+    for _ in range(50):
+        s = 1.0 / (1.0 + np.exp(-a) * neg_exp)
+        f = float(np.mean(s)) - target
+        if abs(f) < 1e-13:
+            break
+        if f < 0.0:
+            lo = a
+        else:
+            hi = a
         if hi - lo < 1e-12:
             break
-        mid = 0.5 * (lo + hi)
-        if np.mean(1.0 / (1.0 + np.exp(-mid) * neg_exp)) < target:
-            lo = mid
-        else:
-            hi = mid
-    return 0.5 * (lo + hi)
+        d = float(np.mean(s * (1.0 - s)))
+        step = a - f / d if d > 1e-300 else np.nan
+        a = step if lo < step < hi else 0.5 * (lo + hi)
+    return a
 
 
 def build_true_model(
