@@ -681,7 +681,9 @@ class TestJudgeThePixels:
 
         seen = {}
 
-        def fake_vis(vc, ctx, config, client=None, brief=None, image=None):
+        def fake_vis(
+            vc, ctx, config, client=None, brief=None, image=None, person_photo=""
+        ):
             seen[vc["concept_name"]] = image
             return MagicMock()
 

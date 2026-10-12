@@ -14,7 +14,7 @@ from collections.abc import Iterable
 # (docs/notes/judge-calibration.md). Bump it (to the change's date) whenever the
 # gates, the gate or dimension wording, the scoring/pass rules (threshold,
 # normalisation) or the judge model change.
-JUDGE_VERSION = "2026-10-10"
+JUDGE_VERSION = "2026-10-12"
 
 DIMENSION_LABELS: dict[str, str] = {
     # Ad copy

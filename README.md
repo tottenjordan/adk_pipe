@@ -296,7 +296,7 @@ The judge reads the structured creative brief, so the gates check the copy and i
 
 The judge defaults to `gemini-3.1-pro-preview` at `global`. Override it with `EVAL_MODEL` and `EVAL_MODEL_LOCATION`. The judge has no fallback model, so a silent swap can't skew pass rates. In `creative_agent`, the ad copies are judged early, in parallel with the visual stage, and finalize then judges only the visuals.
 
-**Judge versioning.** `JUDGE_VERSION` in `creative_eval/dimensions.py` (currently `2026-10-10`, when the person gate landed) is stamped on every report and on every human rating. It is bumped whenever the gates, their wording, the pass rule or the judge model change, so pass rates and agreement are only compared within one version.
+**Judge versioning.** `JUDGE_VERSION` in `creative_eval/dimensions.py` (currently `2026-10-12`, when cast people started being judged against their reference photo and stylised trend motifs started counting) is stamped on every report and on every human rating. It is bumped whenever the gates, their wording, the pass rule or the judge model change, so pass rates and agreement are only compared within one version.
 
 The eval is the independent final measurement and never triggers regeneration; fixing creatives is the job of the gates that run before it. Gate rules and the judge's output schema: [docs/notes/creative-quality-gates.md](docs/notes/creative-quality-gates.md).
 

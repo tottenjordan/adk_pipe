@@ -176,6 +176,8 @@ def evaluate_all_creatives(tool_context) -> dict:
       - creative_brief (CreativeBrief dict/JSON; optional — the judge's gate contract)
       - generated_images ({concept_name: {gcs_uri, qa, ...}}; optional — the
         rendered images the visual judge sees)
+      - person_reference ({uri, consent_id}; optional — the consented person's
+        photo, attached to cast concepts' judge calls as ground truth)
 
     Writes to state key:
       - creative_evaluation_report (CreativeEvaluationReport JSON)
@@ -220,6 +222,7 @@ def evaluate_all_creatives(tool_context) -> dict:
         _config,
         brief=brief,
         generated_images=generated_images,
+        person_reference=state.get("person_reference"),
     )
     if any(e is not None for e in reused):
         judged_iter = iter(judged_ads)
