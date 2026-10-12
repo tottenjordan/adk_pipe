@@ -15,7 +15,8 @@ export interface ParsedTrend {
 
 /**
  * Parses the `selected_gtrends` markdown into structured trend objects.
- * Expected format:
+ * Expected format (anything before the first `### ` heading is ignored):
+ *   ## Selected Trends Strategy
  *   ### [trend term]
  *   * **The "Hook":** ...
  *   * **Context:** ...
@@ -24,8 +25,13 @@ export interface ParsedTrend {
  */
 export function parseTrendsMarkdown(markdown: string): ParsedTrend[] {
   const trends: ParsedTrend[] = [];
-  // Split on ### headings
-  const sections = markdown.split(/^###\s+/m).filter((s) => s.trim());
+  // Split on ### headings. Only text AFTER a `### ` heading is a trend: the
+  // preamble (the picker's `## Selected Trends Strategy` header, or its
+  // headerless "no trend research available" line) is dropped, never a card.
+  const sections = markdown
+    .split(/^###\s+/m)
+    .slice(1)
+    .filter((s) => s.trim());
 
   for (const section of sections) {
     const lines = section.trim().split("\n");

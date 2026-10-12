@@ -57,13 +57,24 @@ describe("parseTrendsMarkdown", () => {
     expect(parseTrendsMarkdown("")).toEqual([]);
   });
 
-  it("treats plain text as a single term with empty fields", () => {
-    // The parser splits on sections after filtering empty strings,
-    // so plain text without ### becomes one section with the text as term.
-    const result = parseTrendsMarkdown("No trends here");
-    expect(result).toHaveLength(1);
-    expect(result[0].term).toBe("No trends here");
-    expect(result[0].hook).toBe("");
+  it("returns no cards for text without a ### trend heading", () => {
+    // pick_trends_agent's "no trend research available" one-liner (and any
+    // other headerless text) is not a trend: a card would launch a creative run
+    // for that literal sentence.
+    expect(parseTrendsMarkdown("No trend research was available.")).toEqual([]);
+  });
+
+  it("drops the preamble before the first ### heading", () => {
+    // PICK_TRENDS_INSTR's output format starts with `## Selected Trends Strategy`.
+    const md = `## Selected Trends Strategy
+
+### Trend A
+* **The "Hook":** Hook A
+* **Context:** Context A`;
+
+    const result = parseTrendsMarkdown(md);
+    expect(result.map((t) => t.term)).toEqual(["Trend A"]);
+    expect(result[0].hook).toBe("Hook A");
   });
 
   it("handles The Hook without quotes", () => {
