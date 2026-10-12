@@ -610,6 +610,15 @@ smoke test). Values above the cap are clamped, and invalid values fall back to i
 To raise the cap, add `CRF_MAX_ROWS_PER_RUN=<n>` to the orchestrator's
 `--set-env-vars`.
 
+Sensitive trends (2026-10-12): the orchestrator never selects a row whose
+`trend_context` JSON has `"sensitive": true` (set by trend_scout's
+`classify_trends_agent` for a human-picked sensitive term; auto picks never
+include one). NULL, empty, malformed or unflagged `trend_context` is still
+dispatched. No migration: the flag is a key inside the existing
+`trend_context` column (plain `JSON_VALUE`; BigQuery rejects `SAFE.JSON_VALUE`).
+Redeploy the orchestrator `$CREATIVE_CRF_NAME` from `cloud_functions/creative_fanout`
+to pick it up; flagged rows already in the table are skipped from then on.
+
 Worker failure semantics: if the agent run fails, the worker marks the row
 `FAILED` and **ACKs** (no Pub/Sub retry — a redelivery can't re-lock a `FAILED`
 row). Only an error before/while writing that status NACKs for redelivery; rows
