@@ -136,6 +136,31 @@ describe("pollRun", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
+  it("yields a contained step-error event without failing while running", async () => {
+    const stepErr = {
+      ...ev("e1"),
+      errorCode: "INVALID_ARGUMENT",
+      errorMessage: "400 bad schema",
+    } as AgentEvent;
+    const warnings = [{ author: "a", message: "400 bad schema" }];
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse({ status: "running", events: [stepErr], nextCursor: 1, warnings })
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({ status: "done", events: [ev("e2")], nextCursor: 2, warnings })
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const yielded: AgentEvent[] = [];
+    for await (const e of pollRun("creative_agent", "u1", "s1", { intervalMs: 0 })) {
+      yielded.push(e);
+    }
+
+    expect(yielded.map((e) => e.id)).toEqual(["e1", "e2"]);
+  });
+
   it("throws on error status with the backend error message", async () => {
     const fetchMock = vi
       .fn()

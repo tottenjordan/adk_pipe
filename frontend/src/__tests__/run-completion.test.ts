@@ -86,6 +86,24 @@ describe("stoppedEarly", () => {
     ).toBeNull();
   });
 
+  it("creative runs are complete at finalize_done, even without an eval report", () => {
+    const finalized = { ...UP_TO_VISUALS, _images_generated: true, finalize_done: true };
+    expect(stoppedEarly("creative_agent", finalized, "completed", null)).toBeNull();
+    expect(stoppedEarly("interactive_creative", finalized, "completed", null)).toBeNull();
+  });
+
+  it("older creative sessions with only eval_report_gcs_uri stay complete", () => {
+    expect("finalize_done" in CREATIVE_DONE).toBe(false);
+    expect(stoppedEarly("creative_agent", CREATIVE_DONE, "completed", null)).toBeNull();
+  });
+
+  it("a creative run with neither finalize_done nor an eval report stopped early", () => {
+    const state = { ...UP_TO_VISUALS, _images_generated: true, finalize_done: false };
+    expect(stoppedEarly("creative_agent", state, "completed", null)).toEqual({
+      stage: "Evaluation & save",
+    });
+  });
+
   it("is null for an unknown app", () => {
     expect(stoppedEarly("mystery_agent", {}, "completed", null)).toBeNull();
   });

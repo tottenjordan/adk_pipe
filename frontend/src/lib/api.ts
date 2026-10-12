@@ -24,7 +24,9 @@ export const SELF_USER_ID = "me";
  * event is not an error. The ADK run_sse stream reports model/agent failures
  * as data events (errorCode/errorMessage, or a terminal bare `error`) that
  * carry no `content`, so a content-only consumer would drop them silently and
- * the run would appear to stall. Callers should surface the returned message.
+ * the run would appear to stall. Callers should surface the returned message —
+ * as a non-fatal notice: an error event is not a run failure (a fail-soft step
+ * may have contained it); only the poll status decides that (lib/step-errors).
  */
 export function getEventError(event: AgentEvent): string | null {
   const raw = event.errorMessage || event.errorCode || event.error;
@@ -130,6 +132,9 @@ export interface PollResult {
   state?: Record<string, unknown>;
   /** Error string on `status === "error"`, else null. */
   error?: string | null;
+  /** Non-fatal in-pipeline error events (deduped, capped): a fail-soft step
+   *  contained them, so they never change `status` (see lib/step-errors). */
+  warnings?: { author: string; message: string }[];
 }
 
 /**

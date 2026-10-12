@@ -139,6 +139,7 @@ class _FakeRunner:
         events,
         *,
         raise_after=None,
+        exc=None,
     ):
         self._svc = session_service
         self._app_name = app_name
@@ -146,12 +147,13 @@ class _FakeRunner:
         self._session_id = session_id
         self._events = events
         self._raise_after = raise_after
+        self._exc = exc
 
     async def run_async(self, *, user_id, session_id, new_message, **kwargs):
         self.received_message = new_message  # captured for resume assertions
         for i, ev in enumerate(self._events):
             if self._raise_after is not None and i == self._raise_after:
-                raise RuntimeError("boom")
+                raise self._exc if self._exc is not None else RuntimeError("boom")
             session = await self._svc.get_session(
                 app_name=self._app_name,
                 user_id=self._user_id,
@@ -516,14 +518,151 @@ def test_poll_status_error_on_marker():
     assert "boom" in result["error"]
 
 
-def test_poll_status_error_on_error_event():
+def _step_error(author="trend_situation_synthesizer", message="400 INVALID_ARGUMENT"):
+    """An in-pipeline error event a fail-soft step contained (the LlmAgent's
+    model error stays in the log while the pipeline carries on)."""
+    return Event(author=author, error_code="INVALID_ARGUMENT", error_message=message)
+
+
+def test_poll_contained_error_event_keeps_running_with_warning():
     svc = InMemorySessionService()
-    err_event = Event(
-        author="creative_agent", error_code="RESOURCE_EXHAUSTED", error_message="429"
+    asyncio.run(_seed_session(svc, events=[_agent_event("one"), _step_error()]))
+    result = _poll(svc)
+    assert result["status"] == "running"
+    assert result["error"] is None
+    assert result["warnings"] == [
+        {"author": "trend_situation_synthesizer", "message": "400 INVALID_ARGUMENT"}
+    ]
+
+
+def test_poll_warnings_empty_without_error_events():
+    svc = InMemorySessionService()
+    asyncio.run(_seed_session(svc, events=[_agent_event("one")]))
+    assert _poll(svc)["warnings"] == []
+
+
+def test_poll_done_after_contained_error_stays_done_with_warning():
+    svc = InMemorySessionService()
+    asyncio.run(
+        _seed_session(
+            svc,
+            events=[_step_error(), _agent_event("one"), build_terminal_event("done")],
+        )
     )
-    asyncio.run(_seed_session(svc, events=[_agent_event("one"), err_event]))
+    result = _poll(svc)
+    assert result["status"] == "done"
+    assert result["error"] is None
+    assert len(result["warnings"]) == 1
+
+
+def test_poll_error_marker_after_contained_error_is_error():
+    svc = InMemorySessionService()
+    asyncio.run(
+        _seed_session(
+            svc, events=[_step_error(), build_terminal_event("error", "root 429")]
+        )
+    )
     result = _poll(svc)
     assert result["status"] == "error"
+    assert result["error"] == "root 429"
+
+
+def test_poll_warnings_are_deduped_capped_and_truncated():
+    svc = InMemorySessionService()
+    events = [_step_error(), _step_error()]  # duplicate → one warning
+    events += [_step_error(author=f"a{i}", message=f"m{i}") for i in range(10)]
+    events.append(_step_error(author="long", message="x" * 2000))
+    asyncio.run(_seed_session(svc, events=events))
+    warnings = _poll(svc)["warnings"]
+    assert len(warnings) == async_runs.RUN_WARNINGS_MAX
+    assert warnings[0]["author"] == "trend_situation_synthesizer"
+    assert len({(w["author"], w["message"]) for w in warnings}) == len(warnings)
+    long = _step_error(author="long", message="x" * 2000)
+    svc2 = InMemorySessionService()
+    asyncio.run(_seed_session(svc2, events=[long]))
+    (w,) = _poll(svc2)["warnings"]
+    assert len(w["message"]) <= async_runs.RUN_WARNING_MAX_CHARS
+    assert w["message"].endswith("…")
+
+
+def test_poll_warning_falls_back_to_error_code():
+    svc = InMemorySessionService()
+    ev = Event(author="x", error_code="MALFORMED_FUNCTION_CALL")
+    asyncio.run(_seed_session(svc, events=[ev]))
+    assert _poll(svc)["warnings"] == [
+        {"author": "x", "message": "MALFORMED_FUNCTION_CALL"}
+    ]
+
+
+def test_uncaught_model_error_writes_terminal_error_marker():
+    """A root model 429 that exhausts retries escapes ``run_async``; the detached
+    task must still end the run with an ``error`` marker (this is what lets the
+    poll status ignore contained in-pipeline error events)."""
+    from google.genai import errors as genai_errors
+
+    exc = genai_errors.ClientError(
+        429, {"error": {"code": 429, "status": "RESOURCE_EXHAUSTED"}}
+    )
+
+    async def _go():
+        svc = InMemorySessionService()
+        events = [_step_error(), _agent_event("one")]
+        fake = _FakeRunner(
+            svc, "creative_agent", "u", "s", events, raise_after=1, exc=exc
+        )
+        _r, task = await start_run(
+            app_name="creative_agent",
+            user_id="u",
+            session_id="s",
+            message="hello",
+            session_service=svc,
+            runner_factory=lambda app_name: fake,
+        )
+        await task  # must not raise
+        return await get_run_status(
+            app_name="creative_agent",
+            user_id="u",
+            session_id="s",
+            since=0,
+            session_service=svc,
+        )
+
+    result = asyncio.run(_go())
+    assert result["status"] == "error"
+    assert "429" in result["error"]
+
+
+def test_cancelled_run_writes_terminal_error_marker():
+    """A cancelled detached task (e.g. instance shutdown) still records an
+    ``error`` marker before re-raising, so pollers don't show it running."""
+
+    class _HangingRunner:
+        async def run_async(self, **kwargs):
+            await asyncio.Event().wait()
+            yield  # pragma: no cover — makes this an async generator
+
+    async def _go():
+        svc = InMemorySessionService()
+        _r, task = await start_run(
+            app_name="creative_agent",
+            user_id="u",
+            session_id="s",
+            message="hello",
+            session_service=svc,
+            runner_factory=lambda app_name: _HangingRunner(),
+        )
+        await asyncio.sleep(0)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        return await svc.get_session(
+            app_name="creative_agent", user_id="u", session_id="s"
+        )
+
+    session = asyncio.run(_go())
+    delta = session.events[-1].actions.state_delta
+    assert delta[RUN_STATUS_KEY] == "error"
+    assert "interrupted" in delta[RUN_ERROR_KEY]
 
 
 def test_poll_state_is_session_state():
