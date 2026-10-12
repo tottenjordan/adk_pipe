@@ -1,0 +1,37 @@
+# Source-upload filter for `gcloud builds submit --config cloudbuild.yaml` (api + web
+# images). Unlike the root .gcloudignore (the api's `gcloud run deploy --source .`),
+# this KEEPS frontend/ — the web build's context. Each Dockerfile's .dockerignore
+# (root, frontend/) still trims its own build context. Root-only dirs use a leading `/`.
+.git
+.venv/
+__pycache__/
+*.pyc
+.env*
+.vscode/
+.github/
+.claude/
+.agents/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.ipynb_checkpoints/
+a_stash/*
+output/*
+outputs/
+.adk
+**/.adk/
+node_modules/
+frontend/.next/
+frontend/coverage/
+frontend/test-results/
+frontend/playwright-report/
+tests/
+docs/
+/experiments/
+/notebook-examples/
+/imgs/
+/*.md
+/bandit/
+/bandit_serving/
+/bandit_traffic/
+/cloud_functions/
