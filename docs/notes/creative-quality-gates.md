@@ -96,7 +96,13 @@ hurricane). Three judge changes, all blocking:
   risks listed → pass; no brief → passes "no brief".
 - `trend_motif_visible` is stricter: the motif must be prominent and recognisable at a glance
   as a reference to the campaign trend without reading any copy; tiny, background, generic
-  ("any storm", "any phone screen") or merely implied motifs fail.
+  ("any storm", "any phone screen") or merely implied motifs fail. **Loosened 2026-10-12**
+  (`JUDGE_VERSION` `2026-10-12`): the motif must be visible (not tiny or hidden in the
+  background) and recognisable as the trend to someone who follows it, without reading any
+  copy; stylised, abstract or symbolic references count (e.g. a checkered finish-line
+  pattern for a marathon, which a rater judged recognisable for "Chicago Marathon Results"
+  while the judge had failed it); it fails only when the motif is absent, too small or
+  hidden to notice, or so generic it could illustrate any trend.
 
 Judge pass rates and `gates_pass_rate` before and after this change are **not comparable**.
 

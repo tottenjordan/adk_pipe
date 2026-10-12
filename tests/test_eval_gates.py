@@ -1320,18 +1320,24 @@ class TestGateCounts:
         )
 
 
-class TestStricterTrendMotif:
-    def test_motif_must_be_prominent_and_recognisable(self):
+class TestTrendMotifGate:
+    def test_motif_visible_and_recognisable_stylised_counts(self):
         line = next(
             line
             for line in eval_prompts.VISUAL_CONCEPT_EVAL_USER.splitlines()
             if "**trend_motif_visible**" in line
         )
-        assert "prominent and recognisable at a glance" in line
+        assert "not tiny or hidden in the background" in line
         assert "without reading any caption or copy" in line
-        assert "generic (e.g. any storm or any phone screen)" in line
-        assert "only implied fails" in line
         assert "{target_search_trend}" in line
+        # 2026-10-12: stylised / symbolic references a follower recognises pass.
+        assert "Stylised, abstract or symbolic references count" in line
+        assert "checkered finish-line pattern for a marathon" in line
+        assert "Fail only when the motif is absent" in line
+        assert "so generic it could illustrate any trend" in line
+        # No longer demands prominence at a glance.
+        assert "prominent" not in line and "at a glance" not in line
+        assert "only implied fails" not in line
 
     def test_formatted_prompt_names_the_trend(self):
         from creative_eval.evaluate import evaluate_visual_concept
