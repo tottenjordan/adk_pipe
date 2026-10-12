@@ -8,6 +8,7 @@ see the [main README](../README.md).
 - [Required environment](#required-environment)
 - [Create BigQuery tables](#create-bigquery-tables)
 - [Deploying Agents to Agent Engine](#deploying-agents-to-agent-engine)
+- [Deploying engines with Cloud Build](#deploying-engines-with-cloud-build)
 - [Cloud Run Functions Fan-out Pattern](#cloud-run-functions-fan-out-pattern)
 - [Frontend + api_server on Cloud Run](#frontend--api_server-on-cloud-run)
 - [Bandit experiments](#bandit-experiments)
@@ -163,7 +164,7 @@ uv run python deployment/deploy_agent.py --version=v1 --agent=creative_agent --c
 > staged, and runs `runtimes.create` from there. Requirements are passed as a list with
 > `uv export`'s comments and `# via` annotations stripped.
 
-* Once agent is deployed to Agent Engine, the agent's resource ID will be added to your `.env` file (`SCOUT_AGENT_ENGINE_ID`, `CREATIVE_AGENT_ENGINE_ID` or `INTERACTIVE_AGENT_ENGINE_ID`). And this will be used later by the `test_deployment.py` / `integration_test.py` scripts
+* Once agent is deployed to Agent Engine, the agent's resource ID will be added to your `.env` file (unless `--nowrite_env`; `--output_json=<path>` also writes it as JSON and prints an `ENGINE_ID agent=<agent> id=<resource name>` line — the non-interactive mode the [Cloud Build deploy](#deploying-engines-with-cloud-build) uses) (`SCOUT_AGENT_ENGINE_ID`, `CREATIVE_AGENT_ENGINE_ID` or `INTERACTIVE_AGENT_ENGINE_ID`). And this will be used later by the `test_deployment.py` / `integration_test.py` scripts
 * The deploy/test scripts use the AgentPlatform SDK: `agentplatform.Client().runtimes` and `agentplatform.frameworks.AdkApp` (google-cloud-aiplatform 2.x, via the `[tool.uv]` override in `pyproject.toml`)
 
 ### Test deployment
@@ -212,6 +213,132 @@ To view log entries in the [Logs Explorer](https://cloud.google.com/logging/docs
 resource.type="aiplatform.googleapis.com/ReasoningEngine"
 resource.labels.location="GCP_REGION"
 resource.labels.reasoning_engine_id="YOUR_AGENT_ENGINE_ID"
+```
+
+---
+
+## Deploying engines with Cloud Build
+
+`deployment/cloudbuild.agents.yaml` runs the same `deploy_agent.py --create` as above, but from
+a **fresh clone** of a GitHub ref, on **pinned Python 3.13** (uv 0.12.19 image, tag + digest),
+with an **explicit environment**, and deploys the selected engines **in parallel**. It removes
+the laptop hazards: stale exported `*_AGENT_ENGINE_ID` / `GOOGLE_CLOUD_STORAGE_BUCKET` /
+`BUCKET` / `PERSON_SAFE_STYLES` in the deployer shell (each deploy starts from `env -i`), env
+values baked into the pickles from whatever the shell had (only the committed profile
+`deployment/deploy.env` is sourced), worktrees defaulting to Python 3.14 (a step fails the
+build unless the venv is 3.13, matching the engine's py313 runtime), and parallel deploys
+clobbering `.env` (the build never writes `.env`; it hands the IDs off as JSON).
+
+```bash
+gcloud builds submit --no-source --project=hybrid-vertex --region=us-central1 \
+  --config=deployment/cloudbuild.agents.yaml \
+  --substitutions=_REF=main,_CREATIVE_VERSION=v37,_INTERACTIVE_VERSION=v33,_SCOUT_VERSION=v18
+# one engine + the end-to-end smoke test against it:
+gcloud builds submit --no-source --project=hybrid-vertex --region=us-central1 \
+  --config=deployment/cloudbuild.agents.yaml \
+  --substitutions=_AGENTS=creative_agent,_CREATIVE_VERSION=v37,_SMOKE=true
+```
+
+`--no-source`: nothing is uploaded from your checkout; the build clones `_REF`, so **push
+first** (a local-only commit can't be deployed).
+
+| Substitution | Default | Meaning |
+|---|---|---|
+| `_AGENTS` | `creative_agent,interactive_creative,trend_scout` | Engines to deploy (comma-separated subset) |
+| `_CREATIVE_VERSION` / `_INTERACTIVE_VERSION` / `_SCOUT_VERSION` | empty | Version namespace per selected agent (required when selected): display name `<agent display>-<version>`, staging dir `adk-pipe/<sub>/<version>/staging` |
+| `_REF` | `main` | Branch, tag or **full** 40-char commit SHA (short SHAs can't be fetched) |
+| `_ENABLE_TRACING` | `true` | Adds `--enable_tracing` (Cloud Trace; see above) |
+| `_SMOKE` | `false` | `true` runs `integration_test.py --check smoke --agent creative_agent` against the **new** creative engine (~10 min; skipped when `creative_agent` isn't selected) |
+| `_DEPLOY_ENV` | `deployment/deploy.env` | Deploy profile in the checkout |
+| `_REPO` / `_ARTIFACTS_BUCKET` / `_UV_IMAGE` | `tottenjordan/adk_pipe` / `trend-trawler-deploy-ae` / pinned uv image | Rarely changed |
+
+**Steps:** `clone` (`git fetch --depth 1 <_REF>`, refuses a checked-in `.env`) → `sync`
+(`uv sync --frozen --no-dev`, system Python only, no interpreter downloads) → `python-313`
+(asserts the venv is 3.13, validates `_AGENTS`) → `deploy-creative_agent` /
+`deploy-interactive_creative` / `deploy-trend_scout` **in parallel** (each skips itself when
+not selected; `deployment/cloudbuild_env.sh` runs `deploy_agent.py --create --nowrite_env
+--output_json=/workspace/engine_ids/<agent>.json` from `env -i` + the profile, after checking
+the profile's `GOOGLE_CLOUD_PROJECT` is the build's project and that it sets no engine ID /
+`BUCKET` / `GCS_BUCKET_NAME`) → `collect` → `smoke` (optional).
+
+**Deploy profile (`deployment/deploy.env`).** Committed and non-secret: project, number,
+regions, bucket, BigQuery names, and every knob read at agent import (every `ENV_VAR_DICT`
+key plus `CRITIC_FALLBACK_MODEL`, `MODEL_REQUEST_TIMEOUT_SECONDS`, `MODEL_ARMOR_*` (off),
+`CAMPAIGN_RESEARCH_PLACEMENT`, `EVAL_*`, `IMAGE_SIZE` ...), at today's defaults. Change an
+engine knob by editing this file in a PR, then redeploy. Nothing secret is needed (auth is the
+build's service account through the metadata server); if a secret is ever needed, add it via
+Secret Manager + `availableSecrets` / `secretEnv`, never to the profile. A drift test
+(`tests/test_cloudbuild_agents.py`) fails when an `ENV_VAR_DICT` key is missing from it.
+
+**Outputs.** Each deploy step prints `ENGINE_ID agent=<agent> id=<resource name>` as soon as
+its engine exists. `collect` merges the records into `/workspace/engine_ids.json`
+(`{"commit": ..., "engines": {"<agent>": {"resource_name", "env_key", "version",
+"display_name", "enable_tracing", "previous"}}}`), uploads it to
+`gs://trend-trawler-deploy-ae/adk-pipe/cloudbuild/<BUILD_ID>/engine_ids.json`, and prints
+`agent: old -> new` (old = the newest other engine with the same display-name prefix, best
+effort) plus the `.env` lines. The deploy steps have `allowFailure: true` so `collect` still
+records the engines that were created; it then **fails the build** if a selected agent has no
+record. To find an engine created by a step that failed afterwards:
+`gcloud builds log <BUILD_ID> --region=us-central1 | grep 'ENGINE_ID '`.
+
+**Hand-off (manual).**
+
+```bash
+BUILD_ID=<id from the submit output>
+gcloud storage cp gs://trend-trawler-deploy-ae/adk-pipe/cloudbuild/$BUILD_ID/engine_ids.json /tmp/engine_ids.json
+# 1) local .env (prints old -> new per key; same dotenv writer as deploy_agent)
+uv run python deployment/engine_handoff.py apply --ids /tmp/engine_ids.json --env-file .env
+# 2) CRF: the Pub/Sub message's agent_resource_id is the bare numeric ID (no redeploy)
+NEW_ID=$(jq -r '.engines.creative_agent.resource_name' /tmp/engine_ids.json); echo "${NEW_ID##*/}"
+#    -> put it in cloud_functions/creative_fanout/message.json (section 5.2) before publishing
+# 3) optional, NOT applied: keep the current IDs as Secret Manager versions
+#    (gcloud secrets create creative-agent-engine-id --replication-policy=automatic  # once)
+#    printf %s "$NEW_ID" | gcloud secrets versions add creative-agent-engine-id --data-file=-
+```
+
+The api runs the agents in-process and does not read engine IDs, so nothing else changes.
+
+**Rollback / cleanup.** Engines are created, never updated, so the old engines keep running:
+roll back by pointing `.env` / the CRF message at the previous ID again (`previous` in
+`engine_ids.json`, or the old value `apply` printed). Delete old engines manually once the new
+ones are verified: `uv run python deployment/deploy_agent.py --resource_id=<numeric id> --delete`
+(`--list` shows them all).
+
+### IAM prerequisites
+
+`gcloud builds get-default-service-account --project hybrid-vertex` →
+`934903580331@cloudbuild.gserviceaccount.com` (the legacy Cloud Build SA). Checked read-only
+2026-10-12, it already has everything the build needs, so **no grant is missing** for the
+default:
+
+| Need | Permission | Granted via |
+|---|---|---|
+| create / list / get engines, sessions + query (smoke) | `aiplatform.reasoningEngines.*` | `roles/aiplatform.admin` (project) |
+| staging uploads + `engine_ids.json` on `gs://trend-trawler-deploy-ae` | `storage.objects.create/get/list/delete` | `roles/cloudbuild.builds.builder` (project-level storage object perms) |
+| build logs | `logging.logEntries.create` | `roles/cloudbuild.builds.builder` |
+| act as the engine runtime SA | `iam.serviceAccounts.actAs` | not needed: `deploy_agent.py` sets no `service_account`, so engines run as the Reasoning Engine service agent `service-934903580331@gcp-sa-aiplatform-re.iam.gserviceaccount.com` |
+
+Recommended instead (least privilege; new projects no longer get the legacy SA as the
+build default): a dedicated deployer SA, passed with `--service-account` (the config already
+uses `CLOUD_LOGGING_ONLY`, which a user-specified SA requires). Commands for the operator
+(**not applied**):
+
+```bash
+PROJECT=hybrid-vertex
+SA=tt-engine-deployer@$PROJECT.iam.gserviceaccount.com
+gcloud iam service-accounts create tt-engine-deployer --project=$PROJECT \
+  --display-name="Trend Trawler Agent Engine deployer (Cloud Build)"
+gcloud projects add-iam-policy-binding $PROJECT --member=serviceAccount:$SA --role=roles/aiplatform.user
+gcloud projects add-iam-policy-binding $PROJECT --member=serviceAccount:$SA --role=roles/logging.logWriter
+gcloud storage buckets add-iam-policy-binding gs://trend-trawler-deploy-ae \
+  --member=serviceAccount:$SA --role=roles/storage.objectAdmin
+# only if deploy_agent.py ever sets a custom engine service_account=<RUNTIME_SA>:
+# gcloud iam service-accounts add-iam-policy-binding <RUNTIME_SA> \
+#   --member=serviceAccount:$SA --role=roles/iam.serviceAccountUser
+# the submitter must be able to act as the deployer SA:
+gcloud iam service-accounts add-iam-policy-binding $SA \
+  --member=user:<you>@jordantotten.altostrat.com --role=roles/iam.serviceAccountUser
+# then submit with:  gcloud builds submit ... --service-account=projects/$PROJECT/serviceAccounts/$SA
 ```
 
 ---

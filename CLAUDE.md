@@ -45,6 +45,11 @@ python deployment/deploy_agent.py --version=v1 --agent=creative_agent --create
 python deployment/deploy_agent.py --version=v1 --agent=interactive_creative --create
 # add --enable_tracing to opt a new engine into Cloud Trace
 # (GOOGLE_CLOUD_AGENT_ENGINE_ENABLE_TELEMETRY=true + ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS=false)
+# Or deploy from Cloud Build (fresh clone of _REF, pinned Python 3.13, env only from the
+# committed deployment/deploy.env, engines in parallel, never writes .env; new IDs in
+# engine_ids.json -> `deployment/engine_handoff.py apply`): deployment/README.md → Deploying engines with Cloud Build
+gcloud builds submit --no-source --region=us-central1 --config=deployment/cloudbuild.agents.yaml \
+  --substitutions=_CREATIVE_VERSION=v37,_INTERACTIVE_VERSION=v33,_SCOUT_VERSION=v18
 
 # List/delete Agent Engine instances
 python deployment/deploy_agent.py --list
