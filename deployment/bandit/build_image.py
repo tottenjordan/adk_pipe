@@ -362,7 +362,9 @@ def _define_flags() -> None:  # pragma: no cover - manual CLI
     flags.DEFINE_string("region", "us-central1", "Artifact Registry region")
     flags.DEFINE_string("repository", "cpr", "Artifact Registry repository")
     flags.DEFINE_string("tag", None, "image tag (default: git sha)")
-    flags.DEFINE_string("base-image", DEFAULT_BASE_IMAGE, "CPR base image")
+    flags.DEFINE_string(
+        "base-image", DEFAULT_BASE_IMAGE, "base image (needs /usr/local/bin/python3.13)"
+    )
     flags.DEFINE_string(
         "image", None, "test this existing image instead of building (no --push)"
     )

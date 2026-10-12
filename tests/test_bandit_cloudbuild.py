@@ -89,7 +89,9 @@ def test_build_step_uses_registry_cache_and_prints_digest(step_id):
     script = _steps()[step_id]["args"][-1]
     assert f"--file {dockerfile}" in script
     assert f"--cache-from type=registry,ref=${{{image_var}}}:buildcache" in script
-    assert f"--cache-to type=registry,ref=${{{image_var}}}:buildcache,mode=max" in script
+    assert (
+        f"--cache-to type=registry,ref=${{{image_var}}}:buildcache,mode=max" in script
+    )
     assert f"--tag ${{{image_var}}}:${{SHORT_SHA}}" in script
     assert f"--tag ${{{image_var}}}:latest" in script
     assert "--push" in script and "--metadata-file" in script
