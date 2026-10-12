@@ -78,5 +78,16 @@ jobs:
           restore-keys: |
             jax-cache-${{ runner.os }}-py3.13-
 
+      # Matplotlib font cache (the bandit parity figures): building it costs a
+      # few seconds per xdist worker on a cold runner. Keyed on uv.lock
+      # (matplotlib version); MPLCONFIGDIR below points matplotlib at it.
+      - name: Restore matplotlib font cache
+        uses: actions/cache@v6
+        with:
+          path: ${{ runner.temp }}/mpl
+          key: mpl-${{ runner.os }}-${{ hashFiles('uv.lock') }}
+
       - name: pytest
-        run: uv run pytest tests/ -q -n 4
+        env:
+          MPLCONFIGDIR: ${{ runner.temp }}/mpl
+        run: uv run pytest tests/ -q -n 4 --durations=15

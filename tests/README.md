@@ -23,6 +23,14 @@ PYTHONPATH="$PWD" uv run adk eval creative_agent tests/eval/evalsets/creative_ag
   --config_file_path=tests/eval/creative_eval_config.json --print_detailed_results
 ```
 
+**Worker count:** locally, `-n 16` was fastest on a 32-core box (42 s, vs 50 s with
+`-n auto` and 53 s with `-n 4`); CI keeps `-n 4` on its 4-vCPU runner (and prints the 15
+slowest tests). To emulate CI's 4 cores locally:
+
+```bash
+GOOGLE_CLOUD_PROJECT=test-project /usr/bin/time -f "%e s wall %U s user" taskset -c 0-3 uv run pytest tests/ -q -p no:cacheprovider -n 4 --durations=15
+```
+
 Pytest config lives in `pyproject.toml` `[tool.pytest.ini_options]`: `testpaths`,
 `pythonpath = ["."]` (so tests import the flat packages without `sys.path` hacks), the
 `subprocess` and `slow` markers (`slow` = notebook-parity generation smoke, scenario-preview
