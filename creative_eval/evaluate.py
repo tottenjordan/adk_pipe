@@ -13,6 +13,8 @@ Usage:
 """
 
 import logging
+import os
+import re
 from collections.abc import Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
@@ -220,6 +222,39 @@ def _rendered_image_uri(image: Any) -> str:
     return uri if isinstance(uri, str) and uri.startswith("gs://") else ""
 
 
+# The engine's person-reference shape (``creative_agent.person_render``
+# ``person_reference_uri``; creative_eval never imports creative_agent, so the
+# rule is mirrored here and parity-tested).
+_PERSON_PHOTO_RE = re.compile(r"^gs://([^/]+)/person-refs/[^/]+/[^/]+$")
+
+
+def person_photo_uri(person_reference: Any) -> str:
+    """The consented person's photo URI from ``state["person_reference"]``.
+
+    ``""`` unless it is a ``{uri, ...}`` mapping whose URI sits under
+    ``gs://<bucket>/person-refs/<slug>/`` and, when ``GOOGLE_CLOUD_STORAGE_BUCKET``
+    is set, in that bucket (like ``image_tools``' person fetch). Never logged.
+    """
+    if not isinstance(person_reference, dict):
+        return ""
+    uri = person_reference.get("uri")
+    if not isinstance(uri, str) or ".." in uri:
+        return ""
+    uri = uri.strip()
+    match = _PERSON_PHOTO_RE.match(uri)
+    if not match:
+        return ""
+    bucket = (os.environ.get("GOOGLE_CLOUD_STORAGE_BUCKET") or "").strip()
+    if bucket and match.group(1) != bucket:
+        return ""
+    return uri
+
+
+def _redact(text: str, secret: str) -> str:
+    """``text`` with ``secret`` (a person photo URI) masked, for log lines."""
+    return text.replace(secret, "<person photo>") if secret else text
+
+
 def gates_passed(gates: list[GateResult]) -> bool:
     """True when every non-advisory gate passed (vacuously True with none).
 
@@ -355,6 +390,7 @@ def evaluate_visual_concept(
     client: genai.Client | None = None,
     brief: Mapping[str, Any] | None = None,
     image: Mapping[str, Any] | None = None,
+    person_photo: str = "",
 ) -> VisualConceptEvaluation:
     """Evaluate a single visual concept using Gemini-as-judge.
 
@@ -366,6 +402,11 @@ def evaluate_visual_concept(
     one it judges the image generation prompt and the result records
     ``image_judged=False``.
 
+    For a cast concept (``image["cast"] is True``) with a rendered image and a
+    ``person_photo`` (:func:`person_photo_uri`), the consented person's
+    reference photo is attached after the render as ground truth for their
+    own appearance; an unreadable photo is retried without it.
+
     Args:
         visual_concept: Dict with VisualConceptFinal fields.
         campaign_context: Dict with brand, target_product, target_audience,
@@ -374,6 +415,8 @@ def evaluate_visual_concept(
         client: Optional pre-created Gemini client.
         brief: The parsed creative brief (``brief.parse_brief``), or None.
         image: The concept's ``generated_images`` record, or None.
+        person_photo: The run's person photo ``gs://`` URI (only used for a
+                      cast concept), or "".
 
     Returns:
         VisualConceptEvaluation with per-dimension scores and binary gates.
@@ -386,14 +429,16 @@ def evaluate_visual_concept(
     # The render record decides (a blocked person render falls back to an
     # uncast image even when the concept asked to cast).
     person_cast = isinstance(image, Mapping) and image.get("cast") is True
+    photo = person_photo if person_cast and image_uri else ""
     # Recorded on the evaluation by code (brand history reads them).
     tags = {
         "visual_style": str(visual_concept.get("visual_style") or ""),
         "angle_id": str(visual_concept.get("angle_id") or ""),
     }
 
-    def judge(uri: str) -> VisualConceptEvaluation:
-        """One judge call: with the rendered image at ``uri``, or prompt-only."""
+    def judge(uri: str, photo_uri: str = "") -> VisualConceptEvaluation:
+        """One judge call: with the rendered image at ``uri`` (plus the cast
+        person's reference photo at ``photo_uri``), or prompt-only."""
         image_section = (
             prompts.VISUAL_IMAGE_ATTACHED.format(
                 qa_hint=image_qa_hint((image or {}).get("qa"))
@@ -401,6 +446,8 @@ def evaluate_visual_concept(
             if uri
             else prompts.VISUAL_IMAGE_MISSING
         )
+        if uri and photo_uri:
+            image_section += "\n" + prompts.VISUAL_PERSON_PHOTO_ATTACHED
         user_prompt = prompts.VISUAL_CONCEPT_EVAL_USER.format(
             **campaign_context,
             **{
@@ -417,8 +464,15 @@ def evaluate_visual_concept(
         if uri:
             contents = [
                 genai.types.Part.from_uri(file_uri=uri, mime_type=image_mime_type(uri)),
-                genai.types.Part.from_text(text=user_prompt),
             ]
+            if photo_uri:
+                contents += [
+                    genai.types.Part.from_text(text=prompts.PERSON_PHOTO_LABEL),
+                    genai.types.Part.from_uri(
+                        file_uri=photo_uri, mime_type=image_mime_type(photo_uri)
+                    ),
+                ]
+            contents.append(genai.types.Part.from_text(text=user_prompt))
         response = client.models.generate_content(
             model=config.eval_model,
             contents=contents,
@@ -448,6 +502,19 @@ def evaluate_visual_concept(
         logger.info("No rendered image for visual concept %r; judging its prompt", name)
     try:
         try:
+            if photo:
+                try:
+                    return judge(image_uri, photo)
+                except genai_errors.ClientError as e:
+                    if not is_image_fallback_error(e):
+                        raise
+                    # The error text may name the photo: log only the code.
+                    logger.warning(
+                        "Judge could not use the person reference photo for %r "
+                        "(HTTP %s); judging the rendered image without it",
+                        name,
+                        e.code,
+                    )
             return judge(image_uri)
         except genai_errors.ClientError as e:
             # An image-related 4xx (unreadable / missing object, unsupported
@@ -466,7 +533,9 @@ def evaluate_visual_concept(
             )
             return judge("")
     except Exception as e:
-        logger.error(f"Failed to evaluate visual concept {name}: {e}")
+        logger.error(
+            "Failed to evaluate visual concept %s: %s", name, _redact(str(e), photo)
+        )
         return VisualConceptEvaluation(
             ad_copy_id=visual_concept.get("ad_copy_id", 0),
             concept_name=visual_concept.get("concept_name", ""),
@@ -566,6 +635,7 @@ def evaluate_all_concurrently(
     *,
     brief: Mapping[str, Any] | None = None,
     generated_images: Mapping[str, Any] | None = None,
+    person_reference: Any = None,
 ) -> tuple[list[AdCopyEvaluation], list[VisualConceptEvaluation]]:
     """Evaluate all ad copies and visual concepts concurrently, preserving order.
 
@@ -575,7 +645,8 @@ def evaluate_all_concurrently(
     Individual failures are already handled inside evaluate_ad_copy /
     evaluate_visual_concept (they return a zero-score evaluation), so a single
     bad creative can't sink the whole batch. Each visual concept gets its own
-    ``generated_images[concept_name]`` record (None when it has no image).
+    ``generated_images[concept_name]`` record (None when it has no image);
+    cast concepts also get the run's ``person_reference`` photo.
     """
     if client is None:
         client = _get_client(config)
@@ -585,6 +656,7 @@ def evaluate_all_concurrently(
         return [], []
 
     images = generated_images if isinstance(generated_images, Mapping) else {}
+    photo = person_photo_uri(person_reference)
     max_workers = config.workers_for(len(ad_copies), len(visual_concepts))
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         ad_futures = [
@@ -602,6 +674,7 @@ def evaluate_all_concurrently(
                 client,
                 brief=brief,
                 image=images.get(vc.get("concept_name", "")),
+                person_photo=photo,
             )
             for vc in visual_concepts
         ]
@@ -664,6 +737,7 @@ def evaluate_creatives(
     *,
     brief: Mapping[str, Any] | None = None,
     generated_images: Mapping[str, Any] | None = None,
+    person_reference: Any = None,
 ) -> CreativeEvaluationReport:
     """Evaluate all creatives from a single agent run.
 
@@ -677,6 +751,8 @@ def evaluate_creatives(
                then the brief-dependent gates pass with note "no brief".
         generated_images: ``{concept_name: {gcs_uri, qa, ...}}`` — the rendered
                images the visual judge sees (prompt-only without one).
+        person_reference: The run's ``{uri, consent_id}`` person reference;
+               its photo is attached to cast concepts' judge calls.
 
     Returns:
         CreativeEvaluationReport with per-creative and aggregate scores.
@@ -699,6 +775,7 @@ def evaluate_creatives(
         client,
         brief=brief,
         generated_images=generated_images,
+        person_reference=person_reference,
     )
 
     summary = _build_summary(ad_evals, visual_evals)

@@ -79,9 +79,10 @@ class ImageQAResult(BaseModel):
     )
     motif_visible: bool = Field(
         description=(
-            "The trend motif is prominent and recognisable at a glance, not "
-            "tiny or only in the background (for an abstract motif, true if "
-            "the depiction the prompt describes is present and prominent)."
+            "The trend motif is visible and recognisable as the trend, not tiny "
+            "or hidden in the background; stylised, abstract or symbolic "
+            "references count (for an abstract motif, true if the depiction "
+            "the prompt describes is present)."
         )
     )
     brand_cue_visible: bool | None = Field(
@@ -238,11 +239,7 @@ PRODUCT_OFF_MODEL_PHRASE = (
 # (attribute, rule name, correction phrase) per check, in report order.
 _RULES: tuple[tuple[str, str, str], ...] = (
     ("product_visible", "product not visible", "show the product recognisably"),
-    (
-        "motif_visible",
-        "trend motif not visible",
-        "show the trend motif large and prominent",
-    ),
+    ("motif_visible", "trend motif not visible", "show the trend motif clearly"),
     (
         "product_malformed",
         "malformed product",
@@ -446,8 +443,10 @@ PROMINENT_PRODUCT_RULE = (
     "clearly in the foreground, not small, distant or mostly hidden."
 )
 PROMINENT_MOTIF_RULE = (
-    "Be strict about the trend motif: this brand's reviewers often found the "
-    "trend unclear, so when in doubt whether the motif is easy to spot, set "
+    "The trend motif must be prominent: this brand's reviewers often found the "
+    "trend unclear, so motif_visible is true only when the motif is prominent "
+    "(in the foreground or a large share of the frame) and easy to spot at a "
+    "glance, not small or incidental in the background; when in doubt, set "
     "motif_visible false."
 )
 
@@ -497,9 +496,9 @@ def _instruction(
     """The QA instruction for one concept (what to check, what was promised).
 
     ``strictness`` (the run's ``rating_strictness`` flags; default none) only
-    raises the bar: ``product_not_visible`` asks for a *prominent* product,
-    ``trend_unclear`` for a stricter motif verdict (the motif must always be
-    prominent, like the judge's ``trend_motif_visible`` gate).
+    raises the bar: ``product_not_visible`` / ``trend_unclear`` ask for a
+    *prominent* product / motif (by default the motif only has to be visible
+    and recognisable, like the judge's ``trend_motif_visible`` gate).
     ``qa_failed_rules`` is unchanged — the stricter verdict simply arrives as
     ``product_visible`` / ``motif_visible``.
     """
@@ -527,11 +526,11 @@ def _instruction(
         lines.append("No specific product: set product_visible true.")
     if motif:
         lines.append(
-            f"Trend motif: {motif}. motif_visible is true only when it is "
-            "prominent and recognisable at a glance as the trend (in the "
-            "foreground or a large share of the frame), not tiny, generic or "
-            "only in the background; for an abstract motif, true if the "
-            "depiction described above is present and prominent."
+            f"Trend motif: {motif}. motif_visible is true when it is visible, "
+            "not tiny or hidden in the background, and recognisable as the "
+            "trend to someone who follows it; stylised, abstract or symbolic "
+            "references count. For an abstract motif, true if the depiction "
+            "described above is present."
         )
         if "trend_unclear" in strictness:
             lines.append(PROMINENT_MOTIF_RULE)

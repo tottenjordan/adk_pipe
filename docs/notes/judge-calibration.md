@@ -69,11 +69,17 @@ whichever judge graded that run, and a changed rubric changes what "pass" means.
 calibration is **versioned**:
 
 - `creative_eval.JUDGE_VERSION` (in `creative_eval/dimensions.py`, next to the gate
-  definitions) names the current judge, currently **`2026-10-10`**: the visual gates
-  gained the blocking `person_depicted_respectfully` gate (judged only for a concept
+  definitions) names the current judge, currently **`2026-10-12`**: for a concept cast
+  with the run's consented person the judge also sees the person's reference photo
+  (attached after the render) and is told that the person's own appearance in it
+  (tattoos, piercings, glasses, hairstyle, facial hair, skin marks, clothing style) is
+  correct and never a defect or disrespectful depiction; and `trend_motif_visible`
+  accepts stylised, abstract or symbolic references a trend follower would recognise
+  (it fails only when the motif is absent, too small/hidden to notice, or so generic it
+  could illustrate any trend). The previous judge, **`2026-10-10`**, gained the blocking `person_depicted_respectfully` gate (judged only for a concept
   rendered with the run's consented person; every other concept passes it in code with
   note "no person cast", so runs without a person grade as before, but the version
-  still moves because the gate list and the prompt changed). The previous judge,
+  still moves because the gate list and the prompt changed). Before that,
   **`2026-10-08`**, changed the gates that day (new blocking `no_visual_defects` and
   `trend_risks_respected` gates, a stricter `trend_motif_visible`). Details in
   [creative-quality-gates.md](creative-quality-gates.md).

@@ -54,7 +54,7 @@ def test_gate_is_a_visual_gate_with_a_label_and_a_version_bump():
     assert PERSON_GATES == frozenset({GATE})
     assert GATE not in ADVISORY_GATES and GATE not in BRIEF_GATES
     assert GATE_LABELS[GATE] == "Person depicted respectfully"
-    assert JUDGE_VERSION == "2026-10-10"
+    assert JUDGE_VERSION == "2026-10-12"
 
 
 def test_prompt_names_the_gate_and_the_new_count():
@@ -176,4 +176,4 @@ def test_unversioned_report_inference_is_unchanged():
     info = {"kind": "visual", "name": "x", "original_id": ""}
     assert judge_fields(report, info)["judge_version"] == "2026-10-08"
     stamped = {**report, "judge_version": JUDGE_VERSION}
-    assert judge_fields(stamped, info)["judge_version"] == "2026-10-10"
+    assert judge_fields(stamped, info)["judge_version"] == JUDGE_VERSION
