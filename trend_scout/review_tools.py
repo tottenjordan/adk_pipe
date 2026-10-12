@@ -18,7 +18,7 @@ def review_trends(tool_context: ToolContext) -> None:
         }
     Then follow the orchestrator instruction: save each selected term with
     `save_search_trends_to_session_state`, then research and write up exactly
-    those trends. Do not persist anything from this step.
+    those trends. Do not write to BigQuery/GCS until Phase 3.
     """
     tool_context.actions.skip_summarization = True
     return None
