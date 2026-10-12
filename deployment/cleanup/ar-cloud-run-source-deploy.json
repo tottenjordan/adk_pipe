@@ -1,0 +1,31 @@
+[
+  {
+    "name": "tt-delete-untagged-older-than-14d",
+    "action": {"type": "Delete"},
+    "condition": {
+      "tagState": "untagged",
+      "olderThan": "14d",
+      "packageNamePrefixes": [
+        "trend-trawler-api",
+        "trend-trawler-web",
+        "trend-trawler-share",
+        "creative-trawler-crf",
+        "creative-worker-crf"
+      ]
+    }
+  },
+  {
+    "name": "tt-keep-newest-10",
+    "action": {"type": "Keep"},
+    "mostRecentVersions": {
+      "packageNamePrefixes": [
+        "trend-trawler-api",
+        "trend-trawler-web",
+        "trend-trawler-share",
+        "creative-trawler-crf",
+        "creative-worker-crf"
+      ],
+      "keepCount": 10
+    }
+  }
+]

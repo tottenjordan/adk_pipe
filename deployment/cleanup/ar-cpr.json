@@ -1,0 +1,19 @@
+[
+  {
+    "name": "tt-delete-untagged-older-than-14d",
+    "action": {"type": "Delete"},
+    "condition": {
+      "tagState": "untagged",
+      "olderThan": "14d",
+      "packageNamePrefixes": ["trend-trawler-bandit"]
+    }
+  },
+  {
+    "name": "tt-keep-newest-5",
+    "action": {"type": "Keep"},
+    "mostRecentVersions": {
+      "packageNamePrefixes": ["trend-trawler-bandit"],
+      "keepCount": 5
+    }
+  }
+]
