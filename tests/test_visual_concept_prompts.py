@@ -254,3 +254,20 @@ def test_style_preference_exception_reads_the_same_everywhere(name):
     assert "overrides the shortlist" not in instr
     if name != "VISUAL_CONCEPT_CRITIC_INSTR":
         assert "<user_style_preference> is non-empty, keep that family" in instr
+
+
+def test_drafter_pairs_by_original_id_and_counts_any_centred_hero():
+    instr = prompts.VISUAL_CONCEPT_DRAFTER_INSTR
+    assert "Set `ad_copy_id` to the paired ad copy's `original_id`" in instr
+    # concept_guard counts every centred hero, not only product heroes.
+    assert "at most ONE centred hero per set" in instr
+    assert "centred product hero" not in instr
+
+
+def test_visual_style_examples_are_palette_names():
+    from creative_agent.schemas import VisualConcept
+    from creative_agent.style_shortlist import ALL_FAMILIES
+
+    description = VisualConcept.model_fields["visual_style"].description or ""
+    examples = re.findall(r"'([^']+)'", description)
+    assert examples and all(e in ALL_FAMILIES for e in examples), examples

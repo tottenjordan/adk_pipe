@@ -181,7 +181,7 @@ class VisualConcept(BaseModel):
     """Model representing a single candidate visual concept."""
 
     ad_copy_id: int = Field(
-        description="Retains the original ID for a direct link to the ad copy."
+        description="The paired ad copy's `original_id` (a direct link to the ad copy)."
     )
     concept_name: str = Field(
         description="A short, intuitive name for the visual concept."
@@ -194,7 +194,7 @@ class VisualConcept(BaseModel):
     )
     visual_style: str = Field(
         default="",
-        description="The chosen style family for this concept (e.g. 'flat 2D vector cartoon', 'candid 35mm film photo', 'diecut sticker'), selected from the IMAGE_PROMPT_GUIDE style palette to fit the ad's tone/audience — NOT defaulted to photorealism.",
+        description="The chosen style family for this concept, written exactly as its IMAGE_PROMPT_GUIDE style palette name (e.g. '2D flat / vector cartoon', 'Candid 35mm film photo', 'Diecut sticker'), selected to fit the ad's tone/audience — NOT defaulted to photorealism.",
     )
     aspect_ratio: str = Field(
         default="",

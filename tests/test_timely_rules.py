@@ -200,7 +200,7 @@ def _timely_prompts() -> dict[str, str]:
 # effect flagged something, so it is stripped the same way.
 _PRE_TIMELY_SHA256 = {
     "ART_DIRECTOR_INSTR": "760ea3944a0b921e",
-    "VISUAL_CONCEPT_DRAFTER_INSTR": "2b36b84a8feac851",
+    "VISUAL_CONCEPT_DRAFTER_INSTR": "7163d0d3f0f69d49",
     "VISUAL_CONCEPT_CRITIC_INSTR": "22bfd5d4f32ea53f",
     "VISUAL_CONCEPT_FINALIZER_INSTR": "5340500bdf98301b",
     "VISUAL_CONCEPT_FIXER_INSTR": "6f85b3f3fa28d0a4",
