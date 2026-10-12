@@ -56,4 +56,19 @@ describe("campaign form: sensitive prefilled trend", () => {
     await screen.findByText(/Pre-filled with trend/);
     expect(screen.queryByText(/Sensitive trend/)).not.toBeInTheDocument();
   });
+
+  it("ignores a crafted non-boolean sensitive flag in the link", async () => {
+    search = params({ context: "c", sensitive: "yes", sensitive_reason: "planted" });
+    render(<Home />);
+    await screen.findByText(/Pre-filled with trend/);
+    expect(screen.queryByText(/Sensitive trend/)).not.toBeInTheDocument();
+  });
+
+  it("caps an oversized sensitive reason from the link", async () => {
+    search = params({ sensitive: true, sensitive_reason: "r".repeat(2000) });
+    render(<Home />);
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("r".repeat(400));
+    expect(alert.textContent).not.toContain("r".repeat(401));
+  });
 });
