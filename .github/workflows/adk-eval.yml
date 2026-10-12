@@ -99,7 +99,8 @@ jobs:
           service_account: ${{ vars.EVAL_SERVICE_ACCOUNT }}
 
       - name: Install dependencies
-        run: uv sync --locked
+        # Runtime deps + the `eval` group only (no pytest/ruff/jax).
+        run: uv sync --locked --no-dev --group eval
 
       # PYTHONPATH: adk eval's loader doesn't put the repo root on sys.path, so
       # sibling imports (creative_eval, agent_common) would fail otherwise.

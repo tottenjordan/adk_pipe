@@ -14,9 +14,9 @@ updates:
     exclude-paths:
       - "requirements.txt"
       - "cloud_functions/**"
-    # pyproject [tool.uv] override-dependencies lifts google-adk[eval]'s
-    # aiplatform <2 cap; a google-adk bump never removes it — drop it by hand
-    # when ADK allows 2.x, and bump the override too on an aiplatform major.
+    # The pyproject `eval` group lists google-adk's eval extra by hand (that
+    # extra caps aiplatform <2); switch it back to google-adk[eval] when ADK
+    # allows 2.x. tests/test_dependency_groups.py flags a new package in the extra.
     directory: "/"
     schedule:
       interval: "weekly"

@@ -68,8 +68,21 @@ def _get_gtrends_max_date() -> str:
         FROM `bigquery-public-data.google_trends.top_terms`
     """
     bq_client = _get_bigquery_client()
-    max_date_df = bq_client.query(query).to_dataframe()
-    return max_date_df.max_date.iloc[0].strftime("%m/%d/%Y")
+    row = next(iter(bq_client.query(query).result()))
+    return row["max_date"].strftime("%m/%d/%Y")
+
+
+def _gtrends_markdown(rows: list[tuple[str, int, str]]) -> str:
+    """Render (term, rank, refresh_date) rows as a Markdown pipe table."""
+    lines = [
+        "|    | term | rank | refresh_date |",
+        "|---:|:-----|-----:|:-------------|",
+    ]
+    lines += [
+        f"| {rank} | {term} | {rank} | {refresh_date} |"
+        for term, rank, refresh_date in rows
+    ]
+    return "\n".join(lines)
 
 
 def get_daily_gtrends(tool_context: ToolContext) -> str:
@@ -111,23 +124,18 @@ def get_daily_gtrends(tool_context: ToolContext) -> str:
                 bigquery.ScalarQueryParameter("max_date", "STRING", max_date)
             ]
         )
-        # Execute the BigQuery Query and retrieve results to local dataframe
-        results = bq_client.query(query, job_config=query_job_config).to_dataframe()
-
-        # Prepare dataframe
-        results.index += 1
-        results["rank"] = results.index
-        results = results.drop("x", axis=1)
-        new_order = ["term", "rank", "refresh_date"]
-        results = results[new_order]
+        # Execute the query and iterate the rows (no pandas needed); rank is
+        # the 1-based position in the rank-ordered result.
+        job = bq_client.query(query, job_config=query_job_config)
+        rows = [
+            (row["term"], rank, str(row["refresh_date"]))
+            for rank, row in enumerate(job.result(), start=1)
+        ]
 
         # Update state
-        tool_context.state["raw_gtrends"] = results["term"].to_list()
+        tool_context.state["raw_gtrends"] = [term for term, _, _ in rows]
 
-        # Convert the dataframe to Markdown
-        results = results.to_markdown(index=True)
-
-        return results
+        return _gtrends_markdown(rows)
     except Exception as e:
         # Let transient failures propagate so ADK 2.0 RetryConfig can retry.
         logging.exception(f"Failed to gather daily trends: {e}")

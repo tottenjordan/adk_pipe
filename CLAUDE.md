@@ -13,7 +13,7 @@ formatting (`ruff`), type checking (`ty`), testing (`pytest`), and commit conven
 
 Trend Trawler is a multi-agent system that automates trend-to-creative ad generation. It identifies culturally relevant Google Search trends, conducts web research, and generates candidate ad copy and visual concepts for a given brand/campaign. Built with Google's ADK (Agent Development Kit), deployed to Vertex AI Agent Engine, and orchestrated via Cloud Run Functions with PubSub triggers.
 
-**Naming:** Agent Engine = *Agent Runtime* (2026 rebrand, Gemini Enterprise Agent Platform). The code uses the AgentPlatform SDK (`agentplatform.Client().runtimes`); the root env gets it from google-cloud-aiplatform 2.x via a uv override (see `pyproject.toml` `[tool.uv]`). (Full note in README.)
+**Naming:** Agent Engine = *Agent Runtime* (2026 rebrand, Gemini Enterprise Agent Platform). The code uses the AgentPlatform SDK (`agentplatform.Client().runtimes`); the root env gets it from google-cloud-aiplatform 2.x (no override needed: the `eval` group lists google-adk's eval extra itself, see `pyproject.toml`). (Full note in README.)
 
 ## Commands
 
@@ -359,8 +359,8 @@ Image-generation prompt guidance lives in `creative_agent/prompts.py` as `IMAGE_
 ## Requirements
 
 - Python >=3.13
-- `google-adk[eval,otel-gcp]>=2.10.0,<3.0.0` (`otel-gcp` adds the GenAI SDK instrumentor, so `generate_content` spans appear when tracing is on; content capture stays off by default)
-- google-cloud-aiplatform 2.x (via `[tool.uv] override-dependencies` — google-adk[eval] caps <2)
+- `google-adk[otel-gcp]>=2.10.0,<3.0.0` (`otel-gcp` adds the GenAI SDK instrumentor, so `generate_content` spans appear when tracing is on; content capture stays off by default)
+- google-cloud-aiplatform 2.x (`[agent-engines]` at runtime). `[project] dependencies` is the slim runtime set that ships to Agent Engine (requirements.txt) and the api image (`uv sync --no-dev`); dependency groups hold the rest: `eval` (google-adk's eval extra listed package by package, since `google-adk[eval]` caps aiplatform <2; incl. aiplatform `[evaluation]`; used by the nightly eval CI), `experiments` (plotly/kaleido/matplotlib), and `dev` (includes both, plus pandas/pyarrow/db-dtypes for deploy_agent.py + CRF tests, the CRF's functions-framework/cloudevents/pubsub, JAX, pytest, ruff, ty). Runtime code must not import group-only packages (`tests/test_dependency_groups.py`)
 - Node.js >=22.13 (for frontend)
 - GCP project with BigQuery, Cloud Storage, PubSub, and Agent Engine enabled
 - `.env` file populated from `.env.example`

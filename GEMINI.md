@@ -21,9 +21,9 @@ You are an expert AI software engineering partner working on **Trend Trawler** (
 - **Type Checking:** **`ty`** (`uv run ty check`). Configured in `pyproject.toml` `[tool.ty]` (`tests/` is excluded). Code must pass `ty check` before a task is considered complete.
 - **Testing:** **`pytest`** (`uv run pytest tests/ -q -n 4`) for Python unit/integration tests; **Vitest + React Testing Library** (`cd frontend && npm test`) for frontend tests; **`adk eval`** for LLM-as-judge agent evaluations.
 - **Core SDKs:**
-  - `google-adk[eval,otel-gcp]>=2.10.0,<3.0.0` (`otel-gcp` adds the GenAI SDK instrumentor for Cloud Trace spans; message content capture stays off by default).
+  - `google-adk[otel-gcp]>=2.10.0,<3.0.0` (the eval extra's packages live in the `eval` dependency group) (`otel-gcp` adds the GenAI SDK instrumentor for Cloud Trace spans; message content capture stays off by default).
   - `google-genai>=2.25.0,<3.0.0`
-  - `google-cloud-aiplatform[agent-engines,evaluation]>=2.2.0,<3.0.0` (enforced via `[tool.uv] override-dependencies` in `pyproject.toml`).
+  - `google-cloud-aiplatform[agent-engines]>=2.2.0,<3.0.0` at runtime (`[evaluation]` only in the `eval` group).
 - **Frontend:** Next.js 16 (App Router), TypeScript, Tailwind CSS, shadcn/ui (Node.js `>=22.13`).
 - **Bandit Engine:** JAX (`jax[cpu]>=0.11.2`) lives **only** in the `dev` dependency group (`[dependency-groups]`) and in `bandit_serving/requirements.txt` / `bandit_traffic/requirements.txt`.
 
