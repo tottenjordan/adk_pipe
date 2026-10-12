@@ -862,6 +862,25 @@ PERSON_ILLUSTRATED_LIKENESS_LINE = (
 )
 
 
+# Casting on real-person and sensitive trends is allowed (product decision,
+# 2026-10-12) under these identity guardrails; the sensitive event itself is
+# still never referenced (trend risks / current-moment rules unchanged). Prompt
+# only: image QA's person_as_public_figure check backs the "as themselves" rule.
+PERSON_IDENTITY_GUARDRAILS = (
+    "\n    *   Casting is allowed when the trend is about a real person and when "
+    "the current moment is sensitive (illness, death, disaster), but never "
+    "reference the sensitive event itself. In every cast concept: never a "
+    "likeness of the trending real person; the cast person appears as "
+    "themselves (e.g. a fan, consumer or everyday person) and is never "
+    "presented as the real person: no costume, signature attire, uniform or "
+    "vestments of the real person, and no pose, setting or caption implying "
+    "they are that person or are endorsed by them; never place the cast person "
+    "in a scene depicting a sensitive event, injury, damage or victims; "
+    "reference the trend through its general cultural iconography (colours, "
+    "symbols, settings, fan rituals)."
+)
+
+
 def build_person_casting_rules(safe_styles: Sequence[str], max_cast: int) -> str:
     """The person-casting rules for ``safe_styles`` / ``max_cast`` (brace-free).
 
@@ -879,10 +898,10 @@ def build_person_casting_rules(safe_styles: Sequence[str], max_cast: int) -> str
         "visible (large enough to recognise, not a crowd or a far shot), the "
         "`visual_style` is one of: "
         + "; ".join(safe_styles)
-        + ", and it fits the brief and its trend risks. Never cast for real-person, "
-        "tragedy or crisis trends, and never in meme, isometric or product-only "
-        "concepts."
+        + ", and it fits the brief and its trend risks. Never cast in meme, "
+        "isometric or product-only concepts."
         + (PERSON_ILLUSTRATED_LIKENESS_LINE if illustrated else "")
+        + PERSON_IDENTITY_GUARDRAILS
         + "\n    *   In a cast concept's `image_generation_prompt`, name the hero's "
         'role and call them "the person in the person reference image" (e.g. "a '
         'runner, the person in the person reference image, …"); describe only '

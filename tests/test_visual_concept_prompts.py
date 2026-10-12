@@ -166,11 +166,33 @@ def test_person_casting_rules_wording():
     assert "the person in the person reference image" in rules
     assert "name the hero's role" in rules
     assert "never their face, age, ethnicity or body" in rules
-    assert "real-person, tragedy or crisis trends" in rules
-    assert "never in meme, isometric or product-only concepts" in rules
+    assert "real-person, tragedy or crisis trends" not in rules
+    assert "Never cast in meme, isometric or product-only concepts" in rules
     assert "`casts_person_reference`" in rules and "`person_casting_reason`" in rules
     assert "face is clearly visible" in rules
     assert "keep both fields" in rules
+
+
+def test_person_casting_rules_allow_real_person_and_sensitive_trends():
+    """Product decision (2026-10-12): casting is allowed on real-person and
+    sensitive trends, with identity guardrails; the sensitive event itself is
+    still never referenced."""
+    rules = prompts.PERSON_CASTING_RULES
+    assert "Never cast for" not in rules
+    assert "Casting is allowed when the trend is about a real person" in rules
+    assert "never a likeness of the trending real person" in rules
+    assert "appears as themselves" in rules
+    assert "never presented as the real person" in rules
+    assert "costume, signature attire, uniform or vestments" in rules
+    assert "endorsed by them" in rules
+    assert "never place the cast person in a scene depicting" in rules
+    assert "injury, damage or victims" in rules
+    assert "general cultural iconography" in rules
+    assert "never reference the sensitive event itself" in rules
+    for style_set in (PHOTOGRAPHIC, ("Comic panel",)):
+        built = prompts.build_person_casting_rules(style_set, 2)
+        assert "{" not in built and "}" not in built
+        assert "appears as themselves" in built
 
 
 ILLUSTRATED_LINE = (
@@ -196,7 +218,7 @@ def test_person_casting_rules_illustrated_line_only_with_illustrated_styles():
     assert "{" not in illustrated and "}" not in illustrated
     assert "at most 1 of the 4 concepts" in illustrated
     assert "is one of: Photoreal / editorial; Comic panel, and" in illustrated
-    assert "never in meme, isometric or product-only concepts" in illustrated
+    assert "Never cast in meme, isometric or product-only concepts" in illustrated
 
 
 def test_default_person_casting_rules_include_the_illustrated_line():
