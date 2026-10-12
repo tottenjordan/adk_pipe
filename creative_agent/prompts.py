@@ -663,6 +663,12 @@ AD_COPY_CRITIC_INSTR = (
         <ad_copy_draft>
         {ad_copy_draft?}
         </ad_copy_draft>
+
+        <user_research_feedback>
+        Optional user feedback on the research report. When non-empty, honor
+        it; when empty, ignore it.
+        {research_feedback?}
+        </user_research_feedback>
     </CONTEXT>
 
     <OUTPUT_FORMAT>

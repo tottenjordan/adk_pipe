@@ -746,10 +746,13 @@ ad_copy_reviser = Agent(
 
 # --- DETERMINISTIC COPY GATE (bounded revision loop) --- #
 # copy_gate runs creative_agent.copy_gate on the critic's final copies:
-# deterministic checks (product named, CTA <= 8 words, headline/caption length,
-# the brief's avoid terms) plus the critic's self-reported failed
-# `proposition`/`mandatories` brief checks (its other failed items are advisory
-# and never gate). Same contract as brief_gate: with issues and revision budget
+# deterministic checks (product named, CTA <= 8 words (6 under the weak_cta
+# rating strictness), headline/caption length, the brief's avoid terms,
+# unsupported absolute claims, and with a timely moment dated/outcome terms in
+# evergreen copies) plus the critic's self-reported failed
+# `proposition`/`mandatories`/`risks` brief checks (and `reason_to_believe`/
+# `trend_bridge` under the off_brief rating strictness; its other failed items
+# are advisory and never gate). Same contract as brief_gate: with issues and revision budget
 # left (config.copy_revision_rounds, env COPY_REVISION_ROUNDS, 0-2) it writes
 # them as a Markdown list grouped per copy (`ad_copy_issues`, the reviser's
 # input), the flagged ids and a pre-revision snapshot (the reviser's safety

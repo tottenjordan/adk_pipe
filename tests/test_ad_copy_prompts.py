@@ -113,3 +113,10 @@ def test_drafter_and_critic_state_the_gate_headline_limit(name):
     from creative_agent.copy_gate import MAX_HEADLINE_CHARS
 
     assert f"headline within {MAX_HEADLINE_CHARS} characters" in getattr(prompts, name)
+
+
+def test_critic_honours_the_research_feedback_like_the_drafter():
+    block = "<user_research_feedback>"
+    for name in ("AD_COPY_DRAFTER_INSTR", "AD_COPY_CRITIC_INSTR"):
+        instr = getattr(prompts, name)
+        assert block in instr and "{research_feedback?}" in instr, name
