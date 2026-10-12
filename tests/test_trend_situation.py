@@ -217,6 +217,33 @@ def test_current_moment_md_for_timely_moment():
     assert "\n" not in md
 
 
+def test_current_moment_md_without_the_timely_slot_has_no_valid_until():
+    """MAX_TIMELY_CONCEPTS=0: the moment is still stated as context, but without
+    the "valid until" time that invites the brief writer to set a timely angle
+    (TIMELY_ANGLE_RULE) the brief gate would then reject."""
+    md = current_moment_md(_validate(LOSS), max_timely=0)
+    assert md.startswith("Just happened: Texas vs Oklahoma, 2026-10-10.")
+    assert "sources: src-2" in md
+    assert "valid until" not in md
+
+
+def test_state_delta_passes_max_timely_to_the_moment_line():
+    from creative_agent.trend_situation import trend_situation_state_delta
+
+    state = {
+        "trend_situation_draft": UPCOMING,
+        "sources": SOURCES,
+        "current_datetime": "2026-10-11T10:00:00-04:00",
+        "current_timezone": "America/New_York",
+    }
+    kwargs = {"enabled": True, "window_days": 7, "valid_hours_after": 48}
+    on = trend_situation_state_delta(state, max_timely=1, **kwargs)
+    off = trend_situation_state_delta(state, max_timely=0, **kwargs)
+    assert "valid until" in on["trend_situation_md"]
+    assert off["trend_situation_md"].startswith("Upcoming:")
+    assert "valid until" not in off["trend_situation_md"]
+
+
 def test_current_moment_md_for_sensitive_moment_says_never_reference():
     md = current_moment_md(
         _validate(

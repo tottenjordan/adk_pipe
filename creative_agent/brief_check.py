@@ -429,22 +429,26 @@ def _timely_angle_issues(
 ) -> list[str]:
     if not angle:
         return []
-    timely = (
-        max_timely > 0
-        and isinstance(situation, Mapping)
-        and situation.get("timely_ok") is True
-    )
-    if not timely:
+    if not (isinstance(situation, Mapping) and situation.get("timely_ok") is True):
         return [
             "trend_bridge.timely_angle is set without a validated current moment: "
             "clear it (leave it empty)."
         ]
-    outcome = _text(situation.get("outcome")) if situation is not None else ""
+    if max_timely <= 0:
+        return [
+            "trend_bridge.timely_angle is set but the timely slot is off for this "
+            "run (no creative may reference the current moment): clear it (leave "
+            "it empty)."
+        ]
+    outcome = _text(situation.get("outcome"))
     if bad := _contradicting_terms(angle, outcome):
+        result = (
+            f"outcome: {outcome}" if outcome not in ("", "none") else "no result yet"
+        )
         return [
             f"trend_bridge.timely_angle contradicts the current moment "
-            f"({', '.join(bad)}; outcome: {outcome or 'none yet'}): describe only "
-            "what the current moment states."
+            f"({', '.join(bad)}; {result}): describe only what the current moment "
+            "states."
         ]
     return []
 
