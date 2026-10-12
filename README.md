@@ -358,7 +358,7 @@ uv run python deployment/deploy_agent.py --list
 
 For IAM, Pub/Sub topics, Eventarc triggers, the web services, per-user authz, eval CI, and redeploy and rollback, see the **[deployment guide](deployment/README.md)**.
 
-> **Naming:** in 2026, Vertex AI was rebranded *Gemini Enterprise Agent Platform*, and Agent Engine became *Agent Runtime*. These docs still say "Agent Engine". The code uses the AgentPlatform SDK (`agentplatform.Client().runtimes`), which the root environment gets from google-cloud-aiplatform 2.x through a uv override (see `[tool.uv]` in `pyproject.toml`).
+> **Naming:** in 2026, Vertex AI was rebranded *Gemini Enterprise Agent Platform*, and Agent Engine became *Agent Runtime*. These docs still say "Agent Engine". The code uses the AgentPlatform SDK (`agentplatform.Client().runtimes`), which the root environment gets from google-cloud-aiplatform 2.x (see `pyproject.toml`).
 
 ## Testing
 
