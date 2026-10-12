@@ -220,11 +220,19 @@ def _build_select_unprocessed_sql(project, dataset, table, max_rows):
     """Up to ``max_rows`` oldest rows not yet claimed: brand-new (NULL) or
     orphaned in QUEUED.
 
+    Rows whose ``trend_context`` JSON carries ``"sensitive": true`` (set by
+    trend_scout's sensitivity classifier) are never selected, so batch runs
+    never make ads about them. ``JSON_VALUE`` on a STRING yields NULL for a NULL,
+    empty or malformed ``trend_context`` (and the key is absent on non-sensitive
+    rows), which ``COALESCE`` treats as not sensitive. (BigQuery rejects the
+    ``SAFE.`` prefix on ``JSON_VALUE``; it isn't needed.)
+
     Returns ``(sql, query_parameters)``.
     """
     sql = f"""
         SELECT * FROM {_table_ref(project, dataset, table)}
-        WHERE processed_status IS NULL OR processed_status = 'QUEUED'
+        WHERE (processed_status IS NULL OR processed_status = 'QUEUED')
+          AND COALESCE(JSON_VALUE(trend_context, '$.sensitive'), 'false') != 'true'
         ORDER BY entry_timestamp ASC
         LIMIT @max_rows
     """
@@ -721,7 +729,10 @@ def crf_entrypoint(cloud_event: CloudEvent) -> None:
     select_sql, select_params = _build_select_unprocessed_sql(
         bq_client.project, dataset, table, max_rows
     )
-    logging.info(f"Selecting up to {max_rows} unprocessed rows.")
+    logging.info(
+        f"Selecting up to {max_rows} unprocessed rows "
+        "(trends flagged sensitive in trend_context are excluded)."
+    )
     try:
         df = _run_query(bq_client, select_sql, select_params).to_dataframe()
     except Exception as e:

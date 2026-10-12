@@ -198,6 +198,32 @@ class TestOrchestratorRowLimit:
         (p,) = params
         assert (p.name, p.type_, p.value) == ("max_rows", "INT64", 7)
 
+    def test_select_sql_excludes_trends_flagged_sensitive(self):
+        sql, params = main._build_select_unprocessed_sql("p", DS, TBL, max_rows=3)
+        flat = " ".join(sql.split())
+        assert (
+            "COALESCE(JSON_VALUE(trend_context, '$.sensitive'), 'false')"
+            " != 'true'" in flat
+        )
+        # The status OR is parenthesised so the sensitive filter applies to both
+        # brand-new and orphaned QUEUED rows.
+        assert (
+            "WHERE (processed_status IS NULL OR processed_status = 'QUEUED')"
+            " AND COALESCE(" in flat
+        )
+        assert flat.index("COALESCE(") < flat.index("ORDER BY")
+        # BigQuery rejects SAFE.JSON_VALUE ("SAFE with function json_value is not
+        # supported"); plain JSON_VALUE already yields NULL for bad JSON.
+        assert "SAFE." not in sql
+        # No extra parameters: the exclusion is a literal, not a bound value.
+        assert [p.name for p in params] == ["max_rows"]
+
+    def test_entrypoint_logs_sensitive_exclusion(self, monkeypatch, caplog):
+        payload = {"bq_dataset": DS, "bq_table": TBL, "agent_resource_id": "1"}
+        with caplog.at_level("INFO"):
+            self._run(monkeypatch, payload)
+        assert any("sensitive" in r.getMessage() for r in caplog.records)
+
     @pytest.mark.parametrize(
         ("requested", "expected"),
         [
