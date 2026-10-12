@@ -1,6 +1,7 @@
 """Pure staging helpers of ``deployment/bandit/build_image.py`` (no docker)."""
 
 import json
+import os
 import subprocess
 import sys
 
@@ -65,6 +66,7 @@ def test_staged_tree_is_self_contained(tmp_path):
     res = subprocess.run(
         [sys.executable, "-c", code],
         cwd=tmp_path,
+        env={**os.environ, "BANDIT_WARMUP": "0"},
         capture_output=True,
         text=True,
         check=False,
