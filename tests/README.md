@@ -25,7 +25,7 @@ PYTHONPATH="$PWD" uv run adk eval creative_agent tests/eval/evalsets/creative_ag
 
 Pytest config lives in `pyproject.toml` `[tool.pytest.ini_options]`: `testpaths`,
 `pythonpath = ["."]` (so tests import the flat packages without `sys.path` hacks), the
-`subprocess` and `slow` markers (`slow` = notebook-parity smoke, scenario-preview
+`subprocess` and `slow` markers (`slow` = notebook-parity generation smoke, scenario-preview
 goldens, `test_build_image.py`), and `filterwarnings` scoped to known third-party noise only.
 
 See [CLAUDE.md](../CLAUDE.md) for the full testing notes (eval invocation gotchas,
@@ -61,7 +61,7 @@ tests/
 ├── test_backfill_eval_labels.py    # deployment/backfill_eval_dimension_labels.py: pure SQL builder (no BigQuery)
 ├── test_bandit_endpoint_lib.py      # deployment/bandit/endpoint.py vs a fake aiplatform (single-worker env, 1 replica, labels, find_* by label oldest-first)
 ├── test_create_bq_tables.py         # create_bq_tables.sh with a stub bq: bandit_* + creative_ratings + creative_shares + person_references schemas (ratings from deployment/bq_schemas/creative_ratings.json, REPEATED fail_reasons, vs RATING_COLUMN_TYPES), partitioning/clustering, idempotency
-├── test_bandit_*.py                 # JAX bandit core (bandit/): features, config, linear TS, baselines, environment, simulate+metrics+aggregate, notebook-parity smoke, scripted shifts
+├── test_bandit_*.py                 # JAX bandit core (bandit/): features, config, linear TS, baselines, environment, simulate+metrics+aggregate, notebook-parity figures (fixture data) + generation smoke, scripted shifts
 │                                    #   (also test_bandit_continuous.py: §11 continuous segments; test_bandit_endpoint_client.py: traffic endpoint clients/retries; test_bandit_traffic_bq.py: traffic row builders vs contracts §3)
 ├── test_brand_history.py            # creative_agent/brand_history.py: parameterised creative_evals SELECT (no string-built brand), report reads limited to the configured bucket + size cap, aggregation (recent/strongest styles, recurring weak dimensions, runs with failed non-advisory gates), brace-free ≤120-word note, BQ/GCS/timeout fail-open, disabled knob → no query, shortlist re-draw unless a style preference is set, canonical style mapping (schema example phrasings), allowlisted tones/dimensions/gates only (injection strings never reach the note), GCS per-call timeouts + report-read deadline, failed-check denominator = readable reports
 ├── test_rating_signals.py          # creative_agent/rating_signals.py: fail-reason enum == runserver copy, check-backed strictness subset, allowlisted aggregation (canonical styles, tone Literal, enum; injection strings dropped), style/reason minimums + 30% dominance, brace-free ≤80-word note, SELECT reads only allowlisted columns (never note), normalised @brand/@days params, 8 s job timeout, fail-open (None = unavailable)
@@ -195,6 +195,15 @@ tests/
   `test_bandit_linear_ts.py`, `test_bandit_baselines.py`, `test_bandit_environment.py`,
   `test_bandit_simulate_metrics.py`, `test_bandit_notebook_parity.py`: the offline JAX
   contextual bandit (PR 1 of the bandit plan); JAX comes from the uv dev group.
+  `test_bandit_notebook_parity.py` renders all 9 figures of
+  `experiments/bandit/notebook_parity.py` from committed fixture data
+  (`tests/fixtures/bandit_parity/`, ~160 KB: one episode at `--horizon-scale 0.001`,
+  trimmed to the keys `plot_all` reads, floats at 4 significant digits; not `slow`),
+  plus a `slow` generation smoke that runs only `clear_winner` with LinTS + oracle
+  through `generate()`. **Regenerate the fixture** with
+  `uv run python tests/fixtures/bandit_parity/regenerate.py` when a plot function reads
+  a new field, or a figure/run is added (then extend the key lists in `regenerate.py`);
+  the output is deterministic, so an unchanged generator gives no diff.
   Contracts §9 scenario overrides are covered across `test_bandit_config.py` (strict
   parsing, bounds, round-trip omission), `test_bandit_environment.py` (each knob's effect
   on the ground truth), `test_bandit_simulate_metrics.py` (CLI flags),
