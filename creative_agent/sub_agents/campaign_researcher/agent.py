@@ -180,6 +180,18 @@ campaign_web_synthesizer = Agent(
         {brand}
         </brand>
 
+        <target_audience>
+        {target_audience}
+        </target_audience>
+
+        <target_product>
+        {target_product}
+        </target_product>
+
+        <key_selling_points>
+        {key_selling_points}
+        </key_selling_points>
+
         <campaign_web_search_raw>
         {campaign_web_search_raw?}
         </campaign_web_search_raw>

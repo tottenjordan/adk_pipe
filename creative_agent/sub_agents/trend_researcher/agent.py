@@ -174,6 +174,22 @@ gs_web_synthesizer = Agent(
     </INSTRUCTIONS>
 
     <CONTEXT>
+        <target_search_trends>
+        {target_search_trends}
+        </target_search_trends>
+
+        <brand>
+        {brand}
+        </brand>
+
+        <target_product>
+        {target_product}
+        </target_product>
+
+        <target_audience>
+        {target_audience}
+        </target_audience>
+
         <gs_web_search_raw>
         {gs_web_search_raw?}
         </gs_web_search_raw>
@@ -193,7 +209,7 @@ gs_web_synthesizer = Agent(
     2.  **Key Entities and Cultural Narrative:** (Identify the core people/brands/events driving the trend and summarize the public sentiment or underlying cultural story.)
     3.  **Marketing Opportunity Analysis:** (**CRITICAL:** Identify 2-3 specific, actionable ways the trend could be leveraged to create culturally relevant messaging for the campaign, specifically considering the target audience.)
     4.  **Risk Assessment:** (Identify the pitfalls marketers must avoid: controversies or divisive debates around the trend, sensitivities involving real people (e.g. tragedies, legal matters, likeness or endorsement issues), and any negative associations that could attach to a brand that joins the conversation. If none were found, say so briefly.)
-    5.  **Current Moment & Timeline:** (The dated recent and upcoming events behind the trend, relative to today, each with its date and the source it came from; or "no notable dated event" when the findings give none. Never guess a date or result.)
+    5.  **Current Moment & Timeline:** (The dated recent and upcoming events behind the trend, relative to today, each with its date and the name of the publisher that reported it (publisher name only, no links); or "no notable dated event" when the findings give none. Never guess a date or result.)
     </REPORT_STRUCTURE>
 
     ---

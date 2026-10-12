@@ -48,3 +48,24 @@ def test_planners_retry_schema_errors(planner):
     from creative_agent.config import SCHEMA_RETRY
 
     assert planner.retry_config is SCHEMA_RETRY
+
+
+# --- 7. synthesizers receive the inputs they are told to use ----------------- #
+def test_campaign_synthesizer_receives_the_campaign_inputs():
+    tokens = _tokens(ca_agent.campaign_web_synthesizer.instruction)
+    assert {"target_audience", "target_product", "key_selling_points"} <= tokens
+
+
+def test_trend_synthesizer_receives_the_campaign_inputs():
+    tokens = _tokens(gs_agent.gs_web_synthesizer.instruction)
+    assert {"brand", "target_product", "target_audience"} <= tokens
+
+
+# --- 10. timeline section names publishers, never links ---------------------- #
+def test_trend_synthesizer_timeline_names_publishers_not_links():
+    instr = gs_agent.gs_web_synthesizer.instruction
+    timeline = instr.split("Current Moment & Timeline")[1].split("</REPORT_STRUCTURE>")[
+        0
+    ]
+    assert "the source it came from" not in timeline
+    assert "publisher" in timeline and "no links" in timeline
