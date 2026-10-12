@@ -53,7 +53,7 @@ Trend Trawler is a multi-agent system built with Google's [Agent Development Kit
 
 Trend Trawler works like its namesake: it casts a wide net over the day's Search trends and keeps only the catch worth keeping.
 
-1. **Find trends (`trend_scout`).** Pulls the top 25 Google Search trends, researches each one's cultural context, keeps the 3 most relevant to your campaign and writes them to BigQuery. You can opt in to picking the trends yourself.
+1. **Find trends (`trend_scout`).** Pulls the top 25 Google Search trends, flags the sensitive ones (a death, tragedy, disaster or serious illness; never picked automatically), researches each one's cultural context, keeps the 3 most relevant to your campaign and writes them to BigQuery. You can opt in to picking the trends yourself.
 2. **Make creatives (`creative_agent`).** For one `<trend, campaign>` pair, the root agent makes a single `creative_pipeline` call that chains every stage:
    - **Research.** Campaign and trend web research run in parallel, next to a no-LLM read of the brand's past runs (brand history) and a grounded check of the trend's *current moment* (see [Trend awareness](#trend-awareness)). The result is a cited research report and a structured `CreativeBrief`, checked by a deterministic brief gate.
    - **Ad copy.** 10 drafts across the brief's angles, a critic keeps 4, and a deterministic copy gate sends flagged copies to one bounded revision.
@@ -196,7 +196,7 @@ user: Brand Name: "YOUR BRAND"
       Search Trend: "YOUR SEARCH TREND"      # creative_agent / interactive_creative only
 ```
 
-**Optional trend pick (`trend_scout`).** Opt in from the web UI's home form, which sets the `interactive_trend_pick` session flag. The run then pauses after gathering the 25 trends so you can choose which ones to keep, instead of having the agent pick 3.
+**Optional trend pick (`trend_scout`).** Opt in from the web UI's home form, which sets the `interactive_trend_pick` session flag. The run then pauses after gathering the 25 trends so you can choose which ones to keep, instead of having the agent pick 3. Trends flagged sensitive show an amber "Sensitive" chip; you can still pick them, with a warning that the creatives will never reference the event.
 
 **Review checkpoints (`interactive_creative`).** The run pauses three times. Each pause uses ADK's `LongRunningFunctionTool` on a resumable `App`.
 
@@ -305,7 +305,7 @@ The eval is the independent final measurement and never triggers regeneration; f
 Most quality control happens *before* the judge, in deterministic code rather than prompts. Each gate flags specific problems, routes only the flagged items to one bounded LLM revision round (rounds set by `BRIEF_REVISION_ROUNDS`, `COPY_REVISION_ROUNDS`, `CONCEPT_REVISION_ROUNDS`; default 1, 0 = record only), and records anything left as a run note.
 
 - **Brief gate** (`creative_agent/brief_check.py`): the brief names the product exactly in its mandatories and makes no unsupported absolute claims (`claims.py`).
-- **Copy gate** (`copy_gate.py`): product named, CTA of 8 words or fewer, headline and caption length, the brief's avoid terms, unsupported claims, plus the critic's failed proposition, mandatories and trend-risk checks. Unflagged copies are restored if the reviser touches them.
+- **Copy gate** (`copy_gate.py`): product named, CTA of 8 words or fewer, headline and caption length, the brief's avoid terms, unsupported claims, a trend tie (the copy names the trend, one of its distinctive words or a brief motif; skipped for a sensitive moment), plus the critic's failed proposition, mandatories, trend-risk and trend-tie checks. Unflagged copies are restored if the reviser touches them.
 - **Concept gate** (`concept_guard.py`): in-image text must be quoted exactly from the paired headline or CTA, every concept needs a trend motif, at most 2 of 4 concepts carry headline text, and at most one has a centred hero. A guard also appends the motif, the product or the brand cue to any image prompt missing them.
 - **Post-render image QA** (`image_qa.py`, on by default): one vision call per render checks the product and motif are visible, the product isn't malformed, the text is exact and legible, and there are no unrequested logos, artifacts or unsafe content. A failing image gets a targeted re-render (`IMAGE_QA_MAX_RERENDERS`, at most `IMAGE_QA_MAX_RERENDERS_PER_RUN` per run), and the better attempt is kept. Results show as "Image check" in the gallery and on the results page.
 
@@ -316,7 +316,7 @@ Image diversity comes from a random per-run shortlist of style families (4 disti
 The creatives know what day it is and what is happening with the trend right now, and use it in at most one creative.
 
 - **Date state** (`agent_common/clock.py`): every run seeds `current_date`, `current_datetime`, `current_timezone` and `current_weekday` once, in `TREND_TIMEZONE` (default `America/New_York`); resumed runs keep their original date. The research, brief, copy and art-direction prompts read it.
-- **Trend context handoff** (`trend_scout/trend_context.py`): `trend_scout` saves a compact per-trend research JSON in `target_trends_crf.trend_context`. The Cloud Function worker and the web UI's trend cards seed it into creative runs as `trend_scout_context`, with `trend_detected_on`. The creative agents treat it only as a hint to re-verify.
+- **Trend context handoff** (`trend_scout/trend_context.py`): `trend_scout` saves a compact per-trend research JSON in `target_trends_crf.trend_context`. The Cloud Function worker and the web UI's trend cards seed it into creative runs as `trend_scout_context`, with `trend_detected_on`. The creative agents treat it only as a hint to re-verify. A trend flagged sensitive carries `sensitive` / `sensitive_reason` in it: the Cloud Function orchestrator skips those rows, and the web UI warns before a run.
 - **Trend situation** (`creative_agent/trend_situation.py`): a grounded search and a structured synthesizer run beside the research and describe the trend's moment (upcoming, live, just happened, ongoing, evergreen, sensitive) with dates, outcome and cited sources. A deterministic validator then decides whether it is usable: it abstains to "unknown" without a dated, cited event within `TREND_EVENT_WINDOW_DAYS`, and computes a `valid_until`. Sensitive moments are never referenced. `TREND_STATE_ENABLED=false` turns the branch off.
 - **Timely slot and tone playbook:** with a timely moment, at most `MAX_TIMELY_CONCEPTS` (default 1) of the 4 creatives may reference it, using a code-derived tone (anticipation before an event and no score predictions; celebration without gloating after a win; empathy and no discount pushes after a loss) and no team logos, mascots, player names or implied sponsorship. A lexicon of dated and outcome words (`temporal_terms.py`) keeps every other creative evergreen; the copy and concept gates enforce both the cap and the evergreen rule.
 

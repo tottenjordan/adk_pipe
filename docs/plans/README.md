@@ -40,3 +40,4 @@ kept for history only.
 | 2026-10-11 | [Person swap for cast creatives + share feed layout](2026-10-11-person-swap.md) | Complete | #314 (part A), #313 (part B) |
 | 2026-10-11 | [Faithful person swaps + headshot guidance](2026-10-11-faithful-person-swaps.md) | Complete | #316 (PR 0), #317 (PR 1), #315 (PR 2) |
 | 2026-10-11 | [Trend state awareness (Ideas 1–4)](2026-10-11-trend-state-awareness.md) | Complete (Ideas 5+ in `TREND_STATE_RESEARCH.md` not yet planned) | #318 (PR 1), #319 (PR 2), #320 (PR 3), fix #321 |
+| 2026-10-12 | [Sensitive trends + deterministic trend-tie check](2026-10-12-sensitive-trends-and-trend-tie.md) | Complete (CRF filter uses plain `JSON_VALUE`; BigQuery rejects `SAFE.JSON_VALUE`) | #341 (PR 1), #338 (PR 2), #340 (PR 3), #339 (PR 4), docs #342 |

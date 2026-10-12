@@ -2,7 +2,8 @@
 
 Reference for the deterministic checks, the post-render image QA and the eval gates added by
 the 2026-10-07 creative-quality work (PRs #263–#280), plus later additions: person casting
-(2026-10-10), the trend situation validator (#319) and the timely slot (#320). Opt-in
+(2026-10-10), the trend situation validator (#319), the timely slot (#320), and sensitive trends + the
+deterministic copy trend tie (#338–#341). Opt-in
 rating learning can only *tighten* some of these checks (`rating_strictness`; see the
 Rating learning bullet in `CLAUDE.md`). `CLAUDE.md` keeps the summary; this
 note keeps the calibrated details that matter when you change a heuristic. Plan:
@@ -80,6 +81,32 @@ Switch: `trend_situation.timely_allowed(state, MAX_TIMELY_CONCEPTS)` = the valid
 - **Evergreen stays timeless:** an evergreen concept whose `image_generation_prompt` or headline, or an evergreen copy whose headline / body / caption / CTA, contains a `temporal_terms` hit is a deterministic issue (one bounded fix / revision round). The lexicon is whole-word, fold-insensitive and space/hyphen-interchangeable, and also matches explicit dates (month + day either way round, numeric `M/D`) and weekday names (singular only, so "Sundays" as a ritual passes). Idioms are removed first: "win-win", "lose weight", "weight loss", "lost and found", "miss a beat", "skin in the game", "24/7". "kick off" (verb) is fine, "kick-off"/"kickoff" are not. Extend `_IDIOMS` when a false positive appears.
 - **Pairing:** a timely concept whose paired copy (`ad_copy_id` → `original_id`) is evergreen gets "make this concept evergreen".
 - **Brief:** a non-empty `trend_bridge.timely_angle` needs a timely moment with the slot on; its result words must match the outcome (win words for a win, loss words for a loss, none before an upcoming event).
+
+## Sensitive trends (2026-10-12, plan `docs/plans/2026-10-12-sensitive-trends-and-trend-tie.md`)
+
+A trend about a death, tragedy, disaster, mass-casualty event, violence or crime, or a real
+person's serious illness or injury can't be both "clearly connected" and "never referenced",
+so the policy is upstream:
+
+- **Flagged:** trend_scout's `classify_trends_agent` (gather model, temperature 0) runs right
+  after gathering and writes one verdict per raw term to `trend_flags`
+  (`{flags: [{term, sensitive, reason}]}`). Celebrity, sports, politics or entertainment news
+  alone is not sensitive; ambiguous → not sensitive.
+- **Never auto-picked:** `PICK_TRENDS_INSTR` refuses flagged terms, and
+  `save_search_trends_to_session_state` refuses them too unless `interactive_trend_pick` is on
+  (a human pick is saved). A picked flagged term carries `sensitive: true` +
+  `sensitive_reason` in its `trend_context` JSON (absent otherwise, so unflagged JSON is
+  unchanged).
+- **Warned in the UI:** amber "Sensitive" chip in the interactive trend pick (still
+  selectable, with a note when selected), on trend cards, as an alert on the campaign form for
+  a flagged prefilled trend, and on the "Current moment" line when the creative run's
+  `trend_situation.phase` is `sensitive`.
+- **Skipped in batch:** the CRF orchestrator never selects rows whose `trend_context` has
+  `"sensitive": true`.
+- **Creative run:** with `trend_situation.phase == "sensitive"` the copy gate's deterministic
+  trend tie (below) is skipped, since the event must not be referenced. The judge stays
+  strict: `trend_connected` still applies (the general culture of the trend counts, the
+  event never does), so such runs may fail it; that is accepted, and the flag is the fix.
 
 ### 2026-10-12 `trend_connected` ad-copy gate (rating evidence)
 
@@ -160,6 +187,20 @@ upstream, before the judge:
   the bounded reviser and is never a residual; the structural note asks for
   proposition/mandatories/risks/trend_bridge. The drafter's `COPY_TREND_TIE_RULE` asks every
   copy for such a tie. Pre-judge counterpart of the judge's `trend_connected` gate.
+- **Deterministic trend tie (2026-10-12, #339)** — the critic self-reported `trend_bridge` as
+  passed on copies the judge then failed, so the copy gate also checks the tie itself
+  (`creative_agent/trend_tie.py` `has_trend_tie`, appended last in the deterministic issues, so
+  it gates a revision and survives as a residual). A copy (headline, body, caption, CTA) ties
+  when it contains one of the trend's **distinctive** tokens (`target_search_trends`'s content
+  tokens minus `GENERIC_TREND_TOKENS` query filler such as "vs", "results", "live", "near me",
+  4-digit years and tokens under 3 characters: "Lions" ties to "lions vs cardinals",
+  "results" alone doesn't tie to "chicago marathon results"), `mentions` the whole trend
+  phrase, or mentions one of the brief's `trend_bridge.motifs` (or two adjacent content words
+  of one: "finish line" ties to "finish line foil blanket"). A token or motif that is, contains
+  or is part of a brief avoid term never counts. Skipped for an empty trend or a sensitive
+  moment (`trend_situation.phase == "sensitive"`). The issue suggests examples (`tie_terms`: up
+  to 3 distinctive tokens + 2 motifs); the reviser rule names the trend or a listed motif
+  naturally, never a sensitive event.
 - **Prompts** (`creative_agent/prompts.py`): the brief writer uses the product name exactly as
   given and includes a mandatory naming it, makes no guarantees/absolute claims unless a cited
   source or the selling points state them, and for a real disaster/tragedy/crisis trend picks

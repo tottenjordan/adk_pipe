@@ -94,7 +94,7 @@ tests/
 ├── test_crf_config.py               # env-driven CRF config (required project, no hardcoding)
 ├── test_crf_entrypoint.py           # crf_entrypoint orchestrator (issue #46)
 ├── test_crf_logic.py                # Cloud Run Function logic (orchestrator + worker)
-├── test_crf_sql_params.py           # CRF SQL safety: allow-listed identifiers, parameterized values
+├── test_crf_sql_params.py           # CRF SQL safety: allow-listed identifiers, parameterized values, sensitive trend_context rows excluded from the orchestrator SELECT
 ├── test_crf_worker_async.py         # async worker path of the CRF (issue #45)
 ├── test_date_prompts.py            # the shared DATE_CONTEXT_LINE in trend research / brief / copy / art-direction prompts (optional tokens, no literal dates), scout as_of/event_hint, Current Moment section, TREND_SCOUT_HINT_BLOCK
 ├── test_deploy_utils.py             # deploy_agent.py utils (env file, extra_packages, runtimes.create) + integration_test.py (skips, creative_agent smoke output assertion)
@@ -155,7 +155,7 @@ tests/
 ├── test_style_shortlist.py          # per-session stratified style shortlist (families match the guide palette; exclusion of recently used styles and preference of well-rated ones keep the 2/3/1 strata)
 ├── test_tools.py                    # backend tool functions (pure logic, no I/O)
 ├── test_tools_retry.py              # infra tools propagate (don't swallow) exceptions
-├── test_trend_context.py           # trend_scout/trend_context.py: per-trend context JSON from info_gtrends + selected_gtrends (fenced JSON, markdown fallback, malformed → "")
+├── test_trend_context.py           # trend_scout/trend_context.py: per-trend context JSON from info_gtrends + selected_gtrends (fenced JSON, markdown fallback, malformed → ""), plus sensitive / sensitive_reason only for a flagged term (unflagged output unchanged)
 ├── test_trend_situation.py         # creative_agent/trend_situation.py: the validator table (upcoming/just-happened ok; no source / unknown src id / outside the window / wrong side of today / no outcome / URL date before the event → unknown; live/sensitive/ongoing/evergreen/low confidence never timely), valid_until, run-timezone dates, tone playbook, one-line moment, prompt tokens
 ├── test_trend_situation_graph.py   # the trend situation branch inside combined_research_pipeline (stub models): grounded draft → validated moment in the brief writer's prompt + compact brief; synthesizer raises → unknown; empty turns exhaust → unknown; disabled → no model call, stale draft cleared
 ├── test_timely_rules.py            # MAX_TIMELY_CONCEPTS, build_timely_rules per phase (incl. the loss wording), timely_rules seeded only when timely, {timely_rules?} placement + sha256-pinned byte-identical instructions without it
@@ -165,6 +165,8 @@ tests/
 ├── test_trend_scout_history.py      # trend_scout root history trim (measured on the real App, stub models): gather/pick AgentTool runs are isolated, the understand_trends NodeTool leaks 2 sub-agent turns + 2 node inputs into the root's final request without drop_other_agent_context, 0 with it; resumed review_trends checkpoint response kept; trim wired before the rate limiter
 ├── test_trend_scout_concurrency.py  # trend_scout GCS-export tools: per-run scratch isolation
 ├── test_trend_scout_logging.py      # trend_scout wiring of the shared observability callbacks
+├── test_trend_scout_sensitive.py    # trend_scout sensitive trends: TrendFlags schema, classify_trends_agent wiring + instruction (right after gather, both branches), pick prompt never selects flagged terms, save_search_trends_to_session_state refuses flagged auto picks (dict/JSON/fenced flags; interactive picks saved; malformed flags never block), sensitive_flags parser
+├── test_trend_tie.py                # creative_agent/trend_tie.py: distinctive trend token / full phrase / brief motif (adjacent-word motif phrases) tie, generic query tokens + years + short tokens don't count, avoid terms never count, empty trend passes, tie_terms examples
 ├── test_visual_concept_prompts.py   # visual concept prompts: shared brand_cue / copy-quoted in-image text / brief avoid + fit_mode rules (drafter, critic, finalizer), finalizer angle_id, interactive reviser keeps brand_cue; brace-safety
 ├── test_visual_intent_prompts.py    # optional visual-intent {key?} tokens + IMAGE_PROMPT_GUIDE no-braces + {style_shortlist?}/composition/text-cap rules
 ├── test_workflow_api_contract.py    # offline pins on the upstream ADK graph-Workflow behaviours the P2 migration relies on
@@ -317,6 +319,11 @@ tests/
 - **Timely slot** — `test_timely_rules.py`, `test_temporal_terms.py`, `test_timely_guards.py`,
   `test_brief_check.py` (timely angle), `test_brief_render.py` (timely angle + gallery label);
   frontend `timely-proof.test.tsx`.
+- **Sensitive trends + copy trend tie** — `test_trend_scout_sensitive.py` (classifier + auto-pick
+  guard), `test_trend_context.py` (flag in `trend_context`), `test_crf_sql_params.py` (CRF
+  skips flagged rows), `test_trend_tie.py` (matcher), `test_copy_gate.py` (trend-tie issue,
+  skipped for a sensitive moment); frontend `trend-flags.test.ts`, `review-trends.test.tsx`,
+  `trend-cards.test.tsx`, `campaign-form-sensitive.test.tsx`, `trend-situation.test.tsx`.
 - **Async-job run model** — `test_async_runs.py`: detached kick-off returns immediately,
   `_drive_run` appends a `done`/`error` terminal marker, poll derives status + slices
   events by cursor, and resume re-runs with a `functionResponse` (resetting status to
