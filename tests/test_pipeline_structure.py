@@ -1143,6 +1143,8 @@ def test_trend_scout_root_has_expected_tools():
         "pick_trends_agent",
         "save_search_trends_to_session_state",
         "save_session_state_to_gcs",
+        "record_research_gaps",
+        "review_trends",
         "write_trends_to_bq",
         "write_to_file",
         "memorize",
