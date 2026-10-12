@@ -37,13 +37,16 @@ PROXY = {"Authorization": "Bearer proxy"}
 TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]{16,64}$")
 
 
-def _render_png(size=(2000, 1000)) -> bytes:
+def _render_png(size=(200, 100)) -> bytes:
     buf = io.BytesIO()
     Image.new("RGBA", size, (200, 30, 30, 255)).save(buf, format="PNG")
     return buf.getvalue()
 
 
+# Small by default so every share's re-encode is cheap; only the re-encode test
+# needs a render larger than the 1600 px long-edge cap.
 RENDER_PNG = _render_png()
+LARGE_PNG = _render_png((2000, 1000))
 
 
 # --- fake GCS ---------------------------------------------------------------------
@@ -109,14 +112,14 @@ class FakeBucket:
 
 
 class FakeGCS:
-    def __init__(self):
+    def __init__(self, render: bytes = RENDER_PNG):
         self.objects: dict[str, dict[str, dict]] = {}
         self.ops: list[tuple] = []
         self.fail: tuple[str, str] | None = None  # (op, name substring)
         for i in range(len(CONCEPTS)):
             path = image_uri(i).removeprefix(f"gs://{BUCKET}/")
             self.objects.setdefault(BUCKET, {})[path] = {
-                "data": RENDER_PNG,
+                "data": render,
                 "content_type": "image/png",
                 "cache_control": None,
             }
@@ -143,10 +146,15 @@ class FakeGCS:
 
 
 class Harness:
-    def __init__(self, mode=AuthzMode.TRUST_CLIENT, base_url="https://share.example/"):
+    def __init__(
+        self,
+        mode=AuthzMode.TRUST_CLIENT,
+        base_url="https://share.example/",
+        render: bytes = RENDER_PNG,
+    ):
         self.svc = InMemorySessionService()
         self.store = InMemorySharesStore()
-        self.gcs = FakeGCS()
+        self.gcs = FakeGCS(render)
         self.loads: list[str] = []
         self.consents = InMemoryPersonRefsStore()
         pr.configure(store=self.consents, gcs_client=self.gcs, bucket=BUCKET)
@@ -196,7 +204,7 @@ def run(coro_fn):
 
 def test_create_slate_share_reencodes_images_and_writes_snapshot():
     async def go():
-        h = Harness()
+        h = Harness(render=LARGE_PNG)
         await h.session()
         r = await h.create()
         assert r.status_code == 200, r.text

@@ -86,6 +86,11 @@ class Harness:
         )
 
 
+def _no_report(uri: str) -> None:
+    """Report loader for tests that re-configure: never the live GCS loader."""
+    return None
+
+
 def run(coro_fn):
     return asyncio.run(coro_fn())
 
@@ -382,12 +387,35 @@ def test_store_failure_is_502():
     async def go():
         h = Harness()
         await h.session()
-        rt.configure(session_service=h.svc, store=Broken())
+        rt.configure(session_service=h.svc, store=Broken(), report_loader=_no_report)
         r = await h.put()
         assert r.status_code == 502
         assert r.json()["detail"]["reason"] == "store_failed"
 
     run(go)
+
+
+def test_store_failure_tests_never_reach_real_gcs(monkeypatch):
+    """Guard: re-configuring for a store failure must not fall back to the live
+    GCS loader. With a configured bucket matching the fixture's report URI (as
+    the repo ``.env`` provides), a default ``configure`` would read real GCS."""
+    calls: list[str] = []
+    monkeypatch.setattr(rt, "gcs_report_loader", lambda uri: calls.append(uri))
+    monkeypatch.setenv("GOOGLE_CLOUD_STORAGE_BUCKET", BUCKET)
+
+    class Broken(InMemoryRatingsStore):
+        async def upsert(self, row):
+            raise RuntimeError("bq down")
+
+    async def go():
+        h = Harness()
+        await h.session()
+        rt.configure(session_service=h.svc, store=Broken(), report_loader=_no_report)
+        r = await h.put()
+        assert r.status_code == 502
+
+    run(go)
+    assert calls == []
 
 
 def test_enforce_mode_authz():
@@ -497,7 +525,7 @@ def test_store_read_failure_is_502():
 
     async def go():
         h = Harness()
-        rt.configure(session_service=h.svc, store=Broken())
+        rt.configure(session_service=h.svc, store=Broken(), report_loader=_no_report)
         assert (await h.client.get(f"/ratings/{A}/calibration")).status_code == 502
         assert (await h.client.get(f"/ratings/{A}/s1")).status_code == 502
 

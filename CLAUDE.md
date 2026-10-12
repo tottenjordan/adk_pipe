@@ -70,7 +70,8 @@ cd frontend && npm run test:watch  # watch mode
 # genai.Client(vertexai=True) construction (e.g. the lazily built creative_eval judge
 # client, exercised by tests) resolves the project eagerly
 uv run pytest tests/ -v
-uv run pytest tests/ -q -n 4   # parallel via pytest-xdist (~2x faster; -n auto is SLOWER — each worker re-imports the agents)
+uv run pytest tests/ -q -n 4   # parallel via pytest-xdist (~2x faster than serial; the CI setting)
+uv run pytest tests/ -q -n 16  # local tip: fastest on a 32-core box (42s vs 50s for -n auto, 53s for -n 4; each worker re-imports the agents, so more is not always better). CI keeps -n 4 on its 4-vCPU runner
 uv run pytest tests/ -q -n 6 -m "not slow"   # fast local loop (skips JAX-compile/golden/image-staging tests; CI runs all)
 
 # ADK evals — end-to-end agent evaluation with LLM-as-judge (real API calls, ~5 min per case)

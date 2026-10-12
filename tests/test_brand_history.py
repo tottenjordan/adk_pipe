@@ -344,22 +344,29 @@ class TestStateDelta:
         assert "brand history skipped" in caplog.text
 
     def test_timeout_fails_open(self, monkeypatch, caplog):
+        import asyncio
+        import threading
         import time
 
+        # The slow fetch blocks until the delta has returned (no real sleep);
+        # releasing it lets asyncio.run's executor shutdown finish at once.
+        release = threading.Event()
+
         def slow(*a, **k):
-            time.sleep(0.5)
+            release.wait(5)
             return _HISTORY
 
         monkeypatch.setattr(bh, "fetch_brand_history", slow)
 
         async def timed() -> tuple[dict, float]:
             started = time.monotonic()
-            delta = await bh.brand_history_state_delta(
-                {"brand": "ACME"}, enabled=True, runs=5, timeout=0.05
-            )
+            try:
+                delta = await bh.brand_history_state_delta(
+                    {"brand": "ACME"}, enabled=True, runs=5, timeout=0.05
+                )
+            finally:
+                release.set()
             return delta, time.monotonic() - started
-
-        import asyncio
 
         # Measured inside the loop: asyncio.run itself waits for the worker
         # thread at shutdown, a long-running server loop does not.
@@ -570,7 +577,8 @@ class TestRatingLearning:
         assert "rating_signals" not in d
 
     def test_ratings_error_or_timeout_fail_open(self, monkeypatch):
-        import time
+        import asyncio
+        import threading
 
         def boom(*a, **k):
             raise RuntimeError("kaput")
@@ -579,12 +587,26 @@ class TestRatingLearning:
         d = _delta({"brand": "PRS", "learn_from_ratings": True})
         assert d["rating_signals_applied"]["reason"] == "unavailable"
 
+        # Blocks until the delta has timed out and returned (no real sleep).
+        release = threading.Event()
+
         def slow(*a, **k):
-            time.sleep(0.3)
+            release.wait(5)
             return self.rows * 2
 
+        async def timed_out() -> dict:
+            try:
+                return await bh.brand_history_state_delta(
+                    {"brand": "PRS", "learn_from_ratings": True},
+                    enabled=True,
+                    runs=5,
+                    timeout=0.05,
+                )
+            finally:
+                release.set()
+
         monkeypatch.setattr(bh.rating_signals, "fetch_ratings", slow)
-        d = _delta({"brand": "PRS", "learn_from_ratings": True}, timeout=0.05)
+        d = asyncio.run(timed_out())
         assert d == {
             "brand_history": "",
             "rating_signals_applied": {"applied": False, "reason": "unavailable"},
@@ -670,18 +692,25 @@ class TestRatingLearning:
         assert d["rating_signals_applied"]["applied"] is True
 
     def test_fetches_run_concurrently(self, monkeypatch):
-        import time
+        import threading
+
+        # Each fetch waits for the other at a barrier: run one after the other,
+        # the first would break the barrier and fail open as "unavailable".
+        both = threading.Barrier(2, timeout=2)
+        crossed: list[str] = []
 
         def slow_history(*a, **k):
-            time.sleep(0.2)
+            both.wait()
+            crossed.append("history")
             return {}
 
         def slow_ratings(brand, *, days):
-            time.sleep(0.2)
+            both.wait()
+            crossed.append("ratings")
             return self.rows * 2
 
         monkeypatch.setattr(bh, "fetch_brand_history", slow_history)
         monkeypatch.setattr(bh.rating_signals, "fetch_ratings", slow_ratings)
-        started = time.monotonic()
-        _delta({"brand": "PRS", "learn_from_ratings": True})
-        assert time.monotonic() - started < 0.35
+        d = _delta({"brand": "PRS", "learn_from_ratings": True})
+        assert sorted(crossed) == ["history", "ratings"]
+        assert d["rating_signals_applied"]["applied"] is True
