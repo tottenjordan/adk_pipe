@@ -6,7 +6,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { FieldLabel } from "@/components/field-label";
+import { SensitiveChip, sensitiveEventNote } from "@/components/sensitive-chip";
 import { parseCreativeBrief } from "@/lib/creative-brief";
+import { normalizeTerm, parseTrendFlags } from "@/lib/trend-flags";
 import { ResearchReportEditor, useReportEdit } from "./report-editor";
 import { ReviewBrief } from "./review-brief";
 import { ACTIONS_ROW, ShortcutHint, useApproveShortcut } from "./review-shared";
@@ -354,6 +356,9 @@ function ReviewTrends({
     () => parseRawGtrends(state.raw_gtrends),
     [state.raw_gtrends]
   );
+  const flags = useMemo(() => parseTrendFlags(state.trend_flags), [state.trend_flags]);
+  const sensitiveReason = (term: string) => flags.get(normalizeTerm(term));
+  const idBase = React.useId();
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [instruction, setInstruction] = useState("");
 
@@ -400,14 +405,17 @@ function ReviewTrends({
         </p>
       ) : (
         <div className="grid gap-2 sm:grid-cols-2 max-h-[28rem] overflow-y-auto">
-          {candidates.map((term) => {
+          {candidates.map((term, i) => {
             const isSelected = selected.has(term);
-            return (
+            const reason = sensitiveReason(term);
+            const reasonId = `${idBase}-sensitive-${i}`;
+            const button = (
               <button
                 key={term}
                 type="button"
                 onClick={() => toggle(term)}
                 aria-pressed={isSelected}
+                aria-describedby={reason !== undefined ? reasonId : undefined}
                 className={`rounded-md border px-4 py-3 text-left text-sm transition-colors ${
                   isSelected
                     ? "border-primary bg-primary/10 text-primary font-semibold"
@@ -425,12 +433,36 @@ function ReviewTrends({
                     &#10003;
                   </span>
                   <span className="leading-snug break-words">{term}</span>
+                  {reason !== undefined && (
+                    <SensitiveChip reason={reason} className="ml-auto" />
+                  )}
                 </span>
               </button>
+            );
+            if (reason === undefined) return button;
+            return (
+              <React.Fragment key={term}>
+                {button}
+                <span id={reasonId} className="sr-only">
+                  {reason ? `Sensitive: ${reason}` : "Sensitive trend"}
+                </span>
+              </React.Fragment>
             );
           })}
         </div>
       )}
+      {candidates
+        .filter((term) => selected.has(term) && sensitiveReason(term) !== undefined)
+        .map((term) => (
+          <p
+            key={term}
+            role="note"
+            className="rounded-md border border-mark-pending/40 bg-mark-pending/5 px-3 py-2 text-sm text-foreground"
+          >
+            <strong className="font-semibold">{term}:</strong>{" "}
+            {sensitiveEventNote(sensitiveReason(term) ?? "")}
+          </p>
+        ))}
       <FieldLabel as="label" htmlFor="review-trends-note">
         Note for the agent (optional)
       </FieldLabel>
