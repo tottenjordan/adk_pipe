@@ -789,6 +789,7 @@ def _copy_issues(state: Mapping[str, Any]) -> dict[str, list[CopyIssue]]:
             _selling_points(state), brief_mandatories(brief)
         ),
         timely_ok=timely_allowed(state, config.max_timely_concepts),
+        max_timely=config.max_timely_concepts,
     )
 
 
