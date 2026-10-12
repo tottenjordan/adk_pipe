@@ -432,6 +432,7 @@ def _deterministic_issues(
     max_cta: int = MAX_CTA_WORDS,
     allowed_claims_text: str = "",
     timely_ok: bool = False,
+    timely_room: bool = False,
 ) -> list[str]:
     issues: list[str] = []
     copy_text = " ".join(_text(copy.get(f)) for f in _COPY_FIELDS)
@@ -479,11 +480,17 @@ def _deterministic_issues(
 
     # The timely slot: with a timely moment, an evergreen copy must stay
     # timeless (no dates, results or "tonight"); the timely copy may not.
+    # Making it the timely copy is offered only while the cap has room.
     if timely_ok and copy.get("uses_trend_state") is not True:
         if terms := temporal_terms(copy_text):
+            fix = (
+                "remove it or make this the timely copy."
+                if timely_room
+                else ("remove it.")
+            )
             issues.append(
                 f"evergreen copy mentions a dated or outcome term "
-                f"({', '.join(terms)}): remove it or make this the timely copy."
+                f"({', '.join(terms)}): {fix}"
             )
 
     for term in avoid:
@@ -524,6 +531,7 @@ def _check_copy(
     strictness: Sequence[str] = (),
     allowed_claims_text: str = "",
     timely_ok: bool = False,
+    timely_room: bool = False,
 ) -> list[CopyIssue]:
     deterministic = _deterministic_issues(
         copy,
@@ -532,6 +540,7 @@ def _check_copy(
         max_cta=max_cta_words(strictness),
         allowed_claims_text=allowed_claims_text,
         timely_ok=timely_ok,
+        timely_room=timely_room,
     )
     self_reported = _self_reported_issues(copy, gating_brief_checks(strictness))
     return [CopyIssue("deterministic", text) for text in deterministic] + [
@@ -550,6 +559,7 @@ def gate_copies(
     strictness: Sequence[str] = (),
     allowed_claims_text: str = "",
     timely_ok: bool = False,
+    max_timely: int = 1,
 ) -> dict[str, list[CopyIssue]]:
     """The copies' gating issues, keyed by ``copy_keys``.
 
@@ -576,13 +586,17 @@ def gate_copies(
     copies with issues are returned ({} = clean). ``timely_ok`` (the run has a
     timely moment and the slot is on) adds one deterministic check: an
     evergreen copy (``uses_trend_state`` not True) must contain no dated or
-    outcome term (``temporal_terms``); without it the checks are unchanged.
+    outcome term (``temporal_terms``; the fix offers "make this the timely
+    copy" only while fewer than ``max_timely`` copies are timely; default 1,
+    the ``MAX_TIMELY_CONCEPTS`` default, so a larger knob not passed here only
+    makes the offer conservative); without it the checks are unchanged.
     Never raises.
     """
     terms = _avoid_terms(
         avoid, product=target_product, mandatories=mandatories, trend=trend
     )
     parsed = parse_copies(copies)
+    timely_room = sum(c.get("uses_trend_state") is True for c in parsed) < max_timely
     issues: dict[str, list[CopyIssue]] = {}
     for key, copy in zip(copy_keys(parsed), parsed, strict=True):
         if found := _check_copy(
@@ -592,6 +606,7 @@ def gate_copies(
             strictness=strictness,
             allowed_claims_text=allowed_claims_text,
             timely_ok=timely_ok,
+            timely_room=timely_room,
         ):
             issues[key] = found
     return issues

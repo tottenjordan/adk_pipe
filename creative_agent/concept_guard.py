@@ -628,9 +628,13 @@ def _timely_issues(
     terms = temporal_terms(f"{prompt}\n{_text(concept.get('headline'))}")
     if not terms:
         return []
+    # Making it timely is a fix only when its paired copy is timely too (else
+    # the pairing check would flag it next round).
+    paired = copies_by_id.get(str(concept.get("ad_copy_id")))
+    timely_fix = paired is not None and paired.get("uses_trend_state") is True
     return [
         f"evergreen concept mentions a dated or outcome term ({', '.join(terms)}): "
-        "remove it or make this the timely concept."
+        + ("remove it or make this the timely concept." if timely_fix else "remove it.")
     ]
 
 
@@ -665,8 +669,9 @@ def concept_issues(
     the cap to ``STRICT_MAX_TEXT_CONCEPTS`` (never raising a tighter one).
     ``timely_ok`` (the run has a timely moment and the slot is on) adds the
     timely checks: an evergreen concept (``uses_trend_state`` not True) whose
-    prompt or headline has a dated/outcome term (``temporal_terms``), and a
-    timely concept whose paired copy is not timely. Without it the checks are
+    prompt or headline has a dated/outcome term (``temporal_terms``; the fix
+    offers "make this the timely concept" only when its paired copy is
+    timely), and a timely concept whose paired copy is not timely. Without it the checks are
     exactly as before. Only concepts with issues are returned ({} = clean).
     Never raises.
     """
