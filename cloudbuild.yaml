@@ -7,7 +7,7 @@
 #
 #   gcloud builds submit --config cloudbuild.yaml \
 #     --ignore-file deployment/cloudbuild.gcloudignore \
-#     "--substitutions=^;^SHORT_SHA=$(git rev-parse --short HEAD);_SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)"
+#     --substitutions=SHORT_SHA=$(git rev-parse --short HEAD)
 #
 # The ignore file matters: the root .gcloudignore is for the api's `--source .` deploy
 # and drops frontend/ and cloud_functions/, which the web and CRF builds need.
@@ -19,13 +19,15 @@
 # "Build with Cloud Build (cached), then deploy the digest"; CRF: deployment/README.md
 # §3). The share service reuses the web digest (deployment/README.md → Public share service).
 #
-# Reproducible digests: the same commit must give the same digest, so a no-op build
+# Reproducible digests: the same source must give the same digest, so a no-op build
 # doesn't look like a change. Some code-layer steps (e.g. the api's `src` stage) re-run
 # even with an unchanged context and stamp fresh file mtimes, so every build exports
 # with `rewrite-timestamp=true` (BuildKit >= 0.13; buildx-stable-1 is newer) and
-# SOURCE_DATE_EPOCH: file mtimes in new layers and the image `created` field are clamped
-# to it. Pass the commit time (`git log -1 --format=%ct`); an uploaded source has no
-# .git, so the build can't derive it, and the default "0" (1970) is still reproducible.
+# SOURCE_DATE_EPOCH: file mtimes in the image's layers and its `created` field are
+# clamped to it. Keep the epoch CONSTANT (default "0", so `created` reads 1970-01-01):
+# BuildKit folds SOURCE_DATE_EPOCH into its cache keys, so a per-commit value (e.g. the
+# commit time) rebuilds every layer, `uv sync` and `npm ci` included, on every commit
+# (measured 2026-10-12). Identity lives in the :$SHORT_SHA tag, not in `created`.
 
 substitutions:
   _REGION: us-central1

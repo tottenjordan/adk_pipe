@@ -1217,9 +1217,10 @@ root `.gcloudignore` (for the api's `--source .` deploy) drops `frontend/`:
 # From a main checkout. Builds + pushes only (nothing is deployed):
 gcloud builds submit --region $REGION --config cloudbuild.yaml \
   --ignore-file deployment/cloudbuild.gcloudignore \
-  "--substitutions=^;^SHORT_SHA=$(git rev-parse --short HEAD);_SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)"
-# _SOURCE_DATE_EPOCH (the commit time) makes the digests reproducible: rebuilding the same
-# commit gives the same digests, so a changed digest means changed content.
+  --substitutions=SHORT_SHA=$(git rev-parse --short HEAD)
+# Digests are reproducible (rewrite-timestamp + a constant SOURCE_DATE_EPOCH, default 0):
+# rebuilding unchanged sources gives the same digests, so a new digest means new content.
+# Don't override _SOURCE_DATE_EPOCH per commit: it is part of BuildKit's cache keys.
 # The build log ends with API_IMAGE=…@sha256:… and WEB_IMAGE=…@sha256:…, but a regional
 # build doesn't stream its log to the terminal, so read the digests from the stored log:
 gcloud builds log <BUILD_ID> --region $REGION | grep -aoE '(API|WEB)_IMAGE=[^ ]+'
@@ -1677,8 +1678,9 @@ SHORT_SHA=$(git rev-parse --short HEAD)
 gcloud builds submit --region us-central1 \
   --config deployment/bandit/cloudbuild.bandit.yaml \
   --ignore-file deployment/bandit/bandit.gcloudignore \
-  "--substitutions=^;^SHORT_SHA=$SHORT_SHA;_SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)" .
-# (the commit time as SOURCE_DATE_EPOCH: the same commit always gives the same digest)
+  --substitutions=SHORT_SHA=$SHORT_SHA .
+# (reproducible: unchanged sources give the same digest; keep the default constant
+# _SOURCE_DATE_EPOCH, a per-commit value would defeat the layer cache)
 # Regional builds don't stream logs; the digest is in the stored log:
 gcloud builds log <BUILD_ID> --region us-central1 | grep -aoE 'BANDIT_IMAGE=[^ ]+'
 # Optional: round-trip the image in docker before using it

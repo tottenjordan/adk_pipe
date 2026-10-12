@@ -7,7 +7,7 @@
 #   gcloud builds submit --region us-central1 \
 #     --config deployment/bandit/cloudbuild.bandit.yaml \
 #     --ignore-file deployment/bandit/bandit.gcloudignore \
-#     "--substitutions=^;^SHORT_SHA=$(git rev-parse --short HEAD);_SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)" .
+#     --substitutions=SHORT_SHA=$(git rev-parse --short HEAD) .
 #
 # The ignore file uploads only bandit/, bandit_serving/ and bandit_traffic/.
 # Pushes <image>:$SHORT_SHA + <image>:latest and prints the digest
@@ -17,10 +17,10 @@
 # IMAGE_TAG=$SHORT_SHA deployment/bandit/deploy_traffic_job.sh
 # (docs/bandit/README.md → Build and deploy).
 #
-# Reproducible digests (as in cloudbuild.yaml): `rewrite-timestamp=true` +
-# SOURCE_DATE_EPOCH (the commit time; default "0" since an upload has no .git) clamp
-# layer file mtimes and the image `created` field, so the same commit gives the
-# same digest.
+# Reproducible digests (as in cloudbuild.yaml): `rewrite-timestamp=true` + a CONSTANT
+# SOURCE_DATE_EPOCH (default "0") clamp layer file mtimes and the image `created`
+# field, so the same source gives the same digest. Don't pass a per-commit epoch:
+# it is part of BuildKit's cache keys and would rebuild every layer on every commit.
 
 substitutions:
   _BANDIT_IMAGE: us-central1-docker.pkg.dev/${PROJECT_ID}/cpr/trend-trawler-bandit
