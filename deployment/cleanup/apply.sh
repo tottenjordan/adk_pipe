@@ -10,9 +10,11 @@
 # lifecycles, and fails (exit 3) when a digest Cloud Run is serving (or the api would
 # deploy for bandit experiments) is a deletion candidate.
 #
-# --apply refuses when a repo already has cleanup policies, or a bucket a lifecycle, that
-# differ from the file here: set-cleanup-policies and --lifecycle-file both REPLACE the
-# whole configuration, so merge by hand first. Docs: deployment/README.md -> Retention.
+# --apply refuses when a repo already has a cleanup policy that is not ours (name not
+# `tt-`-prefixed: another team's rule in the shared repo), or a bucket a lifecycle, that
+# differs from the file here: set-cleanup-policies and --lifecycle-file both REPLACE the
+# whole configuration, so merge by hand first. A repo whose current policies are all ours
+# but differ is updated (the diff is printed). Docs: deployment/README.md -> Retention.
 set -euo pipefail
 
 MODE="${1:---preview}"
@@ -140,8 +142,11 @@ apply() {
     gcloud artifacts repositories describe "$repo" --location "$REGION" --project "$PROJECT" \
       --format='json(cleanupPolicies)' >"$WORK/ar-$repo.json"
     verdict="$("${PY[@]}" ar-same "$file" "$WORK/ar-$repo.json")"
-    if [[ "$verdict" == differs ]]; then
-      echo "REFUSING: $repo already has different cleanup policies (set-cleanup-policies replaces them)." >&2
+    if [[ "$verdict" == ours ]]; then
+      echo "$repo: current cleanup policies are all ours (tt-*) but differ from $file; replacing them:"
+      "${PY[@]}" ar-diff "$file" "$WORK/ar-$repo.json"
+    elif [[ "$verdict" == differs ]]; then
+      echo "REFUSING: $repo has cleanup policies that are not ours (not tt-*) and differ (set-cleanup-policies replaces them)." >&2
       echo "current:" >&2
       cat "$WORK/ar-$repo.json" >&2
       echo "wanted: $file — merge them into one file, then re-run." >&2
