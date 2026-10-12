@@ -12,7 +12,12 @@ import { parseCreativeBrief } from "@/lib/creative-brief";
 import type { ReportSources } from "@/lib/research-report";
 import { FileDown } from "lucide-react";
 import { agentLabel, isCreativeAgent } from "@/lib/agents";
-import { answeredReviewNames, currentStage, deriveStages } from "@/lib/run-stages";
+import {
+  answeredReviewNames,
+  currentStage,
+  deriveStages,
+  type RunStageStatus,
+} from "@/lib/run-stages";
 import { CONTINUE_MESSAGE, stoppedEarly } from "@/lib/run-completion";
 import {
   startRun,
@@ -21,6 +26,7 @@ import {
   resumeRun,
   ResumeNotAppliedError,
   ResumeRejectedError,
+  RunConnectionLostError,
   getSession,
   SELF_USER_ID,
 } from "@/lib/api";
@@ -44,14 +50,14 @@ import {
   type PauseContext,
 } from "@/lib/pause-detection";
 import {
-  RUN_STALL_TIMEOUT_MS,
+  stallTimeoutFor,
   PAUSE_WATCH_INTERVAL_MS,
   RUNSERVER_MARKER_AUTHOR,
   PIPELINE_STATE_KEYS,
 } from "./run-config";
 import { PipelineWidget } from "./run-widgets";
 import { StageSpine } from "./stage-spine";
-import { BriefSummary, CurrentStagePanel, TechnicalLog } from "./run-sections";
+import { BriefSummary, ConnectionLostBanner, CurrentStagePanel, TechnicalLog } from "./run-sections";
 import { ReviewPanel } from "./ReviewPanel";
 
 const CAMPAIGN_FIELD_DEFS: DisplayFieldDef[] = [
@@ -63,7 +69,7 @@ const CAMPAIGN_FIELD_DEFS: DisplayFieldDef[] = [
   RATING_LEARNING_FIELD,
 ];
 
-type Status = "running" | "completed" | "error" | "paused" | "stalled";
+type Status = "running" | "completed" | "error" | "paused" | "stalled" | "disconnected";
 
 export default function RunPage({
   params,
@@ -147,6 +153,9 @@ export default function RunPage({
         if (event.id && seenEventIds.current.has(event.id)) continue;
         if (event.id) seenEventIds.current.add(event.id);
 
+        // Activity again: a quiet stretch (e.g. sequential renders) is over.
+        setStatus((s) => (s === "stalled" ? "running" : s));
+
         // An error event (e.g. a model 400/429) is NOT a run failure: a
         // fail-soft step may have contained it and the run carries on. Show it
         // as a non-blocking notice; only the poll status (pollRun throws on
@@ -176,6 +185,17 @@ export default function RunPage({
     [syncSessionState]
   );
 
+  // A poll or resume failure: a lost connection (the run may still be going on
+  // the server) offers a reload; anything else fails the run.
+  const failRun = useCallback((err: unknown, fallback: string) => {
+    if (err instanceof RunConnectionLostError) {
+      setStatus("disconnected");
+      return;
+    }
+    setStatus("error");
+    setErrorMsg(err instanceof Error ? err.message : fallback);
+  }, []);
+
   // Follow a run that was just resumed (by this tab or elsewhere) until its next
   // checkpoint or the end. Re-enters pollRun from since=0; seenEventIds dedup
   // makes the replay idempotent. The poll is owned by resumeAbortRef (aborted on
@@ -199,10 +219,9 @@ export default function RunPage({
       ) {
         return;
       }
-      setStatus("error");
-      setErrorMsg(err instanceof Error ? err.message : "Resume failed");
+      failRun(err, "Resume failed");
     }
-  }, [appName, userId, sessionId, consumePollEvents]);
+  }, [appName, userId, sessionId, consumePollEvents, failRun]);
 
   useEffect(() => {
     // Each effect run owns its own poll (and AbortController); cleanup aborts
@@ -254,17 +273,14 @@ export default function RunPage({
         if (signal.aborted || (err instanceof Error && err.name === "AbortError")) {
           return;
         }
-        setStatus("error");
-        setErrorMsg(
-          err instanceof Error ? err.message : "Agent run failed"
-        );
+        failRun(err, "Agent run failed");
       }
     }
 
     run();
 
     return () => controller.abort();
-  }, [appName, userId, sessionId, consumePollEvents]);
+  }, [appName, userId, sessionId, consumePollEvents, failRun]);
 
   // Reset the stall timer whenever a new event lands (keeps the per-event loop
   // bodies byte-identical — the timestamp is bumped here instead of inline).
@@ -273,21 +289,23 @@ export default function RunPage({
   }, [events.length]);
 
   // Stall watchdog: while a run is "running", flag it as "stalled" if no event
-  // has arrived for RUN_STALL_TIMEOUT_MS. Covers the orphaned-job case where the
-  // poll would otherwise report "running" forever. Only armed while running, so
-  // paused/completed/error/stalled runs are unaffected.
+  // has arrived for stallTimeoutFor(appName). Covers the orphaned-job case where
+  // the poll would otherwise report "running" forever. Only armed while running,
+  // so paused/completed/error/stalled runs are unaffected; a new event flips
+  // "stalled" back to "running" (consumePollEvents), which re-arms it.
+  const stallTimeout = stallTimeoutFor(appName);
   useEffect(() => {
     if (status !== "running") return;
     // Re-arm the baseline on entering "running" (e.g. resuming after a long
     // human-review pause) so we don't immediately flag a fresh run as stalled.
     lastEventAt.current = Date.now();
     const timer = setInterval(() => {
-      if (Date.now() - lastEventAt.current > RUN_STALL_TIMEOUT_MS) {
+      if (Date.now() - lastEventAt.current > stallTimeout) {
         setStatus("stalled");
       }
     }, 10_000);
     return () => clearInterval(timer);
-  }, [status]);
+  }, [status, stallTimeout]);
 
   // Stale-tab watcher: while paused, re-check the run for an answer to this
   // checkpoint submitted elsewhere (another tab, or a reload that resumed it).
@@ -376,8 +394,7 @@ export default function RunPage({
         setNotice(err.message);
         return;
       }
-      setStatus("error");
-      setErrorMsg(err instanceof Error ? err.message : "Resume failed");
+      failRun(err, "Resume failed");
       return;
     }
     await followRun();
@@ -434,11 +451,13 @@ export default function RunPage({
     return PIPELINE_STATE_KEYS.filter((p) => sessionState[p.key] != null);
   }, [sessionState]);
 
-  // Stage spine (pure derivation from state + pause + status)
+  // Stage spine (pure derivation from state + pause + status). The stage views
+  // know no "disconnected": like "stalled", the run may still be going.
+  const stageStatus: RunStageStatus = status === "disconnected" ? "stalled" : status;
   const answeredReviews = useMemo(() => answeredReviewNames(events), [events]);
   const stages = useMemo(
-    () => deriveStages(appName, sessionState, pauseContext, status, answeredReviews),
-    [appName, sessionState, pauseContext, status, answeredReviews]
+    () => deriveStages(appName, sessionState, pauseContext, stageStatus, answeredReviews),
+    [appName, sessionState, pauseContext, stageStatus, answeredReviews]
   );
   const current = useMemo(() => currentStage(stages), [stages]);
 
@@ -446,8 +465,8 @@ export default function RunPage({
   // model returned an empty turn). Derived for display only — the page's own
   // `status` stays "completed" until the user continues the run.
   const stopped = useMemo(
-    () => stoppedEarly(appName, sessionState, status, pauseContext, answeredReviews),
-    [appName, sessionState, status, pauseContext, answeredReviews]
+    () => stoppedEarly(appName, sessionState, stageStatus, pauseContext, answeredReviews),
+    [appName, sessionState, stageStatus, pauseContext, answeredReviews]
   );
 
   // Continue a run that stopped early: post a new message to the same session
@@ -496,6 +515,7 @@ export default function RunPage({
       tone: "text-mark-fail",
     },
     stalled: { text: "No recent activity", dot: "bg-mark-pending", tone: "text-mark-pending" },
+    disconnected: { text: "Connection lost", dot: "bg-mark-pending", tone: "text-mark-pending" },
   };
 
   const statusDisplay = stopped
@@ -571,6 +591,10 @@ export default function RunPage({
         </div>
       )}
 
+      {status === "disconnected" && (
+        <ConnectionLostBanner onReload={() => window.location.reload()} />
+      )}
+
       {errorMsg && (
         <div role="alert" className="mb-4 rounded-lg border border-mark-fail/40 bg-mark-fail/5 px-5 py-4">
           <p className="text-sm font-medium text-mark-fail">{errorMsg}</p>
@@ -588,7 +612,7 @@ export default function RunPage({
         <div className="grid gap-6 lg:grid-cols-[220px_minmax(0,1fr)]">
           {/* Stage spine (vertical on lg, compact step bar below) */}
           <div className="min-w-0 lg:pt-1">
-            <StageSpine stages={stages} current={current} runStatus={status} />
+            <StageSpine stages={stages} current={current} runStatus={stageStatus} />
           </div>
 
           {/* Main area */}
@@ -608,7 +632,7 @@ export default function RunPage({
               <CurrentStagePanel
                 stage={current}
                 stages={stages}
-                status={status}
+                status={stageStatus}
                 lastUpdate={lastUpdate}
                 stopped={
                   stopped

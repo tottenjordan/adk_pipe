@@ -7,6 +7,19 @@
 export const RUN_STALL_TIMEOUT_MS = 3 * 60 * 1000;
 
 /**
+ * Creative runs legitimately go quiet longer: the render node emits no events
+ * while it renders 4 images back to back (~2 images/min) plus QA re-renders.
+ */
+export const CREATIVE_STALL_TIMEOUT_MS = 8 * 60 * 1000;
+
+/** The stall timeout for a run of `appName`. */
+export function stallTimeoutFor(appName: string): number {
+  return appName === "creative_agent" || appName === "interactive_creative"
+    ? CREATIVE_STALL_TIMEOUT_MS
+    : RUN_STALL_TIMEOUT_MS;
+}
+
+/**
  * While paused at a review checkpoint, how often the run page re-checks the run
  * for an answer submitted elsewhere (another tab, or a reload that resumed it).
  * Without it a stale tab shows "Waiting for review" forever.

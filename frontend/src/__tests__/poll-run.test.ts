@@ -6,6 +6,8 @@ import {
   resumeRun,
   ResumeNotAppliedError,
   ResumeRejectedError,
+  RunConnectionLostError,
+  POLL_MAX_RETRIES,
 } from "@/lib/api";
 import type { AgentEvent } from "@/lib/types";
 import { jsonResponse } from "./helpers";
@@ -21,7 +23,28 @@ function ev(id: string): AgentEvent {
   return { id, author: "a", timestamp: 1 } as AgentEvent;
 }
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  vi.useRealTimers();
+  vi.restoreAllMocks();
+});
+
+const unavailable = () => new Response("unavailable", { status: 503 });
+
+/** Drain a pollRun under fake timers (backoff waits are advanced instantly). */
+async function drainWithTimers(
+  gen: AsyncGenerator<AgentEvent>
+): Promise<{ ids: string[]; error: unknown }> {
+  const ids: string[] = [];
+  const done = (async () => {
+    for await (const e of gen) ids.push(e.id as string);
+  })().then(
+    () => undefined,
+    (err: unknown) => err
+  );
+  await vi.runAllTimersAsync();
+  const error = await done;
+  return { ids, error };
+}
 
 describe("startRun", () => {
   it("posts correct body and returns parsed {runId,status}", async () => {
@@ -179,6 +202,128 @@ describe("pollRun", () => {
   });
 });
 
+describe("pollRun: transient failure retries", () => {
+  it("retries 503s with backoff and keeps the since cursor", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({ status: "running", events: [ev("e1")], nextCursor: 1 }))
+      .mockResolvedValueOnce(unavailable())
+      .mockResolvedValueOnce(unavailable())
+      .mockResolvedValueOnce(jsonResponse({ status: "done", events: [ev("e2")], nextCursor: 2 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { ids, error } = await drainWithTimers(pollRun("creative_agent", "u1", "s1", { intervalMs: 0 }));
+
+    expect(error).toBeUndefined();
+    expect(ids).toEqual(["e1", "e2"]);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    for (const i of [1, 2, 3]) expect(fetchMock.mock.calls[i][0]).toContain("since=1");
+  });
+
+  it("waits 1, 2, 4, 8 and 15 s (capped) between retries", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn(async () => unavailable());
+    vi.stubGlobal("fetch", fetchMock);
+    const gen = pollRun("creative_agent", "u1", "s1", { intervalMs: 0 });
+    const done = gen.next().catch((e: unknown) => e);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    let calls = 1;
+    for (const wait of [1000, 2000, 4000, 8000, 15000]) {
+      await vi.advanceTimersByTimeAsync(wait - 1);
+      expect(fetchMock).toHaveBeenCalledTimes(calls);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(fetchMock).toHaveBeenCalledTimes(++calls);
+    }
+    expect(await done).toBeInstanceOf(RunConnectionLostError);
+  });
+
+  it(`recovers when the last of ${POLL_MAX_RETRIES} retries succeeds`, async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn();
+    for (let i = 0; i < POLL_MAX_RETRIES; i++) fetchMock.mockResolvedValueOnce(unavailable());
+    fetchMock.mockResolvedValueOnce(jsonResponse({ status: "done", events: [ev("e1")], nextCursor: 1 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { ids, error } = await drainWithTimers(pollRun("creative_agent", "u1", "s1", { intervalMs: 0 }));
+
+    expect(error).toBeUndefined();
+    expect(ids).toEqual(["e1"]);
+    expect(fetchMock).toHaveBeenCalledTimes(POLL_MAX_RETRIES + 1);
+  });
+
+  it("throws RunConnectionLostError when every retry fails", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn(async () => unavailable());
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { error } = await drainWithTimers(pollRun("creative_agent", "u1", "s1", { intervalMs: 0 }));
+
+    expect(error).toBeInstanceOf(RunConnectionLostError);
+    expect(fetchMock).toHaveBeenCalledTimes(POLL_MAX_RETRIES + 1);
+  });
+
+  it("resets the retry budget after a successful poll", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn();
+    const failures = (n: number) => {
+      for (let i = 0; i < n; i++) fetchMock.mockResolvedValueOnce(unavailable());
+    };
+    failures(POLL_MAX_RETRIES);
+    fetchMock.mockResolvedValueOnce(jsonResponse({ status: "running", events: [ev("e1")], nextCursor: 1 }));
+    failures(POLL_MAX_RETRIES);
+    fetchMock.mockResolvedValueOnce(jsonResponse({ status: "done", events: [ev("e2")], nextCursor: 2 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { ids, error } = await drainWithTimers(pollRun("creative_agent", "u1", "s1", { intervalMs: 0 }));
+
+    expect(error).toBeUndefined();
+    expect(ids).toEqual(["e1", "e2"]);
+  });
+
+  it("retries 429 and network errors (TypeError)", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi
+      .fn()
+      .mockRejectedValueOnce(new TypeError("Failed to fetch"))
+      .mockResolvedValueOnce(new Response("slow down", { status: 429 }))
+      .mockResolvedValueOnce(jsonResponse({ status: "done", events: [ev("e1")], nextCursor: 1 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { ids, error } = await drainWithTimers(pollRun("creative_agent", "u1", "s1", { intervalMs: 0 }));
+
+    expect(error).toBeUndefined();
+    expect(ids).toEqual(["e1"]);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it.each([404, 403])("throws immediately on %i (no retry)", async (status) => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn(async () => new Response("no", { status }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { error } = await drainWithTimers(pollRun("creative_agent", "u1", "s1", { intervalMs: 0 }));
+
+    expect(error).not.toBeInstanceOf(RunConnectionLostError);
+    expect((error as Error).message).toBe(`Failed to poll run (${status})`);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("stops quietly when aborted during a backoff wait", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn(async () => unavailable());
+    vi.stubGlobal("fetch", fetchMock);
+    const controller = new AbortController();
+    const gen = pollRun("creative_agent", "u1", "s1", { intervalMs: 0, signal: controller.signal });
+    const next = gen.next();
+    await vi.advanceTimersByTimeAsync(500); // inside the first 1 s backoff
+    controller.abort();
+    await expect(next).resolves.toEqual({ done: true, value: undefined });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("getRunStatus", () => {
   it("returns the full payload including state", async () => {
     const payload = {
@@ -327,13 +472,70 @@ describe("resumeRun", () => {
     expect((err as ResumeRejectedError).fieldErrors).toEqual({ angles: "too short" });
   });
 
-  it("still throws a generic error on other failures", async () => {
+  it("still throws a generic error on other 4xx failures", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () => new Response("boom", { status: 500 }))
+      vi.fn(async () => new Response("boom", { status: 422 }))
     );
     const err = await call().catch((e) => e);
     expect(err).not.toBeInstanceOf(ResumeNotAppliedError);
-    expect((err as Error).message).toMatch(/Failed to resume run \(500\)/);
+    expect(err).not.toBeInstanceOf(RunConnectionLostError);
+    expect((err as Error).message).toMatch(/Failed to resume run \(422\)/);
+  });
+
+  // A lost resume response (502 / network error) may still have been applied:
+  // the run's status decides, checked once.
+  function lostResume(first: Response | Error, status: unknown) {
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.endsWith("/resume")) {
+        if (first instanceof Error) throw first;
+        return first;
+      }
+      if (status instanceof Response) return status;
+      return jsonResponse(status);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    return fetchMock;
+  }
+
+  const answered = {
+    status: "done",
+    nextCursor: 2,
+    events: [
+      ev("e1"),
+      {
+        ...ev("e2"),
+        content: {
+          role: "user",
+          parts: [{ functionResponse: { id: "fc-1", name: "review_research", response: {} } }],
+        },
+      },
+    ],
+  };
+
+  it("resolves on a 502 when the status check shows the pause answered", async () => {
+    const fetchMock = lostResume(new Response("bad gateway", { status: 502 }), answered);
+    await expect(call()).resolves.toEqual({ runId: "s1", status: "running" });
+    expect(fetchMock.mock.calls[1][0]).toBe(`${API_BASE}/runs/interactive_creative/u1/s1?since=0`);
+  });
+
+  it("resolves on a network error when the status check shows the run running", async () => {
+    lostResume(new TypeError("Failed to fetch"), { status: "running", nextCursor: 1, events: [ev("e1")] });
+    await expect(call()).resolves.toEqual({ runId: "s1", status: "running" });
+  });
+
+  it("throws RunConnectionLostError on a 502 when the resume was not applied", async () => {
+    const fetchMock = lostResume(new Response("bad gateway", { status: 502 }), {
+      status: "done",
+      nextCursor: 1,
+      events: [ev("e1")],
+    });
+    await expect(call()).rejects.toBeInstanceOf(RunConnectionLostError);
+    expect(fetchMock).toHaveBeenCalledTimes(2); // checked once, never re-posted
+  });
+
+  it("throws RunConnectionLostError when the status check fails too", async () => {
+    lostResume(new Response("bad gateway", { status: 502 }), new Response("down", { status: 503 }));
+    await expect(call()).rejects.toBeInstanceOf(RunConnectionLostError);
   });
 });

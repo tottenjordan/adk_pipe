@@ -93,6 +93,27 @@ export function BriefSummary({
   );
 }
 
+/**
+ * The page lost its connection to the run (poll retries exhausted, or a resume
+ * whose response was lost). The run itself keeps going server-side, so the way
+ * back is a reload (which also re-authenticates through IAP), not a duplicate.
+ */
+export function ConnectionLostBanner({ onReload }: { onReload: () => void }) {
+  return (
+    <div
+      role="status"
+      className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-mark-pending/40 bg-mark-pending/10 px-5 py-4"
+    >
+      <p className="text-sm text-mark-pending">
+        Lost connection to the run. It is still running on the server — reload to reconnect.
+      </p>
+      <Button variant="outline" size="sm" onClick={onReload}>
+        Reload
+      </Button>
+    </div>
+  );
+}
+
 /** Plain description for the current-stage panel. */
 function describe(stage: Stage | null, status: RunStageStatus, stages: Stage[]): string {
   if (status === "completed") {
