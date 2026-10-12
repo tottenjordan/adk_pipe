@@ -565,6 +565,90 @@ class TestDeployAgentCreate:
             da.deploy_agent("creative_agent", "v9")
         update_env.assert_not_called()
 
+    def test_create_returns_resource_name_and_prints_nothing_by_default(
+        self, monkeypatch, capsys
+    ):
+        da, _, _, _, _ = self._setup(monkeypatch, "creative_agent", with_app=False)
+        assert da.deploy_agent("creative_agent", "v9") == self.RESOURCE
+        # Local behaviour stays as before: no machine-readable stdout line.
+        assert "ENGINE_ID" not in capsys.readouterr().out
+
+    def test_no_write_env_skips_env_update(self, monkeypatch):
+        da, _, _, _, update_env = self._setup(
+            monkeypatch, "creative_agent", with_app=False
+        )
+        da.deploy_agent("creative_agent", "v9", write_env=False)
+        update_env.assert_not_called()
+
+    def test_output_json_writes_record_and_prints_engine_id_line(
+        self, monkeypatch, tmp_path, capsys
+    ):
+        import json
+
+        da, _, _, _, _ = self._setup(monkeypatch, "trend_scout", with_app=True)
+        out = tmp_path / "ids" / "trend_scout.json"
+        da.deploy_agent(
+            "trend_scout",
+            "v9",
+            enable_tracing=True,
+            write_env=False,
+            output_json=str(out),
+        )
+        assert json.loads(out.read_text()) == {
+            "agent": "trend_scout",
+            "resource_name": self.RESOURCE,
+            "env_key": "SCOUT_AGENT_ENGINE_ID",
+            "version": "v9",
+            "display_name": "trend-scout-agent-v9",
+            "enable_tracing": True,
+        }
+        assert (
+            f"ENGINE_ID agent=trend_scout id={self.RESOURCE}"
+            in capsys.readouterr().out.splitlines()
+        )
+
+    def test_failed_create_writes_no_output_json(self, monkeypatch, tmp_path):
+        da, _, _, client, _ = self._setup(monkeypatch, "creative_agent", with_app=False)
+        client.runtimes.create.side_effect = RuntimeError("quota")
+        out = tmp_path / "creative_agent.json"
+        with pytest.raises(RuntimeError):
+            da.deploy_agent("creative_agent", "v9", output_json=str(out))
+        assert not out.exists()
+
+
+class TestDeployCliFlags:
+    def test_write_env_defaults_on_and_output_json_off(self):
+        da = _import_deploy_agent()
+        assert da.FLAGS["write_env"].default is True
+        assert da.FLAGS["output_json"].default is None
+
+    def test_main_passes_machine_mode_flags(self, monkeypatch):
+        da = _import_deploy_agent()
+        calls = {}
+        monkeypatch.setattr(da, "deploy_agent", lambda **kw: calls.update(kw))
+        da.FLAGS.unparse_flags()
+        da.FLAGS(
+            [
+                "deploy_agent.py",
+                "--agent=creative_agent",
+                "--version=v1",
+                "--create",
+                "--nowrite_env",
+                "--output_json=/tmp/x.json",
+            ]
+        )
+        try:
+            da.main([])
+        finally:
+            da.FLAGS.unparse_flags()
+        assert calls == {
+            "name": "creative_agent",
+            "version": "v1",
+            "enable_tracing": False,
+            "write_env": False,
+            "output_json": "/tmp/x.json",
+        }
+
 
 class TestIntegrationEventAndSessionHelpers:
     @pytest.mark.parametrize(
@@ -819,3 +903,28 @@ class TestSmokeCreativeOutputs:
         # finalize; trend_scout has no creative outputs.
         it = _import_integration_test()
         assert it.check_creative_outputs(agent, {}) is None
+
+
+class TestDeployAgentRuntimeDeps:
+    def test_import_does_not_pull_in_pandas(self):
+        # Cloud Build deploys from `uv sync --no-dev`; pandas is dev-only.
+        import subprocess
+
+        code = (
+            "import sys; import deployment.deploy_agent; "
+            "sys.exit(1 if 'pandas' in sys.modules else 0)"
+        )
+        r = subprocess.run(
+            [sys.executable, "-c", code],
+            cwd=PROJECT_ROOT,
+            capture_output=True,
+            text=True,
+            env={**os.environ, "GOOGLE_CLOUD_PROJECT": "test-project"},
+        )
+        assert r.returncode == 0, r.stderr or "deploy_agent imported pandas"
+
+    def test_default_version_is_utc_minute_stamp(self):
+        import re
+
+        da = _import_deploy_agent()
+        assert re.fullmatch(r"\d{4}_\d{2}_\d{2}_\d{2}_\d{2}", da.default_version())

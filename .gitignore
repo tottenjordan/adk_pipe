@@ -2,6 +2,8 @@
 .python-version
 output/*
 *.env
+# The committed, non-secret Agent Engine deploy profile (deployment/cloudbuild.agents.yaml).
+!deployment/deploy.env
 *.pyc
 **/__pycache__/
 __pycache__/
