@@ -489,7 +489,7 @@ class CreativeBrief(BaseModel):
         description="Must-include elements (selling points, product name, legal or brand requirements)."
     )
     avoid: list[str] = Field(
-        description="Things to keep out of the work (user avoid list, trend risks, brand don'ts)."
+        description="Short terms to keep out of the work: the user's avoid list and the trend risks (brand don'ts go in brand.do_not)."
     )
     desired_response: str = Field(
         description="What the audience should think, feel and do after seeing the ad."

@@ -30,7 +30,7 @@ _CA_LITE, _CA_WORKER, _CA_LOC = config.campaign_models()
 # --- SCHEMA DEFINITIONS ---
 # SearchQuery is the shared single-query model from creative_agent.schemas.
 class CampaignQueryList(BaseModel):
-    """Model for providing evaluation feedback on research quality."""
+    """The initial web search queries for researching the campaign."""
 
     queries: list[SearchQuery] | None = Field(
         default=None,

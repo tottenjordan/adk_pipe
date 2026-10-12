@@ -24,7 +24,7 @@ logging.basicConfig(
 # --- SCHEMA DEFINITIONS ---
 # SearchQuery is the shared single-query model from creative_agent.schemas.
 class TrendQueryList(BaseModel):
-    """Model for providing evaluation feedback on research quality."""
+    """The initial web search queries for researching the trending topic."""
 
     queries: list[SearchQuery] | None = Field(
         default=None,

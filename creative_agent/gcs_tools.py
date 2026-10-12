@@ -126,6 +126,7 @@ async def save_draft_report_artifact(tool_context: ToolContext) -> dict:
     processed_report = insert_brief_into_report(
         tool_context.state["final_report_with_citations"],
         tool_context.state.get("creative_brief"),
+        current_moment=tool_context.state.get("trend_situation_md") or "",
     )
     gcs_bucket = config.GCS_BUCKET_NAME
     gcs_folder = tool_context.state["gcs_folder"]
