@@ -23,10 +23,10 @@ from creative_agent import (
     ad_copy_reviser,
     ad_creative_pipeline,
     callbacks,
+    cap_and_residual_copies,
     combined_research_pipeline,
     finalize_pipeline,
     parse_ad_copies,
-    residual_copy_issues,
     tools,
     visual_generation_pipeline,
     visual_generator_resilient,
@@ -84,9 +84,9 @@ visual_concept_reviser = Agent(
     # deterministic concept checks are re-run on the guarded concepts so
     # final_visual_concepts__issues reflects them, not the pre-checkpoint
     # concept_gate verdict (record only, no fix loop). (Neither is reached on
-    # the skip path: a before_agent reply ends the reviser's invocation; the
-    # echoed concepts were already guarded, and a direct-edit resume cleared
-    # the stale marker in runserver.async_runs._apply_visual_concept_edits.)
+    # the skip path — a before_agent reply ends the reviser's invocation — so
+    # skip_reviser_without_notes runs both itself before echoing, guarding
+    # direct edits made without notes.)
     after_agent_callback=[
         callbacks.ensure_trend_and_product_callback,
         callbacks.recheck_concept_issues_callback,
@@ -134,16 +134,15 @@ def ad_copy_revision_skipped(ctx: Context) -> str:
 def ad_copies_revised(ctx: Context) -> Event:
     """Terminal of the revision route (the root's tool result).
 
-    Re-records the copy gate's deterministic residual on the (revised or kept)
-    copies as ``ad_copy_critique__issues`` (warning-only: no revision loop),
+    Applies the copy gate's timely cap to the (revised or kept) copies (the
+    user revision may mark more copies timely than MAX_TIMELY_CONCEPTS; the
+    capped copies are written back), then re-records the deterministic
+    residual as ``ad_copy_critique__issues`` (warning-only: no revision loop),
     and sets ``ad_copy_user_revised`` (False when the reviser failed), which
     drives the frontend's second-review label."""
     state = ctx.state.to_dict()
     failed = bool(state.get(USER_REVISION_FAILED_KEY))
-    delta = {
-        "ad_copy_critique__issues": residual_copy_issues(state),
-        USER_REVISED_KEY: not failed,
-    }
+    delta = {**cap_and_residual_copies(state), USER_REVISED_KEY: not failed}
     if failed:
         message = (
             "Ad copy revision failed; the original copies are kept in "

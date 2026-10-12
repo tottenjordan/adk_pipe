@@ -27,6 +27,8 @@ interface StageDef {
   label: string;
   /** State key whose population marks the stage done. */
   key?: string;
+  /** Older sessions' key that also marks it done (before `key` existed). */
+  fallbackKey?: string;
   /** Review checkpoint tool name (`LongRunningFunctionTool`). */
   review?: string;
 }
@@ -47,7 +49,15 @@ const VISUALS: StageDef = {
 };
 const CREATIVE_TAIL: StageDef[] = [
   { id: "images", label: "Images", key: "_images_generated" },
-  { id: "eval_save", label: "Evaluation & save", key: "eval_report_gcs_uri" },
+  // Done at the creative apps' completion key (set by finalize_pipeline on every
+  // path, even when the eval report save failed), like run-completion.ts;
+  // sessions that predate finalize_done fall back to the eval report URI.
+  {
+    id: "eval_save",
+    label: "Evaluation & save",
+    key: "finalize_done",
+    fallbackKey: "eval_report_gcs_uri",
+  },
 ];
 
 const CREATIVE_STAGES: StageDef[] = [...CREATIVE_HEAD, AD_COPY, VISUALS, ...CREATIVE_TAIL];
@@ -182,6 +192,7 @@ export function deriveStages(
   const ownDone = defs.map(
     (d) =>
       (d.key !== undefined && isPopulated(state[d.key])) ||
+      (d.fallbackKey !== undefined && isPopulated(state[d.fallbackKey])) ||
       (d.review !== undefined && answeredReviews.has(d.review) && pause?.functionName !== d.review) ||
       (d.id === "run" && status === "completed")
   );

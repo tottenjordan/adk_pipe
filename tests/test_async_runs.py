@@ -1126,7 +1126,8 @@ def test_resume_with_edits_appends_state_delta_before_relaunch():
     )
     assert "Concept 1 (c1): more neon" in state["visual_revision_notes"]
     # The pre-checkpoint gate verdict is stale once the user edits: cleared
-    # (the reviser's recheck re-evaluates when it runs).
+    # (the reviser re-checks when it runs, notes or not; see
+    # test_checkpoint_3_direct_edit_without_notes_is_guarded).
     assert state["final_visual_concepts__issues"] is None
 
 

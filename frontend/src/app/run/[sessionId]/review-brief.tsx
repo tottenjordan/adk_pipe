@@ -441,7 +441,7 @@ export function ReviewBrief({
           onClick={() =>
             resume(
               "revision_requested",
-              "User requested changes to the creative brief. Address their feedback, then continue the WORKFLOW."
+              "User requested changes to the brief/research; their edits are applied and the feedback is carried forward. Continue the WORKFLOW (generate ad copies)."
             )
           }
           disabled={!valid || (!feedback && edits.length === 0)}

@@ -46,7 +46,7 @@ export const AGENTS: readonly AgentInfo[] = [
     description:
       "Same as a creative run, but pauses for your review of the creative brief, the ad copy and the visual concepts",
     duration: "~10 min + review time",
-    pauses: "3 review pauses",
+    pauses: "Up to 4 review pauses",
     submitLabel: "Generate creatives",
     canPause: true,
   },

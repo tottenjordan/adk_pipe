@@ -483,7 +483,49 @@ class TestSkipReviserWithoutNotes:
             if notes is not None:
                 state["visual_revision_notes"] = notes
             content = skip_reviser_without_notes(self._ctx(state))
-            assert self._reply_as_concepts(content) == self._CONCEPTS
+            # The echo is the (guarded) state value, re-saved verbatim.
+            assert self._reply_as_concepts(content) == state["final_visual_concepts"]
+            assert [
+                c["concept_name"]
+                for c in state["final_visual_concepts"]["visual_concepts"]
+            ] == ["Edited"]
+
+    def test_skip_path_guards_direct_edits_and_rechecks_issues(self):
+        """A direct-edit resume without notes skips the model, so the reviser's
+        after_agent guards never run: the skip itself must guard the edited
+        prompt (trend motif, product, brand cue) and re-record the concept
+        checks, not leave the cleared issues marker empty."""
+        import copy
+
+        from interactive_creative.callbacks import skip_reviser_without_notes
+
+        concepts = copy.deepcopy(self._CONCEPTS)
+        concept = concepts["visual_concepts"][0]
+        concept["trend_motif"] = ""
+        state = {
+            "final_visual_concepts": concepts,
+            "final_visual_concepts__issues": None,
+            "target_product": "Roadrunner Skates",
+        }
+        content = skip_reviser_without_notes(self._ctx(state))
+        guarded = state["final_visual_concepts"]["visual_concepts"][0]
+        prompt = guarded["image_generation_prompt"]
+        assert prompt.startswith("A diecut sticker of a user-edited prompt")
+        assert "Roadrunner Skates" in prompt
+        assert "the brand's red logo" in prompt
+        assert self._reply_as_concepts(content) == state["final_visual_concepts"]
+        issues = state["final_visual_concepts__issues"]
+        assert issues and any("trend_motif" in i or "motif" in i for i in issues)
+
+    def test_skip_path_clears_stale_issues_when_clean(self):
+        from interactive_creative.callbacks import skip_reviser_without_notes
+
+        state = {
+            "final_visual_concepts": self._CONCEPTS,
+            "final_visual_concepts__issues": ["Concept 1: stale"],
+        }
+        skip_reviser_without_notes(self._ctx(state))
+        assert state["final_visual_concepts__issues"] is None
 
     def test_skips_with_empty_list_when_concepts_missing(self):
         from interactive_creative.callbacks import skip_reviser_without_notes

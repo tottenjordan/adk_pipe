@@ -986,6 +986,8 @@ def merge_research_edit(state: dict | None, edits: list | None) -> dict:
             "final_report_with_citations": render_citations(
                 value, state.get("sources") or {}
             ),
+            # Audit marker only (nothing reads it; the root re-saves the PDF
+            # from the resume response's report_edited).
             "research_report_edited": True,
         }
     return {}
@@ -1103,6 +1105,8 @@ def merge_brief_edit(state: dict | None, edits: list | None) -> dict:
             heading=False,
             current_moment=str(state.get("trend_situation_md") or ""),
         ),
+        # Audit marker only (nothing reads it; the root re-saves the PDF from
+        # the resume response's brief_edited).
         "creative_brief_edited": True,
         "creative_brief__issues": None,
     }
@@ -1138,7 +1142,8 @@ async def _apply_visual_concept_edits(
         session.state.get("final_visual_concepts"), edits
     )
     # The pre-checkpoint concept_gate verdict is stale once the user edits:
-    # clear it (interactive's visual_concept_reviser re-checks when it runs).
+    # clear it (interactive's visual_concept_reviser re-guards and re-checks,
+    # on its no-notes skip path too).
     delta: dict = {
         "final_visual_concepts": merged,
         "final_visual_concepts__issues": None,

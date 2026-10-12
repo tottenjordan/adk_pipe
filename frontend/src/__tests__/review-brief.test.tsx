@@ -190,6 +190,25 @@ describe("checkpoint 1: unchanged briefs, rejected resumes", () => {
   });
 });
 
+describe("checkpoint 1: request changes", () => {
+  const INSTRUCTION =
+    "User requested changes to the brief/research; their edits are applied and the feedback is carried forward. Continue the WORKFLOW (generate ad copies).";
+
+  it.each([
+    ["brief", {}],
+    ["report fallback", { creative_brief: undefined }],
+  ])("tells the root to move on to ad copies, not redo research (%s)", (_label, state) => {
+    const onResume = renderCheckpoint1(state);
+    fireEvent.change(screen.getByLabelText(/feedback/i), { target: { value: "funnier" } });
+    fireEvent.click(screen.getByRole("button", { name: "Request changes" }));
+    expect(lastResponse(onResume)).toMatchObject({
+      status: "revision_requested",
+      feedback: "funnier",
+      instruction: INSTRUCTION,
+    });
+  });
+});
+
 describe("checkpoint 2: ad copy review", () => {
   const copies = { ad_copies: [{ headline: "Beep beep, but funnier", body_text: "b" }] };
 

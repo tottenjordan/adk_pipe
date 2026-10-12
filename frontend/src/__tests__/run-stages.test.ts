@@ -129,6 +129,19 @@ describe("deriveStages — creative_agent", () => {
     expect(stages.find((s) => s.id === "eval_save")?.state).toBe("done");
   });
 
+  it("marks Evaluation & save done at finalize_done, even when the eval report save failed", () => {
+    const state = { ...CREATIVE_DONE, eval_report_gcs_uri: undefined, finalize_done: true };
+    for (const app of ["creative_agent", "interactive_creative"]) {
+      const stages = deriveStages(app, state, null, "running", new Set(["review_research", "review_ad_copies", "review_visual_concepts"]));
+      expect(stages.find((s) => s.id === "eval_save")?.state).toBe("done");
+    }
+  });
+
+  it("keeps Evaluation & save done for older sessions with only eval_report_gcs_uri", () => {
+    const stages = deriveStages("creative_agent", CREATIVE_DONE, null, "running");
+    expect(stages.find((s) => s.id === "eval_save")?.state).toBe("done");
+  });
+
   it("does not make the stage after a degraded one look done", () => {
     const state = {
       ...CREATIVE_DONE,
