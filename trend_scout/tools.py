@@ -15,7 +15,7 @@ from agent_common.idempotency import stable_row_id
 from agent_common.state import memorize  # noqa: F401  (ADK tool; re-exported)
 
 from .config import config
-from .trend_context import trend_context_for
+from .trend_context import _norm_term, sensitive_flags, trend_context_for
 
 # --- config ---
 logging.basicConfig(
@@ -188,8 +188,26 @@ def save_search_trends_to_session_state(
         tool_context: The tool context.
 
     Returns:
-        A status message.
+        A status message. An automatically picked term that the classifier
+        flagged sensitive (state 'trend_flags') is refused and not saved; a
+        human pick (interactive_trend_pick) is always saved.
     """
+    if tool_context.state.get("interactive_trend_pick") is not True:
+        flagged = sensitive_flags(tool_context.state.get("trend_flags"))
+        term_key = _norm_term(trend_term)
+        if term_key in flagged:
+            reason = flagged[term_key]
+            logging.warning(
+                "Refused to auto-pick sensitive trend %r (%s)", trend_term, reason
+            )
+            return {
+                "status": "refused",
+                "message": (
+                    f"'{trend_term}' is flagged sensitive"
+                    + (f" ({reason})" if reason else "")
+                    + "; it was not saved. Do not select it."
+                ),
+            }
     existing_target_search_trends = tool_context.state.get(
         "target_search_trends", {"target_search_trends": []}
     )

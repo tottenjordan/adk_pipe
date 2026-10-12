@@ -58,6 +58,39 @@ def _info_item(term_key: str, info_gtrends: Any) -> dict[str, Any]:
     return {}
 
 
+def _is_true(value: Any) -> bool:
+    return value is True or (
+        isinstance(value, str) and value.strip().casefold() == "true"
+    )
+
+
+def sensitive_flags(trend_flags: Any) -> dict[str, str]:
+    """``{normalized term: reason}`` for the terms flagged sensitive, or {}.
+
+    Reads state ``trend_flags`` (the classifier's ``{"flags": [{term, sensitive,
+    reason}]}``) as a dict, a JSON string or fenced JSON. Best-effort: malformed
+    input gives {} (nothing flagged), never an exception.
+    """
+    data = trend_flags
+    if isinstance(data, str):
+        try:
+            data = json.loads(_FENCE.sub("", data))
+        except ValueError:
+            return {}
+    if isinstance(data, dict):
+        data = data.get("flags")
+    if not isinstance(data, list):
+        return {}
+    flagged: dict[str, str] = {}
+    for item in data:
+        if not isinstance(item, dict) or not _is_true(item.get("sensitive")):
+            continue
+        key = _norm_term(item.get("term"))
+        if key and key not in flagged:
+            flagged[key] = _clean(item.get("reason"))
+    return flagged
+
+
 def _selected_section(term_key: str, selected_gtrends: Any) -> dict[str, str]:
     """Hook + Context from the term's `### term` section of the picker Markdown."""
     if not isinstance(selected_gtrends, str):
