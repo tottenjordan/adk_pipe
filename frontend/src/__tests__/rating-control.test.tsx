@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Rating } from "@/lib/ratings";
 import type { Proof, VisualConcept, AdCopy } from "@/lib/eval-matching";
@@ -11,7 +11,7 @@ vi.mock("@/lib/api", () => ({
   getRatings: (...a: unknown[]) => getRatings(...a),
 }));
 
-import { CreativeRatings, RatingControl } from "@/app/results/[sessionId]/rating-control";
+import { CreativeRatings, RatingControl, useSessionRatings } from "@/app/results/[sessionId]/rating-control";
 import { ProofGrid } from "@/app/results/[sessionId]/proof-grid";
 
 const KEY = "visual:The Jackpot Reveal";
@@ -112,10 +112,11 @@ describe("RatingControl", () => {
 });
 
 describe("CreativeRatings", () => {
-  const proof = (adCopy?: Partial<AdCopy>): Proof => ({
+  const proof = (adCopy?: Partial<AdCopy>, adCopyMatch: Proof["adCopyMatch"] = adCopy ? "id" : null): Proof => ({
     index: 0,
     concept: { concept_name: "The Jackpot Reveal", headline: "H", ad_copy_id: 3 } as VisualConcept,
     adCopy: adCopy as AdCopy | undefined,
+    adCopyMatch,
   });
 
   it("renders a control per kind, seeded from the saved ratings", () => {
@@ -140,6 +141,73 @@ describe("CreativeRatings", () => {
     );
     await waitFor(() => expect(screen.queryByRole("button", { name: "Save ad copy rating" })).toBeNull());
     expect(screen.getByRole("button", { name: "Save visual rating" })).toBeInTheDocument();
+    expect(screen.queryByText(/Can't rate this copy/)).toBeNull();
+  });
+
+  it("disables the ad copy rating with a reason when the copy was only paired by position", () => {
+    render(
+      <CreativeRatings
+        proof={proof({ original_id: 3 }, "index")}
+        appName="creative_agent"
+        sessionId="s1"
+        byKey={{ "copy:3": { creative_key: "copy:3", kind: "ad_copy", verdict: "pass", score: 5, note: null } }}
+        onChange={vi.fn()}
+      />
+    );
+    const copy = screen.getByTestId("rating-ad_copy");
+    expect(copy).toHaveTextContent("Ad copy");
+    expect(copy).toHaveTextContent(
+      "Can't rate this copy: it couldn't be matched to this concept reliably."
+    );
+    expect(screen.queryByRole("button", { name: "Save ad copy rating" })).toBeNull();
+    // another copy's saved rating is not shown against this concept
+    expect(screen.queryByText(/5\/5/)).toBeNull();
+    // the visual rating still works
+    fireEvent.click(screen.getByRole("button", { name: "Pass" }));
+    expect(screen.getByRole("button", { name: "Save visual rating" })).toBeEnabled();
+  });
+});
+
+describe("useSessionRatings", () => {
+  const r = (key: string, verdict: "pass" | "fail", updated_at = "2026-10-07T10:00:00+00:00"): Rating => ({
+    creative_key: key,
+    kind: key.startsWith("copy:") ? "ad_copy" : "visual",
+    verdict,
+    score: null,
+    note: null,
+    updated_at,
+  });
+
+  it("keeps a rating saved before the initial load returns", async () => {
+    let resolve!: (list: Rating[]) => void;
+    getRatings.mockReturnValue(new Promise<Rating[]>((res) => (resolve = res)));
+    const { result } = renderHook(() => useSessionRatings("s1", true));
+    act(() => result.current.setRating(KEY, r(KEY, "fail", "2026-10-12T00:00:00+00:00")));
+    await act(async () => {
+      resolve([r(KEY, "pass"), r("copy:3", "pass")]);
+    });
+    expect(result.current.byKey[KEY].verdict).toBe("fail");
+    expect(result.current.byKey["copy:3"].verdict).toBe("pass");
+  });
+
+  it("removes the key when a save is reverted to no rating", async () => {
+    getRatings.mockResolvedValue([]);
+    const { result } = renderHook(() => useSessionRatings("s1", true));
+    await waitFor(() => expect(getRatings).toHaveBeenCalled());
+    act(() => result.current.setRating(KEY, r(KEY, "pass")));
+    expect(result.current.byKey[KEY]).toBeDefined();
+    act(() => result.current.setRating(KEY, undefined));
+    expect(KEY in result.current.byKey).toBe(false);
+  });
+
+  it("starts empty for another session instead of carrying the last one's ratings", async () => {
+    getRatings.mockResolvedValueOnce([r(KEY, "pass")]).mockReturnValueOnce(new Promise(() => {}));
+    const { result, rerender } = renderHook(({ id }) => useSessionRatings(id, true), {
+      initialProps: { id: "s1" },
+    });
+    await waitFor(() => expect(result.current.byKey[KEY]).toBeDefined());
+    rerender({ id: "s2" });
+    expect(result.current.byKey).toEqual({});
   });
 });
 
@@ -147,6 +215,7 @@ describe("ProofGrid rated mark", () => {
   const proofs: Proof[] = [0, 1].map((index) => ({
     index,
     concept: { concept_name: `C${index}`, headline: `H${index}`, ad_copy_id: index } as VisualConcept,
+    adCopyMatch: null,
   }));
 
   it("marks only rated proofs, in muted text and in the accessible name", () => {

@@ -4,8 +4,9 @@ import {
   buildProofs,
   conceptNameToFilename,
   DEFAULT_PASS_THRESHOLD,
-  findAdCopyEvalForVisual,
+  findAdCopyEval,
   findAdCopyForVisual,
+  matchAdCopy,
   findVisualEval,
   passThreshold,
   proofScore,
@@ -119,26 +120,45 @@ describe("findVisualEval", () => {
   })
 })
 
-describe("findAdCopyEvalForVisual", () => {
+describe("matchAdCopy", () => {
+  const copies = [adCopy(1, "One"), adCopy(2, "Two")]
+
+  it("reports an id match first, even if the headline points elsewhere", () => {
+    expect(matchAdCopy(copies, concept(2, "One"), 0)).toEqual({ item: copies[1], via: "id" })
+  })
+
+  it("reports a headline match when the id doesn't match", () => {
+    expect(matchAdCopy(copies, concept(9, "Two"), 0)).toEqual({ item: copies[1], via: "headline" })
+  })
+
+  it("reports an index match when neither id nor headline match", () => {
+    expect(matchAdCopy(copies, concept(9, "?"), 0)).toEqual({ item: copies[0], via: "index" })
+  })
+
+  it("returns null past the end or with no copies", () => {
+    expect(matchAdCopy(copies, concept(9, "?"), 2)).toBeNull()
+    expect(matchAdCopy([], concept(1, "One"), 0)).toBeNull()
+  })
+})
+
+describe("findAdCopyEval", () => {
   const evals = [acEval(10, "First"), acEval(20, "Second"), acEval(30, "Third")]
   const r = report(evals)
 
-  it("matches by ad_copy_id first, even if the headline points elsewhere", () => {
-    expect(findAdCopyEvalForVisual(r, concept(20, "First"), 0)).toBe(evals[1])
+  it("matches the copy's eval by id, never by a differing headline", () => {
+    expect(findAdCopyEval(r, { original_id: 20, headline: "First" })).toBe(evals[1])
+    expect(findAdCopyEval(r, { original_id: 99, headline: "Third" })).toBeUndefined()
   })
 
-  it("falls back to headline when the id doesn't match", () => {
-    expect(findAdCopyEvalForVisual(r, concept(99, "Third"), 0)).toBe(evals[2])
+  it("falls back to the headline only when the eval has no id", () => {
+    const idless = { ...acEval(0, "Second"), original_id: undefined as unknown as number }
+    expect(findAdCopyEval(report([idless]), { original_id: 20, headline: "Second" })).toBe(idless)
+    expect(findAdCopyEval(report([idless]), { original_id: 20, headline: "Other" })).toBeUndefined()
   })
 
-  it("falls back to index position when neither id nor headline match", () => {
-    expect(findAdCopyEvalForVisual(r, concept(99, "Nope"), 1)).toBe(evals[1])
-  })
-
-  it("returns undefined past the end, with no evals, or with no report", () => {
-    expect(findAdCopyEvalForVisual(r, concept(99, "Nope"), 3)).toBeUndefined()
-    expect(findAdCopyEvalForVisual(report([]), concept(1, "x"), 0)).toBeUndefined()
-    expect(findAdCopyEvalForVisual(null, concept(10, "First"), 0)).toBeUndefined()
+  it("returns undefined with no evals or no report", () => {
+    expect(findAdCopyEval(report([]), { original_id: 10, headline: "First" })).toBeUndefined()
+    expect(findAdCopyEval(null, { original_id: 10, headline: "First" })).toBeUndefined()
   })
 })
 
@@ -163,6 +183,7 @@ describe("buildProofs", () => {
     const proofs = buildProofs(concepts, [adCopy(1, "One"), adCopy(2, "Two")], r)
     expect(proofs.map((p) => p.index)).toEqual([0, 1])
     expect(proofs[0].adCopy?.original_id).toBe(1)
+    expect(proofs[0].adCopyMatch).toBe("id")
     expect(proofs[0].adCopyEval?.original_id).toBe(1)
     expect(proofs[0].visualEval).toBeUndefined()
     expect(proofs[1].visualEval?.concept_name).toBe("Beta")
@@ -173,6 +194,45 @@ describe("buildProofs", () => {
     expect(p.adCopyEval).toBeUndefined()
     expect(p.visualEval).toBeUndefined()
     expect(p.adCopy).toBeUndefined()
+    expect(p.adCopyMatch).toBeNull()
+  })
+
+  it("still shows an index-matched copy, flagged, with that copy's own eval", () => {
+    // Neither id 99 nor "Nope" matches: the copy falls back to position 0 (id 2).
+    // A positional eval lookup would borrow evals[0] (id 1), another copy's verdict.
+    const copies = [adCopy(2, "Two"), adCopy(1, "One")]
+    const r = report([acEval(1, "One", 0.9), acEval(2, "Two", 0.3)])
+    const [p] = buildProofs([concept(99, "Nope")], copies, r)
+    expect(p.adCopy).toBe(copies[0])
+    expect(p.adCopyMatch).toBe("index")
+    expect(p.adCopyEval?.original_id).toBe(2)
+    expect(p.adCopyEval?.score.overall_score).toBe(0.3)
+  })
+
+  it("shows no copy eval when the found copy has none (no positional borrowing)", () => {
+    const [p] = buildProofs(
+      [concept(99, "Nope")],
+      [adCopy(5, "Five")],
+      report([acEval(1, "One"), acEval(2, "Two")])
+    )
+    expect(p.adCopy?.original_id).toBe(5)
+    expect(p.adCopyEval).toBeUndefined()
+  })
+
+  it("pairs the eval from a headline-matched copy by that copy's id", () => {
+    const [p] = buildProofs(
+      [concept(99, "Two")],
+      [adCopy(1, "One"), adCopy(2, "Two")],
+      report([acEval(1, "One"), acEval(2, "Two")])
+    )
+    expect(p.adCopyMatch).toBe("headline")
+    expect(p.adCopyEval?.original_id).toBe(2)
+  })
+
+  it("without session copies, matches the eval by the concept's id or headline, never by index", () => {
+    const r = report([acEval(1, "One"), acEval(2, "Two")])
+    expect(buildProofs([concept(2, "x")], [], r)[0].adCopyEval?.original_id).toBe(2)
+    expect(buildProofs([concept(99, "Nope")], [], r)[0].adCopyEval).toBeUndefined()
   })
 })
 
@@ -180,6 +240,7 @@ describe("proofScore + sortProofs", () => {
   const mk = (index: number, ac?: number, vis?: number): Proof => ({
     index,
     concept: concept(index, `h${index}`),
+    adCopyMatch: null,
     adCopyEval: ac === undefined ? undefined : acEval(index, `h${index}`, ac),
     visualEval:
       vis === undefined

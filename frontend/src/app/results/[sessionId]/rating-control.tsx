@@ -13,6 +13,7 @@ import { FAIL_REASON_LABELS, failReasonsFor, type FailReason } from "@/lib/ratin
 import {
   NOTE_MAX_CHARS,
   buildRatingPayload,
+  canRateAdCopy,
   creativeKeysFor,
   draftFrom,
   isDirty,
@@ -41,13 +42,22 @@ export type SetRating = (creativeKey: string, rating: Rating | undefined) => voi
  */
 export function useSessionRatings(sessionId: string, enabled: boolean) {
   const [byKey, setByKey] = useState<Record<string, Rating>>({});
+  // Another session starts empty, so the load merge below only ever sees this
+  // session's local writes.
+  const [forSession, setForSession] = useState(sessionId);
+  if (forSession !== sessionId) {
+    setForSession(sessionId);
+    setByKey({});
+  }
 
   useEffect(() => {
     if (!enabled) return;
     let cancelled = false;
     getRatings(sessionId)
       .then((list) => {
-        if (!cancelled) setByKey(ratingsByKey(list));
+        // Merge, local writes winning: a rating saved (or its optimistic entry)
+        // before this load returned is newer than the list.
+        if (!cancelled) setByKey((prev) => ({ ...ratingsByKey(list), ...prev }));
       })
       .catch(() => {
         /* fail soft: rating still works, only the existing ones aren't shown */
@@ -262,7 +272,8 @@ export function RatingControl({
 
 /**
  * The "Your rating" section of the proof-detail dialog: one control for the
- * paired ad copy (when there is one) and one for the visual. Keyed per creative
+ * paired ad copy (when there is one) and one for the visual. A copy paired only
+ * by position can't be rated (a short reason is shown instead). Keyed per creative
  * only, so each control keeps its draft while the ratings list loads or saves.
  */
 export function CreativeRatings({
@@ -298,6 +309,14 @@ export function CreativeRatings({
           saved={byKey[keys.adCopy]}
           onChange={onChange}
         />
+      )}
+      {proof.adCopy && !canRateAdCopy(proof) && (
+        <div className="space-y-1" data-testid="rating-ad_copy">
+          <FieldLabel as="h4">Ad copy</FieldLabel>
+          <p className="text-xs text-muted-foreground">
+            Can&apos;t rate this copy: it couldn&apos;t be matched to this concept reliably.
+          </p>
+        </div>
       )}
       <RatingControl
         key={keys.visual}
