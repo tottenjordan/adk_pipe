@@ -30,6 +30,7 @@ export const SAMPLE_CREATIVE_BRIEF = {
     bridge: "The jackpot daydream maps onto the dream rig every player keeps.",
     motifs: ["lottery ball draw", "golden ticket"],
     risks: ["gambling glamorisation"],
+    timely_angle: "",
   },
   mandatories: ["SE CE24", "85/15 S pickups"],
   avoid: ["real lottery winners' likenesses"],

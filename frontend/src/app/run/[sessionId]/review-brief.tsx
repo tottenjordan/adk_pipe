@@ -240,6 +240,12 @@ export function BriefEditForm({
           </div>
           <TextField id={id("bridge")} label="Trend bridge" value={tb.bridge} onChange={(v) => setBridge({ bridge: v })} error={errors["trend_bridge.bridge"]} />
         </div>
+        {tb.timelyAngle && (
+          <div>
+            <FieldLabel>Timely angle (set by the current moment)</FieldLabel>
+            <p className="mt-1 text-sm">{tb.timelyAngle}</p>
+          </div>
+        )}
         <TextField
           id={id("tone")}
           label="Brand tone of voice"
