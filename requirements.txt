@@ -89,7 +89,7 @@ google-auth==2.61.0
     #   google-cloud-run
     #   google-cloud-storage
     #   google-genai
-google-cloud-aiplatform==2.2.0
+google-cloud-aiplatform==2.4.0
     # via adk-pipe
 google-cloud-appengine-logging==1.10.0
     # via google-cloud-logging
