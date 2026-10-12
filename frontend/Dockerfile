@@ -1,13 +1,16 @@
-# ---- deps ----
-FROM node:22-slim AS deps
-WORKDIR /app
-COPY package.json package-lock.json ./
-RUN npm ci
+# syntax=docker/dockerfile:1
+# BuildKit syntax (cache mounts). Built by the repo-root `cloudbuild.yaml` (buildx +
+# registry layer cache); `gcloud run deploy --source ./frontend` still works.
 
 # ---- builder ----
+# npm ci and next build share one stage, so node_modules is never copied between
+# stages (that COPY alone took ~39 s). The `npm ci` layer only changes with
+# package.json / package-lock.json, so the registry cache reuses it on source-only
+# changes. `npm run build` keeps Next's TypeScript check.
 FROM node:22-slim AS builder
 WORKDIR /app
-COPY --from=deps /app/node_modules ./node_modules
+COPY package.json package-lock.json ./
+RUN --mount=type=cache,target=/root/.npm npm ci
 COPY . .
 RUN npm run build
 
