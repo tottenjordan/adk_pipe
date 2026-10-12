@@ -54,6 +54,13 @@ def _script(step):
 
 # --- cloudbuild.agents.yaml -------------------------------------------------
 class TestBuildConfig:
+    def test_default_machine(self, build):
+        """No ``machineType``: the default machine starts in ~1 s, E2_HIGHCPU_8 queued
+        ~50 s for a worker on every engine deploy (measured 2026-10-12). The local work
+        (``uv sync``, staging + cloudpickle + a small tarball) is light; the deploy
+        steps mostly wait on Vertex Agent Engine, so extra CPUs buy nothing."""
+        assert "machineType" not in build.get("options", {})
+
     def test_step_ids_unique(self, build):
         ids = [s["id"] for s in build["steps"]]
         assert len(ids) == len(set(ids))
