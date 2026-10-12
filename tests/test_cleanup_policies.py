@@ -9,8 +9,10 @@ shares depend on.
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import re
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -160,3 +162,89 @@ def test_run_sources_rule_covers_only_trend_trawler_services():
     assert prefixes == {
         f"services/{p}/" for p in TT_PACKAGES - {"trend-trawler-bandit"}
     }
+
+
+# --- the read-only preview helpers behind apply.sh ---------------------------------
+
+NOW = datetime(2026, 10, 12, tzinfo=UTC)
+
+
+def _retention():
+    spec = importlib.util.spec_from_file_location(
+        "tt_retention", CLEANUP_DIR / "retention.py"
+    )
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _version(digest: str, days_old: int) -> dict:
+    created = (NOW - timedelta(days=days_old)).strftime("%Y-%m-%dT%H:%M:%S.123456789Z")
+    return {"version": digest, "tags": [], "createTime": created}
+
+
+def test_ar_candidates_keep_newest_and_tagged():
+    r = _retention()
+    policy = _load("ar-cpr.json")
+    versions = [_version(f"sha256:{i:02d}", days_old=i) for i in range(20)]
+    versions[19]["tags"] = ["buildcache"]
+    candidates, kept = r.ar_candidates(policy, "trend-trawler-bandit", versions, NOW)
+    # Newest 5 kept, untagged > 14 days deleted (day 14 is a hair younger: the
+    # fractional createTime), the tagged one never.
+    assert {v["version"] for v in candidates} == {
+        f"sha256:{i:02d}" for i in range(15, 19)
+    }
+    assert kept == 16
+    # Packages outside the prefixes are untouched.
+    assert r.ar_candidates(policy, "cpr-predict-proba", versions, NOW)[0] == []
+
+
+def test_matching_packages_only_trend_trawler():
+    r = _retention()
+    pkgs = ["omnimash", "trend-trawler-api", "creative-worker-crf", "nova-web"]
+    assert r.matching_packages(_load("ar-cloud-run-source-deploy.json"), pkgs) == [
+        "trend-trawler-api",
+        "creative-worker-crf",
+    ]
+
+
+def test_gcs_older_than_parses_ls_long():
+    r = _retention()
+    text = (
+        "  100  2026-01-01T00:00:00Z  gs://b/services/trend-trawler-api/a.zip\n"
+        "  200  2026-10-11T00:00:00Z  gs://b/services/trend-trawler-api/b.zip\n"
+        "TOTAL: 2 objects, 300 bytes (300B)\n"
+    )
+    assert r.gcs_older_than(text, 30, NOW) == (1, 100, 2)
+
+
+def test_policy_comparison_handles_api_shape():
+    r = _retention()
+    wanted = r.normalise_ar(_load("ar-cpr.json"))
+    described = {
+        "tt-delete-untagged-older-than-14d": {
+            "id": "tt-delete-untagged-older-than-14d",
+            "action": "DELETE",
+            "condition": {
+                "tagState": "UNTAGGED",
+                "olderThan": "1209600s",
+                "packageNamePrefixes": ["trend-trawler-bandit"],
+            },
+        },
+        "tt-keep-newest-5": {
+            "id": "tt-keep-newest-5",
+            "action": "KEEP",
+            "mostRecentVersions": {
+                "packageNamePrefixes": ["trend-trawler-bandit"],
+                "keepCount": 5,
+            },
+        },
+    }
+    assert r.compare(wanted, r.normalise_ar(described)) == "same"
+    assert r.compare(wanted, r.normalise_ar(None)) == "empty"
+    described["tt-keep-newest-5"]["mostRecentVersions"]["keepCount"] = 3
+    assert r.compare(wanted, r.normalise_ar(described)) == "differs"
+    lifecycle = r.normalise_lifecycle(_load("gcs-run-sources.json"))
+    assert r.compare(lifecycle, lifecycle) == "same"
+    assert r.compare(lifecycle, r.normalise_lifecycle(None)) == "empty"
