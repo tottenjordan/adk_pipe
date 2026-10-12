@@ -13,8 +13,9 @@ from collections.abc import Iterable
 # rating, so judge calibration only compares agreement within one version
 # (docs/notes/judge-calibration.md). Bump it (to the change's date) whenever the
 # gates, the gate or dimension wording, the scoring/pass rules (threshold,
-# normalisation) or the judge model change.
-JUDGE_VERSION = "2026-10-12"
+# normalisation) or the judge model change. A second change on the same day
+# appends ".N" ("2026-10-12.2"); versions are only ever compared by equality.
+JUDGE_VERSION = "2026-10-12.2"
 
 DIMENSION_LABELS: dict[str, str] = {
     # Ad copy
@@ -41,6 +42,7 @@ AD_COPY_GATES: tuple[str, ...] = (
     "mandatories_met",
     "avoid_respected",
     "trend_risks_respected",
+    "trend_connected",
 )
 VISUAL_GATES: tuple[str, ...] = (
     "product_visible",
@@ -66,6 +68,10 @@ BRIEF_GATES: frozenset[str] = frozenset(
     }
 )
 
+# Judged against the campaign's trend only (never the brief, so no "no brief"
+# pass): passed with note "no trend" when the run has no target trend.
+TREND_GATES: frozenset[str] = frozenset({"trend_connected"})
+
 # Only judged for a concept that cast the user's person reference
 # (``generated_images[concept]["cast"] is True``); otherwise passed in code with
 # note "no person cast", whatever the judge said.
@@ -81,6 +87,7 @@ GATE_LABELS: dict[str, str] = {
     "product_named": "Product named",
     "uses_reason_to_believe": "Uses a reason to believe",
     "mandatories_met": "Mandatories met",
+    "trend_connected": "Connected to the trend",
     # Shared
     "avoid_respected": "Avoid list respected",
     "trend_risks_respected": "Respects trend risks",

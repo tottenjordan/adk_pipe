@@ -35,6 +35,7 @@ from .dimensions import (
     JUDGE_VERSION,
     NO_GATES_GATE,
     PERSON_GATES,
+    TREND_GATES,
     VISUAL_GATES,
 )
 from .schemas import (
@@ -83,6 +84,8 @@ NOT_REPORTED_NOTE = "not checked (the judge did not report it)"
 NOT_CHECKED_NOTE = "not checked"
 NO_GATES_NOTE = "judge returned no gates"
 NO_PERSON_CAST_NOTE = "no person cast"
+# Note on a TREND_GATES gate when the run has no target trend.
+NO_TREND_NOTE = "no trend"
 
 
 def normalize_gates(
@@ -91,6 +94,7 @@ def normalize_gates(
     *,
     brief_used: bool,
     person_cast: bool = False,
+    trend_given: bool = True,
 ) -> list[GateResult]:
     """The judge's gates, reduced to exactly ``expected`` in order (pure).
 
@@ -102,8 +106,10 @@ def normalize_gates(
     conservative — the missing gate passes with a "not checked" note (counted
     into a report warning by :func:`unreported_gates_warning`). Without a
     brief the brief-dependent gates pass with note "no brief", and unless
-    ``person_cast`` the ``PERSON_GATES`` pass with note "no person cast"
-    (decided in code, never the judge). ``advisory`` is set from
+    ``person_cast`` the ``PERSON_GATES`` pass with note "no person cast";
+    without a target trend (``trend_given`` False) the ``TREND_GATES`` pass
+    with note "no trend" (decided in code, never the judge; they need no
+    brief, so a missing brief never passes them). ``advisory`` is set from
     ``ADVISORY_GATES``, never the judge.
     """
     reported: dict[str, GateResultIn | GateResult] = {}
@@ -120,6 +126,8 @@ def normalize_gates(
             out.append(GateResult(gate=name, passed=True, note=NO_BRIEF_NOTE))
         elif name in PERSON_GATES and not person_cast:
             out.append(GateResult(gate=name, passed=True, note=NO_PERSON_CAST_NOTE))
+        elif name in TREND_GATES and not trend_given:
+            out.append(GateResult(gate=name, passed=True, note=NO_TREND_NOTE))
         elif name in reported:
             gate = reported[name]
             out.append(
@@ -151,6 +159,7 @@ def score_from_judge(
     *,
     brief_used: bool,
     person_cast: bool = False,
+    trend_given: bool = True,
 ) -> CreativeScore:
     """Map the judge's raw score to the report's ``CreativeScore`` (pure).
 
@@ -159,7 +168,11 @@ def score_from_judge(
     (the judge schema does not even carry them).
     """
     gates = normalize_gates(
-        judged.gates, expected_gates, brief_used=brief_used, person_cast=person_cast
+        judged.gates,
+        expected_gates,
+        brief_used=brief_used,
+        person_cast=person_cast,
+        trend_given=trend_given,
     )
     score = _score_from_verdicts(judged.verdicts, threshold, gates)
     score.strengths = list(judged.strengths)
@@ -366,6 +379,9 @@ def evaluate_ad_copy(
                 AD_COPY_GATES,
                 config.passing_threshold,
                 brief_used=brief is not None,
+                trend_given=bool(
+                    str(campaign_context.get("target_search_trend") or "").strip()
+                ),
             ),
         )
 

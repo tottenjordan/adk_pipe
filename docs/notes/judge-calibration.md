@@ -69,7 +69,12 @@ whichever judge graded that run, and a changed rubric changes what "pass" means.
 calibration is **versioned**:
 
 - `creative_eval.JUDGE_VERSION` (in `creative_eval/dimensions.py`, next to the gate
-  definitions) names the current judge, currently **`2026-10-12`**: for a concept cast
+  definitions) names the current judge, currently **`2026-10-12.2`**: ad copy gained the blocking
+  `trend_connected` gate (a clear, specific tie to the trend a follower would recognise;
+  vague or bolted-on fails; "no trend" pass only when the run has no trend), after 12 of
+  13 human fails cited `trend_unclear` and the judge had passed 9 of them. A second change
+  on the same day gets a `.N` suffix; versions are only compared for equality. The
+  previous judge, **`2026-10-12`**: for a concept cast
   with the run's consented person the judge also sees the person's reference photo
   (attached after the render) and is told that the person's own appearance in it
   (tattoos, piercings, glasses, hairstyle, facial hair, skin marks, clothing style) is
@@ -93,7 +98,7 @@ calibration is **versioned**:
   script's `--judge-version <v>` reads another version, `--judge-version all` pools them
   (for a rough trend only).
 
-**How to bump.** Change `JUDGE_VERSION` to the date of the change, in the same PR,
+**How to bump.** Change `JUDGE_VERSION` to the date of the change (append `.2`, `.3`, … for another change on the same day), in the same PR,
 whenever the judge's gates, the gate or dimension wording (`creative_eval/prompts.py`,
 `dimensions.py`), the scoring or pass rules (threshold, normalisation, which gates block)
 or the judge model change. Pure refactors that can't change a verdict don't need a bump.

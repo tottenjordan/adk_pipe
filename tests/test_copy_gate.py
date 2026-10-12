@@ -250,7 +250,10 @@ def _texts(issues):
     return {key: [str(i) for i in items] for key, items in issues.items()}
 
 
-def test_only_proposition_and_mandatories_self_reports_gate():
+def test_only_contract_and_trend_bridge_self_reports_gate():
+    """proposition / mandatories / risks / trend_bridge gate; the rest advise.
+    trend_bridge gates by default since the judge's trend_connected gate
+    (2026-10-12.2), so a copy without a real trend tie is revised pre-judge."""
     checks = [
         {"item": "proposition", "passed": False, "note": "two ideas"},
         {"item": "mandatories", "passed": False, "note": ""},
@@ -267,14 +270,16 @@ def test_only_proposition_and_mandatories_self_reports_gate():
     assert [str(i) for i in issues] == [
         "brief check failed: proposition — two ideas",
         "brief check failed: mandatories",
+        "brief check failed: trend_bridge — forced",
     ]
     assert {i.kind for i in issues} == {"self_reported"}
+    assert residual_issues({"1": issues}) == {}  # never recorded as residual
 
 
 def test_advisory_self_reports_alone_do_not_flag_a_copy():
     checks = [
         {"item": item, "passed": False, "note": "meh"}
-        for item in ("reason_to_believe", "trend_bridge", "tone", "cta", "product")
+        for item in ("reason_to_believe", "tone", "cta", "product")
     ]
     assert _gate(_copy(brief_checks=checks)) == {}
 
@@ -544,7 +549,7 @@ def _checks(*items, passed=True):
 
 
 def test_structural_issues_fewer_copies_and_missing_gating_checks():
-    full = _checks("proposition", "mandatories", "risks")
+    full = _checks("proposition", "mandatories", "risks", "trend_bridge")
     copies = [_copy(i, brief_checks=full) for i in (1, 2, 3, 4)]
     assert structural_issues(copies, has_brief=True) == []
     assert structural_issues({"ad_copies": copies[:3]}, has_brief=True) == [
@@ -553,7 +558,7 @@ def test_structural_issues_fewer_copies_and_missing_gating_checks():
     copies[1] = _copy(2, brief_checks=_checks("proposition", "tone"))
     copies[3] = _copy(4)
     assert structural_issues(copies, has_brief=True) == [
-        "2 of 4 ad copies lack the proposition/mandatories/risks brief check."
+        "2 of 4 ad copies lack the proposition/mandatories/risks/trend_bridge brief check."
     ]
     assert structural_issues(copies, has_brief=False) == []
     # Nothing to check: no copies at all is not a structural issue here.
@@ -629,7 +634,7 @@ def test_structural_note_skipped_without_a_brief_and_collapsed_with_one():
     copies = [_copy(i, brief_checks=[]) for i in (1, 2, 3, 4)]
     assert structural_issues(copies, has_brief=False) == []
     assert structural_issues(copies, has_brief=True) == [
-        "4 of 4 ad copies lack the proposition/mandatories/risks brief check."
+        "4 of 4 ad copies lack the proposition/mandatories/risks/trend_bridge brief check."
     ]
     # Fewer than 4 copies is reported with or without a brief.
     assert structural_issues(copies[:3], has_brief=False) == [
@@ -693,7 +698,10 @@ _MESSAGE_CHECKS = [
 
 def test_off_brief_flag_makes_message_checks_gate():
     copy = _copy(brief_checks=_MESSAGE_CHECKS)
-    assert _gate(copy) == {}  # advisory by default
+    # trend_bridge gates by default; reason_to_believe only under off_brief.
+    assert _gate_texts(copy) == {
+        "1": ["brief check failed: trend_bridge — trend tacked on"]
+    }
     issues = _gate(copy, strictness=["off_brief"])["1"]
     assert [str(i) for i in issues] == [
         "brief check failed: reason_to_believe — no proof",
@@ -711,7 +719,9 @@ def test_off_brief_flag_keeps_proposition_gating():
 
 def test_unknown_strictness_flags_change_nothing():
     copy = _copy(call_to_action=_SEVEN_WORD_CTA, brief_checks=_MESSAGE_CHECKS)
-    assert _gate(copy, strictness=["text_problem", "cluttered", "bogus"]) == {}
+    assert _gate_texts(copy, strictness=["text_problem", "cluttered", "bogus"]) == (
+        _gate_texts(copy)
+    )
 
 
 # --- unsupported absolute claims ----------------------------------------------

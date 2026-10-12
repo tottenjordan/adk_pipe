@@ -1932,6 +1932,7 @@ def _final_copy(original_id=1, **overrides):
             {"item": "proposition", "passed": True, "note": ""},
             {"item": "mandatories", "passed": True, "note": ""},
             {"item": "risks", "passed": True, "note": ""},
+            {"item": "trend_bridge", "passed": True, "note": ""},
         ],
         "detailed_performance_rationale": "r",
     }
@@ -2001,21 +2002,32 @@ def test_copy_gate_decision_records_residual_issues_when_budget_spent():
 
 
 def test_copy_gate_decision_self_reported_gating_policy():
-    """Advisory self-reports never revise; proposition/mandatories revise but
-    are never recorded as residual issues (only deterministic ones are)."""
+    """Advisory self-reports never revise; proposition/mandatories/trend_bridge
+    revise but are never recorded as residual issues (only deterministic ones
+    are)."""
     from creative_agent.agent import copy_gate_decision
 
     def checks(*items):
         failed = [{"item": i, "passed": False, "note": "n"} for i in items]
         complete = [
             {"item": i, "passed": True, "note": ""}
-            for i in ("proposition", "mandatories", "risks")
+            for i in ("proposition", "mandatories", "risks", "trend_bridge")
             if i not in items
         ]
         return failed + complete
 
-    advisory = _final_copy(1, brief_checks=checks("tone", "trend_bridge", "cta"))
+    advisory = _final_copy(1, brief_checks=checks("tone", "reason_to_believe", "cta"))
     assert copy_gate_decision(_copy_state(advisory), 1)[0] == "ok"
+
+    # A failed trend tie revises by default (the judge's trend_connected gate).
+    untied = _final_copy(1, brief_checks=checks("trend_bridge"))
+    route, delta = copy_gate_decision(_copy_state(untied), 1)
+    assert route == "revise"
+    assert "brief check failed: trend_bridge" in delta["ad_copy_issues"]
+    route, delta = copy_gate_decision(
+        _copy_state(untied, ad_copy_revision_rounds_used=1), 1
+    )
+    assert route == "ok" and delta["ad_copy_critique__issues"] is None
 
     gating = _final_copy(1, brief_checks=checks("mandatories"))
     route, delta = copy_gate_decision(_copy_state(gating), 1)
@@ -2096,7 +2108,7 @@ def test_copy_gate_decision_records_structural_issues_without_revising():
     assert route == "ok"
     assert delta["ad_copy_critique__issues"] == [
         "only 2 of 4 ad copies were produced.",
-        "1 of 2 ad copies lack the proposition/mandatories/risks brief check.",
+        "1 of 2 ad copies lack the proposition/mandatories/risks/trend_bridge brief check.",
     ]
 
 

@@ -120,3 +120,32 @@ def test_critic_honours_the_research_feedback_like_the_drafter():
     for name in ("AD_COPY_DRAFTER_INSTR", "AD_COPY_CRITIC_INSTR"):
         instr = getattr(prompts, name)
         assert block in instr and "{research_feedback?}" in instr, name
+
+
+def test_copy_trend_tie_rule_matches_the_judge_gate():
+    # The pre-judge counterpart of creative_eval's trend_connected gate.
+    rule = prompts.COPY_TREND_TIE_RULE
+    assert "{" not in rule and "}" not in rule
+    for phrase in (
+        "clear, specific connection to the trend",
+        "someone who follows the trend would recognise",
+        "signature language",
+        "iconography or memes",
+        "could fit any trend",
+        "bolted on",
+        "general culture",
+    ):
+        assert phrase in rule, phrase
+
+
+def test_drafter_requires_a_trend_tie_on_every_copy():
+    instr = prompts.AD_COPY_DRAFTER_INSTR
+    assert prompts.COPY_TREND_TIE_RULE in instr
+    assert "subtly leverage" not in instr
+
+
+def test_critic_trend_bridge_check_matches_the_judge_gate():
+    instr = prompts.AD_COPY_CRITIC_INSTR
+    line = next(line for line in instr.splitlines() if "*   `trend_bridge`:" in line)
+    assert "someone who follows the trend would recognise" in line
+    assert "could fit any trend" in line and "bolted on" in line

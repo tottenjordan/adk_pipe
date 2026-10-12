@@ -30,6 +30,7 @@ export const GATE_LABELS: Readonly<Record<string, string>> = {
   product_named: "Product named",
   uses_reason_to_believe: "Uses a reason to believe",
   mandatories_met: "Mandatories met",
+  trend_connected: "Connected to the trend",
   // Shared
   avoid_respected: "Avoid list respected",
   trend_risks_respected: "Respects trend risks",

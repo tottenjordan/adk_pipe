@@ -25,14 +25,14 @@ tuned on live runs to flag only clear problems (false-positive fixes: #268).
 
 The judge answers a judge-only schema (`AdCopyJudgeOutput` / `VisualJudgeOutput`: `gates` required, min 1; no `overall_score`/`passed`/`gates_passed`/`advisory`/`image_judged` — code maps it to the report models and computes those). Gate prompts: presence gates pass only when clearly present, violation gates (`avoid_respected`, carryable `mandatories_met`, `no_visual_defects`, `trend_risks_respected`) fail only on a clear violation, not-applicable passes with the reason in the note. Gates are normalised in code (`normalize_gates`: none of the expected gates reported → one failed `gates_reported` gate, "judge returned no gates"; a partial omission passes as "not checked" and adds a report warning "N checks not reported by the judge"; without a brief the brief-dependent gates pass with note "no brief" and `report.brief_used=False`). The visual judge sees the **rendered image** (`generated_images[concept].gcs_uri` as a `gs://` `Part`; the prompt is only intent; the image-QA verdict is a hint line) (fetched by the Vertex AI service agent; cross-project buckets need it granted `storage.objectViewer`) — no image, or an image read error (403/404, or a 400 mentioning the image/URI/file/permission; other 4xx are normal judge failures), falls back to judging the prompt (`image_judged=False`; the fallback adds a report warning).
 
-**Current gate set** (`creative_eval/dimensions.py`, `JUDGE_VERSION = "2026-10-12"`; checked 2026-10-12):
+**Current gate set** (`creative_eval/dimensions.py`, `JUDGE_VERSION = "2026-10-12.2"`; checked 2026-10-12):
 
 | Kind | Gates (prompt/report order) |
 |---|---|
-| Ad copy (6) | `delivers_proposition`, `product_named`, `uses_reason_to_believe`, `mandatories_met`, `avoid_respected`, `trend_risks_respected` |
+| Ad copy (7) | `delivers_proposition`, `product_named`, `uses_reason_to_believe`, `mandatories_met`, `avoid_respected`, `trend_risks_respected`, `trend_connected` (presence gate, not brief-dependent; passed "no trend" when the run has no trend) |
 | Visual (8) | `product_visible`, `trend_motif_visible`, `text_correct`, `brand_cue_present` (advisory, never blocks), `avoid_respected`, `no_visual_defects`, `trend_risks_respected`, `person_depicted_respectfully` (only judged for a cast concept, else passed "no person cast") |
 
-Brief-dependent gates (`BRIEF_GATES`): `delivers_proposition`, `uses_reason_to_believe`, `mandatories_met`, `avoid_respected`, `trend_risks_respected`. A creative `passed` only when its normalised score ≥ `passing_threshold` (0.7) **and** every non-advisory gate passed. Bump `JUDGE_VERSION` to the change's date whenever gates, their wording, scoring/pass rules or the judge model change (calibration counts only current-version ratings; [judge-calibration.md](judge-calibration.md)). The timely slot (below) has no judge gate yet; its checks are all pre-eval.
+Brief-dependent gates (`BRIEF_GATES`): `delivers_proposition`, `uses_reason_to_believe`, `mandatories_met`, `avoid_respected`, `trend_risks_respected`. Trend gates (`TREND_GATES`): `trend_connected` — judged with or without a brief, passed in code with note "no trend" only when the run has no target trend. A creative `passed` only when its normalised score ≥ `passing_threshold` (0.7) **and** every non-advisory gate passed. Bump `JUDGE_VERSION` to the change's date whenever gates, their wording, scoring/pass rules or the judge model change (calibration counts only current-version ratings; [judge-calibration.md](judge-calibration.md)). The timely slot (below) has no judge gate yet; its checks are all pre-eval.
 
 ## Person casting (2026-10-10, plan `docs/plans/2026-10-09-person-reference.md` PR 2)
 
@@ -80,6 +80,21 @@ Switch: `trend_situation.timely_allowed(state, MAX_TIMELY_CONCEPTS)` = the valid
 - **Evergreen stays timeless:** an evergreen concept whose `image_generation_prompt` or headline, or an evergreen copy whose headline / body / caption / CTA, contains a `temporal_terms` hit is a deterministic issue (one bounded fix / revision round). The lexicon is whole-word, fold-insensitive and space/hyphen-interchangeable, and also matches explicit dates (month + day either way round, numeric `M/D`) and weekday names (singular only, so "Sundays" as a ritual passes). Idioms are removed first: "win-win", "lose weight", "weight loss", "lost and found", "miss a beat", "skin in the game", "24/7". "kick off" (verb) is fine, "kick-off"/"kickoff" are not. Extend `_IDIOMS` when a false positive appears.
 - **Pairing:** a timely concept whose paired copy (`ad_copy_id` → `original_id`) is evergreen gets "make this concept evergreen".
 - **Brief:** a non-empty `trend_bridge.timely_angle` needs a timely moment with the slot on; its result words must match the outcome (win words for a win, loss words for a loss, none before an upcoming event).
+
+### 2026-10-12 `trend_connected` ad-copy gate (rating evidence)
+
+12 of the user's 13 "fail" ratings (2026-10-12) cited the fail reason `trend_unclear`, and
+the judge had passed 9 of those: ad copy had no gate requiring a trend tie (trend
+authenticity was only the advisory 1-10 `trend_authenticity` dimension), while visuals
+already had `trend_motif_visible`. New blocking ad-copy gate `trend_connected` ("Connected
+to the trend", `JUDGE_VERSION` `2026-10-12.2`): the headline/body/caption/CTA together make
+a clear, specific connection to the trend that someone who follows it would recognise (a
+named reference, its signature language, events, rituals, iconography or memes); it fails
+when the trend is absent, only implied so vaguely it could fit any trend, or bolted on as a
+generic word. A sensitive trend referenced through its general culture, without the
+sensitive event, counts as connected. Not brief-dependent (no "no brief" pass); "no trend"
+pass only when the run has no trend. The pre-judge counterpart: the ad copy critic's
+`trend_bridge` self-check now gates the copy gate by default (see the copy gate section).
 
 ### 2026-10-08 gate changes (rater audit)
 
@@ -136,6 +151,15 @@ upstream, before the judge:
   official warnings). It is in `GATING_BRIEF_CHECKS`, so a failed self-check routes a revision
   like `proposition` / `mandatories`, and like them it is never a residual issue; the
   structural note now asks for proposition/mandatories/risks.
+- **Trend tie (2026-10-12)** — the critic's `trend_bridge` self-check (a clear, specific tie
+  to the trend that someone who follows it would recognise: a named reference, its
+  signature language, events, rituals, iconography or memes; vague, generic or bolted-on
+  fails; a sensitive trend through its general culture counts) is now in
+  `GATING_BRIEF_CHECKS` by default (it used to gate only under the `off_brief` rating
+  strictness, which now adds only `reason_to_believe`). Like the others it routes the copy to
+  the bounded reviser and is never a residual; the structural note asks for
+  proposition/mandatories/risks/trend_bridge. The drafter's `COPY_TREND_TIE_RULE` asks every
+  copy for such a tie. Pre-judge counterpart of the judge's `trend_connected` gate.
 - **Prompts** (`creative_agent/prompts.py`): the brief writer uses the product name exactly as
   given and includes a mandatory naming it, makes no guarantees/absolute claims unless a cited
   source or the selling points state them, and for a real disaster/tragedy/crisis trend picks

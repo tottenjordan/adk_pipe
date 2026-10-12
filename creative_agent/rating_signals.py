@@ -78,8 +78,9 @@ FAIL_REASON_LABELS: dict[str, str] = {
 #   unwanted_logo       → person-swap edits forbid other logos (base renders
 #                         always do); the rating note names the limit
 #   weak_cta            → copy gate CTA ≤ 6 words (from 8)
-#   off_brief           → the critic's failed reason_to_believe / trend_bridge
-#                         checks also gate (proposition / mandatories already do)
+#   off_brief           → the critic's failed reason_to_believe check also gates
+#                         (proposition / mandatories / risks / trend_bridge
+#                         already do)
 #   trend_unclear       → image QA requires a clearly visible motif; the concept
 #                         guard always appends it
 # cluttered / off_brand_tone / artifacts are guidance only; "other" is ignored.
