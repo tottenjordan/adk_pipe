@@ -63,7 +63,7 @@ MAX_COMPOSITION_DIFFERENCES = 5
 COMPOSITION_FIELDS = ("composition_changed", "composition_differences")
 # Person-casting verdict fields stored only for cast concepts (uncast renders
 # keep their record shape).
-CAST_ONLY_FIELDS = ("person_as_public_figure", "person_marks")
+CAST_ONLY_FIELDS = ("person_as_public_figure",)
 
 
 class ImageQAResult(BaseModel):
@@ -165,14 +165,6 @@ class ImageQAResult(BaseModel):
             "(their costume, signature attire, uniform or vestments, or a pose, "
             "setting or caption implying they are that figure); false when no "
             "person reference image was supplied."
-        ),
-    )
-    person_marks: bool = Field(
-        default=False,
-        description=(
-            "The cast person has tattoos, text, logos, writing, face paint or "
-            "other marks on their skin or face that the image prompt did not ask "
-            "for; false when no person reference image was supplied."
         ),
     )
     composition_changed: bool = Field(
@@ -299,10 +291,6 @@ _PERSON_RULES: dict[str, str] = {
         "clothing, no costume, signature attire, uniform or vestments of a real "
         "person"
     ),
-    "person marked": (
-        "show the person with clean skin: no tattoos, text, logos or marks on "
-        "their face or body unless the prompt asks for them"
-    ),
 }
 # Personalised variant edits only (``inspect_image`` with ``original_image``):
 # not critical. The phrase restates the edit's keep-everything instruction.
@@ -358,8 +346,6 @@ def qa_failed_rules(
             failed.append("person distorted")
         if result.person_as_public_figure:
             failed.append("person shown as a public figure")
-        if result.person_marks:
-            failed.append("person marked")
     # Only ever true for a check against the original (inspect_image clears it
     # otherwise), so base renders are unaffected.
     if result.composition_changed:
@@ -480,11 +466,7 @@ PERSON_COMPARISON_LINE = (
     "only when the hero is clearly dressed or presented as a specific real "
     "public figure (that figure's costume, signature attire, uniform or "
     "vestments, or a pose, setting or caption implying the hero is that "
-    "figure); ordinary fan clothing in team colours is not. person_marks: "
-    "true only when the person clearly has tattoos, text, logos, writing, face "
-    "paint or other marks on their skin or face that the prompt above did not "
-    "ask for; clothing, accessories, freckles, moles and the reference photo's "
-    "own features do not count."
+    "figure); ordinary fan clothing in team colours is not."
 )
 
 

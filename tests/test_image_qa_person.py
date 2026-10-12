@@ -224,46 +224,24 @@ def test_cast_concept_qa_gets_the_photo_and_rerender_keeps_the_person(monkeypatc
     assert record["qa"]["passed"] is True
 
 
-# --- marks on the cast person (2026-10-12 live run: unrequested face/neck tattoos
-# on the cast runner; the judge failed no_visual_defects + person_depicted_respectfully) ---
-def test_old_payloads_parse_without_person_marks():
-    payload = _result().model_dump()
-    payload.pop("person_marks")
-    assert ImageQAResult.model_validate(payload).person_marks is False
+# --- no person-marks check (removed 2026-10-12: the consented reference person
+# really has face/neck tattoos, which the image model reproduced faithfully) ---
+def test_old_payloads_with_person_marks_still_parse():
+    payload = _result().model_dump() | {"person_marks": True}
+    parsed = ImageQAResult.model_validate(payload)
+    assert not hasattr(parsed, "person_marks")
+    assert "person_marks" not in parsed.model_dump()
 
 
-def test_person_marks_rule_fires_only_for_cast_concepts():
-    marked = _result(person_cast=True, person_likeness=True, person_marks=True)
-    assert _rules(marked, _CAST) == ["person marked"]
-    assert _rules(marked, _UNCAST) == []
-    assert "person marked" not in image_qa.CRITICAL_RULES
-
-
-def test_person_marks_correction_asks_for_clean_skin():
-    result = _result(
-        person_cast=True,
-        person_likeness=True,
-        person_marks=True,
-        issues=["tattooed lettering on the runner's neck"],
+def test_tattoos_on_the_cast_person_are_not_a_qa_failure():
+    result = ImageQAResult.model_validate(
+        _result(person_cast=True, person_likeness=True).model_dump()
+        | {"person_marks": True}
     )
-    text = image_qa.correction_text(result, _CAST, target_product="skates")
-    assert (
-        "show the person with clean skin: no tattoos, text, logos or marks on their "
-        "face or body unless the prompt asks for them"
-    ) in text
-    assert text.endswith(image_qa.NO_NEW_TEXT)
+    assert _rules(result, _CAST) == []
+    assert "person_marks" not in image_qa.CAST_ONLY_FIELDS
 
 
-def test_person_marks_stored_only_for_cast_concepts():
-    result = _result(person_cast=True, person_likeness=True)
-    cast = image_tools._qa_record(result, _CAST, "skates")
-    uncast = image_tools._qa_record(result, _UNCAST, "skates")
-    assert cast["person_marks"] is False
-    assert "person_marks" not in uncast
-
-
-def test_person_marks_asked_only_with_the_person_image():
+def test_person_marks_never_asked():
     text, _ = _inspect((b"face", "image/jpeg"))
-    assert "person_marks" in text and "tattoos" in text
-    text, _ = _inspect()
-    assert "person_marks" not in text
+    assert "person_marks" not in text and "tattoos" not in text
