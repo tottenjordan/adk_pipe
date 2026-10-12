@@ -251,6 +251,9 @@ def run_local_test(local_model: Any, ready_timeout: int = 600) -> dict[str, floa
                 "type": "reset",
                 "episode": 1,
                 "model_version": f"{cfg['experiment_id']}-e1-v0",
+                # contracts §2/§10: a reset echoes the gamma its updates use
+                # (the experiment.json value when the request sends none).
+                "discount": 1.0,
             }, reset
 
             first, timings["decision20_first_ms"] = _timed(
