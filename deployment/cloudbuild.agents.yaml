@@ -185,9 +185,12 @@ substitutions:
   _UV_IMAGE: ghcr.io/astral-sh/uv:0.12.19-python3.13-trixie-slim@sha256:aba5f865793af9275ceaa06d30935dfc6db8b81969c9fb099b0ebca6396b189e
 
 options:
+  # Default machine on purpose: E2_HIGHCPU_8 waited 49-53 s for a worker on every
+  # engine deploy (default: 0-2 s, measured 2026-10-12), and the local work is light
+  # (a ~10 s uv sync, staging + cloudpickle + a small tarball); the deploy steps
+  # mostly wait on Vertex Agent Engine.
   logging: CLOUD_LOGGING_ONLY
   substitutionOption: ALLOW_LOOSE
-  machineType: E2_HIGHCPU_8
 
 # Engine creation takes ~5-15 min each (parallel); the smoke run adds ~10 min.
 timeout: 5400s
