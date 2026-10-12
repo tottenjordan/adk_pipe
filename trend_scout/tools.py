@@ -90,13 +90,15 @@ def get_daily_gtrends(tool_context: ToolContext) -> str:
     max_date = _get_gtrends_max_date()
     logging.info(f"\n\nmax_date in trends_assistant: {max_date}\n\n")
 
-    query = f"""
+    # The public table holds exactly 25 terms per refresh_date (one row per
+    # term after the GROUP BY), so the result is the top 25 without a LIMIT.
+    query = """
         SELECT
           term,
           refresh_date,
           ARRAY_AGG(STRUCT(rank,week) ORDER BY week DESC LIMIT 1) x
         FROM `bigquery-public-data.google_trends.top_terms`
-        WHERE refresh_date = PARSE_DATE('%m/%d/%Y',  '{max_date}')
+        WHERE refresh_date = PARSE_DATE('%m/%d/%Y', @max_date)
         GROUP BY term, refresh_date
         ORDER BY (SELECT rank FROM UNNEST(x))
         """
@@ -106,7 +108,7 @@ def get_daily_gtrends(tool_context: ToolContext) -> str:
         # Setup the query for BigQuery
         query_job_config = bigquery.QueryJobConfig(
             query_parameters=[
-                bigquery.ScalarQueryParameter("parameter1", "STRING", max_date)
+                bigquery.ScalarQueryParameter("max_date", "STRING", max_date)
             ]
         )
         # Execute the BigQuery Query and retrieve results to local dataframe

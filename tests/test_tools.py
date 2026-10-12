@@ -885,3 +885,41 @@ class TestWriteTrendsRaisesOnBqErrors:
         )
         with pytest.raises(RuntimeError, match="BigQuery insert returned errors"):
             t.write_trends_to_bq(ctx)
+
+
+class TestGetDailyGtrends:
+    """The latest refresh's top terms; the date is bound as a query parameter."""
+
+    def test_binds_max_date_parameter_and_saves_terms(self, monkeypatch):
+        import pandas as pd
+
+        import trend_scout.tools as t
+
+        queries = []
+
+        class _Job:
+            def to_dataframe(self):
+                return pd.DataFrame(
+                    {
+                        "term": ["b", "a"],
+                        "refresh_date": [datetime.date(2026, 10, 11)] * 2,
+                        "x": [[{"rank": 1}], [{"rank": 2}]],
+                    }
+                )
+
+        class _Client:
+            def query(self, sql, job_config=None):
+                queries.append((sql, job_config))
+                return _Job()
+
+        monkeypatch.setattr(t, "_get_bigquery_client", lambda: _Client())
+        monkeypatch.setattr(t, "_get_gtrends_max_date", lambda: "10/11/2026")
+        ctx = FakeToolContext()
+        t.get_daily_gtrends(ctx)
+
+        (sql, job_config) = queries[-1]
+        assert "10/11/2026" not in sql
+        assert "PARSE_DATE('%m/%d/%Y', @max_date)" in sql
+        params = {p.name: p.value for p in job_config.query_parameters}
+        assert params == {"max_date": "10/11/2026"}
+        assert ctx.state["raw_gtrends"] == ["b", "a"]
