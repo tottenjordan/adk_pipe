@@ -197,9 +197,10 @@ trimmed):
 > Old gate-less reports still render in the results page.
 
 For a complete report with these fields, see the frontend screenshot fixture
-[`frontend/scripts/screenshot-fixtures/creative-eval-report.json`](../../frontend/scripts/screenshot-fixtures/creative-eval-report.json),
-which comes from an earlier real run on the same campaign (its gate fields were added to the
-fixture on 2026-10-12 for the screenshots, so treat them as illustrative). The web UI's
+[`frontend/scripts/screenshot-fixtures/creative-eval-report.current.json`](../../frontend/scripts/screenshot-fixtures/creative-eval-report.current.json),
+which comes from an earlier real run on the same campaign (its gate fields were added on
+2026-10-12 for the screenshots, so treat them as illustrative; the gate-less original,
+`creative-eval-report.json`, is kept because the Python tests use it as a pre-gates report). The web UI's
 results page shows
 these scores next to each creative. Readable dimension labels such as "Trend connection" come
 from `creative_eval/dimensions.py`.

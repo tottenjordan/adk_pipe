@@ -72,7 +72,10 @@ calls route-mocked** — no live Agent Engine, GCP creds, or model quota needed 
 capture time. The mocks are hydrated from committed fixtures in
 `frontend/scripts/screenshot-fixtures/`, which were harvested from ONE real
 `creative_agent` run (session state, curated event log, eval report, and the four
-concept images). So `03-results-creative.png` shows the **actual
+concept images). The captures read `creative-state.current.json` and
+`creative-eval-report.current.json` (the harvested state/report plus the current fields: gates,
+judge version, trend situation, rating learning); the original `creative-state.json` /
+`creative-eval-report.json` stay unchanged because the Python tests use them as pre-gates fixtures. So `03-results-creative.png` shows the **actual
 `gemini-3.1-flash-image` renders** (downscaled to lightweight JPEG fixtures), not
 placeholders.
 

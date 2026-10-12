@@ -1,7 +1,7 @@
 """Derive the share + personalise screenshot fixtures from the PRS run fixtures.
 
-Runs the REAL backend code on ``screenshot-fixtures/creative-state.json`` and
-``creative-eval-report.json`` so the mocked responses have the api's exact shapes:
+Runs the REAL backend code on ``screenshot-fixtures/creative-state.current.json`` and
+``creative-eval-report.current.json`` so the mocked responses have the api's exact shapes:
 
 - ``share-fixture.json``: ``{"snapshot": <runserver.share_snapshot.build_snapshot
   v1 slate with include_eval>, "images": [<fixture image per creative index>]}``,
@@ -37,8 +37,8 @@ CREATED_AT = "2026-07-17T00:12:31Z"
 
 
 def main() -> None:
-    state = json.loads((FIX / "creative-state.json").read_text())
-    report = json.loads((FIX / "creative-eval-report.json").read_text())
+    state = json.loads((FIX / "creative-state.current.json").read_text())
+    report = json.loads((FIX / "creative-eval-report.current.json").read_text())
 
     built = build_snapshot(
         state,

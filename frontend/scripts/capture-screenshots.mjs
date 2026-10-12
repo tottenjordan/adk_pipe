@@ -60,10 +60,10 @@ const OUT = join(__dirname, "..", "..", "docs", "screenshots");
 const BASE = process.env.SCREENSHOT_BASE_URL ?? "http://localhost:3000";
 
 // ── Load fixtures (harvested from the real run) ───────────────────────────────
-const state = JSON.parse(readFileSync(join(FIX, "creative-state.json"), "utf8"));
+const state = JSON.parse(readFileSync(join(FIX, "creative-state.current.json"), "utf8"));
 const events = JSON.parse(readFileSync(join(FIX, "creative-events.json"), "utf8"));
 const evalReport = JSON.parse(
-  readFileSync(join(FIX, "creative-eval-report.json"), "utf8")
+  readFileSync(join(FIX, "creative-eval-report.current.json"), "utf8")
 );
 // The results page requests each concept image at `<ConceptName>.png`, but the
 // fixtures are stored as JPEG (photographic renders compress far smaller). Key

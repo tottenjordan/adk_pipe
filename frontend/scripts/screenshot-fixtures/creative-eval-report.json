@@ -55,50 +55,11 @@
         "improvements": [
           "Fix the grammatical error in the headline by changing 'There To Be Signs' to 'There Would Be Signs'.",
           "Consider adding a brief mention of the coil-splitting or single-coil versatility to fully capture the key selling points."
-        ],
-        "gates": [
-          {
-            "gate": "delivers_proposition",
-            "passed": true,
-            "note": "Tone over luxury is the whole joke.",
-            "advisory": false
-          },
-          {
-            "gate": "product_named",
-            "passed": true,
-            "note": "Names the SE CE24.",
-            "advisory": false
-          },
-          {
-            "gate": "uses_reason_to_believe",
-            "passed": true,
-            "note": "Cites the 85/15 S humbuckers.",
-            "advisory": false
-          },
-          {
-            "gate": "mandatories_met",
-            "passed": true,
-            "note": "SE CE24 and 85/15 S pickups both present.",
-            "advisory": false
-          },
-          {
-            "gate": "avoid_respected",
-            "passed": true,
-            "note": "No urging to buy tickets; no real winners.",
-            "advisory": false
-          },
-          {
-            "gate": "trend_risks_respected",
-            "passed": true,
-            "note": "Treats the jackpot as a daydream, not a plan.",
-            "advisory": false
-          }
-        ],
-        "gates_passed": true
+        ]
       }
     },
     {
-      "original_id": 3,
+      "original_id": 1,
       "headline": "My Retirement Plan? Powerball and A PRS SE CE24.",
       "tone_style": "Humorous",
       "score": {
@@ -150,50 +111,11 @@
         "improvements": [
           "Revise the CTA to match the humorous tone, such as 'Invest in your tone' or 'Play the winning numbers'.",
           "Tighten the opening sentence of the body text to make the punchline land faster on quick-scrolling platforms."
-        ],
-        "gates": [
-          {
-            "gate": "delivers_proposition",
-            "passed": true,
-            "note": "Tone over luxury is the whole joke.",
-            "advisory": false
-          },
-          {
-            "gate": "product_named",
-            "passed": true,
-            "note": "Names the SE CE24.",
-            "advisory": false
-          },
-          {
-            "gate": "uses_reason_to_believe",
-            "passed": true,
-            "note": "Cites the 85/15 S humbuckers.",
-            "advisory": false
-          },
-          {
-            "gate": "mandatories_met",
-            "passed": true,
-            "note": "SE CE24 and 85/15 S pickups both present.",
-            "advisory": false
-          },
-          {
-            "gate": "avoid_respected",
-            "passed": true,
-            "note": "No urging to buy tickets; no real winners.",
-            "advisory": false
-          },
-          {
-            "gate": "trend_risks_respected",
-            "passed": true,
-            "note": "Treats the jackpot as a daydream, not a plan.",
-            "advisory": false
-          }
-        ],
-        "gates_passed": true
+        ]
       }
     },
     {
-      "original_id": 5,
+      "original_id": 1,
       "headline": "Looks Like a Jackpot. Sounds Like a Masterpiece.",
       "tone_style": "Aspirational",
       "score": {
@@ -246,50 +168,11 @@
           "Shift the tone to align with the audience's love for surreal memes and jam band nostalgia rather than generic rockstar dreams.",
           "Update the social caption to reference jam band culture, perhaps nodding to Phish or Widespread Panic vibes.",
           "Inject more humor or quirky elements to better capture the millennial meme-loving demographic."
-        ],
-        "gates": [
-          {
-            "gate": "delivers_proposition",
-            "passed": true,
-            "note": "Tone over luxury is the whole joke.",
-            "advisory": false
-          },
-          {
-            "gate": "product_named",
-            "passed": true,
-            "note": "Names the SE CE24.",
-            "advisory": false
-          },
-          {
-            "gate": "uses_reason_to_believe",
-            "passed": true,
-            "note": "Cites the 85/15 S humbuckers.",
-            "advisory": false
-          },
-          {
-            "gate": "mandatories_met",
-            "passed": true,
-            "note": "SE CE24 and 85/15 S pickups both present.",
-            "advisory": false
-          },
-          {
-            "gate": "avoid_respected",
-            "passed": true,
-            "note": "No urging to buy tickets; no real winners.",
-            "advisory": false
-          },
-          {
-            "gate": "trend_risks_respected",
-            "passed": true,
-            "note": "Treats the jackpot as a daydream, not a plan.",
-            "advisory": false
-          }
-        ],
-        "gates_passed": true
+        ]
       }
     },
     {
-      "original_id": 8,
+      "original_id": 1,
       "headline": "For the Love of the Late-Night Jam.",
       "tone_style": "Emotional/Authentic",
       "score": {
@@ -340,46 +223,7 @@
         "improvements": [
           "Incorporate elements of surreal humor or meme culture to fully capture the audience profile.",
           "Make the Powerball trend connection feel more organic rather than just a passing contrast."
-        ],
-        "gates": [
-          {
-            "gate": "delivers_proposition",
-            "passed": true,
-            "note": "Tone over luxury is the whole joke.",
-            "advisory": false
-          },
-          {
-            "gate": "product_named",
-            "passed": true,
-            "note": "Names the SE CE24.",
-            "advisory": false
-          },
-          {
-            "gate": "uses_reason_to_believe",
-            "passed": true,
-            "note": "Cites the 85/15 S humbuckers.",
-            "advisory": false
-          },
-          {
-            "gate": "mandatories_met",
-            "passed": true,
-            "note": "SE CE24 and 85/15 S pickups both present.",
-            "advisory": false
-          },
-          {
-            "gate": "avoid_respected",
-            "passed": true,
-            "note": "No urging to buy tickets; no real winners.",
-            "advisory": false
-          },
-          {
-            "gate": "trend_risks_respected",
-            "passed": true,
-            "note": "Treats the jackpot as a daydream, not a plan.",
-            "advisory": false
-          }
-        ],
-        "gates_passed": true
+        ]
       }
     }
   ],
@@ -436,60 +280,8 @@
         "improvements": [
           "Expand the image generation prompt to over 100 words by adding specific lighting and camera angle keywords.",
           "Ensure the prompt specifies that the guitar itself should remain high-fidelity so the product details aren't lost in the lo-fi textures."
-        ],
-        "gates": [
-          {
-            "gate": "product_visible",
-            "passed": true,
-            "note": "The SE CE24 is clearly visible.",
-            "advisory": false
-          },
-          {
-            "gate": "trend_motif_visible",
-            "passed": true,
-            "note": "The lottery motif reads at a glance.",
-            "advisory": false
-          },
-          {
-            "gate": "text_correct",
-            "passed": true,
-            "note": "No in-image text, or it matches the headline.",
-            "advisory": false
-          },
-          {
-            "gate": "brand_cue_present",
-            "passed": true,
-            "note": "Bird inlays visible on the fretboard.",
-            "advisory": true
-          },
-          {
-            "gate": "avoid_respected",
-            "passed": true,
-            "note": "No real winners, no ticket push.",
-            "advisory": false
-          },
-          {
-            "gate": "no_visual_defects",
-            "passed": true,
-            "note": "Guitar and hands render correctly.",
-            "advisory": false
-          },
-          {
-            "gate": "trend_risks_respected",
-            "passed": true,
-            "note": "Playful, does not glamorise gambling.",
-            "advisory": false
-          },
-          {
-            "gate": "person_depicted_respectfully",
-            "passed": true,
-            "note": "no person cast",
-            "advisory": false
-          }
-        ],
-        "gates_passed": true
-      },
-      "image_judged": true
+        ]
+      }
     },
     {
       "ad_copy_id": 1,
@@ -543,60 +335,8 @@
         "improvements": [
           "Expand the image generation prompt to over 100 words with more specific lighting and rendering details.",
           "Ensure the guitar's specific features, like the 85/15 S pickups, are visually highlighted despite the stylized art."
-        ],
-        "gates": [
-          {
-            "gate": "product_visible",
-            "passed": true,
-            "note": "The SE CE24 is clearly visible.",
-            "advisory": false
-          },
-          {
-            "gate": "trend_motif_visible",
-            "passed": true,
-            "note": "The lottery motif reads at a glance.",
-            "advisory": false
-          },
-          {
-            "gate": "text_correct",
-            "passed": true,
-            "note": "No in-image text, or it matches the headline.",
-            "advisory": false
-          },
-          {
-            "gate": "brand_cue_present",
-            "passed": true,
-            "note": "Bird inlays visible on the fretboard.",
-            "advisory": true
-          },
-          {
-            "gate": "avoid_respected",
-            "passed": true,
-            "note": "No real winners, no ticket push.",
-            "advisory": false
-          },
-          {
-            "gate": "no_visual_defects",
-            "passed": true,
-            "note": "Guitar and hands render correctly.",
-            "advisory": false
-          },
-          {
-            "gate": "trend_risks_respected",
-            "passed": true,
-            "note": "Playful, does not glamorise gambling.",
-            "advisory": false
-          },
-          {
-            "gate": "person_depicted_respectfully",
-            "passed": true,
-            "note": "no person cast",
-            "advisory": false
-          }
-        ],
-        "gates_passed": true
-      },
-      "image_judged": true
+        ]
+      }
     },
     {
       "ad_copy_id": 1,
@@ -651,60 +391,8 @@
           "Incorporate surreal meme elements or nostalgic jam-band aesthetics to actually resonate with the specific target audience.",
           "Create a stronger visual tie to the 'Powerball' trend rather than relying solely on the word 'Jackpot' in the copy.",
           "Expand the image generation prompt to over 100 words with more specific details to ensure maximum fidelity."
-        ],
-        "gates": [
-          {
-            "gate": "product_visible",
-            "passed": true,
-            "note": "The SE CE24 is clearly visible.",
-            "advisory": false
-          },
-          {
-            "gate": "trend_motif_visible",
-            "passed": false,
-            "note": "Lottery balls are tiny and lost in the stage haze; the Powerball link doesn't read at a glance.",
-            "advisory": false
-          },
-          {
-            "gate": "text_correct",
-            "passed": true,
-            "note": "No in-image text, or it matches the headline.",
-            "advisory": false
-          },
-          {
-            "gate": "brand_cue_present",
-            "passed": true,
-            "note": "Bird inlays visible on the fretboard.",
-            "advisory": true
-          },
-          {
-            "gate": "avoid_respected",
-            "passed": true,
-            "note": "No real winners, no ticket push.",
-            "advisory": false
-          },
-          {
-            "gate": "no_visual_defects",
-            "passed": true,
-            "note": "Guitar and hands render correctly.",
-            "advisory": false
-          },
-          {
-            "gate": "trend_risks_respected",
-            "passed": true,
-            "note": "Playful, does not glamorise gambling.",
-            "advisory": false
-          },
-          {
-            "gate": "person_depicted_respectfully",
-            "passed": true,
-            "note": "no person cast",
-            "advisory": false
-          }
-        ],
-        "gates_passed": false
-      },
-      "image_judged": true
+        ]
+      }
     },
     {
       "ad_copy_id": 1,
@@ -759,60 +447,8 @@
           "Integrate a subtle visual nod to the Powerball trend in the image prompt (e.g., a discarded lottery ticket taped to the amp or on the stage floor).",
           "Expand the image generation prompt to over 100 words by adding more high-fidelity keywords regarding camera lens specifics and texture.",
           "Incorporate a subtle surreal or meme-like element in the background to fully hit all target audience preferences."
-        ],
-        "gates": [
-          {
-            "gate": "product_visible",
-            "passed": true,
-            "note": "The SE CE24 is clearly visible.",
-            "advisory": false
-          },
-          {
-            "gate": "trend_motif_visible",
-            "passed": true,
-            "note": "The lottery motif reads at a glance.",
-            "advisory": false
-          },
-          {
-            "gate": "text_correct",
-            "passed": true,
-            "note": "No in-image text, or it matches the headline.",
-            "advisory": false
-          },
-          {
-            "gate": "brand_cue_present",
-            "passed": false,
-            "note": "No bird inlays or PRS headstock visible.",
-            "advisory": true
-          },
-          {
-            "gate": "avoid_respected",
-            "passed": true,
-            "note": "No real winners, no ticket push.",
-            "advisory": false
-          },
-          {
-            "gate": "no_visual_defects",
-            "passed": true,
-            "note": "Guitar and hands render correctly.",
-            "advisory": false
-          },
-          {
-            "gate": "trend_risks_respected",
-            "passed": true,
-            "note": "Playful, does not glamorise gambling.",
-            "advisory": false
-          },
-          {
-            "gate": "person_depicted_respectfully",
-            "passed": true,
-            "note": "no person cast",
-            "advisory": false
-          }
-        ],
-        "gates_passed": true
-      },
-      "image_judged": true
+        ]
+      }
     }
   ],
   "summary": {
@@ -827,20 +463,7 @@
       "trend_visual_connection",
       "prompt_technical_quality",
       "audience_fit"
-    ],
-    "gates_pass_rate": 0.875
+    ]
   },
-  "warnings": [
-    "Image check has unresolved issues: 1 (e.g. The Jackpot Reveal: trend motif not visible (re-render budget reached))"
-  ],
-  "judge_model": "gemini-3.1-pro-preview",
-  "judge_version": "2026-10-10",
-  "passing_threshold": 0.7,
-  "brief_used": true,
-  "learning_used": true,
-  "learning_flags": [
-    "guidance",
-    "styles",
-    "weak_cta"
-  ]
+  "warnings": []
 }
