@@ -9,9 +9,11 @@ user-visible warning, so false positives are kept low):
   unsupported absolute claims such as "guaranteed" / "indestructible") — gate
   a revision AND, if they survive it, are recorded as residual issues;
 * **self_reported** issues — the critic's own failed ``brief_checks`` — gate a
-  revision only for ``proposition``, ``mandatories`` and ``risks`` (the
-  brief's hard contract and trend risks, with no deterministic check), and are NEVER recorded as residual
-  issues. Every other failed item is advisory: it stays in ``brief_checks``
+  revision only for ``proposition``, ``mandatories``, ``risks`` and
+  ``trend_bridge`` (the brief's hard contract, its trend risks and a clear,
+  specific trend tie — the pre-judge counterpart of the judge's blocking
+  ``trend_connected`` gate — none with a deterministic check), and are NEVER
+  recorded as residual issues. Every other failed item is advisory: it stays in ``brief_checks``
   (UI/eval) and never gates.
 * **structural** issues (``structural_issues``: fewer than ``EXPECTED_COPIES``
   copies; with a brief, copies whose ``brief_checks`` lack a gating item) are
@@ -23,8 +25,8 @@ user-visible warning, so false positives are kept low):
 Rating strictness (opt-in rating learning, ``rating_strictness`` in state;
 default none) only ever tightens: ``weak_cta`` caps the CTA at
 ``STRICT_CTA_WORDS`` (6) words, and ``off_brief`` also gates the critic's
-failed ``reason_to_believe`` / ``trend_bridge`` self-reports
-(``OFF_BRIEF_BRIEF_CHECKS``; still never recorded as residual issues).
+failed ``reason_to_believe`` self-report (``OFF_BRIEF_BRIEF_CHECKS``; still
+never recorded as residual issues; ``trend_bridge`` already gates).
 
 Matching (product named, avoid terms) uses ``text_match``: accent-folded,
 Unicode-aware, plural-insensitive (s / es / ies↔y), and brands written with
@@ -98,18 +100,20 @@ _STOPWORDS = frozenset(
 )
 _MIN_TOKEN_CHARS = 3
 # Self-reported brief_checks items that gate a revision: the brief's hard
-# contract (and its trend risks: never joking about a real disaster), which no
+# contract, its trend risks (never joking about a real disaster) and the trend
+# tie (a clear, specific connection a trend follower would recognise: the
+# judge's blocking trend_connected gate, since 2026-10-12.2), which no
 # deterministic check covers. The rest are advisory.
-_GATING_ORDER = ("proposition", "mandatories", "risks")
+_GATING_ORDER = ("proposition", "mandatories", "risks", "trend_bridge")
 GATING_BRIEF_CHECKS = frozenset(_GATING_ORDER)
 # Items a deterministic check already covers; a self-reported failure of one is
 # never listed (no double listing), even if it were made gating.
 DETERMINISTIC_BRIEF_CHECKS = frozenset({"product", "avoid", "cta"})
 # Rating strictness: a recurring "off-brief / wrong message" fail reason also
-# makes the critic's failed message items gate (proposition already does):
-# the reason to believe and the trend bridge. ``tone`` stays advisory (the
-# off_brand_tone reason is guidance only).
-OFF_BRIEF_BRIEF_CHECKS = frozenset({"reason_to_believe", "trend_bridge"})
+# makes the critic's failed reason to believe gate (proposition and the trend
+# bridge already do). ``tone`` stays advisory (the off_brand_tone reason is
+# guidance only).
+OFF_BRIEF_BRIEF_CHECKS = frozenset({"reason_to_believe"})
 
 
 def max_cta_words(strictness: Sequence[str] = ()) -> int:
@@ -118,8 +122,8 @@ def max_cta_words(strictness: Sequence[str] = ()) -> int:
 
 
 def gating_brief_checks(strictness: Sequence[str] = ()) -> frozenset[str]:
-    """The self-reported brief_checks items that gate (plus the message items
-    under ``off_brief`` strictness)."""
+    """The self-reported brief_checks items that gate (plus the reason to
+    believe under ``off_brief`` strictness)."""
     if "off_brief" in strictness:
         return GATING_BRIEF_CHECKS | OFF_BRIEF_BRIEF_CHECKS
     return GATING_BRIEF_CHECKS

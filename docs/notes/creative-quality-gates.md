@@ -151,6 +151,15 @@ upstream, before the judge:
   official warnings). It is in `GATING_BRIEF_CHECKS`, so a failed self-check routes a revision
   like `proposition` / `mandatories`, and like them it is never a residual issue; the
   structural note now asks for proposition/mandatories/risks.
+- **Trend tie (2026-10-12)** — the critic's `trend_bridge` self-check (a clear, specific tie
+  to the trend that someone who follows it would recognise: a named reference, its
+  signature language, events, rituals, iconography or memes; vague, generic or bolted-on
+  fails; a sensitive trend through its general culture counts) is now in
+  `GATING_BRIEF_CHECKS` by default (it used to gate only under the `off_brief` rating
+  strictness, which now adds only `reason_to_believe`). Like the others it routes the copy to
+  the bounded reviser and is never a residual; the structural note asks for
+  proposition/mandatories/risks/trend_bridge. The drafter's `COPY_TREND_TIE_RULE` asks every
+  copy for such a tie. Pre-judge counterpart of the judge's `trend_connected` gate.
 - **Prompts** (`creative_agent/prompts.py`): the brief writer uses the product name exactly as
   given and includes a mandatory naming it, makes no guarantees/absolute claims unless a cited
   source or the selling points state them, and for a real disaster/tragedy/crisis trend picks

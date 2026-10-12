@@ -104,7 +104,7 @@ class BriefCheck(BaseModel):
     """One item of the critic's brief checklist for a final ad copy."""
 
     item: BriefCheckItem = Field(
-        description="The checklist item: 'proposition' (delivers the single-minded proposition), 'product' (names the target product), 'reason_to_believe' (uses at least one reason to believe), 'trend_bridge' (connects to the trend through the bridge in the stated fit_mode), 'tone' (matches the brand tone of voice), 'mandatories' (honours every mandatory), 'avoid' (contains nothing from the avoid list), 'cta' (specific call to action with an action verb that matches the desired response), 'risks' (respects the brief's trend risks: never jokes about a real disaster's severity, victims, damage or official warnings)."
+        description="The checklist item: 'proposition' (delivers the single-minded proposition), 'product' (names the target product), 'reason_to_believe' (uses at least one reason to believe), 'trend_bridge' (connects to the trend through the bridge in the stated fit_mode, with a clear, specific tie that someone who follows the trend would recognise), 'tone' (matches the brand tone of voice), 'mandatories' (honours every mandatory), 'avoid' (contains nothing from the avoid list), 'cta' (specific call to action with an action verb that matches the desired response), 'risks' (respects the brief's trend risks: never jokes about a real disaster's severity, victims, damage or official warnings)."
     )
     passed: bool = Field(
         description="False only when the final copy (headline, body, caption and CTA) clearly fails this item; be accurate, not harsh."

@@ -410,7 +410,7 @@ TREND_SCOUT_HINT_BLOCK = """<trend_scout_hint>
         </trend_scout_hint>"""
 
 # Trend risks + unsupported claims (rater-gap PR 3): shared, brace-free rules.
-# The critic's `risks` brief check gates a revision (copy_gate
+# The critic's `risks` (and `trend_bridge`) brief checks gate a revision (copy_gate
 # GATING_BRIEF_CHECKS); unsupported absolute claims are a deterministic check
 # (creative_agent/claims.py) in the brief and copy gates.
 TREND_RISKS_RULE = "**Trend risks:** respect the trend risks listed in the brief (trend_bridge risks). When the trend is a real disaster, tragedy or crisis, never joke about or play on its severity, victims, damage or official warnings (e.g. storm categories, evacuation orders), and never build the idea on the harm itself; keep the trend to a light touch."
@@ -420,6 +420,10 @@ CURRENT_MOMENT_RULE = "**Current moment:** use the current moment only if it is 
 # The brief's timely angle (the timely slot): set only for a timely moment;
 # brief_check flags one without a validated moment or contradicting it.
 TIMELY_ANGLE_RULE = "**Timely angle:** if the current moment is present and timely (it has a valid-until time), set trend_bridge.timely_angle to one line describing how ONE timely creative may reference it, in the tone that fits it (anticipation before an event; celebration after a win, without gloating; empathy and loyalty after a loss); otherwise leave it empty. Never put a date or result in it that the current moment does not state."
+# The trend tie every copy must carry: the pre-judge counterpart of
+# creative_eval's blocking trend_connected gate (the critic's trend_bridge
+# self-check gates a revision, copy_gate GATING_BRIEF_CHECKS). Brace-free.
+COPY_TREND_TIE_RULE = "**Trend tie:** every copy makes a clear, specific connection to the trend that someone who follows the trend would recognise: a named reference, its signature language, events, rituals, iconography or memes. A nod so vague it could fit any trend, or the trend name bolted on as a generic word, is not enough. For a sensitive trend, connect through its general culture, never the harmful event itself."
 COPY_CLAIMS_RULE = "**Claims:** make no unsupported absolute claims (guaranteed, indestructible, unbreakable, risk-free, 100%, lifetime, never fails) unless the user's key selling points or the brief's mandatories state them; prefer a concrete, verifiable benefit."
 
 CREATIVE_BRIEF_WRITER_INSTR = (
@@ -539,7 +543,7 @@ AD_COPY_DRAFTER_INSTR = (
         *   Be suitable for Instagram/TikTok platforms (short, punchy, visual-friendly), with the headline within """
     + str(MAX_HEADLINE_CHARS)
     + """ characters.
-        *   Directly reference or subtly leverage the trending topic: {target_search_trends}.
+        *   Connect clearly and specifically to the trending topic: {target_search_trends} (see the trend tie rule below).
     4.  **Enforce Tone Diversity:** To ensure variety, the 10 ideas must collectively cover at least 4 of the following creative tones/styles: **Humorous, Aspirational, Problem/Solution, Emotional/Authentic, Educational/Informative, Relatable/Meme-based.**
     5.  **Strict Output Format:** Ensure the entire output is a single JSON object containing all 10 ideas, formatted exactly as specified in the <OUTPUT_FORMAT> block.
     6.  """
@@ -550,6 +554,9 @@ AD_COPY_DRAFTER_INSTR = (
     + """
     8.  """
     + COPY_CLAIMS_RULE
+    + """
+    9.  """
+    + COPY_TREND_TIE_RULE
     + """{timely_rules?}
     </INSTRUCTIONS>
 
@@ -612,7 +619,7 @@ AD_COPY_CRITIC_INSTR = (
         *   `proposition`: delivers the brief's single-minded proposition.
         *   `product`: names the target product.
         *   `reason_to_believe`: uses at least one of the brief's reasons to believe.
-        *   `trend_bridge`: connects to the trend through the brief's bridge, in its fit_mode.
+        *   `trend_bridge`: connects to the trend through the brief's bridge, in its fit_mode, with a clear, specific tie that someone who follows the trend would recognise (a named reference, its signature language, events, rituals, iconography or memes); fail it when the trend is absent, so vague it could fit any trend, or bolted on as a generic word (a sensitive trend referenced through its general culture, without the harmful event, counts).
         *   `tone`: matches the brand tone of voice.
         *   `mandatories`: honours every mandatory.
         *   `avoid`: contains nothing from the avoid list.
