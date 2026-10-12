@@ -151,6 +151,7 @@ def test_state_init_defaults_timely_rules_to_empty():
     target: dict = {}
     _set_initial_states({}, target)
     assert target["timely_rules"] == ""
+    assert target["rating_limits"] == ""
     seeded: dict = {"timely_rules": "kept"}
     _set_initial_states({}, seeded)
     assert seeded["timely_rules"] == "kept"
@@ -180,7 +181,10 @@ def _timely_prompts() -> dict[str, str]:
 # 4920d1e, incl. the date line). With `timely_rules` "" the token renders to nothing, so the
 # instruction the model sees is exactly this text. If one of these prompts is
 # changed for another reason, update its hash in the same PR (print
-# hashlib.sha256(instr.replace("{timely_rules?}", "").encode()).hexdigest()[:16]).
+# hashlib.sha256(instr.replace("{timely_rules?}", "")
+# .replace("{rating_limits?}", "").encode()).hexdigest()[:16]). `rating_limits`
+# (opt-in rating learning's stricter limits) is "" too unless the checks
+# effect flagged something, so it is stripped the same way.
 _PRE_TIMELY_SHA256 = {
     "ART_DIRECTOR_INSTR": "760ea3944a0b921e",
     "VISUAL_CONCEPT_DRAFTER_INSTR": "918acbada0a26155",
@@ -189,7 +193,7 @@ _PRE_TIMELY_SHA256 = {
     "VISUAL_CONCEPT_FIXER_INSTR": "b07772ba51b080c1",
     "AD_COPY_DRAFTER_INSTR": "5a70104505c0470c",
     "AD_COPY_CRITIC_INSTR": "d6cf06acf28cb50d",
-    "AD_COPY_REVISER_INSTR": "decad18ae792fd27",
+    "AD_COPY_REVISER_INSTR": "dd97709c6445e454",
     "VISUAL_CONCEPT_REVISER_INSTR": "2e7d5871d84ee712",
 }
 
@@ -197,7 +201,7 @@ _PRE_TIMELY_SHA256 = {
 @pytest.mark.parametrize("name", list(_PRE_TIMELY_SHA256))
 def test_instructions_without_timely_rules_are_byte_identical(name):
     instr = _timely_prompts()[name]
-    without = instr.replace("{timely_rules?}", "")
+    without = instr.replace("{timely_rules?}", "").replace("{rating_limits?}", "")
     assert (
         hashlib.sha256(without.encode()).hexdigest()[:16] == (_PRE_TIMELY_SHA256[name])
     ), name
@@ -207,13 +211,42 @@ def test_instructions_without_timely_rules_are_byte_identical(name):
 def test_timely_rules_come_only_from_state(name):
     instr = _timely_prompts()[name]
     assert instr.count("{timely_rules?}") == 1, name
-    # The last thing in the instructions, after the casting rules when present.
-    assert "{timely_rules?}\n    </INSTRUCTIONS>" in instr, name
+    # The last thing in the instructions, after the casting rules when present
+    # and followed only by the rating limits' own token where read.
+    end = "{rating_limits?}" if name in _RATING_LIMITS_READERS else ""
+    assert "{timely_rules?}" + end + "\n    </INSTRUCTIONS>" in instr, name
     if "{person_casting_rules?}" in instr:
         assert "{person_casting_rules?}{timely_rules?}" in instr, name
     without = instr.replace("{timely_rules?}", "")
     for word in ("uses_trend_state", "timely_reason", "current moment"):
         assert word not in without, (name, word)
+
+
+# The producers that check or fix against the gates (not the drafters that see
+# the full `rating_signals` note) read the run's stricter limits.
+_RATING_LIMITS_READERS = frozenset(
+    {
+        "VISUAL_CONCEPT_DRAFTER_INSTR",
+        "VISUAL_CONCEPT_CRITIC_INSTR",
+        "VISUAL_CONCEPT_FINALIZER_INSTR",
+        "VISUAL_CONCEPT_FIXER_INSTR",
+        "AD_COPY_CRITIC_INSTR",
+        "AD_COPY_REVISER_INSTR",
+        "VISUAL_CONCEPT_REVISER_INSTR",
+    }
+)
+
+
+def test_only_the_gated_producers_read_rating_limits():
+    from interactive_creative import prompts as ic_prompts
+
+    for module in (prompts, ic_prompts):
+        for name in dir(module):
+            value = getattr(module, name)
+            if name.endswith("_INSTR") and isinstance(value, str):
+                count = value.count("{rating_limits?}")
+                assert count == (name in _RATING_LIMITS_READERS), name
+                assert "{rating_limits}" not in value, name
 
 
 def test_only_the_creative_agents_read_timely_rules():

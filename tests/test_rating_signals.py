@@ -256,6 +256,16 @@ class TestStrictnessLimits:
         )
         assert rs.strictness_limits([]) == ""
 
+    def test_limits_rule_for_the_producer_prompts(self):
+        # `rating_limits` state: spliced at the end of the critic / reviser /
+        # visual producers' last instruction line, "" without a known flag.
+        rule = rs.strictness_limits_rule(["weak_cta", "bogus"])
+        assert rule.startswith("\n\n    **Stricter limits for this run")
+        assert self.LINES["weak_cta"] in rule
+        assert "{" not in rule and "}" not in rule
+        assert rs.strictness_limits_rule([]) == ""
+        assert rs.strictness_limits_rule(["cluttered", "bogus"]) == ""
+
     def test_word_cap_with_every_limit(self):
         s = {
             "ratings": 50,

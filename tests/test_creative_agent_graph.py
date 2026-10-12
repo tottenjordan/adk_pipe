@@ -1834,7 +1834,13 @@ def test_rating_strictness_from_the_learning_step_tightens_the_gates(monkeypatch
     )
     strictness = research["rating_strictness"]
     assert set(strictness) == {"weak_cta", "text_problem", "product_not_visible"}
-    learned = {"rating_strictness": strictness}
+    assert research["rating_limits"] == rating_signals.strictness_limits_rule(
+        strictness
+    )
+    learned = {
+        "rating_strictness": strictness,
+        "rating_limits": research["rating_limits"],
+    }
 
     # Copy gate: a 7-word CTA passes by default, is revised under weak_cta.
     long_cta = _final_ad(2, call_to_action="Grab your Rocket Skates at ACME today")
@@ -1851,6 +1857,8 @@ def test_rating_strictness_from_the_learning_step_tightens_the_gates(monkeypatch
     assert llms["ad_copy_reviser"].calls == 1
     prompt = str(llms["ad_copy_reviser"].requests[-1].config.system_instruction)
     assert "call_to_action has 7 words" in prompt
+    # The stricter limits also reach the producers' instructions up front.
+    assert "Calls to action: 6 words or fewer." in prompt
     assert "at most 6 words" in prompt
     assert state["ad_copy_critique"]["ad_copies"][1] == fixed
     assert state.get("ad_copy_critique__issues") is None

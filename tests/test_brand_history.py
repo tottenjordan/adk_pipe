@@ -532,6 +532,10 @@ class TestRatingLearning:
         assert self.calls == [("PRS", 90)]
         assert delta["rating_signals"].startswith("Your team's ratings for PRS (20)")
         assert delta["rating_strictness"] == ["product_not_visible"]
+        assert delta["rating_limits"] == bh.rating_signals.strictness_limits_rule(
+            ["product_not_visible"]
+        )
+        assert "Show the product large" in delta["rating_limits"]
         shortlist = delta["style_shortlist"].split("; ")
         assert "Isometric miniature world" not in shortlist
         assert "Candid 35mm film photo" in shortlist
@@ -627,6 +631,7 @@ class TestRatingLearning:
         monkeypatch.setattr(bh.config, "rating_learning_effects", frozenset({"checks"}))
         d = _delta({"brand": "PRS", "learn_from_ratings": True})
         assert d["rating_strictness"] == ["product_not_visible"]
+        assert "Show the product large" in d["rating_limits"]
         assert "rating_signals" not in d and "style_shortlist" not in d
 
         # Guidance without checks: the note never lists the stricter limits.
@@ -635,7 +640,7 @@ class TestRatingLearning:
         )
         d = _delta({"brand": "PRS", "learn_from_ratings": True})
         assert "Stricter limits" not in d["rating_signals"]
-        assert "rating_strictness" not in d
+        assert "rating_strictness" not in d and "rating_limits" not in d
 
     def test_applied_effects_list_only_what_changed_the_run(self, monkeypatch):
         """Configured effects that produced nothing are left out of ``effects``:
@@ -650,6 +655,7 @@ class TestRatingLearning:
         assert applied["effects"] == ["guidance"]
         assert applied["styles_excluded"] == [] and applied["styles_preferred"] == []
         assert applied["strictness"] == [] and d["rating_strictness"] == []
+        assert d["rating_limits"] == ""
         assert d["rating_signals"] and applied["signals"] == d["rating_signals"]
 
     def test_one_shortlist_draw_merges_recent_and_rated_styles(self, monkeypatch):

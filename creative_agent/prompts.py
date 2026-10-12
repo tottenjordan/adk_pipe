@@ -620,7 +620,7 @@ AD_COPY_CRITIC_INSTR = (
     + COPY_CLAIMS_RULE
     + " Remove any such claim from the copies you select."
     + """
-    8.  **Strict Output:** Output the final selection as a single JSON object, strictly following the schema in the `<OUTPUT_FORMAT>` block.{timely_rules?}
+    8.  **Strict Output:** Output the final selection as a single JSON object, strictly following the schema in the `<OUTPUT_FORMAT>` block.{timely_rules?}{rating_limits?}
     </INSTRUCTIONS>
 
     <CONTEXT>
@@ -675,11 +675,11 @@ AD_COPY_REVISER_INSTR = (
     + CREATIVE_BRIEF_CONTRACT_CORE
     + """ If the brief is empty, fall back to the campaign inputs.
     1.  **Scope:** <ad_copy_issues> lists the flagged copies by `original_id` and headline, each with its issues. Rewrite ONLY those copies, changing only what is needed to fix exactly the listed issues. Every copy that is not listed stays verbatim, field for field.
-    2.  **Fixes:** name the target product ({target_product}) in the headline, body text or social caption when it is missing; keep the call to action specific, starting with an action verb and within 8 words; keep the headline within 60 characters and the social caption within 2200 characters; remove every avoided term; and for each failed brief check, change the copy so the item is clearly met.
+    2.  **Fixes:** name the target product ({target_product}) in the headline, body text or social caption when it is missing; keep the call to action specific, starting with an action verb and within the word limit in its issue (8 by default); keep the headline within 60 characters and the social caption within 2200 characters; remove every avoided term; and for each failed brief check, change the copy so the item is clearly met.
     3.  **Keep the idea:** a revised copy keeps its `original_id`, `tone_style`, `angle_id` and core idea; re-rate `typicality` only if the idea changed.
     4.  **Checklist:** refresh `brief_checks` on every copy you revise (one entry per item, judged accurately against the revised copy; mark an item failed only when the copy clearly fails it); leave the other copies' checks unchanged.
     5.  **User feedback:** when <user_ad_copy_feedback> is non-empty, honour it in the copies you revise.
-    6.  **Output:** return ALL the copies from <final_ad_copies>, in the same order with unchanged `original_id`s, as a single JSON object.{timely_rules?}
+    6.  **Output:** return ALL the copies from <final_ad_copies>, in the same order with unchanged `original_id`s, as a single JSON object.{timely_rules?}{rating_limits?}
     </INSTRUCTIONS>
 
     <CONTEXT>
@@ -949,7 +949,7 @@ VISUAL_CONCEPT_DRAFTER_INSTR = (
     3.  **Choose the Style (do NOT default to photorealism):** Choose 4 DIFFERENT `visual_style` families from <style_shortlist> (when non-empty), matching each ad copy's tone via the guide's mapping preference. When <user_style_preference> is non-empty it overrides the shortlist. Use the <IMAGE_PROMPT_GUIDE> below and the <visual_direction> brief. Record the chosen family in the `visual_style` field.
     4.  **Composition variety (across the set):** Give each concept a different hero placement and camera distance: choose from centred hero, off-centre rule-of-thirds, small subject in a wide environment, extreme close-up detail, top-down flat lay, over-the-shoulder POV, environmental portrait. Use at most ONE centred product hero per set. In-image text in at most 2 concepts (see the guide; meme captions and comic speech bubbles are exempt), never both placed at the top. Every concept shows a trend motif.
     5.  **Prompt Engineering:** For each concept, write the `image_generation_prompt` following the <IMAGE_PROMPT_GUIDE> and honouring the <visual_direction> brief's mood, palette, motifs, and brand cues. Name the chosen style first, then build the scene. Also choose and record the `aspect_ratio` per concept (unless the campaign-wide override in <user_aspect_ratio> is set).
-    6.  **Strict Output Format:** Ensure the entire output is a single JSON object containing all generated concepts, strictly following the schema in the <OUTPUT_FORMAT> block (including `visual_style`, `aspect_ratio`, `trend_motif`, `brand_cue` and `angle_id` for each).{person_casting_rules?}{timely_rules?}
+    6.  **Strict Output Format:** Ensure the entire output is a single JSON object containing all generated concepts, strictly following the schema in the <OUTPUT_FORMAT> block (including `visual_style`, `aspect_ratio`, `trend_motif`, `brand_cue` and `angle_id` for each).{person_casting_rules?}{timely_rules?}{rating_limits?}
     </INSTRUCTIONS>
 
     <CONTEXT>
@@ -1068,7 +1068,7 @@ VISUAL_CONCEPT_CRITIC_INSTR = (
     + """
         *   **Carry-through:** Keep `trend_motif`, `brand_cue` and their verbatim presence in the prompt, and carry `angle_id` unchanged. Keep the `aspect_ratio` field (adjust only if the composition demands it). When <user_aspect_ratio> is non-empty, set every concept's `aspect_ratio` to this value and compose for it.
         *   **Set-level checks:** families come from <style_shortlist> and are all different; at most ONE centred hero; in-image text in at most 2 concepts (meme/comic captions excepted), short and punchy, no small print or style terms; every concept has a trend motif, and each `trend_motif` is SPECIFIC and recognisable: replace generic ones (phones, feeds, chat bubbles, notifications, screens) with signature imagery of the trend; no readable or gibberish background text. Fix violations by rewriting the weakest concept.
-    3.  **Strict Output Format:** The output must be a single, structured JSON object containing the **revised** concepts (including `visual_style`, `aspect_ratio`, `trend_motif`, `brand_cue` and `angle_id`). Do not include any external commentary or separate critique text.{person_casting_rules?}{timely_rules?}
+    3.  **Strict Output Format:** The output must be a single, structured JSON object containing the **revised** concepts (including `visual_style`, `aspect_ratio`, `trend_motif`, `brand_cue` and `angle_id`). Do not include any external commentary or separate critique text.{person_casting_rules?}{timely_rules?}{rating_limits?}
     </INSTRUCTIONS>
 
     <CONTEXT>
@@ -1153,7 +1153,7 @@ VISUAL_CONCEPT_FINALIZER_INSTR = (
     + VISUAL_CONCEPT_RULES
     + """
     4.  **Finalize and Enrich:** For each concept, combine the original ad copy details with the revised visual details to create a final, unified creative brief, honouring <user_visual_direction> when non-empty. Set `angle_id` to the matching ad copy's `angle_id` ("" when it has none).
-    5.  **Strict Output Format:** Output the final concepts as a single JSON object, strictly following the schema in the `<OUTPUT_FORMAT>` block (including `visual_style`, `aspect_ratio`, `trend_motif`, `brand_cue` and `angle_id` per concept).{person_casting_rules?}{timely_rules?}
+    5.  **Strict Output Format:** Output the final concepts as a single JSON object, strictly following the schema in the `<OUTPUT_FORMAT>` block (including `visual_style`, `aspect_ratio`, `trend_motif`, `brand_cue` and `angle_id` per concept).{person_casting_rules?}{timely_rules?}{rating_limits?}
     </INSTRUCTIONS>
 
     <CONTEXT>
@@ -1237,7 +1237,7 @@ VISUAL_CONCEPT_FIXER_INSTR = (
     + VISUAL_CONCEPT_RULES
     + """
     4.  **Keep the idea:** a fixed concept keeps its `ad_copy_id`, `concept_name`, `visual_style`, `aspect_ratio`, `brand_cue`, `angle_id`, `headline`, `social_caption` and `call_to_action`.
-    5.  **Output:** return ALL the concepts from <final_visual_concepts>, in the same order with unchanged `ad_copy_id`s, as a single JSON object.{person_casting_rules?}{timely_rules?}
+    5.  **Output:** return ALL the concepts from <final_visual_concepts>, in the same order with unchanged `ad_copy_id`s, as a single JSON object.{person_casting_rules?}{timely_rules?}{rating_limits?}
     </INSTRUCTIONS>
 
     <CONTEXT>

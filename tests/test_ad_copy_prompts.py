@@ -98,3 +98,11 @@ def test_reviser_rewrites_only_flagged_copies():
     assert "same order with unchanged `original_id`s" in instr
     assert "refresh `brief_checks` on every copy you revise" in instr
     assert "'FinalAdCopyList' schema" in instr
+
+
+def test_reviser_uses_the_cta_limit_from_the_issue():
+    # A weak_cta strictness flag lowers the gate's CTA limit to 6 words, so the
+    # reviser follows the limit stated in the issue instead of a fixed 8.
+    instr = prompts.AD_COPY_REVISER_INSTR
+    assert "within the word limit in its issue (8 by default)" in instr
+    assert "within 8 words" not in instr
