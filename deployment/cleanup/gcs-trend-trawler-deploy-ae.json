@@ -1,0 +1,12 @@
+{
+  "rule": [
+    {
+      "action": {"type": "Delete"},
+      "condition": {"age": 365, "matchesPrefix": ["person-refs/"]}
+    },
+    {
+      "action": {"type": "Delete"},
+      "condition": {"age": 90, "matchesPrefix": ["adk-pipe/cloudbuild/"]}
+    }
+  ]
+}

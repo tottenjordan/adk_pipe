@@ -1,0 +1,17 @@
+{
+  "rule": [
+    {
+      "action": {"type": "Delete"},
+      "condition": {
+        "age": 30,
+        "matchesPrefix": [
+          "services/trend-trawler-api/",
+          "services/trend-trawler-web/",
+          "services/trend-trawler-share/",
+          "services/creative-trawler-crf/",
+          "services/creative-worker-crf/"
+        ]
+      }
+    }
+  ]
+}
