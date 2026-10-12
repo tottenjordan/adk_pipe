@@ -7,6 +7,13 @@
  * names and encoding stay consistent across every call site.
  */
 
+/**
+ * A GCS bucket name: lowercase letters, digits, `.`, `_`, `-`, 3-222 chars, starting
+ * and ending with a letter or digit. Anything URL-like (`/`, `?`, `#`, `%`) fails, which
+ * keeps a bucket from rewriting the JSON API URL it is spliced into.
+ */
+export const BUCKET_RE = /^[a-z0-9][a-z0-9._-]{1,220}[a-z0-9]$/;
+
 /** Build the same-origin GCS proxy URL for a bucket + object path. */
 export function gcsProxyUrl(bucket: string, path: string): string {
   return `/api/gcs?bucket=${encodeURIComponent(bucket)}&path=${encodeURIComponent(path)}`;
