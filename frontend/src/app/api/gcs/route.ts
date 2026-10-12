@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { GCS_FETCH_TIMEOUT_MS, isTimeoutError } from "@/lib/fetch-timeout";
 import { getAccessToken } from "@/lib/gcp-auth";
 import { allowedBuckets, gcsMediaUrl, isAllowedBucket } from "@/lib/gcs-server";
 import { resolveUser } from "@/lib/iap-identity";
@@ -83,6 +84,7 @@ export async function GET(request: NextRequest) {
 
     const gcsRes = await fetch(gcsMediaUrl(bucket, objectPath), {
       headers: { Authorization: `Bearer ${accessToken}` },
+      signal: AbortSignal.timeout(GCS_FETCH_TIMEOUT_MS),
     });
 
     if (!gcsRes.ok) {
@@ -137,7 +139,11 @@ export async function GET(request: NextRequest) {
 
     return new NextResponse(body, { status: 200, headers });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Unknown error";
-    return NextResponse.json({ error: message }, { status: 500 });
+    if (isTimeoutError(err)) {
+      return NextResponse.json({ error: "Storage timed out" }, { status: 504 });
+    }
+    // The detail can name hosts or credentials problems: log it, never return it.
+    console.error("/api/gcs: storage request failed", err);
+    return NextResponse.json({ error: "Storage error" }, { status: 500 });
   }
 }

@@ -209,4 +209,27 @@ describe("/api/gcs response headers", () => {
       "application/octet-stream"
     );
   });
+
+  it("fetches GCS with a timeout signal", async () => {
+    await call("tt-bucket", "2026/out/hero.png");
+    const init = (fetchMock.mock.calls[0] as unknown[])[1] as RequestInit | undefined;
+    expect(init?.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it("maps a GCS timeout to 504 with a generic message", async () => {
+    fetchMock.mockRejectedValueOnce(Object.assign(new Error("The operation was aborted due to timeout"), { name: "TimeoutError" }));
+    const res = await call("tt-bucket", "2026/out/hero.png");
+    expect(res.status).toBe(504);
+    expect(await res.json()).toEqual({ error: "Storage timed out" });
+  });
+
+  it("never returns the raw error message on a storage failure", async () => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    fetchMock.mockRejectedValueOnce(new Error("connect ECONNREFUSED 10.0.0.1:443 secret-detail"));
+    const res = await call("tt-bucket", "2026/out/hero.png");
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({ error: "Storage error" });
+    expect(log).toHaveBeenCalled();
+    log.mockRestore();
+  });
 });

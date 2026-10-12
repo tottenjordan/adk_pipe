@@ -142,4 +142,14 @@ describe("proxy handler headers", () => {
     expect(await res.text()).not.toContain("metadata");
     expect(fetchMock).not.toHaveBeenCalled();
   });
+
+  it("calls the backend with a timeout signal and maps a timeout to 504", async () => {
+    const { route, fetchMock } = await loadRoute("http://localhost:8000");
+    await call(route);
+    expect(fetchMock.mock.calls[0][1]?.signal).toBeInstanceOf(AbortSignal);
+    fetchMock.mockRejectedValueOnce(Object.assign(new Error("The operation was aborted due to timeout"), { name: "TimeoutError" }));
+    const res = await call(route);
+    expect(res.status).toBe(504);
+    expect(await res.text()).toBe("Backend timed out");
+  });
 });

@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { BACKEND_FETCH_TIMEOUT_MS, isTimeoutError } from "@/lib/fetch-timeout";
 import { getIdentityToken } from "@/lib/gcp-auth";
 import { resolveUser } from "@/lib/iap-identity";
 import { scopeQuery, scopeRequestToUser } from "@/lib/user-scoping";
@@ -111,8 +112,15 @@ async function proxy(
     headers,
     body: upstreamBody,
     redirect: "manual",
+    signal: AbortSignal.timeout(BACKEND_FETCH_TIMEOUT_MS),
   };
-  const upstream = await fetch(target, init);
+  let upstream: Response;
+  try {
+    upstream = await fetch(target, init);
+  } catch (err) {
+    if (isTimeoutError(err)) return new Response("Backend timed out", { status: 504 });
+    throw err;
+  }
 
   // Strip hop-by-hop / length headers that would conflict with the proxied body.
   const respHeaders = new Headers(upstream.headers);
