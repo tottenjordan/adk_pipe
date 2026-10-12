@@ -1,0 +1,42 @@
+{
+  "variants": {},
+  "castable": {
+    "The Golden Golf Cart Gig": {
+      "ok": false,
+      "reason": "This creative can't feature a person: its style is not one of the person-safe styles.",
+      "code": "style_not_person_safe",
+      "style": "Meme aesthetic",
+      "mode": "add"
+    },
+    "Nihilistic Retirement Plan": {
+      "ok": false,
+      "reason": "This creative can't feature a person: its style is not one of the person-safe styles.",
+      "code": "style_not_person_safe",
+      "style": "Retro / vaporwave",
+      "mode": "add"
+    },
+    "The Jackpot Reveal": {
+      "ok": false,
+      "reason": "This creative can't feature a person: its style is not one of the person-safe styles.",
+      "code": "style_not_person_safe",
+      "style": "Warm, High-Contrast Stage Photography",
+      "mode": "add"
+    },
+    "The Authentic Encore": {
+      "ok": true,
+      "reason": "",
+      "code": "",
+      "style": "Candid 35mm film photo",
+      "mode": "add"
+    }
+  },
+  "person_safe_styles": [
+    "Candid 35mm film photo",
+    "Photoreal / editorial",
+    "Cinematic film still",
+    "3D character render",
+    "Comic panel",
+    "2D flat / vector cartoon",
+    "Collage / mixed-media"
+  ]
+}

@@ -36,6 +36,12 @@ Trend Trawler is a multi-agent system built with Google's [Agent Development Kit
 - [Usage](#usage)
 - [Frontend UI](#frontend-ui)
 - [Evaluation](#evaluation)
+- [Quality gates and image QA](#quality-gates-and-image-qa)
+- [Trend awareness](#trend-awareness)
+- [Human ratings and calibration](#human-ratings-and-calibration)
+- [Shareable links](#shareable-links)
+- [Person references](#person-references)
+- [Run status](#run-status)
 - [Deployment](#deployment)
 - [Testing](#testing)
 - [Repo structure](#repo-structure)
@@ -48,8 +54,14 @@ Trend Trawler is a multi-agent system built with Google's [Agent Development Kit
 Trend Trawler works like its namesake: it casts a wide net over the day's Search trends and keeps only the catch worth keeping.
 
 1. **Find trends (`trend_scout`).** Pulls the top 25 Google Search trends, researches each one's cultural context, keeps the 3 most relevant to your campaign and writes them to BigQuery. You can opt in to picking the trends yourself.
-2. **Make creatives (`creative_agent`).** For one `<trend, campaign>` pair, it runs campaign and trend web research in parallel and writes a cited research report. It then drafts and critiques ad copy and visual concepts and renders one image per concept. `interactive_creative` runs the same pipeline but pauses for human review after the research, the ad copies and the visual concepts.
-3. **Score and export (`creative_eval`).** An LLM judge scores every ad copy and visual concept across 12 dimensions. The run exports a research PDF, an HTML gallery and an evaluation report to Cloud Storage, and writes summary rows to BigQuery.
+2. **Make creatives (`creative_agent`).** For one `<trend, campaign>` pair, the root agent makes a single `creative_pipeline` call that chains every stage:
+   - **Research.** Campaign and trend web research run in parallel, next to a no-LLM read of the brand's past runs (brand history) and a grounded check of the trend's *current moment* (see [Trend awareness](#trend-awareness)). The result is a cited research report and a structured `CreativeBrief`, checked by a deterministic brief gate.
+   - **Ad copy.** 10 drafts across the brief's angles, a critic keeps 4, and a deterministic copy gate sends flagged copies to one bounded revision.
+   - **Visuals.** An art director, drafter, critic and finalizer write 4 style-diverse visual concepts, a concept gate fixes flagged ones, and each concept is rendered with a post-render image check that can trigger a targeted re-render.
+   - **Finalize.** `finalize_pipeline` judges every creative, then saves the evaluation report, the HTML gallery and the BigQuery rows.
+
+   `interactive_creative` runs the same stages but pauses for human review after the brief, the ad copies and the visual concepts.
+3. **Score and export (`creative_eval`).** An LLM judge scores every ad copy and visual concept on 12 advisory dimensions plus binary pass/fail gates. The run exports a research PDF, an HTML gallery and an evaluation report to Cloud Storage, and writes summary rows to BigQuery. You can rate the creatives yourself to calibrate the judge, share them through a public link, or make personalised previews with a consented person.
 
 <p align="center">
   <img src="docs/architecture/system-architecture.png" alt="Trend Trawler system architecture" width="880">
@@ -108,10 +120,18 @@ At a minimum, set these values:
 | `GOOGLE_CLOUD_PROJECT` | your project ID (required; nothing hardcodes a project) |
 | `GOOGLE_CLOUD_LOCATION` | `global` (Gemini 3.x) |
 | `GOOGLE_CLOUD_STORAGE_BUCKET` | bare bucket name, without `gs://` |
-| `BQ_PROJECT_ID`, `BQ_DATASET_ID` | where the three tables live (dataset defaults to `trend_trawler`) |
+| `BQ_PROJECT_ID`, `BQ_DATASET_ID` | where the tables live (dataset defaults to `trend_trawler`) |
+| `BQ_TABLE_TARGETS`, `BQ_TABLE_CREATIVES`, `BQ_TABLE_EVALS` | table names (`.env.example` sets `target_trends_crf`, `trend_creatives`, `creative_evals`; the table script requires them) |
 | `GOOGLE_CLOUD_PROJECT_NUMBER` | needed for deployment (`gcloud projects describe <id> --format='value(projectNumber)'`) |
 
-**3. Create the BigQuery tables.** The agents' persistence steps write to them. `trend_scout` writes the selected trends. `creative_agent` and `interactive_creative` write a creative row and an evaluation row per run, and both read and write the bucket. The script is idempotent. The schemas are in [deployment/README.md → Create BigQuery tables](deployment/README.md#create-bigquery-tables).
+**3. Create the BigQuery tables.** The script creates the dataset and 9 tables, and is idempotent:
+
+- `target_trends_crf`: the trends `trend_scout` selects (incl. a compact `trend_context` JSON per trend)
+- `trend_creatives` and `creative_evals`: one creative row and one evaluation summary row per creative run
+- `creative_ratings`, `creative_shares`, `person_references`: human ratings, share links and person-reference consents, written by the web backend
+- `bandit_experiments`, `bandit_events`, `bandit_episode_metrics`: the optional bandit experiments
+
+The optional table names default to the names above (override with `BQ_TABLE_RATINGS`, `BQ_TABLE_SHARES`, `BQ_TABLE_PERSON_REFS`, `BQ_TABLE_BANDIT_*`). The creative agents also read and write the bucket. The schemas are in [deployment/README.md → Create BigQuery tables](deployment/README.md#create-bigquery-tables); older tables need the ALTER migrations in [Creative quality: migrations + knobs](deployment/README.md#creative-quality-migrations--knobs).
 
 ```bash
 set -a && source .env && set +a
@@ -180,8 +200,8 @@ user: Brand Name: "YOUR BRAND"
 
 **Review checkpoints (`interactive_creative`).** The run pauses three times. Each pause uses ADK's `LongRunningFunctionTool` on a resumable `App`.
 
-1. **After research:** review the cited research report, then approve it or request changes.
-2. **After ad copies:** review the ad copies before any visual concepts are generated.
+1. **After research:** review the structured creative brief as an editable form, with the full cited report underneath. An edited brief is validated against the `CreativeBrief` schema (an invalid one is refused field by field) and the research PDF is re-saved; research never re-runs.
+2. **After ad copies:** approve the copies, or send feedback once. Feedback revises the flagged copies in one bounded pass, and you review them again before any visual concepts are generated.
 3. **After visual concepts:** review and directly edit the concepts and image prompts before rendering. A `visual_concept_reviser` agent applies any free-text revision notes.
 
 ## Frontend UI
@@ -210,6 +230,16 @@ The custom web UI is built with Next.js, Tailwind CSS and shadcn/ui. Use it to s
     <td></td>
   </tr>
 </table>
+
+**Pages:**
+
+- `/`: campaign form with agent tiles, brief, optional visual direction, an optional **Person** select (your consented people), a **Learn from past ratings for this brand** checkbox, and recent runs.
+- `/runs`: run history with **Duplicate brief**, plus a "Judge agreement" line once 20 of your ratings pair with a current-judge verdict.
+- `/run/[sessionId]`: the live run: stage spine, current stage, outputs so far, review checkpoints, and a muted "Current moment: …" line when the trend has a validated moment. A step error that the pipeline contained shows as a notice; the run keeps going.
+- `/results/[sessionId]`: the contact sheet with judge scores and a "Check failed" chip, and a proof detail per creative with the judge's **Checks**, the image check, a "Timely" row for the creative that references the current moment, **Your rating** (pass/fail, optional fail-reason chips, 1–5 scores and a note), **Share this creative**, and a **Personalise** panel ("Swap person" on a creative that already shows a person). The header has **Share slate** and a **Shared links** list; runs that used rating learning show what was learned.
+- `/people`: register and revoke consented person photos.
+- `/s/[token]`: the public, read-only share page (Card, Feed and Story views), served only by the public share service.
+- `/experiments`, `/experiments/[id]`: bandit experiments (below).
 
 Run it locally:
 
@@ -259,16 +289,67 @@ From a finished creative run, the results page's Deploy panel turns 2–4 approv
 
 Each dimension gets a 1–10 score, a verdict and a rationale. Per-creative scores are normalized to 0.0–1.0. The judge also returns binary **gates** (compliance checks against concrete rules, where LLM judges agree well with expert humans; the 1–10 scores are advisory quality signals). A creative **passes when its score is ≥ 0.7 *and* every non-advisory gate passed** (`gates_passed`, computed in code). Pass rates from reports written before the gates existed used the score alone, so they are not directly comparable with newer ones.
 
-- **Ad copy gates:** delivers the proposition, product named, uses a reason to believe, mandatories met, avoid list respected
-- **Visual gates:** product visible, trend motif visible, in-image text correct, avoid list respected, and brand cue present (advisory: recorded, never fails a creative)
+- **Ad copy gates (6):** delivers the proposition, product named, uses a reason to believe, mandatories met, avoid list respected, trend risks respected
+- **Visual gates (8):** product visible, trend motif visible (prominent and recognisable as the trend at a glance), in-image text correct, avoid list respected, no visual defects (malformed or mirrored product, broken anatomy; stylisation is fine), trend risks respected, person depicted respectfully (judged only for a concept rendered with the run's consented person; otherwise passed with the note "no person cast"), and brand cue present (advisory: recorded, never fails a creative)
 
-The judge reads the structured creative brief, so the gates check the copy and image against the brief's proposition, reasons to believe, mandatories and avoid list (without a brief, those gates pass with the note "no brief"). Gates fail only on the judge's explicit verdict; a gate it leaves out passes as "not checked". The visual judge looks at the **rendered image**, using the image prompt only to understand intent, and gets the automated image check as a hint. With no rendered image, or one it cannot read, it judges the prompt instead and the report says so. The report adds strengths, suggested improvements and a summary (pass rates, average scores, weakest dimensions), and it records `judge_model` and any research-degradation `warnings`. It is saved as `creative_eval_report.json` in the run's Cloud Storage folder. A summary row also goes to the BigQuery `creative_evals` table: pass rate, counts, average scores, `weakest_dimensions`, the readable `weakest_dimension_labels` and `gates_pass_rate` (labels from `creative_eval/dimensions.py`).
+The judge reads the structured creative brief, so the gates check the copy and image against the brief's proposition, reasons to believe, mandatories, avoid list and trend risks (without a brief, those gates pass with the note "no brief"). Gates fail only on the judge's explicit verdict; a gate it leaves out passes as "not checked". The visual judge looks at the **rendered image**, using the image prompt only to understand intent, and gets the automated image check as a hint. With no rendered image, or one it cannot read, it judges the prompt instead and the report says so. The report adds strengths, suggested improvements and a summary (pass rates, average scores, weakest dimensions), and it records `judge_model`, `judge_version` and the run's `warnings`: all run notes, such as research gaps, failed saves, unresolved quality-check issues and judge notes. It is saved as `creative_eval_report.json` in the run's Cloud Storage folder. A summary row also goes to the BigQuery `creative_evals` table: pass rate, counts, average scores, `weakest_dimensions`, the readable `weakest_dimension_labels` and `gates_pass_rate` (labels from `creative_eval/dimensions.py`).
 
-The judge defaults to `gemini-3.1-pro-preview` at `global`. Override it with `EVAL_MODEL` and `EVAL_MODEL_LOCATION`. The judge has no fallback model, so a silent swap can't skew pass rates.
+The judge defaults to `gemini-3.1-pro-preview` at `global`. Override it with `EVAL_MODEL` and `EVAL_MODEL_LOCATION`. The judge has no fallback model, so a silent swap can't skew pass rates. In `creative_agent`, the ad copies are judged early, in parallel with the visual stage, and finalize then judges only the visuals.
+
+**Judge versioning.** `JUDGE_VERSION` in `creative_eval/dimensions.py` (currently `2026-10-10`, when the person gate landed) is stamped on every report and on every human rating. It is bumped whenever the gates, their wording, the pass rule or the judge model change, so pass rates and agreement are only compared within one version.
+
+The eval is the independent final measurement and never triggers regeneration; fixing creatives is the job of the gates that run before it. Gate rules and the judge's output schema: [docs/notes/creative-quality-gates.md](docs/notes/creative-quality-gates.md).
+
+## Quality gates and image QA
+
+Most quality control happens *before* the judge, in deterministic code rather than prompts. Each gate flags specific problems, routes only the flagged items to one bounded LLM revision round (rounds set by `BRIEF_REVISION_ROUNDS`, `COPY_REVISION_ROUNDS`, `CONCEPT_REVISION_ROUNDS`; default 1, 0 = record only), and records anything left as a run note.
+
+- **Brief gate** (`creative_agent/brief_check.py`): the brief names the product exactly in its mandatories and makes no unsupported absolute claims (`claims.py`).
+- **Copy gate** (`copy_gate.py`): product named, CTA of 8 words or fewer, headline and caption length, the brief's avoid terms, unsupported claims, plus the critic's failed proposition, mandatories and trend-risk checks. Unflagged copies are restored if the reviser touches them.
+- **Concept gate** (`concept_guard.py`): in-image text must be quoted exactly from the paired headline or CTA, every concept needs a trend motif, at most 2 of 4 concepts carry headline text, and at most one has a centred hero. A guard also appends the motif, the product or the brand cue to any image prompt missing them.
+- **Post-render image QA** (`image_qa.py`, on by default): one vision call per render checks the product and motif are visible, the product isn't malformed, the text is exact and legible, and there are no unrequested logos, artifacts or unsafe content. A failing image gets a targeted re-render (`IMAGE_QA_MAX_RERENDERS`, at most `IMAGE_QA_MAX_RERENDERS_PER_RUN` per run), and the better attempt is kept. Results show as "Image check" in the gallery and on the results page.
+
+Image diversity comes from a random per-run shortlist of style families (4 distinct ones per slate) and the style-first `IMAGE_PROMPT_GUIDE`. **Brand history** (`brand_history.py`) reads the brand's last runs from `creative_evals` and steers the brief and art direction away from recently used styles and recurring weak spots. Knobs and migrations: [deployment/README.md → Creative quality: migrations + knobs](deployment/README.md#creative-quality-migrations--knobs).
+
+## Trend awareness
+
+The creatives know what day it is and what is happening with the trend right now, and use it in at most one creative.
+
+- **Date state** (`agent_common/clock.py`): every run seeds `current_date`, `current_datetime`, `current_timezone` and `current_weekday` once, in `TREND_TIMEZONE` (default `America/New_York`); resumed runs keep their original date. The research, brief, copy and art-direction prompts read it.
+- **Trend context handoff** (`trend_scout/trend_context.py`): `trend_scout` saves a compact per-trend research JSON in `target_trends_crf.trend_context`. The Cloud Function worker and the web UI's trend cards seed it into creative runs as `trend_scout_context`, with `trend_detected_on`. The creative agents treat it only as a hint to re-verify.
+- **Trend situation** (`creative_agent/trend_situation.py`): a grounded search and a structured synthesizer run beside the research and describe the trend's moment (upcoming, live, just happened, ongoing, evergreen, sensitive) with dates, outcome and cited sources. A deterministic validator then decides whether it is usable: it abstains to "unknown" without a dated, cited event within `TREND_EVENT_WINDOW_DAYS`, and computes a `valid_until`. Sensitive moments are never referenced. `TREND_STATE_ENABLED=false` turns the branch off.
+- **Timely slot and tone playbook:** with a timely moment, at most `MAX_TIMELY_CONCEPTS` (default 1) of the 4 creatives may reference it, using a code-derived tone (anticipation before an event and no score predictions; celebration without gloating after a win; empathy and no discount pushes after a loss) and no team logos, mascots, player names or implied sponsorship. A lexicon of dated and outcome words (`temporal_terms.py`) keeps every other creative evergreen; the copy and concept gates enforce both the cap and the evergreen rule.
+
+The run and results pages show the moment as a muted "Current moment: …" line, the timely creative carries a "Timely: …" label in the proof detail and the gallery. Background: [TREND_STATE_RESEARCH.md](TREND_STATE_RESEARCH.md); rules: [docs/notes/creative-quality-gates.md](docs/notes/creative-quality-gates.md).
+
+## Human ratings and calibration
+
+On the results page you can rate each creative pass or fail, pick optional fail-reason chips (for example "Product hard to see" or "Weak call to action"; only the reasons relevant to copy or visuals are offered), give optional 1–5 scores and add a note. Ratings go to the BigQuery `creative_ratings` table through the backend's `/ratings` API, each one snapshotting the judge's verdict and `judge_version`. `GET /ratings/{user}/calibration` and `scripts/eval_calibration.py` report judge–human agreement, Cohen's kappa and Spearman's rho, counting only ratings of the current judge version; the `/runs` page shows it once 20 ratings are paired. Protocol: [docs/notes/judge-calibration.md](docs/notes/judge-calibration.md); setup: [deployment/README.md → Creative ratings](deployment/README.md#creative-ratings-judge-calibration).
+
+**Learning from ratings (opt-in per run).** With the form's "Learn from past ratings for this brand" checkbox on (and `RATING_LEARNING_ENABLED`), the run reads the brand's ratings from all users (only allowlisted fields, never notes) and, once there are at least `RATING_LEARNING_MIN_RATINGS` (default 8), can add short guidance to the brief, copy and art-direction prompts, prefer or skip style families by pass rate, and tighten specific checks (for example a shorter CTA limit after repeated "weak CTA" fails). What was applied is recorded on the run and the eval report and shown on the run and results pages. Batch (Cloud Function) runs never use it.
+
+## Shareable links
+
+From the results page you can share the whole slate or one creative through a public, read-only link (`/s/<token>`), optionally with the judge's checks and scores. The backend's `/shares` API freezes an allowlisted snapshot (no prompts, rationales, notes or emails) and re-encodes the images as JPEGs under `gs://<bucket>/shares/<token>/`; revoking a link deletes them. The links are served by a separate public Cloud Run service, `trend-trawler-share`: the same web image with `SHARE_MODE=1`, which serves only share pages and static assets (everything else is a 404) with `noindex` headers and a strict CSP, and reads only the `shares/` prefix. See [deployment/README.md → Shareable links](deployment/README.md#shareable-links).
+
+## Person references
+
+Creative runs can cast a real, consenting adult as the hero of some images.
+
+- **Consent** (`/people` page, `/person-refs` API): you upload a photo to your own `gs://<bucket>/person-refs/<slug>/` prefix and register it with a label, who it is (you, or someone who agreed), an adult attestation and an optional public-share consent. Photos under 512 px on the shorter side are refused by default (`PERSON_PHOTO_MIN_SIDE`), and under 1024 px are flagged as low resolution.
+- **Casting:** pick a person on the campaign form. The backend checks the consent before the run starts. The visual agents cast the person in at most `MAX_CAST_CONCEPTS` (default 2) concepts, only in person-safe styles (`PERSON_SAFE_STYLES`: calibrated photographic and illustrated families) and never for real-person or tragedy trends; image QA checks the likeness, and the judge's "person depicted respectfully" gate applies. A safety-filter block falls back to an image without the person.
+- **Personalised previews** (`/variants` API, UI only): the **Personalise** panel makes a preview of a finished creative with one of your consented people by **editing the original render**, so only the person changes; a composition check guards the rest of the image. On a creative that already shows a person it becomes a **person swap**. Previews are never judged, rated, shared or used in experiments, and are capped per user per day (`VARIANT_DAILY_CAP`).
+- **Sharing and revoking:** a creative showing a person is shared only if that consent allows public links. Revoking a consent revokes those shares and deletes the photo and every image made with it, including swaps made from it.
+
+See [deployment/README.md → Person references](deployment/README.md#person-references) and [Personalised variants](deployment/README.md#personalised-variants); calibration notes: [docs/notes/person-reference-calibration.md](docs/notes/person-reference-calibration.md), [docs/notes/person-swap-edit-mode.md](docs/notes/person-swap-edit-mode.md).
+
+## Run status
+
+The web UI starts runs through the backend's async-job `/runs` API: a detached task drives the agent while the page polls the persistent session log, so a run survives a disconnect, a reload or an IAP re-login. Only the terminal `__run_status` marker decides whether a run is done or failed (an uncaught error, a timeout after `RUN_MAX_SECONDS` (default 1800) or a cancellation all write an error marker). An error that a pipeline step contained, such as an optional step that failed soft, is returned as a non-fatal warning and shown as "A step reported an error and was skipped"; the run keeps going. If the root agent ends on an empty turn before the run finished, the backend re-prompts it up to `RUN_MAX_AUTO_CONTINUES` times. See [deployment/README.md → Async-job run model](deployment/README.md#async-job-run-model).
 
 ## Deployment
 
-The three agents deploy to Agent Engine, one instance each. Two Cloud Run Functions (orchestrator + worker) fan out one `creative_agent` run per trend via Pub/Sub. The web UI runs as two Cloud Run services: an IAP-gated frontend and a private backend.
+The three agents deploy to Agent Engine, one instance each. Two Cloud Run Functions (orchestrator + worker) fan out one `creative_agent` run per trend via Pub/Sub. The web UI runs as three Cloud Run services: the IAP-gated frontend `trend-trawler-web`, the private backend `trend-trawler-api` (`deployment/async_app.py`), and the public share viewer `trend-trawler-share`, the only public service.
 
 ```bash
 uv run python deployment/deploy_agent.py --version=v1 --agent=trend_scout --create   # or creative_agent / interactive_creative
@@ -299,7 +380,7 @@ The `creative_agent` eval uses its own rubric config. For the exact command, see
 - [`python-ci.yml`](.github/workflows/python-ci.yml) runs on PRs that touch Python or dependency files. It checks `uv sync --locked`, requirements.txt drift, `ruff check`, `ruff format --check`, `ty check` and `pytest`.
 - [`crf-deps.yml`](.github/workflows/crf-deps.yml) runs on PRs that touch `cloud_functions/**`. It runs the Cloud Function tests against the function's own `requirements.txt`.
 - [`frontend-tests.yml`](.github/workflows/frontend-tests.yml) runs on PRs that touch `frontend/**`: lint, tests, and a build that type-checks.
-- [`adk-eval.yml`](.github/workflows/adk-eval.yml) runs nightly and on manual dispatch, not on PRs. It runs `adk eval` per agent against an isolated eval dataset and bucket. Then `tests/eval/efficiency_gate.py` gives the real pass/fail signal: it fails on non-passing cases or on token and call-count regressions against `docs/baselines/eval_efficiency.json`.
+- [`adk-eval.yml`](.github/workflows/adk-eval.yml) runs nightly and on manual dispatch, not on PRs. It runs `adk eval` per agent against an isolated eval dataset and bucket. Then `tests/eval/efficiency_gate.py` gives the real pass/fail signal (`adk eval` exits 0 on failed cases): it fails on a failed case or on token and call-count regressions against `docs/baselines/eval_efficiency.json`. A case passes when its deterministic `tool_use_check` passes (the root agent's own tool calls, e.g. `creative_agent` calls only `memorize` and `creative_pipeline`, the pipeline exactly once and last) and every other non-informational metric passes; the LLM tool-use rubric is reported but advisory. See [deployment/README.md → Efficiency gate](deployment/README.md#efficiency-gate).
 - [`dependabot.yml`](.github/dependabot.yml) opens weekly dependency updates, with minor and patch bumps grouped.
 
 ## Repo structure
@@ -308,26 +389,31 @@ The agent packages sit flat at the repo root on purpose. Agent Engine's `extra_p
 
 ```text
 .
-├── trend_scout/           # phase 1: trend discovery agent
+├── trend_scout/           # phase 1: trend discovery agent (trend_context.py: per-trend context JSON)
 ├── creative_agent/        # phase 2: research → ad copy → visual concepts → images → exports
 ├── interactive_creative/  # phase 2 with human-review checkpoints (reuses creative_agent)
 ├── creative_eval/         # LLM-as-judge scoring of ad copy and visual concepts
 ├── agent_common/          # shared config, models, retry, rate limiting, state (bundled into every engine)
-├── agents/                # symlinks: the api_server's view of the runnable agents
-├── runserver/             # async-job /runs + /experiments APIs, per-user authz for the web backend
+├── agents/                # symlinks: the web backend's view of the three runnable agents
+├── runserver/             # web backend APIs: /runs, /ratings, /shares, /person-refs, /variants, /experiments; per-user authz
 ├── bandit/                # contextual-bandit core: JAX linear TS, synthetic env, simulator (dev only)
 ├── bandit_serving/        # CPR predictor for the bandit experiment endpoint
 ├── bandit_traffic/        # synthetic-traffic Cloud Run Job for bandit experiments
 ├── cloud_functions/       # Pub/Sub fan-out: orchestrator + worker Cloud Run Functions
 ├── deployment/            # deploy/test scripts, backend launcher, BigQuery setup, deployment guide
-├── frontend/              # Next.js web UI
-├── tests/                 # pytest suite + ADK evalsets
+├── frontend/              # Next.js web UI (also the public share viewer with SHARE_MODE=1)
+├── scripts/               # judge calibration report, bandit scenario-preset generator
+├── tests/                 # pytest suite + ADK evalsets + eval efficiency gate
 ├── experiments/           # measurement harnesses (latency, quota spread, bandit parity); never deployed
 ├── docs/                  # architecture diagrams, examples, screenshots, plans, notes
 ├── imgs/                  # README banner
 ├── .env.example           # environment reference
+├── Dockerfile             # web backend image (async_app under uvicorn)
 ├── CLAUDE.md              # detailed architecture and per-file guide
-└── CODE_STANDARDS.md      # packaging, lint, typing, testing and commit conventions
+├── GEMINI.md              # the same project context for Gemini agents
+├── CODE_STANDARDS.md      # packaging, lint, typing, testing and commit conventions
+├── PERSON_REFERENCE_RESEARCH.md  # research behind person references
+└── TREND_STATE_RESEARCH.md       # research behind trend awareness
 ```
 
 For a per-file breakdown, see [CLAUDE.md → Key files](CLAUDE.md#key-files).
@@ -344,7 +430,8 @@ Read [CODE_STANDARDS.md](CODE_STANDARDS.md) first. In short:
 
 - Scheduled runs
 - Email or other notifications when a run finishes
-- Easy export to a live editing tool for image iteration (Nano Banana)
+- Easy export to a live editing tool for image iteration (Nano Banana). Edit-mode image editing already powers personalised previews and person swaps; general-purpose edits of a creative are not built yet.
+- Judge checks for timely claims, expiry of timely creatives, and the other open ideas in [TREND_STATE_RESEARCH.md](TREND_STATE_RESEARCH.md)
 
 ## References
 

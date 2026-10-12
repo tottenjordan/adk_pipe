@@ -1,0 +1,186 @@
+{
+  "_comment": "Contract-shaped mock responses for the PRS results session (results-creative-demo): GET /ratings/{u}/{session} (runserver/ratings.py), GET /ratings/{u}/calibration (runserver/calibration.py), GET/POST /shares/{u} (runserver/shares.py) and GET /person-refs/{u} (runserver/person_refs.py). Synthetic but consistent with the run fixtures. *MinutesAgo become ISO timestamps at capture time. The two people are label-only demo entries: their photo_uri is served as a neutral silhouette placeholder by the capture mock, never a real photo.",
+  "ratings": [
+    {
+      "creative_key": "visual:The Golden Golf Cart Gig",
+      "kind": "visual",
+      "verdict": "pass",
+      "score": 5,
+      "note": "The silk robe + golf cart is exactly the joke.",
+      "judge_overall": 0.867,
+      "judge_passed": true,
+      "judge_gates_passed": true,
+      "judge_model": "gemini-3.1-pro-preview",
+      "judge_source": "gcs",
+      "judge_version": "2026-10-10",
+      "learning_used": true,
+      "fail_reasons": [],
+      "updatedMinutesAgo": 9
+    },
+    {
+      "creative_key": "copy:1",
+      "kind": "ad_copy",
+      "verdict": "fail",
+      "score": 3,
+      "note": "Headline typo: 'There To Be Signs' should be 'There Would Be Signs'.",
+      "judge_overall": 0.85,
+      "judge_passed": true,
+      "judge_gates_passed": true,
+      "judge_model": "gemini-3.1-pro-preview",
+      "judge_source": "gcs",
+      "judge_version": "2026-10-10",
+      "learning_used": true,
+      "fail_reasons": ["other"],
+      "updatedMinutesAgo": 8
+    },
+    {
+      "creative_key": "visual:The Jackpot Reveal",
+      "kind": "visual",
+      "verdict": "fail",
+      "score": 2,
+      "note": "Great guitar shot, but nothing says Powerball.",
+      "judge_overall": 0.633,
+      "judge_passed": false,
+      "judge_gates_passed": false,
+      "judge_model": "gemini-3.1-pro-preview",
+      "judge_source": "gcs",
+      "judge_version": "2026-10-10",
+      "learning_used": true,
+      "fail_reasons": ["trend_unclear", "cluttered"],
+      "updatedMinutesAgo": 6
+    },
+    {
+      "creative_key": "copy:5",
+      "kind": "ad_copy",
+      "verdict": "pass",
+      "score": 4,
+      "note": null,
+      "judge_overall": 0.75,
+      "judge_passed": true,
+      "judge_gates_passed": true,
+      "judge_model": "gemini-3.1-pro-preview",
+      "judge_source": "gcs",
+      "judge_version": "2026-10-10",
+      "learning_used": true,
+      "fail_reasons": [],
+      "updatedMinutesAgo": 6
+    }
+  ],
+  "calibration": {
+    "n": 43,
+    "sessions": 11,
+    "ready_min_ratings": 20,
+    "judge_version": "2026-10-10",
+    "excluded_other_versions": 6,
+    "overall": {
+      "n": 43,
+      "judge_passed": { "n": 43, "agreement": 0.79, "kappa": 0.52, "reason": null },
+      "judge_gates_passed": { "n": 43, "agreement": 0.81, "kappa": 0.58, "reason": null },
+      "score_spearman": { "n": 37, "rho": 0.46, "reason": null }
+    },
+    "by_kind": {
+      "visual": {
+        "n": 24,
+        "judge_passed": { "n": 24, "agreement": 0.75, "kappa": 0.49, "reason": null },
+        "judge_gates_passed": { "n": 24, "agreement": 0.79, "kappa": 0.57, "reason": null },
+        "score_spearman": { "n": 21, "rho": 0.44, "reason": null }
+      },
+      "ad_copy": {
+        "n": 19,
+        "judge_passed": { "n": 19, "agreement": 0.84, "kappa": 0.55, "reason": null },
+        "judge_gates_passed": { "n": 19, "agreement": 0.84, "kappa": 0.58, "reason": null },
+        "score_spearman": { "n": 16, "rho": 0.49, "reason": null }
+      }
+    },
+    "by_learning": {
+      "learned": {
+        "n": 21,
+        "judge_passed": { "n": 21, "agreement": 0.81, "kappa": 0.55, "reason": null },
+        "judge_gates_passed": { "n": 21, "agreement": 0.81, "kappa": 0.57, "reason": null },
+        "score_spearman": { "n": 18, "rho": 0.5, "reason": null }
+      },
+      "not_learned": {
+        "n": 22,
+        "judge_passed": { "n": 22, "agreement": 0.77, "kappa": 0.47, "reason": null },
+        "judge_gates_passed": { "n": 22, "agreement": 0.82, "kappa": 0.59, "reason": null },
+        "score_spearman": { "n": 19, "rho": 0.42, "reason": null }
+      }
+    }
+  },
+  "shares": [
+    {
+      "token": "prs-powerball-demo-k3J9xQ",
+      "url": "https://trend-trawler-share-demo.a.run.app/s/prs-powerball-demo-k3J9xQ",
+      "title": "Paul Reed Smith (PRS) × Powerball",
+      "scope": "slate",
+      "include_eval": true,
+      "concept_names": [
+        "The Golden Golf Cart Gig",
+        "Nihilistic Retirement Plan",
+        "The Jackpot Reveal",
+        "The Authentic Encore"
+      ],
+      "app_name": "creative_agent",
+      "session_id": "results-creative-demo",
+      "createdMinutesAgo": 95
+    },
+    {
+      "token": "prs-golf-cart-gig-Vb71pLs0",
+      "url": "https://trend-trawler-share-demo.a.run.app/s/prs-golf-cart-gig-Vb71pLs0",
+      "title": "If I Won The $1.8B Powerball, There To Be Signs.",
+      "scope": "creative",
+      "include_eval": false,
+      "concept_names": ["The Golden Golf Cart Gig"],
+      "app_name": "creative_agent",
+      "session_id": "results-creative-demo",
+      "createdMinutesAgo": 41
+    }
+  ],
+  "created_share": {
+    "token": "prs-powerball-slate-Qm4tZr8w",
+    "url": "https://trend-trawler-share-demo.a.run.app/s/prs-powerball-slate-Qm4tZr8w",
+    "title": "Paul Reed Smith (PRS) × Powerball",
+    "scope": "slate",
+    "include_eval": true,
+    "concept_names": [
+      "The Golden Golf Cart Gig",
+      "Nihilistic Retirement Plan",
+      "The Jackpot Reveal",
+      "The Authentic Encore"
+    ],
+    "app_name": "creative_agent",
+    "session_id": "results-creative-demo",
+    "createdMinutesAgo": 0,
+    "skipped": []
+  },
+  "person_refs": {
+    "person_refs": [
+      {
+        "consent_id": "pr_7Hq2mXv9aL",
+        "photo_uri": "gs://trend-trawler-deploy-ae/person-refs/demo_user_example_com-3c76c8233d/me.jpg",
+        "label": "Me",
+        "subject": "self",
+        "adult_attested": true,
+        "allow_public_share": false,
+        "consent_text_version": "2026-10-09",
+        "photo_min_side": 1536,
+        "low_resolution": false,
+        "createdMinutesAgo": 4320
+      },
+      {
+        "consent_id": "pr_Kd83nWq1zT",
+        "photo_uri": "gs://trend-trawler-deploy-ae/person-refs/demo_user_example_com-3c76c8233d/casey.jpg",
+        "label": "Casey (bandmate)",
+        "subject": "third_party_with_consent",
+        "adult_attested": true,
+        "allow_public_share": true,
+        "consent_text_version": "2026-10-09",
+        "photo_min_side": 800,
+        "low_resolution": true,
+        "createdMinutesAgo": 1500
+      }
+    ],
+    "prefix": "gs://trend-trawler-deploy-ae/person-refs/demo_user_example_com-3c76c8233d/",
+    "consent_text_version": "2026-10-09"
+  }
+}

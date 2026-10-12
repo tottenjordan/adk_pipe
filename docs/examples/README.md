@@ -52,7 +52,9 @@ The run also writes two BigQuery rows:
   the `creative_gcs` folder URI.
 - **`creative_evals`** (`BQ_TABLE_EVALS`) stores one summary row per run. It has the pass
   rate, the counts and average scores, `weakest_dimensions` and the readable
-  `weakest_dimension_labels`, any `research_gaps`, and `eval_report_gcs_uri`. It joins
+  `weakest_dimension_labels`, `gates_pass_rate` (the share of judged creatives whose
+  blocking gates all passed; NULL for pre-gate reports), any `research_gaps` (a legacy name:
+  it holds all run notes, not only research gaps), and `eval_report_gcs_uri`. It joins
   `trend_creatives` via `creative_uuid`.
 
 For the table schemas, see
@@ -79,9 +81,11 @@ caption with hashtags.
 </details>
 
 Below the grid, the collapsible **Visual Concepts** and **Ad Copy Ideas** sections list every
-concept and copy, prompts included, so you can tweak a creative and re-render it. When web
-research came back degraded (a retry-exhausted researcher), a warning banner at the top of
-the gallery lists the gaps. This run had none.
+concept and copy, prompts included, so you can tweak a creative and re-render it. When the run
+left notes (degraded research, a failed save, unresolved quality-check issues), a "Run
+notes" banner at the top of the gallery lists them. This run had none. (Galleries from
+current runs also show a per-image "Image check" line from the post-render QA; these
+captures predate it.)
 
 Hovering over a creative shows four facts about it:
 
@@ -176,9 +180,28 @@ trimmed):
 }
 ```
 
-For a complete report, see the frontend screenshot fixture
-[`frontend/scripts/screenshot-fixtures/creative-eval-report.json`](../../frontend/scripts/screenshot-fixtures/creative-eval-report.json),
-which comes from an earlier real run on the same campaign. The web UI's results page shows
+> **Note (2026-10-12): this excerpt predates the eval gates.** The run above was judged
+> before the binary gates landed (2026-10-07; current judge version `2026-10-10`), so it
+> doesn't show the fields a current report adds. It is left as captured. A current
+> `creative_eval_report.json` also has:
+>
+> - per creative `score.gates` (`[{gate, passed, note, advisory}]`: 6 ad-copy gates, 8 visual
+>   gates, see [creative-quality-gates.md](../notes/creative-quality-gates.md)) and
+>   `score.gates_passed`; `passed` now requires score ≥ 0.7 **and** every non-advisory gate;
+> - per visual `image_judged` (the judge saw the rendered image, not just the prompt), plus
+>   `visual_style` / `angle_id` (ad copies: `angle_id`);
+> - `summary.gates_pass_rate`;
+> - top level `judge_version`, `passing_threshold`, `brief_used`, and, for runs steered by
+>   opt-in rating learning, `learning_used` + `learning_flags`.
+>
+> Old gate-less reports still render in the results page.
+
+For a complete report with these fields, see the frontend screenshot fixture
+[`frontend/scripts/screenshot-fixtures/creative-eval-report.current.json`](../../frontend/scripts/screenshot-fixtures/creative-eval-report.current.json),
+which comes from an earlier real run on the same campaign (its gate fields were added on
+2026-10-12 for the screenshots, so treat them as illustrative; the gate-less original,
+`creative-eval-report.json`, is kept because the Python tests use it as a pre-gates report). The web UI's
+results page shows
 these scores next to each creative. Readable dimension labels such as "Trend connection" come
 from `creative_eval/dimensions.py`.
 

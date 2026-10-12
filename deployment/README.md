@@ -10,12 +10,12 @@ see the [main README](../README.md).
 - [Deploying Agents to Agent Engine](#deploying-agents-to-agent-engine)
 - [Cloud Run Functions Fan-out Pattern](#cloud-run-functions-fan-out-pattern)
 - [Frontend + api_server on Cloud Run](#frontend--api_server-on-cloud-run)
-- [Shareable links](#shareable-links)
 - [Bandit experiments](#bandit-experiments)
 - [Creative ratings (judge calibration)](#creative-ratings-judge-calibration)
 - [Shareable links](#shareable-links)
 - [Person references](#person-references)
 - [Personalised variants](#personalised-variants)
+- [Trend state (date, current moment, timely slot)](#trend-state-date-current-moment-timely-slot)
 - [Creative quality: migrations + knobs](#creative-quality-migrations--knobs)
 - [Eval CI (WIF)](#eval-ci-wif)
 - [Alternative Deployment: deploy to Cloud Run instances](#alternative-deployment-deploy-to-cloud-run-instances)
@@ -125,22 +125,22 @@ Deploying Agents to separate Agent Engine instances...
 
 ```bash
 # deploy `trend_scout` agent to Agent Engine
-python deployment/deploy_agent.py --version=v1 --agent=trend_scout --create
+uv run python deployment/deploy_agent.py --version=v1 --agent=trend_scout --create
 
 # deploy `creative_agent` agent to Agent Engine
-python deployment/deploy_agent.py --version=v1 --agent=creative_agent --create
+uv run python deployment/deploy_agent.py --version=v1 --agent=creative_agent --create
 
 # deploy `interactive_creative` agent (human-in-the-loop variant) to Agent Engine
-python deployment/deploy_agent.py --version=v1 --agent=interactive_creative --create
+uv run python deployment/deploy_agent.py --version=v1 --agent=interactive_creative --create
 
 # list existing Agent Engine instances
-python deployment/deploy_agent.py --list
+uv run python deployment/deploy_agent.py --list
 
 # delete an Agent Engine Runtime
-python deployment/deploy_agent.py --resource_id=<RESOURCE_ID> --delete
+uv run python deployment/deploy_agent.py --resource_id=<RESOURCE_ID> --delete
 
 # opt-in Cloud Trace for a new engine (off by default)
-python deployment/deploy_agent.py --version=v1 --agent=creative_agent --create --enable_tracing
+uv run python deployment/deploy_agent.py --version=v1 --agent=creative_agent --create --enable_tracing
 ```
 
 > **Cloud Trace (opt-in).** `--enable_tracing` ships
@@ -173,7 +173,7 @@ python deployment/deploy_agent.py --version=v1 --agent=creative_agent --create -
 
 ```bash
 export USER_ID='ima_user'
-python deployment/test_deployment.py --agent=trend_scout --user_id=$USER_ID
+uv run python deployment/test_deployment.py --agent=trend_scout --user_id=$USER_ID
 
 Found agent with resource ID: ...
 Created session for user ID: ...
@@ -188,7 +188,7 @@ INFO - Deleted session for user ID: ima_user
 
 ```bash
 export USER_ID='ima_user'
-python deployment/test_deployment.py --agent=creative_agent --user_id=$USER_ID
+uv run python deployment/test_deployment.py --agent=creative_agent --user_id=$USER_ID
 
 Found agent with resource ID: ...
 Created session for user ID: ...
@@ -629,13 +629,17 @@ gcloud pubsub topics publish $CREATIVE_PUB_TOPIC --message "$(cat message.json |
 
 ## Frontend + api_server on Cloud Run
 
-Serve the Next.js frontend and the ADK `api_server` as **two independent Cloud Run
-services** in `us-central1`. This turns the "planned/target" box in the deployment
-diagram into real, reproducible infrastructure.
+Serve the Next.js frontend and the backend (`deployment/async_app.py` under uvicorn) as
+independent Cloud Run services in `us-central1`: the IAP-gated `trend-trawler-web`, the
+private `trend-trawler-api`, and (see [Shareable links](#shareable-links)) the public
+`trend-trawler-share`, built from the same web image.
 
 <p align="center">
-  <img src="../docs/diagrams/frontend_cloudrun_deployment.png" alt="Frontend + api_server Cloud Run deployment" width="720">
+  <img src="../docs/diagrams/frontend_cloudrun_topology.png" alt="Cloud Run deployment topology: IAP-gated web, private api, public share service" width="720">
 </p>
+
+The original dev-vs-target view is kept in
+[`docs/diagrams/frontend_cloudrun_deployment.png`](../docs/diagrams/frontend_cloudrun_deployment.png).
 
 ### Architecture
 
@@ -678,7 +682,7 @@ Build them locally to catch Dockerfile errors before the Cloud Run source build:
 # Frontend (multi-stage, Debian slim, standalone server)
 cd frontend && docker build -t tt-web:local .
 
-# Backend (uv-based ADK api_server), from repo root
+# Backend (uv-based; deployment/async_app.py under uvicorn), from repo root
 docker build -t tt-api:local .
 ```
 
@@ -692,8 +696,8 @@ docker build -t tt-api:local .
 
 ### 0. Prerequisites + shared vars
 
-The two `Dockerfile`s and this runbook live on the `feat/frontend-cloud-run-deploy`
-branch — run the deploy from a checkout (or git worktree) of **that** branch, since a
+The two `Dockerfile`s (repo-root `Dockerfile` for the api, `frontend/Dockerfile` for the
+web) are on `main` — run the deploy from a checkout of `main`, since a
 `gcloud run deploy --source` build needs the Dockerfile at the build-context root.
 
 ```bash
@@ -753,7 +757,7 @@ roles.
 
 ```bash
 API_SA=tt-api-sa@$PROJECT.iam.gserviceaccount.com
-# From the repo root of a feat/frontend-cloud-run-deploy checkout (uses the root Dockerfile):
+# From the repo root of a main checkout (uses the root Dockerfile):
 gcloud run deploy trend-trawler-api \
   --source . --region $REGION --no-allow-unauthenticated \
   --service-account $API_SA \
@@ -777,6 +781,14 @@ gcloud run deploy trend-trawler-api \
 > code (`agent_common` `MODEL_LOCATION` / `build_gemini`), and setting it would push
 > model calls to a regional endpoint. Confirm the actual table names against `.env`
 > before running.
+
+> **Launcher env** (`deployment/async_app.py`, passed to ADK's `get_fast_api_app`):
+> `SESSION_SERVICE_URI` (persistent sessions, Step 6), `ARTIFACT_SERVICE_URI` (artifact
+> backend URI, e.g. `gs://<bucket>`; unset = ADK's default, local to the instance, which
+> is fine because the results page reads images from GCS and cast renders are never saved
+> as artifacts) and `ALLOW_ORIGINS` (comma-separated CORS origins; unset = no CORS, right
+> for Cloud Run where the browser reaches the api only through the same-origin `/api/adk`
+> proxy; locally `ALLOW_ORIGINS=http://localhost:3000`).
 
 > **Post-P3:** the api defaults to `USER_AUTHZ_MODE=enforce` and **refuses to boot**
 > without `TRUSTED_PROXY_SA` + `TRUSTED_PROXY_AUDIENCES` — add them to this
@@ -884,16 +896,24 @@ The `/runs` router (`runserver/async_runs.py`, mounted by `deployment/async_app.
 | Route | Purpose |
 |---|---|
 | `POST /runs/{app_name}` — `{userId, sessionId, message}` | Ensures the session, spawns a **detached `asyncio` task** driving `Runner.run_async` to completion, returns `{runId, status:"running"}` immediately. |
-| `GET /runs/{app_name}/{user_id}/{session_id}?since=N` | Returns `{status, events: events[N:], nextCursor, state, error}`. The frontend polls this, advancing `since` by `nextCursor`. |
+| `GET /runs/{app_name}/{user_id}/{session_id}?since=N` | Returns `{status, events: events[N:], nextCursor, state, error, warnings}`. The frontend polls this, advancing `since` by `nextCursor`. |
 | `POST /runs/{app_name}/{user_id}/{session_id}/resume` — `{functionCallId, functionName, response}` | Resumes an interactive checkpoint, also detached. |
 
 The run's durable log **already exists**: `Runner.run_async` appends every final event to
 the (persistent) session as it runs, and the poll just reads `session.events`. When the run
 finishes, `_drive_run` appends a **terminal marker** event (`author="__runserver__"`,
 `state_delta={"__run_status":"done"}`); on failure it appends `{"__run_status":"error",
-"__run_error":…}` instead of re-raising. The poll derives `status` from that marker (or from
-an in-pipeline error event), so a client can disconnect and reconnect — or reload — and the
-run keeps going server-side; re-polling from `since=0` replays the whole timeline.
+"__run_error":…}` instead of re-raising. Every failure path writes that `error` marker: an
+uncaught exception (incl. a root model error that escapes), the `RUN_MAX_SECONDS` timeout
+(default `1800` s; "run exceeded …s timeout") and cancellation, e.g. an instance shutdown
+("run was interrupted"). The poll derives `status` **only** from the last marker
+(`_derive_status`; no marker = `running`), so a client can disconnect and reconnect — or
+reload — and the run keeps going server-side; re-polling from `since=0` replays the whole
+timeline. In-pipeline error events (`error_code`/`error_message`, e.g. a model `400` that a
+`FailSoftNode` contained) never flip a run to `error`: the poll lists them as non-fatal
+`warnings` (`[{author, message}]`, deduped, at most 5, messages truncated to 300 chars;
+`_derive_warnings`), and the run page shows them as a muted "A step reported an error and
+was skipped" notice.
 
 **Auto-continue after an empty root turn.** A Pro root model occasionally returns an
 empty final turn (STOP, no text, no function call) right after a long NodeTool
@@ -922,8 +942,9 @@ there is no auto-continue (interactive_creative still calls the stages separatel
   allocated outside requests, and a warm instance so scale-to-zero can't kill an in-flight
   run.
 - **Instance recycling can still orphan a run.** If the instance running the task is
-  redeployed / scaled down / OOM-killed mid-run, no terminal marker is written and the poll
-  would report `running` forever. Mitigations: the frontend **stall-timeout** surfaces it to
+  redeployed / scaled down / OOM-killed mid-run and the task is never cancelled (a hard
+  kill), no terminal marker is written and the poll would report `running` forever (a
+  graceful shutdown that cancels the task writes the `error` marker "run was interrupted"). Mitigations: the frontend **stall-timeout** surfaces it to
   the user, and you should avoid mid-run redeploys. Any api revision change (a
   deploy **or** a `services update --update-env-vars`, followed by the traffic pin) shuts the
   old revision's instance down within about a minute. Before one, confirm nothing is running:
@@ -1330,7 +1351,7 @@ revision name instead.
 The endpoint and model are created in `GCP_REGION` (default `us-central1`) with labels
 `app=trend-trawler,experiment=<id>`, and the container always gets
 `VERTEX_CPR_WEB_CONCURRENCY=1` (one worker, one in-memory posterior) on exactly one replica.
-Manual lifecycle CLI: `python -m deployment.bandit.endpoint --create|--state|--delete`.
+Manual lifecycle CLI: `uv run python -m deployment.bandit.endpoint --create|--state|--delete`.
 
 ### IAM (documentation only; run where GCP creds exist)
 
@@ -1510,8 +1531,11 @@ deploying the api that writes it (until then a rating save answers 502 `store_fa
 | `BQ_TABLE_RATINGS` | `creative_ratings` | Table name in `BQ_DATASET_ID` |
 | `GOOGLE_CLOUD_STORAGE_BUCKET` | (already set) | The only bucket eval reports are read from (local fallback `GCS_BUCKET_NAME`); unset = judge fields only from session state |
 
-Ratings are api-only: the agents never read them, so neither variable is in
-`deploy_agent.py`'s `ENV_VAR_DICT`.
+The api writes ratings; the engines read them only for opt-in rating learning
+(`creative_agent/rating_signals.py`). So `RATINGS_STORE` is api-only, while
+`BQ_TABLE_RATINGS` is also shipped to the engines through `deploy_agent.py`'s
+`ENV_VAR_DICT` (see the [agent knobs](#creative-quality-migrations--knobs)); keep both
+values equal.
 
 ## Shareable links
 
@@ -1530,8 +1554,9 @@ server-side re-encodes each rendered image (`generated_images[concept].gcs_uri`,
 under `gs://$GOOGLE_CLOUD_STORAGE_BUCKET/`) to `shares/<token>/<i>.jpg`: the ~10 MB 2K PNG
 render becomes an RGB progressive JPEG (quality 85, long edge ≤ 1600 px, never upscaled, no
 EXIF/metadata; `runserver/share_images.py`), typically under 1 MB, so pages and link
-previews (og:image limits of ~5–8 MB) stay light (`image/jpeg`,
-`Cache-Control: private, max-age=300`). Shares created before this kept `<i>.png` copies;
+previews (og:image limits of ~5–8 MB) stay light (GCS object `image/jpeg`,
+`Cache-Control: private, max-age=300`; the viewer's `/s/<token>/img/<n>` response itself
+sends `private, max-age=60`). Shares created before this kept `<i>.png` copies;
 the viewer serves whichever name the snapshot's `creatives[i].image` holds. It then writes `shares/<token>/snapshot.json`
 (`no-store`) and records the share in `creative_shares`. A failure part-way deletes
 `shares/<token>/` again and answers 502 `share_failed`. Revoking marks the row revoked and
@@ -1681,7 +1706,7 @@ curl -s -o /dev/null -w '%{http_code}\n' "$SHARE_URL/api/adk/list-apps"         
 curl -s -o /dev/null -w '%{http_code}\n' "$SHARE_URL/_next/image?url=%2Ffavicon.ico&w=64&q=75" # 404
 curl -s "$SHARE_URL/robots.txt"                                                          # Disallow: /
 curl -sI "$SHARE_URL/s/$TOKEN" | grep -iE '^HTTP|x-robots-tag|content-security-policy' # 200 + noindex + CSP
-curl -s -o /dev/null -w '%{http_code} %{content_type}\n' "$SHARE_URL/s/$TOKEN/img/0"     # 200 image/png
+curl -s -o /dev/null -w '%{http_code} %{content_type}\n' "$SHARE_URL/s/$TOKEN/img/0"     # 200 image/jpeg (image/png for pre-JPEG shares)
 curl -s -o /dev/null -w '%{http_code}\n' "$SHARE_URL/s/$TOKEN/img/9"                    # 404
 curl -s -o /dev/null -w '%{http_code}\n' "$SHARE_URL/s/AAAAAAAAAAAAAAAAAAAAAA"          # 404 (unknown/revoked)
 # The SA really cannot read outside shares/ (expect 403; impersonation needs
@@ -1702,8 +1727,10 @@ A user can register a consented photo of a person (an adult who agreed to appear
 AI-generated ad previews) on the web app's **People** page (`/people`), so later runs can
 cast them (plan:
 [docs/plans/2026-10-09-person-reference.md](../docs/plans/2026-10-09-person-reference.md)).
-This PR adds only the consent registry, the owner-only photo access and the page; casting
-comes later.
+This section covers the consent registry (api), the owner-only photo access (web) and the
+revoke cascade; casting in runs is under [Person casting](#person-casting), personalised
+previews under [Personalised variants](#personalised-variants), and the share scope under
+[Shareable links](#shareable-links).
 
 - **Photo upload (out of band, no upload UI):** the photo goes to
   `gs://$GOOGLE_CLOUD_STORAGE_BUCKET/person-refs/<slug>/<file>.(jpg|jpeg|png|webp)`, at most
@@ -1745,7 +1772,10 @@ comes later.
   registered in `deployment/async_app.py`; deletes `shares/<token>/`, so the link 404s);
   deletes every image listed in the record's `person_renders` (cast base renders and
   personalised variants, see below), but only objects that still carry blob metadata
-  `consent_id` = this consent; then deletes the photo object. A failed step answers 502
+  `consent_id` = this consent or `source_consent_id` = this consent (a person swap edited
+  from a render cast with it, `person_refs.RENDER_SOURCE_METADATA_KEY`); deletes the
+  recorded runs' cast renders and variants (see "Runs recorded at kick-off" below); then
+  deletes the photo object. A failed step answers 502
   `revoke_incomplete`, and repeating the DELETE finishes it (every step is idempotent).
   The results page shows "Image removed (consent revoked)" for a cast creative whose
   image is gone. **Revoke is the primary deletion path**; the lifecycle rule below is a
@@ -1764,7 +1794,8 @@ comes later.
   `session:<app>/<session_id>` entry to the consent's `person_renders` (a store error is a
   503 `person_reference_unavailable` and nothing starts). The revoke reads each recorded
   session's state (the api's session service) and deletes the `generated_images` and
-  `person_variants` objects naming the consent (metadata-checked), so a run that died
+  `person_variants` objects naming the consent (as `consent_id`, or a swap's
+  `source_consent_id`; metadata-checked), so a run that died
   mid-segment is covered; a deleted session is skipped. No new column: the markers live in
   `person_renders`.
 - **No ADK artifact copy:** cast renders are uploaded to GCS only (no `save_artifact`), so
@@ -1827,8 +1858,36 @@ gcloud run services update trend-trawler-api --region us-central1 \
   --update-env-vars PERSON_REFS_STORE=bigquery
 ```
 
-Person references are api-only for now, so none of these variables is in
-`deploy_agent.py`'s `ENV_VAR_DICT`.
+These registry variables are api-only (not in `deploy_agent.py`'s `ENV_VAR_DICT`); the
+casting knobs the engines read are under [Person casting](#person-casting).
+
+### Person casting
+
+A creative run cast with a person (`person_reference = {uri, consent_id}` in the session's
+`initialState`, from the campaign form's "Person (optional)" select; creative agents only)
+is checked by the api before anything starts: `POST /runs` requires an active consent of
+the caller whose `photo_uri` equals `uri` (else 400 `person_reference_invalid`; a store
+error is 503 `person_reference_unavailable`), and a resume re-checks it (revoked mid-run →
+the run continues without the person and records a `person_reference__issues` note). The
+engines then let at most `MAX_CAST_CONCEPTS` concepts in a person-safe style cast "the
+person in the person reference image", render those with `person_generation=ALLOW_ADULT`
+(a safety block falls back to a render without the person, never a failed run) and add a
+likeness check to image QA; the judge adds its `person_depicted_respectfully` gate.
+Cast renders are uploaded with blob metadata `consent_id` (for the revoke cascade) and are
+never saved as ADK artifacts.
+
+Engine knobs (shipped through `deploy_agent.py` `ENV_VAR_DICT`, read at import, so
+redeploy the creative engines to change them; also listed in the
+[agent knobs](#creative-quality-migrations--knobs)):
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `PERSON_SAFE_STYLES` | `Candid 35mm film photo,Photoreal / editorial,Cinematic film still,3D character render,Comic panel,2D flat / vector cartoon,Collage / mixed-media` | Canonical style families a concept may cast the person in (comma-separated; unknown names dropped, none left → the default) |
+| `MAX_CAST_CONCEPTS` | `2` (0–4) | Cast concepts per set; `0` = casting off |
+
+The photo-quality floor (`PERSON_PHOTO_MIN_SIDE`, 400 `photo_too_small`) is enforced at
+registration by the api (see the table above), not by the engines. No table or migration
+beyond `person_references` itself.
 
 ### Lifecycle (retention backstop)
 
@@ -1871,18 +1930,46 @@ top-level prefix, add a `matchesPrefix` rule for it.
 
 ## Personalised variants
 
-UI-only previews of a finished creative re-rendered with one of the caller's consented
-people as the hero (plan
+UI-only previews of a finished creative with one of the caller's consented people as the
+hero (plan
 [docs/plans/2026-10-09-person-reference.md](../docs/plans/2026-10-09-person-reference.md)
-PR 3). The results proof dialog's **Personalise** panel calls
-`POST /variants/{user}/{app}/{session}` (`runserver/variants.py`), which renders in a
-detached task inside the **api** process through `creative_agent.render_concept` (the same
-render + image-QA path the engines use) and polls `GET /variants/{user}/{app}/{session}`.
-Results land in session state `person_variants` and at
-`gs://$GOOGLE_CLOUD_STORAGE_BUCKET/<run folder>/creative_output/variants/<owner slug>/<concept>/<key>.png`
-(blob metadata `consent_id`, `Cache-Control: private, no-store`; `/api/gcs` serves them to
-their owner only). Variants are never judged, rated, shared or deployed to an experiment,
-and the experiments api refuses cast creatives (`cast_creative`) for likeness safety.
+PR 3; edit mode:
+[docs/plans/2026-10-11-faithful-person-swaps.md](../docs/plans/2026-10-11-faithful-person-swaps.md);
+swaps: [docs/plans/2026-10-11-person-swap.md](../docs/plans/2026-10-11-person-swap.md)).
+The results proof dialog's **Personalise** panel calls
+`POST /variants/{user}/{app}/{session}` (`runserver/variants.py`, body
+`{concept_name, consent_id}`) and polls `GET /variants/{user}/{app}/{session}`. The api
+renders in a detached task inside its own process by **editing the run's original render**
+(`creative_agent.render_concept.render_edit`): the image model gets
+`creative_agent/person_edit.py`'s `EDIT_INSTRUCTION` ("replace only the main person, keep
+everything else exactly"), the original image (`generated_images[c].gcs_uri`, read only
+from the run's own output folder, ≤ 20 MB; else 400 `image_outside_bucket`, missing → 409
+`concept_not_ready`) and the chosen person's photo, with `ALLOW_ADULT`, at the allowed
+aspect ratio nearest the original's pixel size. Image QA checks likeness against the photo
+and the composition against the original ("composition changed"); a failing check repeats
+the edit with a correction (bounded). There is **no fresh-render fallback**: a safety block
+ends the variant as `rejected`.
+
+- **Add vs swap:** an uncast creative gets the person added as the hero (`castable[c].mode`
+  `"add"`). A creative that already casts a person is a **person swap** (`mode` `"swap"`,
+  `cast_consent_id` = the consent it was cast with): choosing that same consent is a 400
+  `same_person_as_cast`, and the cast person's consent must still be active (else 409
+  `concept_not_ready`). Other refusals: `consent_not_active`, `run_in_progress`,
+  `concept_not_found`, `concept_not_castable` (person-safe style + a human subject, the same
+  checks as casting), `variant_cap_reached`.
+- **Cache key:** `sha256(VARIANT_KEY_VERSION | photo_uri | image_generation_prompt | image
+  model)[:12]` with `VARIANT_KEY_VERSION = "v3"` (edit mode); a `done` record is returned as
+  a cache hit, older keys stay listed.
+- **Storage:** session state `person_variants` and
+  `gs://$GOOGLE_CLOUD_STORAGE_BUCKET/<run folder>/creative_output/variants/<owner slug>/<concept>/<key>.png`
+  (blob metadata `consent_id` = the new person's consent, plus `source_consent_id` = the
+  cast person's consent for a swap; `Cache-Control: private, no-store`; `/api/gcs` serves
+  them to their owner only). The URI is appended to the consent's `person_renders` (and,
+  for a swap, the cast person's too) right before upload, so revoking either consent
+  deletes it.
+
+Variants are never judged, rated, shared or deployed to an experiment, and the experiments
+api refuses cast creatives (`cast_creative`) for likeness safety.
 
 **Quota.** Variants share the image model's ~2 images/min (plus the image-QA vision calls)
 with live runs, project-wide. A process-wide semaphore keeps at most
@@ -1912,20 +1999,43 @@ gcloud run services update trend-trawler-api --region us-central1 \
   --update-env-vars VARIANT_RENDER_CONCURRENCY=1,VARIANT_DAILY_CAP=10
 ```
 
-The refactor that made renders callable outside a `ToolContext` also touches
+The refactor that made renders callable outside a `ToolContext` (PR 3) also touched
 `creative_agent/image_tools.py` (behaviour-identical, golden-tested in
 `tests/test_render_parity.py`), so redeploy the creative engines with the same PR to keep
 them on the shared code. These variables are api-only (not in `deploy_agent.py`'s
 `ENV_VAR_DICT`).
 
+## Trend state (date, current moment, timely slot)
+
+Trend-state awareness (plan
+[docs/plans/2026-10-11-trend-state-awareness.md](../docs/plans/2026-10-11-trend-state-awareness.md),
+PRs #318–#321) has three deploy-relevant parts; the knobs ship through `deploy_agent.py`
+`ENV_VAR_DICT` (values and ranges in the [agent knobs](#creative-quality-migrations--knobs)
+table):
+
+- **Date state** (all three engines): every run seeds `current_date` / `current_datetime` /
+  `current_timezone` / `current_weekday` at state init in `TREND_TIMEZONE` (default
+  `America/New_York`). The date is computed per run, never at deploy, so only the timezone
+  is baked in.
+- **Trend context** (`trend_scout` → CRF worker → creative runs): needs the
+  `target_trends_crf.trend_context` column first — see the
+  [trend_context migration](#3-create-event-driven-functions-and-eventarc-triggers) and its
+  redeploy order (ALTER → engines → CRF worker → api, then web).
+- **Current moment + timely slot** (creative engines): `TREND_STATE_ENABLED` (default
+  `true`) is the kill switch for the grounded trend-situation branch (about 2 worker-model
+  calls + 1 search per run; `false` = no model call, the moment reads "unknown").
+  `TREND_EVENT_WINDOW_DAYS` and `TIMELY_VALID_HOURS_AFTER` bound when a moment is timely,
+  and `MAX_TIMELY_CONCEPTS` (default `1`, `0` = off) caps how many of the 4 creatives may
+  reference it. No table or migration.
+
 ## Creative quality: migrations + knobs
 
 The 2026-10-07 creative-quality work (PRs #263–#280; plan
 [docs/plans/2026-10-07-creative-quality.md](../docs/plans/2026-10-07-creative-quality.md))
-needs these one-time BigQuery changes. **All ticked items were applied in prod on
-2026-10-07** (unticked ones are pending); for a
+and the features after it need these one-time BigQuery changes. This is the consolidated
+checklist; **every item below has been applied in prod** (as of #322, 2026-10-12). For a
 fresh project, `deployment/create_bq_tables.sh` already creates the final schemas.
-Always run a migration **before** deploying the code that writes the column (both
+Always run a migration **before** deploying the code that writes the column (the
 writers name every column in their MERGE):
 
 - [x] `creative_evals.gates_pass_rate FLOAT64` on **`trend_trawler`** and
@@ -1935,8 +2045,8 @@ writers name every column in their MERGE):
   ([Table](#table)).
 - [x] `creative_ratings.judge_source STRING` — before the api
   ([Migration: judge_source](#table)).
-- [ ] `creative_ratings.brand/visual_style/tone_style/angle_id STRING` +
-  `fail_reasons ARRAY<STRING>` (rating-driven learning, 2026-10-08) — before the api
+- [x] `creative_ratings.brand/visual_style/tone_style/angle_id STRING` +
+  `fail_reasons ARRAY<STRING>` (rating-driven learning, applied 2026-10-08) — before the api
   ([Migration: learning context](#table)):
 
   ```sql
@@ -1947,8 +2057,8 @@ writers name every column in their MERGE):
     ADD COLUMN IF NOT EXISTS angle_id STRING,
     ADD COLUMN IF NOT EXISTS fail_reasons ARRAY<STRING>;
   ```
-- [ ] `creative_ratings.judge_version STRING` + `learning_used BOOL` (versioned judge
-  calibration, 2026-10-09) — before the api
+- [x] `creative_ratings.judge_version STRING` + `learning_used BOOL` (versioned judge
+  calibration, applied 2026-10-09) — before the api
   ([Migration: judge version + learning split](#table)):
 
   ```sql
@@ -1959,9 +2069,19 @@ writers name every column in their MERGE):
 - [x] Judge image access: the Vertex AI service agent can read the bucket (same project:
   nothing to do; cross-project: grant `roles/storage.objectViewer`; see **Judge image
   access (IAM)** next to the gates_pass_rate migration).
+- [x] `creative_shares` table created — before the api ([Shareable links](#shareable-links)),
+  then `creative_shares.person_consent_ids ARRAY<STRING>` (person-reference PR 4) — before
+  the api that writes it.
+- [x] `person_references` table created — before the api
+  ([Person references](#person-references)), then `person_references.photo_min_side INT64`
+  (headshot quality) — before the api that writes it.
+- [x] `target_trends_crf.trend_context STRING` on **`trend_trawler`** and
+  **`trend_trawler_eval`** (trend state, 2026-10-11) — before the `trend_scout` engine and
+  the CRF worker ([trend_context migration](#3-create-event-driven-functions-and-eventarc-triggers)).
 
 No migration was needed for brand history (it only reads `creative_evals` and the eval
-report JSON) or for the new session-state keys.
+report JSON), the trend situation / timely slot, rating learning's reads, or the new
+session-state keys.
 
 **Agent knobs** (on `BaseAgentConfiguration` / `creative_agent/config.py`; shipped to
 Agent Engine through `deploy_agent.py` `ENV_VAR_DICT`, read at import, so for an engine the
@@ -1989,15 +2109,32 @@ Agent Engine through `deploy_agent.py` `ENV_VAR_DICT`, read at import, so for an
 | `RATING_REASON_MIN` | `3` (1–50) | Fails a reason needs before it is named / becomes a strictness flag |
 | `RATING_LEARNING_WINDOW_DAYS` | `90` (1–365) | Look-back window for the ratings read (≤500 rows) |
 | `BQ_TABLE_RATINGS` | `creative_ratings` | Ratings table (written by the api, read by rating learning) |
+| `PERSON_SAFE_STYLES` | photographic + calibrated illustrated families (see [Person casting](#person-casting)) | Style families a concept may cast the person in (unknown names dropped, none left → default) |
+| `MAX_CAST_CONCEPTS` | `2` (0–4) | Cast concepts per set; `0` = casting off |
+| `TREND_TIMEZONE` | `America/New_York` | IANA timezone of every run's date state (`agent_common/clock.py`; the date itself is computed per run, never at deploy; unknown → default with a warning). All three engines |
+| `FLASH_MODEL_REQUEST_TIMEOUT_SECONDS` | `90` (30–900) | Per-request timeout for flash / lite model calls (agent models + the image-QA client); never longer than `MODEL_REQUEST_TIMEOUT_SECONDS`; `0` = use the general timeout |
+
+**Deployer-env knobs (not in `ENV_VAR_DICT`):** these are read when the agent module is
+imported, so on Agent Engine the value in the *deployer's* shell is pickled into the engine
+(export it before `deploy_agent.py`, redeploy to change); on Cloud Run the api reads its
+own env:
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `MODEL_REQUEST_TIMEOUT_SECONDS` | `240` (30–900; `0` disables) | Per-request timeout for model calls (`agent_common/genai_retry.py`); Pro models, the judge and image gen use it, flash/lite the shorter one above. The pickled ADK agent models take the deployer's value; clients built lazily inside the engine (judge, image gen) read the engine's env, where it is unset, so they use the default |
+| `CRITIC_FALLBACK_MODEL` | `gemini-3.8-flash` | Failover model for the Pro (`critic_model`) producers on 429/5xx; `""` = no failover (kill switch) |
 
 **api-only knobs** (Cloud Run `trend-trawler-api`, not in `ENV_VAR_DICT`):
-`RATINGS_STORE` (`bigquery` | `memory`) and `BQ_TABLE_RATINGS` (`creative_ratings`, also an agent knob above) — see
-[Creative ratings](#environment-api-service-1) — and `RUN_MAX_AUTO_CONTINUES` (default `2`,
-clamped 0–3; see [Async-job run model](#async-job-run-model)).
+`RATINGS_STORE` (`bigquery` | `memory`) and the api's own `BQ_TABLE_RATINGS`
+(`creative_ratings`, keep it equal to the agent knob above) — see
+[Creative ratings](#environment-api-service-1) — plus `RUN_MAX_SECONDS` (default `1800`)
+and `RUN_MAX_AUTO_CONTINUES` (default `2`, clamped 0–3; see
+[Async-job run model](#async-job-run-model)), and the shares / person-reference / variants
+variables in their sections.
 
 **Eval efficiency baseline:** the gates and loops add LLM calls per creative run, so the
 nightly `adk-eval` efficiency gate needs a refreshed `docs/baselines/eval_efficiency.json`
-after a passing run (`python tests/eval/efficiency_gate.py --agent creative_agent
+after a passing run (`uv run python tests/eval/efficiency_gate.py --agent creative_agent
 --update-baseline`).
 
 ---

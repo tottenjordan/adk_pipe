@@ -1,7 +1,10 @@
 # Creative quality gates — detailed rules
 
 Reference for the deterministic checks, the post-render image QA and the eval gates added by
-the 2026-10-07 creative-quality work (PRs #263–#280). `CLAUDE.md` keeps the summary; this
+the 2026-10-07 creative-quality work (PRs #263–#280), plus later additions: person casting
+(2026-10-10), the trend situation validator (#319) and the timely slot (#320). Opt-in
+rating learning can only *tighten* some of these checks (`rating_strictness`; see the
+Rating learning bullet in `CLAUDE.md`). `CLAUDE.md` keeps the summary; this
 note keeps the calibrated details that matter when you change a heuristic. Plan:
 [docs/plans/2026-10-07-creative-quality.md](../plans/2026-10-07-creative-quality.md).
 Research: [docs/research/2026-10-07-creative-quality.md](../research/2026-10-07-creative-quality.md).
@@ -21,6 +24,15 @@ tuned on live runs to flag only clear problems (false-positive fixes: #268).
 ## Eval gates (`creative_eval/`)
 
 The judge answers a judge-only schema (`AdCopyJudgeOutput` / `VisualJudgeOutput`: `gates` required, min 1; no `overall_score`/`passed`/`gates_passed`/`advisory`/`image_judged` — code maps it to the report models and computes those). Gate prompts: presence gates pass only when clearly present, violation gates (`avoid_respected`, carryable `mandatories_met`, `no_visual_defects`, `trend_risks_respected`) fail only on a clear violation, not-applicable passes with the reason in the note. Gates are normalised in code (`normalize_gates`: none of the expected gates reported → one failed `gates_reported` gate, "judge returned no gates"; a partial omission passes as "not checked" and adds a report warning "N checks not reported by the judge"; without a brief the brief-dependent gates pass with note "no brief" and `report.brief_used=False`). The visual judge sees the **rendered image** (`generated_images[concept].gcs_uri` as a `gs://` `Part`; the prompt is only intent; the image-QA verdict is a hint line) (fetched by the Vertex AI service agent; cross-project buckets need it granted `storage.objectViewer`) — no image, or an image read error (403/404, or a 400 mentioning the image/URI/file/permission; other 4xx are normal judge failures), falls back to judging the prompt (`image_judged=False`; the fallback adds a report warning).
+
+**Current gate set** (`creative_eval/dimensions.py`, `JUDGE_VERSION = "2026-10-10"`; checked 2026-10-12):
+
+| Kind | Gates (prompt/report order) |
+|---|---|
+| Ad copy (6) | `delivers_proposition`, `product_named`, `uses_reason_to_believe`, `mandatories_met`, `avoid_respected`, `trend_risks_respected` |
+| Visual (8) | `product_visible`, `trend_motif_visible`, `text_correct`, `brand_cue_present` (advisory, never blocks), `avoid_respected`, `no_visual_defects`, `trend_risks_respected`, `person_depicted_respectfully` (only judged for a cast concept, else passed "no person cast") |
+
+Brief-dependent gates (`BRIEF_GATES`): `delivers_proposition`, `uses_reason_to_believe`, `mandatories_met`, `avoid_respected`, `trend_risks_respected`. A creative `passed` only when its normalised score ≥ `passing_threshold` (0.7) **and** every non-advisory gate passed. Bump `JUDGE_VERSION` to the change's date whenever gates, their wording, scoring/pass rules or the judge model change (calibration counts only current-version ratings; [judge-calibration.md](judge-calibration.md)). The timely slot (below) has no judge gate yet; its checks are all pre-eval.
 
 ## Person casting (2026-10-10, plan `docs/plans/2026-10-09-person-reference.md` PR 2)
 

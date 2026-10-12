@@ -1,6 +1,6 @@
 # Frontend notes
 
-Written 2026-07-12 on the `creative-eval` branch.
+Written 2026-07-12 on the `creative-eval` branch; run-model section refreshed 2026-10-12.
 
 ## React crash from nested session-state values (and its backend cascade)
 
@@ -21,35 +21,40 @@ mapped for display. (This fix already existed on `main-baseline-fixes` but was
 missing on `creative-eval` — port it when moving between branches.)
 
 **Non-obvious cascade:** this frontend crash caused confusing *backend* errors.
-The crash remounted the run page, which re-fired **3 concurrent `POST /run_sse`**
-calls onto the same session. That produced `KeyError: raw_gtrends` and
+The crash remounted the run page, which (in the SSE era) re-fired **3 concurrent
+`POST /run_sse`** calls onto the same session. That produced `KeyError: raw_gtrends` and
 stale-session `ValueError`s in the api_server logs — which look like agent bugs
 but are downstream symptoms of the React crash. Fixing `formatStateValue` made
 both disappear. If you see multiple concurrent runs on one session or
 `raw_gtrends` KeyErrors, suspect a frontend render crash first.
 
-## Leaving the run page mid-run cancels the run (SSE abort)
+## Leaving the run page no longer cancels the run (async `/runs` jobs)
 
-The run is driven by a long-lived `POST /run_sse` stream held open by the run
-page. If you **navigate away or refresh before the run completes** — e.g. click
-through to `/results` while the final leg is still working — the browser aborts
-that fetch, and the server logs `Root node ... was cancelled` and kills the
-in-flight agent. Observed 2026-07-12: an `interactive_creative` run that had
-already finished all 12 eval scores was cancelled ~4 s later when the results
-page loaded (the log shows the cancellation immediately followed by
-`GET .../results/.../artifacts/*` requests), so the eval report / gallery / BQ
-writes never ran. This is distinct from the ~12-min request timeout (that run was
-only ~6.5 min in). Interactive checkpoints split the run into separate requests,
-but the **final leg after checkpoint 3 has no checkpoint**, so it only survives
-while the run page stays open. Practical rule: don't leave the run page until it
-reports completion. (The concurrent-eval fix — see `local-testing.md` — shrinks
-this vulnerable window from ~5.5 min to ~30 s.)
+*Historical (2026-07-12):* the run used to be a long-lived `POST /run_sse`
+stream held open by the run page, so navigating away or refreshing aborted the
+fetch and the server cancelled the in-flight agent (`Root node ... was
+cancelled`), e.g. an `interactive_creative` final leg killed seconds before its
+eval report / gallery / BQ writes.
+
+*Current (since the async-job run model, 2026-07-15):* the run page kicks off a
+**detached backend task** (`POST /runs/{app}`, `runserver/async_runs.py`) and
+**polls** `GET /runs/{app}/{user}/{session}?since=N` (`pollRun` in
+`frontend/src/lib/api.ts`). Progress is read from the persistent session log,
+so leaving the page, reloading or an IAP re-auth does **not** cancel the run;
+reopening it re-polls from `since=0` and replays without re-sending the kick-off.
+Interactive checkpoints resume via `POST …/resume`. Status comes only from the
+terminal `__run_status` marker; a contained step error in the log is a muted
+"A step reported an error and was skipped" notice (`lib/step-errors.ts`), not a
+failure (#322). The bare ADK `/run`, `/run_sse` and `/run_live` routes are
+blocked (404) by the backend authz middleware.
 
 ## Same-origin proxy (why it exists)
 
 The browser talks to the ADK api_server through a same-origin Next.js proxy
 (`frontend/src/app/api/adk/[...path]/route.ts`, base `/api/adk`), not directly.
-This bypasses the Cloud Workstations port-auth redirect + CORS and streams SSE
-through. `NEXT_PUBLIC_API_BASE` can override it to hit an api_server directly.
-Note this proxy does NOT bypass the ~12-min HTTP request timeout that kills long
-runs — see `local-testing.md`.
+This bypasses the Cloud Workstations port-auth redirect + CORS. On Cloud Run it
+is also the P3 authz boundary: it verifies the IAP JWT, allowlists routes,
+rewrites every `userId` to the caller and sets `X-TT-User`
+(`lib/iap-identity.ts`, `lib/user-scoping.ts`). `NEXT_PUBLIC_API_BASE` can
+override it to hit a backend directly. Long runs are no longer affected by the
+~12-min HTTP request timeout, since each poll is a short request.

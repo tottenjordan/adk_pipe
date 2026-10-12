@@ -1,9 +1,11 @@
 # `experiments/`
 
-External, **offline-first** measurement harnesses that *quantify* `creative_agent`
-behavior — run latency, per-phase breakdowns, and quota-contention effects — by
-driving live runs against **isolated Cloud Run revisions** and reducing the
-persisted event logs into tidy data + figures.
+External, **offline-first** measurement harnesses and spikes. Four subdirectories:
+two *quantify* `creative_agent` behavior (run latency, per-phase breakdowns,
+quota-contention effects) by driving live runs against **isolated Cloud Run
+revisions** and reducing the persisted event logs into tidy data + figures; one
+calibrates the person-reference feature directly on the image model; one renders
+the bandit simulator's notebook-parity figures.
 
 These are research tooling, not product code. Each experiment has a matching
 pre-registered / written-up design under [`docs/experiments/`](../docs/experiments).
@@ -20,16 +22,20 @@ pre-registered / written-up design under [`docs/experiments/`](../docs/experimen
 |---|---|---|
 | [`creative_latency/`](#creative_latency) | Measure end-to-end + per-phase `creative_agent` run latency; compare code variants (baseline vs. levers). **Strictly serial** — self-contention would corrupt the signal. | [`docs/experiments/2026-07-15-creative-latency.md`](../docs/experiments/2026-07-15-creative-latency.md) |
 | [`quota_spread/`](#quota_spread) | The quota-bucket-spread **DoE**: fire N *concurrent* runs per cell to measure how research-phase latency inflates with load, per model-placement arm (PR #101). **Concurrency is the signal.** | [`docs/experiments/2026-07-17-quota-bucket-spread-doe.md`](../docs/experiments/2026-07-17-quota-bucket-spread-doe.md) |
-| [`person_reference/`](person_reference/README.md) | Person-reference **calibration spike** (gate for PR 0): likeness + safety-block rates of consented test photos on the image model, with and without `person_generation=ALLOW_ADULT`. | [`docs/plans/2026-10-09-person-reference.md`](../docs/plans/2026-10-09-person-reference.md) |
+| [`person_reference/`](person_reference/README.md) | Two person-reference spikes on the image model, no Cloud Run involved. `calibrate.py` (gate for PR 0 of the person-reference plan): likeness + safety-block rates of consented test photos, with and without `person_generation=ALLOW_ADULT`, per style family. `swap_compare.py` (PR 0 of the faithful-person-swaps plan): edit the original render vs re-generate it for personalised variants, scored on fidelity and likeness. | [`docs/plans/2026-10-09-person-reference.md`](../docs/plans/2026-10-09-person-reference.md), [`docs/plans/2026-10-11-faithful-person-swaps.md`](../docs/plans/2026-10-11-faithful-person-swaps.md) (results: [`docs/notes/person-reference-calibration.md`](../docs/notes/person-reference-calibration.md), [`docs/notes/person-swap-edit-mode.md`](../docs/notes/person-swap-edit-mode.md)) |
 | `bandit/` | Offline notebook-parity figures for the JAX contextual bandit (`bandit/` package): `notebook_parity.py` runs `bandit.cli` simulations (no GCP) and writes `figures/*.png`. | [`docs/experiments/bandit-simulation.md`](../docs/experiments/bandit-simulation.md) |
 
 ## Shared conventions
 
-Both packages follow the same posture, so tooling and habits transfer:
+`creative_latency/` and `quota_spread/` follow the same posture, so tooling and
+habits transfer (`person_reference/` shares the pure-core + thin-network split and
+the committed-summary habit, but calls the image model directly):
 
 - **Offline-first, pure-core + thin-network split.** Parsing, aggregation,
   record-shaping, and cell-ordering are **pure and unit-tested** (see
-  `tests/test_experiment_*.py`, `tests/test_quota_spread_*.py`). The live network
+  `tests/test_experiment_*.py`, `tests/test_quota_spread_*.py`,
+  `tests/test_creative_latency_poll.py`, and for `person_reference/`
+  `tests/test_person_calibration.py` + `tests/test_swap_compare.py`). The live network
   drivers (`run_trial`, `run_batch`, `run_doe`, `recover_trials`) are integration
   paths with no unit tests, matching the repo convention for live scripts.
 - **Async `/runs` API, not SSE.** Runs are kicked off + polled through the
@@ -52,7 +58,7 @@ Both packages follow the same posture, so tooling and habits transfer:
   (`creative_latency/fixtures.py`, reused by `quota_spread`) is passed to every
   run so the only thing varying is the code/placement under test.
 - **Rendering is matplotlib/Plotly, never PaperBanana** — its image path burns the
-  same 2 RPM `gemini-3.1-flash-image` quota the runs themselves need; these
+  same ~2 RPM image-model quota (measured on `gemini-3.1-flash-image`; the image model is now `gemini-nano-banana-2.1`) the runs themselves need; these
   figures render purely from committed data.
 - **Results are committed JSON** under each package's `results/` tree and are the
   source of truth; figures and CSVs regenerate from them offline.

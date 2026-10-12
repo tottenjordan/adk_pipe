@@ -1,5 +1,12 @@
 # Baseline — `main` branch (local end-to-end)
 
+> **Historical snapshot (2026-07).** Captured 2026-07-11 on ADK 1.x with `adk api_server`,
+> `SequentialAgent`/`AgentTool` pipelines and the 2026-07 model lineup. None of that is
+> current: agents now run as graph `Workflow`s on ADK 2.10, the backend is the
+> `deployment/async_app.py` launcher with polled `/runs` jobs, and the models, eval gates
+> and pipeline stages have all changed (see `CLAUDE.md`). Kept for the record only; the
+> current eval-efficiency baseline is `docs/baselines/eval_efficiency.json`.
+
 Record of testing the agent workflows and output artifacts on `main` before any
 refactor. Captured 2026-07-11.
 

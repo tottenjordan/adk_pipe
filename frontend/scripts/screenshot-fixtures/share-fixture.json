@@ -1,0 +1,516 @@
+{
+  "snapshot": {
+    "version": 1,
+    "token": "prs-powerball-demo-k3J9xQ",
+    "created_at": "2026-07-17T00:12:31Z",
+    "scope": "slate",
+    "brand": "Paul Reed Smith (PRS)",
+    "product": "SE CE24 Electric Guitar",
+    "trend": "Powerball",
+    "include_eval": true,
+    "creatives": [
+      {
+        "index": 0,
+        "image": "0.jpg",
+        "aspect_ratio": "9:16",
+        "alt": "This concept brings the headline to life in an intentional, chaotic lo-fi digital collage style. A musician clad in an expensive velvet crimson silk robe and bright red lobster shoes arrives at a tiny local club in an extravagant gold-plated golf cart, confidently carrying a satin-finished PRS SE CE24 guitar.",
+        "visual_style": "Surreal Meme-Collage",
+        "headline": "If I Won The $1.8B Powerball, There To Be Signs.",
+        "body": "I\u2019m pulling up to a 50-person dive bar gig in a gold-plated golf cart, wearing luxury red lobster shoes and a silk robe. But in my hands? This $499 PRS SE CE24 because its 85/15 S humbuckers deliver pure tonal perfection that money can\u2019t buy.",
+        "caption": "I don't need a yacht. Just this SE CE24 and a 3-hour unimpeded guitar solo. \ud83c\udfb8\ud83d\udcb8 #Powerball #Signs #JamBand #PRSGuitars #GuitarHumor",
+        "cta": "Claim Your Tonal Jackpot Now!",
+        "tone": "Relatable/Meme-based",
+        "eval": {
+          "passed": true,
+          "score": 0.859,
+          "checks": [
+            {
+              "kind": "copy",
+              "gate": "delivers_proposition",
+              "label": "Delivers the proposition",
+              "passed": true,
+              "advisory": false
+            },
+            {
+              "kind": "copy",
+              "gate": "product_named",
+              "label": "Product named",
+              "passed": true,
+              "advisory": false
+            },
+            {
+              "kind": "copy",
+              "gate": "uses_reason_to_believe",
+              "label": "Uses a reason to believe",
+              "passed": true,
+              "advisory": false
+            },
+            {
+              "kind": "copy",
+              "gate": "mandatories_met",
+              "label": "Mandatories met",
+              "passed": true,
+              "advisory": false
+            },
+            {
+              "kind": "copy",
+              "gate": "avoid_respected",
+              "label": "Avoid list respected",
+              "passed": true,
+              "advisory": false
+            },
+            {
+              "kind": "copy",
+              "gate": "trend_risks_respected",
+              "label": "Respects trend risks",
+              "passed": true,
+              "advisory": false
+            },
+            {
+              "kind": "visual",
+              "gate": "product_visible",
+              "label": "Product visible",
+              "passed": true,
+              "advisory": false
+            },
+            {
+              "kind": "visual",
+              "gate": "trend_motif_visible",
+              "label": "Trend motif visible",
+              "passed": true,
+              "advisory": false
+            },
+            {
+              "kind": "visual",
+              "gate": "text_correct",
+              "label": "In-image text correct",
+              "passed": true,
+              "advisory": false
+            },
+            {
+              "kind": "visual",
+              "gate": "brand_cue_present",
+              "label": "Brand cue present",
+              "passed": true,
+              "advisory": true
+            },
+            {
+              "kind": "visual",
+              "gate": "avoid_respected",
+              "label": "Avoid list respected",
+              "passed": true,
+              "advisory": false
+            },
+            {
+              "kind": "visual",
+              "gate": "no_visual_defects",
+              "label": "No visual defects",
+              "passed": true,
+              "advisory": false
+            },
+            {
+              "kind": "visual",
+              "gate": "trend_risks_respected",
+              "label": "Respects trend risks",
+              "passed": true,
+              "advisory": false
+            },
+            {
+              "kind": "visual",
+              "gate": "person_depicted_respectfully",
+              "label": "Person depicted respectfully",
+              "passed": true,
+              "advisory": false
+            }
+          ],
+          "copy": {
+            "passed": true,
+            "score": 0.85
+          },
+          "visual": {
+            "passed": true,
+            "score": 0.867
+          }
+        }
+      },
+      {
+        "index": 1,
+        "image": "1.jpg",
+        "aspect_ratio": "1:1",
+        "alt": "A stylized 1980s retro comic/bootleg illustration depicting a player smiling while resting on their guitar case surrounded by green lottery tickets. The piece leans heavily into the underground community vibe.",
+        "visual_style": "Retro 1980s Bootleg Illustration",
+        "headline": "My Retirement Plan? Powerball and A PRS SE CE24.",
+        "body": "Mathematically, a 50% chance of winning the lottery is better than 100% chance of working forever. At least my PRS SE CE24 is a safe bet, letting me pivot from thick, singing leads to crisp single-coil rhythm parts during a 3-hour improvised jam.",
+        "caption": "Who needs a 401k when you have 85/15 S pickups and lucky numbers? \ud83c\udfb0\u2728 #FinancialNihilism #JamBandGuitarist #Powerball #GuitarMeme",
+        "cta": "Secure Your Sound Today!",
+        "tone": "Humorous",
+        "eval": {
+          "passed": true,
+          "score": 0.85,
+          "checks": [
+            {
+              "kind": "copy",
+              "gate": "delivers_proposition",
+              "label": "Delivers the proposition",
+              "passed": true,
+              "advisory": false
+            },
+            {
+              "kind": "copy",
+              "gate": "product_named",
+              "label": "Product named",
+              "passed": true,
+              "advisory": false
+            },
+            {
+              "kind": "copy",
+              "gate": "uses_reason_to_believe",
+              "label": "Uses a reason to believe",
+              "passed": true,
+              "advisory": false
+            },
+            {
+              "kind": "copy",
+              "gate": "mandatories_met",
+              "label": "Mandatories met",
+              "passed": true,
+              "advisory": false
+            },
+            {
+              "kind": "copy",
+              "gate": "avoid_respected",
+              "label": "Avoid list respected",
+              "passed": true,
+              "advisory": false
+            },
+            {
+              "kind": "copy",
+              "gate": "trend_risks_respected",
+              "label": "Respects trend risks",
+              "passed": true,
+              "advisory": false
+            },
+            {
+              "kind": "visual",
+              "gate": "product_visible",
+              "label": "Product visible",
+              "passed": true,
+              "advisory": false
+            },
+            {
+              "kind": "visual",
+              "gate": "trend_motif_visible",
+              "label": "Trend motif visible",
+              "passed": true,
+              "advisory": false
+            },
+            {
+              "kind": "visual",
+              "gate": "text_correct",
+              "label": "In-image text correct",
+              "passed": true,
+              "advisory": false
+            },
+            {
+              "kind": "visual",
+              "gate": "brand_cue_present",
+              "label": "Brand cue present",
+              "passed": true,
+              "advisory": true
+            },
+            {
+              "kind": "visual",
+              "gate": "avoid_respected",
+              "label": "Avoid list respected",
+              "passed": true,
+              "advisory": false
+            },
+            {
+              "kind": "visual",
+              "gate": "no_visual_defects",
+              "label": "No visual defects",
+              "passed": true,
+              "advisory": false
+            },
+            {
+              "kind": "visual",
+              "gate": "trend_risks_respected",
+              "label": "Respects trend risks",
+              "passed": true,
+              "advisory": false
+            },
+            {
+              "kind": "visual",
+              "gate": "person_depicted_respectfully",
+              "label": "Person depicted respectfully",
+              "passed": true,
+              "advisory": false
+            }
+          ],
+          "copy": {
+            "passed": true,
+            "score": 0.833
+          },
+          "visual": {
+            "passed": true,
+            "score": 0.867
+          }
+        }
+      },
+      {
+        "index": 2,
+        "image": "2.jpg",
+        "aspect_ratio": "9:16",
+        "alt": "Highlights the ergonomic Shallow Violin top carve of the PRS SE CE24 on stage under a spotlight. The premium curves look like a million bucks but have an accessible price tag, playing on the idea of finding your own jackpot.",
+        "visual_style": "Warm, High-Contrast Stage Photography",
+        "headline": "Looks Like a Jackpot. Sounds Like a Masterpiece.",
+        "body": "You don't need to match all six Powerball numbers to play like royalty. With the ergonomic Shallow Violin top carve and pristine 85/15 S humbuckers, the PRS SE CE24 offers elite comfort and multi-genre versatility at a price that feels like a winning ticket.",
+        "caption": "Boutique looks, arena-sized tone, everyday price tag. Live your rockstar dreams. \ud83c\udf1f\ud83c\udfb8 #PRSGuitars #CE24 #ToneHeaven #GuitarLife",
+        "cta": "Unlock Elite Tone Now!",
+        "tone": "Aspirational",
+        "eval": {
+          "passed": false,
+          "score": 0.692,
+          "checks": [
+            {
+              "kind": "copy",
+              "gate": "delivers_proposition",
+              "label": "Delivers the proposition",
+              "passed": true,
+              "advisory": false
+            },
+            {
+              "kind": "copy",
+              "gate": "product_named",
+              "label": "Product named",
+              "passed": true,
+              "advisory": false
+            },
+            {
+              "kind": "copy",
+              "gate": "uses_reason_to_believe",
+              "label": "Uses a reason to believe",
+              "passed": true,
+              "advisory": false
+            },
+            {
+              "kind": "copy",
+              "gate": "mandatories_met",
+              "label": "Mandatories met",
+              "passed": true,
+              "advisory": false
+            },
+            {
+              "kind": "copy",
+              "gate": "avoid_respected",
+              "label": "Avoid list respected",
+              "passed": true,
+              "advisory": false
+            },
+            {
+              "kind": "copy",
+              "gate": "trend_risks_respected",
+              "label": "Respects trend risks",
+              "passed": true,
+              "advisory": false
+            },
+            {
+              "kind": "visual",
+              "gate": "product_visible",
+              "label": "Product visible",
+              "passed": true,
+              "advisory": false
+            },
+            {
+              "kind": "visual",
+              "gate": "trend_motif_visible",
+              "label": "Trend motif visible",
+              "passed": false,
+              "advisory": false
+            },
+            {
+              "kind": "visual",
+              "gate": "text_correct",
+              "label": "In-image text correct",
+              "passed": true,
+              "advisory": false
+            },
+            {
+              "kind": "visual",
+              "gate": "brand_cue_present",
+              "label": "Brand cue present",
+              "passed": true,
+              "advisory": true
+            },
+            {
+              "kind": "visual",
+              "gate": "avoid_respected",
+              "label": "Avoid list respected",
+              "passed": true,
+              "advisory": false
+            },
+            {
+              "kind": "visual",
+              "gate": "no_visual_defects",
+              "label": "No visual defects",
+              "passed": true,
+              "advisory": false
+            },
+            {
+              "kind": "visual",
+              "gate": "trend_risks_respected",
+              "label": "Respects trend risks",
+              "passed": true,
+              "advisory": false
+            },
+            {
+              "kind": "visual",
+              "gate": "person_depicted_respectfully",
+              "label": "Person depicted respectfully",
+              "passed": true,
+              "advisory": false
+            }
+          ],
+          "copy": {
+            "passed": true,
+            "score": 0.75
+          },
+          "visual": {
+            "passed": false,
+            "score": 0.633
+          }
+        }
+      },
+      {
+        "index": 3,
+        "image": "3.jpg",
+        "aspect_ratio": "3:4",
+        "alt": "Focuses on the deep connection of a musician playing an authentic, grueling, sweaty 3-hour set late at night, letting their hand-sweat break in the mahogany neck of the instrument in real time.",
+        "visual_style": "Candid 35mm Film Photo",
+        "headline": "For the Love of the Late-Night Jam.",
+        "body": "You don't chase music to win the Powerball; you chase it for those transcendent moments when the crowd, the lights, and the tone perfectly align. The PRS SE CE24 and its incredibly responsive 85/15 S pickups are crafted to get you closer to that feeling every night.",
+        "caption": "Some things are worth more than a lottery ticket. Discover your voice. \u2764\ufe0f\ud83c\udfb8 #PRSGuitars #JamCommunity #LiveMusic #SonicJourney",
+        "cta": "Find Your Sound Now!",
+        "tone": "Emotional/Authentic",
+        "eval": {
+          "passed": false,
+          "score": 0.725,
+          "checks": [
+            {
+              "kind": "copy",
+              "gate": "delivers_proposition",
+              "label": "Delivers the proposition",
+              "passed": true,
+              "advisory": false
+            },
+            {
+              "kind": "copy",
+              "gate": "product_named",
+              "label": "Product named",
+              "passed": true,
+              "advisory": false
+            },
+            {
+              "kind": "copy",
+              "gate": "uses_reason_to_believe",
+              "label": "Uses a reason to believe",
+              "passed": true,
+              "advisory": false
+            },
+            {
+              "kind": "copy",
+              "gate": "mandatories_met",
+              "label": "Mandatories met",
+              "passed": true,
+              "advisory": false
+            },
+            {
+              "kind": "copy",
+              "gate": "avoid_respected",
+              "label": "Avoid list respected",
+              "passed": true,
+              "advisory": false
+            },
+            {
+              "kind": "copy",
+              "gate": "trend_risks_respected",
+              "label": "Respects trend risks",
+              "passed": true,
+              "advisory": false
+            },
+            {
+              "kind": "visual",
+              "gate": "product_visible",
+              "label": "Product visible",
+              "passed": true,
+              "advisory": false
+            },
+            {
+              "kind": "visual",
+              "gate": "trend_motif_visible",
+              "label": "Trend motif visible",
+              "passed": true,
+              "advisory": false
+            },
+            {
+              "kind": "visual",
+              "gate": "text_correct",
+              "label": "In-image text correct",
+              "passed": true,
+              "advisory": false
+            },
+            {
+              "kind": "visual",
+              "gate": "brand_cue_present",
+              "label": "Brand cue present",
+              "passed": false,
+              "advisory": true
+            },
+            {
+              "kind": "visual",
+              "gate": "avoid_respected",
+              "label": "Avoid list respected",
+              "passed": true,
+              "advisory": false
+            },
+            {
+              "kind": "visual",
+              "gate": "no_visual_defects",
+              "label": "No visual defects",
+              "passed": true,
+              "advisory": false
+            },
+            {
+              "kind": "visual",
+              "gate": "trend_risks_respected",
+              "label": "Respects trend risks",
+              "passed": true,
+              "advisory": false
+            },
+            {
+              "kind": "visual",
+              "gate": "person_depicted_respectfully",
+              "label": "Person depicted respectfully",
+              "passed": true,
+              "advisory": false
+            }
+          ],
+          "copy": {
+            "passed": true,
+            "score": 0.783
+          },
+          "visual": {
+            "passed": false,
+            "score": 0.667
+          }
+        }
+      }
+    ]
+  },
+  "images": [
+    "The_Golden_Golf_Cart_Gig.jpg",
+    "Nihilistic_Retirement_Plan.jpg",
+    "The_Jackpot_Reveal.jpg",
+    "The_Authentic_Encore.jpg"
+  ]
+}

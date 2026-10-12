@@ -1,4 +1,7 @@
-# `person_reference/` — calibration spike
+# `person_reference/` — calibration and person-swap spikes
+
+Two spikes live here: `calibrate.py` (below) and `swap_compare.py`
+([Person swap spike](#person-swap-spike-swap_comparepy)).
 
 PR 0 of [the person reference plan](../../docs/plans/2026-10-09-person-reference.md)
 (background: `PERSON_REFERENCE_RESEARCH.md` §5, phase 0). Before any product code
@@ -35,7 +38,12 @@ BUCKET=$GOOGLE_CLOUD_STORAGE_BUCKET
 gcloud storage cp photo.jpg gs://$BUCKET/person-refs/<slug>/
 ```
 
-Use a clear, front-facing photo (JPEG, PNG or WebP, ≤ 10 MB).
+Use a clear, front-facing photo (JPEG, PNG or WebP, ≤ 10 MB). The spike doesn't
+check the resolution, but the product does: the consent registry
+(`runserver/person_refs.py`) refuses a photo whose shorter side is below
+`PERSON_PHOTO_MIN_SIDE` (default 512 px, clamped 256–4096) with 400
+`photo_too_small`, and flags anything under 1024 px as `low_resolution`. Use a
+photo of at least 1024 px so the spike matches what users are told to upload.
 
 ## Run
 
@@ -109,3 +117,44 @@ Delete the test photos and the local renders:
 gcloud storage rm --recursive gs://$BUCKET/person-refs/<slug>/
 rm -f experiments/person_reference/results/*.png experiments/person_reference/results/*.jpeg
 ```
+
+## Person swap spike (`swap_compare.py`)
+
+PR 0 of [the faithful person swaps plan](../../docs/plans/2026-10-11-faithful-person-swaps.md).
+For each concept × photo × mode × repeat it makes a personalised variant of a
+finished concept and compares it with the run's original render:
+
+- **regenerate**: the old variant path, a fresh render from the concept's text prompt
+  + the person photo (`render_concept`, `ALLOW_ADULT`, QA off, no person-less
+  fallback).
+- **edit**: the original render + the person photo with `EDIT_INSTRUCTION`
+  ("replace only the person"), aspect ratio from the original's size. The edit
+  request now lives in `creative_agent/person_edit.py` and is re-exported here.
+
+Each output gets one comparison vision call on the image-QA model (original +
+variant → `same_layout`, `same_text`, `same_graphics`, `same_product`,
+`only_person_changed`, `differences`) plus the image check's likeness verdict.
+
+```bash
+# Session JSON = the api's GET /apps/{app}/users/{u}/sessions/{id}
+PYTHONPATH="$PWD" uv run python -m experiments.person_reference.swap_compare \
+  --sessions s1.json s2.json --concepts "Concept A" "Concept B" \
+  --photos gs://$BUCKET/person-refs/<slug>/a.jpg gs://$BUCKET/person-refs/<slug>/b.jpg
+```
+
+Options: `--modes regenerate edit` (default both), `--n` repeats (default 2),
+`--out DIR` (default `experiments/person_reference/results/swap`), `--pace SECS`
+(default 31).
+
+Output: `results.csv`, `summary.json` and `summary.md` (rates per mode and photo,
+photos labelled `photo1`, `photo2`, … and never a URI) plus the renders. Rule: **go**
+when edit fidelity ≥ regenerate + 30% and edit likeness ≥ 80%. The recorded run
+(`results/swap/summary.md`) was a go: edit fidelity 75% vs 0% for regenerate,
+likeness 83% vs 100%, which is why variants now edit the original render (write-up:
+[`docs/notes/person-swap-edit-mode.md`](../../docs/notes/person-swap-edit-mode.md)).
+Delete the renders and the CSV afterwards; they show real people.
+
+The pure core (`parse_comparison`, `summarise`, `decision`, `summary_markdown`,
+`nearest_aspect_ratio`, `edit_contents`) is tested in `tests/test_swap_compare.py`
+(the calibration core in `tests/test_person_calibration.py`); the render loops are
+live only.

@@ -21,10 +21,12 @@ is in [the proof-room plan](../docs/plans/2026-10-02-frontend-proof-room.md).
 
 | Route | What it does |
 |---|---|
-| `/` | Campaign brief form, agent tiles, and a recent-runs sidebar |
-| `/runs` | Run history (brand, trend, agent, status, updated). **Duplicate brief** fills in a new run from an old one |
-| `/run/[sessionId]` | Live run view. It polls the async-job run (`GET /runs/...?since=N`), so a run keeps going through a reload or disconnect. Shows a stage spine, the current stage, and outputs so far. Review checkpoints take over the main area. A run that stopped early shows **Continue run** |
-| `/results/[sessionId]` | Contact sheet of creatives with scores (and a "Check failed" chip when an eval gate failed), a proof-detail dialog for each creative (eval checks above the advisory quality scores), a research report panel, the eval report, and artifacts. The **Deploy creatives as a live experiment** panel starts a bandit experiment from 2–4 creatives. **Share slate** (header) and **Share this creative** (proof detail) create a public, revocable link to a frozen snapshot, optionally with judge checks; **Shared links** lists this run's links with Copy and Revoke |
+| `/` | Campaign brief form, agent tiles, and a recent-runs sidebar. Creative agents also get the optional **Person (optional)** select (the caller's active consents) and the per-run **Learn from past ratings for this brand** checkbox (off by default; both restored by **Duplicate brief**) |
+| `/people` | Person references: the caller's upload prefix (`gs://<bucket>/person-refs/<slug>/`), the consent text, photo guidance, a register form (photo `gs://` URI, name, who, adult attestation, optional public-share consent), and the caller's people (thumbnail, public links yes/no, a low-resolution note) with a confirmed **Revoke** that deletes the photo and every image made with it |
+| `/runs` | Run history (brand, trend, agent, status, updated). **Duplicate brief** fills in a new run from an old one. A muted "Judge agreement" line shows kappa and agreement % once 20 of your ratings pair with a current-judge verdict (else "Rate N more creatives…"), plus a learned vs not-learned kappa line |
+| `/run/[sessionId]` | Live run view. It polls the async-job run (`GET /runs/...?since=N`), so a run keeps going through a reload or disconnect. Shows a stage spine, the current stage, outputs so far (incl. the rating-learning summary and a muted "Current moment: …" line for the trend's validated situation), and a collapsed technical log. Failure comes only from the poll status: an error event in the log (a step that failed and was contained) is a muted, non-blocking notice "A step reported an error and was skipped: …" (`lib/step-errors.ts`), so the run keeps being followed. Review checkpoints take over the main area (checkpoint 1 is an editable structured brief, checkpoint 2 accepts revision feedback once). A run that stopped early shows **Continue run** |
+| `/results/[sessionId]` | Contact sheet of creatives with scores (and a "Check failed" chip when a blocking eval gate failed; a "Rated" mark once rated), and a proof-detail dialog per creative: a **Checks** section (pass/fail per gate, advisory ones labelled) above the advisory quality scores, the image check, a "Timely: …" row for the creative that references the current moment, the person-casting row, **Your rating** (pass/fail, optional fail-reason chips on a fail, optional 1–5 score + note for copy and visual), **Share this creative**, and a **Personalise** panel (a preview with one of your consented people; "Swap person" on a creative that already casts one). The page also shows the rating-learning summary, the "Current moment" line, a research report panel, the eval report and artifacts. The **Deploy creatives as a live experiment** panel starts a bandit experiment from 2–4 creatives (cast creatives disabled). **Share slate** (header) and **Share this creative** create a public, revocable link to a frozen snapshot, optionally with judge checks; **Shared links** lists this run's links with Copy and Revoke |
+| `/s/[token]` | Public share page (no sign-in; served by the `trend-trawler-share` service with `SHARE_MODE=1`, also reachable behind IAP as an owner preview): "<brand> × <trend>", a Card / Feed / Story view switcher (`?view=`), one article per creative, optional judge checks when the share includes them, Open Graph/Twitter metadata, noindex. Images come from `/s/<token>/img/<n>`. A missing or revoked link renders "This link is no longer available" (404) |
 | `/experiments` | Bandit experiments list: scenario, creatives, status, created, endpoint lifetime |
 | `/experiments/[experimentId]` | One experiment: status and TTL, **Start traffic** / **Stop**, the arms, and SVG charts (reward vs oracle, regret, % optimal, arm share, per-segment winners, total reward ± std, per-arm CTRs). Above **Start traffic**, the shift editor scripts up to four behaviour shifts for the next traffic run; traffic runs are numbered and `?run=N` selects one (newest by default). With shifts, the charts use a linear round axis with a rule per shift and a dashed ghost line, and the Overview adds one result card per shift. See the [bandit guide](../docs/bandit/README.md#scripted-behaviour-shifts) |
 
@@ -33,18 +35,23 @@ is in [the proof-room plan](../docs/plans/2026-10-02-frontend-proof-room.md).
 ```
 src/
 ├── app/
-│   ├── layout.tsx, page.tsx, globals.css
+│   ├── layout.tsx, page.tsx, globals.css, robots.ts
+│   ├── people/page.tsx
 │   ├── runs/page.tsx
-│   ├── run/[sessionId]/page.tsx
-│   ├── results/[sessionId]/page.tsx, deploy-panel.tsx
+│   ├── run/[sessionId]/page.tsx, stage-spine.tsx, run-sections.tsx, run-widgets.tsx,
+│   │   ReviewPanel.tsx, review-brief.tsx, report-editor.tsx, …
+│   ├── results/[sessionId]/page.tsx, proof-grid.tsx, proof-detail.tsx, eval-checks.tsx,
+│   │   rating-control.tsx, deploy-panel.tsx, reader-tuning.tsx, …
+│   ├── s/[token]/page.tsx, not-found.tsx, img/[n]/route.ts
 │   ├── experiments/page.tsx
 │   ├── experiments/[experimentId]/page.tsx, experiment-charts.tsx,
 │   │   shift-timeline.tsx, run-selector.tsx, shift-results.tsx
 │   └── api/
 │       ├── adk/[...path]/route.ts
 │       └── gcs/route.ts
-├── components/          # app components + ui/ (shadcn primitives)
+├── components/          # app components, share/ (public share viewer), charts/, ui/ (shadcn primitives)
 ├── lib/                 # pure logic, unit-tested
+├── proxy.ts             # Next 16 Proxy (renamed Middleware): SHARE_MODE lockdown + share headers
 └── __tests__/           # Vitest + React Testing Library
 ```
 
@@ -57,7 +64,25 @@ src/
 - `lib/pause-detection.ts`: finds the unanswered long-running call that marks a real review pause
 - `lib/run-kickoff.ts`: kick-off guard that stops a reload or StrictMode remount from starting a second run
 - `lib/eval-matching.ts`: eval-report types; pairs each visual concept with its ad copy and both verdicts
-- `lib/eval-dimensions.ts`: short labels for the 12 `creative_eval` dimensions
+- `lib/eval-dimensions.ts`: short labels for the 12 `creative_eval` dimensions and the gate labels (mirrors `creative_eval/dimensions.py`, drift-tested)
+- `lib/step-errors.ts`: turns error events in the polled log into the run page's non-fatal "A step reported an error and was skipped" notice (429 → friendly quota text); only the poll status marks a run as failed
+- `lib/run-warnings.ts`: `classifyWarnings` groups the eval report's run notes into research / saves / quality notices for the results page
+- `lib/trend-situation.ts` + `components/trend-situation-line.tsx`: the trend's validated current moment (`state.trend_situation`) as a muted read-only line ("Texas vs Oklahoma tomorrow", "Not timely: <reason>", sources, valid until); nothing when the feature is off
+- `lib/creative-brief.ts` / `lib/brief-edit.ts` + `app/run/[sessionId]/review-brief.tsx`: the structured `creative_brief` and the checkpoint-1 edit form (`toBriefPayload` back to the snake_case schema the backend validates)
+- `lib/ratings.ts` / `lib/rating-reasons.ts` + `app/results/[sessionId]/rating-control.tsx`: human ratings types and helpers, the allowlisted fail-reason chips per kind (mirrors `runserver/rating_reasons.py`, drift-tested), and the proof detail's **Your rating** control
+- `lib/rating-learning.ts` + `components/learning-summary.tsx` / `learn-from-ratings-toggle.tsx`: what opt-in rating learning did to a run (`describeRatingLearning`), the "Learned from N team ratings…" card, and the per-run opt-in checkbox
+- `components/judge-agreement.tsx`: the `/runs` judge-agreement line (current judge version only)
+- `lib/person-refs.ts` / `lib/person-consent.ts` / `lib/person-paths.ts`: person-reference types and error copy for `/people`, the consent text + version (mirrors `runserver/person_refs.py`, drift-tested), and the owner-only GCS path rules (`person-refs/<slug>/…`, `…/variants/<slug>/…`) that `/api/gcs` enforces
+- `components/person-select.tsx`: the brief form's "Person (optional)" select
+- `lib/variants.ts` + `components/personalise-panel.tsx`: personalised variant previews (add or swap mode, castability notes, polling every 5 s while rendering, base and preview side by side)
+- `lib/shares.ts`: share types, reason → message map and the "left out" notice for creatives whose person consent doesn't cover public links
+- `lib/share-mode.ts`: pure `SHARE_MODE` route rules, share headers and the per-request nonce CSP used by `src/proxy.ts`
+- `lib/share-snapshot.ts` (server only): snapshot v1 validation and token-scoped Cloud Storage reads (`shares/<token>/snapshot.json` and the named `<n>.jpg`/`<n>.png` image, content type from the extension)
+- `lib/share-metadata.ts` / `lib/share-views.ts`: link-preview metadata (`SHARE_BASE_URL` makes `og:image` absolute) and the Card / Feed / Story view helpers
+- `lib/gcp-auth.ts`: OAuth access token for Google APIs (metadata server / ADC on Cloud Run, gcloud CLI locally)
+- `components/share/*` (`share-view`, `share-card`, `feed-post`, `story-frame`, `share-eval`, `share-image`): the public share viewer
+- `components/site-header.tsx`: the header, which renders nothing on `/s/*`
+- `app/robots.ts`: `Disallow: /` in both modes
 - `lib/research-report.ts`: citation helpers for the cited research report (display and edit)
 - `lib/agents.ts`: agent catalog (labels, descriptions, durations, review pauses)
 - `lib/presets.ts`: preset values for the brief form
@@ -77,8 +102,8 @@ src/
 - `components/research-report.tsx`: renders the research report with numbered citations
 - `components/main-nav.tsx`: header nav that highlights the active page
 - `components/run-list.tsx`: run-history list used on `/runs` and in the home sidebar
-- `app/api/adk/[...path]/route.ts`: same-origin proxy to the private backend. It verifies the IAP JWT and scopes every request to the caller (`lib/iap-identity.ts` + `lib/user-scoping.ts`). Only `since`/`version` query params are forwarded, plus `run` (a positive integer) on `GET experiments/{u}/{id}/metrics|creatives`. Share routes: `POST shares/{u}/{app}/{session}`, `GET shares/{u}`, `DELETE shares/{u}/{token}` (the only DELETE it forwards)
-- `app/api/gcs/route.ts`: authenticated Cloud Storage proxy for serving artifacts (`/api/gcs?bucket=...&path=...`)
+- `app/api/adk/[...path]/route.ts`: same-origin proxy to the private backend. It verifies the IAP JWT and scopes every request to the caller (`lib/iap-identity.ts` + `lib/user-scoping.ts`). Only `since`/`version` query params are forwarded, plus `run` (a positive integer) on `GET experiments/{u}/{id}/metrics|creatives`. Allowlisted routes beyond sessions, `/runs` and `/experiments`: ratings (`GET`/`PUT ratings/{u}/{session}`, `GET ratings/{u}/calibration`), shares (`POST shares/{u}/{app}/{session}`, `GET shares/{u}`, `DELETE shares/{u}/{token}`), person references (`GET`/`POST person-refs/{u}`, `DELETE person-refs/{u}/{consent_id}`) and variants (`POST`/`GET variants/{u}/{app}/{session}`). The two DELETEs are the only ones it forwards; ids are checked against `SESSION_ID_RE`, `SHARE_TOKEN_RE` and `PERSON_REF_ID_RE`
+- `app/api/gcs/route.ts`: authenticated Cloud Storage proxy for serving artifacts (`/api/gcs?bucket=...&path=...`). Run artifacts are shared across users, but `person-refs/<slug>/…` and `…/variants/<slug>/…` are served only to their owner (`lib/person-paths.ts`; `Cache-Control: private, no-store`)
 
 ## Local development
 
@@ -98,7 +123,7 @@ npm install
 npm run dev   # http://localhost:3000
 ```
 
-Environment variables (read server-side by the proxy):
+Environment variables (read server-side):
 
 | Variable | Meaning | Local default |
 |---|---|---|
@@ -106,6 +131,9 @@ Environment variables (read server-side by the proxy):
 | `IAP_ALLOWED_HD` | Required Google Workspace domain (`hd` claim) on the IAP JWT. If it is unset on Cloud Run, every proxied call returns 401 | unset. Locally there is no JWT and no `K_SERVICE`, so the proxy passes requests through unscoped |
 | `IAP_AUDIENCE` | Overrides the IAP audience that is otherwise looked up from the metadata server | unset |
 | `NEXT_PUBLIC_API_BASE` | Client-side API base used by `lib/api.ts` | `/api/adk` |
+| `SHARE_MODE` | `1` turns the app into the public share viewer: `src/proxy.ts` serves only `/s/<token>`, `/s/<token>/img/<n>`, `/_next/static/*`, `/robots.txt` and `/favicon.ico`; everything else is a 404 | unset (normal IAP app) |
+| `GOOGLE_CLOUD_STORAGE_BUCKET` | Bucket the share pages read `shares/<token>/…` from (`gs://` tolerated) | unset (share pages fail) |
+| `SHARE_BASE_URL` | Public origin of the share service; makes `og:image` absolute | unset (relative) |
 
 ## Testing
 
@@ -114,6 +142,11 @@ npm run lint    # ESLint
 npm test        # Vitest + React Testing Library (tests in src/__tests__/)
 npm run build   # next build, which also type-checks everything in tsconfig's include (tests too)
 ```
+
+There are 77 test files in `src/__tests__/` (plus `setup.ts`, `helpers.ts` and
+`fixtures/`), named after the module or component they cover (e.g. `poll-run.test.ts`,
+`user-scoping.test.ts`, `share-view.test.tsx`, `personalise-panel.test.tsx`). The
+grouping by feature is in the Testing section of [CLAUDE.md](../CLAUDE.md#testing).
 
 Vitest runs in the `node` environment by default (creating a jsdom for every
 file used to dominate the run). A test that needs a DOM (`window`, `document`,
@@ -149,8 +182,12 @@ GIF knobs) and the list of captures are in
 
 ## Deployment
 
-The frontend runs on Cloud Run as `trend-trawler-web`. It builds from the
-[`Dockerfile`](Dockerfile) using Next.js `output: "standalone"`
-(`next.config.ts`). The service is IAP-gated and reaches the private
-`trend-trawler-api` backend with a metadata-server ID token. Runbook:
-[deployment/README.md → Frontend + api_server on Cloud Run](../deployment/README.md#frontend--api_server-on-cloud-run).
+The image builds from the [`Dockerfile`](Dockerfile) using Next.js
+`output: "standalone"` (`next.config.ts`) and runs on Cloud Run as two services:
+
+- `trend-trawler-web`: the IAP-gated app. It reaches the private `trend-trawler-api`
+  backend (the `deployment/async_app.py` launcher) with a metadata-server ID token.
+  Runbook: [deployment/README.md → Frontend + api_server on Cloud Run](../deployment/README.md#frontend--api_server-on-cloud-run).
+- `trend-trawler-share`: the same image with `SHARE_MODE=1`, the only public service
+  (`--allow-unauthenticated`). Its service account can read only the bucket's `shares/`
+  prefix. Runbook: [deployment/README.md → Shareable links](../deployment/README.md#shareable-links).
