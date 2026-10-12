@@ -57,9 +57,9 @@ Pick ONE primary style family per concept, from the run's style shortlist when o
 Prefer these mappings when choosing among the families on the run's style shortlist (a preference, not a rule; the shortlist wins):
 - Meme-based / irreverent tone -> meme aesthetic, diecut sticker, or flat cartoon.
 - Humorous tone -> 3D character or comic panel.
-- Aspirational / premium tone -> cinematic photoreal or minimalist negative-space.
+- Aspirational / premium tone -> Cinematic film still or Photoreal / editorial, or minimalist negative-space.
 - Emotional / authentic tone -> candid 35mm film photo or watercolor.
-- Educational / how-it-works tone -> a product hero with one short labelled callout, or a minimalist frame with one line of text; never a full technical diagram, schematic, cutaway or exploded view.
+- Educational / how-it-works tone -> a product hero visibly demonstrating its benefit, with no labels or callouts, or a minimalist frame with the paired headline in quotes; never a full technical diagram, schematic, cutaway or exploded view.
 - Problem–solution / direct-response tone -> clean studio product shot (photoreal) with in-image CTA.
 Diversity rule: across a set of concepts, vary the style family — do not render every concept in the same look.
 </TONE_TO_STYLE_MAPPING>

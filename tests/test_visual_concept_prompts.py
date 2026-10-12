@@ -214,3 +214,13 @@ def test_interactive_reviser_keeps_brand_cue_and_angle_id():
     instr = ic_prompts.VISUAL_CONCEPT_REVISER_INSTR
     assert "`trend_motif` and `brand_cue` words in the rewritten prompt" in instr
     assert "keep its `angle_id`" in instr
+
+
+def test_guide_tone_mapping_agrees_with_the_text_rules_and_style_names():
+    guide = prompts.IMAGE_PROMPT_GUIDE
+    # In-image text is only the paired headline / CTA: no labelled callouts.
+    assert "labelled callout" not in guide
+    assert "with no labels or callouts" in guide
+    # Mapped styles use the palette's family names.
+    assert "-> Cinematic film still or Photoreal / editorial" in guide
+    assert "-> cinematic photoreal" not in guide
