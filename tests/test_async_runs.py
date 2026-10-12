@@ -777,6 +777,16 @@ def test_brief_edit_writes_brief_markdown_and_flag_and_clears_issues():
     assert "Rocket Skates win the chase." in delta["creative_brief_md"]
 
 
+def test_brief_edit_keeps_the_current_moment_in_the_markdown():
+    moment = "Upcoming: Roadrunner Cup final, 2026-10-12. (sources: src-1)"
+    edited = _valid_brief(single_minded_proposition="Rocket Skates win the chase.")
+    delta = merge_brief_edit(
+        {"creative_brief": _valid_brief(), "trend_situation_md": moment},
+        [{"field": BRIEF_EDIT_FIELD, "value": edited}],
+    )
+    assert f"- **Current moment:** {moment}" in delta["creative_brief_md"]
+
+
 def test_brief_edit_accepts_a_json_string_value():
     edited = _valid_brief(insight="Coyotes want speed, but gadgets fail.")
     delta = merge_brief_edit(

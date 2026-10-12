@@ -9,6 +9,7 @@ import { fetchEvalReport } from "@/lib/eval-report";
 import { gcsProxyUrl } from "@/lib/gcs";
 import { classifyWarnings } from "@/lib/run-warnings";
 import { LearningSummary } from "@/components/learning-summary";
+import { TrendSituationLine } from "@/components/trend-situation-line";
 import {
   buildDisplayFields,
   imagesRetryExhausted,
@@ -278,6 +279,7 @@ export default function ResultsPage({
       />
 
       <LearningSummary state={state} className="mb-4" />
+      <TrendSituationLine state={state} className="mb-4" />
 
       {hasCreativeView && (
         <>

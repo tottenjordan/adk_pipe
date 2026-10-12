@@ -1,0 +1,320 @@
+"""creative_agent/trend_situation.py: the deterministic trend-situation
+validator (abstain to "unknown" unless the moment is dated, sourced and inside
+the window), the tone playbook and the one-line "Current moment" rendering."""
+
+from __future__ import annotations
+
+import json
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
+import pytest
+
+from creative_agent.trend_situation import (
+    current_moment_md,
+    resolve_now,
+    tone_rule_for,
+    validate_situation,
+)
+
+NY = ZoneInfo("America/New_York")
+# Sunday 2026-10-11, 10:00 in New York.
+NOW = datetime(2026, 10, 11, 10, 0, tzinfo=NY)
+SOURCES = {
+    "src-1": {"short_id": "src-1", "url": "https://example.com/texas-preview"},
+    "src-2": {
+        "short_id": "src-2",
+        "url": "https://news.example.com/2026/10/11/texas-falls-to-oklahoma",
+    },
+    "src-3": {
+        "short_id": "src-3",
+        "url": "https://news.example.com/2026/09/01/season-preview",
+    },
+}
+
+
+def _validate(draft, **kwargs):
+    return validate_situation(
+        draft,
+        sources=kwargs.pop("sources", SOURCES),
+        now=kwargs.pop("now", NOW),
+        window_days=kwargs.pop("window_days", 7),
+        valid_hours_after=kwargs.pop("valid_hours_after", 48),
+        **kwargs,
+    )
+
+
+UPCOMING = {
+    "phase": "upcoming",
+    "event_name": "Texas vs Oklahoma",
+    "event_start": "2026-10-12",
+    "source_ids": ["src-1"],
+    "confidence": "high",
+}
+LOSS = {
+    "phase": "just_happened",
+    "event_name": "Texas vs Oklahoma",
+    "event_start": "2026-10-10",
+    "outcome": "loss",
+    "outcome_summary": "Texas lost to Oklahoma 24-31.",
+    "audience_sentiment": "negative",
+    "source_ids": ["src-2"],
+    "confidence": "high",
+}
+
+
+@pytest.mark.parametrize(
+    ("draft", "phase", "timely_ok"),
+    [
+        # Tomorrow's game with a source -> upcoming, ok.
+        (UPCOMING, "upcoming", True),
+        # Today's game (later today) still counts as upcoming.
+        ({**UPCOMING, "event_start": "2026-10-11T19:30:00-05:00"}, "upcoming", True),
+        # Yesterday's loss with a source -> just_happened, ok.
+        (LOSS, "just_happened", True),
+        # An outcome with no source -> unknown.
+        ({**LOSS, "source_ids": []}, "unknown", False),
+        # Upcoming with no source -> unknown.
+        ({**UPCOMING, "source_ids": []}, "unknown", False),
+        # A date 20 days out -> unknown.
+        ({**UPCOMING, "event_start": "2026-10-31"}, "unknown", False),
+        # An upcoming event dated in the past -> unknown.
+        ({**UPCOMING, "event_start": "2026-10-09"}, "unknown", False),
+        # A just-happened event dated in the future -> unknown.
+        ({**LOSS, "event_start": "2026-10-13"}, "unknown", False),
+        # Just happened with no outcome -> unknown.
+        ({**LOSS, "outcome": ""}, "unknown", False),
+        # An unknown src id -> unknown.
+        ({**UPCOMING, "source_ids": ["src-1", "src-9"]}, "unknown", False),
+        # No parseable date -> unknown.
+        ({**UPCOMING, "event_start": "next Saturday"}, "unknown", False),
+        ({**UPCOMING, "event_start": ""}, "unknown", False),
+        # A source whose URL date predates the event can't report its result.
+        ({**LOSS, "source_ids": ["src-3"]}, "unknown", False),
+        # Sensitive / live / ongoing / evergreen are never timely.
+        (
+            {"phase": "sensitive", "event_name": "Player injury", "confidence": "high"},
+            "sensitive",
+            False,
+        ),
+        ({**UPCOMING, "phase": "live"}, "live", False),
+        ({"phase": "ongoing", "confidence": "high"}, "ongoing", False),
+        ({"phase": "evergreen", "confidence": "high"}, "evergreen", False),
+        # Low confidence -> not ok (the phase is kept).
+        ({**UPCOMING, "confidence": "low"}, "upcoming", False),
+        # The model's own abstention.
+        ({"phase": "unknown"}, "unknown", False),
+        # No draft at all (failed / empty branch).
+        (None, "unknown", False),
+        ("", "unknown", False),
+        ({"phase": "not-a-phase"}, "unknown", False),
+    ],
+)
+def test_validator_table(draft, phase, timely_ok):
+    situation = _validate(draft)
+    assert situation.phase == phase
+    assert situation.timely_ok is timely_ok
+    if timely_ok:
+        assert situation.abstain_reason == ""
+        assert situation.tone_rule
+    else:
+        assert situation.abstain_reason
+        assert situation.tone_rule == ""
+
+
+def test_draft_as_json_string_is_parsed():
+    assert _validate(json.dumps(UPCOMING)).timely_ok is True
+
+
+def test_disabled_abstains():
+    situation = _validate(UPCOMING, enabled=False)
+    assert situation.phase == "unknown"
+    assert situation.timely_ok is False
+    assert situation.abstain_reason == "disabled"
+
+
+def test_upcoming_valid_until_is_end_of_event_day():
+    situation = _validate(UPCOMING)
+    assert situation.valid_until == "2026-10-12T23:59:59-04:00"
+    assert situation.as_of == "2026-10-11T10:00:00-04:00"
+
+
+def test_just_happened_valid_until_is_48_hours_after_the_event():
+    situation = _validate(LOSS)
+    # End of the event day (2026-10-10 23:59:59) + 48 h.
+    assert situation.valid_until == "2026-10-12T23:59:59-04:00"
+    with_time = _validate({**LOSS, "event_start": "2026-10-10T20:00:00-04:00"})
+    assert with_time.valid_until == "2026-10-12T20:00:00-04:00"
+    with_end = _validate(
+        {
+            **LOSS,
+            "event_start": "2026-10-09T20:00:00-04:00",
+            "event_end": "2026-10-10T01:00:00-04:00",
+        }
+    )
+    assert with_end.valid_until == "2026-10-12T01:00:00-04:00"
+
+
+def test_expired_just_happened_moment_is_not_timely():
+    situation = _validate({**LOSS, "event_start": "2026-10-07"})
+    assert situation.phase == "just_happened"
+    assert situation.timely_ok is False
+    assert "expired" in situation.abstain_reason
+
+
+def test_window_knob():
+    assert _validate({**UPCOMING, "event_start": "2026-10-15"}).timely_ok is True
+    narrow = _validate({**UPCOMING, "event_start": "2026-10-15"}, window_days=2)
+    assert narrow.phase == "unknown"
+
+
+def test_sensitive_keeps_only_known_sources():
+    situation = _validate(
+        {"phase": "sensitive", "source_ids": ["src-1", "src-9"], "confidence": "high"}
+    )
+    assert situation.phase == "sensitive"
+    assert situation.source_ids == ["src-1"]
+
+
+def test_utc_datetime_is_read_in_the_run_timezone():
+    # 03:00 UTC on the 12th is 23:00 on the 11th in New York: today, not tomorrow.
+    situation = _validate({**UPCOMING, "event_start": "2026-10-12T03:00:00Z"})
+    assert situation.valid_until == "2026-10-11T23:59:59-04:00"
+
+
+# --- tone playbook --- #
+def test_tone_rule_table():
+    upcoming = tone_rule_for("upcoming", "")
+    assert "anticipation" in upcoming and "score" in upcoming
+    win = tone_rule_for("just_happened", "win")
+    assert "celebration" in win and "gloat" in win
+    loss = tone_rule_for("just_happened", "loss")
+    assert "empathy" in loss and "discount" in loss and "headline" in loss
+    assert "factual" in tone_rule_for("just_happened", "other")
+    assert "factual" in tone_rule_for("just_happened", "draw")
+    for phase in ("live", "sensitive", "ongoing", "evergreen", "unknown"):
+        assert tone_rule_for(phase, "") == ""
+
+
+def test_tone_rules_are_brace_free():
+    for phase, outcome in (
+        ("upcoming", ""),
+        ("just_happened", "win"),
+        ("just_happened", "loss"),
+        ("just_happened", "other"),
+    ):
+        rule = tone_rule_for(phase, outcome)
+        assert "{" not in rule and "}" not in rule
+
+
+# --- one-line rendering --- #
+def test_current_moment_md_for_timely_moment():
+    md = current_moment_md(_validate(LOSS))
+    assert md.startswith("Just happened: Texas vs Oklahoma, 2026-10-10.")
+    assert "Texas lost to Oklahoma 24-31." in md
+    assert "sources: src-2" in md
+    assert "valid until 2026-10-12 23:59" in md
+    assert "\n" not in md
+
+
+def test_current_moment_md_for_sensitive_moment_says_never_reference():
+    md = current_moment_md(
+        _validate(
+            {
+                "phase": "sensitive",
+                "event_name": "Stadium collapse",
+                "source_ids": ["src-1"],
+                "confidence": "high",
+            }
+        )
+    )
+    assert md.startswith("Sensitive: Stadium collapse.")
+    assert "never reference" in md.lower()
+
+
+@pytest.mark.parametrize(
+    "draft",
+    [
+        None,
+        {"phase": "ongoing", "confidence": "high"},
+        {**UPCOMING, "confidence": "low"},
+    ],
+)
+def test_current_moment_md_is_empty_when_not_usable(draft):
+    assert current_moment_md(_validate(draft)) == ""
+
+
+def test_current_moment_md_strips_braces():
+    md = current_moment_md(_validate({**UPCOMING, "event_name": "Big {game}"}))
+    assert "{" not in md and "}" not in md
+
+
+def test_current_moment_md_accepts_a_dict():
+    assert current_moment_md(_validate(UPCOMING).model_dump()).startswith("Upcoming:")
+    assert current_moment_md(None) == ""
+
+
+# --- now --- #
+def test_resolve_now_prefers_state_datetime():
+    now = resolve_now({"current_datetime": "2026-10-11T23:00:00-04:00"})
+    assert now.isoformat() == "2026-10-11T23:00:00-04:00"
+
+
+def test_resolve_now_falls_back_to_the_timezone():
+    now = resolve_now({"current_datetime": "garbage"}, tz_name="America/New_York")
+    assert now.tzinfo is not None
+    assert resolve_now({}, tz_name="Mars/Base").tzinfo is not None
+
+
+def test_state_delta_reads_draft_sources_and_state_clock():
+    from creative_agent.trend_situation import trend_situation_state_delta
+
+    delta = trend_situation_state_delta(
+        {
+            "trend_situation_draft": UPCOMING,
+            "sources": SOURCES,
+            "current_datetime": "2026-10-11T10:00:00-04:00",
+            "current_timezone": "America/New_York",
+        },
+        enabled=True,
+        window_days=7,
+        valid_hours_after=48,
+    )
+    assert delta["trend_situation"]["phase"] == "upcoming"
+    assert delta["trend_situation"]["timely_ok"] is True
+    assert delta["trend_situation_md"].startswith("Upcoming:")
+
+
+def test_situation_prompts_use_only_known_tokens():
+    """Every state token the situation prompts read; the date tokens and the
+    upstream outputs are optional so a run without them never KeyErrors."""
+    import re
+
+    from creative_agent.prompts import (
+        TREND_SITUATION_SEARCHER_INSTR,
+        TREND_SITUATION_SYNTHESIZER_INSTR,
+    )
+
+    date_tokens = {"current_date?", "current_weekday?", "current_timezone?"}
+    tokens = re.compile(r"\{([^{}]+)\}")
+    assert set(tokens.findall(TREND_SITUATION_SEARCHER_INSTR)) == date_tokens | {
+        "target_search_trends",
+        "target_audience",
+    }
+    assert set(tokens.findall(TREND_SITUATION_SYNTHESIZER_INSTR)) == date_tokens | {
+        "target_search_trends",
+        "trend_situation_raw?",
+        "sources?",
+    }
+    assert "unknown" in TREND_SITUATION_SYNTHESIZER_INSTR
+    assert "sensitive" in TREND_SITUATION_SYNTHESIZER_INSTR
+
+
+def test_state_delta_without_a_draft_abstains():
+    from creative_agent.trend_situation import trend_situation_state_delta
+
+    delta = trend_situation_state_delta(
+        {}, enabled=True, window_days=7, valid_hours_after=48
+    )
+    assert delta["trend_situation"]["phase"] == "unknown"
+    assert delta["trend_situation_md"] == ""

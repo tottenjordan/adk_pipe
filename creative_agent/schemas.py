@@ -455,3 +455,77 @@ class CreativeBrief(BaseModel):
         max_length=5,
         description="3-5 genuinely different creative angles, each rooted in a different audience tension.",
     )
+
+
+# --- TREND SITUATION (trend-state awareness) --- #
+# The trend's current moment: drafted by the grounded trend_situation branch
+# (searcher -> synthesizer, output_schema=TrendSituationDraft) and turned into a
+# validated TrendSituation by the deterministic validator in
+# creative_agent/trend_situation.py, which abstains to phase "unknown" unless the
+# event date (and outcome) are source-backed and inside the event window.
+TrendPhase = Literal[
+    "upcoming", "live", "just_happened", "ongoing", "evergreen", "sensitive", "unknown"
+]
+
+
+class TrendSituationDraft(BaseModel):
+    """The synthesizer's draft of the trend's current moment (not yet validated)."""
+
+    phase: TrendPhase = Field(
+        description="'upcoming' = a dated event is coming soon; 'live' = happening right now; 'just_happened' = a dated event ended recently with a known outcome; 'ongoing' = a continuing story with no single dated event; 'evergreen' = no time-bound event; 'sensitive' = a tragedy, injury, death, scandal or disaster; 'unknown' = the sources do not state the event date (choose this when unsure)."
+    )
+    event_name: str = Field(
+        default="",
+        description="The specific event driving interest (e.g. 'Texas vs Oklahoma'), or empty.",
+    )
+    event_start: str = Field(
+        default="",
+        description="The event's start as an ISO date (YYYY-MM-DD) or datetime, exactly as the sources state it; empty when no source states it.",
+    )
+    event_end: str = Field(
+        default="",
+        description="The event's end as an ISO date or datetime when it differs from the start, else empty.",
+    )
+    outcome: Literal["win", "loss", "draw", "other", ""] = Field(
+        default="",
+        description="For 'just_happened' only: the result from the perspective of the trend's subject (win / loss / draw), 'other' for a non-sports outcome, else empty.",
+    )
+    outcome_summary: str = Field(
+        default="",
+        description="At most one factual sentence describing the outcome, as stated by the sources; empty when there is none.",
+    )
+    audience_sentiment: Literal["positive", "negative", "mixed", "neutral"] = Field(
+        default="neutral",
+        description="The prevailing public sentiment around the moment.",
+    )
+    source_ids: list[str] = Field(
+        default_factory=list,
+        description="The 'src-N' ids from the sources that state the event date and outcome; only ids present in the sources.",
+    )
+    confidence: Literal["high", "medium", "low"] = Field(
+        default="low",
+        description="How confident the sources make you in the phase, date and outcome.",
+    )
+
+
+class TrendSituation(TrendSituationDraft):
+    """The validated current moment (state `trend_situation`)."""
+
+    as_of: str = Field(
+        default="", description="When it was validated (ISO datetime with offset)."
+    )
+    timely_ok: bool = Field(
+        default=False,
+        description="True only when a creative may reference the moment.",
+    )
+    valid_until: str = Field(
+        default="",
+        description="Until when a timely reference stays valid (ISO datetime), else empty.",
+    )
+    tone_rule: str = Field(
+        default="", description="The phase-conditioned tone for a timely reference."
+    )
+    abstain_reason: str = Field(
+        default="",
+        description="Why the validator abstained (phase forced to 'unknown') or why the moment is not timely.",
+    )

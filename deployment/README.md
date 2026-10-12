@@ -1978,6 +1978,9 @@ Agent Engine through `deploy_agent.py` `ENV_VAR_DICT`, read at import, so for an
 | `IMAGE_QA_MODEL` | `gemini-3.8-flash` | QA vision model (worker model) |
 | `BRAND_HISTORY_ENABLED` | `true` | `load_brand_history` reads past `creative_evals` rows for the brand |
 | `BRAND_HISTORY_RUNS` | `5` (0–20) | How many past runs of the brand to read |
+| `TREND_STATE_ENABLED` | `true` | Kill switch for the trend situation branch (grounded "current moment" search + validator; `false` = no model call, situation `unknown`) |
+| `TREND_EVENT_WINDOW_DAYS` | `7` (1–30) | An upcoming / just-happened event must be dated within this many days of today |
+| `TIMELY_VALID_HOURS_AFTER` | `48` (6–168) | How long after a just-happened event its moment stays valid |
 | `RATING_LEARNING_ENABLED` | `true` | Global kill switch for rating learning (`true` = runs may opt in via the form checkbox; `false` = never, even when checked) |
 | `RATING_LEARNING_EFFECTS` | `guidance,styles,checks` | Enabled effects; drop an item to disable it (unknown items ignored; blank or only-unknown → all three, with a warning). `checks` = `rating_strictness`: tighter copy/concept gates, image-QA prominence and the no-other-logos render line (no extra knobs) |
 | `RATING_LEARNING_MIN_RATINGS` | `8` (1–200) | Below this many brand ratings nothing is applied ("not enough ratings yet") |

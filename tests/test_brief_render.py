@@ -182,6 +182,19 @@ def test_render_brief_markdown_compact_variant_has_no_heading():
     assert render_brief_markdown(None, heading=False) == ""
 
 
+def test_current_moment_renders_first_in_the_trend_fit_block():
+    moment = "Upcoming: Roadrunner Cup final, 2026-10-12. (sources: src-1)"
+    md = render_brief_markdown(_BRIEF, heading=False, current_moment=moment)
+    assert f"### Trend fit\n- **Current moment:** {moment}\n- **Fit:**" in md
+    # Without one (or blank) the brief renders exactly as before.
+    assert render_brief_markdown(_BRIEF, current_moment="  ") == render_brief_markdown(
+        _BRIEF
+    )
+    assert "Current moment" not in render_brief_markdown(_BRIEF)
+    # No brief: still nothing (the moment alone is not a brief).
+    assert render_brief_markdown(None, current_moment=moment) == ""
+
+
 def test_gallery_escapes_model_and_user_text(monkeypatch, tmp_path):
     """Model/user text (headline, brand, ...) must not inject markup into the gallery."""
     monkeypatch.chdir(tmp_path)

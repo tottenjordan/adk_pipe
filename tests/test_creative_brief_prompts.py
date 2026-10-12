@@ -197,3 +197,25 @@ def test_creative_agents_respect_trend_risks(name):
 @pytest.mark.parametrize("name", ["AD_COPY_DRAFTER_INSTR", "AD_COPY_CRITIC_INSTR"])
 def test_copy_agents_avoid_unsupported_absolute_claims(name):
     assert prompts.COPY_CLAIMS_RULE in getattr(prompts, name), name
+
+
+# --- trend situation (the validated current moment) -------------------------
+
+
+def test_brief_writer_reads_the_current_moment():
+    instr = prompts.CREATIVE_BRIEF_WRITER_INSTR
+    assert instr.count("Current moment: {trend_situation_md?}") == 1
+    assert prompts.CURRENT_MOMENT_RULE in instr
+    assert "never state an event date or result that is not in it" in (
+        prompts.CURRENT_MOMENT_RULE
+    )
+    assert "{" not in prompts.CURRENT_MOMENT_RULE
+
+
+def test_only_the_brief_writer_reads_the_current_moment():
+    for name in dir(prompts):
+        value = getattr(prompts, name)
+        if name.endswith("_INSTR") and isinstance(value, str):
+            assert ("{trend_situation_md?}" in value) == (
+                name == "CREATIVE_BRIEF_WRITER_INSTR"
+            ), name

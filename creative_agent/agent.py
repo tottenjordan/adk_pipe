@@ -76,6 +76,7 @@ from .schemas import (  # noqa: F401
 )
 from .sub_agents.campaign_researcher.agent import ca_sequential_planner
 from .sub_agents.trend_researcher.agent import gs_sequential_planner
+from .sub_agents.trend_situation.agent import trend_situation_pipeline
 
 # --- config ---
 logging.basicConfig(
@@ -278,6 +279,12 @@ brief_writer_resilient = RetryUntilKeyNode(
 # - reviser: keep the pre-revision brief, record the gate's issues as
 #   creative_brief__issues, and spend the revision budget (a raising reviser is
 #   not re-run by the gate).
+def _current_moment(state: Mapping[str, Any]) -> str:
+    """The validated current moment line (``trend_situation_md``; "" if none)."""
+    value = state.get("trend_situation_md")
+    return value if isinstance(value, str) else ""
+
+
 def _brief_writer_failed(state: Mapping[str, Any], exc: Exception) -> dict[str, Any]:
     return {
         "creative_brief": None,
@@ -292,7 +299,9 @@ def _brief_reviser_failed(state: Mapping[str, Any], exc: Exception) -> dict[str,
     return {
         "creative_brief": state.get("creative_brief"),
         "creative_brief_md": render_brief_markdown(
-            state.get("creative_brief"), heading=False
+            state.get("creative_brief"),
+            heading=False,
+            current_moment=_current_moment(state),
         ),
         "brief_issues": "",
         "creative_brief__issues": _brief_issues(state) or None,
@@ -366,7 +375,9 @@ def brief_gate_decision(
         brief = cleaned
         snapshot["creative_brief"] = cleaned
         base["creative_brief"] = cleaned
-    brief_md = render_brief_markdown(brief, heading=False)
+    brief_md = render_brief_markdown(
+        brief, heading=False, current_moment=_current_moment(snapshot)
+    )
     base["creative_brief_md"] = brief_md
     issues = _brief_issues(snapshot)
     if not issues:
@@ -579,7 +590,9 @@ def research_report_ready(ctx: Context) -> str:
 # round (degraded research) or straight to the composer (healthy path). The
 # composer's report is then distilled into the structured creative brief, which
 # brief_gate either accepts or sends through a bounded revision loop; on accept
-# the report (with the brief) is saved as the research PDF.
+# the report (with the brief) is saved as the research PDF. The fan-out also
+# runs load_brand_history and the trend situation branch (the trend's validated
+# current moment, sub_agents/trend_situation), so the join waits for all four.
 combined_research_pipeline = Workflow(
     name="combined_research_pipeline",
     description="Runs parallel campaign + trend research, a refinement round only when that research is degraded, then a cited report and a structured creative brief.",
@@ -587,7 +600,12 @@ combined_research_pipeline = Workflow(
     edges=[
         (
             "START",
-            (gs_sequential_planner, ca_sequential_planner, load_brand_history),
+            (
+                gs_sequential_planner,
+                ca_sequential_planner,
+                load_brand_history,
+                trend_situation_pipeline,
+            ),
             research_join,
             research_barrier,
             merge_planners,

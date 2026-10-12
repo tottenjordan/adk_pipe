@@ -41,7 +41,10 @@ def _fit(bridge: Mapping[str, Any]) -> str:
 
 
 def render_brief_markdown(
-    brief: Mapping[str, Any] | str | None, *, heading: bool = True
+    brief: Mapping[str, Any] | str | None,
+    *,
+    heading: bool = True,
+    current_moment: str = "",
 ) -> str:
     """The brief as a "## Creative Brief" Markdown section ("" when missing).
 
@@ -49,6 +52,9 @@ def render_brief_markdown(
     (markdown_pdf's table of contents rejects skipped heading levels).
     ``heading=False`` drops the "## Creative Brief" line — the compact form
     injected into the creative agents' prompts as ``creative_brief_md``.
+    ``current_moment`` (state ``trend_situation_md``, the validated moment)
+    leads the Trend fit block when non-empty, so every downstream prompt sees
+    it.
     """
     data = parse_brief(brief)
     if data is None:
@@ -95,6 +101,7 @@ def render_brief_markdown(
     trend_lines = [
         f"- **{label}:** {value}"
         for label, value in (
+            ("Current moment", _text(current_moment)),
             ("Fit", _fit(bridge)),
             ("Bridge", _text(bridge.get("bridge"))),
             ("Motifs", "; ".join(_strings(bridge.get("motifs")))),

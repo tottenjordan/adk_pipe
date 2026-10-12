@@ -26,7 +26,9 @@ import {
   SELF_USER_ID,
 } from "@/lib/api";
 import { LearningSummary } from "@/components/learning-summary";
+import { TrendSituationLine } from "@/components/trend-situation-line";
 import { learningSummaryText } from "@/lib/rating-learning";
+import { trendSituationText } from "@/lib/trend-situation";
 import {
   buildDisplayFields,
   RATING_LEARNING_FIELD,
@@ -501,8 +503,14 @@ export default function RunPage({
     : statusLine[status];
 
   const learningText = learningSummaryText(sessionState);
+  const situationText = trendSituationText(sessionState);
   const hasOutputs =
-    pipelineWidgets.length > 0 || gcsUri || researchReportUrl || creativeBrief || learningText;
+    pipelineWidgets.length > 0 ||
+    gcsUri ||
+    researchReportUrl ||
+    creativeBrief ||
+    learningText ||
+    situationText;
 
   return (
     <div className="mx-auto max-w-[1400px] px-4 py-6 sm:px-6 sm:py-8">
@@ -617,6 +625,9 @@ export default function RunPage({
                 <div className="grid gap-3 sm:grid-cols-2">
                   {/* What rating-driven learning applied (opt-in runs only) */}
                   <LearningSummary state={sessionState} className="sm:col-span-2" />
+
+                  {/* The trend's validated current moment (read-only) */}
+                  <TrendSituationLine state={sessionState} className="sm:col-span-2" />
 
                   {/* Full width first: the brief is the strategy every later output follows */}
                   {creativeBrief && (
