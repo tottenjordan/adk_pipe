@@ -202,7 +202,7 @@ def validate_situation(
     def abstain(reason: str, base: TrendSituationDraft | None = None) -> TrendSituation:
         # Keep the drafted event fields for observability, never its outcome.
         fields = base.model_dump() if base is not None else {}
-        fields.update(phase="unknown", outcome="", outcome_summary="")
+        fields.update(phase="unknown", outcome="none", outcome_summary="")
         return _situation(fields, as_of=as_of, timely_ok=False, abstain_reason=reason)
 
     if not enabled:
@@ -248,7 +248,7 @@ def validate_situation(
     else:  # just_happened
         if offset > 0:
             return abstain("a just-happened event dated in the future", parsed)
-        if not parsed.outcome:
+        if parsed.outcome == "none":
             return abstain("a just-happened event without an outcome", parsed)
         earliest = start_day - timedelta(days=1)
         for source_id in cited:

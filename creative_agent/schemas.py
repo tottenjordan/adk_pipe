@@ -1,8 +1,8 @@
 """Pydantic output schemas for the creative_agent pipeline agents."""
 
-from typing import Literal
+from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 # --- RESEARCH FEEDBACK SCHEMA --- #
@@ -530,9 +530,10 @@ class TrendSituationDraft(BaseModel):
         default="",
         description="The event's end as an ISO date or datetime when it differs from the start, else empty.",
     )
-    outcome: Literal["win", "loss", "draw", "other", ""] = Field(
-        default="",
-        description="For 'just_happened' only: the result from the perspective of the trend's subject (win / loss / draw), 'other' for a non-sports outcome, else empty.",
+    # "none", not "": Vertex rejects an empty string in a response_schema enum.
+    outcome: Literal["win", "loss", "draw", "other", "none"] = Field(
+        default="none",
+        description="For 'just_happened' only: the result from the perspective of the trend's subject (win / loss / draw), 'other' for a non-sports outcome, else 'none'.",
     )
     outcome_summary: str = Field(
         default="",
@@ -550,6 +551,12 @@ class TrendSituationDraft(BaseModel):
         default="low",
         description="How confident the sources make you in the phase, date and outcome.",
     )
+
+    @field_validator("outcome", mode="before")
+    @classmethod
+    def _legacy_empty_outcome(cls, value: Any) -> Any:
+        """Older drafts and code paths used "" (or null) for no outcome."""
+        return "none" if value in ("", None) else value
 
 
 class TrendSituation(TrendSituationDraft):
