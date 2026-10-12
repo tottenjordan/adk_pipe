@@ -4,6 +4,7 @@ import re
 import subprocess
 import sys
 import types
+import warnings
 from pathlib import Path
 
 import pytest
@@ -144,26 +145,22 @@ def test_agent_modules_import_without_legacy_agent_deprecation():
     assert result.returncode == 0, result.stderr[-4000:]
 
 
-@pytest.mark.subprocess
 def test_legacy_agent_deprecation_filter_actually_fires():
     """Positive control: the scoped filter really turns ADK's legacy-container
-    notice into an error (so the guard above can't pass vacuously)."""
-    probe = (
-        "import sys, warnings\n"
-        "warnings.filterwarnings('error', message=sys.argv[1], "
-        "category=DeprecationWarning)\n"
-        "from google.adk.agents import SequentialAgent\n"
-        "SequentialAgent(name='probe', sub_agents=[])\n"
-    )
-    result = subprocess.run(
-        [sys.executable, "-c", probe, _LEGACY_AGENT_WARNING],
-        cwd=_REPO_ROOT,
-        capture_output=True,
-        text=True,
-        timeout=300,
-    )
-    assert result.returncode != 0
-    assert "DeprecationWarning" in result.stderr
+    notice into an error (so the guard above can't pass vacuously).
+
+    In-process is safe: changing the filters invalidates every module's
+    ``__warningregistry__``, so an earlier (ignored or shown) emission of the
+    same warning can't suppress this one."""
+    from google.adk.agents import SequentialAgent
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        warnings.filterwarnings(
+            "error", message=_LEGACY_AGENT_WARNING, category=DeprecationWarning
+        )
+        with pytest.raises(DeprecationWarning, match="SequentialAgent is deprecated"):
+            SequentialAgent(name="probe", sub_agents=[])
 
 
 _LEGACY_NAMES = re.compile(
