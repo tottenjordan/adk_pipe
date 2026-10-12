@@ -63,7 +63,7 @@ MAX_COMPOSITION_DIFFERENCES = 5
 COMPOSITION_FIELDS = ("composition_changed", "composition_differences")
 # Person-casting verdict fields stored only for cast concepts (uncast renders
 # keep their record shape).
-CAST_ONLY_FIELDS = ("person_as_public_figure",)
+CAST_ONLY_FIELDS = ("person_as_public_figure", "person_marks")
 
 
 class ImageQAResult(BaseModel):
@@ -122,6 +122,15 @@ class ImageQAResult(BaseModel):
             "duplicated or in the wrong place, warped or melted."
         ),
     )
+    product_off_model: bool = Field(
+        default=False,
+        description=(
+            "The product is shown as a generic object that no longer resembles "
+            "the real product: its recognisable silhouette or shape is replaced "
+            "(e.g. by a plain block or a generic bottle). Stylisation that keeps "
+            "it recognisable, and a missing or simplified label, do not count."
+        ),
+    )
     artifacts: bool = Field(
         description="Noticeable anatomy or object deformities (extra fingers, melted or broken objects)."
     )
@@ -156,6 +165,14 @@ class ImageQAResult(BaseModel):
             "(their costume, signature attire, uniform or vestments, or a pose, "
             "setting or caption implying they are that figure); false when no "
             "person reference image was supplied."
+        ),
+    )
+    person_marks: bool = Field(
+        default=False,
+        description=(
+            "The cast person has tattoos, text, logos, writing, face paint or "
+            "other marks on their skin or face that the image prompt did not ask "
+            "for; false when no person reference image was supplied."
         ),
     )
     composition_changed: bool = Field(
@@ -220,6 +237,12 @@ def _text_required(result: ImageQAResult, concept: dict[str, Any]) -> bool:
     )
 
 
+# Always restated in a re-render (the model's issue says what is wrong, not
+# what the product should look like).
+PRODUCT_OFF_MODEL_PHRASE = (
+    "render the product with its real silhouette and shape, even in a "
+    "stylised look (a simplified or unlabelled surface is fine)"
+)
 # (attribute, rule name, correction phrase) per check, in report order.
 _RULES: tuple[tuple[str, str, str], ...] = (
     ("product_visible", "product not visible", "show the product recognisably"),
@@ -232,6 +255,11 @@ _RULES: tuple[tuple[str, str, str], ...] = (
         "product_malformed",
         "malformed product",
         "render the product with its correct real-world shape and orientation",
+    ),
+    (
+        "product_off_model",
+        "product off-model",
+        PRODUCT_OFF_MODEL_PHRASE,
     ),
     (
         "gibberish_text",
@@ -271,6 +299,10 @@ _PERSON_RULES: dict[str, str] = {
         "clothing, no costume, signature attire, uniform or vestments of a real "
         "person"
     ),
+    "person marked": (
+        "show the person with clean skin: no tattoos, text, logos or marks on "
+        "their face or body unless the prompt asks for them"
+    ),
 }
 # Personalised variant edits only (``inspect_image`` with ``original_image``):
 # not critical. The phrase restates the edit's keep-everything instruction.
@@ -292,7 +324,8 @@ def qa_failed_rules(
 
     Fails on: product or motif not visible (skipped when ``target_product`` /
     the concept's ``trend_motif`` is empty — nothing was promised), a
-    malformed product (also skipped without ``target_product``), gibberish
+    malformed or off-model product (both also skipped without
+    ``target_product``), gibberish
     text, an unrequested logo, severe artifacts, unsafe content, or — when
     text is required (``_text_required``) — text not exact or not legible
     (``None`` = unknown, not a failure). ``brand_cue_visible`` is advisory and
@@ -302,7 +335,7 @@ def qa_failed_rules(
     if not (concept.get("trend_motif") or "").strip():
         skip.add("motif_visible")
     if not (target_product or "").strip():
-        skip.update({"product_visible", "product_malformed"})
+        skip.update({"product_visible", "product_malformed", "product_off_model"})
     failed = []
     for attr, name, _ in _RULES:
         if attr in skip:
@@ -325,6 +358,8 @@ def qa_failed_rules(
             failed.append("person distorted")
         if result.person_as_public_figure:
             failed.append("person shown as a public figure")
+        if result.person_marks:
+            failed.append("person marked")
     # Only ever true for a check against the original (inspect_image clears it
     # otherwise), so base renders are unaffected.
     if result.composition_changed:
@@ -401,6 +436,8 @@ def correction_text(
     else:
         items = [c for c in (_clean_issue(i) for i in result.issues if i) if c]
         items = items or [phrases[name] for name in failed]
+    if "product off-model" in failed:
+        items.append(PRODUCT_OFF_MODEL_PHRASE)
     # A person rule always restates its fixed instruction (the likeness ask).
     items += [phrases[name] for name in failed if name in _PERSON_RULES]
     # A composition change restates "keep everything" plus its differences.
@@ -443,7 +480,11 @@ PERSON_COMPARISON_LINE = (
     "only when the hero is clearly dressed or presented as a specific real "
     "public figure (that figure's costume, signature attire, uniform or "
     "vestments, or a pose, setting or caption implying the hero is that "
-    "figure); ordinary fan clothing in team colours is not."
+    "figure); ordinary fan clothing in team colours is not. person_marks: "
+    "true only when the person clearly has tattoos, text, logos, writing, face "
+    "paint or other marks on their skin or face that the prompt above did not "
+    "ask for; clothing, accessories, freckles, moles and the reference photo's "
+    "own features do not count."
 )
 
 
@@ -562,6 +603,17 @@ def _instruction(
         "are flipped, or reversed lettering on it), parts missing, duplicated or "
         "in the wrong place, warped or melted. Deliberate stylisation (cartoon, "
         "comic, collage) is not a defect.",
+    ]
+    if target_product:
+        lines.append(
+            "product_off_model: true only when the product is drawn as a generic "
+            "object that no longer resembles the real product — its recognisable "
+            "silhouette or shape is replaced (e.g. a plain block, box or generic "
+            "bottle instead of its real form). Normal stylisation that keeps the "
+            "product recognisable (flat colours, comic inking, simplified detail) "
+            "and a missing, simplified or unreadable label are not off-model."
+        )
+    lines += [
         "Also flag noticeable anatomy or object deformities (artifacts) and "
         "brand-unsafe content.",
     ]
