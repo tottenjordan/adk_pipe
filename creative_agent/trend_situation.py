@@ -336,6 +336,23 @@ def current_moment_md(situation: Any) -> str:
     return f"{line} ({'; '.join(tail)})" if tail else line
 
 
+def timely_allowed(state: Any, max_timely: int) -> bool:
+    """True when the run's validated moment is timely and the slot is on.
+
+    ``state`` is a Mapping or an ADK ``State`` (anything with ``.get``).
+
+    The guards' switch: the timely cap and the evergreen temporal-term checks
+    apply only then, so runs without a timely moment are checked exactly as
+    before.
+    """
+    situation = state.get("trend_situation")
+    return (
+        max_timely > 0
+        and isinstance(situation, Mapping)
+        and situation.get("timely_ok") is True
+    )
+
+
 def _relative_day(days: int) -> str:
     if days == 0:
         return "today"

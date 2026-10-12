@@ -111,7 +111,14 @@ import re
 from collections.abc import Iterable, Mapping, Sequence
 from typing import Any
 
-from .copy_gate import CopyIssue, item_keys, parse_copies, restore_unflagged_items
+from .copy_gate import (
+    CopyIssue,
+    cap_timely_flags,
+    item_keys,
+    parse_copies,
+    restore_unflagged_items,
+)
+from .temporal_terms import temporal_terms
 from .text_match import content_tokens, mentions, same_word
 
 DEFAULT_MAX_TEXT_CONCEPTS = 2
@@ -420,6 +427,25 @@ def enforce_person_casting(
     return out, warns
 
 
+def enforce_timely_cap(
+    concepts: list[dict[str, Any]], *, timely_ok: bool, max_timely: int
+) -> tuple[list[dict[str, Any]], list[str]]:
+    """Return copies of ``concepts`` with ``uses_trend_state`` cleared beyond
+    the timely cap (first ``max_timely`` kept, concept order) or everywhere when
+    the run has no timely moment, plus one warning per cleared concept. Mirrors
+    ``enforce_person_casting``; run right after it by
+    ``ensure_trend_and_product_callback``."""
+    out, cleared = cap_timely_flags(
+        concepts, timely_ok=timely_ok, max_timely=max_timely
+    )
+    why = "cap reached" if timely_ok else "no validated current moment"
+    warns = [
+        f"{out[i].get('concept_name', '?')}: timely flag cleared ({why})"
+        for i in cleared
+    ]
+    return out, warns
+
+
 def parse_concepts(concepts: Any) -> list[Mapping[str, Any]]:
     """The concepts as a list of mappings (never raises).
 
@@ -584,6 +610,30 @@ def _paired_copy_texts(
     ]
 
 
+def _timely_issues(
+    concept: Mapping[str, Any],
+    prompt: str,
+    copies_by_id: Mapping[str, Mapping[str, Any]],
+) -> list[str]:
+    """The timely-slot issues of one concept (the run has a timely moment)."""
+    if concept.get("uses_trend_state") is True:
+        paired = copies_by_id.get(str(concept.get("ad_copy_id")))
+        if paired is not None and paired.get("uses_trend_state") is not True:
+            return [
+                "timely concept, but its paired ad copy is evergreen: make this "
+                "concept evergreen (set uses_trend_state false and remove every "
+                "reference to the current moment)."
+            ]
+        return []
+    terms = temporal_terms(f"{prompt}\n{_text(concept.get('headline'))}")
+    if not terms:
+        return []
+    return [
+        f"evergreen concept mentions a dated or outcome term ({', '.join(terms)}): "
+        "remove it or make this the timely concept."
+    ]
+
+
 def concept_issues(
     concepts: Any,
     ad_copies: Any,
@@ -592,6 +642,7 @@ def concept_issues(
     target_product: str = "",
     max_text_concepts: int = DEFAULT_MAX_TEXT_CONCEPTS,
     strictness: Sequence[str] = (),
+    timely_ok: bool = False,
 ) -> dict[str, list[CopyIssue]]:
     """The concepts' deterministic issues, keyed by ``concept_keys``.
 
@@ -612,7 +663,12 @@ def concept_issues(
     and every centred hero after the first, are flagged. ``strictness`` (the
     run's ``rating_strictness`` flags) only tightens: ``text_problem`` lowers
     the cap to ``STRICT_MAX_TEXT_CONCEPTS`` (never raising a tighter one).
-    Only concepts with issues are returned ({} = clean). Never raises.
+    ``timely_ok`` (the run has a timely moment and the slot is on) adds the
+    timely checks: an evergreen concept (``uses_trend_state`` not True) whose
+    prompt or headline has a dated/outcome term (``temporal_terms``), and a
+    timely concept whose paired copy is not timely. Without it the checks are
+    exactly as before. Only concepts with issues are returned ({} = clean).
+    Never raises.
     """
     if "text_problem" in strictness:
         max_text_concepts = min(max_text_concepts, STRICT_MAX_TEXT_CONCEPTS)
@@ -682,6 +738,9 @@ def concept_issues(
                     f"concept{'' if max_text_concepts == 1 else 's'}: remove the quoted text from this concept and leave "
                     "clean negative space instead."
                 )
+
+        if timely_ok:
+            found.extend(_timely_issues(concept, prompt, copies_by_id))
 
         if is_centred_hero(prompt):
             centred += 1
