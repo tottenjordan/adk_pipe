@@ -187,6 +187,7 @@
       "issues": [],
       "motif_visible": true,
       "passed": true,
+      "person_as_public_figure": false,
       "person_cast": null,
       "person_distorted": false,
       "person_likeness": null,

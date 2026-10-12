@@ -610,11 +610,16 @@ def _qa_record(
 ) -> dict:
     """The stored verdict: the model's fields + the rule's passed/failures. The
     composition fields are stored only for a check against the original (a
-    personalised variant edit), so base renders keep their record shape."""
+    personalised variant edit) and the cast-only person fields only for a cast
+    concept, so other renders keep their record shape."""
     failures = image_qa.qa_failures(result, entry, target_product=product)
-    exclude = None if compared_to_original else set(image_qa.COMPOSITION_FIELDS)
+    exclude: set[str] = set()
+    if not compared_to_original:
+        exclude.update(image_qa.COMPOSITION_FIELDS)
+    if not image_qa.is_cast(entry):
+        exclude.update(image_qa.CAST_ONLY_FIELDS)
     return {
-        **result.model_dump(exclude=exclude),
+        **result.model_dump(exclude=exclude or None),
         "passed": not failures,
         "failures": failures,
     }

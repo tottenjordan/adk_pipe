@@ -38,6 +38,7 @@ from .concept_guard import in_image_quotes, is_meme_or_comic
 from .config import config
 
 __all__ = [
+    "CAST_ONLY_FIELDS",
     "COMPOSITION_FIELDS",
     "CRITICAL_RULES",
     "ISSUE_CHAR_CAP",
@@ -60,6 +61,9 @@ MAX_COMPOSITION_DIFFERENCES = 5
 # The verdict fields of the composition check (personalised variant edits only;
 # base renders never store them).
 COMPOSITION_FIELDS = ("composition_changed", "composition_differences")
+# Person-casting verdict fields stored only for cast concepts (uncast renders
+# keep their record shape).
+CAST_ONLY_FIELDS = ("person_as_public_figure",)
 
 
 class ImageQAResult(BaseModel):
@@ -143,6 +147,15 @@ class ImageQAResult(BaseModel):
         description=(
             "The cast person's face or body is distorted, malformed or altered "
             "(slimmed, beautified, added attributes)."
+        ),
+    )
+    person_as_public_figure: bool = Field(
+        default=False,
+        description=(
+            "The cast person is dressed or presented as a real public figure "
+            "(their costume, signature attire, uniform or vestments, or a pose, "
+            "setting or caption implying they are that figure); false when no "
+            "person reference image was supplied."
         ),
     )
     composition_changed: bool = Field(
@@ -253,6 +266,11 @@ _PERSON_RULES: dict[str, str] = {
         "render the person's face and body naturally and undistorted, without "
         "slimming, beautifying or adding attributes"
     ),
+    "person shown as a public figure": (
+        "show the person as themselves, not as a public figure: everyday "
+        "clothing, no costume, signature attire, uniform or vestments of a real "
+        "person"
+    ),
 }
 # Personalised variant edits only (``inspect_image`` with ``original_image``):
 # not critical. The phrase restates the edit's keep-everything instruction.
@@ -305,6 +323,8 @@ def qa_failed_rules(
             failed.append("person likeness lost")
         if result.person_distorted:
             failed.append("person distorted")
+        if result.person_as_public_figure:
+            failed.append("person shown as a public figure")
     # Only ever true for a check against the original (inspect_image clears it
     # otherwise), so base renders are unaffected.
     if result.composition_changed:
@@ -419,7 +439,11 @@ PERSON_COMPARISON_LINE = (
     "tone, hair, eye colour, apparent age and distinguishing features; ignore "
     "pose, clothing, expression and lighting). person_distorted: true when the "
     "person's face or body is distorted or malformed, or visibly altered "
-    "(slimmed, beautified, added attributes)."
+    "(slimmed, beautified, added attributes). person_as_public_figure: true "
+    "only when the hero is clearly dressed or presented as a specific real "
+    "public figure (that figure's costume, signature attire, uniform or "
+    "vestments, or a pose, setting or caption implying the hero is that "
+    "figure); ordinary fan clothing in team colours is not."
 )
 
 

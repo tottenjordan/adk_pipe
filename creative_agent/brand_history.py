@@ -436,6 +436,22 @@ def _rating_delta(
     return delta, excluded, preferred
 
 
+def shortlist_exclusions(
+    recent: Iterable[str], rated_poorly: Iterable[str], rated_well: Iterable[str]
+) -> frozenset[str]:
+    """The styles the shortlist draw avoids: ``(recent - rated_well) | rated_poorly``.
+
+    Recency (the brand's last runs, for novelty) yields to rating learning: a
+    style the team rated well is not excluded for having been used recently,
+    so the shortlist matches what ``rating_signals`` tells the art director to
+    favour. A rated-poorly style is always excluded (exclusion still beats
+    preference in ``pick_style_shortlist``). Case-insensitive.
+    """
+    liked = {s.strip().lower() for s in rated_well}
+    novelty = {s for s in recent if s.strip().lower() not in liked}
+    return frozenset(novelty) | frozenset(rated_poorly)
+
+
 async def brand_history_state_delta(
     state: Mapping[str, Any],
     *,
@@ -459,7 +475,8 @@ async def brand_history_state_delta(
 
     ``style_shortlist`` is drawn once, excluding the recent and the poorly
     rated styles and preferring the well-rated ones, unless the user set a
-    ``visual_style_preference``.
+    ``visual_style_preference``. A well-rated style beats recency (it is not
+    excluded for having been used recently); see ``shortlist_exclusions``.
     """
     history_on = enabled and runs > 0
     ratings_on = _rating_learning_on(state)
@@ -501,7 +518,8 @@ async def brand_history_state_delta(
     if (recent or excluded or preferred) and not keep_shortlist:
         delta["style_shortlist"] = format_shortlist(
             pick_style_shortlist(
-                exclude=frozenset(recent) | frozenset(excluded), prefer=preferred
+                exclude=shortlist_exclusions(recent, excluded, preferred),
+                prefer=preferred,
             )
         )
     return delta

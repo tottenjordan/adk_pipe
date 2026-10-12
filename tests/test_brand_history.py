@@ -671,6 +671,32 @@ class TestRatingLearning:
             }
             assert "Candid 35mm film photo" in shortlist
 
+    def test_rated_well_styles_beat_recency(self, monkeypatch):
+        """A style the team rated well is kept even when the brand used it
+        recently (novelty yields to ratings); recent styles the ratings don't
+        prefer stay excluded, and a rated-poorly style never appears."""
+        history = {
+            **_HISTORY,
+            "recent_styles": [
+                "Candid 35mm film photo",
+                "Comic panel",
+                "Isometric miniature world",
+            ],
+        }
+        self._ratings(monkeypatch, self.rows * 2)
+        monkeypatch.setattr(bh, "fetch_brand_history", lambda *a, **k: history)
+        for _ in range(10):
+            d = _delta({"brand": "PRS", "learn_from_ratings": True})
+            shortlist = set(d["style_shortlist"].split("; "))
+            assert len(shortlist) == 6
+            assert "Candid 35mm film photo" in shortlist
+            assert not shortlist & {"Comic panel", "Isometric miniature world"}
+        # Without rating learning recency still excludes every recent style.
+        for _ in range(10):
+            d = _delta({"brand": "PRS", "learn_from_ratings": False})
+            shortlist = set(d["style_shortlist"].split("; "))
+            assert not shortlist & set(history["recent_styles"])
+
     def test_style_preference_keeps_the_shortlist(self, monkeypatch):
         self._ratings(monkeypatch, self.rows * 2)
         d = _delta(

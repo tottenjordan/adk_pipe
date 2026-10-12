@@ -46,11 +46,17 @@ def _rules(result, concept):
 
 def test_old_payloads_parse_with_person_defaults():
     payload = _result().model_dump()
-    for key in ("person_cast", "person_likeness", "person_distorted"):
+    for key in (
+        "person_cast",
+        "person_likeness",
+        "person_distorted",
+        "person_as_public_figure",
+    ):
         payload.pop(key)
     parsed = ImageQAResult.model_validate_json(json.dumps(payload))
     assert parsed.person_cast is None and parsed.person_likeness is None
     assert parsed.person_distorted is False
+    assert parsed.person_as_public_figure is False
 
 
 def test_person_rules_fire_only_for_cast_concepts():
@@ -59,6 +65,35 @@ def test_person_rules_fire_only_for_cast_concepts():
     assert _rules(lost, _CAST) == ["person likeness lost"]
     assert _rules(distorted, _CAST) == ["person distorted"]
     assert _rules(lost, _UNCAST) == [] and _rules(distorted, _UNCAST) == []
+
+
+def test_public_figure_rule_fires_only_for_cast_concepts():
+    shown_as = _result(
+        person_cast=True, person_likeness=True, person_as_public_figure=True
+    )
+    assert _rules(shown_as, _CAST) == ["person shown as a public figure"]
+    assert _rules(shown_as, _UNCAST) == []
+    assert "person shown as a public figure" not in image_qa.CRITICAL_RULES
+
+
+def test_public_figure_correction_shows_the_person_as_themselves():
+    result = _result(
+        person_cast=True,
+        person_likeness=True,
+        person_as_public_figure=True,
+        issues=["hero wears the singer's stage costume"],
+    )
+    text = image_qa.correction_text(result, _CAST, target_product="skates")
+    assert "show the person as themselves, not as a public figure" in text
+    assert text.endswith(image_qa.NO_NEW_TEXT)
+
+
+def test_public_figure_field_stored_only_for_cast_concepts():
+    result = _result(person_cast=True, person_likeness=True)
+    cast = image_tools._qa_record(result, _CAST, "skates")
+    uncast = image_tools._qa_record(result, _UNCAST, "skates")
+    assert cast["person_as_public_figure"] is False
+    assert "person_as_public_figure" not in uncast
 
 
 def test_unknown_likeness_is_not_a_failure():
@@ -114,10 +149,12 @@ def test_instruction_compares_with_the_person_image_only_when_given():
     assert images == [b"render", b"face"]
     assert "Is the hero clearly the same person as the reference image?" in text
     assert "person_distorted" in text
+    assert "person_as_public_figure" in text
     text, images = _inspect()
     assert images == [b"render"]
     assert "same person as the reference image" not in text
     assert "person_cast" not in text and "person_likeness" not in text
+    assert "person_as_public_figure" not in text
 
 
 # --- generate_image wiring ----------------------------------------------------------
