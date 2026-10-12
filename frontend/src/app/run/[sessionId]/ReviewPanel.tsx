@@ -71,7 +71,7 @@ function ReviewResearch({
         </Button>
         <Button
           variant="outline"
-          onClick={() => resume("revision_requested", "User requested changes to the research. Address their feedback, then continue the WORKFLOW.")}
+          onClick={() => resume("revision_requested", "User requested changes to the brief/research; their edits are applied and the feedback is carried forward. Continue the WORKFLOW (generate ad copies).")}
           disabled={!feedback && !edits}
         >
           Request changes
