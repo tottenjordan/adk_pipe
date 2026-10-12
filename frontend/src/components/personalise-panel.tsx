@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { FieldLabel } from "@/components/field-label";
@@ -154,7 +154,9 @@ export function PersonalisePanel({
   const ineligible =
     castabilityNote(castEntry, eligibility?.personSafeStyles ?? []) ?? (noOther ? NO_OTHER_PERSON_NOTE : null);
 
-  const render = useCallback(async () => {
+  // A plain handler: the React Compiler memoizes it (a manual useCallback over
+  // the derived `consentId` couldn't be preserved).
+  const render = async () => {
     if (!consentId || submitting || ineligible) return;
     setSubmitting(true);
     setError(null);
@@ -169,7 +171,7 @@ export function PersonalisePanel({
     } finally {
       if (alive.current) setSubmitting(false);
     }
-  }, [appName, sessionId, conceptName, consentId, submitting, ineligible]);
+  };
 
   const record = variant?.record ?? null;
   const pending = isPending(record?.status);

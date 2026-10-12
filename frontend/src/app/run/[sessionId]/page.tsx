@@ -87,7 +87,8 @@ export default function RunPage({
   // Viewing a session the server has no run for (and no kick-off message).
   const [notStarted, setNotStarted] = useState(false);
   const seenEventIds = useRef(new Set<string>());
-  const lastEventAt = useRef<number>(Date.now());
+  // Seeded by the effects below on mount (no impure Date.now() during render).
+  const lastEventAt = useRef<number>(0);
   // Aborts the resume poll loop on unmount (handleResume is a click handler,
   // not an effect, so it can't own an effect-scoped AbortController itself).
   const resumeAbortRef = useRef<AbortController | null>(null);
