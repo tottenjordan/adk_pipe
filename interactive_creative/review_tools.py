@@ -32,7 +32,7 @@ def review_ad_copies(tool_context: ToolContext) -> None:
 
 
 def review_visual_concepts(tool_context: ToolContext) -> None:
-    """Pause for user to review visual concepts. When this tool returns a response, you MUST call `visual_concept_reviser`, then `visual_generator_resilient`. The response contains 'status' and 'instruction'; any direct concept edits the user made are already applied to session state ('final_visual_concepts'), and any free-text revision notes are summarized in 'visual_revision_notes'."""
+    """Pause for user to review visual concepts. When this tool returns a response, you MUST call `visual_concept_reviser`, then `visual_generator_resilient`. The response contains 'status' and 'instruction'; any direct concept edits the user made are already applied to session state ('final_visual_concepts'), and any free-text revision notes are saved to session state as 'visual_revision_notes' (not in this response) for `visual_concept_reviser` to apply."""
     tool_context.actions.skip_summarization = True
     return None
 
