@@ -7,6 +7,7 @@ from agent_common.clock import DATE_CONTEXT_LINE
 
 from .claims import ABSOLUTE_CLAIM_TERMS
 from .config import PHOTOGRAPHIC_PERSON_STYLES, config
+from .copy_gate import MAX_HEADLINE_CHARS
 from .temporal_terms import TEMPORAL_TERMS
 from .trend_situation import as_situation, moment_phrase
 
@@ -535,7 +536,9 @@ AD_COPY_DRAFTER_INSTR = (
         *   Sound like the brand: {brand} (use its voice and distinctive assets from the research report).
         *   Speak directly to the target audience: {target_audience}
         *   Incorporate the key selling point(s): {key_selling_points}
-        *   Be suitable for Instagram/TikTok platforms (short, punchy, visual-friendly).
+        *   Be suitable for Instagram/TikTok platforms (short, punchy, visual-friendly), with the headline within """
+    + str(MAX_HEADLINE_CHARS)
+    + """ characters.
         *   Directly reference or subtly leverage the trending topic: {target_search_trends}.
     4.  **Enforce Tone Diversity:** To ensure variety, the 10 ideas must collectively cover at least 4 of the following creative tones/styles: **Humorous, Aspirational, Problem/Solution, Emotional/Authentic, Educational/Informative, Relatable/Meme-based.**
     5.  **Strict Output Format:** Ensure the entire output is a single JSON object containing all 10 ideas, formatted exactly as specified in the <OUTPUT_FORMAT> block.
@@ -602,6 +605,9 @@ AD_COPY_CRITIC_INSTR = (
         *   Carry each selected idea's `angle_id` and `typicality` through unchanged (re-rate `typicality` only if you substantially rewrite the idea).
     4.  **Enrich and Critique:** For each selected idea, you must add a high-converting **Call-to-Action (CTA)** and a **Detailed Rationale** explaining the strategic choice.
         *   **CTA:** critique and improve every CTA: it must be specific to this offer (never a generic "Learn more"), start with an action verb, match the brief's desired response, and stay within 8 words.
+        *   **Headline:** keep every headline within """
+    + str(MAX_HEADLINE_CHARS)
+    + """ characters; shorten any longer one.
     5.  **Brief Checklist:** For each final copy, fill `brief_checks` with exactly one entry per item, judged against the FINAL headline, body, caption and CTA:
         *   `proposition`: delivers the brief's single-minded proposition.
         *   `product`: names the target product.

@@ -106,3 +106,10 @@ def test_reviser_uses_the_cta_limit_from_the_issue():
     instr = prompts.AD_COPY_REVISER_INSTR
     assert "within the word limit in its issue (8 by default)" in instr
     assert "within 8 words" not in instr
+
+
+@pytest.mark.parametrize("name", ["AD_COPY_DRAFTER_INSTR", "AD_COPY_CRITIC_INSTR"])
+def test_drafter_and_critic_state_the_gate_headline_limit(name):
+    from creative_agent.copy_gate import MAX_HEADLINE_CHARS
+
+    assert f"headline within {MAX_HEADLINE_CHARS} characters" in getattr(prompts, name)
