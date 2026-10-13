@@ -3,15 +3,15 @@
 import { useState, type MouseEvent, type PointerEvent } from "react";
 import { ChevronRightIcon } from "lucide-react";
 import { ExplainPanel } from "@/components/explain";
-import { ProofImage } from "@/app/results/[sessionId]/proof-grid";
 import { CONDENSED } from "@/app/results/[sessionId]/score-mark";
 import { formatInt, formatPercent } from "@/lib/chart";
 import { SCOREBOARD_EXPLAIN } from "@/lib/experiment-explain";
 import type { ExperimentInsights } from "@/lib/experiment-insights";
-import { armImageUrl, segmentLabel, type CreativeSeries } from "@/lib/experiments";
+import { segmentLabel, type CreativeSeries } from "@/lib/experiments";
 import { evenSplit, periodAt, shareY, sharedShareMax, stripPaths, type Lane, type LaneRegime } from "@/lib/scoreboard";
 import type { RunView } from "@/lib/shifts";
 import { ShiftResults } from "./shift-results";
+import { ArmImage } from "./arm-image";
 import { cn } from "@/lib/utils";
 
 const STRIP_W = 300;
@@ -152,8 +152,8 @@ export function CreativeScoreboard({
                 >
                   {hasResults ? lane.rank : ""}
                 </span>
-                <ProofImage
-                  src={lane.arm ? armImageUrl(lane.arm) : null}
+                <ArmImage
+                  arm={lane.arm}
                   alt={lane.name}
                   className="size-16 text-[0px]"
                 />

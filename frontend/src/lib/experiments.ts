@@ -9,7 +9,7 @@ import { downsampleIndices, formatInt, type Point } from "./chart";
 import { gcsProxyUrl, parseGsUri } from "./gcs";
 import { overridesFromValues, type TuneValues } from "./scenario-preview";
 import { trafficBody } from "./shifts";
-import { isExpiredAt } from "./timely";
+import { formatValidUntil, isExpiredAt } from "./timely";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "/api/adk";
 
@@ -198,6 +198,11 @@ export type Arm = {
   imageUri: string | null;
   scores: Record<string, number>;
   overallScore: number | null;
+  /** Cast arms only: the consent the image was rendered with (contracts §5).
+   *  Revoking it stops the experiment and deletes the image. */
+  consentId?: string;
+  /** The timely creative's moment had ended when the experiment was created. */
+  timelyExpired?: boolean;
 };
 
 export type ExperimentSummary = {
@@ -390,9 +395,12 @@ const experimentUrl = (id: string) =>
 // ── REST client ──────────────────────────────────────────────────────────────
 
 /** `POST /experiments` → 201 `{experimentId, status: "deploying"}`. */
+/** A non-blocking note in the create response (contracts §5), e.g. an expired timely arm. */
+export type CreateExperimentWarning = { conceptName: string; reason: "timely_expired"; message: string };
+
 export async function createExperiment(
   body: CreateExperimentRequest
-): Promise<{ experimentId: string; status: ExperimentStatus }> {
+): Promise<{ experimentId: string; status: ExperimentStatus; warnings?: CreateExperimentWarning[] }> {
   const res = await fetch(`${API_BASE}/experiments`, {
     method: "POST",
     headers: JSON_HEADERS,
@@ -941,34 +949,23 @@ export function hasOverrides(ov: ScenarioOverrides | null | undefined): ov is Sc
   return Boolean(ov && Object.values(ov).some((v) => v !== undefined && v !== null));
 }
 
-/** Why a creative can't be picked as an arm (shown beside its disabled checkbox). */
-export const CAST_NOT_DEPLOYABLE =
-  "Features a person, so it stays out of experiments (likeness safety).";
-
-/** Why the timely creative can't be picked once its moment has passed. */
-export const EXPIRED_NOT_DEPLOYABLE =
-  "References a moment that has passed, so it stays out of experiments. Pick evergreen creatives.";
-
 /**
- * Why one creative can't be deployed, or null when it can. A cast creative (rendered
- * with the run's consented person) is excluded, matching the api's `cast_creative`
- * refusal, and so is a timely creative whose moment has passed (`timely_expired`;
- * `proof.timely.expired` is computed against the page's wall clock `now`, so it is
- * re-checked here). Personalised variant previews never appear here at all.
+ * A muted note beside a creative that can still be picked as an arm, or null. A
+ * timely creative whose moment has passed is fine for synthetic traffic, so it is
+ * only warned about (the api answers with a `timely_expired` warning, not an
+ * error); `proof.timely.expired` is computed against the page's wall clock, so it
+ * is re-checked against `now` here. Cast creatives need no note: the api checks
+ * their consent at deploy time. Personalised variant previews never appear here.
  */
-export function creativeDeployBlockedReason(
-  proof: {
-    casting?: { cast: boolean };
-    timely?: { expired: boolean; validUntilIso?: string };
-  },
+export function creativeDeployWarning(
+  proof: { timely?: { expired: boolean; validUntilIso?: string } },
   now = 0,
 ): string | null {
-  if (proof.casting?.cast) return CAST_NOT_DEPLOYABLE;
   const timely = proof.timely;
-  if (timely && (timely.expired || (now > 0 && isExpiredAt(timely.validUntilIso ?? "", now)))) {
-    return EXPIRED_NOT_DEPLOYABLE;
-  }
-  return null;
+  const iso = timely?.validUntilIso ?? "";
+  if (!timely || !(timely.expired || (now > 0 && isExpiredAt(iso, now)))) return null;
+  const ended = formatValidUntil(iso);
+  return `Its moment ${ended ? `ended on ${ended}` : "has ended"}; fine for a simulation, but don't use it live.`;
 }
 
 /** Why the Deploy button is disabled, or null when deploying is allowed. */

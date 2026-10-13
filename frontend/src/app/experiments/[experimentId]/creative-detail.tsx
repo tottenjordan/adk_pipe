@@ -5,7 +5,6 @@ import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
 import { XIcon } from "lucide-react";
 import { ExplainPanel } from "@/components/explain";
 import { Button } from "@/components/ui/button";
-import { ProofImage } from "@/app/results/[sessionId]/proof-grid";
 import { CONDENSED } from "@/app/results/[sessionId]/score-mark";
 import { formatInt, formatPercent, linePath, niceDomain, niceTicks, scaleLinear } from "@/lib/chart";
 import {
@@ -18,8 +17,9 @@ import {
 import { CREATIVE_DETAIL_EXPLAIN, SHIFT_EXPLAIN } from "@/lib/experiment-explain";
 import { SegmentedControl } from "@/components/segmented-control";
 import type { ChartMarker, RunView } from "@/lib/shifts";
-import { armImageUrl, segmentLabel, type CreativeSeries } from "@/lib/experiments";
+import { segmentLabel, type CreativeSeries } from "@/lib/experiments";
 import type { Lane } from "@/lib/scoreboard";
+import { ArmImage } from "./arm-image";
 import { cn } from "@/lib/utils";
 
 /**
@@ -111,8 +111,8 @@ export function CreativeDetailDrawer({
 function DrawerHeader({ lane }: { lane: Lane }) {
   return (
     <div className="flex items-start gap-4 border-b border-border px-6 py-5 pr-14">
-      <ProofImage
-        src={lane.arm ? armImageUrl(lane.arm) : null}
+      <ArmImage
+        arm={lane.arm}
         alt={lane.name}
         className="size-20 shrink-0 rounded-sm text-[0px]"
       />

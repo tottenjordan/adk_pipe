@@ -185,17 +185,32 @@ def test_person_variants_never_change_the_arms():
     assert ex.snapshot_arms(state, "s", [0, 1, 2, 3]) == before
 
 
-def test_cast_creatives_are_refused():
+def test_cast_creatives_need_a_resolved_active_consent():
     state = _fixture_state()
     state["generated_images"] = {
         "The Golden Golf Cart Gig": {"gcs_uri": "gs://b/x.png", "cast": False},
-        "Nihilistic Retirement Plan": {"gcs_uri": "gs://b/y.png", "cast": True},
+        "Nihilistic Retirement Plan": {
+            "gcs_uri": "gs://b/y.png",
+            "cast": True,
+            "consent_id": "consent-1",
+        },
     }
-    assert len(ex.snapshot_arms(state, "s", [0, 2])) == 2  # cast False is fine
+    arms = ex.snapshot_arms(state, "s", [0, 2])  # cast False is fine
+    assert all("consentId" not in a for a in arms)
+    # The default (no resolved consents) refuses every cast creative.
     with pytest.raises(ex.SelectionError) as e:
         ex.snapshot_arms(state, "s", [0, 1])
     assert e.value.reason == "cast_creative"
     assert "Nihilistic Retirement Plan" in str(e.value)
+    with pytest.raises(ex.SelectionError):
+        ex.snapshot_arms(state, "s", [0, 1], active_cast_consents={"other-1"})
+    arms = ex.snapshot_arms(state, "s", [0, 1], active_cast_consents={"consent-1"})
+    assert "consentId" not in arms[0]
+    assert arms[1]["consentId"] == "consent-1"
+    assert ex.picked_cast_concepts(state, [0, 1]) == [
+        ("Nihilistic Retirement Plan", "consent-1")
+    ]
+    assert ex.picked_cast_concepts(state, [0, 2]) == []
 
 
 def test_person_image_uris_are_refused():
@@ -210,7 +225,7 @@ def test_person_image_uris_are_refused():
     assert e.value.reason == "person_image"
 
 
-def test_deploy_refuses_a_cast_creative():
+def test_deploy_refuses_a_cast_creative_without_a_consent_id():
     async def go():
         h = Harness()
         state = _fixture_state()
@@ -218,7 +233,9 @@ def test_deploy_refuses_a_cast_creative():
         await h.session(state=state)
         r = await h.create(indices=(0, 1))
         assert r.status_code == 400
-        assert r.json()["detail"]["reason"] == "cast_creative"
+        assert r.json()["detail"]["reason"] == "consent_not_active"
+        assert "The Golden Golf Cart Gig" in r.json()["detail"]["message"]
+        assert not h.store.rows and not h.writer.files
 
     run(go)
 
@@ -234,28 +251,43 @@ def _timely_state(valid_until: str) -> dict:
     return state
 
 
-def test_expired_timely_creatives_are_refused():
+def test_expired_timely_creatives_are_flagged_not_refused():
     state = _timely_state("2026-10-14T23:59:59-04:00")
     before = dt.datetime(2026, 10, 15, 3, 59, 58, tzinfo=dt.UTC)
     at_end = dt.datetime(2026, 10, 15, 3, 59, 59, tzinfo=dt.UTC)
-    assert len(ex.snapshot_arms(state, "s", [0, 1], now=before)) == 2
-    assert len(ex.snapshot_arms(state, "s", [0, 2], now=at_end)) == 2  # evergreen
-    with pytest.raises(ex.SelectionError) as e:
-        ex.snapshot_arms(state, "s", [0, 1], now=at_end)
-    assert e.value.reason == "timely_expired"
+    live = ex.snapshot_arms(state, "s", [0, 1], now=before)
+    assert all("timelyExpired" not in a for a in live)
+    assert ex.expired_timely_warnings(state, live) == []
+    evergreen = ex.snapshot_arms(state, "s", [0, 2], now=at_end)
+    assert all("timelyExpired" not in a for a in evergreen)
+    arms = ex.snapshot_arms(state, "s", [0, 1], now=at_end)
+    assert "timelyExpired" not in arms[0]
+    assert arms[1]["timelyExpired"] is True
     name = state["final_visual_concepts"]["visual_concepts"][1]["concept_name"]
-    assert name in str(e.value) and "2026-10-14T23:59:59-04:00" in str(e.value)
+    (warning,) = ex.expired_timely_warnings(state, arms)
+    assert warning["conceptName"] == name
+    assert warning["reason"] == "timely_expired"
+    assert name in warning["message"]
+    assert "2026-10-14T23:59:59-04:00" in warning["message"]
 
 
-def test_deploy_refuses_an_expired_timely_creative():
+def test_deploy_accepts_an_expired_timely_creative_with_a_warning():
     async def go():
         h = Harness()
         await h.session(state=_timely_state("2020-01-01T00:00:00Z"))  # wall clock
         r = await h.create(indices=(0, 1))
-        assert r.status_code == 400
-        assert r.json()["detail"]["reason"] == "timely_expired"
-        r = await h.create(indices=(0, 2))
         assert r.status_code == 201, r.text
+        (warning,) = r.json()["warnings"]
+        assert warning["reason"] == "timely_expired"
+        row = h.store.rows[r.json()["experimentId"]]
+        assert [a.get("timelyExpired") for a in row["arms"]] == [None, True]
+        # The frozen experiment.json arms (read by the CPR/traffic images) are
+        # unchanged: the flag lives on the §5 arm only.
+        (config,) = h.writer.files.values()
+        assert all(
+            set(a) == {"creative_id", "label", "scores", "visual_style"}
+            for a in config["arms"]
+        )
 
     run(go)
 
@@ -579,7 +611,7 @@ def test_create_deploys_to_ready_and_writes_config():
         r = await h.create(indices=[2, 0], ttlMinutes=30)
         assert r.status_code == 201, r.text
         eid = r.json()["experimentId"]
-        assert r.json() == {"experimentId": eid, "status": "deploying"}
+        assert r.json() == {"experimentId": eid, "status": "deploying", "warnings": []}
         await ex.drain()
         detail = (await h.client.get(f"/experiments/{A}/{eid}")).json()
         listed = (await h.client.get(f"/experiments/{A}")).json()

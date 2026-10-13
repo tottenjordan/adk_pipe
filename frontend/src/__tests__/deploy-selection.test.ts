@@ -2,9 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   ARM_COLORS,
   armColor,
-  CAST_NOT_DEPLOYABLE,
-  creativeDeployBlockedReason,
-  EXPIRED_NOT_DEPLOYABLE,
+  creativeDeployWarning,
   deployBlockedReason,
   selectionColors,
   selectionToPayload,
@@ -117,33 +115,25 @@ describe("deployBlockedReason", () => {
   });
 });
 
-describe("creativeDeployBlockedReason", () => {
-  it("disables cast creatives with the reason, like the api's cast_creative refusal", () => {
-    expect(creativeDeployBlockedReason({ casting: { cast: true } })).toBe(CAST_NOT_DEPLOYABLE);
-    expect(CAST_NOT_DEPLOYABLE).toMatch(/person/);
+describe("creativeDeployWarning", () => {
+  const iso = "2026-10-14T23:59:59-04:00";
+  const at = Date.parse(iso);
+  it("has nothing to say about cast or evergreen creatives (the api checks consent)", () => {
+    expect(creativeDeployWarning({})).toBeNull();
+    const cast = { casting: { cast: true }, timely: undefined };
+    expect(creativeDeployWarning(cast)).toBeNull();
+    expect(creativeDeployWarning({ timely: { expired: false, validUntilIso: iso } }, at - 1)).toBeNull();
+    expect(creativeDeployWarning({ timely: { expired: false, validUntilIso: "garbage" } }, at)).toBeNull();
   });
-  it("allows uncast creatives, rejected casts and runs without a person", () => {
-    expect(creativeDeployBlockedReason({})).toBeNull();
-    expect(creativeDeployBlockedReason({ casting: undefined })).toBeNull();
-    expect(creativeDeployBlockedReason({ casting: { cast: false } })).toBeNull();
-  });
-  it("disables a timely creative whose moment has passed, like the api's timely_expired refusal", () => {
-    const iso = "2026-10-14T23:59:59-04:00";
-    const at = Date.parse(iso);
-    expect(creativeDeployBlockedReason({ timely: { expired: true, validUntilIso: iso } })).toBe(
-      EXPIRED_NOT_DEPLOYABLE,
-    );
+  it("warns about a timely creative whose moment has passed, with its date", () => {
+    const want = "Its moment ended on Oct 14, 23:59; fine for a simulation, but don't use it live.";
+    expect(creativeDeployWarning({ timely: { expired: true, validUntilIso: iso } })).toBe(want);
     // re-checked against the caller's clock
-    expect(creativeDeployBlockedReason({ timely: { expired: false, validUntilIso: iso } }, at)).toBe(
-      EXPIRED_NOT_DEPLOYABLE,
-    );
-    expect(creativeDeployBlockedReason({ timely: { expired: false, validUntilIso: iso } }, at - 1)).toBeNull();
-    expect(creativeDeployBlockedReason({ timely: { expired: false, validUntilIso: "garbage" } }, at)).toBeNull();
-    expect(EXPIRED_NOT_DEPLOYABLE).toMatch(/moment/);
+    expect(creativeDeployWarning({ timely: { expired: false, validUntilIso: iso } }, at)).toBe(want);
   });
-  it("keeps the cast reason first", () => {
-    expect(
-      creativeDeployBlockedReason({ casting: { cast: true }, timely: { expired: true, validUntilIso: "" } }),
-    ).toBe(CAST_NOT_DEPLOYABLE);
+  it("still warns when the end time can't be formatted", () => {
+    expect(creativeDeployWarning({ timely: { expired: true, validUntilIso: "" } })).toBe(
+      "Its moment has ended; fine for a simulation, but don't use it live.",
+    );
   });
 });

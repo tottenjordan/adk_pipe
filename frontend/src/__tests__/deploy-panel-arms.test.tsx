@@ -7,7 +7,6 @@ vi.mock("next/navigation", () => ({
 }));
 
 import { buildProofs, type AdCopy, type VisualConcept } from "@/lib/eval-matching";
-import { EXPIRED_NOT_DEPLOYABLE } from "@/lib/experiments";
 import { DeployPanel } from "@/app/results/[sessionId]/deploy-panel";
 
 const VALID_UNTIL = "2026-10-14T23:59:59-04:00";
@@ -41,27 +40,27 @@ function renderPanel(now: number) {
 
 const checkbox = (i: number) => document.getElementById(`deploy-creative-${i}`) as HTMLInputElement;
 
+const WARNING = "Its moment ended on Oct 14, 23:59; fine for a simulation, but don't use it live.";
+
 describe("deploy panel timely expiry", () => {
-  it("keeps a timely creative selectable before its moment ends", () => {
+  it("shows no warning before the moment ends", () => {
     renderPanel(AT - 1000);
     expect(checkbox(0).disabled).toBe(false);
-    expect(screen.queryByText(EXPIRED_NOT_DEPLOYABLE)).toBeNull();
+    expect(checkbox(0)).not.toHaveAttribute("aria-describedby");
+    expect(screen.queryByText(WARNING)).toBeNull();
   });
 
-  it("disables an expired timely creative with the reason", () => {
+  it("keeps an expired timely creative selectable with a described warning", () => {
     renderPanel(AT);
-    expect(checkbox(0).disabled).toBe(true);
-    expect(checkbox(0)).toHaveAttribute("aria-describedby", "deploy-creative-0-excluded");
-    expect(document.getElementById("deploy-creative-0-excluded")).toHaveTextContent(EXPIRED_NOT_DEPLOYABLE);
-    expect(checkbox(1).disabled).toBe(false);
-    // "Select all" skips it
+    expect(checkbox(0).disabled).toBe(false);
+    expect(checkbox(0)).toHaveAttribute("aria-describedby", "deploy-creative-0-warning");
+    expect(document.getElementById("deploy-creative-0-warning")).toHaveTextContent(WARNING);
+    expect(checkbox(1)).not.toHaveAttribute("aria-describedby");
     fireEvent.click(screen.getByRole("button", { name: "Select all" }));
-    expect(checkbox(0).checked).toBe(false);
-    expect(checkbox(1).checked).toBe(true);
-    expect(checkbox(2).checked).toBe(true);
+    expect([0, 1, 2].map((i) => checkbox(i).checked)).toEqual([true, true, true]);
   });
 
-  it("drops a pick that expires while the page is open", () => {
+  it("keeps a pick whose moment ends while the page is open, now warned", () => {
     const { rerender } = renderPanel(AT - 1000);
     fireEvent.click(checkbox(0));
     fireEvent.click(checkbox(1));
@@ -76,7 +75,28 @@ describe("deploy panel timely expiry", () => {
         now={AT}
       />,
     );
-    expect(checkbox(0).checked).toBe(false);
-    expect(screen.getByText(/1 of 3/)).toBeInTheDocument();
+    expect(checkbox(0).checked).toBe(true);
+    expect(screen.getByText(/2 of 3/)).toBeInTheDocument();
+    expect(screen.getByText(WARNING)).toBeInTheDocument();
+  });
+});
+
+describe("deploy panel cast creatives", () => {
+  it("lets a cast creative be picked (the api checks its consent)", () => {
+    const images = { Countdown: { gcs_uri: "gs://b/c.png", cast: true, consent_id: "consentAAAA1" } };
+    render(
+      <DeployPanel
+        proofs={buildProofs(concepts, copies, null, images)}
+        appName="creative_agent"
+        sessionId="s1"
+        imageUrlFor={() => null}
+        stoppedEarly={false}
+        now={AT - 1000}
+      />,
+    );
+    expect(checkbox(0).disabled).toBe(false);
+    expect(checkbox(0)).not.toHaveAttribute("aria-describedby");
+    fireEvent.click(checkbox(0));
+    expect(checkbox(0).checked).toBe(true);
   });
 });

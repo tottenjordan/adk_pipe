@@ -836,11 +836,13 @@ def test_session_read_failure_is_502_and_retryable(monkeypatch):
     run(go)
 
 
-def test_launcher_registers_the_share_cascade():
+def test_launcher_registers_the_share_and_experiment_cascades():
     # Importing async_app builds the whole ADK server, so check the wiring textually.
     src = (Path(__file__).resolve().parents[1] / "deployment/async_app.py").read_text()
-    assert "revoke_hooks=[shares.revoke_shares_for_consent]" in src
     call = src.split("person_refs.configure(")[1].split("\n)")[0]
+    hooks = call.split("revoke_hooks=[")[1].split("]")[0]
+    assert "shares.revoke_shares_for_consent" in hooks
+    assert "experiments.stop_experiments_for_consent" in hooks
     assert "session_service=session_service" in call
 
 

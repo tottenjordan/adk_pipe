@@ -2086,6 +2086,8 @@ previews under [Personalised variants](#personalised-variants), and the share sc
   cascades, in order: marks the record revoked; revokes every share whose
   `person_consent_ids` contain it (the revoke hook `shares.revoke_shares_for_consent`,
   registered in `deployment/async_app.py`; deletes `shares/<token>/`, so the link 404s);
+  stops every live experiment of the owner with an arm cast with it (`consentId`; the hook
+  `experiments.stop_experiments_for_consent`, through the stop route's teardown);
   deletes every image listed in the record's `person_renders` (cast base renders and
   personalised variants, see below), but only objects that still carry blob metadata
   `consent_id` = this consent or `source_consent_id` = this consent (a person swap edited
@@ -2327,8 +2329,9 @@ ends the variant as `rejected`.
   for a swap, the cast person's too) right before upload, so revoking either consent
   deletes it.
 
-Variants are never judged, rated, shared or deployed to an experiment, and the experiments
-api refuses cast creatives (`cast_creative`) for likeness safety.
+Variants are never judged, rated, shared or deployed to an experiment. Cast creatives can
+be experiment arms while their consent is active (`400 consent_not_active` otherwise);
+revoking the consent stops those experiments (see Revoking above).
 
 **Quota.** Variants share the image model's ~2 images/min (plus the image-QA vision calls)
 with live runs, project-wide. A process-wide semaphore keeps at most
