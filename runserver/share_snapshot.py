@@ -23,6 +23,7 @@ visual eval matches by ``concept_name``.
 
 from __future__ import annotations
 
+import datetime as dt
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
@@ -31,6 +32,7 @@ from agent_common.config import BaseAgentConfiguration
 from agent_common.sanitize import scrub_lone_surrogates
 from creative_eval.dimensions import ADVISORY_GATES, gate_label
 from runserver.ratings import _as_obj, _id_text, _items
+from runserver.timely import timely_expired, valid_until
 
 SNAPSHOT_VERSION = 1
 # Share images are re-encoded JPEGs (runserver/share_images.py); snapshots made
@@ -67,6 +69,8 @@ class SnapshotError(ValueError):
 # this module stays pure.
 ConsentLookup = Callable[[str], Mapping[str, Any] | None]
 PERSON_NOT_SHAREABLE = "person_not_shareable"
+# A timely creative (runserver/timely.py) whose moment has ended by share time.
+TIMELY_EXPIRED = "timely_expired"
 
 
 @dataclass(frozen=True)
@@ -75,7 +79,8 @@ class BuiltSnapshot:
     # Parallel to snapshot["creatives"]: source gs:// image and concept name.
     image_uris: list[str]
     concept_names: list[str]
-    # Slate shares only: cast creatives left out, ``[{concept_name, reason}]``.
+    # Slate shares only: cast or expired timely creatives left out,
+    # ``[{concept_name, reason}]``.
     skipped: list[dict[str, str]] = field(default_factory=list)
     # The consents of the cast creatives included (recorded on the share row only,
     # never in the snapshot) so revoking a consent revokes the share.
@@ -233,6 +238,11 @@ def _eval_block(
     }
 
 
+def snapshot_time(now: dt.datetime) -> str:
+    """``created_at`` text: whole seconds, ``Z`` for UTC."""
+    return now.replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
 def build_snapshot(
     state: Mapping[str, Any],
     report: Any,
@@ -240,7 +250,7 @@ def build_snapshot(
     token: str,
     concept_names: Sequence[str] | None,
     include_eval: bool,
-    now: str,
+    now: dt.datetime,
     consent_lookup: ConsentLookup | None = None,
 ) -> BuiltSnapshot:
     """The v1 snapshot for the whole slate (``concept_names=None``) or the named
@@ -248,9 +258,12 @@ def build_snapshot(
     skipped. A concept that casts a person (``generated_images[c].cast``) is
     included only when its ``consent_id`` resolves via ``consent_lookup`` to a
     record with ``allow_public_share`` (no lookup = never); a slate leaves the
-    others out and lists them in ``skipped``. Raises ``SnapshotError`` for an
+    others out and lists them in ``skipped``. A timely creative whose moment
+    ended at or before ``now`` (aware wall clock; ``runserver.timely``) is left
+    out the same way (``timely_expired``). Raises ``SnapshotError`` for an
     unknown concept name, a named cast concept that isn't shareable
-    (``person_not_shareable``) or when no creative with an image remains."""
+    (``person_not_shareable``), a named expired timely concept
+    (``timely_expired``) or when no creative with an image remains."""
     report = _as_obj(report)
     if not isinstance(report, Mapping):
         report = None
@@ -278,6 +291,12 @@ def build_snapshot(
                 PERSON_NOT_SHAREABLE,
                 "a creative shows a person whose consent doesn't cover public links",
             )
+        if expired := sorted(n for n in wanted if timely_expired(state, n, now)):
+            raise SnapshotError(
+                TIMELY_EXPIRED,
+                f"{expired[0]!r} referenced a moment that ended on "
+                f"{valid_until(state)}; pick evergreen creatives",
+            )
 
     brand = _text(state.get("brand")) or _text((report or {}).get("brand"))
     creatives: list[dict[str, Any]] = []
@@ -290,6 +309,9 @@ def build_snapshot(
         if not isinstance(name, str) or (wanted is not None and name not in wanted):
             continue
         if name in names or not (uri := _image_uri(generated, name)):
+            continue
+        if timely_expired(state, name, now):
+            skipped.append({"concept_name": name, "reason": TIMELY_EXPIRED})
             continue
         if _is_cast(generated, name):
             cid = _shareable_consent(generated, name, consent_lookup)
@@ -330,7 +352,7 @@ def build_snapshot(
     snapshot = {
         "version": SNAPSHOT_VERSION,
         "token": token,
-        "created_at": now,
+        "created_at": snapshot_time(now),
         "scope": "creative"
         if concept_names is not None and len(names) == 1
         else "slate",
