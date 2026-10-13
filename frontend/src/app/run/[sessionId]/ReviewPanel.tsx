@@ -9,6 +9,7 @@ import { FieldLabel } from "@/components/field-label";
 import { SensitiveChip, sensitiveEventNote } from "@/components/sensitive-chip";
 import { parseCreativeBrief } from "@/lib/creative-brief";
 import { normalizeTerm, parseTrendFlags } from "@/lib/trend-flags";
+import { formatRefreshDate, parseTrendSummaries } from "@/lib/trend-summaries";
 import { ResearchReportEditor, useReportEdit } from "./report-editor";
 import { ReviewBrief } from "./review-brief";
 import { useReviewDraft } from "./review-drafts";
@@ -379,6 +380,11 @@ function ReviewTrends({
   );
   const flags = useMemo(() => parseTrendFlags(state.trend_flags), [state.trend_flags]);
   const sensitiveReason = (term: string) => flags.get(normalizeTerm(term));
+  const summaries = useMemo(
+    () => parseTrendSummaries(state.trend_summaries),
+    [state.trend_summaries]
+  );
+  const refreshDate = formatRefreshDate(state.gtrends_refresh_date);
   const idBase = React.useId();
   // Stored as a list (the draft store keeps plain values); read as a Set.
   const [selectedList, setSelectedList] = useReviewDraft<string[]>(
@@ -425,6 +431,9 @@ function ReviewTrends({
         Select the trends you want to keep. The agent will skip its automatic
         pick and research the trends you choose.
       </p>
+      {refreshDate && (
+        <p className="text-xs text-muted-foreground">Google Trends for {refreshDate}</p>
+      )}
       {candidates.length === 0 ? (
         <p className="text-sm text-muted-foreground italic">
           No candidate trends available yet.
@@ -435,13 +444,19 @@ function ReviewTrends({
             const isSelected = selected.has(term);
             const reason = sensitiveReason(term);
             const reasonId = `${idBase}-sensitive-${i}`;
+            const summary = summaries.get(normalizeTerm(term));
+            const summaryId = `${idBase}-summary-${i}`;
+            const describedBy =
+              [reason !== undefined && reasonId, summary && summaryId]
+                .filter(Boolean)
+                .join(" ") || undefined;
             const button = (
               <button
                 key={term}
                 type="button"
                 onClick={() => toggle(term)}
                 aria-pressed={isSelected}
-                aria-describedby={reason !== undefined ? reasonId : undefined}
+                aria-describedby={describedBy}
                 className={`rounded-md border px-4 py-3 text-left text-sm transition-colors ${
                   isSelected
                     ? "border-primary bg-primary/10 text-primary font-semibold"
@@ -463,6 +478,17 @@ function ReviewTrends({
                     <SensitiveChip reason={reason} className="ml-auto" />
                   )}
                 </span>
+                {summary && (
+                  // Hidden from the name (the term), read as the description.
+                  <span
+                    id={summaryId}
+                    aria-hidden="true"
+                    title={summary}
+                    className="mt-1 block pl-6 text-xs font-normal leading-snug text-muted-foreground line-clamp-2"
+                  >
+                    {summary}
+                  </span>
+                )}
               </button>
             );
             if (reason === undefined) return button;
