@@ -18,7 +18,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from cloud_functions.creative_fanout import clients, status_store, worker
+from cloud_functions.creative_fanout import clients, worker
 from cloud_functions.creative_fanout.completion import (
     MIN_RETRY_BUDGET_SECS,
     RETRY_MESSAGE,
@@ -26,6 +26,7 @@ from cloud_functions.creative_fanout.completion import (
     _state_done,
     invocation_ended,
 )
+from tests.crf_fakes import FakeStatusStore
 
 pytestmark = pytest.mark.usefixtures("gcp_project_env")
 
@@ -472,15 +473,13 @@ def _wire(monkeypatch, agent, clock):
     monkeypatch.setattr(clients, "new_vertex_client", lambda: fake_vertex)
     monkeypatch.setattr(worker, "_clock", clock)
     monkeypatch.setattr(worker, "_sleep", clock.sleep)
-    monkeypatch.setattr(status_store, "acquire_processing_lock", lambda *a, **k: True)
-    update = MagicMock()
-    monkeypatch.setattr(status_store, "update_rows_status", update)
+    store = FakeStatusStore(monkeypatch, _TREND)
     asyncio.run(
         worker.process_row(
             _TREND, "agent-123", MagicMock(), "ds", "tbl", deadline=clock() + 1650.0
         )
     )
-    return [c.kwargs["status"] for c in update.call_args_list]
+    return store.statuses
 
 
 @pytest.mark.parametrize(
@@ -499,8 +498,10 @@ def test_worker_marks_processed_only_when_finalized(
     agent = FakeAgent(clock, streams, lambda a: _ended_session(a, done_after))
     assert _wire(monkeypatch, agent, clock) == [expected]
     # Deleted once, with the creating user_id, only after the check read it.
-    assert agent.deleted == [("crf_worker_0", "sess-1")]
-    assert agent.created == ["crf_worker_0"]
+    # (The id names the re-read row: crf_worker_<hash(uuid, target_trend)>.)
+    (user_id,) = agent.created
+    assert user_id.startswith("crf_worker_")
+    assert agent.deleted == [(user_id, "sess-1")]
     assert agent.delete_after_reads == agent.reads and agent.reads >= 1
 
 

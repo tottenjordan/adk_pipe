@@ -52,7 +52,9 @@ Functions are thin orchestration glue (`cloud_functions/creative_fanout/main.py`
   rows → marks them `QUEUED` → publishes one worker message per row (fire-and-forget).
 - **Worker** (`agent_worker_entrypoint`, concurrency=1, timeout=900s — worker timeout since raised to 1800s): Pub/Sub-triggered
   (`CREATIVE_WORKER_TOPIC_NAME`) → **atomic BigQuery lock** (`acquire_processing_lock`:
-  conditional `UPDATE … WHERE processed_status='QUEUED'`, verifying `num_dml_affected_rows == 1`)
+  conditional `UPDATE … WHERE processed_status='QUEUED'`, verifying `num_dml_affected_rows == 1`;
+  *since 2026-10-13* a compare-and-set on `processing_attempts` by the row key `(uuid, target_trend)`,
+  whose new attempt fences the worker's later writes, then a re-read of the row the run is built from)
   → invokes Agent Engine via `async_stream_query` → marks `PROCESSED` / `FAILED`.
   *Since 2026-10-13* `PROCESSED` needs the session's `finalize_done` (completion check,
   `cloud_functions/creative_fanout/completion.py`): a cut/timed-out stream is followed by
@@ -66,7 +68,9 @@ Functions are thin orchestration glue (`cloud_functions/creative_fanout/main.py`
   marked `PROCESSED`.
 
 The BigQuery status column (`NULL → QUEUED → PROCESSING → PROCESSED/FAILED`) does triple duty as
-**work queue + idempotency lock + observability surface**.
+**work queue + idempotency lock + observability surface**. Every transition (incl. the worker's
+requeue and the stale-PROCESSING reaper) checks the row's from-state; the table is in
+`deployment/README.md` §3 → Row states.
 
 > Note: there is no scheduler Cloud Run Function yet (the empty `trawler_scheduler` stub was removed) — the trend_scout
 > half of the pipeline is not yet wired for scheduled/event-driven execution. The target

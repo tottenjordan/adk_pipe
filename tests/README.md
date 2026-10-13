@@ -96,6 +96,7 @@ tests/
 ├── test_crf_entrypoint.py           # crf_entrypoint orchestrator (issue #46)
 ├── test_crf_hardening.py            # CRF JSON logs, malformed messages ACKed, client singletons, bounded BQ waits, per-invocation Agent Runtime client (two asyncio.run loops)
 ├── test_crf_sql_params.py           # CRF SQL safety: allow-listed identifiers, parameterized values, sensitive trend_context rows excluded from the orchestrator SELECT
+├── test_crf_row_state.py            # CRF row state: transition guards, compare-and-set lock + attempt fence (lost_fence), row key (uuid, target_trend) + legacy fallback, > 1 row = error, QUEUED before publish, re-read row drives the run (missing/sensitive → FAILED), PROCESSED never FAILED, pre-session requeue, publish timeout (fakes: crf_fakes.py)
 ├── test_crf_worker_async.py         # async worker path of the CRF (issue #45)
 ├── test_date_prompts.py            # the shared DATE_CONTEXT_LINE in trend research / brief / copy / art-direction prompts (optional tokens, no literal dates), scout as_of/event_hint, Current Moment section, TREND_SCOUT_HINT_BLOCK
 ├── test_cloudbuild_agents.py        # Cloud Build engine deploys: cloudbuild.agents.yaml structure, deploy.env profile drift, clean-env wrapper, engine_handoff.py
@@ -258,11 +259,11 @@ tests/
 - **Deployment & fan-out** — `test_deploy_utils.py`, `test_deploy_import_graph.py`, `test_cloudbuild_agents.py`, `test_create_session_engine.py`,
   `test_crf_entrypoint.py`, `test_crf_worker_async.py`,
   `test_crf_config.py`, `test_crf_sql_params.py`, `test_crf_hardening.py`,
-  `test_crf_completion.py` (+ `test_worker_retry_message_drift.py`, outside the CRF venv): deploy
+  `test_crf_completion.py`, `test_crf_row_state.py` (+ `test_worker_retry_message_drift.py`, outside the CRF venv): deploy
   mappings/env wiring, the `runtimes.create` path, and the orchestrator + worker Cloud
   Run Function paths (env-driven config, SQL identifier/parameter safety, malformed
   messages, client lifetimes, bounded BigQuery waits, JSON logs, the finalize_done
-  completion check + one retry).
+  completion check + one retry, the row-state transitions and fencing).
 - **SDK guards** — `test_sdk_versions.py`, `test_no_legacy_agent_engines_api.py`: the
   aiplatform 2.x `agentplatform` + `vertexai` surfaces are present, and no repo call site
   uses the deprecated `agent_engines` API.

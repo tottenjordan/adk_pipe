@@ -19,6 +19,7 @@ from google.cloud.bigquery import Row
 
 from cloud_functions.creative_fanout import clients, main, status_store
 from cloud_functions.creative_fanout.config import config
+from tests.crf_fakes import bq_results, queued
 
 # Allow-listed identifiers (the SQL builders reject anything else).
 DS = config.BQ_DATASET_ID
@@ -71,12 +72,13 @@ def _row(ts, trend, brand="BrandX"):
 def _set_rows(bq, rows):
     """Make every ``query_and_wait`` result iterate ``rows``.
 
-    Only ``__iter__`` is configured: the reaper reads
-    ``num_dml_affected_rows`` on the same mock. ``to_dataframe`` raises
-    so a regression back to pandas fails loudly (the CRF image has no pandas).
+    The reaper and the QUEUED mark read ``num_dml_affected_rows`` on the same
+    mock (``len(rows)``). ``to_dataframe`` raises so a regression back to
+    pandas fails loudly (the CRF image has no pandas).
     """
     result = bq.query_and_wait.return_value
     result.__iter__.side_effect = lambda: iter(rows)
+    result.num_dml_affected_rows = len(rows)
     result.to_dataframe.side_effect = AssertionError(
         "to_dataframe needs pandas; iterate rows"
     )
@@ -206,37 +208,37 @@ def test_publish_failure_is_counted_and_does_not_crash(mocked_clients, caplog):
     assert "publishes failed" in caplog.text  # failure surfaced, not swallowed
 
 
-def test_acquire_processing_lock_true_when_one_row_updated():
+_KEY = status_store.RowKey("uuid-1", "trend A", "2026-07-12T00:00:00")
+
+
+def test_acquire_processing_lock_returns_attempt_when_one_row_updated():
     """Real-function coverage for the exactly-once worker lock: 1 affected row
-    → True, and the UPDATE gates on the row still being QUEUED."""
-    bq = MagicMock()
-    bq.project = "test-project"
-    bq.query_and_wait.return_value.num_dml_affected_rows = 1
-    got = status_store.acquire_processing_lock(bq, DS, TBL, "2026-07-12T00:00:00")
-    assert got is True
+    → the new attempt, and the UPDATE gates on the row still being QUEUED."""
+    bq = bq_results(queued(None), 1)
+    got = status_store.acquire_processing_lock(bq, DS, TBL, _KEY)
+    assert got == 1  # NULL attempts → first attempt
     lock_sql = bq.query_and_wait.call_args[0][0]
     assert "AND processed_status = 'QUEUED'" in lock_sql
 
 
-def test_acquire_processing_lock_false_when_zero_rows_updated():
-    """0 affected rows (another worker won the race) → False."""
-    bq = MagicMock()
-    bq.project = "test-project"
-    bq.query_and_wait.return_value.num_dml_affected_rows = 0
-    got = status_store.acquire_processing_lock(bq, DS, TBL, "2026-07-12T00:00:00")
-    assert got is False
+def test_acquire_processing_lock_none_when_zero_rows_updated():
+    """0 affected rows (another worker won the race) → None."""
+    bq = bq_results(queued(1), 0)
+    assert status_store.acquire_processing_lock(bq, DS, TBL, _KEY) is None
 
 
 def test_lock_sql_stamps_started_at_and_increments_attempts():
     """The lock UPDATE must record when PROCESSING began (so a hard-crashed
     worker's row can be aged out) and bump an attempt counter (poison-pill
     guard) — while preserving the exactly-once QUEUED->PROCESSING semantics."""
-    sql, _ = status_store._build_lock_sql("p", DS, TBL, "2026-07-18T00:00:00+00:00")
+    sql, params = status_store._build_lock_sql("p", DS, TBL, _KEY, prev_attempt=2)
     sql = " ".join(sql.split())  # whitespace-insensitive fragment checks
     assert "processing_started_at = CURRENT_TIMESTAMP()" in sql
-    assert "processing_attempts = COALESCE(processing_attempts, 0) + 1" in sql
+    assert "processing_attempts = @attempt" in sql
     assert "SET processed_status = 'PROCESSING'" in sql
     assert "AND processed_status = 'QUEUED'" in sql  # lock semantics preserved
+    values = {p.name: p.value for p in params}
+    assert (values["prev_attempt"], values["attempt"]) == (2, 3)
 
 
 def test_reap_sql_requeues_under_cap_and_fails_over_cap():
