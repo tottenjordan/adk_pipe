@@ -136,7 +136,8 @@ uv run python deployment/deploy_agent.py --version=v1 --agent=interactive_creati
 # list existing Agent Engine instances
 uv run python deployment/deploy_agent.py --list
 
-# delete an Agent Engine Runtime
+# delete an Agent Engine Runtime (a numeric ID or full resource name; refuses the
+# trend-trawler-sessions engine and any engine .env still names unless --allow_protected)
 uv run python deployment/deploy_agent.py --resource_id=<RESOURCE_ID> --delete
 
 # opt-in Cloud Trace for a new engine (off by default)
@@ -310,7 +311,9 @@ The api runs the agents in-process and does not read engine IDs, so nothing else
 roll back by pointing `.env` / the CRF message at the previous ID again (`previous` in
 `engine_ids.json`, or the old value `apply` printed). Delete old engines manually once the new
 ones are verified: `uv run python deployment/deploy_agent.py --resource_id=<numeric id> --delete`
-(`--list` shows them all).
+(`--list` shows them all). It looks the engine up first and refuses the sessions engine or an
+engine a `*_AGENT_ENGINE_ID` in your env/.env still points at (stale shell exports count too:
+run `apply` first, or `env -u` them) unless you pass `--allow_protected`.
 
 ### IAM prerequisites
 

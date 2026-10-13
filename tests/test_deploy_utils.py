@@ -295,6 +295,18 @@ class TestEngineEnvKey:
         da = _import_deploy_agent()
         assert da.engine_env_key(name) == expected
 
+    def test_update_env_file_raises_when_the_write_fails(self, tmp_path, caplog):
+        """A failed .env write must not look like success (it was logged at INFO
+        and swallowed, so `engine_handoff apply` exited 0 with the old ID kept)."""
+        da = _import_deploy_agent()
+        missing_dir = tmp_path / "no-such-dir" / ".env"
+        with caplog.at_level("INFO"), pytest.raises(OSError):
+            da.update_env_file("trend_scout", "12345", str(missing_dir))
+        assert any(
+            r.levelname == "ERROR" and "SCOUT_AGENT_ENGINE_ID" in r.getMessage()
+            for r in caplog.records
+        )
+
     def test_update_env_file_writes_engine_env_key(self, tmp_path):
         da = _import_deploy_agent()
         env_file = tmp_path / ".env"
@@ -422,6 +434,71 @@ class TestRuntimesApi:
             r.levelname == "WARNING" and "boom" in r.getMessage()
             for r in caplog.records
         )
+
+    @staticmethod
+    def _delete_client(display_name="creative-trend-agent-v1"):
+        client = MagicMock(spec=["runtimes"])
+        client.runtimes.get.return_value.api_resource.display_name = display_name
+        op = client.runtimes.delete.return_value
+        op.name = "operations/789"
+        op.error = None
+        return client
+
+    @pytest.fixture
+    def delete_env(self, monkeypatch):
+        da = _import_deploy_agent()
+        monkeypatch.setenv("GOOGLE_CLOUD_PROJECT_NUMBER", "123")
+        for name in da.AGENT_NAMES:
+            monkeypatch.delenv(da.engine_env_key(name), raising=False)
+        return da
+
+    def test_delete_refuses_the_sessions_engine(self, monkeypatch, delete_env):
+        da = delete_env
+        client = self._delete_client("trend-trawler-sessions")
+        monkeypatch.setattr(da, "_get_client", lambda: client)
+        with pytest.raises(ValueError, match="trend-trawler-sessions"):
+            da.delete("456")
+        client.runtimes.delete.assert_not_called()
+
+    def test_delete_refuses_an_engine_named_in_env(self, monkeypatch, delete_env):
+        da = delete_env
+        monkeypatch.setenv(
+            "CREATIVE_AGENT_ENGINE_ID",
+            "projects/123/locations/us-central1/reasoningEngines/456",
+        )
+        client = self._delete_client()
+        monkeypatch.setattr(da, "_get_client", lambda: client)
+        with pytest.raises(ValueError, match="CREATIVE_AGENT_ENGINE_ID"):
+            da.delete("456")
+        client.runtimes.delete.assert_not_called()
+
+    def test_delete_protected_engine_with_override(self, monkeypatch, delete_env):
+        da = delete_env
+        monkeypatch.setenv("SCOUT_AGENT_ENGINE_ID", "456")
+        client = self._delete_client("trend-trawler-sessions")
+        monkeypatch.setattr(da, "_get_client", lambda: client)
+        da.delete("456", allow_protected=True)
+        client.runtimes.delete.assert_called_once()
+
+    def test_delete_accepts_a_full_resource_name(self, monkeypatch, delete_env):
+        da = delete_env
+        client = self._delete_client()
+        monkeypatch.setattr(da, "_get_client", lambda: client)
+        da.delete("projects/123/locations/us-central1/reasoningEngines/456")
+        expected = (
+            f"projects/123/locations/{da.AGENT_ENGINE_LOCATION}/reasoningEngines/456"
+        )
+        client.runtimes.get.assert_called_once_with(name=expected)
+        client.runtimes.delete.assert_called_once_with(name=expected, force=True)
+
+    def test_delete_requires_the_project_number(self, monkeypatch, delete_env):
+        da = delete_env
+        monkeypatch.delenv("GOOGLE_CLOUD_PROJECT_NUMBER")
+        client = self._delete_client()
+        monkeypatch.setattr(da, "_get_client", lambda: client)
+        with pytest.raises(ValueError, match="GOOGLE_CLOUD_PROJECT_NUMBER"):
+            da.delete("456")
+        client.runtimes.delete.assert_not_called()
 
     def test_client_is_agentplatform(self, monkeypatch):
         da = _import_deploy_agent()
