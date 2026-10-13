@@ -44,7 +44,7 @@ import { ResultsHeader } from "./results-header";
 import { ResultsSummary, type EvalStatus } from "./results-summary";
 import { ShareDialog } from "@/components/share-dialog";
 import { SessionShares } from "@/components/shares-list";
-import { hasRenderedImage, type Share } from "@/lib/shares";
+import { failedChecksFor, hasRenderedImage, type Share } from "@/lib/shares";
 import { canPersonalise } from "@/lib/variants";
 import { useWallClock } from "@/lib/use-wall-clock";
 import {
@@ -176,6 +176,12 @@ export default function ResultsPage({
     );
   }, [state, evalReport, now]);
   const sortedProofs = useMemo(() => sortProofs(proofs, sort), [proofs, sort]);
+  // Failed blocking checks of the slate a share would publish (every rendered
+  // proof; the api may still leave cast or expired ones out).
+  const slateFailedChecks = useMemo(
+    () => failedChecksFor(proofs.filter((p) => hasRenderedImage(state.generated_images, p.concept.concept_name))),
+    [proofs, state.generated_images]
+  );
   // Session state can be large; serialise it once per session, not on every render
   // (proof navigation, ratings, share-list updates all re-render this page).
   const stateJson = useMemo(() => JSON.stringify(state, null, 2), [state]);
@@ -274,6 +280,7 @@ export default function ResultsPage({
               appName={appName}
               sessionId={sessionId}
               triggerLabel="Share slate"
+              failedChecks={slateFailedChecks}
               onCreated={onShareCreated}
             />
           )
@@ -335,6 +342,7 @@ export default function ResultsPage({
                   sessionId={sessionId}
                   conceptNames={[p.concept.concept_name]}
                   triggerLabel="Share this creative"
+                  failedChecks={failedChecksFor([p])}
                   onCreated={onShareCreated}
                 />
               ) : null
