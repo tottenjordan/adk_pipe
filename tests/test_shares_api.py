@@ -236,7 +236,9 @@ def test_create_slate_share_reencodes_images_and_writes_snapshot():
         assert snap["version"] == 1 and snap["token"] == token
         assert snap["scope"] == "slate" and len(snap["creatives"]) == 4
         assert [c["image"] for c in snap["creatives"]] == [f"{i}.jpg" for i in range(4)]
-        blob = snap_obj["data"]
+        # The random token is in the snapshot by design and can contain "s1" by
+        # chance, so look for never-shared values in everything except the token.
+        blob = snap_obj["data"].replace(token, "")
         for secret in ("image_generation_prompt", "rationale", "s1", A, "gs://"):
             assert secret not in blob
         # every write stays under shares/<token>/
