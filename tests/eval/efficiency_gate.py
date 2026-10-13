@@ -91,7 +91,7 @@ TOOL_SPECS: dict[str, ToolSpec] = {
         allowed=frozenset(
             {
                 "gather_trends_agent",
-                "classify_trends_agent",
+                "trend_digest",
                 "understand_trends_agent_resilient",
                 "pick_trends_agent",
                 "review_trends",

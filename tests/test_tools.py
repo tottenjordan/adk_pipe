@@ -967,6 +967,8 @@ class TestGetDailyGtrends:
         params = {p.name: p.value for p in job_config.query_parameters}
         assert params == {"max_date": "10/11/2026"}
         assert ctx.state["raw_gtrends"] == ["b", "a"]
+        # The public table's date, ISO (the trend digest's cache key).
+        assert ctx.state["gtrends_refresh_date"] == "2026-10-11"
         # Markdown table: term / rank (1-based result order) / refresh_date.
         lines = out.splitlines()
         assert len(lines) == 4

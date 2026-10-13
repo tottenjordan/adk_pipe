@@ -491,3 +491,44 @@ class TestTrendStateKnobs:
         ):
             assert da.ENV_VAR_DICT[key], key
             assert key in env_example, key
+
+
+class TestTrendDigestKnobs:
+    """trend_scout's trend digest knobs (TREND_DIGEST_ENABLED /
+    BQ_TABLE_TREND_DIGEST) and their deploy wiring."""
+
+    def test_enabled_parser(self):
+        from agent_common.config import parse_trend_digest_enabled
+
+        assert parse_trend_digest_enabled(None) is True
+        assert parse_trend_digest_enabled("") is True
+        assert parse_trend_digest_enabled("true") is True
+        for off in ("false", "0", "no", "off", " OFF "):
+            assert parse_trend_digest_enabled(off) is False, off
+
+    def test_config_reads_env_per_instance(self, monkeypatch):
+        from agent_common.config import BaseAgentConfiguration
+
+        monkeypatch.delenv("TREND_DIGEST_ENABLED", raising=False)
+        monkeypatch.delenv("BQ_TABLE_TREND_DIGEST", raising=False)
+        cfg = BaseAgentConfiguration()
+        assert cfg.trend_digest_enabled is True
+        assert cfg.BQ_TABLE_TREND_DIGEST == "trend_digest"
+        monkeypatch.setenv("TREND_DIGEST_ENABLED", "false")
+        monkeypatch.setenv("BQ_TABLE_TREND_DIGEST", "td2")
+        cfg = BaseAgentConfiguration()
+        assert cfg.trend_digest_enabled is False
+        assert cfg.BQ_TABLE_TREND_DIGEST == "td2"
+
+    def test_shipped_to_agent_engine_and_documented(self):
+        from pathlib import Path
+
+        import deployment.deploy_agent as da
+
+        root = Path(__file__).parent.parent
+        env_example = (root / ".env.example").read_text()
+        profile = (root / "deployment" / "deploy.env").read_text()
+        for key in ("TREND_DIGEST_ENABLED", "BQ_TABLE_TREND_DIGEST"):
+            assert da.ENV_VAR_DICT[key], key
+            assert key in env_example, key
+            assert f"{key}=" in profile, key

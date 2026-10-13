@@ -41,6 +41,11 @@ def parse_image_qa_enabled(raw: str | None) -> bool:
     return (raw or "").strip().lower() not in _FALSE_FLAGS
 
 
+def parse_trend_digest_enabled(raw: str | None) -> bool:
+    """``TREND_DIGEST_ENABLED`` → bool; ON unless explicitly 0/false/no/off."""
+    return (raw or "").strip().lower() not in _FALSE_FLAGS
+
+
 def parse_image_qa_max_rerenders(raw: str | None) -> int:
     """``IMAGE_QA_MAX_RERENDERS`` → int clamped to 0..2; unset/blank/invalid → 1."""
     try:
@@ -92,6 +97,10 @@ class BaseAgentConfiguration:
             default 2, clamped 1..4; 1 = strictly sequential renders).
         image_qa_model (str): vision model for the image check (IMAGE_QA_MODEL,
             default the worker model).
+        trend_digest_enabled (bool): trend_scout's trend digest (grounded
+            one-line summaries + the shared daily BigQuery cache;
+            TREND_DIGEST_ENABLED, default on; 0/false/no/off runs only the
+            sensitivity classifier, as before the digest).
         trend_timezone (str): IANA timezone for the per-run date state
             (TREND_TIMEZONE, default America/New_York).
         rate_limit_seconds (int): window for the LLM API rate limiter.
@@ -176,6 +185,16 @@ class BaseAgentConfiguration:
         )
     )
 
+    # trend_scout's trend digest (trend_scout/digest.py): grounded one-line
+    # summaries of the day's trends + the sensitivity flags, cached per trend
+    # list in BQ_TABLE_TREND_DIGEST. Off = only the classifier runs (no
+    # describe step, no cache I/O).
+    trend_digest_enabled: bool = field(
+        default_factory=lambda: parse_trend_digest_enabled(
+            os.getenv("TREND_DIGEST_ENABLED")
+        )
+    )
+
     # Adjust these values to limit the rate at which the agent queries the LLM API.
     rate_limit_seconds: int = 60
     rpm_quota: int = 1000
@@ -202,4 +221,8 @@ class BaseAgentConfiguration:
     # default_factory: read per instance (the api's default table name).
     BQ_TABLE_RATINGS: str = field(
         default_factory=lambda: os.getenv("BQ_TABLE_RATINGS") or "creative_ratings"
+    )
+    # trend_scout's daily trend digest cache (trend_scout/digest.py).
+    BQ_TABLE_TREND_DIGEST: str = field(
+        default_factory=lambda: os.getenv("BQ_TABLE_TREND_DIGEST") or "trend_digest"
     )

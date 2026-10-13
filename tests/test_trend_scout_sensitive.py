@@ -1,6 +1,7 @@
 """trend_scout's sensitive-trend classifier (`classify_trends_agent` →
-`trend_flags`), run right after gathering so both the auto pick and the
-interactive pick panel can see which raw trends are sensitive."""
+`trend_flags`), run inside the `trend_digest` NodeTool right after gathering so
+both the auto pick and the interactive pick panel can see which raw trends are
+sensitive."""
 
 from trend_scout.schemas import TrendFlags
 
@@ -27,10 +28,14 @@ def test_trend_flags_defaults():
     assert TrendFlags().flags == []
 
 
-def test_root_has_classify_tool():
-    from trend_scout.agent import root_agent
+def test_root_has_digest_tool_with_the_classifier_inside():
+    from tests._fakes import walk_nodes
+    from trend_scout.agent import root_agent, trend_digest
 
-    assert "classify_trends_agent" in {getattr(t, "name", "") for t in root_agent.tools}
+    names = {getattr(t, "name", "") for t in root_agent.tools}
+    assert "trend_digest" in names
+    assert "classify_trends_agent" not in names  # no longer a top-level tool
+    assert "classify_trends_agent" in {n.name for n in walk_nodes(trend_digest)}
 
 
 def test_classifier_agent_wiring():
@@ -48,10 +53,13 @@ def test_classifier_instruction():
     from trend_scout.prompts import CLASSIFY_TRENDS_INSTR
 
     assert "{raw_gtrends?}" in CLASSIFY_TRENDS_INSTR
+    # the describe step's live summaries (optional: empty renders as "")
+    assert "{trend_summaries_draft?}" in CLASSIFY_TRENDS_INSTR
     # brace-free apart from the optional state tokens
     stripped = CLASSIFY_TRENDS_INSTR
     for token in (
         "{raw_gtrends?}",
+        "{trend_summaries_draft?}",
         "{current_date?}",
         "{current_weekday?}",
         "{current_timezone?}",
@@ -71,18 +79,21 @@ def _flat(text: str) -> str:
     return " ".join(str(text).split())
 
 
-def test_root_classifies_right_after_gather_in_both_branches():
+def test_root_digests_right_after_gather_in_both_branches():
     from trend_scout.prompts import TREND_SCOUT_INSTR
 
     instr = _flat(TREND_SCOUT_INSTR).lower()
     gather = instr.index("call `gather_trends_agent`")
-    classify = instr.index("call `classify_trends_agent`")
+    digest = instr.index("call `trend_digest`")
     branch = instr.index("the interactive trend-picking flag is")
     review = instr.index("call `review_trends`")
+    research = instr.index("call `understand_trends_agent_resilient`")
     # once, shared by both branches: after gather, before the branch (and so
     # before the interactive review_trends pause and the auto research).
-    assert gather < classify < branch < review
-    assert instr.count("call `classify_trends_agent`") == 1
+    assert gather < digest < branch < review
+    assert digest < research
+    assert instr.count("call `trend_digest`") == 1
+    assert "classify_trends_agent" not in instr
 
 
 def test_pick_instruction_never_selects_flagged_terms():

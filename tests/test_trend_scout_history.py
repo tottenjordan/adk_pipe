@@ -33,7 +33,13 @@ from google.adk.sessions import InMemorySessionService
 from google.genai import types
 
 from agent_common.history import drop_other_agent_context, is_other_agent_context
-from tests._fakes import RecordingLlm, fc_response, text_response, user_message
+from tests._fakes import (
+    RecordingLlm,
+    fc_response,
+    text_response,
+    user_message,
+    walk_nodes,
+)
 
 _SEED: dict[str, Any] = {
     "brand": "Acme",
@@ -47,6 +53,14 @@ _RAW = "RAW FINDINGS t1"
 _BRIEF = '{"analyzed_trends": ["t1"]}'
 _PICKED = "### t1\nThe strategic bridge."
 _PICK = {"status": "selected", "selected_trends": ["t1"], "instruction": "x"}
+_DESCRIBE_RAW = "DESCRIBE FINDINGS t1"
+_SUMMARIES = '{"items": [{"term": "t1", "summary": "T1 is trending."}]}'
+_FLAGS = '{"flags": [{"term": "t1", "sensitive": false, "reason": ""}]}'
+_DIGEST_AGENTS = (
+    "trend_describe_searcher",
+    "trend_describe_synthesizer",
+    "classify_trends_agent",
+)
 
 
 def _foreign_authors(request: LlmRequest) -> list[str]:
@@ -78,9 +92,16 @@ def _pairs(request: LlmRequest) -> tuple[list[str], list[str]]:
 
 
 def _run(
-    monkeypatch: pytest.MonkeyPatch, root_callback: Any, *, interactive: bool = False
+    monkeypatch: pytest.MonkeyPatch,
+    root_callback: Any,
+    *,
+    interactive: bool = False,
+    digest: bool = False,
 ) -> RecordingLlm:
-    """Drive the real resumable trend_scout App (stub models) end to end."""
+    """Drive the real resumable trend_scout App (stub models) end to end.
+
+    ``digest=True`` adds the ``trend_digest`` NodeTool call after the gather
+    (cache miss: describe searcher -> synthesizer -> classifier)."""
     import trend_scout.agent as ts
 
     graph = {n.name: n for n in ts.understand_trends_search_and_synthesize.graph.nodes}
@@ -106,12 +127,29 @@ def _run(
     monkeypatch.setattr(ts.root_agent, "before_agent_callback", None)
     monkeypatch.setattr(ts.root_agent, "before_model_callback", root_callback)
 
+    if digest:
+        from trend_scout.config import config
+
+        monkeypatch.setattr(config, "trend_digest_enabled", True)
+        nodes = {n.name: n for n in walk_nodes(ts.trend_digest)}
+        for name in _DIGEST_AGENTS:
+            llms[name] = RecordingLlm()
+            monkeypatch.setattr(nodes[name], "model", llms[name])
+            monkeypatch.setattr(nodes[name], "before_model_callback", None)
+            if getattr(nodes[name], "planner", None) is not None:
+                monkeypatch.setattr(nodes[name], "planner", None)
+        monkeypatch.setattr(nodes["trend_describe_searcher"], "tools", [])
+        llms["trend_describe_searcher"].push(text_response(_DESCRIBE_RAW))
+        llms["trend_describe_synthesizer"].push(text_response(_SUMMARIES))
+        llms["classify_trends_agent"].push(text_response(_FLAGS))
     llms["gather"].push(text_response(_GATHERED))
     llms["searcher"].push(text_response(_RAW))
     llms["synth"].push(text_response(_BRIEF))
     llms["pick"].push(text_response(_PICKED))
     root = llms["root"]
     root.push(fc_response("gather_trends_agent", {"request": "go"}, "fc1"))
+    if digest:
+        root.push(fc_response("trend_digest", {"request": "go"}, "fc_digest"))
     if interactive:
         root.push(fc_response("review_trends", {}, "fc_review"))
     root.push(
@@ -149,7 +187,7 @@ def _run(
             await turn(resume)
 
     asyncio.run(go())
-    assert root.calls == (5 if interactive else 4)
+    assert root.calls == (5 if interactive else 4) + digest
     return root
 
 
@@ -225,3 +263,29 @@ def test_trend_scout_root_trims_before_rate_limiting():
         drop_other_agent_context,
         callbacks.rate_limit_callback,
     ]
+
+
+def test_digest_nodetool_leaks_without_trim_and_is_hidden_with_it(monkeypatch):
+    """trend_digest is a NodeTool-run Workflow too: on a cache miss its three
+    agents' turns replay into the root's later requests unless trimmed."""
+    untrimmed = _run(monkeypatch, None, digest=True).requests[-1]
+    leaked = _foreign_authors(untrimmed)
+    for name in _DIGEST_AGENTS:
+        assert name in leaked, name
+    assert _DESCRIBE_RAW in str(untrimmed.contents)
+
+    monkeypatch.undo()
+    root = _run(monkeypatch, drop_other_agent_context, digest=True)
+    for request in root.requests:
+        assert not _foreign_authors(request)
+    final = root.requests[-1]
+    assert _user_texts(final) == ["hi"]
+    assert _DESCRIBE_RAW not in str(final.contents)
+    calls, responses = _pairs(final)
+    expected = [
+        "gather_trends_agent",
+        "trend_digest",
+        "understand_trends_agent_resilient",
+        "pick_trends_agent",
+    ]
+    assert calls == responses == expected

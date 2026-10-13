@@ -88,7 +88,7 @@ A trend about a death, tragedy, disaster, mass-casualty event, violence or crime
 person's serious illness or injury can't be both "clearly connected" and "never referenced",
 so the policy is upstream:
 
-- **Flagged:** trend_scout's `classify_trends_agent` (gather model, temperature 0) runs right
+- **Flagged:** trend_scout's `classify_trends_agent` (gather model, temperature 0; inside the `trend_digest` NodeTool since 2026-10-13, reading that day's grounded summaries and cached per trend list) runs right
   after gathering and writes one verdict per raw term to `trend_flags`
   (`{flags: [{term, sensitive, reason}]}`). Celebrity, sports, politics or entertainment news
   alone is not sensitive; ambiguous → not sensitive.

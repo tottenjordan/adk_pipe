@@ -23,12 +23,63 @@ CLASSIFY_TRENDS_INSTR = (
     {raw_gtrends?}
     </raw_gtrends>
 
+    Summaries of why each term is trending today (from today's web search; may be empty):
+    <trend_summaries>
+    {trend_summaries_draft?}
+    </trend_summaries>
+
     ### Instructions
     1. If <raw_gtrends> is empty, return an empty `flags` list. Do NOT invent terms.
     2. Return exactly one entry per term in <raw_gtrends>, with `term` copied verbatim (same spelling, case and spacing).
+    When <trend_summaries> is non-empty, use them: they report today's facts and outrank what you remember about a term.
     3. Set `sensitive` to true only when the search interest most likely centres on a death, a tragedy, a disaster, a mass-casualty event, violence or crime, the serious illness or injury of a real person, or a similarly harmful event. Use what you know about the term and today's date; when it is clearly ambiguous, choose not sensitive.
     4. Celebrity, sports, politics or entertainment news alone is not sensitive. A match, a game, an award, a release, a trade or a controversy without harm to someone is not sensitive.
     5. `reason`: when sensitive, a short neutral phrase naming the kind of event (e.g. "death of a public figure", "hurricane damage"), no graphic detail and no speculation; when not sensitive, an empty string.
+    """
+)
+
+TREND_DESCRIBE_SEARCHER_INSTR = (
+    """
+    You are a news researcher preparing a neutral digest of today's Google Search trends, so a marketer can see at a glance why each term is being searched.
+
+    """
+    + DATE_CONTEXT_LINE
+    + """
+
+    <raw_gtrends>
+    {raw_gtrends?}
+    </raw_gtrends>
+
+    ### Instructions
+    1. If <raw_gtrends> is empty, reply that no trends were available and stop. Do NOT invent terms.
+    2. Use the `google_search` tool to find out why EVERY term in <raw_gtrends> is being searched today. Cover all of them in this one turn; one search may cover several related terms.
+    3. Report one line per term, in the order of <raw_gtrends>: the term copied verbatim, then the concrete, dated facts that explain the search interest, as your sources report them. When the sources don't explain a term, write "unclear" for it.
+    4. Stick to facts: no speculation, no jokes, no opinions, and no graphic detail about deaths, disasters, violence or illness. Plain text, no JSON.
+    """
+)
+
+TREND_DESCRIBE_SYNTHESIZER_INSTR = (
+    """
+    You write a neutral one-sentence summary of why each Google Search trend is trending today, using only the research findings below.
+
+    """
+    + DATE_CONTEXT_LINE
+    + """
+
+    <raw_gtrends>
+    {raw_gtrends?}
+    </raw_gtrends>
+
+    <findings>
+    {trend_describe_raw?}
+    </findings>
+
+    ### Instructions
+    1. If <findings> or <raw_gtrends> is empty, return an empty `items` list. Do NOT invent terms or facts.
+    2. One item per term in <raw_gtrends>, with `term` copied verbatim (same spelling, case and spacing).
+    3. `summary`: one factual sentence of 25 words or fewer saying why the term is being searched today, based only on <findings>.
+    4. Neutral tone: no speculation, no jokes, no opinions, no marketing language, and no graphic detail for deaths, disasters, violence, crime or illness (name the kind of event plainly).
+    5. When the findings say "unclear" or do not explain a term, leave that term out rather than guessing.
     """
 )
 
@@ -188,9 +239,9 @@ TREND_SCOUT_INSTR = """You are the Lead Campaign Orchestrator.
     records the gap). In interactive mode the trends the human already picked (saved in
     step 2b) are still written by `write_trends_to_bq`, with the gap recorded on each row.
 
-    1. **Gather & Classify:** Call `gather_trends_agent`. Then call `classify_trends_agent`
-       (it flags the sensitive gathered trends in the 'trend_flags' state key) before
-       anything else in step 2, in both modes below.
+    1. **Gather & Digest:** Call `gather_trends_agent`. Then call `trend_digest` (it
+       summarises why each gathered trend is trending and flags the sensitive ones in
+       the 'trend_flags' state key) before anything else in step 2, in both modes below.
 
     2. **Select & Research:** The interactive trend-picking flag is: `{interactive_trend_pick?}`.
 

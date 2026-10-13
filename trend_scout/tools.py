@@ -134,6 +134,11 @@ def get_daily_gtrends(tool_context: ToolContext) -> str:
 
         # Update state
         tool_context.state["raw_gtrends"] = [term for term, _, _ in rows]
+        # The public table's date as ISO YYYY-MM-DD: the trend digest's cache
+        # key (trend_scout/digest.py) and the pick panel's "Google Trends for …".
+        tool_context.state["gtrends_refresh_date"] = (
+            datetime.datetime.strptime(max_date, "%m/%d/%Y").date().isoformat()
+        )
 
         return _gtrends_markdown(rows)
     except Exception as e:

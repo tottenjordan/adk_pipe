@@ -61,6 +61,28 @@ def _offline_brand_history(monkeypatch):
     monkeypatch.setattr(module, "_get_gcs_client", _no_live_client)
 
 
+def _no_live_digest_client():
+    raise RuntimeError("tests must not read the live trend digest cache")
+
+
+@pytest.fixture(autouse=True)
+def _offline_trend_digest(monkeypatch):
+    """The repo .env names a real BigQuery dataset, so a graph test whose root
+    calls trend_scout's ``trend_digest`` would read/write the live cache. Point
+    the module's client getter at a raiser (lookup and store fail soft); tests
+    that exercise the cache re-patch it with a fake client.
+
+    Skipped, like ``_offline_brand_history``, in the CRF CI venv (no
+    google-adk)."""
+    try:
+        module = importlib.import_module("trend_scout.digest")
+    except ModuleNotFoundError as exc:
+        if exc.name and exc.name.startswith("google.adk"):
+            return
+        raise
+    monkeypatch.setattr(module, "_get_bigquery_client", _no_live_digest_client)
+
+
 @pytest.fixture(autouse=True)
 def _trend_state_off(monkeypatch):
     """The trend situation branch (on by default in production) adds a grounded
