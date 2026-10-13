@@ -25,7 +25,12 @@ import {
   RunConnectionLostError,
   type PollResult,
 } from "@/lib/api";
-import { useRunFollower } from "@/app/run/[sessionId]/use-run-follower";
+import { createPollBatcher, useRunFollower } from "@/app/run/[sessionId]/use-run-follower";
+import {
+  clearDraftsFor,
+  clearReviewDrafts,
+  useReviewDraft,
+} from "@/app/run/[sessionId]/review-drafts";
 import {
   PAUSE_WATCH_INTERVAL_MS,
   stallTimeoutFor,
@@ -149,6 +154,7 @@ beforeEach(() => {
 afterEach(() => {
   vi.useRealTimers();
   vi.resetAllMocks();
+  clearReviewDrafts();
 });
 
 describe("useRunFollower: events and pauses", () => {
@@ -331,5 +337,99 @@ describe("useRunFollower: failures", () => {
     mockResumeRun.mockRejectedValueOnce(new RunConnectionLostError());
     await act(() => result.current.resume({ status: "approved" }));
     expect(result.current.status).toBe("disconnected");
+  });
+});
+
+describe("createPollBatcher", () => {
+  const stepError = (id: string): AgentEvent => ({
+    ...textEvent(id),
+    errorCode: "500",
+    errorMessage: `boom ${id}`,
+  });
+
+  it("applies the events a poll delivers together as ONE batch, in order", async () => {
+    const apply = vi.fn();
+    const batcher = createPollBatcher(apply);
+    batcher.add({ ...textEvent("e1"), actions: { stateDelta: { a: 1, b: 1 } } });
+    batcher.add(stepError("e2"));
+    batcher.add({ ...textEvent("e3"), actions: { stateDelta: { b: 2 } } });
+    expect(apply).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(0);
+    expect(apply).toHaveBeenCalledTimes(1);
+    const batch = apply.mock.calls[0][0];
+    expect(ids(batch.events)).toEqual(["e1", "e2", "e3"]);
+    expect(batch.stateDelta).toEqual({ a: 1, b: 2 });
+    expect(batch.stepErrors).toHaveLength(1);
+  });
+
+  it("flush() applies what is pending at once (segment end) and nothing twice", async () => {
+    const apply = vi.fn();
+    const batcher = createPollBatcher(apply);
+    batcher.add(textEvent("e1"));
+    batcher.flush();
+    expect(apply).toHaveBeenCalledTimes(1);
+    expect(apply.mock.calls[0][0].stateDelta).toBeNull();
+
+    await vi.advanceTimersByTimeAsync(0);
+    batcher.flush();
+    expect(apply).toHaveBeenCalledTimes(1);
+  });
+
+  it("a long replay arrives intact, in order and deduped through the hook", async () => {
+    const replay = Array.from({ length: 200 }, (_, i) => textEvent(`e${i}`));
+    mockPollRun.mockReturnValueOnce(segment(...replay, ...replay.slice(0, 50)));
+    const { result } = follow("trend_scout");
+    await flush();
+    expect(ids(result.current.events)).toEqual(ids(replay));
+    expect(result.current.status).toBe("completed");
+  });
+});
+
+describe("review drafts after a resume", () => {
+  /** Seed a draft for `key` the way a review panel does. */
+  function seedDraft(key: string, value: string) {
+    const { result, unmount } = renderHook(() => useReviewDraft(key, () => ""));
+    act(() => result.current[1](value));
+    unmount();
+  }
+  const readDraft = (key: string) =>
+    renderHook(() => useReviewDraft(key, () => "")).result.current[0];
+
+  it("clearDraftsFor drops only that checkpoint call's drafts", () => {
+    seedDraft("fc-1:research-feedback", "nostalgia");
+    seedDraft("fc-1:report", "# Edited");
+    seedDraft("fc-10:report", "other call");
+    clearDraftsFor("fc-1");
+    expect(readDraft("fc-1:research-feedback")).toBe("");
+    expect(readDraft("fc-1:report")).toBe("");
+    expect(readDraft("fc-10:report")).toBe("other call");
+  });
+
+  it("evicts the checkpoint's drafts once its resume succeeds", async () => {
+    seedDraft("fc-1:research-feedback", "nostalgia");
+    mockPollRun.mockReturnValueOnce(segment(pauseEvent("p1", "fc-1")));
+    const { result } = follow();
+    await flush();
+
+    mockResumeRun.mockResolvedValueOnce(undefined as never);
+    mockPollRun.mockReturnValueOnce(segment(answerEvent("r1", "fc-1")));
+    await act(() => result.current.resume({ status: "approved" }));
+    expect(readDraft("fc-1:research-feedback")).toBe("");
+  });
+
+  it("keeps the drafts when the resume is rejected", async () => {
+    seedDraft("fc-1:research-feedback", "nostalgia");
+    mockPollRun.mockReturnValueOnce(segment(pauseEvent("p1", "fc-1")));
+    const { result } = follow();
+    await flush();
+
+    mockResumeRun.mockRejectedValueOnce(new ResumeNotAppliedError());
+    await act(() => result.current.resume({ status: "approved" }));
+    expect(readDraft("fc-1:research-feedback")).toBe("nostalgia");
+
+    mockResumeRun.mockRejectedValueOnce(new RunConnectionLostError());
+    await act(() => result.current.resume({ status: "approved" }));
+    expect(readDraft("fc-1:research-feedback")).toBe("nostalgia");
   });
 });

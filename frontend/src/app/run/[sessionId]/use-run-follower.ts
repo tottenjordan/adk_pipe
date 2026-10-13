@@ -21,6 +21,7 @@ import {
   type PauseContext,
 } from "@/lib/pause-detection";
 import { stallTimeoutFor, PAUSE_WATCH_INTERVAL_MS, RUNSERVER_MARKER_AUTHOR } from "./run-config";
+import { clearDraftsFor } from "./review-drafts";
 
 export type RunStatus = "running" | "completed" | "error" | "paused" | "stalled" | "disconnected";
 
@@ -46,6 +47,47 @@ export interface RunFollower {
   resume: (response: Record<string, unknown>) => Promise<void>;
   /** Continue a run that stopped early and follow it. */
   continueRun: () => Promise<void>;
+}
+
+/** What a run of consecutive poll events changes, applied in one go. */
+export interface PollBatch {
+  events: AgentEvent[];
+  /** The events' state deltas merged in order, or null when none had one. */
+  stateDelta: Record<string, unknown> | null;
+  /** Step-error messages (lib/step-errors), in order. */
+  stepErrors: string[];
+}
+
+/**
+ * Collects consumed poll events and applies them as one batch per poll page
+ * (on the next macrotask: a page's events are yielded back to back, with no
+ * timer in between), so a replay of n events costs one O(n) state update
+ * instead of n growing array copies. `flush()` applies what is pending at once
+ * (a segment end, before the status is decided).
+ */
+export function createPollBatcher(apply: (batch: PollBatch) => void) {
+  let batch: PollBatch = { events: [], stateDelta: null, stepErrors: [] };
+  let timer: ReturnType<typeof setTimeout> | null = null;
+
+  function flush() {
+    if (timer !== null) clearTimeout(timer);
+    timer = null;
+    if (batch.events.length === 0) return;
+    const ready = batch;
+    batch = { events: [], stateDelta: null, stepErrors: [] };
+    apply(ready);
+  }
+
+  function add(event: AgentEvent) {
+    batch.events.push(event);
+    const delta = event.actions?.stateDelta;
+    if (delta) batch.stateDelta = { ...batch.stateDelta, ...delta };
+    const stepErr = stepErrorMessage(event);
+    if (stepErr) batch.stepErrors.push(stepErr);
+    if (timer === null) timer = setTimeout(flush, 0);
+  }
+
+  return { add, flush };
 }
 
 /**
@@ -110,15 +152,7 @@ export function useRunFollower(
       opts: { syncOnPause?: boolean } = {}
     ): Promise<boolean> => {
       const pending = new PendingLongRunningCalls();
-      for await (const event of poll) {
-        // Skip the server's internal run-status marker events — status/error
-        // come from the poll payload, not these (see RUNSERVER_MARKER_AUTHOR).
-        if (event.author === RUNSERVER_MARKER_AUTHOR) continue;
-
-        // Deduplicate events by ID
-        if (event.id && seenEventIds.current.has(event.id)) continue;
-        if (event.id) seenEventIds.current.add(event.id);
-
+      const batcher = createPollBatcher((batch) => {
         // Activity again: a quiet stretch (e.g. sequential renders) is over.
         setStatus((s) => (s === "stalled" ? "running" : s));
 
@@ -126,19 +160,32 @@ export function useRunFollower(
         // fail-soft step may have contained it and the run carries on. Show it
         // as a non-blocking notice; only the poll status (pollRun throws on
         // "error") fails the run.
-        const stepErr = stepErrorMessage(event);
-        if (stepErr) setStepErrors((prev) => addStepError(prev, stepErr));
-
-        setEvents((prev) => [...prev, event]);
-
-        if (event.actions?.stateDelta) {
-          setSessionState((prev) => ({
-            ...prev,
-            ...event.actions!.stateDelta,
-          }));
+        if (batch.stepErrors.length > 0) {
+          setStepErrors((prev) => batch.stepErrors.reduce(addStepError, prev));
         }
 
-        pending.observe(event);
+        setEvents((prev) => prev.concat(batch.events));
+
+        const { stateDelta } = batch;
+        if (stateDelta) setSessionState((prev) => ({ ...prev, ...stateDelta }));
+      });
+      try {
+        for await (const event of poll) {
+          // Skip the server's internal run-status marker events — status/error
+          // come from the poll payload, not these (see RUNSERVER_MARKER_AUTHOR).
+          if (event.author === RUNSERVER_MARKER_AUTHOR) continue;
+
+          // Deduplicate events by ID
+          if (event.id && seenEventIds.current.has(event.id)) continue;
+          if (event.id) seenEventIds.current.add(event.id);
+
+          batcher.add(event);
+          // Pause detection still sees every event, in order.
+          pending.observe(event);
+        }
+      } finally {
+        // Events consumed before the segment ended (or failed) land first.
+        batcher.flush();
       }
       const pause = pending.pause();
       if (!pause) return false;
@@ -345,6 +392,9 @@ export function useRunFollower(
         ctx.eventId,
         edits
       );
+      // Accepted: this checkpoint's panel never comes back, so drop its drafts
+      // (a rejected resume keeps them for the re-shown panel, below).
+      clearDraftsFor(ctx.functionCallId);
     } catch (err) {
       // The server's duplicate-run guard rejected this resume WITHOUT applying
       // it (the previous segment was still finishing). The run is still paused
