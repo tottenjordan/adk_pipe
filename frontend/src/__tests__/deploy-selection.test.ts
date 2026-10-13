@@ -4,6 +4,7 @@ import {
   armColor,
   CAST_NOT_DEPLOYABLE,
   creativeDeployBlockedReason,
+  EXPIRED_NOT_DEPLOYABLE,
   deployBlockedReason,
   selectionColors,
   selectionToPayload,
@@ -125,5 +126,24 @@ describe("creativeDeployBlockedReason", () => {
     expect(creativeDeployBlockedReason({})).toBeNull();
     expect(creativeDeployBlockedReason({ casting: undefined })).toBeNull();
     expect(creativeDeployBlockedReason({ casting: { cast: false } })).toBeNull();
+  });
+  it("disables a timely creative whose moment has passed, like the api's timely_expired refusal", () => {
+    const iso = "2026-10-14T23:59:59-04:00";
+    const at = Date.parse(iso);
+    expect(creativeDeployBlockedReason({ timely: { expired: true, validUntilIso: iso } })).toBe(
+      EXPIRED_NOT_DEPLOYABLE,
+    );
+    // re-checked against the caller's clock
+    expect(creativeDeployBlockedReason({ timely: { expired: false, validUntilIso: iso } }, at)).toBe(
+      EXPIRED_NOT_DEPLOYABLE,
+    );
+    expect(creativeDeployBlockedReason({ timely: { expired: false, validUntilIso: iso } }, at - 1)).toBeNull();
+    expect(creativeDeployBlockedReason({ timely: { expired: false, validUntilIso: "garbage" } }, at)).toBeNull();
+    expect(EXPIRED_NOT_DEPLOYABLE).toMatch(/moment/);
+  });
+  it("keeps the cast reason first", () => {
+    expect(
+      creativeDeployBlockedReason({ casting: { cast: true }, timely: { expired: true, validUntilIso: "" } }),
+    ).toBe(CAST_NOT_DEPLOYABLE);
   });
 });

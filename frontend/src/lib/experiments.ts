@@ -9,6 +9,7 @@ import { downsampleIndices, formatInt, type Point } from "./chart";
 import { gcsProxyUrl, parseGsUri } from "./gcs";
 import { overridesFromValues, type TuneValues } from "./scenario-preview";
 import { trafficBody } from "./shifts";
+import { isExpiredAt } from "./timely";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "/api/adk";
 
@@ -944,13 +945,30 @@ export function hasOverrides(ov: ScenarioOverrides | null | undefined): ov is Sc
 export const CAST_NOT_DEPLOYABLE =
   "Features a person, so it stays out of experiments (likeness safety).";
 
+/** Why the timely creative can't be picked once its moment has passed. */
+export const EXPIRED_NOT_DEPLOYABLE =
+  "References a moment that has passed, so it stays out of experiments. Pick evergreen creatives.";
+
 /**
  * Why one creative can't be deployed, or null when it can. A cast creative (rendered
  * with the run's consented person) is excluded, matching the api's `cast_creative`
- * refusal; personalised variant previews never appear here at all.
+ * refusal, and so is a timely creative whose moment has passed (`timely_expired`;
+ * `proof.timely.expired` is computed against the page's wall clock `now`, so it is
+ * re-checked here). Personalised variant previews never appear here at all.
  */
-export function creativeDeployBlockedReason(proof: { casting?: { cast: boolean } }): string | null {
-  return proof.casting?.cast ? CAST_NOT_DEPLOYABLE : null;
+export function creativeDeployBlockedReason(
+  proof: {
+    casting?: { cast: boolean };
+    timely?: { expired: boolean; validUntilIso?: string };
+  },
+  now = 0,
+): string | null {
+  if (proof.casting?.cast) return CAST_NOT_DEPLOYABLE;
+  const timely = proof.timely;
+  if (timely && (timely.expired || (now > 0 && isExpiredAt(timely.validUntilIso ?? "", now)))) {
+    return EXPIRED_NOT_DEPLOYABLE;
+  }
+  return null;
 }
 
 /** Why the Deploy button is disabled, or null when deploying is allowed. */
