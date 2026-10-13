@@ -292,9 +292,22 @@ def _resolve_max_rows(requested, cap):
 
 
 def _run_query(bq_client, sql, params):
-    """Submit a parameterized query and return the QueryJob."""
-    return bq_client.query(
-        sql, job_config=bigquery.QueryJobConfig(query_parameters=params)
+    """Run a parameterized query, wait (bounded) and return its ``RowIterator``.
+
+    ``query_and_wait`` gives up after ``wait_timeout`` (raising
+    ``concurrent.futures.TimeoutError`` and trying to cancel the job), and the
+    job's ``job_timeout_ms`` bounds it server-side too, so a stuck query fails
+    the invocation instead of hanging until the Cloud Run timeout. The
+    iterator carries ``num_dml_affected_rows`` for DML (both the fast
+    ``jobs.query`` path and the job fallback set it).
+    """
+    timeout = config.BQ_QUERY_TIMEOUT_SECS
+    return bq_client.query_and_wait(
+        sql,
+        job_config=bigquery.QueryJobConfig(
+            query_parameters=params, job_timeout_ms=int(timeout * 1000)
+        ),
+        wait_timeout=timeout,
     )
 
 
@@ -314,7 +327,7 @@ def update_rows_status(bq_client, dataset, table, timestamps, status="PROCESSED"
 
     # Execute the update
     try:
-        _run_query(bq_client, sql, params).result()
+        _run_query(bq_client, sql, params)
         logging.info(
             f"Successfully updated status to {status} for {len(timestamps)} rows."
         )
@@ -597,9 +610,8 @@ def acquire_processing_lock(bq_client, dataset, table, timestamp):
 
     # Execute the update
     try:
-        query_job = _run_query(bq_client, lock_sql, lock_params)
-        # Wait for the query to finish and get the rows affected count
-        result = query_job.result()
+        # Wait (bounded) for the UPDATE and read the rows-affected count
+        result = _run_query(bq_client, lock_sql, lock_params)
         rows_updated = result.num_dml_affected_rows
 
         if rows_updated == 1:
@@ -668,7 +680,7 @@ def reap_stale_processing_rows(bq_client, dataset, table):
         config.MAX_PROCESSING_ATTEMPTS,
     )
     try:
-        n = _run_query(bq_client, sql, params).result().num_dml_affected_rows or 0
+        n = _run_query(bq_client, sql, params).num_dml_affected_rows or 0
         if n:
             logging.warning(
                 f"Reaped {n} stale PROCESSING row(s) "
@@ -778,7 +790,7 @@ def crf_entrypoint(cloud_event: CloudEvent) -> None:
     )
     try:
         # Iterate the rows directly: the CRF image ships without pandas.
-        rows = list(_run_query(bq_client, select_sql, select_params).result())
+        rows = list(_run_query(bq_client, select_sql, select_params))
     except Exception as e:
         logging.error(f"Error querying BQ: {e}")
         raise  # Re-raise to signal failure to Pub/Sub

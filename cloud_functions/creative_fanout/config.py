@@ -43,6 +43,20 @@ class AppConfig:
             or self.GOOGLE_CLOUD_PROJECT
         )
 
+    @property
+    def BQ_QUERY_TIMEOUT_SECS(self) -> float:
+        """Bound on each BigQuery status query/DML (`CRF_BQ_QUERY_TIMEOUT_SECS`,
+        default 60, clamped 5-600; invalid -> 60). Used as the client wait
+        (the client then tries to cancel the job) and as the job's server-side
+        `job_timeout_ms`, so a stuck query fails the invocation instead of
+        hanging until the Cloud Run timeout."""
+        raw = os.environ.get("CRF_BQ_QUERY_TIMEOUT_SECS", "").strip()
+        try:
+            value = float(raw) if raw else 60.0
+        except ValueError:
+            value = 60.0
+        return min(max(value, 5.0), 600.0)
+
     # Agent Engine is a *regional* resource — this is us-central1, NOT the
     # `global` model location used for the gemini-3.x endpoints.
     GCP_REGION = os.environ.get("GCP_REGION", "us-central1")

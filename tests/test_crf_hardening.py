@@ -119,3 +119,71 @@ def test_duration_marker_carries_json_fields(monkeypatch, caplog, fail):
     assert fields["index"] == 2
     assert fields["status"] == status
     assert isinstance(fields["secs"], float)
+
+
+# ============================================================
+# Bounded BigQuery waits
+# ============================================================
+def _bq_mock(num_rows=1):
+    from unittest.mock import MagicMock
+
+    bq = MagicMock()
+    bq.project = "test-project"
+    bq.query_and_wait.return_value.num_dml_affected_rows = num_rows
+    bq.query.side_effect = AssertionError("use query_and_wait (bounded wait)")
+    return bq
+
+
+def test_bq_timeout_default_and_env(monkeypatch):
+    from cloud_functions.creative_fanout.config import AppConfig
+
+    monkeypatch.delenv("CRF_BQ_QUERY_TIMEOUT_SECS", raising=False)
+    assert AppConfig().BQ_QUERY_TIMEOUT_SECS == 60.0
+    monkeypatch.setenv("CRF_BQ_QUERY_TIMEOUT_SECS", "15")
+    assert AppConfig().BQ_QUERY_TIMEOUT_SECS == 15.0
+
+
+def test_run_query_bounds_the_wait_and_the_job(monkeypatch):
+    monkeypatch.setenv("CRF_BQ_QUERY_TIMEOUT_SECS", "42")
+    bq = _bq_mock()
+    params = [main.bigquery.ScalarQueryParameter("x", "INT64", 1)]
+
+    result = main._run_query(bq, "SELECT @x", params)
+
+    assert result is bq.query_and_wait.return_value
+    call = bq.query_and_wait.call_args
+    assert call.args == ("SELECT @x",)
+    assert call.kwargs["wait_timeout"] == 42.0
+    job_config = call.kwargs["job_config"]
+    assert int(job_config.job_timeout_ms) == 42_000
+    assert job_config.query_parameters == params
+
+
+@pytest.mark.parametrize(("affected", "locked"), [(1, True), (0, False)])
+def test_lock_reads_dml_count_from_bounded_query(affected, locked):
+    bq = _bq_mock(affected)
+    got = main.acquire_processing_lock(
+        bq, main.config.BQ_DATASET_ID, main.config.BQ_TABLE_TARGETS, "2026-07-12"
+    )
+    assert got is locked
+    assert "wait_timeout" in bq.query_and_wait.call_args.kwargs
+
+
+def test_lock_timeout_propagates_for_retry():
+    """A wait past the bound raises (NACK → redelivery), never a silent False."""
+    import concurrent.futures
+
+    bq = _bq_mock()
+    bq.query_and_wait.side_effect = concurrent.futures.TimeoutError()
+    with pytest.raises(concurrent.futures.TimeoutError):
+        main.acquire_processing_lock(
+            bq, main.config.BQ_DATASET_ID, main.config.BQ_TABLE_TARGETS, "2026-07-12"
+        )
+
+
+def test_status_update_and_reaper_use_bounded_query():
+    bq = _bq_mock(2)
+    ds, tbl = main.config.BQ_DATASET_ID, main.config.BQ_TABLE_TARGETS
+    main.update_rows_status(bq, ds, tbl, ["2026-07-12"], status="PROCESSED")
+    assert main.reap_stale_processing_rows(bq, ds, tbl) == 2
+    assert bq.query_and_wait.call_count == 2

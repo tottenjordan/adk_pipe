@@ -30,12 +30,12 @@ TS = "2026-07-12T00:00:00+00:00"
 def _bq(num_rows=1):
     bq = MagicMock()
     bq.project = "test-project"
-    bq.query.return_value.result.return_value.num_dml_affected_rows = num_rows
+    bq.query_and_wait.return_value.num_dml_affected_rows = num_rows
     return bq
 
 
 def _params(bq_call):
-    """{name: (type, value)} for the query parameters of one `bq.query` call."""
+    """{name: (type, value)} for the query parameters of one `bq.query_and_wait` call."""
     job_config = bq_call.kwargs["job_config"]
     out = {}
     for p in job_config.query_parameters:
@@ -77,13 +77,13 @@ class TestIdentifierAllowList:
         bq = _bq()
         with pytest.raises(ValueError):
             main.update_rows_status(bq, DS, "not_allowed", [TS], status="FAILED")
-        bq.query.assert_not_called()
+        bq.query_and_wait.assert_not_called()
 
     def test_acquire_lock_rejects_bad_table_without_querying(self):
         bq = _bq()
         with pytest.raises(ValueError):
             main.acquire_processing_lock(bq, DS, "not_allowed", TS)
-        bq.query.assert_not_called()
+        bq.query_and_wait.assert_not_called()
 
     def test_rejects_malformed_project(self):
         with pytest.raises(ValueError):
@@ -114,7 +114,7 @@ class TestValuesAreParameterized:
         bq = _bq()
         ts2 = "2026-07-12T01:00:00+00:00"
         main.update_rows_status(bq, DS, TBL, [TS, ts2], status="QUEUED")
-        call = bq.query.call_args
+        call = bq.query_and_wait.call_args
         sql = call.args[0]
         assert TS not in sql and ts2 not in sql
         assert "QUEUED" not in sql
@@ -132,7 +132,7 @@ class TestValuesAreParameterized:
         """Old SQL did TIMESTAMP('<naive>') which BigQuery reads as UTC."""
         bq = _bq()
         main.acquire_processing_lock(bq, DS, TBL, "2026-07-12T00:00:00")
-        typ, val = _params(bq.query.call_args)["entry_timestamp"]
+        typ, val = _params(bq.query_and_wait.call_args)["entry_timestamp"]
         assert typ == "TIMESTAMP"
         assert val == datetime(2026, 7, 12, tzinfo=UTC)
 
@@ -143,7 +143,7 @@ class TestValuesAreParameterized:
     def test_lock_params(self):
         bq = _bq()
         assert main.acquire_processing_lock(bq, DS, TBL, TS) is True
-        call = bq.query.call_args
+        call = bq.query_and_wait.call_args
         sql = call.args[0]
         assert TS not in sql
         assert "entry_timestamp = @entry_timestamp" in sql
@@ -157,7 +157,7 @@ class TestValuesAreParameterized:
         monkeypatch.setattr(config, "MAX_PROCESSING_ATTEMPTS", 3)
         bq = _bq(num_rows=0)
         main.reap_stale_processing_rows(bq, DS, TBL)
-        call = bq.query.call_args
+        call = bq.query_and_wait.call_args
         sql = call.args[0]
         assert "45" not in sql and ">= 3" not in sql
         assert "INTERVAL @stale_minutes MINUTE" in sql
@@ -169,7 +169,7 @@ class TestValuesAreParameterized:
     def test_orchestrator_select_uses_allow_listed_quoted_table(self, monkeypatch):
         bq = _bq()
         # result() iterates empty (a bare MagicMock); a pandas regression fails.
-        bq.query.return_value.to_dataframe.side_effect = AssertionError(
+        bq.query_and_wait.return_value.to_dataframe.side_effect = AssertionError(
             "to_dataframe needs pandas; iterate rows"
         )
         monkeypatch.setattr(main, "_get_bigquery_client", lambda: bq)
@@ -177,7 +177,7 @@ class TestValuesAreParameterized:
         payload = {"bq_dataset": DS, "bq_table": TBL, "agent_resource_id": "1"}
         encoded = base64.b64encode(json.dumps(payload).encode()).decode()
         main.crf_entrypoint(types.SimpleNamespace(data={"message": {"data": encoded}}))
-        select_sql = bq.query.call_args_list[1].args[0]
+        select_sql = bq.query_and_wait.call_args_list[1].args[0]
         assert f"FROM `test-project.{DS}.{TBL}`" in select_sql
 
 
@@ -188,14 +188,14 @@ class TestOrchestratorRowLimit:
     def _run(self, monkeypatch, payload):
         bq = _bq()
         # result() iterates empty (a bare MagicMock); a pandas regression fails.
-        bq.query.return_value.to_dataframe.side_effect = AssertionError(
+        bq.query_and_wait.return_value.to_dataframe.side_effect = AssertionError(
             "to_dataframe needs pandas; iterate rows"
         )
         monkeypatch.setattr(main, "_get_bigquery_client", lambda: bq)
         monkeypatch.setattr(main, "_get_pubsub_client", MagicMock)
         encoded = base64.b64encode(json.dumps(payload).encode()).decode()
         main.crf_entrypoint(types.SimpleNamespace(data={"message": {"data": encoded}}))
-        return bq.query.call_args_list[1]  # [0] is the reap UPDATE
+        return bq.query_and_wait.call_args_list[1]  # [0] is the reap UPDATE
 
     def test_select_sql_binds_limit_as_param(self):
         sql, params = main._build_select_unprocessed_sql("p", DS, TBL, max_rows=7)
@@ -277,7 +277,7 @@ def test_orchestrator_acks_non_allow_listed_table(monkeypatch):
     monkeypatch.setattr(main, "_get_pubsub_client", lambda: publisher)
     payload = {"bq_dataset": DS, "bq_table": "evil", "agent_resource_id": "1"}
     main.crf_entrypoint(_event(payload))  # must not raise
-    bq.query.assert_not_called()
+    bq.query_and_wait.assert_not_called()
     publisher.publish.assert_not_called()
 
 
@@ -291,7 +291,7 @@ def test_worker_acks_non_allow_listed_table(monkeypatch):
         "row_data": {"entry_timestamp": TS, "index": 0},
     }
     main.agent_worker_entrypoint(_event(payload))  # must not raise
-    bq.query.assert_not_called()
+    bq.query_and_wait.assert_not_called()
 
 
 def test_worker_acks_malformed_entry_timestamp(monkeypatch, caplog):
@@ -306,7 +306,7 @@ def test_worker_acks_malformed_entry_timestamp(monkeypatch, caplog):
     }
     with caplog.at_level("ERROR"):
         main.agent_worker_entrypoint(_event(payload))  # must not raise
-    bq.query.assert_not_called()
+    bq.query_and_wait.assert_not_called()
     assert any(
         r.levelname == "ERROR" and "not-a-timestamp" in r.getMessage()
         for r in caplog.records
@@ -324,7 +324,7 @@ def test_worker_acks_non_string_or_injected_timestamp(monkeypatch, bad):
         "row_data": {"entry_timestamp": bad, "index": 0},
     }
     main.agent_worker_entrypoint(_event(payload))  # must not raise
-    bq.query.assert_not_called()
+    bq.query_and_wait.assert_not_called()
 
 
 # ============================================================
