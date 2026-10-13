@@ -35,6 +35,7 @@ from .dimensions import (
     JUDGE_VERSION,
     NO_GATES_GATE,
     PERSON_GATES,
+    TIMELY_GATES,
     TREND_GATES,
     VISUAL_GATES,
 )
@@ -86,6 +87,9 @@ NO_GATES_NOTE = "judge returned no gates"
 NO_PERSON_CAST_NOTE = "no person cast"
 # Note on a TREND_GATES gate when the run has no target trend.
 NO_TREND_NOTE = "no trend"
+# Note on a TIMELY_GATES gate for a creative that does not reference a
+# validated timely moment.
+NO_TIMELY_NOTE = "not timely"
 
 
 def normalize_gates(
@@ -95,6 +99,7 @@ def normalize_gates(
     brief_used: bool,
     person_cast: bool = False,
     trend_given: bool = True,
+    timely: bool = False,
 ) -> list[GateResult]:
     """The judge's gates, reduced to exactly ``expected`` in order (pure).
 
@@ -109,8 +114,12 @@ def normalize_gates(
     ``person_cast`` the ``PERSON_GATES`` pass with note "no person cast";
     without a target trend (``trend_given`` False) the ``TREND_GATES`` pass
     with note "no trend" (decided in code, never the judge; they need no
-    brief, so a missing brief never passes them). ``advisory`` is set from
-    ``ADVISORY_GATES``, never the judge.
+    brief, so a missing brief never passes them). Unless ``timely`` (the
+    creative references a validated timely moment, :func:`creative_is_timely`)
+    the ``TIMELY_GATES`` pass with note "not timely". A person gate omitted for
+    a cast concept, or a timely gate omitted for a timely creative, fails as
+    "not checked" (unverified). ``advisory`` is set from ``ADVISORY_GATES``,
+    never the judge.
     """
     reported: dict[str, GateResultIn | GateResult] = {}
     for gate in raw:
@@ -128,6 +137,8 @@ def normalize_gates(
             out.append(GateResult(gate=name, passed=True, note=NO_PERSON_CAST_NOTE))
         elif name in TREND_GATES and not trend_given:
             out.append(GateResult(gate=name, passed=True, note=NO_TREND_NOTE))
+        elif name in TIMELY_GATES and not timely:
+            out.append(GateResult(gate=name, passed=True, note=NO_TIMELY_NOTE))
         elif name in reported:
             gate = reported[name]
             out.append(
@@ -138,9 +149,10 @@ def normalize_gates(
                     advisory=advisory,
                 )
             )
-        elif name in PERSON_GATES:
-            # A real cast person must be checked: an omission fails (unverified).
-            logger.warning("judge did not report gate %r for a cast person", name)
+        elif name in PERSON_GATES or name in TIMELY_GATES:
+            # A real cast person / a timely claim must be checked: an omission
+            # fails (unverified).
+            logger.warning("judge did not report required gate %r", name)
             out.append(GateResult(gate=name, passed=False, note=NOT_CHECKED_NOTE))
         else:
             logger.warning("judge did not report gate %r", name)
@@ -160,6 +172,7 @@ def score_from_judge(
     brief_used: bool,
     person_cast: bool = False,
     trend_given: bool = True,
+    timely: bool = False,
 ) -> CreativeScore:
     """Map the judge's raw score to the report's ``CreativeScore`` (pure).
 
@@ -173,6 +186,7 @@ def score_from_judge(
         brief_used=brief_used,
         person_cast=person_cast,
         trend_given=trend_given,
+        timely=timely,
     )
     score = _score_from_verdicts(judged.verdicts, threshold, gates)
     score.strengths = list(judged.strengths)
@@ -268,6 +282,110 @@ def _redact(text: str, secret: str) -> str:
     return text.replace(secret, "<person photo>") if secret else text
 
 
+def moment_is_timely(trend_situation: Any) -> bool:
+    """True when ``state["trend_situation"]`` is a validated timely moment (pure).
+
+    ``timely_ok is True`` with a non-empty ``valid_until`` (the shared
+    timely-creative contract; plain dict keys, so creative_eval never imports
+    creative_agent).
+    """
+    return (
+        isinstance(trend_situation, Mapping)
+        and trend_situation.get("timely_ok") is True
+        and bool(str(trend_situation.get("valid_until") or "").strip())
+    )
+
+
+def creative_is_timely(
+    creative: Any, trend_situation: Any, *, paired_copy_timely: bool = False
+) -> bool:
+    """True when the judge must check this creative's timely claim (pure).
+
+    The creative's own ``uses_trend_state is True`` (or, for a visual concept,
+    its paired ad copy's: ``paired_copy_timely``) AND a validated timely moment
+    (:func:`moment_is_timely`).
+    """
+    flagged = isinstance(creative, Mapping) and creative.get("uses_trend_state") is True
+    return (flagged or paired_copy_timely) and moment_is_timely(trend_situation)
+
+
+def timely_copy_ids(ad_copies: Sequence[Any]) -> frozenset[str]:
+    """``original_id`` (as str) of every ad copy flagged ``uses_trend_state``.
+
+    A visual concept pairs with its copy via ``ad_copy_id == original_id``
+    (compared as strings, like ``concept_guard``).
+    """
+    return frozenset(
+        str(ac.get("original_id"))
+        for ac in ad_copies
+        if isinstance(ac, Mapping)
+        and ac.get("uses_trend_state") is True
+        and ac.get("original_id") is not None
+    )
+
+
+def paired_copy_timely(concept: Any, copy_ids: frozenset[str]) -> bool:
+    """True when ``concept``'s paired copy is in :func:`timely_copy_ids` (pure)."""
+    if not isinstance(concept, Mapping) or concept.get("ad_copy_id") is None:
+        return False
+    return str(concept.get("ad_copy_id")) in copy_ids
+
+
+def _one_line(value: Any) -> str:
+    return " ".join(str(value or "").split())
+
+
+def moment_block(trend_situation: Any, sources: Any = None) -> str:
+    """The judge's ``Current moment`` block for a timely creative (pure).
+
+    Built from the validated ``trend_situation`` dict keys (phase, event,
+    dates, outcome, as_of, valid_until, tone_rule) plus the URLs of its cited
+    sources from ``state["sources"]`` (``{id: {"url": ...}}``; ids without a
+    URL are left out). "" when the moment is not timely.
+    """
+    if not moment_is_timely(trend_situation):
+        return ""
+    ts: Mapping[str, Any] = trend_situation
+    rows = [
+        ("Phase", ts.get("phase")),
+        ("Event", ts.get("event_name")),
+        ("Event start", ts.get("event_start")),
+        ("Event end", ts.get("event_end")),
+        ("Outcome", ts.get("outcome")),
+        ("Outcome summary", ts.get("outcome_summary")),
+        ("As of", ts.get("as_of")),
+        ("Valid until", ts.get("valid_until")),
+        ("Tone rule", ts.get("tone_rule")),
+    ]
+    lines = [
+        "Current moment (validated from research; the only facts a timely "
+        "claim may state):"
+    ]
+    lines += [f"{label}: {_one_line(value)}" for label, value in rows]
+    by_id = sources if isinstance(sources, Mapping) else {}
+    urls = []
+    for source_id in ts.get("source_ids") or []:
+        record = by_id.get(source_id) if isinstance(source_id, str) else None
+        url = record.get("url") if isinstance(record, Mapping) else None
+        if isinstance(url, str) and url.strip():
+            urls.append(_one_line(url))
+    lines.append(f"Sources: {', '.join(urls) if urls else '(none listed)'}")
+    return "\n".join(lines)
+
+
+def _moment_section(timely: bool, trend_situation: Any, sources: Any) -> str:
+    """The prompt's ``moment_section``: the moment block for a timely creative."""
+    block = moment_block(trend_situation, sources) if timely else ""
+    return f"<CURRENT_MOMENT>\n{block}\n</CURRENT_MOMENT>\n\n" if block else ""
+
+
+def trend_valid_until(trend_situation: Any) -> str:
+    """The report's ``trend_valid_until``: the timely moment's expiry, else ""."""
+    if not moment_is_timely(trend_situation):
+        return ""
+    return str(trend_situation.get("valid_until") or "").strip()
+
+
 def gates_passed(gates: list[GateResult]) -> bool:
     """True when every non-advisory gate passed (vacuously True with none).
 
@@ -330,6 +448,8 @@ def evaluate_ad_copy(
     config: EvalConfig,
     client: genai.Client | None = None,
     brief: Mapping[str, Any] | None = None,
+    trend_situation: Mapping[str, Any] | None = None,
+    sources: Mapping[str, Any] | None = None,
 ) -> AdCopyEvaluation:
     """Evaluate a single ad copy using Gemini-as-judge.
 
@@ -340,6 +460,10 @@ def evaluate_ad_copy(
         config: Evaluation configuration.
         client: Optional pre-created Gemini client.
         brief: The parsed creative brief (``brief.parse_brief``), or None.
+        trend_situation: The run's validated ``trend_situation``, or None. A
+                         copy flagged ``uses_trend_state`` under a timely
+                         moment is judged against it (``timely_claim_supported``).
+        sources: ``state["sources"]`` (the moment's cited source URLs).
 
     Returns:
         AdCopyEvaluation with per-dimension scores and binary gates.
@@ -348,12 +472,15 @@ def evaluate_ad_copy(
         client = _get_client(config)
 
     angle_id = str(ad_copy.get("angle_id") or "")
+    timely = creative_is_timely(ad_copy, trend_situation)
     # Build the prompt
     user_prompt = prompts.AD_COPY_EVAL_USER.format(
         **campaign_context,
         **ad_copy,
         angle=angle_line(brief, ad_copy.get("angle_id") or ""),
         brief_block=format_brief_for_judge(brief),
+        timely="yes" if timely else "no",
+        moment_section=_moment_section(timely, trend_situation, sources),
     )
 
     try:
@@ -382,7 +509,9 @@ def evaluate_ad_copy(
                 trend_given=bool(
                     str(campaign_context.get("target_search_trend") or "").strip()
                 ),
+                timely=timely,
             ),
+            timely=timely,
         )
 
     except Exception as e:
@@ -396,6 +525,7 @@ def evaluate_ad_copy(
             tone_style=ad_copy.get("tone_style", ""),
             score=_failed_score(),
             angle_id=angle_id,
+            timely=timely,
         )
 
 
@@ -407,6 +537,9 @@ def evaluate_visual_concept(
     brief: Mapping[str, Any] | None = None,
     image: Mapping[str, Any] | None = None,
     person_photo: str = "",
+    trend_situation: Mapping[str, Any] | None = None,
+    sources: Mapping[str, Any] | None = None,
+    paired_copy_timely: bool = False,
 ) -> VisualConceptEvaluation:
     """Evaluate a single visual concept using Gemini-as-judge.
 
@@ -433,6 +566,12 @@ def evaluate_visual_concept(
         image: The concept's ``generated_images`` record, or None.
         person_photo: The run's person photo ``gs://`` URI (only used for a
                       cast concept), or "".
+        trend_situation: The run's validated ``trend_situation``, or None. A
+                         concept flagged ``uses_trend_state`` (or paired with a
+                         flagged copy: ``paired_copy_timely``) under a timely
+                         moment is judged against it.
+        sources: ``state["sources"]`` (the moment's cited source URLs).
+        paired_copy_timely: The paired ad copy is flagged ``uses_trend_state``.
 
     Returns:
         VisualConceptEvaluation with per-dimension scores and binary gates.
@@ -446,6 +585,10 @@ def evaluate_visual_concept(
     # uncast image even when the concept asked to cast).
     person_cast = isinstance(image, Mapping) and image.get("cast") is True
     photo = person_photo if person_cast and image_uri else ""
+    timely = creative_is_timely(
+        visual_concept, trend_situation, paired_copy_timely=paired_copy_timely
+    )
+    moment_section = _moment_section(timely, trend_situation, sources)
     # Recorded on the evaluation by code (brand history reads them).
     tags = {
         "visual_style": str(visual_concept.get("visual_style") or ""),
@@ -472,9 +615,11 @@ def evaluate_visual_concept(
                 "trend_motif": visual_concept.get("trend_motif") or "(none)",
                 "brand_cue": visual_concept.get("brand_cue") or "(none)",
                 "person_cast": "yes" if person_cast else "no",
+                "timely": "yes" if timely else "no",
             },
             brief_block=format_brief_for_judge(brief),
             image_section=image_section,
+            moment_section=moment_section,
         )
         contents: genai.types.ContentListUnionDict = user_prompt
         if uri:
@@ -509,8 +654,10 @@ def evaluate_visual_concept(
                 config.passing_threshold,
                 brief_used=brief is not None,
                 person_cast=person_cast,
+                timely=timely,
             ),
             image_judged=bool(uri),
+            timely=timely,
             **tags,
         )
 
@@ -556,6 +703,7 @@ def evaluate_visual_concept(
             ad_copy_id=visual_concept.get("ad_copy_id", 0),
             concept_name=visual_concept.get("concept_name", ""),
             score=_failed_score(),
+            timely=timely,
             **tags,
         )
 
@@ -614,7 +762,8 @@ def unreported_gates_warning(
 
     Such gates pass as "not checked" (see :func:`normalize_gates`); the
     warning keeps that leniency visible. A person gate left out for a cast
-    concept fails instead and gets its own entry.
+    concept, or a timely gate left out for a timely creative, fails instead
+    and gets its own entry.
     """
     gates = [g for e in [*ad_evals, *visual_evals] for g in e.score.gates]
     out = []
@@ -627,6 +776,12 @@ def unreported_gates_warning(
         noun = "check" if failed == 1 else "checks"
         out.append(
             f"{failed} person {noun} not reported by the judge (failed as not checked)"
+        )
+    timely = sum(g.note == NOT_CHECKED_NOTE and g.gate in TIMELY_GATES for g in gates)
+    if timely:
+        noun = "check" if timely == 1 else "checks"
+        out.append(
+            f"{timely} timely {noun} not reported by the judge (failed as not checked)"
         )
     return out
 
@@ -652,6 +807,9 @@ def evaluate_all_concurrently(
     brief: Mapping[str, Any] | None = None,
     generated_images: Mapping[str, Any] | None = None,
     person_reference: Any = None,
+    trend_situation: Mapping[str, Any] | None = None,
+    sources: Mapping[str, Any] | None = None,
+    paired_ad_copies: Sequence[Any] | None = None,
 ) -> tuple[list[AdCopyEvaluation], list[VisualConceptEvaluation]]:
     """Evaluate all ad copies and visual concepts concurrently, preserving order.
 
@@ -662,7 +820,11 @@ def evaluate_all_concurrently(
     evaluate_visual_concept (they return a zero-score evaluation), so a single
     bad creative can't sink the whole batch. Each visual concept gets its own
     ``generated_images[concept_name]`` record (None when it has no image);
-    cast concepts also get the run's ``person_reference`` photo.
+    cast concepts also get the run's ``person_reference`` photo. Timely
+    creatives (:func:`creative_is_timely`) are judged against
+    ``trend_situation``; a visual concept pairs with its copy among
+    ``paired_ad_copies`` (default ``ad_copies``; pass the full list when only
+    some copies are judged here).
     """
     if client is None:
         client = _get_client(config)
@@ -673,11 +835,21 @@ def evaluate_all_concurrently(
 
     images = generated_images if isinstance(generated_images, Mapping) else {}
     photo = person_photo_uri(person_reference)
+    copy_ids = timely_copy_ids(
+        ad_copies if paired_ad_copies is None else paired_ad_copies
+    )
     max_workers = config.workers_for(len(ad_copies), len(visual_concepts))
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         ad_futures = [
             executor.submit(
-                evaluate_ad_copy, ac, campaign_context, config, client, brief=brief
+                evaluate_ad_copy,
+                ac,
+                campaign_context,
+                config,
+                client,
+                brief=brief,
+                trend_situation=trend_situation,
+                sources=sources,
             )
             for ac in ad_copies
         ]
@@ -691,6 +863,9 @@ def evaluate_all_concurrently(
                 brief=brief,
                 image=images.get(vc.get("concept_name", "")),
                 person_photo=photo,
+                trend_situation=trend_situation,
+                sources=sources,
+                paired_copy_timely=paired_copy_timely(vc, copy_ids),
             )
             for vc in visual_concepts
         ]
@@ -754,6 +929,8 @@ def evaluate_creatives(
     brief: Mapping[str, Any] | None = None,
     generated_images: Mapping[str, Any] | None = None,
     person_reference: Any = None,
+    trend_situation: Mapping[str, Any] | None = None,
+    sources: Mapping[str, Any] | None = None,
 ) -> CreativeEvaluationReport:
     """Evaluate all creatives from a single agent run.
 
@@ -769,6 +946,9 @@ def evaluate_creatives(
                images the visual judge sees (prompt-only without one).
         person_reference: The run's ``{uri, consent_id}`` person reference;
                its photo is attached to cast concepts' judge calls.
+        trend_situation: The run's validated moment; timely creatives are
+               judged against it (``timely_claim_supported``).
+        sources: ``state["sources"]`` (the moment's cited source URLs).
 
     Returns:
         CreativeEvaluationReport with per-creative and aggregate scores.
@@ -792,6 +972,8 @@ def evaluate_creatives(
         brief=brief,
         generated_images=generated_images,
         person_reference=person_reference,
+        trend_situation=trend_situation,
+        sources=sources,
     )
 
     summary = _build_summary(ad_evals, visual_evals)
@@ -808,6 +990,7 @@ def evaluate_creatives(
         judge_version=JUDGE_VERSION,
         passing_threshold=config.passing_threshold,
         brief_used=brief is not None,
+        trend_valid_until=trend_valid_until(trend_situation),
     )
 
     logger.info(

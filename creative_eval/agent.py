@@ -31,6 +31,7 @@ from .evaluate import (
     _build_summary,
     evaluate_all_concurrently,
     judge_warnings,
+    trend_valid_until,
 )
 from .schemas import AdCopyEvaluation, CreativeEvaluationReport, CreativeScore
 
@@ -70,15 +71,18 @@ def _state_items(state: Mapping[str, Any], key: str, list_key: str) -> list[dict
 
 
 def ad_copy_eval_fingerprint(state: Mapping[str, Any]) -> str:
-    """Hash of everything an ad-copy judgement depends on (ad copies, brief, campaign).
+    """Hash of everything an ad-copy judgement depends on.
 
-    An early ad-copy evaluation is reused by :func:`evaluate_all_creatives`
-    only while this still matches, so a re-run with changed copies re-judges.
+    Ad copies, brief, campaign, the validated ``trend_situation`` (a timely
+    copy is judged against it) and the judge. An early ad-copy evaluation is
+    reused by :func:`evaluate_all_creatives` only while this still matches, so
+    a re-run with changed copies or a changed moment re-judges.
     """
     payload = {
         "campaign": _campaign_context(state),
         "ad_copies": _state_items(state, "ad_copy_critique", "ad_copies"),
         "brief": parse_brief(state.get("creative_brief")),
+        "trend_situation": state.get("trend_situation"),
         "judge": [_config.eval_model, _config.passing_threshold],
     }
     blob = json.dumps(payload, sort_keys=True, default=str)
@@ -104,6 +108,8 @@ def evaluate_ad_copies_only(tool_context) -> dict:
         _campaign_context(state),
         _config,
         brief=parse_brief(state.get("creative_brief")),
+        trend_situation=state.get("trend_situation"),
+        sources=state.get("sources"),
     )
     state[AD_COPY_PARTIAL_KEY] = {
         "fingerprint": ad_copy_eval_fingerprint(state),
@@ -178,6 +184,8 @@ def evaluate_all_creatives(tool_context) -> dict:
         rendered images the visual judge sees)
       - person_reference ({uri, consent_id}; optional — the consented person's
         photo, attached to cast concepts' judge calls as ground truth)
+      - trend_situation + sources (optional — the validated current moment a
+        timely creative's claim is judged against, with its source URLs)
 
     Writes to state key:
       - creative_evaluation_report (CreativeEvaluationReport JSON)
@@ -223,6 +231,10 @@ def evaluate_all_creatives(tool_context) -> dict:
         brief=brief,
         generated_images=generated_images,
         person_reference=state.get("person_reference"),
+        trend_situation=state.get("trend_situation"),
+        sources=state.get("sources"),
+        # Visuals pair with every final copy, also the ones reused above.
+        paired_ad_copies=ad_copies,
     )
     if any(e is not None for e in reused):
         judged_iter = iter(judged_ads)
@@ -253,6 +265,7 @@ def evaluate_all_creatives(tool_context) -> dict:
         brief_used=brief is not None,
         learning_used=learning_used,
         learning_flags=learning_flags,
+        trend_valid_until=trend_valid_until(state.get("trend_situation")),
     )
 
     # Store in session state
