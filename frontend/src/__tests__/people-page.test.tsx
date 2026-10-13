@@ -51,6 +51,33 @@ async function rows() {
 }
 
 describe("PeoplePage", () => {
+  it("keeps a person added before the initial list load lands", async () => {
+    let resolveList!: (v: { personRefs: PersonRef[]; prefix: string | null }) => void;
+    listPersonRefs.mockReturnValue(new Promise((r) => (resolveList = r)));
+    const carol = person({ label: "Carol", consent_id: "cid_CCCCCCCCCCCC", photo_uri: `${PREFIX}carol.jpg` });
+    createPersonRef.mockResolvedValue(carol);
+    render(<PeoplePage />);
+    fireEvent.change(screen.getByLabelText("Photo"), { target: { value: `${PREFIX}carol.jpg` } });
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Carol" } });
+    fireEvent.click(screen.getByLabelText(/is an adult and agreed to appear/));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Register photo" }));
+    });
+    expect(createPersonRef).toHaveBeenCalledTimes(1);
+    // The (older) list arrives afterwards: it may or may not include Carol yet.
+    await act(async () =>
+      resolveList({
+        personRefs: [person(), { ...carol, label: "Carol (stale)" }],
+        prefix: PREFIX,
+      })
+    );
+    const items = await rows();
+    expect(items).toHaveLength(2);
+    expect(within(items[0]).getByText("Carol")).toBeInTheDocument();
+    expect(within(items[1]).getByText("Alice")).toBeInTheDocument();
+    expect(screen.queryByText("Carol (stale)")).not.toBeInTheDocument();
+  });
+
   it("shows the consent text and the copyable upload prefix", async () => {
     listPersonRefs.mockResolvedValue({ personRefs: [], prefix: PREFIX });
     render(<PeoplePage />);
