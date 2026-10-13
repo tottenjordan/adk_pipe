@@ -186,7 +186,8 @@ def build_env_vars(enable_tracing: bool = False) -> dict[str, str | None]:
 # runtime. Agent Engine *copies* these dirs into the container (it does NOT
 # pip-install the repo), so a package a root_agent imports at runtime MUST be
 # listed here or the engine fails to start (e.g. `No module named 'creative_eval'`).
-# Derived from the real import graph:
+# Kept by hand; tests/test_deploy_import_graph.py imports each agent module and
+# fails if it pulls in a repo-root package missing here. Current graph:
 #   trend_scout          -> agent_common
 #   creative_agent       -> creative_eval, agent_common
 #   interactive_creative -> creative_agent, creative_eval, agent_common

@@ -37,9 +37,9 @@ TRUST_CLIENT_USER_ID=1 SESSION_SERVICE_URI=memory:// ALLOW_ORIGINS=http://localh
 cd frontend && npm install && npm run dev   # http://localhost:3000
 
 # Deploy agent to Agent Engine (the per-agent packages bundled into the engine
-# are derived from AGENT_EXTRA_PACKAGES in deploy_agent.py — a single source of
-# truth from the import graph, so cross-package deps like creative_eval/agent_common
-# can't be forgotten)
+# come from AGENT_EXTRA_PACKAGES in deploy_agent.py — a hand-kept single source of
+# truth that tests/test_deploy_import_graph.py checks against each agent's real
+# import graph, so cross-package deps like creative_eval/agent_common can't be forgotten)
 python deployment/deploy_agent.py --version=v1 --agent=trend_scout --create
 python deployment/deploy_agent.py --version=v1 --agent=creative_agent --create
 python deployment/deploy_agent.py --version=v1 --agent=interactive_creative --create
