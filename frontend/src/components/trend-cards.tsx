@@ -8,6 +8,7 @@ import { FieldLabel } from "@/components/field-label";
 import { SensitiveChip } from "@/components/sensitive-chip";
 import { normalizeTerm, parseJsonObject, parseTrendFlags } from "@/lib/trend-flags";
 import { cleanTrendField } from "@/lib/trend-context";
+import { parseTrendSummaries } from "@/lib/trend-summaries";
 
 export interface ParsedTrend {
   term: string;
@@ -159,6 +160,10 @@ export function TrendCards({
     () => parseTrendFlags(campaignState.trend_flags),
     [campaignState.trend_flags],
   );
+  const summaries = useMemo(
+    () => parseTrendSummaries(campaignState.trend_summaries),
+    [campaignState.trend_summaries],
+  );
 
   const handleClick = (trend: ParsedTrend) => {
     router.push(`/?${trendRunParams(trend, campaignState).toString()}`);
@@ -176,6 +181,7 @@ export function TrendCards({
         {trends.map((trend, i) => {
           const reason = flags.get(normalizeTerm(trend.term));
           const reasonId = `${idBase}-sensitive-${i}`;
+          const summary = summaries.get(normalizeTerm(trend.term));
           return (
             <div
               key={trend.term}
@@ -205,6 +211,9 @@ export function TrendCards({
                   <p className="text-xs font-medium text-foreground mb-2">
                     {trend.hook}
                   </p>
+                )}
+                {summary && (
+                  <p className="text-xs text-muted-foreground mb-2">{summary}</p>
                 )}
                 <div className="space-y-1.5 text-xs text-foreground/85">
                   {trend.context && (
