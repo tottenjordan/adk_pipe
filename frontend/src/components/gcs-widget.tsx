@@ -1,15 +1,19 @@
 "use client";
 
 import { FieldLabel } from "@/components/field-label";
+import { parseGsUri } from "@/lib/gcs";
+
+/** The Cloud Console browser URL for a gs:// folder or bare bucket, else null. */
+function consoleUrlFor(uri: string): string | null {
+  const parsed = parseGsUri(uri) ?? parseGsUri(`${uri}/`);
+  return parsed && parsed.bucket
+    ? `https://console.cloud.google.com/storage/browser/${parsed.bucket}/${parsed.path}`
+    : null;
+}
 
 export function GcsWidget({ uri }: { uri: string }) {
   if (!uri) return null;
-
-  // Convert gs:// URI to console URL
-  const consolePath = uri.replace("gs://", "").split("/");
-  const bucket = consolePath[0];
-  const objectPath = consolePath.slice(1).join("/");
-  const consoleUrl = `https://console.cloud.google.com/storage/browser/${bucket}/${objectPath}`;
+  const consoleUrl = consoleUrlFor(uri);
 
   return (
     <div className="rounded-lg border border-border bg-card px-4 py-3 flex items-start gap-3">
@@ -32,14 +36,18 @@ export function GcsWidget({ uri }: { uri: string }) {
         <FieldLabel as="p" className="mb-1">
           Cloud Storage output
         </FieldLabel>
-        <a
-          href={consoleUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="rounded-sm text-xs font-mono text-primary hover:underline break-all"
-        >
-          {uri}
-        </a>
+        {consoleUrl ? (
+          <a
+            href={consoleUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="rounded-sm text-xs font-mono text-primary hover:underline break-all"
+          >
+            {uri}
+          </a>
+        ) : (
+          <p className="text-xs font-mono text-foreground break-all">{uri}</p>
+        )}
       </div>
     </div>
   );

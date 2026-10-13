@@ -8,6 +8,7 @@ import { buttonVariants } from "@/components/ui/button";
 import { getSession, listArtifacts, SELF_USER_ID } from "@/lib/api";
 import { fetchEvalReport, parseEvalReport } from "@/lib/eval-report";
 import { gcsProxyUrl } from "@/lib/gcs";
+import { outputDir } from "@/lib/results-paths";
 import { classifyWarnings } from "@/lib/run-warnings";
 import { LearningSummary } from "@/components/learning-summary";
 import { TrendSituationLine } from "@/components/trend-situation-line";
@@ -99,16 +100,11 @@ export default function ResultsPage({
   // `isCancelled` lets the load effect drop the result after unmount (the
   // refresh button passes nothing: it always applies).
   const loadEval = useCallback(async (sess: Session, isCancelled: () => boolean = () => false) => {
-    const folder = sess.state?.gcs_folder as string;
-    const subdir = sess.state?.agent_output_dir as string;
-    const bucket =
-      (sess.state?.gcs_bucket_name as string) ||
-      (sess.state?.gcs_bucket as string)?.replace(/^gs:\/\//, "") ||
-      "";
-    if (!(bucket && folder && subdir)) return;
+    const dir = outputDir(sess.state ?? {});
+    if (!dir) return;
 
     setEvalStatus("loading");
-    const evalUrl = gcsProxyUrl(bucket, `${folder}/${subdir}/creative_eval_report.json`);
+    const evalUrl = gcsProxyUrl(dir.bucket, `${dir.prefix}/creative_eval_report.json`);
     const result = await fetchEvalReport<unknown>(evalUrl);
     if (isCancelled()) return;
     if (result.status === "found") {
@@ -171,6 +167,9 @@ export default function ResultsPage({
     );
   }, [state, evalReport]);
   const sortedProofs = useMemo(() => sortProofs(proofs, sort), [proofs, sort]);
+  // Session state can be large; serialise it once per session, not on every render
+  // (proof navigation, ratings, share-list updates all re-render this page).
+  const stateJson = useMemo(() => JSON.stringify(state, null, 2), [state]);
   const ratingsEnabled =
     !loading && (appName === "creative_agent" || appName === "interactive_creative");
   const ratings = useSessionRatings(sessionId, ratingsEnabled);
@@ -220,20 +219,10 @@ export default function ResultsPage({
     .filter(Boolean)
     .join("/");
 
-  const bucketName =
-    (state.gcs_bucket_name as string) ||
-    (state.gcs_bucket as string)?.replace(/^gs:\/\//, "") ||
-    "";
-  const folder = state.gcs_folder as string;
-  const subdir = state.agent_output_dir as string;
-  const hasOutputDir = Boolean(bucketName && folder && subdir);
-
-  const galleryUrl = hasOutputDir
-    ? gcsProxyUrl(bucketName, `${folder}/${subdir}/creative_portfolio_gallery.html`)
-    : null;
-
+  const dir = outputDir(state);
   const outputUrl = (filename: string): string | null =>
-    hasOutputDir ? gcsProxyUrl(bucketName, `${folder}/${subdir}/${filename}`) : null;
+    dir ? gcsProxyUrl(dir.bucket, `${dir.prefix}/${filename}`) : null;
+  const galleryUrl = outputUrl("creative_portfolio_gallery.html");
   // No rendered images → no URLs (they'd only 404); tiles show "Image not rendered".
   const imagesMissing = imagesNotRendered(state);
   const imageUrlFor = (conceptName: string) =>
@@ -387,7 +376,7 @@ export default function ResultsPage({
 
       <QuietDisclosure title="Session state">
         <pre className="max-h-96 overflow-auto rounded-sm bg-muted/60 p-4 font-mono text-xs text-foreground/85">
-          {JSON.stringify(state, null, 2)}
+          {stateJson}
         </pre>
       </QuietDisclosure>
     </div>
