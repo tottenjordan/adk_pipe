@@ -515,7 +515,10 @@ def test_non_transient_error_still_propagates(make_exc, sleeps):
 
 
 def test_transient_retry_can_be_disabled(sleeps):
-    child, calls = _raising_child([_quota_error()])
+    from agent_common.fail_soft_node import root_cause
+
+    exc = _quota_error()
+    child, calls = _raising_child([exc])
     wrapper = RetryUntilKeyNode(
         name="retry_wrapper",
         node=child,
@@ -523,8 +526,9 @@ def test_transient_retry_can_be_disabled(sleeps):
         retry_on_transient=False,
     )
 
-    with pytest.raises(Exception):
+    with pytest.raises(Exception) as raised:  # noqa: B017 - checked via root_cause
         _run_node(wrapper)
 
+    assert root_cause(raised.value) is exc
     assert len(calls) == 1
     assert sleeps == []
