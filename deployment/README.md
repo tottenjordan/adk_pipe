@@ -1158,6 +1158,13 @@ there is no auto-continue (interactive_creative still calls the stages separatel
   `__run_status`, and ask the user. The durable escalation (only if this bites under real load) is **Variant 2**: hand UI runs to the existing PubSub worker
   (`cloud_functions/creative_fanout` pattern) so PubSub redelivery + a BQ status lock
   survive an instance crash.
+- **The api's in-process guards are best effort per instance.** The live-run duplicate
+  guard, the variant render claim / per-session locks / render semaphore / daily cap and
+  the per-session state locks all live in one uvicorn process. They hold while one
+  instance serves the traffic (the usual case with `--min-instances 1` and light load),
+  but the service is not capped at one instance, so a scale-out or two overlapping
+  revisions can double-drive a session or render a variant twice. Pin
+  `--max-instances 1` if that ever matters more than headroom.
 - **`partial` (token-streaming) chunks are not persisted**, so the poll renders **final**
   events only — text appears per-final-event rather than token-by-token. Acceptable; pause
   detection already ignores `partial`.
@@ -2253,7 +2260,9 @@ in `creative-trawler-crf` / `creative-worker-crf`, which is what the newest-N ke
 protects there.
 `packageNamePrefixes` are prefixes, so `creative-trawler-crf` also matches the old
 `creative-trawler-crf-vx` package (also trend-trawler's). Rolling back to a revision whose
-untagged image has aged out needs a rebuild.
+untagged image has aged out needs a rebuild. "Newest 10" counts registry *versions*, not
+builds: a BuildKit build can push several (image index, platform manifest, attestation), so
+the keep rule covers only the last few builds of a package.
 
 **Buckets** (`matchesPrefix` only; lifecycle age counts from object creation):
 
