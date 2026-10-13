@@ -184,6 +184,7 @@
       "brand_cue_visible": true,
       "failures": [],
       "gibberish_text": false,
+      "hands_malformed": false,
       "issues": [],
       "motif_visible": true,
       "passed": true,
@@ -211,6 +212,7 @@
       "brand_cue_visible": true,
       "failures": [],
       "gibberish_text": false,
+      "hands_malformed": false,
       "issues": [],
       "motif_visible": true,
       "passed": true,
@@ -237,6 +239,7 @@
       "brand_cue_visible": true,
       "failures": [],
       "gibberish_text": false,
+      "hands_malformed": false,
       "issues": [],
       "motif_visible": true,
       "passed": true,
@@ -524,6 +527,7 @@
       "brand_cue_visible": true,
       "failures": [],
       "gibberish_text": false,
+      "hands_malformed": false,
       "issues": [],
       "motif_visible": true,
       "passed": true,
@@ -551,6 +555,7 @@
        "warped neck"
       ],
       "gibberish_text": false,
+      "hands_malformed": false,
       "issues": [
        "warped neck"
       ],
@@ -578,6 +583,7 @@
       "brand_cue_visible": true,
       "failures": [],
       "gibberish_text": false,
+      "hands_malformed": false,
       "issues": [],
       "motif_visible": true,
       "passed": true,

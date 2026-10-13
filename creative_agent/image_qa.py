@@ -132,6 +132,15 @@ class ImageQAResult(BaseModel):
             "it recognisable, and a missing or simplified label, do not count."
         ),
     )
+    hands_malformed: bool = Field(
+        default=False,
+        description=(
+            "A visible hand is malformed: extra, missing or fused fingers, a "
+            "thumb on the wrong side, two left or two right hands on one person, "
+            "or a hand merged into an object. Consistently simplified cartoon "
+            "hands in a clearly illustrated style do not count."
+        ),
+    )
     artifacts: bool = Field(
         description="Noticeable anatomy or object deformities (extra fingers, melted or broken objects)."
     )
@@ -236,6 +245,11 @@ PRODUCT_OFF_MODEL_PHRASE = (
     "render the product with its real silhouette and shape, even in a "
     "stylised look (a simplified or unlabelled surface is fine)"
 )
+# Always restated in a re-render (hands are the commonest judge defect).
+HANDS_PHRASE = (
+    "render every visible hand with five separate, correctly placed fingers, "
+    "or keep hands relaxed and partly out of frame"
+)
 # (attribute, rule name, correction phrase) per check, in report order.
 _RULES: tuple[tuple[str, str, str], ...] = (
     ("product_visible", "product not visible", "show the product recognisably"),
@@ -260,6 +274,7 @@ _RULES: tuple[tuple[str, str, str], ...] = (
         "unrequested third-party logo",
         "remove third-party logos",
     ),
+    ("hands_malformed", "malformed hands", HANDS_PHRASE),
     ("artifacts", "severe visual artifacts", "fix severe visual artifacts"),
     ("unsafe", "unsafe content", "remove brand-unsafe content"),
 )
@@ -311,7 +326,7 @@ def qa_failed_rules(
     the concept's ``trend_motif`` is empty — nothing was promised), a
     malformed or off-model product (both also skipped without
     ``target_product``), gibberish
-    text, an unrequested logo, severe artifacts, unsafe content, or — when
+    text, an unrequested logo, malformed hands, severe artifacts, unsafe content, or — when
     text is required (``_text_required``) — text not exact or not legible
     (``None`` = unknown, not a failure). ``brand_cue_visible`` is advisory and
     never fails.
@@ -421,6 +436,8 @@ def correction_text(
         items = items or [phrases[name] for name in failed]
     if "product off-model" in failed:
         items.append(PRODUCT_OFF_MODEL_PHRASE)
+    if "malformed hands" in failed:
+        items.append(HANDS_PHRASE)
     # A person rule always restates its fixed instruction (the likeness ask).
     items += [phrases[name] for name in failed if name in _PERSON_RULES]
     # A composition change restates "keep everything" plus its differences.
@@ -433,6 +450,20 @@ def correction_text(
         + ". "
         + NO_NEW_TEXT
     )
+
+
+# Asked for every render (cast or not): the generic artifacts line let the
+# QA model miss six/fused fingers (2026-10-13).
+HANDS_CHECK_LINE = (
+    "hands_malformed: look at every visible hand and count the fingers. True "
+    "for extra, missing or fused fingers, a thumb on the wrong side, two left "
+    "or two right hands on one person, or a hand merged into an object (e.g. "
+    "fingers melting into a glass or bottle). Exception: in a clearly "
+    "illustrated style (cartoon, comic, flat vector, 3D character), hands drawn "
+    "with a simplified finger count (e.g. four fingers) consistently across the "
+    "image are a style convention, not a defect; photographic and photoreal "
+    "styles never get this exception. False when no hands are visible."
+)
 
 
 # Rating strictness (opt-in rating learning): recurring "product hard to see"
@@ -594,6 +625,7 @@ def _instruction(
             "product recognisable (flat colours, comic inking, simplified detail) "
             "and a missing, simplified or unreadable label are not off-model."
         )
+    lines.append(HANDS_CHECK_LINE)
     lines += [
         "Also flag noticeable anatomy or object deformities (artifacts) and "
         "brand-unsafe content.",

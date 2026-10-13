@@ -195,6 +195,20 @@ def test_person_casting_rules_allow_real_person_and_sensitive_trends():
         assert "appears as themselves" in built
 
 
+def test_person_casting_rules_keep_the_product_out_of_the_persons_hands():
+    """2026-10-13: cast concepts failed the judge's no_visual_defects gate on
+    malformed hands 67% of the time when the person handled the product (36%
+    without), so the rules keep the product beside the person."""
+    for rules in (
+        prompts.PERSON_CASTING_RULES,
+        prompts.build_person_casting_rules(PHOTOGRAPHIC, 2),
+    ):
+        assert "{" not in rules and "}" not in rules
+        assert "never grip, clink, pour or hold the product up" in rules
+        assert "place the product beside them" in rules
+        assert "hands relaxed or partly out of frame" in rules
+
+
 ILLUSTRATED_LINE = (
     "In an illustrated style, keep the person's distinctive features recognisable "
     "(face shape, hairline, hair colour, skin tone, facial hair, glasses) rather "

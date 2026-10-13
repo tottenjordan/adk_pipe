@@ -1108,3 +1108,64 @@ def test_off_model_ignores_a_missing_label():
     assert "label" not in instruction.split("(")[0]
     desc = ImageQAResult.model_fields["product_off_model"].description or ""
     assert "missing or simplified label" in desc
+
+
+# --- malformed hands (2026-10-13 investigation: judge no_visual_defects
+# failures were dominated by six/fused fingers and two right hands, mostly
+# when a person gripped the product; the generic artifacts line missed them) ---
+def test_hands_malformed_fails_but_is_not_critical():
+    result = _result(hands_malformed=True)
+    assert image_qa.qa_failed_rules(result, _CONCEPT, target_product=_PRODUCT) == [
+        "malformed hands"
+    ]
+    assert image_qa.qa_failures(result, _CONCEPT, target_product=_PRODUCT) == [
+        "malformed hands"
+    ]
+    assert "malformed hands" not in image_qa.CRITICAL_RULES
+
+
+def test_hands_malformed_checked_without_a_product():
+    result = _result(hands_malformed=True)
+    assert image_qa.qa_failed_rules(result, _CONCEPT, target_product="") == [
+        "malformed hands"
+    ]
+
+
+def test_payload_without_hands_field_parses_false():
+    payload = _result().model_dump(exclude={"hands_malformed"})
+    assert "hands_malformed" not in payload
+    assert ImageQAResult.model_validate(payload).hands_malformed is False
+
+
+def test_hands_correction_phrase_always_restated():
+    phrase = image_qa.HANDS_PHRASE
+    assert "five separate" in phrase and "out of frame" in phrase
+    text = image_qa.correction_text(
+        _result(hands_malformed=True, issues=["six fingers on the left hand"]),
+        _CONCEPT,
+        target_product=_PRODUCT,
+    )
+    assert "six fingers on the left hand" in text
+    assert phrase in text
+    assert text.endswith(image_qa.NO_NEW_TEXT)
+
+
+def test_hands_instruction_counts_fingers_and_exempts_only_stylised_hands():
+    text = _instruction_text(_CONCEPT)
+    assert "hands_malformed" in text
+    assert "count the fingers" in text
+    assert "two left or two right hands" in text
+    assert "merged into an object" in text
+    assert "simplified finger count" in text
+    assert "photographic" in text
+    desc = (ImageQAResult.model_fields["hands_malformed"].description or "").lower()
+    assert "finger" in desc
+
+
+def test_hands_rerender_carries_the_correction(monkeypatch):
+    flow = _Flow(monkeypatch, [_result(hands_malformed=True), _result()])
+    flow.run()
+    assert len(flow.models.calls) == 2
+    assert image_qa.HANDS_PHRASE in flow.models.calls[1]["contents"]
+    assert flow.record["qa"]["passed"] is True
+    assert flow.record["qa"]["hands_malformed"] is False
