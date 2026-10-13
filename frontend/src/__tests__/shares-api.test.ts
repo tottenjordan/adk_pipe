@@ -1,6 +1,17 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createShare, listShares, revokeShare } from "@/lib/api";
-import { hasRenderedImage, isAbsoluteUrl, ShareError, shareErrorMessage, sharesForSession, skippedNotice, type Share } from "@/lib/shares";
+import {
+  failedCheckNotice,
+  failedChecksFor,
+  hasRenderedImage,
+  isAbsoluteUrl,
+  ShareError,
+  shareErrorMessage,
+  sharesForSession,
+  skippedNotice,
+  type Share,
+} from "@/lib/shares";
+import type { CreativeScore, GateResult, Proof } from "@/lib/eval-matching";
 
 const share = (over: Partial<Share> = {}): Share => ({
   token: "AbCdEfGhIjKlMnOp", url: "/s/AbCdEfGhIjKlMnOp", title: "Acme x Trend", scope: "slate",
@@ -131,5 +142,61 @@ describe("share helpers", () => {
   it("filters shares by session", () => {
     expect(sharesForSession([share(), share({ token: "b".repeat(16), session_id: "s2" })], "s2"))
       .toEqual([share({ token: "b".repeat(16), session_id: "s2" })]);
+  });
+});
+
+const score = (gates?: GateResult[]): CreativeScore => ({
+  overall_score: 0.8, passed: true, verdicts: [], strengths: [], improvements: [], ...(gates ? { gates } : {}),
+});
+const proof = (name: string, copyGates?: GateResult[], visualGates?: GateResult[]): Proof =>
+  ({
+    index: 0,
+    concept: { concept_name: name },
+    adCopyMatch: "id",
+    adCopyEval: { original_id: 1, headline: "H", tone_style: "", score: score(copyGates) },
+    visualEval: { ad_copy_id: 1, concept_name: name, score: score(visualGates) },
+  }) as unknown as Proof;
+
+describe("failed-check notice", () => {
+  it("collects blocking failed gate labels per creative, deduped, skipping passes and advisory", () => {
+    const proofs = [
+      proof("Alpha", [{ gate: "trend_risks_respected", passed: false }], [
+        { gate: "no_visual_defects", passed: false },
+        { gate: "trend_risks_respected", passed: false },
+        { gate: "brand_cue_present", passed: false, advisory: true },
+      ]),
+      proof("Bravo", [{ gate: "product_named", passed: true }], [{ gate: "product_visible", passed: true }]),
+      proof("Charlie"),
+    ];
+    expect(failedChecksFor(proofs)).toEqual([
+      { conceptName: "Alpha", labels: ["Respects trend risks", "No visual defects"] },
+    ]);
+  });
+
+  it("is null when nothing failed", () => {
+    expect(failedCheckNotice([], true)).toBeNull();
+    expect(failedCheckNotice([], false)).toBeNull();
+  });
+
+  it("words a single creative's note", () => {
+    expect(
+      failedCheckNotice([{ conceptName: "Alpha", labels: ["No visual defects", "Product visible"] }], true),
+    ).toBe(
+      "This creative failed a quality check (No visual defects, Product visible). Anyone with the link will see it.",
+    );
+  });
+
+  it("words a slate note by count with each creative's labels", () => {
+    const failed = [
+      { conceptName: "Alpha", labels: ["No visual defects"] },
+      { conceptName: "Bravo", labels: ["Product named", "Avoid list respected"] },
+    ];
+    expect(failedCheckNotice(failed, false)).toBe(
+      "2 of these creatives failed a quality check: Alpha (No visual defects); " +
+        "Bravo (Product named, Avoid list respected). Anyone with the link will see them.",
+    );
+    expect(failedCheckNotice(failed.slice(0, 1), false)).toBe(
+      "1 of these creatives failed a quality check: Alpha (No visual defects). Anyone with the link will see it.",
+    );
   });
 });
