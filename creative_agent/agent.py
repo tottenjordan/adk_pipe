@@ -275,7 +275,7 @@ brief_writer_resilient = RetryUntilKeyNode(
 # --- FAIL-SOFT BRIEF STEPS --- #
 # The brief is an enrichment on top of the already-written research report, so
 # an EXCEPTION in the writer or reviser (e.g. SCHEMA_RETRY exhausted on the
-# large CreativeBrief schema — RetryUntilKeyNode only retries empty output) must
+# large CreativeBrief schema — RetryUntilKeyNode only retries empty output and transient errors) must
 # not fail the research step. FailSoftNode logs it and applies these deltas:
 # - writer: no brief + creative_brief__retry_exhausted (same degradation as an
 #   empty-output exhaustion; the creatives fall back to the report);
