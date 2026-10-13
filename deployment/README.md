@@ -2223,7 +2223,10 @@ sample digests), and lists the digests Cloud Run serves (every traffic-receiving
 ready revision of `trend-trawler-api` / `-web` / `-share`, `creative-trawler-crf`,
 `creative-worker-crf`), the `trend-trawler-bandit-traffic` job's image and the api's
 `BANDIT_SERVING_IMAGE`, and **fails** (exit 3) if any of them is a deletion candidate.
-`--apply` runs the same preview first. `set-cleanup-policies` and `--lifecycle-file` both
+It also **fails** (exit 5) when that live set can't be trusted: a describe/lookup failed, a
+service yielded no revision, a digest isn't `sha256:<64 hex>`, the job image didn't resolve,
+or a registry/bucket listing failed (a bucket prefix matching no objects is fine).
+`--apply` runs the same preview first and stops on either failure. `set-cleanup-policies` and `--lifecycle-file` both
 **replace** the whole configuration, so it refuses (exit 4) when a repo has a cleanup policy
 that is not ours (name not `tt-`-prefixed, i.e. another team's rule in the shared repo) and
 the policies differ from the file, or when a bucket has a lifecycle that differs from the

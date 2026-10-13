@@ -9,7 +9,8 @@ Subcommands (all print to stdout):
 - ``ar-packages POLICY PACKAGES_FILE``: the repo's packages (one per line) a Delete rule
   of POLICY matches.
 - ``ar-preview POLICY PACKAGE VERSIONS_JSON LIVE_DIGESTS_FILE``: deletion candidates for one
-  package; exits 3 when a live digest is a candidate.
+  package; exits 3 when a live digest is a candidate, 5 when LIVE_DIGESTS_FILE is empty or
+  holds a token that is not a ``sha256:<64 hex>`` digest (the protected set can't be trusted).
 - ``gcs-preview AGE_DAYS LS_FILE``: count/bytes of listed objects older than AGE_DAYS.
 - ``ar-same POLICY DESCRIBE_JSON``: prints ``same`` / ``empty`` / ``ours`` (every current
   policy is ours, ``tt-``-prefixed, but they differ: safe to replace) / ``differs`` (some
@@ -28,6 +29,9 @@ from pathlib import Path
 
 _UNIT_SECONDS = {"s": 1, "m": 60, "h": 3600, "d": 86400}
 LIVE_DIGEST_EXIT = 3
+# The live-digest file is empty or malformed: never simulate against a partial protected set.
+BAD_LIVE_DIGESTS_EXIT = 5
+DIGEST_RE = re.compile(r"sha256:[0-9a-f]{64}")
 # Every cleanup policy name in this folder starts with it; anything else in a shared repo
 # belongs to another team and must never be replaced.
 OWNED_POLICY_PREFIX = "tt-"
@@ -178,6 +182,17 @@ def ar_diff(wanted: list[tuple], current: list[tuple]) -> list[str]:
     ]
 
 
+def parse_live_digests(text: str) -> set[str]:
+    """Live-digest file -> digests; ``ValueError`` when empty or any token is malformed."""
+    tokens = text.split()
+    if not tokens:
+        raise ValueError("live digest file is empty")
+    bad = [t for t in tokens if not DIGEST_RE.fullmatch(t)]
+    if bad:
+        raise ValueError(f"malformed live digest(s): {', '.join(map(repr, bad[:5]))}")
+    return set(tokens)
+
+
 def _human(n: float) -> str:
     for unit in ("B", "KiB", "MiB", "GiB"):
         if n < 1024:
@@ -197,7 +212,11 @@ def main(argv: list[str]) -> int:
         policy = json.loads(Path(args[0]).read_text())
         package = args[1]
         versions = json.loads(Path(args[2]).read_text() or "[]")
-        live = set(Path(args[3]).read_text().split())
+        try:
+            live = parse_live_digests(Path(args[3]).read_text())
+        except ValueError as exc:
+            print(f"ERROR: {exc}; refusing to simulate", file=sys.stderr)
+            return BAD_LIVE_DIGESTS_EXIT
         candidates, kept = ar_candidates(policy, package, versions, now)
         size = sum(
             int(v.get("metadata", {}).get("imageSizeBytes", 0)) for v in candidates
