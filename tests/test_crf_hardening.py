@@ -15,7 +15,15 @@ import types
 
 import pytest
 
-from cloud_functions.creative_fanout import main
+from cloud_functions.creative_fanout import (
+    clients,
+    logs,
+    main,
+    messages,
+    status_store,
+    worker,
+)
+from cloud_functions.creative_fanout.config import config
 
 # The CRF config reads the (required) project at use time; pin a dummy.
 pytestmark = pytest.mark.usefixtures("gcp_project_env")
@@ -33,7 +41,7 @@ def _record(msg, level=logging.INFO, **extra):
 
 
 def test_json_formatter_emits_severity_and_message():
-    line = main.CloudRunJsonFormatter().format(_record("hello %s", logging.WARNING))
+    line = logs.CloudRunJsonFormatter().format(_record("hello %s", logging.WARNING))
     entry = json.loads(line)
     assert entry["severity"] == "WARNING"
     assert entry["message"] == "hello %s"
@@ -54,7 +62,7 @@ def test_json_formatter_formats_args_and_appends_traceback():
             ("row-1",),
             sys.exc_info(),
         )
-    entry = json.loads(main.CloudRunJsonFormatter().format(record))
+    entry = json.loads(logs.CloudRunJsonFormatter().format(record))
     assert entry["severity"] == "ERROR"
     assert entry["message"].startswith("failed row-1\n")
     assert "ValueError: boom" in entry["message"]
@@ -65,7 +73,7 @@ def test_json_formatter_merges_json_fields_without_clobbering():
         "AGENT_RUN_DURATION_SECS row=r",
         json_fields={"row": "r", "secs": 1.5, "severity": "DEBUG", "message": "x"},
     )
-    entry = json.loads(main.CloudRunJsonFormatter().format(record))
+    entry = json.loads(logs.CloudRunJsonFormatter().format(record))
     assert entry["row"] == "r"
     assert entry["secs"] == 1.5
     assert entry["severity"] == "INFO"
@@ -75,7 +83,7 @@ def test_json_formatter_merges_json_fields_without_clobbering():
 def test_log_handler_writes_json_lines_to_stdout(monkeypatch):
     buf = io.StringIO()
     monkeypatch.setattr(sys, "stdout", buf)
-    handler = main._json_log_handler()
+    handler = logs._json_log_handler()
     logger = logging.getLogger("crf.test.handler")
     logger.propagate = False
     logger.addHandler(handler)
@@ -89,8 +97,11 @@ def test_log_handler_writes_json_lines_to_stdout(monkeypatch):
 def test_no_runtime_pythonunbuffered_assignment():
     """Setting PYTHONUNBUFFERED after start-up does nothing (the Dockerfile's
     ENV sets it for the interpreter); the import-time assignment is gone."""
-    source = open(main.__file__, encoding="utf-8").read()
-    assert 'os.environ["PYTHONUNBUFFERED"]' not in source
+    from pathlib import Path
+
+    for path in Path(main.__file__).parent.glob("*.py"):
+        source = path.read_text(encoding="utf-8")
+        assert 'os.environ["PYTHONUNBUFFERED"]' not in source, path.name
 
 
 @pytest.mark.parametrize("fail", [False, True])
@@ -102,17 +113,15 @@ def test_duration_marker_carries_json_fields(monkeypatch, caplog, fail):
             raise RuntimeError("agent boom")
         return RunOutcome(finalized=True, retried=False, reason="done")
 
-    monkeypatch.setattr(main, "create_agent_run", _run)
-    monkeypatch.setattr(main, "acquire_processing_lock", lambda *a, **k: True)
-    monkeypatch.setattr(main, "update_rows_status", lambda **k: None)
+    monkeypatch.setattr(worker, "create_agent_run", _run)
+    monkeypatch.setattr(status_store, "acquire_processing_lock", lambda *a, **k: True)
+    monkeypatch.setattr(status_store, "update_rows_status", lambda **k: None)
     trend = {"entry_timestamp": "2026-07-12T00:00:00", "index": 2}
 
     import asyncio
 
     with caplog.at_level(logging.INFO):
-        asyncio.run(
-            main._execute_agent_and_update_status(trend, "123", object(), "ds", "t")
-        )
+        asyncio.run(worker.process_row(trend, "123", object(), "ds", "t"))
 
     (record,) = [
         r for r in caplog.records if r.getMessage().startswith("AGENT_RUN_DURATION")
@@ -154,9 +163,9 @@ def test_bq_timeout_default_and_env(monkeypatch):
 def test_run_query_bounds_the_wait_and_the_job(monkeypatch):
     monkeypatch.setenv("CRF_BQ_QUERY_TIMEOUT_SECS", "42")
     bq = _bq_mock()
-    params = [main.bigquery.ScalarQueryParameter("x", "INT64", 1)]
+    params = [clients.bigquery.ScalarQueryParameter("x", "INT64", 1)]
 
-    result = main._run_query(bq, "SELECT @x", params)
+    result = status_store._run_query(bq, "SELECT @x", params)
 
     assert result is bq.query_and_wait.return_value
     call = bq.query_and_wait.call_args
@@ -170,8 +179,8 @@ def test_run_query_bounds_the_wait_and_the_job(monkeypatch):
 @pytest.mark.parametrize(("affected", "locked"), [(1, True), (0, False)])
 def test_lock_reads_dml_count_from_bounded_query(affected, locked):
     bq = _bq_mock(affected)
-    got = main.acquire_processing_lock(
-        bq, main.config.BQ_DATASET_ID, main.config.BQ_TABLE_TARGETS, "2026-07-12"
+    got = status_store.acquire_processing_lock(
+        bq, config.BQ_DATASET_ID, config.BQ_TABLE_TARGETS, "2026-07-12"
     )
     assert got is locked
     assert "wait_timeout" in bq.query_and_wait.call_args.kwargs
@@ -184,16 +193,16 @@ def test_lock_timeout_propagates_for_retry():
     bq = _bq_mock()
     bq.query_and_wait.side_effect = concurrent.futures.TimeoutError()
     with pytest.raises(concurrent.futures.TimeoutError):
-        main.acquire_processing_lock(
-            bq, main.config.BQ_DATASET_ID, main.config.BQ_TABLE_TARGETS, "2026-07-12"
+        status_store.acquire_processing_lock(
+            bq, config.BQ_DATASET_ID, config.BQ_TABLE_TARGETS, "2026-07-12"
         )
 
 
 def test_status_update_and_reaper_use_bounded_query():
     bq = _bq_mock(2)
-    ds, tbl = main.config.BQ_DATASET_ID, main.config.BQ_TABLE_TARGETS
-    main.update_rows_status(bq, ds, tbl, ["2026-07-12"], status="PROCESSED")
-    assert main.reap_stale_processing_rows(bq, ds, tbl) == 2
+    ds, tbl = config.BQ_DATASET_ID, config.BQ_TABLE_TARGETS
+    status_store.update_rows_status(bq, ds, tbl, ["2026-07-12"], status="PROCESSED")
+    assert status_store.reap_stale_processing_rows(bq, ds, tbl) == 2
     assert bq.query_and_wait.call_count == 2
 
 
@@ -215,8 +224,8 @@ def _slow_ctor(calls):
 @pytest.mark.parametrize(
     ("getter", "cache_attr", "module_attr", "ctor_name"),
     [
-        ("_get_bigquery_client", "_bigquery_client", "bigquery", "Client"),
-        ("_get_pubsub_client", "_pubsub_publisher", "pubsub_v1", "PublisherClient"),
+        ("get_bigquery_client", "_bigquery_client", "bigquery", "Client"),
+        ("get_pubsub_client", "_pubsub_publisher", "pubsub_v1", "PublisherClient"),
     ],
 )
 def test_client_built_once_across_threads(
@@ -225,22 +234,22 @@ def test_client_built_once_across_threads(
     from concurrent.futures import ThreadPoolExecutor
 
     calls = []
-    monkeypatch.setattr(getattr(main, module_attr), ctor_name, _slow_ctor(calls))
-    monkeypatch.setattr(main, cache_attr, None)
+    monkeypatch.setattr(getattr(clients, module_attr), ctor_name, _slow_ctor(calls))
+    monkeypatch.setattr(clients, cache_attr, None)
 
     with ThreadPoolExecutor(max_workers=16) as pool:
-        clients = list(pool.map(lambda _: getattr(main, getter)(), range(32)))
+        built = list(pool.map(lambda _: getattr(clients, getter)(), range(32)))
 
     assert len(calls) == 1
-    assert all(c is clients[0] for c in clients)
-    assert getattr(main, getter)() is clients[0]  # reused by later invocations
+    assert all(c is built[0] for c in built)
+    assert getattr(clients, getter)() is built[0]  # reused by later invocations
 
 
 def test_bigquery_client_uses_configured_project(monkeypatch):
     calls = []
-    monkeypatch.setattr(main.bigquery, "Client", _slow_ctor(calls))
-    monkeypatch.setattr(main, "_bigquery_client", None)
-    main._get_bigquery_client()
+    monkeypatch.setattr(clients.bigquery, "Client", _slow_ctor(calls))
+    monkeypatch.setattr(clients, "_bigquery_client", None)
+    clients.get_bigquery_client()
     assert calls == [{"project": "test-project"}]
 
 
@@ -251,9 +260,9 @@ def test_import_builds_no_clients():
     import subprocess
 
     code = (
-        "from cloud_functions.creative_fanout import main\n"
-        "assert main._bigquery_client is None\n"
-        "assert main._pubsub_publisher is None\n"
+        "from cloud_functions.creative_fanout import clients, main\n"
+        "assert clients._bigquery_client is None\n"
+        "assert clients._pubsub_publisher is None\n"
     )
     env = {k: v for k, v in os.environ.items() if k != "GOOGLE_CLOUD_PROJECT"}
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -338,8 +347,8 @@ _ROW_DATA = {
 
 def _worker_payload(index=0, **overrides):
     payload = {
-        "bq_dataset": main.config.BQ_DATASET_ID,
-        "bq_table": main.config.BQ_TABLE_TARGETS,
+        "bq_dataset": config.BQ_DATASET_ID,
+        "bq_table": config.BQ_TABLE_TARGETS,
         "agent_resource_id": "123",
         "row_data": {"index": index, **_ROW_DATA},
     }
@@ -358,12 +367,12 @@ def test_two_worker_invocations_in_one_process_both_succeed(monkeypatch):
     """Regression: a warm instance's 2nd invocation (a new ``asyncio.run`` loop)
     must not reuse the 1st invocation's loop-bound Agent Runtime client."""
     _LoopBoundFakeClient.instances = []
-    monkeypatch.setattr(main.agentplatform, "Client", _LoopBoundFakeClient)
-    monkeypatch.setattr(main, "_get_bigquery_client", lambda: _bq_mock())
-    monkeypatch.setattr(main, "acquire_processing_lock", lambda *a, **k: True)
+    monkeypatch.setattr(clients.agentplatform, "Client", _LoopBoundFakeClient)
+    monkeypatch.setattr(clients, "get_bigquery_client", lambda: _bq_mock())
+    monkeypatch.setattr(status_store, "acquire_processing_lock", lambda *a, **k: True)
     statuses = []
     monkeypatch.setattr(
-        main, "update_rows_status", lambda **k: statuses.append(k["status"])
+        status_store, "update_rows_status", lambda **k: statuses.append(k["status"])
     )
 
     main.agent_worker_entrypoint(_event(_worker_payload(0)))
@@ -374,13 +383,13 @@ def test_two_worker_invocations_in_one_process_both_succeed(monkeypatch):
     assert all(c.closed for c in _LoopBoundFakeClient.instances)
     assert _LoopBoundFakeClient.instances[0].kwargs == {
         "project": "test-project",
-        "location": main.config.GCP_REGION,
+        "location": config.GCP_REGION,
     }
 
 
 def test_agent_runtime_client_closed_even_when_the_run_fails(monkeypatch):
     _LoopBoundFakeClient.instances = []
-    monkeypatch.setattr(main.agentplatform, "Client", _LoopBoundFakeClient)
+    monkeypatch.setattr(clients.agentplatform, "Client", _LoopBoundFakeClient)
 
     async def _boom(self, **kwargs):
         raise RuntimeError("create boom")
@@ -389,7 +398,7 @@ def test_agent_runtime_client_closed_even_when_the_run_fails(monkeypatch):
 
     with pytest.raises(RuntimeError, match="create boom"):
         asyncio.run(
-            main.create_agent_run(
+            worker.create_agent_run(
                 agent_id="123", msg_dict={"index": 0, **_ROW_DATA}, user_id="u"
             )
         )
@@ -399,7 +408,7 @@ def test_agent_runtime_client_closed_even_when_the_run_fails(monkeypatch):
 
 def test_agent_runtime_client_close_failure_does_not_fail_the_run(monkeypatch, caplog):
     _LoopBoundFakeClient.instances = []
-    monkeypatch.setattr(main.agentplatform, "Client", _LoopBoundFakeClient)
+    monkeypatch.setattr(clients.agentplatform, "Client", _LoopBoundFakeClient)
 
     async def _bad_close(self):
         raise OSError("close boom")
@@ -407,7 +416,7 @@ def test_agent_runtime_client_close_failure_does_not_fail_the_run(monkeypatch, c
     monkeypatch.setattr(_FakeAio, "aclose", _bad_close)
     with caplog.at_level(logging.WARNING):
         asyncio.run(
-            main.create_agent_run(
+            worker.create_agent_run(
                 agent_id="123", msg_dict={"index": 0, **_ROW_DATA}, user_id="u"
             )
         )
@@ -425,9 +434,9 @@ def no_side_effects(monkeypatch):
     bq = _bq_mock()
     publisher = MagicMock()
     vertex = MagicMock(side_effect=AssertionError("no agent run expected"))
-    monkeypatch.setattr(main, "_get_bigquery_client", lambda: bq)
-    monkeypatch.setattr(main, "_get_pubsub_client", lambda: publisher)
-    monkeypatch.setattr(main.agentplatform, "Client", vertex)
+    monkeypatch.setattr(clients, "get_bigquery_client", lambda: bq)
+    monkeypatch.setattr(clients, "get_pubsub_client", lambda: publisher)
+    monkeypatch.setattr(clients.agentplatform, "Client", vertex)
     yield
     bq.query_and_wait.assert_not_called()
     publisher.publish.assert_not_called()
@@ -500,8 +509,8 @@ def test_worker_acks_undecodable_message(data, caplog):
 
 def _trigger(**overrides):
     payload = {
-        "bq_dataset": main.config.BQ_DATASET_ID,
-        "bq_table": main.config.BQ_TABLE_TARGETS,
+        "bq_dataset": config.BQ_DATASET_ID,
+        "bq_table": config.BQ_TABLE_TARGETS,
         "agent_resource_id": "123",
     }
     payload.update(overrides)
@@ -542,14 +551,14 @@ def test_orchestrator_acks_bad_base64(caplog):
 def test_valid_worker_message_still_runs(monkeypatch):
     """The stricter parsing accepts what the orchestrator actually sends."""
     _LoopBoundFakeClient.instances = []
-    monkeypatch.setattr(main.agentplatform, "Client", _LoopBoundFakeClient)
-    monkeypatch.setattr(main, "_get_bigquery_client", lambda: _bq_mock())
-    monkeypatch.setattr(main, "acquire_processing_lock", lambda *a, **k: True)
+    monkeypatch.setattr(clients.agentplatform, "Client", _LoopBoundFakeClient)
+    monkeypatch.setattr(clients, "get_bigquery_client", lambda: _bq_mock())
+    monkeypatch.setattr(status_store, "acquire_processing_lock", lambda *a, **k: True)
     statuses = []
     monkeypatch.setattr(
-        main, "update_rows_status", lambda **k: statuses.append(k["status"])
+        status_store, "update_rows_status", lambda **k: statuses.append(k["status"])
     )
-    row = main.build_row_dict(
+    row = messages.build_row_dict(
         3,
         {
             "entry_timestamp": __import__("datetime").datetime(2026, 7, 12),

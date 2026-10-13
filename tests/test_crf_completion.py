@@ -15,7 +15,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from cloud_functions.creative_fanout import main
+from cloud_functions.creative_fanout import clients, status_store, worker
 from cloud_functions.creative_fanout.completion import (
     RETRY_MESSAGE,
     RunMonitor,
@@ -233,17 +233,13 @@ _TREND = {
 def _wire(monkeypatch, agent, clock):
     fake_vertex = MagicMock()
     fake_vertex.runtimes.get.return_value = agent
-    monkeypatch.setattr(main, "_new_vertex_client", lambda: fake_vertex)
-    monkeypatch.setattr(main, "_clock", clock)
-    monkeypatch.setattr(main, "_sleep", clock.sleep)
-    monkeypatch.setattr(main, "acquire_processing_lock", lambda *a, **k: True)
+    monkeypatch.setattr(clients, "new_vertex_client", lambda: fake_vertex)
+    monkeypatch.setattr(worker, "_clock", clock)
+    monkeypatch.setattr(worker, "_sleep", clock.sleep)
+    monkeypatch.setattr(status_store, "acquire_processing_lock", lambda *a, **k: True)
     update = MagicMock()
-    monkeypatch.setattr(main, "update_rows_status", update)
-    asyncio.run(
-        main._execute_agent_and_update_status(
-            _TREND, "agent-123", MagicMock(), "ds", "tbl"
-        )
-    )
+    monkeypatch.setattr(status_store, "update_rows_status", update)
+    asyncio.run(worker.process_row(_TREND, "agent-123", MagicMock(), "ds", "tbl"))
     return [c.kwargs["status"] for c in update.call_args_list]
 
 
