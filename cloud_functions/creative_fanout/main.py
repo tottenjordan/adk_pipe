@@ -1,29 +1,20 @@
-"""Offline, batch workflow for trend insights and candidate ad creatives
+"""Offline, batch workflow for trend insights and candidate ad creatives.
 
-This file contains two separate Cloud Run Function deployments:
+This module holds the two Cloud Run function entry points. One image
+(``cloud_functions/creative_fanout/Dockerfile``) runs as two Cloud Run
+services, each triggered by its own Pub/Sub topic; the service's
+``FUNCTION_TARGET`` picks the entry point (a Pub/Sub-triggered service runs
+exactly one handler):
 
-1. Agent Orchestrator Deployment: executes the `crf_entrypoint` function
-2. Agent Worker Deployment: executes the `agent_worker_entrypoint` function
+1. Orchestrator (``crf_entrypoint``): finds the unprocessed rows of the
+   `trend_scout` agent's recommendations table
+   (`BQ_PROJECT_ID.BQ_DATASET_ID.BQ_TABLE_TARGETS`) and publishes one worker
+   message per row (``orchestrator.dispatch``).
+2. Worker (``agent_worker_entrypoint``): processes one worker message: locks
+   the row, runs the creative agent on Agent Engine for that (trend +
+   campaign) pair and records the row's final status (``worker.process_row``).
 
-Why?
-* When deploying a service triggered by a Pub/Sub topic, you must
-  specify exactly one entry point function to be executed when a message
-  arrives on that topic
-* Therefore, you must deploy the code twice, with each deployment
-  configured to listen to its unique trigger topic and execute the
-  appropriate handler function.
-
-Objectives:
-1. Agent Orchestrator: Checks the `trend_scout` agent's
-   recommendations in the `BQ_PROJECT_ID.BQ_DATASET_ID.BQ_TABLE_TARGETS`
-   BQ table and dispatches a PubSub message for each new row in the table
-2. Agent Worker: Processes a single PubSub message dispatched by the
-   Orchestrator, invoking the Agent Engine Runtime to generate
-   ad copy and creatives for a single (trend + campaign) pair (i.e., a
-   single row in the BigQuery table)
-
-
-Example PubSub msg format:
+Example trigger message:
 message = {
     "bq_dataset": "trend_trawler",
     "bq_table": "target_trends_crf",
@@ -53,29 +44,23 @@ logger = logging.getLogger(__name__)
 # ==================================================
 @functions_framework.cloud_event
 def crf_entrypoint(cloud_event: CloudEvent) -> None:
-    """Checks BigQuery table and processes any new rows
+    """Dispatch the unprocessed rows of the trends table to the worker.
 
-    Each row in the BQ table includes a trend and campaign metadata.
-    These are used as inputs when invoking an Agent Engine instance to
-    generate ad copy and creative candidates. Each row (trend & campaign
-    metadata) should be processed once.
-
-    This function performs the following steps:
-    1. Consumes PubSub message.
-    2. Checks BigQuery table for new rows.
-    3. Executes query updating the status of each new row as 'PROCESSING'.
-    4. Executes concurrent Agent Engine calls, one for each new row.
-    5. If Agent Engine run succeeds, updates row status as 'PROCESSED';
-       if fails updates with 'FAILED' status.
+    Steps (``orchestrator.dispatch``): re-queue stale PROCESSING rows (the
+    reaper), select up to ``CRF_MAX_ROWS_PER_RUN`` unprocessed rows (oldest
+    first; sensitive trends skipped), mark them QUEUED, then publish one
+    worker message per row. The workers run the agent and write
+    PROCESSED/FAILED; this function never calls Agent Engine.
 
     Args:
-      request: json dictionary with the following keys:
-        bq_dataset: BQ dataset hosting tables for monitoring the trawler
-        bq_table: BQ table to monitor
-        agent_resource_id: resource ID for agent deployed to Agent Engine
+      cloud_event: the Pub/Sub trigger. Its JSON payload has:
+        bq_dataset: BQ dataset hosting the status-tracking table
+        bq_table: BQ table to monitor (allow-listed)
+        agent_resource_id: resource ID of the creative agent on Agent Engine
+        max_rows (optional): can only lower ``CRF_MAX_ROWS_PER_RUN``
 
-    Returns:
-         None: output is written to Cloud Logging
+    Returns normally (ACK) for a message that is not work or is malformed;
+    a BigQuery error raises (NACK, Pub/Sub redelivers).
     """
     # A trigger without data or without `bq_dataset` is not work (None): ACK.
     # A malformed one can never become valid on redelivery: log and ACK rather
@@ -101,7 +86,18 @@ def crf_entrypoint(cloud_event: CloudEvent) -> None:
 # ==================================================
 @functions_framework.cloud_event
 def agent_worker_entrypoint(cloud_event: CloudEvent) -> None:
-    """Entry point for the worker, processes data for a single row."""
+    """Process one row: lock it, run the agent, record PROCESSED or FAILED.
+
+    The run deadline is taken here, at request start (Cloud Run's request
+    timeout counts from there, not from the row lock):
+    ``worker.run_deadline`` = start + ``CRF_WORKER_TIMEOUT_SECS`` -
+    ``CRF_BUDGET_SAFETY_SECS``, passed down to every bounded wait.
+
+    Returns normally (ACK) for a malformed message, a lost lock or a recorded
+    status; an unexpected error before the status write raises (NACK).
+    """
+    deadline = worker.run_deadline(worker._clock())
+
     # A malformed message (undecodable, missing fields, a bad identifier, agent
     # id or entry_timestamp) never becomes valid on redelivery: log and ACK.
     try:
@@ -120,9 +116,10 @@ def agent_worker_entrypoint(cloud_event: CloudEvent) -> None:
                 bq_client=bq_client,
                 dataset=dataset,
                 table=table,
+                deadline=deadline,
             )
         )
 
     except Exception as e:
-        logging.error(f"Fatal error in worker entrypoint: {e}")
+        logger.error(f"Fatal error in worker entrypoint: {e}")
         raise  # NACK the worker message

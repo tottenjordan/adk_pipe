@@ -121,7 +121,7 @@ def test_duration_marker_carries_json_fields(monkeypatch, caplog, fail):
     import asyncio
 
     with caplog.at_level(logging.INFO):
-        asyncio.run(worker.process_row(trend, "123", object(), "ds", "t"))
+        asyncio.run(worker.process_row(trend, "123", object(), "ds", "t", deadline=1e9))
 
     (record,) = [
         r for r in caplog.records if r.getMessage().startswith("AGENT_RUN_DURATION")
@@ -152,12 +152,12 @@ def _bq_mock(num_rows=1):
 
 
 def test_bq_timeout_default_and_env(monkeypatch):
-    from cloud_functions.creative_fanout.config import AppConfig
+    from cloud_functions.creative_fanout.config import load_config
 
     monkeypatch.delenv("CRF_BQ_QUERY_TIMEOUT_SECS", raising=False)
-    assert AppConfig().BQ_QUERY_TIMEOUT_SECS == 60.0
+    assert load_config().BQ_QUERY_TIMEOUT_SECS == 60.0
     monkeypatch.setenv("CRF_BQ_QUERY_TIMEOUT_SECS", "15")
-    assert AppConfig().BQ_QUERY_TIMEOUT_SECS == 15.0
+    assert load_config().BQ_QUERY_TIMEOUT_SECS == 15.0
 
 
 def test_run_query_bounds_the_wait_and_the_job(monkeypatch):
@@ -399,7 +399,10 @@ def test_agent_runtime_client_closed_even_when_the_run_fails(monkeypatch):
     with pytest.raises(RuntimeError, match="create boom"):
         asyncio.run(
             worker.create_agent_run(
-                agent_id="123", msg_dict={"index": 0, **_ROW_DATA}, user_id="u"
+                agent_id="123",
+                msg_dict={"index": 0, **_ROW_DATA},
+                user_id="u",
+                deadline=1e9,
             )
         )
     (client,) = _LoopBoundFakeClient.instances
@@ -417,7 +420,10 @@ def test_agent_runtime_client_close_failure_does_not_fail_the_run(monkeypatch, c
     with caplog.at_level(logging.WARNING):
         asyncio.run(
             worker.create_agent_run(
-                agent_id="123", msg_dict={"index": 0, **_ROW_DATA}, user_id="u"
+                agent_id="123",
+                msg_dict={"index": 0, **_ROW_DATA},
+                user_id="u",
+                deadline=1e9,
             )
         )
     assert "close boom" in caplog.text
