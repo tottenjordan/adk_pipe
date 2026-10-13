@@ -629,9 +629,12 @@ def test_legacy_message_locks_by_timestamp_once_then_uses_the_real_key(
     store = FakeStatusStore(
         monkeypatch, _TREND, row=row_for(_TREND, uuid="uuid-real", target_trend="t")
     )
-    _agent_run(monkeypatch)
+    runs = _agent_run(monkeypatch)
     with caplog.at_level(logging.WARNING):
         _run_row(legacy)
+    # The session user id names the re-read row (not the message's index).
+    expected = worker.session_user_id({"uuid": "uuid-real", "target_trend": "t"})
+    assert runs[0]["user_id"] == expected
     (_, lock_key), (_, read_key, _) = store.calls[:2]
     assert lock_key.legacy and read_key.legacy
     assert lock_key.entry_timestamp == TS
