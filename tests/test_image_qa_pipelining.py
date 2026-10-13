@@ -1,6 +1,7 @@
 """generate_image pipelines image QA with the next render.
 
-Renders stay strictly sequential (the 2-RPM image quota), but image N's QA call
+With IMAGE_RENDER_CONCURRENCY=1 (pinned by ``_Flow``; the N-wide case is in
+``test_render_concurrency.py``) renders are strictly sequential, but image N's QA call
 runs while image N+1 renders, and a re-render for N is queued right after the
 render in flight (ahead of the next first render). Outcomes are unchanged:
 the same ``generated_images`` records, issues and uploads (kept image only, in

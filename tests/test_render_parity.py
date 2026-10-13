@@ -87,7 +87,7 @@ def _blocked_response() -> Any:
     return SimpleNamespace(candidates=[candidate], prompt_feedback=None)
 
 
-def _record(monkeypatch, scenario: dict) -> dict:
+def _record(monkeypatch, scenario: dict, concurrency: int = 1) -> dict:
     # Grouped per concept: the order across concepts depends on how the pipelined
     # QA threads interleave, the order within a concept does not.
     calls: dict[str, list[dict]] = {}
@@ -142,6 +142,8 @@ def _record(monkeypatch, scenario: dict) -> dict:
         image_tools.config, "image_qa_max_rerenders_per_run", scenario["budget"]
     )
     monkeypatch.setattr(image_tools.config, "image_qa_model", "qa-model")
+    # The golden was recorded with strictly sequential renders.
+    monkeypatch.setattr(image_tools.config, "image_render_concurrency", concurrency)
     monkeypatch.setattr(image_qa, "_get_qa_client", lambda: "qa-client")
 
     def fake_inspect(image_bytes, mime, concept, **kwargs):
@@ -287,3 +289,18 @@ def test_generate_image_matches_pre_refactor_recording(monkeypatch, name):
         golden[name] = got
         GOLDEN.write_text(json.dumps(golden, indent=1, sort_keys=True) + "\n")
     assert got == golden[name]
+
+
+@pytest.mark.parametrize("name", sorted(SCENARIOS))
+@pytest.mark.parametrize("concurrency", [2, 4])
+def test_parallel_renders_match_sequential_outcomes(monkeypatch, name, concurrency):
+    """N renders in flight change only the interleaving across concepts: each
+    concept's requests and QA calls, the budget use, the uploads (concept order)
+    and the state equal the sequential run."""
+    sequential = _record(monkeypatch, SCENARIOS[name], concurrency=1)
+    parallel = _record(monkeypatch, SCENARIOS[name], concurrency=concurrency)
+    assert parallel["calls"] == sequential["calls"]
+    assert parallel["qa_calls"] == sequential["qa_calls"]
+    assert parallel["uploads"] == sequential["uploads"]
+    assert parallel["state"] == sequential["state"]
+    assert parallel["result"] == sequential["result"]

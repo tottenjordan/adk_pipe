@@ -6,9 +6,10 @@ safety fallback, and the bounded QA re-render ``_inspect_and_rerender``) without
 needing an ADK ``ToolContext``, so it serves both callers:
 
 - ``image_tools.generate_image`` (the batch tool) calls it once per concept, as
-  concurrent tasks that share one render lock and the per-run re-render budget,
-  chained so renders stay strictly sequential and in concept order while each
-  image's QA overlaps the next render (``RenderPacing``);
+  concurrent tasks that share one render semaphore (``IMAGE_RENDER_CONCURRENCY``
+  image-model calls in flight) and the per-run re-render budget, chained so
+  first renders are staggered by concept while each image's QA overlaps the
+  other renders (``RenderPacing``);
 - the api's personalised variants (``runserver.variants``) call it standalone
   with ``fallback_without_person=False`` (a variant is the person; a blocked
   photo is a ``rejected`` result, never a person-less render).
@@ -106,13 +107,14 @@ def render_contents(
 class RenderPacing:
     """Pipelining hooks for batch renders (all optional; standalone = none).
 
-    ``lock`` serialises every image-model call; this concept's first render
+    ``lock`` caps image-model calls in flight (a lock: one at a time; a
+    semaphore: N, re-renders included); this concept's first render
     waits for ``start_after`` and sets ``rendered`` once its first render (incl.
     a person fallback) returned; the re-render budget is claimed after
     ``claim_after`` and ``claims_done`` is set once this concept claims no more.
     """
 
-    lock: asyncio.Lock | None = None
+    lock: asyncio.Lock | asyncio.Semaphore | None = None
     start_after: asyncio.Event | None = None
     rendered: asyncio.Event | None = None
     claim_after: asyncio.Event | None = None

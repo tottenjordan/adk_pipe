@@ -227,11 +227,14 @@ def _get_genai_client() -> genai.Client:
     )
 
 
-# The image model (gemini-3.1-flash-image was capped at ~2 RPM; re-measure for
-# gemini-nano-banana-2.1) is quota-limited on the `global`
-# endpoint (project-wide, shared), and this direct genai call is NOT wrapped by
+# The image model is quota-limited on the `global` endpoint (project-wide,
+# shared). gemini-3.1-flash-image was capped at ~2 RPM; re-measured 2026-10-13,
+# gemini-nano-banana-2.1 @ global took 24/24 calls incl. 6 concurrent and
+# 12/min sustained without a 429 (the quota API still lists 2/min; likely
+# shared capacity, so 429/503 stay possible — hence this backoff and a small
+# IMAGE_RENDER_CONCURRENCY). This direct genai call is NOT wrapped by
 # ADK's workflow RetryConfig (that only retries Agent *model* calls, not tool
-# functions). A concurrent burst reliably trips 503 UNAVAILABLE / 429
+# functions). A concurrent burst can still trip 503 UNAVAILABLE / 429
 # RESOURCE_EXHAUSTED, so we retry here with exponential backoff + jitter to pace
 # under quota. See docs/notes/ambient-agents-vs-cloud-functions.md.
 _IMAGE_GEN_MAX_ATTEMPTS = 5
@@ -861,17 +864,21 @@ async def generate_image(
     qa_unavailable: list[str] = []
     budget = _RerenderBudget(config.image_qa_max_rerenders_per_run)
 
-    # Pipelined: one render_concept task per concept. Renders stay strictly
-    # sequential (the image quota) behind one lock and in concept order (each
-    # concept's first render waits for the previous one's), but each image's QA
-    # (+ any re-render) runs while the next concept renders. asyncio.Lock is
-    # FIFO and a re-render queues on it while the next render is in flight, so
-    # it runs right after that render, ahead of the following first render. The
-    # per-run budget is claimed in concept order. Uploads happen afterwards, in
-    # concept order, for the kept image only.
-    render_lock = asyncio.Lock()
+    # Pipelined: one render_concept task per concept. At most n image-model
+    # calls are in flight (the image quota) behind one semaphore, re-renders
+    # included. First renders are staggered by concept: concept i's first render
+    # waits for concept i-n's (so the first n start at once and each returned
+    # render lets one more concept in), and each image's QA (+ any re-render)
+    # overlaps the other renders. asyncio.Semaphore wakes waiters FIFO, so a
+    # re-render queued while all slots are busy runs as soon as one frees, ahead
+    # of later first renders. n=1 is the old strictly sequential pipeline
+    # (concept i waits for concept i-1). The per-run budget is claimed in
+    # concept order. Uploads happen afterwards, in concept order, for the kept
+    # image only.
+    n = config.image_render_concurrency
+    render_slots = asyncio.Semaphore(n)
     tasks: list[asyncio.Task] = []
-    previous_rendered: asyncio.Event | None = None
+    rendered: list[asyncio.Event] = []
     previous_done: asyncio.Event | None = None
     try:
         for entry in final_visual_concepts_list:
@@ -884,6 +891,7 @@ async def generate_image(
                 config.image_aspect_ratios_allowed,
                 config.image_aspect_ratio_default,
             )
+            i = len(rendered)
             rendered_event, done = asyncio.Event(), asyncio.Event()
             tasks.append(
                 asyncio.create_task(
@@ -898,8 +906,8 @@ async def generate_image(
                         target_product=product,
                         budget=budget,
                         pacing=RenderPacing(
-                            lock=render_lock,
-                            start_after=previous_rendered,
+                            lock=render_slots,
+                            start_after=rendered[i - n] if i >= n else None,
                             rendered=rendered_event,
                             claim_after=previous_done,
                             claims_done=done,
@@ -907,7 +915,8 @@ async def generate_image(
                     )
                 )
             )
-            previous_rendered, previous_done = rendered_event, done
+            rendered.append(rendered_event)
+            previous_done = done
 
         # A first-render failure aborts the batch at once (later concepts are
         # still waiting for their turn); nothing is uploaded.
