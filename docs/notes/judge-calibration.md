@@ -69,7 +69,12 @@ whichever judge graded that run, and a changed rubric changes what "pass" means.
 calibration is **versioned**:
 
 - `creative_eval.JUDGE_VERSION` (in `creative_eval/dimensions.py`, next to the gate
-  definitions) names the current judge, currently **`2026-10-13`**: ad copy and visuals
+  definitions) names the current judge, currently **`2026-10-13.1`**: small, illegible
+  or garbled text printed on the product or its packaging (label fine print, small
+  lettering) is no longer a `no_visual_defects` failure (the judge looks at the product's
+  shape, parts and placement instead; large ad-like gibberish is still a defect), and
+  `text_correct` states that label fine print is not requested in-image text. The
+  previous judge, **`2026-10-13`**: ad copy and visuals
   gained the blocking `timely_claim_supported` gate (judged only for a timely creative
   against the validated current moment; every other creative passes it in code with note
   "not timely", so runs without a timely moment grade as before). Ratings made under
