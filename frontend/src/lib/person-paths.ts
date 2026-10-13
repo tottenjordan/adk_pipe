@@ -49,11 +49,6 @@ export function personOwnerSlug(path: string): string | null {
   return segs[at];
 }
 
-/** The expected upload prefix for a user: `gs://<bucket>/person-refs/<slug>/`. */
-export function personRefsPrefix(bucket: string, email: string): string {
-  return `gs://${bucket}/${PERSON_REFS_PREFIX}${emailSlug(email)}/`;
-}
-
 export type PersonAccess = "allow" | "not_found" | "unauthenticated";
 
 /** Who may read a person path: the owner (slug match), or anyone in local dev.
