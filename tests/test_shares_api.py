@@ -438,6 +438,60 @@ def test_slate_share_includes_cast_creatives_with_public_share_consent():
     run(go)
 
 
+def _timely_state(name: str, valid_until: str) -> dict:
+    """``name`` is the run's timely creative; its moment ends at ``valid_until``
+    (compared against the api's wall clock)."""
+    state = creative_state()
+    state["trend_situation"] = {"timely_ok": True, "valid_until": valid_until}
+    for vc in state["final_visual_concepts"]["visual_concepts"]:
+        if vc["concept_name"] == name:
+            vc["uses_trend_state"] = True
+    return state
+
+
+ENDED = "2020-01-01T00:00:00Z"
+NOT_ENDED = "2099-01-01T00:00:00-04:00"
+
+
+def test_sharing_an_expired_timely_creative_is_400():
+    async def go():
+        h = Harness()
+        await h.session(state=_timely_state("The Jackpot Reveal", ENDED))
+        r = await h.create(concept_names=["The Jackpot Reveal"])
+        assert r.status_code == 400
+        assert r.json()["detail"]["reason"] == "timely_expired"
+        assert h.gcs.ops == [] and h.store.rows == {}
+
+    run(go)
+
+
+def test_slate_share_skips_expired_timely_creatives():
+    async def go():
+        h = Harness()
+        await h.session(state=_timely_state("The Jackpot Reveal", ENDED))
+        r = await h.create()
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["skipped"] == [
+            {"concept_name": "The Jackpot Reveal", "reason": "timely_expired"}
+        ]
+        assert "The Jackpot Reveal" not in body["concept_names"]
+        assert len(h.gcs.shared(body["token"])) == 4  # 3 images + snapshot
+
+    run(go)
+
+
+def test_timely_creative_shares_before_its_moment_ends():
+    async def go():
+        h = Harness()
+        await h.session(state=_timely_state("The Jackpot Reveal", NOT_ENDED))
+        r = await h.create(concept_names=["The Jackpot Reveal"])
+        assert r.status_code == 200, r.text
+        assert r.json()["skipped"] == [] and r.json()["scope"] == "creative"
+
+    run(go)
+
+
 def test_consent_lookup_failure_is_503_before_anything_is_written(monkeypatch):
     async def go():
         h = Harness()

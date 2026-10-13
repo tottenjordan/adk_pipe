@@ -17,6 +17,11 @@ consents are recorded on the row (``person_consent_ids``, never in the
 snapshot), and revoking a consent revokes those shares
 (``revoke_shares_for_consent``, a ``person_refs`` revoke hook).
 
+A timely creative (``runserver/timely.py``) whose moment has ended by the time
+the share is created is left out the same way: ``skipped`` reason
+``timely_expired`` in a slate, a 400 ``timely_expired`` when named. Shares made
+before the moment ended stay as they are.
+
 Routes (all user-scoped by path, gated by ``UserAuthzMiddleware`` like
 ``/ratings/{user}/...``; a foreign or unknown session is a 404):
 
@@ -30,7 +35,6 @@ Routes (all user-scoped by path, gated by ``UserAuthzMiddleware`` like
 from __future__ import annotations
 
 import asyncio
-import datetime as dt
 import json
 import logging
 import os
@@ -192,10 +196,6 @@ def to_public(row: Mapping[str, Any], base: str | None) -> dict:
         "session_id": row.get("session_id"),
         "created_at": _iso(row.get("created_at")),
     }
-
-
-def _snapshot_time(now: dt.datetime) -> str:
-    return now.replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
 # --- Module state (configure) ---------------------------------------------------
@@ -433,7 +433,7 @@ async def http_create_share(
             token=token,
             concept_names=concept_names,
             include_eval=include_eval,
-            now=_snapshot_time(now),
+            now=now,
             consent_lookup=consents.get,
         )
     except SnapshotError as exc:

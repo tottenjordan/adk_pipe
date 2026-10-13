@@ -20,6 +20,7 @@ Regenerate (from the repo root):
 
 from __future__ import annotations
 
+import datetime as dt
 import json
 import sys
 from pathlib import Path
@@ -33,7 +34,7 @@ from runserver.variants import castability  # noqa: E402
 FIX = Path(__file__).resolve().parent / "screenshot-fixtures"
 # Matches SHARE_TOKEN in capture-screenshots.mjs (TOKEN_RE: [A-Za-z0-9_-]{16,64}).
 TOKEN = "prs-powerball-demo-k3J9xQ"
-CREATED_AT = "2026-07-17T00:12:31Z"
+CREATED_AT = dt.datetime(2026, 7, 17, 0, 12, 31, tzinfo=dt.UTC)
 
 
 def main() -> None:

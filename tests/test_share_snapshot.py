@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime as dt
 import json
 
 import pytest
@@ -20,7 +21,8 @@ from tests._creative_fixtures import (
     image_uri,
 )
 
-NOW = "2026-10-09T00:00:00Z"
+NOW = dt.datetime(2026, 10, 9, tzinfo=dt.UTC)
+NOW_TEXT = "2026-10-09T00:00:00Z"
 
 
 def _build(state=None, report=None, **kw):
@@ -39,7 +41,7 @@ def test_slate_snapshot_allowlists_fields():
     built = _build()
     snap = built.snapshot
     assert snap["version"] == 1 and snap["token"] == "tok"
-    assert snap["created_at"] == NOW and snap["scope"] == "slate"
+    assert snap["created_at"] == NOW_TEXT and snap["scope"] == "slate"
     assert snap["include_eval"] is False
     assert snap["brand"] == "Paul Reed Smith (PRS)"
     assert snap["product"] == "SE CE24 Electric Guitar"
@@ -364,3 +366,74 @@ def test_alt_falls_back_when_summary_missing():
     state["final_visual_concepts"]["visual_concepts"][0]["concept_summary"] = ""
     c = _build(state).snapshot["creatives"][0]
     assert c["alt"]
+
+
+VALID_UNTIL = "2026-10-08T18:00:00-04:00"  # 22:00Z, before NOW (2026-10-09Z)
+BEFORE_END = dt.datetime(2026, 10, 8, 12, tzinfo=dt.UTC)
+
+
+def _timely(state, concept=None, copy_of=None, valid_until=VALID_UNTIL):
+    """Flag ``concept`` (or the ad copy paired with ``copy_of``) as timely."""
+    state["trend_situation"] = {"timely_ok": True, "valid_until": valid_until}
+    for vc in state["final_visual_concepts"]["visual_concepts"]:
+        if vc["concept_name"] == concept:
+            vc["uses_trend_state"] = True
+        if vc["concept_name"] == copy_of:
+            for copy in state["ad_copy_critique"]["ad_copies"]:
+                if str(copy["original_id"]) == str(vc["ad_copy_id"]):
+                    copy["uses_trend_state"] = True
+    return state
+
+
+def test_slate_skips_expired_timely_creatives():
+    state = _timely(
+        creative_state(), concept="The Jackpot Reveal", copy_of="The Authentic Encore"
+    )
+    built = _build(state)
+    assert built.concept_names == [
+        "The Golden Golf Cart Gig",
+        "Nihilistic Retirement Plan",
+    ]
+    assert built.skipped == [
+        {"concept_name": "The Jackpot Reveal", "reason": "timely_expired"},
+        {"concept_name": "The Authentic Encore", "reason": "timely_expired"},
+    ]
+    assert "timely" not in json.dumps(built.snapshot)  # no snapshot field
+
+
+def test_timely_creative_before_its_moment_ends_shares():
+    state = _timely(creative_state(), concept="The Jackpot Reveal")
+    built = _build(state, now=BEFORE_END)
+    assert built.concept_names == list(CONCEPTS) and built.skipped == []
+    assert built.snapshot["created_at"] == "2026-10-08T12:00:00Z"
+    named = _build(state, concept_names=["The Jackpot Reveal"], now=BEFORE_END)
+    assert named.concept_names == ["The Jackpot Reveal"]
+
+
+def test_expired_moment_leaves_evergreen_creatives_shareable():
+    state = _timely(creative_state())  # an expired moment, no creative flagged
+    built = _build(state)
+    assert built.concept_names == list(CONCEPTS) and built.skipped == []
+
+
+def test_naming_an_expired_timely_creative_is_refused():
+    state = _timely(creative_state(), copy_of="The Jackpot Reveal")
+    for names in (
+        ["The Jackpot Reveal"],
+        ["The Jackpot Reveal", "The Authentic Encore"],
+    ):
+        with pytest.raises(SnapshotError) as exc:
+            _build(state, concept_names=names)
+        assert exc.value.reason == "timely_expired"
+        assert VALID_UNTIL in str(exc.value)
+    built = _build(state, concept_names=["The Authentic Encore"])
+    assert built.concept_names == ["The Authentic Encore"]
+
+
+def test_slate_of_only_expired_timely_creatives_has_no_images():
+    state = _timely(creative_state())
+    for vc in state["final_visual_concepts"]["visual_concepts"]:
+        vc["uses_trend_state"] = True
+    with pytest.raises(SnapshotError) as exc:
+        _build(state)
+    assert exc.value.reason == "no_images"
