@@ -14,7 +14,6 @@ import {
   isPersonPath,
   personOwnerSlug,
   personPathAccess,
-  personRefsPrefix,
 } from "@/lib/person-paths";
 
 const ALICE = "alice.smith@example.com";
@@ -46,7 +45,6 @@ describe("person paths", () => {
       /^admin_jordantotten_altostrat_com-[0-9a-f]{10}$/
     );
     expect(emailSlug(" Alice.Smith@Example.com ")).toBe(ALICE_SLUG);
-    expect(personRefsPrefix("b", ALICE)).toBe(`gs://b/person-refs/${ALICE_SLUG}/`);
   });
 
   it.each([

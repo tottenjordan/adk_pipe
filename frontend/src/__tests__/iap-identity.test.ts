@@ -75,6 +75,31 @@ describe("verifyIapJwt", () => {
     await expect(verifyIapJwt(await sign({ email: "a@x.com", email_verified: false }), { audience: AUD, keys })).rejects.toThrow(/verified/);
     expect(await verifyIapJwt(await sign({ email: "a@x.com", email_verified: true }), { audience: AUD, keys })).toBe("a@x.com");
   });
+  it("tolerates up to 30 s of clock skew on exp, no more", async () => {
+    const { publicKey, privateKey } = await generateKeyPair("ES256");
+    const keys = createLocalJWKSet({ keys: [{ ...(await exportJWK(publicKey)), kid: "k1", alg: "ES256" }] });
+    const now = Math.floor(Date.now() / 1000);
+    const expiredBy = (seconds: number) => new SignJWT({ email: "a@x.com" })
+      .setProtectedHeader({ alg: "ES256", kid: "k1" }).setIssuer(IAP_ISSUER).setAudience(AUD)
+      .setIssuedAt(now - 600).setExpirationTime(now - seconds).sign(privateKey);
+    await expect(verifyIapJwt(await expiredBy(60), { audience: AUD, keys })).rejects.toThrow(/exp/);
+    expect(await verifyIapJwt(await expiredBy(20), { audience: AUD, keys })).toBe("a@x.com");
+  });
+  it("accepts only ES256 even when the key set holds a key for another algorithm", async () => {
+    // ES384 is what pins `algorithms: ["ES256"]` (jose would verify it otherwise); an HS256
+    // token is also refused by the JWKS layer itself, which never serves symmetric keys.
+    const es384 = await generateKeyPair("ES384");
+    const hmac = new TextEncoder().encode("a-shared-secret-of-at-least-32-bytes!");
+    const keys = createLocalJWKSet({ keys: [
+      { ...(await exportJWK(es384.publicKey)), kid: "k384", alg: "ES384" },
+      { ...(await exportJWK(hmac)), kid: "khs", alg: "HS256" },
+    ] });
+    const signed = (alg: string, kid: string, key: CryptoKey | Uint8Array) => new SignJWT({ email: "a@x.com" })
+      .setProtectedHeader({ alg, kid }).setIssuer(IAP_ISSUER).setAudience(AUD)
+      .setIssuedAt().setExpirationTime("5m").sign(key);
+    await expect(verifyIapJwt(await signed("ES384", "k384", es384.privateKey), { audience: AUD, keys })).rejects.toThrow(/alg/i);
+    await expect(verifyIapJwt(await signed("HS256", "khs", hmac), { audience: AUD, keys })).rejects.toThrow(/alg/i);
+  });
   it("does not require hd when no allowedHd is given", async () => {
     const { keys, sign } = await setup();
     expect(await verifyIapJwt(await sign({ email: "a@gmail.com" }), { audience: AUD, keys })).toBe("a@gmail.com");

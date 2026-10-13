@@ -17,7 +17,7 @@ RUN npm run build
 # ---- runner ----
 FROM node:22-slim AS runner
 WORKDIR /app
-ENV NODE_ENV=production
+ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1
 RUN groupadd -r nodejs && useradd -r -g nodejs nextjs
 # Standalone server + assets it does not bundle itself.
 COPY --from=builder /app/public ./public

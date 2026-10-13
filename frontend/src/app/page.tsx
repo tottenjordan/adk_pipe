@@ -274,15 +274,16 @@ function HomeContent() {
         app: form.agent,
         userId,
       });
+      // Stay "loading" until the route changes: resetting here would re-enable the
+      // button mid-navigation, and a second click would create an orphan session.
       router.push(`/run/${session.id}?${params.toString()}`);
     } catch (err) {
+      setLoading(false);
       setError(
         err instanceof Error
           ? `Couldn't start the run: ${err.message}. Check your connection and try again.`
           : "Couldn't start the run. Check your connection and try again.",
       );
-    } finally {
-      setLoading(false);
     }
   };
 

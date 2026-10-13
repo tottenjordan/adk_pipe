@@ -26,7 +26,7 @@ export function ExplainSwitch({
     >
       <span
         aria-hidden
-        className="relative h-[18px] w-8 shrink-0 rounded-full bg-[#b9c2ca] transition-colors duration-200 group-aria-checked:bg-primary"
+        className="relative h-[18px] w-8 shrink-0 rounded-full bg-control-off transition-colors duration-200 group-aria-checked:bg-primary"
       >
         <span className="absolute top-[3px] left-[3px] size-3 rounded-full bg-white transition-transform duration-200 group-aria-checked:translate-x-3.5" />
       </span>
