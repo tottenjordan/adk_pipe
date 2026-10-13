@@ -847,22 +847,34 @@ class TestTelemetryEnv:
         assert self.FLAG not in da.ENV_VAR_DICT
 
 
-# --- integration_test smoke: creative_agent must produce its real outputs ---
+# --- integration_test smoke: each agent must produce its real outputs ---
+_CAMPAIGN = {
+    "brand": "PRS",
+    "target_product": "SE CE24 Electric Guitar",
+    "target_audience": "Gen Z guitarists",
+    "key_selling_points": "Versatile tone",
+    "target_search_trends": "Powerball",
+}
+
+
 class TestSmokeCreativeOutputs:
     """A creative_agent run that ends early (e.g. the root's empty turns before
     finalize) still has the campaign keys + some text, so the smoke check also
     asserts the deliverables: finalize ran, the eval report and research PDF
-    were saved."""
+    were saved and at least one image was rendered."""
 
     DONE = {
         "finalize_done": True,
         "eval_report_gcs_uri": "gs://b/f/out/creative_eval_report.json",
         "research_report_gcs_uri": "gs://b/f/out/research_report.pdf",
+        "generated_images": {
+            "Concept A": {"gcs_uri": "gs://b/f/out/a.png", "attempts": 1},
+        },
     }
 
     def test_complete_run_passes(self):
         it = _import_integration_test()
-        result = it.check_creative_outputs("creative_agent", dict(self.DONE))
+        result = it.check_agent_outputs("creative_agent", dict(self.DONE))
         assert result is not None and result.passed
         assert result.name == "smoke:creative_agent:outputs"
 
@@ -882,27 +894,155 @@ class TestSmokeCreativeOutputs:
         state = {**self.DONE, key: value}
         if value is None:
             del state[key]
-        result = it.check_creative_outputs("creative_agent", state)
+        result = it.check_agent_outputs("creative_agent", state)
         assert result is not None and result.failed
         assert key in result.message
+
+    @pytest.mark.parametrize(
+        "images",
+        [
+            None,
+            {},
+            [],
+            {"Concept A": {}},
+            {"Concept A": {"gcs_uri": ""}},
+            {"Concept A": {"gcs_uri": None, "attempts": 2}},
+            {"Concept A": "gs://b/a.png"},
+        ],
+    )
+    def test_no_rendered_image_fails(self, images):
+        it = _import_integration_test()
+        state = {**self.DONE, "generated_images": images}
+        if images is None:
+            del state["generated_images"]
+        result = it.check_agent_outputs("creative_agent", state)
+        assert result is not None and result.failed
+        assert "generated_images" in result.message
+
+    def test_one_rendered_image_among_failed_renders_passes(self):
+        it = _import_integration_test()
+        state = {
+            **self.DONE,
+            "generated_images": {
+                "Concept A": {"gcs_uri": ""},
+                "Concept B": {"gcs_uri": "gs://b/f/out/b.png"},
+            },
+        }
+        result = it.check_agent_outputs("creative_agent", state)
+        assert result is not None and result.passed
 
     def test_failure_message_carries_the_recorded_issue(self):
         it = _import_integration_test()
         state = {
-            "finalize_done": True,
-            "research_report_gcs_uri": "gs://b/r.pdf",
+            **self.DONE,
+            "eval_report_gcs_uri": "",
             "eval_report_gcs_uri__issues": "eval report: 403 Forbidden",
         }
-        result = it.check_creative_outputs("creative_agent", state)
+        result = it.check_agent_outputs("creative_agent", state)
         assert result is not None and result.failed
         assert "403 Forbidden" in result.message
 
-    @pytest.mark.parametrize("agent", ["trend_scout", "interactive_creative"])
-    def test_other_agents_are_not_checked(self, agent):
-        # interactive_creative's smoke run pauses at checkpoint 1, long before
-        # finalize; trend_scout has no creative outputs.
+
+class TestSmokeAgentOutputs:
+    """trend_scout must select trends; interactive_creative (paused at
+    checkpoint 1, after combined_research_pipeline) must have the brief and the
+    research PDF."""
+
+    @pytest.mark.parametrize("value", [None, "", "   ", [], {}])
+    def test_trend_scout_without_selected_trends_fails(self, value):
         it = _import_integration_test()
-        assert it.check_creative_outputs(agent, {}) is None
+        state = {"selected_gtrends": value}
+        if value is None:
+            state = {}
+        result = it.check_agent_outputs("trend_scout", state)
+        assert result is not None and result.failed
+        assert result.name == "smoke:trend_scout:outputs"
+        assert "selected_gtrends" in result.message
+
+    def test_trend_scout_with_selected_trends_passes(self):
+        it = _import_integration_test()
+        state = {"selected_gtrends": "1. Powerball: jackpot fever ..."}
+        result = it.check_agent_outputs("trend_scout", state)
+        assert result is not None and result.passed
+
+    INTERACTIVE = {
+        "creative_brief": {"proposition": "Play every genre"},
+        "research_report_gcs_uri": "gs://b/f/out/research_report.pdf",
+    }
+
+    def test_interactive_checkpoint_one_outputs_pass(self):
+        it = _import_integration_test()
+        result = it.check_agent_outputs("interactive_creative", dict(self.INTERACTIVE))
+        assert result is not None and result.passed
+
+    @pytest.mark.parametrize("key", ["creative_brief", "research_report_gcs_uri"])
+    @pytest.mark.parametrize("value", [None, "", {}])
+    def test_interactive_missing_output_fails(self, key, value):
+        it = _import_integration_test()
+        state = {**self.INTERACTIVE, key: value}
+        if value is None:
+            del state[key]
+        result = it.check_agent_outputs("interactive_creative", state)
+        assert result is not None and result.failed
+        assert key in result.message
+
+    def test_every_deployable_agent_has_output_keys(self):
+        it = _import_integration_test()
+        assert set(it.AGENT_OUTPUT_KEYS) == set(it.AGENT_ENV_KEYS)
+
+
+class TestSmokeStateKeys:
+    """The campaign keys are pre-seeded "" by every agent's state init, so mere
+    presence proves nothing: each must hold a value."""
+
+    @pytest.mark.parametrize("agent", ["trend_scout", "creative_agent"])
+    def test_real_values_pass(self, agent):
+        it = _import_integration_test()
+        result = it.check_state_keys(agent, dict(_CAMPAIGN))
+        assert result.passed
+        assert result.name == f"smoke:{agent}:state_keys"
+
+    @pytest.mark.parametrize(
+        "agent", ["trend_scout", "creative_agent", "interactive_creative"]
+    )
+    def test_seeded_empty_strings_fail(self, agent):
+        it = _import_integration_test()
+        state = dict.fromkeys(_CAMPAIGN, "")
+        result = it.check_state_keys(agent, state)
+        assert result.failed
+        assert "brand" in result.message
+
+    @pytest.mark.parametrize("value", ["", "  ", None, [], {}])
+    def test_one_empty_key_fails_and_names_it(self, value):
+        it = _import_integration_test()
+        state = {**_CAMPAIGN, "target_product": value}
+        result = it.check_state_keys("creative_agent", state)
+        assert result.failed
+        assert "target_product" in result.message
+        assert "brand" not in result.message.split("Present")[0]
+
+    def test_absent_key_fails(self):
+        it = _import_integration_test()
+        state = {k: v for k, v in _CAMPAIGN.items() if k != "brand"}
+        result = it.check_state_keys("trend_scout", state)
+        assert result.failed
+        assert "brand" in result.message
+
+
+class TestSmokeRunEvents:
+    def test_zero_events_fails(self):
+        it = _import_integration_test()
+        result = it.check_run_events("trend_scout", [], duration_s=1.0)
+        assert result.failed
+        assert result.name == "smoke:trend_scout:run"
+        assert "No events" in result.message
+
+    def test_events_pass(self):
+        it = _import_integration_test()
+        result = it.check_run_events("trend_scout", [{"author": "x"}], duration_s=1.0)
+        assert result.passed
+        assert result.duration_s == 1.0
+        assert "1 events" in result.message
 
 
 class TestDeployAgentRuntimeDeps:
