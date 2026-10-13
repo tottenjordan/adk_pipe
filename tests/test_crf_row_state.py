@@ -613,7 +613,7 @@ def test_error_inside_a_started_session_is_not_session_not_started(monkeypatch):
 
     agent.async_delete_session = _delete
     with pytest.raises(api_exceptions.ServiceUnavailable):
-        asyncio.run(worker.create_agent_run("1", {**_TREND}, "u"))
+        asyncio.run(worker.create_agent_run("1", {**_TREND}, "u", deadline=1e9))
 
     store = FakeStatusStore(monkeypatch, _TREND)
     _run_row()
