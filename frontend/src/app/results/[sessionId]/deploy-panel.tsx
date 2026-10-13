@@ -11,7 +11,7 @@ import { proofScore, type Proof } from "@/lib/eval-matching";
 import {
   ActiveExperimentError,
   createExperiment,
-  creativeDeployBlockedReason,
+  creativeDeployWarning,
   CTR_MODE_OPTIONS,
   deployBlockedReason,
   REWARD_MODE_OPTIONS,
@@ -75,14 +75,9 @@ export function DeployPanel({
 
   const ordered = useMemo(() => [...proofs].sort((a, b) => a.index - b.index), [proofs]);
   /** Selected creative → colour, shared by the cards, the preview and the experiment page. */
-  // A picked creative can become undeployable while the page is open (a timely
-  // creative whose moment passes), so only the still-deployable picks count.
   const picked = useMemo(
-    () =>
-      new Set(
-        ordered.filter((p) => selected.has(p.index) && !creativeDeployBlockedReason(p, now)).map((p) => p.index)
-      ),
-    [ordered, selected, now]
+    () => new Set(ordered.filter((p) => selected.has(p.index)).map((p) => p.index)),
+    [ordered, selected]
   );
   const colors = useMemo(() => selectionColors(picked), [picked]);
   const tuningCreatives = useMemo(
@@ -162,10 +157,7 @@ export function DeployPanel({
               onClick={() =>
                 setSelected(
                   new Set(
-                    ordered
-                      .filter((p) => !creativeDeployBlockedReason(p, now))
-                      .slice(0, 4)
-                      .map((p) => p.index)
+                    ordered.slice(0, 4).map((p) => p.index)
                   )
                 )
               }
@@ -182,26 +174,23 @@ export function DeployPanel({
             const checked = selected.has(p.index);
             const score = proofScore(p);
             const id = `deploy-creative-${p.index}`;
-            const excluded = creativeDeployBlockedReason(p, now);
+            const warning = creativeDeployWarning(p, now);
             return (
               <li key={p.index}>
                 <label
                   htmlFor={id}
                   className={cn(
                     "flex h-full items-start gap-3 rounded-md border p-2 transition-colors has-[:focus-visible]:ring-3 has-[:focus-visible]:ring-ring/50",
-                    excluded
-                      ? "cursor-not-allowed border-border opacity-60"
-                      : checked
-                        ? "cursor-pointer border-primary bg-primary/5"
-                        : "cursor-pointer border-border hover:border-foreground/40"
+                    checked
+                      ? "cursor-pointer border-primary bg-primary/5"
+                      : "cursor-pointer border-border hover:border-foreground/40"
                   )}
                 >
                   <input
                     id={id}
                     type="checkbox"
-                    checked={checked && !excluded}
-                    disabled={Boolean(excluded)}
-                    aria-describedby={excluded ? `${id}-excluded` : undefined}
+                    checked={checked}
+                    aria-describedby={warning ? `${id}-warning` : undefined}
                     onChange={() => toggle(p.index)}
                     className="mt-1 size-4 shrink-0 accent-primary"
                   />
@@ -230,9 +219,9 @@ export function DeployPanel({
                     <span className="mt-1 block text-xs text-muted-foreground tabular-nums">
                       {score === null ? "Not scored" : `Score ${pct(score)}%`}
                     </span>
-                    {excluded && (
-                      <span id={`${id}-excluded`} className="mt-1 block text-xs text-muted-foreground">
-                        {excluded}
+                    {warning && (
+                      <span id={`${id}-warning`} className="mt-1 block text-xs text-muted-foreground">
+                        {warning}
                       </span>
                     )}
                   </span>

@@ -10,11 +10,9 @@ import { FieldLabel } from "@/components/field-label";
 import { InfoTip } from "@/components/ui/info-tip";
 import { ExperimentStatusLabel, StatusHelp } from "@/components/experiment-status";
 import { CustomBadge, OverridesDisclosure } from "@/components/scenario-overrides";
-import { ProofImage } from "@/components/proof-image";
 import { formatInt } from "@/lib/chart";
 import {
   armColor,
-  armImageUrl,
   armName,
   canStop,
   continuousLimitError,
@@ -81,6 +79,7 @@ import { CreativeDetailDrawer } from "./creative-detail";
 import { SegmentGridView } from "./segment-grid";
 import { ShiftTimeline } from "./shift-timeline";
 import { RunSelector } from "./run-selector";
+import { ArmImage } from "./arm-image";
 
 const LEARNING_OPTIONS: readonly { value: LearningMode; label: string }[] = [
   { value: "per_episode", label: "Reset each episode" },
@@ -617,7 +616,7 @@ export default function ExperimentPage({
             <ul className="grid grid-cols-2 gap-3 md:grid-cols-4">
               {arms.map((arm) => (
                 <li key={arm.creativeId} className="flex flex-col rounded-lg border border-border bg-card p-2">
-                  <ProofImage src={armImageUrl(arm)} alt={arm.conceptName} className="aspect-square w-full" />
+                  <ArmImage arm={arm} alt={arm.conceptName} className="aspect-square w-full" />
                   <div className="flex flex-1 flex-col px-1 pt-2">
                     <p className="flex items-start gap-1.5 text-sm leading-snug font-medium text-foreground">
                       <span
