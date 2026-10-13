@@ -29,6 +29,18 @@ export function useReviewDraft<T>(
   return [value, set];
 }
 
+/**
+ * Forget the drafts of one checkpoint call (every key `<functionCallId>:…`).
+ * Called once its resume was accepted: the panel never remounts for that call
+ * again, so its drafts would otherwise live for the whole page.
+ */
+export function clearDraftsFor(functionCallId: string): void {
+  const prefix = `${functionCallId}:`;
+  for (const key of [...drafts.keys()]) {
+    if (key.startsWith(prefix)) drafts.delete(key);
+  }
+}
+
 /** Test hook: forget every saved draft. */
 export function clearReviewDrafts(): void {
   drafts.clear();
