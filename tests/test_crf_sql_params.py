@@ -28,10 +28,13 @@ from cloud_functions.creative_fanout import (
     worker,
 )
 from cloud_functions.creative_fanout.config import config
+from tests.crf_fakes import bq_results, queued
 
 DS = config.BQ_DATASET_ID
 TBL = config.BQ_TABLE_TARGETS
 TS = "2026-07-12T00:00:00+00:00"
+KEY = status_store.RowKey("uuid-1", "trend", TS)
+LEGACY = status_store.RowKey(None, None, TS)
 
 
 def _bq(num_rows=1):
@@ -71,37 +74,49 @@ class TestIdentifierAllowList:
         ],
     )
     def test_builders_reject_non_allow_listed_identifiers(self, dataset, table):
-        with pytest.raises(ValueError):
-            status_store._build_update_status_sql(
-                "p", dataset, table, [TS], "PROCESSED"
-            )
-        with pytest.raises(ValueError):
-            status_store._build_lock_sql("p", dataset, table, TS)
-        with pytest.raises(ValueError):
-            status_store._build_reap_sql("p", dataset, table, 45, 3)
-        with pytest.raises(ValueError):
-            status_store._build_select_unprocessed_sql("p", dataset, table, max_rows=10)
+        builders = [
+            lambda: status_store._build_mark_queued_sql("p", dataset, table, [KEY]),
+            lambda: status_store._build_lock_read_sql("p", dataset, table, KEY),
+            lambda: status_store._build_lock_sql("p", dataset, table, KEY, 0),
+            lambda: status_store._build_read_locked_row_sql(
+                "p", dataset, table, KEY, 1
+            ),
+            lambda: status_store._build_fenced_update_sql(
+                "p", dataset, table, KEY, "FAILED", 1, "mark_final"
+            ),
+            lambda: status_store._build_reap_sql("p", dataset, table, 45, 3),
+            lambda: status_store._build_select_unprocessed_sql(
+                "p", dataset, table, max_rows=10
+            ),
+        ]
+        for build in builders:
+            with pytest.raises(ValueError):
+                build()
 
-    def test_update_rows_status_rejects_bad_table_without_querying(self):
+    def test_status_writes_reject_bad_table_without_querying(self):
         bq = _bq()
-        with pytest.raises(ValueError):
-            status_store.update_rows_status(
-                bq, DS, "not_allowed", [TS], status="FAILED"
-            )
+        for write in (
+            lambda: status_store.mark_queued(bq, DS, "not_allowed", [KEY]),
+            lambda: status_store.mark_final(bq, DS, "not_allowed", KEY, "FAILED", 1),
+            lambda: status_store.requeue(bq, DS, "not_allowed", KEY, 1),
+            lambda: status_store.read_locked_row(bq, DS, "not_allowed", KEY, 1),
+        ):
+            with pytest.raises(ValueError):
+                write()
         bq.query_and_wait.assert_not_called()
 
     def test_acquire_lock_rejects_bad_table_without_querying(self):
         bq = _bq()
         with pytest.raises(ValueError):
-            status_store.acquire_processing_lock(bq, DS, "not_allowed", TS)
+            status_store.acquire_processing_lock(bq, DS, "not_allowed", KEY)
         bq.query_and_wait.assert_not_called()
 
     def test_rejects_malformed_project(self):
         with pytest.raises(ValueError):
-            status_store._build_lock_sql("p`.x", DS, TBL, TS)
+            status_store._build_lock_sql("p`.x", DS, TBL, KEY, 0)
 
     def test_identifiers_are_backtick_quoted(self):
-        sql, _ = status_store._build_lock_sql("test-project", DS, TBL, TS)
+        sql, _ = status_store._build_lock_sql("test-project", DS, TBL, KEY, 0)
         assert f"`test-project.{DS}.{TBL}`" in sql
 
     def test_extra_allowed_table_via_config(self, monkeypatch):
@@ -109,59 +124,82 @@ class TestIdentifierAllowList:
         monkeypatch.setattr(
             config, "ALLOWED_BQ_TABLES", frozenset({TBL, "target_trends_crf_p95"})
         )
-        sql, _ = status_store._build_lock_sql("p", DS, "target_trends_crf_p95", TS)
+        sql, _ = status_store._build_lock_sql("p", DS, "target_trends_crf_p95", KEY, 0)
         assert "target_trends_crf_p95" in sql
 
-    def test_status_outside_known_set_rejected(self):
-        with pytest.raises(ValueError):
-            status_store._build_update_status_sql("p", DS, TBL, [TS], "DONE'; --")
+    def test_status_outside_final_set_rejected(self):
+        bq = _bq()
+        for status in ("DONE'; --", "QUEUED", "PROCESSING"):
+            with pytest.raises(ValueError):
+                status_store.mark_final(bq, DS, TBL, KEY, status, 1)
+        bq.query_and_wait.assert_not_called()
 
 
 # ============================================================
 # (b) values are query parameters, never interpolated
 # ============================================================
 class TestValuesAreParameterized:
-    def test_update_rows_status_params(self):
-        bq = _bq()
-        ts2 = "2026-07-12T01:00:00+00:00"
-        status_store.update_rows_status(bq, DS, TBL, [TS, ts2], status="QUEUED")
+    def test_mark_queued_params(self):
+        bq = _bq(2)
+        key2 = status_store.RowKey("uuid-2", "it's a trend", TS)
+        status_store.mark_queued(bq, DS, TBL, [KEY, key2])
         call = bq.query_and_wait.call_args
         sql = call.args[0]
-        assert TS not in sql and ts2 not in sql
-        assert "QUEUED" not in sql
-        assert "@status" in sql and "UNNEST(@timestamps)" in sql
-        params = _params(call)
-        assert params["status"] == ("STRING", "QUEUED")
-        typ, values = params["timestamps"]
-        assert typ == "ARRAY<TIMESTAMP>"
-        assert values == [
-            datetime(2026, 7, 12, 0, tzinfo=UTC),
-            datetime(2026, 7, 12, 1, tzinfo=UTC),
-        ]
+        assert "uuid-1" not in sql and "it's" not in sql and TS not in sql
+        assert "STRUCT(uuid, target_trend) IN UNNEST(@row_keys)" in sql
+        typ, values = _params(call)["row_keys"]
+        assert typ == "ARRAY<STRUCT>"
+        assert [
+            (v.struct_values["uuid"], v.struct_values["target_trend"]) for v in values
+        ] == [("uuid-1", "trend"), ("uuid-2", "it's a trend")]
+
+    def test_mark_queued_legacy_keys_match_timestamps(self):
+        bq = _bq(1)
+        status_store.mark_queued(bq, DS, TBL, [LEGACY])
+        call = bq.query_and_wait.call_args
+        assert "entry_timestamp IN UNNEST(@timestamps)" in call.args[0]
+        assert "row_keys" not in call.args[0]
+        assert _params(call)["timestamps"] == (
+            "ARRAY<TIMESTAMP>",
+            [datetime(2026, 7, 12, tzinfo=UTC)],
+        )
 
     def test_naive_timestamp_treated_as_utc(self):
         """Old SQL did TIMESTAMP('<naive>') which BigQuery reads as UTC."""
-        bq = _bq()
-        status_store.acquire_processing_lock(bq, DS, TBL, "2026-07-12T00:00:00")
+        bq = bq_results([])
+        legacy = status_store.RowKey(None, None, "2026-07-12T00:00:00")
+        status_store.acquire_processing_lock(bq, DS, TBL, legacy)
         typ, val = _params(bq.query_and_wait.call_args)["entry_timestamp"]
         assert typ == "TIMESTAMP"
         assert val == datetime(2026, 7, 12, tzinfo=UTC)
 
     def test_garbage_timestamp_rejected(self):
+        bad = status_store.RowKey(None, None, "2026-07-12') OR TRUE --")
         with pytest.raises(ValueError):
-            status_store._build_lock_sql("p", DS, TBL, "2026-07-12') OR TRUE --")
+            status_store._build_lock_sql("p", DS, TBL, bad, 0)
 
     def test_lock_params(self):
-        bq = _bq()
-        assert status_store.acquire_processing_lock(bq, DS, TBL, TS) is True
+        bq = bq_results(queued(1), 1)
+        assert status_store.acquire_processing_lock(bq, DS, TBL, KEY) == 2
+        for call in bq.query_and_wait.call_args_list:
+            sql = call.args[0]
+            assert "uuid-1" not in sql and TS not in sql
+            assert "uuid = @uuid AND target_trend = @target_trend" in sql
+            assert "entry_timestamp" not in sql  # the key, not the timestamp
+            params = _params(call)
+            assert params["uuid"] == ("STRING", "uuid-1")
+            assert params["target_trend"] == ("STRING", "trend")
+        assert _params(call)["attempt"] == ("INT64", 2)
+
+    def test_fenced_write_params(self):
+        bq = _bq(1)
+        status_store.mark_final(bq, DS, TBL, KEY, "FAILED", 3)
         call = bq.query_and_wait.call_args
-        sql = call.args[0]
-        assert TS not in sql
-        assert "entry_timestamp = @entry_timestamp" in sql
-        assert _params(call)["entry_timestamp"] == (
-            "TIMESTAMP",
-            datetime(2026, 7, 12, tzinfo=UTC),
-        )
+        assert "FAILED" not in call.args[0]
+        params = _params(call)
+        assert params["status"] == ("STRING", "FAILED")
+        assert params["attempt"] == ("INT64", 3)
+        assert params["uuid"] == ("STRING", "uuid-1")
 
     def test_reap_params(self, monkeypatch):
         monkeypatch.setattr(config, "REAP_STALE_PROCESSING_MINUTES", 45)
@@ -378,8 +416,9 @@ def _orchestrator_serialize(ts):
 def test_orchestrator_timestamp_round_trips_through_builders(raw):
     serialized = _orchestrator_serialize(datetime.fromisoformat(raw))
 
-    _, lock_params = status_store._build_lock_sql("p", DS, TBL, serialized)
-    (lock_param,) = lock_params
+    legacy = status_store.RowKey(None, None, serialized)
+    _, lock_params = status_store._build_lock_sql("p", DS, TBL, legacy, 0)
+    lock_param = next(p for p in lock_params if p.name == "entry_timestamp")
     assert lock_param.type_ == "TIMESTAMP"
     val = lock_param.value
     assert val == _REAL_INSTANT
@@ -387,9 +426,7 @@ def test_orchestrator_timestamp_round_trips_through_builders(raw):
     assert val.utcoffset().total_seconds() == 0
     assert val.astimezone(UTC).isoformat() == "2026-09-01T12:34:56.123456+00:00"
 
-    _, update_params = status_store._build_update_status_sql(
-        "p", DS, TBL, [serialized], "PROCESSED"
-    )
+    _, update_params = status_store._build_mark_queued_sql("p", DS, TBL, [legacy])
     ts_param = next(p for p in update_params if p.name == "timestamps")
     assert ts_param.array_type == "TIMESTAMP"
     (uval,) = ts_param.values

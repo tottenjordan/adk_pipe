@@ -16,6 +16,7 @@ import pytest
 from cloud_functions.creative_fanout import clients, logs, main, status_store, worker
 from cloud_functions.creative_fanout.config import config
 from cloud_functions.creative_fanout.session import agent_session
+from tests.crf_fakes import FakeStatusStore
 
 # The CRF config reads the (required) project at use time; pin a dummy.
 pytestmark = pytest.mark.usefixtures("gcp_project_env")
@@ -62,11 +63,6 @@ def test_streaming_error_marks_row_failed_end_to_end(monkeypatch):
     fake_vertex.runtimes.get.return_value = remote_agent
     monkeypatch.setattr(clients, "new_vertex_client", lambda: fake_vertex)
 
-    # Win the lock so we proceed into the agent run.
-    monkeypatch.setattr(status_store, "acquire_processing_lock", lambda *a, **k: True)
-    update_mock = MagicMock()
-    monkeypatch.setattr(status_store, "update_rows_status", update_mock)
-
     trend = {
         "entry_timestamp": "2026-07-12T00:00:00",
         "index": 0,
@@ -77,14 +73,14 @@ def test_streaming_error_marks_row_failed_end_to_end(monkeypatch):
         "target_search_trend": "trend",
     }
     bq = MagicMock()
+    # Win the lock so we proceed into the agent run.
+    store = FakeStatusStore(monkeypatch, trend)
 
     # FAILED was written successfully → return normally so the worker message is
     # ACKed (a redelivery could never re-lock a FAILED row; it'd be a no-op).
     asyncio.run(worker.process_row(trend, "agent-123", bq, "ds", "tbl", deadline=1e9))
 
-    statuses = [c.kwargs.get("status") for c in update_mock.call_args_list]
-    assert "FAILED" in statuses
-    assert "PROCESSED" not in statuses
+    assert store.statuses == ["FAILED"]
 
 
 def test_session_created_and_deleted_with_same_user_id(monkeypatch):
@@ -284,18 +280,16 @@ _TREND = {
 }
 
 
-def _failing_agent_run(monkeypatch):
+def _failing_agent_run(monkeypatch, **store_kwargs):
     async def _boom(**kwargs):
         raise RuntimeError("agent boom")
 
     monkeypatch.setattr(worker, "create_agent_run", _boom)
-    monkeypatch.setattr(status_store, "acquire_processing_lock", lambda *a, **k: True)
+    return FakeStatusStore(monkeypatch, _TREND, **store_kwargs)
 
 
 def test_agent_failure_after_failed_write_returns_and_logs(monkeypatch, caplog):
-    _failing_agent_run(monkeypatch)
-    update_mock = MagicMock()
-    monkeypatch.setattr(status_store, "update_rows_status", update_mock)
+    store = _failing_agent_run(monkeypatch)
 
     with caplog.at_level("ERROR"):
         # must NOT raise
@@ -305,20 +299,15 @@ def test_agent_failure_after_failed_write_returns_and_logs(monkeypatch, caplog):
             )
         )
 
-    assert [c.kwargs["status"] for c in update_mock.call_args_list] == ["FAILED"]
-    assert _TREND["entry_timestamp"] in caplog.text
+    assert store.statuses == ["FAILED"]
+    assert "uuid-1" in caplog.text
     assert "agent boom" in caplog.text
 
 
 def test_failed_status_write_error_still_reraises(monkeypatch):
     """If the FAILED write itself fails, the row is stranded in PROCESSING —
     re-raise so Pub/Sub redelivers (and the reaper is the backstop)."""
-    _failing_agent_run(monkeypatch)
-
-    def _update(**kwargs):
-        raise RuntimeError("bq write boom")
-
-    monkeypatch.setattr(status_store, "update_rows_status", _update)
+    _failing_agent_run(monkeypatch, mark_errors=[RuntimeError("bq write boom")])
 
     with pytest.raises(RuntimeError, match="bq write boom"):
         asyncio.run(
@@ -331,13 +320,12 @@ def test_failed_status_write_error_still_reraises(monkeypatch):
 def test_error_before_status_write_reraises(monkeypatch):
     """An unexpected error before any status write (e.g. the lock query) must
     still propagate so Pub/Sub retries."""
+    store = FakeStatusStore(monkeypatch, _TREND)
 
     def _lock(*a, **k):
         raise RuntimeError("lock boom")
 
     monkeypatch.setattr(status_store, "acquire_processing_lock", _lock)
-    update_mock = MagicMock()
-    monkeypatch.setattr(status_store, "update_rows_status", update_mock)
 
     with pytest.raises(RuntimeError, match="lock boom"):
         asyncio.run(
@@ -345,7 +333,7 @@ def test_error_before_status_write_reraises(monkeypatch):
                 _TREND, "agent-123", MagicMock(), "ds", "tbl", deadline=1e9
             )
         )
-    update_mock.assert_not_called()
+    assert store.statuses == []
 
 
 def test_worker_entrypoint_acks_after_failed_write(monkeypatch):
@@ -356,9 +344,7 @@ def test_worker_entrypoint_acks_after_failed_write(monkeypatch):
 
     from cloud_functions.creative_fanout.config import config
 
-    _failing_agent_run(monkeypatch)
-    update_mock = MagicMock()
-    monkeypatch.setattr(status_store, "update_rows_status", update_mock)
+    store = _failing_agent_run(monkeypatch)
     monkeypatch.setattr(clients, "get_bigquery_client", MagicMock)
 
     payload = {
@@ -371,7 +357,7 @@ def test_worker_entrypoint_acks_after_failed_write(monkeypatch):
     main.agent_worker_entrypoint(
         types.SimpleNamespace(data={"message": {"data": encoded}})
     )  # must NOT raise
-    assert [c.kwargs["status"] for c in update_mock.call_args_list] == ["FAILED"]
+    assert store.statuses == ["FAILED"]
 
 
 # ============================================================

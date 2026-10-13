@@ -31,6 +31,7 @@ from cloud_functions.creative_fanout import (
     worker,
 )
 from cloud_functions.creative_fanout.config import config
+from tests.crf_fakes import FakeStatusStore
 
 pytestmark = pytest.mark.usefixtures("gcp_project_env")
 
@@ -79,10 +80,10 @@ def test_entrypoint_takes_the_deadline_at_request_start(monkeypatch):
 
     def _slow_lock(*args, **kwargs):
         clock["now"] += 120.0  # the lock UPDATE took two minutes
-        return True
+        return 1
 
+    FakeStatusStore(monkeypatch, _ROW)
     monkeypatch.setattr(status_store, "acquire_processing_lock", _slow_lock)
-    monkeypatch.setattr(status_store, "update_rows_status", lambda **k: None)
     seen = {}
 
     async def _run(**kwargs):
@@ -151,16 +152,14 @@ def test_delete_failure_keeps_a_finalized_run_processed(monkeypatch, caplog):
     → the row is still PROCESSED (the delete is cleanup, not the result)."""
     agent = _Agent(_raise_500)
     _wire_agent(monkeypatch, agent)
-    monkeypatch.setattr(status_store, "acquire_processing_lock", lambda *a, **k: True)
-    update = MagicMock()
-    monkeypatch.setattr(status_store, "update_rows_status", update)
+    store = FakeStatusStore(monkeypatch, _ROW)
 
     with caplog.at_level(logging.WARNING):
         asyncio.run(
             worker.process_row(_ROW, "123", MagicMock(), "ds", "t", deadline=1e12)
         )
 
-    assert [c.kwargs["status"] for c in update.call_args_list] == ["PROCESSED"]
+    assert store.statuses == ["PROCESSED"]
     assert agent.deletes == 1
     assert "500 delete failed" in caplog.text
 
@@ -326,9 +325,8 @@ def test_process_row_uses_the_row_identity_user_id(monkeypatch):
         return RunOutcome(True, False, "done")
 
     monkeypatch.setattr(worker, "create_agent_run", _run)
-    monkeypatch.setattr(status_store, "acquire_processing_lock", lambda *a, **k: True)
-    monkeypatch.setattr(status_store, "update_rows_status", lambda **k: None)
     row = {**_ROW, "uuid": "u-1", "target_trend": "Marathon"}
+    FakeStatusStore(monkeypatch, row)
     asyncio.run(worker.process_row(row, "1", MagicMock(), "ds", "t", deadline=9.0))
     assert seen["user_id"] == worker.session_user_id(row)
     assert seen["deadline"] == 9.0

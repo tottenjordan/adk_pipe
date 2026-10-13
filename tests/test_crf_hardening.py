@@ -24,6 +24,7 @@ from cloud_functions.creative_fanout import (
     worker,
 )
 from cloud_functions.creative_fanout.config import config
+from tests.crf_fakes import FakeStatusStore, bq_results, queued
 
 # The CRF config reads the (required) project at use time; pin a dummy.
 pytestmark = pytest.mark.usefixtures("gcp_project_env")
@@ -114,9 +115,8 @@ def test_duration_marker_carries_json_fields(monkeypatch, caplog, fail):
         return RunOutcome(finalized=True, retried=False, reason="done")
 
     monkeypatch.setattr(worker, "create_agent_run", _run)
-    monkeypatch.setattr(status_store, "acquire_processing_lock", lambda *a, **k: True)
-    monkeypatch.setattr(status_store, "update_rows_status", lambda **k: None)
     trend = {"entry_timestamp": "2026-07-12T00:00:00", "index": 2}
+    FakeStatusStore(monkeypatch, trend)
 
     import asyncio
 
@@ -130,7 +130,7 @@ def test_duration_marker_carries_json_fields(monkeypatch, caplog, fail):
     # The text stays as before so existing log queries still match.
     assert f"index=2 status={status} secs=" in record.getMessage()
     fields = record.json_fields
-    assert fields["row"] == "2026-07-12T00:00:00"
+    assert fields["row"] == "2026-07-12T00:00:00+00:00"  # the re-read row's
     assert fields["index"] == 2
     assert fields["status"] == status
     assert isinstance(fields["secs"], float)
@@ -176,34 +176,42 @@ def test_run_query_bounds_the_wait_and_the_job(monkeypatch):
     assert job_config.query_parameters == params
 
 
-@pytest.mark.parametrize(("affected", "locked"), [(1, True), (0, False)])
+_KEY = status_store.RowKey("uuid-1", "trend", "2026-07-12")
+
+
+@pytest.mark.parametrize(("affected", "locked"), [(1, 3), (0, None)])
 def test_lock_reads_dml_count_from_bounded_query(affected, locked):
-    bq = _bq_mock(affected)
+    bq = bq_results(queued(2), affected)
     got = status_store.acquire_processing_lock(
-        bq, config.BQ_DATASET_ID, config.BQ_TABLE_TARGETS, "2026-07-12"
+        bq, config.BQ_DATASET_ID, config.BQ_TABLE_TARGETS, _KEY
     )
-    assert got is locked
-    assert "wait_timeout" in bq.query_and_wait.call_args.kwargs
+    assert got == locked
+    for call in bq.query_and_wait.call_args_list:
+        assert "wait_timeout" in call.kwargs
 
 
 def test_lock_timeout_propagates_for_retry():
-    """A wait past the bound raises (NACK → redelivery), never a silent False."""
+    """A wait past the bound raises (NACK → redelivery), never a silent None."""
     import concurrent.futures
 
-    bq = _bq_mock()
-    bq.query_and_wait.side_effect = concurrent.futures.TimeoutError()
+    bq = bq_results(queued(), concurrent.futures.TimeoutError())
     with pytest.raises(concurrent.futures.TimeoutError):
         status_store.acquire_processing_lock(
-            bq, config.BQ_DATASET_ID, config.BQ_TABLE_TARGETS, "2026-07-12"
+            bq, config.BQ_DATASET_ID, config.BQ_TABLE_TARGETS, _KEY
         )
 
 
-def test_status_update_and_reaper_use_bounded_query():
-    bq = _bq_mock(2)
+def test_status_writes_and_reaper_use_bounded_query():
+    bq = bq_results(1, [], 1, 1, 2)
     ds, tbl = config.BQ_DATASET_ID, config.BQ_TABLE_TARGETS
-    status_store.update_rows_status(bq, ds, tbl, ["2026-07-12"], status="PROCESSED")
+    status_store.mark_queued(bq, ds, tbl, [_KEY])
+    status_store.read_locked_row(bq, ds, tbl, _KEY, 1)
+    status_store.mark_final(bq, ds, tbl, _KEY, "PROCESSED", 1)
+    status_store.requeue(bq, ds, tbl, _KEY, 1)
     assert status_store.reap_stale_processing_rows(bq, ds, tbl) == 2
-    assert bq.query_and_wait.call_count == 2
+    assert bq.query_and_wait.call_count == 5
+    for call in bq.query_and_wait.call_args_list:
+        assert "wait_timeout" in call.kwargs
 
 
 # ============================================================
@@ -369,16 +377,12 @@ def test_two_worker_invocations_in_one_process_both_succeed(monkeypatch):
     _LoopBoundFakeClient.instances = []
     monkeypatch.setattr(clients.agentplatform, "Client", _LoopBoundFakeClient)
     monkeypatch.setattr(clients, "get_bigquery_client", lambda: _bq_mock())
-    monkeypatch.setattr(status_store, "acquire_processing_lock", lambda *a, **k: True)
-    statuses = []
-    monkeypatch.setattr(
-        status_store, "update_rows_status", lambda **k: statuses.append(k["status"])
-    )
+    store = FakeStatusStore(monkeypatch, _worker_payload()["row_data"])
 
     main.agent_worker_entrypoint(_event(_worker_payload(0)))
     main.agent_worker_entrypoint(_event(_worker_payload(1)))
 
-    assert statuses == ["PROCESSED", "PROCESSED"]
+    assert store.statuses == ["PROCESSED", "PROCESSED"]
     assert len(_LoopBoundFakeClient.instances) == 2
     assert all(c.closed for c in _LoopBoundFakeClient.instances)
     assert _LoopBoundFakeClient.instances[0].kwargs == {
@@ -559,14 +563,10 @@ def test_valid_worker_message_still_runs(monkeypatch):
     _LoopBoundFakeClient.instances = []
     monkeypatch.setattr(clients.agentplatform, "Client", _LoopBoundFakeClient)
     monkeypatch.setattr(clients, "get_bigquery_client", lambda: _bq_mock())
-    monkeypatch.setattr(status_store, "acquire_processing_lock", lambda *a, **k: True)
-    statuses = []
-    monkeypatch.setattr(
-        status_store, "update_rows_status", lambda **k: statuses.append(k["status"])
-    )
     row = messages.build_row_dict(
         3,
         {
+            "uuid": "uuid-3",
             "entry_timestamp": __import__("datetime").datetime(2026, 7, 12),
             "target_trend": "t",
             "brand": None,
@@ -575,5 +575,8 @@ def test_valid_worker_message_still_runs(monkeypatch):
             "key_selling_point": "k",
         },
     )
+    store = FakeStatusStore(monkeypatch, row)
     main.agent_worker_entrypoint(_event(_worker_payload(row_data=row)))
-    assert statuses == ["PROCESSED"]
+    assert store.statuses == ["PROCESSED"]
+    (_, key) = store.calls[0]
+    assert key == status_store.RowKey("uuid-3", "t", row["entry_timestamp"])
