@@ -595,6 +595,131 @@ def test_research_graph_branch_failure_does_not_stall_root(monkeypatch):
     assert root_llm.calls == 2
 
 
+class _QuotaLlm(RecordingLlm):
+    """Raises ADK's 429 ``_ResourceExhaustedError`` for its first ``fail`` calls
+    (genai's own HTTP retries already exhausted), then plays its script.
+    ``code=400`` raises a permanent INVALID_ARGUMENT ``ClientError`` instead."""
+
+    fail: int = 0
+    code: int = 429
+
+    async def generate_content_async(self, llm_request, stream=False):
+        if len(self._requests) < self.fail:
+            self._requests.append(llm_request)
+            from google.adk.models.google_llm import _ResourceExhaustedError
+            from google.genai import errors
+
+            status = "RESOURCE_EXHAUSTED" if self.code == 429 else "INVALID_ARGUMENT"
+            error = errors.ClientError(
+                self.code,
+                {"error": {"code": self.code, "message": "x", "status": status}},
+            )
+            raise _ResourceExhaustedError(error) if self.code == 429 else error
+        async for r in super().generate_content_async(llm_request, stream):
+            yield r
+
+
+@pytest.fixture
+def no_backoff(monkeypatch) -> list[float]:
+    import agent_common.retry_node as rn
+
+    waited: list[float] = []
+
+    async def fake_sleep(seconds: float) -> None:
+        waited.append(seconds)
+
+    monkeypatch.setattr(rn, "_sleep", fake_sleep)
+    return waited
+
+
+def test_research_quota_error_on_every_attempt_degrades_instead_of_failing(
+    monkeypatch, no_backoff
+):
+    """Incident 2026-10-13: campaign_web_searcher's 429 failed creative_pipeline.
+    Now every attempt's 429 counts as a missed attempt: research completes
+    degraded (refinement round + marker) and the brief path continues."""
+    import creative_agent.agent as ca
+    from agent_common.observability import collect_degradation_warnings
+
+    llms = _stub_graph(monkeypatch, ca.combined_research_pipeline)
+    quota = _QuotaLlm(fail=99)
+    _patch_agent_model(
+        monkeypatch, ca.combined_research_pipeline, "campaign_web_searcher", quota
+    )
+    _script_research(llms, [])
+    llms["combined_web_evaluator"].push(
+        text_response('{"finding_type": "Gap", "analysis_comment": "thin"}')
+    )
+    llms["enhanced_combined_searcher"].push(text_response("REFINED RAW"))
+    llms["refined_web_synthesizer"].push(text_response("REFINED INSIGHTS"))
+
+    root_llm, events, state = _run_root(monkeypatch, "combined_research_pipeline")
+
+    assert len(quota.requests) == 3
+    assert no_backoff == [15.0, 30.0]
+    assert llms["campaign_web_synthesizer"].calls == 0
+    assert "campaign_web_search_insights" not in state
+    assert state["campaign_web_search_insights__retry_exhausted"] is True
+    assert state["gs_web_search_insights"] == "GS INSIGHTS"
+    assert state["refined_web_search_insights"] == "REFINED INSIGHTS"
+    assert state["creative_brief"] == _BRIEF
+    assert state["research_report_gcs_uri"] == "gs://bucket/report.pdf"
+    (response,) = _responses(events)
+    assert "Research report complete" in str(response)
+    assert "Error running node" not in str(response)
+    assert root_llm.calls == 2
+    # The run note keeps the step-key format the results page groups under
+    # "Some research steps produced no output" (frontend/src/lib/run-warnings.ts).
+    assert collect_degradation_warnings(state) == [
+        "Step 'campaign_web_search_insights' exhausted retries and produced no output."
+    ]
+
+
+def test_research_permanent_error_still_fails_the_pipeline(monkeypatch, no_backoff):
+    """A 400 is not transient: no retry, the research pipeline fails as before."""
+    import creative_agent.agent as ca
+
+    llms = _stub_graph(monkeypatch, ca.combined_research_pipeline)
+    bad = _QuotaLlm(fail=99, code=400)
+    _patch_agent_model(
+        monkeypatch, ca.combined_research_pipeline, "campaign_web_searcher", bad
+    )
+    _script_research(llms, [])
+
+    _, events, state = _run_root(monkeypatch, "combined_research_pipeline")
+
+    assert len(bad.requests) == 1
+    assert no_backoff == []
+    (response,) = _responses(events)
+    assert "Error running node combined_research_pipeline" in str(response)
+    assert "campaign_web_search_insights__retry_exhausted" not in state
+
+
+def test_research_quota_error_then_success_recovers_without_marker(
+    monkeypatch, no_backoff
+):
+    import creative_agent.agent as ca
+
+    llms = _stub_graph(monkeypatch, ca.combined_research_pipeline)
+    quota = _QuotaLlm(fail=1)
+    quota.push(text_response("ca raw"))
+    _patch_agent_model(
+        monkeypatch, ca.combined_research_pipeline, "campaign_web_searcher", quota
+    )
+    _script_research(llms, [])
+    llms["campaign_web_synthesizer"].push(text_response("CA INSIGHTS"))
+
+    _, events, state = _run_root(monkeypatch, "combined_research_pipeline")
+
+    assert len(quota.requests) == 2
+    assert no_backoff == [15.0]
+    assert state["campaign_web_search_insights"] == "CA INSIGHTS"
+    assert "campaign_web_search_insights__retry_exhausted" not in state
+    assert llms["combined_web_evaluator"].calls == 0  # healthy: no refinement
+    (response,) = _responses(events)
+    assert "Research report complete" in str(response)
+
+
 # --------------------------------------------------------------------------
 # Ad / visual pipelines
 # --------------------------------------------------------------------------

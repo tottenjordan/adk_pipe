@@ -50,8 +50,18 @@ It is a ``BaseNode`` (not a ``BaseAgent``) because graph Workflows and
   that returns a falsy result (``flows/llm_flows/tools/_caller.py``), so ``""``
   would stall too. The notice goes only to the caller as the tool result;
   ``output_key`` itself stays unset for downstream ``{var?}`` guards.
-- Retries cover empty results only; an exception raised by the child propagates
-  (not retried).
+- A *transient* exception from the child (``is_transient_error``: 429 /
+  RESOURCE_EXHAUSTED, a genai ``ServerError`` 5xx, a timeout; unwrapped from
+  ADK's ``DynamicNodeFailError``) counts as a missed attempt, like an empty
+  result: logged, then retried after a bounded backoff
+  (``transient_backoff_seconds`` doubling to ``transient_backoff_max_seconds``;
+  15 s then 30 s by default, so ≤ 45 s of added wait for 3 attempts), and on
+  exhaustion the same marker + notice. Incident 2026-10-13: a 429 from
+  ``campaign_web_searcher`` outlasted genai's own HTTP retries (~5 min of quota
+  contention), escaped this wrapper and failed the whole ``creative_pipeline``.
+  Every other exception (400 invalid argument, programming errors) still
+  propagates. ``retry_on_transient=False`` restores the old propagate-all
+  behaviour.
 - Known limitation: a value already present in ``output_key`` from an earlier
   turn counts as populated, so the first attempt succeeds even if this run's
   child wrote nothing.
@@ -59,6 +69,7 @@ It is a ``BaseNode`` (not a ``BaseAgent``) because graph Workflows and
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import AsyncGenerator
 from typing import Any, override
@@ -67,9 +78,34 @@ from google.adk.agents.context import Context
 from google.adk.events.event import Event
 from google.adk.events.event_actions import EventActions
 from google.adk.workflow import BaseNode
+from google.genai import errors as genai_errors
 from pydantic import Field
 
+from agent_common.fail_soft_node import root_cause
+
 logger = logging.getLogger("google_adk." + __name__)
+
+# Indirection so tests can record the backoff instead of sleeping.
+_sleep = asyncio.sleep
+
+
+def is_transient_error(exc: BaseException) -> bool:
+    """True for a quota / availability / timeout failure worth another attempt.
+
+    Unwraps ADK's ``DynamicNodeFailError`` (``root_cause``). Transient: a builtin
+    ``TimeoutError`` (aiohttp's client timeout and ``asyncio.TimeoutError`` are
+    subclasses / aliases), any genai ``ServerError`` (5xx) and a genai
+    ``ClientError`` with code 429 / status RESOURCE_EXHAUSTED (incl. ADK's
+    ``_ResourceExhaustedError`` subclass). Permanent 4xx and everything else are
+    not.
+    """
+    if isinstance(exc, Exception):
+        exc = root_cause(exc)
+    if isinstance(exc, TimeoutError | genai_errors.ServerError):
+        return True
+    if isinstance(exc, genai_errors.ClientError):
+        return exc.code == 429 or exc.status == "RESOURCE_EXHAUSTED"
+    return False
 
 
 def is_populated(value: object) -> bool:
@@ -89,6 +125,8 @@ def is_populated(value: object) -> bool:
 class RetryUntilKeyNode(BaseNode):
     """Re-run a child node until ``output_key`` is populated in session state.
 
+    A transient child exception counts as a missed attempt (see module doc).
+
     ``output_key`` must match the key the child's final producer writes. Retries
     are bounded by ``max_attempts``. Set ``input_schema`` (e.g.
     ``PipelineRequest``) when exposing the node as a tool.
@@ -103,6 +141,16 @@ class RetryUntilKeyNode(BaseNode):
     max_attempts: int = Field(default=3, ge=1)
     """Maximum number of times to run the child (>= 1)."""
 
+    retry_on_transient: bool = True
+    """Count a transient child exception (``is_transient_error``) as a missed
+    attempt instead of propagating it."""
+
+    transient_backoff_seconds: float = Field(default=15.0, ge=0)
+    """Wait before the attempt after the first transient failure."""
+
+    transient_backoff_max_seconds: float = Field(default=30.0, ge=0)
+    """Cap on each wait (the wait doubles per transient failure up to this)."""
+
     rerun_on_resume: bool = True
     """Required by ADK: ``ctx.run_node`` raises ``ValueError`` unless the calling
     node has ``rerun_on_resume=True`` (``_dynamic_node_scheduler.py``); do not
@@ -110,12 +158,36 @@ class RetryUntilKeyNode(BaseNode):
 
     @override
     async def _run_impl(self, *, ctx: Context, node_input: Any) -> AsyncGenerator[Any]:
+        transient_failures = 0
         for attempt in range(1, self.max_attempts + 1):
-            await ctx.run_node(
-                self.node,
-                node_input=node_input,
-                run_id=f"{self.name}_attempt_{attempt}",
-            )
+            try:
+                await ctx.run_node(
+                    self.node,
+                    node_input=node_input,
+                    run_id=f"{self.name}_attempt_{attempt}",
+                )
+            except Exception as exc:
+                if not (self.retry_on_transient and is_transient_error(exc)):
+                    raise
+                transient_failures += 1
+                cause = root_cause(exc)
+                last = attempt == self.max_attempts
+                delay = min(
+                    self.transient_backoff_seconds * 2 ** (transient_failures - 1),
+                    self.transient_backoff_max_seconds,
+                )
+                logger.warning(
+                    "%s raised a transient %s on attempt %d/%d: %s%s",
+                    self.node.name,
+                    type(cause).__name__,
+                    attempt,
+                    self.max_attempts,
+                    cause,
+                    "" if last else f"; retrying in {delay:g}s",
+                )
+                if not last:
+                    await _sleep(delay)
+                continue
 
             value = ctx.state.get(self.output_key)
             if is_populated(value):

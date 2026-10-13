@@ -19,8 +19,10 @@ from typing import Any
 
 import pytest
 from google.adk.agents import LlmAgent
+from google.adk.agents.context import Context
 from google.adk.apps import App, ResumabilityConfig
 from google.adk.events.event import Event
+from google.adk.events.event_actions import EventActions
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.adk.tools._node_tool import NodeTool
@@ -373,3 +375,160 @@ def test_node_as_tool_exhaustion_does_not_stall_root(resumable):
     (fr,) = responses
     assert fr.id == "fc1"
     assert "report__retry_exhausted" in str(fr.response)
+
+
+# --------------------------------------------------------------------------
+# Transient errors count as a missed attempt (incident 2026-10-13: a 429 from
+# campaign_web_searcher escaped the wrapper and failed creative_pipeline)
+# --------------------------------------------------------------------------
+
+
+def _quota_error() -> Exception:
+    from google.genai import errors
+
+    return errors.ClientError(
+        429,
+        {"error": {"code": 429, "message": "quota", "status": "RESOURCE_EXHAUSTED"}},
+    )
+
+
+def _bad_request() -> Exception:
+    from google.genai import errors
+
+    return errors.ClientError(
+        400, {"error": {"code": 400, "message": "bad", "status": "INVALID_ARGUMENT"}}
+    )
+
+
+def _server_error() -> Exception:
+    from google.genai import errors
+
+    return errors.ServerError(
+        503, {"error": {"code": 503, "message": "down", "status": "UNAVAILABLE"}}
+    )
+
+
+def _raising_child(errors_to_raise: list[Exception], key: str = "report"):
+    """A one-node Workflow whose producer raises the queued errors, then writes."""
+    calls: list[int] = []
+
+    def producer(ctx: Context) -> Event:
+        calls.append(1)
+        if errors_to_raise:
+            raise errors_to_raise.pop(0)
+        return Event(output="ok", actions=EventActions(state_delta={key: "REAL"}))
+
+    return Workflow(name="raising", edges=[("START", producer)]), calls
+
+
+@pytest.fixture
+def sleeps(monkeypatch) -> list[float]:
+    """Record the wrapper's backoff waits instead of sleeping."""
+    import agent_common.retry_node as rn
+
+    waited: list[float] = []
+
+    async def fake_sleep(seconds: float) -> None:
+        waited.append(seconds)
+
+    monkeypatch.setattr(rn, "_sleep", fake_sleep)
+    return waited
+
+
+@pytest.mark.parametrize(
+    "make_exc",
+    [_quota_error, _server_error, lambda: TimeoutError("timed out")],
+    ids=["429", "503", "timeout"],
+)
+def test_transient_error_then_success_recovers_without_marker(make_exc, sleeps):
+    child, calls = _raising_child([make_exc()])
+
+    events, state = _run_node(_wrap(child, "report"))
+
+    assert len(calls) == 2
+    assert state["report"] == "REAL"
+    assert "report__retry_exhausted" not in state
+    assert sleeps == [15.0]
+    assert _outputs(events, "retry_wrapper") == ["REAL"]
+
+
+def test_transient_classification():
+    from google.adk.models.google_llm import _ResourceExhaustedError
+    from google.genai import errors
+
+    from agent_common.retry_node import is_transient_error
+
+    quota = _quota_error()
+    assert isinstance(quota, errors.ClientError)
+    assert is_transient_error(_ResourceExhaustedError(quota))
+    assert is_transient_error(quota)
+    assert is_transient_error(_server_error())
+    assert is_transient_error(TimeoutError())
+    assert not is_transient_error(_bad_request())
+    assert not is_transient_error(RuntimeError("bug"))
+    assert not is_transient_error(KeyError("Context variable not found"))
+
+
+def test_transient_error_on_every_attempt_exhausts_like_empty_output(sleeps, caplog):
+    child, calls = _raising_child([_quota_error() for _ in range(3)])
+
+    with caplog.at_level(logging.WARNING):
+        events, state = _run_node(_wrap(child, "report"))
+
+    assert len(calls) == 3
+    assert state.get("report") is None
+    assert state["report__retry_exhausted"] is True
+    # Bounded backoff between attempts, none after the last one.
+    assert sleeps == [15.0, 30.0]
+    (notice,) = _outputs(events, "retry_wrapper")
+    assert "report__retry_exhausted" in notice
+    assert any("RESOURCE_EXHAUSTED" in r.getMessage() for r in caplog.records)
+
+
+def test_backoff_is_capped(sleeps):
+    child, _ = _raising_child([_quota_error() for _ in range(4)])
+    wrapper = RetryUntilKeyNode(
+        name="retry_wrapper", node=child, output_key="report", max_attempts=5
+    )
+
+    _, state = _run_node(wrapper)
+
+    assert state["report"] == "REAL"
+    assert sleeps == [15.0, 30.0, 30.0, 30.0]
+
+
+@pytest.mark.parametrize(
+    "make_exc", [_bad_request, lambda: RuntimeError("bug")], ids=["400", "runtime"]
+)
+def test_non_transient_error_still_propagates(make_exc, sleeps):
+    from agent_common.fail_soft_node import root_cause
+
+    exc = make_exc()
+    child, calls = _raising_child([exc])
+
+    with pytest.raises(Exception) as raised:
+        _run_node(_wrap(child, "report"))
+
+    assert root_cause(raised.value) is exc
+    assert len(calls) == 1
+    assert sleeps == []
+
+
+def test_transient_retry_can_be_disabled(sleeps):
+    from agent_common.fail_soft_node import root_cause
+
+    exc = _quota_error()
+    child, calls = _raising_child([exc])
+    wrapper = RetryUntilKeyNode(
+        name="retry_wrapper",
+        node=child,
+        output_key="report",
+        retry_on_transient=False,
+    )
+
+    with pytest.raises(Exception) as raised:  # noqa: B017 - checked via root_cause
+        _run_node(wrapper)
+
+    assert root_cause(raised.value) is exc
+    assert len(calls) == 1
+    assert sleeps == []

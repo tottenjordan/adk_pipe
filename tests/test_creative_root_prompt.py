@@ -119,3 +119,20 @@ def test_campaign_fields_already_in_state_are_not_rememorized():
     instructions = ROOT_AGENT_INSTR.split("<INSTRUCTIONS>", 1)[1]
     assert "Do NOT re-memorize" in instructions
     assert "missing from BOTH" in instructions
+
+
+def test_failed_pipeline_is_re_called_on_a_continue_message():
+    """A transient failure can end creative_pipeline with an error result; the
+    next continue message (user or runserver auto-continue) must re-run it
+    instead of restating the error — once per continue message."""
+    block = ROOT_AGENT_INSTR.split("<RETRY_AFTER_ERROR>", 1)[1].split(
+        "</RETRY_AFTER_ERROR>", 1
+    )[0]
+    assert "Error running node" in block
+    assert "call `creative_pipeline` again" in block
+    assert "once per continue message" in block
+    assert "do not just restate the error" in block
+    # The normal path still makes exactly one call.
+    assert (
+        "Do not call it again after it returned its summary" in (_workflow_steps()[1])
+    )

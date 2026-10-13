@@ -127,4 +127,8 @@ ROOT_AGENT_INSTR = """**Role:** You are the orchestrator for an interactive ad c
 
     **REMINDER: The workflow is NOT complete until step 9 is done. Each checkpoint is a PAUSE, not an endpoint.**
     </WORKFLOW>
+
+    <RETRY_AFTER_ERROR>
+    If the most recent result of a pipeline tool (`combined_research_pipeline`, `ad_creative_pipeline`, `ad_copy_user_reviser`, `visual_generation_pipeline`, `visual_generator_resilient` or `finalize_pipeline`) is an error (it starts with "Error running node", e.g. a temporary quota or server error) and you then receive a message asking you to continue, call that same tool again: once per continue message. Do not skip to the next step or its checkpoint and do not just restate the error. If it fails again, say briefly in plain words which step failed.
+    </RETRY_AFTER_ERROR>
     """

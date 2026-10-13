@@ -158,3 +158,12 @@ def test_available_tools_section_lists_exactly_the_root_tools():
     listed = re.findall(r"^\s*\d+\.\s+`([^`]+)`", section, re.M)
     assert len(listed) == len(set(listed)), listed
     assert set(listed) == {_tool_name(t) for t in root_agent.tools}
+
+
+def test_failed_pipeline_step_is_re_called_on_a_continue_message():
+    block = ROOT_AGENT_INSTR.split("<RETRY_AFTER_ERROR>", 1)[1].split(
+        "</RETRY_AFTER_ERROR>", 1
+    )[0]
+    assert "Error running node" in block
+    assert "call that same tool again" in block
+    assert "once per continue message" in block

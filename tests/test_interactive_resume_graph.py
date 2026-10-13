@@ -36,7 +36,12 @@ from google.adk.sessions import InMemorySessionService
 from agent_common import drop_other_agent_context, stable_row_id
 from agent_common.history import is_other_agent_context
 from creative_agent.schemas import FinalAdCopyList
-from runserver.async_runs import RUN_STATUS_KEY, start_resume, start_run
+from runserver.async_runs import (
+    AUTO_RETRY_MESSAGE,
+    RUN_STATUS_KEY,
+    start_resume,
+    start_run,
+)
 from tests._fake_bq import FakeBigQueryClient
 from tests._fakes import RecordingLlm as _RecordingLlm
 from tests._fakes import fc_response, text_response
@@ -160,7 +165,8 @@ def _run_paused_then_resumed(
 
     ``retry_in_new_message=False``: the root retries the failed tool within the
     resumed turn. ``True``: the root ends the resumed turn after the failure and
-    the retry arrives in a fresh user message (a new invocation)."""
+    the retry arrives in a fresh message (a new invocation): runserver's
+    pipeline-error auto-continue (``AUTO_RETRY_MESSAGE``)."""
     import creative_agent.bq_tools as bq_tools
     import interactive_creative.agent as ic
 
@@ -246,16 +252,9 @@ def _run_paused_then_resumed(
             runner_factory=runner_factory,
         )
         await task
-        if retry_in_new_message:
-            _, task = await start_run(
-                app_name=APP,
-                user_id=USER,
-                session_id=SID,
-                message="retry the ad copies",
-                session_service=svc,
-                runner_factory=runner_factory,
-            )
-            await task
+        # retry_in_new_message: no explicit user message is needed — the resume
+        # segment ended on the root's text after an "Error running node" result,
+        # so runserver auto-continues with AUTO_RETRY_MESSAGE (a new invocation).
         final = await _session(svc)
         return seg1, mid, list(final.events), dict(final.state), final.id
 
@@ -376,6 +375,14 @@ def test_failed_pipeline_node_reruns_after_resume(
     assert r["ads"]["ad_copy_drafter"].calls == drafter_runs
     root_invocations = [e.invocation_id for e in events if e.author == "root_agent"]
     assert len(set(root_invocations)) == (2 if retry_in_new_message else 1)
+    user_texts = [
+        p.text
+        for e in events
+        if e.author == "user" and e.content
+        for p in e.content.parts or []
+        if p.text
+    ]
+    assert (AUTO_RETRY_MESSAGE in user_texts) is retry_in_new_message
     # Research ran exactly once overall: resuming did not re-run the
     # already-answered research NodeTool.
     assert r["research"]["combined_report_composer"].calls == 1

@@ -1386,12 +1386,16 @@ ROOT_AGENT_INSTR = """**Role:** You are the orchestrator for a comprehensive ad 
 
 
     <WORKFLOW>
-    1. Call the `creative_pipeline` tool exactly once. It runs every stage in order on the stored campaign metadata: web research (it saves the research report as a PDF in Cloud Storage), a set of ad copies, visual concepts for the final ad copies with their rendered image creatives, then it scores every ad copy and visual concept (trend authenticity, copy quality, audience fit, stopping power and more), saves the evaluation report JSON and the HTML gallery to Cloud Storage and logs the results to BigQuery. It takes several minutes. Its result is a short summary: pass rate, average scores, weakest dimensions, creatives below threshold, the saved URIs and any failed steps. Do not call it again.
+    1. Call the `creative_pipeline` tool exactly once. It runs every stage in order on the stored campaign metadata: web research (it saves the research report as a PDF in Cloud Storage), a set of ad copies, visual concepts for the final ad copies with their rendered image creatives, then it scores every ad copy and visual concept (trend authenticity, copy quality, audience fit, stopping power and more), saves the evaluation report JSON and the HTML gallery to Cloud Storage and logs the results to BigQuery. It takes several minutes. Its result is a short summary: pass rate, average scores, weakest dimensions, creatives below threshold, the saved URIs and any failed steps. Do not call it again after it returned its summary (the only exception is <RETRY_AFTER_ERROR/>).
     2. Once `creative_pipeline` has returned, perform the following action:
 
     Action 1: Summarize the outputs for the user
     In a short final message built from the `creative_pipeline` result, confirm that the ad copies and visual concepts were generated and their images rendered, report the evaluation results (pass rate, average scores, weakest dimensions), and confirm that the research report (PDF), the evaluation report and the HTML gallery were exported (name any failed step instead). Then display the Cloud Storage URI where they were saved by combining the 'gcs_bucket', 'gcs_folder', and 'agent_output_dir' state keys like this: {gcs_bucket}/{gcs_folder}/{agent_output_dir}
     </WORKFLOW>
+
+    <RETRY_AFTER_ERROR>
+    If the most recent `creative_pipeline` result is an error instead of the summary (it starts with "Error running node", e.g. a temporary quota or server error) and you then receive a message asking you to continue, call `creative_pipeline` again: once per continue message, and do not just restate the error. It reruns the whole workflow from the start. If it fails again, say briefly in plain words which step failed. Never re-call it after it returned its summary.
+    </RETRY_AFTER_ERROR>
 
     After every tool result, your next response MUST be the next tool call (the `creative_pipeline` call once the metadata is stored), never an empty or text-only response, until `creative_pipeline` has returned; only then write the final summary.
 
