@@ -26,14 +26,14 @@ tuned on live runs to flag only clear problems (false-positive fixes: #268).
 
 The judge answers a judge-only schema (`AdCopyJudgeOutput` / `VisualJudgeOutput`: `gates` required, min 1; no `overall_score`/`passed`/`gates_passed`/`advisory`/`image_judged` — code maps it to the report models and computes those). Gate prompts: presence gates pass only when clearly present, violation gates (`avoid_respected`, carryable `mandatories_met`, `no_visual_defects`, `trend_risks_respected`) fail only on a clear violation, not-applicable passes with the reason in the note. Gates are normalised in code (`normalize_gates`: none of the expected gates reported → one failed `gates_reported` gate, "judge returned no gates"; a partial omission passes as "not checked" and adds a report warning "N checks not reported by the judge"; without a brief the brief-dependent gates pass with note "no brief" and `report.brief_used=False`). The visual judge sees the **rendered image** (`generated_images[concept].gcs_uri` as a `gs://` `Part`; the prompt is only intent; the image-QA verdict is a hint line) (fetched by the Vertex AI service agent; cross-project buckets need it granted `storage.objectViewer`) — no image, or an image read error (403/404, or a 400 mentioning the image/URI/file/permission; other 4xx are normal judge failures), falls back to judging the prompt (`image_judged=False`; the fallback adds a report warning).
 
-**Current gate set** (`creative_eval/dimensions.py`, `JUDGE_VERSION = "2026-10-12.2"`; checked 2026-10-12):
+**Current gate set** (`creative_eval/dimensions.py`, `JUDGE_VERSION = "2026-10-13"`; checked 2026-10-13):
 
 | Kind | Gates (prompt/report order) |
 |---|---|
-| Ad copy (7) | `delivers_proposition`, `product_named`, `uses_reason_to_believe`, `mandatories_met`, `avoid_respected`, `trend_risks_respected`, `trend_connected` (presence gate, not brief-dependent; passed "no trend" when the run has no trend) |
-| Visual (8) | `product_visible`, `trend_motif_visible`, `text_correct`, `brand_cue_present` (advisory, never blocks), `avoid_respected`, `no_visual_defects`, `trend_risks_respected`, `person_depicted_respectfully` (only judged for a cast concept, else passed "no person cast") |
+| Ad copy (8) | `delivers_proposition`, `product_named`, `uses_reason_to_believe`, `mandatories_met`, `avoid_respected`, `trend_risks_respected`, `trend_connected` (presence gate, not brief-dependent; passed "no trend" when the run has no trend), `timely_claim_supported` (only judged for a timely copy, else passed "not timely") |
+| Visual (8) | `product_visible`, `trend_motif_visible`, `text_correct`, `brand_cue_present` (advisory, never blocks), `avoid_respected`, `no_visual_defects`, `trend_risks_respected`, `person_depicted_respectfully` (only judged for a cast concept, else passed "no person cast"), `timely_claim_supported` (only judged for a timely concept, else passed "not timely") |
 
-Brief-dependent gates (`BRIEF_GATES`): `delivers_proposition`, `uses_reason_to_believe`, `mandatories_met`, `avoid_respected`, `trend_risks_respected`. Trend gates (`TREND_GATES`): `trend_connected` — judged with or without a brief, passed in code with note "no trend" only when the run has no target trend. A creative `passed` only when its normalised score ≥ `passing_threshold` (0.7) **and** every non-advisory gate passed. Bump `JUDGE_VERSION` to the change's date whenever gates, their wording, scoring/pass rules or the judge model change (calibration counts only current-version ratings; [judge-calibration.md](judge-calibration.md)). The timely slot (below) has no judge gate yet; its checks are all pre-eval.
+Brief-dependent gates (`BRIEF_GATES`): `delivers_proposition`, `uses_reason_to_believe`, `mandatories_met`, `avoid_respected`, `trend_risks_respected`. Trend gates (`TREND_GATES`): `trend_connected` — judged with or without a brief, passed in code with note "no trend" only when the run has no target trend. A creative `passed` only when its normalised score ≥ `passing_threshold` (0.7) **and** every non-advisory gate passed. Bump `JUDGE_VERSION` to the change's date whenever gates, their wording, scoring/pass rules or the judge model change (calibration counts only current-version ratings; [judge-calibration.md](judge-calibration.md)). Timely gates (`TIMELY_GATES`): `timely_claim_supported` — judged only for a timely creative (see the 2026-10-13 entry below), passed in code with note "not timely" for every other creative; the timely slot's other checks (below) are pre-eval.
 
 ## Person casting (2026-10-10, plan `docs/plans/2026-10-09-person-reference.md` PR 2)
 
@@ -107,6 +107,32 @@ so the policy is upstream:
   trend tie (below) is skipped, since the event must not be referenced. The judge stays
   strict: `trend_connected` still applies (the general culture of the trend counts, the
   event never does), so such runs may fail it; that is accepted, and the flag is the fix.
+
+### 2026-10-13 `timely_claim_supported` gate (trend-state Phase 3, Idea 5)
+
+The timely slot's pre-eval checks keep evergreen creatives timeless and cap the timely
+ones, but nothing after them checked that the timely creative's claim matched the
+validated moment: the judge never saw `trend_situation`. New blocking gate
+`timely_claim_supported` ("Timely claim supported", ad copy **and** visual,
+`JUDGE_VERSION` `2026-10-13`). A creative is timely for the judge when its own
+`uses_trend_state is True` (a visual concept: its own flag or its paired copy's,
+`ad_copy_id == original_id` compared as strings) **and** `trend_situation.timely_ok is
+True` with a non-empty `valid_until` (`creative_eval.evaluate.creative_is_timely`). Its
+prompt gets `Timely: yes` plus a `<CURRENT_MOMENT>` block (phase, event, dates, outcome,
+`outcome_summary`, `as_of`, `valid_until`, `tone_rule`, the cited source URLs from
+`state["sources"]`; built from plain dict keys, so `creative_eval` still never imports
+`creative_agent`); every other creative gets `Timely: no`, no block, and the gate passes in
+code with note "not timely" whatever the judge says. Rule: the reference matches the
+moment's phase and outcome (no result before an upcoming event, no win framing for a
+loss), states no date or result missing from the moment, and follows its tone rule (no
+celebrating a loss, no discounts or urgency after a loss). A timely creative whose judge
+omits the gate fails it as "not checked" (report warning "N timely check(s) not reported
+by the judge (failed as not checked)"), like the person gate. The early ad-copy
+fingerprint (`ad_copy_eval_fingerprint`) includes `trend_situation`, so an early verdict
+is never reused after the moment changes. Reports record `trend_valid_until` (the timely
+moment's `valid_until`, else "") and per-evaluation `timely`; both default, so older
+reports parse. Runs without a timely moment grade as before, but the version still
+moves because the gate list and the prompts changed.
 
 ### 2026-10-12 `trend_connected` ad-copy gate (rating evidence)
 
