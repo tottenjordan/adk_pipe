@@ -56,7 +56,7 @@ def test_streaming_error_marks_row_failed_end_to_end(monkeypatch):
 
     fake_vertex = MagicMock()
     fake_vertex.runtimes.get.return_value = remote_agent
-    monkeypatch.setattr(main, "_get_vertex_client", lambda: fake_vertex)
+    monkeypatch.setattr(main, "_new_vertex_client", lambda: fake_vertex)
 
     # Win the lock so we proceed into the agent run.
     monkeypatch.setattr(main, "acquire_processing_lock", lambda *a, **k: True)
@@ -118,7 +118,7 @@ def test_session_created_and_deleted_with_same_user_id(monkeypatch):
 
     fake_vertex = MagicMock()
     fake_vertex.runtimes.get.return_value = remote_agent
-    monkeypatch.setattr(main, "_get_vertex_client", lambda: fake_vertex)
+    monkeypatch.setattr(main, "_new_vertex_client", lambda: fake_vertex)
 
     msg = {
         "index": 0,
@@ -226,7 +226,7 @@ def test_create_agent_run_deletes_session_on_stream_error(monkeypatch):
 
     fake_vertex = MagicMock()
     fake_vertex.runtimes.get.return_value = remote_agent
-    monkeypatch.setattr(main, "_get_vertex_client", lambda: fake_vertex)
+    monkeypatch.setattr(main, "_new_vertex_client", lambda: fake_vertex)
 
     msg = {
         "index": 3,
@@ -375,7 +375,7 @@ def test_worker_uses_runtimes_api_not_agent_engines(monkeypatch):
     # spec'd so touching `.agent_engines` raises AttributeError.
     fake_client = MagicMock(spec=["runtimes"])
     fake_client.runtimes.get.return_value = remote_agent
-    monkeypatch.setattr(main, "_get_vertex_client", lambda: fake_client)
+    monkeypatch.setattr(main, "_new_vertex_client", lambda: fake_client)
 
     msg = {
         "index": 0,
@@ -397,14 +397,16 @@ def test_worker_uses_runtimes_api_not_agent_engines(monkeypatch):
 
 
 def test_vertex_client_is_agentplatform_client(monkeypatch):
-    """The lazy client is an ``agentplatform.Client`` on the regional location."""
+    """The client is an ``agentplatform.Client`` on the regional location, and a
+    new one per call (it is bound to one event loop; never cached)."""
     ctor = MagicMock()
     monkeypatch.setattr(main.agentplatform, "Client", ctor)
-    monkeypatch.setattr(main, "_vertex_client", None)
 
-    main._get_vertex_client()
+    main._new_vertex_client()
+    main._new_vertex_client()
 
-    ctor.assert_called_once_with(
+    assert ctor.call_count == 2
+    ctor.assert_called_with(
         project=main.config.GOOGLE_CLOUD_PROJECT, location=main.config.GCP_REGION
     )
 
@@ -492,7 +494,7 @@ def test_blank_campaign_fields_are_not_seeded(monkeypatch):
     remote_agent.async_delete_session = _delete_session
     fake_vertex = MagicMock()
     fake_vertex.runtimes.get.return_value = remote_agent
-    monkeypatch.setattr(main, "_get_vertex_client", lambda: fake_vertex)
+    monkeypatch.setattr(main, "_new_vertex_client", lambda: fake_vertex)
 
     msg = {
         "index": 0,
@@ -532,7 +534,7 @@ def test_trend_detection_date_and_context_seeded_as_state(monkeypatch):
     remote_agent.async_delete_session = _delete_session
     fake_vertex = MagicMock()
     fake_vertex.runtimes.get.return_value = remote_agent
-    monkeypatch.setattr(main, "_get_vertex_client", lambda: fake_vertex)
+    monkeypatch.setattr(main, "_new_vertex_client", lambda: fake_vertex)
 
     msg = {
         "index": 0,

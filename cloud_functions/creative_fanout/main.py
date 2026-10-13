@@ -32,15 +32,14 @@ message = {
 }
 """
 
-import os
-
-os.environ["PYTHONUNBUFFERED"] = "1"
-
 import asyncio
 import base64
+import inspect
 import json
 import logging
 import re
+import sys
+import threading
 import time
 from datetime import UTC, date, datetime
 
@@ -52,10 +51,48 @@ from google.cloud import bigquery, pubsub_v1
 from .config import config
 from .session import agent_session
 
-# --- config ---
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
-)
+
+# --- logging ---
+class CloudRunJsonFormatter(logging.Formatter):
+    """One JSON object per line with ``severity`` + ``message`` (+ ``time``).
+
+    Cloud Run parses JSON lines on stdout/stderr into structured log entries:
+    ``severity`` becomes the entry's level and ``message`` its text
+    (https://docs.cloud.google.com/run/docs/logging). A record's optional
+    ``json_fields`` dict (``logger.info(..., extra={"json_fields": {...}})``)
+    is merged in as extra top-level keys (queryable as ``jsonPayload.<key>``);
+    it never overrides ``severity`` / ``message`` / ``time``.
+    """
+
+    def format(self, record: logging.LogRecord) -> str:
+        message = record.getMessage()
+        if record.exc_info:
+            message = f"{message}\n{self.formatException(record.exc_info)}"
+        if record.stack_info:
+            message = f"{message}\n{self.formatStack(record.stack_info)}"
+        entry = {}
+        fields = getattr(record, "json_fields", None)
+        if isinstance(fields, dict):
+            entry.update(fields)
+        entry.update(
+            severity=record.levelname,
+            message=message,
+            time=datetime.fromtimestamp(record.created, UTC).isoformat(),
+            logger=record.name,
+        )
+        return json.dumps(entry, default=str)
+
+
+def _json_log_handler() -> logging.Handler:
+    """A stdout handler writing ``CloudRunJsonFormatter`` lines."""
+    handler = logging.StreamHandler(sys.stdout)
+    handler.setFormatter(CloudRunJsonFormatter())
+    return handler
+
+
+# Like the old text basicConfig: a no-op if the root logger already has
+# handlers (functions-framework adds none in this image at import time).
+logging.basicConfig(level=logging.INFO, handlers=[_json_log_handler()])
 # Module logger for new code (propagates to the root handler configured above).
 logger = logging.getLogger(__name__)
 
@@ -76,33 +113,65 @@ def _worker_topic_path() -> str:
 # ==============================
 # clients
 # ==============================
+# One BigQuery client and one Pub/Sub publisher per instance, built on first
+# use (so importing needs no credentials) and reused by every invocation:
+# functions-framework serves requests on many threads (the orchestrator runs
+# at concurrency 100), so creation is guarded by a lock, and a per-invocation
+# client would leak its HTTP/gRPC transport (they were never closed). The Agent
+# Runtime client is NOT cached: it is bound to one event loop (see
+# `_new_vertex_client`).
+_clients_lock = threading.Lock()
+_bigquery_client: bigquery.Client | None = None
+_pubsub_publisher: pubsub_v1.PublisherClient | None = None
+
+
 def _get_bigquery_client() -> bigquery.Client:
-    """Get a configured BigQuery client."""
-    return bigquery.Client(project=config.GOOGLE_CLOUD_PROJECT)
+    """The instance's shared BigQuery client (lazy, thread-safe)."""
+    global _bigquery_client
+    if _bigquery_client is None:
+        with _clients_lock:
+            if _bigquery_client is None:
+                _bigquery_client = bigquery.Client(project=config.GOOGLE_CLOUD_PROJECT)
+    return _bigquery_client
 
 
-def _get_pubsub_client():
-    """Get a configured Pub/Sub client."""
-    return pubsub_v1.PublisherClient()
+def _get_pubsub_client() -> pubsub_v1.PublisherClient:
+    """The instance's shared Pub/Sub publisher (lazy, thread-safe)."""
+    global _pubsub_publisher
+    if _pubsub_publisher is None:
+        with _clients_lock:
+            if _pubsub_publisher is None:
+                _pubsub_publisher = pubsub_v1.PublisherClient()
+    return _pubsub_publisher
 
 
-_vertex_client = None
+def _new_vertex_client():
+    """A new Agent Runtime client (``agentplatform.Client``) for ONE invocation.
 
-
-def _get_vertex_client():
-    """Get a lazily-initialized Agent Runtime client (``agentplatform.Client``).
-
-    Lazy so importing this module does not require GCP credentials or network
-    access (lets the entrypoints be unit-tested), mirroring the BigQuery/Pub/Sub
-    client factories above.
+    Deliberately not cached: the worker drives each invocation with its own
+    ``asyncio.run`` (a new event loop), and without aiohttp (not in this image)
+    google-genai's async path reuses a single ``httpx.AsyncClient`` bound to
+    the loop of its first request, so a cached client made the 2nd invocation
+    on a warm instance fail with ``RuntimeError: Event loop is closed``.
+    Creating one is cheap (no network call); ``create_agent_run`` closes it
+    (``aio.aclose()``) before its loop ends. Lazy, so importing this module
+    needs no credentials.
     """
-    global _vertex_client
-    if _vertex_client is None:
-        _vertex_client = agentplatform.Client(
-            project=config.GOOGLE_CLOUD_PROJECT,
-            location=config.GCP_REGION,
-        )  # pyright: ignore[reportCallIssue]
-    return _vertex_client
+    return agentplatform.Client(
+        project=config.GOOGLE_CLOUD_PROJECT,
+        location=config.GCP_REGION,
+    )  # pyright: ignore[reportCallIssue]
+
+
+async def _aclose_vertex_client(client) -> None:
+    """Release the client's async HTTP transport on the current loop (best
+    effort: a close failure is logged, never fails the run)."""
+    try:
+        result = client.aio.aclose()
+        if inspect.isawaitable(result):
+            await result
+    except Exception as e:  # noqa: BLE001 — cleanup only
+        logger.warning(f"Closing the Agent Runtime client failed: {e!r}")
 
 
 # ==============================
@@ -147,6 +216,94 @@ def pretty_print_event(event):
 
 
 # ==============================
+# message parsing
+# ==============================
+class MalformedMessageError(ValueError):
+    """A Pub/Sub message that can never be processed, however often it is
+    redelivered: the entry points log it as an error and ACK (return) instead
+    of raising, which would NACK it into a redelivery loop."""
+
+
+# Reasoning Engine IDs are numeric; allow the usual id characters, but nothing
+# that could change the resource path it is spliced into.
+_AGENT_ID_RE = re.compile(r"[A-Za-z0-9_-]{1,128}")
+_TRIGGER_FIELDS = ("bq_dataset", "bq_table", "agent_resource_id")
+_WORKER_FIELDS = (*_TRIGGER_FIELDS, "row_data")
+# Every row_data key the worker indexes (build_row_dict always sends them; a
+# campaign value may be null).
+_ROW_FIELDS = (
+    "index",
+    "entry_timestamp",
+    "brand",
+    "target_product",
+    "key_selling_point",
+    "target_audience",
+    "target_search_trend",
+)
+
+
+def _decode_pubsub_json(cloud_event) -> dict:
+    """The CloudEvent's base64 Pub/Sub ``message.data`` as a JSON object.
+
+    Raises MalformedMessageError for anything else (no data, bad base64 or
+    UTF-8, invalid JSON, a non-object payload).
+    """
+    try:
+        raw = base64.b64decode(cloud_event.data["message"]["data"]).decode("utf-8")
+        payload = json.loads(raw)
+    except (KeyError, TypeError, ValueError) as e:
+        # binascii.Error, UnicodeDecodeError and JSONDecodeError are ValueErrors
+        raise MalformedMessageError(
+            f"undecodable Pub/Sub message ({type(e).__name__}: {e})"
+        ) from e
+    if not isinstance(payload, dict):
+        raise MalformedMessageError(
+            f"payload is a JSON {type(payload).__name__}, not an object"
+        )
+    return payload
+
+
+def _require_fields(mapping: dict, fields, what: str) -> None:
+    missing = [f for f in fields if f not in mapping]
+    if missing:
+        raise MalformedMessageError(f"{what} missing {', '.join(missing)}")
+
+
+def _validate_agent_id(agent_id) -> None:
+    if not isinstance(agent_id, str) or not _AGENT_ID_RE.fullmatch(agent_id):
+        raise MalformedMessageError(f"invalid agent_resource_id {agent_id!r}")
+
+
+def _parse_worker_message(cloud_event) -> tuple[str, str, str, dict]:
+    """``(dataset, table, agent_resource_id, row_data)`` from a worker message.
+
+    Raises ValueError (MalformedMessageError, or the identifier / timestamp
+    validators' ValueError) for a message that can never be processed.
+    """
+    payload = _decode_pubsub_json(cloud_event)
+    _require_fields(payload, _WORKER_FIELDS, "worker message")
+    row_data = payload["row_data"]
+    if not isinstance(row_data, dict):
+        raise MalformedMessageError("row_data is not an object")
+    _require_fields(row_data, _ROW_FIELDS, "row_data")
+    index = row_data["index"]
+    if isinstance(index, bool) or not isinstance(index, int):
+        raise MalformedMessageError(f"row_data.index {index!r} is not an integer")
+    _validate_agent_id(payload["agent_resource_id"])
+    # dataset/table stay in the worker message (compatible with messages already
+    # in flight across a deploy) but must be allow-listed; the timestamp must
+    # parse (the lock builder would raise on it otherwise).
+    _validate_target(payload["bq_dataset"], payload["bq_table"])
+    _to_utc_datetime(row_data["entry_timestamp"])
+    return (
+        payload["bq_dataset"],
+        payload["bq_table"],
+        payload["agent_resource_id"],
+        row_data,
+    )
+
+
+# ==============================
 # SQL builders
 # ==============================
 # BigQuery can't parameterize identifiers, and the dataset/table arrive in the
@@ -158,12 +315,12 @@ _PROJECT_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9.:-]*")
 
 def _validate_target(dataset, table):
     """Raise ValueError unless dataset/table are on the config allow-lists."""
-    if dataset not in config.ALLOWED_BQ_DATASETS:
+    if not isinstance(dataset, str) or dataset not in config.ALLOWED_BQ_DATASETS:
         raise ValueError(
             f"BigQuery dataset {dataset!r} not allowed "
             f"(allowed: {sorted(config.ALLOWED_BQ_DATASETS)})"
         )
-    if table not in config.ALLOWED_BQ_TABLES:
+    if not isinstance(table, str) or table not in config.ALLOWED_BQ_TABLES:
         raise ValueError(
             f"BigQuery table {table!r} not allowed "
             f"(allowed: {sorted(config.ALLOWED_BQ_TABLES)})"
@@ -257,9 +414,22 @@ def _resolve_max_rows(requested, cap):
 
 
 def _run_query(bq_client, sql, params):
-    """Submit a parameterized query and return the QueryJob."""
-    return bq_client.query(
-        sql, job_config=bigquery.QueryJobConfig(query_parameters=params)
+    """Run a parameterized query, wait (bounded) and return its ``RowIterator``.
+
+    ``query_and_wait`` gives up after ``wait_timeout`` (raising
+    ``concurrent.futures.TimeoutError`` and trying to cancel the job), and the
+    job's ``job_timeout_ms`` bounds it server-side too, so a stuck query fails
+    the invocation instead of hanging until the Cloud Run timeout. The
+    iterator carries ``num_dml_affected_rows`` for DML (both the fast
+    ``jobs.query`` path and the job fallback set it).
+    """
+    timeout = config.BQ_QUERY_TIMEOUT_SECS
+    return bq_client.query_and_wait(
+        sql,
+        job_config=bigquery.QueryJobConfig(
+            query_parameters=params, job_timeout_ms=int(timeout * 1000)
+        ),
+        wait_timeout=timeout,
     )
 
 
@@ -279,7 +449,7 @@ def update_rows_status(bq_client, dataset, table, timestamps, status="PROCESSED"
 
     # Execute the update
     try:
-        _run_query(bq_client, sql, params).result()
+        _run_query(bq_client, sql, params)
         logging.info(
             f"Successfully updated status to {status} for {len(timestamps)} rows."
         )
@@ -400,10 +570,6 @@ async def create_agent_run(
     """
     logging.info(f"Invoking Agent Run {msg_dict['index'] + 1}...")
 
-    remote_agent = _get_vertex_client().runtimes.get(
-        name=f"projects/{config.GOOGLE_CLOUD_PROJECT_NUMBER}/locations/{_LOCATION}/reasoningEngines/{agent_id}"
-    )
-
     USER_QUERY = f"""Brand: {msg_dict["brand"]}
     Target Product: {msg_dict["target_product"]}
     Key Selling Point(s): {msg_dict["key_selling_point"]}
@@ -421,14 +587,43 @@ async def create_agent_run(
     # create → stream → delete, all under one user_id. The delete runs even if
     # the stream raises (agent_session's finally), so a failed run never leaks a
     # session, and it can't drift onto a different user_id.
-    async with agent_session(remote_agent, user_id, state=campaign_state) as session:
-        # long running op
-        await async_send_message(
-            remote_agent=remote_agent,
-            user_id=user_id,
-            session=session,
-            user_query=USER_QUERY,
+    # A fresh client (and engine handle) per invocation, closed on this loop:
+    # see _new_vertex_client for why it can't be cached.
+    client = _new_vertex_client()
+    try:
+        remote_agent = client.runtimes.get(
+            name=f"projects/{config.GOOGLE_CLOUD_PROJECT_NUMBER}/locations/{_LOCATION}/reasoningEngines/{agent_id}"
         )
+        async with agent_session(
+            remote_agent, user_id, state=campaign_state
+        ) as session:
+            # long running op
+            await async_send_message(
+                remote_agent=remote_agent,
+                user_id=user_id,
+                session=session,
+                user_query=USER_QUERY,
+            )
+    finally:
+        await _aclose_vertex_client(client)
+
+
+def _log_run_duration(timestamp, index, status, run_start) -> None:
+    """The AGENT_RUN_DURATION_SECS marker: the same text as before (existing
+    log queries match ``message``) plus row/index/status/secs as JSON keys."""
+    secs = round(time.monotonic() - run_start, 1)
+    logger.info(
+        f"AGENT_RUN_DURATION_SECS row={timestamp} index={index} "
+        f"status={status} secs={secs:.1f}",
+        extra={
+            "json_fields": {
+                "row": timestamp,
+                "index": index,
+                "status": status,
+                "secs": secs,
+            }
+        },
+    )
 
 
 # --- Helper to encapsulate the single-row logic ---
@@ -473,10 +668,7 @@ async def _execute_agent_and_update_status(
             timestamps=[timestamp],
             status="PROCESSED",
         )
-        logging.info(
-            f"AGENT_RUN_DURATION_SECS row={timestamp} index={trend_dict['index']} "
-            f"status=PROCESSED secs={time.monotonic() - run_start:.1f}"
-        )
+        _log_run_duration(timestamp, trend_dict["index"], "PROCESSED", run_start)
         logging.info(f"Successfully processed and marked row {timestamp} as PROCESSED.")
 
     except Exception as e:  # noqa: BLE001 — recorded as FAILED below, then ACKed
@@ -484,10 +676,7 @@ async def _execute_agent_and_update_status(
         # RETURN so the worker message is ACKed. Re-raising would only buy a
         # no-op retry: the redelivery's QUEUED->PROCESSING lock can't match a
         # FAILED row, so it would just log "Lock failed" and ACK anyway.
-        logging.info(
-            f"AGENT_RUN_DURATION_SECS row={timestamp} index={trend_dict['index']} "
-            f"status=FAILED secs={time.monotonic() - run_start:.1f}"
-        )
+        _log_run_duration(timestamp, trend_dict["index"], "FAILED", run_start)
         logging.error(
             f"Failed processing row {timestamp} (index={trend_dict['index']}): "
             f"{type(e).__name__}: {e}"
@@ -550,9 +739,8 @@ def acquire_processing_lock(bq_client, dataset, table, timestamp):
 
     # Execute the update
     try:
-        query_job = _run_query(bq_client, lock_sql, lock_params)
-        # Wait for the query to finish and get the rows affected count
-        result = query_job.result()
+        # Wait (bounded) for the UPDATE and read the rows-affected count
+        result = _run_query(bq_client, lock_sql, lock_params)
         rows_updated = result.num_dml_affected_rows
 
         if rows_updated == 1:
@@ -621,7 +809,7 @@ def reap_stale_processing_rows(bq_client, dataset, table):
         config.MAX_PROCESSING_ATTEMPTS,
     )
     try:
-        n = _run_query(bq_client, sql, params).result().num_dml_affected_rows or 0
+        n = _run_query(bq_client, sql, params).num_dml_affected_rows or 0
         if n:
             logging.warning(
                 f"Reaped {n} stale PROCESSING row(s) "
@@ -665,44 +853,39 @@ def crf_entrypoint(cloud_event: CloudEvent) -> None:
     Returns:
          None: output is written to Cloud Logging
     """
-    bq_client = _get_bigquery_client()
-    pubsub_publisher = _get_pubsub_client()
-
-    # Get the Pub/Sub message data
-    pubsub_message = cloud_event.data
-
-    # Decode the base64 encoded message data
-    message_payload = None
-    if "message" in pubsub_message and "data" in pubsub_message["message"]:
-        data = base64.b64decode(pubsub_message["message"]["data"]).decode("utf-8")
-        logging.info(f"Received Pub/Sub message data:\n\n{data}\n\n")
-
-        # You can further parse the data if it's JSON, for example
-        try:
-            message_payload = json.loads(data)
-            logging.info(f"Parsed message payload: {message_payload}")
-        except json.JSONDecodeError:
-            logging.exception("Message data is not valid JSON.")
-    else:
+    # A trigger without data or without `bq_dataset` is not work: log and ACK.
+    data = cloud_event.data
+    message = data.get("message") if isinstance(data, dict) else None
+    if not isinstance(message, dict) or "data" not in message:
         logging.info("No data found in the Pub/Sub message.")
-
-    # Bail out cleanly (ACK) on a malformed/empty trigger message so we don't
-    # NACK into a redelivery loop. Only a payload carrying `bq_dataset` is work.
-    if not message_payload or "bq_dataset" not in message_payload:
+        return
+    try:
+        message_payload = _decode_pubsub_json(cloud_event)
+    except MalformedMessageError as e:
+        logger.error(f"Rejecting trigger message: {e}")
+        return
+    logging.info(f"Parsed message payload: {message_payload}")
+    if "bq_dataset" not in message_payload:
         logging.info("Trigger message has no 'bq_dataset'; nothing to process.")
         return
 
-    dataset = message_payload["bq_dataset"]
-    table = message_payload["bq_table"]
-    agent_resource_id = message_payload["agent_resource_id"]
     # The trigger message names the dataset/table; they become SQL identifiers,
-    # so they must be on the config allow-list. A bad one can never become valid
-    # on redelivery, so log and ACK rather than NACK into a redelivery loop.
+    # so they must be on the config allow-list. A missing field, a bad
+    # identifier or agent id can never become valid on redelivery, so log and
+    # ACK rather than NACK into a redelivery loop.
     try:
+        _require_fields(message_payload, _TRIGGER_FIELDS, "trigger message")
+        dataset = message_payload["bq_dataset"]
+        table = message_payload["bq_table"]
+        agent_resource_id = message_payload["agent_resource_id"]
+        _validate_agent_id(agent_resource_id)
         _validate_target(dataset, table)
     except ValueError as e:
         logger.error(f"Rejecting trigger message: {e}")
         return
+
+    bq_client = _get_bigquery_client()
+    pubsub_publisher = _get_pubsub_client()
 
     # 0. Reap stale PROCESSING rows: a worker that hard-crashes AFTER acquiring
     # the lock strands its row in PROCESSING forever (a clean failure self-reports
@@ -731,7 +914,7 @@ def crf_entrypoint(cloud_event: CloudEvent) -> None:
     )
     try:
         # Iterate the rows directly: the CRF image ships without pandas.
-        rows = list(_run_query(bq_client, select_sql, select_params).result())
+        rows = list(_run_query(bq_client, select_sql, select_params))
     except Exception as e:
         logging.error(f"Error querying BQ: {e}")
         raise  # Re-raise to signal failure to Pub/Sub
@@ -819,33 +1002,16 @@ def crf_entrypoint(cloud_event: CloudEvent) -> None:
 @functions_framework.cloud_event
 def agent_worker_entrypoint(cloud_event: CloudEvent) -> None:
     """Entry point for the worker, processes data for a single row."""
-    bq_client = _get_bigquery_client()
+    # A malformed message (undecodable, missing fields, a bad identifier, agent
+    # id or entry_timestamp) never becomes valid on redelivery: log and ACK.
+    try:
+        dataset, table, agent_resource_id, row_data = _parse_worker_message(cloud_event)
+    except ValueError as e:
+        logger.error(f"Rejecting worker message: {e}")
+        return
 
     try:
-        # Decode worker message payload (This contains the single row data)
-        pubsub_message = cloud_event.data
-        data = base64.b64decode(pubsub_message["message"]["data"]).decode("utf-8")
-        worker_payload = json.loads(data)
-
-        # Ensure all required metadata is present
-        dataset = worker_payload["bq_dataset"]
-        table = worker_payload["bq_table"]
-        agent_resource_id = worker_payload["agent_resource_id"]
-        row_data = worker_payload["row_data"]
-
-        # dataset/table stay in the worker message (compatible with messages
-        # already in flight across a deploy) but must be allow-listed. A bad
-        # identifier never becomes valid on redelivery -> log and ACK.
-        # Same for a malformed entry_timestamp: it can never parse on
-        # redelivery, so validate it up front and ACK instead of letting the
-        # lock builder raise into the NACK path below.
-        try:
-            _validate_target(dataset, table)
-            _to_utc_datetime(row_data["entry_timestamp"])
-        except ValueError as e:
-            logger.error(f"Rejecting worker message: {e}")
-            return
-
+        bq_client = _get_bigquery_client()
         # Since the core agent logic is async, we run it here
         asyncio.run(
             _execute_agent_and_update_status(

@@ -93,6 +93,7 @@ tests/
 ├── test_eval_dimensions.py          # creative_eval.dimensions labels mirror frontend/src/lib/eval-dimensions.ts (drift test)
 ├── test_crf_config.py               # env-driven CRF config (required project, no hardcoding)
 ├── test_crf_entrypoint.py           # crf_entrypoint orchestrator (issue #46)
+├── test_crf_hardening.py            # CRF JSON logs, malformed messages ACKed, client singletons, bounded BQ waits, per-invocation Agent Runtime client (two asyncio.run loops)
 ├── test_crf_logic.py                # Cloud Run Function logic (orchestrator + worker)
 ├── test_crf_sql_params.py           # CRF SQL safety: allow-listed identifiers, parameterized values, sensitive trend_context rows excluded from the orchestrator SELECT
 ├── test_crf_worker_async.py         # async worker path of the CRF (issue #45)
@@ -255,9 +256,10 @@ tests/
   that infra tools raise (rather than swallow errors into status dicts) so ADK retry works.
 - **Deployment & fan-out** — `test_deploy_utils.py`, `test_deploy_import_graph.py`, `test_cloudbuild_agents.py`, `test_create_session_engine.py`,
   `test_crf_entrypoint.py`, `test_crf_logic.py`, `test_crf_worker_async.py`,
-  `test_crf_config.py`, `test_crf_sql_params.py`: deploy mappings/env wiring, the
-  `runtimes.create` path, and the orchestrator + worker Cloud Run Function paths
-  (env-driven config, SQL identifier/parameter safety).
+  `test_crf_config.py`, `test_crf_sql_params.py`, `test_crf_hardening.py`: deploy
+  mappings/env wiring, the `runtimes.create` path, and the orchestrator + worker Cloud
+  Run Function paths (env-driven config, SQL identifier/parameter safety, malformed
+  messages, client lifetimes, bounded BigQuery waits, JSON logs).
 - **SDK guards** — `test_sdk_versions.py`, `test_no_legacy_agent_engines_api.py`: the
   aiplatform 2.x `agentplatform` + `vertexai` surfaces are present, and no repo call site
   uses the deprecated `agent_engines` API.

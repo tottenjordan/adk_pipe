@@ -69,15 +69,15 @@ def _row(ts, trend, brand="BrandX"):
 
 
 def _set_rows(bq, rows):
-    """Make every query job's ``result()`` iterate ``rows``.
+    """Make every ``query_and_wait`` result iterate ``rows``.
 
     Only ``__iter__`` is configured: the reaper reads
-    ``result().num_dml_affected_rows`` on the same mock. ``to_dataframe`` raises
+    ``num_dml_affected_rows`` on the same mock. ``to_dataframe`` raises
     so a regression back to pandas fails loudly (the CRF image has no pandas).
     """
-    job = bq.query.return_value
-    job.result.return_value.__iter__.side_effect = lambda: iter(rows)
-    job.to_dataframe.side_effect = AssertionError(
+    result = bq.query_and_wait.return_value
+    result.__iter__.side_effect = lambda: iter(rows)
+    result.to_dataframe.side_effect = AssertionError(
         "to_dataframe needs pandas; iterate rows"
     )
 
@@ -94,7 +94,7 @@ def test_no_message_returns_cleanly(mocked_clients):
     bq, publisher = mocked_clients
     main.crf_entrypoint(_event({}))
     publisher.publish.assert_not_called()
-    bq.query.assert_not_called()
+    bq.query_and_wait.assert_not_called()
 
 
 def test_non_json_message_returns_cleanly(mocked_clients):
@@ -102,7 +102,7 @@ def test_non_json_message_returns_cleanly(mocked_clients):
     bq, publisher = mocked_clients
     main.crf_entrypoint(_pubsub_event("this is not json"))
     publisher.publish.assert_not_called()
-    bq.query.assert_not_called()
+    bq.query_and_wait.assert_not_called()
 
 
 def test_json_without_bq_dataset_returns_cleanly(mocked_clients):
@@ -110,7 +110,7 @@ def test_json_without_bq_dataset_returns_cleanly(mocked_clients):
     bq, publisher = mocked_clients
     main.crf_entrypoint(_pubsub_event({"foo": "bar"}))
     publisher.publish.assert_not_called()
-    bq.query.assert_not_called()
+    bq.query_and_wait.assert_not_called()
 
 
 def test_valid_payload_no_rows_no_dispatch(mocked_clients, caplog):
@@ -123,7 +123,9 @@ def test_valid_payload_no_rows_no_dispatch(mocked_clients, caplog):
     publisher.publish.assert_not_called()
     assert "No new rows found to process" in caplog.text
     assert "Loaded 0" not in caplog.text
-    assert bq.query.call_count == 2  # reap UPDATE + SELECT only, no status UPDATE
+    assert (
+        bq.query_and_wait.call_count == 2
+    )  # reap UPDATE + SELECT only, no status UPDATE
 
 
 def test_valid_payload_with_rows_dispatches_one_message_per_row(mocked_clients):
@@ -139,7 +141,7 @@ def test_valid_payload_with_rows_dispatches_one_message_per_row(mocked_clients):
         "2026-07-12T01:00:00+00:00",
     ]
     assert [m["row_data"]["index"] for m in sent] == [0, 1]
-    bq.query.return_value.to_dataframe.assert_not_called()
+    bq.query_and_wait.return_value.to_dataframe.assert_not_called()
 
 
 def test_null_brand_dispatches_json_null(mocked_clients):
@@ -166,7 +168,7 @@ def test_requery_recovers_stuck_queued_rows(mocked_clients):
     main.crf_entrypoint(_pubsub_event(payload))
     # empty df → the reap UPDATE runs first, then the SELECT (no dispatch); the
     # SELECT is the second query.
-    select_sql = bq.query.call_args_list[1][0][0]
+    select_sql = bq.query_and_wait.call_args_list[1][0][0]
     assert "SELECT" in select_sql
     assert "QUEUED" in select_sql
     assert "IS NULL" in select_sql  # still picks up brand-new rows too
@@ -180,7 +182,7 @@ def test_crf_entrypoint_reaps_before_requery(mocked_clients):
     _set_rows(bq, [])  # nothing to dispatch
     payload = {"bq_dataset": DS, "bq_table": TBL, "agent_resource_id": "123"}
     main.crf_entrypoint(_pubsub_event(payload))
-    first_sql = bq.query.call_args_list[0].args[0]
+    first_sql = bq.query_and_wait.call_args_list[0].args[0]
     assert "processed_status = 'PROCESSING'" in first_sql  # the reap UPDATE ran first
     assert "TIMESTAMP_SUB" in first_sql
 
@@ -209,10 +211,10 @@ def test_acquire_processing_lock_true_when_one_row_updated():
     → True, and the UPDATE gates on the row still being QUEUED."""
     bq = MagicMock()
     bq.project = "test-project"
-    bq.query.return_value.result.return_value.num_dml_affected_rows = 1
+    bq.query_and_wait.return_value.num_dml_affected_rows = 1
     got = main.acquire_processing_lock(bq, DS, TBL, "2026-07-12T00:00:00")
     assert got is True
-    lock_sql = bq.query.call_args[0][0]
+    lock_sql = bq.query_and_wait.call_args[0][0]
     assert "AND processed_status = 'QUEUED'" in lock_sql
 
 
@@ -220,7 +222,7 @@ def test_acquire_processing_lock_false_when_zero_rows_updated():
     """0 affected rows (another worker won the race) → False."""
     bq = MagicMock()
     bq.project = "test-project"
-    bq.query.return_value.result.return_value.num_dml_affected_rows = 0
+    bq.query_and_wait.return_value.num_dml_affected_rows = 0
     got = main.acquire_processing_lock(bq, DS, TBL, "2026-07-12T00:00:00")
     assert got is False
 
@@ -252,7 +254,7 @@ def test_reap_sql_requeues_under_cap_and_fails_over_cap():
 def test_reap_returns_reclaimed_count(mocked_clients):
     """reap_stale_processing_rows returns the number of rows reclaimed."""
     bq, _ = mocked_clients
-    bq.query.return_value.result.return_value.num_dml_affected_rows = 2
+    bq.query_and_wait.return_value.num_dml_affected_rows = 2
     n = main.reap_stale_processing_rows(bq, DS, TBL)
     assert n == 2
 
@@ -260,5 +262,5 @@ def test_reap_returns_reclaimed_count(mocked_clients):
 def test_reap_is_non_fatal_on_bq_error(mocked_clients):
     """A BQ error while reaping must not crash the orchestrator: returns 0."""
     bq, _ = mocked_clients
-    bq.query.side_effect = RuntimeError("bq boom")
+    bq.query_and_wait.side_effect = RuntimeError("bq boom")
     assert main.reap_stale_processing_rows(bq, DS, TBL) == 0
