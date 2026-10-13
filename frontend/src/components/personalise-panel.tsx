@@ -94,7 +94,8 @@ export function PersonalisePanel({
     listVariants(appName, sessionId).then(
       (listing) => {
         if (cancelled || !alive.current) return;
-        setVariant(latestVariant(listing.variants, conceptName, consentId));
+        // A render started meanwhile (fast Render click) wins over the earlier preview.
+        setVariant((prev) => prev ?? latestVariant(listing.variants, conceptName, consentId));
         setEligibility(listing);
       },
       () => {

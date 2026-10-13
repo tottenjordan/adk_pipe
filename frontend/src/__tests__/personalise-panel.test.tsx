@@ -143,6 +143,29 @@ describe("PersonalisePanel", () => {
     expect(listVariants.mock.calls.length).toBe(calls);
   });
 
+  it("keeps a render started before the earlier-preview lookup resolves", async () => {
+    let resolveListing: (v: unknown) => void = () => {};
+    listVariants.mockReturnValueOnce(new Promise((r) => (resolveListing = r)));
+    createVariant.mockResolvedValue({
+      key: "fresh",
+      concept_name: CONCEPT,
+      cached: false,
+      status: "queued",
+      consent_id: "consent-1234",
+      created_at: DONE.created_at,
+    });
+    renderPanel();
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "Person" })).toHaveValue("consent-1234"));
+    fireEvent.click(screen.getByRole("button", { name: "Render preview" }));
+    expect(await screen.findByRole("status")).toHaveTextContent(/Queued/);
+
+    // The slow initial lookup lands afterwards, with an older finished preview.
+    await act(async () => resolveListing(listing({ [CONCEPT]: { k1: DONE } })));
+    expect(screen.getByRole("status")).toHaveTextContent(/Queued/);
+    expect(screen.getByRole("button", { name: "Rendering…" })).toBeDisabled();
+    expect(screen.queryByAltText(/Personalised preview/)).not.toBeInTheDocument();
+  });
+
   it("stops polling on unmount", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     listVariants.mockResolvedValue(listing({ [CONCEPT]: { k1: { ...DONE, status: "rendering" } } }));
