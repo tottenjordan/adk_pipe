@@ -1,14 +1,13 @@
 "use client";
 
 import { FieldLabel } from "@/components/field-label";
-import { parseGsUri } from "@/lib/gcs";
 
 /** The Cloud Console browser URL for a gs:// folder or bare bucket, else null. */
 function consoleUrlFor(uri: string): string | null {
-  const parsed = parseGsUri(uri) ?? parseGsUri(`${uri}/`);
-  return parsed && parsed.bucket
-    ? `https://console.cloud.google.com/storage/browser/${parsed.bucket}/${parsed.path}`
-    : null;
+  // Not `parseGsUri`: that accepts object URIs only, and a bare bucket or a
+  // trailing-slash folder is exactly what this widget shows.
+  const m = /^gs:\/\/([^/]+)\/?(.*)$/.exec(uri);
+  return m ? `https://console.cloud.google.com/storage/browser/${m[1]}/${m[2]}` : null;
 }
 
 export function GcsWidget({ uri }: { uri: string }) {
