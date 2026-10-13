@@ -145,6 +145,8 @@ class TestBuildConfig:
         allowed = set(build["substitutions"]) | {"PROJECT_ID", "BUILD_ID"}
         for step in build["steps"]:
             text = _script(step).replace("$$", "")
+            # Command substitutions too, for consistency: $$( everywhere.
+            assert "$(" not in text, (step["id"], "unescaped $( in script")
             for m in re.finditer(r"\$\{?([A-Za-z_][A-Za-z0-9_]*)", text):
                 assert m.group(1) in allowed, (step["id"], m.group(0))
 

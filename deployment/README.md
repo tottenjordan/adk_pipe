@@ -136,7 +136,8 @@ uv run python deployment/deploy_agent.py --version=v1 --agent=interactive_creati
 # list existing Agent Engine instances
 uv run python deployment/deploy_agent.py --list
 
-# delete an Agent Engine Runtime
+# delete an Agent Engine Runtime (a numeric ID or full resource name; refuses the
+# trend-trawler-sessions engine and any engine .env still names unless --allow_protected)
 uv run python deployment/deploy_agent.py --resource_id=<RESOURCE_ID> --delete
 
 # opt-in Cloud Trace for a new engine (off by default)
@@ -310,7 +311,9 @@ The api runs the agents in-process and does not read engine IDs, so nothing else
 roll back by pointing `.env` / the CRF message at the previous ID again (`previous` in
 `engine_ids.json`, or the old value `apply` printed). Delete old engines manually once the new
 ones are verified: `uv run python deployment/deploy_agent.py --resource_id=<numeric id> --delete`
-(`--list` shows them all).
+(`--list` shows them all). It looks the engine up first and refuses the sessions engine or an
+engine a `*_AGENT_ENGINE_ID` in your env/.env still points at (stale shell exports count too:
+run `apply` first, or `env -u` them) unless you pass `--allow_protected`.
 
 ### IAM prerequisites
 
@@ -1155,6 +1158,13 @@ there is no auto-continue (interactive_creative still calls the stages separatel
   `__run_status`, and ask the user. The durable escalation (only if this bites under real load) is **Variant 2**: hand UI runs to the existing PubSub worker
   (`cloud_functions/creative_fanout` pattern) so PubSub redelivery + a BQ status lock
   survive an instance crash.
+- **The api's in-process guards are best effort per instance.** The live-run duplicate
+  guard, the variant render claim / per-session locks / render semaphore / daily cap and
+  the per-session state locks all live in one uvicorn process. They hold while one
+  instance serves the traffic (the usual case with `--min-instances 1` and light load),
+  but the service is not capped at one instance, so a scale-out or two overlapping
+  revisions can double-drive a session or render a variant twice. Pin
+  `--max-instances 1` if that ever matters more than headroom.
 - **`partial` (token-streaming) chunks are not persisted**, so the poll renders **final**
   events only — text appears per-final-event rather than token-by-token. Acceptable; pause
   detection already ignores `partial`.
@@ -2250,7 +2260,9 @@ in `creative-trawler-crf` / `creative-worker-crf`, which is what the newest-N ke
 protects there.
 `packageNamePrefixes` are prefixes, so `creative-trawler-crf` also matches the old
 `creative-trawler-crf-vx` package (also trend-trawler's). Rolling back to a revision whose
-untagged image has aged out needs a rebuild.
+untagged image has aged out needs a rebuild. "Newest 10" counts registry *versions*, not
+builds: a BuildKit build can push several (image index, platform manifest, attestation), so
+the keep rule covers only the last few builds of a package.
 
 **Buckets** (`matchesPrefix` only; lifecycle age counts from object creation):
 

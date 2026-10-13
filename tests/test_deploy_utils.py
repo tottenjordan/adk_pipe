@@ -295,6 +295,18 @@ class TestEngineEnvKey:
         da = _import_deploy_agent()
         assert da.engine_env_key(name) == expected
 
+    def test_update_env_file_raises_when_the_write_fails(self, tmp_path, caplog):
+        """A failed .env write must not look like success (it was logged at INFO
+        and swallowed, so `engine_handoff apply` exited 0 with the old ID kept)."""
+        da = _import_deploy_agent()
+        missing_dir = tmp_path / "no-such-dir" / ".env"
+        with caplog.at_level("INFO"), pytest.raises(OSError):
+            da.update_env_file("trend_scout", "12345", str(missing_dir))
+        assert any(
+            r.levelname == "ERROR" and "SCOUT_AGENT_ENGINE_ID" in r.getMessage()
+            for r in caplog.records
+        )
+
     def test_update_env_file_writes_engine_env_key(self, tmp_path):
         da = _import_deploy_agent()
         env_file = tmp_path / ".env"
@@ -422,6 +434,71 @@ class TestRuntimesApi:
             r.levelname == "WARNING" and "boom" in r.getMessage()
             for r in caplog.records
         )
+
+    @staticmethod
+    def _delete_client(display_name="creative-trend-agent-v1"):
+        client = MagicMock(spec=["runtimes"])
+        client.runtimes.get.return_value.api_resource.display_name = display_name
+        op = client.runtimes.delete.return_value
+        op.name = "operations/789"
+        op.error = None
+        return client
+
+    @pytest.fixture
+    def delete_env(self, monkeypatch):
+        da = _import_deploy_agent()
+        monkeypatch.setenv("GOOGLE_CLOUD_PROJECT_NUMBER", "123")
+        for name in da.AGENT_NAMES:
+            monkeypatch.delenv(da.engine_env_key(name), raising=False)
+        return da
+
+    def test_delete_refuses_the_sessions_engine(self, monkeypatch, delete_env):
+        da = delete_env
+        client = self._delete_client("trend-trawler-sessions")
+        monkeypatch.setattr(da, "_get_client", lambda: client)
+        with pytest.raises(ValueError, match="trend-trawler-sessions"):
+            da.delete("456")
+        client.runtimes.delete.assert_not_called()
+
+    def test_delete_refuses_an_engine_named_in_env(self, monkeypatch, delete_env):
+        da = delete_env
+        monkeypatch.setenv(
+            "CREATIVE_AGENT_ENGINE_ID",
+            "projects/123/locations/us-central1/reasoningEngines/456",
+        )
+        client = self._delete_client()
+        monkeypatch.setattr(da, "_get_client", lambda: client)
+        with pytest.raises(ValueError, match="CREATIVE_AGENT_ENGINE_ID"):
+            da.delete("456")
+        client.runtimes.delete.assert_not_called()
+
+    def test_delete_protected_engine_with_override(self, monkeypatch, delete_env):
+        da = delete_env
+        monkeypatch.setenv("SCOUT_AGENT_ENGINE_ID", "456")
+        client = self._delete_client("trend-trawler-sessions")
+        monkeypatch.setattr(da, "_get_client", lambda: client)
+        da.delete("456", allow_protected=True)
+        client.runtimes.delete.assert_called_once()
+
+    def test_delete_accepts_a_full_resource_name(self, monkeypatch, delete_env):
+        da = delete_env
+        client = self._delete_client()
+        monkeypatch.setattr(da, "_get_client", lambda: client)
+        da.delete("projects/123/locations/us-central1/reasoningEngines/456")
+        expected = (
+            f"projects/123/locations/{da.AGENT_ENGINE_LOCATION}/reasoningEngines/456"
+        )
+        client.runtimes.get.assert_called_once_with(name=expected)
+        client.runtimes.delete.assert_called_once_with(name=expected, force=True)
+
+    def test_delete_requires_the_project_number(self, monkeypatch, delete_env):
+        da = delete_env
+        monkeypatch.delenv("GOOGLE_CLOUD_PROJECT_NUMBER")
+        client = self._delete_client()
+        monkeypatch.setattr(da, "_get_client", lambda: client)
+        with pytest.raises(ValueError, match="GOOGLE_CLOUD_PROJECT_NUMBER"):
+            da.delete("456")
+        client.runtimes.delete.assert_not_called()
 
     def test_client_is_agentplatform(self, monkeypatch):
         da = _import_deploy_agent()
@@ -564,6 +641,21 @@ class TestDeployAgentCreate:
         with pytest.raises(RuntimeError, match="quota"):
             da.deploy_agent("creative_agent", "v9")
         update_env.assert_not_called()
+
+    @pytest.mark.parametrize("value", [None, "", "  "])
+    def test_create_without_bucket_fails_up_front(self, monkeypatch, value):
+        da, _, adk_app_cls, client, _ = self._setup(
+            monkeypatch, "creative_agent", with_app=False
+        )
+        if value is None:
+            monkeypatch.delenv("GOOGLE_CLOUD_STORAGE_BUCKET")
+        else:
+            monkeypatch.setenv("GOOGLE_CLOUD_STORAGE_BUCKET", value)
+        # Was a staging bucket of "gs://None" after every agent was imported.
+        with pytest.raises(ValueError, match="GOOGLE_CLOUD_STORAGE_BUCKET"):
+            da.deploy_agent("creative_agent", "v9")
+        adk_app_cls.assert_not_called()
+        client.runtimes.create.assert_not_called()
 
     def test_create_returns_resource_name_and_prints_nothing_by_default(
         self, monkeypatch, capsys
@@ -774,6 +866,26 @@ class TestPrettyPrintEvent:
         td = _load_script("test_deployment")
         td.pretty_print_event({"author": "a", "content": None})
         td.pretty_print_event({"author": "a", "content": {"parts": None}})
+
+
+class TestEngineResourceName:
+    """test_deployment names the missing env key instead of calling
+    runtimes.get(name=None)."""
+
+    @pytest.mark.parametrize("value", [None, "", "  "])
+    def test_unset_engine_id_exits_naming_the_key(self, monkeypatch, value):
+        td = _load_script("test_deployment")
+        if value is None:
+            monkeypatch.delenv("SCOUT_AGENT_ENGINE_ID", raising=False)
+        else:
+            monkeypatch.setenv("SCOUT_AGENT_ENGINE_ID", value)
+        with pytest.raises(SystemExit, match="SCOUT_AGENT_ENGINE_ID"):
+            td.engine_resource_name("trend_scout")
+
+    def test_set_engine_id_is_returned(self, monkeypatch):
+        td = _load_script("test_deployment")
+        monkeypatch.setenv("CREATIVE_AGENT_ENGINE_ID", " projects/p/x/123 ")
+        assert td.engine_resource_name("creative_agent") == "projects/p/x/123"
 
 
 class TestBuildTestState:
@@ -1068,3 +1180,26 @@ class TestDeployAgentRuntimeDeps:
 
         da = _import_deploy_agent()
         assert re.fullmatch(r"\d{4}_\d{2}_\d{2}_\d{2}_\d{2}", da.default_version())
+
+
+class TestHeadlessRun:
+    """headless_run.py exits non-zero when the run produced nothing (it used to
+    print a generate_image tool-call count, always 0 now, and exit 0)."""
+
+    @pytest.mark.slow
+    def test_empty_run_fails(self, monkeypatch, capsys):
+        hr = _load_script("headless_run")
+
+        class _NoopRunner:
+            def __init__(self, **_kwargs):
+                pass
+
+            async def run_async(self, **_kwargs):
+                return
+                yield  # an async generator that yields no events
+
+        monkeypatch.setattr(hr, "Runner", _NoopRunner)
+        import asyncio
+
+        assert asyncio.run(hr.main()) == 1
+        assert "FAIL:" in capsys.readouterr().out

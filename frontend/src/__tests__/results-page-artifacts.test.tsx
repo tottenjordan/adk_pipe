@@ -12,7 +12,6 @@ vi.mock("next/navigation", () => ({
 const api = vi.hoisted(() => ({
   getSession: vi.fn(),
   listArtifacts: vi.fn(),
-  getArtifact: vi.fn(),
 }));
 
 vi.mock("@/lib/api", async (importOriginal) => ({
@@ -42,12 +41,16 @@ function renderPage() {
   );
 }
 
-const fetchMock = vi.fn(async () => new Response("{}", { status: 404 }));
+const fetchMock = vi.fn(async (_input: RequestInfo | URL) => new Response("{}", { status: 404 }));
+
+// listArtifacts is mocked, so any network request naming an artifact would be a
+// payload download (ADK serves them under `.../artifacts/<name>`).
+const artifactFetches = () =>
+  fetchMock.mock.calls.map(([input]) => String(input)).filter((url) => url.includes("/artifacts"));
 
 beforeEach(() => {
   api.getSession.mockReset();
   api.listArtifacts.mockReset();
-  api.getArtifact.mockReset();
   fetchMock.mockClear();
   vi.stubGlobal("fetch", fetchMock);
 });
@@ -57,12 +60,12 @@ describe("results page: artifacts", () => {
   it("lists artifact names without downloading any artifact payload", async () => {
     api.getSession.mockResolvedValue(session());
     api.listArtifacts.mockResolvedValue(["a.png", "b.pdf", "c.json"]);
-    api.getArtifact.mockResolvedValue({ inlineData: { data: "xx" } });
 
     renderPage();
 
     await waitFor(() => expect(screen.queryByText("Loading results…")).toBeNull());
-    expect(api.getArtifact).not.toHaveBeenCalled();
+    expect(api.listArtifacts).toHaveBeenCalledTimes(1);
+    expect(artifactFetches()).toEqual([]);
 
     fireEvent.click(screen.getByRole("button", { name: /Artifacts/ }));
     expect(screen.getByText("a.png", { selector: "p" })).toBeTruthy();
@@ -70,7 +73,7 @@ describe("results page: artifacts", () => {
     expect(await screen.findByText("b.pdf")).toBeTruthy();
     fireEvent.click(screen.getByRole("tab", { name: /Other/ }));
     expect(await screen.findByText("c.json")).toBeTruthy();
-    expect(api.getArtifact).not.toHaveBeenCalled();
+    expect(artifactFetches()).toEqual([]);
   });
 
   it("stops the load (no eval-report fetch) when unmounted mid-load", async () => {
@@ -93,6 +96,5 @@ describe("results page: artifacts", () => {
     });
 
     expect(fetchMock).not.toHaveBeenCalled();
-    expect(api.getArtifact).not.toHaveBeenCalled();
   });
 });

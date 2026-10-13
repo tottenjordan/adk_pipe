@@ -99,6 +99,7 @@ tests/
 ├── test_date_prompts.py            # the shared DATE_CONTEXT_LINE in trend research / brief / copy / art-direction prompts (optional tokens, no literal dates), scout as_of/event_hint, Current Moment section, TREND_SCOUT_HINT_BLOCK
 ├── test_cloudbuild_agents.py        # Cloud Build engine deploys: cloudbuild.agents.yaml structure, deploy.env profile drift, clean-env wrapper, engine_handoff.py
 ├── test_deploy_utils.py             # deploy_agent.py utils (env file, extra_packages, runtimes.create) + integration_test.py (skips, creative_agent smoke output assertion)
+├── test_deploy_import_graph.py      # each agent's import-time repo-root packages ⊆ its AGENT_EXTRA_PACKAGES bundle (subprocess, slow)
 ├── test_empty_turn_retry.py         # root orchestrators re-ask a clean empty model turn (empty_turn_retries) instead of ending the run
 ├── test_experiments_api.py          # /experiments routes: create→ready, 400/404/409, traffic, stop, TTL reaper, reconcile, authz, snapshot_arms (person_variants never change the arms; cast creatives → cast_creative, person-refs/variants images → person_image), §9 scenarioOverrides validation + bandit parity, deploy lease (one deployer, expiry, heartbeat, release)
 ├── test_experiments_backends.py     # VertexDeployer (stepwise/resume, labelled-resource reuse, teardown of extras) + CloudRunJobsRunner env overrides, fakes
@@ -248,7 +249,7 @@ tests/
   run on the default seed.
 - **Tools** — `test_tools.py`, `test_tools_retry.py`: pure tool logic, plus the contract
   that infra tools raise (rather than swallow errors into status dicts) so ADK retry works.
-- **Deployment & fan-out** — `test_deploy_utils.py`, `test_cloudbuild_agents.py`, `test_create_session_engine.py`,
+- **Deployment & fan-out** — `test_deploy_utils.py`, `test_deploy_import_graph.py`, `test_cloudbuild_agents.py`, `test_create_session_engine.py`,
   `test_crf_entrypoint.py`, `test_crf_logic.py`, `test_crf_worker_async.py`,
   `test_crf_config.py`, `test_crf_sql_params.py`: deploy mappings/env wiring, the
   `runtimes.create` path, and the orchestrator + worker Cloud Run Function paths

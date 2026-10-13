@@ -28,3 +28,13 @@ def test_web_dockerignore_excludes_per_checkout_files(pattern: str) -> None:
 
 def test_web_dockerignore_keeps_existing_exclusions() -> None:
     assert {"node_modules", ".next", ".git", ".env*"} <= _patterns()
+
+
+API_DOCKERIGNORE = Path(__file__).resolve().parent.parent / ".dockerignore"
+
+
+def test_api_dockerignore_excludes_env_files_at_any_depth() -> None:
+    # `.env*` alone matches only at the context root, so a local `docker build .`
+    # would bake in e.g. creative_agent/.env.
+    lines = API_DOCKERIGNORE.read_text().splitlines()
+    assert "**/.env*" in {line.strip() for line in lines}

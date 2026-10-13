@@ -186,7 +186,8 @@ def build_env_vars(enable_tracing: bool = False) -> dict[str, str | None]:
 # runtime. Agent Engine *copies* these dirs into the container (it does NOT
 # pip-install the repo), so a package a root_agent imports at runtime MUST be
 # listed here or the engine fails to start (e.g. `No module named 'creative_eval'`).
-# Derived from the real import graph:
+# Kept by hand; tests/test_deploy_import_graph.py imports each agent module and
+# fails if it pulls in a repo-root package missing here. Current graph:
 #   trend_scout          -> agent_common
 #   creative_agent       -> creative_eval, agent_common
 #   interactive_creative -> creative_agent, creative_eval, agent_common
@@ -247,6 +248,11 @@ flags.DEFINE_string(
 flags.DEFINE_bool("list", False, "list all agent engine instances.")
 flags.DEFINE_bool("create", False, "create new agent engine runtime (deployment)")
 flags.DEFINE_bool("delete", False, "delete existing agent engine instance")
+flags.DEFINE_bool(
+    "allow_protected",
+    False,
+    "with --delete: allow deleting the sessions engine or an engine .env still uses",
+)
 flags.DEFINE_bool(
     "enable_tracing",
     False,
@@ -420,9 +426,14 @@ def update_env_file(name: str, agent_engine_id: str, env_file_path: str):
     KEY_NAME = engine_env_key(name)
     try:
         dotenv.set_key(env_file_path, KEY_NAME, agent_engine_id)
-        logging.info(f"Updated {KEY_NAME} in {env_file_path} to {agent_engine_id}")
     except Exception as e:
-        logging.info(f"Error updating .env file: {e}")
+        # Raise: a swallowed failure left the old ID in .env while the caller
+        # reported `old -> new` and exited 0.
+        logging.error(
+            f"Could not write {KEY_NAME}={agent_engine_id} to {env_file_path}: {e}"
+        )
+        raise
+    logging.info(f"Updated {KEY_NAME} in {env_file_path} to {agent_engine_id}")
 
 
 def write_engine_record(
@@ -481,6 +492,11 @@ def deploy_agent(
     """
     import importlib
 
+    bucket = (os.getenv("GOOGLE_CLOUD_STORAGE_BUCKET") or "").strip()
+    if not bucket:
+        # Fail before importing every agent (was a "gs://None" staging bucket).
+        raise ValueError("GOOGLE_CLOUD_STORAGE_BUCKET must be set to deploy")
+
     spec = AGENT_DEPLOY_SPECS[name]
     extra_packages = AGENT_EXTRA_PACKAGES[name]
     validate_extra_packages(extra_packages)
@@ -512,7 +528,7 @@ def deploy_agent(
                     config={
                         "requirements": requirements,
                         "extra_packages": staged,
-                        "staging_bucket": f"gs://{os.getenv('GOOGLE_CLOUD_STORAGE_BUCKET')}",
+                        "staging_bucket": f"gs://{bucket}",
                         "gcs_dir_name": f"adk-pipe/{spec['gcs_subdir']}/{version}/staging",
                         "display_name": f"{spec['display_name']}-{version}",
                         "description": root_agent.description,
@@ -572,18 +588,52 @@ def list_agents() -> None:
     logging.info(f"\nAll remote agents:\n{remote_agents_string}")
 
 
-def delete(
-    resource_id: str,
-) -> None:
-    """Deletes an existing agent engine."""
+# Engines --delete refuses unless --allow_protected: the shared sessions store
+# (force=True would delete every user's run history with it).
+PROTECTED_DISPLAY_NAME_PREFIXES = ("trend-trawler-sessions",)
+
+
+def protected_engine_reason(resource_id: str, display_name: object) -> str | None:
+    """Why deleting ``resource_id`` needs --allow_protected, or None."""
+    if isinstance(display_name, str) and display_name.startswith(
+        PROTECTED_DISPLAY_NAME_PREFIXES
+    ):
+        return f"it is the sessions engine ({display_name})"
+    for name in AGENT_NAMES:
+        key = engine_env_key(name)
+        value = (os.getenv(key) or "").strip().rstrip("/")
+        if value and value.rsplit("/", 1)[-1] == resource_id:
+            return f"{key} in the environment/.env still points at it"
+    return None
+
+
+def delete(resource_id: str, *, allow_protected: bool = False) -> None:
+    """Deletes an existing agent engine (a bare ID or a full resource name).
+
+    Looks the engine up first and refuses the sessions engine or an engine the
+    current .env still uses unless ``allow_protected``.
+    """
+    resource_id = resource_id.strip().rstrip("/").rsplit("/", 1)[-1]
     logging.info(f"Attempting to delete agent: {resource_id}")
 
     PROJECT_NUM = os.getenv("GOOGLE_CLOUD_PROJECT_NUMBER")
+    if not PROJECT_NUM:
+        raise ValueError("GOOGLE_CLOUD_PROJECT_NUMBER must be set to delete an engine")
     RESOURCE_NAME = f"projects/{PROJECT_NUM}/locations/{AGENT_ENGINE_LOCATION}/reasoningEngines/{resource_id}"
+
+    client = _get_client()
+    display_name = client.runtimes.get(name=RESOURCE_NAME).api_resource.display_name
+    logging.info(f"Engine {resource_id} display name: {display_name}")
+    reason = protected_engine_reason(resource_id, display_name)
+    if reason and not allow_protected:
+        raise ValueError(
+            f"Refusing to delete {resource_id}: {reason}. "
+            "Pass --allow_protected if this is really intended."
+        )
 
     # runtimes.delete returns the long-running operation without polling it, so
     # report the request rather than claiming the engine is already gone.
-    op = _get_client().runtimes.delete(name=RESOURCE_NAME, force=True)
+    op = client.runtimes.delete(name=RESOURCE_NAME, force=True)
     if op.error:
         logging.warning(
             f"Delete operation {op.name} for {resource_id} error: {op.error}"
@@ -620,8 +670,8 @@ def main(argv):
                 write_env=FLAGS.write_env,
                 output_json=FLAGS.output_json,
             )
-        except Exception:
-            logging.error("Deploy failed; exiting non-zero.")
+        except Exception as e:
+            logging.error(f"Deploy failed ({e}); exiting non-zero.")
             sys.exit(1)
 
     elif FLAGS.delete:
@@ -629,7 +679,10 @@ def main(argv):
             logging.error("Error: --resource_id is required for the delete operation.")
             sys.exit(1)
         try:
-            delete(resource_id=FLAGS.resource_id)
+            delete(
+                resource_id=FLAGS.resource_id,
+                allow_protected=FLAGS.allow_protected,
+            )
         except Exception:
             logging.exception("Delete failed; exiting non-zero.")
             sys.exit(1)

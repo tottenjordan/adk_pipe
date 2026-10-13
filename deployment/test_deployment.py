@@ -169,6 +169,16 @@ async def agent_session(remote_agent, user_id, state=None):
         logging.info(f"Deleted session {session['id']} for user ID: {user_id}")
 
 
+def engine_resource_name(agent: str) -> str:
+    """The deployed engine for ``agent`` from its ``*_AGENT_ENGINE_ID`` env var;
+    exits naming the key when it is unset (was ``runtimes.get(name=None)``)."""
+    env_key = engine_env_key(agent)
+    value = (os.getenv(env_key) or "").strip()
+    if not value:
+        raise SystemExit(f"{env_key} is not set (in the environment or .env)")
+    return value
+
+
 async def main() -> None:  # pylint: disable=unused-argument
     """Main function that uses the defined flags."""
     logging.basicConfig(
@@ -189,8 +199,7 @@ async def main() -> None:  # pylint: disable=unused-argument
     if not args.agent:
         logging.error("Error: --agent is required for the create operation.")
         return
-    env_key = engine_env_key(args.agent)
-    remote_agent = client.runtimes.get(name=os.getenv(env_key))
+    remote_agent = client.runtimes.get(name=engine_resource_name(args.agent))
     logging.info(f"\n\nremote_agent: {remote_agent}")
 
     # get session — create → stream → delete under one user_id (delete-on-error).

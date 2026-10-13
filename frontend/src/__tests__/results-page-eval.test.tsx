@@ -12,7 +12,6 @@ vi.mock("next/navigation", () => ({
 const api = vi.hoisted(() => ({
   getSession: vi.fn(),
   listArtifacts: vi.fn(),
-  getArtifact: vi.fn(),
 }));
 
 vi.mock("@/lib/api", async (importOriginal) => ({
@@ -52,7 +51,6 @@ const fetchMock = vi.fn();
 beforeEach(() => {
   api.getSession.mockReset().mockResolvedValue(session(FINISHED));
   api.listArtifacts.mockReset().mockResolvedValue([]);
-  api.getArtifact.mockReset();
   fetchMock.mockReset();
   vi.stubGlobal("fetch", fetchMock);
 });

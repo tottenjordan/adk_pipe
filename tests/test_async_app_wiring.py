@@ -32,6 +32,7 @@ _SCRUBBED = (
     "GOOGLE_APPLICATION_CREDENTIALS",
     "ADK_OTEL_TO_CLOUD",
     "MODEL_ARMOR_TEMPLATE",
+    "ALLOW_ORIGINS",
 )
 
 _BASE_ENV = {
@@ -103,3 +104,22 @@ def test_enforce_mode_without_proxy_sa_refuses_to_boot():
     assert result.returncode != 0, "enforce mode booted without TRUSTED_PROXY_SA"
     assert "RuntimeError" in result.stderr
     assert "USER_AUTHZ_MODE=enforce needs TRUSTED_PROXY_SA" in result.stderr
+
+
+_CORS_SCRIPT = """
+    from fastapi.middleware.cors import CORSMiddleware
+
+    from deployment import async_app
+
+    (cors,) = [m for m in async_app.app.user_middleware if m.cls is CORSMiddleware]
+    print("ORIGINS", cors.kwargs["allow_origins"])
+"""
+
+
+@pytest.mark.slow
+def test_allow_origins_entries_are_stripped():
+    # "a, b" (a space after the comma) used to pass " http://b.test" through,
+    # which never matches a browser Origin header.
+    result = _run(_CORS_SCRIPT, ALLOW_ORIGINS="http://a.test, http://b.test ,")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "ORIGINS ['http://a.test', 'http://b.test']" in result.stdout

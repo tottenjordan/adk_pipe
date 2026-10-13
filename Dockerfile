@@ -49,6 +49,6 @@ ENV UV_NO_DEV=1
 # cross-package imports (creative_eval, agent_common) resolvable. See agents/README.md.
 ENV PYTHONPATH=/app
 # Cloud Run sets $PORT; bind all interfaces. Same-origin frontend proxy means no CORS needed.
-# The entrypoint appends --session_service_uri only when SESSION_SERVICE_URI is set
-# (opt-in persistent Agent Engine sessions). See deployment/backend_entrypoint.sh.
+# SESSION_SERVICE_URI (opt-in persistent Agent Engine sessions) is read from the
+# environment inside async_app.py, not passed as a flag. See deployment/backend_entrypoint.sh.
 CMD ["sh", "deployment/backend_entrypoint.sh"]
