@@ -1,6 +1,9 @@
 /** Share links (runserver/shares.py): a frozen, revocable public snapshot of a run's
  *  slate or a single creative. Types, friendly error copy and small pure helpers. */
 
+import { gateLabel } from "@/lib/eval-dimensions";
+import { proofFailedChecks, type Proof } from "@/lib/eval-matching";
+
 export type ShareScope = "slate" | "creative";
 
 /** One share as returned by POST /shares/{u}/{app}/{session} and GET /shares/{u}. */
@@ -98,6 +101,33 @@ export function skippedNotice(skipped: SkippedCreative[] | undefined): string | 
     );
   }
   return parts.length > 0 ? parts.join(" ") : null;
+}
+
+/** A creative about to be shared that failed a blocking judge check (labels deduped). */
+export interface FailedCheck {
+  conceptName: string;
+  labels: string[];
+}
+
+/** The blocking failed checks of these proofs, one entry per failing creative
+ *  (none for passing creatives or reports written before gates). */
+export function failedChecksFor(proofs: readonly Proof[]): FailedCheck[] {
+  return proofs.flatMap((p) => {
+    const labels = [...new Set(proofFailedChecks(p).map((g) => gateLabel(g.gate)))];
+    return labels.length > 0 ? [{ conceptName: p.concept.concept_name, labels }] : [];
+  });
+}
+
+/** The share dialog's warning (never a block) before a link is made for creatives
+ *  that failed a check, or null when none failed. */
+export function failedCheckNotice(failed: readonly FailedCheck[], single: boolean): string | null {
+  if (failed.length === 0) return null;
+  if (single) {
+    return `This creative failed a quality check (${failed[0].labels.join(", ")}). Anyone with the link will see it.`;
+  }
+  const list = failed.map((f) => `${f.conceptName} (${f.labels.join(", ")})`).join("; ");
+  const them = failed.length === 1 ? "it" : "them";
+  return `${failed.length} of these creatives failed a quality check: ${list}. Anyone with the link will see ${them}.`;
 }
 
 /** True for an absolute http(s) URL; a relative `/s/<token>` means SHARE_BASE_URL is unset. */

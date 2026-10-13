@@ -12,7 +12,15 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { createShare } from "@/lib/api";
-import { isAbsoluteUrl, ShareError, shareErrorMessage, skippedNotice, type Share } from "@/lib/shares";
+import {
+  failedCheckNotice,
+  isAbsoluteUrl,
+  ShareError,
+  shareErrorMessage,
+  skippedNotice,
+  type FailedCheck,
+  type Share,
+} from "@/lib/shares";
 
 export const SHARE_NOTICE =
   "Anyone with the link can view these creatives and copy. Prompts, notes and ratings are never shared.";
@@ -41,6 +49,7 @@ export function ShareDialog({
   sessionId,
   conceptNames,
   triggerLabel,
+  failedChecks,
   onCreated,
 }: {
   appName: string;
@@ -48,6 +57,8 @@ export function ShareDialog({
   /** Share just these creatives; omit for the whole slate. */
   conceptNames?: string[];
   triggerLabel: string;
+  /** Creatives to be shared that failed a blocking judge check: a warning, never a block. */
+  failedChecks?: FailedCheck[];
   onCreated?: (share: Share) => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -58,9 +69,11 @@ export function ShareDialog({
   const [copied, setCopied] = useState("");
   const single = Boolean(conceptNames?.length);
   const leftOut = share ? skippedNotice(share.skipped) : null;
+  const checkNote = failedCheckNotice(failedChecks ?? [], single);
   const id = useId();
   const checkboxId = `${id}-eval`;
   const urlId = `${id}-url`;
+  const checkNoteId = `${id}-checks`;
   // Bumped on every open and create: a result for an older request is stale.
   const requestId = useRef(0);
 
@@ -175,9 +188,14 @@ export function ShareDialog({
           {copied}
         </p>
 
+        {!share && checkNote && (
+          <p id={checkNoteId} role="note" className="text-xs text-mark-pending">
+            {checkNote}
+          </p>
+        )}
         {!share && (
           <DialogFooter>
-            <Button onClick={create} disabled={busy}>
+            <Button onClick={create} disabled={busy} aria-describedby={checkNote ? checkNoteId : undefined}>
               {busy ? "Creating link…" : "Create link"}
             </Button>
           </DialogFooter>
