@@ -97,8 +97,24 @@ describe("share helpers", () => {
     expect(skippedNotice([...one, { concept_name: "B", reason: "person_not_shareable" }])).toBe(
       "2 creatives showing a person were left out (their consent doesn't cover public links).",
     );
-    // only person skips are counted
+    // unknown reasons are not counted
     expect(skippedNotice([{ concept_name: "C", reason: "other" }])).toBeNull();
+  });
+  it("counts timely creatives past their moment, alone and with person skips", () => {
+    const expired = { concept_name: "T", reason: "timely_expired" };
+    expect(skippedNotice([expired])).toBe("1 timely creative past its moment was left out.");
+    expect(skippedNotice([expired, { ...expired, concept_name: "U" }])).toBe(
+      "2 timely creatives past their moment were left out.",
+    );
+    expect(
+      skippedNotice([{ concept_name: "A", reason: "person_not_shareable" }, expired, { concept_name: "C", reason: "other" }]),
+    ).toBe(
+      "1 creative showing a person was left out (their consent doesn't cover public links). " +
+        "1 timely creative past its moment was left out.",
+    );
+  });
+  it("explains a named creative whose moment has passed", () => {
+    expect(shareErrorMessage("timely_expired", 400)).toMatch(/moment that has passed/);
   });
   it("detects absolute urls", () => {
     expect(isAbsoluteUrl("https://share.example.com/s/x")).toBe(true);

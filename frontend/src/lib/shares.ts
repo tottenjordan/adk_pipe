@@ -16,7 +16,8 @@ export interface Share {
   session_id: string;
   created_at: string;
   /** POST only: creatives a slate share left out, e.g. a person whose consent
-   *  doesn't cover public links (`reason: "person_not_shareable"`). */
+   *  doesn't cover public links (`reason: "person_not_shareable"`) or a timely
+   *  creative whose moment has passed (`reason: "timely_expired"`). */
   skipped?: SkippedCreative[];
 }
 
@@ -51,6 +52,8 @@ const MESSAGES: Record<string, string> = {
   no_images: "There are no rendered images to share yet.",
   person_not_shareable:
     "This creative shows a person whose consent doesn't cover public links, so it can't be shared.",
+  timely_expired:
+    "This creative referenced a moment that has passed, so it can't be shared. Share an evergreen creative instead.",
   consent_unavailable: "Couldn't check the consent of the people shown. Try again shortly.",
   person_consent_changed:
     "A person's consent changed while the link was being created, so it wasn't shared. Try again.",
@@ -72,14 +75,29 @@ export function shareErrorMessage(reason: string | null, status: number): string
   return `Something went wrong (${status}). Try again.`;
 }
 
-/** "N creative(s) showing a person were left out …" for a slate share's `skipped`
- *  list, or null when no creative with a person was left out. */
+/** "N creative(s) showing a person were left out …" and "N timely creative(s) past
+ *  their moment were left out." for a slate share's `skipped` list (one sentence
+ *  per reason, unknown reasons ignored), or null when nothing known was left out. */
 export function skippedNotice(skipped: SkippedCreative[] | undefined): string | null {
-  const n = (skipped ?? []).filter((s) => s.reason === "person_not_shareable").length;
-  if (n === 0) return null;
-  return n === 1
-    ? "1 creative showing a person was left out (their consent doesn't cover public links)."
-    : `${n} creatives showing a person were left out (their consent doesn't cover public links).`;
+  const count = (reason: string) => (skipped ?? []).filter((s) => s.reason === reason).length;
+  const person = count("person_not_shareable");
+  const expired = count("timely_expired");
+  const parts: string[] = [];
+  if (person > 0) {
+    parts.push(
+      person === 1
+        ? "1 creative showing a person was left out (their consent doesn't cover public links)."
+        : `${person} creatives showing a person were left out (their consent doesn't cover public links).`,
+    );
+  }
+  if (expired > 0) {
+    parts.push(
+      expired === 1
+        ? "1 timely creative past its moment was left out."
+        : `${expired} timely creatives past their moment were left out.`,
+    );
+  }
+  return parts.length > 0 ? parts.join(" ") : null;
 }
 
 /** True for an absolute http(s) URL; a relative `/s/<token>` means SHARE_BASE_URL is unset. */
