@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback, useMemo, useRef, use } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import { buttonVariants } from "@/components/ui/button";
 import { getSession, listArtifacts, SELF_USER_ID } from "@/lib/api";
 import { fetchEvalReport } from "@/lib/eval-report";
@@ -30,10 +31,8 @@ import {
 import { campaignSummary } from "@/lib/results-copy";
 import { imagesNotRendered, sessionStoppedEarly } from "@/lib/run-completion";
 import { CreativeBrief } from "@/components/creative-brief";
-import { ResearchReport } from "@/components/research-report";
 import { parseCreativeBrief } from "@/lib/creative-brief";
 import type { ReportSources } from "@/lib/research-report";
-import { DeployPanel } from "./deploy-panel";
 import { QuietDisclosure } from "@/components/quiet-disclosure";
 import { ArtifactsPanel, type ArtifactData } from "./artifacts-panel";
 import { ProofDetail } from "./proof-detail";
@@ -47,6 +46,16 @@ import { SessionShares } from "@/components/shares-list";
 import { hasRenderedImage, type Share } from "@/lib/shares";
 import { canPersonalise } from "@/lib/variants";
 import { PersonalisePanel } from "@/components/personalise-panel";
+
+// Heavy, rarely needed on first paint: the report (react-markdown + remark-gfm) mounts
+// only when its disclosure opens; the Deploy panel (bandit scenario code) loads after.
+const ResearchReport = dynamic(
+  () => import("@/components/research-report").then((m) => m.ResearchReport),
+  { loading: () => <p className="text-sm text-muted-foreground">Loading report…</p> }
+);
+const DeployPanel = dynamic(() => import("./deploy-panel").then((m) => m.DeployPanel), {
+  loading: () => <p className="mb-6 text-sm text-muted-foreground">Loading deploy options…</p>,
+});
 
 const CAMPAIGN_FIELD_DEFS: DisplayFieldDef[] = [
   { label: "Brand", key: "brand" },
