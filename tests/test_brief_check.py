@@ -610,6 +610,41 @@ def test_timely_angle_must_not_contradict_the_outcome():
     )
 
 
+def test_timely_angle_may_use_result_words_its_other_moment_states():
+    # A non-competitive moment (outcome "other": a lottery prize, an award) has
+    # no win/loss family; the result words its own summary uses are allowed.
+    lottery = {
+        "phase": "just_happened",
+        "outcome": "other",
+        "outcome_summary": (
+            "Justin Apathy won a $1 million jackpot in the Ohio Lottery's VIP "
+            "Millions scratch-off game."
+        ),
+        "timely_ok": True,
+    }
+    assert (
+        _angle_issues(
+            _with_angle("Celebrate the $1 million jackpot top prize win."),
+            trend_situation=lottery,
+        )
+        == []
+    )
+    # A result word the summary doesn't state is still a contradiction.
+    (issue,) = _angle_issues(
+        _with_angle("Console the player who lost the jackpot."),
+        trend_situation=lottery,
+    )
+    assert "contradicts the current moment" in issue and "lost" in issue
+    # Without a summary an "other" moment allows no result words (as before).
+    assert _angle_issues(
+        _with_angle("Celebrate the win."),
+        trend_situation={**lottery, "outcome_summary": ""},
+    )
+    # A draw's summary may state its result words too.
+    draw = {**lottery, "outcome": "draw", "outcome_summary": "Neither side won."}
+    assert _angle_issues(_with_angle("Nobody won tonight."), trend_situation=draw) == []
+
+
 def test_empty_timely_angle_is_fine_without_a_moment():
     assert _angle_issues(_with_angle("")) == []
     assert check_brief(_BRIEF) == []
