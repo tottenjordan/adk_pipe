@@ -150,18 +150,26 @@ AGENT_RUN_DURATION_SECS row=<ts> index=<i> status=<PROCESSED|FAILED> secs=<float
 **Log-based p95 query** (Cloud Logging → Log Analytics / BigQuery-linked sink), once a handful of
 runs have accumulated:
 
+Since 2026-10-13 the CRF logs are JSON lines, so the marker is a structured entry: the same text
+in `jsonPayload.message` plus `row`, `index`, `status` and `secs` as top-level `jsonPayload` keys
+(entries written before then have the text in `textPayload` instead). Logs Explorer filter:
+`jsonPayload.message:"AGENT_RUN_DURATION_SECS"`.
+
 ```sql
--- Extract secs=… from the structured marker and compute percentiles
+-- secs is a jsonPayload key (older entries: parse it out of text_payload)
 SELECT
-  APPROX_QUANTILES(
-    CAST(REGEXP_EXTRACT(text_payload, r'secs=([0-9.]+)') AS FLOAT64), 100
-  )[OFFSET(50)]  AS p50_secs,
-  APPROX_QUANTILES(
-    CAST(REGEXP_EXTRACT(text_payload, r'secs=([0-9.]+)') AS FLOAT64), 100
-  )[OFFSET(95)]  AS p95_secs,
-  COUNT(*)       AS runs
-FROM `<log_sink_dataset>._AllLogs`
-WHERE text_payload LIKE 'AGENT_RUN_DURATION_SECS%';
+  APPROX_QUANTILES(secs, 100)[OFFSET(50)] AS p50_secs,
+  APPROX_QUANTILES(secs, 100)[OFFSET(95)] AS p95_secs,
+  COUNT(*)                                AS runs
+FROM (
+  SELECT COALESCE(
+    SAFE.FLOAT64(json_payload.secs),
+    CAST(REGEXP_EXTRACT(text_payload, r'secs=([0-9.]+)') AS FLOAT64)
+  ) AS secs
+  FROM `<log_sink_dataset>._AllLogs`
+  WHERE STARTS_WITH(COALESCE(JSON_VALUE(json_payload.message), text_payload),
+                    'AGENT_RUN_DURATION_SECS')
+);
 ```
 
 **Decision rule:** if p95 is reliably **< ~8 min**, trigger endpoints become viable and worth the

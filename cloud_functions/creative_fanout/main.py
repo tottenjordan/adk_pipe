@@ -32,15 +32,12 @@ message = {
 }
 """
 
-import os
-
-os.environ["PYTHONUNBUFFERED"] = "1"
-
 import asyncio
 import base64
 import json
 import logging
 import re
+import sys
 import time
 from datetime import UTC, date, datetime
 
@@ -52,10 +49,48 @@ from google.cloud import bigquery, pubsub_v1
 from .config import config
 from .session import agent_session
 
-# --- config ---
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
-)
+
+# --- logging ---
+class CloudRunJsonFormatter(logging.Formatter):
+    """One JSON object per line with ``severity`` + ``message`` (+ ``time``).
+
+    Cloud Run parses JSON lines on stdout/stderr into structured log entries:
+    ``severity`` becomes the entry's level and ``message`` its text
+    (https://docs.cloud.google.com/run/docs/logging). A record's optional
+    ``json_fields`` dict (``logger.info(..., extra={"json_fields": {...}})``)
+    is merged in as extra top-level keys (queryable as ``jsonPayload.<key>``);
+    it never overrides ``severity`` / ``message`` / ``time``.
+    """
+
+    def format(self, record: logging.LogRecord) -> str:
+        message = record.getMessage()
+        if record.exc_info:
+            message = f"{message}\n{self.formatException(record.exc_info)}"
+        if record.stack_info:
+            message = f"{message}\n{self.formatStack(record.stack_info)}"
+        entry = {}
+        fields = getattr(record, "json_fields", None)
+        if isinstance(fields, dict):
+            entry.update(fields)
+        entry.update(
+            severity=record.levelname,
+            message=message,
+            time=datetime.fromtimestamp(record.created, UTC).isoformat(),
+            logger=record.name,
+        )
+        return json.dumps(entry, default=str)
+
+
+def _json_log_handler() -> logging.Handler:
+    """A stdout handler writing ``CloudRunJsonFormatter`` lines."""
+    handler = logging.StreamHandler(sys.stdout)
+    handler.setFormatter(CloudRunJsonFormatter())
+    return handler
+
+
+# Like the old text basicConfig: a no-op if the root logger already has
+# handlers (functions-framework adds none in this image at import time).
+logging.basicConfig(level=logging.INFO, handlers=[_json_log_handler()])
 # Module logger for new code (propagates to the root handler configured above).
 logger = logging.getLogger(__name__)
 
@@ -431,6 +466,24 @@ async def create_agent_run(
         )
 
 
+def _log_run_duration(timestamp, index, status, run_start) -> None:
+    """The AGENT_RUN_DURATION_SECS marker: the same text as before (existing
+    log queries match ``message``) plus row/index/status/secs as JSON keys."""
+    secs = round(time.monotonic() - run_start, 1)
+    logger.info(
+        f"AGENT_RUN_DURATION_SECS row={timestamp} index={index} "
+        f"status={status} secs={secs:.1f}",
+        extra={
+            "json_fields": {
+                "row": timestamp,
+                "index": index,
+                "status": status,
+                "secs": secs,
+            }
+        },
+    )
+
+
 # --- Helper to encapsulate the single-row logic ---
 async def _execute_agent_and_update_status(
     trend_dict, agent_id, bq_client, dataset, table
@@ -473,10 +526,7 @@ async def _execute_agent_and_update_status(
             timestamps=[timestamp],
             status="PROCESSED",
         )
-        logging.info(
-            f"AGENT_RUN_DURATION_SECS row={timestamp} index={trend_dict['index']} "
-            f"status=PROCESSED secs={time.monotonic() - run_start:.1f}"
-        )
+        _log_run_duration(timestamp, trend_dict["index"], "PROCESSED", run_start)
         logging.info(f"Successfully processed and marked row {timestamp} as PROCESSED.")
 
     except Exception as e:  # noqa: BLE001 — recorded as FAILED below, then ACKed
@@ -484,10 +534,7 @@ async def _execute_agent_and_update_status(
         # RETURN so the worker message is ACKed. Re-raising would only buy a
         # no-op retry: the redelivery's QUEUED->PROCESSING lock can't match a
         # FAILED row, so it would just log "Lock failed" and ACK anyway.
-        logging.info(
-            f"AGENT_RUN_DURATION_SECS row={timestamp} index={trend_dict['index']} "
-            f"status=FAILED secs={time.monotonic() - run_start:.1f}"
-        )
+        _log_run_duration(timestamp, trend_dict["index"], "FAILED", run_start)
         logging.error(
             f"Failed processing row {timestamp} (index={trend_dict['index']}): "
             f"{type(e).__name__}: {e}"
