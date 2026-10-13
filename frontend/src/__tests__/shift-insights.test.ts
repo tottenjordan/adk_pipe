@@ -63,6 +63,36 @@ describe("shift result cards (real simulator run)", () => {
     );
   });
 
+  describe("held needs every episode recovered within the floor", () => {
+    const dented = (patch: Record<string, unknown>) => {
+      const m = structuredClone(metricsJson) as unknown as ExperimentMetrics & {
+        shiftResponse: Record<string, Record<string, unknown>[]>;
+      };
+      // Barely dented: after stays at >= 80% of before (0.48 vs 0.4861).
+      Object.assign(m.shiftResponse.linear_ts[1], { pctOptimalAfter: { mean: 0.48, lo: 0.45, hi: 0.51 }, ...patch });
+      return insights(m).shiftCards[1];
+    };
+    const floor = recoveryFloor(40_000);
+
+    it("is held when all episodes recovered at the floor", () => {
+      expect(dented({ recoveryRounds: { mean: floor, lo: floor, hi: floor }, recoveredEpisodes: 10 }).status).toBe("held");
+    });
+
+    it("is not held when the mean recovery is above the floor", () => {
+      expect(
+        dented({ recoveryRounds: { mean: floor + 500, lo: floor, hi: floor + 1000 }, recoveredEpisodes: 10 }).status
+      ).toBe("recovered");
+    });
+
+    it("is only partly recovered when some episodes never recovered", () => {
+      expect(dented({ recoveryRounds: { mean: floor, lo: floor, hi: floor }, recoveredEpisodes: 6 }).status).toBe("partly");
+    });
+
+    it("is not held when no episode recovered (no recovery mean)", () => {
+      expect(dented({ recoveryRounds: null, recoveredEpisodes: 0 }).status).toBe("not_recovered");
+    });
+  });
+
   it("no cards (and no shift copy) without shift response numbers", () => {
     const m = { ...metrics, shiftResponse: undefined };
     const i = insights(m);
@@ -95,6 +125,40 @@ describe("shift-aware headline and readings", () => {
     expect(gg.paired).toBe(false);
     expect(gg.half).toBeGreaterThan(30);
     expect(insights(m).ghost).toMatch(/a cautious interval that treats the two runs as independent/);
+  });
+
+  describe("independent fallback (no shiftCost)", () => {
+    const withTotals = (ghost: { mean: number; std: number }, lin: { mean: number; std: number }, episodes = 25) =>
+      ({
+        ...metrics,
+        shiftCost: undefined,
+        episodes,
+        totals: { ...metrics.totals, linear_ts_unshifted: ghost, linear_ts: lin },
+      }) as ExperimentMetrics;
+
+    it("computes the difference and an independent 95% half-width from the totals", () => {
+      const gg = ghostGap(withTotals({ mean: 120, std: 30 }, { mean: 100, std: 40 }))!;
+      expect(gg.paired).toBe(false);
+      expect(gg.diff).toBe(20);
+      // 1.96 * sqrt(30^2 + 40^2) / sqrt(25) = 1.96 * 50 / 5
+      expect(gg.half).toBeCloseTo(19.6, 10);
+    });
+
+    it("calls a positive gap the cost of the shifts", () => {
+      const m = withTotals({ mean: 120, std: 30 }, { mean: 100, std: 40 });
+      expect(ghostGap(m)!.diff).toBeGreaterThan(0);
+      expect(insights(m).ghost).toBe(
+        "Without your shifts, the same endpoint would have earned 20 (± 20, a cautious interval that treats the two runs as independent) more clicks per episode: that is what the shifts cost."
+      );
+    });
+
+    it("says the shifts helped when the endpoint beat its ghost", () => {
+      const m = withTotals({ mean: 100, std: 40 }, { mean: 120, std: 30 });
+      expect(ghostGap(m)!.diff).toBe(-20);
+      expect(insights(m).ghost).toBe(
+        "Without your shifts, the same endpoint would have earned 20 (± 20, a cautious interval that treats the two runs as independent) fewer clicks per episode: the shifts helped it."
+      );
+    });
   });
 
   it("the ghost matches the endpoint exactly before the first shift", () => {

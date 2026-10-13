@@ -1021,7 +1021,10 @@ function cardStatus(
   const after = r.pctOptimalAfter.mean;
   const rec = r.recoveryRounds?.mean ?? null;
   const recovered = r.recoveredEpisodes ?? (rec !== null ? n : 0);
-  if (after >= RECOVERY_LEVEL * before - 1e-9 && (rec === null || rec <= recoveryFloor(horizon) + 1e-9)) return "held";
+  // "held" only when every episode recovered within the trailing window: `rec`
+  // is the mean over the recovered episodes, so it says nothing about the rest.
+  const allRecovered = rec !== null && recovered >= n;
+  if (after >= RECOVERY_LEVEL * before - 1e-9 && allRecovered && rec <= recoveryFloor(horizon) + 1e-9) return "held";
   if (recovered <= 0 || rec === null) return "not_recovered";
   return recovered >= n ? "recovered" : "partly";
 }
