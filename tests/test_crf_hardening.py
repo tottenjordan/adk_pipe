@@ -187,3 +187,66 @@ def test_status_update_and_reaper_use_bounded_query():
     main.update_rows_status(bq, ds, tbl, ["2026-07-12"], status="PROCESSED")
     assert main.reap_stale_processing_rows(bq, ds, tbl) == 2
     assert bq.query_and_wait.call_count == 2
+
+
+# ============================================================
+# BigQuery / Pub/Sub clients: lazy, thread-safe, reused singletons
+# ============================================================
+def _slow_ctor(calls):
+    """A constructor that yields the GIL mid-construction (widens any race)."""
+    import time
+
+    def ctor(*args, **kwargs):
+        calls.append(kwargs)
+        time.sleep(0.05)
+        return object()
+
+    return ctor
+
+
+@pytest.mark.parametrize(
+    ("getter", "cache_attr", "module_attr", "ctor_name"),
+    [
+        ("_get_bigquery_client", "_bigquery_client", "bigquery", "Client"),
+        ("_get_pubsub_client", "_pubsub_publisher", "pubsub_v1", "PublisherClient"),
+    ],
+)
+def test_client_built_once_across_threads(
+    monkeypatch, getter, cache_attr, module_attr, ctor_name
+):
+    from concurrent.futures import ThreadPoolExecutor
+
+    calls = []
+    monkeypatch.setattr(getattr(main, module_attr), ctor_name, _slow_ctor(calls))
+    monkeypatch.setattr(main, cache_attr, None)
+
+    with ThreadPoolExecutor(max_workers=16) as pool:
+        clients = list(pool.map(lambda _: getattr(main, getter)(), range(32)))
+
+    assert len(calls) == 1
+    assert all(c is clients[0] for c in clients)
+    assert getattr(main, getter)() is clients[0]  # reused by later invocations
+
+
+def test_bigquery_client_uses_configured_project(monkeypatch):
+    calls = []
+    monkeypatch.setattr(main.bigquery, "Client", _slow_ctor(calls))
+    monkeypatch.setattr(main, "_bigquery_client", None)
+    main._get_bigquery_client()
+    assert calls == [{"project": "test-project"}]
+
+
+def test_import_builds_no_clients():
+    """Clients are created on first use, so importing stays credential-free
+    (checked in a fresh interpreter with no project configured)."""
+    import os
+    import subprocess
+
+    code = (
+        "from cloud_functions.creative_fanout import main\n"
+        "assert main._bigquery_client is None\n"
+        "assert main._pubsub_publisher is None\n"
+    )
+    env = {k: v for k, v in os.environ.items() if k != "GOOGLE_CLOUD_PROJECT"}
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    subprocess.run([sys.executable, "-c", code], check=True, cwd=root, env=env)

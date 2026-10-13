@@ -38,6 +38,7 @@ import json
 import logging
 import re
 import sys
+import threading
 import time
 from datetime import UTC, date, datetime
 
@@ -111,14 +112,36 @@ def _worker_topic_path() -> str:
 # ==============================
 # clients
 # ==============================
+# One BigQuery client and one Pub/Sub publisher per instance, built on first
+# use (so importing needs no credentials) and reused by every invocation:
+# functions-framework serves requests on many threads (the orchestrator runs
+# at concurrency 100), so creation is guarded by a lock, and a per-invocation
+# client would leak its HTTP/gRPC transport (they were never closed). The Agent
+# Runtime client is NOT cached: it is bound to one event loop (see
+# `_new_vertex_client`).
+_clients_lock = threading.Lock()
+_bigquery_client: bigquery.Client | None = None
+_pubsub_publisher: pubsub_v1.PublisherClient | None = None
+
+
 def _get_bigquery_client() -> bigquery.Client:
-    """Get a configured BigQuery client."""
-    return bigquery.Client(project=config.GOOGLE_CLOUD_PROJECT)
+    """The instance's shared BigQuery client (lazy, thread-safe)."""
+    global _bigquery_client
+    if _bigquery_client is None:
+        with _clients_lock:
+            if _bigquery_client is None:
+                _bigquery_client = bigquery.Client(project=config.GOOGLE_CLOUD_PROJECT)
+    return _bigquery_client
 
 
-def _get_pubsub_client():
-    """Get a configured Pub/Sub client."""
-    return pubsub_v1.PublisherClient()
+def _get_pubsub_client() -> pubsub_v1.PublisherClient:
+    """The instance's shared Pub/Sub publisher (lazy, thread-safe)."""
+    global _pubsub_publisher
+    if _pubsub_publisher is None:
+        with _clients_lock:
+            if _pubsub_publisher is None:
+                _pubsub_publisher = pubsub_v1.PublisherClient()
+    return _pubsub_publisher
 
 
 _vertex_client = None
