@@ -426,10 +426,19 @@ def _df_rows(extra: dict | None = None, drop: tuple[str, ...] = ()):
 def test_row_dict_forwards_refresh_date_and_trend_context():
     (i0, r0), (i1, r1) = _df_rows()
     first = messages.build_row_dict(i0, r0)
+    # Every campaign column, the index and the ISO timestamp ride along.
+    assert first["index"] == 0
+    assert first["entry_timestamp"] == "2026-10-11T12:00:00+00:00"
+    assert first["brand"] == "PRS"
+    assert first["target_audience"] == "fans"
+    assert first["target_product"] == "SE CE24"
+    assert first["key_selling_point"] == "tone"
     assert first["refresh_date"] == "2026-10-10"
     assert first["trend_context"] == '{"hook":"Game day"}'
     assert first["target_search_trend"] == "Texas Football"
     second = messages.build_row_dict(i1, r1)
+    assert second["index"] == 1
+    assert second["target_search_trend"] == "Golden Dip"
     assert second["refresh_date"] == ""  # NULL → blank
     assert second["trend_context"] == ""  # NULL → blank, never "None"
     # The worker payload must stay JSON-serializable.

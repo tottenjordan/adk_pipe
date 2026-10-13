@@ -1,8 +1,8 @@
 """Tests for the real `crf_entrypoint` orchestrator (issue #46).
 
-Unlike `test_crf_logic.py` (which replicates the logic), these import the real
-`cloud_functions.creative_fanout.main` and drive `crf_entrypoint` with fake
-CloudEvents, monkeypatching the BigQuery / Pub/Sub client factories. They guard
+These import the real `cloud_functions.creative_fanout.main` and drive
+`crf_entrypoint` with fake CloudEvents, monkeypatching the BigQuery / Pub/Sub
+client factories (`clients.get_bigquery_client` / `get_pubsub_client`). They guard
 the fix for #46: a malformed or empty trigger message must not raise
 `NameError`/`UnboundLocalError` (which NACKs and causes a redelivery loop).
 """

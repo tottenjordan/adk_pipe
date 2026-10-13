@@ -99,6 +99,7 @@ def test_session_created_and_deleted_with_same_user_id(monkeypatch):
 
     created = {}
     deleted = {}
+    messages = []
 
     async def _create_session(*, user_id, state=None):
         created["user_id"] = user_id
@@ -106,6 +107,7 @@ def test_session_created_and_deleted_with_same_user_id(monkeypatch):
         return {"id": "sess-42"}
 
     async def _stream(**kwargs):
+        messages.append(kwargs["message"])
         return
         yield  # pragma: no cover - makes this an async generator
 
@@ -152,6 +154,16 @@ def test_session_created_and_deleted_with_same_user_id(monkeypatch):
         "target_audience": "aud",
         "target_search_trends": "trend",
     }
+    # The kick-off message echoes every campaign field.
+    assert len(messages) == 1
+    for line in (
+        "Brand: BrandX",
+        "Target Product: prod",
+        "Key Selling Point(s): ksp",
+        "Target Audience: aud",
+        "Target Search Trend: trend",
+    ):
+        assert line in messages[0]
 
 
 def test_agent_session_deletes_on_success():
