@@ -68,7 +68,7 @@ steps:
       - |
         set -euo pipefail
         .venv/bin/python -c 'import sys; print(sys.version); sys.exit(0 if sys.version_info[:2] == (3, 13) else "deploys must pickle on Python 3.13")'
-        for a in $(echo "${_AGENTS}" | tr ',' ' '); do
+        for a in $$(echo "${_AGENTS}" | tr ',' ' '); do
           case "$$a" in
             creative_agent|interactive_creative|trend_scout) ;;
             *) echo "unknown agent in _AGENTS: $$a" >&2; exit 1 ;;
