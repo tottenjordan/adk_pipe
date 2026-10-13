@@ -8,7 +8,7 @@
  * never hand-copied. Every reader degrades to "nothing" on older APIs: no runs,
  * no shift response, no regimes means the page renders exactly as before.
  */
-import { formatInt, formatPercent } from "./chart";
+import { formatInt } from "./chart";
 import type { CtrMode, LearningMode, Scenario, Shift, ShiftKind, TrafficRun } from "./experiments";
 import {
   applyShifts,
@@ -1021,9 +1021,4 @@ export function segmentMarkers(
   const total = Math.max(run.episodes || 0, starts.length);
   if (total < 2) return [];
   return starts.map((x, i) => ({ x, label: `Segment ${i + 1} of ${total}`, subtle: true }));
-}
-
-/** "50% of the run" for marker hover text. */
-export function fracText(frac: number): string {
-  return `${formatPercent(frac)} of the run`;
 }

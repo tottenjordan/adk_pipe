@@ -7,7 +7,6 @@ import { useCallback, useSyncExternalStore } from "react";
 import type { ExperimentSummary } from "./experiments";
 
 export type ExperimentView = "overview" | "analysis";
-export const VIEWS: readonly ExperimentView[] = ["overview", "analysis"];
 
 /** `?view=` value → view; anything unknown is the Overview (the default). */
 export function parseView(value: string | null | undefined): ExperimentView {

@@ -146,11 +146,6 @@ export function downsampleIndices(n: number, max: number): number[] {
   return out;
 }
 
-/** Keep at most `max` items (see downsampleIndices). */
-export function downsample<T>(items: T[], max: number): T[] {
-  return downsampleIndices(items.length, max).map((i) => items[i]);
-}
-
 /** Index of the item whose `x` is closest to `x` (items sorted by x); -1 when empty. */
 export function nearestIndex(xs: number[], x: number): number {
   if (xs.length === 0) return -1;

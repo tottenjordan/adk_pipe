@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
   bandPath,
-  downsample,
   downsampleIndices,
   extent,
   formatCompact,
@@ -106,8 +105,9 @@ describe("downsampling", () => {
     expect(idx[0]).toBe(0);
     expect(idx[49]).toBe(999);
   });
-  it("downsamples items", () => {
-    expect(downsample(["a", "b", "c", "d", "e"], 3)).toEqual(["a", "c", "e"]);
+  it("picks evenly spaced indices for item lists", () => {
+    const items = ["a", "b", "c", "d", "e"];
+    expect(downsampleIndices(items.length, 3).map((i) => items[i])).toEqual(["a", "c", "e"]);
   });
   it("finds the nearest x", () => {
     expect(nearestIndex([1, 10, 100], 40)).toBe(1);
