@@ -95,7 +95,6 @@ tests/
 ├── test_crf_config.py               # env-driven CRF config (required project, no hardcoding)
 ├── test_crf_entrypoint.py           # crf_entrypoint orchestrator (issue #46)
 ├── test_crf_hardening.py            # CRF JSON logs, malformed messages ACKed, client singletons, bounded BQ waits, per-invocation Agent Runtime client (two asyncio.run loops)
-├── test_crf_logic.py                # Cloud Run Function logic (orchestrator + worker)
 ├── test_crf_sql_params.py           # CRF SQL safety: allow-listed identifiers, parameterized values, sensitive trend_context rows excluded from the orchestrator SELECT
 ├── test_crf_worker_async.py         # async worker path of the CRF (issue #45)
 ├── test_date_prompts.py            # the shared DATE_CONTEXT_LINE in trend research / brief / copy / art-direction prompts (optional tokens, no literal dates), scout as_of/event_hint, Current Moment section, TREND_SCOUT_HINT_BLOCK
@@ -257,7 +256,7 @@ tests/
 - **Tools** — `test_tools.py`, `test_tools_retry.py`: pure tool logic, plus the contract
   that infra tools raise (rather than swallow errors into status dicts) so ADK retry works.
 - **Deployment & fan-out** — `test_deploy_utils.py`, `test_deploy_import_graph.py`, `test_cloudbuild_agents.py`, `test_create_session_engine.py`,
-  `test_crf_entrypoint.py`, `test_crf_logic.py`, `test_crf_worker_async.py`,
+  `test_crf_entrypoint.py`, `test_crf_worker_async.py`,
   `test_crf_config.py`, `test_crf_sql_params.py`, `test_crf_hardening.py`,
   `test_crf_completion.py` (+ `test_worker_retry_message_drift.py`, outside the CRF venv): deploy
   mappings/env wiring, the `runtimes.create` path, and the orchestrator + worker Cloud

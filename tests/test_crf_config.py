@@ -11,15 +11,17 @@ import importlib
 import pytest
 
 from cloud_functions.creative_fanout import config as config_module
-from cloud_functions.creative_fanout import main
+from cloud_functions.creative_fanout import main, orchestrator
+from cloud_functions.creative_fanout.config import config
 
 
 def _reload_config():
     """Re-evaluate the class-level `os.environ.get` defaults.
 
-    NB: `main.config` keeps the ORIGINAL `AppConfig` instance after a reload
-    (it was bound at import), so only assert on the returned instance here.
-    Env-read properties (project / number) are still live on `main.config`.
+    NB: the CRF modules' `config` (and the one imported here) keeps the
+    ORIGINAL `AppConfig` instance after a reload (it was bound at import), so
+    only assert on the returned instance here. Env-read properties (project /
+    number) are still live on it.
     """
     return importlib.reload(config_module).config
 
@@ -88,8 +90,8 @@ def test_region_and_topic_defaults(monkeypatch):
 def test_worker_topic_path_resolved_from_env(monkeypatch):
     monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "my-proj")
     monkeypatch.setenv("GOOGLE_CLOUD_PROJECT_NUMBER", "42")
-    assert main._worker_topic_path() == (
-        f"projects/42/topics/{main.config.CREATIVE_WORKER_TOPIC_NAME}"
+    assert orchestrator._worker_topic_path() == (
+        f"projects/42/topics/{config.CREATIVE_WORKER_TOPIC_NAME}"
     )
 
 

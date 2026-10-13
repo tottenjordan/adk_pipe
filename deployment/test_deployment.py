@@ -141,7 +141,7 @@ async def async_send_message(remote_agent, user_id, session) -> None:
     except Exception as e:
         logging.error(f"Error during streaming: {type(e).__name__}: {e}")
         # Propagate so a broken deployment surfaces as a failure, mirroring the
-        # worker path (cloud_functions/creative_fanout/main.py).
+        # worker path (cloud_functions/creative_fanout/worker.py).
         raise
 
 

@@ -17,7 +17,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from cloud_functions.creative_fanout import main as crf_main
+from cloud_functions.creative_fanout import worker as crf_worker
 from creative_agent import prompts
 from creative_agent.trend_situation import trend_situation_state_delta
 
@@ -94,7 +94,7 @@ def test_hint_alone_never_makes_a_moment():
 
 
 def test_crf_worker_seeds_no_trend_situation():
-    seeded = {state_key for state_key, _ in crf_main.CAMPAIGN_STATE_KEYS}
+    seeded = {state_key for state_key, _ in crf_worker.CAMPAIGN_STATE_KEYS}
     assert set(HINT_KEYS) <= seeded
     assert not seeded & SITUATION_KEYS
     row = {
@@ -109,4 +109,4 @@ def test_crf_worker_seeds_no_trend_situation():
         "trend_situation": '{"phase": "just_happened", "timely_ok": true}',
         "timely_rules": "x",
     }
-    assert not set(crf_main.build_campaign_state(row)) & SITUATION_KEYS
+    assert not set(crf_worker.build_campaign_state(row)) & SITUATION_KEYS

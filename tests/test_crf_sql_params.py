@@ -19,7 +19,14 @@ import pytest
 from google.cloud import bigquery
 from google.cloud.bigquery import Row
 
-from cloud_functions.creative_fanout import main
+from cloud_functions.creative_fanout import (
+    clients,
+    main,
+    messages,
+    orchestrator,
+    status_store,
+    worker,
+)
 from cloud_functions.creative_fanout.config import config
 
 DS = config.BQ_DATASET_ID
@@ -65,32 +72,36 @@ class TestIdentifierAllowList:
     )
     def test_builders_reject_non_allow_listed_identifiers(self, dataset, table):
         with pytest.raises(ValueError):
-            main._build_update_status_sql("p", dataset, table, [TS], "PROCESSED")
+            status_store._build_update_status_sql(
+                "p", dataset, table, [TS], "PROCESSED"
+            )
         with pytest.raises(ValueError):
-            main._build_lock_sql("p", dataset, table, TS)
+            status_store._build_lock_sql("p", dataset, table, TS)
         with pytest.raises(ValueError):
-            main._build_reap_sql("p", dataset, table, 45, 3)
+            status_store._build_reap_sql("p", dataset, table, 45, 3)
         with pytest.raises(ValueError):
-            main._build_select_unprocessed_sql("p", dataset, table, max_rows=10)
+            status_store._build_select_unprocessed_sql("p", dataset, table, max_rows=10)
 
     def test_update_rows_status_rejects_bad_table_without_querying(self):
         bq = _bq()
         with pytest.raises(ValueError):
-            main.update_rows_status(bq, DS, "not_allowed", [TS], status="FAILED")
+            status_store.update_rows_status(
+                bq, DS, "not_allowed", [TS], status="FAILED"
+            )
         bq.query_and_wait.assert_not_called()
 
     def test_acquire_lock_rejects_bad_table_without_querying(self):
         bq = _bq()
         with pytest.raises(ValueError):
-            main.acquire_processing_lock(bq, DS, "not_allowed", TS)
+            status_store.acquire_processing_lock(bq, DS, "not_allowed", TS)
         bq.query_and_wait.assert_not_called()
 
     def test_rejects_malformed_project(self):
         with pytest.raises(ValueError):
-            main._build_lock_sql("p`.x", DS, TBL, TS)
+            status_store._build_lock_sql("p`.x", DS, TBL, TS)
 
     def test_identifiers_are_backtick_quoted(self):
-        sql, _ = main._build_lock_sql("test-project", DS, TBL, TS)
+        sql, _ = status_store._build_lock_sql("test-project", DS, TBL, TS)
         assert f"`test-project.{DS}.{TBL}`" in sql
 
     def test_extra_allowed_table_via_config(self, monkeypatch):
@@ -98,12 +109,12 @@ class TestIdentifierAllowList:
         monkeypatch.setattr(
             config, "ALLOWED_BQ_TABLES", frozenset({TBL, "target_trends_crf_p95"})
         )
-        sql, _ = main._build_lock_sql("p", DS, "target_trends_crf_p95", TS)
+        sql, _ = status_store._build_lock_sql("p", DS, "target_trends_crf_p95", TS)
         assert "target_trends_crf_p95" in sql
 
     def test_status_outside_known_set_rejected(self):
         with pytest.raises(ValueError):
-            main._build_update_status_sql("p", DS, TBL, [TS], "DONE'; --")
+            status_store._build_update_status_sql("p", DS, TBL, [TS], "DONE'; --")
 
 
 # ============================================================
@@ -113,7 +124,7 @@ class TestValuesAreParameterized:
     def test_update_rows_status_params(self):
         bq = _bq()
         ts2 = "2026-07-12T01:00:00+00:00"
-        main.update_rows_status(bq, DS, TBL, [TS, ts2], status="QUEUED")
+        status_store.update_rows_status(bq, DS, TBL, [TS, ts2], status="QUEUED")
         call = bq.query_and_wait.call_args
         sql = call.args[0]
         assert TS not in sql and ts2 not in sql
@@ -131,18 +142,18 @@ class TestValuesAreParameterized:
     def test_naive_timestamp_treated_as_utc(self):
         """Old SQL did TIMESTAMP('<naive>') which BigQuery reads as UTC."""
         bq = _bq()
-        main.acquire_processing_lock(bq, DS, TBL, "2026-07-12T00:00:00")
+        status_store.acquire_processing_lock(bq, DS, TBL, "2026-07-12T00:00:00")
         typ, val = _params(bq.query_and_wait.call_args)["entry_timestamp"]
         assert typ == "TIMESTAMP"
         assert val == datetime(2026, 7, 12, tzinfo=UTC)
 
     def test_garbage_timestamp_rejected(self):
         with pytest.raises(ValueError):
-            main._build_lock_sql("p", DS, TBL, "2026-07-12') OR TRUE --")
+            status_store._build_lock_sql("p", DS, TBL, "2026-07-12') OR TRUE --")
 
     def test_lock_params(self):
         bq = _bq()
-        assert main.acquire_processing_lock(bq, DS, TBL, TS) is True
+        assert status_store.acquire_processing_lock(bq, DS, TBL, TS) is True
         call = bq.query_and_wait.call_args
         sql = call.args[0]
         assert TS not in sql
@@ -156,7 +167,7 @@ class TestValuesAreParameterized:
         monkeypatch.setattr(config, "REAP_STALE_PROCESSING_MINUTES", 45)
         monkeypatch.setattr(config, "MAX_PROCESSING_ATTEMPTS", 3)
         bq = _bq(num_rows=0)
-        main.reap_stale_processing_rows(bq, DS, TBL)
+        status_store.reap_stale_processing_rows(bq, DS, TBL)
         call = bq.query_and_wait.call_args
         sql = call.args[0]
         assert "45" not in sql and ">= 3" not in sql
@@ -172,8 +183,8 @@ class TestValuesAreParameterized:
         bq.query_and_wait.return_value.to_dataframe.side_effect = AssertionError(
             "to_dataframe needs pandas; iterate rows"
         )
-        monkeypatch.setattr(main, "_get_bigquery_client", lambda: bq)
-        monkeypatch.setattr(main, "_get_pubsub_client", MagicMock)
+        monkeypatch.setattr(clients, "get_bigquery_client", lambda: bq)
+        monkeypatch.setattr(clients, "get_pubsub_client", MagicMock)
         payload = {"bq_dataset": DS, "bq_table": TBL, "agent_resource_id": "1"}
         encoded = base64.b64encode(json.dumps(payload).encode()).decode()
         main.crf_entrypoint(types.SimpleNamespace(data={"message": {"data": encoded}}))
@@ -191,21 +202,25 @@ class TestOrchestratorRowLimit:
         bq.query_and_wait.return_value.to_dataframe.side_effect = AssertionError(
             "to_dataframe needs pandas; iterate rows"
         )
-        monkeypatch.setattr(main, "_get_bigquery_client", lambda: bq)
-        monkeypatch.setattr(main, "_get_pubsub_client", MagicMock)
+        monkeypatch.setattr(clients, "get_bigquery_client", lambda: bq)
+        monkeypatch.setattr(clients, "get_pubsub_client", MagicMock)
         encoded = base64.b64encode(json.dumps(payload).encode()).decode()
         main.crf_entrypoint(types.SimpleNamespace(data={"message": {"data": encoded}}))
         return bq.query_and_wait.call_args_list[1]  # [0] is the reap UPDATE
 
     def test_select_sql_binds_limit_as_param(self):
-        sql, params = main._build_select_unprocessed_sql("p", DS, TBL, max_rows=7)
+        sql, params = status_store._build_select_unprocessed_sql(
+            "p", DS, TBL, max_rows=7
+        )
         assert "LIMIT @max_rows" in sql
         assert sql.index("ORDER BY") < sql.index("LIMIT")
         (p,) = params
         assert (p.name, p.type_, p.value) == ("max_rows", "INT64", 7)
 
     def test_select_sql_excludes_trends_flagged_sensitive(self):
-        sql, params = main._build_select_unprocessed_sql("p", DS, TBL, max_rows=3)
+        sql, params = status_store._build_select_unprocessed_sql(
+            "p", DS, TBL, max_rows=3
+        )
         flat = " ".join(sql.split())
         assert (
             "COALESCE(JSON_VALUE(trend_context, '$.sensitive'), 'false')"
@@ -244,7 +259,7 @@ class TestOrchestratorRowLimit:
         ],
     )
     def test_resolve_max_rows(self, requested, expected):
-        assert main._resolve_max_rows(requested, cap=10) == expected
+        assert orchestrator._resolve_max_rows(requested, cap=10) == expected
 
     def test_default_cap_comes_from_config(self, monkeypatch):
         monkeypatch.setattr(config, "CRF_MAX_ROWS_PER_RUN", 5)
@@ -273,8 +288,8 @@ def test_orchestrator_acks_non_allow_listed_table(monkeypatch):
     """A bad identifier can never become valid on redelivery → log + ACK."""
     bq = _bq()
     publisher = MagicMock()
-    monkeypatch.setattr(main, "_get_bigquery_client", lambda: bq)
-    monkeypatch.setattr(main, "_get_pubsub_client", lambda: publisher)
+    monkeypatch.setattr(clients, "get_bigquery_client", lambda: bq)
+    monkeypatch.setattr(clients, "get_pubsub_client", lambda: publisher)
     payload = {"bq_dataset": DS, "bq_table": "evil", "agent_resource_id": "1"}
     main.crf_entrypoint(_event(payload))  # must not raise
     bq.query_and_wait.assert_not_called()
@@ -294,7 +309,7 @@ _CAMPAIGN = {
 
 def test_worker_acks_non_allow_listed_table(monkeypatch):
     bq = _bq()
-    monkeypatch.setattr(main, "_get_bigquery_client", lambda: bq)
+    monkeypatch.setattr(clients, "get_bigquery_client", lambda: bq)
     payload = {
         "bq_dataset": DS,
         "bq_table": "evil",
@@ -308,7 +323,7 @@ def test_worker_acks_non_allow_listed_table(monkeypatch):
 def test_worker_acks_malformed_entry_timestamp(monkeypatch, caplog):
     """A malformed timestamp can never parse on redelivery → log error + ACK."""
     bq = _bq()
-    monkeypatch.setattr(main, "_get_bigquery_client", lambda: bq)
+    monkeypatch.setattr(clients, "get_bigquery_client", lambda: bq)
     payload = {
         "bq_dataset": DS,
         "bq_table": TBL,
@@ -327,7 +342,7 @@ def test_worker_acks_malformed_entry_timestamp(monkeypatch, caplog):
 @pytest.mark.parametrize("bad", [12345, None, "2026-07-12') OR TRUE --"])
 def test_worker_acks_non_string_or_injected_timestamp(monkeypatch, bad):
     bq = _bq()
-    monkeypatch.setattr(main, "_get_bigquery_client", lambda: bq)
+    monkeypatch.setattr(clients, "get_bigquery_client", lambda: bq)
     payload = {
         "bq_dataset": DS,
         "bq_table": TBL,
@@ -363,7 +378,7 @@ def _orchestrator_serialize(ts):
 def test_orchestrator_timestamp_round_trips_through_builders(raw):
     serialized = _orchestrator_serialize(datetime.fromisoformat(raw))
 
-    _, lock_params = main._build_lock_sql("p", DS, TBL, serialized)
+    _, lock_params = status_store._build_lock_sql("p", DS, TBL, serialized)
     (lock_param,) = lock_params
     assert lock_param.type_ == "TIMESTAMP"
     val = lock_param.value
@@ -372,7 +387,7 @@ def test_orchestrator_timestamp_round_trips_through_builders(raw):
     assert val.utcoffset().total_seconds() == 0
     assert val.astimezone(UTC).isoformat() == "2026-09-01T12:34:56.123456+00:00"
 
-    _, update_params = main._build_update_status_sql(
+    _, update_params = status_store._build_update_status_sql(
         "p", DS, TBL, [serialized], "PROCESSED"
     )
     ts_param = next(p for p in update_params if p.name == "timestamps")
@@ -410,11 +425,20 @@ def _df_rows(extra: dict | None = None, drop: tuple[str, ...] = ()):
 
 def test_row_dict_forwards_refresh_date_and_trend_context():
     (i0, r0), (i1, r1) = _df_rows()
-    first = main.build_row_dict(i0, r0)
+    first = messages.build_row_dict(i0, r0)
+    # Every campaign column, the index and the ISO timestamp ride along.
+    assert first["index"] == 0
+    assert first["entry_timestamp"] == "2026-10-11T12:00:00+00:00"
+    assert first["brand"] == "PRS"
+    assert first["target_audience"] == "fans"
+    assert first["target_product"] == "SE CE24"
+    assert first["key_selling_point"] == "tone"
     assert first["refresh_date"] == "2026-10-10"
     assert first["trend_context"] == '{"hook":"Game day"}'
     assert first["target_search_trend"] == "Texas Football"
-    second = main.build_row_dict(i1, r1)
+    second = messages.build_row_dict(i1, r1)
+    assert second["index"] == 1
+    assert second["target_search_trend"] == "Golden Dip"
     assert second["refresh_date"] == ""  # NULL → blank
     assert second["trend_context"] == ""  # NULL → blank, never "None"
     # The worker payload must stay JSON-serializable.
@@ -426,14 +450,14 @@ def test_row_dict_handles_timestamp_refresh_date():
     # A TIMESTAMP-typed refresh_date: a datetime is also a date, so the
     # datetime branch must come first to drop the time part.
     rows = _df_rows({"refresh_date": [datetime(2026, 10, 9, 23, 30, tzinfo=UTC), None]})
-    assert main.build_row_dict(*rows[0])["refresh_date"] == "2026-10-09"
-    assert main.build_row_dict(*rows[1])["refresh_date"] == ""
+    assert messages.build_row_dict(*rows[0])["refresh_date"] == "2026-10-09"
+    assert messages.build_row_dict(*rows[1])["refresh_date"] == ""
 
 
 def test_row_dict_without_trend_context_column():
     """Before the ALTER runs, SELECT * has no trend_context column."""
     (i0, r0), _ = _df_rows(drop=("trend_context",))
-    assert main.build_row_dict(i0, r0)["trend_context"] == ""
+    assert messages.build_row_dict(i0, r0)["trend_context"] == ""
 
 
 def test_campaign_state_maps_trend_fields_and_skips_blanks():
@@ -447,17 +471,19 @@ def test_campaign_state_maps_trend_fields_and_skips_blanks():
         "refresh_date": "2026-10-10",
         "trend_context": '{"hook":"Game day"}',
     }
-    state = main.build_campaign_state(msg)
+    state = worker.build_campaign_state(msg)
     assert state["trend_detected_on"] == "2026-10-10"
     assert state["trend_scout_context"] == '{"hook":"Game day"}'
     assert "refresh_date" not in state and "trend_context" not in state
 
-    bare = main.build_campaign_state({**msg, "refresh_date": "", "trend_context": None})
+    bare = worker.build_campaign_state(
+        {**msg, "refresh_date": "", "trend_context": None}
+    )
     assert "trend_detected_on" not in bare
     assert "trend_scout_context" not in bare
     # An old message without the new keys still works.
     old = {k: v for k, v in msg.items() if k not in ("refresh_date", "trend_context")}
-    assert set(main.build_campaign_state(old)) == {
+    assert set(worker.build_campaign_state(old)) == {
         "brand",
         "target_product",
         "key_selling_points",

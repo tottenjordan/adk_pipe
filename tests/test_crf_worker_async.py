@@ -13,7 +13,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from cloud_functions.creative_fanout import main
+from cloud_functions.creative_fanout import clients, logs, main, status_store, worker
+from cloud_functions.creative_fanout.config import config
 from cloud_functions.creative_fanout.session import agent_session
 
 # The CRF config reads the (required) project at use time; pin a dummy.
@@ -29,8 +30,8 @@ def _fake_time(monkeypatch):
     async def _sleep(secs):
         clock["now"] += secs
 
-    monkeypatch.setattr(main, "_clock", lambda: clock["now"])
-    monkeypatch.setattr(main, "_sleep", _sleep)
+    monkeypatch.setattr(worker, "_clock", lambda: clock["now"])
+    monkeypatch.setattr(worker, "_sleep", _sleep)
 
 
 def test_streaming_error_marks_row_failed_end_to_end(monkeypatch):
@@ -59,12 +60,12 @@ def test_streaming_error_marks_row_failed_end_to_end(monkeypatch):
 
     fake_vertex = MagicMock()
     fake_vertex.runtimes.get.return_value = remote_agent
-    monkeypatch.setattr(main, "_new_vertex_client", lambda: fake_vertex)
+    monkeypatch.setattr(clients, "new_vertex_client", lambda: fake_vertex)
 
     # Win the lock so we proceed into the agent run.
-    monkeypatch.setattr(main, "acquire_processing_lock", lambda *a, **k: True)
+    monkeypatch.setattr(status_store, "acquire_processing_lock", lambda *a, **k: True)
     update_mock = MagicMock()
-    monkeypatch.setattr(main, "update_rows_status", update_mock)
+    monkeypatch.setattr(status_store, "update_rows_status", update_mock)
 
     trend = {
         "entry_timestamp": "2026-07-12T00:00:00",
@@ -79,9 +80,7 @@ def test_streaming_error_marks_row_failed_end_to_end(monkeypatch):
 
     # FAILED was written successfully → return normally so the worker message is
     # ACKed (a redelivery could never re-lock a FAILED row; it'd be a no-op).
-    asyncio.run(
-        main._execute_agent_and_update_status(trend, "agent-123", bq, "ds", "tbl")
-    )
+    asyncio.run(worker.process_row(trend, "agent-123", bq, "ds", "tbl"))
 
     statuses = [c.kwargs.get("status") for c in update_mock.call_args_list]
     assert "FAILED" in statuses
@@ -100,6 +99,7 @@ def test_session_created_and_deleted_with_same_user_id(monkeypatch):
 
     created = {}
     deleted = {}
+    messages = []
 
     async def _create_session(*, user_id, state=None):
         created["user_id"] = user_id
@@ -107,6 +107,7 @@ def test_session_created_and_deleted_with_same_user_id(monkeypatch):
         return {"id": "sess-42"}
 
     async def _stream(**kwargs):
+        messages.append(kwargs["message"])
         return
         yield  # pragma: no cover - makes this an async generator
 
@@ -125,7 +126,7 @@ def test_session_created_and_deleted_with_same_user_id(monkeypatch):
 
     fake_vertex = MagicMock()
     fake_vertex.runtimes.get.return_value = remote_agent
-    monkeypatch.setattr(main, "_new_vertex_client", lambda: fake_vertex)
+    monkeypatch.setattr(clients, "new_vertex_client", lambda: fake_vertex)
 
     msg = {
         "index": 0,
@@ -135,10 +136,10 @@ def test_session_created_and_deleted_with_same_user_id(monkeypatch):
         "target_audience": "aud",
         "target_search_trend": "trend",
     }
-    user_id = f"{main._USER_ID}_{msg['index']}"
+    user_id = f"{worker._USER_ID}_{msg['index']}"
 
     asyncio.run(
-        main.create_agent_run(agent_id="agent-123", msg_dict=msg, user_id=user_id)
+        worker.create_agent_run(agent_id="agent-123", msg_dict=msg, user_id=user_id)
     )
 
     assert created["user_id"] == user_id
@@ -153,6 +154,16 @@ def test_session_created_and_deleted_with_same_user_id(monkeypatch):
         "target_audience": "aud",
         "target_search_trends": "trend",
     }
+    # The kick-off message echoes every campaign field.
+    assert len(messages) == 1
+    for line in (
+        "Brand: BrandX",
+        "Target Product: prod",
+        "Key Selling Point(s): ksp",
+        "Target Audience: aud",
+        "Target Search Trend: trend",
+    ):
+        assert line in messages[0]
 
 
 def test_agent_session_deletes_on_success():
@@ -235,7 +246,7 @@ def test_create_agent_run_deletes_session_on_stream_error(monkeypatch):
 
     fake_vertex = MagicMock()
     fake_vertex.runtimes.get.return_value = remote_agent
-    monkeypatch.setattr(main, "_new_vertex_client", lambda: fake_vertex)
+    monkeypatch.setattr(clients, "new_vertex_client", lambda: fake_vertex)
 
     msg = {
         "index": 3,
@@ -245,10 +256,10 @@ def test_create_agent_run_deletes_session_on_stream_error(monkeypatch):
         "target_audience": "aud",
         "target_search_trend": "trend",
     }
-    user_id = f"{main._USER_ID}_{msg['index']}"
+    user_id = f"{worker._USER_ID}_{msg['index']}"
 
     outcome = asyncio.run(
-        main.create_agent_run(agent_id="agent-123", msg_dict=msg, user_id=user_id)
+        worker.create_agent_run(agent_id="agent-123", msg_dict=msg, user_id=user_id)
     )
 
     assert not outcome.finalized
@@ -273,22 +284,18 @@ def _failing_agent_run(monkeypatch):
     async def _boom(**kwargs):
         raise RuntimeError("agent boom")
 
-    monkeypatch.setattr(main, "create_agent_run", _boom)
-    monkeypatch.setattr(main, "acquire_processing_lock", lambda *a, **k: True)
+    monkeypatch.setattr(worker, "create_agent_run", _boom)
+    monkeypatch.setattr(status_store, "acquire_processing_lock", lambda *a, **k: True)
 
 
 def test_agent_failure_after_failed_write_returns_and_logs(monkeypatch, caplog):
     _failing_agent_run(monkeypatch)
     update_mock = MagicMock()
-    monkeypatch.setattr(main, "update_rows_status", update_mock)
+    monkeypatch.setattr(status_store, "update_rows_status", update_mock)
 
     with caplog.at_level("ERROR"):
         # must NOT raise
-        asyncio.run(
-            main._execute_agent_and_update_status(
-                _TREND, "agent-123", MagicMock(), "ds", "tbl"
-            )
-        )
+        asyncio.run(worker.process_row(_TREND, "agent-123", MagicMock(), "ds", "tbl"))
 
     assert [c.kwargs["status"] for c in update_mock.call_args_list] == ["FAILED"]
     assert _TREND["entry_timestamp"] in caplog.text
@@ -303,14 +310,10 @@ def test_failed_status_write_error_still_reraises(monkeypatch):
     def _update(**kwargs):
         raise RuntimeError("bq write boom")
 
-    monkeypatch.setattr(main, "update_rows_status", _update)
+    monkeypatch.setattr(status_store, "update_rows_status", _update)
 
     with pytest.raises(RuntimeError, match="bq write boom"):
-        asyncio.run(
-            main._execute_agent_and_update_status(
-                _TREND, "agent-123", MagicMock(), "ds", "tbl"
-            )
-        )
+        asyncio.run(worker.process_row(_TREND, "agent-123", MagicMock(), "ds", "tbl"))
 
 
 def test_error_before_status_write_reraises(monkeypatch):
@@ -320,16 +323,12 @@ def test_error_before_status_write_reraises(monkeypatch):
     def _lock(*a, **k):
         raise RuntimeError("lock boom")
 
-    monkeypatch.setattr(main, "acquire_processing_lock", _lock)
+    monkeypatch.setattr(status_store, "acquire_processing_lock", _lock)
     update_mock = MagicMock()
-    monkeypatch.setattr(main, "update_rows_status", update_mock)
+    monkeypatch.setattr(status_store, "update_rows_status", update_mock)
 
     with pytest.raises(RuntimeError, match="lock boom"):
-        asyncio.run(
-            main._execute_agent_and_update_status(
-                _TREND, "agent-123", MagicMock(), "ds", "tbl"
-            )
-        )
+        asyncio.run(worker.process_row(_TREND, "agent-123", MagicMock(), "ds", "tbl"))
     update_mock.assert_not_called()
 
 
@@ -343,8 +342,8 @@ def test_worker_entrypoint_acks_after_failed_write(monkeypatch):
 
     _failing_agent_run(monkeypatch)
     update_mock = MagicMock()
-    monkeypatch.setattr(main, "update_rows_status", update_mock)
-    monkeypatch.setattr(main, "_get_bigquery_client", MagicMock)
+    monkeypatch.setattr(status_store, "update_rows_status", update_mock)
+    monkeypatch.setattr(clients, "get_bigquery_client", MagicMock)
 
     payload = {
         "bq_dataset": config.BQ_DATASET_ID,
@@ -384,7 +383,7 @@ def test_worker_uses_runtimes_api_not_agent_engines(monkeypatch):
     # spec'd so touching `.agent_engines` raises AttributeError.
     fake_client = MagicMock(spec=["runtimes"])
     fake_client.runtimes.get.return_value = remote_agent
-    monkeypatch.setattr(main, "_new_vertex_client", lambda: fake_client)
+    monkeypatch.setattr(clients, "new_vertex_client", lambda: fake_client)
 
     msg = {
         "index": 0,
@@ -396,8 +395,8 @@ def test_worker_uses_runtimes_api_not_agent_engines(monkeypatch):
     }
 
     asyncio.run(
-        main.create_agent_run(
-            agent_id="123", msg_dict=msg, user_id=f"{main._USER_ID}_0"
+        worker.create_agent_run(
+            agent_id="123", msg_dict=msg, user_id=f"{worker._USER_ID}_0"
         )
     )
 
@@ -409,14 +408,14 @@ def test_vertex_client_is_agentplatform_client(monkeypatch):
     """The client is an ``agentplatform.Client`` on the regional location, and a
     new one per call (it is bound to one event loop; never cached)."""
     ctor = MagicMock()
-    monkeypatch.setattr(main.agentplatform, "Client", ctor)
+    monkeypatch.setattr(clients.agentplatform, "Client", ctor)
 
-    main._new_vertex_client()
-    main._new_vertex_client()
+    clients.new_vertex_client()
+    clients.new_vertex_client()
 
     assert ctor.call_count == 2
     ctor.assert_called_with(
-        project=main.config.GOOGLE_CLOUD_PROJECT, location=main.config.GCP_REGION
+        project=config.GOOGLE_CLOUD_PROJECT, location=config.GCP_REGION
     )
 
 
@@ -446,7 +445,7 @@ def test_pretty_print_event_logs_tool_calls_both_spellings(
         },
     }
     with caplog.at_level("INFO"):
-        main.pretty_print_event(event)
+        logs.pretty_print_event(event)
 
     assert "[root_agent]: Function call: save_to_gcs" in caplog.text
     assert '"path": "a"' in caplog.text
@@ -456,10 +455,10 @@ def test_pretty_print_event_logs_tool_calls_both_spellings(
 
 def test_pretty_print_event_text_part_and_null_content(caplog):
     with caplog.at_level("INFO"):
-        main.pretty_print_event(
+        logs.pretty_print_event(
             {"author": "a", "content": {"parts": [{"text": "hello"}]}}
         )
-        main.pretty_print_event({"author": "b", "content": None})
+        logs.pretty_print_event({"author": "b", "content": None})
 
     assert "[a]: hello" in caplog.text
     assert "[b]: " in caplog.text
@@ -470,14 +469,14 @@ def test_pretty_print_event_null_text_with_function_call_logs_call(caplog):
     """A part with a null ``text`` alongside ``function_call`` still logs the call."""
     part = {"text": None, "function_call": {"name": "memorize", "args": {}}}
     with caplog.at_level("INFO"):
-        main.pretty_print_event({"author": "a", "content": {"parts": [part]}})
+        logs.pretty_print_event({"author": "a", "content": {"parts": [part]}})
 
     assert "[a]: Function call: memorize" in caplog.text
     assert "[a]: None" not in caplog.text
 
 
 def test_pretty_print_event_null_parts_does_not_raise():
-    main.pretty_print_event({"author": "a", "content": {"parts": None}})
+    logs.pretty_print_event({"author": "a", "content": {"parts": None}})
 
 
 def test_blank_campaign_fields_are_not_seeded(monkeypatch):
@@ -503,7 +502,7 @@ def test_blank_campaign_fields_are_not_seeded(monkeypatch):
     remote_agent.async_delete_session = _delete_session
     fake_vertex = MagicMock()
     fake_vertex.runtimes.get.return_value = remote_agent
-    monkeypatch.setattr(main, "_new_vertex_client", lambda: fake_vertex)
+    monkeypatch.setattr(clients, "new_vertex_client", lambda: fake_vertex)
 
     msg = {
         "index": 0,
@@ -513,7 +512,7 @@ def test_blank_campaign_fields_are_not_seeded(monkeypatch):
         "target_audience": "aud",
         "target_search_trend": "trend",
     }
-    asyncio.run(main.create_agent_run(agent_id="a", msg_dict=msg, user_id="u"))
+    asyncio.run(worker.create_agent_run(agent_id="a", msg_dict=msg, user_id="u"))
 
     assert created["state"] == {
         "brand": "BrandX",
@@ -543,7 +542,7 @@ def test_trend_detection_date_and_context_seeded_as_state(monkeypatch):
     remote_agent.async_delete_session = _delete_session
     fake_vertex = MagicMock()
     fake_vertex.runtimes.get.return_value = remote_agent
-    monkeypatch.setattr(main, "_new_vertex_client", lambda: fake_vertex)
+    monkeypatch.setattr(clients, "new_vertex_client", lambda: fake_vertex)
 
     msg = {
         "index": 0,
@@ -555,6 +554,6 @@ def test_trend_detection_date_and_context_seeded_as_state(monkeypatch):
         "refresh_date": "2026-10-10",
         "trend_context": '{"hook":"h"}',
     }
-    asyncio.run(main.create_agent_run(agent_id="a", msg_dict=msg, user_id="u"))
+    asyncio.run(worker.create_agent_run(agent_id="a", msg_dict=msg, user_id="u"))
     assert created["state"]["trend_detected_on"] == "2026-10-10"
     assert created["state"]["trend_scout_context"] == '{"hook":"h"}'

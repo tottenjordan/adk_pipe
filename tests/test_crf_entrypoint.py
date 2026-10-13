@@ -1,8 +1,8 @@
 """Tests for the real `crf_entrypoint` orchestrator (issue #46).
 
-Unlike `test_crf_logic.py` (which replicates the logic), these import the real
-`cloud_functions.creative_fanout.main` and drive `crf_entrypoint` with fake
-CloudEvents, monkeypatching the BigQuery / Pub/Sub client factories. They guard
+These import the real `cloud_functions.creative_fanout.main` and drive
+`crf_entrypoint` with fake CloudEvents, monkeypatching the BigQuery / Pub/Sub
+client factories (`clients.get_bigquery_client` / `get_pubsub_client`). They guard
 the fix for #46: a malformed or empty trigger message must not raise
 `NameError`/`UnboundLocalError` (which NACKs and causes a redelivery loop).
 """
@@ -17,7 +17,7 @@ from unittest.mock import MagicMock
 import pytest
 from google.cloud.bigquery import Row
 
-from cloud_functions.creative_fanout import main
+from cloud_functions.creative_fanout import clients, main, status_store
 from cloud_functions.creative_fanout.config import config
 
 # Allow-listed identifiers (the SQL builders reject anything else).
@@ -47,8 +47,8 @@ def mocked_clients(monkeypatch):
     bq = MagicMock()
     bq.project = "test-project"
     publisher = MagicMock()
-    monkeypatch.setattr(main, "_get_bigquery_client", lambda: bq)
-    monkeypatch.setattr(main, "_get_pubsub_client", lambda: publisher)
+    monkeypatch.setattr(clients, "get_bigquery_client", lambda: bq)
+    monkeypatch.setattr(clients, "get_pubsub_client", lambda: publisher)
     return bq, publisher
 
 
@@ -212,7 +212,7 @@ def test_acquire_processing_lock_true_when_one_row_updated():
     bq = MagicMock()
     bq.project = "test-project"
     bq.query_and_wait.return_value.num_dml_affected_rows = 1
-    got = main.acquire_processing_lock(bq, DS, TBL, "2026-07-12T00:00:00")
+    got = status_store.acquire_processing_lock(bq, DS, TBL, "2026-07-12T00:00:00")
     assert got is True
     lock_sql = bq.query_and_wait.call_args[0][0]
     assert "AND processed_status = 'QUEUED'" in lock_sql
@@ -223,7 +223,7 @@ def test_acquire_processing_lock_false_when_zero_rows_updated():
     bq = MagicMock()
     bq.project = "test-project"
     bq.query_and_wait.return_value.num_dml_affected_rows = 0
-    got = main.acquire_processing_lock(bq, DS, TBL, "2026-07-12T00:00:00")
+    got = status_store.acquire_processing_lock(bq, DS, TBL, "2026-07-12T00:00:00")
     assert got is False
 
 
@@ -231,7 +231,7 @@ def test_lock_sql_stamps_started_at_and_increments_attempts():
     """The lock UPDATE must record when PROCESSING began (so a hard-crashed
     worker's row can be aged out) and bump an attempt counter (poison-pill
     guard) — while preserving the exactly-once QUEUED->PROCESSING semantics."""
-    sql, _ = main._build_lock_sql("p", DS, TBL, "2026-07-18T00:00:00+00:00")
+    sql, _ = status_store._build_lock_sql("p", DS, TBL, "2026-07-18T00:00:00+00:00")
     sql = " ".join(sql.split())  # whitespace-insensitive fragment checks
     assert "processing_started_at = CURRENT_TIMESTAMP()" in sql
     assert "processing_attempts = COALESCE(processing_attempts, 0) + 1" in sql
@@ -242,7 +242,9 @@ def test_lock_sql_stamps_started_at_and_increments_attempts():
 def test_reap_sql_requeues_under_cap_and_fails_over_cap():
     """The reaper UPDATE must target only stale PROCESSING rows, re-queue those
     under the attempt cap and fail those at/over it."""
-    sql, params = main._build_reap_sql("p", DS, TBL, stale_minutes=45, max_attempts=3)
+    sql, params = status_store._build_reap_sql(
+        "p", DS, TBL, stale_minutes=45, max_attempts=3
+    )
     sql = " ".join(sql.split())
     assert "processed_status = 'PROCESSING'" in sql  # only targets PROCESSING
     assert "TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL @stale_minutes MINUTE)" in sql
@@ -255,7 +257,7 @@ def test_reap_returns_reclaimed_count(mocked_clients):
     """reap_stale_processing_rows returns the number of rows reclaimed."""
     bq, _ = mocked_clients
     bq.query_and_wait.return_value.num_dml_affected_rows = 2
-    n = main.reap_stale_processing_rows(bq, DS, TBL)
+    n = status_store.reap_stale_processing_rows(bq, DS, TBL)
     assert n == 2
 
 
@@ -263,4 +265,4 @@ def test_reap_is_non_fatal_on_bq_error(mocked_clients):
     """A BQ error while reaping must not crash the orchestrator: returns 0."""
     bq, _ = mocked_clients
     bq.query_and_wait.side_effect = RuntimeError("bq boom")
-    assert main.reap_stale_processing_rows(bq, DS, TBL) == 0
+    assert status_store.reap_stale_processing_rows(bq, DS, TBL) == 0
