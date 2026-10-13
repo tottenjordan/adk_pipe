@@ -69,6 +69,19 @@ def _validate_agent_id(agent_id) -> None:
         raise MalformedMessageError(f"invalid agent_resource_id {agent_id!r}")
 
 
+def _validate_row_key(row_data: dict) -> None:
+    """``row_data``'s optional row key: no ``uuid`` (a legacy message, or a row
+    written without one: matched by entry_timestamp) or a ``uuid`` and a
+    ``target_trend`` that are both non-empty strings."""
+    key = (row_data.get("uuid"), row_data.get("target_trend"))
+    if key[0] is None:
+        return
+    if not all(isinstance(v, str) and v.strip() for v in key):
+        raise MalformedMessageError(
+            f"invalid row key uuid={key[0]!r} target_trend={key[1]!r}"
+        )
+
+
 def parse_trigger_message(cloud_event) -> dict | None:
     """The orchestrator trigger's validated payload, or None when it is not work.
 
@@ -117,6 +130,7 @@ def parse_worker_message(cloud_event) -> tuple[str, str, str, dict]:
     # parse (the lock builder would raise on it otherwise).
     _validate_target(payload["bq_dataset"], payload["bq_table"])
     _to_utc_datetime(row_data["entry_timestamp"])
+    _validate_row_key(row_data)
     return (
         payload["bq_dataset"],
         payload["bq_table"],
@@ -150,7 +164,10 @@ def build_row_dict(index, row) -> dict:
     """
     return {
         "index": index,
-        # ISO 8601 string for JSON serialization
+        # The row key (trend_scout's MERGE key): every worker statement matches it.
+        "uuid": row.get("uuid"),
+        "target_trend": row["target_trend"],
+        # ISO 8601 string for JSON serialization (ordering and logs only)
         "entry_timestamp": row["entry_timestamp"].isoformat(),
         "target_search_trend": row["target_trend"],
         "brand": row["brand"],

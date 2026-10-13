@@ -9,6 +9,9 @@ from .messages import build_row_dict
 
 logger = logging.getLogger(__name__)
 
+# How long to wait for each worker publish to resolve.
+PUBLISH_TIMEOUT_SECS = 30.0
+
 
 def _worker_topic_path() -> str:
     """Fully-qualified worker topic, resolved at use time (the project is a
@@ -80,21 +83,16 @@ def dispatch(payload: dict) -> int:
     row_list = [build_row_dict(index, row) for index, row in enumerate(rows)]
     logging.info(f"Loaded {len(row_list)} UNPROCESSED records for agent execution.")
 
-    # 3. Get timestamps of rows to be processed
-    timestamps_to_process = [d["entry_timestamp"] for d in row_list]
+    # 3. The rows' keys (uuid, target_trend).
+    row_keys = [status_store.RowKey.from_mapping(d) for d in row_list]
 
     # --- LOCK STEP ---
-    # 4. Mark the batch as 'QUEUED' before starting any costly work.
-    status_store.update_rows_status(
-        bq_client=bq_client,
-        dataset=dataset,
-        table=table,
-        timestamps=timestamps_to_process,
-        status="QUEUED",
-    )
-    # If the function fails here, the trigger message NACKs and retries,
-    # but the next successful run will see these rows are now QUEUED,
-    # preventing duplication (assuming the next step succeeds).
+    # 4. Mark the batch 'QUEUED' BEFORE the first publish: the worker's lock
+    # only takes a QUEUED row, so a brand-new (NULL) row published unmarked
+    # would never run. Only NULL/QUEUED rows change, so a row a worker locked
+    # or finished since the SELECT is never set back to QUEUED (its message is
+    # a no-op). If this raises, the trigger NACKs and retries.
+    status_store.mark_queued(bq_client, dataset, table, row_keys)
 
     # 5. Dispatch Step: Publish one message per row to the worker topic, then
     # confirm each publish resolved. A publish that fails silently would leave
@@ -120,7 +118,10 @@ def dispatch(payload: dict) -> int:
     failed_count = 0
     for future in publish_futures:
         try:
-            future.result()
+            # Bounded: an unbounded wait can block for the publisher's whole
+            # retry deadline (about the orchestrator's timeout). A publish that
+            # times out leaves its row QUEUED, recovered by the next re-query.
+            future.result(timeout=PUBLISH_TIMEOUT_SECS)
             dispatched_count += 1
         except Exception as e:  # noqa: BLE001 — one bad publish shouldn't sink the batch
             failed_count += 1
