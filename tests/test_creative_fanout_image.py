@@ -90,6 +90,7 @@ def test_dockerignore_allowlists_exactly_the_function_files():
     assert all(ln.startswith("!") for ln in lines[1:]), lines
     assert allowed == {
         "cloud_functions/creative_fanout/__init__.py",
+        "cloud_functions/creative_fanout/completion.py",
         "cloud_functions/creative_fanout/main.py",
         "cloud_functions/creative_fanout/config.py",
         "cloud_functions/creative_fanout/session.py",

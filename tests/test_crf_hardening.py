@@ -95,9 +95,12 @@ def test_no_runtime_pythonunbuffered_assignment():
 
 @pytest.mark.parametrize("fail", [False, True])
 def test_duration_marker_carries_json_fields(monkeypatch, caplog, fail):
+    from cloud_functions.creative_fanout.completion import RunOutcome
+
     async def _run(**kwargs):
         if fail:
             raise RuntimeError("agent boom")
+        return RunOutcome(finalized=True, retried=False, reason="done")
 
     monkeypatch.setattr(main, "create_agent_run", _run)
     monkeypatch.setattr(main, "acquire_processing_lock", lambda *a, **k: True)
@@ -122,6 +125,8 @@ def test_duration_marker_carries_json_fields(monkeypatch, caplog, fail):
     assert fields["index"] == 2
     assert fields["status"] == status
     assert isinstance(fields["secs"], float)
+    assert fields["finalized"] is (not fail)
+    assert fields["retried"] is False
 
 
 # ============================================================
@@ -316,6 +321,10 @@ class _FakeAgent:
         self.client.check_loop()
         yield {"author": "root_agent", "content": {"parts": [{"text": "ok"}]}}
 
+    async def async_get_session(self, *, user_id, session_id, **kwargs):
+        self.client.check_loop()
+        return {"id": session_id, "state": {"finalize_done": True}, "events": []}
+
 
 _ROW_DATA = {
     "entry_timestamp": "2026-07-12T00:00:00",
@@ -374,12 +383,11 @@ def test_agent_runtime_client_closed_even_when_the_run_fails(monkeypatch):
     monkeypatch.setattr(main.agentplatform, "Client", _LoopBoundFakeClient)
 
     async def _boom(self, **kwargs):
-        raise RuntimeError("stream boom")
-        yield  # pragma: no cover
+        raise RuntimeError("create boom")
 
-    monkeypatch.setattr(_FakeAgent, "async_stream_query", _boom)
+    monkeypatch.setattr(_FakeAgent, "async_create_session", _boom)
 
-    with pytest.raises(RuntimeError, match="stream boom"):
+    with pytest.raises(RuntimeError, match="create boom"):
         asyncio.run(
             main.create_agent_run(
                 agent_id="123", msg_dict={"index": 0, **_ROW_DATA}, user_id="u"

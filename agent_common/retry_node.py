@@ -51,8 +51,8 @@ It is a ``BaseNode`` (not a ``BaseAgent``) because graph Workflows and
   would stall too. The notice goes only to the caller as the tool result;
   ``output_key`` itself stays unset for downstream ``{var?}`` guards.
 - A *transient* exception from the child (``is_transient_error``: 429 /
-  RESOURCE_EXHAUSTED, a genai ``ServerError`` 5xx, a timeout; unwrapped from
-  ADK's ``DynamicNodeFailError``) counts as a missed attempt, like an empty
+  RESOURCE_EXHAUSTED, 499 / CANCELLED, a genai ``ServerError`` 5xx, a timeout;
+  unwrapped from ADK's ``DynamicNodeFailError``) counts as a missed attempt, like an empty
   result: logged, then retried after a bounded backoff
   (``transient_backoff_seconds`` doubling to ``transient_backoff_max_seconds``;
   15 s then 30 s by default, so ≤ 45 s of added wait for 3 attempts), and on
@@ -96,15 +96,19 @@ def is_transient_error(exc: BaseException) -> bool:
     ``TimeoutError`` (aiohttp's client timeout and ``asyncio.TimeoutError`` are
     subclasses / aliases), any genai ``ServerError`` (5xx) and a genai
     ``ClientError`` with code 429 / status RESOURCE_EXHAUSTED (incl. ADK's
-    ``_ResourceExhaustedError`` subclass). Permanent 4xx and everything else are
-    not.
+    ``_ResourceExhaustedError`` subclass) or code 499 / status CANCELLED (spike
+    2026-10-13: campaign research got ``499 CANCELLED`` under contention).
+    Permanent 4xx and everything else are not.
     """
     if isinstance(exc, Exception):
         exc = root_cause(exc)
     if isinstance(exc, TimeoutError | genai_errors.ServerError):
         return True
     if isinstance(exc, genai_errors.ClientError):
-        return exc.code == 429 or exc.status == "RESOURCE_EXHAUSTED"
+        return exc.code in (429, 499) or exc.status in (
+            "RESOURCE_EXHAUSTED",
+            "CANCELLED",
+        )
     return False
 
 

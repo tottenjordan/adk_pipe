@@ -450,6 +450,28 @@ gcloud pubsub topics create $CREATIVE_WORKER_TOPIC_NAME
   first `--image` deploy of an existing service must pass `--clear-base-image` to
   drop the setting.
 * [optional] if `--min-instances=1`, service **always on**
+* **Worker completion check** (`cloud_functions/creative_fanout/completion.py`):
+  the worker marks a row `PROCESSED` only when the engine session reached
+  `finalize_done`, never on a clean stream end alone (spike 2026-10-13: a
+  `499 CANCELLED` failed `creative_pipeline` and the root ended the stream
+  cleanly). A stream timeout or cut leads into a session poll while the run is
+  still appending events (a client disconnect does not stop the run server-side;
+  a 780 s stream was not cut by the documented 10-min `streamQuery` limit). An
+  idle, unfinished run gets ONE retry message on the same session (runserver's
+  `AUTO_RETRY_MESSAGE`; the root re-calls `creative_pipeline`), then `FAILED`
+  unless finalized (the error log carries `status`, `reason`, `retried`, `secs`).
+  Optional worker env vars (defaults in brackets):
+
+  | Var | Default | Meaning |
+  | --- | --- | --- |
+  | `CRF_WORKER_TIMEOUT_SECS` | 1800 | must match the worker's `--timeout`; the run budget starts at the row lock |
+  | `CRF_BUDGET_SAFETY_SECS` | 150 | kept back for the session delete + the status write |
+  | `CRF_STREAM_TIMEOUT_SECS` | 1500 | bound on one `async_stream_query` (also clamped to the remaining budget) |
+  | `CRF_POLL_INTERVAL_SECS` | 30 | session poll interval |
+  | `CRF_IDLE_SECS` | 180 | after a stream error/timeout, no new events for this long = run over |
+
+  A retry costs a whole second pipeline run, so a run that fails twice can take
+  most of the 1800 s budget; the retry is skipped with < 300 s left.
 * see [gcloud reference doc](https://cloud.google.com/sdk/gcloud/reference/run/deploy)
 
 

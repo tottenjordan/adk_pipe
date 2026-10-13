@@ -469,6 +469,29 @@ def test_transient_classification():
     assert not is_transient_error(KeyError("Context variable not found"))
 
 
+def test_cancelled_499_is_transient_also_when_wrapped():
+    """Spike 2026-10-13: campaign research got ``499 CANCELLED`` under
+    contention and failed creative_pipeline; it is worth another attempt."""
+    from google.adk.workflow._errors import DynamicNodeFailError
+    from google.genai import errors
+
+    from agent_common.retry_node import is_transient_error
+
+    cancelled = errors.ClientError(
+        499,
+        {"error": {"code": 499, "message": "cancelled", "status": "CANCELLED"}},
+    )
+    assert is_transient_error(cancelled)
+    wrapped = DynamicNodeFailError(
+        message="node failed", error=cancelled, error_node_path="a/b"
+    )
+    assert is_transient_error(wrapped)
+    # Status alone (no 499 code) counts too.
+    assert is_transient_error(
+        errors.ClientError(400, {"error": {"code": 400, "status": "CANCELLED"}})
+    )
+
+
 def test_transient_error_on_every_attempt_exhausts_like_empty_output(sleeps, caplog):
     child, calls = _raising_child([_quota_error() for _ in range(3)])
 
