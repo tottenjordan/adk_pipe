@@ -115,7 +115,51 @@ ENV_VAR_DICT = {
     "FLASH_MODEL_REQUEST_TIMEOUT_SECONDS": os.getenv(
         "FLASH_MODEL_REQUEST_TIMEOUT_SECONDS", "90"
     ),
+    # --- Knobs re-read in the engine runtime --------------------------------
+    # Agent Engine cloudpickles module-level functions BY REFERENCE, so module
+    # globals and class-level defaults are re-evaluated inside the engine from
+    # the ENGINE's env, and lazily built configs/clients (image-gen, image-QA,
+    # the creative_eval judge) read it at call time. These are shipped here or a
+    # deploy.env change would never reach the engines. Defaults equal the
+    # parsers' defaults (see each named module).
+    # General per-request model timeout (agent_common/genai_retry.py; default
+    # 240, clamped 30..900, 0 disables): the lazily built image-gen and judge
+    # clients read the module global in the engine.
+    "MODEL_REQUEST_TIMEOUT_SECONDS": os.getenv("MODEL_REQUEST_TIMEOUT_SECONDS", "240"),
+    # Serving location pinned for gemini-3.x (agent_common/locations.py; default
+    # `global`); also the judge's default location (creative_eval/config.py).
+    "MODEL_LOCATION": os.getenv("MODEL_LOCATION", "global"),
+    # Image-gen ImageConfig defaults (agent_common/config.py class attributes,
+    # read by creative_agent/image_tools.py at render time).
+    "IMAGE_SIZE": os.getenv("IMAGE_SIZE", "2K"),
+    "IMAGE_ASPECT_RATIO_DEFAULT": os.getenv("IMAGE_ASPECT_RATIO_DEFAULT", "9:16"),
+    # creative_eval judge (creative_eval/config.py EvalConfig, built lazily in
+    # the engine): model and concurrency caps. EVAL_MODEL_LOCATION is in
+    # OPTIONAL_ENV_VARS (its default follows MODEL_LOCATION).
+    "EVAL_MODEL": os.getenv("EVAL_MODEL", "gemini-3.1-pro-preview"),
+    "EVAL_MAX_WORKERS": os.getenv("EVAL_MAX_WORKERS", "2"),
+    "EVAL_MAX_VISUAL_WAVE_WORKERS": os.getenv("EVAL_MAX_VISUAL_WAVE_WORKERS", "4"),
+    # Campaign-research model bucket (creative_agent/config.py; default
+    # `global_altbucket`, unknown values fall back to it).
+    "CAMPAIGN_RESEARCH_PLACEMENT": os.getenv(
+        "CAMPAIGN_RESEARCH_PLACEMENT", "global_altbucket"
+    ),
 }
+
+# Shipped only when set in the deployer's env (never a None, never an invented
+# value): CRITIC_FALLBACK_MODEL="" is a meaningful kill switch (no Pro -> flash
+# failover; agent_common/config.py), so an unset var must stay unset and leave
+# the code default (gemini-3.8-flash) in force. EVAL_MODEL_LOCATION's default is
+# MODEL_LOCATION (shipped above), so it is only passed through when overridden.
+OPTIONAL_ENV_VARS = ("CRITIC_FALLBACK_MODEL", "EVAL_MODEL_LOCATION")
+
+
+def optional_env_vars() -> dict[str, str]:
+    """The OPTIONAL_ENV_VARS set in the current env (an empty string counts)."""
+    return {k: v for k in OPTIONAL_ENV_VARS if (v := os.getenv(k)) is not None}
+
+
+ENV_VAR_DICT.update(optional_env_vars())
 
 
 def build_env_vars(enable_tracing: bool = False) -> dict[str, str | None]:
