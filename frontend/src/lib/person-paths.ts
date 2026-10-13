@@ -14,8 +14,6 @@
 
 import { createHash } from "node:crypto";
 
-export const PERSON_REFS_PREFIX = "person-refs/";
-
 const SLUG_HASH_CHARS = 10;
 
 /** The owner's folder name `<readable>-<h>` (mirrors runserver `slug_for`; shared
