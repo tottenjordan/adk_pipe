@@ -15,16 +15,16 @@
   },
   "trend_scout": {
     "anr_skincare_campaign": {
-      "inference_call_count_v1": 10.0,
-      "invocation_duration_v1": 118.581,
-      "token_usage_v1": 60774.0,
-      "tool_call_count_v1": 14.0
+      "inference_call_count_v1": 14.0,
+      "invocation_duration_v1": 202.565,
+      "token_usage_v1": 68432.0,
+      "tool_call_count_v1": 15.0
     },
     "prs_guitars_campaign": {
-      "inference_call_count_v1": 10.0,
-      "invocation_duration_v1": 128.155,
-      "token_usage_v1": 65655.0,
-      "tool_call_count_v1": 14.0
+      "inference_call_count_v1": 14.0,
+      "invocation_duration_v1": 233.767,
+      "token_usage_v1": 68420.0,
+      "tool_call_count_v1": 15.0
     }
   }
 }
