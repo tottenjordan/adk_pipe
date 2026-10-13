@@ -643,9 +643,7 @@ class TestDeployAgentCreate:
         update_env.assert_not_called()
 
     @pytest.mark.parametrize("value", [None, "", "  "])
-    def test_create_without_bucket_fails_up_front(
-        self, monkeypatch, value
-    ):
+    def test_create_without_bucket_fails_up_front(self, monkeypatch, value):
         da, _, adk_app_cls, client, _ = self._setup(
             monkeypatch, "creative_agent", with_app=False
         )
