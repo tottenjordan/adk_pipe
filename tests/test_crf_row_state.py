@@ -593,6 +593,34 @@ def test_create_agent_run_marks_only_pre_session_errors(monkeypatch):
     assert isinstance(info.value.__cause__, TimeoutError)
 
 
+def test_error_inside_a_started_session_is_not_session_not_started(monkeypatch):
+    """Through the real create_agent_run: once the session exists, a 503 from
+    the run propagates as itself, so the row is FAILED, not re-queued."""
+    _vertex(monkeypatch)
+
+    class _Monitor:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def run(self, message):
+            raise api_exceptions.ServiceUnavailable("mid-run")
+
+    monkeypatch.setattr(worker, "RunMonitor", _Monitor)
+    agent = clients.new_vertex_client().runtimes.get.return_value
+
+    async def _delete(**kwargs):
+        return None
+
+    agent.async_delete_session = _delete
+    with pytest.raises(api_exceptions.ServiceUnavailable):
+        asyncio.run(worker.create_agent_run("1", {**_TREND}, "u"))
+
+    store = FakeStatusStore(monkeypatch, _TREND)
+    _run_row()
+    assert store.statuses == ["FAILED"]
+    assert not [c for c in store.calls if c[0] == "requeue"]
+
+
 # --- the legacy message (no row key) ----------------------------------------
 def test_legacy_message_locks_by_timestamp_once_then_uses_the_real_key(
     monkeypatch, caplog
