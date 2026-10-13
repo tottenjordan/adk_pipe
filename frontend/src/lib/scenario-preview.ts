@@ -24,6 +24,7 @@
 import presetsJson from "./scenario-presets.generated.json";
 import type { CtrMode, Scenario, ScenarioOverrides, Shift, ShiftKind } from "./experiments";
 import type { Proof } from "./eval-matching";
+import { round4 } from "./num";
 
 // ── Presets ──────────────────────────────────────────────────────────────────
 
@@ -118,7 +119,6 @@ export function presetValues(scenario: Scenario): TuneValues {
 
 const EPS = 1e-6;
 const differs = (a: number, b: number) => Math.abs(a - b) > EPS;
-const round4 = (v: number) => Math.round(v * 1e4) / 1e4;
 
 /**
  * Only the knobs that differ from the preset, as the camelCase REST object

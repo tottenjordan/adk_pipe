@@ -45,6 +45,7 @@ import {
   type ShiftResult,
   type Stat,
 } from "./shifts";
+import { finite, joinList } from "./num";
 
 /** Below this many episodes the bands are too loose to call a winner. */
 export const MIN_EPISODES = 5;
@@ -136,14 +137,6 @@ const LIN = "linear_ts";
 const ORACLE = "oracle";
 
 // ── Small pure helpers (exported for tests) ──────────────────────────────────
-
-const finite = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
-
-/** "a", "a and b", "a, b and c". */
-export function joinList(items: string[]): string {
-  if (items.length <= 1) return items[0] ?? "";
-  return `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
-}
 
 /** Signed relative change as a percent of `base`, e.g. 0.056 → "5.6%"; null if undefined. */
 export function relativeChange(value: number, base: number): number | null {

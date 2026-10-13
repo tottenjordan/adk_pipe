@@ -11,6 +11,7 @@
 import { formatInt, formatPercent, niceStep } from "./chart";
 import type { CreativeSeries, CreativeSeriesItem } from "./experiments";
 import type { SeriesRegime } from "./shifts";
+import { finite } from "./num";
 
 /** Fewer clicks than this overall and the drawer says the data is too thin to read. */
 export const MIN_CLICKS = 30;
@@ -20,7 +21,6 @@ export const MIN_SEGMENT_CLICKS = 20;
 /** Relative differences smaller than this read as "about the same". */
 export const FLAT_DIFF = 0.1;
 
-const finite = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
 
 export interface DetailSegment {
   segment: string;

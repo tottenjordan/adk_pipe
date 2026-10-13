@@ -12,6 +12,7 @@ import { ExperimentStatusLabel, StatusHelp } from "@/components/experiment-statu
 import { CustomBadge, OverridesDisclosure } from "@/components/scenario-overrides";
 import { ProofImage } from "@/app/results/[sessionId]/proof-grid";
 import { formatInt } from "@/lib/chart";
+import { joinList } from "@/lib/num";
 import {
   armColor,
   armImageUrl,
@@ -85,12 +86,6 @@ const LEARNING_OPTIONS: readonly { value: LearningMode; label: string }[] = [
   { value: "per_episode", label: "Reset each episode" },
   { value: "continuous", label: "Keep learning" },
 ];
-
-/** "20 and 50" / "5, 20 and 50". */
-function joinCounts(ns: readonly number[]): string {
-  const s = ns.map(String);
-  return s.length <= 1 ? (s[0] ?? "") : `${s.slice(0, -1).join(", ")} and ${s[s.length - 1]}`;
-}
 
 export default function ExperimentPage({
   params,
@@ -550,8 +545,8 @@ export default function ExperimentPage({
         {keepLearning && (limitError || blockedCounts.length > 0) && (
           <p className="mt-2 max-w-[72ch] text-xs text-muted-foreground tabular-nums">
             {limitError ??
-              `One stream is capped at ${formatInt(MAX_CONTINUOUS_ROUNDS)} rounds, so ${joinCounts(
-                blockedCounts
+              `One stream is capped at ${formatInt(MAX_CONTINUOUS_ROUNDS)} rounds, so ${joinList(
+                blockedCounts.map(String)
               )} segments aren't available at ${formatInt(horizon)} rounds per segment.`}
           </p>
         )}

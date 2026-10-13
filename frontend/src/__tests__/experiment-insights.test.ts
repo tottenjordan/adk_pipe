@@ -6,7 +6,6 @@ import {
   memoryReaders,
   swapWhen,
   buildInsights,
-  joinList,
   relativeChange,
   setupNotes,
   verdictOf,
@@ -68,12 +67,6 @@ const allText = (i: ExperimentInsights) =>
   [i.headline, i.support, ...Object.values(i.readings), ...Object.values(i.lanes)].filter(Boolean).join("\n");
 
 describe("helpers", () => {
-  it("joins lists in plain English", () => {
-    expect(joinList([])).toBe("");
-    expect(joinList(["a"])).toBe("a");
-    expect(joinList(["a", "b"])).toBe("a and b");
-    expect(joinList(["a", "b", "c"])).toBe("a, b and c");
-  });
   it("computes relative change and refuses undefined ones", () => {
     expect(relativeChange(110, 100)).toBeCloseTo(0.1);
     expect(relativeChange(90, 100)).toBeCloseTo(-0.1);

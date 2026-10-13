@@ -24,14 +24,13 @@ import {
   type ShiftPreview,
   type TuneValues,
 } from "./scenario-preview";
+import { finite, round4 } from "./num";
 
 export { SHIFT_LEADER, SHIFT_SPEC };
 export const SHIFT_KINDS: readonly ShiftKind[] = SHIFT_SPEC.kinds;
 export const MAX_SHIFTS = SHIFT_SPEC.maxShifts;
 export const SHIFT_MIN_WINDOW = SHIFT_SPEC.minWindow;
 
-const finite = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
-const round4 = (v: number) => Math.round(v * 1e4) / 1e4;
 const EPS = 1e-9;
 
 // ── Context ──────────────────────────────────────────────────────────────────
