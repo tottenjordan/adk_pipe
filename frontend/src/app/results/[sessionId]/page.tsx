@@ -6,7 +6,7 @@ import Link from "next/link";
 import dynamic from "next/dynamic";
 import { buttonVariants } from "@/components/ui/button";
 import { getSession, listArtifacts, SELF_USER_ID } from "@/lib/api";
-import { fetchEvalReport } from "@/lib/eval-report";
+import { fetchEvalReport, parseEvalReport } from "@/lib/eval-report";
 import { gcsProxyUrl } from "@/lib/gcs";
 import { classifyWarnings } from "@/lib/run-warnings";
 import { LearningSummary } from "@/components/learning-summary";
@@ -109,10 +109,11 @@ export default function ResultsPage({
 
     setEvalStatus("loading");
     const evalUrl = gcsProxyUrl(bucket, `${folder}/${subdir}/creative_eval_report.json`);
-    const result = await fetchEvalReport<EvalReport>(evalUrl);
+    const result = await fetchEvalReport<unknown>(evalUrl);
     if (isCancelled()) return;
     if (result.status === "found") {
-      setEvalReport(result.report);
+      // A malformed/older report (null) shows the "no evaluation" state.
+      setEvalReport(parseEvalReport(result.report));
       setEvalStatus("idle");
     } else {
       setEvalStatus(result.status);

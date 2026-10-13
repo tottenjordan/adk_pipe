@@ -8,6 +8,79 @@
  * errors) and surface a distinct "pending" outcome the UI can show + let the user
  * refresh.
  */
+import type { CreativeScore, EvalReport } from "@/lib/eval-matching";
+
+type Obj = Record<string, unknown>;
+
+const isObj = (v: unknown): v is Obj => typeof v === "object" && v !== null && !Array.isArray(v);
+const list = (v: unknown): unknown[] => (Array.isArray(v) ? v : []);
+const strings = (v: unknown): string[] | undefined =>
+  Array.isArray(v) ? v.filter((s): s is string => typeof s === "string") : undefined;
+const num = (v: unknown): number => (typeof v === "number" && Number.isFinite(v) ? v : 0);
+const str = (v: unknown): string => (typeof v === "string" ? v : "");
+
+/** A score with the lists the UI maps over defaulted; null without a numeric overall score. */
+function parseScore(raw: unknown): CreativeScore | null {
+  if (!isObj(raw) || typeof raw.overall_score !== "number" || !Number.isFinite(raw.overall_score)) {
+    return null;
+  }
+  const score = {
+    ...raw,
+    verdicts: list(raw.verdicts),
+    strengths: strings(raw.strengths) ?? [],
+    improvements: strings(raw.improvements) ?? [],
+  } as CreativeScore & Obj;
+  if (!Array.isArray(raw.gates)) delete score.gates;
+  return score;
+}
+
+/** Entries that are objects with a usable score (others are dropped). */
+function parseEntries<T>(raw: unknown): T[] {
+  const out: T[] = [];
+  for (const entry of list(raw)) {
+    if (!isObj(entry)) continue;
+    const score = parseScore(entry.score);
+    if (score) out.push({ ...entry, score } as T);
+  }
+  return out;
+}
+
+/**
+ * Normalise a fetched `creative_eval_report.json` so the results page can't throw on
+ * a malformed or older report: evaluation lists default to [], entries without a
+ * numeric score are dropped, the summary's numbers default to 0. A non-object or a
+ * report without a summary object is unusable → null (the page's "no evaluation" state).
+ */
+export function parseEvalReport(raw: unknown): EvalReport | null {
+  if (!isObj(raw) || !isObj(raw.summary)) return null;
+  const s = raw.summary;
+  const report = {
+    ...raw,
+    brand: str(raw.brand),
+    target_product: str(raw.target_product),
+    target_search_trend: str(raw.target_search_trend),
+    ad_copy_evaluations: parseEntries(raw.ad_copy_evaluations),
+    visual_concept_evaluations: parseEntries(raw.visual_concept_evaluations),
+    summary: {
+      ...s,
+      total_ad_copies: num(s.total_ad_copies),
+      ad_copies_passed: num(s.ad_copies_passed),
+      avg_ad_copy_score: num(s.avg_ad_copy_score),
+      total_visual_concepts: num(s.total_visual_concepts),
+      visual_concepts_passed: num(s.visual_concepts_passed),
+      avg_visual_score: num(s.avg_visual_score),
+      overall_pass_rate: num(s.overall_pass_rate),
+      weakest_dimensions: strings(s.weakest_dimensions) ?? [],
+    },
+  } as EvalReport & Obj;
+  for (const key of ["warnings", "learning_flags"] as const) {
+    const value = strings(raw[key]);
+    if (value) report[key] = value;
+    else delete report[key];
+  }
+  return report;
+}
+
 export interface FetchEvalOptions {
   /** Retries after the first attempt (default 5). Total attempts = retries + 1. */
   retries?: number;

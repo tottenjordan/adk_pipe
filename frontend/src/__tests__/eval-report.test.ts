@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { fetchEvalReport } from "@/lib/eval-report";
+import { fetchEvalReport, parseEvalReport } from "@/lib/eval-report";
 import { jsonResponse } from "./helpers";
 
 // The creative eval report is the LAST artifact the pipeline writes to GCS, so the
@@ -91,5 +91,97 @@ describe("fetchEvalReport", () => {
 
     expect(result).toEqual({ status: "pending" });
     expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("parseEvalReport", () => {
+  const score = (over: Record<string, unknown> = {}) => ({
+    overall_score: 0.8,
+    passed: true,
+    verdicts: [],
+    strengths: ["Clear"],
+    improvements: [],
+    ...over,
+  });
+  const summary = {
+    total_ad_copies: 1,
+    ad_copies_passed: 1,
+    avg_ad_copy_score: 0.8,
+    total_visual_concepts: 1,
+    visual_concepts_passed: 0,
+    avg_visual_score: 0.5,
+    overall_pass_rate: 0.5,
+    weakest_dimensions: ["clarity"],
+  };
+  const good = {
+    brand: "Acme",
+    target_product: "Rocket skates",
+    target_search_trend: "Marathon",
+    ad_copy_evaluations: [{ original_id: 1, headline: "Go", tone_style: "Playful", score: score() }],
+    visual_concept_evaluations: [{ ad_copy_id: 1, concept_name: "Dust", score: score({ passed: false }) }],
+    warnings: ["Research gap"],
+    passing_threshold: 0.7,
+    summary,
+  };
+
+  it("passes a well-formed report through unchanged", () => {
+    expect(parseEvalReport(good)).toEqual(good);
+  });
+
+  it.each([null, undefined, 42, "report", true, [good]])("returns null for a non-object (%s)", (raw) => {
+    expect(parseEvalReport(raw)).toBeNull();
+  });
+
+  it("returns null without a summary object", () => {
+    expect(parseEvalReport({ ...good, summary: undefined })).toBeNull();
+    expect(parseEvalReport({ ...good, summary: "n/a" })).toBeNull();
+  });
+
+  it("defaults missing or non-array evaluation lists to []", () => {
+    const report = parseEvalReport({ summary, visual_concept_evaluations: "oops" });
+    expect(report?.ad_copy_evaluations).toEqual([]);
+    expect(report?.visual_concept_evaluations).toEqual([]);
+    expect(report?.brand).toBe("");
+  });
+
+  it("drops entries without a usable score", () => {
+    const report = parseEvalReport({
+      ...good,
+      ad_copy_evaluations: [
+        { original_id: 1, headline: "No score" },
+        { original_id: 2, headline: "Bad score", score: "0.9" },
+        { original_id: 3, headline: "No number", score: { passed: true } },
+        null,
+        { original_id: 4, headline: "Kept", tone_style: "Bold", score: score() },
+      ],
+      visual_concept_evaluations: [{ concept_name: "Lost" }],
+    });
+    expect(report?.ad_copy_evaluations.map((e) => e.original_id)).toEqual([4]);
+    expect(report?.visual_concept_evaluations).toEqual([]);
+  });
+
+  it("defaults a score's lists to [] and drops a malformed gates list", () => {
+    const report = parseEvalReport({
+      ...good,
+      ad_copy_evaluations: [{ original_id: 1, headline: "Go", score: { overall_score: 0.4, passed: false, gates: "x" } }],
+    });
+    const s = report?.ad_copy_evaluations[0].score;
+    expect(s?.verdicts).toEqual([]);
+    expect(s?.strengths).toEqual([]);
+    expect(s?.improvements).toEqual([]);
+    expect(s?.gates).toBeUndefined();
+  });
+
+  it("defaults the summary's numbers to 0 and its weakest list to []", () => {
+    const report = parseEvalReport({ ...good, summary: { overall_pass_rate: "high" } });
+    expect(report?.summary.overall_pass_rate).toBe(0);
+    expect(report?.summary.total_ad_copies).toBe(0);
+    expect(report?.summary.weakest_dimensions).toEqual([]);
+  });
+
+  it("drops non-array warnings and learning flags", () => {
+    const report = parseEvalReport({ ...good, warnings: "one", learning_flags: { a: 1 } });
+    expect(report?.warnings).toBeUndefined();
+    expect(report?.learning_flags).toBeUndefined();
   });
 });
