@@ -642,6 +642,23 @@ class TestDeployAgentCreate:
             da.deploy_agent("creative_agent", "v9")
         update_env.assert_not_called()
 
+    @pytest.mark.parametrize("value", [None, "", "  "])
+    def test_create_without_bucket_fails_up_front(
+        self, monkeypatch, value
+    ):
+        da, _, adk_app_cls, client, _ = self._setup(
+            monkeypatch, "creative_agent", with_app=False
+        )
+        if value is None:
+            monkeypatch.delenv("GOOGLE_CLOUD_STORAGE_BUCKET")
+        else:
+            monkeypatch.setenv("GOOGLE_CLOUD_STORAGE_BUCKET", value)
+        # Was a staging bucket of "gs://None" after every agent was imported.
+        with pytest.raises(ValueError, match="GOOGLE_CLOUD_STORAGE_BUCKET"):
+            da.deploy_agent("creative_agent", "v9")
+        adk_app_cls.assert_not_called()
+        client.runtimes.create.assert_not_called()
+
     def test_create_returns_resource_name_and_prints_nothing_by_default(
         self, monkeypatch, capsys
     ):
@@ -851,6 +868,26 @@ class TestPrettyPrintEvent:
         td = _load_script("test_deployment")
         td.pretty_print_event({"author": "a", "content": None})
         td.pretty_print_event({"author": "a", "content": {"parts": None}})
+
+
+class TestEngineResourceName:
+    """test_deployment names the missing env key instead of calling
+    runtimes.get(name=None)."""
+
+    @pytest.mark.parametrize("value", [None, "", "  "])
+    def test_unset_engine_id_exits_naming_the_key(self, monkeypatch, value):
+        td = _load_script("test_deployment")
+        if value is None:
+            monkeypatch.delenv("SCOUT_AGENT_ENGINE_ID", raising=False)
+        else:
+            monkeypatch.setenv("SCOUT_AGENT_ENGINE_ID", value)
+        with pytest.raises(SystemExit, match="SCOUT_AGENT_ENGINE_ID"):
+            td.engine_resource_name("trend_scout")
+
+    def test_set_engine_id_is_returned(self, monkeypatch):
+        td = _load_script("test_deployment")
+        monkeypatch.setenv("CREATIVE_AGENT_ENGINE_ID", " projects/p/x/123 ")
+        assert td.engine_resource_name("creative_agent") == "projects/p/x/123"
 
 
 class TestBuildTestState:

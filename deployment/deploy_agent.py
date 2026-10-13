@@ -491,6 +491,11 @@ def deploy_agent(
     """
     import importlib
 
+    bucket = (os.getenv("GOOGLE_CLOUD_STORAGE_BUCKET") or "").strip()
+    if not bucket:
+        # Fail before importing every agent (was a "gs://None" staging bucket).
+        raise ValueError("GOOGLE_CLOUD_STORAGE_BUCKET must be set to deploy")
+
     spec = AGENT_DEPLOY_SPECS[name]
     extra_packages = AGENT_EXTRA_PACKAGES[name]
     validate_extra_packages(extra_packages)
@@ -522,7 +527,7 @@ def deploy_agent(
                     config={
                         "requirements": requirements,
                         "extra_packages": staged,
-                        "staging_bucket": f"gs://{os.getenv('GOOGLE_CLOUD_STORAGE_BUCKET')}",
+                        "staging_bucket": f"gs://{bucket}",
                         "gcs_dir_name": f"adk-pipe/{spec['gcs_subdir']}/{version}/staging",
                         "display_name": f"{spec['display_name']}-{version}",
                         "description": root_agent.description,
@@ -664,8 +669,8 @@ def main(argv):
                 write_env=FLAGS.write_env,
                 output_json=FLAGS.output_json,
             )
-        except Exception:
-            logging.error("Deploy failed; exiting non-zero.")
+        except Exception as e:
+            logging.error(f"Deploy failed ({e}); exiting non-zero.")
             sys.exit(1)
 
     elif FLAGS.delete:
