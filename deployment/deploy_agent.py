@@ -85,6 +85,10 @@ ENV_VAR_DICT = {
     "RATING_REASON_MIN": os.getenv("RATING_REASON_MIN", "3"),
     "RATING_LEARNING_WINDOW_DAYS": os.getenv("RATING_LEARNING_WINDOW_DAYS", "90"),
     "BQ_TABLE_RATINGS": os.getenv("BQ_TABLE_RATINGS") or "creative_ratings",
+    # trend_scout trend digest (trend_scout/digest.py): kill switch (default on;
+    # off = only the sensitivity classifier runs) and the shared daily cache table.
+    "TREND_DIGEST_ENABLED": os.getenv("TREND_DIGEST_ENABLED", "true"),
+    "BQ_TABLE_TREND_DIGEST": os.getenv("BQ_TABLE_TREND_DIGEST") or "trend_digest",
     # creative_agent person casting (creative_agent/config.py): the style families
     # a cast concept may use and the cap on cast concepts per set (0..4, default
     # 2; 0 = casting off). Defaults from the calibration spikes: the photographic
