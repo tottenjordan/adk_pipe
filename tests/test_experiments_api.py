@@ -223,6 +223,43 @@ def test_deploy_refuses_a_cast_creative():
     run(go)
 
 
+def _timely_state(valid_until: str) -> dict:
+    """Concept 1 is timely via its paired ad copy; its moment ends at ``valid_until``."""
+    state = _fixture_state()
+    state["trend_situation"] = {"timely_ok": True, "valid_until": valid_until}
+    concept = state["final_visual_concepts"]["visual_concepts"][1]
+    for copy in state["ad_copy_critique"]["ad_copies"]:
+        if str(copy["original_id"]) == str(concept["ad_copy_id"]):
+            copy["uses_trend_state"] = True
+    return state
+
+
+def test_expired_timely_creatives_are_refused():
+    state = _timely_state("2026-10-14T23:59:59-04:00")
+    before = dt.datetime(2026, 10, 15, 3, 59, 58, tzinfo=dt.UTC)
+    at_end = dt.datetime(2026, 10, 15, 3, 59, 59, tzinfo=dt.UTC)
+    assert len(ex.snapshot_arms(state, "s", [0, 1], now=before)) == 2
+    assert len(ex.snapshot_arms(state, "s", [0, 2], now=at_end)) == 2  # evergreen
+    with pytest.raises(ex.SelectionError) as e:
+        ex.snapshot_arms(state, "s", [0, 1], now=at_end)
+    assert e.value.reason == "timely_expired"
+    name = state["final_visual_concepts"]["visual_concepts"][1]["concept_name"]
+    assert name in str(e.value) and "2026-10-14T23:59:59-04:00" in str(e.value)
+
+
+def test_deploy_refuses_an_expired_timely_creative():
+    async def go():
+        h = Harness()
+        await h.session(state=_timely_state("2020-01-01T00:00:00Z"))  # wall clock
+        r = await h.create(indices=(0, 1))
+        assert r.status_code == 400
+        assert r.json()["detail"]["reason"] == "timely_expired"
+        r = await h.create(indices=(0, 2))
+        assert r.status_code == 201, r.text
+
+    run(go)
+
+
 def test_build_experiment_config_matches_section_1_shape():
     state = _fixture_state()
     arms = ex.snapshot_arms(state, "s", [0, 1])

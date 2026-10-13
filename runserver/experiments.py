@@ -72,6 +72,7 @@ from runserver.experiments_store import (
     BigQueryExperimentStore,
     InMemoryExperimentStore,
 )
+from runserver.timely import timely_expired, valid_until
 
 log = logging.getLogger(__name__)
 
@@ -320,6 +321,7 @@ def snapshot_arms(
     indices: Sequence[int],
     *,
     default_bucket: str | None = None,
+    now: dt.datetime | None = None,
 ) -> list[dict]:
     """Freeze the selected visual concepts as §5 ``Arm`` dicts.
 
@@ -328,8 +330,9 @@ def snapshot_arms(
     ``overallScore`` is the mean of the available overall scores (the results
     page's proof score). Raises ``SelectionError`` for an invalid selection,
     including a creative that casts a person (``cast_creative``) or whose image is
-    a person photo / personalised variant (``person_image``); ``person_variants``
-    is never read."""
+    a person photo / personalised variant (``person_image``) or a timely creative
+    whose moment ended at or before ``now`` (the wall clock, default now;
+    ``timely_expired``, ``runserver.timely``); ``person_variants`` is never read."""
     concepts = _items(session_state.get("final_visual_concepts"), "visual_concepts")
     if not concepts:
         raise SelectionError("no_creatives", "this run has no visual concepts")
@@ -337,6 +340,7 @@ def snapshot_arms(
     report = _as_obj(session_state.get("creative_evaluation_report")) or {}
     visual_evals = _items(report, "visual_concept_evaluations")
     ad_evals = _items(report, "ad_copy_evaluations")
+    now = now or _utcnow()
     arms = []
     for idx in picked:
         concept = concepts[idx]
@@ -345,6 +349,12 @@ def snapshot_arms(
             raise SelectionError(
                 "cast_creative",
                 f"'{name}' features a person, so it can't be used in experiments",
+            )
+        if timely_expired(session_state, name, now):
+            raise SelectionError(
+                "timely_expired",
+                f"'{name}' referenced a moment that ended on "
+                f"{valid_until(session_state)}; pick evergreen creatives",
             )
         image_uri = _image_uri(session_state, name, default_bucket)
         if _is_person_image(image_uri):
@@ -1582,6 +1592,7 @@ async def http_create_experiment(body: _CreateBody, request: Request) -> dict:
             body.sessionId,
             body.creativeIndices,
             default_bucket=_SETTINGS.gcs_bucket,
+            now=_utcnow(),
         )
     except SelectionError as exc:
         raise _error(400, exc.reason, str(exc)) from exc
