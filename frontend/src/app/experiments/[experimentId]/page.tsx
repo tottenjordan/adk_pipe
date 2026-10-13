@@ -12,7 +12,6 @@ import { ExperimentStatusLabel, StatusHelp } from "@/components/experiment-statu
 import { CustomBadge, OverridesDisclosure } from "@/components/scenario-overrides";
 import { ProofImage } from "@/app/results/[sessionId]/proof-grid";
 import { formatInt } from "@/lib/chart";
-import { joinList } from "@/lib/num";
 import {
   armColor,
   armImageUrl,
@@ -62,6 +61,7 @@ import {
   type ShiftContext,
 } from "@/lib/shifts";
 import { valuesFromOverrides } from "@/lib/scenario-preview";
+import { joinList } from "@/lib/num";
 import type { Scenario, CtrMode } from "@/lib/experiments";
 import {
   keepIfUnchanged,
