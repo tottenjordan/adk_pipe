@@ -9,9 +9,12 @@ captured in its route closures) and hand THOSE to our router + runner factory.
 This shares a single store for every backend — including the local default and
 in-memory. If ADK's internals ever move the instance out of reach, we fall back
 to rebuilding the services from the same ``SESSION_SERVICE_URI`` via ADK's own
-resolver (correct for the prod remote ``agentengine://`` backend, which multiple
-clients share; only a bare in-memory local run would diverge, and local dev uses
-the canned ``adk api_server`` path, not this launcher).
+resolver and log a warning. That is correct for the prod remote
+``agentengine://`` backend, which multiple clients share, but NOT for an
+in-memory store: local dev runs this launcher with ``SESSION_SERVICE_URI=memory://``
+(see CLAUDE.md), and there the fallback would give ``/runs`` a second, empty store,
+so sessions created via the canned CRUD endpoints would 404 on ``/runs`` (and vice
+versa). ``tests/test_async_app_wiring.py`` asserts the canned instance is found.
 """
 
 from __future__ import annotations
@@ -79,7 +82,15 @@ session_service, artifact_service = _find_canned_services(app)
 
 if session_service is None:
     # Fallback: rebuild from the same URI with ADK's own resolver so the two
-    # servers still share a remote backend in production.
+    # servers still share a remote backend in production. An in-memory (or local
+    # file) store is NOT shared this way, hence the warning.
+    logging.getLogger(__name__).warning(
+        "could not find the canned ADK session/artifact services; building fresh "
+        "ones from SESSION_SERVICE_URI=%r. /runs and the canned CRUD endpoints only "
+        "share a store when it is remote (agentengine://); with memory:// sessions "
+        "will 404 across them",
+        _SESSION_URI,
+    )
     session_service = create_session_service_from_options(
         base_dir=_AGENTS_DIR, session_service_uri=_SESSION_URI
     )
