@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { ExternalLinkIcon } from "lucide-react";
-import { ProofImage } from "@/app/results/[sessionId]/proof-grid";
+import { ProofImage } from "@/components/proof-image";
 import {
   Dialog,
   DialogContent,

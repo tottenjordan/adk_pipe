@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { FieldLabel } from "@/components/field-label";
@@ -20,44 +20,46 @@ import {
   variantImageCheck,
   variantImageUrl,
   variantStatusText,
+  type Castability,
   type VariantRecord,
   type VariantsListing,
 } from "@/lib/variants";
 import { VariantCompare } from "@/components/variant-compare";
 
+/** The results page's personalisation data, shared by every proof's panel. */
+export interface PersonalisationData {
+  /** The caller's people (null until loaded or when the load failed). */
+  people: PersonRef[] | null;
+  peopleFailed: boolean;
+  /** The session's variants + castability (null until loaded). */
+  listing: VariantsListing | null;
+  /** Re-read the variants (after a create or a finished poll). */
+  refreshVariants: () => void;
+}
+
+type Loaded = {
+  key: string;
+  people: PersonRef[] | null;
+  peopleFailed: boolean;
+  listing: VariantsListing | null;
+};
+
 /**
- * "Personalise" in the results proof dialog: re-render this creative with one of
- * the caller's consented people as the hero (`POST /variants`). For a creative that
- * already casts a person (`castable` `mode: "swap"`) it reads "Swap person" and
- * leaves that person out of the picker. It polls every
- * few seconds while it is queued or rendering, then show the base image and the
- * preview side by side with the preview's image check. A preview is UI only: never
- * judged, rated, shared or deployed to an experiment.
+ * Load the caller's people and the session's variants ONCE for the whole results
+ * page (the proof dialog remounts the panel per creative, and `listPersonRefs` is
+ * expensive server-side). Nothing loads until `enabled` (the proof dialog is open on
+ * a creative app); `refreshVariants` re-reads only the variants.
  */
-export function PersonalisePanel({
-  appName,
-  sessionId,
-  conceptName,
-  baseImageUrl,
-  baseAlt,
-}: {
-  appName: string;
-  sessionId: string;
-  conceptName: string;
-  baseImageUrl: string | null;
-  baseAlt: string;
-}) {
-  const [people, setPeople] = useState<PersonRef[] | null>(null);
-  const [peopleFailed, setPeopleFailed] = useState(false);
-  // The person the caller picked ("" = the first one offered).
-  const [picked, setPicked] = useState("");
-  const [variant, setVariant] = useState<{ key: string; record: VariantRecord } | null>(null);
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  // From GET: whether the api would accept this creative (null until loaded).
-  const [eligibility, setEligibility] = useState<Pick<VariantsListing, "castable" | "personSafeStyles"> | null>(
-    null,
-  );
+export function usePersonalisationData(
+  appName: string,
+  sessionId: string,
+  enabled = true,
+): PersonalisationData {
+  const key = `${appName}/${sessionId}`;
+  const [loaded, setLoaded] = useState<Loaded | null>(null);
+  const loadedFor = useRef<string | null>(null);
+  // Bumped per variants request: an older response never overwrites a newer one.
+  const variantsRequest = useRef(0);
   const alive = useRef(true);
 
   useEffect(() => {
@@ -67,20 +69,120 @@ export function PersonalisePanel({
     };
   }, []);
 
-  // The caller's people (the first one offered is preselected, see `consentId`).
-  useEffect(() => {
-    listPersonRefs().then(
-      (list) => {
-        if (alive.current) setPeople(list.personRefs);
+  const update = useCallback(
+    (patch: Partial<Omit<Loaded, "key">>) =>
+      setLoaded((prev) => ({
+        ...(prev?.key === key ? prev : { key, people: null, peopleFailed: false, listing: null }),
+        ...patch,
+      })),
+    [key],
+  );
+
+  const refreshVariants = useCallback(() => {
+    const request = ++variantsRequest.current;
+    listVariants(appName, sessionId).then(
+      (listing) => {
+        if (alive.current && request === variantsRequest.current) update({ listing });
       },
       () => {
-        if (alive.current) setPeopleFailed(true);
+        // Keep the last listing; rendering still works without it.
       },
     );
+  }, [appName, sessionId, update]);
+
+  useEffect(() => {
+    if (!enabled || loadedFor.current === key) return;
+    loadedFor.current = key;
+    listPersonRefs().then(
+      (list) => {
+        if (alive.current && loadedFor.current === key) update({ people: list.personRefs });
+      },
+      () => {
+        if (alive.current && loadedFor.current === key) update({ peopleFailed: true });
+      },
+    );
+    refreshVariants();
+  }, [enabled, key, refreshVariants, update]);
+
+  const current = loaded?.key === key ? loaded : null;
+  return {
+    people: current?.people ?? null,
+    peopleFailed: current?.peopleFailed ?? false,
+    listing: current?.listing ?? null,
+    refreshVariants,
+  };
+}
+
+/** The slice of {@link PersonalisationData} one creative's panel needs. */
+export function personalisationProps(data: PersonalisationData, conceptName: string) {
+  return {
+    people: data.people,
+    peopleFailed: data.peopleFailed,
+    castable: data.listing?.castable?.[conceptName],
+    personSafeStyles: data.listing?.personSafeStyles ?? [],
+    variants: data.listing?.variants[conceptName],
+    onVariantsChanged: data.refreshVariants,
+  };
+}
+
+/**
+ * "Personalise" in the results proof dialog: re-render this creative with one of
+ * the caller's consented people as the hero (`POST /variants`). For a creative that
+ * already casts a person (`castable` `mode: "swap"`) it reads "Swap person" and
+ * leaves that person out of the picker. It polls every
+ * few seconds while it is queued or rendering, then show the base image and the
+ * preview side by side with the preview's image check. A preview is UI only: never
+ * judged, rated, shared or deployed to an experiment.
+ *
+ * The people, castability and earlier variants come from the page
+ * ({@link usePersonalisationData}); the panel only submits and polls.
+ */
+export function PersonalisePanel({
+  appName,
+  sessionId,
+  conceptName,
+  baseImageUrl,
+  baseAlt,
+  people,
+  peopleFailed,
+  castable: castEntry,
+  personSafeStyles,
+  variants,
+  onVariantsChanged,
+}: {
+  appName: string;
+  sessionId: string;
+  conceptName: string;
+  baseImageUrl: string | null;
+  baseAlt: string;
+  /** The caller's people (null while loading). */
+  people: PersonRef[] | null;
+  peopleFailed: boolean;
+  /** Whether the api would accept this creative (undefined until loaded / older api). */
+  castable: Castability | undefined;
+  personSafeStyles: string[];
+  /** This creative's earlier variants by key (undefined until loaded). */
+  variants: Record<string, VariantRecord> | undefined;
+  /** A variant was created or finished: the page re-reads the variants. */
+  onVariantsChanged?: () => void;
+}) {
+  // The person the caller picked ("" = the first one offered).
+  const [picked, setPicked] = useState("");
+  // The preview started or polled here; wins over the page's earlier preview, so a
+  // late listing never resets a render queued by a fast click.
+  const [live, setLive] = useState<{ key: string; record: VariantRecord } | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const alive = useRef(true);
+
+  useEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false;
+    };
   }, []);
 
   // A swap leaves the person already in the creative out of the picker.
-  const castEntry = eligibility?.castable?.[conceptName];
   const swap = castEntry?.mode === "swap";
   const skip = castConsentToSkip(castEntry);
   const options = (people ?? []).filter((p) => !skip || p.consent_id !== skip);
@@ -88,23 +190,8 @@ export function PersonalisePanel({
   const noOther = swap && people !== null && people.length > 0 && options.length === 0;
 
   // An earlier preview of this creative with the chosen person, if any.
-  useEffect(() => {
-    if (!consentId) return;
-    let cancelled = false;
-    listVariants(appName, sessionId).then(
-      (listing) => {
-        if (cancelled || !alive.current) return;
-        setVariant(latestVariant(listing.variants, conceptName, consentId));
-        setEligibility(listing);
-      },
-      () => {
-        // No earlier preview to show; rendering still works.
-      },
-    );
-    return () => {
-      cancelled = true;
-    };
-  }, [appName, sessionId, conceptName, consentId]);
+  const earlier = consentId ? latestVariant({ [conceptName]: variants ?? {} }, conceptName, consentId) : null;
+  const variant = live ?? earlier;
 
   // Poll while the preview is queued or rendering; stops on unmount, a new key, or
   // after MAX_POLL_MISSES consecutive misses (an error or a missing record), when a
@@ -129,8 +216,11 @@ export function PersonalisePanel({
       if (cancelled || !alive.current) return;
       if (record) {
         misses = 0;
-        setVariant({ key: pendingKey, record });
-        if (!isPending(record.status)) return;
+        setLive({ key: pendingKey, record });
+        if (!isPending(record.status)) {
+          onVariantsChanged?.();
+          return;
+        }
       } else if (++misses >= MAX_POLL_MISSES) {
         setPollStopped(true);
         return;
@@ -143,7 +233,7 @@ export function PersonalisePanel({
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [appName, sessionId, conceptName, pendingKey, pollStopped, pollRun]);
+  }, [appName, sessionId, conceptName, pendingKey, pollStopped, pollRun, onVariantsChanged]);
 
   const retryPolling = () => {
     checkNow.current = true;
@@ -152,7 +242,7 @@ export function PersonalisePanel({
   };
 
   const ineligible =
-    castabilityNote(castEntry, eligibility?.personSafeStyles ?? []) ?? (noOther ? NO_OTHER_PERSON_NOTE : null);
+    castabilityNote(castEntry, personSafeStyles) ?? (noOther ? NO_OTHER_PERSON_NOTE : null);
 
   // A plain handler: the React Compiler memoizes it (a manual useCallback over
   // the derived `consentId` couldn't be preserved).
@@ -163,7 +253,8 @@ export function PersonalisePanel({
     setPollStopped(false);
     try {
       const created = await createVariant(appName, sessionId, conceptName, consentId);
-      if (alive.current) setVariant({ key: created.key, record: created });
+      if (alive.current) setLive({ key: created.key, record: created });
+      onVariantsChanged?.();
     } catch (err) {
       if (alive.current) {
         setError(err instanceof Error ? err.message : "The preview couldn't be made.");
@@ -207,7 +298,7 @@ export function PersonalisePanel({
               disabled={people === null || submitting}
               onChange={(e) => {
                 setPicked(e.target.value);
-                setVariant(null);
+                setLive(null);
                 setError(null);
                 setPollStopped(false);
               }}

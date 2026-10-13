@@ -78,7 +78,12 @@ export default function PeoplePage() {
     listPersonRefs()
       .then(({ personRefs, prefix }) => {
         if (cancelled) return;
-        setPeople(personRefs);
+        // A person registered before this load landed stays (and wins over the
+        // list's copy): merge by consent_id instead of replacing.
+        setPeople((prev) => {
+          const local = new Set(prev.map((p) => p.consent_id));
+          return [...prev, ...personRefs.filter((p) => !local.has(p.consent_id))];
+        });
         setPrefix(prefix);
         if (prefix) setPhotoUri((current) => current || prefix);
       })

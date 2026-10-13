@@ -11,7 +11,7 @@ vi.mock("@/lib/api", () => ({
   createVariant: (...a: unknown[]) => createVariant(...a),
 }));
 
-import { PersonalisePanel } from "@/components/personalise-panel";
+import { PersonalisePanel, personalisationProps, usePersonalisationData } from "@/components/personalise-panel";
 import {
   castabilityNote,
   canPersonalise,
@@ -73,16 +73,24 @@ function listing(
   return { variants, castable, personSafeStyles: castable ? SAFE : [] };
 }
 
-function renderPanel() {
-  return render(
+/** The results page's wiring: the data loads once in the page, the panel is keyed per creative. */
+function Page({ conceptName = CONCEPT }: { conceptName?: string }) {
+  const data = usePersonalisationData("creative_agent", "s1");
+  return (
     <PersonalisePanel
+      key={conceptName}
       appName="creative_agent"
       sessionId="s1"
-      conceptName={CONCEPT}
+      conceptName={conceptName}
       baseImageUrl="/api/gcs?bucket=b&path=run%2Fcreative_output%2FThe_Authentic_Encore.png"
       baseAlt="A guitarist mid-solo"
-    />,
+      {...personalisationProps(data, conceptName)}
+    />
   );
+}
+
+function renderPanel() {
+  return render(<Page />);
 }
 
 beforeEach(() => {
@@ -141,6 +149,156 @@ describe("PersonalisePanel", () => {
     const calls = listVariants.mock.calls.length;
     await act(() => vi.advanceTimersByTimeAsync(VARIANT_POLL_MS * 3));
     expect(listVariants.mock.calls.length).toBe(calls);
+  });
+
+  it("keeps a render started before the earlier-preview lookup resolves", async () => {
+    let resolveListing: (v: unknown) => void = () => {};
+    listVariants.mockReturnValueOnce(new Promise((r) => (resolveListing = r)));
+    createVariant.mockResolvedValue({
+      key: "fresh",
+      concept_name: CONCEPT,
+      cached: false,
+      status: "queued",
+      consent_id: "consent-1234",
+      created_at: DONE.created_at,
+    });
+    renderPanel();
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "Person" })).toHaveValue("consent-1234"));
+    fireEvent.click(screen.getByRole("button", { name: "Render preview" }));
+    expect(await screen.findByRole("status")).toHaveTextContent(/Queued/);
+
+    // The slow initial lookup lands afterwards, with an older finished preview.
+    await act(async () => resolveListing(listing({ [CONCEPT]: { k1: DONE } })));
+    expect(screen.getByRole("status")).toHaveTextContent(/Queued/);
+    expect(screen.getByRole("button", { name: "Rendering…" })).toBeDisabled();
+    expect(screen.queryByAltText(/Personalised preview/)).not.toBeInTheDocument();
+  });
+
+  it("shows a fresh render over the earlier preview while the page's listing catches up", async () => {
+    listVariants.mockResolvedValueOnce(listing({ [CONCEPT]: { k1: DONE } }));
+    // The refresh after the create is slow (or fails): the listing still holds only k1.
+    listVariants.mockReturnValueOnce(new Promise(() => {}));
+    createVariant.mockResolvedValue({
+      key: "fresh",
+      concept_name: CONCEPT,
+      cached: false,
+      status: "queued",
+      consent_id: "consent-1234",
+      created_at: "2026-10-12T10:00:00Z",
+    });
+    renderPanel();
+    expect(await screen.findByAltText(/Personalised preview with Me/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Render preview" }));
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent(/Queued/));
+    expect(screen.getByRole("button", { name: "Rendering…" })).toBeDisabled();
+    expect(screen.queryByAltText(/Personalised preview/)).not.toBeInTheDocument();
+  });
+
+  it("loads people and variants once across proof navigation", async () => {
+    const castable = Object.fromEntries(
+      ["A", "B", "C"].map((c) => [c, { ok: true, code: "", style: "Candid 35mm film photo", reason: "" }]),
+    );
+    listVariants.mockResolvedValue(listing({ B: { kb: { ...DONE, status: "done" } } }, castable));
+    const { rerender } = render(<Page conceptName="A" />);
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "Person" })).toHaveValue("consent-1234"));
+    rerender(<Page conceptName="B" />);
+    // B's earlier preview comes from the page's listing, no new request.
+    expect(await screen.findByAltText(/Personalised preview with Me/)).toBeInTheDocument();
+    rerender(<Page conceptName="C" />);
+    await waitFor(() => expect(screen.queryByAltText(/Personalised preview/)).not.toBeInTheDocument());
+    expect(screen.getByRole("combobox", { name: "Person" })).toHaveValue("consent-1234");
+    expect(listPersonRefs).toHaveBeenCalledTimes(1);
+    expect(listVariants).toHaveBeenCalledTimes(1);
+  });
+
+  it("re-reads the variants after a create and after a finished poll", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    createVariant.mockResolvedValue({
+      key: "k9",
+      concept_name: CONCEPT,
+      cached: false,
+      status: "queued",
+      consent_id: "consent-1234",
+      created_at: DONE.created_at,
+    });
+    renderPanel();
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "Person" })).toHaveValue("consent-1234"));
+    expect(listVariants).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole("button", { name: "Render preview" }));
+    await waitFor(() => expect(listVariants).toHaveBeenCalledTimes(2));
+    expect(listPersonRefs).toHaveBeenCalledTimes(1);
+
+    listVariants.mockResolvedValue(listing({ [CONCEPT]: { k9: DONE } }));
+    await act(() => vi.advanceTimersByTimeAsync(VARIANT_POLL_MS));
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Preview ready."));
+    // One poll + one refresh of the page's listing.
+    expect(listVariants).toHaveBeenCalledTimes(4);
+    await act(() => vi.advanceTimersByTimeAsync(VARIANT_POLL_MS * 3));
+    expect(listVariants).toHaveBeenCalledTimes(4);
+    expect(listPersonRefs).toHaveBeenCalledTimes(1);
+  });
+
+  it("resumes polling a pending preview after navigating away and back", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    createVariant.mockResolvedValue({
+      key: "k9",
+      concept_name: CONCEPT,
+      cached: false,
+      status: "queued",
+      consent_id: "consent-1234",
+      created_at: DONE.created_at,
+    });
+    const { rerender } = render(<Page />);
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "Person" })).toHaveValue("consent-1234"));
+    // The refresh after the create sees the queued record.
+    listVariants.mockResolvedValue(listing({ [CONCEPT]: { k9: { ...DONE, status: "queued" } } }));
+    fireEvent.click(screen.getByRole("button", { name: "Render preview" }));
+    expect(await screen.findByRole("status")).toHaveTextContent(/Queued/);
+    await waitFor(() => expect(listVariants).toHaveBeenCalledTimes(2));
+    rerender(<Page conceptName="Other" />);
+    rerender(<Page />);
+    expect(await screen.findByRole("status")).toHaveTextContent(/Queued/);
+    listVariants.mockResolvedValue(listing({ [CONCEPT]: { k9: DONE } }));
+    await act(() => vi.advanceTimersByTimeAsync(VARIANT_POLL_MS));
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Preview ready."));
+  });
+
+  it("never lets an older variants response overwrite a newer one", async () => {
+    function Keys() {
+      const data = usePersonalisationData("creative_agent", "s1");
+      const keys = Object.keys(data.listing?.variants[CONCEPT] ?? {}).join(",") || "none";
+      return (
+        <>
+          <p>keys: {keys}</p>
+          <button onClick={data.refreshVariants}>refresh</button>
+        </>
+      );
+    }
+    let resolveFirst: (v: unknown) => void = () => {};
+    listVariants.mockReturnValueOnce(new Promise((r) => (resolveFirst = r)));
+    listVariants.mockResolvedValueOnce(listing({ [CONCEPT]: { newer: DONE } }));
+    render(<Keys />);
+    fireEvent.click(screen.getByRole("button", { name: "refresh" }));
+    expect(await screen.findByText("keys: newer")).toBeInTheDocument();
+    await act(async () => resolveFirst(listing({ [CONCEPT]: { older: DONE } })));
+    expect(screen.getByText("keys: newer")).toBeInTheDocument();
+  });
+
+  it("loads nothing until enabled", async () => {
+    function Lazy({ enabled }: { enabled: boolean }) {
+      const data = usePersonalisationData("creative_agent", "s1", enabled);
+      return <p>{data.people ? `${data.people.length} people` : "not loaded"}</p>;
+    }
+    const { rerender } = render(<Lazy enabled={false} />);
+    expect(screen.getByText("not loaded")).toBeInTheDocument();
+    expect(listPersonRefs).not.toHaveBeenCalled();
+    expect(listVariants).not.toHaveBeenCalled();
+    rerender(<Lazy enabled />);
+    expect(await screen.findByText("2 people")).toBeInTheDocument();
+    rerender(<Lazy enabled={false} />);
+    rerender(<Lazy enabled />);
+    expect(listPersonRefs).toHaveBeenCalledTimes(1);
+    expect(listVariants).toHaveBeenCalledTimes(1);
   });
 
   it("stops polling on unmount", async () => {

@@ -10,7 +10,7 @@ import { FieldLabel } from "@/components/field-label";
 import { InfoTip } from "@/components/ui/info-tip";
 import { ExperimentStatusLabel, StatusHelp } from "@/components/experiment-status";
 import { CustomBadge, OverridesDisclosure } from "@/components/scenario-overrides";
-import { ProofImage } from "@/app/results/[sessionId]/proof-grid";
+import { ProofImage } from "@/components/proof-image";
 import { formatInt } from "@/lib/chart";
 import {
   armColor,

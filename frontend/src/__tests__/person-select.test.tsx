@@ -54,6 +54,17 @@ describe("PersonSelect", () => {
     expect(screen.getByRole("link", { name: /Manage people/ })).toHaveAttribute("href", "/people");
   });
 
+  it("describes the person-safe styles, not photographic only", async () => {
+    listPersonRefs.mockResolvedValue({ personRefs: REFS, prefix: null });
+    render(<PersonSelect value={null} onChange={vi.fn()} />);
+    expect(
+      await screen.findByText(
+        /The agents decide per concept whether to feature this person \(person-safe styles only: photographic, 3D, comic, flat illustration, collage\)\./
+      )
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/photographic concepts only/)).not.toBeInTheDocument();
+  });
+
   it("shows the chosen person as selected", async () => {
     listPersonRefs.mockResolvedValue({ personRefs: REFS, prefix: null });
     render(

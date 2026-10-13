@@ -157,6 +157,42 @@ describe("ShareDialog", () => {
     expect(await screen.findByRole("button", { name: "Create link" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Copy link" })).not.toBeInTheDocument();
   });
+  it("ignores a create that resolves after the dialog was closed and reopened", async () => {
+    let resolve!: (s: Share) => void;
+    createShare.mockReturnValue(new Promise<Share>((r) => (resolve = r)));
+    const onCreated = vi.fn();
+    render(<ShareDialog appName="creative_agent" sessionId="s1" triggerLabel="Share slate" onCreated={onCreated} />);
+    open();
+    fireEvent.click(await screen.findByRole("button", { name: "Create link" }));
+    await waitFor(() => expect(createShare).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    open();
+    const createBtn = await screen.findByRole("button", { name: "Create link" });
+    expect(createBtn).toBeEnabled();
+    await act(async () => resolve(share()));
+    // The fresh dialog keeps its own state; the late link never lands in it.
+    expect(screen.queryByRole("button", { name: "Copy link" })).not.toBeInTheDocument();
+    expect(screen.queryByDisplayValue("https://share.example.com/s/AbCdEfGhIjKlMnOp")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Create link" })).toBeEnabled();
+    // The share still exists server-side, so the owner's list hears about it.
+    expect(onCreated).toHaveBeenCalledWith(share());
+  });
+
+  it("ignores a create error that arrives after the dialog was reopened", async () => {
+    let reject!: (e: unknown) => void;
+    createShare.mockReturnValue(new Promise<Share>((_, r) => (reject = r)));
+    render(<ShareDialog appName="creative_agent" sessionId="s1" triggerLabel="Share slate" />);
+    open();
+    fireEvent.click(await screen.findByRole("button", { name: "Create link" }));
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    open();
+    await screen.findByRole("button", { name: "Create link" });
+    await act(async () => reject(new ShareError("share_limit", 429)));
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Create link" })).toBeEnabled();
+  });
 });
 
 describe("ProofDetail share slot", () => {
