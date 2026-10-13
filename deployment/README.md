@@ -18,6 +18,7 @@ see the [main README](../README.md).
 - [Personalised variants](#personalised-variants)
 - [Trend state (date, current moment, timely slot)](#trend-state-date-current-moment-timely-slot)
 - [Creative quality: migrations + knobs](#creative-quality-migrations--knobs)
+- [Trend digest cache](#trend-digest-cache)
 - [Eval CI (WIF)](#eval-ci-wif)
 
 ## Prerequisites
@@ -66,6 +67,7 @@ fan-out (which reads and locks the target trends).
 | `target_trends_crf` (`BQ_TABLE_TARGETS`) | `trend_scout` (`trend_scout/tools.py`); the CRF worker sets `processed_status` / `processing_*` | The selected trends plus campaign metadata; the fan-out queue |
 | `trend_creatives` (`BQ_TABLE_CREATIVES`) | `creative_agent` / `interactive_creative` (`creative_agent/bq_tools.py`) | One row per creative run: campaign metadata, trend and the `creative_gcs` folder |
 | `creative_evals` (`BQ_TABLE_EVALS`) | same (`EVAL_COLUMN_TYPES` in `creative_agent/bq_tools.py`) | One evaluation summary per run; `creative_uuid` joins `trend_creatives.uuid` |
+| `trend_digest` (`BQ_TABLE_TREND_DIGEST`, default `trend_digest`) | `trend_scout` (`trend_scout/digest.py`) | The daily trend digest cache: one row per (refresh date, trend list); see [Trend digest cache](#trend-digest-cache) |
 
 The idempotent helper script skips anything that already exists:
 
@@ -108,7 +110,8 @@ deployed-creative experiments (see [Bandit experiments](#bandit-experiments)) an
 `creative_ratings` table behind the results-page human ratings (see
 [Creative ratings (judge calibration)](#creative-ratings-judge-calibration)) and the
 `creative_shares` table behind shareable links (see [Shareable links](#shareable-links))
-and the `person_references` consent registry (see [Person references](#person-references)).
+and the `person_references` consent registry (see [Person references](#person-references))
+and the `trend_digest` cache (see [Trend digest cache](#trend-digest-cache)).
 
 ---
 
@@ -2489,6 +2492,60 @@ after a passing run (`uv run python tests/eval/efficiency_gate.py --agent creati
 
 ---
 
+## Trend digest cache
+
+`trend_scout` calls the `trend_digest` NodeTool right after the gather (both modes;
+`trend_scout/digest.py`): a neutral one-line summary of why each of the day's 25 trends
+is trending (one grounded search turn + one lite synthesis → state `trend_summaries`,
+shown in the trend pick panel) plus the sensitivity flags (`trend_flags`). Both are
+cached per trend list in BigQuery, keyed by the public table's `refresh_date` and a hash
+of the 25 normalised terms, so only the day's first run (any user, any engine) searches;
+later runs restore the same summaries and flags with no model call. The data is public
+Google Trends terms plus model summaries — nothing user-specific is stored.
+
+**Migration (run before deploying the `trend_scout` engine / api with the digest):** one
+table, partitioned on `refresh_date` with a 30-day partition expiration, so old digests
+clean themselves up. Prod dataset and the eval dataset (the nightly eval runs trend_scout):
+
+```bash
+# from the repo root
+bq mk -t --time_partitioning_field refresh_date --time_partitioning_type DAY \
+  --time_partitioning_expiration 2592000 \
+  $BQ_PROJECT_ID:trend_trawler.trend_digest deployment/bq_schemas/trend_digest.json
+bq mk -t --time_partitioning_field refresh_date --time_partitioning_type DAY \
+  --time_partitioning_expiration 2592000 \
+  $BQ_PROJECT_ID:trend_trawler_eval.trend_digest deployment/bq_schemas/trend_digest.json
+```
+
+(`deployment/create_bq_tables.sh` creates the same table for a new dataset.) Columns:
+`digest_id` (the MERGE key, `stable_row_id(refresh_date, terms_hash)`), `refresh_date DATE`,
+`terms_hash`, `digest` (JSON `{items, flags}`), `models`, `created_at`. The access the engines and
+the api already use for the dataset's other tables covers it (dataset- or project-level
+grants), so no IAM change is expected. Without the
+table the lookup and the write fail soft (a warning log; every run is a cache miss), so
+the order is a safety net, not a hard dependency.
+
+**Knobs** (shipped to the engines via `ENV_VAR_DICT`, in `deployment/deploy.env`; the api
+reads its own env): `TREND_DIGEST_ENABLED` (default `true`; `false`/`0`/`no`/`off` runs only
+the sensitivity classifier — no describe step, no cache reads/writes, no `trend_summaries`,
+i.e. the pre-digest behaviour) and `BQ_TABLE_TREND_DIGEST` (default `trend_digest`).
+
+**Cache rules:** a row is written (insert-only `MERGE`, so the first of two racing same-day
+runs wins) only when the summaries **and** the flags each cover at least 80% of the terms;
+a failed describe step is never cached, so the next run retries; a failed write only logs.
+To force a refresh, delete the day's row:
+
+```bash
+bq query --nouse_legacy_sql \
+  'DELETE FROM `<project>.trend_trawler.trend_digest` WHERE refresh_date = "YYYY-MM-DD"'
+```
+
+**Cost / latency:** the day's first run adds about 2 calls (worker-model grounded search,
+lite synthesis) and ~15–25 s before the pick panel; later runs that day save the
+classifier call and wait ~1 s for the lookup.
+
+---
+
 ## Eval CI (WIF)
 
 `.github/workflows/adk-eval.yml` runs the end-to-end `adk eval` suites (trend_scout,
@@ -2545,6 +2602,10 @@ for T in target_trends_crf trend_creatives creative_evals; do
   bq show --schema --format=prettyjson $PROJECT:trend_trawler.$T > /tmp/$T.schema.json
   bq mk --table $PROJECT:trend_trawler_eval.$T /tmp/$T.schema.json
 done
+# trend_scout's trend digest cache (partitioned + 30-day expiry; see Trend digest cache)
+bq mk -t --time_partitioning_field refresh_date --time_partitioning_type DAY \
+  --time_partitioning_expiration 2592000 \
+  $PROJECT:trend_trawler_eval.trend_digest deployment/bq_schemas/trend_digest.json
 # dataEditor on the eval dataset ONLY (dataset-scoped grant)
 bq add-iam-policy-binding --member="serviceAccount:$SA" \
   --role=roles/bigquery.dataEditor $PROJECT:trend_trawler_eval
