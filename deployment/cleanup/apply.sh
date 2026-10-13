@@ -8,7 +8,10 @@
 # `set-cleanup-policies --dry-run`, which still writes a policy to the repo. It simulates
 # each policy against the current listings, prints the current repo policies / bucket
 # lifecycles, and fails (exit 3) when a digest Cloud Run is serving (or the api would
-# deploy for bandit experiments) is a deletion candidate.
+# deploy for bandit experiments) is a deletion candidate. It fails (exit 5) when that live
+# set can't be trusted: a describe/lookup failed, a service yielded no revision, a digest
+# is not `sha256:<64 hex>`, the job image didn't resolve, or a listing failed (a bucket
+# prefix that matches no objects is fine). --apply stops on both.
 #
 # --apply refuses when a repo already has a cleanup policy that is not ours (name not
 # `tt-`-prefixed: another team's rule in the shared repo), or a bucket a lifecycle, that
@@ -48,42 +51,100 @@ gcs_file() {
 echo "Project: $PROJECT   Region: $REGION   Mode: $MODE"
 
 # --- digests that must survive ------------------------------------------------------
+# Every gcloud call is captured into a variable first: under `set -e` a failing command
+# substitution inside a `for` list or an `echo` argument does NOT abort, which would
+# silently drop a live digest from the protected set.
+UNTRUSTED_EXIT=5
+SERVICES=(trend-trawler-api trend-trawler-web trend-trawler-share creative-trawler-crf creative-worker-crf)
+JOB=trend-trawler-bandit-traffic
+DIGEST_RE='^sha256:[0-9a-f]{64}$'
+
+die() {
+  echo "FAIL: $*. Do not apply." >&2
+  exit "$UNTRUSTED_EXIT"
+}
+
 resolve_digest() { # image ref (tag or digest) -> sha256:...
-  local ref="$1"
+  local ref="$1" digest
   if [[ "$ref" == *@sha256:* ]]; then
     echo "${ref##*@}"
   else
-    gcloud artifacts docker images describe "$ref" --format='value(image_summary.digest)'
+    digest="$(gcloud artifacts docker images describe "$ref" --format='value(image_summary.digest)')" ||
+      die "could not resolve image $ref"
+    echo "$digest"
   fi
 }
 
-live_digests() {
-  local svc rev job img
-  for svc in trend-trawler-api trend-trawler-web trend-trawler-share creative-trawler-crf creative-worker-crf; do
+live_digests() { # -> "<digest> <origin>" lines; exits 5 on any failed lookup
+  local svc out revs rev digest img api_json
+  for svc in "${SERVICES[@]}"; do
     # Every revision receiving traffic (pinned rollouts can split), plus the latest ready.
-    for rev in $(gcloud run services describe "$svc" --region "$REGION" --project "$PROJECT" \
-      --format='value(status.traffic[].revisionName,status.latestReadyRevisionName)' | tr ';\t' '\n' | sort -u); do
-      [[ -n "$rev" ]] || continue
-      echo "$(gcloud run revisions describe "$rev" --region "$REGION" --project "$PROJECT" \
-        --format='value(status.imageDigest)' | sed 's/.*@//') $svc/$rev"
+    out="$(gcloud run services describe "$svc" --region "$REGION" --project "$PROJECT" \
+      --format='value(status.traffic[].revisionName,status.latestReadyRevisionName)')" ||
+      die "could not describe service $svc"
+    revs="$(tr ';\t' '\n' <<<"$out" | sed '/^$/d' | sort -u)"
+    [[ -n "$revs" ]] || die "service $svc has no revisions"
+    for rev in $revs; do
+      digest="$(gcloud run revisions describe "$rev" --region "$REGION" --project "$PROJECT" \
+        --format='value(status.imageDigest)')" || die "could not describe revision $svc/$rev"
+      echo "${digest##*@} $svc/$rev"
     done
   done
-  job=trend-trawler-bandit-traffic
-  img="$(gcloud run jobs describe "$job" --region "$REGION" --project "$PROJECT" \
-    --format='value(spec.template.spec.template.spec.containers[0].image)')"
-  echo "$(resolve_digest "$img") job/$job"
-  img="$(gcloud run services describe trend-trawler-api --region "$REGION" --project "$PROJECT" --format=json |
-    python3 -I -c 'import json,sys
+  img="$(gcloud run jobs describe "$JOB" --region "$REGION" --project "$PROJECT" \
+    --format='value(spec.template.spec.template.spec.containers[0].image)')" ||
+    die "could not describe job $JOB"
+  [[ -n "$img" ]] || die "job $JOB has no image"
+  digest="$(resolve_digest "$img")"
+  echo "$digest job/$JOB"
+  api_json="$(gcloud run services describe trend-trawler-api --region "$REGION" --project "$PROJECT" --format=json)" ||
+    die "could not describe service trend-trawler-api (env)"
+  img="$(python3 -I -c 'import json,sys
 c = json.load(sys.stdin)["spec"]["template"]["spec"]["containers"][0]
-print(next((e.get("value", "") for e in c.get("env", []) if e["name"] == "BANDIT_SERVING_IMAGE"), ""))')"
-  if [[ -n "$img" ]]; then echo "$(resolve_digest "$img") env/BANDIT_SERVING_IMAGE"; fi
+print(next((e.get("value", "") for e in c.get("env", []) if e["name"] == "BANDIT_SERVING_IMAGE"), ""))' <<<"$api_json")" ||
+    die "could not read BANDIT_SERVING_IMAGE from trend-trawler-api"
+  if [[ -n "$img" ]]; then
+    digest="$(resolve_digest "$img")"
+    echo "$digest env/BANDIT_SERVING_IMAGE"
+  fi
+}
+
+validate_live() { # live.txt -> exits 5 unless every digest is well formed and every origin is present
+  local file="$1" bad=0 digest origin svc
+  while read -r digest origin; do
+    if ! [[ "$digest" =~ $DIGEST_RE ]]; then
+      echo "FAIL: malformed digest '${digest}' for ${origin:-?}" >&2
+      bad=1
+    fi
+  done <"$file"
+  for svc in "${SERVICES[@]}"; do
+    grep -q " $svc/" "$file" || {
+      echo "FAIL: no live revision digest collected for service $svc" >&2
+      bad=1
+    }
+  done
+  grep -q " job/$JOB\$" "$file" || {
+    echo "FAIL: job $JOB image digest not resolved" >&2
+    bad=1
+  }
+  [[ "$bad" -eq 0 ]] || die "the live digest set is incomplete"
+}
+
+gcs_ls() { # bucket url pattern -> ls -l listing on stdout; a pattern matching no objects is empty
+  local err
+  err="$WORK/ls.err"
+  if gcloud storage ls -l -r "$1" --project "$PROJECT" 2>"$err"; then return 0; fi
+  if grep -q "matched no objects" "$err"; then return 0; fi
+  cat "$err" >&2
+  die "could not list $1"
 }
 
 preview() {
-  local status=0 repo file pkg bucket prefix age
+  local status=0 rc repo file pkg pkgs bucket prefix age
   echo
   echo "== Live digests (must never be deletion candidates)"
-  live_digests | tee "$WORK/live.txt"
+  live_digests >"$WORK/live.txt"
+  cat "$WORK/live.txt"
+  validate_live "$WORK/live.txt"
   cut -d' ' -f1 "$WORK/live.txt" >"$WORK/live_digests.txt"
 
   for repo in "${AR_REPOS[@]}"; do
@@ -96,11 +157,18 @@ preview() {
     gcloud artifacts packages list --repository "$repo" --location "$REGION" --project "$PROJECT" \
       --format='value(name)' 2>/dev/null | sed 's#.*/##' >"$WORK/packages.txt"
     echo "-- simulated (untagged AND older than the rule AND not among the newest keepCount):"
-    for pkg in $("${PY[@]}" ar-packages "$file" "$WORK/packages.txt"); do
+    pkgs="$("${PY[@]}" ar-packages "$file" "$WORK/packages.txt")"
+    for pkg in $pkgs; do
       gcloud artifacts docker images list \
         "$REGION-docker.pkg.dev/$PROJECT/$repo/$pkg" --include-tags --format=json \
         >"$WORK/versions.json" 2>/dev/null
-      "${PY[@]}" ar-preview "$file" "$pkg" "$WORK/versions.json" "$WORK/live_digests.txt" || status=$?
+      rc=0
+      "${PY[@]}" ar-preview "$file" "$pkg" "$WORK/versions.json" "$WORK/live_digests.txt" || rc=$?
+      case "$rc" in
+        0) ;;
+        3) status=3 ;;
+        *) die "simulating $repo/$pkg failed (exit $rc)" ;;
+      esac
     done
   done
 
@@ -113,7 +181,7 @@ preview() {
     echo "-- simulated:"
     while read -r age prefix; do
       echo "  ${prefix} (age ${age}d)"
-      gcloud storage ls -l -r "gs://$bucket/${prefix}**" --project "$PROJECT" >"$WORK/ls.txt" 2>/dev/null || true
+      gcs_ls "gs://$bucket/${prefix}**" >"$WORK/ls.txt"
       "${PY[@]}" gcs-preview "$age" "$WORK/ls.txt"
     done < <(python3 -I -c 'import json,sys
 for r in json.load(open(sys.argv[1]))["rule"]:

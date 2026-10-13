@@ -310,3 +310,59 @@ def test_ar_verdict_foreign_policy_refuses():
     assert r.ar_verdict(wanted, r.normalise_ar(described)) == "differs"
     alone = {"omnimash-keep-3": foreign}
     assert r.ar_verdict(wanted, r.normalise_ar(alone)) == "differs"
+
+
+def _digest(n: int) -> str:
+    return f"sha256:{n:064x}"
+
+
+def _ar_preview(tmp_path: Path, versions: list[dict], live_text: str) -> int:
+    r = _retention()
+    versions_file = tmp_path / "versions.json"
+    versions_file.write_text(json.dumps(versions))
+    live_file = tmp_path / "live.txt"
+    live_file.write_text(live_text)
+    return r.main(
+        [
+            "ar-preview",
+            str(CLEANUP_DIR / "ar-cpr.json"),
+            "trend-trawler-bandit",
+            str(versions_file),
+            str(live_file),
+        ]
+    )
+
+
+def _old_versions() -> list[dict]:
+    # Newest 5 kept; the untagged ones older than 14 days (15..19) are candidates.
+    return [_version(_digest(i), days_old=i) for i in range(20)]
+
+
+def test_ar_preview_live_digest_candidate_exits_live_digest_exit(tmp_path, capsys):
+    r = _retention()
+    code = _ar_preview(tmp_path, _old_versions(), f"{_digest(0)}\n{_digest(17)}\n")
+    assert code == r.LIVE_DIGEST_EXIT == 3
+    out = capsys.readouterr().out
+    assert f"LIVE DIGEST WOULD BE DELETED: trend-trawler-bandit@{_digest(17)}" in out
+
+
+def test_ar_preview_no_live_candidate_exits_zero(tmp_path):
+    assert _ar_preview(tmp_path, _old_versions(), f"{_digest(0)}\n{_digest(1)}\n") == 0
+
+
+@pytest.mark.parametrize(
+    "live_text",
+    [
+        "",  # nothing collected: the protected set can't be trusted
+        "\n\n",
+        f"{_digest(0)}\nsha256:\n",  # an empty revision digest
+        f"{_digest(0)}\nnot-a-digest\n",
+        f"{_digest(0)}\nsha256:{'A' * 64}\n",  # gcloud prints lower-case hex
+    ],
+)
+def test_ar_preview_malformed_live_file_is_hard_error(tmp_path, capsys, live_text):
+    r = _retention()
+    code = _ar_preview(tmp_path, _old_versions(), live_text)
+    assert code == r.BAD_LIVE_DIGESTS_EXIT
+    assert code not in (0, r.LIVE_DIGEST_EXIT)
+    assert "live digest" in capsys.readouterr().err.lower()
