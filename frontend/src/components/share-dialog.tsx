@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useState, type KeyboardEvent } from "react";
+import { useId, useRef, useState, type KeyboardEvent } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -33,8 +33,8 @@ export const copyStatus = (ok: boolean) =>
 
 /**
  * Freeze the slate (no `conceptNames`) or one creative into a public, revocable
- * link (runserver/shares.py). Each open starts fresh; focus returns to the
- * trigger on close.
+ * link (runserver/shares.py). Each open starts fresh (a create still in flight
+ * from an earlier open never lands in it); focus returns to the trigger on close.
  */
 export function ShareDialog({
   appName,
@@ -61,9 +61,12 @@ export function ShareDialog({
   const id = useId();
   const checkboxId = `${id}-eval`;
   const urlId = `${id}-url`;
+  // Bumped on every open and create: a result for an older request is stale.
+  const requestId = useRef(0);
 
   const onOpenChange = (next: boolean) => {
     if (next) {
+      requestId.current += 1;
       setIncludeEval(false);
       setBusy(false);
       setError(null);
@@ -74,6 +77,8 @@ export function ShareDialog({
   };
 
   const create = async () => {
+    const request = ++requestId.current;
+    const current = () => request === requestId.current;
     setBusy(true);
     setError(null);
     try {
@@ -81,12 +86,13 @@ export function ShareDialog({
         ...(single ? { concept_names: conceptNames } : {}),
         include_eval: includeEval,
       });
-      setShare(created);
+      // The link exists server-side either way, so the owner's list hears about it.
       onCreated?.(created);
+      if (current()) setShare(created);
     } catch (err) {
-      setError(err instanceof ShareError ? err.message : shareErrorMessage(null, 0));
+      if (current()) setError(err instanceof ShareError ? err.message : shareErrorMessage(null, 0));
     } finally {
-      setBusy(false);
+      if (current()) setBusy(false);
     }
   };
 
