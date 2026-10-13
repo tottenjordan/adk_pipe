@@ -21,7 +21,7 @@ export function gcsProxyUrl(bucket: string, path: string): string {
 
 /**
  * Parse a `gs://bucket/object/path` URI into its bucket + path parts, or return
- * null if the input is not a `gs://` URI or has no object path.
+ * null if the input is not a `gs://` URI, has no bucket or has no object path.
  */
 export function parseGsUri(
   uri: unknown
@@ -30,8 +30,9 @@ export function parseGsUri(
   const withoutPrefix = uri.replace(/^gs:\/\//, "");
   const slashIdx = withoutPrefix.indexOf("/");
   if (slashIdx < 0) return null;
-  return {
-    bucket: withoutPrefix.slice(0, slashIdx),
-    path: withoutPrefix.slice(slashIdx + 1),
-  };
+  const bucket = withoutPrefix.slice(0, slashIdx);
+  const path = withoutPrefix.slice(slashIdx + 1);
+  // `gs://bucket/` (no object) and `gs:///obj` (no bucket) are not object URIs.
+  if (!bucket || !path) return null;
+  return { bucket, path };
 }

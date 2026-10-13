@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   buildDisplayFields,
+  formatStateValue,
   formatRatingLearning,
   RATING_LEARNING_FIELD,
   VISUAL_DIRECTION_FIELDS,
@@ -140,5 +141,19 @@ describe("rating learning field", () => {
     expect(
       buildDisplayFields({ learn_from_ratings: true }, [RATING_LEARNING_FIELD]),
     ).toEqual([{ label: "Learn from ratings", key: "learn_from_ratings", value: "On" }]);
+  });
+});
+
+describe("formatStateValue", () => {
+  it("stringifies numbers and booleans", () => {
+    expect(formatStateValue(3)).toBe("3");
+    expect(formatStateValue(0)).toBe("0");
+    expect(formatStateValue(true)).toBe("true");
+    expect(formatStateValue(false)).toBe("false");
+  });
+
+  it("collapses null/undefined to an empty string", () => {
+    expect(formatStateValue(null)).toBe("");
+    expect(formatStateValue(undefined)).toBe("");
   });
 });

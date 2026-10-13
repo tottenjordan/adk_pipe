@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { parseGsUri } from "@/lib/gcs";
 
 // Replicates GCS URI building logic from run page and results page.
 
@@ -61,5 +62,22 @@ describe("buildResearchReportUrl", () => {
 
   it("returns empty for gs:// with no path", () => {
     expect(buildResearchReportUrl("gs://bucket-only")).toBe("");
+  });
+});
+
+describe("parseGsUri", () => {
+  it("splits a bucket and an object path", () => {
+    expect(parseGsUri("gs://b/a/c.png")).toEqual({ bucket: "b", path: "a/c.png" });
+  });
+
+  it("returns null for a bucket with no object path", () => {
+    expect(parseGsUri("gs://bucket")).toBeNull();
+    expect(parseGsUri("gs://bucket/")).toBeNull();
+  });
+
+  it("returns null for an empty bucket or a non-gs value", () => {
+    expect(parseGsUri("gs:///obj.png")).toBeNull();
+    expect(parseGsUri("https://x/y")).toBeNull();
+    expect(parseGsUri(42)).toBeNull();
   });
 });
