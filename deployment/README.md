@@ -705,6 +705,30 @@ WORKER_SUB=$(gcloud eventarc triggers describe $CREATIVE_WORKER_TRIGGER_NAME --l
 gcloud pubsub subscriptions update $WORKER_SUB --ack-deadline=600
 ```
 
+**Malformed messages are ACKed (2026-10-13).** A message that can never be
+processed — undecodable base64/JSON, a non-object payload, a worker message
+missing `bq_dataset` / `bq_table` / `agent_resource_id` / `row_data` (or a
+`row_data` field the worker reads), a trigger missing `bq_table` /
+`agent_resource_id`, an `agent_resource_id` that isn't a plain id, or a
+non-allow-listed dataset/table — is logged at `ERROR` ("Rejecting worker
+message: …" / "Rejecting trigger message: …") and ACKed, instead of raising
+(`KeyError` → NACK → redelivered until the message expires, as seen on
+2026-10-12). Only transient failures still NACK (a BigQuery error or timeout
+before/while writing a row status). **A dead-letter topic is recommended** on
+both trigger subscriptions so those retries are bounded too
+(`gcloud pubsub subscriptions update $WORKER_SUB --dead-letter-topic=<topic>
+--max-delivery-attempts=<n>`; the Pub/Sub service agent needs publisher on the
+topic and subscriber on the subscription — see
+[dead-letter topics](https://cloud.google.com/pubsub/docs/handling-failures#dead_letter_topic)).
+
+**Logs + timeouts.** Both functions log JSON lines on stdout (`severity`,
+`message`, `time`, `logger`), which Cloud Run turns into structured entries: the
+text is in `jsonPayload.message` (not `textPayload`), and the worker's
+`AGENT_RUN_DURATION_SECS` marker also carries `row`, `index`, `status` and
+`secs` as `jsonPayload` keys. Each BigQuery status query/DML is bounded by
+`CRF_BQ_QUERY_TIMEOUT_SECS` (default 60, clamped 5–600; client wait + the job's
+`job_timeout_ms`); a timeout fails the invocation like any BigQuery error.
+
 
 ### 4. Confirm triggers and topics
 
@@ -807,6 +831,7 @@ Worker failure semantics: if the agent run fails, the worker marks the row
 `FAILED` and **ACKs** (no Pub/Sub retry — a redelivery can't re-lock a `FAILED`
 row). Only an error before/while writing that status NACKs for redelivery; rows
 stranded in `PROCESSING` are recovered by the orchestrator's stale-PROCESSING reaper.
+A malformed message is logged and ACKed (§3).
 
 *5.3  Publish message to the Creative Orchestrator's topic:*
 
