@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { ProofImage } from "@/app/results/[sessionId]/proof-grid";
+import { ProofImage } from "@/components/proof-image";
 
 describe("ProofImage", () => {
   it("shows the image while it loads", () => {
