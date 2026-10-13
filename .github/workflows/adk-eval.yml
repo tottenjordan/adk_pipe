@@ -20,8 +20,13 @@ on:
         default: all
   schedule:
     # 09:17 UTC = 02:17 PT: off-peak for the shared 5-RPM Pro quota, and off the
-    # top of the hour (GitHub's scheduler is congested at :00).
+    # top of the hour (GitHub's scheduler is congested at :00). GitHub has been
+    # starting this 6-10 h late (2026-10-08..13: 15:20-18:59 UTC, i.e. PT working
+    # hours), where it competes with manual runs for the project-wide quota and
+    # 429s kill them; the `window` job below skips a scheduled run that starts in
+    # PT working hours, and the 04:17 UTC (21:17 PT) cron is the second chance.
     - cron: "17 9 * * *"
+    - cron: "17 4 * * *"
 
 permissions:
   contents: read
@@ -36,9 +41,47 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  eval:
-    # Skip entirely until the WIF provider is configured.
+  # Scheduled runs only run off PT working hours (07:00-21:00 America/Los_Angeles
+  # is skipped) and at most once per night (a scheduled run that already started
+  # in the last 12 h wins); manual dispatches always run.
+  window:
     if: vars.EVAL_WIF_PROVIDER != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+    outputs:
+      run: ${{ steps.decide.outputs.run }}
+    steps:
+      - id: decide
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          if [ "$EVENT" != "schedule" ]; then echo "run=true" >> "$GITHUB_OUTPUT"; exit 0; fi
+          hour=$(TZ=America/Los_Angeles date +%H)
+          if [ "$((10#$hour))" -ge 7 ] && [ "$((10#$hour))" -lt 21 ]; then
+            echo "Scheduled run started at ${hour}h PT (working hours): skipping."
+            echo "run=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          # Only an earlier scheduled run that itself started off-hours really ran
+          # (one started in working hours skipped itself above).
+          since=$(date -u -d '12 hours ago' +%Y-%m-%dT%H:%M:%SZ)
+          for created in $(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/adk-eval.yml/runs?event=schedule&created=>${since}&per_page=20" \
+            --jq ".workflow_runs[] | select(.id != ${GITHUB_RUN_ID}) | .created_at"); do
+            h=$(TZ=America/Los_Angeles date -d "$created" +%H)
+            if [ "$((10#$h))" -lt 7 ] || [ "$((10#$h))" -ge 21 ]; then
+              echo "A scheduled eval already ran tonight (started $created): skipping."
+              echo "run=false" >> "$GITHUB_OUTPUT"; exit 0
+            fi
+          done
+          echo "run=true" >> "$GITHUB_OUTPUT"
+
+  eval:
+    needs: window
+    # Skip entirely until the WIF provider is configured, and when the window
+    # job says this scheduled run is in PT working hours or a repeat.
+    if: vars.EVAL_WIF_PROVIDER != '' && needs.window.outputs.run == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     strategy:
