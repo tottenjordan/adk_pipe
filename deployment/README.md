@@ -1878,6 +1878,13 @@ one of the share's consents is refused (400 `person_not_shareable`); the copies 
 `shares/` carry no custom metadata; and a consent revoked or narrowed while the share was
 being created revokes the new share again (409 `person_consent_changed`).
 
+**Expired timely creatives** (a creative referencing the run's validated current moment,
+`uses_trend_state` on the concept or its paired copy, whose `trend_situation.valid_until`
+is at or before the api's wall clock; `runserver/timely.py`) are left out of new shares the
+same way: a slate lists them in `skipped` with reason `timely_expired`, and naming one is a
+400 `timely_expired`. Shares created before the moment ended stay visible (hiding them at
+view time is a follow-up).
+
 ### Table
 
 `creative_shares` (`BQ_TABLE_SHARES`) in `BQ_DATASET_ID`, one row per share token
