@@ -539,6 +539,46 @@ redeploy in §3 (one image serves both). CRF functions auto-route to LATEST and 
 Eventarc triggers bind by service name, so triggers survive a redeploy and are
 **not** re-created.
 
+**Row states (`processed_status`)** — the only transitions
+(`status_store.TRANSITIONS` in `cloud_functions/creative_fanout/status_store.py`).
+Every statement matches the row by trend_scout's MERGE key `(uuid, target_trend)`
+(`entry_timestamp` is only for ordering and logs, so rows that share a timestamp
+are told apart), and every UPDATE checks the row's current state:
+
+| Transition | From | To | Who | Guard in the `WHERE` |
+|---|---|---|---|---|
+| mark QUEUED | NULL or QUEUED | QUEUED | orchestrator, before the first publish | `processed_status IS NULL OR processed_status = 'QUEUED'` |
+| lock | QUEUED with `processing_attempts` = n | PROCESSING, `processing_attempts` = n + 1, `processing_started_at` = now | worker | `processed_status = 'QUEUED' AND COALESCE(processing_attempts, 0) = n` (compare-and-set on the n it read) |
+| finish | PROCESSING at the worker's attempt | PROCESSED or FAILED | worker | `processed_status = 'PROCESSING' AND processing_attempts = <attempt>` |
+| requeue | PROCESSING at the worker's attempt | QUEUED, or FAILED at `MAX_PROCESSING_ATTEMPTS` | worker, transient error before a session existed | same as finish |
+| reap | PROCESSING older than `REAP_STALE_PROCESSING_MINUTES` | QUEUED, or FAILED at `MAX_PROCESSING_ATTEMPTS` | orchestrator, before its SELECT | `processed_status = 'PROCESSING' AND processing_started_at < now - N min` |
+
+- The attempt number the lock returns is a **fencing token**: a worker that
+  outlived the reaper (its row re-queued and locked again as attempt n + 1)
+  writes nothing; the write matches 0 rows and is logged `reason=lost_fence`.
+- A single-row statement that matches **more than one row** is an error
+  (`AmbiguousRowKeyError`, the message NACKs), never a lost lock.
+- After the lock the worker **re-reads the row** (by key, at its attempt) and
+  builds the run from it, not from the message. A row that is gone or now
+  flagged sensitive (the orchestrator SELECT's `trend_context` predicate) is
+  marked FAILED (`reason=row_missing` / `row_sensitive`) and ACKed.
+- A finished run's (`finalize_done`) PROCESSED write is retried (up to 3 tries;
+  a retry only while one more `CRF_BQ_QUERY_TIMEOUT_SECS` wait still fits before
+  the Cloud Run timeout) and **never turned into FAILED**: if it keeps failing
+  the row stays PROCESSING (`reason=status_write_failed`) and the reaper
+  re-runs it (at least once).
+- A transient error before a session exists (`runtimes.get` /
+  `async_create_session`: 429, 5xx, timeout, connection) puts the row back to
+  QUEUED (`reason=session_not_started`); the attempt still counts toward
+  `MAX_PROCESSING_ATTEMPTS`. A permanent error there, or any error once the run
+  started, is FAILED.
+- Worker messages carry `row_data.uuid` + `row_data.target_trend`. A message
+  without them (published before this change, in flight across the deploy) is
+  locked and re-read once by `entry_timestamp` (`reason=legacy_row_key`), then
+  the worker uses the key it read. No migration: the columns already exist.
+- The orchestrator waits at most 30 s for each publish; a publish that times out
+  leaves its row QUEUED for the next run's re-query.
+
 **weakest_dimension_labels migration (2026-10-02)** — `creative_evals` gains a
 readable `weakest_dimension_labels` column ("Trend connection, Copy quality",
 from `creative_eval/dimensions.py`) next to the snake_case `weakest_dimensions`.
@@ -893,9 +933,12 @@ pick it up; flagged rows already in the table are skipped from then on.
 
 Worker failure semantics: if the agent run fails, the worker marks the row
 `FAILED` and **ACKs** (no Pub/Sub retry — a redelivery can't re-lock a `FAILED`
-row). Only an error before/while writing that status NACKs for redelivery; rows
-stranded in `PROCESSING` are recovered by the orchestrator's stale-PROCESSING reaper.
-A malformed message is logged and ACKed (§3).
+row). A transient error before the session existed re-queues the row instead,
+and a finished run whose PROCESSED write keeps failing stays `PROCESSING`
+(see **Row states** in §3). Only a BigQuery error on the lock, the re-read or the
+FAILED write NACKs for redelivery; rows stranded in `PROCESSING` are recovered by
+the orchestrator's stale-PROCESSING reaper. A malformed message is logged and
+ACKed (§3).
 
 *5.3  Publish message to the Creative Orchestrator's topic:*
 
