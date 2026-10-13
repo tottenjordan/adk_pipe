@@ -10,6 +10,7 @@ from . import clients, status_store
 from .completion import RunMonitor, RunOutcome
 from .config import config
 from .logs import pretty_print_event
+from .messages import build_row_dict
 from .session import agent_session
 
 logger = logging.getLogger(__name__)
@@ -150,6 +151,10 @@ async def create_agent_run(
     # outcome. A fresh client (and engine handle) per invocation, closed on
     # this loop: see clients.new_vertex_client for why it can't be cached.
     client = clients.new_vertex_client()
+    # Row state (C1): an error before the session exists (runtimes.get,
+    # async_create_session) is re-raised as SessionNotStarted, so process_row
+    # can re-queue the row on a transient one instead of failing it.
+    session_started = False
     try:
         remote_agent = client.runtimes.get(
             name=(
@@ -163,6 +168,7 @@ async def create_agent_run(
             state=campaign_state,
             delete_timeout_secs=config.SESSION_DELETE_TIMEOUT_SECS,
         ) as session:
+            session_started = True
             # long running op
             monitor = RunMonitor(
                 remote_agent,
@@ -179,6 +185,10 @@ async def create_agent_run(
                 on_event=pretty_print_event,
             )
             return await monitor.run(build_user_query(msg_dict))
+    except Exception as e:
+        if not session_started:
+            raise SessionNotStarted(f"no session created: {e!r}") from e
+        raise
     finally:
         await clients.aclose_vertex_client(client)
 
@@ -211,21 +221,141 @@ def _log_run_duration(
     )
 
 
+class SessionNotStarted(RuntimeError):
+    """``create_agent_run`` failed before an Agent Engine session existed
+    (``runtimes.get`` or ``async_create_session``): nothing ran and nothing was
+    spent. The original error is ``__cause__``; ``process_row`` re-queues the
+    row when it is transient (``_is_transient``)."""
+
+
+def _transient_types() -> tuple[type[BaseException], ...]:
+    types: tuple[type[BaseException], ...] = (TimeoutError, ConnectionError)
+    try:  # the genai/agentplatform transport; optional so tests import without it
+        import httpx
+
+        types += (httpx.TimeoutException, httpx.NetworkError)
+    except ImportError:  # pragma: no cover
+        pass
+    return types
+
+
+_TRANSIENT_TYPES = _transient_types()
+
+
+def _is_transient(exc: BaseException | None) -> bool:
+    """A timeout, a connection error or an HTTP 429 / 5xx anywhere in the
+    cause chain (``code`` is the HTTP status on google-api-core and genai /
+    agentplatform errors)."""
+    seen: set[int] = set()
+    while exc is not None and id(exc) not in seen:
+        seen.add(id(exc))
+        if isinstance(exc, _TRANSIENT_TYPES):
+            return True
+        code = getattr(exc, "code", None)
+        if isinstance(code, int) and not isinstance(code, bool):
+            if code == 429 or 500 <= code <= 599:
+                return True
+        exc = exc.__cause__ or exc.__context__
+    return False
+
+
+# The PROCESSED write (an idempotent, fenced UPDATE) is retried this many times
+# in all, with a linear backoff, while a bounded BigQuery wait still fits.
+PROCESSED_WRITE_ATTEMPTS = 3
+PROCESSED_WRITE_BACKOFF_SECS = 2.0
+
+
+async def _write_processed(bq_client, dataset, table, key, attempt, deadline):
+    """Record PROCESSED for a run that reached ``finalize_done``.
+
+    Never FAILED: a finished run's outputs exist, so a write that keeps failing
+    is logged (``reason=status_write_failed``) and the row left in PROCESSING
+    for the reaper (at-least-once). The first try always runs (the safety
+    margin after ``deadline`` covers one); a retry only while one more bounded
+    BigQuery wait still fits before the Cloud Run timeout
+    (``deadline + BUDGET_SAFETY_SECS``).
+    """
+    hard_end = deadline + config.BUDGET_SAFETY_SECS
+    for n in range(1, PROCESSED_WRITE_ATTEMPTS + 1):
+        try:
+            status_store.mark_final(
+                bq_client, dataset, table, key, "PROCESSED", attempt
+            )
+            return
+        except Exception as e:  # noqa: BLE001 — retried, then logged, never FAILED
+            backoff = PROCESSED_WRITE_BACKOFF_SECS * n
+            fits = hard_end - _clock() - backoff >= config.BQ_QUERY_TIMEOUT_SECS
+            if n == PROCESSED_WRITE_ATTEMPTS or not fits:
+                logger.error(
+                    f"PROCESSED write failed for finished row {key} "
+                    f"(attempt {attempt}, try {n}): {type(e).__name__}: {e}; "
+                    "leaving it PROCESSING for the reaper.",
+                    extra={
+                        "json_fields": {
+                            **key.log_fields(),
+                            "reason": "status_write_failed",
+                            "status": "PROCESSING",
+                            "attempt": attempt,
+                        }
+                    },
+                )
+                return
+            logger.warning(
+                f"PROCESSED write failed for row {key} (try {n}), retrying: {e}"
+            )
+            await _sleep(backoff)
+
+
 async def process_row(
     trend_dict, agent_id, bq_client, dataset, table, *, deadline: float
 ):
-    """Handles the async agent run for a single row and updates its status."""
+    """Lock one row, re-read it, run the agent on it and record the outcome.
 
-    # Extract data
-    timestamp = trend_dict["entry_timestamp"]
+    The worker message only names the row: its key (``uuid``, ``target_trend``;
+    a legacy message without them is matched by ``entry_timestamp`` once) and
+    ``index``. The campaign fields come from the row re-read after the lock.
 
-    # 1. ATTEMPT TO ACQUIRE ATOMIC LOCK
-    if not status_store.acquire_processing_lock(bq_client, dataset, table, timestamp):
-        # Lock failed. Another worker got it, or the row is already PROCESSED/FAILED.
-        # RETURN here so the Pub/Sub message is ACKed and no more processing attempts are made.
+    Returns (ACK) on every outcome: lost lock, missing/sensitive row (FAILED),
+    finished run (PROCESSED, or left PROCESSING when that write keeps failing),
+    unfinished run (FAILED), transient error before a session existed (back to
+    QUEUED). A BigQuery error on the lock, the re-read or the FAILED write
+    raises (NACK; the redelivery's lock then finds the row not QUEUED, and the
+    reaper is the backstop for a row left PROCESSING).
+    """
+    key = status_store.RowKey.from_mapping(trend_dict)
+    index = trend_dict["index"]
+    if key.legacy:
+        logger.warning(
+            f"Worker message for row {key} has no row key (uuid, target_trend): "
+            "matching it by entry_timestamp once (sent before the row-key deploy).",
+            extra={"json_fields": {**key.log_fields(), "reason": "legacy_row_key"}},
+        )
+
+    # 1. Compare-and-set lock QUEUED -> PROCESSING. The attempt it returns
+    # fences every later write: a write matches only while the row is still
+    # PROCESSING at this attempt.
+    attempt = status_store.acquire_processing_lock(bq_client, dataset, table, key)
+    if attempt is None:
+        # Another worker has it, or it is PROCESSED/FAILED: ACK, run nothing.
         return
 
     # --- ONLY ONE WORKER PROCEEDS PAST THIS POINT ---
+
+    # 2. Re-read the locked row and build the run from BigQuery, not from the
+    # message: the sensitive-trend filter is re-checked now (a row flagged
+    # after dispatch, or a hand-made message, never runs).
+    row = status_store.read_locked_row(bq_client, dataset, table, key, attempt)
+    if row is None or row.get("crf_sensitive"):
+        reason = "row_missing" if row is None else "row_sensitive"
+        logger.error(
+            f"Not running row {key} (attempt {attempt}): {reason}; marking FAILED.",
+            extra={"json_fields": {**key.log_fields(), "reason": reason}},
+        )
+        status_store.mark_final(bq_client, dataset, table, key, "FAILED", attempt)
+        return
+    key = status_store.RowKey.from_mapping(row)  # a legacy key gets the real one
+    msg_dict = build_row_dict(index, row)
+    timestamp = msg_dict["entry_timestamp"]
 
     # Wall-clock timer for the end-to-end agent run. Emitted as a structured log
     # marker (AGENT_RUN_DURATION_SECS) on both the success and failure paths so we
@@ -234,71 +364,75 @@ async def process_row(
     # docs/notes/ambient-agents-vs-cloud-functions.md.
     run_start = _clock()
     outcome: RunOutcome | None = None
+    error: Exception | None = None
     try:
-        # 2. Run the Agent (The heavy async part) and check it finished
-        # (finalize_done; at most one retry). The row status is now 'PROCESSING'.
-        user_id = session_user_id(trend_dict)
+        # 3. Run the agent and check it finished (finalize_done; at most one
+        # retry). The row status is now 'PROCESSING'.
         outcome = await create_agent_run(
             agent_id=agent_id,
-            msg_dict=trend_dict,
-            user_id=user_id,
+            msg_dict=msg_dict,
+            user_id=session_user_id(msg_dict),
             deadline=deadline,
         )
-        if not outcome.finalized:
-            raise RunNotFinalizedError(outcome)
-
-        # 3. Update status to PROCESSED
-        # We MUST change the status away from PROCESSING now
-        status_store.update_rows_status(
-            bq_client=bq_client,
-            dataset=dataset,
-            table=table,
-            timestamps=[timestamp],
-            status="PROCESSED",
-        )
-        _log_run_duration(
-            timestamp, trend_dict["index"], "PROCESSED", run_start, outcome
-        )
-        logging.info(f"Successfully processed and marked row {timestamp} as PROCESSED.")
-
+    except SessionNotStarted as e:
+        if _is_transient(e.__cause__):
+            # Nothing ran: put the row back (the lock already counted the
+            # attempt, so MAX_PROCESSING_ATTEMPTS still caps the retries).
+            status = status_store.requeue(bq_client, dataset, table, key, attempt)
+            logger.warning(
+                f"Transient error before a session existed for row {key} "
+                f"(attempt {attempt}): {e.__cause__!r}; row -> {status}.",
+                extra={
+                    "json_fields": {
+                        **key.log_fields(),
+                        "reason": "session_not_started",
+                        "status": status,
+                        "attempt": attempt,
+                    }
+                },
+            )
+            return
+        error = e
     except Exception as e:  # noqa: BLE001 — recorded as FAILED below, then ACKed
-        # The agent run (or the PROCESSED write) failed: record FAILED, then
-        # RETURN so the worker message is ACKed. Re-raising would only buy a
-        # no-op retry: the redelivery's QUEUED->PROCESSING lock can't match a
-        # FAILED row, so it would just log "Lock failed" and ACK anyway.
-        _log_run_duration(timestamp, trend_dict["index"], "FAILED", run_start, outcome)
-        logger.error(
-            f"Failed processing row {timestamp} (index={trend_dict['index']}): "
-            f"{type(e).__name__}: {e}",
-            extra={
-                "json_fields": {
-                    "row": timestamp,
-                    "status": "FAILED",
-                    "reason": (
-                        e.outcome.reason
-                        if isinstance(e, RunNotFinalizedError)
-                        else type(e).__name__
-                    ),
-                    "retried": outcome.retried if outcome else False,
-                    "secs": round(_clock() - run_start, 1),
-                }
-            },
-        )
+        error = e
+    else:
+        if not outcome.finalized:
+            error = RunNotFinalizedError(outcome)
 
-        # 4. Update status PROCESSING -> FAILED. If THIS write raises, it
-        # propagates (failed invocation / NACK) so the error is loud. The row is
-        # left in PROCESSING, which the orchestrator's stale-PROCESSING reaper
-        # re-queues (or fails, over the attempt cap) after
-        # REAP_STALE_PROCESSING_MINUTES.
-        status_store.update_rows_status(
-            bq_client=bq_client,
-            dataset=dataset,
-            table=table,
-            timestamps=[timestamp],
-            status="FAILED",
-        )
+    if error is None:
+        # 4. The run finished: PROCESSED (retried; never turned into FAILED).
+        await _write_processed(bq_client, dataset, table, key, attempt, deadline)
+        _log_run_duration(timestamp, index, "PROCESSED", run_start, outcome)
+        return
+
+    # The agent run failed: record FAILED, then RETURN so the worker message is
+    # ACKed. Re-raising would only buy a no-op retry: the redelivery's
+    # QUEUED->PROCESSING lock can't match a FAILED row.
+    _log_run_duration(timestamp, index, "FAILED", run_start, outcome)
+    if isinstance(error, RunNotFinalizedError):
+        reason = error.outcome.reason
+    elif isinstance(error, SessionNotStarted):
+        reason = f"session_not_started:{type(error.__cause__).__name__}"
+    else:
+        reason = type(error).__name__
+    logger.error(
+        f"Failed processing row {key} (index={index}): {type(error).__name__}: {error}",
+        extra={
+            "json_fields": {
+                **key.log_fields(),
+                "status": "FAILED",
+                "reason": reason,
+                "retried": outcome.retried if outcome else False,
+                "secs": round(_clock() - run_start, 1),
+            }
+        },
+    )
+
+    # 5. PROCESSING@attempt -> FAILED (fenced). If THIS write raises, it
+    # propagates (failed invocation / NACK) so the error is loud; the row is
+    # left in PROCESSING for the stale-PROCESSING reaper.
+    if status_store.mark_final(bq_client, dataset, table, key, "FAILED", attempt):
         logger.error(
-            f"Marked row {timestamp} as FAILED; ACKing the worker message "
+            f"Marked row {key} as FAILED; ACKing the worker message "
             "(no retry: a FAILED row can't be re-locked)."
         )
-        return
