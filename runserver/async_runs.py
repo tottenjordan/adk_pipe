@@ -421,8 +421,15 @@ async def get_run_status(
 ) -> dict:
     """Poll a run: return its derived status, the events appended since the
     ``since`` cursor (serialized to the frontend ``AgentEvent`` shape), the next
-    cursor, the merged session state, any error message, and ``warnings``
-    (non-fatal in-pipeline error events, see ``_derive_warnings``).
+    cursor, any error message, ``warnings`` (non-fatal in-pipeline error
+    events, see ``_derive_warnings``) and, only when ``since == 0``, the merged
+    session ``state``.
+
+    ``state`` is omitted for ``since > 0``: the frontend reads it only from its
+    since=0 seed/resume calls, while the 1.5 s follow-up polls read just the
+    events/cursor/status. Re-sending (and re-serialising) the whole state —
+    research report, sources, brief, concepts — on every poll cost tens of MB
+    per open run tab over a run.
 
     Returns ``{"status": "not_found", ...}`` (not a raise) when the session is
     absent, so the caller/router can map it to a 404 while staying testable.
@@ -448,14 +455,16 @@ async def get_run_status(
         return {"status": "not_found", "events": [], "nextCursor": 0, "state": {}}
     status, error = _derive_status(session.events)
     sliced = events_since(session.events, since)
-    return {
+    result = {
         "status": status,
         "events": [_serialize_event(ev) for ev in sliced],
         "nextCursor": len(session.events),
-        "state": dict(session.state),
         "error": error,
         "warnings": _derive_warnings(session.events),
     }
+    if since <= 0:  # a full replay (events_since treats since <= 0 as 0)
+        result["state"] = dict(session.state)
+    return result
 
 
 # Hold references to detached run tasks so asyncio's GC can't cancel them before
