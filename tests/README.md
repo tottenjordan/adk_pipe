@@ -91,6 +91,7 @@ tests/
 ├── test_creative_eval.py            # creative_eval schemas, scoring logic, config, report learning_used/learning_flags, JUDGE_VERSION export (date + optional ".N") + report judge_version (both report builders; old reports parse as "")
 ├── test_eval_gates.py               # creative_eval binary gates: schema defaults (old reports parse), passed = score AND gates, gates_pass_rate over judged creatives only, brief block (brace-safe), judge-only response schemas (gates required, no code-set fields), gate normalisation (zero gates reported → fails, partial omission passes as "not checked" + report warning, lenient names, no brief → "no brief"), presence/violation gate wording, advisory brand cue, rendered image as a gs:// Part + image-QA hint, unreadable-image fail-soft to prompt-only limited to image 4xx, finalize "failed checks" / "evaluation failed" / gates pass-rate line, the 2026-10-08 rater-audit gates (no_visual_defects, trend_risks_respected + brief "Trend risks" line, stricter trend motif, prompt gate counts), the 2026-10-12.2 trend_connected ad-copy gate (blocking, judged without a brief, "no trend" pass on an empty trend)
 ├── test_eval_dimensions.py          # creative_eval.dimensions labels mirror frontend/src/lib/eval-dimensions.ts (drift test)
+├── test_crf_completion.py           # CRF worker completion check: PROCESSED only on finalize_done, cut-stream poll, one retry on an idle run, budget
 ├── test_crf_config.py               # env-driven CRF config (required project, no hardcoding)
 ├── test_crf_entrypoint.py           # crf_entrypoint orchestrator (issue #46)
 ├── test_crf_hardening.py            # CRF JSON logs, malformed messages ACKed, client singletons, bounded BQ waits, per-invocation Agent Runtime client (two asyncio.run loops)
@@ -177,6 +178,7 @@ tests/
 ├── test_visual_concept_prompts.py   # visual concept prompts: shared brand_cue / copy-quoted in-image text / brief avoid + fit_mode rules (drafter, critic, finalizer), finalizer angle_id, interactive reviser keeps brand_cue; brace-safety
 ├── test_visual_intent_prompts.py    # optional visual-intent {key?} tokens + IMAGE_PROMPT_GUIDE no-braces + {style_shortlist?}/composition/text-cap rules
 ├── test_workflow_api_contract.py    # offline pins on the upstream ADK graph-Workflow behaviours the P2 migration relies on
+├── test_worker_retry_message_drift.py # CRF worker retry message == runserver AUTO_RETRY_MESSAGE (not test_crf_*: the CRF venv has no runserver)
 │                                    #
 │                                    # experiments/ harness unit tests (pure/offline — no creds, no network)
 ├── test_creative_latency_poll.py    # poll_to_terminal retries a transient slow/failed poll
@@ -256,10 +258,12 @@ tests/
   that infra tools raise (rather than swallow errors into status dicts) so ADK retry works.
 - **Deployment & fan-out** — `test_deploy_utils.py`, `test_deploy_import_graph.py`, `test_cloudbuild_agents.py`, `test_create_session_engine.py`,
   `test_crf_entrypoint.py`, `test_crf_logic.py`, `test_crf_worker_async.py`,
-  `test_crf_config.py`, `test_crf_sql_params.py`, `test_crf_hardening.py`: deploy
+  `test_crf_config.py`, `test_crf_sql_params.py`, `test_crf_hardening.py`,
+  `test_crf_completion.py` (+ `test_worker_retry_message_drift.py`, outside the CRF venv): deploy
   mappings/env wiring, the `runtimes.create` path, and the orchestrator + worker Cloud
   Run Function paths (env-driven config, SQL identifier/parameter safety, malformed
-  messages, client lifetimes, bounded BigQuery waits, JSON logs).
+  messages, client lifetimes, bounded BigQuery waits, JSON logs, the finalize_done
+  completion check + one retry).
 - **SDK guards** — `test_sdk_versions.py`, `test_no_legacy_agent_engines_api.py`: the
   aiplatform 2.x `agentplatform` + `vertexai` surfaces are present, and no repo call site
   uses the deprecated `agent_engines` API.

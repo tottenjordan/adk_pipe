@@ -54,6 +54,14 @@ Functions are thin orchestration glue (`cloud_functions/creative_fanout/main.py`
   (`CREATIVE_WORKER_TOPIC_NAME`) → **atomic BigQuery lock** (`acquire_processing_lock`:
   conditional `UPDATE … WHERE processed_status='QUEUED'`, verifying `num_dml_affected_rows == 1`)
   → invokes Agent Engine via `async_stream_query` → marks `PROCESSED` / `FAILED`.
+  *Since 2026-10-13* `PROCESSED` needs the session's `finalize_done` (completion check,
+  `cloud_functions/creative_fanout/completion.py`): a cut/timed-out stream is followed by
+  polling the session, an idle unfinished run gets one retry message. Spike 2026-10-13
+  (engine runs through the worker's code path): a **780 s stream was not cut** by the
+  documented 10-min `streamQuery` limit, and after a **client disconnect the run continues
+  server-side** and reaches `finalize_done` later; one of 3 concurrent runs ended the stream
+  *cleanly* after a `499 CANCELLED` failed `creative_pipeline`, which the old worker would have
+  marked `PROCESSED`.
 
 The BigQuery status column (`NULL → QUEUED → PROCESSING → PROCESSED/FAILED`) does triple duty as
 **work queue + idempotency lock + observability surface**.
