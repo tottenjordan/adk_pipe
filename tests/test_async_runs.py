@@ -668,8 +668,30 @@ def test_cancelled_run_writes_terminal_error_marker():
 def test_poll_state_is_session_state():
     svc = InMemorySessionService()
     asyncio.run(_seed_session(svc, state={"brand": "X"}, events=[_agent_event("one")]))
-    result = _poll(svc)
+    result = _poll(svc, since=0)
     assert result["state"]["brand"] == "X"
+
+
+def test_poll_state_full_at_since_zero():
+    svc = InMemorySessionService()
+    state = {"brand": "X", "creative_brief_md": "brief", "sources": {"src-1": "u"}}
+    asyncio.run(_seed_session(svc, state=state, events=[_agent_event("one")]))
+    result = _poll(svc, since=0)
+    assert result["state"] == state
+
+
+def test_poll_omits_state_after_since_zero():
+    """Only the since=0 seed reads ``state``; later polls (every 1.5 s) must not
+    re-send the whole (multi-MB) session state."""
+    svc = InMemorySessionService()
+    events = [_agent_event(str(i)) for i in range(6)]
+    asyncio.run(_seed_session(svc, state={"brand": "X"}, events=events))
+    result = _poll(svc, since=5)
+    assert "state" not in result
+    assert result["nextCursor"] == 6
+    assert len(result["events"]) == 1
+    assert result["status"] == "running"
+    assert "warnings" in result
 
 
 def test_poll_event_serialization_is_camelcase():
@@ -691,9 +713,13 @@ def test_poll_event_serialization_is_camelcase():
 
 def test_poll_not_found():
     svc = InMemorySessionService()
-    result = _poll(svc)
-    assert result["status"] == "not_found"
-    assert result["events"] == []
+    result = _poll(svc, since=5)
+    assert result == {
+        "status": "not_found",
+        "events": [],
+        "nextCursor": 0,
+        "state": {},
+    }
 
 
 class _RaisingSessionService:
