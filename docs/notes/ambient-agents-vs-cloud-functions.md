@@ -149,7 +149,7 @@ for one with a timeout risk plus a re-implemented lock.
 We had no wall-clock data, which is the single biggest input to the runtime-ceiling question. Added
 lightweight, zero-schema-risk instrumentation to the worker: it times the end-to-end Agent Engine
 run and emits a structured log marker on both the success and failure paths
-(`cloud_functions/creative_fanout/main.py`, `_execute_agent_and_update_status`):
+(`cloud_functions/creative_fanout/worker.py`, `process_row`):
 
 ```
 AGENT_RUN_DURATION_SECS row=<ts> index=<i> status=<PROCESSED|FAILED> secs=<float>
