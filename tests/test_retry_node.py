@@ -387,7 +387,8 @@ def _quota_error() -> Exception:
     from google.genai import errors
 
     return errors.ClientError(
-        429, {"error": {"code": 429, "message": "quota", "status": "RESOURCE_EXHAUSTED"}}
+        429,
+        {"error": {"code": 429, "message": "quota", "status": "RESOURCE_EXHAUSTED"}},
     )
 
 

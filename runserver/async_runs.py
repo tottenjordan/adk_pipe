@@ -54,6 +54,19 @@ AUTO_CONTINUE_MESSAGE = (
     "Continue the WORKFLOW from where it stopped. Do not repeat completed steps; "
     "call the next step now."
 )
+# Re-prompt after a pipeline NodeTool returned an error result (incident
+# 2026-10-13: a transient 429 failed creative_pipeline, the root restated the
+# error and the run ended done with no outputs). The creative roots' prompts
+# re-call the failed pipeline on a continue message (<RETRY_AFTER_ERROR>).
+AUTO_RETRY_MESSAGE = (
+    "The last pipeline step failed with an error. Continue the WORKFLOW: call "
+    "that same step again now."
+)
+# NodeTool turns a node failure into this string result (google.adk.tools
+# ._node_tool: f"Error running node {name}: {e}").
+_NODE_ERROR_PREFIX = "Error running node "
+# Apps whose root prompt carries the retry-after-error rule.
+_PIPELINE_RETRY_APPS = frozenset({"creative_agent", "interactive_creative"})
 AUTO_CONTINUES_KEY = "__auto_continues"
 _DEFAULT_MAX_AUTO_CONTINUES = 2
 _MAX_AUTO_CONTINUES_CEILING = 3
@@ -232,32 +245,73 @@ def _is_lifecycle_event(event) -> bool:
     )
 
 
-def should_auto_continue(
-    app_name: str, state: dict, segment_events: list, root_author: str, attempts: int
-) -> bool:
-    """Whether a segment that completed without error should be re-prompted.
+def _is_node_error_response(resp) -> bool:
+    """A NodeTool error result: ``{"result": "Error running node …"}``."""
+    payload = _field(resp, "response")
+    values = payload.values() if isinstance(payload, dict) else [payload]
+    return any(isinstance(v, str) and v.startswith(_NODE_ERROR_PREFIX) for v in values)
 
-    True only when ALL hold: ``attempts < MAX_AUTO_CONTINUES``; the app's
-    completion key (``_COMPLETION_KEYS``) is missing/blank in ``state`` (unknown
-    app → False); the segment did not pause at an unanswered long-running call;
-    and the segment's last ``root_author`` event is an empty turn. Accepts ADK
+
+def _last_response_is_node_error(root_events) -> bool:
+    """Whether the root's most recent function response is a node error."""
+    for ev in reversed(root_events):
+        responses = [
+            resp
+            for part in _event_parts(ev)
+            if (resp := _field(part, "function_response", "functionResponse"))
+            is not None
+        ]
+        if responses:
+            return any(_is_node_error_response(r) for r in responses)
+    return False
+
+
+def auto_continue_reason(
+    app_name: str, state: dict, segment_events: list, root_author: str, attempts: int
+) -> str | None:
+    """Why a segment that completed without error should be re-prompted, or None.
+
+    Requires ALL of: ``attempts < MAX_AUTO_CONTINUES``; the app's completion key
+    (``_COMPLETION_KEYS``) missing/blank in ``state`` (unknown app → None); no
+    pause at an unanswered long-running call. Then ``"empty_turn"`` when the
+    segment's last ``root_author`` event is an empty turn, else
+    ``"pipeline_error"`` when (creative apps only, ``_PIPELINE_RETRY_APPS``) the
+    root's last function response in the segment is a NodeTool error result
+    (``Error running node …``), whatever the root wrote after it. Accepts ADK
     ``Event`` objects or their serialized dicts."""
     if attempts >= MAX_AUTO_CONTINUES or not root_author:
-        return False
+        return None
     completion_key = _COMPLETION_KEYS.get(app_name)
     if completion_key is None:
-        return False
+        return None
     done_value = (state or {}).get(completion_key)
     if done_value and (not isinstance(done_value, str) or done_value.strip()):
-        return False
+        return None
     if _has_unanswered_long_running_call(segment_events):
-        return False
+        return None
     root_events = [
         ev
         for ev in segment_events
         if _field(ev, "author") == root_author and not _is_lifecycle_event(ev)
     ]
-    return bool(root_events) and _is_empty_turn(root_events[-1])
+    if not root_events:
+        return None
+    if _is_empty_turn(root_events[-1]):
+        return "empty_turn"
+    if app_name in _PIPELINE_RETRY_APPS and _last_response_is_node_error(root_events):
+        return "pipeline_error"
+    return None
+
+
+def should_auto_continue(
+    app_name: str, state: dict, segment_events: list, root_author: str, attempts: int
+) -> bool:
+    """Whether a segment that completed without error should be re-prompted
+    (``auto_continue_reason`` is not None)."""
+    reason = auto_continue_reason(
+        app_name, state, segment_events, root_author, attempts
+    )
+    return reason is not None
 
 
 def _root_author(runner) -> str:
@@ -698,16 +752,18 @@ async def _maybe_record_auto_continue(
     root_author,
     attempts,
     invocation_id,
-) -> bool:
+) -> str | None:
     """Decide whether to auto-continue after a cleanly-completed segment; if so,
-    log it and record the cumulative ``__auto_continues`` count in session state.
+    log it, record the cumulative ``__auto_continues`` count in session state and
+    return the ``auto_continue_reason`` ("empty_turn" | "pipeline_error"); else
+    None.
 
     Never raises: a failed session read means "don't continue" (the segment
     finishes ``done`` as before); a failed record write is logged and the
     continue still happens (the count is observability, not control)."""
     # Cheap pre-check without state: state can only turn a True into False.
     if not should_auto_continue(app_name, {}, segment_events, root_author, attempts):
-        return False
+        return None
     try:
         session = await _get_session_or_none(
             session_service, app_name, user_id, session_id
@@ -718,15 +774,19 @@ async def _maybe_record_auto_continue(
             app_name,
             session_id,
         )
-        return False
+        return None
     if session is None:
-        return False
+        return None
     state = dict(session.state)
-    if not should_auto_continue(app_name, state, segment_events, root_author, attempts):
-        return False
+    reason = auto_continue_reason(
+        app_name, state, segment_events, root_author, attempts
+    )
+    if reason is None:
+        return None
     attempt = attempts + 1
     logging.warning(
-        "auto-continue after empty root turn: app=%s session=%s attempt=%d",
+        "auto-continue after %s: app=%s session=%s attempt=%d",
+        "failed pipeline call" if reason == "pipeline_error" else "empty root turn",
         app_name,
         session_id,
         attempt,
@@ -749,7 +809,7 @@ async def _maybe_record_auto_continue(
             app_name,
             session_id,
         )
-    return True
+    return reason
 
 
 async def _drive_run(
@@ -785,7 +845,7 @@ async def _drive_run(
                     segment_events.append(event)
                     if getattr(event, "invocation_id", None):
                         invocation_id = event.invocation_id
-                if not await _maybe_record_auto_continue(
+                reason = await _maybe_record_auto_continue(
                     session_service,
                     app_name,
                     user_id,
@@ -794,10 +854,15 @@ async def _drive_run(
                     root_author,
                     attempts,
                     invocation_id,
-                ):
+                )
+                if reason is None:
                     break
                 attempts += 1
-                message = build_user_message(AUTO_CONTINUE_MESSAGE)
+                message = build_user_message(
+                    AUTO_RETRY_MESSAGE
+                    if reason == "pipeline_error"
+                    else AUTO_CONTINUE_MESSAGE
+                )
         await _record_cast_renders(session_service, app_name, user_id, session_id)
         await _append_terminal_safe(
             session_service,

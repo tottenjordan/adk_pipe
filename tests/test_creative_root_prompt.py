@@ -133,6 +133,6 @@ def test_failed_pipeline_is_re_called_on_a_continue_message():
     assert "once per continue message" in block
     assert "do not just restate the error" in block
     # The normal path still makes exactly one call.
-    assert "Do not call it again after it returned its summary" in (
-        _workflow_steps()[1]
+    assert (
+        "Do not call it again after it returned its summary" in (_workflow_steps()[1])
     )

@@ -2246,3 +2246,107 @@ def test_resume_segment_also_auto_continues():
     assert _text_of(runner.messages[1]) == async_runs.AUTO_CONTINUE_MESSAGE
     # The resume's 'running' reset, then a single terminal 'done'.
     assert _status_markers(session) == ["running", "done"]
+
+
+# --- auto-continue after a failed pipeline call ------------------------------
+#
+# Incident 2026-10-13: a transient 429 failed creative_pipeline; the NodeTool
+# returned "Error running node creative_pipeline: ...", the root restated it and
+# the run ended done with no outputs. A bounded automatic retry now re-prompts
+# with AUTO_RETRY_MESSAGE (the root re-calls the failed pipeline).
+
+_NODE_ERROR = "Error running node creative_pipeline: 429 RESOURCE_EXHAUSTED."
+
+
+def _root_error_response_event(
+    name="creative_pipeline", call_id="c-1", error=_NODE_ERROR
+) -> Event:
+    return Event(
+        author=ROOT,
+        content=types.Content(
+            role="user",
+            parts=[
+                types.Part(
+                    function_response=types.FunctionResponse(
+                        id=call_id, name=name, response={"result": error}
+                    )
+                )
+            ],
+        ),
+    )
+
+
+_ERROR_SEGMENT = [
+    _root_call_event("creative_pipeline"),
+    _root_error_response_event(),
+    _root_text_event("The creative pipeline failed with a quota error."),
+]
+
+
+def test_auto_continue_reason_after_a_failed_pipeline_call():
+    reason = async_runs.auto_continue_reason
+    for app in ("creative_agent", "interactive_creative"):
+        assert reason(app, {}, list(_ERROR_SEGMENT), ROOT, 0) == "pipeline_error"
+        assert _sac(app=app, events=list(_ERROR_SEGMENT)) is True
+    # An empty turn keeps its own reason.
+    assert reason("creative_agent", {}, list(_EMPTY_SEGMENT), ROOT, 0) == "empty_turn"
+    # The error result is also recognised in serialized (camelCase) events.
+    serialized = [async_runs._serialize_event(e) for e in _ERROR_SEGMENT]
+    assert reason("creative_agent", {}, serialized, ROOT, 0) == "pipeline_error"
+
+
+def test_no_pipeline_retry_when_finished_capped_or_healthy(monkeypatch):
+    errored = list(_ERROR_SEGMENT)
+    done = {"finalize_done": True}
+    assert _sac(app="creative_agent", state=done, events=errored) is False
+    # A later successful call answers the error: the last response is healthy.
+    healed = [
+        *errored[:2],
+        _root_call_event("creative_pipeline", "c-2"),
+        _root_response_event("creative_pipeline", "c-2"),
+        _root_text_event("done"),
+    ]
+    assert _sac(app="creative_agent", events=healed) is False
+    # A text-only finish after a healthy response stays a normal end.
+    healthy = [_root_response_event(), _root_text_event()]
+    assert _sac(app="creative_agent", events=healthy) is False
+    # Only the root's own function responses count.
+    sub = _root_error_response_event()
+    sub.author = "campaign_web_searcher"
+    assert _sac(app="creative_agent", events=[sub, _root_text_event()]) is False
+    # trend_scout's prompt has no retry rule: no pipeline-error continue there.
+    ts = [e.model_copy(update={"author": "trend_scout"}) for e in errored]
+    assert should_auto_continue("trend_scout", {}, ts, "trend_scout", 0) is False
+    monkeypatch.setattr(async_runs, "MAX_AUTO_CONTINUES", 1)
+    assert _sac(app="creative_agent", events=errored, attempts=1) is False
+
+
+def test_drive_run_retries_a_failed_pipeline_once_then_finishes(caplog):
+    svc = InMemorySessionService()
+    runner = _ScriptedRunner(
+        svc,
+        "creative_agent",
+        [
+            list(_ERROR_SEGMENT),
+            [
+                _root_call_event("creative_pipeline", "c-2"),
+                _root_response_event("creative_pipeline", "c-2"),
+                _root_text_event("All creatives done."),
+            ],
+        ],
+    )
+    with caplog.at_level("WARNING"):
+        session = _run_scripted(runner, app_name="creative_agent")
+    assert len(runner.messages) == 2
+    assert _text_of(runner.messages[1]) == async_runs.AUTO_RETRY_MESSAGE
+    assert session.state[async_runs.AUTO_CONTINUES_KEY] == 1
+    assert _status_markers(session) == ["done"]
+    assert "auto-continue after failed pipeline call" in caplog.text
+
+
+def test_drive_run_pipeline_retry_is_bounded_by_the_cap():
+    svc = InMemorySessionService()
+    runner = _ScriptedRunner(svc, "creative_agent", [list(_ERROR_SEGMENT)])
+    session = _run_scripted(runner, app_name="creative_agent")
+    assert len(runner.messages) == 1 + async_runs.MAX_AUTO_CONTINUES
+    assert _status_markers(session) == ["done"]
