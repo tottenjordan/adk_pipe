@@ -54,6 +54,8 @@ function snap(v: number, step: number): number {
 /** Expand `[min, max]` outward to whole multiples of a nice step. */
 export function niceDomain(min: number, max: number, count = 5): [number, number] {
   if (min === max) {
+    // All zeros (e.g. a rate before any click): [0, 1], never a negative tick.
+    if (min === 0) return [0, 1];
     const pad = min === 0 ? 1 : Math.abs(min) * 0.1;
     return niceDomain(min - pad, max + pad, count);
   }
