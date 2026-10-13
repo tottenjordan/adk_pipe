@@ -133,6 +133,12 @@ class AdCopyEvaluation(BaseModel):
     angle_id: str = Field(
         default="", description="Creative brief angle id (set by code)."
     )
+    # Set by code: the copy referenced the validated timely moment, so the
+    # judge checked timely_claim_supported. False for old reports.
+    timely: bool = Field(
+        default=False,
+        description="True when the copy references the validated timely moment (set by code).",
+    )
 
 
 class VisualConceptEvaluation(BaseModel):
@@ -152,6 +158,10 @@ class VisualConceptEvaluation(BaseModel):
     )
     angle_id: str = Field(
         default="", description="Creative brief angle id (set by code)."
+    )
+    timely: bool = Field(
+        default=False,
+        description="True when the concept (or its paired copy) references the validated timely moment (set by code).",
     )
 
 
@@ -233,4 +243,10 @@ class CreativeEvaluationReport(BaseModel):
     learning_flags: list[str] = Field(
         default_factory=list,
         description="The learning effects that changed the run: 'guidance', 'styles' and each rating strictness flag (e.g. 'product_not_visible').",
+    )
+    # The validated timely moment's expiry (trend_situation.valid_until, ISO
+    # with offset) when the run had one, else "" (also for old reports).
+    trend_valid_until: str = Field(
+        default="",
+        description="valid_until of the run's validated timely moment, or '' when the run had none.",
     )

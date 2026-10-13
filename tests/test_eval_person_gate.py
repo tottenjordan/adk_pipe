@@ -1,5 +1,6 @@
 """creative_eval: the person_depicted_respectfully visual gate (decided in code
-for uncast concepts) and the JUDGE_VERSION bump that came with it."""
+for uncast concepts). The JUDGE_VERSION pin lives in test_eval_timely_gate.py
+(the latest gate change)."""
 
 from __future__ import annotations
 
@@ -49,12 +50,12 @@ CONCEPT = {
 }
 
 
-def test_gate_is_a_visual_gate_with_a_label_and_a_version_bump():
-    assert VISUAL_GATES[-1] == GATE
+def test_gate_is_a_visual_gate_with_a_label():
+    assert GATE in VISUAL_GATES
     assert PERSON_GATES == frozenset({GATE})
     assert GATE not in ADVISORY_GATES and GATE not in BRIEF_GATES
     assert GATE_LABELS[GATE] == "Person depicted respectfully"
-    assert JUDGE_VERSION == "2026-10-12.2"
+    assert JUDGE_VERSION  # pinned by test_eval_timely_gate.py
 
 
 def test_prompt_names_the_gate_and_the_new_count():

@@ -69,7 +69,12 @@ whichever judge graded that run, and a changed rubric changes what "pass" means.
 calibration is **versioned**:
 
 - `creative_eval.JUDGE_VERSION` (in `creative_eval/dimensions.py`, next to the gate
-  definitions) names the current judge, currently **`2026-10-12.2`**: ad copy gained the blocking
+  definitions) names the current judge, currently **`2026-10-13`**: ad copy and visuals
+  gained the blocking `timely_claim_supported` gate (judged only for a timely creative
+  against the validated current moment; every other creative passes it in code with note
+  "not timely", so runs without a timely moment grade as before). Ratings made under
+  earlier versions stay stored and still count with `--judge-version all`. The previous
+  judge, **`2026-10-12.2`**: ad copy gained the blocking
   `trend_connected` gate (a clear, specific tie to the trend a follower would recognise;
   vague or bolted-on fails; "no trend" pass only when the run has no trend), after 12 of
   13 human fails cited `trend_unclear` and the judge had passed 9 of them. A second change

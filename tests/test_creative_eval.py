@@ -886,6 +886,8 @@ def test_visual_eval_prompt_formats_concepts_with_brand_cue_and_angle_id():
         trend_motif="m",
         image_section="",
         person_cast="no",
+        timely="no",
+        moment_section="",
     )
     assert "Concept Name: Dust" in text
     from unittest.mock import MagicMock

@@ -311,6 +311,8 @@ class TestBriefParsing:
             **AD_COPY,
             angle="A1",
             brief_block=format_brief_for_judge(BRIEF),
+            timely="no",
+            moment_section="",
         )
         assert "chase {winnable}." in text
 
@@ -690,7 +692,7 @@ class TestJudgeThePixels:
         seen = {}
 
         def fake_vis(
-            vc, ctx, config, client=None, brief=None, image=None, person_photo=""
+            vc, ctx, config, client=None, brief=None, image=None, person_photo="", **_
         ):
             seen[vc["concept_name"]] = image
             return MagicMock()
@@ -987,8 +989,9 @@ class TestUnreportedGatesWarning:
         raw = [GateResult(gate="product_visible", passed=True)]
         gates = normalize_gates(raw, VISUAL_GATES, brief_used=True)
         assert all(g.passed for g in gates)
-        # product_visible was reported; the person gate is decided in code.
-        assert sum(g.note == NOT_REPORTED_NOTE for g in gates) == len(VISUAL_GATES) - 2
+        # product_visible was reported; the person and timely gates are
+        # decided in code.
+        assert sum(g.note == NOT_REPORTED_NOTE for g in gates) == len(VISUAL_GATES) - 3
 
     def test_warning_counts_not_checked_gates(self):
         from creative_eval.evaluate import NOT_REPORTED_NOTE, unreported_gates_warning

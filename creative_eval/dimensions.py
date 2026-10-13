@@ -15,7 +15,7 @@ from collections.abc import Iterable
 # gates, the gate or dimension wording, the scoring/pass rules (threshold,
 # normalisation) or the judge model change. A second change on the same day
 # appends ".N" ("2026-10-12.2"); versions are only ever compared by equality.
-JUDGE_VERSION = "2026-10-12.2"
+JUDGE_VERSION = "2026-10-13"
 
 DIMENSION_LABELS: dict[str, str] = {
     # Ad copy
@@ -43,6 +43,7 @@ AD_COPY_GATES: tuple[str, ...] = (
     "avoid_respected",
     "trend_risks_respected",
     "trend_connected",
+    "timely_claim_supported",
 )
 VISUAL_GATES: tuple[str, ...] = (
     "product_visible",
@@ -53,6 +54,7 @@ VISUAL_GATES: tuple[str, ...] = (
     "no_visual_defects",
     "trend_risks_respected",
     "person_depicted_respectfully",
+    "timely_claim_supported",
 )
 # Recorded but never part of gates_passed (mirrors image QA, where a missing
 # brand cue never fails an image).
@@ -77,6 +79,12 @@ TREND_GATES: frozenset[str] = frozenset({"trend_connected"})
 # note "no person cast", whatever the judge said.
 PERSON_GATES: frozenset[str] = frozenset({"person_depicted_respectfully"})
 
+# Only judged for a timely creative (its own ``uses_trend_state`` flag, or a
+# visual's paired copy's, AND a validated timely ``trend_situation``): the judge
+# checks the claim against the moment. Otherwise passed in code with note
+# "not timely", whatever the judge said.
+TIMELY_GATES: frozenset[str] = frozenset({"timely_claim_supported"})
+
 # The single failed gate recorded when the judge reported none of the
 # expected gates (the checks were skipped, so the creative is unverified).
 NO_GATES_GATE = "gates_reported"
@@ -98,6 +106,8 @@ GATE_LABELS: dict[str, str] = {
     "brand_cue_present": "Brand cue present",
     "no_visual_defects": "No visual defects",
     "person_depicted_respectfully": "Person depicted respectfully",
+    # Timely creatives (ad copy + visual)
+    "timely_claim_supported": "Timely claim supported",
     # Judge skipped every check
     NO_GATES_GATE: "Checks reported",
 }

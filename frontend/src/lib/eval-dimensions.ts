@@ -41,6 +41,8 @@ export const GATE_LABELS: Readonly<Record<string, string>> = {
   brand_cue_present: "Brand cue present",
   no_visual_defects: "No visual defects",
   person_depicted_respectfully: "Person depicted respectfully",
+  // Timely creatives (ad copy + visual)
+  timely_claim_supported: "Timely claim supported",
   // The judge skipped every check (one failed entry; mirrors creative_eval)
   gates_reported: "Checks reported",
 };
