@@ -26,7 +26,7 @@ tuned on live runs to flag only clear problems (false-positive fixes: #268).
 
 The judge answers a judge-only schema (`AdCopyJudgeOutput` / `VisualJudgeOutput`: `gates` required, min 1; no `overall_score`/`passed`/`gates_passed`/`advisory`/`image_judged` — code maps it to the report models and computes those). Gate prompts: presence gates pass only when clearly present, violation gates (`avoid_respected`, carryable `mandatories_met`, `no_visual_defects`, `trend_risks_respected`) fail only on a clear violation, not-applicable passes with the reason in the note. Gates are normalised in code (`normalize_gates`: none of the expected gates reported → one failed `gates_reported` gate, "judge returned no gates"; a partial omission passes as "not checked" and adds a report warning "N checks not reported by the judge"; without a brief the brief-dependent gates pass with note "no brief" and `report.brief_used=False`). The visual judge sees the **rendered image** (`generated_images[concept].gcs_uri` as a `gs://` `Part`; the prompt is only intent; the image-QA verdict is a hint line) (fetched by the Vertex AI service agent; cross-project buckets need it granted `storage.objectViewer`) — no image, or an image read error (403/404, or a 400 mentioning the image/URI/file/permission; other 4xx are normal judge failures), falls back to judging the prompt (`image_judged=False`; the fallback adds a report warning).
 
-**Current gate set** (`creative_eval/dimensions.py`, `JUDGE_VERSION = "2026-10-13"`; checked 2026-10-13):
+**Current gate set** (`creative_eval/dimensions.py`, `JUDGE_VERSION = "2026-10-13.1"`; checked 2026-10-13):
 
 | Kind | Gates (prompt/report order) |
 |---|---|
@@ -107,6 +107,20 @@ so the policy is upstream:
   trend tie (below) is skipped, since the event must not be referenced. The judge stays
   strict: `trend_connected` still applies (the general culture of the trend counts, the
   event never does), so such runs may fail it; that is accepted, and the flag is the fix.
+
+### 2026-10-13.1 product-label text exempt from `no_visual_defects`
+
+Small, illegible or garbled lettering on the product itself (packaging, label, bottle or
+can fine print) was the second-biggest `no_visual_defects` failure class (10 of 20 failures
+on cast concepts, 27 on uncast ones) and was judged inconsistently: some notes passed
+"minor garbled text on the label", others failed the same thing. Decision (2026-10-13):
+it is not a visual defect. The gate now says "Small or illegible text printed on the
+product or its packaging (label fine print, small lettering) is not a defect; judge the
+product's shape, parts and placement instead", and keeps large, prominent garbled text
+that reads as part of the ad (not the product's own small label) a defect. `text_correct`
+is unchanged for requested in-image text (the quoted headline/CTA must still appear
+exactly) and now says label fine print is not requested in-image text, so the two gates
+agree. Prompt-only change; `JUDGE_VERSION` `2026-10-13.1` (same-day second change).
 
 ### 2026-10-13 `timely_claim_supported` gate (trend-state Phase 3, Idea 5)
 
