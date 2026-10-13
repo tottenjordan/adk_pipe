@@ -5,10 +5,13 @@ Imports only the CRF package (the crf-deps CI job runs this file in a venv with
 nothing but ``cloud_functions/creative_fanout/requirements.txt`` + pytest).
 """
 
+import asyncio
+import base64
 import io
 import json
 import logging
 import sys
+import types
 
 import pytest
 
@@ -250,3 +253,154 @@ def test_import_builds_no_clients():
     env = {k: v for k, v in os.environ.items() if k != "GOOGLE_CLOUD_PROJECT"}
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     subprocess.run([sys.executable, "-c", code], check=True, cwd=root, env=env)
+
+
+# ============================================================
+# Agent Runtime client: one per invocation (event-loop bound)
+# ============================================================
+class _LoopBoundFakeClient:
+    """Stands in for ``agentplatform.Client`` without aiohttp: google-genai's
+    async path then reuses ONE ``httpx.AsyncClient``, bound to the event loop
+    of its first request, so a later ``asyncio.run`` (a new loop) on the same
+    client fails with ``RuntimeError: Event loop is closed``."""
+
+    instances: list["_LoopBoundFakeClient"] = []
+
+    def __init__(self, **kwargs):
+        self.kwargs = kwargs
+        self.loop = None
+        self.closed = False
+        self.runtimes = _FakeRuntimes(self)
+        self.aio = _FakeAio(self)
+        type(self).instances.append(self)
+
+    def check_loop(self):
+        loop = asyncio.get_running_loop()
+        if self.closed:
+            raise RuntimeError("client used after aclose()")
+        if self.loop is None:
+            self.loop = loop
+        elif self.loop is not loop:
+            raise RuntimeError("Event loop is closed")
+
+
+class _FakeAio:
+    def __init__(self, client):
+        self.client = client
+
+    async def aclose(self):
+        self.client.check_loop()
+        self.client.closed = True
+
+
+class _FakeRuntimes:
+    def __init__(self, client):
+        self.client = client
+
+    def get(self, *, name):
+        return _FakeAgent(self.client)
+
+
+class _FakeAgent:
+    def __init__(self, client):
+        self.client = client
+
+    async def async_create_session(self, *, user_id, state=None):
+        self.client.check_loop()
+        return {"id": "sess-1"}
+
+    async def async_delete_session(self, *, user_id, session_id):
+        self.client.check_loop()
+
+    async def async_stream_query(self, **kwargs):
+        self.client.check_loop()
+        yield {"author": "root_agent", "content": {"parts": [{"text": "ok"}]}}
+
+
+_ROW_DATA = {
+    "entry_timestamp": "2026-07-12T00:00:00",
+    "brand": "BrandX",
+    "target_product": "prod",
+    "key_selling_point": "ksp",
+    "target_audience": "aud",
+    "target_search_trend": "trend",
+}
+
+
+def _worker_payload(index=0, **overrides):
+    payload = {
+        "bq_dataset": main.config.BQ_DATASET_ID,
+        "bq_table": main.config.BQ_TABLE_TARGETS,
+        "agent_resource_id": "123",
+        "row_data": {"index": index, **_ROW_DATA},
+    }
+    payload.update(overrides)
+    return payload
+
+
+def _event(payload):
+    """A Pub/Sub CloudEvent stand-in (dict/list → JSON; str sent as-is)."""
+    raw = payload if isinstance(payload, str) else json.dumps(payload)
+    data = base64.b64encode(raw.encode()).decode()
+    return types.SimpleNamespace(data={"message": {"data": data}})
+
+
+def test_two_worker_invocations_in_one_process_both_succeed(monkeypatch):
+    """Regression: a warm instance's 2nd invocation (a new ``asyncio.run`` loop)
+    must not reuse the 1st invocation's loop-bound Agent Runtime client."""
+    _LoopBoundFakeClient.instances = []
+    monkeypatch.setattr(main.agentplatform, "Client", _LoopBoundFakeClient)
+    monkeypatch.setattr(main, "_get_bigquery_client", lambda: _bq_mock())
+    monkeypatch.setattr(main, "acquire_processing_lock", lambda *a, **k: True)
+    statuses = []
+    monkeypatch.setattr(
+        main, "update_rows_status", lambda **k: statuses.append(k["status"])
+    )
+
+    main.agent_worker_entrypoint(_event(_worker_payload(0)))
+    main.agent_worker_entrypoint(_event(_worker_payload(1)))
+
+    assert statuses == ["PROCESSED", "PROCESSED"]
+    assert len(_LoopBoundFakeClient.instances) == 2
+    assert all(c.closed for c in _LoopBoundFakeClient.instances)
+    assert _LoopBoundFakeClient.instances[0].kwargs == {
+        "project": "test-project",
+        "location": main.config.GCP_REGION,
+    }
+
+
+def test_agent_runtime_client_closed_even_when_the_run_fails(monkeypatch):
+    _LoopBoundFakeClient.instances = []
+    monkeypatch.setattr(main.agentplatform, "Client", _LoopBoundFakeClient)
+
+    async def _boom(self, **kwargs):
+        raise RuntimeError("stream boom")
+        yield  # pragma: no cover
+
+    monkeypatch.setattr(_FakeAgent, "async_stream_query", _boom)
+
+    with pytest.raises(RuntimeError, match="stream boom"):
+        asyncio.run(
+            main.create_agent_run(
+                agent_id="123", msg_dict={"index": 0, **_ROW_DATA}, user_id="u"
+            )
+        )
+    (client,) = _LoopBoundFakeClient.instances
+    assert client.closed
+
+
+def test_agent_runtime_client_close_failure_does_not_fail_the_run(monkeypatch, caplog):
+    _LoopBoundFakeClient.instances = []
+    monkeypatch.setattr(main.agentplatform, "Client", _LoopBoundFakeClient)
+
+    async def _bad_close(self):
+        raise OSError("close boom")
+
+    monkeypatch.setattr(_FakeAio, "aclose", _bad_close)
+    with caplog.at_level(logging.WARNING):
+        asyncio.run(
+            main.create_agent_run(
+                agent_id="123", msg_dict={"index": 0, **_ROW_DATA}, user_id="u"
+            )
+        )
+    assert "close boom" in caplog.text

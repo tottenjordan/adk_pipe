@@ -34,6 +34,7 @@ message = {
 
 import asyncio
 import base64
+import inspect
 import json
 import logging
 import re
@@ -144,23 +145,33 @@ def _get_pubsub_client() -> pubsub_v1.PublisherClient:
     return _pubsub_publisher
 
 
-_vertex_client = None
+def _new_vertex_client():
+    """A new Agent Runtime client (``agentplatform.Client``) for ONE invocation.
 
-
-def _get_vertex_client():
-    """Get a lazily-initialized Agent Runtime client (``agentplatform.Client``).
-
-    Lazy so importing this module does not require GCP credentials or network
-    access (lets the entrypoints be unit-tested), mirroring the BigQuery/Pub/Sub
-    client factories above.
+    Deliberately not cached: the worker drives each invocation with its own
+    ``asyncio.run`` (a new event loop), and without aiohttp (not in this image)
+    google-genai's async path reuses a single ``httpx.AsyncClient`` bound to
+    the loop of its first request, so a cached client made the 2nd invocation
+    on a warm instance fail with ``RuntimeError: Event loop is closed``.
+    Creating one is cheap (no network call); ``create_agent_run`` closes it
+    (``aio.aclose()``) before its loop ends. Lazy, so importing this module
+    needs no credentials.
     """
-    global _vertex_client
-    if _vertex_client is None:
-        _vertex_client = agentplatform.Client(
-            project=config.GOOGLE_CLOUD_PROJECT,
-            location=config.GCP_REGION,
-        )  # pyright: ignore[reportCallIssue]
-    return _vertex_client
+    return agentplatform.Client(
+        project=config.GOOGLE_CLOUD_PROJECT,
+        location=config.GCP_REGION,
+    )  # pyright: ignore[reportCallIssue]
+
+
+async def _aclose_vertex_client(client) -> None:
+    """Release the client's async HTTP transport on the current loop (best
+    effort: a close failure is logged, never fails the run)."""
+    try:
+        result = client.aio.aclose()
+        if inspect.isawaitable(result):
+            await result
+    except Exception as e:  # noqa: BLE001 — cleanup only
+        logger.warning(f"Closing the Agent Runtime client failed: {e!r}")
 
 
 # ==============================
@@ -471,10 +482,6 @@ async def create_agent_run(
     """
     logging.info(f"Invoking Agent Run {msg_dict['index'] + 1}...")
 
-    remote_agent = _get_vertex_client().runtimes.get(
-        name=f"projects/{config.GOOGLE_CLOUD_PROJECT_NUMBER}/locations/{_LOCATION}/reasoningEngines/{agent_id}"
-    )
-
     USER_QUERY = f"""Brand: {msg_dict["brand"]}
     Target Product: {msg_dict["target_product"]}
     Key Selling Point(s): {msg_dict["key_selling_point"]}
@@ -492,14 +499,25 @@ async def create_agent_run(
     # create → stream → delete, all under one user_id. The delete runs even if
     # the stream raises (agent_session's finally), so a failed run never leaks a
     # session, and it can't drift onto a different user_id.
-    async with agent_session(remote_agent, user_id, state=campaign_state) as session:
-        # long running op
-        await async_send_message(
-            remote_agent=remote_agent,
-            user_id=user_id,
-            session=session,
-            user_query=USER_QUERY,
+    # A fresh client (and engine handle) per invocation, closed on this loop:
+    # see _new_vertex_client for why it can't be cached.
+    client = _new_vertex_client()
+    try:
+        remote_agent = client.runtimes.get(
+            name=f"projects/{config.GOOGLE_CLOUD_PROJECT_NUMBER}/locations/{_LOCATION}/reasoningEngines/{agent_id}"
         )
+        async with agent_session(
+            remote_agent, user_id, state=campaign_state
+        ) as session:
+            # long running op
+            await async_send_message(
+                remote_agent=remote_agent,
+                user_id=user_id,
+                session=session,
+                user_query=USER_QUERY,
+            )
+    finally:
+        await _aclose_vertex_client(client)
 
 
 def _log_run_duration(timestamp, index, status, run_start) -> None:
