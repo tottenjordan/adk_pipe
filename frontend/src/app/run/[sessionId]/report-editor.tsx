@@ -1,8 +1,8 @@
 "use client";
 
 import React, { useState } from "react";
+import dynamic from "next/dynamic";
 import { Textarea } from "@/components/ui/textarea";
-import { ResearchReport } from "@/components/research-report";
 import {
   fromEditableReport,
   toEditableReport,
@@ -10,6 +10,12 @@ import {
 } from "@/lib/research-report";
 import { useReviewDraft } from "./review-drafts";
 import { buildEditableResearchEdit, type ResearchEdit } from "./run-helpers";
+
+// react-markdown + remark-gfm: only checkpoint 1 needs it, so it loads on demand.
+const ResearchReport = dynamic(
+  () => import("@/components/research-report").then((m) => m.ResearchReport),
+  { loading: () => <p className="text-sm text-muted-foreground">Loading report…</p> }
+);
 
 /** Checkpoint-1 research-report edit state, shared by both review panels. */
 export function useReportEdit(state: Record<string, unknown>, draftKey?: string) {
