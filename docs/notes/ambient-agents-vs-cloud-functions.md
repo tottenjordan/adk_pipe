@@ -56,7 +56,9 @@ Functions are thin orchestration glue (`cloud_functions/creative_fanout/main.py`
   → invokes Agent Engine via `async_stream_query` → marks `PROCESSED` / `FAILED`.
   *Since 2026-10-13* `PROCESSED` needs the session's `finalize_done` (completion check,
   `cloud_functions/creative_fanout/completion.py`): a cut/timed-out stream is followed by
-  polling the session, an idle unfinished run gets one retry message. Spike 2026-10-13
+  polling the session, and an unfinished run gets one retry message only once the session shows
+  the invocation ended (the root's final text, no unanswered call; quiet time alone never
+  retries, it only gives up after `CRF_IDLE_SECS` ≥ 600 s). Spike 2026-10-13
   (engine runs through the worker's code path): a **780 s stream was not cut** by the
   documented 10-min `streamQuery` limit, and after a **client disconnect the run continues
   server-side** and reaches `finalize_done` later; one of 3 concurrent runs ended the stream
@@ -110,7 +112,7 @@ retry `ADK_TRIGGER_MAX_RETRIES` (3) with exponential backoff + jitter
 | Concurrency | Pub/Sub + worker concurrency=1 + BigQuery lock | Built-in per-process semaphore + Cloud Run autoscaling |
 | Retry | Re-raise → Pub/Sub NACK/redeliver (coarse) | Built-in exp. backoff + jitter, then 500 → Pub/Sub |
 | Idempotency / dedup | **Strong** — atomic BQ lock, exactly-once-ish | **None built-in** — per-delivery sessions, stateless |
-| Max runtime | Worker timeout **900s**; CF Pub/Sub trigger extends ack deadline to the function timeout | **Synchronous, ~10-min hard ceiling** (Pub/Sub push ack) |
+| Max runtime | Worker timeout **900s** (now 1800s); the Eventarc push ack deadline is capped at 600 s, so longer runs are redelivered while running (known limitation, deployment/README.md §3) | **Synchronous, ~10-min hard ceiling** (Pub/Sub push ack) |
 | Deployment | Two CF deployments from one source ("deploy twice") | One `adk deploy cloud_run --trigger_sources=…` |
 | Agent hosting | Managed Agent Engine (scaling, sessions, tracing) | Self-hosted on Cloud Run |
 | Glue to maintain | High (orchestrator + worker + lock + parse + stream loop) | Low (ADK owns the plumbing) |

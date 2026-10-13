@@ -41,11 +41,11 @@ Cloud Run Functions, which do **not** read `.env`). All vars are documented in
 | `GOOGLE_CLOUD_PROJECT_NUMBER` | CRF orchestrator (worker topic path) + worker (Reasoning Engine path); `deploy_agent.py --delete` | CRFs: optional; deploy scripts: yes | CRFs fall back to `GOOGLE_CLOUD_PROJECT` (both APIs accept the ID) |
 | `GCP_REGION` | CRFs (Agent Engine client), all deploy scripts | No | `us-central1` |
 | `CREATIVE_WORKER_TOPIC_NAME` | CRF orchestrator (publishes to it) | No | `creative-worker-queue-topic` |
-| `AGENT_WORKER_USER_ID` | CRF worker (Agent Engine session owner, `<id>_<row index>`) | No | `crf_worker` |
+| `AGENT_WORKER_USER_ID` | CRF worker (Agent Engine session owner, `<id>_<hash(uuid, target_trend)>`, else `<id>_<row index>`) | No | `crf_worker` |
 | `BQ_DATASET_ID` / `BQ_TABLE_TARGETS` | CRFs (SQL identifier allow-list) | No | `trend_trawler` / `target_trends_crf` |
 | `CRF_EXTRA_ALLOWED_TABLES` | CRFs (extra allow-listed tables) | No | empty |
-| `REAP_STALE_PROCESSING_MINUTES` / `MAX_PROCESSING_ATTEMPTS` | CRF orchestrator (stale-PROCESSING reaper) | No | `45` / `3` |
-| `CRF_MAX_ROWS_PER_RUN` | CRF orchestrator (max rows one trigger dispatches, oldest first; a message's `max_rows` can only lower it) | No | `3` |
+| `REAP_STALE_PROCESSING_MINUTES` / `MAX_PROCESSING_ATTEMPTS` | CRF orchestrator (stale-PROCESSING reaper; the threshold must be ≥ the worker timeout) | No | `ceil(CRF_WORKER_TIMEOUT_SECS/60)+15` = `45` / `3` |
+| `CRF_MAX_ROWS_PER_RUN` | CRF orchestrator (max rows one trigger dispatches, oldest first, clamped 1–100; a message's `max_rows` can only lower it) | No | `3` |
 | `<PREFIX>_AGENT_ENGINE_ID` (`SCOUT_`, `CREATIVE_`, `INTERACTIVE_`) | `test_deployment.py`, `integration_test.py` (written by `deploy_agent.py --create`) | Yes, per tested agent | none |
 
 `create_session_engine.py` also accepts `--project` / `--region` flags, which
@@ -456,22 +456,48 @@ gcloud pubsub topics create $CREATIVE_WORKER_TOPIC_NAME
   `499 CANCELLED` failed `creative_pipeline` and the root ended the stream
   cleanly). A stream timeout or cut leads into a session poll while the run is
   still appending events (a client disconnect does not stop the run server-side;
-  a 780 s stream was not cut by the documented 10-min `streamQuery` limit). An
-  idle, unfinished run gets ONE retry message on the same session (runserver's
-  `AUTO_RETRY_MESSAGE`; the root re-calls `creative_pipeline`), then `FAILED`
-  unless finalized (the error log carries `status`, `reason`, `retried`, `secs`).
-  Optional worker env vars (defaults in brackets):
+  a 780 s stream was not cut by the documented 10-min `streamQuery` limit). A
+  run gets ONE retry message on the same session (runserver's
+  `AUTO_RETRY_MESSAGE`; the root re-calls `creative_pipeline`) **only on a
+  positive end-of-invocation signal**: the session's last content event is the
+  root agent's final text (no function call or response, not partial), every
+  function call since the last user message has a response, and that holds on
+  two reads one poll apart. Quiet time alone never retries (the render node and
+  the paced judge write no event for minutes, so a quiet run may still be going
+  server-side); a run with no end signal and no new events for `CRF_IDLE_SECS`
+  is given up as `FAILED` (`reason=stalled`). Then `FAILED` unless finalized
+  (the error log carries `status`, `reason`, `retried`, `secs`).
 
-  | Var | Default | Meaning |
+  **Time budget.** The deadline is taken at **request start** (Cloud Run's
+  timeout counts from there, not from the row lock): start +
+  `CRF_WORKER_TIMEOUT_SECS` − `CRF_BUDGET_SAFETY_SECS`. Each session read is
+  bounded by `min(CRF_SESSION_READ_TIMEOUT_SECS, remaining)` and the budget is
+  re-checked after every read; the session delete is best effort (bounded by
+  `CRF_SESSION_DELETE_TIMEOUT_SECS` ≤ 30 s, logged, never raised, so a failed
+  delete can't turn a finished run into `FAILED`). Optional worker/orchestrator
+  env vars (all clamped; an unset or invalid value uses the default; read by
+  `config.load_config()` into one frozen `CrfConfig`):
+
+  | Var | Default (clamp) | Meaning |
   | --- | --- | --- |
-  | `CRF_WORKER_TIMEOUT_SECS` | 1800 | must match the worker's `--timeout`; the run budget starts at the row lock |
-  | `CRF_BUDGET_SAFETY_SECS` | 150 | kept back for the session delete + the status write |
-  | `CRF_STREAM_TIMEOUT_SECS` | 1500 | bound on one `async_stream_query` (also clamped to the remaining budget) |
-  | `CRF_POLL_INTERVAL_SECS` | 30 | session poll interval |
-  | `CRF_IDLE_SECS` | 180 | after a stream error/timeout, no new events for this long = run over |
+  | `CRF_WORKER_TIMEOUT_SECS` | 1800 (300–3600) | must match the worker's `--timeout`; the budget starts at request start |
+  | `CRF_BUDGET_SAFETY_SECS` | 150 (30–600) | kept back for one session read + the delete + one status write; raised to their sum if lower (or, if that won't fit in half the worker timeout, all four fall back to their defaults), with an ERROR log |
+  | `CRF_STREAM_TIMEOUT_SECS` | 1500 (60–3600) | bound on one `async_stream_query` (also clamped to the remaining budget) |
+  | `CRF_POLL_INTERVAL_SECS` | 30 (5–300) | session poll interval |
+  | `CRF_IDLE_SECS` | 600 (600–3600) | give-up fallback only: no end signal and no new events for this long → `FAILED` (never a retry) |
+  | `CRF_SESSION_READ_TIMEOUT_SECS` | 60 (5–120) | bound on one session read |
+  | `CRF_SESSION_DELETE_TIMEOUT_SECS` | 30 (1–30) | bound on the best-effort session delete |
+  | `CRF_BQ_QUERY_TIMEOUT_SECS` | 60 (5–600) | bound on each BigQuery status query/DML |
+  | `CRF_ROOT_AGENT_NAME` | `root_agent` | the engine's root agent (author of the end signal) |
+  | `REAP_STALE_PROCESSING_MINUTES` | `ceil(CRF_WORKER_TIMEOUT_SECS/60)+15` = 45 (1–1440) | below the worker timeout → ERROR log + the default |
+  | `MAX_PROCESSING_ATTEMPTS` | 3 (1–10) | reaper: FAILED instead of re-queued after this many locks |
+  | `CRF_MAX_ROWS_PER_RUN` | 3 (1–100) | orchestrator row limit |
 
   A retry costs a whole second pipeline run, so a run that fails twice can take
-  most of the 1800 s budget; the retry is skipped with < 300 s left.
+  most of the 1800 s budget; the retry is skipped with < 300 s left. Session
+  user ids name the row (`<AGENT_WORKER_USER_ID>_<sha256(uuid, target_trend)[:12]>`,
+  the `stable_row_id` framing) when the message carries `uuid` + `target_trend`,
+  else `<AGENT_WORKER_USER_ID>_<index>`.
 * see [gcloud reference doc](https://cloud.google.com/sdk/gcloud/reference/run/deploy)
 
 
@@ -484,7 +510,7 @@ The orchestrator reaps rows a worker stranded in `PROCESSING` by hard-crashing
 after acquiring its lock (OOM / the 1800s Cloud Run timeout kill / segfault).
 The worker's lock stamps `processing_started_at` + bumps `processing_attempts`;
 the orchestrator re-queues rows older than `REAP_STALE_PROCESSING_MINUTES`
-(default 45, > the worker's 30-min timeout) under `MAX_PROCESSING_ATTEMPTS`
+(default `ceil(CRF_WORKER_TIMEOUT_SECS/60)+15` = 45, always ≥ the worker timeout) under `MAX_PROCESSING_ATTEMPTS`
 (default 3), failing them over the cap. Both are env-configurable.
 
 Run the additive migration **FIRST, before deploying the code that writes these
@@ -717,15 +743,31 @@ gcloud eventarc triggers create $CREATIVE_WORKER_TRIGGER_NAME  \
   --service-account=$SERVICE_ACCOUNT
 ```
 
-Worker runs take ~500s, so set the maximum ack deadline (600s). With the 10s
-default, Pub/Sub redelivers mid-run; the QUEUED->PROCESSING lock turns each
-redelivery into a no-op, but they still occupy the single worker instance:
+Worker runs often take longer than 10 minutes (up to the 1800 s budget, more
+with a retry), so set the maximum ack deadline (600s). With the 10s default,
+Pub/Sub redelivers mid-run; the QUEUED->PROCESSING lock turns each redelivery
+into a no-op, but they still occupy the single worker instance:
 
 ```bash
 WORKER_SUB=$(gcloud eventarc triggers describe $CREATIVE_WORKER_TRIGGER_NAME --location=$GCP_REGION \
   --format='value(transport.pubsub.subscription)')
 gcloud pubsub subscriptions update $WORKER_SUB --ack-deadline=600
 ```
+
+**Known limitation: the 600 s ack deadline vs runs up to 1800 s.** An Eventarc
+push delivery can't be ACKed after 600 s, so every run longer than 10 minutes
+is redelivered while it is still running. Each redelivery gets a 429 from the
+single busy instance (concurrency 1, max-instances 1) and uses up a delivery
+attempt (Eventarc's 10–600 s backoff gives about 7 per 30-minute run); messages
+waiting behind a long batch collect more. With `CRF_MAX_ROWS_PER_RUN` ≥ about 5,
+waiting messages can reach the 20-attempt limit and go to
+`creative-crf-dead-letter`: their rows stay `QUEUED` and the next trigger
+dispatches them again, but the dead-letter topic fills with noise that hides real
+poison messages. The row lock is what keeps the redeliveries harmless. Until the
+follow-up lands, keep batches small and alert on dead-letter messages.
+**Follow-up:** ACK fast: the worker takes the lock, hands the run to a Cloud Run
+Job execution (or a Cloud Tasks task with a 30-minute deadline) and returns 200;
+the job owns the completion check and the status write.
 
 **Malformed messages are ACKed (2026-10-13).** A message that can never be
 processed — undecodable base64/JSON, a non-object payload, a worker message
