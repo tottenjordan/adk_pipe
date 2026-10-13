@@ -49,13 +49,15 @@ from runserver.shares_store import build_store_from_env as build_shares_store
 _AGENTS_DIR = "agents"
 _SESSION_URI = os.getenv("SESSION_SERVICE_URI") or None
 _ARTIFACT_URI = os.getenv("ARTIFACT_SERVICE_URI") or None
-_ALLOW = os.getenv("ALLOW_ORIGINS")
+# Comma-separated; entries stripped like TRUSTED_PROXY_AUDIENCES below, so
+# "a, b" doesn't yield an origin " b" that never matches a browser Origin.
+_ALLOW = [o.strip() for o in os.getenv("ALLOW_ORIGINS", "").split(",") if o.strip()]
 
 app = get_fast_api_app(
     agents_dir=_AGENTS_DIR,
     session_service_uri=_SESSION_URI,
     artifact_service_uri=_ARTIFACT_URI,
-    allow_origins=_ALLOW.split(",") if _ALLOW else None,
+    allow_origins=_ALLOW or None,
     web=False,
     # Opt-in Cloud Trace export (ADK_OTEL_TO_CLOUD); see runserver/otel.py.
     otel_to_cloud=otel_to_cloud_enabled(),
