@@ -16,13 +16,12 @@ from agent_common import (
     build_gemini_with_fallback,
     build_safety_plugins,
     drop_other_agent_context,
-    scrub_surrogates_in_response,
 )
 
 from . import callbacks, prompts
 from .config import INFRA_RETRY, config
+from .digest import classify_trends_agent, trend_digest  # noqa: F401 (re-export)
 from .review_tools import review_trends_tool
-from .schemas import TrendFlags
 from .tools import (
     get_daily_gtrends,
     memorize,
@@ -63,38 +62,12 @@ gather_trends_agent = Agent(
 )
 
 
-# Sensitive-trend classifier: runs right after gathering (before the interactive
-# pick panel and the research), one verdict per raw term → `trend_flags`. The
-# auto pick never selects a flagged term (PICK_TRENDS_INSTR + the save guard in
-# save_search_trends_to_session_state); flagged terms that a human picks carry
-# the flag into `trend_context`. Cheap structured classification on the gather
-# model's bucket (it runs once, right after the gather call there).
-classify_trends_agent = Agent(
-    model=build_gemini(config.gather_model),
-    name="classify_trends_agent",
-    include_contents="none",
-    description=(
-        "Flag the gathered trends that centre on a death, tragedy, disaster, "
-        "violence, crime or serious illness (stored in 'trend_flags')."
-    ),
-    instruction=prompts.CLASSIFY_TRENDS_INSTR,
-    output_schema=TrendFlags,
-    output_key="trend_flags",
-    retry_config=INFRA_RETRY,
-    generate_content_config=types.GenerateContentConfig(
-        temperature=0.0,
-        labels={
-            "agentic_wf": "trend_scout",
-            "agent": "trend_scout",
-            "subagent": "classify_trends_agent",
-        },
-    ),
-    before_model_callback=callbacks.rate_limit_callback,
-    after_model_callback=[
-        scrub_surrogates_in_response,
-        callbacks.log_empty_turn_finish_reason,
-    ],
-)
+# The trend digest (trend_scout/digest.py): runs right after gathering (before
+# the interactive pick panel and the research). Cache lookup → on a miss, a
+# grounded describe step (one neutral summary per raw term → `trend_summaries`)
+# then the sensitive-trend classifier (`classify_trends_agent` → `trend_flags`,
+# now reading the summaries) → cache write; on a hit both keys are restored.
+# A bare Workflow node, so ADK wraps it into a NodeTool.
 
 
 # WS2 split — searcher half: filters the raw trends, runs google_search, and
@@ -250,7 +223,7 @@ trend_scout = Agent(
     instruction=prompts.TREND_SCOUT_INSTR,
     tools=[
         AgentTool(agent=gather_trends_agent),
-        AgentTool(agent=classify_trends_agent),
+        trend_digest,
         understand_trends_agent_resilient,
         AgentTool(agent=pick_trends_agent),
         review_trends_tool,
@@ -273,8 +246,8 @@ trend_scout = Agent(
     before_agent_callback=[
         callbacks.load_session_state,
     ],
-    # Trim first: ADK replays the NodeTool-run understand_trends Workflow's
-    # sub-agent turns and node inputs into the root's request (AgentTool runs
+    # Trim first: ADK replays the NodeTool-run trend_digest / understand_trends
+    # Workflows' sub-agent turns and node inputs into the root's request (AgentTool runs
     # isolate theirs); the root reads results only from function responses
     # (incl. the review_trends checkpoint) and state — see agent_common/history.py.
     before_model_callback=[drop_other_agent_context, callbacks.rate_limit_callback],
