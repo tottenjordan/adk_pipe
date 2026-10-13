@@ -345,6 +345,12 @@ interface CreativeFacts {
   segmentsWon: string[];
 }
 
+/** Final share, highest first; a missing share sorts last (stable otherwise). */
+function byFinalDesc(a: CreativeFacts, b: CreativeFacts): number {
+  if (a.final === null || b.final === null) return a.final === null ? (b.final === null ? 0 : 1) : -1;
+  return b.final - a.final;
+}
+
 function creativeFacts(input: InsightInput): CreativeFacts[] {
   const { metrics, series, arms } = input;
   const name = nameLookup(arms);
@@ -354,7 +360,10 @@ function creativeFacts(input: InsightInput): CreativeFacts[] {
       .map(([seg]) => seg)
       .sort();
   if (series?.creatives?.length) {
-    return series.creatives.map((c) => ({
+    // The api orders creatives by finalShare (contracts §8), but the leader is
+    // read as facts[0], so sort here too (desc, missing shares last).
+    return series.creatives
+      .map((c) => ({
       id: c.creativeId,
       name: name(c.creativeId),
       first: finite(c.share?.[0]) ? c.share[0] : null,
@@ -362,7 +371,8 @@ function creativeFacts(input: InsightInput): CreativeFacts[] {
       clickRate: c.impressions > 0 && finite(c.clicks) ? c.clicks / c.impressions : null,
       trueCtr: finite(c.trueCtr) ? c.trueCtr : null,
       segmentsWon: c.segmentsWon?.length ? [...c.segmentsWon].sort() : won(c.creativeId),
-    }));
+      }))
+      .sort(byFinalDesc);
   }
   const ids = new Set([...arms.map((a) => a.creativeId), ...Object.keys(metrics?.armShare ?? {})]);
   return [...ids]
