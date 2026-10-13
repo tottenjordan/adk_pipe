@@ -48,6 +48,7 @@ import functions_framework
 from cloudevents.http import CloudEvent
 from google.cloud import bigquery, pubsub_v1
 
+from .completion import RunMonitor, RunOutcome
 from .config import config
 from .session import agent_session
 
@@ -98,6 +99,10 @@ logger = logging.getLogger(__name__)
 
 _USER_ID = config.AGENT_WORKER_USER_ID
 _LOCATION = config.GCP_REGION
+
+# Indirection so tests drive the completion check's polling without waiting.
+_clock = time.monotonic
+_sleep = asyncio.sleep
 
 
 def _worker_topic_path() -> str:
@@ -460,28 +465,6 @@ def update_rows_status(bq_client, dataset, table, timestamps, status="PROCESSED"
         raise
 
 
-# function to interact with remote agent
-async def async_send_message(remote_agent, user_id, session, user_query) -> None:
-    """Send a message to the deployed agent."""
-
-    # Clear events for each new query
-    events = []
-    try:
-        async for event in remote_agent.async_stream_query(
-            user_id=user_id,
-            session_id=session["id"],
-            message=user_query,  # user_input
-        ):
-            events.append(event)
-            pretty_print_event(event)
-
-    except Exception as e:
-        logging.error(f"Error during streaming: {type(e).__name__}: {e}")
-        # Propagate so the caller marks the row FAILED, never PROCESSED (#45).
-        # The caller then ACKs; only a failed FAILED-write NACKs for retry.
-        raise
-
-
 # Session-state key ← message key. The campaign fields plus trend_scout's
 # detection date (`refresh_date` → `trend_detected_on`) and research context
 # (`trend_context` → `trend_scout_context`), which the creative agents read only
@@ -552,8 +535,9 @@ async def create_agent_run(
     agent_id: str,
     msg_dict: dict,
     user_id: str,
-):
-    """Invoke agent workflow
+    deadline: float | None = None,
+) -> RunOutcome:
+    """Invoke agent workflow and report whether the run finished.
 
     Args:
         agent_id (str): resource ID for the deployed agent
@@ -566,8 +550,17 @@ async def create_agent_run(
             refresh_date (optional): ISO date trend_scout detected the trend
             trend_context (optional): trend_scout's compact research JSON
         user_id (str): the user ID to use for the Agent Engine session
+        deadline (float): ``_clock()`` time by which the run must be over
+            (default: now + the worker timeout - the safety margin)
 
+    Returns:
+        RunOutcome: ``finalized`` only when the session reached
+        ``finalize_done`` (see completion.py: a clean stream end is not
+        enough; a timeout/cut is polled; an idle unfinished run gets ONE
+        retry message).
     """
+    if deadline is None:
+        deadline = _clock() + config.WORKER_TIMEOUT_SECS - config.BUDGET_SAFETY_SECS
     logging.info(f"Invoking Agent Run {msg_dict['index'] + 1}...")
 
     USER_QUERY = f"""Brand: {msg_dict["brand"]}
@@ -584,9 +577,10 @@ async def create_agent_run(
     # message instead of treating a seeded "None" as present.
     campaign_state = build_campaign_state(msg_dict)
 
-    # create → stream → delete, all under one user_id. The delete runs even if
-    # the stream raises (agent_session's finally), so a failed run never leaks a
-    # session, and it can't drift onto a different user_id.
+    # create → stream + completion check → delete, all under one user_id. The
+    # delete runs only after the check (it reads the session) and on every path
+    # (agent_session's finally), so a failed run never leaks a session, and it
+    # can't drift onto a different user_id.
     # A fresh client (and engine handle) per invocation, closed on this loop:
     # see _new_vertex_client for why it can't be cached.
     client = _new_vertex_client()
@@ -598,31 +592,48 @@ async def create_agent_run(
             remote_agent, user_id, state=campaign_state
         ) as session:
             # long running op
-            await async_send_message(
-                remote_agent=remote_agent,
-                user_id=user_id,
-                session=session,
-                user_query=USER_QUERY,
+            monitor = RunMonitor(
+                remote_agent,
+                user_id,
+                session["id"],
+                deadline=deadline,
+                stream_timeout_secs=config.STREAM_TIMEOUT_SECS,
+                poll_interval_secs=config.POLL_INTERVAL_SECS,
+                idle_secs=config.IDLE_SECS,
+                clock=_clock,
+                sleep=_sleep,
+                on_event=pretty_print_event,
             )
+            return await monitor.run(USER_QUERY)
     finally:
         await _aclose_vertex_client(client)
 
 
-def _log_run_duration(timestamp, index, status, run_start) -> None:
+class RunNotFinalizedError(RuntimeError):
+    """The run ended (after at most one retry) without ``finalize_done``."""
+
+    def __init__(self, outcome: RunOutcome):
+        super().__init__(
+            f"run not finalized (reason={outcome.reason}, retried={outcome.retried})"
+        )
+        self.outcome = outcome
+
+
+def _log_run_duration(
+    timestamp, index, status, run_start, outcome: RunOutcome | None = None
+) -> None:
     """The AGENT_RUN_DURATION_SECS marker: the same text as before (existing
-    log queries match ``message``) plus row/index/status/secs as JSON keys."""
-    secs = round(time.monotonic() - run_start, 1)
+    log queries match ``message``) plus row/index/status/secs and the
+    completion check's finalized/retried/reason as JSON keys."""
+    secs = round(_clock() - run_start, 1)
+    fields = {"row": timestamp, "index": index, "status": status, "secs": secs}
+    fields["finalized"] = outcome.finalized if outcome else False
+    fields["retried"] = outcome.retried if outcome else False
+    fields["reason"] = outcome.reason if outcome else "error"
     logger.info(
         f"AGENT_RUN_DURATION_SECS row={timestamp} index={index} "
         f"status={status} secs={secs:.1f}",
-        extra={
-            "json_fields": {
-                "row": timestamp,
-                "index": index,
-                "status": status,
-                "secs": secs,
-            }
-        },
+        extra={"json_fields": fields},
     )
 
 
@@ -648,16 +659,20 @@ async def _execute_agent_and_update_status(
     # can compute p50/p95 pipeline duration from Cloud Logging — the key input to
     # the Ambient-Agent trigger-endpoint decision (10-min ceiling). See
     # docs/notes/ambient-agents-vs-cloud-functions.md.
-    run_start = time.monotonic()
+    run_start = _clock()
+    outcome: RunOutcome | None = None
     try:
-        # 2. Run the Agent (The heavy async part)
-        # The row status is now 'PROCESSING'
+        # 2. Run the Agent (The heavy async part) and check it finished
+        # (finalize_done; at most one retry). The row status is now 'PROCESSING'.
         user_id = f"{_USER_ID}_{trend_dict['index']}"
-        await create_agent_run(
+        outcome = await create_agent_run(
             agent_id=agent_id,
             msg_dict=trend_dict,
             user_id=user_id,
+            deadline=run_start + config.WORKER_TIMEOUT_SECS - config.BUDGET_SAFETY_SECS,
         )
+        if not outcome.finalized:
+            raise RunNotFinalizedError(outcome)
 
         # 3. Update status to PROCESSED
         # We MUST change the status away from PROCESSING now
@@ -668,7 +683,9 @@ async def _execute_agent_and_update_status(
             timestamps=[timestamp],
             status="PROCESSED",
         )
-        _log_run_duration(timestamp, trend_dict["index"], "PROCESSED", run_start)
+        _log_run_duration(
+            timestamp, trend_dict["index"], "PROCESSED", run_start, outcome
+        )
         logging.info(f"Successfully processed and marked row {timestamp} as PROCESSED.")
 
     except Exception as e:  # noqa: BLE001 — recorded as FAILED below, then ACKed
@@ -676,10 +693,23 @@ async def _execute_agent_and_update_status(
         # RETURN so the worker message is ACKed. Re-raising would only buy a
         # no-op retry: the redelivery's QUEUED->PROCESSING lock can't match a
         # FAILED row, so it would just log "Lock failed" and ACK anyway.
-        _log_run_duration(timestamp, trend_dict["index"], "FAILED", run_start)
-        logging.error(
+        _log_run_duration(timestamp, trend_dict["index"], "FAILED", run_start, outcome)
+        logger.error(
             f"Failed processing row {timestamp} (index={trend_dict['index']}): "
-            f"{type(e).__name__}: {e}"
+            f"{type(e).__name__}: {e}",
+            extra={
+                "json_fields": {
+                    "row": timestamp,
+                    "status": "FAILED",
+                    "reason": (
+                        e.outcome.reason
+                        if isinstance(e, RunNotFinalizedError)
+                        else type(e).__name__
+                    ),
+                    "retried": outcome.retried if outcome else False,
+                    "secs": round(_clock() - run_start, 1),
+                }
+            },
         )
 
         # 4. Update status PROCESSING -> FAILED. If THIS write raises, it

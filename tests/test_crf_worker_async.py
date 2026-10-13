@@ -1,8 +1,8 @@
 """Tests for the async worker path of the CRF (issue #45).
 
-Guard the fix for #45: a streaming failure inside `async_send_message` must
-propagate so `_execute_agent_and_update_status` marks the row `FAILED` instead
-of silently marking it `PROCESSED`. Once FAILED is written the worker returns
+Guard the fix for #45: a streaming failure must never mark the row
+`PROCESSED`; since the completion check (completion.py, tests in
+test_crf_completion.py) only `finalize_done` does. Once FAILED is written the worker returns
 (ACK) rather than re-raising: a redelivery can't re-acquire the QUEUED->PROCESSING
 lock on a FAILED row, so a NACK would only add a no-op retry. Coroutines are driven with `asyncio.run`
 (no pytest-asyncio in this project).
@@ -20,28 +20,30 @@ from cloud_functions.creative_fanout.session import agent_session
 pytestmark = pytest.mark.usefixtures("gcp_project_env")
 
 
-def test_async_send_message_reraises_streaming_error():
-    """A failure while streaming events must propagate, not be swallowed."""
+@pytest.fixture(autouse=True)
+def _fake_time(monkeypatch):
+    """The completion check polls the session; a fake clock whose sleep
+    advances it keeps these tests instant."""
+    clock = {"now": 0.0}
 
-    async def _raising_stream(**kwargs):
-        raise RuntimeError("stream boom")
-        yield  # pragma: no cover - makes this an async generator
+    async def _sleep(secs):
+        clock["now"] += secs
 
-    remote_agent = MagicMock()
-    remote_agent.async_stream_query = _raising_stream
-    session = {"id": "sess-1"}
-
-    with pytest.raises(RuntimeError, match="stream boom"):
-        asyncio.run(main.async_send_message(remote_agent, "user-1", session, "hi"))
+    monkeypatch.setattr(main, "_clock", lambda: clock["now"])
+    monkeypatch.setattr(main, "_sleep", _sleep)
 
 
 def test_streaming_error_marks_row_failed_end_to_end(monkeypatch):
-    """End-to-end: a streaming failure marks the row FAILED (never PROCESSED)
-    and, once FAILED is durably written, returns instead of re-raising."""
+    """End-to-end: a streaming failure on a run that never finishes marks the
+    row FAILED (never PROCESSED) and, once FAILED is durably written, returns
+    instead of re-raising."""
 
     async def _raising_stream(**kwargs):
         raise RuntimeError("stream boom")
         yield  # pragma: no cover - makes this an async generator
+
+    async def _get_session(**kwargs):
+        return {"id": "sess-1", "state": {}, "events": []}
 
     async def _create_session(**kwargs):
         return {"id": "sess-1"}
@@ -51,6 +53,7 @@ def test_streaming_error_marks_row_failed_end_to_end(monkeypatch):
 
     remote_agent = MagicMock()
     remote_agent.async_stream_query = _raising_stream
+    remote_agent.async_get_session = _get_session
     remote_agent.async_create_session = _create_session
     remote_agent.async_delete_session = _delete_session
 
@@ -111,9 +114,13 @@ def test_session_created_and_deleted_with_same_user_id(monkeypatch):
         deleted["user_id"] = user_id
         deleted["session_id"] = session_id
 
+    async def _get_session(**kwargs):
+        return {"id": "sess-42", "state": {"finalize_done": True}}
+
     remote_agent = MagicMock()
     remote_agent.async_create_session = _create_session
     remote_agent.async_stream_query = _stream
+    remote_agent.async_get_session = _get_session
     remote_agent.async_delete_session = _delete_session
 
     fake_vertex = MagicMock()
@@ -204,7 +211,9 @@ def test_agent_session_deletes_on_error():
 
 
 def test_create_agent_run_deletes_session_on_stream_error(monkeypatch):
-    """create_agent_run must still delete the session (right user_id) if streaming raises."""
+    """create_agent_run must still delete the session (right user_id) if
+    streaming raises: the stream error leads into the completion check, which
+    reports the run unfinished, and the delete runs after it."""
 
     deleted = {}
 
@@ -238,11 +247,11 @@ def test_create_agent_run_deletes_session_on_stream_error(monkeypatch):
     }
     user_id = f"{main._USER_ID}_{msg['index']}"
 
-    with pytest.raises(RuntimeError, match="stream boom"):
-        asyncio.run(
-            main.create_agent_run(agent_id="agent-123", msg_dict=msg, user_id=user_id)
-        )
+    outcome = asyncio.run(
+        main.create_agent_run(agent_id="agent-123", msg_dict=msg, user_id=user_id)
+    )
 
+    assert not outcome.finalized
     assert deleted == {"user_id": user_id, "session_id": "sess-stream"}
 
 

@@ -24,6 +24,16 @@ def _required_env(name: str) -> str:
     return value
 
 
+def _float_env(name: str, default: float, low: float, high: float) -> float:
+    """A float env var clamped to ``[low, high]``; unset/invalid -> default."""
+    raw = os.environ.get(name, "").strip()
+    try:
+        value = float(raw) if raw else default
+    except ValueError:
+        value = default
+    return min(max(value, low), high)
+
+
 class AppConfig:
     @property
     def GOOGLE_CLOUD_PROJECT(self) -> str:
@@ -56,6 +66,39 @@ class AppConfig:
         except ValueError:
             value = 60.0
         return min(max(value, 5.0), 600.0)
+
+    @property
+    def WORKER_TIMEOUT_SECS(self) -> float:
+        """The worker's Cloud Run request timeout (`CRF_WORKER_TIMEOUT_SECS`,
+        default 1800, clamped 300-3600). Must match the deployed `--timeout`:
+        the run budget (stream + completion poll + one retry) is this minus
+        `BUDGET_SAFETY_SECS`, measured from when the row lock is taken."""
+        return _float_env("CRF_WORKER_TIMEOUT_SECS", 1800.0, 300.0, 3600.0)
+
+    @property
+    def BUDGET_SAFETY_SECS(self) -> float:
+        """Time kept back from the run budget for the session delete and the
+        PROCESSED/FAILED write (`CRF_BUDGET_SAFETY_SECS`, default 150, 30-600)."""
+        return _float_env("CRF_BUDGET_SAFETY_SECS", 150.0, 30.0, 600.0)
+
+    @property
+    def STREAM_TIMEOUT_SECS(self) -> float:
+        """Bound on one `async_stream_query` call (`CRF_STREAM_TIMEOUT_SECS`,
+        default 1500, 60-3600; also clamped to the remaining budget). A timeout
+        leads into the completion check, never straight to FAILED."""
+        return _float_env("CRF_STREAM_TIMEOUT_SECS", 1500.0, 60.0, 3600.0)
+
+    @property
+    def POLL_INTERVAL_SECS(self) -> float:
+        """Session poll interval of the completion check
+        (`CRF_POLL_INTERVAL_SECS`, default 30, 5-300)."""
+        return _float_env("CRF_POLL_INTERVAL_SECS", 30.0, 5.0, 300.0)
+
+    @property
+    def IDLE_SECS(self) -> float:
+        """After a stream error/timeout, a session with no new events for this
+        long counts as idle (run over) (`CRF_IDLE_SECS`, default 180, 30-900)."""
+        return _float_env("CRF_IDLE_SECS", 180.0, 30.0, 900.0)
 
     # Agent Engine is a *regional* resource — this is us-central1, NOT the
     # `global` model location used for the gemini-3.x endpoints.
