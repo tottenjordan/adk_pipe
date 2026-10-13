@@ -80,7 +80,7 @@ def test_streaming_error_marks_row_failed_end_to_end(monkeypatch):
 
     # FAILED was written successfully → return normally so the worker message is
     # ACKed (a redelivery could never re-lock a FAILED row; it'd be a no-op).
-    asyncio.run(worker.process_row(trend, "agent-123", bq, "ds", "tbl"))
+    asyncio.run(worker.process_row(trend, "agent-123", bq, "ds", "tbl", deadline=1e9))
 
     statuses = [c.kwargs.get("status") for c in update_mock.call_args_list]
     assert "FAILED" in statuses
@@ -93,7 +93,7 @@ def test_session_created_and_deleted_with_same_user_id(monkeypatch):
     Regression for the Agent Engine `FAILED_PRECONDITION: Session <id> does not
     belong to user <...>` error: `create_agent_run` creates the session with a
     per-row user id (e.g. ``crf_worker_0``) but `my_delete_task` used the
-    bare module constant ``_USER_ID`` (``crf_worker``), so the delete never
+    bare base user id (``crf_worker``), so the delete never
     matched the session owner.
     """
 
@@ -136,10 +136,12 @@ def test_session_created_and_deleted_with_same_user_id(monkeypatch):
         "target_audience": "aud",
         "target_search_trend": "trend",
     }
-    user_id = f"{worker._USER_ID}_{msg['index']}"
+    user_id = f"{config.AGENT_WORKER_USER_ID}_{msg['index']}"
 
     asyncio.run(
-        worker.create_agent_run(agent_id="agent-123", msg_dict=msg, user_id=user_id)
+        worker.create_agent_run(
+            agent_id="agent-123", msg_dict=msg, user_id=user_id, deadline=1e9
+        )
     )
 
     assert created["user_id"] == user_id
@@ -256,10 +258,12 @@ def test_create_agent_run_deletes_session_on_stream_error(monkeypatch):
         "target_audience": "aud",
         "target_search_trend": "trend",
     }
-    user_id = f"{worker._USER_ID}_{msg['index']}"
+    user_id = f"{config.AGENT_WORKER_USER_ID}_{msg['index']}"
 
     outcome = asyncio.run(
-        worker.create_agent_run(agent_id="agent-123", msg_dict=msg, user_id=user_id)
+        worker.create_agent_run(
+            agent_id="agent-123", msg_dict=msg, user_id=user_id, deadline=1e9
+        )
     )
 
     assert not outcome.finalized
@@ -295,7 +299,11 @@ def test_agent_failure_after_failed_write_returns_and_logs(monkeypatch, caplog):
 
     with caplog.at_level("ERROR"):
         # must NOT raise
-        asyncio.run(worker.process_row(_TREND, "agent-123", MagicMock(), "ds", "tbl"))
+        asyncio.run(
+            worker.process_row(
+                _TREND, "agent-123", MagicMock(), "ds", "tbl", deadline=1e9
+            )
+        )
 
     assert [c.kwargs["status"] for c in update_mock.call_args_list] == ["FAILED"]
     assert _TREND["entry_timestamp"] in caplog.text
@@ -313,7 +321,11 @@ def test_failed_status_write_error_still_reraises(monkeypatch):
     monkeypatch.setattr(status_store, "update_rows_status", _update)
 
     with pytest.raises(RuntimeError, match="bq write boom"):
-        asyncio.run(worker.process_row(_TREND, "agent-123", MagicMock(), "ds", "tbl"))
+        asyncio.run(
+            worker.process_row(
+                _TREND, "agent-123", MagicMock(), "ds", "tbl", deadline=1e9
+            )
+        )
 
 
 def test_error_before_status_write_reraises(monkeypatch):
@@ -328,7 +340,11 @@ def test_error_before_status_write_reraises(monkeypatch):
     monkeypatch.setattr(status_store, "update_rows_status", update_mock)
 
     with pytest.raises(RuntimeError, match="lock boom"):
-        asyncio.run(worker.process_row(_TREND, "agent-123", MagicMock(), "ds", "tbl"))
+        asyncio.run(
+            worker.process_row(
+                _TREND, "agent-123", MagicMock(), "ds", "tbl", deadline=1e9
+            )
+        )
     update_mock.assert_not_called()
 
 
@@ -396,7 +412,7 @@ def test_worker_uses_runtimes_api_not_agent_engines(monkeypatch):
 
     asyncio.run(
         worker.create_agent_run(
-            agent_id="123", msg_dict=msg, user_id=f"{worker._USER_ID}_0"
+            agent_id="123", msg_dict=msg, user_id="crf_worker_0", deadline=1e9
         )
     )
 
@@ -461,8 +477,9 @@ def test_pretty_print_event_text_part_and_null_content(caplog):
         logs.pretty_print_event({"author": "b", "content": None})
 
     assert "[a]: hello" in caplog.text
-    assert "[b]: " in caplog.text
-    assert "'content': None" in caplog.text
+    # An event without content logs its author, never the whole event.
+    assert "[b]: event without content" in caplog.text
+    assert "'content': None" not in caplog.text
 
 
 def test_pretty_print_event_null_text_with_function_call_logs_call(caplog):
@@ -512,7 +529,9 @@ def test_blank_campaign_fields_are_not_seeded(monkeypatch):
         "target_audience": "aud",
         "target_search_trend": "trend",
     }
-    asyncio.run(worker.create_agent_run(agent_id="a", msg_dict=msg, user_id="u"))
+    asyncio.run(
+        worker.create_agent_run(agent_id="a", msg_dict=msg, user_id="u", deadline=1e9)
+    )
 
     assert created["state"] == {
         "brand": "BrandX",
@@ -554,6 +573,8 @@ def test_trend_detection_date_and_context_seeded_as_state(monkeypatch):
         "refresh_date": "2026-10-10",
         "trend_context": '{"hook":"h"}',
     }
-    asyncio.run(worker.create_agent_run(agent_id="a", msg_dict=msg, user_id="u"))
+    asyncio.run(
+        worker.create_agent_run(agent_id="a", msg_dict=msg, user_id="u", deadline=1e9)
+    )
     assert created["state"]["trend_detected_on"] == "2026-10-10"
     assert created["state"]["trend_scout_context"] == '{"hook":"h"}'

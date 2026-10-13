@@ -1,6 +1,8 @@
 """The worker's single-row run: lock the row, run the agent, record the status."""
 
 import asyncio
+import hashlib
+import json
 import logging
 import time
 
@@ -12,12 +14,18 @@ from .session import agent_session
 
 logger = logging.getLogger(__name__)
 
-_USER_ID = config.AGENT_WORKER_USER_ID
-_LOCATION = config.GCP_REGION
-
 # Indirection so tests drive the completion check's polling without waiting.
+# `main.agent_worker_entrypoint` takes the run deadline from `_clock` too.
 _clock = time.monotonic
 _sleep = asyncio.sleep
+
+
+def run_deadline(request_start: float) -> float:
+    """The ``_clock()`` time by which the run (stream + completion check + one
+    retry) must be over: request start + the Cloud Run timeout - the safety
+    margin kept for the session delete and the status write. Taken at request
+    start (Cloud Run's timeout counts from there), never after the lock."""
+    return request_start + config.WORKER_TIMEOUT_SECS - config.BUDGET_SAFETY_SECS
 
 
 # Session-state key ← message key. The campaign fields plus trend_scout's
@@ -32,6 +40,15 @@ CAMPAIGN_STATE_KEYS = (
     ("target_search_trends", "target_search_trend"),
     ("trend_detected_on", "refresh_date"),
     ("trend_scout_context", "trend_context"),
+)
+
+# Kick-off message line label ← message key (a readable echo of the state).
+USER_QUERY_LINES = (
+    ("Brand", "brand"),
+    ("Target Product", "target_product"),
+    ("Key Selling Point(s)", "key_selling_point"),
+    ("Target Audience", "target_audience"),
+    ("Target Search Trend", "target_search_trend"),
 )
 
 
@@ -49,11 +66,39 @@ def build_campaign_state(msg_dict: dict) -> dict[str, str]:
     }
 
 
+def build_user_query(msg_dict: dict) -> str:
+    """The kick-off message: one ``Label: value`` line per campaign field, with
+    no leading indentation."""
+    return "\n".join(f"{label}: {msg_dict[key]}" for label, key in USER_QUERY_LINES)
+
+
+def _row_hash(*parts: str) -> str:
+    """Copy of ``agent_common.idempotency.stable_row_id(*parts, length=12)``
+    (the CRF image doesn't ship agent_common)."""
+    return hashlib.sha256(json.dumps(list(parts)).encode()).hexdigest()[:12]
+
+
+def session_user_id(row: dict) -> str:
+    """The Agent Engine session user id for one row, from the row's identity.
+
+    ``<AGENT_WORKER_USER_ID>_<hash(uuid, target_trend)>`` (trend_scout's row
+    key) when the message carries both, so the id names the row, not its
+    position in the batch; older messages without them fall back to
+    ``<AGENT_WORKER_USER_ID>_<index>``.
+    """
+    base = config.AGENT_WORKER_USER_ID
+    uuid, trend = row.get("uuid"), row.get("target_trend")
+    if isinstance(uuid, str) and uuid.strip() and isinstance(trend, str) and trend:
+        return f"{base}_{_row_hash(uuid.strip(), trend)}"
+    return f"{base}_{row['index']}"
+
+
 async def create_agent_run(
     agent_id: str,
     msg_dict: dict,
     user_id: str,
-    deadline: float | None = None,
+    *,
+    deadline: float,
 ) -> RunOutcome:
     """Invoke agent workflow and report whether the run finished.
 
@@ -69,45 +114,54 @@ async def create_agent_run(
             trend_context (optional): trend_scout's compact research JSON
         user_id (str): the user ID to use for the Agent Engine session
         deadline (float): ``_clock()`` time by which the run must be over
-            (default: now + the worker timeout - the safety margin)
+            (``run_deadline`` of the request start; the session delete and the
+            status write use the safety margin after it)
 
     Returns:
         RunOutcome: ``finalized`` only when the session reached
         ``finalize_done`` (see completion.py: a clean stream end is not
-        enough; a timeout/cut is polled; an idle unfinished run gets ONE
-        retry message).
+        enough; a timeout/cut is polled; ONE retry message only once the
+        session shows the invocation ended unfinished).
     """
-    if deadline is None:
-        deadline = _clock() + config.WORKER_TIMEOUT_SECS - config.BUDGET_SAFETY_SECS
-    logging.info(f"Invoking Agent Run {msg_dict['index'] + 1}...")
-
-    USER_QUERY = f"""Brand: {msg_dict["brand"]}
-    Target Product: {msg_dict["target_product"]}
-    Key Selling Point(s): {msg_dict["key_selling_point"]}
-    Target Audience: {msg_dict["target_audience"]}
-    Target Search Trend: {msg_dict["target_search_trend"]}
-    """
+    logger.info(
+        f"Invoking agent run for row {msg_dict.get('entry_timestamp')} "
+        f"(user ID {user_id}).",
+        extra={
+            "json_fields": {
+                "row": msg_dict.get("entry_timestamp"),
+                "uuid": msg_dict.get("uuid"),
+                "target_trend": msg_dict.get("target_trend"),
+                "index": msg_dict.get("index"),
+                "user_id": user_id,
+                "budget_secs": round(deadline - _clock(), 1),
+            }
+        },
+    )
 
     # Seed the campaign fields as session state so the inputs are deterministic
     # (creative_agent's state init setdefaults them; the root only memorizes
-    # fields missing from state). The message above stays as a readable echo.
-    # Blank/NULL columns are left out so the root memorizes them from the
-    # message instead of treating a seeded "None" as present.
+    # fields missing from state). The message stays as a readable echo.
     campaign_state = build_campaign_state(msg_dict)
 
     # create → stream + completion check → delete, all under one user_id. The
     # delete runs only after the check (it reads the session) and on every path
-    # (agent_session's finally), so a failed run never leaks a session, and it
-    # can't drift onto a different user_id.
-    # A fresh client (and engine handle) per invocation, closed on this loop:
-    # see clients.new_vertex_client for why it can't be cached.
+    # (agent_session's finally, best effort: bounded, never raises), so a
+    # failed run never leaks a session and a failed delete never changes the
+    # outcome. A fresh client (and engine handle) per invocation, closed on
+    # this loop: see clients.new_vertex_client for why it can't be cached.
     client = clients.new_vertex_client()
     try:
         remote_agent = client.runtimes.get(
-            name=f"projects/{config.GOOGLE_CLOUD_PROJECT_NUMBER}/locations/{_LOCATION}/reasoningEngines/{agent_id}"
+            name=(
+                f"projects/{config.GOOGLE_CLOUD_PROJECT_NUMBER}/locations/"
+                f"{config.GCP_REGION}/reasoningEngines/{agent_id}"
+            )
         )
         async with agent_session(
-            remote_agent, user_id, state=campaign_state
+            remote_agent,
+            user_id,
+            state=campaign_state,
+            delete_timeout_secs=config.SESSION_DELETE_TIMEOUT_SECS,
         ) as session:
             # long running op
             monitor = RunMonitor(
@@ -118,11 +172,13 @@ async def create_agent_run(
                 stream_timeout_secs=config.STREAM_TIMEOUT_SECS,
                 poll_interval_secs=config.POLL_INTERVAL_SECS,
                 idle_secs=config.IDLE_SECS,
+                read_timeout_secs=config.SESSION_READ_TIMEOUT_SECS,
+                root_author=config.ROOT_AGENT_NAME,
                 clock=_clock,
                 sleep=_sleep,
                 on_event=pretty_print_event,
             )
-            return await monitor.run(USER_QUERY)
+            return await monitor.run(build_user_query(msg_dict))
     finally:
         await clients.aclose_vertex_client(client)
 
@@ -155,7 +211,9 @@ def _log_run_duration(
     )
 
 
-async def process_row(trend_dict, agent_id, bq_client, dataset, table):
+async def process_row(
+    trend_dict, agent_id, bq_client, dataset, table, *, deadline: float
+):
     """Handles the async agent run for a single row and updates its status."""
 
     # Extract data
@@ -179,12 +237,12 @@ async def process_row(trend_dict, agent_id, bq_client, dataset, table):
     try:
         # 2. Run the Agent (The heavy async part) and check it finished
         # (finalize_done; at most one retry). The row status is now 'PROCESSING'.
-        user_id = f"{_USER_ID}_{trend_dict['index']}"
+        user_id = session_user_id(trend_dict)
         outcome = await create_agent_run(
             agent_id=agent_id,
             msg_dict=trend_dict,
             user_id=user_id,
-            deadline=run_start + config.WORKER_TIMEOUT_SECS - config.BUDGET_SAFETY_SECS,
+            deadline=deadline,
         )
         if not outcome.finalized:
             raise RunNotFinalizedError(outcome)

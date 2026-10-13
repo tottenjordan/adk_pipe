@@ -9,7 +9,6 @@ Runtime client is NOT cached: it is bound to one event loop (see
 `new_vertex_client`).
 """
 
-import inspect
 import logging
 import threading
 
@@ -67,8 +66,8 @@ async def aclose_vertex_client(client) -> None:
     """Release the client's async HTTP transport on the current loop (best
     effort: a close failure is logged, never fails the run)."""
     try:
-        result = client.aio.aclose()
-        if inspect.isawaitable(result):
-            await result
+        # The SDK's AsyncClient.aclose is a coroutine function (pinned by
+        # tests/test_crf_time_budget.py), so it is awaited directly.
+        await client.aio.aclose()
     except Exception as e:  # noqa: BLE001 — cleanup only
         logger.warning(f"Closing the Agent Runtime client failed: {e!r}")

@@ -1,45 +1,35 @@
 """Env-driven CRF config (`cloud_functions/creative_fanout/config.py`).
 
-The cloud functions must not hardcode a GCP project: the project is a required
-env var read at *use* time (so importing stays credential-free), the project
-number falls back to the project ID, and the worker's session user ID is
-configurable with a neutral default.
+One frozen ``CrfConfig`` from ``load_config()``: every setting clamped
+(unset/invalid -> default), read lazily (``config.X`` follows the current
+environment), cross-checked (the safety margin covers the post-budget waits;
+the reaper never fires while a worker can still run), and nothing raises at
+import/load (a bad env var must not crash-loop the instance), except the
+required project on use.
 """
 
-import importlib
+import dataclasses
+import logging
 
 import pytest
 
-from cloud_functions.creative_fanout import config as config_module
 from cloud_functions.creative_fanout import main, orchestrator
-from cloud_functions.creative_fanout.config import config
-
-
-def _reload_config():
-    """Re-evaluate the class-level `os.environ.get` defaults.
-
-    NB: the CRF modules' `config` (and the one imported here) keeps the
-    ORIGINAL `AppConfig` instance after a reload (it was bound at import), so
-    only assert on the returned instance here. Env-read properties (project /
-    number) are still live on it.
-    """
-    return importlib.reload(config_module).config
-
-
-@pytest.fixture(autouse=True)
-def _restore_config():
-    yield
-    importlib.reload(config_module)
+from cloud_functions.creative_fanout.config import (
+    CrfConfig,
+    config,
+    default_reap_minutes,
+    load_config,
+)
 
 
 def test_project_read_from_env(monkeypatch):
     monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "my-proj")
-    assert config_module.config.GOOGLE_CLOUD_PROJECT == "my-proj"
+    assert config.GOOGLE_CLOUD_PROJECT == "my-proj"
 
 
-def test_unset_project_raises_at_use_time_not_import(monkeypatch):
+def test_unset_project_raises_at_use_time_not_load(monkeypatch):
     monkeypatch.delenv("GOOGLE_CLOUD_PROJECT", raising=False)
-    cfg = _reload_config()  # import/reload itself must not raise
+    cfg = load_config()  # loading itself must not raise
     with pytest.raises(RuntimeError, match="GOOGLE_CLOUD_PROJECT is not set"):
         _ = cfg.GOOGLE_CLOUD_PROJECT
 
@@ -47,44 +37,44 @@ def test_unset_project_raises_at_use_time_not_import(monkeypatch):
 def test_blank_project_is_treated_as_unset(monkeypatch):
     monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "   ")
     with pytest.raises(RuntimeError, match="GOOGLE_CLOUD_PROJECT"):
-        _ = config_module.config.GOOGLE_CLOUD_PROJECT
+        _ = config.GOOGLE_CLOUD_PROJECT
 
 
 def test_project_number_from_env(monkeypatch):
     monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "my-proj")
     monkeypatch.setenv("GOOGLE_CLOUD_PROJECT_NUMBER", "123456789")
-    assert config_module.config.GOOGLE_CLOUD_PROJECT_NUMBER == "123456789"
+    assert config.GOOGLE_CLOUD_PROJECT_NUMBER == "123456789"
 
 
 def test_project_number_falls_back_to_project_id(monkeypatch):
     monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "my-proj")
     monkeypatch.delenv("GOOGLE_CLOUD_PROJECT_NUMBER", raising=False)
-    assert config_module.config.GOOGLE_CLOUD_PROJECT_NUMBER == "my-proj"
+    assert config.GOOGLE_CLOUD_PROJECT_NUMBER == "my-proj"
 
 
 def test_project_number_without_project_raises(monkeypatch):
     monkeypatch.delenv("GOOGLE_CLOUD_PROJECT", raising=False)
     monkeypatch.delenv("GOOGLE_CLOUD_PROJECT_NUMBER", raising=False)
     with pytest.raises(RuntimeError, match="GOOGLE_CLOUD_PROJECT"):
-        _ = config_module.config.GOOGLE_CLOUD_PROJECT_NUMBER
+        _ = config.GOOGLE_CLOUD_PROJECT_NUMBER
 
 
 def test_worker_user_id_default(monkeypatch):
     monkeypatch.delenv("AGENT_WORKER_USER_ID", raising=False)
-    assert _reload_config().AGENT_WORKER_USER_ID == "crf_worker"
+    assert config.AGENT_WORKER_USER_ID == "crf_worker"
 
 
-def test_worker_user_id_from_env(monkeypatch):
+def test_worker_user_id_read_lazily(monkeypatch):
+    """No import-time freeze: the accessor follows the current environment."""
     monkeypatch.setenv("AGENT_WORKER_USER_ID", "batch_bot")
-    assert _reload_config().AGENT_WORKER_USER_ID == "batch_bot"
+    assert config.AGENT_WORKER_USER_ID == "batch_bot"
 
 
 def test_region_and_topic_defaults(monkeypatch):
     monkeypatch.delenv("GCP_REGION", raising=False)
     monkeypatch.delenv("CREATIVE_WORKER_TOPIC_NAME", raising=False)
-    cfg = _reload_config()
-    assert cfg.GCP_REGION == "us-central1"
-    assert cfg.CREATIVE_WORKER_TOPIC_NAME == "creative-worker-queue-topic"
+    assert config.GCP_REGION == "us-central1"
+    assert config.CREATIVE_WORKER_TOPIC_NAME == "creative-worker-queue-topic"
 
 
 def test_worker_topic_path_resolved_from_env(monkeypatch):
@@ -93,6 +83,186 @@ def test_worker_topic_path_resolved_from_env(monkeypatch):
     assert orchestrator._worker_topic_path() == (
         f"projects/42/topics/{config.CREATIVE_WORKER_TOPIC_NAME}"
     )
+
+
+def test_config_is_frozen():
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        load_config().CRF_MAX_ROWS_PER_RUN = 9  # type: ignore[misc]
+
+
+def test_load_config_is_cached_per_environment(monkeypatch):
+    assert load_config() is load_config()
+    monkeypatch.setenv("CRF_POLL_INTERVAL_SECS", "45")
+    assert load_config().POLL_INTERVAL_SECS == 45.0
+
+
+# ------------------------------------------------------------
+# Defaults + clamps
+# ------------------------------------------------------------
+_TIMING_ENV = (
+    "CRF_WORKER_TIMEOUT_SECS",
+    "CRF_BUDGET_SAFETY_SECS",
+    "CRF_STREAM_TIMEOUT_SECS",
+    "CRF_POLL_INTERVAL_SECS",
+    "CRF_IDLE_SECS",
+    "CRF_SESSION_READ_TIMEOUT_SECS",
+    "CRF_SESSION_DELETE_TIMEOUT_SECS",
+    "CRF_BQ_QUERY_TIMEOUT_SECS",
+    "REAP_STALE_PROCESSING_MINUTES",
+    "MAX_PROCESSING_ATTEMPTS",
+    "CRF_MAX_ROWS_PER_RUN",
+)
+
+
+@pytest.fixture
+def clean_env(monkeypatch):
+    for name in _TIMING_ENV:
+        monkeypatch.delenv(name, raising=False)
+    return monkeypatch
+
+
+def test_defaults(clean_env):
+    cfg = load_config()
+    assert cfg.WORKER_TIMEOUT_SECS == 1800.0
+    assert cfg.BUDGET_SAFETY_SECS == 150.0
+    assert cfg.STREAM_TIMEOUT_SECS == 1500.0
+    assert cfg.POLL_INTERVAL_SECS == 30.0
+    assert cfg.IDLE_SECS == 600.0
+    assert cfg.SESSION_READ_TIMEOUT_SECS == 60.0
+    assert cfg.SESSION_DELETE_TIMEOUT_SECS == 30.0
+    assert cfg.BQ_QUERY_TIMEOUT_SECS == 60.0
+    assert cfg.REAP_STALE_PROCESSING_MINUTES == 45
+    assert cfg.MAX_PROCESSING_ATTEMPTS == 3
+    assert cfg.CRF_MAX_ROWS_PER_RUN == 3
+    assert cfg.ROOT_AGENT_NAME == "root_agent"
+
+
+@pytest.mark.parametrize(
+    ("name", "raw", "field", "expected"),
+    [
+        ("CRF_IDLE_SECS", "180", "IDLE_SECS", 600.0),  # give-up fallback >= 600
+        ("CRF_IDLE_SECS", "99999", "IDLE_SECS", 3600.0),
+        ("CRF_STREAM_TIMEOUT_SECS", "nope", "STREAM_TIMEOUT_SECS", 1500.0),
+        ("CRF_STREAM_TIMEOUT_SECS", "nan", "STREAM_TIMEOUT_SECS", 1500.0),
+        ("CRF_SESSION_READ_TIMEOUT_SECS", "6000", "SESSION_READ_TIMEOUT_SECS", 120.0),
+        ("CRF_SESSION_DELETE_TIMEOUT_SECS", "300", "SESSION_DELETE_TIMEOUT_SECS", 30.0),
+        ("CRF_WORKER_TIMEOUT_SECS", "10", "WORKER_TIMEOUT_SECS", 300.0),
+        ("CRF_MAX_ROWS_PER_RUN", "0", "CRF_MAX_ROWS_PER_RUN", 1),
+        ("CRF_MAX_ROWS_PER_RUN", "-4", "CRF_MAX_ROWS_PER_RUN", 1),
+        ("CRF_MAX_ROWS_PER_RUN", "7", "CRF_MAX_ROWS_PER_RUN", 7),
+        ("CRF_MAX_ROWS_PER_RUN", "3x", "CRF_MAX_ROWS_PER_RUN", 3),
+        ("MAX_PROCESSING_ATTEMPTS", "0", "MAX_PROCESSING_ATTEMPTS", 1),
+        ("MAX_PROCESSING_ATTEMPTS", "abc", "MAX_PROCESSING_ATTEMPTS", 3),
+        ("REAP_STALE_PROCESSING_MINUTES", "4.5", "REAP_STALE_PROCESSING_MINUTES", 45),
+    ],
+)
+def test_clamps_and_invalid_values(clean_env, name, raw, field, expected):
+    clean_env.setenv(name, raw)
+    assert getattr(load_config(), field) == expected
+
+
+def test_bad_int_does_not_crash_at_import_or_load(clean_env):
+    """The old import-time bare int() crash-looped the instance on a typo."""
+    import pathlib
+
+    from cloud_functions.creative_fanout import config as config_module
+
+    # Nothing reads the environment at import any more.
+    source = pathlib.Path(config_module.__file__).read_text()
+    assert "int(os.environ" not in source
+
+    clean_env.setenv("CRF_MAX_ROWS_PER_RUN", "three")
+    clean_env.setenv("MAX_PROCESSING_ATTEMPTS", "")
+    clean_env.setenv("REAP_STALE_PROCESSING_MINUTES", "soon")
+    cfg = load_config()  # must not raise
+    assert (cfg.CRF_MAX_ROWS_PER_RUN, cfg.MAX_PROCESSING_ATTEMPTS) == (3, 3)
+
+
+# ------------------------------------------------------------
+# Cross-checks
+# ------------------------------------------------------------
+def test_reaper_default_follows_the_worker_timeout(clean_env):
+    clean_env.setenv("CRF_WORKER_TIMEOUT_SECS", "3600")
+    assert load_config().REAP_STALE_PROCESSING_MINUTES == 60 + 15
+    clean_env.setenv("CRF_WORKER_TIMEOUT_SECS", "1790")
+    assert load_config().REAP_STALE_PROCESSING_MINUTES == 30 + 15
+    assert default_reap_minutes(1800.0) == 45
+
+
+def test_reaper_below_the_worker_timeout_falls_back(clean_env, caplog):
+    clean_env.setenv("CRF_WORKER_TIMEOUT_SECS", "3600")
+    clean_env.setenv("REAP_STALE_PROCESSING_MINUTES", "45")
+    with caplog.at_level(logging.ERROR):
+        assert load_config().REAP_STALE_PROCESSING_MINUTES == 75
+    assert "REAP_STALE_PROCESSING_MINUTES=45" in caplog.text
+
+
+def test_reaper_equal_to_the_worker_timeout_is_accepted(clean_env):
+    clean_env.setenv("CRF_WORKER_TIMEOUT_SECS", "1800")
+    clean_env.setenv("REAP_STALE_PROCESSING_MINUTES", "30")
+    assert load_config().REAP_STALE_PROCESSING_MINUTES == 30
+
+
+def test_reaper_above_the_worker_timeout_is_kept(clean_env):
+    clean_env.setenv("REAP_STALE_PROCESSING_MINUTES", "90")
+    assert load_config().REAP_STALE_PROCESSING_MINUTES == 90
+
+
+def test_default_safety_covers_read_delete_and_bq(clean_env):
+    cfg = load_config()
+    assert cfg.BUDGET_SAFETY_SECS >= (
+        cfg.SESSION_READ_TIMEOUT_SECS
+        + cfg.SESSION_DELETE_TIMEOUT_SECS
+        + cfg.BQ_QUERY_TIMEOUT_SECS
+    )
+
+
+def test_safety_below_the_waits_is_raised(clean_env, caplog):
+    clean_env.setenv("CRF_BQ_QUERY_TIMEOUT_SECS", "200")
+    clean_env.setenv("CRF_BUDGET_SAFETY_SECS", "150")
+    with caplog.at_level(logging.ERROR):
+        cfg = load_config()
+    assert cfg.BUDGET_SAFETY_SECS == 60 + 30 + 200
+    assert cfg.BQ_QUERY_TIMEOUT_SECS == 200.0
+    assert "CRF_BUDGET_SAFETY_SECS=150" in caplog.text
+
+
+def test_impossible_safety_falls_back_to_defaults(clean_env, caplog):
+    """Waits that can't fit in half the worker timeout: the default timeouts
+    and margin, an ERROR, and no crash."""
+    clean_env.setenv("CRF_WORKER_TIMEOUT_SECS", "300")
+    clean_env.setenv("CRF_BQ_QUERY_TIMEOUT_SECS", "600")
+    with caplog.at_level(logging.ERROR):
+        cfg = load_config()
+    assert (cfg.BQ_QUERY_TIMEOUT_SECS, cfg.BUDGET_SAFETY_SECS) == (60.0, 150.0)
+    assert (cfg.SESSION_READ_TIMEOUT_SECS, cfg.SESSION_DELETE_TIMEOUT_SECS) == (
+        60.0,
+        30.0,
+    )
+    assert "using the default" in caplog.text
+
+
+# ------------------------------------------------------------
+# The accessor: test overrides don't leak
+# ------------------------------------------------------------
+def test_accessor_override_and_undo(monkeypatch):
+    with monkeypatch.context() as m:
+        m.setattr(config, "CRF_MAX_ROWS_PER_RUN", 9)
+        assert config.CRF_MAX_ROWS_PER_RUN == 9
+    assert config.CRF_MAX_ROWS_PER_RUN == load_config().CRF_MAX_ROWS_PER_RUN
+    # The undo left no pin: the env still drives the value.
+    monkeypatch.setenv("CRF_MAX_ROWS_PER_RUN", "5")
+    assert config.CRF_MAX_ROWS_PER_RUN == 5
+
+
+def test_accessor_rejects_unknown_settings():
+    with pytest.raises(AttributeError):
+        config.NOT_A_SETTING = 1  # type: ignore[attr-defined]
+
+
+def test_every_field_reachable_through_the_accessor():
+    for field in dataclasses.fields(CrfConfig):
+        assert getattr(config, field.name) == getattr(load_config(), field.name)
 
 
 def test_no_hardcoded_identifiers_in_cloud_function_source():
