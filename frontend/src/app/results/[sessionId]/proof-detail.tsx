@@ -220,12 +220,14 @@ export function CastingSection({ casting }: { casting?: Casting }) {
 
 /**
  * The timely slot: "Timely: <reason> · valid until …" for the creative that
- * references the run's validated current moment. Nothing for evergreen ones.
+ * references the run's validated current moment, "… · Expired on …" once that
+ * moment has passed (read in valid_until's own offset). Nothing for evergreen ones.
  */
 export function TimelySection({ timely }: { timely?: Timely }) {
   if (!timely) return null;
   const parts = [timely.reason || "References the current moment"];
-  if (timely.validUntil) parts.push(`valid until ${timely.validUntil}`);
+  if (timely.expired) parts.push(timely.validUntil ? `Expired on ${timely.validUntil}` : "Expired");
+  else if (timely.validUntil) parts.push(`valid until ${timely.validUntil}`);
   return (
     <section className="border-t border-border pt-4">
       <dl>

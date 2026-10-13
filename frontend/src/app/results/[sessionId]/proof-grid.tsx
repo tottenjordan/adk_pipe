@@ -2,7 +2,7 @@
 
 import type { Ref } from "react";
 import { cn } from "@/lib/utils";
-import { proofFailedChecks, type Proof, type ProofSort } from "@/lib/eval-matching";
+import { proofFailedChecks, type Proof, type ProofSort, type Timely } from "@/lib/eval-matching";
 import { SegmentedControl } from "@/components/segmented-control";
 import { ProofImage } from "@/components/proof-image";
 import { CheckFailedChip } from "./eval-checks";
@@ -16,6 +16,37 @@ const SORT_OPTIONS: { value: ProofSort; label: string }[] = [
   { value: "highest", label: "Highest score" },
   { value: "lowest", label: "Lowest score" },
 ];
+
+/** The proof button's aria-label suffix for the timely creative ("" otherwise). */
+export function timelyAria(timely: Timely | undefined): string {
+  if (!timely) return "";
+  return timely.expired ? " · timely, expired" : " · timely";
+}
+
+/**
+ * Small contact-sheet chip for the timely creative: "Timely" (valid until … in
+ * its title and for screen readers), or "Expired" once its moment has passed.
+ */
+export function TimelyChip({ timely, className }: { timely?: Timely; className?: string }) {
+  if (!timely) return null;
+  const detail = timely.validUntil
+    ? `${timely.expired ? "expired on" : "valid until"} ${timely.validUntil}`
+    : "";
+  return (
+    <div className={className}>
+      <span
+        className={cn(
+          "inline-flex items-center rounded-sm border px-1.5 py-0.5 text-xs font-medium leading-none",
+          timely.expired ? "border-mark-pending text-mark-pending" : "border-mark-pass text-mark-pass"
+        )}
+        title={detail || undefined}
+      >
+        {timely.expired ? "Expired" : "Timely"}
+        {detail && <span className="sr-only">{`, ${detail}`}</span>}
+      </span>
+    </div>
+  );
+}
 
 /**
  * Contact sheet: every creative as a dense proof (square image, headline, two
@@ -66,7 +97,7 @@ export function ProofGrid({
                 type="button"
                 ref={itemRef(p.index)}
                 onClick={() => onOpen(p.index)}
-                aria-label={`Open creative ${p.index + 1}: ${p.concept.headline}${rated ? " (rated)" : ""}`}
+                aria-label={`Open creative ${p.index + 1}: ${p.concept.headline}${timelyAria(p.timely)}${rated ? " (rated)" : ""}`}
                 className="group flex h-full w-full flex-col rounded-lg border border-border bg-card p-2 text-left transition-colors hover:border-foreground/40"
               >
                 <ProofImage
@@ -94,7 +125,10 @@ export function ProofGrid({
                       <ScoreMark label="Visual" score={p.visualEval?.score} />
                     </div>
                   </div>
-                  <CheckFailedChip count={proofFailedChecks(p).length} className="mt-2" />
+                  <div className="flex flex-wrap gap-1.5 empty:hidden">
+                    <CheckFailedChip count={proofFailedChecks(p).length} className="mt-2" />
+                    <TimelyChip timely={p.timely} className="mt-2" />
+                  </div>
                 </div>
               </button>
             </li>

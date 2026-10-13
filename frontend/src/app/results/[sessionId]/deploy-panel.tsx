@@ -50,6 +50,7 @@ export function DeployPanel({
   sessionId,
   imageUrlFor,
   stoppedEarly,
+  now = 0,
 }: {
   /** Pipeline order (Proof.index is the creative index the backend expects). */
   proofs: Proof[];
@@ -57,6 +58,8 @@ export function DeployPanel({
   sessionId: string;
   imageUrlFor: (conceptName: string) => string | null;
   stoppedEarly: boolean;
+  /** Wall clock (ms) from the results page, for the timely expiry (0 = not known yet). */
+  now?: number;
 }) {
   const router = useRouter();
   const [selected, setSelected] = useState<Set<number>>(new Set());
@@ -72,7 +75,16 @@ export function DeployPanel({
 
   const ordered = useMemo(() => [...proofs].sort((a, b) => a.index - b.index), [proofs]);
   /** Selected creative → colour, shared by the cards, the preview and the experiment page. */
-  const colors = useMemo(() => selectionColors(selected), [selected]);
+  // A picked creative can become undeployable while the page is open (a timely
+  // creative whose moment passes), so only the still-deployable picks count.
+  const picked = useMemo(
+    () =>
+      new Set(
+        ordered.filter((p) => selected.has(p.index) && !creativeDeployBlockedReason(p, now)).map((p) => p.index)
+      ),
+    [ordered, selected, now]
+  );
+  const colors = useMemo(() => selectionColors(picked), [picked]);
   const tuningCreatives = useMemo(
     () =>
       ordered
@@ -85,7 +97,7 @@ export function DeployPanel({
         })),
     [ordered, colors]
   );
-  const count = selected.size;
+  const count = picked.size;
 
   /** A new scenario reloads its preset into the Advanced sliders. */
   const changeScenario = (s: Scenario) => {
@@ -109,7 +121,7 @@ export function DeployPanel({
     setActiveConflict(false);
     try {
       const { experimentId } = await createExperiment(
-        selectionToPayload({ appName, sessionId, selected, scenario, ctrMode, rewardMode, ttlMinutes, tuning })
+        selectionToPayload({ appName, sessionId, selected: picked, scenario, ctrMode, rewardMode, ttlMinutes, tuning })
       );
       router.push(`/experiments/${encodeURIComponent(experimentId)}`);
     } catch (err) {
@@ -151,7 +163,7 @@ export function DeployPanel({
                 setSelected(
                   new Set(
                     ordered
-                      .filter((p) => !creativeDeployBlockedReason(p))
+                      .filter((p) => !creativeDeployBlockedReason(p, now))
                       .slice(0, 4)
                       .map((p) => p.index)
                   )
@@ -170,7 +182,7 @@ export function DeployPanel({
             const checked = selected.has(p.index);
             const score = proofScore(p);
             const id = `deploy-creative-${p.index}`;
-            const excluded = creativeDeployBlockedReason(p);
+            const excluded = creativeDeployBlockedReason(p, now);
             return (
               <li key={p.index}>
                 <label

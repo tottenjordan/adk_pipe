@@ -12,7 +12,7 @@
  *   together; without session copies, by the concept's id/headline (never index)
  */
 
-import { shortTime } from "@/lib/trend-situation";
+import { formatValidUntil, pairedCopy, timelyStatusFor } from "@/lib/timely";
 
 export interface EvalVerdict {
   dimension: string;
@@ -141,26 +141,41 @@ export interface VisualConcept {
   timely_reason?: string;
 }
 
-/** A timely proof: why it references the current moment, and until when. */
+/** A timely proof: why it references the current moment, until when, and whether that has passed. */
 export interface Timely {
   reason: string;
-  /** "YYYY-MM-DD HH:MM" from `state.trend_situation.valid_until`, or null. */
+  /** "Oct 14, 23:59" from `state.trend_situation.valid_until` (its own offset), or null. */
   validUntil: string | null;
+  /** `trend_situation.valid_until` as written. */
+  validUntilIso: string;
+  /** The moment has passed (`valid_until` <= now); never for an unparseable one. */
+  expired: boolean;
 }
 
 /**
- * The proof's timely slot, from the concept's `uses_trend_state` flag (set only
- * when the run had a validated timely moment; the guards clear it otherwise) and
- * the run's `trend_situation.valid_until`. Undefined for evergreen concepts.
+ * The proof's timely slot (lib/timely.ts rule): the concept's or its paired
+ * copy's `uses_trend_state` flag (set only when the run had a validated timely
+ * moment) and the run's `trend_situation` (`timely_ok` + `valid_until`).
+ * `now` is the wall clock in ms (0 = not known yet, never expired). The copy
+ * pairs by id only, like the api's guards. Undefined for evergreen concepts.
  */
-export function timelyFor(concept: VisualConcept, trendSituation: unknown): Timely | undefined {
-  if (concept.uses_trend_state !== true) return undefined;
-  const reason = typeof concept.timely_reason === "string" ? concept.timely_reason.trim() : "";
-  const raw =
-    trendSituation && typeof trendSituation === "object"
-      ? (trendSituation as Record<string, unknown>).valid_until
-      : undefined;
-  return { reason, validUntil: typeof raw === "string" ? shortTime(raw) : null };
+export function timelyFor(
+  concept: VisualConcept,
+  trendSituation: unknown,
+  adCopies: readonly AdCopy[] = [],
+  now = 0,
+): Timely | undefined {
+  const copy = pairedCopy(adCopies, concept);
+  const status = timelyStatusFor(concept, copy, trendSituation, now);
+  if (!status.timely) return undefined;
+  const own = typeof concept.timely_reason === "string" ? concept.timely_reason.trim() : "";
+  const copyReason = typeof copy?.timely_reason === "string" ? copy.timely_reason.trim() : "";
+  return {
+    reason: own || copyReason,
+    validUntil: formatValidUntil(status.validUntilIso),
+    validUntilIso: status.validUntilIso,
+    expired: status.expired,
+  };
 }
 
 /** Person casting of one proof: a cast render, or a person photo rejected at render time. */
@@ -208,6 +223,10 @@ export interface AdCopy {
   social_caption: string;
   call_to_action: string;
   detailed_performance_rationale: string;
+  /** True for the timely copy that references the validated current moment. */
+  uses_trend_state?: boolean;
+  /** One sentence on how the copy references the current moment. */
+  timely_reason?: string;
 }
 
 /** Replicate Python's REMOVE_PUNCTUATION + replace(" ", "_") for image filenames. */
@@ -344,7 +363,9 @@ export function buildProofs(
   report: EvalReport | null | undefined,
   generatedImages?: unknown,
   personRejected?: unknown,
-  trendSituation?: unknown
+  trendSituation?: unknown,
+  /** Wall clock (ms) for the timely expiry; 0 = not known yet (never expired). */
+  now = 0
 ): Proof[] {
   return concepts.map((concept, index) => {
     const match = matchAdCopy(adCopies, concept, index);
@@ -360,9 +381,9 @@ export function buildProofs(
         match?.item ?? { original_id: concept.ad_copy_id, headline: concept.headline }
       ),
       visualEval: findVisualEval(report, concept.concept_name),
-    imageCheck: imageCheckFor(generatedImages, concept.concept_name),
-    casting: castingFor(concept, generatedImages, personRejected),
-    timely: timelyFor(concept, trendSituation),
+      imageCheck: imageCheckFor(generatedImages, concept.concept_name),
+      casting: castingFor(concept, generatedImages, personRejected),
+      timely: timelyFor(concept, trendSituation, adCopies, now),
     };
   });
 }
