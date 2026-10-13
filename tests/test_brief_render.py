@@ -319,11 +319,102 @@ def test_gallery_labels_the_timely_creative(monkeypatch, tmp_path):
             "target_product": "p",
             "key_selling_points": "k",
             "target_search_trends": "t",
+            # The render record's valid_until wins over the run's moment.
+            "generated_images": {
+                "Countdown": {
+                    "timely": True,
+                    "valid_until": "2026-10-12T23:59:59-04:00",
+                }
+            },
+            "trend_situation": {
+                "timely_ok": True,
+                "valid_until": "2026-10-20T10:00:00+00:00",
+            },
         }
     )
     assert asyncio.run(tools.save_creative_gallery_html(ctx))["status"] == "success"
     (html,) = written
     assert html.count('class="timely-label"') == 1
     assert (
-        '<p class="timely-label">Timely: Game &lt;b&gt;tomorrow&lt;/b&gt;.</p>' in html
+        '<p class="timely-label">Timely: Game &lt;b&gt;tomorrow&lt;/b&gt;. · valid '
+        "until Oct 12, 23:59 UTC-04:00</p>" in html
     )
+
+
+def test_timely_label_falls_back_to_the_run_moment(monkeypatch, tmp_path):
+    """A record without valid_until (rendered before the field) uses the run's
+    trend_situation.valid_until."""
+    monkeypatch.chdir(tmp_path)
+    written: list[str] = []
+
+    def _fake_upload(source_file_name, destination_blob_name):
+        with open(source_file_name) as f:
+            written.append(f.read())
+        return "ok"
+
+    monkeypatch.setattr(tools, "_upload_blob_to_gcs", _fake_upload)
+    concept = {
+        "visual_style": "flat",
+        "trend": "t",
+        "trend_reference": "r",
+        "concept_summary": "s",
+        "markets_product": "m",
+        "audience_appeal": "a",
+        "selection_rationale": "r",
+        "image_generation_prompt": "p",
+        "headline": "h",
+        "social_caption": "c",
+        "concept_name": "Countdown",
+        "uses_trend_state": True,
+        "timely_reason": "Game tomorrow.",
+    }
+    ad_copy = {
+        "headline": "h",
+        "body_text": "b",
+        "social_caption": "c",
+        "call_to_action": "Go",
+        "trend_connection": "t",
+        "audience_appeal_rationale": "a",
+        "detailed_performance_rationale": "d",
+    }
+    ctx = FakeToolContext(
+        {
+            "gcs_folder": "f",
+            "agent_output_dir": "creative_output",
+            "final_visual_concepts": {"visual_concepts": [concept]},
+            "ad_copy_critique": {"ad_copies": [ad_copy]},
+            "brand": "Acme",
+            "target_audience": "a",
+            "target_product": "p",
+            "key_selling_points": "k",
+            "target_search_trends": "t",
+            "generated_images": {"Countdown": {"gcs_uri": "gs://b/x.png"}},
+            "trend_situation": {
+                "timely_ok": True,
+                "valid_until": "2026-10-14T08:05:00Z",
+            },
+        }
+    )
+    assert asyncio.run(tools.save_creative_gallery_html(ctx))["status"] == "success"
+    (html,) = written
+    assert (
+        '<p class="timely-label">Timely: Game tomorrow. · valid until '
+        "Oct 14, 08:05 UTC</p>" in html
+    )
+
+
+def test_timely_label_formats_in_the_valid_until_offset():
+    concept = {"uses_trend_state": True, "timely_reason": "Kickoff <soon>"}
+    assert tools._build_timely_label(concept, "2026-10-13T02:30:00+05:30") == (
+        '<p class="timely-label">Timely: Kickoff &lt;soon&gt; · valid until '
+        "Oct 13, 02:30 UTC+05:30</p>"
+    )
+
+
+def test_timely_label_keeps_old_output_without_a_usable_valid_until():
+    concept = {"uses_trend_state": True, "timely_reason": "Game tomorrow."}
+    old = '<p class="timely-label">Timely: Game tomorrow.</p>'
+    for value in ("", None, "not a date", "2026-10-13T10:00:00", 42):
+        assert tools._build_timely_label(concept, value) == old
+    assert tools._build_timely_label(concept) == old
+    assert tools._build_timely_label({"timely_reason": "x"}, "2026-10-13T10:00Z") == ""

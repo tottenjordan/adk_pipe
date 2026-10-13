@@ -29,7 +29,7 @@ import logging
 import random
 import socket
 import urllib.request
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlparse
@@ -46,6 +46,7 @@ from agent_common.locations import MODEL_LOCATION
 from . import image_qa
 from .concept_guard import enforce_person_casting, parse_concepts
 from .config import config
+from .copy_gate import parse_copies
 from .gcs_tools import _download_blob, _save_to_gcs, artifact_key_for
 from .person_render import (
     PERSON_ROLE_INSTRUCTION,
@@ -61,6 +62,7 @@ from .references import (
     reference_roles_summary,
     resolve_references,
 )
+from .trend_situation import timely_allowed
 
 __all__ = [
     "MAX_REFERENCE_IMAGES",
@@ -783,6 +785,42 @@ async def _inspect_and_rerender(
             claims_done.set()
 
 
+def timely_record_valid_until(state: Any) -> str:
+    """The moment's ``valid_until`` when the run may mark timely concepts.
+
+    Non-empty only when ``timely_allowed`` (a timely validated moment and the
+    slot on) and ``trend_situation.valid_until`` is a non-empty string; ``""``
+    otherwise, so no record gets the timely keys.
+    """
+    if not timely_allowed(state, config.max_timely_concepts):
+        return ""
+    valid_until = (state.get("trend_situation") or {}).get("valid_until")
+    return valid_until.strip() if isinstance(valid_until, str) else ""
+
+
+def copies_by_original_id(ad_copies: Any) -> dict[str, Mapping[str, Any]]:
+    """The ``ad_copy_critique`` copies keyed by ``str(original_id)`` (first wins)."""
+    by_id: dict[str, Mapping[str, Any]] = {}
+    for ad in parse_copies(ad_copies):
+        if ad.get("original_id") is not None:
+            by_id.setdefault(str(ad.get("original_id")), ad)
+    return by_id
+
+
+def is_timely_concept(
+    concept: Mapping[str, Any], copies_by_id: Mapping[str, Mapping[str, Any]]
+) -> bool:
+    """True when the concept, or its paired copy (``ad_copy_id`` ==
+    ``original_id``, compared as strings), has ``uses_trend_state is True``."""
+    if concept.get("uses_trend_state") is True:
+        return True
+    copy_id = concept.get("ad_copy_id")
+    if copy_id is None:
+        return False
+    paired = copies_by_id.get(str(copy_id))
+    return paired is not None and paired.get("uses_trend_state") is True
+
+
 async def generate_image(
     tool_context: ToolContext,
 ):
@@ -858,6 +896,12 @@ async def generate_image(
     person_rejected: dict[str, str] = {}
 
     product = tool_context.state.get("target_product") or ""
+    timely_valid_until = timely_record_valid_until(tool_context.state)
+    copies_by_id = (
+        copies_by_original_id(tool_context.state.get("ad_copy_critique"))
+        if timely_valid_until
+        else {}
+    )
     artifact_keys_list = []
     generated_images: dict[str, dict] = {}
     qa_issues: list[str] = []
@@ -966,6 +1010,11 @@ async def generate_image(
                 record["cast"] = result.cast
                 if result.cast:
                     record["consent_id"] = consent_id
+            if timely_valid_until and is_timely_concept(entry, copies_by_id):
+                # Only timely concepts carry these keys, so every other record
+                # stays byte-identical to the pre-timely shape.
+                record["timely"] = True
+                record["valid_until"] = timely_valid_until
             generated_images[entry["concept_name"]] = record
     except Exception as e:
         # Propagate so ADK 2.0 RetryConfig can retry transient infra failures.

@@ -3,6 +3,7 @@ import html
 import logging
 import os
 import tempfile
+from datetime import datetime
 
 from google.adk.tools import ToolContext
 
@@ -93,14 +94,32 @@ def _build_image_check_line(record: dict | None) -> str:
     return f'<p class="image-check">{html.escape(text, quote=False)}</p>'
 
 
-def _build_timely_label(concept: dict) -> str:
+def _short_valid_until(valid_until: object) -> str:
+    """``valid_until`` as "Oct 14, 23:59 UTC-04:00" in its own offset, or ""
+    when it is empty, not a string or not an ISO datetime with an offset."""
+    if not isinstance(valid_until, str) or not valid_until.strip():
+        return ""
+    try:
+        moment = datetime.fromisoformat(valid_until.strip())
+    except ValueError:
+        return ""
+    if moment.tzinfo is None:
+        return ""
+    return f"{moment:%b} {moment.day}, {moment:%H:%M} {moment:%Z}"
+
+
+def _build_timely_label(concept: dict, valid_until: object = "") -> str:
     """The gallery's small "Timely" label for the creative that references the
-    run's validated current moment (``uses_trend_state``), else "". Pure; the
-    reason is model text → escaped."""
+    run's validated current moment (``uses_trend_state``), else "". With a
+    parseable ``valid_until`` it adds " · valid until <Mon D, HH:MM tz>" (a
+    static time: the gallery is a snapshot, so it never says "Expired"). Pure;
+    the reason is model text → escaped."""
     if not isinstance(concept, dict) or concept.get("uses_trend_state") is not True:
         return ""
     reason = str(concept.get("timely_reason") or "").strip()
     text = f"Timely: {reason}" if reason else "Timely"
+    if until := _short_valid_until(valid_until):
+        text += f" · valid until {until}"
     return f'<p class="timely-label">{html.escape(text, quote=False)}</p>'
 
 
@@ -176,9 +195,18 @@ async def save_creative_gallery_html(tool_context: ToolContext) -> dict:
         # ad creatives HTML chunks
         # =========================== #
 
+        situation = tool_context.state.get("trend_situation")
+        moment_valid_until = (
+            situation.get("valid_until") if isinstance(situation, dict) else ""
+        )
         CONNECTED_GALLERY_STRING = ""
         for index, entry in enumerate(final_visual_concepts_list):
             ARTIFACT_KEY = artifact_key_for(entry["concept_name"])
+            # The render record's valid_until (timely concepts only), else the
+            # run's moment (galleries of runs rendered before the record had it).
+            timely_until = (generated_images.get(entry["concept_name"]) or {}).get(
+                "valid_until"
+            ) or moment_valid_until
             GCS_BLOB_PATH = f"{gcs_folder}/{gcs_subdir}/{ARTIFACT_KEY}"
             AUTH_GCS_URL = f"https://storage.mtls.cloud.google.com/{config.GCS_BUCKET_NAME}/{GCS_BLOB_PATH}?authuser=3"
             # The lightbox links the original 2K render: the old 1.5x Lanczos
@@ -203,7 +231,7 @@ async def save_creative_gallery_html(tool_context: ToolContext) -> dict:
                     </div>
                     <p class="caption">{_esc(entry["social_caption"])}</p>
                     {_build_image_check_line(generated_images.get(entry["concept_name"]))}
-                    {_build_timely_label(entry)}
+                    {_build_timely_label(entry, timely_until)}
                 </div>
             """
             CONNECTED_GALLERY_STRING += GALLERY_IMAGE_BLOCK
