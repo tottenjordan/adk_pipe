@@ -2564,6 +2564,13 @@ PRs (each run spends the shared 5-RPM Pro quota). It authenticates with **Worklo
 Identity Federation** (no SA key) and is **inert until `EVAL_WIF_PROVIDER` is set**
 (the job is skipped otherwise).
 
+**Off-hours guard.** GitHub has started the 02:17 PT schedule 6–10 h late (2026-10-08..13:
+15:20–18:59 UTC, i.e. PT working hours), where it shared the project-wide quota with manual
+runs and a 429 killed one. The `window` job therefore skips a *scheduled* run that starts
+between 07:00 and 21:00 America/Los_Angeles, a second cron at 21:17 PT gives the night
+another chance, and a scheduled run is also skipped when an earlier scheduled run that
+started off-hours (one that really ran) is less than 12 h old. Manual dispatches always run.
+
 > **Isolation is mandatory.** trend_scout's eval writes rows into `target_trends_crf`,
 > which the CRF orchestrator claims and fans out into paid creative runs. Evals must
 > point at the isolated **`trend_trawler_eval`** dataset and a dedicated eval bucket; the
