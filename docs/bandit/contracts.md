@@ -173,8 +173,9 @@ All routes are user-scoped. The proxy rewrites `userId` / the `{user_id}` segmen
 - `POST /experiments`
   - Body: `{userId, appName, sessionId, creativeIndices: number[], scenario, ctrMode, rewardMode, ttlMinutes?, scenarioOverrides?}`.
   - `scenarioOverrides` (§9, optional): `{segmentMix?, gapScale?, judgeWrong?, noiseScale?, driftAtFrac?}`. `null` fields count as unset; empty or omitted writes no `scenario_overrides`.
-  - Success: **201** `{experimentId, status: "deploying"}`.
-  - Errors: 400 for an empty or invalid selection (fewer than 2 arms, or an index out of range) or invalid `scenarioOverrides` (`detail.field` names the camelCase field); 400 `cast_creative` when a selected creative casts the run's consented person (`generated_images[concept].cast`, likeness safety) and 400 `person_image` when a selected creative's image is a person photo or personalised variant (`person-refs/` / `variants/` path; `person_variants` is never read) (person reference PR 3, 2026-10-10); 400 `timely_expired` when a selected creative is timely (`uses_trend_state` on the concept or its paired ad copy, with `trend_situation.timely_ok`) and its moment's `valid_until` is at or before the api's wall clock (`runserver/timely.py`, 2026-10-13); 409 `{detail:{reason:"active_experiment", experimentId}}` if the user already has an active experiment.
+  - Success: **201** `{experimentId, status: "deploying", warnings: CreateWarning[]}` (`warnings` added 2026-10-13, `[]` when there is nothing to say). `CreateWarning = {conceptName, reason: "timely_expired", message}`: a selected creative is timely (`uses_trend_state` on the concept or its paired ad copy, with `trend_situation.timely_ok`) and its moment's `valid_until` is at or before the api's wall clock (`runserver/timely.py`). Traffic is synthetic, so it is still an arm (`timelyExpired: true`); until 2026-10-13 this was a 400 `timely_expired`.
+  - Cast creatives (`generated_images[concept].cast`, rendered with a consented person): allowed since 2026-10-13 while the consent is active. Each one's `generated_images[concept].consent_id` must resolve with `person_refs.active_consent(caller, consent_id)` (the `/shares` lookup), else 400 `consent_not_active` (no id, revoked, unknown or another user's); a consent store error is a 503 `consent_unavailable`. Both are checked before anything is written or deployed. The arm records `consentId`; revoking that consent stops the experiment (person-ref revoke hook `stop_experiments_for_consent`) and deletes the image (it is in the consent's `person_renders`). `snapshot_arms` itself still raises 400 `cast_creative` for a cast concept whose consent id isn't in the caller-resolved `active_cast_consents` (empty by default).
+  - Errors: 400 for an empty or invalid selection (fewer than 2 arms, or an index out of range) or invalid `scenarioOverrides` (`detail.field` names the camelCase field); 400 `consent_not_active` / 503 `consent_unavailable` (above); 400 `person_image` when a selected creative's image is a person photo or personalised variant (`person-refs/` / `variants/` path; `person_variants` is never read) (person reference PR 3, 2026-10-10); 409 `{detail:{reason:"active_experiment", experimentId}}` if the user already has an active experiment.
 - `GET /experiments/{user_id}` returns `{experiments: ExperimentSummary[]}`, newest first.
 - `GET /experiments/{user_id}/{experiment_id}` returns `ExperimentSummary`, with status reconciled against the endpoint and the TTL.
 - `GET /experiments/{user_id}/{experiment_id}/metrics[?run=N]` returns `ExperimentMetrics` for traffic run `N` (default the latest; §10). It is empty (`episodes: 0`) until traffic runs. A `run` outside `[1, latest]` (or not an integer) is a 400 `invalid_run`.
@@ -189,7 +190,9 @@ All routes are user-scoped. The proxy rewrites `userId` / the `{user_id}` segmen
 
 ```ts
 type Arm = { creativeId: string; index: number; label: string; conceptName: string;
-             imageUri: string | null; scores: Record<string, number>; overallScore: number | null };
+             imageUri: string | null; scores: Record<string, number>; overallScore: number | null;
+             consentId?: string;       // cast arms only (2026-10-13): the consent the image was rendered with
+             timelyExpired?: true };   // the timely creative's moment had ended at create (2026-10-13)
 type ExperimentSummary = { experimentId: string; userId: string; sessionId: string; appName: string;
   createdAt: string; updatedAt: string; status: Status; scenario: string; ctrMode: string;
   rewardMode: string; ttlExpiresAt: string | null; arms: Arm[]; endpointId: string | null;
@@ -257,8 +260,10 @@ type MetricsRegime = { start: number; end: number;                   // rounds [
   - Arm `scores` keys are the 12 judge dimensions (score/10, clipped to 0–1) plus `ad_copy_overall` and `visual_overall`. `overallScore` is the mean of the two overall scores.
   - Ad-copy evals are matched headline first, then id, then position.
   - `imageUri` is null when `_generated_artifact_keys` exists and doesn't include the concept's image.
+  - `consentId` / `timelyExpired` are optional and written only when set, so older arms (and the `bandit_experiments.arms` JSON column) need no migration. They stay on the §5 arm: the §1 `experiment.json` arms the endpoint and the traffic job read are built field by field (`creative_id`, `label`, `scores`, `visual_style`) and never carry them.
 - **Error reasons** (`detail.reason`):
-  - 400: `too_few_arms`, `too_many_arms`, `duplicate_index`, `index_out_of_range`, `no_creatives`, `invalid_scenario`, `invalid_ctr_mode`, `invalid_reward_mode`, `invalid_scenario_overrides` (with `detail.field`, §9), `invalid_episodes`, `invalid_horizon`, `invalid_shifts` (with `detail.field`, §10), `invalid_forget`, `invalid_learning` (with `detail.field`, §11), `invalid_run`, `cast_creative`, `person_image`, `timely_expired`;
+  - 400: `too_few_arms`, `too_many_arms`, `duplicate_index`, `index_out_of_range`, `no_creatives`, `invalid_scenario`, `invalid_ctr_mode`, `invalid_reward_mode`, `invalid_scenario_overrides` (with `detail.field`, §9), `invalid_episodes`, `invalid_horizon`, `invalid_shifts` (with `detail.field`, §10), `invalid_forget`, `invalid_learning` (with `detail.field`, §11), `invalid_run`, `cast_creative` (direct `snapshot_arms` callers only), `consent_not_active`, `person_image` (`timely_expired` is a create warning since 2026-10-13);
+  - 503: `consent_unavailable`;
   - 409: `active_experiment`, `not_ready`;
   - 404: `session_not_found`, `not_found`;
   - 502: `config_write_failed` (also the §10 `runs/{n}.json` record), `traffic_start_failed`.

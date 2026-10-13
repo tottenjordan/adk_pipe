@@ -93,11 +93,14 @@ and `runserver/experiments.py` duplicates the noise-variance formula, with a tes
    **Deploy creatives as a live experiment** panel lets you pick 2–4 creatives, a scenario
    (default `segment_winners`), a CTR mode, a reward mode and an endpoint lifetime (60 / 120 /
    240 min, default 120). Submitting `POST /experiments` returns `201 {experimentId, status:
-   "deploying"}` and opens the experiment page. Each user can have **one active experiment** at
+   "deploying", warnings}` and opens the experiment page. Each user can have **one active experiment** at
    a time (`409 active_experiment` otherwise), because each holds a dedicated replica.
-   Creatives that cast a consented person can't be arms (likeness safety): the panel disables
-   them with the reason, and the api refuses them with `400 cast_creative` (a person photo or
-   personalised-variant image: `400 person_image`; [contracts §5](contracts.md)).
+   Creatives that cast a consented person can be arms while that consent is active (the api
+   checks it: `400 consent_not_active`, `503 consent_unavailable`); revoking the consent stops
+   the experiment and deletes the image. A person photo or personalised-variant image is
+   never an arm (`400 person_image`). A timely creative whose moment has ended stays
+   selectable with a warning line (traffic is synthetic; the create response lists it in
+   `warnings`; [contracts §5](contracts.md)).
 2. **Wait for `ready`.** The page polls the experiment. The api reconciles the status against the
    endpoint on each detail GET. Status flow: `deploying → ready → running_traffic → ready →
    stopping → stopped`, plus `failed` and `expired` (TTL).

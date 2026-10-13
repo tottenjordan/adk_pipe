@@ -101,7 +101,8 @@ tests/
 ├── test_deploy_utils.py             # deploy_agent.py utils (env file, extra_packages, runtimes.create) + integration_test.py (skips, creative_agent smoke output assertion)
 ├── test_deploy_import_graph.py      # each agent's import-time repo-root packages ⊆ its AGENT_EXTRA_PACKAGES bundle (subprocess, slow)
 ├── test_empty_turn_retry.py         # root orchestrators re-ask a clean empty model turn (empty_turn_retries) instead of ending the run
-├── test_experiments_api.py          # /experiments routes: create→ready, 400/404/409, traffic, stop, TTL reaper, reconcile, authz, snapshot_arms (person_variants never change the arms; cast creatives → cast_creative, person-refs/variants images → person_image), §9 scenarioOverrides validation + bandit parity, deploy lease (one deployer, expiry, heartbeat, release)
+├── test_experiments_api.py          # /experiments routes: create→ready, 400/404/409, traffic, stop, TTL reaper, reconcile, authz, snapshot_arms (person_variants never change the arms; cast creatives → cast_creative unless their consent is in active_cast_consents, then consentId on the arm; person-refs/variants images → person_image; expired timely → timelyExpired + create warning), §9 scenarioOverrides validation + bandit parity, deploy lease (one deployer, expiry, heartbeat, release)
+├── test_experiments_consent.py      # cast arms at create: active consent → consentId, 400 consent_not_active (revoked / other owner / missing / unknown), 503 consent_unavailable with nothing written, person_image still refused; revoke hook stop_experiments_for_consent stops live/deploying experiments with the consent only (idempotent), via DELETE /person-refs; hook or teardown failure → revoke 502, retry finishes
 ├── test_experiments_backends.py     # VertexDeployer (stepwise/resume, labelled-resource reuse, teardown of extras) + CloudRunJobsRunner env overrides, fakes
 ├── test_experiments_continuous.py   # §11 continuous learning in the api: traffic-body validation, job env, stitched /metrics + batch-means summary
 ├── test_experiments_metrics.py      # pure ExperimentMetrics aggregation (CI bands, totals, arm share, segments)
@@ -302,9 +303,9 @@ tests/
   `eval-checks.test.tsx` (gate label).
 - **Personalised variants** — `test_render_concept.py` (incl. `render_edit`), `test_person_edit.py`,
   `test_image_qa_composition.py`, `test_render_parity.py` (golden pre-refactor
-  recording of `generate_image`), `test_variants_api.py`, `test_experiments_api.py` (bandit exclusion),
+  recording of `generate_image`), `test_variants_api.py`, `test_experiments_api.py` / `test_experiments_consent.py` (cast arms need an active consent),
   `test_authz.py` (`/variants/{u}`); frontend `personalise-panel.test.tsx` (panel polling, swap mode + `lib/variants.ts`),
-  `user-scoping.test.ts` (variants routes), `deploy-selection.test.ts` (cast proofs disabled).
+  `user-scoping.test.ts` (variants routes), `deploy-panel-arms.test.tsx` (cast proofs selectable), `arm-image.test.tsx` (consent-revoked arm placeholder).
 - **Person share scope + revoke cascade** — `test_share_snapshot.py`, `test_shares_api.py`, `test_shares_store.py`
   (public-share consent filter, `skipped`, `person_consent_ids`, `revoke_shares_for_consent`),
   `test_person_refs_api.py` / `test_person_refs_store.py` (`record_renders`, `add_renders`, cascade order, metadata
