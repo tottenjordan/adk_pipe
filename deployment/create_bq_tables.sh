@@ -15,7 +15,8 @@
 # runserver/ratings_store.py; creative_shares (deployment/bq_schemas/creative_shares.json)
 # mirrors SHARE_COLUMN_TYPES in runserver/shares_store.py; person_references
 # (deployment/bq_schemas/person_references.json) mirrors PERSON_REF_COLUMN_TYPES in
-# runserver/person_refs_store.py.
+# runserver/person_refs_store.py; trend_digest (deployment/bq_schemas/trend_digest.json)
+# mirrors trend_scout/digest.py build_insert_sql.
 set -euo pipefail
 
 : "${BQ_PROJECT_ID:?set BQ_PROJECT_ID}"
@@ -34,6 +35,8 @@ BQ_TABLE_RATINGS="${BQ_TABLE_RATINGS:-creative_ratings}"
 BQ_TABLE_SHARES="${BQ_TABLE_SHARES:-creative_shares}"
 # Person-reference consent registry (runserver/person_refs_store.py).
 BQ_TABLE_PERSON_REFS="${BQ_TABLE_PERSON_REFS:-person_references}"
+# trend_scout's daily trend digest cache (trend_scout/digest.py).
+BQ_TABLE_TREND_DIGEST="${BQ_TABLE_TREND_DIGEST:-trend_digest}"
 
 DATASET="${BQ_PROJECT_ID}:${BQ_DATASET_ID}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -100,3 +103,12 @@ make_table "${BQ_TABLE_SHARES}" \
 make_table "${BQ_TABLE_PERSON_REFS}" \
   "${SCRIPT_DIR}/bq_schemas/person_references.json" \
   --clustering_fields owner_user
+
+# trend_scout's daily trend digest cache, one row per (refresh_date, term list)
+# (trend_scout/digest.py MERGE-inserts on digest_id; shared across users and
+# engines, public Google Trends data only). Partitioned on refresh_date with a
+# 30-day partition expiration, so old digests clean themselves up.
+make_table "${BQ_TABLE_TREND_DIGEST}" \
+  "${SCRIPT_DIR}/bq_schemas/trend_digest.json" \
+  --time_partitioning_field refresh_date --time_partitioning_type DAY \
+  --time_partitioning_expiration 2592000

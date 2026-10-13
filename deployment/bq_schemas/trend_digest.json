@@ -1,0 +1,32 @@
+[
+  {
+    "name": "digest_id",
+    "type": "STRING",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "refresh_date",
+    "type": "DATE",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "terms_hash",
+    "type": "STRING",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "digest",
+    "type": "STRING",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "models",
+    "type": "STRING",
+    "mode": "NULLABLE"
+  },
+  {
+    "name": "created_at",
+    "type": "TIMESTAMP",
+    "mode": "NULLABLE"
+  }
+]
