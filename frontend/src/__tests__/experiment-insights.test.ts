@@ -6,7 +6,6 @@ import {
   memoryReaders,
   swapWhen,
   buildInsights,
-  joinList,
   relativeChange,
   setupNotes,
   verdictOf,
@@ -68,12 +67,6 @@ const allText = (i: ExperimentInsights) =>
   [i.headline, i.support, ...Object.values(i.readings), ...Object.values(i.lanes)].filter(Boolean).join("\n");
 
 describe("helpers", () => {
-  it("joins lists in plain English", () => {
-    expect(joinList([])).toBe("");
-    expect(joinList(["a"])).toBe("a");
-    expect(joinList(["a", "b"])).toBe("a and b");
-    expect(joinList(["a", "b", "c"])).toBe("a, b and c");
-  });
   it("computes relative change and refuses undefined ones", () => {
     expect(relativeChange(110, 100)).toBeCloseTo(0.1);
     expect(relativeChange(90, 100)).toBeCloseTo(-0.1);
@@ -297,6 +290,21 @@ describe("the first live experiment", () => {
 
   it("never prints NaN, Infinity or undefined", () => {
     expect(allText(i)).not.toMatch(/NaN|Infinity|undefined|null/);
+  });
+
+  it("picks the leader by final share even when the creatives arrive unordered", () => {
+    const first = liveSeries.creatives[0];
+    const shuffled = {
+      ...liveSeries,
+      creatives: [
+        // A creative with no final share sorts last, never ahead of a real leader.
+        { ...first, creativeId: "zz-null", finalShare: null, share: [], segmentsWon: [] },
+        ...[...liveSeries.creatives].reverse(),
+      ],
+    } as unknown as CreativeSeries;
+    const j = buildInsights({ metrics: liveMetrics, series: shuffled, arms: liveArms, rewardMode: "click", ctrMode: "demo" });
+    expect(j.headline).toBe(i.headline);
+    expect(j.detail).toBe(i.detail);
   });
 });
 

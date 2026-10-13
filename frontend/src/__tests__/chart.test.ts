@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
   bandPath,
-  downsample,
   downsampleIndices,
   extent,
   formatCompact,
@@ -60,9 +59,11 @@ describe("nice ticks", () => {
   it("expands a domain to nice bounds", () => {
     expect(niceDomain(0.013, 0.061, 4)).toEqual([0, 0.08]);
     expect(niceDomain(3, 97, 5)).toEqual([0, 100]);
-    const [lo, hi] = niceDomain(0, 0);
-    expect(lo).toBeLessThan(0);
-    expect(hi).toBeGreaterThan(0);
+    // An all-zero series (e.g. a rate chart before any click) never shows a -100% tick.
+    expect(niceDomain(0, 0)).toEqual([0, 1]);
+    const [lo, hi] = niceDomain(5, 5);
+    expect(lo).toBeLessThan(5);
+    expect(hi).toBeGreaterThan(5);
   });
   it("labels every decade on a log axis", () => {
     const t = logTicks(100, 20000);
@@ -104,8 +105,9 @@ describe("downsampling", () => {
     expect(idx[0]).toBe(0);
     expect(idx[49]).toBe(999);
   });
-  it("downsamples items", () => {
-    expect(downsample(["a", "b", "c", "d", "e"], 3)).toEqual(["a", "c", "e"]);
+  it("picks evenly spaced indices for item lists", () => {
+    const items = ["a", "b", "c", "d", "e"];
+    expect(downsampleIndices(items.length, 3).map((i) => items[i])).toEqual(["a", "c", "e"]);
   });
   it("finds the nearest x", () => {
     expect(nearestIndex([1, 10, 100], 40)).toBe(1);

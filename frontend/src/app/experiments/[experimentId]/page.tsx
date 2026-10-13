@@ -61,10 +61,13 @@ import {
   type ShiftContext,
 } from "@/lib/shifts";
 import { valuesFromOverrides } from "@/lib/scenario-preview";
+import { joinList } from "@/lib/num";
 import type { Scenario, CtrMode } from "@/lib/experiments";
 import {
+  keepIfUnchanged,
   parseCreativeParam,
   parseView,
+  startMetricsLoop,
   urlForCreative,
   urlForView,
   useExplainPref,
@@ -79,18 +82,10 @@ import { SegmentGridView } from "./segment-grid";
 import { ShiftTimeline } from "./shift-timeline";
 import { RunSelector } from "./run-selector";
 
-const METRICS_INTERVAL_MS = 10_000;
-
 const LEARNING_OPTIONS: readonly { value: LearningMode; label: string }[] = [
   { value: "per_episode", label: "Reset each episode" },
   { value: "continuous", label: "Keep learning" },
 ];
-
-/** "20 and 50" / "5, 20 and 50". */
-function joinCounts(ns: readonly number[]): string {
-  const s = ns.map(String);
-  return s.length <= 1 ? (s[0] ?? "") : `${s.slice(0, -1).join(", ")} and ${s[s.length - 1]}`;
-}
 
 export default function ExperimentPage({
   params,
@@ -151,7 +146,8 @@ export default function ExperimentPage({
           waker,
           onError: (err) => setLoadError(err.message),
         })) {
-          setExp(s);
+          // Same updatedAt/status/progress: keep the old object so derived memos don't recompute.
+          setExp((prev) => keepIfUnchanged(prev, s));
           setLoadError(null);
         }
       } catch (err) {
@@ -168,19 +164,17 @@ export default function ExperimentPage({
   // Only ask for a specific run when the user picked an older one; the latest is the api's default.
   const fetchRun = runParam !== null && shownRun?.run === runParam && runs.length > 0 && runParam !== runs[runs.length - 1].run ? runParam : null;
 
-  // Metrics + the per-creative series: once per status change, and on an
-  // interval while traffic runs. Each keeps its last good value on failure (the
-  // status poll surfaces real failures; the series is optional, contracts §8).
-  const loadMetrics = useCallback(
-    async (signal?: AbortSignal) => {
-      const [m, c] = await Promise.allSettled([
+  // Metrics + the per-creative series: once per status change, and again
+  // METRICS_INTERVAL_MS after each load finishes while traffic runs
+  // (startMetricsLoop: single-flight, timed out, stale responses dropped). Each
+  // keeps its last good value on failure (the status poll surfaces real
+  // failures; the series is optional, contracts §8).
+  const fetchMetrics = useCallback(
+    (signal: AbortSignal) =>
+      Promise.allSettled([
         getExperimentMetrics(experimentId, { signal, run: fetchRun }),
         getCreativeSeries(experimentId, { signal, run: fetchRun }),
-      ]);
-      if (signal?.aborted) return;
-      if (m.status === "fulfilled") setMetrics(m.value);
-      if (c.status === "fulfilled") setSeries(c.value.creatives.length ? c.value : null);
-    },
+      ]),
     [experimentId, fetchRun]
   );
   // A different run: drop the previous run's numbers rather than show them under the new label
@@ -193,18 +187,15 @@ export default function ExperimentPage({
   }
   useEffect(() => {
     if (!status) return;
-    const ctrl = new AbortController();
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- false positive: loadMetrics is an async fetch that only sets state after its await
-    loadMetrics(ctrl.signal);
-    const t =
-      status === "running_traffic"
-        ? setInterval(() => loadMetrics(ctrl.signal), METRICS_INTERVAL_MS)
-        : undefined;
-    return () => {
-      ctrl.abort();
-      if (t) clearInterval(t);
-    };
-  }, [status, loadMetrics]);
+    return startMetricsLoop({
+      fetch: fetchMetrics,
+      apply: ([m, c]) => {
+        if (m.status === "fulfilled") setMetrics(m.value);
+        if (c.status === "fulfilled") setSeries(c.value.creatives.length ? c.value : null);
+      },
+      repeat: status === "running_traffic",
+    });
+  }, [status, fetchMetrics]);
 
   // Every episode has landed but the status still says running: ask again now.
   const stale = statusLooksStale(exp, metrics);
@@ -554,8 +545,8 @@ export default function ExperimentPage({
         {keepLearning && (limitError || blockedCounts.length > 0) && (
           <p className="mt-2 max-w-[72ch] text-xs text-muted-foreground tabular-nums">
             {limitError ??
-              `One stream is capped at ${formatInt(MAX_CONTINUOUS_ROUNDS)} rounds, so ${joinCounts(
-                blockedCounts
+              `One stream is capped at ${formatInt(MAX_CONTINUOUS_ROUNDS)} rounds, so ${joinList(
+                blockedCounts.map(String)
               )} segments aren't available at ${formatInt(horizon)} rounds per segment.`}
           </p>
         )}

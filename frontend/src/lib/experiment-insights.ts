@@ -45,6 +45,7 @@ import {
   type ShiftResult,
   type Stat,
 } from "./shifts";
+import { finite, joinList } from "./num";
 
 /** Below this many episodes the bands are too loose to call a winner. */
 export const MIN_EPISODES = 5;
@@ -136,14 +137,6 @@ const LIN = "linear_ts";
 const ORACLE = "oracle";
 
 // ── Small pure helpers (exported for tests) ──────────────────────────────────
-
-const finite = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
-
-/** "a", "a and b", "a, b and c". */
-export function joinList(items: string[]): string {
-  if (items.length <= 1) return items[0] ?? "";
-  return `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
-}
 
 /** Signed relative change as a percent of `base`, e.g. 0.056 → "5.6%"; null if undefined. */
 export function relativeChange(value: number, base: number): number | null {
@@ -345,6 +338,12 @@ interface CreativeFacts {
   segmentsWon: string[];
 }
 
+/** Final share, highest first; a missing share sorts last (stable otherwise). */
+function byFinalDesc(a: CreativeFacts, b: CreativeFacts): number {
+  if (a.final === null || b.final === null) return a.final === null ? (b.final === null ? 0 : 1) : -1;
+  return b.final - a.final;
+}
+
 function creativeFacts(input: InsightInput): CreativeFacts[] {
   const { metrics, series, arms } = input;
   const name = nameLookup(arms);
@@ -354,7 +353,10 @@ function creativeFacts(input: InsightInput): CreativeFacts[] {
       .map(([seg]) => seg)
       .sort();
   if (series?.creatives?.length) {
-    return series.creatives.map((c) => ({
+    // The api orders creatives by finalShare (contracts §8), but the leader is
+    // read as facts[0], so sort here too (desc, missing shares last).
+    return series.creatives
+      .map((c) => ({
       id: c.creativeId,
       name: name(c.creativeId),
       first: finite(c.share?.[0]) ? c.share[0] : null,
@@ -362,7 +364,8 @@ function creativeFacts(input: InsightInput): CreativeFacts[] {
       clickRate: c.impressions > 0 && finite(c.clicks) ? c.clicks / c.impressions : null,
       trueCtr: finite(c.trueCtr) ? c.trueCtr : null,
       segmentsWon: c.segmentsWon?.length ? [...c.segmentsWon].sort() : won(c.creativeId),
-    }));
+      }))
+      .sort(byFinalDesc);
   }
   const ids = new Set([...arms.map((a) => a.creativeId), ...Object.keys(metrics?.armShare ?? {})]);
   return [...ids]
@@ -1021,7 +1024,10 @@ function cardStatus(
   const after = r.pctOptimalAfter.mean;
   const rec = r.recoveryRounds?.mean ?? null;
   const recovered = r.recoveredEpisodes ?? (rec !== null ? n : 0);
-  if (after >= RECOVERY_LEVEL * before - 1e-9 && (rec === null || rec <= recoveryFloor(horizon) + 1e-9)) return "held";
+  // "held" only when every episode recovered within the trailing window: `rec`
+  // is the mean over the recovered episodes, so it says nothing about the rest.
+  const allRecovered = rec !== null && recovered >= n;
+  if (after >= RECOVERY_LEVEL * before - 1e-9 && allRecovered && rec <= recoveryFloor(horizon) + 1e-9) return "held";
   if (recovered <= 0 || rec === null) return "not_recovered";
   return recovered >= n ? "recovered" : "partly";
 }
