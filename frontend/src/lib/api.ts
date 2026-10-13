@@ -34,16 +34,38 @@ export function getEventError(event: AgentEvent): string | null {
   if (!raw) return null;
   // A model 429 is the common case on the shared per-minute Vertex quota —
   // give an actionable message instead of a raw stack-trace fragment.
-  if (/429|RESOURCE_EXHAUSTED|ResourceExhausted/.test(raw)) {
+  if (/\b429\b|RESOURCE_EXHAUSTED|ResourceExhausted/.test(raw)) {
     return "Vertex AI quota exhausted (429): the shared per-minute request quota was hit. Wait a minute and retry, and avoid running multiple agents at once.";
   }
   return raw;
 }
 
-export async function listApps(): Promise<string[]> {
-  const res = await fetch(`${API_BASE}/list-apps`);
-  if (!res.ok) throw new Error(`Failed to list apps: ${res.statusText}`);
-  return res.json();
+/** URL-encode one dynamic path segment (app, user, session …). */
+const seg = encodeURIComponent;
+
+/** `/apps/{app}/users/{user}/sessions[/…]` with every segment encoded. */
+const sessionsUrl = (appName: string, userId: string, ...tail: string[]) =>
+  [`${API_BASE}/apps/${seg(appName)}/users/${seg(userId)}/sessions`, ...tail.map(seg)].join("/");
+
+/** `/runs/{app}[/{user}/{session}]` with every segment encoded. */
+const runsUrl = (appName: string, ...tail: string[]) =>
+  [`${API_BASE}/runs/${seg(appName)}`, ...tail.map(seg)].join("/");
+
+/**
+ * A failed response as an `Error`: "<what> (<status>)", plus ": <detail>" when the
+ * body is JSON with a string `detail` (FastAPI). `statusText` is never used: it is
+ * empty over HTTP/2 and HTTP/3 (IAP / Cloud Run). Reading the body never throws.
+ */
+async function httpError(res: Response, what: string): Promise<Error> {
+  let detail: unknown = null;
+  try {
+    detail = (await res.json())?.detail;
+  } catch {
+    // non-JSON or empty body: the status alone
+  }
+  return new Error(
+    typeof detail === "string" && detail ? `${what} (${res.status}): ${detail}` : `${what} (${res.status})`
+  );
 }
 
 export async function createSession(
@@ -51,15 +73,12 @@ export async function createSession(
   userId: string,
   state?: Record<string, unknown>
 ): Promise<Session> {
-  const res = await fetch(
-    `${API_BASE}/apps/${appName}/users/${userId}/sessions`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ state }),
-    }
-  );
-  if (!res.ok) throw new Error(`Failed to create session: ${res.statusText}`);
+  const res = await fetch(sessionsUrl(appName, userId), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ state }),
+  });
+  if (!res.ok) throw await httpError(res, "Failed to create session");
   return res.json();
 }
 
@@ -68,10 +87,8 @@ export async function getSession(
   userId: string,
   sessionId: string
 ): Promise<Session> {
-  const res = await fetch(
-    `${API_BASE}/apps/${appName}/users/${userId}/sessions/${sessionId}`
-  );
-  if (!res.ok) throw new Error(`Failed to get session: ${res.statusText}`);
+  const res = await fetch(sessionsUrl(appName, userId, sessionId));
+  if (!res.ok) throw await httpError(res, "Failed to get session");
   return res.json();
 }
 
@@ -79,10 +96,8 @@ export async function listSessions(
   appName: string,
   userId: string
 ): Promise<Session[]> {
-  const res = await fetch(
-    `${API_BASE}/apps/${appName}/users/${userId}/sessions`
-  );
-  if (!res.ok) throw new Error(`Failed to list sessions: ${res.statusText}`);
+  const res = await fetch(sessionsUrl(appName, userId));
+  if (!res.ok) throw await httpError(res, "Failed to list sessions");
   return res.json();
 }
 
@@ -91,23 +106,8 @@ export async function listArtifacts(
   userId: string,
   sessionId: string
 ): Promise<string[]> {
-  const res = await fetch(
-    `${API_BASE}/apps/${appName}/users/${userId}/sessions/${sessionId}/artifacts`
-  );
-  if (!res.ok) throw new Error(`Failed to list artifacts: ${res.statusText}`);
-  return res.json();
-}
-
-export async function getArtifact(
-  appName: string,
-  userId: string,
-  sessionId: string,
-  artifactName: string
-): Promise<unknown> {
-  const res = await fetch(
-    `${API_BASE}/apps/${appName}/users/${userId}/sessions/${sessionId}/artifacts/${artifactName}`
-  );
-  if (!res.ok) throw new Error(`Failed to get artifact: ${res.statusText}`);
+  const res = await fetch(`${sessionsUrl(appName, userId, sessionId)}/artifacts`);
+  if (!res.ok) throw await httpError(res, "Failed to list artifacts");
   return res.json();
 }
 
@@ -148,7 +148,7 @@ export async function startRun(
   sessionId: string,
   message: string
 ): Promise<{ runId: string; status: string }> {
-  const res = await fetch(`${API_BASE}/runs/${appName}`, {
+  const res = await fetch(runsUrl(appName), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ userId, sessionId, message }),
@@ -175,7 +175,7 @@ export async function getRunStatus(
   since = 0
 ): Promise<PollResult> {
   const res = await fetch(
-    `${API_BASE}/runs/${appName}/${userId}/${sessionId}?since=${since}`
+    `${runsUrl(appName, userId, sessionId)}?since=${since}`
   );
   if (!res.ok) throw new Error(`Failed to poll run (${res.status})`);
   return res.json();
@@ -250,7 +250,7 @@ export async function* pollRun(
     let res: Response | null = null;
     try {
       res = await fetch(
-        `${API_BASE}/runs/${appName}/${userId}/${sessionId}?since=${since}`,
+        `${runsUrl(appName, userId, sessionId)}?since=${since}`,
         { signal: opts.signal }
       );
     } catch (err) {
@@ -377,7 +377,7 @@ export async function resumeRun(
 ): Promise<{ runId: string; status: string }> {
   let res: Response;
   try {
-    res = await fetch(`${API_BASE}/runs/${appName}/${userId}/${sessionId}/resume`, {
+    res = await fetch(`${runsUrl(appName, userId, sessionId)}/resume`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -420,7 +420,7 @@ export async function resumeRun(
 // ---------------------------------------------------------------------------
 
 const ratingsUrl = (tail: string) =>
-  `${API_BASE}/ratings/${SELF_USER_ID}/${encodeURIComponent(tail)}`;
+  `${API_BASE}/ratings/${seg(SELF_USER_ID)}/${seg(tail)}`;
 
 /** `PUT /ratings/{user}/{session}`: upsert the caller's rating of one creative. */
 export async function putRating(
@@ -456,7 +456,7 @@ export async function getCalibration(): Promise<Calibration> {
 // ---------------------------------------------------------------------------
 
 const sharesUrl = (...tail: string[]) =>
-  [`${API_BASE}/shares/${SELF_USER_ID}`, ...tail.map(encodeURIComponent)].join("/");
+  [`${API_BASE}/shares/${seg(SELF_USER_ID)}`, ...tail.map(seg)].join("/");
 
 /** A failed shares response as a `ShareError` (reason from `detail.reason`, if any). */
 async function shareError(res: Response): Promise<ShareError> {
@@ -504,7 +504,7 @@ export async function revokeShare(token: string): Promise<void> {
 // ---------------------------------------------------------------------------
 
 const personRefsUrl = (...tail: string[]) =>
-  [`${API_BASE}/person-refs/${SELF_USER_ID}`, ...tail.map(encodeURIComponent)].join("/");
+  [`${API_BASE}/person-refs/${seg(SELF_USER_ID)}`, ...tail.map(seg)].join("/");
 
 /** A failed person-refs response as a `PersonRefError` (reason from `detail.reason`). */
 async function personRefError(res: Response): Promise<PersonRefError> {
@@ -551,7 +551,7 @@ export async function revokePersonRef(consentId: string): Promise<void> {
 // ---------------------------------------------------------------------------
 
 const variantsUrl = (appName: string, sessionId: string) =>
-  `${API_BASE}/variants/${SELF_USER_ID}/${encodeURIComponent(appName)}/${encodeURIComponent(sessionId)}`;
+  `${API_BASE}/variants/${seg(SELF_USER_ID)}/${seg(appName)}/${seg(sessionId)}`;
 
 /** A failed variants response as a `VariantError` (reason + message from `detail`). */
 async function variantError(res: Response): Promise<VariantError> {
