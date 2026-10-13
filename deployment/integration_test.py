@@ -89,6 +89,21 @@ CREATIVE_OUTPUT_KEYS = (
     "research_report_gcs_uri",
 )
 
+# What each agent's smoke run must leave in session state (set and non-empty).
+# The campaign keys in EXPECTED_STATE_KEYS only prove the run started;
+# these prove it produced something:
+# - trend_scout: the picked trends (pick_trends_agent's output_key).
+# - creative_agent: the finalize deliverables above (plus >=1 rendered image,
+#   checked separately in check_agent_outputs).
+# - interactive_creative: the smoke run pauses at checkpoint 1 (review_research),
+#   which the root calls only after combined_research_pipeline returns, so the
+#   structured brief and the saved research PDF are what it has produced.
+AGENT_OUTPUT_KEYS: dict[str, tuple[str, ...]] = {
+    "trend_scout": ("selected_gtrends",),
+    "creative_agent": CREATIVE_OUTPUT_KEYS,
+    "interactive_creative": ("creative_brief", "research_report_gcs_uri"),
+}
+
 TEST_USER_ID = "integration_test_user"
 
 # interactive_creative's LongRunningFunctionTool checkpoints: a smoke run pauses at
@@ -155,42 +170,97 @@ def _check_text_output(agent_name: str, events: list) -> "TestResult":
 
 
 def _is_set(value) -> bool:
+    """None, False, blank strings and empty containers count as unset."""
     return bool(value.strip()) if isinstance(value, str) else bool(value)
 
 
-def check_creative_outputs(agent_name: str, state: dict) -> "TestResult | None":
-    """Assert a creative_agent run's real outputs (None for other agents).
+def _has_rendered_image(generated_images) -> bool:
+    """True when at least one `generated_images` entry has a `gcs_uri`."""
+    if not isinstance(generated_images, dict):
+        return False
+    return any(
+        isinstance(entry, dict) and _is_set(entry.get("gcs_uri"))
+        for entry in generated_images.values()
+    )
 
-    interactive_creative's smoke run pauses at checkpoint 1, long before
-    finalize, and trend_scout has no creative outputs, so only creative_agent is
-    checked. A failure names each missing key and any `<key>__issues` the
-    fail-soft step recorded.
+
+def check_run_events(agent_name: str, events: list, duration_s: float) -> "TestResult":
+    """The run step passes only when the stream yielded at least one event."""
+    return TestResult(
+        name=f"smoke:{agent_name}:run",
+        passed=len(events) > 0,
+        message=f"Received {len(events)} events" if events else "No events received",
+        duration_s=duration_s,
+    )
+
+
+def check_state_keys(
+    agent_name: str, state: dict, duration_s: float = 0.0
+) -> "TestResult":
+    """Every expected campaign key must hold a value.
+
+    The agents' state init pre-seeds these keys with "", so a presence check
+    passes even when the run memorized nothing.
     """
-    if agent_name != "creative_agent":
-        return None
-    name = f"smoke:{agent_name}:outputs"
-    missing = [k for k in CREATIVE_OUTPUT_KEYS if not _is_set(state.get(k))]
-    if not missing:
+    name = f"smoke:{agent_name}:state_keys"
+    expected = EXPECTED_STATE_KEYS.get(agent_name, [])
+    missing = [k for k in expected if not _is_set(state.get(k))]
+    if missing:
         return TestResult(
             name=name,
-            passed=True,
+            passed=False,
             message=(
+                f"Missing/empty state keys: {missing}. Present: {list(state.keys())}"
+            ),
+            duration_s=duration_s,
+        )
+    return TestResult(
+        name=name,
+        passed=True,
+        message=f"All expected keys set: {expected}",
+        duration_s=duration_s,
+    )
+
+
+def check_agent_outputs(agent_name: str, state: dict) -> "TestResult | None":
+    """Assert the run's real outputs (AGENT_OUTPUT_KEYS; None for unknown agents).
+
+    creative_agent also needs at least one rendered image. A failure names each
+    missing key and any `<key>__issues` the fail-soft step recorded.
+    """
+    keys = AGENT_OUTPUT_KEYS.get(agent_name)
+    if keys is None:
+        return None
+    name = f"smoke:{agent_name}:outputs"
+    missing = [k for k in keys if not _is_set(state.get(k))]
+    if agent_name == "creative_agent" and not _has_rendered_image(
+        state.get("generated_images")
+    ):
+        missing.append("generated_images")
+    if not missing:
+        if agent_name == "creative_agent":
+            message = (
                 f"finalize done; eval report {state['eval_report_gcs_uri']}; "
                 f"research PDF {state['research_report_gcs_uri']}"
-            ),
-        )
+            )
+        else:
+            message = f"All outputs set: {list(keys)}"
+        return TestResult(name=name, passed=True, message=message)
     details = [
         f"{k} (issue: {issue})" if (issue := state.get(f"{k}__issues")) else k
         for k in missing
     ]
+    hint = (
+        " (did the run end before finalize_pipeline?)"
+        if agent_name == "creative_agent"
+        else ""
+    )
     return TestResult(
         name=name,
         passed=False,
-        message=(
-            "Run did not produce its outputs — missing/empty: "
-            + ", ".join(details)
-            + " (did the run end before finalize_pipeline?)"
-        ),
+        message="Run did not produce its outputs — missing/empty: "
+        + ", ".join(details)
+        + hint,
     )
 
 
@@ -472,7 +542,7 @@ async def check_session(client, agent_name: str) -> list[TestResult]:
 # Check: Smoke test
 # ==============================
 async def check_smoke(client, agent_name: str) -> list[TestResult]:
-    """Run agent end-to-end and assert session state contains expected keys."""
+    """Run agent end-to-end and assert its session state holds real outputs."""
     results = []
 
     try:
@@ -540,16 +610,7 @@ async def check_smoke(client, agent_name: str) -> list[TestResult]:
             for tool_name in _function_call_names(event):
                 logging.info(f"  [{author}] tool: {tool_name}")
 
-        results.append(
-            TestResult(
-                name=f"smoke:{agent_name}:run",
-                passed=len(events) > 0,
-                message=f"Received {len(events)} events"
-                if events
-                else "No events received",
-                duration_s=time.time() - start,
-            )
-        )
+        results.append(check_run_events(agent_name, events, time.time() - start))
     except Exception as e:
         results.append(
             TestResult(
@@ -574,30 +635,9 @@ async def check_smoke(client, agent_name: str) -> list[TestResult]:
         elif hasattr(session_data, "state"):
             state = session_data.state or {}
 
-        expected_keys = EXPECTED_STATE_KEYS.get(agent_name, [])
-        missing_keys = [k for k in expected_keys if k not in state]
-
-        if (outputs := check_creative_outputs(agent_name, state)) is not None:
+        if (outputs := check_agent_outputs(agent_name, state)) is not None:
             results.append(outputs)
-
-        if missing_keys:
-            results.append(
-                TestResult(
-                    name=f"smoke:{agent_name}:state_keys",
-                    passed=False,
-                    message=f"Missing state keys: {missing_keys}. Present: {list(state.keys())}",
-                    duration_s=time.time() - start,
-                )
-            )
-        else:
-            results.append(
-                TestResult(
-                    name=f"smoke:{agent_name}:state_keys",
-                    passed=True,
-                    message=f"All expected keys present: {expected_keys}",
-                    duration_s=time.time() - start,
-                )
-            )
+        results.append(check_state_keys(agent_name, state, time.time() - start))
 
     except Exception as e:
         results.append(
