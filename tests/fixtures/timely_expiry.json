@@ -1,0 +1,562 @@
+[
+  {
+    "case": "concept flagged, before",
+    "state": {
+      "final_visual_concepts": {
+        "visual_concepts": [
+          {
+            "concept_name": "C1",
+            "ad_copy_id": "1",
+            "uses_trend_state": true
+          },
+          {
+            "concept_name": "C2",
+            "ad_copy_id": "2",
+            "uses_trend_state": false
+          },
+          {
+            "concept_name": "C3",
+            "ad_copy_id": "3"
+          }
+        ]
+      },
+      "ad_copy_critique": {
+        "ad_copies": [
+          {
+            "original_id": "1",
+            "uses_trend_state": true
+          },
+          {
+            "original_id": 2,
+            "uses_trend_state": true
+          },
+          {
+            "original_id": "3",
+            "uses_trend_state": false
+          }
+        ]
+      },
+      "trend_situation": {
+        "timely_ok": true,
+        "valid_until": "2026-10-14T23:59:59-04:00"
+      }
+    },
+    "concept_name": "C1",
+    "now": "2026-10-14T12:00:00-04:00",
+    "timely": true,
+    "expired": false
+  },
+  {
+    "case": "concept flagged, one second before (same offset)",
+    "state": {
+      "final_visual_concepts": {
+        "visual_concepts": [
+          {
+            "concept_name": "C1",
+            "ad_copy_id": "1",
+            "uses_trend_state": true
+          },
+          {
+            "concept_name": "C2",
+            "ad_copy_id": "2",
+            "uses_trend_state": false
+          },
+          {
+            "concept_name": "C3",
+            "ad_copy_id": "3"
+          }
+        ]
+      },
+      "ad_copy_critique": {
+        "ad_copies": [
+          {
+            "original_id": "1",
+            "uses_trend_state": true
+          },
+          {
+            "original_id": 2,
+            "uses_trend_state": true
+          },
+          {
+            "original_id": "3",
+            "uses_trend_state": false
+          }
+        ]
+      },
+      "trend_situation": {
+        "timely_ok": true,
+        "valid_until": "2026-10-14T23:59:59-04:00"
+      }
+    },
+    "concept_name": "C1",
+    "now": "2026-10-14T23:59:58-04:00",
+    "timely": true,
+    "expired": false
+  },
+  {
+    "case": "concept flagged, exactly at valid_until (UTC form) is expired",
+    "state": {
+      "final_visual_concepts": {
+        "visual_concepts": [
+          {
+            "concept_name": "C1",
+            "ad_copy_id": "1",
+            "uses_trend_state": true
+          },
+          {
+            "concept_name": "C2",
+            "ad_copy_id": "2",
+            "uses_trend_state": false
+          },
+          {
+            "concept_name": "C3",
+            "ad_copy_id": "3"
+          }
+        ]
+      },
+      "ad_copy_critique": {
+        "ad_copies": [
+          {
+            "original_id": "1",
+            "uses_trend_state": true
+          },
+          {
+            "original_id": 2,
+            "uses_trend_state": true
+          },
+          {
+            "original_id": "3",
+            "uses_trend_state": false
+          }
+        ]
+      },
+      "trend_situation": {
+        "timely_ok": true,
+        "valid_until": "2026-10-14T23:59:59-04:00"
+      }
+    },
+    "concept_name": "C1",
+    "now": "2026-10-15T03:59:59Z",
+    "timely": true,
+    "expired": true
+  },
+  {
+    "case": "concept flagged, after",
+    "state": {
+      "final_visual_concepts": {
+        "visual_concepts": [
+          {
+            "concept_name": "C1",
+            "ad_copy_id": "1",
+            "uses_trend_state": true
+          },
+          {
+            "concept_name": "C2",
+            "ad_copy_id": "2",
+            "uses_trend_state": false
+          },
+          {
+            "concept_name": "C3",
+            "ad_copy_id": "3"
+          }
+        ]
+      },
+      "ad_copy_critique": {
+        "ad_copies": [
+          {
+            "original_id": "1",
+            "uses_trend_state": true
+          },
+          {
+            "original_id": 2,
+            "uses_trend_state": true
+          },
+          {
+            "original_id": "3",
+            "uses_trend_state": false
+          }
+        ]
+      },
+      "trend_situation": {
+        "timely_ok": true,
+        "valid_until": "2026-10-14T23:59:59-04:00"
+      }
+    },
+    "concept_name": "C1",
+    "now": "2026-10-16T09:00:00Z",
+    "timely": true,
+    "expired": true
+  },
+  {
+    "case": "copy flagged (int original_id), after",
+    "state": {
+      "final_visual_concepts": {
+        "visual_concepts": [
+          {
+            "concept_name": "C1",
+            "ad_copy_id": "1",
+            "uses_trend_state": true
+          },
+          {
+            "concept_name": "C2",
+            "ad_copy_id": "2",
+            "uses_trend_state": false
+          },
+          {
+            "concept_name": "C3",
+            "ad_copy_id": "3"
+          }
+        ]
+      },
+      "ad_copy_critique": {
+        "ad_copies": [
+          {
+            "original_id": "1",
+            "uses_trend_state": true
+          },
+          {
+            "original_id": 2,
+            "uses_trend_state": true
+          },
+          {
+            "original_id": "3",
+            "uses_trend_state": false
+          }
+        ]
+      },
+      "trend_situation": {
+        "timely_ok": true,
+        "valid_until": "2026-10-14T23:59:59-04:00"
+      }
+    },
+    "concept_name": "C2",
+    "now": "2026-10-16T09:00:00Z",
+    "timely": true,
+    "expired": true
+  },
+  {
+    "case": "copy flagged, before",
+    "state": {
+      "final_visual_concepts": {
+        "visual_concepts": [
+          {
+            "concept_name": "C1",
+            "ad_copy_id": "1",
+            "uses_trend_state": true
+          },
+          {
+            "concept_name": "C2",
+            "ad_copy_id": "2",
+            "uses_trend_state": false
+          },
+          {
+            "concept_name": "C3",
+            "ad_copy_id": "3"
+          }
+        ]
+      },
+      "ad_copy_critique": {
+        "ad_copies": [
+          {
+            "original_id": "1",
+            "uses_trend_state": true
+          },
+          {
+            "original_id": 2,
+            "uses_trend_state": true
+          },
+          {
+            "original_id": "3",
+            "uses_trend_state": false
+          }
+        ]
+      },
+      "trend_situation": {
+        "timely_ok": true,
+        "valid_until": "2026-10-14T23:59:59-04:00"
+      }
+    },
+    "concept_name": "C2",
+    "now": "2026-10-13T09:00:00Z",
+    "timely": true,
+    "expired": false
+  },
+  {
+    "case": "neither flagged, after",
+    "state": {
+      "final_visual_concepts": {
+        "visual_concepts": [
+          {
+            "concept_name": "C1",
+            "ad_copy_id": "1",
+            "uses_trend_state": true
+          },
+          {
+            "concept_name": "C2",
+            "ad_copy_id": "2",
+            "uses_trend_state": false
+          },
+          {
+            "concept_name": "C3",
+            "ad_copy_id": "3"
+          }
+        ]
+      },
+      "ad_copy_critique": {
+        "ad_copies": [
+          {
+            "original_id": "1",
+            "uses_trend_state": true
+          },
+          {
+            "original_id": 2,
+            "uses_trend_state": true
+          },
+          {
+            "original_id": "3",
+            "uses_trend_state": false
+          }
+        ]
+      },
+      "trend_situation": {
+        "timely_ok": true,
+        "valid_until": "2026-10-14T23:59:59-04:00"
+      }
+    },
+    "concept_name": "C3",
+    "now": "2026-10-16T09:00:00Z",
+    "timely": false,
+    "expired": false
+  },
+  {
+    "case": "timely_ok false",
+    "state": {
+      "final_visual_concepts": {
+        "visual_concepts": [
+          {
+            "concept_name": "C1",
+            "ad_copy_id": "1",
+            "uses_trend_state": true
+          },
+          {
+            "concept_name": "C2",
+            "ad_copy_id": "2",
+            "uses_trend_state": false
+          },
+          {
+            "concept_name": "C3",
+            "ad_copy_id": "3"
+          }
+        ]
+      },
+      "ad_copy_critique": {
+        "ad_copies": [
+          {
+            "original_id": "1",
+            "uses_trend_state": true
+          },
+          {
+            "original_id": 2,
+            "uses_trend_state": true
+          },
+          {
+            "original_id": "3",
+            "uses_trend_state": false
+          }
+        ]
+      },
+      "trend_situation": {
+        "timely_ok": false,
+        "valid_until": "2026-10-14T23:59:59-04:00"
+      }
+    },
+    "concept_name": "C1",
+    "now": "2026-10-16T09:00:00Z",
+    "timely": false,
+    "expired": false
+  },
+  {
+    "case": "empty valid_until",
+    "state": {
+      "final_visual_concepts": {
+        "visual_concepts": [
+          {
+            "concept_name": "C1",
+            "ad_copy_id": "1",
+            "uses_trend_state": true
+          },
+          {
+            "concept_name": "C2",
+            "ad_copy_id": "2",
+            "uses_trend_state": false
+          },
+          {
+            "concept_name": "C3",
+            "ad_copy_id": "3"
+          }
+        ]
+      },
+      "ad_copy_critique": {
+        "ad_copies": [
+          {
+            "original_id": "1",
+            "uses_trend_state": true
+          },
+          {
+            "original_id": 2,
+            "uses_trend_state": true
+          },
+          {
+            "original_id": "3",
+            "uses_trend_state": false
+          }
+        ]
+      },
+      "trend_situation": {
+        "timely_ok": true,
+        "valid_until": ""
+      }
+    },
+    "concept_name": "C1",
+    "now": "2026-10-16T09:00:00Z",
+    "timely": false,
+    "expired": false
+  },
+  {
+    "case": "unparseable valid_until is timely, never expired",
+    "state": {
+      "final_visual_concepts": {
+        "visual_concepts": [
+          {
+            "concept_name": "C1",
+            "ad_copy_id": "1",
+            "uses_trend_state": true
+          },
+          {
+            "concept_name": "C2",
+            "ad_copy_id": "2",
+            "uses_trend_state": false
+          },
+          {
+            "concept_name": "C3",
+            "ad_copy_id": "3"
+          }
+        ]
+      },
+      "ad_copy_critique": {
+        "ad_copies": [
+          {
+            "original_id": "1",
+            "uses_trend_state": true
+          },
+          {
+            "original_id": 2,
+            "uses_trend_state": true
+          },
+          {
+            "original_id": "3",
+            "uses_trend_state": false
+          }
+        ]
+      },
+      "trend_situation": {
+        "timely_ok": true,
+        "valid_until": "next tuesday"
+      }
+    },
+    "concept_name": "C1",
+    "now": "2026-10-16T09:00:00Z",
+    "timely": true,
+    "expired": false
+  },
+  {
+    "case": "unknown concept",
+    "state": {
+      "final_visual_concepts": {
+        "visual_concepts": [
+          {
+            "concept_name": "C1",
+            "ad_copy_id": "1",
+            "uses_trend_state": true
+          },
+          {
+            "concept_name": "C2",
+            "ad_copy_id": "2",
+            "uses_trend_state": false
+          },
+          {
+            "concept_name": "C3",
+            "ad_copy_id": "3"
+          }
+        ]
+      },
+      "ad_copy_critique": {
+        "ad_copies": [
+          {
+            "original_id": "1",
+            "uses_trend_state": true
+          },
+          {
+            "original_id": 2,
+            "uses_trend_state": true
+          },
+          {
+            "original_id": "3",
+            "uses_trend_state": false
+          }
+        ]
+      },
+      "trend_situation": {
+        "timely_ok": true,
+        "valid_until": "2026-10-14T23:59:59-04:00"
+      }
+    },
+    "concept_name": "C9",
+    "now": "2026-10-16T09:00:00Z",
+    "timely": false,
+    "expired": false
+  },
+  {
+    "case": "no trend_situation",
+    "state": {
+      "final_visual_concepts": {
+        "visual_concepts": [
+          {
+            "concept_name": "C1",
+            "ad_copy_id": "1",
+            "uses_trend_state": true
+          },
+          {
+            "concept_name": "C2",
+            "ad_copy_id": "2",
+            "uses_trend_state": false
+          },
+          {
+            "concept_name": "C3",
+            "ad_copy_id": "3"
+          }
+        ]
+      },
+      "ad_copy_critique": {
+        "ad_copies": [
+          {
+            "original_id": "1",
+            "uses_trend_state": true
+          },
+          {
+            "original_id": 2,
+            "uses_trend_state": true
+          },
+          {
+            "original_id": "3",
+            "uses_trend_state": false
+          }
+        ]
+      }
+    },
+    "concept_name": "C1",
+    "now": "2026-10-16T09:00:00Z",
+    "timely": false,
+    "expired": false
+  }
+]
