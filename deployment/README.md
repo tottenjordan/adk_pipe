@@ -2444,6 +2444,7 @@ Agent Engine through `deploy_agent.py` `ENV_VAR_DICT`, read at import, so for an
 | `IMAGE_QA_ENABLED` | `true` | Post-render vision check; `false` = single render, no QA calls |
 | `IMAGE_QA_MAX_RERENDERS` | `1` (0–2) | Targeted re-renders per failing image |
 | `IMAGE_QA_MAX_RERENDERS_PER_RUN` | `2` (0–8) | Re-render cap across one `generate_image` call (image quota) |
+| `IMAGE_RENDER_CONCURRENCY` | `2` (1–4) | Image-model calls in flight in one `generate_image` call, re-renders included; `1` = strictly sequential renders |
 | `IMAGE_QA_MODEL` | `gemini-3.8-flash` | QA vision model (worker model) |
 | `BRAND_HISTORY_ENABLED` | `true` | `load_brand_history` reads past `creative_evals` rows for the brand |
 | `BRAND_HISTORY_RUNS` | `5` (0–20) | How many past runs of the brand to read |
