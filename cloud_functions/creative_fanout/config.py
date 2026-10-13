@@ -1,6 +1,46 @@
-# config.py
+"""CRF configuration: one frozen ``CrfConfig`` built from the environment.
 
+``load_config()`` reads every setting with a clamp (``_int_env`` /
+``_float_env``: unset or invalid -> the default, out of range -> the nearest
+bound), then cross-checks the settings that depend on each other:
+
+- ``BUDGET_SAFETY_SECS`` must cover one session read, the session delete and
+  one BigQuery status write (``SESSION_READ_TIMEOUT_SECS +
+  SESSION_DELETE_TIMEOUT_SECS + BQ_QUERY_TIMEOUT_SECS``), so the work after the
+  run budget still ends before Cloud Run's request timeout;
+- ``REAP_STALE_PROCESSING_MINUTES`` must be at least the worker timeout (the
+  reaper must never re-queue a row whose worker can still be running); its
+  default is ``ceil(WORKER_TIMEOUT_SECS / 60) + 15``.
+
+An invalid combination logs an ERROR and falls back to safe values; nothing
+here raises at import or load time, so a bad env var can't crash-loop the
+instance. The one exception is the required ``GOOGLE_CLOUD_PROJECT``, which
+raises when it is *used* while unset (a wrong project is worse than a loud
+failure).
+
+Settings are read lazily: ``config.X`` (the module-level accessor every CRF
+module imports) resolves ``load_config().X`` on each access, and
+``load_config()`` caches one ``CrfConfig`` per distinct environment, so a
+cross-check error is logged once, not on every access.
+"""
+
+import functools
+import logging
+import math
 import os
+from dataclasses import dataclass, fields
+from typing import cast
+
+logger = logging.getLogger(__name__)
+
+# Defaults (also the safe fallbacks of the cross-checks).
+DEFAULT_BQ_QUERY_TIMEOUT_SECS = 60.0
+DEFAULT_WORKER_TIMEOUT_SECS = 1800.0
+DEFAULT_BUDGET_SAFETY_SECS = 150.0
+DEFAULT_SESSION_READ_TIMEOUT_SECS = 60.0
+DEFAULT_SESSION_DELETE_TIMEOUT_SECS = 30.0
+# The reaper's margin over the worker timeout, in minutes.
+REAP_MARGIN_MINUTES = 15
 
 
 def _csv_env(name: str) -> set[str]:
@@ -8,13 +48,12 @@ def _csv_env(name: str) -> set[str]:
     return {v.strip() for v in os.environ.get(name, "").split(",") if v.strip()}
 
 
-def _required_env(name: str) -> str:
-    """Read a required env var at *use* time; raise loudly if unset/blank.
+def _str_env(name: str, default: str) -> str:
+    return os.environ.get(name, "").strip() or default
 
-    Deliberately not evaluated at import so the module (and `main.py`) stays
-    importable without GCP config — the tests import it with only a dummy
-    `GOOGLE_CLOUD_PROJECT` (or none at all).
-    """
+
+def _required_env(name: str) -> str:
+    """Read a required env var at *use* time; raise loudly if unset/blank."""
     value = os.environ.get(name, "").strip()
     if not value:
         raise RuntimeError(
@@ -30,109 +69,246 @@ def _float_env(name: str, default: float, low: float, high: float) -> float:
     try:
         value = float(raw) if raw else default
     except ValueError:
+        logger.warning(f"{name}={raw!r} is not a number; using {default}.")
+        value = default
+    if math.isnan(value):
         value = default
     return min(max(value, low), high)
 
 
-class AppConfig:
+def _int_env(name: str, default: int, low: int, high: int) -> int:
+    """An int env var clamped to ``[low, high]``; unset/invalid -> default."""
+    raw = os.environ.get(name, "").strip()
+    try:
+        value = int(raw) if raw else default
+    except ValueError:
+        logger.warning(f"{name}={raw!r} is not an integer; using {default}.")
+        value = default
+    return min(max(value, low), high)
+
+
+@dataclass(frozen=True)
+class CrfConfig:
+    """Every CRF setting, read once per distinct environment (see module doc)."""
+
+    # GCP. The project is required but only checked on use (see the property).
+    project_id: str
+    project_number: str
+    # Agent Engine is a *regional* resource — this is us-central1, NOT the
+    # `global` model location used for the gemini-3.x endpoints.
+    GCP_REGION: str
+    CREATIVE_WORKER_TOPIC_NAME: str
+    # Base user id of the worker's Agent Engine sessions (one per row:
+    # `worker.session_user_id`).
+    AGENT_WORKER_USER_ID: str
+    # The engine's root agent name (= its events' author): the completion
+    # check's end-of-invocation signal is that agent's final text.
+    ROOT_AGENT_NAME: str
+    # BigQuery status-tracking table. The Pub/Sub payloads name the
+    # dataset/table, and BigQuery can't parameterize identifiers, so every SQL
+    # builder validates them against these allow-lists before quoting.
+    BQ_DATASET_ID: str
+    BQ_TABLE_TARGETS: str
+    ALLOWED_BQ_DATASETS: frozenset[str]
+    # Extra opt-in tables (e.g. a load-test copy): CRF_EXTRA_ALLOWED_TABLES.
+    ALLOWED_BQ_TABLES: frozenset[str]
+    # Bound on each BigQuery status query/DML (client wait + job_timeout_ms).
+    BQ_QUERY_TIMEOUT_SECS: float
+    # The worker's Cloud Run request timeout; must match the deployed
+    # `--timeout`. The run deadline is request start + this - the safety.
+    WORKER_TIMEOUT_SECS: float
+    # Kept back from the run budget for the session read/delete and the
+    # status write (>= their timeouts, cross-checked).
+    BUDGET_SAFETY_SECS: float
+    # Bound on one `async_stream_query` call (also clamped to the budget).
+    STREAM_TIMEOUT_SECS: float
+    # Session poll interval of the completion check.
+    POLL_INTERVAL_SECS: float
+    # Give-up fallback: a run with no end-of-invocation signal and no new
+    # events for this long is FAILED (never retried). >= 600 s, longer than
+    # the longest step that writes no events (renders, paced judge calls).
+    IDLE_SECS: float
+    # Bound on one session read (also clamped to the remaining budget).
+    SESSION_READ_TIMEOUT_SECS: float
+    # Bound on the best-effort session delete (<= 30 s).
+    SESSION_DELETE_TIMEOUT_SECS: float
+    # Reaper: a PROCESSING row older than this is presumed hard-crashed.
+    REAP_STALE_PROCESSING_MINUTES: int
+    # After this many lock acquisitions a reaped row goes FAILED (poison pill).
+    MAX_PROCESSING_ATTEMPTS: int
+    # The most rows one trigger message dispatches (oldest first, >= 1).
+    CRF_MAX_ROWS_PER_RUN: int
+
     @property
     def GOOGLE_CLOUD_PROJECT(self) -> str:
-        """GCP project ID (required; no default — a wrong project is worse
-        than a loud failure). Read on access, not at import."""
-        return _required_env("GOOGLE_CLOUD_PROJECT")
+        """GCP project ID (required; raises on use while unset/blank)."""
+        if not self.project_id:
+            return _required_env("GOOGLE_CLOUD_PROJECT")
+        return self.project_id
 
     @property
     def GOOGLE_CLOUD_PROJECT_NUMBER(self) -> str:
-        """Project number for resource paths (Pub/Sub topic, Reasoning Engine).
+        """Project number for resource paths (Pub/Sub topic, Reasoning Engine);
+        falls back to the project ID (both APIs accept either)."""
+        return self.project_number or self.GOOGLE_CLOUD_PROJECT
 
-        Optional: both APIs accept the project ID in place of the number, so an
-        unset value falls back to `GOOGLE_CLOUD_PROJECT` (which is required).
-        """
-        return (
-            os.environ.get("GOOGLE_CLOUD_PROJECT_NUMBER", "").strip()
-            or self.GOOGLE_CLOUD_PROJECT
+
+# Every env var load_config reads: the cache key.
+_ENV_NAMES = (
+    "GOOGLE_CLOUD_PROJECT",
+    "GOOGLE_CLOUD_PROJECT_NUMBER",
+    "GCP_REGION",
+    "CREATIVE_WORKER_TOPIC_NAME",
+    "AGENT_WORKER_USER_ID",
+    "CRF_ROOT_AGENT_NAME",
+    "BQ_DATASET_ID",
+    "BQ_TABLE_TARGETS",
+    "CRF_EXTRA_ALLOWED_TABLES",
+    "CRF_BQ_QUERY_TIMEOUT_SECS",
+    "CRF_WORKER_TIMEOUT_SECS",
+    "CRF_BUDGET_SAFETY_SECS",
+    "CRF_STREAM_TIMEOUT_SECS",
+    "CRF_POLL_INTERVAL_SECS",
+    "CRF_IDLE_SECS",
+    "CRF_SESSION_READ_TIMEOUT_SECS",
+    "CRF_SESSION_DELETE_TIMEOUT_SECS",
+    "REAP_STALE_PROCESSING_MINUTES",
+    "MAX_PROCESSING_ATTEMPTS",
+    "CRF_MAX_ROWS_PER_RUN",
+)
+
+
+def default_reap_minutes(worker_timeout_secs: float) -> int:
+    """The reaper's default threshold: the worker timeout in whole minutes
+    plus ``REAP_MARGIN_MINUTES`` (45 for the default 1800 s)."""
+    return math.ceil(worker_timeout_secs / 60) + REAP_MARGIN_MINUTES
+
+
+def load_config() -> CrfConfig:
+    """The current ``CrfConfig`` (cached per distinct environment)."""
+    return _build(tuple(os.environ.get(name) for name in _ENV_NAMES))
+
+
+@functools.lru_cache(maxsize=16)
+def _build(_env_key: tuple) -> CrfConfig:
+    worker_timeout = _float_env(
+        "CRF_WORKER_TIMEOUT_SECS", DEFAULT_WORKER_TIMEOUT_SECS, 300.0, 3600.0
+    )
+    bq_timeout = _float_env(
+        "CRF_BQ_QUERY_TIMEOUT_SECS", DEFAULT_BQ_QUERY_TIMEOUT_SECS, 5.0, 600.0
+    )
+    read_timeout = _float_env(
+        "CRF_SESSION_READ_TIMEOUT_SECS", DEFAULT_SESSION_READ_TIMEOUT_SECS, 5.0, 120.0
+    )
+    delete_timeout = _float_env(
+        "CRF_SESSION_DELETE_TIMEOUT_SECS",
+        DEFAULT_SESSION_DELETE_TIMEOUT_SECS,
+        1.0,
+        30.0,
+    )
+    safety = _float_env(
+        "CRF_BUDGET_SAFETY_SECS", DEFAULT_BUDGET_SAFETY_SECS, 30.0, 600.0
+    )
+
+    # Cross-check: the safety margin covers the post-budget work.
+    needed = read_timeout + delete_timeout + bq_timeout
+    if safety < needed:
+        if needed <= worker_timeout / 2:
+            logger.error(
+                f"CRF_BUDGET_SAFETY_SECS={safety:g} is below the session read + "
+                f"delete + BigQuery timeouts ({needed:g}); using {needed:g}."
+            )
+            safety = needed
+        else:
+            logger.error(
+                f"CRF_BUDGET_SAFETY_SECS={safety:g} can't cover the session read "
+                f"+ delete + BigQuery timeouts ({needed:g}) within half of "
+                f"CRF_WORKER_TIMEOUT_SECS={worker_timeout:g}; using the default "
+                "timeouts and safety margin."
+            )
+            bq_timeout = DEFAULT_BQ_QUERY_TIMEOUT_SECS
+            read_timeout = DEFAULT_SESSION_READ_TIMEOUT_SECS
+            delete_timeout = DEFAULT_SESSION_DELETE_TIMEOUT_SECS
+            safety = DEFAULT_BUDGET_SAFETY_SECS
+
+    # Cross-check: the reaper never fires while a worker can still be running.
+    reap_default = default_reap_minutes(worker_timeout)
+    reap = _int_env("REAP_STALE_PROCESSING_MINUTES", reap_default, 1, 1440)
+    if reap * 60 < worker_timeout:
+        logger.error(
+            f"REAP_STALE_PROCESSING_MINUTES={reap} is below the worker timeout "
+            f"(CRF_WORKER_TIMEOUT_SECS={worker_timeout:g}); using {reap_default}."
         )
+        reap = reap_default
 
-    @property
-    def BQ_QUERY_TIMEOUT_SECS(self) -> float:
-        """Bound on each BigQuery status query/DML (`CRF_BQ_QUERY_TIMEOUT_SECS`,
-        default 60, clamped 5-600; invalid -> 60). Used as the client wait
-        (the client then tries to cancel the job) and as the job's server-side
-        `job_timeout_ms`, so a stuck query fails the invocation instead of
-        hanging until the Cloud Run timeout."""
-        raw = os.environ.get("CRF_BQ_QUERY_TIMEOUT_SECS", "").strip()
+    dataset = _str_env("BQ_DATASET_ID", "trend_trawler")
+    table = _str_env("BQ_TABLE_TARGETS", "target_trends_crf")
+    return CrfConfig(
+        project_id=os.environ.get("GOOGLE_CLOUD_PROJECT", "").strip(),
+        project_number=os.environ.get("GOOGLE_CLOUD_PROJECT_NUMBER", "").strip(),
+        GCP_REGION=_str_env("GCP_REGION", "us-central1"),
+        CREATIVE_WORKER_TOPIC_NAME=_str_env(
+            "CREATIVE_WORKER_TOPIC_NAME", "creative-worker-queue-topic"
+        ),
+        AGENT_WORKER_USER_ID=_str_env("AGENT_WORKER_USER_ID", "crf_worker"),
+        ROOT_AGENT_NAME=_str_env("CRF_ROOT_AGENT_NAME", "root_agent"),
+        BQ_DATASET_ID=dataset,
+        BQ_TABLE_TARGETS=table,
+        ALLOWED_BQ_DATASETS=frozenset({dataset}),
+        ALLOWED_BQ_TABLES=frozenset({table} | _csv_env("CRF_EXTRA_ALLOWED_TABLES")),
+        BQ_QUERY_TIMEOUT_SECS=bq_timeout,
+        WORKER_TIMEOUT_SECS=worker_timeout,
+        BUDGET_SAFETY_SECS=safety,
+        STREAM_TIMEOUT_SECS=_float_env("CRF_STREAM_TIMEOUT_SECS", 1500.0, 60.0, 3600.0),
+        POLL_INTERVAL_SECS=_float_env("CRF_POLL_INTERVAL_SECS", 30.0, 5.0, 300.0),
+        IDLE_SECS=_float_env("CRF_IDLE_SECS", 600.0, 600.0, 3600.0),
+        SESSION_READ_TIMEOUT_SECS=read_timeout,
+        SESSION_DELETE_TIMEOUT_SECS=delete_timeout,
+        REAP_STALE_PROCESSING_MINUTES=reap,
+        MAX_PROCESSING_ATTEMPTS=_int_env("MAX_PROCESSING_ATTEMPTS", 3, 1, 10),
+        CRF_MAX_ROWS_PER_RUN=_int_env("CRF_MAX_ROWS_PER_RUN", 3, 1, 100),
+    )
+
+
+_FIELD_NAMES = frozenset(f.name for f in fields(CrfConfig))
+_PROPERTY_NAMES = frozenset({"GOOGLE_CLOUD_PROJECT", "GOOGLE_CLOUD_PROJECT_NUMBER"})
+
+
+class _ConfigAccessor:
+    """``config.X`` -> ``load_config().X``, resolved on every access.
+
+    Keeps the ``from .config import config`` / ``config.X`` call sites working
+    while the values come from one validated ``CrfConfig``. Tests may
+    ``monkeypatch.setattr(config, "X", v)``: that stores an override (setting
+    a value equal to the environment's drops it, so monkeypatch's undo leaves
+    no stale pin).
+    """
+
+    def __init__(self) -> None:
+        object.__setattr__(self, "_overrides", {})
+
+    def __getattr__(self, name: str):
+        overrides = object.__getattribute__(self, "_overrides")
+        if name in overrides:
+            return overrides[name]
+        return getattr(load_config(), name)
+
+    def __setattr__(self, name: str, value) -> None:
+        if name not in _FIELD_NAMES and name not in _PROPERTY_NAMES:
+            raise AttributeError(f"CrfConfig has no setting {name!r}")
+        overrides = object.__getattribute__(self, "_overrides")
         try:
-            value = float(raw) if raw else 60.0
-        except ValueError:
-            value = 60.0
-        return min(max(value, 5.0), 600.0)
+            current = getattr(load_config(), name)
+        except RuntimeError:  # the required project is unset
+            current = object()
+        if value == current:
+            overrides.pop(name, None)
+        else:
+            overrides[name] = value
 
-    @property
-    def WORKER_TIMEOUT_SECS(self) -> float:
-        """The worker's Cloud Run request timeout (`CRF_WORKER_TIMEOUT_SECS`,
-        default 1800, clamped 300-3600). Must match the deployed `--timeout`:
-        the run budget (stream + completion poll + one retry) is this minus
-        `BUDGET_SAFETY_SECS`, measured from when the row lock is taken."""
-        return _float_env("CRF_WORKER_TIMEOUT_SECS", 1800.0, 300.0, 3600.0)
-
-    @property
-    def BUDGET_SAFETY_SECS(self) -> float:
-        """Time kept back from the run budget for the session delete and the
-        PROCESSED/FAILED write (`CRF_BUDGET_SAFETY_SECS`, default 150, 30-600)."""
-        return _float_env("CRF_BUDGET_SAFETY_SECS", 150.0, 30.0, 600.0)
-
-    @property
-    def STREAM_TIMEOUT_SECS(self) -> float:
-        """Bound on one `async_stream_query` call (`CRF_STREAM_TIMEOUT_SECS`,
-        default 1500, 60-3600; also clamped to the remaining budget). A timeout
-        leads into the completion check, never straight to FAILED."""
-        return _float_env("CRF_STREAM_TIMEOUT_SECS", 1500.0, 60.0, 3600.0)
-
-    @property
-    def POLL_INTERVAL_SECS(self) -> float:
-        """Session poll interval of the completion check
-        (`CRF_POLL_INTERVAL_SECS`, default 30, 5-300)."""
-        return _float_env("CRF_POLL_INTERVAL_SECS", 30.0, 5.0, 300.0)
-
-    @property
-    def IDLE_SECS(self) -> float:
-        """After a stream error/timeout, a session with no new events for this
-        long counts as idle (run over) (`CRF_IDLE_SECS`, default 180, 30-900)."""
-        return _float_env("CRF_IDLE_SECS", 180.0, 30.0, 900.0)
-
-    # Agent Engine is a *regional* resource — this is us-central1, NOT the
-    # `global` model location used for the gemini-3.x endpoints.
-    GCP_REGION = os.environ.get("GCP_REGION", "us-central1")
-    CREATIVE_WORKER_TOPIC_NAME = os.environ.get(
-        "CREATIVE_WORKER_TOPIC_NAME", "creative-worker-queue-topic"
-    )
-    # Base user ID for the worker's Agent Engine sessions; each row's session
-    # runs under `f"{AGENT_WORKER_USER_ID}_{index}"`.
-    AGENT_WORKER_USER_ID = os.environ.get("AGENT_WORKER_USER_ID", "crf_worker")
-    # Reaper: a PROCESSING row older than this (worker presumed hard-crashed) is
-    # reclaimed. Must exceed the worker's 1800s/30min Cloud Run timeout + margin.
-    REAP_STALE_PROCESSING_MINUTES = int(
-        os.environ.get("REAP_STALE_PROCESSING_MINUTES", "45")
-    )
-    # After this many lock acquisitions, a reaped row goes FAILED instead of
-    # QUEUED (poison-pill guard).
-    MAX_PROCESSING_ATTEMPTS = int(os.environ.get("MAX_PROCESSING_ATTEMPTS", "3"))
-    # Orchestrator row limit: the most rows one trigger message dispatches (oldest
-    # first). A guard against fanning out the whole backlog by accident — the
-    # rest stay unclaimed for the next trigger. A message may ask for fewer via
-    # `max_rows`, never more.
-    CRF_MAX_ROWS_PER_RUN = int(os.environ.get("CRF_MAX_ROWS_PER_RUN", "3"))
-    # BigQuery status-tracking table. The Pub/Sub payloads name the dataset/table
-    # (`bq_dataset`/`bq_table`), and BigQuery can't parameterize identifiers, so
-    # every SQL builder validates them against these allow-lists before quoting.
-    BQ_DATASET_ID = os.environ.get("BQ_DATASET_ID", "trend_trawler")
-    BQ_TABLE_TARGETS = os.environ.get("BQ_TABLE_TARGETS", "target_trends_crf")
-    ALLOWED_BQ_DATASETS = frozenset({BQ_DATASET_ID})
-    # Extra opt-in tables (e.g. a `target_trends_crf_p95` load-test copy):
-    # CRF_EXTRA_ALLOWED_TABLES="t1,t2".
-    ALLOWED_BQ_TABLES = frozenset(
-        {BQ_TABLE_TARGETS} | _csv_env("CRF_EXTRA_ALLOWED_TABLES")
-    )
+    def __delattr__(self, name: str) -> None:
+        object.__getattribute__(self, "_overrides").pop(name, None)
 
 
-config = AppConfig()
+# Typed as CrfConfig so call sites are type-checked against the dataclass.
+config = cast(CrfConfig, _ConfigAccessor())
