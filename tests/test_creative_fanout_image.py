@@ -152,6 +152,30 @@ def test_optional_deploy_rolls_both_crf_services_without_traffic():
     assert "update-traffic" not in deploy
 
 
+def test_optional_deploy_rolls_api_and_web_by_digest_without_traffic():
+    build = _root_build()
+    step = _step(build, "deploy")
+    assert {"build-api", "build-web"} <= set(step["waitFor"])
+    script = step["args"][-1]
+    _, _, deploy = script.partition("exit 0")
+    for service, image, digest in (
+        ("trend-trawler-api", "_API_IMAGE", "api"),
+        ("trend-trawler-web", "_WEB_IMAGE", "web"),
+    ):
+        cmd = deploy.split(f"gcloud run deploy {service} ", 1)[1].split("gcloud", 1)[0]
+        assert f'--image "${{{image}}}@$$(cat /workspace/{digest}.digest)"' in cmd
+        assert "--no-traffic" in cmd
+        # Never public (only the share service is), never wipe env, never rebuild.
+        assert not re.search(r"--allow-unauthenticated|--set-env-vars|--source", cmd), (
+            cmd
+        )
+        if service == "trend-trawler-api":
+            # Detached /runs need CPU outside requests and no scale-to-zero.
+            assert "--no-cpu-throttling" in cmd
+            assert "--min-instances 1" in cmd
+    assert "update-traffic" not in deploy
+
+
 def test_upload_filter_keeps_only_the_crf_function_dir():
     lines = (REPO_ROOT / "deployment" / "cloudbuild.gcloudignore").read_text()
     lines = [ln.strip() for ln in lines.splitlines()]
