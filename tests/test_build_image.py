@@ -275,3 +275,21 @@ def test_local_model_for_matches_build_cpr_model_spec():
     assert spec.image_uri == "img@sha256:abc"
     assert spec.predict_route == local_model.DEFAULT_PREDICT_ROUTE
     assert spec.health_route == local_model.DEFAULT_HEALTH_ROUTE
+
+
+def test_check_raises_explicitly():
+    bi._check(True, "unused")
+    with pytest.raises(AssertionError, match="boom"):
+        bi._check(False, "boom")
+
+
+def test_local_test_has_no_bare_asserts():
+    """`assert` is stripped under `python -O`, which would report a PASSED local
+    test with no checks run; the local test must use `_check` instead."""
+    import ast
+    import inspect
+
+    for fn in (bi.run_local_test, bi._predict):
+        tree = ast.parse(inspect.getsource(fn))
+        asserts = [n.lineno for n in ast.walk(tree) if isinstance(n, ast.Assert)]
+        assert not asserts, (fn.__name__, asserts)

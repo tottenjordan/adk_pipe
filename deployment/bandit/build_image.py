@@ -239,6 +239,12 @@ def image_size_mb(uri: str) -> float:
     return int(out) / 1e6
 
 
+def _check(condition: object, detail: object) -> None:
+    """Fail the local test (an explicit raise: ``assert`` vanishes under ``python -O``)."""
+    if not condition:
+        raise AssertionError(detail)
+
+
 def _predict(endpoint: Any, instances: list, parameters: dict | None = None) -> list:
     body: dict[str, Any] = {"instances": instances}
     if parameters:
@@ -249,7 +255,7 @@ def _predict(endpoint: Any, instances: list, parameters: dict | None = None) -> 
     if resp.status_code != 200:
         raise AssertionError(f"predict HTTP {resp.status_code}: {resp.text[:500]}")
     preds = resp.json()["predictions"]
-    assert len(preds) == len(instances), (len(preds), len(instances))
+    _check(len(preds) == len(instances), (len(preds), len(instances)))
     return preds
 
 
@@ -292,27 +298,31 @@ def run_local_test(local_model: Any, ready_timeout: int = 600) -> dict[str, floa
         timings["cold_start_s"] = time.perf_counter() - t0
         try:
             logs = endpoint.container.logs().decode("utf-8", "replace")
-            assert "model server workers to 1" in logs, "expected a single CPR worker"
+            _check("model server workers to 1" in logs, "expected a single CPR worker")
 
             reset, timings["reset_ms"] = _timed(
                 _predict, endpoint, [{"type": "reset", "episode": 1, "seed": 7}]
             )
-            assert reset[0] == {
-                "type": "reset",
-                "episode": 1,
-                "model_version": f"{cfg['experiment_id']}-e1-v0",
-                # contracts §2/§10: a reset echoes the gamma its updates use
-                # (the experiment.json value when the request sends none).
-                "discount": 1.0,
-            }, reset
+            _check(
+                reset[0]
+                == {
+                    "type": "reset",
+                    "episode": 1,
+                    "model_version": f"{cfg['experiment_id']}-e1-v0",
+                    # contracts §2/§10: a reset echoes the gamma its updates use
+                    # (the experiment.json value when the request sends none).
+                    "discount": 1.0,
+                },
+                reset,
+            )
 
             first, timings["decision20_first_ms"] = _timed(
                 _predict, endpoint, _decisions(20, "a")
             )
             for d in first:
-                assert d["type"] == "decision" and d["chosen_arm"] in arm_ids, d
-                assert abs(sum(d["arm_probabilities"].values()) - 1.0) < 1e-4, d
-                assert min(d["arm_probabilities"].values()) >= 0.02 - 1e-6, d
+                _check(d["type"] == "decision" and d["chosen_arm"] in arm_ids, d)
+                _check(abs(sum(d["arm_probabilities"].values()) - 1.0) < 1e-4, d)
+                _check(min(d["arm_probabilities"].values()) >= 0.02 - 1e-6, d)
             v0 = first[0]["model_version"]
 
             rewards = [
@@ -326,15 +336,18 @@ def run_local_test(local_model: Any, ready_timeout: int = 600) -> dict[str, floa
                 for i, d in enumerate(first)
             ]
             acks, timings["reward20_ms"] = _timed(_predict, endpoint, rewards)
-            assert all(a["accepted"] for a in acks), acks
+            _check(all(a["accepted"] for a in acks), acks)
             dup, _ = _timed(_predict, endpoint, rewards[:1])
-            assert dup[0]["accepted"] is False, dup
+            _check(dup[0]["accepted"] is False, dup)
 
             second, timings["decision20_new_params_ms"] = _timed(
                 _predict, endpoint, _decisions(20, "b"), {"exploration_scale": 1.5}
             )
-            assert second[0]["model_version"] != v0, (v0, second[0])
-            assert second[0]["model_version"] == f"{cfg['experiment_id']}-e1-v1"
+            _check(second[0]["model_version"] != v0, (v0, second[0]))
+            _check(
+                second[0]["model_version"] == f"{cfg['experiment_id']}-e1-v1",
+                second[0],
+            )
 
             warm = []
             for k in range(5):
@@ -349,15 +362,15 @@ def run_local_test(local_model: Any, ready_timeout: int = 600) -> dict[str, floa
 
             state, timings["state_ms"] = _timed(_predict, endpoint, [{"type": "state"}])
             s = state[0]
-            assert s["type"] == "state" and s["step"] == 20, s
-            assert sum(s["pulls"].values()) == 20 and set(s["pulls"]) == arm_ids, s
-            assert s["feature_spec_version"] == "ctx-v1", s
+            _check(s["type"] == "state" and s["step"] == 20, s)
+            _check(sum(s["pulls"].values()) == 20 and set(s["pulls"]) == arm_ids, s)
+            _check(s["feature_spec_version"] == "ctx-v1", s)
 
             mixed = _predict(endpoint, [{"type": "nope"}, {"type": "state"}])
-            assert [m["type"] for m in mixed] == ["error", "state"], mixed
+            _check([m["type"] for m in mixed] == ["error", "state"], mixed)
 
             logs = endpoint.container.logs().decode("utf-8", "replace")
-            assert "checkpoint write failed" not in logs, logs[-2000:]
+            _check("checkpoint write failed" not in logs, logs[-2000:])
         except BaseException:
             endpoint.print_container_logs(show_all=True)
             raise
