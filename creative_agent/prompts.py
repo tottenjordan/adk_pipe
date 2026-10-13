@@ -888,6 +888,17 @@ PERSON_IDENTITY_GUARDRAILS = (
 )
 
 
+# Hands that handle the product are the commonest render defect on cast
+# concepts (2026-10-13: the judge's no_visual_defects failed 67% of cast
+# concepts whose person gripped/clinked/poured the product vs 36% otherwise).
+PERSON_HANDS_LINE = (
+    "\n    *   In a cast concept the person should never grip, clink, pour or "
+    "hold the product up to the camera: place the product beside them (on a "
+    "surface, on display, or held loosely at a distance) with their hands "
+    "relaxed or partly out of frame."
+)
+
+
 def build_person_casting_rules(safe_styles: Sequence[str], max_cast: int) -> str:
     """The person-casting rules for ``safe_styles`` / ``max_cast`` (brace-free).
 
@@ -915,7 +926,8 @@ def build_person_casting_rules(safe_styles: Sequence[str], max_cast: int) -> str
         "pose, clothing, expression, action and lighting, never their face, age, "
         "ethnicity or body. Refer to the photo as the person reference, never by "
         "number."
-        "\n    *   Set `casts_person_reference` (true only for a cast concept) and "
+        + PERSON_HANDS_LINE
+        + "\n    *   Set `casts_person_reference` (true only for a cast concept) and "
         "give a one-sentence `person_casting_reason` either way. When critiquing, "
         "fixing or revising, keep both fields (and the person reference wording) "
         "unchanged unless you fix a person-casting rule violation."
