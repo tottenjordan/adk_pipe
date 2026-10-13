@@ -88,6 +88,64 @@ describe("ShareDialog", () => {
     expect(screen.queryByText(/left out/)).not.toBeInTheDocument();
   });
 
+  it("warns before Create link when the creative failed a quality check, without blocking", async () => {
+    createShare.mockResolvedValue(share({ scope: "creative", concept_names: ["Alpha"] }));
+    render(
+      <ShareDialog
+        appName="creative_agent"
+        sessionId="s1"
+        conceptNames={["Alpha"]}
+        triggerLabel="Share this creative"
+        failedChecks={[{ conceptName: "Alpha", labels: ["No visual defects"] }]}
+      />
+    );
+    open("Share this creative");
+    const note = await screen.findByRole("note");
+    expect(note).toHaveTextContent(
+      "This creative failed a quality check (No visual defects). Anyone with the link will see it."
+    );
+    const button = screen.getByRole("button", { name: "Create link" });
+    expect(button).toBeEnabled();
+    expect(button.getAttribute("aria-describedby")).toBe(note.id);
+    expect(note.id).not.toBe("");
+    fireEvent.click(button);
+    await waitFor(() => expect(createShare).toHaveBeenCalledTimes(1));
+    await screen.findByDisplayValue("https://share.example.com/s/AbCdEfGhIjKlMnOp");
+    expect(screen.queryByRole("note")).not.toBeInTheDocument();
+  });
+
+  it("lists every failing creative of a slate with its checks", async () => {
+    render(
+      <ShareDialog
+        appName="creative_agent"
+        sessionId="s1"
+        triggerLabel="Share slate"
+        failedChecks={[
+          { conceptName: "Alpha", labels: ["No visual defects"] },
+          { conceptName: "Bravo", labels: ["Product named"] },
+        ]}
+      />
+    );
+    open();
+    expect(await screen.findByRole("note")).toHaveTextContent(
+      "2 of these creatives failed a quality check: Alpha (No visual defects); Bravo (Product named). " +
+        "Anyone with the link will see them."
+    );
+  });
+
+  it.each([
+    ["no failed-check prop", undefined],
+    ["an empty failed-check list", []],
+  ])("shows no quality note with %s", async (_label, failedChecks) => {
+    render(
+      <ShareDialog appName="creative_agent" sessionId="s1" triggerLabel="Share slate" failedChecks={failedChecks} />
+    );
+    open();
+    const button = await screen.findByRole("button", { name: "Create link" });
+    expect(screen.queryByRole("note")).not.toBeInTheDocument();
+    expect(button).not.toHaveAttribute("aria-describedby");
+  });
+
   it("copies the link and announces it in a polite live region", async () => {
     createShare.mockResolvedValue(share());
     render(<ShareDialog appName="creative_agent" sessionId="s1" triggerLabel="Share slate" />);
