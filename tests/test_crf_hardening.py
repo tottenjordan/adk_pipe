@@ -404,3 +404,153 @@ def test_agent_runtime_client_close_failure_does_not_fail_the_run(monkeypatch, c
             )
         )
     assert "close boom" in caplog.text
+
+
+# ============================================================
+# Malformed messages are permanent: log an error and ACK (return)
+# ============================================================
+@pytest.fixture
+def no_side_effects(monkeypatch):
+    """BigQuery / Pub/Sub / Agent Runtime doubles that must stay untouched."""
+    from unittest.mock import MagicMock
+
+    bq = _bq_mock()
+    publisher = MagicMock()
+    vertex = MagicMock(side_effect=AssertionError("no agent run expected"))
+    monkeypatch.setattr(main, "_get_bigquery_client", lambda: bq)
+    monkeypatch.setattr(main, "_get_pubsub_client", lambda: publisher)
+    monkeypatch.setattr(main.agentplatform, "Client", vertex)
+    yield
+    bq.query_and_wait.assert_not_called()
+    publisher.publish.assert_not_called()
+
+
+def _drop(payload, key):
+    return {k: v for k, v in payload.items() if k != key}
+
+
+def _row_without(key):
+    row = {"index": 0, **_ROW_DATA}
+    del row[key]
+    return _worker_payload(row_data=row)
+
+
+_BAD_WORKER_MESSAGES = {
+    "no row_data": _drop(_worker_payload(), "row_data"),
+    "no agent_resource_id": _drop(_worker_payload(), "agent_resource_id"),
+    "no bq_table": _drop(_worker_payload(), "bq_table"),
+    "no bq_dataset": _drop(_worker_payload(), "bq_dataset"),
+    "row_data not an object": _worker_payload(row_data="row"),
+    "row_data list": _worker_payload(row_data=[1, 2]),
+    "no entry_timestamp": _row_without("entry_timestamp"),
+    "no index": _row_without("index"),
+    "no brand": _row_without("brand"),
+    "no target_search_trend": _row_without("target_search_trend"),
+    "index not an int": _worker_payload(row_data={"index": "0", **_ROW_DATA}),
+    "index bool": _worker_payload(row_data={"index": True, **_ROW_DATA}),
+    "agent id empty": _worker_payload(agent_resource_id=""),
+    "agent id path": _worker_payload(agent_resource_id="1/../../x"),
+    "agent id int": _worker_payload(agent_resource_id=123),
+    "dataset not a string": _worker_payload(bq_dataset=["trend_trawler"]),
+    "payload is a list": [1, 2, 3],
+    "payload is a string": "just text with bq_dataset in it",
+}
+
+
+@pytest.mark.usefixtures("no_side_effects")
+@pytest.mark.parametrize(
+    "payload", list(_BAD_WORKER_MESSAGES.values()), ids=list(_BAD_WORKER_MESSAGES)
+)
+def test_worker_acks_malformed_message(payload, caplog):
+    raw = payload if isinstance(payload, str) else json.dumps(payload)
+    with caplog.at_level(logging.ERROR):
+        main.agent_worker_entrypoint(_event(raw))  # must NOT raise (ACK)
+    assert any(
+        r.levelno == logging.ERROR and "Rejecting worker message" in r.getMessage()
+        for r in caplog.records
+    )
+
+
+@pytest.mark.usefixtures("no_side_effects")
+@pytest.mark.parametrize(
+    "data",
+    [
+        {},
+        {"message": {}},
+        {"message": {"data": "%%% not base64 %%%"}},
+        {"message": {"data": base64.b64encode(b"\xff\xfe").decode()}},
+        {"message": {"data": base64.b64encode(b"{not json").decode()}},
+        None,
+    ],
+    ids=["no message", "no data", "bad base64", "not utf-8", "not json", "null"],
+)
+def test_worker_acks_undecodable_message(data, caplog):
+    with caplog.at_level(logging.ERROR):
+        main.agent_worker_entrypoint(types.SimpleNamespace(data=data))
+    assert "Rejecting worker message" in caplog.text
+
+
+def _trigger(**overrides):
+    payload = {
+        "bq_dataset": main.config.BQ_DATASET_ID,
+        "bq_table": main.config.BQ_TABLE_TARGETS,
+        "agent_resource_id": "123",
+    }
+    payload.update(overrides)
+    return payload
+
+
+_BAD_TRIGGER_MESSAGES = {
+    "no bq_table": _drop(_trigger(), "bq_table"),
+    "no agent_resource_id": _drop(_trigger(), "agent_resource_id"),
+    "agent id path": _trigger(agent_resource_id="a/b"),
+    "agent id null": _trigger(agent_resource_id=None),
+    "table not a string": _trigger(bq_table={"t": 1}),
+    "payload is a string": "xbq_datasetx",
+}
+
+
+@pytest.mark.usefixtures("no_side_effects")
+@pytest.mark.parametrize(
+    "payload", list(_BAD_TRIGGER_MESSAGES.values()), ids=list(_BAD_TRIGGER_MESSAGES)
+)
+def test_orchestrator_acks_malformed_message(payload, caplog):
+    raw = payload if isinstance(payload, str) else json.dumps(payload)
+    with caplog.at_level(logging.ERROR):
+        main.crf_entrypoint(_event(raw))  # must NOT raise (ACK)
+    assert any(
+        r.levelno == logging.ERROR and "Rejecting trigger message" in r.getMessage()
+        for r in caplog.records
+    )
+
+
+@pytest.mark.usefixtures("no_side_effects")
+def test_orchestrator_acks_bad_base64(caplog):
+    with caplog.at_level(logging.ERROR):
+        main.crf_entrypoint(types.SimpleNamespace(data={"message": {"data": "%%%"}}))
+    assert "Rejecting trigger message" in caplog.text
+
+
+def test_valid_worker_message_still_runs(monkeypatch):
+    """The stricter parsing accepts what the orchestrator actually sends."""
+    _LoopBoundFakeClient.instances = []
+    monkeypatch.setattr(main.agentplatform, "Client", _LoopBoundFakeClient)
+    monkeypatch.setattr(main, "_get_bigquery_client", lambda: _bq_mock())
+    monkeypatch.setattr(main, "acquire_processing_lock", lambda *a, **k: True)
+    statuses = []
+    monkeypatch.setattr(
+        main, "update_rows_status", lambda **k: statuses.append(k["status"])
+    )
+    row = main.build_row_dict(
+        3,
+        {
+            "entry_timestamp": __import__("datetime").datetime(2026, 7, 12),
+            "target_trend": "t",
+            "brand": None,
+            "target_audience": "a",
+            "target_product": "p",
+            "key_selling_point": "k",
+        },
+    )
+    main.agent_worker_entrypoint(_event(_worker_payload(row_data=row)))
+    assert statuses == ["PROCESSED"]

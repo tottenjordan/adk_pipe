@@ -216,6 +216,94 @@ def pretty_print_event(event):
 
 
 # ==============================
+# message parsing
+# ==============================
+class MalformedMessageError(ValueError):
+    """A Pub/Sub message that can never be processed, however often it is
+    redelivered: the entry points log it as an error and ACK (return) instead
+    of raising, which would NACK it into a redelivery loop."""
+
+
+# Reasoning Engine IDs are numeric; allow the usual id characters, but nothing
+# that could change the resource path it is spliced into.
+_AGENT_ID_RE = re.compile(r"[A-Za-z0-9_-]{1,128}")
+_TRIGGER_FIELDS = ("bq_dataset", "bq_table", "agent_resource_id")
+_WORKER_FIELDS = (*_TRIGGER_FIELDS, "row_data")
+# Every row_data key the worker indexes (build_row_dict always sends them; a
+# campaign value may be null).
+_ROW_FIELDS = (
+    "index",
+    "entry_timestamp",
+    "brand",
+    "target_product",
+    "key_selling_point",
+    "target_audience",
+    "target_search_trend",
+)
+
+
+def _decode_pubsub_json(cloud_event) -> dict:
+    """The CloudEvent's base64 Pub/Sub ``message.data`` as a JSON object.
+
+    Raises MalformedMessageError for anything else (no data, bad base64 or
+    UTF-8, invalid JSON, a non-object payload).
+    """
+    try:
+        raw = base64.b64decode(cloud_event.data["message"]["data"]).decode("utf-8")
+        payload = json.loads(raw)
+    except (KeyError, TypeError, ValueError) as e:
+        # binascii.Error, UnicodeDecodeError and JSONDecodeError are ValueErrors
+        raise MalformedMessageError(
+            f"undecodable Pub/Sub message ({type(e).__name__}: {e})"
+        ) from e
+    if not isinstance(payload, dict):
+        raise MalformedMessageError(
+            f"payload is a JSON {type(payload).__name__}, not an object"
+        )
+    return payload
+
+
+def _require_fields(mapping: dict, fields, what: str) -> None:
+    missing = [f for f in fields if f not in mapping]
+    if missing:
+        raise MalformedMessageError(f"{what} missing {', '.join(missing)}")
+
+
+def _validate_agent_id(agent_id) -> None:
+    if not isinstance(agent_id, str) or not _AGENT_ID_RE.fullmatch(agent_id):
+        raise MalformedMessageError(f"invalid agent_resource_id {agent_id!r}")
+
+
+def _parse_worker_message(cloud_event) -> tuple[str, str, str, dict]:
+    """``(dataset, table, agent_resource_id, row_data)`` from a worker message.
+
+    Raises ValueError (MalformedMessageError, or the identifier / timestamp
+    validators' ValueError) for a message that can never be processed.
+    """
+    payload = _decode_pubsub_json(cloud_event)
+    _require_fields(payload, _WORKER_FIELDS, "worker message")
+    row_data = payload["row_data"]
+    if not isinstance(row_data, dict):
+        raise MalformedMessageError("row_data is not an object")
+    _require_fields(row_data, _ROW_FIELDS, "row_data")
+    index = row_data["index"]
+    if isinstance(index, bool) or not isinstance(index, int):
+        raise MalformedMessageError(f"row_data.index {index!r} is not an integer")
+    _validate_agent_id(payload["agent_resource_id"])
+    # dataset/table stay in the worker message (compatible with messages already
+    # in flight across a deploy) but must be allow-listed; the timestamp must
+    # parse (the lock builder would raise on it otherwise).
+    _validate_target(payload["bq_dataset"], payload["bq_table"])
+    _to_utc_datetime(row_data["entry_timestamp"])
+    return (
+        payload["bq_dataset"],
+        payload["bq_table"],
+        payload["agent_resource_id"],
+        row_data,
+    )
+
+
+# ==============================
 # SQL builders
 # ==============================
 # BigQuery can't parameterize identifiers, and the dataset/table arrive in the
@@ -227,12 +315,12 @@ _PROJECT_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9.:-]*")
 
 def _validate_target(dataset, table):
     """Raise ValueError unless dataset/table are on the config allow-lists."""
-    if dataset not in config.ALLOWED_BQ_DATASETS:
+    if not isinstance(dataset, str) or dataset not in config.ALLOWED_BQ_DATASETS:
         raise ValueError(
             f"BigQuery dataset {dataset!r} not allowed "
             f"(allowed: {sorted(config.ALLOWED_BQ_DATASETS)})"
         )
-    if table not in config.ALLOWED_BQ_TABLES:
+    if not isinstance(table, str) or table not in config.ALLOWED_BQ_TABLES:
         raise ValueError(
             f"BigQuery table {table!r} not allowed "
             f"(allowed: {sorted(config.ALLOWED_BQ_TABLES)})"
@@ -765,44 +853,39 @@ def crf_entrypoint(cloud_event: CloudEvent) -> None:
     Returns:
          None: output is written to Cloud Logging
     """
-    bq_client = _get_bigquery_client()
-    pubsub_publisher = _get_pubsub_client()
-
-    # Get the Pub/Sub message data
-    pubsub_message = cloud_event.data
-
-    # Decode the base64 encoded message data
-    message_payload = None
-    if "message" in pubsub_message and "data" in pubsub_message["message"]:
-        data = base64.b64decode(pubsub_message["message"]["data"]).decode("utf-8")
-        logging.info(f"Received Pub/Sub message data:\n\n{data}\n\n")
-
-        # You can further parse the data if it's JSON, for example
-        try:
-            message_payload = json.loads(data)
-            logging.info(f"Parsed message payload: {message_payload}")
-        except json.JSONDecodeError:
-            logging.exception("Message data is not valid JSON.")
-    else:
+    # A trigger without data or without `bq_dataset` is not work: log and ACK.
+    data = cloud_event.data
+    message = data.get("message") if isinstance(data, dict) else None
+    if not isinstance(message, dict) or "data" not in message:
         logging.info("No data found in the Pub/Sub message.")
-
-    # Bail out cleanly (ACK) on a malformed/empty trigger message so we don't
-    # NACK into a redelivery loop. Only a payload carrying `bq_dataset` is work.
-    if not message_payload or "bq_dataset" not in message_payload:
+        return
+    try:
+        message_payload = _decode_pubsub_json(cloud_event)
+    except MalformedMessageError as e:
+        logger.error(f"Rejecting trigger message: {e}")
+        return
+    logging.info(f"Parsed message payload: {message_payload}")
+    if "bq_dataset" not in message_payload:
         logging.info("Trigger message has no 'bq_dataset'; nothing to process.")
         return
 
-    dataset = message_payload["bq_dataset"]
-    table = message_payload["bq_table"]
-    agent_resource_id = message_payload["agent_resource_id"]
     # The trigger message names the dataset/table; they become SQL identifiers,
-    # so they must be on the config allow-list. A bad one can never become valid
-    # on redelivery, so log and ACK rather than NACK into a redelivery loop.
+    # so they must be on the config allow-list. A missing field, a bad
+    # identifier or agent id can never become valid on redelivery, so log and
+    # ACK rather than NACK into a redelivery loop.
     try:
+        _require_fields(message_payload, _TRIGGER_FIELDS, "trigger message")
+        dataset = message_payload["bq_dataset"]
+        table = message_payload["bq_table"]
+        agent_resource_id = message_payload["agent_resource_id"]
+        _validate_agent_id(agent_resource_id)
         _validate_target(dataset, table)
     except ValueError as e:
         logger.error(f"Rejecting trigger message: {e}")
         return
+
+    bq_client = _get_bigquery_client()
+    pubsub_publisher = _get_pubsub_client()
 
     # 0. Reap stale PROCESSING rows: a worker that hard-crashes AFTER acquiring
     # the lock strands its row in PROCESSING forever (a clean failure self-reports
@@ -919,33 +1002,16 @@ def crf_entrypoint(cloud_event: CloudEvent) -> None:
 @functions_framework.cloud_event
 def agent_worker_entrypoint(cloud_event: CloudEvent) -> None:
     """Entry point for the worker, processes data for a single row."""
-    bq_client = _get_bigquery_client()
+    # A malformed message (undecodable, missing fields, a bad identifier, agent
+    # id or entry_timestamp) never becomes valid on redelivery: log and ACK.
+    try:
+        dataset, table, agent_resource_id, row_data = _parse_worker_message(cloud_event)
+    except ValueError as e:
+        logger.error(f"Rejecting worker message: {e}")
+        return
 
     try:
-        # Decode worker message payload (This contains the single row data)
-        pubsub_message = cloud_event.data
-        data = base64.b64decode(pubsub_message["message"]["data"]).decode("utf-8")
-        worker_payload = json.loads(data)
-
-        # Ensure all required metadata is present
-        dataset = worker_payload["bq_dataset"]
-        table = worker_payload["bq_table"]
-        agent_resource_id = worker_payload["agent_resource_id"]
-        row_data = worker_payload["row_data"]
-
-        # dataset/table stay in the worker message (compatible with messages
-        # already in flight across a deploy) but must be allow-listed. A bad
-        # identifier never becomes valid on redelivery -> log and ACK.
-        # Same for a malformed entry_timestamp: it can never parse on
-        # redelivery, so validate it up front and ACK instead of letting the
-        # lock builder raise into the NACK path below.
-        try:
-            _validate_target(dataset, table)
-            _to_utc_datetime(row_data["entry_timestamp"])
-        except ValueError as e:
-            logger.error(f"Rejecting worker message: {e}")
-            return
-
+        bq_client = _get_bigquery_client()
         # Since the core agent logic is async, we run it here
         asyncio.run(
             _execute_agent_and_update_status(

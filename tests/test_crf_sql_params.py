@@ -281,6 +281,17 @@ def test_orchestrator_acks_non_allow_listed_table(monkeypatch):
     publisher.publish.assert_not_called()
 
 
+# The rest of a well-formed worker row_data, so each test below fails only on
+# the field it is about (a row missing these is rejected on its own).
+_CAMPAIGN = {
+    "brand": "b",
+    "target_product": "p",
+    "key_selling_point": "k",
+    "target_audience": "a",
+    "target_search_trend": "t",
+}
+
+
 def test_worker_acks_non_allow_listed_table(monkeypatch):
     bq = _bq()
     monkeypatch.setattr(main, "_get_bigquery_client", lambda: bq)
@@ -288,7 +299,7 @@ def test_worker_acks_non_allow_listed_table(monkeypatch):
         "bq_dataset": DS,
         "bq_table": "evil",
         "agent_resource_id": "1",
-        "row_data": {"entry_timestamp": TS, "index": 0},
+        "row_data": {"entry_timestamp": TS, "index": 0, **_CAMPAIGN},
     }
     main.agent_worker_entrypoint(_event(payload))  # must not raise
     bq.query_and_wait.assert_not_called()
@@ -302,7 +313,7 @@ def test_worker_acks_malformed_entry_timestamp(monkeypatch, caplog):
         "bq_dataset": DS,
         "bq_table": TBL,
         "agent_resource_id": "1",
-        "row_data": {"entry_timestamp": "not-a-timestamp", "index": 0},
+        "row_data": {"entry_timestamp": "not-a-timestamp", "index": 0, **_CAMPAIGN},
     }
     with caplog.at_level("ERROR"):
         main.agent_worker_entrypoint(_event(payload))  # must not raise
@@ -321,7 +332,7 @@ def test_worker_acks_non_string_or_injected_timestamp(monkeypatch, bad):
         "bq_dataset": DS,
         "bq_table": TBL,
         "agent_resource_id": "1",
-        "row_data": {"entry_timestamp": bad, "index": 0},
+        "row_data": {"entry_timestamp": bad, "index": 0, **_CAMPAIGN},
     }
     main.agent_worker_entrypoint(_event(payload))  # must not raise
     bq.query_and_wait.assert_not_called()
