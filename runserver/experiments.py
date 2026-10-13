@@ -49,7 +49,7 @@ import os
 import time
 import uuid
 from collections import OrderedDict
-from collections.abc import Awaitable, Callable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -285,13 +285,50 @@ def _is_person_image(uri: str | None) -> bool:
     return is_person_image(uri)
 
 
-def _is_cast(session_state: Mapping[str, Any], concept_name: str) -> bool:
-    """Whether the run's image for ``concept_name`` casts a consented person
-    (``generated_images[c].cast``); cast creatives are kept out of experiments
-    for likeness safety."""
+def _cast_record(session_state: Mapping[str, Any], concept_name: str) -> Mapping | None:
+    """The run's ``generated_images`` record for ``concept_name`` when it casts a
+    consented person (``cast is True``), else None."""
     images = _as_obj(session_state.get("generated_images"))
     record = images.get(concept_name) if isinstance(images, Mapping) else None
-    return isinstance(record, Mapping) and record.get("cast") is True
+    if isinstance(record, Mapping) and record.get("cast") is True:
+        return record
+    return None
+
+
+def cast_consent_id(session_state: Mapping[str, Any], concept_name: str) -> str | None:
+    """The consent a cast concept was rendered with (``generated_images[c]
+    .consent_id``); None for an uncast concept or a cast one without an id."""
+    record = _cast_record(session_state, concept_name)
+    cid = record.get("consent_id") if record is not None else None
+    return cid if isinstance(cid, str) and cid else None
+
+
+def _concept_name(concept: Mapping, idx: int) -> str:
+    return str(concept.get("concept_name") or f"concept {idx}")
+
+
+def _selected_concepts(
+    session_state: Mapping[str, Any], indices: Sequence[int]
+) -> tuple[list[dict], list[int]]:
+    concepts = _items(session_state.get("final_visual_concepts"), "visual_concepts")
+    if not concepts:
+        raise SelectionError("no_creatives", "this run has no visual concepts")
+    return concepts, validate_selection(indices, len(concepts))
+
+
+def picked_cast_concepts(
+    session_state: Mapping[str, Any], indices: Sequence[int]
+) -> list[tuple[str, str | None]]:
+    """``[(concept_name, consent_id | None)]`` for the selected concepts that cast a
+    person, in selection order. Raises ``SelectionError`` like ``snapshot_arms``
+    for an invalid selection (the create route checks it before any lookup)."""
+    concepts, picked = _selected_concepts(session_state, indices)
+    out = []
+    for idx in picked:
+        name = _concept_name(concepts[idx], idx)
+        if _cast_record(session_state, name) is not None:
+            out.append((name, cast_consent_id(session_state, name)))
+    return out
 
 
 def validate_selection(indices: Sequence[int], available: int) -> list[int]:
@@ -322,6 +359,7 @@ def snapshot_arms(
     *,
     default_bucket: str | None = None,
     now: dt.datetime | None = None,
+    active_cast_consents: Collection[str] = frozenset(),
 ) -> list[dict]:
     """Freeze the selected visual concepts as §5 ``Arm`` dicts.
 
@@ -329,14 +367,15 @@ def snapshot_arms(
     judge dimension normalised to 0-1 plus ``ad_copy_overall`` / ``visual_overall``;
     ``overallScore`` is the mean of the available overall scores (the results
     page's proof score). Raises ``SelectionError`` for an invalid selection,
-    including a creative that casts a person (``cast_creative``) or whose image is
-    a person photo / personalised variant (``person_image``) or a timely creative
-    whose moment ended at or before ``now`` (the wall clock, default now;
-    ``timely_expired``, ``runserver.timely``); ``person_variants`` is never read."""
-    concepts = _items(session_state.get("final_visual_concepts"), "visual_concepts")
-    if not concepts:
-        raise SelectionError("no_creatives", "this run has no visual concepts")
-    picked = validate_selection(indices, len(concepts))
+    including a creative that casts a person whose consent id isn't in
+    ``active_cast_consents`` (``cast_creative``; the caller resolves the active
+    consents, so the default refuses every cast creative) or whose image is a
+    person photo / personalised variant (``person_image``); ``person_variants`` is
+    never read. A cast arm records its ``consentId``. A timely creative whose
+    moment ended at or before ``now`` (the wall clock, default now;
+    ``runserver.timely``) is kept and marked ``timelyExpired: true`` (traffic is
+    synthetic; ``expired_timely_warnings`` turns the flags into warnings)."""
+    concepts, picked = _selected_concepts(session_state, indices)
     report = _as_obj(session_state.get("creative_evaluation_report")) or {}
     visual_evals = _items(report, "visual_concept_evaluations")
     ad_evals = _items(report, "ad_copy_evaluations")
@@ -344,17 +383,13 @@ def snapshot_arms(
     arms = []
     for idx in picked:
         concept = concepts[idx]
-        name = str(concept.get("concept_name") or f"concept {idx}")
-        if _is_cast(session_state, name):
+        name = _concept_name(concept, idx)
+        cast = _cast_record(session_state, name) is not None
+        consent_id = cast_consent_id(session_state, name) if cast else None
+        if cast and consent_id not in active_cast_consents:
             raise SelectionError(
                 "cast_creative",
-                f"'{name}' features a person, so it can't be used in experiments",
-            )
-        if timely_expired(session_state, name, now):
-            raise SelectionError(
-                "timely_expired",
-                f"'{name}' referenced a moment that ended on "
-                f"{valid_until(session_state)}; pick evergreen creatives",
+                f"'{name}' features a person whose consent isn't confirmed active",
             )
         image_uri = _image_uri(session_state, name, default_bucket)
         if _is_person_image(image_uri):
@@ -367,18 +402,41 @@ def snapshot_arms(
         ad_scores, ad_overall = _eval_scores(ad, "ad_copy")
         vis_scores, vis_overall = _eval_scores(vis, "visual")
         overalls = [s for s in (ad_overall, vis_overall) if s is not None]
-        arms.append(
-            {
-                "creativeId": stable_row_id(session_id, name),
-                "index": idx,
-                "label": str(concept.get("headline") or name),
-                "conceptName": name,
-                "imageUri": image_uri,
-                "scores": {**ad_scores, **vis_scores},
-                "overallScore": sum(overalls) / len(overalls) if overalls else None,
-            }
-        )
+        arm: dict[str, Any] = {
+            "creativeId": stable_row_id(session_id, name),
+            "index": idx,
+            "label": str(concept.get("headline") or name),
+            "conceptName": name,
+            "imageUri": image_uri,
+            "scores": {**ad_scores, **vis_scores},
+            "overallScore": sum(overalls) / len(overalls) if overalls else None,
+        }
+        # Optional §5 fields, written only when set (older arms never carry them).
+        if consent_id:
+            arm["consentId"] = consent_id
+        if timely_expired(session_state, name, now):
+            arm["timelyExpired"] = True
+        arms.append(arm)
     return arms
+
+
+def expired_timely_warnings(
+    session_state: Mapping[str, Any], arms: Sequence[Mapping]
+) -> list[dict]:
+    """The create response's ``warnings`` for the arms marked ``timelyExpired``."""
+    ended = valid_until(session_state)
+    return [
+        {
+            "conceptName": a["conceptName"],
+            "reason": "timely_expired",
+            "message": (
+                f"'{a['conceptName']}' referenced a moment that ended on {ended}; "
+                "fine for a simulation, but don't use it live"
+            ),
+        }
+        for a in arms
+        if a.get("timelyExpired") is True
+    ]
 
 
 def visual_styles(session_state: Mapping[str, Any], arms: Sequence[Mapping]) -> dict:
@@ -1567,6 +1625,76 @@ def _check_choice(value: str, allowed: Sequence[str], field: str) -> None:
         raise _error(400, f"invalid_{field}", f"{field} must be one of {list(allowed)}")
 
 
+async def _active_cast_consents(
+    user_id: str, cast: Sequence[tuple[str, str | None]]
+) -> set[str]:
+    """Resolve each picked cast concept's consent with ``person_refs
+    .active_consent`` (the ``/shares`` lookup): a missing id, a revoked consent or
+    another owner's is a 400 ``consent_not_active``, a store error a 503
+    ``consent_unavailable``; both before anything is written or deployed."""
+    from runserver import person_refs  # lazy, like _is_person_image
+
+    active: set[str] = set()
+    for name, cid in cast:
+        record = None
+        if cid is not None:
+            try:
+                record = await person_refs.active_consent(user_id, cid)
+            except Exception as exc:
+                log.exception("experiments: consent lookup failed")
+                raise _error(
+                    503,
+                    "consent_unavailable",
+                    "could not check consents; retry shortly",
+                ) from exc
+        if cid is None or record is None:
+            raise _error(
+                400,
+                "consent_not_active",
+                f"'{name}' features a person whose consent is no longer active",
+            )
+        active.add(cid)
+    return active
+
+
+#: Statuses a consent revoke stops (``stopping`` resumes an unfinished teardown).
+_REVOKE_STOP_STATUSES = ("deploying", "ready", "running_traffic", "stopping")
+
+
+async def stop_experiments_for_consent(record: Mapping[str, Any]) -> None:
+    """``person_refs`` revoke hook: stop every live experiment of the consent's
+    owner with an arm cast with it (``consentId``), through the stop route's
+    teardown. Idempotent (stopped/failed/expired rows are left alone). Raises when
+    the store fails or a teardown that finished within the stop wait left the row
+    ``stopping``, so the consent revoke reports ``revoke_incomplete`` and can be
+    repeated; a teardown still running is finished by the reaper."""
+    owner, cid = record.get("owner_user"), record.get("consent_id")
+    if not (isinstance(owner, str) and isinstance(cid, str) and owner and cid):
+        return
+    hits = [
+        r
+        for r in await _STORE.list_for_user(owner)
+        if r.get("status") in _REVOKE_STOP_STATUSES
+        and any(
+            isinstance(a, Mapping) and a.get("consentId") == cid
+            for a in r.get("arms") or []
+        )
+    ]
+    for row in hits:
+        eid = row["experiment_id"]
+        if row["status"] != "stopping":
+            await _transition(eid, "stop")
+        task = _start_teardown(eid, "torn_down")
+        await _wait_briefly(task)
+        current = await _STORE.get(eid)
+        if task.done() and current is not None and current["status"] == "stopping":
+            raise RuntimeError(f"experiment {eid} teardown failed")
+    if hits:
+        log.info(
+            "experiments: stopped %d experiment(s) for a revoked consent", len(hits)
+        )
+
+
 @router.post("/experiments", status_code=201)
 async def http_create_experiment(body: _CreateBody, request: Request) -> dict:
     try:
@@ -1587,12 +1715,18 @@ async def http_create_experiment(body: _CreateBody, request: Request) -> dict:
         raise _error(404, "session_not_found", "session not found")
     state = dict(session.state or {})
     try:
+        cast = picked_cast_concepts(state, body.creativeIndices)
+    except SelectionError as exc:
+        raise _error(400, exc.reason, str(exc)) from exc
+    active_consents = await _active_cast_consents(user_id, cast)
+    try:
         arms = snapshot_arms(
             state,
             body.sessionId,
             body.creativeIndices,
             default_bucket=_SETTINGS.gcs_bucket,
             now=_utcnow(),
+            active_cast_consents=active_consents,
         )
     except SelectionError as exc:
         raise _error(400, exc.reason, str(exc)) from exc
@@ -1666,7 +1800,11 @@ async def http_create_experiment(body: _CreateBody, request: Request) -> dict:
             row["policy_discount"] = discount
         await _STORE.upsert(row)
     _start_deploy(experiment_id)
-    return {"experimentId": experiment_id, "status": "deploying"}
+    return {
+        "experimentId": experiment_id,
+        "status": "deploying",
+        "warnings": expired_timely_warnings(state, arms),
+    }
 
 
 @router.get("/experiments/{user_id}")
