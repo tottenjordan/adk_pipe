@@ -27,6 +27,7 @@ case "$1 $2 $3" in
       printf '%s-00001-abc\t%s-00001-abc\n' "$4" "$4"
     fi ;;
   "run revisions describe")
+    if [[ "$4" == "${STUB_FAIL_REVISION:-}" ]]; then echo "ERROR: describe failed" >&2; exit 1; fi
     if [[ -n "${STUB_EMPTY_DIGEST:-}" ]]; then echo ""; else echo "us-docker.pkg.dev/p/r/i@@@DIGEST@@"; fi ;;
   "run jobs describe")
     echo "us-docker.pkg.dev/p/r/job@@@DIGEST@@" ;;
@@ -76,13 +77,25 @@ def test_failed_service_describe_aborts(tmp_path, svc):
     proc = _run(tmp_path, STUB_FAIL_SERVICE=svc)
     assert proc.returncode == 5, proc.stdout + proc.stderr
     assert OK_LINE not in proc.stdout
-    assert svc in proc.stderr
+    # The failed call itself is reported (not only the resulting gap in the set).
+    assert f"could not describe service {svc}" in proc.stderr
+
+
+def test_failed_revision_describe_aborts(tmp_path):
+    proc = _run(tmp_path, STUB_FAIL_REVISION="trend-trawler-web-00001-abc")
+    assert proc.returncode == 5, proc.stdout + proc.stderr
+    assert OK_LINE not in proc.stdout
+    assert (
+        "could not describe revision trend-trawler-web/trend-trawler-web-00001-abc"
+        in proc.stderr
+    )
 
 
 def test_empty_revision_digest_aborts(tmp_path):
     proc = _run(tmp_path, STUB_EMPTY_DIGEST="1")
     assert proc.returncode == 5, proc.stdout + proc.stderr
     assert OK_LINE not in proc.stdout
+    assert "malformed digest" in proc.stderr
 
 
 def test_failed_bucket_listing_aborts(tmp_path):
