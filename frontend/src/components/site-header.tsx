@@ -22,6 +22,9 @@ export function SiteHeader() {
           <img
             src="/trend_trawler_banner.png"
             alt=""
+            width={54}
+            height={36}
+            decoding="async"
             className="h-9 w-auto rounded-sm object-cover"
           />
           <span className="text-lg font-semibold text-foreground">Trend Trawler</span>
