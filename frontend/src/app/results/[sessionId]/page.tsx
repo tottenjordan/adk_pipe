@@ -46,7 +46,11 @@ import { ShareDialog } from "@/components/share-dialog";
 import { SessionShares } from "@/components/shares-list";
 import { hasRenderedImage, type Share } from "@/lib/shares";
 import { canPersonalise } from "@/lib/variants";
-import { PersonalisePanel } from "@/components/personalise-panel";
+import {
+  PersonalisePanel,
+  personalisationProps,
+  usePersonalisationData,
+} from "@/components/personalise-panel";
 
 // Heavy, rarely needed on first paint: the report (react-markdown + remark-gfm) mounts
 // only when its disclosure opens; the Deploy panel (bandit scenario code) loads after.
@@ -173,6 +177,9 @@ export default function ResultsPage({
   const ratingsEnabled =
     !loading && (appName === "creative_agent" || appName === "interactive_creative");
   const ratings = useSessionRatings(sessionId, ratingsEnabled);
+  // People + variants for the proof dialog's Personalise panel: loaded once, on the
+  // first open, and shared across creatives (the panel remounts per creative).
+  const personalisation = usePersonalisationData(appName, sessionId, ratingsEnabled && detailOpen);
   const stopped = useMemo(
     () => (session ? sessionStoppedEarly(appName, state, session.events ?? []) : null),
     [appName, state, session]
@@ -337,6 +344,7 @@ export default function ResultsPage({
                   conceptName={p.concept.concept_name}
                   baseImageUrl={imageUrlFor(p.concept.concept_name)}
                   baseAlt={p.concept.concept_summary || p.concept.headline}
+                  {...personalisationProps(personalisation, p.concept.concept_name)}
                 />
               ) : null
             }
