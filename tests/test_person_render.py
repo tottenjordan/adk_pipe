@@ -122,6 +122,8 @@ def _patch(monkeypatch, respond=_ok, *, photo=b"\xff\xd8person"):
 
     monkeypatch.setattr(image_tools, "_download_blob", fake_download)
     monkeypatch.setattr(image_tools.config, "GCS_BUCKET_NAME", "b")
+    # Sequential renders: tests read models.calls in concept order.
+    monkeypatch.setattr(image_tools.config, "image_render_concurrency", 1)
     return models, downloads
 
 

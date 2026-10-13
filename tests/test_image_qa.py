@@ -9,6 +9,7 @@ the generate_image flow fakes both the image client and the QA call.
 import asyncio
 import json
 import threading
+from pathlib import Path
 
 import pytest
 
@@ -323,6 +324,7 @@ class _Flow:
         max_rerenders=1,
         per_run=8,
         concepts=None,
+        concurrency=1,
     ):
         self.models = _SeqImageModels()
         client = type("Client", (), {})()
@@ -342,6 +344,8 @@ class _Flow:
             image_tools.config, "image_qa_max_rerenders_per_run", per_run
         )
         monkeypatch.setattr(image_tools.config, "image_qa_model", "qa-model")
+        # Sequential renders by default: these tests pin the render order.
+        monkeypatch.setattr(image_tools.config, "image_render_concurrency", concurrency)
         monkeypatch.setattr(image_qa, "_get_qa_client", lambda: "qa-client")
         self.inspected = []
         verdicts = list(verdicts)
@@ -920,6 +924,30 @@ def test_per_run_cap_ships_to_agent_engine():
     import deployment.deploy_agent as da
 
     assert da.ENV_VAR_DICT["IMAGE_QA_MAX_RERENDERS_PER_RUN"] is not None
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [(None, 2), ("", 2), ("x", 2), ("0", 1), ("-3", 1), ("1", 1), ("3", 3), ("9", 4)],
+)
+def test_image_render_concurrency_env(monkeypatch, raw, expected):
+    from creative_agent.config import ResearchConfiguration
+
+    if raw is None:
+        monkeypatch.delenv("IMAGE_RENDER_CONCURRENCY", raising=False)
+    else:
+        monkeypatch.setenv("IMAGE_RENDER_CONCURRENCY", raw)
+    assert ResearchConfiguration().image_render_concurrency == expected
+
+
+def test_render_concurrency_ships_to_agent_engine():
+    import dotenv
+
+    import deployment.deploy_agent as da
+
+    assert da.ENV_VAR_DICT["IMAGE_RENDER_CONCURRENCY"] is not None
+    profile = Path(__file__).parent.parent / "deployment" / "deploy.env"
+    assert dotenv.dotenv_values(profile)["IMAGE_RENDER_CONCURRENCY"] == "2"
 
 
 # --- rating strictness (opt-in rating learning) ------------------------------

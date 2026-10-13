@@ -30,6 +30,8 @@ DEFAULT_IMAGE_QA_MAX_RERENDERS = 1
 MAX_IMAGE_QA_MAX_RERENDERS = 2
 DEFAULT_IMAGE_QA_MAX_RERENDERS_PER_RUN = 2
 MAX_IMAGE_QA_MAX_RERENDERS_PER_RUN = 8
+DEFAULT_IMAGE_RENDER_CONCURRENCY = 2
+MAX_IMAGE_RENDER_CONCURRENCY = 4
 
 _FALSE_FLAGS = frozenset({"0", "false", "no", "off"})
 
@@ -57,6 +59,15 @@ def parse_image_qa_max_rerenders_per_run(raw: str | None) -> int:
     return max(0, min(MAX_IMAGE_QA_MAX_RERENDERS_PER_RUN, value))
 
 
+def parse_image_render_concurrency(raw: str | None) -> int:
+    """``IMAGE_RENDER_CONCURRENCY`` → int clamped to 1..4; unset/blank/invalid → 2."""
+    try:
+        value = int((raw or "").strip())
+    except ValueError:
+        return DEFAULT_IMAGE_RENDER_CONCURRENCY
+    return max(1, min(MAX_IMAGE_RENDER_CONCURRENCY, value))
+
+
 @dataclass
 class BaseAgentConfiguration:
     """Shared model + GCP configuration for the agents.
@@ -76,6 +87,9 @@ class BaseAgentConfiguration:
         image_qa_max_rerenders_per_run (int): QA re-renders across ALL images
             of one generate_image call (IMAGE_QA_MAX_RERENDERS_PER_RUN, default
             2, clamped 0..8) — each re-render spends the ~2 RPM image quota.
+        image_render_concurrency (int): image-model calls in flight at once in
+            one generate_image call, re-renders included (IMAGE_RENDER_CONCURRENCY,
+            default 2, clamped 1..4; 1 = strictly sequential renders).
         image_qa_model (str): vision model for the image check (IMAGE_QA_MODEL,
             default the worker model).
         trend_timezone (str): IANA timezone for the per-run date state
@@ -126,6 +140,11 @@ class BaseAgentConfiguration:
     image_qa_max_rerenders_per_run: int = field(
         default_factory=lambda: parse_image_qa_max_rerenders_per_run(
             os.getenv("IMAGE_QA_MAX_RERENDERS_PER_RUN")
+        )
+    )
+    image_render_concurrency: int = field(
+        default_factory=lambda: parse_image_render_concurrency(
+            os.getenv("IMAGE_RENDER_CONCURRENCY")
         )
     )
     image_qa_model: str = field(

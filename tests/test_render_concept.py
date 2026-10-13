@@ -296,6 +296,8 @@ def _batch(monkeypatch, respond, verdicts=()):
 
     monkeypatch.setattr(image_tools, "_save_to_gcs", fake_save)
     monkeypatch.setattr(image_tools.config, "image_qa_enabled", True)
+    # Sequential renders (IMAGE_RENDER_CONCURRENCY=1): a pinned render order.
+    monkeypatch.setattr(image_tools.config, "image_render_concurrency", 1)
     concepts = [
         {
             **CONCEPT,
