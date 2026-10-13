@@ -30,16 +30,21 @@ TT_PACKAGES = {
 }
 # Registry-only packages (built by Cloud Build, no Cloud Run source upload).
 IMAGE_ONLY_PACKAGES = {"trend-trawler-bandit", "creative-fanout-crf"}
-# Other projects' packages in the shared repos (not exhaustive; encodes the intent).
+# Other packages in the shared repos (not exhaustive). The near-miss names come
+# from the live package list of the shared repos (deployment review 2026-10-12),
+# so they are real neighbours rather than invented ones.
 UNRELATED_PACKAGES = [
+    "trend-trawler-prs-beastmode",
+    "trend-agent",
+    "cache",
     "omnimash",
     "omnimash-api",
-    "nova-web",
-    "nova-api",
-    "janus-api",
     "squeeze-the-juice",
     "cpr-predict-proba",
 ]
+# Packages a prefix also matches, accepted because they are trend-trawler's own
+# (deployment/README.md, Retention): the old CRF build and the traffic-job image.
+ACCEPTED_OVERLAPS = {"creative-trawler-crf-vx", "trend-trawler-bandit-traffic"}
 MIN_KEEP = {"ar-cloud-run-source-deploy.json": 10, "ar-cpr.json": 5}
 MIN_DELETE_AGE_DAYS = 14
 
@@ -210,15 +215,6 @@ def test_ar_candidates_keep_newest_and_tagged():
     assert r.ar_candidates(policy, "cpr-predict-proba", versions, NOW)[0] == []
 
 
-def test_matching_packages_only_trend_trawler():
-    r = _retention()
-    pkgs = ["omnimash", "trend-trawler-api", "creative-worker-crf", "nova-web"]
-    assert r.matching_packages(_load("ar-cloud-run-source-deploy.json"), pkgs) == [
-        "trend-trawler-api",
-        "creative-worker-crf",
-    ]
-
-
 def test_gcs_older_than_parses_ls_long():
     r = _retention()
     text = (
@@ -366,3 +362,14 @@ def test_ar_preview_malformed_live_file_is_hard_error(tmp_path, capsys, live_tex
     assert code == r.BAD_LIVE_DIGESTS_EXIT
     assert code not in (0, r.LIVE_DIGEST_EXIT)
     assert "live digest" in capsys.readouterr().err.lower()
+
+
+@pytest.mark.parametrize("name", AR_FILES)
+def test_ar_delete_rules_match_only_our_packages(name):
+    """Through the script's own matcher, a Delete rule reaches only trend-trawler
+    packages plus the accepted overlaps, never a neighbour."""
+    r = _retention()
+    known = sorted(TT_PACKAGES | ACCEPTED_OVERLAPS | set(UNRELATED_PACKAGES))
+    matched = set(r.matching_packages(_load(name), known))
+    assert matched <= TT_PACKAGES | ACCEPTED_OVERLAPS, matched
+    assert matched & TT_PACKAGES  # sanity: the rule does match our packages
