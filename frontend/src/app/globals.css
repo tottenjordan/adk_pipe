@@ -27,6 +27,7 @@
   --color-chart-1: var(--chart-1);
   --color-ring: var(--ring);
   --color-input: var(--input);
+  --color-control-off: var(--control-off);
   --color-border: var(--border);
   --color-destructive: var(--destructive);
   --color-accent-foreground: var(--accent-foreground);
@@ -78,6 +79,9 @@
   --rule: #d5dbe0;
   --border: var(--rule);
   --input: var(--rule);
+  /* Off state of switches/toggles (WCAG 1.4.11): 3.57:1 on --card, 3.26:1 on
+     --background, 3.03:1 on --muted (hover). --input stays the light rule (1.40:1). */
+  --control-off: #7d8995;
   --ring: var(--primary);
   --chart-1: #0077a8;
   --chart-2: #2e7d4f;
