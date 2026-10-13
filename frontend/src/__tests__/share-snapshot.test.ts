@@ -216,6 +216,51 @@ describe("loadSnapshot", () => {
     const { deps: d } = deps(() => new Response("x".repeat(600_000), { status: 200 }));
     expect(await loadSnapshot(SHARE_TOKEN, d)).toBeNull();
   });
+
+  /** A body of `chunks` chunks of `size` bytes, counting how many were pulled. */
+  function chunkedBody(chunks: number, size: number) {
+    const state = { pulled: 0, cancelled: false };
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (state.pulled >= chunks) return controller.close();
+        state.pulled += 1;
+        controller.enqueue(new Uint8Array(size).fill(0x20));
+      },
+      cancel() {
+        state.cancelled = true;
+      },
+    }, { highWaterMark: 0 }); // pull only on read, so `pulled` counts real reads
+    return { stream, state };
+  }
+
+  it("rejects a declared content-length over the cap without reading the body", async () => {
+    const { stream, state } = chunkedBody(1, 16);
+    const { deps: d } = deps(
+      () => new Response(stream, { status: 200, headers: { "content-length": String(512 * 1024 + 1) } })
+    );
+    expect(await loadSnapshot(SHARE_TOKEN, d)).toBeNull();
+    expect(state.pulled).toBe(0);
+  });
+
+  it("stops reading a chunked body once it passes the byte cap", async () => {
+    const { stream, state } = chunkedBody(100, 64 * 1024); // 6.4 MB, no content-length
+    const { deps: d } = deps(() => new Response(stream, { status: 200 }));
+    expect(await loadSnapshot(SHARE_TOKEN, d)).toBeNull();
+    expect(state.pulled).toBeLessThan(100);
+    expect(state.cancelled).toBe(true);
+  });
+
+  it("still reads a chunked snapshot under the cap", async () => {
+    const bytes = new TextEncoder().encode(JSON.stringify(slateSnapshot()));
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (let i = 0; i < bytes.length; i += 100) controller.enqueue(bytes.slice(i, i + 100));
+        controller.close();
+      },
+    });
+    const { deps: d } = deps(() => new Response(stream, { status: 200 }));
+    expect(await loadSnapshot(SHARE_TOKEN, d)).toEqual(slateSnapshot());
+  });
 });
 
 describe("loadShareImage", () => {

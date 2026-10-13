@@ -187,6 +187,40 @@ async function gcsGet(token: string, file: string, deps: GcsDeps) {
 }
 
 /**
+ * The body as UTF-8 text, or null when it is larger than `maxBytes`: a declared
+ * content-length over the cap is refused unread, and a streamed body is read at most
+ * up to the first chunk past the cap, then cancelled.
+ */
+async function readCapped(res: Response, maxBytes: number): Promise<string | null> {
+  const declared = Number(res.headers.get("content-length"));
+  if (Number.isFinite(declared) && declared > maxBytes) {
+    await res.body?.cancel().catch(() => {});
+    return null;
+  }
+  if (!res.body) return "";
+  const reader = res.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > maxBytes) {
+      await reader.cancel().catch(() => {});
+      return null;
+    }
+    chunks.push(value);
+  }
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new TextDecoder().decode(bytes);
+}
+
+/**
  * The validated snapshot, or null when the token is malformed, the snapshot is gone
  * (revoked links delete their objects) or it fails validation. Other storage errors
  * throw, so an outage isn't shown as "no longer available".
@@ -199,8 +233,8 @@ export async function loadSnapshot(
   const res = await gcsGet(token, "snapshot.json", deps);
   if (res.status === 404) return null;
   if (!res.ok) throw new Error(`share snapshot fetch failed: ${res.status}`);
-  const text = await res.text();
-  if (text.length > MAX_SNAPSHOT_BYTES) return null;
+  const text = await readCapped(res, MAX_SNAPSHOT_BYTES);
+  if (text === null) return null;
   let data: unknown;
   try {
     data = JSON.parse(text);
