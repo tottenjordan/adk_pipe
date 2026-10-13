@@ -10,7 +10,8 @@ import type { PersonReferenceInput } from "@/lib/types";
 /**
  * "Person (optional)" for creative runs: one of the caller's active person
  * consents (/people). The visual agents decide per concept whether to cast the
- * person (at most a couple of photographic concepts); the api re-checks the
+ * person (at most a couple of concepts, in person-safe styles only: photographic,
+ * 3D, comic, flat illustration, collage); the api re-checks the
  * consent at kick-off. A duplicated brief whose consent is no longer active is
  * dropped once the list loads.
  */
@@ -96,8 +97,8 @@ export function PersonSelect({
             ))}
           </select>
           <p className="text-xs text-muted-foreground">
-            The agents decide per concept whether to feature this person (photographic
-            concepts only).{" "}
+            The agents decide per concept whether to feature this person (person-safe
+            styles only: photographic, 3D, comic, flat illustration, collage).{" "}
             <Link href="/people" className="text-primary underline-offset-4 hover:underline">
               Manage people
             </Link>
