@@ -1182,3 +1182,26 @@ class TestDeployAgentRuntimeDeps:
 
         da = _import_deploy_agent()
         assert re.fullmatch(r"\d{4}_\d{2}_\d{2}_\d{2}_\d{2}", da.default_version())
+
+
+class TestHeadlessRun:
+    """headless_run.py exits non-zero when the run produced nothing (it used to
+    print a generate_image tool-call count, always 0 now, and exit 0)."""
+
+    @pytest.mark.slow
+    def test_empty_run_fails(self, monkeypatch, capsys):
+        hr = _load_script("headless_run")
+
+        class _NoopRunner:
+            def __init__(self, **_kwargs):
+                pass
+
+            async def run_async(self, **_kwargs):
+                return
+                yield  # an async generator that yields no events
+
+        monkeypatch.setattr(hr, "Runner", _NoopRunner)
+        import asyncio
+
+        assert asyncio.run(hr.main()) == 1
+        assert "FAIL:" in capsys.readouterr().out

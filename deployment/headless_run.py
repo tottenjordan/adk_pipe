@@ -3,12 +3,10 @@
 Runs one full creative_agent invocation via a local ADK Runner, bypassing the
 api_server SSE/HTTP request timeout that kills UI runs during the ~5-min eval
 phase. Uses the same file artifact service directory (.adk/artifacts) the
-api_server uses so save_artifact calls persist identically. Verifies:
-
-  - each visual is rendered exactly once (deterministic render node)
-  - creative_evaluation_report is produced and eval_report_gcs_uri is set
-  - the HTML gallery is built
-  - a BigQuery row is written
+api_server uses so save_artifact calls persist identically. Runs the App (with
+its plugins), prints the load-bearing state keys and exits non-zero unless the
+smoke test's output check passes (`integration_test.check_agent_outputs`:
+finalize done, eval report + research PDF saved, at least one rendered image).
 
 Run:  uv run python deployment/headless_run.py
 """
@@ -39,7 +37,8 @@ from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.genai import types
 
-from creative_agent.agent import root_agent
+from creative_agent import app as creative_app
+from deployment.integration_test import check_agent_outputs
 
 APP_NAME = "creative_agent"
 USER_ID = "headless_user"
@@ -77,7 +76,7 @@ def _log_event(event):
             logging.info(f"[{author}]: {snippet}")
 
 
-async def main():
+async def main() -> int:
     session_service = InMemorySessionService()
     artifact_service = FileArtifactService(root_dir=ARTIFACT_DIR)
 
@@ -87,8 +86,8 @@ async def main():
     logging.info(f"session id: {session.id}")
 
     runner = Runner(
+        app=creative_app,
         app_name=APP_NAME,
-        agent=root_agent,
         session_service=session_service,
         artifact_service=artifact_service,
     )
@@ -138,7 +137,6 @@ async def main():
     print("\n" + "=" * 70)
     print("VALIDATION")
     print("=" * 70)
-    gen_calls = tool_calls.get("generate_image", 0)
     artifact_keys = state.get("_generated_artifact_keys") or []
     if isinstance(artifact_keys, dict):
         artifact_keys = list(artifact_keys.values())
@@ -152,7 +150,10 @@ async def main():
         issue = state.get(f"{key}__issues")
         return f"{bool(value)} value={value}" + (f" issue={issue}" if issue else "")
 
-    print(f"  generate_image tool calls: {gen_calls} (expected exactly 1)")
+    # generate_image is called by the render node directly (no tool-call
+    # event), so renders are read from generated_images, not counted.
+    images = state.get("generated_images") or {}
+    print(f"  rendered images: {len(images) if isinstance(images, dict) else 0}")
     print(f"  generated artifact keys: {len(artifact_keys)}")
     print(
         f"  creative_pipeline calls: {tool_calls.get('creative_pipeline', 0)} "
@@ -167,6 +168,11 @@ async def main():
     print(f"\nsession id for reference: {session.id}")
     print(f"gcs folder: {state.get('gcs_folder')}")
 
+    result = check_agent_outputs(APP_NAME, state)
+    assert result is not None  # creative_agent has AGENT_OUTPUT_KEYS
+    print(f"\n{'PASS' if result.passed else 'FAIL'}: {result.message}")
+    return 0 if result.passed else 1
+
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    sys.exit(asyncio.run(main()))

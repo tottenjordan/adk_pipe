@@ -57,7 +57,7 @@ shared `client` (one per pool); test mocks must accept it.
 Still useful to drive `creative_agent` through a local ADK `Runner` with no HTTP
 layer (`uv run python deployment/headless_run.py`):
 
-- `Runner(app_name="creative_agent", agent=root_agent,
+- `Runner(app=creative_agent.app, app_name="creative_agent",
   session_service=InMemorySessionService(),
   artifact_service=FileArtifactService(root_dir=".adk/artifacts"))`.
   `FileArtifactService` lives at `google.adk.artifacts.file_artifact_service`
@@ -100,7 +100,8 @@ state:
 - `finalize_done` — set by the terminal node on every path (runserver's
   auto-continue completion key).
 
-`deployment/headless_run.py` prints these keys.
+`deployment/headless_run.py` prints these keys and exits non-zero unless the
+smoke test's output check (`integration_test.check_agent_outputs`) passes.
 
 ## GCS / BigQuery layout for a run
 
