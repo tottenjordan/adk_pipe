@@ -417,9 +417,19 @@ _WIN_TERMS = frozenset({"won", "win", "wins", "victory", "beat", "beaten"})
 _LOSS_TERMS = frozenset({"lost", "loss", "lose", "defeat"})
 
 
-def _contradicting_terms(angle: str, outcome: str) -> list[str]:
-    """Result words in ``angle`` that the moment's ``outcome`` contradicts."""
-    allowed = {"win": _WIN_TERMS, "loss": _LOSS_TERMS}.get(outcome, frozenset())
+def _contradicting_terms(angle: str, outcome: str, summary: str = "") -> list[str]:
+    """Result words in ``angle`` that the moment's ``outcome`` contradicts.
+
+    A win/loss moment allows its own family. A non-competitive moment (``other``:
+    a lottery prize, an award; or a ``draw``) has no family of its own, so it
+    allows each family its ``outcome_summary`` uses (a jackpot "won" allows
+    "win"), and no others."""
+    allowed = {"win": _WIN_TERMS, "loss": _LOSS_TERMS}.get(outcome)
+    if allowed is None:
+        stated = set(temporal_terms(summary)) if outcome in ("other", "draw") else set()
+        allowed = frozenset().union(
+            *(family for family in (_WIN_TERMS, _LOSS_TERMS) if stated & family)
+        )
     results = _WIN_TERMS | _LOSS_TERMS
     return [t for t in temporal_terms(angle) if t in results and t not in allowed]
 
@@ -441,7 +451,8 @@ def _timely_angle_issues(
             "it empty)."
         ]
     outcome = _text(situation.get("outcome"))
-    if bad := _contradicting_terms(angle, outcome):
+    summary = _text(situation.get("outcome_summary"))
+    if bad := _contradicting_terms(angle, outcome, summary):
         result = (
             f"outcome: {outcome}" if outcome not in ("", "none") else "no result yet"
         )
