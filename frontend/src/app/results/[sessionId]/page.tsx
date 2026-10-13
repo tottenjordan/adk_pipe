@@ -46,6 +46,7 @@ import { ShareDialog } from "@/components/share-dialog";
 import { SessionShares } from "@/components/shares-list";
 import { hasRenderedImage, type Share } from "@/lib/shares";
 import { canPersonalise } from "@/lib/variants";
+import { useWallClock } from "@/lib/use-wall-clock";
 import {
   PersonalisePanel,
   personalisationProps,
@@ -96,6 +97,9 @@ export default function ResultsPage({
   // Links created on this page since load (newest first), shown in "Shared links".
   const [newShares, setNewShares] = useState<Share[]>([]);
   const onShareCreated = useCallback((s: Share) => setNewShares((prev) => [s, ...prev]), []);
+  // Wall clock for the timely creative's expiry (lib/timely.ts), refreshed every
+  // minute so "Timely" turns "Expired" while the page is open.
+  const now = useWallClock();
 
   // The eval report is the LAST artifact the run writes to GCS, so it can 404 if the
   // results page opens before the run's final write lands. fetchEvalReport retries on
@@ -167,9 +171,10 @@ export default function ResultsPage({
       evalReport,
       state.generated_images,
       state.person_reference_rejected,
-      state.trend_situation
+      state.trend_situation,
+      now
     );
-  }, [state, evalReport]);
+  }, [state, evalReport, now]);
   const sortedProofs = useMemo(() => sortProofs(proofs, sort), [proofs, sort]);
   // Session state can be large; serialise it once per session, not on every render
   // (proof navigation, ratings, share-list updates all re-render this page).
@@ -356,6 +361,7 @@ export default function ResultsPage({
             sessionId={sessionId}
             imageUrlFor={imageUrlFor}
             stoppedEarly={Boolean(stopped)}
+            now={now}
           />
         </>
       )}
