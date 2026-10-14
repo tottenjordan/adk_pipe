@@ -157,23 +157,28 @@ def test_table_names_follow_env():
 
 
 class FakeClient:
-    def __init__(self, fail_times=0):
+    def __init__(self, fail_times=0, errors=None):
         self.fail_times = fail_times
+        self.errors = errors or [{"index": 0, "errors": ["backendError"]}]
         self.calls = []
         self.queries = []
+        self.insert_timeouts = []
+        self.result_timeouts = []
 
-    def insert_rows_json(self, table, rows, row_ids=None):
+    def insert_rows_json(self, table, rows, row_ids=None, timeout=None):
         self.calls.append((table, rows, row_ids))
+        self.insert_timeouts.append(timeout)
         if self.fail_times:
             self.fail_times -= 1
-            return [{"index": 0, "errors": ["backendError"]}]
+            return self.errors
         return []
 
     def query(self, sql, job_config=None):
         self.queries.append((sql, job_config))
         return self
 
-    def result(self):
+    def result(self, timeout=None):
+        self.result_timeouts.append(timeout)
         return []
 
 
@@ -205,6 +210,50 @@ def test_writer_retries_row_errors_then_raises():
     assert len(client.calls) == 2
     with pytest.raises(bq.BigQueryWriteError):
         _writer(FakeClient(fail_times=5), attempts=2).write_events([_event()])
+
+
+def test_writer_bounds_every_insert_and_query():
+    client = FakeClient()
+    writer = _writer(client)
+    writer.write_events([_event()])
+    writer.write_metrics([_event()])
+    writer.update_progress("abc", 1, 4)
+    assert client.insert_timeouts == [bq.INSERT_TIMEOUT_SECONDS] * 2
+    assert client.result_timeouts == [bq.QUERY_TIMEOUT_SECONDS]
+    assert (bq.INSERT_TIMEOUT_SECONDS, bq.QUERY_TIMEOUT_SECONDS) == (30, 60)
+
+
+# A schema mismatch, as insertAll reports it: the bad row "invalid", the rest of
+# the request "stopped"; none of the rows are inserted, and a retry can't help.
+SCHEMA_MISMATCH = [
+    {
+        "index": 0,
+        "errors": [
+            {
+                "reason": "invalid",
+                "location": "surprise",
+                "debugInfo": "",
+                "message": "no such field: surprise.",
+            }
+        ],
+    },
+    {"index": 1, "errors": [{"reason": "stopped", "location": "", "message": ""}]},
+]
+
+
+def test_writer_does_not_retry_permanent_row_errors(caplog):
+    client = FakeClient(fail_times=5, errors=SCHEMA_MISMATCH)
+    with pytest.raises(bq.BigQueryWriteError, match="permanent"):
+        _writer(client, attempts=3).write_events([_event(), _event()])
+    assert len(client.calls) == 1
+    assert "no such field: surprise" in caplog.text
+
+
+def test_writer_still_retries_transient_object_errors():
+    transient = [{"index": 0, "errors": [{"reason": "backendError", "message": "x"}]}]
+    client = FakeClient(fail_times=2, errors=transient)
+    _writer(client, attempts=3).write_events([_event()])
+    assert len(client.calls) == 3
 
 
 def test_writer_progress_runs_parameterized_update():
