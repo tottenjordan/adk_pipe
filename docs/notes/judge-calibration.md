@@ -19,6 +19,13 @@ verdict for the same creative: `judge_overall`, `judge_passed`, `judge_gates_pas
 and two run-level fields from the same report: `judge_version` (see **Judge versions**)
 and `learning_used` (see **Learned runs**).
 
+Update 2026-10-14: a fail verdict can also carry optional fail-reason chips
+(`fail_reasons`, the allowlisted enum in `runserver/rating_reasons.py`, per-kind lists
+in `FAIL_REASONS_BY_KIND`; emptied on a pass), and each row stamps a learning context
+(`brand`, `visual_style`, `tone_style`, `angle_id`) used by opt-in rating learning. Note
+the reason in a chip when one fits; the free-text note is still the best input for
+rubric fixes.
+
 ## Protocol
 
 1. **Rate blind first.** Decide pass/fail before reading the judge's scores and

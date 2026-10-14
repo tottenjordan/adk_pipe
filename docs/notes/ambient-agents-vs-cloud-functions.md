@@ -12,6 +12,16 @@ architecture as the primary executor; run a parallel Ambient-Agent experiment be
 > (default 3) trends per message; the image tool lives in `creative_agent/image_tools.py`;
 > and the local backend is `deployment/async_app.py`, not `adk api_server`.
 
+> **Update 2026-10-14:** the batch path changed shape (decision still keep-CRF). The worker
+> is now reached through a Cloud Tasks queue (`creative-worker-queue`, one task in flight,
+> 30-min dispatch deadline, 5 attempts with 60–600 s backoff), not a worker topic + Eventarc
+> trigger; the worker's Eventarc trigger is deleted and the Pub/Sub path is kept one release
+> as the rollback. The worker runs the engine in its own `CREATIVE_AGENT_ENGINE_ID` env var
+> (set by `deployment/engine_handoff.py apply --update-worker`); messages no longer carry
+> `agent_resource_id` (a legacy one is ignored). `cloud_functions/creative_fanout/main.py`
+> holds only the entry points; the logic lives in `orchestrator.py`, `worker.py`,
+> `status_store.py` and `completion.py`. Setup: `deployment/README.md` §3.
+
 This note captures a comparison between our current event-driven orchestration
 (`cloud_functions/creative_fanout/`) and ADK's newer **Ambient Agent** concept
 (<https://adk.dev/runtime/ambient-agents/>), plus the target event-native
@@ -383,7 +393,8 @@ onto a single Cloud Run deployment is worth it for operational simplicity alone.
 
 ## Related
 
-- `cloud_functions/creative_fanout/main.py` — the current fan-out (orchestrator + worker).
+- `cloud_functions/creative_fanout/` — the current fan-out (`main.py` entry points; `orchestrator.py`, `worker.py`).
 - `docs/notes/local-testing.md` — the ~12-min UI request timeout, headless Runner, where results land.
 - GitHub issues for the two incidental bugs found while reviewing the worker (swallowed streaming
-  exception → false `PROCESSED`; unguarded `message_payload`/`df` in `crf_entrypoint`).
+  exception → false `PROCESSED`; unguarded `message_payload`/`df` in `crf_entrypoint`) — both
+  fixed (malformed messages are ACKed, #404; `PROCESSED` only on `finalize_done`, #405).

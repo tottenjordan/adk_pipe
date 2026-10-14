@@ -74,6 +74,15 @@ as the photographic spike (2 adult men with light skin, one setting), with the s
 Gemini-judging-Gemini limitation. Narrow the list with `PERSON_SAFE_STYLES` if QA likeness
 failures rise for a style.
 
+Update 2026-10-14: the defaults above are still current (`DEFAULT_PERSON_SAFE_STYLES` in
+`creative_agent/config.py`, `MAX_CAST_CONCEPTS` 2). Later casting changes, not
+re-calibrated here: casting is allowed on real-person and sensitive-moment trends under
+identity guardrails (2026-10-12), the image-QA "person marked" (tattoo) rule was removed
+the same day after it flagged the reference person's real tattoos, the image QA adds a
+"person shown as a public figure" rule, and the casting rules keep the product out of the
+cast person's hands (`PERSON_HANDS_LINE`, 2026-10-13). Details:
+[creative-quality-gates.md](creative-quality-gates.md) → Person casting.
+
 ## Photo guidance (2026-10-11)
 
 Two personalised swaps on 2026-10-11 looked soft and drifted from their originals; both

@@ -82,9 +82,13 @@ One tool call renders every concept. Per concept it runs
    `IMAGE_QA_MAX_RERENDERS_PER_RUN` per run; the better attempt is kept
    (critical failures weigh first) and only it is uploaded.
 
-Renders are strictly sequential behind one FIFO `asyncio.Lock` (image quota),
-but each image's QA (+ re-render) overlaps the next concept's render; the
-budget is claimed and uploads happen in concept order. Results go to
+At most `IMAGE_RENDER_CONCURRENCY` image-model calls (default 2, clamped 1–4;
+re-renders included) are in flight behind one FIFO `asyncio.Semaphore` (image
+quota); first renders are staggered by concept, and each image's QA (+
+re-render) overlaps other concepts' renders; the budget is claimed and uploads
+happen in concept order. (Update 2026-10-14: until #389 (2026-10-13) renders
+were strictly sequential behind one FIFO `asyncio.Lock`; `IMAGE_RENDER_CONCURRENCY=1`
+restores that.) Results go to
 `generated_images`, still-failing images to `image_qa__issues`, QA errors
 (fail-open) to `image_qa__unavailable`. Behaviour parity with the pre-refactor
 tool is pinned by `tests/test_render_parity.py`. Rule details:
