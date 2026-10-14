@@ -1,7 +1,9 @@
 # DoE — quantifying the creative_agent quota-bucket spread (model-family change)
 
-**Date:** 2026-07-17 (design / pre-registration; not yet executed)
-**Status:** DESIGN. No trials run. This document is the pre-registered plan — hypotheses,
+**Date:** 2026-07-17 (design / pre-registration; executed the same day)
+**Status:** DONE (2026-07-17). Results in §8a, decision in §9a (**CONFIRM-SHIP B — keep #101**).
+The `regional_25` arm has since been retired with gemini-2.5 (2026-09-28); campaign research now
+runs on `gemini-3.5-flash` @ `global` (`global_altbucket`). This document is the pre-registered plan — hypotheses,
 metrics, analysis, and decision thresholds are fixed *before* data collection so the result
 can't be rationalized after the fact.
 **Change under test:** PR #101 (`08c2a9c`) — creative_agent's **campaign** research pipeline
@@ -413,7 +415,8 @@ for r in load_records():
 `analyze.py` stays the authoritative inference. `get_experiment_df()` also pulls in pandas, which
 `analyze.py` deliberately avoids.
 
-**Status: DEFERRED.** The committed JSON records are the durable source of truth, so the uploader
+**Status: BUILT** as `experiments/quota_spread/upload_to_vertex.py` (`--dry-run` shapes runs
+without GCP calls). The original plan follows: the committed JSON records are the durable source of truth, so the uploader
 is a pure downstream sink that can be bolted on any time. Build it **only after** the first live
 batch confirms the harness end-to-end — then decide whether the console UI justifies the extra
 GCP resource. Clean up afterward (delete the experiment metadata store).

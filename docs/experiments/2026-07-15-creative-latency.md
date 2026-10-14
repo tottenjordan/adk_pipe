@@ -1,7 +1,7 @@
 # creative_agent latency experiment — where the wall-clock goes, and three levers
 
 **Date:** 2026-07-15 → 2026-07-16
-**Branch (harness + results):** `feat/creative-latency-experiment`
+**Branch (harness + results):** `feat/creative-latency-experiment` (merged to `main` 2026-07-16 with Levers A and C; Lever B was not shipped then; parallel renders later shipped as the pipelined `IMAGE_RENDER_CONCURRENCY` render path (#389, default 2) on `gemini-nano-banana-2.1`)
 **Interactive report:** [`experiments/creative_latency/report.html`](../../experiments/creative_latency/report.html) (self-contained Plotly; open in a browser)
 **Method:** external harness drives real `creative_agent` runs through the async `/runs` HTTP API on isolated `--no-traffic --tag` Cloud Run revisions, then parses the persisted event log into per-phase wall-clock. No agent code is changed to *measure*; each lever ships on its own branch + tagged revision and is measured identically. Fixed campaign input (`fixtures.py`) across all trials. 3 trials/config; **median** reported (min/max in the report) because the shared, unraisable Vertex quota makes any single number noisy.
 
