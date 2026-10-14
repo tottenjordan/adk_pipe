@@ -126,3 +126,32 @@ class FakeStatusStore:
     def statuses(self) -> list[str]:
         """The final statuses written, in order (incl. failed attempts)."""
         return [c[2] for c in self.calls if c[0] == "mark_final"]
+
+
+class FakeTasksClient:
+    """A Cloud Tasks client stand-in: records every ``create_task`` call.
+
+    Each request is validated by building the real ``CreateTaskRequest``, so a
+    request shape the API would reject fails the test. ``errors`` maps a task
+    name (or ``"*"`` for every call) to the exception ``create_task`` raises;
+    ``events`` (optional) is a shared, ordered call log.
+    """
+
+    def __init__(self, errors=None, events=None):
+        self.errors = dict(errors or {})
+        self.events = events if events is not None else []
+        self.requests: list[dict] = []
+        self.timeouts: list = []
+
+    def create_task(self, request=None, *, timeout=None, **_):
+        from google.cloud import tasks_v2
+
+        tasks_v2.CreateTaskRequest(request)  # raises on a malformed request
+        self.requests.append(request)
+        self.timeouts.append(timeout)
+        name = request["task"]["name"]
+        self.events.append(("create_task", name))
+        err = self.errors.get(name) or self.errors.get("*")
+        if err is not None:
+            raise err
+        return request["task"]

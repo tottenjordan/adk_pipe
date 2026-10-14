@@ -1,7 +1,8 @@
 """GCP clients for the CRF functions.
 
-One BigQuery client and one Pub/Sub publisher per instance, built on first
-use (so importing needs no credentials) and reused by every invocation:
+One BigQuery client, one Pub/Sub publisher and one Cloud Tasks client per
+instance, built on first use (so importing needs no credentials) and reused
+by every invocation:
 functions-framework serves requests on many threads (the orchestrator runs
 at concurrency 100), so creation is guarded by a lock, and a per-invocation
 client would leak its HTTP/gRPC transport (they were never closed). The Agent
@@ -13,7 +14,7 @@ import logging
 import threading
 
 import agentplatform
-from google.cloud import bigquery, pubsub_v1
+from google.cloud import bigquery, pubsub_v1, tasks_v2
 
 from .config import config
 
@@ -22,6 +23,7 @@ logger = logging.getLogger(__name__)
 _clients_lock = threading.Lock()
 _bigquery_client: bigquery.Client | None = None
 _pubsub_publisher: pubsub_v1.PublisherClient | None = None
+_tasks_client: tasks_v2.CloudTasksClient | None = None
 
 
 def get_bigquery_client() -> bigquery.Client:
@@ -42,6 +44,16 @@ def get_pubsub_client() -> pubsub_v1.PublisherClient:
             if _pubsub_publisher is None:
                 _pubsub_publisher = pubsub_v1.PublisherClient()
     return _pubsub_publisher
+
+
+def get_tasks_client() -> tasks_v2.CloudTasksClient:
+    """The instance's shared Cloud Tasks client (lazy, thread-safe)."""
+    global _tasks_client
+    if _tasks_client is None:
+        with _clients_lock:
+            if _tasks_client is None:
+                _tasks_client = tasks_v2.CloudTasksClient()
+    return _tasks_client
 
 
 def new_vertex_client():
