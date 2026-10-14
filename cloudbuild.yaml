@@ -109,9 +109,13 @@ steps:
   # and IAP; the api's required runtime flags are re-asserted. Never pass
   # --allow-unauthenticated here. Needs the IAM grants in deployment/README.md
   # (Step 8, "Build with Cloud Build (cached), then deploy the digest"). The CRF
-  # services keep env, scaling, timeouts and their Eventarc triggers; only
-  # FUNCTION_TARGET is (re)set, and --clear-base-image drops the buildpack-era
-  # automatic base-image updates (a Dockerfile image can't use them).
+  # services keep env, scaling, timeouts and their triggers; --clear-base-image drops
+  # the buildpack-era automatic base-image updates (a Dockerfile image can't use them).
+  # The orchestrator's FUNCTION_TARGET is (re)set (it never changes). The worker's
+  # FUNCTION_TARGET / FUNCTION_SIGNATURE_TYPE are NOT touched: the service owns them
+  # (agent_worker_task + http behind Cloud Tasks, agent_worker_entrypoint + the
+  # cloudevent default on the Pub/Sub rollback path; deployment/README.md §3), and
+  # --no-traffic only updates an existing service, which always has them set.
   - id: deploy
     name: gcr.io/cloud-builders/gcloud
     waitFor: [build-api, build-web, build-crf]
@@ -138,5 +142,5 @@ steps:
           --update-env-vars FUNCTION_TARGET=crf_entrypoint --clear-base-image
         gcloud run deploy creative-worker-crf --region ${_REGION} \
           --image "${_CRF_IMAGE}@$$(cat /workspace/crf.digest)" --no-traffic \
-          --update-env-vars FUNCTION_TARGET=agent_worker_entrypoint --clear-base-image
+          --clear-base-image
         echo "Deployed at 0% traffic; pin each new revision manually (deployment/README.md Step 8)."

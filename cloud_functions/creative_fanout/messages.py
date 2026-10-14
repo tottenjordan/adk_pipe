@@ -1,7 +1,8 @@
-"""Pub/Sub message parsing for the CRF functions.
+"""Message parsing for the CRF functions.
 
 Decodes and validates the orchestrator's trigger message and the worker
-message, and builds the worker message's ``row_data`` from a BigQuery row.
+message (a Pub/Sub CloudEvent or a Cloud Tasks HTTP body; one validator), and
+builds the worker message's ``row_data`` from a BigQuery row.
 """
 
 import base64
@@ -124,7 +125,7 @@ def parse_trigger_message(cloud_event) -> dict | None:
 
 
 def parse_worker_message(cloud_event) -> tuple[str, str, dict]:
-    """``(dataset, table, row_data)`` from a worker message.
+    """``(dataset, table, row_data)`` from a Pub/Sub worker message.
 
     A legacy ``agent_resource_id`` (a message published before the engine
     moved to the worker's env) is ignored.
@@ -132,7 +133,31 @@ def parse_worker_message(cloud_event) -> tuple[str, str, dict]:
     Raises ValueError (MalformedMessageError, or the identifier / timestamp
     validators' ValueError) for a message that can never be processed.
     """
-    payload = _decode_pubsub_json(cloud_event)
+    return _validate_worker_payload(_decode_pubsub_json(cloud_event))
+
+
+def parse_task_request(body: bytes) -> tuple[str, str, dict]:
+    """``(dataset, table, row_data)`` from a Cloud Tasks HTTP task body (the
+    same JSON worker message the Pub/Sub transport sends as message data).
+
+    Raises ValueError like ``parse_worker_message`` for a body that can never
+    be processed (not UTF-8 JSON, not an object, or an invalid message).
+    """
+    try:
+        payload = json.loads(body.decode("utf-8"))
+    except ValueError as e:  # UnicodeDecodeError and JSONDecodeError
+        raise MalformedMessageError(
+            f"undecodable task body ({type(e).__name__}: {e})"
+        ) from e
+    if not isinstance(payload, dict):
+        raise MalformedMessageError(
+            f"payload is a JSON {type(payload).__name__}, not an object"
+        )
+    return _validate_worker_payload(payload)
+
+
+def _validate_worker_payload(payload: dict) -> tuple[str, str, dict]:
+    """The shared worker-message validation of both transports."""
     _require_fields(payload, _WORKER_FIELDS, "worker message")
     row_data = payload["row_data"]
     if not isinstance(row_data, dict):

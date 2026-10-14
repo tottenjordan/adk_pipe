@@ -56,6 +56,9 @@ Functions are thin orchestration glue (`cloud_functions/creative_fanout/main.py`
   *since 2026-10-13* a compare-and-set on `processing_attempts` by the row key `(uuid, target_trend)`,
   whose new attempt fences the worker's later writes, then a re-read of the row the run is built from)
   → invokes Agent Engine via `async_stream_query` → marks `PROCESSED` / `FAILED`.
+  *Since 2026-10-14* the orchestrator enqueues one Cloud Tasks HTTP task per row instead
+  (`CRF_WORKER_TRANSPORT=tasks`) and the worker's `agent_worker_task` HTTP entry point runs it
+  (200 = done, 503 = retry); the Pub/Sub path above is kept one release as the rollback.
   *Since 2026-10-13* `PROCESSED` needs the session's `finalize_done` (completion check,
   `cloud_functions/creative_fanout/completion.py`): a cut/timed-out stream is followed by
   polling the session, and an unfinished run gets one retry message only once the session shows
@@ -114,9 +117,9 @@ retry `ADK_TRIGGER_MAX_RETRIES` (3) with exponential backoff + jitter
 | Event parsing | Hand-rolled Base64/CloudEvent decode (×2 entrypoints) | Automatic (Base64, CloudEvents; normalized `{data, attributes}`) |
 | Session lifecycle | Manual create/delete per run | Automatic per-event UUID session |
 | Concurrency | Pub/Sub + worker concurrency=1 + BigQuery lock | Built-in per-process semaphore + Cloud Run autoscaling |
-| Retry | Re-raise → Pub/Sub NACK/redeliver (coarse) | Built-in exp. backoff + jitter, then 500 → Pub/Sub |
+| Retry | Re-raise → Pub/Sub NACK/redeliver (coarse); *since 2026-10-14* HTTP 503 → the Cloud Tasks queue's retry policy (5 attempts, 60–600 s backoff) | Built-in exp. backoff + jitter, then 500 → Pub/Sub |
 | Idempotency / dedup | **Strong** — atomic BQ lock, exactly-once-ish | **None built-in** — per-delivery sessions, stateless |
-| Max runtime | Worker timeout **900s** (now 1800s); the Eventarc push ack deadline is capped at 600 s, so longer runs are redelivered while running (known limitation, deployment/README.md §3) | **Synchronous, ~10-min hard ceiling** (Pub/Sub push ack) |
+| Max runtime | Worker timeout **900s** (now 1800s); the Eventarc push ack deadline is capped at 600 s, so longer runs were redelivered while running. *Since 2026-10-14* the worker is a Cloud Tasks HTTP target (30-min dispatch deadline, one task in flight), so a run up to 1800 s is neither redelivered nor bounced (deployment/README.md §3) | **Synchronous, ~10-min hard ceiling** (Pub/Sub push ack) |
 | Deployment | Two CF deployments from one source ("deploy twice") | One `adk deploy cloud_run --trigger_sources=…` |
 | Agent hosting | Managed Agent Engine (scaling, sessions, tracing) | Self-hosted on Cloud Run |
 | Glue to maintain | High (orchestrator + worker + lock + parse + stream loop) | Low (ADK owns the plumbing) |
