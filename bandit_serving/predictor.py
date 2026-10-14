@@ -24,10 +24,16 @@ response body, so ``postprocess`` returns the full ``{"predictions": [...]}``):
   key every decision carrying ``batch``/``row`` exactly like ``bandit.simulate``
   (``fold_in(k_pol, batch)``, noise at the simulator batch shape), so the
   endpoint's arms match a local LinTS replay round for round (contracts §2).
-- Checkpoints (``checkpoints/<model_version>.npz`` + ``checkpoints/latest.json``
-  under ``AIP_STORAGE_URI``) are written by a background thread every
-  ``BANDIT_CHECKPOINT_EVERY`` update batches or ``BANDIT_CHECKPOINT_SECONDS``
-  seconds, and on reset. A failed write is logged and never blocks serving.
+- ``experiment.json`` is read from ``AIP_STORAGE_URI``, which on Vertex is a
+  read-only copy of the model artifacts in a Vertex-managed bucket. Checkpoints
+  (``<model_version>.npz`` + ``latest.json``) therefore go to the separate,
+  writable ``BANDIT_CHECKPOINT_URI`` (set by ``deployment/bandit/endpoint.py`` to
+  ``<artifact_uri>/checkpoints/``) and are restored from there on load. They are
+  written by a background thread every ``BANDIT_CHECKPOINT_EVERY`` update batches
+  or ``BANDIT_CHECKPOINT_SECONDS`` seconds, and on reset (the ``.npz`` before
+  ``latest.json``); only the newest ``CHECKPOINT_KEEP`` ``.npz`` files are kept.
+  Without ``BANDIT_CHECKPOINT_URI`` checkpointing is off (one startup warning). A
+  failed write logs one concise warning and never blocks serving.
 
 All state reads/mutations happen under one ``threading.Lock``.
 """
@@ -41,6 +47,7 @@ import json
 import logging
 import math
 import os
+import re
 import threading
 import time
 from collections import OrderedDict
@@ -76,6 +83,10 @@ MAX_REQUEST_ID_LEN = 256
 MAX_INSTANCES = 1000  # per request (contracts §2; the traffic client splits at 500)
 MIN_BUCKET = 16  # pad batches to powers of two >= this (bounded jit recompiles)
 MAX_CHUNK = 1024  # rows per decision kernel call (bounds the MC propensity tensor)
+MAX_SEED = 2**31  # reset seeds are 31-bit (``bandit_traffic.traffic.reset_seed``)
+CHECKPOINT_KEEP = 5  # newest checkpoint .npz files kept under BANDIT_CHECKPOINT_URI
+CHECKPOINT_ENV = "BANDIT_CHECKPOINT_URI"
+MAX_LOGGED_ERROR = 300  # chars of a storage error kept in a warning
 
 
 # ----------------------------------------------------------------------- storage
@@ -84,6 +95,14 @@ MAX_CHUNK = 1024  # rows per decision kernel call (bounds the MC propensity tens
 class Storage(Protocol):
     def read_bytes(self, rel: str) -> bytes | None: ...
     def write_bytes(self, rel: str, data: bytes) -> None: ...
+    def list_files(self, suffix: str) -> list[tuple[str, float]]:
+        """``(name, modified time)`` of the files directly under the root whose
+        name ends with ``suffix``."""
+        ...
+
+    def delete(self, rel: str) -> None:
+        """Delete ``rel``; a missing file is fine."""
+        ...
 
 
 class LocalStorage:
@@ -103,6 +122,18 @@ class LocalStorage:
         tmp.write_bytes(data)
         tmp.replace(path)
 
+    def list_files(self, suffix: str) -> list[tuple[str, float]]:
+        if not self.root.is_dir():
+            return []
+        return [
+            (f.name, f.stat().st_mtime)
+            for f in self.root.iterdir()
+            if f.is_file() and f.name.endswith(suffix)
+        ]
+
+    def delete(self, rel: str) -> None:
+        (self.root / rel).unlink(missing_ok=True)
+
 
 class GcsStorage:
     """A ``gs://bucket/prefix`` (Vertex sets ``AIP_STORAGE_URI`` to this)."""
@@ -118,17 +149,75 @@ class GcsStorage:
         return self._bucket.blob(f"{self._prefix}/{rel}" if self._prefix else rel)
 
     def read_bytes(self, rel: str) -> bytes | None:
-        blob = self._blob(rel)
-        return blob.download_as_bytes() if blob.exists() else None
+        from google.api_core.exceptions import NotFound
+
+        try:
+            return self._blob(rel).download_as_bytes()
+        except NotFound:
+            return None
 
     def write_bytes(self, rel: str, data: bytes) -> None:
         self._blob(rel).upload_from_string(data)
+
+    def list_files(self, suffix: str) -> list[tuple[str, float]]:
+        prefix = f"{self._prefix}/" if self._prefix else ""
+        out = []
+        for blob in self._bucket.list_blobs(prefix=prefix):
+            name = blob.name[len(prefix) :]
+            if name.endswith(suffix) and "/" not in name:
+                updated = getattr(blob, "updated", None)
+                out.append((name, updated.timestamp() if updated else 0.0))
+        return out
+
+    def delete(self, rel: str) -> None:
+        from google.api_core.exceptions import NotFound
+
+        try:
+            self._blob(rel).delete()
+        except NotFound:
+            pass
 
 
 def open_storage(artifacts_uri: str) -> Storage:
     if artifacts_uri.startswith("gs://"):
         return GcsStorage(artifacts_uri)
     return LocalStorage(artifacts_uri.removeprefix("file://"))
+
+
+def _short_error(exc: BaseException) -> str:
+    """``Type: message`` on one line, capped (GCS errors carry long bodies)."""
+    text = " ".join(f"{type(exc).__name__}: {exc}".split())
+    if len(text) > MAX_LOGGED_ERROR:
+        return text[: MAX_LOGGED_ERROR - 1] + "…"
+    return text
+
+
+def _natural_key(name: str) -> tuple[Any, ...]:
+    """``exp-e1-v10`` sorts after ``exp-e1-v9`` (digit runs compare as numbers)."""
+    return tuple(int(p) if p.isdigit() else p for p in re.split(r"(\d+)", name))
+
+
+def prune_checkpoints(storage: Storage, keep_name: str, keep: int) -> None:
+    """Delete all but the newest ``keep`` ``.npz`` files (``keep_name``, the one
+    ``latest.json`` points at, always stays). Failures only log."""
+    try:
+        files = storage.list_files(".npz")
+    except Exception as exc:
+        log.warning("checkpoint prune: listing failed: %s", _short_error(exc))
+        return
+    files.sort(key=lambda f: (f[1], _natural_key(f[0])), reverse=True)
+    kept = {keep_name}
+    for name, _ in files:
+        if len(kept) >= max(keep, 1):
+            break
+        kept.add(name)
+    for name in (n for n, _ in files if n not in kept):
+        try:
+            storage.delete(name)
+        except Exception as exc:
+            log.warning(
+                "checkpoint prune: delete %s failed: %s", name, _short_error(exc)
+            )
 
 
 # --------------------------------------------------------------------- instances
@@ -305,12 +394,19 @@ def _request_id(inst: Mapping[str, Any]) -> str:
     return rid
 
 
-def _int_field(inst: Mapping[str, Any], name: str, minimum: int | None = None) -> int:
+def _int_field(
+    inst: Mapping[str, Any],
+    name: str,
+    minimum: int | None = None,
+    below: int | None = None,
+) -> int:
     v = inst.get(name)
     if not isinstance(v, int) or isinstance(v, bool):
         raise ValueError(f"{name} must be an integer")
     if minimum is not None and v < minimum:
         raise ValueError(f"{name} must be >= {minimum}")
+    if below is not None and v >= below:
+        raise ValueError(f"{name} must be < {below}")
     return v
 
 
@@ -405,12 +501,20 @@ class BanditPredictor(Predictor):
     def __init__(
         self,
         *,
+        checkpoint_uri: str | None = None,
         checkpoint_every: int | None = None,
         checkpoint_seconds: float | None = None,
         max_pending: int | None = None,
         max_seen: int | None = None,
     ) -> None:
         super().__init__()
+        # ``None`` -> the env var; ``""`` -> checkpointing off.
+        self.checkpoint_uri = (
+            checkpoint_uri
+            if checkpoint_uri is not None
+            else os.environ.get(CHECKPOINT_ENV, "")
+        ).strip()
+        self._ckpt_storage: Storage | None = None
         self.checkpoint_every = int(
             checkpoint_every
             if checkpoint_every is not None
@@ -449,6 +553,14 @@ class BanditPredictor(Predictor):
         raw = self._storage.read_bytes("experiment.json")
         if raw is None:
             raise FileNotFoundError(f"no experiment.json under {artifacts_uri}")
+        if self.checkpoint_uri:
+            self._ckpt_storage = open_storage(self.checkpoint_uri)
+        else:
+            log.warning(
+                "%s is not set: posterior checkpoints are disabled, so a restart "
+                "starts from the prior (AIP_STORAGE_URI is read-only on Vertex)",
+                CHECKPOINT_ENV,
+            )
         cfg = load_serving_config(json.loads(raw))
         self.config = cfg
         self.params = cfg.policy
@@ -550,8 +662,11 @@ class BanditPredictor(Predictor):
     # ------------------------------------------------------------ checkpoints
 
     def _restore(self) -> None:
+        storage = self._ckpt_storage
+        if storage is None:
+            return
         try:
-            meta_raw = self._storage.read_bytes("checkpoints/latest.json")
+            meta_raw = storage.read_bytes("latest.json")
             if meta_raw is None:
                 return
             meta = json.loads(meta_raw)
@@ -560,7 +675,7 @@ class BanditPredictor(Predictor):
                     "ignoring checkpoint for experiment %s", meta.get("experiment_id")
                 )
                 return
-            npz_raw = self._storage.read_bytes(f"checkpoints/{meta['npz']}")
+            npz_raw = storage.read_bytes(str(meta["npz"]))
             if npz_raw is None:
                 log.warning("checkpoint %s missing; starting fresh", meta["npz"])
                 return
@@ -598,6 +713,11 @@ class BanditPredictor(Predictor):
 
     def _schedule_checkpoint(self) -> None:
         """Snapshot under the lock; write in the background (never raises)."""
+        self._updates_since_ckpt = 0
+        self._last_ckpt = time.monotonic()
+        storage = self._ckpt_storage
+        if storage is None:
+            return
         version = self._version()
         buf = io.BytesIO()
         np.savez(
@@ -623,20 +743,19 @@ class BanditPredictor(Predictor):
             "feature_spec_version": FEATURE_SPEC_VERSION,
             "saved_at": time.time(),
         }
-        self._updates_since_ckpt = 0
-        self._last_ckpt = time.monotonic()
-        storage = self._storage
 
         def write() -> None:
             try:
-                storage.write_bytes(f"checkpoints/{npz_name}", buf.getvalue())
-                storage.write_bytes(
-                    "checkpoints/latest.json", json.dumps(meta).encode("utf-8")
+                storage.write_bytes(npz_name, buf.getvalue())
+                storage.write_bytes("latest.json", json.dumps(meta).encode("utf-8"))
+            except Exception as exc:
+                log.warning(
+                    "checkpoint write failed for %s (serving continues): %s",
+                    version,
+                    _short_error(exc),
                 )
-            except Exception:
-                log.exception(
-                    "checkpoint write failed for %s (serving continues)", version
-                )
+                return
+            prune_checkpoints(storage, npz_name, CHECKPOINT_KEEP)
 
         try:
             self._last_write = self._writer.submit(write)
@@ -694,7 +813,7 @@ class BanditPredictor(Predictor):
             if kind == "reset":
                 return _Reset(
                     _int_field(inst, "episode", 0),
-                    _int_field(inst, "seed"),
+                    _int_field(inst, "seed", 0, MAX_SEED),
                     _reset_discount(inst),
                     _policy_stream(inst),
                 )
