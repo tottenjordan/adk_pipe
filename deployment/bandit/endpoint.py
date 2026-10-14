@@ -16,7 +16,9 @@ resource, so the location is ``GCP_REGION`` (default ``us-central1``), never the
 
 The CPR container is always uploaded with ``VERTEX_CPR_WEB_CONCURRENCY=1``: one web
 worker holds the single in-memory posterior (contracts §2); more workers would
-each learn from a disjoint slice of the rewards.
+each learn from a disjoint slice of the rewards. A ``gs://`` artifact dir also gets
+``BANDIT_CHECKPOINT_URI=<artifact_uri>/checkpoints/``: ``AIP_STORAGE_URI`` is a
+read-only Vertex copy, so posterior checkpoints go back to the original location.
 """
 
 from __future__ import annotations
@@ -63,16 +65,36 @@ def display_name_for(experiment_id: str, kind: str) -> str:
     return f"trend-trawler-bandit-{kind}-{experiment_id}"
 
 
+def checkpoint_uri_for(artifact_uri: str) -> str | None:
+    """``<artifact_uri>/checkpoints/`` for a ``gs://`` artifact dir, else ``None``.
+
+    Vertex serves ``AIP_STORAGE_URI`` from a read-only copy of the artifacts in a
+    Vertex-managed bucket, so the predictor writes its checkpoints back to the
+    original (writable) artifact location instead (``BANDIT_CHECKPOINT_URI``;
+    the endpoint SA needs object create/read/delete there, deployment/README.md)."""
+    if not artifact_uri.startswith("gs://"):
+        return None
+    return f"{artifact_uri.rstrip('/')}/checkpoints/"
+
+
+def serving_env(artifact_uri: str) -> dict[str, str]:
+    env = dict(SERVING_ENV)
+    if ckpt := checkpoint_uri_for(artifact_uri):
+        env["BANDIT_CHECKPOINT_URI"] = ckpt
+    return env
+
+
 def upload_model(
     image_uri: str, artifact_uri: str, display_name: str, labels: dict[str, str]
 ) -> Any:
     """Upload the CPR serving image as a Model whose artifacts are ``artifact_uri``
-    (``AIP_STORAGE_URI`` -> ``experiment.json`` + ``checkpoints/``)."""
+    (``AIP_STORAGE_URI`` -> ``experiment.json``, read-only) with
+    ``BANDIT_CHECKPOINT_URI`` = ``<artifact_uri>/checkpoints/`` (writable)."""
     return _sdk().Model.upload(
         display_name=display_name,
         serving_container_image_uri=image_uri,
         artifact_uri=artifact_uri,
-        serving_container_environment_variables=dict(SERVING_ENV),
+        serving_container_environment_variables=serving_env(artifact_uri),
         labels=dict(labels),
     )
 

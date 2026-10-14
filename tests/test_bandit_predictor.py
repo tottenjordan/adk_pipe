@@ -1,6 +1,7 @@
 """CPR ``BanditPredictor`` (contracts §2), driven in-process: no docker, no GCP."""
 
 import json
+import logging
 import threading
 
 import numpy as np
@@ -8,7 +9,14 @@ import pytest
 from fastapi import HTTPException
 
 from bandit.config import DEFAULT_EXPLORATION_SCALE, scenario_noise_var
-from bandit_serving.predictor import BanditPredictor, resolve_params
+from bandit_serving import predictor as predictor_mod
+from bandit_serving.predictor import (
+    MAX_SEED,
+    BanditPredictor,
+    GcsStorage,
+    LocalStorage,
+    resolve_params,
+)
 
 ARMS = [
     {"creative_id": "c1", "label": "One", "scores": {"overall": 0.8}},
@@ -39,6 +47,12 @@ def _write_config(path, **over):
 
 
 def _predictor(path, **kw):
+    # Checkpoints default to a writable dir next to the artifacts (on Vertex the
+    # artifacts dir is a read-only copy, so ``BANDIT_CHECKPOINT_URI`` points
+    # elsewhere; ``test_checkpoints_go_to_the_checkpoint_uri`` keeps them apart).
+    kw.setdefault(
+        "checkpoint_uri", str(path).removeprefix("file://").rstrip("/") + "/checkpoints"
+    )
     kw.setdefault("checkpoint_every", 10_000)
     kw.setdefault("checkpoint_seconds", 10_000.0)
     p = BanditPredictor(**kw)
@@ -663,7 +677,8 @@ def test_checkpoint_failure_never_blocks_decisions(art, caplog):
     def boom(*a, **k):
         raise OSError("disk on fire")
 
-    p._storage.write_bytes = boom  # type: ignore[method-assign]
+    assert p._ckpt_storage is not None
+    p._ckpt_storage.write_bytes = boom  # type: ignore[method-assign]
     for i in range(3):
         preds = run(p, _decisions(4, f"b{i}"))
         assert all(a["accepted"] for a in run(p, _rewards(preds)))
@@ -718,3 +733,220 @@ def test_warmup_buckets_and_warm_load(art, monkeypatch, caplog):
     p = _predictor(art)
     assert "jit warm-up" in caplog.text
     assert _state(p)["step"] == 0  # warm-up never touches the live posterior
+
+
+# ------------------------------------------------- checkpoint location (writable)
+
+
+def _train(p, rounds=1, prefix="t"):
+    for i in range(rounds):
+        run(p, _rewards(run(p, _decisions(4, f"{prefix}{i}"))))
+    p.flush()
+
+
+def test_checkpoints_go_to_the_checkpoint_uri(art, tmp_path):
+    """``AIP_STORAGE_URI`` is a read-only Vertex copy: checkpoints are written to
+    and restored from ``BANDIT_CHECKPOINT_URI`` only."""
+    ckpt = tmp_path / "writable" / "checkpoints"
+    p = _predictor(art, checkpoint_uri=str(ckpt), checkpoint_every=1)
+    _train(p, 2)
+    assert sorted(f.name for f in art.iterdir()) == ["experiment.json"]
+    meta = json.loads((ckpt / "latest.json").read_text())
+    assert meta["model_version"] == "exp1-e0-v2"
+    assert (ckpt / meta["npz"]).exists()
+    # restore reads the same place ...
+    q = _predictor(art, checkpoint_uri=str(ckpt))
+    assert _state(q)["model_version"] == "exp1-e0-v2"
+    # ... and never the artifacts dir
+    empty = _predictor(art, checkpoint_uri=str(tmp_path / "empty"))
+    assert _state(empty)["model_version"] == "exp1-e0-v0"
+
+
+def test_checkpoint_uri_from_env(art, tmp_path, monkeypatch):
+    ckpt = tmp_path / "env-ckpt"
+    monkeypatch.setenv("BANDIT_CHECKPOINT_URI", f"file://{ckpt}/")
+    p = BanditPredictor(checkpoint_every=1, checkpoint_seconds=10_000.0)
+    p.load(str(art))
+    _train(p)
+    assert (ckpt / "latest.json").exists()
+    assert sorted(f.name for f in art.iterdir()) == ["experiment.json"]
+
+
+def test_unset_checkpoint_uri_disables_checkpoints_with_one_warning(
+    art, monkeypatch, caplog
+):
+    monkeypatch.delenv("BANDIT_CHECKPOINT_URI", raising=False)
+    writes: list[str] = []
+    monkeypatch.setattr(
+        LocalStorage, "write_bytes", lambda self, rel, data: writes.append(rel)
+    )
+    with caplog.at_level(logging.WARNING, logger=predictor_mod.__name__):
+        p = BanditPredictor(checkpoint_every=1, checkpoint_seconds=0.0)
+        p.load(str(art))
+        run(p, [{"type": "reset", "episode": 1, "seed": 3}])
+        _train(p, 3)
+    assert writes == []
+    assert _state(p)["model_version"] == "exp1-e1-v3"
+    warnings = [r for r in caplog.records if r.levelno >= logging.WARNING]
+    assert len(warnings) == 1
+    assert "BANDIT_CHECKPOINT_URI" in warnings[0].getMessage()
+
+
+def test_checkpoint_write_failure_is_one_concise_warning(art, caplog):
+    p = _predictor(art, checkpoint_every=1)
+    assert p._ckpt_storage is not None
+
+    def denied(rel, data):
+        raise PermissionError("storage.objects.create denied")
+
+    p._ckpt_storage.write_bytes = denied  # type: ignore[method-assign]
+    with caplog.at_level(logging.WARNING, logger=predictor_mod.__name__):
+        _train(p, 1)
+    assert _state(p)["model_version"] == "exp1-e0-v1"  # still serving
+    failures = [r for r in caplog.records if "checkpoint" in r.getMessage()]
+    assert len(failures) == 1
+    assert failures[0].levelno == logging.WARNING
+    assert failures[0].exc_info is None  # no traceback
+    assert "storage.objects.create denied" in failures[0].getMessage()
+
+
+def test_npz_is_written_before_latest_json(art):
+    p = _predictor(art, checkpoint_every=1)
+    assert p._ckpt_storage is not None
+    order: list[str] = []
+    real = p._ckpt_storage.write_bytes
+
+    def spy(rel, data):
+        order.append(rel)
+        real(rel, data)
+
+    p._ckpt_storage.write_bytes = spy  # type: ignore[method-assign]
+    _train(p, 1)
+    assert order == ["exp1-e0-v1.npz", "latest.json"]
+
+
+def test_old_checkpoints_are_pruned(art, monkeypatch):
+    monkeypatch.setattr(predictor_mod, "CHECKPOINT_KEEP", 3)
+    ckpt = art / "checkpoints"
+    p = _predictor(art, checkpoint_every=1)
+    _train(p, 7)
+    npz = sorted(f.name for f in ckpt.glob("*.npz"))
+    assert npz == ["exp1-e0-v5.npz", "exp1-e0-v6.npz", "exp1-e0-v7.npz"]
+    meta = json.loads((ckpt / "latest.json").read_text())
+    assert meta["npz"] == "exp1-e0-v7.npz"
+    assert _state(_predictor(art))["model_version"] == "exp1-e0-v7"
+
+
+def test_prune_failure_only_logs(art, monkeypatch, caplog):
+    monkeypatch.setattr(predictor_mod, "CHECKPOINT_KEEP", 1)
+    p = _predictor(art, checkpoint_every=1)
+    assert p._ckpt_storage is not None
+
+    def nope(rel):
+        raise OSError("delete denied")
+
+    p._ckpt_storage.delete = nope  # type: ignore[method-assign]
+    with caplog.at_level(logging.WARNING, logger=predictor_mod.__name__):
+        _train(p, 3)
+    assert _state(p)["model_version"] == "exp1-e0-v3"
+    meta = json.loads((art / "checkpoints" / "latest.json").read_text())
+    assert meta["model_version"] == "exp1-e0-v3"
+    assert "delete denied" in caplog.text
+    assert all(r.exc_info is None for r in caplog.records)
+
+
+def test_local_storage_list_and_delete(tmp_path):
+    s = LocalStorage(tmp_path)
+    s.write_bytes("a.npz", b"1")
+    s.write_bytes("b.npz", b"2")
+    s.write_bytes("latest.json", b"{}")
+    assert sorted(n for n, _ in s.list_files(".npz")) == ["a.npz", "b.npz"]
+    s.delete("a.npz")
+    s.delete("missing.npz")  # idempotent
+    assert [n for n, _ in s.list_files(".npz")] == ["b.npz"]
+    assert LocalStorage(tmp_path / "nope").list_files(".npz") == []
+
+
+class _NotFoundBlob:
+    def __init__(self, name):
+        self.name = name
+
+    def exists(self):  # pragma: no cover - must not be called
+        raise AssertionError("read_bytes must not call exists()")
+
+    def download_as_bytes(self):
+        from google.api_core.exceptions import NotFound
+
+        raise NotFound(f"{self.name} not found")
+
+
+class _FakeBucket:
+    def blob(self, name):
+        return _NotFoundBlob(name)
+
+
+def test_gcs_read_bytes_missing_object_is_none():
+    s = object.__new__(GcsStorage)
+    s._bucket = _FakeBucket()
+    s._prefix = "bandit/exp1/checkpoints"
+    assert s.read_bytes("latest.json") is None
+
+
+def test_gcs_list_files_and_delete():
+    from datetime import UTC, datetime
+    from types import SimpleNamespace
+
+    from google.api_core.exceptions import NotFound
+
+    deleted: list[str] = []
+
+    class Blob(SimpleNamespace):
+        def delete(self):
+            if self.name.endswith("gone.npz"):
+                raise NotFound("gone")
+            deleted.append(self.name)
+
+    t = datetime(2026, 10, 14, tzinfo=UTC)
+    listed = [
+        Blob(name="bandit/x/checkpoints/a.npz", updated=t),
+        Blob(name="bandit/x/checkpoints/latest.json", updated=t),
+        Blob(name="bandit/x/checkpoints/old/b.npz", updated=t),
+    ]
+    prefixes: list[str] = []
+
+    class Bucket:
+        def list_blobs(self, prefix):
+            prefixes.append(prefix)
+            return listed
+
+        def blob(self, name):
+            return Blob(name=name)
+
+    s = object.__new__(GcsStorage)
+    s._bucket = Bucket()
+    s._prefix = "bandit/x/checkpoints"
+    assert s.list_files(".npz") == [("a.npz", t.timestamp())]
+    assert prefixes == ["bandit/x/checkpoints/"]
+    s.delete("a.npz")
+    s.delete("gone.npz")  # missing is fine
+    assert deleted == ["bandit/x/checkpoints/a.npz"]
+
+
+# ------------------------------------------------------------------ seed bounds
+
+
+@pytest.mark.parametrize("seed", [-1, MAX_SEED, 2**63, 2**64, 10**30])
+def test_out_of_range_reset_seed_is_rejected_before_reset(art, seed):
+    p = _predictor(art)
+    run(p, _rewards(run(p, _decisions(4))))
+    before = _state(p)
+    out = run(p, [{"type": "reset", "episode": 5, "seed": seed}])[0]
+    assert out["type"] == "error" and "seed" in out["error"]
+    after = _state(p)
+    assert after["model_version"] == before["model_version"] == "exp1-e0-v1"
+    assert after["episode"] == 0 and after["step"] == before["step"]
+
+
+def test_max_valid_seed_resets(art):
+    out = run(_predictor(art), [{"type": "reset", "episode": 2, "seed": MAX_SEED - 1}])
+    assert out[0]["type"] == "reset" and out[0]["model_version"] == "exp1-e2-v0"

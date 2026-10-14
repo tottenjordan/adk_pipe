@@ -44,7 +44,8 @@ For unit tests without docker, run `uv run pytest tests/test_bandit_predictor.py
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `AIP_STORAGE_URI` | set by Vertex / the local endpoint | `gs://…` or local dir holding `experiment.json` + `checkpoints/` |
+| `AIP_STORAGE_URI` | set by Vertex / the local endpoint | `gs://…` or local dir holding `experiment.json` (read-only on Vertex) |
+| `BANDIT_CHECKPOINT_URI` | set by `deployment/bandit/endpoint.py` to `<artifact_uri>/checkpoints/`; unset = checkpointing off | writable `gs://…` (or local dir) for posterior checkpoints |
 | `VERTEX_CPR_WEB_CONCURRENCY` | must be `1` | CPR worker count |
 | `BANDIT_CHECKPOINT_EVERY` | `50` | checkpoint after this many reward batches |
 | `BANDIT_CHECKPOINT_SECONDS` | `120` | …or this many seconds since the last checkpoint (checked on update) |
@@ -54,17 +55,18 @@ For unit tests without docker, run `uv run pytest tests/test_bandit_predictor.py
 ## Checkpoint layout
 
 ```
-{AIP_STORAGE_URI}/
+{AIP_STORAGE_URI}/                    # read-only copy on Vertex (Vertex-managed bucket)
   experiment.json                     # contracts §1 (written by the api)
-  checkpoints/
-    {experiment_id}-e{episode}-v{n}.npz   # precision (K,d,d), b (K,d), n (K,), step ()
-    latest.json                       # {experiment_id, model_version, npz, episode, seed,
+
+{BANDIT_CHECKPOINT_URI}/              # gs://$BUCKET/bandit/{experiment_id}/checkpoints/
+  {experiment_id}-e{episode}-v{n}.npz # precision (K,d,d), b (K,d), n (K,), step (); newest 5 kept
+  latest.json                         # {experiment_id, model_version, npz, episode, seed,
                                       #  discount, policy_stream, n_updates, calls,
                                       #  feature_spec_version, saved_at}
 ```
 
-Checkpoints are written in the background after every `BANDIT_CHECKPOINT_EVERY` reward batches or `BANDIT_CHECKPOINT_SECONDS`, and on every reset. On restart, `load()` restores `latest.json`.
+Vertex serves `AIP_STORAGE_URI` from a copy of the model artifacts that the container can't write ("You can't update the contents of the directory", [custom container requirements](https://docs.cloud.google.com/vertex-ai/docs/predictions/custom-container-requirements)), so checkpoints live under `BANDIT_CHECKPOINT_URI`, the original artifact dir's `checkpoints/`. Checkpoints are written in the background after every `BANDIT_CHECKPOINT_EVERY` reward batches or `BANDIT_CHECKPOINT_SECONDS`, and on every reset: the `.npz` first, then `latest.json`, then every `.npz` but the newest `CHECKPOINT_KEEP` (5) is deleted. On restart, `load()` restores `latest.json` from `BANDIT_CHECKPOINT_URI`. Without `BANDIT_CHECKPOINT_URI` the predictor logs one warning at startup and never checkpoints.
 
 Pending decisions and seen reward ids are not checkpointed, so a reward for a decision made before a restart comes back `accepted:false`.
 
-The endpoint's service account needs write access to the artifacts prefix. If it lacks it, the writes fail, get logged, and serving continues.
+The endpoint's service account (`tt-bandit-endpoint-sa`) needs `roles/storage.objectAdmin` on the bucket's `bandit/` prefix (create, overwrite, list and delete; [deployment/README.md → IAM](../deployment/README.md#iam-documentation-only-run-where-gcp-creds-exist)). If it lacks it, each failed write logs one concise warning (no traceback) and serving continues. A reset `seed` outside `0 ≤ seed < 2³¹` is a per-instance error and leaves the current episode untouched.

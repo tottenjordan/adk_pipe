@@ -69,7 +69,7 @@ Deployment runbook (tables, env, IAM, traffic job): [deployment/README.md → Ba
    BanditPredictor (bandit_serving/)       ◄───   per episode (or once per continuous run): reset → each batch:
    JAX LinTS posterior, in memory                   decisions → outcome from pre-drawn coin flips
    instances: decision | reward | reset | state     → rewards; then replay ucb1, epsilon_greedy,
-   checkpoints → GCS (AIP_STORAGE_URI)              beta_bernoulli_ts, uniform, oracle locally (CRN)
+   checkpoints → GCS (BANDIT_CHECKPOINT_URI)        beta_bernoulli_ts, uniform, oracle locally (CRN)
                                                        │
                                                        ▼
                                   BigQuery: bandit_events, bandit_episode_metrics,
@@ -494,7 +494,7 @@ api service (full table: [deployment/README.md → Bandit experiments](../../dep
 |---|---|---|
 | `BANDIT_DEPLOY_MODE` | `vertex` | `vertex` (BigQuery + Vertex endpoint + Cloud Run Job) or `fake` (in-memory, local dev). `vertex` falls back to `fake` with a warning when `BQ_PROJECT_ID` / `BQ_DATASET_ID` / a bucket are unset |
 | `BANDIT_SERVING_IMAGE` | required in `vertex` mode | CPR image URI |
-| `BANDIT_ARTIFACTS_PREFIX` | `gs://$GOOGLE_CLOUD_STORAGE_BUCKET/bandit` | Where `{experiment_id}/experiment.json` and `checkpoints/` live |
+| `BANDIT_ARTIFACTS_PREFIX` | `gs://$GOOGLE_CLOUD_STORAGE_BUCKET/bandit` | Where `{experiment_id}/experiment.json` (the model's artifacts) and `{experiment_id}/checkpoints/` (the endpoint's `BANDIT_CHECKPOINT_URI`) live |
 | `BANDIT_TRAFFIC_JOB` | `trend-trawler-bandit-traffic` | Cloud Run Job name (in `GCP_REGION`) |
 | `BANDIT_TTL_MINUTES` | `120` | Default endpoint lifetime (a request's `ttlMinutes` is clamped to 10–480) |
 | `BANDIT_ENDPOINT_SA` | Vertex default | Service account the deployed model runs as |
@@ -615,9 +615,13 @@ the oracle collected 2,028 clicks. Linear TS had the lowest regret in every epis
   container must run with **`VERTEX_CPR_WEB_CONCURRENCY=1`** (CPR otherwise starts
   `max(cores, 2)` workers, each learning from its own slice of rewards) on exactly one replica.
   There is no autoscaling and no failover.
-- **Checkpoints, not durability.** The posterior is checkpointed to GCS every 50 reward batches or
-  120 s and on every reset, and restored on restart. **Pending decisions and seen reward IDs are
-  not checkpointed**, so a restart loses up to one checkpoint interval of learning and rejects
+- **Checkpoints, not durability.** The posterior is checkpointed to
+  `gs://$BUCKET/bandit/{experiment_id}/checkpoints/` (`BANDIT_CHECKPOINT_URI`; not
+  `AIP_STORAGE_URI`, which Vertex serves read-only) every 50 reward batches or 120 s and on every
+  reset, and restored on restart; only the newest 5 `.npz` files are kept. Until 2026-10-14 every
+  write failed (they targeted `AIP_STORAGE_URI`), so restarts started from the prior; the endpoint
+  SA needs `roles/storage.objectAdmin` on the `bandit/` prefix. **Pending decisions and seen
+  reward IDs are not checkpointed**, so a restart loses up to one checkpoint interval of learning and rejects
   rewards for decisions made before it (`accepted:false`).
 - **Online learning on the serving path.** Decisions and updates share one process; a slow update
   delays decisions.

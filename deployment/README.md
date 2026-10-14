@@ -1945,6 +1945,25 @@ revision name instead.
 The endpoint and model are created in `GCP_REGION` (default `us-central1`) with labels
 `app=trend-trawler,experiment=<id>`, and the container always gets
 `VERTEX_CPR_WEB_CONCURRENCY=1` (one worker, one in-memory posterior) on exactly one replica.
+It also gets `BANDIT_CHECKPOINT_URI=<artifact_uri>/checkpoints/`
+(`gs://$GCS_BUCKET/bandit/<experiment_id>/checkpoints/`). Vertex serves `AIP_STORAGE_URI` from a
+read-only copy of the artifacts in a Vertex-managed `caip-tenant-…` bucket, so the predictor reads
+`experiment.json` there but reads and writes its posterior checkpoints (`latest.json` + the newest
+5 `.npz`) at the original artifact location, as `tt-bandit-endpoint-sa` (grant below). Before
+2026-10-14 the predictor wrote under `AIP_STORAGE_URI`: every write failed with
+`storage.objects.create` denied on the tenant bucket and a restart always started from the prior.
+A model uploaded before that has no `BANDIT_CHECKPOINT_URI` and runs with checkpointing off (one
+startup warning); new experiments get it from the api.
+
+**Verify checkpoints** (after the bandit image rebuild + api redeploy, on a new experiment with
+some traffic):
+
+```bash
+gcloud storage ls gs://$GCS_BUCKET/bandit/<experiment_id>/checkpoints/   # latest.json + ≤ 5 .npz
+gcloud logging read 'resource.type="aiplatform.googleapis.com/Endpoint" AND
+  "checkpoint"' --project=$PROJECT --freshness=1h --limit=20   # no "write failed"
+```
+
 Manual lifecycle CLI: `uv run python -m deployment.bandit.endpoint --create|--state|--delete`.
 
 ### IAM (documentation only; run where GCP creds exist)
@@ -1956,9 +1975,22 @@ ENDPOINT_SA=tt-bandit-endpoint-sa@$PROJECT.iam.gserviceaccount.com
 TRAFFIC_SA=tt-bandit-traffic-sa@$PROJECT.iam.gserviceaccount.com
 API_SA=tt-api-sa@$PROJECT.iam.gserviceaccount.com
 
-# Endpoint SA: read/write experiment.json + checkpoints under gs://$GCS_BUCKET/bandit/
+# Endpoint SA: read/write/list/delete checkpoints under gs://$GCS_BUCKET/bandit/ only
+# (BANDIT_CHECKPOINT_URI = gs://$GCS_BUCKET/bandit/<experiment_id>/checkpoints/). The
+# second clause lets the checkpoint prune list its prefix: objects.list is checked on
+# the bucket, not an object, so a resource.name prefix alone would deny it.
+# IAM conditions need uniform bucket-level access on the bucket. (The expression has a
+# comma, so it goes in a file: --condition's inline form splits on commas.)
+cat > /tmp/bandit-prefix.yaml <<EOF
+title: bandit-prefix
+description: bandit/ objects only (experiment.json + posterior checkpoints)
+expression: >-
+  resource.name.startsWith("projects/_/buckets/$GCS_BUCKET/objects/bandit/") ||
+  api.getAttribute("storage.googleapis.com/objectListPrefix", "").startsWith("bandit/")
+EOF
 gcloud storage buckets add-iam-policy-binding gs://$GCS_BUCKET \
-  --member="serviceAccount:$ENDPOINT_SA" --role=roles/storage.objectAdmin
+  --member="serviceAccount:$ENDPOINT_SA" --role=roles/storage.objectAdmin \
+  --condition-from-file=/tmp/bandit-prefix.yaml
 # Traffic SA: call the endpoint, write events/metrics, read the config
 for ROLE in roles/aiplatform.user roles/bigquery.dataEditor roles/bigquery.jobUser \
             roles/storage.objectViewer; do
