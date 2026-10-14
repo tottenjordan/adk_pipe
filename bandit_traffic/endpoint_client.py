@@ -33,6 +33,10 @@ from typing import Any, Protocol
 log = logging.getLogger(__name__)
 
 TRANSIENT_STATUS = frozenset({408, 429, 500, 502, 503, 504})
+#: Per-call bound on ``Endpoint.predict`` (the SDK default ``None`` waits
+#: forever): a stalled predict raises ``DeadlineExceeded``, which
+#: ``call_with_retries`` retries instead of hanging until the job's timeout.
+PREDICT_TIMEOUT_SECONDS = 60.0
 _TRANSIENT_NAMES = frozenset(
     {
         "ServiceUnavailable",
@@ -273,7 +277,9 @@ class VertexEndpointClient:
     ) -> list[dict]:
         def call() -> Any:
             return self._get_endpoint().predict(
-                instances=list(instances), parameters=parameters or None
+                instances=list(instances),
+                parameters=parameters or None,
+                timeout=PREDICT_TIMEOUT_SECONDS,
             )
 
         resp = call_with_retries(
