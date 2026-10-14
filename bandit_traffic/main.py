@@ -20,7 +20,13 @@ Every setting is a flag or the env var named in its help. Exactly one target:
 ``--in-process`` (the ``fake_endpoint`` stand-in), ``--local-url`` (a local CPR
 container's predict URL) or ``ENDPOINT_ID`` (a Vertex endpoint, full resource
 name). Exit codes: 0 done, 1 run failure (endpoint / BigQuery / error rate),
-2 bad configuration.
+2 bad configuration, 143 stopped early by SIGTERM.
+
+**Early stop.** Cloud Run sends SIGTERM at the task timeout and SIGKILL about
+10 s later. The handler only sets a flag; the traffic loop polls it between
+batches, episodes and replays, flushes the buffered ``bandit_events`` rows
+(finished episodes' metrics and progress are already written), logs "stopped
+early by SIGTERM" and the job exits 143 (non-zero, so the execution fails).
 """
 
 from __future__ import annotations
@@ -30,7 +36,9 @@ import dataclasses
 import json
 import logging
 import os
+import signal
 import sys
+import threading
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
@@ -55,11 +63,18 @@ from bandit_traffic.endpoint_client import (
     InProcessClient,
     VertexEndpointClient,
 )
-from bandit_traffic.traffic import TrafficError, TrafficSettings, run_traffic
+from bandit_traffic.traffic import (
+    TrafficError,
+    TrafficSettings,
+    TrafficStopped,
+    run_traffic,
+)
 
 log = logging.getLogger("bandit_traffic")
 
 EXIT_OK, EXIT_FAILED, EXIT_CONFIG = 0, 1, 2
+#: 128 + SIGTERM, the shell convention for "terminated by SIGTERM".
+EXIT_STOPPED = 128 + signal.SIGTERM
 
 
 class ConfigError(ValueError):
@@ -288,6 +303,20 @@ def build_writer(args: argparse.Namespace, env: Mapping[str, str]) -> bq.RowWrit
     return bq.BigQueryWriter(tables)
 
 
+def install_sigterm_handler(stop: threading.Event) -> Any:
+    """Make SIGTERM set ``stop`` (the loop polls it); returns the previous
+    handler, or ``None`` off the main thread (where signals can't be set)."""
+
+    def on_sigterm(signum: int, frame: Any) -> None:
+        log.warning("SIGTERM received: stopping after the current batch")
+        stop.set()
+
+    try:
+        return signal.signal(signal.SIGTERM, on_sigterm)
+    except ValueError:  # not the main thread (e.g. a test runner thread)
+        return None
+
+
 def main(
     argv: Sequence[str] | None = None,
     env: Mapping[str, str] | None = None,
@@ -331,6 +360,8 @@ def main(
         options.forget,
         options.learning,
     )
+    stop = threading.Event()
+    previous = install_sigterm_handler(stop)
     try:
         summary = run_traffic(
             cfg,
@@ -342,13 +373,20 @@ def main(
             traffic_run=options.traffic_run,
             forget=options.forget,
             learning=options.learning,
+            stop=stop.is_set,
         )
+    except TrafficStopped as exc:
+        log.error("traffic run stopped early by SIGTERM: %s", exc)
+        return EXIT_STOPPED
     except (TrafficError, EndpointError, bq.BigQueryWriteError) as exc:
         log.error("traffic run failed: %s", exc)
         return EXIT_FAILED
     except Exception:
         log.exception("traffic run failed unexpectedly")
         return EXIT_FAILED
+    finally:
+        if previous is not None:
+            signal.signal(signal.SIGTERM, previous)
 
     log.info(
         "done: %d episodes, %d events, %d requests, %d decision errors, "
