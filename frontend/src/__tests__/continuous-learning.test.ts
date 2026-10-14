@@ -2,8 +2,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   continuousLimitError,
   curveSeries,
+  EPISODE_OPTIONS,
+  fittingEpisodes,
   isContinuousRun,
   MAX_CONTINUOUS_ROUNDS,
+  MAX_RUN_ROUNDS,
+  runLimitError,
   parseContinuousSummary,
   startTraffic,
   type Arm,
@@ -141,18 +145,47 @@ describe("traffic payload (contracts §5/§11)", () => {
     );
     await expect(startTraffic(ID, 50, 400_000, { learning: "continuous" })).rejects.toThrow(/learning mode \(episodes\): too long/);
   });
+
+  it("explains a run_too_large 400", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        jsonResponse({ detail: { reason: "run_too_large", message: "episodes x horizon must be <= 1,500,000 rounds" } }, 400)
+      )
+    );
+    await expect(startTraffic(ID, 20, 400_000)).rejects.toThrow(
+      /too long for the traffic job: episodes x horizon must be <= 1,500,000 rounds/
+    );
+  });
 });
 
 describe("total-rounds cap", () => {
-  it("allows up to 2,000,000 rounds in one stream", () => {
-    expect(MAX_CONTINUOUS_ROUNDS).toBe(2_000_000);
+  it("allows up to 1,500,000 rounds in one stream", () => {
+    expect(MAX_CONTINUOUS_ROUNDS).toBe(1_500_000);
     expect(continuousLimitError(20, 40_000)).toBeNull(); // 800,000
-    expect(continuousLimitError(50, 40_000)).toBeNull(); // exactly 2,000,000
-    expect(continuousLimitError(5, 400_000)).toBeNull();
+    expect(continuousLimitError(75, 20_000)).toBeNull(); // exactly 1,500,000
+    expect(continuousLimitError(3, 400_000)).toBeNull();
   });
   it("refuses longer streams, naming the total", () => {
-    expect(continuousLimitError(20, 400_000)).toMatch(/2,000,000 rounds; 20 segments of 400,000 would be 8,000,000/);
-    expect(continuousLimitError(50, 200_000)).not.toBeNull();
+    expect(continuousLimitError(20, 400_000)).toMatch(/1,500,000 rounds; 20 segments of 400,000 would be 8,000,000/);
+    expect(continuousLimitError(50, 40_000)).not.toBeNull(); // 2,000,000
+  });
+  it("caps per-episode runs at the same total (the traffic job's 1 h limit)", () => {
+    expect(MAX_RUN_ROUNDS).toBe(MAX_CONTINUOUS_ROUNDS);
+    expect(runLimitError(50, 20_000, "per_episode")).toBeNull(); // 1,000,000
+    expect(runLimitError(20, 400_000, "per_episode")).toMatch(
+      /A run is capped at 1,500,000 rounds; 20 episodes of 400,000 would be 8,000,000/
+    );
+    // per-episode runs need no whole batches; continuous ones do
+    expect(runLimitError(5, 40_050, "per_episode")).toBeNull();
+    expect(runLimitError(5, 40_050, "continuous")).toMatch(/multiple of the 100-reader/);
+  });
+  it("runs an over-long choice as the longest option that fits", () => {
+    expect(EPISODE_OPTIONS).toContain(3);
+    expect(fittingEpisodes(20, 40_000, "per_episode")).toBe(20);
+    expect(fittingEpisodes(50, 40_000, "per_episode")).toBe(20); // 2,000,000 > cap
+    expect(fittingEpisodes(20, 400_000, "per_episode")).toBe(3); // realistic rounds
+    expect(fittingEpisodes(50, 400_000, "continuous")).toBe(3);
   });
   it("needs whole update batches per segment", () => {
     expect(continuousLimitError(5, 40_050)).toMatch(/multiple of the 100-reader/);
