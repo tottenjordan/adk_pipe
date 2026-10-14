@@ -178,6 +178,11 @@ def validate_experiment_config(cfg: ExperimentConfig) -> ExperimentConfig:
         raise ValueError("batch_size must be in [1, min(10000, horizon)]")
     if not 1 <= cfg.episodes <= 1000:
         raise ValueError("episodes must be in [1, 1000]")
+    # JAX keys with x64 off keep only the low 32 bits of a seed (distinct seeds
+    # would collide) and key(2**64) raises OverflowError; 31 bits also matches
+    # the api's default seed and the reset seed's mod 2**31.
+    if not 0 <= cfg.seed < 2**31:
+        raise ValueError(f"seed must be in [0, 2**31), got {cfg.seed}")
     validate_lints_params(cfg.policy, len(cfg.arms))
     if cfg.scenario_overrides is not None:
         validate_scenario_overrides(cfg.scenario_overrides, load_scenario(cfg.scenario))
