@@ -12,6 +12,15 @@
 > migration below has not been started. References to `adk api_server` below describe the
 > 2026-07 state.
 
+> **Update 2026-10-14:** still option A for the UI. The batch engines are now
+> `creative_agent` v47 / `interactive_creative` v43 / `trend_scout` v23 (the versions in §1
+> are 2026-07). The CRF worker takes its engine from its own `CREATIVE_AGENT_ENGINE_ID` env
+> var (set by `deployment/engine_handoff.py apply --update-worker`), which covers the
+> "engine ID via config" half of the §6 checklist for batch, and is reached through Cloud
+> Tasks. A 2026-10-13 spike saw a 780 s `streamQuery` stream that was not cut, and a run
+> that kept going server-side after a client disconnect; the worker's completion check
+> polls the session for `finalize_done` instead of trusting the stream.
+
 **Scope:** This note is *only* about where the **agent executes**. A Cloud Run tier
 (Next.js web + `/api/adk` proxy) fronts the browser in every option and is taken as a
 given — it is not part of the decision. The question is whether the agent runs **in-process

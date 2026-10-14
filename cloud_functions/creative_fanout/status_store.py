@@ -12,8 +12,8 @@ Rows are matched by trend_scout's MERGE key ``(uuid, target_trend)``
 one-time match for a legacy worker message without the key).
 
 BigQuery can't parameterize identifiers, and the dataset/table arrive in the
-Pub/Sub payload, so identifiers are validated against a config allow-list and
-backtick-quoted; every *value* goes through a query parameter.
+trigger / worker message payload, so identifiers are validated against a config
+allow-list and backtick-quoted; every *value* goes through a query parameter.
 """
 
 import logging

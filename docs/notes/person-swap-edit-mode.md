@@ -119,3 +119,10 @@ likeness ≥ 0.8.
 stylised (3D) concept with the 240 px photo. PR 1's QA keeps the likeness rule, and its
 re-render repeats the edit, so a likeness miss gets one corrected attempt. A fresh
 re-render would lose the composition, so it is not used.
+
+Update 2026-10-14: shipped. Variants and person swaps both use edit mode
+(`creative_agent/render_concept.render_edit`, `person_edit.EDIT_INSTRUCTION`; variant cache
+key `VARIANT_KEY_VERSION` `v3` in `runserver/variants.py`) with the composition check and no
+fresh-render fallback; the "regenerate" path above no longer exists for variants. PR 2's
+minimum photo size shipped too (`PERSON_PHOTO_MIN_SIDE` 512, `low_resolution` below
+1024 px). The ≥ 1024 px re-measure has not been recorded here.
