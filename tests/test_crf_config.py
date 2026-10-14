@@ -350,3 +350,119 @@ def test_engine_id_busts_the_config_cache(engine_env):
     assert config.CREATIVE_AGENT_ENGINE_ID == "111"
     engine_env.setenv("CREATIVE_AGENT_ENGINE_ID", "222")
     assert config.CREATIVE_AGENT_ENGINE_ID == "222"
+
+
+# ------------------------------------------------------------
+# Worker transport: Pub/Sub (default) or Cloud Tasks
+# ------------------------------------------------------------
+_TRANSPORT_ENV = (
+    "CRF_WORKER_TRANSPORT",
+    "CRF_TASKS_QUEUE",
+    "CRF_TASKS_LOCATION",
+    "CRF_WORKER_URL",
+    "CRF_TASKS_INVOKER_SA",
+    "CRF_TASK_DISPATCH_DEADLINE_SECS",
+    "CRF_WORKER_TIMEOUT_SECS",
+    "CREATIVE_AGENT_ENGINE_ID",  # a stray shell export would log its own ERROR
+)
+_URL = "https://creative-worker-crf-abc-uc.a.run.app"
+
+
+@pytest.fixture
+def transport_env(monkeypatch):
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "my-proj")
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT_NUMBER", "123456789")
+    monkeypatch.setenv("GCP_REGION", "us-central1")
+    for name in _TRANSPORT_ENV:
+        monkeypatch.delenv(name, raising=False)
+    return monkeypatch
+
+
+def test_transport_defaults(transport_env):
+    cfg = load_config()
+    assert cfg.WORKER_TRANSPORT == "pubsub"
+    assert cfg.TASKS_QUEUE == "creative-worker-queue"
+    assert cfg.TASKS_LOCATION == "us-central1"
+    assert cfg.WORKER_URL == ""
+    assert cfg.TASKS_INVOKER_SA == "123456789-compute@developer.gserviceaccount.com"
+    assert cfg.TASK_DISPATCH_DEADLINE_SECS == 1800.0
+
+
+def test_transport_names_bust_the_config_cache():
+    from cloud_functions.creative_fanout import config as config_module
+
+    for name in _TRANSPORT_ENV:
+        assert name in config_module._ENV_NAMES
+
+
+def test_tasks_transport_with_url(transport_env, caplog):
+    transport_env.setenv("CRF_WORKER_TRANSPORT", " Tasks ")
+    transport_env.setenv("CRF_WORKER_URL", _URL)
+    transport_env.setenv("CRF_TASKS_QUEUE", "q1")
+    transport_env.setenv("CRF_TASKS_LOCATION", "europe-west1")
+    transport_env.setenv("CRF_TASKS_INVOKER_SA", "inv@p.iam.gserviceaccount.com")
+    with caplog.at_level(logging.ERROR):
+        cfg = load_config()
+    assert caplog.records == []
+    assert cfg.WORKER_TRANSPORT == "tasks"
+    assert cfg.WORKER_URL == _URL
+    assert cfg.TASKS_QUEUE == "q1"
+    assert cfg.TASKS_LOCATION == "europe-west1"
+    assert cfg.TASKS_INVOKER_SA == "inv@p.iam.gserviceaccount.com"
+
+
+def test_tasks_location_follows_the_region(transport_env):
+    transport_env.setenv("GCP_REGION", "europe-west4")
+    assert load_config().TASKS_LOCATION == "europe-west4"
+
+
+@pytest.mark.parametrize("url", [None, "", "   ", "http://insecure", "not-a-url"])
+def test_tasks_without_a_usable_url_falls_back_to_pubsub(transport_env, caplog, url):
+    transport_env.setenv("CRF_WORKER_TRANSPORT", "tasks")
+    if url is not None:
+        transport_env.setenv("CRF_WORKER_URL", url)
+    with caplog.at_level(logging.ERROR):
+        assert load_config().WORKER_TRANSPORT == "pubsub"  # never raises
+        assert load_config().WORKER_TRANSPORT == "pubsub"  # cached: logged once
+    errors = [r for r in caplog.records if r.levelno == logging.ERROR]
+    assert len(errors) == 1
+    assert "CRF_WORKER_URL" in errors[0].getMessage()
+
+
+def test_tasks_without_an_invoker_falls_back_to_pubsub(transport_env, caplog):
+    """No CRF_TASKS_INVOKER_SA and no project number: no default compute SA."""
+    transport_env.delenv("GOOGLE_CLOUD_PROJECT_NUMBER")
+    transport_env.setenv("CRF_WORKER_TRANSPORT", "tasks")
+    transport_env.setenv("CRF_WORKER_URL", _URL)
+    with caplog.at_level(logging.ERROR):
+        cfg = load_config()
+    assert cfg.TASKS_INVOKER_SA == ""
+    assert cfg.WORKER_TRANSPORT == "pubsub"
+    assert "CRF_TASKS_INVOKER_SA" in caplog.text
+
+
+def test_unknown_transport_falls_back_to_pubsub(transport_env, caplog):
+    transport_env.setenv("CRF_WORKER_TRANSPORT", "carrier-pigeon")
+    with caplog.at_level(logging.ERROR):
+        assert load_config().WORKER_TRANSPORT == "pubsub"
+    assert "CRF_WORKER_TRANSPORT" in caplog.text
+
+
+@pytest.mark.parametrize(
+    "worker_timeout, raw, expected",
+    [
+        (None, None, 1800.0),  # default = the worker timeout
+        ("900", None, 900.0),
+        ("3600", None, 1800.0),  # Cloud Tasks' HTTP maximum
+        (None, "600", 600.0),
+        (None, "5", 15.0),
+        (None, "99999", 1800.0),
+        (None, "nope", 1800.0),
+    ],
+)
+def test_dispatch_deadline(transport_env, worker_timeout, raw, expected):
+    if worker_timeout is not None:
+        transport_env.setenv("CRF_WORKER_TIMEOUT_SECS", worker_timeout)
+    if raw is not None:
+        transport_env.setenv("CRF_TASK_DISPATCH_DEADLINE_SECS", raw)
+    assert load_config().TASK_DISPATCH_DEADLINE_SECS == expected

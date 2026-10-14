@@ -10,7 +10,10 @@ bound), then cross-checks the settings that depend on each other:
   run budget still ends before Cloud Run's request timeout;
 - ``REAP_STALE_PROCESSING_MINUTES`` must be at least the worker timeout (the
   reaper must never re-queue a row whose worker can still be running); its
-  default is ``ceil(WORKER_TIMEOUT_SECS / 60) + 15``.
+  default is ``ceil(WORKER_TIMEOUT_SECS / 60) + 15``;
+- ``CRF_WORKER_TRANSPORT=tasks`` needs an ``https://`` ``CRF_WORKER_URL`` and
+  an invoker service account (``CRF_TASKS_INVOKER_SA``, default the project's
+  compute SA); without them the orchestrator falls back to ``pubsub``.
 
 An invalid combination logs an ERROR and falls back to safe values; nothing
 here raises at import or load time, so a bad env var can't crash-loop the
@@ -42,6 +45,12 @@ DEFAULT_SESSION_READ_TIMEOUT_SECS = 60.0
 DEFAULT_SESSION_DELETE_TIMEOUT_SECS = 30.0
 # The reaper's margin over the worker timeout, in minutes.
 REAP_MARGIN_MINUTES = 15
+# How the orchestrator reaches the worker (`orchestrator.dispatch`).
+TRANSPORTS = ("pubsub", "tasks")
+DEFAULT_TASKS_QUEUE = "creative-worker-queue"
+# Cloud Tasks' bounds on an HTTP task's dispatch_deadline.
+MIN_DISPATCH_DEADLINE_SECS = 15.0
+MAX_DISPATCH_DEADLINE_SECS = 1800.0
 
 
 # Reasoning Engine IDs are numeric; allow the usual id characters, but nothing
@@ -85,6 +94,44 @@ def _engine_id_env(region: str, projects: set[str]) -> str:
         )
         return ""
     return engine_id
+
+
+def _transport_env(project_number: str) -> tuple[str, str, str]:
+    """``(transport, worker_url, invoker_sa)`` after the transport cross-check.
+
+    ``tasks`` needs an ``https://`` worker URL (the task's target and OIDC
+    audience) and an invoker service account (the OIDC token's identity;
+    default ``<project number>-compute@developer.gserviceaccount.com``).
+    Missing either, or an unknown transport, logs one ERROR and falls back to
+    ``pubsub`` (the old path keeps working; never raises).
+    """
+    raw = os.environ.get("CRF_WORKER_TRANSPORT", "").strip().lower() or "pubsub"
+    url = os.environ.get("CRF_WORKER_URL", "").strip()
+    invoker = os.environ.get("CRF_TASKS_INVOKER_SA", "").strip() or (
+        f"{project_number}-compute@developer.gserviceaccount.com"
+        if project_number
+        else ""
+    )
+    if raw not in TRANSPORTS:
+        logger.error(
+            f"CRF_WORKER_TRANSPORT={raw!r} is not one of {TRANSPORTS}; using pubsub."
+        )
+        return "pubsub", url, invoker
+    if raw == "tasks":
+        if not url.startswith("https://"):
+            logger.error(
+                f"CRF_WORKER_TRANSPORT=tasks needs an https:// CRF_WORKER_URL "
+                f"(got {url!r}); using pubsub."
+            )
+            return "pubsub", url, invoker
+        if not invoker:
+            logger.error(
+                "CRF_WORKER_TRANSPORT=tasks needs CRF_TASKS_INVOKER_SA (or "
+                "GOOGLE_CLOUD_PROJECT_NUMBER for the default compute SA); "
+                "using pubsub."
+            )
+            return "pubsub", url, invoker
+    return raw, url, invoker
 
 
 def _csv_env(name: str) -> set[str]:
@@ -186,6 +233,21 @@ class CrfConfig:
     MAX_PROCESSING_ATTEMPTS: int
     # The most rows one trigger message dispatches (oldest first, >= 1).
     CRF_MAX_ROWS_PER_RUN: int
+    # How the orchestrator reaches the worker: "pubsub" (worker topic +
+    # Eventarc) or "tasks" (Cloud Tasks HTTP tasks; cross-checked, see
+    # `_transport_env`).
+    WORKER_TRANSPORT: str
+    # The Cloud Tasks queue (id) and its location (default GCP_REGION).
+    TASKS_QUEUE: str
+    TASKS_LOCATION: str
+    # The worker's Cloud Run URL: the task target and the OIDC audience.
+    WORKER_URL: str
+    # The service account whose OIDC token Cloud Tasks sends to the worker
+    # ("" = unset and no project number to build the default compute SA).
+    TASKS_INVOKER_SA: str
+    # The task's dispatch_deadline: how long Cloud Tasks waits for the worker
+    # (default the worker timeout, clamped to Cloud Tasks' 15-1800 s).
+    TASK_DISPATCH_DEADLINE_SECS: float
 
     @property
     def GOOGLE_CLOUD_PROJECT(self) -> str:
@@ -224,6 +286,12 @@ _ENV_NAMES = (
     "REAP_STALE_PROCESSING_MINUTES",
     "MAX_PROCESSING_ATTEMPTS",
     "CRF_MAX_ROWS_PER_RUN",
+    "CRF_WORKER_TRANSPORT",
+    "CRF_TASKS_QUEUE",
+    "CRF_TASKS_LOCATION",
+    "CRF_WORKER_URL",
+    "CRF_TASKS_INVOKER_SA",
+    "CRF_TASK_DISPATCH_DEADLINE_SECS",
 )
 
 
@@ -295,6 +363,7 @@ def _build(_env_key: tuple) -> CrfConfig:
     project_id = os.environ.get("GOOGLE_CLOUD_PROJECT", "").strip()
     project_number = os.environ.get("GOOGLE_CLOUD_PROJECT_NUMBER", "").strip()
     region = _str_env("GCP_REGION", "us-central1")
+    transport, worker_url, invoker = _transport_env(project_number)
     return CrfConfig(
         project_id=project_id,
         project_number=project_number,
@@ -322,6 +391,17 @@ def _build(_env_key: tuple) -> CrfConfig:
         REAP_STALE_PROCESSING_MINUTES=reap,
         MAX_PROCESSING_ATTEMPTS=_int_env("MAX_PROCESSING_ATTEMPTS", 3, 1, 10),
         CRF_MAX_ROWS_PER_RUN=_int_env("CRF_MAX_ROWS_PER_RUN", 3, 1, 100),
+        WORKER_TRANSPORT=transport,
+        TASKS_QUEUE=_str_env("CRF_TASKS_QUEUE", DEFAULT_TASKS_QUEUE),
+        TASKS_LOCATION=_str_env("CRF_TASKS_LOCATION", region),
+        WORKER_URL=worker_url,
+        TASKS_INVOKER_SA=invoker,
+        TASK_DISPATCH_DEADLINE_SECS=_float_env(
+            "CRF_TASK_DISPATCH_DEADLINE_SECS",
+            min(worker_timeout, MAX_DISPATCH_DEADLINE_SECS),
+            MIN_DISPATCH_DEADLINE_SECS,
+            MAX_DISPATCH_DEADLINE_SECS,
+        ),
     )
 
 
