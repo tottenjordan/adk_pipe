@@ -41,7 +41,7 @@ Cloud Run Functions, which do **not** read `.env`). All vars are documented in
 | `GOOGLE_CLOUD_PROJECT_NUMBER` | CRF orchestrator (worker topic path; the default Cloud Tasks invoker SA) + worker (Reasoning Engine path); `deploy_agent.py --delete` | CRFs: optional; deploy scripts: yes | CRFs fall back to `GOOGLE_CLOUD_PROJECT` (both APIs accept the ID) |
 | `GCP_REGION` | CRFs (Agent Engine client), all deploy scripts | No | `us-central1` |
 | `CREATIVE_WORKER_TOPIC_NAME` | CRF orchestrator (publishes to it on the `pubsub` transport) | No | `creative-worker-queue-topic` |
-| `CRF_WORKER_TRANSPORT` | CRF orchestrator: how it reaches the worker, `pubsub` (worker topic + Eventarc) or `tasks` (Cloud Tasks HTTP tasks, see [§3 Cloud Tasks queue](#3-create-event-driven-functions-and-eventarc-triggers)); `tasks` without a usable `CRF_WORKER_URL` or invoker SA → ERROR + `pubsub` | No | `pubsub` |
+| `CRF_WORKER_TRANSPORT` | CRF orchestrator: how it reaches the worker, `pubsub` (worker topic + Eventarc) or `tasks` (Cloud Tasks HTTP tasks, see [§3 Cloud Tasks queue](#3-deploy-the-functions-the-orchestrator-trigger-and-the-cloud-tasks-queue)); `tasks` without a usable `CRF_WORKER_URL` or invoker SA → ERROR + `pubsub` | No | `pubsub` |
 | `CRF_WORKER_URL` | CRF orchestrator, `tasks` transport: the worker's `https://` Cloud Run URL (task target + OIDC audience) | With `tasks`: **yes** | none |
 | `CRF_TASKS_QUEUE` / `CRF_TASKS_LOCATION` | CRF orchestrator, `tasks` transport | No | `creative-worker-queue` / `GCP_REGION` |
 | `CRF_TASKS_INVOKER_SA` | CRF orchestrator, `tasks` transport: the identity of the tasks' OIDC token (needs `run.invoker` on the worker) | No | `<GOOGLE_CLOUD_PROJECT_NUMBER>-compute@developer.gserviceaccount.com` |
@@ -111,7 +111,7 @@ bq mk \
 These schemas already include every later column. Tables created before those columns
 existed need the additive migrations instead: `processing_started_at` /
 `processing_attempts`, `weakest_dimension_labels` and `gates_pass_rate`, all under
-[3. Create event-driven functions and eventarc triggers](#3-create-event-driven-functions-and-eventarc-triggers).
+[3. Deploy the functions, the orchestrator trigger and the Cloud Tasks queue](#3-deploy-the-functions-the-orchestrator-trigger-and-the-cloud-tasks-queue).
 The nightly eval CI uses an isolated dataset cloned from these schemas (see
 [Eval CI (WIF)](#eval-ci-wif)). The script also creates the three `bandit_*` tables used by
 deployed-creative experiments (see [Bandit experiments](#bandit-experiments)) and the
@@ -405,7 +405,7 @@ Each Cloud Run function service runs exactly one entry point, so you **deploy th
 ### 1. Grant service account required permissions
 
 
-*Grant Eventarc Event Receiver role (`roles/eventarc.eventReceiver`) to the service account associated with the Eventarc*
+*The orchestrator's Eventarc trigger runs as `$SERVICE_ACCOUNT` (here the default compute SA): it needs the Eventarc Event Receiver role and permission to invoke the orchestrator. The worker is reached by Cloud Tasks instead; its IAM (`cloudtasks.enqueuer`, `iam.serviceAccountUser`, `run.invoker`) is in [§3.4](#3-deploy-the-functions-the-orchestrator-trigger-and-the-cloud-tasks-queue).*
 
 
 ```bash
@@ -421,6 +421,10 @@ gcloud projects add-iam-policy-binding $GOOGLE_CLOUD_PROJECT \
 gcloud projects add-iam-policy-binding $GOOGLE_CLOUD_PROJECT \
   --member serviceAccount:$SERVICE_ACCOUNT \
   --role=roles/run.invoker
+
+# APIs: Cloud Run, Eventarc, Pub/Sub (orchestrator trigger) and Cloud Tasks (worker)
+gcloud services enable run.googleapis.com eventarc.googleapis.com \
+  pubsub.googleapis.com cloudtasks.googleapis.com
 ```
 
 <details>
@@ -434,24 +438,22 @@ gcloud projects add-iam-policy-binding $GOOGLE_CLOUD_PROJECT \
 </details>
 
 
-### 2. Create PubSub topics for the Creative Agent's orchestrator and worker
+### 2. Create the orchestrator's Pub/Sub topic
 
 
 ```bash
 gcloud pubsub topics create $CREATIVE_TOPIC_NAME
-
-gcloud pubsub topics create $CREATIVE_WORKER_TOPIC_NAME
 ```
 
-The worker topic (and its dead-letter topic `creative-crf-dead-letter`) only
-serve the `pubsub` rollback transport since the Cloud Tasks cutover (2026-10-14).
-They stay for one release so a rollback is env vars plus one trigger; then
-delete both (`gcloud pubsub topics delete $CREATIVE_WORKER_TOPIC_NAME
-creative-crf-dead-letter`). A fresh project on the `tasks` transport needs only
-`$CREATIVE_TOPIC_NAME`.
+That is the only topic the `tasks` transport needs (plus the orchestrator
+trigger's dead-letter topic `creative-crf-dead-letter`, created in §3). The worker
+topic `$CREATIVE_WORKER_TOPIC_NAME` (`creative-worker-queue-topic`) serves only
+the `pubsub` rollback transport since the Cloud Tasks cutover (2026-10-14); it is
+kept for one release (see [Rollback to Pub/Sub](#rollback-to-pubsub-one-release-only)),
+and a fresh project doesn't create it.
 
 
-### 3. Create [event-driven functions](https://cloud.google.com/run/docs/tutorials/pubsub-eventdriven#deploy-function) and [eventarc triggers](https://cloud.google.com/run/docs/tutorials/pubsub-eventdriven#pubsub-trigger)
+### 3. Deploy the functions, the orchestrator trigger and the Cloud Tasks queue
 
 
 * **One image, two services.** Both functions run the same container image,
@@ -515,7 +517,7 @@ creative-crf-dead-letter`). A fresh project on the `tasks` transport needs only
   | `REAP_STALE_PROCESSING_MINUTES` | `ceil(CRF_WORKER_TIMEOUT_SECS/60)+15` = 45 (1–1440) | below the worker timeout → ERROR log + the default |
   | `MAX_PROCESSING_ATTEMPTS` | 3 (1–10) | reaper: FAILED instead of re-queued after this many locks |
   | `CRF_MAX_ROWS_PER_RUN` | 3 (1–100) | orchestrator row limit |
-  | `CRF_WORKER_TRANSPORT` | `pubsub` (`pubsub`, `tasks`) | orchestrator → worker delivery; `tasks` needs `CRF_WORKER_URL` (else ERROR + `pubsub`) |
+  | `CRF_WORKER_TRANSPORT` | `pubsub` (`pubsub`, `tasks`) | orchestrator → worker delivery; `tasks` needs an `https://` `CRF_WORKER_URL` and an invoker SA (else ERROR + `pubsub`) |
   | `CRF_WORKER_URL` | none | the worker's `https://` URL (task target + OIDC audience) |
   | `CRF_TASKS_QUEUE` / `CRF_TASKS_LOCATION` | `creative-worker-queue` / `GCP_REGION` | the Cloud Tasks queue |
   | `CRF_TASKS_INVOKER_SA` | the compute SA (`<project number>-compute@…`) | the tasks' OIDC identity |
@@ -563,9 +565,9 @@ UPDATE `<BQ_PROJECT_ID>.<BQ_DATASET_ID>.target_trends_crf`
 **Redeploy order (the reaper spans both functions):** migration → **worker**
 `$CREATIVE_WORKER_CRF_NAME` (ships the timestamp/attempt-stamping lock) →
 **orchestrator** `$CREATIVE_CRF_NAME` (ships the reap call), each with the `--image`
-redeploy in §3 (one image serves both). CRF functions auto-route to LATEST and the
-Eventarc triggers bind by service name, so triggers survive a redeploy and are
-**not** re-created.
+redeploy in §3 (one image serves both). The orchestrator's Eventarc trigger binds by service name and the Cloud Tasks
+queue targets the worker URL, so both survive a redeploy and are **not**
+re-created (pin traffic if a revision lands at 0%).
 
 **Row states (`processed_status`)** — the only transitions
 (`status_store.TRANSITIONS` in `cloud_functions/creative_fanout/status_store.py`).
@@ -585,11 +587,12 @@ are told apart), and every UPDATE checks the row's current state:
   outlived the reaper (its row re-queued and locked again as attempt n + 1)
   writes nothing; the write matches 0 rows and is logged `reason=lost_fence`.
 - A single-row statement that matches **more than one row** is an error
-  (`AmbiguousRowKeyError`, the message NACKs), never a lost lock.
+  (`AmbiguousRowKeyError`: the worker answers 503 and Cloud Tasks retries it;
+  the orchestrator NACKs), never a lost lock.
 - After the lock the worker **re-reads the row** (by key, at its attempt) and
   builds the run from it, not from the message. A row that is gone or now
   flagged sensitive (the orchestrator SELECT's `trend_context` predicate) is
-  marked FAILED (`reason=row_missing` / `row_sensitive`) and ACKed.
+  marked FAILED (`reason=row_missing` / `row_sensitive`) and the task answers 200.
 - A finished run's (`finalize_done`) PROCESSED write is retried (up to 3 tries;
   a retry only while one more `CRF_BQ_QUERY_TIMEOUT_SECS` wait still fits before
   the Cloud Run timeout) and **never turned into FAILED**: if it keeps failing
@@ -714,8 +717,8 @@ gcloud run deploy $CREATIVE_WORKER_CRF_NAME --image $CRF_IMAGE \
 ```
 
 The worker's target and signature belong to the service, not to the redeploy:
-they change only at the [cutover](#cloud-tasks-cutover-and-rollback) (and back on
-a rollback), so the routine redeploy never overwrites them. (`cloudbuild.yaml`
+they change only on a [rollback to Pub/Sub](#rollback-to-pubsub-one-release-only)
+(and back), so the routine redeploy never overwrites them. (`cloudbuild.yaml`
 with `_DEPLOY=true` runs the same two deploys at `--no-traffic`, next to the
 api/web ones; pin each new revision afterwards. `--no-traffic` can only update an
 existing service, which always has its target set.) First-time creation uses the
@@ -769,6 +772,9 @@ ORCH_SUB=$(gcloud eventarc triggers describe $CREATIVE_TRIGGER_NAME --location=$
 gcloud pubsub subscriptions update $ORCH_SUB --ack-deadline=60
 ```
 
+Then give it the dead-letter policy (max 5 deliveries → `creative-crf-dead-letter`;
+commands under **Orchestrator dead-letter topic** below).
+
 
 **3.3 Creative Agent Worker:** cloud run function (Cloud Tasks target)
 
@@ -797,8 +803,8 @@ gcloud run deploy $CREATIVE_WORKER_CRF_NAME \
   # region=$GCP_REGION (us-central1) — Cloud Run is regional; GOOGLE_CLOUD_LOCATION
   #   is `global` for the gemini-3.x models and is NOT a valid Cloud Run region.
   # concurrency=1 # ensures only one row is processed per instance
-  # max-instances=1 # SERIALIZE runs: gemini-3.1-pro-preview (5 RPM) and
-  #   flash-image (2 RPM) quotas are project-wide, so parallel runs 503. One run
+  # max-instances=1 # SERIALIZE runs: the gemini-3.1-pro-preview (5 RPM) and
+  #   image-model quotas are project-wide, so parallel runs 429/503. One run
   #   at a time keeps the fan-out under quota. Raise only if quota is raised
   #   (together with the queue's --max-concurrent-dispatches).
   # timeout=1800s # a quota-paced single run (throttled eval + image backoff) is
@@ -810,9 +816,9 @@ gcloud run deploy $CREATIVE_WORKER_CRF_NAME \
 
 Effect of setting `concurrency=1`
 
-* Only one instance of your function will be running at any given time. This means if Pub/Sub delivers a message, the next message (or a redelivery attempt of the first message) must wait until the first instance finishes and shuts down.
+* Together with `max-instances=1`, only one worker request runs at any given time.
 
-* If your function takes 30 seconds to run and update BQ, the subsequent message/redelivery will not execute until that 30 seconds is over. This gives the first execution time to complete the BQ update (PROCESSED), making the BQ query in the second execution return zero data.
+* A duplicate delivery of a row (at-least-once delivery) that arrives after the first run locked it finds the row no longer `QUEUED` and is a no-op.
 
 With Cloud Tasks the queue's `--max-concurrent-dispatches=1` does the
 serialising: the next task is dispatched only after the running one returns, so
@@ -878,33 +884,64 @@ over later. The Cloud Tasks service agent mints the OIDC token; its
   `cloud_tasks_retry_count` (`X-CloudTasks-TaskName` / `-TaskRetryCount`) as JSON
   fields.
 
-#### Cloud Tasks cutover and rollback
+**Malformed messages are dropped, not retried (2026-10-13).** A trigger or
+worker message that can never be processed — undecodable base64/JSON, a
+non-object payload, a worker message missing `bq_dataset` / `bq_table` /
+`row_data` (or a `row_data` field the worker reads), a trigger missing
+`bq_table`, or a non-allow-listed dataset/table — is logged at `ERROR`
+("Rejecting trigger message: …" / "Rejecting worker task: …") and dropped: the
+orchestrator ACKs the Pub/Sub trigger, the Cloud Tasks worker answers 200.
+Only transient failures are retried (a BigQuery error or timeout before/while
+writing a row status): the orchestrator NACKs (the trigger subscription's
+dead-letter policy below bounds it to 5 deliveries), the worker answers 503
+(bounded by the queue's `--max-attempts=5`). (Before this change a `KeyError`
+NACKed a malformed message into redelivery until it expired, as seen on
+2026-10-12.)
 
-**Cutover** (once, with the worker idle: no `PROCESSING` rows, since a new
-revision kills a running run). Create the queue and grant the IAM of §3.4 first, then:
+**Orchestrator dead-letter topic.** The trigger subscription dead-letters a
+message after 5 failed deliveries to `creative-crf-dead-letter`, read through
+the pull subscription `creative-crf-dead-letter-sub` (7-day retention). The
+Pub/Sub service agent needs publisher on the topic and subscriber on the
+subscription ([dead-letter topics](https://cloud.google.com/pubsub/docs/handling-failures#dead_letter_topic)):
 
 ```bash
-WORKER_URL=$(gcloud run services describe creative-worker-crf --region us-central1 \
-  --format='value(status.url)')
-# 1. Worker -> HTTP entry point (keeps the 1800 s timeout, max-instances=1, concurrency=1).
-#    A Pub/Sub delivery that still arrives is not a valid task body: logged, 200, row stays QUEUED.
-gcloud run deploy creative-worker-crf --image $CRF_IMAGE --region us-central1 \
-  --update-env-vars FUNCTION_TARGET=agent_worker_task,FUNCTION_SIGNATURE_TYPE=http
-# 2. Orchestrator -> Cloud Tasks.
-gcloud run deploy creative-trawler-crf --image $CRF_IMAGE --region us-central1 \
-  --update-env-vars CRF_WORKER_TRANSPORT=tasks,CRF_WORKER_URL=$WORKER_URL,CRF_TASKS_QUEUE=creative-worker-queue
-# (pin traffic to both new revisions if they landed at 0%)
-# 3. Remove the worker's Eventarc trigger (keep the topic + dead-letter topic one release).
-gcloud eventarc triggers delete creative-worker-starter-trigger --location us-central1
+gcloud pubsub topics create creative-crf-dead-letter
+gcloud pubsub subscriptions create creative-crf-dead-letter-sub \
+  --topic=creative-crf-dead-letter --message-retention-duration=7d
+PUBSUB_SA=service-$GOOGLE_CLOUD_PROJECT_NUMBER@gcp-sa-pubsub.iam.gserviceaccount.com
+gcloud pubsub topics add-iam-policy-binding creative-crf-dead-letter \
+  --member=serviceAccount:$PUBSUB_SA --role=roles/pubsub.publisher
+gcloud pubsub subscriptions add-iam-policy-binding $ORCH_SUB \
+  --member=serviceAccount:$PUBSUB_SA --role=roles/pubsub.subscriber
+gcloud pubsub subscriptions update $ORCH_SUB \
+  --dead-letter-topic=creative-crf-dead-letter --max-delivery-attempts=5
+# inspect dead-lettered triggers:
+gcloud pubsub subscriptions pull creative-crf-dead-letter-sub --limit=10
 ```
 
-Verify: publish a trigger with `max_rows=2` (§5); both rows reach `PROCESSED`;
-`gcloud tasks list --queue=creative-worker-queue --location=us-central1` shows
-one task dispatched at a time; the worker logs show no 429s and no redelivery
-during a run, and the task lines carry `cloud_tasks_retry_count: 0`. The
-orchestrator logs ERROR and stays on `pubsub` if `CRF_WORKER_URL` is missing.
+**Logs + timeouts.** Both functions log JSON lines on stdout (`severity`,
+`message`, `time`, `logger`), which Cloud Run turns into structured entries: the
+text is in `jsonPayload.message` (not `textPayload`), and the worker's
+`AGENT_RUN_DURATION_SECS` marker also carries `row`, `index`, `status`, `secs`,
+`finalized`, `retried` and `reason` as `jsonPayload` keys. Each BigQuery status
+query/DML is bounded by `CRF_BQ_QUERY_TIMEOUT_SECS` (default 60, clamped 5–600;
+client wait + the job's `job_timeout_ms`); a timeout fails the invocation like
+any BigQuery error.
 
-**Rollback** (env vars + one trigger; the image serves both paths):
+#### Rollback to Pub/Sub (one release only)
+
+The worker moved from Pub/Sub + Eventarc to Cloud Tasks on **2026-10-14**
+(orchestrator `creative-trawler-crf-00019-dgb`, worker
+`creative-worker-crf-00022-7d8`); the worker's Eventarc trigger
+(`creative-worker-starter-trigger`) is deleted. The image still serves the old
+path (`CRF_WORKER_TRANSPORT=pubsub` + `agent_worker_entrypoint`), and the worker
+topic `$CREATIVE_WORKER_TOPIC_NAME` (`creative-worker-queue-topic`) is kept for
+one release so a rollback is env vars plus one trigger. After that release,
+delete the topic (`gcloud pubsub topics delete $CREATIVE_WORKER_TOPIC_NAME`) and
+this subsection. Keep `creative-crf-dead-letter`: the orchestrator trigger uses it.
+
+**Rollback** (with the worker idle: no `PROCESSING` rows, since a new revision
+kills a running run):
 
 ```bash
 gcloud tasks queues pause creative-worker-queue --location us-central1  # waiting rows stay QUEUED
@@ -912,17 +949,11 @@ gcloud run services update creative-trawler-crf --region us-central1 \
   --update-env-vars CRF_WORKER_TRANSPORT=pubsub
 gcloud run services update creative-worker-crf --region us-central1 \
   --update-env-vars FUNCTION_TARGET=agent_worker_entrypoint,FUNCTION_SIGNATURE_TYPE=cloudevent
-# then recreate the worker trigger with §3.5 (incl. the 600 s ack deadline and the dead-letter policy)
+# (pin traffic to both new revisions if they landed at 0%)
+# then recreate the worker trigger below (incl. the 600 s ack deadline and the dead-letter policy)
 ```
 
-The next trigger re-dispatches the rows left QUEUED over Pub/Sub. To return to
-Cloud Tasks, `gcloud tasks queues resume creative-worker-queue --location
-us-central1` and repeat the cutover (purge the queue first if it still holds tasks
-of rows that have run since: `gcloud tasks queues purge`; a stale task is a no-op
-anyway, the row lock refuses it).
-
-**3.5 Creative Agent Worker:** eventarc trigger (**`pubsub` rollback transport
-only**; not used with Cloud Tasks)
+Rollback-only worker trigger (not used with Cloud Tasks):
 
 ```bash
 gcloud eventarc triggers create $CREATIVE_WORKER_TRIGGER_NAME  \
@@ -932,69 +963,74 @@ gcloud eventarc triggers create $CREATIVE_WORKER_TRIGGER_NAME  \
   --event-filters="type=google.cloud.pubsub.topic.v1.messagePublished" \
   --transport-topic=$CREATIVE_WORKER_TOPIC_NAME \
   --service-account=$SERVICE_ACCOUNT
-```
-
-Worker runs often take longer than 10 minutes (up to the 1800 s budget, more
-with a retry), so set the maximum ack deadline (600s). With the 10s default,
-Pub/Sub redelivers mid-run; the QUEUED->PROCESSING lock turns each redelivery
-into a no-op, but they still occupy the single worker instance:
-
-```bash
+# Worker runs take up to 1800 s (more with a retry): use the maximum ack deadline.
+# With the 10 s default Pub/Sub redelivers mid-run; the row lock makes each
+# redelivery a no-op, but it still occupies the single worker instance.
 WORKER_SUB=$(gcloud eventarc triggers describe $CREATIVE_WORKER_TRIGGER_NAME --location=$GCP_REGION \
   --format='value(transport.pubsub.subscription)')
 gcloud pubsub subscriptions update $WORKER_SUB --ack-deadline=600
+gcloud pubsub subscriptions add-iam-policy-binding $WORKER_SUB \
+  --member=serviceAccount:$PUBSUB_SA --role=roles/pubsub.subscriber
+gcloud pubsub subscriptions update $WORKER_SUB \
+  --dead-letter-topic=creative-crf-dead-letter --max-delivery-attempts=5
 ```
 
-**Malformed messages are ACKed (2026-10-13).** A message that can never be
-processed — undecodable base64/JSON, a non-object payload, a worker message
-missing `bq_dataset` / `bq_table` / `row_data` (or a `row_data` field the
-worker reads), a trigger missing `bq_table`, or a non-allow-listed
-dataset/table — is logged at `ERROR` ("Rejecting worker
-message: …" / "Rejecting trigger message: …") and ACKed, instead of raising
-(`KeyError` → NACK → redelivered until the message expires, as seen on
-2026-10-12). Only transient failures still NACK (a BigQuery error or timeout
-before/while writing a row status). The Cloud Tasks entry point maps the same
-cases to HTTP 200 ("Rejecting worker task: …") and a NACK to 503, bounded by
-the queue's `--max-attempts`. **A dead-letter topic is recommended** on
-both trigger subscriptions so those retries are bounded too
-(`gcloud pubsub subscriptions update $WORKER_SUB --dead-letter-topic=<topic>
---max-delivery-attempts=<n>`; the Pub/Sub service agent needs publisher on the
-topic and subscriber on the subscription — see
-[dead-letter topics](https://cloud.google.com/pubsub/docs/handling-failures#dead_letter_topic)).
+On this path the worker ACKs every recorded outcome and NACKs (raises) where the
+task path answers 503; known limitation: the 600 s ack deadline is shorter than
+a run, which is why Cloud Tasks (30-minute dispatch deadline) replaced it. The
+next trigger re-dispatches the rows left QUEUED over Pub/Sub.
 
-**Logs + timeouts.** Both functions log JSON lines on stdout (`severity`,
-`message`, `time`, `logger`), which Cloud Run turns into structured entries: the
-text is in `jsonPayload.message` (not `textPayload`), and the worker's
-`AGENT_RUN_DURATION_SECS` marker also carries `row`, `index`, `status` and
-`secs` as `jsonPayload` keys. Each BigQuery status query/DML is bounded by
-`CRF_BQ_QUERY_TIMEOUT_SECS` (default 60, clamped 5–600; client wait + the job's
-`job_timeout_ms`); a timeout fails the invocation like any BigQuery error.
+**Return to Cloud Tasks** (the 2026-10-14 cutover, for reference): purge the
+queue if it still holds tasks of rows that have run since (`gcloud tasks queues
+purge creative-worker-queue --location us-central1`; a stale task is a no-op
+anyway, the row lock refuses it), `gcloud tasks queues resume creative-worker-queue
+--location us-central1`, then with the worker idle:
+
+```bash
+WORKER_URL=$(gcloud run services describe creative-worker-crf --region us-central1 \
+  --format='value(status.url)')
+# 1. Worker -> HTTP entry point (keeps the 1800 s timeout, max-instances=1, concurrency=1).
+#    A Pub/Sub delivery that still arrives is not a valid task body: logged, 200, row stays QUEUED.
+gcloud run services update creative-worker-crf --region us-central1 \
+  --update-env-vars FUNCTION_TARGET=agent_worker_task,FUNCTION_SIGNATURE_TYPE=http
+# 2. Orchestrator -> Cloud Tasks.
+gcloud run services update creative-trawler-crf --region us-central1 \
+  --update-env-vars CRF_WORKER_TRANSPORT=tasks,CRF_WORKER_URL=$WORKER_URL,CRF_TASKS_QUEUE=creative-worker-queue
+# (pin traffic to both new revisions if they landed at 0%)
+# 3. Remove the worker's Eventarc trigger.
+gcloud eventarc triggers delete $CREATIVE_WORKER_TRIGGER_NAME --location us-central1
+```
+
+Verify: publish a trigger with `max_rows=2` (§5); both rows reach `PROCESSED`;
+`gcloud tasks list --queue=creative-worker-queue --location=us-central1` shows
+one task dispatched at a time; the worker logs show no 429s and no redelivery
+during a run, and the task lines carry `cloud_tasks_retry_count: 0`. The
+orchestrator logs ERROR and stays on `pubsub` if `CRF_WORKER_URL` is missing.
 
 
 ### 4. Confirm triggers and topics
 
 
-*4.1 confirm triggers successfully created:*
+*4.1 confirm the trigger (only the orchestrator's, `$CREATIVE_TRIGGER_NAME`; the worker has none on the `tasks` transport):*
 
 ```bash
 gcloud eventarc triggers list --location=$GCP_REGION
 ```
 
-*4.2 assign each trigger's PubSub topic to variable:*
+*4.2 assign the trigger's Pub/Sub topic to a variable:*
 
 ```bash
 CREATIVE_PUB_TOPIC=$(gcloud eventarc triggers describe $CREATIVE_TRIGGER_NAME --location $GCP_REGION --format='value(transport.pubsub.topic)')
 echo $CREATIVE_PUB_TOPIC
-
-# pubsub rollback transport only (no worker trigger with Cloud Tasks):
-CREATIVE_WORKER_PUB_TOPIC=$(gcloud eventarc triggers describe $CREATIVE_WORKER_TRIGGER_NAME --location $GCP_REGION --format='value(transport.pubsub.topic)')
-echo $CREATIVE_WORKER_PUB_TOPIC
 ```
 
-*4.3 confirm the queue (Cloud Tasks transport):*
+*4.3 confirm the queue and the orchestrator's transport:*
 
 ```bash
 gcloud tasks queues describe creative-worker-queue --location $GCP_REGION
+# maxConcurrentDispatches: 1, maxAttempts: 5, minBackoff 60s / maxBackoff 600s, state: RUNNING
+gcloud run services describe $CREATIVE_CRF_NAME --region $GCP_REGION \
+  --format='value(spec.template.spec.containers[0].env)' | tr ';' '\n' | grep -E 'CRF_WORKER|CRF_TASKS'
 ```
 
 
@@ -1080,13 +1116,14 @@ Redeploy the orchestrator `$CREATIVE_CRF_NAME` (the `--image` redeploy in §3) t
 pick it up; flagged rows already in the table are skipped from then on.
 
 Worker failure semantics: if the agent run fails, the worker marks the row
-`FAILED` and **ACKs** (no Pub/Sub retry — a redelivery can't re-lock a `FAILED`
-row). A transient error before the session existed re-queues the row instead,
-and a finished run whose PROCESSED write keeps failing stays `PROCESSING`
-(see **Row states** in §3). Only a BigQuery error on the lock, the re-read or the
-FAILED write NACKs for redelivery; rows stranded in `PROCESSING` are recovered by
-the orchestrator's stale-PROCESSING reaper. A malformed message is logged and
-ACKed (§3).
+`FAILED` and answers **200** (no Cloud Tasks retry — a retry can't re-lock a
+`FAILED` row). A transient error before the session existed re-queues the row
+instead (picked up by the next trigger), and a finished run whose PROCESSED write
+keeps failing stays `PROCESSING` (see **Row states** in §3). Only a BigQuery
+error on the lock, the re-read or the FAILED write answers **503**, which Cloud
+Tasks retries (60–600 s backoff, at most 5 attempts); rows stranded in
+`PROCESSING` are recovered by the orchestrator's stale-PROCESSING reaper. A
+malformed task is logged and answered 200 (§3).
 
 *5.3  Publish message to the Creative Orchestrator's topic:*
 
@@ -1162,10 +1199,8 @@ docker build -t tt-api:local .
 > **Docker may be unavailable** on this workstation. If so, rely on the frontend
 > standalone smoke (`cd frontend && npm run build`, then run
 > `.next/standalone/server.js` with `public/` + `.next/static/` copied in — expect
-> `200`) and let Cloud Run's own source build (`gcloud run deploy --source`) build the
-> images. The backend build may also hit the `uv.lock` private-mirror issue locally
-> (see the `adk-pipe-dep-mirror-workaround` note); Cloud Build inside the project can
-> reach the mirror.
+> `200`) and let Cloud Build build the images (the cached `cloudbuild.yaml` build in
+> Step 8, or `gcloud run deploy --source`). `uv.lock` resolves from public PyPI only.
 
 ### 0. Prerequisites + shared vars
 
@@ -1438,9 +1473,9 @@ there is no auto-continue (interactive_creative still calls the stages separatel
   deploy **or** a `services update --update-env-vars`, followed by the traffic pin) shuts the
   old revision's instance down within about a minute. Before one, confirm nothing is running:
   check that no `run start:` line in the recent api logs lacks a matching terminal
-  `__run_status`, and ask the user. The durable escalation (only if this bites under real load) is **Variant 2**: hand UI runs to the existing PubSub worker
-  (`cloud_functions/creative_fanout` pattern) so PubSub redelivery + a BQ status lock
-  survive an instance crash.
+  `__run_status`, and ask the user. The durable escalation (only if this bites under real load) is **Variant 2**: hand UI runs to the existing batch worker
+  (`cloud_functions/creative_fanout` pattern: a Cloud Tasks task + the BigQuery row lock and
+  stale-PROCESSING reaper) so a retried delivery survives an instance crash.
 - **The api's in-process guards are best effort per instance.** The live-run duplicate
   guard, the variant render claim / per-session locks / render semaphore / daily cap and
   the per-session state locks all live in one uvicorn process. They hold while one
@@ -1493,12 +1528,13 @@ Never re-add `allUsers`; add non-domain viewers individually with
 
 ### 8. Redeploying a new build + rollback (traffic tags)
 
-Both services now **follow `LATEST`** (`status.traffic.latestRevision: true`), so a
-`gcloud run deploy` of either one **auto-routes 100% to the revision it just created** — no
-manual traffic flip needed. (This was not always true: traffic used to be pinned to a
-specific revision, so deploys created a new revision at 0% and required an explicit
-`update-traffic --to-latest`. If you ever see the deploy's final log line naming an *old*
-revision, that pin has returned — verify and re-point as below.)
+Both services are **pinned to a named revision** (checked 2026-10-14: api
+`trend-trawler-api-00130-cxc` and web `trend-trawler-web-00073-hsv` at 100%, no
+`latestRevision` entry), so a deploy creates a new revision at **0%** and you must pin it
+afterwards: `gcloud run services update-traffic <service> --region $REGION
+--to-revisions <new revision>=100`. The deploy's final log line can name the *old* serving
+revision; find the new one by creation time (see **Confirm what's actually live** below).
+The CRF services (§3) are pinned the same way.
 
 **Redeploy (from a `main` checkout):**
 
@@ -1587,33 +1623,32 @@ gcloud run revisions list --service trend-trawler-api --region $REGION \
 and reachable by a stable **tag** — a named alias URL pinned to one revision
 (`https://<tag>---<service>-<hash>.run.app`). These are the rollback anchors:
 
-| Service | Rollback tag | (revision at time of writing) |
+| Service | Rollback anchor | (as of 2026-10-14) |
 |---|---|---|
-| `trend-trawler-api` | `main-clean` | `trend-trawler-api-00034-hzv` |
-| `trend-trawler-web` | `main-current` | `trend-trawler-web-00011-giv` |
+| `trend-trawler-api` | **no tag** — roll back by revision name (see below) | serving `trend-trawler-api-00130-cxc` |
+| `trend-trawler-web` | tag `prev` | `trend-trawler-web-00072-gnj` (serving `00073-hsv`) |
 
 ```bash
 # Instant rollback: send 100% of traffic to the tagged known-good revision.
-gcloud run services update-traffic trend-trawler-api --region $REGION --to-tags main-clean=100
-gcloud run services update-traffic trend-trawler-web --region $REGION --to-tags main-current=100
+gcloud run services update-traffic trend-trawler-web --region $REGION --to-tags prev=100
 
-# ...then to return to the newest revision:
-gcloud run services update-traffic trend-trawler-api --region $REGION --to-latest
+# ...then to return to the newer revision, pin it by name:
+gcloud run services update-traffic trend-trawler-web --region $REGION \
+  --to-revisions trend-trawler-web-000NN-xyz=100
 ```
 
 **After a deploy is confirmed good,** move the rollback tag onto the new revision so the
 anchor tracks "last known-good" (tags don't move on their own):
 
 ```bash
-NEW_REV=$(gcloud run services describe trend-trawler-api --region $REGION \
-  --format='value(status.latestReadyRevisionName)')
-gcloud run services update-traffic trend-trawler-api --region $REGION \
-  --set-tags main-clean=$NEW_REV        # re-point the tag; traffic split is unchanged
+PREV_REV=trend-trawler-web-000NN-xyz   # the revision that served before the deploy
+gcloud run services update-traffic trend-trawler-web --region $REGION \
+  --set-tags prev=$PREV_REV        # re-point the tag; traffic split is unchanged
 ```
 
 Old, untagged, 0%-traffic revisions are safe to leave (they cost nothing idle) or prune with
-`gcloud run revisions delete <rev> --region $REGION`. Keep at least the current
-`main-clean` / `main-current` pair as your safety net.
+`gcloud run revisions delete <rev> --region $REGION`. Keep web's `prev` as your safety net
+(and note the api's previous revision name before each deploy).
 
 **api: don't keep tagged old revisions around.** A tagged api revision isn't idle: with
 `--min-instances 1` it keeps an instance up that runs the background loops (the bandit TTL
@@ -1631,7 +1666,7 @@ gcloud run services update-traffic trend-trawler-api --region $REGION \
   --to-revisions trend-trawler-api-000NN-xyz=100
 ```
 
-The web service has no background loops, so its `main-current` tag is harmless.
+The web service has no background loops, so its `prev` tag is harmless.
 
 ### 9. Per-user authz (P3): env vars + verification
 
@@ -2613,8 +2648,9 @@ Variants are never judged, rated, shared or deployed to an experiment. Cast crea
 be experiment arms while their consent is active (`400 consent_not_active` otherwise);
 revoking the consent stops those experiments (see Revoking above).
 
-**Quota.** Variants share the image model's ~2 images/min (plus the image-QA vision calls)
-with live runs, project-wide. A process-wide semaphore keeps at most
+**Quota.** Variants share the image model's quota (the quota API reports ~2 images/min;
+`gemini-nano-banana-2.1` sustained ~12/min in a 2026-10-13 test) plus the image-QA vision
+calls with live runs, project-wide. A process-wide semaphore keeps at most
 `VARIANT_RENDER_CONCURRENCY` variant renders in flight (default 1; a waiting variant shows
 "queued"), and each user gets `VARIANT_DAILY_CAP` renders a day (cache hits are free).
 Both are per api process: the cap counts renders this process started today (or today's
@@ -2661,7 +2697,7 @@ table):
   is baked in.
 - **Trend context** (`trend_scout` → CRF worker → creative runs): needs the
   `target_trends_crf.trend_context` column first — see the
-  [trend_context migration](#3-create-event-driven-functions-and-eventarc-triggers) and its
+  [trend_context migration](#3-deploy-the-functions-the-orchestrator-trigger-and-the-cloud-tasks-queue) and its
   redeploy order (ALTER → engines → CRF worker → api, then web).
 - **Current moment + timely slot** (creative engines): `TREND_STATE_ENABLED` (default
   `true`) is the kill switch for the grounded trend-situation branch (about 2 worker-model
@@ -2682,7 +2718,7 @@ writers name every column in their MERGE):
 
 - [x] `creative_evals.gates_pass_rate FLOAT64` on **`trend_trawler`** and
   **`trend_trawler_eval`** — before the `creative_agent` / `interactive_creative` engines
-  and the api ([gates_pass_rate migration](#3-create-event-driven-functions-and-eventarc-triggers)).
+  and the api ([gates_pass_rate migration](#3-deploy-the-functions-the-orchestrator-trigger-and-the-cloud-tasks-queue)).
 - [x] `creative_ratings` table created in `trend_trawler` — before the api
   ([Table](#table)).
 - [x] `creative_ratings.judge_source STRING` — before the api
@@ -2719,7 +2755,7 @@ writers name every column in their MERGE):
   (headshot quality) — before the api that writes it.
 - [x] `target_trends_crf.trend_context STRING` on **`trend_trawler`** and
   **`trend_trawler_eval`** (trend state, 2026-10-11) — before the `trend_scout` engine and
-  the CRF worker ([trend_context migration](#3-create-event-driven-functions-and-eventarc-triggers)).
+  the CRF worker ([trend_context migration](#3-deploy-the-functions-the-orchestrator-trigger-and-the-cloud-tasks-queue)).
 
 No migration was needed for brand history (it only reads `creative_evals` and the eval
 report JSON), the trend situation / timely slot, rating learning's reads, or the new
@@ -2757,15 +2793,26 @@ Agent Engine through `deploy_agent.py` `ENV_VAR_DICT`, read at import, so for an
 | `TREND_TIMEZONE` | `America/New_York` | IANA timezone of every run's date state (`agent_common/clock.py`; the date itself is computed per run, never at deploy; unknown → default with a warning). All three engines |
 | `FLASH_MODEL_REQUEST_TIMEOUT_SECONDS` | `90` (30–900) | Per-request timeout for flash / lite model calls (agent models + the image-QA client); never longer than `MODEL_REQUEST_TIMEOUT_SECONDS`; `0` = use the general timeout |
 
-**Deployer-env knobs (not in `ENV_VAR_DICT`):** these are read when the agent module is
-imported, so on Agent Engine the value in the *deployer's* shell is pickled into the engine
-(export it before `deploy_agent.py`, redeploy to change); on Cloud Run the api reads its
-own env:
+**Runtime-read knobs (also shipped via `ENV_VAR_DICT`, since #376):** Agent Engine
+cloudpickles module-level functions by reference, so module globals, class defaults and
+lazily built clients (image gen, image QA, the `creative_eval` judge) are re-read inside the
+engine from the *engine's* env. `deploy_agent.py` therefore ships these too (values in
+`deployment/deploy.env`):
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `MODEL_REQUEST_TIMEOUT_SECONDS` | `240` (30–900; `0` disables) | Per-request timeout for model calls (`agent_common/genai_retry.py`); Pro models, the judge and image gen use it, flash/lite the shorter one above. The pickled ADK agent models take the deployer's value; clients built lazily inside the engine (judge, image gen) read the engine's env, where it is unset, so they use the default |
-| `CRITIC_FALLBACK_MODEL` | `gemini-3.8-flash` | Failover model for the Pro (`critic_model`) producers on 429/5xx; `""` = no failover (kill switch) |
+| `MODEL_REQUEST_TIMEOUT_SECONDS` | `240` (30–900; `0` disables) | Per-request timeout for model calls (`agent_common/genai_retry.py`); Pro models, the judge and image gen use it, flash/lite the shorter one above |
+| `MODEL_LOCATION` | `global` | Serving location pinned for gemini-3.x (`agent_common/locations.py`); also the judge's default location |
+| `IMAGE_SIZE` / `IMAGE_ASPECT_RATIO_DEFAULT` | `2K` / `9:16` | Image-gen `ImageConfig` defaults |
+| `EVAL_MODEL` / `EVAL_MAX_WORKERS` / `EVAL_MAX_VISUAL_WAVE_WORKERS` | `gemini-3.1-pro-preview` / `2` / `4` | Judge model and concurrency caps (`creative_eval/config.py`) |
+| `CAMPAIGN_RESEARCH_PLACEMENT` | `global_altbucket` | Campaign-research model bucket (`creative_agent/config.py`) |
+| `CRITIC_FALLBACK_MODEL` | `gemini-3.8-flash` | Failover model for the Pro (`critic_model`) producers on 429/5xx; `""` = no failover (kill switch). Shipped **only when set** in the deployer's env (`OPTIONAL_ENV_VARS`), so an unset var keeps the code default |
+| `EVAL_MODEL_LOCATION` | `MODEL_LOCATION` | Judge location override; shipped only when set |
+
+**Deployer-env only (captured at deploy, not shipped):** `MODEL_ARMOR_TEMPLATE` /
+`MODEL_ARMOR_RESPONSE_TEMPLATE` / `MODEL_ARMOR_FAIL_CLOSED` (the App's plugin list is
+pickled by value; see Model Armor under Step 9) and the target project / region.
+`tests/test_deploy_env_contract.py` enforces the split.
 
 **api-only knobs** (Cloud Run `trend-trawler-api`, not in `ENV_VAR_DICT`):
 `RATINGS_STORE` (`bigquery` | `memory`) and the api's own `BQ_TABLE_RATINGS`
@@ -2839,7 +2886,8 @@ classifier call and wait ~1 s for the lookup.
 ## Eval CI (WIF)
 
 `.github/workflows/adk-eval.yml` runs the end-to-end `adk eval` suites (trend_scout,
-creative_agent; serialized) **nightly at 02:17 PT** and on manual dispatch — never on
+creative_agent; serialized) **nightly at 02:17 PT** (cron `17 9 * * *` UTC, plus a
+21:17 PT second chance, `17 4 * * *`; see the off-hours guard below) and on manual dispatch — never on
 PRs (each run spends the shared 5-RPM Pro quota). It authenticates with **Workload
 Identity Federation** (no SA key) and is **inert until `EVAL_WIF_PROVIDER` is set**
 (the job is skipped otherwise).
