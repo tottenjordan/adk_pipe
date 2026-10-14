@@ -12,8 +12,8 @@ pre-registered / written-up design under [`docs/experiments/`](../docs/experimen
 
 > **Not in the agent import graph — on purpose.** No package here is imported by
 > any agent, so none is ever bundled into an Agent Engine deployment
-> (`deployment/deploy_agent.py`'s `AGENT_EXTRA_PACKAGES` is derived from the agent
-> import graph). Keep it that way — importing an agent *from* here is fine;
+> (`deployment/deploy_agent.py`'s hand-kept `AGENT_EXTRA_PACKAGES` is checked against
+> each agent's real import graph by `tests/test_deploy_import_graph.py`). Keep it that way — importing an agent *from* here is fine;
 > importing one of these *into* an agent is not.
 
 ## Subdirectories
@@ -96,7 +96,7 @@ PYTHONPATH="$PWD" uv run python -m experiments.creative_latency.run_experiment \
 
 The **design-of-experiments** harness for PR #101's quota-bucket spread (campaign
 research pinned to `gemini-2.5 @ us-central1` to halve per-base-model contention in
-the one `ParallelAgent`). One codebase deploys as multiple **arms** via the
+the research fan-out, then a `ParallelAgent`; now a graph `Workflow`). One codebase deploys as multiple **arms** via the
 `CAMPAIGN_RESEARCH_PLACEMENT` env seam; this package fires N *concurrent* runs per
 `(arm, load)` cell — the one capability `creative_latency` deliberately lacks —
 because here contention is the signal, not noise.

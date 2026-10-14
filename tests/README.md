@@ -63,20 +63,25 @@ tests/
 ├── test_agent_common_state.py       # shared memorize tool + seed_initial_state()
 ├── test_ad_copy_prompts.py          # ad copy prompts: angle spread + typicality (drafter), angle coverage/surprise/brief checklist/CTA (critic), flagged-only reviser tokens, the trend tie rule (drafter) + trend_bridge check wording matching the judge's trend_connected (critic); brace-safety
 ├── test_agents_dir.py               # agents/ serving-view symlinks used by the Cloud Run api_server
+├── test_async_app_wiring.py         # imports deployment.async_app for real (subprocess, in-memory stores): UserAuthzMiddleware installed, enforce boot guard refuses a missing proxy config
 ├── test_async_runs.py               # async-job run model: kick-off/poll/resume, terminal markers, checkpoint edits (report, structured brief: valid merge / 400 on invalid); only the terminal marker decides done/error, so a contained in-pipeline error event keeps the run running and is listed as a deduped, capped, truncated non-fatal `warnings` entry (#322)
 ├── test_authz.py                    # P3 per-user authz (incl. /shares/{u}, /person-refs/{u} and /variants/{u} paths): modes, userId normalization, proxy ID-token check, middleware 401/403/404, ownership → 404
 ├── test_backend_entrypoint.py       # backend container entrypoint (uvicorn serves async_app.py)
 ├── test_backfill_eval_labels.py    # deployment/backfill_eval_dimension_labels.py: pure SQL builder (no BigQuery)
 ├── test_bandit_endpoint_lib.py      # deployment/bandit/endpoint.py vs a fake aiplatform (single-worker env, 1 replica, labels, find_* by label oldest-first)
-├── test_create_bq_tables.py         # create_bq_tables.sh with a stub bq: bandit_* + creative_ratings + creative_shares + person_references schemas (ratings from deployment/bq_schemas/creative_ratings.json, REPEATED fail_reasons, vs RATING_COLUMN_TYPES), partitioning/clustering, idempotency
+├── test_bandit_cloudbuild.py        # the one bandit image (endpoint + traffic job) build: cloudbuild.bandit.yaml + Dockerfile, dependency layer cached apart from the code
+├── test_create_bq_tables.py         # create_bq_tables.sh with a stub bq: bandit_* + creative_ratings + creative_shares + person_references + trend_digest (partitioned, 30-day expiry) schemas (ratings from deployment/bq_schemas/creative_ratings.json, REPEATED fail_reasons, vs RATING_COLUMN_TYPES), partitioning/clustering, idempotency
 ├── test_bandit_*.py                 # JAX bandit core (bandit/): features, config, linear TS, baselines, environment, simulate+metrics+aggregate, notebook-parity figures (fixture data) + generation smoke, scripted shifts
 │                                    #   (also test_bandit_continuous.py: §11 continuous segments; test_bandit_endpoint_client.py: traffic endpoint clients/retries; test_bandit_traffic_bq.py: traffic row builders vs contracts §3)
 ├── test_brand_history.py            # creative_agent/brand_history.py: parameterised creative_evals SELECT (no string-built brand), report reads limited to the configured bucket + size cap, aggregation (recent/strongest styles, recurring weak dimensions, runs with failed non-advisory gates), brace-free ≤120-word note, BQ/GCS/timeout fail-open, disabled knob → no query, shortlist re-draw unless a style preference is set, canonical style mapping (schema example phrasings), allowlisted tones/dimensions/gates only (injection strings never reach the note), GCS per-call timeouts + report-read deadline, failed-check denominator = readable reports
 ├── test_rating_signals.py          # creative_agent/rating_signals.py: fail-reason enum == runserver copy, check-backed strictness subset, allowlisted aggregation (canonical styles, tone Literal, enum; injection strings dropped), style/reason minimums + 30% dominance, brace-free ≤80-word note, SELECT reads only allowlisted columns (never note), normalised @brand/@days params, 8 s job timeout, fail-open (None = unavailable)
 ├── test_brief_check.py              # deterministic creative-brief check (proposition incl. abbreviations/capital-led sentence breaks/brand-product-trend names/and-compounds, X-but-Y insight + ;/dash/contrast markers, cited RTBs + normalised src-N/brief ids vs sources, fit_mode, angle names/tensions, motifs, assets, product named exactly in mandatories, unsupported absolute claims vs key selling points/mandatories)
 ├── test_brief_render.py             # creative brief → "## Creative Brief" markdown in the research PDF (real markdown_pdf TOC check) + compact (headless) prompt variant + gallery summary card (HTML-escaped)
+├── test_build_context.py            # the web image's build context excludes per-checkout generated files (tsconfig.tsbuildinfo, next-env.d.ts, Playwright outputs) so the registry cache hits
 ├── test_callbacks.py                # citation replacement, state init (incl. style_shortlist seeding, reference_images/reference_roles), rate limiting, trend/product guard callback
 ├── test_citations.py                # shared citation renderer (creative_agent.citations)
+├── test_cleanup_policies.py         # deployment/cleanup/ retention rules: scoped to trend-trawler's own packages/prefixes, untagged registry versions only, never live engine / bandit / run / share prefixes
+├── test_cleanup_apply_sh.py         # deployment/cleanup/apply.sh preview with a stub gcloud: a failed lookup of what Cloud Run serves aborts (exit 5)
 ├── test_clock.py                    # agent_common/clock.py: per-run date state (timezone, fallback, naive = UTC), TREND_TIMEZONE config + deploy wiring
 ├── test_concept_guard.py            # final image prompts always name the trend_motif + product + brand_cue (pure guard; token-overlap matching incl. brand_cue, intangible-product cue); concept_issues (quoted text vs paired headline/CTA incl. curly quotes / punctuation / substring, meme+comic exemption, empty motif, set-level text cap + centred-hero selection, conservative heuristics; rating strictness: text cap 1, prominence line, verbatim motif) + restore_unflagged_concepts
 ├── test_config.py                   # per-agent config resolution (incl. campaign-placement resolver, brand-history + rating-learning knobs)
@@ -84,6 +89,7 @@ tests/
 ├── test_text_match.py               # shared conservative matching (Unicode folding, plurals, sizes/packaging head nouns, single-token full phrase, brand anchor, 60% token-overlap mentions)
 ├── test_copy_gate.py                # deterministic ad-copy gate (product named, CTA words, headline/caption length, brief avoid terms minus product/mandatory/trend overlaps; Unicode/&-brand/plural matching audit cases; warning-only structural issues; unsupported absolute claims (deterministic, allowed via allowed_claims_text); only proposition/mandatories/risks/trend_bridge self-reports gate (+ reason_to_believe under off_brief strictness; weak_cta → 6-word CTA), only deterministic residuals recorded; lenient product matching; duplicate-id keys; tolerant parsing) + restore_unflagged safety net
 ├── test_create_session_engine.py    # create_session_engine.py (reuse-or-create sessions-only engine)
+├── test_creative_fanout_image.py    # CRF container image: one Dockerfile for both services, FUNCTION_TARGET / FUNCTION_SIGNATURE_TYPE (http for the Cloud Tasks worker); named so the CRF venv's test_crf_* glob skips it
 ├── test_creative_brief_prompts.py   # {creative_brief_md?} block before the report + shared contract rule (core + fallback; user feedback/art direction override) in the 5 creative prompts; brace-safety
 ├── test_creative_agent_graph.py     # creative_agent graph pipelines end-to-end (stub models): routing, citations, no-stall, guard-repaired render prompts, creative-brief gate (pass / revise once / revise twice with 2 rounds / residual issues / writer exhausted / raising writer or reviser fail-soft), ad-copy gate (all pass / flagged copy revised + unflagged edit reverted / raising reviser fail-soft / residual issues), concept gate (all pass / flagged concept fixed + unflagged edit reverted + brand cue re-guarded / raising fixer fail-soft / residual issues), research PDF node (artifact + GCS / skipped without report / failure recorded), finalize_pipeline (evaluate + persist happy path with fake judge/GCS/BQ, no creatives → notice, failing gallery doesn't block BQ, eval row written last), creative_pipeline (the root's single call: research → ads → visuals + render → finalize end to end, then the root answers)
 ├── test_creative_root_prompt.py     # creative_agent root contract: memorize missing fields → one creative_pipeline call → final summary; root state-token set
@@ -91,8 +97,8 @@ tests/
 ├── test_creative_eval.py            # creative_eval schemas, scoring logic, config, report learning_used/learning_flags, JUDGE_VERSION export (date + optional ".N") + report judge_version (both report builders; old reports parse as "")
 ├── test_eval_gates.py               # creative_eval binary gates: schema defaults (old reports parse), passed = score AND gates, gates_pass_rate over judged creatives only, brief block (brace-safe), judge-only response schemas (gates required, no code-set fields), gate normalisation (zero gates reported → fails, partial omission passes as "not checked" + report warning, lenient names, no brief → "no brief"), presence/violation gate wording, advisory brand cue, rendered image as a gs:// Part + image-QA hint, unreadable-image fail-soft to prompt-only limited to image 4xx, finalize "failed checks" / "evaluation failed" / gates pass-rate line, the 2026-10-08 rater-audit gates (no_visual_defects, trend_risks_respected + brief "Trend risks" line, stricter trend motif, prompt gate counts), the 2026-10-12.2 trend_connected ad-copy gate (blocking, judged without a brief, "no trend" pass on an empty trend)
 ├── test_eval_dimensions.py          # creative_eval.dimensions labels mirror frontend/src/lib/eval-dimensions.ts (drift test)
-├── test_crf_completion.py           # CRF worker completion check: PROCESSED only on finalize_done, cut-stream poll, one retry on an idle run, budget
-├── test_crf_config.py               # env-driven CRF config (required project, no hardcoding)
+├── test_crf_completion.py           # CRF worker completion check: PROCESSED only on finalize_done, cut-stream poll, one retry only on a positive end-of-invocation signal (quiet time alone never retries; idle → stalled), budget
+├── test_crf_config.py               # env-driven CRF config: one frozen CrfConfig (required project, clamps, lazy reads, cross-checks that log + fall back), CREATIVE_AGENT_ENGINE_ID normalisation, CRF_WORKER_TRANSPORT (tasks needs an https URL + invoker SA)
 ├── test_crf_entrypoint.py           # crf_entrypoint orchestrator (issue #46)
 ├── test_crf_hardening.py            # CRF JSON logs, malformed messages ACKed, client singletons, bounded BQ waits, per-invocation Agent Runtime client (two asyncio.run loops)
 ├── test_crf_tasks_dispatch.py       # CRF Cloud Tasks transport: one OIDC HTTP task per row, deterministic name per row attempt, QUEUED before the first task, AlreadyExists = dispatched, other errors leave the row QUEUED (fake: crf_fakes.FakeTasksClient)
@@ -100,11 +106,15 @@ tests/
 ├── test_crf_row_state.py            # CRF row state: transition guards, compare-and-set lock + attempt fence (lost_fence), row key (uuid, target_trend) + legacy fallback, > 1 row = error, QUEUED before publish, re-read row drives the run (missing/sensitive → FAILED), PROCESSED never FAILED, pre-session requeue, publish timeout (fakes: crf_fakes.py)
 ├── test_crf_worker_async.py         # async worker path of the CRF (issue #45)
 ├── test_crf_worker_http.py          # CRF worker HTTP entry agent_worker_task: 200 for done/permanent, 503 for retry, deadline at request start, task headers logged, image load path
+├── test_crf_time_budget.py          # CRF worker budget: deadline from request start incl. the safety margin, best-effort bounded session delete, compact event logs, row-named session user ids
 ├── test_date_prompts.py            # the shared DATE_CONTEXT_LINE in trend research / brief / copy / art-direction prompts (optional tokens, no literal dates), scout as_of/event_hint, Current Moment section, TREND_SCOUT_HINT_BLOCK
 ├── test_cloudbuild_agents.py        # Cloud Build engine deploys: cloudbuild.agents.yaml structure, deploy.env profile drift, clean-env wrapper, engine_handoff.py
 ├── test_engine_handoff_worker.py    # engine_handoff.py apply --update-worker: PROCESSING-rows guard + shell-free gcloud update of the CRF worker's CREATIVE_AGENT_ENGINE_ID
 ├── test_deploy_utils.py             # deploy_agent.py utils (env file, extra_packages, runtimes.create) + integration_test.py (skips, creative_agent smoke output assertion)
 ├── test_deploy_import_graph.py      # each agent's import-time repo-root packages ⊆ its AGENT_EXTRA_PACKAGES bundle (subprocess, slow)
+├── test_deploy_packaging.py         # deploy_agent.py stages a filtered copy of each package (no .adk/, __pycache__, caches; refuses if one got staged) and runs the SDK from the staging root
+├── test_deploy_env_contract.py      # deployment/deploy.env ↔ ENV_VAR_DICT: every runtime knob read in the engine reaches it
+├── test_dependency_groups.py        # slim runtime dependency set: eval / experiments / CRF-only packages live in dependency groups, runtime code imports none of them
 ├── test_empty_turn_retry.py         # root orchestrators re-ask a clean empty model turn (empty_turn_retries) instead of ending the run
 ├── test_experiments_api.py          # /experiments routes: create→ready, 400/404/409, traffic, stop, TTL reaper, reconcile, authz, snapshot_arms (person_variants never change the arms; cast creatives → cast_creative unless their consent is in active_cast_consents, then consentId on the arm; person-refs/variants images → person_image; expired timely → timelyExpired + create warning), §9 scenarioOverrides validation + bandit parity, deploy lease (one deployer, expiry, heartbeat, release)
 ├── test_experiments_consent.py      # cast arms at create: active consent → consentId, 400 consent_not_active (revoked / other owner / missing / unknown), 503 consent_unavailable with nothing written, person_image still refused; revoke hook stop_experiments_for_consent stops live/deploying experiments with the consent only (idempotent), via DELETE /person-refs; hook or teardown failure → revoke 502, retry finishes
@@ -140,7 +150,8 @@ tests/
 ├── test_image_prompt_guide.py       # IMAGE_PROMPT_GUIDE rules: text cap, descriptors not templates, Educational mapping, trend motif, trend_motif schema field, REFERENCE_IMAGES section (role-only references, ignore-text left to the tool, style ref vs family diversity), Subject+Action+Location+Composition+Style blocks, typography, no unrequested logos
 ├── test_image_reference.py          # generate_image multimodal contents + valid ImageConfig; multiple reference images (resolve_references legacy fold-in/dedupe/cap/invalid roles, ordered parts, one failed fetch skips only that ref + unavailable-role line, numbered role block + ignore-text line, SSRF/size/content-type fetch hardening) (image QA off via the `image_qa_off` conftest fixture)
 ├── test_image_qa_pipelining.py      # generate_image pipelining: QA of image N overlaps render N+1 (renders never overlap), re-render queued right after the render in flight, budget claimed in concept order whatever the QA finish order, mixed pass/fail/re-render/QA-error outcomes unchanged, render failure raises + cancels pending QA, inert with QA disabled
-├── test_image_qa.py                 # post-render image QA: expected_text, the qa_failures matrix (brand cue advisory, unrequested logo fails, expected_text authoritative for text checks, empty motif/product never fail), the conservative instruction wording (image prompt capped, partial product view, gibberish/logo allowlist, meme slang), correction_text (quote-stripped, capped, "no new text"), inspect_image request (image Part, schema, temperature 0), IMAGE_QA_* config + ENV_VAR_DICT; generate_image flow (fail → re-render → pass keeps the second, both fail → fewer-failures attempt + image_qa__issues, ties → latest, critical weighting + never keep a new unsafe, per-image + per-run budget, fail-open → image_qa__unavailable (not surfaced), render off the event loop, disabled = one render) and the gallery "Image check" line, malformed (mirrored) product rule
+├── test_render_concurrency.py       # generate_image keeps ≤ IMAGE_RENDER_CONCURRENCY image-model calls in flight: first renders in concept order, concept i waits for concept i−N's first render, re-renders share the cap
+├── test_image_qa.py                 # post-render image QA: expected_text, the qa_failures matrix (brand cue advisory, unrequested logo fails, expected_text authoritative for text checks, empty motif/product never fail), the conservative instruction wording (image prompt capped, partial product view, gibberish/logo allowlist, meme slang), correction_text (quote-stripped, capped, "no new text"), inspect_image request (image Part, schema, temperature 0), IMAGE_QA_* config + ENV_VAR_DICT; generate_image flow (fail → re-render → pass keeps the second, both fail → fewer-failures attempt + image_qa__issues, ties → latest, critical weighting + never keep a new unsafe, per-image + per-run budget, fail-open → image_qa__unavailable (not surfaced), render off the event loop, disabled = one render) and the gallery "Image check" line, malformed (mirrored) product rule, off-model product + malformed hands rules (not critical; finger-count instruction, stylised-hands exemption)
 ├── test_interactive_resume_graph.py # real interactive_creative App via start_run/start_resume: checkpoint pause → NodeTool resume, fail-once retry counts, one BQ key (write_trends_to_bq added to the root's tools for the test), the resumed root's history keeps the checkpoint response but no sub-agent turns; checkpoint-1 brief edit → creative_brief_md in the ad drafter's prompt + PDF re-save; checkpoint-2 revision runs the reviser once and re-presents (fail-soft on a raising reviser)
 ├── test_interactive_copy_revision.py # checkpoint-2 user revision: prepare_copy_revision flags every copy (one revision cap), input clearing after the reviser, fail-soft on_error
 ├── test_interactive_prompts.py      # interactive checkpoint contracts: brief/report edit → PDF re-save (no research re-run), checkpoint-2 feedback → one revision; brace-safety
@@ -156,6 +167,7 @@ tests/
 ├── test_finalize.py                 # creative_agent/finalize.py nodes: summary formatting, judge off-loop on a snapshot, per-step isolation + ordering in persist_node, skipped eval writes
 ├── test_fail_soft_node.py           # FailSoftNode (optional-step exception → on_error state delta; successors still run; DynamicNodeFailError unwrap)
 ├── test_retry_config.py             # scoped RetryConfig constants on infra agents
+├── test_research_alignment.py       # research prompts, inputs and brief helpers agree with each agent's input and the deterministic gates (planner fallbacks, named tokens, source de-duplication, schema/doc wording)
 ├── test_safety_plugins.py           # opt-in Model Armor (agent_common.safety): env parsing, root-only scoping, every agent's App + canned-loader wiring
 ├── test_scenario_presets_sync.py    # frontend scenario-presets.generated.json matches bandit/ (no JAX)
 ├── test_sanitize.py                 # lone-surrogate scrubber (agent_common.sanitize)
@@ -171,8 +183,11 @@ tests/
 ├── test_timely_rules.py            # MAX_TIMELY_CONCEPTS, build_timely_rules per phase (incl. the loss wording), timely_rules seeded only when timely, {timely_rules?} placement + sha256-pinned byte-identical instructions without it
 ├── test_temporal_terms.py          # creative_agent/temporal_terms.py: outcome/date/weekday terms flagged, idioms (win-win, lose weight, 24/7, …) pass
 ├── test_timely_guards.py           # enforce_timely_cap / enforce_timely_copy_cap, evergreen temporal-term + pairing issues (only with a timely moment), copy gate write-back, concept guard callback
+├── test_timely_records.py          # generate_image adds timely: True + valid_until only to the timely concept's render record; every other record keeps its exact keys
+├── test_timely_expiry.py           # runserver/timely.py timely_expired vs the shared golden tests/fixtures/timely_expiry.json (also read by the frontend's lib/timely.ts tests)
+├── test_trend_situation_rederive.py # batch (CRF) runs re-derive the current moment: the branch never reads trend_scout_context / trend_detected_on, the worker seeds no trend_situation
 ├── test_trend_scout_graph.py        # trend_scout understand_trends graph run end-to-end (stub models)
-├── test_trend_scout_history.py      # trend_scout root history trim (measured on the real App, stub models): gather/pick AgentTool runs are isolated, the understand_trends NodeTool leaks 2 sub-agent turns + 2 node inputs into the root's final request without drop_other_agent_context, 0 with it; resumed review_trends checkpoint response kept; trim wired before the rate limiter
+├── test_trend_scout_history.py      # trend_scout root history trim (measured on the real App, stub models): gather/pick AgentTool runs are isolated, the understand_trends (and, on a cache miss, trend_digest) NodeTool leaks 2 sub-agent turns + 2 node inputs into the root's final request without drop_other_agent_context, 0 with it; resumed review_trends checkpoint response kept; trim wired before the rate limiter
 ├── test_trend_scout_concurrency.py  # trend_scout GCS-export tools: per-run scratch isolation
 ├── test_trend_scout_logging.py      # trend_scout wiring of the shared observability callbacks
 ├── test_trend_digest.py             # trend_scout trend digest: terms_hash / normalize_draft / SQL builders (param-only) + schema file; real-App graph runs for cache hit (state restored, no model call), miss (describe → classify reads summaries → one MERGE), failed describe (unavailable, no write), < 80% coverage, other terms_hash, BigQuery error/timeout, disabled (classifier only)
@@ -259,11 +274,14 @@ tests/
   run on the default seed.
 - **Tools** — `test_tools.py`, `test_tools_retry.py`: pure tool logic, plus the contract
   that infra tools raise (rather than swallow errors into status dicts) so ADK retry works.
-- **Deployment & fan-out** — `test_deploy_utils.py`, `test_deploy_import_graph.py`, `test_cloudbuild_agents.py`, `test_engine_handoff_worker.py`, `test_create_session_engine.py`,
+- **Deployment & fan-out** — `test_deploy_utils.py`, `test_deploy_import_graph.py`, `test_deploy_packaging.py`,
+  `test_deploy_env_contract.py`, `test_dependency_groups.py`, `test_build_context.py`,
+  `test_cleanup_policies.py`, `test_cleanup_apply_sh.py`, `test_async_app_wiring.py`,
+  `test_bandit_cloudbuild.py`, `test_creative_fanout_image.py`, `test_cloudbuild_agents.py`, `test_engine_handoff_worker.py`, `test_create_session_engine.py`,
   `test_crf_entrypoint.py`, `test_crf_worker_async.py`,
   `test_crf_config.py`, `test_crf_sql_params.py`, `test_crf_hardening.py`,
   `test_crf_completion.py`, `test_crf_row_state.py`, `test_crf_tasks_dispatch.py`,
-  `test_crf_worker_http.py` (+ `test_worker_retry_message_drift.py`, outside the CRF venv): deploy
+  `test_crf_worker_http.py`, `test_crf_time_budget.py` (+ `test_worker_retry_message_drift.py`, outside the CRF venv): deploy
   mappings/env wiring, the `runtimes.create` path, and the orchestrator + worker Cloud
   Run Function paths (env-driven config, SQL identifier/parameter safety, malformed
   messages, client lifetimes, bounded BigQuery waits, JSON logs, the finalize_done
@@ -286,7 +304,8 @@ tests/
   `test_copy_gate.py`, `test_claims.py`, `test_ad_copy_prompts.py` (`copy_gate` + flagged-only reviser),
   `test_concept_guard.py`, `test_text_match.py`, `test_visual_concept_prompts.py`
   (`concept_gate`), `test_image_reference.py`, `test_image_qa.py` (multi-reference renders,
-  post-render QA + re-render), `test_finalize.py` (`finalize_pipeline`), `test_eval_gates.py`,
+  post-render QA + re-render), `test_render_concurrency.py` / `test_image_qa_pipelining.py`
+  (pipelined renders under `IMAGE_RENDER_CONCURRENCY`), `test_research_alignment.py`, `test_finalize.py` (`finalize_pipeline`), `test_eval_gates.py`,
   `test_eval_dimensions.py` (binary gates vs advisory scores), `test_ratings_api.py`,
   `test_ratings_store.py`, `test_rating_reasons_drift.py`, `test_calibration.py` (human
   ratings + fail-reason chips + Cohen's kappa),
@@ -334,7 +353,10 @@ tests/
   the START fan-out), `test_config.py::TestTrendStateKnobs`. `conftest.py` keeps the branch
   off (`_trend_state_off`) so other graph tests need not script its two stub models.
 - **Timely slot** — `test_timely_rules.py`, `test_temporal_terms.py`, `test_timely_guards.py`,
-  `test_brief_check.py` (timely angle), `test_brief_render.py` (timely angle + gallery label);
+  `test_timely_records.py` (render record marks), `test_trend_situation_rederive.py` (batch runs
+  re-derive the moment), `test_brief_check.py` (timely angle), `test_brief_render.py` (timely angle +
+  gallery label), `test_eval_timely_gate.py` (judge gate), `test_timely_expiry.py` (expiry golden,
+  share guard + experiment warning live in `test_shares_api.py` / `test_experiments_api.py`);
   frontend `timely-proof.test.tsx`.
 - **Sensitive trends + copy trend tie** — `test_trend_scout_sensitive.py` (classifier + auto-pick
   guard), `test_trend_context.py` (flag in `trend_context`), `test_crf_sql_params.py` (CRF
