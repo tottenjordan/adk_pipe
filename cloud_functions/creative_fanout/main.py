@@ -94,8 +94,12 @@ def agent_worker_entrypoint(cloud_event: CloudEvent) -> None:
     ``worker.run_deadline`` = start + ``CRF_WORKER_TIMEOUT_SECS`` -
     ``CRF_BUDGET_SAFETY_SECS``, passed down to every bounded wait.
 
-    Returns normally (ACK) for a malformed message, a lost lock or a recorded
-    status; an unexpected error before the status write raises (NACK).
+    The engine is ``config.CREATIVE_AGENT_ENGINE_ID`` (the worker's env var);
+    while it is unset or invalid every message is logged and ACKed before the
+    lock, so its row stays QUEUED.
+
+    Returns normally (ACK) for a malformed message, a missing engine, a lost
+    lock or a recorded status; an unexpected error before the status write raises (NACK).
     """
     deadline = worker.run_deadline(worker._clock())
 
@@ -107,13 +111,27 @@ def agent_worker_entrypoint(cloud_event: CloudEvent) -> None:
         logger.error(f"Rejecting worker message: {e}")
         return
 
+    # The engine is the worker's env var (engine_handoff.py apply
+    # --update-worker sets it). Without a usable one, ACK BEFORE the lock: the
+    # row stays QUEUED, so the next trigger re-dispatches it once the env is
+    # fixed (locking it here would only burn an attempt or strand it).
+    agent_id = config.CREATIVE_AGENT_ENGINE_ID
+    if not agent_id:
+        logger.error(
+            "CREATIVE_AGENT_ENGINE_ID is unset or invalid on the worker; leaving "
+            f"row {row_data.get('uuid') or row_data.get('entry_timestamp')!r} "
+            "QUEUED. Set it with `deployment/engine_handoff.py apply "
+            "--update-worker` (see deployment/README.md)."
+        )
+        return
+
     try:
         bq_client = clients.get_bigquery_client()
         # Since the core agent logic is async, we run it here
         asyncio.run(
             worker.process_row(
                 trend_dict=row_data,
-                agent_id=config.CREATIVE_AGENT_ENGINE_ID,
+                agent_id=agent_id,
                 bq_client=bq_client,
                 dataset=dataset,
                 table=table,

@@ -30,6 +30,9 @@ from cloud_functions.creative_fanout import (
 from cloud_functions.creative_fanout.config import config
 from tests.crf_fakes import bq_results, queued
 
+# The worker entry point refuses rows while no engine is configured.
+pytestmark = pytest.mark.usefixtures("crf_engine_env")
+
 DS = config.BQ_DATASET_ID
 TBL = config.BQ_TABLE_TARGETS
 TS = "2026-07-12T00:00:00+00:00"

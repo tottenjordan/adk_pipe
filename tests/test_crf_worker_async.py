@@ -19,7 +19,7 @@ from cloud_functions.creative_fanout.session import agent_session
 from tests.crf_fakes import FakeStatusStore
 
 # The CRF config reads the (required) project at use time; pin a dummy.
-pytestmark = pytest.mark.usefixtures("gcp_project_env")
+pytestmark = pytest.mark.usefixtures("gcp_project_env", "crf_engine_env")
 
 
 @pytest.fixture(autouse=True)

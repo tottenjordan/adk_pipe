@@ -36,7 +36,7 @@ from cloud_functions.creative_fanout.completion import RunOutcome
 from cloud_functions.creative_fanout.config import config
 from tests.crf_fakes import FakeStatusStore, bq_results, queued, row_for
 
-pytestmark = pytest.mark.usefixtures("gcp_project_env")
+pytestmark = pytest.mark.usefixtures("gcp_project_env", "crf_engine_env")
 
 DS = config.BQ_DATASET_ID
 TBL = config.BQ_TABLE_TARGETS
