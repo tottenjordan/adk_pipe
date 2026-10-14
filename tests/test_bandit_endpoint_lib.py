@@ -101,11 +101,36 @@ def test_upload_model_pins_single_worker_env_and_labels(fake_sdk):
         "display_name": "name",
         "serving_container_image_uri": "img:1",
         "artifact_uri": "gs://b/bandit/Exp_1",
-        "serving_container_environment_variables": {"VERTEX_CPR_WEB_CONCURRENCY": "1"},
+        "serving_container_environment_variables": {
+            "VERTEX_CPR_WEB_CONCURRENCY": "1",
+            # AIP_STORAGE_URI is a read-only Vertex copy: checkpoints go to the
+            # original, writable artifact location instead.
+            "BANDIT_CHECKPOINT_URI": "gs://b/bandit/Exp_1/checkpoints/",
+        },
         "labels": {"app": "trend-trawler", "experiment": "exp_1"},
     }
     assert model.resource_name.endswith("/models/1")
     assert fake_sdk.inits == [{"project": "proj-x", "location": "europe-west4"}]
+
+
+@pytest.mark.parametrize(
+    ("artifact_uri", "expected"),
+    [
+        ("gs://b/bandit/e1", "gs://b/bandit/e1/checkpoints/"),
+        ("gs://b/bandit/e1/", "gs://b/bandit/e1/checkpoints/"),
+        ("memory://bandit/e1", None),
+        ("/tmp/e1", None),
+    ],
+)
+def test_checkpoint_uri_for(artifact_uri, expected):
+    assert ep.checkpoint_uri_for(artifact_uri) == expected
+
+
+def test_upload_model_without_gcs_artifacts_has_no_checkpoint_env(fake_sdk):
+    ep.upload_model("img", "/local/e1", "m", {})
+    (kw,) = _FakeModel.uploads
+    env = kw["serving_container_environment_variables"]
+    assert env == {"VERTEX_CPR_WEB_CONCURRENCY": "1"}
 
 
 def test_create_endpoint_and_deploy_one_replica(fake_sdk):
