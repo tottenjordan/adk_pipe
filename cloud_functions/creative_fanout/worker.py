@@ -1,6 +1,7 @@
 """The worker's single-row run: lock the row, run the agent, record the status."""
 
 import asyncio
+import enum
 import hashlib
 import json
 import logging
@@ -436,3 +437,55 @@ async def process_row(
             f"Marked row {key} as FAILED; ACKing the worker message "
             "(no retry: a FAILED row can't be re-locked)."
         )
+
+
+class Outcome(enum.Enum):
+    """How a worker delivery ends, whatever the transport.
+
+    ``ACK``: done (a recorded status, a lost lock, or a message that can never
+    run): Pub/Sub ACK / HTTP 200. ``RETRY``: an error before the row's status
+    was recorded: Pub/Sub NACK (raise) / HTTP 503, so the transport redelivers
+    under its retry policy.
+    """
+
+    ACK = "ack"
+    RETRY = "retry"
+
+
+def handle_worker_message(
+    dataset: str, table: str, row_data: dict, *, deadline: float
+) -> Outcome:
+    """Run one validated worker message (shared by both entry points).
+
+    The engine is ``config.CREATIVE_AGENT_ENGINE_ID`` (the worker's env var);
+    while it is unset or invalid the message is ACKed before the lock, so its
+    row stays QUEUED for the next trigger (locking it would only burn an
+    attempt or strand it). ``process_row`` returning = ACK; an exception from
+    it (or from building the BigQuery client) = RETRY, logged here.
+    """
+    agent_id = config.CREATIVE_AGENT_ENGINE_ID
+    if not agent_id:
+        logger.error(
+            "CREATIVE_AGENT_ENGINE_ID is unset or invalid on the worker; leaving "
+            f"row {row_data.get('uuid') or row_data.get('entry_timestamp')!r} "
+            "QUEUED. Set it with `deployment/engine_handoff.py apply "
+            "--update-worker` (see deployment/README.md)."
+        )
+        return Outcome.ACK
+    try:
+        bq_client = clients.get_bigquery_client()
+        # The run is async; each delivery drives it on its own event loop.
+        asyncio.run(
+            process_row(
+                trend_dict=row_data,
+                agent_id=agent_id,
+                bq_client=bq_client,
+                dataset=dataset,
+                table=table,
+                deadline=deadline,
+            )
+        )
+    except Exception as e:  # noqa: BLE001 — mapped to a NACK / 503 by the caller
+        logger.exception(f"Fatal error in worker entrypoint: {e!r}")
+        return Outcome.RETRY
+    return Outcome.ACK

@@ -1,18 +1,20 @@
 """Offline, batch workflow for trend insights and candidate ad creatives.
 
-This module holds the two Cloud Run function entry points. One image
+This module holds the Cloud Run function entry points. One image
 (``cloud_functions/creative_fanout/Dockerfile``) runs as two Cloud Run
-services, each triggered by its own Pub/Sub topic; the service's
-``FUNCTION_TARGET`` picks the entry point (a Pub/Sub-triggered service runs
-exactly one handler):
+services; each service's ``FUNCTION_TARGET`` (+ ``FUNCTION_SIGNATURE_TYPE``,
+default ``cloudevent``) picks its entry point:
 
 1. Orchestrator (``crf_entrypoint``): finds the unprocessed rows of the
    `trend_scout` agent's recommendations table
-   (`BQ_PROJECT_ID.BQ_DATASET_ID.BQ_TABLE_TARGETS`) and publishes one worker
-   message per row (``orchestrator.dispatch``).
-2. Worker (``agent_worker_entrypoint``): processes one worker message: locks
-   the row, runs the creative agent on Agent Engine for that (trend +
-   campaign) pair and records the row's final status (``worker.process_row``).
+   (`BQ_PROJECT_ID.BQ_DATASET_ID.BQ_TABLE_TARGETS`) and sends one worker
+   message per row (``orchestrator.dispatch``) over ``CRF_WORKER_TRANSPORT``:
+   a Cloud Tasks HTTP task (``tasks``) or a worker-topic message (``pubsub``).
+2. Worker (``agent_worker_task``, HTTP, for Cloud Tasks; or
+   ``agent_worker_entrypoint``, CloudEvent, for the Pub/Sub rollback path,
+   one shared handler ``worker.handle_worker_message``): processes one worker
+   message: locks the row, runs the creative agent on Agent Engine for that
+   (trend + campaign) pair and records the row's final status (``worker.process_row``).
    The engine is the worker's ``CREATIVE_AGENT_ENGINE_ID`` env var (set by
    ``deployment/engine_handoff.py apply --update-worker``), not the message.
 
@@ -24,16 +26,19 @@ message = {
 }
 """
 
-import asyncio
 import logging
 
+import flask
 import functions_framework
 from cloudevents.http import CloudEvent
 
 # `logs` configures the root JSON log handler on import.
 from . import clients, logs, orchestrator, worker  # noqa: F401
-from .config import config
-from .messages import parse_trigger_message, parse_worker_message
+from .messages import (
+    parse_task_request,
+    parse_trigger_message,
+    parse_worker_message,
+)
 
 # Module logger (propagates to the root JSON handler `logs` configures).
 logger = logging.getLogger(__name__)
@@ -83,17 +88,71 @@ def crf_entrypoint(cloud_event: CloudEvent) -> None:
 
 
 # ==================================================
-# 2. Worker Entry Point
-# Triggered by: Worker Queue Topic
+# 2. Worker Entry Points
+# Triggered by: a Cloud Tasks HTTP task (agent_worker_task) or, on the
+# Pub/Sub rollback path, the worker topic (agent_worker_entrypoint)
 # Executes: Agent run, updates single BQ row status
 # ==================================================
+# Header -> JSON log field for the Cloud Tasks request headers worth logging.
+_TASK_HEADER_FIELDS = (
+    ("X-CloudTasks-TaskName", "cloud_tasks_task_name"),
+    ("X-CloudTasks-TaskRetryCount", "cloud_tasks_retry_count"),
+    ("X-CloudTasks-TaskExecutionCount", "cloud_tasks_execution_count"),
+    ("X-CloudTasks-QueueName", "cloud_tasks_queue"),
+)
+
+
+def _task_log_fields(headers) -> dict:
+    """The task's Cloud Tasks headers as JSON log fields (counts as ints)."""
+    fields = {}
+    for header, field in _TASK_HEADER_FIELDS:
+        value = headers.get(header)
+        if value is None:
+            continue
+        fields[field] = (
+            int(value) if field.endswith("_count") and value.isdigit() else value
+        )
+    return fields
+
+
+@functions_framework.http
+def agent_worker_task(request: flask.Request) -> tuple[str, int]:
+    """Cloud Tasks entry point: process one row from the task's JSON body.
+
+    Cloud Tasks retries any non-2xx response, so the status code is the
+    ACK/NACK: 200 for a body that can never run (malformed, not allow-listed),
+    a missing engine and every recorded outcome (lost lock, PROCESSED,
+    FAILED, re-queued); 503 for an error before the status write (what the
+    Pub/Sub entry NACKs), retried under the queue's retry policy. The run
+    deadline is taken here, at request start (``worker.run_deadline``).
+    """
+    deadline = worker.run_deadline(worker._clock())
+    fields = _task_log_fields(request.headers)
+    logger.info(
+        f"Worker task received: {fields.get('cloud_tasks_task_name', '?')} "
+        f"(retry {fields.get('cloud_tasks_retry_count', '?')}).",
+        extra={"json_fields": fields},
+    )
+
+    try:
+        dataset, table, row_data = parse_task_request(request.get_data())
+    except ValueError as e:
+        logger.error(f"Rejecting worker task: {e}", extra={"json_fields": fields})
+        return "rejected: malformed task", 200
+
+    outcome = worker.handle_worker_message(dataset, table, row_data, deadline=deadline)
+    if outcome is worker.Outcome.RETRY:
+        return "retry", 503
+    return "ok", 200
+
+
 @functions_framework.cloud_event
 def agent_worker_entrypoint(cloud_event: CloudEvent) -> None:
-    """Process one row: lock it, run the agent, record PROCESSED or FAILED.
+    """Pub/Sub entry point (the rollback transport): process one row.
 
-    The run deadline is taken here, at request start (Cloud Run's request
-    timeout counts from there, not from the row lock):
-    ``worker.run_deadline`` = start + ``CRF_WORKER_TIMEOUT_SECS`` -
+    Same handler as ``agent_worker_task``; the run deadline is taken here, at
+    request start (Cloud Run's request timeout counts from there, not from the
+    row lock): ``worker.run_deadline`` = start + ``CRF_WORKER_TIMEOUT_SECS`` -
     ``CRF_BUDGET_SAFETY_SECS``, passed down to every bounded wait.
 
     The engine is ``config.CREATIVE_AGENT_ENGINE_ID`` (the worker's env var);
@@ -101,46 +160,20 @@ def agent_worker_entrypoint(cloud_event: CloudEvent) -> None:
     lock, so its row stays QUEUED.
 
     Returns normally (ACK) for a malformed message, a missing engine, a lost
-    lock or a recorded status; an unexpected error before the status write raises (NACK).
+    lock or a recorded status; an unexpected error before the status write
+    raises (NACK).
     """
     deadline = worker.run_deadline(worker._clock())
 
-    # A malformed message (undecodable, missing fields, a bad identifier, agent
-    # id or entry_timestamp) never becomes valid on redelivery: log and ACK.
+    # A malformed message (undecodable, missing fields, a bad identifier or
+    # entry_timestamp) never becomes valid on redelivery: log and ACK.
     try:
         dataset, table, row_data = parse_worker_message(cloud_event)
     except ValueError as e:
         logger.error(f"Rejecting worker message: {e}")
         return
 
-    # The engine is the worker's env var (engine_handoff.py apply
-    # --update-worker sets it). Without a usable one, ACK BEFORE the lock: the
-    # row stays QUEUED, so the next trigger re-dispatches it once the env is
-    # fixed (locking it here would only burn an attempt or strand it).
-    agent_id = config.CREATIVE_AGENT_ENGINE_ID
-    if not agent_id:
-        logger.error(
-            "CREATIVE_AGENT_ENGINE_ID is unset or invalid on the worker; leaving "
-            f"row {row_data.get('uuid') or row_data.get('entry_timestamp')!r} "
-            "QUEUED. Set it with `deployment/engine_handoff.py apply "
-            "--update-worker` (see deployment/README.md)."
-        )
-        return
-
-    try:
-        bq_client = clients.get_bigquery_client()
-        # Since the core agent logic is async, we run it here
-        asyncio.run(
-            worker.process_row(
-                trend_dict=row_data,
-                agent_id=agent_id,
-                bq_client=bq_client,
-                dataset=dataset,
-                table=table,
-                deadline=deadline,
-            )
-        )
-
-    except Exception as e:
-        logger.error(f"Fatal error in worker entrypoint: {e}")
-        raise  # NACK the worker message
+    outcome = worker.handle_worker_message(dataset, table, row_data, deadline=deadline)
+    if outcome is worker.Outcome.RETRY:
+        # NACK the worker message (the error is logged by the handler).
+        raise RuntimeError("Worker run failed before its status was recorded")
