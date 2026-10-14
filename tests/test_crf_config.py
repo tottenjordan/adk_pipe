@@ -275,3 +275,85 @@ def test_no_hardcoded_identifiers_in_cloud_function_source():
     needles = ("hybrid" + "-vertex", "9349" + "03580331", "Ima_" + "CloudRun_jr")
     for needle in needles:
         assert needle not in text
+
+
+# ------------------------------------------------------------
+# CREATIVE_AGENT_ENGINE_ID: full resource name or bare id -> bare id
+# ------------------------------------------------------------
+_ENGINE = "6183205068745998336"
+
+
+@pytest.fixture
+def engine_env(monkeypatch):
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "my-proj")
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT_NUMBER", "123456789")
+    monkeypatch.setenv("GCP_REGION", "us-central1")
+    monkeypatch.delenv("CREATIVE_AGENT_ENGINE_ID", raising=False)
+    return monkeypatch
+
+
+def test_engine_id_bare(engine_env):
+    engine_env.setenv("CREATIVE_AGENT_ENGINE_ID", _ENGINE)
+    assert config.CREATIVE_AGENT_ENGINE_ID == _ENGINE
+
+
+@pytest.mark.parametrize("project", ["123456789", "my-proj"])
+def test_engine_id_full_resource_name_normalised(engine_env, project):
+    engine_env.setenv(
+        "CREATIVE_AGENT_ENGINE_ID",
+        f"projects/{project}/locations/us-central1/reasoningEngines/{_ENGINE}",
+    )
+    assert config.CREATIVE_AGENT_ENGINE_ID == _ENGINE
+
+
+def test_engine_id_surrounding_whitespace_ignored(engine_env):
+    engine_env.setenv("CREATIVE_AGENT_ENGINE_ID", f"  {_ENGINE}\n")
+    assert config.CREATIVE_AGENT_ENGINE_ID == _ENGINE
+
+
+@pytest.mark.parametrize("raw", [None, "", "   "])
+def test_engine_id_unset_or_blank_is_empty(engine_env, caplog, raw):
+    if raw is not None:
+        engine_env.setenv("CREATIVE_AGENT_ENGINE_ID", raw)
+    with caplog.at_level(logging.ERROR):
+        assert load_config().CREATIVE_AGENT_ENGINE_ID == ""
+    assert "CREATIVE_AGENT_ENGINE_ID" not in caplog.text
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        f"projects/999/locations/us-central1/reasoningEngines/{_ENGINE}",
+        f"projects/123456789/locations/europe-west4/reasoningEngines/{_ENGINE}",
+        f"projects/123456789/locations/us-central1/agents/{_ENGINE}",
+        "projects/123456789/locations/us-central1/reasoningEngines/a.b",
+        "1/../../x",
+        "a b",
+        "x" * 129,
+    ],
+)
+def test_engine_id_invalid_is_empty_with_one_error(engine_env, caplog, raw):
+    engine_env.setenv("CREATIVE_AGENT_ENGINE_ID", raw)
+    with caplog.at_level(logging.ERROR):
+        assert load_config().CREATIVE_AGENT_ENGINE_ID == ""  # never raises
+        assert load_config().CREATIVE_AGENT_ENGINE_ID == ""  # cached: logged once
+    errors = [r for r in caplog.records if r.levelno == logging.ERROR]
+    assert len(errors) == 1
+    assert "CREATIVE_AGENT_ENGINE_ID" in errors[0].getMessage()
+
+
+def test_engine_id_busts_the_config_cache(engine_env):
+    from cloud_functions.creative_fanout import config as config_module
+
+    assert "CREATIVE_AGENT_ENGINE_ID" in config_module._ENV_NAMES
+    engine_env.setenv("CREATIVE_AGENT_ENGINE_ID", "111")
+    assert config.CREATIVE_AGENT_ENGINE_ID == "111"
+    engine_env.setenv("CREATIVE_AGENT_ENGINE_ID", "222")
+    assert config.CREATIVE_AGENT_ENGINE_ID == "222"
+
+
+def test_agent_id_rule_shared_with_messages():
+    from cloud_functions.creative_fanout import config as config_module
+    from cloud_functions.creative_fanout import messages
+
+    assert messages._AGENT_ID_RE is config_module._AGENT_ID_RE

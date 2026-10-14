@@ -28,6 +28,7 @@ import functools
 import logging
 import math
 import os
+import re
 from dataclasses import dataclass, fields
 from typing import cast
 
@@ -41,6 +42,49 @@ DEFAULT_SESSION_READ_TIMEOUT_SECS = 60.0
 DEFAULT_SESSION_DELETE_TIMEOUT_SECS = 30.0
 # The reaper's margin over the worker timeout, in minutes.
 REAP_MARGIN_MINUTES = 15
+
+
+# Reasoning Engine IDs are numeric; allow the usual id characters, but nothing
+# that could change the resource path it is spliced into (`worker.py`).
+_AGENT_ID_RE = re.compile(r"[A-Za-z0-9_-]{1,128}")
+# A full Reasoning Engine resource name (`.env` stores the engine this way).
+_ENGINE_NAME_RE = re.compile(
+    r"projects/(?P<project>[^/]+)/locations/(?P<region>[^/]+)"
+    r"/reasoningEngines/(?P<id>[^/]+)"
+)
+
+
+def _engine_id_env(region: str, projects: set[str]) -> str:
+    """``CREATIVE_AGENT_ENGINE_ID`` as a bare engine id ("" when unusable).
+
+    Accepts a bare id or the full resource name
+    ``projects/<project>/locations/<region>/reasoningEngines/<id>``, whose
+    project (number or id) and region must be this function's (``projects``
+    empty = the project is unset, not checked here: it fails loudly on use).
+    Unset/blank -> ""; anything else unusable -> "" plus one ERROR (never
+    raises: the worker then refuses rows without taking their lock).
+    """
+    raw = os.environ.get("CREATIVE_AGENT_ENGINE_ID", "").strip()
+    if not raw:
+        return ""
+    engine_id = raw
+    match = _ENGINE_NAME_RE.fullmatch(raw)
+    if match:
+        if (projects and match["project"] not in projects) or match["region"] != region:
+            logger.error(
+                f"CREATIVE_AGENT_ENGINE_ID={raw!r} names another project or "
+                f"region (expected one of {sorted(projects)} in {region}); "
+                "ignoring it."
+            )
+            return ""
+        engine_id = match["id"]
+    if not _AGENT_ID_RE.fullmatch(engine_id):
+        logger.error(
+            f"CREATIVE_AGENT_ENGINE_ID={raw!r} is neither an engine id nor a "
+            "Reasoning Engine resource name; ignoring it."
+        )
+        return ""
+    return engine_id
 
 
 def _csv_env(name: str) -> set[str]:
@@ -98,6 +142,10 @@ class CrfConfig:
     # `global` model location used for the gemini-3.x endpoints.
     GCP_REGION: str
     CREATIVE_WORKER_TOPIC_NAME: str
+    # The creative engine the worker runs (bare id; "" = unset or invalid, the
+    # worker then leaves rows QUEUED). Set by `engine_handoff.py apply
+    # --update-worker`; accepts the full resource name or a bare id.
+    CREATIVE_AGENT_ENGINE_ID: str
     # Base user id of the worker's Agent Engine sessions (one per row:
     # `worker.session_user_id`).
     AGENT_WORKER_USER_ID: str
@@ -159,6 +207,7 @@ _ENV_NAMES = (
     "GOOGLE_CLOUD_PROJECT_NUMBER",
     "GCP_REGION",
     "CREATIVE_WORKER_TOPIC_NAME",
+    "CREATIVE_AGENT_ENGINE_ID",
     "AGENT_WORKER_USER_ID",
     "CRF_ROOT_AGENT_NAME",
     "BQ_DATASET_ID",
@@ -243,12 +292,18 @@ def _build(_env_key: tuple) -> CrfConfig:
 
     dataset = _str_env("BQ_DATASET_ID", "trend_trawler")
     table = _str_env("BQ_TABLE_TARGETS", "target_trends_crf")
+    project_id = os.environ.get("GOOGLE_CLOUD_PROJECT", "").strip()
+    project_number = os.environ.get("GOOGLE_CLOUD_PROJECT_NUMBER", "").strip()
+    region = _str_env("GCP_REGION", "us-central1")
     return CrfConfig(
-        project_id=os.environ.get("GOOGLE_CLOUD_PROJECT", "").strip(),
-        project_number=os.environ.get("GOOGLE_CLOUD_PROJECT_NUMBER", "").strip(),
-        GCP_REGION=_str_env("GCP_REGION", "us-central1"),
+        project_id=project_id,
+        project_number=project_number,
+        GCP_REGION=region,
         CREATIVE_WORKER_TOPIC_NAME=_str_env(
             "CREATIVE_WORKER_TOPIC_NAME", "creative-worker-queue-topic"
+        ),
+        CREATIVE_AGENT_ENGINE_ID=_engine_id_env(
+            region, {p for p in (project_id, project_number) if p}
         ),
         AGENT_WORKER_USER_ID=_str_env("AGENT_WORKER_USER_ID", "crf_worker"),
         ROOT_AGENT_NAME=_str_env("CRF_ROOT_AGENT_NAME", "root_agent"),

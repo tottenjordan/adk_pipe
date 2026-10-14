@@ -7,9 +7,9 @@ message, and builds the worker message's ``row_data`` from a BigQuery row.
 import base64
 import json
 import logging
-import re
 from datetime import date, datetime
 
+from .config import _AGENT_ID_RE
 from .status_store import _to_utc_datetime, _validate_target
 
 
@@ -19,9 +19,6 @@ class MalformedMessageError(ValueError):
     of raising, which would NACK it into a redelivery loop."""
 
 
-# Reasoning Engine IDs are numeric; allow the usual id characters, but nothing
-# that could change the resource path it is spliced into.
-_AGENT_ID_RE = re.compile(r"[A-Za-z0-9_-]{1,128}")
 _TRIGGER_FIELDS = ("bq_dataset", "bq_table", "agent_resource_id")
 _WORKER_FIELDS = (*_TRIGGER_FIELDS, "row_data")
 # Every row_data key the worker indexes (build_row_dict always sends them; a
