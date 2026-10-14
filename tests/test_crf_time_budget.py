@@ -50,7 +50,6 @@ def _event(row=None):
     payload = {
         "bq_dataset": config.BQ_DATASET_ID,
         "bq_table": config.BQ_TABLE_TARGETS,
-        "agent_resource_id": "123",
         "row_data": row or _ROW,
     }
     data = base64.b64encode(json.dumps(payload).encode()).decode()

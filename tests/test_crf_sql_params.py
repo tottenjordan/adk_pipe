@@ -223,7 +223,7 @@ class TestValuesAreParameterized:
         )
         monkeypatch.setattr(clients, "get_bigquery_client", lambda: bq)
         monkeypatch.setattr(clients, "get_pubsub_client", MagicMock)
-        payload = {"bq_dataset": DS, "bq_table": TBL, "agent_resource_id": "1"}
+        payload = {"bq_dataset": DS, "bq_table": TBL}
         encoded = base64.b64encode(json.dumps(payload).encode()).decode()
         main.crf_entrypoint(types.SimpleNamespace(data={"message": {"data": encoded}}))
         select_sql = bq.query_and_wait.call_args_list[1].args[0]
@@ -278,7 +278,7 @@ class TestOrchestratorRowLimit:
         assert [p.name for p in params] == ["max_rows"]
 
     def test_entrypoint_logs_sensitive_exclusion(self, monkeypatch, caplog):
-        payload = {"bq_dataset": DS, "bq_table": TBL, "agent_resource_id": "1"}
+        payload = {"bq_dataset": DS, "bq_table": TBL}
         with caplog.at_level("INFO"):
             self._run(monkeypatch, payload)
         assert any("sensitive" in r.getMessage() for r in caplog.records)
@@ -301,13 +301,13 @@ class TestOrchestratorRowLimit:
 
     def test_default_cap_comes_from_config(self, monkeypatch):
         monkeypatch.setattr(config, "CRF_MAX_ROWS_PER_RUN", 5)
-        payload = {"bq_dataset": DS, "bq_table": TBL, "agent_resource_id": "1"}
+        payload = {"bq_dataset": DS, "bq_table": TBL}
         call = self._run(monkeypatch, payload)
         assert _params(call)["max_rows"] == ("INT64", 5)
 
     def test_message_max_rows_lowers_limit_but_cannot_exceed_cap(self, monkeypatch):
         monkeypatch.setattr(config, "CRF_MAX_ROWS_PER_RUN", 5)
-        base = {"bq_dataset": DS, "bq_table": TBL, "agent_resource_id": "1"}
+        base = {"bq_dataset": DS, "bq_table": TBL}
         call = self._run(monkeypatch, {**base, "max_rows": 2})
         assert _params(call)["max_rows"] == ("INT64", 2)
         call = self._run(monkeypatch, {**base, "max_rows": 999})
@@ -328,7 +328,7 @@ def test_orchestrator_acks_non_allow_listed_table(monkeypatch):
     publisher = MagicMock()
     monkeypatch.setattr(clients, "get_bigquery_client", lambda: bq)
     monkeypatch.setattr(clients, "get_pubsub_client", lambda: publisher)
-    payload = {"bq_dataset": DS, "bq_table": "evil", "agent_resource_id": "1"}
+    payload = {"bq_dataset": DS, "bq_table": "evil"}
     main.crf_entrypoint(_event(payload))  # must not raise
     bq.query_and_wait.assert_not_called()
     publisher.publish.assert_not_called()
@@ -351,7 +351,6 @@ def test_worker_acks_non_allow_listed_table(monkeypatch):
     payload = {
         "bq_dataset": DS,
         "bq_table": "evil",
-        "agent_resource_id": "1",
         "row_data": {"entry_timestamp": TS, "index": 0, **_CAMPAIGN},
     }
     main.agent_worker_entrypoint(_event(payload))  # must not raise
@@ -365,7 +364,6 @@ def test_worker_acks_malformed_entry_timestamp(monkeypatch, caplog):
     payload = {
         "bq_dataset": DS,
         "bq_table": TBL,
-        "agent_resource_id": "1",
         "row_data": {"entry_timestamp": "not-a-timestamp", "index": 0, **_CAMPAIGN},
     }
     with caplog.at_level("ERROR"):
@@ -384,7 +382,6 @@ def test_worker_acks_non_string_or_injected_timestamp(monkeypatch, bad):
     payload = {
         "bq_dataset": DS,
         "bq_table": TBL,
-        "agent_resource_id": "1",
         "row_data": {"entry_timestamp": bad, "index": 0, **_CAMPAIGN},
     }
     main.agent_worker_entrypoint(_event(payload))  # must not raise

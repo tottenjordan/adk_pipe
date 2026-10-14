@@ -31,6 +31,7 @@ from cloudevents.http import CloudEvent
 
 # `logs` configures the root JSON log handler on import.
 from . import clients, logs, orchestrator, worker  # noqa: F401
+from .config import config
 from .messages import parse_trigger_message, parse_worker_message
 
 # Module logger (propagates to the root JSON handler `logs` configures).
@@ -101,7 +102,7 @@ def agent_worker_entrypoint(cloud_event: CloudEvent) -> None:
     # A malformed message (undecodable, missing fields, a bad identifier, agent
     # id or entry_timestamp) never becomes valid on redelivery: log and ACK.
     try:
-        dataset, table, agent_resource_id, row_data = parse_worker_message(cloud_event)
+        dataset, table, row_data = parse_worker_message(cloud_event)
     except ValueError as e:
         logger.error(f"Rejecting worker message: {e}")
         return
@@ -112,7 +113,7 @@ def agent_worker_entrypoint(cloud_event: CloudEvent) -> None:
         asyncio.run(
             worker.process_row(
                 trend_dict=row_data,
-                agent_id=agent_resource_id,
+                agent_id=config.CREATIVE_AGENT_ENGINE_ID,
                 bq_client=bq_client,
                 dataset=dataset,
                 table=table,

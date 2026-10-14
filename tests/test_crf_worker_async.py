@@ -350,7 +350,6 @@ def test_worker_entrypoint_acks_after_failed_write(monkeypatch):
     payload = {
         "bq_dataset": config.BQ_DATASET_ID,
         "bq_table": config.BQ_TABLE_TARGETS,
-        "agent_resource_id": "agent-123",
         "row_data": _TREND,
     }
     encoded = base64.b64encode(json.dumps(payload).encode()).decode()

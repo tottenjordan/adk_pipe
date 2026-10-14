@@ -357,7 +357,6 @@ def _worker_payload(index=0, **overrides):
     payload = {
         "bq_dataset": config.BQ_DATASET_ID,
         "bq_table": config.BQ_TABLE_TARGETS,
-        "agent_resource_id": "123",
         "row_data": {"index": index, **_ROW_DATA},
     }
     payload.update(overrides)
@@ -464,7 +463,6 @@ def _row_without(key):
 
 _BAD_WORKER_MESSAGES = {
     "no row_data": _drop(_worker_payload(), "row_data"),
-    "no agent_resource_id": _drop(_worker_payload(), "agent_resource_id"),
     "no bq_table": _drop(_worker_payload(), "bq_table"),
     "no bq_dataset": _drop(_worker_payload(), "bq_dataset"),
     "row_data not an object": _worker_payload(row_data="row"),
@@ -475,9 +473,6 @@ _BAD_WORKER_MESSAGES = {
     "no target_search_trend": _row_without("target_search_trend"),
     "index not an int": _worker_payload(row_data={"index": "0", **_ROW_DATA}),
     "index bool": _worker_payload(row_data={"index": True, **_ROW_DATA}),
-    "agent id empty": _worker_payload(agent_resource_id=""),
-    "agent id path": _worker_payload(agent_resource_id="1/../../x"),
-    "agent id int": _worker_payload(agent_resource_id=123),
     "dataset not a string": _worker_payload(bq_dataset=["trend_trawler"]),
     "payload is a list": [1, 2, 3],
     "payload is a string": "just text with bq_dataset in it",
@@ -521,7 +516,6 @@ def _trigger(**overrides):
     payload = {
         "bq_dataset": config.BQ_DATASET_ID,
         "bq_table": config.BQ_TABLE_TARGETS,
-        "agent_resource_id": "123",
     }
     payload.update(overrides)
     return payload
@@ -529,9 +523,6 @@ def _trigger(**overrides):
 
 _BAD_TRIGGER_MESSAGES = {
     "no bq_table": _drop(_trigger(), "bq_table"),
-    "no agent_resource_id": _drop(_trigger(), "agent_resource_id"),
-    "agent id path": _trigger(agent_resource_id="a/b"),
-    "agent id null": _trigger(agent_resource_id=None),
     "table not a string": _trigger(bq_table={"t": 1}),
     "payload is a string": "xbq_datasetx",
 }
@@ -580,3 +571,52 @@ def test_valid_worker_message_still_runs(monkeypatch):
     assert store.statuses == ["PROCESSED"]
     (_, key) = store.calls[0]
     assert key == status_store.RowKey("uuid-3", "t", row["entry_timestamp"])
+
+
+# ============================================================
+# The engine id is no longer part of the messages (worker env instead)
+# ============================================================
+def _parse_trigger(payload):
+    return messages.parse_trigger_message(_event(payload))
+
+
+def test_trigger_without_agent_resource_id_is_valid(caplog):
+    with caplog.at_level(logging.WARNING):
+        payload = _parse_trigger(_trigger())
+    assert payload == _trigger()
+    assert "agent_resource_id" not in caplog.text
+
+
+@pytest.mark.parametrize("legacy", ["a/b", None, 123, "999"])
+def test_trigger_legacy_engine_id_is_ignored_with_a_warning(
+    monkeypatch, caplog, legacy
+):
+    monkeypatch.setattr(config, "CREATIVE_AGENT_ENGINE_ID", "123")
+    with caplog.at_level(logging.WARNING):
+        payload = _parse_trigger(_trigger(agent_resource_id=legacy))
+    assert payload is not None
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert any("agent_resource_id" in r.getMessage() for r in warnings)
+
+
+def test_trigger_legacy_engine_id_equal_to_the_env_is_silent(monkeypatch, caplog):
+    monkeypatch.setattr(config, "CREATIVE_AGENT_ENGINE_ID", "123")
+    with caplog.at_level(logging.WARNING):
+        _parse_trigger(_trigger(agent_resource_id="123"))
+    assert "agent_resource_id" not in caplog.text
+
+
+def test_parse_worker_message_returns_dataset_table_row():
+    dataset, table, row_data = messages.parse_worker_message(_event(_worker_payload(3)))
+    assert (dataset, table) == (config.BQ_DATASET_ID, config.BQ_TABLE_TARGETS)
+    assert row_data == {"index": 3, **_ROW_DATA}
+
+
+@pytest.mark.parametrize("legacy", ["123", "1/../../x", 123])
+def test_parse_worker_message_ignores_a_legacy_engine_id(legacy):
+    """Messages already in flight across the deploy still carry the id."""
+    parsed = messages.parse_worker_message(
+        _event(_worker_payload(agent_resource_id=legacy))
+    )
+    assert len(parsed) == 3
+    assert parsed[2] == {"index": 0, **_ROW_DATA}

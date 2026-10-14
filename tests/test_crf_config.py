@@ -350,10 +350,3 @@ def test_engine_id_busts_the_config_cache(engine_env):
     assert config.CREATIVE_AGENT_ENGINE_ID == "111"
     engine_env.setenv("CREATIVE_AGENT_ENGINE_ID", "222")
     assert config.CREATIVE_AGENT_ENGINE_ID == "222"
-
-
-def test_agent_id_rule_shared_with_messages():
-    from cloud_functions.creative_fanout import config as config_module
-    from cloud_functions.creative_fanout import messages
-
-    assert messages._AGENT_ID_RE is config_module._AGENT_ID_RE
