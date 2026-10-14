@@ -13,12 +13,13 @@ exactly one handler):
 2. Worker (``agent_worker_entrypoint``): processes one worker message: locks
    the row, runs the creative agent on Agent Engine for that (trend +
    campaign) pair and records the row's final status (``worker.process_row``).
+   The engine is the worker's ``CREATIVE_AGENT_ENGINE_ID`` env var (set by
+   ``deployment/engine_handoff.py apply --update-worker``), not the message.
 
 Example trigger message:
 message = {
     "bq_dataset": "trend_trawler",
     "bq_table": "target_trends_crf",
-    "agent_resource_id": "<AGENT_ENGINE_ID>",
     "max_rows": 1,  # optional; clamped to CRF_MAX_ROWS_PER_RUN (default 3)
 }
 """
@@ -31,6 +32,7 @@ from cloudevents.http import CloudEvent
 
 # `logs` configures the root JSON log handler on import.
 from . import clients, logs, orchestrator, worker  # noqa: F401
+from .config import config
 from .messages import parse_trigger_message, parse_worker_message
 
 # Module logger (propagates to the root JSON handler `logs` configures).
@@ -56,8 +58,9 @@ def crf_entrypoint(cloud_event: CloudEvent) -> None:
       cloud_event: the Pub/Sub trigger. Its JSON payload has:
         bq_dataset: BQ dataset hosting the status-tracking table
         bq_table: BQ table to monitor (allow-listed)
-        agent_resource_id: resource ID of the creative agent on Agent Engine
         max_rows (optional): can only lower ``CRF_MAX_ROWS_PER_RUN``
+        (a legacy ``agent_resource_id`` is ignored: the worker's env names
+        the engine)
 
     Returns normally (ACK) for a message that is not work or is malformed;
     a BigQuery error raises (NACK, Pub/Sub redelivers).
@@ -93,17 +96,35 @@ def agent_worker_entrypoint(cloud_event: CloudEvent) -> None:
     ``worker.run_deadline`` = start + ``CRF_WORKER_TIMEOUT_SECS`` -
     ``CRF_BUDGET_SAFETY_SECS``, passed down to every bounded wait.
 
-    Returns normally (ACK) for a malformed message, a lost lock or a recorded
-    status; an unexpected error before the status write raises (NACK).
+    The engine is ``config.CREATIVE_AGENT_ENGINE_ID`` (the worker's env var);
+    while it is unset or invalid every message is logged and ACKed before the
+    lock, so its row stays QUEUED.
+
+    Returns normally (ACK) for a malformed message, a missing engine, a lost
+    lock or a recorded status; an unexpected error before the status write raises (NACK).
     """
     deadline = worker.run_deadline(worker._clock())
 
     # A malformed message (undecodable, missing fields, a bad identifier, agent
     # id or entry_timestamp) never becomes valid on redelivery: log and ACK.
     try:
-        dataset, table, agent_resource_id, row_data = parse_worker_message(cloud_event)
+        dataset, table, row_data = parse_worker_message(cloud_event)
     except ValueError as e:
         logger.error(f"Rejecting worker message: {e}")
+        return
+
+    # The engine is the worker's env var (engine_handoff.py apply
+    # --update-worker sets it). Without a usable one, ACK BEFORE the lock: the
+    # row stays QUEUED, so the next trigger re-dispatches it once the env is
+    # fixed (locking it here would only burn an attempt or strand it).
+    agent_id = config.CREATIVE_AGENT_ENGINE_ID
+    if not agent_id:
+        logger.error(
+            "CREATIVE_AGENT_ENGINE_ID is unset or invalid on the worker; leaving "
+            f"row {row_data.get('uuid') or row_data.get('entry_timestamp')!r} "
+            "QUEUED. Set it with `deployment/engine_handoff.py apply "
+            "--update-worker` (see deployment/README.md)."
+        )
         return
 
     try:
@@ -112,7 +133,7 @@ def agent_worker_entrypoint(cloud_event: CloudEvent) -> None:
         asyncio.run(
             worker.process_row(
                 trend_dict=row_data,
-                agent_id=agent_resource_id,
+                agent_id=agent_id,
                 bq_client=bq_client,
                 dataset=dataset,
                 table=table,

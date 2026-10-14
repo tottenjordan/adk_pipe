@@ -36,7 +36,7 @@ from cloud_functions.creative_fanout.completion import RunOutcome
 from cloud_functions.creative_fanout.config import config
 from tests.crf_fakes import FakeStatusStore, bq_results, queued, row_for
 
-pytestmark = pytest.mark.usefixtures("gcp_project_env")
+pytestmark = pytest.mark.usefixtures("gcp_project_env", "crf_engine_env")
 
 DS = config.BQ_DATASET_ID
 TBL = config.BQ_TABLE_TARGETS
@@ -263,7 +263,7 @@ _ROWS = [
 
 
 def _trigger(**extra):
-    payload = {"bq_dataset": DS, "bq_table": TBL, "agent_resource_id": "1", **extra}
+    payload = {"bq_dataset": DS, "bq_table": TBL, **extra}
     data = base64.b64encode(json.dumps(payload).encode()).decode()
     return types.SimpleNamespace(data={"message": {"data": data}})
 
@@ -348,7 +348,6 @@ def _worker_event(row_data):
     payload = {
         "bq_dataset": DS,
         "bq_table": TBL,
-        "agent_resource_id": "123",
         "row_data": row_data,
     }
     data = base64.b64encode(json.dumps(payload).encode()).decode()

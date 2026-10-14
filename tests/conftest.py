@@ -36,6 +36,13 @@ def gcp_project_env(monkeypatch):
     monkeypatch.delenv("GOOGLE_CLOUD_PROJECT_NUMBER", raising=False)
 
 
+@pytest.fixture
+def crf_engine_env(monkeypatch):
+    """Pin the CRF worker's ``CREATIVE_AGENT_ENGINE_ID`` (the engine it runs;
+    without one the worker leaves every row QUEUED) to a dummy bare id."""
+    monkeypatch.setenv("CREATIVE_AGENT_ENGINE_ID", "123")
+
+
 def _no_live_client():
     raise RuntimeError("tests must not read the live brand history")
 

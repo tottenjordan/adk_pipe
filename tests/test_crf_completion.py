@@ -28,7 +28,7 @@ from cloud_functions.creative_fanout.completion import (
 )
 from tests.crf_fakes import FakeStatusStore
 
-pytestmark = pytest.mark.usefixtures("gcp_project_env")
+pytestmark = pytest.mark.usefixtures("gcp_project_env", "crf_engine_env")
 
 IDLE = 600.0
 POLL = 30.0

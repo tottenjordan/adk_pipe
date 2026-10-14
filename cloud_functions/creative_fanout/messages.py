@@ -7,9 +7,9 @@ message, and builds the worker message's ``row_data`` from a BigQuery row.
 import base64
 import json
 import logging
-import re
 from datetime import date, datetime
 
+from .config import config
 from .status_store import _to_utc_datetime, _validate_target
 
 
@@ -19,10 +19,9 @@ class MalformedMessageError(ValueError):
     of raising, which would NACK it into a redelivery loop."""
 
 
-# Reasoning Engine IDs are numeric; allow the usual id characters, but nothing
-# that could change the resource path it is spliced into.
-_AGENT_ID_RE = re.compile(r"[A-Za-z0-9_-]{1,128}")
-_TRIGGER_FIELDS = ("bq_dataset", "bq_table", "agent_resource_id")
+# The engine is the worker's CREATIVE_AGENT_ENGINE_ID env var; a legacy
+# `agent_resource_id` in a message is ignored (`_note_legacy_engine_id`).
+_TRIGGER_FIELDS = ("bq_dataset", "bq_table")
 _WORKER_FIELDS = (*_TRIGGER_FIELDS, "row_data")
 # Every row_data key the worker indexes (build_row_dict always sends them; a
 # campaign value may be null).
@@ -64,9 +63,22 @@ def _require_fields(mapping: dict, fields, what: str) -> None:
         raise MalformedMessageError(f"{what} missing {', '.join(missing)}")
 
 
-def _validate_agent_id(agent_id) -> None:
-    if not isinstance(agent_id, str) or not _AGENT_ID_RE.fullmatch(agent_id):
-        raise MalformedMessageError(f"invalid agent_resource_id {agent_id!r}")
+def _note_legacy_engine_id(payload: dict) -> None:
+    """Warn when a message still names an engine other than the worker's.
+
+    The engine comes from ``config.CREATIVE_AGENT_ENGINE_ID`` (the worker's
+    env); a legacy ``agent_resource_id`` (an old trigger, or a worker message
+    in flight across the deploy) is never used, whatever its value.
+    """
+    if "agent_resource_id" not in payload:
+        return
+    legacy = payload["agent_resource_id"]
+    if legacy != config.CREATIVE_AGENT_ENGINE_ID:
+        logging.warning(
+            f"Ignoring agent_resource_id={legacy!r} in the message: the worker "
+            "runs the engine in its CREATIVE_AGENT_ENGINE_ID env var "
+            f"({config.CREATIVE_AGENT_ENGINE_ID or 'unset'!r})."
+        )
 
 
 def _validate_row_key(row_data: dict) -> None:
@@ -90,7 +102,9 @@ def parse_trigger_message(cloud_event) -> dict | None:
     (MalformedMessageError, or the identifier validator's ValueError) for a
     message that can never be processed: the dataset/table become SQL
     identifiers, so they must be on the config allow-list, and a missing
-    field, a bad identifier or agent id can never become valid on redelivery.
+    field or a bad identifier can never become valid on redelivery. A legacy
+    ``agent_resource_id`` is ignored (a warning when it differs from the
+    worker's engine).
     """
     data = cloud_event.data
     message = data.get("message") if isinstance(data, dict) else None
@@ -104,13 +118,16 @@ def parse_trigger_message(cloud_event) -> dict | None:
         return None
 
     _require_fields(message_payload, _TRIGGER_FIELDS, "trigger message")
-    _validate_agent_id(message_payload["agent_resource_id"])
+    _note_legacy_engine_id(message_payload)
     _validate_target(message_payload["bq_dataset"], message_payload["bq_table"])
     return message_payload
 
 
-def parse_worker_message(cloud_event) -> tuple[str, str, str, dict]:
-    """``(dataset, table, agent_resource_id, row_data)`` from a worker message.
+def parse_worker_message(cloud_event) -> tuple[str, str, dict]:
+    """``(dataset, table, row_data)`` from a worker message.
+
+    A legacy ``agent_resource_id`` (a message published before the engine
+    moved to the worker's env) is ignored.
 
     Raises ValueError (MalformedMessageError, or the identifier / timestamp
     validators' ValueError) for a message that can never be processed.
@@ -124,19 +141,14 @@ def parse_worker_message(cloud_event) -> tuple[str, str, str, dict]:
     index = row_data["index"]
     if isinstance(index, bool) or not isinstance(index, int):
         raise MalformedMessageError(f"row_data.index {index!r} is not an integer")
-    _validate_agent_id(payload["agent_resource_id"])
+    _note_legacy_engine_id(payload)
     # dataset/table stay in the worker message (compatible with messages already
     # in flight across a deploy) but must be allow-listed; the timestamp must
     # parse (the lock builder would raise on it otherwise).
     _validate_target(payload["bq_dataset"], payload["bq_table"])
     _to_utc_datetime(row_data["entry_timestamp"])
     _validate_row_key(row_data)
-    return (
-        payload["bq_dataset"],
-        payload["bq_table"],
-        payload["agent_resource_id"],
-        row_data,
-    )
+    return payload["bq_dataset"], payload["bq_table"], row_data
 
 
 def _optional_cell(value) -> str:

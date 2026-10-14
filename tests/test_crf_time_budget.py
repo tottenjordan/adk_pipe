@@ -33,7 +33,7 @@ from cloud_functions.creative_fanout import (
 from cloud_functions.creative_fanout.config import config
 from tests.crf_fakes import FakeStatusStore
 
-pytestmark = pytest.mark.usefixtures("gcp_project_env")
+pytestmark = pytest.mark.usefixtures("gcp_project_env", "crf_engine_env")
 
 _ROW = {
     "entry_timestamp": "2026-10-13T00:00:00",
@@ -50,7 +50,6 @@ def _event(row=None):
     payload = {
         "bq_dataset": config.BQ_DATASET_ID,
         "bq_table": config.BQ_TABLE_TARGETS,
-        "agent_resource_id": "123",
         "row_data": row or _ROW,
     }
     data = base64.b64encode(json.dumps(payload).encode()).decode()
@@ -112,6 +111,51 @@ def test_entrypoint_passes_the_deadline_to_process_row(monkeypatch):
     monkeypatch.setattr(worker, "process_row", _process_row)
     main.agent_worker_entrypoint(_event())
     assert seen["deadline"] == worker.run_deadline(42.0)
+
+
+# ============================================================
+# The engine: the worker's CREATIVE_AGENT_ENGINE_ID env var
+# ============================================================
+def test_entrypoint_runs_the_engine_from_the_env(monkeypatch):
+    """The full resource name in the env reaches process_row as the bare id."""
+    monkeypatch.setenv(
+        "CREATIVE_AGENT_ENGINE_ID",
+        f"projects/{config.GOOGLE_CLOUD_PROJECT_NUMBER}/locations/"
+        f"{config.GCP_REGION}/reasoningEngines/6183205068745998336",
+    )
+    monkeypatch.setattr(clients, "get_bigquery_client", MagicMock)
+    seen = {}
+
+    async def _process_row(**kwargs):
+        seen.update(kwargs)
+
+    monkeypatch.setattr(worker, "process_row", _process_row)
+    main.agent_worker_entrypoint(_event())
+    assert seen["agent_id"] == "6183205068745998336"
+    assert seen["agent_id"] == config.CREATIVE_AGENT_ENGINE_ID
+
+
+@pytest.mark.parametrize("raw", [None, "", "projects/x/locations/y/agents/1"])
+def test_entrypoint_without_an_engine_acks_before_the_lock(monkeypatch, caplog, raw):
+    """No usable engine: log an ERROR and ACK without touching BigQuery, so the
+    row stays QUEUED for the next trigger (never locked, never FAILED)."""
+    if raw is None:
+        monkeypatch.delenv("CREATIVE_AGENT_ENGINE_ID", raising=False)
+    else:
+        monkeypatch.setenv("CREATIVE_AGENT_ENGINE_ID", raw)
+    bq = MagicMock()
+    monkeypatch.setattr(clients, "get_bigquery_client", lambda: bq)
+    process_row = AsyncMock()
+    monkeypatch.setattr(worker, "process_row", process_row)
+    with caplog.at_level(logging.ERROR):
+        main.agent_worker_entrypoint(_event())  # must NOT raise (ACK)
+    process_row.assert_not_called()
+    bq.query_and_wait.assert_not_called()
+    bq.query.assert_not_called()
+    assert any(
+        r.levelno == logging.ERROR and "CREATIVE_AGENT_ENGINE_ID" in r.getMessage()
+        for r in caplog.records
+    )
 
 
 # ============================================================

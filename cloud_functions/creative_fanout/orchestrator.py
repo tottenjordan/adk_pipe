@@ -50,7 +50,6 @@ def dispatch(payload: dict) -> int:
     """
     dataset = payload["bq_dataset"]
     table = payload["bq_table"]
-    agent_resource_id = payload["agent_resource_id"]
 
     bq_client = clients.get_bigquery_client()
     pubsub_publisher = clients.get_pubsub_client()
@@ -102,11 +101,11 @@ def dispatch(payload: dict) -> int:
     worker_topic = _worker_topic_path()
     publish_futures = []
     for row_dict in row_list:
-        # Create a dedicated payload for the worker
+        # Create a dedicated payload for the worker. No engine id: the
+        # worker runs the engine in its CREATIVE_AGENT_ENGINE_ID env var.
         worker_payload = {
             "bq_dataset": dataset,
             "bq_table": table,
-            "agent_resource_id": agent_resource_id,
             "row_data": row_dict,  # Pass the necessary row info
         }
 
