@@ -105,22 +105,22 @@ def test_continuous_world_config_spans_the_whole_run():
         cfg.scenario,
         cfg.arms,
     )
-    # the total may exceed the per-episode horizon cap (1e6), up to 2e6
-    big = build_sim_config("drift", horizon=400_000, batch_size=BS, episodes=5)
-    assert continuous_world_config(big).horizon == MAX_CONTINUOUS_ROUNDS == 2_000_000
+    # the total may exceed the per-episode horizon cap (1e6), up to 1.5e6
+    big = build_sim_config("drift", horizon=300_000, batch_size=BS, episodes=5)
+    assert continuous_world_config(big).horizon == MAX_CONTINUOUS_ROUNDS == 1_500_000
 
 
 @pytest.mark.parametrize(
     ("episodes", "horizon", "batch_size", "field"),
     [
-        (6, 400_000, 100, "episodes"),  # 2.4M rounds > 2M
+        (4, 400_000, 100, "episodes"),  # 1.6M rounds > 1.5M
         (2, 1_050, 100, "horizon"),  # a batch would straddle segments
     ],
 )
 def test_validate_continuous_run_rejects(episodes, horizon, batch_size, field):
     with pytest.raises(ValueError, match=field):
         validate_continuous_run(episodes, horizon, batch_size)
-    assert validate_continuous_run(5, 400_000, 100) == 2_000_000
+    assert validate_continuous_run(5, 300_000, 100) == 1_500_000
     assert LEARNING_MODES == ("per_episode", "continuous")
 
 

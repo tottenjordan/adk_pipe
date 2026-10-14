@@ -898,9 +898,11 @@ def default_shift_discount(ctr_mode: str, batch_size: int, horizon: int) -> floa
 #: endpoint every episode; ``continuous`` sends one reset and keeps learning
 #: across the run's episodes (then called segments).
 LEARNING_MODES: tuple[str, ...] = ("per_episode", "continuous")
-#: Cap on a continuous run's total rounds E·T (job runtime and memory). It
-#: replaces the per-episode ``horizon <= 1_000_000`` cap for the world's total.
-MAX_CONTINUOUS_ROUNDS = 2_000_000
+#: Cap on a continuous run's total rounds E·T (job runtime and memory: the
+#: traffic job's 1 h task timeout at ~650 rounds/s; the api applies the same cap
+#: to per-episode runs, runserver ``MAX_TRAFFIC_ROUNDS``). It replaces the
+#: per-episode ``horizon <= 1_000_000`` cap for the world's total.
+MAX_CONTINUOUS_ROUNDS = 1_500_000
 
 
 def validate_continuous_run(episodes: int, horizon: int, batch_size: int) -> int:

@@ -36,11 +36,11 @@ def test_learning_constants_parity_with_bandit():
 
 
 CONTINUOUS_CASES = [
-    (50, 40_000, 100, None),
-    (5, 400_000, 100, None),
-    (100, 20_000, 100, None),  # exactly the cap
-    (100, 20_100, 100, "episodes"),  # 2,010,000 > cap
-    (51, 40_000, 100, "episodes"),
+    (37, 40_000, 100, None),
+    (3, 400_000, 100, None),
+    (75, 20_000, 100, None),  # exactly the cap
+    (75, 20_100, 100, "episodes"),  # 1,507,500 > cap
+    (38, 40_000, 100, "episodes"),
     (10, 1_050, 100, "horizon"),
     (10, 1_050, 50, None),
 ]
@@ -206,7 +206,7 @@ def test_traffic_rejects_bad_learning_with_400():
         )
         # no horizon in the body: the experiment default (20k) is what's checked
         default_ok = await h.client.post(
-            url, json={"episodes": 100, "learning": "continuous"}
+            url, json={"episodes": 75, "learning": "continuous"}
         )
         return eid, bad_value, bad_type, too_long, straddles, default_ok
 
@@ -222,7 +222,7 @@ def test_traffic_rejects_bad_learning_with_400():
         assert res.json()["detail"]["field"] == field
     assert default_ok.status_code == 200
     (job,) = h.jobs.runs
-    assert job["learning"] == "continuous" and job["episodes"] == 100
+    assert job["learning"] == "continuous" and job["episodes"] == 75
 
 
 def test_legacy_runs_expose_per_episode_learning():

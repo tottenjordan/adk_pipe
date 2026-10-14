@@ -82,6 +82,13 @@ REWARD_MODES = ("click", "engaged")
 MIN_ARMS, MAX_ARMS = 2, 4
 EPISODES_RANGE = (1, 100)
 HORIZON_RANGE = (1000, 400000)
+#: Cap on one traffic run's total rounds (episodes x horizon), in both learning
+#: modes. The traffic Cloud Run Job runs with ``--task-timeout 3600 --max-retries
+#: 0`` (deployment/bandit/deploy_traffic_job.sh) at a measured ~650 rounds/s
+#: (2026-10-12: 20 episodes x 20k rounds, ~31 s per episode), i.e. ~2.3M rounds
+#: per hour; 1.5M (~40 min) leaves room for startup, JIT compiles and slow
+#: predicts. Raise it only together with the job's task timeout.
+MAX_TRAFFIC_ROUNDS = 1_500_000
 TERMINAL_STATUSES = ("stopped", "failed", "expired")
 DEFAULT_TRAFFIC_JOB = "trend-trawler-bandit-traffic"
 REAPER_INTERVAL_SECONDS = 300.0
@@ -801,7 +808,20 @@ def validate_shifts(
 # Contracts §11, duplicated from bandit.config (runserver never imports bandit/;
 # parity-tested in tests/test_experiments_continuous.py).
 LEARNING_MODES = ("per_episode", "continuous")
-MAX_CONTINUOUS_ROUNDS = 2_000_000
+MAX_CONTINUOUS_ROUNDS = MAX_TRAFFIC_ROUNDS
+
+
+def run_size_error(episodes: int, horizon: int) -> str | None:
+    """Why a per-episode run of ``episodes x horizon`` rounds is too large for
+    the traffic job (``MAX_TRAFFIC_ROUNDS``), or ``None`` when it fits."""
+    total = int(episodes) * int(horizon)
+    if total <= MAX_TRAFFIC_ROUNDS:
+        return None
+    return (
+        f"episodes x horizon must be <= {MAX_TRAFFIC_ROUNDS:,} rounds (the "
+        f"traffic job's 1 h limit), got {episodes} x {horizon:,} = {total:,}; "
+        "use fewer episodes or a shorter horizon"
+    )
 
 
 class LearningError(ValueError):
@@ -1936,6 +1956,13 @@ async def http_start_traffic(
         lo, hi = HORIZON_RANGE
         if not lo <= body.horizon <= hi:
             raise _error(400, "invalid_horizon", f"horizon must be in [{lo}, {hi}]")
+    if body.learning in (None, "per_episode"):
+        # a continuous run's cap is validate_learning's (invalid_learning, §11)
+        too_large = run_size_error(
+            body.episodes, body.horizon or _SETTINGS.default_horizon
+        )
+        if too_large:
+            raise _error(400, "run_too_large", too_large)
     if body.forget is not None and not isinstance(body.forget, bool):
         raise _error(400, "invalid_forget", "forget must be true, false or null")
     row = await reconcile(await _owned(user_id, experiment_id))
